@@ -2309,19 +2309,15 @@ eMaint Enterprises, LLC http://www.emaint.com
 ```
 ```
 EQ2, Inc. http://www.eq2.com
-Facilities Technology
-Group
 ```
 ```
-http://www.factech.com
+Facilities Technology Group http://www.factech.com
 ```
 ```
 FM Works http://www.fmworks.com
-Four Rivers Software
-Systems
 ```
 ```
-http://www.frsoft.com
+Four Rivers Software Systems http://www.frsoft.com
 ```
 ```
 GE Healthcare http://www.gehealthcare.com/euen/services/asset-management-solutions/asset_plus/index.html
@@ -2334,37 +2330,27 @@ Maintenance Connection http://www.maintenanceconnection.com
 ```
 ```
 MicroMain Corporation http://www.micromain.com/
-MPulse Maintenance
-Software
 ```
 ```
-http://www.mpulsesoftware.com
+MPulse Maintenance Software http://www.mpulsesoftware.com
 ```
 ```
 Nuvek, LLC http://www.vektr.com
-PEAK Industrial
-Solutions, LLC
 ```
 ```
-http://www.cmms4hospitals.com
+PEAK Industrial Solutions, LLC http://www.cmms4hospitals.com
 ```
 ```
-Phoenix Data Systems,
-Inc.
-```
-```
-http://www.goaims.com
+Phoenix Data Systems,Inc. http://www.goaims.com
 ```
 ```
 Predictive Service http://www.predictiveservice.com
 ```
 ```
 Simple Solutions FM http://www.simplesolutionsfm.com
-St. Croix Systems
-Corporation
 ```
 ```
-http://www.stcroixsystems.com/asset_manager.aspx
+St. Croix Systems Corporation http://www.stcroixsystems.com/asset_manager.aspx
 ```
 ```
 Thinkage Ltd. http://www.mainboss.com
