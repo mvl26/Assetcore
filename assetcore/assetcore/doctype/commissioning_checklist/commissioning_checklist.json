@@ -1,0 +1,66 @@
+{
+ "actions": [],
+ "creation": "2026-04-15 10:00:00.000000",
+ "doctype": "DocType",
+ "document_type": "Document",
+ "engine": "InnoDB",
+ "field_order": [
+  "parameter",
+  "measured_val",
+  "unit",
+  "test_result",
+  "fail_note"
+ ],
+ "fields": [
+  {
+   "fieldname": "parameter",
+   "fieldtype": "Data",
+   "label": "Thông số / Tiêu chí kiểm tra",
+   "reqd": 1,
+   "in_list_view": 1,
+   "columns": 3
+  },
+  {
+   "fieldname": "measured_val",
+   "fieldtype": "Float",
+   "label": "Giá trị Đo được",
+   "in_list_view": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "unit",
+   "fieldtype": "Data",
+   "label": "Đơn vị",
+   "in_list_view": 1,
+   "columns": 1
+  },
+  {
+   "fieldname": "test_result",
+   "fieldtype": "Select",
+   "label": "Kết quả",
+   "options": "\nPass\nFail",
+   "reqd": 1,
+   "in_list_view": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "fail_note",
+   "fieldtype": "Text",
+   "label": "Ghi chú Lỗi (Bắt buộc khi Fail)",
+   "in_list_view": 0,
+   "depends_on": "eval:doc.test_result == 'Fail'"
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-04-15 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "AssetCore",
+ "name": "Commissioning Checklist",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

@@ -1,0 +1,299 @@
+{
+ "actions": [],
+ "autoname": "format:IMM04-.YY.-.MM.-.#####",
+ "creation": "2026-04-15 10:00:00.000000",
+ "doctype": "DocType",
+ "document_type": "Document",
+ "engine": "InnoDB",
+ "field_order": [
+  "section_procurement",
+  "po_reference",
+  "master_item",
+  "vendor",
+  "col_break_1",
+  "clinical_dept",
+  "expected_installation_date",
+  "section_installation",
+  "installation_date",
+  "vendor_engineer_name",
+  "col_break_2",
+  "is_radiation_device",
+  "doa_incident",
+  "section_identification",
+  "vendor_serial_no",
+  "internal_tag_qr",
+  "custom_moh_code",
+  "section_qa",
+  "site_photo",
+  "installation_evidence",
+  "qa_license_doc",
+  "tab_baseline",
+  "baseline_tests",
+  "tab_documents",
+  "commissioning_documents",
+  "section_output",
+  "amend_reason",
+  "final_asset",
+  "amended_from"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_procurement",
+   "fieldtype": "Section Break",
+   "label": "Thông tin Mua sắm"
+  },
+  {
+   "fieldname": "po_reference",
+   "fieldtype": "Link",
+   "label": "Lệnh mua hàng (PO)",
+   "options": "Purchase Order",
+   "reqd": 1,
+   "in_list_view": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "master_item",
+   "fieldtype": "Link",
+   "label": "Model Thiết bị",
+   "options": "Item",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "vendor",
+   "fieldtype": "Link",
+   "label": "Nhà cung cấp",
+   "options": "Supplier",
+   "reqd": 1
+  },
+  {
+   "fieldname": "col_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "clinical_dept",
+   "fieldtype": "Link",
+   "label": "Khoa / Phòng nhận",
+   "options": "Department",
+   "reqd": 1
+  },
+  {
+   "fieldname": "expected_installation_date",
+   "fieldtype": "Date",
+   "label": "Ngày hẹn lắp đặt",
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_installation",
+   "fieldtype": "Section Break",
+   "label": "Thông tin Lắp đặt"
+  },
+  {
+   "fieldname": "installation_date",
+   "fieldtype": "Datetime",
+   "label": "Ngày giờ Bắt đầu Lắp đặt",
+   "read_only": 1
+  },
+  {
+   "fieldname": "vendor_engineer_name",
+   "fieldtype": "Data",
+   "label": "Tên Kỹ sư Hãng"
+  },
+  {
+   "fieldname": "col_break_2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "is_radiation_device",
+   "fieldtype": "Check",
+   "label": "Thiết bị có bức xạ / tia X",
+   "read_only": 1,
+   "fetch_from": "master_item.custom_is_radiation",
+   "description": "Tự động lấy từ thông số Item. Không sửa tay."
+  },
+  {
+   "fieldname": "doa_incident",
+   "fieldtype": "Check",
+   "label": "Sự cố DOA (chết ngay khi khui hộp)"
+  },
+  {
+   "fieldname": "section_identification",
+   "fieldtype": "Section Break",
+   "label": "Định danh Thiết bị"
+  },
+  {
+   "fieldname": "vendor_serial_no",
+   "fieldtype": "Data",
+   "label": "Serial Number Hãng (NSX)",
+   "reqd": 1,
+   "search_index": 1,
+   "description": "Bắt buộc quét bằng Barcode scanner. Hệ thống sẽ kiểm tra trùng lặp."
+  },
+  {
+   "fieldname": "internal_tag_qr",
+   "fieldtype": "Data",
+   "label": "Mã QR Nội bộ Bệnh viện",
+   "reqd": 1,
+   "read_only": 1,
+   "description": "Sinh tự động sau khi Serial được xác nhận."
+  },
+  {
+   "fieldname": "custom_moh_code",
+   "fieldtype": "Data",
+   "label": "Mã BYT (Bộ Y tế)",
+   "description": "Không bắt buộc trong v1.0. Nhập thủ công nếu có."
+  },
+  {
+   "fieldname": "section_qa",
+   "fieldtype": "Section Break",
+   "label": "Bằng chứng & Tài liệu QA"
+  },
+  {
+   "fieldname": "site_photo",
+   "fieldtype": "Attach Image",
+   "label": "Ảnh Xác nhận Mặt bằng",
+   "description": "Chụp ảnh mặt bằng trước khi lắp đặt. Bắt buộc."
+  },
+  {
+   "fieldname": "installation_evidence",
+   "fieldtype": "Attach",
+   "label": "Bằng chứng Hoàn tất Lắp đặt",
+   "description": "File ảnh/PDF do Kỹ sư hãng cung cấp sau khi lắp xong."
+  },
+  {
+   "fieldname": "qa_license_doc",
+   "fieldtype": "Attach",
+   "label": "Giấy phép BYT / Cục An toàn Bức xạ",
+   "description": "Bắt buộc nếu thiết bị có is_radiation = 1."
+  },
+  {
+   "fieldname": "tab_baseline",
+   "fieldtype": "Tab Break",
+   "label": "Kết quả Kiểm tra An toàn"
+  },
+  {
+   "fieldname": "baseline_tests",
+   "fieldtype": "Table",
+   "label": "Lưới Đo kiểm An toàn Điện",
+   "options": "Commissioning Checklist",
+   "reqd": 1
+  },
+  {
+   "fieldname": "tab_documents",
+   "fieldtype": "Tab Break",
+   "label": "Hồ sơ Đi kèm"
+  },
+  {
+   "fieldname": "commissioning_documents",
+   "fieldtype": "Table",
+   "label": "Bảng kiểm Hồ sơ",
+   "options": "Commissioning Document Record"
+  },
+  {
+   "fieldname": "section_output",
+   "fieldtype": "Section Break",
+   "label": "Kết quả Triển khai"
+  },
+  {
+   "fieldname": "amend_reason",
+   "fieldtype": "Small Text",
+   "label": "Lý do Sửa đổi (Amend)",
+   "depends_on": "eval:doc.amended_from",
+   "mandatory_depends_on": "eval:doc.amended_from",
+   "description": "Bắt buộc điền lý do khi tạo phiếu sửa đổi."
+  },
+  {
+   "fieldname": "final_asset",
+   "fieldtype": "Link",
+   "label": "Tài sản được tạo ra",
+   "options": "Asset",
+   "read_only": 1,
+   "description": "Tự động điền khi phiếu được Submit & Release thành công."
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Sửa đổi từ",
+   "options": "Asset Commissioning",
+   "read_only": 1,
+   "print_hide": 1
+  }
+ ],
+ "is_submittable": 1,
+ "links": [],
+ "modified": "2026-04-15 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "AssetCore",
+ "name": "Asset Commissioning",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "export": 0,
+   "print": 1,
+   "read": 1,
+   "report": 0,
+   "role": "HTM Technician",
+   "share": 0,
+   "submit": 0,
+   "write": 1
+  },
+  {
+   "create": 0,
+   "delete": 0,
+   "email": 1,
+   "export": 0,
+   "print": 1,
+   "read": 1,
+   "report": 0,
+   "role": "Biomed Engineer",
+   "share": 0,
+   "submit": 0,
+   "write": 1
+  },
+  {
+   "amend": 1,
+   "cancel": 1,
+   "create": 0,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Workshop Head",
+   "share": 1,
+   "submit": 1,
+   "write": 0
+  },
+  {
+   "amend": 0,
+   "cancel": 1,
+   "create": 0,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "VP Block2",
+   "share": 1,
+   "submit": 1,
+   "write": 0
+  },
+  {
+   "create": 0,
+   "read": 1,
+   "role": "QA Risk Team",
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1,
+ "track_views": 1
+}
