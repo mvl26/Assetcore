@@ -1,0 +1,2 @@
+# Patches for assetcore
+# Format: assetcore.patches.patch_module.execute
