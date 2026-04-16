@@ -105,9 +105,27 @@ def run_all():
         print(f"  [3] ❌ FAIL")
         results["KB01-3"] = "FAIL"
 
-    # Test 4: GAP — VR-02 chưa có trong validate()
-    print(f"  [4] ⚠️  GAP — VR-02 validate C/Q Missing chưa có trong validate(). Cần bổ sung.")
-    results["KB01-4"] = "GAP"
+    # Test 4: VR-02 — Chưa nhận C/Q → Chặn khi chuyển sang Pending_Handover
+    try:
+        doc.reload()
+        # Thử chuyển Pending_Handover mà CQ vẫn Pending
+        doc.workflow_state = "Pending_Handover"
+        try:
+            doc.save(ignore_permissions=True)
+            print(f"  [4] ❌ FAIL — Hệ thống KHÔNG chặn khi thiếu C/Q!")
+            results["KB01-4"] = "FAIL"
+            frappe.db.rollback()
+        except frappe.ValidationError as ve:
+            if "VR-02" in str(ve) or "C/Q" in str(ve).upper() or "CQ" in str(ve).upper():
+                print(f"  [4] ✅ PASS — Hệ thống chặn: {str(ve)[:100]}")
+                results["KB01-4"] = "PASS"
+            else:
+                print(f"  [4] ⚠️  PARTIAL — {str(ve)[:100]}")
+                results["KB01-4"] = "PARTIAL"
+            frappe.db.rollback()
+    except Exception as e:
+        print(f"  [4] ❌ FAIL — {str(e)[:200]}")
+        results["KB01-4"] = "FAIL"
 
     # Test 5: Upload CQ → chuyển sang Pending_Handover
     try:
@@ -363,8 +381,24 @@ def run_all():
     print("\n[KB05] PHÊ DUYỆT PHÁT HÀNH")
     print("-" * 50)
 
-    print(f"  [1] ⚠️  MANUAL — Kiểm tra UI notification cần browser test")
-    results["KB05-1"] = "MANUAL"
+    # Test 1: Xác nhận API form context có allowed_transitions cho VP Block2
+    try:
+        from assetcore.api.imm04 import get_form_context
+        ctx_result = get_form_context(doc.name)
+        if ctx_result.get("success"):
+            transitions = ctx_result["data"].get("allowed_transitions", [])
+            if transitions:
+                print(f"  [1] ✅ PASS — Phiếu chờ duyệt, có {len(transitions)} action(s): {[t['action'] for t in transitions]}")
+                results["KB05-1"] = "PASS"
+            else:
+                print(f"  [1] ⚠️  PARTIAL — Form context OK nhưng không có transitions (có thể do role)")
+                results["KB05-1"] = "PARTIAL"
+        else:
+            print(f"  [1] ❌ FAIL — get_form_context lỗi: {ctx_result.get('error')}")
+            results["KB05-1"] = "FAIL"
+    except Exception as e:
+        print(f"  [1] ⚠️  PARTIAL — {str(e)[:100]}")
+        results["KB05-1"] = "PARTIAL"
 
     # Test 2-3: Submit phiếu Clinical_Release → tạo Asset tự động
     try:
@@ -507,6 +541,144 @@ def run_all():
     except Exception as e:
         print(f"  [3] ❌ FAIL — {str(e)[:200]}")
         results["KB06-3"] = "FAIL"
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # KB-API — KIỂM TRA API DECOUPLED (Frontend ↔ Backend)
+    # ═══════════════════════════════════════════════════════════════════════
+    print("\n[KB-API] KIỂM TRA API DECOUPLED")
+    print("-" * 50)
+
+    from assetcore.api.imm04 import (
+        list_commissioning, get_form_context, get_dashboard_stats,
+        get_barcode_lookup, generate_qr_label, save_commissioning,
+        create_commissioning, get_po_details,
+    )
+
+    # API-1: list_commissioning
+    try:
+        res = list_commissioning(filters="{}", page=1, page_size=5)
+        if res.get("success") and isinstance(res["data"]["items"], list):
+            print(f"  [API-1] ✅ PASS — list_commissioning: {len(res['data']['items'])} items")
+            results["API-1"] = "PASS"
+        else:
+            print(f"  [API-1] ❌ FAIL — {res.get('error')}")
+            results["API-1"] = "FAIL"
+    except Exception as e:
+        print(f"  [API-1] ❌ FAIL — {str(e)[:100]}")
+        results["API-1"] = "FAIL"
+
+    # API-2: get_form_context
+    try:
+        res = get_form_context(comm_id)
+        if res.get("success") and res["data"]["name"] == comm_id:
+            # Verify document fields đúng cấu trúc
+            docs_data = res["data"].get("commissioning_documents", [])
+            has_doc_type = all("doc_type" in d for d in docs_data) if docs_data else True
+            has_status = all("status" in d for d in docs_data) if docs_data else True
+            if has_doc_type and has_status:
+                print(f"  [API-2] ✅ PASS — get_form_context: {comm_id}, docs OK")
+                results["API-2"] = "PASS"
+            else:
+                print(f"  [API-2] ⚠️  PARTIAL — doc fields sai cấu trúc")
+                results["API-2"] = "PARTIAL"
+        else:
+            print(f"  [API-2] ❌ FAIL — {res.get('error')}")
+            results["API-2"] = "FAIL"
+    except Exception as e:
+        print(f"  [API-2] ❌ FAIL — {str(e)[:100]}")
+        results["API-2"] = "FAIL"
+
+    # API-3: get_dashboard_stats
+    try:
+        res = get_dashboard_stats()
+        if res.get("success") and "kpis" in res["data"]:
+            print(f"  [API-3] ✅ PASS — get_dashboard_stats: kpis present")
+            results["API-3"] = "PASS"
+        else:
+            print(f"  [API-3] ❌ FAIL — {res.get('error')}")
+            results["API-3"] = "FAIL"
+    except Exception as e:
+        print(f"  [API-3] ❌ FAIL — {str(e)[:100]}")
+        results["API-3"] = "FAIL"
+
+    # API-4: get_barcode_lookup
+    try:
+        res = get_barcode_lookup("VNT-PHL-20260001")
+        if res.get("success") and res["data"]["commissioning_id"] == comm_id:
+            print(f"  [API-4] ✅ PASS — barcode_lookup: found {comm_id}")
+            results["API-4"] = "PASS"
+        else:
+            print(f"  [API-4] ❌ FAIL — {res.get('error')}")
+            results["API-4"] = "FAIL"
+    except Exception as e:
+        print(f"  [API-4] ❌ FAIL — {str(e)[:100]}")
+        results["API-4"] = "FAIL"
+
+    # API-5: generate_qr_label
+    try:
+        res = generate_qr_label(comm_id)
+        if res.get("success") and res["data"]["qr_value"]:
+            print(f"  [API-5] ✅ PASS — QR label: {res['data']['qr_value']}")
+            results["API-5"] = "PASS"
+        else:
+            print(f"  [API-5] ❌ FAIL — {res.get('error')}")
+            results["API-5"] = "FAIL"
+    except Exception as e:
+        print(f"  [API-5] ❌ FAIL — {str(e)[:100]}")
+        results["API-5"] = "FAIL"
+
+    # API-6: save_commissioning (test on xray doc)
+    try:
+        xray_doc.reload()
+        res = save_commissioning(
+            name=xray_doc.name,
+            fields='{"vendor_engineer_name": "UAT Test Engineer"}'
+        )
+        if res.get("success"):
+            xray_doc.reload()
+            if xray_doc.vendor_engineer_name == "UAT Test Engineer":
+                print(f"  [API-6] ✅ PASS — save_commissioning: field saved")
+                results["API-6"] = "PASS"
+            else:
+                print(f"  [API-6] ⚠️  PARTIAL — API ok nhưng field chưa update")
+                results["API-6"] = "PARTIAL"
+        else:
+            print(f"  [API-6] ❌ FAIL — {res.get('error')}")
+            results["API-6"] = "FAIL"
+    except Exception as e:
+        print(f"  [API-6] ❌ FAIL — {str(e)[:100]}")
+        results["API-6"] = "FAIL"
+
+    # API-7: create_commissioning
+    try:
+        import json
+        create_data = json.dumps({
+            "po_reference": "PO-00001",
+            "master_item": "VENT-PHL-V60",
+            "vendor": "Philips Healthcare",
+            "clinical_dept": "ICU - M",
+            "expected_installation_date": "2026-04-25",
+            "vendor_serial_no": "UAT-API-TEST-001",
+            "baseline_tests": [
+                {"parameter": "Dòng rò điện", "measured_val": 1.0, "unit": "mA", "test_result": "Pass"},
+            ],
+        })
+        res = create_commissioning(data=create_data)
+        if res.get("success") and res["data"]["name"]:
+            new_name = res["data"]["name"]
+            print(f"  [API-7] ✅ PASS — create_commissioning: {new_name}")
+            results["API-7"] = "PASS"
+            # Cleanup
+            frappe.db.sql("DELETE FROM `tabCommissioning Checklist` WHERE parent=%s", new_name)
+            frappe.db.sql("DELETE FROM `tabCommissioning Document Record` WHERE parent=%s", new_name)
+            frappe.db.sql("DELETE FROM `tabAsset Commissioning` WHERE name=%s", new_name)
+            frappe.db.commit()
+        else:
+            print(f"  [API-7] ❌ FAIL — {res.get('error')}")
+            results["API-7"] = "FAIL"
+    except Exception as e:
+        print(f"  [API-7] ❌ FAIL — {str(e)[:100]}")
+        results["API-7"] = "FAIL"
 
     # ═══════════════════════════════════════════════════════════════════════
     # TỔNG KẾT

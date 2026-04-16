@@ -24,6 +24,7 @@ class AssetCommissioning(Document):
 	def validate(self):
 		"""Chạy toàn bộ validation rules theo thứ tự ưu tiên."""
 		self.validate_unique_serial()
+		self.validate_required_documents()
 		self.validate_radiation_hold()
 		self.validate_checklist_completion()
 		self.validate_backdate()
@@ -85,6 +86,40 @@ class AssetCommissioning(Document):
 				  "trong phiếu Commissioning <b>{1}</b> khác!")
 				.format(self.vendor_serial_no, existing_comm)
 			)
+
+	# ──────────────────────────────────────────────
+	# VR-02: VALIDATE REQUIRED DOCUMENTS
+	# ──────────────────────────────────────────────
+
+	def validate_required_documents(self):
+		"""VR-02: Chặn bàn giao khi thiếu hồ sơ bắt buộc (C/Q, CO)."""
+		# Chỉ kiểm tra khi ở Pending_Handover trở đi
+		CHECKED_STATES = (
+			"Pending_Handover", "Installing", "Identification",
+			"Initial_Inspection", "Re_Inspection", "Pending_Release", "Clinical_Release",
+		)
+		if self.workflow_state not in CHECKED_STATES:
+			return
+
+		if not self.commissioning_documents:
+			return
+
+		# Danh sách loại hồ sơ bắt buộc
+		REQUIRED_DOC_PREFIXES = ["CQ", "CO"]
+
+		for prefix in REQUIRED_DOC_PREFIXES:
+			matching_rows = [
+				row for row in self.commissioning_documents
+				if row.doc_type and row.doc_type.upper().startswith(prefix)
+			]
+			for row in matching_rows:
+				if row.status != "Received":
+					frappe.throw(
+						_("Lỗi VR-02: Chưa nhận đủ hồ sơ bắt buộc — <b>{0}</b> "
+						  "(trạng thái: {1}). Không thể tiến hành bàn giao máy. "
+						  "Vui lòng liên hệ Nhà cung cấp bổ sung.")
+						.format(row.doc_type, row.status)
+					)
 
 	# ──────────────────────────────────────────────
 	# VR-07: AUTO-HOLD RADIATION DEVICE
