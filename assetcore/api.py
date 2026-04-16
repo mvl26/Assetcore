@@ -75,7 +75,9 @@ def get_dashboard_stats():
 
 	Trả về số liệu tổng hợp cho Dashboard IMM-04.
 	"""
-	# Đếm thiết bị theo từng state
+	from frappe.utils import get_first_day, nowdate, add_days
+
+	# Đếm theo từng state
 	states_count = frappe.db.sql("""
 		SELECT workflow_state, COUNT(*) as count
 		FROM `tabAsset Commissioning`
@@ -83,19 +85,24 @@ def get_dashboard_stats():
 		GROUP BY workflow_state
 	""", as_dict=True)
 
-	# Thiết bị đang Hold
-	hold_count = next(
-		(s.count for s in states_count if s.workflow_state == "Clinical_Hold"), 0
+	state_map = {s.workflow_state: s.count for s in states_count}
+
+	# Pending: tất cả state chưa release / chưa return
+	terminal_states = {"Clinical_Release", "Return_To_Vendor"}
+	pending_count = sum(
+		v for k, v in state_map.items() if k not in terminal_states
 	)
 
+	# Clinical Hold
+	hold_count = state_map.get("Clinical_Hold", 0)
+
 	# NC đang Open
-	open_nc = frappe.db.count(
+	open_nc_count = frappe.db.count(
 		"Asset QA Non Conformance",
 		{"resolution_status": "Open", "docstatus": ("!=", 2)}
 	)
 
-	# Tổng đã Release trong tháng
-	from frappe.utils import get_first_day, get_last_day, nowdate
+	# Phát hành trong tháng hiện tại
 	first_day = get_first_day(nowdate())
 	released_this_month = frappe.db.count(
 		"Asset Commissioning",
@@ -106,9 +113,22 @@ def get_dashboard_stats():
 		}
 	)
 
+	# Quá hạn SLA: Đã hơn 30 ngày kể từ ngày hẹn mà chưa Release
+	overdue_cutoff = add_days(nowdate(), -30)
+	overdue_sla = frappe.db.count(
+		"Asset Commissioning",
+		{
+			"expected_installation_date": ("<", overdue_cutoff),
+			"workflow_state": ("not in", list(terminal_states)),
+			"docstatus": ("!=", 2)
+		}
+	)
+
 	return {
-		"active_hold": hold_count,
-		"open_nc": open_nc,
+		"pending_count": pending_count,
+		"hold_count": hold_count,
+		"open_nc_count": open_nc_count,
 		"released_this_month": released_this_month,
+		"overdue_sla": overdue_sla,
 		"states_breakdown": states_count
 	}

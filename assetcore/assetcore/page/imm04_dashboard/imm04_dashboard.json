@@ -1,0 +1,17 @@
+{
+ "creation": "2026-04-16 09:00:00.000000",
+ "doctype": "Page",
+ "module": "AssetCore",
+ "name": "imm04-dashboard",
+ "page_name": "imm04-dashboard",
+ "roles": [
+  {"role": "HTM Technician"},
+  {"role": "Biomed Engineer"},
+  {"role": "Workshop Head"},
+  {"role": "VP Block2"},
+  {"role": "QA Risk Team"},
+  {"role": "CMMS Admin"}
+ ],
+ "standard": "Yes",
+ "title": "IMM-04 — Dashboard Lắp đặt Thiết bị"
+}

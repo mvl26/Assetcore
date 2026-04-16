@@ -296,6 +296,37 @@ class AssetCommissioning(Document):
 			)
 
 	# ──────────────────────────────────────────────
+	# WHITELISTED: TẠO PHIẾU NC TỪ FORM
+	# ──────────────────────────────────────────────
+
+	@frappe.whitelist()
+	def create_nc_from_form(self, nc_type: str, description: str, damage_photo: str = "") -> str:
+		"""Tạo phiếu Asset QA Non Conformance từ nút DOA trên form Commissioning."""
+		if self.workflow_state != "Installing":
+			frappe.throw(_("Chỉ có thể báo DOA khi thiết bị đang ở trạng thái Installing."))
+
+		nc = frappe.get_doc({
+			"doctype": "Asset QA Non Conformance",
+			"ref_commissioning": self.name,
+			"nc_type": nc_type,
+			"description": description,
+			"damage_proof": damage_photo or None,
+			"resolution_status": "Open"
+		})
+		nc.insert(ignore_permissions=True)
+
+		# Đánh dấu phiếu commissioning có sự cố DOA
+		self.db_set("doa_incident", 1, commit=True)
+
+		frappe.log_error(
+			message=f"NC {nc.name} ({nc_type}) tạo bởi {frappe.session.user} "
+			        f"cho phiếu {self.name}",
+			title="IMM-04 DOA NC Created"
+		)
+
+		return nc.name
+
+	# ──────────────────────────────────────────────
 	# HELPER: GENERATE QR CODE
 	# ──────────────────────────────────────────────
 

@@ -24,18 +24,7 @@ fixtures = [
 # ──────────────────────────────────────────────
 # Document Events — gắn hook vào các DocType
 # ──────────────────────────────────────────────
-doc_events = {
-	"Asset Commissioning": {
-		"validate": "assetcore.doctype.asset_commissioning.asset_commissioning.validate",
-		"on_submit": "assetcore.doctype.asset_commissioning.asset_commissioning.on_submit",
-		"on_cancel": "assetcore.doctype.asset_commissioning.asset_commissioning.on_cancel",
-		"before_save": "assetcore.doctype.asset_commissioning.asset_commissioning.before_save",
-	},
-	"Asset QA Non Conformance": {
-		"validate": "assetcore.doctype.asset_qa_non_conformance.asset_qa_non_conformance.validate",
-		"on_submit": "assetcore.doctype.asset_qa_non_conformance.asset_qa_non_conformance.on_submit",
-	}
-}
+doc_events = {}
 
 # ──────────────────────────────────────────────
 # Scheduled Jobs — Cron tasks
