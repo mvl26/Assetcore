@@ -1,6 +1,6 @@
 {
  "actions": [],
- "autoname": "format:IMM04-.YY.-.MM.-.#####",
+ "autoname": "IMM04-.YY.-.MM.-.#####",
  "creation": "2026-04-15 10:00:00.000000",
  "doctype": "DocType",
  "document_type": "Document",
@@ -144,7 +144,6 @@
    "fieldname": "internal_tag_qr",
    "fieldtype": "Data",
    "label": "Mã QR Nội bộ Bệnh viện",
-   "reqd": 1,
    "read_only": 1,
    "description": "Sinh tự động sau khi Serial được xác nhận."
   },
@@ -236,7 +235,7 @@
  "modified_by": "Administrator",
  "module": "AssetCore",
  "name": "Asset Commissioning",
- "naming_rule": "Expression",
+ "naming_rule": "Expression (old style)",
  "owner": "Administrator",
  "permissions": [
   {

@@ -94,6 +94,7 @@ GET /api/method/assetcore.api.get_dashboard_stats
 ## 3. Chi tiết IMM-05 — CHƯA ĐỦ
 
 ### Hiện trạng
+
 - **DocType:** Chưa tạo bất kỳ doctype nào
 - **BA:** Không có file riêng cho IMM-05
 
@@ -116,6 +117,7 @@ GET /api/method/assetcore.api.get_dashboard_stats
 ## 4. Chi tiết IMM-08 — CHƯA ĐỦ
 
 ### Hiện trạng
+
 - **DocType:** Chưa tạo
 - **BA:** Có reference trong `docs/data-model/02_Maintenance_Work_Order_DocType.md`
 
@@ -135,6 +137,7 @@ GET /api/method/assetcore.api.get_dashboard_stats
 ## 5. Chi tiết IMM-09 — CHƯA ĐỦ
 
 ### Hiện trạng
+
 - **DocType:** Chưa tạo
 - **BA:** Mention trong architecture docs nhưng không có spec riêng
 
@@ -152,6 +155,7 @@ GET /api/method/assetcore.api.get_dashboard_stats
 ## 6. Chi tiết IMM-11 — CHƯA ĐỦ
 
 ### Hiện trạng
+
 - **DocType:** Chưa tạo
 - **BA:** Không có file riêng
 
@@ -168,6 +172,7 @@ GET /api/method/assetcore.api.get_dashboard_stats
 ## 7. Chi tiết IMM-12 — CHƯA ĐỦ
 
 ### Hiện trạng
+
 - **DocType:** Chưa tạo
 - **BA:** Không có file riêng
 

@@ -94,7 +94,7 @@ class AssetCommissioning(Document):
 		"""VR-07: Thiết bị bức xạ mà chưa có giấy phép thì không được Release."""
 		if (
 			self.is_radiation_device
-			and self.workflow_state in ("Clinical_Release", "Initial_Inspection")
+			and self.workflow_state in ("Clinical_Release", "Pending_Release")
 			and not self.qa_license_doc
 		):
 			frappe.throw(
@@ -209,23 +209,24 @@ class AssetCommissioning(Document):
 	def mint_core_asset(self):
 		"""Sinh Asset Cố định ERPNext khi phiếu IMM-04 được Submit."""
 		try:
+			# Asset.location cần là Location doctype — nếu không có thì để trống
+			# Kế toán sẽ cập nhật sau khi tài sản được phát hành
 			new_asset = frappe.get_doc({
 				"doctype": "Asset",
 				"item_code": self.master_item,
 				"asset_name": f"{self.master_item} — {self.vendor_serial_no}",
-				"location": self.clinical_dept,
-				"purchase_receipt": self.po_reference,
+				"company": frappe.defaults.get_user_default("Company") or frappe.db.get_single_value("Global Defaults", "default_company"),
 				"available_for_use_date": nowdate(),
-				"gross_purchase_amount": 0,  # Kế toán cập nhật sau
+				"gross_purchase_amount": 1,  # Placeholder — Kế toán cập nhật sau theo giá trị PO
 				# Custom fields mở rộng
 				"custom_vendor_serial": self.vendor_serial_no,
 				"custom_internal_qr": self.internal_tag_qr,
 				"custom_comm_ref": self.name,
-				"status": "In Use"
 			})
 
 			new_asset.flags.ignore_mandatory = True
-			new_asset.insert(ignore_permissions=True)
+			new_asset.flags.ignore_links = True
+			new_asset.insert(ignore_permissions=True, ignore_mandatory=True)
 
 			# Ghi ID ngược về phiếu Commissioning
 			self.db_set("final_asset", new_asset.name, commit=True)
