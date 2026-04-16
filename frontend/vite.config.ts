@@ -1,49 +1,51 @@
-import { defineConfig, loadEnv } from 'vite'
+import { defineConfig, loadEnv, type ProxyOptions } from 'vite'
 import vue from '@vitejs/plugin-vue'
-import { resolve } from 'path'
+import { fileURLToPath } from 'node:url'
+import { resolve } from 'node:path'
+import type { ClientRequest, IncomingMessage } from 'node:http'
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
-
   const frappe_base = env.VITE_FRAPPE_URL || 'http://localhost:8000'
+  const site = env.VITE_FRAPPE_SITE || 'miyano'
+
+  // Định nghĩa cấu hình Proxy dùng chung
+  const commonProxyOptions: ProxyOptions = {
+    target: frappe_base,
+    changeOrigin: true,
+    secure: false,
+    configure: (proxy) => {
+      proxy.on('proxyReq', (proxyReq: ClientRequest) => {
+        proxyReq.setHeader('host', site)
+      })
+      
+      proxy.on('error', (err: Error, _req: IncomingMessage, res: any) => {
+        // Sử dụng 'any' cho res ở đây là cách nhanh nhất để tránh 
+        // sự chồng chéo phức tạp giữa ServerResponse và Socket của http-proxy
+        console.error('[vite proxy error]', err)
+      })
+    },
+  }
 
   return {
     plugins: [vue()],
 
     resolve: {
       alias: {
-        '@': resolve(__dirname, 'src'),
+        // Fix lỗi __dirname không tồn tại trong ESM
+        '@': resolve(fileURLToPath(new URL('.', import.meta.url)), 'src'),
       },
     },
 
     server: {
-      port: 5173,
+      port: 3000,
+      host: '0.0.0.0',
       cors: true,
-      proxy: (() => {
-        // Frappe multi-site routing dựa trên Host header.
-        // changeOrigin gửi Host: localhost — Frappe trả 404.
-        // Phải rewrite Host thành tên site qua proxyReq event.
-        const site = env.VITE_FRAPPE_SITE || 'miyano'
-        const makeProxy = (extra?: object) => ({
-          target: frappe_base,
-          changeOrigin: true,
-          secure: false,
-          ...extra,
-          configure: (proxy: import('http-proxy').Server) => {
-            proxy.on('proxyReq', (proxyReq) => {
-              proxyReq.setHeader('host', site)
-            })
-            proxy.on('error', (err) => {
-              console.error('[vite proxy error]', err)
-            })
-          },
-        })
-        return {
-          '/api': makeProxy(),
-          '/assets': makeProxy(),
-          '/files': makeProxy(),
-        }
-      })(),
+      proxy: {
+        '/api': commonProxyOptions,
+        '/assets': commonProxyOptions,
+        '/files': commonProxyOptions,
+      },
     },
 
     build: {
@@ -51,16 +53,24 @@ export default defineConfig(({ mode }) => {
       sourcemap: mode !== 'production',
       rollupOptions: {
         output: {
-          manualChunks: {
-            vendor: ['vue', 'vue-router', 'pinia'],
-            axios: ['axios'],
+          manualChunks(id) {
+            if (id.includes('node_modules')) {
+              if (id.includes('vue') || id.includes('pinia') || id.includes('vue-router')) {
+                return 'vendor'
+              }
+              if (id.includes('axios')) {
+                return 'axios'
+              }
+              return 'others'
+            }
           },
         },
       },
     },
 
     define: {
-      __APP_VERSION__: JSON.stringify(process.env.npm_package_version),
+      // Đảm bảo define version an toàn
+      __APP_VERSION__: JSON.stringify(process.env.npm_package_version || '1.0.0'),
     },
   }
 })

@@ -15,6 +15,7 @@ build/
 .venv/
 venv/
 env/
+.vite/
 
 # Environment & secrets
 .env
