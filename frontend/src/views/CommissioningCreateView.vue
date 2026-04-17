@@ -372,13 +372,11 @@ async function handleCreate() {
 
           <!-- Commissioned by -->
           <div class="form-group">
-            <label for="commissioned_by" class="form-label">KTV thực hiện lắp đặt</label>
-            <input
-              id="commissioned_by"
+            <p class="form-label">KTV thực hiện lắp đặt</p>
+            <LinkSearch
               v-model="form.commissioned_by"
-              type="text"
-              class="form-input"
-              placeholder="Tên KTV / mã nhân viên"
+              doctype="User"
+              placeholder="Chọn KTV..."
             />
           </div>
         </div>

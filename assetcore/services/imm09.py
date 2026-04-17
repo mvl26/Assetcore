@@ -6,6 +6,8 @@ from frappe import _
 from frappe.utils import nowdate, now_datetime, get_datetime, add_days
 from typing import Optional
 
+_DOCTYPE_REPAIR = "Asset Repair"
+
 
 def validate_repair_source(doc) -> None:
     """BR-09-01: WO phải có nguồn (incident_report OR source_pm_wo)."""
@@ -15,7 +17,7 @@ def validate_repair_source(doc) -> None:
 
 def validate_asset_not_under_repair(asset_ref: str) -> None:
     """Ngăn tạo WO duplicate khi thiết bị đang sửa chữa."""
-    existing = frappe.db.exists("Asset Repair", {
+    existing = frappe.db.exists(_DOCTYPE_REPAIR, {
         "asset_ref": asset_ref,
         "status": ("in", ["Open", "Assigned", "Diagnosing", "Pending Parts", "In Repair", "Pending Inspection"]),
         "docstatus": ("!=", 2),
@@ -27,7 +29,7 @@ def validate_asset_not_under_repair(asset_ref: str) -> None:
 def check_repeat_failure(asset_ref: str) -> bool:
     """Kiểm tra tái hỏng trong 30 ngày gần nhất."""
     cutoff_date = add_days(nowdate(), -30)
-    return bool(frappe.db.exists("Asset Repair", {
+    return bool(frappe.db.exists(_DOCTYPE_REPAIR, {
         "asset_ref": asset_ref,
         "status": "Completed",
         "completion_datetime": (">=", cutoff_date),
@@ -115,7 +117,15 @@ def complete_repair(doc) -> None:
         if new_ver:
             asset_updates["custom_firmware_version"] = new_ver
 
+    doc.status = "Completed"
     frappe.db.set_value("Asset", doc.asset_ref, asset_updates)
+    frappe.db.set_value(_DOCTYPE_REPAIR, doc.name, {
+        "status": "Completed",
+        "completion_datetime": doc.completion_datetime,
+        "mttr_hours": doc.mttr_hours,
+        "sla_target_hours": doc.sla_target_hours,
+        "sla_breached": doc.sla_breached,
+    })
 
     _create_lifecycle_event(
         asset=doc.asset_ref, event_type="repair_completed",
@@ -148,7 +158,7 @@ def check_repair_sla_breach() -> None:
     """Hourly: kiểm tra WO đang vượt SLA."""
     from frappe.utils import time_diff_in_seconds
     active_wos = frappe.get_all(
-        "Asset Repair",
+        _DOCTYPE_REPAIR,
         filters={"status": ("in", ["Assigned", "Diagnosing", "Pending Parts", "In Repair"]), "docstatus": 0},
         fields=["name", "asset_ref", "priority", "risk_class", "open_datetime", "sla_target_hours", "assigned_to"],
     )
@@ -157,7 +167,7 @@ def check_repair_sla_breach() -> None:
         elapsed_h = round(time_diff_in_seconds(now_datetime(), open_dt) / 3600.0, 2)
         sla = wo.sla_target_hours or get_sla_target(wo.risk_class or "Class I", wo.priority or "Normal")
         if elapsed_h >= sla:
-            frappe.db.set_value("Asset Repair", wo.name, "sla_breached", 1)
+            frappe.db.set_value(_DOCTYPE_REPAIR, wo.name, "sla_breached", 1)
             frappe.publish_realtime("cm_sla_breached", {"wo": wo.name, "asset": wo.asset_ref}, user=wo.assigned_to)
 
 
@@ -165,7 +175,7 @@ def check_repair_overdue() -> None:
     """Daily 07:00: tổng hợp WO chưa hoàn thành quá 7 ngày."""
     cutoff = add_days(nowdate(), -7)
     overdue = frappe.get_all(
-        "Asset Repair",
+        _DOCTYPE_REPAIR,
         filters={"status": ("in", ["Open", "Assigned", "Pending Parts"]), "open_datetime": ("<", cutoff), "docstatus": 0},
         fields=["name", "asset_ref", "priority", "risk_class", "open_datetime"],
     )

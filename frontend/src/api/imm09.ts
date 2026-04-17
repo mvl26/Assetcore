@@ -188,3 +188,8 @@ export async function getMttrReport(year: number, month: number): Promise<MttrRe
   const res = await frappeGet<ApiResponse<MttrReport>>(`${BASE}.get_mttr_report`, { year, month })
   return res.data
 }
+
+export async function searchSpareParts(query: string): Promise<SparePartRow[]> {
+  const res = await frappeGet<ApiResponse<SparePartRow[]>>(`${BASE}.search_spare_parts`, { query })
+  return res.data ?? []
+}

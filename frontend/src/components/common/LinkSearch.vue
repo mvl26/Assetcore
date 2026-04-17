@@ -10,7 +10,7 @@ interface LinkItem {
 
 const props = defineProps<{
   modelValue: string
-  doctype: 'Purchase Order' | 'Item' | 'Supplier' | 'Department'
+  doctype: 'Purchase Order' | 'Item' | 'Supplier' | 'Department' | 'User'
   placeholder?: string
   disabled?: boolean
   hasError?: boolean

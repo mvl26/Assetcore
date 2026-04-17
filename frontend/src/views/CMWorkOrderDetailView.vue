@@ -2,6 +2,7 @@
 import { onMounted, computed, ref, onUnmounted } from 'vue'
 import { useImm09Store } from '@/stores/imm09'
 import { useRouter } from 'vue-router'
+import { cmStatusLabel, cmStatusClass, priorityLabel, priorityClass, rootCauseLabel, repairTypeLabel, resultLabel } from '@/utils/labels'
 
 const props = defineProps<{ id: string }>()
 const store = useImm09Store()
@@ -68,27 +69,6 @@ const slaTextColor = computed(() => {
   return 'text-gray-600'
 })
 
-function statusBadge(status: string) {
-  const map: Record<string, string> = {
-    Open: 'bg-blue-100 text-blue-700',
-    Assigned: 'bg-indigo-100 text-indigo-700',
-    Diagnosing: 'bg-purple-100 text-purple-700',
-    'Pending Parts': 'bg-orange-100 text-orange-700',
-    'In Repair': 'bg-red-100 text-red-700',
-    'Pending Inspection': 'bg-cyan-100 text-cyan-700',
-    Completed: 'bg-green-100 text-green-700',
-    'Cannot Repair': 'bg-red-200 text-red-900',
-    Cancelled: 'bg-gray-100 text-gray-500',
-  }
-  return map[status] ?? 'bg-gray-100 text-gray-600'
-}
-
-function priorityBadge(priority: string) {
-  if (priority === 'Emergency') return 'bg-red-100 text-red-700 font-semibold'
-  if (priority === 'Urgent') return 'bg-orange-100 text-orange-700'
-  return 'bg-gray-100 text-gray-600'
-}
-
 // Actions
 async function doAssign() {
   submitting.value = true
@@ -137,7 +117,7 @@ function navigateChecklist() {
       <div class="flex-1">
         <div class="flex items-center gap-2 flex-wrap">
           <span class="font-mono text-lg font-bold text-gray-900">{{ wo?.name }}</span>
-          <span v-if="wo" :class="['px-2 py-0.5 rounded-full text-xs font-medium', statusBadge(wo.status)]">{{ wo.status }}</span>
+          <span v-if="wo" :class="['px-2.5 py-1 rounded-full text-xs font-semibold', cmStatusClass(wo.status)]">{{ cmStatusLabel(wo.status) }}</span>
           <span v-if="wo?.is_repeat_failure" class="px-2 py-0.5 rounded-full text-xs bg-orange-100 text-orange-700">↺ Tái hỏng</span>
           <span v-if="wo?.sla_breached" class="px-2 py-0.5 rounded-full text-xs bg-red-100 text-red-700 font-semibold">⚠ SLA vi phạm</span>
         </div>
@@ -157,10 +137,10 @@ function navigateChecklist() {
             <div><span class="text-gray-500">Tên:</span> <span class="font-medium">{{ wo.asset_name }}</span></div>
             <div><span class="text-gray-500">Serial:</span> <span class="font-mono text-xs">{{ wo.serial_no || '—' }}</span></div>
             <div><span class="text-gray-500">Risk Class:</span> <span class="font-medium">{{ wo.risk_class }}</span></div>
-            <div><span class="text-gray-500">Loại SC:</span> <span class="font-medium">{{ wo.repair_type }}</span></div>
+            <div><span class="text-gray-500">Loại SC:</span> <span class="font-medium">{{ repairTypeLabel(wo.repair_type) }}</span></div>
             <div>
               <span class="text-gray-500">Ưu tiên:</span>
-              <span :class="['ml-1 px-1.5 py-0.5 rounded text-xs font-medium', priorityBadge(wo.priority)]">{{ wo.priority }}</span>
+              <span :class="['ml-1 px-1.5 py-0.5 rounded text-xs font-medium', priorityClass(wo.priority)]">{{ priorityLabel(wo.priority) }}</span>
             </div>
           </div>
 
@@ -180,7 +160,7 @@ function navigateChecklist() {
           <h2 class="font-semibold text-gray-700 mb-2 text-sm uppercase tracking-wide">Chẩn đoán</h2>
           <div class="text-sm text-gray-600 whitespace-pre-wrap">{{ wo.diagnosis_notes }}</div>
           <div v-if="wo.root_cause_category" class="mt-2">
-            <span class="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded">{{ wo.root_cause_category }}</span>
+            <span class="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded">{{ rootCauseLabel(wo.root_cause_category) }}</span>
           </div>
         </div>
 
@@ -227,7 +207,7 @@ function navigateChecklist() {
           <div class="flex items-center justify-between mb-3">
             <h2 class="font-semibold text-gray-700 text-sm uppercase tracking-wide">Checklist nghiệm thu</h2>
             <span class="text-xs text-gray-500">
-              {{ wo.repair_checklist.filter(r => r.result === 'Pass').length }}/{{ wo.repair_checklist.length }} Pass
+              {{ wo.repair_checklist.filter(r => r.result === 'Pass').length }}/{{ wo.repair_checklist.length }} Đạt
             </span>
           </div>
           <!-- Progress -->
@@ -253,7 +233,7 @@ function navigateChecklist() {
                 item.result === 'Pass' ? 'bg-green-500 text-white' :
                 item.result === 'Fail' ? 'bg-red-500 text-white' :
                 item.result === 'N/A' ? 'bg-gray-400 text-white' : 'bg-gray-200 text-gray-500'
-              ]">{{ item.result || '?' }}</span>
+              ]">{{ item.result ? resultLabel(item.result) : '?' }}</span>
               <div>
                 <div class="text-sm text-gray-800">{{ item.test_description }}</div>
                 <div class="text-xs text-gray-400">{{ item.test_category }}</div>
@@ -268,7 +248,7 @@ function navigateChecklist() {
       <div class="md:col-span-2 space-y-4">
         <!-- SLA Indicator -->
         <div class="bg-white rounded-xl shadow-sm border p-5">
-          <h2 class="font-semibold text-gray-700 mb-3 text-sm">SLA Indicator</h2>
+          <h2 class="font-semibold text-gray-700 mb-3 text-sm">Chỉ số SLA</h2>
           <div class="flex items-center justify-between mb-1">
             <span class="text-xs text-gray-500">Đã trôi: {{ (elapsed / 3600).toFixed(1) }}h / {{ wo.sla_target_hours || '—' }}h SLA</span>
             <span :class="['text-xs font-semibold', slaTextColor]">{{ slaPercent }}%</span>
@@ -376,7 +356,7 @@ function navigateChecklist() {
           </div>
           <div class="flex justify-between text-gray-500 mt-1">
             <span>Checklist:</span>
-            <span class="font-medium text-gray-900">{{ wo.repair_checklist?.filter(r => r.result === 'Pass').length || 0 }}/{{ wo.repair_checklist?.length || 0 }} Pass</span>
+            <span class="font-medium text-gray-900">{{ wo.repair_checklist?.filter(r => r.result === 'Pass').length || 0 }}/{{ wo.repair_checklist?.length || 0 }} Đạt</span>
           </div>
         </div>
       </div>
@@ -396,9 +376,9 @@ function navigateChecklist() {
             <label for="assign-priority" class="block text-sm text-gray-600 mb-1">Ưu tiên</label>
             <select id="assign-priority" v-model="assignPriority" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
               <option value="">Giữ nguyên</option>
-              <option value="Normal">Normal</option>
-              <option value="Urgent">Urgent</option>
-              <option value="Emergency">Emergency</option>
+              <option value="Normal">Bình thường</option>
+              <option value="Urgent">Gấp</option>
+              <option value="Emergency">Khẩn cấp</option>
             </select>
           </div>
         </div>

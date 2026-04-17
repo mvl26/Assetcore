@@ -33,9 +33,10 @@
 /* ─── Base ───────────────────────────────────────────────────────────────── */
 @layer base {
   html {
-    font-family: 'DM Sans', ui-sans-serif, system-ui, sans-serif;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
+    font-family: 'Times New Roman', Times, Georgia, serif;
+    font-size: 17px;
+    -webkit-font-smoothing: auto;
+    -moz-osx-font-smoothing: auto;
     background-color: var(--color-bg);
     color: var(--color-text-primary);
   }
@@ -62,7 +63,7 @@
 
   /* Buttons */
   .btn {
-    @apply inline-flex items-center gap-2 px-4 py-2 text-sm font-medium
+    @apply inline-flex items-center gap-2 px-4 py-2.5 text-base font-medium
            transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-1
            disabled:opacity-50 disabled:cursor-not-allowed select-none;
     border-radius: var(--radius-btn);
@@ -86,7 +87,7 @@
 
   /* Card */
   .card {
-    @apply bg-white rounded-[10px] border border-slate-200 p-6;
+    @apply bg-white rounded-[10px] border border-slate-200 p-7;
     box-shadow: var(--tw-shadow, 0 1px 3px 0 rgba(0,0,0,.06), 0 0 0 1px rgba(0,0,0,.04));
   }
   .card-sm { @apply card p-4; }
@@ -97,22 +98,22 @@
 
   /* Form elements */
   .form-label {
-    @apply block text-sm font-medium text-slate-700 mb-1.5;
+    @apply block text-base font-semibold text-slate-700 mb-2;
   }
   .form-input {
     @apply block w-full rounded-lg border-slate-300 bg-white text-slate-900
-           placeholder-slate-400 text-sm
+           placeholder-slate-400 text-base py-2.5 px-3.5
            focus:border-brand-500 focus:ring-brand-500
            disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed;
   }
   .form-select {
-    @apply block w-full rounded-lg border-slate-300 bg-white text-slate-900 text-sm
+    @apply block w-full rounded-lg border-slate-300 bg-white text-slate-900 text-base py-2.5
            focus:border-brand-500 focus:ring-brand-500
            disabled:bg-slate-50 disabled:cursor-not-allowed;
   }
   .form-textarea {
     @apply block w-full rounded-lg border-slate-300 bg-white text-slate-900
-           placeholder-slate-400 text-sm resize-none
+           placeholder-slate-400 text-base resize-none py-2.5 px-3.5
            focus:border-brand-500 focus:ring-brand-500;
   }
   .form-group {
@@ -124,11 +125,11 @@
     @apply overflow-x-auto rounded-lg border border-slate-200 bg-white;
   }
   .table-header {
-    @apply px-5 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider
+    @apply px-5 py-3.5 text-left text-sm font-semibold text-slate-600 uppercase tracking-wide
            bg-slate-50 border-b border-slate-200 whitespace-nowrap;
   }
   .table-cell {
-    @apply px-5 py-3.5 whitespace-nowrap text-sm text-slate-800;
+    @apply px-5 py-4 whitespace-nowrap text-base text-slate-800;
   }
   .table-row {
     @apply transition-colors duration-100 hover:bg-slate-50/70 cursor-pointer;
@@ -144,7 +145,7 @@
 
   /* Section header */
   .section-title {
-    @apply text-xs font-semibold text-slate-400 uppercase tracking-widest mb-3;
+    @apply text-sm font-semibold text-slate-400 uppercase tracking-widest mb-3;
   }
 
   /* Alert / banner */

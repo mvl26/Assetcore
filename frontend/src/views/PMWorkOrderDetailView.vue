@@ -2,6 +2,7 @@
 import { onMounted, computed, ref } from 'vue'
 import { useImm08Store } from '@/stores/imm08'
 import { useRouter } from 'vue-router'
+import { pmStatusLabel, pmStatusClass, resultLabel as _resultLabel } from '@/utils/labels'
 
 const props = defineProps<{ id: string }>()
 const store = useImm08Store()
@@ -101,11 +102,8 @@ function openRescheduleModal() {
       <div class="flex-1">
         <div class="flex items-center gap-2">
           <span class="font-mono text-lg font-semibold text-gray-900">{{ wo?.name }}</span>
-          <span v-if="wo" :class="['px-2 py-0.5 rounded-full text-xs font-medium',
-            wo.status === 'Overdue' ? 'bg-red-100 text-red-700' :
-            wo.status === 'Completed' ? 'bg-green-100 text-green-700' :
-            wo.status === 'In Progress' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600']">
-            {{ wo.status }}
+          <span v-if="wo" :class="['px-2.5 py-1 rounded-full text-xs font-semibold', pmStatusClass(wo.status)]">
+            {{ pmStatusLabel(wo.status) }}
           </span>
         </div>
         <div class="text-sm text-gray-500">{{ wo?.asset_name || wo?.asset_ref }}</div>
@@ -216,7 +214,7 @@ function openRescheduleModal() {
                   <span
                     v-if="item.result === 'Fail–Major'"
                     class="text-xs bg-red-600 text-white px-1.5 py-0.5 rounded font-semibold tracking-wide"
-                  >CRITICAL</span>
+                  >NGHIÊM TRỌNG</span>
                   <span v-if="item.measurement_type === 'Numeric'" class="text-xs bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded">Số đo</span>
                 </div>
               </div>
@@ -238,7 +236,7 @@ function openRescheduleModal() {
                 ]"
                 @click="store.updateChecklistResult(item.idx, { result: opt as any })"
               >
-                {{ opt }}
+                {{ _resultLabel(opt) }}
               </button>
             </div>
             <div v-else class="mb-2">
@@ -246,7 +244,7 @@ function openRescheduleModal() {
                 item.result === 'Pass' ? 'bg-green-100 text-green-700' :
                 item.result === 'Fail–Minor' ? 'bg-yellow-100 text-yellow-700' :
                 item.result === 'Fail–Major' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600']">
-                {{ item.result }}
+                {{ item.result ? _resultLabel(item.result) : '—' }}
               </span>
             </div>
 

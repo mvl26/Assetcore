@@ -2,6 +2,7 @@
 import { onMounted, ref, computed, watch } from 'vue'
 import { useImm08Store } from '@/stores/imm08'
 import { useRouter } from 'vue-router'
+import { pmStatusLabel, pmStatusClass } from '@/utils/labels'
 
 const store = useImm08Store()
 const router = useRouter()
@@ -10,28 +11,25 @@ const search = ref('')
 const dateFrom = ref('')
 const dateTo = ref('')
 
+const PM_STATUSES = [
+  { value: 'Open',                label: 'Mở' },
+  { value: 'In Progress',         label: 'Đang thực hiện' },
+  { value: 'Overdue',             label: 'Quá hạn' },
+  { value: 'Completed',           label: 'Hoàn thành' },
+  { value: 'Halted–Major Failure',label: 'Dừng — Lỗi nặng' },
+  { value: 'Pending–Device Busy', label: 'Chờ — Thiết bị bận' },
+  { value: 'Cancelled',           label: 'Đã hủy' },
+]
+
 onMounted(() => store.fetchWorkOrders())
 
 watch([statusFilter, dateFrom, dateTo], () => {
-  const f: Record<string, any> = {}
-  if (statusFilter.value) f.status = statusFilter.value
-  if (dateFrom.value) f.due_date = ['>=', dateFrom.value]
-  if (dateTo.value) f.due_date = ['<=', dateTo.value]
+  const f: Record<string, string[]> = {}
+  if (statusFilter.value) f.status = [statusFilter.value]
+  if (dateFrom.value) f.due_date_from = [dateFrom.value]
+  if (dateTo.value) f.due_date_to = [dateTo.value]
   store.fetchWorkOrders(f)
 })
-
-function statusBadgeClass(status: string) {
-  const map: Record<string, string> = {
-    'Open': 'bg-blue-100 text-blue-700',
-    'In Progress': 'bg-indigo-100 text-indigo-700',
-    'Overdue': 'bg-red-100 text-red-700',
-    'Completed': 'bg-green-100 text-green-700',
-    'Halted–Major Failure': 'bg-red-200 text-red-900 font-semibold',
-    'Pending–Device Busy': 'bg-orange-100 text-orange-700',
-    'Cancelled': 'bg-gray-100 text-gray-400',
-  }
-  return map[status] ?? 'bg-gray-100 text-gray-600'
-}
 
 const filteredWOs = computed(() => {
   if (!search.value) return store.workOrders
@@ -75,11 +73,7 @@ const filteredWOs = computed(() => {
           <label for="filter-status" class="form-label">Trạng thái</label>
           <select id="filter-status" v-model="statusFilter" class="form-select">
             <option value="">Tất cả</option>
-            <option value="Open">Open</option>
-            <option value="In Progress">In Progress</option>
-            <option value="Overdue">Overdue</option>
-            <option value="Completed">Completed</option>
-            <option value="Halted–Major Failure">Halted</option>
+            <option v-for="s in PM_STATUSES" :key="s.value" :value="s.value">{{ s.label }}</option>
           </select>
         </div>
         <div class="form-group">
@@ -123,21 +117,24 @@ const filteredWOs = computed(() => {
             class="hover:bg-slate-50 cursor-pointer transition-all hover:translate-x-0.5"
             @click="router.push(`/pm/work-orders/${wo.name}`)"
           >
-            <td class="table-cell font-mono text-xs text-blue-600">{{ wo.name }}</td>
+            <td class="table-cell">
+              <div class="font-mono text-sm font-semibold text-blue-700">{{ wo.name }}</div>
+            </td>
             <td class="table-cell">
               <div class="font-medium text-slate-900">{{ wo.asset_name || wo.asset_ref }}</div>
-              <div class="text-xs text-slate-400">{{ wo.asset_ref }}</div>
+              <div class="text-xs text-slate-400 font-mono mt-0.5">{{ wo.asset_ref }}</div>
             </td>
-            <td class="table-cell text-slate-500 text-xs">{{ wo.pm_type }}</td>
+            <td class="table-cell text-slate-600">{{ wo.pm_type || '—' }}</td>
             <td class="table-cell">
               <span :class="wo.is_late ? 'text-red-600 font-semibold' : 'text-slate-600'">
-                {{ wo.due_date }}
+                {{ wo.due_date || '—' }}
               </span>
+              <div v-if="wo.is_late" class="text-xs text-red-500 mt-0.5">Quá hạn</div>
             </td>
-            <td class="table-cell text-xs text-slate-500">{{ wo.assigned_to || '—' }}</td>
+            <td class="table-cell text-slate-600">{{ wo.assigned_to || '—' }}</td>
             <td class="table-cell">
-              <span :class="['px-2 py-1 rounded-full text-xs font-medium', statusBadgeClass(wo.status)]">
-                {{ wo.status }}
+              <span :class="['px-2.5 py-1 rounded-full text-xs font-medium', pmStatusClass(wo.status)]">
+                {{ pmStatusLabel(wo.status) }}
               </span>
             </td>
           </tr>
