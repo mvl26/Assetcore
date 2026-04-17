@@ -178,7 +178,6 @@ def check_document_expiry():
 			}).insert(ignore_permissions=True)
 			total_alerts += 1
 
-		# Auto-transition → Expired khi days == 0
 		if days == 0:
 			for doc in docs:
 				frappe.db.set_value(_ASSET_DOCUMENT, doc.name, "workflow_state", "Expired")
@@ -204,50 +203,68 @@ def update_asset_completeness():
 		return
 
 	assets = frappe.db.get_all("Asset", filters={"docstatus": ("!=", 2)}, fields=["name"])
+	if not assets:
+		return
 
+	asset_names = [a.name for a in assets]
+	total_required = len(required_types)
+
+	name_ph = ", ".join(["%s"] * len(asset_names))
+	req_ph = ", ".join(["%s"] * len(required_types))
+
+	active_rows = frappe.db.sql(f"""
+		SELECT asset_ref, COUNT(*) as cnt
+		FROM `tabAsset Document`
+		WHERE asset_ref IN ({name_ph})
+		AND workflow_state = 'Active'
+		AND doc_type_detail IN ({req_ph})
+		GROUP BY asset_ref
+	""", asset_names + required_types, as_dict=True)
+	active_map = {r["asset_ref"]: r["cnt"] for r in active_rows}
+
+	flag_rows = frappe.db.sql(f"""
+		SELECT
+			asset_ref,
+			MAX(CASE WHEN workflow_state = 'Expired' THEN 1 ELSE 0 END) as has_expired,
+			MAX(CASE WHEN workflow_state = 'Active'
+				AND expiry_date IS NOT NULL
+				AND DATEDIFF(expiry_date, CURDATE()) BETWEEN 0 AND 30
+				THEN 1 ELSE 0 END) as has_expiring,
+			MAX(CASE WHEN is_exempt = 1
+				AND doc_type_detail IN ('Chứng nhận đăng ký lưu hành', 'Giấy phép nhập khẩu')
+				THEN 1 ELSE 0 END) as is_exempt
+		FROM `tabAsset Document`
+		WHERE asset_ref IN ({name_ph})
+		GROUP BY asset_ref
+	""", asset_names, as_dict=True)
+	flag_map = {r["asset_ref"]: r for r in flag_rows}
+
+	compliant = 0
 	for asset in assets:
-		actual = frappe.db.count(_ASSET_DOCUMENT, {
-			"asset_ref": asset.name,
-			"workflow_state": "Active",
-			"doc_type_detail": ("in", required_types),
-		})
-		total = len(required_types)
-		pct = round(actual / total * 100, 1) if total else 100.0
+		actual = active_map.get(asset.name, 0)
+		pct = round(actual / total_required * 100, 1) if total_required else 100.0
+		flags = flag_map.get(asset.name, {})
 
-		has_expired = bool(frappe.db.exists(_ASSET_DOCUMENT, {
-			"asset_ref": asset.name, "workflow_state": "Expired",
-		}))
-		has_expiring = bool(frappe.db.sql("""
-			SELECT name FROM `tabAsset Document`
-			WHERE asset_ref = %s AND workflow_state = 'Active'
-			AND expiry_date IS NOT NULL
-			AND DATEDIFF(expiry_date, CURDATE()) BETWEEN 0 AND 30 LIMIT 1
-		""", asset.name))
-		is_exempt = bool(frappe.db.sql("""
-			SELECT name FROM `tabAsset Document`
-			WHERE asset_ref = %s AND is_exempt = 1
-			AND doc_type_detail IN ('Chứng nhận đăng ký lưu hành','Giấy phép nhập khẩu')
-			LIMIT 1
-		""", asset.name))
-
-		if is_exempt:
+		if flags.get("is_exempt"):
 			status = "Compliant (Exempt)"
-		elif has_expired:
+		elif flags.get("has_expired"):
 			status = "Non-Compliant"
-		elif has_expiring:
+		elif flags.get("has_expiring"):
 			status = "Expiring_Soon"
 		elif pct >= 100:
 			status = "Compliant"
 		else:
 			status = "Incomplete"
 
+		if status in ("Compliant", "Compliant (Exempt)"):
+			compliant += 1
+
 		frappe.db.set_value("Asset", asset.name, {
 			"custom_doc_completeness_pct": pct,
 			"custom_document_status": status,
-			"custom_doc_status_summary": f"{actual}/{total} bắt buộc",
+			"custom_doc_status_summary": f"{actual}/{total_required} bắt buộc",
 		})
 
-	compliant = sum(1 for a in assets if frappe.db.get_value("Asset", a.name, "custom_document_status") == "Compliant")
 	print(f"[IMM-05] update_asset_completeness: {len(assets)} assets updated, {compliant} Compliant")
 
 

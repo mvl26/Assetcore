@@ -85,6 +85,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { AssetDocumentItem } from '@/api/imm05'
+import { stateLabel, formatDate } from '@/utils/docUtils'
 
 const props = defineProps<{ doc: AssetDocumentItem }>()
 
@@ -114,17 +115,6 @@ const expiryClass = computed(() => {
   return ''
 })
 
-function stateLabel(state: string): string {
-  const map: Record<string, string> = {
-    Draft: 'Draft', Pending_Review: 'Chờ duyệt', Active: 'Active',
-    Expired: 'Hết hạn', Archived: 'Lưu trữ', Rejected: 'Từ chối',
-  }
-  return map[state] ?? state
-}
-
-function formatDate(date: string): string {
-  return new Date(date).toLocaleDateString('vi-VN')
-}
 </script>
 
 <style scoped>

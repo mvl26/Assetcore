@@ -2,6 +2,7 @@
 // API calls cho Module IMM-04 — wrapping Frappe whitelist methods
 
 import api from './axios'
+import { frappeGet, frappePost } from './helpers'
 import type {
   ApiResponse,
   CommissioningDoc,
@@ -19,24 +20,6 @@ import type {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const BASE = '/api/method/assetcore.api.imm04'
-
-// ─────────────────────────────────────────────────────────────────────────────
-// HELPER
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Frappe whitelist trả về {message: <actual_data>}.
- * Hàm này unwrap lớp message ra.
- */
-async function frappeGet<T>(endpoint: string, params?: Record<string, unknown>): Promise<T> {
-  const response = await api.get<{ message: T }>(endpoint, { params })
-  return response.data.message
-}
-
-async function frappePost<T>(endpoint: string, body?: Record<string, unknown>): Promise<T> {
-  const response = await api.post<{ message: T }>(endpoint, body)
-  return response.data.message
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. GET FORM CONTEXT

@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { getDocument, approveDocument, rejectDocument } from '@/api/imm05'
 import type { AssetDocumentDetail } from '@/api/imm05'
+import { stateLabel, formatDate } from '@/utils/docUtils'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 
 const props = defineProps<{ name: string }>()
@@ -39,22 +40,13 @@ function goBack(): void {
   router.push('/documents')
 }
 
-function formatDate(date: string | null | undefined): string {
-  if (!date) return '—'
-  return new Date(date).toLocaleDateString('vi-VN')
-}
-
-function stateLabel(state: string): string {
-  const map: Record<string, string> = {
-    Draft: 'Draft',
-    Pending_Review: 'Chờ duyệt',
-    Active: 'Active',
-    Expired: 'Hết hạn',
-    Archived: 'Lưu trữ',
-    Rejected: 'Từ chối',
-  }
-  return map[state] ?? state
-}
+const expiryDateClass = computed(() => {
+  const d = doc.value?.days_until_expiry
+  if (d === null || d === undefined) return 'text-gray-800'
+  if (d <= 0) return 'text-red-600 font-medium'
+  if (d <= 30) return 'text-yellow-600 font-medium'
+  return 'text-gray-800'
+})
 
 function stateBadgeClass(state: string): string {
   const map: Record<string, string> = {
@@ -212,7 +204,7 @@ async function handleReject(): Promise<void> {
           </div>
           <div>
             <dt class="text-gray-400 font-medium mb-0.5">Ngày hết hạn</dt>
-            <dd :class="['font-medium', doc.days_until_expiry !== null && doc.days_until_expiry <= 0 ? 'text-red-600' : doc.days_until_expiry !== null && doc.days_until_expiry <= 30 ? 'text-yellow-600' : 'text-gray-800']">
+            <dd :class="expiryDateClass">
               {{ formatDate(doc.expiry_date) }}
               <span v-if="doc.days_until_expiry !== null" class="text-xs text-gray-400 ml-1">({{ doc.days_until_expiry }}d)</span>
             </dd>

@@ -7,6 +7,7 @@ import DocumentChecklist from '@/components/imm04/DocumentChecklist.vue'
 import QRLabel from '@/components/imm04/QRLabel.vue'
 import { useCommissioningStore } from '@/stores/commissioning'
 import type { CommissioningDoc, WorkflowState, DocumentRecord, BaselineTest } from '@/types/imm04'
+import { formatDatetime } from '@/utils/docUtils'
 
 const props = defineProps<{
   doc: CommissioningDoc
@@ -194,7 +195,7 @@ const showDOAAlert = computed(() => props.doc.doa_incident)
             </span>
           </div>
           <p class="text-sm text-gray-500">
-            Cập nhật: {{ new Date(doc.modified).toLocaleString('vi-VN') }}
+            Cập nhật: {{ formatDatetime(doc.modified) }}
             <span class="mx-1">&middot;</span>
             Bởi: {{ doc.owner }}
           </p>

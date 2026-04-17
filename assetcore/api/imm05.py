@@ -2,6 +2,7 @@
 # REST API cho Module IMM-05 — Asset Document Repository
 
 import json
+from math import ceil
 import frappe
 from frappe import _
 from frappe.utils import nowdate, add_days, date_diff
@@ -11,36 +12,38 @@ from frappe.utils import nowdate, add_days, date_diff
 # INTERNAL HELPERS
 # ─────────────────────────────────────────────────────────────────────────────
 
+_DOCTYPE = "Asset Document"
+
+_ROLE_TO_HC_QLCL = "Tổ HC-QLCL"
+_ROLE_BIOMED = "Biomed Engineer"
+_ROLE_CMMS_ADMIN = "CMMS Admin"
+
+_INTERNAL_ONLY_ROLES = {
+	"HTM Technician", _ROLE_TO_HC_QLCL, _ROLE_BIOMED,
+	"Workshop Head", _ROLE_CMMS_ADMIN, "System Manager",
+}
+
+_APPROVE_ROLES = {_ROLE_BIOMED, _ROLE_TO_HC_QLCL, _ROLE_CMMS_ADMIN}
+_EXEMPT_ROLES = {_ROLE_TO_HC_QLCL, _ROLE_CMMS_ADMIN, "Workshop Head"}
+
+
 def _ok(data: dict | list) -> dict:
-	"""Chuẩn trả về thành công."""
 	return {"success": True, "data": data}
 
 
 def _err(message: str, code: str = "GENERIC_ERROR") -> dict:
-	"""Chuẩn trả về lỗi."""
 	return {"success": False, "error": message, "code": code}
 
 
-# Roles được xem Internal_Only docs (bao gồm System Manager/Administrator)
-INTERNAL_ONLY_ROLES = {
-	"HTM Technician", "Tổ HC-QLCL", "Biomed Engineer",
-	"Workshop Head", "CMMS Admin", "System Manager",
-}
-
-
 def _can_see_internal() -> bool:
-	"""Kiểm tra user hiện tại có quyền xem Internal_Only không."""
 	if frappe.session.user in ("Administrator", "admin"):
 		return True
-	user_roles = set(frappe.get_roles(frappe.session.user))
-	return bool(user_roles.intersection(INTERNAL_ONLY_ROLES))
+	return bool(set(frappe.get_roles(frappe.session.user)).intersection(_INTERNAL_ONLY_ROLES))
 
 
 def _apply_visibility_filter(filters: dict) -> dict:
-	"""Tự động ẩn Internal_Only với user không có quyền."""
 	if not _can_see_internal():
-		# Chỉ hiện Public và docs chưa set visibility (null/empty)
-		filters["visibility"] = ["in", ["Public", "", None]]
+		return {**filters, "visibility": ["in", ["Public", "", None]]}
 	return filters
 
 
@@ -73,8 +76,8 @@ def list_documents(filters: str = "{}", page: int = 1, page_size: int = 20) -> d
 		"days_until_expiry", "visibility", "is_exempt", "modified",
 	]
 
-	total = frappe.db.count("Asset Document", f)
-	items = frappe.get_all("Asset Document",
+	total = frappe.db.count(_DOCTYPE, f)
+	items = frappe.get_all(_DOCTYPE,
 		filters=f,
 		fields=fields,
 		limit=page_size,
@@ -88,7 +91,7 @@ def list_documents(filters: str = "{}", page: int = 1, page_size: int = 20) -> d
 			"page": page,
 			"page_size": page_size,
 			"total": total,
-			"total_pages": -(-total // page_size),  # ceiling division
+			"total_pages": ceil(total / page_size) if total else 0,
 		}
 	})
 
@@ -104,12 +107,11 @@ def get_document(name: str) -> dict:
 
 	GET /api/method/assetcore.api.imm05.get_document?name=DOC-...
 	"""
-	if not frappe.db.exists("Asset Document", name):
+	try:
+		doc = frappe.get_doc(_DOCTYPE, name)
+	except frappe.DoesNotExistError:
 		return _err(f"Không tìm thấy tài liệu: {name}", "NOT_FOUND")
 
-	doc = frappe.get_doc("Asset Document", name)
-
-	# Kiểm tra visibility
 	if doc.visibility == "Internal_Only" and not _can_see_internal():
 		return _err("Không có quyền xem tài liệu này.", "FORBIDDEN")
 
@@ -133,7 +135,7 @@ def create_document(doc_data: str = "{}") -> dict:
 	except (ValueError, TypeError):
 		return _err("doc_data không phải JSON hợp lệ", "INVALID_DATA")
 
-	data["doctype"] = "Asset Document"
+	data["doctype"] = _DOCTYPE
 	data.setdefault("workflow_state", "Draft")
 	data.setdefault("version", "1.0")
 
@@ -160,19 +162,19 @@ def update_document(name: str, doc_data: str = "{}") -> dict:
 	POST /api/method/assetcore.api.imm05.update_document
 	Body: { name, doc_data (JSON) }
 	"""
-	if not frappe.db.exists("Asset Document", name):
-		return _err(f"Không tìm thấy: {name}", "NOT_FOUND")
-
-	state = frappe.db.get_value("Asset Document", name, "workflow_state")
-	if state not in ("Draft", "Rejected"):
-		return _err(f"Chỉ có thể sửa khi ở Draft hoặc Rejected. Hiện tại: {state}", "INVALID_STATE")
-
 	try:
 		data = json.loads(doc_data) if isinstance(doc_data, str) else doc_data
 	except (ValueError, TypeError):
 		return _err("doc_data không phải JSON hợp lệ", "INVALID_DATA")
 
-	doc = frappe.get_doc("Asset Document", name)
+	try:
+		doc = frappe.get_doc(_DOCTYPE, name)
+	except frappe.DoesNotExistError:
+		return _err(f"Không tìm thấy: {name}", "NOT_FOUND")
+
+	if doc.workflow_state not in ("Draft", "Rejected"):
+		return _err(f"Chỉ có thể sửa khi ở Draft hoặc Rejected. Hiện tại: {doc.workflow_state}", "INVALID_STATE")
+
 	doc.update(data)
 	doc.save()
 	return _ok({"name": doc.name, "modified": str(doc.modified)})
@@ -190,43 +192,36 @@ def approve_document(name: str) -> dict:
 	POST /api/method/assetcore.api.imm05.approve_document
 	Body: { name }
 	"""
-	if not frappe.db.exists("Asset Document", name):
+	try:
+		doc = frappe.get_doc(_DOCTYPE, name)
+	except frappe.DoesNotExistError:
 		return _err(f"Không tìm thấy: {name}", "NOT_FOUND")
-
-	doc = frappe.get_doc("Asset Document", name)
 
 	if doc.workflow_state != "Pending_Review":
 		return _err(f"Chỉ Approve từ Pending_Review. Hiện tại: {doc.workflow_state}", "INVALID_STATE")
 
-	# Kiểm tra quyền
-	allowed_roles = {"Biomed Engineer", "Tổ HC-QLCL", "CMMS Admin"}
-	user_roles = set(frappe.get_roles(frappe.session.user))
-	if not user_roles.intersection(allowed_roles):
+	if not set(frappe.get_roles(frappe.session.user)).intersection(_APPROVE_ROLES):
 		return _err("Không có quyền Approve tài liệu.", "FORBIDDEN")
 
-	# Tìm version cũ đang Active
-	old_docs = frappe.get_all("Asset Document", filters={
+	# Archive any existing Active version before promoting this one
+	old_docs = frappe.get_all(_DOCTYPE, filters={
 		"asset_ref": doc.asset_ref,
 		"doc_type_detail": doc.doc_type_detail,
 		"workflow_state": "Active",
 		"name": ("!=", name),
 	}, fields=["name"])
+	for old in old_docs:
+		frappe.db.set_value(_DOCTYPE, old.name, "workflow_state", "Archived")
 
-	# Transition
 	doc.workflow_state = "Active"
 	doc.approved_by = frappe.session.user
 	doc.approval_date = nowdate()
 	doc.save(ignore_permissions=True)
 
-	archived_old = None
-	if old_docs:
-		archived_old = old_docs[0].name
-
 	return _ok({
 		"name": name,
 		"new_state": "Active",
 		"approved_by": frappe.session.user,
-		"archived_old": archived_old,
 	})
 
 
@@ -242,13 +237,13 @@ def reject_document(name: str, rejection_reason: str = "") -> dict:
 	POST /api/method/assetcore.api.imm05.reject_document
 	Body: { name, rejection_reason }
 	"""
-	if not frappe.db.exists("Asset Document", name):
-		return _err(f"Không tìm thấy: {name}", "NOT_FOUND")
-
 	if not rejection_reason:
 		return _err("Lý do từ chối là bắt buộc (VR-06).", "VALIDATION_ERROR")
 
-	doc = frappe.get_doc("Asset Document", name)
+	try:
+		doc = frappe.get_doc(_DOCTYPE, name)
+	except frappe.DoesNotExistError:
+		return _err(f"Không tìm thấy: {name}", "NOT_FOUND")
 	if doc.workflow_state != "Pending_Review":
 		return _err(f"Chỉ Reject từ Pending_Review. Hiện tại: {doc.workflow_state}", "INVALID_STATE")
 
@@ -276,7 +271,7 @@ def get_asset_documents(asset: str) -> dict:
 	filters = {"asset_ref": asset}
 	filters = _apply_visibility_filter(filters)
 
-	docs = frappe.get_all("Asset Document",
+	docs = frappe.get_all(_DOCTYPE,
 		filters=filters,
 		fields=["name", "doc_category", "doc_type_detail", "doc_number",
 				"version", "workflow_state", "expiry_date", "days_until_expiry",
@@ -319,8 +314,8 @@ def get_dashboard_stats() -> dict:
 
 	GET /api/method/assetcore.api.imm05.get_dashboard_stats
 	"""
-	total_active = frappe.db.count("Asset Document", {"workflow_state": "Active"})
-	expired_not_renewed = frappe.db.count("Asset Document", {"workflow_state": "Expired"})
+	total_active = frappe.db.count(_DOCTYPE, {"workflow_state": "Active"})
+	expired_not_renewed = frappe.db.count(_DOCTYPE, {"workflow_state": "Expired"})
 
 	ninety_days = add_days(nowdate(), 90)
 	expiring_90d = frappe.db.sql("""
@@ -337,7 +332,7 @@ def get_dashboard_stats() -> dict:
 	""")[0][0]
 
 	# Expiry timeline (sắp hết hạn trong 90 ngày tới)
-	timeline = frappe.get_all("Asset Document",
+	timeline = frappe.get_all(_DOCTYPE,
 		filters={
 			"workflow_state": "Active",
 			"expiry_date": ["between", [nowdate(), ninety_days]],
@@ -394,7 +389,7 @@ def get_expiring_documents(days: int = 90) -> dict:
 	days = min(365, max(1, int(days)))
 	target = add_days(nowdate(), days)
 
-	docs = frappe.get_all("Asset Document",
+	docs = frappe.get_all(_DOCTYPE,
 		filters={
 			"workflow_state": "Active",
 			"expiry_date": ["between", [nowdate(), target]],
@@ -454,11 +449,11 @@ def get_document_history(name: str) -> dict:
 
 	GET /api/method/assetcore.api.imm05.get_document_history?name=DOC-...
 	"""
-	if not frappe.db.exists("Asset Document", name):
+	if not frappe.db.exists(_DOCTYPE, name):
 		return _err(f"Không tìm thấy: {name}", "NOT_FOUND")
 
 	versions = frappe.get_all("Version",
-		filters={"ref_doctype": "Asset Document", "docname": name},
+		filters={"ref_doctype": _DOCTYPE, "docname": name},
 		fields=["name", "creation", "owner", "data"],
 		order_by="creation asc",
 	)
@@ -583,9 +578,7 @@ def mark_exempt(
 	POST /api/method/assetcore.api.imm05.mark_exempt
 	Body: { asset_ref, doc_type_detail, exempt_reason, exempt_proof }
 	"""
-	# Kiểm tra quyền — chỉ Tổ HC-QLCL + CMMS Admin
-	allowed = {"Tổ HC-QLCL", "CMMS Admin", "Workshop Head"}
-	if not set(frappe.get_roles(frappe.session.user)).intersection(allowed):
+	if not set(frappe.get_roles(frappe.session.user)).intersection(_EXEMPT_ROLES):
 		return _err("Không có quyền đánh dấu Exempt.", "FORBIDDEN")
 
 	if not frappe.db.exists("Asset", asset_ref):
@@ -596,7 +589,7 @@ def mark_exempt(
 
 	try:
 		doc = frappe.get_doc({
-			"doctype": "Asset Document",
+			"doctype": _DOCTYPE,
 			"asset_ref": asset_ref,
 			"doc_category": "Legal",
 			"doc_type_detail": doc_type_detail,

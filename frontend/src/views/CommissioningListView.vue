@@ -3,6 +3,7 @@ import { ref, onMounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useCommissioningStore } from '@/stores/commissioning'
 import StatusBadge from '@/components/common/StatusBadge.vue'
+import { formatDate } from '@/utils/docUtils'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import type { CommissioningFilters, WorkflowState } from '@/types/imm04'
 
@@ -184,16 +185,13 @@ watch(
                 <td class="table-cell">{{ item.clinical_dept }}</td>
                 <td class="table-cell font-mono text-xs">{{ item.vendor_serial_no || '—' }}</td>
                 <td class="table-cell text-sm">
-                  {{ item.expected_installation_date
-                    ? new Date(item.expected_installation_date).toLocaleDateString('vi-VN')
-                    : '—'
-                  }}
+                  {{ formatDate(item.expected_installation_date) }}
                 </td>
                 <td class="px-6 py-4">
                   <StatusBadge :state="item.workflow_state" />
                 </td>
                 <td class="table-cell text-gray-500 text-xs">
-                  {{ new Date(item.modified).toLocaleDateString('vi-VN') }}
+                  {{ formatDate(item.modified) }}
                 </td>
               </tr>
 

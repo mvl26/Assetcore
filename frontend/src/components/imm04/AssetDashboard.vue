@@ -13,6 +13,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useCommissioningStore } from '@/stores/commissioning'
 import { commissioningListResource } from '@/services/frappeResource'
 import type { CommissioningListItem } from '@/types/imm04'
+import { formatDate } from '@/utils/docUtils'
 
 // ─── Stores ──────────────────────────────────────────────────────────────────
 
@@ -82,10 +83,6 @@ function stateClass(state: string): string {
   return map[state] ?? 'bg-gray-100 text-gray-600'
 }
 
-function formatDate(dateStr: string | undefined): string {
-  if (!dateStr) return '—'
-  return new Date(dateStr).toLocaleDateString('vi-VN')
-}
 </script>
 
 <template>

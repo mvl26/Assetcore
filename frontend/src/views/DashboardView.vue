@@ -3,6 +3,7 @@ import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { getDashboardStats } from '@/api/imm04'
 import StatusBadge from '@/components/common/StatusBadge.vue'
+import { formatDate } from '@/utils/docUtils'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import type { DashboardStats, CommissioningListItem, WorkflowState } from '@/types/imm04'
 
@@ -239,7 +240,7 @@ onMounted(fetchStats)
                     <StatusBadge :state="item.workflow_state" />
                   </td>
                   <td class="table-cell text-gray-500 text-xs">
-                    {{ new Date(item.modified).toLocaleDateString('vi-VN') }}
+                    {{ formatDate(item.modified) }}
                   </td>
                 </tr>
                 <tr v-if="!filteredRecent.length">

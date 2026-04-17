@@ -17,21 +17,21 @@
     </div>
 
     <!-- KPI Banner -->
-    <div v-if="kpis" class="kpi-grid">
+    <div v-if="store.kpis" class="kpi-grid">
       <div class="kpi-card">
-        <span class="kpi-value">{{ kpis.total_active }}</span>
+        <span class="kpi-value">{{ store.kpis.total_active }}</span>
         <span class="kpi-label">Tài liệu Active</span>
       </div>
       <div class="kpi-card warn">
-        <span class="kpi-value">{{ kpis.expiring_90d }}</span>
+        <span class="kpi-value">{{ store.kpis.expiring_90d }}</span>
         <span class="kpi-label">Sắp hết hạn (90 ngày)</span>
       </div>
       <div class="kpi-card danger">
-        <span class="kpi-value">{{ kpis.expired_not_renewed }}</span>
+        <span class="kpi-value">{{ store.kpis.expired_not_renewed }}</span>
         <span class="kpi-label">Đã hết hạn</span>
       </div>
       <div class="kpi-card info">
-        <span class="kpi-value">{{ kpis.assets_missing_docs }}</span>
+        <span class="kpi-value">{{ store.kpis.assets_missing_docs }}</span>
         <span class="kpi-label">Thiết bị thiếu hồ sơ</span>
       </div>
     </div>
@@ -191,6 +191,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { useImm05Store } from '@/stores/imm05Store'
 import { getDocumentHistory } from '@/api/imm05'
 import type { AssetDocumentItem, DocumentFilters } from '@/api/imm05'
+import { formatDatetime } from '@/utils/docUtils'
 import DocumentRow from '@/components/imm05/DocumentRow.vue'
 import DocumentRequestModal from '@/components/imm05/DocumentRequestModal.vue'
 import ExemptModal from '@/components/imm05/ExemptModal.vue'
@@ -223,9 +224,6 @@ const historyDialog = reactive<{
 // ── Request & Exempt modals ──────────────────────────────────────────────────
 const requestModal = reactive<{ open: boolean; doc: AssetDocumentItem | null }>({ open: false, doc: null })
 const exemptModal = reactive<{ open: boolean; doc: AssetDocumentItem | null }>({ open: false, doc: null })
-
-// ── KPIs ─────────────────────────────────────────────────────────────────────
-const kpis = computed(() => store.kpis)
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
 onMounted(async () => {
@@ -320,11 +318,6 @@ function onExempted(docName: string) {
   alert(`Đã đánh dấu Exempt. Tài liệu mới: ${docName}`)
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function formatDatetime(dt: string): string {
-  return new Date(dt).toLocaleString('vi-VN')
-}
 </script>
 
 <style scoped>

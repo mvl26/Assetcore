@@ -1,20 +1,15 @@
 // Copyright (c) 2026, AssetCore Team
 // API calls cho Module IMM-05 — Asset Document Repository
 
-import api from './axios'
+import { frappeGet, frappePost } from './helpers'
+import type { ApiResponse } from './helpers'
+export type { ApiResponse } from './helpers'
 
 const BASE = '/api/method/assetcore.api.imm05'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TYPES
 // ─────────────────────────────────────────────────────────────────────────────
-
-export interface ApiResponse<T> {
-  success: boolean
-  data: T
-  error?: string
-  code?: string
-}
 
 export interface Pagination {
   page: number
@@ -100,20 +95,6 @@ export interface DashboardStats {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// HELPERS
-// ─────────────────────────────────────────────────────────────────────────────
-
-async function frappeGet<T>(endpoint: string, params?: Record<string, unknown>): Promise<T> {
-  const response = await api.get<{ message: T }>(endpoint, { params })
-  return response.data.message
-}
-
-async function frappePost<T>(endpoint: string, body?: Record<string, unknown>): Promise<T> {
-  const response = await api.post<{ message: T }>(endpoint, body)
-  return response.data.message
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // 1. LIST DOCUMENTS
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -163,7 +144,7 @@ export function updateDocument(name: string, docData: Partial<AssetDocumentDetai
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function approveDocument(name: string) {
-  return frappePost<ApiResponse<{ name: string; new_state: string; archived_old: string | null }>>(
+  return frappePost<ApiResponse<{ name: string; new_state: string }>>(
     `${BASE}.approve_document`,
     { name },
   )
