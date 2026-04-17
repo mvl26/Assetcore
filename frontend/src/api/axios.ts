@@ -118,8 +118,14 @@ api.interceptors.response.use(
       case 404:
         return Promise.reject(new Error('Không tìm thấy tài nguyên yêu cầu.'))
 
-      case 500:
-        return Promise.reject(new Error('Lỗi máy chủ nội bộ. Vui lòng liên hệ IT.'))
+      case 500: {
+        // Trích thông tin lỗi từ Frappe traceback để debug nhanh hơn
+        const excSummary = data?.exc
+          ? String(data.exc).split('\n').findLast(Boolean) ?? ''
+          : ''
+        const hint = excSummary ? ` — ${excSummary}` : ''
+        return Promise.reject(new Error(`500 Lỗi máy chủ nội bộ${hint}`))
+      }
 
       default:
         return Promise.reject(

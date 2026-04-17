@@ -10,12 +10,18 @@ import type { CommissioningDoc, WorkflowState, DocumentRecord, BaselineTest } fr
 
 const props = defineProps<{
   doc: CommissioningDoc
+  // IMM-05 compliance props (optional — graceful khi IMM-05 chưa deploy)
+  imm05DocStatus?: string | null
+  imm05Pct?: number
+  imm05Missing?: string[]
+  imm05IsCompliant?: boolean
 }>()
 
 const emit = defineEmits<{
   (e: 'transition', action: string): void
   (e: 'submit'): void
   (e: 'saved'): void
+  (e: 'refresh-imm05'): void
 }>()
 
 const store = useCommissioningStore()
@@ -216,6 +222,7 @@ const showDOAAlert = computed(() => props.doc.doa_incident)
             :is-locked="doc.is_locked"
             :can-submit="store.canSubmitDoc"
             :loading="store.loading"
+            :imm05-is-compliant="imm05IsCompliant ?? true"
             @transition="emit('transition', $event)"
             @submit="emit('submit')"
           />
@@ -431,13 +438,81 @@ const showDOAAlert = computed(() => props.doc.doa_incident)
           <svg class="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
-          <div>
+          <div class="flex-1">
             <p class="font-semibold text-green-800">Tài sản đã được tạo thành công</p>
             <p class="text-sm text-green-700 font-mono">{{ doc.final_asset }}</p>
           </div>
+          <!-- Nút chuyển sang IMM-05 -->
+          <a
+            :href="`/documents?asset=${doc.final_asset}`"
+            class="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-md transition-colors"
+          >
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            Cập nhật hồ sơ IMM-05
+          </a>
         </div>
         <div v-else class="text-sm text-gray-500 italic p-4 bg-gray-50 rounded-lg">
           Tài sản sẽ được tạo tự động sau khi phiếu được Submit ở trạng thái Clinical Release.
+        </div>
+
+        <!-- IMM-05 Compliance Widget (chỉ hiện khi có final_asset) -->
+        <div v-if="hasAsset && imm05DocStatus !== undefined" class="mt-4">
+          <div
+            class="rounded-lg border p-4"
+            :class="{
+              'bg-green-50 border-green-200': imm05IsCompliant,
+              'bg-yellow-50 border-yellow-200': !imm05IsCompliant && imm05DocStatus === 'Expiring_Soon',
+              'bg-red-50 border-red-200': !imm05IsCompliant && imm05DocStatus !== 'Expiring_Soon',
+            }"
+          >
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-sm font-semibold text-gray-700">Trạng thái Hồ sơ IMM-05</span>
+              <span
+                class="text-xs font-bold px-2 py-0.5 rounded-full"
+                :class="{
+                  'bg-green-100 text-green-800': imm05IsCompliant,
+                  'bg-yellow-100 text-yellow-800': !imm05IsCompliant && imm05DocStatus === 'Expiring_Soon',
+                  'bg-red-100 text-red-800': !imm05IsCompliant && imm05DocStatus !== 'Expiring_Soon',
+                }"
+              >
+                {{ imm05DocStatus ?? 'Chưa có dữ liệu' }}
+              </span>
+            </div>
+
+            <!-- Progress bar -->
+            <div class="flex items-center gap-3 mb-2">
+              <div class="flex-1 h-2 bg-gray-200 rounded-full overflow-hidden">
+                <div
+                  class="h-full rounded-full transition-all"
+                  :class="imm05IsCompliant ? 'bg-green-500' : 'bg-red-500'"
+                  :style="`width: ${imm05Pct ?? 0}%`"
+                />
+              </div>
+              <span class="text-xs text-gray-600 font-mono w-10 text-right">{{ imm05Pct ?? 0 }}%</span>
+            </div>
+
+            <!-- Thiếu hồ sơ -->
+            <div v-if="imm05Missing && imm05Missing.length > 0" class="mt-2">
+              <p class="text-xs text-red-700 font-medium mb-1">Thiếu hồ sơ bắt buộc:</p>
+              <ul class="text-xs text-red-600 space-y-0.5 list-disc list-inside">
+                <li v-for="m in imm05Missing" :key="m">{{ m }}</li>
+              </ul>
+            </div>
+
+            <div class="mt-3 flex items-center justify-between">
+              <p v-if="!imm05IsCompliant" class="text-xs text-red-700 font-medium">
+                ⚠ Cần bổ sung hồ sơ trước khi Submit phiếu IMM-04
+              </p>
+              <button
+                class="text-xs text-blue-600 hover:underline ml-auto"
+                @click="emit('refresh-imm05')"
+              >
+                Làm mới
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 

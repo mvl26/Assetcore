@@ -1,9 +1,13 @@
 # Copyright (c) 2026, AssetCore Team and contributors
-# Scheduled Background Tasks cho Module IMM-04
+# Scheduled Background Tasks cho AssetCore (IMM-04 + IMM-05)
 
 import frappe
 from frappe import _
 from frappe.utils import add_days, nowdate, date_diff
+
+_ASSET_DOCUMENT = "Asset Document"
+_ROLE_WORKSHOP_HEAD = "Workshop Head"
+_ROLE_VP_BLOCK2 = "VP Block2"
 
 
 def check_clinical_hold_aging():
@@ -31,7 +35,7 @@ def check_clinical_hold_aging():
 def _send_hold_alert(form, days_held):
 	"""Gửi cảnh báo qua email và in-app notification."""
 	# Lấy danh sách email cần báo
-	recipients = _get_role_emails(["Workshop Head", "QA Risk Team"])
+	recipients = _get_role_emails([_ROLE_WORKSHOP_HEAD, "QA Risk Team"])
 
 	message = f"""
 	<p>Phiếu lắp đặt <b>{form.name}</b> đang bị <b>TẠMH GIỮU (Clinical Hold)</b>
@@ -78,7 +82,7 @@ def check_commissioning_sla():
 
 def _send_sla_alert(form, days_overdue):
 	"""Gửi cảnh báo SLA breach."""
-	recipients = _get_role_emails(["Workshop Head", "VP Block2"])
+	recipients = _get_role_emails([_ROLE_WORKSHOP_HEAD, _ROLE_VP_BLOCK2])
 
 	message = f"""
 	<p>⏰ Phiếu <b>{form.name}</b> đã <b>QUÁ HẠN {days_overdue} NGÀY</b>.</p>
@@ -115,7 +119,7 @@ def send_pending_approvals_reminder():
 	if not pending_release:
 		return
 
-	recipients = _get_role_emails(["VP Block2"])
+	recipients = _get_role_emails([_ROLE_VP_BLOCK2])
 	names = [f["name"] for f in pending_release]
 
 	frappe.sendmail(
@@ -126,6 +130,161 @@ def send_pending_approvals_reminder():
 		<ul>{"".join(f"<li><a href='/app/asset-commissioning/{n}'>{n}</a></li>" for n in names)}</ul>
 		"""
 	)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# IMM-05: EXPIRY ALERT + AUTO-EXPIRE
+# ─────────────────────────────────────────────────────────────────────────────
+
+def check_document_expiry():
+	"""
+	Cron daily (00:30): Kiểm tra toàn bộ Active docs có expiry.
+	Tạo Expiry Alert Log + gửi notification theo mốc 90/60/30/0 ngày.
+	"""
+	THRESHOLDS = {
+		90: {"level": "Info",     "roles": [_ROLE_WORKSHOP_HEAD]},
+		60: {"level": "Warning",  "roles": [_ROLE_WORKSHOP_HEAD, "Biomed Engineer"]},
+		30: {"level": "Critical", "roles": [_ROLE_WORKSHOP_HEAD, _ROLE_VP_BLOCK2]},
+		0:  {"level": "Danger",   "roles": [_ROLE_WORKSHOP_HEAD, _ROLE_VP_BLOCK2, "QA Risk Team"]},
+	}
+
+	total_alerts = 0
+	total_expired = 0
+
+	for days, config in THRESHOLDS.items():
+		target_date = add_days(nowdate(), days)
+		docs = frappe.db.get_all(
+			_ASSET_DOCUMENT,
+			filters={"expiry_date": target_date, "workflow_state": "Active"},
+			fields=["name", "asset_ref", "doc_type_detail", "expiry_date"],
+		)
+		for doc in docs:
+			if frappe.db.exists("Expiry Alert Log", {
+				"asset_document": doc.name, "alert_date": nowdate()
+			}):
+				continue
+
+			notified = _get_role_emails(config["roles"])
+			frappe.get_doc({
+				"doctype": "Expiry Alert Log",
+				"asset_document": doc.name,
+				"asset_ref": doc.asset_ref,
+				"doc_type_detail": doc.doc_type_detail,
+				"expiry_date": doc.expiry_date,
+				"days_remaining": days,
+				"alert_level": config["level"],
+				"alert_date": nowdate(),
+				"notified_users": ", ".join(notified),
+			}).insert(ignore_permissions=True)
+			total_alerts += 1
+
+		# Auto-transition → Expired khi days == 0
+		if days == 0:
+			for doc in docs:
+				frappe.db.set_value(_ASSET_DOCUMENT, doc.name, "workflow_state", "Expired")
+				total_expired += 1
+
+	print(f"[IMM-05] check_document_expiry: {total_alerts} alerts created, {total_expired} docs auto-Expired")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# IMM-05: BATCH UPDATE ASSET COMPLETENESS
+# ─────────────────────────────────────────────────────────────────────────────
+
+def update_asset_completeness():
+	"""
+	Cron daily (01:00): Batch update custom_doc_completeness_pct
+	và custom_document_status cho toàn bộ Active assets.
+	"""
+	required_types = frappe.db.get_all(
+		"Required Document Type", filters={"is_mandatory": 1}, pluck="type_name"
+	)
+	if not required_types:
+		print("[IMM-05] update_asset_completeness: no Required Document Types defined — skipped")
+		return
+
+	assets = frappe.db.get_all("Asset", filters={"docstatus": ("!=", 2)}, fields=["name"])
+
+	for asset in assets:
+		actual = frappe.db.count(_ASSET_DOCUMENT, {
+			"asset_ref": asset.name,
+			"workflow_state": "Active",
+			"doc_type_detail": ("in", required_types),
+		})
+		total = len(required_types)
+		pct = round(actual / total * 100, 1) if total else 100.0
+
+		has_expired = bool(frappe.db.exists(_ASSET_DOCUMENT, {
+			"asset_ref": asset.name, "workflow_state": "Expired",
+		}))
+		has_expiring = bool(frappe.db.sql("""
+			SELECT name FROM `tabAsset Document`
+			WHERE asset_ref = %s AND workflow_state = 'Active'
+			AND expiry_date IS NOT NULL
+			AND DATEDIFF(expiry_date, CURDATE()) BETWEEN 0 AND 30 LIMIT 1
+		""", asset.name))
+		is_exempt = bool(frappe.db.sql("""
+			SELECT name FROM `tabAsset Document`
+			WHERE asset_ref = %s AND is_exempt = 1
+			AND doc_type_detail IN ('Chứng nhận đăng ký lưu hành','Giấy phép nhập khẩu')
+			LIMIT 1
+		""", asset.name))
+
+		if is_exempt:
+			status = "Compliant (Exempt)"
+		elif has_expired:
+			status = "Non-Compliant"
+		elif has_expiring:
+			status = "Expiring_Soon"
+		elif pct >= 100:
+			status = "Compliant"
+		else:
+			status = "Incomplete"
+
+		frappe.db.set_value("Asset", asset.name, {
+			"custom_doc_completeness_pct": pct,
+			"custom_document_status": status,
+			"custom_doc_status_summary": f"{actual}/{total} bắt buộc",
+		})
+
+	compliant = sum(1 for a in assets if frappe.db.get_value("Asset", a.name, "custom_document_status") == "Compliant")
+	print(f"[IMM-05] update_asset_completeness: {len(assets)} assets updated, {compliant} Compliant")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# IMM-05: OVERDUE DOCUMENT REQUEST ESCALATION
+# ─────────────────────────────────────────────────────────────────────────────
+
+def check_overdue_document_requests():
+	"""
+	Cron daily: Tự động leo thang Document Request quá hạn.
+	"""
+	overdue = frappe.db.get_all(
+		"Document Request",
+		filters={"status": "Open", "due_date": ("<", nowdate())},
+		fields=["name", "asset_ref", "doc_type_required", "assigned_to"],
+	)
+	if not overdue:
+		print("[IMM-05] check_overdue_document_requests: 0 overdue requests found")
+		return
+
+	for req in overdue:
+		frappe.db.set_value("Document Request", req.name, {
+			"status": "Overdue",
+			"escalation_sent": 1,
+		})
+
+	recipients = _get_role_emails([_ROLE_WORKSHOP_HEAD, _ROLE_VP_BLOCK2])
+	if recipients:
+		names_list = "".join(
+			f"<li>{r.asset_ref} — {r.doc_type_required}</li>" for r in overdue
+		)
+		frappe.sendmail(
+			recipients=recipients,
+			subject=f"[AssetCore] {len(overdue)} Document Request đã quá hạn",
+			message=f"<p>Các yêu cầu tài liệu sau đã quá hạn:</p><ul>{names_list}</ul>",
+		)
+	print(f"[IMM-05] check_overdue_document_requests: {len(overdue)} escalated, notified {len(recipients)} recipients")
 
 
 def _get_role_emails(roles):

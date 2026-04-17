@@ -1,40 +1,65 @@
 <script setup lang="ts">
-import { onMounted, watch } from 'vue'
+import { ref, watch, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useCommissioningStore } from '@/stores/commissioning'
+import { getAssetDocuments } from '@/api/imm05'
 import CommissioningForm from '@/components/imm04/CommissioningForm.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 
-const props = defineProps<{
-  id: string
-}>()
+const props = defineProps<{ id: string }>()
 
 const router = useRouter()
 const store = useCommissioningStore()
+
+// ── IMM-05 compliance status cho final_asset ─────────────────────────────────
+const imm05DocStatus = ref<string | null>(null)
+const imm05Pct = ref(0)
+const imm05Missing = ref<string[]>([])
+
+const finalAsset = computed(() => store.currentDoc?.final_asset ?? null)
+
+// compliant = Compliant hoặc Compliant (Exempt)
+const imm05IsCompliant = computed(() =>
+  imm05DocStatus.value === null ||
+  imm05DocStatus.value === 'Compliant' ||
+  imm05DocStatus.value === 'Compliant (Exempt)'
+)
+
+async function fetchImm05Status(asset: string) {
+  try {
+    const res = await getAssetDocuments(asset)
+    if (res.success) {
+      imm05DocStatus.value = res.data.document_status
+      imm05Pct.value = res.data.completeness_pct
+      imm05Missing.value = res.data.missing_required
+    }
+  } catch {
+    // Non-blocking — IMM-05 chưa deploy hoặc lỗi mạng: im lặng
+  }
+}
+
+// ── Lifecycle ─────────────────────────────────────────────────────────────────
 
 async function load() {
   await store.fetchDetail(props.id)
 }
 
 async function handleTransition(action: string) {
-  const ok = await store.transitionState(props.id, action)
-  if (!ok && store.error) {
-    // Error is displayed via store.error, no redirect needed
-  }
+  await store.transitionState(props.id, action)
 }
 
 async function handleSubmit() {
   const ok = await store.submitDoc(props.id)
-  if (ok) {
-    // Reload to show updated state after Submit
-    await load()
-  }
+  if (ok) await load()
 }
 
 onMounted(load)
-
-// Reload when id changes (e.g., browser back/forward)
 watch(() => props.id, load)
+
+// Khi final_asset thay đổi (sau Submit), tự động fetch IMM-05 status
+watch(finalAsset, (asset) => {
+  if (asset) fetchImm05Status(asset)
+}, { immediate: true })
 </script>
 
 <template>
@@ -105,8 +130,13 @@ watch(() => props.id, load)
       <!-- Form -->
       <CommissioningForm
         :doc="store.currentDoc"
+        :imm05-doc-status="imm05DocStatus"
+        :imm05-pct="imm05Pct"
+        :imm05-missing="imm05Missing"
+        :imm05-is-compliant="imm05IsCompliant"
         @transition="handleTransition"
         @submit="handleSubmit"
+        @refresh-imm05="finalAsset ? fetchImm05Status(finalAsset) : undefined"
       />
     </template>
   </div>

@@ -7,10 +7,24 @@ const auth = useAuthStore()
 const router = useRouter()
 const menuOpen = ref(false)
 
-const navLinks = [
-  { name: 'Dashboard', to: '/dashboard', label: 'Dashboard' },
-  { name: 'CommissioningList', to: '/commissioning', label: 'Phiếu Commissioning' },
+const navGroups = [
+  {
+    label: 'IMM-04 Lắp đặt',
+    links: [
+      { name: 'CommissioningList', to: '/commissioning', label: 'Phiếu Lắp đặt' },
+      { name: 'CommissioningCreate', to: '/commissioning/new', label: 'Tạo phiếu mới' },
+    ],
+  },
+  {
+    label: 'IMM-05 Hồ sơ',
+    links: [
+      { name: 'DocumentManagement', to: '/documents', label: 'Quản lý Hồ sơ' },
+    ],
+  },
 ]
+
+// Flat list for mobile & active-check
+const navLinks = navGroups.flatMap(g => g.links)
 
 function navigate(to: string) {
   router.push(to)
@@ -34,24 +48,36 @@ async function handleLogout() {
           </div>
           <div class="flex flex-col leading-tight">
             <span class="text-sm font-bold text-gray-900">AssetCore</span>
-            <span class="text-xs text-blue-600 font-medium">IMM-04 Commissioning</span>
+            <span class="text-xs text-blue-600 font-medium">HTM Platform</span>
           </div>
         </div>
 
-        <!-- Nav links (desktop) -->
-        <nav class="hidden md:flex items-center gap-1">
-          <RouterLink
-            v-for="link in navLinks"
-            :key="link.name"
-            :to="link.to"
-            class="px-3 py-2 text-sm font-medium rounded-md transition-colors"
-            :class="{
-              'bg-blue-50 text-blue-700': $route.name === link.name,
-              'text-gray-600 hover:text-gray-900 hover:bg-gray-100': $route.name !== link.name,
-            }"
+        <!-- Nav links (desktop) — grouped by module -->
+        <nav class="hidden md:flex items-center gap-4">
+          <div
+            v-for="group in navGroups"
+            :key="group.label"
+            class="flex items-center gap-1"
           >
-            {{ link.label }}
-          </RouterLink>
+            <!-- Module label -->
+            <span class="text-xs font-semibold text-gray-400 mr-1 uppercase tracking-wide">
+              {{ group.label }}
+            </span>
+            <RouterLink
+              v-for="link in group.links"
+              :key="link.name"
+              :to="link.to"
+              class="px-3 py-1.5 text-sm font-medium rounded-md transition-colors"
+              :class="{
+                'bg-blue-50 text-blue-700': $route.name === link.name,
+                'text-gray-600 hover:text-gray-900 hover:bg-gray-100': $route.name !== link.name,
+              }"
+            >
+              {{ link.label }}
+            </RouterLink>
+            <!-- Separator between groups -->
+            <span class="ml-3 border-l border-gray-200 h-5 inline-block" />
+          </div>
         </nav>
 
         <!-- User menu -->

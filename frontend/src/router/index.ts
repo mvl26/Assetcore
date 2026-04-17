@@ -46,6 +46,33 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/components/imm04/AssetDashboard.vue'),
     meta: { requiresAuth: true, title: 'Asset Dashboard — Kiểm chứng API' },
   },
+
+  // ── IMM-05: Document Repository ─────────────────────────────────────────
+  {
+    path: '/documents',
+    name: 'DocumentManagement',
+    component: () => import('@/views/DocumentManagement.vue'),
+    meta: { requiresAuth: true, title: 'Quản lý Hồ sơ — IMM-05' },
+  },
+  {
+    path: '/documents/new',
+    name: 'DocumentCreate',
+    component: () => import('@/views/DocumentCreateView.vue'),
+    meta: { requiresAuth: true, title: 'Tải lên Tài liệu — IMM-05' },
+  },
+  {
+    path: '/documents/view/:name',
+    name: 'DocumentDetail',
+    component: () => import('@/views/DocumentDetailView.vue'),
+    props: true,
+    meta: { requiresAuth: true, title: 'Chi tiết Tài liệu — AssetCore' },
+  },
+  {
+    // QR deep-link: quét mã QR dẫn thẳng tới hồ sơ của 1 thiết bị
+    path: '/documents/asset/:assetId',
+    name: 'DocumentsByAsset',
+    redirect: (to) => ({ path: '/documents', query: { asset: to.params.assetId } }),
+  },
 ]
 
 const router = createRouter({

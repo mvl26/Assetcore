@@ -321,6 +321,8 @@ def generate_qr_label(name: str) -> dict:
             "print_date": str(nowdate()),
         },
         "scan_url": f"/app/asset-commissioning/{doc.name}",
+        # IMM-05 deep-link: quét QR dẫn thẳng tới danh sách hồ sơ của asset
+        "docs_url": f"/documents/asset/{doc.final_asset}" if doc.final_asset else None,
     })
 
 

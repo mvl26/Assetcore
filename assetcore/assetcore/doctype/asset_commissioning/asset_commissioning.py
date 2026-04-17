@@ -6,6 +6,8 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import nowdate, now_datetime
 
+_ASSET_DOCUMENT = "Asset Document"
+
 
 class AssetCommissioning(Document):
 
@@ -29,6 +31,9 @@ class AssetCommissioning(Document):
 		self.validate_checklist_completion()
 		self.validate_backdate()
 		self.block_release_if_nc_open()
+		# GW-2: IMM-05 compliance gate (BR-07)
+		if self.workflow_state in ("Clinical_Release", "Pending_Release"):
+			self._gw2_check_document_compliance()
 
 	def on_submit(self):
 		"""Chỉ chạy Mint Asset khi ở trạng thái Clinical_Release."""
@@ -38,6 +43,7 @@ class AssetCommissioning(Document):
 				  "Hiện tại: {0}").format(self.workflow_state)
 			)
 		self.mint_core_asset()
+		self.create_initial_document_set()  # IMM-05: auto-import docs
 		self.fire_release_event()
 
 	def on_cancel(self):
@@ -385,3 +391,116 @@ class AssetCommissioning(Document):
 		seq = str(count + 1).zfill(4)
 
 		return f"BV-{dept_code}-{year}-{seq}"
+
+	# ──────────────────────────────────────────────
+	# IMM-05: GW-2 COMPLIANCE GATE (BR-07)
+	# ──────────────────────────────────────────────
+
+	def _gw2_check_document_compliance(self):
+		"""BR-07: Block Submit nếu thiết bị thiếu Chứng nhận ĐK lưu hành.
+		Graceful skip nếu IMM-05 DocType chưa deploy (E-11).
+		"""
+		if not frappe.db.table_exists(_ASSET_DOCUMENT):
+			frappe.log_error(
+				"IMM-05 DocType chưa tồn tại — GW-2 check bị bỏ qua",
+				"GW2 Warning"
+			)
+			return
+
+		asset_name = self.final_asset or self.get("asset")
+		if not asset_name:
+			return
+
+		# Kiểm tra Exempt (BR-08)
+		exempt_exists = frappe.db.exists(_ASSET_DOCUMENT, {
+			"asset_ref": asset_name,
+			"doc_type_detail": ("in", ["Chứng nhận đăng ký lưu hành", "Giấy phép nhập khẩu"]),
+			"is_exempt": 1,
+			"exempt_proof": ("is", "set"),
+		})
+		if exempt_exists:
+			return  # Thiết bị được miễn — pass GW-2
+
+		# Kiểm tra có Active doc
+		active_exists = frappe.db.exists(_ASSET_DOCUMENT, {
+			"asset_ref": asset_name,
+			"doc_type_detail": "Chứng nhận đăng ký lưu hành",
+			"workflow_state": "Active",
+		})
+		if not active_exists:
+			frappe.throw(
+				_(
+					"GW-2 Compliance Block: Thiết bị {0} chưa có "
+					"<b>Chứng nhận đăng ký lưu hành</b> hợp lệ trong IMM-05. "
+					"Vui lòng upload tài liệu hoặc đánh dấu Exempt trước khi Submit."
+				).format(asset_name),
+				title=_("Thiếu hồ sơ pháp lý")
+			)
+
+	# ──────────────────────────────────────────────
+	# IMM-05: AUTO-IMPORT DOCUMENT SET (US-03)
+	# ──────────────────────────────────────────────
+
+	def create_initial_document_set(self):
+		"""US-03: Auto-import documents từ commissioning_documents → IMM-05.
+		Tạo Asset Document Draft cho mỗi row Received.
+		"""
+		if not frappe.db.table_exists(_ASSET_DOCUMENT):
+			return  # IMM-05 chưa deploy — skip gracefully
+
+		asset_name = self.final_asset
+		if not asset_name:
+			return
+
+		DOC_CATEGORY_MAP = {
+			"CO": "QA", "CQ": "QA", "Packing": "QA",
+			"Manual": "Technical", "Warranty": "QA",
+			"License": "Legal", "Training": "Training", "Other": "Technical",
+		}
+
+		for row in self.get("commissioning_documents", []):
+			if row.status != "Received":
+				continue
+			try:
+				frappe.get_doc({
+					"doctype": _ASSET_DOCUMENT,
+					"asset_ref": asset_name,
+					"doc_category": DOC_CATEGORY_MAP.get(row.doc_type, "Technical"),
+					"doc_type_detail": row.doc_type,
+					"doc_number": row.get("doc_number") or "—",
+					"version": "1.0",
+					"issued_date": row.get("received_date") or nowdate(),
+					"source_commissioning": self.name,
+					"source_module": "IMM-04",
+					"visibility": "Public",
+					"workflow_state": "Draft",
+					"change_summary": f"Auto-imported từ IMM-04 {self.name}",
+				}).insert(ignore_permissions=True)
+			except Exception as e:
+				frappe.log_error(
+					f"IMM-05 auto-import failed for doc_type={row.doc_type}: {e}",
+					"IMM-05 Auto Import"
+				)
+
+		# Radiation license doc
+		if self.get("qa_license_doc"):
+			try:
+				frappe.get_doc({
+					"doctype": _ASSET_DOCUMENT,
+					"asset_ref": asset_name,
+					"doc_category": "Legal",
+					"doc_type_detail": "Giấy phép bức xạ",
+					"doc_number": "—",
+					"version": "1.0",
+					"issued_date": nowdate(),
+					"file_attachment": self.qa_license_doc,
+					"source_commissioning": self.name,
+					"source_module": "IMM-04",
+					"visibility": "Internal_Only",
+					"workflow_state": "Draft",
+				}).insert(ignore_permissions=True)
+			except Exception as e:
+				frappe.log_error(
+					f"IMM-05 radiation doc import failed: {e}",
+					"IMM-05 Auto Import"
+				)

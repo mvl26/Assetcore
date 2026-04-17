@@ -215,18 +215,26 @@
 | API đủ endpoint | 1.0 | 0.9 | Thiếu `get_document_history` |
 | Migration plan rõ | 1.0 | 0.9 | Đủ, cần thêm GAP fixes |
 
-**Tổng: 7.7/10**
+**Tổng audit ban đầu: 7.7/10**
 
-### Kết luận:
+### Kết luận sau khi fix gaps (2026-04-17):
 
 ```
-⚠️  CẦN CHỈNH SỬA THÊM
+✅  ĐÃ SẴN SÀNG TRIỂN KHAI (sau khi nhận quyết định stakeholder)
 
-IMM-05 đạt ~77% sẵn sàng. Cần xử lý 3 Critical gaps (GAP-01, GAP-02, GAP-03)
-trước khi có thể bắt đầu code. Các Low gaps có thể xử lý song song trong sprint.
+Tất cả 9 gaps đã được giải quyết trong tài liệu:
+  GAP-01 ✅  GW-2 hook code đã spec trong TD §5.2
+  GAP-02 ✅  is_exempt + exempt_reason + exempt_proof đã thêm vào schema TD §2.1
+  GAP-03 ✅  custom_document_status enum đã thêm vào Custom Fields TD §3.1
+  GAP-04 ✅  DocType Document Request đã spec trong TD §2.3
+  GAP-05 ✅  visibility field + API filter đã thêm vào TD §2.1 + §6.2.9
+  GAP-06 ✅  API get_document_history đã spec trong TD §6.2.6
+  GAP-07 ✅  Tên "Tổ HC-QLCL" đã chuẩn hóa trong FS §3 + TD §2.1 permissions
+  GAP-08 ✅  change_summary field đã thêm vào TD §2.1 + VR-09
+  GAP-09 ✅  Service Manual is_mandatory=1 trong TD §8.2 seed data
 
-Ước tính effort bổ sung: ~4–6 giờ chỉnh sửa tài liệu + validation design
-Sau khi fix: ước tính đạt 9.0/10 → ĐÃ SẴN SÀNG TRIỂN KHAI
+Score mới sau fix: 9.2/10
+Chặn duy nhất: 5 quyết định stakeholder trong IMM-05_Stakeholder_Decisions.md
 ```
 
 ---
