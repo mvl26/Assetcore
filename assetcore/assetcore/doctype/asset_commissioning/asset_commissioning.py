@@ -5,8 +5,10 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 from frappe.utils import nowdate, now_datetime
+from assetcore.services import imm04 as imm04_svc
 
 _ASSET_DOCUMENT = "Asset Document"
+_STATE_CLINICAL_RELEASE = "Clinical Release"
 
 
 class AssetCommissioning(Document):
@@ -14,6 +16,11 @@ class AssetCommissioning(Document):
 	# ──────────────────────────────────────────────
 	# LIFECYCLE HOOKS
 	# ──────────────────────────────────────────────
+
+	def before_insert(self):
+		"""Initialize commissioning record: set defaults, populate mandatory docs."""
+		from assetcore.services import imm04 as imm04_svc
+		imm04_svc.initialize_commissioning(self)
 
 	def before_save(self):
 		"""Set installation_date automatically khi chuyển sang Installing."""
@@ -26,13 +33,14 @@ class AssetCommissioning(Document):
 	def validate(self):
 		"""Chạy toàn bộ validation rules theo thứ tự ưu tiên."""
 		self.validate_unique_serial()
-		self.validate_required_documents()
+		imm04_svc.validate_gate_g01(self)          # G01: mandatory docs
+		self._check_auto_clinical_hold()            # BR-04-05: risk_class → radiation flag
 		self.validate_radiation_hold()
-		self.validate_checklist_completion()
+		self.validate_checklist_completion()        # G03: baseline pass
 		self.validate_backdate()
-		self.block_release_if_nc_open()
+		imm04_svc.validate_gate_g05_g06(self)      # G05+G06: NC closed + board_approver
 		# GW-2: IMM-05 compliance gate (BR-07)
-		if self.workflow_state in ("Clinical_Release", "Pending_Release"):
+		if self.workflow_state in (_STATE_CLINICAL_RELEASE, "Pending_Release"):
 			self._gw2_check_document_compliance()
 
 	def on_submit(self):
@@ -44,14 +52,17 @@ class AssetCommissioning(Document):
 			)
 		self.mint_core_asset()
 		self.create_initial_document_set()  # IMM-05: auto-import docs
+		self._log_lifecycle_event("Release", "Initial Inspection", _STATE_CLINICAL_RELEASE, "Commissioning hoàn thành")
 		self.fire_release_event()
 
-	def on_cancel(self):
-		"""Ghi log khi bị Cancel."""
-		frappe.log_error(
-			message=f"Phiếu {self.name} bị Cancel bởi {frappe.session.user}",
-			title="Asset Commissioning Cancelled"
-		)
+	def on_cancel(self) -> None:
+		"""Block cancel if asset already created; only allow in early states."""
+		terminal_states = {_STATE_CLINICAL_RELEASE, "Return To Vendor"}
+		if self.workflow_state in terminal_states:
+			frappe.throw(_("Không thể hủy commissioning đã hoàn thành hoặc đã trả hàng."))
+		if self.asset_ref:
+			frappe.throw(_("Không thể hủy commissioning đã tạo tài sản. Vui lòng liên hệ quản trị viên."))
+		self._log_lifecycle_event("Cancel", self.workflow_state, "Cancelled", "Commissioning bị hủy")
 
 	# ──────────────────────────────────────────────
 	# VR-01: VALIDATE UNIQUE SERIAL
@@ -97,35 +108,32 @@ class AssetCommissioning(Document):
 	# VR-02: VALIDATE REQUIRED DOCUMENTS
 	# ──────────────────────────────────────────────
 
-	def validate_required_documents(self):
-		"""VR-02: Chặn bàn giao khi thiếu hồ sơ bắt buộc (C/Q, CO)."""
-		# Chỉ kiểm tra khi ở Pending_Handover trở đi
-		CHECKED_STATES = (
-			"Pending_Handover", "Installing", "Identification",
-			"Initial_Inspection", "Re_Inspection", "Pending_Release", "Clinical_Release",
-		)
-		if self.workflow_state not in CHECKED_STATES:
+	def validate_required_documents(self) -> None:
+		"""Gate G01: Tài liệu bắt buộc phải nhận trước khi lắp đặt (legacy - use imm04_svc.validate_gate_g01)."""
+		checked_states = {
+			"To Be Installed", "Installing", "Identification",
+			"Initial Inspection", "Clinical Hold", "Re Inspection", "Clinical Release",
+		}
+		if self.workflow_state not in checked_states:
 			return
+		for row in self.get("commissioning_documents") or []:
+			# Use is_mandatory flag if set, else fallback to doc_type prefix check
+			is_mandatory = row.get("is_mandatory") if row.get("is_mandatory") is not None else (
+				row.doc_type.startswith("CO") or row.doc_type.startswith("CQ")
+			)
+			if is_mandatory and row.status not in ("Received", "Waived"):
+				frappe.throw(
+					_("BR-04-02: Tài liệu '{0}' bắt buộc chưa được nhận. "
+					  "Vui lòng xác nhận trước khi tiến hành lắp đặt.").format(row.doc_type)
+				)
 
-		if not self.commissioning_documents:
-			return
+	# ──────────────────────────────────────────────
+	# BR-04-05: SYNC risk_class → is_radiation_device
+	# ──────────────────────────────────────────────
 
-		# Danh sách loại hồ sơ bắt buộc
-		REQUIRED_DOC_PREFIXES = ["CQ", "CO"]
-
-		for prefix in REQUIRED_DOC_PREFIXES:
-			matching_rows = [
-				row for row in self.commissioning_documents
-				if row.doc_type and row.doc_type.upper().startswith(prefix)
-			]
-			for row in matching_rows:
-				if row.status != "Received":
-					frappe.throw(
-						_("Lỗi VR-02: Chưa nhận đủ hồ sơ bắt buộc — <b>{0}</b> "
-						  "(trạng thái: {1}). Không thể tiến hành bàn giao máy. "
-						  "Vui lòng liên hệ Nhà cung cấp bổ sung.")
-						.format(row.doc_type, row.status)
-					)
+	def _check_auto_clinical_hold(self) -> bool:
+		"""Delegate to service layer: sync risk_class → is_radiation_device."""
+		return imm04_svc.check_auto_clinical_hold(self)
 
 	# ──────────────────────────────────────────────
 	# VR-07: AUTO-HOLD RADIATION DEVICE

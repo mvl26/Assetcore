@@ -176,6 +176,24 @@ const showRadiationWarning = computed(
 )
 
 const showDOAAlert = computed(() => props.doc.doa_incident)
+
+const isHighRisk = computed(() =>
+  ['C', 'D', 'Radiation'].includes(props.doc?.risk_class ?? '') ||
+  props.doc?.is_radiation_device === 1
+)
+
+const showBoardApprover = computed(() =>
+  ['Initial_Inspection', 'Clinical_Hold', 'Re_Inspection', 'Clinical_Release', 'Pending_Release']
+    .includes(props.doc?.workflow_state ?? '')
+)
+
+const showOverallInspectionResult = computed(() => {
+  if (props.doc?.overall_inspection_result) return true
+  return ['Initial_Inspection', 'Re_Inspection', 'Clinical_Hold', 'Clinical_Release', 'Pending_Release']
+    .includes(props.doc?.workflow_state ?? '')
+})
+
+const showQaOfficer = computed(() => isHighRisk.value)
 </script>
 
 <template>
@@ -186,7 +204,7 @@ const showDOAAlert = computed(() => props.doc.doa_incident)
         <div>
           <div class="flex items-center gap-3 mb-1">
             <h2 class="text-xl font-bold text-gray-900 font-mono">{{ doc.name }}</h2>
-            <StatusBadge :state="doc.workflow_state" size="lg" />
+            <StatusBadge :state="doc.workflow_state" size="md" />
             <span
               v-if="doc.docstatus === 1"
               class="inline-flex items-center gap-1 text-xs bg-emerald-100 text-emerald-800 px-2 py-1 rounded-full font-medium"
@@ -312,8 +330,30 @@ const showDOAAlert = computed(() => props.doc.doa_incident)
           <input type="text" :value="doc.clinical_dept" class="form-input" readonly />
         </div>
         <div>
+          <label class="form-label">Trưởng khoa</label>
+          <input
+            type="text"
+            :value="doc.clinical_head || ''"
+            @change="trackChange('clinical_head', ($event.target as HTMLInputElement).value)"
+            :disabled="isReadonly"
+            placeholder="User ID trưởng khoa"
+            class="form-input"
+          />
+          <small class="form-hint">Nhập User ID (vd: user@hospital.com)</small>
+        </div>
+        <div>
           <label class="form-label">Ngày hẹn lắp đặt</label>
           <input type="text" :value="doc.expected_installation_date" class="form-input" readonly />
+        </div>
+        <div>
+          <label class="form-label">Ngày nhận hàng</label>
+          <input
+            type="date"
+            :value="doc.reception_date || ''"
+            @change="trackChange('reception_date', ($event.target as HTMLInputElement).value)"
+            :disabled="isReadonly"
+            class="form-input"
+          />
         </div>
         <div>
           <label class="form-label">Ngày giờ Bắt đầu Lắp đặt</label>
@@ -330,6 +370,23 @@ const showDOAAlert = computed(() => props.doc.doa_incident)
             @change="trackChange('vendor_engineer_name', ($event.target as HTMLInputElement).value)"
           />
         </div>
+      </div>
+
+      <!-- Kết quả kiểm tra tổng thể (chỉ hiện ở các trạng thái kiểm tra) -->
+      <div v-if="showOverallInspectionResult" class="form-row">
+        <label for="field-overall-inspection-result" class="form-label">Kết quả Kiểm tra Tổng thể</label>
+        <select
+          id="field-overall-inspection-result"
+          :value="doc.overall_inspection_result || ''"
+          class="form-select"
+          disabled
+        >
+          <option value="">-- Chưa có --</option>
+          <option value="Pass">Pass</option>
+          <option value="Fail">Fail</option>
+          <option value="Conditional">Conditional</option>
+        </select>
+        <small class="form-hint text-gray-500">Được tính tự động từ kết quả kiểm tra an toàn</small>
       </div>
 
       <h3 class="text-base font-semibold text-gray-900 pb-2 border-b pt-4">Định danh Thiết bị</h3>
@@ -357,7 +414,13 @@ const showDOAAlert = computed(() => props.doc.doa_incident)
         </div>
         <div>
           <label class="form-label">Mã BYT (Bộ Y tế)</label>
-          <input type="text" :value="doc.custom_moh_code || '—'" class="form-input" :readonly="isReadonly" />
+          <input
+            type="text"
+            :value="doc.custom_moh_code || ''"
+            @change="trackChange('custom_moh_code', ($event.target as HTMLInputElement).value)"
+            class="form-input"
+            :readonly="isReadonly"
+          />
         </div>
       </div>
 
@@ -397,6 +460,26 @@ const showDOAAlert = computed(() => props.doc.doa_incident)
         </div>
       </div>
 
+      <!-- Phân loại rủi ro -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
+        <div class="form-row">
+          <label class="form-label">Phân loại rủi ro</label>
+          <select
+            :value="doc.risk_class || ''"
+            @change="trackChange('risk_class', ($event.target as HTMLSelectElement).value)"
+            :disabled="isReadonly"
+            class="form-select"
+          >
+            <option value="">-- Chọn --</option>
+            <option value="A">A — Rủi ro thấp</option>
+            <option value="B">B — Rủi ro trung bình</option>
+            <option value="C">C — Rủi ro cao</option>
+            <option value="D">D — Rủi ro rất cao</option>
+            <option value="Radiation">Phóng xạ</option>
+          </select>
+        </div>
+      </div>
+
       <!-- Flags -->
       <div class="flex flex-wrap gap-4 pt-2">
         <label class="flex items-center gap-2 cursor-default">
@@ -407,6 +490,48 @@ const showDOAAlert = computed(() => props.doc.doa_incident)
           <input type="checkbox" :checked="Boolean(doc.doa_incident)" disabled class="rounded text-red-600" />
           <span class="text-sm text-gray-700">Sự cố DOA</span>
         </label>
+        <label class="flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            :checked="!!doc.facility_checklist_pass"
+            @change="trackChange('facility_checklist_pass', ($event.target as HTMLInputElement).checked ? 1 : 0)"
+            :disabled="isReadonly"
+            class="form-checkbox"
+          />
+          <span class="text-sm text-gray-700">Cơ sở hạ tầng đạt yêu cầu (điện, nước, không gian)</span>
+        </label>
+      </div>
+
+      <!-- QA Officer (chỉ hiện với thiết bị rủi ro cao) -->
+      <div v-if="showQaOfficer" class="form-row">
+        <label for="field-qa-officer" class="form-label">Nhân viên QA <span class="text-red-500">*</span></label>
+        <input
+          id="field-qa-officer"
+          type="text"
+          :value="doc.qa_officer || ''"
+          @change="trackChange('qa_officer', ($event.target as HTMLInputElement).value)"
+          :disabled="isReadonly"
+          placeholder="User ID nhân viên QA"
+          class="form-input"
+        />
+        <p class="form-hint text-orange-600">Bắt buộc với thiết bị Class C/D/Phóng xạ</p>
+        <small class="form-hint">Nhập User ID (vd: user@hospital.com)</small>
+      </div>
+
+      <!-- Board Approver (chỉ hiện gần Clinical Release) -->
+      <div v-if="showBoardApprover" class="form-row">
+        <label for="field-board-approver" class="form-label">Người phê duyệt BGĐ <span class="text-red-500">*</span></label>
+        <input
+          id="field-board-approver"
+          type="text"
+          :value="doc.board_approver || ''"
+          @change="trackChange('board_approver', ($event.target as HTMLInputElement).value)"
+          :disabled="isReadonly"
+          placeholder="User ID người phê duyệt"
+          class="form-input"
+        />
+        <p class="form-hint text-red-600">BR-04-08: Bắt buộc trước khi Clinical Release</p>
+        <small class="form-hint">Nhập User ID (vd: user@hospital.com)</small>
       </div>
     </div>
 
@@ -513,6 +638,21 @@ const showDOAAlert = computed(() => props.doc.doa_incident)
                 Làm mới
               </button>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Commissioning date & commissioned_by -->
+      <div v-if="doc.commissioning_date || doc.commissioned_by" class="card">
+        <h3 class="text-base font-semibold text-gray-900 pb-2 border-b mb-4">Thông tin Phát hành</h3>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div v-if="doc.commissioning_date">
+            <label for="field-commissioning-date" class="form-label">Ngày Phát hành</label>
+            <input id="field-commissioning-date" type="text" :value="doc.commissioning_date" class="form-input" readonly />
+          </div>
+          <div v-if="doc.commissioned_by">
+            <label for="field-commissioned-by" class="form-label">Người Phát hành</label>
+            <input id="field-commissioned-by" type="text" :value="doc.commissioned_by" class="form-input" readonly />
           </div>
         </div>
       </div>

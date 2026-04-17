@@ -479,3 +479,191 @@ Step 3: doc.workflow_state = "Active"
 | WHO-HTM 2.3 | Medical device nomenclature | doc_type_detail mapping theo GMDN/UMDNS |
 | WHO-HTM 3.2 | Documentation and record keeping | Version control, audit trail, archive policy |
 | NĐ 98/2021 | Quản lý trang thiết bị y tế | Bắt buộc: giấy phép lưu hành, giấy phép nhập khẩu |
+
+---
+
+## 12. Use Case Diagram
+
+```mermaid
+graph TD
+    subgraph Actors
+        BE[Biomed Engineer]
+        WM[Workshop Manager]
+        VP[VP Block2]
+        CA[CMMS Admin]
+        SYS[CMMS Scheduler]
+        KTV[KTV HTM]
+    end
+
+    subgraph IMM-05["IMM-05: Document Repository"]
+        UC1[Upload tài liệu mới]
+        UC2[Xem danh sách hồ sơ]
+        UC3[Phê duyệt tài liệu]
+        UC4[Từ chối tài liệu]
+        UC5[Archive tài liệu cũ]
+        UC6[Xem chi tiết tài liệu]
+        UC7[Tải xuống file]
+        UC8[Yêu cầu tài liệu bổ sung]
+        UC9[Theo dõi compliance dashboard]
+        UC10[Xem cảnh báo hết hạn]
+        UC11[Miễn giảm tài liệu]
+        UC12[Tự động gửi cảnh báo expiry]
+        UC13[Auto-expire tài liệu hết hạn]
+        UC14[Cập nhật Document Completeness]
+    end
+
+    BE --> UC1
+    BE --> UC2
+    BE --> UC6
+    BE --> UC7
+    WM --> UC2
+    WM --> UC3
+    WM --> UC4
+    WM --> UC5
+    WM --> UC8
+    WM --> UC9
+    WM --> UC10
+    VP --> UC9
+    VP --> UC10
+    VP --> UC11
+    CA --> UC11
+    CA --> UC2
+    KTV --> UC2
+    KTV --> UC6
+    KTV --> UC7
+    SYS --> UC12
+    SYS --> UC13
+    SYS --> UC14
+
+    UC3 -->|includes| UC5
+    UC1 -->|extends| UC3
+```
+
+---
+
+## 13. Activity Diagram — Upload & Approve Flow
+
+```mermaid
+flowchart TD
+    A([Start: Upload tài liệu]) --> B[Điền metadata\ndoc_type, số hiệu, ngày, expiry]
+    B --> C[Đính kèm file PDF/Image]
+    C --> D{Validate:\nfile + metadata đầy đủ?}
+    D -- Không --> B
+    D -- Có --> E[Tạo Asset Document\nstatus = Draft]
+    E --> F[Gửi notification\ncho Workshop Manager]
+    F --> G{Manager review}
+    G -- Từ chối --> H[Nhập rejection_reason]
+    H --> I[status = Rejected\nGửi thông báo KTV]
+    G -- Phê duyệt --> J{Có doc cùng loại\nđang Active?}
+    J -- Có --> K[Archive doc cũ\nstatus = Archived]
+    K --> L[Kích hoạt doc mới\nstatus = Active]
+    J -- Không --> L
+    L --> M[Cập nhật doc_completeness_pct\ncủa Asset]
+    M --> N([End: Tài liệu Active])
+    I --> O([End: Tài liệu bị từ chối])
+```
+
+---
+
+## 14. Non-Functional Requirements
+
+| ID | Yêu cầu | Chỉ tiêu | Phương pháp kiểm tra |
+|---|---|---|---|
+| NFR-05-01 | Performance: Load danh sách hồ sơ | < 2s với 10,000 records | Load test JMeter |
+| NFR-05-02 | File upload size limit | Tối đa 50 MB/file | Validate backend |
+| NFR-05-03 | Audit trail immutability | Không thể xóa/sửa sau Submit | DB constraint + permission |
+| NFR-05-04 | Availability | 99.5% trong giờ hành chính | Uptime monitoring |
+| NFR-05-05 | Concurrent users | 50 users đồng thời không degradation | Load test |
+| NFR-05-06 | Data retention | Hồ sơ giữ tối thiểu 10 năm sau thanh lý | Archival policy |
+| NFR-05-07 | File format support | PDF, DOCX, XLSX, JPG, PNG | Whitelist validation |
+| NFR-05-08 | Encryption | File attachment mã hóa at-rest | Server config |
+
+---
+
+## Biểu Đồ Use Case Phân Rã — IMM-05
+
+### Phân rã theo Actor
+
+```mermaid
+graph TD
+    subgraph "Biomed Engineer / KTV"
+        A1[UC-05-01: Upload tài liệu mới]
+        A2[UC-05-02: Xem danh sách hồ sơ Asset]
+        A3[UC-05-03: Tải xuống file tài liệu]
+        A4[UC-05-04: Xem chi tiết và trạng thái]
+        A5[UC-05-05: Sửa metadata tài liệu Draft]
+    end
+    subgraph "Workshop Manager"
+        B1[UC-05-06: Phê duyệt tài liệu Pending]
+        B2[UC-05-07: Từ chối tài liệu + lý do]
+        B3[UC-05-08: Yêu cầu bổ sung tài liệu]
+        B4[UC-05-09: Xem compliance dashboard]
+        B5[UC-05-10: Theo dõi cảnh báo hết hạn]
+    end
+    subgraph "VP Block2 / QA"
+        C1[UC-05-11: Miễn giảm tài liệu is_exempt]
+        C2[UC-05-12: Xem báo cáo compliance tổng hợp]
+    end
+    subgraph "CMMS Admin"
+        D1[UC-05-13: Cấu hình Required Document Types]
+        D2[UC-05-14: Quản lý visibility rules]
+    end
+    subgraph "CMMS Scheduler"
+        E1[UC-05-15: Gửi cảnh báo expiry 90/60/30/0 ngày]
+        E2[UC-05-16: Auto-expire tài liệu quá hạn]
+        E3[UC-05-17: Cập nhật doc_completeness_pct daily]
+    end
+```
+
+---
+
+## Đặc Tả Use Case — IMM-05
+
+### UC-05-01: Upload tài liệu mới
+
+| Thuộc tính | Nội dung |
+|---|---|
+| **UC ID** | UC-05-01 |
+| **Tên** | Upload tài liệu kỹ thuật/pháp lý mới cho Asset |
+| **Actor chính** | Biomed Engineer |
+| **Actor phụ** | Workshop Manager (nhận notification) |
+| **Tiền điều kiện** | Asset đã tồn tại trong hệ thống (status ≠ Retired); người dùng có role Biomed Engineer hoặc CMMS Admin |
+| **Hậu điều kiện** | Asset Document tạo với workflow_state = Draft; notification gửi Workshop Manager |
+| **Luồng chính** | 1. KTV chọn Asset từ danh sách<br>2. Nhấn "Upload Document"<br>3. Chọn doc_type từ dropdown (Required Document Types)<br>4. Điền: document_number, issuing_authority, issue_date, expiry_date (nếu có), version<br>5. Đính kèm file PDF/Image (≤ 50MB)<br>6. Chọn visibility (Internal/External/Confidential)<br>7. Nhấn Submit → hệ thống tạo Asset Document<br>8. Hệ thống gửi notification đến Workshop Manager |
+| **Luồng thay thế** | 5a. File > 50MB → hệ thống báo lỗi "Vượt quá giới hạn 50MB"<br>5b. Định dạng không hợp lệ → báo lỗi whitelist format<br>4a. expiry_date < today → cảnh báo nhưng vẫn cho phép |
+| **Luồng ngoại lệ** | 7a. DB connection lỗi → thông báo lỗi, dữ liệu không lưu |
+| **Business Rule** | BR-05-01: Mọi tài liệu phải có file_attachment; BR-05-02: doc_type phải thuộc Required Document Types |
+
+---
+
+### UC-05-06: Phê duyệt tài liệu
+
+| Thuộc tính | Nội dung |
+|---|---|
+| **UC ID** | UC-05-06 |
+| **Tên** | Phê duyệt tài liệu từ trạng thái Pending_Review sang Active |
+| **Actor chính** | Workshop Manager |
+| **Actor phụ** | Biomed Engineer (nhận notification kết quả) |
+| **Tiền điều kiện** | Asset Document ở workflow_state = Pending_Review; người dùng có role Workshop Manager, Tổ HC-QLCL, hoặc CMMS Admin |
+| **Hậu điều kiện** | workflow_state = Active; nếu có doc cùng loại đang Active → doc cũ chuyển Archived; doc_completeness_pct của Asset được cập nhật |
+| **Luồng chính** | 1. Manager nhận notification tài liệu mới<br>2. Mở chi tiết tài liệu, review nội dung và file<br>3. Nhấn "Approve"<br>4. Hệ thống kiểm tra doc cùng type đang Active<br>5. Nếu có: auto-archive doc cũ<br>6. Set workflow_state = Active, ghi approved_by + approved_date<br>7. Cập nhật doc_completeness_pct cho Asset<br>8. Gửi notification đến Biomed Engineer |
+| **Luồng thay thế** | 3a. Manager chọn "Reject" → chuyển UC-05-07 |
+| **Luồng ngoại lệ** | 6a. Archive doc cũ thất bại → rollback, alert Admin |
+| **Business Rule** | BR-05-03: Chỉ 1 version Active cho mỗi doc_type per Asset; BR-05-04: Archive tự động không thể undo |
+
+---
+
+### UC-05-15: Gửi cảnh báo expiry
+
+| Thuộc tính | Nội dung |
+|---|---|
+| **UC ID** | UC-05-15 |
+| **Tên** | Gửi cảnh báo tự động khi tài liệu sắp hết hạn |
+| **Actor chính** | CMMS Scheduler |
+| **Actor phụ** | Workshop Manager, VP Block2, QA Risk Team (nhận email) |
+| **Tiền điều kiện** | Asset Document có expiry_date ≠ null và workflow_state = Active; Scheduler job chạy daily 00:30 |
+| **Hậu điều kiện** | Expiry Alert Log entry được tạo; email gửi đến roles tương ứng theo mốc ngày |
+| **Luồng chính** | 1. Scheduler chạy check_document_expiry()<br>2. Query docs có expiry_date = today + {90/60/30/0}<br>3. Với mỗi doc tìm thấy: kiểm tra Expiry Alert Log hôm nay đã tạo chưa<br>4. Nếu chưa: tạo Expiry Alert Log mới<br>5. Lấy email theo role config của mốc ngày<br>6. Gửi email cảnh báo với link đến doc<br>7. Khi days=0: auto-set workflow_state = Expired |
+| **Luồng thay thế** | 3a. Alert Log đã tồn tại hôm nay → skip (tránh duplicate) |
+| **Luồng ngoại lệ** | 5a. Không có email recipient → log warning, không gửi |
+| **Business Rule** | BR-05-05: Expiry Alert Log immutable sau insert; BR-05-06: days=0 → auto-expire ngay |

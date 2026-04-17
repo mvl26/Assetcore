@@ -13,7 +13,12 @@ const emit = defineEmits<{
 
 const passCount = computed(() => props.tests.filter((t) => t.test_result === 'Pass').length)
 const failCount = computed(() => props.tests.filter((t) => t.test_result === 'Fail').length)
+const naCount = computed(() => props.tests.filter((t) => t.test_result === 'N/A').length)
 const pendingCount = computed(() => props.tests.filter((t) => !t.test_result).length)
+
+function showFailNote(test: BaselineTest): boolean {
+  return test.test_result === 'Fail' || (test.is_critical === 1 && test.test_result === 'N/A')
+}
 
 function onFieldChange(idx: number, field: keyof BaselineTest, value: string) {
   if (!props.readonly) {
@@ -33,6 +38,10 @@ function onFieldChange(idx: number, field: keyof BaselineTest, value: string) {
       <span class="flex items-center gap-1.5">
         <span class="w-2 h-2 rounded-full bg-red-500" />
         <span class="text-gray-600">Không đạt: <strong class="text-red-700">{{ failCount }}</strong></span>
+      </span>
+      <span class="flex items-center gap-1.5">
+        <span class="w-2 h-2 rounded-full bg-yellow-400" />
+        <span class="text-gray-600">N/A: <strong class="text-yellow-700">{{ naCount }}</strong></span>
       </span>
       <span class="flex items-center gap-1.5">
         <span class="w-2 h-2 rounded-full bg-gray-400" />
@@ -67,12 +76,21 @@ function onFieldChange(idx: number, field: keyof BaselineTest, value: string) {
             :key="test.idx"
             class="table-row"
             :class="{
-              'bg-red-50': test.test_result === 'Fail',
+              'bg-red-50 border-l-4 border-l-red-500': test.is_critical === 1,
+              'bg-red-50': test.test_result === 'Fail' && test.is_critical !== 1,
               'bg-green-50/50': test.test_result === 'Pass',
             }"
           >
             <td class="table-cell text-center text-gray-400 font-mono">{{ test.idx }}</td>
-            <td class="table-cell font-medium">{{ test.parameter }}</td>
+            <td class="table-cell font-medium">
+              {{ test.parameter }}
+              <span
+                v-if="test.is_critical === 1"
+                class="ml-2 inline-flex items-center text-xs font-semibold px-1.5 py-0.5 rounded bg-red-100 text-red-700"
+              >
+                ⚠ Bắt buộc
+              </span>
+            </td>
 
             <!-- Measured value -->
             <td class="px-6 py-3">
@@ -105,6 +123,7 @@ function onFieldChange(idx: number, field: keyof BaselineTest, value: string) {
                 <option value="">-- Chọn --</option>
                 <option value="Pass">Đạt</option>
                 <option value="Fail">Không đạt</option>
+                <option value="N/A">N/A</option>
               </select>
               <span
                 v-else
@@ -112,21 +131,22 @@ function onFieldChange(idx: number, field: keyof BaselineTest, value: string) {
                   'inline-flex text-xs font-semibold px-2 py-1 rounded-full',
                   test.test_result === 'Pass' ? 'bg-green-100 text-green-800' :
                   test.test_result === 'Fail' ? 'bg-red-100 text-red-800' :
+                  test.test_result === 'N/A' ? 'bg-yellow-100 text-yellow-700' :
                   'bg-gray-100 text-gray-600',
                 ]"
               >
-                {{ test.test_result === 'Pass' ? 'Đạt' : test.test_result === 'Fail' ? 'Không đạt' : 'Chờ' }}
+                {{ test.test_result === 'Pass' ? 'Đạt' : test.test_result === 'Fail' ? 'Không đạt' : test.test_result === 'N/A' ? 'N/A' : 'Chờ' }}
               </span>
             </td>
 
             <!-- Fail note -->
             <td class="px-6 py-3">
               <input
-                v-if="!readonly && test.test_result === 'Fail'"
+                v-if="!readonly && showFailNote(test)"
                 type="text"
                 :value="test.fail_note"
                 class="form-input text-sm border-red-300 focus:border-red-500 focus:ring-red-500"
-                placeholder="Bắt buộc ghi nguyên nhân..."
+                :placeholder="test.test_result === 'N/A' ? 'Ghi chú lý do N/A (bắt buộc)...' : 'Bắt buộc ghi nguyên nhân...'"
                 @change="onFieldChange(test.idx, 'fail_note', ($event.target as HTMLInputElement).value)"
               />
               <span v-else class="text-sm text-gray-500 italic">{{ test.fail_note || '—' }}</span>

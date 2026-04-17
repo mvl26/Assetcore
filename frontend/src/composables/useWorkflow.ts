@@ -28,11 +28,25 @@ const STATE_CONFIG: Record<WorkflowState, StateConfig> = {
     icon: 'pencil',
     isTerminal: false,
   },
-  Identification: {
-    label: 'Nhận dạng',
+  Draft_Reception: {
+    label: 'Nháp tiếp nhận',
+    color: 'gray',
+    badgeClass: 'bg-gray-100 text-gray-800',
+    icon: 'pencil',
+    isTerminal: false,
+  },
+  Pending_Doc_Verify: {
+    label: 'Chờ kiểm tra tài liệu',
+    color: 'purple',
+    badgeClass: 'bg-purple-100 text-purple-800',
+    icon: 'file-text',
+    isTerminal: false,
+  },
+  To_Be_Installed: {
+    label: 'Chờ lắp đặt',
     color: 'blue',
     badgeClass: 'bg-blue-100 text-blue-800',
-    icon: 'qr-code',
+    icon: 'calendar',
     isTerminal: false,
   },
   Installing: {
@@ -42,11 +56,25 @@ const STATE_CONFIG: Record<WorkflowState, StateConfig> = {
     icon: 'wrench',
     isTerminal: false,
   },
+  Identification: {
+    label: 'Nhận dạng',
+    color: 'blue',
+    badgeClass: 'bg-blue-100 text-blue-800',
+    icon: 'qr-code',
+    isTerminal: false,
+  },
   Initial_Inspection: {
     label: 'Kiểm tra lần đầu',
     color: 'blue',
     badgeClass: 'bg-indigo-100 text-indigo-800',
     icon: 'clipboard-check',
+    isTerminal: false,
+  },
+  Non_Conformance: {
+    label: 'Không phù hợp',
+    color: 'orange',
+    badgeClass: 'bg-orange-100 text-orange-800',
+    icon: 'alert-triangle',
     isTerminal: false,
   },
   Clinical_Hold: {
@@ -63,13 +91,6 @@ const STATE_CONFIG: Record<WorkflowState, StateConfig> = {
     icon: 'refresh',
     isTerminal: false,
   },
-  Pending_Release: {
-    label: 'Chờ phê duyệt',
-    color: 'purple',
-    badgeClass: 'bg-purple-100 text-purple-800',
-    icon: 'clock',
-    isTerminal: false,
-  },
   Clinical_Release: {
     label: 'Phát hành lâm sàng',
     color: 'green',
@@ -84,6 +105,20 @@ const STATE_CONFIG: Record<WorkflowState, StateConfig> = {
     icon: 'arrow-left',
     isTerminal: true,
   },
+  Pending_Release: {
+    label: 'Chờ phê duyệt phát hành',
+    color: 'purple',
+    badgeClass: 'bg-purple-100 text-purple-800',
+    icon: 'clock',
+    isTerminal: false,
+  },
+  DOA_Incident: {
+    label: 'Sự cố DOA',
+    color: 'red',
+    badgeClass: 'bg-red-200 text-red-900',
+    icon: 'alert-triangle',
+    isTerminal: true,
+  },
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -92,59 +127,105 @@ const STATE_CONFIG: Record<WorkflowState, StateConfig> = {
 
 export interface ActionConfig {
   label: string
-  /** Tailwind button classes */
-  buttonClass: string
+  variant: 'primary' | 'secondary' | 'success' | 'warning' | 'danger'
+  icon: string
   /** Cần confirm dialog trước khi thực hiện */
-  requireConfirm: boolean
+  requiresConfirm?: boolean
+  requireConfirm?: boolean
   confirmMessage?: string
+  buttonClass?: string
 }
 
 const ACTION_CONFIG: Record<string, ActionConfig> = {
-  'Bắt đầu Nhận dạng': {
-    label: 'Bắt đầu Nhận dạng',
-    buttonClass: 'bg-blue-600 hover:bg-blue-700 text-white',
-    requireConfirm: false,
+  'Gửi kiểm tra tài liệu': {
+    label: 'Gửi kiểm tra tài liệu',
+    variant: 'secondary',
+    icon: 'file-text',
   },
-  'Bắt đầu Lắp đặt': {
-    label: 'Bắt đầu Lắp đặt',
-    buttonClass: 'bg-yellow-500 hover:bg-yellow-600 text-white',
-    requireConfirm: false,
+  'Xác nhận đủ tài liệu': {
+    label: 'Xác nhận đủ tài liệu',
+    variant: 'primary',
+    icon: 'check-circle',
   },
-  'Gửi Kiểm tra': {
-    label: 'Gửi Kiểm tra',
-    buttonClass: 'bg-indigo-600 hover:bg-indigo-700 text-white',
-    requireConfirm: false,
+  'Bắt đầu lắp đặt': {
+    label: 'Bắt đầu lắp đặt',
+    variant: 'primary',
+    icon: 'tool',
+    requiresConfirm: false,
+  },
+  'Lắp đặt hoàn thành': {
+    label: 'Lắp đặt hoàn thành',
+    variant: 'success',
+    icon: 'check',
+  },
+  'Bắt đầu kiểm tra': {
+    label: 'Bắt đầu kiểm tra',
+    variant: 'primary',
+    icon: 'clipboard',
+  },
+  'Báo cáo lỗi baseline': {
+    label: 'Báo cáo lỗi baseline',
+    variant: 'warning',
+    icon: 'alert-triangle',
+  },
+  'Phê duyệt phát hành': {
+    label: 'Phê duyệt phát hành',
+    variant: 'success',
+    icon: 'check-circle',
+    requiresConfirm: true,
+    confirmMessage: 'Xác nhận phát hành thiết bị vào sử dụng?',
   },
   'Giữ lâm sàng': {
-    label: 'Tạm giữ lâm sàng',
-    buttonClass: 'bg-red-600 hover:bg-red-700 text-white',
-    requireConfirm: true,
-    confirmMessage:
-      'Bạn có chắc muốn đặt phiếu vào trạng thái Clinical Hold? Thiết bị sẽ tạm thời không được phát hành.',
+    label: 'Giữ lâm sàng',
+    variant: 'warning',
+    icon: 'pause-circle',
+    requiresConfirm: true,
+    confirmMessage: 'Xác nhận giữ thiết bị chờ giấy phép?',
   },
-  'Kiểm tra lại': {
-    label: 'Yêu cầu Kiểm tra lại',
-    buttonClass: 'bg-orange-500 hover:bg-orange-600 text-white',
-    requireConfirm: false,
+  'Gỡ giữ lâm sàng': {
+    label: 'Gỡ giữ lâm sàng',
+    variant: 'primary',
+    icon: 'unlock',
   },
-  'Đề nghị Phát hành': {
-    label: 'Đề nghị Phát hành',
-    buttonClass: 'bg-purple-600 hover:bg-purple-700 text-white',
-    requireConfirm: false,
+  'Báo cáo DOA': {
+    label: 'Báo cáo DOA',
+    variant: 'danger',
+    icon: 'alert-circle',
+    requiresConfirm: true,
+    confirmMessage: 'Xác nhận thiết bị DOA (Dead on Arrival)?',
   },
-  'Phê duyệt Phát hành': {
-    label: 'Phê duyệt Phát hành',
-    buttonClass: 'bg-green-600 hover:bg-green-700 text-white',
-    requireConfirm: true,
-    confirmMessage:
-      'Bạn có chắc muốn Phê duyệt Phát hành thiết bị này? Hành động này không thể hoàn tác và sẽ tạo tài sản trong hệ thống.',
-  },
-  'Trả lại hãng': {
+  'Trả lại nhà cung cấp': {
     label: 'Trả lại nhà cung cấp',
-    buttonClass: 'bg-red-700 hover:bg-red-800 text-white',
-    requireConfirm: true,
-    confirmMessage:
-      'Bạn có chắc muốn trả lại thiết bị này cho nhà cung cấp? Phiếu sẽ bị đóng.',
+    variant: 'danger',
+    icon: 'x-circle',
+    requiresConfirm: true,
+    confirmMessage: 'Xác nhận trả thiết bị về nhà cung cấp? Hành động này không thể hoàn tác.',
+  },
+  'Khắc phục xong': {
+    label: 'Khắc phục xong',
+    variant: 'success',
+    icon: 'check',
+  },
+  'Phê duyệt sau tái kiểm': {
+    label: 'Phê duyệt sau tái kiểm',
+    variant: 'success',
+    icon: 'check-circle',
+    requiresConfirm: true,
+  },
+  'Báo cáo sự cố': {
+    label: 'Báo cáo sự cố',
+    variant: 'danger',
+    icon: 'alert-triangle',
+  },
+  'Gửi lại': {
+    label: 'Gửi lại',
+    variant: 'secondary',
+    icon: 'refresh-cw',
+  },
+  'Yêu cầu bổ sung tài liệu': {
+    label: 'Yêu cầu bổ sung tài liệu',
+    variant: 'warning',
+    icon: 'file-minus',
   },
 }
 
@@ -185,13 +266,7 @@ export function useWorkflow(
 
   /** Lấy config của một action */
   function getActionConfig(action: string): ActionConfig {
-    return (
-      ACTION_CONFIG[action] ?? {
-        label: action,
-        buttonClass: 'bg-gray-600 hover:bg-gray-700 text-white',
-        requireConfirm: false,
-      }
-    )
+    return ACTION_CONFIG[action] ?? { label: action, variant: 'secondary', icon: 'arrow-right', requiresConfirm: false }
   }
 
   /** Kiểm tra user có thể transition sang state chỉ định không */
@@ -233,13 +308,7 @@ export function useWorkflow(
 
 /** Standalone helper để lấy state config ngoài composable */
 export function getStateConfig(state: WorkflowState): StateConfig {
-  return (
-    STATE_CONFIG[state] ?? {
-      label: state,
-      color: 'gray',
-      badgeClass: 'bg-gray-100 text-gray-700',
-      icon: 'circle',
-      isTerminal: false,
-    }
-  )
+  const found = STATE_CONFIG[state]
+  if (found) return found
+  return { label: `[${state}]`, color: 'gray', badgeClass: 'bg-gray-100 text-gray-700', icon: 'circle', isTerminal: false }
 }

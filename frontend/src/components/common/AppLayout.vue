@@ -7,17 +7,13 @@ const { mainClass } = useSidebar()
 </script>
 
 <template>
-  <div class="flex h-screen bg-gray-50 overflow-hidden">
-    <!-- Sidebar (fixed, manages its own width) -->
+  <div class="flex h-screen overflow-hidden" style="background: var(--color-bg)">
     <AppSidebar />
-
-    <!-- Main content area -->
-    <div :class="['flex flex-col flex-1 min-h-0 transition-all duration-200', mainClass]">
-      <!-- Top bar (fixed) -->
+    <div
+      :class="['flex flex-col flex-1 min-h-0 transition-all duration-200', mainClass]"
+    >
       <AppTopBar />
-
-      <!-- Page content -->
-      <main class="flex-1 overflow-y-auto mt-16 p-6">
+      <main class="flex-1 overflow-y-auto" style="margin-top: var(--topbar-height)">
         <slot />
       </main>
     </div>

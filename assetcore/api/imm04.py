@@ -83,6 +83,11 @@ def get_form_context(name: str) -> dict:
             "unit": row.unit,
             "test_result": row.test_result,
             "fail_note": row.fail_note,
+            "is_critical": row.get("is_critical") or 0,
+            "measurement_type": row.get("measurement_type") or "",
+            "expected_min": row.get("expected_min"),
+            "expected_max": row.get("expected_max"),
+            "na_applicable": row.get("na_applicable") or 0,
         }
         for row in doc.baseline_tests
     ]
@@ -94,8 +99,26 @@ def get_form_context(name: str) -> dict:
             "status": row.status,
             "received_date": str(row.received_date or ""),
             "remarks": row.remarks or "",
+            "is_mandatory": row.get("is_mandatory") or 0,
+            "file_url": row.get("file_url") or "",
+            "doc_number": row.get("doc_number") or "",
+            "expiry_date": str(row.get("expiry_date") or ""),
         }
         for row in doc.commissioning_documents
+    ]
+
+    lifecycle_events = [
+        {
+            "idx": row.idx,
+            "event_type": row.get("event_type") or "",
+            "from_status": row.get("from_status") or "",
+            "to_status": row.get("to_status") or "",
+            "actor": row.get("actor") or "",
+            "event_timestamp": str(row.get("event_timestamp") or ""),
+            "ip_address": row.get("ip_address") or "",
+            "remarks": row.get("remarks") or "",
+        }
+        for row in (doc.get("lifecycle_events") or [])
     ]
 
     allowed_transitions = _get_workflow_transitions(name)
@@ -110,6 +133,16 @@ def get_form_context(name: str) -> dict:
         "clinical_dept": doc.clinical_dept,
         "expected_installation_date": str(doc.expected_installation_date or ""),
         "installation_date": str(doc.installation_date or ""),
+        "reception_date": str(doc.get("reception_date") or ""),
+        "risk_class": doc.get("risk_class") or "",
+        "board_approver": doc.get("board_approver") or "",
+        "clinical_head": doc.get("clinical_head") or "",
+        "qa_officer": doc.get("qa_officer") or "",
+        "facility_checklist_pass": doc.get("facility_checklist_pass") or 0,
+        "overall_inspection_result": doc.get("overall_inspection_result") or "",
+        "handover_doc": doc.get("handover_doc") or "",
+        "commissioned_by": doc.get("commissioned_by") or "",
+        "commissioning_date": str(doc.get("commissioning_date") or ""),
         "vendor_engineer_name": doc.vendor_engineer_name,
         "is_radiation_device": doc.is_radiation_device,
         "doa_incident": doc.doa_incident,
@@ -126,6 +159,7 @@ def get_form_context(name: str) -> dict:
         "owner": doc.owner,
         "baseline_tests": baseline_tests,
         "commissioning_documents": commissioning_documents,
+        "lifecycle_events": lifecycle_events,
         "allowed_transitions": allowed_transitions,
         "is_locked": doc.docstatus == 1,
         "current_user_roles": frappe.get_roles(frappe.session.user),
@@ -590,6 +624,9 @@ def save_commissioning(name: str, fields: str | dict | None = None) -> dict:
     EDITABLE_FIELDS = {
         "vendor_engineer_name", "qa_license_doc", "site_photo",
         "installation_evidence", "custom_moh_code",
+        "risk_class", "reception_date", "clinical_head", "qa_officer",
+        "board_approver", "facility_checklist_pass", "overall_inspection_result",
+        "handover_doc", "radiation_license_no", "notes",
     }
 
     try:
@@ -675,9 +712,9 @@ def create_commissioning(data: str | dict | None = None) -> dict:
         elif isinstance(data, dict):
             parsed_data = data
 
-    # Required fields
+    # Required fields (vendor_serial_no is set at Identification step, not at creation)
     REQUIRED = ["po_reference", "master_item", "vendor", "clinical_dept",
-                "expected_installation_date", "vendor_serial_no"]
+                "expected_installation_date"]
     missing = [f for f in REQUIRED if not parsed_data.get(f)]
     if missing:
         return _err(f"Thiếu trường bắt buộc: {', '.join(missing)}", "MISSING_FIELDS")
@@ -690,9 +727,13 @@ def create_commissioning(data: str | dict | None = None) -> dict:
             "vendor": parsed_data["vendor"],
             "clinical_dept": parsed_data["clinical_dept"],
             "expected_installation_date": parsed_data["expected_installation_date"],
-            "vendor_serial_no": parsed_data["vendor_serial_no"],
+            "vendor_serial_no": parsed_data.get("vendor_serial_no", ""),
             "vendor_engineer_name": parsed_data.get("vendor_engineer_name", ""),
             "is_radiation_device": parsed_data.get("is_radiation_device", 0),
+            "reception_date": parsed_data.get("reception_date") or None,
+            "risk_class": parsed_data.get("risk_class", ""),
+            "commissioned_by": parsed_data.get("commissioned_by", ""),
+            "doa_incident": parsed_data.get("doa_incident", 0),
         })
 
         # Add commissioning_documents nếu có
@@ -700,6 +741,7 @@ def create_commissioning(data: str | dict | None = None) -> dict:
         for doc_row in docs_data:
             doc.append("commissioning_documents", {
                 "doc_type": doc_row.get("doc_type", ""),
+                "is_mandatory": doc_row.get("is_mandatory", 0),
                 "status": doc_row.get("status", "Pending"),
                 "received_date": doc_row.get("received_date") or None,
                 "remarks": doc_row.get("remarks", ""),
@@ -710,9 +752,14 @@ def create_commissioning(data: str | dict | None = None) -> dict:
         for test_row in tests_data:
             doc.append("baseline_tests", {
                 "parameter": test_row.get("parameter", ""),
-                "measured_val": test_row.get("measured_val", 0),
+                "is_critical": test_row.get("is_critical", 0),
+                "measurement_type": test_row.get("measurement_type", ""),
+                "measured_val": test_row.get("measured_val", ""),
+                "expected_min": test_row.get("expected_min"),
+                "expected_max": test_row.get("expected_max"),
                 "unit": test_row.get("unit", ""),
-                "test_result": test_row.get("test_result", ""),
+                "test_result": test_row.get("test_result", "N/A"),
+                "na_applicable": test_row.get("na_applicable", 0),
                 "fail_note": test_row.get("fail_note", ""),
             })
 
@@ -859,3 +906,288 @@ def search_link(doctype: str, query: str = "", page_length: int = 10) -> dict:
         })
 
     return _ok(items)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 12. REPORT NON CONFORMANCE
+# ─────────────────────────────────────────────────────────────────────────────
+
+@frappe.whitelist(methods=["POST"])
+def report_nonconformance(commissioning_name: str, nc_data: str | dict | None = None) -> dict:
+    """Tạo NC record cho commissioning. BR-04-06."""
+    import json
+    if isinstance(nc_data, str):
+        try:
+            nc_data = json.loads(nc_data)
+        except Exception:
+            return _err("Dữ liệu NC không hợp lệ.", "INVALID_DATA")
+    nc_data = nc_data or {}
+    try:
+        doc = frappe.get_doc({
+            "doctype": "Asset QA Non Conformance",
+            "ref_commissioning": commissioning_name,
+            "nc_type": nc_data.get("nc_type", "Other"),
+            "severity": nc_data.get("severity", "Minor"),
+            "description": nc_data.get("description", ""),
+            "resolution_status": "Open",
+        })
+        doc.insert(ignore_permissions=True)
+        frappe.db.commit()
+        return _ok({"name": doc.name, "nc_type": doc.nc_type, "severity": doc.severity})
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "report_nonconformance error")
+        return _err(str(e), "CREATE_ERROR")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 13. ASSIGN IDENTIFICATION
+# ─────────────────────────────────────────────────────────────────────────────
+
+@frappe.whitelist(methods=["POST"])
+def assign_identification(
+    name: str,
+    vendor_serial_no: str = "",
+    internal_tag_qr: str = "",
+    custom_moh_code: str = "",
+) -> dict:
+    """Gán định danh thiết bị (VR-01). Chỉ dùng ở state Identification."""
+    try:
+        doc = frappe.get_doc("Asset Commissioning", name)
+    except frappe.DoesNotExistError:
+        return _err(f"Không tìm thấy Commissioning: {name}", "NOT_FOUND")
+    if doc.workflow_state != "Identification":
+        return _err("Chỉ có thể gán định danh khi ở trạng thái Identification.", "INVALID_STATE")
+    # VR-01: check unique serial
+    if vendor_serial_no:
+        dup = frappe.db.exists("Asset Commissioning", {
+            "vendor_serial_no": vendor_serial_no,
+            "name": ("!=", name),
+            "docstatus": ("!=", 2),
+        })
+        if dup:
+            return _err(
+                f"VR-01: Serial '{vendor_serial_no}' đã được gán cho Commissioning {dup}.",
+                "VALIDATION_ERROR",
+            )
+    doc.vendor_serial_no = vendor_serial_no or doc.vendor_serial_no
+    doc.internal_tag_qr = internal_tag_qr or doc.internal_tag_qr
+    doc.custom_moh_code = custom_moh_code or doc.custom_moh_code
+    doc.save(ignore_permissions=True)
+    frappe.db.commit()
+    return _ok({
+        "name": doc.name,
+        "vendor_serial_no": doc.vendor_serial_no,
+        "internal_tag_qr": doc.internal_tag_qr,
+    })
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 14. CHECK SN UNIQUE
+# ─────────────────────────────────────────────────────────────────────────────
+
+@frappe.whitelist()
+def check_sn_unique(vendor_sn: str, exclude_name: str = "") -> dict:
+    """Kiểm tra Serial Number có bị trùng không. Dùng cho on-blur validation (VR-01)."""
+    if not vendor_sn:
+        return _ok({"is_unique": True})
+    filters = {"vendor_serial_no": vendor_sn, "docstatus": ("!=", 2)}
+    if exclude_name:
+        filters["name"] = ("!=", exclude_name)
+    existing = frappe.db.get_value("Asset Commissioning", filters, ["name", "master_item"], as_dict=True)
+    if existing:
+        return _ok({"is_unique": False, "existing_commissioning": existing.name, "item": existing.master_item})
+    return _ok({"is_unique": True})
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 15. SUBMIT BASELINE CHECKLIST
+# ─────────────────────────────────────────────────────────────────────────────
+
+@frappe.whitelist(methods=["POST"])
+def submit_baseline_checklist(name: str, results: str | list | None = None) -> dict:
+    """KTV submit kết quả baseline. Validates BR-04-04 (100% Pass or N/A)."""
+    import json
+    if isinstance(results, str):
+        try:
+            results = json.loads(results)
+        except Exception:
+            return _err("Dữ liệu kết quả không hợp lệ.", "INVALID_DATA")
+    results = results or []
+    try:
+        doc = frappe.get_doc("Asset Commissioning", name)
+    except frappe.DoesNotExistError:
+        return _err(f"Không tìm thấy: {name}", "NOT_FOUND")
+    if doc.workflow_state != "Initial Inspection":
+        return _err("Chỉ submit checklist khi ở trạng thái Initial Inspection.", "INVALID_STATE")
+    # Update checklist results
+    result_map = {r.get("parameter"): r for r in results}
+    for row in doc.baseline_tests or []:
+        if row.parameter in result_map:
+            r = result_map[row.parameter]
+            row.measured_val = r.get("measured_val", "")
+            row.test_result = r.get("test_result", "")
+            row.fail_note = r.get("fail_note", "")
+    # BR-04-04: check for fails
+    fails = [r.parameter for r in (doc.baseline_tests or []) if r.test_result == "Fail"]
+    if fails:
+        return _err(
+            f"BR-04-04: Thông số sau không đạt: {', '.join(fails)}. Chuyển sang Re Inspection.",
+            "VALIDATION_ERROR",
+        )
+    # Check if radiation/Class C/D → auto Clinical Hold
+    from assetcore.services.imm04 import check_auto_clinical_hold
+    is_high_risk = check_auto_clinical_hold(doc)
+    doc.overall_inspection_result = "Pass"
+    doc.save(ignore_permissions=True)
+    frappe.db.commit()
+    return _ok({
+        "name": doc.name,
+        "overall_result": "Pass",
+        "clinical_hold_required": is_high_risk,
+    })
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 16. CLEAR CLINICAL HOLD
+# ─────────────────────────────────────────────────────────────────────────────
+
+@frappe.whitelist(methods=["POST"])
+def clear_clinical_hold(name: str, license_no: str = "") -> dict:
+    """QA Officer gỡ Clinical Hold sau khi upload giấy phép BYT."""
+    try:
+        doc = frappe.get_doc("Asset Commissioning", name)
+    except frappe.DoesNotExistError:
+        return _err(f"Không tìm thấy: {name}", "NOT_FOUND")
+    if doc.workflow_state != "Clinical Hold":
+        return _err("Commissioning không ở trạng thái Clinical Hold.", "INVALID_STATE")
+    if not doc.qa_license_doc and not license_no:
+        return _err(
+            "BR-04-05: Phải upload giấy phép BYT trước khi gỡ Clinical Hold.",
+            "VALIDATION_ERROR",
+        )
+    if license_no:
+        doc.radiation_license_no = license_no
+    doc.save(ignore_permissions=True)
+    frappe.db.commit()
+    return _ok({"name": doc.name, "license_no": doc.radiation_license_no})
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 17. GENERATE HANDOVER PDF
+# ─────────────────────────────────────────────────────────────────────────────
+
+@frappe.whitelist(methods=["POST"])
+def upload_document(commissioning: str, doc_index: int, doc_type: str = "", file_url: str = "", expiry_date: str = "", doc_number: str = "") -> dict:
+    """Update a document record row: mark Received + set file_url."""
+    try:
+        doc = frappe.get_doc("Asset Commissioning", commissioning)
+    except frappe.DoesNotExistError:
+        return _err(f"Không tìm thấy: {commissioning}", "NOT_FOUND")
+    idx = int(doc_index)
+    for row in doc.commissioning_documents:
+        if row.idx == idx:
+            row.status = "Received"
+            if file_url:
+                row.file_url = file_url
+            if expiry_date:
+                row.expiry_date = expiry_date
+            if doc_number:
+                row.doc_number = doc_number
+            row.uploaded_by = frappe.session.user
+            row.uploaded_at = frappe.utils.now_datetime()
+            break
+    doc.save(ignore_permissions=True)
+    all_mandatory = all(r.status in ("Received", "Waived") for r in doc.commissioning_documents if r.is_mandatory)
+    return _ok({"commissioning": commissioning, "doc_index": idx, "all_mandatory_received": all_mandatory})
+
+
+@frappe.whitelist(methods=["POST"])
+def close_nonconformance(nc_name: str, root_cause: str = "", corrective_action: str = "") -> dict:
+    """Close an NC with root_cause + corrective_action evidence."""
+    if not root_cause or not corrective_action:
+        return _err("root_cause và corrective_action là bắt buộc khi đóng NC.", "VALIDATION_ERROR")
+    try:
+        nc = frappe.get_doc("Asset QA Non Conformance", nc_name)
+    except frappe.DoesNotExistError:
+        return _err(f"Không tìm thấy NC: {nc_name}", "NOT_FOUND")
+    nc.resolution_status = "Closed"
+    nc.root_cause = root_cause
+    nc.corrective_action = corrective_action
+    nc.closed_by = frappe.session.user
+    nc.closed_date = nowdate()
+    nc.save(ignore_permissions=True)
+    frappe.db.commit()
+    return _ok({"name": nc_name, "status": "Closed"})
+
+
+@frappe.whitelist(methods=["POST"])
+def approve_clinical_release(commissioning: str, board_approver: str, approval_remarks: str = "") -> dict:
+    """Board approves Clinical Release → validate G05+G06, create Asset, trigger IMM-05+IMM-08."""
+    try:
+        doc = frappe.get_doc("Asset Commissioning", commissioning)
+    except frappe.DoesNotExistError:
+        return _err(f"Không tìm thấy: {commissioning}", "NOT_FOUND")
+    if doc.workflow_state != "Clinical Release":
+        return _err(f"Phiếu phải ở Clinical Release. Hiện tại: {doc.workflow_state}", "INVALID_STATE")
+    if not board_approver:
+        return _err("board_approver là bắt buộc.", "VALIDATION_ERROR")
+    open_nc = frappe.db.count("Asset QA Non Conformance", {"ref_commissioning": commissioning, "resolution_status": "Open"})
+    if open_nc > 0:
+        return _err(f"VR-04: Còn {open_nc} NC chưa đóng. Giải quyết trước khi Release.", "OPEN_NC")
+    doc.board_approver = board_approver
+    if approval_remarks:
+        doc.notes = (doc.notes or "") + f"\n[Board Approval] {approval_remarks}"
+    doc.save(ignore_permissions=True)
+    try:
+        doc.submit()
+        return _ok({
+            "commissioning": commissioning,
+            "new_status": "Clinical Release",
+            "asset_ref": doc.final_asset,
+            "commissioning_date": str(doc.commissioning_date or nowdate()),
+            "pm_schedule_created": False,
+            "device_record_queued": True,
+        })
+    except frappe.ValidationError as e:
+        return _err(str(e), "VALIDATION_ERROR")
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "approve_clinical_release failed")
+        return _err(str(e), "SYSTEM_ERROR")
+
+
+@frappe.whitelist(methods=["POST"])
+def report_doa(commissioning: str, description: str, evidence_file: str = "") -> dict:
+    """Report Dead-on-Arrival → create Critical NC + transition to Non Conformance."""
+    if not description:
+        return _err("description là bắt buộc.", "VALIDATION_ERROR")
+    nc = frappe.get_doc({
+        "doctype": "Asset QA Non Conformance",
+        "ref_commissioning": commissioning,
+        "nc_type": "DOA",
+        "severity": "Critical",
+        "description": description,
+        "resolution_status": "Open",
+    })
+    nc.insert(ignore_permissions=True)
+    frappe.db.commit()
+    return _ok({"nc_name": nc.name, "commissioning": commissioning, "severity": "Critical"})
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 17. GENERATE HANDOVER PDF
+# ─────────────────────────────────────────────────────────────────────────────
+
+@frappe.whitelist()
+def generate_handover_pdf(name: str) -> dict:
+    """Tạo PDF biên bản bàn giao từ commissioning record."""
+    try:
+        doc = frappe.get_doc("Asset Commissioning", name)
+    except frappe.DoesNotExistError:
+        return _err(f"Không tìm thấy: {name}", "NOT_FOUND")
+    if doc.workflow_state != "Clinical Release":
+        return _err("Chỉ xuất biên bản khi đã Clinical Release.", "INVALID_STATE")
+    try:
+        pdf_url = f"/api/method/frappe.utils.pdf.get_pdf?doctype=Asset+Commissioning&name={frappe.utils.quote(name)}&format=Biên+bản+Bàn+giao"
+        return _ok({"pdf_url": pdf_url, "name": name})
+    except Exception as e:
+        return _err(str(e), "PDF_ERROR")

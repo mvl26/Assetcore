@@ -50,7 +50,7 @@ def _send_hold_alert(form, days_held):
 	<a href='/app/asset-commissioning/{form.name}'>Mở phiếu tại đây →</a>
 	"""
 
-	frappe.sendmail(
+	_safe_sendmail(
 		recipients=recipients,
 		subject=f"[AssetCore] Cảnh báo: {form.name} bị Hold {days_held} ngày",
 		message=message
@@ -95,7 +95,7 @@ def _send_sla_alert(form, days_overdue):
 	<b>{form.vendor}</b> hoàn thành đúng tiến độ.</p>
 	"""
 
-	frappe.sendmail(
+	_safe_sendmail(
 		recipients=recipients,
 		subject=f"[AssetCore] SLA Breach: {form.name} quá hạn {days_overdue} ngày",
 		message=message
@@ -122,7 +122,7 @@ def send_pending_approvals_reminder():
 	recipients = _get_role_emails([_ROLE_VP_BLOCK2])
 	names = [f["name"] for f in pending_release]
 
-	frappe.sendmail(
+	_safe_sendmail(
 		recipients=recipients,
 		subject=f"[AssetCore] Có {len(names)} phiếu chờ bạn phê duyệt",
 		message=f"""
@@ -212,6 +212,17 @@ def update_asset_completeness():
 	name_ph = ", ".join(["%s"] * len(asset_names))
 	req_ph = ", ".join(["%s"] * len(required_types))
 
+	expiry_rows = frappe.db.sql(f"""
+		SELECT asset_ref, MIN(expiry_date) as nearest_expiry
+		FROM `tabAsset Document`
+		WHERE asset_ref IN ({name_ph})
+		AND workflow_state = 'Active'
+		AND expiry_date IS NOT NULL
+		AND expiry_date >= CURDATE()
+		GROUP BY asset_ref
+	""", asset_names, as_dict=True)
+	expiry_map = {r["asset_ref"]: r["nearest_expiry"] for r in expiry_rows}
+
 	active_rows = frappe.db.sql(f"""
 		SELECT asset_ref, COUNT(*) as cnt
 		FROM `tabAsset Document`
@@ -263,6 +274,7 @@ def update_asset_completeness():
 			"custom_doc_completeness_pct": pct,
 			"custom_document_status": status,
 			"custom_doc_status_summary": f"{actual}/{total_required} bắt buộc",
+			"custom_nearest_expiry": expiry_map.get(asset.name),
 		})
 
 	print(f"[IMM-05] update_asset_completeness: {len(assets)} assets updated, {compliant} Compliant")
@@ -296,7 +308,7 @@ def check_overdue_document_requests():
 		names_list = "".join(
 			f"<li>{r.asset_ref} — {r.doc_type_required}</li>" for r in overdue
 		)
-		frappe.sendmail(
+		_safe_sendmail(
 			recipients=recipients,
 			subject=f"[AssetCore] {len(overdue)} Document Request đã quá hạn",
 			message=f"<p>Các yêu cầu tài liệu sau đã quá hạn:</p><ul>{names_list}</ul>",
@@ -318,3 +330,203 @@ def _get_role_emails(roles):
 			if email and email not in emails:
 				emails.append(email)
 	return emails
+
+
+def _safe_sendmail(**kwargs):
+	"""Wrapper around frappe.sendmail — silently skips if email is not configured."""
+	try:
+		if not frappe.flags.mute_emails:
+			frappe.sendmail(**kwargs)
+	except Exception:
+		pass
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# IMM-08: PM WORK ORDER AUTOMATION
+# ─────────────────────────────────────────────────────────────────────────────
+
+def generate_pm_work_orders():
+	"""
+	Cron daily (06:00): Tạo PM WO tự động cho các lịch PM đến hạn.
+	Idempotent — không tạo WO trùng.
+	"""
+	schedules = frappe.db.get_all(
+		"PM Schedule",
+		filters={
+			"status": "Active",
+			"next_due_date": ("<=", add_days(nowdate(), 7)),
+		},
+		fields=["name", "asset_ref", "pm_type", "next_due_date",
+		        "checklist_template", "responsible_technician", "pm_interval_days"],
+	)
+
+	created = 0
+	for sched in schedules:
+		existing = frappe.db.exists("PM Work Order", {
+			"pm_schedule": sched.name,
+			"status": ("in", ["Open", "In Progress", "Pending–Device Busy"]),
+		})
+		if existing:
+			continue
+
+		asset_status = frappe.db.get_value("Asset", sched.asset_ref, "status")
+		if asset_status == "Out of Service":
+			continue
+
+		if not frappe.db.exists("PM Checklist Template", sched.checklist_template):
+			_send_no_template_alert(sched)
+			continue
+
+		template = frappe.get_doc("PM Checklist Template", sched.checklist_template)
+		wo = frappe.get_doc({
+			"doctype": "PM Work Order",
+			"asset_ref": sched.asset_ref,
+			"pm_schedule": sched.name,
+			"pm_type": sched.pm_type,
+			"due_date": sched.next_due_date,
+			"status": "Open",
+			"assigned_to": sched.responsible_technician,
+		})
+		for item in (template.checklist_items or []):
+			wo.append("checklist_results", {
+				"checklist_item_idx": item.idx,
+				"description": item.description,
+				"measurement_type": item.measurement_type,
+				"unit": item.unit or "",
+				"result": "",
+			})
+		wo.insert(ignore_permissions=True)
+		created += 1
+
+	if created:
+		_notify_workshop_manager_new_wos(created)
+	print(f"[IMM-08] generate_pm_work_orders: {created} WOs created")
+
+
+def check_pm_overdue():
+	"""
+	Cron daily (08:00): Đánh dấu Overdue và gửi cảnh báo leo thang.
+	"""
+	overdue_wos = frappe.db.get_all(
+		"PM Work Order",
+		filters={
+			"status": ("in", ["Open", "In Progress"]),
+			"due_date": ("<", nowdate()),
+		},
+		fields=["name", "asset_ref", "due_date", "assigned_to"],
+	)
+
+	for wo in overdue_wos:
+		days_overdue = date_diff(nowdate(), str(wo.due_date))
+		frappe.db.set_value("PM Work Order", wo.name, "status", "Overdue")
+
+		if days_overdue > 30:
+			_escalate_to_director(wo, days_overdue)
+		elif days_overdue > 7:
+			_escalate_to_ptp(wo, days_overdue)
+		else:
+			_alert_workshop_manager_overdue(wo, days_overdue)
+
+	# Cập nhật custom_pm_status trên Asset
+	_update_asset_pm_status()
+	print(f"[IMM-08] check_pm_overdue: {len(overdue_wos)} WOs marked Overdue")
+
+
+def _update_asset_pm_status():
+	"""Cập nhật custom_pm_status trên Asset dựa theo lịch PM."""
+	assets = frappe.db.get_all("Asset", filters={"docstatus": ("!=", 2)}, fields=["name"])
+	for asset in assets:
+		overdue = frappe.db.exists("PM Work Order", {
+			"asset_ref": asset.name, "status": "Overdue"
+		})
+		due_soon = frappe.db.exists("PM Schedule", {
+			"asset_ref": asset.name, "status": "Active",
+			"next_due_date": ("<=", add_days(nowdate(), 14)),
+		})
+		no_sched = not frappe.db.exists("PM Schedule", {
+			"asset_ref": asset.name, "status": "Active"
+		})
+
+		if overdue:
+			pm_status = "Overdue"
+		elif no_sched:
+			pm_status = "No Schedule"
+		elif due_soon:
+			pm_status = "Due Soon"
+		else:
+			pm_status = "On Schedule"
+
+		frappe.db.set_value("Asset", asset.name, "custom_pm_status", pm_status)
+
+
+def _send_no_template_alert(sched):
+	recipients = _get_role_emails(["CMMS Admin", "Workshop Head"])
+	if recipients:
+		_safe_sendmail(
+			recipients=recipients,
+			subject=f"[AssetCore] PM Schedule {sched.name} thiếu checklist template",
+			message=f"<p>PM Schedule <b>{sched.name}</b> không có checklist template. Vui lòng tạo template cho asset category trước khi PM.</p>",
+		)
+
+
+def _notify_workshop_manager_new_wos(count: int):
+	recipients = _get_role_emails(["Workshop Head"])
+	if recipients:
+		_safe_sendmail(
+			recipients=recipients,
+			subject=f"[AssetCore] {count} PM Work Order mới được tạo hôm nay",
+			message=f"<p>{count} PM Work Order mới đã được tạo tự động. Vui lòng phân công KTV thực hiện.</p><a href='/pm/work-orders'>Xem danh sách →</a>",
+		)
+
+
+def _alert_workshop_manager_overdue(wo, days: int):
+	recipients = _get_role_emails(["Workshop Head"])
+	asset_name = frappe.db.get_value("Asset", wo.asset_ref, "asset_name") or wo.asset_ref
+	if recipients:
+		_safe_sendmail(
+			recipients=recipients,
+			subject=f"[AssetCore] PM WO {wo.name} quá hạn {days} ngày",
+			message=f"<p>🟡 PM Work Order <b>{wo.name}</b> ({asset_name}) quá hạn <b>{days} ngày</b>. Vui lòng xử lý kịp thời.</p>",
+		)
+
+
+def _escalate_to_ptp(wo, days: int):
+	recipients = _get_role_emails(["VP Block2", "Workshop Head"])
+	asset_name = frappe.db.get_value("Asset", wo.asset_ref, "asset_name") or wo.asset_ref
+	if recipients:
+		_safe_sendmail(
+			recipients=recipients,
+			subject=f"[KHẨN] PM WO {wo.name} quá hạn {days} ngày — Cần leo thang",
+			message=f"<p>🔴 PM Work Order <b>{wo.name}</b> ({asset_name}) quá hạn <b>{days} ngày</b>. Yêu cầu leo thang xử lý.</p>",
+		)
+
+
+def _escalate_to_director(wo, days: int):
+	recipients = _get_role_emails(["VP Block2", "Workshop Head", "System Manager"])
+	asset_name = frappe.db.get_value("Asset", wo.asset_ref, "asset_name") or wo.asset_ref
+	if recipients:
+		_safe_sendmail(
+			recipients=recipients,
+			subject=f"[CRITICAL] PM WO {wo.name} quá hạn {days} ngày — Leo thang BGĐ",
+			message=f"<p>⛔ PM Work Order <b>{wo.name}</b> ({asset_name}) quá hạn <b>{days} ngày</b>. Yêu cầu BGĐ can thiệp ngay.</p>",
+		)
+
+
+# ─── IMM-09: Corrective Maintenance ───────────────────────────────────────────
+
+def check_repair_sla_breach() -> None:
+	"""IMM-09: Hourly — kiểm tra WO đang vượt SLA."""
+	from assetcore.services.imm09 import check_repair_sla_breach as _check
+	_check()
+
+
+def check_repair_overdue() -> None:
+	"""IMM-09: Daily 07:00 — tổng hợp WO sửa chữa quá hạn."""
+	from assetcore.services.imm09 import check_repair_overdue as _check
+	_check()
+
+
+def update_asset_mttr_avg() -> None:
+	"""IMM-09: Monthly — cập nhật MTTR trung bình trên Asset."""
+	from assetcore.services.imm09 import update_asset_mttr_avg as _update
+	_update()

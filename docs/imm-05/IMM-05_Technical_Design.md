@@ -870,3 +870,243 @@ Nếu lỗi:
 - Custom Fields có thể xóa qua Frappe UI
 - Scheduler có thể disable bằng comment trong hooks.py
 - API file có thể xóa mà không ảnh hưởng IMM-04
+
+---
+
+## ERD — Entity Relationship Diagram
+
+```mermaid
+erDiagram
+    ASSET {
+        string name PK
+        string asset_name
+        string asset_category FK
+        string status
+        string serial_no
+        string custom_risk_class
+        float custom_doc_completeness_pct
+        string custom_document_status
+        string custom_doc_status_summary
+    }
+
+    ASSET_DOCUMENT {
+        string name PK
+        string asset_ref FK
+        string item_ref FK
+        string doc_type_detail FK
+        string document_number
+        string issuing_authority
+        date issue_date
+        date expiry_date
+        string version
+        string workflow_state
+        string visibility
+        string file_attachment
+        int is_exempt
+        string rejection_reason
+        string approved_by
+        date approved_date
+    }
+
+    EXPIRY_ALERT_LOG {
+        string name PK
+        string asset_document FK
+        string asset_ref FK
+        string doc_type_detail
+        date expiry_date
+        int days_remaining
+        string alert_level
+        date alert_date
+        string notified_users
+    }
+
+    REQUIRED_DOCUMENT_TYPE {
+        string name PK
+        string type_name
+        int is_mandatory
+        string applicable_category
+        string description
+    }
+
+    ASSET ||--o{ ASSET_DOCUMENT : "has"
+    ASSET_DOCUMENT ||--o{ EXPIRY_ALERT_LOG : "triggers"
+    REQUIRED_DOCUMENT_TYPE ||--o{ ASSET_DOCUMENT : "categorizes"
+```
+
+---
+
+## Class Diagram
+
+```mermaid
+classDiagram
+    class AssetDocument {
+        +String name
+        +String asset_ref
+        +String doc_type_detail
+        +String document_number
+        +Date expiry_date
+        +String workflow_state
+        +String visibility
+        +Int is_exempt
+        +validate()
+        +on_submit()
+        +on_cancel()
+        +before_save()
+    }
+
+    class ExpiryAlertLog {
+        +String name
+        +String asset_document
+        +Int days_remaining
+        +String alert_level
+        +Date alert_date
+        +insert()
+    }
+
+    class RequiredDocumentType {
+        +String type_name
+        +Int is_mandatory
+        +String applicable_category
+    }
+
+    class Imm05Service {
+        +get_document(doc_name, user) ApiResponse
+        +list_documents(asset_ref, filters, page) ApiResponse
+        +upload_document(data) ApiResponse
+        +approve_document(doc_name, user) ApiResponse
+        +reject_document(doc_name, reason, user) ApiResponse
+        +update_document(doc_name, data) ApiResponse
+        +get_dashboard_stats(filters) ApiResponse
+    }
+
+    class ExpiryScheduler {
+        +check_document_expiry() void
+        +update_asset_completeness() void
+        +check_overdue_document_requests() void
+    }
+
+    AssetDocument "1" --> "0..*" ExpiryAlertLog : triggers
+    AssetDocument "*" --> "1" RequiredDocumentType : typed_by
+    Imm05Service ..> AssetDocument : manages
+    ExpiryScheduler ..> AssetDocument : scans
+    ExpiryScheduler ..> ExpiryAlertLog : creates
+```
+
+---
+
+## Sequence Diagram — Upload & Approve Flow
+
+```mermaid
+sequenceDiagram
+    actor KTV as Biomed Engineer
+    actor WM as Workshop Manager
+    participant API as imm05.py API
+    participant DOC as Asset Document
+    participant NOTIF as Notification
+    participant ASSET as Asset
+
+    KTV->>API: POST upload_document(asset_ref, doc_type, file, metadata)
+    API->>API: Validate required fields
+    API->>DOC: frappe.get_doc("Asset Document").insert()
+    DOC-->>API: doc.name (draft)
+    API->>NOTIF: send_notification(Workshop Manager, "New doc pending review")
+    API-->>KTV: {success: true, doc_name: "ADOC-..."}
+
+    WM->>API: POST approve_document(doc_name)
+    API->>DOC: frappe.get_doc(doc_name)
+    API->>DOC: Check existing Active doc of same type
+    alt Existing Active doc found
+        API->>DOC: set workflow_state = "Archived" (old doc)
+    end
+    API->>DOC: set workflow_state = "Active"
+    API->>NOTIF: send_notification(KTV, "Doc approved")
+    API->>ASSET: recalculate doc_completeness_pct
+    API-->>WM: {success: true}
+```
+
+---
+
+## State Machine — Asset Document Workflow
+
+```mermaid
+stateDiagram-v2
+    [*] --> Draft : Upload tài liệu
+    Draft --> Pending_Review : Submit (KTV/Biomed)
+    Pending_Review --> Active : Approve (Workshop Manager)
+    Pending_Review --> Rejected : Reject (Workshop Manager + reason)
+    Active --> Archived : New version approved\n(auto-archive cũ)
+    Active --> Expired : expiry_date reached\n(CMMS Scheduler auto)
+    Rejected --> Draft : Re-upload (KTV sửa lại)
+    Archived --> [*] : Immutable record
+    Expired --> [*] : Immutable record
+```
+
+---
+
+## Biểu Đồ Giao Tiếp (Communication Diagram) — IMM-05
+
+```mermaid
+graph TD
+    subgraph Frontend["Vue 3 Frontend"]
+        UI_DOC[DocumentManagement.vue]
+        UI_DETAIL[DocumentDetailView.vue]
+        UI_ROW[DocumentRow.vue]
+        STORE_05[useImm05Store]
+    end
+
+    subgraph API["Frappe API Layer (imm05.py)"]
+        EP1[GET /list_documents]
+        EP2[GET /get_document]
+        EP3[POST /upload_document]
+        EP4[POST /approve_document]
+        EP5[POST /reject_document]
+        EP6[GET /get_dashboard_stats]
+    end
+
+    subgraph Service["Business Logic"]
+        SVC_DOC[DocumentService]
+        SVC_COMP[CompletenessService]
+        SVC_NOTIFY[NotificationService]
+    end
+
+    subgraph DocTypes["Frappe DocTypes (MariaDB)"]
+        DT_DOC[Asset Document]
+        DT_EXPIRY[Expiry Alert Log]
+        DT_REQ[Required Document Type]
+        DT_ASSET[Asset]
+    end
+
+    subgraph Scheduler["Frappe Scheduler (tasks.py)"]
+        SCH1[check_document_expiry - daily 00:30]
+        SCH2[update_asset_completeness - daily 01:00]
+        SCH3[check_overdue_document_requests - daily]
+    end
+
+    UI_DOC --> STORE_05
+    UI_DETAIL --> STORE_05
+    UI_ROW --> STORE_05
+    STORE_05 -->|HTTP REST| EP1
+    STORE_05 -->|HTTP REST| EP2
+    STORE_05 -->|HTTP REST| EP3
+    STORE_05 -->|HTTP REST| EP4
+    STORE_05 -->|HTTP REST| EP5
+    STORE_05 -->|HTTP REST| EP6
+
+    EP1 --> SVC_DOC
+    EP2 --> SVC_DOC
+    EP3 --> SVC_DOC
+    EP4 --> SVC_DOC
+    EP5 --> SVC_DOC
+    EP6 --> SVC_COMP
+
+    SVC_DOC -->|frappe.get_doc / db.get_all| DT_DOC
+    SVC_DOC -->|db.set_value| DT_ASSET
+    SVC_COMP -->|frappe.db.sql batch| DT_DOC
+    SVC_COMP -->|db.set_value| DT_ASSET
+    SCH1 -->|query + insert| DT_EXPIRY
+    SCH1 -->|db.set_value Expired| DT_DOC
+    SCH2 -->|batch SQL| DT_DOC
+    SCH2 -->|set_value| DT_ASSET
+    SVC_DOC --> SVC_NOTIFY
+    SVC_NOTIFY -->|frappe.sendmail| External([Email/In-app])
+```

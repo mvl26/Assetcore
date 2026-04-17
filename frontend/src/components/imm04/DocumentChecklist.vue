@@ -29,6 +29,34 @@ function onRemarksChange(idx: number, value: string) {
     emit('update', idx, 'remarks', value)
   }
 }
+
+/**
+ * Tính số ngày còn lại tới expiry_date.
+ * Trả về null nếu không có expiry_date.
+ * Giá trị âm = đã hết hạn.
+ */
+function daysUntilExpiry(expiryDate: string | undefined): number | null {
+  if (!expiryDate) return null
+  const now = new Date()
+  now.setHours(0, 0, 0, 0)
+  const exp = new Date(expiryDate)
+  exp.setHours(0, 0, 0, 0)
+  return Math.floor((exp.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
+}
+
+function expiryClass(days: number): string {
+  if (days <= 0) return 'text-red-600 font-semibold'
+  if (days <= 30) return 'text-orange-600'
+  if (days <= 90) return 'text-yellow-600'
+  return 'text-gray-500'
+}
+
+function expiryLabel(days: number, expiryDate: string): string {
+  if (days <= 0) return `Đã hết hạn (${expiryDate})`
+  if (days <= 30) return `Hết hạn trong ${days} ngày`
+  if (days <= 90) return `Sắp hết hạn (${expiryDate})`
+  return `Hết hạn: ${expiryDate}`
+}
 </script>
 
 <template>
@@ -60,8 +88,14 @@ function onRemarksChange(idx: number, value: string) {
       <div
         v-for="doc in documents"
         :key="doc.idx"
-        class="flex items-start gap-3 p-3 rounded-lg border transition-colors"
-        :class="doc.status === 'Received' ? 'bg-green-50 border-green-200' : 'bg-white border-gray-200'"
+        :class="[
+          'doc-row flex items-start gap-3 p-3 rounded-lg border transition-colors',
+          doc.status === 'Received'
+            ? 'bg-green-50 border-green-200'
+            : doc.is_mandatory && !['Received', 'Waived'].includes(doc.status)
+              ? 'bg-orange-50 border-orange-200'
+              : 'bg-white border-gray-200',
+        ]"
       >
         <!-- Checkbox -->
         <button
@@ -83,10 +117,29 @@ function onRemarksChange(idx: number, value: string) {
         <div class="flex-1 min-w-0">
           <div class="flex items-start justify-between gap-2">
             <div>
-              <p class="text-sm font-medium text-gray-900">{{ doc.doc_type }}</p>
+              <div class="flex items-center gap-2 flex-wrap">
+                <p class="text-sm font-medium text-gray-900">{{ doc.doc_type }}</p>
+                <span v-if="doc.is_mandatory" class="badge-mandatory">Bắt buộc</span>
+                <span v-else class="text-gray-400 text-xs">Tùy chọn</span>
+              </div>
               <p v-if="doc.received_date" class="text-xs text-gray-500 mt-0.5">
                 Ngày nhận: {{ doc.received_date }}
               </p>
+              <p
+                v-if="doc.expiry_date && daysUntilExpiry(doc.expiry_date) !== null"
+                class="text-xs mt-0.5"
+                :class="expiryClass(daysUntilExpiry(doc.expiry_date)!)"
+              >
+                {{ expiryLabel(daysUntilExpiry(doc.expiry_date)!, doc.expiry_date) }}
+              </p>
+              <a
+                v-if="doc.file_url"
+                :href="doc.file_url"
+                target="_blank"
+                class="text-blue-600 text-xs hover:underline mt-0.5 inline-block"
+              >
+                📎 Xem file
+              </a>
             </div>
             <span
               class="text-xs px-2 py-0.5 rounded-full flex-shrink-0"
@@ -113,3 +166,9 @@ function onRemarksChange(idx: number, value: string) {
     </div>
   </div>
 </template>
+
+<style scoped>
+.badge-mandatory {
+  @apply inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700;
+}
+</style>

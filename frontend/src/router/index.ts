@@ -41,6 +41,18 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true, title: 'Chi tiết Phiếu Commissioning' },
   },
   {
+    path: '/commissioning/:id/nc',
+    name: 'CommissioningNC',
+    component: () => import('@/views/CommissioningNCView.vue'),
+    meta: { requiresAuth: true, title: 'Non-Conformance — Commissioning' },
+  },
+  {
+    path: '/commissioning/:id/timeline',
+    name: 'CommissioningTimeline',
+    component: () => import('@/views/CommissioningTimelineView.vue'),
+    meta: { requiresAuth: true, title: 'Lịch sử vòng đời — Commissioning' },
+  },
+  {
     path: '/debug/asset-dashboard',
     name: 'AssetDashboard',
     component: () => import('@/components/imm04/AssetDashboard.vue'),
@@ -72,6 +84,95 @@ const routes: RouteRecordRaw[] = [
     path: '/documents/asset/:assetId',
     name: 'DocumentsByAsset',
     redirect: (to) => ({ path: '/documents', query: { asset: to.params.assetId } }),
+  },
+
+  // ── IMM-08: Preventive Maintenance ──────────────────────────────────────────
+  {
+    path: '/pm',
+    redirect: '/pm/dashboard',
+  },
+  {
+    path: '/pm/dashboard',
+    name: 'PMDashboard',
+    component: () => import('@/views/PMDashboardView.vue'),
+    meta: { requiresAuth: true, title: 'Dashboard PM — IMM-08' },
+  },
+  {
+    path: '/pm/calendar',
+    name: 'PMCalendar',
+    component: () => import('@/views/PMCalendarView.vue'),
+    meta: { requiresAuth: true, title: 'Lịch Bảo trì — IMM-08' },
+  },
+  {
+    path: '/pm/work-orders',
+    name: 'PMWorkOrderList',
+    component: () => import('@/views/PMWorkOrderListView.vue'),
+    meta: { requiresAuth: true, title: 'Danh sách PM Work Order — IMM-08' },
+  },
+  {
+    path: '/pm/work-orders/:id',
+    name: 'PMWorkOrderDetail',
+    component: () => import('@/views/PMWorkOrderDetailView.vue'),
+    props: true,
+    meta: { requiresAuth: true, title: 'Chi tiết PM Work Order — IMM-08' },
+  },
+
+  // ── IMM-09: Corrective Maintenance ─────────────────────────────────────────
+  {
+    path: '/cm',
+    redirect: '/cm/dashboard',
+  },
+  {
+    path: '/cm/dashboard',
+    name: 'CMDashboard',
+    component: () => import('@/views/CMDashboardView.vue'),
+    meta: { requiresAuth: true, title: 'Dashboard CM — IMM-09' },
+  },
+  {
+    path: '/cm/work-orders',
+    name: 'CMWorkOrderList',
+    component: () => import('@/views/CMWorkOrderListView.vue'),
+    meta: { requiresAuth: true, title: 'Danh sách CM Work Order — IMM-09' },
+  },
+  {
+    path: '/cm/work-orders/:id',
+    name: 'CMWorkOrderDetail',
+    component: () => import('@/views/CMWorkOrderDetailView.vue'),
+    props: true,
+    meta: { requiresAuth: true, title: 'Chi tiết CM Work Order — IMM-09' },
+  },
+  {
+    path: '/cm/create',
+    name: 'CMCreate',
+    component: () => import('@/views/CMCreateView.vue'),
+    meta: { requiresAuth: true, title: 'Tạo CM Work Order — IMM-09' },
+  },
+  {
+    path: '/cm/work-orders/:id/diagnose',
+    name: 'CMDiagnose',
+    component: () => import('@/views/CMDiagnoseView.vue'),
+    props: true,
+    meta: { requiresAuth: true, title: 'Chẩn đoán — IMM-09' },
+  },
+  {
+    path: '/cm/work-orders/:id/parts',
+    name: 'CMParts',
+    component: () => import('@/views/CMPartsView.vue'),
+    props: true,
+    meta: { requiresAuth: true, title: 'Quản lý vật tư — IMM-09' },
+  },
+  {
+    path: '/cm/work-orders/:id/checklist',
+    name: 'CMChecklist',
+    component: () => import('@/views/CMChecklistView.vue'),
+    props: true,
+    meta: { requiresAuth: true, title: 'Nghiệm thu — IMM-09' },
+  },
+  {
+    path: '/cm/mttr',
+    name: 'CMMttr',
+    component: () => import('@/views/CMMttrView.vue'),
+    meta: { requiresAuth: true, title: 'MTTR Dashboard — IMM-09' },
   },
 ]
 

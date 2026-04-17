@@ -18,6 +18,7 @@ class AssetDocument(Document):
 		self.vr_01_expiry_after_issued()
 		self.vr_02_unique_doc_number()
 		self.vr_04_legal_requires_authority()
+		self.vr_05_no_state_regression()
 		self.vr_07_legal_requires_expiry()
 		self.vr_08_file_format_check()
 		self.vr_09_change_summary_required()
@@ -49,6 +50,22 @@ class AssetDocument(Document):
 				frappe.throw(_("VR-01: Ngày hết hạn ({0}) phải sau ngày cấp ({1}).").format(
 					self.expiry_date, self.issued_date
 				), title=_("Lỗi ngày tháng"))
+
+	# ── VR-05: no state regression from Archived/Expired ─────────────────────
+
+	def vr_05_no_state_regression(self) -> None:
+		"""VR-05: Không thể thay đổi trạng thái từ Archived hoặc Expired."""
+		if self.is_new():
+			return
+		if not self.has_value_changed("workflow_state"):
+			return
+		prev = self.get_doc_before_save()
+		if prev and prev.workflow_state in ("Archived", "Expired"):
+			frappe.throw(
+				_("VR-05: Không thể thay đổi trạng thái từ '{0}'. "
+				  "Tài liệu đã lưu trữ hoặc hết hạn không thể phục hồi.").format(prev.workflow_state),
+				title=_("Không hợp lệ")
+			)
 
 	# ── VR-02: unique doc_number per type per asset ───────────────────────────
 
@@ -236,11 +253,21 @@ class AssetDocument(Document):
 		doc_status = _compute_document_status(pct, has_expiring, has_expired, is_exempt)
 		missing_count = total - actual_count
 
+		nearest_expiry_row = frappe.db.sql("""
+			SELECT expiry_date FROM `tabAsset Document`
+			WHERE asset_ref = %s AND workflow_state = 'Active'
+			AND expiry_date IS NOT NULL
+			AND expiry_date >= CURDATE()
+			ORDER BY expiry_date ASC LIMIT 1
+		""", self.asset_ref)
+		nearest_expiry = nearest_expiry_row[0][0] if nearest_expiry_row else None
+
 		frappe.db.set_value("Asset", self.asset_ref, {
 			"custom_doc_completeness_pct": pct,
 			"custom_document_status": doc_status,
 			"custom_doc_status_summary": f"{actual_count}/{total} bắt buộc" +
 				(f", {missing_count} còn thiếu" if missing_count > 0 else ""),
+			"custom_nearest_expiry": nearest_expiry,
 		})
 
 

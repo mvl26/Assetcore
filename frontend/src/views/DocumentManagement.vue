@@ -189,6 +189,7 @@
 import { ref, reactive, onMounted, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useImm05Store } from '@/stores/imm05Store'
+import { useAuthStore } from '@/stores/auth'
 import { getDocumentHistory } from '@/api/imm05'
 import type { AssetDocumentItem, DocumentFilters } from '@/api/imm05'
 import { formatDatetime } from '@/utils/docUtils'
@@ -200,6 +201,17 @@ import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 const router = useRouter()
 const route = useRoute()
 const store = useImm05Store()
+const auth = useAuthStore()
+
+// ── Role-based visibility filter (Task 1c) ───────────────────────────────────
+function buildRoleVisibilityFilter(base: DocumentFilters): DocumentFilters {
+  const isClinicalHead = auth.roles.includes('Clinical Head')
+  const isPrivileged = auth.roles.includes('CMMS Admin') || auth.roles.includes('QA Risk Team')
+  if (isClinicalHead && !isPrivileged) {
+    return { ...base, visibility: 'Public' }
+  }
+  return base
+}
 
 const showFilters = ref(false)
 const filters = reactive<DocumentFilters>({ doc_category: '', workflow_state: '', asset_ref: '' })
@@ -222,7 +234,15 @@ const historyDialog = reactive<{
 }>({ open: false, docName: '', loading: false, entries: [] })
 
 // ── Request & Exempt modals ──────────────────────────────────────────────────
-const requestModal = reactive<{ open: boolean; doc: AssetDocumentItem | null }>({ open: false, doc: null })
+const requestModal = reactive<{
+  open: boolean
+  doc: AssetDocumentItem | null
+  docName: string
+  assetRef: string
+  docType: string
+  reason: string
+  dueDate: string
+}>({ open: false, doc: null, docName: '', assetRef: '', docType: '', reason: '', dueDate: '' })
 const exemptModal = reactive<{ open: boolean; doc: AssetDocumentItem | null }>({ open: false, doc: null })
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
@@ -233,7 +253,7 @@ onMounted(async () => {
     filters.asset_ref = assetFilter.value
   }
   await Promise.all([
-    store.fetchDocuments(initialFilters),
+    store.fetchDocuments(buildRoleVisibilityFilter(initialFilters)),
     store.fetchDashboardStats(),
   ])
 })
@@ -245,14 +265,14 @@ function applyFilters() {
   if (filters.doc_category) active.doc_category = filters.doc_category
   if (filters.workflow_state) active.workflow_state = filters.workflow_state
   if (filters.asset_ref) active.asset_ref = filters.asset_ref
-  store.fetchDocuments(active, 1)
+  store.fetchDocuments(buildRoleVisibilityFilter(active), 1)
 }
 
 function resetFilters() {
   filters.doc_category = ''
   filters.workflow_state = ''
   filters.asset_ref = ''
-  store.fetchDocuments({}, 1)
+  store.fetchDocuments(buildRoleVisibilityFilter({}), 1)
 }
 
 function goToCreate() {
@@ -278,6 +298,11 @@ async function handleReject() {
 
 function openRequestModal(doc: AssetDocumentItem) {
   requestModal.doc = doc
+  requestModal.docName = doc.name
+  requestModal.assetRef = doc.asset_ref
+  requestModal.docType = doc.doc_type_detail
+  requestModal.reason = ''
+  requestModal.dueDate = ''
   requestModal.open = true
 }
 

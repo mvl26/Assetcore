@@ -1,0 +1,29 @@
+{
+  "actions": [],
+  "creation": "2026-04-17 09:00:00.000000",
+  "doctype": "DocType",
+  "document_type": "Document",
+  "engine": "InnoDB",
+  "istable": 1,
+  "module": "AssetCore",
+  "name": "Repair Checklist",
+  "field_order": [
+    "test_description", "test_category", "expected_value", "measured_value", "result", "notes", "photo"
+  ],
+  "fields": [
+    {"fieldname": "test_description", "fieldtype": "Data", "label": "Test Description", "reqd": 1, "in_list_view": 1},
+    {"fieldname": "test_category", "fieldtype": "Select", "label": "Test Category", "options": "Electrical\nMechanical\nSoftware\nSafety\nPerformance", "reqd": 1, "in_list_view": 1},
+    {"fieldname": "expected_value", "fieldtype": "Data", "label": "Expected Value"},
+    {"fieldname": "measured_value", "fieldtype": "Data", "label": "Measured Value"},
+    {"fieldname": "result", "fieldtype": "Select", "label": "Result", "options": "Pass\nFail\nN/A", "in_list_view": 1},
+    {"fieldname": "notes", "fieldtype": "Text", "label": "Notes"},
+    {"fieldname": "photo", "fieldtype": "Attach", "label": "Photo"}
+  ],
+  "modified": "2026-04-17 09:00:00.000000",
+  "modified_by": "Administrator",
+  "owner": "Administrator",
+  "permissions": [
+    {"role": "HTM Technician", "read": 1, "write": 1},
+    {"role": "Workshop Manager", "read": 1, "write": 1}
+  ]
+}

@@ -12,9 +12,13 @@ import {
   createDocumentRequest as apiCreateRequest,
   getDocumentRequests,
   getExpiringDocuments,
+  getDocument as apiGetDocument,
+  updateDocument as apiUpdateDocument,
+  createDocument as apiCreateDocument,
 } from '@/api/imm05'
 import type {
   AssetDocumentItem,
+  AssetDocumentDetail,
   DocumentFilters,
   Pagination,
   DashboardStats,
@@ -52,6 +56,7 @@ export const useImm05Store = defineStore('imm05', () => {
 
   // Expiring docs
   const expiringDocs = ref<AssetDocumentItem[]>([])
+
 
   // ─── Getters ────────────────────────────────────────────────────────────────
 
@@ -190,6 +195,56 @@ export const useImm05Store = defineStore('imm05', () => {
     }
   }
 
+  // Single document detail
+  const currentDocument = ref<AssetDocumentDetail | null>(null)
+
+  async function fetchDocument(name: string): Promise<void> {
+    loading.value = true
+    error.value = null
+    try {
+      const res = await apiGetDocument(name)
+      if (res.success) {
+        currentDocument.value = res.data
+      } else {
+        error.value = res.error ?? 'Không tải được tài liệu'
+      }
+    } catch (e: unknown) {
+      error.value = e instanceof Error ? e.message : 'Lỗi kết nối'
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function updateDocument(name: string, data: Partial<AssetDocumentDetail>) {
+    loading.value = true
+    error.value = null
+    try {
+      const res = await apiUpdateDocument(name, data)
+      if (res.success && currentDocument.value?.name === name) {
+        currentDocument.value = { ...currentDocument.value, ...data }
+      }
+      return res
+    } catch (e: unknown) {
+      error.value = e instanceof Error ? e.message : 'Lỗi kết nối'
+      return null
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function createDocument(data: Partial<AssetDocumentDetail>) {
+    loading.value = true
+    error.value = null
+    try {
+      return await apiCreateDocument(data)
+    } catch (e: unknown) {
+      error.value = e instanceof Error ? e.message : 'Lỗi kết nối'
+      return null
+    } finally {
+      loading.value = false
+    }
+  }
+
   function changePage(page: number) {
     fetchDocuments(currentFilters.value, page)
   }
@@ -203,12 +258,14 @@ export const useImm05Store = defineStore('imm05', () => {
     documents, loading, error, pagination, currentFilters,
     assetDocuments, assetCompletenessPct, assetDocumentStatus, missingRequired,
     dashboardStats, dashboardLoading, documentRequests, expiringDocs,
+    currentDocument,
     // getters
     totalDocuments, pendingReviewDocs, expiredDocs, kpis, openRequests,
     // actions
     fetchDocuments, fetchAssetDocuments, fetchDashboardStats,
     approveDocument, rejectDocument, createRequest,
     fetchDocumentRequests, fetchExpiringDocuments,
+    fetchDocument, updateDocument, createDocument,
     changePage, clearError,
   }
 })

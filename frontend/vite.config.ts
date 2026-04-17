@@ -18,10 +18,19 @@ export default defineConfig(({ mode }) => {
       proxy.on('proxyReq', (proxyReq: ClientRequest) => {
         proxyReq.setHeader('host', site)
       })
-      
+
+      // Frappe sets Set-Cookie with Domain=<site> which the browser rejects
+      // when running at localhost:3000. Strip Domain so cookies are accepted.
+      proxy.on('proxyRes', (proxyRes: IncomingMessage) => {
+        const setCookie = proxyRes.headers['set-cookie']
+        if (setCookie) {
+          proxyRes.headers['set-cookie'] = setCookie.map((c) =>
+            c.replace(/;\s*domain=[^;]*/i, '').replace(/;\s*samesite=strict/i, '; SameSite=Lax'),
+          )
+        }
+      })
+
       proxy.on('error', (err: Error, _req: IncomingMessage, res: any) => {
-        // Sử dụng 'any' cho res ở đây là cách nhanh nhất để tránh 
-        // sự chồng chéo phức tạp giữa ServerResponse và Socket của http-proxy
         console.error('[vite proxy error]', err)
       })
     },

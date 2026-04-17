@@ -4,7 +4,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { getCurrentSession, logout as apiLogout } from '@/api/imm04'
-import api from '@/api/axios'
+import api, { setCsrfToken } from '@/api/axios'
 import type { FrappeUser } from '@/types/imm04'
 
 export const useAuthStore = defineStore('auth', () => {
@@ -45,9 +45,13 @@ export const useAuthStore = defineStore('auth', () => {
     try {
       // Frappe login endpoint yêu cầu form-encoded, không phải JSON
       const body = new URLSearchParams({ usr, pwd })
-      await api.post('/api/method/login', body, {
+      const loginRes = await api.post<{ csrf_token?: string }>('/api/method/login', body, {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       })
+      // Frappe trả csrf_token trong response body — cache để dùng cho các POST tiếp theo
+      if (loginRes.data?.csrf_token) {
+        setCsrfToken(loginRes.data.csrf_token)
+      }
       return await fetchSession()
     } catch (e) {
       error.value = e instanceof Error ? e.message : 'Đăng nhập thất bại'
@@ -84,7 +88,7 @@ export const useAuthStore = defineStore('auth', () => {
       await apiLogout()
     } finally {
       user.value = null
-      window.location.href = '/login'
+      globalThis.location.href = '/login'
     }
   }
 

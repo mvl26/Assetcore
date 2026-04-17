@@ -31,14 +31,20 @@
       <span class="state-badge" :class="`state-${doc.workflow_state.toLowerCase()}`">
         {{ stateLabel(doc.workflow_state) }}
       </span>
+      <span
+        v-if="showExemptBadge"
+        class="exempt-miễn-badge"
+        title="Miễn đăng ký NĐ98"
+      >Miễn</span>
     </td>
 
     <!-- Hết hạn -->
     <td :class="expiryClass">
-      {{ doc.expiry_date ? formatDate(doc.expiry_date) : '—' }}
-      <small v-if="doc.days_until_expiry !== null" class="expiry-days">
-        ({{ doc.days_until_expiry }}d)
-      </small>
+      <template v-if="!doc.expiry_date">—</template>
+      <template v-else>
+        {{ formatDate(doc.expiry_date) }}
+        <span v-if="expiryInfo.label" class="expiry-tag">{{ expiryInfo.label }}</span>
+      </template>
     </td>
 
     <!-- Hành động -->
@@ -107,13 +113,41 @@ const rowClass = computed(() => {
   return ''
 })
 
-const expiryClass = computed(() => {
-  const d = props.doc.days_until_expiry
-  if (d === null) return ''
-  if (d <= 0) return 'text-danger'
-  if (d <= 30) return 'text-warning'
-  return ''
+// ── Expiry highlighting logic (Task 1a) ───────────────────────────────────────
+interface ExpiryInfo {
+  cssClass: string
+  label: string | null
+  daysLeft: number | null
+}
+
+const expiryInfo = computed<ExpiryInfo>(() => {
+  const raw = props.doc.expiry_date
+  if (!raw) return { cssClass: '', label: null, daysLeft: null }
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const expiry = new Date(raw)
+  expiry.setHours(0, 0, 0, 0)
+  const diffMs = expiry.getTime() - today.getTime()
+  const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24))
+
+  if (diffDays <= 0) {
+    return { cssClass: 'text-red-600 font-semibold', label: 'Hết hạn', daysLeft: diffDays }
+  }
+  if (diffDays <= 30) {
+    return { cssClass: 'text-orange-600 font-semibold', label: `${diffDays} ngày`, daysLeft: diffDays }
+  }
+  if (diffDays <= 90) {
+    return { cssClass: 'text-yellow-600', label: null, daysLeft: diffDays }
+  }
+  return { cssClass: '', label: null, daysLeft: diffDays }
 })
+
+const expiryClass = computed(() => expiryInfo.value.cssClass)
+
+// ── Exempt badge check (Task 1b) ──────────────────────────────────────────────
+const showExemptBadge = computed(() =>
+  props.doc.is_exempt === 1
+)
 
 </script>
 
@@ -144,6 +178,20 @@ const expiryClass = computed(() => {
 .state-rejected { background: #fce7f3; color: #831843; }
 
 .expiry-days { color: inherit; opacity: 0.75; }
+
+.exempt-miễn-badge {
+  display: inline-block; margin-left: 4px;
+  font-size: 0.65rem; padding: 1px 5px;
+  background: #ccfbf1; color: #0f766e;
+  border-radius: 10px; font-weight: 600;
+}
+
+.expiry-tag {
+  display: inline-block; margin-left: 4px;
+  font-size: 0.7rem; padding: 0 5px;
+  background: rgba(0,0,0,0.07); border-radius: 8px;
+  vertical-align: middle;
+}
 
 .actions { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
 .btn { padding: 0.45rem 1rem; border-radius: 4px; border: none; cursor: pointer; font-size: 0.875rem; }

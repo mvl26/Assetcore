@@ -14,12 +14,22 @@
   "col_break_1",
   "clinical_dept",
   "expected_installation_date",
+  "reception_date",
   "section_installation",
   "installation_date",
   "vendor_engineer_name",
+  "commissioned_by",
   "col_break_2",
   "is_radiation_device",
+  "risk_class",
+  "radiation_license_no",
   "doa_incident",
+  "clinical_head",
+  "qa_officer",
+  "board_approver",
+  "facility_checklist_pass",
+  "commissioning_date",
+  "overall_inspection_result",
   "section_identification",
   "vendor_serial_no",
   "internal_tag_qr",
@@ -28,6 +38,7 @@
   "site_photo",
   "installation_evidence",
   "qa_license_doc",
+  "handover_doc",
   "tab_baseline",
   "baseline_tests",
   "tab_documents",
@@ -35,6 +46,8 @@
   "section_output",
   "amend_reason",
   "final_asset",
+  "lifecycle_events_section",
+  "lifecycle_events",
   "amended_from"
  ],
  "fields": [
@@ -95,6 +108,12 @@
    "reqd": 1
   },
   {
+   "fieldname": "reception_date",
+   "fieldtype": "Date",
+   "label": "Ngày nhận hàng",
+   "reqd": 0
+  },
+  {
    "fieldname": "section_installation",
    "fieldtype": "Section Break",
    "label": "Thông tin Lắp đặt"
@@ -111,6 +130,13 @@
    "label": "Tên Kỹ sư Hãng"
   },
   {
+   "fieldname": "commissioned_by",
+   "fieldtype": "Link",
+   "label": "KTV phụ trách",
+   "options": "User",
+   "reqd": 0
+  },
+  {
    "fieldname": "col_break_2",
    "fieldtype": "Column Break"
   },
@@ -123,9 +149,65 @@
    "description": "Tự động lấy từ thông số Item. Không sửa tay."
   },
   {
+   "fieldname": "risk_class",
+   "fieldtype": "Select",
+   "label": "Phân loại rủi ro",
+   "options": "A\nB\nC\nD\nRadiation",
+   "in_list_view": 0,
+   "reqd": 0
+  },
+  {
+   "fieldname": "radiation_license_no",
+   "fieldtype": "Data",
+   "label": "Số giấy phép phóng xạ",
+   "reqd": 0
+  },
+  {
    "fieldname": "doa_incident",
    "fieldtype": "Check",
    "label": "Sự cố DOA (chết ngay khi khui hộp)"
+  },
+  {
+   "fieldname": "clinical_head",
+   "fieldtype": "Link",
+   "label": "Trưởng khoa",
+   "options": "User",
+   "reqd": 0
+  },
+  {
+   "fieldname": "qa_officer",
+   "fieldtype": "Link",
+   "label": "Nhân viên QA",
+   "options": "User",
+   "reqd": 0
+  },
+  {
+   "fieldname": "board_approver",
+   "fieldtype": "Link",
+   "label": "Người phê duyệt BGĐ",
+   "options": "User",
+   "reqd": 0
+  },
+  {
+   "fieldname": "facility_checklist_pass",
+   "fieldtype": "Check",
+   "label": "Cơ sở hạ tầng đạt yêu cầu",
+   "default": "0"
+  },
+  {
+   "fieldname": "commissioning_date",
+   "fieldtype": "Date",
+   "label": "Ngày commissioning",
+   "reqd": 0,
+   "read_only": 1
+  },
+  {
+   "fieldname": "overall_inspection_result",
+   "fieldtype": "Select",
+   "label": "Kết quả kiểm tra tổng thể",
+   "options": "\nPass\nFail\nConditional Pass",
+   "reqd": 0,
+   "read_only": 1
   },
   {
    "fieldname": "section_identification",
@@ -177,6 +259,12 @@
    "description": "Bắt buộc nếu thiết bị có is_radiation = 1."
   },
   {
+   "fieldname": "handover_doc",
+   "fieldtype": "Attach",
+   "label": "Biên bản bàn giao",
+   "reqd": 0
+  },
+  {
    "fieldname": "tab_baseline",
    "fieldtype": "Tab Break",
    "label": "Kết quả Kiểm tra An toàn"
@@ -221,6 +309,19 @@
    "description": "Tự động điền khi phiếu được Submit & Release thành công."
   },
   {
+   "fieldname": "lifecycle_events_section",
+   "fieldtype": "Section Break",
+   "label": "Lịch sử vòng đời"
+  },
+  {
+   "fieldname": "lifecycle_events",
+   "fieldtype": "Table",
+   "label": "Lifecycle Events",
+   "options": "Asset Lifecycle Event",
+   "reqd": 0,
+   "read_only": 1
+  },
+  {
    "fieldname": "amended_from",
    "fieldtype": "Link",
    "label": "Sửa đổi từ",
@@ -231,7 +332,7 @@
  ],
  "is_submittable": 1,
  "links": [],
- "modified": "2026-04-15 10:00:00.000000",
+ "modified": "2026-04-17 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "AssetCore",
  "name": "Asset Commissioning",

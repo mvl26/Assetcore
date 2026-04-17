@@ -1,0 +1,40 @@
+{
+  "actions": [],
+  "creation": "2026-04-17 09:00:00.000000",
+  "doctype": "DocType",
+  "document_type": "Document",
+  "engine": "InnoDB",
+  "module": "AssetCore",
+  "name": "PM Task Log",
+  "track_changes": 0,
+  "in_create": 1,
+  "field_order": [
+    "asset_ref", "pm_work_order", "pm_type", "col_break_1",
+    "completion_date", "technician", "overall_result", "is_late",
+    "days_late", "next_pm_date", "summary"
+  ],
+  "fields": [
+    {"fieldname": "asset_ref", "fieldtype": "Link", "label": "Thi\u1ebft b\u1ecb", "options": "Asset", "reqd": 1, "in_list_view": 1, "search_index": 1},
+    {"fieldname": "pm_work_order", "fieldtype": "Link", "label": "PM Work Order", "options": "PM Work Order", "reqd": 1, "in_list_view": 1},
+    {"fieldname": "pm_type", "fieldtype": "Data", "label": "Lo\u1ea1i PM", "in_list_view": 1},
+    {"fieldname": "col_break_1", "fieldtype": "Column Break"},
+    {"fieldname": "completion_date", "fieldtype": "Date", "label": "Ng\u00e0y ho\u00e0n th\u00e0nh", "reqd": 1, "in_list_view": 1},
+    {"fieldname": "technician", "fieldtype": "Link", "label": "KTV", "options": "User"},
+    {"fieldname": "overall_result", "fieldtype": "Select", "label": "K\u1ebft qu\u1ea3", "options": "Pass\nPass with Minor Issues\nFail", "in_list_view": 1},
+    {"fieldname": "is_late", "fieldtype": "Check", "label": "Tr\u1ec5 h\u1ea1n", "read_only": 1},
+    {"fieldname": "days_late", "fieldtype": "Int", "label": "S\u1ed1 ng\u00e0y tr\u1ec5", "read_only": 1},
+    {"fieldname": "next_pm_date", "fieldtype": "Date", "label": "L\u1ecbch PM ti\u1ebfp theo"},
+    {"fieldname": "summary", "fieldtype": "Text", "label": "T\u00f3m t\u1eaft"}
+  ],
+  "modified": "2026-04-17 09:00:00.000000",
+  "modified_by": "Administrator",
+  "owner": "Administrator",
+  "permissions": [
+    {"role": "Workshop Head", "read": 1, "create": 1},
+    {"role": "CMMS Admin", "read": 1, "create": 1},
+    {"role": "HTM Technician", "read": 1},
+    {"role": "Biomed Engineer", "read": 1},
+    {"role": "VP Block2", "read": 1},
+    {"role": "System Manager", "read": 1, "create": 1}
+  ]
+}

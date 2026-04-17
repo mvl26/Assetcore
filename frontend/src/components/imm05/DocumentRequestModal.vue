@@ -45,13 +45,13 @@
       </div>
 
       <div class="field-group">
-        <label>Hạn hoàn thành</label>
+        <label>Hạn hoàn thành <span class="req">*</span></label>
         <input v-model="form.due_date" type="date" class="input" />
       </div>
 
       <div class="field-group">
-        <label>Ghi chú</label>
-        <textarea v-model="form.request_note" rows="2" class="input" placeholder="Lý do yêu cầu..."></textarea>
+        <label>Lý do yêu cầu <span class="req">*</span></label>
+        <textarea v-model="form.request_note" rows="2" class="input" placeholder="Mô tả lý do cần bổ sung tài liệu này..."></textarea>
       </div>
 
       <div v-if="error" class="alert-danger">{{ error }}</div>
@@ -60,7 +60,7 @@
         <button class="btn btn-outline" @click="$emit('close')">Hủy</button>
         <button
           class="btn btn-primary"
-          :disabled="!form.doc_type_required || loading"
+          :disabled="!form.doc_type_required || !form.due_date || !form.request_note.trim() || loading"
           @click="handleSubmit"
         >
           {{ loading ? 'Đang tạo...' : 'Tạo yêu cầu' }}
@@ -96,7 +96,7 @@ const form = reactive({
 })
 
 async function handleSubmit() {
-  if (!form.doc_type_required) return
+  if (!form.doc_type_required || !form.due_date || !form.request_note.trim()) return
   loading.value = true
   error.value = ''
   const name = await store.createRequest({

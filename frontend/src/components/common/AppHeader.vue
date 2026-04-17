@@ -21,10 +21,21 @@ const navGroups = [
       { name: 'DocumentManagement', to: '/documents', label: 'Quản lý Hồ sơ' },
     ],
   },
+  {
+    label: 'IMM-08 Bảo trì PM',
+    links: [
+      { name: 'PMDashboard', to: '/pm/dashboard', label: 'Dashboard PM' },
+      { name: 'PMWorkOrderList', to: '/pm/work-orders', label: 'Danh sách WO' },
+    ],
+  },
+  {
+    label: 'IMM-09 Sửa chữa CM',
+    links: [
+      { name: 'CMDashboard', to: '/cm/dashboard', label: 'Dashboard CM' },
+      { name: 'CMWorkOrderList', to: '/cm/work-orders', label: 'Danh sách WO' },
+    ],
+  },
 ]
-
-// Flat list for mobile & active-check
-const navLinks = navGroups.flatMap(g => g.links)
 
 function navigate(to: string) {
   router.push(to)

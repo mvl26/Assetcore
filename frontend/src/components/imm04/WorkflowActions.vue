@@ -31,7 +31,7 @@ const processing = ref(false)
 
 function handleActionClick(action: string) {
   const config = getActionConfig(action)
-  if (config.requireConfirm) {
+  if (config.requiresConfirm || config.requireConfirm) {
     confirmAction.value = action
     confirmMessage.value = config.confirmMessage ?? `Bạn có chắc muốn thực hiện "${config.label}"?`
   } else {
@@ -94,7 +94,7 @@ const gw2Block = computed(() =>
         <button
           v-for="transition in filteredActions"
           :key="transition.action"
-          :class="['btn', getActionConfig(transition.action).buttonClass]"
+          :class="['btn', getActionConfig(transition.action).buttonClass ?? `btn-${getActionConfig(transition.action).variant}`]"
           @click="handleActionClick(transition.action)"
         >
           {{ getActionConfig(transition.action).label }}

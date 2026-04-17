@@ -10,6 +10,12 @@ import {
   submitCommissioning as apiSubmit,
   saveCommissioning as apiSave,
   createCommissioning as apiCreate,
+  checkSnUnique as apiCheckSn,
+  reportNonConformance as apiReportNC,
+  assignIdentification as apiAssignId,
+  submitBaselineChecklist as apiSubmitChecklist,
+  clearClinicalHold as apiClearHold,
+  approveClinicalRelease as apiApproveRelease,
 } from '@/api/imm04'
 import { useAuthStore } from './auth'
 import type {
@@ -19,6 +25,15 @@ import type {
   Pagination,
   WorkflowTransition,
 } from '@/types/imm04'
+
+/** Kiểm tra Serial Number có trùng không — pure API call, không cần store state */
+export async function checkSnUnique(
+  sn: string,
+  excludeName = '',
+): Promise<{ is_unique: boolean; existing_commissioning?: string }> {
+  const res = await apiCheckSn(sn, excludeName)
+  return res.data ?? { is_unique: true }
+}
 
 export const useCommissioningStore = defineStore('commissioning', () => {
   const auth = useAuthStore()
@@ -36,6 +51,7 @@ export const useCommissioningStore = defineStore('commissioning', () => {
     total_pages: 0,
   })
   const currentFilters = ref<CommissioningFilters>({})
+  const _openNcCount = ref(0)
 
   // ─── Getters ────────────────────────────────────────────────────────────────
 
@@ -69,6 +85,38 @@ export const useCommissioningStore = defineStore('commissioning', () => {
     if (isLocked.value) return false
     if (currentDoc.value.workflow_state !== 'Clinical_Release') return false
     return auth.canSubmit
+  })
+
+  /** Số NC đang Open */
+  const openNcCount = computed(() => _openNcCount.value)
+  const hasOpenNc = computed(() => _openNcCount.value > 0)
+
+  /** Tất cả tài liệu bắt buộc đã nhận chưa */
+  const allDocumentsReceived = computed(() => {
+    if (!currentDoc.value?.commissioning_documents?.length) return false
+    return currentDoc.value.commissioning_documents
+      .filter((d: any) => d.is_mandatory)
+      .every((d: any) => d.status === 'Received' || d.status === 'Waived')
+  })
+
+  /** Số tài liệu bắt buộc còn chờ */
+  const pendingDocCount = computed(() => {
+    if (!currentDoc.value?.commissioning_documents) return 0
+    return currentDoc.value.commissioning_documents.filter(
+      (d: any) => d.is_mandatory && d.status !== 'Received' && d.status !== 'Waived',
+    ).length
+  })
+
+  /** Thiết bị nguy cơ cao (C/D/Radiation) */
+  const isHighRisk = computed(() =>
+    currentDoc.value?.risk_class != null &&
+    ['C', 'D', 'Radiation'].includes(currentDoc.value.risk_class),
+  )
+
+  /** Số baseline test Fail */
+  const failedChecklistCount = computed(() => {
+    if (!currentDoc.value?.baseline_tests) return 0
+    return currentDoc.value.baseline_tests.filter((t: any) => t.test_result === 'Fail').length
   })
 
   // ─── Actions ────────────────────────────────────────────────────────────────
@@ -228,6 +276,127 @@ export const useCommissioningStore = defineStore('commissioning', () => {
     error.value = null
     pagination.value = { page: 1, page_size: 20, total: 0, total_pages: 0 }
     currentFilters.value = {}
+    _openNcCount.value = 0
+  }
+
+  /** Tạo NC mới */
+  async function reportNonConformance(
+    name: string,
+    ncData: { nc_type: string; severity: string; description: string },
+  ): Promise<boolean> {
+    loading.value = true
+    error.value = null
+    try {
+      const res = await apiReportNC(name, ncData)
+      if (res.success) {
+        _openNcCount.value += 1
+        return true
+      }
+      error.value = res.error ?? 'Không thể tạo NC'
+      return false
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : 'Lỗi không xác định'
+      return false
+    } finally {
+      loading.value = false
+    }
+  }
+
+  /** Gán định danh thiết bị */
+  async function assignIdentification(
+    name: string,
+    vendorSn: string,
+    internalTag = '',
+    mohCode = '',
+  ): Promise<boolean> {
+    loading.value = true
+    error.value = null
+    try {
+      const res = await apiAssignId(name, vendorSn, internalTag, mohCode)
+      if (res.success) {
+        await fetchDetail(name)
+        return true
+      }
+      error.value = res.error ?? 'Không thể gán định danh'
+      return false
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : 'Lỗi không xác định'
+      return false
+    } finally {
+      loading.value = false
+    }
+  }
+
+  /** Nộp kết quả baseline */
+  async function submitBaselineChecklist(
+    name: string,
+    results: Array<{ parameter: string; result: string; measured_val?: number; fail_note?: string }>,
+  ): Promise<{ ok: boolean; clinicalHoldRequired?: boolean }> {
+    loading.value = true
+    error.value = null
+    try {
+      const res = await apiSubmitChecklist(name, results)
+      if (res.success) {
+        await fetchDetail(name)
+        return { ok: true, clinicalHoldRequired: res.data?.clinical_hold_required }
+      }
+      error.value = res.error ?? 'Không thể nộp kết quả'
+      return { ok: false }
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : 'Lỗi không xác định'
+      return { ok: false }
+    } finally {
+      loading.value = false
+    }
+  }
+
+  /** Gỡ Clinical Hold */
+  async function clearClinicalHold(name: string, licenseNo = ''): Promise<boolean> {
+    loading.value = true
+    error.value = null
+    try {
+      const res = await apiClearHold(name, licenseNo)
+      if (res.success) {
+        await fetchDetail(name)
+        return true
+      }
+      error.value = res.error ?? 'Không thể gỡ Clinical Hold'
+      return false
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : 'Lỗi không xác định'
+      return false
+    } finally {
+      loading.value = false
+    }
+  }
+
+  /** Board phê duyệt Clinical Release */
+  async function approveClinicalRelease(
+    name: string,
+    boardApprover: string,
+    remarks = '',
+  ): Promise<boolean> {
+    loading.value = true
+    error.value = null
+    try {
+      const res = await apiApproveRelease(name, boardApprover, remarks)
+      if (res.success) {
+        await fetchDetail(name)
+        return true
+      }
+      error.value = res.error ?? 'Không thể phê duyệt Release'
+      return false
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : 'Lỗi không xác định'
+      return false
+    } finally {
+      loading.value = false
+    }
+  }
+
+  /** Cập nhật open NC count (gọi sau khi load NC list) */
+  function setOpenNcCount(count: number): void {
+    _openNcCount.value = count
   }
 
   return {
@@ -246,6 +415,12 @@ export const useCommissioningStore = defineStore('commissioning', () => {
     isRadiationDevice,
     allBaselinesPassed,
     canSubmitDoc,
+    openNcCount,
+    hasOpenNc,
+    allDocumentsReceived,
+    pendingDocCount,
+    isHighRisk,
+    failedChecklistCount,
     // Actions
     fetchList,
     fetchDetail,
@@ -256,5 +431,11 @@ export const useCommissioningStore = defineStore('commissioning', () => {
     refreshList,
     clearError,
     reset,
+    reportNonConformance,
+    assignIdentification,
+    submitBaselineChecklist,
+    clearClinicalHold,
+    approveClinicalRelease,
+    setOpenNcCount,
   }
 })

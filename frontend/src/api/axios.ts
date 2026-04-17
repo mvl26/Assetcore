@@ -12,23 +12,61 @@ import axios, {
 // CSRF TOKEN HELPERS
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Module-level cache — được set sau login hoặc refresh
+let _storedCsrfToken: string = ''
+
+/** Set CSRF token từ login response body (gọi từ auth store sau khi login thành công). */
+export function setCsrfToken(token: string): void {
+  _storedCsrfToken = token
+}
+
 /**
- * Đọc CSRF token từ cookie `csrf_token` do Frappe set.
- * Frappe cũng expose window.frappe.csrf_token nếu đang trong Frappe desk.
+ * Đọc CSRF token theo thứ tự ưu tiên:
+ * 1. Cached từ login response (đáng tin cậy nhất)
+ * 2. window.frappe.csrf_token (khi chạy embedded trong Frappe desk)
+ * 3. Cookie csrf_token do Frappe set
  */
 function getCsrfToken(): string {
-  // 1. Thử lấy từ window.frappe (khi chạy embedded trong Frappe desk)
+  if (_storedCsrfToken) return _storedCsrfToken
+
   if (typeof window !== 'undefined' && (window as Window & { frappe?: { csrf_token?: string } }).frappe?.csrf_token) {
     return (window as Window & { frappe?: { csrf_token?: string } }).frappe!.csrf_token!
   }
 
-  // 2. Lấy từ cookie csrf_token
   const match = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/)
   if (match) {
     return decodeURIComponent(match[1])
   }
 
   return ''
+}
+
+/**
+ * Gọi GET endpoint không cần CSRF để Frappe refresh cookie, sau đó đọc lại.
+ * Dùng khi POST bị 400 CSRF error — retry 1 lần sau khi refresh.
+ */
+async function refreshCsrfToken(): Promise<string> {
+  try {
+    // GET does not need CSRF — Frappe will set the csrf_token cookie in the response.
+    // After the Vite proxy strips Domain= from Set-Cookie the browser accepts it.
+    const res = await axios.get<{ csrf_token?: string }>(
+      '/api/method/frappe.auth.get_logged_user',
+      { withCredentials: true },
+    )
+    // Some Frappe versions include csrf_token in the response body
+    if (res.data?.csrf_token) {
+      _storedCsrfToken = res.data.csrf_token
+      return _storedCsrfToken
+    }
+  } catch {
+    // ignore — fall through to cookie read
+  }
+  _storedCsrfToken = ''
+  const match = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/)
+  if (match) {
+    _storedCsrfToken = decodeURIComponent(match[1])
+  }
+  return _storedCsrfToken
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -64,74 +102,73 @@ api.interceptors.request.use(
 // RESPONSE INTERCEPTOR — Handle lỗi chung
 // ─────────────────────────────────────────────────────────────────────────────
 
+type RetryableConfig = InternalAxiosRequestConfig & { _csrfRetried?: boolean }
+type FrappeErrorData = { message?: string; exc?: string; _server_messages?: string }
+
+function parseServerMessages(data: FrappeErrorData): string {
+  if (!data._server_messages) return data.message ?? 'Dữ liệu không hợp lệ.'
+  try {
+    const msgs: string[] = JSON.parse(data._server_messages)
+    return msgs
+      .map((m) => { try { return JSON.parse(m).message as string } catch { return m } })
+      .join(' | ')
+  } catch {
+    return data.message ?? 'Dữ liệu không hợp lệ.'
+  }
+}
+
+async function handle400(
+  error: AxiosError<FrappeErrorData>,
+): Promise<AxiosResponse> {
+  const msg = (error.response?.data as FrappeErrorData)?.message ?? ''
+  const lower = msg.toLowerCase()
+  const isCsrfError = !msg || lower.includes('csrf') || lower.includes('invalid request') || lower.includes('incorrect')
+
+  const originalConfig = error.config as RetryableConfig | undefined
+  if (isCsrfError && originalConfig && !originalConfig._csrfRetried) {
+    originalConfig._csrfRetried = true
+    const newToken = await refreshCsrfToken()
+    if (newToken && originalConfig.headers) {
+      originalConfig.headers['X-Frappe-CSRF-Token'] = newToken
+      return api(originalConfig)
+    }
+  }
+
+  throw new Error('Yêu cầu không hợp lệ. Vui lòng tải lại trang và thử lại (CSRF token hết hạn).')
+}
+
 api.interceptors.response.use(
   (response: AxiosResponse) => response,
-  (error: AxiosError<{ message?: string; exc?: string; _server_messages?: string }>) => {
+  async (error: AxiosError<FrappeErrorData>) => {
     if (!error.response) {
-      // Network error
-      return Promise.reject(new Error('Không thể kết nối đến máy chủ. Vui lòng kiểm tra kết nối mạng.'))
+      throw new Error('Không thể kết nối đến máy chủ. Vui lòng kiểm tra kết nối mạng.')
     }
 
     const { status, data } = error.response
 
-    switch (status) {
-      case 401: {
-        // Nếu chính request login bị 401 → sai mật khẩu, không redirect
-        const url = error.config?.url ?? ''
-        const isLoginRequest = url.includes('/api/method/login')
-        if (!isLoginRequest && !window.location.pathname.startsWith('/login')) {
-          window.location.href = `/login?redirect=${encodeURIComponent(window.location.pathname)}`
-          return Promise.reject(new Error('Phiên đăng nhập đã hết hạn. Đang chuyển hướng...'))
-        }
-        // Lỗi đăng nhập sai thông tin
-        const serverMsg = (data as { message?: string })?.message
-        return Promise.reject(new Error(serverMsg ?? 'Sai tên đăng nhập hoặc mật khẩu.'))
+    if (status === 400) return handle400(error)
+
+    if (status === 401) {
+      const url = error.config?.url ?? ''
+      if (!url.includes('/api/method/login') && !globalThis.location.pathname.startsWith('/login')) {
+        globalThis.location.href = `/login?redirect=${encodeURIComponent(globalThis.location.pathname)}`
+        throw new Error('Phiên đăng nhập đã hết hạn. Đang chuyển hướng...')
       }
-
-      case 403:
-        return Promise.reject(new Error('Bạn không có quyền thực hiện hành động này.'))
-
-      case 417: {
-        // Frappe validation error — parse server_messages
-        let msg = 'Dữ liệu không hợp lệ.'
-        if (data?._server_messages) {
-          try {
-            const msgs: string[] = JSON.parse(data._server_messages)
-            msg = msgs
-              .map((m: string) => {
-                try {
-                  return JSON.parse(m).message as string
-                } catch {
-                  return m
-                }
-              })
-              .join(' | ')
-          } catch {
-            msg = data.message ?? msg
-          }
-        } else if (data?.message) {
-          msg = data.message
-        }
-        return Promise.reject(new Error(msg))
-      }
-
-      case 404:
-        return Promise.reject(new Error('Không tìm thấy tài nguyên yêu cầu.'))
-
-      case 500: {
-        // Trích thông tin lỗi từ Frappe traceback để debug nhanh hơn
-        const excSummary = data?.exc
-          ? String(data.exc).split('\n').findLast(Boolean) ?? ''
-          : ''
-        const hint = excSummary ? ` — ${excSummary}` : ''
-        return Promise.reject(new Error(`500 Lỗi máy chủ nội bộ${hint}`))
-      }
-
-      default:
-        return Promise.reject(
-          new Error(data?.message ?? `Lỗi không xác định (HTTP ${status})`),
-        )
+      throw new Error(data?.message ?? 'Sai tên đăng nhập hoặc mật khẩu.')
     }
+
+    if (status === 403) throw new Error('Bạn không có quyền thực hiện hành động này.')
+    if (status === 404) throw new Error('Không tìm thấy tài nguyên yêu cầu.')
+
+    if (status === 417) throw new Error(parseServerMessages(data ?? {}))
+
+    if (status === 500) {
+      const excSummary = data?.exc ? String(data.exc).split('\n').findLast(Boolean) ?? '' : ''
+      const hint = excSummary ? ' — ' + excSummary : ''
+      throw new Error('500 Lỗi máy chủ nội bộ' + hint)
+    }
+
+    throw new Error(data?.message ?? `Lỗi không xác định (HTTP ${status})`)
   },
 )
 

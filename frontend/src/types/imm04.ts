@@ -18,14 +18,19 @@ export interface ApiResponse<T> {
 
 export type WorkflowState =
   | 'Draft'
-  | 'Identification'
+  | 'Draft_Reception'
+  | 'Pending_Doc_Verify'
+  | 'To_Be_Installed'
   | 'Installing'
+  | 'Identification'
   | 'Initial_Inspection'
+  | 'Non_Conformance'
   | 'Clinical_Hold'
   | 'Re_Inspection'
-  | 'Pending_Release'
   | 'Clinical_Release'
   | 'Return_To_Vendor'
+  | 'Pending_Release'
+  | 'DOA_Incident'
 
 export interface WorkflowTransition {
   action: string
@@ -37,7 +42,7 @@ export interface WorkflowTransition {
 // CHILD TABLE: BASELINE TEST
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type TestResult = 'Pass' | 'Fail' | ''
+export type TestResult = 'Pass' | 'Fail' | 'N/A' | ''
 
 export interface BaselineTest {
   idx: number
@@ -46,6 +51,11 @@ export interface BaselineTest {
   unit: string
   test_result: TestResult
   fail_note: string
+  is_critical?: 0 | 1
+  measurement_type?: 'Numeric' | 'Pass/Fail' | 'Visual'
+  expected_min?: number | null
+  expected_max?: number | null
+  na_applicable?: 0 | 1
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -58,6 +68,10 @@ export interface DocumentRecord {
   status: 'Received' | 'Pending' | string
   received_date: string
   remarks: string
+  is_mandatory?: 0 | 1
+  file_url?: string
+  doc_number?: string
+  expiry_date?: string
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -81,8 +95,16 @@ export interface CommissioningDoc {
   // Installation
   installation_date: string
   vendor_engineer_name: string
+  reception_date: string
   is_radiation_device: 0 | 1
   doa_incident: 0 | 1
+  facility_checklist_pass: 0 | 1
+
+  // Risk & Approvers
+  risk_class: RiskClass
+  clinical_head: string
+  qa_officer: string
+  board_approver: string
 
   // Identification
   vendor_serial_no: string
@@ -93,6 +115,12 @@ export interface CommissioningDoc {
   site_photo: string
   installation_evidence: string
   qa_license_doc: string
+
+  // Inspection
+  overall_inspection_result: string
+  handover_doc: string
+  commissioned_by: string
+  commissioning_date: string
 
   // Output
   final_asset: string
@@ -106,6 +134,7 @@ export interface CommissioningDoc {
   // Child tables
   baseline_tests: BaselineTest[]
   commissioning_documents: DocumentRecord[]
+  lifecycle_events: LifecycleEvent[]
 
   // Computed by API
   allowed_transitions: WorkflowTransition[]
@@ -131,6 +160,8 @@ export interface CommissioningListItem {
   internal_tag_qr: string
   final_asset: string
   modified: string
+  asset_name?: string
+  commissioning_date?: string
 }
 
 export interface Pagination {
@@ -281,4 +312,44 @@ export interface FrappeUser {
   email: string
   user_image: string | null
   roles: string[]
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RISK CLASS
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type RiskClass = 'A' | 'B' | 'C' | 'D' | 'Radiation' | ''
+
+// ─────────────────────────────────────────────────────────────────────────────
+// NON CONFORMANCE
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type NCStatus = 'Open' | 'Under Review' | 'Resolved' | 'Closed' | 'Transferred'
+
+export interface NonConformance {
+  name: string
+  nc_type: string
+  severity: 'Minor' | 'Major' | 'Critical' | ''
+  description: string
+  resolution_status: NCStatus
+  resolution_note?: string
+  root_cause?: string
+  reported_by?: string
+  closed_by?: string
+  closed_date?: string
+  damage_proof?: string
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LIFECYCLE EVENT
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface LifecycleEvent {
+  event_type: string
+  from_status: string
+  to_status: string
+  actor: string
+  event_timestamp: string
+  ip_address?: string
+  remarks?: string
 }

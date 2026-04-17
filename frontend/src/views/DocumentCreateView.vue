@@ -8,20 +8,74 @@ const route = useRoute()
 
 // Pre-fill asset_ref từ query param (?asset=...) nếu được navigate từ IMM-04
 const initialAsset = (route.query.asset as string) ?? ''
+// Pre-fill doc_type_detail từ query param (?doc_type_detail=...) nếu navigate từ "Upload phiên bản mới"
+const initialDocType = (route.query.doc_type_detail as string) ?? ''
 
 const form = reactive({
   asset_ref: initialAsset,
   doc_category: 'Legal' as string,
-  doc_type_detail: '',
+  doc_type_detail: initialDocType,
   doc_number: '',
   version: '1.0',
   issued_date: '',
   expiry_date: '',
   issuing_authority: '',
   file_attachment: '',
+  change_summary: '',
   visibility: 'Public' as 'Public' | 'Internal_Only',
   notes: '',
+  // Task 3a: Exempt fields
+  is_exempt: 0 as 0 | 1,
+  exempt_reason: '',
+  exempt_proof: '',
+  // Task 3b: Model-level flag
+  is_model_level: 0 as 0 | 1,
 })
+
+// File upload state
+const fileInputRef = ref<HTMLInputElement | null>(null)
+const selectedFile = ref<File | null>(null)
+const fileError = ref('')
+
+function handleFileSelect(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  fileError.value = ''
+  if (!file) return
+
+  const allowedTypes = [
+    'application/pdf',
+    'image/jpeg',
+    'image/png',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  ]
+  if (!allowedTypes.includes(file.type)) {
+    fileError.value = 'VR-08: Chỉ chấp nhận file PDF, JPG, PNG, DOCX.'
+    selectedFile.value = null
+    return
+  }
+  if (file.size > 25 * 1024 * 1024) {
+    fileError.value = 'File không được vượt quá 25MB.'
+    selectedFile.value = null
+    return
+  }
+  selectedFile.value = file
+}
+
+async function uploadFile(file: File): Promise<string> {
+  const formData = new FormData()
+  formData.append('file', file)
+  formData.append('is_private', '0')
+  formData.append('doctype', 'Asset Document')
+
+  const response = await fetch('/api/method/upload_file', {
+    method: 'POST',
+    headers: { 'X-Frappe-CSRF-Token': (globalThis as any).csrf_token ?? '' },
+    body: formData,
+  })
+  const data = await response.json()
+  return data.message?.file_url ?? ''
+}
 
 const saving = ref(false)
 const error = ref<string | null>(null)
@@ -46,33 +100,62 @@ function selectSuggestion(s: string) {
   form.doc_type_detail = s
 }
 
+/** Returns a validation error message or null if valid. */
+function validateForm(): string | null {
+  // asset_ref is optional when is_model_level = 1 (Task 3b)
+  const assetRequired = form.is_model_level !== 1
+  if ((assetRequired && !form.asset_ref) || !form.doc_type_detail || !form.doc_number || !form.issued_date) {
+    return 'Vui lòng điền đầy đủ các trường bắt buộc (*).'
+  }
+  if (form.is_exempt === 1 && !form.exempt_reason.trim()) {
+    return 'Vui lòng nhập Lý do miễn khi đánh dấu Miễn đăng ký NĐ98.'
+  }
+  if (form.expiry_date && form.issued_date && form.expiry_date <= form.issued_date) {
+    return 'VR-01: Ngày hết hạn phải sau ngày phát hành.'
+  }
+  if (form.version && form.version !== '1.0' && !form.change_summary?.trim()) {
+    return 'VR-09: Cần nhập tóm tắt thay đổi khi phiên bản > 1.0.'
+  }
+  if (['Legal', 'Certification'].includes(form.doc_category) && !form.expiry_date) {
+    return 'Tài liệu Pháp lý / Kiểm định bắt buộc có Ngày hết hạn.'
+  }
+  if (form.doc_category === 'Legal' && !form.issuing_authority) {
+    return 'Tài liệu Pháp lý bắt buộc điền Cơ quan cấp.'
+  }
+  return null
+}
+
+function buildPayload(fileUrl: string): Record<string, unknown> {
+  const payload: Record<string, unknown> = { ...form, file_attachment: fileUrl }
+  const optionalFields = ['expiry_date', 'issuing_authority', 'notes', 'file_attachment', 'change_summary', 'exempt_reason', 'exempt_proof'] as const
+  for (const field of optionalFields) {
+    if (!payload[field]) delete payload[field]
+  }
+  return payload
+}
+
 async function handleSubmit() {
   error.value = null
-  if (!form.asset_ref || !form.doc_type_detail || !form.doc_number || !form.issued_date) {
-    error.value = 'Vui lòng điền đầy đủ các trường bắt buộc (*).'
-    return
-  }
-
-  // Legal/Certification bắt buộc expiry_date (VR-07)
-  if (['Legal', 'Certification'].includes(form.doc_category) && !form.expiry_date) {
-    error.value = 'Tài liệu Pháp lý / Kiểm định bắt buộc có Ngày hết hạn.'
-    return
-  }
-
-  // Legal bắt buộc issuing_authority (VR-04)
-  if (form.doc_category === 'Legal' && !form.issuing_authority) {
-    error.value = 'Tài liệu Pháp lý bắt buộc điền Cơ quan cấp.'
+  const validationError = validateForm()
+  if (validationError) {
+    error.value = validationError
     return
   }
 
   saving.value = true
   try {
-    const payload: Record<string, unknown> = { ...form }
-    // Loại bỏ field rỗng để tránh lỗi validate
-    if (!payload.expiry_date) delete payload.expiry_date
-    if (!payload.issuing_authority) delete payload.issuing_authority
-    if (!payload.notes) delete payload.notes
-    if (!payload.file_attachment) delete payload.file_attachment
+    // Upload file trước nếu người dùng đã chọn file
+    let fileUrl = form.file_attachment
+    if (selectedFile.value) {
+      fileUrl = await uploadFile(selectedFile.value)
+      if (!fileUrl) {
+        error.value = 'Upload file thất bại. Vui lòng thử lại.'
+        saving.value = false
+        return
+      }
+    }
+
+    const payload = buildPayload(fileUrl)
 
     const res = await createDocument(payload)
     if (res.success) {
@@ -113,14 +196,35 @@ function goBack() {
       <div class="form-grid">
         <!-- Asset Ref -->
         <div class="form-field">
-          <label>Mã thiết bị <span class="required">*</span></label>
+          <label for="field-asset-ref">
+            Mã thiết bị
+            <span v-if="form.is_model_level !== 1" class="required">*</span>
+          </label>
           <input
+            id="field-asset-ref"
             v-model="form.asset_ref"
             type="text"
             placeholder="ACC-ASS-2026-xxxxx"
             class="input"
           />
           <small>Nhập mã asset chính xác (ví dụ: ACC-ASS-2026-00007)</small>
+        </div>
+
+        <!-- is_model_level (Task 3b) -->
+        <div class="form-field form-field-toggle">
+          <label class="toggle-label">
+            <input
+              v-model="form.is_model_level"
+              type="checkbox"
+              :true-value="1"
+              :false-value="0"
+              class="toggle-checkbox"
+            />
+            <span>Tài liệu áp dụng cho toàn dòng thiết bị (is_model_level)</span>
+          </label>
+          <small v-if="form.is_model_level === 1" class="model-level-hint">
+            Hồ sơ này sẽ áp dụng cho tất cả tài sản cùng Model
+          </small>
         </div>
 
         <!-- Doc Category -->
@@ -198,19 +302,33 @@ function goBack() {
           />
         </div>
 
-        <!-- File Attachment URL -->
+        <!-- File Attachment Upload -->
         <div class="form-field form-field-wide">
-          <label>Đường dẫn file</label>
+          <label>File đính kèm <span class="required">*</span></label>
           <input
-            v-model="form.file_attachment"
-            type="text"
-            placeholder="/files/ten_file.pdf (upload qua Frappe Desk rồi điền path)"
+            ref="fileInputRef"
+            type="file"
+            accept=".pdf,.jpg,.jpeg,.png,.docx"
+            class="input"
+            @change="handleFileSelect"
+          />
+          <small>Định dạng: PDF, JPG, PNG, DOCX. Tối đa 25MB.</small>
+          <div v-if="selectedFile" class="mt-1 text-success">&#10003; {{ selectedFile.name }}</div>
+          <div v-if="fileError" class="mt-1 text-file-error">{{ fileError }}</div>
+        </div>
+
+        <!-- Change Summary (VR-09: bắt buộc khi version != 1.0) -->
+        <div class="form-field form-field-wide">
+          <label>
+            Tóm tắt thay đổi
+            <span v-if="form.version && form.version !== '1.0'" class="required">*</span>
+          </label>
+          <textarea
+            v-model="form.change_summary"
+            rows="2"
+            placeholder="Mô tả thay đổi so với phiên bản trước (bắt buộc khi phiên bản > 1.0)..."
             class="input"
           />
-          <small>
-            Upload file trên Frappe Desk trước:
-            <a href="/app/upload" target="_blank">Mở File Manager →</a>
-          </small>
         </div>
 
         <!-- Visibility -->
@@ -224,8 +342,46 @@ function goBack() {
 
         <!-- Notes -->
         <div class="form-field form-field-wide">
-          <label>Ghi chú</label>
-          <textarea v-model="form.notes" rows="3" placeholder="Ghi chú thêm..." class="input" />
+          <label for="field-notes">Ghi chú</label>
+          <textarea id="field-notes" v-model="form.notes" rows="3" placeholder="Ghi chú thêm..." class="input" />
+        </div>
+
+        <!-- is_exempt toggle (Task 3a) -->
+        <div class="form-field form-field-wide">
+          <label class="toggle-label">
+            <input
+              v-model="form.is_exempt"
+              type="checkbox"
+              :true-value="1"
+              :false-value="0"
+              class="toggle-checkbox"
+            />
+            <span>Miễn đăng ký NĐ98 (is_exempt)</span>
+          </label>
+          <template v-if="form.is_exempt === 1">
+            <div class="exempt-sub-fields">
+              <div class="form-field">
+                <label for="field-exempt-reason">Lý do miễn <span class="required">*</span></label>
+                <textarea
+                  id="field-exempt-reason"
+                  v-model="form.exempt_reason"
+                  rows="2"
+                  placeholder="Nêu lý do miễn đăng ký..."
+                  class="input"
+                />
+              </div>
+              <div class="form-field">
+                <label for="field-exempt-proof">Bằng chứng miễn</label>
+                <input
+                  id="field-exempt-proof"
+                  v-model="form.exempt_proof"
+                  type="text"
+                  placeholder="URL hoặc mã tài liệu bằng chứng..."
+                  class="input"
+                />
+              </div>
+            </div>
+          </template>
         </div>
       </div>
 
@@ -300,8 +456,29 @@ small a { color: #2563eb; }
 .alert { padding: 0.75rem 1rem; border-radius: 6px; margin-bottom: 1rem; font-size: 0.875rem; }
 .alert-danger { background: #fee2e2; color: #991b1b; }
 
+/* File upload feedback */
+.mt-1 { margin-top: 0.25rem; }
+.text-success { font-size: 0.8rem; color: #16a34a; }
+.text-file-error { font-size: 0.8rem; color: #dc2626; }
+
+/* Toggle / checkbox fields */
+.form-field-toggle { grid-column: span 2; }
+.toggle-label {
+  display: inline-flex; align-items: center; gap: 0.5rem;
+  cursor: pointer; font-size: 0.875rem; color: #374151;
+}
+.toggle-checkbox { width: 1rem; height: 1rem; cursor: pointer; accent-color: #2563eb; }
+.model-level-hint { color: #4f8ef7; }
+.exempt-sub-fields {
+  margin-top: 0.75rem; padding: 0.75rem;
+  background: #f0fdf4; border-radius: 6px; border: 1px solid #bbf7d0;
+  display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;
+}
+
 @media (max-width: 600px) {
   .form-grid { grid-template-columns: 1fr; }
   .form-field-wide { grid-column: span 1; }
+  .form-field-toggle { grid-column: span 1; }
+  .exempt-sub-fields { grid-template-columns: 1fr; }
 }
 </style>

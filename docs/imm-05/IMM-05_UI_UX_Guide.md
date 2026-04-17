@@ -427,3 +427,139 @@ Tất cả UI trên được thiết kế **dual-compatible**:
 | Notifications | frappe.publish_realtime | WebSocket listener |
 
 API layer (`api/imm05.py`) phục vụ **cả hai** — Desk gọi qua `frappe.call()`, Vue gọi qua `fetch()`.
+
+---
+
+## 10. Pinia Store — useImm05Store
+
+```typescript
+// frontend/src/stores/imm05.ts
+import { defineStore } from 'pinia'
+import { ref, computed } from 'vue'
+import { frappeGet, frappePost } from '@/api/helpers'
+
+export interface AssetDocument {
+  name: string
+  asset_ref: string
+  doc_type_detail: string
+  document_number: string
+  issuing_authority: string
+  issue_date: string | null
+  expiry_date: string | null
+  days_until_expiry: number | null
+  version: string
+  workflow_state: 'Draft' | 'Pending_Review' | 'Active' | 'Expired' | 'Archived' | 'Rejected'
+  visibility: 'Internal' | 'External' | 'Confidential'
+  file_attachment: string
+  is_exempt: boolean
+  rejection_reason: string | null
+  approved_by: string | null
+  approved_date: string | null
+}
+
+export interface DashboardKPIs {
+  total_assets: number
+  compliant_assets: number
+  non_compliant_assets: number
+  expiring_soon_count: number
+  overdue_doc_requests: number
+  compliance_rate_pct: number
+}
+
+export const useImm05Store = defineStore('imm05', () => {
+  // --- State ---
+  const documents = ref<AssetDocument[]>([])
+  const currentDoc = ref<AssetDocument | null>(null)
+  const kpis = ref<DashboardKPIs>({
+    total_assets: 0,
+    compliant_assets: 0,
+    non_compliant_assets: 0,
+    expiring_soon_count: 0,
+    overdue_doc_requests: 0,
+    compliance_rate_pct: 0,
+  })
+  const loading = ref(false)
+  const error = ref<string | null>(null)
+  const pagination = ref({ page: 1, total: 0, total_pages: 0, page_size: 20 })
+
+  // --- Getters ---
+  const activeDocuments = computed(() =>
+    documents.value.filter(d => d.workflow_state === 'Active')
+  )
+  const expiringDocuments = computed(() =>
+    documents.value.filter(d => d.days_until_expiry !== null && d.days_until_expiry <= 30)
+  )
+
+  // --- Actions ---
+  async function fetchDocuments(assetRef: string, page = 1) {
+    loading.value = true
+    error.value = null
+    try {
+      const res = await frappeGet<{ data: AssetDocument[]; pagination: typeof pagination.value }>(
+        '/api/method/assetcore.api.imm05.list_documents',
+        { asset_ref: assetRef, page }
+      )
+      documents.value = res.data
+      pagination.value = res.pagination
+    } catch (e: any) {
+      error.value = e.message
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function fetchDocument(docName: string) {
+    loading.value = true
+    try {
+      const res = await frappeGet<AssetDocument>(
+        '/api/method/assetcore.api.imm05.get_document',
+        { doc_name: docName }
+      )
+      currentDoc.value = res
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function approveDocument(docName: string): Promise<boolean> {
+    try {
+      await frappePost('/api/method/assetcore.api.imm05.approve_document', { doc_name: docName })
+      await fetchDocument(docName)
+      return true
+    } catch (e: any) {
+      error.value = e.message
+      return false
+    }
+  }
+
+  async function rejectDocument(docName: string, reason: string): Promise<boolean> {
+    try {
+      await frappePost('/api/method/assetcore.api.imm05.reject_document', {
+        doc_name: docName, rejection_reason: reason
+      })
+      await fetchDocument(docName)
+      return true
+    } catch (e: any) {
+      error.value = e.message
+      return false
+    }
+  }
+
+  async function fetchDashboardKPIs() {
+    try {
+      const res = await frappeGet<DashboardKPIs>(
+        '/api/method/assetcore.api.imm05.get_dashboard_stats'
+      )
+      kpis.value = res
+    } catch (e: any) {
+      error.value = e.message
+    }
+  }
+
+  return {
+    documents, currentDoc, kpis, loading, error, pagination,
+    activeDocuments, expiringDocuments,
+    fetchDocuments, fetchDocument, approveDocument, rejectDocument, fetchDashboardKPIs,
+  }
+})
+```

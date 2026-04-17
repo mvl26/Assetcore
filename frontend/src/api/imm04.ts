@@ -196,3 +196,123 @@ export async function getCurrentSession(): Promise<FrappeSession> {
 export async function logout(): Promise<void> {
   await api.get('/api/method/logout')
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 11. CHECK SN UNIQUE
+// ─────────────────────────────────────────────────────────────────────────────
+export async function checkSnUnique(
+  vendorSn: string,
+  excludeName: string = '',
+): Promise<ApiResponse<{ is_unique: boolean; existing_commissioning?: string; item?: string }>> {
+  return frappeGet(`${BASE}.check_sn_unique`, { vendor_sn: vendorSn, exclude_name: excludeName })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 12. REPORT NON-CONFORMANCE
+// ─────────────────────────────────────────────────────────────────────────────
+export async function reportNonConformance(
+  commissioningName: string,
+  ncData: { nc_type: string; severity: string; description: string },
+): Promise<ApiResponse<{ name: string; nc_type: string; severity: string }>> {
+  return frappePost(`${BASE}.report_nonconformance`, {
+    commissioning_name: commissioningName,
+    nc_data: JSON.stringify(ncData),
+  })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 13. ASSIGN IDENTIFICATION
+// ─────────────────────────────────────────────────────────────────────────────
+export async function assignIdentification(
+  name: string,
+  vendorSerialNo: string,
+  internalTagQr: string = '',
+  customMohCode: string = '',
+): Promise<ApiResponse<{ name: string; vendor_serial_no: string; internal_tag_qr: string }>> {
+  return frappePost(`${BASE}.assign_identification`, {
+    name,
+    vendor_serial_no: vendorSerialNo,
+    internal_tag_qr: internalTagQr,
+    custom_moh_code: customMohCode,
+  })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 14. SUBMIT BASELINE CHECKLIST
+// ─────────────────────────────────────────────────────────────────────────────
+export async function submitBaselineChecklist(
+  name: string,
+  results: Array<{ parameter: string; result: string; measured_val?: number; fail_note?: string }>,
+): Promise<ApiResponse<{ name: string; overall_result: string; clinical_hold_required: boolean }>> {
+  return frappePost(`${BASE}.submit_baseline_checklist`, {
+    name,
+    results: JSON.stringify(results),
+  })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 15. CLEAR CLINICAL HOLD
+// ─────────────────────────────────────────────────────────────────────────────
+export async function clearClinicalHold(
+  name: string,
+  licenseNo: string = '',
+): Promise<ApiResponse<{ name: string; license_no: string }>> {
+  return frappePost(`${BASE}.clear_clinical_hold`, { name, license_no: licenseNo })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 16. APPROVE CLINICAL RELEASE
+// ─────────────────────────────────────────────────────────────────────────────
+export async function approveClinicalRelease(
+  commissioning: string,
+  boardApprover: string,
+  approvalRemarks: string = '',
+): Promise<ApiResponse<{ commissioning: string; new_status: string; asset_ref: string; commissioning_date: string }>> {
+  return frappePost(`${BASE}.approve_clinical_release`, {
+    commissioning,
+    board_approver: boardApprover,
+    approval_remarks: approvalRemarks,
+  })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 17. UPLOAD DOCUMENT (commissioning document row)
+// ─────────────────────────────────────────────────────────────────────────────
+export async function uploadCommissioningDocument(
+  commissioning: string,
+  docIndex: number,
+  fileUrl: string,
+  options: { expiry_date?: string; doc_number?: string } = {},
+): Promise<ApiResponse<{ commissioning: string; doc_index: number; all_mandatory_received: boolean }>> {
+  return frappePost(`${BASE}.upload_document`, {
+    commissioning,
+    doc_index: docIndex,
+    file_url: fileUrl,
+    expiry_date: options.expiry_date || '',
+    doc_number: options.doc_number || '',
+  })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 18. CLOSE NON-CONFORMANCE
+// ─────────────────────────────────────────────────────────────────────────────
+export async function closeNonConformance(
+  ncName: string,
+  rootCause: string,
+  correctiveAction: string,
+): Promise<ApiResponse<{ name: string; status: string }>> {
+  return frappePost(`${BASE}.close_nonconformance`, {
+    nc_name: ncName,
+    root_cause: rootCause,
+    corrective_action: correctiveAction,
+  })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 19. GENERATE HANDOVER PDF
+// ─────────────────────────────────────────────────────────────────────────────
+export async function generateHandoverPdf(
+  name: string,
+): Promise<ApiResponse<{ pdf_url: string; name: string }>> {
+  return frappeGet(`${BASE}.generate_handover_pdf`, { name })
+}
