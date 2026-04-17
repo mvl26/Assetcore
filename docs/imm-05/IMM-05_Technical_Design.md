@@ -91,8 +91,19 @@ assetcore/
 | 22 | superseded_by | Link | Thay thế bởi | Asset Document | — | 1 | — | — | Link tới version mới |
 | 23 | archived_by_version | Data | Lý do Archive | — | — | 1 | — | — | "Superseded by v2.0" |
 | 24 | archive_date | Date | Ngày Archive | — | — | 1 | — | — | Auto-set |
+| — | **Section: Version Control** | | | | | | | | |
+| 22 | superseded_by | Link | Thay thế bởi | Asset Document | — | 1 | — | — | Link tới version mới |
+| 23 | archived_by_version | Data | Lý do Archive | — | — | 1 | — | — | "Superseded by v2.0" |
+| 24 | archive_date | Date | Ngày Archive | — | — | 1 | — | — | Auto-set |
+| 25 | change_summary | Small Text | Tóm tắt thay đổi | — | — | — | — | — | **Bắt buộc khi version != "1.0"** (VR-09) |
+| — | **Section: Kiểm soát Quyền truy cập** | | | | | | | | |
+| 26 | visibility | Select | Phạm vi xem | Public\nInternal_Only | — | — | 1 | — | Internal_Only: ẩn với Clinical Head |
+| — | **Section: Miễn đăng ký (NĐ98 Exempt)** | | | | | | | | |
+| 27 | is_exempt | Check | Miễn đăng ký NĐ98 | — | — | — | — | — | Tick nếu có văn bản miễn ĐK lưu hành |
+| 28 | exempt_reason | Small Text | Lý do miễn đăng ký | — | — | — | — | — | Bắt buộc khi is_exempt=1 (VR-10) |
+| 29 | exempt_proof | Attach | Văn bản miễn đăng ký | — | — | — | — | — | Bắt buộc khi is_exempt=1 (VR-10) |
 | — | **Section: Ghi chú** | | | | | | | | |
-| 25 | notes | Text Editor | Ghi chú nội bộ | — | — | — | — | — | — |
+| 30 | notes | Text Editor | Ghi chú nội bộ | — | — | — | — | — | — |
 
 **Permissions:**
 
@@ -100,11 +111,11 @@ assetcore/
 |------|:----:|:-----:|:------:|:------:|:------:|:-----:|:---------:|
 | HTM Technician | 1 | 1 (Draft) | 1 | 0 | 0 | 0 | 0 |
 | Biomed Engineer | 1 | 1 | 0 | 0 | 0 | 0 | 0 |
-| QA Risk Team | 1 | 1 | 0 | 0 | 0 | 0 | 0 |
+| Tổ HC-QLCL | 1 | 1 | 1 | 0 | 0 | 0 | 0 |
 | Workshop Head | 1 | 1 | 1 | 0 | 1 | 1 | 0 |
 | VP Block2 | 1 | 1 | 0 | 0 | 1 | 0 | 0 |
 | CMMS Admin | 1 | 1 | 1 | 0 | 1 | 1 | 0 |
-| Clinical Head | 1 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Clinical Head | 1 (Public only) | 0 | 0 | 0 | 0 | 0 | 0 |
 
 ### 2.2 Expiry Alert Log (DocType phụ)
 
@@ -133,7 +144,66 @@ assetcore/
 
 **Permissions:** Read-only cho tất cả role (chỉ system tạo).
 
-### 2.3 Required Document Type (Master Data)
+### 2.3 Document Request (DocType phụ — GAP-04)
+
+**Config:**
+
+| Property | Value |
+|----------|-------|
+| name | Document Request |
+| module | AssetCore |
+| autoname | `format:DOCREQ-.YYYY.-.MM.-.#####` |
+| is_submittable | No |
+| track_changes | Yes |
+
+**Fields:**
+
+| # | fieldname | fieldtype | label | options | reqd | read_only | Ghi chú |
+|---|-----------|-----------|-------|---------|:----:|:---------:|---------|
+| 1 | asset_ref | Link | Tài sản | Asset | 1 | — | Asset cần bổ sung tài liệu |
+| 2 | doc_type_required | Data | Loại tài liệu cần | — | 1 | — | Ví dụ: "Chứng nhận đăng ký lưu hành" |
+| 3 | doc_category | Select | Nhóm | Legal\nTechnical\nCertification\nTraining\nQA | 1 | — | — |
+| 4 | assigned_to | Link | Giao cho | User | 1 | — | Người chịu trách nhiệm thu thập |
+| 5 | due_date | Date | Hạn hoàn thành | — | 1 | — | Mặc định = today + 30 ngày |
+| 6 | status | Select | Trạng thái | Open\nIn_Progress\nOverdue\nFulfilled\nCancelled | 1 | — | — |
+| 7 | priority | Select | Ưu tiên | Low\nMedium\nHigh\nCritical | — | — | Mặc định = Medium |
+| 8 | request_note | Small Text | Ghi chú yêu cầu | — | — | — | Mô tả cụ thể tài liệu cần |
+| 9 | fulfilled_by | Link | Hoàn thành bởi | Asset Document | — | 1 | Link tới doc được upload sau |
+| 10 | escalation_sent | Check | Đã leo thang | — | — | 1 | Auto-set khi scheduler leo thang |
+| 11 | source_type | Select | Nguồn tạo | Manual\nDashboard\nGW2_Block\nScheduler | — | 1 | Tracking từ đâu tạo ra |
+
+**Permissions:**
+
+| Role | Read | Write | Create | Delete |
+|------|:----:|:-----:|:------:|:------:|
+| HTM Technician | 1 | 1 | 1 | 0 |
+| Tổ HC-QLCL | 1 | 1 | 1 | 0 |
+| Biomed Engineer | 1 | 1 | 1 | 0 |
+| Workshop Head | 1 | 1 | 1 | 1 |
+| CMMS Admin | 1 | 1 | 1 | 1 |
+| Clinical Head | 0 | 0 | 0 | 0 |
+
+**Scheduler logic:**
+
+```python
+def check_overdue_document_requests():
+    """Chạy daily — tự động leo thang Document Request quá hạn."""
+    overdue = frappe.get_all("Document Request",
+        filters={"status": "Open", "due_date": ("<", nowdate())},
+        fields=["name", "asset_ref", "doc_type_required", "assigned_to"]
+    )
+    for req in overdue:
+        frappe.db.set_value("Document Request", req.name, {
+            "status": "Overdue",
+            "escalation_sent": 1
+        })
+        # Notify Workshop Head + VP Block2
+        ...
+```
+
+---
+
+### 2.4 Required Document Type (Master Data)
 
 **Config:**
 
@@ -163,11 +233,27 @@ assetcore/
 
 ### 3.1 Asset (ERPNext Core)
 
-| fieldname | fieldtype | label | Ghi chú |
-|-----------|-----------|-------|---------|
-| custom_doc_completeness_pct | Percent | Tỷ lệ Hồ sơ đầy đủ (%) | Read-only, cập nhật bởi IMM-05 scheduler |
-| custom_doc_status_summary | Small Text | Tóm tắt Hồ sơ | Read-only, format: "5/7 bắt buộc, 2 sắp hết hạn" |
-| custom_nearest_expiry | Date | Hồ sơ hết hạn gần nhất | Read-only |
+| fieldname | fieldtype | label | options | Ghi chú |
+|-----------|-----------|-------|---------|---------|
+| custom_doc_completeness_pct | Percent | Tỷ lệ Hồ sơ đầy đủ (%) | — | Read-only, cập nhật bởi IMM-05 scheduler |
+| custom_document_status | Select | Trạng thái Hồ sơ | Compliant\nCompliant (Exempt)\nIncomplete\nExpiring_Soon\nNon-Compliant | **Enum rõ ràng để filter, GW-2 check và dashboard badge** |
+| custom_doc_status_summary | Small Text | Tóm tắt Hồ sơ | — | Read-only, format: "5/7 bắt buộc, 2 sắp hết hạn" |
+| custom_nearest_expiry | Date | Hồ sơ hết hạn gần nhất | — | Read-only |
+
+**Logic cập nhật `custom_document_status`** (trong `update_asset_completeness()`):
+
+```python
+def _compute_document_status(pct: float, has_expiring: bool, has_expired: bool, is_exempt: bool) -> str:
+    if is_exempt:
+        return "Compliant (Exempt)"
+    if has_expired:
+        return "Non-Compliant"
+    if has_expiring:           # bất kỳ doc nào trong 30 ngày tới
+        return "Expiring_Soon"
+    if pct >= 100:
+        return "Compliant"
+    return "Incomplete"
+```
 
 ---
 
@@ -182,6 +268,10 @@ assetcore/
 | VR-05 | Không Submit khi Archived/Expired | validate() | Block state regression |
 | VR-06 | rejection_reason bắt buộc khi Reject | before_save() | Nếu transition → Rejected và rejection_reason trống → throw |
 | VR-07 | expiry_date bắt buộc khi Legal/Certification | validate() | Nếu category in ("Legal","Certification") và expiry_date trống → throw |
+| VR-08 | File format: chỉ PDF/JPG/PNG/DOCX | validate() | Kiểm tra extension từ file_attachment URL; throw nếu không hợp lệ |
+| VR-09 | change_summary bắt buộc khi version != "1.0" | validate() | Nếu version không phải "1.0" và change_summary trống → throw |
+| VR-10 | exempt_reason + exempt_proof bắt buộc khi is_exempt=1 | validate() | Nếu is_exempt và (exempt_reason trống hoặc exempt_proof trống) → throw |
+| VR-11 | is_exempt chỉ áp dụng cho doc_type liên quan đến ĐK lưu hành | validate() | Nếu is_exempt=1 và doc_type_detail không in ("Chứng nhận đăng ký lưu hành", "Giấy phép nhập khẩu") → throw |
 
 ---
 
@@ -240,6 +330,51 @@ class AssetDocument(Document):
 ### 5.2 Hook vào asset_commissioning.py (UPDATE)
 
 ```python
+# Thêm vào validate() — GW-2 compliance gate (BR-07)
+def validate(self):
+    ...
+    if self.workflow_state in ("Clinical_Release", "Pending_Release"):
+        self._gw2_check_document_compliance()
+
+def _gw2_check_document_compliance(self):
+    """BR-07: Block Submit nếu thiết bị thiếu Chứng nhận ĐK lưu hành.
+    Bỏ qua nếu: (1) Asset Document DocType chưa deploy, (2) thiết bị có is_exempt=True.
+    """
+    # Graceful degradation: nếu IMM-05 chưa deploy → skip
+    if not frappe.db.table_exists("Asset Document"):
+        frappe.log_error("IMM-05 DocType chưa tồn tại — GW-2 check bị bỏ qua", "GW2 Warning")
+        return
+
+    asset_name = self.final_asset or self.get("asset")
+    if not asset_name:
+        return
+
+    # Kiểm tra Exempt
+    exempt_exists = frappe.db.exists("Asset Document", {
+        "asset_ref": asset_name,
+        "doc_type_detail": ("in", ["Chứng nhận đăng ký lưu hành", "Giấy phép nhập khẩu"]),
+        "is_exempt": 1,
+        "exempt_proof": ("is", "set"),
+    })
+    if exempt_exists:
+        return  # Thiết bị được miễn — pass
+
+    # Kiểm tra có Active doc
+    active_exists = frappe.db.exists("Asset Document", {
+        "asset_ref": asset_name,
+        "doc_type_detail": "Chứng nhận đăng ký lưu hành",
+        "workflow_state": "Active",
+    })
+    if not active_exists:
+        frappe.throw(
+            _(
+                "GW-2 Compliance Block: Thiết bị {0} chưa có <b>Chứng nhận đăng ký lưu hành</b> "
+                "hợp lệ trong IMM-05. Vui lòng upload tài liệu hoặc đánh dấu Exempt trước khi Submit."
+            ).format(asset_name),
+            title=_("Thiếu hồ sơ pháp lý")
+        )
+
+
 # Thêm vào on_submit() sau mint_core_asset()
 def on_submit(self):
     ...
@@ -247,9 +382,64 @@ def on_submit(self):
     self.create_initial_document_set()  # NEW
     self.fire_release_event()
 
+
 def create_initial_document_set(self):
-    """US-03: Auto-import documents từ commissioning vào IMM-05."""
-    ...
+    """US-03: Auto-import documents từ commissioning_documents table vào IMM-05.
+    Tạo Asset Document Draft cho mỗi row Received trong commissioning_documents.
+    """
+    if not frappe.db.table_exists("Asset Document"):
+        return  # IMM-05 chưa deploy — skip gracefully
+
+    asset_name = self.final_asset
+    if not asset_name:
+        return
+
+    DOC_CATEGORY_MAP = {
+        "CO": "QA", "CQ": "QA", "Packing": "QA",
+        "Manual": "Technical", "Warranty": "QA",
+        "License": "Legal", "Training": "Training", "Other": "Technical",
+    }
+
+    for row in self.get("commissioning_documents", []):
+        if row.status != "Received":
+            continue
+        try:
+            frappe.get_doc({
+                "doctype": "Asset Document",
+                "asset_ref": asset_name,
+                "doc_category": DOC_CATEGORY_MAP.get(row.doc_type, "Technical"),
+                "doc_type_detail": row.doc_type,
+                "doc_number": row.get("doc_number") or "—",
+                "version": "1.0",
+                "issued_date": row.get("received_date") or nowdate(),
+                "source_commissioning": self.name,
+                "source_module": "IMM-04",
+                "visibility": "Public",
+                "workflow_state": "Draft",
+                "change_summary": "Auto-imported từ IMM-04 " + self.name,
+            }).insert(ignore_permissions=True)
+        except Exception as e:
+            frappe.log_error(
+                f"IMM-05 auto-import failed for doc_type={row.doc_type}: {e}",
+                "IMM-05 Auto Import"
+            )
+
+    # Kiểm tra qa_license_doc
+    if self.get("qa_license_doc"):
+        frappe.get_doc({
+            "doctype": "Asset Document",
+            "asset_ref": asset_name,
+            "doc_category": "Legal",
+            "doc_type_detail": "Giấy phép bức xạ",
+            "doc_number": "—",
+            "version": "1.0",
+            "issued_date": nowdate(),
+            "file_attachment": self.qa_license_doc,
+            "source_commissioning": self.name,
+            "source_module": "IMM-04",
+            "visibility": "Internal_Only",
+            "workflow_state": "Draft",
+        }).insert(ignore_permissions=True)
 ```
 
 ---
@@ -262,16 +452,20 @@ Tuân thủ pattern giống `api/imm04.py`: response wrapper `_ok()/_err()`, per
 
 | # | Method | Endpoint | Mô tả | Auth |
 |---|--------|----------|-------|------|
-| 1 | GET | `imm05.list_documents` | Paginated list + filters | Read perm |
+| 1 | GET | `imm05.list_documents` | Paginated list + filters (tự động ẩn Internal_Only nếu không có quyền) | Read perm |
 | 2 | GET | `imm05.get_document` | Chi tiết 1 document | Read perm |
 | 3 | POST | `imm05.create_document` | Upload tài liệu mới | Create perm |
 | 4 | POST | `imm05.update_document` | Sửa metadata (Draft only) | Write perm |
-| 5 | POST | `imm05.approve_document` | Approve → Active | Biomed/QA |
-| 6 | POST | `imm05.reject_document` | Reject + reason | Biomed/QA |
-| 7 | GET | `imm05.get_asset_documents` | Toàn bộ docs theo Asset | Read perm |
+| 5 | POST | `imm05.approve_document` | Approve → Active (archive version cũ tự động) | Biomed / Tổ HC-QLCL |
+| 6 | POST | `imm05.reject_document` | Reject + reason | Biomed / Tổ HC-QLCL |
+| 7 | GET | `imm05.get_asset_documents` | Toàn bộ docs theo Asset, group by category | Read perm |
 | 8 | GET | `imm05.get_dashboard_stats` | KPIs cho Dashboard IMM-05 | Read perm |
-| 9 | GET | `imm05.get_expiring_documents` | Docs sắp hết hạn (N ngày) | Read perm |
-| 10 | GET | `imm05.get_compliance_by_dept` | Compliance rate theo khoa | Read perm |
+| 9 | GET | `imm05.get_expiring_documents` | Docs sắp hết hạn trong N ngày | Read perm |
+| 10 | GET | `imm05.get_compliance_by_dept` | Compliance rate theo khoa (%) | Read perm |
+| 11 | GET | `imm05.get_document_history` | Lịch sử thay đổi của 1 document (wrap Frappe Version) | Read perm |
+| 12 | POST | `imm05.create_document_request` | Tạo Document Request task | Write perm |
+| 13 | GET | `imm05.get_document_requests` | Danh sách Document Request (lọc theo asset / status) | Read perm |
+| 14 | POST | `imm05.mark_exempt` | Đánh dấu thiết bị Exempt khỏi loại ĐK nhất định | Tổ HC-QLCL |
 
 ### 6.2 Chi tiết Request/Response
 
@@ -375,6 +569,99 @@ Response:
     "new_state": "Rejected"
   }
 }
+```
+
+**6.2.6 get_document_history** *(GAP-06)*
+
+```
+GET /api/method/assetcore.api.imm05.get_document_history?name=DOC-AST-2026-0001-2026-00001
+
+Response:
+{
+  "success": true,
+  "data": {
+    "name": "DOC-AST-2026-0001-2026-00001",
+    "history": [
+      {
+        "timestamp": "2026-04-16 09:30:00",
+        "user": "hieu@bvnd1.vn",
+        "action": "Workflow Transition",
+        "from_state": "Draft",
+        "to_state": "Pending_Review",
+        "changes": []
+      },
+      {
+        "timestamp": "2026-04-16 14:15:00",
+        "user": "biomed@bvnd1.vn",
+        "action": "Workflow Transition",
+        "from_state": "Pending_Review",
+        "to_state": "Active",
+        "changes": [
+          { "field": "approved_by", "old": null, "new": "biomed@bvnd1.vn" },
+          { "field": "approval_date", "old": null, "new": "2026-04-16" }
+        ]
+      }
+    ]
+  }
+}
+```
+
+*Implementation:* Wrap `frappe.get_all("Version", filters={"ref_doctype": "Asset Document", "docname": name})` và parse `data` JSON field.
+
+**6.2.7 create_document_request** *(GAP-04)*
+
+```
+POST /api/method/assetcore.api.imm05.create_document_request
+Body:
+{
+  "asset_ref": "AST-2026-0001",
+  "doc_type_required": "Chứng nhận đăng ký lưu hành",
+  "doc_category": "Legal",
+  "assigned_to": "hieu@bvnd1.vn",
+  "due_date": "2026-05-17",
+  "priority": "High",
+  "request_note": "NCC chưa cung cấp — yêu cầu gấp trước kiểm tra Sở Y tế",
+  "source_type": "Manual"
+}
+
+Response:
+{
+  "success": true,
+  "data": { "name": "DOCREQ-2026-04-00001", "status": "Open" }
+}
+```
+
+**6.2.8 mark_exempt** *(GAP-02)*
+
+```
+POST /api/method/assetcore.api.imm05.mark_exempt
+Body:
+{
+  "asset_ref": "AST-2026-0001",
+  "doc_type_detail": "Chứng nhận đăng ký lưu hành",
+  "exempt_reason": "Thiết bị sản xuất trong nước, miễn đăng ký theo Thông tư 46/2017",
+  "exempt_proof": "/files/cong_van_mien_dk_ND98.pdf"
+}
+
+Response:
+{
+  "success": true,
+  "data": {
+    "document_name": "DOC-AST-2026-0001-2026-00005",
+    "is_exempt": true,
+    "new_asset_document_status": "Compliant (Exempt)"
+  }
+}
+```
+
+**6.2.9 list_documents — Visibility filter** *(GAP-05)*
+
+```python
+# Trong imm05.list_documents(), thêm filter tự động:
+INTERNAL_ONLY_ROLES = {"HTM Technician", "Tổ HC-QLCL", "Biomed Engineer", "Workshop Head", "CMMS Admin"}
+user_roles = set(frappe.get_roles(frappe.session.user))
+if not user_roles.intersection(INTERNAL_ONLY_ROLES):
+    filters["visibility"] = "Public"   # ẩn Internal_Only với Clinical Head và role ngoài
 ```
 
 ---
@@ -496,7 +783,7 @@ def update_asset_completeness():
   {"type_name": "Warranty Card", "doc_category": "QA", "has_expiry": 1, "is_mandatory": 1},
   {"type_name": "Giấy phép nhập khẩu", "doc_category": "Legal", "has_expiry": 1, "is_mandatory": 0},
   {"type_name": "Giấy phép bức xạ", "doc_category": "Legal", "has_expiry": 1, "is_mandatory": 0, "applies_when_radiation": 1},
-  {"type_name": "Service Manual", "doc_category": "Technical", "has_expiry": 0, "is_mandatory": 0},
+  {"type_name": "Service Manual", "doc_category": "Technical", "has_expiry": 0, "is_mandatory": 1},
   {"type_name": "Chứng chỉ hiệu chuẩn", "doc_category": "Certification", "has_expiry": 1, "is_mandatory": 0}
 ]
 ```
@@ -512,19 +799,25 @@ fixtures = [
     {"dt": "Workflow", "filters": [["name", "in", [
         "IMM-04 Workflow", "IMM-05 Document Workflow"  # NEW
     ]]]},
-    {"dt": "Required Document Type"},  # NEW — export toàn bộ
+    {"dt": "Required Document Type"},   # NEW — export toàn bộ seed data
     {"dt": "Custom Field", "filters": [["dt", "in", ["Asset"]]]},
+    # Document Request không cần fixture (dữ liệu runtime, không seed)
 ]
 
 # Thêm scheduler
 scheduler_events = {
     "daily": [
         ...,
-        "assetcore.tasks.check_document_expiry",          # NEW
-        "assetcore.tasks.update_asset_completeness",       # NEW
+        "assetcore.tasks.check_document_expiry",            # IMM-05: expiry alert + auto-Expire
+        "assetcore.tasks.update_asset_completeness",        # IMM-05: cập nhật pct + document_status enum
+        "assetcore.tasks.check_overdue_document_requests",  # IMM-05: leo thang Document Request quá hạn
     ],
     ...
 }
+
+# Permissions cho Tổ HC-QLCL role (thêm nếu chưa có trong Frappe Role list)
+# Role "Tổ HC-QLCL" phải được tạo trước khi migrate
+# bench --site miyano execute "frappe.get_doc({'doctype':'Role','role_name':'Tổ HC-QLCL'}).insert()"
 ```
 
 ---
@@ -548,17 +841,26 @@ scheduler_events = {
 ### 11.1 Thứ tự thực thi
 
 ```
-Step 1: Tạo DocType Required Document Type + seed data
-Step 2: Tạo DocType Expiry Alert Log
-Step 3: Tạo DocType Asset Document + controller + workflow
-Step 4: Tạo Custom Fields trên Asset
-Step 5: bench migrate
-Step 6: Tạo api/imm05.py + update __init__.py
-Step 7: Thêm scheduler vào tasks.py + hooks.py
-Step 8: Tạo asset_document.js (client script)
-Step 9: Tạo imm05_dashboard page
-Step 10: Hook create_initial_document_set vào asset_commissioning.py
-Step 11: bench build --app assetcore + clear-cache + restart
+Step 1:  Tạo Frappe Role "Tổ HC-QLCL" nếu chưa có
+Step 2:  Tạo DocType Required Document Type + seed data (is_mandatory cập nhật)
+Step 3:  Tạo DocType Expiry Alert Log
+Step 4:  Tạo DocType Document Request (NEW — GAP-04)
+Step 5:  Tạo DocType Asset Document (30 fields — bao gồm visibility, is_exempt, change_summary)
+         + controller asset_document.py với VR-01 đến VR-11
+         + workflow fixture IMM-05 Document Workflow
+Step 6:  Tạo Custom Fields trên Asset:
+         - custom_doc_completeness_pct (Percent)
+         - custom_document_status (Select enum — GAP-03)
+         - custom_doc_status_summary (Small Text)
+         - custom_nearest_expiry (Date)
+Step 7:  bench migrate
+Step 8:  Tạo api/imm05.py (14 endpoints) + update api/__init__.py
+Step 9:  Thêm 3 scheduler vào tasks.py + hooks.py
+Step 10: Tạo asset_document.js (client script — visibility logic, exempt section)
+Step 11: Tạo imm05_dashboard page (HTML/JS/CSS)
+Step 12: Thêm _gw2_check_document_compliance() vào asset_commissioning.py (GAP-01)
+         Thêm create_initial_document_set() vào on_submit
+Step 13: bench build --app assetcore + clear-cache + sudo supervisorctl restart all
 ```
 
 ### 11.2 Rollback Plan

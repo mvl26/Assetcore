@@ -766,3 +766,94 @@ def get_po_details(po_name: str) -> dict:
         "transaction_date": str(po.transaction_date),
         "items": items,
     })
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 11. SEARCH LINK — Autocomplete for Link fields
+# ─────────────────────────────────────────────────────────────────────────────
+
+_ALLOWED_DOCTYPES = {
+    "Purchase Order": {
+        "label_field": "name",
+        "search_fields": ["name", "supplier"],
+        "filters": {"docstatus": 1},
+        "extra_fields": ["supplier", "supplier_name", "transaction_date"],
+    },
+    "Item": {
+        "label_field": "item_name",
+        "search_fields": ["item_code", "item_name"],
+        "filters": {"disabled": 0},
+        "extra_fields": ["item_code", "item_name"],
+    },
+    "Supplier": {
+        "label_field": "supplier_name",
+        "search_fields": ["name", "supplier_name"],
+        "filters": {},
+        "extra_fields": ["supplier_name"],
+    },
+    "Department": {
+        "label_field": "department_name",
+        "search_fields": ["name", "department_name"],
+        "filters": {},
+        "extra_fields": ["department_name"],
+    },
+}
+
+
+@frappe.whitelist()
+def search_link(doctype: str, query: str = "", page_length: int = 10) -> dict:
+    """
+    Tìm kiếm autocomplete cho Link fields trong IMM-04.
+
+    Endpoint: GET /api/method/assetcore.api.imm04.search_link
+              ?doctype=Purchase Order&query=PO-2026&page_length=10
+
+    Returns:
+        {success: true, data: [{value, label, description}]}
+    """
+    if doctype not in _ALLOWED_DOCTYPES:
+        return _err(f"DocType '{doctype}' không được phép tìm kiếm", "FORBIDDEN_DOCTYPE")
+
+    config = _ALLOWED_DOCTYPES[doctype]
+    search_fields: list[str] = config["search_fields"]
+    filters: dict = dict(config["filters"])
+    extra_fields: list[str] = config["extra_fields"]
+
+    # Build OR conditions for search
+    or_filters = []
+    if query:
+        q = f"%{query}%"
+        for field in search_fields:
+            or_filters.append([doctype, field, "like", q])
+
+    try:
+        fields = [*{*extra_fields, "name"}]
+        results = frappe.db.get_all(
+            doctype,
+            filters=filters,
+            or_filters=or_filters or None,
+            fields=fields,
+            limit=int(page_length),
+            order_by="modified desc",
+        )
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "IMM-04 search_link Error")
+        return _err(f"Lỗi tìm kiếm: {str(e)}", "SEARCH_ERROR")
+
+    label_field = config["label_field"]
+    items = []
+    for row in results:
+        value = row.get("name") or row.get(label_field, "")
+        label = row.get(label_field) or value
+        # Build description from remaining extra fields
+        desc_parts = [
+            str(row[f]) for f in extra_fields
+            if f != label_field and row.get(f)
+        ]
+        items.append({
+            "value": value,
+            "label": label,
+            "description": " | ".join(desc_parts) if desc_parts else "",
+        })
+
+    return _ok(items)
