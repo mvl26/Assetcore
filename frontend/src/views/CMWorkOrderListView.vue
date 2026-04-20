@@ -115,7 +115,10 @@ const filteredWOs = computed(() => {
               </span>
             </td>
             <td class="table-cell text-sm text-slate-600">{{ wo.open_datetime?.slice(0, 16).replace('T',' ') || '—' }}</td>
-            <td class="table-cell text-sm text-slate-600">{{ wo.assigned_to || '—' }}</td>
+            <td class="table-cell">
+              <div class="text-slate-700 text-sm">{{ wo.assigned_to_name || wo.assigned_to || '—' }}</div>
+              <div v-if="wo.assigned_to && wo.assigned_to_name" class="text-xs text-slate-400">{{ wo.assigned_to }}</div>
+            </td>
             <td class="table-cell">
               <span v-if="wo.mttr_hours" :class="wo.sla_breached ? 'text-red-600 font-semibold' : 'text-slate-600'">
                 {{ wo.mttr_hours }}h

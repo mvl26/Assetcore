@@ -33,10 +33,10 @@ class PMWorkOrder(Document):
 
     def _validate_photo_for_high_risk(self) -> None:
         """Require photo attachments for high-risk device classes (BR-08-06)."""
-        risk_class = frappe.db.get_value("Asset", self.asset_ref, "custom_risk_class")
-        if risk_class in ("III", "C", "D") and not self.attachments:
+        risk_class = frappe.db.get_value("AC Asset", self.asset_ref, "risk_classification")
+        if risk_class in ("High", "Critical") and not self.attachments:
             frappe.throw(_(
-                "Thi\u1ebft b\u1ecb nguy c\u01a1 cao (Class {0}) b\u1eaft bu\u1ed9c upload \u1ea3nh tr\u01b0\u1edbc/sau PM (BR-08-06)."
+                "Thi\u1ebft b\u1ecb nguy c\u01a1 cao ({0}) b\u1eaft bu\u1ed9c upload \u1ea3nh tr\u01b0\u1edbc/sau PM (BR-08-06)."
             ).format(risk_class))
 
     def _validate_cm_source(self) -> None:
@@ -60,12 +60,11 @@ class PMWorkOrder(Document):
         sched.save(ignore_permissions=True)
 
     def _update_asset_fields(self) -> None:
-        """Sync PM-related custom fields on the Asset record."""
+        """Sync PM-related first-class fields on the AC Asset record (v3)."""
         sched_interval = frappe.db.get_value("PM Schedule", self.pm_schedule, "pm_interval_days") or 0
-        frappe.db.set_value("Asset", self.asset_ref, {
-            "custom_last_pm_date": self.completion_date,
-            "custom_next_pm_date": add_days(self.completion_date, sched_interval),
-            "custom_pm_status": "On Schedule",
+        frappe.db.set_value("AC Asset", self.asset_ref, {
+            "last_pm_date": self.completion_date,
+            "next_pm_date": add_days(self.completion_date, sched_interval),
         })
 
     def _create_pm_task_log(self) -> None:
@@ -93,7 +92,13 @@ class PMWorkOrder(Document):
 
         if has_major:
             self._create_cm_wo(priority="Critical")
-            frappe.db.set_value("Asset", self.asset_ref, "status", "Out of Service")
+            # v3: use transition_asset_status for lifecycle change + audit trail
+            from assetcore.services.imm00 import transition_asset_status
+            transition_asset_status(
+                self.asset_ref, "Out of Service",
+                reason=f"PM {self.name}: Major failure detected",
+                root_doctype="PM Work Order", root_record=self.name,
+            )
             self.db_set("status", "Halted\u2013Major Failure")
         elif has_minor:
             self._create_cm_wo(priority="Medium")

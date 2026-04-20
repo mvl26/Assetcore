@@ -15,7 +15,7 @@
     "source_reference", "status", "approved_by", "approved_datetime", "applied_datetime", "rollback_reason"
   ],
   "fields": [
-    {"fieldname": "asset_ref", "fieldtype": "Link", "label": "Asset", "options": "Asset", "reqd": 1, "in_list_view": 1},
+    {"fieldname": "asset_ref", "fieldtype": "Link", "label": "Asset", "options": "AC Asset", "reqd": 1, "in_list_view": 1},
     {"fieldname": "asset_repair_wo", "fieldtype": "Link", "label": "Asset Repair WO", "options": "Asset Repair", "reqd": 1},
     {"fieldname": "version_before", "fieldtype": "Data", "label": "Version Before", "reqd": 1},
     {"fieldname": "version_after", "fieldtype": "Data", "label": "Version After", "reqd": 1},

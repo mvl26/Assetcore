@@ -1,0 +1,36 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "creation": "2026-04-18 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "istable": 1,
+ "field_order": [
+  "tech_name",
+  "certification_no",
+  "valid_until",
+  "phone",
+  "email",
+  "authorized_for_models"
+ ],
+ "fields": [
+  {"fieldname": "tech_name", "fieldtype": "Data", "label": "Technician Name", "reqd": 1, "in_list_view": 1, "columns": 2},
+  {"fieldname": "certification_no", "fieldtype": "Data", "label": "Certification No", "in_list_view": 1, "columns": 2},
+  {"fieldname": "valid_until", "fieldtype": "Date", "label": "Valid Until", "in_list_view": 1, "columns": 1, "search_index": 1},
+  {"fieldname": "phone", "fieldtype": "Data", "label": "Phone", "columns": 1},
+  {"fieldname": "email", "fieldtype": "Data", "label": "Email", "columns": 2, "options": "Email"},
+  {"fieldname": "authorized_for_models", "fieldtype": "Small Text", "label": "Authorized For Models", "columns": 2}
+ ],
+ "links": [],
+ "modified": "2026-04-18 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "AssetCore",
+ "name": "AC Authorized Technician",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "idx",
+ "sort_order": "ASC",
+ "track_changes": 0,
+ "states": []
+}

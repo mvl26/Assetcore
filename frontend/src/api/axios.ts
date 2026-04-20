@@ -49,8 +49,10 @@ async function refreshCsrfToken(): Promise<string> {
   try {
     // GET does not need CSRF — Frappe will set the csrf_token cookie in the response.
     // After the Vite proxy strips Domain= from Set-Cookie the browser accepts it.
+    // AssetCore endpoint (allow_guest) — đảm bảo Frappe set csrf_token cookie
+    // mà không gọi trực tiếp vào frappe core API.
     const res = await axios.get<{ csrf_token?: string }>(
-      '/api/method/frappe.auth.get_logged_user',
+      '/api/method/assetcore.api.layout.ping_session',
       { withCredentials: true },
     )
     // Some Frappe versions include csrf_token in the response body
@@ -157,7 +159,26 @@ api.interceptors.response.use(
       throw new Error(data?.message ?? 'Sai tên đăng nhập hoặc mật khẩu.')
     }
 
-    if (status === 403) throw new Error('Bạn không có quyền thực hiện hành động này.')
+    if (status === 403) {
+      // Frappe trả 403 cho cả 2 TH: (1) session hết hạn → user là Guest,
+      // (2) đã login nhưng thiếu role. Phân biệt bằng ping_session (allow_guest).
+      if (!globalThis.location.pathname.startsWith('/login')) {
+        try {
+          const ping = await axios.get<{ message?: { data?: { authenticated?: boolean } } }>(
+            '/api/method/assetcore.api.layout.ping_session',
+            { withCredentials: true },
+          )
+          const authenticated = ping.data?.message?.data?.authenticated ?? true
+          if (!authenticated) {
+            globalThis.location.href = `/login?redirect=${encodeURIComponent(globalThis.location.pathname)}`
+            throw new Error('Phiên đăng nhập đã hết hạn. Đang chuyển hướng đến trang đăng nhập...')
+          }
+        } catch (e) {
+          if (e instanceof Error && e.message.includes('Phiên đăng nhập')) throw e
+        }
+      }
+      throw new Error('Bạn không có quyền thực hiện hành động này.')
+    }
     if (status === 404) throw new Error('Không tìm thấy tài nguyên yêu cầu.')
 
     if (status === 417) throw new Error(parseServerMessages(data ?? {}))

@@ -34,7 +34,7 @@
     "is_warranty_claim", "warranty_claim_ref", "cannot_repair_reason", "technician_notes", "attachments"
   ],
   "fields": [
-    {"fieldname": "asset_ref", "fieldtype": "Link", "label": "Thi\u1ebft b\u1ecb", "options": "Asset", "reqd": 1, "in_list_view": 1, "search_index": 1},
+    {"fieldname": "asset_ref", "fieldtype": "Link", "label": "Thi\u1ebft b\u1ecb", "options": "AC Asset", "reqd": 1, "in_list_view": 1, "search_index": 1},
     {"fieldname": "asset_name", "fieldtype": "Data", "label": "T\u00ean thi\u1ebft b\u1ecb", "read_only": 1, "fetch_from": "asset_ref.asset_name"},
     {"fieldname": "asset_category", "fieldtype": "Data", "label": "Danh m\u1ee5c", "read_only": 1, "fetch_from": "asset_ref.asset_category"},
     {"fieldname": "risk_class", "fieldtype": "Select", "label": "Ph\u00e2n lo\u1ea1i nguy c\u01a1", "options": "Class I\nClass II\nClass III", "read_only": 1},

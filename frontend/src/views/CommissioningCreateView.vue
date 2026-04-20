@@ -2,10 +2,10 @@
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useCommissioningStore } from '@/stores/commissioning'
-import { getPoDetails } from '@/api/imm04'
-import { frappeGet } from '@/api/helpers'
-import LinkSearch from '@/components/common/LinkSearch.vue'
-import type { LinkItem } from '@/types/imm04'
+import SmartSelect from '@/components/common/SmartSelect.vue'
+import LinkInfoCard from '@/components/common/LinkInfoCard.vue'
+import type { DeviceModelDetails } from '@/types/imm04'
+import type { MasterItem } from '@/stores/useMasterDataStore'
 
 const router = useRouter()
 const store  = useCommissioningStore()
@@ -13,18 +13,28 @@ const store  = useCommissioningStore()
 // ─── Form state ───────────────────────────────────────────────────────────────
 
 const form = ref({
-  po_reference:              '',
-  master_item:               '',
-  vendor:                    '',
-  clinical_dept:             '',
-  expected_installation_date:'',
-  reception_date:            '',
-  vendor_serial_no:          '',
-  vendor_engineer_name:      '',
-  commissioned_by:           '',
-  is_radiation_device:       0 as 0 | 1,
-  doa_incident:              0 as 0 | 1,
-  risk_class:                '' as '' | 'A' | 'B' | 'C' | 'D' | 'Radiation',
+  // ── Procurement ──
+  po_reference:               '',
+  master_item:                '',   // IMM Device Model
+  vendor:                     '',   // AC Supplier
+  asset_description:          '',
+  delivery_note_no:           '',
+  purchase_price:             null as number | null,
+  warranty_expiry_date:       '',
+  // ── Scheduling ──
+  clinical_dept:              '',   // AC Department
+  expected_installation_date: '',
+  reception_date:             '',
+  // ── Installation ──
+  installation_location:      '',   // AC Location
+  received_by:                '',   // User — kho vận
+  dept_head_acceptance:       '',   // User — trưởng khoa
+  vendor_serial_no:           '',
+  vendor_engineer_name:       '',
+  commissioned_by:            '',
+  is_radiation_device:        0 as 0 | 1,
+  doa_incident:               0 as 0 | 1,
+  risk_class:                 '' as '' | 'A' | 'B' | 'C' | 'D' | 'Radiation',
 })
 
 const RISK_COLOR: Record<string, string> = {
@@ -81,60 +91,79 @@ function validateAll(): boolean {
 
 // ─── Loading / state ──────────────────────────────────────────────────────────
 
-const loading   = ref(false)
+const loading     = ref(false)
 const submitError = ref<string | null>(null)
 const poLoading   = ref(false)
-const poItems     = ref<{ item_code: string; item_name: string; is_radiation: boolean }[]>([])
+
+// ─── Selected entity details (cho InfoCards) ──────────────────────────────────
+
+const poInfo           = ref<{ supplier_name: string; transaction_date: string; items_count: number } | null>(null)
+const deviceModelInfo  = ref<DeviceModelDetails | null>(null)
+const vendorInfo       = ref<MasterItem | null>(null)
+const deptInfo         = ref<MasterItem | null>(null)
+const locationInfo     = ref<MasterItem | null>(null)
 
 // ─── PO auto-fill ─────────────────────────────────────────────────────────────
 
-async function onPoSelect(item: LinkItem) {
-  form.value.po_reference = item.value
+async function onPoSelect(item: MasterItem) {
+  form.value.po_reference = item.id
   validateField('po_reference')
-  await lookupPO(item.value)
+  await lookupPO(item.id)
 }
 
 async function lookupPO(poName: string) {
   if (!poName) return
   poLoading.value   = true
   submitError.value = null
-  try {
-    const res = await getPoDetails(poName)
-    if (res.success && res.data) {
-      form.value.vendor = res.data.supplier
-      validateField('vendor')
-      poItems.value = res.data.items
-      if (poItems.value.length === 1) selectItem(poItems.value[0])
-    } else {
-      submitError.value = res.error ?? 'Không tìm thấy PO'
+  const data = await store.fetchPoDetails(poName)
+  poLoading.value   = false
+  if (data) {
+    poInfo.value = {
+      supplier_name: data.supplier_name,
+      transaction_date: data.transaction_date,
+      items_count: data.items?.length ?? 0,
     }
-  } catch (e) {
-    submitError.value = e instanceof Error ? e.message : 'Lỗi khi tra cứu PO'
-  } finally {
-    poLoading.value = false
+    if (data.supplier) {
+      form.value.vendor = data.supplier
+      validateField('vendor')
+    }
+  } else {
+    poInfo.value = null
+    submitError.value = 'Không tìm thấy PO'
   }
 }
 
-async function fetchItemRiskClass(itemCode: string) {
-  try {
-    const res = await frappeGet<{ message: { custom_risk_class?: string } }>(
-      '/api/method/frappe.client.get_value',
-      { doctype: 'Item', name: itemCode, fieldname: 'custom_risk_class' },
-    )
-    const rc = res?.message?.custom_risk_class
-    if (rc && ['A', 'B', 'C', 'D', 'Radiation'].includes(rc)) {
-      form.value.risk_class = rc as typeof form.value.risk_class
-      if (rc === 'Radiation') form.value.is_radiation_device = 1
-    }
-  } catch { /* non-critical */ }
+async function onDeviceModelSelect(item: MasterItem) {
+  form.value.master_item = item.id
+  validateField('master_item')
+  const model = await store.fetchDeviceModelDetails(item.id)
+  if (!model) return
+  deviceModelInfo.value = model
+  // Map WHO class → NĐ98 risk_class
+  const classMap: Record<string, typeof form.value.risk_class> = {
+    'Class I': 'A', 'Class II': 'B', 'Class III': 'C',
+  }
+  if (!form.value.risk_class) {
+    form.value.risk_class = model.is_radiation_device
+      ? 'Radiation'
+      : (classMap[model.medical_device_class] ?? '')
+  }
+  if (model.is_radiation_device) form.value.is_radiation_device = 1
+  // Auto-suggest asset_description from model_name if empty
+  if (!form.value.asset_description && model.model_name) {
+    form.value.asset_description = `${model.model_name} (${model.manufacturer})`
+  }
 }
 
-function selectItem(item: { item_code: string; is_radiation: boolean }) {
-  form.value.master_item        = item.item_code
-  form.value.is_radiation_device = item.is_radiation ? 1 : 0
-  validateField('master_item')
-  fetchItemRiskClass(item.item_code)
-}
+function onVendorSelect(item: MasterItem)   { vendorInfo.value = item }
+function onDeptSelect(item: MasterItem)     { deptInfo.value = item }
+function onLocationSelect(item: MasterItem) { locationInfo.value = item }
+
+function onClearMasterItem()  { deviceModelInfo.value = null }
+function onClearPo()          { poInfo.value = null }
+function onClearVendor()      { vendorInfo.value = null }
+function onClearDept()        { deptInfo.value = null }
+function onClearLocation()    { locationInfo.value = null }
 
 function toggleDoc(i: number) {
   documents.value[i].status = documents.value[i].status === 'Received' ? 'Pending' : 'Received'
@@ -218,87 +247,128 @@ async function handleCreate() {
           <!-- PO Reference -->
           <div class="form-group">
             <p class="form-label">Lệnh mua hàng (PO) <span class="text-red-500">*</span></p>
-            <div class="flex gap-2">
-              <div class="flex-1">
-                <LinkSearch
-                  v-model="form.po_reference"
-                  doctype="Purchase Order"
-                  placeholder="PO-2026-0041"
-                  :has-error="!!fieldErrors.po_reference"
-                  @select="onPoSelect"
-                  @blur="validateField('po_reference')"
-                />
-              </div>
-              <button
-                type="button"
-                class="btn-secondary px-3 text-sm whitespace-nowrap"
-                :disabled="poLoading || !form.po_reference"
-                @click="lookupPO(form.po_reference)"
-              >
-                <svg v-if="poLoading" class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
-                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
-                </svg>
-                <span v-else>Tra cứu</span>
-              </button>
-            </div>
+            <SmartSelect
+              v-model="form.po_reference"
+              doctype="Purchase Order"
+              placeholder="PO-2026-0041"
+              :has-error="!!fieldErrors.po_reference"
+              @select="onPoSelect"
+              @clear="onClearPo"
+              @blur="validateField('po_reference')"
+            />
             <p v-if="fieldErrors.po_reference" class="mt-1 text-xs text-red-500">{{ fieldErrors.po_reference }}</p>
+            <LinkInfoCard
+              v-if="poInfo"
+              title="Thông tin PO"
+              variant="info"
+              :fields="[
+                { label: 'NCC', value: poInfo.supplier_name },
+                { label: 'Ngày PO', value: poInfo.transaction_date },
+                { label: 'Số mặt hàng', value: poInfo.items_count },
+              ]"
+            />
           </div>
 
-          <!-- Vendor (auto-filled) -->
+          <!-- Vendor (AC Supplier — auto-filled from PO if match found) -->
           <div class="form-group">
             <p class="form-label">Nhà cung cấp <span class="text-red-500">*</span></p>
-            <LinkSearch
+            <SmartSelect
               v-model="form.vendor"
-              doctype="Supplier"
-              placeholder="Tự điền khi chọn PO"
+              doctype="AC Supplier"
+              placeholder="Tự điền khi chọn PO (nếu có)"
               :has-error="!!fieldErrors.vendor"
+              @select="onVendorSelect"
+              @clear="onClearVendor"
               @blur="validateField('vendor')"
             />
             <p v-if="fieldErrors.vendor" class="mt-1 text-xs text-red-500">{{ fieldErrors.vendor }}</p>
+            <LinkInfoCard
+              v-if="vendorInfo"
+              title="Nhà cung cấp đã chọn"
+              variant="success"
+              :fields="[
+                { label: 'Tên', value: vendorInfo.name },
+                { label: 'Mã NCC', value: vendorInfo.id, type: 'mono' },
+                { label: 'Loại / Mô tả', value: vendorInfo.description },
+              ]"
+            />
           </div>
 
-          <!-- Master Item -->
-          <div class="form-group">
+          <!-- Master Item — IMM Device Model -->
+          <div class="form-group md:col-span-2">
             <p class="form-label">Model Thiết bị <span class="text-red-500">*</span></p>
-            <div v-if="poItems.length > 1" class="space-y-1.5">
-              <button
-                v-for="item in poItems"
-                :key="item.item_code"
-                type="button"
-                class="w-full text-left px-3 py-2 rounded-lg border text-sm transition-colors"
-                :class="form.master_item === item.item_code
-                  ? 'border-brand-500 bg-brand-50 text-brand-800'
-                  : 'border-slate-200 hover:border-brand-300 text-slate-700'"
-                @click="selectItem(item)"
-              >
-                {{ item.item_code }} — {{ item.item_name }}
-                <span v-if="item.is_radiation" class="text-purple-600 text-xs ml-1">(Bức xạ)</span>
-              </button>
-            </div>
-            <LinkSearch
-              v-else
+            <SmartSelect
               v-model="form.master_item"
-              doctype="Item"
-              placeholder="Mã Model thiết bị"
+              doctype="IMM Device Model"
+              placeholder="Tìm theo tên model hoặc nhà sản xuất"
               :has-error="!!fieldErrors.master_item"
-              @select="(i: LinkItem) => selectItem({ item_code: i.value, is_radiation: false })"
+              @select="onDeviceModelSelect"
+              @clear="onClearMasterItem"
               @blur="validateField('master_item')"
             />
             <p v-if="fieldErrors.master_item" class="mt-1 text-xs text-red-500">{{ fieldErrors.master_item }}</p>
+            <LinkInfoCard
+              v-if="deviceModelInfo"
+              title="Chi tiết Device Model — auto-fill risk class & PM/Calibration"
+              variant="info"
+              :fields="[
+                { label: 'Model', value: deviceModelInfo.model_name },
+                { label: 'Hãng', value: deviceModelInfo.manufacturer },
+                { label: 'WHO Class', value: deviceModelInfo.medical_device_class, type: 'badge' },
+                { label: 'Risk', value: deviceModelInfo.risk_classification, type: 'badge' },
+                { label: 'Bức xạ', value: deviceModelInfo.is_radiation_device ? 'Có ⚠️' : 'Không' },
+                { label: 'PM định kỳ', value: deviceModelInfo.is_pm_required ? `${deviceModelInfo.pm_interval_days} ngày` : 'Không yêu cầu' },
+                { label: 'Hiệu chuẩn', value: deviceModelInfo.is_calibration_required ? `${deviceModelInfo.calibration_interval_days} ngày` : 'Không yêu cầu' },
+              ]"
+            />
           </div>
 
-          <!-- Clinical Dept -->
+          <!-- Clinical Dept — AC Department -->
           <div class="form-group">
-            <p class="form-label">Khoa / Phòng nhận <span class="text-red-500">*</span></p>
-            <LinkSearch
+            <p class="form-label">Khoa / Phòng sử dụng <span class="text-red-500">*</span></p>
+            <SmartSelect
               v-model="form.clinical_dept"
-              doctype="Department"
-              placeholder="ICU - M"
+              doctype="AC Department"
+              placeholder="Tìm theo tên hoặc mã khoa"
               :has-error="!!fieldErrors.clinical_dept"
+              @select="onDeptSelect"
+              @clear="onClearDept"
               @blur="validateField('clinical_dept')"
             />
             <p v-if="fieldErrors.clinical_dept" class="mt-1 text-xs text-red-500">{{ fieldErrors.clinical_dept }}</p>
+            <LinkInfoCard
+              v-if="deptInfo"
+              title="Khoa / Phòng"
+              variant="success"
+              :fields="[
+                { label: 'Tên', value: deptInfo.name },
+                { label: 'Mã', value: deptInfo.id, type: 'mono' },
+                { label: 'Ghi chú', value: deptInfo.description },
+              ]"
+            />
+          </div>
+
+          <!-- Installation Location — AC Location -->
+          <div class="form-group">
+            <p class="form-label">Vị trí lắp đặt</p>
+            <SmartSelect
+              v-model="form.installation_location"
+              doctype="AC Location"
+              placeholder="Phòng / khu vực cụ thể"
+              @select="onLocationSelect"
+              @clear="onClearLocation"
+            />
+            <p class="mt-1 text-[11px] text-slate-400">Phòng hoặc khu vực lắp đặt trong khoa (tùy chọn)</p>
+            <LinkInfoCard
+              v-if="locationInfo"
+              title="Vị trí lắp đặt"
+              variant="success"
+              :fields="[
+                { label: 'Tên', value: locationInfo.name },
+                { label: 'Mã', value: locationInfo.id, type: 'mono' },
+                { label: 'Khu vực', value: locationInfo.description },
+              ]"
+            />
           </div>
 
           <!-- Serial Number -->
@@ -358,6 +428,56 @@ async function handleCreate() {
             <p class="mt-1 text-[11px] text-slate-400">Để trống nếu chưa nhận hàng</p>
           </div>
 
+          <!-- Asset description — becomes asset_name trên AC Asset -->
+          <div class="form-group">
+            <label for="asset_description" class="form-label">Tên / Mô tả Tài sản</label>
+            <input
+              id="asset_description"
+              v-model="form.asset_description"
+              type="text"
+              class="form-input"
+              placeholder="Máy siêu âm Philips Affiniti 70"
+            />
+            <p class="mt-1 text-[11px] text-slate-400">Dùng làm asset_name khi tạo AC Asset</p>
+          </div>
+
+          <!-- Delivery note / Packing list -->
+          <div class="form-group">
+            <label for="delivery_note_no" class="form-label">Số Phiếu Giao Hàng / Packing List</label>
+            <input
+              id="delivery_note_no"
+              v-model="form.delivery_note_no"
+              type="text"
+              class="form-input font-mono"
+              placeholder="DN-2026-0123"
+            />
+          </div>
+
+          <!-- Purchase price -->
+          <div class="form-group">
+            <label for="purchase_price" class="form-label">Giá trị Mua sắm (VNĐ)</label>
+            <input
+              id="purchase_price"
+              v-model.number="form.purchase_price"
+              type="number"
+              min="0"
+              class="form-input"
+              placeholder="0"
+            />
+            <p class="mt-1 text-[11px] text-slate-400">Theo PO / hợp đồng</p>
+          </div>
+
+          <!-- Warranty expiry -->
+          <div class="form-group">
+            <label for="warranty_expiry_date" class="form-label">Ngày Hết Bảo Hành</label>
+            <input
+              id="warranty_expiry_date"
+              v-model="form.warranty_expiry_date"
+              type="date"
+              class="form-input"
+            />
+          </div>
+
           <!-- Vendor engineer -->
           <div class="form-group">
             <label for="vendor_engineer_name" class="form-label">Kỹ sư Nhà cung cấp</label>
@@ -373,10 +493,30 @@ async function handleCreate() {
           <!-- Commissioned by -->
           <div class="form-group">
             <p class="form-label">KTV thực hiện lắp đặt</p>
-            <LinkSearch
+            <SmartSelect
               v-model="form.commissioned_by"
               doctype="User"
               placeholder="Chọn KTV..."
+            />
+          </div>
+
+          <!-- Received by — kho vận -->
+          <div class="form-group">
+            <p class="form-label">Người tiếp nhận (Kho vận)</p>
+            <SmartSelect
+              v-model="form.received_by"
+              doctype="User"
+              placeholder="NV kho vận xác nhận hàng..."
+            />
+          </div>
+
+          <!-- Dept head acceptance — trưởng khoa -->
+          <div class="form-group">
+            <p class="form-label">Trưởng khoa tiếp nhận</p>
+            <SmartSelect
+              v-model="form.dept_head_acceptance"
+              doctype="User"
+              placeholder="Trưởng khoa ký biên bản..."
             />
           </div>
         </div>

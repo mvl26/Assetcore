@@ -79,7 +79,7 @@
       <div v-if="store.loading" class="p-4">
         <SkeletonLoader :rows="6" :cols="8" />
       </div>
-      <table v-else class="doc-table">
+      <div v-else class="overflow-x-auto"><table class="doc-table">
         <thead>
           <tr>
             <th>Mã tài liệu</th>
@@ -108,6 +108,7 @@
           />
         </TransitionGroup>
       </table>
+      </div>
     </div>
 
     <!-- Pagination -->
@@ -190,7 +191,6 @@ import { ref, reactive, onMounted, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useImm05Store } from '@/stores/imm05Store'
 import { useAuthStore } from '@/stores/auth'
-import { getDocumentHistory } from '@/api/imm05'
 import type { AssetDocumentItem, DocumentFilters } from '@/api/imm05'
 import { formatDatetime } from '@/utils/docUtils'
 import DocumentRow from '@/components/imm05/DocumentRow.vue'
@@ -317,11 +317,11 @@ async function openHistoryDialog(name: string) {
   historyDialog.loading = true
   historyDialog.open = true
   try {
-    const res = await getDocumentHistory(name)
-    if (res.success) {
-      historyDialog.entries = res.data.history
+    const data = await store.fetchDocumentHistory(name)
+    if (data) {
+      historyDialog.entries = data.history
     } else {
-      store.error = res.error ?? 'Không tải được lịch sử'
+      store.error = 'Không tải được lịch sử'
       historyDialog.open = false
     }
   } catch (e) {

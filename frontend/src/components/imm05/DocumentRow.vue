@@ -12,8 +12,8 @@
 
     <!-- Nhóm -->
     <td>
-      <span class="badge" :class="`badge-${doc.doc_category.toLowerCase()}`">
-        {{ doc.doc_category }}
+      <span class="badge" :class="`badge-${(doc.doc_category || 'general').toLowerCase()}`">
+        {{ doc.doc_category || '—' }}
       </span>
     </td>
 
@@ -28,8 +28,8 @@
 
     <!-- Trạng thái -->
     <td>
-      <span class="state-badge" :class="`state-${doc.workflow_state.toLowerCase()}`">
-        {{ stateLabel(doc.workflow_state) }}
+      <span class="state-badge" :class="`state-${(doc.workflow_state || 'draft').toLowerCase()}`">
+        {{ stateLabel(doc.workflow_state || '') }}
       </span>
       <span
         v-if="showExemptBadge"

@@ -25,7 +25,8 @@ class AssetRepair(Document):
 
     @property
     def posting_date(self):
-        return self.get("posting_date") or self.get("open_datetime") or frappe.utils.nowdate()
+        # ERPNext stock ledger hooks read posting_date; fall back to open_datetime
+        return self.__dict__.get("posting_date") or self.get("open_datetime") or frappe.utils.nowdate()
 
     @posting_date.setter
     def posting_date(self, value):

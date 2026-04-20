@@ -27,7 +27,7 @@
       "fieldname": "asset_ref",
       "fieldtype": "Link",
       "label": "Tài sản",
-      "options": "Asset",
+      "options": "AC Asset",
       "reqd": 1,
       "in_list_view": 1,
       "search_index": 1
@@ -36,7 +36,7 @@
       "fieldname": "model_ref",
       "fieldtype": "Link",
       "label": "Model Thiết bị",
-      "options": "Item",
+      "options": "IMM Device Model",
       "search_index": 1
     },
     {
@@ -48,7 +48,7 @@
       "fieldname": "clinical_dept",
       "fieldtype": "Link",
       "label": "Khoa / Phòng",
-      "options": "Department",
+      "options": "AC Department",
       "read_only": 1,
       "fetch_from": "asset_ref.location"
     },

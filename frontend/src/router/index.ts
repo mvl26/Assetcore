@@ -1,10 +1,34 @@
 // Copyright (c) 2026, AssetCore Team
-// Vue Router: routes cho AssetCore IMM-04 module
+// Vue Router — AssetCore
+//
+// Cấu trúc routes theo module nghiệp vụ HTM, đồng bộ với
+// docs/res/Frontend_Router_Navigation_Map.md.
+//
+// Sections:
+//   1. Auth & Root
+//   2. IMM-00 — Master Data
+//   3. IMM-04 — Commissioning
+//   4. IMM-05 — Document Repository
+//   5. IMM-08 — Preventive Maintenance
+//   6. IMM-09 — Corrective Maintenance
+//   7. IMM-11 — Calibration
+//   8. Incident & CAPA & Audit
+//   9. Asset Transfer / Service Contract / Depreciation
+//  10. Admin
+//  11. Debug (dev-only)
+//  12. Errors / 404 catch-all
 
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import {
+  ROLES_CREATE,
+  ROLES_APPROVE,
+  ROLES_MANAGE_DOCS as ROLES_DOC_MGMT,
+  ROLES_ADMIN_ONLY,
+} from '@/constants/roles'
 
 const routes: RouteRecordRaw[] = [
+  // ─── 1. Auth & Root ────────────────────────────────────────────────────────
   {
     path: '/login',
     name: 'Login',
@@ -12,54 +36,145 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: false, title: 'Đăng nhập — AssetCore' },
   },
   {
-    path: '/',
-    redirect: '/dashboard',
+    path: '/register',
+    name: 'Register',
+    component: () => import('@/views/RegisterView.vue'),
+    meta: { requiresAuth: false, title: 'Đăng ký — AssetCore' },
   },
+  {
+    path: '/profile',
+    name: 'Profile',
+    component: () => import('@/views/ProfileView.vue'),
+    meta: { requiresAuth: true, title: 'Hồ sơ của tôi — AssetCore' },
+  },
+  {
+    path: '/unauthorized',
+    name: 'Unauthorized',
+    component: () => import('@/views/UnauthorizedView.vue'),
+    meta: { requiresAuth: false, title: 'Không đủ quyền — AssetCore' },
+  },
+  { path: '/', redirect: '/dashboard' },
   {
     path: '/dashboard',
     name: 'Dashboard',
     component: () => import('@/views/DashboardView.vue'),
-    meta: { requiresAuth: true, title: 'Dashboard IMM-04 — AssetCore' },
+    meta: { requiresAuth: true, title: 'Dashboard — AssetCore' },
   },
+
+  // ─── 2. IMM-00 — Master Data ───────────────────────────────────────────────
+  {
+    path: '/assets',
+    name: 'AssetList',
+    component: () => import('@/views/AssetListView.vue'),
+    meta: { requiresAuth: true, title: 'Danh sách Thiết bị — IMM-00' },
+  },
+  {
+    path: '/assets/new',
+    name: 'AssetCreate',
+    component: () => import('@/views/AssetCreateView.vue'),
+    meta: { requiresAuth: true, title: 'Thêm Thiết bị — IMM-00', requiredRoles: ROLES_CREATE },
+  },
+  {
+    path: '/assets/:id',
+    name: 'AssetDetail',
+    component: () => import('@/views/AssetDetailView.vue'),
+    props: true,
+    meta: { requiresAuth: true, title: 'Chi tiết Thiết bị — IMM-00' },
+  },
+  {
+    path: '/assets/:id/edit',
+    name: 'AssetEdit',
+    component: () => import('@/views/AssetEditView.vue'),
+    props: true,
+    meta: { requiresAuth: true, title: 'Chỉnh sửa Thiết bị — IMM-00', requiredRoles: ROLES_CREATE },
+  },
+  {
+    path: '/suppliers',
+    name: 'SupplierList',
+    component: () => import('@/views/SupplierListView.vue'),
+    meta: { requiresAuth: true, title: 'Nhà cung cấp — IMM-00' },
+  },
+  {
+    path: '/suppliers/new',
+    name: 'SupplierCreate',
+    component: () => import('@/views/SupplierFormView.vue'),
+    meta: { requiresAuth: true, title: 'Thêm Nhà cung cấp — IMM-00', requiredRoles: ROLES_CREATE },
+  },
+  {
+    path: '/suppliers/:id',
+    name: 'SupplierEdit',
+    component: () => import('@/views/SupplierFormView.vue'),
+    props: true,
+    meta: { requiresAuth: true, title: 'Sửa Nhà cung cấp — IMM-00', requiredRoles: ROLES_CREATE },
+  },
+  {
+    path: '/device-models',
+    name: 'DeviceModelList',
+    component: () => import('@/views/DeviceModelListView.vue'),
+    meta: { requiresAuth: true, title: 'Device Models — IMM-00' },
+  },
+  {
+    path: '/device-models/new',
+    name: 'DeviceModelCreate',
+    component: () => import('@/views/DeviceModelFormView.vue'),
+    meta: { requiresAuth: true, title: 'Thêm Device Model — IMM-00', requiredRoles: ROLES_CREATE },
+  },
+  {
+    path: '/device-models/:id',
+    name: 'DeviceModelEdit',
+    component: () => import('@/views/DeviceModelFormView.vue'),
+    props: true,
+    meta: { requiresAuth: true, title: 'Sửa Device Model — IMM-00', requiredRoles: ROLES_CREATE },
+  },
+  {
+    path: '/sla-policies',
+    name: 'SlaPolicyList',
+    component: () => import('@/views/SlaPolicyListView.vue'),
+    meta: { requiresAuth: true, title: 'Chính sách SLA — IMM-00' },
+  },
+  {
+    path: '/reference-data',
+    name: 'ReferenceData',
+    component: () => import('@/views/ReferenceDataView.vue'),
+    meta: { requiresAuth: true, title: 'Dữ liệu tham chiếu — IMM-00' },
+  },
+
+  // ─── 3. IMM-04 — Commissioning ─────────────────────────────────────────────
   {
     path: '/commissioning',
     name: 'CommissioningList',
     component: () => import('@/views/CommissioningListView.vue'),
-    meta: { requiresAuth: true, title: 'Danh sách Phiếu Commissioning' },
+    meta: { requiresAuth: true, title: 'Danh sách Phiếu Commissioning — IMM-04' },
   },
   {
     path: '/commissioning/new',
     name: 'CommissioningCreate',
     component: () => import('@/views/CommissioningCreateView.vue'),
-    meta: { requiresAuth: true, title: 'Tạo Phiếu Tiếp Nhận Mới' },
+    meta: { requiresAuth: true, title: 'Tạo Phiếu Tiếp Nhận Mới — IMM-04', requiredRoles: ROLES_CREATE },
   },
   {
     path: '/commissioning/:id',
     name: 'CommissioningDetail',
     component: () => import('@/views/CommissioningDetailView.vue'),
     props: true,
-    meta: { requiresAuth: true, title: 'Chi tiết Phiếu Commissioning' },
+    meta: { requiresAuth: true, title: 'Chi tiết Phiếu Commissioning — IMM-04' },
   },
   {
     path: '/commissioning/:id/nc',
     name: 'CommissioningNC',
     component: () => import('@/views/CommissioningNCView.vue'),
-    meta: { requiresAuth: true, title: 'Non-Conformance — Commissioning' },
+    props: true,
+    meta: { requiresAuth: true, title: 'Non-Conformance — IMM-04' },
   },
   {
     path: '/commissioning/:id/timeline',
     name: 'CommissioningTimeline',
     component: () => import('@/views/CommissioningTimelineView.vue'),
-    meta: { requiresAuth: true, title: 'Lịch sử vòng đời — Commissioning' },
-  },
-  {
-    path: '/debug/asset-dashboard',
-    name: 'AssetDashboard',
-    component: () => import('@/components/imm04/AssetDashboard.vue'),
-    meta: { requiresAuth: true, title: 'Asset Dashboard — Kiểm chứng API' },
+    props: true,
+    meta: { requiresAuth: true, title: 'Lịch sử vòng đời — IMM-04' },
   },
 
-  // ── IMM-05: Document Repository ─────────────────────────────────────────
+  // ─── 4. IMM-05 — Document Repository ───────────────────────────────────────
   {
     path: '/documents',
     name: 'DocumentManagement',
@@ -70,27 +185,30 @@ const routes: RouteRecordRaw[] = [
     path: '/documents/new',
     name: 'DocumentCreate',
     component: () => import('@/views/DocumentCreateView.vue'),
-    meta: { requiresAuth: true, title: 'Tải lên Tài liệu — IMM-05' },
+    meta: { requiresAuth: true, title: 'Tải lên Tài liệu — IMM-05', requiredRoles: ROLES_DOC_MGMT },
   },
   {
     path: '/documents/view/:name',
     name: 'DocumentDetail',
     component: () => import('@/views/DocumentDetailView.vue'),
     props: true,
-    meta: { requiresAuth: true, title: 'Chi tiết Tài liệu — AssetCore' },
+    meta: { requiresAuth: true, title: 'Chi tiết Tài liệu — IMM-05' },
   },
   {
-    // QR deep-link: quét mã QR dẫn thẳng tới hồ sơ của 1 thiết bị
+    // QR deep-link: quét QR → hồ sơ thiết bị (filter view)
     path: '/documents/asset/:assetId',
     name: 'DocumentsByAsset',
     redirect: (to) => ({ path: '/documents', query: { asset: to.params.assetId } }),
   },
-
-  // ── IMM-08: Preventive Maintenance ──────────────────────────────────────────
   {
-    path: '/pm',
-    redirect: '/pm/dashboard',
+    path: '/documents/requests',
+    name: 'DocumentRequestList',
+    component: () => import('@/views/DocumentRequestListView.vue'),
+    meta: { requiresAuth: true, title: 'Yêu cầu Hồ sơ — IMM-05' },
   },
+
+  // ─── 5. IMM-08 — Preventive Maintenance ───────────────────────────────────
+  { path: '/pm', redirect: '/pm/dashboard' },
   {
     path: '/pm/dashboard',
     name: 'PMDashboard',
@@ -110,23 +228,44 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true, title: 'Danh sách PM Work Order — IMM-08' },
   },
   {
+    path: '/pm/work-orders/new',
+    name: 'PMWorkOrderCreate',
+    component: () => import('@/views/PMWorkOrderCreateView.vue'),
+    meta: { requiresAuth: true, title: 'Tạo PM Work Order — IMM-08' },
+  },
+  {
     path: '/pm/work-orders/:id',
     name: 'PMWorkOrderDetail',
     component: () => import('@/views/PMWorkOrderDetailView.vue'),
     props: true,
     meta: { requiresAuth: true, title: 'Chi tiết PM Work Order — IMM-08' },
   },
-
-  // ── IMM-09: Corrective Maintenance ─────────────────────────────────────────
   {
-    path: '/cm',
-    redirect: '/cm/dashboard',
+    path: '/pm/schedules',
+    name: 'PmScheduleList',
+    component: () => import('@/views/PmScheduleListView.vue'),
+    meta: { requiresAuth: true, title: 'PM Schedule — IMM-08' },
   },
+  {
+    path: '/pm/templates',
+    name: 'PmTemplateList',
+    component: () => import('@/views/PmTemplateListView.vue'),
+    meta: { requiresAuth: true, title: 'PM Template — IMM-08' },
+  },
+
+  // ─── 6. IMM-09 — Corrective Maintenance ───────────────────────────────────
+  { path: '/cm', redirect: '/cm/dashboard' },
   {
     path: '/cm/dashboard',
     name: 'CMDashboard',
     component: () => import('@/views/CMDashboardView.vue'),
     meta: { requiresAuth: true, title: 'Dashboard CM — IMM-09' },
+  },
+  {
+    path: '/cm/create',
+    name: 'CMCreate',
+    component: () => import('@/views/CMCreateView.vue'),
+    meta: { requiresAuth: true, title: 'Tạo CM Work Order — IMM-09', requiredRoles: ROLES_CREATE },
   },
   {
     path: '/cm/work-orders',
@@ -140,12 +279,6 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/CMWorkOrderDetailView.vue'),
     props: true,
     meta: { requiresAuth: true, title: 'Chi tiết CM Work Order — IMM-09' },
-  },
-  {
-    path: '/cm/create',
-    name: 'CMCreate',
-    component: () => import('@/views/CMCreateView.vue'),
-    meta: { requiresAuth: true, title: 'Tạo CM Work Order — IMM-09' },
   },
   {
     path: '/cm/work-orders/:id/diagnose',
@@ -166,13 +299,196 @@ const routes: RouteRecordRaw[] = [
     name: 'CMChecklist',
     component: () => import('@/views/CMChecklistView.vue'),
     props: true,
-    meta: { requiresAuth: true, title: 'Nghiệm thu — IMM-09' },
+    meta: { requiresAuth: true, title: 'Repair Checklist — IMM-09' },
+  },
+  {
+    path: '/cm/firmware',
+    name: 'FirmwareCrList',
+    component: () => import('@/views/FirmwareCrListView.vue'),
+    meta: { requiresAuth: true, title: 'Firmware Change Request — IMM-09' },
+  },
+  {
+    // FirmwareCRDetail: chưa có view riêng — tạm redirect về list, focus item qua query
+    path: '/cm/firmware/:id',
+    name: 'FirmwareCrDetail',
+    redirect: (to) => ({ path: '/cm/firmware', query: { focus: to.params.id as string } }),
   },
   {
     path: '/cm/mttr',
     name: 'CMMttr',
     component: () => import('@/views/CMMttrView.vue'),
     meta: { requiresAuth: true, title: 'MTTR Dashboard — IMM-09' },
+  },
+
+  // ─── 7. IMM-11 — Calibration ────────────────────────────────────────────────
+  {
+    path: '/calibration/dashboard',
+    redirect: '/calibration',
+  },
+  {
+    path: '/calibration',
+    name: 'CalibrationList',
+    component: () => import('@/views/CalibrationListView.vue'),
+    meta: { requiresAuth: true, title: 'Hiệu chuẩn thiết bị — IMM-11' },
+  },
+  {
+    path: '/calibration/new',
+    name: 'CalibrationCreate',
+    component: () => import('@/views/CalibrationCreateView.vue'),
+    meta: { requiresAuth: true, title: 'Tạo Phiếu Hiệu chuẩn — IMM-11', requiredRoles: ROLES_CREATE },
+  },
+  {
+    path: '/calibration/schedules',
+    name: 'CalibrationScheduleList',
+    component: () => import('@/views/CalibrationScheduleListView.vue'),
+    meta: { requiresAuth: true, title: 'Lịch Hiệu chuẩn — IMM-11' },
+  },
+  {
+    path: '/calibration/:id',
+    name: 'CalibrationDetail',
+    component: () => import('@/views/CalibrationDetailView.vue'),
+    props: true,
+    meta: { requiresAuth: true, title: 'Chi tiết Hiệu chuẩn — IMM-11' },
+  },
+
+  // ─── 8. Incident & CAPA & Audit ────────────────────────────────────────────
+  {
+    path: '/incidents',
+    name: 'IncidentList',
+    component: () => import('@/views/IncidentListView.vue'),
+    meta: { requiresAuth: true, title: 'Incident Reports' },
+  },
+  {
+    path: '/incidents/new',
+    name: 'IncidentCreate',
+    component: () => import('@/views/IncidentCreateView.vue'),
+    meta: { requiresAuth: true, title: 'Báo Sự cố', requiredRoles: ROLES_CREATE },
+  },
+  {
+    path: '/incidents/:id',
+    name: 'IncidentDetail',
+    component: () => import('@/views/IncidentDetailView.vue'),
+    props: true,
+    meta: { requiresAuth: true, title: 'Chi tiết Incident' },
+  },
+  {
+    path: '/capas',
+    name: 'CAPAList',
+    component: () => import('@/views/CAPAListView.vue'),
+    meta: { requiresAuth: true, title: 'CAPA Records' },
+  },
+  {
+    path: '/capas/:id',
+    name: 'CAPADetail',
+    component: () => import('@/views/CAPADetailView.vue'),
+    props: true,
+    meta: { requiresAuth: true, title: 'Chi tiết CAPA', requiredRoles: ROLES_APPROVE },
+  },
+  {
+    path: '/audit-trail',
+    name: 'AuditTrail',
+    component: () => import('@/views/AuditTrailListView.vue'),
+    meta: { requiresAuth: true, title: 'Audit Trail (ISO 13485)' },
+  },
+
+  // ─── 9. Asset Transfer / Service Contract / Depreciation ──────────────────
+  {
+    path: '/asset-transfers',
+    name: 'AssetTransferList',
+    component: () => import('@/views/AssetTransferListView.vue'),
+    meta: { requiresAuth: true, title: 'Chuyển giao thiết bị' },
+  },
+  {
+    path: '/asset-transfers/new',
+    name: 'AssetTransferCreate',
+    component: () => import('@/views/AssetTransferCreateView.vue'),
+    meta: { requiresAuth: true, title: 'Tạo Asset Transfer', requiredRoles: ROLES_CREATE },
+  },
+  {
+    path: '/asset-transfers/:id',
+    name: 'AssetTransferDetail',
+    component: () => import('@/views/AssetTransferDetailView.vue'),
+    props: true,
+    meta: { requiresAuth: true, title: 'Chi tiết Chuyển giao' },
+  },
+  {
+    path: '/service-contracts',
+    name: 'ServiceContractList',
+    component: () => import('@/views/ServiceContractListView.vue'),
+    meta: { requiresAuth: true, title: 'Hợp đồng dịch vụ' },
+  },
+  {
+    path: '/service-contracts/new',
+    name: 'ServiceContractCreate',
+    component: () => import('@/views/ServiceContractCreateView.vue'),
+    meta: { requiresAuth: true, title: 'Tạo Hợp đồng dịch vụ', requiredRoles: ROLES_CREATE },
+  },
+  {
+    path: '/service-contracts/:id',
+    name: 'ServiceContractDetail',
+    component: () => import('@/views/ServiceContractDetailView.vue'),
+    props: true,
+    meta: { requiresAuth: true, title: 'Chi tiết Hợp đồng' },
+  },
+  {
+    path: '/depreciation',
+    name: 'Depreciation',
+    component: () => import('@/views/DepreciationView.vue'),
+    meta: { requiresAuth: true, title: 'Khấu hao tài sản' },
+  },
+
+  // ─── 10. Admin ─────────────────────────────────────────────────────────────
+  {
+    path: '/user-profiles',
+    name: 'UserProfileList',
+    component: () => import('@/views/UserProfileListView.vue'),
+    meta: { requiresAuth: true, title: 'Quản lý Người dùng IMM', requiredRoles: ROLES_ADMIN_ONLY },
+  },
+  {
+    path: '/user-profiles/new',
+    name: 'UserProfileCreate',
+    component: () => import('@/views/UserProfileFormView.vue'),
+    meta: { requiresAuth: true, title: 'Thêm Người dùng IMM', requiredRoles: ROLES_ADMIN_ONLY },
+  },
+  {
+    path: '/user-profiles/:user',
+    name: 'UserProfileEdit',
+    component: () => import('@/views/UserProfileFormView.vue'),
+    props: true,
+    // Bỏ ROLES_ADMIN_ONLY: cho phép user tự xem/sửa hồ sơ của mình
+    meta: { requiresAuth: true, title: 'Hồ sơ Người dùng IMM' },
+  },
+  {
+    path: '/account/change-password',
+    name: 'ChangePassword',
+    component: () => import('@/views/ChangePasswordView.vue'),
+    meta: { requiresAuth: true, title: 'Đổi mật khẩu' },
+  },
+  {
+    path: '/account/profile',
+    name: 'MyProfile',
+    redirect: () => {
+      const auth = useAuthStore()
+      const me = auth.user?.name
+      return me ? `/user-profiles/${encodeURIComponent(me)}` : '/dashboard'
+    },
+    meta: { requiresAuth: true, title: 'Hồ sơ của tôi' },
+  },
+
+  // ─── 11. Debug (dev-only) ──────────────────────────────────────────────────
+  {
+    path: '/debug/asset-dashboard',
+    name: 'AssetDashboardDebug',
+    component: () => import('@/components/imm04/AssetDashboard.vue'),
+    meta: { requiresAuth: true, title: 'Asset Dashboard (Debug)', devOnly: true, requiredRoles: ROLES_ADMIN_ONLY },
+  },
+
+  // ─── 12. Errors / 404 catch-all ────────────────────────────────────────────
+  {
+    path: '/:pathMatch(.*)*',
+    name: 'NotFound',
+    component: () => import('@/views/NotFoundView.vue'),
+    meta: { requiresAuth: false, title: 'Không tìm thấy trang — AssetCore' },
   },
 ]
 
@@ -188,28 +504,46 @@ const router = createRouter({
 // ─── Navigation Guard ───────────────────────────────────────────────────────
 
 router.beforeEach(async (to, _from, next) => {
-  // Cập nhật title trang
-  if (to.meta.title) {
-    document.title = to.meta.title as string
+  if (to.meta.title) document.title = to.meta.title as string
+
+  // Dev-only routes block trong production build
+  if (to.meta.devOnly && !import.meta.env.DEV) {
+    return next({ name: 'NotFound' })
   }
 
   const requiresAuth = to.meta.requiresAuth !== false
-
-  if (!requiresAuth) {
-    return next()
-  }
+  if (!requiresAuth) return next()
 
   const auth = useAuthStore()
 
-  // Nếu chưa có session, thử fetch
   if (!auth.isAuthenticated) {
     const ok = await auth.fetchSession()
-    if (!ok) {
-      return next({ name: 'Login', query: { redirect: to.fullPath } })
-    }
+    if (!ok) return next({ name: 'Login', query: { redirect: to.fullPath } })
+  }
+
+  // Role-based guard — System Manager / Administrator bypass tất cả IMM role checks
+  const required = to.meta.requiredRoles as string[] | undefined
+  const isFrappeAdmin = auth.hasAnyRole(['System Manager', 'Administrator'])
+  if (required && required.length > 0 && !isFrappeAdmin && !auth.hasAnyRole(required)) {
+    return next({ name: 'Unauthorized', query: { forbidden: to.fullPath } })
   }
 
   next()
+})
+
+// ─── Global router error handler — log chunk load & navigation failures ──────
+// Giúp debug trường hợp URL đổi nhưng component không render (blank page).
+router.onError((err, to) => {
+  // Lỗi thường gặp: chunk load failure sau deploy → force reload để kéo bundle mới.
+  const msg = String(err?.message ?? err)
+  const isChunkError = /Loading chunk \d+ failed|ChunkLoadError|Failed to fetch dynamically imported module/i.test(msg)
+
+  console.error('[Router Error]', { message: msg, route: to.fullPath, error: err })
+
+  if (isChunkError) {
+    console.warn('[Router] Chunk load failed — reloading to fetch fresh bundle')
+    globalThis.location.assign(to.fullPath)
+  }
 })
 
 export default router

@@ -72,11 +72,9 @@ async function handleSubmit() {
       exempt_reason: form.exempt_reason,
       exempt_proof: form.exempt_proof,
     })
-    if (res.success) {
-      emit('exempted', res.data.document_name)
-    } else {
-      error.value = res.error ?? 'Đánh dấu Exempt thất bại'
-    }
+    const r = res as unknown as { document_name?: string } | null
+    if (r?.document_name) emit('exempted', r.document_name)
+    else error.value = 'Đánh dấu Exempt thất bại'
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Lỗi kết nối'
   } finally {

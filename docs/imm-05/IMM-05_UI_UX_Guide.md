@@ -1,565 +1,439 @@
-# IMM-05 UI/UX Design
+# IMM-05 — UI/UX Guide
 
-**Module:** IMM-05 — Đăng ký, Cấp phép & Quản lý Hồ sơ Thiết bị Y tế
-**Version:** 1.0-draft
-**Ngày:** 2026-04-16
-**Trạng thái:** CHỜ PHÊ DUYỆT
-
----
-
-## 1. Tổng quan Giao diện
-
-IMM-05 có **3 giao diện chính** và **2 giao diện tích hợp**:
-
-| # | Trang | Loại | URL (Desk) | URL (Vue FE) |
-|---|-------|------|------------|--------------|
-| P-01 | Asset Document Form | DocType Form | /app/asset-document/{name} | /imm05/documents/{name} |
-| P-02 | Asset Document List | DocType List | /app/asset-document | /imm05/documents |
-| P-03 | IMM-05 Dashboard | Frappe Page | /app/imm05-dashboard | /imm05/dashboard |
-| P-04 | Asset Tab "Hồ sơ" | Sidebar/Tab trên Asset Form | /app/asset/{name} (tab) | /assets/{name}/documents |
-| P-05 | Expiry Alert Log | DocType List (read-only) | /app/expiry-alert-log | /imm05/alerts |
+| Thuộc tính | Giá trị |
+|---|---|
+| Module | IMM-05 — Asset Document Repository |
+| Phiên bản | 2.0.0 |
+| Ngày cập nhật | 2026-04-18 |
+| Trạng thái | LIVE |
+| Tác giả | AssetCore Team |
 
 ---
 
-## 2. P-01: Asset Document Form
+## 0. Tổng quan màn hình
 
-### 2.1 Layout — Draft State
+| # | Trang | Frontend Route (Vue) | Frappe Desk URL | Component |
+|---|---|---|---|---|
+| 1 | Document List | `/imm05/documents` | `/app/asset-document` | `views/DocumentManagement.vue` |
+| 2 | Document Detail | `/imm05/documents/:name` | `/app/asset-document/{name}` | `views/DocumentDetailView.vue` |
+| 3 | Document Create | `/imm05/documents/new` | `/app/asset-document/new` | `views/DocumentCreateView.vue` |
+| 4 | Asset Documents Tab | `/assets/:name/documents` | `/app/asset/{name}` (tab) | (embed in Asset detail) |
+| 5 | Dashboard IMM-05 | `/imm05/dashboard` | `/app/imm05-dashboard` | TBD |
+| 6 | Document Request Modal | (modal) | — | `components/imm05/DocumentRequestModal.vue` |
+| 7 | Exempt Modal | (modal) | — | `components/imm05/ExemptModal.vue` |
+
+State management: `frontend/src/stores/imm05Store.ts`.
+
+---
+
+## 1. Document List (`DocumentManagement.vue`)
+
+### 1.1 Route & Component
+
+| Item | Value |
+|---|---|
+| Route | `/imm05/documents` |
+| Component | `views/DocumentManagement.vue` |
+| API call | `imm05.list_documents` |
+| Permission | All authenticated (server tự áp visibility filter) |
+
+### 1.2 Layout wireframe
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│ Hồ sơ Tài liệu                                  [+ Tạo Tài liệu mới] │
+│ ──────────────────────────────────────────────────────────────────── │
+│  Filter:                                                             │
+│  [Asset ▼]  [Nhóm ▼]  [Trạng thái ▼]  [Ngày hết hạn ▼]   [Tìm kiếm] │
+│                                                                      │
+│ ┌─────────────────────────────────────────────────────────────────┐ │
+│ │ # | Số hiệu      | Loại            | Tài sản     | Trạng thái  │ │
+│ │   |              |                 |             | Hết hạn     │ │
+│ ├─────────────────────────────────────────────────────────────────┤ │
+│ │ 1 | NK-2026-0042 | Giấy phép NK    | AC-ASSET-2026..  | ✅ Active   │ │
+│ │   |              |                 |             | 442 ngày    │ │
+│ │ 2 | CO-2025-12   | Chứng nhận XX   | AC-ASSET-2026..  | ⚠️ Pending  │ │
+│ │ 3 | RAD-2024-001 | GP bức xạ       | AC-ASSET-2025..  | ❌ Expired  │ │
+│ └─────────────────────────────────────────────────────────────────┘ │
+│  ◀ 1 2 3 ... 7 ▶   Hiển thị 1-20/137                                 │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+### 1.3 State (Pinia)
+
+| Field | Kiểu | Nguồn |
+|---|---|---|
+| `documents` | Array | `list_documents.items` |
+| `pagination` | Object | `list_documents.pagination` |
+| `filters` | Object | UI filters (asset_ref, doc_category, workflow_state, expiry range) |
+| `loading` | Boolean | — |
+
+### 1.4 Actions
+
+| Button | Action |
+|---|---|
+| `+ Tạo Tài liệu mới` | Navigate `/imm05/documents/new` (chỉ HTM Tech / Biomed / Tổ HC-QLCL / Workshop Head / CMMS Admin) |
+| Click row | Navigate `/imm05/documents/:name` |
+| Filter change | Re-call `list_documents` với filters mới |
+
+### 1.5 Status badge
+
+| State | Badge |
+|---|---|
+| Draft | Gray "Draft" |
+| Pending Review | Yellow "⏳ Chờ duyệt" |
+| Active | Green "✅ Đang hiệu lực" |
+| Rejected | Red "❌ Bị từ chối" |
+| Archived | Gray "📦 Đã lưu trữ" |
+| Expired | Red "⚠️ Đã hết hạn" |
+
+Expiry countdown:
+
+| days_until_expiry | Màu |
+|---|---|
+| > 90 | Xanh |
+| 30 – 90 | Vàng |
+| 0 – 30 | Cam |
+| < 0 | Đỏ |
+
+---
+
+## 2. Document Create (`DocumentCreateView.vue`)
+
+### 2.1 Route & Component
+
+| Item | Value |
+|---|---|
+| Route | `/imm05/documents/new` |
+| Component | `views/DocumentCreateView.vue` |
+| API | `imm05.create_document` |
+| Permission | HTM Tech / Biomed / Tổ HC-QLCL / Workshop Head / CMMS Admin |
+
+### 2.2 Layout wireframe
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│ Tạo Tài liệu mới                                Status: [Draft ●]│
+│ ──────────────────────────────────────────────────────────────── │
+│ ┌─ Liên kết Thiết bị ──────────────────────────────────────┐    │
+│ │ Tài sản*: [Tìm AST-...     ▼]   Phiếu Commissioning:    │    │
+│ │ Model:    [Auto-fetch       ]   [Auto-fetch          ▼] │    │
+│ │ Khoa:     [Auto-fetch       ]   ☐ Áp dụng toàn Model    │    │
+│ └──────────────────────────────────────────────────────────┘    │
+│                                                                  │
+│ ┌─ Phân loại Tài liệu ────────────────────────────────────┐     │
+│ │ Nhóm*:   [Legal             ▼]   Số hiệu*: [           ]│     │
+│ │ Loại*:   [Giấy phép nhập... ▼]   Phiên bản: [1.0       ]│     │
+│ └──────────────────────────────────────────────────────────┘    │
+│                                                                  │
+│ ┌─ Thông tin Hiệu lực ────────────────────────────────────┐     │
+│ │ Ngày cấp*:   [📅 2026-03-15]    Cơ quan cấp*: [Bộ Y tế] │     │
+│ │ Ngày hết hạn:[📅 2027-06-30]    Còn lại: 442 ngày       │     │
+│ └──────────────────────────────────────────────────────────┘    │
+│                                                                  │
+│ ┌─ File đính kèm ─────────────────────────────────────────┐     │
+│ │ 📎 [Chọn file...] hoặc kéo thả                           │     │
+│ │ ⓘ Chấp nhận: PDF, JPG, PNG, DOCX (tối đa 25 MB)          │     │
+│ └──────────────────────────────────────────────────────────┘    │
+│                                                                  │
+│ ┌─ Phạm vi xem ────────────────────────────────────────────┐    │
+│ │ ⦿ Public      ○ Internal_Only                             │    │
+│ └───────────────────────────────────────────────────────────┘   │
+│                                                                  │
+│ ──────────────────────────────────────────────────────────────── │
+│   [Hủy]                                  [Lưu Draft] [Gửi duyệt] │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+### 2.3 State
+
+| Field | Kiểu | Validate FE |
+|---|---|---|
+| `asset_ref` | string | reqd |
+| `doc_category` | enum | reqd, dropdown từ Required Document Type |
+| `doc_type_detail` | string | reqd, autocomplete theo doc_category |
+| `doc_number` | string | reqd |
+| `version` | string | default "1.0" |
+| `issued_date` | date | reqd |
+| `expiry_date` | date | reqd nếu category IN (Legal, Certification) — VR-07 |
+| `issuing_authority` | string | reqd nếu category=Legal — VR-04 |
+| `file_attachment` | file | reqd; ext IN allowed — VR-08 |
+| `change_summary` | textarea | reqd nếu version != "1.0" — VR-09 |
+| `visibility` | enum | default "Public" |
+
+### 2.4 Actions
+
+| Button | Action |
+|---|---|
+| Lưu Draft | `create_document` với `workflow_state="Draft"` |
+| Gửi duyệt | `create_document` rồi action workflow "Gửi duyệt" → `Pending_Review` |
+| Hủy | Navigate back |
+
+Hiển thị toast lỗi tiếng Việt từ `error.message` khi `success=false`.
+
+---
+
+## 3. Document Detail (`DocumentDetailView.vue`)
+
+### 3.1 Route & Component
+
+| Item | Value |
+|---|---|
+| Route | `/imm05/documents/:name` |
+| Component | `views/DocumentDetailView.vue` |
+| API | `imm05.get_document`, `get_document_history`, `approve_document`, `reject_document`, `update_document` |
+
+### 3.2 Layout — theo state
+
+**Draft / Rejected:** Form editable + nút [Lưu], [Gửi duyệt] (Draft) hoặc [Sửa và Gửi lại] (Rejected).
+
+**Pending_Review:** Form READ-ONLY + nút [Approve] [Reject] (chỉ user thuộc `_APPROVE_ROLES`). Nút Reject mở dialog yêu cầu `rejection_reason`.
+
+**Active:** Badge xanh "✅ Active — Đang hiệu lực". Section Phê duyệt hiện `approved_by`, `approval_date`. Hiển thị countdown badge expiry. Nút [Upload phiên bản mới] → mở Create form pre-fill version=N+1.
+
+**Expired:** Badge đỏ "⚠️ Expired — Đã hết hạn ngày {expiry_date}". Banner cảnh báo. Nút [Upload phiên bản mới].
+
+**Archived:** Read-only, badge xám "📦 Archived — Thay thế bởi {superseded_by}".
+
+### 3.3 Tab "Lịch sử" (History)
+
+Gọi `get_document_history(name)` → render timeline:
+
+```
+2026-04-18 10:00 | biomed@hosp.vn   | Workflow Transition
+                                    | Pending_Review → Active
+                                    | + approved_by, approval_date
+2026-04-17 15:30 | ktv@hosp.vn      | Field Update
+                                    | doc_number: "" → "NK-2026-0042"
+```
+
+### 3.4 Actions matrix
+
+| Action | Visible khi | Endpoint |
+|---|---|---|
+| Sửa metadata | state IN (Draft, Rejected) | `update_document` |
+| Gửi duyệt | state = Draft | Workflow action |
+| Approve | state = Pending_Review, role IN `_APPROVE_ROLES` | `approve_document` |
+| Reject | state = Pending_Review, role IN `_APPROVE_ROLES` | `reject_document` (dialog) |
+| Upload phiên bản mới | state IN (Active, Expired) | Navigate Create + pre-fill |
+| Tải file | tất cả state | Frappe File API |
+
+---
+
+## 4. Asset Documents Tab (Asset detail)
+
+### 4.1 Route & Component
+
+| Item | Value |
+|---|---|
+| Route | `/assets/:name/documents` (tab trong Asset Detail) |
+| API | `imm05.get_asset_documents(asset)` |
+| Permission | All authenticated; server lọc Internal_Only theo role |
+
+### 4.2 Layout wireframe
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│ [DOC-AST-2026-0001-2026-00001]          Status: [Draft ●]       │
-│ ──────────────────────────────────────────────────────────────── │
+│ Asset: AC-ASSET-2026-0001 (Monitor Philips)                          │
+│ Khoa: ICU                                                       │
+│ ──────────────────────────────────────────────────────────────  │
+│ [Thông tin] [Hồ sơ ●] [Bảo trì] [Lịch sử]                       │
 │                                                                 │
-│ ┌─ Liên kết Thiết bị ───────────────────────────────────────┐  │
-│ │ Tài sản*:     [AST-2026-0001 ▼]  │ Phiếu Commissioning: │  │
-│ │ Model:        [Auto-fetch     ]  │ [IMM04-26-04-00001 ] │  │
-│ │ Khoa/Phòng:   [Auto-fetch     ]  │ Module nguồn: IMM-04 │  │
-│ │ ☐ Áp dụng toàn bộ Model         │                       │  │
-│ └──────────────────────────────────┴────────────────────────┘  │
+│ Compliance: ████████████░░░  71.4%   Status: Compliant          │
+│ Còn thiếu: Warranty Card                                        │
 │                                                                 │
-│ ┌─ Phân loại Tài liệu ─────────────────────────────────────┐  │
-│ │ Nhóm Hồ sơ*:  [Legal ▼]         │ Số hiệu*: [RL-2026-  │  │
-│ │ Loại cụ thể*: [Giấy phép nhập k │  0042     ]           │  │
-│ │                ẩu             ▼]  │ Phiên bản: [1.0]     │  │
-│ └──────────────────────────────────┴────────────────────────┘  │
+│ ──── Legal (3) ────                                             │
+│   ✅ Chứng nhận đăng ký lưu hành    NK-2025-001  Active  428d   │
+│   ✅ Giấy phép nhập khẩu            NK-2026-042  Active  442d   │
+│   📦 Giấy phép nhập khẩu            NK-2024-099  Archived       │
 │                                                                 │
-│ ┌─ Thông tin Hiệu lực ─────────────────────────────────────┐  │
-│ │ Ngày cấp*:     [2026-03-15]     │ Số ngày còn: [    442] │  │
-│ │ Ngày hết hạn*: [2027-06-30]     │ ☐ Đã hết hạn          │  │
-│ │ Cơ quan cấp*:  [Bộ Y tế]       │                        │  │
-│ └──────────────────────────────────┴────────────────────────┘  │
+│ ──── Technical (2) ────                                         │
+│   ✅ User Manual (HDSD)             v3.2         Active         │
+│   ✅ Service Manual                 v2.0         Active         │
 │                                                                 │
-│ ┌─ File đính kèm ──────────────────────────────────────────┐  │
-│ │ 📎 [Chọn file...] hoặc kéo thả vào đây                   │  │
-│ │                                                           │  │
-│ │ ┌──────────────────────────────────────────────┐          │  │
-│ │ │ 📄 giay-phep-NK-2026-0042.pdf  (2.3 MB)     │  [Xem]  │  │
-│ │ └──────────────────────────────────────────────┘          │  │
-│ └───────────────────────────────────────────────────────────┘  │
+│ ──── Certification (1) ────                                     │
+│   ⚠️ Chứng chỉ hiệu chuẩn          C-2025-007   Expiring 28d   │
 │                                                                 │
-│ ┌─ Ghi chú ────────────────────────────────────────────────┐  │
-│ │ [Rich text editor — ghi chú nội bộ]                       │  │
-│ └───────────────────────────────────────────────────────────┘  │
-│                                                                 │
-│ ──────────────────────────────────────────────────────────────── │
-│ [Save]  [Gửi Duyệt →]                                          │
+│ [+ Upload tài liệu mới]   [Yêu cầu tài liệu thiếu]              │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### 2.2 Layout — Pending_Review State
+### 4.3 Actions
 
-```
-Thay đổi so với Draft:
-- Tất cả field metadata → READ-ONLY
-- File attachment → READ-ONLY (có nút Xem/Download)
-- Nút hành động:
-  [✓ Approve]  [✗ Reject]  (chỉ hiện cho Biomed/QA)
-- Nếu bấm Reject → Dialog popup yêu cầu điền rejection_reason
-```
+| Button | Action |
+|---|---|
+| `+ Upload tài liệu mới` | Navigate Create với `asset_ref` pre-filled |
+| `Yêu cầu tài liệu thiếu` | Mở `DocumentRequestModal` |
 
-### 2.3 Layout — Active State
-
-```
-Thay đổi:
-- Badge xanh: "✓ Active — Đang có hiệu lực"
-- Section Phê duyệt hiện:
-  Người phê duyệt: admin@... | Ngày: 2026-04-16
-- Nếu có expiry → Hiển thị countdown badge:
-  [⏰ Còn 442 ngày]  (xanh nếu >90, vàng nếu 30-90, đỏ nếu <30)
-- Nút: [Upload phiên bản mới]
-```
-
-### 2.4 Layout — Expired State
-
-```
-Thay đổi:
-- Badge đỏ: "⚠ Expired — Đã hết hạn"
-- Banner cảnh báo đỏ trên cùng:
-  "Tài liệu này đã hết hạn ngày {date}. Vui lòng upload phiên bản mới."
-- Nút: [Upload phiên bản mới]
-```
-
-### 2.5 Layout — Archived State
-
-```
-Thay đổi:
-- Badge xám: "Archived"
-- Tất cả read-only
-- Hiển thị:
-  "Đã thay thế bởi: [DOC-...-00002]" (link)
-  "Ngày archive: 2026-04-16"
-- Không có nút hành động
-```
-
-### 2.6 Field Visibility theo State
-
-| Field/Section | Draft | Pending_Review | Active | Expired | Archived | Rejected |
-|--------------|:-----:|:--------------:|:------:|:-------:|:--------:|:--------:|
-| Liên kết Thiết bị | Edit | Read | Read | Read | Read | Read |
-| Phân loại | Edit | Read | Read | Read | Read | Read |
-| Hiệu lực | Edit | Read | Read | Read | Read | Read |
-| File đính kèm | Edit | Read + View | Read + View | Read + View | Read + View | Read |
-| Ghi chú | Edit | Read | Edit | Read | Read | Read |
-| Section Phê duyệt | Hidden | Hidden | Show | Show | Show | Show |
-| Section Version Control | Hidden | Hidden | Hidden | Hidden | Show | Hidden |
-| Rejection Reason | Hidden | Hidden | Hidden | Hidden | Hidden | Show |
-| Nút "Gửi Duyệt" | Show | Hidden | Hidden | Hidden | Hidden | Hidden |
-| Nút Approve/Reject | Hidden | Show (Biomed/QA) | Hidden | Hidden | Hidden | Hidden |
-| Nút "Upload mới" | Hidden | Hidden | Show | Show | Hidden | Hidden |
+Click row doc → navigate Document Detail.
 
 ---
 
-## 3. P-02: Asset Document List View
+## 5. Dashboard IMM-05 (TBD frontend)
 
-### 3.1 Layout
+### 5.1 Route & Component
+
+| Item | Value |
+|---|---|
+| Route | `/imm05/dashboard` |
+| Component | TBD |
+| API | `get_dashboard_stats`, `get_expiring_documents`, `get_compliance_by_dept` |
+| Permission | Workshop Head, VP Block2, CMMS Admin, Tổ HC-QLCL |
+
+### 5.2 Layout
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│ Hồ sơ Thiết bị                     [+ Tạo mới] [⟳ Làm mới]        │
-│ ────────────────────────────────────────────────────────────────── │
-│ Bộ lọc:                                                            │
-│ [Nhóm ▼] [Trạng thái ▼] [Khoa ▼] [Sắp hết hạn ☐] [Tìm kiếm...] │
-│ ────────────────────────────────────────────────────────────────── │
-│                                                                     │
-│ ┌───────────┬─────────────┬───────────┬───────────┬───────┬──────┐ │
-│ │ Mã        │ Tài sản     │ Loại      │ Nhóm      │ Expiry│Status│ │
-│ ├───────────┼─────────────┼───────────┼───────────┼───────┼──────┤ │
-│ │ DOC-...01 │ AST-2026-01 │ Giấy phép │ Legal     │ 06/27 │ ✓   │ │
-│ │ DOC-...02 │ AST-2026-01 │ HDSD      │ Technical │ —     │ ✓   │ │
-│ │ DOC-...03 │ AST-2026-02 │ Cert hiệu │ Certif... │ 01/27 │ ⏰  │ │
-│ │ DOC-...04 │ AST-2026-03 │ Warranty  │ QA        │ 04/26 │ ⚠   │ │
-│ └───────────┴─────────────┴───────────┴───────────┴───────┴──────┘ │
-│                                                                     │
-│ [‹ Trước]  Trang 1 / 12  [Sau ›]                                   │
-└─────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│ IMM-05 Document Compliance Dashboard                              │
+│ ──────────────────────────────────────────────────────────────── │
+│ ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌────────────┐    │
+│ │ Total      │ │ Expiring   │ │ Expired    │ │ Assets     │    │
+│ │  Active    │ │  90 ngày   │ │  Not Renew │ │  Missing   │    │
+│ │   412      │ │   28       │ │    5       │ │   17       │    │
+│ └────────────┘ └────────────┘ └────────────┘ └────────────┘    │
+│                                                                  │
+│ ┌─────── Expiry Timeline 90 ngày ───────┐ ┌──── Compliance ───┐ │
+│ │  Loại               Thiết bị   Còn   │ │  ICU   ████ 92%   │ │
+│ │  Giấy phép NK      AC-ASSET-001    7 ngày │ │  OR    ███  78%   │ │
+│ │  CN ĐK lưu hành    AC-ASSET-014    14 ngày│ │  ER    ██   65%   │ │
+│ │  ...                                  │ │  CT    █    42%   │ │
+│ └───────────────────────────────────────┘ └───────────────────┘ │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
-### 3.2 Status Icons trong List
+### 5.3 KPIs
 
-| workflow_state | Icon | Màu |
-|---------------|------|-----|
-| Draft | ○ | Gray |
-| Pending_Review | ◐ | Blue |
-| Active | ✓ | Green |
-| Expired | ⚠ | Red |
-| Archived | ▪ | Dark Gray |
-| Rejected | ✗ | Red |
-
-### 3.3 Expiry Column Logic
-
-| Trạng thái | Hiển thị |
-|-----------|----------|
-| Không có expiry_date | `—` |
-| > 90 ngày | `MM/YY` (text thường) |
-| 30-90 ngày | `MM/YY` (vàng, bold) + icon ⏰ |
-| < 30 ngày | `MM/YY` (đỏ, bold) + icon ⚠ |
-| Đã hết hạn | `HẾT HẠN` (đỏ, badge) |
+| KPI | API field | Click action |
+|---|---|---|
+| Total Active | `kpis.total_active` | Filter list state=Active |
+| Expiring 90d | `kpis.expiring_90d` | `get_expiring_documents(90)` |
+| Expired | `kpis.expired_not_renewed` | Filter list state=Expired |
+| Assets Missing | `kpis.assets_missing_docs` | Báo cáo riêng |
 
 ---
 
-## 4. P-03: IMM-05 Dashboard
+## 6. Document Request Modal (`DocumentRequestModal.vue`)
 
-### 4.1 Layout tổng thể
+### 6.1 Trigger
+
+| Trigger | From |
+|---|---|
+| Asset Documents tab | Button "Yêu cầu tài liệu thiếu" |
+| Dashboard | Button "Tạo Request" trên row missing |
+
+### 6.2 Layout
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│ [IMM-05] Dashboard Hồ sơ & Cấp phép Thiết bị Y tế                 │
-│                                        [+ Tạo mới] [⟳ Làm mới]    │
-│ ──────────────────────────────────────────────────────────────────── │
-│                                                                     │
-│ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐  │
-│ │   342    │ │    12    │ │     3    │ │     8    │ │   85%    │  │
-│ │ Active   │ │ Sắp hết │ │ Đã hết  │ │ Thiếu   │ │Compliance│  │
-│ │ Docs     │ │ hạn 90d  │ │ hạn!    │ │ hồ sơ   │ │ Rate     │  │
-│ └──────────┘ └──────────┘ └──────────┘ └──────────┘ └──────────┘  │
-│                                                                     │
-│ ┌─ Timeline Hết hạn ──────────────────────────────────────────────┐ │
-│ │ ┌──────────┬──────────────┬────────────────┬────────┬─────────┐ │ │
-│ │ │ Tài liệu │ Tài sản      │ Loại           │ Expiry │ Còn lại │ │ │
-│ │ ├──────────┼──────────────┼────────────────┼────────┼─────────┤ │ │
-│ │ │ DOC-..03 │ AST-2026-02  │ Cert hiệu chuẩn│ 01/27  │ 15 ngày │ │ │
-│ │ │ DOC-..04 │ AST-2026-03  │ Warranty Card   │ 05/26  │ 28 ngày │ │ │
-│ │ │ DOC-..08 │ AST-2026-05  │ Giấy phép BXạ   │ 07/26  │ 62 ngày │ │ │
-│ │ └──────────┴──────────────┴────────────────┴────────┴─────────┘ │ │
-│ └────────────────────────────────────────────────────────────────── │
-│                                                                     │
-│ ┌─ Compliance theo Khoa ──────────────┐ ┌─ Hồ sơ Chờ duyệt ─────┐ │
-│ │                                     │ │                        │ │
-│ │  ICU      ████████████░░  88%       │ │ DOC-..12 — Giấy phép  │ │
-│ │  OR       █████████░░░░░  72%       │ │ DOC-..13 — Service Man │ │
-│ │  Cấp cứu ██████████████  100%      │ │ DOC-..14 — HDSD        │ │
-│ │  Nhi      ███████░░░░░░░  56%       │ │                        │ │
-│ │  XN       █████████████░  92%       │ │ [Xem tất cả →]        │ │
-│ │                                     │ │                        │ │
-│ └─────────────────────────────────────┘ └────────────────────────┘ │
-│                                                                     │
-│ ┌─ Assets Thiếu Hồ sơ Bắt buộc ──────────────────────────────────┐ │
-│ │ ┌──────────────┬──────────┬──────────────────┬─────────────────┐ │ │
-│ │ │ Tài sản      │ Khoa     │ Thiếu            │ Completeness    │ │ │
-│ │ ├──────────────┼──────────┼──────────────────┼─────────────────┤ │ │
-│ │ │ AST-2026-07  │ Nhi      │ HDSD, Warranty   │ ███░░░ 57%     │ │ │
-│ │ │ AST-2026-11  │ OR       │ Cert lưu hành    │ █████░ 86%     │ │ │
-│ │ └──────────────┴──────────┴──────────────────┴─────────────────┘ │ │
-│ └──────────────────────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────┐
+│ Yêu cầu Tài liệu                       [✕] │
+│ ─────────────────────────────────────────── │
+│ Tài sản:           AC-ASSET-2026-0001 (locked)   │
+│ Loại tài liệu*:    [Warranty Card        ▼] │
+│ Nhóm*:             [QA                   ▼] │
+│ Giao cho*:         [📧 vendor@...       ▼] │
+│ Hạn hoàn thành*:   [📅 2026-05-18         ] │
+│ Ưu tiên:           ⦿ Medium ○ High ○ Crit  │
+│ Ghi chú:           [textarea               ] │
+│                                              │
+│                       [Hủy] [Tạo Request]   │
+└─────────────────────────────────────────────┘
 ```
 
-### 4.2 KPI Card Behavior
-
-| KPI | Click action | Màu border |
-|-----|-------------|-----------|
-| Active Docs | → List View filter Active | Blue |
-| Sắp hết hạn 90d | → List View filter expiry <= 90d | Yellow |
-| Đã hết hạn | → List View filter Expired | Red (pulse nếu > 0) |
-| Thiếu hồ sơ | → Bảng "Assets Thiếu" scroll | Orange |
-| Compliance Rate | Tooltip hiện breakdown | Green/Yellow/Red theo % |
-
-### 4.3 Responsive
-
-| Viewport | KPI Grid | Tables | Charts |
-|----------|---------|--------|--------|
-| Desktop (>1200px) | 5 columns | Full | Side-by-side |
-| Tablet (768-1200px) | 3 columns | Scrollable | Stacked |
-| Mobile (<768px) | 2 columns | Card view | Hidden |
+API: `create_document_request`. Default `due_date = today + 30`, `assigned_to = session.user`, `source_type = "Manual"`.
 
 ---
 
-## 5. P-04: Asset Tab "Hồ sơ"
+## 7. Exempt Modal (`ExemptModal.vue`)
 
-### 5.1 Tích hợp trên form Asset
+### 7.1 Trigger & Permission
 
-Thêm 1 tab hoặc section trên form Asset (via Custom Script hoặc Client Script):
+| Item | Value |
+|---|---|
+| Trigger | Button "Đánh dấu Exempt" trên Asset Detail (chỉ khi thiếu CN ĐK lưu hành) |
+| Permission | Tổ HC-QLCL, CMMS Admin, Workshop Head |
+| API | `mark_exempt` |
+
+### 7.2 Layout
 
 ```
-[Tab: Details] [Tab: Maintenance] [Tab: Hồ sơ ★]
-
-┌─ Hồ sơ Thiết bị ─────────────────────────────────────────────────┐
-│                                                                   │
-│ Tỷ lệ đầy đủ: ██████████░░ 71% (5/7 bắt buộc)                   │
-│ Hồ sơ hết hạn gần nhất: 2027-06-30 (Giấy phép nhập khẩu)        │
-│                                                                   │
-│ ── Pháp lý ──────────────────────────────────────────────────────│
-│  ✓ Giấy phép nhập khẩu        v1.0   Active   Exp: 06/2027     │
-│  ✗ Chứng nhận đăng ký lưu hành         — THIẾU —               │
-│                                                                   │
-│ ── Kỹ thuật ─────────────────────────────────────────────────────│
-│  ✓ User Manual (HDSD)          v1.0   Active   —                │
-│  ○ Service Manual              v1.0   Draft    —                │
-│                                                                   │
-│ ── Chất lượng ───────────────────────────────────────────────────│
-│  ✓ CO - Chứng nhận Xuất xứ    v1.0   Active   —                │
-│  ✓ CQ - Chứng nhận Chất lượng v1.0   Active   —                │
-│  ✓ Warranty Card               v1.0   Active   Exp: 04/2028    │
-│                                                                   │
-│ [+ Upload tài liệu mới]  [Xem toàn bộ lịch sử →]               │
-└───────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────┐
+│ Miễn đăng ký NĐ98                       [✕]  │
+│ ───────────────────────────────────────────── │
+│ Tài sản:         AC-ASSET-2026-0001 (locked)       │
+│ Loại tài liệu*:  ⦿ Chứng nhận ĐK lưu hành    │
+│                  ○ Giấy phép nhập khẩu        │
+│ Lý do miễn*:     [textarea                  ] │
+│                  (tối thiểu 30 ký tự)         │
+│ Văn bản miễn*:   📎 [Chọn file...           ] │
+│                                                │
+│ ⚠ Lưu ý: Hành động này tạo Asset Document    │
+│   Active với is_exempt=1, GW-2 sẽ unblock.    │
+│                                                │
+│                    [Hủy] [Xác nhận Miễn ĐK]   │
+└───────────────────────────────────────────────┘
 ```
 
-### 5.2 Logic hiển thị
+VR-11 enforce trong UI: dropdown `doc_type_detail` chỉ hiện 2 lựa chọn được phép.
 
-- **Row có ✓:** doc Active tồn tại
-- **Row có ✗ + "THIẾU":** doc bắt buộc nhưng chưa có Active doc
-- **Row có ○:** doc tồn tại nhưng chưa Active (Draft/Pending)
-- **Row có ⚠:** doc Expired
-- Required docs lấy từ `Required Document Type` master table
+Sau success: hiện toast "Đã đánh dấu Exempt. Trạng thái Asset: Compliant (Exempt)" + reload Asset detail.
 
 ---
 
-## 6. UI States
+## 8. UX Patterns chung
 
-### 6.1 Loading State
+### 8.1 Toast / Notification
 
-```
-┌──────────────────────────────────────┐
-│                                      │
-│        ◌ Đang tải dữ liệu...        │
-│                                      │
-│  [Skeleton KPI cards]                │
-│  [Skeleton table rows]               │
-│                                      │
-└──────────────────────────────────────┘
-```
+| Loại | Màu | Nội dung mẫu |
+|---|---|---|
+| Success | Xanh | "✅ Đã tạo tài liệu DOC-..." |
+| Warning | Vàng | "⚠️ Tài liệu sắp hết hạn trong 28 ngày" |
+| Error | Đỏ | Hiển thị `response.error.message` (tiếng Việt từ VR/`_err`) |
 
-### 6.2 Empty State
+### 8.2 Empty states
 
-```
-┌──────────────────────────────────────┐
-│                                      │
-│         📂 Chưa có hồ sơ nào        │
-│                                      │
-│  Bắt đầu upload tài liệu cho       │
-│  thiết bị y tế tại đây.             │
-│                                      │
-│       [+ Upload tài liệu mới]       │
-│                                      │
-└──────────────────────────────────────┘
-```
+| Page | Empty message |
+|---|---|
+| Document List | "Chưa có tài liệu nào. [+ Tạo mới]" |
+| Asset Documents Tab | "Asset chưa có hồ sơ. Upload tài liệu đầu tiên." |
+| Dashboard | "Không có dữ liệu compliance" |
 
-### 6.3 Error State
+### 8.3 Loading states
 
-```
-┌──────────────────────────────────────┐
-│                                      │
-│    ⚠ Không thể tải dữ liệu         │
-│                                      │
-│    Vui lòng kiểm tra kết nối        │
-│    hoặc thử lại sau.                │
-│                                      │
-│    [Thử lại]  [Báo lỗi IT]          │
-│                                      │
-└──────────────────────────────────────┘
-```
+Skeleton loader cho list/grid. Spinner cho actions (approve/reject/create).
 
-### 6.4 Permission Denied State
+### 8.4 Visibility indicators
 
-```
-┌──────────────────────────────────────┐
-│                                      │
-│    🔒 Bạn không có quyền truy cập   │
-│                                      │
-│    Liên hệ quản trị viên CMMS       │
-│    để được cấp quyền xem hồ sơ.     │
-│                                      │
-└──────────────────────────────────────┘
-```
+Badge nhỏ cạnh tên tài liệu:
+
+- 🌐 Public (mặc định, không hiện)
+- 🔒 Internal_Only (icon ổ khóa)
+
+### 8.5 Responsive
+
+- Desktop ≥ 1280px: Layout 2 column (form + side panel history)
+- Tablet 768-1279px: 1 column, history collapse
+- Mobile < 768px: Tab navigation cho Asset Documents tab
 
 ---
 
-## 7. Interaction Patterns
+## 9. Permission-driven UI
 
-### 7.1 Upload File
-
-```
-Người dùng click "Upload" hoặc kéo thả file
-  │
-  ├─ File > 25MB → Toast đỏ: "File quá lớn (tối đa 25MB)"
-  ├─ File format sai → Toast đỏ: "Chỉ chấp nhận PDF, JPG, PNG"
-  └─ Hợp lệ → Upload progress bar → Hiển thị preview
-```
-
-### 7.2 Approve Document
-
-```
-Reviewer click [✓ Approve]
-  │
-  ├─ Nếu có version cũ Active:
-  │   → Dialog confirm: "Version cũ (v1.0) sẽ được Archive. Tiếp tục?"
-  │   → [Xác nhận] → API call → Toast xanh: "Đã phê duyệt"
-  │
-  └─ Không có version cũ:
-      → API call → Toast xanh: "Đã phê duyệt"
-```
-
-### 7.3 Reject Document
-
-```
-Reviewer click [✗ Reject]
-  │
-  → Dialog popup:
-    ┌─ Từ chối Tài liệu ──────────────────┐
-    │ Lý do từ chối*:                      │
-    │ [                                  ] │
-    │                                      │
-    │           [Hủy]  [Xác nhận Từ chối]  │
-    └──────────────────────────────────────┘
-  │
-  → API call → Toast cam: "Đã từ chối — người upload sẽ nhận thông báo"
-```
-
-### 7.4 Expiry Alert Notification
-
-```
-In-app notification bell:
-  ┌──────────────────────────────────────┐
-  │ ⏰ Cảnh báo Hết hạn                  │
-  │                                      │
-  │ Giấy phép bức xạ (AST-2026-02)      │
-  │ hết hạn sau 30 ngày (2026-05-16).    │
-  │ [Xem tài liệu →]                    │
-  └──────────────────────────────────────┘
-```
+| UI Element | Hide khi |
+|---|---|
+| `+ Tạo Tài liệu mới` | role NOT IN {HTM Tech, Biomed, Tổ HC-QLCL, Workshop Head, CMMS Admin} |
+| Nút [Approve] | state ≠ Pending_Review hoặc role NOT IN `_APPROVE_ROLES` |
+| Nút [Reject] | giống Approve |
+| Nút [Đánh dấu Exempt] | role NOT IN `_EXEMPT_ROLES` |
+| Doc với `visibility=Internal_Only` | server đã lọc; FE không hiện thêm |
+| Tab Dashboard | role NOT IN {Workshop Head, VP Block2, CMMS Admin, Tổ HC-QLCL} |
 
 ---
 
-## 8. Color System
+## 10. Accessibility
 
-| Semantic | Hex | Dùng cho |
-|----------|-----|---------|
-| Success / Active | #28a745 | Active badge, compliance >=80% |
-| Warning / Expiring | #ffc107 | 30-90 ngày, compliance 60-80% |
-| Danger / Expired | #dc3545 | Expired, thiếu hồ sơ, compliance <60% |
-| Info / Pending | #17a2b8 | Pending_Review, info alert |
-| Muted / Archived | #6c757d | Archived, disabled |
-| Primary / Action | var(--primary) | Buttons, links |
-
----
-
-## 9. Frappe Desk vs Vue Frontend
-
-Tất cả UI trên được thiết kế **dual-compatible**:
-
-| Thành phần | Frappe Desk | Vue Frontend |
-|-----------|-------------|-------------|
-| Form Asset Document | Native DocType form + JS | Custom Vue component + API |
-| List View | Native List + JS override | Vue table + imm05.list_documents |
-| Dashboard | Frappe Page (HTML + JS + CSS) | Vue page + imm05.get_dashboard_stats |
-| Asset Tab | Client Script inject | Vue sidebar component |
-| Notifications | frappe.publish_realtime | WebSocket listener |
-
-API layer (`api/imm05.py`) phục vụ **cả hai** — Desk gọi qua `frappe.call()`, Vue gọi qua `fetch()`.
-
----
-
-## 10. Pinia Store — useImm05Store
-
-```typescript
-// frontend/src/stores/imm05.ts
-import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
-import { frappeGet, frappePost } from '@/api/helpers'
-
-export interface AssetDocument {
-  name: string
-  asset_ref: string
-  doc_type_detail: string
-  document_number: string
-  issuing_authority: string
-  issue_date: string | null
-  expiry_date: string | null
-  days_until_expiry: number | null
-  version: string
-  workflow_state: 'Draft' | 'Pending_Review' | 'Active' | 'Expired' | 'Archived' | 'Rejected'
-  visibility: 'Internal' | 'External' | 'Confidential'
-  file_attachment: string
-  is_exempt: boolean
-  rejection_reason: string | null
-  approved_by: string | null
-  approved_date: string | null
-}
-
-export interface DashboardKPIs {
-  total_assets: number
-  compliant_assets: number
-  non_compliant_assets: number
-  expiring_soon_count: number
-  overdue_doc_requests: number
-  compliance_rate_pct: number
-}
-
-export const useImm05Store = defineStore('imm05', () => {
-  // --- State ---
-  const documents = ref<AssetDocument[]>([])
-  const currentDoc = ref<AssetDocument | null>(null)
-  const kpis = ref<DashboardKPIs>({
-    total_assets: 0,
-    compliant_assets: 0,
-    non_compliant_assets: 0,
-    expiring_soon_count: 0,
-    overdue_doc_requests: 0,
-    compliance_rate_pct: 0,
-  })
-  const loading = ref(false)
-  const error = ref<string | null>(null)
-  const pagination = ref({ page: 1, total: 0, total_pages: 0, page_size: 20 })
-
-  // --- Getters ---
-  const activeDocuments = computed(() =>
-    documents.value.filter(d => d.workflow_state === 'Active')
-  )
-  const expiringDocuments = computed(() =>
-    documents.value.filter(d => d.days_until_expiry !== null && d.days_until_expiry <= 30)
-  )
-
-  // --- Actions ---
-  async function fetchDocuments(assetRef: string, page = 1) {
-    loading.value = true
-    error.value = null
-    try {
-      const res = await frappeGet<{ data: AssetDocument[]; pagination: typeof pagination.value }>(
-        '/api/method/assetcore.api.imm05.list_documents',
-        { asset_ref: assetRef, page }
-      )
-      documents.value = res.data
-      pagination.value = res.pagination
-    } catch (e: any) {
-      error.value = e.message
-    } finally {
-      loading.value = false
-    }
-  }
-
-  async function fetchDocument(docName: string) {
-    loading.value = true
-    try {
-      const res = await frappeGet<AssetDocument>(
-        '/api/method/assetcore.api.imm05.get_document',
-        { doc_name: docName }
-      )
-      currentDoc.value = res
-    } finally {
-      loading.value = false
-    }
-  }
-
-  async function approveDocument(docName: string): Promise<boolean> {
-    try {
-      await frappePost('/api/method/assetcore.api.imm05.approve_document', { doc_name: docName })
-      await fetchDocument(docName)
-      return true
-    } catch (e: any) {
-      error.value = e.message
-      return false
-    }
-  }
-
-  async function rejectDocument(docName: string, reason: string): Promise<boolean> {
-    try {
-      await frappePost('/api/method/assetcore.api.imm05.reject_document', {
-        doc_name: docName, rejection_reason: reason
-      })
-      await fetchDocument(docName)
-      return true
-    } catch (e: any) {
-      error.value = e.message
-      return false
-    }
-  }
-
-  async function fetchDashboardKPIs() {
-    try {
-      const res = await frappeGet<DashboardKPIs>(
-        '/api/method/assetcore.api.imm05.get_dashboard_stats'
-      )
-      kpis.value = res
-    } catch (e: any) {
-      error.value = e.message
-    }
-  }
-
-  return {
-    documents, currentDoc, kpis, loading, error, pagination,
-    activeDocuments, expiringDocuments,
-    fetchDocuments, fetchDocument, approveDocument, rejectDocument, fetchDashboardKPIs,
-  }
-})
-```
+| Yêu cầu | Implementation |
+|---|---|
+| Keyboard navigation | Tab order qua form fields, Enter submit |
+| ARIA labels | Buttons, status badges có `aria-label` tiếng Việt |
+| Color contrast | Badge màu đảm bảo WCAG AA (4.5:1) |
+| Screen reader | Toast + modal sử dụng `role="alert"` / `role="dialog"` |

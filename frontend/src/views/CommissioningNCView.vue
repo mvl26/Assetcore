@@ -1,18 +1,15 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { frappeGet } from '@/api/helpers'
-import { closeNonConformance } from '@/api/imm04'
 import { useCommissioningStore } from '@/stores/commissioning'
-import type { NonConformance, NCStatus } from '@/types/imm04'
+import type { NCStatus } from '@/types/imm04'
 
 const route = useRoute()
 const router = useRouter()
 const store = useCommissioningStore()
 const commissioningId = computed(() => route.params.id as string)
 
-const ncList = ref<NonConformance[]>([])
-const loading = ref(false)
+const loading = computed(() => store.loading)
 const error = ref<string | null>(null)
 const showCreateForm = ref(false)
 
@@ -27,36 +24,9 @@ const closingNcName = ref<string | null>(null)
 const closeForm = ref({ root_cause: '', corrective_action: '' })
 
 async function loadNCs(): Promise<void> {
-  loading.value = true
   error.value = null
-  try {
-    const res = await frappeGet<NonConformance[]>(
-      'frappe.client.get_list',
-      {
-        doctype: 'Asset QA Non Conformance',
-        filters: JSON.stringify([['ref_commissioning', '=', commissioningId.value]]),
-        fields: JSON.stringify([
-          'name',
-          'nc_type',
-          'severity',
-          'description',
-          'resolution_status',
-          'resolution_note',
-          'root_cause',
-          'closed_by',
-          'closed_date',
-        ]),
-        order_by: 'creation desc',
-      },
-    )
-    ncList.value = (res as any) ?? []
-    const openCount = ncList.value.filter((n) => n.resolution_status === 'Open').length
-    store.setOpenNcCount(openCount)
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : 'Lỗi kết nối'
-  } finally {
-    loading.value = false
-  }
+  await store.fetchNonConformances(commissioningId.value)
+  if (store.error) error.value = store.error
 }
 
 async function createNC(): Promise<void> {
@@ -95,20 +65,16 @@ async function confirmCloseNC(): Promise<void> {
     return
   }
   error.value = null
-  try {
-    const res = await closeNonConformance(
-      closingNcName.value,
-      closeForm.value.root_cause,
-      closeForm.value.corrective_action,
-    )
-    if (res.success) {
-      closingNcName.value = null
-      await loadNCs()
-    } else {
-      error.value = res.error ?? 'Lỗi khi đóng NC'
-    }
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : 'Lỗi khi đóng NC'
+  const ok = await store.doCloseNonConformance(
+    closingNcName.value,
+    closeForm.value.root_cause,
+    closeForm.value.corrective_action,
+  )
+  if (ok) {
+    closingNcName.value = null
+    await loadNCs()
+  } else {
+    error.value = store.error ?? 'Lỗi khi đóng NC'
   }
 }
 
@@ -126,9 +92,7 @@ const statusBadge: Record<NCStatus, string> = {
   Transferred: 'bg-gray-100 text-gray-700',
 }
 
-const openCount = computed(() =>
-  ncList.value.filter((n) => n.resolution_status === 'Open').length,
-)
+const openCount = computed(() => store.openNcCount)
 
 onMounted(loadNCs)
 </script>
@@ -313,7 +277,7 @@ onMounted(loadNCs)
 
     <!-- Empty state -->
     <div
-      v-else-if="ncList.length === 0"
+      v-else-if="store.ncList.length === 0"
       class="bg-white rounded-xl shadow-sm border border-gray-200 p-12 text-center"
     >
       <svg
@@ -332,7 +296,7 @@ onMounted(loadNCs)
     <!-- NC list -->
     <div v-else class="space-y-3">
       <div
-        v-for="nc in ncList"
+        v-for="nc in store.ncList"
         :key="nc.name"
         class="bg-white rounded-xl shadow-sm border border-gray-200 p-4"
       >

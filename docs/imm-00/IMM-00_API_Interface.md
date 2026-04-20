@@ -1,114 +1,220 @@
-# IMM-00 Foundation / Master Data — API Interface Specification
+# IMM-00 — API Interface Specification
 
-**Module:** IMM-00  
-**Version:** 1.0.0  
-**Date:** 2026-04-17  
-**Base Path:** `assetcore.api.imm00`  
-**Transport:** Frappe `frappe.call()` / HTTP POST to `/api/method/<path>`  
-**Authentication:** Frappe session cookie or API key header (`Authorization: token api_key:api_secret`)
-
----
-
-## Conventions
-
-### Response Envelope
-
-All endpoints return a consistent JSON envelope:
-
-```json
-// Success
-{ "success": true, "data": <payload> }
-
-// Error
-{ "success": false, "error": "<Vietnamese message>", "code": "<ERROR_CODE>" }
-```
-
-Helper functions defined at top of `assetcore/api/imm00.py`:
-
-```python
-def _ok(data: dict | list) -> dict:
-    return {"success": True, "data": data}
-
-def _err(message: str, code: str = "GENERIC_ERROR") -> dict:
-    return {"success": False, "error": message, "code": code}
-```
-
-### Pagination
-
-List endpoints accept `page` (int, default=1) and `page_size` (int, default=20, max=100).  
-Response includes `total`, `page`, `page_size`, `total_pages`.
-
-### Roles Reference
-
-| Role | Abbreviation | Capabilities |
-|---|---|---|
-| CMMS Admin | ADMIN | Full access, bulk operations, close CAPA |
-| Biomed Engineer | BIOMED | Read/write all IMM records, verify CAPA |
-| Workshop Head | WH | Read/write work-related records |
-| HTM Technician | TECH | Read most, create CAPA, update status |
-| QA Risk Team | QA | Full CAPA lifecycle, read all |
-| System Manager | SYS | Unrestricted |
-
----
-
-## Table of Contents
-
-1. [get_device_models](#1-get_device_models)
-2. [get_device_model](#2-get_device_model)
-3. [create_device_model](#3-create_device_model)
-4. [get_asset_profile](#4-get_asset_profile)
-5. [update_asset_lifecycle_status](#5-update_asset_lifecycle_status)
-6. [get_vendor_profile](#6-get_vendor_profile)
-7. [get_sla_policy](#7-get_sla_policy)
-8. [create_capa](#8-create_capa)
-9. [close_capa](#9-close_capa)
-10. [get_asset_audit_trail](#10-get_asset_audit_trail)
-11. [get_capa_list](#11-get_capa_list)
-12. [get_asset_kpi_summary](#12-get_asset_kpi_summary)
-13. [bulk_update_device_model](#13-bulk_update_device_model)
-14. [validate_asset_for_operations](#14-validate_asset_for_operations)
-
----
-
-## 1. `get_device_models`
-
-### Signature
-
-```python
-@frappe.whitelist()
-def get_device_models(
-    filters: str = "{}",
-    page: int = 1,
-    page_size: int = 20,
-) -> dict:
-    """Danh sách IMM Device Model với phân trang và bộ lọc."""
-```
-
-### HTTP
-
-```
-POST /api/method/assetcore.api.imm00.get_device_models
-```
-
-### Permission Required
-
-| Role | Access |
+| Thuộc tính | Giá trị |
 |---|---|
-| All authenticated users | Read |
+| Module | IMM-00 Foundation |
+| Phiên bản | **3.0.0** |
+| Ngày cập nhật | 2026-04-18 |
+| Trạng thái | **DRAFT** |
+| Base URL | `/api/method/assetcore.api.imm00` |
+| Tác giả | AssetCore Team |
 
-### Request Payload
+---
+
+## 1. Overview & Convention
+
+### 1.1 Phạm vi
+
+Tài liệu này đặc tả 42 endpoint REST của module IMM-00 Foundation (AssetCore v3). Tất cả endpoint đều được public qua cơ chế `@frappe.whitelist()` trong module Python `assetcore.api.imm00`.
+
+Endpoint phục vụ 9 nhóm đối tượng tương ứng 9 DocType (+ scheduler trigger):
+
+1. **AC Asset** — 8 endpoint
+2. **AC Supplier** — 4 endpoint
+3. **AC Location / AC Department / AC Asset Category** — 6 endpoint
+4. **IMM Device Model** — 4 endpoint
+5. **IMM SLA Policy** — 2 endpoint
+6. **IMM Audit Trail** — 3 endpoint
+7. **IMM CAPA Record** — 5 endpoint
+8. **Asset Lifecycle Event** — 2 endpoint
+9. **Incident Report** — 5 endpoint
+10. **Scheduler manual trigger** — 3 endpoint (admin only)
+
+AssetCore v3 **chỉ phụ thuộc Frappe Framework v15**. Không dùng ERPNext. 13 DocType lõi: `AC Asset`, `AC Supplier`, `AC Location`, `AC Department`, `AC Asset Category`, `IMM Device Model`, `IMM SLA Policy`, `IMM Audit Trail`, `IMM CAPA Record`, `Asset Lifecycle Event`, `Incident Report` + 2 child (`IMM Device Spare Part`, `AC Authorized Technician`).
+
+> **Breaking change v3:** Các endpoint sidecar của v2 (`sync_single_asset_profile`, `sync_asset_profile_status`, endpoint trên `IMM Asset Profile`, `Vendor Profile`, `Location Ext`) **bị xoá hoàn toàn**. HTM fields đã nằm trực tiếp trên `AC Asset`.
+
+### 1.2 Authentication
+
+Mọi endpoint yêu cầu xác thực. Hai phương thức hỗ trợ:
+
+```http
+# API Token (server-to-server, khuyến nghị cho integration)
+Authorization: token <api_key>:<api_secret>
+
+# Session cookie (browser - Frappe UI / SPA)
+Cookie: sid=<session_id>
+```
+
+Nếu thiếu hoặc sai credential → HTTP 401. Nếu user không có Role hợp lệ cho endpoint → HTTP 403.
+
+### 1.3 Response Envelope
+
+Tất cả response (success + error) đều gói trong `message` theo convention Frappe. Client parse `response.json().message`.
+
+**Success (HTTP 200):**
 
 ```json
 {
-  "filters": "{\"manufacturer\": \"Philips\", \"risk_class\": \"High\", \"is_active\": 1}",
-  "page": 1,
-  "page_size": 20
+  "message": {
+    "success": true,
+    "data": { /* payload: object hoặc list */ }
+  }
 }
 ```
 
-**Filter keys supported:** `manufacturer`, `device_category`, `medical_class`, `risk_class`, `is_active`, `requires_calibration`
+**Error (HTTP 400/401/403/404/409/422/500):**
 
-### Response — Success
+```json
+{
+  "message": {
+    "success": false,
+    "error": "Thông báo lỗi tiếng Việt",
+    "code": 422
+  }
+}
+```
+
+Helper chuẩn hoá: `assetcore/utils/response.py`
+
+```python
+def _ok(data): return {"success": True, "data": data}
+def _err(msg, code=400): return {"success": False, "error": msg, "code": code}
+```
+
+### 1.4 Pagination
+
+List endpoint hỗ trợ pagination qua `utils/pagination.py`.
+
+| Param | Kiểu | Default | Max | Ghi chú |
+|---|---|---|---|---|
+| `page` | int | 1 | — | Trang hiện tại (1-based) |
+| `page_size` | int | 20 | 100 | Số record mỗi trang; server cap tại 100 |
+| `sort` | string | `modified desc` | — | Cú pháp Frappe order_by |
+
+**Response shape (list):**
+
+```json
+{
+  "success": true,
+  "data": {
+    "items": [ /* ... */ ],
+    "page": 1,
+    "page_size": 20,
+    "total": 137,
+    "total_pages": 7
+  }
+}
+```
+
+### 1.5 Filter Convention
+
+Các list endpoint nhận `filters` là JSON object. Các toán tử hỗ trợ:
+
+- Exact match: `{"lifecycle_status": "Active"}`
+- Operator: `{"next_pm_date": ["<=", "2026-05-01"]}`
+- IN: `{"risk_class": ["in", ["High", "Critical"]]}`
+- Like: `{"asset_name": ["like", "%MRI%"]}`
+
+### 1.6 Rate Limiting
+
+Sử dụng rate limit mặc định của Frappe Framework (`rate_limit` qua `frappe.conf.rate_limit`). Khuyến nghị production:
+
+| Nhóm endpoint | Giới hạn |
+|---|---|
+| GET (list / detail) | 300 req/phút/user |
+| POST / PUT (mutation) | 60 req/phút/user |
+| Scheduler trigger (admin) | 5 req/phút/user |
+
+Vượt hạn → HTTP 429, message `"Too many requests"`.
+
+---
+
+## 2. Error Code Table
+
+### 2.1 HTTP Status Codes (global)
+
+| Code | Ý nghĩa | Khi nào trả |
+|---|---|---|
+| 200 | OK | Thành công |
+| 400 | Bad Request | Payload sai schema / thiếu param bắt buộc |
+| 401 | Unauthorized | Không có / sai token / session hết hạn |
+| 403 | Forbidden | User không có Role phù hợp hoặc asset đang bị block operations |
+| 404 | Not Found | Record không tồn tại |
+| 409 | Conflict | Vi phạm uniqueness (asset_code, serial_no, model+manufacturer…) |
+| 422 | Unprocessable Entity | Vi phạm business rule (BR-00-xx) / validation rule |
+| 429 | Too Many Requests | Rate limit |
+| 500 | Internal Server Error | Lỗi không xác định; ghi log đầy đủ |
+
+### 2.2 Business Exception Codes (từ Technical Design §11)
+
+| Code | HTTP | Business Rule | Mô tả |
+|---|---|---|---|
+| `AC-E001` | 400 | — | Asset không tồn tại |
+| `AC-E002` | 422 | BR-00-02 | Transition lifecycle_status không hợp lệ |
+| `AC-E003` | 403 | BR-00-05 | Asset Out of Service / Decommissioned — block operation |
+| `AC-E004` | 400 | — | SLA Policy không tìm được |
+| `AC-E005` | 422 | BR-00-08 | CAPA thiếu required field khi đóng |
+| `AC-E006` | 422 | BR-00-06 | Calibration Lab thiếu ISO 17025 |
+| `AC-E007` | 422 | BR-00-07 | SLA response_time ≥ resolution_time |
+| `AC-E008` | 422 | — | Incident Critical chưa báo cáo BYT |
+| `AC-E009` | 422 | — | Patient affected thiếu mô tả |
+| `AC-E010` | 422 | BR-00-03 | Audit Trail SHA-256 chain bị tamper |
+| `AC-E011` | 409 | — | asset_code / serial_no trùng |
+| `AC-E012` | 409 | — | Device Model (model_name + manufacturer) trùng |
+
+### 2.3 Validation Rule Codes (VR-00-xx)
+
+| Code | Áp dụng | Mô tả |
+|---|---|---|
+| `VR-00-01` | AC Asset | `serial_no` bắt buộc nếu `device_model.requires_serial = 1` |
+| `VR-00-02` | AC Asset | `commissioning_date ≤ today` |
+| `VR-00-03` | IMM Device Model | `class` ↔ `risk_class` theo BR-00-01 |
+| `VR-00-04` | Incident Report | Severity = Critical → yêu cầu xác nhận BYT |
+| `VR-00-05` | IMM CAPA Record | `due_date ≥ created_date` |
+| `VR-00-06` | AC Supplier | `contract_start ≤ contract_end` |
+
+---
+
+## 3. Endpoints
+
+Base path Python: `assetcore.api.imm00.<function>`
+
+URL pattern: `POST|GET /api/method/assetcore.api.imm00.<function>`
+
+> **Quy ước Frappe:** `@frappe.whitelist(methods=["GET"])` cho đọc, `methods=["POST"]` cho mutation. Frappe router không phân biệt HTTP verb nghiêm ngặt — tài liệu ghi verb mong muốn để client tuân thủ REST.
+
+---
+
+### 3.1 AC Asset (8 endpoints)
+
+#### 3.1.1 `list_assets` — Liệt kê Asset có filter & pagination
+
+| Thuộc tính | Giá trị |
+|---|---|
+| Method | GET |
+| Path | `assetcore.api.imm00.list_assets` |
+| Permission | IMM Department Head / Operations Manager / Technician (scoped) / Admin |
+
+**Request params (query string):**
+
+```json
+{
+  "filters": {
+    "lifecycle_status": "Active",
+    "risk_class": ["in", ["High", "Critical"]],
+    "department": "AC-DEPT-0001",
+    "next_pm_date": ["<=", "2026-05-01"]
+  },
+  "page": 1,
+  "page_size": 20,
+  "sort": "next_pm_date asc"
+}
+```
+
+**Fields trả về mỗi asset:** `name, asset_name, asset_code, serial_no, device_model, asset_category, department, location, lifecycle_status, risk_class, next_pm_date, next_calibration_date, byt_reg_expiry, responsible_technician, modified`.
+
+**Response 200:**
 
 ```json
 {
@@ -116,1463 +222,1282 @@ POST /api/method/assetcore.api.imm00.get_device_models
   "data": {
     "items": [
       {
-        "name": "IMM-MDL-2026-0001",
-        "model_name": "Intellivue MX500",
-        "manufacturer": "Philips",
-        "device_category": "Patient Monitor",
-        "medical_class": "Class II",
+        "name": "AC-ASSET-2026-00001",
+        "asset_name": "MRI Siemens Magnetom Aera 1.5T",
+        "asset_code": "MRI-001",
+        "serial_no": "SN123456",
+        "device_model": "IMM-MDL-2026-0001",
+        "lifecycle_status": "Active",
         "risk_class": "High",
-        "gmdn_code": "35022",
-        "requires_calibration": 1,
-        "pm_interval_months": 6,
-        "calibration_interval_months": 12,
-        "byt_reg_no": "QLSP-04685/19",
-        "byt_reg_expiry": "2027-12-31",
-        "is_active": 1
+        "next_pm_date": "2026-04-30",
+        "department": "AC-DEPT-0001",
+        "modified": "2026-04-18 09:12:00"
       }
     ],
-    "total": 48,
-    "page": 1,
-    "page_size": 20,
-    "total_pages": 3
+    "page": 1, "page_size": 20, "total": 1, "total_pages": 1
   }
 }
 ```
 
-### Response — Error
+**Errors:** 401, 403, 400 (filter JSON sai).
 
-```json
-{
-  "success": false,
-  "error": "filters không phải JSON hợp lệ",
-  "code": "INVALID_FILTERS"
-}
-```
-
-### Example
-
-```javascript
-// frappe.call
-frappe.call({
-  method: "assetcore.api.imm00.get_device_models",
-  args: {
-    filters: JSON.stringify({ manufacturer: "Philips", is_active: 1 }),
-    page: 1,
-    page_size: 20,
-  },
-  callback(r) {
-    if (r.message.success) {
-      console.log(r.message.data.items);
-    }
-  },
-});
-```
+**cURL:**
 
 ```bash
-# curl
-curl -X POST "https://hospital.example.com/api/method/assetcore.api.imm00.get_device_models" \
-  -H "Authorization: token api_key:api_secret" \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  --data-urlencode 'filters={"manufacturer":"Philips","is_active":1}' \
-  --data-urlencode 'page=1' \
-  --data-urlencode 'page_size=20'
+curl -X GET "https://acme.local/api/method/assetcore.api.imm00.list_assets?page=1&page_size=20&filters=%7B%22lifecycle_status%22%3A%22Active%22%7D" \
+  -H "Authorization: token KEY:SECRET"
 ```
 
 ---
 
-## 2. `get_device_model`
+#### 3.1.2 `get_asset` — Chi tiết Asset + HTM fields
 
-### Signature
-
-```python
-@frappe.whitelist()
-def get_device_model(name: str) -> dict:
-    """Trả về chi tiết một IMM Device Model kèm danh sách spare parts."""
-```
-
-### HTTP
-
-```
-POST /api/method/assetcore.api.imm00.get_device_model
-```
-
-### Permission Required
-
-| Role | Access |
+| Thuộc tính | Giá trị |
 |---|---|
-| All authenticated users | Read |
+| Method | GET |
+| Path | `assetcore.api.imm00.get_asset` |
+| Permission | IMM Department Head / Operations Manager / Technician (chỉ asset được gán) / Admin |
 
-### Request Payload
+**Request:** `?name=AC-ASSET-2026-00001`
+
+**Response 200 — đầy đủ HTM fields:**
 
 ```json
 {
-  "name": "IMM-MDL-2026-0001"
+  "success": true,
+  "data": {
+    "name": "AC-ASSET-2026-00001",
+    "asset_name": "MRI Siemens Magnetom Aera 1.5T",
+    "asset_code": "MRI-001",
+    "serial_no": "SN123456",
+    "device_model": "IMM-MDL-2026-0001",
+    "asset_category": "Imaging",
+    "department": "AC-DEPT-0001",
+    "location": "AC-LOC-2026-0001",
+    "supplier": "AC-SUP-2026-0001",
+    "responsible_technician": "tech01@hospital.vn",
+    "lifecycle_status": "Active",
+    "risk_class": "High",
+    "udi": "(01)00844868011234",
+    "gmdn_code": "35147",
+    "byt_reg_no": "BYT-2024-001",
+    "byt_reg_expiry": "2029-03-15",
+    "commissioning_date": "2024-06-01",
+    "commissioning_ref": "ACC-2024-0001",
+    "next_pm_date": "2026-04-30",
+    "next_calibration_date": "2026-07-15",
+    "purchase_date": "2024-05-20",
+    "warranty_end": "2027-05-20"
+  }
 }
 ```
 
-### Response — Success
+**Errors:** 404 (`AC-E001`), 401, 403.
+
+---
+
+#### 3.1.3 `create_asset` — Tạo Asset mới
+
+| Thuộc tính | Giá trị |
+|---|---|
+| Method | POST |
+| Path | `assetcore.api.imm00.create_asset` |
+| Permission | IMM System Admin / Department Head / Operations Manager |
+
+**Required body:** `asset_name, asset_code, device_model, asset_category, department, location`.
+
+Khi `device_model` được set, các field default (`risk_class`, `gmdn_code`, `requires_calibration`, PM interval…) **fetch tự động** từ `IMM Device Model` (server-side `fetch_from`).
+
+**Body:**
+
+```json
+{
+  "asset_name": "MRI Siemens Magnetom Aera 1.5T",
+  "asset_code": "MRI-001",
+  "serial_no": "SN123456",
+  "device_model": "IMM-MDL-2026-0001",
+  "asset_category": "Imaging",
+  "department": "AC-DEPT-0001",
+  "location": "AC-LOC-2026-0001",
+  "supplier": "AC-SUP-2026-0001",
+  "udi": "(01)00844868011234",
+  "byt_reg_no": "BYT-2024-001",
+  "byt_reg_expiry": "2029-03-15",
+  "purchase_date": "2024-05-20",
+  "warranty_end": "2027-05-20"
+}
+```
+
+**Response 200:** `{ "success": true, "data": { "name": "AC-ASSET-2026-00001" } }`
+
+**Errors:**
+- 400 thiếu required field
+- 409 `AC-E011` trùng asset_code / serial_no
+- 422 `VR-00-01` serial_no bắt buộc mà bỏ trống
+- 422 `VR-00-02` commissioning_date tương lai
+
+**cURL:**
+
+```bash
+curl -X POST "https://acme.local/api/method/assetcore.api.imm00.create_asset" \
+  -H "Authorization: token KEY:SECRET" \
+  -H "Content-Type: application/json" \
+  -d '{"payload": {"asset_name":"MRI","asset_code":"MRI-001","device_model":"IMM-MDL-2026-0001","asset_category":"Imaging","department":"AC-DEPT-0001","location":"AC-LOC-2026-0001"}}'
+```
+
+---
+
+#### 3.1.4 `update_asset` — Cập nhật Asset
+
+| Thuộc tính | Giá trị |
+|---|---|
+| Method | PUT |
+| Path | `assetcore.api.imm00.update_asset` |
+| Permission | IMM System Admin / Department Head / Operations Manager |
+
+**Body:** `{ "name": "AC-ASSET-2026-00001", "payload": { ... } }`
+
+> **Quan trọng:** Endpoint này **từ chối** payload chứa field `lifecycle_status`. Muốn đổi trạng thái phải dùng `transition_asset_status` (BR-00-02). Nếu payload có `lifecycle_status` → HTTP 422 `AC-E002` với message `"Dùng transition_asset_status để đổi lifecycle_status"`.
+
+**Response 200:** `{ "success": true, "data": { "name": "...", "modified": "..." } }`
+
+**Errors:** 404 `AC-E001`, 422 `AC-E002`, 409 `AC-E011`.
+
+---
+
+#### 3.1.5 `transition_asset_status` — Đổi lifecycle_status qua state machine
+
+| Thuộc tính | Giá trị |
+|---|---|
+| Method | POST |
+| Path | `assetcore.api.imm00.transition_asset_status` |
+| Permission | IMM Department Head / Operations Manager / QA Officer (cho Decommissioned) |
+
+Wrapper cho service `transition_asset_status(asset_name, to_status, actor, reason, root_doctype, root_record)`.
+
+Side-effect:
+- Tạo `Asset Lifecycle Event` (BR-00-10)
+- Tạo `IMM Audit Trail` với `from_status → to_status`
+- Nếu `to_status = Decommissioned`: suspend PM/Cal schedules (BR-00-04)
+
+**Body:**
+
+```json
+{
+  "name": "AC-ASSET-2026-00001",
+  "new_status": "Under Repair",
+  "reason": "Incident IR-2026-0007 — tube cooling failure"
+}
+```
+
+Giá trị `new_status` hợp lệ: `Draft, Commissioning, Active, Under Repair, Out of Service, Decommissioned`. State machine chi tiết — xem Technical Design §6.
+
+**Response 200:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "asset": "AC-ASSET-2026-00001",
+    "from_status": "Active",
+    "to_status": "Under Repair",
+    "lifecycle_event": "ALE-2026-0000123",
+    "audit_trail": "IMM-AUD-2026-0001234"
+  }
+}
+```
+
+**Errors:**
+- 404 `AC-E001`
+- 422 `AC-E002` transition không hợp lệ (vd Decommissioned → Active)
+- 403 nếu actor không có Role
+
+**cURL:**
+
+```bash
+curl -X POST "https://acme.local/api/method/assetcore.api.imm00.transition_asset_status" \
+  -H "Authorization: token KEY:SECRET" -H "Content-Type: application/json" \
+  -d '{"name":"AC-ASSET-2026-00001","new_status":"Under Repair","reason":"tube fail"}'
+```
+
+---
+
+#### 3.1.6 `get_asset_lifecycle_history` — Toàn bộ sự kiện + audit của Asset
+
+| Thuộc tính | Giá trị |
+|---|---|
+| Method | GET |
+| Path | `assetcore.api.imm00.get_asset_lifecycle_history` |
+| Permission | IMM Department Head / Operations Manager / QA Officer / Technician (scoped) |
+
+**Request:** `?name=AC-ASSET-2026-00001`
+
+Trả về 2 list sắp xếp desc theo timestamp:
+- `lifecycle_events`: tất cả `Asset Lifecycle Event` của asset
+- `audit_trail`: tất cả `IMM Audit Trail` của asset
+
+**Response 200:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "asset": "AC-ASSET-2026-00001",
+    "lifecycle_events": [
+      { "name": "ALE-2026-0000123", "event_type": "repair_opened",
+        "from_status": "Active", "to_status": "Under Repair",
+        "timestamp": "2026-04-18 10:00:00", "actor": "tech01@hospital.vn",
+        "root_doctype": "Incident Report", "root_record": "IR-2026-0007" }
+    ],
+    "audit_trail": [
+      { "name": "IMM-AUD-2026-0001234", "event_type": "State Change",
+        "change_summary": "Active → Under Repair", "timestamp": "2026-04-18 10:00:00",
+        "sha256_current": "a1b2..." }
+    ]
+  }
+}
+```
+
+**Errors:** 404 `AC-E001`, 401, 403.
+
+---
+
+#### 3.1.7 `search_assets_by_udi` — Tra cứu Asset theo UDI
+
+| Thuộc tính | Giá trị |
+|---|---|
+| Method | GET |
+| Path | `assetcore.api.imm00.search_assets_by_udi` |
+| Permission | All authenticated IMM roles |
+
+**Request:** `?udi_code=(01)00844868011234`
+
+Tra chính xác (exact match) trên field `udi`. Hỗ trợ tra bằng GS1 barcode scanner.
+
+**Response 200:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "matches": [
+      { "name": "AC-ASSET-2026-00001", "asset_name": "MRI Siemens Magnetom Aera 1.5T",
+        "serial_no": "SN123456", "lifecycle_status": "Active" }
+    ]
+  }
+}
+```
+
+Trả `matches: []` nếu không tìm được (không coi là 404).
+
+---
+
+#### 3.1.8 `get_assets_due_pm` — Asset đến hạn PM trong N ngày
+
+| Thuộc tính | Giá trị |
+|---|---|
+| Method | GET |
+| Path | `assetcore.api.imm00.get_assets_due_pm` |
+| Permission | IMM Department Head / Operations Manager / Technician |
+
+**Request:** `?within_days=30` (default 30, max 365)
+
+Logic filter: `next_pm_date ≤ today + within_days` **AND** `lifecycle_status NOT IN ("Decommissioned", "Out of Service")`.
+
+**Response 200:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "within_days": 30,
+    "reference_date": "2026-04-18",
+    "items": [
+      { "name": "AC-ASSET-2026-00001", "asset_name": "MRI ...",
+        "next_pm_date": "2026-04-30", "days_remaining": 12,
+        "responsible_technician": "tech01@hospital.vn" }
+    ]
+  }
+}
+```
+
+**Errors:** 400 nếu `within_days > 365` hoặc < 1.
+
+---
+
+### 3.2 AC Supplier (4 endpoints)
+
+#### 3.2.1 `list_suppliers`
+
+| Thuộc tính | Giá trị |
+|---|---|
+| Method | GET |
+| Path | `assetcore.api.imm00.list_suppliers` |
+| Permission | IMM System Admin / Operations Manager / Storekeeper / Department Head |
+
+**Filters:** `vendor_type` (`Manufacturer / Distributor / Service Provider / Calibration Lab`), `is_active`, `contract_end` (operator syntax).
+
+**Response 200:** list items gồm `name, supplier_name, vendor_type, is_active, contract_start, contract_end, iso_17025_cert, country`.
+
+---
+
+#### 3.2.2 `get_supplier`
+
+| Thuộc tính | Giá trị |
+|---|---|
+| Method | GET |
+| Path | `assetcore.api.imm00.get_supplier` |
+| Permission | IMM System Admin / Operations Manager / Storekeeper |
+
+**Request:** `?name=AC-SUP-2026-0001`
+
+Trả về chi tiết + bảng con `authorized_technicians` (child DocType `AC Authorized Technician`).
+
+```json
+{
+  "success": true,
+  "data": {
+    "name": "AC-SUP-2026-0001",
+    "supplier_name": "Siemens Healthineers VN",
+    "vendor_type": "Service Provider",
+    "iso_17025_cert": null,
+    "contract_start": "2025-01-01",
+    "contract_end": "2026-12-31",
+    "authorized_technicians": [
+      { "technician_name": "Nguyễn Văn A", "email": "a.nguyen@siemens.com",
+        "cert_no": "SIE-TECH-001", "cert_expiry": "2027-06-30" }
+    ]
+  }
+}
+```
+
+---
+
+#### 3.2.3 `create_supplier`
+
+| Thuộc tính | Giá trị |
+|---|---|
+| Method | POST |
+| Path | `assetcore.api.imm00.create_supplier` |
+| Permission | IMM System Admin / Operations Manager |
+
+**Body required:** `supplier_name, vendor_type`.
+
+Nếu `vendor_type = "Calibration Lab"` mà thiếu `iso_17025_cert` → **warning** (BR-00-06 / `AC-E006`) — không block nhưng trả về trong `data.warnings[]`.
+
+**Response 200 (có warning):**
+
+```json
+{
+  "success": true,
+  "data": {
+    "name": "AC-SUP-2026-0002",
+    "warnings": [
+      { "code": "AC-E006", "message": "Nhà cung cấp hiệu chuẩn nên có chứng chỉ ISO/IEC 17025" }
+    ]
+  }
+}
+```
+
+**Errors:** 422 `VR-00-06` nếu `contract_start > contract_end`.
+
+---
+
+#### 3.2.4 `update_supplier`
+
+| Thuộc tính | Giá trị |
+|---|---|
+| Method | PUT |
+| Path | `assetcore.api.imm00.update_supplier` |
+| Permission | IMM System Admin / Operations Manager |
+
+**Body:** `{ "name": "AC-SUP-...", "payload": { ... } }`
+
+Trả warning tương tự 3.2.3 nếu chuyển sang vendor_type Calibration Lab mà không có ISO 17025.
+
+---
+
+### 3.3 AC Location / AC Department / AC Asset Category (6 endpoints)
+
+3 DocType dạng cây (tree). List endpoint trả về cấu trúc nested.
+
+#### 3.3.1 `list_locations_tree`
+
+| Method | GET |
+|---|---|
+| Path | `assetcore.api.imm00.list_locations_tree` |
+| Permission | All authenticated IMM roles |
+
+**Response 200:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "tree": [
+      { "name": "AC-LOC-2026-0001", "location_name": "Tòa A",
+        "is_group": 1, "clinical_area_type": null,
+        "children": [
+          { "name": "AC-LOC-2026-0002", "location_name": "Khoa Chẩn đoán hình ảnh",
+            "is_group": 1, "clinical_area_type": "Imaging Suite",
+            "children": [
+              { "name": "AC-LOC-2026-0003", "location_name": "Phòng MRI 01",
+                "is_group": 0, "infection_control_level": "Standard",
+                "children": [] }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+---
+
+#### 3.3.2 `create_location`
+
+| Method | POST |
+|---|---|
+| Path | `assetcore.api.imm00.create_location` |
+| Permission | IMM System Admin / Department Head |
+
+**Body:**
+
+```json
+{
+  "location_name": "Phòng MRI 02",
+  "parent_location": "AC-LOC-2026-0002",
+  "is_group": 0,
+  "clinical_area_type": "Imaging Suite",
+  "infection_control_level": "Standard"
+}
+```
+
+**Errors:** 404 nếu `parent_location` không tồn tại; 409 nếu trùng `location_name` cùng parent.
+
+---
+
+#### 3.3.3 `list_departments_tree`
+
+| Method | GET |
+|---|---|
+| Path | `assetcore.api.imm00.list_departments_tree` |
+| Permission | All authenticated IMM roles |
+
+Trả tree tương tự 3.3.1 cho `AC Department`. Fields: `name, department_name, is_group, head_user, cost_center_code, children`.
+
+---
+
+#### 3.3.4 `create_department`
+
+| Method | POST |
+|---|---|
+| Path | `assetcore.api.imm00.create_department` |
+| Permission | IMM System Admin |
+
+**Body:** `department_name, parent_department, is_group, head_user?, cost_center_code?`.
+
+---
+
+#### 3.3.5 `list_asset_categories`
+
+| Method | GET |
+|---|---|
+| Path | `assetcore.api.imm00.list_asset_categories` |
+| Permission | All authenticated IMM roles |
+
+Flat list (không tree) — AC Asset Category là flat taxonomy.
+
+```json
+{
+  "success": true,
+  "data": {
+    "items": [
+      { "name": "Imaging", "category_name": "Imaging",
+        "default_risk_class": "High", "default_pm_interval_months": 6 },
+      { "name": "Laboratory", "category_name": "Laboratory",
+        "default_risk_class": "Medium", "default_pm_interval_months": 12 }
+    ]
+  }
+}
+```
+
+---
+
+#### 3.3.6 `create_asset_category`
+
+| Method | POST |
+|---|---|
+| Path | `assetcore.api.imm00.create_asset_category` |
+| Permission | IMM System Admin / Workshop Lead |
+
+**Body:** `category_name, default_risk_class?, default_pm_interval_months?, requires_calibration?`.
+
+**Errors:** 409 nếu trùng `category_name`.
+
+---
+
+### 3.4 IMM Device Model (4 endpoints)
+
+#### 3.4.1 `list_device_models`
+
+| Method | GET |
+|---|---|
+| Path | `assetcore.api.imm00.list_device_models` |
+| Permission | All authenticated IMM roles |
+
+**Filters:** `manufacturer`, `asset_category`, `class` (I/II/III), `risk_class`, `is_active`.
+
+Response fields: `name, model_name, manufacturer, asset_category, class, risk_class, requires_calibration, default_pm_interval_months, is_active`.
+
+---
+
+#### 3.4.2 `get_device_model`
+
+| Method | GET |
+|---|---|
+| Path | `assetcore.api.imm00.get_device_model` |
+| Permission | All authenticated IMM roles |
+
+**Request:** `?name=IMM-MDL-2026-0001`
+
+Trả chi tiết + child table `spare_parts_list` (`IMM Device Spare Part`).
 
 ```json
 {
   "success": true,
   "data": {
     "name": "IMM-MDL-2026-0001",
-    "model_name": "Intellivue MX500",
-    "manufacturer": "Philips",
-    "device_category": "Patient Monitor",
-    "medical_class": "Class II",
+    "model_name": "Magnetom Aera 1.5T",
+    "manufacturer": "Siemens Healthineers",
+    "class": "III",
     "risk_class": "High",
-    "gmdn_code": "35022",
-    "byt_reg_no": "QLSP-04685/19",
-    "byt_reg_expiry": "2027-12-31",
-    "life_expectancy_years": 10,
-    "pm_interval_months": 6,
-    "calibration_interval_months": 12,
     "requires_calibration": 1,
-    "default_vendor": "SUP-Philips-VN",
-    "default_sla_policy": "sla-critical-24h",
-    "is_active": 1,
-    "spare_parts": [
-      {
-        "item_code": "SP-MX500-BAT",
-        "part_name": "Pin dự phòng MX500",
-        "part_number": "989803135231",
-        "category": "Consumable",
-        "pm_replacement": 1,
-        "replacement_interval_months": 24,
-        "unit_of_measure": "Nos",
-        "estimated_cost": 850000
-      }
+    "default_pm_interval_months": 6,
+    "spare_parts_list": [
+      { "part_name": "RF Coil", "part_code": "RFC-001",
+        "recommended_stock": 1, "unit_cost": 45000000 }
     ]
   }
 }
 ```
 
-### Response — Error
+---
 
-```json
-{
-  "success": false,
-  "error": "Không tìm thấy Device Model: IMM-MDL-2026-9999",
-  "code": "NOT_FOUND"
-}
-```
+#### 3.4.3 `create_device_model`
 
-### Example
+| Method | POST |
+|---|---|
+| Path | `assetcore.api.imm00.create_device_model` |
+| Permission | IMM System Admin / Workshop Lead |
 
-```bash
-curl -X POST "https://hospital.example.com/api/method/assetcore.api.imm00.get_device_model" \
-  -H "Authorization: token api_key:api_secret" \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  --data-urlencode 'name=IMM-MDL-2026-0001'
-```
+**Body required:** `model_name, manufacturer, asset_category, class`.
+
+**Validation:** BR-00-01 / `VR-00-03` — `class ↔ risk_class`:
+
+| class | risk_class bắt buộc |
+|---|---|
+| I | Low |
+| II | Medium |
+| III | High hoặc Critical |
+
+Nếu sai → HTTP 422 `AC-E012` hoặc validation message tiếng Việt.
+
+**Errors:**
+- 409 `AC-E012` trùng `(model_name, manufacturer)`
+- 422 `VR-00-03` class/risk mismatch
 
 ---
 
-## 3. `create_device_model`
+#### 3.4.4 `update_device_model`
 
-### Signature
-
-```python
-@frappe.whitelist()
-def create_device_model(data: str) -> dict:
-    """Tạo mới IMM Device Model; kiểm tra trùng tên + nhà sản xuất."""
-```
-
-### HTTP
-
-```
-POST /api/method/assetcore.api.imm00.create_device_model
-```
-
-### Permission Required
-
-| Role | Access |
+| Method | PUT |
 |---|---|
-| CMMS Admin, Biomed Engineer | Create |
+| Path | `assetcore.api.imm00.update_device_model` |
+| Permission | IMM System Admin / Workshop Lead |
 
-### Request Payload
+**Body:** `{ "name": "IMM-MDL-...", "payload": { ... } }`
 
-```json
-{
-  "data": {
-    "model_name": "Intellivue MX550",
-    "manufacturer": "Philips",
-    "device_category": "Patient Monitor",
-    "medical_class": "Class II",
-    "risk_class": "High",
-    "gmdn_code": "35022",
-    "byt_reg_no": "QLSP-05001/22",
-    "byt_reg_expiry": "2027-06-30",
-    "life_expectancy_years": 10,
-    "pm_interval_months": 6,
-    "requires_calibration": 1,
-    "calibration_interval_months": 12,
-    "is_active": 1
-  }
-}
-```
-
-**Required fields:** `model_name`, `manufacturer`, `medical_class`, `risk_class`
-
-### Response — Success
-
-```json
-{
-  "success": true,
-  "data": {
-    "name": "IMM-MDL-2026-0002",
-    "model_name": "Intellivue MX550",
-    "manufacturer": "Philips"
-  }
-}
-```
-
-### Response — Error (Duplicate)
-
-```json
-{
-  "success": false,
-  "error": "Tên model đã tồn tại cho nhà sản xuất này",
-  "code": "MDL-001"
-}
-```
-
-### Response — Error (Validation)
-
-```json
-{
-  "success": false,
-  "error": "data không phải JSON hợp lệ",
-  "code": "INVALID_DATA"
-}
-```
-
-### Example
-
-```bash
-curl -X POST "https://hospital.example.com/api/method/assetcore.api.imm00.create_device_model" \
-  -H "Authorization: token api_key:api_secret" \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  --data-urlencode 'data={"model_name":"Intellivue MX550","manufacturer":"Philips","medical_class":"Class II","risk_class":"High"}'
-```
+Giữ validate `class ↔ risk_class`.
 
 ---
 
-## 4. `get_asset_profile`
+### 3.5 IMM SLA Policy (2 endpoints)
 
-### Signature
+#### 3.5.1 `list_sla_policies`
 
-```python
-@frappe.whitelist()
-def get_asset_profile(asset_name: str) -> dict:
-    """Trả về IMM Asset Profile đầy đủ theo tên Asset."""
-```
-
-### HTTP
-
-```
-POST /api/method/assetcore.api.imm00.get_asset_profile
-```
-
-### Permission Required
-
-| Role | Access |
+| Method | GET |
 |---|---|
-| All authenticated users | Read |
+| Path | `assetcore.api.imm00.list_sla_policies` |
+| Permission | All authenticated IMM roles |
 
-### Request Payload
-
-```json
-{
-  "asset_name": "ACC-ICU-2026-0001"
-}
-```
-
-### Response — Success
-
-```json
-{
-  "success": true,
-  "data": {
-    "name": "IMM-ASP-2026-0001",
-    "asset": "ACC-ICU-2026-0001",
-    "device_model": "IMM-MDL-2026-0001",
-    "device_model_name": "Intellivue MX500",
-    "manufacturer": "Philips",
-    "lifecycle_status": "Active",
-    "calibration_status": "In Tolerance",
-    "medical_class": "Class II",
-    "risk_class": "High",
-    "manufacturer_sn": "SN-US-29847123",
-    "udi_code": "00888793000014",
-    "gmdn_code": "35022",
-    "byt_reg_no": "QLSP-04685/19",
-    "byt_reg_expiry": "2027-12-31",
-    "installation_date": "2026-01-15",
-    "commissioning_date": "2026-01-20",
-    "warranty_expiry_date": "2028-01-20",
-    "last_pm_date": "2026-03-01",
-    "next_pm_date": "2026-09-01",
-    "last_calibration_date": "2026-01-20",
-    "next_calibration_date": "2027-01-20",
-    "responsible_tech": "tech.nguyen@hospital.vn",
-    "department": "ICU",
-    "vendor": "SUP-Philips-VN"
-  }
-}
-```
-
-### Response — Error
-
-```json
-{
-  "success": false,
-  "error": "Không tìm thấy hồ sơ IMM cho tài sản: ACC-ICU-2026-9999",
-  "code": "ASP-002"
-}
-```
-
-### Example
-
-```javascript
-frappe.call({
-  method: "assetcore.api.imm00.get_asset_profile",
-  args: { asset_name: cur_frm.doc.name },
-  callback(r) {
-    if (r.message.success) {
-      const profile = r.message.data;
-      cur_frm.set_value("custom_lifecycle_status", profile.lifecycle_status);
-    }
-  },
-});
-```
-
----
-
-## 5. `update_asset_lifecycle_status`
-
-### Signature
-
-```python
-@frappe.whitelist()
-def update_asset_lifecycle_status(
-    asset_name: str,
-    new_status: str,
-    reason: str,
-) -> dict:
-    """Thay đổi lifecycle_status của Asset kèm Audit Trail tự động."""
-```
-
-### HTTP
-
-```
-POST /api/method/assetcore.api.imm00.update_asset_lifecycle_status
-```
-
-### Permission Required
-
-| Role | Access |
-|---|---|
-| CMMS Admin, Biomed Engineer, Workshop Head | Write |
-| HTM Technician | Write (limited: cannot set Decommissioned) |
-
-### Request Payload
-
-```json
-{
-  "asset_name": "ACC-ICU-2026-0001",
-  "new_status": "Under Repair",
-  "reason": "Màn hình hiển thị lỗi, gửi xưởng sửa chữa"
-}
-```
-
-**Valid `new_status` values:** `Active` | `Under Repair` | `Calibrating` | `Out of Service` | `Decommissioned`
-
-### Response — Success
-
-```json
-{
-  "success": true,
-  "data": {
-    "asset": "ACC-ICU-2026-0001",
-    "from_status": "Active",
-    "to_status": "Under Repair",
-    "audit_trail_id": "IMM-AUD-2026-00123",
-    "actor": "tech.nguyen@hospital.vn",
-    "timestamp": "2026-04-17T09:23:11.000000"
-  }
-}
-```
-
-### Response — Error (Invalid Status)
-
-```json
-{
-  "success": false,
-  "error": "Trạng thái không hợp lệ: Broken",
-  "code": "STS-001"
-}
-```
-
-### Response — Error (Asset Not Found)
-
-```json
-{
-  "success": false,
-  "error": "Không tìm thấy hồ sơ IMM cho tài sản: ACC-ICU-2026-9999",
-  "code": "ASP-002"
-}
-```
-
-### Example
-
-```bash
-curl -X POST "https://hospital.example.com/api/method/assetcore.api.imm00.update_asset_lifecycle_status" \
-  -H "Authorization: token api_key:api_secret" \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  --data-urlencode 'asset_name=ACC-ICU-2026-0001' \
-  --data-urlencode 'new_status=Under Repair' \
-  --data-urlencode 'reason=Màn hình hiển thị lỗi'
-```
-
----
-
-## 6. `get_vendor_profile`
-
-### Signature
-
-```python
-@frappe.whitelist()
-def get_vendor_profile(supplier_name: str) -> dict:
-    """Trả về IMM Vendor Profile kèm danh sách KTV được uỷ quyền."""
-```
-
-### HTTP
-
-```
-POST /api/method/assetcore.api.imm00.get_vendor_profile
-```
-
-### Permission Required
-
-| Role | Access |
-|---|---|
-| All authenticated users | Read |
-
-### Request Payload
-
-```json
-{
-  "supplier_name": "SUP-Philips-VN"
-}
-```
-
-### Response — Success
-
-```json
-{
-  "success": true,
-  "data": {
-    "name": "IMM-VND-2026-0001",
-    "supplier": "SUP-Philips-VN",
-    "company_name": "Philips Việt Nam Co., Ltd.",
-    "short_name": "Philips VN",
-    "vendor_type": "OEM",
-    "country": "Vietnam",
-    "primary_contact_name": "Nguyễn Văn A",
-    "primary_contact_phone": "0901234567",
-    "primary_contact_email": "support.vn@philips.com",
-    "support_hotline": "1800 599 941",
-    "contract_no": "HĐ-PHILIPS-2024-001",
-    "contract_start": "2024-01-01",
-    "contract_expiry": "2026-12-31",
-    "response_sla_hours": 4,
-    "resolution_sla_hours": 48,
-    "rating": 4.5,
-    "is_active": 1,
-    "days_until_contract_expiry": 258,
-    "authorized_technicians": [
-      {
-        "tech_name": "Trần Văn B",
-        "tech_phone": "0912345678",
-        "tech_email": "b.tran@philips.com",
-        "certification_no": "CERT-PHI-2023-088",
-        "certification_expiry": "2027-06-30",
-        "specialization": "Patient Monitoring, Anesthesia",
-        "is_active": 1
-      }
-    ]
-  }
-}
-```
-
-### Response — Error
-
-```json
-{
-  "success": false,
-  "error": "Không tìm thấy hồ sơ nhà cung cấp IMM cho: SUP-Unknown",
-  "code": "VND-001"
-}
-```
-
-### Example
-
-```bash
-curl -X POST "https://hospital.example.com/api/method/assetcore.api.imm00.get_vendor_profile" \
-  -H "Authorization: token api_key:api_secret" \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  --data-urlencode 'supplier_name=SUP-Philips-VN'
-```
-
----
-
-## 7. `get_sla_policy`
-
-### Signature
-
-```python
-@frappe.whitelist()
-def get_sla_policy(priority: str, risk_class: str) -> dict:
-    """Tra cứu IMM SLA Policy theo priority và risk_class; fallback về priority only."""
-```
-
-### HTTP
-
-```
-POST /api/method/assetcore.api.imm00.get_sla_policy
-```
-
-### Permission Required
-
-| Role | Access |
-|---|---|
-| All authenticated users | Read |
-
-### Request Payload
-
-```json
-{
-  "priority": "Critical",
-  "risk_class": "High"
-}
-```
-
-**Valid `priority` values:** `Critical` | `High` | `Medium` | `Low`  
-**Valid `risk_class` values:** `Low` | `Medium` | `High` | `Critical`
-
-### Response — Success (Exact Match)
-
-```json
-{
-  "success": true,
-  "data": {
-    "name": "sla-critical-high-4h",
-    "policy_name": "sla-critical-high-4h",
-    "priority": "Critical",
-    "risk_class": "High",
-    "response_hours": 4.0,
-    "resolution_hours": 24.0,
-    "escalation_hours": 48.0,
-    "business_hours_only": 0,
-    "escalate_to": "biomed.head@hospital.vn",
-    "notify_roles": "[\"CMMS Admin\", \"Biomed Engineer\", \"QA Risk Team\"]",
-    "match_type": "exact"
-  }
-}
-```
-
-### Response — Success (Fallback Match)
-
-```json
-{
-  "success": true,
-  "data": {
-    "name": "sla-critical-default",
-    "policy_name": "sla-critical-default",
-    "priority": "Critical",
-    "risk_class": null,
-    "response_hours": 4.0,
-    "resolution_hours": 24.0,
-    "escalation_hours": 48.0,
-    "business_hours_only": 0,
-    "match_type": "fallback_priority_only"
-  }
-}
-```
-
-### Response — Error (Not Found)
-
-```json
-{
-  "success": false,
-  "error": "Không tìm thấy SLA Policy phù hợp với priority và risk_class",
-  "code": "SLA-001"
-}
-```
-
-### Example
-
-```javascript
-frappe.call({
-  method: "assetcore.api.imm00.get_sla_policy",
-  args: { priority: "Critical", risk_class: "High" },
-  callback(r) {
-    if (r.message.success) {
-      const sla = r.message.data;
-      console.log(`Response SLA: ${sla.response_hours}h`);
-    }
-  },
-});
-```
-
----
-
-## 8. `create_capa`
-
-### Signature
-
-```python
-@frappe.whitelist()
-def create_capa(
-    asset: str,
-    source_doctype: str,
-    source_name: str,
-    severity: str,
-    description: str,
-    title: str = "",
-    assigned_to: str = "",
-    due_date: str = "",
-) -> dict:
-    """Tạo IMM CAPA Record mới và ghi Audit Trail capa_opened."""
-```
-
-### HTTP
-
-```
-POST /api/method/assetcore.api.imm00.create_capa
-```
-
-### Permission Required
-
-| Role | Access |
-|---|---|
-| CMMS Admin, Biomed Engineer, QA Risk Team, HTM Technician | Create |
-
-### Request Payload
-
-```json
-{
-  "asset": "ACC-ICU-2026-0001",
-  "source_doctype": "PM Work Order",
-  "source_name": "WO-PM-2026-0088",
-  "severity": "High",
-  "description": "Phát hiện rò điện bất thường tại đầu đo SpO2 trong quá trình PM định kỳ. Cần kiểm tra toàn bộ cáp kết nối và hệ thống cách điện.",
-  "title": "Rò điện tại đầu đo SpO2 — Intellivue MX500 ICU",
-  "assigned_to": "biomed.nguyen@hospital.vn",
-  "due_date": "2026-04-24"
-}
-```
-
-**Required fields:** `asset`, `source_doctype`, `source_name`, `severity`, `description`  
-**`severity` values:** `Critical` | `High` | `Medium` | `Low`  
-**Auto-computed `due_date` if not provided:** Critical=7d, High=14d, Medium=30d, Low=60d from today
-
-### Response — Success
-
-```json
-{
-  "success": true,
-  "data": {
-    "name": "CAPA-2026-00001",
-    "asset": "ACC-ICU-2026-0001",
-    "status": "Open",
-    "severity": "High",
-    "due_date": "2026-04-24",
-    "assigned_to": "biomed.nguyen@hospital.vn",
-    "audit_trail_id": "IMM-AUD-2026-00124"
-  }
-}
-```
-
-### Response — Error (Invalid Severity)
-
-```json
-{
-  "success": false,
-  "error": "Mức độ nghiêm trọng không hợp lệ: Extreme",
-  "code": "CAPA-001"
-}
-```
-
-### Response — Error (Asset Not Found)
-
-```json
-{
-  "success": false,
-  "error": "Không tìm thấy hồ sơ IMM cho tài sản: ACC-ICU-9999",
-  "code": "ASP-002"
-}
-```
-
-### Example
-
-```bash
-curl -X POST "https://hospital.example.com/api/method/assetcore.api.imm00.create_capa" \
-  -H "Authorization: token api_key:api_secret" \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  --data-urlencode 'asset=ACC-ICU-2026-0001' \
-  --data-urlencode 'source_doctype=PM Work Order' \
-  --data-urlencode 'source_name=WO-PM-2026-0088' \
-  --data-urlencode 'severity=High' \
-  --data-urlencode 'description=Phát hiện rò điện bất thường tại đầu đo SpO2'
-```
-
----
-
-## 9. `close_capa`
-
-### Signature
-
-```python
-@frappe.whitelist()
-def close_capa(
-    capa_name: str,
-    verification_result: str,
-    remarks: str,
-) -> dict:
-    """Đóng CAPA: set Closed, ghi closed_at/closed_by, Submit, Audit Trail."""
-```
-
-### HTTP
-
-```
-POST /api/method/assetcore.api.imm00.close_capa
-```
-
-### Permission Required
-
-| Role | Access |
-|---|---|
-| CMMS Admin, Biomed Engineer, QA Risk Team | Write (close) |
-
-### Request Payload
-
-```json
-{
-  "capa_name": "CAPA-2026-00001",
-  "verification_result": "Effective",
-  "remarks": "Đã thay thế toàn bộ cáp SpO2 và kiểm tra cách điện. Kết quả đo rò điện dưới ngưỡng IEC 60601 (< 100μA). Thiết bị đã được trả về vận hành bình thường."
-}
-```
-
-**Valid `verification_result` values:** `Effective` | `Not Effective` | `Partially Effective`
-
-### Response — Success
-
-```json
-{
-  "success": true,
-  "data": {
-    "capa_name": "CAPA-2026-00001",
-    "status": "Closed",
-    "verification_result": "Effective",
-    "closed_at": "2026-04-17T14:35:22.000000",
-    "closed_by": "biomed.nguyen@hospital.vn",
-    "audit_trail_id": "IMM-AUD-2026-00125"
-  }
-}
-```
-
-### Response — Error (Already Closed)
-
-```json
-{
-  "success": false,
-  "error": "CAPA đã được đóng hoặc huỷ, không thể thao tác thêm.",
-  "code": "CAPA-002"
-}
-```
-
-### Response — Error (Invalid Result)
-
-```json
-{
-  "success": false,
-  "error": "Kết quả xác minh không hợp lệ: Resolved",
-  "code": "CAPA-006"
-}
-```
-
-### Example
-
-```bash
-curl -X POST "https://hospital.example.com/api/method/assetcore.api.imm00.close_capa" \
-  -H "Authorization: token api_key:api_secret" \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  --data-urlencode 'capa_name=CAPA-2026-00001' \
-  --data-urlencode 'verification_result=Effective' \
-  --data-urlencode 'remarks=Đã thay thế cáp và xác minh an toàn điện'
-```
-
----
-
-## 10. `get_asset_audit_trail`
-
-### Signature
-
-```python
-@frappe.whitelist()
-def get_asset_audit_trail(
-    asset_name: str,
-    limit: int = 50,
-    offset: int = 0,
-    event_type: str = "",
-) -> dict:
-    """Lấy lịch sử Audit Trail phân trang cho một tài sản; mới nhất trước."""
-```
-
-### HTTP
-
-```
-POST /api/method/assetcore.api.imm00.get_asset_audit_trail
-```
-
-### Permission Required
-
-| Role | Access |
-|---|---|
-| All authenticated users | Read |
-
-### Request Payload
-
-```json
-{
-  "asset_name": "ACC-ICU-2026-0001",
-  "limit": 20,
-  "offset": 0,
-  "event_type": ""
-}
-```
-
-**Optional `event_type` filter:** `installed` | `commissioned` | `pm_completed` | `repaired` | `failure_reported` | `status_changed` | `capa_opened` | `capa_closed` | `retired` | `profile_created`
-
-### Response — Success
-
-```json
-{
-  "success": true,
-  "data": {
-    "asset": "ACC-ICU-2026-0001",
-    "total": 47,
-    "limit": 20,
-    "offset": 0,
-    "events": [
-      {
-        "name": "IMM-AUD-2026-00125",
-        "event_type": "capa_closed",
-        "from_status": "Open",
-        "to_status": "Closed",
-        "actor": "biomed.nguyen@hospital.vn",
-        "actor_full_name": "Nguyễn Văn Biomed",
-        "source_doctype": "IMM CAPA Record",
-        "source_name": "CAPA-2026-00001",
-        "event_timestamp": "2026-04-17T14:35:22.000000",
-        "remarks": "Result: Effective | Đã thay thế cáp SpO2"
-      },
-      {
-        "name": "IMM-AUD-2026-00124",
-        "event_type": "capa_opened",
-        "from_status": "",
-        "to_status": "Open",
-        "actor": "tech.nguyen@hospital.vn",
-        "actor_full_name": "Nguyễn Kỹ thuật viên",
-        "source_doctype": "IMM CAPA Record",
-        "source_name": "CAPA-2026-00001",
-        "event_timestamp": "2026-04-17T09:10:05.000000",
-        "remarks": "Severity: High"
-      }
-    ]
-  }
-}
-```
-
-### Response — Error
-
-```json
-{
-  "success": false,
-  "error": "Không tìm thấy hồ sơ IMM cho tài sản: ACC-ICU-9999",
-  "code": "ASP-002"
-}
-```
-
-### Example
-
-```javascript
-frappe.call({
-  method: "assetcore.api.imm00.get_asset_audit_trail",
-  args: {
-    asset_name: "ACC-ICU-2026-0001",
-    limit: 20,
-    offset: 0,
-    event_type: "status_changed",
-  },
-  callback(r) {
-    if (r.message.success) {
-      r.message.data.events.forEach((e) => {
-        console.log(`${e.event_timestamp}: ${e.event_type} by ${e.actor}`);
-      });
-    }
-  },
-});
-```
-
----
-
-## 11. `get_capa_list`
-
-### Signature
-
-```python
-@frappe.whitelist()
-def get_capa_list(
-    filters: str = "{}",
-    page: int = 1,
-    page_size: int = 20,
-) -> dict:
-    """Danh sách IMM CAPA Record với filters, phân trang, thống kê tóm tắt."""
-```
-
-### HTTP
-
-```
-POST /api/method/assetcore.api.imm00.get_capa_list
-```
-
-### Permission Required
-
-| Role | Access |
-|---|---|
-| All authenticated HTM roles | Read |
-
-### Request Payload
-
-```json
-{
-  "filters": "{\"status\": \"Open\", \"severity\": \"High\", \"assigned_to\": \"biomed.nguyen@hospital.vn\"}",
-  "page": 1,
-  "page_size": 20
-}
-```
-
-**Filter keys supported:** `asset`, `status`, `severity`, `assigned_to`, `is_overdue`, `source_doctype`, `due_date` (supports `["<", "date"]` syntax as JSON)
-
-### Response — Success
+Không paginated — thường chỉ có < 30 policy.
 
 ```json
 {
   "success": true,
   "data": {
     "items": [
-      {
-        "name": "CAPA-2026-00001",
-        "asset": "ACC-ICU-2026-0001",
-        "title": "Rò điện tại đầu đo SpO2",
-        "severity": "High",
-        "status": "Open",
-        "assigned_to": "biomed.nguyen@hospital.vn",
-        "due_date": "2026-04-24",
-        "is_overdue": 0,
-        "source_doctype": "PM Work Order",
-        "source_name": "WO-PM-2026-0088",
-        "creation": "2026-04-17T09:10:05.000000"
-      }
-    ],
-    "total": 12,
-    "page": 1,
-    "page_size": 20,
-    "total_pages": 1,
-    "summary": {
-      "open": 8,
-      "in_progress": 3,
-      "pending_verification": 1,
-      "overdue": 2,
-      "critical_open": 1
-    }
-  }
-}
-```
-
-### Response — Error
-
-```json
-{
-  "success": false,
-  "error": "filters không phải JSON hợp lệ",
-  "code": "INVALID_FILTERS"
-}
-```
-
-### Example
-
-```bash
-curl -X POST "https://hospital.example.com/api/method/assetcore.api.imm00.get_capa_list" \
-  -H "Authorization: token api_key:api_secret" \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  --data-urlencode 'filters={"status":["in",["Open","In Progress"]],"is_overdue":1}' \
-  --data-urlencode 'page=1' \
-  --data-urlencode 'page_size=20'
-```
-
----
-
-## 12. `get_asset_kpi_summary`
-
-### Signature
-
-```python
-@frappe.whitelist()
-def get_asset_kpi_summary(asset_name: str) -> dict:
-    """KPI tổng hợp MTD cho một tài sản: WO, CAPA, ngày PM/calibration."""
-```
-
-### HTTP
-
-```
-POST /api/method/assetcore.api.imm00.get_asset_kpi_summary
-```
-
-### Permission Required
-
-| Role | Access |
-|---|---|
-| All authenticated users | Read |
-
-### Request Payload
-
-```json
-{
-  "asset_name": "ACC-ICU-2026-0001"
-}
-```
-
-### Response — Success
-
-```json
-{
-  "success": true,
-  "data": {
-    "asset": "ACC-ICU-2026-0001",
-    "lifecycle_status": "Active",
-    "calibration_status": "In Tolerance",
-    "mtd_work_orders": 2,
-    "open_capa_count": 1,
-    "next_pm_date": "2026-09-01",
-    "next_calibration_date": "2027-01-20",
-    "last_pm_date": "2026-03-01",
-    "last_calibration_date": "2026-01-20",
-    "days_until_next_pm": 137,
-    "days_until_next_calibration": 278,
-    "pm_overdue": false,
-    "calibration_overdue": false,
-    "warranty_status": "Active",
-    "warranty_expiry_date": "2028-01-20"
-  }
-}
-```
-
-### Response — Error
-
-```json
-{
-  "success": false,
-  "error": "Không tìm thấy hồ sơ IMM cho tài sản: ACC-ICU-9999",
-  "code": "ASP-002"
-}
-```
-
-### Example
-
-```javascript
-// Typical use: load KPI panel when opening Asset form
-frappe.call({
-  method: "assetcore.api.imm00.get_asset_kpi_summary",
-  args: { asset_name: cur_frm.doc.name },
-  callback(r) {
-    if (r.message.success) {
-      const kpi = r.message.data;
-      // Render KPI widget
-      cur_frm.dashboard.add_indicator(
-        `PM tiếp theo: ${kpi.next_pm_date}`,
-        kpi.pm_overdue ? "red" : "green"
-      );
-    }
-  },
-});
-```
-
----
-
-## 13. `bulk_update_device_model`
-
-### Signature
-
-```python
-@frappe.whitelist()
-def bulk_update_device_model(items: str) -> dict:
-    """Import/upsert nhiều IMM Device Model cùng lúc; tối đa 500 bản ghi."""
-```
-
-### HTTP
-
-```
-POST /api/method/assetcore.api.imm00.bulk_update_device_model
-```
-
-### Permission Required
-
-| Role | Access |
-|---|---|
-| CMMS Admin | Write |
-
-### Request Payload
-
-```json
-{
-  "items": [
-    {
-      "model_name": "LOGIQ E9",
-      "manufacturer": "GE Healthcare",
-      "device_category": "Ultrasound",
-      "medical_class": "Class II",
-      "risk_class": "Medium",
-      "gmdn_code": "40697",
-      "pm_interval_months": 12,
-      "requires_calibration": 0,
-      "is_active": 1
-    },
-    {
-      "model_name": "Venue 50",
-      "manufacturer": "GE Healthcare",
-      "device_category": "Ultrasound",
-      "medical_class": "Class II",
-      "risk_class": "Medium",
-      "gmdn_code": "40697",
-      "pm_interval_months": 12,
-      "requires_calibration": 0,
-      "is_active": 1
-    }
-  ]
-}
-```
-
-**Constraints:**
-- Maximum 500 items per request (BULK-002)
-- Items list must not be empty (BULK-001)
-- Each item must have `model_name` and `manufacturer`
-- Upsert logic: insert if not exists, update if exists (match on `model_name` + `manufacturer`)
-
-### Response — Success
-
-```json
-{
-  "success": true,
-  "data": {
-    "total_submitted": 2,
-    "created": 1,
-    "updated": 1,
-    "failed": 0,
-    "results": [
-      {
-        "model_name": "LOGIQ E9",
-        "manufacturer": "GE Healthcare",
-        "action": "created",
-        "name": "IMM-MDL-2026-0003"
-      },
-      {
-        "model_name": "Venue 50",
-        "manufacturer": "GE Healthcare",
-        "action": "updated",
-        "name": "IMM-MDL-2025-0047"
-      }
+      { "name": "SLA-P1-Critical", "policy_name": "SLA-P1-Critical",
+        "priority": "P1 Critical", "risk_class": "Critical",
+        "response_time_minutes": 15, "resolution_time_hours": 4,
+        "is_default": 0 },
+      { "name": "SLA-P1-Default", "policy_name": "SLA-P1-Default",
+        "priority": "P1 Critical", "risk_class": null,
+        "response_time_minutes": 30, "resolution_time_hours": 8,
+        "is_default": 1 }
     ]
   }
 }
 ```
 
-### Response — Partial Failure
+---
+
+#### 3.5.2 `get_sla_for` — Lookup SLA theo priority × risk_class
+
+| Method | GET |
+|---|---|
+| Path | `assetcore.api.imm00.get_sla_for` |
+| Permission | All authenticated IMM roles |
+
+Wrapper cho service `get_sla_policy(priority, risk_class)`. Logic fallback: nếu không khớp exact, chọn record có `is_default = 1` cùng priority.
+
+**Request:** `?priority=P2&risk_class=High`
+
+**Response 200:**
 
 ```json
 {
   "success": true,
   "data": {
-    "total_submitted": 3,
-    "created": 1,
-    "updated": 1,
-    "failed": 1,
-    "results": [
-      {
-        "model_name": "LOGIQ E9",
-        "manufacturer": "GE Healthcare",
-        "action": "created",
-        "name": "IMM-MDL-2026-0003"
-      },
-      {
-        "model_name": "",
-        "manufacturer": "GE Healthcare",
-        "action": "failed",
-        "error": "model_name là bắt buộc",
-        "code": "VALIDATION_ERROR"
-      }
-    ]
+    "matched_policy": "SLA-P2-High",
+    "priority": "P2",
+    "risk_class": "High",
+    "response_time_minutes": 60,
+    "resolution_time_hours": 24,
+    "is_default": 0
   }
 }
 ```
 
-### Response — Error (Empty List)
+**Errors:** 400 `AC-E004` nếu không tìm được cả exact lẫn default.
+
+---
+
+### 3.6 IMM Audit Trail (3 endpoints)
+
+> **Audit Trail là read-only qua API.** Không có endpoint create / update / delete — mọi record sinh từ service `log_audit_event()` gọi nội bộ từ các module khác (BR-00-03).
+
+#### 3.6.1 `list_audit_events`
+
+| Method | GET |
+|---|---|
+| Path | `assetcore.api.imm00.list_audit_events` |
+| Permission | IMM System Admin / QA Officer / Document Officer |
+
+**Params:** `asset` (optional), `from_date`, `to_date`, `event_type`, `page`, `page_size`.
+
+**Response 200 items field:**
 
 ```json
 {
-  "success": false,
-  "error": "Danh sách import không được rỗng",
-  "code": "BULK-001"
+  "name": "IMM-AUD-2026-0001234",
+  "asset": "AC-ASSET-2026-00001",
+  "event_type": "State Change",
+  "actor": "tech01@hospital.vn",
+  "timestamp": "2026-04-18 10:00:00",
+  "from_status": "Active", "to_status": "Under Repair",
+  "change_summary": "Incident IR-2026-0007 — tube cooling failure",
+  "ref_doctype": "Incident Report", "ref_name": "IR-2026-0007",
+  "sha256_previous": "9f8e...", "sha256_current": "a1b2..."
 }
-```
-
-### Response — Error (Exceeds Limit)
-
-```json
-{
-  "success": false,
-  "error": "Vượt quá giới hạn import (tối đa 500 bản ghi mỗi lần)",
-  "code": "BULK-002"
-}
-```
-
-### Example
-
-```bash
-curl -X POST "https://hospital.example.com/api/method/assetcore.api.imm00.bulk_update_device_model" \
-  -H "Authorization: token api_key:api_secret" \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  --data-urlencode 'items=[{"model_name":"LOGIQ E9","manufacturer":"GE Healthcare","medical_class":"Class II","risk_class":"Medium"}]'
 ```
 
 ---
 
-## 14. `validate_asset_for_operations`
+#### 3.6.2 `get_audit_event`
 
-### Signature
-
-```python
-@frappe.whitelist()
-def validate_asset_for_operations(asset_name: str) -> dict:
-    """
-    Kiểm tra xem tài sản có thể tạo lệnh công việc mới không.
-    Trả về is_valid=True/False và danh sách lý do blocking.
-    """
-```
-
-### HTTP
-
-```
-POST /api/method/assetcore.api.imm00.validate_asset_for_operations
-```
-
-### Permission Required
-
-| Role | Access |
+| Method | GET |
 |---|---|
-| All authenticated users | Read |
+| Path | `assetcore.api.imm00.get_audit_event` |
+| Permission | IMM System Admin / QA Officer / Document Officer |
 
-### Request Payload
+**Request:** `?name=IMM-AUD-2026-0001234`. Trả chi tiết như 3.6.1.
 
-```json
-{
-  "asset_name": "ACC-ICU-2026-0001"
-}
-```
+---
 
-### Business Rules Checked
+#### 3.6.3 `verify_audit_chain` — Kiểm tra SHA-256 chain integrity
 
-| Rule Code | Condition | Blocking |
-|---|---|---|
-| VAL-01 | `lifecycle_status == "Decommissioned"` | Yes — hard block |
-| VAL-02 | `lifecycle_status == "Out of Service"` | Yes — soft block (warning, requires override) |
-| VAL-03 | `calibration_status == "Out of Tolerance"` | Warning only — non-blocking |
-| VAL-04 | `imm_asset_profile` does not exist | Yes — hard block (IMM-00 not initialized) |
-| VAL-05 | Active CAPA with `severity == "Critical"` | Warning — requires acknowledgement |
+| Method | POST |
+|---|---|
+| Path | `assetcore.api.imm00.verify_audit_chain` |
+| Permission | IMM System Admin / QA Officer |
 
-### Response — Valid (Can Create WO)
+**Body:** `{ "asset": "AC-ASSET-2026-00001" }`
+
+Duyệt toàn bộ audit trail của asset theo timestamp asc, tính lại `sha256(sha256_previous + record_canonical_json)` và so khớp `sha256_current`.
+
+**Response 200 (OK):**
 
 ```json
 {
   "success": true,
   "data": {
-    "asset": "ACC-ICU-2026-0001",
-    "is_valid": true,
-    "lifecycle_status": "Active",
-    "calibration_status": "In Tolerance",
-    "blocking_reasons": [],
-    "warnings": [],
-    "can_create_work_order": true
+    "asset": "AC-ASSET-2026-00001",
+    "verified": true,
+    "total_records": 137,
+    "first_record": "IMM-AUD-2024-0000001",
+    "last_record": "IMM-AUD-2026-0001234"
   }
 }
 ```
 
-### Response — Blocked (Decommissioned)
+**Response 200 (tamper detected):**
 
 ```json
 {
   "success": true,
   "data": {
-    "asset": "ACC-ICU-2026-0001",
-    "is_valid": false,
-    "lifecycle_status": "Decommissioned",
-    "calibration_status": "Not Required",
-    "blocking_reasons": [
-      {
-        "code": "ASP-005",
-        "message": "Tài sản đang Decommissioned — không thể tạo lệnh công việc",
-        "severity": "error"
-      }
-    ],
-    "warnings": [],
-    "can_create_work_order": false
+    "verified": false,
+    "tampered_at": "IMM-AUD-2025-0000789",
+    "expected_hash": "a1b2c3...",
+    "actual_hash": "ffee00..."
   }
 }
 ```
 
-### Response — Soft Block (Out of Service) with Warnings
+Kể cả tampered vẫn trả HTTP 200 — frontend xử lý alert. Nếu tampered, service tự tạo 1 record mới với `event_type = "Integrity Violation"` (`AC-E010`) và email QA Officer.
+
+**Errors:** 403 nếu user không có Role; 404 nếu asset không có audit trail nào.
+
+---
+
+### 3.7 IMM CAPA Record (5 endpoints)
+
+#### 3.7.1 `list_capas`
+
+| Method | GET |
+|---|---|
+| Path | `assetcore.api.imm00.list_capas` |
+| Permission | QA Officer / Department Head / Operations Manager |
+
+**Filters:** `severity` (Minor/Major/Critical), `status` (Draft/Open/In Progress/Overdue/Closed), `responsible` (user), `asset`, `due_date`.
+
+---
+
+#### 3.7.2 `get_capa`
+
+| Method | GET |
+|---|---|
+| Path | `assetcore.api.imm00.get_capa` |
+| Permission | QA Officer / Department Head / assigned responsible user |
+
+**Request:** `?name=CAPA-2026-00007`
 
 ```json
 {
   "success": true,
   "data": {
-    "asset": "ACC-ICU-2026-0001",
-    "is_valid": false,
-    "lifecycle_status": "Out of Service",
-    "calibration_status": "Overdue",
-    "blocking_reasons": [
-      {
-        "code": "ASP-006",
-        "message": "Tài sản đang Out of Service — cần phê duyệt đặc biệt",
-        "severity": "error"
-      }
-    ],
+    "name": "CAPA-2026-00007",
+    "asset": "AC-ASSET-2026-00001",
+    "source_type": "Incident",
+    "source_ref": "IR-2026-0007",
+    "severity": "Major",
+    "status": "Open",
+    "description": "Tube cooling intermittent failure",
+    "root_cause": null,
+    "corrective_action": null,
+    "preventive_action": null,
+    "responsible": "qa01@hospital.vn",
+    "due_date": "2026-05-18",
+    "effectiveness_check": null
+  }
+}
+```
+
+---
+
+#### 3.7.3 `create_capa`
+
+| Method | POST |
+|---|---|
+| Path | `assetcore.api.imm00.create_capa` |
+| Permission | QA Officer / Workshop Lead / Operations Manager |
+
+Wrapper service `create_capa(asset, source_type, source_ref, severity, description, responsible)`.
+
+Workflow: `Draft → Open` (auto-submit sang Open sau khi tạo).
+
+**Body:**
+
+```json
+{
+  "asset": "AC-ASSET-2026-00001",
+  "source_type": "Incident",
+  "source_ref": "IR-2026-0007",
+  "severity": "Major",
+  "description": "Tube cooling intermittent failure",
+  "responsible": "qa01@hospital.vn",
+  "due_date": "2026-05-18"
+}
+```
+
+**Response:** `{ "success": true, "data": { "name": "CAPA-2026-00007", "status": "Open" } }`
+
+**Errors:** 404 `AC-E001` asset không tồn tại; 422 `VR-00-05` due_date quá khứ.
+
+---
+
+#### 3.7.4 `update_capa`
+
+| Method | PUT |
+|---|---|
+| Path | `assetcore.api.imm00.update_capa` |
+| Permission | QA Officer / assigned responsible |
+
+**Body:** `{ "name": "CAPA-...", "payload": { ... } }`
+
+**Business Rule:** Nếu `status = Closed` → HTTP 422 với message `"CAPA đã đóng không thể chỉnh sửa"` (BR-00-03 immutability). Mọi thay đổi ghi IMM Audit Trail.
+
+---
+
+#### 3.7.5 `close_capa`
+
+| Method | POST |
+|---|---|
+| Path | `assetcore.api.imm00.close_capa` |
+| Permission | QA Officer |
+
+Wrapper service `close_capa(capa_name, root_cause, corrective_action, preventive_action, effectiveness_check, actor)`.
+
+Workflow: `Open | In Progress | Overdue → Closed` (submit).
+
+**Body:**
+
+```json
+{
+  "name": "CAPA-2026-00007",
+  "verification_notes": "Root cause: worn bearing; replaced + PM interval shortened",
+  "effectiveness_check": "3-month follow-up: no recurrence"
+}
+```
+
+> Server parse `verification_notes` (client-friendly alias) + map sang fields chuẩn (`root_cause`, `corrective_action`, `preventive_action`) nếu UI gửi object đầy đủ. Khuyến nghị gửi tách:
+
+```json
+{
+  "name": "CAPA-2026-00007",
+  "root_cause": "Worn bearing in cooling pump",
+  "corrective_action": "Replaced bearing per OEM SOP",
+  "preventive_action": "Shorten PM interval from 6m to 3m; add vibration monitoring",
+  "effectiveness_check": "3-month follow-up: no recurrence"
+}
+```
+
+**Response 200:**
+
+```json
+{ "success": true, "data": { "name": "CAPA-2026-00007", "status": "Closed", "closed_at": "2026-04-18 14:30:00" } }
+```
+
+**Errors:**
+- 422 `AC-E005` thiếu root_cause / corrective_action / preventive_action (BR-00-08)
+- 404 nếu CAPA không tồn tại
+
+---
+
+### 3.8 Asset Lifecycle Event (2 endpoints)
+
+> Read-only. Event được sinh tự động bởi service `create_lifecycle_event` hoặc `transition_asset_status` — không có create API.
+
+#### 3.8.1 `list_lifecycle_events`
+
+| Method | GET |
+|---|---|
+| Path | `assetcore.api.imm00.list_lifecycle_events` |
+| Permission | All authenticated IMM roles |
+
+**Filters:** `asset`, `event_type`, `from_date`, `to_date`, `actor`, `root_doctype`.
+
+Event type enum: `commissioned, pm_completed, repair_opened, repair_closed, calibration_completed, capa_opened, capa_closed, status_changed, incident_reported, decommissioned, relocated, reassigned`.
+
+---
+
+#### 3.8.2 `get_lifecycle_event`
+
+| Method | GET |
+|---|---|
+| Path | `assetcore.api.imm00.get_lifecycle_event` |
+| Permission | All authenticated IMM roles |
+
+**Request:** `?name=ALE-2026-0000123`
+
+```json
+{
+  "success": true,
+  "data": {
+    "name": "ALE-2026-0000123",
+    "asset": "AC-ASSET-2026-00001",
+    "event_type": "repair_opened",
+    "timestamp": "2026-04-18 10:00:00",
+    "actor": "tech01@hospital.vn",
+    "from_status": "Active", "to_status": "Under Repair",
+    "root_doctype": "Incident Report", "root_record": "IR-2026-0007",
+    "notes": "Tube cooling intermittent failure"
+  }
+}
+```
+
+---
+
+### 3.9 Incident Report (5 endpoints)
+
+#### 3.9.1 `list_incidents`
+
+| Method | GET |
+|---|---|
+| Path | `assetcore.api.imm00.list_incidents` |
+| Permission | All authenticated IMM roles |
+
+**Filters:** `severity` (Minor/Major/Critical), `status` (Draft/Open/Under Investigation/Closed), `reported_to_byt` (0/1), `asset`, `from_date`, `to_date`, `patient_affected`.
+
+---
+
+#### 3.9.2 `get_incident`
+
+| Method | GET |
+|---|---|
+| Path | `assetcore.api.imm00.get_incident` |
+| Permission | All authenticated IMM roles |
+
+```json
+{
+  "success": true,
+  "data": {
+    "name": "IR-2026-0007",
+    "asset": "AC-ASSET-2026-00001",
+    "severity": "Major",
+    "status": "Open",
+    "incident_datetime": "2026-04-18 09:45:00",
+    "reporter": "tech01@hospital.vn",
+    "description": "Tube cooling alarm during MRI scan",
+    "patient_affected": 0,
+    "patient_impact_description": null,
+    "reported_to_byt": 0,
+    "linked_capa": null,
+    "linked_repair_wo": null
+  }
+}
+```
+
+---
+
+#### 3.9.3 `create_incident`
+
+| Method | POST |
+|---|---|
+| Path | `assetcore.api.imm00.create_incident` |
+| Permission | All authenticated IMM roles (Technician, Operator, Department Head, QA) |
+
+**Body required:** `asset, severity, incident_datetime, description`.
+
+**Validation:**
+- Nếu `severity = Critical` AND `patient_affected = 1` mà thiếu xác nhận `reported_to_byt` → trả `data.warnings[]` với `AC-E008` (không block).
+- Nếu `patient_affected = 1` mà thiếu `patient_impact_description` → 422 `AC-E009`.
+
+Status khởi tạo: `Draft`.
+
+**Body:**
+
+```json
+{
+  "asset": "AC-ASSET-2026-00001",
+  "severity": "Critical",
+  "incident_datetime": "2026-04-18 09:45:00",
+  "description": "Tube cooling alarm during MRI scan",
+  "patient_affected": 1,
+  "patient_impact_description": "Patient scan postponed; no physical harm",
+  "reported_to_byt": 0
+}
+```
+
+**Response 200 (với warning):**
+
+```json
+{
+  "success": true,
+  "data": {
+    "name": "IR-2026-0007",
+    "status": "Draft",
     "warnings": [
-      {
-        "code": "CAL-001",
-        "message": "Hiệu chuẩn đã quá hạn — cần lên lịch hiệu chuẩn trước khi vận hành",
-        "severity": "warning"
-      },
-      {
-        "code": "CAPA-ACTIVE",
-        "message": "Có 1 CAPA mức Critical đang mở cho tài sản này",
-        "severity": "warning",
-        "reference": "CAPA-2026-00001"
-      }
-    ],
-    "can_create_work_order": false
+      { "code": "AC-E008", "message": "Sự cố Critical có bệnh nhân bị ảnh hưởng — xác nhận báo cáo Bộ Y tế theo NĐ98/2021" }
+    ]
   }
 }
 ```
 
-### Response — Error (Profile Not Initialized)
+---
+
+#### 3.9.4 `submit_incident` — Workflow transition Draft → Open → Under Investigation
+
+| Method | POST |
+|---|---|
+| Path | `assetcore.api.imm00.submit_incident` |
+| Permission | Reporter / Department Head / QA Officer |
+
+**Body:** `{ "name": "IR-2026-0007" }`
+
+Logic:
+- Từ `Draft` → `Open` (submit; docstatus=1); sinh Lifecycle Event `incident_reported`; log Audit Trail.
+- Từ `Open` → `Under Investigation` (gán `assigned_investigator = current_user` nếu là QA).
+
+**Response 200:**
 
 ```json
 {
-  "success": false,
-  "error": "Không tìm thấy hồ sơ IMM cho tài sản: ACC-ICU-9999. Vui lòng khởi tạo IMM Asset Profile trước.",
-  "code": "ASP-002"
+  "success": true,
+  "data": {
+    "name": "IR-2026-0007",
+    "from_status": "Draft",
+    "to_status": "Open",
+    "lifecycle_event": "ALE-2026-0000124"
+  }
 }
 ```
 
-### Example
+**Errors:** 422 nếu status đã Closed; 422 `AC-E008` nếu Critical chưa xác nhận BYT trước khi submit.
 
-```javascript
-// Typical use: called before opening Work Order creation form
-frappe.call({
-  method: "assetcore.api.imm00.validate_asset_for_operations",
-  args: { asset_name: "ACC-ICU-2026-0001" },
-  callback(r) {
-    if (!r.message.success) {
-      frappe.msgprint(r.message.error);
-      return;
-    }
-    const result = r.message.data;
-    if (!result.can_create_work_order) {
-      const reasons = result.blocking_reasons.map((b) => b.message).join("\n");
-      frappe.msgprint({
-        title: "Không thể tạo Lệnh công việc",
-        message: reasons,
-        indicator: "red",
-      });
-      return;
-    }
-    if (result.warnings.length > 0) {
-      const warns = result.warnings.map((w) => w.message).join("\n");
-      frappe.confirm(
-        `Cảnh báo:\n${warns}\n\nBạn có muốn tiếp tục không?`,
-        () => open_work_order_form(result.asset)
-      );
-    } else {
-      open_work_order_form(result.asset);
-    }
-  },
-});
+---
+
+#### 3.9.5 `close_incident`
+
+| Method | POST |
+|---|---|
+| Path | `assetcore.api.imm00.close_incident` |
+| Permission | QA Officer / Department Head |
+
+**Body:**
+
+```json
+{
+  "name": "IR-2026-0007",
+  "resolution_notes": "Tube replaced; functional test passed",
+  "linked_capa": "CAPA-2026-00007",
+  "linked_repair_wo": "WO-2026-00042"
+}
 ```
+
+Workflow: `Under Investigation → Closed`. Sinh `Asset Lifecycle Event` `incident_closed`.
+
+**Validation:**
+- Với severity Major/Critical: **bắt buộc** `linked_capa` hoặc `linked_repair_wo` (ít nhất 1).
+- Nếu thiếu → 422 với message `"Sự cố Major/Critical phải liên kết CAPA hoặc Repair Work Order trước khi đóng"`.
+
+**Response 200:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "name": "IR-2026-0007",
+    "status": "Closed",
+    "closed_at": "2026-04-22 16:20:00",
+    "linked_capa": "CAPA-2026-00007",
+    "linked_repair_wo": "WO-2026-00042"
+  }
+}
+```
+
+---
+
+### 3.10 Scheduler Manual Trigger (3 endpoints — Admin only)
+
+Cung cấp cho QA / System Admin chạy thủ công các scheduler daily (debug / truy hồi sự kiện bỏ lỡ). Production scheduler vẫn chạy qua hook `scheduler_events` hằng ngày.
+
+Tất cả 3 endpoint dưới đây yêu cầu role `IMM System Admin` (hoặc `System Manager`). User khác → HTTP 403.
+
+#### 3.10.1 `trigger_check_capa_overdue`
+
+| Method | POST |
+|---|---|
+| Path | `assetcore.api.imm00.trigger_check_capa_overdue` |
+| Permission | IMM System Admin |
+
+**Body:** `{}` (không cần payload)
+
+Gọi service `check_capa_overdue()`. Mark Open CAPA quá `due_date → Overdue`; gửi email QA Officer + responsible.
+
+**Response 200:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "job": "check_capa_overdue",
+    "executed_at": "2026-04-18 14:30:00",
+    "marked_overdue": 3,
+    "emails_sent": 4
+  }
+}
+```
+
+---
+
+#### 3.10.2 `trigger_check_vendor_contract_expiry`
+
+| Method | POST |
+|---|---|
+| Path | `assetcore.api.imm00.trigger_check_vendor_contract_expiry` |
+| Permission | IMM System Admin |
+
+Gọi `check_vendor_contract_expiry()`. Cảnh báo HĐ 90/60/30 ngày.
+
+**Response 200:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "job": "check_vendor_contract_expiry",
+    "executed_at": "2026-04-18 14:30:00",
+    "warnings_90d": 2, "warnings_60d": 1, "warnings_30d": 0,
+    "emails_sent": 3
+  }
+}
+```
+
+---
+
+#### 3.10.3 `trigger_check_registration_expiry`
+
+| Method | POST |
+|---|---|
+| Path | `assetcore.api.imm00.trigger_check_registration_expiry` |
+| Permission | IMM System Admin |
+
+Gọi `check_registration_expiry()`. Cảnh báo đăng ký BYT 90/60/30/7 ngày (filter `lifecycle_status != Decommissioned`).
+
+**Response 200:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "job": "check_registration_expiry",
+    "executed_at": "2026-04-18 14:30:00",
+    "warnings_90d": 5, "warnings_60d": 2, "warnings_30d": 1, "warnings_7d": 0,
+    "emails_sent": 8
+  }
+}
+```
+
+**cURL ví dụ:**
 
 ```bash
-curl -X POST "https://hospital.example.com/api/method/assetcore.api.imm00.validate_asset_for_operations" \
-  -H "Authorization: token api_key:api_secret" \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  --data-urlencode 'asset_name=ACC-ICU-2026-0001'
+curl -X POST "https://acme.local/api/method/assetcore.api.imm00.trigger_check_registration_expiry" \
+  -H "Authorization: token ADMIN_KEY:ADMIN_SECRET"
 ```
 
 ---
 
-## Summary Table
+## 4. Rate Limiting
 
-| # | Endpoint | Method Path | HTTP | Min Role | Purpose |
-|---|---|---|---|---|---|
-| 1 | `get_device_models` | `assetcore.api.imm00.get_device_models` | POST | Any | Paginated device model list |
-| 2 | `get_device_model` | `assetcore.api.imm00.get_device_model` | POST | Any | Single device model + spare parts |
-| 3 | `create_device_model` | `assetcore.api.imm00.create_device_model` | POST | Biomed/Admin | Create device model |
-| 4 | `get_asset_profile` | `assetcore.api.imm00.get_asset_profile` | POST | Any | Get asset HTM profile |
-| 5 | `update_asset_lifecycle_status` | `assetcore.api.imm00.update_asset_lifecycle_status` | POST | TECH+ | Change lifecycle status + audit |
-| 6 | `get_vendor_profile` | `assetcore.api.imm00.get_vendor_profile` | POST | Any | Vendor HTM profile + technicians |
-| 7 | `get_sla_policy` | `assetcore.api.imm00.get_sla_policy` | POST | Any | SLA policy lookup |
-| 8 | `create_capa` | `assetcore.api.imm00.create_capa` | POST | TECH+ | Create CAPA record |
-| 9 | `close_capa` | `assetcore.api.imm00.close_capa` | POST | BIOMED/QA/ADMIN | Close + submit CAPA |
-| 10 | `get_asset_audit_trail` | `assetcore.api.imm00.get_asset_audit_trail` | POST | Any | Paginated audit timeline |
-| 11 | `get_capa_list` | `assetcore.api.imm00.get_capa_list` | POST | Any HTM | CAPA list + summary stats |
-| 12 | `get_asset_kpi_summary` | `assetcore.api.imm00.get_asset_kpi_summary` | POST | Any | MTD KPI for one asset |
-| 13 | `bulk_update_device_model` | `assetcore.api.imm00.bulk_update_device_model` | POST | ADMIN | Bulk import device models |
-| 14 | `validate_asset_for_operations` | `assetcore.api.imm00.validate_asset_for_operations` | POST | Any | Pre-WO creation gate check |
+Rate limit dựa trên Frappe default (`frappe.rate_limiter`). Mặc định cấu hình khuyến nghị trong `common_site_config.json`:
+
+```json
+{
+  "rate_limit": {
+    "window": 60,
+    "limit": 300
+  }
+}
+```
+
+Khi bị rate limit → HTTP 429 với header `Retry-After: <seconds>`.
+
+Cho scheduler trigger (3.10.x) — cài giới hạn thấp hơn qua decorator `@frappe.rate_limit(limit=5, seconds=60)` để tránh lạm dụng.
 
 ---
 
-## Error Code Reference (IMM-00 API)
+## 5. Permission Matrix — Tổng hợp
 
-| Code | HTTP Equiv | Endpoint(s) | Vietnamese Message |
-|---|---|---|---|
-| MDL-001 | 400 | create_device_model, bulk_update_device_model | Tên model đã tồn tại cho nhà sản xuất này |
-| ASP-002 | 404 | get_asset_profile, update_asset_lifecycle_status, create_capa, get_asset_audit_trail, get_asset_kpi_summary, validate_asset_for_operations | Không tìm thấy hồ sơ IMM cho tài sản |
-| ASP-005 | 400 | validate_asset_for_operations | Tài sản đang Decommissioned — không thể tạo lệnh công việc |
-| ASP-006 | 400 | validate_asset_for_operations | Tài sản đang Out of Service — cần phê duyệt đặc biệt |
-| VND-001 | 404 | get_vendor_profile | Không tìm thấy hồ sơ nhà cung cấp IMM |
-| SLA-001 | 404 | get_sla_policy | Không tìm thấy SLA Policy phù hợp |
-| CAPA-001 | 400 | create_capa | Mức độ nghiêm trọng không hợp lệ |
-| CAPA-002 | 400 | close_capa | CAPA đã được đóng hoặc huỷ |
-| CAPA-006 | 400 | close_capa | Kết quả xác minh không hợp lệ |
-| STS-001 | 400 | update_asset_lifecycle_status | Trạng thái không hợp lệ |
-| BULK-001 | 400 | bulk_update_device_model | Danh sách import không được rỗng |
-| BULK-002 | 400 | bulk_update_device_model | Vượt quá giới hạn import (tối đa 500 bản ghi) |
-| INVALID_FILTERS | 400 | get_device_models, get_capa_list | filters không phải JSON hợp lệ |
-| INVALID_DATA | 400 | create_device_model | data không phải JSON hợp lệ |
-| NOT_FOUND | 404 | get_device_model | Không tìm thấy bản ghi |
-| FORBIDDEN | 403 | Any | Không có quyền thực hiện thao tác này |
-| GENERIC_ERROR | 500 | Any | Lỗi hệ thống — vui lòng liên hệ CMMS Admin |
+| Endpoint nhóm | System Admin | Dept Head | Ops Manager | Workshop Lead | Technician | QA Officer | Document Officer | Storekeeper |
+|---|---|---|---|---|---|---|---|---|
+| list_assets, get_asset | ✓ | ✓ | ✓ | ✓ | ✓ (scoped) | ✓ | ✓ | — |
+| create_asset, update_asset | ✓ | ✓ | ✓ | — | — | — | — | — |
+| transition_asset_status | ✓ | ✓ | ✓ | — | — | ✓ | — | — |
+| search_assets_by_udi | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| list/get supplier | ✓ | ✓ | ✓ | — | — | — | — | ✓ |
+| create/update supplier | ✓ | — | ✓ | — | — | — | — | — |
+| list_locations_tree, list_departments_tree | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| create_location/department/category | ✓ | ✓ (dept) | — | ✓ (category) | — | — | — | — |
+| list/get device_model | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — |
+| create/update device_model | ✓ | — | — | ✓ | — | — | — | — |
+| list_sla, get_sla_for | All | All | All | All | All | All | All | All |
+| list/get audit_events | ✓ | — | — | — | — | ✓ | ✓ | — |
+| verify_audit_chain | ✓ | — | — | — | — | ✓ | — | — |
+| list/get capa | ✓ | ✓ | ✓ | — | — | ✓ | — | — |
+| create_capa | ✓ | — | ✓ | ✓ | — | ✓ | — | — |
+| update_capa, close_capa | ✓ | — | — | — | — | ✓ | — | — |
+| list/get lifecycle_events | All | All | All | All | All | All | All | All |
+| list/get incident | All | All | All | All | All | All | All | All |
+| create_incident, submit_incident | All | All | All | All | All | All | — | All |
+| close_incident | ✓ | ✓ | — | — | — | ✓ | — | — |
+| scheduler triggers | ✓ | — | — | — | — | — | — | — |
+
+---
+
+## 6. Changelog
+
+### v3.0.0 — 2026-04-18 (breaking)
+
+**Added:**
+- Endpoint `transition_asset_status` — wrapper service duy nhất để đổi `lifecycle_status` (BR-00-02).
+- Endpoint `verify_audit_chain` — kiểm tra SHA-256 integrity của IMM Audit Trail (BR-00-03).
+- Endpoint `get_asset_lifecycle_history` — trả toàn bộ Lifecycle Event + Audit Trail của 1 asset.
+- Endpoint `search_assets_by_udi` và `get_assets_due_pm`.
+- 3 scheduler manual trigger cho admin: `trigger_check_capa_overdue`, `trigger_check_vendor_contract_expiry`, `trigger_check_registration_expiry`.
+- Response envelope mới: `{success, data}` / `{success, error, code}` — thay thế `{status, message, data}` của v2.
+- Utils helpers `_ok(data)` / `_err(msg, code)` tại `assetcore/utils/response.py`.
+- Pagination chuẩn hoá qua `utils/pagination.py` (`page`, `page_size` max 100).
+
+**Changed:**
+- Tên field DocType theo native AssetCore prefix `AC-`: `AC Asset`, `AC Supplier`, `AC Location`, `AC Department`, `AC Asset Category`.
+- Permission matrix cập nhật theo Role fixtures mới (`fixtures/imm_roles.json`).
+- Error codes chuẩn hoá `AC-Exxx` + `VR-00-xx` + HTTP standard.
+
+**Removed (breaking):**
+- Toàn bộ endpoint sidecar trên `IMM Asset Profile` (v2) — xoá.
+- Endpoint `sync_single_asset_profile`, `sync_asset_profile_status` — xoá.
+- Endpoint trên `Vendor Profile` và `Location Ext` — xoá (DocType không còn).
+- Field HTM trên profile sidecar đã di chuyển lên `AC Asset` first-class.
+
+**Migration từ v2:**
+- Client phải đổi path: `assetcore.api.imm00.sync_single_asset_profile` → **xoá khỏi integration**.
+- Đổi tất cả reference `ERPNext Asset` / `Supplier` / `Location` → `AC Asset` / `AC Supplier` / `AC Location`.
+- Cập nhật parser response: `response.message.data` vẫn giữ; `response.message.status = "ok"` đổi sang `response.message.success = true`.
+
+### v2.0.0 — 2025-11 (deprecated)
+
+Bản cũ dùng IMM Asset Profile sidecar kết hợp ERPNext Asset. Không còn được hỗ trợ từ v3.0.0.
+
+---
+
+## 7. Phụ lục — Mapping endpoint ↔ Business Rule
+
+| Endpoint | Business Rule áp dụng |
+|---|---|
+| `create_device_model`, `update_device_model` | BR-00-01, VR-00-03 |
+| `transition_asset_status`, `update_asset` | BR-00-02, BR-00-04, BR-00-10 |
+| `list_audit_events`, `verify_audit_chain` | BR-00-03 |
+| `create_asset`, `update_asset` (validate), Work Order APIs (module khác) | BR-00-05 (gọi `validate_asset_for_operations`) |
+| `create_supplier`, `update_supplier` | BR-00-06 |
+| SLA Policy controller (validate) | BR-00-07 |
+| `close_capa` | BR-00-08 |
+| Scheduler `trigger_check_capa_overdue` | BR-00-09 |
+| `create_incident`, `submit_incident`, `close_incident` | VR-00-04, AC-E008, AC-E009 |
+
+---
+
+**Hết tài liệu — IMM-00 API Interface v3.0.0**

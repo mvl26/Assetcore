@@ -15,7 +15,7 @@
     "section_dates", "last_pm_date", "next_due_date", "col_break_2", "notes"
   ],
   "fields": [
-    {"fieldname": "asset_ref", "fieldtype": "Link", "label": "Thi\u1ebft b\u1ecb", "options": "Asset", "reqd": 1, "in_list_view": 1, "search_index": 1},
+    {"fieldname": "asset_ref", "fieldtype": "Link", "label": "Thi\u1ebft b\u1ecb", "options": "AC Asset", "reqd": 1, "in_list_view": 1, "search_index": 1},
     {"fieldname": "pm_type", "fieldtype": "Select", "label": "Lo\u1ea1i PM", "options": "Quarterly\nSemi-Annual\nAnnual\nAd-hoc", "reqd": 1, "in_list_view": 1},
     {"fieldname": "col_break_1", "fieldtype": "Column Break"},
     {"fieldname": "status", "fieldtype": "Select", "label": "Tr\u1ea1ng th\u00e1i", "options": "Active\nPaused\nSuspended", "default": "Active", "in_list_view": 1},

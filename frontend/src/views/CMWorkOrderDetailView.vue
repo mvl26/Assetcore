@@ -144,14 +144,20 @@ function navigateChecklist() {
             </div>
           </div>
 
-          <!-- Source badge -->
+          <!-- Source badge — clickable cross-module nav -->
           <div class="mt-3 flex gap-2 flex-wrap">
-            <span v-if="wo.incident_report" class="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded-full">
-              📋 IR: {{ wo.incident_report }}
-            </span>
-            <span v-if="wo.source_pm_wo" class="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full">
-              🔧 PM WO: {{ wo.source_pm_wo }}
-            </span>
+            <router-link
+              v-if="wo.incident_report"
+              :to="`/incidents/${wo.incident_report}`"
+              class="text-xs bg-purple-100 text-purple-700 hover:bg-purple-200 px-2 py-1 rounded-full transition-colors"
+              title="Mở Incident Report nguồn"
+            >📋 IR: {{ wo.incident_report }} →</router-link>
+            <router-link
+              v-if="wo.source_pm_wo"
+              :to="`/pm/work-orders/${wo.source_pm_wo}`"
+              class="text-xs bg-blue-100 text-blue-700 hover:bg-blue-200 px-2 py-1 rounded-full transition-colors"
+              title="Mở PM Work Order nguồn"
+            >🔧 PM WO: {{ wo.source_pm_wo }} →</router-link>
           </div>
         </div>
 
@@ -169,7 +175,7 @@ function navigateChecklist() {
           <h2 class="font-semibold text-gray-700 mb-3 text-sm uppercase tracking-wide">
             Vật tư sử dụng ({{ wo.spare_parts_used.length }} mục)
           </h2>
-          <table class="w-full text-sm">
+          <div class="overflow-x-auto"><table class="w-full text-sm">
             <thead class="bg-gray-50">
               <tr>
                 <th class="text-left px-3 py-2 text-xs font-medium text-gray-500">Vật tư</th>
@@ -200,6 +206,7 @@ function navigateChecklist() {
               </tr>
             </tfoot>
           </table>
+      </div>
         </div>
 
         <!-- Repair Checklist -->

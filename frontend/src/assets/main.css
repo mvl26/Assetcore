@@ -33,12 +33,22 @@
 /* ─── Base ───────────────────────────────────────────────────────────────── */
 @layer base {
   html {
-    font-family: 'Times New Roman', Times, Georgia, serif;
-    font-size: 17px;
-    -webkit-font-smoothing: auto;
-    -moz-osx-font-smoothing: auto;
+    font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    font-size: 15px;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
     background-color: var(--color-bg);
     color: var(--color-text-primary);
+  }
+
+  h1, h2, h3, h4 {
+    font-family: 'Manrope', 'Inter', system-ui, sans-serif;
+    letter-spacing: -0.015em;
+  }
+
+  code, pre, kbd, samp, .font-mono {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
   }
 
   * {

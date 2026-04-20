@@ -52,8 +52,8 @@ export default defineConfig(({ mode }) => {
       cors: true,
       proxy: {
         '/api': commonProxyOptions,
-        '/assets': commonProxyOptions,
         '/files': commonProxyOptions,
+        '/private/files': commonProxyOptions,
       },
     },
 

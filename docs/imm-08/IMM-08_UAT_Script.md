@@ -1,284 +1,266 @@
-# IMM-08 — UAT Test Script
-## Kịch bản kiểm thử chấp nhận người dùng
+# IMM-08 — UAT Script
 
-**Module:** IMM-08 — Preventive Maintenance  
-**Version:** 1.0  
-**Ngày:** 2026-04-17  
-**Môi trường:** UAT / Staging  
-**Người phê duyệt:** Workshop Manager, PTP Khối 2
-
----
-
-## Dữ liệu seed cần chuẩn bị trước UAT
-
-```python
-# Chạy trên bench console trước khi bắt đầu UAT
-# 1. Asset có PM Schedule với next_due_date = hôm nay
-# 2. Asset có PM Schedule với next_due_date = 10 ngày trước (overdue)
-# 3. PM Checklist Template cho category "Mechanical Ventilator"
-# 4. User roles: KTV HTM, Workshop Manager, PTP Khối 2
-```
-
-| Mã seed | Thiết bị | PM Type | next_due_date | Ghi chú |
-|---|---|---|---|---|
-| SEED-PM-01 | ACC-ASS-UAT-001 | Quarterly | Hôm nay | Case chuẩn |
-| SEED-PM-02 | ACC-ASS-UAT-002 | Annual | -10 ngày | Case trễ hạn |
-| SEED-PM-03 | ACC-ASS-UAT-003 | Quarterly | Hôm nay | Case fail sau PM |
-| SEED-PM-04 | ACC-ASS-UAT-004 | Quarterly | Hôm nay | Case thiết bị Out of Service |
+| Thuộc tính | Giá trị |
+|---|---|
+| Module | IMM-08 — Preventive Maintenance |
+| Phiên bản | 2.0.0 |
+| Ngày cập nhật | 2026-04-18 |
+| Trạng thái | LIVE |
+| Tác giả | AssetCore Team |
+| Môi trường | UAT / Staging |
+| Người phê duyệt | Workshop Manager · VP Block2 · QA Officer |
 
 ---
 
-## TC-PM-01: Tự động tạo PM Work Order
+## 0. Phạm vi UAT
 
-**Loại:** Case chuẩn  
-**Actor:** CMMS Scheduler → Workshop Manager  
-**Mục tiêu:** Xác nhận scheduler tạo WO tự động khi PM đến hạn  
-**Thiết bị seed:** SEED-PM-01
+10 test cases (TC-08-01 → TC-08-10) bao trùm:
 
-| Bước | Hành động | Dữ liệu đầu vào | Kết quả kỳ vọng | Pass/Fail |
-|---|---|---|---|---|
-| 1 | Chạy scheduler thủ công: `bench --site miyano execute assetcore.tasks.generate_pm_work_orders` | — | Không có lỗi | ☐ |
-| 2 | Truy cập `/pm/work-orders`, tìm WO cho ACC-ASS-UAT-001 | — | PM-WO mới có status = "Open", due_date = hôm nay | ☐ |
-| 3 | Kiểm tra Workshop Manager nhận notification | — | Có notification "PM Work Order mới được tạo" | ☐ |
-| 4 | Mở PM Calendar `/pm/calendar` | — | SEED-PM-01 hiển thị trên ngày hôm nay với màu vàng 🟡 | ☐ |
-| 5 | Chạy scheduler lần 2 (idempotent test) | — | **Không** tạo WO mới thứ 2 cho SEED-PM-01 | ☐ |
+- Auto-create WO + idempotency
+- Happy path submit + lifecycle update
+- Overdue detection + escalation
+- Minor / Major failure flow
+- BR-08-04 block Out of Service
+- Calendar + Dashboard UI
+- Hook IMM-04 → IMM-08 (commissioning auto-tạo PM Schedule)
+- Mobile checklist UX
 
-**Kết quả tổng hợp TC-PM-01:** ☐ Pass  ☐ Fail  
-**Ghi chú:**
+**Ngưỡng chấp nhận (DoD):**
 
----
-
-## TC-PM-02: Phân công và thực hiện PM đúng hạn (Case chuẩn)
-
-**Loại:** Case chuẩn — Happy Path  
-**Actor:** Workshop Manager → KTV HTM  
-**Mục tiêu:** Hoàn thành PM WO đầy đủ, lịch tự động cập nhật  
-**Tiền điều kiện:** TC-PM-01 Pass, PM-WO tồn tại cho SEED-PM-01
-
-| Bước | Hành động | Dữ liệu đầu vào | Kết quả kỳ vọng | Pass/Fail |
-|---|---|---|---|---|
-| 1 | Workshop Manager vào `/pm/work-orders`, mở WO của SEED-PM-01 | — | WO hiển thị đầy đủ checklist từ template | ☐ |
-| 2 | Assign KTV HTM cho WO | User: `ktv_test@hospital.vn` | WO.assigned_to được cập nhật, KTV nhận notification | ☐ |
-| 3 | Đăng nhập với tài khoản KTV, truy cập WO | — | WO hiển thị trong danh sách "Được phân công cho tôi" | ☐ |
-| 4 | KTV điền từng mục checklist với kết quả Pass | Tất cả = Pass, giá trị đo trong range | Progress bar đạt 100% | ☐ |
-| 5 | KTV điền ghi chú tổng thể và thời gian | Notes: "Hoàn thành bình thường", Time: 45 phút | Form hợp lệ, nút "Hoàn thành" enable | ☐ |
-| 6 | KTV tích "Đã gắn sticker PM" | ✓ | Checkbox checked | ☐ |
-| 7 | KTV bấm "Hoàn thành" | — | WO.status = "Completed", completion_date = today | ☐ |
-| 8 | Kiểm tra PM Schedule | — | `last_pm_date = today`, `next_due_date = today + 90` | ☐ |
-| 9 | Kiểm tra PM Task Log | — | Log entry mới: timestamp, KTV, result=Pass, is_late=False | ☐ |
-| 10 | Kiểm tra Asset custom fields | — | `custom_last_pm_date = today`, `custom_next_pm_date = today+90`, `custom_pm_status = "On Schedule"` | ☐ |
-| 11 | Kiểm tra Calendar | — | Event chuyển màu xanh 🟢, next PM xuất hiện đúng ngày | ☐ |
-
-**Kết quả tổng hợp TC-PM-02:** ☐ Pass  ☐ Fail  
-**Ghi chú:**
+- ≥ 8/10 TC Pass.
+- TC-08-01, TC-08-02, TC-08-03, TC-08-05 **bắt buộc** Pass.
+- Không có Critical bug chưa xử lý.
 
 ---
 
-## TC-PM-03: PM Work Order trễ hạn (Overdue)
+## 1. Dữ liệu seed
 
-**Loại:** Case trễ hạn  
-**Actor:** CMMS Scheduler → Workshop Manager → PTP Khối 2  
-**Mục tiêu:** Xác nhận cơ chế phát hiện trễ, cảnh báo leo thang  
-**Thiết bị seed:** SEED-PM-02 (next_due_date = 10 ngày trước)
+| Mã seed | Asset | Risk | PM Type | next_due_date | Ghi chú |
+|---|---|---|---|---|---|
+| SEED-PM-01 | AC-ASSET-UAT-001 | II | Quarterly | hôm nay | Happy path |
+| SEED-PM-02 | AC-ASSET-UAT-002 | II | Annual | today − 10 | Overdue case |
+| SEED-PM-03 | AC-ASSET-UAT-003 | III | Quarterly | hôm nay | Major Failure case (cần ảnh) |
+| SEED-PM-04 | AC-ASSET-UAT-004 | II | Quarterly | hôm nay | Out of Service case |
 
-| Bước | Hành động | Dữ liệu đầu vào | Kết quả kỳ vọng | Pass/Fail |
-|---|---|---|---|---|
-| 1 | Tạo PM WO cho SEED-PM-02 (nếu chưa có) | — | WO với due_date = 10 ngày trước, status = "Open" | ☐ |
-| 2 | Chạy: `bench --site miyano execute assetcore.tasks.check_pm_overdue` | — | WO.status = "Overdue" | ☐ |
-| 3 | Kiểm tra Dashboard `/pm/dashboard` | — | SEED-PM-02 xuất hiện trong bảng "Quá hạn" màu đỏ 🔴 | ☐ |
-| 4 | Kiểm tra notification Workshop Manager | — | Alert "PM quá hạn 10 ngày" gửi đến Workshop Manager | ☐ |
-| 5 | Kiểm tra notification PTP | — | Alert gửi PTP vì > 7 ngày | ☐ |
-| 6 | Kiểm tra Calendar view | — | Event màu đỏ 🔴 trên ngày due_date (10 ngày trước) | ☐ |
-| 7 | Truy cập WO, kiểm tra warning banner | — | Banner đỏ: "PM QUÁ HẠN 10 NGÀY" với nút [Hoãn lịch] | ☐ |
-| 8 | KTV hoàn thành WO trễ (submit) | Tất cả = Pass | WO.status = "Completed", **is_late = True**, days_late = 10 | ☐ |
-| 9 | Kiểm tra PM Task Log | — | Log: is_late=True, days_late=10, next_pm_date = today+90 | ☐ |
-| 10 | Kiểm tra PM compliance KPI sau | — | Compliance rate giảm (1 WO Late trong tháng) | ☐ |
+PM Checklist Template `PMCT-Mechanical Ventilator-Quarterly` với ≥ 5 items (≥ 1 critical).
 
-**Kết quả tổng hợp TC-PM-03:** ☐ Pass  ☐ Fail  
-**Ghi chú:**
+User test: `ktv_test@hospital.vn` (HTM Technician), `wm_test@hospital.vn` (Workshop Head), `ptp_test@hospital.vn` (VP Block2).
+
+Seed script: `bench --site miyano execute assetcore.tests.uat_imm08.setup_seed`.
 
 ---
 
-## TC-PM-04: PM phát hiện lỗi Minor
+## 2. Test Cases
 
-**Loại:** Case ngoại lệ — Minor Failure  
-**Actor:** KTV HTM → Workshop Manager  
-**Mục tiêu:** PM hoàn thành nhưng tạo CM WO tham chiếu  
-**Thiết bị seed:** SEED-PM-01 (sau khi reset về Open)
+### TC-08-01 — Tự động tạo PM Work Order
 
-| Bước | Hành động | Dữ liệu đầu vào | Kết quả kỳ vọng | Pass/Fail |
-|---|---|---|---|---|
-| 1 | KTV mở PM WO, điền đa số mục = Pass | 9/10 = Pass | Progress 90% | ☐ |
-| 2 | Đánh dấu 1 mục là "Fail – Minor" | Mục không phải Critical | Form vẫn cho phép tiếp tục | ☐ |
-| 3 | Nhập mô tả lỗi | "Bộ lọc bụi bị xé rách nhẹ, cần thay thế" | Mô tả được lưu | ☐ |
-| 4 | Hoàn thành các mục còn lại = Pass | — | Progress 100%, nút "Hoàn thành" enable | ☐ |
-| 5 | Chọn overall_result = "Pass with Minor Issues" | — | Dropdown hiển thị đúng | ☐ |
-| 6 | Submit WO | — | WO.status = "Completed" | ☐ |
-| 7 | Kiểm tra CM WO tự động tạo | — | CM WO mới với source_pm_wo = PM WO này | ☐ |
-| 8 | Kiểm tra CM WO có đủ thông tin | — | wo_type = Corrective, asset_ref đúng, priority = Normal | ☐ |
-| 9 | Kiểm tra Asset.status | — | Vẫn "Active" (không bị ảnh hưởng bởi minor failure) | ☐ |
+**BR liên quan:** BR-08-01 (template), BR-08-04 (Out of Service skip), idempotent.
+**Actor:** Scheduler.
+**Seed:** SEED-PM-01.
 
-**Kết quả tổng hợp TC-PM-04:** ☐ Pass  ☐ Fail  
-**Ghi chú:**
+| # | Hành động | Kết quả kỳ vọng | Pass/Fail |
+|---|---|---|---|
+| 1 | `bench --site miyano execute assetcore.tasks.generate_pm_work_orders` | Hoàn thành không lỗi, log `[IMM-08] generate_pm_work_orders: N WOs created` | ☐ |
+| 2 | Truy cập `/pm/work-orders?asset_ref=AC-ASSET-UAT-001` | 1 PM WO mới, status=Open, due_date=hôm nay | ☐ |
+| 3 | Email Workshop Head | Có email `[AssetCore] N PM Work Order mới được tạo hôm nay` | ☐ |
+| 4 | Mở `/pm/calendar` | SEED-PM-01 hiển thị ngày hôm nay với màu vàng/Open | ☐ |
+| 5 | Chạy lại scheduler (idempotent) | KHÔNG tạo WO thứ 2 cho cùng schedule | ☐ |
 
 ---
 
-## TC-PM-05: PM phát hiện lỗi Major
+### TC-08-02 — Happy path: Phân công + Submit đúng hạn
 
-**Loại:** Case ngoại lệ — Major Failure  
-**Actor:** KTV HTM → Workshop Manager → PTP  
-**Mục tiêu:** PM bị halt, thiết bị ngừng vận hành, CM WO khẩn  
-**Thiết bị seed:** SEED-PM-03
+**BR liên quan:** BR-08-03 (next_pm_date), BR-08-05 (is_late), BR-08-08 (checklist 100%), BR-08-10 (Task Log immutable).
+**Actor:** Workshop Head → KTV.
+**Tiền điều kiện:** TC-08-01 Pass, có WO Open.
 
-| Bước | Hành động | Dữ liệu đầu vào | Kết quả kỳ vọng | Pass/Fail |
-|---|---|---|---|---|
-| 1 | KTV mở PM WO cho SEED-PM-03 | — | Checklist hiển thị đầy đủ | ☐ |
-| 2 | Đánh dấu mục Critical là "Fail – Major" | Mục is_critical = True | Warning hiện: "Đây là mục quan trọng!" | ☐ |
-| 3 | Kiểm tra nút "Hoàn thành" | — | Nút **disabled**, chỉ hiện "Báo lỗi Major 🔴" | ☐ |
-| 4 | Bấm "Báo lỗi Major" | — | Dialog xác nhận mở | ☐ |
-| 5 | Nhập mô tả lỗi | "Compressor hỏng hoàn toàn, không tạo được áp suất" | Form hợp lệ | ☐ |
-| 6 | Xác nhận báo lỗi | — | PM WO.status = "Halted – Major Failure" | ☐ |
-| 7 | Kiểm tra Asset.status | — | Asset.status = "Out of Service" | ☐ |
-| 8 | Kiểm tra CM WO khẩn | — | CM WO tạo với priority = "Critical", source_pm_wo = PM WO | ☐ |
-| 9 | Kiểm tra notification | — | Alert gửi ngay Workshop Manager + PTP + khoa phòng | ☐ |
-| 10 | Thử tạo PM WO mới cho SEED-PM-03 | — | **Blocked**: "Thiết bị đang Out of Service" | ☐ |
-| 11 | Sau khi CM hoàn thành, restore asset | Asset.status = "Active" | PM WO mới có thể tạo | ☐ |
-
-**Kết quả tổng hợp TC-PM-05:** ☐ Pass  ☐ Fail  
-**Ghi chú:**
+| # | Hành động | Kết quả kỳ vọng | Pass/Fail |
+|---|---|---|---|
+| 1 | WM mở `/pm/work-orders/{name}`, click "Phân công" → ktv_test | Status = "In Progress", assigned_to/by set | ☐ |
+| 2 | Login KTV, mở WO | Hiển thị checklist clone từ template | ☐ |
+| 3 | Điền tất cả items = Pass + giá trị đo trong range | Progress bar 100% | ☐ |
+| 4 | Tích "Đã gắn sticker", nhập duration_minutes=45 | Form valid, nút "Hoàn thành" enable | ☐ |
+| 5 | Click "Hoàn thành" | API `submit_pm_result` 200, response `new_status="Completed"`, `is_late=false`, `next_pm_date` đúng | ☐ |
+| 6 | Kiểm tra PM Schedule | `last_pm_date=today`, `next_due_date=today+pm_interval_days` (BR-08-03) | ☐ |
+| 7 | Kiểm tra PM Task Log | 1 entry mới, `is_late=false`, `days_late=0` | ☐ |
+| 8 | Thử update PM Task Log qua UI/console | Bị block (no write perm) — BR-08-10 | ☐ |
+| 9 | Kiểm tra Asset | `custom_last_pm_date=today`, `custom_next_pm_date=today+interval`, `custom_pm_status="On Schedule"` | ☐ |
 
 ---
 
-## TC-PM-06: Block PM cho thiết bị Out of Service
+### TC-08-03 — Overdue + Escalation
 
-**Loại:** Case nghiệp vụ — BR-08-04  
-**Actor:** CMMS Scheduler  
-**Mục tiêu:** Xác nhận BR-08-04 — không tạo WO khi asset Out of Service  
-**Thiết bị seed:** SEED-PM-04 (set status = "Out of Service" trước)
+**BR liên quan:** BR-08-05.
+**Actor:** Scheduler → Workshop Head + VP Block2.
+**Seed:** SEED-PM-02 (due_date = today − 10).
 
-| Bước | Hành động | Dữ liệu đầu vào | Kết quả kỳ vọng | Pass/Fail |
-|---|---|---|---|---|
-| 1 | Set SEED-PM-04 Asset.status = "Out of Service" | `frappe.db.set_value("Asset", "ACC-ASS-UAT-004", "status", "Out of Service")` | Done | ☐ |
-| 2 | Chạy `generate_pm_work_orders` | — | **Không** tạo WO cho SEED-PM-04 | ☐ |
-| 3 | Restore Asset.status = "Active" | — | Done | ☐ |
-| 4 | Chạy lại `generate_pm_work_orders` | — | WO được tạo bình thường | ☐ |
-
-**Kết quả tổng hợp TC-PM-06:** ☐ Pass  ☐ Fail  
-**Ghi chú:**
-
----
-
-## TC-PM-07: Calendar View và Điều phối lịch
-
-**Loại:** UI/UX  
-**Actor:** Workshop Manager  
-**Mục tiêu:** Xác nhận calendar hiển thị đúng và reschedule hoạt động
-
-| Bước | Hành động | Dữ liệu đầu vào | Kết quả kỳ vọng | Pass/Fail |
-|---|---|---|---|---|
-| 1 | Truy cập `/pm/calendar` | — | Calendar tháng hiện tại với các WO được màu hóa | ☐ |
-| 2 | Chuyển sang tuần view | [Tuần] button | WO theo ngày trong tuần hiển thị | ☐ |
-| 3 | Click vào WO event | — | Drawer slide-in hiển thị chi tiết WO | ☐ |
-| 4 | Filter theo KTV | KTV: ktv_test | Chỉ hiện WO của KTV đó | ☐ |
-| 5 | Reschedule WO (hoãn 3 ngày) | new_date = today + 3, reason = "Device busy" | Dialog xác nhận, WO.due_date cập nhật | ☐ |
-| 6 | Kiểm tra lý do hoãn được ghi lại | — | reschedule_reason lưu trong WO | ☐ |
-
-**Kết quả tổng hợp TC-PM-07:** ☐ Pass  ☐ Fail  
-**Ghi chú:**
+| # | Hành động | Kết quả kỳ vọng | Pass/Fail |
+|---|---|---|---|
+| 1 | Tạo PM WO cho SEED-PM-02 (nếu chưa có) | WO due_date=today−10, status=Open | ☐ |
+| 2 | `bench --site miyano execute assetcore.tasks.check_pm_overdue` | Hoàn thành, log `N WOs marked Overdue` | ☐ |
+| 3 | Kiểm tra WO | status = "Overdue" | ☐ |
+| 4 | Kiểm tra dashboard `/pm/dashboard` | SEED-PM-02 trong bảng "Quá hạn", màu đỏ | ☐ |
+| 5 | Kiểm tra email Workshop Head | Có alert "PM WO ... quá hạn 10 ngày" | ☐ |
+| 6 | Kiểm tra email VP Block2 (vì 8 ≤ 10 ≤ 30) | Có email leo thang | ☐ |
+| 7 | KTV submit kết quả Pass | `is_late=true`, `days_late=10` | ☐ |
+| 8 | KPI compliance giảm | Dashboard hiển thị compliance_rate_pct giảm | ☐ |
 
 ---
 
-## TC-PM-08: PM Dashboard KPI
+### TC-08-04 — Phát hiện Fail-Minor → CM WO tự sinh
 
-**Loại:** Reporting  
-**Actor:** PTP Khối 2  
-**Mục tiêu:** Xác nhận KPI tính toán chính xác
+**BR liên quan:** BR-08-09 (auto CM), BR-08-02 (source_pm_wo).
+**Actor:** KTV.
+**Seed:** WO mới của SEED-PM-01 (sau reset).
 
-| Bước | Hành động | Dữ liệu đầu vào | Kết quả kỳ vọng | Pass/Fail |
-|---|---|---|---|---|
-| 1 | Truy cập `/pm/dashboard` | — | Dashboard load đủ 5 KPI cards | ☐ |
-| 2 | Kiểm tra Compliance Rate | Sau khi chạy TC-PM-02, 03, 04, 05 | Rate = (WO completed on time) / (total scheduled) × 100% | ☐ |
-| 3 | Kiểm tra bảng "Quá hạn" | — | Chỉ hiện WO có status = Overdue | ☐ |
-| 4 | Kiểm tra trend 6 tháng | — | Biểu đồ có dữ liệu từ tháng hiện tại trở về | ☐ |
-| 5 | Filter theo tháng khác | [Tháng 3/2026 ▼] | Dashboard cập nhật theo tháng được chọn | ☐ |
-
-**Kết quả tổng hợp TC-PM-08:** ☐ Pass  ☐ Fail  
-**Ghi chú:**
-
----
-
-## TC-PM-09: PM Schedule tự động tạo từ IMM-04
-
-**Loại:** Integration test (IMM-04 → IMM-08)  
-**Actor:** KTV HTM (commissioning) → CMMS  
-**Mục tiêu:** Xác nhận khi commissioning submit → PM Schedule tự động tạo
-
-| Bước | Hành động | Dữ liệu đầu vào | Kết quả kỳ vọng | Pass/Fail |
-|---|---|---|---|---|
-| 1 | Tạo và submit Asset Commissioning mới | Asset category = "Mechanical Ventilator" | Commissioning submitted | ☐ |
-| 2 | Kiểm tra PM Schedule | — | PM Schedule mới tạo với asset = vừa commissioning | ☐ |
-| 3 | Kiểm tra PM Schedule đúng interval | — | pm_interval_days theo template của category | ☐ |
-| 4 | Kiểm tra first_pm_date | — | `next_due_date = commissioning_date + interval` | ☐ |
-| 5 | Kiểm tra `created_from_commissioning` | — | Link tới đúng commissioning record | ☐ |
-
-**Kết quả tổng hợp TC-PM-09:** ☐ Pass  ☐ Fail  
-**Ghi chú:**
+| # | Hành động | Kết quả kỳ vọng | Pass/Fail |
+|---|---|---|---|
+| 1 | KTV mở WO, điền 9/10 items = Pass | Progress 90% | ☐ |
+| 2 | Item #4 (không Critical) chọn `Fail-Minor`, nhập notes | Notes mandatory enforce (VR-08-06) | ☐ |
+| 3 | Item #10 = Pass | Progress 100% | ☐ |
+| 4 | overall_result = "Pass with Minor Issues", submit | Status = Completed | ☐ |
+| 5 | Kiểm tra CM WO mới | `wo_type=Corrective`, `source_pm_wo` trỏ về WO này (BR-08-02) | ☐ |
+| 6 | CM WO `technician_notes` | Chứa "Tạo tự động từ PM failure. Lỗi: ..." | ☐ |
+| 7 | Asset.status | Vẫn "Active" (không bị Out of Service) | ☐ |
 
 ---
 
-## TC-PM-10: Mobile Checklist UX
+### TC-08-05 — Major Failure → Asset Out of Service
 
-**Loại:** Mobile UX  
-**Actor:** KTV HTM (trên điện thoại)  
-**Mục tiêu:** Xác nhận trải nghiệm mobile hoạt động đúng
+**BR liên quan:** BR-08-04, BR-08-09.
+**Actor:** KTV → Workshop Head + VP Block2.
+**Seed:** SEED-PM-03 (Class III).
 
-| Bước | Hành động | Device | Kết quả kỳ vọng | Pass/Fail |
-|---|---|---|---|---|
-| 1 | Mở WO trên điện thoại (375px viewport) | Android Chrome | Layout mobile hiển thị một mục/màn hình | ☐ |
-| 2 | Nút Pass/Fail đủ lớn (≥48px) | — | Tap không bị nhầm nút | ☐ |
-| 3 | Swipe để chuyển mục | Swipe right/left | Chuyển sang mục tiếp theo/trước | ☐ |
-| 4 | Chụp ảnh tích hợp | Camera button | Camera mở, ảnh tự gắn vào mục | ☐ |
-| 5 | Mất kết nối giữa chừng | Tắt WiFi sau khi điền 5/10 mục | Dữ liệu lưu offline | ☐ |
-| 6 | Khôi phục kết nối | Bật WiFi lại | Dữ liệu sync, tiếp tục từ mục 6 | ☐ |
-
-**Kết quả tổng hợp TC-PM-10:** ☐ Pass  ☐ Fail  
-**Ghi chú:**
+| # | Hành động | Kết quả kỳ vọng | Pass/Fail |
+|---|---|---|---|
+| 1 | KTV mở WO của SEED-PM-03 | Banner "Class III ⚠ Cần ảnh" hiển thị | ☐ |
+| 2 | Đánh dấu item Critical = `Fail-Major` | Toast warning, nút "Báo lỗi Major" highlight | ☐ |
+| 3 | Click "Báo lỗi Major", nhập description ≥ 10 ký tự | Modal confirm | ☐ |
+| 4 | Confirm | API `report_major_failure` 200 | ☐ |
+| 5 | Kiểm tra WO | status = "Halted–Major Failure" | ☐ |
+| 6 | Kiểm tra Asset | status = "Out of Service" (BR-08-04) | ☐ |
+| 7 | Kiểm tra CM WO | mới tạo, `source_pm_wo` đúng, `technician_notes` chứa `[MAJOR FAILURE]` | ☐ |
+| 8 | Email | Workshop Head + VP Block2 nhận email khẩn HTML | ☐ |
+| 9 | Chạy lại scheduler `generate_pm_work_orders` | KHÔNG tạo PM WO mới cho SEED-PM-03 (BR-08-04) | ☐ |
+| 10 | Set Asset.status="Active" + chạy scheduler | PM WO mới tạo bình thường | ☐ |
 
 ---
 
-## Tổng hợp kết quả UAT
+### TC-08-06 — BR-08-04 block PM cho Out of Service
+
+**Actor:** Scheduler.
+**Seed:** SEED-PM-04.
+
+| # | Hành động | Kết quả kỳ vọng | Pass/Fail |
+|---|---|---|---|
+| 1 | `frappe.db.set_value("Asset","AC-ASSET-UAT-004","status","Out of Service")` | Done | ☐ |
+| 2 | Chạy `generate_pm_work_orders` | Log `Skip PM WO creation for AC-ASSET-UAT-004 — Out of Service`, không tạo WO | ☐ |
+| 3 | Restore status="Active", chạy lại | WO được tạo bình thường | ☐ |
+
+---
+
+### TC-08-07 — Calendar View + Reschedule
+
+**Actor:** Workshop Head.
+**BR liên quan:** VR-08-09 (reason ≥ 5 ký tự).
+
+| # | Hành động | Kết quả kỳ vọng | Pass/Fail |
+|---|---|---|---|
+| 1 | Mở `/pm/calendar?year=2026&month=4` | Tháng hiện tại load, events màu hoá theo status | ☐ |
+| 2 | Filter theo KTV ktv_test | Chỉ hiện WO của KTV đó | ☐ |
+| 3 | Click event | Drawer slide-in chi tiết WO | ☐ |
+| 4 | Mở WO bất kỳ, click "Hoãn lịch", nhập new_date + reason "Bận" (4 ký tự) | API trả `MISSING_REASON` | ☐ |
+| 5 | Nhập lại reason ≥ 5 ký tự | API 200, status = "Pending–Device Busy", due_date update | ☐ |
+| 6 | Kiểm tra technician_notes | Có dòng `[Hoãn lịch ... → ...]: ...` | ☐ |
+
+---
+
+### TC-08-08 — Dashboard KPI
+
+**Actor:** VP Block2.
+
+| # | Hành động | Kết quả kỳ vọng | Pass/Fail |
+|---|---|---|---|
+| 1 | Mở `/pm/dashboard` | 5 KPI cards load | ☐ |
+| 2 | Compliance rate khớp công thức | `(on_time / total) × 100` | ☐ |
+| 3 | Bảng "Quá hạn" | Chỉ hiện WO status=Overdue | ☐ |
+| 4 | Trend 6 tháng | 6 entry, ratio đúng | ☐ |
+| 5 | Đổi sang tháng 3/2026 | Dashboard refetch và hiển thị data tháng 3 | ☐ |
+
+---
+
+### TC-08-09 — Tích hợp IMM-04 → IMM-08
+
+**BR liên quan:** Hook `Asset Commissioning.on_submit`.
+**Actor:** KTV (commissioning).
+
+| # | Hành động | Kết quả kỳ vọng | Pass/Fail |
+|---|---|---|---|
+| 1 | Tạo Asset Commissioning mới với asset_category="Mechanical Ventilator" | Saved | ☐ |
+| 2 | Submit ACC-... | Submit thành công | ☐ |
+| 3 | Kiểm tra PM Schedule | 1 record mới: asset_ref đúng, pm_type theo template, `created_from_commissioning` link đúng | ☐ |
+| 4 | next_due_date | = `commissioning_date + pm_interval_days` (first PM) | ☐ |
+| 5 | Chạy `generate_pm_work_orders` ngay | (Sẽ KHÔNG tạo nếu next_due_date > today + alert_days_before — kỳ vọng skip) | ☐ |
+
+---
+
+### TC-08-10 — Mobile Checklist UX
+
+**Actor:** KTV (điện thoại 375px).
+
+| # | Hành động | Kết quả kỳ vọng | Pass/Fail |
+|---|---|---|---|
+| 1 | Mở WO trên Chrome Android viewport 375px | Layout one-item-per-screen | ☐ |
+| 2 | Tap nút Pass/Fail | Tap target ≥ 48px, không nhầm nút | ☐ |
+| 3 | Swipe left/right | Chuyển checklist item | ☐ |
+| 4 | Click "Đính kèm ảnh" | Camera mở, ảnh attach vào item | ☐ |
+| 5 | Class III WO không upload ảnh, click Hoàn thành | Block với toast "Class III bắt buộc upload ảnh" (VR-08-04) | ☐ |
+| 6 | (Optional) Tắt WiFi giữa chừng | Form không crash, hiển thị toast offline | ☐ |
+| 7 | Bật lại WiFi và submit | Submit thành công | ☐ |
+
+---
+
+## 3. Tổng hợp kết quả
 
 | Test Case | Mô tả | Kết quả | Người ký |
 |---|---|---|---|
-| TC-PM-01 | Tự động tạo PM WO | ☐ Pass / ☐ Fail | |
-| TC-PM-02 | PM hoàn thành đúng hạn | ☐ Pass / ☐ Fail | |
-| TC-PM-03 | PM trễ hạn & cảnh báo | ☐ Pass / ☐ Fail | |
-| TC-PM-04 | PM phát hiện lỗi Minor | ☐ Pass / ☐ Fail | |
-| TC-PM-05 | PM phát hiện lỗi Major | ☐ Pass / ☐ Fail | |
-| TC-PM-06 | Block PM cho Out of Service | ☐ Pass / ☐ Fail | |
-| TC-PM-07 | Calendar & Reschedule | ☐ Pass / ☐ Fail | |
-| TC-PM-08 | Dashboard KPI | ☐ Pass / ☐ Fail | |
-| TC-PM-09 | Tích hợp IMM-04 → IMM-08 | ☐ Pass / ☐ Fail | |
-| TC-PM-10 | Mobile Checklist UX | ☐ Pass / ☐ Fail | |
-
-**Ngưỡng chấp nhận (Definition of Done):**
-- ≥ 8/10 Test Cases Pass
-- TC-PM-01, 02, 03, 05 bắt buộc Pass (core functionality)
-- Không có Critical bug chưa được xử lý
+| TC-08-01 | Tự động tạo PM WO | ☐ Pass / ☐ Fail | |
+| TC-08-02 | Happy path submit | ☐ Pass / ☐ Fail | |
+| TC-08-03 | Overdue + escalation | ☐ Pass / ☐ Fail | |
+| TC-08-04 | Fail-Minor → CM WO | ☐ Pass / ☐ Fail | |
+| TC-08-05 | Major Failure → Out of Service | ☐ Pass / ☐ Fail | |
+| TC-08-06 | BR-08-04 block | ☐ Pass / ☐ Fail | |
+| TC-08-07 | Calendar + Reschedule | ☐ Pass / ☐ Fail | |
+| TC-08-08 | Dashboard KPI | ☐ Pass / ☐ Fail | |
+| TC-08-09 | Hook IMM-04 → IMM-08 | ☐ Pass / ☐ Fail | |
+| TC-08-10 | Mobile UX | ☐ Pass / ☐ Fail | |
 
 ---
 
-## Điều kiện thất bại & Escalation
+## 4. Escalation rules
 
-| Tình huống | Hành động |
+| Tình huống | Severity | Hành động |
+|---|---|---|
+| TC-08-05 (Major Failure) không block WO mới | Blocker | Không release |
+| TC-08-03 (Overdue) không gửi alert VP Block2 | Major | Fix trước release |
+| TC-08-09 (IMM-04 hook) fail | Blocker | PM Schedule không tự tạo |
+| TC-08-01 idempotent fail (tạo WO trùng) | Major | Fix trước release |
+| Calendar không hiển thị đúng màu | Minor | Có thể release với workaround |
+| Mobile offline sync không hoạt động | Minor | Document limitation, fix v2.1 |
+
+---
+
+## 5. Tài liệu liên quan
+
+| Document | Path |
 |---|---|
-| TC-PM-05 (Major Failure) không block WO mới | Blocker — không release |
-| TC-PM-03 (Overdue) không gửi alert PTP | Major — phải fix trước release |
-| TC-PM-09 (IMM-04 integration) fail | Blocker — PM Schedule không tồn tại |
-| Calendar view không hiển thị đúng màu | Minor — có thể release với workaround |
-| Mobile offline sync không hoạt động | Minor — document limitation, fix in next sprint |
+| Module Overview | `docs/imm-08/IMM-08_Module_Overview.md` |
+| Functional Specs | `docs/imm-08/IMM-08_Functional_Specs.md` |
+| API Interface | `docs/imm-08/IMM-08_API_Interface.md` |
+| Technical Design | `docs/imm-08/IMM-08_Technical_Design.md` |
+| UI/UX Guide | `docs/imm-08/IMM-08_UI_UX_Guide.md` |
+| Automated UAT | `assetcore/tests/uat_imm08.py` |
 
 ---
 
-*Tài liệu này được tạo bởi AssetCore Team — 2026-04-17*  
-*Cần ký phê duyệt trước khi bắt đầu thực thi UAT.*
+*End of UAT Script v2.0.0 — IMM-08 Preventive Maintenance*

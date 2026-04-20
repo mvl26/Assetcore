@@ -8,17 +8,18 @@
   "module": "AssetCore",
   "name": "Spare Parts Used",
   "field_order": [
-    "item_code", "item_name", "qty", "uom", "unit_cost", "total_cost", "stock_entry_ref", "notes"
+    "item_code", "item_name", "manufacturer_part_no", "qty", "uom", "unit_cost", "total_cost", "stock_entry_ref", "notes"
   ],
   "fields": [
-    {"fieldname": "item_code", "fieldtype": "Link", "label": "Item Code", "options": "Item", "reqd": 1, "in_list_view": 1},
-    {"fieldname": "item_name", "fieldtype": "Data", "label": "Item Name", "read_only": 1, "fetch_from": "item_code.item_name"},
-    {"fieldname": "qty", "fieldtype": "Float", "label": "Qty", "reqd": 1, "in_list_view": 1},
-    {"fieldname": "uom", "fieldtype": "Link", "label": "UOM", "options": "UOM", "reqd": 1},
-    {"fieldname": "unit_cost", "fieldtype": "Currency", "label": "Unit Cost", "reqd": 1, "in_list_view": 1},
-    {"fieldname": "total_cost", "fieldtype": "Currency", "label": "Total Cost", "read_only": 1},
-    {"fieldname": "stock_entry_ref", "fieldtype": "Link", "label": "Stock Entry", "options": "Stock Entry", "reqd": 1},
-    {"fieldname": "notes", "fieldtype": "Text", "label": "Notes"}
+    {"fieldname": "item_code", "fieldtype": "Data", "label": "M\u00e3 v\u1eadt t\u01b0", "description": "M\u00e3 v\u1eadt t\u01b0 n\u1ed9i b\u1ed9 (v3: soft reference, kh\u00f4ng link ERPNext Item)", "reqd": 1, "in_list_view": 1},
+    {"fieldname": "item_name", "fieldtype": "Data", "label": "T\u00ean v\u1eadt t\u01b0", "reqd": 1},
+    {"fieldname": "manufacturer_part_no", "fieldtype": "Data", "label": "Part No (Manufacturer)"},
+    {"fieldname": "qty", "fieldtype": "Float", "label": "S\u1ed1 l\u01b0\u1ee3ng", "reqd": 1, "in_list_view": 1},
+    {"fieldname": "uom", "fieldtype": "Data", "label": "\u0110VT", "description": "\u0110\u01a1n v\u1ecb t\u00ednh (string, v3: kh\u00f4ng link ERPNext UOM)", "reqd": 1},
+    {"fieldname": "unit_cost", "fieldtype": "Currency", "label": "\u0110\u01a1n gi\u00e1", "reqd": 1, "in_list_view": 1},
+    {"fieldname": "total_cost", "fieldtype": "Currency", "label": "Th\u00e0nh ti\u1ec1n", "read_only": 1},
+    {"fieldname": "stock_entry_ref", "fieldtype": "Data", "label": "Phi\u1ebfu xu\u1ea5t kho", "description": "M\u00e3 phi\u1ebfu xu\u1ea5t (v3: soft reference, kh\u00f4ng link ERPNext Stock Entry)"},
+    {"fieldname": "notes", "fieldtype": "Text", "label": "Ghi ch\u00fa"}
   ],
   "modified": "2026-04-17 09:00:00.000000",
   "modified_by": "Administrator",

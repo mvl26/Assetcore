@@ -1,888 +1,791 @@
-# IMM-00 Setup Guide — AssetCore Foundation & Master Data
+# IMM-00 — Setup Guide (v3)
 
-**Module:** IMM-00 Foundation / Master Data
-**Actor:** IMM System Admin
-**Version:** 1.0
-**Date:** 2026-04-17
-**Target Site:** Bệnh viện Nhi Đồng 1, TP.HCM
-**Regulatory:** WHO HTM · ISO 13485 · NĐ 98/2021
-
----
-
-## Overview
-
-IMM-00 is the foundation layer of AssetCore. All other IMM modules (IMM-04 through IMM-12) depend on master data configured here. This guide walks the IMM System Admin through a complete, ordered setup — from ERPNext base configuration to AssetCore-specific master data.
-
-**Estimated time:** 4–6 hours for full initial setup.
-
-**Setup order must be followed.** Each step creates dependencies for subsequent steps. Do not skip steps.
-
----
-
-## 0. Prerequisites
-
-### 0.1 ERPNext v15 Installed
-
-Verify the following are complete before starting IMM-00 setup:
-
-```bash
-# Confirm bench version
-bench --version
-# Expected: 5.x or greater
-
-# Confirm ERPNext app installed
-bench --site hospital.local list-apps
-# Expected: frappe, erpnext, assetcore in list
-
-# Confirm site is accessible
-bench --site hospital.local show-config | grep db_name
-```
-
-### 0.2 AssetCore Installed
-
-```bash
-# Install AssetCore if not already installed
-bench get-app assetcore https://github.com/your-org/assetcore
-bench --site hospital.local install-app assetcore
-
-# Confirm installation
-bench --site hospital.local list-apps | grep assetcore
-```
-
-### 0.3 System Requirements Checklist
-
-Before proceeding, confirm:
-
-- [ ] ERPNext v15 site created: `hospital.local` (or production domain)
-- [ ] MariaDB 10.6+ running
-- [ ] Redis running (for cache and queue)
-- [ ] Supervisor or systemd managing workers
-- [ ] Administrator login accessible
-- [ ] SMTP configured (for workflow email alerts)
-- [ ] Server timezone set to `Asia/Ho_Chi_Minh`
-
-```bash
-# Verify timezone
-timedatectl status | grep "Time zone"
-# Or set it:
-sudo timedatectl set-timezone Asia/Ho_Chi_Minh
-```
-
----
-
-## 1. ERPNext Base Data Setup
-
-Log in as Administrator. Navigate via the ERPNext desk.
-
-### Step 1.1 — Tạo Company
-
-**Path:** Accounting > Company > New
-
-| Field | Value |
+| Thuộc tính | Giá trị |
 |---|---|
-| Company Name | Bệnh viện Nhi Đồng 1 |
-| Abbreviation | NDIH1 |
-| Country | Vietnam |
-| Currency | VND |
-| Default Holiday List | Lịch nghỉ VN 2026 |
-| Phone No | 028 3854 5222 |
-| Website | https://benhviennhi1.org.vn |
+| Module | IMM-00 Foundation |
+| Phiên bản | 3.0.0 |
+| Ngày cập nhật | 2026-04-18 |
+| Đối tượng | IMM System Admin / IT Admin bệnh viện / DevOps |
+| Trạng thái | **DRAFT** — Kiến trúc tự chứa, không phụ thuộc ERPNext |
 
-**After creating the company, configure asset accounts:**
+---
 
-Path: Accounting > Chart of Accounts > NDIH1
+## 0. Tổng quan thay đổi so với v2
 
-Ensure the following accounts exist (create if missing):
-
-| Account | Type | Description |
+| Hạng mục | v2 (cũ) | v3 (mới) |
 |---|---|---|
-| 211 - Tài sản cố định hữu hình | Fixed Asset | Parent account for all fixed assets |
-| 2141 - Hao mòn TSCĐ hữu hình | Accumulated Depreciation | Contra asset |
-| 627 - Chi phí sản xuất chung | Expense | Depreciation expense account |
-| 1331 - Thuế GTGT được khấu trừ | Tax | VAT input |
+| Nền tảng | ERPNext v15 bắt buộc | **Chỉ cần Frappe v15** |
+| Cấu trúc dữ liệu | IMM Asset Profile + Custom Fields trên `tabAsset` | **13 DocType tự chứa** (prefix `AC` + `IMM`) |
+| Sidecar DocTypes | IMM Asset Profile, IMM Vendor Profile, IMM Location Ext | **Bỏ hết** — HTM fields là first-class trên `AC Asset` |
+| Custom Fields trên tabAsset | 16 cột `custom_imm_*` | **Bỏ hết** |
+| Scheduler | 5 jobs (có `sync_asset_profile_status`) | 4 jobs (bỏ sync) |
 
-**CLI alternative:**
+Guide này áp dụng cho hai kịch bản:
 
-```bash
-bench --site hospital.local execute frappe.utils.data_import.import_doc \
-  --args '{"doctype":"Company", "company_name":"Bệnh viện Nhi Đồng 1"}'
-```
-
----
-
-### Step 1.2 — Tạo Asset Category
-
-**Path:** Asset > Setup > Asset Category > New
-
-Create the following 10 asset categories. Each must have depreciation settings appropriate for medical devices.
-
-| # | Category Name | Depreciation Method | Total Useful Life (years) | Depreciation Account | Asset Account |
-|---|---|---|---|---|---|
-| 1 | Thiết bị hồi sức tích cực | Straight Line | 10 | 6274 - KH TSCĐ HTM | 211 |
-| 2 | Thiết bị chẩn đoán hình ảnh | Straight Line | 12 | 6274 - KH TSCĐ HTM | 211 |
-| 3 | Thiết bị phòng mổ | Straight Line | 10 | 6274 - KH TSCĐ HTM | 211 |
-| 4 | Thiết bị xét nghiệm | Straight Line | 8 | 6274 - KH TSCĐ HTM | 211 |
-| 5 | Thiết bị theo dõi bệnh nhân | Straight Line | 7 | 6274 - KH TSCĐ HTM | 211 |
-| 6 | Thiết bị tiệt khuẩn | Straight Line | 15 | 6274 - KH TSCĐ HTM | 211 |
-| 7 | Thiết bị vật lý trị liệu | Straight Line | 10 | 6274 - KH TSCĐ HTM | 211 |
-| 8 | Thiết bị nha khoa | Straight Line | 10 | 6274 - KH TSCĐ HTM | 211 |
-| 9 | Thiết bị nhãn khoa | Straight Line | 8 | 6274 - KH TSCĐ HTM | 211 |
-| 10 | Thiết bị thông thường / hỗ trợ | Straight Line | 5 | 6274 - KH TSCĐ HTM | 211 |
-
-**For each category, set:**
-- Enable Cwip Accounting: Yes
-- Asset Account: 211 - Tài sản cố định hữu hình
-- Accumulated Depreciation Account: 2141
-- Depreciation Expense Account: 6274
+1. **Fresh install** (site mới, chưa có data v2).
+2. **Migration** (site `miyano` đã có data v2 cần nâng cấp).
 
 ---
 
-### Step 1.3 — Tạo Department Tree
+## 1. Yêu cầu hệ thống
 
-**Path:** HR > Setup > Department > New
-
-Create the following department hierarchy. Check "Is Group" for parent departments.
-
-```
-Bệnh viện Nhi Đồng 1 (is_group=1)
-├── Khối Lâm sàng (is_group=1)
-│   ├── Khoa HSCC (Hồi sức cấp cứu)
-│   ├── Khoa Phẫu thuật - Gây mê
-│   ├── Khoa Nội tổng hợp
-│   ├── Khoa Ngoại tổng hợp
-│   ├── Khoa Nhi sơ sinh
-│   ├── Khoa Tim mạch
-│   ├── Khoa Thần kinh
-│   ├── Khoa Tiêu hóa
-│   ├── Khoa Hô hấp
-│   └── Khoa Ung bướu
-├── Khối Cận lâm sàng (is_group=1)
-│   ├── Khoa Xét nghiệm
-│   ├── Khoa Chẩn đoán hình ảnh (CĐHA)
-│   ├── Khoa Giải phẫu bệnh
-│   └── Khoa Dược
-└── Phòng chức năng (is_group=1)
-    ├── Phòng VT,TBYT (is_group=1)
-    │   ├── Tổ Workshop HTM
-    │   └── Tổ Kho TBYT
-    ├── Phòng Kế hoạch - Tài chính
-    ├── Phòng Hành chính - Nhân sự
-    ├── Phòng Công nghệ thông tin
-    └── Ban Giám đốc
-```
-
-**Important:** The `Tổ Workshop HTM` department is the home department of all IMM Technician and IMM Workshop Lead users. Assign all HTM staff to this department.
-
----
-
-### Step 1.4 — Tạo Location Tree
-
-**Path:** Asset > Setup > Location > New
-
-Create physical locations mapped to the hospital floor plan.
-
-```
-Bệnh viện Nhi Đồng 1 (is_group=1)
-├── Tòa nhà A - Khu điều trị (is_group=1)
-│   ├── Tầng 1 - Cấp cứu (is_group=1)
-│   │   ├── Phòng Hồi sức cấp cứu (A1-HSCC)
-│   │   └── Phòng Mổ cấp cứu (A1-MOC)
-│   ├── Tầng 2 - ICU (is_group=1)
-│   │   ├── ICU Nội (A2-ICUN)
-│   │   └── ICU Ngoại (A2-ICUNG)
-│   ├── Tầng 3 - Khoa Nội (A3-NOI)
-│   └── Tầng 4 - Khoa Ngoại (A4-NGOAI)
-├── Tòa nhà B - Khu kỹ thuật (is_group=1)
-│   ├── Khoa Xét nghiệm (B1-XN)
-│   ├── Khoa CĐHA - X-quang (B1-XR)
-│   ├── Khoa CĐHA - Siêu âm (B1-SA)
-│   └── Khoa CĐHA - MRI/CT (B2-MRI)
-├── Tòa nhà C - Phòng mổ (is_group=1)
-│   ├── Phòng Mổ 1 (C1-MO1)
-│   ├── Phòng Mổ 2 (C1-MO2)
-│   ├── Phòng Mổ 3 (C1-MO3)
-│   └── Phòng Hồi tỉnh (C1-HT)
-└── Khu kỹ thuật HTM (is_group=1)
-    ├── Workshop Sửa chữa (WS-SC)
-    ├── Kho TBYT (WS-KHO)
-    └── Phòng Kiểm chuẩn (WS-KC)
-```
-
-**Note:** Location codes in parentheses (e.g., A1-HSCC) will be used in IMM Asset Profile as location identifiers.
-
----
-
-### Step 1.5 — Tạo Supplier Records
-
-**Path:** Buying > Supplier > New
-
-Create sample supplier records for medical device vendors.
-
-| # | Supplier Name | Supplier Type | Country | GST/Tax ID | Contact |
-|---|---|---|---|---|---|
-| 1 | Công ty TNHH Thiết bị y tế Minh Tâm | Company | Vietnam | 0311234567 | minhtam@example.com |
-| 2 | Philips Vietnam Co., Ltd | Company | Netherlands | 0301234567 | philips.vn@philips.com |
-| 3 | GE Healthcare Vietnam | Company | USA | 0312345678 | ge.vn@ge.com |
-| 4 | Siemens Healthineers VN | Company | Germany | 0313456789 | siemens.vn@siemens.com |
-| 5 | Công ty CP Dược phẩm - TBYT Bình Minh | Company | Vietnam | 0314567890 | binhminh@example.com |
-
-**For each supplier, complete the following tabs:**
-
-- **Contact Tab:** At least one contact person with phone and email
-- **Address Tab:** Vietnamese address format
-- **Payment Terms:** Net 30 (standard for medical devices)
-
----
-
-### Step 1.6 — Tạo Item Records (is_fixed_asset = 1)
-
-**Path:** Stock > Item > New
-
-Create one Item per device model type. These link to Asset records.
-
-| # | Item Code | Item Name | Item Group | Is Fixed Asset | Asset Category |
-|---|---|---|---|---|---|
-| 1 | ITEM-VENTILATOR-001 | Máy thở ICU (Adult) | Medical Equipment | Yes | Thiết bị hồi sức tích cực |
-| 2 | ITEM-MONITOR-001 | Monitor Theo dõi BN đa thông số | Medical Equipment | Yes | Thiết bị theo dõi bệnh nhân |
-| 3 | ITEM-PUMP-001 | Bơm tiêm điện / Bơm dịch truyền | Medical Equipment | Yes | Thiết bị hồi sức tích cực |
-| 4 | ITEM-XRAY-001 | Máy X-Quang kỹ thuật số | Medical Equipment | Yes | Thiết bị chẩn đoán hình ảnh |
-| 5 | ITEM-AUTOCLAVE-001 | Nồi hấp tiệt khuẩn | Medical Equipment | Yes | Thiết bị tiệt khuẩn |
-
-**For each Item:**
-- Maintain Stock: No (fixed assets are not stock items)
-- Has Variants: No (each model is a distinct item)
-- Include Item in Manufacturing: No
-
----
-
-## 2. AssetCore IMM-00 Setup
-
-### Step 2.1 — Run bench migrate
-
-Apply all AssetCore custom fields and DocType schemas to the site database.
-
-```bash
-# Navigate to bench root
-cd /home/adminh/frappe-bench
-
-# Run migration
-bench --site hospital.local migrate
-
-# Expected output: no errors, all patches applied
-# If warnings appear, check Step 7 Troubleshooting
-
-# Verify custom fields on Asset
-bench --site hospital.local execute frappe.db.get_all \
-  --args '{"doctype":"Custom Field","filters":{"dt":"Asset"},"fields":["name","fieldname"]}'
-```
-
-**Expected custom fields on Asset after migrate:**
-
-| Field Name | Label | Section |
+| Thành phần | Phiên bản tối thiểu | Ghi chú |
 |---|---|---|
-| imm_device_model | IMM Device Model | IMM Extension |
-| imm_lifecycle_status | Lifecycle Status | IMM Extension |
-| imm_risk_class | Risk Class | IMM Extension |
-| imm_serial_no | Serial No (HTM) | IMM Extension |
-| imm_byt_registration | Số đăng ký BYT | IMM Extension |
-| imm_next_pm_date | Next PM Date | Maintenance |
-| imm_next_cal_date | Next Calibration Date | Maintenance |
-| imm_last_pm_date | Last PM Date | Maintenance |
-| imm_document_completeness_pct | Document Completeness % | Documents |
+| OS | Ubuntu 22.04 / Debian 12 | Khuyến nghị LTS |
+| Python | 3.10+ | Frappe v15 yêu cầu |
+| MariaDB | 10.6+ | Hoặc MySQL 8.0+ |
+| Redis | 6.0+ | Queue + cache + socketio |
+| Node.js | 18.x | Cho FE build (Vite) |
+| Yarn | 1.22+ | Frappe asset build |
+| pnpm | 8+ | Cho FE AssetCore (Vue 3 + Vite) |
+| Bench CLI | Frappe v15 compatible | `pip install frappe-bench` |
+| Frappe Framework | **v15+** | Dependency DUY NHẤT |
 
----
+**Lưu ý:** KHÔNG cần install ERPNext. AssetCore v3 là app tự chứa.
 
-### Step 2.2 — Tạo IMM SLA Policy
-
-**Path:** AssetCore > IMM-00 > IMM SLA Policy > New
-
-Create 4 SLA Policy records. Each record represents one priority tier.
-
-**Record 1: P1 — Critical (Class III, Mất chức năng sống còn)**
-
-| Field | Value |
-|---|---|
-| Policy Code | SLA-P1 |
-| Policy Name | P1 - Critical |
-| Priority Level | 1 |
-| Trigger Condition | Class III, Critical Department |
-| Response Time (minutes) | 30 |
-| Resolution Time (hours) | 4 |
-| Escalation L1 (hours) | 2 |
-| Escalation L2 BGD (hours) | 4 |
-| Notify Roles | IMM Department Head, IMM Operations Manager |
-| Color | Red (#FF0000) |
-
-**Record 2: P2 — High (Class III, High Impact)**
-
-| Field | Value |
-|---|---|
-| Policy Code | SLA-P2 |
-| Policy Name | P2 - High |
-| Priority Level | 2 |
-| Trigger Condition | Class III, High Impact Department |
-| Response Time (minutes) | 120 |
-| Resolution Time (hours) | 8 |
-| Escalation L1 (hours) | 4 |
-| Escalation L2 BGD (hours) | 8 |
-| Notify Roles | IMM Department Head, IMM Workshop Lead |
-| Color | Orange (#FF6600) |
-
-**Record 3: P3 — Medium (Class II)**
-
-| Field | Value |
-|---|---|
-| Policy Code | SLA-P3 |
-| Policy Name | P3 - Medium |
-| Priority Level | 3 |
-| Trigger Condition | Class II |
-| Response Time (minutes) | 240 |
-| Resolution Time (hours) | 24 |
-| Escalation L1 (hours) | 8 |
-| Escalation L2 BGD (hours) | 24 |
-| Notify Roles | IMM Operations Manager, IMM Workshop Lead |
-| Color | Yellow (#FFCC00) |
-
-**Record 4: P4 — Low (Class I)**
-
-| Field | Value |
-|---|---|
-| Policy Code | SLA-P4 |
-| Policy Name | P4 - Low |
-| Priority Level | 4 |
-| Trigger Condition | Class I |
-| Response Time (minutes) | 480 |
-| Resolution Time (hours) | 72 |
-| Escalation L1 (hours) | 24 |
-| Escalation L2 BGD (hours) | 48 |
-| Notify Roles | IMM Workshop Lead |
-| Color | Green (#00AA00) |
-
----
-
-### Step 2.3 — Tạo IMM Vendor Profile
-
-**Path:** AssetCore > IMM-00 > IMM Vendor Profile > New
-
-Create one IMM Vendor Profile for each Supplier created in Step 1.5.
-
-**Sample: Philips Vietnam Co., Ltd**
-
-| Field | Value |
-|---|---|
-| Vendor Profile ID | VND-PHILIPS-001 |
-| Supplier (Link) | Philips Vietnam Co., Ltd |
-| Vendor Type | OEM Representative |
-| ISO Certification | ISO 13485:2016 |
-| ISO Cert Expiry | 2027-12-31 |
-| Service Contract Type | Full Service Agreement |
-| Contract Number | CTR-2025-PHILIPS-001 |
-| Contract Start | 2025-01-01 |
-| Contract Expiry | 2027-12-31 |
-| SLA Policy (Link) | SLA-P2 |
-| Service Coverage | Mon–Fri 07:00–17:00, On-call 24/7 for P1 |
-| Parts Warranty (months) | 12 |
-| Response Guarantee | Per SLA-P2 (2h response) |
-| Technical Contact Name | Nguyen Van A |
-| Technical Contact Phone | 0901234567 |
-| Technical Contact Email | nva@philips.com |
-
-**Repeat for each supplier.** Minimum: 1 vendor profile per active supplier.
-
----
-
-### Step 2.4 — Tạo IMM Location Ext
-
-**Path:** AssetCore > IMM-00 > IMM Location Ext > New
-
-Create one IMM Location Ext for each clinical department that houses equipment.
-
-**Sample records:**
-
-| Location Ext ID | Location (Link) | Department (Link) | Dept Type | Risk Zone | Power Circuit | Network Zone |
-|---|---|---|---|---|---|---|
-| LOC-EXT-HSCC | Phòng Hồi sức cấp cứu (A1-HSCC) | Khoa HSCC | Clinical - Critical | High Risk | UPS-A1-01 | VLAN-ICU |
-| LOC-EXT-ICU-N | ICU Nội (A2-ICUN) | Khoa Tim mạch | Clinical - Critical | High Risk | UPS-A2-01 | VLAN-ICU |
-| LOC-EXT-MO1 | Phòng Mổ 1 (C1-MO1) | Khoa Phẫu thuật - Gây mê | OR | High Risk | UPS-C1-01 | VLAN-OR |
-| LOC-EXT-XN | Khoa Xét nghiệm (B1-XN) | Khoa Xét nghiệm | Clinical - Support | Medium Risk | UPS-B1-01 | VLAN-LAB |
-| LOC-EXT-XR | Khoa CĐHA - X-quang (B1-XR) | Khoa Chẩn đoán hình ảnh | Clinical - Imaging | Radiation Zone | UPS-B1-02 | VLAN-PACS |
-| LOC-EXT-WS | Workshop Sửa chữa (WS-SC) | Tổ Workshop HTM | HTM Workshop | Low Risk | STD-WS-01 | VLAN-HTM |
-| LOC-EXT-KHO | Kho TBYT (WS-KHO) | Tổ Kho TBYT | HTM Storage | Low Risk | STD-WS-02 | VLAN-HTM |
-
----
-
-### Step 2.5 — Tạo IMM Device Model Catalog
-
-**Path:** AssetCore > IMM-00 > IMM Device Model > New
-
-Create one Device Model record per distinct device type in the hospital catalog.
-
-See Section 6 for the complete 15-record sample catalog.
-
-**Key fields to fill for each record:**
-
-| Field | Description |
-|---|---|
-| Model Code | Auto-generated: MDL-YYYYMMDD-XXXX |
-| Model Name | Commercial name of the device model |
-| Manufacturer | Manufacturer company name |
-| GMDN Code | Global Medical Device Nomenclature code |
-| Device Class | Class I / Class II / Class III |
-| Risk Class | Low / Medium / High / Critical |
-| Asset Category (Link) | Link to ERPNext Asset Category |
-| PM Interval (days) | How often PM is required |
-| Calibration Required | Yes / No |
-| Calibration Interval (days) | If applicable |
-| Expected Lifespan (years) | Design life per manufacturer |
-| BYT Registration No | Số đăng ký lưu hành BYT |
-| BYT Registration Expiry | Expiry date of registration |
-
----
-
-### Step 2.6 — Setup Roles & Users
-
-**Path:** Settings > Role List and Settings > User List
-
-#### Create 8 Roles
-
-Navigate to Settings > Role > New for each:
-
-| # | Role Name | Description | Access Level |
-|---|---|---|---|
-| 1 | IMM Department Head | Trưởng Phòng VTBYT — full approve + reports | Level 4 |
-| 2 | IMM Operations Manager | Quản lý vận hành — manage WOs, escalations | Level 3 |
-| 3 | IMM Workshop Lead | Tổ trưởng Workshop HTM — manage technicians | Level 3 |
-| 4 | IMM Technician | Kỹ thuật viên — execute work orders | Level 2 |
-| 5 | IMM Document Officer | Nhân viên quản lý hồ sơ | Level 2 |
-| 6 | IMM Storekeeper | Thủ kho TBYT | Level 2 |
-| 7 | IMM QA Officer | Nhân viên QA — non-conformance, CAPA | Level 3 |
-| 8 | IMM System Admin | Quản trị hệ thống IMM | Level 4 |
-
-#### Assign Permissions Per Role
-
-For each DocType, assign permissions via Settings > Role Permissions Manager:
-
-**IMM Device Model:**
-
-| Role | Read | Write | Create | Delete | Submit | Amend |
-|---|---|---|---|---|---|---|
-| IMM System Admin | Y | Y | Y | Y | Y | Y |
-| IMM Department Head | Y | Y | Y | N | Y | N |
-| IMM Operations Manager | Y | Y | Y | N | N | N |
-| IMM Technician | Y | N | N | N | N | N |
-| IMM QA Officer | Y | Y | N | N | N | N |
-
-**IMM Asset Profile:**
-
-| Role | Read | Write | Create | Delete | Submit | Amend |
-|---|---|---|---|---|---|---|
-| IMM System Admin | Y | Y | Y | Y | Y | Y |
-| IMM Department Head | Y | Y | Y | N | Y | N |
-| IMM Operations Manager | Y | Y | N | N | N | N |
-| IMM Technician | Y | Y | N | N | N | N |
-| IMM QA Officer | Y | Y | N | N | N | N |
-
-**IMM CAPA Record:**
-
-| Role | Read | Write | Create | Delete | Submit | Amend |
-|---|---|---|---|---|---|---|
-| IMM QA Officer | Y | Y | Y | N | Y | Y |
-| IMM Department Head | Y | Y | N | N | Y | N |
-| IMM Operations Manager | Y | Y | Y | N | N | N |
-| IMM Technician | Y | N | N | N | N | N |
-
-#### Create Test Users
-
-Create at least one test user per role:
-
-```
-user: imm.admin@ndih1.local        → role: IMM System Admin
-user: truong.phong@ndih1.local     → role: IMM Department Head
-user: quan.ly@ndih1.local          → role: IMM Operations Manager
-user: to.truong@ndih1.local        → role: IMM Workshop Lead
-user: ktv.nguyen@ndih1.local       → role: IMM Technician
-user: ho.so@ndih1.local            → role: IMM Document Officer
-user: thu.kho@ndih1.local          → role: IMM Storekeeper
-user: qa.officer@ndih1.local       → role: IMM QA Officer
-```
-
-**Assign departments to technician/workshop users:**
-- Department: `Tổ Workshop HTM`
-- Location: `Workshop Sửa chữa (WS-SC)`
-
----
-
-## 3. Migrate Existing Assets
-
-Use this section if the hospital already has registered assets (e.g., from a previous system or spreadsheet).
-
-### Step 3.1 — Prepare Import Data
-
-Export existing asset register from the current system. Minimum required columns:
-
-```
-asset_name, item_code, asset_category, purchase_date, gross_purchase_amount,
-location, custodian, department, is_existing_asset, available_for_use_date,
-vendor_serial_no, internal_tag_qr, imm_device_model, imm_risk_class
-```
-
-**Validation before import:**
-- All `item_code` values must exist in ERPNext Item list
-- All `asset_category` values must match categories from Step 1.2
-- All `location` values must match locations from Step 1.4
-- No duplicate `vendor_serial_no` values
-
-### Step 3.2 — Import via Data Import Tool
-
-**Path:** Settings > Data Import > New Data Import
-
-```
-DocType: Asset
-Import Type: Insert New Records
-Attach File: asset_import.csv
-Submit After Import: No  (submit manually after review)
-```
-
-**CLI import (bulk):**
+Kiểm tra nhanh:
 
 ```bash
-bench --site hospital.local import-doc \
-  --doctype "Asset" \
-  --file /home/adminh/frappe-bench/apps/assetcore/data/seed/assets_import.csv
+python3 --version           # >= 3.10
+mariadb --version           # >= 10.6
+redis-cli --version         # >= 6.0
+node --version              # >= 18
+bench --version             # Frappe v15
 ```
 
-### Step 3.3 — Mark Existing Assets
+---
 
-For each imported asset, set:
+## 2. Cài đặt AssetCore — Fresh site (chưa có v2)
+
+### 2.1 Tạo site mới
+
+```bash
+cd ~/frappe-bench
+
+# Tạo site (KHÔNG install ERPNext)
+bench new-site assetcore.local \
+  --mariadb-root-password <root-pw> \
+  --admin-password <admin-pw> \
+  --no-mariadb-socket
+```
+
+### 2.2 Get app AssetCore
+
+```bash
+bench get-app https://github.com/<org>/assetcore.git --branch master
+```
+
+### 2.3 Install app lên site
+
+```bash
+bench --site assetcore.local install-app assetcore
+bench --site assetcore.local migrate
+```
+
+### 2.4 Verify schema
+
+```bash
+bench --site assetcore.local mariadb --execute "SHOW TABLES LIKE 'tabAC%';"
+```
+
+Kết quả đúng (5 bảng core):
+
+```
+tabAC Asset
+tabAC Asset Category
+tabAC Department
+tabAC Location
+tabAC Supplier
+```
+
+```bash
+bench --site assetcore.local mariadb --execute "SHOW TABLES LIKE 'tabIMM%';"
+```
+
+Kết quả đúng (6 bảng governance + 2 child):
+
+```
+tabIMM Audit Trail
+tabIMM CAPA Record
+tabIMM Device Model
+tabIMM Device Spare Part
+tabIMM SLA Policy
+tabAsset Lifecycle Event
+tabIncident Report
+tabAC Authorized Technician
+```
+
+### 2.5 Bỏ qua sang §4 — Load fixtures
+
+---
+
+## 3. Migration từ v2 (site `miyano` đã có data sidecar cũ)
+
+Áp dụng cho site đã chạy AssetCore v2 (có `IMM Asset Profile`, `IMM Vendor Profile`, `IMM Location Ext`, 16 custom fields trên `tabAsset`).
+
+### 3.1 Pre-flight checklist
+
+- [ ] Đang ở branch release v3 (`git log --oneline -1` phải trỏ đúng tag `v3.0.0`).
+- [ ] Có quyền sudo trên server.
+- [ ] Không có user đang thao tác trên site (nên set maintenance mode).
+- [ ] Đã thông báo downtime window cho stakeholder.
+
+### 3.2 Backup toàn bộ site
+
+```bash
+cd ~/frappe-bench
+
+# Backup DB + files + config
+bench --site miyano backup --with-files --compress
+
+# Path backup sẽ nằm ở:
+ls -lh sites/miyano/private/backups/ | tail -5
+```
+
+Lưu backup ra ngoài server (S3 / NAS):
+
+```bash
+rsync -av sites/miyano/private/backups/ user@backup-server:/backups/miyano/$(date +%F)/
+```
+
+### 3.3 Export data v2 ra file
+
+```bash
+# Tạo folder migration artifacts
+mkdir -p ~/frappe-bench/migration_artifacts/v2_to_v3
+
+# Export 3 DocType sidecar
+bench --site miyano export-doc "IMM Asset Profile" \
+  --output ~/frappe-bench/migration_artifacts/v2_to_v3/imm_asset_profile.json
+bench --site miyano export-doc "IMM Vendor Profile" \
+  --output ~/frappe-bench/migration_artifacts/v2_to_v3/imm_vendor_profile.json
+bench --site miyano export-doc "IMM Location Ext" \
+  --output ~/frappe-bench/migration_artifacts/v2_to_v3/imm_location_ext.json
+```
+
+Hoặc dùng Python snippet (linh hoạt hơn):
 
 ```python
-# In Asset form or via script
-is_existing_asset = 1
-available_for_use_date = <date asset was put in use>
-# Do NOT calculate depreciation from purchase_date for existing assets
+# bench --site miyano console
+import frappe, json
+
+for dt, out in [
+    ("IMM Asset Profile", "/tmp/v2_asset_profile.json"),
+    ("IMM Vendor Profile", "/tmp/v2_vendor_profile.json"),
+    ("IMM Location Ext",   "/tmp/v2_location_ext.json"),
+]:
+    records = frappe.get_all(dt, fields=["*"])
+    with open(out, "w") as f:
+        json.dump(records, f, default=str, ensure_ascii=False, indent=2)
+    print(f"{dt}: exported {len(records)} records → {out}")
 ```
 
-### Step 3.4 — Create IMM Asset Profile for Each Asset
+### 3.4 Migration patch
 
-**Path:** AssetCore > IMM-00 > IMM Asset Profile > New
+Code đã được shipped trong app dưới đường dẫn:
 
-For each existing Asset record, create one IMM Asset Profile:
+```
+assetcore/patches/v3_0/001_migrate_from_v2.py
+```
 
-| Field | Description |
-|---|---|
-| Asset (Link) | Link to the ERPNext Asset record |
-| Device Model (Link) | Link to IMM Device Model created in Step 2.5 |
-| Serial No | Manufacturer serial number |
-| Internal Tag / QR | Hospital's internal barcode/QR |
-| BYT Registration No | Ministry of Health registration |
-| BYT Reg Expiry | Registration expiry date |
-| Risk Class | Inherited from Device Model, can override |
-| Lifecycle Status | Set to "Active" for existing in-use assets |
-| Last PM Date | Date of last maintenance (from old records) |
-| Next PM Date | Calculated from last PM + PM interval |
-| Last Calibration Date | From old calibration records |
-| Next Cal Date | Calculated from last cal + interval |
-| Accountability To | Link to User responsible (e.g., Khoa HSCC head) |
+Nội dung rút gọn (tham khảo):
 
-**Bulk creation script:**
+```python
+# assetcore/patches/v3_0/001_migrate_from_v2.py
+"""
+Migrate AssetCore v2 → v3.
+- Copy IMM Asset Profile  → AC Asset
+- Copy IMM Vendor Profile → AC Supplier
+- Copy IMM Location Ext   → AC Location
+- Drop 3 sidecar tables + 16 custom_imm_* fields trên tabAsset
+"""
+import frappe
+from frappe.utils import now_datetime
+
+
+FIELDS_V2_TO_V3_ASSET = {
+    "asset_name": "asset_name",
+    "udi_code": "udi_code",
+    "gmdn_code": "gmdn_code",
+    "byt_reg_no": "byt_reg_no",
+    "byt_reg_expiry": "byt_reg_expiry",
+    "lifecycle_status": "lifecycle_status",
+    "risk_class": "risk_class",
+    "medical_class": "medical_class",
+    "next_pm_date": "next_pm_date",
+    "last_pm_date": "last_pm_date",
+    "next_calibration_date": "next_calibration_date",
+    "last_calibration_date": "last_calibration_date",
+    "manufacturer_sn": "manufacturer_sn",
+    "device_model": "device_model",
+    "department": "department",
+    "responsible_technician": "responsible_technician",
+}
+
+CUSTOM_FIELDS_TO_DROP = [
+    "custom_imm_device_model",
+    "custom_imm_asset_profile",
+    "custom_imm_medical_class",
+    "custom_imm_risk_class",
+    "custom_imm_lifecycle_status",
+    "custom_imm_calibration_status",
+    "custom_imm_department",
+    "custom_imm_responsible_tech",
+    "custom_imm_last_pm_date",
+    "custom_imm_next_pm_date",
+    "custom_imm_last_calibration_date",
+    "custom_imm_next_calibration_date",
+    "custom_imm_byt_reg_no",
+    "custom_imm_manufacturer_sn",
+    "custom_imm_udi_code",
+    "custom_imm_gmdn_code",
+]
+
+
+def execute():
+    """Entry point — Frappe gọi tự động qua patches.txt."""
+    if not _has_v2_data():
+        print("[v3-migrate] No v2 data detected — skipping.")
+        return
+
+    migrated = {
+        "vendor": _migrate_vendor_profiles(),
+        "location": _migrate_location_ext(),
+        "asset": _migrate_asset_profiles(),
+    }
+    _drop_custom_fields()
+    _drop_v2_doctypes()
+    frappe.db.commit()
+
+    print(f"[v3-migrate] DONE @ {now_datetime()} — {migrated}")
+
+
+def _has_v2_data() -> bool:
+    return frappe.db.table_exists("IMM Asset Profile")
+
+
+def _migrate_vendor_profiles() -> int:
+    profiles = frappe.get_all("IMM Vendor Profile", fields=["*"])
+    for p in profiles:
+        if frappe.db.exists("AC Supplier", {"supplier_name": p.supplier_name}):
+            continue
+        doc = frappe.new_doc("AC Supplier")
+        doc.supplier_name = p.supplier_name
+        doc.vendor_type = p.vendor_type
+        doc.iso_17025_cert = p.get("iso_17025_cert")
+        doc.contract_end = p.get("contract_end")
+        doc.insert(ignore_permissions=True)
+    return len(profiles)
+
+
+def _migrate_location_ext() -> int:
+    records = frappe.get_all("IMM Location Ext", fields=["*"])
+    for r in records:
+        if frappe.db.exists("AC Location", {"location_name": r.location_name}):
+            continue
+        doc = frappe.new_doc("AC Location")
+        doc.location_name = r.location_name
+        doc.clinical_area_type = r.get("clinical_area_type")
+        doc.infection_control_level = r.get("infection_control_level")
+        doc.insert(ignore_permissions=True)
+    return len(records)
+
+
+def _migrate_asset_profiles() -> int:
+    profiles = frappe.get_all("IMM Asset Profile", fields=["*"])
+    for p in profiles:
+        if frappe.db.exists("AC Asset", {"asset_name": p.asset_name}):
+            continue
+        doc = frappe.new_doc("AC Asset")
+        for v2_field, v3_field in FIELDS_V2_TO_V3_ASSET.items():
+            value = p.get(v2_field)
+            if value is not None:
+                doc.set(v3_field, value)
+        doc.insert(ignore_permissions=True)
+    return len(profiles)
+
+
+def _drop_custom_fields():
+    for fieldname in CUSTOM_FIELDS_TO_DROP:
+        cf = frappe.db.exists("Custom Field", {"fieldname": fieldname, "dt": "Asset"})
+        if cf:
+            frappe.delete_doc("Custom Field", cf, force=True, ignore_permissions=True)
+    # Nếu còn sót ở DB-level (rare):
+    frappe.db.sql("""
+        DELETE FROM `tabCustom Field`
+        WHERE dt='Asset' AND fieldname LIKE 'custom_imm%'
+    """)
+
+
+def _drop_v2_doctypes():
+    for dt in ("IMM Asset Profile", "IMM Vendor Profile", "IMM Location Ext"):
+        if frappe.db.exists("DocType", dt):
+            frappe.delete_doc("DocType", dt, force=True, ignore_permissions=True)
+        # Drop table nếu Frappe chưa drop
+        table = f"tab{dt}"
+        frappe.db.sql(f"DROP TABLE IF EXISTS `{table}`")
+```
+
+### 3.5 Đăng ký patch
+
+File `assetcore/patches.txt`:
+
+```
+assetcore.patches.v3_0.001_migrate_from_v2
+```
+
+### 3.6 Chạy migrate
 
 ```bash
-bench --site hospital.local execute assetcore.services.imm00.create_asset_profiles_for_existing_assets
+bench --site miyano migrate
 ```
 
----
-
-## 4. Verify Setup (Checklist)
-
-Run through this checklist before declaring IMM-00 setup complete.
-
-### 4.1 Database Migration
-
-- [ ] `bench --site hospital.local migrate` completed with 0 errors
-- [ ] Custom fields appear in Asset form (check field: `imm_device_model`)
-- [ ] All IMM-00 DocTypes listed in Desk > DocType list:
-  - [ ] IMM Device Model
-  - [ ] IMM Asset Profile
-  - [ ] IMM Vendor Profile
-  - [ ] IMM Location Ext
-  - [ ] IMM SLA Policy
-  - [ ] IMM Audit Trail
-  - [ ] IMM CAPA Record
-
-### 4.2 Roles & Permissions
-
-- [ ] 8 IMM roles visible in Settings > Role
-- [ ] Role Permissions Manager shows IMM DocTypes with correct permissions
-- [ ] Test user `ktv.nguyen@ndih1.local` can read but not delete IMM Asset Profile
-- [ ] Test user `qa.officer@ndih1.local` can create CAPA records
-
-### 4.3 Master Data
-
-- [ ] At least 4 IMM SLA Policy records (P1–P4) created
-- [ ] At least 3 IMM Vendor Profile records created
-- [ ] At least 7 IMM Location Ext records created
-- [ ] At least 10 IMM Device Model records created
-- [ ] Asset Category list has 10 categories
-
-### 4.4 Scheduler
-
-- [ ] Scheduler is enabled: `bench --site hospital.local enable-scheduler`
-- [ ] Daily tasks registered in Scheduled Job list
-- [ ] Test: `bench --site hospital.local execute assetcore.tasks.check_document_expiry`
-  - Expected: no exception, prints number of documents checked
-
-### 4.5 End-to-End Smoke Test
-
-Perform this test sequence:
-
-```
-1. Login as imm.admin@ndih1.local
-2. Navigate to AssetCore > IMM Device Model > New
-3. Create: Model Name = "Máy thở test", Device Class = Class III
-4. Save and Submit
-5. Navigate to AssetCore > IMM Vendor Profile > New
-6. Link to "Philips Vietnam Co., Ltd"
-7. Set SLA Policy = SLA-P1
-8. Save
-9. Navigate to AssetCore > IMM Asset Profile > New
-10. Link to any existing Asset
-11. Link to Device Model created in step 3
-12. Set Lifecycle Status = Active
-13. Save
-14. Verify: IMM Audit Trail shows 3 new records (Device Model created, Vendor Profile created, Asset Profile created)
-```
-
-- [ ] All 14 steps completed without error
-- [ ] Audit trail shows 3 records
-- [ ] No 403 permission errors for admin user
-
----
-
-## 5. SLA Policy Reference Table
-
-This table is the authoritative reference for all IMM modules. When creating Work Orders or Incidents, the system reads SLA from the Asset's Device Class.
-
-| Priority | Trigger Condition | Response Time | Resolution Time | Escalate L1 (Workshop Head) | Escalate L2 (BGĐ) | Notification |
-|---|---|---|---|---|---|---|
-| P1 — Critical | Class III + Critical Dept (ICU, OR, HSCC) | 30 min | 4 hours | After 2h no resolution | After 4h no resolution | SMS + Email + Push |
-| P2 — High | Class III + Standard Dept | 2 hours | 8 hours | After 4h no resolution | After 8h no resolution | Email + Push |
-| P3 — Medium | Class II | 4 hours | 24 hours | After 8h no resolution | After 24h no resolution | Email |
-| P4 — Low | Class I | 8 hours | 72 hours | After 24h no resolution | After 48h no resolution | Email |
-
-**SLA Clock Rules:**
-- Clock starts: when Work Order or Incident is created
-- Clock pauses: when status = "Awaiting Parts" or "Awaiting Vendor"
-- Clock resumes: when status returns to "In Progress"
-- SLA breached: when actual time > Resolution Time with clock running
-- Business hours: 07:00–17:00, Mon–Sat (P3/P4 only). P1/P2 run 24/7.
-
----
-
-## 6. Device Model Catalog — Sample Data
-
-The following 15 sample records should be created as IMM Device Model entries for Bệnh viện Nhi Đồng 1.
-
-| # | Model Name | Manufacturer | GMDN Code | Device Class | Risk Class | Asset Category | PM Interval (days) | Cal Required | Cal Interval (days) | Expected Life (years) |
-|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | Máy thở ICU SV300 | Mindray | 13007 | Class III | Critical | Thiết bị hồi sức tích cực | 90 | Yes | 365 | 10 |
-| 2 | Monitor theo dõi BN IMEC12 | Mindray | 57126 | Class II | High | Thiết bị theo dõi bệnh nhân | 180 | Yes | 365 | 7 |
-| 3 | Bơm tiêm điện SP-500 | Mindray | 36822 | Class II | High | Thiết bị hồi sức tích cực | 180 | Yes | 365 | 7 |
-| 4 | Máy phá rung AED HeartStart | Philips | 35693 | Class III | Critical | Thiết bị hồi sức tích cực | 90 | Yes | 180 | 10 |
-| 5 | Máy siêu âm chẩn đoán EPIQ | Philips | 13284 | Class II | Medium | Thiết bị chẩn đoán hình ảnh | 180 | Yes | 365 | 12 |
-| 6 | Máy X-Quang kỹ thuật số Definium | GE Healthcare | 17184 | Class II | Medium | Thiết bị chẩn đoán hình ảnh | 90 | Yes | 180 | 12 |
-| 7 | Máy gây mê Carestation 650 | GE Healthcare | 13215 | Class III | Critical | Thiết bị phòng mổ | 90 | Yes | 180 | 10 |
-| 8 | Monitor ICU Carescape B650 | GE Healthcare | 57126 | Class II | High | Thiết bị theo dõi bệnh nhân | 180 | Yes | 365 | 7 |
-| 9 | Máy thở Savina 300 | Draeger | 13007 | Class III | Critical | Thiết bị hồi sức tích cực | 90 | Yes | 365 | 12 |
-| 10 | Đèn mổ LED OT700 | Berchtold | 44066 | Class I | Low | Thiết bị phòng mổ | 365 | No | N/A | 15 |
-| 11 | Bàn mổ Alphastar | Maquet | 41547 | Class I | Low | Thiết bị phòng mổ | 365 | No | N/A | 20 |
-| 12 | Nồi hấp tiệt khuẩn Autoclave 134L | Tuttnauer | 35280 | Class II | Medium | Thiết bị tiệt khuẩn | 180 | Yes | 365 | 15 |
-| 13 | Máy ly tâm Hettich Rotanta 460 | Hettich | 35816 | Class I | Low | Thiết bị xét nghiệm | 365 | Yes | 365 | 8 |
-| 14 | Máy phân tích khí máu GEM3500 | Instrumentation Laboratory | 39367 | Class III | High | Thiết bị xét nghiệm | 30 | Yes | 90 | 8 |
-| 15 | Máy đo SpO2 Nellcor PM10N | Medtronic | 34938 | Class II | Medium | Thiết bị theo dõi bệnh nhân | 180 | Yes | 365 | 5 |
-
-**Notes on calibration intervals:**
-- Class III analyzers (blood gas, chemistry): calibrate every 90 days or per manufacturer spec
-- Class III life support (ventilators, anesthesia): annual calibration + safety check every 90 days
-- Defibrillators: 6-month calibration per IEC 60601-2-4
-- Class I devices: calibration not mandatory unless device has measuring function
-
----
-
-## 7. Troubleshooting Common Setup Issues
-
-### 7.1 `bench migrate` Fails — Custom Field Conflict
-
-**Symptom:**
-```
-frappe.exceptions.DuplicateEntryError: Custom Field 'Asset-imm_device_model' already exists
-```
-
-**Cause:** A previous partial migration left orphaned custom field records.
-
-**Resolution:**
-```bash
-# Connect to database
-bench --site hospital.local mariadb
-
-# Remove orphaned custom fields
-DELETE FROM `tabCustom Field` WHERE dt = 'Asset' AND fieldname LIKE 'imm_%';
-EXIT;
-
-# Re-run migration
-bench --site hospital.local migrate
-```
-
----
-
-### 7.2 `bench migrate` Fails — Schema Lock
-
-**Symptom:**
-```
-pymysql.err.OperationalError: (1213, 'Deadlock found when trying to get lock')
-```
-
-**Resolution:**
-```bash
-# Stop all workers first
-sudo supervisorctl stop all
-
-# Run migrate with single thread
-bench --site hospital.local migrate --skip-failing
-
-# Restart workers
-sudo supervisorctl start all
-```
-
----
-
-### 7.3 Roles Not Showing in Permission Manager
-
-**Symptom:** Newly created roles not visible in Role Permissions Manager dropdown.
-
-**Cause:** Role created but not marked as "Desk Role".
-
-**Resolution:**
-1. Navigate to Settings > Role
-2. Open the role record
-3. Ensure "Desk" is checked (not just Portal)
-4. Save and reload Permission Manager page
-
----
-
-### 7.4 Scheduler Not Running
-
-**Symptom:** Daily tasks not executing. Audit trail entries not appearing for expiry checks.
-
-**Diagnosis:**
-```bash
-# Check scheduler status
-bench --site hospital.local doctor
-
-# Check if enabled
-bench --site hospital.local execute frappe.utils.scheduler.is_scheduler_inactive
-
-# View recent scheduler logs
-bench --site hospital.local execute frappe.model.document.get_list \
-  --args '{"doctype":"Scheduled Job Log","limit":10,"order_by":"creation desc"}'
-```
-
-**Resolution:**
-```bash
-# Enable scheduler
-bench --site hospital.local enable-scheduler
-
-# Verify workers running
-sudo supervisorctl status | grep worker
-
-# If workers stopped
-sudo supervisorctl restart frappe-bench-worker:*
-```
-
----
-
-### 7.5 IMM DocTypes Not Appearing in Module Menu
-
-**Symptom:** IMM-00 forms not visible in AssetCore module menu.
-
-**Cause:** App not properly installed, or module definition missing.
-
-**Resolution:**
-```bash
-# Reinstall app
-bench --site hospital.local uninstall-app assetcore
-bench --site hospital.local install-app assetcore
-bench --site hospital.local migrate
-
-# Clear cache
-bench --site hospital.local clear-cache
-bench --site hospital.local clear-website-cache
-```
-
----
-
-### 7.6 Custom Fields Missing on Asset Form
-
-**Symptom:** After migration, Asset form does not show IMM fields.
-
-**Resolution:**
-```bash
-# Check fixtures loaded
-bench --site hospital.local execute frappe.db.count \
-  --args '{"doctype":"Custom Field","filters":{"dt":"Asset","fieldname":["like","imm%"]}}'
-# Expected: 9 or more
-
-# If 0, export fixtures manually
-bench --site hospital.local export-fixtures
-
-# Then reload
-bench --site hospital.local migrate
-bench --site hospital.local clear-cache
-```
-
----
-
-## Appendix A — CLI Quick Reference
+Theo dõi log realtime ở terminal khác:
 
 ```bash
-# Full setup sequence
-bench --site hospital.local migrate
-bench --site hospital.local enable-scheduler
-bench --site hospital.local set-config developer_mode 0
+tail -f sites/miyano/logs/worker.log
+```
 
-# Import seed data
-bench --site hospital.local execute assetcore.services.imm00.seed_sla_policies
-bench --site hospital.local execute assetcore.services.imm00.seed_device_model_catalog
+### 3.7 Verify sau migration
 
-# Test scheduler manually
-bench --site hospital.local execute assetcore.tasks.check_document_expiry
-bench --site hospital.local execute assetcore.tasks.update_asset_completeness
+```bash
+# 5 bảng AC phải có
+bench --site miyano mariadb --execute "SHOW TABLES LIKE 'tabAC%';"
 
-# Check audit trail
-bench --site hospital.local execute frappe.db.get_all \
-  --args '{"doctype":"IMM Audit Trail","limit":20,"order_by":"creation desc"}'
+# 3 bảng v2 phải đã bị drop
+bench --site miyano mariadb --execute \
+  "SHOW TABLES LIKE 'tabIMM Asset Profile';"     # empty
+bench --site miyano mariadb --execute \
+  "SHOW TABLES LIKE 'tabIMM Vendor Profile';"    # empty
+bench --site miyano mariadb --execute \
+  "SHOW TABLES LIKE 'tabIMM Location Ext';"      # empty
+
+# Không còn custom_imm_* trên tabAsset
+bench --site miyano mariadb --execute \
+  "SHOW COLUMNS FROM tabAsset LIKE 'custom_imm%';"   # empty
+```
+
+Count sanity check:
+
+```bash
+bench --site miyano console <<'PY'
+import frappe
+print("AC Asset:",    frappe.db.count("AC Asset"))
+print("AC Supplier:", frappe.db.count("AC Supplier"))
+print("AC Location:", frappe.db.count("AC Location"))
+PY
+```
+
+Số lượng phải khớp với v2 ± các record fail (xem log).
+
+---
+
+## 4. Load fixtures
+
+### 4.1 Fixtures shipped trong app
+
+```
+assetcore/fixtures/
+├── imm_roles.json              # 8 roles
+├── imm_workflows.json          # CAPA + Incident workflow
+├── imm_sla_policies.json       # 9 SLA policy defaults
+├── imm_device_models_sample.json  # 5 device models mẫu
+└── imm_naming_series.json      # naming series cho AC/IMM
+```
+
+### 4.2 Apply fixtures
+
+```bash
+bench --site miyano migrate
+# Frappe tự pick up fixtures từ hooks.py `fixtures` key
+```
+
+### 4.3 Verify roles
+
+```bash
+bench --site miyano console <<'PY'
+import frappe
+roles = [
+    "IMM System Admin", "IMM Department Head", "IMM Operations Manager",
+    "IMM Workshop Lead", "IMM Technician", "IMM Document Officer",
+    "IMM Storekeeper", "IMM QA Officer",
+]
+for r in roles:
+    print(r, "→", "OK" if frappe.db.exists("Role", r) else "MISSING")
+PY
+```
+
+### 4.4 Seed SLA policies
+
+9 policies theo ma trận `{P1,P2,P3} × {Low,Medium,High,Critical}` + 1 default.
+
+```bash
+bench --site miyano execute assetcore.fixtures.seed.seed_sla_policies
+```
+
+### 4.5 Seed sample device models
+
+5 mẫu: Monitor bệnh nhân, máy thở, X-ray di động, máy siêu âm, máy truyền dịch.
+
+```bash
+bench --site miyano execute assetcore.fixtures.seed.seed_sample_device_models
 ```
 
 ---
 
-## Appendix B — Environment Variables for Production
+## 5. Scheduler setup
 
-Set these in `sites/hospital.local/site_config.json`:
+### 5.1 Kiểm tra hooks.py
 
-```json
-{
-  "db_name": "hospital_local",
-  "db_password": "...",
-  "encryption_key": "...",
-  "auto_email_id": "no-reply@ndih1.local",
-  "email_footer_address": "Bệnh viện Nhi Đồng 1, 341 Sư Vạn Hạnh, Q.10, TP.HCM",
-  "imm_p1_sms_gateway": "https://sms-gateway.ndih1.local/send",
-  "imm_p1_oncall_phone": "+84901234567",
-  "scheduler_tick_interval": 60
+4 jobs phải được khai báo trong `assetcore/hooks.py`:
+
+```python
+scheduler_events = {
+    "daily": [
+        "assetcore.services.imm00.check_capa_overdue",
+        "assetcore.services.imm00.check_vendor_contract_expiry",
+        "assetcore.services.imm00.check_registration_expiry",
+        "assetcore.services.imm00.rollup_asset_kpi",
+    ],
 }
 ```
 
+### 5.2 Enable scheduler
+
+```bash
+bench --site miyano enable-scheduler
+bench --site miyano scheduler resume
+```
+
+### 5.3 Test manual một job
+
+```bash
+bench --site miyano execute assetcore.services.imm00.check_capa_overdue
+bench --site miyano execute assetcore.services.imm00.check_vendor_contract_expiry
+bench --site miyano execute assetcore.services.imm00.check_registration_expiry
+bench --site miyano execute assetcore.services.imm00.rollup_asset_kpi
+```
+
+Nếu lỗi, xem log:
+
+```bash
+tail -100 sites/miyano/logs/scheduler.log
+```
+
 ---
 
-*End of IMM-00 Setup Guide*
-*Owner: IMM System Admin*
-*Review cycle: Every 6 months or after major ERPNext upgrade*
+## 6. Permission setup
+
+### 6.1 Role permissions
+
+Đã được apply qua fixtures (`imm_roles.json` + DocType-level `permissions`).
+
+### 6.2 Permission Query Condition
+
+File `assetcore/permission.py`:
+
+```python
+# IMM Technician chỉ thấy AC Asset của mình
+def get_ac_asset_permission_query(user):
+    roles = frappe.get_roles(user)
+    if "IMM Technician" in roles and "IMM System Admin" not in roles:
+        return f"(`tabAC Asset`.responsible_technician = '{user}')"
+    return ""
+```
+
+Đăng ký trong `hooks.py`:
+
+```python
+permission_query_conditions = {
+    "AC Asset": "assetcore.permission.get_ac_asset_permission_query",
+}
+```
+
+### 6.3 Tạo user test
+
+```bash
+bench --site miyano add-user technician@test.com \
+  --first-name "Test" --last-name "Tech" \
+  --password "Test@1234" \
+  --add-role "IMM Technician"
+
+bench --site miyano add-user qa@test.com \
+  --first-name "QA" --last-name "Officer" \
+  --password "Test@1234" \
+  --add-role "IMM QA Officer"
+```
+
+### 6.4 Test quyền trong console
+
+```bash
+bench --site miyano console <<'PY'
+import frappe
+frappe.set_user("technician@test.com")
+assets = frappe.get_list("AC Asset", fields=["name", "responsible_technician"])
+print(f"Technician sees {len(assets)} assets (phải chỉ thấy assets của mình)")
+PY
+```
+
+---
+
+## 7. Cấu hình email
+
+### 7.1 SMTP config
+
+```bash
+bench --site miyano set-config mail_server "smtp.gmail.com"
+bench --site miyano set-config mail_port 587
+bench --site miyano set-config use_tls 1
+bench --site miyano set-config mail_login "noreply@hospital.vn"
+bench --site miyano set-config mail_password "<app-password>"
+```
+
+### 7.2 Email templates
+
+Tạo 3 template trong UI (`/app/email-template`) hoặc import fixture:
+
+| Tên template | Subject | Trigger |
+|---|---|---|
+| `CAPA_Overdue` | `[CAPA Overdue] {capa_id} — {asset_name}` | `check_capa_overdue` |
+| `Contract_Expiry_30d` | `[Hợp đồng sắp hết hạn] {supplier_name}` | `check_vendor_contract_expiry` |
+| `BYT_Registration_Expiry` | `[Đăng ký BYT sắp hết hạn] {asset_name}` | `check_registration_expiry` |
+
+### 7.3 Test send mail
+
+```bash
+bench --site miyano execute frappe.sendmail \
+  --args '["admin@hospital.vn", "AssetCore Test", "Setup email OK"]'
+```
+
+---
+
+## 8. Frontend setup (Vue 3 + Vite)
+
+### 8.1 Install dependencies
+
+```bash
+cd ~/frappe-bench/apps/assetcore/frontend
+pnpm install
+```
+
+### 8.2 Config `.env`
+
+File `frontend/.env`:
+
+```env
+VITE_API_BASE=http://localhost:8000
+VITE_APP_NAME=AssetCore
+VITE_API_PREFIX=/api/method/assetcore
+```
+
+### 8.3 Dev server
+
+```bash
+pnpm dev
+# http://localhost:5173
+```
+
+### 8.4 Build production
+
+```bash
+pnpm build
+# Output: frontend/dist/
+
+# Copy vào public/ để Frappe serve
+cp -r dist/* ../assetcore/public/frontend/
+bench --site miyano clear-cache
+```
+
+---
+
+## 9. Smoke test checklist
+
+Chạy tuần tự từ trên xuống. Mỗi bước pass mới sang bước tiếp.
+
+- [ ] **S-01** Tạo 1 `AC Asset Category` (VD: "Thiết bị chẩn đoán hình ảnh").
+- [ ] **S-02** Tạo 1 `AC Department` (VD: "Khoa Chẩn đoán hình ảnh").
+- [ ] **S-03** Tạo 1 `AC Location` (VD: "Phòng X-ray 1, Tầng 2").
+- [ ] **S-04** Tạo 1 `IMM Device Model` (Class II, PM interval 180 ngày, risk Medium).
+- [ ] **S-05** Tạo 1 `AC Asset` link với Device Model ở S-04 → verify auto-fill `medical_class`, `risk_class`.
+- [ ] **S-06** Submit AC Asset → verify `lifecycle_status = Commissioned` + 1 `Asset Lifecycle Event` được tạo.
+- [ ] **S-07** Transition Active → Under Repair qua API `transition_asset_status` → kiểm tra sinh ALE + Audit Trail entry.
+- [ ] **S-08** Tạo 1 `IMM CAPA Record` (thiếu root_cause) → submit → expect `ValidationError`.
+- [ ] **S-09** Update CAPA với `root_cause` + `corrective_action` → submit thành công.
+- [ ] **S-10** Tạo 1 `Incident Report` severity Critical + `patient_affected = 1` → verify warning "báo cáo BYT".
+- [ ] **S-11** Chạy `check_capa_overdue` manual → verify email gửi tới QA Officer.
+- [ ] **S-12** Verify SHA-256 chain: gọi API `assetcore.api.imm00.verify_audit_chain` cho AC Asset ở S-05 → return `{"valid": true}`.
+- [ ] **S-13** Query permission: login technician không phải responsible → không thấy asset (list count = 0).
+
+Lệnh gọi API mẫu (S-12):
+
+```bash
+curl -X POST http://localhost:8000/api/method/assetcore.api.imm00.verify_audit_chain \
+  -H "X-Frappe-CSRF-Token: $CSRF" \
+  -H "Cookie: sid=$SID" \
+  -d '{"asset": "AC-ASSET-2026-00001"}'
+```
+
+---
+
+## 10. Troubleshooting
+
+| Triệu chứng | Nguyên nhân | Giải pháp |
+|---|---|---|
+| `bench migrate` fail giữa patch v3 | Data v2 có record lỗi format | Check `sites/miyano/logs/worker.log` → fix record → rerun `bench migrate` |
+| Scheduler không chạy | Scheduler đang paused / Redis lỗi | `bench --site miyano doctor` + `bench --site miyano scheduler resume` |
+| Permission Query không áp dụng | Cache | `bench --site miyano clear-cache && bench restart` |
+| Custom Fields `custom_imm_*` còn sót | Patch bỏ sót | `DELETE FROM \`tabCustom Field\` WHERE dt='Asset' AND fieldname LIKE 'custom_imm%';` |
+| FE dev không connect được BE | CORS | Set `allow_cors = "*"` trong `site_config.json` (chỉ DEV) |
+| Email không gửi | SMTP sai credential | `bench --site miyano execute frappe.email.queue.flush` + check log |
+| Audit chain invalid | Record bị tamper manual | Không fix được — phải điều tra forensic, restore từ backup |
+
+SQL thủ công dọn sót:
+
+```sql
+-- Chạy trong mariadb console
+USE `_<site_hash>`;
+
+-- Verify không còn custom_imm_*
+SELECT fieldname FROM `tabCustom Field`
+WHERE dt='Asset' AND fieldname LIKE 'custom_imm%';
+
+-- Nếu còn:
+DELETE FROM `tabCustom Field`
+WHERE dt='Asset' AND fieldname LIKE 'custom_imm%';
+
+-- Verify 3 sidecar table đã drop:
+SHOW TABLES LIKE 'tabIMM Asset Profile';
+SHOW TABLES LIKE 'tabIMM Vendor Profile';
+SHOW TABLES LIKE 'tabIMM Location Ext';
+
+-- Nếu còn:
+DROP TABLE IF EXISTS `tabIMM Asset Profile`;
+DROP TABLE IF EXISTS `tabIMM Vendor Profile`;
+DROP TABLE IF EXISTS `tabIMM Location Ext`;
+```
+
+---
+
+## 11. Production deployment checklist
+
+### 11.1 Hardening
+
+- [ ] Disable developer mode: `bench --site miyano set-config developer_mode 0`.
+- [ ] Enable signed session cookies: `bench --site miyano set-config session_expiry "06:00:00"`.
+- [ ] Disable `allow_cors = "*"` (chỉ dùng khi DEV).
+- [ ] HTTPS enforced qua Nginx + Let's Encrypt: `sudo bench setup lets-encrypt miyano`.
+- [ ] CORS whitelist FE origin (nếu FE deploy separate domain):
+
+  ```json
+  { "allow_cors": "https://assetcore.hospital.vn" }
+  ```
+
+- [ ] Set strong `encryption_key`: `bench --site miyano set-config encryption_key "$(openssl rand -base64 32)"`.
+
+### 11.2 Backup
+
+- [ ] Daily backup cron + retention 30 ngày:
+
+  ```cron
+  0 2 * * * cd /home/frappe/frappe-bench && bench --site miyano backup --with-files --compress
+  0 3 * * * find /home/frappe/frappe-bench/sites/miyano/private/backups -mtime +30 -delete
+  ```
+
+- [ ] Offsite backup (S3 / rsync daily).
+
+### 11.3 Monitoring
+
+- [ ] Prometheus exporter Frappe: `pip install frappe-prometheus-exporter`.
+- [ ] Cấu hình metrics endpoint `/metrics` (internal only).
+- [ ] Alert rules: scheduler down > 15 phút, error rate > 1%, DB connection saturation > 80%.
+
+### 11.4 Log rotation
+
+`/etc/logrotate.d/frappe`:
+
+```conf
+/home/frappe/frappe-bench/sites/*/logs/*.log {
+    daily
+    rotate 14
+    compress
+    missingok
+    notifempty
+    copytruncate
+}
+```
+
+### 11.5 Performance
+
+- [ ] Redis persistence (`appendonly yes`) cho queue.
+- [ ] MariaDB `innodb_buffer_pool_size` = 50-60% RAM.
+- [ ] Bench workers: `bench setup supervisor && bench setup production frappe`.
+
+---
+
+## 12. Rollback plan
+
+Nếu migration v3 fail hoặc production phát hiện regression nghiêm trọng:
+
+### 12.1 Rollback database
+
+```bash
+cd ~/frappe-bench
+
+# Liệt kê backup mới nhất
+ls -lht sites/miyano/private/backups/ | head -5
+
+# Restore DB + files
+bench --site miyano restore \
+  sites/miyano/private/backups/<timestamp>-miyano-database.sql.gz \
+  --with-public-files sites/miyano/private/backups/<timestamp>-miyano-files.tar \
+  --with-private-files sites/miyano/private/backups/<timestamp>-miyano-private-files.tar
+```
+
+### 12.2 Rollback code
+
+```bash
+cd ~/frappe-bench/apps/assetcore
+
+# Checkout tag v2 cuối cùng ổn định
+git fetch --tags
+git checkout v2.3.0   # hoặc tag v2 stable gần nhất
+
+cd ~/frappe-bench
+bench --site miyano migrate
+bench restart
+```
+
+### 12.3 Verify post-rollback
+
+- [ ] Login web thành công.
+- [ ] `IMM Asset Profile` list mở được.
+- [ ] Scheduler chạy lại (`bench --site miyano scheduler status`).
+- [ ] Thông báo stakeholder incident + RCA.
+
+### 12.4 RCA template
+
+Sau mỗi rollback, ghi RCA vào `/docs/incidents/YYYY-MM-DD_rollback_v3.md`:
+
+```markdown
+# Incident: Rollback v3 migration
+- Date: YYYY-MM-DD
+- Trigger: <trigger>
+- Root cause: <rca>
+- Corrective: <fix>
+- Preventive: <preventive>
+- Tracked in CAPA: CAPA-YYYY-XXXXX
+```
+
+---
+
+## 13. Liên hệ & tài liệu liên quan
+
+| Document | Link |
+| --- | --- |
+| Module Overview v3 | `docs/imm-00/IMM-00_Module_Overview.md` |
+| Technical Design v3 | `docs/imm-00/IMM-00_Technical_Design.md` |
+| BA Requirements v3 | `docs/imm-00/IMM-00_BA_Requirements.md` |
+| Test Cases v3 | `docs/imm-00/IMM-00_Test_Cases.md` |
+| Runbook Operations | `docs/runbook/IMM-00_Ops_Runbook.md` |
+
+**Kết thúc Setup Guide v3.0.0.**

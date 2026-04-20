@@ -1,258 +1,238 @@
-# IMM-00 — Nền tảng Hệ thống (Foundation Module)
-## Module Overview
+# IMM-00 — Foundation Module: AssetCore Core DocTypes
 
-**Module:** IMM-00
-**Version:** 1.0
-**Ngày:** 2026-04-17
-**Trạng thái:** NOT CODED — Tài liệu thiết kế (Docs Only)
-**Wave:** Pre-Wave 1 (Foundation — phải hoàn thành trước tất cả module khác)
-
----
-
-## 1. Mục đích Module
-
-IMM-00 là lớp nền tảng (foundation layer) của toàn hệ thống AssetCore. Module này thiết lập và quản lý toàn bộ master data dùng chung: danh mục thiết bị y tế (Device Model), hồ sơ tài sản HTM mở rộng (Asset Profile), hồ sơ nhà cung cấp (Vendor Profile), mở rộng vị trí (Location Ext), chính sách SLA, audit trail bất biến, hồ sơ CAPA và vai trò/phân quyền.
-
-**Không có IMM-00 thì không có module nào hoạt động được.** Tất cả 17 module từ IMM-01 đến IMM-17 đều phụ thuộc vào master data và infrastructure mà IMM-00 thiết lập.
-
-**Nguyên tắc cốt lõi:**
-- ERPNext Asset = registry (định danh vật lý) → IMM-00 mở rộng thành HTM Asset Profile đầy đủ
-- Không bao giờ sửa ERPNext core — chỉ extend bằng DocType mới hoặc Custom Field
-- Mọi thay đổi trạng thái tài sản phải được ghi vào IMM Audit Trail (append-only)
-- CAPA là cơ chế kiểm soát chất lượng xuyên suốt — gắn với IMM-11, IMM-12, IMM-09
-
----
-
-## 2. Trạng thái Triển khai
-
-| Hạng mục | Trạng thái |
+| Thuộc tính | Giá trị |
 |---|---|
-| IMM Device Model DocType | Chưa tạo |
-| IMM Asset Profile DocType | Chưa tạo |
-| IMM Vendor Profile DocType | Chưa tạo |
-| IMM Location Ext DocType | Chưa tạo |
-| IMM SLA Policy DocType | Chưa tạo |
-| IMM Audit Trail DocType | Chưa tạo |
-| IMM CAPA Record DocType | Chưa tạo |
-| Custom Fields trên tabAsset (16 fields) | Chưa cài đặt |
-| 8 Roles & Permission Matrix | Chưa cấu hình |
-| Scheduler Jobs (daily/weekly) | Chưa code |
-| Workflow (CAPA) | Chưa cấu hình |
-| Backend Logic / Service Layer | Chưa code |
-| API | Chưa code |
-| Test | Chưa viết |
+| Module | IMM-00 Foundation |
+| Phiên bản | 3.0.0 |
+| Ngày cập nhật | 2026-04-18 |
+| Trạng thái | **DRAFT** — chờ triển khai theo kiến trúc mới (v3) |
+| Tác giả | AssetCore Team |
 
 ---
 
-## 3. Vị trí trong Asset Lifecycle
+## 1. Mục đích
+
+IMM-00 là **foundation layer tự chứa** của AssetCore — cung cấp toàn bộ DocType lõi, master data, dịch vụ cross-module, governance records cho 17 module IMM-xx kế tiếp.
+
+**Nguyên tắc kiến trúc (bắt buộc):**
+
+| Nguyên tắc | Nội dung |
+|---|---|
+| Dependency tối thiểu | AssetCore chỉ phụ thuộc **Frappe Framework v15**. Không cài ERPNext cũng chạy được. |
+| Kế thừa schema | Các DocType core của AssetCore được **thiết kế dựa theo template schema của ERPNext** (Asset, Supplier, Location…) nhưng **tái tạo native** trong AssetCore với prefix `AC` — không link/extend DocType của ERPNext. |
+| Prefix đặt tên | `AC` cho core DocType (AC Asset, AC Supplier…); `IMM` cho governance DocType (IMM Device Model, IMM SLA Policy, IMM Audit Trail, IMM CAPA Record). |
+| Không sidecar | HTM metadata là field first-class trên `AC Asset` (không dùng DocType sidecar / Custom Fields). |
+
+---
+
+## 2. Vị trí trong kiến trúc
 
 ```
-                    ┌─────────────────────────────────────────────────┐
-                    │              IMM-00: FOUNDATION                  │
-                    │                                                   │
-                    │  Device Model  │  Asset Profile  │  Vendor Profile│
-                    │  Location Ext  │  SLA Policy     │  Audit Trail   │
-                    │  CAPA Record   │  Roles & Perms  │  Custom Fields │
-                    └─────────────────────────────────────────────────┘
-                                          │
-                         Cung cấp master data cho toàn bộ hệ thống
-                                          │
-         ┌────────────┬────────────┬──────┴──────┬────────────┬────────────┐
-         │            │            │             │            │            │
-    IMM-01/03    IMM-04/05    IMM-08/09    IMM-11/12    IMM-13/14    IMM-15/17
-   (Planning)  (Deployment)  (PM/CM)     (CAL/Corr.)   (End-of-Life)  (Analytics)
-
-WHO HTM Lifecycle:
-Needs → Procurement → [IMM-00 Foundation] → Installation → Operation → Maintenance → Decommission
+┌──────────────────────────────────────────────────────────────────┐
+│                  Frappe Framework v15                            │
+│   User · Role · File · Comment · Version · Address · Contact     │
+│   ToDo · Email Queue · Workflow Engine · ORM · Scheduler         │
+└───────────────────────────┬──────────────────────────────────────┘
+                            │  chỉ dependency duy nhất
+                            ▼
+┌──────────────────────────────────────────────────────────────────┐
+│                      AssetCore App                               │
+│                                                                  │
+│  ┌────────────────────────────────────────────────────────────┐  │
+│  │              IMM-00 Foundation Layer                       │  │
+│  │                                                            │  │
+│  │  Core DocTypes (schema kế thừa ERPNext, tái tạo native):   │  │
+│  │    • AC Asset           • AC Supplier                      │  │
+│  │    • AC Location        • AC Department                    │  │
+│  │    • AC Asset Category                                     │  │
+│  │                                                            │  │
+│  │  AssetCore-native DocTypes (không có ERPNext equivalent):  │  │
+│  │    • IMM Device Model (+ child Spare Part)                 │  │
+│  │    • IMM SLA Policy                                        │  │
+│  │    • IMM Audit Trail (append-only)                         │  │
+│  │    • IMM CAPA Record                                       │  │
+│  │    • Asset Lifecycle Event (standalone, append-only)       │  │
+│  │    • Incident Report                                       │  │
+│  │                                                            │  │
+│  │  Services: assetcore/services/imm00.py                     │  │
+│  │  Utils:    assetcore/utils/{response,lifecycle,email}.py   │  │
+│  │  Schedulers: 4 daily jobs                                  │  │
+│  └────────────────────────────────────────────────────────────┘  │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐             │
+│  │  IMM-04  │ │  IMM-05  │ │  IMM-08  │ │  IMM-09  │   ...       │
+│  │ Install  │ │ Register │ │   PM     │ │  Repair  │             │
+│  └──────────┘ └──────────┘ └──────────┘ └──────────┘             │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
-**Vai trò của IMM-00 trong từng giai đoạn:**
-- **IMM-04/05** → dùng `IMM Device Model` để xác định class, risk, PM/CAL interval khi lắp đặt
-- **IMM-08** → dùng `IMM Asset Profile`.pm_interval_days để lập lịch PM đầu tiên
-- **IMM-09/12** → dùng `IMM Vendor Profile` để tra cứu nhà cung cấp dịch vụ, SLA response time
-- **IMM-11** → dùng `IMM CAPA Record` khi calibration fail; dùng `IMM Audit Trail` ghi event
-- **IMM-13/14** → lifecycle_status = Decommissioned trong `IMM Asset Profile` kích hoạt suspend PM/CAL
-
 ---
 
-## 4. DocTypes cần tạo
+## 3. DocTypes
 
-| DocType | Naming Series | Module Frappe | Mục đích | Trường chính |
-|---|---|---|---|---|
-| **IMM Device Model** | `DM-.YYYY.-.#####` | imm_master | Danh mục mẫu thiết bị y tế | model_name, manufacturer, gmdn_code, device_category, medical_device_class, risk_classification, pm_interval_days, calibration_interval_days |
-| **IMM Asset Profile** | `AP-.YYYY.-.#####` | imm_master | Hồ sơ HTM mở rộng 1:1 với ERPNext Asset | asset(unique link), device_model, imm_asset_code, serial_number_manufacturer, udi_code, lifecycle_status, responsible_technician |
-| **IMM Vendor Profile** | `VP-.YYYY.-.#####` | imm_master | Hồ sơ NCC mở rộng Supplier | vendor, vendor_type, iso_13485_certified, moh_registration_no, sla_response_hours, contract_end |
-| **IMM Location Ext** | `LE-.YYYY.-.#####` | imm_master | Mở rộng Location với thông tin lâm sàng | location(unique link), dept_code, clinical_area_type, dept_head, emergency_contact |
-| **IMM SLA Policy** | `SLA-.YYYY.-.#####` | imm_master | Chính sách SLA theo loại công việc và priority | policy_name, applies_to, priority, response_time_minutes, resolution_time_hours, escalation_l1_hours |
-| **IMM Audit Trail** | `AT-.YYYY.-.######` | imm_master | Log bất biến mọi sự kiện vòng đời | asset, event_type, from_status, to_status, actor, event_timestamp, hash |
-| **IMM CAPA Record** | `CAPA-.YYYY.-.#####` | imm_master | Hồ sơ hành động khắc phục/phòng ngừa | capa_number, asset, capa_type, severity, description, root_cause, corrective_action, status |
+### 3.1 Core DocTypes — schema kế thừa ERPNext, tái tạo native (5)
 
-**Child Tables:**
-
-| Child Table | Parent | Mục đích |
-|---|---|---|
-| IMM Device Spare Part | IMM Device Model | Danh sách phụ tùng tiêu chuẩn theo model |
-| IMM Vendor Authorized Tech | IMM Vendor Profile | Danh sách KTV được ủy quyền từ NCC |
-
----
-
-## 5. Custom Fields trên tabAsset (ERPNext Core)
-
-Thêm 16 custom field vào ERPNext Asset DocType qua `bench migrate` (không sửa core):
-
-| Field Name | Field Type | Options / Link | Mục đích |
+| DocType | Naming | Template ERPNext | Mục đích |
 |---|---|---|---|
-| `imm_device_model` | Link | IMM Device Model | Liên kết tới Device Model catalog |
-| `imm_asset_profile` | Link | IMM Asset Profile | Liên kết tới HTM Asset Profile |
-| `imm_medical_class` | Select | Class I, Class II, Class III | Phân loại trang thiết bị y tế |
-| `imm_risk_class` | Select | Low, Medium, High, Critical | Phân loại rủi ro |
-| `imm_byt_reg_no` | Data | — | Số đăng ký Bộ Y Tế |
-| `imm_manufacturer_sn` | Data | — | Serial number nhà sản xuất |
-| `imm_udi_code` | Data | — | Mã UDI (Unique Device Identifier) |
-| `imm_gmdn_code` | Data | — | Mã GMDN |
-| `imm_lifecycle_status` | Select | Active, Under Repair, Calibrating, OOS, Decommissioned | Trạng thái vòng đời HTM |
-| `imm_calibration_status` | Select | In Tolerance, OOT, Not Required, Overdue | Trạng thái hiệu chuẩn |
-| `imm_department` | Link | Department | Khoa phòng quản lý |
-| `imm_responsible_tech` | Link | User | KTV phụ trách |
-| `imm_last_pm_date` | Date | — | Ngày PM gần nhất |
-| `imm_next_pm_date` | Date | — | Ngày PM tiếp theo |
-| `imm_last_calibration_date` | Date | — | Ngày hiệu chuẩn gần nhất |
-| `imm_next_calibration_date` | Date | — | Ngày hiệu chuẩn tiếp theo |
+| AC Asset | `AC-ASSET-.YYYY.-.#####` | Asset | Thiết bị y tế (HTM fields first-class: risk_class, lifecycle_status, UDI, GMDN, BYT, next_pm_date…) |
+| AC Supplier | `AC-SUP-.YYYY.-.####` | Supplier | NCC, lab hiệu chuẩn, đơn vị bảo trì (+ ISO 17025, authorized_technicians) |
+| AC Location | `AC-LOC-.YYYY.-.####` | Location | Khoa/phòng/kho (+ clinical_area_type, infection_control_level) |
+| AC Department | `AC-DEPT-.####` | Department | Khoa/phòng sử dụng (đơn vị quản lý, không phải vị trí vật lý) |
+| AC Asset Category | by category_name | Asset Category | Phân loại thiết bị (máy xét nghiệm, thiết bị chẩn đoán hình ảnh…) |
+
+### 3.2 AssetCore-native DocTypes (6)
+
+| DocType | Naming | Mục đích |
+|---|---|---|
+| IMM Device Model | `IMM-MDL-.YYYY.-.####` | Catalog model/phiên bản thiết bị (master template cho AC Asset) |
+| IMM SLA Policy | by policy_name | Ma trận SLA P1–P4 × risk class |
+| IMM Audit Trail | `IMM-AUD-.YYYY.-.#######` | Log bất biến SHA-256, cross-module |
+| IMM CAPA Record | `CAPA-.YYYY.-.#####` | Corrective/Preventive actions (ISO 13485:8.5) |
+| Asset Lifecycle Event | `ALE-.YYYY.-.#######` | Sự kiện vòng đời chuẩn hoá: commissioned, pm_completed, repair_opened, decommissioned… |
+| Incident Report | `IR-.YYYY.-.####` | Sự cố thiết bị → trigger CM/CAPA |
+
+### 3.3 Child DocTypes (2)
+
+| Child DocType | Parent | Mục đích |
+|---|---|---|
+| IMM Device Spare Part | IMM Device Model | Danh mục phụ tùng theo model |
+| AC Authorized Technician | AC Supplier | KTV ủy quyền của NCC |
+
+**Tổng: 13 DocTypes** (5 core + 6 governance + 2 child).
+
+### 3.4 Scope defer sang giai đoạn kế tiếp
+
+`AC Item`, `AC Stock Entry`, `AC Purchase Order`, `AC Asset Movement` — sẽ làm khi module IMM-09/PM cần quản lý vật tư. IMM-00 v3 chưa đụng.
 
 ---
 
-## 6. Workflow States — IMM CAPA Record
+## 4. Service Functions
 
-| State | Mô tả | Actor | Trigger / Entry Condition |
+File: `assetcore/services/imm00.py`
+
+| Function | Caller Modules | Mô tả |
+|---|---|---|
+| `log_audit_event()` | Tất cả IMM modules | Tạo IMM Audit Trail bất biến (SHA-256 chain) |
+| `create_lifecycle_event()` | IMM-04, 09, 11, 12, 13 | Tạo Asset Lifecycle Event chuẩn hoá (replace inline creator cũ) |
+| `transition_asset_status()` | IMM-09, 12, 13 | Đổi `AC Asset.lifecycle_status` + log event + suspend schedules nếu Decommissioned |
+| `get_sla_policy()` | IMM-08, 09, 11 | Tra SLA theo priority × risk_class (fallback is_default) |
+| `create_capa()` | IMM-09, 11, 12 | Tạo CAPA Record, gán responsible |
+| `close_capa()` | IMM-12, QA Officer | Đóng CAPA (validate corrective + preventive) |
+| `validate_asset_for_operations()` | IMM-08, 09, 11 | Gate: block nếu Out of Service / Decommissioned |
+| `check_capa_overdue()` | Scheduler daily | Mark Overdue + email QA Officer |
+| `check_vendor_contract_expiry()` | Scheduler daily | Cảnh báo HĐ NCC 90/60/30 ngày |
+| `check_registration_expiry()` | Scheduler daily | Cảnh báo đăng ký BYT 90/60/30/7 ngày |
+
+**Bỏ so với v2:** `sync_single_asset_profile()`, `sync_asset_profile_status()` — không còn cần vì HTM fields đã nằm trực tiếp trên `AC Asset`.
+
+---
+
+## 5. Utils dùng chung (mới)
+
+File: `assetcore/utils/`
+
+| Module | Export | Dùng ở |
+|---|---|---|
+| `utils/response.py` | `_ok(data)`, `_err(msg, code)` | Toàn bộ API endpoint |
+| `utils/lifecycle.py` | `create_lifecycle_event()`, `transition_status()` | Tất cả service layer |
+| `utils/email.py` | `get_role_emails(roles)`, `safe_sendmail(...)` | Scheduler jobs |
+| `utils/pagination.py` | `paginate(query, page, page_size)` | List APIs |
+
+---
+
+## 6. Scheduler Jobs
+
+| Job | Tần suất | Logic | Người nhận |
 |---|---|---|---|
-| **Open** | CAPA vừa được tạo, chờ phân công | System Auto / QA Officer | Calibration fail (IMM-11), Incident critical (IMM-12), hoặc Manual |
-| **In Progress** | Đã phân công, đang điều tra nguyên nhân | Assigned User | `assigned_to` được điền + action started |
-| **Pending Verification** | Hành động khắc phục đã thực hiện, chờ QA xác nhận | QA Officer | Assigned User submit corrective action |
-| **Closed** | QA xác nhận hiệu quả, CAPA hoàn thành | QA Officer | verification_result = Effective / Partially Effective |
-| **Overdue** | CAPA Open > 30 ngày chưa tiến triển | CMMS Scheduler | `today - creation_date > 30 AND status in (Open, In Progress)` |
+| `check_capa_overdue` | Daily | CAPA Open + due_date < today → Overdue | assigned_to + IMM QA Officer |
+| `check_vendor_contract_expiry` | Daily | contract_end - today in {90,60,30} | IMM Department Head |
+| `check_registration_expiry` | Daily | registration_expiry - today in {90,60,30,7} AND NOT Decommissioned | IMM Department Head |
+| `rollup_asset_kpi` | Daily | Tính MTTR avg, PM compliance % (reports) | — |
 
-**Transition Rules:**
-- Open → In Progress: `assigned_to` phải được điền
-- In Progress → Pending Verification: `corrective_action` + `root_cause` bắt buộc
-- Pending Verification → Closed: `verification_result` bắt buộc + `closed_by` = QA Officer role
-- Pending Verification → In Progress: Nếu QA từ chối (verification_result = Not Effective)
-- Any → Overdue: Scheduler tự động sau 30 ngày
+**Bỏ so với v2:** `sync_asset_profile_status` (không còn profile để sync).
 
 ---
 
-## 7. Business Rules
+## 7. Roles & Permissions
 
-| Mã | Rule | Kiểm soát |
-|---|---|---|
-| **BR-00-01** | IMM Device Model phải được tạo trước khi tạo IMM Asset Profile | Validate: `device_model` mandatory; check exists on save |
-| **BR-00-02** | IMM Asset Profile là 1:1 với ERPNext Asset — một Asset chỉ có một Profile | Unique constraint trên field `asset`; validate trong `before_insert` |
-| **BR-00-03** | `lifecycle_status` trong IMM Asset Profile luôn sync về `Asset.imm_lifecycle_status` | `on_update` hook tự động ghi vào tabAsset |
-| **BR-00-04** | IMM Audit Trail là append-only — không có Update/Delete endpoint, không có Delete permission cho bất kỳ role nào | DocType không submittable; permission `delete = 0` cho tất cả roles kể cả System Admin |
-| **BR-00-05** | CAPA phải được tạo trước khi Calibration fail record có thể Submit | IMM-11 on_submit fail path: check CAPA exists hoặc auto-create; block Submit nếu không tạo được |
-| **BR-00-06** | SLA Policy phải có ít nhất 1 default policy cho mỗi priority level (P1/P2/P3/P4) | Validate trên SLA Policy save: check `is_default` per priority |
-| **BR-00-07** | IMM Vendor Profile phải có ít nhất 1 record cho mỗi Supplier được dùng trong Commissioning | IMM-04 on_submit: check vendor has Vendor Profile; block nếu thiếu |
-| **BR-00-08** | Khi lifecycle_status → Decommissioned, tất cả active PM Schedule và Calibration Schedule phải bị Suspended | `on_update` IMM Asset Profile: nếu status → Decommissioned, gọi `suspend_all_schedules(asset)` |
-
----
-
-## 8. Scheduler Jobs
-
-| Job Function | Tần suất | Mô tả |
-|---|---|---|
-| `sync_asset_profile_status()` | Hàng ngày | Sync `lifecycle_status` từ IMM Asset Profile về `Asset.imm_lifecycle_status` cho tất cả asset; phát hiện drift |
-| `check_vendor_contract_expiry()` | Hàng ngày | So sánh `contract_end` với ngày hiện tại; gửi alert 90/60/30 ngày trước hạn cho IMM Operations Manager |
-| `check_byt_registration_expiry()` | Hàng ngày | So sánh `registration_expiry` trong IMM Asset Profile với today; alert 90/60/30 ngày trước hạn |
-| `check_capa_overdue()` | Hàng ngày | CAPA có status Open/In Progress và `creation > 30 ngày` → set status = Overdue, gửi alert QA Officer và Department Head |
-| `compute_asset_kpi_snapshot()` | Hàng tuần | Tính KPI per asset (availability, compliance rate, CAPA closure), lưu vào IMM Performance KPI snapshot |
-
----
-
-## 9. Integration Points
-
-### IMM-00 → Tất cả module (Foundation Provider)
-
-| Module Nhận | Dữ liệu từ IMM-00 | Khi nào |
-|---|---|---|
-| **IMM-04** (Installation) | `IMM Device Model`: medical_device_class, risk_classification, pm_interval_days, calibration_interval_days | Khi tạo Commissioning Record — điền thông số tự động từ Device Model |
-| **IMM-05** (Registration) | `IMM Asset Profile`: udi_code, gmdn_code, registration_number, device_model | Khi tạo hồ sơ đăng ký BYT — dữ liệu pre-filled từ Profile |
-| **IMM-08** (PM) | `IMM Asset Profile`: pm_interval_days, last_pm_date, next_pm_date; `IMM SLA Policy`: response_time, priority | Lập PM Schedule đầu tiên; xác định SLA cho WO |
-| **IMM-09** (CM/Repair) | `IMM Vendor Profile`: sla_response_hours, support_hotline, authorized_technicians; `IMM SLA Policy` | Xác định SLA CM, tìm NCC sửa chữa được ủy quyền |
-| **IMM-11** (Calibration) | `IMM Device Model`: calibration_interval_days; `IMM Asset Profile`: calibration_required; `IMM CAPA Record` | Lập Calibration Schedule; auto-create CAPA khi fail |
-| **IMM-12** (Corrective) | `IMM SLA Policy`: priority escalation; `IMM Audit Trail`: lịch sử incident | Xác định P1/P2/P3 SLA; trace lịch sử sự cố |
-| **IMM-13** (Decommission) | `IMM Asset Profile`: lifecycle_status = Decommissioned triggers; `IMM Audit Trail`: full history | Khi decommission, Archive Profile + Print Audit Trail đầy đủ |
-| **IMM-15** (Spare Parts) | `IMM Device Model`: spare_parts_list (child table) | Danh mục phụ tùng chuẩn theo model để quản lý tồn kho |
-| **IMM-16** (Compliance) | `IMM Audit Trail`: toàn bộ event log; `IMM CAPA Record`: closure status | Dashboard tuân thủ theo tiêu chuẩn; audit evidence |
-| **IMM-17** (Analytics) | `IMM Asset Profile`: lifecycle_status history; `IMM CAPA Record`: trends | Predictive analytics dựa trên lịch sử sự kiện |
-
-### Tất cả module → IMM-00 (Foundation Consumer)
-
-| Module Gửi | Dữ liệu về IMM-00 | Khi nào |
-|---|---|---|
-| **IMM-04** on_submit | Tạo IMM Asset Profile đầu tiên; ghi IMM Audit Trail event = "commissioned" | Khi Clinical Release được Submit |
-| **IMM-08** on_submit | Ghi IMM Audit Trail event = "pm_completed"; cập nhật Asset Profile.last_pm_date | Khi PM WO hoàn thành |
-| **IMM-09** on_submit | Ghi IMM Audit Trail event = "repaired"; cập nhật lifecycle_status | Khi CM WO Closed |
-| **IMM-11** on_submit | Ghi IMM Audit Trail event = "calibration_completed/failed"; tạo CAPA nếu fail | Khi Calibration record Submit |
-| **IMM-12** on_submit | Ghi IMM Audit Trail event = "incident_closed"; mở CAPA nếu severity Critical | Khi Corrective WO Closed |
-| **IMM-13** on_submit | Cập nhật lifecycle_status = "Decommissioned"; ghi Audit Trail "decommissioned" | Khi Decommission được phê duyệt |
-
----
-
-## 10. KPI Definitions
-
-| KPI | Công thức | Mục tiêu | Nguồn dữ liệu |
-|---|---|---|---|
-| **Asset Data Completeness** | `Count(Asset với IMM Profile đầy đủ) / Total Active Assets × 100%` | 100% | IMM Asset Profile |
-| **Vendor SLA Coverage** | `Count(Supplier có Vendor Profile + SLA) / Count(Supplier dùng trong WO) × 100%` | 100% | IMM Vendor Profile |
-| **BYT Registration Current** | `Count(Asset có registration_expiry > today) / Count(Assets yêu cầu ĐK) × 100%` | ≥ 95% | IMM Asset Profile |
-| **CAPA Closure Rate (30 ngày)** | `Count(CAPA Closed ≤ 30 ngày) / Count(Total CAPA) × 100%` | ≥ 90% | IMM CAPA Record |
-| **CAPA Overdue Rate** | `Count(CAPA Overdue) / Count(Total CAPA Open) × 100%` | ≤ 5% | IMM CAPA Record |
-| **Audit Trail Integrity** | `Count(Audit Trail records với valid hash) / Total AT records × 100%` | 100% | IMM Audit Trail |
-| **Asset Lifecycle Sync Rate** | `Count(Asset.imm_lifecycle_status == Profile.lifecycle_status) / Total Assets × 100%` | 100% | IMM Asset Profile + tabAsset |
-
----
-
-## 11. QMS Mapping
-
-| Yêu cầu IMM-00 | WHO HTM | ISO 13485 | NĐ98/2021 | Ghi chú |
-|---|---|---|---|---|
-| Danh mục thiết bị y tế (Device Model) | WHO HTM §3.1 — Equipment inventory | §4.1 — System requirements | Điều 4 — Phân loại TTBYT | GMDN code + risk class bắt buộc |
-| Hồ sơ thiết bị đầy đủ (Asset Profile) | WHO HTM §4.2 — Equipment database | §7.5 — Control of records | Điều 44 — Hồ sơ trang thiết bị | UDI, S/N, BYT registration mandatory |
-| Thông tin nhà cung cấp (Vendor Profile) | WHO HTM §5.1 — Procurement records | §7.4 — Purchasing | Điều 22 — Nhà cung cấp dịch vụ | ISO 13485 cert của NCC cần lưu trữ |
-| Quản lý vị trí lâm sàng (Location Ext) | WHO HTM §4.3 — Location tracking | §6.3 — Infrastructure | Điều 5 — Phân loại theo khu vực | Clinical area type cho phân tích risk |
-| Chính sách SLA (SLA Policy) | WHO HTM §6.1 — Response time | §8.2.3 — Service requirement | Điều 35 — Thời gian phản hồi | P1 critical ≤ 1h; P4 low ≤ 24h |
-| Audit Trail bất biến | WHO HTM §6.4 — Records management | §4.2.5 — Control of records | Điều 40 Khoản 3 — Lưu trữ hồ sơ | Append-only, SHA-256 hash, không xóa được |
-| CAPA (Corrective & Preventive Action) | WHO HTM §5.5 — Corrective actions | §8.5.2 — Corrective action, §8.5.3 — Preventive action | Điều 40 — Xử lý sự cố | Root cause + verification mandatory |
-| Phân quyền theo vai trò | WHO HTM §6.2 — Responsibility | §5.5 — Responsibility and authority | Điều 6 — Nhân sự | 8 roles với permission matrix đầy đủ |
-
----
-
-## 12. Dependencies
-
-### IMM-00 phụ thuộc vào (ERPNext Core — không sửa):
-
-| ERPNext DocType | Lý do phụ thuộc |
+| Role | Quyền hạn chính |
 |---|---|
-| `Asset` | IMM Asset Profile link 1:1; Custom Fields được thêm vào |
-| `Supplier` | IMM Vendor Profile mở rộng Supplier |
-| `Location` | IMM Location Ext mở rộng Location |
-| `Department` | IMM Asset Profile + Location Ext tham chiếu |
-| `Employee` | IMM Location Ext.dept_head link Employee |
-| `User` | IMM Asset Profile.responsible_technician; IMM Audit Trail.actor |
-| `Item` | IMM Device Model.item_ref (catalog item) |
-| `Asset Category` | IMM Device Model.device_category |
-| `Role` | IMM SLA Policy.escalation_l2_role; Permission Matrix |
+| IMM System Admin | Create/Write/Delete mọi DocType AssetCore |
+| IMM Department Head | Read/Write AC Asset; nhận cảnh báo scheduler |
+| IMM Operations Manager | Read/Write AC Asset, AC Supplier; Read SLA |
+| IMM Workshop Lead | Read/Write IMM Device Model, AC Asset; Create CAPA |
+| IMM Technician | Read AC Asset; Write PM/Cal dates (chỉ thiết bị được gán) |
+| IMM Document Officer | Read all; không Create/Edit |
+| IMM Storekeeper | Read/Write AC Supplier |
+| IMM QA Officer | Read/Write/Submit CAPA; xem full Audit Trail |
 
-### Các module phụ thuộc vào IMM-00 (tất cả module):
+Fixtures: `fixtures/imm_roles.json` (auto-seed qua `bench migrate`).
 
-- **IMM-01 đến IMM-17**: Tất cả đều cần IMM-00 hoàn thành trước khi bắt đầu build
-- Thứ tự triển khai bắt buộc: `IMM-00 → IMM-04 → IMM-05 → IMM-08 → IMM-09 → IMM-11 → IMM-12`
+Permission Query (`permission.py`): IMM Technician chỉ thấy `AC Asset` nơi `responsible_technician = session.user`.
 
 ---
 
-## Tài liệu liên quan
+## 8. Business Rules nền tảng
 
-- [Functional Specs](IMM-00_Functional_Specs.md) — User stories, acceptance criteria, business rules, permission matrix, validation rules
-- [Technical Design](IMM-00_Technical_Design.md) — ERD, data dictionary, service layer, controller hooks
-- [API Interface](IMM-00_API_Interface.md) — Endpoint specs, JSON payloads
-- [UI/UX Guide](IMM-00_UI_UX_Guide.md) — Master data forms, search, inline validation
-- [UAT Script](IMM-00_UAT_Script.md) — Test cases, acceptance scenarios
+| ID | Business Rule | Enforce tại | Chuẩn |
+|---|---|---|---|
+| BR-00-01 | Class I → Low; Class II → Medium; Class III → High/Critical | `IMMDeviceModel.validate()` | NĐ 98/2021 |
+| BR-00-02 | `AC Asset.lifecycle_status` chuyển trạng thái chỉ qua `transition_asset_status()` | Service layer | Internal |
+| BR-00-03 | Audit Trail + Lifecycle Event immutable (no Update/Delete perm) | Controller + perm | ISO 13485:7.5.9 |
+| BR-00-04 | Decommissioned → suspend tất cả PM/Calibration Schedules | `transition_asset_status()` | WHO HTM |
+| BR-00-05 | Out of Service / Decommissioned → block tạo Work Order | `validate_asset_for_operations()` | WHO HTM |
+| BR-00-06 | AC Supplier `vendor_type = "Calibration Lab"` → warning nếu thiếu `iso_17025_cert` | `ACSupplier.validate()` | ISO/IEC 17025 |
+| BR-00-07 | SLA `response_time_minutes < resolution_time_hours × 60` | `IMMSLAPolicy.validate()` | Internal |
+| BR-00-08 | CAPA phải có `corrective_action + root_cause` trước `before_submit` | `IMMCAPARecord.before_submit()` | ISO 13485:8.5 |
+| BR-00-09 | CAPA quá `due_date` → auto Overdue qua daily scheduler | `check_capa_overdue()` | Internal |
+| BR-00-10 | Mọi thay đổi `lifecycle_status` phải sinh 1 Asset Lifecycle Event | `transition_asset_status()` | Audit trail |
+
+**Bỏ:** BR-00-02 cũ (IMM Asset Profile 1:1) — không còn profile.
+
+---
+
+## 9. Quan hệ với module khác
+
+```text
+IMM-00 → IMM-04 (Installation)
+  • create_lifecycle_event("commissioned")
+  • validate_asset_for_operations() trước bàn giao
+  • AC Asset: commissioning_date, commissioning_ref
+
+IMM-00 → IMM-05 (Registration)
+  • AC Asset: byt_reg_no, byt_reg_expiry
+  • check_registration_expiry() cảnh báo
+
+IMM-00 → IMM-08 (PM)
+  • validate_asset_for_operations() gate
+  • get_sla_policy() tra SLA
+  • create_lifecycle_event("pm_completed")
+
+IMM-00 → IMM-09 (Repair/CM)
+  • Incident Report là nguồn tạo Repair Work Order
+  • transition_asset_status(Active → Under Repair → Active)
+  • create_capa() nếu severity >= Major
+
+IMM-00 → IMM-11 (Calibration)
+  • AC Supplier.iso_17025_cert validation
+  • AC Asset: next_calibration_date
+
+IMM-00 → IMM-12 (Corrective)
+  • create_capa() từ incident
+  • transition_asset_status(Active → Out of Service)
+```
+
+---
+
+## 10. Roadmap triển khai
+
+| Sprint | Hạng mục | Trạng thái |
+|---|---|---|
+| 0.1 | 13 DocType JSON + controller + fixtures | 🔜 |
+| 0.2 | Services layer (imm00.py) + utils/ | 🔜 |
+| 0.3 | Role fixtures + permission.py | 🔜 |
+| 0.4 | Scheduler jobs + email templates | 🔜 |
+| 0.5 | API layer (api/imm00.py) | 🔜 |
+| 0.6 | Test suite (target 70% coverage) | 🔜 |
+| 0.7 | FE shell (routing + auth guard + AC Asset form) | 🔜 |
+
+**Break sạch với v2:** Code IMM-08/09 hiện tại đang phụ thuộc ERPNext `Asset`/`Asset Repair`/`Stock Entry` sẽ xoá và viết lại sau khi IMM-00 v3 hoàn tất.

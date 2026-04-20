@@ -1,601 +1,323 @@
-# IMM-09 — Corrective Maintenance (Sửa chữa / Bảo trì Khắc phục)
-## Functional Specification
+# IMM-09 — Functional Specifications
 
-**Module:** IMM-09  
-**Version:** 1.0  
-**Ngày:** 2026-04-17  
-**Trạng thái:** Draft — Chờ phê duyệt  
-**Tác giả:** AssetCore Team
-
----
-
-## 1. Vị trí trong Asset Lifecycle
-
-```
-IMM-04 (Lắp đặt) → IMM-05 (Hồ sơ) → [Asset "Active"]
-                                              │
-                              ┌───────────────▼───────────────┐
-                              │    Nguồn kích hoạt CM         │
-                              │                               │
-                  ┌───────────┼───────────┐                   │
-                  │           │           │                   │
-            PM phát lỗi   Sự cố     Yêu cầu                  │
-            (IMM-08)      (IMM-12)   người dùng               │
-                  │           │           │                   │
-                  └───────────┴─────┬─────┘                   │
-                                    │                         │
-                                    ▼                         │
-                         ┌──────────────────┐                 │
-                         │   IMM-09: CM     │                 │
-                         │  Tiếp nhận WO   │                 │
-                         │  → Chẩn đoán    │                 │
-                         │  → Xuất kho PT  │                 │
-                         │  → Thực hiện SC │                 │
-                         │  → Nghiệm thu   │                 │
-                         │  → Tái đưa vào  │                 │
-                         │    dịch vụ      │                 │
-                         └────────┬─────────┘                 │
-                                  │                           │
-                    ┌─────────────┼─────────────┐             │
-                    │             │             │             │
-              Hoàn thành   Không sửa       Cần hiệu      ◄───┘
-              (Active)     được (EOL)      chuẩn (IMM-11)
-                    │             │
-           [MTTR ghi nhận] [IMM-13/14 EOL]
-```
-
-**Quan hệ ngang:**
-- **IMM-08** → cung cấp `source_pm_wo` khi PM phát hiện lỗi và chuyển sang CM
-- **IMM-05** → cung cấp Service Manual, hồ sơ kỹ thuật thiết bị để chẩn đoán
-- **IMM-11** → Calibration bắt buộc sau sửa chữa nếu thiết bị liên quan đến đo lường
-- **IMM-12** → Corrective Maintenance (sự cố) có thể chuyển thành Repair WO IMM-09
-- **IMM-13/14** → khi thiết bị không thể sửa chữa (Cannot Repair) → chuyển EOL
+| Thuộc tính | Giá trị |
+|---|---|
+| Module | IMM-09 — Corrective Maintenance / Repair |
+| Phiên bản | 2.0.0 |
+| Ngày cập nhật | 2026-04-18 |
+| Trạng thái | LIVE |
+| Chuẩn tham chiếu | WHO HTM 2025, ISO 13485:2016, ISO 9001:2015, NĐ 98/2021/NĐ-CP |
+| Dependency | Frappe v15, IMM-00 Foundation, IMM-08 PM, IMM-12 Incident |
+| Tác giả | AssetCore Team |
 
 ---
 
-## 2. Workflow Chính (BPMN)
+## 1. Scope
 
-```
-START
-  │
-  ▼ [Trigger — một trong ba nguồn]
-  ┌────────────────────────────────────────────┐
-  │ A. Người dùng báo hỏng → tạo Incident Rpt │
-  │ B. PM WO phát hiện lỗi → source_pm_wo     │
-  │ C. Workshop Manager tạo CM WO thủ công    │
-  └────────────────────┬───────────────────────┘
-  │
-  ▼ [Step 1 — BR-09-01]
-  Tạo Asset Repair WO (WO-CM-YYYY-#####)
-  Actor: Workshop Manager / CMMS Auto
-  Validate: phải có source (IR-ref HOẶC source_pm_wo)
-  Output: WO status = "Open"
-  │
-  ▼ [Step 2]
-  Phân công KTV thực hiện
-  Actor: Workshop Manager
-  Action: Chọn KTV, xác nhận ngày, set priority (Normal / Urgent / Emergency)
-  Output: WO status = "Assigned"
-  │
-  ▼ [Step 3]
-  KTV tiến hành chẩn đoán
-  Actor: KTV HTM
-  Action: Kiểm tra thiết bị, xác định nguyên nhân gốc rễ
-  Asset status = "Under Repair" (BR-09-05)
-  Output: WO status = "Diagnosing", diagnosis_notes filled
-  │
-  ▼ [Gateway: Cần vật tư?]
-  │
-  ├─── Không cần vật tư → [Emergency Fast-Track] ──────────────┐
-  │                                                             │
-  ├─── Cần vật tư ─────────────────────────────┐               │
-  │                                             │               │
-  │    ▼ [Step 4 — BR-09-02]                    │               │
-  │    Yêu cầu xuất kho vật tư                  │               │
-  │    Actor: KTV HTM → Kho vật tư             │               │
-  │    Action: Tạo Spare Parts Request         │               │
-  │    Output: WO status = "Pending Parts"     │               │
-  │            Stock Entry reference bắt buộc  │               │
-  │                                             │               │
-  │    ▼ [Step 5]                               │               │
-  │    Kho xuất vật tư                          │               │
-  │    Actor: Kho vật tư                        │               │
-  │    Action: Issue parts, tạo Stock Entry    │               │
-  │    Output: Spare Parts Used table filled   │               │
-  │                                             │               │
-  └─────────────────────────────────────────────┘               │
-                                   │                            │
-                                   └────────────────────────────┘
-                                               │
-  ▼ [Step 6]
-  Thực hiện sửa chữa
-  Actor: KTV HTM
-  Action: Thay thế linh kiện, điều chỉnh, sửa chữa
-  Output: WO status = "In Repair"
-  │
-  ▼ [Gateway: Cập nhật Firmware?]
-  │
-  ├─── Có → [BR-09-03]
-  │         Tạo Firmware Change Request
-  │         Actor: KTV HTM → Workshop Manager approve
-  │         Fields: version_before, version_after, change_notes
-  │         Output: FCR submitted
-  │
-  └─── Không → tiếp tục
-  │
-  ▼ [Step 7 — BR-09-04]
-  Kiểm tra nghiệm thu sau sửa chữa
-  Actor: KTV HTM
-  Action: Điền Repair Checklist (100% pass bắt buộc)
-  Output: WO status = "Pending Inspection"
-  │
-  ▼ [Gateway: Checklist 100% pass?]
-  │
-  ├─── Fail → Quay lại Step 6 (tiếp tục sửa)
-  │
-  ├─── Pass + Thiết bị OK
-  │    ▼ [Step 8]
-  │    Bàn giao thiết bị
-  │    Actor: KTV HTM + Trưởng khoa phòng
-  │    Action: Trưởng khoa xác nhận nhận lại, ký biên bản
-  │    Output: WO status = "Completed"
-  │            Asset.status = "Active" (BR-09-05)
-  │            MTTR calculated
-  │
-  └─── Cannot Repair
-       ▼
-       WO status = "Cannot Repair"
-       Asset.status = "Out of Service"
-       Trigger IMM-13/14 process
+### 1.1 In Scope
 
-END
-```
+| # | Hạng mục |
+|---|---|
+| 1 | DocType `Asset Repair` (submittable) + 2 child (`Spare Parts Used`, `Repair Checklist`) + `Firmware Change Request` |
+| 2 | State machine 9 trạng thái (Open → Completed / Cannot Repair / Cancelled) |
+| 3 | 7 business rules (BR-09-01 → BR-09-07) enforce qua service + controller |
+| 4 | Tính MTTR theo calendar time + SLA matrix `risk_class × priority` |
+| 5 | 12 REST endpoints (CRUD + workflow actions + KPI) |
+| 6 | 7 Frontend views Vue 3 (Dashboard, List, Detail, Create, Diagnose, Parts, Checklist, MTTR Report) |
+| 7 | Scheduler: hourly SLA breach check, daily overdue email, monthly MTTR rollup |
+| 8 | Tích hợp IMM-08 (PM Halted → CM), IMM-11 (post-repair Cal), IMM-12 (CAPA cho repeat failure) |
+
+### 1.2 Out of Scope
+
+| # | Hạng mục | Lý do |
+|---|---|---|
+| 1 | Procurement vật tư khẩn cấp | Thuộc module Inventory / Procurement |
+| 2 | Vendor Service Order (gửi thiết bị ra ngoài hãng) | Phase sau (IMM-09.1) |
+| 3 | Mobile native app | Web responsive là đủ Wave 1 |
+| 4 | Predictive maintenance (AI) | Roadmap dài hạn |
 
 ---
 
-## 3. Actors & Roles
+## 2. Actors
 
-| Actor | Vai trò | Quyền hệ thống | Trách nhiệm |
+| Actor | Mô tả | Trách nhiệm chính |
+|---|---|---|
+| Workshop Manager | Quản lý xưởng kỹ thuật | Tạo / phân công / cancel WO; review SLA breach; phê duyệt FCR |
+| HTM Technician (KTV HTM) | Kỹ thuật viên thực hiện sửa chữa | Diagnose, request parts, execute repair, fill checklist |
+| Kho vật tư | Thủ kho | Xuất vật tư theo `request_spare_parts`, gắn `stock_entry_ref` |
+| Trưởng khoa phòng | Người dùng cuối thiết bị | Xác nhận nghiệm thu (ký `dept_head_name`) |
+| PTP Khối 2 | Phó Trưởng phòng giám sát | Xem MTTR Dashboard, KPI compliance |
+| CMMS Admin | System admin | Cấu hình, chạy scheduler manual, audit |
+| CMMS Auto | System job | Auto tạo CM WO từ PM Halted |
+
+---
+
+## 3. User Stories (INVEST)
+
+| ID | As | I want | So that | SP |
+|---|---|---|---|---|
+| US-09-01 | Workshop Manager | Tạo CM WO bắt buộc có nguồn (IR hoặc PM WO) | Mọi sửa chữa truy xuất được lý do | 5 |
+| US-09-02 | Workshop Manager | Phân công KTV với priority phù hợp risk class | Phân bổ nhân lực hợp lý | 3 |
+| US-09-03 | KTV HTM | Ghi chẩn đoán + chọn `root_cause_category` + ảnh thiết bị | Hồ sơ kỹ thuật đầy đủ cho audit | 5 |
+| US-09-04 | KTV HTM | Yêu cầu vật tư trực tiếp trong WO và nhận notification khi xuất xong | Không cần liên lạc thủ công | 8 |
+| US-09-05 | Kho vật tư | Xác nhận xuất vật tư bằng `stock_entry_ref` | Vật tư có chứng từ kế toán | 3 |
+| US-09-06 | KTV HTM | Tạo Firmware Change Request liên kết với WO khi update firmware | Mọi thay đổi firmware có change control | 5 |
+| US-09-07 | KTV HTM | Điền Repair Checklist; hệ thống chỉ cho Submit khi 100 % Pass | Đảm bảo an toàn trước khi trả thiết bị | 5 |
+| US-09-08 | Trưởng khoa phòng | Xác nhận nhận lại thiết bị bằng chữ ký số (dept_head_name) | Bàn giao có biên bản | 3 |
+| US-09-09 | KTV HTM | Đánh dấu Cannot Repair với lý do | Trigger EOL process | 3 |
+| US-09-10 | PTP Khối 2 | Xem MTTR theo tháng + first-time fix rate + backlog | Báo cáo hiệu suất workshop | 5 |
+| US-09-11 | PTP Khối 2 | Xem repair history của 1 thiết bị + MTTR average | Phát hiện thiết bị có vấn đề mãn tính | 3 |
+| US-09-12 | System | Tự động tạo CM WO khi PM Halted (Major Failure) | Không bỏ sót lỗi từ PM | 5 |
+
+---
+
+## 4. Functional Requirements
+
+### 4.1 Nhóm Repair Work Order (FR-09-01 → FR-09-08)
+
+| FR ID | Mô tả | Actor | Endpoint |
 |---|---|---|---|
-| Workshop Manager | Quản lý Workshop | Tạo/Assign WO, phê duyệt chi phí | Tiếp nhận yêu cầu, phân công KTV, approve repair cost, giám sát MTTR |
-| KTV HTM | Thực hiện sửa chữa | Execute WO, Fill Checklist, Fill Diagnosis | Chẩn đoán, thực hiện sửa chữa, điền checklist nghiệm thu |
-| Kho vật tư | Xuất kho linh kiện | Issue Parts, Create Stock Entry | Xác nhận tồn kho, xuất vật tư theo yêu cầu, tạo phiếu xuất kho |
-| Trưởng khoa phòng | Xác nhận trả thiết bị | Confirm return, View WO | Ký biên bản nhận lại thiết bị sau sửa chữa |
-| PTP Khối 2 | Giám sát KPI | View CM Dashboard, View MTTR Report | Theo dõi repair backlog, MTTR trend, first-time fix rate |
-| CMMS Auto | Hệ thống | System process | Tạo CM WO từ PM failure event (source_pm_wo), tính MTTR tự động |
+| FR-09-01 | Tạo Asset Repair WO `WO-CM-.YYYY.-.#####` với nguồn bắt buộc | Workshop Manager | POST `create_repair_work_order` |
+| FR-09-02 | List WO với filter (`status`, `priority`, `assigned_to`, `risk_class`) + pagination | All roles | GET `list_repair_work_orders` |
+| FR-09-03 | Chi tiết WO + asset enrichment (`asset_info`) | All roles | GET `get_repair_work_order` |
+| FR-09-04 | Phân công KTV (Open → Assigned) + set priority | Workshop Manager | POST `assign_technician` |
+| FR-09-05 | Nộp diagnosis (Assigned/Diagnosing → Pending Parts hoặc In Repair) | KTV HTM | POST `submit_diagnosis` |
+| FR-09-06 | Bắt đầu sửa chữa (→ In Repair) | KTV HTM | POST `start_repair` |
+| FR-09-07 | Đóng WO (Pending Inspection → Completed) HOẶC đánh dấu Cannot Repair | KTV + Trưởng khoa | POST `close_work_order` |
+| FR-09-08 | Lịch sử sửa chữa của 1 thiết bị (`asset_ref`) | All roles | GET `get_asset_repair_history` |
 
----
+### 4.2 Nhóm Spare Parts (FR-09-09 → FR-09-11)
 
-## 4. Input / Output
+| FR ID | Mô tả | Actor | Endpoint |
+|---|---|---|---|
+| FR-09-09 | Yêu cầu xuất vật tư (cập nhật `stock_entry_ref` trên child rows) | KTV / Kho | POST `request_spare_parts` |
+| FR-09-10 | Tìm kiếm Item vật tư trong catalog | KTV HTM | GET `search_spare_parts` |
+| FR-09-11 | Tự tính `total_parts_cost = Σ (qty × unit_cost)` trên `validate()` | System | controller `_compute_parts_cost` |
 
-### INPUT
+### 4.3 Nhóm KPI & Reports (FR-09-12 → FR-09-13)
 
-| Đầu vào | Nguồn | Bắt buộc |
-|---|---|---|
-| Incident Report (IR-ref) | IMM-12 hoặc người dùng báo hỏng | Có (hoặc source_pm_wo) |
-| PM Work Order nguồn (source_pm_wo) | IMM-08 PM WO detect lỗi | Có (nếu từ PM) |
-| Thông tin thiết bị (asset_ref, serial, model) | Asset DocType + IMM-05 | Có |
-| Service Manual / hồ sơ kỹ thuật | IMM-05 Asset Documents | Không (tham khảo) |
-| Spare Parts Catalog | Item Master | Khi cần vật tư |
-| Firmware version hiện tại | Asset custom field | Khi update firmware |
-| Repair Checklist Template | Asset Category | Có (cho nghiệm thu) |
+| FR ID | Mô tả | Actor | Endpoint |
+|---|---|---|---|
+| FR-09-12 | KPI tháng: total_completed, mttr_avg, sla_compliance %, repeat failure count, open WO count, root cause breakdown | PTP / Manager | GET `get_repair_kpis` |
+| FR-09-13 | MTTR Report: trend 6 tháng, first-fix rate, backlog by department, cost per repair | PTP / Manager | GET `get_mttr_report` |
 
-### OUTPUT
+### 4.4 Nhóm Scheduler (FR-09-14 → FR-09-16)
 
-| Đầu ra | DocType / Artifact | Ghi chú |
-|---|---|---|
-| Asset Repair WO | `Asset Repair` (WO-CM-YYYY-#####) | Record chính |
-| Spare Parts Used | Child table của Asset Repair | Liệt kê linh kiện thay thế |
-| Stock Entry reference | Link đến Stock Entry Frappe | BR-09-02 bắt buộc |
-| Repair Checklist result | Child table `Repair Checklist` | 100% pass mới cho Complete |
-| Firmware Change Request | `Firmware Change Request` | Khi có cập nhật firmware |
-| Asset Lifecycle Event | `Asset Lifecycle Event` | Mỗi thay đổi trạng thái |
-| Biên bản bàn giao (PDF) | Print Format | Ký giữa KTV và Trưởng khoa |
-| MTTR record | Tính từ open→completion datetime | Phục vụ KPI |
+| FR ID | Job | Tần suất | Logic |
+|---|---|---|---|
+| FR-09-14 | `check_repair_sla_breach` | Hourly | Mark `sla_breached = 1` khi `elapsed_hours ≥ sla_target_hours`; publish realtime `cm_sla_breached` |
+| FR-09-15 | `check_repair_overdue` | Daily 07:00 | Email Workshop Manager khi WO `status IN (Open, Assigned, Pending Parts)` AND `open_datetime < today − 7d` |
+| FR-09-16 | `update_asset_mttr_avg` | Monthly 01 06:00 | Cập nhật `Asset.custom_mttr_avg_hours` (trung bình 12 WO Completed gần nhất) |
 
 ---
 
 ## 5. Business Rules
 
-| Mã | Nội dung Rule | Hậu quả vi phạm | Kiểm soát |
+| ID | Rule | Enforce | Hậu quả vi phạm |
 |---|---|---|---|
-| **BR-09-01** | Asset Repair WO phải có ít nhất một nguồn hợp lệ: `incident_report` (IR-ref) HOẶC `source_pm_wo` — không được tạo WO mà không có lý do rõ ràng | WO bị block tạo nếu thiếu cả hai trường nguồn | Validate `incident_report` OR `source_pm_wo` is not null trên `before_insert` |
-| **BR-09-02** | Khi KTV ghi nhận vật tư đã sử dụng trong `Spare Parts Used`, phải có `stock_entry_ref` tham chiếu phiếu xuất kho hợp lệ — không chấp nhận vật tư ghi tay không có chứng từ | `Spare Parts Used` row bị block nếu thiếu `stock_entry_ref` | Validate trên child table trước Submit WO |
-| **BR-09-03** | Khi KTV cập nhật firmware thiết bị trong quá trình sửa chữa, phải tạo `Firmware Change Request` riêng biệt với `version_before` và `version_after` — không được update firmware field trực tiếp trên Asset | WO không thể submit nếu `firmware_updated = True` mà không có FCR linked | Check `firmware_change_request` is linked nếu `firmware_updated` = True |
-| **BR-09-04** | Trước khi chuyển WO sang "Completed", toàn bộ `Repair Checklist` phải được điền và 100% kết quả là "Pass" — không có mục nào để trống hoặc "Fail" | WO bị block Complete nếu có mục Fail hoặc chưa điền | Validate all checklist items result = "Pass" trên `before_submit` |
-| **BR-09-05** | Asset.status phải được set = "Under Repair" ngay khi WO chuyển sang "Assigned" và chỉ được trả về "Active" khi WO được Submit với status = "Completed" — suốt thời gian sửa chữa thiết bị không thể dùng cho PM hoặc Calibration mới | Thiết bị bị schedule PM/Calibration trong khi đang sửa | Auto-set `Asset.status` theo WO transition; block WO creation nếu asset đã "Under Repair" |
+| BR-09-01 | WO bắt buộc `incident_report` OR `source_pm_wo` | `validate_repair_source()` `before_insert` | Block insert — `CM-001` |
+| BR-09-02 | Mỗi `spare_parts_used` row phải có `stock_entry_ref` tồn tại trong `Stock Entry` | `validate_spare_parts_stock_entries()` `before_submit` | Block submit — `CM-003`/`CM-004` |
+| BR-09-03 | `firmware_updated = 1` → bắt buộc `firmware_change_request` linked + status `Approved` | `validate_firmware_change_request()` `before_submit` | Block submit — `CM-005`/`CM-006` |
+| BR-09-04 | Tất cả `repair_checklist` row phải có `result` AND không Fail | `validate_repair_checklist_complete()` `before_submit` | Block submit — `CM-007`/`CM-008` |
+| BR-09-05 | Asset → `Under Repair` khi `on_insert`; Asset → `Active` khi `on_submit` Completed; → `Out of Service` khi Cannot Repair | `set_asset_under_repair()` + `complete_repair()` + `_mark_cannot_repair()` | Asset state inconsistent |
+| BR-09-06 | Lỗi lặp lại trong 30 ngày → `is_repeat_failure = 1`; gợi ý CAPA | `check_repeat_failure()` `before_insert` | Flag để KPI đo first-fix rate |
+| BR-09-07 | `mttr_hours > sla_target_hours` → `sla_breached = 1` | `complete_repair()` | KPI rollup, email alert |
 
 ---
 
-## 6. MTTR Calculation
+## 6. Permission Matrix
 
-### 6.1 Định nghĩa
-
-```
-MTTR = (completion_datetime - open_datetime) theo giờ làm việc
-```
-
-Trong đó:
-- `open_datetime`: thời điểm WO được tạo (creation timestamp)
-- `completion_datetime`: thời điểm WO được Submit thành công (Completed)
-- Tính theo **giờ làm việc** (working hours): thứ 2–6, 07:00–17:00 (loại trừ ngày lễ)
-
-### 6.2 Công thức chi tiết
-
-```python
-def calculate_mttr(open_dt: datetime, close_dt: datetime) -> float:
-    """
-    Tính MTTR theo giờ làm việc.
-    Trả về số giờ (float, 2 chữ số thập phân).
-    
-    Working hours: Mon-Fri, 07:00-17:00
-    Excludes: public holidays (từ Holiday List)
-    """
-    working_hours = get_working_hours_between(open_dt, close_dt)
-    return round(working_hours, 2)
-```
-
-### 6.3 Ngưỡng SLA theo loại thiết bị
-
-| Risk Class | Priority | MTTR Target | Cảnh báo | Critical |
-|---|---|---|---|---|
-| Class III (Nguy cơ cao) | Emergency | ≤ 4 giờ | > 2 giờ | > 4 giờ |
-| Class III | Urgent | ≤ 24 giờ | > 16 giờ | > 24 giờ |
-| Class II | Normal | ≤ 72 giờ | > 48 giờ | > 72 giờ |
-| Class I | Normal | ≤ 120 giờ | > 80 giờ | > 120 giờ |
-
-### 6.4 MTTR KPI Dashboard
-
-```
-MTTR (tháng) = Tổng MTTR tất cả WO hoàn thành / Tổng số WO
-First-Time Fix Rate = WO không mở lại trong 30 ngày / Tổng WO × 100%
-Repair Backlog = Count(Open + Assigned WOs)
-Parts Cost/Repair = Tổng spare_parts_total_cost / Count WO Completed
-```
-
-### 6.5 Scheduler — SLA Overdue Alert
-
-```python
-def check_repair_sla_breach():
-    """
-    Chạy mỗi 1 giờ — kiểm tra WO sắp/đã vượt SLA.
-    """
-    active_wos = frappe.get_all("Asset Repair", 
-        filters={"status": ("in", ["Assigned", "Diagnosing", "In Repair"])},
-        fields=["name", "asset_ref", "priority", "creation", "risk_class"])
-    
-    for wo in active_wos:
-        elapsed = get_working_hours_since(wo.creation)
-        sla_limit = get_sla_limit(wo.risk_class, wo.priority)
-        
-        if elapsed >= sla_limit:
-            _escalate_sla_breach(wo)
-        elif elapsed >= sla_limit * 0.75:
-            _warn_approaching_sla(wo)
-```
+| Action | Workshop Manager | HTM Technician | Kho vật tư | Trưởng khoa | PTP Khối 2 | CMMS Admin |
+|---|---|---|---|---|---|---|
+| Create WO | ✅ | — | — | — | — | ✅ |
+| Read WO | ✅ | ✅ (assigned) | ✅ | ✅ (own dept) | ✅ | ✅ |
+| Assign technician | ✅ | — | — | — | — | ✅ |
+| Submit diagnosis | — | ✅ | — | — | — | ✅ |
+| Request spare parts | ✅ | ✅ | ✅ | — | — | ✅ |
+| Start repair | — | ✅ | — | — | — | ✅ |
+| Close WO (submit) | ✅ | ✅ | — | — | — | ✅ |
+| Confirm dept_head | — | — | — | ✅ | — | ✅ |
+| Mark Cannot Repair | ✅ | ✅ | — | — | — | ✅ |
+| Cancel WO | ✅ | — | — | — | — | ✅ |
+| View MTTR / KPI | ✅ | — | — | — | ✅ | ✅ |
+| Approve FCR | ✅ | — | — | — | — | ✅ |
 
 ---
 
-## 7. Exception Handling
+## 7. Validation Rules
 
-| Tình huống | Điều kiện kích hoạt | Xử lý hệ thống | Xử lý nghiệp vụ |
+| VR ID | Field / Object | Rule | Error Message (vi) |
 |---|---|---|---|
-| Thiết bị hỏng không có vật tư | Spare part stock = 0 sau khi chẩn đoán | WO status = "Pending Parts", trigger procurement alert | Kho liên hệ nhà cung cấp, đặt mua khẩn; Workshop Manager cập nhật ETA |
-| KTV không thể sửa (skill gap) | KTV ghi nhận "vượt năng lực" trong diagnosis | Alert Workshop Manager, WO unassigned | Manager reassign cho KTV cao cấp hơn hoặc liên hệ hãng |
-| Hãng sản xuất cần can thiệp | KTV chọn "Escalate to Manufacturer" | WO status = "Pending Manufacturer", ghi vendor contact | Workshop liên hệ hãng, ghi tracking number bảo hành |
-| Thiết bị trong bảo hành | Asset.warranty_expiry > today AND failure không do lỗi người dùng | Flag WO is_warranty = True, block chi phí xuất kho thông thường | Liên hệ nhà cung cấp bảo hành, không tính chi phí vật tư |
-| Sửa chữa không thành công | KTV chọn "Cannot Repair" sau nhiều lần thử | WO status = "Cannot Repair", Asset.status = "Out of Service" | Trigger IMM-13/14 (EOL); Workshop thông báo BGĐ + khoa phòng |
-| Thiết bị lại hỏng trong 30 ngày | Mở WO mới cho cùng asset trong 30 ngày sau WO hoàn thành | Flag WO.is_repeat_failure = True; giảm First-Time Fix Rate KPI | Điều tra root cause, xem xét thay thế thiết bị |
-| Firmware update thất bại | FCR submitted nhưng firmware rollback cần thiết | Alert KTV + Workshop Manager; FCR status = "Rollback Required" | KTV thực hiện rollback, cập nhật FCR với kết quả |
-| Thiết bị khẩn cấp (life-critical) | asset.risk_class = III AND ward = ICU/OR | Auto-escalate đến PTP + BGĐ; push notification ngay lập tức | Ưu tiên tuyệt đối, cần spare device nếu có |
+| VR-09-01 | `incident_report` + `source_pm_wo` | Ít nhất 1 trong 2 phải có giá trị | "Phải có nguồn sửa chữa: Incident Report hoặc PM Work Order gốc" |
+| VR-09-02 | `asset_ref` | Asset không đang có WO mở khác | "Thiết bị đang có phiếu sửa chữa đang mở: {wo}" |
+| VR-09-03 | `repair_type` | Phải IN (Corrective, Emergency, Warranty Repair) | "Loại sửa chữa không hợp lệ" |
+| VR-09-04 | `priority` | Phải IN (Normal, Urgent, Emergency) | "Ưu tiên không hợp lệ" |
+| VR-09-05 | `spare_parts_used[*].stock_entry_ref` | Bắt buộc khi submit; phải tồn tại trong `Stock Entry` | "Vật tư '{item}' (dòng {idx}) thiếu phiếu xuất kho" |
+| VR-09-06 | `firmware_change_request` | Reqd khi `firmware_updated = 1`; FCR.status = "Approved" | "Cập nhật firmware yêu cầu FCR đã được phê duyệt" |
+| VR-09-07 | `repair_checklist[*].result` | Reqd; không được "Fail" | "Mục kiểm tra #{idx} '{desc}' chưa Pass — không thể hoàn thành" |
+| VR-09-08 | `cannot_repair_reason` | Reqd khi `status = Cannot Repair` | "Vui lòng nhập lý do không thể sửa chữa" |
+| VR-09-09 | `dept_head_name` | Reqd khi close_work_order (không phải Cannot Repair) | "Phải có xác nhận của Trưởng khoa phòng" |
+| VR-09-10 | `assigned_to` | Reqd transition Open → Assigned; phải là User có role HTM Technician | "Phải chọn KTV để phân công" |
+| VR-09-11 | `mttr_hours` | Auto = `(completion_datetime − open_datetime) / 3600` | (auto, read-only) |
+| VR-09-12 | `sla_target_hours` | Auto từ `get_sla_target(risk_class, priority)` | (auto, read-only) |
 
 ---
 
-## 8. User Stories (INVEST)
+## 8. Non-Functional Requirements
 
-| ID | Story | SP |
-|---|---|---|
-| US-09-01 | Với tư cách là **Workshop Manager**, tôi muốn tạo CM Work Order với bắt buộc điền nguồn (Incident Report hoặc PM WO nguồn), để đảm bảo mọi repair đều có lý do truy xuất được và không bị mở WO vô căn cứ. | 5 |
-| US-09-02 | Với tư cách là **KTV HTM**, tôi muốn chẩn đoán và ghi root cause trực tiếp trên WO form kèm ảnh chụp thiết bị hỏng, để tạo hồ sơ kỹ thuật đầy đủ cho audit trail. | 5 |
-| US-09-03 | Với tư cách là **KTV HTM**, tôi muốn yêu cầu vật tư từ kho trực tiếp trong WO và nhận notification khi đã được xuất, để không cần liên lạc thủ công và tránh gián đoạn quy trình sửa chữa. | 8 |
-| US-09-04 | Với tư cách là **KTV HTM**, tôi muốn điền Repair Checklist sau khi sửa chữa và hệ thống chỉ cho phép Complete WO khi 100% mục đã Pass, để đảm bảo thiết bị an toàn trước khi trả lại khoa phòng. | 5 |
-| US-09-05 | Với tư cách là **PTP Khối 2**, tôi muốn xem MTTR theo tháng và First-Time Fix Rate trên dashboard, để báo cáo hiệu suất workshop và phát hiện thiết bị có vấn đề mãn tính. | 3 |
-| US-09-06 | Với tư cách là **Workshop Manager**, tôi muốn xem danh sách repair backlog (Open + Assigned WOs) với màu ưu tiên theo risk class và SLA status, để phân bổ nhân lực hiệu quả. | 3 |
-| US-09-07 | Với tư cách là **KTV HTM**, tôi muốn tạo Firmware Change Request liên kết với WO khi cần update firmware, để đảm bảo mọi thay đổi phần mềm thiết bị đều có hồ sơ kiểm soát thay đổi. | 5 |
+| NFR ID | Category | Yêu cầu | Target |
+|---|---|---|---|
+| NFR-09-01 | Performance | List WO với filter chuẩn (≤ 100k records) | P95 < 300 ms |
+| NFR-09-02 | Performance | Detail WO + asset_info enrichment | P95 < 500 ms |
+| NFR-09-03 | Performance | Spare parts search (Item catalog 10k items) | P95 < 800 ms |
+| NFR-09-04 | Concurrency | 20 WO active đồng thời không conflict | Optimistic lock qua `modified` |
+| NFR-09-05 | SLA alert latency | Cảnh báo khi vượt SLA | ≤ 1 giờ (scheduler hourly) |
+| NFR-09-06 | Realtime push | `cm_sla_breached` đến KTV được gán | < 5 s |
+| NFR-09-07 | Audit immutability | Asset Repair sau Submit không xoá / sửa được | Frappe submittable |
+| NFR-09-08 | Lifecycle event | Mọi transition sinh `Asset Lifecycle Event` | 100 % coverage |
+| NFR-09-09 | Localization | Tất cả error message qua `frappe._()` | vi.csv |
+| NFR-09-10 | Logging | Service function log actor + WO name | `frappe.logger("imm09")` |
+| NFR-09-11 | Mobile responsive | KTV thao tác trên tablet ≥ 768 px | Tested viewports |
+| NFR-09-12 | Offline tolerance | Form diagnosis + checklist hỗ trợ offline queue | IndexedDB + sync on reconnect |
 
 ---
 
 ## 9. Acceptance Criteria (Gherkin)
 
+### 9.1 Tạo WO bắt buộc nguồn (BR-09-01)
+
 ```gherkin
-Feature: IMM-09 Corrective Maintenance — Asset Repair Workflow
+Scenario: Tạo CM WO không có nguồn → block
+  Given Workshop Manager đăng nhập
+  When POST create_repair_work_order với asset_ref="AC-ASSET-...", incident_report="", source_pm_wo=""
+  Then response.success = false
+   And response.error contains "Phải có nguồn sửa chữa"
 
-Scenario: Tạo CM WO bắt buộc có nguồn hợp lệ (BR-09-01)
-  Given Workshop Manager đang tạo Asset Repair WO mới
-  When Manager không điền cả "Incident Report" lẫn "PM WO nguồn"
-  Then Hệ thống hiển thị lỗi "Phải có nguồn: Incident Report hoặc PM WO gốc"
-    And WO không được lưu
-  When Manager điền "Incident Report" = "IR-2026-00123"
-  Then WO được tạo thành công với status = "Open"
-    And Asset.status = "Under Repair"
-    And Asset Lifecycle Event được tạo: event_type = "repair_opened"
+Scenario: Tạo CM WO với incident_report → OK
+  Given Incident Report "IR-2026-00123" đã submitted, asset_ref="AC-ASSET-2026-00042"
+  When POST create_repair_work_order với incident_report="IR-2026-00123", repair_type="Corrective", priority="Urgent"
+  Then response.data.name khớp regex "^WO-CM-2026-\d{5}$"
+   And response.data.status = "Open"
+   And response.data.sla_target_hours = 24.0  # Class III × Urgent
+   And Asset.status = "Under Repair"
+   And có 1 Asset Lifecycle Event event_type="repair_opened"
+```
 
-Scenario: Yêu cầu vật tư phải có phiếu xuất kho (BR-09-02)
-  Given WO đang ở trạng thái "In Repair"
-    And KTV điền "Spare Parts Used" với item = "Capacitor 100uF", qty = 2
-  When KTV để trống trường "Stock Entry Reference"
-    And KTV bấm Submit WO
-  Then Hệ thống block Submit với lỗi "Vật tư 'Capacitor 100uF' thiếu phiếu xuất kho"
-  When KTV điền stock_entry_ref = "STE-2026-00456"
-    And KTV bấm Submit lại
-  Then WO được Submit thành công
+### 9.2 Spare parts bắt buộc stock_entry_ref (BR-09-02)
 
-Scenario: Firmware update yêu cầu Firmware Change Request (BR-09-03)
-  Given WO đang ở trạng thái "In Repair"
-    And KTV đánh dấu checkbox "Đã cập nhật Firmware" = True
-  When KTV bấm Submit WO mà không tạo Firmware Change Request
-  Then Hệ thống block Submit với lỗi "Cập nhật firmware yêu cầu phải có Firmware Change Request liên kết"
-  When KTV tạo FCR với version_before = "2.1.0", version_after = "2.3.1"
-    And FCR được Workshop Manager phê duyệt
-    And KTV link FCR vào WO và Submit lại
-  Then WO Submit thành công
-    And Asset.firmware_version được cập nhật = "2.3.1"
+```gherkin
+Scenario: Submit WO khi spare part thiếu stock_entry_ref → block
+  Given WO ở "Pending Inspection" với spare_parts_used có 1 row thiếu stock_entry_ref
+  When close_work_order
+  Then throw ValidationError "Vật tư '{item}' (dòng 1) thiếu phiếu xuất kho"
 
-Scenario: Nghiệm thu sau sửa chữa — 100% Pass bắt buộc (BR-09-04)
-  Given WO đang ở trạng thái "Pending Inspection"
-    And Repair Checklist có 5 mục
-    And KTV điền 4 mục = "Pass", 1 mục = "Fail"
-  When KTV bấm "Complete Repair"
-  Then Hệ thống block với lỗi "Mục kiểm tra #3 chưa Pass — không thể hoàn thành"
-  When KTV sửa xong và điền lại mục #3 = "Pass"
-    And Trưởng khoa phòng xác nhận nhận thiết bị
-  Then WO status = "Completed"
-    And Asset.status = "Active"
-    And MTTR được tính và lưu vào WO
-    And Asset Lifecycle Event được tạo: event_type = "repair_completed"
+Scenario: Stock entry không tồn tại → block
+  Given spare_parts_used row có stock_entry_ref="STE-INVALID-001"
+  When close_work_order
+  Then throw "Phiếu xuất kho 'STE-INVALID-001' không tồn tại trong hệ thống"
+```
 
-Scenario: Emergency Repair — Fast-track không cần vật tư
-  Given Asset là máy thở (risk_class = III) đang hỏng tại ICU
-    And Workshop Manager tạo WO với priority = "Emergency"
-  When KTV chẩn đoán xong và chọn "Không cần vật tư"
-  Then WO tự động skip trạng thái "Pending Parts"
-    And WO chuyển thẳng sang "In Repair"
-    And PTP Khối 2 nhận push notification "Sửa chữa khẩn cấp đang tiến hành"
-  When Repair Checklist 100% Pass và KTV Submit
-  Then MTTR được tính từ lúc open đến complete
-    And Nếu MTTR > 4 giờ → flag SLA_breached = True
+### 9.3 Firmware change control (BR-09-03)
+
+```gherkin
+Scenario: firmware_updated=1 thiếu FCR → block
+  Given WO firmware_updated=1, firmware_change_request=null
+  When close_work_order
+  Then throw "Cập nhật firmware yêu cầu FCR được phê duyệt và liên kết"
+
+Scenario: FCR chưa Approved → block
+  Given firmware_change_request="FCR-2026-00007" status="Pending Approval"
+  When close_work_order
+  Then throw "FCR 'FCR-2026-00007' chưa được phê duyệt (status: Pending Approval)"
+```
+
+### 9.4 Checklist 100 % Pass (BR-09-04)
+
+```gherkin
+Scenario: Checklist có row Fail → block
+  Given repair_checklist gồm 5 row, 4 Pass + 1 Fail
+  When close_work_order
+  Then throw "Mục kiểm tra #3 '...' chưa Pass — không thể hoàn thành"
+
+Scenario: Checklist trống → block
+  Given repair_checklist = []
+  When close_work_order
+  Then throw "Phải điền Repair Checklist trước khi hoàn thành sửa chữa"
+```
+
+### 9.5 MTTR & SLA tracking (BR-09-07)
+
+```gherkin
+Scenario: MTTR vượt SLA → flag breach
+  Given WO Class III × Urgent, sla_target_hours=24
+   And open_datetime="2026-04-14 07:00:00"
+  When close_work_order tại "2026-04-15 14:00:00" (31h)
+  Then mttr_hours = 31.0
+   And sla_breached = 1
+   And Asset.status = "Active"
+   And Asset.custom_last_repair_date = today
+   And Asset Lifecycle Event "repair_completed" với notes "MTTR: 31.0h | SLA: Breached"
+```
+
+### 9.6 Cannot Repair → EOL trigger (BR-09-05)
+
+```gherkin
+Scenario: Cannot Repair
+  Given WO ở "In Repair", KTV xác nhận không sửa được
+  When close_work_order(cannot_repair=1, cannot_repair_reason="Mainboard cháy không có linh kiện thay thế")
+  Then WO.status = "Cannot Repair"
+   And Asset.status = "Out of Service"
+   And có Asset Lifecycle Event event_type="cannot_repair"
+   And IMM-13/14 EOL workflow được trigger (manual review)
+```
+
+### 9.7 Repeat failure detection (BR-09-06)
+
+```gherkin
+Scenario: Tạo WO thứ 2 trong 30 ngày
+  Given WO Completed cho asset "AC-ASSET-X" tại "2026-04-01"
+  When tạo WO mới cho asset "AC-ASSET-X" tại "2026-04-18"
+  Then is_repeat_failure = 1
+   And UI hiển thị banner "Tái hỏng — gợi ý mở CAPA (IMM-12)"
+```
+
+### 9.8 PM Halted → auto CM (IMM-08 → IMM-09)
+
+```gherkin
+Scenario: PM phát hiện Major Failure → auto CM WO
+  Given PM Work Order "PM-WO-2026-00088" status="Halted–Major Failure"
+  When IMM-08 trigger create_repair_work_order(source_pm_wo="PM-WO-2026-00088", priority="Urgent")
+  Then CM WO "WO-CM-2026-XXXXX" được tạo
+   And source_pm_wo = "PM-WO-2026-00088"
+   And Asset.status = "Under Repair"
 ```
 
 ---
 
 ## 10. WHO HTM & QMS Mapping
 
-| Yêu cầu IMM-09 | WHO Reference | ISO 9001:2015 | NĐ98 | Ghi chú |
+| Yêu cầu IMM-09 | WHO HTM | ISO 13485 | ISO 9001 | NĐ98 |
 |---|---|---|---|---|
-| Work Order bắt buộc cho mọi sửa chữa | WHO CMMS §3.2.3 | §8.5.1 | Điều 28 | Không có action ngoài WO |
-| Traceability nguồn (IR/PM WO) | WHO HTM 2025 §5.4.2 | §8.5.2 | Điều 29 | BR-09-01 đảm bảo |
-| Spare parts với chứng từ xuất kho | WHO Maintenance §6.3 | §8.4.3 | Điều 31 | BR-09-02 — Stock Entry bắt buộc |
-| Firmware change control | WHO HTM 2025 §7.2 | §8.5.6 | Điều 35 | BR-09-03 — FCR bắt buộc |
-| Post-repair acceptance test | WHO Maintenance §5.5.3 | §8.6 | Điều 30 | BR-09-04 — 100% Pass |
-| Asset status management | WHO CMMS §3.3.1 | §8.5.1 | Điều 28 | BR-09-05 — Under Repair → Active |
-| MTTR tracking | WHO HTM 2025 §6.1 | §9.1.1 | Điều 36 | KPI bắt buộc |
-| Audit trail mọi thao tác | WHO HTM 2025 §6.4 | §7.5.3 | Điều 40 | Asset Lifecycle Event cho mọi bước |
-| Hồ sơ sửa chữa immutable | WHO Maintenance §5.5.5 | §7.5 | Điều 37 | WO Submitted không thể xóa |
-| Thiết bị nguy cơ cao ưu tiên khẩn | WHO HTM Risk §4.2 | §8.5.1 | Điều 22 | SLA theo risk class |
+| WO bắt buộc cho mọi sửa chữa | CMMS §3.2.3 | 7.5.1 | 8.5.1 | Điều 28 |
+| Traceability nguồn (BR-09-01) | HTM 2025 §5.4.2 | 7.5.3 | 8.5.2 | Điều 29 |
+| Spare parts có chứng từ (BR-09-02) | Maintenance §6.3 | 7.5.5 | 8.4.3 | Điều 31 |
+| Firmware change control (BR-09-03) | HTM 2025 §7.2 | 7.3.7 | 8.5.6 | Điều 35 |
+| Acceptance test sau sửa chữa (BR-09-04) | Maintenance §5.5.3 | 8.2.4 | 8.6 | Điều 30 |
+| Asset status management (BR-09-05) | CMMS §3.3.1 | 7.5.1 | 8.5.1 | Điều 28 |
+| MTTR / KPI tracking (BR-09-07) | HTM 2025 §6.1 | 8.2.5 | 9.1.1 | Điều 36 |
+| Repeat failure → CAPA (BR-09-06) | HTM 2025 §6.4 | 8.5.2 | 10.2 | — |
+| Hồ sơ immutable | Maintenance §5.5.5 | 4.2.5 | 7.5 | Điều 37 |
+| Audit trail (Lifecycle Event) | HTM 2025 §6.4 | 4.2.5 | 7.5.3 | Điều 40 |
 
 ---
 
-## Use Case Diagram
+## 11. Revision History
 
-```mermaid
-graph TD
-    subgraph Actors
-        KTV[KTV HTM]
-        WM[Workshop Manager]
-        VENDOR[Vendor Engineer]
-        PARTS[Spare Parts Staff]
-        PTP[PTP Khối 2]
-        DEPT[Trưởng Khoa Phòng]
-    end
-
-    subgraph IMM-09["IMM-09: Corrective Maintenance"]
-        UC1[Tạo CM Work Order]
-        UC2[Chẩn đoán lỗi thiết bị]
-        UC3[Yêu cầu xuất kho phụ tùng]
-        UC4[Thực hiện sửa chữa]
-        UC5[Gửi thiết bị ra ngoài sửa]
-        UC6[Nghiệm thu sau sửa chữa]
-        UC7[Đóng CM Work Order]
-        UC8[Theo dõi MTTR dashboard]
-        UC9[Escalate lên vendor/EOL]
-        UC10[Cập nhật Asset status]
-        UC11[Tích hợp với IMM-08 PM WO]
-        UC12[Yêu cầu calibration sau SC]
-    end
-
-    KTV --> UC1
-    KTV --> UC2
-    KTV --> UC3
-    KTV --> UC4
-    KTV --> UC5
-    KTV --> UC6
-    KTV --> UC7
-    KTV --> UC12
-    WM --> UC1
-    WM --> UC8
-    WM --> UC9
-    VENDOR --> UC4
-    VENDOR --> UC5
-    PARTS --> UC3
-    PTP --> UC8
-    DEPT --> UC6
-
-    UC11 --> UC1
-    UC4 -->|includes| UC3
-    UC6 -->|includes| UC7
-    UC9 -->|extends| UC5
-```
-
----
-
-## Activity Diagram — CM Execution Flow
-
-```mermaid
-flowchart TD
-    A([Start: CM WO created]) --> B{Nguồn tạo WO}
-    B -- Từ PM IMM-08 --> C[source_pm_wo điền sẵn\nAsset đang Out of Service]
-    B -- Từ Incident IMM-12 --> D[incident_report điền sẵn]
-    B -- Yêu cầu trực tiếp --> E[KTV tạo mới thủ công]
-    C --> F[KTV chẩn đoán lỗi\nghi kết quả diagnosis]
-    D --> F
-    E --> F
-    F --> G{Cần phụ tùng?}
-    G -- Có --> H[Yêu cầu xuất kho spare parts\nWaiting Parts status]
-    H --> I{Tồn kho đủ?}
-    I -- Có --> J[Xuất kho, nhận phụ tùng]
-    I -- Không --> K[Đặt mua khẩn\nWaiting PO]
-    K --> J
-    J --> L[Thực hiện sửa chữa]
-    G -- Không --> L
-    L --> M{Có thể tự sửa?}
-    M -- Không --> N[Gửi ra ngoài cho Vendor\nstatus = Sent to Vendor]
-    N --> O[Vendor sửa xong, trả lại]
-    O --> P[Nghiệm thu]
-    M -- Có --> P[Nghiệm thu sau sửa chữa]
-    P --> Q{Nghiệm thu đạt?}
-    Q -- Không --> F
-    Q -- Có --> R[Cập nhật Asset status = Active\nGhi last_repair_date]
-    R --> S{Cần calibration?}
-    S -- Có --> T[Tạo Calibration WO\nIMM-11]
-    T --> U[Đóng CM WO\nGhi MTTR]
-    S -- Không --> U
-    U --> V([End: CM hoàn thành])
-```
-
----
-
-## Non-Functional Requirements
-
-| ID | Yêu cầu | Chỉ tiêu | Phương pháp kiểm tra |
+| Version | Date | Author | Thay đổi chính |
 |---|---|---|---|
-| NFR-09-01 | MTTR tracking accuracy | Tính chính xác đến 0.5 giờ | Unit test |
-| NFR-09-02 | SLA alert delivery | Gửi cảnh báo trong 5 phút khi SLA breach | E2E test |
-| NFR-09-03 | Spare part lookup | < 1s tìm kiếm trong catalog 10,000 items | Performance test |
-| NFR-09-04 | Concurrent WO | 20 WO đang xử lý đồng thời không conflict | Load test |
-| NFR-09-05 | Audit immutability | Không thể xóa Lifecycle Event sau tạo | DB test |
-| NFR-09-06 | Vendor integration | Export WO PDF cho vendor trong < 2s | Performance test |
+| 1.0.0 | 2026-04-17 | AssetCore Team | Bản khởi tạo (extend ERPNext Asset Repair) |
+| **2.0.0** | **2026-04-18** | **AssetCore Team** | **Refactor sang DocType native AssetCore; chuẩn hoá theo template IMM-00; bổ sung FR-09-12/13 KPI; SLA matrix sửa lại theo `get_sla_target` thực tế trong code; thêm BR-09-06/07; gắn integration IMM-12 CAPA cho repeat failure** |
 
 ---
 
-## Biểu Đồ Use Case Phân Rã — IMM-09
-
-### Phân rã theo Actor
-
-```mermaid
-graph TD
-    subgraph "KTV HTM"
-        A1[UC-09-01: Tạo CM WO trực tiếp]
-        A2[UC-09-02: Nhận CM WO từ PM/Incident]
-        A3[UC-09-03: Chẩn đoán và ghi kết quả]
-        A4[UC-09-04: Yêu cầu xuất kho phụ tùng]
-        A5[UC-09-05: Thực hiện sửa chữa]
-        A6[UC-09-06: Thực hiện nghiệm thu]
-        A7[UC-09-07: Đóng CM Work Order]
-        A8[UC-09-08: Yêu cầu gửi ra ngoài vendor]
-    end
-    subgraph "Workshop Manager"
-        B1[UC-09-09: Xem tổng hợp CM WO]
-        B2[UC-09-10: Theo dõi MTTR dashboard]
-        B3[UC-09-11: Escalate lên vendor]
-        B4[UC-09-12: Phân công KTV]
-    end
-    subgraph "Spare Parts Staff"
-        C1[UC-09-13: Xác nhận và xuất kho phụ tùng]
-        C2[UC-09-14: Cập nhật tồn kho sau sửa chữa]
-    end
-    subgraph "Vendor Engineer"
-        D1[UC-09-15: Nhận thiết bị sửa chữa bên ngoài]
-        D2[UC-09-16: Trả thiết bị sau sửa chữa]
-    end
-```
-
-### Phân rã theo Subsystem
-
-```mermaid
-graph LR
-    subgraph "WO Management"
-        S1[Tạo và quản lý CM WO]
-        S2[Tracking trạng thái WO]
-        S3[Lifecycle Event logging]
-    end
-    subgraph "Diagnosis & Repair"
-        S4[Ghi chẩn đoán]
-        S5[Spare part management]
-        S6[Vendor escalation]
-    end
-    subgraph "Acceptance & Closure"
-        S7[Nghiệm thu sau sửa chữa]
-        S8[Tính MTTR]
-        S9[Trigger Calibration IMM-11]
-    end
-
-    S1 --> S2
-    S2 --> S3
-    S4 --> S5
-    S5 --> S6
-    S7 --> S8
-    S7 --> S9
-```
-
----
-
-## Đặc Tả Use Case — IMM-09
-
-### UC-09-02: Nhận CM WO từ PM failure
-
-| Thuộc tính | Nội dung |
-|---|---|
-| **UC ID** | UC-09-02 |
-| **Tên** | Nhận và xử lý CM Work Order được tạo từ PM failure (IMM-08) |
-| **Actor chính** | KTV HTM |
-| **Actor phụ** | Workshop Manager (phân công), CMMS System (tạo WO auto) |
-| **Tiền điều kiện** | PM Work Order đã đánh dấu Major Failure; CM WO đã được tạo tự động với source_pm_wo; Asset.status = Out of Service |
-| **Hậu điều kiện** | KTV nhận WO, trạng thái chuyển Diagnosing; Lifecycle Event ghi nhận |
-| **Luồng chính** | 1. Workshop Manager nhận alert Major Failure từ PM / 2. Manager xem CM WO đã tạo tự động (priority=Critical) / 3. Manager phân công KTV cho CM WO / 4. KTV nhận notification, mở CM WO / 5. KTV xem: source_pm_wo reference, mô tả lỗi, thông tin Asset / 6. KTV confirm nhận WO → status = Diagnosing / 7. Lifecycle Event tạo: "cm_started" |
-| **Luồng thay thế** | 3a. Không có KTV available → Manager escalate, WO pending |
-| **Luồng ngoại lệ** | 6a. Asset đã được repair trước đó → check conflict |
-| **Business Rule** | BR-09-01: CM WO từ PM phải có source_pm_wo bắt buộc |
-
----
-
-### UC-09-06: Nghiệm thu sau sửa chữa
-
-| Thuộc tính | Nội dung |
-|---|---|
-| **UC ID** | UC-09-06 |
-| **Tên** | Thực hiện nghiệm thu và xác nhận thiết bị hoạt động sau sửa chữa |
-| **Actor chính** | KTV HTM |
-| **Actor phụ** | Trưởng Khoa Phòng (ký biên bản), QA Officer |
-| **Tiền điều kiện** | Sửa chữa hoàn thành; WO.status = Pending Acceptance |
-| **Hậu điều kiện** | Nếu Pass: Asset.status = Active, last_repair_date cập nhật, MTTR tính; Nếu Fail: quay lại Diagnosing |
-| **Luồng chính** | 1. KTV hoàn thành sửa chữa / 2. KTV điền acceptance checklist / 3. Khoa phòng xác nhận thiết bị hoạt động bình thường / 4. KTV nhấn "Accept Repair" / 5. Hệ thống set Asset.status = Active / 6. Ghi last_repair_date = today / 7. Tính MTTR = (close_date - open_date) theo giờ / 8. Tạo Lifecycle Event: "repaired" / 9. Kiểm tra: có cần Calibration? (theo asset_category) / 10. Nếu có → tạo Calibration WO (IMM-11) |
-| **Luồng thay thế** | 3a. Khoa phòng từ chối → WO quay Diagnosing, ghi lý do |
-| **Luồng ngoại lệ** | 7a. open_date null → MTTR = N/A, log warning |
-| **Business Rule** | BR-09-02: MTTR phải được tính và ghi vào WO; BR-09-03: Một số thiết bị bắt buộc Calibration sau sửa chữa |
-
----
-
-### UC-09-07: Đóng CM Work Order
-
-| Thuộc tính | Nội dung |
-|---|---|
-| **UC ID** | UC-09-07 |
-| **Tên** | Đóng CM Work Order và hoàn tất hồ sơ sửa chữa |
-| **Actor chính** | KTV HTM |
-| **Actor phụ** | Workshop Manager (review) |
-| **Tiền điều kiện** | Nghiệm thu đã Pass; tất cả spare parts đã ghi nhận; WO.status = Pending Acceptance |
-| **Hậu điều kiện** | WO.status = Closed; close_date ghi nhận; Lifecycle Event "cm_closed"; repair history cập nhật trên Asset |
-| **Luồng chính** | 1. KTV điền repair_summary / 2. Xác nhận danh sách parts_used đã đầy đủ / 3. Upload ảnh thiết bị sau sửa chữa (optional) / 4. Nhấn "Close Work Order" / 5. Hệ thống set WO.status = Closed, close_date = today / 6. Tạo Lifecycle Event: "cm_closed" / 7. Cập nhật Asset.custom_last_repair_date / 8. Cập nhật Asset.custom_mttr_avg_hours |
-| **Luồng thay thế** | 2a. Parts chưa đủ → cảnh báo nhưng cho phép tiếp tục với note |
-| **Luồng ngoại lệ** | 8a. Lỗi tính MTTR → set null, alert Admin |
-| **Business Rule** | BR-09-04: WO đã Closed không thể edit; audit trail immutable |
+*End of Functional Specifications v2.0.0 — IMM-09 Corrective Maintenance.*

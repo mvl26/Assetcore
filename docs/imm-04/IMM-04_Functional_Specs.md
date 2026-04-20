@@ -1,369 +1,254 @@
-# IMM-04 — Lắp đặt, Định danh & Kiểm tra Ban đầu
-## Functional Specification
+# IMM-04 — Functional Specifications
 
-**Module:** IMM-04  
-**Version:** 1.0  
-**Ngày:** 2026-04-17  
-**Trạng thái:** Draft — Chờ phê duyệt  
-**Tác giả:** AssetCore Team
-
----
-
-## 1. Vị trí trong Asset Lifecycle
-
-```
-IMM-03 (Inventory/Stock)
-  └─ Rút kho → Asset Commissioning
-                     │
-          ┌──────────▼──────────┐
-          │      IMM-04          │
-          │  Nhận thiết bị       │
-          │  → Kiểm tra tài liệu │
-          │  → Lắp đặt           │
-          │  → Định danh         │
-          │  → Kiểm tra ban đầu  │
-          │  → Bàn giao / Release│
-          └──────────┬──────────┘
-                     │
-        ┌────────────┴────────────┐
-        │                         │
-  [Clinical Release]         [Return to Vendor]
-  Asset → "Active"           DOA / Hỏng nặng
-  → IMM-05 (Hồ sơ)
-  → IMM-08 (PM Schedule)
-```
-
-**Quan hệ ngang:**
-- **IMM-03** → cung cấp `item_ref` và `purchase_order` làm điểm khởi đầu  
-- **IMM-05** → nhận `commissioning_date` + baseline test parameters làm dữ liệu gốc  
-- **IMM-08** → nhận `commissioning_date` để tính `first_pm_date`  
-- **IMM-12** → nhận DOA/NC nếu lỗi nghiêm trọng cần CM khẩn
-
----
-
-## 2. Workflow Chính (BPMN)
-
-```
-START
-  │
-  ▼ [S01 — Draft Reception]
-  Nhận thiết bị, tạo Commissioning record
-  Actor: TBYT Officer
-  Output: Asset Commissioning (Draft)
-  │
-  ▼ [S02 — Pending Doc Verify] ← GATE G01
-  Kiểm tra tài liệu CO/CQ/Manual
-  Actor: TBYT Officer
-  Condition: 100% mandatory docs = "Received"
-  │
-  ├─── Thiếu tài liệu → quay lại Draft
-  └─── Đủ tài liệu ──────────────────┐
-                                      │
-  ▼ [S03 — To_Be_Installed]          │
-  Clinical Head xác nhận site        │
-  Actor: Clinical Head               │
-  Condition: Facility checklist pass │
-  │                                   │
-  ├─── Site fail → S07 Non_Conformance│
-  └─── Site pass ─────────────────────┤
-                                      │
-  ▼ [S04 — Installing]               │
-  Vendor lắp đặt phần cứng/phần mềm │
-  Actor: Vendor Tech                 │
-  │                                   │
-  ├─── DOA / lỗi nghiêm trọng → S07 NC
-  └─── Setup hoàn thành ──────────────┤
-                                      │
-  ▼ [S05 — Identification]           │
-  Gán Internal Tag, Barcode, SN      │
-  Actor: Biomed Engineer             │
-  Validation: VR-01 (No Duplicate SN)│
-  │                                   │
-  ▼ [S06 — Initial Inspection] ← GATE G03
-  Đo thông số baseline (điện, cơ lý, an toàn)
-  Actor: Biomed Engineer
-  │
-  ├─── Class C/D/Radiation → Auto → S08 Clinical Hold (G04)
-  ├─── Fail baseline → S09 Re_Inspection
-  └─── Pass all ────────────────────────────────────┐
-                                                     │
-  ▼ [S10 — Clinical Release Success] ← GATE G05+G06 │
-  Board phê duyệt, Asset activated                  │
-  Actor: Board/CEO                                   │
-  Output: Asset "Active" + Handover Document         │
-  │                                                  │◄─ S08 Clinical Hold cleared
-  END ──────────────────────────────────────────────┘
-       (hoặc S11 Return_To_Vendor nếu DOA không khắc phục được)
-```
-
----
-
-## 3. Actors & Roles
-
-| Actor | Vai trò | Quyền hệ thống | Trách nhiệm |
-|---|---|---|---|
-| TBYT Officer | Tạo và theo dõi | Create/Edit Commissioning | Tạo record, kiểm tra tài liệu, ghi nhận thông tin nhận hàng |
-| Vendor Tech | Báo cáo tiến độ | Edit (Installing state) | Thực hiện lắp đặt, báo cáo hoàn thành, khai báo DOA |
-| Biomed Engineer | Kiểm tra QA | Execute Inspection, Assign Tags | Đo thông số baseline, gán định danh, quyết định Pass/Fail |
-| Clinical Head | Phê duyệt nhận hàng | Approve site gate | Xác nhận thiết bị có mặt tại khoa, ký biên bản bàn giao |
-| QA Officer | Gỡ Clinical Hold | Upload License, Clear Hold | Xác nhận giấy phép BYT đã nhận, gỡ trạng thái Hold |
-| Board/CEO | Release cuối | Approve Clinical Release | Ký duyệt đưa thiết bị vào sử dụng (tài sản vốn) |
-
----
-
-## 4. Input / Output
-
-### INPUT
-
-| Đầu vào | Nguồn |
+| Thuộc tính | Giá trị |
 |---|---|
-| Purchase Order + Item (Device Model) | IMM-03 / Procurement |
-| Danh sách tài liệu bắt buộc (CO, CQ, Manual) | Contract / Vendor |
-| Thông số baseline chuẩn theo Asset Category | `PM Checklist Template` |
-| Giấy phép BYT / Chứng chỉ kiểm định (Class C/D) | QA Officer upload |
-| Thông tin site: điện, nước, khí (hạ tầng khoa) | Clinical Head |
-
-### OUTPUT
-
-| Đầu ra | DocType / Artifact |
-|---|---|
-| Asset Commissioning record (đầy đủ lịch sử) | `Asset Commissioning` |
-| Active Asset record (kích hoạt tài sản) | ERPNext `Asset` |
-| Baseline Test Report (PDF, locked) | Print Format |
-| Handover Document — Biên bản Bàn giao (PDF) | Print Format |
-| Multi-layer ID Tag (Internal Tag + Barcode + SN) | `Asset.internal_tag` |
-| DOA Incident Report (nếu có) | `Non-Conformance` |
-| Asset Lifecycle Event log (immutable) | `Asset Lifecycle Event` |
+| Module | IMM-04 — Lắp đặt, Định danh & Kiểm tra Ban đầu |
+| Phiên bản | 2.0.0 |
+| Ngày cập nhật | 2026-04-18 |
+| Trạng thái | LIVE — 31/32 UAT PASS |
+| Tác giả | AssetCore Team |
+| Chuẩn tham chiếu | WHO HTM 2025, NĐ 98/2021, NĐ 142/2020, ISO 13485:2016, TT 46/2017/TT-BYT |
 
 ---
 
-## 5. Workflow States
+## 1. Scope
 
-| Code | Trạng thái | Là Gate? | Điều kiện vào | Điều kiện thoát | Evidence |
-|---|---|---|---|---|---|
-| S01 | Draft Reception | Không | PO từ Procurement | Submit form | — |
-| S02 | Pending Doc Verify | **G01** | Sau Submit | 100% mandatory docs tick | Scanned CO/CQ |
-| S03 | To Be Installed | G02 | Doc gate pass | Facility checklist pass | Delivery sheet |
-| S04 | Installing | Không | Site pass | Hardware/software setup complete | Install log |
-| S05 | Identification | Không | Setup done | UID/SN/Barcode gán không trùng | ID record |
-| S06 | Initial Inspection | **G03** | After ID assign | 100% baseline params = Pass | Baseline test form |
-| S07 | Non_Conformance | Không | DOA / site fail | Issue resolved hoặc Return to Vendor | NC report |
-| S08 | Clinical Hold | **G04** | Class C/D/Radiation | License/permit PDF uploaded | Ministry license |
-| S09 | Re_Inspection | Không | Fail baseline | All params re-pass | Retest log |
-| S10 | Clinical Release | **G05+G06** | All gates pass | Board ký duyệt → **TERMINAL** | Handover doc + signed |
-| S11 | Return To Vendor | Không | DOA không khắc phục | **TERMINAL** | Return notice |
+### 1.1 In Scope
 
----
-
-## 6. Business Rules
-
-| Mã | Nội dung Rule | Hậu quả vi phạm | Kiểm soát |
-|---|---|---|---|
-| **BR-04-01** | Không được tạo Asset trực tiếp trong ERPNext — phải qua pipeline IMM-04 | Asset không có baseline, không có audit trail | Block direct Asset creation; `Asset Commissioning` là điểm duy nhất |
-| **BR-04-02** | Tài liệu CO/CQ bắt buộc phải attached trước khi chuyển sang To_Be_Installed | Thiết bị không có chứng minh xuất xứ | VR-02: Validate mandatory docs on transition |
-| **BR-04-03** | Serial Number (SN) phải duy nhất toàn hệ thống — không trùng với bất kỳ Asset nào | Lẫn lộn thiết bị, audit trail sai | VR-01: `frappe.db.exists("Asset", {"vendor_sn": sn})` block on save |
-| **BR-04-04** | 100% baseline test params phải = Pass trước khi Release | Thiết bị lỗi vào phòng lâm sàng | VR-03: Block transition if any `is_pass = Fail` |
-| **BR-04-05** | Thiết bị Class C/D hoặc có phóng xạ tự động vào Clinical Hold cho đến khi có giấy phép BYT | Vi phạm quy định NĐ98/2021 | VR-07: Auto-transition if `item.risk_class IN ('C','D','Radiation')` |
-| **BR-04-06** | Mọi NC (Non-Conformance) phải được đóng trước khi Release | Thiết bị lỗi chưa xử lý vào sử dụng | VR-04: `db.count("NC", {"ref": name, "status": "Open"}) > 0` → block |
-| **BR-04-07** | Dữ liệu baseline test không được xóa — chỉ được Amend với lý do | Mất bằng chứng audit, vi phạm ISO 13485 §7.5 | Rule 03: Lock after Submit; Amend requires reason dialog |
-| **BR-04-08** | Board/CEO phải ký duyệt Clinical Release (thiết bị vốn) | Sử dụng tài sản chưa được phê duyệt | G06: Workflow condition; digital signature token required |
-
----
-
-## 7. User Stories (INVEST)
-
-| ID | Story | SP |
+| # | Hạng mục | Ghi chú |
 |---|---|---|
-| US-04-01 | Với tư cách là **TBYT Officer**, tôi muốn tạo Commissioning record từ PO và kiểm tra tài liệu CO/CQ ngay trong form, để không cần dùng giấy tờ thủ công và đảm bảo đủ hồ sơ trước khi cho nhà cung cấp lắp đặt. | 5 |
-| US-04-02 | Với tư cách là **Biomed Engineer**, tôi muốn nhập thông số baseline (điện an toàn, điện trở đất, điện rò) trực tiếp vào checklist trong WO và hệ thống tự block release nếu có thông số Fail, để không có thiết bị lỗi nào đến tay bệnh nhân. | 8 |
-| US-04-03 | Với tư cách là **QA Officer**, tôi muốn hệ thống tự động đưa thiết bị Class C/D vào Clinical Hold và chỉ cho gỡ khi tôi upload giấy phép BYT, để đảm bảo tuân thủ NĐ98/2021. | 5 |
-| US-04-04 | Với tư cách là **Biomed Engineer**, tôi muốn gán Internal Tag + Barcode + SN cho thiết bị và hệ thống kiểm tra trùng lặp tức thì, để mỗi thiết bị có định danh duy nhất trong suốt vòng đời. | 3 |
-| US-04-05 | Với tư cách là **Vendor Tech**, tôi muốn khai báo lỗi DOA và mở NC record với ảnh đính kèm, để có bằng chứng yêu cầu bảo hành/thay thế từ nhà sản xuất. | 3 |
+| 1 | DocType `Asset Commissioning` + 3 child + NC độc lập | Schema theo `asset_commissioning.json` |
+| 2 | Workflow 11 states + 22 transitions | `IMM-04 Workflow` (Frappe Workflow Engine) |
+| 3 | 6 Gate (G01–G06) + 7 Validation Rules (VR-01 → VR-07) | Backend enforce trong service + controller |
+| 4 | 17 REST endpoint | `assetcore/api/imm04.py` |
+| 5 | Auto-mint ERPNext Asset on Submit | `mint_core_asset()` |
+| 6 | Auto-import sang IMM-05 | `create_initial_document_set()` |
+| 7 | GW-2 compliance gate | `_gw2_check_document_compliance()` (BR-07) |
+| 8 | Generate QR data + barcode lookup | `generate_qr_label()`, `get_barcode_lookup()` |
+| 9 | Dashboard KPIs | `get_dashboard_stats()` |
+| 10 | Scheduler cảnh báo phiếu mở > 30 ngày | `check_commissioning_overdue` (daily) |
+
+### 1.2 Out of Scope
+
+| # | Hạng mục | Lý do defer |
+|---|---|---|
+| 1 | PM Schedule auto-create | Sang IMM-08 (`fire_release_event` đã bắn, cần listener) |
+| 2 | PDF Print Format Biên bản Bàn giao | Cần config Print Format trong Frappe UI |
+| 3 | QR label PDF template (server-side) | Hiện chỉ render trên FE |
+| 4 | Auto-detect Clinical Hold sau Initial Inspection | QA Officer hiện trigger thủ công |
+| 5 | SLA auto-escalation | Dashboard show overdue, chưa email tự động |
 
 ---
 
-## 8. Acceptance Criteria (Gherkin)
+## 2. Actors
+
+| Actor | Role hệ thống | Trách nhiệm chính |
+|---|---|---|
+| HTM Technician | `HTM Technician` | Tạo phiếu Commissioning từ PO, ghi nhận nhận hàng |
+| Biomed Engineer | `Biomed Engineer` | Edit phiếu, gán SN+QR, đo baseline, trigger transition lắp đặt/kiểm tra |
+| Vendor Engineer | `Vendor Engineer` | Xác nhận lắp đặt hoàn thành, báo DOA |
+| QA Officer | `QA Officer` | Trigger Clinical Hold, upload giấy phép BYT, gỡ Hold |
+| Workshop Head | `Workshop Head` | Submit/Cancel/Amend phiếu (permlevel 1) |
+| VP Block2 | `VP Block2` | Submit/Cancel cuối cùng (board approver) |
+| CMMS Admin | `CMMS Admin` | Override workflow transition khi cần |
+| QA Risk Team | `QA Risk Team` | Read/Write — review hồ sơ chất lượng |
+| Purchase User | `Purchase User` | Nhận realtime notification khi Asset released (kích hoạt khấu hao) |
+
+---
+
+## 3. User Stories (Gherkin)
+
+### 3.1 Tạo phiếu từ PO
 
 ```gherkin
-Scenario: Kiểm tra tài liệu thành công và chuyển sang To_Be_Installed
-  Given Commissioning record ở trạng thái "Pending Doc Verify"
-    And CO = "No" (chưa nhận)
-  When TBYT Officer cố chuyển sang To_Be_Installed
-  Then Hệ thống block transition với message "VR-02: Thiếu CO/CQ"
-  When TBYT Officer upload CO và đặt status = "Received"
-    And Click "Proceed to Installation"
-  Then Trạng thái chuyển sang "To_Be_Installed"
-    And Asset Lifecycle Event ghi lại user + timestamp
+Scenario: US-04-01 — Tạo Commissioning từ PO hợp lệ
+  Given tôi có role "HTM Technician" hoặc "Biomed Engineer"
+    And PO "PO-2026-00023" tồn tại với supplier và item hợp lệ
+  When tôi POST /api/method/assetcore.api.imm04.create_commissioning
+    với {po_reference, master_item, vendor, clinical_dept, expected_installation_date}
+  Then response.success = true
+    And data.name khớp regex "^IMM04-\d{2}-\d{2}-\d{5}$"
+    And workflow_state = "Draft"
+    And mandatory documents (CO, CQ, Manual) được populate sẵn với status = Pending
+    And nếu risk_class ∈ {C,D,Radiation} → thêm row "License" mandatory
+```
 
-Scenario: Gán Serial Number trùng bị block
-  Given Commissioning ở trạng thái "Identification"
-    And Asset khác đã có SN = "SN-12345"
-  When Biomed Engineer nhập SN = "SN-12345" và Save
-  Then Hệ thống throw VR-01: "Serial đã gán cho thiết bị [Asset ID]"
-    And Record không được lưu
+### 3.2 Validate Serial Number unique
 
-Scenario: Thiết bị Class C tự động vào Clinical Hold
-  Given Commissioning ở trạng thái "Initial Inspection"
-    And Item.risk_class = "C"
-  When Biomed Engineer submit Initial Inspection
-  Then Trạng thái tự động chuyển sang "Clinical Hold"
-    And Alert gửi QA Officer yêu cầu upload giấy phép BYT
-    And Nút "Release" bị disabled cho đến khi clearance
+```gherkin
+Scenario: US-04-02 — VR-01 block SN trùng
+  Given commissioning ACC-A đã có vendor_serial_no = "SN-12345"
+  When tôi gọi assign_identification(name=ACC-B, vendor_serial_no="SN-12345")
+  Then response.success = false
+    And error.code = "VALIDATION_ERROR"
+    And message chứa "VR-01: Serial 'SN-12345' đã được gán"
+```
 
-Scenario: PM phát hiện baseline fail → Re_Inspection
-  Given Biomed Engineer điền checklist baseline
-    And "Leakage Current" = 5.2 mA (Fail, spec < 2.0 mA)
-  When Submit Initial Inspection
-  Then VR-03 block transition
-    And Trạng thái = "Re_Inspection"
-    And Fail Reason field bắt buộc
-    And Baseline form khóa lại (immutable)
+### 3.3 Gate G01 — mandatory documents
 
-Scenario: Release thành công — tạo Active Asset
-  Given Tất cả gates G01–G06 đã pass
-    And Không có NC Open
-    And Board đã ký duyệt
-  When Clinical Release được submit
-  Then Asset record tạo với status = "Active"
-    And Asset.commissioning_date = today
-    And Handover Document PDF được generate
-    And IMM-08 scheduler tính first_pm_date
+```gherkin
+Scenario: US-04-03 — Block transition khi thiếu CO
+  Given commissioning ở "Pending Doc Verify"
+    And mandatory doc "CO" có status = "Pending"
+  When transition_state(action="Xác nhận đủ tài liệu")
+  Then throw ValidationError "VR-02 (Gate G01): Chưa đủ tài liệu bắt buộc. Còn thiếu: CO"
+```
+
+### 3.4 Gate G03 — baseline test
+
+```gherkin
+Scenario: US-04-04 — Baseline có row Fail → Re Inspection
+  Given commissioning ở "Initial Inspection"
+    And baseline row "Leakage Current" có test_result = "Fail"
+  When submit_baseline_checklist(name, results)
+  Then response.success = false
+    And error chứa "BR-04-04: Thông số sau không đạt: Leakage Current"
+    And phải transition về "Re Inspection"
+```
+
+### 3.5 VR-07 — Clinical Hold cho Class C/D/Radiation
+
+```gherkin
+Scenario: US-04-05 — Auto Clinical Hold
+  Given commissioning có risk_class = "C" hoặc is_radiation_device = 1
+    And baseline test toàn Pass
+  When check_auto_clinical_hold(doc) chạy
+  Then trả True
+    And is_radiation_device = 1
+    And QA Officer phải trigger "Giữ lâm sàng" để vào state Clinical Hold
+    And Clinical Release bị block tới khi qa_license_doc được upload (VR-07)
+```
+
+### 3.6 G05+G06 — Clinical Release
+
+```gherkin
+Scenario: US-04-06 — Block release khi còn Open NC
+  Given commissioning ở "Clinical Release" (chuẩn bị submit)
+    And tồn tại Asset QA Non Conformance với resolution_status = "Open" liên kết phiếu
+  When approve_clinical_release(commissioning, board_approver)
+  Then response.error = "VR-04: Còn N NC chưa đóng. Giải quyết trước khi Release."
+```
+
+```gherkin
+Scenario: US-04-07 — Submit thành công sinh Asset
+  Given commissioning ở "Clinical Release", board_approver đã set
+    And không còn Open NC
+    And IMM-05 có Chứng nhận ĐKLH Active hoặc Exempt (BR-07/GW-2)
+  When VP Block2 hoặc Workshop Head gọi submit_commissioning(name)
+  Then docstatus = 1
+    And final_asset = "ACC-ASS-..." (ERPNext Asset mới)
+    And Asset.custom_vendor_serial = doc.vendor_serial_no
+    And Asset.custom_internal_qr = doc.internal_tag_qr
+    And Asset Document Draft được tạo cho mỗi Received doc (IMM-05)
+    And realtime event "imm04_asset_released" được publish
+```
+
+### 3.7 Báo DOA
+
+```gherkin
+Scenario: US-04-08 — Báo DOA khi đang Installing
+  Given commissioning ở "Installing"
+  When report_doa(commissioning, description, evidence_file)
+  Then tạo Asset QA Non Conformance với nc_type="DOA", severity="Critical", resolution_status="Open"
+    And doa_incident = 1
+    And user phải transition phiếu sang "Non Conformance"
 ```
 
 ---
 
-## 9. Exception Handling
+## 4. Business Rules
 
-| Tình huống | Điều kiện kích hoạt | Xử lý hệ thống | Xử lý nghiệp vụ |
+| BR ID | Rule | Enforce | Test ref |
 |---|---|---|---|
-| Thiếu tài liệu CO/CQ | Mandatory doc field = "No" | Block transition (VR-02) | TBYT Officer liên hệ vendor yêu cầu gửi lại |
-| DOA phát hiện khi lắp đặt | Vendor click "Report DOA" | Tạo NC record, chuyển S07 | Biomed Engineer + Vendor họp, quyết định fix hoặc trả |
-| Baseline test fail | Param `is_pass = Fail` | Block release, chuyển S09 (VR-03) | Biomed Engineer ghi fail reason, yêu cầu vendor điều chỉnh |
-| Thiết bị cần kiểm định 3rd-party | Class C/D/Radiation | Auto-hold S08 (VR-07) | QA Officer liên hệ tổ chức kiểm định, upload PDF khi có |
-| Giấy phép BYT hết hạn | Document expiry < today | Alert QA Officer | Gia hạn hoặc Block release cho đến khi có giấy phép mới |
-| NC chưa đóng khi release | NC.status = "Open" > 0 | Block Release (VR-04) | Biomed Engineer/Vendor giải quyết từng NC, đóng với evidence |
-| Serial Number trùng | `db.exists("Asset", {"vendor_sn": sn})` | Block save (VR-01) | Biomed Engineer kiểm tra lại SN thực tế với thiết bị |
-| Board không có mặt để ký | Executive absence | WO ở pending state | Workshop Manager escalate; tìm người ủy quyền |
+| BR-04-01 | Asset chỉ tạo qua pipeline IMM-04 | `on_submit` → `mint_core_asset()` | TC-04-02 |
+| BR-04-02 (G01) | CO/CQ/Manual mandatory phải Received/Waived | `validate_gate_g01()` | TC-04-05, TC-04-06 |
+| BR-04-03 (VR-01) | vendor_serial_no UNIQUE | `validate_unique_serial()` + `_vr01_unique_serial_number()` | TC-04-03, TC-04-04 |
+| BR-04-04 (G03) | 100% baseline Pass/N/A trước Release; Fail → Re Inspection | `validate_checklist_completion()` | TC-04-15..18 |
+| BR-04-05 (VR-07) | Bức xạ → bắt buộc qa_license_doc trước Release | `validate_radiation_hold()` | TC-04-19..21 |
+| BR-04-06 (VR-04) | No Open NC trước Release | `validate_gate_g05_g06()` + `block_release_if_nc_open()` | TC-04-22..24 |
+| BR-04-07 (G06) | board_approver bắt buộc | `validate_gate_g05_g06()` | TC-04-25 |
+| BR-04-08 (BR-07/GW-2) | Asset có Chứng nhận ĐKLH Active hoặc Exempt | `_gw2_check_document_compliance()` | TC-04-26 |
 
 ---
 
-## 10. WHO HTM & QMS Mapping
+## 5. Permission Matrix
 
-| Yêu cầu IMM-04 | WHO Reference | ISO 13485:2016 | NĐ98/2021 | Ghi chú |
+| Endpoint / Action | HTM Tech | Biomed Eng | Vendor Eng | QA Officer | Workshop Head | VP Block2 | CMMS Admin |
+|---|---|---|---|---|---|---|---|
+| `create_commissioning` | W | W | — | — | R | R | W |
+| `get_form_context` | R | R | R (own) | R | R | R | R |
+| `list_commissioning` | R | R | — | R | R | R | R |
+| `save_commissioning` | W (Draft) | W (≤Identification) | — | W (Hold) | — | — | W |
+| `assign_identification` | — | W | — | — | — | — | W |
+| `submit_baseline_checklist` | — | W | — | — | — | — | W |
+| `clear_clinical_hold` | — | — | — | W | — | — | W |
+| `report_nonconformance` / `report_doa` | W | W | W | — | W | — | W |
+| `close_nonconformance` | — | W | — | W | W | — | W |
+| `approve_clinical_release` | — | — | — | — | — | W | W |
+| `submit_commissioning` | — | — | — | — | W | W | — |
+| `transition_state` | role-checked theo workflow JSON | | | | | | |
+| `generate_qr_label` / `get_barcode_lookup` | R | R | R | R | R | R | R |
+| `get_dashboard_stats` | R | R | — | R | R | R | R |
+| `generate_handover_pdf` | R | W | — | — | R | R | R |
+
+---
+
+## 6. Validation Rules
+
+| VR ID | Field / Scope | Rule | Error Message (vi) | Enforce |
 |---|---|---|---|---|
-| Kiểm tra ban đầu trước sử dụng | WHO HTM §4.2 (Acceptance Testing) | §7.5.1 | Điều 25 | Baseline test bắt buộc trước commissioning |
-| Tài liệu CO/CQ bắt buộc | WHO HTM §3.4 | §4.2.4 | Điều 8 | Chứng nhận xuất xứ, chất lượng |
-| Unique identifier per device | WHO HTM §5.1.2 | §7.5.8 (UDI) | Điều 11 | Internal Tag + SN + Barcode |
-| Hồ sơ bàn giao immutable | WHO HTM §5.3.5 | §4.2.5 | Điều 26 | Asset Lifecycle Event locked |
-| Class C/D regulatory clearance | WHO HTM §6.1 | §7.4 | Điều 35-37 | Giấy phép BYT bắt buộc |
-| Audit trail mọi hành động | WHO HTM §6.4 | §4.2.5 | Điều 28 | Timestamp + user + IP mọi transition |
+| VR-01 | `vendor_serial_no` | UNIQUE trên Asset (`custom_vendor_serial`) + Asset Commissioning (docstatus≠2) | "VR-01: Serial Number '{sn}' đã được đăng ký cho tài sản {asset}." | `validate_unique_serial()` + service |
+| VR-02 | `commissioning_documents[is_mandatory=1]` | status ∈ {Received, Waived} trước khi rời Pending Doc Verify | "VR-02 (Gate G01): Chưa đủ tài liệu bắt buộc. Còn thiếu: {list}" | `validate_gate_g01()` |
+| VR-03 | `baseline_tests` | Mọi row có `test_result`; Fail → bắt buộc `fail_note`; nếu có Fail → block Clinical Release | "VR-03b: Không thể Phát hành! Các tiêu chí sau Không Đạt: {list}" | `validate_checklist_completion()` |
+| VR-04 | `Asset QA Non Conformance` | No row resolution_status="Open" linked | "VR-04 (Gate G05): Còn {n} NC chưa đóng." | `validate_gate_g05_g06()` |
+| VR-05 | `risk_class` | Cảnh báo (msgprint) nếu đổi sau Initial Inspection | "VR-05: Phân loại rủi ro thay đổi từ '{old}' → '{new}'." | `_vr05_risk_class_change_warning()` |
+| VR-06 | `lifecycle_events` | Block edit row đã insert (immutable) | "VR-06: Nhật ký sự kiện vòng đời không được chỉnh sửa." | `_vr06_immutable_lifecycle_events()` |
+| VR-07 | `qa_license_doc` | Bắt buộc nếu `is_radiation_device=1` và workflow_state=Clinical_Release | "VR-07: Thiết bị này phát bức xạ nhưng chưa có Giấy phép." | `validate_radiation_hold()` |
+| VR-Backdate | `installation_date` | ≥ PO `transaction_date` | "Lỗi Back-date: Ngày lắp đặt ({d1}) không thể trước Ngày đặt hàng PO ({d2})." | `validate_backdate()` |
+| VR-DocExpiry | `commissioning_documents[].expiry_date` | Throw nếu < today; warning nếu < 30 ngày | "Tài liệu '{type}' đã hết hạn vào {date}." | `_validate_document_expiry()` |
 
 ---
 
-## Biểu đồ Use Case Phân Rã — IMM-04
+## 7. Non-Functional Requirements
 
-### Phân rã theo Actor: TBYT Officer
-
-```mermaid
-graph TD
-    subgraph "TBYT Officer"
-        A1[UC-04-01: Tạo phiếu lắp đặt từ PO]
-        A2[UC-04-02: Kiểm tra tài liệu đầu vào]
-        A3[UC-04-03: Kích hoạt lắp đặt]
-        A4[UC-04-04: Ghi nhận Non-Conformance]
-    end
-    subgraph "Vendor Technician"
-        B1[UC-04-05: Thực hiện lắp đặt tại site]
-        B2[UC-04-06: Báo cáo hoàn thành lắp đặt]
-        B3[UC-04-07: Khai báo lỗi DOA]
-    end
-    subgraph "Clinical Head"
-        C1[UC-04-08: Xác nhận site sẵn sàng]
-        C2[UC-04-09: Ký biên bản nghiệm thu]
-    end
-    subgraph "Workshop Head / QA"
-        D1[UC-04-10: Thực hiện Initial Inspection]
-        D2[UC-04-11: Gán Internal Tag + Barcode]
-        D3[UC-04-12: Upload checklist nghiệm thu]
-        D4[UC-04-13: Phát hành thiết bị vào dịch vụ]
-    end
-    subgraph "VP Block2"
-        E1[UC-04-14: Phê duyệt Clinical Release]
-        E2[UC-04-15: Xem dashboard Commissioning]
-    end
-    subgraph "CMMS Scheduler"
-        F1[UC-04-16: Cảnh báo Clinical Hold quá hạn]
-        F2[UC-04-17: Cảnh báo SLA lắp đặt vi phạm]
-        F3[UC-04-18: Tạo Asset Document Set sau mint]
-    end
-```
+| NFR ID | Loại | Yêu cầu | Target |
+|---|---|---|---|
+| NFR-04-01 | Performance | Tải form Commissioning đầy đủ (50+ field, 3 child) | P95 < 2s |
+| NFR-04-02 | Performance | `check_sn_unique` (on-blur) | < 500ms |
+| NFR-04-03 | Performance | `get_dashboard_stats` | < 1s |
+| NFR-04-04 | Reliability | Scheduler `check_commissioning_overdue` chạy 02:00 daily | Độ trễ < 5 phút |
+| NFR-04-05 | Security | Submit chỉ VP Block2 / Workshop Head (whitelist trong API) | Permission test |
+| NFR-04-06 | Audit | Mọi state transition tạo 1 Lifecycle Event | 100% coverage; VR-06 immutable |
+| NFR-04-07 | Usability | Form responsive trên tablet 768px | Manual test |
+| NFR-04-08 | Data integrity | vendor_serial_no UNIQUE cross-table | Integration test TC-04-03 |
+| NFR-04-09 | Compliance | Lifecycle event không thể xoá/sửa sau Submit | DB + perm + VR-06 |
+| NFR-04-10 | Localization | Mọi user-facing message bằng tiếng Việt | `frappe._()` wrap |
+| NFR-04-11 | Realtime | `imm04_asset_released` publish < 1s sau on_submit | `frappe.publish_realtime` |
 
 ---
 
-## Đặc Tả Use Case — IMM-04
+## 8. Acceptance Criteria — Global
 
-### UC-04-01: Tạo phiếu lắp đặt từ PO
-
-| Thuộc tính | Nội dung |
+| Mã | Acceptance Criteria |
 |---|---|
-| **UC ID** | UC-04-01 |
-| **Tên** | Tạo phiếu lắp đặt từ Purchase Order |
-| **Actor chính** | TBYT Officer |
-| **Actor phụ** | — |
-| **Tiền điều kiện** | Purchase Order đã được duyệt và tồn tại trong hệ thống; Item có asset_category hợp lệ |
-| **Hậu điều kiện** | Asset Commissioning được tạo với status = Draft_Reception; số ACC-YYYY-##### được gán |
-| **Luồng chính** | 1. TBYT Officer mở màn hình New Commissioning<br>2. Chọn Purchase Order từ danh sách<br>3. Hệ thống tự điền: vendor, item_ref, asset_category, clinical_dept<br>4. Officer điền thêm: expected_installation_date, location, risk_class<br>5. Officer nhấn Save → hệ thống tạo ACC-YYYY-#####<br>6. Hệ thống gửi notification cho Workshop Head |
-| **Luồng thay thế** | 4a. Location không tồn tại → hệ thống báo lỗi, yêu cầu chọn lại<br>4b. risk_class chưa điền → hệ thống block Submit |
-| **Luồng ngoại lệ** | 2a. PO đã có Commissioning → hệ thống cảnh báo duplicate |
-| **Business Rule** | BR-04-01: Mỗi PO line item tạo 1 phiếu Commissioning độc lập |
+| AC-04-01 | 31/32 UAT case PASS; TC-32 (PM auto-create) FAIL được track trong Known Gaps |
+| AC-04-02 | Mọi VR/Gate enforce ở backend; FE chỉ pre-validate UX |
+| AC-04-03 | Mọi error trả về `_err(message_vi, code)` envelope |
+| AC-04-04 | Mọi success trả về `_ok({...})` envelope |
+| AC-04-05 | Audit trail (`lifecycle_events`) ghi mọi: insert, doc upload, identification, baseline submit, hold, release, cancel |
+| AC-04-06 | `final_asset` được set trước khi `on_submit` kết thúc; rollback nếu mint thất bại |
 
 ---
 
-### UC-04-10: Thực hiện Initial Inspection
+## 9. Glossary
 
-| Thuộc tính | Nội dung |
+| Thuật ngữ | Nghĩa |
 |---|---|
-| **UC ID** | UC-04-10 |
-| **Tên** | Thực hiện Initial Inspection và gán định danh thiết bị |
-| **Actor chính** | Workshop Head / QA Officer |
-| **Actor phụ** | Vendor Technician (hỗ trợ) |
-| **Tiền điều kiện** | Phiếu ở trạng thái Identification; vendor_sn đã được nhập |
-| **Hậu điều kiện** | Internal Tag và Barcode URL được gán; checklist inspection hoàn thành; chuyển sang Clinical_Hold (Class C/D) hoặc Clinical_Release (Class A/B) |
-| **Luồng chính** | 1. QA Officer mở phiếu ở bước Identification<br>2. Nhập Serial Number từ thiết bị<br>3. Hệ thống verify SN unique (VR-01)<br>4. Hệ thống auto-generate Internal Tag (HOSP-YYYY-####)<br>5. Hệ thống generate Barcode URL<br>6. QA điền từng mục Initial Inspection Checklist<br>7. Submit checklist → hệ thống đánh giá kết quả<br>8a. risk_class = C/D/Radiation → auto-transition Clinical_Hold<br>8b. All Pass + risk_class A/B → transition Clinical_Release |
-| **Luồng thay thế** | 3a. SN trùng → block, yêu cầu kiểm tra lại<br>6a. ≥1 critical item Fail → transition Re_Inspection |
-| **Luồng ngoại lệ** | 4a. Internal Tag pattern chưa cấu hình → alert Admin |
-| **Business Rule** | BR-04-03: SN phải unique toàn hệ thống; VR-07: Class C/D/Radiation auto Clinical_Hold |
+| ACC / IMM04 | Mã phiếu nghiệm thu (Asset Commissioning) |
+| Gate G01–G06 | 6 checkpoint nghiệp vụ trong workflow (xem §4) |
+| GW-2 | Gateway 2 — kiểm tra hồ sơ pháp lý IMM-05 trước Submit |
+| DOA | Dead-on-Arrival (hỏng ngay khi khui hộp) |
+| NC | Non-Conformance — phiếu báo lỗi |
+| BV-{DEPT}-{YYYY}-{SEQ} | Format internal QR (auto-sinh khi vào state Identification) |
 
----
-
-### UC-04-14: Phê duyệt Clinical Release
-
-| Thuộc tính | Nội dung |
-|---|---|
-| **UC ID** | UC-04-14 |
-| **Tên** | Phê duyệt phát hành thiết bị vào dịch vụ lâm sàng |
-| **Actor chính** | VP Block2 |
-| **Actor phụ** | QA Officer (chuẩn bị hồ sơ) |
-| **Tiền điều kiện** | Phiếu ở trạng thái Clinical_Release; Radiation License đã upload (nếu Class Radiation) |
-| **Hậu điều kiện** | Asset được tạo trong hệ thống ERPNext; Asset.status = Active; commissioning_date ghi nhận; IMM-05 tạo Document Set; IMM-08 tạo PM Schedule |
-| **Luồng chính** | 1. VP Block2 nhận notification phiếu chờ duyệt<br>2. Mở phiếu, review toàn bộ hồ sơ<br>3. Xác nhận đủ điều kiện<br>4. Nhấn "Approve Release"<br>5. Hệ thống tạo ERPNext Asset với internal_tag làm asset_name<br>6. Hệ thống set commissioning_date = today<br>7. Trigger IMM-05: tạo Document Set từ commissioning_documents<br>8. Trigger IMM-08: tạo PM Schedule theo manufacturer interval |
-| **Luồng thay thế** | 3a. Thiếu Radiation License → block, yêu cầu upload<br>3b. VP từ chối → nhập rejection_reason, phiếu về Draft |
-| **Luồng ngoại lệ** | 5a. ERPNext Asset creation fail → rollback, alert Admin |
-| **Business Rule** | BR-04-06: commissioning_date phải được set chính xác (baseline PM); BR-04-08: Asset mint phải trigger IMM-05 và IMM-08 |
-
----
-
-## Yêu Cầu Phi Chức Năng — IMM-04
-
-| ID | Loại | Yêu cầu | Chỉ tiêu | Phương pháp kiểm tra |
-|---|---|---|---|---|
-| NFR-04-01 | Performance | Tải form Commissioning với 50 fields | < 2s | Load test |
-| NFR-04-02 | Performance | Generate Barcode URL | < 500ms | Unit test |
-| NFR-04-03 | Reliability | Scheduler alert Clinical Hold | Chạy đúng 00:30 hàng ngày, độ trễ < 5 phút | Monitor log |
-| NFR-04-04 | Security | Chỉ TBYT Officer mới tạo được Commissioning | Permission test | Permission test |
-| NFR-04-05 | Security | VP Block2 mới được Approve Release | Role permission check | Permission test |
-| NFR-04-06 | Audit | Mọi state transition ghi Lifecycle Event | 100% coverage | DB audit check |
-| NFR-04-07 | Usability | Form điền trên tablet 768px | Responsive, không scroll ngang | Manual test |
-| NFR-04-08 | Data integrity | Serial Number unique toàn hệ thống | Duplicate check khi nhập SN | Integration test |
-| NFR-04-09 | Availability | Module hoạt động trong giờ hành chính | 99.5% uptime | Uptime monitor |
-| NFR-04-10 | Compliance | Audit trail immutable sau Submit | Không thể xóa/sửa Lifecycle Event | DB constraint test |
+*End of Functional Specs v2.0.0 — IMM-04*

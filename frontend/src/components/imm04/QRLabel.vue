@@ -31,12 +31,12 @@ async function fetchLabel() {
   loading.value = true
   error.value = null
   try {
-    const res = await generateQrLabel(props.name)
-    if (res.success && res.data) {
-      labelData.value = res.data
-      await generateQrImage(res.data.qr_value)
+    const res = await generateQrLabel(props.name) as unknown as { qr_value?: string } & typeof labelData.value
+    if (res?.qr_value) {
+      labelData.value = res
+      await generateQrImage(res.qr_value)
     } else {
-      error.value = res.error ?? 'Không thể tải dữ liệu QR'
+      error.value = 'Không thể tải dữ liệu QR'
     }
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Lỗi không xác định'

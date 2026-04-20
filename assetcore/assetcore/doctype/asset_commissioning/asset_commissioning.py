@@ -73,10 +73,10 @@ class AssetCommissioning(Document):
 		if not self.vendor_serial_no:
 			return
 
-		# Kiểm tra trong bảng Asset Core
+		# Kiểm tra trong bảng AC Asset (v3: manufacturer_sn là field chuẩn)
 		existing_asset = frappe.db.get_value(
-			"Asset",
-			{"custom_vendor_serial": self.vendor_serial_no},
+			"AC Asset",
+			{"manufacturer_sn": self.vendor_serial_no},
 			"name"
 		)
 		if existing_asset and existing_asset != self.final_asset:
@@ -200,20 +200,20 @@ class AssetCommissioning(Document):
 	# ──────────────────────────────────────────────
 
 	def validate_backdate(self):
-		"""Chống nhập ngày lắp đặt trước ngày PO."""
-		if not self.installation_date or not self.po_reference:
-			return
+		"""Chống nhập ngày lắp đặt trước ngày PO / ngày nhận hàng.
 
-		po_date = frappe.db.get_value("Purchase Order", self.po_reference, "transaction_date")
-		if po_date and self.installation_date:
-			from frappe.utils import getdate
-			inst_date = getdate(str(self.installation_date)[:10])
-			if inst_date < getdate(str(po_date)):
-				frappe.throw(
-					_("Lỗi Back-date: Ngày lắp đặt ({0}) không thể trước "
-					  "Ngày đặt hàng PO ({1}).")
-					.format(inst_date, po_date)
-				)
+		v3: po_reference là Data (không còn Link Purchase Order); kiểm tra so với
+		reception_date thay cho PO date.
+		"""
+		if not self.installation_date:
+			return
+		from frappe.utils import getdate
+		inst_date = getdate(str(self.installation_date)[:10])
+		if self.reception_date and inst_date < getdate(str(self.reception_date)):
+			frappe.throw(
+				_("Lỗi Back-date: Ngày lắp đặt ({0}) không thể trước Ngày nhận hàng ({1}).")
+				.format(inst_date, self.reception_date)
+			)
 
 	# ──────────────────────────────────────────────
 	# VR-04: BLOCK RELEASE IF NC OPEN
@@ -256,42 +256,22 @@ class AssetCommissioning(Document):
 	# ──────────────────────────────────────────────
 
 	def mint_core_asset(self):
-		"""Sinh Asset Cố định ERPNext khi phiếu IMM-04 được Submit."""
+		"""Sinh AC Asset khi phiếu IMM-04 Submit (v3: delegate sang services/imm04)."""
+		from assetcore.services.imm04 import create_ac_asset
 		try:
-			# Asset.location cần là Location doctype — nếu không có thì để trống
-			# Kế toán sẽ cập nhật sau khi tài sản được phát hành
-			new_asset = frappe.get_doc({
-				"doctype": "Asset",
-				"item_code": self.master_item,
-				"asset_name": f"{self.master_item} — {self.vendor_serial_no}",
-				"company": frappe.defaults.get_user_default("Company") or frappe.db.get_single_value("Global Defaults", "default_company"),
-				"available_for_use_date": nowdate(),
-				"gross_purchase_amount": 1,  # Placeholder — Kế toán cập nhật sau theo giá trị PO
-				# Custom fields mở rộng
-				"custom_vendor_serial": self.vendor_serial_no,
-				"custom_internal_qr": self.internal_tag_qr,
-				"custom_comm_ref": self.name,
-			})
-
-			new_asset.flags.ignore_mandatory = True
-			new_asset.flags.ignore_links = True
-			new_asset.insert(ignore_permissions=True, ignore_mandatory=True)
-
-			# Ghi ID ngược về phiếu Commissioning
-			self.db_set("final_asset", new_asset.name, commit=True)
-
+			asset_name = create_ac_asset(self)
+			self.db_set("final_asset", asset_name, commit=True)
 			frappe.msgprint(
-				_("✅ Tài sản <b><a href='/app/asset/{0}'>{0}</a></b> đã được tạo thành công "
+				_("✅ Tài sản <b><a href='/app/ac-asset/{0}'>{0}</a></b> đã được tạo thành công "
 				  "và sẵn sàng sử dụng tại {1}.")
-				.format(new_asset.name, self.clinical_dept),
+				.format(asset_name, self.clinical_dept),
 				alert=True,
-				indicator="green"
+				indicator="green",
 			)
-
 		except Exception as e:
 			frappe.log_error(
 				message=frappe.get_traceback(),
-				title=f"Asset Minting Failed — {self.name}"
+				title=f"AC Asset Minting Failed — {self.name}",
 			)
 			frappe.throw(
 				_("Lỗi hệ thống khi tạo Tài sản: {0}. "

@@ -1,7 +1,7 @@
 // Copyright (c) 2026, AssetCore Team
 // API client cho Module IMM-08 — Preventive Maintenance
 
-import { frappeGet, frappePost, type ApiResponse } from './helpers'
+import { frappeGet, frappePost } from './helpers'
 
 export interface PMWorkOrder {
   name: string
@@ -16,6 +16,7 @@ export interface PMWorkOrder {
   scheduled_date: string | null
   completion_date: string | null
   assigned_to: string | null
+  assigned_to_name?: string | null
   overall_result: 'Pass' | 'Pass with Minor Issues' | 'Fail' | null
   technician_notes: string
   pm_sticker_attached: boolean
@@ -72,17 +73,17 @@ export interface PMListResponse {
 const BASE = '/api/method/assetcore.api.imm08'
 
 export async function listPMWorkOrders(filters = {}, page = 1, pageSize = 20): Promise<PMListResponse> {
-  const res = await frappeGet<ApiResponse<PMListResponse>>(`${BASE}.list_pm_work_orders`, {
+  const res = await frappeGet<PMListResponse>(`${BASE}.list_pm_work_orders`, {
     filters: JSON.stringify(filters),
     page,
     page_size: pageSize,
   })
-  return res.data
+  return res
 }
 
 export async function getPMWorkOrder(name: string): Promise<PMWorkOrder> {
-  const res = await frappeGet<ApiResponse<PMWorkOrder>>(`${BASE}.get_pm_work_order`, { name })
-  return res.data
+  const res = await frappeGet<PMWorkOrder>(`${BASE}.get_pm_work_order`, { name })
+  return res
 }
 
 export async function assignTechnician(
@@ -90,11 +91,11 @@ export async function assignTechnician(
   technician: string,
   scheduledDate?: string,
 ): Promise<{ name: string; status: string }> {
-  const res = await frappePost<ApiResponse<{ name: string; status: string }>>(
+  const res = await frappePost<{ name: string; status: string }>(
     `${BASE}.assign_technician`,
     { name, technician, scheduled_date: scheduledDate },
   )
-  return res.data
+  return res
 }
 
 export async function submitPMResult(payload: {
@@ -105,7 +106,7 @@ export async function submitPMResult(payload: {
   pm_sticker_attached: boolean
   duration_minutes: number
 }): Promise<{ name: string; new_status: string; is_late: boolean; next_pm_date: string; cm_wo_created: string | null }> {
-  const res = await frappePost<ApiResponse<{ name: string; new_status: string; is_late: boolean; next_pm_date: string; cm_wo_created: string | null }>>(
+  const res = await frappePost<{ name: string; new_status: string; is_late: boolean; next_pm_date: string; cm_wo_created: string | null }>(
     `${BASE}.submit_pm_result`,
     {
       ...payload,
@@ -113,18 +114,18 @@ export async function submitPMResult(payload: {
       pm_sticker_attached: payload.pm_sticker_attached ? 1 : 0,
     },
   )
-  return res.data
+  return res
 }
 
 export async function reportMajorFailure(
   pmWoName: string,
   failureDescription: string,
 ): Promise<{ pm_wo: string; cm_wo_created: string; asset_status: string }> {
-  const res = await frappePost<ApiResponse<{ pm_wo: string; cm_wo_created: string; asset_status: string }>>(
+  const res = await frappePost<{ pm_wo: string; cm_wo_created: string; asset_status: string }>(
     `${BASE}.report_major_failure`,
     { pm_wo_name: pmWoName, failure_description: failureDescription },
   )
-  return res.data
+  return res
 }
 
 export async function getPMCalendar(
@@ -136,17 +137,17 @@ export async function getPMCalendar(
   events: PMCalendarEvent[]
   summary: { total: number; completed: number; overdue: number; pending: number }
 }> {
-  const res = await frappeGet<ApiResponse<{
+  const res = await frappeGet<{
     month: string
     events: PMCalendarEvent[]
     summary: { total: number; completed: number; overdue: number; pending: number }
-  }>>(`${BASE}.get_pm_calendar`, { year, month, asset_ref: assetRef })
-  return res.data
+  }>(`${BASE}.get_pm_calendar`, { year, month, asset_ref: assetRef })
+  return res
 }
 
 export async function getPMDashboardStats(year?: number, month?: number): Promise<PMDashboardStats> {
-  const res = await frappeGet<ApiResponse<PMDashboardStats>>(`${BASE}.get_pm_dashboard_stats`, { year, month })
-  return res.data
+  const res = await frappeGet<PMDashboardStats>(`${BASE}.get_pm_dashboard_stats`, { year, month })
+  return res
 }
 
 export async function reschedulePM(
@@ -154,20 +155,30 @@ export async function reschedulePM(
   newDate: string,
   reason: string,
 ): Promise<{ name: string; old_date: string; new_date: string }> {
-  const res = await frappePost<ApiResponse<{ name: string; old_date: string; new_date: string }>>(
+  const res = await frappePost<{ name: string; old_date: string; new_date: string }>(
     `${BASE}.reschedule_pm`,
     { name, new_date: newDate, reason },
   )
-  return res.data
+  return res
 }
 
 export async function getAssetPMHistory(
   assetRef: string,
   limit = 10,
 ): Promise<{ asset_ref: string; total: number; history: PMWorkOrder[] }> {
-  const res = await frappeGet<ApiResponse<{ asset_ref: string; total: number; history: PMWorkOrder[] }>>(
+  const res = await frappeGet<{ asset_ref: string; total: number; history: PMWorkOrder[] }>(
     `${BASE}.get_asset_pm_history`,
     { asset_ref: assetRef, limit },
   )
-  return res.data
+  return res
+}
+
+export async function createAdhocPMWorkOrder(data: {
+  asset_ref: string
+  pm_schedule: string
+  due_date: string
+  assigned_to?: string
+  technician_notes?: string
+}): Promise<{ name: string }> {
+  return frappePost<{ name: string }>(`${BASE}.create_pm_work_order`, data as Record<string, unknown>)
 }

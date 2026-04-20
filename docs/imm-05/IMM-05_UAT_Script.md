@@ -38,9 +38,9 @@ Xác nhận module IMM-05 hoạt động đúng theo Functional Spec, bao gồm:
 
 | Asset | Item/Model | Khoa | is_radiation | Ghi chú |
 |-------|-----------|------|:------------:|---------|
-| AST-TEST-001 | CT Scanner XYZ | ICU | Yes | Thiết bị bức xạ — cần giấy phép |
-| AST-TEST-002 | Monitor ABC | OR | No | Thiết bị thường |
-| AST-TEST-003 | X-Ray DEF | Cấp cứu | Yes | Thiết bị bức xạ |
+| AC-ASSET-TEST-001 | CT Scanner XYZ | ICU | Yes | Thiết bị bức xạ — cần giấy phép |
+| AC-ASSET-TEST-002 | Monitor ABC | OR | No | Thiết bị thường |
+| AC-ASSET-TEST-003 | X-Ray DEF | Cấp cứu | Yes | Thiết bị bức xạ |
 
 ---
 
@@ -55,7 +55,7 @@ Xác nhận module IMM-05 hoạt động đúng theo Functional Spec, bao gồm:
 |------|----------|-------------------|:---------:|
 | 1 | Login với `test_ktvh` | Đăng nhập thành công | ☐ |
 | 2 | Mở /app/asset-document/new | Form trống hiện ra, status = Draft | ☐ |
-| 3 | Chọn Asset = AST-TEST-001 | `model_ref` và `clinical_dept` tự fill | ☐ |
+| 3 | Chọn Asset = AC-ASSET-TEST-001 | `model_ref` và `clinical_dept` tự fill | ☐ |
 | 4 | Chọn Nhóm = "Legal" | Field `issuing_authority` hiện required hint | ☐ |
 | 5 | Chọn Loại = "Giấy phép nhập khẩu" | — | ☐ |
 | 6 | Điền Số hiệu = "NK-2026-0042" | — | ☐ |
@@ -64,7 +64,7 @@ Xác nhận module IMM-05 hoạt động đúng theo Functional Spec, bao gồm:
 | 9 | Điền Cơ quan cấp = "Bộ Y tế" | — | ☐ |
 | 10 | Upload file test-doc.pdf | File hiển thị tên + kích thước | ☐ |
 | 11 | Click Save | Doc saved, status = Draft | ☐ |
-| 12 | Verify naming: `DOC-AST-TEST-001-2026-00001` | Naming series đúng format | ☐ |
+| 12 | Verify naming: `DOC-AC-ASSET-TEST-001-2026-00001` | Naming series đúng format | ☐ |
 
 ---
 
@@ -106,7 +106,7 @@ Xác nhận module IMM-05 hoạt động đúng theo Functional Spec, bao gồm:
 ### TC-04: Version Control (Archive tự động)
 
 **Actor:** HTM Technician + Biomed Engineer
-**Precondition:** TC-02 passed (có 1 Active doc "Giấy phép nhập khẩu" cho AST-TEST-001)
+**Precondition:** TC-02 passed (có 1 Active doc "Giấy phép nhập khẩu" cho AC-ASSET-TEST-001)
 
 | Step | Hành động | Kết quả mong đợi | Pass/Fail |
 |------|----------|-------------------|:---------:|

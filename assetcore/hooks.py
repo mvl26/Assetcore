@@ -6,67 +6,76 @@ app_email = ""
 app_license = "MIT"
 
 # ──────────────────────────────────────────────
-# Fixtures — export config/role data với bench
+# Fixtures — IMM-00 v3 foundation
 # ──────────────────────────────────────────────
 fixtures = [
-	{"dt": "Role", "filters": [["name", "in", [
-		"HTM Technician",
-		"Biomed Engineer",
-		"Workshop Head",
-		"VP Block2",
-		"QA Risk Team",
-		"CMMS Admin",
-		"Tổ HC-QLCL",        # IMM-05
-	]]]},
-	{"dt": "Workflow", "filters": [["name", "in", [
-		"IMM-04 Workflow",
-		"IMM-05 Document Workflow",   # IMM-05
-	]]]},
-	{"dt": "Required Document Type"},   # IMM-05 seed data
-	{"dt": "Custom Field", "filters": [["dt", "in", ["Asset"]]]},
+    {"dt": "Role", "filters": [["name", "in", [
+        # IMM-00 governance roles
+        "IMM System Admin",
+        "IMM Department Head",
+        "IMM Operations Manager",
+        "IMM Workshop Lead",
+        "IMM Technician",
+        "IMM Document Officer",
+        "IMM Storekeeper",
+        "IMM QA Officer",
+        "IMM Clinical User",
+        # IMM-04/05/08/09/11 operational roles (hospital workflow)
+        "HTM Technician",
+        "CMMS Admin",
+        "Workshop Head",
+        "VP Block2",
+        "Biomed Engineer",
+        "Tổ HC-QLCL",
+        "Clinical Head",
+    ]]]},
+    {"dt": "IMM SLA Policy"},
 ]
 
 # ──────────────────────────────────────────────
-# Document Events — gắn hook vào các DocType
+# Document Events — IMM-00 v3
 # ──────────────────────────────────────────────
 doc_events = {
-	"Asset Commissioning": {
-		"before_insert": "assetcore.services.imm04.initialize_commissioning",
-	},
+    "Asset Commissioning": {
+        "on_submit": "assetcore.services.imm11.create_calibration_schedule_from_commissioning",
+    },
 }
 
 # ──────────────────────────────────────────────
-# Scheduled Jobs — Cron tasks
+# Scheduler — IMM-00 v3 foundation jobs
 # ──────────────────────────────────────────────
 scheduler_events = {
-	"daily": [
-		"assetcore.services.imm04.check_commissioning_overdue",
-		"assetcore.tasks.check_clinical_hold_aging",
-		"assetcore.tasks.check_commissioning_sla",
-		"assetcore.tasks.check_document_expiry",            # IMM-05: expiry alert + auto-Expire
-		"assetcore.tasks.update_asset_completeness",        # IMM-05: cập nhật pct + document_status
-		"assetcore.tasks.check_overdue_document_requests",  # IMM-05: leo thang Document Request
-		"assetcore.tasks.generate_pm_work_orders",          # IMM-08: tạo PM WO tự động
-		"assetcore.tasks.check_pm_overdue",                 # IMM-08: kiểm tra và cảnh báo overdue
-		"assetcore.tasks.check_repair_overdue",             # IMM-09: WO sửa chữa quá 7 ngày
-	],
-	"hourly": [
-		"assetcore.tasks.send_pending_approvals_reminder",
-		"assetcore.tasks.check_repair_sla_breach",          # IMM-09: SLA breach realtime alert
-	],
-	"monthly": [
-		"assetcore.tasks.update_asset_mttr_avg",            # IMM-09: cập nhật MTTR trung bình
-	],
+    "daily": [
+        # IMM-00 foundation alerts
+        "assetcore.services.imm00.check_capa_overdue",
+        "assetcore.services.imm00.check_vendor_contract_expiry",
+        "assetcore.services.imm00.check_registration_expiry",
+        "assetcore.services.imm00.check_insurance_expiry",
+        "assetcore.services.imm00.check_service_contract_expiry",
+        # IMM-05 document expiry alerts
+        "assetcore.services.imm05.check_document_expiry",
+        # IMM-08 PM auto work order generation
+        "assetcore.services.imm08.generate_pm_work_orders_from_schedule",
+        # IMM-11 Calibration auto WO + expiry check
+        "assetcore.services.imm11.create_due_calibration_wos",
+        "assetcore.services.imm11.check_calibration_expiry",
+    ],
+    "monthly": [
+        "assetcore.services.imm00.rollup_asset_kpi",
+    ],
 }
 
 # ──────────────────────────────────────────────
-# Override ERPNext controllers with AssetCore versions
+# Permission Query Conditions
 # ──────────────────────────────────────────────
-override_doctype_class = {
-    "Asset Repair": "assetcore.assetcore.doctype.asset_repair.asset_repair.AssetRepair",
+permission_query_conditions = {
+    "AC Asset": "assetcore.permissions.ac_asset_query",
+    "Incident Report": "assetcore.permissions.incident_report_query",
+    "Asset Repair": "assetcore.permissions.asset_repair_query",
+    "PM Work Order": "assetcore.permissions.pm_work_order_query",
 }
 
+# Not overriding any Frappe/ERPNext DocType — AssetCore is Frappe-only (no ERPNext dep)
+override_doctype_class = {}
 override_whitelisted_methods = {}
-
-# Web hooks
 website_route_rules = []

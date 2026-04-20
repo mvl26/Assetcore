@@ -1,758 +1,530 @@
-# IMM-04 — API Interface
-## Endpoints, Sequence Diagrams & Payload Contracts
+# IMM-04 — API Interface Specification
 
-**Module:** IMM-04  
-**Version:** 1.0  
-**Ngày:** 2026-04-17  
-**Trạng thái:** Draft
-
----
-
-## 1. Sequence Diagrams
-
-### 1.1 Tạo Commissioning + Upload Tài Liệu
-
-```mermaid
-sequenceDiagram
-    actor TBYT as TBYT Officer
-    participant UI as Vue Frontend
-    participant API as assetcore.api.imm04
-    participant SVC as assetcore.services.imm04
-    participant DB as MariaDB
-    participant FS as Frappe File System
-
-    TBYT->>UI: Chọn PO, Item, Location → Click "Tạo Phiếu"
-    UI->>API: POST /api/method/assetcore.api.imm04.create_commissioning
-    API->>SVC: initialize_commissioning(doc)
-    SVC->>DB: Get Item.risk_class, asset_category
-    DB-->>SVC: risk_class = "C", category = "X-Ray"
-    SVC->>SVC: _populate_mandatory_documents() → CO, CQ, Manual, License
-    SVC->>DB: INSERT Asset Commissioning (status=Draft_Reception)
-    DB-->>SVC: name = "ACC-2026-00001"
-    SVC->>DB: INSERT Asset Lifecycle Event (event_type=status_changed, to=Draft_Reception)
-    API-->>UI: { success: true, data: { name: "ACC-2026-00001", status: "Draft_Reception", documents: [...] } }
-    UI-->>TBYT: Redirect → /imm-04/ACC-2026-00001/documents
-
-    TBYT->>UI: Click "Upload CO" → Chọn file
-    UI->>API: POST /api/method/assetcore.api.imm04.upload_document
-    Note over UI,API: multipart/form-data: { commissioning: "ACC-2026-00001", doc_index: 0, file: <binary> }
-    API->>FS: frappe.get_doc("File").save() → /private/files/ACC-2026-00001/co.pdf
-    FS-->>API: file_url = "/private/files/..."
-    API->>SVC: update_document_record(doc, index=0, status=Received, file_url)
-    SVC->>DB: UPDATE Document Record row 0 (status=Received, file_url, uploaded_by, uploaded_at)
-    SVC->>DB: INSERT Lifecycle Event (event_type=doc_uploaded, remarks="CO uploaded")
-    API-->>UI: { success: true, data: { updated_document: {...}, all_mandatory_received: false } }
-    UI-->>TBYT: Document row updated; progress indicator updated
-```
+| Thuộc tính | Giá trị |
+|---|---|
+| Module | IMM-04 — Lắp đặt, Định danh & Kiểm tra Ban đầu |
+| Phiên bản | 2.0.0 |
+| Ngày cập nhật | 2026-04-18 |
+| Trạng thái | LIVE — 31/32 UAT PASS |
+| Tác giả | AssetCore Team |
+| Base path | `/api/method/assetcore.api.imm04.<function>` |
 
 ---
 
-### 1.2 Baseline Inspection + Gate G03 Check
+## 1. Authentication
 
-```mermaid
-sequenceDiagram
-    actor BIO as Biomed Engineer
-    participant UI as Vue Frontend
-    participant API as assetcore.api.imm04
-    participant SVC as assetcore.services.imm04
-    participant DB as MariaDB
-    participant NOTIFY as Frappe Email/Notification
+| Phương thức | Header | Dùng cho |
+|---|---|---|
+| API Token | `Authorization: token <api_key>:<api_secret>` | Server-to-server, integration |
+| Session cookie | `Cookie: sid=<session_id>` (kèm `X-Frappe-CSRF-Token` cho POST) | Browser / Vue SPA |
 
-    BIO->>UI: Điền từng checklist item (result, measured_value)
-    UI->>UI: Auto-validate numeric range → highlight fail items
-    BIO->>UI: Click "Nộp Kết Quả Kiểm Tra"
-
-    UI->>API: POST /api/method/assetcore.api.imm04.submit_baseline_checklist
-    Note over API: { commissioning: "ACC-2026-00001", checklist_results: [...] }
-
-    API->>SVC: validate_gate_g03(doc)
-    alt Có item is_critical = True bị Fail (VR-03)
-        SVC-->>API: raise frappe.ValidationError("VR-03: Các mục quan trọng chưa đạt")
-        API-->>UI: { success: false, error: "VR-03: ...", failed_items: ["Điện rò vỏ"] }
-        UI-->>BIO: Toast error + highlight rows fail
-    else Tất cả Pass — risk_class ∈ {C, D, Radiation} (VR-07)
-        SVC->>DB: UPDATE status = "Clinical_Hold"
-        SVC->>DB: INSERT Lifecycle Event (event_type=status_changed, to=Clinical_Hold)
-        SVC->>NOTIFY: send_email(qa_officer, "Thiết bị cần giấy phép BYT: ACC-2026-00001")
-        SVC->>NOTIFY: create_in_app_notification(qa_officer)
-        API-->>UI: { success: true, data: { new_status: "Clinical_Hold", qa_officer: "qa@hospital.vn" } }
-        UI-->>BIO: Alert modal: "Thiết bị đã vào Clinical Hold — QA Officer đã được thông báo"
-    else Tất cả Pass — risk_class ∈ {A, B}
-        SVC->>DB: UPDATE status = "Initial_Inspection" → mark overall_inspection_result = Pass
-        SVC-->>API: Ok — gates passed, ready for release
-        API-->>UI: { success: true, data: { new_status: "Initial_Inspection", all_pass: true } }
-        UI-->>BIO: "Tất cả kiểm tra đạt — Chờ phê duyệt Clinical Release"
-    end
-```
+Thiếu / sai credential → HTTP 401. Thiếu role → HTTP 403 với `code = "PERMISSION_DENIED"`.
 
 ---
 
-### 1.3 Clinical Release Flow (Board Approval)
+## 2. Response Format
 
-```mermaid
-sequenceDiagram
-    actor QA as QA Officer
-    actor BOARD as Board/CEO
-    participant UI as Vue Frontend
-    participant API as assetcore.api.imm04
-    participant SVC as assetcore.services.imm04
-    participant IMM05 as assetcore.services.imm05
-    participant IMM08 as assetcore.services.imm08
-    participant DB as MariaDB
+Tất cả endpoint trả `{success, data}` hoặc `{success, error, code}` qua helper `assetcore/utils/helpers.py`.
 
-    Note over QA: Clinical Hold state — license đã ready
-    QA->>UI: Upload License PDF → Click "Gỡ Clinical Hold"
-    UI->>API: POST /api/method/assetcore.api.imm04.clear_clinical_hold
-    API->>SVC: validate — license doc status = Received, no open NC
-    SVC->>DB: UPDATE status = "Clinical_Release" (pending board)
-    SVC->>DB: INSERT Lifecycle Event (event_type=hold_cleared)
-    API-->>UI: { success: true, data: { new_status: "Clinical_Release", requires_board_approval: true } }
-    UI-->>QA: "Hold đã gỡ — Chờ Board phê duyệt"
+**Success:**
 
-    BOARD->>UI: Mở Commissioning record → Chọn board_approver → Click "Phê Duyệt Release"
-    UI->>API: POST /api/method/assetcore.api.imm04.approve_clinical_release
-    API->>SVC: validate_gate_g05_g06(doc)
-
-    alt NC vẫn còn Open (VR-04)
-        SVC-->>API: raise ValidationError("VR-04: NC chưa đóng")
-        API-->>UI: error response
-    else All gates pass
-        SVC->>DB: INSERT Asset (status=Active, commissioning_date=today)
-        DB-->>SVC: asset_name = "ACC-ASS-2026-00001"
-        SVC->>DB: UPDATE Asset Commissioning (asset_ref=asset_name, commissioning_date)
-        SVC->>DB: INSERT Lifecycle Event (event_type=released, to=Clinical_Release)
-        SVC->>SVC: _generate_handover_document(doc) → PDF
-        SVC->>IMM05: enqueue create_device_record_from_commissioning(doc)
-        SVC->>IMM08: enqueue create_pm_schedule_from_commissioning(doc)
-        API-->>UI: { success: true, data: { asset_ref: "ACC-ASS-2026-00001", handover_doc: "/files/...", commissioning_date: "2026-04-17" } }
-        UI-->>BOARD: "Thiết bị đã được Release thành công! Asset: ACC-ASS-2026-00001"
-    end
-```
-
----
-
-## 2. Endpoints Table
-
-Tất cả endpoints đều là `@frappe.whitelist()` trong `assetcore/api/imm04.py`.  
-Base URL: `/api/method/assetcore.api.imm04.<method_name>`
-
-| Method Name | HTTP | Actor | Description | Key Validations |
-|---|---|---|---|---|
-| `create_commissioning` | POST | TBYT Officer | Tạo Commissioning record mới từ PO | PO tồn tại; Item is_fixed_asset |
-| `get_commissioning_detail` | GET | All (role-filtered) | Lấy toàn bộ chi tiết một Commissioning | Record tồn tại; quyền đọc |
-| `get_commissioning_list` | GET | All (role-filtered) | Danh sách với filter và phân trang | |
-| `save_commissioning` | POST | TBYT Officer, Biomed | Lưu thay đổi trên form | VR-01, VR-05, VR-06 |
-| `upload_document` | POST | TBYT Officer, QA | Upload file tài liệu kèm metadata | File size ≤ 20MB; type PDF/image |
-| `assign_identification` | POST | Biomed Engineer | Gán SN + Internal Tag + generate QR | VR-01: unique SN |
-| `submit_baseline_checklist` | POST | Biomed Engineer | Nộp kết quả baseline test | VR-03, VR-07; tất cả items phải có result |
-| `clear_clinical_hold` | POST | QA Officer | Gỡ Clinical Hold sau khi có giấy phép | License doc status = Received; VR-04 |
-| `report_nonconformance` | POST | Vendor Tech, Biomed, TBYT | Tạo NC record | Severity, description bắt buộc |
-| `close_nonconformance` | POST | Biomed Engineer, Workshop Manager | Đóng NC với evidence | root_cause + corrective_action bắt buộc |
-| `approve_clinical_release` | POST | Board/CEO | Ký duyệt Clinical Release | VR-04 (no open NC); G06 (board_approver) |
-| `report_doa` | POST | Vendor Tech, Biomed | Khai báo DOA → chuyển Return_To_Vendor | Severity = Critical; description bắt buộc |
-| `check_sn_unique` | GET | Frontend (real-time) | Kiểm tra SN có trùng không | |
-| `get_commissioning_stats` | GET | Workshop Manager, PTP | KPI summary dashboard | |
-| `generate_handover_pdf` | POST | Biomed Engineer, Clinical Head | Tạo lại Biên Bản Bàn Giao PDF | status = Clinical_Release |
-
----
-
-## 3. JSON Payloads
-
-### 3.1 `create_commissioning`
-
-**Request:**
 ```json
-{
-  "purchase_order": "PO-2026-00023",
-  "item_ref": "ITM-XRAY-PHILIPS-001",
-  "vendor": "Philips Healthcare VN",
-  "location": "Khoa Chẩn Đoán Hình Ảnh",
-  "commissioned_by": "biomed.nguyen@hospital.vn",
-  "clinical_head": "dr.tran@hospital.vn",
-  "reception_date": "2026-04-17",
-  "vendor_contact": "Nguyễn Văn Kỹ Thuật - 0901234567",
-  "notes": "Máy X-Ray di động Philips MobileDiagnost wDR"
-}
+{ "message": { "success": true, "data": { /* payload */ } } }
 ```
 
-**Response (201):**
+**Error:**
+
+```json
+{ "message": { "success": false, "error": "Thông báo tiếng Việt", "code": "ERROR_CODE" } }
+```
+
+Helper:
+
+```python
+def _ok(data): return {"success": True, "data": data}
+def _err(message, code="ERROR"): return {"success": False, "error": message, "code": code}
+```
+
+### 2.1 Error Codes chuẩn
+
+| Code | HTTP gợi ý | Ý nghĩa |
+|---|---|---|
+| `MISSING_PARAM` | 400 | Thiếu query/body bắt buộc |
+| `MISSING_FIELDS` | 400 | Thiếu field bắt buộc trong payload |
+| `INVALID_PARAM` | 400 | Param sai schema (filters/data không phải JSON hợp lệ) |
+| `INVALID_DATA` | 400 | nc_data / results / fields không parse được |
+| `NOT_FOUND` | 404 | Phiếu / NC / PO không tồn tại |
+| `PERMISSION_DENIED` | 403 | User không đủ role |
+| `FORBIDDEN_DOCTYPE` | 403 | doctype không nằm whitelist `_ALLOWED_DOCTYPES` (search_link) |
+| `INVALID_STATE` | 422 | Action không hợp lệ ở workflow_state hiện tại |
+| `WRONG_STATE` | 422 | Submit khi state ≠ Clinical_Release |
+| `TRANSITION_NOT_ALLOWED` | 422 | Action không nằm trong allowed transitions của user role |
+| `VALIDATION_ERROR` | 422 | Vi phạm VR-xx / Gate Gxx |
+| `OPEN_NC` | 422 | Còn NC chưa đóng (G05) |
+| `DOC_LOCKED` | 422 | Phiếu đã Submit |
+| `DOC_CANCELLED` | 422 | Phiếu đã Cancel |
+| `ALREADY_SUBMITTED` | 422 | Submit phiếu đã docstatus=1 |
+| `QR_NOT_GENERATED` | 422 | Phiếu chưa có internal_tag_qr |
+| `PDF_ERROR` | 500 | Lỗi sinh PDF Biên bản |
+| `SYSTEM_ERROR` | 500 | Exception không xác định |
+| `CREATE_ERROR` | 500 | Lỗi insert NC |
+| `SEARCH_ERROR` | 500 | Lỗi query autocomplete |
+
+---
+
+## 3. Endpoints (17)
+
+Module: `assetcore.api.imm04`
+
+### 3.1 Form & List
+
+#### 3.1.1 `get_form_context` — Document đầy đủ + workflow allowed transitions
+
+| Thuộc tính | Giá trị |
+|---|---|
+| Method | GET |
+| Path | `assetcore.api.imm04.get_form_context` |
+| Permission | `read` trên Asset Commissioning |
+
+**Params:** `?name=IMM04-26-04-00001`
+
+**Response 200:**
+
 ```json
 {
   "success": true,
   "data": {
-    "name": "ACC-2026-00001",
-    "status": "Draft_Reception",
-    "risk_class": "C",
-    "asset_category": "Medical Imaging",
-    "documents": [
-      { "idx": 1, "doc_type": "CO", "doc_label": "Chứng Nhận Xuất Xứ (CO)", "is_mandatory": true, "status": "Pending" },
-      { "idx": 2, "doc_type": "CQ", "doc_label": "Chứng Nhận Chất Lượng (CQ)", "is_mandatory": true, "status": "Pending" },
-      { "idx": 3, "doc_type": "Manual", "doc_label": "Hướng Dẫn Sử Dụng / Service Manual", "is_mandatory": true, "status": "Pending" },
-      { "idx": 4, "doc_type": "License", "doc_label": "Giấy Phép Lưu Hành (Bộ Y Tế)", "is_mandatory": true, "status": "Pending" }
-    ],
-    "lifecycle_events": [
-      { "event_type": "status_changed", "from_status": null, "to_status": "Draft_Reception", "actor": "tbyt.le@hospital.vn", "timestamp": "2026-04-17T08:30:00" }
-    ]
-  }
-}
-```
-
----
-
-### 3.2 `get_commissioning_detail`
-
-**Request (GET params):**
-```
-?name=ACC-2026-00001
-```
-
-**Response (200):**
-```json
-{
-  "success": true,
-  "data": {
-    "name": "ACC-2026-00001",
-    "purchase_order": "PO-2026-00023",
-    "item_ref": "ITM-XRAY-PHILIPS-001",
+    "name": "IMM04-26-04-00001",
+    "workflow_state": "Identification",
+    "docstatus": 0,
+    "po_reference": "PO-2026-00023",
+    "master_item": "ITM-XRAY-001",
     "vendor": "Philips Healthcare VN",
-    "asset_category": "Medical Imaging",
-    "location": "Khoa Chẩn Đoán Hình Ảnh",
-    "status": "Pending_Doc_Verify",
+    "clinical_dept": "Khoa CĐHA",
+    "expected_installation_date": "2026-04-20",
+    "vendor_serial_no": "PHI-SN98765",
+    "internal_tag_qr": "BV-CDHA-2026-0001",
+    "is_radiation_device": 1,
     "risk_class": "C",
-    "vendor_sn": null,
-    "internal_tag": null,
-    "reception_date": "2026-04-17",
-    "commissioning_date": null,
-    "commissioned_by": "biomed.nguyen@hospital.vn",
-    "clinical_head": "dr.tran@hospital.vn",
-    "qa_officer": "qa.pham@hospital.vn",
-    "board_approver": null,
-    "facility_checklist_pass": false,
-    "overall_inspection_result": null,
-    "asset_ref": null,
-    "notes": "Máy X-Ray di động Philips MobileDiagnost wDR",
-    "documents": [
-      {
-        "idx": 1, "doc_type": "CO", "doc_label": "Chứng Nhận Xuất Xứ (CO)",
-        "is_mandatory": true, "status": "Received",
-        "file_url": "/private/files/ACC-2026-00001/co.pdf",
-        "expiry_date": null, "uploaded_by": "tbyt.le@hospital.vn",
-        "uploaded_at": "2026-04-17T09:15:00"
-      }
-    ],
-    "checklist_items": [],
-    "non_conformances": [],
-    "lifecycle_events": [
-      { "event_type": "status_changed", "from_status": null, "to_status": "Draft_Reception", "actor": "tbyt.le@hospital.vn", "timestamp": "2026-04-17T08:30:00", "ip_address": "192.168.1.45" },
-      { "event_type": "status_changed", "from_status": "Draft_Reception", "to_status": "Pending_Doc_Verify", "actor": "tbyt.le@hospital.vn", "timestamp": "2026-04-17T08:45:00", "ip_address": "192.168.1.45" },
-      { "event_type": "doc_uploaded", "from_status": null, "to_status": null, "actor": "tbyt.le@hospital.vn", "timestamp": "2026-04-17T09:15:00", "remarks": "CO uploaded" }
-    ]
+    "final_asset": null,
+    "baseline_tests": [{ "idx": 1, "parameter": "Leakage Current", "test_result": "Pass", "measured_val": 0.08, "unit": "mA" }],
+    "commissioning_documents": [{ "idx": 1, "doc_type": "CO", "is_mandatory": 1, "status": "Received", "file_url": "/private/files/co.pdf" }],
+    "lifecycle_events": [{ "event_type": "Identification", "from_status": "Installing", "to_status": "Identification", "actor": "biomed@hospital.vn", "event_timestamp": "2026-04-18 09:00:00" }],
+    "allowed_transitions": [{ "action": "Bắt đầu kiểm tra", "next_state": "Initial Inspection", "allowed_role": "Biomed Engineer" }],
+    "is_locked": false,
+    "current_user_roles": ["Biomed Engineer"]
+  }
+}
+```
+
+**Errors:** 404 `NOT_FOUND`, 403 `PERMISSION_DENIED`, 400 `MISSING_PARAM`.
+
+---
+
+#### 3.1.2 `list_commissioning` — Paginated list với filters
+
+| Method | GET | Path | `assetcore.api.imm04.list_commissioning` |
+|---|---|---|---|
+
+**Params:** `filters` (JSON), `page` (default 1), `page_size` (default 20, max 100).
+
+Whitelist filter keys: `workflow_state, po_reference, master_item, vendor, clinical_dept, docstatus, is_radiation_device, doa_incident, vendor_serial_no, internal_tag_qr, expected_installation_date, final_asset`.
+
+Default: `docstatus != 2` (loại Cancelled).
+
+**Response 200:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "items": [{ "name": "IMM04-26-04-00001", "workflow_state": "Identification", "vendor": "Philips", "modified": "2026-04-18 10:00" }],
+    "pagination": { "page": 1, "page_size": 20, "total": 1, "total_pages": 1 }
   }
 }
 ```
 
 ---
 
-### 3.3 `upload_document`
+### 3.2 Create & Save
 
-**Request (multipart/form-data):**
-```
-commissioning=ACC-2026-00001
-doc_index=1
-doc_type=CO
-file=<binary PDF>
-expiry_date=2028-12-31
-doc_number=CO-2026-PHILIPS-001
-```
+#### 3.2.1 `create_commissioning`
 
-**Response (200):**
+| Method | POST | Path | `assetcore.api.imm04.create_commissioning` |
+|---|---|---|---|
+
+**Body:** `{ "data": { ... } }`. Required: `po_reference, master_item, vendor, clinical_dept, expected_installation_date`.
+
+`vendor_serial_no` set ở bước Identification (không yêu cầu lúc tạo).
+
+Service `initialize_commissioning()` tự: set `reception_date=today`, fetch `risk_class` từ Item, populate mandatory docs (CO, CQ, Manual + License/Radiation License nếu C/D/Radiation).
+
+**Response 200:**
+
 ```json
-{
-  "success": true,
-  "data": {
-    "updated_document": {
-      "idx": 1,
-      "doc_type": "CO",
-      "status": "Received",
-      "file_url": "/private/files/ACC-2026-00001/co_philips_2026.pdf",
-      "uploaded_by": "tbyt.le@hospital.vn",
-      "uploaded_at": "2026-04-17T09:15:33"
-    },
-    "all_mandatory_received": false,
-    "pending_mandatory_count": 2
-  }
-}
+{ "success": true, "data": { "name": "IMM04-26-04-00001", "workflow_state": "Draft", "message": "Phiếu IMM04-26-04-00001 đã được tạo thành công" } }
 ```
+
+**Errors:** 400 `MISSING_FIELDS`, 422 `VALIDATION_ERROR`, 500 `SYSTEM_ERROR`.
 
 ---
 
-### 3.4 `assign_identification`
+#### 3.2.2 `save_commissioning` — Inline edit
 
-**Request:**
-```json
-{
-  "commissioning": "ACC-2026-00001",
-  "vendor_sn": "PHI-XRAY-2026-SN98765",
-  "internal_tag": "BVNK-CDHA-2026-001",
-  "radiation_license_no": "GPBX-2026-00034"
-}
-```
+| Method | POST | Path | `assetcore.api.imm04.save_commissioning` |
+|---|---|---|---|
 
-**Response (200):**
-```json
-{
-  "success": true,
-  "data": {
-    "commissioning": "ACC-2026-00001",
-    "vendor_sn": "PHI-XRAY-2026-SN98765",
-    "internal_tag": "BVNK-CDHA-2026-001",
-    "barcode_url": "/files/qr/ACC-2026-00001-qr.png",
-    "new_status": "Initial_Inspection"
-  }
-}
-```
+**Body:** `{ "name", "fields": { /* whitelist */ } }`.
 
-**Error — SN trùng (409):**
-```json
-{
-  "success": false,
-  "error_code": "VR-01-DUPLICATE-SN",
-  "message": "VR-01: Serial Number 'PHI-XRAY-2026-SN98765' đã được gán cho Tài Sản ACC-ASS-2025-00041.",
-  "existing_record": "ACC-ASS-2025-00041"
-}
-```
+Whitelist top-level: `vendor_engineer_name, qa_license_doc, site_photo, installation_evidence, custom_moh_code, risk_class, reception_date, clinical_head, qa_officer, board_approver, facility_checklist_pass, overall_inspection_result, handover_doc, radiation_license_no, notes`.
+
+Cũng nhận `baseline_tests[]` và `commissioning_documents[]` (update theo `idx`).
+
+Block nếu `docstatus = 1` → `DOC_LOCKED`.
 
 ---
 
-### 3.5 `submit_baseline_checklist`
+### 3.3 Workflow
 
-**Request:**
+#### 3.3.1 `transition_state`
+
+| Method | POST | Path | `assetcore.api.imm04.transition_state` |
+|---|---|---|---|
+
+**Body:** `{ "name", "action" }` (action là tiếng Việt theo workflow JSON, ví dụ "Xác nhận đủ tài liệu", "Giữ lâm sàng", "Phê duyệt phát hành").
+
+Validate action ∈ allowed transitions (state hiện tại × user roles). Apply qua `frappe.model.workflow.apply_workflow()`.
+
+**Response 200:**
+
 ```json
-{
-  "commissioning": "ACC-2026-00001",
-  "checklist_results": [
-    { "idx": 1, "item_code": "CHK-001", "result": "Pass", "measured_value": 220.5, "notes": "Điện áp đầu vào ổn định" },
-    { "idx": 2, "item_code": "CHK-002", "result": "Pass", "measured_value": 0.08, "notes": "Dòng rò trong giới hạn" },
-    { "idx": 3, "item_code": "CHK-003", "result": "Pass", "measured_value": null, "notes": "Màn hình hiển thị bình thường" },
-    { "idx": 4, "item_code": "CHK-004", "result": "Pass", "measured_value": null, "notes": "Phần mềm khởi động không lỗi" }
-  ],
-  "overall_notes": "Kiểm tra baseline hoàn thành — tất cả thông số trong giới hạn"
-}
+{ "success": true, "data": { "name": "...", "action_applied": "Xác nhận đủ tài liệu", "new_state": "To Be Installed", "docstatus": 0 } }
 ```
 
-**Response — Auto-hold (Class C) (200):**
-```json
-{
-  "success": true,
-  "data": {
-    "commissioning": "ACC-2026-00001",
-    "new_status": "Clinical_Hold",
-    "auto_hold_reason": "VR-07: risk_class=C — Thiết bị phải có Giấy Phép Lưu Hành BYT",
-    "qa_officer_notified": "qa.pham@hospital.vn",
-    "overall_inspection_result": "Pass",
-    "missing_licenses": [
-      { "doc_type": "License", "doc_label": "Giấy Phép Lưu Hành (Bộ Y Tế)" }
-    ]
-  }
-}
-```
-
-**Error — Baseline fail (422):**
-```json
-{
-  "success": false,
-  "error_code": "VR-03-BASELINE-FAIL",
-  "message": "VR-03 (Gate G03): Có 1 mục kiểm tra quan trọng chưa đạt.",
-  "new_status": "Re_Inspection",
-  "failed_items": [
-    { "idx": 2, "item_code": "CHK-002", "description": "Dòng rò vỏ máy (IEC 60601-1)", "result": "Fail", "measured_value": 3.5, "expected_max": 2.0, "unit": "mA", "is_critical": true }
-  ]
-}
-```
+**Errors:** 422 `TRANSITION_NOT_ALLOWED`, 422 `VALIDATION_ERROR` (gate fail), 500 `SYSTEM_ERROR`.
 
 ---
 
-### 3.6 `clear_clinical_hold`
+#### 3.3.2 `submit_commissioning`
 
-**Request:**
+| Method | POST | Path | `assetcore.api.imm04.submit_commissioning` |
+|---|---|---|---|
+
+Chỉ role `VP Block2` hoặc `Workshop Head`. Yêu cầu `workflow_state = "Clinical_Release"` (lưu ý dấu underscore trong API) và `docstatus = 0`.
+
+Trigger `on_submit` chain: validate → `mint_core_asset()` → `create_initial_document_set()` → `_log_lifecycle_event` → `fire_release_event`.
+
+**Response 200:**
+
 ```json
-{
-  "commissioning": "ACC-2026-00001",
-  "license_doc_index": 4,
-  "remarks": "Giấy phép BYT số 1234/QĐ-BYT đã nhận ngày 2026-04-17"
-}
+{ "success": true, "data": { "name": "...", "docstatus": 1, "final_asset": "ACC-ASS-2026-00001", "message": "..." } }
 ```
 
-**Response (200):**
-```json
-{
-  "success": true,
-  "data": {
-    "commissioning": "ACC-2026-00001",
-    "new_status": "Clinical_Release",
-    "requires_board_approval": true,
-    "board_approver_required": true
-  }
-}
-```
-
-**Error — License chưa upload (422):**
-```json
-{
-  "success": false,
-  "error_code": "VR-02-MISSING-DOC",
-  "message": "VR-02: Giấy Phép Lưu Hành (Bộ Y Tế) chưa được upload. Vui lòng upload file trước khi gỡ Hold."
-}
-```
+**Errors:** 403 `PERMISSION_DENIED`, 422 `WRONG_STATE`, 422 `ALREADY_SUBMITTED`, 422 `DOC_CANCELLED`, 422 `VALIDATION_ERROR`.
 
 ---
 
-### 3.7 `report_nonconformance`
+#### 3.3.3 `approve_clinical_release`
 
-**Request:**
-```json
-{
-  "commissioning": "ACC-2026-00001",
-  "nc_type": "Technical",
-  "severity": "Major",
-  "description": "Detector phát hiện nhiễu ảnh bất thường ở góc trên bên phải — ảnh hưởng đến chất lượng chẩn đoán",
-  "evidence_files": ["/tmp/evidence_01.jpg", "/tmp/evidence_02.jpg"]
-}
-```
+| Method | POST | Path | `assetcore.api.imm04.approve_clinical_release` |
+|---|---|---|---|
 
-**Response (201):**
+**Body:** `{ "commissioning", "board_approver", "approval_remarks" }`.
+
+Yêu cầu state = "Clinical Release". Validate `board_approver` (G06) + count Open NC = 0 (G05/VR-04). Append remarks vào `notes`. Gọi `doc.submit()`.
+
+**Response 200:**
+
 ```json
 {
   "success": true,
   "data": {
-    "commissioning": "ACC-2026-00001",
-    "nc_code": "NC-ACC-2026-00001-01",
-    "new_status": "Non_Conformance",
-    "nc": {
-      "nc_code": "NC-ACC-2026-00001-01",
-      "nc_type": "Technical",
-      "severity": "Major",
-      "status": "Open",
-      "reported_by": "biomed.nguyen@hospital.vn",
-      "reported_date": "2026-04-17"
-    }
-  }
-}
-```
-
----
-
-### 3.8 `approve_clinical_release`
-
-**Request:**
-```json
-{
-  "commissioning": "ACC-2026-00001",
-  "board_approver": "ceo.nguyen@hospital.vn",
-  "approval_remarks": "Đã xem xét đầy đủ hồ sơ — phê duyệt đưa thiết bị vào sử dụng"
-}
-```
-
-**Response (200):**
-```json
-{
-  "success": true,
-  "data": {
-    "commissioning": "ACC-2026-00001",
-    "new_status": "Clinical_Release",
+    "commissioning": "IMM04-26-04-00001",
+    "new_status": "Clinical Release",
     "asset_ref": "ACC-ASS-2026-00001",
-    "commissioning_date": "2026-04-17",
-    "handover_doc": "/private/files/handover/ACC-2026-00001-handover.pdf",
-    "pm_schedule_created": true,
+    "commissioning_date": "2026-04-18",
+    "pm_schedule_created": false,
     "device_record_queued": true
   }
 }
 ```
 
-**Error — Open NC (422):**
+**Errors:** 422 `INVALID_STATE`, 422 `VALIDATION_ERROR` (board_approver), 422 `OPEN_NC`.
+
+---
+
+### 3.4 Identification & Inspection
+
+#### 3.4.1 `assign_identification`
+
+| Method | POST | Path | `assetcore.api.imm04.assign_identification` |
+|---|---|---|---|
+
+**Body:** `{ "name", "vendor_serial_no", "internal_tag_qr", "custom_moh_code" }`.
+
+Yêu cầu state = "Identification". Validate VR-01 (SN unique).
+
+**Response 200:** `{ "name", "vendor_serial_no", "internal_tag_qr" }`
+
+**Errors:** 422 `INVALID_STATE`, 422 `VALIDATION_ERROR` (SN trùng).
+
+---
+
+#### 3.4.2 `check_sn_unique`
+
+| Method | GET | Path | `assetcore.api.imm04.check_sn_unique` |
+|---|---|---|---|
+
+**Params:** `?vendor_sn=...&exclude_name=...`
+
+**Response 200:**
+
 ```json
-{
-  "success": false,
-  "error_code": "VR-04-OPEN-NC",
-  "message": "VR-04 (Gate G05): Còn 1 Phiếu Không Phù Hợp chưa đóng: NC-ACC-2026-00001-01. Vui lòng giải quyết trước khi Release.",
-  "open_ncs": ["NC-ACC-2026-00001-01"]
-}
+{ "success": true, "data": { "is_unique": false, "existing_commissioning": "IMM04-26-03-00012", "item": "ITM-XRAY-001" } }
 ```
 
 ---
 
-### 3.9 `get_commissioning_list`
+#### 3.4.3 `submit_baseline_checklist`
 
-**Request (GET params):**
-```
-?filters={"status":"Pending_Doc_Verify","location":"Khoa Chẩn Đoán Hình Ảnh"}&page=1&page_size=20
+| Method | POST | Path | `assetcore.api.imm04.submit_baseline_checklist` |
+|---|---|---|---|
+
+**Body:** `{ "name", "results": [ { "parameter", "measured_val", "test_result", "fail_note" } ] }`.
+
+Yêu cầu state = "Initial Inspection". BR-04-04: nếu có Fail → trả `VALIDATION_ERROR`.
+
+Sau khi Pass: gọi `check_auto_clinical_hold()`. Set `overall_inspection_result = "Pass"`.
+
+**Response 200:**
+
+```json
+{ "success": true, "data": { "name": "...", "overall_result": "Pass", "clinical_hold_required": true } }
 ```
 
-**Response (200):**
+---
+
+#### 3.4.4 `clear_clinical_hold`
+
+| Method | POST | Path | `assetcore.api.imm04.clear_clinical_hold` |
+|---|---|---|---|
+
+**Body:** `{ "name", "license_no" }`.
+
+Yêu cầu state = "Clinical Hold". Bắt buộc `qa_license_doc` đã upload hoặc `license_no` truyền vào (BR-04-05).
+
+---
+
+### 3.5 Documents & QR
+
+#### 3.5.1 `upload_document`
+
+| Method | POST | Path | `assetcore.api.imm04.upload_document` |
+|---|---|---|---|
+
+**Body:** `{ "commissioning", "doc_index", "doc_type", "file_url", "expiry_date", "doc_number" }`.
+
+Update row trong `commissioning_documents`: status=Received, file_url, uploaded_by, uploaded_at. Trả `all_mandatory_received` boolean.
+
+**Response 200:**
+
+```json
+{ "success": true, "data": { "commissioning": "...", "doc_index": 1, "all_mandatory_received": true } }
+```
+
+---
+
+#### 3.5.2 `generate_qr_label`
+
+| Method | GET | Path | `assetcore.api.imm04.generate_qr_label` |
+|---|---|---|---|
+
+**Params:** `?name=...`. Yêu cầu `internal_tag_qr` đã có (≥ Identification).
+
+**Response 200:**
+
 ```json
 {
   "success": true,
   "data": {
-    "items": [
-      {
-        "name": "ACC-2026-00001",
-        "item_name": "Philips MobileDiagnost wDR",
-        "vendor": "Philips Healthcare VN",
-        "location": "Khoa Chẩn Đoán Hình Ảnh",
-        "status": "Pending_Doc_Verify",
-        "risk_class": "C",
-        "reception_date": "2026-04-17",
-        "days_open": 0,
-        "pending_doc_count": 3,
-        "open_nc_count": 0,
-        "commissioned_by_name": "Nguyễn Văn Biomed"
-      }
-    ],
-    "total": 1,
-    "page": 1,
-    "page_size": 20
+    "qr_value": "BV-CDHA-2026-0001",
+    "label": {
+      "title": "ASSETCORE — NHÃN THIẾT BỊ",
+      "commissioning_id": "IMM04-26-04-00001",
+      "internal_qr": "BV-CDHA-2026-0001",
+      "vendor_serial": "PHI-SN98765",
+      "model": "ITM-XRAY-001",
+      "vendor": "Philips Healthcare VN",
+      "dept": "Khoa CĐHA",
+      "moh_code": "QLSP-2026-001",
+      "installation_date": "2026-04-18 14:30:00",
+      "status": "Identification",
+      "asset_id": "Chưa có",
+      "print_date": "2026-04-18"
+    },
+    "scan_url": "/app/asset-commissioning/IMM04-26-04-00001",
+    "docs_url": null
   }
 }
 ```
 
+**Errors:** 422 `QR_NOT_GENERATED`.
+
 ---
 
-### 3.10 `check_sn_unique`
+#### 3.5.3 `get_barcode_lookup`
 
-**Request (GET params):**
-```
-?sn=PHI-XRAY-2026-SN98765&exclude_commissioning=ACC-2026-00001
-```
+| Method | GET | Path | `assetcore.api.imm04.get_barcode_lookup` |
+|---|---|---|---|
 
-**Response (200):**
+**Params:** `?barcode=BV-CDHA-2026-0001` (tra ưu tiên `internal_tag_qr`, fallback `vendor_serial_no`).
+
+**Response 200:** `commissioning_id, workflow_state, docstatus, is_released, device:{...}, asset_id, baseline_tests[]`.
+
+---
+
+#### 3.5.4 `generate_handover_pdf`
+
+| Method | GET | Path | `assetcore.api.imm04.generate_handover_pdf` |
+|---|---|---|---|
+
+Yêu cầu state = "Clinical Release". Trả URL `/api/method/frappe.utils.pdf.get_pdf?...&format=Biên+bản+Bàn+giao`.
+
+⚠️ Print Format chưa được config trong Frappe — endpoint trả URL nhưng PDF có thể fail (TODO).
+
+---
+
+### 3.6 Lookup & Auto-fill
+
+#### 3.6.1 `get_po_details`
+
+| Method | GET | Path | `assetcore.api.imm04.get_po_details` |
+|---|---|---|---|
+
+**Params:** `?po_name=PO-2026-00023`.
+
+**Response 200:** `{ "po_name", "supplier", "supplier_name", "transaction_date", "items": [{ "item_code", "item_name", "qty", "is_radiation" }] }`.
+
+---
+
+#### 3.6.2 `search_link` — Autocomplete cho Link fields
+
+| Method | GET | Path | `assetcore.api.imm04.search_link` |
+|---|---|---|---|
+
+**Params:** `?doctype=Purchase Order&query=PO-2026&page_length=10`.
+
+DocType cho phép: `Purchase Order, Item, Supplier, Department`. Khác → `FORBIDDEN_DOCTYPE`.
+
+**Response 200:** `[{ "value", "label", "description" }]`.
+
+---
+
+### 3.7 Non-Conformance
+
+#### 3.7.1 `report_nonconformance`
+
+| Method | POST | Path | `assetcore.api.imm04.report_nonconformance` |
+|---|---|---|---|
+
+**Body:** `{ "commissioning_name", "nc_data": { "nc_type", "severity", "description" } }`.
+
+Tạo `Asset QA Non Conformance` (autoname `NC-YY-MM-#####`) với `resolution_status = "Open"`, `ref_commissioning` link.
+
+---
+
+#### 3.7.2 `report_doa`
+
+| Method | POST | Path | `assetcore.api.imm04.report_doa` |
+|---|---|---|---|
+
+**Body:** `{ "commissioning", "description", "evidence_file" }`.
+
+Shortcut: tạo NC với `nc_type="DOA"`, `severity="Critical"`. User tự transition `Báo cáo DOA` để vào state Non Conformance.
+
+---
+
+#### 3.7.3 `close_nonconformance`
+
+| Method | POST | Path | `assetcore.api.imm04.close_nonconformance` |
+|---|---|---|---|
+
+**Body:** `{ "nc_name", "root_cause", "corrective_action" }`. Cả 2 evidence bắt buộc.
+
+Set `resolution_status="Closed"`, `closed_by=session.user`, `closed_date=today`.
+
+---
+
+### 3.8 Dashboard
+
+#### 3.8.1 `get_dashboard_stats`
+
+| Method | GET | Path | `assetcore.api.imm04.get_dashboard_stats` |
+|---|---|---|---|
+
+**Response 200:**
+
 ```json
 {
   "success": true,
   "data": {
-    "sn": "PHI-XRAY-2026-SN98765",
-    "is_unique": true,
-    "existing_asset": null,
-    "existing_commissioning": null
+    "kpis": {
+      "pending_count": 12,
+      "hold_count": 2,
+      "open_nc_count": 3,
+      "released_this_month": 8,
+      "overdue_sla": 1
+    },
+    "states_breakdown": [
+      { "workflow_state": "Identification", "count": 5 },
+      { "workflow_state": "Initial Inspection", "count": 4 }
+    ],
+    "recent_list": [{ "name": "IMM04-26-04-00001", "workflow_state": "Identification", "modified": "..." }]
   }
 }
 ```
 
----
-
-## 4. curl Examples
-
-### 4.1 Tạo Commissioning
-
-```bash
-curl -X POST \
-  'https://hospital.erpnext.com/api/method/assetcore.api.imm04.create_commissioning' \
-  -H 'Authorization: token <api_key>:<api_secret>' \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "purchase_order": "PO-2026-00023",
-    "item_ref": "ITM-XRAY-PHILIPS-001",
-    "vendor": "Philips Healthcare VN",
-    "location": "Khoa Chẩn Đoán Hình Ảnh",
-    "commissioned_by": "biomed.nguyen@hospital.vn",
-    "clinical_head": "dr.tran@hospital.vn",
-    "reception_date": "2026-04-17"
-  }'
-```
+`overdue_sla`: `expected_installation_date < today - 30 ngày` AND state không terminal.
 
 ---
 
-### 4.2 Lấy Chi Tiết Commissioning
+## 4. Webhook / Realtime Events
 
-```bash
-curl -X GET \
-  'https://hospital.erpnext.com/api/method/assetcore.api.imm04.get_commissioning_detail?name=ACC-2026-00001' \
-  -H 'Authorization: token <api_key>:<api_secret>'
-```
-
----
-
-### 4.3 Upload Tài Liệu
-
-```bash
-curl -X POST \
-  'https://hospital.erpnext.com/api/method/assetcore.api.imm04.upload_document' \
-  -H 'Authorization: token <api_key>:<api_secret>' \
-  -F 'commissioning=ACC-2026-00001' \
-  -F 'doc_index=1' \
-  -F 'doc_type=CO' \
-  -F 'expiry_date=2028-12-31' \
-  -F 'doc_number=CO-2026-PHILIPS-001' \
-  -F 'file=@/path/to/certificate_of_origin.pdf'
-```
+| Channel | Trigger | Payload |
+|---|---|---|
+| `imm04_asset_released` | `fire_release_event()` sau Submit | `{ event_code: "imm04.release.approved", root_record_id, asset_id, actor, from_state: "Re_Inspection", to_state: "Clinical_Release", immutable: true }` |
+| `imm04_notify_purchasing` | Sau release, gửi tới mọi user có role `Purchase User` | `{ message, commissioning_ref, asset }` |
 
 ---
 
-### 4.4 Gán Định Danh (Assign Identification)
+## 5. Permission Matrix tổng hợp
 
-```bash
-curl -X POST \
-  'https://hospital.erpnext.com/api/method/assetcore.api.imm04.assign_identification' \
-  -H 'Authorization: token <api_key>:<api_secret>' \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "commissioning": "ACC-2026-00001",
-    "vendor_sn": "PHI-XRAY-2026-SN98765",
-    "internal_tag": "BVNK-CDHA-2026-001",
-    "radiation_license_no": "GPBX-2026-00034"
-  }'
-```
-
----
-
-### 4.5 Nộp Kết Quả Baseline
-
-```bash
-curl -X POST \
-  'https://hospital.erpnext.com/api/method/assetcore.api.imm04.submit_baseline_checklist' \
-  -H 'Authorization: token <api_key>:<api_secret>' \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "commissioning": "ACC-2026-00001",
-    "checklist_results": [
-      { "idx": 1, "item_code": "CHK-001", "result": "Pass", "measured_value": 220.5 },
-      { "idx": 2, "item_code": "CHK-002", "result": "Pass", "measured_value": 0.08 },
-      { "idx": 3, "item_code": "CHK-003", "result": "Pass" }
-    ],
-    "overall_notes": "Baseline test passed"
-  }'
-```
-
----
-
-### 4.6 Gỡ Clinical Hold
-
-```bash
-curl -X POST \
-  'https://hospital.erpnext.com/api/method/assetcore.api.imm04.clear_clinical_hold' \
-  -H 'Authorization: token <api_key>:<api_secret>' \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "commissioning": "ACC-2026-00001",
-    "license_doc_index": 4,
-    "remarks": "Giấy phép BYT số 1234/QĐ-BYT đã nhận"
-  }'
-```
-
----
-
-### 4.7 Báo Cáo Non-Conformance
-
-```bash
-curl -X POST \
-  'https://hospital.erpnext.com/api/method/assetcore.api.imm04.report_nonconformance' \
-  -H 'Authorization: token <api_key>:<api_secret>' \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "commissioning": "ACC-2026-00001",
-    "nc_type": "Technical",
-    "severity": "Major",
-    "description": "Detector phát hiện nhiễu ảnh bất thường"
-  }'
-```
-
----
-
-### 4.8 Phê Duyệt Clinical Release (Board)
-
-```bash
-curl -X POST \
-  'https://hospital.erpnext.com/api/method/assetcore.api.imm04.approve_clinical_release' \
-  -H 'Authorization: token <api_key>:<api_secret>' \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "commissioning": "ACC-2026-00001",
-    "board_approver": "ceo.nguyen@hospital.vn",
-    "approval_remarks": "Phê duyệt đưa thiết bị vào sử dụng"
-  }'
-```
-
----
-
-### 4.9 Danh Sách Commissioning với Bộ Lọc
-
-```bash
-curl -X GET \
-  'https://hospital.erpnext.com/api/method/assetcore.api.imm04.get_commissioning_list' \
-  -H 'Authorization: token <api_key>:<api_secret>' \
-  -G \
-  --data-urlencode 'filters={"status":"Clinical_Hold"}' \
-  --data-urlencode 'page=1' \
-  --data-urlencode 'page_size=20'
-```
-
----
-
-### 4.10 Kiểm Tra Serial Number Unique
-
-```bash
-curl -X GET \
-  'https://hospital.erpnext.com/api/method/assetcore.api.imm04.check_sn_unique?sn=PHI-XRAY-2026-SN98765&exclude_commissioning=ACC-2026-00001' \
-  -H 'Authorization: token <api_key>:<api_secret>'
-```
-
----
-
-## 5. Response Format Convention
-
-Tất cả API trong IMM-04 tuân thủ pattern `_ok()` / `_err()`:
-
-```python
-# assetcore/api/imm04.py
-
-from assetcore.utils.response import _ok, _err
-
-@frappe.whitelist()
-def create_commissioning(**kwargs) -> dict:
-    """
-    Tạo Asset Commissioning record mới từ PO.
-    Actor: TBYT Officer
-    """
-    try:
-        from assetcore.services.imm04 import create_commissioning_service
-        result = create_commissioning_service(**kwargs)
-        return _ok(result)
-    except frappe.ValidationError as e:
-        return _err(str(e), 422)
-    except frappe.DuplicateEntryError as e:
-        return _err(str(e), 409)
-    except Exception as e:
-        frappe.log_error(frappe.get_traceback(), "IMM-04 create_commissioning error")
-        return _err("Lỗi hệ thống. Vui lòng liên hệ CMMS Admin.", 500)
-```
-
-```python
-# assetcore/utils/response.py
-
-def _ok(data: dict, message: str = "") -> dict:
-    return {"success": True, "data": data, "message": message}
-
-def _err(message: str, http_status: int = 400, error_code: str = "") -> dict:
-    frappe.local.response["http_status_code"] = http_status
-    return {"success": False, "message": message, "error_code": error_code}
-```
-
----
-
-## 6. Permissions Matrix
-
-| Endpoint | TBYT Officer | Vendor Tech | Biomed Engineer | Clinical Head | QA Officer | Board/CEO | Workshop Manager |
+| Endpoint | HTM Tech | Biomed Eng | Vendor Eng | QA Officer | Workshop Head | VP Block2 | CMMS Admin |
 |---|---|---|---|---|---|---|---|
-| `create_commissioning` | W | — | R | — | — | — | R |
-| `get_commissioning_detail` | R | R (own) | R | R | R | R | R |
-| `get_commissioning_list` | R | — | R | R | R | R | R |
-| `upload_document` | W | — | W | — | W | — | R |
-| `assign_identification` | — | — | W | — | — | — | — |
-| `submit_baseline_checklist` | — | — | W | — | — | — | — |
-| `clear_clinical_hold` | — | — | — | — | W | — | — |
-| `report_nonconformance` | W | W | W | — | — | — | W |
-| `close_nonconformance` | — | — | W | — | W | — | W |
-| `approve_clinical_release` | — | — | — | — | — | W | — |
-| `report_doa` | W | W | W | — | — | — | — |
-| `check_sn_unique` | W | — | W | — | — | — | — |
-| `get_commissioning_stats` | — | — | R | — | R | R | R |
-| `generate_handover_pdf` | R | — | W | W | — | R | R |
+| `get_form_context`, `list_commissioning` | R | R | R (own) | R | R | R | R |
+| `create_commissioning` | W | W | — | — | — | — | W |
+| `save_commissioning` | W | W | — | W | — | — | W |
+| `transition_state` | role-checked | | | | | | |
+| `assign_identification`, `submit_baseline_checklist` | — | W | — | — | — | — | W |
+| `clear_clinical_hold` | — | — | — | W | — | — | W |
+| `report_nonconformance`, `report_doa` | W | W | W | — | W | — | W |
+| `close_nonconformance` | — | W | — | W | W | — | W |
+| `approve_clinical_release` | — | — | — | — | — | W | W |
+| `submit_commissioning` | — | — | — | — | W | W | — |
+| `generate_qr_label`, `get_barcode_lookup` | R | R | R | R | R | R | R |
+| `get_dashboard_stats` | R | R | — | R | R | R | R |
+| `generate_handover_pdf` | R | W | — | — | R | R | R |
+| `get_po_details`, `search_link`, `check_sn_unique` | R | R | R | R | R | R | R |
+
+---
+
+## 6. Implementation Notes
+
+- Module Python: `assetcore/api/imm04.py` (~1200 dòng); chỉ là wrapper — business logic ở `services/imm04.py`.
+- Helper response: `from assetcore.utils.helpers import _ok, _err`.
+- Workflow apply: `frappe.model.workflow.apply_workflow(doc, action)` rồi `doc.save()`.
+- Mọi exception bọc qua `try/except frappe.ValidationError` → trả `VALIDATION_ERROR`; `Exception` → log + `SYSTEM_ERROR`.
+- Filter list whitelist key tránh SQL injection qua field name.
+- Pagination cap `page_size = 100`.
+
+*End of API Interface v2.0.0 — IMM-04*

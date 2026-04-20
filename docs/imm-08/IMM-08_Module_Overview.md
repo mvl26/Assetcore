@@ -1,179 +1,215 @@
-# IMM-08 — Bảo trì Định kỳ (Preventive Maintenance)
-## Module Overview
+# IMM-08 — Preventive Maintenance (Bảo trì Định kỳ)
 
-**Module:** IMM-08
-**Version:** 1.0
-**Ngày:** 2026-04-17
-**Trạng thái:** NOT CODED — Tài liệu thiết kế (Docs Only)
-**Wave:** Wave 1
-
----
-
-## 1. Mục đích Module
-
-IMM-08 quản lý toàn bộ vòng đời bảo trì định kỳ (PM) thiết bị y tế: từ lập lịch tự động, phân công kỹ thuật viên, thực hiện theo checklist chuẩn, đến cập nhật lịch PM kỳ tiếp theo. Module đảm bảo không có thiết bị nào bị bỏ sót bảo trì và mọi hành động đều có audit trail đầy đủ.
-
----
-
-## 2. Trạng thái Triển khai
-
-| Hạng mục | Trạng thái |
+| Thuộc tính | Giá trị |
 |---|---|
-| DocType | Chưa tạo |
-| Workflow | Chưa cấu hình |
-| Backend Logic | Chưa code |
-| Frontend | Chưa code |
-| API | Chưa code |
-| Test | Chưa viết |
+| Module | IMM-08 — Preventive Maintenance |
+| Phiên bản | 2.0.0 |
+| Ngày cập nhật | 2026-04-18 |
+| Trạng thái | LIVE |
+| Tác giả | AssetCore Team |
 
 ---
 
-## 3. Vị trí trong Asset Lifecycle
+## 1. Mục đích
+
+IMM-08 quản lý toàn bộ vòng đời **bảo trì định kỳ (Preventive Maintenance)** thiết bị y tế: từ thiết lập lịch tự động sau commissioning, scheduler tạo PM Work Order khi đến hạn, phân công KTV, thực hiện theo checklist chuẩn, ghi nhận kết quả/lỗi, đến cập nhật lịch PM kỳ kế tiếp.
+
+Module đảm bảo:
+
+- Không thiết bị nào bị bỏ sót PM (scheduler tự động).
+- Mọi action có audit trail (PM Task Log immutable).
+- Lỗi phát sinh trong PM tự sinh CM Work Order liên kết ngược (`source_pm_wo`).
+- KPI compliance được tính đúng theo `completion_date` chứ không phải `due_date` (BR-08-03).
+
+---
+
+## 2. Vị trí trong kiến trúc
 
 ```
-IMM-04 (Lắp đặt) → IMM-05 (Hồ sơ) → Asset "Active"
-                                             │
-                                    IMM-08: PM Schedule
-                                             │
-                        ┌────────────────────┤
-                        │                    │
-                  Không lỗi           Lỗi phát sinh
-                        │                    │
-               PM hoàn thành        IMM-09 (CM WO)
-               Next PM scheduled    hoặc IMM-12
+┌────────────────────────────────────────────────────────────────┐
+│  IMM-04 Installation  ──submit──▶  Asset.commissioning_date    │
+│           │                                                    │
+│           ▼ on_submit hook                                     │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │  IMM-08 Preventive Maintenance                           │  │
+│  │                                                          │  │
+│  │  PM Schedule (per asset × pm_type)                       │  │
+│  │      │ scheduler 06:00 daily                             │  │
+│  │      ▼                                                   │  │
+│  │  PM Work Order (Open → In Progress → Completed)          │  │
+│  │      │ submit                                            │  │
+│  │      ├─▶ PM Task Log (immutable)                         │  │
+│  │      ├─▶ Asset.custom_last_pm_date / next_pm_date        │  │
+│  │      └─▶ CM Work Order (nếu Fail-Minor / Fail-Major)     │  │
+│  │            │                                             │  │
+│  └────────────┼─────────────────────────────────────────────┘  │
+│               ▼                                                │
+│         IMM-09 Repair / IMM-12 Corrective                      │
+└────────────────────────────────────────────────────────────────┘
 ```
 
-**Quan hệ module:**
-- **IMM-04** → cung cấp `commissioning_date` làm baseline PM đầu tiên
-- **IMM-05** → cung cấp Service Manual và checklist template nguồn
-- **IMM-09** → nhận CM WO khi PM phát hiện lỗi (Major/Minor Failure)
-- **IMM-11** → Calibration có thể tích hợp vào PM nếu cùng kỳ
-- **IMM-12** → Corrective Maintenance khi PM Major Failure
+Kế thừa primitive từ **IMM-00 Foundation** (hiện wave 1 vẫn dùng ERPNext `Asset` core; kế hoạch v3 sẽ chuyển sang `AC Asset`).
 
 ---
 
-## 4. DocTypes cần tạo
+## 3. DocTypes
 
-| DocType | Naming Series | Mục đích | Trường chính |
+### 3.1 Master / Cấu hình (2)
+
+| DocType | Naming | Submittable | Mục đích |
 |---|---|---|---|
-| **PM Schedule** | `PMS-{YYYY}-{#####}` | Lưu lịch PM định kỳ cho từng asset | `asset_ref`, `pm_type`, `interval_days`, `next_due_date`, `last_pm_date` |
-| **PM Checklist Template** | `PMCT-{category}-{type}` | Template checklist theo Asset Category + PM Type | `asset_category`, `pm_type`, `checklist_items` (child table) |
-| **PM Work Order** | `WO-PM-{YYYY}-{#####}` | Lệnh công việc PM cho từng lần thực hiện | `pm_schedule_ref`, `asset_ref`, `assigned_ktv`, `due_date`, `completion_date`, `is_late`, `checklist` (child), `result_summary` |
-| **PM Task Log** | `PMLOG-{YYYY}-{#####}` | Hồ sơ lịch sử mỗi lần PM hoàn thành (immutable) | `pm_wo_ref`, `asset_ref`, `completion_date`, `ktv`, `result`, `is_late`, `next_pm_date` |
+| `PM Schedule` | `PMS-{asset_ref}-{pm_type}` | No | Lịch PM định kỳ — 1 dòng / cặp (asset, pm_type) |
+| `PM Checklist Template` | `PMCT-{asset_category}-{pm_type}` | No | Template checklist chuẩn theo Asset Category × PM Type |
 
----
+### 3.2 Operational (1)
 
-## 5. Workflow States
-
-| State | Mô tả | Actor | Trigger |
+| DocType | Naming | Submittable | Mục đích |
 |---|---|---|---|
-| **Open** | WO vừa được tạo bởi scheduler | CMMS Auto | `next_due_date <= today` |
-| **Assigned** | Workshop Manager đã phân công KTV | Workshop Manager | Chọn KTV, xác nhận lịch |
-| **In Progress** | KTV đang thực hiện PM | KTV HTM | KTV confirm bắt đầu |
-| **Pending – Device Busy** | Khoa phòng chưa sẵn sàng | KTV / Workshop | Khoa phòng từ chối |
-| **Overdue** | Quá due_date chưa hoàn thành | CMMS Scheduler | `today > due_date AND status in (Open, In Progress)` |
-| **Halted – Major Failure** | PM dừng vì lỗi nghiêm trọng | KTV HTM | KTV báo cáo Major Failure |
-| **Completed** | PM hoàn thành, checklist 100% | KTV HTM | Submit WO thành công |
-| **Cancelled** | Hủy có lý do ghi nhận | Workshop Manager | Hoãn vô thời hạn hoặc asset disposed |
+| `PM Work Order` | `PM-WO-.YYYY.-.#####` | Yes | Phiếu thực hiện PM (PM hoặc CM-from-PM) |
 
----
+### 3.3 Audit (1)
 
-## 6. Business Rules
+| DocType | Naming | Submittable | Mục đích |
+|---|---|---|---|
+| `PM Task Log` | autoname hash | No (in_create=1) | Nhật ký bất biến mỗi lần PM hoàn thành |
 
-| Mã | Rule | Kiểm soát |
+### 3.4 Child tables (2)
+
+| Child DocType | Parent | Mục đích |
 |---|---|---|
-| **BR-08-01** | PM WO phải có Checklist Template theo Asset Category trước khi tạo | Validate template exists on WO creation — block nếu thiếu |
-| **BR-08-02** | CM WO phát sinh từ PM phải có `source_pm_wo` bắt buộc | `source_pm_wo` mandatory khi CM WO type = From PM |
-| **BR-08-03** | `next_pm_date = completion_date + interval` — KHÔNG tính từ due_date | Auto-calculate on WO Submit |
-| **BR-08-04** | Asset status `Out of Service` không được tạo PM WO mới | Workflow condition check on WO creation |
-| **BR-08-05** | PM WO hoàn thành sau due_date bị đánh dấu `is_late = True` | `is_late = (completion_date > due_date)` on Submit |
-| **BR-08-06** | Thiết bị Class III bắt buộc upload ảnh trước/sau PM | File attachment mandatory check by risk class |
-| **BR-08-07** | Mỗi loại PM (annual, quarterly) là 1 PM Schedule độc lập | `pm_type` phân biệt — không gộp lịch |
-| **BR-08-08** | Checklist phải hoàn thành 100% trước khi Submit WO | Validate all items filled before Submit |
+| `PM Checklist Item` | PM Checklist Template | Định nghĩa mục kiểm tra (template) |
+| `PM Checklist Result` | PM Work Order | Kết quả từng mục KTV điền |
+
+**Tổng: 6 DocTypes** (2 master + 1 operational + 1 audit + 2 child).
 
 ---
 
-## 7. Tính toán Ngày PM
+## 4. Service Functions
 
-### PM đầu tiên (từ IMM-04)
-```
-first_pm_date = commissioning_date + pm_interval_days
-```
-Trigger: `on_submit` của Asset Commissioning.
+### 4.1 Scheduler tasks — `assetcore/tasks.py`
 
-### PM tiếp theo (từ completion)
-```
-next_pm_date = completion_date + pm_interval_days
-```
-Điều kiện: PM WO status = "Completed".
+| Function | Tần suất | Mô tả |
+|---|---|---|
+| `generate_pm_work_orders` | Daily 06:00 | Quét PM Schedule có `next_due_date <= today + alert_days_before`, tạo PM Work Order idempotent, clone checklist từ template |
+| `check_pm_overdue` | Daily 08:00 | PM WO `Open / In Progress` quá `due_date` → set `status = Overdue`, gửi email leo thang (≤7d Workshop, 8–30d PTP, >30d BGĐ) |
 
-### Overdue Detection (daily scheduler)
+### 4.2 Doctype controller logic — `pm_work_order.py`
+
+| Method | Trigger | Mô tả |
+|---|---|---|
+| `validate()` | save | Kiểm tra checklist 100% (BR-08-08), ảnh Class III (BR-08-06), CM source (BR-08-02) |
+| `on_submit()` | submit | Set completion fields, advance PM Schedule, sync Asset PM dates, tạo PM Task Log, auto-create CM WO khi Fail |
+
+### 4.3 API endpoints — `assetcore/api/imm08.py`
+
+9 whitelisted REST endpoints (xem `IMM-08_API_Interface.md`).
+
+---
+
+## 5. Workflow States — `PM Work Order.status`
+
 ```
-if today > due_date AND wo.status in ("Open", "In Progress"):
-    wo.status = "Overdue"
-    send_alert(workshop_manager, ptp)
+            ┌─────────────────────────────────────┐
+            │                                     │
+            ▼                                     │
+   ┌─────────────┐ assign_technician  ┌─────────────────────┐
+   │    Open     │ ──────────────────▶│    In Progress      │
+   └─────────────┘                    └─────────────────────┘
+         │                                     │
+         │ scheduler (today > due)             │ submit_pm_result
+         ▼                                     ▼
+   ┌─────────────┐                    ┌─────────────────────┐
+   │   Overdue   │ ──── KTV resume ──▶│      Completed      │
+   └─────────────┘                    └─────────────────────┘
+         │                                     ▲
+         │ reschedule_pm                       │ submit (after busy)
+         ▼                                     │
+   ┌─────────────────────┐                    │
+   │ Pending–Device Busy │ ───────────────────┘
+   └─────────────────────┘
+
+   ┌────────────────────────┐    Halted state (terminal-ish):
+   │ Halted–Major Failure   │    set bởi report_major_failure
+   └────────────────────────┘    → tạo CM WO khẩn
+                                  → Asset.status = Out of Service
+   ┌─────────────┐
+   │  Cancelled  │   Workshop Manager huỷ (lý do bắt buộc)
+   └─────────────┘
 ```
 
-### Slippage Tolerance
-| Mức trễ | Hành động |
+7 states: `Open · In Progress · Pending–Device Busy · Overdue · Completed · Halted–Major Failure · Cancelled`.
+
+### Schedulers liên quan
+
+| Job | Cron | Tác động |
+|---|---|---|
+| `generate_pm_work_orders` | `daily` (06:00) | Tạo `PM Work Order` mới |
+| `check_pm_overdue` | `daily` (08:00) | Set `Overdue` + gửi email |
+
+(IMM-04 `Asset Commissioning.on_submit` → tạo `PM Schedule` đầu tiên — xem `services/imm04.py`.)
+
+---
+
+## 6. Roles & Permissions
+
+| Role | PM Schedule | PM Checklist Template | PM Work Order | PM Task Log |
+|---|---|---|---|---|
+| `Workshop Head` | R/W/Create/Delete | R/W/Create/Delete | R/W/Create/Submit/Cancel | R/Create |
+| `CMMS Admin` | R/W/Create/Delete | R/W/Create/Delete | R/W/Create/Submit/Cancel/Delete | R/Create |
+| `HTM Technician` | R | R | R/W | R |
+| `Biomed Engineer` | R | R | R/W | R |
+| `VP Block2` (PTP) | R | R | R | R |
+| `System Manager` | full | — | full | R/Create |
+
+(Role names theo wave-1 fixtures — sẽ map sang IMM roles trong v3.)
+
+---
+
+## 7. Business Rules
+
+| ID | Rule | Enforce tại |
+|---|---|---|
+| BR-08-01 | PM WO phải có Checklist Template tương ứng Asset Category × PM Type trước khi scheduler tạo | `tasks.generate_pm_work_orders` (skip + email Admin nếu thiếu) |
+| BR-08-02 | CM WO phát sinh từ PM bắt buộc có `source_pm_wo` | `pm_work_order._validate_cm_source()` + `mandatory_depends_on` |
+| BR-08-03 | `next_pm_date = completion_date + pm_interval_days` (KHÔNG tính từ `due_date`) | `pm_work_order._update_pm_schedule()` + `_update_asset_fields()` |
+| BR-08-04 | Asset `status = Out of Service` → block tạo PM WO mới | `tasks.generate_pm_work_orders` skip; `report_major_failure` set Out of Service |
+| BR-08-05 | PM WO submit sau `due_date` → `is_late = True` | `pm_work_order._set_completion()` |
+| BR-08-06 | Asset Class III/C/D bắt buộc upload ảnh trước/sau PM | `pm_work_order._validate_photo_for_high_risk()` |
+| BR-08-07 | Mỗi `pm_type` (Quarterly/Semi-Annual/Annual/Ad-hoc) là 1 PM Schedule độc lập | Naming `PMS-{asset_ref}-{pm_type}` đảm bảo unique |
+| BR-08-08 | Checklist 100% có result trước khi Submit Completed/Halted | `pm_work_order._validate_checklist_complete()` |
+| BR-08-09 | Fail-Minor → tự sinh CM WO priority Medium; Fail-Major → CM WO Critical + Asset Out of Service | `pm_work_order._handle_failures()` |
+| BR-08-10 | PM Task Log immutable (no Update/Delete) | DocType `in_create=1`, perms không có `delete` cho user role |
+
+---
+
+## 8. Dependencies
+
+| Module / Component | Phụ thuộc qua |
 |---|---|
-| ≤ 7 ngày | Cảnh báo vàng — tiếp tục bình thường |
-| 8–30 ngày | Cảnh báo đỏ — escalate PTP Khối 2 |
-| > 30 ngày | Critical — leo thang BGĐ, ghi compliance log |
+| **IMM-04 Installation** | `Asset Commissioning.on_submit` → `services.imm04` tạo `PM Schedule` đầu (`first_pm_date = commissioning_date + pm_interval_days`) |
+| **IMM-05 Asset Document** | Service Manual là nguồn dữ liệu để Workshop Head soạn `PM Checklist Template` |
+| **IMM-09 Repair (CM)** | PM `Halted–Major Failure` hoặc `Fail-*` → tạo `PM Work Order` `wo_type=Corrective` (đóng vai trò CM WO trong wave 1) |
+| **IMM-11 Calibration** | Có thể trigger Calibration WO khi PM Type yêu cầu kiểm định cùng kỳ (manual rule) |
+| **Asset (ERPNext core)** | Đọc `asset_category`, `custom_risk_class`, `status`; ghi `custom_last_pm_date`, `custom_next_pm_date`, `custom_pm_status` |
+| **Frappe Scheduler** | 2 jobs daily |
+| **Frappe Email Queue** | Gửi alert leo thang + thông báo Major Failure |
 
 ---
 
-## 8. Scheduler Jobs
+## 9. Trạng thái triển khai
 
-| Job | Tần suất | Mô tả |
+| Hạng mục | Trạng thái | Ghi chú |
 |---|---|---|
-| `create_pm_work_orders` | Hàng ngày 00:30 | Query PM Schedules có `next_due_date <= today`, tạo WO tự động |
-| `check_pm_overdue` | Hàng ngày 06:00 | Cập nhật WO status = Overdue, gửi alert theo slippage tolerance |
-| `update_pm_compliance_kpi` | Hàng tuần | Tính PM Compliance Rate cho dashboard |
+| DocTypes (6) | ✅ Đã code | `pm_schedule`, `pm_checklist_template`, `pm_checklist_item`, `pm_work_order`, `pm_checklist_result`, `pm_task_log` |
+| Controller `pm_work_order.py` | ✅ | validate + on_submit lifecycle |
+| Service / Tasks | ✅ | `tasks.generate_pm_work_orders`, `tasks.check_pm_overdue` |
+| API (9 endpoint) | ✅ | `assetcore/api/imm08.py` |
+| Frontend (4 view) | ✅ | `PMDashboardView`, `PMCalendarView`, `PMWorkOrderListView`, `PMWorkOrderDetailView` |
+| Pinia store | ✅ | `frontend/src/stores/imm08.ts` |
+| Hook IMM-04 → IMM-08 | ✅ | `services/imm04.py` tạo PM Schedule on commissioning submit |
+| UAT scripts | ✅ | `assetcore/tests/uat_imm08.py` (10 TC) |
+| Migration sang IMM-00 v3 (`AC Asset`) | ⚠️ Pending | Wave 1 vẫn dùng `Asset` core + `custom_*` fields |
 
 ---
 
-## 9. Integration Points
-
-| Từ / Đến | Loại | Dữ liệu truyền |
-|---|---|---|
-| **IMM-04 → IMM-08** | Event hook `on_submit` | `commissioning_date` → tạo PM Schedule, tính `first_pm_date` |
-| **IMM-08 → IMM-09** | Auto-create CM WO | `source_pm_wo`, mô tả lỗi, asset_ref khi Major/Minor Failure |
-| **IMM-08 → IMM-11** | Manual / Rule-based | Trigger Calibration WO nếu PM type yêu cầu kiểm định cùng kỳ |
-| **IMM-05 → IMM-08** | Reference | Service Manual → nguồn tạo Checklist Template |
-
----
-
-## 10. KPI Definitions
-
-| KPI | Công thức | Mục tiêu |
-|---|---|---|
-| **PM Compliance Rate** | `Count(WO completed on time) / Count(WO scheduled) × 100%` | ≥ 95% |
-| **PM Overdue Rate** | `Count(WO is_late = True) / Count(WO completed) × 100%` | ≤ 5% |
-| **PM Slippage Average** | `Avg(completion_date - due_date)` cho WO trễ | ≤ 3 ngày |
-| **Checklist Compliance** | `Count(WO 100% checklist) / Count(WO submitted) × 100%` | 100% |
-
----
-
-## 11. Dependencies
-
-| Dependency | Lý do |
-|---|---|
-| IMM-04 (Asset Commissioning) | Cung cấp `commissioning_date` baseline |
-| IMM-05 (Asset Document) | Service Manual nguồn cho checklist template |
-| Asset DocType (ERPNext core) | Cập nhật `last_pm_date`, `next_pm_date`, `status` |
-| Frappe Scheduler | Chạy daily job tạo WO và overdue check |
-| Holiday List (ERPNext) | Loại trừ ngày lễ trong tính toán lịch |
-
----
-
-## 12. QMS Mapping
-
-| Yêu cầu | WHO HTM | ISO 9001:2015 | Ghi chú |
-|---|---|---|---|
-| PM interval theo manufacturer | WHO Maintenance §5.3.1 | §8.5.1 | Template per Asset Category |
-| Work Order system bắt buộc | WHO CMMS §3.2.3 | §8.5.1 | PM WO với checklist |
-| PM compliance tracking | WHO HTM 2025 §6.2 | §9.1 | KPI = on-time / total |
-| Hồ sơ PM immutable | WHO Maintenance §5.3.5 | §7.5 | PM Task Log không xóa được |
-| Phát hiện lỗi → CM | WHO HTM 2025 §5.3.4 | §10.2 | CM WO có `source_pm_wo` |
-| Audit trail đầy đủ | WHO HTM 2025 §6.4 | §7.5.3 | Timestamp + user mọi hành động |
+*End of Module Overview v2.0.0 — IMM-08 Preventive Maintenance*

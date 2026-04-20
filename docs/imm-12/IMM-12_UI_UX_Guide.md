@@ -1,836 +1,453 @@
 # IMM-12 — UI/UX Guide
-## Frontend Design, Component Architecture & Client Logic
 
-**Module:** IMM-12
-**Version:** 1.0
-**Ngày:** 2026-04-17
-**Trạng thái:** Draft
+| Thuộc tính | Giá trị |
+|---|---|
+| Module | IMM-12 — Incident & CAPA Management |
+| Phiên bản | 1.0.0 |
+| Ngày cập nhật | 2026-04-18 |
+| Trạng thái | **DRAFT — ⚠️ Mockup only** (FE chưa build, spec hướng dẫn implement) |
+| Tác giả | AssetCore Team |
+
+---
+
+## 0. Tổng quan
+
+Tài liệu này mô tả toàn bộ giao diện người dùng cho IMM-12 (Incident + CAPA + RCA), bao gồm:
+
+- 6 màn hình chính (Incident List/Form, CAPA List/Form, RCA Form, Dashboard)
+- Component reuse từ IMM-00 (UI shell, design system, app shell)
+- Pinia store (Vue 3 Composition API)
+- Permission-aware actions
+
+**Trạng thái implementation: ⚠️ Mockup only — chưa có Vue component nào được build cho IMM-12.**
+
+Tham chiếu chuẩn UI/UX của AssetCore: `docs/imm-00/IMM-00_UI_UX_Guide.md` §1–§4 (nguyên tắc UX, design system, app shell).
 
 ---
 
 ## 1. Sitemap / Routes
 
-```
-/imm-12/                              → SLA Dashboard (default landing)
-  ├── /imm-12/incidents               → Incident List (filterable, sortable)
-  │     └── /imm-12/incidents/:id     → Incident Detail / Edit Form
-  ├── /imm-12/incidents/new           → New Incident Report Form
-  ├── /imm-12/rca                     → RCA Record List
-  │     └── /imm-12/rca/:id           → RCA Record Detail / Edit Form
-  ├── /imm-12/dashboard               → SLA Compliance Dashboard (PTP view)
-  └── /imm-12/chronic                 → Chronic Failure Monitor
+```text
+/imm-12/                        → redirect /imm-12/incidents
+  ├── /imm-12/incidents         → Incident List (filterable)        ⚠️ Mockup
+  │     ├── /imm-12/incidents/new       → New Incident Form         ⚠️ Mockup
+  │     └── /imm-12/incidents/:name     → Incident Detail/Edit      ⚠️ Mockup
+  ├── /imm-12/capa              → CAPA List                         ⚠️ Mockup
+  │     ├── /imm-12/capa/new            → New CAPA (manual)         ⚠️ Mockup
+  │     └── /imm-12/capa/:name          → CAPA Detail/Close form    ⚠️ Mockup
+  ├── /imm-12/rca               → RCA Record List                   ⚠️ Mockup
+  │     └── /imm-12/rca/:name           → RCA Detail/5-Why form     ⚠️ Mockup
+  ├── /imm-12/chronic           → Chronic Failure Monitor           ⚠️ Mockup
+  └── /imm-12/dashboard         → KPI Dashboard                     ⚠️ Mockup
 ```
 
-**Route Guard:**
-- `/imm-12/dashboard` → requires role `PTP Khối 2` hoặc `Workshop Manager`
-- `/imm-12/incidents/new` → requires role `Reporting User` hoặc `Workshop Manager`
-- `/imm-12/rca/:id` (edit) → requires role `KTV HTM` hoặc `Workshop Manager`
+**Route Guard (route meta):**
+
+| Route | Required Role |
+|---|---|
+| `/imm-12/incidents/new` | Reporting User, Workshop Lead |
+| `/imm-12/incidents/:name` (edit actions) | Workshop Lead, QA Officer |
+| `/imm-12/capa/:name` (close action) | QA Officer |
+| `/imm-12/rca/:name` (submit) | Workshop Lead, QA Officer |
+| `/imm-12/dashboard` | Workshop Lead, QA Officer, Ops Manager, Department Head |
 
 ---
 
-## 2. Component Architecture
+## 2. Component Architecture (đề xuất)
 
-```
+```text
 src/
 ├── views/imm12/
-│   ├── IncidentListView.vue          # Danh sách IR với SLA countdown
-│   ├── IncidentFormView.vue          # Form tạo/xem/edit IR
-│   ├── SLADashboardView.vue          # Dashboard KPI cho PTP
-│   ├── RCAListView.vue               # Danh sách RCA Records
-│   ├── RCAFormView.vue               # Form phân tích RCA
-│   └── ChronicFailureView.vue        # Monitor chronic failures
+│   ├── IncidentListView.vue            ⚠️ Mockup
+│   ├── IncidentFormView.vue            ⚠️ Mockup
+│   ├── CAPAListView.vue                ⚠️ Mockup
+│   ├── CAPAFormView.vue                ⚠️ Mockup (Close form for QA)
+│   ├── RCAListView.vue                 ⚠️ Mockup
+│   ├── RCAFormView.vue                 ⚠️ Mockup (5-Why / Fishbone)
+│   ├── ChronicFailureView.vue          ⚠️ Mockup
+│   └── Imm12DashboardView.vue          ⚠️ Mockup
 │
 ├── components/imm12/
-│   ├── SLACountdownTimer.vue         # Countdown timer với màu động
-│   ├── SLAStatusBadge.vue            # Badge On Track / At Risk / Breached
-│   ├── PrioritySelector.vue          # P1→P4 selector với màu
-│   ├── EscalationBanner.vue          # Banner cảnh báo leo thang
-│   ├── IncidentCard.vue              # Card trong list view
-│   ├── RCAForm5Why.vue               # 5-Why analysis sub-form
-│   ├── ChronicAlertBadge.vue         # Badge "Chronic" trên asset/IR
-│   └── SLABreachModal.vue            # Modal khi breach xảy ra realtime
+│   ├── SeverityBadge.vue               (Minor/Major/Critical color badge)
+│   ├── IncidentStatusBadge.vue         (Open/Acknowledged/.../Closed)
+│   ├── CAPAStatusBadge.vue             (Open/InProgress/PV/Closed/Overdue)
+│   ├── ClinicalImpactWarning.vue       (banner khi Critical)
+│   ├── RCAFiveWhyEditor.vue            (5 input rows)
+│   ├── ChronicAlertBadge.vue           (badge "Chronic" trên IR/Asset)
+│   ├── CAPACloseDialog.vue             (form với corrective + preventive + evidence)
+│   └── IncidentTimeline.vue            (audit trail visualization)
 │
 └── stores/
-    └── imm12.ts                      # Pinia store (xem Section 4)
+    └── imm12.ts                        (Pinia — see §4)
 ```
 
 ---
 
-## 3. Form Specs
+## 3. Screen Specs
 
-### 3.1 New Incident Report Form (`/imm-12/incidents/new`)
+> Mọi mockup dưới đây là **ASCII reference cho FE implement** — chưa có component thực tế.
 
-**Header:**
-```
+### 3.1 Incident List (`/imm-12/incidents`) — ⚠️ Mockup only
+
+```text
 ┌─────────────────────────────────────────────────────────────────┐
-│  BÁO CÁO SỰ CỐ THIẾT BỊ                            [Hủy] [Gửi]│
-│  Sự cố sẽ được tiếp nhận và xử lý ngay lập tức                 │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-**Section 1: Thông tin thiết bị**
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  Thiết bị *          [Search / Dropdown: ACC-ASS-...]           │
+│  SỰ CỐ THIẾT BỊ                              [+ Báo cáo sự cố] │
+│                                                                  │
+│  Filter: Severity [All ▼] · Status [Open+InProg ▼] · Asset [..] │
 │  ─────────────────────────────────────────────────────────────  │
-│  Tên thiết bị:       [Auto-filled: Máy thở Drager Evita 800]    │
-│  Khoa phòng:         [Auto-filled: ICU – Hồi sức tích cực]      │
-│  Vị trí:             [Auto-filled: Phòng 302, Tầng 3]           │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-**Section 2: Mô tả sự cố**
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  Mã lỗi *            [Select: Fault Code dropdown]              │
-│  Triệu chứng *       [Textarea: Mô tả chi tiết những gì bạn     │
-│                       thấy / nghe / thiết bị báo...]            │
-│  Thiết bị đang       ○ Hoàn toàn không hoạt động               │
-│  ở trạng thái *      ○ Hoạt động một phần (có lỗi)             │
-│                       ○ Báo alarm nhưng vẫn chạy               │
-│  Workaround?         □ Đã chuyển bệnh nhân sang thiết bị khác   │
-│  Ảnh đính kèm        [Upload button — drag & drop]              │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-**Section 3: Tác động lâm sàng (hiển thị nếu thiết bị class III hoặc life-support)**
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  ⚠️  THIẾT BỊ HỖ TRỢ SỰ SỐNG — BẮT BUỘC ĐIỀN                 │
-│  Tác động lâm sàng * [Textarea: Hiện có bệnh nhân nào đang     │
-│                        phụ thuộc vào thiết bị này không?        │
-│                        Biện pháp bảo vệ bệnh nhân đã áp dụng?] │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-**Footer:**
-```
-[HỦY]                                    [GỬI BÁO CÁO →]
-```
-
----
-
-### 3.2 Incident Detail / Edit Form (`/imm-12/incidents/:id`)
-
-**Header — IR Identifier & SLA Status**
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  IR-2026-00042                    ● IN PROGRESS        [Actions▼]│
-│  Máy thở Drager Evita 800 — ICU                                 │
-│                                                                  │
-│  ┌─────────────────────────────────────────────────────────┐    │
-│  │  🔴 P1 CRITICAL    SLA: RESOLUTION                       │    │
-│  │  ████████████████░░░░░░░░░  [2h 15m còn lại]            │    │
-│  │  Hạn: 16:00 hôm nay — 24/7 SLA                         │    │
-│  └─────────────────────────────────────────────────────────┘    │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-**Tabs: [Thông tin] [SLA Timeline] [Sửa chữa] [RCA] [Lịch sử]**
-
-**Tab: Thông tin**
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  Thiết bị:      ACC-ASS-2026-00012 — Máy thở Drager Evita 800   │
-│  Mã lỗi:        VENT_ALARM_HIGH                                  │
-│  Mô tả:         Máy báo alarm liên tục, áp suất đường thở...    │
-│  Báo cáo bởi:   nurse1@hospital.vn — 08:12 17/04/2026           │
-│  Tiếp nhận bởi: manager@hospital.vn — 08:35 17/04/2026          │
+│  IR Code         Asset                Severity  Status   Aged   │
 │  ─────────────────────────────────────────────────────────────  │
-│  Ưu tiên:       [P1 Critical ▼]  (chỉ Manager mới đổi được)    │
-│  KTV phụ trách: [ktv1@hospital.vn ▼]                            │
-│  Work Order:    [AR-2026-00089 — In Progress]  [→ Xem WO]       │
+│  IR-2026-0042   Máy thở Drager E.   🔴 Critical In Prog  3h    │
+│  IR-2026-0041   Siêu âm GE Vivid    🟠 Major    Open    1h    │
+│  IR-2026-0040   ECG cấp cứu         🟡 Minor    Resolved 1d    │
+│  ─────────────────────────────────────────────────────────────  │
+│  Showing 1–20 of 67                              [Prev 1 2 Next]│
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-**Tab: SLA Timeline**
-```
+### 3.2 New Incident Form (`/imm-12/incidents/new`) — ⚠️ Mockup only
+
+```text
 ┌─────────────────────────────────────────────────────────────────┐
-│  Timeline SLA                                                    │
+│  BÁO CÁO SỰ CỐ THIẾT BỊ                         [Hủy] [Gửi]    │
 │                                                                  │
-│  08:12  ●  IR Created           [SLA Response: 30 phút]         │
-│         │                                                        │
-│  08:35  ●  Acknowledged (23 phút) ✅ WITHIN SLA                 │
-│         │                                                        │
-│  ——     ●  [SLA Resolution: 4 giờ = 12:12]                      │
-│         │                                                        │
-│  Now ►  ●  In Progress — 9h 58m elapsed ⚠️ BREACHED             │
+│  Section 1: Thông tin thiết bị                                  │
+│  Thiết bị *      [Search AC Asset ▼]                            │
+│  Khoa phòng      [Auto: ICU – Hồi sức tích cực]                 │
+│  Vị trí          [Auto: Phòng 302, Tầng 3]                      │
 │                                                                  │
-│  SLA Breach Log:                                                 │
-│  • Resolution breach ghi lúc 12:12 — overage: 5h 46m           │
-│    Escalation gửi: BGĐ, PTP Khối 2                             │
+│  Section 2: Mô tả sự cố                                         │
+│  Mã lỗi *        [Select fault_code ▼]                          │
+│  Mức độ *        ◉ Minor   ○ Major   ○ Critical                 │
+│  Mô tả *         [Textarea]                                     │
+│  Workaround?     ☑ Đã chuyển bệnh nhân sang thiết bị khác       │
+│  Ảnh đính kèm    [Upload — drag & drop]                         │
+│                                                                  │
+│  Section 3: Tác động lâm sàng (chỉ hiện khi Critical)           │
+│  ⚠️ THIẾT BỊ HỖ TRỢ SỰ SỐNG — BẮT BUỘC ĐIỀN                    │
+│  Tác động *      [Textarea — clinical_impact, BR-12-01]         │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
----
-
-### 3.3 SLA Dashboard (`/imm-12/dashboard`)
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  SLA COMPLIANCE DASHBOARD                    Tháng 04/2026 [▼]  │
-│                                                                  │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐           │
-│  │  P1      │ │  P2      │ │  P3      │ │  P4      │           │
-│  │  100%    │ │  87.5%   │ │  94.2%   │ │  98.1%   │           │
-│  │ 5/5 OK   │ │ 7/8 OK   │ │ 49/52 OK │ │ 52/53 OK │           │
-│  └──────────┘ └──────────┘ └──────────┘ └──────────┘           │
-│                                                                  │
-│  MTTA (Mean Time to Acknowledge)        MTTR (Mean Time to Resolve)
-│  ┌──────────────────────┐               ┌──────────────────────┐ │
-│  │ P1: 18 phút ✅       │               │ P1: 3.2 giờ ✅       │ │
-│  │ P2: 1h 42m ✅        │               │ P2: 7.8 giờ ✅       │ │
-│  │ P3: 3h 15m ✅        │               │ P3: 19.3 giờ ✅      │ │
-│  └──────────────────────┘               └──────────────────────┘ │
-│                                                                  │
-│  OPEN INCIDENTS (7)                                             │
-│  ┌─────┬────────────────────────┬──────────┬─────────────────┐  │
-│  │ P1  │ Máy thở ICU P301       │ BREACHED │ 5h 46m over SLA │  │
-│  │ P2  │ Siêu âm Tim mạch       │ AT RISK  │ 1h 20m còn lại  │  │
-│  │ P3  │ ECG Cấp cứu            │ ON TRACK │ 8h 15m còn lại  │  │
-│  └─────┴────────────────────────┴──────────┴─────────────────┘  │
-└─────────────────────────────────────────────────────────────────┘
-```
-
----
-
-## 4. Pinia Store — `useImm12Store`
+**Validation FE (mirror BR-12-01):**
 
 ```typescript
-// src/stores/imm12.ts
+if (form.severity === "Critical" && !form.clinical_impact) {
+  showError("Sự cố Critical bắt buộc mô tả tác động lâm sàng");
+  return;
+}
+```
+
+### 3.3 Incident Detail (`/imm-12/incidents/:name`) — ⚠️ Mockup only
+
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│  IR-2026-0042                  ● IN PROGRESS      [Actions ▼]  │
+│  Máy thở Drager Evita 800 — ICU                  🔴 CRITICAL    │
+│                                                                  │
+│  Tabs: [Thông tin] [Timeline/Audit] [Repair WO] [RCA] [CAPA]    │
+│  ─────────────────────────────────────────────────────────────  │
+│                                                                  │
+│  Tab: Thông tin                                                 │
+│    Asset:        ACC-ASSET-2026-0012                           │
+│    Mã lỗi:       VENT_ALARM_HIGH                               │
+│    Mức độ:       🔴 Critical                                    │
+│    Báo cáo bởi:  nurse1@hospital.vn — 08:12 18/04/2026         │
+│    Tiếp nhận:    workshop_lead@hospital.vn — 08:35 18/04/2026  │
+│    KTV phụ trách:[Select ▼]                                     │
+│    Tác động:     "Bệnh nhân phụ thuộc, đã chuẩn bị bóng ambu"  │
+│                                                                  │
+│  Actions (theo role + status):                                  │
+│    [Acknowledge]  [Assign KTV]  [Mark Resolved]  [Cancel]       │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 3.4 RCA Form (`/imm-12/rca/:name`) — ⚠️ Mockup only
+
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│  RCA-2026-0012                ● RCA IN PROGRESS  [Submit RCA]   │
+│  Asset: Máy thở Drager Evita 800                                │
+│  Trigger: P1 Incident (IR-2026-0042)                            │
+│  Hạn: 25/04/2026 (còn 7 ngày)                                   │
+│                                                                  │
+│  Phương pháp RCA *  ◉ 5-Why  ○ Fishbone  ○ Other                │
+│                                                                  │
+│  ─── 5-Why Analysis ────────────────────────────────────────    │
+│  Why 1: Tại sao alarm? → [Sensor sai số]                        │
+│  Why 2: Tại sao sai số? → [Drift do nhiệt độ]                   │
+│  Why 3: Tại sao nhiệt độ cao? → [HVAC không ổn định]            │
+│  Why 4: Tại sao HVAC không ổn? → [Maintenance HVAC trễ]         │
+│  Why 5: Tại sao trễ? → [Không có schedule trong CMMS]           │
+│                                                                  │
+│  Nguyên nhân gốc *  [Sensor degraded do nhiệt độ ICU vượt 28°C] │
+│  Yếu tố đóng góp    [HVAC không ổn định 3 tháng qua]            │
+│                                                                  │
+│  Đề xuất CAPA (auto chuyển sang IMM CAPA Record sau Submit):    │
+│  Corrective       [Thay sensor + calibrate]                     │
+│  Preventive       [PM HVAC tích hợp vào CMMS, interval 1 tháng] │
+│                                                                  │
+│  ⓘ Submit sẽ tự động tạo CAPA Record qua imm00.create_capa()    │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 3.5 CAPA List (`/imm-12/capa`) — ⚠️ Mockup only
+
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│  CAPA RECORDS                                  [+ Tạo CAPA]    │
+│                                                                  │
+│  Filter: Status [Open+InProg ▼] · Severity [All ▼] · Asset [...]│
+│  ─────────────────────────────────────────────────────────────  │
+│  CAPA Code        Asset            Severity   Status     Due    │
+│  ─────────────────────────────────────────────────────────────  │
+│  CAPA-2026-0023  Máy thở Drager  🔴 Critical In Progress 12/05 │
+│  CAPA-2026-0022  Siêu âm GE      🟠 Major    Pending Ver 30/04 │
+│  CAPA-2026-0021  ECG cấp cứu     🟡 Minor    Overdue ⚠️  10/04 │
+│  ─────────────────────────────────────────────────────────────  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 3.6 CAPA Close Form (`/imm-12/capa/:name`) — ⚠️ Mockup only
+
+QA Officer view (chỉ QA Officer thấy nút "Close CAPA"):
+
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│  CAPA-2026-0023                ● PENDING VERIFICATION           │
+│                                                                  │
+│  Source:           RCA Record RCA-2026-0012 → IR-2026-0042      │
+│  Asset:            Máy thở Drager Evita 800                     │
+│  Severity:         🔴 Critical                                  │
+│  Due Date:         12/05/2026                                   │
+│                                                                  │
+│  Root Cause *      [Sensor degraded do nhiệt độ ICU vượt 28°C]  │
+│  Corrective *      [Thay sensor + calibrate]                    │
+│  Preventive *      [PM HVAC tích hợp vào CMMS]                  │
+│  Evidence          [calibration_cert.pdf] [+]                   │
+│                                                                  │
+│  ⓘ BR-00-08: cả 3 field root_cause + corrective + preventive    │
+│     bắt buộc trước khi đóng CAPA.                               │
+│                                                                  │
+│  [Save]                              [Close CAPA →] (QA only)   │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 3.7 Dashboard (`/imm-12/dashboard`) — ⚠️ Mockup only
+
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│  IMM-12 KPI DASHBOARD                       Tháng 04/2026 [▼]   │
+│                                                                  │
+│  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐             │
+│  │ Critical IRs │ │ RCA On-Time  │ │ CAPA On-Time │             │
+│  │     5        │ │    93%  ✅    │ │   88%  ⚠️    │             │
+│  └──────────────┘ └──────────────┘ └──────────────┘             │
+│                                                                  │
+│  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐             │
+│  │ Chronic      │ │ MTTR (avg)   │ │ Open Incidents│            │
+│  │    2  ⚠️     │ │  4.2 hours   │ │     12       │             │
+│  └──────────────┘ └──────────────┘ └──────────────┘             │
+│                                                                  │
+│  Top 5 Asset có nhiều incident nhất 90 ngày:                    │
+│   1. Máy siêu âm GE Vivid       — 5 IR  ⚠️ chronic              │
+│   2. Máy thở Drager Evita        — 3 IR                          │
+│   ...                                                            │
+│                                                                  │
+│  CAPA Closure Trend (6 tháng):                                  │
+│   [bar chart placeholder]                                       │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 3.8 Chronic Failure Monitor (`/imm-12/chronic`) — ⚠️ Mockup only
+
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│  CHRONIC FAILURES (90 ngày qua)                                 │
+│  ─────────────────────────────────────────────────────────────  │
+│  Asset             Fault Code        Count  RCA       Due       │
+│  ─────────────────────────────────────────────────────────────  │
+│  Siêu âm GE Vivid  PROBE_DISCONNECT   3   RCA-0007   01/05    │
+│  Monitor Phillips  BATTERY_LOW         3   RCA-0008   02/05    │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 4. Pinia Store — `useImm12Store` (đề xuất, ⚠️ Pending)
+
+```typescript
+// src/stores/imm12.ts (⚠️ Pending implementation)
 import { defineStore } from "pinia";
 import { ref, computed } from "vue";
-import type {
-  IncidentReport,
-  RCARecord,
-  SLADashboard,
-  ChronicFailure,
-  SLAStatus,
-} from "@/types/imm12";
 
 export const useImm12Store = defineStore("imm12", () => {
-  // ─── State ───────────────────────────────────────────────────────
+  // ─── State ───────────────────────────────────────────
   const incidents = ref<IncidentReport[]>([]);
   const activeIncident = ref<IncidentReport | null>(null);
+  const capaList = ref<CAPARecord[]>([]);
+  const activeCAPA = ref<CAPARecord | null>(null);
   const rcaList = ref<RCARecord[]>([]);
   const activeRCA = ref<RCARecord | null>(null);
-  const dashboard = ref<SLADashboard | null>(null);
   const chronicFailures = ref<ChronicFailure[]>([]);
+  const dashboard = ref<DashboardKPI | null>(null);
 
   const loading = ref(false);
   const error = ref<string | null>(null);
 
-  // SLA countdown timer state — keyed by IR name
-  const slaCountdowns = ref<Record<string, number>>({});  // seconds remaining
-  let countdownInterval: ReturnType<typeof setInterval> | null = null;
-
-  // ─── Computed ─────────────────────────────────────────────────────
+  // ─── Computed ────────────────────────────────────────
   const openIncidents = computed(() =>
-    incidents.value.filter((ir) => !["Closed", "Cancelled"].includes(ir.status))
+    incidents.value.filter((ir) => !["Closed","Cancelled"].includes(ir.status))
+  );
+  const criticalIncidents = computed(() =>
+    openIncidents.value.filter((ir) => ir.severity === "Critical")
+  );
+  const overdueCAPAs = computed(() =>
+    capaList.value.filter((c) => c.status === "Overdue")
   );
 
-  const p1Incidents = computed(() =>
-    openIncidents.value.filter((ir) => ir.priority === "P1 Critical")
-  );
-
-  const breachedIncidents = computed(() =>
-    openIncidents.value.filter((ir) => ir.sla_status === "Breached")
-  );
-
-  const atRiskIncidents = computed(() =>
-    openIncidents.value.filter((ir) => ir.sla_status === "At Risk")
-  );
-
-  const hasCriticalAlerts = computed(
-    () => p1Incidents.value.length > 0 || breachedIncidents.value.length > 0
-  );
-
-  // ─── SLA Helpers ──────────────────────────────────────────────────
-  const SLA_LIMITS: Record<string, { response: number; resolution: number }> = {
-    "P1 Critical": { response: 0.5 * 3600, resolution: 4 * 3600 },
-    "P2 High":     { response: 2 * 3600,   resolution: 8 * 3600 },
-    "P3 Medium":   { response: 4 * 3600,   resolution: 24 * 3600 },
-    "P4 Low":      { response: 8 * 3600,   resolution: 72 * 3600 },
-  };
-
-  function getSLASecondsRemaining(ir: IncidentReport): number {
-    const limits = SLA_LIMITS[ir.priority];
-    if (!limits) return 0;
-
-    const createdAt = new Date(ir.created_at).getTime();
-    const now = Date.now();
-    const elapsed = (now - createdAt) / 1000;  // seconds
-
-    // If already resolved: use resolution SLA
-    // If not yet acknowledged: use response SLA (tighter)
-    const limitKey =
-      ir.status === "New" || ir.status === "Acknowledged"
-        ? "response"
-        : "resolution";
-
-    const limit = ir.status === "Acknowledged"
-      ? limits.resolution  // after ack, track resolution
-      : limits[limitKey];
-
-    return Math.max(0, limit - elapsed);
-  }
-
-  function getSLAColor(ir: IncidentReport): "red" | "orange" | "yellow" | "green" {
-    const priority = ir.priority;
-    if (ir.sla_status === "Breached") return "red";
-    if (ir.sla_status === "At Risk") {
-      return priority === "P1 Critical" ? "red" : "orange";
-    }
-    if (priority === "P1 Critical") return "red";
-    if (priority === "P2 High") return "orange";
-    if (priority === "P3 Medium") return "yellow";
-    return "green";
-  }
-
-  function formatCountdown(seconds: number): string {
-    if (seconds <= 0) return "BREACHED";
-    const h = Math.floor(seconds / 3600);
-    const m = Math.floor((seconds % 3600) / 60);
-    const s = Math.floor(seconds % 60);
-    if (h > 0) return `${h}h ${m}m còn lại`;
-    if (m > 0) return `${m}m ${s}s còn lại`;
-    return `${s}s còn lại`;
-  }
-
-  // ─── Actions ──────────────────────────────────────────────────────
-  async function fetchIncidents(filters: Record<string, unknown> = {}): Promise<void> {
-    loading.value = true;
-    error.value = null;
-    try {
-      const res = await fetch(
-        `/api/method/assetcore.api.imm12.get_incident_list?filters=${JSON.stringify(filters)}`
-      );
-      const data = await res.json();
-      if (data.message?.success) {
-        incidents.value = data.message.data;
-        _initSLACountdowns();
-      } else {
-        throw new Error(data.message?.error || "Không thể tải danh sách sự cố");
-      }
-    } catch (e) {
-      error.value = (e as Error).message;
-    } finally {
-      loading.value = false;
-    }
-  }
-
-  async function fetchIncident(name: string): Promise<void> {
-    loading.value = true;
-    error.value = null;
-    try {
-      const res = await fetch(
-        `/api/method/assetcore.api.imm12.get_incident?name=${name}`
-      );
-      const data = await res.json();
-      if (data.message?.success) {
-        activeIncident.value = data.message.data;
-      } else {
-        throw new Error(data.message?.error || "Không thể tải sự cố");
-      }
-    } catch (e) {
-      error.value = (e as Error).message;
-    } finally {
-      loading.value = false;
-    }
-  }
-
-  async function createIncident(payload: Partial<IncidentReport>): Promise<string> {
-    loading.value = true;
-    error.value = null;
-    try {
-      const res = await fetch("/api/method/assetcore.api.imm12.create_incident", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Frappe-CSRF-Token": getCsrfToken() },
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json();
-      if (data.message?.success) {
-        await fetchIncidents();
-        return data.message.data.name;
-      }
-      throw new Error(data.message?.error || "Không thể tạo sự cố");
-    } catch (e) {
-      error.value = (e as Error).message;
-      throw e;
-    } finally {
-      loading.value = false;
-    }
-  }
-
-  async function acknowledgeIncident(name: string, priority: string): Promise<void> {
-    loading.value = true;
-    try {
-      const res = await fetch("/api/method/assetcore.api.imm12.acknowledge_incident", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Frappe-CSRF-Token": getCsrfToken() },
-        body: JSON.stringify({ name, priority }),
-      });
-      const data = await res.json();
-      if (!data.message?.success) {
-        throw new Error(data.message?.error || "Không thể tiếp nhận sự cố");
-      }
-      await fetchIncident(name);
-    } finally {
-      loading.value = false;
-    }
-  }
-
-  async function resolveIncident(name: string, resolution_notes: string): Promise<void> {
-    loading.value = true;
-    try {
-      const res = await fetch("/api/method/assetcore.api.imm12.resolve_incident", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Frappe-CSRF-Token": getCsrfToken() },
-        body: JSON.stringify({ name, resolution_notes }),
-      });
-      const data = await res.json();
-      if (!data.message?.success) {
-        throw new Error(data.message?.error || "Không thể đánh dấu đã giải quyết");
-      }
-      await fetchIncident(name);
-    } finally {
-      loading.value = false;
-    }
-  }
-
-  async function fetchSLADashboard(year: number, month: number): Promise<void> {
-    loading.value = true;
-    try {
-      const res = await fetch(
-        `/api/method/assetcore.api.imm12.get_sla_dashboard?year=${year}&month=${month}`
-      );
-      const data = await res.json();
-      if (data.message?.success) {
-        dashboard.value = data.message.data;
-      }
-    } finally {
-      loading.value = false;
-    }
-  }
-
-  async function fetchChronicFailures(): Promise<void> {
-    loading.value = true;
-    try {
-      const res = await fetch(
-        "/api/method/assetcore.api.imm12.get_chronic_failures"
-      );
-      const data = await res.json();
-      if (data.message?.success) {
-        chronicFailures.value = data.message.data;
-      }
-    } finally {
-      loading.value = false;
-    }
-  }
-
-  // ─── Internal: SLA Countdown Timer ────────────────────────────────
-  function _initSLACountdowns(): void {
-    if (countdownInterval) clearInterval(countdownInterval);
-
-    _recalcCountdowns();
-    countdownInterval = setInterval(_recalcCountdowns, 1000);
-  }
-
-  function _recalcCountdowns(): void {
-    const openIRs = incidents.value.filter(
-      (ir) => !["Closed", "Cancelled", "Resolved"].includes(ir.status)
+  // ─── Actions ─────────────────────────────────────────
+  async function reportIncident(payload: NewIncidentPayload): Promise<string> {
+    return await callApi(
+      "assetcore.api.imm12.report_incident", "POST", payload
     );
-    for (const ir of openIRs) {
-      slaCountdowns.value[ir.name] = getSLASecondsRemaining(ir);
-    }
+  }
+  async function acknowledgeIncident(name: string, assignedTo: string) { ... }
+  async function resolveIncident(name: string, notes: string) { ... }
+  async function closeIncident(name: string) { ... }
+
+  // CAPA — calls IMM-00 endpoints (LIVE)
+  async function createCAPA(payload: CreateCAPAPayload): Promise<string> {
+    return await callApi(
+      "assetcore.api.imm00.create_capa", "POST", payload
+    );
+  }
+  async function closeCAPA(payload: CloseCAPAPayload): Promise<void> {
+    await callApi("assetcore.api.imm00.close_capa", "POST", payload);
   }
 
-  function stopCountdowns(): void {
-    if (countdownInterval) {
-      clearInterval(countdownInterval);
-      countdownInterval = null;
-    }
-  }
-
-  // ─── Utility ──────────────────────────────────────────────────────
-  function getCsrfToken(): string {
-    return (window as Record<string, unknown>).csrf_token as string || "";
+  // RCA
+  async function submitRCA(payload: SubmitRCAPayload): Promise<string> {
+    return await callApi(
+      "assetcore.api.imm12.submit_rca", "POST", payload
+    );
   }
 
   return {
-    // State
-    incidents,
-    activeIncident,
-    rcaList,
-    activeRCA,
-    dashboard,
-    chronicFailures,
-    loading,
-    error,
-    slaCountdowns,
-
-    // Computed
-    openIncidents,
-    p1Incidents,
-    breachedIncidents,
-    atRiskIncidents,
-    hasCriticalAlerts,
-
-    // Helpers
-    getSLASecondsRemaining,
-    getSLAColor,
-    formatCountdown,
-
-    // Actions
-    fetchIncidents,
-    fetchIncident,
-    createIncident,
-    acknowledgeIncident,
-    resolveIncident,
-    fetchSLADashboard,
-    fetchChronicFailures,
-    stopCountdowns,
+    incidents, activeIncident, capaList, activeCAPA,
+    rcaList, activeRCA, chronicFailures, dashboard,
+    loading, error,
+    openIncidents, criticalIncidents, overdueCAPAs,
+    reportIncident, acknowledgeIncident, resolveIncident,
+    closeIncident, createCAPA, closeCAPA, submitRCA,
   };
 });
 ```
 
 ---
 
-## 5. Client Logic
+## 5. Design System
 
-### 5.1 SLA Countdown Timer Component
+Áp dụng đầy đủ design tokens IMM-00 (xem `IMM-00_UI_UX_Guide.md` §2). Bổ sung tokens IMM-12:
 
-```vue
-<!-- src/components/imm12/SLACountdownTimer.vue -->
-<template>
-  <div
-    class="sla-countdown"
-    :class="[`sla-countdown--${colorClass}`, { 'sla-countdown--pulsing': isPulsing }]"
-  >
-    <div class="sla-countdown__label">
-      {{ timerLabel }}
-    </div>
-    <div class="sla-countdown__time">
-      {{ displayTime }}
-    </div>
-    <div class="sla-countdown__bar">
-      <div
-        class="sla-countdown__bar-fill"
-        :style="{ width: `${progressPercent}%` }"
-      />
-    </div>
-    <div class="sla-countdown__deadline">
-      Hạn: {{ deadlineFormatted }}
-    </div>
-  </div>
-</template>
+### 5.1 Severity color tokens
 
-<script setup lang="ts">
-import { computed } from "vue";
-import { useImm12Store } from "@/stores/imm12";
-import type { IncidentReport } from "@/types/imm12";
+| Severity | Background | Border / Text | Icon |
+|---|---|---|---|
+| Minor | `#fefce8` (yellow-50) | `#ca8a04` (yellow-600) | ⓘ |
+| Major | `#fff7ed` (orange-50) | `#ea580c` (orange-600) | ⚠️ |
+| Critical | `#fef2f2` (red-50) | `#dc2626` (red-600) | 🔴 |
 
-const props = defineProps<{
-  incident: IncidentReport;
-}>();
+### 5.2 Status badge tokens
 
-const store = useImm12Store();
+| Status | Color | Icon |
+|---|---|---|
+| Open | gray | ◯ |
+| Acknowledged | blue | ◐ |
+| In Progress | orange | ◑ |
+| Resolved | green | ◕ |
+| Closed | dark gray | ● |
+| Cancelled | red strikethrough | ✕ |
+| RCA Required | purple | 🔍 |
 
-const secondsRemaining = computed(
-  () => store.slaCountdowns[props.incident.name] ?? 0
-);
+### 5.3 CAPA status
 
-const colorClass = computed(() => store.getSLAColor(props.incident));
-
-const isPulsing = computed(
-  () =>
-    props.incident.sla_status === "Breached" ||
-    (props.incident.priority === "P1 Critical" &&
-      props.incident.sla_status === "At Risk")
-);
-
-const displayTime = computed(() => store.formatCountdown(secondsRemaining.value));
-
-const timerLabel = computed(() => {
-  if (props.incident.status === "New") return "SLA RESPONSE";
-  return "SLA RESOLUTION";
-});
-
-const SLA_LIMITS: Record<string, number> = {
-  "P1 Critical": 4 * 3600,
-  "P2 High": 8 * 3600,
-  "P3 Medium": 24 * 3600,
-  "P4 Low": 72 * 3600,
-};
-
-const totalSLASeconds = computed(
-  () => SLA_LIMITS[props.incident.priority] || 24 * 3600
-);
-
-const progressPercent = computed(() => {
-  const elapsed = totalSLASeconds.value - secondsRemaining.value;
-  return Math.min(100, Math.round((elapsed / totalSLASeconds.value) * 100));
-});
-
-const deadlineFormatted = computed(() => {
-  const createdAt = new Date(props.incident.created_at);
-  const deadline = new Date(
-    createdAt.getTime() + totalSLASeconds.value * 1000
-  );
-  return deadline.toLocaleString("vi-VN", {
-    hour: "2-digit",
-    minute: "2-digit",
-    day: "2-digit",
-    month: "2-digit",
-  });
-});
-</script>
-
-<style scoped>
-.sla-countdown {
-  padding: 12px 16px;
-  border-radius: 8px;
-  border: 2px solid currentColor;
-}
-
-.sla-countdown--green  { color: #16a34a; background: #f0fdf4; }
-.sla-countdown--yellow { color: #ca8a04; background: #fefce8; }
-.sla-countdown--orange { color: #ea580c; background: #fff7ed; }
-.sla-countdown--red    { color: #dc2626; background: #fef2f2; }
-
-.sla-countdown--pulsing {
-  animation: pulse-border 1s ease-in-out infinite;
-}
-
-@keyframes pulse-border {
-  0%, 100% { border-color: currentColor; }
-  50%       { border-color: transparent; }
-}
-
-.sla-countdown__time {
-  font-size: 1.5rem;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-}
-
-.sla-countdown__bar {
-  height: 6px;
-  background: #e5e7eb;
-  border-radius: 9999px;
-  margin: 8px 0;
-  overflow: hidden;
-}
-
-.sla-countdown__bar-fill {
-  height: 100%;
-  background: currentColor;
-  border-radius: 9999px;
-  transition: width 1s linear;
-}
-</style>
-```
+| Status | Color |
+|---|---|
+| Open | gray |
+| In Progress | blue |
+| Pending Verification | orange |
+| Closed | green |
+| Overdue | red (pulsing) |
 
 ---
 
-### 5.2 Escalation Banner Component
+## 6. Role-based UI
 
-```vue
-<!-- src/components/imm12/EscalationBanner.vue -->
-<template>
-  <Transition name="slide-down">
-    <div
-      v-if="show"
-      class="escalation-banner"
-      :class="`escalation-banner--${severity}`"
-      role="alert"
-      aria-live="assertive"
-    >
-      <div class="escalation-banner__icon">
-        <span v-if="severity === 'critical'">🚨</span>
-        <span v-else-if="severity === 'high'">⚠️</span>
-        <span v-else>ℹ️</span>
-      </div>
-      <div class="escalation-banner__content">
-        <strong>{{ title }}</strong>
-        <p>{{ message }}</p>
-        <div v-if="linkedIR" class="escalation-banner__link">
-          <router-link :to="`/imm-12/incidents/${linkedIR}`">
-            Xem sự cố {{ linkedIR }} →
-          </router-link>
-        </div>
-      </div>
-      <button
-        class="escalation-banner__dismiss"
-        @click="$emit('dismiss')"
-        aria-label="Đóng thông báo"
-      >
-        ✕
-      </button>
-    </div>
-  </Transition>
-</template>
+| Role | Visible Actions |
+|---|---|
+| Reporting User | Create Incident · View own dept incidents |
+| Workshop Lead | Acknowledge · Assign KTV · Resolve · Create RCA · Submit RCA |
+| QA Officer | Submit/Close CAPA · View Audit Trail · View Dashboard · Verify chain |
+| Department Head | View incidents · View Dashboard · Receive escalation alerts |
+| Ops Manager | Read-only all · Export reports · View Dashboard |
+| System Admin | All actions + manual scheduler trigger |
 
-<script setup lang="ts">
-defineProps<{
-  show: boolean;
-  severity: "critical" | "high" | "medium";
-  title: string;
-  message: string;
-  linkedIR?: string;
-}>();
-
-defineEmits<{
-  (e: "dismiss"): void;
-}>();
-</script>
-
-<style scoped>
-.escalation-banner {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 16px 20px;
-  border-radius: 8px;
-  border-left: 4px solid;
-  margin-bottom: 16px;
-}
-
-.escalation-banner--critical {
-  background: #fef2f2;
-  border-color: #dc2626;
-  color: #991b1b;
-}
-
-.escalation-banner--high {
-  background: #fff7ed;
-  border-color: #ea580c;
-  color: #9a3412;
-}
-
-.escalation-banner--medium {
-  background: #fefce8;
-  border-color: #ca8a04;
-  color: #854d0e;
-}
-
-.escalation-banner__dismiss {
-  margin-left: auto;
-  background: none;
-  border: none;
-  cursor: pointer;
-  font-size: 1rem;
-  color: currentColor;
-  opacity: 0.6;
-}
-
-.slide-down-enter-active,
-.slide-down-leave-active {
-  transition: all 0.3s ease;
-}
-.slide-down-enter-from,
-.slide-down-leave-to {
-  transform: translateY(-20px);
-  opacity: 0;
-}
-</style>
-```
+UI implementation note: dùng `v-if="hasRole('IMM QA Officer')"` (Pinia user store) để show/hide action buttons.
 
 ---
 
-### 5.3 Priority Color Coding System
+## 7. States & Feedback
 
-```typescript
-// src/utils/imm12.ts
-
-export const PRIORITY_CONFIG = {
-  "P1 Critical": {
-    color: "red",
-    bgClass: "bg-red-50",
-    borderClass: "border-red-500",
-    textClass: "text-red-700",
-    badgeClass: "badge-red",
-    label: "P1 — Khẩn cấp",
-    icon: "🔴",
-  },
-  "P2 High": {
-    color: "orange",
-    bgClass: "bg-orange-50",
-    borderClass: "border-orange-500",
-    textClass: "text-orange-700",
-    badgeClass: "badge-orange",
-    label: "P2 — Cao",
-    icon: "🟠",
-  },
-  "P3 Medium": {
-    color: "yellow",
-    bgClass: "bg-yellow-50",
-    borderClass: "border-yellow-500",
-    textClass: "text-yellow-700",
-    badgeClass: "badge-yellow",
-    label: "P3 — Trung bình",
-    icon: "🟡",
-  },
-  "P4 Low": {
-    color: "green",
-    bgClass: "bg-green-50",
-    borderClass: "border-green-500",
-    textClass: "text-green-700",
-    badgeClass: "badge-green",
-    label: "P4 — Thấp",
-    icon: "🟢",
-  },
-} as const;
-
-export const SLA_STATUS_CONFIG = {
-  "On Track": { class: "status-green", label: "Đúng hạn" },
-  "At Risk":  { class: "status-orange", label: "Nguy cơ vi phạm" },
-  "Breached": { class: "status-red",    label: "VI PHẠM SLA" },
-} as const;
-```
+| State | Visualization |
+|---|---|
+| Loading | Skeleton placeholder (full table skeleton, không spinner) |
+| Empty | Illustration + CTA "Báo cáo sự cố đầu tiên" |
+| Error (network) | Toast đỏ + retry button |
+| Error (validation) | Inline field error + scroll to first error |
+| Success (create) | Toast xanh + redirect đến detail view |
+| Success (close CAPA) | Modal confirmation "CAPA đã đóng — audit logged" |
+| Critical alert | Banner đỏ pulsing trên top app shell |
 
 ---
 
-### 5.4 Real-time Escalation Modal (P1 Breach)
+## 8. Tech Stack FE
 
-```typescript
-// src/composables/useEscalationAlert.ts
-import { ref, onMounted, onUnmounted } from "vue";
-import { useImm12Store } from "@/stores/imm12";
+(reuse từ IMM-00 §10)
 
-export function useEscalationAlert() {
-  const store = useImm12Store();
-  const showModal = ref(false);
-  const alertedIRs = ref<Set<string>>(new Set());
-  let pollInterval: ReturnType<typeof setInterval> | null = null;
+- Vue 3 Composition API + TypeScript strict
+- Pinia (store)
+- Vue Router 4
+- Tailwind CSS + AssetCore design tokens
+- Axios (qua wrapper `utils/api.ts`)
+- Vitest (unit) · Playwright (E2E)
 
-  function checkForNewBreaches(): void {
-    const breached = store.breachedIncidents;
-    for (const ir of breached) {
-      if (!alertedIRs.value.has(ir.name)) {
-        alertedIRs.value.add(ir.name);
-        if (ir.priority === "P1 Critical") {
-          triggerP1Modal(ir);
-        }
-      }
-    }
-  }
+---
 
-  function triggerP1Modal(ir: typeof store.breachedIncidents[0]): void {
-    // Show blocking modal for P1 breach — cannot dismiss without action
-    showModal.value = true;
-    // Play alert sound
-    const audio = new Audio("/assets/assetcore/sounds/alert-critical.mp3");
-    audio.play().catch(() => {});
-  }
+## 9. Accessibility
 
-  onMounted(() => {
-    pollInterval = setInterval(checkForNewBreaches, 30_000); // every 30s
-  });
+- Color contrast WCAG AA (severity badges có icon đi kèm — không chỉ dùng màu)
+- Keyboard navigation cho mọi action
+- Screen reader labels: `aria-label="Báo cáo sự cố mới"`
+- Focus trap cho modals (CAPA Close, Cancel Confirm)
 
-  onUnmounted(() => {
-    if (pollInterval) clearInterval(pollInterval);
-  });
+---
 
-  return { showModal };
-}
-```
+## 10. Liên quan tài liệu khác
+
+- `IMM-00_UI_UX_Guide.md` — design system, app shell, navigation
+- `IMM-12_Functional_Specs.md` — User Stories, Validation Rules
+- `IMM-12_API_Interface.md` — endpoints để FE call
+- `IMM-12_UAT_Script.md` — UAT test cases (FE flow)
+
+---
+
+## 11. Trạng thái implementation
+
+| Hạng mục | Trạng thái |
+|---|---|
+| Vue components (8 views + 8 components) | ⚠️ Mockup only |
+| Pinia store `useImm12Store` | ⚠️ Pending |
+| Route + guard | ⚠️ Pending |
+| Design tokens (severity, status) | ⚠️ Pending — chờ approve UX team |
+| E2E Playwright tests | ⚠️ Pending |

@@ -1,0 +1,26 @@
+{
+ "actions": [],
+ "creation": "2026-04-18 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "asset",
+  "asset_name",
+  "coverage_note"
+ ],
+ "fields": [
+  {"fieldname": "asset", "fieldtype": "Link", "label": "Thiết bị", "options": "AC Asset", "reqd": 1, "in_list_view": 1, "search_index": 1},
+  {"fieldname": "asset_name", "fieldtype": "Data", "label": "Tên thiết bị", "fetch_from": "asset.asset_name", "read_only": 1, "in_list_view": 1},
+  {"fieldname": "coverage_note", "fieldtype": "Small Text", "label": "Ghi chú phạm vi"}
+ ],
+ "istable": 1,
+ "links": [],
+ "modified": "2026-04-18 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "AssetCore",
+ "name": "Service Contract Asset",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC"
+}

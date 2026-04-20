@@ -16,7 +16,11 @@ import {
   submitBaselineChecklist as apiSubmitChecklist,
   clearClinicalHold as apiClearHold,
   approveClinicalRelease as apiApproveRelease,
+  getDashboardStats as apiGetDashboardStats,
+  closeNonConformance as apiCloseNC,
+  getPoDetails as apiGetPoDetails,
 } from '@/api/imm04'
+import { frappeGet } from '@/api/helpers'
 import { useAuthStore } from './auth'
 import type {
   CommissioningDoc,
@@ -24,6 +28,11 @@ import type {
   CommissioningFilters,
   Pagination,
   WorkflowTransition,
+  DashboardStats,
+  NonConformance,
+  LifecycleEvent,
+  PoDetails,
+  DeviceModelDetails,
 } from '@/types/imm04'
 
 /** Kiểm tra Serial Number có trùng không — pure API call, không cần store state */
@@ -32,7 +41,8 @@ export async function checkSnUnique(
   excludeName = '',
 ): Promise<{ is_unique: boolean; existing_commissioning?: string }> {
   const res = await apiCheckSn(sn, excludeName)
-  return res.data ?? { is_unique: true }
+  const r = res as unknown as { is_unique?: boolean; existing_commissioning?: string } | null
+  return { is_unique: r?.is_unique ?? true, existing_commissioning: r?.existing_commissioning }
 }
 
 export const useCommissioningStore = defineStore('commissioning', () => {
@@ -133,11 +143,11 @@ export const useCommissioningStore = defineStore('commissioning', () => {
 
     try {
       const res = await listCommissioning(filters, page, pageSize)
-      if (res.success && res.data) {
-        list.value = res.data.items
-        pagination.value = res.data.pagination
+      if (res) {
+        list.value = res.items
+        pagination.value = res.pagination
       } else {
-        error.value = res.error ?? 'Không thể tải danh sách phiếu'
+        error.value = 'Không thể tải danh sách phiếu'
         list.value = []
       }
     } catch (e) {
@@ -156,10 +166,10 @@ export const useCommissioningStore = defineStore('commissioning', () => {
 
     try {
       const res = await getFormContext(name)
-      if (res.success && res.data) {
-        currentDoc.value = res.data
+      if (res) {
+        currentDoc.value = res as unknown as typeof currentDoc.value
       } else {
-        error.value = res.error ?? `Không tìm thấy phiếu ${name}`
+        error.value = `Không tìm thấy phiếu ${name}`
       }
     } catch (e) {
       error.value = e instanceof Error ? e.message : 'Lỗi không xác định'
@@ -175,12 +185,12 @@ export const useCommissioningStore = defineStore('commissioning', () => {
 
     try {
       const res = await apiTransition(name, action)
-      if (res.success && res.data) {
+      if (res) {
         // Reload chi tiết sau khi transition thành công
         await fetchDetail(name)
         return true
       } else {
-        error.value = res.error ?? `Không thể thực hiện hành động '${action}'`
+        error.value = `Không thể thực hiện hành động '${action}'`
         return false
       }
     } catch (e) {
@@ -198,12 +208,12 @@ export const useCommissioningStore = defineStore('commissioning', () => {
 
     try {
       const res = await apiSubmit(name)
-      if (res.success && res.data) {
+      if (res) {
         // Reload sau khi Submit
         await fetchDetail(name)
         return true
       } else {
-        error.value = res.error ?? 'Không thể Submit phiếu'
+        error.value = 'Không thể Submit phiếu'
         return false
       }
     } catch (e) {
@@ -221,11 +231,11 @@ export const useCommissioningStore = defineStore('commissioning', () => {
 
     try {
       const res = await apiSave(name, fields)
-      if (res.success) {
+      if (res !== undefined && res !== null) {
         await fetchDetail(name)
         return true
       } else {
-        error.value = res.error ?? 'Không thể lưu phiếu'
+        error.value = 'Không thể lưu phiếu'
         return false
       }
     } catch (e) {
@@ -243,10 +253,10 @@ export const useCommissioningStore = defineStore('commissioning', () => {
 
     try {
       const res = await apiCreate(data)
-      if (res.success && res.data) {
-        return res.data.name
+      if (res) {
+        return res.name
       } else {
-        error.value = res.error ?? 'Không thể tạo phiếu'
+        error.value = 'Không thể tạo phiếu'
         return null
       }
     } catch (e) {
@@ -288,11 +298,11 @@ export const useCommissioningStore = defineStore('commissioning', () => {
     error.value = null
     try {
       const res = await apiReportNC(name, ncData)
-      if (res.success) {
+      if (res !== undefined && res !== null) {
         _openNcCount.value += 1
         return true
       }
-      error.value = res.error ?? 'Không thể tạo NC'
+      error.value = 'Không thể tạo NC'
       return false
     } catch (e) {
       error.value = e instanceof Error ? e.message : 'Lỗi không xác định'
@@ -313,11 +323,11 @@ export const useCommissioningStore = defineStore('commissioning', () => {
     error.value = null
     try {
       const res = await apiAssignId(name, vendorSn, internalTag, mohCode)
-      if (res.success) {
+      if (res !== undefined && res !== null) {
         await fetchDetail(name)
         return true
       }
-      error.value = res.error ?? 'Không thể gán định danh'
+      error.value = 'Không thể gán định danh'
       return false
     } catch (e) {
       error.value = e instanceof Error ? e.message : 'Lỗi không xác định'
@@ -336,11 +346,11 @@ export const useCommissioningStore = defineStore('commissioning', () => {
     error.value = null
     try {
       const res = await apiSubmitChecklist(name, results)
-      if (res.success) {
+      if (res !== undefined && res !== null) {
         await fetchDetail(name)
-        return { ok: true, clinicalHoldRequired: res.data?.clinical_hold_required }
+        return { ok: true, clinicalHoldRequired: res?.clinical_hold_required }
       }
-      error.value = res.error ?? 'Không thể nộp kết quả'
+      error.value = 'Không thể nộp kết quả'
       return { ok: false }
     } catch (e) {
       error.value = e instanceof Error ? e.message : 'Lỗi không xác định'
@@ -356,11 +366,11 @@ export const useCommissioningStore = defineStore('commissioning', () => {
     error.value = null
     try {
       const res = await apiClearHold(name, licenseNo)
-      if (res.success) {
+      if (res !== undefined && res !== null) {
         await fetchDetail(name)
         return true
       }
-      error.value = res.error ?? 'Không thể gỡ Clinical Hold'
+      error.value = 'Không thể gỡ Clinical Hold'
       return false
     } catch (e) {
       error.value = e instanceof Error ? e.message : 'Lỗi không xác định'
@@ -380,11 +390,11 @@ export const useCommissioningStore = defineStore('commissioning', () => {
     error.value = null
     try {
       const res = await apiApproveRelease(name, boardApprover, remarks)
-      if (res.success) {
+      if (res !== undefined && res !== null) {
         await fetchDetail(name)
         return true
       }
-      error.value = res.error ?? 'Không thể phê duyệt Release'
+      error.value = 'Không thể phê duyệt Release'
       return false
     } catch (e) {
       error.value = e instanceof Error ? e.message : 'Lỗi không xác định'
@@ -397,6 +407,89 @@ export const useCommissioningStore = defineStore('commissioning', () => {
   /** Cập nhật open NC count (gọi sau khi load NC list) */
   function setOpenNcCount(count: number): void {
     _openNcCount.value = count
+  }
+
+  // ─── Dashboard ──────────────────────────────────────────────────────────────
+
+  const dashboardStats = ref<DashboardStats | null>(null)
+
+  async function fetchDashboardStats(): Promise<void> {
+    loading.value = true
+    error.value = null
+    try {
+      const res = await apiGetDashboardStats()
+      if (res) dashboardStats.value = res as unknown as typeof dashboardStats.value
+      else error.value = 'Không tải được dashboard'
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : 'Lỗi kết nối'
+    } finally {
+      loading.value = false
+    }
+  }
+
+  // ─── Non Conformance list ────────────────────────────────────────────────────
+
+  const ncList = ref<NonConformance[]>([])
+
+  async function fetchNonConformances(commissioningId: string): Promise<void> {
+    loading.value = true
+    error.value = null
+    try {
+      const res = await frappeGet<NonConformance[]>(
+        '/api/method/assetcore.api.imm04.list_non_conformances',
+        { commissioning: commissioningId },
+      )
+      ncList.value = (res as unknown as NonConformance[]) ?? []
+      _openNcCount.value = ncList.value.filter(n => n.resolution_status === 'Open').length
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : 'Lỗi kết nối'
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function doCloseNonConformance(ncName: string, rootCause: string, correctiveAction: string): Promise<boolean> {
+    try {
+      await apiCloseNC(ncName, rootCause, correctiveAction)
+      return true
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : 'Lỗi kết nối'
+      return false
+    }
+  }
+
+  // ─── Timeline ───────────────────────────────────────────────────────────────
+
+  const timeline = ref<LifecycleEvent[]>([])
+
+  async function fetchTimeline(commissioningId: string): Promise<void> {
+    loading.value = true
+    error.value = null
+    try {
+      const res = await frappeGet<{ events: LifecycleEvent[] }>(
+        'assetcore.api.imm04.get_lifecycle_timeline',
+        { name: commissioningId },
+      )
+      timeline.value = (res as any)?.events ?? []
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : 'Lỗi kết nối'
+    } finally {
+      loading.value = false
+    }
+  }
+
+  // ─── PO Details ─────────────────────────────────────────────────────────────
+
+  function fetchPoDetails(poName: string): Promise<PoDetails | null> {
+    return apiGetPoDetails(poName)
+      .then(res => (res ?? null))
+      .catch(() => null)
+  }
+
+  function fetchDeviceModelDetails(modelName: string): Promise<DeviceModelDetails | null> {
+    // v3: helpers đã unwrap envelope. Gọi thẳng frappeGet.
+    return frappeGet<DeviceModelDetails>('/api/method/assetcore.api.imm00.get_device_model', { name: modelName })
+      .catch(() => null) as Promise<DeviceModelDetails | null>
   }
 
   return {
@@ -437,5 +530,9 @@ export const useCommissioningStore = defineStore('commissioning', () => {
     clearClinicalHold,
     approveClinicalRelease,
     setOpenNcCount,
+    dashboardStats, fetchDashboardStats,
+    ncList, fetchNonConformances, doCloseNonConformance,
+    timeline, fetchTimeline,
+    fetchPoDetails, fetchDeviceModelDetails,
   }
 })

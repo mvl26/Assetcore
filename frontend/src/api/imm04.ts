@@ -4,7 +4,6 @@
 import api from './axios'
 import { frappeGet, frappePost } from './helpers'
 import type {
-  ApiResponse,
   CommissioningDoc,
   CommissioningListResponse,
   CommissioningFilters,
@@ -28,8 +27,8 @@ const BASE = '/api/method/assetcore.api.imm04'
 /**
  * Lấy toàn bộ dữ liệu form + workflow state + allowed transitions.
  */
-export async function getFormContext(name: string): Promise<ApiResponse<CommissioningDoc>> {
-  return frappeGet<ApiResponse<CommissioningDoc>>(`${BASE}.get_form_context`, { name })
+export async function getFormContext(name: string): Promise<CommissioningDoc> {
+  return frappeGet<CommissioningDoc>(`${BASE}.get_form_context`, { name })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -43,8 +42,8 @@ export async function listCommissioning(
   filters: CommissioningFilters = {},
   page: number = 1,
   pageSize: number = 20,
-): Promise<ApiResponse<CommissioningListResponse>> {
-  return frappeGet<ApiResponse<CommissioningListResponse>>(`${BASE}.list_commissioning`, {
+): Promise<CommissioningListResponse> {
+  return frappeGet<CommissioningListResponse>(`${BASE}.list_commissioning`, {
     filters: JSON.stringify(filters),
     page,
     page_size: pageSize,
@@ -61,7 +60,7 @@ export async function listCommissioning(
 export async function transitionState(
   name: string,
   action: string,
-): Promise<ApiResponse<{ name: string; action_applied: string; new_state: string; docstatus: number; message: string }>> {
+): Promise<{ name: string; action_applied: string; new_state: string; docstatus: number; message: string }> {
   return frappePost(`${BASE}.transition_state`, { name, action })
 }
 
@@ -72,8 +71,8 @@ export async function transitionState(
 /**
  * Lấy dữ liệu QR để frontend render label.
  */
-export async function generateQrLabel(name: string): Promise<ApiResponse<QrLabelData>> {
-  return frappeGet<ApiResponse<QrLabelData>>(`${BASE}.generate_qr_label`, { name })
+export async function generateQrLabel(name: string): Promise<QrLabelData> {
+  return frappeGet<QrLabelData>(`${BASE}.generate_qr_label`, { name })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -85,7 +84,7 @@ export async function generateQrLabel(name: string): Promise<ApiResponse<QrLabel
  */
 export async function submitCommissioning(
   name: string,
-): Promise<ApiResponse<{ name: string; docstatus: number; final_asset: string; message: string }>> {
+): Promise<{ name: string; docstatus: number; final_asset: string; message: string }> {
   return frappePost(`${BASE}.submit_commissioning`, { name })
 }
 
@@ -96,8 +95,8 @@ export async function submitCommissioning(
 /**
  * Tìm thiết bị theo barcode hoặc QR.
  */
-export async function getBarcodeLookup(barcode: string): Promise<ApiResponse<BarcodeLookupResult>> {
-  return frappeGet<ApiResponse<BarcodeLookupResult>>(`${BASE}.get_barcode_lookup`, { barcode })
+export async function getBarcodeLookup(barcode: string): Promise<BarcodeLookupResult> {
+  return frappeGet<BarcodeLookupResult>(`${BASE}.get_barcode_lookup`, { barcode })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -107,8 +106,8 @@ export async function getBarcodeLookup(barcode: string): Promise<ApiResponse<Bar
 /**
  * KPIs và danh sách gần nhất cho Dashboard.
  */
-export async function getDashboardStats(): Promise<ApiResponse<DashboardStats>> {
-  return frappeGet<ApiResponse<DashboardStats>>(`${BASE}.get_dashboard_stats`)
+export async function getDashboardStats(): Promise<DashboardStats> {
+  return frappeGet<DashboardStats>(`${BASE}.get_dashboard_stats`)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -121,7 +120,7 @@ export async function getDashboardStats(): Promise<ApiResponse<DashboardStats>> 
 export async function saveCommissioning(
   name: string,
   fields: Record<string, unknown>,
-): Promise<ApiResponse<SaveResponse>> {
+): Promise<SaveResponse> {
   return frappePost(`${BASE}.save_commissioning`, { name, fields: JSON.stringify(fields) })
 }
 
@@ -134,7 +133,7 @@ export async function saveCommissioning(
  */
 export async function createCommissioning(
   data: Record<string, unknown>,
-): Promise<ApiResponse<SaveResponse>> {
+): Promise<SaveResponse> {
   return frappePost(`${BASE}.create_commissioning`, { data: JSON.stringify(data) })
 }
 
@@ -145,8 +144,8 @@ export async function createCommissioning(
 /**
  * Lấy thông tin PO để auto-fill vendor/model.
  */
-export async function getPoDetails(poName: string): Promise<ApiResponse<PoDetails>> {
-  return frappeGet<ApiResponse<PoDetails>>(`${BASE}.get_po_details`, { po_name: poName })
+export async function getPoDetails(poName: string): Promise<PoDetails> {
+  return frappeGet<PoDetails>(`${BASE}.get_po_details`, { po_name: poName })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -203,7 +202,7 @@ export async function logout(): Promise<void> {
 export async function checkSnUnique(
   vendorSn: string,
   excludeName: string = '',
-): Promise<ApiResponse<{ is_unique: boolean; existing_commissioning?: string; item?: string }>> {
+): Promise<{ is_unique: boolean; existing_commissioning?: string; item?: string }> {
   return frappeGet(`${BASE}.check_sn_unique`, { vendor_sn: vendorSn, exclude_name: excludeName })
 }
 
@@ -213,7 +212,7 @@ export async function checkSnUnique(
 export async function reportNonConformance(
   commissioningName: string,
   ncData: { nc_type: string; severity: string; description: string },
-): Promise<ApiResponse<{ name: string; nc_type: string; severity: string }>> {
+): Promise<{ name: string; nc_type: string; severity: string }> {
   return frappePost(`${BASE}.report_nonconformance`, {
     commissioning_name: commissioningName,
     nc_data: JSON.stringify(ncData),
@@ -228,7 +227,7 @@ export async function assignIdentification(
   vendorSerialNo: string,
   internalTagQr: string = '',
   customMohCode: string = '',
-): Promise<ApiResponse<{ name: string; vendor_serial_no: string; internal_tag_qr: string }>> {
+): Promise<{ name: string; vendor_serial_no: string; internal_tag_qr: string }> {
   return frappePost(`${BASE}.assign_identification`, {
     name,
     vendor_serial_no: vendorSerialNo,
@@ -243,7 +242,7 @@ export async function assignIdentification(
 export async function submitBaselineChecklist(
   name: string,
   results: Array<{ parameter: string; result: string; measured_val?: number; fail_note?: string }>,
-): Promise<ApiResponse<{ name: string; overall_result: string; clinical_hold_required: boolean }>> {
+): Promise<{ name: string; overall_result: string; clinical_hold_required: boolean }> {
   return frappePost(`${BASE}.submit_baseline_checklist`, {
     name,
     results: JSON.stringify(results),
@@ -256,7 +255,7 @@ export async function submitBaselineChecklist(
 export async function clearClinicalHold(
   name: string,
   licenseNo: string = '',
-): Promise<ApiResponse<{ name: string; license_no: string }>> {
+): Promise<{ name: string; license_no: string }> {
   return frappePost(`${BASE}.clear_clinical_hold`, { name, license_no: licenseNo })
 }
 
@@ -267,7 +266,7 @@ export async function approveClinicalRelease(
   commissioning: string,
   boardApprover: string,
   approvalRemarks: string = '',
-): Promise<ApiResponse<{ commissioning: string; new_status: string; asset_ref: string; commissioning_date: string }>> {
+): Promise<{ commissioning: string; new_status: string; asset_ref: string; commissioning_date: string }> {
   return frappePost(`${BASE}.approve_clinical_release`, {
     commissioning,
     board_approver: boardApprover,
@@ -283,7 +282,7 @@ export async function uploadCommissioningDocument(
   docIndex: number,
   fileUrl: string,
   options: { expiry_date?: string; doc_number?: string } = {},
-): Promise<ApiResponse<{ commissioning: string; doc_index: number; all_mandatory_received: boolean }>> {
+): Promise<{ commissioning: string; doc_index: number; all_mandatory_received: boolean }> {
   return frappePost(`${BASE}.upload_document`, {
     commissioning,
     doc_index: docIndex,
@@ -300,7 +299,7 @@ export async function closeNonConformance(
   ncName: string,
   rootCause: string,
   correctiveAction: string,
-): Promise<ApiResponse<{ name: string; status: string }>> {
+): Promise<{ name: string; status: string }> {
   return frappePost(`${BASE}.close_nonconformance`, {
     nc_name: ncName,
     root_cause: rootCause,
@@ -313,6 +312,6 @@ export async function closeNonConformance(
 // ─────────────────────────────────────────────────────────────────────────────
 export async function generateHandoverPdf(
   name: string,
-): Promise<ApiResponse<{ pdf_url: string; name: string }>> {
+): Promise<{ pdf_url: string; name: string }> {
   return frappeGet(`${BASE}.generate_handover_pdf`, { name })
 }

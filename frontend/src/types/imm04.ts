@@ -43,6 +43,7 @@ export interface WorkflowTransition {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type TestResult = 'Pass' | 'Fail' | 'N/A' | ''
+export type DocStatus = 0 | 1 | 2
 
 export interface BaselineTest {
   idx: number
@@ -65,7 +66,7 @@ export interface BaselineTest {
 export interface DocumentRecord {
   idx: number
   doc_type: string
-  status: 'Received' | 'Pending' | string
+  status: string
   received_date: string
   remarks: string
   is_mandatory?: 0 | 1
@@ -81,22 +82,30 @@ export interface DocumentRecord {
 export interface CommissioningDoc {
   name: string
   workflow_state: WorkflowState
-  docstatus: 0 | 1 | 2
+  docstatus: DocStatus
 
   // Procurement
   po_reference: string
-  master_item: string
-  vendor: string
+  master_item: string             // IMM Device Model
+  vendor: string                  // AC Supplier
+  asset_description: string
+  delivery_note_no: string
+  purchase_price: number | null
+  warranty_expiry_date: string
 
   // Scheduling
-  clinical_dept: string
+  clinical_dept: string           // AC Department
   expected_installation_date: string
 
   // Installation
   installation_date: string
   vendor_engineer_name: string
   reception_date: string
+  installation_location: string   // AC Location
+  received_by: string             // User — kho vận
+  dept_head_acceptance: string    // User — trưởng khoa
   is_radiation_device: 0 | 1
+  radiation_license_no: string
   doa_incident: 0 | 1
   facility_checklist_pass: 0 | 1
 
@@ -149,7 +158,7 @@ export interface CommissioningDoc {
 export interface CommissioningListItem {
   name: string
   workflow_state: WorkflowState
-  docstatus: 0 | 1 | 2
+  docstatus: DocStatus
   po_reference: string
   master_item: string
   vendor: string
@@ -161,6 +170,9 @@ export interface CommissioningListItem {
   final_asset: string
   modified: string
   asset_name?: string
+  master_item_name?: string
+  vendor_name?: string
+  clinical_dept_name?: string
   commissioning_date?: string
 }
 
@@ -229,7 +241,7 @@ export interface QrLabelData {
 export interface BarcodeLookupResult {
   commissioning_id: string
   workflow_state: WorkflowState
-  docstatus: 0 | 1 | 2
+  docstatus: DocStatus
   is_released: boolean
   device: {
     model: string
@@ -286,6 +298,19 @@ export interface LinkItem {
   value: string
   label: string
   description: string
+}
+
+export interface DeviceModelDetails {
+  name: string
+  model_name: string
+  manufacturer: string
+  medical_device_class: 'Class I' | 'Class II' | 'Class III' | ''
+  risk_classification: 'Low' | 'Medium' | 'High' | 'Critical' | ''
+  is_radiation_device: 0 | 1
+  is_pm_required: 0 | 1
+  pm_interval_days: number
+  is_calibration_required: 0 | 1
+  calibration_interval_days: number
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

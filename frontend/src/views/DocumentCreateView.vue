@@ -1,22 +1,26 @@
 <script setup lang="ts">
 import { ref, reactive } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { createDocument } from '@/api/imm05'
+import { useImm05Store } from '@/stores/imm05Store'
+import SmartSelect from '@/components/common/SmartSelect.vue'
 
 const router = useRouter()
 const route = useRoute()
+const store = useImm05Store()
 
 // Pre-fill asset_ref từ query param (?asset=...) nếu được navigate từ IMM-04
 const initialAsset = (route.query.asset as string) ?? ''
 // Pre-fill doc_type_detail từ query param (?doc_type_detail=...) nếu navigate từ "Upload phiên bản mới"
 const initialDocType = (route.query.doc_type_detail as string) ?? ''
+// Pre-fill version từ query (?version=N.M) khi flow Upload-new-version từ DocumentDetail
+const initialVersion = (route.query.version as string) || '1.0'
 
 const form = reactive({
   asset_ref: initialAsset,
   doc_category: 'Legal' as string,
   doc_type_detail: initialDocType,
   doc_number: '',
-  version: '1.0',
+  version: initialVersion,
   issued_date: '',
   expiry_date: '',
   issuing_authority: '',
@@ -156,19 +160,16 @@ async function handleSubmit() {
     }
 
     const payload = buildPayload(fileUrl)
-
-    const res = await createDocument(payload)
-    if (res.success) {
-      router.push({
-        path: '/documents',
-        query: form.asset_ref ? { asset: form.asset_ref } : {},
-      })
+    const res = await store.createDocument(payload)
+    saving.value = false
+    const r = res as unknown as { name?: string } | null
+    if (r?.name) {
+      router.push({ path: '/documents', query: form.asset_ref ? { asset: form.asset_ref } : {} })
     } else {
-      error.value = res.error ?? 'Tạo tài liệu thất bại'
+      error.value = store.error ?? 'Tạo tài liệu thất bại'
     }
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Lỗi kết nối'
-  } finally {
     saving.value = false
   }
 }
@@ -200,14 +201,12 @@ function goBack() {
             Mã thiết bị
             <span v-if="form.is_model_level !== 1" class="required">*</span>
           </label>
-          <input
-            id="field-asset-ref"
+          <SmartSelect
             v-model="form.asset_ref"
-            type="text"
-            placeholder="ACC-ASS-2026-xxxxx"
-            class="input"
+            doctype="AC Asset"
+            placeholder="Tìm thiết bị theo tên / mã / serial..."
           />
-          <small>Nhập mã asset chính xác (ví dụ: ACC-ASS-2026-00007)</small>
+          <small>Tìm thiết bị; tự gợi ý khi gõ tên hoặc serial</small>
         </div>
 
         <!-- is_model_level (Task 3b) -->

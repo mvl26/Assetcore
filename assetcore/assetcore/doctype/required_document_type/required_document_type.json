@@ -38,10 +38,10 @@
       "in_list_view": 1
     },
     {
-      "fieldname": "applies_to_item_group",
+      "fieldname": "applies_to_asset_category",
       "fieldtype": "Link",
-      "label": "Áp dụng cho nhóm Item",
-      "options": "Item Group"
+      "label": "Áp dụng cho loại thiết bị",
+      "options": "AC Asset Category"
     },
     {
       "fieldname": "applies_when_radiation",

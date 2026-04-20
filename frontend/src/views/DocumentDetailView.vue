@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, reactive } from 'vue'
 import { useRouter } from 'vue-router'
-import { getDocument, approveDocument, rejectDocument, updateDocument } from '@/api/imm05'
+import { useImm05Store } from '@/stores/imm05Store'
 import type { AssetDocumentDetail } from '@/api/imm05'
 import { stateLabel, formatDate } from '@/utils/docUtils'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
@@ -9,9 +9,10 @@ import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 const props = defineProps<{ name: string }>()
 
 const router = useRouter()
+const store = useImm05Store()
 
-const doc = ref<AssetDocumentDetail | null>(null)
-const loading = ref(true)
+const doc = computed(() => store.currentDocument)
+const loading = computed(() => store.loading)
 const error = ref<string | null>(null)
 const rejectReason = ref('')
 const showRejectInput = ref(false)
@@ -28,20 +29,9 @@ const showUploadNewVersion = ref(false)
 const canEdit = computed(() => ['Draft', 'Rejected'].includes(doc.value?.workflow_state ?? ''))
 
 async function load(): Promise<void> {
-  loading.value = true
   error.value = null
-  try {
-    const res = await getDocument(props.name)
-    if (res.success) {
-      doc.value = res.data
-    } else {
-      error.value = res.error ?? 'Không tải được tài liệu'
-    }
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : 'Lỗi kết nối'
-  } finally {
-    loading.value = false
-  }
+  await store.fetchDocument(props.name)
+  if (store.error) error.value = store.error
 }
 
 async function loadDocument(): Promise<void> {
@@ -77,29 +67,22 @@ async function saveEdits(): Promise<void> {
   if (!doc.value) return
   actionLoading.value = true
   saveError.value = null
-  try {
-    const payload: Partial<AssetDocumentDetail> = {
-      doc_number: editForm.doc_number,
-      version: editForm.version,
-      issued_date: editForm.issued_date,
-      expiry_date: editForm.expiry_date || undefined,
-      issuing_authority: editForm.issuing_authority || undefined,
-      visibility: editForm.visibility,
-      change_summary: editForm.change_summary || undefined,
-      notes: editForm.notes || undefined,
-    }
-    const res = await updateDocument(doc.value.name, payload)
-    if (res.success) {
-      // Merge updates back into doc
-      Object.assign(doc.value, payload)
-      isEditing.value = false
-    } else {
-      saveError.value = res.error ?? 'Lưu thất bại'
-    }
-  } catch (e) {
-    saveError.value = e instanceof Error ? e.message : 'Lỗi kết nối'
-  } finally {
-    actionLoading.value = false
+  const payload: Partial<AssetDocumentDetail> = {
+    doc_number: editForm.doc_number,
+    version: editForm.version,
+    issued_date: editForm.issued_date,
+    expiry_date: editForm.expiry_date || undefined,
+    issuing_authority: editForm.issuing_authority || undefined,
+    visibility: editForm.visibility,
+    change_summary: editForm.change_summary || undefined,
+    notes: editForm.notes || undefined,
+  }
+  const res = await store.updateDocument(doc.value.name, payload)
+  actionLoading.value = false
+  if (res?.success) {
+    isEditing.value = false
+  } else {
+    saveError.value = store.error ?? 'Lưu thất bại'
   }
 }
 
@@ -136,14 +119,24 @@ async function submitForReview(): Promise<void> {
   }
 }
 
+function bumpVersion(current: string | undefined): string {
+  // "1.0" → "1.1", "2" → "2.1", "1.9" → "1.10". Fallback "1.0" → "1.1".
+  if (!current) return '1.1'
+  const m = /^(\d+)\.(\d+)$/.exec(current.trim())
+  if (m) return `${m[1]}.${Number.parseInt(m[2], 10) + 1}`
+  const n = Number.parseInt(current, 10)
+  return Number.isFinite(n) ? `${n}.1` : '1.1'
+}
+
 function navigateToNewVersion(): void {
   if (!doc.value) return
   showUploadNewVersion.value = false
   router.push({
-    path: '/documents/create',
+    path: '/documents/new',
     query: {
       asset: doc.value.asset_ref,
       doc_type_detail: doc.value.doc_type_detail,
+      version: bumpVersion(doc.value.version),
     },
   })
 }
@@ -186,28 +179,20 @@ async function handleApprove(): Promise<void> {
   if (!doc.value) return
   if (!confirm(`Xác nhận DUYỆT tài liệu ${doc.value.name}?`)) return
   actionLoading.value = true
-  try {
-    const res = await approveDocument(doc.value.name)
-    if (res.success) {
-      doc.value.workflow_state = res.data.new_state
-    }
-  } finally {
-    actionLoading.value = false
-  }
+  await store.approveDocument(doc.value.name)
+  actionLoading.value = false
+  await loadDocument()
 }
 
 async function handleReject(): Promise<void> {
   if (!doc.value || !rejectReason.value.trim()) return
   actionLoading.value = true
-  try {
-    const res = await rejectDocument(doc.value.name, rejectReason.value)
-    if (res.success) {
-      doc.value.workflow_state = res.data.new_state
-      showRejectInput.value = false
-      rejectReason.value = ''
-    }
-  } finally {
-    actionLoading.value = false
+  const ok = await store.rejectDocument(doc.value.name, rejectReason.value)
+  actionLoading.value = false
+  if (ok) {
+    showRejectInput.value = false
+    rejectReason.value = ''
+    await loadDocument()
   }
 }
 </script>

@@ -1,526 +1,352 @@
-# IMM-08 — UI/UX Design
-## Layout, Interactions & Mobile Experience
+# IMM-08 — UI/UX Guide
 
-**Module:** IMM-08  
-**Version:** 1.0  
-**Ngày:** 2026-04-17  
-**Trạng thái:** Draft
-
----
-
-## 1. Vị trí trong Navigation Sidebar
-
-```
-┌─────────────────────────┐
-│  AC  AssetCore          │
-├─────────────────────────┤
-│ ■ Tổng quan             │
-│   └─ Dashboard          │
-├─────────────────────────┤
-│ ■ IMM-04 Lắp đặt        │
-│   ├─ Danh sách phiếu    │
-│   └─ Tạo phiếu mới      │
-├─────────────────────────┤
-│ ■ IMM-05 Hồ sơ          │
-│   ├─ Quản lý Hồ sơ      │
-│   └─ Tải lên tài liệu   │
-├─────────────────────────┤
-│ ■ IMM-08 Bảo trì PM  ◄  │  ← NEW
-│   ├─ Lịch bảo trì       │
-│   ├─ Phiếu bảo trì      │
-│   └─ Dashboard PM        │
-└─────────────────────────┘
-```
-
-**Routes:**
-- `/pm` → PM Dashboard (redirect)
-- `/pm/calendar` → Lịch bảo trì tháng/tuần
-- `/pm/work-orders` → Danh sách PM WO
-- `/pm/work-orders/:id` → Chi tiết / Điền checklist
-- `/pm/dashboard` → KPI Dashboard
+| Thuộc tính | Giá trị |
+|---|---|
+| Module | IMM-08 — Preventive Maintenance |
+| Phiên bản | 2.0.0 |
+| Ngày cập nhật | 2026-04-18 |
+| Trạng thái | LIVE |
+| Tác giả | AssetCore Team |
 
 ---
 
-## 2. Màn hình 1: PM Dashboard (`/pm/dashboard`)
+## 0. Tổng quan
 
-**Target user:** Workshop Manager, PTP Khối 2  
-**Mục đích:** Overview nhanh tình trạng PM toàn bộ hệ thống
+IMM-08 ship **4 màn hình Vue 3** (đã code) bám theo design system AssetCore (Vue 3 + TypeScript + Tailwind + Frappe UI). Tất cả gọi API qua Pinia store `useImm08Store` (`frontend/src/stores/imm08.ts`).
+
+| Screen | Route | Component | Target user |
+|---|---|---|---|
+| PM Dashboard | `/pm/dashboard` | `PMDashboardView.vue` | Workshop Head, VP Block2 |
+| PM Calendar | `/pm/calendar` | `PMCalendarView.vue` | Workshop Head |
+| PM Work Order List | `/pm/work-orders` | `PMWorkOrderListView.vue` | Workshop Head, HTM Technician |
+| PM Work Order Detail | `/pm/work-orders/:id` | `PMWorkOrderDetailView.vue` | HTM Technician (mobile + desktop) |
+
+Sidebar group: **"IMM-08 Bảo trì PM"** với 3 entry (Calendar / List / Dashboard).
+
+---
+
+## 1. Navigation & Routing
+
+### 1.1 Router entries (`frontend/src/router/index.ts`)
+
+```ts
+{ path: '/pm', redirect: '/pm/dashboard' },
+{ path: '/pm/dashboard',     name: 'PMDashboard',      component: () => import('@/views/PMDashboardView.vue') },
+{ path: '/pm/calendar',      name: 'PMCalendar',       component: () => import('@/views/PMCalendarView.vue') },
+{ path: '/pm/work-orders',   name: 'PMWorkOrderList',  component: () => import('@/views/PMWorkOrderListView.vue') },
+{ path: '/pm/work-orders/:id', name: 'PMWorkOrderDetail', component: () => import('@/views/PMWorkOrderDetailView.vue'), props: true },
+```
+
+Tất cả route có `meta.requiresAuth: true`.
+
+### 1.2 Sidebar entry
+
+```
+■ IMM-08 Bảo trì PM
+  ├─ Lịch bảo trì     → /pm/calendar
+  ├─ Phiếu bảo trì    → /pm/work-orders
+  └─ Dashboard PM      → /pm/dashboard
+```
+
+---
+
+## 2. Color & Status mapping
+
+| Trạng thái WO | Màu | Chip | Icon |
+|---|---|---|---|
+| Open | neutral-600 | outline | `circle` |
+| In Progress | info-500 (xanh dương) | soft | `play` |
+| Pending–Device Busy | warning-300 | soft | `pause` |
+| Overdue | danger-500 | solid | `alert-triangle` |
+| Completed | success-500 | solid | `check-circle` |
+| Halted–Major Failure | danger-700 | solid + ring | `octagon-x` |
+| Cancelled | neutral-400 | outline dashed | `x` |
+
+| `is_late` | True → badge đỏ "Trễ {N} ngày" cạnh status |
+| `overall_result` | Pass=success · Pass with Minor Issues=warning · Fail=danger |
+| `risk_class` Class III | Badge đỏ "CRITICAL" trước description checklist item |
+
+---
+
+## 3. Screen — PM Dashboard
+
+| Thuộc tính | Giá trị |
+|---|---|
+| Route | `/pm/dashboard` |
+| Component | `PMDashboardView.vue` |
+| Permissions | Workshop Head, VP Block2, CMMS Admin |
+
+### 3.1 Layout
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│  Dashboard Bảo trì Định kỳ (PM)           [Tháng 4 / 2026 ▼]    │
-├────────────┬────────────┬────────────┬────────────┬──────────────┤
-│ 🟢 87.5%   │ 16         │ 14         │ 2          │ 3.5 ngày     │
-│ Compliance │ Tổng lên   │ Hoàn thành │ Quá hạn    │ Trễ TB       │
-│ Rate       │ lịch       │ đúng hạn   │ (đỏ)       │              │
-├────────────┴────────────┴────────────┴────────────┴──────────────┤
-│                                                                  │
-│  TRẠNG THÁI PM THÁNG NÀY           TREND 6 THÁNG               │
-│  ┌──────────────────┐               100% ─────────────          │
-│  │ ██████ 87.5%     │                75% ──────── ░░░░          │
-│  │ ██ Minor Issues  │                50%                        │
-│  │ ░ Overdue        │                   Jan Feb Mar Apr May Jun  │
-│  └──────────────────┘                                           │
-│                                                                  │
+│  Dashboard Bảo trì PM                          [Tháng 4/2026 ▼] │
+├──────┬──────┬──────┬──────┬──────────────────────────────────────┤
+│ 87.5%│  16  │  14  │   2  │  3.5 ngày                            │
+│ Comp.│ Tổng │ On-  │ Quá  │  Trễ trung bình                      │
+│ rate │ lịch │ time │ hạn  │                                      │
+├──────┴──────┴──────┴──────┴──────────────────────────────────────┤
+│  TREND 6 THÁNG                                                   │
+│  100% ─────●───────●─────●                                       │
+│   75%   ●        ●     ●                                         │
+│        Nov Dec Jan Feb Mar Apr                                    │
 ├──────────────────────────────────────────────────────────────────┤
-│  THIẾT BỊ QUÁ HẠN PM                                            │
-│  ┌────────────────────────────────────────────────────────────┐  │
-│  │ 🔴 ACC-ASS-2026-00003  Máy siêu âm  Quá hạn 8 ngày        │  │
-│  │ 🔴 ACC-ASS-2026-00007  Máy thở      Quá hạn 3 ngày        │  │
-│  └────────────────────────────────────────────────────────────┘  │
-│                                                                  │
-│  PM ĐẾN HẠN TRONG 7 NGÀY TỚI                                    │
-│  ┌────────────────────────────────────────────────────────────┐  │
-│  │ 🟡 ACC-ASS-2026-00012  Monitor     Còn 2 ngày   [Xem WO]   │  │
-│  │ 🟡 ACC-ASS-2026-00015  ECG         Còn 5 ngày   [Xem WO]   │  │
-│  └────────────────────────────────────────────────────────────┘  │
+│  THIẾT BỊ QUÁ HẠN                                                │
+│  🔴 PM-WO-2026-00007  Monitor Philips  Quá hạn 8 ngày  [Xem]    │
+│  🔴 PM-WO-2026-00012  Máy thở Drager   Quá hạn 3 ngày  [Xem]    │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-**Component map:**
-- `KpiCard.vue` × 5 — số liệu tổng quan
-- `ComplianceDonut.vue` — pie chart compliance
-- `TrendLine.vue` — sparkline 6 tháng
-- `OverdueTable.vue` — danh sách quá hạn
-- `UpcomingTable.vue` — danh sách sắp đến hạn
+### 3.2 State (Pinia)
+
+```ts
+dashboardStats: PMDashboardStats   // { kpis, trend_6months }
+loading: boolean
+```
+
+### 3.3 Actions
+
+| Action | API | Trigger |
+|---|---|---|
+| Load stats | `get_pm_dashboard_stats?year&month` | `onMounted`, change month |
+| Click KPI card "Quá hạn" | navigate `/pm/work-orders?status=Overdue` | click |
+| Click row trong bảng overdue | navigate `/pm/work-orders/{name}` | click |
+
+### 3.4 Permissions UI
+
+- VP Block2: read-only.
+- Workshop Head + CMMS Admin: full + có nút "Xuất báo cáo PDF" (planned).
 
 ---
 
-## 3. Màn hình 2: Lịch bảo trì (`/pm/calendar`)
+## 4. Screen — PM Calendar
 
-**Target user:** Workshop Manager  
-**Mục đích:** Xem và điều phối lịch PM theo tuần/tháng
+| Thuộc tính | Giá trị |
+|---|---|
+| Route | `/pm/calendar` |
+| Component | `PMCalendarView.vue` |
+| Permissions | Workshop Head, HTM Technician (xem WO của mình) |
+
+### 4.1 Layout
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│  Lịch PM Tháng 4/2026                    [◀ Tháng] [Tháng ▶]    │
-│                                    [Tháng] [Tuần] [Ngày]         │
-├───────┬───────┬───────┬───────┬───────┬───────┬───────┤
+│  Lịch PM Tháng 4/2026                  [◀]  [Tháng] [Tuần]  [▶] │
+│  Filter: [KTV ▼] [Asset ▼]                                       │
+├───────┬───────┬───────┬───────┬───────┬───────┬───────┬───────┤
 │  T2   │  T3   │  T4   │  T5   │  T6   │  T7   │  CN   │
 │  14   │  15   │  16   │  17   │  18   │  19   │  20   │
-├───────┼───────┼───────┼───────┼───────┼───────┼───────┤
-│       │       │       │ 🟡    │       │ 🔴    │       │
-│       │       │       │PM-003 │       │PM-007 │       │
-│       │       │       │Máy thở│       │S/â    │       │
-│       │       │       │09:00  │       │OVERDUE│       │
+│       │       │       │ 🟡PM-1│       │ 🔴PM-7│       │
+│       │       │       │Máy thở│       │Monitor│       │
+│       │       │       │OVERDUE│       │       │       │
 ├───────┼───────┼───────┼───────┼───────┼───────┼───────┤
 │  21   │  22   │  23   │  24   │  25   │  26   │  27   │
-│       │ 🟢    │       │       │ 🟡    │       │       │
-│       │PM-012 │       │       │PM-015 │       │       │
-│       │Monitor│       │       │ECG    │       │       │
+│       │ 🟢PM-12│      │       │ 🟡PM15│      │       │
 └───────┴───────┴───────┴───────┴───────┴───────┴───────┘
-
-Legend: 🟢 Completed  🟡 Scheduled  🔴 Overdue  ⚪ Open
 ```
 
-**Interactions:**
-- Click vào WO card → mở drawer chi tiết
-- Drag & drop WO sang ngày khác → reschedule với dialog xác nhận lý do
-- Filter bar: Khoa phòng | KTV | PM Type | Trạng thái
-- Hover card → tooltip: thiết bị, KTV, due date
+### 4.2 State
 
-**Component map:**
-- `PmCalendar.vue` — wrapper (tháng/tuần/ngày view)
-- `CalendarEvent.vue` — card PM event, color-coded by status
-- `PmDetailDrawer.vue` — slide-in panel khi click WO
+```ts
+calendarEvents: PMCalendarEvent[]
+calendarSummary: { total, completed, overdue, pending }
+```
+
+### 4.3 Actions
+
+| Action | API | Trigger |
+|---|---|---|
+| Load month | `get_pm_calendar?year&month&technician?&asset_ref?` | mount, change month |
+| Click event | open right drawer detail (lazy GET `get_pm_work_order`) | click |
+| (Planned) Drag-drop | `reschedule_pm` với confirm modal | drag |
+
+### 4.4 Permissions UI
+
+- Workshop Head: thấy tất cả.
+- HTM Technician: filter `technician=session.user` mặc định.
 
 ---
 
-## 4. Màn hình 3: Danh sách PM WO (`/pm/work-orders`)
+## 5. Screen — PM Work Order List
 
-**Target user:** Workshop Manager, KTV HTM
+| Thuộc tính | Giá trị |
+|---|---|
+| Route | `/pm/work-orders` |
+| Component | `PMWorkOrderListView.vue` |
+| Permissions | All IMM roles |
+
+### 5.1 Layout
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│  Phiếu Bảo trì PM                           [+ Tạo PM thủ công]  │
-├──────────────────────────────────────────────────────────────────┤
-│ Bộ lọc: [Trạng thái ▼] [KTV ▼] [Thiết bị...] [Từ ngày] [Đến]   │
-├────────┬──────────┬────────────┬──────────┬───────┬─────────────┤
-│ Mã WO  │ Thiết bị │ Loại PM    │ Đến hạn  │ KTV   │ Trạng thái  │
-├────────┼──────────┼────────────┼──────────┼───────┼─────────────┤
-│PM-0001 │ACC-00007 │ Quarterly  │20/04/26  │KTV-01 │🔴 Overdue   │
-│PM-0003 │ACC-00003 │ Annual     │17/04/26  │KTV-02 │🟡 Open      │
-│PM-0012 │ACC-00012 │ Semi-Annual│22/04/26  │KTV-01 │🔵 In Prog.  │
-│PM-0008 │ACC-00008 │ Quarterly  │10/04/26  │KTV-03 │🟢 Completed │
-└────────┴──────────┴────────────┴──────────┴───────┴─────────────┘
-                                          Trang 1/3  [← →]
+│ Phiếu Bảo trì PM                          [+ Tạo PM thủ công]    │
+│ Filter: [Status ▼] [KTV ▼] [Asset...] [Từ ngày] [Đến ngày]      │
+├──────────┬─────────────┬───────────┬─────────┬───────┬──────────┤
+│ Mã WO    │ Thiết bị    │ PM Type   │ Đến hạn │ KTV   │ Trạng thái│
+├──────────┼─────────────┼───────────┼─────────┼───────┼──────────┤
+│ PM-00001 │ Máy thở DC  │ Quarterly │ 17/04   │ ktv1  │🔴 Overdue │
+│ PM-00003 │ Monitor PH  │ Annual    │ 22/04   │ ktv2  │🟢 Done    │
+└──────────┴─────────────┴───────────┴─────────┴───────┴──────────┘
+                                          Trang 1/3   [← →]
 ```
+
+### 5.2 State
+
+```ts
+workOrders: PMWorkOrder[]
+pagination: { page, total, total_pages, page_size }
+```
+
+### 5.3 Actions
+
+| Action | API | Trigger |
+|---|---|---|
+| Load list | `list_pm_work_orders?filters&page&page_size` | mount, change filter |
+| Click row | navigate `/pm/work-orders/{name}` | click |
+| Bulk assign (planned) | `assign_technician` × N | bulk select |
+
+### 5.4 Permissions UI
+
+- HTM Technician: mặc định filter `assigned_to=session.user` (toggle "Chỉ WO của tôi").
+- Workshop Head: full filters + bulk actions.
 
 ---
 
-## 5. Màn hình 4: Chi tiết WO + Điền Checklist (`/pm/work-orders/:id`)
+## 6. Screen — PM Work Order Detail (Checklist execution)
 
-**Target user:** KTV HTM (desktop + mobile)
+| Thuộc tính | Giá trị |
+|---|---|
+| Route | `/pm/work-orders/:id` |
+| Component | `PMWorkOrderDetailView.vue` |
+| Permissions | KTV (assigned), Workshop Head, Biomed Engineer |
+
+### 6.1 Desktop layout
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│ ← Quay lại    PM-WO-2026-00001 — Máy thở Drager Fabius     🟡   │
+│ ← PM-WO-2026-00001 — Máy thở Drager Evita V500    🟡 In Progress│
 ├──────────────────────────────────────────────────────────────────┤
-│ THÔNG TIN PHIẾU                                                  │
-│ Thiết bị:  ACC-ASS-2026-00001   │ Đến hạn: 20/04/2026 🟡        │
-│ KTV:       Nguyễn Văn A         │ Loại PM:  Quarterly             │
-│ Khoa:      ICU Tầng 3           │ Thời gian: —                   │
+│ THÔNG TIN                                                        │
+│ Thiết bị: AC-ASSET-2026-0003     │ Đến hạn: 17/04/2026                │
+│ KTV:      ktv1@bv.vn        │ Loại PM: Quarterly                 │
+│ Khoa:     ICU               │ Class:   III ⚠ Cần ảnh             │
 ├──────────────────────────────────────────────────────────────────┤
-│ CHECKLIST (4/10 đã hoàn thành)                                   │
-│ ▓▓▓▓▓░░░░░░░░░░░░░░░ 40%                                        │
+│ CHECKLIST  (4 / 10 đã điền)                                      │
+│ ▓▓▓▓░░░░░░ 40%                                                   │
 │                                                                  │
-│ [1] Kiểm tra điện áp đầu vào (210–240V)        [CRITICAL]       │
+│ [1] Kiểm tra điện áp đầu vào (210–240V)         [CRITICAL]      │
 │     ○ Pass  ● Fail-Minor  ○ Fail-Major  ○ N/A                   │
-│     Giá trị đo: [___] V    Ghi chú: [              ]            │
+│     Giá trị đo: [225] V    Notes: [.....rò rỉ.....] *bắt buộc   │
+│     [📷 Đính kèm ảnh]                                            │
 │                                                                  │
 │ [2] Kiểm tra áp suất khí nén (3.5–6 bar)        [CRITICAL]      │
 │     ● Pass  ○ Fail-Minor  ○ Fail-Major  ○ N/A                   │
-│     Giá trị đo: [4.2] bar  Ghi chú: [Bình thường  ]            │
-│                                                                  │
-│ [3] Vệ sinh bộ lọc / màng lọc                                   │
-│     ● Pass  ○ Fail-Minor  ○ Fail-Major  ○ N/A                   │
-│                                                                  │
-│ [4] Kiểm tra van an toàn                                         │
-│     ○ (chưa điền)                                                │
-│                                                                  │
-│ ... 6 mục còn lại ...                    [Xem tất cả]           │
+│     Giá trị đo: [4.2] bar                                       │
+│ ...                                                              │
 ├──────────────────────────────────────────────────────────────────┤
 │ KẾT QUẢ TỔNG THỂ                                                 │
-│ Ghi chú KTV: [                                        ]          │
-│ Đã gắn sticker PM: ☐                                             │
-│ Upload ảnh:  [📎 Chọn ảnh]                                       │
-│ Thời gian thực hiện: [__] phút                                   │
+│ Tóm tắt KTV:  [.................................]                │
+│ Đã gắn sticker PM: ☐                                            │
+│ Thời gian: [__] phút   Ảnh: [📎 Upload] (≥1 nếu Class III)      │
 ├──────────────────────────────────────────────────────────────────┤
-│           [Báo lỗi Major 🔴]    [Lưu nháp]    [Hoàn thành ✓]    │
+│  [Báo lỗi Major 🔴]   [Hoãn lịch]   [Lưu nháp]   [Hoàn thành ✓]│
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-**Validation UI:**
-- Progress bar cập nhật real-time khi điền từng mục
-- Mục `is_critical = True` có badge đỏ "CRITICAL"
-- Nếu bất kỳ mục Critical bị `Fail-Major` → nút "Hoàn thành" bị disable, chỉ còn "Báo lỗi Major"
-- Nút "Hoàn thành" disabled cho đến khi 100% checklist điền
+### 6.2 Mobile layout (≤ 640px)
+
+One-item-per-screen pattern. Swipe left/right để chuyển checklist item. Nút Pass/Fail tap target ≥ 48px.
+
+### 6.3 State
+
+```ts
+currentWO: PMWorkOrder
+checklistComplete: computed → all items có result
+```
+
+### 6.4 Actions
+
+| Action | API | Trigger | Validation |
+|---|---|---|---|
+| Load detail | `get_pm_work_order?name` | mount | — |
+| Update item result | local mutation (auto-save planned) | radio click | `notes` required khi Fail-* (VR-08-06) |
+| Upload ảnh | Frappe File Upload | click attach | Max 10MB / ảnh |
+| Submit Hoàn thành | `submit_pm_result` | click | Disabled cho đến `checklistComplete` (BR-08-08) + ảnh nếu Class III (BR-08-06) |
+| Báo lỗi Major | `report_major_failure` | click + confirm modal | Description ≥ 10 ký tự |
+| Hoãn lịch | `reschedule_pm` | modal với date + reason | reason ≥ 5 ký tự (VR-08-09) |
+
+### 6.5 UI guards
+
+- Nút **Hoàn thành** disabled nếu checklist chưa 100%.
+- Khi user chọn `Fail-Major` trên item `is_critical=true` → toast warning, focus chuyển sang nút "Báo lỗi Major" (mở modal xác nhận).
+- Khi `risk_class=III` mà chưa upload ảnh → tooltip đỏ trên nút Hoàn thành.
 
 ---
 
-## 6. Mobile Experience (KTV thực hiện tại khoa)
+## 7. Pinia Store — `useImm08Store`
 
-**Target:** Điện thoại Android/iOS — KTV điền checklist tại chỗ
+File: `frontend/src/stores/imm08.ts`. Exports:
 
-### Layout mobile (375px)
+| State | Type |
+|---|---|
+| `workOrders` | `PMWorkOrder[]` |
+| `currentWO` | `PMWorkOrder \| null` |
+| `calendarEvents` | `PMCalendarEvent[]` |
+| `calendarSummary` | `{ total, completed, overdue, pending }` |
+| `dashboardStats` | `PMDashboardStats \| null` |
+| `pmHistory` | `PMTaskLog[]` |
+| `pagination` | `{ page, total, total_pages, page_size }` |
+| `loading`, `error` | — |
 
-```
-┌───────────────────────┐
-│ ← PM-0001  Máy thở    │
-│ ━━━━━━━━░░░░░░ 40%    │
-├───────────────────────┤
-│ [1/10] Điện áp đầu vào│
-│                        │
-│ Kết quả:              │
-│ ┌──────┐ ┌──────────┐ │
-│ │ Pass │ │Fail-Minor│ │
-│ └──────┘ └──────────┘ │
-│ ┌──────────┐          │
-│ │Fail-Major│          │
-│ └──────────┘          │
-│                        │
-│ Giá trị: [220____] V  │
-│                        │
-│ [📷 Chụp ảnh]         │
-│                        │
-├───────────────────────┤
-│ [← Mục trước]  [Tiếp→]│
-└───────────────────────┘
-```
+| Action | Wraps API |
+|---|---|
+| `fetchWorkOrders(filters, page, pageSize)` | `list_pm_work_orders` |
+| `fetchWorkOrder(name)` | `get_pm_work_order` |
+| `assignTech(name, tech, date)` | `assign_technician` |
+| `submitResult(name, payload)` | `submit_pm_result` |
+| `reportMajor(name, desc, indexes)` | `report_major_failure` |
+| `fetchCalendar(year, month, ...)` | `get_pm_calendar` |
+| `fetchDashboard(year, month)` | `get_pm_dashboard_stats` |
+| `reschedule(name, newDate, reason)` | `reschedule_pm` |
+| `fetchHistory(assetRef, limit)` | `get_asset_pm_history` |
 
-**Mobile UX principles:**
-- One item per screen — không cuộn dài
-- Nút lớn (min 48px tap target) cho Pass/Fail
-- Camera tích hợp — chụp thẳng vào attachment
-- Lưu offline (localStorage) khi mất kết nối, sync lại khi có mạng
-- Swipe right/left để chuyển mục checklist
+API client: `frontend/src/api/imm08.ts` (axios wrapper, parse `message.success/data/error/code`).
 
 ---
 
-## 7. Cảnh báo & Trạng thái (Alert System)
+## 8. Notifications
 
-### Badge màu sắc
-
-| Badge | Màu | Điều kiện |
+| Event | Channel | Recipient |
 |---|---|---|
-| On Schedule | 🟢 xanh | due_date > today + 7 |
-| Due Soon | 🟡 vàng | due_date trong 7 ngày tới |
-| Overdue | 🔴 đỏ | today > due_date |
-| In Progress | 🔵 xanh dương | status = In Progress |
-| Completed | ✅ xanh nhạt | status = Completed |
-| Major Failure | ⛔ đỏ đậm | status = Halted–Major Failure |
-
-### Slippage Warning
-
-Hiển thị trong chi tiết WO khi `status = Overdue`:
-
-```
-┌─────────────────────────────────────────────────────┐
-│ ⚠️  PM QUÁ HẠN 8 NGÀY — Đến hạn: 09/04/2026        │
-│ Vui lòng hoàn thành hoặc hoãn lịch có ghi lý do     │
-│                          [Hoãn lịch]  [Tiếp tục PM] │
-└─────────────────────────────────────────────────────┘
-```
-
-### In-app Notification
-
-- Workshop Manager: nhận tóm tắt sáng hàng ngày (08:00)
-- KTV: nhận notification khi được assign WO
-- PTP: nhận alert khi overdue > 7 ngày
-- BGĐ: nhận alert khi overdue > 30 ngày
+| WO mới được assign | Toast + (planned) Frappe Notification | KTV |
+| WO Overdue daily | Email | Workshop Head + (>7d) VP Block2 |
+| Major Failure | Email khẩn HTML | Workshop Head + VP Block2 |
+| Tóm tắt WO mới hôm nay | Email | Workshop Head |
 
 ---
 
-## 8. Component Tree
+## 9. Accessibility
 
-```
-views/
-├── PmDashboardView.vue          ← /pm/dashboard
-├── PmCalendarView.vue           ← /pm/calendar
-├── PmWorkOrderListView.vue      ← /pm/work-orders
-└── PmWorkOrderDetailView.vue    ← /pm/work-orders/:id
-
-components/pm/
-├── PmKpiGrid.vue                ← 5 KPI cards
-├── PmComplianceChart.vue        ← Donut + trend
-├── PmOverdueTable.vue           ← Danh sách quá hạn
-├── PmCalendarGrid.vue           ← Tháng/Tuần/Ngày view
-├── PmCalendarEvent.vue          ← Card event
-├── PmDetailDrawer.vue           ← Slide-in từ calendar
-├── PmChecklist.vue              ← Checklist wrapper
-├── PmChecklistItem.vue          ← Single checklist item
-├── PmChecklistProgress.vue      ← Progress bar
-└── PmMajorFailureDialog.vue     ← Dialog báo lỗi major
-
-composables/
-└── usePmStore.ts                ← Pinia store IMM-08
-
-api/
-└── imm08.ts                     ← API calls
-```
+| # | Yêu cầu |
+|---|---|
+| 1 | Contrast text/background ≥ 4.5:1 (WCAG AA) |
+| 2 | Tap target mobile ≥ 48px |
+| 3 | Focus ring 2px primary trên tất cả button/input |
+| 4 | ARIA label cho icon-only button (vd "Báo lỗi Major", "Đính kèm ảnh") |
+| 5 | `<html lang="vi">` |
+| 6 | Form error có `aria-describedby` link sang error text |
 
 ---
 
-## 9. Router Additions
+## 10. Responsive matrix
 
-```typescript
-// Thêm vào router/index.ts
-{
-  path: '/pm',
-  redirect: '/pm/dashboard',
-},
-{
-  path: '/pm/dashboard',
-  name: 'PmDashboard',
-  component: () => import('@/views/PmDashboardView.vue'),
-  meta: { requiresAuth: true, title: 'Dashboard PM — IMM-08' },
-},
-{
-  path: '/pm/calendar',
-  name: 'PmCalendar',
-  component: () => import('@/views/PmCalendarView.vue'),
-  meta: { requiresAuth: true, title: 'Lịch Bảo trì — IMM-08' },
-},
-{
-  path: '/pm/work-orders',
-  name: 'PmWorkOrderList',
-  component: () => import('@/views/PmWorkOrderListView.vue'),
-  meta: { requiresAuth: true, title: 'Phiếu Bảo trì PM — IMM-08' },
-},
-{
-  path: '/pm/work-orders/:id',
-  name: 'PmWorkOrderDetail',
-  component: () => import('@/views/PmWorkOrderDetailView.vue'),
-  props: true,
-  meta: { requiresAuth: true, title: 'Chi tiết PM Work Order' },
-},
-```
+| Màn | Mobile (<640) | Tablet (640–1024) | Desktop (>1024) |
+|---|---|---|---|
+| Dashboard | KPI 1 cột | 3 cột | 5 cột + chart full width |
+| Calendar | Day view list | Week view | Month grid |
+| List | Card list | Table 5 cột | Table full + filter sidebar |
+| Detail | One-item-per-screen, swipe | Single column | 2 cột (info + checklist) |
 
 ---
 
-## 10. Sidebar Update
-
-Thêm nhóm IMM-08 vào `AppSidebar.vue`:
-
-```typescript
-{
-  title: 'IMM-08 Bảo trì PM',
-  items: [
-    { label: 'Lịch bảo trì', path: '/pm/calendar', icon: 'calendar' },
-    { label: 'Phiếu bảo trì', path: '/pm/work-orders', icon: 'list' },
-    { label: 'Dashboard PM', path: '/pm/dashboard', icon: 'chart' },
-  ],
-},
-
----
-
-## Pinia Store — useImm08Store
-
-```typescript
-// frontend/src/stores/imm08.ts
-import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
-import { frappeGet, frappePost } from '@/api/helpers'
-
-export interface PMWorkOrder {
-  name: string
-  asset_ref: string
-  asset_name: string
-  pm_type: 'Annual' | 'Quarterly' | 'Monthly' | 'Biennial'
-  assigned_to: string | null
-  due_date: string
-  start_date: string | null
-  completion_date: string | null
-  status: 'Open' | 'In Progress' | 'Overdue' | 'Completed' | 'Halted – Major Failure' | 'Pending – Device Busy'
-  is_late: boolean
-  failure_type: 'None' | 'Minor' | 'Major' | null
-  result_summary: string
-  checklist: ChecklistItem[]
-}
-
-export interface ChecklistItem {
-  idx: number
-  item_code: string
-  description: string
-  expected_value: string
-  unit: string
-  actual_value: string
-  result: 'Pass' | 'Fail – Minor' | 'Fail – Major' | null
-  is_mandatory: boolean
-  failure_note: string
-}
-
-export interface PMCalendarEntry {
-  wo_name: string
-  asset_name: string
-  due_date: string
-  assigned_to: string
-  status: string
-  pm_type: string
-}
-
-export interface PMComplianceKPIs {
-  total_scheduled: number
-  completed_on_time: number
-  completed_late: number
-  overdue: number
-  compliance_rate_pct: number
-  mttr_avg_hours: number
-}
-
-export const useImm08Store = defineStore('imm08', () => {
-  // --- State ---
-  const workOrders = ref<PMWorkOrder[]>([])
-  const currentWO = ref<PMWorkOrder | null>(null)
-  const calendarEntries = ref<PMCalendarEntry[]>([])
-  const kpis = ref<PMComplianceKPIs>({
-    total_scheduled: 0,
-    completed_on_time: 0,
-    completed_late: 0,
-    overdue: 0,
-    compliance_rate_pct: 0,
-    mttr_avg_hours: 0,
-  })
-  const loading = ref(false)
-  const error = ref<string | null>(null)
-
-  // --- Getters ---
-  const overdueWOs = computed(() => workOrders.value.filter(w => w.status === 'Overdue'))
-  const openWOs = computed(() => workOrders.value.filter(w => w.status === 'Open'))
-  const checklistComplete = computed(() => {
-    if (!currentWO.value) return false
-    return currentWO.value.checklist.every(item => item.result !== null)
-  })
-
-  // --- Actions ---
-  async function fetchWorkOrders(filters?: Record<string, unknown>) {
-    loading.value = true
-    try {
-      const res = await frappeGet<PMWorkOrder[]>(
-        '/api/method/assetcore.api.imm08.list_work_orders',
-        filters
-      )
-      workOrders.value = res
-    } catch (e: any) {
-      error.value = e.message
-    } finally {
-      loading.value = false
-    }
-  }
-
-  async function fetchWorkOrder(woName: string) {
-    loading.value = true
-    try {
-      const res = await frappeGet<PMWorkOrder>(
-        '/api/method/assetcore.api.imm08.get_work_order',
-        { wo_name: woName }
-      )
-      currentWO.value = res
-    } finally {
-      loading.value = false
-    }
-  }
-
-  async function updateChecklistItem(idx: number, data: Partial<ChecklistItem>) {
-    if (!currentWO.value) return
-    const item = currentWO.value.checklist.find(c => c.idx === idx)
-    if (item) Object.assign(item, data)
-  }
-
-  async function submitWorkOrder(woName: string, summary: string): Promise<boolean> {
-    try {
-      await frappePost('/api/method/assetcore.api.imm08.submit_work_order', {
-        wo_name: woName, result_summary: summary
-      })
-      await fetchWorkOrder(woName)
-      return true
-    } catch (e: any) {
-      error.value = e.message
-      return false
-    }
-  }
-
-  async function reportMajorFailure(woName: string, description: string): Promise<boolean> {
-    try {
-      await frappePost('/api/method/assetcore.api.imm08.report_major_failure', {
-        wo_name: woName, failure_description: description
-      })
-      return true
-    } catch (e: any) {
-      error.value = e.message
-      return false
-    }
-  }
-
-  async function fetchCalendar(month: string, year: number) {
-    try {
-      const res = await frappeGet<PMCalendarEntry[]>(
-        '/api/method/assetcore.api.imm08.get_pm_calendar',
-        { month, year }
-      )
-      calendarEntries.value = res
-    } catch (e: any) {
-      error.value = e.message
-    }
-  }
-
-  async function fetchKPIs(dateRange?: { from: string; to: string }) {
-    try {
-      const res = await frappeGet<PMComplianceKPIs>(
-        '/api/method/assetcore.api.imm08.get_compliance_kpis',
-        dateRange
-      )
-      kpis.value = res
-    } catch (e: any) {
-      error.value = e.message
-    }
-  }
-
-  return {
-    workOrders, currentWO, calendarEntries, kpis, loading, error,
-    overdueWOs, openWOs, checklistComplete,
-    fetchWorkOrders, fetchWorkOrder, updateChecklistItem,
-    submitWorkOrder, reportMajorFailure, fetchCalendar, fetchKPIs,
-  }
-})
-```
+*End of UI/UX Guide v2.0.0 — IMM-08 Preventive Maintenance*

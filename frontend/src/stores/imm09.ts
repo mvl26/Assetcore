@@ -6,7 +6,8 @@ import { ref, computed } from 'vue'
 import {
   listRepairWorkOrders, getRepairWorkOrder, assignTechnician,
   submitDiagnosis, closeWorkOrder, getRepairKPIs, getAssetRepairHistory,
-  requestSpareParts, startRepair, getMttrReport,
+  requestSpareParts, startRepair, getMttrReport, createRepairWorkOrder,
+  searchSpareParts,
   type AssetRepair, type RepairKPIs, type MttrReport, type SparePartRow,
 } from '@/api/imm09'
 
@@ -141,11 +142,26 @@ export const useImm09Store = defineStore('imm09', () => {
     }
   }
 
+  async function doCreateRepairWorkOrder(payload: Parameters<typeof createRepairWorkOrder>[0]): Promise<string | null> {
+    try {
+      const res = await createRepairWorkOrder(payload)
+      return res.name
+    } catch (e: any) {
+      error.value = e.message
+      return null
+    }
+  }
+
+  function doSearchSpareParts(query: string): Promise<SparePartRow[]> {
+    return searchSpareParts(query).catch(() => [])
+  }
+
   return {
     workOrders, currentWO, kpis, repairHistory, mttrReport, loading, error, pagination,
     openWOs, breachedWOs, checklistComplete,
     fetchWorkOrders, fetchWorkOrder, updateChecklistResult,
     doAssignTechnician, doSubmitDiagnosis, doCloseWorkOrder,
     fetchKPIs, fetchRepairHistory, fetchMttrReport, doSaveParts, doStartRepair,
+    doCreateRepairWorkOrder, doSearchSpareParts,
   }
 })

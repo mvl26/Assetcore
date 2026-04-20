@@ -85,24 +85,24 @@ watch(() => route.query.workflow_state, (val) => {
     <div class="card mb-6 animate-slide-up">
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div class="form-group">
-          <label class="form-label">Trạng thái</label>
-          <select v-model="filters.workflow_state" class="form-select">
+          <label for="f-state" class="form-label">Trạng thái</label>
+          <select id="f-state" v-model="filters.workflow_state" class="form-select">
             <option v-for="s in WORKFLOW_STATES" :key="s.value" :value="s.value">{{ s.label }}</option>
           </select>
         </div>
         <div class="form-group">
-          <label class="form-label">Serial Number</label>
-          <input v-model="filters.vendor_serial_no" type="text" class="form-input font-mono"
+          <label for="f-serial" class="form-label">Serial Number</label>
+          <input id="f-serial" v-model="filters.vendor_serial_no" type="text" class="form-input font-mono"
                  placeholder="Nhập Serial..." @keyup.enter="applyFilters" />
         </div>
         <div class="form-group">
-          <label class="form-label">Model Thiết bị</label>
-          <input v-model="filters.master_item" type="text" class="form-input"
+          <label for="f-model" class="form-label">Model Thiết bị</label>
+          <input id="f-model" v-model="filters.master_item" type="text" class="form-input"
                  placeholder="Tên model..." @keyup.enter="applyFilters" />
         </div>
         <div class="form-group">
-          <label class="form-label">Khoa / Phòng</label>
-          <input v-model="filters.clinical_dept" type="text" class="form-input"
+          <label for="f-dept" class="form-label">Khoa / Phòng</label>
+          <input id="f-dept" v-model="filters.clinical_dept" type="text" class="form-input"
                  placeholder="Tên khoa..." @keyup.enter="applyFilters" />
         </div>
       </div>
@@ -160,9 +160,17 @@ watch(() => route.query.workflow_state, (val) => {
               <td class="table-cell">
                 <span class="font-mono text-[12px] font-semibold text-brand-600">{{ item.name }}</span>
               </td>
-              <td class="table-cell text-slate-600 max-w-40 truncate">{{ item.master_item }}</td>
-              <td class="table-cell text-slate-600 max-w-32 truncate">{{ item.vendor }}</td>
-              <td class="table-cell text-slate-600">{{ item.clinical_dept }}</td>
+              <td class="table-cell max-w-40">
+                <div class="text-slate-700 truncate">{{ item.master_item_name || item.master_item || '—' }}</div>
+                <div v-if="item.master_item && item.master_item_name" class="text-xs text-slate-400 font-mono truncate">{{ item.master_item }}</div>
+              </td>
+              <td class="table-cell max-w-32">
+                <div class="text-slate-700 truncate">{{ item.vendor_name || item.vendor || '—' }}</div>
+              </td>
+              <td class="table-cell">
+                <div class="text-slate-700">{{ item.clinical_dept_name || item.clinical_dept || '—' }}</div>
+                <div v-if="item.clinical_dept && item.clinical_dept_name" class="text-xs text-slate-400">{{ item.clinical_dept }}</div>
+              </td>
               <td class="table-cell">
                 <span class="font-mono text-xs text-slate-400">{{ item.vendor_serial_no || '—' }}</span>
               </td>

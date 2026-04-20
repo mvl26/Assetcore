@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { createRepairWorkOrder } from '@/api/imm09'
+import { useImm09Store } from '@/stores/imm09'
 
 const router = useRouter()
+const store = useImm09Store()
 const submitting = ref(false)
 const error = ref('')
 
@@ -31,13 +32,12 @@ async function handleSubmit() {
   if (!canSubmit.value) return
   submitting.value = true
   error.value = ''
-  try {
-    const res = await createRepairWorkOrder(form.value)
-    router.push(`/cm/work-orders/${res.name}`)
-  } catch (e: any) {
-    error.value = e.message
-  } finally {
-    submitting.value = false
+  const name = await store.doCreateRepairWorkOrder(form.value)
+  submitting.value = false
+  if (name) {
+    router.push(`/cm/work-orders/${name}`)
+  } else {
+    error.value = store.error ?? 'Không thể tạo phiếu sửa chữa'
   }
 }
 </script>

@@ -1,31 +1,81 @@
 # IMM-11 — Technical Design
 
-## Calibration Management System
+| Thuộc tính | Giá trị |
+|---|---|
+| Module | IMM-11 — Calibration / Hiệu chuẩn |
+| Phiên bản | 1.0.0 |
+| Ngày cập nhật | 2026-04-18 |
+| Trạng thái | DRAFT — chưa implement code |
+| Tác giả | AssetCore Team |
 
-**Module:** IMM-11 — Calibration (Hiệu chuẩn thiết bị đo lường)
-**Version:** 2.0
-**Ngày:** 2026-04-17
-**Trạng thái:** Draft — NOT CODED YET
-**Author:** AssetCore Team
+> ⚠️ **Pending implementation:** Tất cả DocType JSON, controller, service, scheduler, hooks và test trong tài liệu này **chưa tồn tại trong codebase**. Đây là đặc tả kỹ thuật dùng làm blueprint khi triển khai.
 
 ---
 
-## 1. ERD — Entity Relationship Diagram
+## 1. Overview
+
+IMM-11 mở rộng IMM-00 Foundation bằng 3 DocType mới (1 master + 1 submittable + 1 child) và 1 service module. Toàn bộ governance entity (`IMM CAPA Record`, `Asset Lifecycle Event`, `IMM Audit Trail`, `AC Asset`, `AC Supplier`, `IMM Device Model`, `IMM SLA Policy`) tái sử dụng từ IMM-00.
+
+**Layering:**
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Frontend (Vue 3 + Pinia) — ⚠️ Mockup only             │
+│  CalibrationDashboard / Form / Detail / CAPA panel     │
+└────────────────────────────┬────────────────────────────┘
+                             │ REST
+┌────────────────────────────▼────────────────────────────┐
+│  API Layer  ⚠️ Pending — assetcore/api/imm11.py        │
+│  @frappe.whitelist endpoints; _ok / _err               │
+└────────────────────────────┬────────────────────────────┘
+                             │
+┌────────────────────────────▼────────────────────────────┐
+│  Service Layer  ⚠️ Pending — assetcore/services/imm11.py│
+│  Business logic; gọi IMM-00 services                    │
+└──────────┬─────────────────┬───────────────────┬────────┘
+           │                 │                   │
+           ▼                 ▼                   ▼
+   IMM-00 services    IMM-11 DocTypes    Frappe Framework
+   (transition_      (Schedule,           (ORM, scheduler,
+    asset_status,    Asset Calibration,   permissions)
+    create_capa,     Measurement)
+    log_audit_event)
+```
+
+---
+
+## 2. ERD — Entity Relationship Diagram
 
 ```mermaid
 erDiagram
-    Asset {
+    AC_Asset {
         string name PK
         string asset_name
         string device_model FK
-        string status
-        date custom_last_calibration_date
-        date custom_next_calibration_date
-        string custom_calibration_status
-        int custom_calibration_interval_days
+        string lifecycle_status
+        date last_calibration_date
+        date next_calibration_date
+        string calibration_status
     }
 
-    CalibrationSchedule {
+    IMM_Device_Model {
+        string name PK
+        string model_name
+        bool calibration_required
+        int calibration_interval_days
+        string calibration_type_default
+    }
+
+    AC_Supplier {
+        string name PK
+        string supplier_name
+        string vendor_type
+        bool iso_17025_certified
+        string iso_17025_cert_no
+        date iso_17025_cert_expiry
+    }
+
+    IMM_Calibration_Schedule {
         string name PK
         string asset FK
         string device_model FK
@@ -33,33 +83,36 @@ erDiagram
         int interval_days
         date last_calibration_date
         date next_due_date
-        string preferred_lab
+        string preferred_lab FK
         bool is_active
     }
 
-    AssetCalibration {
+    IMM_Asset_Calibration {
         string name PK
         string calibration_schedule FK
         string asset FK
+        string device_model FK
         string calibration_type
         string status
         date scheduled_date
         date actual_date
-        string lab_name
+        string lab_supplier FK
         string lab_accreditation_number
         string certificate_file
         date certificate_date
         string certificate_number
-        date certificate_expiry
         string overall_result
+        date next_calibration_date
         string technician FK
         string reference_standard_serial
         string traceability_reference
         string pm_work_order FK
         string capa_record FK
+        bool is_recalibration
+        string amendment_reason
     }
 
-    CalibrationMeasurement {
+    IMM_Calibration_Measurement {
         string name PK
         string parent FK
         string parameter_name
@@ -72,26 +125,22 @@ erDiagram
         string pass_fail
     }
 
-    CAPARecord {
+    IMM_CAPA_Record {
         string name PK
-        string source_doc_type
-        string source_doc FK
+        string source_doctype
+        string source_ref FK
         string asset FK
         string device_model FK
-        string trigger_type
-        string root_cause
-        string corrective_action
-        date corrective_action_due
-        string preventive_action
         string status
-        string closed_by FK
-        date closed_date
+        text root_cause
+        text corrective_action
+        text preventive_action
         bool lookback_required
         string lookback_status
-        string lookback_assets
+        text lookback_assets
     }
 
-    AssetLifecycleEvent {
+    Asset_Lifecycle_Event {
         string name PK
         string asset FK
         string event_type
@@ -99,558 +148,470 @@ erDiagram
         string actor FK
         string from_status
         string to_status
+        string root_doctype
         string root_record
-        string notes
     }
 
-    Asset ||--o{ CalibrationSchedule : "has schedule"
-    Asset ||--o{ AssetCalibration : "has calibrations"
-    Asset ||--o{ AssetLifecycleEvent : "has events"
-    CalibrationSchedule ||--o{ AssetCalibration : "generates"
-    AssetCalibration ||--o{ CalibrationMeasurement : "has measurements"
-    AssetCalibration ||--o| CAPARecord : "triggers on fail"
-    CAPARecord ||--o{ AssetLifecycleEvent : "triggers events"
+    AC_Asset ||--o{ IMM_Calibration_Schedule : "has"
+    AC_Asset ||--o{ IMM_Asset_Calibration : "has"
+    AC_Asset ||--o{ Asset_Lifecycle_Event : "has"
+    IMM_Device_Model ||--o{ AC_Asset : "model of"
+    IMM_Calibration_Schedule ||--o{ IMM_Asset_Calibration : "generates"
+    IMM_Asset_Calibration ||--o{ IMM_Calibration_Measurement : "has"
+    IMM_Asset_Calibration ||--o| IMM_CAPA_Record : "triggers on Fail"
+    AC_Supplier ||--o{ IMM_Asset_Calibration : "performs (Calibration Lab)"
+    IMM_CAPA_Record ||--o{ Asset_Lifecycle_Event : "triggers"
 ```
 
 ---
 
-## 2. Data Dictionary
+## 3. Data Dictionary
 
-### 2.1 `Calibration Schedule` (Lịch hiệu chuẩn)
+### 3.1 IMM Calibration Schedule
 
-**Mục đích:** Master record quản lý chu kỳ hiệu chuẩn cho từng thiết bị — là nguồn để scheduler tạo WO tự động.
-**Naming Series:** `CAL-SCH-YYYY-#####`
-**DocType type:** Non-submittable
+⚠️ Pending implementation.
 
-| Field | Label (VI) | Type | Options / Notes | Mandatory |
-| --- | --- | --- | --- | --- |
-| `asset` | Thiết bị | Link | Asset | Yes |
-| `device_model` | Model thiết bị | Link | Device Model (auto-fetch từ Asset) | Yes |
-| `calibration_type` | Loại hiệu chuẩn | Select | External, In-House | Yes |
-| `interval_days` | Chu kỳ (ngày) | Int | Auto-populate từ Device Model | Yes |
-| `last_calibration_date` | Ngày hiệu chuẩn gần nhất | Date | Cập nhật từ Asset Calibration on_submit | Auto |
-| `next_due_date` | Ngày đến hạn tiếp theo | Date | Computed: last_calibration_date + interval_days | Auto |
-| `preferred_lab` | Lab ưu tiên | Data | Tên lab mặc định cho External | No |
-| `is_active` | Đang hoạt động | Check | False = tạm dừng lịch hiệu chuẩn | Yes |
+- **Naming:** `CAL-SCH-.YYYY.-.#####`
+- **DocType type:** Non-submittable
 
-**Tạo tự động:** `create_calibration_schedule_from_commissioning()` được gọi khi Asset Commissioning (IMM-04) on_submit, nếu Device Model có `calibration_required = True`.
+| Field | Label | Type | Options / Notes | Mandatory |
+|---|---|---|---|---|
+| `asset` | Thiết bị | Link | AC Asset | Yes |
+| `device_model` | Model | Link | IMM Device Model (auto-fetch) | Yes |
+| `calibration_type` | Loại | Select | External, In-House | Yes |
+| `interval_days` | Chu kỳ (ngày) | Int | Default từ Device Model | Yes |
+| `last_calibration_date` | Ngày cal gần nhất | Date | Auto từ `IMM Asset Calibration` on_submit | Auto |
+| `next_due_date` | Ngày đến hạn | Date | Computed: last_calibration_date + interval_days | Auto |
+| `preferred_lab` | Lab ưu tiên | Link | AC Supplier (filter `vendor_type=Calibration Lab`) | No |
+| `is_active` | Đang hoạt động | Check | False = suspend | Yes |
 
----
+### 3.2 IMM Asset Calibration
 
-### 2.2 `Asset Calibration` (Phiếu hiệu chuẩn)
+⚠️ Pending implementation.
 
-**Mục đích:** Record từng lần thực hiện hoặc gửi hiệu chuẩn — immutable sau Submit.
-**Naming Series:** `CAL-YYYY-#####`
-**DocType type:** Submittable
+- **Naming:** `CAL-.YYYY.-.#####`
+- **DocType type:** Submittable
 
-| Field | Label (VI) | Type | Options / Notes | Mandatory |
-| --- | --- | --- | --- | --- |
-| `calibration_schedule` | Lịch hiệu chuẩn | Link | Calibration Schedule | Yes |
-| `asset` | Thiết bị | Link | Asset | Yes |
-| `calibration_type` | Loại hiệu chuẩn | Select | External, In-House | Yes |
+| Field | Label | Type | Options / Notes | Mandatory |
+|---|---|---|---|---|
+| `calibration_schedule` | Lịch | Link | IMM Calibration Schedule | No (manual) |
+| `asset` | Thiết bị | Link | AC Asset | Yes |
+| `device_model` | Model | Link | IMM Device Model (auto-fetch) | Auto |
+| `calibration_type` | Loại | Select | External, In-House | Yes |
+| `status` | Trạng thái | Select | Scheduled, Sent to Lab, In Progress, Certificate Received, Passed, Failed, Conditionally Passed, Cancelled | Yes |
 | `scheduled_date` | Ngày dự kiến | Date | — | Yes |
-| `actual_date` | Ngày thực hiện | Date | Set khi Submit | Auto |
-| `status` | Trạng thái | Select | Scheduled, Sent to Lab, Certificate Received, Passed, Failed, Conditionally Passed, Cancelled | Yes |
-| `lab_name` | Tên tổ chức kiểm định | Data | Bắt buộc nếu External | Conditional |
-| `lab_accreditation_number` | Số công nhận ISO/IEC 17025 | Data | Bắt buộc nếu External (BR-11-01) | Conditional |
-| `certificate_file` | File chứng chỉ (PDF) | Attach | Bắt buộc nếu External (BR-11-01) | Conditional |
-| `certificate_date` | Ngày cấp chứng chỉ | Date | Basis tính next_calibration_date (BR-11-04) | Conditional |
+| `actual_date` | Ngày thực hiện | Date | Set on_submit | Auto |
+| `lab_supplier` | Tổ chức kiểm định | Link | AC Supplier (filter Calibration Lab + iso_17025_certified=1) | Conditional (External) |
+| `lab_accreditation_number` | Số công nhận ISO 17025 | Data | Auto-fetch từ `lab_supplier`, override được | Conditional (External) |
+| `lab_contract_ref` | Số hợp đồng | Data | — | No |
+| `sent_date` | Ngày gửi | Date | — | Conditional (External) |
+| `sent_by` | Người bàn giao | Link | User | Conditional |
+| `certificate_file` | Chứng chỉ (PDF) | Attach | BR-11-01 | Conditional (External) |
+| `certificate_date` | Ngày cấp chứng chỉ | Date | BR-11-04 basis | Conditional (External Pass) |
 | `certificate_number` | Số chứng chỉ | Data | — | No |
-| `certificate_expiry` | Ngày hết hạn chứng chỉ | Date | — | No |
-| `overall_result` | Kết quả tổng thể | Select | Passed, Failed, Conditionally Passed | Auto |
-| `technician` | KTV thực hiện | Link | User | Yes |
-| `reference_standard_serial` | Serial thiết bị chuẩn | Data | Chỉ khi In-House | Conditional |
-| `traceability_reference` | Tham chiếu traceability | Data | Ví dụ: VLAS-T-xxx, NAATI | Conditional |
-| `pm_work_order` | PM Work Order liên kết | Link | PM Work Order (tùy chọn) | No |
-| `measurements` | Kết quả đo lường | Table | Child: Calibration Measurement | Yes |
-| `capa_record` | CAPA liên kết | Link | CAPA Record (auto-set khi Fail) | Auto |
+| `next_calibration_date` | Ngày cal tiếp theo | Date | Computed on_submit Pass: `certificate_date + interval` | Auto |
+| `overall_result` | Kết quả tổng | Select | Passed, Failed, Conditionally Passed | Auto |
+| `technician` | KTV | Link | User | Yes |
+| `assigned_by` | Phân công bởi | Link | User | No |
+| `reference_standard_serial` | Serial chuẩn | Data | — | Conditional (In-House) |
+| `traceability_reference` | Traceability ref | Data | VLAS-T-xxx, NIST | Conditional (In-House) |
+| `measurements` | Tham số đo | Table | Child: IMM Calibration Measurement | Yes |
+| `pm_work_order` | PM WO liên kết | Link | (IMM-08) | No |
+| `capa_record` | CAPA liên kết | Link | IMM CAPA Record (auto khi Fail) | Auto |
+| `is_recalibration` | Là tái cal sau CAPA | Check | Bypass `validate_asset_for_operations` (BR-11-07) | No |
+| `calibration_sticker_attached` | Đã gắn sticker | Check | — | No |
+| `sticker_photo` | Ảnh sticker | Attach Image | — | No |
+| `technician_notes` | Ghi chú KTV | Long Text | — | No |
+| `amendment_reason` | Lý do Amend | Small Text | Bắt buộc khi Amend (BR-11-05) | Conditional |
 
----
+### 3.3 IMM Calibration Measurement (Child)
 
-### 2.3 `Calibration Measurement` (Kết quả đo từng tham số — Child Table)
+⚠️ Pending implementation. Parent: `IMM Asset Calibration`.
 
-**Mục đích:** Lưu từng tham số đo lường với giá trị danh định, dung sai và kết quả thực đo.
-**Parent:** Asset Calibration
-
-| Field | Label (VI) | Type | Notes | Mandatory |
-| --- | --- | --- | --- | --- |
-| `parameter_name` | Tên tham số | Data | Ví dụ: "Áp suất đỉnh (PIP)", "Thể tích lưu thông" | Yes |
-| `unit` | Đơn vị | Data | Ví dụ: cmH₂O, mL, V, mmHg | Yes |
-| `nominal_value` | Giá trị danh định | Float | Giá trị lý thuyết theo IFU | Yes |
-| `tolerance_positive` | Dung sai (+) | Float | Ví dụ: 2 = ±2% | Yes |
-| `tolerance_negative` | Dung sai (-) | Float | Thường bằng tolerance_positive | Yes |
-| `measured_value` | Giá trị đo thực tế | Float | KTV nhập từ certificate / thiết bị | Yes |
-| `out_of_tolerance` | Ngoài dung sai | Check | Computed server-side | Auto |
+| Field | Label | Type | Notes | Mandatory |
+|---|---|---|---|---|
+| `parameter_name` | Tham số | Data | Ví dụ: WBC Count, PIP, Tidal Volume | Yes |
+| `unit` | Đơn vị | Data | cmH₂O, mL, V, mmHg, 10³/µL | Yes |
+| `nominal_value` | Giá trị danh định | Float | Theo IFU | Yes |
+| `tolerance_positive` | Dung sai (+) % | Float | — | Yes |
+| `tolerance_negative` | Dung sai (-) % | Float | Thường = positive | Yes |
+| `measured_value` | Giá trị đo | Float | KTV nhập | Yes |
+| `out_of_tolerance` | Ngoài dung sai | Check | Computed | Auto |
 | `pass_fail` | Kết quả | Select | Pass, Fail | Auto |
 
 **Computed logic:**
 
 ```python
+base = abs(nominal_value)
+tol_plus = (tolerance_positive / 100) * base
+tol_minus = (tolerance_negative / 100) * base
 deviation = measured_value - nominal_value
-out_of_tolerance = deviation > tolerance_positive or deviation < -tolerance_negative
+out_of_tolerance = deviation > tol_plus or deviation < -tol_minus
 pass_fail = "Fail" if out_of_tolerance else "Pass"
 ```
 
----
+### 3.4 Custom fields trên AC Asset (đề xuất)
 
-### 2.4 `CAPA Record` (Hồ sơ phòng ngừa và khắc phục)
+⚠️ Pending — cần fixtures `custom_field`.
 
-**Mục đích:** Ghi nhận nguyên nhân, hành động khắc phục, và kết quả Lookback Assessment khi calibration fail.
-**Naming Series:** `CAPA-YYYY-#####`
-**DocType type:** Submittable
-
-| Field | Label (VI) | Type | Options / Notes | Mandatory |
-| --- | --- | --- | --- | --- |
-| `source_doc_type` | Loại tài liệu nguồn | Data | "Asset Calibration" | Auto |
-| `source_doc` | Tài liệu nguồn | Dynamic Link | Asset Calibration | Auto |
-| `asset` | Thiết bị | Link | Asset | Yes |
-| `device_model` | Model thiết bị | Link | Device Model | Yes |
-| `trigger_type` | Loại trigger | Select | Calibration_Fail, Chronic_Failure, Audit | Auto |
-| `root_cause` | Nguyên nhân gốc rễ | Text | Bắt buộc trước khi Close | Conditional |
-| `corrective_action` | Hành động khắc phục | Text | — | Yes |
-| `corrective_action_due` | Hạn hoàn thành khắc phục | Date | Default: ngày mở + 30 ngày | Yes |
-| `preventive_action` | Hành động phòng ngừa | Text | — | No |
-| `status` | Trạng thái | Select | Open, In Review, Pending Verification, Closed | Yes |
-| `closed_by` | Người đóng | Link | User | Conditional |
-| `closed_date` | Ngày đóng | Date | Auto-set khi status = Closed | Auto |
-| `lookback_required` | Cần Lookback | Check | Auto True khi trigger_type = Calibration_Fail | Auto |
-| `lookback_status` | Trạng thái Lookback | Select | Pending, In Progress, Cleared, Action Required | Auto |
-| `lookback_assets` | Danh sách thiết bị cùng model | Text | JSON list of asset names — auto-populated | Auto |
+| Field | Type | Notes |
+|---|---|---|
+| `last_calibration_date` | Date | Set bởi `handle_calibration_pass()` |
+| `next_calibration_date` | Date | Set bởi `handle_calibration_pass()`; driver cho overdue scheduler |
+| `calibration_status` | Select | On Schedule, Due Soon, Overdue, Calibration Failed, No Schedule |
 
 ---
 
-## 3. State Machine
+## 4. State Machine
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Scheduled : Scheduler tạo WO 30 ngày trước due date
-
-    Scheduled --> SentToLab : KTV bàn giao thiết bị ra lab\n(External Track)
-    Scheduled --> InProgress : KTV bắt đầu đo tại chỗ\n(In-House Track)
-
-    SentToLab --> CertificateReceived : KTV nhận chứng chỉ từ lab
-    SentToLab --> OnHold : Sự cố tại lab / thiết bị hỏng
-
-    CertificateReceived --> Passed : Submit — tất cả tham số Pass
-    CertificateReceived --> Failed : Submit — ≥1 tham số out_of_tolerance
-
-    InProgress --> Passed : Submit — tất cả tham số Pass (In-House)
-    InProgress --> Failed : Submit — ≥1 tham số Fail (In-House)
-
-    Failed --> ConditionallyPassed : CAPA Closed + Recalibration = Pass
-    OnHold --> Scheduled : Sau khi sửa chữa / khắc phục xong
-
+    [*] --> Scheduled : Scheduler/Manual create
+    Scheduled --> SentToLab : External — KTV bàn giao
+    Scheduled --> InProgress : In-House — KTV bắt đầu
+    Scheduled --> Cancelled : Workshop Lead cancel (docstatus=0)
+    SentToLab --> CertificateReceived : KTV nhận chứng chỉ
+    CertificateReceived --> Passed : Submit + all params Pass
+    CertificateReceived --> Failed : Submit + any param Fail
+    InProgress --> Passed : Submit + all params Pass
+    InProgress --> Failed : Submit + any param Fail
+    Failed --> ConditionallyPassed : CAPA Closed + recalibration Pass
     Passed --> [*]
     ConditionallyPassed --> [*]
     Cancelled --> [*]
 
     note right of Failed
-        Asset.status → Out of Service
-        CAPA Record tự động tạo
-        Lookback Assessment triggered
-        Notify: QA Officer + PTP Khối 2
-    end note
-
-    note right of Scheduled
-        Tạo 30 ngày trước next_due_date
-        Không Cancel sau Submit — dùng Amend
+      handle_calibration_fail():
+      - transition_asset_status(→ Out of Service)
+      - create_capa()
+      - perform_lookback_assessment()
+      - log_audit_event() + create_lifecycle_event()
     end note
 
     note right of Passed
-        Asset: last_cal_date = certificate_date
-        next_cal_date = certificate_date + interval
-        Asset.status → Active
+      handle_calibration_pass():
+      - update last_calibration_date / next_calibration_date
+      - update Schedule.last/next_due_date
+      - create_lifecycle_event("calibration_completed")
     end note
 ```
 
 ---
 
-## 4. Backend Implementation
+## 5. Backend Implementation
 
-### 4.1 Service Layer — `services/imm11.py`
+### 5.1 Service layer skeleton
+
+⚠️ Pending implementation — file `assetcore/services/imm11.py` chưa tồn tại.
 
 ```python
+# assetcore/services/imm11.py  -- ⚠️ FILE CHƯA TỒN TẠI
 """
-IMM-11 Calibration Management — Service Layer
-Toàn bộ business logic đặt tại đây.
-Controller chỉ gọi functions, không chứa logic.
+IMM-11 Calibration — Service Layer.
+Tất cả business logic ở đây. Controller chỉ delegate.
+Mọi side effect (transition, capa, audit) PHẢI gọi qua IMM-00 services.
 """
 import frappe
 from frappe import _
-from frappe.utils import nowdate, add_days, date_diff, getdate, now
+from frappe.utils import nowdate, add_days, getdate, date_diff, now
 from typing import Optional
 
-
-def create_calibration_schedule_from_commissioning(doc) -> None:
-    """
-    Tạo Calibration Schedule khi Asset Commissioning (IMM-04) được Submit.
-    Chỉ tạo nếu Device Model.calibration_required = True.
-
-    Args:
-        doc: Asset Commissioning document (on_submit hook)
-    """
-    device_model = frappe.db.get_value("Asset", doc.asset, "device_model")
-    if not device_model:
-        return
-
-    cal_required = frappe.db.get_value("Device Model", device_model, "calibration_required")
-    if not cal_required:
-        return
-
-    interval_days = frappe.db.get_value("Device Model", device_model, "calibration_interval_days") or 365
-    cal_type = frappe.db.get_value("Device Model", device_model, "calibration_type_default") or "External"
-
-    schedule = frappe.get_doc({
-        "doctype": "Calibration Schedule",
-        "asset": doc.asset,
-        "device_model": device_model,
-        "calibration_type": cal_type,
-        "interval_days": interval_days,
-        "last_calibration_date": doc.commissioning_date or nowdate(),
-        "next_due_date": add_days(doc.commissioning_date or nowdate(), interval_days),
-        "is_active": 1,
-    })
-    schedule.insert(ignore_permissions=True)
-
-
-def create_due_calibration_wos() -> None:
-    """
-    Tạo draft Asset Calibration WO cho các thiết bị đến hạn trong 30 ngày.
-    Chạy daily — 06:00. Bỏ qua nếu WO Scheduled đã tồn tại.
-    """
-    alert_threshold = add_days(nowdate(), 30)
-
-    due_schedules = frappe.get_all(
-        "Calibration Schedule",
-        filters={
-            "is_active": 1,
-            "next_due_date": ("<=", alert_threshold),
-        },
-        fields=["name", "asset", "device_model", "calibration_type",
-                "interval_days", "next_due_date", "preferred_lab"],
-    )
-
-    for sched in due_schedules:
-        existing = frappe.db.exists("Asset Calibration", {
-            "calibration_schedule": sched.name,
-            "status": ("in", ["Scheduled", "Sent to Lab", "Certificate Received"]),
-        })
-        if existing:
-            continue
-
-        cal = frappe.get_doc({
-            "doctype": "Asset Calibration",
-            "calibration_schedule": sched.name,
-            "asset": sched.asset,
-            "calibration_type": sched.calibration_type,
-            "scheduled_date": sched.next_due_date,
-            "status": "Scheduled",
-            "lab_name": sched.preferred_lab or "",
-        })
-        cal.insert(ignore_permissions=True)
-
-
-def check_calibration_expiry() -> None:
-    """
-    Cập nhật custom_calibration_status trên Asset dựa trên next_due_date.
-    Chạy daily. Trạng thái: On Schedule / Due Soon (≤30d) / Overdue.
-    """
-    assets = frappe.get_all(
-        "Asset",
-        filters={"status": "Active", "custom_next_calibration_date": ("!=", "")},
-        fields=["name", "custom_next_calibration_date"],
-    )
-    today = getdate(nowdate())
-
-    for asset in assets:
-        if not asset.custom_next_calibration_date:
-            continue
-        days_left = date_diff(asset.custom_next_calibration_date, today)
-        if days_left < 0:
-            cal_status = "Overdue"
-        elif days_left <= 30:
-            cal_status = "Due Soon"
-        else:
-            cal_status = "On Schedule"
-        frappe.db.set_value("Asset", asset.name, "custom_calibration_status", cal_status)
-
-
-def handle_calibration_fail(cal_doc) -> None:
-    """
-    Xử lý khi calibration kết quả FAIL (BR-11-02, BR-11-03):
-    1. Set Asset.status = Out of Service
-    2. Tạo CAPA Record bắt buộc
-    3. Trigger Lookback Assessment cùng device_model
-    4. Notify QA + PTP
-
-    Args:
-        cal_doc: Asset Calibration document (submitted, overall_result = Failed)
-    """
-    # 1. Set OOS
-    frappe.db.set_value("Asset", cal_doc.asset, {
-        "status": "Out of Service",
-        "custom_calibration_status": "Calibration Failed",
-    })
-
-    # 2. Tạo CAPA
-    capa_name = _create_capa_record(cal_doc)
-
-    # 3. Lookback
-    _trigger_lookback_assessment(cal_doc.device_model, cal_doc.name, capa_name)
-
-    # 4. Audit trail
-    frappe.get_doc({
-        "doctype": "Asset Lifecycle Event",
-        "asset": cal_doc.asset,
-        "event_type": "calibration_failed",
-        "timestamp": now(),
-        "actor": frappe.session.user,
-        "from_status": "Active",
-        "to_status": "Out of Service",
-        "root_record": cal_doc.name,
-        "notes": f"CAPA: {capa_name}. Lookback triggered for model {cal_doc.device_model}",
-    }).insert(ignore_permissions=True)
-
-    # 5. Notify
-    _notify_calibration_fail(cal_doc, capa_name)
-
-
-def perform_lookback_assessment(device_model: str, failed_cal_name: str) -> list:
-    """
-    Tìm tất cả Asset cùng device_model đang Active.
-    Trả về danh sách để ghi vào CAPA Record.
-
-    Args:
-        device_model: Tên Device Model
-        failed_cal_name: Tên Asset Calibration đã fail (loại trừ khỏi kết quả)
-
-    Returns:
-        list: Danh sách asset names cùng model cần xem xét
-    """
-    failed_asset = frappe.db.get_value("Asset Calibration", failed_cal_name, "asset")
-    same_model = frappe.get_all(
-        "Asset",
-        filters={
-            "device_model": device_model,
-            "status": "Active",
-            "name": ("!=", failed_asset),
-        },
-        fields=["name", "asset_name"],
-    )
-    return [a.name for a in same_model]
-
-
-def update_asset_calibration_dates(
-    asset_name: str, certificate_date: str, interval_days: int
-) -> None:
-    """
-    Cập nhật custom fields trên Asset sau calibration PASS (BR-11-04).
-    next_calibration_date = certificate_date + interval_days (NOT due_date).
-
-    Args:
-        asset_name: Tên Asset
-        certificate_date: Ngày cấp chứng chỉ (YYYY-MM-DD)
-        interval_days: Chu kỳ hiệu chuẩn (ngày)
-    """
-    next_date = add_days(certificate_date, interval_days)
-    frappe.db.set_value("Asset", asset_name, {
-        "custom_last_calibration_date": certificate_date,
-        "custom_next_calibration_date": next_date,
-        "custom_calibration_status": "On Schedule",
-    })
-    return next_date
-
-
-def _create_capa_record(cal_doc) -> str:
-    """Tạo CAPA Record tự động khi calibration fail (BR-11-02)."""
-    capa = frappe.get_doc({
-        "doctype": "CAPA Record",
-        "source_doc_type": "Asset Calibration",
-        "source_doc": cal_doc.name,
-        "asset": cal_doc.asset,
-        "device_model": cal_doc.device_model,
-        "trigger_type": "Calibration_Fail",
-        "status": "Open",
-        "corrective_action": "Chưa xác định — cần RCA",
-        "corrective_action_due": add_days(nowdate(), 30),
-        "lookback_required": 1,
-        "lookback_status": "Pending",
-    })
-    capa.insert(ignore_permissions=True)
-    frappe.db.commit()
-    return capa.name
-
-
-def _trigger_lookback_assessment(
-    device_model: str, failed_cal_name: str, capa_name: str
-) -> None:
-    """Ghi danh sách asset cùng model vào CAPA để thực hiện lookback (BR-11-03)."""
-    asset_list = perform_lookback_assessment(device_model, failed_cal_name)
-    frappe.db.set_value("CAPA Record", capa_name, {
-        "lookback_assets": str(asset_list),
-        "lookback_status": "In Progress" if asset_list else "Cleared",
-    })
-
-
-def _notify_calibration_fail(cal_doc, capa_name: str) -> None:
-    """Gửi email notification đến QA Officer và PTP Khối 2."""
-    qa_users = frappe.get_all("Has Role", filters={"role": "QA Officer"}, pluck="parent")
-    ptp_users = frappe.get_all("Has Role", filters={"role": "PTP Khối 2"}, pluck="parent")
-    recipients = list(set(qa_users + ptp_users))
-    for user in recipients:
-        frappe.sendmail(
-            recipients=[user],
-            subject=f"[ASSETCORE] Calibration FAIL — {cal_doc.asset}",
-            message=(
-                f"Thiết bị <b>{cal_doc.asset}</b> KHÔNG ĐẠT hiệu chuẩn.<br>"
-                f"Phiếu: <b>{cal_doc.name}</b><br>"
-                f"CAPA đã mở: <b>{capa_name}</b><br>"
-                f"Thiết bị đã chuyển sang <b>Out of Service</b>.<br>"
-                f"Vui lòng thực hiện Lookback Assessment."
-            ),
-        )
-
-
-def create_post_repair_calibration(asset_name: str) -> Optional[str]:
-    """
-    Tạo Asset Calibration sau khi sửa chữa xong (IMM-09 → IMM-11).
-    Chỉ tạo nếu Asset có Calibration Schedule đang active.
-
-    Args:
-        asset_name: Tên Asset vừa hoàn thành sửa chữa
-
-    Returns:
-        Optional[str]: Tên Asset Calibration mới, hoặc None nếu không cần
-    """
-    sched = frappe.db.get_value(
-        "Calibration Schedule",
-        {"asset": asset_name, "is_active": 1},
-        "name",
-    )
-    if not sched:
-        return None
-
-    cal = frappe.get_doc({
-        "doctype": "Asset Calibration",
-        "calibration_schedule": sched,
-        "asset": asset_name,
-        "calibration_type": frappe.db.get_value("Calibration Schedule", sched, "calibration_type"),
-        "scheduled_date": nowdate(),
-        "status": "Scheduled",
-    })
-    cal.insert(ignore_permissions=True)
-    return cal.name
-```
-
----
-
-### 4.2 Controller — `asset_calibration.py`
-
-```python
-"""
-Asset Calibration DocType Controller
-Không chứa business logic — chỉ gọi service layer (imm11.py).
-"""
-import frappe
-from frappe.model.document import Document
-from assetcore.services.imm11 import (
-    handle_calibration_fail,
-    update_asset_calibration_dates,
+from assetcore.services.imm00 import (
+    transition_asset_status,
+    create_capa,
+    log_audit_event,
+    create_lifecycle_event,
+    validate_asset_for_operations,
+    get_sla_policy,
 )
 
 
-class AssetCalibration(Document):
+def create_calibration_schedule_from_commissioning(commissioning_doc) -> Optional[str]:
+    """Hook: IMM-04 Commissioning on_submit. BR-11 setup."""
+    asset = commissioning_doc.asset
+    device_model = frappe.db.get_value("AC Asset", asset, "device_model")
+    if not device_model:
+        return None
+    cal_required = frappe.db.get_value("IMM Device Model", device_model, "calibration_required")
+    if not cal_required:
+        return None
+    interval = frappe.db.get_value("IMM Device Model", device_model, "calibration_interval_days") or 365
+    cal_type = frappe.db.get_value("IMM Device Model", device_model, "calibration_type_default") or "External"
+    sched = frappe.get_doc({
+        "doctype": "IMM Calibration Schedule",
+        "asset": asset,
+        "device_model": device_model,
+        "calibration_type": cal_type,
+        "interval_days": interval,
+        "last_calibration_date": commissioning_doc.commissioning_date or nowdate(),
+        "next_due_date": add_days(commissioning_doc.commissioning_date or nowdate(), interval),
+        "is_active": 1,
+    }).insert(ignore_permissions=True)
+    log_audit_event(
+        asset=asset, event_type="Calibration Schedule Created",
+        actor=frappe.session.user, ref_doctype="IMM Calibration Schedule",
+        ref_name=sched.name, change_summary=f"Auto from commissioning {commissioning_doc.name}",
+    )
+    return sched.name
+
+
+def create_due_calibration_wos() -> int:
+    """Scheduler daily — tạo CAL WO cho Schedule due ≤ 30 ngày."""
+    threshold = add_days(nowdate(), 30)
+    schedules = frappe.get_all(
+        "IMM Calibration Schedule",
+        filters={"is_active": 1, "next_due_date": ("<=", threshold)},
+        fields=["name", "asset", "device_model", "calibration_type",
+                "interval_days", "next_due_date", "preferred_lab"],
+    )
+    created = 0
+    for s in schedules:
+        if frappe.db.exists("IMM Asset Calibration", {
+            "calibration_schedule": s.name,
+            "status": ("in", ["Scheduled", "Sent to Lab", "In Progress", "Certificate Received"]),
+        }):
+            continue
+        try:
+            validate_asset_for_operations(s.asset)  # IMM-00
+        except frappe.ValidationError:
+            continue  # skip Out of Service
+        frappe.get_doc({
+            "doctype": "IMM Asset Calibration",
+            "calibration_schedule": s.name,
+            "asset": s.asset,
+            "device_model": s.device_model,
+            "calibration_type": s.calibration_type,
+            "scheduled_date": s.next_due_date,
+            "lab_supplier": s.preferred_lab,
+            "status": "Scheduled",
+        }).insert(ignore_permissions=True)
+        created += 1
+    return created
+
+
+def check_calibration_expiry() -> None:
+    """Scheduler daily — update calibration_status + email alerts."""
+    today = getdate(nowdate())
+    assets = frappe.get_all(
+        "AC Asset",
+        filters={"lifecycle_status": "Active",
+                 "next_calibration_date": ("is", "set")},
+        fields=["name", "next_calibration_date"],
+    )
+    for a in assets:
+        days_left = date_diff(a.next_calibration_date, today)
+        if days_left < 0:
+            status = "Overdue"
+        elif days_left <= 30:
+            status = "Due Soon"
+        else:
+            status = "On Schedule"
+        frappe.db.set_value("AC Asset", a.name, "calibration_status", status)
+        if days_left in (90, 60, 30, 7, 0):
+            _send_expiry_alert(a.name, days_left)
+
+
+def handle_calibration_pass(cal_doc) -> None:
+    """on_submit Pass: BR-11-04 + lifecycle event + Schedule update."""
+    interval = frappe.db.get_value(
+        "IMM Calibration Schedule", cal_doc.calibration_schedule, "interval_days"
+    ) or frappe.db.get_value(
+        "IMM Device Model", cal_doc.device_model, "calibration_interval_days"
+    ) or 365
+    basis_date = cal_doc.certificate_date or cal_doc.actual_date
+    next_date = add_days(str(basis_date), interval)
+    frappe.db.set_value("AC Asset", cal_doc.asset, {
+        "last_calibration_date": basis_date,
+        "next_calibration_date": next_date,
+        "calibration_status": "On Schedule",
+    })
+    frappe.db.set_value("IMM Asset Calibration", cal_doc.name, "next_calibration_date", next_date)
+    if cal_doc.calibration_schedule:
+        frappe.db.set_value("IMM Calibration Schedule", cal_doc.calibration_schedule, {
+            "last_calibration_date": basis_date,
+            "next_due_date": next_date,
+        })
+    create_lifecycle_event(  # IMM-00
+        asset=cal_doc.asset, event_type="calibration_completed",
+        actor=frappe.session.user,
+        from_status=frappe.db.get_value("AC Asset", cal_doc.asset, "lifecycle_status"),
+        to_status="Active",
+        root_doctype="IMM Asset Calibration", root_record=cal_doc.name,
+        notes=f"Result: {cal_doc.overall_result}; next due: {next_date}",
+    )
+    # Recalibration Pass after CAPA → restore Active
+    if cal_doc.is_recalibration:
+        transition_asset_status(  # IMM-00
+            asset=cal_doc.asset, to_status="Active",
+            root_doctype="IMM Asset Calibration", root_record=cal_doc.name,
+            reason="Recalibration Pass after CAPA",
+        )
+
+
+def handle_calibration_fail(cal_doc) -> None:
+    """on_submit Fail: BR-11-02 + BR-11-03."""
+    # 1. Transition → Out of Service (IMM-00)
+    transition_asset_status(
+        asset=cal_doc.asset, to_status="Out of Service",
+        root_doctype="IMM Asset Calibration", root_record=cal_doc.name,
+        reason=f"Calibration failed — {cal_doc.name}",
+    )
+    frappe.db.set_value("AC Asset", cal_doc.asset, "calibration_status", "Calibration Failed")
+
+    # 2. Create CAPA (IMM-00)
+    capa_name = create_capa(
+        asset=cal_doc.asset, source_type="IMM Asset Calibration", source_ref=cal_doc.name,
+        severity="Major",
+        description=f"Calibration failed; out-of-tolerance parameters: {_failed_params(cal_doc)}",
+        responsible="IMM QA Officer", due_date=add_days(nowdate(), 30),
+    )
+    frappe.db.set_value("IMM Asset Calibration", cal_doc.name, "capa_record", capa_name)
+
+    # 3. Lookback (BR-11-03)
+    lookback = perform_lookback_assessment(cal_doc.device_model, cal_doc.asset)
+    frappe.db.set_value("IMM CAPA Record", capa_name, {
+        "lookback_required": 1,
+        "lookback_status": "In Progress" if lookback else "Cleared",
+        "lookback_assets": str(lookback),
+    })
+
+    # 4. Lifecycle event (IMM-00)
+    create_lifecycle_event(
+        asset=cal_doc.asset, event_type="calibration_failed",
+        actor=frappe.session.user, from_status="Active", to_status="Out of Service",
+        root_doctype="IMM Asset Calibration", root_record=cal_doc.name,
+        notes=f"CAPA: {capa_name}; lookback {len(lookback)} assets",
+    )
+
+    # 5. Notify (utils/email)
+    _notify_calibration_fail(cal_doc, capa_name, lookback)
+
+
+def perform_lookback_assessment(device_model: str, exclude_asset: str) -> list:
+    """BR-11-03 — assets cùng device_model đang Active."""
+    rows = frappe.get_all(
+        "AC Asset",
+        filters={
+            "device_model": device_model,
+            "lifecycle_status": "Active",
+            "name": ("!=", exclude_asset),
+        },
+        fields=["name"],
+    )
+    return [r.name for r in rows]
+
+
+def create_post_repair_calibration(asset_name: str) -> Optional[str]:
+    """Hook: IMM-09 Repair completed → tái cal nếu thiết bị có Schedule."""
+    sched = frappe.db.get_value(
+        "IMM Calibration Schedule", {"asset": asset_name, "is_active": 1}, "name"
+    )
+    if not sched:
+        return None
+    cal = frappe.get_doc({
+        "doctype": "IMM Asset Calibration",
+        "calibration_schedule": sched,
+        "asset": asset_name,
+        "calibration_type": frappe.db.get_value("IMM Calibration Schedule", sched, "calibration_type"),
+        "scheduled_date": nowdate(),
+        "status": "Scheduled",
+        "is_recalibration": 1,
+    }).insert(ignore_permissions=True)
+    return cal.name
+```
+
+### 5.2 Controller skeleton
+
+⚠️ Pending implementation.
+
+```python
+# assetcore/imm/doctype/imm_asset_calibration/imm_asset_calibration.py
+import frappe
+from frappe import _
+from frappe.model.document import Document
+from assetcore.services.imm11 import (
+    handle_calibration_pass, handle_calibration_fail,
+)
+
+
+class IMMAssetCalibration(Document):
     def validate(self):
-        """BR-11-01: External calibration bắt buộc có certificate + accreditation number."""
-        self._auto_populate_fields()
-        if self.calibration_type == "External":
-            if not self.certificate_file:
-                frappe.throw(
-                    _("Vui lòng upload Calibration Certificate trước khi Submit (BR-11-01)")
-                )
-            if not self.lab_accreditation_number:
-                frappe.throw(
-                    _("Vui lòng nhập Số công nhận ISO/IEC 17025 của tổ chức kiểm định (BR-11-01)")
-                )
+        self._auto_populate()
+        self._validate_external_requirements()
+        self._validate_inhouse_requirements()
+        self._compute_measurement_results()
 
     def before_submit(self):
-        """Tính overall_result từ measurements trước khi Submit."""
-        self._compute_measurement_results()
-        self.actual_date = frappe.utils.nowdate()
+        if not self.actual_date:
+            self.actual_date = frappe.utils.nowdate()
 
     def on_submit(self):
-        """BR-11-02: Nếu Fail → CAPA + OOS. BR-11-04: Cập nhật next calibration date."""
         if self.overall_result == "Failed":
             handle_calibration_fail(self)
         elif self.overall_result in ("Passed", "Conditionally Passed"):
-            interval = frappe.db.get_value(
-                "Calibration Schedule", self.calibration_schedule, "interval_days"
-            ) or 365
-            next_date = update_asset_calibration_dates(
-                self.asset, str(self.certificate_date or self.actual_date), interval
-            )
-            frappe.db.set_value("Asset Calibration", self.name, "next_calibration_date", next_date)
-            # Cập nhật Calibration Schedule
-            frappe.db.set_value("Calibration Schedule", self.calibration_schedule, {
-                "last_calibration_date": self.certificate_date or self.actual_date,
-                "next_due_date": next_date,
-            })
-            # Audit trail
-            frappe.get_doc({
-                "doctype": "Asset Lifecycle Event",
-                "asset": self.asset,
-                "event_type": "calibration_completed",
-                "timestamp": frappe.utils.now(),
-                "actor": frappe.session.user,
-                "from_status": frappe.db.get_value("Asset", self.asset, "status"),
-                "to_status": "Active",
-                "root_record": self.name,
-                "notes": f"Result: {self.overall_result}. Next due: {next_date}",
-            }).insert(ignore_permissions=True)
-
-    def after_insert(self):
-        """Cập nhật custom_calibration_status trên Asset khi WO mới được tạo."""
-        frappe.db.set_value("Asset", self.asset, "custom_calibration_status", "Scheduled")
+            handle_calibration_pass(self)
 
     def on_cancel(self):
-        """BR-11-05: Không cho phép Cancel sau Submit — chỉ Amend."""
+        # BR-11-05
         frappe.throw(_("Không thể hủy Phiếu Hiệu chuẩn đã Submit. Vui lòng dùng Amend (BR-11-05)"))
 
-    def _auto_populate_fields(self):
-        """Auto-fill device_model và interval từ Asset / Device Model."""
-        if self.asset and not self.device_model:
-            self.device_model = frappe.db.get_value("Asset", self.asset, "device_model")
+    def on_trash(self):
+        if self.docstatus == 1:
+            frappe.throw(_("Không thể xóa Phiếu Hiệu chuẩn đã Submit (BR-11-05)"))
+
+    def _validate_external_requirements(self):
+        if self.calibration_type != "External":
+            return
+        if not self.lab_supplier:
+            frappe.throw(_("Vui lòng chọn lab hiệu chuẩn (BR-11-01)"))
+        iso_ok = frappe.db.get_value("AC Supplier", self.lab_supplier, "iso_17025_certified")
+        if not iso_ok:
+            frappe.throw(_("Vui lòng chọn lab có chứng chỉ ISO/IEC 17025 (BR-11-01)"))
+        if self.docstatus == 0 and self.status in ("Certificate Received",) and not self.certificate_file:
+            frappe.throw(_("Vui lòng upload Calibration Certificate trước khi Submit (BR-11-01)"))
+        if self.docstatus == 0 and self.status in ("Certificate Received",) and not self.lab_accreditation_number:
+            frappe.throw(_("Vui lòng nhập Số công nhận ISO/IEC 17025 (BR-11-01)"))
+
+    def _validate_inhouse_requirements(self):
+        if self.calibration_type != "In-House":
+            return
+        if self.docstatus == 0 and not self.reference_standard_serial:
+            frappe.throw(_("Vui lòng nhập serial thiết bị chuẩn"))
 
     def _compute_measurement_results(self):
-        """Tính out_of_tolerance, pass_fail cho mỗi measurement. Set overall_result."""
         if not self.measurements:
-            frappe.throw(_("Phải có ít nhất một tham số đo lường trước khi Submit"))
+            return
         any_fail = False
         for m in self.measurements:
             if m.measured_value is None:
-                frappe.throw(_(f"Tham số '{m.parameter_name}' chưa có giá trị đo"))
-            deviation = m.measured_value - (m.nominal_value or 0)
-            m.out_of_tolerance = (
-                deviation > (m.tolerance_positive or 0)
-                or deviation < -(m.tolerance_negative or 0)
-            )
+                continue
+            base = abs(m.nominal_value or 0)
+            tol_plus = (m.tolerance_positive or 0) / 100 * base
+            tol_minus = (m.tolerance_negative or 0) / 100 * base
+            dev = m.measured_value - (m.nominal_value or 0)
+            m.out_of_tolerance = dev > tol_plus or dev < -tol_minus
             m.pass_fail = "Fail" if m.out_of_tolerance else "Pass"
             if m.out_of_tolerance:
                 any_fail = True
         self.overall_result = "Failed" if any_fail else "Passed"
+
+    def _auto_populate(self):
+        if self.asset and not self.device_model:
+            self.device_model = frappe.db.get_value("AC Asset", self.asset, "device_model")
 ```
 
----
+### 5.3 hooks.py registration
 
-### 4.3 Hooks Registration — `hooks.py`
+⚠️ Pending implementation.
 
 ```python
-# assetcore/hooks.py
-
 doc_events = {
-    "Asset Commissioning": {
+    "IMM Commissioning": {  # IMM-04
         "on_submit": "assetcore.services.imm11.create_calibration_schedule_from_commissioning",
-    }
+    },
+    "IMM Asset Repair": {   # IMM-09
+        "on_submit": "assetcore.services.imm11.create_post_repair_calibration_hook",
+    },
 }
 
 scheduler_events = {
@@ -663,148 +624,158 @@ scheduler_events = {
 
 ---
 
-## 5. Calibration Date Calculation
-
-### 5.1 Công thức tính ngày tiếp theo (BR-11-04)
+## 6. Calibration Date Calculation (BR-11-04)
 
 ```text
-next_calibration_date = certificate_date + calibration_interval_days
-                        (KHÔNG dùng due_date hay actual_date)
+next_calibration_date = certificate_date + Device Model.calibration_interval_days
+                        (NOT due_date, NOT actual_date for External)
+
+For In-House (no certificate_date):
+next_calibration_date = actual_date + interval_days
 ```
 
-**Ví dụ:**
-
-| certificate_date | interval_days | next_calibration_date |
-| --- | --- | --- |
+| certificate_date | interval | next_calibration_date |
+|---|---|---|
 | 2026-01-15 | 365 | 2027-01-15 |
 | 2026-03-01 | 180 | 2026-08-28 |
 | 2026-06-30 | 730 | 2028-06-29 |
 
-### 5.2 Hiệu chuẩn lần đầu từ Commissioning
+**Overdue detection (daily scheduler):**
 
-```text
-Khi Asset Commissioning (IMM-04) được Submit:
-    → create_calibration_schedule_from_commissioning() được gọi
-    → last_calibration_date = commissioning_date
-    → next_due_date = commissioning_date + interval_days
-    → Scheduler sẽ tạo WO khi còn 30 ngày trước next_due_date
-```
-
-### 5.3 Phát hiện Overdue
-
-| custom_calibration_status | Điều kiện |
-| --- | --- |
-| `On Schedule` | next_due_date > today + 30 ngày |
-| `Due Soon` | today < next_due_date ≤ today + 30 ngày |
-| `Overdue` | next_due_date < today |
-| `Calibration Failed` | Asset Calibration submitted với overall_result = Failed |
-| `No Schedule` | Không có Calibration Schedule is_active = True |
+| `calibration_status` | Điều kiện |
+|---|---|
+| On Schedule | `next > today + 30` |
+| Due Soon | `0 ≤ next - today ≤ 30` |
+| Overdue | `next < today` |
+| Calibration Failed | Sau Submit Fail |
+| No Schedule | Không có Schedule active |
 
 ---
 
-## 6. CAPA & Lookback Flow
-
-Quy trình tự động khi Asset Calibration submitted với `overall_result = Failed`:
+## 7. CAPA & Lookback Flow
 
 ```text
-Step 1: handle_calibration_fail(cal_doc)
-    ↓
-Step 2: frappe.db.set_value(Asset, "status", "Out of Service")
-        frappe.db.set_value(Asset, "custom_calibration_status", "Calibration Failed")
-    ↓
-Step 3: _create_capa_record(cal_doc)
-        → CAPA-YYYY-##### [trigger_type=Calibration_Fail, status=Open]
-        → lookback_required = True, lookback_status = Pending
-    ↓
-Step 4: _trigger_lookback_assessment(device_model, failed_cal_name, capa_name)
-        → perform_lookback_assessment() → tìm tất cả Asset.status=Active cùng device_model
-        → Ghi lookback_assets vào CAPA
-        → Nếu có asset cùng model: lookback_status = In Progress
-        → Nếu không có: lookback_status = Cleared
-    ↓
-Step 5: Asset Lifecycle Event (calibration_failed) được tạo
-    ↓
-Step 6: _notify_calibration_fail() → Email QA Officer + PTP Khối 2
-    ↓
-Step 7: QA Officer xem xét Lookback Assessment
-    → Kiểm tra từng asset trong lookback_assets
-    → Nếu cần: tạo thêm Asset Calibration WO cho các thiết bị cùng model
-    → Cập nhật CAPA.lookback_status = Cleared hoặc Action Required
-    ↓
-Step 8: QA Officer điền root_cause, corrective_action, preventive_action
-Step 9: CAPA.status = Closed (chỉ khi lookback_status ≠ Pending)
-    ↓
-Step 10: Sau khi khắc phục → tạo Asset Calibration mới
-         Nếu Pass → Asset.status = Active, overall_result = Conditionally Passed
+on_submit (Failed)
+    │
+    ▼
+handle_calibration_fail(cal_doc):
+    1. transition_asset_status(→ Out of Service)            [IMM-00]
+    2. create_capa(source_type="IMM Asset Calibration")     [IMM-00]
+    3. perform_lookback_assessment(device_model)            [IMM-11]
+       → write lookback_assets vào CAPA
+    4. create_lifecycle_event("calibration_failed")         [IMM-00]
+    5. log_audit_event(...)                                 [IMM-00]
+    6. _notify_calibration_fail() → email QA + Manager
+    │
+    ▼
+QA Officer:
+    7. resolve_capa_lookback (Cleared / Action Required)
+    8. close_capa (root_cause + corrective + preventive)    [IMM-00]
+       → block nếu lookback_status=Pending  [BR-11-03]
+       → block nếu thiếu RCA                 [BR-00-08]
+    │
+    ▼
+KTV: Recalibration (is_recalibration=1) → Submit Pass
+    │
+    ▼
+handle_calibration_pass + transition_asset_status(→ Active)
+    → lifecycle_event("calibration_conditionally_passed")
 ```
 
 ---
 
-## 7. Validation Rules
+## 8. Validation Rules (controller-level)
 
-| ID | Tên | Trigger | Điều kiện vi phạm | Thông báo lỗi (VI) | Hành động |
-| --- | --- | --- | --- | --- | --- |
-| VR-11-01 | External Cert Required | `validate` (on Submit) | `calibration_type = External` nhưng `certificate_file` rỗng | "Vui lòng upload Calibration Certificate trước khi Submit (BR-11-01)" | Block Submit |
-| VR-11-02 | Accreditation Number Required | `validate` (on Submit) | `calibration_type = External` nhưng `lab_accreditation_number` rỗng | "Vui lòng nhập Số công nhận ISO/IEC 17025 của tổ chức kiểm định (BR-11-01)" | Block Submit |
-| VR-11-03 | All Measurements Required | `before_submit` | Bất kỳ measurement row có `measured_value = null` | "Tham số '{param}' chưa có giá trị đo trước khi Submit" | Block Submit |
-| VR-11-04 | Next Date from Certificate | `on_submit` | `certificate_date` rỗng khi Passed | "Ngày cấp chứng chỉ là bắt buộc để tính ngày hiệu chuẩn tiếp theo" | Block Submit |
-| VR-11-05 | No Cancel After Submit | `on_cancel` | Cố gắng Cancel record đã Submit | "Không thể hủy Phiếu Hiệu chuẩn đã Submit. Vui lòng dùng Amend (BR-11-05)" | Block Cancel |
-
----
-
-## 8. Integration Points
-
-### 8.1 IMM-04 → IMM-11: Tạo lịch từ Commissioning
-
-```text
-Asset Commissioning (IMM-04)
-    └─ on_submit
-         └─ create_calibration_schedule_from_commissioning(doc)
-              └─ Calibration Schedule [asset, interval, next_due_date]
-```
-
-### 8.2 IMM-09 → IMM-11: Sau sửa chữa thiết bị đo lường
-
-```text
-Asset Repair (IMM-09)
-    └─ on_submit (status=Completed)
-         └─ trigger_calibration_after_repair(asset_name)
-              └─ create_post_repair_calibration(asset_name)
-                   └─ Asset Calibration [status=Scheduled, scheduled_date=today]
-```
-
-### 8.3 IMM-11 → Asset: Cập nhật trường custom
-
-| Sự kiện | Trường cập nhật | Giá trị |
-| --- | --- | --- |
-| Calibration Passed | `custom_last_calibration_date` | certificate_date |
-| Calibration Passed | `custom_next_calibration_date` | certificate_date + interval_days |
-| Calibration Passed | `custom_calibration_status` | On Schedule |
-| Calibration Failed | `status` | Out of Service |
-| Calibration Failed | `custom_calibration_status` | Calibration Failed |
-
-### 8.4 IMM-11 → CAPA: Auto-create khi Fail
-
-```text
-Asset Calibration (IMM-11) [overall_result = Failed]
-    └─ on_submit
-         └─ handle_calibration_fail(cal_doc)
-              └─ CAPA Record [trigger_type=Calibration_Fail, lookback_required=True]
-```
+| ID | Trigger | Điều kiện | Message | Action |
+|---|---|---|---|---|
+| VR-11-01 | `validate` | External + lab_supplier null | "Vui lòng chọn lab hiệu chuẩn" | throw |
+| VR-11-02 | `validate` | External + iso_17025_certified=0 | "Vui lòng chọn lab có chứng chỉ ISO/IEC 17025 (BR-11-01)" | throw |
+| VR-11-03 | `validate` | External + status=Certificate Received + certificate_file null | "Vui lòng upload Calibration Certificate (BR-11-01)" | throw |
+| VR-11-04 | `validate` | External + status=Certificate Received + accreditation null | "Vui lòng nhập Số công nhận ISO/IEC 17025 (BR-11-01)" | throw |
+| VR-11-05 | `before_submit` | measurement.measured_value null | "Tham số '{name}' chưa có giá trị đo" | throw |
+| VR-11-06 | `validate` | In-House + reference_standard_serial null | "Vui lòng nhập serial thiết bị chuẩn" | throw |
+| VR-11-07 | `validate` | certificate_date > today | "Ngày cấp chứng chỉ không thể trong tương lai" | throw |
+| VR-11-08 | `on_cancel` | docstatus=1 | "Không thể hủy Phiếu đã Submit (BR-11-05)" | throw |
+| VR-11-09 | `on_trash` | docstatus=1 | "Không thể xóa Phiếu đã Submit (BR-11-05)" | throw |
+| VR-11-10 | `validate` (Amend) | amendment_reason null | "Lý do sửa đổi bắt buộc khi Amend (BR-11-05)" | throw |
 
 ---
 
-## 9. Exception Catalog
+## 9. Integration Points
 
-| Code | Tên lỗi | Điều kiện | Thông báo (VI) |
-| --- | --- | --- | --- |
-| `CAL-001` | Missing certificate file | External cal không có `certificate_file` | "Vui lòng upload Calibration Certificate trước khi Submit (BR-11-01)" |
-| `CAL-002` | Missing accreditation number | External cal không có `lab_accreditation_number` | "Vui lòng nhập Số công nhận ISO/IEC 17025 của tổ chức kiểm định" |
-| `CAL-003` | Missing measured value | Có measurement row chưa điền `measured_value` | "Tham số '{param}' chưa có giá trị đo trước khi Submit" |
-| `CAL-004` | Missing certificate date | `overall_result = Passed` nhưng `certificate_date` rỗng | "Ngày cấp chứng chỉ là bắt buộc để tính ngày hiệu chuẩn tiếp theo" |
-| `CAL-005` | Cancel blocked | Cố Cancel record đã Submit | "Không thể hủy Phiếu Hiệu chuẩn đã Submit. Vui lòng dùng Amend (BR-11-05)" |
-| `CAL-006` | No interval defined | `Device Model.calibration_interval_days` null | "Thiết bị không có chu kỳ hiệu chuẩn. Vui lòng cập nhật Device Model trước" |
-| `CAL-007` | CAPA not closed | Cố set Asset Active khi CAPA còn Open | "CAPA Record chưa được đóng. Thiết bị không thể chuyển sang Active" |
-| `CAL-008` | Lookback not completed | Close CAPA khi `lookback_status = Pending` | "Lookback Assessment chưa hoàn thành. Vui lòng cập nhật trước khi đóng CAPA" |
-| `CAL-009` | Amendment reason missing | Amend record không điền `amendment_reason` | "Lý do sửa đổi là bắt buộc khi Amend Phiếu Hiệu chuẩn" |
-| `CAL-010` | No measurements | Submit khi `measurements` table rỗng | "Phải có ít nhất một tham số đo lường trước khi Submit" |
+### 9.1 IMM-04 → IMM-11
+
+```text
+IMM Commissioning.on_submit
+  → create_calibration_schedule_from_commissioning(doc)
+       └─ insert IMM Calibration Schedule
+       └─ log_audit_event()
+```
+
+### 9.2 IMM-09 → IMM-11
+
+```text
+IMM Asset Repair.on_submit (status=Completed, asset có Schedule active)
+  → create_post_repair_calibration(asset)
+       └─ insert IMM Asset Calibration (is_recalibration=1)
+```
+
+### 9.3 IMM-11 → IMM-00
+
+| IMM-00 service được gọi | Khi nào |
+|---|---|
+| `validate_asset_for_operations(asset)` | `create_due_calibration_wos`, `create_calibration` API (skip nếu `is_recalibration`) |
+| `transition_asset_status(...)` | `handle_calibration_fail` (→ Out of Service); `handle_calibration_pass` recal (→ Active) |
+| `create_capa(...)` | `handle_calibration_fail` |
+| `close_capa(...)` | `close_capa` API |
+| `log_audit_event(...)` | Mọi state change |
+| `create_lifecycle_event(...)` | 5 event types: scheduled, sent_to_lab, completed, failed, conditionally_passed |
+| `get_sla_policy(priority, risk_class)` | Tính SLA cho CAL WO khi tạo |
+
+### 9.4 IMM-11 → AC Asset
+
+| Sự kiện | Field cập nhật | Giá trị |
+|---|---|---|
+| Pass | `last_calibration_date` | certificate_date / actual_date |
+| Pass | `next_calibration_date` | basis + interval |
+| Pass | `calibration_status` | On Schedule |
+| Fail | `lifecycle_status` (qua transition) | Out of Service |
+| Fail | `calibration_status` | Calibration Failed |
+| Recal Pass | `lifecycle_status` (qua transition) | Active |
+
+---
+
+## 10. Exception Catalog
+
+| Code | Tên lỗi | Điều kiện | Message |
+|---|---|---|---|
+| CAL-001 | Missing certificate file | External Submit thiếu certificate | "Vui lòng upload Calibration Certificate (BR-11-01)" |
+| CAL-002 | Missing accreditation | External Submit thiếu lab_accreditation_number | "Vui lòng nhập Số công nhận ISO/IEC 17025" |
+| CAL-003 | Lab not ISO 17025 | lab_supplier.iso_17025_certified=0 | "Vui lòng chọn lab có chứng chỉ ISO/IEC 17025" |
+| CAL-004 | Missing measured value | Measurement row có measured_value null | "Tham số '{param}' chưa có giá trị đo" |
+| CAL-005 | Cancel blocked | Cancel khi docstatus=1 | "Không thể hủy Phiếu đã Submit (BR-11-05)" |
+| CAL-006 | No interval | Device Model.calibration_interval_days null | "Thiết bị không có chu kỳ hiệu chuẩn" |
+| CAL-007 | CAPA lookback pending | Close CAPA khi lookback_status=Pending | "CAPA chưa hoàn thành Lookback (BR-11-03)" |
+| CAL-008 | Asset not operational | Tạo CAL WO khi asset Out of Service (không phải recal) | "Thiết bị không thể tạo Calibration WO (BR-00-05)" |
+| CAL-009 | Amendment reason missing | Amend không có amendment_reason | "Lý do sửa đổi là bắt buộc (BR-11-05)" |
+| CAL-010 | Future certificate date | certificate_date > today | "Ngày cấp chứng chỉ không thể trong tương lai" |
+
+---
+
+## 11. Migration / Rollout
+
+⚠️ Pending implementation.
+
+| Sprint | Hạng mục | Phụ thuộc |
+|---|---|---|
+| 11.1 | DocType JSON (3) + custom fields trên AC Asset (3) | IMM-00 v3 hoàn tất |
+| 11.2 | Controller + service skeleton | 11.1 |
+| 11.3 | API layer + hooks + scheduler | 11.2 |
+| 11.4 | Workflow JSON + permission fixtures | 11.3 |
+| 11.5 | Frontend (Vue) | 11.3 |
+| 11.6 | Test suite + UAT | 11.5 |
+
+**Data migration:** Không có (module mới). Tuy nhiên phải seed:
+- Fixtures Lab AC Supplier mẫu (Calibration Lab + ISO 17025)
+- Permission fixtures cho 8 IMM role
+- Workflow JSON cho `IMM Asset Calibration`

@@ -61,7 +61,8 @@ async function handleSubmit() {
   showSubmitModal.value = false
   if (res.success) {
     if (res.cmWoCreated) {
-      alert(`Đã hoàn thành PM. WO sửa chữa khắc phục đã được tạo: ${res.cmWoCreated}`)
+      const go = confirm(`Đã hoàn thành PM. WO sửa chữa khắc phục đã được tạo: ${res.cmWoCreated}\n\nMở WO sửa chữa ngay?`)
+      if (go) router.push(`/cm/work-orders/${res.cmWoCreated}`)
     }
   }
 }
@@ -75,17 +76,27 @@ async function handleMajorFailure() {
   }
 }
 
+const rescheduleError = ref('')
+
 async function handleReschedule() {
   if (!wo.value || !rescheduleDate.value || !rescheduleReason.value) return
   rescheduling.value = true
-  await store.doReschedule(wo.value.name, rescheduleDate.value, rescheduleReason.value)
+  rescheduleError.value = ''
+  const ok = await store.doReschedule(wo.value.name, rescheduleDate.value, rescheduleReason.value)
   rescheduling.value = false
-  showRescheduleModal.value = false
+  if (ok) {
+    showRescheduleModal.value = false
+    rescheduleDate.value = ''
+    rescheduleReason.value = ''
+  } else {
+    rescheduleError.value = store.error || 'Hoãn lịch thất bại'
+  }
 }
 
 function openRescheduleModal() {
   rescheduleDate.value = ''
   rescheduleReason.value = ''
+  rescheduleError.value = ''
   showRescheduleModal.value = true
 }
 </script>
@@ -308,9 +319,6 @@ function openRescheduleModal() {
         </button>
 
         <div v-if="!store.hasMajorFailure" class="flex gap-3">
-          <button class="px-4 py-2.5 border border-gray-300 rounded-lg text-sm hover:bg-gray-50 transition-colors">
-            Lưu nháp
-          </button>
           <div class="relative group">
             <button
               :disabled="!canSubmit || submitting"
@@ -354,6 +362,9 @@ function openRescheduleModal() {
         <div class="bg-white rounded-2xl p-6 w-full max-w-md mx-4 shadow-2xl">
           <h3 class="font-bold text-lg text-gray-900 mb-4">Hoãn lịch PM</h3>
           <div class="space-y-4">
+            <div v-if="rescheduleError" class="bg-red-50 border border-red-200 text-red-700 rounded-lg px-3 py-2 text-sm">
+              {{ rescheduleError }}
+            </div>
             <div>
               <label for="reschedule-date" class="block text-sm text-gray-600 mb-1">Ngày mới <span class="text-red-500">*</span></label>
               <input id="reschedule-date" v-model="rescheduleDate" type="date" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
@@ -365,7 +376,7 @@ function openRescheduleModal() {
                 v-model="rescheduleReason"
                 rows="3"
                 class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-                placeholder="Nhập lý do hoãn lịch..."
+                placeholder="Nhập lý do hoãn lịch (tối thiểu 5 ký tự)..."
               />
             </div>
           </div>

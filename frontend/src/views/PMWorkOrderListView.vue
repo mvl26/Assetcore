@@ -131,7 +131,10 @@ const filteredWOs = computed(() => {
               </span>
               <div v-if="wo.is_late" class="text-xs text-red-500 mt-0.5">Quá hạn</div>
             </td>
-            <td class="table-cell text-slate-600">{{ wo.assigned_to || '—' }}</td>
+            <td class="table-cell">
+              <div class="text-slate-700">{{ wo.assigned_to_name || wo.assigned_to || '—' }}</div>
+              <div v-if="wo.assigned_to && wo.assigned_to_name" class="text-xs text-slate-400">{{ wo.assigned_to }}</div>
+            </td>
             <td class="table-cell">
               <span :class="['px-2.5 py-1 rounded-full text-xs font-medium', pmStatusClass(wo.status)]">
                 {{ pmStatusLabel(wo.status) }}

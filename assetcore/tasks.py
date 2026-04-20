@@ -4,6 +4,7 @@
 import frappe
 from frappe import _
 from frappe.utils import add_days, nowdate, date_diff
+from assetcore.utils.helpers import _get_role_emails, _safe_sendmail
 
 _ASSET_DOCUMENT = "Asset Document"
 _ROLE_WORKSHOP_HEAD = "Workshop Head"
@@ -150,6 +151,8 @@ def check_document_expiry():
 
 	total_alerts = 0
 	total_expired = 0
+	alerted_today = set(frappe.db.get_all(
+		"Expiry Alert Log", filters={"alert_date": nowdate()}, pluck="asset_document"))
 
 	for days, config in THRESHOLDS.items():
 		target_date = add_days(nowdate(), days)
@@ -159,9 +162,7 @@ def check_document_expiry():
 			fields=["name", "asset_ref", "doc_type_detail", "expiry_date"],
 		)
 		for doc in docs:
-			if frappe.db.exists("Expiry Alert Log", {
-				"asset_document": doc.name, "alert_date": nowdate()
-			}):
+			if doc.name in alerted_today:
 				continue
 
 			notified = _get_role_emails(config["roles"])
@@ -316,30 +317,6 @@ def check_overdue_document_requests():
 	print(f"[IMM-05] check_overdue_document_requests: {len(overdue)} escalated, notified {len(recipients)} recipients")
 
 
-def _get_role_emails(roles):
-	"""Lấy danh sách email của users thuộc các role."""
-	emails = []
-	for role in roles:
-		users = frappe.db.get_all(
-			"Has Role",
-			filters={"role": role, "parenttype": "User"},
-			fields=["parent"]
-		)
-		for u in users:
-			email = frappe.db.get_value("User", u.parent, "email")
-			if email and email not in emails:
-				emails.append(email)
-	return emails
-
-
-def _safe_sendmail(**kwargs):
-	"""Wrapper around frappe.sendmail — silently skips if email is not configured."""
-	try:
-		if not frappe.flags.mute_emails:
-			frappe.sendmail(**kwargs)
-	except Exception:
-		pass
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # IMM-08: PM WORK ORDER AUTOMATION
@@ -434,29 +411,29 @@ def check_pm_overdue():
 
 def _update_asset_pm_status():
 	"""Cập nhật custom_pm_status trên Asset dựa theo lịch PM."""
-	assets = frappe.db.get_all("Asset", filters={"docstatus": ("!=", 2)}, fields=["name"])
-	for asset in assets:
-		overdue = frappe.db.exists("PM Work Order", {
-			"asset_ref": asset.name, "status": "Overdue"
-		})
-		due_soon = frappe.db.exists("PM Schedule", {
-			"asset_ref": asset.name, "status": "Active",
-			"next_due_date": ("<=", add_days(nowdate(), 14)),
-		})
-		no_sched = not frappe.db.exists("PM Schedule", {
-			"asset_ref": asset.name, "status": "Active"
-		})
+	assets = frappe.db.get_all("Asset", filters={"docstatus": ("!=", 2)}, pluck="name")
+	if not assets:
+		return
 
-		if overdue:
+	overdue_set = set(frappe.db.get_all(
+		"PM Work Order", filters={"status": "Overdue"}, pluck="asset_ref"))
+	due_soon_set = set(frappe.db.get_all(
+		"PM Schedule",
+		filters={"status": "Active", "next_due_date": ("<=", add_days(nowdate(), 14))},
+		pluck="asset_ref"))
+	has_schedule_set = set(frappe.db.get_all(
+		"PM Schedule", filters={"status": "Active"}, pluck="asset_ref"))
+
+	for name in assets:
+		if name in overdue_set:
 			pm_status = "Overdue"
-		elif no_sched:
+		elif name not in has_schedule_set:
 			pm_status = "No Schedule"
-		elif due_soon:
+		elif name in due_soon_set:
 			pm_status = "Due Soon"
 		else:
 			pm_status = "On Schedule"
-
-		frappe.db.set_value("Asset", asset.name, "custom_pm_status", pm_status)
+		frappe.db.set_value("Asset", name, "custom_pm_status", pm_status)
 
 
 def _send_no_template_alert(sched):

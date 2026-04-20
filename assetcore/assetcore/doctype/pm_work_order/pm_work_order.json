@@ -19,7 +19,7 @@
     "section_cm", "source_pm_wo"
   ],
   "fields": [
-    {"fieldname": "asset_ref", "fieldtype": "Link", "label": "Thi\u1ebft b\u1ecb", "options": "Asset", "reqd": 1, "in_list_view": 1, "search_index": 1},
+    {"fieldname": "asset_ref", "fieldtype": "Link", "label": "Thi\u1ebft b\u1ecb", "options": "AC Asset", "reqd": 1, "in_list_view": 1, "search_index": 1},
     {"fieldname": "pm_schedule", "fieldtype": "Link", "label": "L\u1ecbch PM", "options": "PM Schedule", "reqd": 1},
     {"fieldname": "pm_type", "fieldtype": "Data", "label": "Lo\u1ea1i PM", "read_only": 1, "in_list_view": 1},
     {"fieldname": "wo_type", "fieldtype": "Select", "label": "Lo\u1ea1i phi\u1ebfu", "options": "Preventive\nCorrective", "default": "Preventive"},

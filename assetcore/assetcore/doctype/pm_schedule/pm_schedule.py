@@ -16,7 +16,7 @@ class PMSchedule(Document):
         if not self.checklist_template:
             frappe.throw(_("Template checklist l\u00e0 b\u1eaft bu\u1ed9c (BR-08-01)"))
         template = frappe.get_doc("PM Checklist Template", self.checklist_template)
-        asset_category = frappe.db.get_value("Asset", self.asset_ref, "asset_category")
+        asset_category = frappe.db.get_value("AC Asset", self.asset_ref, "asset_category")
         if template.asset_category != asset_category:
             frappe.throw(_(
                 "Template {0} kh\u00f4ng kh\u1edbp v\u1edbi lo\u1ea1i thi\u1ebft b\u1ecb {1}"

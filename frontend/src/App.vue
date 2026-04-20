@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { onMounted, onErrorCaptured } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import AppLayout from '@/components/common/AppLayout.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
+import RouteErrorBoundary from '@/components/common/RouteErrorBoundary.vue'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -15,6 +16,12 @@ onMounted(async () => {
     if (!ok) { router.push({ name: 'Login' }) }
   }
 })
+
+// Bắt lỗi top-level để không bị blank page khi component con throw
+onErrorCaptured((err, _inst, info) => {
+  console.error('[App.vue] top-level error:', { message: (err as Error)?.message, info, err })
+  return true
+})
 </script>
 
 <template>
@@ -25,9 +32,20 @@ onMounted(async () => {
       </div>
     </template>
     <template v-else>
-      <!-- Authenticated: use layout with sidebar -->
+      <!-- Authenticated: layout + Suspense boundary cho async setup + ErrorBoundary -->
       <AppLayout v-if="auth.isAuthenticated">
-        <RouterView />
+        <RouteErrorBoundary>
+          <Suspense timeout="0">
+            <RouterView v-slot="{ Component, route }">
+              <component :is="Component" :key="route.fullPath" />
+            </RouterView>
+            <template #fallback>
+              <div class="flex items-center justify-center py-20">
+                <LoadingSpinner size="md" label="Đang tải trang..." />
+              </div>
+            </template>
+          </Suspense>
+        </RouteErrorBoundary>
       </AppLayout>
       <!-- Unauthenticated: bare router view (Login page) -->
       <RouterView v-else />

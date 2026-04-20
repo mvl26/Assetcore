@@ -1,0 +1,230 @@
+{
+ "actions": [],
+ "allow_import": 1,
+ "allow_rename": 0,
+ "autoname": "field:user",
+ "creation": "2026-04-19 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "section_user",
+  "user",
+  "full_name",
+  "email",
+  "column_break_user",
+  "employee_code",
+  "job_title",
+  "phone",
+  "section_org",
+  "department",
+  "location",
+  "column_break_org",
+  "is_active",
+  "section_approval",
+  "approval_status",
+  "column_break_approval",
+  "approved_by",
+  "approved_at",
+  "rejection_reason",
+  "section_roles",
+  "imm_roles",
+  "section_certs",
+  "certifications",
+  "section_notes",
+  "notes"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_user",
+   "fieldtype": "Section Break",
+   "label": "Thông tin người dùng"
+  },
+  {
+   "fieldname": "user",
+   "fieldtype": "Link",
+   "label": "User (Frappe)",
+   "options": "User",
+   "reqd": 1,
+   "unique": 1,
+   "search_index": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "full_name",
+   "fieldtype": "Data",
+   "label": "Họ và tên",
+   "fetch_from": "user.full_name",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "email",
+   "fieldtype": "Data",
+   "label": "Email",
+   "fetch_from": "user.email",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_user",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "employee_code",
+   "fieldtype": "Data",
+   "label": "Mã nhân viên",
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "job_title",
+   "fieldtype": "Data",
+   "label": "Chức danh"
+  },
+  {
+   "fieldname": "phone",
+   "fieldtype": "Data",
+   "label": "Điện thoại"
+  },
+  {
+   "fieldname": "section_org",
+   "fieldtype": "Section Break",
+   "label": "Tổ chức"
+  },
+  {
+   "fieldname": "department",
+   "fieldtype": "Link",
+   "label": "Khoa / Phòng",
+   "options": "AC Department",
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "location",
+   "fieldtype": "Link",
+   "label": "Vị trí làm việc",
+   "options": "AC Location"
+  },
+  {
+   "fieldname": "column_break_org",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "is_active",
+   "fieldtype": "Check",
+   "label": "Đang hoạt động",
+   "default": "1",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "section_approval",
+   "fieldtype": "Section Break",
+   "label": "Duyệt tài khoản"
+  },
+  {
+   "fieldname": "approval_status",
+   "fieldtype": "Select",
+   "label": "Trạng thái duyệt",
+   "options": "Pending\nApproved\nRejected",
+   "default": "Pending",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_approval",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "approved_by",
+   "fieldtype": "Link",
+   "label": "Người duyệt",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "approved_at",
+   "fieldtype": "Datetime",
+   "label": "Thời điểm duyệt",
+   "read_only": 1
+  },
+  {
+   "fieldname": "rejection_reason",
+   "fieldtype": "Small Text",
+   "label": "Lý do từ chối",
+   "depends_on": "eval:doc.approval_status=='Rejected'"
+  },
+  {
+   "fieldname": "section_roles",
+   "fieldtype": "Section Break",
+   "label": "Phân quyền IMM"
+  },
+  {
+   "fieldname": "imm_roles",
+   "fieldtype": "Table",
+   "label": "IMM Roles",
+   "options": "AC User Role",
+   "description": "Các role IMM được gán — sẽ đồng bộ sang User.roles khi save."
+  },
+  {
+   "fieldname": "section_certs",
+   "fieldtype": "Section Break",
+   "label": "Chứng chỉ KTV",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "certifications",
+   "fieldtype": "Table",
+   "label": "Chứng chỉ",
+   "options": "AC User Certification"
+  },
+  {
+   "fieldname": "section_notes",
+   "fieldtype": "Section Break",
+   "label": "Ghi chú",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Small Text",
+   "label": "Ghi chú"
+  }
+ ],
+ "links": [],
+ "modified": "2026-04-19 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "AssetCore",
+ "name": "AC User Profile",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "IMM System Admin",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1
+  },
+  {
+   "role": "IMM Operations Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1
+  },
+  {
+   "role": "IMM Department Head",
+   "read": 1
+  },
+  {
+   "role": "IMM QA Officer",
+   "read": 1
+  },
+  {
+   "role": "IMM Workshop Lead",
+   "read": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "title_field": "full_name",
+ "track_changes": 1,
+ "states": []
+}

@@ -87,7 +87,7 @@ function _add_action_buttons(frm) {
 	// Nút xem Asset đã tạo — sau khi Release
 	if (frm.doc.final_asset) {
 		frm.add_custom_button(__("Xem Tài sản"), function() {
-			frappe.set_route("Form", "Asset", frm.doc.final_asset);
+			frappe.set_route("Form", "AC Asset", frm.doc.final_asset);
 		}, __("Liên kết"));
 	}
 }

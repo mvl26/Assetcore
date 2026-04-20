@@ -2,8 +2,6 @@
 // API calls cho Module IMM-05 — Asset Document Repository
 
 import { frappeGet, frappePost } from './helpers'
-import type { ApiResponse } from './helpers'
-export type { ApiResponse } from './helpers'
 
 const BASE = '/api/method/assetcore.api.imm05'
 
@@ -103,7 +101,7 @@ export function listDocuments(
   page = 1,
   pageSize = 20,
 ) {
-  return frappeGet<ApiResponse<{ items: AssetDocumentItem[]; pagination: Pagination }>>(
+  return frappeGet<{ items: AssetDocumentItem[]; pagination: Pagination }>(
     `${BASE}.list_documents`,
     { filters: JSON.stringify(filters), page, page_size: pageSize },
   )
@@ -114,7 +112,7 @@ export function listDocuments(
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function getDocument(name: string) {
-  return frappeGet<ApiResponse<AssetDocumentDetail>>(`${BASE}.get_document`, { name })
+  return frappeGet<AssetDocumentDetail>(`${BASE}.get_document`, { name })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -122,7 +120,7 @@ export function getDocument(name: string) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function createDocument(docData: Partial<AssetDocumentDetail>) {
-  return frappePost<ApiResponse<{ name: string; workflow_state: string }>>(
+  return frappePost<{ name: string; workflow_state: string }>(
     `${BASE}.create_document`,
     { doc_data: JSON.stringify(docData) },
   )
@@ -133,7 +131,7 @@ export function createDocument(docData: Partial<AssetDocumentDetail>) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function updateDocument(name: string, docData: Partial<AssetDocumentDetail>) {
-  return frappePost<ApiResponse<{ name: string; modified: string }>>(
+  return frappePost<{ name: string; modified: string }>(
     `${BASE}.update_document`,
     { name, doc_data: JSON.stringify(docData) },
   )
@@ -144,14 +142,14 @@ export function updateDocument(name: string, docData: Partial<AssetDocumentDetai
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function approveDocument(name: string) {
-  return frappePost<ApiResponse<{ name: string; new_state: string }>>(
+  return frappePost<{ name: string; new_state: string }>(
     `${BASE}.approve_document`,
     { name },
   )
 }
 
 export function rejectDocument(name: string, rejectionReason: string) {
-  return frappePost<ApiResponse<{ name: string; new_state: string }>>(
+  return frappePost<{ name: string; new_state: string }>(
     `${BASE}.reject_document`,
     { name, rejection_reason: rejectionReason },
   )
@@ -162,13 +160,13 @@ export function rejectDocument(name: string, rejectionReason: string) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function getAssetDocuments(asset: string) {
-  return frappeGet<ApiResponse<{
+  return frappeGet<{
     asset: string
     completeness_pct: number
     document_status: string
     documents: Record<string, AssetDocumentItem[]>
     missing_required: string[]
-  }>>(`${BASE}.get_asset_documents`, { asset })
+  }>(`${BASE}.get_asset_documents`, { asset })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -176,7 +174,7 @@ export function getAssetDocuments(asset: string) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function getDashboardStats() {
-  return frappeGet<ApiResponse<DashboardStats>>(`${BASE}.get_dashboard_stats`)
+  return frappeGet<DashboardStats>(`${BASE}.get_dashboard_stats`)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -184,7 +182,7 @@ export function getDashboardStats() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function getExpiringDocuments(days = 90) {
-  return frappeGet<ApiResponse<{ days: number; count: number; items: AssetDocumentItem[] }>>(
+  return frappeGet<{ days: number; count: number; items: AssetDocumentItem[] }>(
     `${BASE}.get_expiring_documents`,
     { days },
   )
@@ -195,7 +193,7 @@ export function getExpiringDocuments(days = 90) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function getDocumentHistory(name: string) {
-  return frappeGet<ApiResponse<{
+  return frappeGet<{
     name: string
     history: Array<{
       timestamp: string
@@ -205,7 +203,7 @@ export function getDocumentHistory(name: string) {
       to_state: string | null
       changes: Array<{ field: string; old: unknown; new: unknown }>
     }>
-  }>>(`${BASE}.get_document_history`, { name })
+  }>(`${BASE}.get_document_history`, { name })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -222,7 +220,7 @@ export function createDocumentRequest(payload: {
   request_note?: string
   source_type?: string
 }) {
-  return frappePost<ApiResponse<{ name: string; status: string }>>(
+  return frappePost<{ name: string; status: string }>(
     `${BASE}.create_document_request`,
     payload,
   )
@@ -233,7 +231,7 @@ export function createDocumentRequest(payload: {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function getDocumentRequests(assetRef = '', status = '') {
-  return frappeGet<ApiResponse<{ count: number; items: DocumentRequest[] }>>(
+  return frappeGet<{ count: number; items: DocumentRequest[] }>(
     `${BASE}.get_document_requests`,
     { asset_ref: assetRef, status },
   )
@@ -249,9 +247,9 @@ export function markExempt(payload: {
   exempt_reason: string
   exempt_proof: string
 }) {
-  return frappePost<ApiResponse<{
+  return frappePost<{
     document_name: string
     is_exempt: boolean
     new_asset_document_status: string
-  }>>(`${BASE}.mark_exempt`, payload)
+  }>(`${BASE}.mark_exempt`, payload)
 }

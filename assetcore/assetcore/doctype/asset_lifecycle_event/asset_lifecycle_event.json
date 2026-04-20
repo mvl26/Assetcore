@@ -1,82 +1,61 @@
 {
  "actions": [],
- "creation": "2026-04-17 00:00:00.000000",
+ "allow_import": 0,
+ "allow_rename": 0,
+ "autoname": "naming_series:",
+ "creation": "2026-04-18 00:00:00.000000",
  "doctype": "DocType",
- "editable_grid": 1,
  "engine": "InnoDB",
+ "in_create": 1,
  "field_order": [
+  "section_core",
+  "naming_series",
+  "asset",
   "event_type",
+  "column_break_core",
+  "timestamp",
+  "actor",
+  "section_transition",
   "from_status",
   "to_status",
-  "actor",
-  "event_timestamp",
-  "ip_address",
-  "remarks",
-  "root_record"
+  "section_root",
+  "root_doctype",
+  "root_record",
+  "notes"
  ],
  "fields": [
-  {
-   "fieldname": "event_type",
-   "fieldtype": "Select",
-   "label": "Loại sự kiện",
-   "options": "State Transition\nDocument Upload\nRelease\nCancel\nNon-Conformance\nBaseline Test\nIdentification\nHandover",
-   "reqd": 1,
-   "in_list_view": 1
-  },
-  {
-   "fieldname": "from_status",
-   "fieldtype": "Data",
-   "label": "Từ trạng thái",
-   "in_list_view": 1
-  },
-  {
-   "fieldname": "to_status",
-   "fieldtype": "Data",
-   "label": "Đến trạng thái",
-   "in_list_view": 1
-  },
-  {
-   "fieldname": "actor",
-   "fieldtype": "Link",
-   "label": "Người thực hiện",
-   "options": "User",
-   "reqd": 1,
-   "in_list_view": 1
-  },
-  {
-   "fieldname": "event_timestamp",
-   "fieldtype": "Datetime",
-   "label": "Thời gian",
-   "reqd": 1,
-   "in_list_view": 1
-  },
-  {
-   "fieldname": "ip_address",
-   "fieldtype": "Data",
-   "label": "IP Address",
-   "read_only": 1
-  },
-  {
-   "fieldname": "remarks",
-   "fieldtype": "Text",
-   "label": "Ghi chú"
-  },
-  {
-   "fieldname": "root_record",
-   "fieldtype": "Data",
-   "label": "Tài liệu gốc",
-   "read_only": 1
-  }
+  {"fieldname": "section_core", "fieldtype": "Section Break", "label": "Core"},
+  {"fieldname": "naming_series", "fieldtype": "Select", "label": "Series", "options": "ALE-.YYYY.-.#######", "reqd": 1},
+  {"fieldname": "asset", "fieldtype": "Link", "label": "Asset", "options": "AC Asset", "reqd": 1, "search_index": 1, "in_list_view": 1},
+  {"fieldname": "event_type", "fieldtype": "Select", "label": "Event Type", "options": "commissioned\nactivated\npm_started\npm_completed\nrepair_opened\nrepair_completed\ncalibration_started\ncalibration_passed\ncalibration_failed\nincident_reported\nout_of_service\nrestored\ndecommissioned\ntransferred\nregistered", "reqd": 1, "search_index": 1, "in_list_view": 1},
+  {"fieldname": "column_break_core", "fieldtype": "Column Break"},
+  {"fieldname": "timestamp", "fieldtype": "Datetime", "label": "Timestamp", "reqd": 1, "in_list_view": 1},
+  {"fieldname": "actor", "fieldtype": "Link", "label": "Actor", "options": "User", "reqd": 1, "search_index": 1},
+  {"fieldname": "section_transition", "fieldtype": "Section Break", "label": "Status Transition"},
+  {"fieldname": "from_status", "fieldtype": "Data", "label": "From Status"},
+  {"fieldname": "to_status", "fieldtype": "Data", "label": "To Status"},
+  {"fieldname": "section_root", "fieldtype": "Section Break", "label": "Source Record"},
+  {"fieldname": "root_doctype", "fieldtype": "Data", "label": "Root DocType"},
+  {"fieldname": "root_record", "fieldtype": "Dynamic Link", "label": "Root Record", "options": "root_doctype"},
+  {"fieldname": "notes", "fieldtype": "Text", "label": "Notes"}
  ],
- "istable": 1,
  "links": [],
- "modified": "2026-04-17 00:00:00.000000",
+ "modified": "2026-04-18 00:00:00.000000",
  "modified_by": "Administrator",
- "module": "Assetcore",
+ "module": "AssetCore",
  "name": "Asset Lifecycle Event",
  "owner": "Administrator",
- "permissions": [],
- "sort_field": "modified",
+ "permissions": [
+  {"role": "IMM System Admin", "read": 1},
+  {"role": "IMM QA Officer", "read": 1},
+  {"role": "IMM Department Head", "read": 1},
+  {"role": "IMM Operations Manager", "read": 1},
+  {"role": "IMM Workshop Lead", "read": 1},
+  {"role": "IMM Technician", "read": 1},
+  {"role": "IMM Document Officer", "read": 1}
+ ],
+ "sort_field": "timestamp",
  "sort_order": "DESC",
+ "track_changes": 0,
  "states": []
 }

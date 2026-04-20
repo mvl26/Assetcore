@@ -1,1032 +1,945 @@
-# IMM-00 UI/UX Guide — AssetCore Foundation Forms
+# IMM-00 — UI/UX Guide (Foundation Layer)
 
-**Module:** IMM-00 Foundation / Master Data
-**Audience:** IMM System Admin, Frontend Developer, BA
-**Version:** 1.0
-**Date:** 2026-04-17
-**Framework:** Frappe v15 (Desk + Frappe UI)
-**Regulatory:** WHO HTM · ISO 13485 · NĐ 98/2021
-
----
-
-## Overview
-
-This guide specifies the UI/UX design for all IMM-00 forms. Each section covers:
-- Form layout and sections
-- Field descriptions, validation, and help text
-- List view columns and filters
-- Role-based visibility rules
-- UX patterns specific to the Frappe framework
-
-**Design Principles:**
-1. Minimum clicks for the most frequent actions (technicians move fast)
-2. Color-coded status badges — status must be scannable at a glance
-3. No dead ends — every form links forward to the next relevant action
-4. Mobile-first for technician-facing forms (lookup, scan, view)
-5. Vietnamese labels, English field names in code
-
----
-
-## 1. IMM Device Model Form
-
-### 1.1 Form Identity
-
-| Property | Value |
+| Thuộc tính | Giá trị |
 |---|---|
-| DocType Name | IMM Device Model |
-| Naming Series | MDL-.YYYY.-.##### |
-| Module | AssetCore |
-| Is Submittable | Yes |
-| Track Changes | Yes |
-| Allow Auto Repeat | No |
-
-### 1.2 Form Layout — Two Column
-
-The form is organized in 5 collapsible sections. Standard Frappe two-column layout.
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│ IMM Device Model                           [DRAFT] [SUBMIT] [AMEND] │
-│ MDL-2026-00001                                                       │
-├─────────────────────────────────────────────────────────────────────┤
-│ SECTION 1: Thông tin cơ bản                                         │
-│  ┌────────────────────────┐  ┌────────────────────────┐             │
-│  │ Model Name *           │  │ Manufacturer *         │             │
-│  │ Máy thở ICU SV300      │  │ Mindray                │             │
-│  ├────────────────────────┤  ├────────────────────────┤             │
-│  │ GMDN Code              │  │ Device Class *         │             │
-│  │ 13007                  │  │ ● Class I              │             │
-│  │                        │  │ ● Class II             │             │
-│  │                        │  │ ◉ Class III            │             │
-│  ├────────────────────────┤  ├────────────────────────┤             │
-│  │ Risk Class *           │  │ Asset Category *       │             │
-│  │ [Critical        ▼]    │  │ [Thiết bị hồi sức  ▼] │             │
-│  └────────────────────────┘  └────────────────────────┘             │
-│  ┌────────────────────────────────────────────────────┐             │
-│  │ Description                                        │             │
-│  │ (textarea, 3 rows)                                 │             │
-│  └────────────────────────────────────────────────────┘             │
-├─────────────────────────────────────────────────────────────────────┤
-│ SECTION 2: Thông số kỹ thuật                                        │
-│  ┌────────────────────────┐  ┌────────────────────────┐             │
-│  │ Model Number (OEM)     │  │ Product Family         │             │
-│  ├────────────────────────┤  ├────────────────────────┤             │
-│  │ Country of Origin      │  │ CE Mark                │             │
-│  ├────────────────────────┤  ├────────────────────────┤             │
-│  │ BYT Registration No    │  │ BYT Reg Expiry Date    │             │
-│  ├────────────────────────┤  ├────────────────────────┤             │
-│  │ Expected Lifespan (yr) │  │ Warranty Period (mo)   │             │
-│  └────────────────────────┘  └────────────────────────┘             │
-├─────────────────────────────────────────────────────────────────────┤
-│ SECTION 3: Cấu hình Bảo trì định kỳ (PM)                           │
-│  ┌────────────────────────┐  ┌────────────────────────┐             │
-│  │ PM Required   [Yes ▼]  │  │ PM Interval (days) *   │             │
-│  │                        │  │ 90                     │             │
-│  ├────────────────────────┤  ├────────────────────────┤             │
-│  │ PM Checklist Template  │  │ PM Labor Std (hours)   │             │
-│  │ [Link → Template  ▼]   │  │ 4                      │             │
-│  └────────────────────────┘  └────────────────────────┘             │
-│  ℹ PM Interval = số ngày giữa các lần bảo trì. Tính từ ngày hoàn   │
-│  thành PM trước. Nếu để trống, PM Schedule sẽ không tự tạo.        │
-├─────────────────────────────────────────────────────────────────────┤
-│ SECTION 4: Cấu hình Hiệu chuẩn                                     │
-│  ┌────────────────────────┐  ┌────────────────────────┐             │
-│  │ Cal Required  [Yes ▼]  │  │ Cal Interval (days) *  │             │
-│  │                        │  │ 365                    │             │
-│  ├────────────────────────┤  ├────────────────────────┤             │
-│  │ Cal Standard           │  │ Cal Body               │             │
-│  │ IEC 60601-1            │  │ [Trung tâm đo lường ▼] │             │
-│  └────────────────────────┘  └────────────────────────┘             │
-├─────────────────────────────────────────────────────────────────────┤
-│ SECTION 5: Tài liệu tham chiếu                                     │
-│  [+ Add Row] Reference Documents (Child Table)                      │
-│  ┌──────┬──────────────────┬────────────────┬──────────────┐       │
-│  │ Type │ Document Name    │ Version        │ Attach       │       │
-│  ├──────┼──────────────────┼────────────────┼──────────────┤       │
-│  │ IFU  │ Operator Manual  │ Rev. 3.0       │ 📎 manual.pdf│       │
-│  │ SOP  │ PM Procedure     │ SOP-HTM-001    │ 📎 sop.pdf   │       │
-│  └──────┴──────────────────┴────────────────┴──────────────┘       │
-└─────────────────────────────────────────────────────────────────────┘
-```
-
-### 1.3 Field Definitions
-
-| Field Name | Label (VI) | Type | Required | Validation | Help Text |
-|---|---|---|---|---|---|
-| model_name | Tên Model | Data | Yes | Max 140 chars | Tên thương mại đầy đủ của thiết bị |
-| manufacturer | Nhà sản xuất | Data | Yes | | Tên NSX như trên nhãn thiết bị |
-| gmdn_code | Mã GMDN | Data | No | 5-digit numeric | Mã GMDN quốc tế. Tra tại gmdnagency.org |
-| device_class | Phân loại thiết bị | Select | Yes | I/II/III | Theo IVDD/MDR EU hoặc FDA 21 CFR |
-| risk_class | Mức độ rủi ro | Select | Yes | Low/Medium/High/Critical | Tương quan: Class I=Low, Class III=Critical |
-| asset_category | Nhóm tài sản | Link→Asset Category | Yes | Must exist | Dùng để tính khấu hao |
-| byt_registration_no | Số đăng ký BYT | Data | No | | Số lưu hành do Bộ Y tế cấp |
-| byt_registration_expiry | Hạn đăng ký BYT | Date | No | Must be future or current | Cảnh báo 90 ngày trước khi hết hạn |
-| pm_required | Cần PM | Check | Yes | Default: 1 | Tích nếu thiết bị cần bảo trì định kỳ |
-| pm_interval_days | Chu kỳ PM (ngày) | Int | If pm_required | Min: 30, Max: 730 | Số ngày giữa các lần PM |
-| calibration_required | Cần hiệu chuẩn | Check | Yes | Default: 0 | Tích nếu thiết bị cần hiệu chuẩn định kỳ |
-| calibration_interval_days | Chu kỳ hiệu chuẩn (ngày) | Int | If cal_required | Min: 90, Max: 730 | |
-| expected_lifespan_years | Tuổi thọ dự kiến (năm) | Float | Yes | Min: 1, Max: 30 | Theo khuyến cáo NSX |
-
-### 1.4 Quick Entry Dialog
-
-When creating from a Link field (e.g., from IMM Asset Profile), the Quick Entry dialog shows only:
-
-- Model Name (required)
-- Manufacturer (required)
-- Device Class (required)
-- Asset Category (required)
-
-Full form opens after save for remaining fields.
-
-### 1.5 List View Configuration
-
-**Columns shown in list view:**
-
-| Column | Width | Sortable |
-|---|---|---|
-| Model Name | 30% | Yes |
-| Manufacturer | 20% | Yes |
-| Device Class | 10% | Yes |
-| Risk Class | 10% | Yes |
-| PM Interval (days) | 10% | Yes |
-| BYT Reg Expiry | 10% | Yes |
-| Status (Draft/Submitted) | 10% | Yes |
-
-**Default sort:** Model Name ASC
-
-**Standard filters (filter bar):**
-
-- Device Class: dropdown (Class I / Class II / Class III)
-- Risk Class: dropdown
-- Manufacturer: text search
-- BYT Reg Expiry: date range (for finding expiring registrations)
-
-**Saved filter presets:**
-1. "Expiring BYT (90 days)" — byt_registration_expiry between today and today+90
-2. "Class III Devices" — device_class = 'Class III'
-3. "Needs Calibration" — calibration_required = 1
-
-### 1.6 Validation Rules
-
-```python
-# Backend validation (in controller)
-
-# Rule 1: If Device Class = Class III, Risk Class must be High or Critical
-if device_class == "Class III" and risk_class not in ("High", "Critical"):
-    frappe.throw(_("Thiết bị Class III phải có Risk Class là High hoặc Critical"))
-
-# Rule 2: If PM Required, PM Interval must be set
-if pm_required and not pm_interval_days:
-    frappe.throw(_("Vui lòng nhập Chu kỳ PM khi tích chọn 'Cần PM'"))
-
-# Rule 3: If Calibration Required, Calibration Interval must be set
-if calibration_required and not calibration_interval_days:
-    frappe.throw(_("Vui lòng nhập Chu kỳ hiệu chuẩn khi tích 'Cần hiệu chuẩn'"))
-
-# Rule 4: BYT Reg Expiry must be future (warning only, not block)
-if byt_registration_expiry and byt_registration_expiry < today():
-    frappe.msgprint(_("Cảnh báo: Số đăng ký BYT đã hết hạn"), indicator="orange")
-```
+| Module | IMM-00 Foundation |
+| Tài liệu | UI/UX Guide |
+| Phiên bản | 3.0.0 |
+| Ngày cập nhật | 2026-04-18 |
+| Trạng thái | **DRAFT** — chờ triển khai theo kiến trúc FE mới (Vue 3 + Frappe UI) |
+| Tác giả | AssetCore Team |
 
 ---
 
-## 2. IMM Asset Profile Form
+## 0. Tổng quan
 
-### 2.1 Companion Form Design
+Tài liệu này đặc tả hệ thống UI/UX cho lớp nền IMM-00 của AssetCore. FE được xây trên **Vue 3 + TypeScript + Frappe UI**, **không dùng ERPNext Desk UI**. Toàn bộ 13 DocType của IMM-00 được render qua các màn hình tùy biến, bám sát nghiệp vụ HTM (Health Technology Management).
 
-IMM Asset Profile is a **1:1 companion** to ERPNext Asset. It stores HTM-specific data that ERPNext Asset does not support. Key UX requirement: the user should feel they are working on one unified device record, not two separate forms.
+Người dùng mục tiêu:
 
-**Implementation approach:**
-- IMM Asset Profile title shows: `[Asset Name] — HTM Profile`
-- A custom button on the ERPNext Asset form: "Open HTM Profile →"
-- IMM Asset Profile shows an embedded read-only summary of the linked Asset at the top
+- **IMM Technician** (KTV hiện trường — tablet / phone)
+- **IMM Department Head / Operations Manager** (quản lý — desktop)
+- **IMM QA Officer** (kiểm soát chất lượng — desktop, tra Audit Trail)
+- **IMM System Admin** (cấu hình)
 
-### 2.2 Form Layout
+Khác biệt chính với v2:
+
+- Bỏ hoàn toàn Asset Profile → dùng trực tiếp `AC Asset` với HTM fields first-class.
+- Bỏ UI dạng Desk Form của ERPNext → viết lại Vue 3 shell.
+- Prefix `AC-` / `IMM-` phản ánh trên mọi navigation label.
+
+---
+
+## 1. Nguyên tắc UX
+
+| # | Nguyên tắc | Mô tả |
+|---|---|---|
+| 1.1 | Tiếng Việt mặc định | Mọi label, button, toast, error message dùng tiếng Việt. Fallback tiếng Anh qua i18n. |
+| 1.2 | Mobile-responsive | KTV thao tác trên tablet / phone tại hiện trường. Breakpoint: `sm 640 / md 768 / lg 1024 / xl 1280`. |
+| 1.3 | Offline-tolerant | Form ghi log PM và Incident hỗ trợ offline queue (IndexedDB) + auto-sync khi online. |
+| 1.4 | Accessibility | WCAG 2.1 AA tối thiểu: contrast ≥ 4.5:1, focus ring rõ ràng, ARIA label, keyboard navigable. |
+| 1.5 | Ít click | Thao tác phổ biến (log PM, tra asset bằng QR) ≤ 3 click. |
+| 1.6 | An toàn mặc định | Destructive action (decommission, close CAPA) luôn có confirm modal. |
+| 1.7 | Phản hồi tức thì | Optimistic UI cho action ngắn; loading skeleton cho list; toast tức thì. |
+| 1.8 | Traceability hiển thị | Mọi màn detail đều có tab Audit Trail / Lifecycle. Người dùng luôn thấy ai — khi nào — làm gì. |
+| 1.9 | Consistency | Cùng pattern cho List / Detail / Form / Tree xuyên suốt 13 DocType. |
+| 1.10 | Đơn giản trước, mở rộng sau | Không overload field trên màn chính; advanced filter ẩn trong drawer. |
+
+---
+
+## 2. Design System
+
+### 2.1 Color palette
+
+| Token | Hex | Dùng cho |
+|---|---|---|
+| `--color-primary-500` | `#0E6FFF` | CTA chính, link, selected state |
+| `--color-primary-600` | `#0957D1` | Hover primary |
+| `--color-primary-50` | `#E8F1FF` | Background nhẹ, chip |
+| `--color-success-500` | `#16A34A` | Thành công, Active, Calibrated |
+| `--color-warning-500` | `#F59E0B` | Cảnh báo, PM đến hạn, ISO 17025 thiếu |
+| `--color-danger-500` | `#DC2626` | Lỗi, Overdue, Out of Service, Critical |
+| `--color-info-500` | `#0891B2` | Thông tin trung tính |
+| `--color-neutral-900` | `#0F172A` | Text chính |
+| `--color-neutral-600` | `#475569` | Text phụ |
+| `--color-neutral-300` | `#CBD5E1` | Border |
+| `--color-neutral-100` | `#F1F5F9` | Background section |
+| `--color-neutral-0`   | `#FFFFFF` | Canvas |
+
+Semantic trạng thái `AC Asset.lifecycle_status`:
+
+| Trạng thái | Màu | Chip style |
+|---|---|---|
+| Planned | neutral-600 | outline |
+| Commissioning | info-500 | soft |
+| Active | success-500 | solid |
+| Under Repair | warning-500 | soft |
+| Out of Service | danger-500 | soft |
+| Decommissioned | neutral-900 | outline dashed |
+
+### 2.2 Typography
+
+Font chính: **Inter** (fallback: Roboto, system-ui).
+
+| Token | Size / Line-height | Dùng cho |
+|---|---|---|
+| `text-xs` | 12 / 16 | caption, helper text |
+| `text-sm` | 14 / 20 | body phụ, label form |
+| `text-base` | 16 / 24 | body chính |
+| `text-lg` | 20 / 28 | heading section |
+| `text-xl` | 24 / 32 | heading page |
+| `text-2xl` | 30 / 38 | KPI number (dashboard) |
+
+Weight: 400 regular, 500 medium (label), 600 semibold (heading), 700 bold (KPI).
+
+### 2.3 Spacing scale
+
+`4 / 8 / 12 / 16 / 24 / 32 / 48 / 64` px — dùng qua token `space-1…space-12`.
+
+Gap grid: 16 (mobile) — 24 (desktop).
+
+### 2.4 Component library
+
+Dựa trên `frappe/frappe-ui` + mở rộng nội bộ `@assetcore/ui`.
+
+| Component | Biến thể | Ghi chú |
+|---|---|---|
+| Button | primary / secondary / ghost / danger / icon | Có loading + disabled state |
+| Input | text / number / textarea / password | Kèm label + helper + error slot |
+| Select | single / multi / async search | Async gọi `/api/method/…` |
+| DatePicker | single / range | Hỗ trợ locale vi |
+| Table | sortable / selectable / sticky header | Virtual scroll ≥ 500 rows |
+| Modal | default / confirm / fullscreen | ESC đóng, focus trap |
+| Toast | success / warning / danger / info | 3s auto-dismiss (success); persistent (error) |
+| Tabs | line / card | Deep-link qua query string `?tab=` |
+| Tree | expandable, lazy-load | Dùng cho AC Location / AC Department |
+| FileUpload | drag-drop, multi | Gắn Frappe File |
+| Drawer | right / bottom | Dùng cho filter nâng cao, quick edit |
+| Chip | status / severity / risk_class | Preset semantic color |
+| Breadcrumb | auto từ route | Hỗ trợ truncation |
+| Skeleton | list row / card / form | Dùng thay spinner |
+| Timeline | vertical | Lifecycle Event, Audit Trail |
+
+### 2.5 Icon set
+
+**Lucide** (mặc định) + **Heroicons** (fallback cho icon đặc biệt). Size: 16 / 20 / 24.
+
+---
+
+## 3. App Shell
+
+### 3.1 Layout tổng
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│ IMM Asset Profile                              [ACTIVE ●] [ACTIONS] │
-│ Máy thở ICU SV300 / NDIH1-2024-0023                                 │
-├─────────────────────────────────────────────────────────────────────┤
-│ ── LINKED ASSET SUMMARY (read-only banner) ──────────────────────── │
-│  Asset: NDIH1-2024-0023  │  Purchase: 2024-03-15  │  Value: 350M   │
-│  Location: ICU Nội       │  Custodian: Khoa Tim mạch               │
-│  [Open Asset Record →]                                               │
-├─────────────────────────────────────────────────────────────────────┤
-│ SECTION 1: Định danh thiết bị                                       │
-│  ┌────────────────────────┐  ┌────────────────────────┐             │
-│  │ Asset *                │  │ Device Model *         │             │
-│  │ [NDIH1-2024-0023   ▼] │  │ [Máy thở ICU SV300 ▼] │             │
-│  ├────────────────────────┤  ├────────────────────────┤             │
-│  │ Serial No (Mfr)        │  │ Internal Tag / QR      │             │
-│  │ SV3-2024-A001          │  │ [SCAN] QR-NDIH1-0023   │             │
-│  ├────────────────────────┤  ├────────────────────────┤             │
-│  │ BYT Registration No    │  │ BYT Reg Expiry         │             │
-│  │ VD-12345-20            │  │ 2027-06-30 ⚠️          │             │
-│  └────────────────────────┘  └────────────────────────┘             │
-├─────────────────────────────────────────────────────────────────────┤
-│ SECTION 2: Phân loại & Trạng thái                                   │
-│  ┌────────────────────────┐  ┌────────────────────────┐             │
-│  │ Risk Class             │  │ Lifecycle Status       │             │
-│  │ Critical (inherited)   │  │ ┌──────────────────┐  │             │
-│  │                        │  │ │  🟢 ACTIVE       │  │             │
-│  │                        │  │ └──────────────────┘  │             │
-│  ├────────────────────────┤  ├────────────────────────┤             │
-│  │ Department             │  │ Physical Location      │             │
-│  │ Khoa HSCC              │  │ ICU Nội (A2-ICUN)      │             │
-│  └────────────────────────┘  └────────────────────────┘             │
-├─────────────────────────────────────────────────────────────────────┤
-│ SECTION 3: Lịch bảo trì & Hiệu chuẩn                               │
-│  ┌────────────────────────┐  ┌────────────────────────┐             │
-│  │ Last PM Date           │  │ Next PM Date           │             │
-│  │ 2025-12-01             │  │ 2026-03-01 (90 ngày)   │             │
-│  │                        │  │ ⚠️ 45 ngày còn lại     │             │
-│  ├────────────────────────┤  ├────────────────────────┤             │
-│  │ Last Calibration Date  │  │ Next Calibration Date  │             │
-│  │ 2025-06-01             │  │ 2026-06-01 (365 ngày)  │             │
-│  │                        │  │ ✓ 75 ngày còn lại      │             │
-│  └────────────────────────┘  └────────────────────────┘             │
-│  [Computed field] Document Completeness: ████████░░ 78%             │
-├─────────────────────────────────────────────────────────────────────┤
-│ SECTION 4: Trách nhiệm                                              │
-│  ┌────────────────────────┐  ┌────────────────────────┐             │
-│  │ Primary Technician     │  │ Backup Technician      │             │
-│  │ [ktv.nguyen       ▼]   │  │ [ktv.tran         ▼]   │             │
-│  ├────────────────────────┤  ├────────────────────────┤             │
-│  │ Accountability To      │  │ Clinical Contact       │             │
-│  │ [Trưởng Khoa HSCC  ▼] │  │ [Dr. Pham Van B   ▼]   │             │
-│  └────────────────────────┘  └────────────────────────┘             │
-├─────────────────────────────────────────────────────────────────────┤
-│ DASHBOARD QUICK LINKS                                               │
-│  [PM Work Orders: 12]  [Incidents: 2]  [CAPA: 1 open]              │
-│  [Documents: 5/6]      [Lifecycle Events: 24]                       │
-└─────────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────────┐
+│ Topbar  [Logo AssetCore] [Search ⌘K]  ... [🔔 3] [👤 anh.doan ▾]     │
+├──────────┬────────────────────────────────────────────────────────────┤
+│          │ Breadcrumb: Trang chủ / Thiết bị / AC-ASSET-2026-00042     │
+│ Sidebar  ├────────────────────────────────────────────────────────────┤
+│          │                                                            │
+│ • Dash   │              Main content area                             │
+│ • Thiết  │              (list / detail / form)                        │
+│   bị     │                                                            │
+│ • NCC    │                                                            │
+│ • Vị trí │                                                            │
+│ • Khoa   │                                                            │
+│ • Master │                                                            │
+│ • Sự cố  │                                                            │
+│ • CAPA   │                                                            │
+│ • Audit  │                                                            │
+│          │                                                            │
+└──────────┴────────────────────────────────────────────────────────────┘
 ```
 
-### 2.3 Lifecycle Status — Color-Coded Badges
+### 3.2 Sidebar — 8 nhóm điều hướng
 
-The `lifecycle_status` field must render as a color-coded badge indicator, not a plain dropdown text.
-
-| Status Value | Badge Color | Hex Code | Icon | Meaning |
+| # | Nhãn | Icon | Route | Quyền tối thiểu |
 |---|---|---|---|---|
-| Active | Green | #28A745 | ● | Thiết bị đang hoạt động bình thường |
-| Under PM | Blue | #007BFF | 🔧 | Đang thực hiện bảo trì định kỳ |
-| Under Repair | Yellow | #FFC107 | ⚠️ | Đang sửa chữa, chưa sử dụng được |
-| Out of Service | Red | #DC3545 | ✕ | Ngừng sử dụng tạm thời |
-| Awaiting Parts | Orange | #FD7E14 | 📦 | Chờ phụ tùng thay thế |
-| Under Calibration | Purple | #6F42C1 | 📏 | Đang hiệu chuẩn |
-| Decommissioned | Gray | #6C757D | 🗄️ | Đã thanh lý / loại khỏi sử dụng |
-| In Storage | Light Blue | #17A2B8 | 📦 | Đang lưu kho, chưa triển khai |
+| 1 | Dashboard | `layout-dashboard` | `/` | mọi IMM role |
+| 2 | Thiết bị (AC Asset) | `package` | `/assets` | IMM Technician+ |
+| 3 | Nhà cung cấp (AC Supplier) | `truck` | `/suppliers` | Storekeeper+ |
+| 4 | Vị trí (AC Location) | `map-pin` | `/locations` | Ops Manager+ |
+| 5 | Khoa / Department | `building-2` | `/departments` | Ops Manager+ |
+| 6 | Master Data | `database` | `/master-data` | Workshop Lead+ |
+| | — IMM Device Model | | `/master-data/device-models` | |
+| | — AC Asset Category | | `/master-data/categories` | |
+| | — IMM SLA Policy | | `/master-data/sla` | |
+| 7 | Sự cố (Incident Report) | `alert-triangle` | `/incidents` | IMM Technician+ |
+| 8 | CAPA | `shield-check` | `/capa` | QA Officer, Workshop Lead |
+| 9 | Audit Trail | `file-lock` | `/audit-trail` | QA Officer, System Admin |
 
-**Implementation in Frappe (custom script):**
+Menu ẩn item không có quyền (không grey-out). Collapse / expand sidebar toggle; trạng thái lưu trong `localStorage`.
 
-```javascript
-// In form.js for IMM Asset Profile
-frappe.ui.form.on('IMM Asset Profile', {
-    lifecycle_status: function(frm) {
-        const status_config = {
-            'Active':             { color: '#28A745', icon: '●' },
-            'Under PM':           { color: '#007BFF', icon: '🔧' },
-            'Under Repair':       { color: '#FFC107', icon: '⚠️' },
-            'Out of Service':     { color: '#DC3545', icon: '✕' },
-            'Awaiting Parts':     { color: '#FD7E14', icon: '📦' },
-            'Under Calibration':  { color: '#6F42C1', icon: '📏' },
-            'Decommissioned':     { color: '#6C757D', icon: '🗄️' },
-            'In Storage':         { color: '#17A2B8', icon: '📦' },
-        };
-        const cfg = status_config[frm.doc.lifecycle_status];
-        if (cfg) {
-            frm.dashboard.add_indicator(
-                `${cfg.icon} ${frm.doc.lifecycle_status}`,
-                cfg.color
-            );
-        }
-    }
-});
-```
-
-### 2.4 Computed Fields (Read-Only, Server-Calculated)
-
-These fields are never edited directly. They are calculated on save and by daily scheduler tasks.
-
-| Field | Calculation | Display |
-|---|---|---|
-| days_to_next_pm | next_pm_date - today() | Red if ≤ 14 days, Orange if ≤ 30 days, Green otherwise |
-| days_to_next_cal | next_cal_date - today() | Red if ≤ 14 days, Orange if ≤ 30 days, Green otherwise |
-| document_completeness_pct | (submitted_docs / required_docs) × 100 | Progress bar 0–100% |
-| overdue_pm_count | Count of PM WOs with status=Overdue for this asset | Red badge if > 0 |
-
-**Color logic for days_to_next_pm display:**
-
-```javascript
-frappe.ui.form.on('IMM Asset Profile', {
-    refresh: function(frm) {
-        const days_pm = frm.doc.days_to_next_pm;
-        if (days_pm !== undefined) {
-            let color = days_pm <= 14 ? 'red' : (days_pm <= 30 ? 'orange' : 'green');
-            let label = days_pm < 0 ? `Quá hạn ${Math.abs(days_pm)} ngày` : `${days_pm} ngày còn lại`;
-            frm.dashboard.add_indicator(`PM: ${label}`, color);
-        }
-    }
-});
-```
-
-### 2.5 List View Configuration
-
-| Column | Width | Note |
-|---|---|---|
-| Asset Name | 25% | Linked to ERPNext Asset |
-| Device Model | 20% | |
-| Lifecycle Status | 12% | Color badge |
-| Location | 15% | |
-| Next PM Date | 12% | Colored red/orange/green |
-| Document Completeness % | 10% | Progress bar |
-| Risk Class | 6% | |
-
-**Filters:**
-- Lifecycle Status: multi-select
-- Risk Class: dropdown
-- Department / Location: linked filter
-- Next PM Date: date range
-- Document Completeness: less than X%
-
-### 2.6 Mobile UX — Technician View
-
-Technicians use IMM Asset Profile on mobile for:
-1. **Barcode/QR scan → load profile** (most common)
-2. **View next PM date / last service**
-3. **Open a Work Order from the profile**
-
-**Mobile-optimized fields (shown prominently on small screen):**
+### 3.3 Topbar
 
 ```
-[QR SCAN BUTTON — full width, top of form]
-Asset Name
-Lifecycle Status (large badge)
-Location
-Next PM Date
-[Button: Create PM Work Order]
-[Button: Report Incident]
+┌───────────────────────────────────────────────────────────────────────┐
+│  [AC] AssetCore  │ 🔍 Tìm mã/UDI/tên thiết bị…  ⌘K │ 🔔⁽³⁾ │ 👤 ▾    │
+└───────────────────────────────────────────────────────────────────────┘
 ```
 
-**Barcode scanner integration:**
+- **Search (⌘K / Ctrl+K)**: global search, debounce 300ms, gọi `/api/method/assetcore.api.imm00.global_search`.
+- **Notifications**: danh sách cảnh báo scheduler (CAPA overdue, contract expiry, BYT reg expiry).
+- **User menu**: thông tin, role chip, Đăng xuất.
 
-```javascript
-frappe.ui.form.on('IMM Asset Profile', {
-    refresh: function(frm) {
-        if (frappe.is_mobile()) {
-            frm.add_custom_button(__('Quét QR / Barcode'), function() {
-                frappe.require('barcode_scanner.bundle.js', function() {
-                    new frappe.ui.BarcodeScanner({
-                        dialog_title: 'Quét mã thiết bị',
-                        callback: function(data) {
-                            frappe.db.get_value('IMM Asset Profile',
-                                {'internal_tag_qr': data},
-                                'name',
-                                function(r) {
-                                    if (r && r.name) {
-                                        frappe.set_route('Form', 'IMM Asset Profile', r.name);
-                                    } else {
-                                        frappe.msgprint(__('Không tìm thấy thiết bị với mã: ') + data);
-                                    }
-                                }
-                            );
-                        }
-                    });
-                });
-            }, __('Công cụ'));
-        }
-    }
-});
-```
+### 3.4 Auth guard
 
----
-
-## 3. IMM Audit Trail — Read-Only Log Viewer
-
-### 3.1 Design Principles
-
-The Audit Trail is **strictly append-only**. No user should be able to edit or delete records. The UI must make this clear.
-
-- No "Edit" button anywhere on the form
-- No "Delete" option in Actions menu
-- The form title reads: "Audit Log — Xem chỉ đọc"
-- Submit/Amend buttons are hidden
-
-### 3.2 List View as Primary Interface
-
-The Audit Trail is primarily consumed as a list/table, not individual forms. Design the list view as the first-class experience.
-
-**List view layout:**
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│ IMM Audit Trail                              [Export CSV] [Filters] │
-├──────────┬────────────────┬──────────────┬──────────┬──────────────┤
-│ Timestamp│ Event Type     │ Actor        │ Asset    │ Details      │
-├──────────┼────────────────┼──────────────┼──────────┼──────────────┤
-│ 09:14:22 │ 🔵 State Change│ ktv.nguyen   │ NDIH1-23 │ Active→Under │
-│          │                │              │          │ PM           │
-├──────────┼────────────────┼──────────────┼──────────┼──────────────┤
-│ 08:55:01 │ 🟢 Submit      │ truong.phong │ NDIH1-22 │ PM WO        │
-│          │                │              │          │ Completed    │
-├──────────┼────────────────┼──────────────┼──────────┼──────────────┤
-│ 08:30:44 │ 🟠 Alert       │ System       │ NDIH1-19 │ PM overdue   │
-│          │                │              │          │ 5 days       │
-├──────────┼────────────────┼──────────────┼──────────┼──────────────┤
-│ 07:12:09 │ 🔴 CAPA        │ qa.officer   │ NDIH1-17 │ CAPA-2026-03 │
-│          │                │              │          │ opened       │
-└──────────┴────────────────┴──────────────┴──────────┴──────────────┘
-```
-
-### 3.3 Event Type Color Coding
-
-| Event Type | Color | Badge |
-|---|---|---|
-| State Transition | Blue | 🔵 |
-| Document Upload | Teal | 🟦 |
-| Submit | Green | 🟢 |
-| Cancel / Amend | Purple | 🟣 |
-| Alert | Orange | 🟠 |
-| CAPA | Red | 🔴 |
-| Non-Conformance | Dark Red | 🔴 |
-| Identification | Gray | ⚪ |
-| System | Light Gray | ⬜ |
-
-### 3.4 Filter Controls
-
-| Filter | Type | Options |
-|---|---|---|
-| Date Range | Date Range Picker | Default: last 30 days |
-| Event Type | Multi-select Dropdown | All types |
-| Actor | Link → User | Autocomplete |
-| Asset | Link → Asset | Autocomplete |
-| DocType | Select | Asset Commissioning / PM WO / Repair / etc. |
-| Root Record | Data | Search by document name |
-
-### 3.5 Export to CSV Button
-
-```javascript
-frappe.listview_settings['IMM Audit Trail'] = {
-    onload: function(listview) {
-        listview.page.add_button(__('Export CSV'), function() {
-            const filters = listview.get_filters_for_args();
-            frappe.call({
-                method: 'assetcore.api.imm00.export_audit_trail_csv',
-                args: { filters: filters },
-                callback: function(r) {
-                    if (r.message) {
-                        window.open(r.message.download_url);
-                    }
-                }
-            });
-        });
-    },
-    hide_name_column: false,
-    add_fields: ['event_type', 'actor', 'event_timestamp', 'root_record'],
-    get_indicator: function(doc) {
-        const colors = {
-            'State Transition': 'blue',
-            'Submit': 'green',
-            'Alert': 'orange',
-            'CAPA': 'red',
-            'Cancel': 'purple',
-        };
-        return [doc.event_type, colors[doc.event_type] || 'grey', 'event_type,=,' + doc.event_type];
-    }
-};
-```
-
----
-
-## 4. IMM CAPA Record Form
-
-### 4.1 Form Overview
-
-CAPA records track the full lifecycle of a corrective or preventive action. The form uses a tabbed design to separate the 5 phases of CAPA management.
-
-### 4.2 Status Badge with Color Coding
-
-| Status | Color | Transition |
-|---|---|---|
-| Draft | Gray | → Open |
-| Open | Blue | → In Progress |
-| In Progress | Yellow | → Pending Verification |
-| Pending Verification | Orange | → Closed / Reopened |
-| Closed | Green | (terminal) |
-| Overdue | Red | (automatic, set by scheduler if past due_date) |
-
-### 4.3 Due Date Warning Display
-
-```javascript
-frappe.ui.form.on('IMM CAPA Record', {
-    refresh: function(frm) {
-        if (frm.doc.due_date && frm.doc.status !== 'Closed') {
-            const today = frappe.datetime.get_today();
-            const days_left = frappe.datetime.get_diff(frm.doc.due_date, today);
-
-            if (days_left < 0) {
-                frm.dashboard.add_indicator(
-                    `⛔ Quá hạn ${Math.abs(days_left)} ngày`, 'red'
-                );
-                frm.set_df_property('due_date', 'description',
-                    '⛔ CAPA này đã quá hạn. Cần xử lý ngay.'
-                );
-            } else if (days_left <= 7) {
-                frm.dashboard.add_indicator(
-                    `⚠️ Đến hạn sau ${days_left} ngày`, 'orange'
-                );
-            } else {
-                frm.dashboard.add_indicator(
-                    `✓ Còn ${days_left} ngày`, 'green'
-                );
-            }
-        }
-    }
-});
-```
-
-### 4.4 Form Layout (Tabbed)
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│ IMM CAPA Record                    [🟡 IN PROGRESS] [Due: 2026-04-30]│
-│ CAPA-2026-003                       ⚠️ 13 ngày còn lại             │
-├─────────────────────────────────────────────────────────────────────┤
-│ [Tab 1: Vấn đề] [Tab 2: RCA] [Tab 3: Hành động] [Tab 4: Xác nhận] │
-│ [Tab 5: Đóng CAPA]                                                  │
-├─────────────────────────────────────────────────────────────────────┤
-│ TAB 1 — MÔ TẢ VẤN ĐỀ                                               │
-│  ┌────────────────────────┐  ┌────────────────────────┐             │
-│  │ CAPA Type              │  │ Source                 │             │
-│  │ Corrective             │  │ Non-Conformance NC-003 │             │
-│  ├────────────────────────┤  ├────────────────────────┤             │
-│  │ Related Asset          │  │ Related DocType        │             │
-│  │ NDIH1-2024-0023        │  │ PM Work Order          │             │
-│  ├────────────────────────┴──┴────────────────────────┤             │
-│  │ Problem Statement (required)                       │             │
-│  │ Máy thở SV300 tại ICU Nội bị lỗi báo động áp suất │             │
-│  │ cao liên tục trong quá trình PM ngày 2026-04-01... │             │
-│  ├────────────────────────────────────────────────────┤             │
-│  │ Immediate Containment Action                       │             │
-│  │ Đã tạm thay thiết bị dự phòng, ngừng sử dụng SV300│             │
-│  └────────────────────────────────────────────────────┘             │
-├─────────────────────────────────────────────────────────────────────┤
-│ TAB 2 — PHÂN TÍCH NGUYÊN NHÂN GỐC (RCA)                           │
-│  RCA Method: [Fishbone ▼]  [5 Whys ▼]  [Fault Tree ▼]             │
-│  ┌────────────────────────────────────────────────────┐             │
-│  │ Root Cause Description                             │             │
-│  │ (Long Text — required before moving to Tab 3)      │             │
-│  ├────────────────────────────────────────────────────┤             │
-│  │ Contributing Factors (Child Table)                 │             │
-│  │ [Factor] [Category] [Impact Level]                 │             │
-│  └────────────────────────────────────────────────────┘             │
-├─────────────────────────────────────────────────────────────────────┤
-│ TAB 3 — KẾ HOẠCH HÀNH ĐỘNG                                        │
-│  Actions (Child Table):                                             │
-│  ┌──────────────────────┬──────────────┬────────┬─────────────┐    │
-│  │ Action Description   │ Assigned To  │Due Date│ Status      │    │
-│  ├──────────────────────┼──────────────┼────────┼─────────────┤    │
-│  │ Thay cảm biến áp suất│ ktv.nguyen   │ Apr 20 │ In Progress │    │
-│  │ Chạy test 24 giờ     │ ktv.nguyen   │ Apr 22 │ Pending     │    │
-│  │ Cập nhật SOP PM      │ ho.so        │ Apr 25 │ Pending     │    │
-│  └──────────────────────┴──────────────┴────────┴─────────────┘    │
-├─────────────────────────────────────────────────────────────────────┤
-│ QUICK ACTION BUTTONS (bottom of form, always visible)              │
-│  [Mark In Progress]  [Send for Verification]  [Close CAPA]         │
-└─────────────────────────────────────────────────────────────────────┘
-```
-
-### 4.5 Timeline Widget
-
-A visual timeline is rendered in the form's dashboard section showing the CAPA lifecycle:
-
-```
-Draft ──●──── Open ──────── In Progress ──── Pending Verification ──── Closed
- Apr 1      Apr 3            Apr 5                                   (pending)
-             ↑ nc.officer    ↑ qa.officer
-```
-
-**Implementation:**
-
-```javascript
-// Render CAPA timeline in dashboard
-frappe.ui.form.on('IMM CAPA Record', {
-    refresh: function(frm) {
-        if (frm.doc.lifecycle_log && frm.doc.lifecycle_log.length) {
-            const timeline_html = frm.doc.lifecycle_log.map(entry => `
-                <div class="capa-timeline-step">
-                    <span class="step-dot"></span>
-                    <span class="step-label">${entry.status}</span>
-                    <span class="step-date">${frappe.datetime.str_to_user(entry.timestamp)}</span>
-                    <span class="step-actor">${entry.actor}</span>
-                </div>
-            `).join('<div class="timeline-connector"></div>');
-            frm.dashboard.add_section(
-                `<div class="capa-timeline">${timeline_html}</div>`,
-                __('Lịch sử CAPA')
-            );
-        }
-    }
-});
-```
-
-### 4.6 Quick Action Buttons
-
-```javascript
-frappe.ui.form.on('IMM CAPA Record', {
-    refresh: function(frm) {
-        if (frm.doc.status === 'Open') {
-            frm.add_custom_button(__('Bắt đầu xử lý'), function() {
-                frm.set_value('status', 'In Progress');
-                frm.save();
-            }, __('Hành động'));
-        }
-
-        if (frm.doc.status === 'In Progress') {
-            frm.add_custom_button(__('Gửi kiểm tra'), function() {
-                frm.set_value('status', 'Pending Verification');
-                frm.save();
-                frappe.msgprint(__('Đã gửi cho QA Officer xác nhận'));
-            }, __('Hành động'));
-        }
-
-        if (frm.doc.status === 'Pending Verification' &&
-            frappe.user.has_role('IMM QA Officer')) {
-            frm.add_custom_button(__('Đóng CAPA'), function() {
-                frappe.confirm(
-                    __('Xác nhận đóng CAPA? Hành động này không thể hoàn tác.'),
-                    function() {
-                        frm.set_value('status', 'Closed');
-                        frm.set_value('closure_date', frappe.datetime.get_today());
-                        frm.save();
-                    }
-                );
-            }, __('Hành động'));
-        }
-    }
-});
-```
-
----
-
-## 5. IMM SLA Policy Form
-
-### 5.1 Form Layout
-
-Simple data-entry form with a preview table that auto-renders from the field values.
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│ IMM SLA Policy                                          [Save]      │
-│ SLA-P1                                                              │
-├─────────────────────────────────────────────────────────────────────┤
-│  ┌────────────────────────┐  ┌────────────────────────┐             │
-│  │ Policy Code *          │  │ Policy Name *          │             │
-│  │ SLA-P1                 │  │ P1 - Critical          │             │
-│  ├────────────────────────┤  ├────────────────────────┤             │
-│  │ Priority Level *       │  │ Color                  │             │
-│  │ 1                      │  │ [#FF0000]  ■           │             │
-│  ├────────────────────────┴──┴────────────────────────┤             │
-│  │ Trigger Condition                                   │             │
-│  │ Class III device in Critical Department (ICU/OR)   │             │
-│  └────────────────────────────────────────────────────┘             │
-│  ┌────────────────────────┐  ┌────────────────────────┐             │
-│  │ Response Time (min) *  │  │ Resolution Time (hr) * │             │
-│  │ 30                     │  │ 4                      │             │
-│  ├────────────────────────┤  ├────────────────────────┤             │
-│  │ Escalation L1 (hr) *   │  │ Escalation L2 BGD (hr) │             │
-│  │ 2                      │  │ 4                      │             │
-│  └────────────────────────┘  └────────────────────────┘             │
-│  Notify Roles (Multi-select):                                       │
-│  [IMM Department Head ×] [IMM Operations Manager ×] [+ Add]        │
-├─────────────────────────────────────────────────────────────────────┤
-│ PREVIEW — Ý nghĩa chính sách này                                   │
-│  ┌────────────────────────────────────────────────────────────────┐ │
-│  │ Khi sự cố P1 được tạo:                                        │ │
-│  │  • Technician phải phản hồi trong: 30 phút                    │ │
-│  │  • Phải giải quyết xong trong: 4 giờ                          │ │
-│  │  • Nếu sau 2 giờ chưa giải quyết → leo thang Workshop Lead    │ │
-│  │  • Nếu sau 4 giờ chưa giải quyết → leo thang BGĐ             │ │
-│  │  • Thông báo qua: SMS + Email + Push notification             │ │
-│  └────────────────────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────────────┘
-```
-
-The preview section is rendered client-side from the field values (no server call needed).
-
----
-
-## 6. Dashboard — IMM-00 Master Data Status
-
-### 6.1 Dashboard Overview
-
-**Path:** AssetCore > Dashboards > IMM-00 Master Data Status
-
-This dashboard is the control panel for IMM System Admin and IMM Department Head to verify the health of master data. It runs on page load with a 1-hour cache.
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│ IMM-00 Master Data Status Dashboard          [Refresh] [Last: 09:00]│
-├──────────────────────────────┬──────────────────────────────────────┤
-│ Widget 1: Device Models      │ Widget 2: Assets by Status           │
-│ by Category (Pie Chart)      │ (Horizontal Bar Chart)               │
-│                              │                                      │
-│   [Pie Chart]                │  Active          ████████████ 142   │
-│                              │  Under PM        ███ 12             │
-│   Thiết bị hồi sức  32      │  Under Repair    ██ 8               │
-│   Chẩn đoán hình ảnh 18     │  Out of Service  █ 3                │
-│   Phòng mổ          15      │  Decommissioned  ██ 7               │
-│   Xét nghiệm        12      │  In Storage      █ 4                │
-│   Tiệt khuẩn        8       │                                      │
-│   Khác              15      │                                      │
-├──────────────────────────────┼──────────────────────────────────────┤
-│ Widget 3: CAPA Status        │ Widget 4: Vendor Contract Expiry     │
-│ (Donut + Stats)              │ (Alert List)                         │
-│                              │                                      │
-│  Open: 4    Overdue: 2       │  ⛔ CTR-2025-PHILIPS-001            │
-│  In Progress: 3              │     Hết hạn 2026-04-30 (13 ngày)   │
-│  Closed this month: 7        │  ⚠️  CTR-2025-GE-003                │
-│                              │     Hết hạn 2026-06-15 (59 ngày)   │
-│  [Donut Chart]               │  ⚠️  CTR-2024-SIEMENS-001           │
-│                              │     Hết hạn 2026-07-01 (75 ngày)   │
-├──────────────────────────────┼──────────────────────────────────────┤
-│ Widget 5: BYT Registration Expiry Alerts                           │
-│                                                                     │
-│  ⛔ VD-12345-20 (Máy thở SV300)        Hết hạn: 2026-04-25        │
-│  ⚠️  VD-23456-19 (Monitor IMEC12)      Hết hạn: 2026-06-01        │
-│  ⚠️  VD-34567-21 (Bơm tiêm SP-500)    Hết hạn: 2026-06-30        │
-│  [View All 5 Expiring Items →]                                     │
-└─────────────────────────────────────────────────────────────────────┘
-```
-
-### 6.2 Widget Specifications
-
-**Widget 1: Device Models by Category**
-
-```python
-# Backend API: assetcore/api/imm00.py
-@frappe.whitelist()
-def get_device_model_distribution() -> dict:
-    """Return count of submitted device models grouped by asset_category."""
-    data = frappe.db.sql("""
-        SELECT asset_category, COUNT(*) as count
-        FROM `tabIMM Device Model`
-        WHERE docstatus = 1
-        GROUP BY asset_category
-        ORDER BY count DESC
-    """, as_dict=True)
-    return {"labels": [d.asset_category for d in data],
-            "datasets": [{"values": [d.count for d in data]}]}
-```
-
-**Widget 2: Assets by Lifecycle Status**
-
-```python
-@frappe.whitelist()
-def get_asset_status_distribution() -> dict:
-    """Return count of IMM Asset Profiles grouped by lifecycle_status."""
-    data = frappe.db.sql("""
-        SELECT lifecycle_status, COUNT(*) as count
-        FROM `tabIMM Asset Profile`
-        GROUP BY lifecycle_status
-        ORDER BY count DESC
-    """, as_dict=True)
-    return _ok(data)
-```
-
-**Widget 3: CAPA Summary**
-
-```python
-@frappe.whitelist()
-def get_capa_summary() -> dict:
-    """Return CAPA open/overdue/closed-this-month counts."""
-    today = frappe.utils.today()
-    month_start = frappe.utils.get_first_day(today)
-    return _ok({
-        "open": frappe.db.count("IMM CAPA Record", {"status": "Open"}),
-        "overdue": frappe.db.count("IMM CAPA Record",
-            {"status": ["not in", ["Closed"]], "due_date": ["<", today]}),
-        "closed_this_month": frappe.db.count("IMM CAPA Record",
-            {"status": "Closed", "closure_date": [">=", month_start]}),
-        "in_progress": frappe.db.count("IMM CAPA Record", {"status": "In Progress"}),
-    })
-```
-
-**Widget 4: Vendor Contract Expiry**
-
-```python
-@frappe.whitelist()
-def get_vendor_contract_expiry_alerts(days_ahead: int = 90) -> list:
-    """Return vendor profiles with contracts expiring within days_ahead."""
-    cutoff = frappe.utils.add_days(frappe.utils.today(), days_ahead)
-    return frappe.db.get_all(
-        "IMM Vendor Profile",
-        filters={"contract_expiry": ["<=", cutoff]},
-        fields=["name", "supplier", "contract_number", "contract_expiry"],
-        order_by="contract_expiry asc"
-    )
-```
-
-**Widget 5: BYT Registration Expiry**
-
-```python
-@frappe.whitelist()
-def get_byt_expiry_alerts(days_ahead: int = 90) -> list:
-    """Return device models with BYT registration expiring within days_ahead."""
-    cutoff = frappe.utils.add_days(frappe.utils.today(), days_ahead)
-    return frappe.db.get_all(
-        "IMM Device Model",
-        filters={"byt_registration_expiry": ["<=", cutoff], "docstatus": 1},
-        fields=["name", "model_name", "byt_registration_no", "byt_registration_expiry"],
-        order_by="byt_registration_expiry asc"
-    )
-```
-
----
-
-## 7. Navigation Structure
-
-### 7.1 AssetCore Sidebar Menu
-
-The Frappe sidebar module menu for AssetCore is structured by IMM module group. IMM-00 items appear under the "Master Data" group.
-
-```
-AssetCore
-│
-├── Master Data (IMM-00)
-│   ├── IMM Device Model
-│   ├── IMM Asset Profile
-│   ├── IMM Vendor Profile
-│   ├── IMM Location Ext
-│   ├── IMM SLA Policy
-│   └── IMM CAPA Record
-│
-├── Deployment (IMM-04 / IMM-05)
-│   ├── Asset Commissioning (IMM-04)
-│   └── Asset Documents (IMM-05)
-│
-├── Operations
-│   ├── PM Schedule (IMM-08)
-│   ├── PM Work Order (IMM-08)
-│   ├── Asset Repair (IMM-09)
-│   └── Calibration Record (IMM-11)
-│
-├── Reports
-│   ├── Device Status Report
-│   ├── PM Compliance Report
-│   └── CAPA Status Report
-│
-└── Settings
-    ├── IMM SLA Policy
-    └── Required Document Type
-```
-
-**Module definition in `assetcore_module_def.json`:**
-
-```json
-{
-  "module_name": "AssetCore",
-  "category": "Modules",
-  "label": "AssetCore HTM",
-  "color": "#1a73e8",
-  "icon": "octicon octicon-tools",
-  "type": "module",
-  "description": "Medical Equipment Lifecycle Management"
-}
-```
-
-### 7.2 Role-Based Menu Visibility
-
-Menu items are shown/hidden based on the user's role. This is configured in `desk_page.json` or via Role Permission Manager:
-
-| Menu Section | Visible To |
+| Trạng thái | Hành vi |
 |---|---|
-| Master Data — IMM Device Model | IMM System Admin, IMM Department Head, IMM Operations Manager, IMM QA Officer |
-| Master Data — IMM Asset Profile | All IMM roles |
-| Master Data — IMM SLA Policy | IMM System Admin only |
-| Master Data — IMM CAPA Record | IMM QA Officer, IMM Department Head, IMM Operations Manager |
-| Master Data — IMM Audit Trail | IMM System Admin, IMM Department Head, IMM QA Officer |
-| Reports | IMM Department Head, IMM Operations Manager, IMM QA Officer |
-| Settings | IMM System Admin only |
+| Chưa đăng nhập | Redirect `/login` (Frappe session cookie) |
+| Đã đăng nhập, đủ role | Render route |
+| Đã đăng nhập, thiếu role | Render `Forbidden403View` với CTA "Yêu cầu quyền" |
+| API 401 | Xoá Pinia auth store, redirect `/login` |
+| API 403 | Toast danger "Không có quyền thực hiện hành động này" |
+| API 500 | `ErrorBoundary` với retry + error ID |
 
-**Implementation in `desk.py` (module shortcut visibility):**
+### 3.5 Breadcrumb
 
-```python
-def get_data():
-    return [
-        {
-            "module_name": "AssetCore",
-            "category": "Modules",
-            "items": [
-                {
-                    "type": "doctype",
-                    "name": "IMM Device Model",
-                    "label": "Device Model Catalog",
-                    "description": "Danh mục model thiết bị y tế",
-                    "roles": ["IMM System Admin", "IMM Department Head", "IMM Operations Manager"],
-                },
-                {
-                    "type": "doctype",
-                    "name": "IMM Asset Profile",
-                    "label": "Asset HTM Profile",
-                    "description": "Hồ sơ HTM từng thiết bị",
-                    "roles": [],  # empty = all roles can see
-                },
-                # ...
-            ]
-        }
-    ]
-```
+Auto sinh từ `route.meta.breadcrumb`. Max 4 cấp, cắt giữa ("…") nếu dài. Click mọi cấp trừ cấp cuối.
 
----
+### 3.6 Trạng thái chung — Loading / Empty / Error
 
-## 8. Mobile Responsiveness Notes
-
-### 8.1 Forms Used on Mobile
-
-| Form | Mobile Use Case | Priority |
+| State | Layout | Ghi chú |
 |---|---|---|
-| IMM Asset Profile | Lookup by QR scan, view PM dates, open WO | Critical |
-| IMM CAPA Record | View assigned actions, mark action complete | High |
-| IMM Audit Trail | Read-only event log lookup | Medium |
-| IMM Device Model | Reference lookup (rarely edited on mobile) | Low |
-
-### 8.2 Mobile Layout Adjustments
-
-Frappe's responsive grid collapses two-column layouts to single column on mobile. For IMM Asset Profile, additional mobile-specific field ordering is needed:
-
-```javascript
-frappe.ui.form.on('IMM Asset Profile', {
-    refresh: function(frm) {
-        if (window.innerWidth < 768) {
-            // On mobile, show action buttons prominently at top
-            frm.add_custom_button(__('Tạo Work Order'), function() {
-                frappe.new_doc('PM Work Order', {
-                    asset: frm.doc.asset,
-                    asset_profile: frm.doc.name
-                });
-            });
-
-            frm.add_custom_button(__('Báo sự cố'), function() {
-                frappe.new_doc('Asset Repair', {
-                    asset: frm.doc.asset
-                });
-            });
-        }
-    }
-});
-```
-
-### 8.3 QR Code Display on Asset Profile
-
-When viewing an IMM Asset Profile, the `internal_tag_qr` field value should render as a scannable QR image for reprinting labels:
-
-```javascript
-frappe.ui.form.on('IMM Asset Profile', {
-    internal_tag_qr: function(frm) {
-        if (frm.doc.internal_tag_qr) {
-            frm.fields_dict.qr_image.$wrapper.html(
-                `<img src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(frm.doc.internal_tag_qr)}" />`
-            );
-        }
-    }
-});
-```
-
-### 8.4 Offline Considerations
-
-For technicians in low-connectivity areas (basement workshop, MRI room), IMM Asset Profile list should support Frappe's offline mode:
-
-- Pre-load the list of Active assets in the browser cache on login
-- Show cached `lifecycle_status`, `next_pm_date`, `location` without server call
-- Queue Work Order creation for sync when connectivity returns
-
-This is handled by Frappe's service worker — no custom code required. Ensure the site has PWA enabled:
-
-```bash
-bench --site hospital.local set-config is_app true
-```
+| Loading | Skeleton row × 8 (list) / skeleton card (dashboard) | Không spinner |
+| Empty | Icon + mô tả + CTA tạo mới | Ví dụ: "Chưa có AC Asset — [Tạo thiết bị mới]" |
+| Error | Icon cảnh báo + error code + button Thử lại | Gửi lỗi lên Sentry |
 
 ---
 
-## Appendix — Field Naming Reference
+## 4. Layout patterns
 
-All IMM-00 DocType fields follow the naming conventions below for consistency across modules.
+### 4.1 List view
 
-| Prefix | Meaning | Example |
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│ Tiêu đề danh sách                   [ + Tạo mới ]  [ Xuất Excel ▾ ] │
+├───────────────┬─────────────────────────────────────────────────────┤
+│ Filter sidebar│  Bulk: [ Gán kỹ thuật viên ] [ Đổi trạng thái ]     │
+│               ├─────────────────────────────────────────────────────┤
+│ Status    ▾   │  □  Mã            Tên        Khoa    Status   Next │
+│ Lifecycle ▾   │  □  AC-ASSET-001  Máy MRI    CĐHA    Active   05/05│
+│ Dept      ▾   │  □  AC-ASSET-002  Máy XN     XN      UnderRep 12/05│
+│ Risk      ▾   │  …                                                 │
+│ Next PM   📅  │                                                     │
+│               │         [ ‹ 1 2 3 … 12 › ]       Hiển thị 20 / trang│
+└───────────────┴─────────────────────────────────────────────────────┘
+```
+
+- Filter sidebar bên trái (desktop) / drawer (mobile).
+- Table bên phải: sticky header, sortable column, multi-select.
+- Pagination: server-side (`page`, `page_size`). Default `page_size=20`.
+- Bulk action bar xuất hiện khi chọn ≥ 1 row.
+- Export CSV / Excel qua API `/api/method/...export`.
+
+### 4.2 Detail view
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│ ← AC-ASSET-2026-00042   [Active ●]           [ Sửa ]  [ Thao tác ▾ ]│
+├─────────────────────────────────────────────────────────────────────┤
+│ [Tổng quan] [Vòng đời] [PM & Cal] [Tài liệu] [Incident & CAPA] [Audit]│
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│   Nội dung theo tab                                                 │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+- Header: back button + mã + chip status + action cluster phải.
+- Tabs deep-linkable: `?tab=lifecycle`.
+- Action menu ▾: Decommission, Transfer, In QR, Xuất lý lịch.
+
+### 4.3 Form view
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│ Tạo mới AC Asset                                                    │
+├─────────────────────────────────────────────────────────────────────┤
+│ §1 Định danh (UDI / GMDN / BYT)                                     │
+│    [Mã UDI* ...................]  [GMDN ..........]                 │
+│    [Số đăng ký BYT ...........]  [Hạn đăng ký  📅 ]                 │
+│                                                                     │
+│ §2 Phân loại                                                        │
+│    [Device Model* ▾]  → (auto) class / risk / pm_interval           │
+│                                                                     │
+│ §3 Vị trí & Trách nhiệm                                             │
+│ §4 Lịch bảo trì                                                     │
+│ §5 Ghi chú                                                          │
+│                                                                     │
+├─────────────────────────────────────────────────────────────────────┤
+│ [ Huỷ ]                                [ Lưu nháp ] [ Lưu & Gửi duyệt ]│
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+- Sticky action bar ở đáy (mobile) / đỉnh (desktop khi scroll).
+- Section break dùng heading `text-lg` + divider.
+- Field required có dấu `*` đỏ.
+
+### 4.4 Print-friendly view
+
+Route `/print/:doctype/:name` với CSS `@media print`. Ẩn sidebar / topbar. Font size 11pt, màu chuyển grayscale. Dùng cho lý lịch thiết bị, CAPA form, Incident form.
+
+---
+
+## 5. Screen specs
+
+Phần này đặc tả 13 màn chính của IMM-00.
+
+### 5.1 Dashboard
+
+Route: `/`
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│ Xin chào, anh.doan                                   18/04/2026     │
+├─────────────────────────────────────────────────────────────────────┤
+│ [Tổng AC Asset]  [PM đến hạn 7d]  [PM đến hạn 30d]  [CAPA Overdue] │
+│      1,284             12               48                3         │
+│ [Incident Open]  [Contract sắp hết]  [BYT reg sắp hết]              │
+│      5                  7 (90d)            4 (90d)                  │
+├─────────────────────────────────────────────────────────────────────┤
+│ Biểu đồ: Asset theo lifecycle_status (donut)                        │
+│ Biểu đồ: PM compliance theo tháng (line)                            │
+├─────────────────────────────────────────────────────────────────────┤
+│ Hoạt động gần đây (Lifecycle Event) — 10 dòng                       │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+- KPI card click → filter list tương ứng (vd click "CAPA Overdue" → `/capa?status=Overdue`).
+- Theo role ưu tiên khác nhau (xem §7).
+
+### 5.2 AC Asset — List
+
+Route: `/assets`
+
+| Cột | Mô tả | Sort |
 |---|---|---|
-| `imm_` | AssetCore extension on ERPNext DocType | `imm_device_model` |
-| `byt_` | Bộ Y tế regulatory fields | `byt_registration_no` |
-| `lifecycle_` | Lifecycle state and history | `lifecycle_status` |
-| `next_` | Computed future date | `next_pm_date` |
-| `last_` | Most recent recorded date | `last_pm_date` |
-| `days_to_` | Computed countdown | `days_to_next_pm` |
-| `sla_` | SLA-related fields | `sla_policy` |
-| `cal_` | Calibration fields | `cal_interval_days` |
+| `asset_code` | Mã AC-ASSET-… | ✓ |
+| `asset_name` | Tên thiết bị | ✓ |
+| `device_model` | Mã model | ✓ |
+| `department` | Khoa | ✓ |
+| `lifecycle_status` | Chip màu | ✓ |
+| `next_pm_date` | Ngày PM kế tiếp | ✓ |
+| `risk_class` | Chip Low/Med/High/Critical | ✓ |
+
+Filter: `status`, `lifecycle_status`, `department`, `risk_class`, `next_pm_date` (range).
+
+Bulk actions: Gán KTV, In QR hàng loạt, Xuất Excel.
+
+Tìm kiếm nhanh: theo `asset_code`, `asset_name`, `udi`.
+
+### 5.3 AC Asset — Detail
+
+Route: `/assets/:name`
+
+6 tab:
+
+| Tab | Nội dung chính |
+|---|---|
+| 1. Info HTM | asset_code, UDI, GMDN, BYT reg, device_model, class, risk, custodian, location |
+| 2. Vòng đời | Timeline Asset Lifecycle Event (xem §5.12) |
+| 3. PM & Calibration | next_pm_date, pm_interval_days, next_calibration_date, lịch sử PM / Cal |
+| 4. Tài liệu | Upload IQ/OQ/PQ, manual, biên bản — Frappe File |
+| 5. Incident & CAPA | Danh sách Incident + CAPA liên quan, CTA tạo mới |
+| 6. Audit Trail | Log immutable theo asset, button "Verify chain" |
+
+Header action menu:
+
+- **Tác nghiệp**: Đổi trạng thái (modal chọn transition hợp lệ), Transfer khoa, Decommission.
+- **Tiện ích**: In QR, Xuất lý lịch (PDF).
+
+### 5.4 AC Asset — Form (Create / Edit)
+
+Route: `/assets/new`, `/assets/:name/edit`
+
+Section:
+
+| § | Label | Field |
+|---|---|---|
+| 1 | Định danh | `asset_code` (auto), `asset_name*`, `udi`, `gmdn_code`, `byt_reg_no`, `byt_reg_expiry` |
+| 2 | Phân loại | `device_model*`, `asset_category` (auto từ model), `device_class` (readonly), `risk_class` (readonly) |
+| 3 | Vị trí & Trách nhiệm | `department*`, `location`, `responsible_technician` |
+| 4 | Lịch bảo trì | `pm_interval_days` (auto), `next_pm_date`, `next_calibration_date` |
+| 5 | Ghi chú | `notes`, `attachments` |
+
+Hành vi auto-fill khi chọn `device_model`:
+
+```
+on change device_model:
+  GET /api/method/assetcore.api.imm00.get_device_model_defaults?model=...
+  → apply: device_class, risk_class, pm_interval_days, asset_category
+```
+
+BR hiển thị:
+
+- `BR-00-01` (class vs risk): toast warning nếu user sửa ngược chuẩn.
+- `BR-00-06` (ISO 17025): không áp dụng ở đây (áp dụng ở Supplier).
+
+### 5.5 AC Supplier — List + Form
+
+Route: `/suppliers`, `/suppliers/new`, `/suppliers/:name`.
+
+List columns: `supplier_code`, `supplier_name`, `vendor_type` (chip), `iso_17025_cert` (badge ✓ / ✗), `contract_end`, `status`.
+
+Form section:
+
+| § | Field |
+|---|---|
+| Cơ bản | supplier_code, supplier_name*, vendor_type* (Manufacturer / Distributor / Service Provider / Calibration Lab) |
+| Pháp lý | tax_code, business_license, iso_17025_cert |
+| Hợp đồng | contract_start, contract_end, contract_ref (file) |
+| KTV uỷ quyền (child) | AC Authorized Technician inline table |
+
+Banner cảnh báo (soft, amber) — khi `vendor_type = Calibration Lab` và thiếu `iso_17025_cert`:
+
+```
+⚠  Nhà cung cấp dạng Calibration Lab cần khai báo ISO/IEC 17025.
+   Hiện tại đang thiếu chứng chỉ — không khuyến nghị sử dụng cho hiệu chuẩn.
+```
+
+### 5.6 AC Location — Tree view
+
+Route: `/locations`
+
+```
+┌──────────────────────────┬──────────────────────────────────────────┐
+│  Toà A                   │  Chi tiết vị trí                         │
+│   └ Tầng 2               │  Mã: AC-LOC-2026-0042                    │
+│     └ CĐHA        [sel]  │  Tên: Phòng CĐHA                         │
+│       └ Phòng MRI        │  Loại khu vực: Diagnostic Imaging        │
+│     └ Phòng CT           │  Infection control: Standard             │
+│   └ Tầng 3               │  [Thiết bị tại đây: 12]                  │
+│  Toà B                   │  [ Sửa ]  [ + Thêm vị trí con ]          │
+└──────────────────────────┴──────────────────────────────────────────┘
+```
+
+- Tree bên trái (lazy load), detail panel bên phải.
+- Drag-drop để đổi parent (chỉ System Admin + Ops Manager).
+- Click "Thiết bị tại đây" → `/assets?location=AC-LOC-…`.
+
+### 5.7 AC Department — Tree view
+
+Cùng pattern §5.6, hiển thị trường: `department_code`, `department_name`, `parent_department`, `head_user`. Click "Thiết bị thuộc khoa" → `/assets?department=…`.
+
+### 5.8 IMM Device Model — List + Form
+
+Route: `/master-data/device-models`
+
+List: `model_code`, `model_name`, `manufacturer`, `device_class`, `risk_class`, `pm_interval_days`.
+
+Form section:
+
+| § | Field |
+|---|---|
+| Định danh | model_code, model_name*, manufacturer*, gmdn_code |
+| Phân loại | device_class (I/II/III)*, risk_class (auto BR-00-01), life_years |
+| Bảo trì khuyến nghị | pm_interval_days*, calibration_interval_days |
+| Phụ tùng | child table IMM Device Spare Part (part_no, name, supplier, qty) inline |
+| Tài liệu | manual, IFU, datasheet (File) |
+
+BR-00-01 enforce qua Select chain: chọn `device_class` → `risk_class` default theo bảng, có thể override nhưng phải xác nhận.
+
+### 5.9 IMM SLA Policy — Matrix
+
+Route: `/master-data/sla`
+
+Hiển thị dạng ma trận 2 chiều `priority × risk_class`:
+
+```
+           │  Low      Medium     High       Critical
+───────────┼────────────────────────────────────────────
+  P1       │ 30/4h    15/2h      10/1h       5/30m
+  P2       │ 60/8h    30/4h      20/2h      10/1h
+  P3       │ 240/24h  120/12h    60/8h      30/4h
+  P4       │ 480/72h  240/48h   120/24h     60/12h
+
+  (Response minutes / Resolution time)
+```
+
+- Cell clickable → modal edit `response_time_minutes`, `resolution_time_hours`.
+- BR-00-07: response < resolution × 60 → inline error đỏ trong modal.
+- Row `is_default` highlight nền `primary-50`.
+
+### 5.10 IMM Audit Trail — Log
+
+Route: `/audit-trail`
+
+**Read-only**. Không có nút Create / Edit / Delete (enforce cả trên perm BE + UI).
+
+Filter: `asset`, `event_type`, `user`, `date_range`, `module`.
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│ Bộ lọc          │  [ Verify chain integrity 🔒 ]                    │
+├──────────────────────────────────────────────────────────────────── │
+│ Time     │ Module │ Event       │ Asset        │ User    │ Hash ✓  │
+│ 10:42:11 │ IMM-08 │ pm_done     │ AC-ASSET-042 │ ktv01   │ a3f2…   │
+│ 09:15:03 │ IMM-04 │ commissioned│ AC-ASSET-042 │ dhead01 │ 91bc…   │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+Nút **Verify chain integrity** gọi `/api/method/assetcore.api.imm00.verify_audit_chain`:
+
+- Spinner loading.
+- Kết quả: modal hiển thị:
+  - ✅ "Chain toàn vẹn — N entries, from HASH_0 to HASH_N"
+  - ❌ "Phát hiện break tại entry #K, hash_prev không khớp" (kèm link tới entry).
+
+Row click → drawer phải hiển thị raw payload JSON.
+
+### 5.11 IMM CAPA — List + Form
+
+Route: `/capa`, `/capa/new`, `/capa/:name`
+
+List: `capa_code`, `title`, `severity` (chip), `status` (workflow bar), `due_date` (warn nếu < 7d), `assigned_to`.
+
+Workflow status bar (top of form):
+
+```
+[ Open ] ──▶ [ Root Cause ] ──▶ [ Corrective ] ──▶ [ Verification ] ──▶ [ Closed ]
+   ●            ●                  ○                ○                     ○
+```
+
+Section form:
+
+| § | Field |
+|---|---|
+| Cơ bản | capa_code, title*, source (Incident / PM / Audit), severity* |
+| Trách nhiệm | assigned_to*, due_date*, department |
+| Phân tích | root_cause*, affected_assets (multi) |
+| Hành động | corrective_action*, preventive_action, verification_plan |
+| Đóng | verification_result, closed_by, closed_at |
+
+Warning banner: nếu `due_date < today` → đỏ "CAPA quá hạn (BR-00-09)".
+
+Close CAPA: confirm modal liệt kê checklist BR-00-08 (corrective + root_cause bắt buộc).
+
+### 5.12 Asset Lifecycle Event — Timeline
+
+Embedded trong AC Asset Detail tab "Vòng đời". Route chuyên biệt: `/assets/:name/lifecycle`.
+
+Vertical timeline, màu theo `event_type`:
+
+```
+ │
+ ●  2026-04-15 10:42   pm_completed       ktv01      (success)
+ │     → Source: WO-PM-2026-0128
+ │
+ ●  2026-03-20 09:00   repair_opened      ktv02      (warning)
+ │     → Source: IR-2026-0042
+ │
+ ●  2026-02-01 14:30   commissioned       dhead01    (info)
+ │     → Source: ACC-2026-0015
+ │
+ ●  2026-01-20 08:00   planned            admin      (neutral)
+```
+
+- Click event → drawer phải show payload + link tới source record.
+- Filter: event_type (multi), date range.
+
+### 5.13 Incident Report — Wizard 3 bước
+
+Route: `/incidents/new` (wizard), `/incidents`, `/incidents/:name`.
+
+```
+ Bước 1 / 3         Bước 2 / 3         Bước 3 / 3
+ Thông tin cơ bản → Mức độ & Bệnh nhân → Hành động tức thời
+ ─────────         ───────────         ───────────────────
+```
+
+**Bước 1 — Thông tin cơ bản**
+
+| Field | Note |
+|---|---|
+| asset* | Select async, show asset chip |
+| occurred_at* | DateTime picker |
+| reported_by | Auto = session.user |
+| short_description* | Textarea 200 char |
+
+**Bước 2 — Mức độ & Bệnh nhân**
+
+| Field | Note |
+|---|---|
+| severity* | Minor / Major / Critical |
+| patient_affected | boolean |
+| patient_injury_level | conditional (nếu patient_affected) |
+| witnesses | Table (name, role) |
+
+Khi `severity = Critical` AND `patient_affected = true`:
+
+```
+┌───────────────────────────────────────────────────────────────────┐
+│ 🛑  BÁO CÁO BỘ Y TẾ BẮT BUỘC theo NĐ98/2021                       │
+│     Hồ sơ phải được gửi trong 24h kể từ thời điểm xảy ra sự cố.   │
+│     Hệ thống sẽ tự tạo CAPA và gán QA Officer sau khi Submit.     │
+└───────────────────────────────────────────────────────────────────┘
+```
+
+**Bước 3 — Hành động tức thời**
+
+| Field | Note |
+|---|---|
+| immediate_action* | textarea |
+| asset_status_after | Select (Active / Out of Service / Under Repair) |
+| create_capa | checkbox (auto-checked nếu Critical) |
+| attachments | File upload |
+
+Nút Submit → tạo Incident + (tuỳ chọn) CAPA + Lifecycle Event `failure_reported`.
 
 ---
 
-*End of IMM-00 UI/UX Guide*
-*Owner: IMM System Admin + Frontend Developer*
-*Review cycle: Every 3 months or after major Frappe version upgrade*
+## 6. Interaction patterns
+
+### 6.1 Auto-save draft
+
+Form dài (AC Asset, CAPA, Incident Wizard) auto-save vào `localStorage` mỗi 10s. Khi mở lại:
+
+```
+┌────────────────────────────────────────────────────────────┐
+│ Phát hiện bản nháp lưu lúc 09:41 hôm nay.                  │
+│   [ Khôi phục bản nháp ]    [ Bỏ qua ]                     │
+└────────────────────────────────────────────────────────────┘
+```
+
+Key naming: `draft:<doctype>:<user>:<name|new>`. Xoá khi submit thành công.
+
+### 6.2 Optimistic UI
+
+Actions ngắn (toggle flag, gán KTV, bookmark) update UI ngay, rollback + toast nếu API lỗi.
+
+### 6.3 Inline validation
+
+- Validate on blur cho field cơ bản.
+- Validate on submit cho BR (gọi BE).
+- Lỗi BR hiển thị banner đỏ đầu form:
+
+```
+┌────────────────────────────────────────────────────────────┐
+│ ❌  Có 2 lỗi cần sửa:                                      │
+│    • BR-00-01: risk_class không phù hợp device_class       │
+│    • BR-00-07: response_time phải nhỏ hơn resolution × 60  │
+└────────────────────────────────────────────────────────────┘
+```
+
+### 6.4 Confirmation modal cho destructive
+
+Triggers: Decommission asset, Close CAPA, Xoá Supplier, Ngừng Device Model.
+
+Modal pattern:
+
+```
+┌────────────────────────────────────────────────────────────┐
+│ Xác nhận ngừng sử dụng AC-ASSET-2026-00042                 │
+├────────────────────────────────────────────────────────────┤
+│ Thao tác này sẽ:                                           │
+│   • Đổi lifecycle_status → Decommissioned                  │
+│   • Huỷ toàn bộ PM/Calibration schedule còn pending        │
+│   • Ghi 1 Asset Lifecycle Event bất biến                   │
+│                                                            │
+│ Nhập mã thiết bị để xác nhận: [___________________]        │
+├────────────────────────────────────────────────────────────┤
+│              [ Huỷ ]       [ Xác nhận ngừng ] (red)        │
+└────────────────────────────────────────────────────────────┘
+```
+
+### 6.5 Keyboard shortcuts
+
+| Phím | Hành động |
+|---|---|
+| `Ctrl+S` / `⌘+S` | Lưu form hiện tại |
+| `Ctrl+K` / `⌘+K` | Mở global search |
+| `Esc` | Đóng modal / drawer |
+| `?` | Hiển thị cheat-sheet shortcut |
+| `G` then `A` | Go to Assets |
+| `G` then `D` | Go to Dashboard |
+
+### 6.6 QR scan
+
+Nút "Quét QR" trên topbar (mobile) + AC Asset list:
+
+- Sử dụng `getUserMedia` + thư viện `@zxing/browser`.
+- Parse QR payload (format: `AC-ASSET-YYYY-#####` hoặc full UDI).
+- Điều hướng tới `/assets/:name` nếu tìm thấy, ngược lại toast "Không tìm thấy thiết bị".
+
+---
+
+## 7. Role-based UI
+
+| Role | Sidebar | Dashboard ưu tiên | Action khả dụng |
+|---|---|---|---|
+| IMM Technician | Dashboard, Thiết bị, Sự cố | "PM của tôi", "Sự cố đang xử lý" | Quick Log PM, Tạo Incident |
+| IMM QA Officer | Full + Audit Trail, CAPA | "CAPA Overdue", "Audit exceptions" | Verify chain, Close CAPA |
+| IMM Department Head | Full (trừ Master Data edit) | "CAPA Overdue", "Contract 90d", "BYT reg 90d" | Approve transfer, Sign-off decommission |
+| IMM Operations Manager | Full | "Asset utilization", "PM compliance" | Bulk assign KTV |
+| IMM System Admin | Full + Settings | "System health" | Edit fixtures, Manage roles |
+
+Enforce bằng 2 lớp:
+
+1. **FE**: Pinia `authStore.hasRole()` — ẩn menu / disable button.
+2. **BE**: Frappe Permission (`has_permission`) + custom `permission.py` — chặn data truy cập.
+
+IMM Technician chỉ thấy AC Asset có `responsible_technician = session.user` (enforce BE). Trên UI, list cho "Chỉ thiết bị của tôi" là filter mặc định bật.
+
+Form PM của IMM Technician có thêm khối **Quick Log**:
+
+```
+┌────────────────────────────────────────────────────────────┐
+│  Ghi PM nhanh — AC-ASSET-2026-00042                        │
+│  ┌──────────────┬─────────────────────────────────────┐   │
+│  │ Checklist ✓  │  □ Kiểm tra nguồn   □ Vệ sinh       │   │
+│  │              │  □ Hiệu chuẩn nội   □ Chạy test     │   │
+│  ├──────────────┼─────────────────────────────────────┤   │
+│  │ Kết quả      │ ( ) Pass  ( ) Pass w/ note  ( ) Fail │   │
+│  │ Ghi chú      │ [______________________________]    │   │
+│  │ Ảnh          │ [📷 Chụp]  [📎 Đính kèm]            │   │
+│  └──────────────┴─────────────────────────────────────┘   │
+│        [ Huỷ ]            [ Hoàn tất PM ]  (success)       │
+└────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 8. States & Feedback
+
+### 8.1 Loading
+
+- List / table: **skeleton rows** (8 dòng, shimmer animation).
+- Card / KPI: skeleton block.
+- Button action: spinner thay icon; disable button.
+- **Không** dùng full-page spinner trừ route guard đầu tiên.
+
+### 8.2 Empty state
+
+```
+┌────────────────────────────────────────────────────────────┐
+│                                                            │
+│               [ 📦 icon ]                                  │
+│                                                            │
+│       Chưa có AC Asset nào trong hệ thống.                 │
+│       Tạo thiết bị đầu tiên để bắt đầu quản lý HTM.        │
+│                                                            │
+│                 [ + Tạo AC Asset ]                         │
+│                                                            │
+└────────────────────────────────────────────────────────────┘
+```
+
+CTA nhất quán cho mọi list rỗng.
+
+### 8.3 Error state
+
+```
+┌────────────────────────────────────────────────────────────┐
+│   ⚠  Không thể tải dữ liệu                                │
+│                                                            │
+│   Mã lỗi: ERR-IMM00-5003                                   │
+│   Chi tiết: Connection timeout                             │
+│                                                            │
+│        [ Thử lại ]   [ Gửi báo cáo lỗi ]                  │
+└────────────────────────────────────────────────────────────┘
+```
+
+- Error ID hiển thị để support đối chiếu log.
+
+### 8.4 Toast
+
+| Loại | Màu | Thời lượng | Vị trí |
+|---|---|---|---|
+| success | green | 3s | top-right |
+| info | blue | 3s | top-right |
+| warning | amber | 5s | top-right |
+| danger | red | persistent (có X close) | top-right |
+
+Tối đa 3 toast đồng thời; FIFO nếu vượt.
+
+---
+
+## 9. Form validation UX
+
+### 9.1 Pattern cơ bản
+
+| Thành phần | Style |
+|---|---|
+| Required | Dấu `*` đỏ ngay sau label |
+| Inline error | Text đỏ 12px, icon ⚠ dưới field |
+| Success | Border xanh, icon ✓ phải field |
+| Disabled | Nền neutral-100, tooltip lý do khi hover |
+
+### 9.2 Business Rule display
+
+BR-level error: banner đỏ đầu form, liệt kê mã BR (`BR-00-xx`), link tới docs BR.
+
+BR-level warning (soft): banner amber, cho phép submit. Ví dụ BR-00-06 ISO 17025 thiếu.
+
+### 9.3 Field disabled với lý do
+
+```
+[  next_pm_date  📅  (disabled)  ]   ⓘ
+                                     ▲
+                          ┌────────────────────────┐
+                          │ Thiết bị đang Under    │
+                          │ Repair — không thể đặt │
+                          │ lịch PM.                │
+                          └────────────────────────┘
+```
+
+### 9.4 Async validation
+
+Vd `asset_code` unique check: debounce 400ms, spinner nhỏ phải field, sau đó ✓ hoặc ✗.
+
+### 9.5 Server error mapping
+
+BE trả về `_err(msg, code)` → FE:
+
+- `code` bắt đầu `FIELD_*` → gán vào field tương ứng (inline).
+- `code` bắt đầu `BR_*` → banner BR.
+- `code` khác → toast danger.
+
+---
+
+## 10. Tech stack FE
+
+### 10.1 Core
+
+| Công nghệ | Version mục tiêu | Ghi chú |
+|---|---|---|
+| Vue | 3.4+ (Composition API) | script setup, `<script setup lang="ts">` |
+| TypeScript | 5.3+ strict | `"strict": true`, `"noImplicitAny": true` |
+| Frappe UI | `frappe/frappe-ui` latest | Button, Dialog, FormControl, ListView… |
+| Vite | 5+ | Dev server, build |
+| PNPM | 8+ | Workspace monorepo |
+
+### 10.2 State & Routing
+
+| Thư viện | Role |
+|---|---|
+| Pinia | Global state: `authStore`, `uiStore`, `notifStore` |
+| Vue Router 4 | File-based routing (unplugin-vue-router) |
+| VueUse | Hook tiện ích (`useLocalStorage`, `useEventListener`) |
+
+### 10.3 API layer
+
+- Axios wrapper `/src/api/client.ts`:
+  - Base URL: `/api/method/`
+  - Interceptor: `X-Frappe-CSRF-Token`, cookie session.
+  - Response parse `{ message: {...} }` → trả `data` / throw `ApiError`.
+- Endpoints: `assetcore.api.imm00.*`:
+  - `get_asset`, `list_assets`, `create_asset`, `update_asset`
+  - `transition_asset_status`
+  - `verify_audit_chain`
+  - `get_device_model_defaults`
+  - `global_search`
+  - `list_capa`, `close_capa`
+  - `list_incidents`, `create_incident`
+
+### 10.4 Form
+
+| Thư viện | Role |
+|---|---|
+| vee-validate 4 | Form state, validate on blur / submit |
+| zod | Schema validation TS-first |
+| @vueuse/integrations | date, clipboard |
+
+Pattern:
+
+```ts
+const schema = z.object({
+  asset_name: z.string().min(1, 'Bắt buộc'),
+  device_model: z.string().min(1, 'Chọn Device Model'),
+  udi: z.string().regex(/^[\dA-Z\-]{8,}$/, 'UDI không hợp lệ').optional()
+})
+```
+
+### 10.5 i18n
+
+`vue-i18n@9`:
+
+- Locale mặc định: `vi`.
+- Fallback: `en`.
+- Key namespace theo screen: `assets.list.title`, `capa.form.severity`.
+- File: `/src/locales/vi.json`, `/src/locales/en.json`.
+
+### 10.6 Cấu trúc thư mục FE
+
+```
+frontend/
+├─ src/
+│  ├─ api/            axios client + endpoint groups
+│  ├─ components/     shared UI (Button, Chip, Timeline, …)
+│  ├─ composables/    useAuth, usePagination, useOffline
+│  ├─ layouts/        AppShell, AuthLayout, PrintLayout
+│  ├─ locales/        vi.json, en.json
+│  ├─ pages/          file-based routes
+│  │  ├─ index.vue            (Dashboard)
+│  │  ├─ assets/
+│  │  ├─ suppliers/
+│  │  ├─ locations/
+│  │  ├─ departments/
+│  │  ├─ master-data/
+│  │  ├─ incidents/
+│  │  ├─ capa/
+│  │  └─ audit-trail/
+│  ├─ stores/         authStore, uiStore, notifStore
+│  ├─ utils/          formatDate, qrScan, offlineQueue
+│  └─ main.ts
+├─ index.html
+├─ vite.config.ts
+├─ tsconfig.json
+└─ package.json
+```
+
+### 10.7 Build & deploy
+
+- Build: `pnpm build` → output `dist/` → mount tại `/assets/assetcore/frontend`.
+- Dev: `pnpm dev` proxy `/api` → bench `http://localhost:8000`.
+- Offline queue: `navigator.serviceWorker` + IndexedDB, scope `/assets/assetcore/frontend/`.
+
+---
+
+## 11. Accessibility checklist
+
+| # | Yêu cầu | Kiểm tra |
+|---|---|---|
+| A11Y-1 | Contrast AA | axe-core CI |
+| A11Y-2 | Keyboard navigable | Tab qua mọi interactive element |
+| A11Y-3 | Focus visible | Ring 2px primary-500 |
+| A11Y-4 | ARIA labels | Icon-only button bắt buộc `aria-label` |
+| A11Y-5 | Form error `aria-describedby` | link input → error id |
+| A11Y-6 | Modal focus trap | ESC đóng, focus trả về trigger |
+| A11Y-7 | Table row semantic | `<th scope="col">` |
+| A11Y-8 | Language attr | `<html lang="vi">` |
+
+---
+
+## 12. Responsive breakpoint matrix
+
+| Màn | Mobile (<640) | Tablet (640-1024) | Desktop (>1024) |
+|---|---|---|---|
+| Dashboard | KPI 1 cột | 2 cột | 4 cột |
+| List | Card list (thay table) | Table cơ bản | Table + filter sidebar |
+| Detail | Tab dọc (accordion) | Tab ngang | Tab ngang |
+| Form | 1 cột | 2 cột | 2 cột + sticky action |
+| Tree | Drawer full-screen | 50/50 | 30/70 |
+| Incident Wizard | Step full screen | Step + progress bar | Step + progress + sidebar tóm tắt |
+
+---
+
+## 13. Liên quan tài liệu khác
+
+| Tài liệu | Nội dung |
+|---|---|
+| `IMM-00_Module_Overview.md` | Kiến trúc tổng, 13 DocType |
+| `IMM-00_Technical_Design.md` | Data dictionary, DocType JSON |
+| `IMM-00_Functional_Specs.md` | Use case, workflow |
+| `IMM-00_API_Interface.md` | Endpoint `/api/method/assetcore.api.imm00.*` |
+| `IMM-00_Setup_Guide.md` | Cài đặt, fixtures, permission |
+
+---
+
+## 14. Changelog
+
+| Version | Ngày | Thay đổi |
+|---|---|---|
+| 1.0.0 | 2025-12-10 | Bản đầu, ERPNext Desk UI |
+| 2.0.0 | 2026-02-05 | Đã có Asset Profile, Vue 3 PoC |
+| **3.0.0** | **2026-04-18** | **Reset theo kiến trúc 13 DocType (AC/IMM prefix), bỏ Profile, chuẩn hoá Frappe UI, thêm wizard Incident 3 bước, role-based UI chi tiết, offline queue, WCAG 2.1 AA** |

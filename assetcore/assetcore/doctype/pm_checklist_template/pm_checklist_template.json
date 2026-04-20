@@ -15,7 +15,7 @@
   ],
   "fields": [
     {"fieldname": "template_name", "fieldtype": "Data", "label": "T\u00ean template", "reqd": 1, "in_list_view": 1},
-    {"fieldname": "asset_category", "fieldtype": "Link", "label": "Lo\u1ea1i thi\u1ebft b\u1ecb", "options": "Asset Category", "reqd": 1, "in_list_view": 1, "search_index": 1},
+    {"fieldname": "asset_category", "fieldtype": "Link", "label": "Lo\u1ea1i thi\u1ebft b\u1ecb", "options": "AC Asset Category", "reqd": 1, "in_list_view": 1, "search_index": 1},
     {"fieldname": "pm_type", "fieldtype": "Select", "label": "Lo\u1ea1i PM", "options": "Quarterly\nSemi-Annual\nAnnual\nAd-hoc", "reqd": 1, "in_list_view": 1},
     {"fieldname": "col_break_1", "fieldtype": "Column Break"},
     {"fieldname": "version", "fieldtype": "Data", "label": "Phi\u00ean b\u1ea3n", "default": "1.0"},

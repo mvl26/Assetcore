@@ -175,14 +175,14 @@ class AssetDocument(Document):
 	# ── Business Logic ────────────────────────────────────────────────────────
 
 	def auto_fetch_model_and_dept(self):
-		"""Auto-fill model_ref và clinical_dept từ asset_ref."""
+		"""Auto-fill model_ref và clinical_dept từ asset_ref (v3: AC Asset)."""
 		if not self.asset_ref:
 			return
-		asset = frappe.db.get_value("Asset", self.asset_ref,
-			["item_code", "location"], as_dict=True)
+		asset = frappe.db.get_value("AC Asset", self.asset_ref,
+			["device_model", "location"], as_dict=True)
 		if asset:
-			if not self.model_ref and asset.item_code:
-				self.model_ref = asset.item_code
+			if not self.model_ref and asset.device_model:
+				self.model_ref = asset.device_model
 			if asset.location:
 				self.clinical_dept = asset.location
 
@@ -213,62 +213,14 @@ class AssetDocument(Document):
 			})
 
 	def update_asset_completeness(self):
-		"""Cập nhật custom_doc_completeness_pct và custom_document_status trên Asset."""
-		if not self.asset_ref:
-			return
+		"""No-op trong v3.
 
-		required_types = frappe.get_all("Required Document Type",
-			filters={"is_mandatory": 1},
-			pluck="type_name"
-		)
-		if not required_types:
-			return
-
-		actual_count = frappe.db.count("Asset Document", {
-			"asset_ref": self.asset_ref,
-			"workflow_state": "Active",
-			"doc_type_detail": ("in", required_types),
-		})
-		total = len(required_types)
-		pct = round((actual_count / total * 100), 1) if total else 100.0
-
-		# Kiểm tra expiring / expired
-		has_expired = bool(frappe.db.exists("Asset Document", {
-			"asset_ref": self.asset_ref,
-			"workflow_state": "Expired",
-		}))
-		has_expiring = bool(frappe.db.sql("""
-			SELECT name FROM `tabAsset Document`
-			WHERE asset_ref = %s AND workflow_state = 'Active'
-			AND expiry_date IS NOT NULL
-			AND DATEDIFF(expiry_date, CURDATE()) BETWEEN 0 AND 30
-			LIMIT 1
-		""", self.asset_ref))
-		is_exempt = bool(frappe.db.exists("Asset Document", {
-			"asset_ref": self.asset_ref,
-			"is_exempt": 1,
-			"doc_type_detail": ("in", list(EXEMPT_DOC_TYPES)),
-		}))
-
-		doc_status = _compute_document_status(pct, has_expiring, has_expired, is_exempt)
-		missing_count = total - actual_count
-
-		nearest_expiry_row = frappe.db.sql("""
-			SELECT expiry_date FROM `tabAsset Document`
-			WHERE asset_ref = %s AND workflow_state = 'Active'
-			AND expiry_date IS NOT NULL
-			AND expiry_date >= CURDATE()
-			ORDER BY expiry_date ASC LIMIT 1
-		""", self.asset_ref)
-		nearest_expiry = nearest_expiry_row[0][0] if nearest_expiry_row else None
-
-		frappe.db.set_value("Asset", self.asset_ref, {
-			"custom_doc_completeness_pct": pct,
-			"custom_document_status": doc_status,
-			"custom_doc_status_summary": f"{actual_count}/{total} bắt buộc" +
-				(f", {missing_count} còn thiếu" if missing_count > 0 else ""),
-			"custom_nearest_expiry": nearest_expiry,
-		})
+		Các `custom_*` fields (custom_doc_completeness_pct, custom_document_status, ...) đã bị
+		bỏ khỏi AC Asset. Compliance được tính on-the-fly qua SQL EXISTS trong
+		`api/imm05.get_compliance_by_dept` và `get_dashboard_stats`. Hàm giữ lại như
+		placeholder để không phá vỡ các lời gọi hiện có.
+		"""
+		return
 
 
 def _compute_document_status(pct: float, has_expiring: bool, has_expired: bool, is_exempt: bool) -> str:

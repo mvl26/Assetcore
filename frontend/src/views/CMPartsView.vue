@@ -2,7 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useImm09Store } from '@/stores/imm09'
-import { searchSpareParts, type SparePartRow } from '@/api/imm09'
+import type { SparePartRow } from '@/api/imm09'
 
 const props = defineProps<{ id: string }>()
 const store = useImm09Store()
@@ -44,9 +44,8 @@ function onSearchInput() {
   searchDebounce = setTimeout(async () => {
     searchLoading.value = true
     try {
-      const res = await searchSpareParts(searchQuery.value)
-      searchResults.value = res
-      showDropdown.value = res.length > 0
+      searchResults.value = await store.doSearchSpareParts(searchQuery.value)
+      showDropdown.value = searchResults.value.length > 0
     } catch {
       searchResults.value = []
     } finally {

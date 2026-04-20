@@ -1,0 +1,34 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "creation": "2026-04-18 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "istable": 1,
+ "field_order": [
+  "part_name",
+  "manufacturer_part_no",
+  "estimated_cost",
+  "recommended_stock_level",
+  "notes"
+ ],
+ "fields": [
+  {"fieldname": "part_name", "fieldtype": "Data", "label": "Part Name", "reqd": 1, "in_list_view": 1, "columns": 3},
+  {"fieldname": "manufacturer_part_no", "fieldtype": "Data", "label": "Mfr Part No", "in_list_view": 1, "columns": 2},
+  {"fieldname": "estimated_cost", "fieldtype": "Currency", "label": "Est. Cost", "in_list_view": 1, "columns": 2},
+  {"fieldname": "recommended_stock_level", "fieldtype": "Int", "label": "Rec. Stock", "in_list_view": 1, "columns": 1},
+  {"fieldname": "notes", "fieldtype": "Data", "label": "Notes", "columns": 2}
+ ],
+ "links": [],
+ "modified": "2026-04-18 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "AssetCore",
+ "name": "IMM Device Spare Part",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "idx",
+ "sort_order": "ASC",
+ "track_changes": 0,
+ "states": []
+}

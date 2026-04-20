@@ -87,15 +87,6 @@ export class FrappeResource<T extends { name?: string }> {
   async delete(name: string): Promise<void> {
     await api.delete(`${this.base}/${encodeURIComponent(name)}`)
   }
-
-  /** Count documents matching filters */
-  async count(filters: Record<string, unknown>[] = []): Promise<number> {
-    const res = await api.get<{ message: number }>(
-      '/api/method/frappe.client.get_count',
-      { params: { doctype: this.doctype, filters: JSON.stringify(filters) } },
-    )
-    return res.data.message
-  }
 }
 
 // ─── Pre-built instances for IMM-04 DocTypes ─────────────────────────────────

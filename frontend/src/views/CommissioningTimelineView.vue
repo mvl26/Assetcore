@@ -1,17 +1,17 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { frappeGet } from '@/api/helpers'
+import { useCommissioningStore } from '@/stores/commissioning'
 import { formatDatetime } from '@/utils/docUtils'
-import type { LifecycleEvent, CommissioningDoc } from '@/types/imm04'
+import type { LifecycleEvent } from '@/types/imm04'
 
 const route = useRoute()
 const router = useRouter()
+const store = useCommissioningStore()
 const commissioningId = computed(() => route.params.id as string)
 
 const events = ref<LifecycleEvent[]>([])
-const doc = ref<Pick<CommissioningDoc, 'name' | 'workflow_state' | 'master_item' | 'vendor_serial_no'> | null>(null)
-const loading = ref(false)
+const loading = computed(() => store.loading)
 const error = ref<string | null>(null)
 
 const eventIconMap: Record<string, { svg: string; color: string }> = {
@@ -55,33 +55,14 @@ const defaultIcon = {
 }
 
 async function load(): Promise<void> {
-  loading.value = true
   error.value = null
-  try {
-    const res = await frappeGet<CommissioningDoc>(
-      'frappe.client.get',
-      { doctype: 'Asset Commissioning', name: commissioningId.value },
+  await store.fetchTimeline(commissioningId.value)
+  if (store.error) {
+    error.value = store.error
+  } else {
+    events.value = store.timeline.slice().sort(
+      (a, b) => new Date(b.event_timestamp).getTime() - new Date(a.event_timestamp).getTime(),
     )
-    const data = res as any
-    if (data) {
-      doc.value = {
-        name: data.name,
-        workflow_state: data.workflow_state,
-        master_item: data.master_item,
-        vendor_serial_no: data.vendor_serial_no,
-      }
-      const rawEvents: LifecycleEvent[] = data.lifecycle_events ?? []
-      events.value = rawEvents
-        .slice()
-        .sort(
-          (a, b) =>
-            new Date(b.event_timestamp).getTime() - new Date(a.event_timestamp).getTime(),
-        )
-    }
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : 'Lỗi kết nối'
-  } finally {
-    loading.value = false
   }
 }
 
@@ -108,21 +89,21 @@ onMounted(load)
           <h1 class="text-xl font-bold text-gray-900">Lịch sử vòng đời</h1>
           <p class="text-sm text-gray-500 mt-1">
             <span class="font-mono font-medium text-gray-700">{{ commissioningId }}</span>
-            <template v-if="doc">
+            <template v-if="store.currentDoc">
               <span class="mx-1 text-gray-300">·</span>
-              {{ doc.master_item }}
-              <template v-if="doc.vendor_serial_no">
+              {{ store.currentDoc?.master_item }}
+              <template v-if="store.currentDoc?.vendor_serial_no">
                 <span class="mx-1 text-gray-300">·</span>
-                SN: {{ doc.vendor_serial_no }}
+                SN: {{ store.currentDoc?.vendor_serial_no }}
               </template>
             </template>
           </p>
         </div>
         <span
-          v-if="doc"
+          v-if="store.currentDoc"
           class="shrink-0 inline-block px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800"
         >
-          {{ doc.workflow_state }}
+          {{ store.currentDoc?.workflow_state }}
         </span>
       </div>
     </div>

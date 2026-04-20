@@ -15,10 +15,17 @@
   "clinical_dept",
   "expected_installation_date",
   "reception_date",
+  "asset_description",
+  "delivery_note_no",
+  "purchase_price",
+  "warranty_expiry_date",
   "section_installation",
   "installation_date",
   "vendor_engineer_name",
   "commissioned_by",
+  "installation_location",
+  "received_by",
+  "dept_head_acceptance",
   "col_break_2",
   "is_radiation_device",
   "risk_class",
@@ -68,9 +75,9 @@
   },
   {
    "fieldname": "po_reference",
-   "fieldtype": "Link",
+   "fieldtype": "Data",
    "label": "Lệnh mua hàng (PO)",
-   "options": "Purchase Order",
+   "description": "Mã PO tham chiếu (v3: soft reference, không link ERPNext)",
    "reqd": 1,
    "in_list_view": 1,
    "search_index": 1
@@ -78,16 +85,17 @@
   {
    "fieldname": "master_item",
    "fieldtype": "Link",
-   "label": "Model Thiết bị",
-   "options": "Item",
+   "label": "Model Thiết bị (IMM Device Model)",
+   "options": "IMM Device Model",
    "reqd": 1,
-   "in_list_view": 1
+   "in_list_view": 1,
+   "description": "Link tới IMM Device Model để tự động lấy PM interval, calibration, risk class."
   },
   {
    "fieldname": "vendor",
    "fieldtype": "Link",
    "label": "Nhà cung cấp",
-   "options": "Supplier",
+   "options": "AC Supplier",
    "reqd": 1
   },
   {
@@ -97,8 +105,8 @@
   {
    "fieldname": "clinical_dept",
    "fieldtype": "Link",
-   "label": "Khoa / Phòng nhận",
-   "options": "Department",
+   "label": "Khoa / Phòng sử dụng",
+   "options": "AC Department",
    "reqd": 1
   },
   {
@@ -111,6 +119,35 @@
    "fieldname": "reception_date",
    "fieldtype": "Date",
    "label": "Ngày nhận hàng",
+   "reqd": 0
+  },
+  {
+   "fieldname": "asset_description",
+   "fieldtype": "Data",
+   "label": "Tên / Mô tả Tài sản",
+   "description": "Tên đầy đủ của thiết bị theo hợp đồng/PO. Dùng làm asset_name trong AC Asset.",
+   "reqd": 0,
+   "in_list_view": 0
+  },
+  {
+   "fieldname": "delivery_note_no",
+   "fieldtype": "Data",
+   "label": "Số Phiếu Giao Hàng / Packing List",
+   "description": "Số phiếu giao hàng hoặc packing list từ NCC.",
+   "reqd": 0
+  },
+  {
+   "fieldname": "purchase_price",
+   "fieldtype": "Currency",
+   "label": "Giá trị Mua sắm (VNĐ)",
+   "description": "Giá trị theo PO/hợp đồng. Dùng khi tạo AC Asset.",
+   "reqd": 0
+  },
+  {
+   "fieldname": "warranty_expiry_date",
+   "fieldtype": "Date",
+   "label": "Ngày Hết Bảo Hành",
+   "description": "Ngày kết thúc bảo hành theo hợp đồng với NCC.",
    "reqd": 0
   },
   {
@@ -137,6 +174,30 @@
    "reqd": 0
   },
   {
+   "fieldname": "installation_location",
+   "fieldtype": "Link",
+   "label": "Vị trí Lắp đặt (AC Location)",
+   "options": "AC Location",
+   "description": "Phòng / khu vực lắp đặt cụ thể. Sẽ trở thành location của AC Asset.",
+   "reqd": 0
+  },
+  {
+   "fieldname": "received_by",
+   "fieldtype": "Link",
+   "label": "Người Tiếp Nhận (Kho vận)",
+   "options": "User",
+   "description": "Nhân viên kho vận xác nhận tiếp nhận thiết bị vật lý.",
+   "reqd": 0
+  },
+  {
+   "fieldname": "dept_head_acceptance",
+   "fieldtype": "Link",
+   "label": "Trưởng Khoa Tiếp Nhận",
+   "options": "User",
+   "description": "Trưởng khoa / phòng ký biên bản bàn giao thiết bị đưa vào vận hành.",
+   "reqd": 0
+  },
+  {
    "fieldname": "col_break_2",
    "fieldtype": "Column Break"
   },
@@ -145,8 +206,8 @@
    "fieldtype": "Check",
    "label": "Thiết bị có bức xạ / tia X",
    "read_only": 1,
-   "fetch_from": "master_item.custom_is_radiation",
-   "description": "Tự động lấy từ thông số Item. Không sửa tay."
+   "fetch_from": "master_item.is_radiation_device",
+   "description": "Lấy tự động từ IMM Device Model."
   },
   {
    "fieldname": "risk_class",
@@ -304,7 +365,7 @@
    "fieldname": "final_asset",
    "fieldtype": "Link",
    "label": "Tài sản được tạo ra",
-   "options": "Asset",
+   "options": "AC Asset",
    "read_only": 1,
    "description": "Tự động điền khi phiếu được Submit & Release thành công."
   },
@@ -332,7 +393,7 @@
  ],
  "is_submittable": 1,
  "links": [],
- "modified": "2026-04-17 00:00:00.000000",
+ "modified": "2026-04-18 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "AssetCore",
  "name": "Asset Commissioning",

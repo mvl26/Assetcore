@@ -10,7 +10,7 @@
       "fieldname": "asset_ref",
       "fieldtype": "Link",
       "label": "Tài sản",
-      "options": "Asset",
+      "options": "AC Asset",
       "reqd": 1,
       "in_list_view": 1,
       "search_index": 1

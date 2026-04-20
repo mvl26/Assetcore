@@ -1,7 +1,7 @@
 // Copyright (c) 2026, AssetCore Team
 // API client cho Module IMM-09 — Corrective Maintenance
 
-import { frappeGet, frappePost, type ApiResponse } from './helpers'
+import { frappeGet, frappePost } from './helpers'
 
 export interface AssetRepair {
   name: string
@@ -17,6 +17,7 @@ export interface AssetRepair {
   assigned_datetime: string | null
   completion_datetime: string | null
   assigned_to: string | null
+  assigned_to_name?: string | null
   assigned_by: string | null
   mttr_hours: number | null
   sla_target_hours: number | null
@@ -85,33 +86,33 @@ export interface MttrReport {
 const BASE = '/api/method/assetcore.api.imm09'
 
 export async function listRepairWorkOrders(filters = {}, page = 1, pageSize = 20): Promise<RepairListResponse> {
-  const res = await frappeGet<ApiResponse<RepairListResponse>>(`${BASE}.list_repair_work_orders`, {
+  const res = await frappeGet<RepairListResponse>(`${BASE}.list_repair_work_orders`, {
     filters: JSON.stringify(filters),
     page,
     page_size: pageSize,
   })
-  return res.data
+  return res
 }
 
 export async function getRepairWorkOrder(name: string): Promise<AssetRepair> {
-  const res = await frappeGet<ApiResponse<AssetRepair>>(`${BASE}.get_repair_work_order`, { name })
-  return res.data
+  const res = await frappeGet<AssetRepair>(`${BASE}.get_repair_work_order`, { name })
+  return res
 }
 
 export async function assignTechnician(name: string, technician: string, priority?: string) {
-  const res = await frappePost<ApiResponse<{ name: string; status: string; assigned_to: string }>>(
+  const res = await frappePost<{ name: string; status: string; assigned_to: string }>(
     `${BASE}.assign_technician`,
     { name, technician, priority },
   )
-  return res.data
+  return res
 }
 
 export async function submitDiagnosis(name: string, diagnosisNotes: string, needsParts: boolean) {
-  const res = await frappePost<ApiResponse<{ name: string; status: string }>>(
+  const res = await frappePost<{ name: string; status: string }>(
     `${BASE}.submit_diagnosis`,
     { name, diagnosis_notes: diagnosisNotes, needs_parts: needsParts ? 1 : 0 },
   )
-  return res.data
+  return res
 }
 
 export async function closeWorkOrder(payload: {
@@ -123,7 +124,7 @@ export async function closeWorkOrder(payload: {
   cannot_repair?: boolean
   cannot_repair_reason?: string
 }) {
-  const res = await frappePost<ApiResponse<{ name: string; status: string; mttr_hours: number; sla_breached: boolean }>>(
+  const res = await frappePost<{ name: string; status: string; mttr_hours: number; sla_breached: boolean }>(
     `${BASE}.close_work_order`,
     {
       ...payload,
@@ -131,23 +132,23 @@ export async function closeWorkOrder(payload: {
       cannot_repair: payload.cannot_repair ? 1 : 0,
     },
   )
-  return res.data
+  return res
 }
 
 export async function getRepairKPIs(year?: number, month?: number): Promise<RepairKPIs> {
-  const res = await frappeGet<ApiResponse<RepairKPIs>>(`${BASE}.get_repair_kpis`, { year, month })
-  return res.data
+  const res = await frappeGet<RepairKPIs>(`${BASE}.get_repair_kpis`, { year, month })
+  return res
 }
 
 export async function getAssetRepairHistory(
   assetRef: string,
   limit = 10,
 ): Promise<{ asset_ref: string; history: AssetRepair[] }> {
-  const res = await frappeGet<ApiResponse<{ asset_ref: string; history: AssetRepair[] }>>(
+  const res = await frappeGet<{ asset_ref: string; history: AssetRepair[] }>(
     `${BASE}.get_asset_repair_history`,
     { asset_ref: assetRef, limit },
   )
-  return res.data
+  return res
 }
 
 export async function createRepairWorkOrder(payload: {
@@ -158,38 +159,38 @@ export async function createRepairWorkOrder(payload: {
   incident_report?: string
   source_pm_wo?: string
 }): Promise<{ name: string; status: string; sla_target_hours: number }> {
-  const res = await frappePost<ApiResponse<{ name: string; status: string; sla_target_hours: number }>>(
+  const res = await frappePost<{ name: string; status: string; sla_target_hours: number }>(
     `${BASE}.create_repair_work_order`,
     payload,
   )
-  return res.data
+  return res
 }
 
 export async function startRepair(name: string): Promise<{ name: string; status: string }> {
-  const res = await frappePost<ApiResponse<{ name: string; status: string }>>(
+  const res = await frappePost<{ name: string; status: string }>(
     `${BASE}.start_repair`,
     { name },
   )
-  return res.data
+  return res
 }
 
 export async function requestSpareParts(
   name: string,
   parts: SparePartRow[],
 ): Promise<{ name: string; updated: number }> {
-  const res = await frappePost<ApiResponse<{ name: string; updated: number }>>(
+  const res = await frappePost<{ name: string; updated: number }>(
     `${BASE}.request_spare_parts`,
     { name, parts: JSON.stringify(parts) },
   )
-  return res.data
+  return res
 }
 
 export async function getMttrReport(year: number, month: number): Promise<MttrReport> {
-  const res = await frappeGet<ApiResponse<MttrReport>>(`${BASE}.get_mttr_report`, { year, month })
-  return res.data
+  const res = await frappeGet<MttrReport>(`${BASE}.get_mttr_report`, { year, month })
+  return res
 }
 
 export async function searchSpareParts(query: string): Promise<SparePartRow[]> {
-  const res = await frappeGet<ApiResponse<SparePartRow[]>>(`${BASE}.search_spare_parts`, { query })
-  return res.data ?? []
+  const res = await frappeGet<SparePartRow[]>(`${BASE}.search_spare_parts`, { query })
+  return res ?? []
 }

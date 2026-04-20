@@ -2,7 +2,7 @@
 import { ref, watch, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useCommissioningStore } from '@/stores/commissioning'
-import { getAssetDocuments } from '@/api/imm05'
+import { useImm05Store } from '@/stores/imm05Store'
 import CommissioningForm from '@/components/imm04/CommissioningForm.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
@@ -11,6 +11,7 @@ const props = defineProps<{ id: string }>()
 const router = useRouter()
 const route  = useRoute()
 const store  = useCommissioningStore()
+const imm05  = useImm05Store()
 
 const activeTab = computed(() => {
   if (route.name === 'CommissioningNC')       return 'nc'
@@ -30,14 +31,10 @@ const imm05IsCompliant = computed(() =>
 )
 
 async function fetchImm05Status(asset: string) {
-  try {
-    const res = await getAssetDocuments(asset)
-    if (res.success) {
-      imm05DocStatus.value = res.data.document_status
-      imm05Pct.value       = res.data.completeness_pct
-      imm05Missing.value   = res.data.missing_required
-    }
-  } catch { /* non-blocking */ }
+  await imm05.fetchAssetDocuments(asset)
+  imm05DocStatus.value = imm05.assetDocumentStatus || null
+  imm05Pct.value       = imm05.assetCompletenessPct
+  imm05Missing.value   = imm05.missingRequired
 }
 
 async function load() { await store.fetchDetail(props.id) }
