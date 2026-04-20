@@ -451,6 +451,13 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true, title: 'Danh sách Kho' },
   },
   {
+    path: '/warehouses/:name',
+    name: 'WarehouseDetail',
+    component: () => import('@/views/WarehouseDetailView.vue'),
+    props: true,
+    meta: { requiresAuth: true, title: 'Chi tiết Kho' },
+  },
+  {
     path: '/spare-parts',
     name: 'SparePartList',
     component: () => import('@/views/SparePartListView.vue'),
@@ -480,6 +487,13 @@ const routes: RouteRecordRaw[] = [
     name: 'StockMovementCreate',
     component: () => import('@/views/StockMovementCreateView.vue'),
     meta: { requiresAuth: true, title: 'Tạo phiếu kho' },
+  },
+  {
+    path: '/stock-movements/:name/edit',
+    name: 'StockMovementEdit',
+    component: () => import('@/views/StockMovementEditView.vue'),
+    props: true,
+    meta: { requiresAuth: true, title: 'Sửa phiếu kho' },
   },
   {
     path: '/stock-movements/:name',

@@ -2,8 +2,9 @@
 // Copyright (c) 2026, AssetCore Team
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { getSparePart } from '@/api/inventory'
+import { getSparePart, updateSparePart, deleteSparePart } from '@/api/inventory'
 import type { SparePart, StockRow, StockMovement } from '@/types/inventory'
+import SmartSelect from '@/components/common/SmartSelect.vue'
 
 const props = defineProps<{ name: string }>()
 const router = useRouter()
@@ -16,11 +17,61 @@ type PartDetail = SparePart & {
 
 const part = ref<PartDetail | null>(null)
 const loading = ref(false)
+const showEdit = ref(false)
+const saving = ref(false)
+const toast = ref('')
+const form = ref<Partial<SparePart>>({})
 
 async function load() {
   loading.value = true
   try { part.value = await getSparePart(props.name) as PartDetail }
   finally { loading.value = false }
+}
+
+function openEdit() {
+  if (!part.value) return
+  form.value = {
+    part_name: part.value.part_name,
+    part_category: part.value.part_category,
+    manufacturer: part.value.manufacturer,
+    manufacturer_part_no: part.value.manufacturer_part_no,
+    preferred_supplier: part.value.preferred_supplier,
+    unit_cost: part.value.unit_cost,
+    uom: part.value.uom,
+    min_stock_level: part.value.min_stock_level,
+    max_stock_level: part.value.max_stock_level,
+    is_critical: part.value.is_critical,
+    is_active: part.value.is_active,
+    specifications: part.value.specifications,
+  }
+  showEdit.value = true
+}
+
+async function saveEdit() {
+  if (!form.value.part_name) { toast.value = 'Tên linh kiện là bắt buộc'; return }
+  saving.value = true
+  try {
+    await updateSparePart(props.name, form.value)
+    showEdit.value = false
+    await load()
+    toast.value = 'Cập nhật thành công'
+    setTimeout(() => { toast.value = '' }, 3000)
+  } catch (e: unknown) {
+    toast.value = (e as Error).message || 'Lỗi lưu'
+  } finally { saving.value = false }
+}
+
+async function doDeactivate() {
+  if (!part.value) return
+  if (!confirm(`Ngừng sử dụng "${part.value.part_name}"? Linh kiện phải không còn tồn kho.`)) return
+  try {
+    await deleteSparePart(props.name)
+    toast.value = 'Đã ngừng sử dụng linh kiện'
+    await load()
+    setTimeout(() => { toast.value = '' }, 3000)
+  } catch (e: unknown) {
+    toast.value = (e as Error).message || 'Lỗi ngừng linh kiện'
+  }
 }
 
 function vnd(v?: number) {
@@ -46,17 +97,25 @@ onMounted(load)
   <div class="page-container animate-fade-in max-w-5xl">
     <button class="btn-ghost mb-4" @click="router.push('/spare-parts')">← Quay lại</button>
 
+    <div v-if="toast" class="mb-4 px-4 py-3 rounded-lg bg-emerald-50 text-emerald-700 text-sm">{{ toast }}</div>
+
     <div v-if="loading && !part" class="text-center py-20 text-slate-400">Đang tải...</div>
 
     <div v-else-if="part">
       <!-- Header -->
-      <div class="mb-6">
-        <p class="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-1">{{ part.part_code }}</p>
-        <h1 class="text-2xl font-bold text-slate-900">{{ part.part_name }}</h1>
-        <div class="flex items-center gap-2 mt-2">
-          <span v-if="part.part_category" class="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">{{ part.part_category }}</span>
-          <span v-if="part.is_critical" class="text-xs px-2 py-0.5 rounded-full bg-red-50 text-red-700 font-medium">Quan trọng</span>
-          <span v-if="!part.is_active" class="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">Ngừng SD</span>
+      <div class="flex items-start justify-between mb-6">
+        <div>
+          <p class="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-1">{{ part.part_code }}</p>
+          <h1 class="text-2xl font-bold text-slate-900">{{ part.part_name }}</h1>
+          <div class="flex items-center gap-2 mt-2">
+            <span v-if="part.part_category" class="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">{{ part.part_category }}</span>
+            <span v-if="part.is_critical" class="text-xs px-2 py-0.5 rounded-full bg-red-50 text-red-700 font-medium">Quan trọng</span>
+            <span v-if="!part.is_active" class="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">Ngừng SD</span>
+          </div>
+        </div>
+        <div class="flex gap-2">
+          <button class="btn-ghost" @click="openEdit">Sửa</button>
+          <button v-if="part.is_active" class="text-sm px-3 py-1.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 font-medium" @click="doDeactivate">Ngừng SD</button>
         </div>
       </div>
 
@@ -160,5 +219,81 @@ onMounted(load)
         <p class="text-sm text-slate-600 whitespace-pre-wrap">{{ part.specifications }}</p>
       </div>
     </div>
+
+    <!-- Edit modal -->
+    <Transition name="fade">
+      <div v-if="showEdit" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+           @click.self="showEdit = false">
+        <div class="bg-white rounded-2xl w-full max-w-2xl shadow-2xl max-h-[90vh] flex flex-col">
+          <div class="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+            <h2 class="font-semibold text-slate-800">Sửa linh kiện</h2>
+            <button class="p-1.5 rounded-md text-slate-400 hover:bg-slate-100" @click="showEdit = false">✕</button>
+          </div>
+          <div class="p-6 space-y-4 overflow-y-auto">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div class="md:col-span-2">
+                <label for="edit-part-name" class="form-label">Tên linh kiện *</label>
+                <input id="edit-part-name" v-model="form.part_name" type="text" class="form-input w-full" />
+              </div>
+              <div>
+                <label for="edit-category" class="form-label">Danh mục</label>
+                <SmartSelect id="edit-category" v-model="form.part_category" doctype="AC Spare Part Category" placeholder="Chọn danh mục..." />
+              </div>
+              <div>
+                <label for="edit-uom" class="form-label">Đơn vị tính</label>
+                <input id="edit-uom" v-model="form.uom" type="text" class="form-input w-full" placeholder="cái, hộp, m..." />
+              </div>
+              <div>
+                <label for="edit-manufacturer" class="form-label">Nhà sản xuất</label>
+                <input id="edit-manufacturer" v-model="form.manufacturer" type="text" class="form-input w-full" />
+              </div>
+              <div>
+                <label for="edit-mfr-no" class="form-label">Mã NSX</label>
+                <input id="edit-mfr-no" v-model="form.manufacturer_part_no" type="text" class="form-input w-full" />
+              </div>
+              <div>
+                <label for="edit-supplier" class="form-label">Nhà cung cấp ưu tiên</label>
+                <SmartSelect id="edit-supplier" v-model="form.preferred_supplier" doctype="AC Vendor" placeholder="Chọn NCC..." />
+              </div>
+              <div>
+                <label for="edit-unit-cost" class="form-label">Đơn giá (VNĐ)</label>
+                <input id="edit-unit-cost" v-model.number="form.unit_cost" type="number" min="0" class="form-input w-full" />
+              </div>
+              <div>
+                <label for="edit-min-stock" class="form-label">Tồn tối thiểu</label>
+                <input id="edit-min-stock" v-model.number="form.min_stock_level" type="number" min="0" class="form-input w-full" />
+              </div>
+              <div>
+                <label for="edit-max-stock" class="form-label">Tồn tối đa</label>
+                <input id="edit-max-stock" v-model.number="form.max_stock_level" type="number" min="0" class="form-input w-full" />
+              </div>
+              <div class="flex items-center gap-3 pt-5">
+                <input v-model="form.is_critical" type="checkbox" :true-value="1" :false-value="0" class="h-4 w-4 text-blue-600 rounded" id="edit-critical" />
+                <label for="edit-critical" class="text-sm text-slate-700">Linh kiện quan trọng</label>
+              </div>
+              <div class="flex items-center gap-3 pt-5">
+                <input v-model="form.is_active" type="checkbox" :true-value="1" :false-value="0" class="h-4 w-4 text-blue-600 rounded" id="edit-active" />
+                <label for="edit-active" class="text-sm text-slate-700">Đang sử dụng</label>
+              </div>
+            </div>
+            <div>
+              <label for="edit-specs" class="form-label">Thông số kỹ thuật</label>
+              <textarea id="edit-specs" v-model="form.specifications" rows="3" class="form-input w-full" />
+            </div>
+          </div>
+          <div class="flex gap-3 justify-end px-6 py-4 border-t border-slate-100">
+            <button class="btn-ghost" @click="showEdit = false">Huỷ</button>
+            <button class="btn-primary" :disabled="saving" @click="saveEdit">
+              {{ saving ? 'Đang lưu...' : 'Cập nhật' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Transition>
   </div>
 </template>
+
+<style scoped>
+.fade-enter-active, .fade-leave-active { transition: opacity 0.15s; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
+</style>

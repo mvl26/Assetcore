@@ -57,6 +57,8 @@ export const getStockMovement = (name: string) =>
 
 export interface CreateMovementPayload {
   movement_type: 'Receipt' | 'Issue' | 'Transfer' | 'Adjustment'
+  movement_date?: string
+  requested_by?: string
   from_warehouse?: string
   to_warehouse?: string
   supplier?: string
@@ -78,3 +80,23 @@ export const submitStockMovement = (name: string) =>
 
 export const cancelStockMovement = (name: string) =>
   frappePost<{ name: string; status: string }>(`${BASE}.cancel_stock_movement`, { name })
+
+// ─── Warehouse detail & delete ────────────────────────────────────────────────
+export const getWarehouse = (name: string) =>
+  frappeGet<Warehouse & { stock_items: StockRow[]; total_value: number }>(`${BASE}.get_warehouse`, { name })
+
+export const deleteWarehouse = (name: string) =>
+  frappePost<{ name: string; is_active: number }>(`${BASE}.delete_warehouse`, { name })
+
+// ─── Spare Part delete ────────────────────────────────────────────────────────
+export const deleteSparePart = (name: string) =>
+  frappePost<{ name: string; is_active: number }>(`${BASE}.delete_spare_part`, { name })
+
+// ─── Stock Movement update & delete ──────────────────────────────────────────
+export const updateStockMovement = (name: string, payload: Partial<CreateMovementPayload>) =>
+  frappePost<{ name: string; status: string }>(`${BASE}.update_stock_movement`, {
+    name, payload: JSON.stringify(payload),
+  })
+
+export const deleteStockMovement = (name: string) =>
+  frappePost<{ deleted: string }>(`${BASE}.delete_stock_movement`, { name })

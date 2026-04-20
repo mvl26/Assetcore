@@ -11,6 +11,8 @@ import { formatDatetime } from '@/utils/docUtils'
 
 const props = defineProps<{
   doc: CommissioningDoc
+  /** Khi false (mặc định): hiển thị read-only. Khi true: cho phép chỉnh sửa. */
+  editMode?: boolean
   // IMM-05 compliance props (optional — graceful khi IMM-05 chưa deploy)
   imm05DocStatus?: string | null
   imm05Pct?: number
@@ -166,7 +168,7 @@ watch(
 
 // ─── Computed ────────────────────────────────────────────────────────────────
 
-const isReadonly = computed(() => props.doc.is_locked)
+const isReadonly = computed(() => props.doc.is_locked || !props.editMode)
 const hasAsset = computed(() => Boolean(props.doc.final_asset))
 
 const showRadiationWarning = computed(

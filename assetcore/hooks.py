@@ -52,7 +52,10 @@ fixtures = [
 # ──────────────────────────────────────────────
 doc_events = {
     "Asset Commissioning": {
-        "on_submit": "assetcore.services.imm11.create_calibration_schedule_from_commissioning",
+        "on_submit": [
+            "assetcore.services.imm08.create_pm_schedule_from_commissioning",
+            "assetcore.services.imm11.create_calibration_schedule_from_commissioning",
+        ],
     },
 }
 

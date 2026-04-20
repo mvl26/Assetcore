@@ -18,6 +18,8 @@ import {
   approveClinicalRelease as apiApproveRelease,
   getDashboardStats as apiGetDashboardStats,
   closeNonConformance as apiCloseNC,
+  deleteCommissioning as apiDelete,
+  cancelCommissioning as apiCancel,
   getPoDetails as apiGetPoDetails,
 } from '@/api/imm04'
 import { frappeGet } from '@/api/helpers'
@@ -34,6 +36,17 @@ import type {
   PoDetails,
   DeviceModelDetails,
 } from '@/types/imm04'
+
+// ─── Module-level helpers (no store state needed) ─────────────────────────────
+
+export function fetchPoDetails(poName: string): Promise<PoDetails | null> {
+  return apiGetPoDetails(poName).then(res => res ?? null).catch(() => null)
+}
+
+export function fetchDeviceModelDetails(modelName: string): Promise<DeviceModelDetails | null> {
+  return frappeGet<DeviceModelDetails>('/api/method/assetcore.api.imm00.get_device_model', { name: modelName })
+    .catch(() => null) as Promise<DeviceModelDetails | null>
+}
 
 /** Kiểm tra Serial Number có trùng không — pure API call, không cần store state */
 export async function checkSnUnique(
@@ -267,6 +280,37 @@ export const useCommissioningStore = defineStore('commissioning', () => {
     }
   }
 
+  /** Xóa phiếu (chỉ Draft — docstatus=0) */
+  async function deleteDoc(name: string): Promise<boolean> {
+    loading.value = true
+    error.value = null
+    try {
+      await apiDelete(name)
+      return true
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : 'Không thể xóa phiếu'
+      return false
+    } finally {
+      loading.value = false
+    }
+  }
+
+  /** Hủy phiếu đã Submit (docstatus 1→2) — chỉ VP Block2 / Workshop Head */
+  async function cancelDoc(name: string): Promise<boolean> {
+    loading.value = true
+    error.value = null
+    try {
+      await apiCancel(name)
+      await fetchDetail(name)
+      return true
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : 'Không thể hủy phiếu'
+      return false
+    } finally {
+      loading.value = false
+    }
+  }
+
   /** Reload trang hiện tại với filter giữ nguyên */
   async function refreshList(): Promise<void> {
     await fetchList(currentFilters.value, pagination.value.page, pagination.value.page_size)
@@ -340,7 +384,7 @@ export const useCommissioningStore = defineStore('commissioning', () => {
   /** Nộp kết quả baseline */
   async function submitBaselineChecklist(
     name: string,
-    results: Array<{ parameter: string; result: string; measured_val?: number; fail_note?: string }>,
+    results: Array<{ parameter: string; test_result: string; measured_val?: number; fail_note?: string }>,
   ): Promise<{ ok: boolean; clinicalHoldRequired?: boolean }> {
     loading.value = true
     error.value = null
@@ -478,20 +522,6 @@ export const useCommissioningStore = defineStore('commissioning', () => {
     }
   }
 
-  // ─── PO Details ─────────────────────────────────────────────────────────────
-
-  function fetchPoDetails(poName: string): Promise<PoDetails | null> {
-    return apiGetPoDetails(poName)
-      .then(res => (res ?? null))
-      .catch(() => null)
-  }
-
-  function fetchDeviceModelDetails(modelName: string): Promise<DeviceModelDetails | null> {
-    // v3: helpers đã unwrap envelope. Gọi thẳng frappeGet.
-    return frappeGet<DeviceModelDetails>('/api/method/assetcore.api.imm00.get_device_model', { name: modelName })
-      .catch(() => null) as Promise<DeviceModelDetails | null>
-  }
-
   return {
     // State
     list,
@@ -521,6 +551,8 @@ export const useCommissioningStore = defineStore('commissioning', () => {
     submitDoc,
     saveDoc,
     createDoc,
+    deleteDoc,
+    cancelDoc,
     refreshList,
     clearError,
     reset,
@@ -533,6 +565,5 @@ export const useCommissioningStore = defineStore('commissioning', () => {
     dashboardStats, fetchDashboardStats,
     ncList, fetchNonConformances, doCloseNonConformance,
     timeline, fetchTimeline,
-    fetchPoDetails, fetchDeviceModelDetails,
   }
 })

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // Copyright (c) 2026, AssetCore Team
 import { ref, onMounted } from 'vue'
-import { listWarehouses, createWarehouse, updateWarehouse } from '@/api/inventory'
+import { listWarehouses, createWarehouse, updateWarehouse, deleteWarehouse } from '@/api/inventory'
 import type { Warehouse } from '@/types/inventory'
 import SmartSelect from '@/components/common/SmartSelect.vue'
 
@@ -53,6 +53,18 @@ async function submit() {
   } catch (e: unknown) {
     toast.value = (e as Error).message || 'Lỗi lưu'
   } finally { saving.value = false }
+}
+
+async function doDelete(w: Warehouse) {
+  if (!confirm(`Ngừng hoạt động kho "${w.warehouse_name}"? Kho phải không còn tồn kho.`)) return
+  try {
+    await deleteWarehouse(w.name)
+    toast.value = `Đã ngừng kho ${w.warehouse_name}`
+    await load()
+    setTimeout(() => { toast.value = '' }, 3000)
+  } catch (e: unknown) {
+    toast.value = (e as Error).message || 'Lỗi ngừng kho'
+  }
 }
 
 function vnd(v?: number) {
@@ -107,7 +119,10 @@ onMounted(load)
                 <span v-else class="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">Ngừng</span>
               </td>
               <td class="px-4 py-3 text-right">
-                <button class="text-xs text-blue-600 hover:text-blue-800 font-medium" @click="openEdit(w)">Sửa</button>
+                <div class="flex justify-end gap-3">
+                  <button class="text-xs text-blue-600 hover:text-blue-800 font-medium" @click="openEdit(w)">Sửa</button>
+                  <button v-if="w.is_active" class="text-xs text-red-500 hover:text-red-700 font-medium" @click.stop="doDelete(w)">Ngừng</button>
+                </div>
               </td>
             </tr>
           </tbody>
@@ -136,16 +151,16 @@ onMounted(load)
                 <input id="wh-name" v-model="form.warehouse_name" type="text" class="form-input w-full" />
               </div>
               <div>
-                <label class="form-label">Vị trí vật lý</label>
-                <SmartSelect v-model="form.location" doctype="AC Location" placeholder="Chọn vị trí..." />
+                <label for="wh-location" class="form-label">Vị trí vật lý</label>
+                <SmartSelect id="wh-location" v-model="form.location" doctype="AC Location" placeholder="Chọn vị trí..." />
               </div>
               <div>
-                <label class="form-label">Khoa quản lý</label>
-                <SmartSelect v-model="form.department" doctype="AC Department" placeholder="Chọn khoa..." />
+                <label for="wh-dept" class="form-label">Khoa quản lý</label>
+                <SmartSelect id="wh-dept" v-model="form.department" doctype="AC Department" placeholder="Chọn khoa..." />
               </div>
               <div>
-                <label class="form-label">Người phụ trách</label>
-                <SmartSelect v-model="form.manager" doctype="User" placeholder="Chọn user..." />
+                <label for="wh-manager" class="form-label">Người phụ trách</label>
+                <SmartSelect id="wh-manager" v-model="form.manager" doctype="User" placeholder="Chọn user..." />
               </div>
               <div class="flex items-center gap-3 pt-6">
                 <input v-model="form.is_active" type="checkbox" :true-value="1" :false-value="0"

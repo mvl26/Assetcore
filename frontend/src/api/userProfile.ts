@@ -78,6 +78,29 @@ export function upsertProfile(data: Partial<ACUserProfile>): Promise<{ name: str
   return frappePost(`${BASE}.upsert_profile`, payload)
 }
 
+export interface CreateUserPayload {
+  email: string
+  first_name: string
+  last_name?: string
+  password?: string
+  send_welcome_email?: boolean
+  employee_code?: string
+  job_title?: string
+  phone?: string
+  department?: string
+  location?: string
+  notes?: string
+  imm_roles?: ACUserRole[]
+  certifications?: ACUserCertification[]
+}
+
+export function createUser(data: CreateUserPayload): Promise<{ user: string; name: string; full_name: string }> {
+  const payload: Record<string, unknown> = { ...data }
+  if (data.imm_roles) payload.imm_roles = JSON.stringify(data.imm_roles)
+  if (data.certifications) payload.certifications = JSON.stringify(data.certifications)
+  return frappePost(`${BASE}.create_user`, payload)
+}
+
 export function getAvailableImmRoles(): Promise<Array<{ name: string; label: string }>> {
   return frappeGet(`${BASE}.get_available_imm_roles`)
 }

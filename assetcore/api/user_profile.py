@@ -6,8 +6,9 @@ from frappe import _
 from assetcore.utils.helpers import _ok, _err
 
 _DOCTYPE = "AC User Profile"
+_ROLE_ADMIN = "IMM System Admin"
 _IMM_ROLES = [
-    "IMM System Admin", "IMM QA Officer", "IMM Department Head",
+    _ROLE_ADMIN, "IMM QA Officer", "IMM Department Head",
     "IMM Operations Manager", "IMM Workshop Lead", "IMM Technician",
     "IMM Document Officer",
 ]
@@ -114,6 +115,33 @@ def get_profile(name: str) -> dict:
         return _err(str(e))
 
 
+def _parse_json_list(raw) -> list:
+    import json
+    if isinstance(raw, str):
+        return json.loads(raw or "[]")
+    return raw or []
+
+
+def _set_imm_roles(doc, raw_roles) -> None:
+    roles = _parse_json_list(raw_roles)
+    doc.set("imm_roles", [])
+    for r in roles:
+        role_name = r.get("role") if isinstance(r, dict) else r
+        if role_name:
+            doc.append("imm_roles", {
+                "role": role_name,
+                "notes": r.get("notes", "") if isinstance(r, dict) else "",
+            })
+
+
+def _set_certifications(doc, raw_certs) -> None:
+    certs = _parse_json_list(raw_certs)
+    doc.set("certifications", [])
+    for c in certs:
+        if c.get("cert_name"):
+            doc.append("certifications", c)
+
+
 @frappe.whitelist(methods=["POST"])
 def upsert_profile() -> dict:
     try:
@@ -125,49 +153,24 @@ def upsert_profile() -> dict:
         existing = frappe.db.exists(_DOCTYPE, user)
         doc = frappe.get_doc(_DOCTYPE, user) if existing else frappe.new_doc(_DOCTYPE)
 
-        # CRITICAL: Khi lazy-create profile cho user đã active sẵn trong Frappe,
-        # mặc định approval_status="Approved" để controller hook không disable User.
-        # Chỉ set Pending nếu là self-signup (thông qua services.auth_service).
+        # CRITICAL: lazy-create profile cho user đã active → Approved để không disable User.
         if not existing:
-            user_already_enabled = bool(frappe.db.get_value("User", user, "enabled"))
-            if user_already_enabled and "approval_status" not in data:
+            if bool(frappe.db.get_value("User", user, "enabled")) and "approval_status" not in data:
                 doc.approval_status = "Approved"
 
         for field in ("user", "employee_code", "job_title", "phone",
-                       "department", "location", "is_active", "notes",
-                       "approval_status"):
+                       "department", "location", "is_active", "notes", "approval_status"):
             if field in data:
                 doc.set(field, data.get(field))
 
         if "imm_roles" in data:
-            import json
-            raw = data.get("imm_roles") or "[]"
-            roles = json.loads(raw) if isinstance(raw, str) else raw
-            doc.set("imm_roles", [])
-            for r in roles:
-                role_name = r.get("role") if isinstance(r, dict) else r
-                if role_name:
-                    doc.append("imm_roles", {"role": role_name, "notes": r.get("notes", "") if isinstance(r, dict) else ""})
-
+            _set_imm_roles(doc, data.get("imm_roles"))
         if "certifications" in data:
-            import json
-            raw = data.get("certifications") or "[]"
-            certs = json.loads(raw) if isinstance(raw, str) else raw
-            doc.set("certifications", [])
-            for c in certs:
-                if c.get("cert_name"):
-                    doc.append("certifications", c)
+            _set_certifications(doc, data.get("certifications"))
 
         doc.flags.ignore_permissions = True
         doc.save()
         frappe.db.commit()
-
-        # IMPORTANT: KHÔNG sync IMM roles ngược về Frappe User doc.
-        # Frappe User là core DocType — không được mutate từ AssetCore.
-        # AC User Profile.imm_roles là source-of-truth riêng cho AssetCore;
-        # để cấp role thực sự cho phép Frappe Desk: admin assign Role qua
-        # /app/user/<email> bằng tay, hoặc dùng Frappe Role Profile.
-
         return _ok({"name": doc.name, "user": doc.user})
     except Exception as e:
         return _err(str(e))
@@ -208,16 +211,97 @@ def list_frappe_users(search: str = "", limit: int = 30) -> dict:
         return _err(str(e))
 
 
+def _assert_admin() -> str | None:
+    """Trả về None nếu OK, hoặc error message nếu không đủ quyền."""
+    actor = frappe.session.user
+    if actor == "Guest":
+        return _MSG_NOT_LOGGED_IN
+    actor_roles = {r.role for r in frappe.get_doc("User", actor).roles}
+    if _ROLE_ADMIN not in actor_roles and "System Manager" not in actor_roles:
+        return f"Chỉ {_ROLE_ADMIN} được thực hiện thao tác này"
+    return None
+
+
+def _create_frappe_user(email: str, first_name: str, last_name: str,
+                        password: str, send_welcome: bool, imm_roles: list) -> "frappe.Document":
+    user_doc = frappe.new_doc("User")
+    user_doc.email = email
+    user_doc.first_name = first_name
+    user_doc.last_name = last_name
+    user_doc.send_welcome_email = 1 if send_welcome else 0
+    user_doc.user_type = "System User"
+    user_doc.enabled = 1
+    if password:
+        user_doc.new_password = password
+    user_doc.flags.ignore_permissions = True
+    user_doc.insert()
+    for r in imm_roles:
+        role_name = r.get("role") if isinstance(r, dict) else r
+        if role_name and role_name in _IMM_ROLES:
+            user_doc.append("roles", {"role": role_name})
+    user_doc.flags.ignore_permissions = True
+    user_doc.save()
+    return user_doc
+
+
+def _create_imm_profile(email: str, full_name: str, data: dict, imm_roles: list) -> "frappe.Document":
+    profile = frappe.new_doc(_DOCTYPE)
+    profile.user = email
+    profile.full_name = full_name
+    profile.email = email
+    profile.approval_status = "Approved"
+    profile.is_active = 1
+    for field in ("employee_code", "job_title", "phone", "department", "location", "notes"):
+        val = data.get(field)
+        if val:
+            profile.set(field, val)
+    _set_imm_roles(profile, imm_roles)
+    _set_certifications(profile, data.get("certifications") or "[]")
+    profile.flags.ignore_permissions = True
+    profile.insert()
+    return profile
+
+
+@frappe.whitelist(methods=["POST"])
+def create_user() -> dict:
+    """Tạo Frappe User MỚI + AC User Profile cùng lúc. Yêu cầu role IMM System Admin."""
+    try:
+        err_msg = _assert_admin()
+        if err_msg:
+            return _err(err_msg, "FORBIDDEN" if frappe.session.user != "Guest" else "UNAUTHORIZED")
+
+        data = frappe.local.form_dict
+        email = (data.get("email") or "").strip().lower()
+        first_name = (data.get("first_name") or "").strip()
+        if not email:
+            return _err("Thiếu email", "VALIDATION")
+        if not first_name:
+            return _err("Thiếu họ tên", "VALIDATION")
+        if frappe.db.exists("User", email):
+            return _err(f"Email {email} đã có tài khoản Frappe", "DUPLICATE")
+
+        imm_roles = _parse_json_list(data.get("imm_roles") or "[]")
+        last_name = (data.get("last_name") or "").strip()
+        send_welcome = data.get("send_welcome_email") in (1, "1", True, "true")
+
+        user_doc = _create_frappe_user(email, first_name, last_name,
+                                       data.get("password") or "", send_welcome, imm_roles)
+        full_name = f"{first_name} {user_doc.last_name}".strip()
+        profile = _create_imm_profile(email, full_name, data, imm_roles)
+        frappe.db.commit()
+        return _ok({"user": email, "name": profile.name, "full_name": profile.full_name})
+    except Exception as e:
+        frappe.db.rollback()
+        return _err(str(e))
+
+
 @frappe.whitelist(methods=["POST"])
 def reset_user_password(user: str, new_password: str) -> dict:
     """Admin reset mật khẩu cho user. Yêu cầu role IMM System Admin."""
     try:
-        actor = frappe.session.user
-        if actor == "Guest":
-            return _err(_MSG_NOT_LOGGED_IN, "UNAUTHORIZED")
-        actor_roles = {r.role for r in frappe.get_doc("User", actor).roles}
-        if "IMM System Admin" not in actor_roles and "System Manager" not in actor_roles:
-            return _err("Chỉ IMM System Admin được phép reset mật khẩu", "FORBIDDEN")
+        err_msg = _assert_admin()
+        if err_msg:
+            return _err(err_msg, "FORBIDDEN" if frappe.session.user != "Guest" else "UNAUTHORIZED")
 
         if not frappe.db.exists("User", user):
             return _err(f"User không tồn tại: {user}", "NOT_FOUND")
@@ -227,7 +311,7 @@ def reset_user_password(user: str, new_password: str) -> dict:
         from frappe.utils.password import update_password
         update_password(user, new_password)
         frappe.db.commit()
-        return _ok({"user": user, "reset_by": actor})
+        return _ok({"user": user, "reset_by": frappe.session.user})
     except Exception as e:
         return _err(str(e))
 

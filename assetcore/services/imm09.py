@@ -308,7 +308,7 @@ def get_work_order(name: str) -> dict:
     data["asset_info"] = AssetRepo.get_value(
         doc.asset_ref,
         ["asset_name", "asset_category", "lifecycle_status", "risk_classification",
-         "manufacturer_sn", "last_repair_date", "mttr_hours"],
+         "manufacturer_sn"],
         as_dict=True,
     ) or {}
     return data

@@ -241,7 +241,7 @@ export async function assignIdentification(
 // ─────────────────────────────────────────────────────────────────────────────
 export async function submitBaselineChecklist(
   name: string,
-  results: Array<{ parameter: string; result: string; measured_val?: number; fail_note?: string }>,
+  results: Array<{ parameter: string; test_result: string; measured_val?: number; fail_note?: string }>,
 ): Promise<{ name: string; overall_result: string; clinical_hold_required: boolean }> {
   return frappePost(`${BASE}.submit_baseline_checklist`, {
     name,
@@ -305,6 +305,24 @@ export async function closeNonConformance(
     root_cause: rootCause,
     corrective_action: correctiveAction,
   })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 20. DELETE COMMISSIONING (Draft only)
+// ─────────────────────────────────────────────────────────────────────────────
+export async function deleteCommissioning(
+  name: string,
+): Promise<{ deleted: string }> {
+  return frappePost(`${BASE}.delete_commissioning`, { name })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 21. CANCEL COMMISSIONING (Submitted → Cancelled, role-gated)
+// ─────────────────────────────────────────────────────────────────────────────
+export async function cancelCommissioning(
+  name: string,
+): Promise<{ name: string; docstatus: number; cancelled_by: string }> {
+  return frappePost(`${BASE}.cancel_commissioning`, { name })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

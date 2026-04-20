@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { useCommissioningStore } from '@/stores/commissioning'
+import { useCommissioningStore, fetchPoDetails, fetchDeviceModelDetails } from '@/stores/commissioning'
 import SmartSelect from '@/components/common/SmartSelect.vue'
 import LinkInfoCard from '@/components/common/LinkInfoCard.vue'
 import type { DeviceModelDetails } from '@/types/imm04'
@@ -115,7 +115,7 @@ async function lookupPO(poName: string) {
   if (!poName) return
   poLoading.value   = true
   submitError.value = null
-  const data = await store.fetchPoDetails(poName)
+  const data = await fetchPoDetails(poName)
   poLoading.value   = false
   if (data) {
     poInfo.value = {
@@ -136,7 +136,7 @@ async function lookupPO(poName: string) {
 async function onDeviceModelSelect(item: MasterItem) {
   form.value.master_item = item.id
   validateField('master_item')
-  const model = await store.fetchDeviceModelDetails(item.id)
+  const model = await fetchDeviceModelDetails(item.id)
   if (!model) return
   deviceModelInfo.value = model
   // Map WHO class → NĐ98 risk_class

@@ -12,7 +12,15 @@ interface FormRow extends StockMovementItem {
   _searching?: boolean
 }
 
+function nowLocalISO() {
+  const d = new Date()
+  d.setMinutes(d.getMinutes() - d.getTimezoneOffset())
+  return d.toISOString().slice(0, 16)
+}
+
 const movementType = ref<MovementType>('Receipt')
+const movementDate = ref(nowLocalISO())
+const requestedBy = ref('')
 const fromWarehouse = ref('')
 const toWarehouse = ref('')
 const supplier = ref('')
@@ -78,6 +86,8 @@ async function submit(autoSubmit: boolean) {
   try {
     const res = await createStockMovement({
       movement_type: movementType.value,
+      movement_date: movementDate.value ? movementDate.value.replace('T', ' ') + ':00' : undefined,
+      requested_by: requestedBy.value || undefined,
       from_warehouse: fromWarehouse.value || undefined,
       to_warehouse: toWarehouse.value || undefined,
       supplier: supplier.value || undefined,
@@ -127,6 +137,11 @@ function vnd(v?: number) {
           </select>
         </div>
 
+        <div>
+          <label for="sm-date" class="form-label">Ngày giao dịch *</label>
+          <input id="sm-date" v-model="movementDate" type="datetime-local" class="form-input w-full" />
+        </div>
+
         <div v-if="needsFromWarehouse">
           <label class="form-label">Kho xuất / nguồn *</label>
           <SmartSelect v-model="fromWarehouse" doctype="AC Warehouse" placeholder="Chọn kho..." />
@@ -139,6 +154,11 @@ function vnd(v?: number) {
         <div v-if="movementType === 'Receipt'">
           <label class="form-label">Nhà cung cấp</label>
           <SmartSelect v-model="supplier" doctype="AC Supplier" placeholder="Chọn NCC..." />
+        </div>
+
+        <div>
+          <label class="form-label">Người đề nghị</label>
+          <SmartSelect v-model="requestedBy" doctype="User" placeholder="Mặc định: người đăng nhập" />
         </div>
 
         <div>
@@ -210,6 +230,18 @@ function vnd(v?: number) {
             <button class="p-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded"
                     :disabled="items.length === 1"
                     @click="removeRow(idx)">✕</button>
+          </div>
+
+          <!-- Sub-row: Serial / Notes -->
+          <div class="col-span-12 md:col-span-6">
+            <label :for="`sm-row-sn-${idx}`" class="text-[10px] text-slate-500 mb-1 block">Serial / Lô (nếu có)</label>
+            <input :id="`sm-row-sn-${idx}`" v-model="row.serial_no" type="text" class="form-input w-full text-sm font-mono"
+                   placeholder="VD: SN-001, LOT-2026-0420" />
+          </div>
+          <div class="col-span-12 md:col-span-6">
+            <label :for="`sm-row-notes-${idx}`" class="text-[10px] text-slate-500 mb-1 block">Ghi chú dòng</label>
+            <input :id="`sm-row-notes-${idx}`" v-model="row.notes" type="text" class="form-input w-full text-sm"
+                   placeholder="Lý do / tham chiếu cho dòng này..." />
           </div>
         </div>
       </div>

@@ -19,6 +19,11 @@ from assetcore.services.imm00 import (
     close_capa,
     verify_audit_chain,
     transfer_asset,
+    create_transfer_request,
+    approve_transfer_request,
+    reject_transfer_request,
+    confirm_receipt,
+    cancel_transfer_request,
 )
 
 _DT_ASSET = "AC Asset"
@@ -814,20 +819,24 @@ def submit_incident(name: str):
 # ─────────────────────────────────────────────────────────────────────────────
 
 @frappe.whitelist()
-def list_transfers(asset: str = None, page: int = 1, page_size: int = 20):
+def list_transfers(asset: str = None, status: str = None,
+                   page: int = 1, page_size: int = 20):
     """GET /api/method/assetcore.api.imm00.list_transfers"""
     page, page_size = int(page), int(page_size)
     filters = {}
     if asset:
         filters["asset"] = asset
+    if status:
+        filters["status"] = status
     total = frappe.db.count(_DT_TRANSFER, filters=filters)
     pag = paginate(total, page, page_size)
     items = frappe.get_list(
         _DT_TRANSFER,
         filters=filters,
-        fields=["name", "asset", "transfer_date", "transfer_type",
+        fields=["name", "asset", "transfer_date", "transfer_type", "status",
                 "from_location", "to_location", "from_department", "to_department",
-                "from_custodian", "to_custodian", "reason", "approved_by"],
+                "from_custodian", "to_custodian", "reason",
+                "approved_by", "approval_date", "received_by", "received_date"],
         limit_start=pag["offset"],
         limit_page_length=page_size,
         order_by="transfer_date desc",
@@ -844,48 +853,20 @@ def get_transfer(name: str):
 
 
 @frappe.whitelist(methods=["POST"])
-def delete_transfer(name: str):
-    """POST /api/method/assetcore.api.imm00.delete_transfer
-
-    Draft → xóa hẳn. Submitted → cancel (giữ audit trail theo BR-00-04).
-    """
-    if not frappe.db.exists(_DT_TRANSFER, name):
-        return _err(_(_ERR_TRANSFER_NOT_FOUND), 404)
+def create_transfer():
+    """POST — Tạo phiếu yêu cầu luân chuyển (status = Pending Approval)."""
+    data = {k: v for k, v in frappe.local.form_dict.items() if k not in ("cmd", "doctype")}
     try:
-        doc = frappe.get_doc(_DT_TRANSFER, name)
-        if doc.docstatus == 0:
-            frappe.delete_doc(_DT_TRANSFER, name, ignore_permissions=False)
-            frappe.db.commit()
-            return _ok({"name": name, "deleted": True})
-        if doc.docstatus == 1:
-            doc.cancel()
-            frappe.db.commit()
-            return _ok({"name": name, "cancelled": True,
-                        "message": "Transfer đã hủy; lifecycle event giữ lại để đảm bảo audit trail."})
-        return _err(_("Transfer đã bị hủy trước đó"), 422)
-    except (frappe.exceptions.ValidationError, frappe.exceptions.LinkExistsError) as e:
+        return _ok(create_transfer_request(data))
+    except frappe.exceptions.ValidationError as e:
         return _err(str(e), 422)
-    except Exception as e:
-        return _err(f"Không thể xóa: {e}", 500)
 
 
 @frappe.whitelist(methods=["POST"])
-def create_transfer():
-    """POST /api/method/assetcore.api.imm00.create_transfer"""
-    data = frappe.local.form_dict
-    required = ("asset", "transfer_date", "transfer_type", "to_location", "reason")
-    missing = [f for f in required if not data.get(f)]
-    if missing:
-        return _err(_(f"Thiếu trường bắt buộc: {', '.join(missing)}"), 422)
-    if not frappe.db.exists(_DT_ASSET, data["asset"]):
-        return _err(_(_ERR_ASSET_NOT_FOUND), 404)
+def delete_transfer(name: str):
+    """POST — Hủy phiếu luân chuyển (chỉ khi Pending Approval hoặc Rejected)."""
     try:
-        doc = frappe.new_doc(_DT_TRANSFER)
-        doc.update({k: v for k, v in data.items() if k not in ("cmd", "doctype")})
-        doc.insert()
-        doc.submit()
-        frappe.db.commit()
-        return _ok({"name": doc.name})
+        return _ok(cancel_transfer_request(name))
     except frappe.exceptions.ValidationError as e:
         return _err(str(e), 422)
 
@@ -1218,31 +1199,51 @@ def compute_depreciation(name: str):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Asset Transfer — full CRUD
+# Asset Transfer — Workflow endpoints
 # ─────────────────────────────────────────────────────────────────────────────
 
 @frappe.whitelist()
 def get_transfer_full(name: str):
+    """GET — Lấy toàn bộ thông tin phiếu luân chuyển."""
     if not frappe.db.exists(_DT_TRANSFER, name):
-        return _err(_("Transfer not found"), 404)
+        return _err(_("Phiếu luân chuyển không tồn tại"), 404)
     return _ok(frappe.get_doc(_DT_TRANSFER, name).as_dict())
 
 
 @frappe.whitelist(methods=["POST"])
 def update_transfer(name: str):
+    """POST — Cập nhật ghi chú / thông tin phiếu (chỉ khi Pending Approval)."""
+    doc_status = frappe.db.get_value(_DT_TRANSFER, name, "status")
+    if doc_status != "Pending Approval":
+        return _err(_("Chỉ có thể chỉnh sửa phiếu đang Pending Approval"), 422)
     return _generic_update(_DT_TRANSFER, name)
 
 
 @frappe.whitelist(methods=["POST"])
 def approve_transfer(name: str):
-    if not frappe.db.exists(_DT_TRANSFER, name):
-        return _err(_("Transfer not found"), 404)
-    doc = frappe.get_doc(_DT_TRANSFER, name)
-    doc.approved_by = frappe.session.user
-    doc.approval_date = nowdate()
-    doc.save()
-    frappe.db.commit()
-    return _ok({"name": name, "approved_by": doc.approved_by})
+    """POST — Phê duyệt phiếu luân chuyển → cập nhật vị trí thiết bị ngay."""
+    try:
+        return _ok(approve_transfer_request(name))
+    except frappe.exceptions.ValidationError as e:
+        return _err(str(e), 422)
+
+
+@frappe.whitelist(methods=["POST"])
+def reject_transfer(name: str, rejection_reason: str = ""):
+    """POST — Từ chối phiếu luân chuyển."""
+    try:
+        return _ok(reject_transfer_request(name, rejection_reason))
+    except frappe.exceptions.ValidationError as e:
+        return _err(str(e), 422)
+
+
+@frappe.whitelist(methods=["POST"])
+def receive_transfer(name: str, handover_notes: str = ""):
+    """POST — Bên nhận xác nhận đã tiếp nhận thiết bị."""
+    try:
+        return _ok(confirm_receipt(name, handover_notes))
+    except frappe.exceptions.ValidationError as e:
+        return _err(str(e), 422)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

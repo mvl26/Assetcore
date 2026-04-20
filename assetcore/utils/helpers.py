@@ -13,7 +13,7 @@ def _ok(data: dict | list) -> dict:
     return {"success": True, "data": data}
 
 
-def _err(message: str, code: str = "GENERIC_ERROR") -> dict:
+def _err(message: str, code: int | str = "GENERIC_ERROR") -> dict:
     """Chuẩn trả về lỗi — KHÔNG set HTTP status code, luôn trả 200."""
     return {"success": False, "error": message, "code": code}
 
