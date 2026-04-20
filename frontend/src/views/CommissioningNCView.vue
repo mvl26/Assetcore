@@ -156,7 +156,7 @@ onMounted(loadNCs)
             v-model="newNC.nc_type"
             class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
           >
-            <option value="DOA">DOA (Dead on Arrival)</option>
+            <option value="DOA">Hỏng ngay khi nhận</option>
             <option value="Missing">Thiếu phụ kiện</option>
             <option value="Crash">Hỏng vật lý</option>
             <option value="Technical">Lỗi kỹ thuật</option>
@@ -171,9 +171,9 @@ onMounted(loadNCs)
             v-model="newNC.severity"
             class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
           >
-            <option value="Minor">Minor — Nhỏ</option>
-            <option value="Major">Major — Nghiêm trọng</option>
-            <option value="Critical">Critical — Khẩn cấp</option>
+            <option value="Minor">Nhỏ</option>
+            <option value="Major">Nghiêm trọng</option>
+            <option value="Critical">Khẩn cấp</option>
           </select>
         </div>
       </div>

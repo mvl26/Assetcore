@@ -30,6 +30,21 @@ fixtures = [
         "Clinical Head",
     ]]]},
     {"dt": "IMM SLA Policy"},
+    {"dt": "Workflow", "filters": [["name", "in", [
+        "AC Asset Lifecycle",
+        "IMM-04 Workflow",
+    ]]]},
+    {"dt": "Workflow State", "filters": [["name", "in", [
+        "Draft", "Commissioned", "Active", "Under Repair", "Calibrating",
+        "Out of Service", "Decommissioned",
+    ]]]},
+    {"dt": "Workflow Action Master", "filters": [["name", "in", [
+        "Commission", "Activate",
+        "Bắt đầu sửa chữa", "Bắt đầu hiệu chuẩn", "Đưa ra khỏi sử dụng",
+        "Hoàn thành sửa chữa", "Không thể sửa chữa",
+        "Hiệu chuẩn đạt", "Hiệu chuẩn không đạt",
+        "Khôi phục hoạt động", "Sửa chữa lại", "Thanh lý",
+    ]]]},
 ]
 
 # ──────────────────────────────────────────────

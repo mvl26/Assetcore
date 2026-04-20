@@ -7,8 +7,15 @@ const props = defineProps<{ id: string }>()
 const store = useImm09Store()
 const router = useRouter()
 
-const ROOT_CAUSES = ['Electrical', 'Mechanical', 'Software', 'User Error', 'Wear and Tear', 'Unknown'] as const
-type RootCause = typeof ROOT_CAUSES[number]
+const ROOT_CAUSES = [
+  { value: 'Electrical', label: 'Lỗi điện' },
+  { value: 'Mechanical', label: 'Lỗi cơ khí' },
+  { value: 'Software', label: 'Lỗi phần mềm' },
+  { value: 'User Error', label: 'Lỗi người dùng' },
+  { value: 'Wear and Tear', label: 'Hao mòn' },
+  { value: 'Unknown', label: 'Chưa xác định' },
+] as const
+type RootCause = typeof ROOT_CAUSES[number]['value']
 
 const rootCause = ref<RootCause | ''>('')
 const diagnosisDetail = ref('')
@@ -79,16 +86,16 @@ async function handleSubmit() {
         <div class="flex flex-wrap gap-2">
           <button
             v-for="rc in ROOT_CAUSES"
-            :key="rc"
+            :key="rc.value"
             :class="[
               'px-3 py-1.5 rounded-lg text-sm font-medium border transition-all duration-150',
-              rootCause === rc
+              rootCause === rc.value
                 ? 'bg-purple-600 border-purple-600 text-white'
                 : 'bg-white border-gray-300 text-gray-700 hover:border-purple-400 hover:text-purple-600'
             ]"
-            @click="rootCause = rc"
+            @click="rootCause = rc.value"
           >
-            {{ rc }}
+            {{ rc.label }}
           </button>
         </div>
         <p v-if="rootCause === ''" class="mt-2 text-xs text-red-500">Bắt buộc chọn nguyên nhân</p>

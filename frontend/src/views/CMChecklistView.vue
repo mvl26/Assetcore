@@ -158,14 +158,14 @@ async function handleComplete() {
                 <span v-if="item.measured_value">Đo được: <strong>{{ item.measured_value }}</strong></span>
               </div>
               <p v-if="item.result === 'Fail'" class="mt-1.5 text-xs font-semibold text-red-600">
-                ⚠ Kết quả Fail — không thể hoàn thành nghiệm thu
+                ⚠ Kết quả Không đạt — không thể hoàn thành nghiệm thu
               </p>
             </div>
             <!-- Result buttons -->
             <div class="flex gap-1.5 shrink-0">
-              <button :class="resultButtonClass(item, 'Pass')" @click="setResult(item, 'Pass')">Pass</button>
-              <button :class="resultButtonClass(item, 'Fail')" @click="setResult(item, 'Fail')">Fail</button>
-              <button :class="resultButtonClass(item, 'N/A')" @click="setResult(item, 'N/A')">N/A</button>
+              <button :class="resultButtonClass(item, 'Pass')" @click="setResult(item, 'Pass')">Đạt</button>
+              <button :class="resultButtonClass(item, 'Fail')" @click="setResult(item, 'Fail')">Không đạt</button>
+              <button :class="resultButtonClass(item, 'N/A')" @click="setResult(item, 'N/A')">Không áp dụng</button>
             </div>
           </div>
           <!-- Notes field -->

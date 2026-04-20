@@ -61,18 +61,23 @@ async function handleSubmit() {
   showSubmitModal.value = false
   if (res.success) {
     if (res.cmWoCreated) {
-      const go = confirm(`Đã hoàn thành PM. WO sửa chữa khắc phục đã được tạo: ${res.cmWoCreated}\n\nMở WO sửa chữa ngay?`)
+      const go = confirm(`Đã hoàn thành bảo trì. Phiếu sửa chữa khắc phục đã được tạo: ${res.cmWoCreated}\n\nMở phiếu sửa chữa ngay?`)
       if (go) router.push(`/cm/work-orders/${res.cmWoCreated}`)
     }
   }
 }
 
+const majorFailureError = ref('')
+
 async function handleMajorFailure() {
+  majorFailureError.value = ''
   const cmWo = await store.doReportMajorFailure(majorFailureDesc.value)
-  showMajorModal.value = false
   if (cmWo) {
-    alert(`Đã báo lỗi Major. CM Work Order đã được tạo: ${cmWo}\nThiết bị đã được đặt trạng thái Out of Service.`)
+    showMajorModal.value = false
+    alert(`Đã báo lỗi nghiêm trọng. Phiếu sửa chữa đã được tạo: ${cmWo}\nThiết bị đã được đặt trạng thái Ngừng hoạt động.`)
     router.push(`/cm/work-orders/${cmWo}`)
+  } else {
+    majorFailureError.value = store.error || 'Không thể báo lỗi. Vui lòng thử lại.'
   }
 }
 
@@ -98,6 +103,21 @@ function openRescheduleModal() {
   rescheduleReason.value = ''
   rescheduleError.value = ''
   showRescheduleModal.value = true
+}
+
+const startError = ref('')
+const starting = ref(false)
+const canStart = computed(() =>
+  !!wo.value && (wo.value.status === 'Open' || wo.value.status === 'Overdue') && !!wo.value.assigned_to,
+)
+
+async function handleStart() {
+  if (!wo.value || !wo.value.assigned_to) return
+  starting.value = true
+  startError.value = ''
+  const ok = await store.doAssignTechnician(wo.value.name, wo.value.assigned_to)
+  starting.value = false
+  if (!ok) startError.value = store.error || 'Không thể bắt đầu PM'
 }
 </script>
 
@@ -153,7 +173,7 @@ function openRescheduleModal() {
             </svg>
             <div>
               <div class="font-semibold text-red-700 text-sm">
-                PM QUÁ HẠN {{ overdueDays > 0 ? overdueDays + ' NGÀY' : '' }} — Đến hạn: {{ wo.due_date }}
+                BẢO TRÌ QUÁ HẠN {{ overdueDays > 0 ? overdueDays + ' NGÀY' : '' }} — Đến hạn: {{ wo.due_date }}
               </div>
               <div class="text-xs text-red-600 mt-0.5">Vui lòng hoàn thành hoặc hoãn lịch có ghi lý do</div>
             </div>
@@ -169,7 +189,7 @@ function openRescheduleModal() {
               class="text-xs bg-red-600 text-white px-3 py-1.5 rounded-lg hover:bg-red-700 transition-colors"
               @click="store.fetchWorkOrder(props.id)"
             >
-              Tiếp tục PM
+              Tiếp tục bảo trì
             </button>
           </div>
         </div>
@@ -182,11 +202,27 @@ function openRescheduleModal() {
           <div><span class="text-gray-500">Đến hạn:</span>
             <span :class="wo.is_late ? 'font-semibold text-red-600' : 'font-medium'">{{ wo.due_date }}</span>
           </div>
-          <div><span class="text-gray-500">Loại PM:</span> <span class="font-medium">{{ wo.pm_type }}</span></div>
-          <div><span class="text-gray-500">KTV:</span> <span class="font-medium">{{ wo.assigned_to || '—' }}</span></div>
-          <div><span class="text-gray-500">Risk Class:</span> <span class="font-medium">{{ wo.risk_class }}</span></div>
-          <div><span class="text-gray-500">Loại WO:</span> <span class="font-medium">{{ wo.wo_type }}</span></div>
+          <div><span class="text-gray-500">Loại bảo trì:</span> <span class="font-medium">{{ wo.pm_type }}</span></div>
+          <div><span class="text-gray-500">Kỹ thuật viên:</span> <span class="font-medium">{{ wo.assigned_to || '—' }}</span></div>
+          <div><span class="text-gray-500">Mức rủi ro:</span> <span class="font-medium">{{ wo.risk_class }}</span></div>
+          <div><span class="text-gray-500">Loại phiếu:</span> <span class="font-medium">{{ wo.wo_type }}</span></div>
         </div>
+      </div>
+
+      <!-- Start PM banner (Open/Overdue → In Progress) -->
+      <div v-if="canStart" class="mb-5 bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-center justify-between gap-3">
+        <div class="text-sm text-blue-900">
+          <div class="font-semibold">Sẵn sàng bắt đầu bảo trì</div>
+          <div class="text-xs text-blue-700 mt-0.5">Bấm "Bắt đầu bảo trì" để chuyển phiếu sang <strong>Đang thực hiện</strong> và đặt thiết bị về <strong>Đang sửa chữa</strong>.</div>
+          <div v-if="startError" class="text-xs text-red-600 mt-1">{{ startError }}</div>
+        </div>
+        <button
+          :disabled="starting"
+          class="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg whitespace-nowrap"
+          @click="handleStart"
+        >
+          {{ starting ? 'Đang bắt đầu...' : 'Bắt đầu PM' }}
+        </button>
       </div>
 
       <!-- Checklist Section -->
@@ -313,7 +349,7 @@ function openRescheduleModal() {
         <!-- Major failure: always visible; complete: disabled with tooltip when hasMajorFailure -->
         <button
           class="px-4 py-2.5 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 flex items-center gap-2 transition-colors"
-          @click="showMajorModal = true"
+          @click="showMajorModal = true; majorFailureDesc = ''; majorFailureError = ''"
         >
           🔴 Báo lỗi Major
         </button>
@@ -346,7 +382,7 @@ function openRescheduleModal() {
 
       <!-- Completed summary -->
       <div v-if="wo.status === 'Completed'" class="bg-green-50 border border-green-200 rounded-xl p-4">
-        <div class="text-green-700 font-semibold mb-1">✓ PM đã hoàn thành</div>
+        <div class="text-green-700 font-semibold mb-1">✓ Bảo trì đã hoàn thành</div>
         <div class="text-sm text-green-600">Kết quả: {{ wo.overall_result }} | Ngày: {{ wo.completion_date }}</div>
       </div>
     </template>
@@ -360,7 +396,7 @@ function openRescheduleModal() {
     >
       <div v-if="showRescheduleModal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" @click.self="showRescheduleModal = false">
         <div class="bg-white rounded-2xl p-6 w-full max-w-md mx-4 shadow-2xl">
-          <h3 class="font-bold text-lg text-gray-900 mb-4">Hoãn lịch PM</h3>
+          <h3 class="font-bold text-lg text-gray-900 mb-4">Hoãn lịch bảo trì</h3>
           <div class="space-y-4">
             <div v-if="rescheduleError" class="bg-red-50 border border-red-200 text-red-700 rounded-lg px-3 py-2 text-sm">
               {{ rescheduleError }}
@@ -401,15 +437,16 @@ function openRescheduleModal() {
     >
       <div v-if="showMajorModal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" @click.self="showMajorModal = false">
         <div class="bg-white rounded-2xl p-6 w-full max-w-md mx-4 shadow-2xl">
-          <h3 class="font-bold text-lg text-red-700 mb-2">⛔ Báo lỗi Major Failure</h3>
-          <p class="text-sm text-gray-600 mb-4">Thiết bị sẽ được đặt trạng thái "Out of Service" và tạo CM Work Order khẩn cấp.</p>
-          <label for="major-failure-desc" class="sr-only">Mô tả lỗi Major</label>
+          <h3 class="font-bold text-lg text-red-700 mb-2">⛔ Báo lỗi nghiêm trọng</h3>
+          <p class="text-sm text-gray-600 mb-4">Thiết bị sẽ được đặt trạng thái "Ngừng hoạt động" và tạo phiếu sửa chữa khẩn cấp.</p>
+          <div v-if="majorFailureError" class="mb-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{{ majorFailureError }}</div>
+          <label for="major-failure-desc" class="sr-only">Mô tả lỗi nghiêm trọng</label>
           <textarea
             id="major-failure-desc"
             v-model="majorFailureDesc"
             rows="4"
             class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm mb-4"
-            placeholder="Mô tả chi tiết lỗi Major..."
+            placeholder="Mô tả chi tiết lỗi nghiêm trọng..."
           />
           <div class="flex justify-end gap-3">
             <button class="px-4 py-2 border border-gray-300 rounded-lg text-sm" @click="showMajorModal = false">Hủy</button>
@@ -432,13 +469,13 @@ function openRescheduleModal() {
     >
       <div v-if="showSubmitModal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" @click.self="showSubmitModal = false">
         <div class="bg-white rounded-2xl p-6 w-full max-w-md mx-4 shadow-2xl">
-          <h3 class="font-bold text-lg text-gray-900 mb-4">✓ Xác nhận hoàn thành PM</h3>
+          <h3 class="font-bold text-lg text-gray-900 mb-4">✓ Xác nhận hoàn thành bảo trì</h3>
           <div class="text-sm text-gray-600 space-y-2 mb-4">
-            <div>Checklist: <strong class="text-green-600">{{ filledCount }}/{{ totalCount }} mục</strong></div>
+            <div>Bảng kiểm: <strong class="text-green-600">{{ filledCount }}/{{ totalCount }} mục</strong></div>
             <div>Thời gian: <strong>{{ durationMin }} phút</strong></div>
-            <div>Sticker: <strong>{{ stickerAttached ? '✓ Đã gắn' : '✗ Chưa gắn' }}</strong></div>
+            <div>Tem bảo trì: <strong>{{ stickerAttached ? '✓ Đã gắn' : '✗ Chưa gắn' }}</strong></div>
             <div v-if="store.hasMinorFailure" class="text-yellow-600">
-              ⚠ Có {{ wo?.checklist_results.filter(r => r.result === 'Fail–Minor').length }} mục Fail Minor — sẽ tạo CM WO Medium priority
+              ⚠ Có {{ wo?.checklist_results.filter(r => r.result === 'Fail–Minor').length }} mục lỗi nhỏ — sẽ tạo phiếu sửa chữa mức ưu tiên Trung bình
             </div>
           </div>
           <div class="flex justify-end gap-3">
@@ -447,7 +484,7 @@ function openRescheduleModal() {
               :disabled="submitting"
               class="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium disabled:opacity-50 transition-colors"
               @click="handleSubmit"
-            >{{ submitting ? 'Đang xử lý...' : 'Hoàn thành PM' }}</button>
+            >{{ submitting ? 'Đang xử lý...' : 'Hoàn thành bảo trì' }}</button>
           </div>
         </div>
       </div>

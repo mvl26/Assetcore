@@ -12,6 +12,15 @@ const ok = ref('')
 const edit = ref({ full_name: '', phone: '', job_title: '', employee_code: '' })
 const pw = ref({ old_password: '', new_password: '', confirm: '' })
 
+const APPROVAL_LABELS: Record<string, string> = {
+  Approved: 'Đã phê duyệt',
+  Pending: 'Chờ phê duyệt',
+  Rejected: 'Từ chối',
+}
+function approvalLabel(s?: string): string {
+  return (s && APPROVAL_LABELS[s]) || s || '—'
+}
+
 async function load() {
   loading.value = true
   err.value = ''
@@ -77,16 +86,16 @@ onMounted(load)
           <div>
             <span class="text-slate-500">Trạng thái duyệt:</span>
             <b :class="data.profile?.approval_status === 'Approved' ? 'text-green-600' : 'text-amber-600'">
-              {{ data.profile?.approval_status || '—' }}
+              {{ approvalLabel(data.profile?.approval_status) }}
             </b>
           </div>
           <div class="col-span-2">
             <span class="text-slate-500">Khoa / Phòng:</span> <b>{{ data.profile?.department_name || '—' }}</b>
           </div>
           <div class="col-span-2">
-            <span class="text-slate-500">Roles:</span>
+            <span class="text-slate-500">Vai trò:</span>
             <span v-for="r in data.roles" :key="r" class="inline-block bg-blue-50 text-blue-700 px-2 py-0.5 rounded text-xs ml-1">{{ r }}</span>
-            <span v-if="!data.roles.length" class="text-slate-400 text-xs ml-1">(chưa có role)</span>
+            <span v-if="!data.roles.length" class="text-slate-400 text-xs ml-1">(chưa có vai trò)</span>
           </div>
         </div>
       </div>

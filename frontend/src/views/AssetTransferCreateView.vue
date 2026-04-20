@@ -22,7 +22,12 @@ const form = ref({
 const saving = ref(false)
 const error = ref('')
 
-const TRANSFER_TYPES = ['Internal', 'Loan', 'External', 'Return']
+const TRANSFER_TYPES = [
+  { value: 'Internal', label: 'Chuyển nội bộ' },
+  { value: 'Loan', label: 'Mượn' },
+  { value: 'External', label: 'Chuyển ra ngoài' },
+  { value: 'Return', label: 'Trả về' },
+]
 const BASE = '/api/method/assetcore.api.imm00'
 
 const isLoan = computed(() => form.value.transfer_type === 'Loan')
@@ -53,7 +58,7 @@ async function submit() {
   <div class="max-w-2xl mx-auto p-6 space-y-6">
     <div class="flex items-center gap-3">
       <button @click="router.back()" class="text-gray-500 hover:text-gray-700 text-sm">← Quay lại</button>
-      <h1 class="text-xl font-semibold text-gray-800">Tạo Asset Transfer</h1>
+      <h1 class="text-xl font-semibold text-gray-800">Tạo phiếu điều chuyển thiết bị</h1>
     </div>
 
     <div class="bg-white rounded-xl border border-gray-200 p-6 space-y-5">
@@ -68,7 +73,7 @@ async function submit() {
           <label for="at-type" class="block text-sm font-medium text-gray-700 mb-1">Loại chuyển giao <span class="text-red-500">*</span></label>
           <select id="at-type" v-model="form.transfer_type" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
             <option value="">-- Chọn --</option>
-            <option v-for="t in TRANSFER_TYPES" :key="t" :value="t">{{ t }}</option>
+            <option v-for="t in TRANSFER_TYPES" :key="t.value" :value="t.value">{{ t.label }}</option>
           </select>
         </div>
       </div>
@@ -112,7 +117,7 @@ async function submit() {
         @click="submit"
         :disabled="saving"
         class="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white py-2.5 rounded-lg text-sm font-medium"
-      >{{ saving ? 'Đang tạo...' : 'Tạo Asset Transfer' }}</button>
+      >{{ saving ? 'Đang tạo...' : 'Tạo phiếu điều chuyển thiết bị' }}</button>
     </div>
   </div>
 </template>

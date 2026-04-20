@@ -143,15 +143,15 @@ onMounted(load)
           <div>
             <label class="form-label">Trạng thái</label>
             <select v-model="form.status" class="form-select w-full text-sm">
-              <option>Scheduled</option>
-              <option>Sent to Lab</option>
-              <option>In Progress</option>
-              <option>Certificate Received</option>
-              <option>Cancelled</option>
+              <option value="Scheduled">Đã lên lịch</option>
+              <option value="Sent to Lab">Đã gửi phòng hiệu chuẩn</option>
+              <option value="In Progress">Đang thực hiện</option>
+              <option value="Certificate Received">Đã nhận chứng nhận</option>
+              <option value="Cancelled">Đã hủy</option>
             </select>
           </div>
           <div v-if="form.calibration_type === 'External'">
-            <label class="form-label">Ngày gửi Lab</label>
+            <label class="form-label">Ngày gửi phòng hiệu chuẩn</label>
             <input v-model="form.sent_date" type="date" class="form-input w-full text-sm" />
           </div>
         </div>

@@ -18,6 +18,7 @@ from frappe.utils import (
 
 from assetcore.repositories.asset_repo import AssetRepo, LifecycleEventRepo
 from assetcore.repositories.repair_repo import FirmwareChangeRequestRepo, RepairRepo
+from assetcore.services.imm00 import transition_asset_status
 from assetcore.services.shared import (
     AssetStatus,
     ErrorCode,
@@ -136,12 +137,11 @@ def validate_repair_checklist_complete(doc) -> None:
 # ─── Asset state transitions ─────────────────────────────────────────────────
 
 def set_asset_under_repair(asset_ref: str, wo_name: str) -> None:
-    prev_status = AssetRepo.get_value(asset_ref, "lifecycle_status") or AssetStatus.ACTIVE
-    AssetRepo.set_values(asset_ref, {"lifecycle_status": AssetStatus.UNDER_REPAIR})
-    _create_lifecycle_event(
-        asset=asset_ref, event_type="repair_opened",
-        from_status=prev_status, to_status=AssetStatus.UNDER_REPAIR,
-        root_record=wo_name,
+    transition_asset_status(
+        asset_name=asset_ref, to_status=AssetStatus.UNDER_REPAIR,
+        actor=frappe.session.user,
+        root_doctype=RepairRepo.DOCTYPE, root_record=wo_name,
+        reason=f"Repair WO {wo_name} opened",
     )
 
 
@@ -156,10 +156,7 @@ def complete_repair(doc) -> None:
     doc.sla_breached = 1 if doc.mttr_hours > doc.sla_target_hours else 0
     doc.status = RepairStatus.COMPLETED
 
-    asset_updates: dict[str, Any] = {
-        "lifecycle_status": AssetStatus.ACTIVE,
-        "last_repair_date": nowdate(),
-    }
+    asset_updates: dict[str, Any] = {"last_repair_date": nowdate()}
     if doc.firmware_updated and doc.firmware_change_request:
         new_ver = FirmwareChangeRequestRepo.get_value(
             doc.firmware_change_request, "version_after")
@@ -175,11 +172,11 @@ def complete_repair(doc) -> None:
         "sla_breached": doc.sla_breached,
     })
 
-    _create_lifecycle_event(
-        asset=doc.asset_ref, event_type="repair_completed",
-        from_status=AssetStatus.UNDER_REPAIR, to_status=AssetStatus.ACTIVE,
-        root_record=doc.name,
-        notes=f"MTTR: {doc.mttr_hours}h | SLA: {'Breached' if doc.sla_breached else 'Met'}",
+    transition_asset_status(
+        asset_name=doc.asset_ref, to_status=AssetStatus.ACTIVE,
+        actor=frappe.session.user,
+        root_doctype=RepairRepo.DOCTYPE, root_record=doc.name,
+        reason=f"Repair completed — MTTR: {doc.mttr_hours}h | SLA: {'Breached' if doc.sla_breached else 'Met'}",
     )
 
     # BR-11: nếu thiết bị yêu cầu hiệu chuẩn → tạo CAL WO recalibration
@@ -360,11 +357,11 @@ def create_work_order(*, asset_ref: str, repair_type: str, priority: str,
     doc.flags.ignore_links = True
     doc.insert(ignore_permissions=True)
 
-    AssetRepo.set_values(asset_ref, {"lifecycle_status": AssetStatus.UNDER_REPAIR})
-    _create_lifecycle_event(
-        asset=asset_ref, event_type="repair_opened",
-        from_status=AssetStatus.ACTIVE, to_status=AssetStatus.UNDER_REPAIR,
-        root_record=doc.name,
+    transition_asset_status(
+        asset_name=asset_ref, to_status=AssetStatus.UNDER_REPAIR,
+        actor=frappe.session.user,
+        root_doctype=RepairRepo.DOCTYPE, root_record=doc.name,
+        reason=f"Repair WO {doc.name} created ({repair_type})",
     )
     frappe.db.commit()
     return {"name": doc.name, "status": RepairStatus.OPEN, "sla_target_hours": sla_hours}
@@ -477,11 +474,11 @@ def _mark_cannot_repair(doc, name: str, reason: str) -> dict:
     doc.cannot_repair_reason = reason
     doc.flags.ignore_links = True
     RepairRepo.save(doc)
-    AssetRepo.set_values(doc.asset_ref, {"lifecycle_status": AssetStatus.OUT_OF_SERVICE})
-    _create_lifecycle_event(
-        asset=doc.asset_ref, event_type="cannot_repair",
-        from_status=AssetStatus.UNDER_REPAIR, to_status=AssetStatus.OUT_OF_SERVICE,
-        root_record=name, notes=reason,
+    transition_asset_status(
+        asset_name=doc.asset_ref, to_status=AssetStatus.OUT_OF_SERVICE,
+        actor=frappe.session.user,
+        root_doctype=RepairRepo.DOCTYPE, root_record=name,
+        reason=f"Cannot repair: {reason}",
     )
     return {"name": name, "status": RepairStatus.CANNOT_REPAIR,
             "asset_status": AssetStatus.OUT_OF_SERVICE}

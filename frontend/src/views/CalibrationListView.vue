@@ -94,14 +94,14 @@ onMounted(() => { load(); loadKpis() })
     <div class="flex gap-3 items-center">
       <select v-model="filterStatus" @change="load(1)" class="form-select text-sm">
         <option value="">Tất cả trạng thái</option>
-        <option>Scheduled</option>
-        <option>Sent to Lab</option>
-        <option>In Progress</option>
-        <option>Certificate Received</option>
-        <option>Passed</option>
-        <option>Failed</option>
-        <option>Conditionally Passed</option>
-        <option>Cancelled</option>
+        <option value="Scheduled">Đã lên lịch</option>
+        <option value="Sent to Lab">Đã gửi phòng hiệu chuẩn</option>
+        <option value="In Progress">Đang thực hiện</option>
+        <option value="Certificate Received">Đã nhận chứng nhận</option>
+        <option value="Passed">Đạt</option>
+        <option value="Failed">Không đạt</option>
+        <option value="Conditionally Passed">Đạt có điều kiện</option>
+        <option value="Cancelled">Đã hủy</option>
       </select>
     </div>
 

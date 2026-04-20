@@ -44,8 +44,8 @@ function formatHours(h: number): string {
     <div class="flex items-start justify-between mb-7">
       <div>
         <p class="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-1">IMM-09 / Báo cáo</p>
-        <h1 class="text-2xl font-bold text-slate-900">MTTR Dashboard</h1>
-        <p class="text-sm text-slate-500 mt-1">Mean Time To Repair — phân tích hiệu suất sửa chữa</p>
+        <h1 class="text-2xl font-bold text-slate-900">Thời gian Sửa chữa Trung bình</h1>
+        <p class="text-sm text-slate-500 mt-1">Phân tích hiệu suất sửa chữa thiết bị</p>
       </div>
       <div class="flex items-center gap-3 shrink-0">
         <!-- Month selector -->
@@ -79,14 +79,14 @@ function formatHours(h: number): string {
     <!-- KPI Cards -->
     <div v-else-if="report" class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-7">
       <div class="kpi-card p-5 slide-up-enter-active" style="--kpi-color: #2563eb; animation-delay: 0ms">
-        <p class="text-xs font-medium text-slate-500 mb-1">MTTR Trung bình</p>
+        <p class="text-xs font-medium text-slate-500 mb-1">Thời gian sửa TB</p>
         <p class="text-3xl font-bold text-blue-600">
           {{ formatHours(report.mttr_avg) }}<span class="text-base font-normal text-slate-400 ml-0.5">h</span>
         </p>
         <p class="text-xs text-slate-400 mt-1">Mục tiêu: ≤ 24h (Class III)</p>
       </div>
       <div class="kpi-card p-5" style="--kpi-color: #059669; animation-delay: 60ms">
-        <p class="text-xs font-medium text-slate-500 mb-1">First Fix Rate</p>
+        <p class="text-xs font-medium text-slate-500 mb-1">Tỷ lệ sửa đúng lần đầu</p>
         <p class="text-3xl font-bold text-emerald-600">
           {{ report.first_fix_rate }}<span class="text-base font-normal text-slate-400 ml-0.5">%</span>
         </p>

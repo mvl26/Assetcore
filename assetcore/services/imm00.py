@@ -18,12 +18,50 @@ from assetcore.utils.email import get_role_emails, safe_sendmail
 _DOCTYPE_ASSET = "AC Asset"
 _DOCTYPE_CAPA = "IMM CAPA Record"
 
-_STATUS_DECOMMISSIONED = "Decommissioned"
+_STATUS_DRAFT = "Draft"
+_STATUS_COMMISSIONED = "Commissioned"
+_STATUS_ACTIVE = "Active"
+_STATUS_UNDER_MAINTENANCE = "Under Maintenance"
+_STATUS_UNDER_REPAIR = "Under Repair"
+_STATUS_CALIBRATING = "Calibrating"
 _STATUS_OUT_OF_SERVICE = "Out of Service"
+_STATUS_DECOMMISSIONED = "Decommissioned"
 _BLOCKED_STATUSES = (_STATUS_OUT_OF_SERVICE, _STATUS_DECOMMISSIONED)
+_DOWNTIME_STATUSES = (_STATUS_UNDER_MAINTENANCE, _STATUS_UNDER_REPAIR,
+                      _STATUS_CALIBRATING, _STATUS_OUT_OF_SERVICE)
+_DOWNTIME_REASON_MAP = {
+    _STATUS_UNDER_MAINTENANCE: "Bảo trì",
+    _STATUS_UNDER_REPAIR: "Sửa chữa",
+    _STATUS_CALIBRATING: "Hiệu chuẩn",
+    _STATUS_OUT_OF_SERVICE: "Hỏng hóc",
+}
+_DT_DOWNTIME_LOG = "AC Asset Downtime Log"
 
 _ROLE_DEPT_HEAD = "IMM Department Head"
 _ROLE_OPS_MANAGER = "IMM Operations Manager"
+
+# ────────────────────────────────────────────
+# Asset Lifecycle State Machine (BR-00-02)
+# ────────────────────────────────────────────
+# Định nghĩa các transition hợp lệ. KHÔNG có entry trong dict = trạng thái cuối.
+# Sửa ở đây = sửa luôn workflow JSON: assetcore/workflow/ac_asset_lifecycle_workflow.json
+_VALID_ASSET_TRANSITIONS: dict[str, set[str]] = {
+    _STATUS_DRAFT:            {_STATUS_COMMISSIONED, _STATUS_DECOMMISSIONED},
+    _STATUS_COMMISSIONED:     {_STATUS_ACTIVE, _STATUS_OUT_OF_SERVICE, _STATUS_DECOMMISSIONED},
+    _STATUS_ACTIVE:           {_STATUS_UNDER_MAINTENANCE, _STATUS_UNDER_REPAIR,
+                               _STATUS_CALIBRATING, _STATUS_OUT_OF_SERVICE,
+                               _STATUS_DECOMMISSIONED},
+    _STATUS_UNDER_MAINTENANCE:{_STATUS_ACTIVE, _STATUS_UNDER_REPAIR,
+                               _STATUS_OUT_OF_SERVICE, _STATUS_DECOMMISSIONED},
+    _STATUS_UNDER_REPAIR:     {_STATUS_ACTIVE, _STATUS_OUT_OF_SERVICE, _STATUS_DECOMMISSIONED},
+    _STATUS_CALIBRATING:      {_STATUS_ACTIVE, _STATUS_OUT_OF_SERVICE, _STATUS_DECOMMISSIONED},
+    _STATUS_OUT_OF_SERVICE:   {_STATUS_ACTIVE, _STATUS_UNDER_REPAIR, _STATUS_DECOMMISSIONED},
+    _STATUS_DECOMMISSIONED:   set(),  # terminal
+}
+
+
+class InvalidAssetTransition(Exception):
+    """Raised khi transition không nằm trong _VALID_ASSET_TRANSITIONS."""
 
 
 # ────────────────────────────────────────────
@@ -57,6 +95,18 @@ def transition_asset_status(
     prev_status = frappe.db.get_value(_DOCTYPE_ASSET, asset_name, "lifecycle_status") or ""
     if prev_status == to_status:
         return
+
+    # State machine guard — chỉ cho phép transition đã định nghĩa.
+    # Nếu prev_status rỗng (asset mới insert), không validate (asset chưa đi vào lifecycle).
+    if prev_status:
+        allowed = _VALID_ASSET_TRANSITIONS.get(prev_status, set())
+        if to_status not in allowed:
+            allowed_str = ", ".join(sorted(allowed)) or "(không có)"
+            raise InvalidAssetTransition(
+                f"Không thể chuyển '{asset_name}' từ '{prev_status}' → '{to_status}'. "
+                f"Trạng thái cho phép từ '{prev_status}': {allowed_str}"
+            )
+
     frappe.db.set_value(_DOCTYPE_ASSET, asset_name, "lifecycle_status", to_status)
 
     create_lifecycle_event(
@@ -80,14 +130,70 @@ def transition_asset_status(
         to_status=to_status,
     )
 
+    _sync_downtime_log(
+        asset=asset_name, prev=prev_status, nxt=to_status,
+        root_doctype=root_doctype, root_record=root_record, reason_note=reason,
+    )
+
     if to_status == _STATUS_DECOMMISSIONED:
         _suspend_all_schedules(asset_name)
+
+
+def _sync_downtime_log(*, asset: str, prev: str, nxt: str,
+                        root_doctype: str | None, root_record: str | None,
+                        reason_note: str) -> None:
+    """Tự động open/close AC Asset Downtime Log theo transition.
+    - Vào downtime status → open log mới
+    - Ra khỏi downtime status → close log đang mở
+    - Downtime → Downtime (vd: Under Repair → Out of Service) → close log cũ + open log mới
+    """
+    was_down = prev in _DOWNTIME_STATUSES
+    is_down = nxt in _DOWNTIME_STATUSES
+    if was_down:
+        _close_open_downtime_log(asset)
+    if is_down:
+        _open_downtime_log(
+            asset=asset, reason=_DOWNTIME_REASON_MAP.get(nxt, "Khác"),
+            ref_dt=root_doctype, ref_name=root_record, note=reason_note,
+        )
+
+
+def _open_downtime_log(*, asset: str, reason: str, ref_dt: str | None,
+                        ref_name: str | None, note: str) -> str:
+    doc = frappe.get_doc({
+        "doctype": _DT_DOWNTIME_LOG,
+        "asset": asset,
+        "reason": reason,
+        "reference_doctype": ref_dt,
+        "reference_name": ref_name,
+        "start_time": frappe.utils.now_datetime(),
+        "is_open": 1,
+        "notes": note or "",
+    })
+    doc.insert(ignore_permissions=True)
+    return doc.name
+
+
+def _close_open_downtime_log(asset: str) -> None:
+    rows = frappe.get_all(
+        _DT_DOWNTIME_LOG,
+        filters={"asset": asset, "is_open": 1},
+        fields=["name"], limit=5,
+    )
+    if not rows:
+        return
+    now_dt = frappe.utils.now_datetime()
+    for r in rows:
+        doc = frappe.get_doc(_DT_DOWNTIME_LOG, r["name"])
+        doc.end_time = now_dt
+        doc.save(ignore_permissions=True)
 
 
 def _lifecycle_event_for(to_status: str) -> str:
     return {
         "Active": "activated",
         "Commissioned": "commissioned",
+        "Under Maintenance": "pm_started",
         "Under Repair": "repair_opened",
         "Calibrating": "calibration_started",
         "Out of Service": "out_of_service",

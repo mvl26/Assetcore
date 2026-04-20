@@ -39,32 +39,47 @@ const navGroups: NavGroup[] = [
     ],
   },
   {
+    title: 'Kho vật tư',
+    items: [
+      {
+        label: 'Kho vật tư', path: '/inventory', icon: 'cube',
+        children: [
+          { label: 'Tổng quan', path: '/inventory', icon: 'chart' },
+          { label: 'Danh sách kho', path: '/warehouses', icon: 'building' },
+          { label: 'Danh mục phụ tùng', path: '/spare-parts', icon: 'template' },
+          { label: 'Tồn kho', path: '/stock', icon: 'list' },
+          { label: 'Phiếu xuất/nhập', path: '/stock-movements', icon: 'arrow' },
+        ],
+      },
+    ],
+  },
+  {
     title: 'Bảo trì & Vận hành',
     items: [
       {
         label: 'Bảo trì định kỳ', path: '/pm/dashboard', icon: 'wrench', badge: '08',
         children: [
-          { label: 'Dashboard', path: '/pm/dashboard', icon: 'chart' },
-          { label: 'Lịch PM', path: '/pm/calendar', icon: 'calendar' },
-          { label: 'Work Orders', path: '/pm/work-orders', icon: 'list' },
-          { label: 'PM Schedules', path: '/pm/schedules', icon: 'repeat' },
-          { label: 'Templates', path: '/pm/templates', icon: 'template' },
+          { label: 'Tổng quan', path: '/pm/dashboard', icon: 'chart' },
+          { label: 'Lịch bảo trì', path: '/pm/calendar', icon: 'calendar' },
+          { label: 'Danh sách phiếu', path: '/pm/work-orders', icon: 'list' },
+          { label: 'Kế hoạch bảo trì', path: '/pm/schedules', icon: 'repeat' },
+          { label: 'Mẫu bảng kiểm', path: '/pm/templates', icon: 'template' },
         ],
       },
       {
         label: 'Sửa chữa', path: '/cm/dashboard', icon: 'repair', badge: '09',
         children: [
-          { label: 'Dashboard', path: '/cm/dashboard', icon: 'chart' },
-          { label: 'Tạo WO sửa chữa', path: '/cm/create', icon: 'plus' },
-          { label: 'Work Orders', path: '/cm/work-orders', icon: 'list' },
-          { label: 'Firmware CR', path: '/cm/firmware', icon: 'chip' },
-          { label: 'MTTR Report', path: '/cm/mttr', icon: 'chart' },
+          { label: 'Tổng quan', path: '/cm/dashboard', icon: 'chart' },
+          { label: 'Tạo phiếu sửa chữa', path: '/cm/create', icon: 'plus' },
+          { label: 'Danh sách phiếu', path: '/cm/work-orders', icon: 'list' },
+          { label: 'Cập nhật Firmware', path: '/cm/firmware', icon: 'chip' },
+          { label: 'Thời gian sửa TB', path: '/cm/mttr', icon: 'chart' },
         ],
       },
       {
         label: 'Hiệu chuẩn', path: '/calibration/dashboard', icon: 'calibration', badge: '11',
         children: [
-          { label: 'Dashboard', path: '/calibration/dashboard', icon: 'chart' },
+          { label: 'Tổng quan', path: '/calibration/dashboard', icon: 'chart' },
           { label: 'Danh sách phiếu', path: '/calibration', icon: 'list' },
           { label: 'Lịch hiệu chuẩn', path: '/calibration/schedules', icon: 'calendar' },
           { label: 'Tạo phiếu', path: '/calibration/new', icon: 'plus' },
@@ -76,8 +91,8 @@ const navGroups: NavGroup[] = [
     title: 'Chất lượng & Tuân thủ',
     items: [
       { label: 'Sự cố', path: '/incidents', icon: 'alert' },
-      { label: 'CAPA', path: '/capas', icon: 'shield' },
-      { label: 'Audit Trail', path: '/audit-trail', icon: 'lock' },
+      { label: 'Khắc phục & Phòng ngừa', path: '/capas', icon: 'shield' },
+      { label: 'Nhật ký kiểm toán', path: '/audit-trail', icon: 'lock' },
     ],
   },
   {
@@ -87,9 +102,9 @@ const navGroups: NavGroup[] = [
         label: 'Dữ liệu gốc', path: '/reference-data', icon: 'settings',
         children: [
           { label: 'Nhà cung cấp', path: '/suppliers', icon: 'building' },
-          { label: 'Device Model', path: '/device-models', icon: 'template' },
-          { label: 'SLA Policy', path: '/sla-policies', icon: 'document' },
-          { label: 'Reference', path: '/reference-data', icon: 'folder' },
+          { label: 'Mẫu thiết bị', path: '/device-models', icon: 'template' },
+          { label: 'Chính sách SLA', path: '/sla-policies', icon: 'document' },
+          { label: 'Dữ liệu tham chiếu', path: '/reference-data', icon: 'folder' },
         ],
       },
       { label: 'Người dùng', path: '/user-profiles', icon: 'users' },
@@ -161,7 +176,7 @@ function handleItemClick(item: NavItem): void {
         </div>
         <div v-if="!collapsed" class="min-w-0">
           <p class="font-display font-bold text-lg text-white truncate leading-tight">AssetCore</p>
-          <p class="text-[12px] mt-0.5 truncate" style="color: rgba(255,255,255,0.42)">HTM Platform</p>
+          <p class="text-[12px] mt-0.5 truncate" style="color: rgba(255,255,255,0.42)">Quản lý Thiết bị Y tế</p>
         </div>
       </div>
       <button

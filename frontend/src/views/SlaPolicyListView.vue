@@ -70,12 +70,12 @@ onMounted(load)
         <thead class="bg-gray-50 border-b border-gray-200">
           <tr>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Tên Policy</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Priority</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Mức ưu tiên</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Risk Class</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Response (phút)</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Resolution (giờ)</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Mặc định</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Active</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Kích hoạt</th>
             <th class="px-4 py-3 text-right"></th>
           </tr>
         </thead>
@@ -107,19 +107,25 @@ onMounted(load)
 
         <div class="grid grid-cols-2 gap-3">
           <div class="col-span-2">
-            <label class="block text-sm font-medium text-gray-700 mb-1">Tên Policy *</label>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Tên chính sách *</label>
             <input v-model="form.policy_name" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
           </div>
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Priority</label>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Mức ưu tiên</label>
             <select v-model="form.priority" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
-              <option>Low</option><option>Medium</option><option>High</option><option>Critical</option>
+              <option value="Low">Thấp</option>
+              <option value="Medium">Trung bình</option>
+              <option value="High">Cao</option>
+              <option value="Critical">Khẩn cấp</option>
             </select>
           </div>
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Risk Class</label>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Phân loại rủi ro</label>
             <select v-model="form.risk_class" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
-              <option>Low</option><option>Medium</option><option>High</option><option>Critical</option>
+              <option value="Low">Thấp</option>
+              <option value="Medium">Trung bình</option>
+              <option value="High">Cao</option>
+              <option value="Critical">Khẩn cấp</option>
             </select>
           </div>
           <div>

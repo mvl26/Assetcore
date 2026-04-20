@@ -1441,6 +1441,69 @@ def delete_document_request(name: str):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Asset Downtime Metrics
+# ─────────────────────────────────────────────────────────────────────────────
+
+_DT_DOWNTIME_LOG = "AC Asset Downtime Log"
+
+
+@frappe.whitelist()
+def get_asset_downtime_metrics(asset_name: str, year: int | None = None):
+    """Trả về thống kê dừng máy của 1 asset:
+    - total_hours: tổng giờ dừng (closed + open đến hiện tại)
+    - breakdown_count: số lần dừng máy (số log)
+    - mttr_hours: Mean Time To Repair = total_hours / breakdown_count
+    - by_reason: phân loại giờ dừng theo reason
+    - current_open: log đang mở (nếu có)
+    """
+    if not frappe.db.exists("AC Asset", asset_name):
+        return _err(_("Không tìm thấy thiết bị"), 404)
+
+    now_dt = frappe.utils.now_datetime()
+    y = int(year) if year else frappe.utils.getdate(frappe.utils.nowdate()).year
+    start_of_year = f"{y}-01-01 00:00:00"
+    end_of_year = f"{y}-12-31 23:59:59"
+
+    rows = frappe.get_all(
+        _DT_DOWNTIME_LOG,
+        filters={
+            "asset": asset_name,
+            "start_time": ["between", [start_of_year, end_of_year]],
+        },
+        fields=["name", "reason", "start_time", "end_time",
+                "downtime_hours", "is_open", "reference_doctype", "reference_name"],
+        order_by="start_time desc",
+        limit_page_length=0,
+    )
+
+    total_hours = 0.0
+    by_reason: dict[str, float] = {}
+    current_open = None
+    for r in rows:
+        if r["is_open"]:
+            hrs = frappe.utils.time_diff_in_hours(now_dt, r["start_time"])
+            current_open = {**r, "downtime_hours_so_far": round(hrs, 2)}
+        else:
+            hrs = float(r["downtime_hours"] or 0)
+        total_hours += hrs
+        by_reason[r["reason"]] = round(by_reason.get(r["reason"], 0.0) + hrs, 2)
+
+    count = len(rows)
+    mttr = round(total_hours / count, 2) if count else 0.0
+
+    return _ok({
+        "asset": asset_name,
+        "year": y,
+        "total_hours": round(total_hours, 2),
+        "breakdown_count": count,
+        "mttr_hours": mttr,
+        "by_reason": by_reason,
+        "current_open": current_open,
+        "logs": rows[:10],
+    })
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Internal helpers
 # ─────────────────────────────────────────────────────────────────────────────
 

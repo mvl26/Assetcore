@@ -25,13 +25,13 @@ async function loadSchedules() {
   if (!form.value.asset_ref) { schedules.value = []; return }
   loadingSchedules.value = true
   try {
-    const res = await frappeGet<{ data: Array<{ name: string; pm_type: string; interval_days: number }> }>(
+    const res = await frappeGet<{ data: Array<{ name: string; pm_type: string; pm_interval_days: number }> }>(
       '/api/method/assetcore.api.imm08.list_pm_schedules',
       { filters: JSON.stringify({ asset_ref: form.value.asset_ref, status: 'Active' }), page_size: 50 },
     )
     schedules.value = (res?.data ?? []).map(s => ({
       value: s.name,
-      label: `${s.pm_type} — mỗi ${s.interval_days} ngày (${s.name})`,
+      label: `${s.pm_type} — mỗi ${s.pm_interval_days ?? '?'} ngày (${s.name})`,
     }))
   } catch {
     schedules.value = []
@@ -50,7 +50,7 @@ async function submit() {
       router.push(`/pm/work-orders/${res.name}`)
     }
   } catch (e: unknown) {
-    error.value = (e as Error).message || 'Lỗi khi tạo PM Work Order'
+    error.value = (e as Error).message || 'Lỗi khi tạo phiếu bảo trì'
   } finally { saving.value = false }
 }
 
@@ -63,15 +63,15 @@ onMounted(() => {
 <template>
   <div class="max-w-2xl mx-auto p-6 space-y-6">
     <div class="flex items-center gap-3">
-      <button class="text-slate-500 hover:text-slate-700 text-sm" @click="router.push('/pm/work-orders')">← Danh sách PM</button>
+      <button class="text-slate-500 hover:text-slate-700 text-sm" @click="router.push('/pm/work-orders')">← Danh sách phiếu bảo trì</button>
       <div>
         <p class="text-xs font-semibold text-slate-400 uppercase tracking-widest">IMM-08</p>
-        <h1 class="text-xl font-semibold text-gray-800">Tạo PM Work Order (Ad-hoc)</h1>
+        <h1 class="text-xl font-semibold text-gray-800">Tạo phiếu bảo trì đột xuất</h1>
       </div>
     </div>
 
     <div class="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-800">
-      PM Work Order thường được tạo tự động theo lịch. Form này dành cho trường hợp tạo thủ công (ngoài lịch định kỳ).
+      Phiếu bảo trì thường được tạo tự động theo lịch. Form này dành cho trường hợp tạo thủ công (ngoài lịch định kỳ).
     </div>
 
     <div class="bg-white rounded-xl border border-gray-200 p-6 space-y-5">
@@ -153,7 +153,7 @@ onMounted(() => {
         class="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white py-2.5 rounded-lg text-sm font-medium"
         @click="submit"
       >
-        {{ saving ? 'Đang tạo...' : 'Tạo PM Work Order' }}
+        {{ saving ? 'Đang tạo...' : 'Tạo phiếu bảo trì' }}
       </button>
     </div>
   </div>

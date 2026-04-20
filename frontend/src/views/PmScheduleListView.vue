@@ -68,7 +68,7 @@ onMounted(load)
 <template>
   <div class="p-6 space-y-5">
     <div class="flex items-center justify-between">
-      <h1 class="text-xl font-semibold text-gray-800">Lịch bảo trì (PM Schedule)</h1>
+      <h1 class="text-xl font-semibold text-gray-800">Lịch bảo trì định kỳ</h1>
       <div class="flex gap-3 items-center">
         <span class="text-sm text-gray-500">{{ total }} lịch</span>
         <button @click="openCreate" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium">+ Thêm lịch PM</button>
@@ -146,7 +146,9 @@ onMounted(load)
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">Trạng thái</label>
             <select v-model="form.status" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
-              <option>Active</option><option>Paused</option><option>Suspended</option>
+              <option value="Active">Đang hoạt động</option>
+              <option value="Paused">Tạm dừng</option>
+              <option value="Suspended">Đình chỉ</option>
             </select>
           </div>
           <div class="col-span-2">

@@ -32,19 +32,12 @@ onErrorCaptured((err, _inst, info) => {
       </div>
     </template>
     <template v-else>
-      <!-- Authenticated: layout + Suspense boundary cho async setup + ErrorBoundary -->
+      <!-- Authenticated: layout + ErrorBoundary -->
       <AppLayout v-if="auth.isAuthenticated">
         <RouteErrorBoundary>
-          <Suspense timeout="0">
-            <RouterView v-slot="{ Component, route }">
-              <component :is="Component" :key="route.fullPath" />
-            </RouterView>
-            <template #fallback>
-              <div class="flex items-center justify-center py-20">
-                <LoadingSpinner size="md" label="Đang tải trang..." />
-              </div>
-            </template>
-          </Suspense>
+          <RouterView v-slot="{ Component, route }">
+            <component :is="Component" :key="route.fullPath" />
+          </RouterView>
         </RouteErrorBoundary>
       </AppLayout>
       <!-- Unauthenticated: bare router view (Login page) -->

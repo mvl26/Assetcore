@@ -290,6 +290,16 @@ export async function deletePmSchedule(name: string): Promise<ApiResponse<{ name
 
 // ─── PM Checklist Template CRUD ──────────────────────────────────────────────
 
+export interface PmChecklistItem {
+  description: string
+  measurement_type?: 'Pass/Fail' | 'Numeric' | 'Text'
+  unit?: string
+  expected_min?: number | null
+  expected_max?: number | null
+  is_critical?: 0 | 1 | boolean
+  reference_section?: string
+}
+
 export interface PmTemplate {
   name: string
   template_name: string
@@ -298,27 +308,30 @@ export interface PmTemplate {
   version?: string
   effective_date?: string
   approved_by?: string
-  checklist_items?: Array<{ description: string; expected_value?: string; tolerance?: string }>
+  checklist_items?: PmChecklistItem[]
 }
 
-export async function listPmTemplates(page = 1, page_size = 50): Promise<ApiResponse<{ items: PmTemplate[]; total: number }>> {
-  return frappeGet(`${BASE}.list_pm_templates`, { page, page_size })
+// Endpoints are served by assetcore.api.imm08 (service-based — handles checklist_items JSON)
+const _PM_TPL_BASE = '/api/method/assetcore.api.imm08'
+
+export async function listPmTemplates(page = 1, page_size = 50): Promise<ApiResponse<{ data: PmTemplate[]; pagination: { total: number; page: number; page_size: number } }>> {
+  return frappeGet(`${_PM_TPL_BASE}.list_pm_templates`, { page, page_size })
 }
 
 export async function getPmTemplate(name: string): Promise<ApiResponse<PmTemplate>> {
-  return frappeGet(`${BASE}.get_pm_template`, { name })
+  return frappeGet(`${_PM_TPL_BASE}.get_pm_template`, { name })
 }
 
 export async function createPmTemplate(data: Partial<PmTemplate>): Promise<ApiResponse<{ name: string }>> {
-  return frappePost(`${BASE}.create_pm_template`, data as Record<string, unknown>)
+  return frappePost(`${_PM_TPL_BASE}.create_pm_template`, data as Record<string, unknown>)
 }
 
 export async function updatePmTemplate(name: string, data: Partial<PmTemplate>): Promise<ApiResponse<{ name: string }>> {
-  return frappePost(`${BASE}.update_pm_template`, { name, ...data } as Record<string, unknown>)
+  return frappePost(`${_PM_TPL_BASE}.update_pm_template`, { name, ...data } as Record<string, unknown>)
 }
 
 export async function deletePmTemplate(name: string): Promise<ApiResponse<{ name: string; deleted: boolean }>> {
-  return frappePost(`${BASE}.delete_pm_template`, { name })
+  return frappePost(`${_PM_TPL_BASE}.delete_pm_template`, { name })
 }
 
 // ─── Firmware Change Request CRUD ────────────────────────────────────────────

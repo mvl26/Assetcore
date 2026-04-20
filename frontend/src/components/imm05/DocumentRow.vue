@@ -20,7 +20,7 @@
     <!-- Loại tài liệu -->
     <td>
       {{ doc.doc_type_detail }}
-      <span v-if="doc.is_exempt" class="exempt-tag" title="Miễn đăng ký NĐ98">Exempt</span>
+      <span v-if="doc.is_exempt" class="exempt-tag" title="Miễn đăng ký NĐ98">Miễn đăng ký</span>
     </td>
 
     <!-- Phiên bản -->
@@ -76,7 +76,7 @@
         class="btn btn-xs btn-warning"
         @click="$emit('exempt', doc)"
         title="Đánh dấu miễn đăng ký NĐ98"
-      >Exempt</button>
+      >Miễn đăng ký</button>
 
       <!-- Lịch sử -->
       <button

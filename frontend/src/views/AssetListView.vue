@@ -22,12 +22,12 @@ const filters = ref<AssetListParams>({
 
 const LIFECYCLE_STATUSES: { value: LifecycleStatus | ''; label: string }[] = [
   { value: '', label: 'Tất cả trạng thái' },
-  { value: 'Commissioned', label: 'Commissioned' },
-  { value: 'Active', label: 'Active' },
-  { value: 'Under Repair', label: 'Under Repair' },
-  { value: 'Calibrating', label: 'Calibrating' },
-  { value: 'Out of Service', label: 'Out of Service' },
-  { value: 'Decommissioned', label: 'Decommissioned' },
+  { value: 'Commissioned', label: 'Đã đưa vào sử dụng' },
+  { value: 'Active', label: 'Đang hoạt động' },
+  { value: 'Under Repair', label: 'Đang sửa chữa' },
+  { value: 'Calibrating', label: 'Đang hiệu chuẩn' },
+  { value: 'Out of Service', label: 'Ngừng hoạt động' },
+  { value: 'Decommissioned', label: 'Đã thanh lý' },
 ]
 
 const statusColor: Record<string, string> = {
@@ -153,7 +153,7 @@ onMounted(async () => {
             <th class="text-left px-4 py-3 font-semibold text-slate-600">Danh mục</th>
             <th class="text-left px-4 py-3 font-semibold text-slate-600">Trạng thái</th>
             <th class="text-left px-4 py-3 font-semibold text-slate-600">Khoa/Phòng</th>
-            <th class="text-left px-4 py-3 font-semibold text-slate-600">PM tiếp theo</th>
+            <th class="text-left px-4 py-3 font-semibold text-slate-600">Bảo trì tiếp theo</th>
             <th class="text-left px-4 py-3 font-semibold text-slate-600">BYT hết hạn</th>
           </tr>
         </thead>

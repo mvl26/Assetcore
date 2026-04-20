@@ -156,8 +156,8 @@ function navigateChecklist() {
               v-if="wo.source_pm_wo"
               :to="`/pm/work-orders/${wo.source_pm_wo}`"
               class="text-xs bg-blue-100 text-blue-700 hover:bg-blue-200 px-2 py-1 rounded-full transition-colors"
-              title="Mở PM Work Order nguồn"
-            >🔧 PM WO: {{ wo.source_pm_wo }} →</router-link>
+              title="Mở phiếu bảo trì gốc"
+            >🔧 Phiếu bảo trì: {{ wo.source_pm_wo }} →</router-link>
           </div>
         </div>
 
@@ -404,7 +404,7 @@ function navigateChecklist() {
     <div v-if="showCannotRepairModal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
       <div class="bg-white rounded-2xl p-6 w-full max-w-md mx-4 shadow-2xl">
         <h3 class="font-bold text-lg text-red-700 mb-2">Không thể sửa chữa</h3>
-        <p class="text-sm text-gray-600 mb-4">Thiết bị sẽ được đặt trạng thái "Out of Service".</p>
+        <p class="text-sm text-gray-600 mb-4">Thiết bị sẽ được đặt trạng thái "Ngừng hoạt động".</p>
         <textarea v-model="cannotReason" rows="3" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm mb-4" placeholder="Lý do không thể sửa chữa..."/>
         <div class="flex justify-end gap-3">
           <button class="px-4 py-2 border border-gray-300 rounded-lg text-sm" @click="showCannotRepairModal = false">Hủy</button>

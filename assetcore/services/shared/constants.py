@@ -37,6 +37,7 @@ class AssetStatus:
     DRAFT = "Draft"
     COMMISSIONED = "Commissioned"
     ACTIVE = "Active"
+    UNDER_MAINTENANCE = "Under Maintenance"
     UNDER_REPAIR = "Under Repair"
     CALIBRATING = "Calibrating"
     OUT_OF_SERVICE = "Out of Service"
@@ -44,6 +45,7 @@ class AssetStatus:
 
     OPERATIONAL = (COMMISSIONED, ACTIVE)
     BLOCKED_FOR_WO = (OUT_OF_SERVICE, DECOMMISSIONED)
+    DOWNTIME = (UNDER_MAINTENANCE, UNDER_REPAIR, CALIBRATING, OUT_OF_SERVICE)
 
 
 class CalibrationStatus:

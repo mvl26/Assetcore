@@ -1,0 +1,40 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "creation": "2026-04-20 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "istable": 1,
+ "field_order": [
+  "spare_part",
+  "part_name",
+  "uom",
+  "qty",
+  "unit_cost",
+  "total_cost",
+  "serial_no",
+  "notes"
+ ],
+ "fields": [
+  {"fieldname": "spare_part", "fieldtype": "Link", "label": "Phụ tùng", "options": "AC Spare Part", "reqd": 1, "in_list_view": 1, "columns": 3},
+  {"fieldname": "part_name", "fieldtype": "Data", "label": "Tên", "fetch_from": "spare_part.part_name", "read_only": 1, "in_list_view": 1, "columns": 3},
+  {"fieldname": "uom", "fieldtype": "Data", "label": "ĐVT", "fetch_from": "spare_part.uom", "read_only": 1, "columns": 1},
+  {"fieldname": "qty", "fieldtype": "Float", "label": "SL", "reqd": 1, "in_list_view": 1, "columns": 1},
+  {"fieldname": "unit_cost", "fieldtype": "Currency", "label": "Đơn giá", "fetch_from": "spare_part.unit_cost", "in_list_view": 1, "columns": 1, "non_negative": 1},
+  {"fieldname": "total_cost", "fieldtype": "Currency", "label": "Thành tiền", "read_only": 1, "in_list_view": 1, "columns": 1},
+  {"fieldname": "serial_no", "fieldtype": "Data", "label": "Serial"},
+  {"fieldname": "notes", "fieldtype": "Small Text", "label": "Ghi chú"}
+ ],
+ "links": [],
+ "modified": "2026-04-20 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "AssetCore",
+ "name": "AC Stock Movement Item",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "idx",
+ "sort_order": "ASC",
+ "track_changes": 0,
+ "states": []
+}

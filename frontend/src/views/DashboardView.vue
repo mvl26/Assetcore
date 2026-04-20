@@ -124,7 +124,7 @@ onMounted(fetchData)
         >
           <div class="w-9 h-9 rounded-lg bg-orange-100 flex items-center justify-center shrink-0">⚠️</div>
           <div>
-            <p class="text-xs text-orange-600 font-medium">WO vi phạm SLA</p>
+            <p class="text-xs text-orange-600 font-medium">Phiếu vi phạm SLA</p>
             <p class="text-lg font-bold text-orange-700">{{ data.cm.sla_breached }}</p>
           </div>
         </button>
@@ -135,7 +135,7 @@ onMounted(fetchData)
         >
           <div class="w-9 h-9 rounded-lg bg-amber-100 flex items-center justify-center shrink-0">⏰</div>
           <div>
-            <p class="text-xs text-amber-600 font-medium">PM quá hạn</p>
+            <p class="text-xs text-amber-600 font-medium">Bảo trì quá hạn</p>
             <p class="text-lg font-bold text-amber-700">{{ data.pm.overdue }}</p>
           </div>
         </button>
@@ -177,7 +177,7 @@ onMounted(fetchData)
           <p class="font-display text-3xl font-bold text-slate-900 mb-2">{{ data.commissioning.pending }}</p>
           <div class="space-y-1 text-xs">
             <div class="flex justify-between"><span class="text-slate-500">Đã phát hành</span><span class="font-semibold text-green-600">{{ data.commissioning.released }}</span></div>
-            <div class="flex justify-between"><span class="text-slate-500">Clinical Hold</span><span class="font-semibold text-red-600">{{ data.commissioning.hold }}</span></div>
+            <div class="flex justify-between"><span class="text-slate-500">Tạm giữ lâm sàng</span><span class="font-semibold text-red-600">{{ data.commissioning.hold }}</span></div>
             <div class="flex justify-between"><span class="text-slate-500">NC chưa xử lý</span><span class="font-semibold text-amber-600">{{ data.commissioning.open_nc }}</span></div>
           </div>
         </button>
@@ -341,7 +341,7 @@ onMounted(fetchData)
               </div>
             </li>
           </ul>
-          <div v-else class="px-5 py-10 text-center text-slate-400 text-sm">Không có phiếu PM sắp đến hạn</div>
+          <div v-else class="px-5 py-10 text-center text-slate-400 text-sm">Không có phiếu bảo trì sắp đến hạn</div>
         </div>
       </div>
 

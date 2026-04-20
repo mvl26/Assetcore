@@ -17,11 +17,16 @@ from assetcore.services import imm00 as svc00
 
 _DT_INCIDENT = "Incident Report"
 _DT_CAPA = "IMM CAPA Record"
+_DT_ASSET = "AC Asset"
 
 _STATUS_OPEN = "Open"
 _STATUS_INVESTIGATING = "Under Investigation"
 _STATUS_RESOLVED = "Resolved"
 _STATUS_CLOSED = "Closed"
+
+_HIGH_SEVERITY = ("High", "Critical")
+_ASSET_OUT_OF_SERVICE = "Out of Service"
+_ASSET_ACTIVE = "Active"
 
 _VALID_TRANSITIONS: dict[str, list[str]] = {
     _STATUS_OPEN: [_STATUS_INVESTIGATING],
@@ -80,6 +85,17 @@ def acknowledge_incident(name: str, notes: str = "", assigned_to: str = "") -> d
     frappe.db.commit()
 
     _log(name, doc.asset, f"Incident acknowledged — {notes or 'đang điều tra'}", prev, _STATUS_INVESTIGATING)
+
+    if doc.asset and doc.severity in _HIGH_SEVERITY:
+        cur = frappe.db.get_value(_DT_ASSET, doc.asset, "lifecycle_status")
+        if cur and cur not in (_ASSET_OUT_OF_SERVICE, "Decommissioned"):
+            svc00.transition_asset_status(
+                asset_name=doc.asset, to_status=_ASSET_OUT_OF_SERVICE,
+                actor=frappe.session.user,
+                root_doctype=_DT_INCIDENT, root_record=name,
+                reason=f"Incident {doc.severity} — {name}",
+            )
+
     return {"name": name, "status": doc.status}
 
 
@@ -123,6 +139,17 @@ def close_incident(name: str, verification_notes: str = "") -> dict:
     frappe.db.commit()
 
     _log(name, doc.asset, f"Incident closed — {verification_notes or 'verified'}", prev, _STATUS_CLOSED)
+
+    if doc.asset:
+        cur = frappe.db.get_value(_DT_ASSET, doc.asset, "lifecycle_status")
+        if cur == _ASSET_OUT_OF_SERVICE:
+            svc00.transition_asset_status(
+                asset_name=doc.asset, to_status=_ASSET_ACTIVE,
+                actor=frappe.session.user,
+                root_doctype=_DT_INCIDENT, root_record=name,
+                reason=f"Incident {name} closed — verified",
+            )
+
     return {"name": name, "status": doc.status, "closed_date": doc.closed_date}
 
 

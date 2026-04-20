@@ -193,7 +193,7 @@ async function handleCreate() {
 
     <!-- Breadcrumb -->
     <nav class="flex items-center gap-1.5 text-xs text-slate-400 mb-6">
-      <button class="hover:text-slate-600 transition-colors" @click="router.push('/dashboard')">Dashboard</button>
+      <button class="hover:text-slate-600 transition-colors" @click="router.push('/dashboard')">Tổng quan</button>
       <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
       </svg>

@@ -67,8 +67,8 @@ onMounted(() => store.fetchList())
     <div class="flex items-start justify-between mb-6">
       <div>
         <p class="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-1">IMM-00</p>
-        <h1 class="text-2xl font-bold text-slate-900">CAPA Records</h1>
-        <p class="text-sm text-slate-500 mt-1">Tổng <strong>{{ store.pagination.total }}</strong> CAPA</p>
+        <h1 class="text-2xl font-bold text-slate-900">Hồ sơ Hành động Khắc phục &amp; Phòng ngừa</h1>
+        <p class="text-sm text-slate-500 mt-1">Tổng <strong>{{ store.pagination.total }}</strong> hồ sơ</p>
       </div>
     </div>
 

@@ -138,7 +138,7 @@ function statusBadgeClass(status: string) {
   <div class="p-6">
     <div class="flex items-center justify-between mb-6 flex-wrap gap-3">
       <div class="flex items-center gap-4">
-        <h1 class="text-xl font-bold text-gray-900">Lịch PM</h1>
+        <h1 class="text-xl font-bold text-gray-900">Lịch Bảo trì</h1>
         <div class="flex items-center gap-2">
           <button class="p-1.5 rounded-lg border hover:bg-gray-50" aria-label="Tháng trước" @click="prevMonth">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -165,10 +165,10 @@ function statusBadgeClass(status: string) {
         </div>
       </div>
       <div class="flex items-center gap-4 text-xs text-gray-500">
-        <span class="flex items-center gap-1"><span class="w-3 h-3 bg-green-200 rounded inline-block" />Completed</span>
-        <span class="flex items-center gap-1"><span class="w-3 h-3 bg-yellow-200 rounded inline-block" />Scheduled</span>
-        <span class="flex items-center gap-1"><span class="w-3 h-3 bg-red-200 rounded inline-block" />Overdue</span>
-        <span class="flex items-center gap-1"><span class="w-3 h-3 bg-blue-200 rounded inline-block" />In Progress</span>
+        <span class="flex items-center gap-1"><span class="w-3 h-3 bg-green-200 rounded inline-block" />Hoàn thành</span>
+        <span class="flex items-center gap-1"><span class="w-3 h-3 bg-yellow-200 rounded inline-block" />Đã lên lịch</span>
+        <span class="flex items-center gap-1"><span class="w-3 h-3 bg-red-200 rounded inline-block" />Quá hạn</span>
+        <span class="flex items-center gap-1"><span class="w-3 h-3 bg-blue-200 rounded inline-block" />Đang thực hiện</span>
       </div>
     </div>
 
@@ -176,7 +176,7 @@ function statusBadgeClass(status: string) {
     <div v-if="store.calendarSummary" class="grid grid-cols-4 gap-3 mb-5">
       <div class="bg-white border rounded-lg p-3 text-center">
         <div class="font-bold text-gray-800">{{ store.calendarSummary.total }}</div>
-        <div class="text-xs text-gray-500">Tổng WO</div>
+        <div class="text-xs text-gray-500">Tổng phiếu</div>
       </div>
       <div class="bg-white border rounded-lg p-3 text-center">
         <div class="font-bold text-green-600">{{ store.calendarSummary.completed }}</div>
@@ -247,7 +247,7 @@ function statusBadgeClass(status: string) {
       >
         <!-- Drawer Header -->
         <div class="flex items-center justify-between px-5 py-4 border-b">
-          <h2 class="font-semibold text-gray-900 text-sm">Chi tiết PM WO</h2>
+          <h2 class="font-semibold text-gray-900 text-sm">Chi tiết phiếu bảo trì</h2>
           <button class="text-gray-400 hover:text-gray-600 transition-colors" aria-label="Đóng" @click="closeDrawer">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>

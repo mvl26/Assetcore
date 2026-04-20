@@ -26,6 +26,26 @@ const statusColor: Record<string, string> = {
   Overdue: 'bg-red-100 text-red-700',
 }
 
+const STATUS_LABELS: Record<string, string> = {
+  Open: 'Đang mở',
+  'In Progress': 'Đang xử lý',
+  'Pending Verification': 'Chờ xác nhận',
+  Closed: 'Đã đóng',
+  Overdue: 'Quá hạn',
+  Cancelled: 'Đã hủy',
+}
+const SEVERITY_LABELS: Record<string, string> = {
+  Minor: 'Nhỏ',
+  Major: 'Nghiêm trọng',
+  Critical: 'Khẩn cấp',
+}
+function statusLabel(s?: string): string {
+  return (s && STATUS_LABELS[s]) || s || ''
+}
+function severityLabel(s?: string): string {
+  return (s && SEVERITY_LABELS[s]) || s || ''
+}
+
 const severityColor: Record<string, string> = {
   Minor: 'bg-gray-100 text-gray-600',
   Major: 'bg-orange-100 text-orange-700',
@@ -91,8 +111,8 @@ onMounted(load)
             <p class="text-base font-medium text-gray-800 mt-1">{{ capa.description || '(Không có mô tả)' }}</p>
           </div>
           <div class="flex gap-2 flex-shrink-0">
-            <span :class="['text-xs px-2 py-1 rounded-full font-medium', severityColor[capa.severity]]">{{ capa.severity }}</span>
-            <span :class="['text-xs px-2 py-1 rounded-full font-medium', statusColor[capa.status]]">{{ capa.status }}</span>
+            <span :class="['text-xs px-2 py-1 rounded-full font-medium', severityColor[capa.severity]]">{{ severityLabel(capa.severity) }}</span>
+            <span :class="['text-xs px-2 py-1 rounded-full font-medium', statusColor[capa.status]]">{{ statusLabel(capa.status) }}</span>
           </div>
         </div>
 

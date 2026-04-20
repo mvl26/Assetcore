@@ -24,7 +24,7 @@ const STATE_MAP: Record<string, BadgeConfig> = {
   Installing:        { label: 'Đang lắp đặt',       dot: '#f59e0b', bg: '#fffbeb', text: '#b45309', pulse: true },
   Identification:    { label: 'Nhận dạng',          dot: '#34d399', bg: '#ecfdf5', text: '#065f46', pulse: false },
   Initial_Inspection:{ label: 'Kiểm tra ban đầu',  dot: '#38bdf8', bg: '#f0f9ff', text: '#0369a1', pulse: false },
-  Clinical_Hold:     { label: 'Clinical Hold',      dot: '#f87171', bg: '#fff1f2', text: '#b91c1c', pulse: true },
+  Clinical_Hold:     { label: 'Tạm giữ lâm sàng',   dot: '#f87171', bg: '#fff1f2', text: '#b91c1c', pulse: true },
   Clinical_Release:  { label: 'Phát hành',          dot: '#10b981', bg: '#ecfdf5', text: '#065f46', pulse: false },
   Return_To_Vendor:  { label: 'Trả nhà cung cấp',  dot: '#fb923c', bg: '#fff7ed', text: '#9a3412', pulse: false },
   Re_Inspection:     { label: 'Kiểm tra lại',       dot: '#facc15', bg: '#fefce8', text: '#854d0e', pulse: false },

@@ -16,8 +16,23 @@ from assetcore.repositories.pm_repo import (
     PMTaskLogRepo,
     PMWorkOrderRepo,
 )
+from assetcore.repositories.repair_repo import RepairRepo
 from assetcore.services.shared import AssetStatus, ErrorCode, ServiceError
 from assetcore.utils.helpers import _get_role_emails, _safe_sendmail
+
+_DT_PM_WO = "PM Work Order"
+
+
+def _transition_asset(asset_ref: str, to_status: str, wo_name: str) -> None:
+    """Cập nhật lifecycle_status + audit trail qua imm00 service (lazy import tránh circular)."""
+    from assetcore.services.imm00 import transition_asset_status  # noqa: PLC0415
+    transition_asset_status(
+        asset_name=asset_ref,
+        to_status=to_status,
+        actor=frappe.session.user,
+        root_doctype=_DT_PM_WO,
+        root_record=wo_name,
+    )
 
 
 # ─── Constants ────────────────────────────────────────────────────────────────
@@ -239,6 +254,7 @@ def assign_technician(name: str, *, technician: str, scheduled_date: str | None 
         wo.scheduled_date = scheduled_date
     wo.status = PMStatus.IN_PROGRESS
     PMWorkOrderRepo.save(wo)
+    _transition_asset(wo.asset_ref, AssetStatus.UNDER_MAINTENANCE, wo.name)
     return {"name": wo.name, "status": wo.status, "assigned_to": wo.assigned_to}
 
 
@@ -272,6 +288,9 @@ def submit_result(name: str, *, checklist_results: list[dict], overall_result: s
     except Exception as e:
         raise ServiceError(ErrorCode.INTERNAL, str(e)) from e
 
+    # Khôi phục trạng thái thiết bị → Active sau khi PM hoàn thành
+    _transition_asset(wo.asset_ref, AssetStatus.ACTIVE, wo.name)
+
     sched_interval = PMScheduleRepo.get_value(wo.pm_schedule, "pm_interval_days") or 0
     next_pm_date = add_days(nowdate(), sched_interval)
     cm_wo = PMWorkOrderRepo.find_one(
@@ -294,18 +313,16 @@ def report_major_failure(pm_wo_name: str, *, failure_description: str,
     if not wo:
         raise ServiceError(ErrorCode.NOT_FOUND, f"PM Work Order '{pm_wo_name}' không tồn tại")
 
-    AssetRepo.set_values(wo.asset_ref, {"lifecycle_status": AssetStatus.OUT_OF_SERVICE})
     PMWorkOrderRepo.set_values(pm_wo_name, {"status": PMStatus.HALTED_MAJOR})
+    _transition_asset(wo.asset_ref, AssetStatus.OUT_OF_SERVICE, pm_wo_name)
 
-    cm_wo = PMWorkOrderRepo.create({
+    cm_wo = RepairRepo.create({
         "asset_ref": wo.asset_ref,
-        "pm_schedule": wo.pm_schedule,
-        "pm_type": wo.pm_type,
-        "wo_type": "Corrective",
         "source_pm_wo": pm_wo_name,
-        "status": PMStatus.OPEN,
-        "due_date": nowdate(),
-        "technician_notes": f"[MAJOR FAILURE] {failure_description}",
+        "repair_type": "Emergency",
+        "priority": "Emergency",
+        "status": "Open",
+        "technician_notes": f"[MAJOR FAILURE từ PM] {failure_description}",
     })
 
     recipients = _get_role_emails([_LEGACY_ROLE_WORKSHOP, _LEGACY_ROLE_PTP])
@@ -340,11 +357,15 @@ def reschedule(name: str, *, new_date: str, reason: str) -> dict:
     wo = PMWorkOrderRepo.get(name)
     if not wo:
         raise ServiceError(ErrorCode.NOT_FOUND, f"PM Work Order '{name}' không tồn tại")
+    was_in_progress = wo.status == PMStatus.IN_PROGRESS
     old_date = str(wo.due_date)
     wo.due_date = new_date
     wo.status = PMStatus.PENDING_BUSY
     wo.technician_notes = (wo.technician_notes or "") + f"\n[Hoãn lịch {old_date} → {new_date}]: {reason}"
     PMWorkOrderRepo.save(wo)
+    # Nếu đang thực hiện (In Progress) → WO bị hoãn → khôi phục asset về Active
+    if was_in_progress:
+        _transition_asset(wo.asset_ref, AssetStatus.ACTIVE, wo.name)
     return {"name": wo.name, "old_date": old_date, "new_date": new_date, "status": wo.status}
 
 
@@ -438,7 +459,7 @@ def get_calendar(*, year: int, month: int,
                                fields=["name", "asset_name"])
         asset_map = {a.name: a.asset_name for a in rows}
     events = [
-        {**w, "asset_name": asset_map.get(w.get("asset_ref"), ""), "due_date": str(w["due_date"])}
+        {**w, "asset_name": asset_map.get(w.get("asset_ref")) or w.get("asset_ref") or "", "due_date": str(w["due_date"])}
         for w in wos
     ]
     total = len(events)

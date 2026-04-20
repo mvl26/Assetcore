@@ -106,18 +106,18 @@ onMounted(load)
       </div>
 
       <div class="card p-5">
-        <h2 class="text-sm font-semibold text-slate-700 mb-4 pb-2 border-b border-slate-100">Nhận dạng HTM / Pháp lý</h2>
+        <h2 class="text-sm font-semibold text-slate-700 mb-4 pb-2 border-b border-slate-100">Nhận dạng &amp; Pháp lý Thiết bị Y tế</h2>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label class="form-label">Serial Number</label>
+            <label class="form-label">Số seri nhà sản xuất</label>
             <input v-model="form.manufacturer_sn" type="text" class="form-input w-full font-mono" />
           </div>
           <div>
-            <label class="form-label">UDI Code</label>
+            <label class="form-label">Mã định danh thiết bị (UDI)</label>
             <input v-model="form.udi_code" type="text" class="form-input w-full font-mono" />
           </div>
           <div>
-            <label class="form-label">GMDN Code</label>
+            <label class="form-label">Mã danh mục thiết bị y tế (GMDN)</label>
             <input v-model="form.gmdn_code" type="text" class="form-input w-full" />
           </div>
           <div>
@@ -147,7 +147,7 @@ onMounted(load)
             <label for="pm_check" class="text-sm text-slate-700">Yêu cầu bảo trì định kỳ (PM)</label>
           </div>
           <div v-if="form.is_pm_required">
-            <label class="form-label">Chu kỳ PM (ngày)</label>
+            <label class="form-label">Chu kỳ bảo trì (ngày)</label>
             <input v-model.number="form.pm_interval_days" type="number" min="1" class="form-input w-full" />
           </div>
           <div class="flex items-center gap-3">

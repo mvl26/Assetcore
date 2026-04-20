@@ -24,15 +24,15 @@ const navGroups = [
   {
     label: 'IMM-08 Bảo trì PM',
     links: [
-      { name: 'PMDashboard', to: '/pm/dashboard', label: 'Dashboard PM' },
-      { name: 'PMWorkOrderList', to: '/pm/work-orders', label: 'Danh sách WO' },
+      { name: 'PMDashboard', to: '/pm/dashboard', label: 'Tổng quan Bảo trì' },
+      { name: 'PMWorkOrderList', to: '/pm/work-orders', label: 'Danh sách phiếu' },
     ],
   },
   {
     label: 'IMM-09 Sửa chữa CM',
     links: [
-      { name: 'CMDashboard', to: '/cm/dashboard', label: 'Dashboard CM' },
-      { name: 'CMWorkOrderList', to: '/cm/work-orders', label: 'Danh sách WO' },
+      { name: 'CMDashboard', to: '/cm/dashboard', label: 'Tổng quan Sửa chữa' },
+      { name: 'CMWorkOrderList', to: '/cm/work-orders', label: 'Danh sách phiếu' },
     ],
   },
 ]
@@ -59,7 +59,7 @@ async function handleLogout() {
           </div>
           <div class="flex flex-col leading-tight">
             <span class="text-sm font-bold text-gray-900">AssetCore</span>
-            <span class="text-xs text-blue-600 font-medium">HTM Platform</span>
+            <span class="text-xs text-blue-600 font-medium">Quản lý Thiết bị Y tế</span>
           </div>
         </div>
 

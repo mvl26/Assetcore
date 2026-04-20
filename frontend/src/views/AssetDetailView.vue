@@ -4,6 +4,7 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAssetStore } from '@/stores/imm00'
 import { getAssetTimeline, getAssetKpi, verifyChain, deleteAsset } from '@/api/imm00'
+import AssetDowntimeWidget from '@/components/asset/AssetDowntimeWidget.vue'
 import type { AssetLifecycleEvent, AssetKpi, ChainVerifyResult, LifecycleStatus } from '@/types/imm00'
 
 const props = defineProps<{ id: string }>()
@@ -19,18 +20,20 @@ const targetStatus = ref<LifecycleStatus | ''>('')
 const transitionReason = ref('')
 const activeTab = ref<'info' | 'timeline' | 'kpi' | 'audit'>('info')
 
-const TRANSITIONS: Record<LifecycleStatus, LifecycleStatus[]> = {
+const TRANSITIONS: Record<string, LifecycleStatus[]> = {
   'Commissioned': ['Active', 'Out of Service', 'Decommissioned'],
-  'Active': ['Under Repair', 'Calibrating', 'Out of Service', 'Decommissioned'],
+  'Active': ['Under Maintenance', 'Under Repair', 'Calibrating', 'Out of Service', 'Decommissioned'] as LifecycleStatus[],
+  'Under Maintenance': ['Active', 'Under Repair', 'Out of Service', 'Decommissioned'] as LifecycleStatus[],
   'Under Repair': ['Active', 'Out of Service', 'Decommissioned'],
   'Calibrating': ['Active', 'Out of Service', 'Decommissioned'],
-  'Out of Service': ['Active', 'Under Repair', 'Calibrating', 'Decommissioned'],
+  'Out of Service': ['Active', 'Under Repair', 'Decommissioned'],
   'Decommissioned': [],
 }
 
 const statusColor: Record<string, string> = {
   'Active': 'bg-green-100 text-green-800',
   'Commissioned': 'bg-blue-100 text-blue-800',
+  'Under Maintenance': 'bg-amber-100 text-amber-800',
   'Under Repair': 'bg-yellow-100 text-yellow-800',
   'Calibrating': 'bg-purple-100 text-purple-800',
   'Out of Service': 'bg-red-100 text-red-800',
@@ -40,6 +43,7 @@ const statusColor: Record<string, string> = {
 const lifecycleLabel: Record<string, string> = {
   'Active': 'Đang hoạt động',
   'Commissioned': 'Đã tiếp nhận',
+  'Under Maintenance': 'Đang bảo trì',
   'Under Repair': 'Đang sửa chữa',
   'Calibrating': 'Đang hiệu chuẩn',
   'Out of Service': 'Ngừng hoạt động',
@@ -220,6 +224,7 @@ onMounted(async () => {
 
       <!-- Tab: Info -->
       <div v-if="activeTab === 'info'" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <AssetDowntimeWidget class="md:col-span-2" :asset-name="store.currentAsset.name" />
         <div class="card p-4">
           <h3 class="text-sm font-semibold text-slate-700 mb-3">Thông tin chung</h3>
           <dl class="space-y-2 text-sm">
@@ -276,7 +281,7 @@ onMounted(async () => {
               </dd>
             </div>
             <div class="flex justify-between">
-              <dt class="text-slate-400">PM tiếp theo</dt>
+              <dt class="text-slate-400">Bảo trì tiếp theo</dt>
               <dd :class="isPmOverdue(store.currentAsset.next_pm_date) ? 'text-red-600 font-semibold' : 'text-slate-800'">
                 {{ formatDate(store.currentAsset.next_pm_date) }}
               </dd>
@@ -332,11 +337,11 @@ onMounted(async () => {
             <p class="text-2xl font-bold text-blue-600">{{ kpi.mtbf_days ?? '—' }}</p>
           </div>
           <div class="card p-4 text-center">
-            <p class="text-xs text-slate-400 mb-1">MTTR (giờ)</p>
+            <p class="text-xs text-slate-400 mb-1">Thời gian sửa TB (giờ)</p>
             <p class="text-2xl font-bold text-yellow-600">{{ kpi.mttr_hours ?? '—' }}</p>
           </div>
           <div class="card p-4 text-center">
-            <p class="text-xs text-slate-400 mb-1">PM đúng hạn</p>
+            <p class="text-xs text-slate-400 mb-1">Bảo trì đúng hạn</p>
             <p class="text-2xl font-bold text-purple-600">{{ kpi.pm_compliance_pct != null ? kpi.pm_compliance_pct.toFixed(1) + '%' : '—' }}</p>
           </div>
           <div class="card p-4 text-center col-span-2 md:col-span-4">

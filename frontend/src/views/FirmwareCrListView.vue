@@ -60,29 +60,41 @@ function statusColor(s?: string) {
     : 'bg-gray-100 text-gray-700'
 }
 
+const STATUS_LABELS: Record<string, string> = {
+  Draft: 'Nháp',
+  'Pending Approval': 'Chờ phê duyệt',
+  Approved: 'Đã phê duyệt',
+  Applied: 'Đã áp dụng',
+  Rejected: 'Từ chối',
+  'Rolled Back': 'Đã khôi phục',
+}
+function statusLabel(s?: string): string {
+  return (s && STATUS_LABELS[s]) || s || ''
+}
+
 onMounted(load)
 </script>
 
 <template>
   <div class="p-6 space-y-5">
     <div class="flex items-center justify-between">
-      <h1 class="text-xl font-semibold text-gray-800">Firmware Change Request</h1>
+      <h1 class="text-xl font-semibold text-gray-800">Yêu cầu Cập nhật Firmware</h1>
       <div class="flex items-center gap-3">
-        <span class="text-sm text-gray-500">{{ total }} FCR</span>
-        <button @click="openCreate" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium">+ Thêm FCR</button>
+        <span class="text-sm text-gray-500">{{ total }} yêu cầu</span>
+        <button @click="openCreate" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium">+ Thêm yêu cầu</button>
       </div>
     </div>
 
     <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
       <div v-if="loading" class="text-center text-gray-400 py-12">Đang tải...</div>
-      <div v-else-if="items.length === 0" class="text-center text-gray-400 py-12 text-sm">Chưa có FCR.</div>
+      <div v-else-if="items.length === 0" class="text-center text-gray-400 py-12 text-sm">Chưa có yêu cầu nào.</div>
       <table v-else class="w-full text-sm">
         <thead class="bg-gray-50 border-b border-gray-200">
           <tr>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Mã</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Thiết bị</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Version trước</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Version sau</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Phiên bản cũ</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Phiên bản mới</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Trạng thái</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Phê duyệt</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Áp dụng</th>
@@ -96,7 +108,7 @@ onMounted(load)
             <td class="px-4 py-3 font-mono text-xs">{{ f.version_before || '—' }}</td>
             <td class="px-4 py-3 font-mono text-xs">{{ f.version_after || '—' }}</td>
             <td class="px-4 py-3">
-              <span :class="['text-xs px-2 py-0.5 rounded font-medium', statusColor(f.status)]">{{ f.status }}</span>
+              <span :class="['text-xs px-2 py-0.5 rounded font-medium', statusColor(f.status)]">{{ statusLabel(f.status) }}</span>
             </td>
             <td class="px-4 py-3 text-xs text-gray-500">{{ f.approved_by || '—' }}</td>
             <td class="px-4 py-3 text-xs text-gray-500">{{ f.applied_datetime ? new Date(f.applied_datetime).toLocaleDateString('vi-VN') : '—' }}</td>
@@ -111,7 +123,7 @@ onMounted(load)
 
     <div v-if="showForm" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50" @click.self="showForm = false">
       <div class="bg-white rounded-xl p-6 w-[600px] max-w-full space-y-4">
-        <h2 class="text-lg font-semibold">{{ editingName ? 'Sửa' : 'Thêm' }} Firmware CR</h2>
+        <h2 class="text-lg font-semibold">{{ editingName ? 'Sửa' : 'Thêm' }} yêu cầu cập nhật Firmware</h2>
         <div v-if="err" class="bg-red-50 text-red-700 text-sm p-3 rounded">{{ err }}</div>
         <div class="grid grid-cols-2 gap-3">
           <div class="col-span-2">
@@ -119,15 +131,15 @@ onMounted(load)
             <input v-model="form.asset_ref" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
           </div>
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Version hiện tại</label>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Phiên bản hiện tại</label>
             <input v-model="form.version_before" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono" />
           </div>
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Version mới *</label>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Phiên bản mới *</label>
             <input v-model="form.version_after" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono" />
           </div>
           <div class="col-span-2">
-            <label class="block text-sm font-medium text-gray-700 mb-1">Nguồn (manufacturer bulletin, CVE, v.v.)</label>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Nguồn (thông báo nhà sản xuất, mã lỗ hổng CVE, v.v.)</label>
             <input v-model="form.source_reference" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
           </div>
           <div class="col-span-2">
@@ -137,16 +149,20 @@ onMounted(load)
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">Trạng thái</label>
             <select v-model="form.status" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
-              <option>Draft</option><option>Pending Approval</option><option>Approved</option>
-              <option>Applied</option><option>Rejected</option><option>Rolled Back</option>
+              <option value="Draft">Nháp</option>
+              <option value="Pending Approval">Chờ phê duyệt</option>
+              <option value="Approved">Đã phê duyệt</option>
+              <option value="Applied">Đã áp dụng</option>
+              <option value="Rejected">Từ chối</option>
+              <option value="Rolled Back">Đã khôi phục</option>
             </select>
           </div>
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Link Repair WO</label>
-            <input v-model="form.asset_repair_wo" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="REPAIR-..." />
+            <label class="block text-sm font-medium text-gray-700 mb-1">Liên kết phiếu sửa chữa</label>
+            <input v-model="form.asset_repair_wo" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="SỬA-..." />
           </div>
           <div v-if="form.status === 'Rolled Back'" class="col-span-2">
-            <label class="block text-sm font-medium text-gray-700 mb-1">Lý do rollback</label>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Lý do khôi phục</label>
             <textarea v-model="form.rollback_reason" rows="2" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"></textarea>
           </div>
         </div>

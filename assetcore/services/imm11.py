@@ -31,6 +31,17 @@ _DEFAULT_INTERVAL_DAYS = 365
 _NOT_DECOMMISSIONED = ("not in", [AssetStatus.DECOMMISSIONED])
 _CAPA_OPEN_STATUSES = ("in", ["Open", "In Progress", "In Review"])
 _LOOKBACK_IN_PROGRESS = "In Progress"
+_DT_CAL = "IMM Asset Calibration"
+_CALIBRATING_TRIGGER_STATUSES = {CalibrationResult.IN_PROGRESS, CalibrationResult.SENT_TO_LAB}
+
+
+def _transition_asset(asset_ref: str, to_status: str, cal_name: str, reason: str = "") -> None:
+    transition_asset_status(
+        asset_name=asset_ref, to_status=to_status,
+        actor=frappe.session.user,
+        root_doctype=_DT_CAL, root_record=cal_name,
+        reason=reason,
+    )
 
 
 # ─── Hooks từ module khác ─────────────────────────────────────────────────────
@@ -184,12 +195,12 @@ def handle_calibration_pass(cal_doc) -> None:
         notes=f"Result: {cal_doc.overall_result}; next due: {next_date}",
     )
 
-    if cal_doc.is_recalibration and current_status == AssetStatus.OUT_OF_SERVICE:
-        transition_asset_status(
-            asset_name=cal_doc.asset, to_status=AssetStatus.ACTIVE,
-            root_doctype=CalibrationRepo.DOCTYPE, root_record=cal_doc.name,
-            reason="Recalibration Pass after CAPA",
-        )
+    if current_status == AssetStatus.CALIBRATING:
+        _transition_asset(cal_doc.asset, AssetStatus.ACTIVE, cal_doc.name,
+                          reason=f"Calibration passed — {cal_doc.name}")
+    elif cal_doc.is_recalibration and current_status == AssetStatus.OUT_OF_SERVICE:
+        _transition_asset(cal_doc.asset, AssetStatus.ACTIVE, cal_doc.name,
+                          reason="Recalibration Pass after CAPA")
 
 
 def handle_calibration_fail(cal_doc) -> None:
@@ -370,7 +381,14 @@ def update_calibration(name: str, patch: dict) -> dict:
     clean_patch = {k: v for k, v in patch.items() if k in _UPDATE_ALLOWED}
     if not clean_patch:
         raise ServiceError(ErrorCode.VALIDATION, "Không có trường nào được cập nhật")
+    old_status = doc.status
     doc = CalibrationRepo.update_fields(name, clean_patch)
+    new_status = clean_patch.get("status", old_status)
+    if new_status in _CALIBRATING_TRIGGER_STATUSES and old_status not in _CALIBRATING_TRIGGER_STATUSES:
+        asset_status = AssetRepo.get_value(doc.asset, "lifecycle_status")
+        if asset_status == AssetStatus.ACTIVE:
+            _transition_asset(doc.asset, AssetStatus.CALIBRATING, name,
+                              reason=f"Calibration {new_status} — {name}")
     return {"name": doc.name, "status": doc.status}
 
 

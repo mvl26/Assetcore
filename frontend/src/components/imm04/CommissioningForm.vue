@@ -530,7 +530,7 @@ const showQaOfficer = computed(() => isHighRisk.value)
           placeholder="User ID người phê duyệt"
           class="form-input"
         />
-        <p class="form-hint text-red-600">BR-04-08: Bắt buộc trước khi Clinical Release</p>
+        <p class="form-hint text-red-600">BR-04-08: Bắt buộc trước khi phát hành lâm sàng</p>
         <small class="form-hint">Nhập User ID (vd: user@hospital.com)</small>
       </div>
     </div>
@@ -580,7 +580,7 @@ const showQaOfficer = computed(() => isHighRisk.value)
           </a>
         </div>
         <div v-else class="text-sm text-gray-500 italic p-4 bg-gray-50 rounded-lg">
-          Tài sản sẽ được tạo tự động sau khi phiếu được Submit ở trạng thái Clinical Release.
+          Tài sản sẽ được tạo tự động sau khi phiếu được Duyệt ở trạng thái Phát hành lâm sàng.
         </div>
 
         <!-- IMM-05 Compliance Widget (chỉ hiện khi có final_asset) -->

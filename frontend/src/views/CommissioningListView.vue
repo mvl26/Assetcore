@@ -26,7 +26,7 @@ const WORKFLOW_STATES: { value: WorkflowState | ''; label: string }[] = [
   { value: 'Installing', label: 'Đang lắp đặt' },
   { value: 'Identification', label: 'Nhận dạng' },
   { value: 'Initial_Inspection', label: 'Kiểm tra ban đầu' },
-  { value: 'Clinical_Hold', label: 'Clinical Hold' },
+  { value: 'Clinical_Hold', label: 'Tạm giữ lâm sàng' },
   { value: 'Re_Inspection', label: 'Kiểm tra lại' },
   { value: 'Pending_Release', label: 'Chờ phê duyệt' },
   { value: 'Clinical_Release', label: 'Phát hành lâm sàng' },

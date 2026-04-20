@@ -93,7 +93,7 @@ onMounted(load)
           <p class="font-mono text-sm font-medium">{{ contract.name }}</p>
         </div>
         <span :class="['text-xs px-3 py-1 rounded-full font-medium', contract.docstatus === 1 ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700']">
-          {{ contract.docstatus === 1 ? 'Submitted' : 'Draft' }}
+          {{ contract.docstatus === 1 ? 'Đã gửi' : 'Nháp' }}
         </span>
       </div>
 
@@ -142,7 +142,7 @@ onMounted(load)
 
       <div class="flex gap-3 pt-4 border-t border-gray-100">
         <button v-if="contract.docstatus !== 1" @click="save" :disabled="saving" class="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm font-medium">Lưu</button>
-        <button v-if="contract.docstatus !== 1" @click="submitContract" :disabled="saving" class="bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm font-medium">Submit</button>
+        <button v-if="contract.docstatus !== 1" @click="submitContract" :disabled="saving" class="bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm font-medium">Gửi duyệt</button>
         <button @click="remove" class="ml-auto text-sm text-red-600 hover:text-red-800">Xóa</button>
       </div>
     </div>

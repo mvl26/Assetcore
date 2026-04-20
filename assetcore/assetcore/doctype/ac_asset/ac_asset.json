@@ -120,7 +120,7 @@
   {"fieldname": "column_break_byt", "fieldtype": "Column Break"},
   {"fieldname": "byt_reg_expiry", "fieldtype": "Date", "label": "BYT Registration Expiry", "search_index": 1},
   {"fieldname": "section_lifecycle", "fieldtype": "Section Break", "label": "HTM - Vòng đời"},
-  {"fieldname": "lifecycle_status", "fieldtype": "Select", "label": "Lifecycle Status", "options": "Commissioned\nActive\nUnder Repair\nCalibrating\nOut of Service\nDecommissioned", "reqd": 1, "default": "Commissioned", "search_index": 1},
+  {"fieldname": "lifecycle_status", "fieldtype": "Select", "label": "Lifecycle Status", "options": "Commissioned\nActive\nUnder Maintenance\nUnder Repair\nCalibrating\nOut of Service\nDecommissioned", "reqd": 1, "default": "Commissioned", "search_index": 1},
   {"fieldname": "commissioning_date", "fieldtype": "Date", "label": "Commissioning Date"},
   {"fieldname": "column_break_lifecycle", "fieldtype": "Column Break"},
   {"fieldname": "commissioning_ref", "fieldtype": "Data", "label": "Commissioning Reference"},

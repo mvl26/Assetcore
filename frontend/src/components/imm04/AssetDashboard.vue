@@ -83,6 +83,29 @@ function stateClass(state: string): string {
   return map[state] ?? 'bg-gray-100 text-gray-600'
 }
 
+const STATE_LABELS: Record<string, string> = {
+  Draft: 'Nháp',
+  Reception: 'Tiếp nhận',
+  Site_Preparation: 'Chuẩn bị hiện trường',
+  Identification: 'Nhận dạng',
+  Baseline_Safety: 'Kiểm tra an toàn',
+  Pending_Release: 'Chờ phê duyệt',
+  Clinical_Release: 'Phát hành lâm sàng',
+  Commissioned: 'Đã đưa vào sử dụng',
+  Return_To_Vendor: 'Trả nhà cung cấp',
+  Radiation_Hold: 'Tạm giữ phóng xạ',
+  Installing: 'Đang lắp đặt',
+  Initial_Inspection: 'Kiểm tra ban đầu',
+  Clinical_Hold: 'Tạm giữ lâm sàng',
+  Re_Inspection: 'Kiểm tra lại',
+  Pending_Doc_Verify: 'Chờ kiểm tra hồ sơ',
+  To_Be_Installed: 'Chờ lắp đặt',
+}
+function stateLabel(state: string | null | undefined = 'Draft'): string {
+  const s = state || 'Draft'
+  return STATE_LABELS[s] ?? s.replaceAll('_', ' ')
+}
+
 </script>
 
 <template>
@@ -209,7 +232,7 @@ function stateClass(state: string): string {
               <td class="px-4 py-3 text-gray-600">{{ row.clinical_dept ?? '—' }}</td>
               <td class="px-4 py-3">
                 <span class="px-2 py-0.5 rounded-full text-xs font-medium" :class="stateClass(row.workflow_state ?? '')">
-                  {{ (row.workflow_state ?? 'Draft').replace(/_/g, ' ') }}
+                  {{ stateLabel(row.workflow_state) }}
                 </span>
               </td>
               <td class="px-4 py-3 text-gray-500">{{ formatDate(row.modified) }}</td>
@@ -272,7 +295,7 @@ function stateClass(state: string): string {
               <td class="px-4 py-3 text-gray-600">{{ row.clinical_dept ?? '—' }}</td>
               <td class="px-4 py-3">
                 <span class="px-2 py-0.5 rounded-full text-xs font-medium" :class="stateClass(row.workflow_state ?? '')">
-                  {{ (row.workflow_state ?? 'Draft').replace(/_/g, ' ') }}
+                  {{ stateLabel(row.workflow_state) }}
                 </span>
               </td>
               <td class="px-4 py-3 text-gray-500">{{ formatDate(row.commissioning_date) }}</td>

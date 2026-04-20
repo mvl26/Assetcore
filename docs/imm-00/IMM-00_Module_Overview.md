@@ -3,9 +3,9 @@
 | Thuộc tính | Giá trị |
 |---|---|
 | Module | IMM-00 Foundation |
-| Phiên bản | 3.0.0 |
-| Ngày cập nhật | 2026-04-18 |
-| Trạng thái | **DRAFT** — chờ triển khai theo kiến trúc mới (v3) |
+| Phiên bản | 4.0.0 |
+| Ngày cập nhật | 2026-04-20 |
+| Trạng thái | **Active** — v4 mở rộng: đưa Inventory (Kho vật tư + Phụ tùng + Tồn + Stock Movement) vào scope IMM-00 |
 | Tác giả | AssetCore Team |
 
 ---
@@ -79,6 +79,16 @@ IMM-00 là **foundation layer tự chứa** của AssetCore — cung cấp toàn
 | AC Department | `AC-DEPT-.####` | Department | Khoa/phòng sử dụng (đơn vị quản lý, không phải vị trí vật lý) |
 | AC Asset Category | by category_name | Asset Category | Phân loại thiết bị (máy xét nghiệm, thiết bị chẩn đoán hình ảnh…) |
 
+### 3.1.1 Inventory DocTypes — v4 mới (5) — xem [IMM-00_Inventory_Design.md](IMM-00_Inventory_Design.md)
+
+| DocType | Naming | Mục đích |
+|---|---|---|
+| AC Warehouse | `AC-WH-.####` | Kho vật tư (khoa/tầng/phòng lưu trữ phụ tùng) |
+| AC Spare Part | `AC-SP-.YYYY.-.####` | Master catalog phụ tùng chuẩn toàn hệ thống (+ min/max stock, đơn giá) |
+| AC Spare Part Stock | by `warehouse::spare_part` | Tồn kho thực tế (một dòng cho mỗi cặp kho × phụ tùng) |
+| AC Stock Movement | `AC-SM-.YYYY.-.#####` | Phiếu nhập / xuất / chuyển / điều chỉnh kho (có audit trail) |
+| AC Stock Movement Item | — (child) | Chi tiết vật tư trong phiếu Stock Movement |
+
 ### 3.2 AssetCore-native DocTypes (6)
 
 | DocType | Naming | Mục đích |
@@ -90,18 +100,20 @@ IMM-00 là **foundation layer tự chứa** của AssetCore — cung cấp toàn
 | Asset Lifecycle Event | `ALE-.YYYY.-.#######` | Sự kiện vòng đời chuẩn hoá: commissioned, pm_completed, repair_opened, decommissioned… |
 | Incident Report | `IR-.YYYY.-.####` | Sự cố thiết bị → trigger CM/CAPA |
 
-### 3.3 Child DocTypes (2)
+### 3.3 Child DocTypes (3)
 
 | Child DocType | Parent | Mục đích |
 |---|---|---|
-| IMM Device Spare Part | IMM Device Model | Danh mục phụ tùng theo model |
+| IMM Device Spare Part | IMM Device Model | BOM — phụ tùng đề xuất cho model (link tới AC Spare Part) |
 | AC Authorized Technician | AC Supplier | KTV ủy quyền của NCC |
+| AC Stock Movement Item | AC Stock Movement | Chi tiết từng phụ tùng trong phiếu nhập/xuất |
 
-**Tổng: 13 DocTypes** (5 core + 6 governance + 2 child).
+**Tổng: 18 DocTypes** (5 core + 6 governance + 5 inventory + 3 child — có 1 inventory là child: Stock Movement Item).
 
 ### 3.4 Scope defer sang giai đoạn kế tiếp
 
-`AC Item`, `AC Stock Entry`, `AC Purchase Order`, `AC Asset Movement` — sẽ làm khi module IMM-09/PM cần quản lý vật tư. IMM-00 v3 chưa đụng.
+- `AC Purchase Request` (workflow mua phụ tùng khi tồn < min) — **Wave 2**
+- `AC Asset Component` (linh kiện đang gắn trên thiết bị với SN riêng) — **Wave 2**
 
 ---
 

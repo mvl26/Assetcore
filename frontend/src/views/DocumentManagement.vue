@@ -48,11 +48,11 @@
       </select>
       <select v-model="filters.workflow_state" @change="applyFilters">
         <option value="">Tất cả trạng thái</option>
-        <option value="Draft">Draft</option>
+        <option value="Draft">Nháp</option>
         <option value="Pending_Review">Chờ duyệt</option>
-        <option value="Active">Active</option>
+        <option value="Active">Hiệu lực</option>
         <option value="Expired">Hết hạn</option>
-        <option value="Archived">Archived</option>
+        <option value="Archived">Lưu trữ</option>
         <option value="Rejected">Từ chối</option>
       </select>
       <input

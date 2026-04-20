@@ -140,11 +140,14 @@ onMounted(load)
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">Ưu tiên</label>
             <select v-model="form.priority" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
-              <option>Low</option><option>Medium</option><option>High</option><option>Critical</option>
+              <option value="Low">Thấp</option>
+              <option value="Medium">Trung bình</option>
+              <option value="High">Cao</option>
+              <option value="Critical">Khẩn cấp</option>
             </select>
           </div>
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Giao cho (User)</label>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Giao cho (người dùng)</label>
             <input v-model="form.assigned_to" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
           </div>
           <div>
@@ -154,8 +157,11 @@ onMounted(load)
           <div class="col-span-2">
             <label class="block text-sm font-medium text-gray-700 mb-1">Trạng thái</label>
             <select v-model="form.status" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
-              <option>Open</option><option>In_Progress</option><option>Overdue</option>
-              <option>Fulfilled</option><option>Cancelled</option>
+              <option value="Open">Đang mở</option>
+              <option value="In_Progress">Đang xử lý</option>
+              <option value="Overdue">Quá hạn</option>
+              <option value="Fulfilled">Đã hoàn thành</option>
+              <option value="Cancelled">Đã hủy</option>
             </select>
           </div>
           <div class="col-span-2">

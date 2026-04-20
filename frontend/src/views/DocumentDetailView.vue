@@ -471,7 +471,7 @@ async function handleReject(): Promise<void> {
           </div>
           <div v-if="doc.is_exempt">
             <dt class="text-gray-400 font-medium mb-0.5">Miễn đăng ký NĐ98</dt>
-            <dd class="text-yellow-700 font-medium">Exempt</dd>
+            <dd class="text-yellow-700 font-medium">Miễn đăng ký</dd>
           </div>
         </dl>
 

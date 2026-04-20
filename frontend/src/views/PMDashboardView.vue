@@ -53,7 +53,7 @@ function daysUntil(dateStr: string): number {
     <div class="flex items-start justify-between mb-7">
       <div>
         <p class="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-1">IMM-08</p>
-        <h1 class="text-2xl font-bold text-slate-900">Dashboard Bảo trì Định kỳ</h1>
+        <h1 class="text-2xl font-bold text-slate-900">Tổng quan Bảo trì Định kỳ</h1>
         <p class="text-sm text-slate-500 mt-1">{{ monthLabel }}</p>
       </div>
       <div class="flex gap-2.5 shrink-0">
@@ -65,7 +65,7 @@ function daysUntil(dateStr: string): number {
           </svg>
           Lịch PM
         </button>
-        <button class="btn-primary" @click="router.push('/pm/work-orders')">Danh sách WO</button>
+        <button class="btn-primary" @click="router.push('/pm/work-orders')">Danh sách phiếu</button>
       </div>
     </div>
 
@@ -76,7 +76,7 @@ function daysUntil(dateStr: string): number {
       <!-- Compliance rate — large card -->
       <div class="kpi-card p-5 lg:col-span-1 flex flex-col items-start gap-2"
            style="--kpi-color: v-bind('complianceColor(kpis.compliance_rate_pct)')">
-        <p class="text-xs font-medium text-slate-500">Compliance Rate</p>
+        <p class="text-xs font-medium text-slate-500">Tỷ lệ tuân thủ</p>
         <p class="text-4xl font-bold leading-none"
            :style="`color: ${complianceColor(kpis.compliance_rate_pct)}`">
           {{ kpis.compliance_rate_pct }}%

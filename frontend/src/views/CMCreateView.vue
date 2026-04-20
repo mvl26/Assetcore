@@ -19,7 +19,7 @@ const form = ref({
 
 const sourceError = computed(() => {
   if (!form.value.incident_report && !form.value.source_pm_wo) {
-    return 'Phải có nguồn sửa chữa: Incident Report hoặc PM Work Order gốc'
+    return 'Phải có nguồn sửa chữa: Báo cáo sự cố hoặc Phiếu bảo trì gốc'
   }
   return ''
 })
@@ -69,11 +69,11 @@ async function handleSubmit() {
         <p class="text-xs text-gray-500 mb-3">Điền ít nhất một trong hai trường bên dưới</p>
         <div class="grid grid-cols-2 gap-3">
           <div>
-            <label for="incident-report" class="block text-sm text-gray-600 mb-1">Incident Report</label>
+            <label for="incident-report" class="block text-sm text-gray-600 mb-1">Báo cáo sự cố</label>
             <input id="incident-report" v-model="form.incident_report" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="IR-2026-XXXXX" />
           </div>
           <div>
-            <label for="source-pm-wo" class="block text-sm text-gray-600 mb-1">PM Work Order</label>
+            <label for="source-pm-wo" class="block text-sm text-gray-600 mb-1">Phiếu bảo trì gốc</label>
             <input id="source-pm-wo" v-model="form.source_pm_wo" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="PM-WO-2026-XXXXX" />
           </div>
         </div>
@@ -85,17 +85,17 @@ async function handleSubmit() {
         <div>
           <label for="repair-type" class="block text-sm text-gray-600 mb-1">Loại sửa chữa *</label>
           <select id="repair-type" v-model="form.repair_type" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
-            <option value="Corrective">Corrective</option>
-            <option value="Emergency">Emergency</option>
-            <option value="Warranty Repair">Warranty Repair</option>
+            <option value="Corrective">Sửa chữa khắc phục</option>
+            <option value="Emergency">Cấp cứu</option>
+            <option value="Warranty Repair">Bảo hành</option>
           </select>
         </div>
         <div>
           <label for="priority" class="block text-sm text-gray-600 mb-1">Ưu tiên *</label>
           <select id="priority" v-model="form.priority" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
-            <option value="Normal">Normal</option>
-            <option value="Urgent">Urgent</option>
-            <option value="Emergency">Emergency</option>
+            <option value="Normal">Bình thường</option>
+            <option value="Urgent">Khẩn</option>
+            <option value="Emergency">Cấp cứu</option>
           </select>
         </div>
       </div>

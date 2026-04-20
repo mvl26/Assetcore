@@ -105,9 +105,9 @@ onMounted(load)
     <template v-else-if="data">
       <!-- KPI Row — 4 cards per UI/UX spec -->
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-        <!-- Compliance Rate -->
+        <!-- Tỷ lệ tuân thủ -->
         <div class="card p-4">
-          <p class="text-xs text-slate-400 uppercase tracking-wider mb-1">Compliance Rate</p>
+          <p class="text-xs text-slate-400 uppercase tracking-wider mb-1">Tỷ lệ tuân thủ</p>
           <p class="text-3xl font-bold"
              :class="data.kpis.compliance_pct >= 95 ? 'text-green-600' : data.kpis.compliance_pct >= 80 ? 'text-yellow-600' : 'text-red-600'">
             {{ data.kpis.compliance_pct }}%

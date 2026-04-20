@@ -2,7 +2,7 @@
 import { ref, onMounted } from 'vue'
 import {
   listPmTemplates, getPmTemplate, createPmTemplate, updatePmTemplate, deletePmTemplate,
-  type PmTemplate,
+  type PmTemplate, type PmChecklistItem,
 } from '@/api/imm00'
 
 const items = ref<PmTemplate[]>([])
@@ -10,16 +10,29 @@ const total = ref(0)
 const loading = ref(false)
 const showForm = ref(false)
 const editingName = ref<string | null>(null)
-type ChecklistItem = { description: string; expected_value?: string; tolerance?: string }
-const form = ref<Partial<PmTemplate> & { checklist_items?: ChecklistItem[] } & Record<string, unknown>>({})
+const form = ref<Partial<PmTemplate> & { checklist_items: PmChecklistItem[] }>({
+  checklist_items: [],
+})
 const err = ref('')
+
+function newItem(): PmChecklistItem {
+  return {
+    description: '',
+    measurement_type: 'Pass/Fail',
+    unit: '',
+    expected_min: null,
+    expected_max: null,
+    is_critical: 0,
+    reference_section: '',
+  }
+}
 
 async function load() {
   loading.value = true
   try {
     const r = await listPmTemplates()
-    const d = r as unknown as { items: PmTemplate[]; pagination: { total: number } }
-    if (d) { items.value = d.items || []; total.value = d.pagination?.total || 0 }
+    const d = r as unknown as { data: PmTemplate[]; pagination: { total: number } }
+    if (d) { items.value = d.data || []; total.value = d.pagination?.total || 0 }
   } finally { loading.value = false }
 }
 
@@ -28,7 +41,7 @@ function openCreate() {
   form.value = {
     template_name: '', asset_category: '', pm_type: 'Quarterly',
     version: '1.0', effective_date: new Date().toISOString().slice(0, 10),
-    checklist_items: [{ description: '', expected_value: '', tolerance: '' }],
+    checklist_items: [newItem()],
   }
   err.value = ''; showForm.value = true
 }
@@ -36,24 +49,43 @@ function openCreate() {
 async function openEdit(name: string) {
   editingName.value = name
   const r = await getPmTemplate(name)
-  if (r) form.value = { ...(r as unknown as PmTemplate) }
-  if (!form.value.checklist_items || (form.value.checklist_items as ChecklistItem[]).length === 0) {
-    form.value.checklist_items = [{ description: '', expected_value: '', tolerance: '' }]
-  }
+  const d = r as unknown as PmTemplate
+  if (d) form.value = { ...d, checklist_items: (d.checklist_items as PmChecklistItem[]) || [] }
+  if (!form.value.checklist_items.length) form.value.checklist_items = [newItem()]
   err.value = ''; showForm.value = true
 }
 
-function addItem() {
-  (form.value.checklist_items as ChecklistItem[]).push({ description: '', expected_value: '', tolerance: '' })
-}
-function removeItem(i: number) {
-  (form.value.checklist_items as ChecklistItem[]).splice(i, 1)
-}
+function addItem() { form.value.checklist_items.push(newItem()) }
+function removeItem(i: number) { form.value.checklist_items.splice(i, 1) }
 
 async function save() {
   err.value = ''
+  if (!form.value.template_name || !form.value.asset_category || !form.value.pm_type) {
+    err.value = 'Tên mẫu, Loại thiết bị, Loại bảo trì là bắt buộc'
+    return
+  }
+  const cleanItems = form.value.checklist_items
+    .filter(it => (it.description || '').trim())
+    .map(it => ({
+      description: it.description.trim(),
+      measurement_type: it.measurement_type || 'Pass/Fail',
+      unit: it.unit || '',
+      expected_min: it.expected_min ?? null,
+      expected_max: it.expected_max ?? null,
+      is_critical: it.is_critical ? 1 : 0,
+      reference_section: it.reference_section || '',
+    }))
+  if (cleanItems.length === 0) { err.value = 'Phải có ít nhất 1 hạng mục checklist'; return }
+
   try {
-    const payload = { ...form.value, checklist_items: JSON.stringify(form.value.checklist_items) } as unknown as Partial<PmTemplate>
+    const payload = {
+      template_name: form.value.template_name,
+      asset_category: form.value.asset_category,
+      pm_type: form.value.pm_type,
+      version: form.value.version,
+      effective_date: form.value.effective_date,
+      checklist_items: JSON.stringify(cleanItems),
+    } as unknown as Partial<PmTemplate>
     if (editingName.value) await updatePmTemplate(editingName.value, payload)
     else await createPmTemplate(payload)
     showForm.value = false; await load()
@@ -112,45 +144,55 @@ onMounted(load)
     </div>
 
     <div v-if="showForm" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 overflow-y-auto py-6" @click.self="showForm = false">
-      <div class="bg-white rounded-xl p-6 w-[720px] max-w-full space-y-4 my-auto">
+      <div class="bg-white rounded-xl p-6 w-[860px] max-w-full space-y-4 my-auto">
         <h2 class="text-lg font-semibold">{{ editingName ? 'Sửa' : 'Thêm' }} Template Checklist PM</h2>
         <div v-if="err" class="bg-red-50 text-red-700 text-sm p-3 rounded">{{ err }}</div>
         <div class="grid grid-cols-2 gap-3">
-          <div class="col-span-2">
-            <label class="block text-sm font-medium text-gray-700 mb-1">Tên template *</label>
+          <label class="col-span-2 block">
+            <span class="block text-sm font-medium text-gray-700 mb-1">Tên template *</span>
             <input v-model="form.template_name" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
-          </div>
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Loại thiết bị (AC Asset Category)</label>
+          </label>
+          <label class="block">
+            <span class="block text-sm font-medium text-gray-700 mb-1">Loại thiết bị *</span>
             <input v-model="form.asset_category" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
-          </div>
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Loại PM</label>
+          </label>
+          <label class="block">
+            <span class="block text-sm font-medium text-gray-700 mb-1">Loại bảo trì *</span>
             <select v-model="form.pm_type" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
-              <option>Quarterly</option><option>Semi-Annual</option><option>Annual</option><option>Ad-hoc</option>
+              <option value="Quarterly">Hàng quý</option>
+              <option value="Semi-Annual">Nửa năm</option>
+              <option value="Annual">Hàng năm</option>
+              <option value="Ad-hoc">Đột xuất</option>
             </select>
-          </div>
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Version</label>
+          </label>
+          <label class="block">
+            <span class="block text-sm font-medium text-gray-700 mb-1">Phiên bản</span>
             <input v-model="form.version" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
-          </div>
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Ngày hiệu lực</label>
+          </label>
+          <label class="block">
+            <span class="block text-sm font-medium text-gray-700 mb-1">Ngày hiệu lực</span>
             <input v-model="form.effective_date" type="date" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
-          </div>
+          </label>
         </div>
 
         <div class="border-t pt-4">
           <div class="flex items-center justify-between mb-2">
-            <label class="text-sm font-semibold text-gray-700">Hạng mục kiểm tra</label>
+            <span class="text-sm font-semibold text-gray-700">Hạng mục kiểm tra *</span>
             <button @click="addItem" type="button" class="text-blue-600 text-xs font-medium">+ Thêm hạng mục</button>
           </div>
           <div class="space-y-2">
-            <div v-for="(it, i) in (form.checklist_items as ChecklistItem[])" :key="i" class="grid grid-cols-10 gap-2 items-center">
-              <input v-model="it.description" placeholder="Mô tả *" class="col-span-5 border border-gray-300 rounded px-2 py-1.5 text-sm" />
-              <input v-model="it.expected_value" placeholder="Giá trị kỳ vọng" class="col-span-2 border border-gray-300 rounded px-2 py-1.5 text-sm" />
-              <input v-model="it.tolerance" placeholder="Sai số" class="col-span-2 border border-gray-300 rounded px-2 py-1.5 text-sm" />
-              <button @click="removeItem(i)" type="button" class="text-red-600 text-xs">✕</button>
+            <div v-for="(it, i) in form.checklist_items" :key="i" class="grid grid-cols-12 gap-2 items-center">
+              <input v-model="it.description" placeholder="Mô tả *" class="col-span-4 border border-gray-300 rounded px-2 py-1.5 text-sm" />
+              <select v-model="it.measurement_type" class="col-span-2 border border-gray-300 rounded px-2 py-1.5 text-sm">
+                <option>Pass/Fail</option><option>Numeric</option><option>Text</option>
+              </select>
+              <input v-model="it.unit" placeholder="Đơn vị" class="col-span-1 border border-gray-300 rounded px-2 py-1.5 text-sm" />
+              <input v-model.number="it.expected_min" type="number" placeholder="Min" class="col-span-1 border border-gray-300 rounded px-2 py-1.5 text-sm" />
+              <input v-model.number="it.expected_max" type="number" placeholder="Max" class="col-span-1 border border-gray-300 rounded px-2 py-1.5 text-sm" />
+              <label class="col-span-2 flex items-center gap-1 text-xs text-gray-600">
+                <input v-model="it.is_critical" type="checkbox" /> Trọng yếu
+              </label>
+              <button @click="removeItem(i)" type="button" class="col-span-1 text-red-600 text-xs">✕</button>
             </div>
           </div>
         </div>

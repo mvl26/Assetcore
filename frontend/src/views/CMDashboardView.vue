@@ -63,17 +63,17 @@ const woStatusMap: Record<string, string> = {
     <div class="flex items-start justify-between mb-7">
       <div>
         <p class="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-1">IMM-09</p>
-        <h1 class="text-2xl font-bold text-slate-900">Dashboard Sửa chữa Khắc phục</h1>
-        <p class="text-sm text-slate-500 mt-1">Corrective Maintenance — real-time</p>
+        <h1 class="text-2xl font-bold text-slate-900">Tổng quan Sửa chữa Khắc phục</h1>
+        <p class="text-sm text-slate-500 mt-1">Theo dõi sửa chữa thiết bị theo thời gian thực</p>
       </div>
       <div class="flex gap-2.5 shrink-0">
         <button class="btn-primary" @click="router.push('/cm/create')">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
           </svg>
-          Tạo WO mới
+          Tạo phiếu mới
         </button>
-        <button class="btn-secondary" @click="router.push('/cm/work-orders')">Danh sách WO</button>
+        <button class="btn-secondary" @click="router.push('/cm/work-orders')">Danh sách phiếu</button>
       </div>
     </div>
 
@@ -106,7 +106,7 @@ const woStatusMap: Record<string, string> = {
         <p class="text-3xl font-bold text-orange-500">{{ kpis.repeat_failure_count }}</p>
       </div>
       <div class="kpi-card p-5" style="--kpi-color: #d97706">
-        <p class="text-xs font-medium text-slate-500 mb-2">WO đang mở</p>
+        <p class="text-xs font-medium text-slate-500 mb-2">Phiếu đang mở</p>
         <p class="text-3xl font-bold text-amber-600">{{ kpis.open_wos }}</p>
       </div>
     </div>
@@ -142,7 +142,7 @@ const woStatusMap: Record<string, string> = {
       <div class="card p-0 overflow-hidden animate-slide-up" style="animation-delay: 260ms">
         <div class="px-5 py-4 border-b border-slate-100">
           <h3 class="text-sm font-semibold text-slate-800">
-            WO đang xử lý
+            Phiếu đang xử lý
             <span class="ml-1 text-xs font-normal text-slate-400">({{ store.workOrders.length }})</span>
           </h3>
         </div>
@@ -151,7 +151,7 @@ const woStatusMap: Record<string, string> = {
         </div>
         <div v-else-if="!store.workOrders.length"
              class="px-5 py-10 text-center text-sm text-slate-400">
-          Không có WO nào đang mở
+          Không có phiếu nào đang mở
         </div>
         <div v-else class="divide-y divide-slate-100">
           <div

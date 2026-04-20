@@ -119,8 +119,8 @@ onMounted(load)
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Mã</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Tên vị trí</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Loại</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Parent</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Active</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Cấp trên</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Kích hoạt</th>
             <th class="px-4 py-3 text-right"></th>
           </tr>
           <tr v-else-if="tab === 'department'">
@@ -133,8 +133,8 @@ onMounted(load)
           <tr v-else>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Mã</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Tên loại</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">PM (ngày)</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Calibration (ngày)</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Bảo trì (ngày)</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Hiệu chuẩn (ngày)</th>
             <th class="px-4 py-3 text-right"></th>
           </tr>
         </thead>
@@ -219,11 +219,11 @@ onMounted(load)
           </div>
           <div class="grid grid-cols-2 gap-3">
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">PM interval (ngày)</label>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Chu kỳ bảo trì (ngày)</label>
               <input type="number" v-model.number="form.default_pm_interval_days" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
             </div>
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Calibration interval (ngày)</label>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Chu kỳ hiệu chuẩn (ngày)</label>
               <input type="number" v-model.number="form.default_calibration_interval_days" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
             </div>
           </div>

@@ -12,22 +12,22 @@ interface NavGroup { title: string; items: NavItem[] }
 const navGroups: NavGroup[] = [
   {
     title: 'Tổng quan',
-    items: [{ label: 'Dashboard', path: '/dashboard', icon: 'dashboard' }],
+    items: [{ label: 'Trang chính', path: '/dashboard', icon: 'dashboard' }],
   },
   {
     title: 'IMM-00 Nền tảng',
     items: [
       { label: 'Thiết bị', path: '/assets', icon: 'list' },
       { label: 'Nhà cung cấp', path: '/suppliers', icon: 'list' },
-      { label: 'Device Models', path: '/device-models', icon: 'list' },
+      { label: 'Mẫu thiết bị', path: '/device-models', icon: 'list' },
       { label: 'Hợp đồng dịch vụ', path: '/service-contracts', icon: 'folder' },
       { label: 'Chuyển giao', path: '/asset-transfers', icon: 'list' },
       { label: 'Khấu hao', path: '/depreciation', icon: 'chart' },
       { label: 'Dữ liệu tham chiếu', path: '/reference-data', icon: 'list' },
       { label: 'Chính sách SLA', path: '/sla-policies', icon: 'list' },
-      { label: 'Incidents', path: '/incidents', icon: 'list' },
-      { label: 'CAPA', path: '/capas', icon: 'list' },
-      { label: 'Audit Trail', path: '/audit-trail', icon: 'list' },
+      { label: 'Sự cố', path: '/incidents', icon: 'list' },
+      { label: 'Khắc phục & Phòng ngừa', path: '/capas', icon: 'list' },
+      { label: 'Nhật ký kiểm toán', path: '/audit-trail', icon: 'list' },
     ],
   },
   {
@@ -48,18 +48,18 @@ const navGroups: NavGroup[] = [
     items: [
       { label: 'Lịch bảo trì', path: '/pm/calendar', icon: 'calendar' },
       { label: 'Phiếu bảo trì', path: '/pm/work-orders', icon: 'list' },
-      { label: 'Lịch PM', path: '/pm/schedules', icon: 'calendar' },
-      { label: 'Template Checklist', path: '/pm/templates', icon: 'list' },
-      { label: 'Dashboard PM', path: '/pm/dashboard', icon: 'chart' },
+      { label: 'Kế hoạch bảo trì', path: '/pm/schedules', icon: 'calendar' },
+      { label: 'Mẫu bảng kiểm', path: '/pm/templates', icon: 'list' },
+      { label: 'Tổng quan bảo trì', path: '/pm/dashboard', icon: 'chart' },
     ],
   },
   {
-    title: 'IMM-09 Sửa chữa (CM)',
+    title: 'IMM-09 Sửa chữa',
     items: [
-      { label: 'Dashboard CM', path: '/cm/dashboard', icon: 'chart' },
-      { label: 'Danh sách WO', path: '/cm/work-orders', icon: 'list' },
-      { label: 'Firmware CR', path: '/cm/firmware', icon: 'list' },
-      { label: 'MTTR Report', path: '/cm/mttr', icon: 'chart' },
+      { label: 'Tổng quan sửa chữa', path: '/cm/dashboard', icon: 'chart' },
+      { label: 'Danh sách phiếu', path: '/cm/work-orders', icon: 'list' },
+      { label: 'Cập nhật Firmware', path: '/cm/firmware', icon: 'list' },
+      { label: 'Thời gian sửa TB', path: '/cm/mttr', icon: 'chart' },
     ],
   },
   {
@@ -98,7 +98,7 @@ function navigate(path: string): void {
         </div>
         <div v-if="!collapsed" class="min-w-0 animate-fade-in">
           <p class="font-semibold text-sm text-white truncate leading-none">AssetCore</p>
-          <p class="text-[10px] mt-0.5 truncate" style="color: rgba(255,255,255,0.3)">HTM Platform</p>
+          <p class="text-[10px] mt-0.5 truncate" style="color: rgba(255,255,255,0.3)">Quản lý Thiết bị Y tế</p>
         </div>
       </div>
       <button
