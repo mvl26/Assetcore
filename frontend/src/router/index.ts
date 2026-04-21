@@ -53,7 +53,13 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/UnauthorizedView.vue'),
     meta: { requiresAuth: false, title: 'Không đủ quyền — AssetCore' },
   },
-  { path: '/', redirect: '/dashboard' },
+  { path: '/', redirect: '/immis-hub' },
+  {
+    path: '/immis-hub',
+    name: 'ImmisHub',
+    component: () => import('@/views/ImmisHubView.vue'),
+    meta: { requiresAuth: true, title: 'IMMIS Hub — AssetCore' },
+  },
   {
     path: '/dashboard',
     name: 'Dashboard',

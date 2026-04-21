@@ -20,7 +20,10 @@ interface NavGroup { title: string; items: NavItem[] }
 const navGroups: NavGroup[] = [
   {
     title: '',
-    items: [{ label: 'Trang chủ', path: '/dashboard', icon: 'dashboard' }],
+    items: [
+      { label: 'IMMIS Hub', path: '/immis-hub', icon: 'hub' },
+      { label: 'Trang chủ', path: '/dashboard', icon: 'dashboard' },
+    ],
   },
   {
     title: 'Vòng đời thiết bị',
@@ -226,7 +229,11 @@ function handleItemClick(item: NavItem): void {
 
             <!-- Icon -->
             <span class="shrink-0 w-5 h-5 flex items-center justify-center">
-              <svg v-if="item.icon === 'dashboard'" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" class="w-[18px] h-[18px]">
+              <svg v-if="item.icon === 'hub'" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" class="w-[18px] h-[18px]">
+                <circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="3" />
+                <path stroke-linecap="round" d="M12 3v6M12 15v6M3 12h6M15 12h6"/>
+              </svg>
+              <svg v-else-if="item.icon === 'dashboard'" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" class="w-[18px] h-[18px]">
                 <rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" />
                 <rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" />
               </svg>

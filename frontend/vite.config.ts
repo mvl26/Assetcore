@@ -7,7 +7,7 @@ import type { ClientRequest, IncomingMessage } from 'node:http'
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
   const frappe_base = env.VITE_FRAPPE_URL || 'http://localhost:8000'
-  const site = env.VITE_FRAPPE_SITE || 'miyano'
+  const site = env.VITE_FRAPPE_SITE || 'assetcore'
 
   // Định nghĩa cấu hình Proxy dùng chung
   const commonProxyOptions: ProxyOptions = {
