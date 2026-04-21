@@ -7,11 +7,12 @@ import { useDebounceFn } from '@vueuse/core'
 import { frappeGet } from '@/api/helpers'
 import type { ImmAuditTrail, ChainVerifyResult } from '@/types/imm00'
 import SmartSelect from '@/components/common/SmartSelect.vue'
+import { formatAssetDisplay, translateStatus, getStatusColor, formatDateTime } from '@/utils/formatters'
 
 // ─── State ──────────────────────────────────────────────────────────────────
 const assetFilter = ref('')         // ID tài sản (từ SmartSelect) — optional
 const searchQuery = ref('')         // Free-text search
-const trails = ref<(ImmAuditTrail & { asset?: string })[]>([])
+const trails = ref<(ImmAuditTrail & { asset?: string; asset_name?: string })[]>([])
 const loading = ref(false)
 const page = ref(1)
 const totalCount = ref(0)
@@ -74,11 +75,6 @@ function prevPage() { if (page.value > 1) { page.value--; fetchTrails() } }
 function nextPage() { if (page.value * PAGE_SIZE < totalCount.value) { page.value++; fetchTrails() } }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
-function formatDt(d?: string) {
-  if (!d) return '—'
-  return new Date(d).toLocaleString('vi-VN')
-}
-
 function clearFilters() {
   assetFilter.value = ''
   searchQuery.value = ''
@@ -221,16 +217,43 @@ onMounted(fetchTrails)
         </thead>
         <tbody class="divide-y divide-gray-100">
           <tr v-for="t in trails" :key="t.name" class="hover:bg-gray-50">
-            <td class="px-4 py-3 text-gray-600 whitespace-nowrap">{{ formatDt(t.timestamp ?? t.event_timestamp) }}</td>
-            <td class="px-4 py-3 font-mono text-xs text-slate-500">{{ t.asset || '—' }}</td>
+            <td class="px-4 py-3 text-gray-600 whitespace-nowrap">
+              {{ formatDateTime(t.timestamp ?? t.event_timestamp) }}
+            </td>
+            <!-- Thiết bị: Tên chính - Mã phụ (UX pattern) -->
+            <td class="px-4 py-3">
+              <div v-if="t.asset" class="font-medium text-gray-900 truncate max-w-[240px]">
+                {{ formatAssetDisplay(t.asset_name, t.asset).main }}
+              </div>
+              <div v-if="t.asset && formatAssetDisplay(t.asset_name, t.asset).hasBoth"
+                   class="text-xs text-gray-500 font-mono">
+                {{ formatAssetDisplay(t.asset_name, t.asset).sub }}
+              </div>
+              <span v-if="!t.asset" class="text-gray-400">—</span>
+            </td>
             <td class="px-4 py-3">
               <span :class="['text-xs px-2 py-1 rounded-full font-medium', EVENT_COLORS[t.event_type] || 'bg-gray-100 text-gray-600']">
                 {{ EVENT_LABEL[t.event_type] || t.event_type }}
               </span>
             </td>
-            <td class="px-4 py-3 text-gray-500 text-xs">
-              <span v-if="t.from_status || t.to_status">{{ t.from_status || '—' }} → {{ t.to_status || '—' }}</span>
-              <span v-else>—</span>
+            <!-- Chuyển trạng thái: dịch + badge màu -->
+            <td class="px-4 py-3 text-xs">
+              <div v-if="t.from_status || t.to_status" class="flex items-center gap-1.5">
+                <span v-if="t.from_status"
+                      :class="['inline-block px-1.5 py-0.5 rounded font-medium', getStatusColor(t.from_status)]">
+                  {{ translateStatus(t.from_status) }}
+                </span>
+                <span v-else class="text-gray-400">—</span>
+                <svg class="w-3 h-3 text-gray-400 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M17 8l4 4m0 0l-4 4m4-4H3" />
+                </svg>
+                <span v-if="t.to_status"
+                      :class="['inline-block px-1.5 py-0.5 rounded font-medium', getStatusColor(t.to_status)]">
+                  {{ translateStatus(t.to_status) }}
+                </span>
+                <span v-else class="text-gray-400">—</span>
+              </div>
+              <span v-else class="text-gray-400">—</span>
             </td>
             <td class="px-4 py-3 text-gray-600">{{ t.actor }}</td>
             <td class="px-4 py-3 text-gray-500 max-w-xs truncate" :title="t.change_summary">{{ t.change_summary }}</td>

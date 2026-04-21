@@ -1,10 +1,12 @@
 <script setup lang="ts">
 // Copyright (c) 2026, AssetCore Team
 import { ref, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { listWarehouses, createWarehouse, updateWarehouse, deleteWarehouse } from '@/api/inventory'
 import type { Warehouse } from '@/types/inventory'
 import SmartSelect from '@/components/common/SmartSelect.vue'
 
+const router = useRouter()
 const rows = ref<Warehouse[]>([])
 const loading = ref(false)
 const showForm = ref(false)
@@ -107,7 +109,8 @@ onMounted(load)
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-50">
-            <tr v-for="w in rows" :key="w.name" class="hover:bg-slate-50/70">
+            <tr v-for="w in rows" :key="w.name" class="hover:bg-slate-50/70 cursor-pointer"
+                @click="router.push(`/warehouses/${w.name}`)">
               <td class="px-4 py-3 font-mono text-xs text-slate-600">{{ w.warehouse_code }}</td>
               <td class="px-4 py-3 font-medium text-slate-800">{{ w.warehouse_name }}</td>
               <td class="px-4 py-3 text-xs text-slate-500 hidden md:table-cell">{{ w.department || '—' }}</td>
@@ -120,7 +123,7 @@ onMounted(load)
               </td>
               <td class="px-4 py-3 text-right">
                 <div class="flex justify-end gap-3">
-                  <button class="text-xs text-blue-600 hover:text-blue-800 font-medium" @click="openEdit(w)">Sửa</button>
+                  <button class="text-xs text-blue-600 hover:text-blue-800 font-medium" @click.stop="openEdit(w)">Sửa</button>
                   <button v-if="w.is_active" class="text-xs text-red-500 hover:text-red-700 font-medium" @click.stop="doDelete(w)">Ngừng</button>
                 </div>
               </td>

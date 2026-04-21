@@ -7,6 +7,7 @@ import {
 } from '@/api/imm11'
 import type { CalibrationSchedule } from '@/api/imm11'
 import SmartSelect from '@/components/common/SmartSelect.vue'
+import { formatAssetDisplay, formatDate } from '@/utils/formatters'
 
 const router = useRouter()
 const items = ref<CalibrationSchedule[]>([])
@@ -98,11 +99,19 @@ onMounted(load)
         <tbody class="divide-y divide-slate-100">
           <tr v-for="s in items" :key="s.name" class="hover:bg-slate-50">
             <td class="px-4 py-3 font-mono text-xs text-slate-400">{{ s.name }}</td>
-            <td class="px-4 py-3 font-medium">{{ s.asset }}</td>
+            <td class="px-4 py-3">
+              <div class="font-medium text-slate-900 truncate max-w-[240px]">
+                {{ formatAssetDisplay(s.asset_name, s.asset).main }}
+              </div>
+              <div v-if="formatAssetDisplay(s.asset_name, s.asset).hasBoth"
+                   class="text-xs text-slate-400 font-mono">
+                {{ formatAssetDisplay(s.asset_name, s.asset).sub }}
+              </div>
+            </td>
             <td class="px-4 py-3">{{ s.calibration_type }}</td>
             <td class="px-4 py-3">{{ s.interval_days }} ngày</td>
             <td class="px-4 py-3 text-xs" :class="isOverdue(s.next_due_date) ? 'text-red-600 font-semibold' : ''">
-              {{ s.next_due_date || '—' }}
+              {{ formatDate(s.next_due_date) }}
             </td>
             <td class="px-4 py-3">
               <span class="text-xs font-medium" :class="s.is_active ? 'text-green-600' : 'text-slate-400'">

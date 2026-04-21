@@ -3,6 +3,7 @@ import { onMounted, ref, computed } from 'vue'
 import { useImm08Store } from '@/stores/imm08'
 import { useRouter } from 'vue-router'
 import type { PMCalendarEvent } from '@/api/imm08'
+import { formatAssetDisplay, translateStatus } from '@/utils/formatters'
 
 const store = useImm08Store()
 const router = useRouter()
@@ -219,10 +220,10 @@ function statusBadgeClass(status: string) {
               v-for="event in eventsOnDay(day)"
               :key="event.name"
               :class="['text-xs px-1.5 py-0.5 rounded border cursor-pointer truncate hover:opacity-80 transition-opacity', eventColor(event.status)]"
-              :title="`${event.asset_name} — ${event.status}`"
+              :title="`${formatAssetDisplay(event.asset_name, event.asset_ref).main} — ${translateStatus(event.status)}`"
               @click.stop="openDrawer(event)"
             >
-              {{ event.asset_name || event.name }}
+              {{ formatAssetDisplay(event.asset_name, event.asset_ref).main }}
             </div>
           </div>
         </div>
@@ -266,8 +267,13 @@ function statusBadgeClass(status: string) {
           <!-- Device -->
           <div>
             <p class="text-xs text-gray-400 mb-0.5">Thiết bị</p>
-            <p class="font-medium text-gray-900">{{ selectedEvent.asset_name }}</p>
-            <p class="text-xs text-gray-500">{{ selectedEvent.asset_ref }}</p>
+            <p class="font-medium text-gray-900">
+              {{ formatAssetDisplay(selectedEvent.asset_name, selectedEvent.asset_ref).main }}
+            </p>
+            <p v-if="formatAssetDisplay(selectedEvent.asset_name, selectedEvent.asset_ref).hasBoth"
+               class="text-xs text-gray-500 font-mono">
+              {{ formatAssetDisplay(selectedEvent.asset_name, selectedEvent.asset_ref).sub }}
+            </p>
           </div>
 
           <!-- KTV -->

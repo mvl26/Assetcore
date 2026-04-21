@@ -550,6 +550,19 @@ def list_audit_trail(asset: str = None, q: str = None,
         limit_page_length=page_size,
         order_by=_ORDER_EVENT_TS_DESC,
     )
+    # Batch-enrich với asset_name (tránh N+1; dùng UX pattern "Tên chính — Mã phụ")
+    asset_ids = {r.get("asset") for r in items if r.get("asset")}
+    if asset_ids:
+        name_map = {
+            a["name"]: a["asset_name"]
+            for a in frappe.get_all(
+                _DT_ASSET,
+                filters={"name": ["in", list(asset_ids)]},
+                fields=["name", "asset_name"],
+            )
+        }
+        for r in items:
+            r["asset_name"] = name_map.get(r.get("asset"), "")
     return _ok({"pagination": pag, "items": items})
 
 
@@ -841,6 +854,13 @@ def list_transfers(asset: str = None, status: str = None,
         limit_page_length=page_size,
         order_by="transfer_date desc",
     )
+    asset_ids = {r.get("asset") for r in items if r.get("asset")}
+    if asset_ids:
+        name_map = {a["name"]: a["asset_name"] for a in frappe.get_all(
+            _DT_ASSET, filters={"name": ["in", list(asset_ids)]},
+            fields=["name", "asset_name"])}
+        for r in items:
+            r["asset_name"] = name_map.get(r.get("asset"), "")
     return _ok({"pagination": pag, "items": items})
 
 
@@ -1273,11 +1293,22 @@ def list_pm_schedules(page: int = 1, page_size: int = 20, asset: str = None, sta
     f = {}
     if asset: f["asset_ref"] = asset
     if status: f["status"] = status
-    return _paginated_list(_DT_PM_SCHEDULE, f,
+    res = _paginated_list(_DT_PM_SCHEDULE, f,
         ["name", "asset_ref", "pm_type", "status", "pm_interval_days",
          "checklist_template", "responsible_technician",
          "last_pm_date", "next_due_date"],
         int(page), int(page_size), "next_due_date asc")
+    payload = res.get("message", res) if isinstance(res, dict) else res
+    data = payload.get("data", {}) if isinstance(payload, dict) else {}
+    items = data.get("items") or []
+    asset_ids = {r.get("asset_ref") for r in items if r.get("asset_ref")}
+    if asset_ids:
+        name_map = {a["name"]: a["asset_name"] for a in frappe.get_all(
+            _DT_ASSET, filters={"name": ["in", list(asset_ids)]},
+            fields=["name", "asset_name"])}
+        for r in items:
+            r["asset_name"] = name_map.get(r.get("asset_ref"), "")
+    return res
 
 
 @frappe.whitelist()

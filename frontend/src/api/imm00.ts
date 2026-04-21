@@ -257,6 +257,7 @@ export async function approveTransfer(name: string): Promise<ApiResponse<{ name:
 export interface PmSchedule {
   name: string
   asset_ref: string
+  asset_name?: string
   pm_type?: string
   status?: string
   pm_interval_days?: number

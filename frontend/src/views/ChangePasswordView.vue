@@ -2,7 +2,7 @@
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
-import { changeMyPassword } from '@/api/userProfile'
+import { changeMyPassword } from '@/api/user'
 
 const router = useRouter()
 const auth = useAuthStore()

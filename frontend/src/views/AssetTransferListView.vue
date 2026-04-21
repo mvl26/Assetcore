@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { frappeGet, frappePost } from '@/api/helpers'
 import type { AssetTransfer } from '@/types/imm00'
+import { formatAssetDisplay, translateStatus, getStatusColor, formatDate } from '@/utils/formatters'
 
 const router = useRouter()
 
@@ -38,11 +39,6 @@ async function load() {
 function prevPage() { if (page.value > 1) { page.value--; load() } }
 function nextPage() { if (page.value * PAGE_SIZE < totalCount.value) { page.value++; load() } }
 
-function formatDate(d?: string) {
-  if (!d) return '—'
-  return new Date(d).toLocaleDateString('vi-VN')
-}
-
 async function remove(name: string) {
   if (!confirm(`Xóa chuyển giao ${name}?\n\nThao tác sẽ cancel nếu đã submit.`)) return
   try {
@@ -74,10 +70,11 @@ onMounted(load)
       <table v-else class="w-full text-sm">
         <thead class="bg-gray-50 border-b border-gray-200">
           <tr>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Mã</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Mã phiếu</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Ngày</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Thiết bị</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Loại</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Trạng thái</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Từ</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Đến</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Lý do</th>
@@ -88,16 +85,29 @@ onMounted(load)
           <tr v-for="t in transfers" :key="t.name" class="hover:bg-gray-50 cursor-pointer" @click="router.push(`/asset-transfers/${t.name}`)">
             <td class="px-4 py-3 font-mono text-xs text-gray-500">{{ t.name }}</td>
             <td class="px-4 py-3 text-gray-600 whitespace-nowrap">{{ formatDate(t.transfer_date) }}</td>
-            <td class="px-4 py-3 text-gray-800">{{ t.asset }}</td>
+            <td class="px-4 py-3">
+              <div class="font-medium text-gray-900 truncate max-w-[220px]">
+                {{ formatAssetDisplay(t.asset_name, t.asset).main }}
+              </div>
+              <div v-if="formatAssetDisplay(t.asset_name, t.asset).hasBoth"
+                   class="text-xs text-gray-500 font-mono">
+                {{ formatAssetDisplay(t.asset_name, t.asset).sub }}
+              </div>
+            </td>
             <td class="px-4 py-3">
               <span :class="['text-xs px-2 py-1 rounded-full font-medium', TYPE_COLORS[t.transfer_type] || 'bg-gray-100 text-gray-600']">
                 {{ t.transfer_type }}
               </span>
             </td>
+            <td class="px-4 py-3">
+              <span :class="['inline-block px-2 py-0.5 rounded-full text-xs font-medium', getStatusColor(t.status)]">
+                {{ translateStatus(t.status) }}
+              </span>
+            </td>
             <td class="px-4 py-3 text-gray-500 text-xs">{{ t.from_location || '—' }}</td>
             <td class="px-4 py-3 text-gray-500 text-xs">{{ t.to_location }}</td>
             <td class="px-4 py-3 text-gray-500 max-w-xs truncate">{{ t.reason }}</td>
-            <td class="px-4 py-3 text-right">
+            <td class="px-4 py-3 text-right" @click.stop>
               <button @click="remove(t.name)" class="text-xs text-red-600 hover:text-red-800">Xóa</button>
             </td>
           </tr>

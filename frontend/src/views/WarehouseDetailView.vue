@@ -156,8 +156,7 @@ onMounted(load)
                   <p class="font-medium text-slate-800">{{ s.part_name || s.spare_part }}</p>
                   <p class="text-[11px] text-slate-400 font-mono">{{ s.spare_part }}</p>
                 </td>
-                <td class="py-2.5 text-right font-semibold"
-                    :class="s.is_low_stock ? 'text-red-600' : 'text-slate-800'">
+                <td class="py-2.5 text-right font-semibold text-slate-800">
                   {{ s.qty_on_hand }}
                 </td>
                 <td class="py-2.5 text-right text-slate-500">{{ s.reserved_qty || 0 }}</td>

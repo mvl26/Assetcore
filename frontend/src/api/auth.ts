@@ -9,13 +9,10 @@ export interface RegisterPayload {
   password: string
   phone?: string
   department?: string
-  employee_code?: string
-  job_title?: string
 }
 
 export interface RegisterResult {
   user: string
-  profile: string
   pending_approval: boolean
   message: string
 }
@@ -27,17 +24,12 @@ export interface UserProfileResult {
     user: string
     full_name: string
     email: string
-    employee_code?: string
-    job_title?: string
     phone?: string
-    department?: string
+    ac_department?: string
     department_name?: string
-    location?: string
-    is_active: number
-    approval_status: 'Pending' | 'Approved' | 'Rejected'
-    approved_by?: string
-    approved_at?: string
-    rejection_reason?: string
+    imm_approval_status: 'Pending' | 'Approved' | 'Rejected'
+    designation?: string
+    hr_docname?: string
   } | null
   permissions: {
     is_admin: boolean

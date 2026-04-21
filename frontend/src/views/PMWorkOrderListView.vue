@@ -2,7 +2,7 @@
 import { onMounted, ref, computed, watch } from 'vue'
 import { useImm08Store } from '@/stores/imm08'
 import { useRouter } from 'vue-router'
-import { pmStatusLabel, pmStatusClass } from '@/utils/labels'
+import { formatAssetDisplay, translateStatus, getStatusColor } from '@/utils/formatters'
 
 const store = useImm08Store()
 const router = useRouter()
@@ -121,8 +121,13 @@ const filteredWOs = computed(() => {
               <div class="font-mono text-sm font-semibold text-blue-700">{{ wo.name }}</div>
             </td>
             <td class="table-cell">
-              <div class="font-medium text-slate-900">{{ wo.asset_name || wo.asset_ref }}</div>
-              <div class="text-xs text-slate-400 font-mono mt-0.5">{{ wo.asset_ref }}</div>
+              <div class="font-medium text-slate-900 truncate max-w-[240px]">
+                {{ formatAssetDisplay(wo.asset_name, wo.asset_ref).main }}
+              </div>
+              <div v-if="formatAssetDisplay(wo.asset_name, wo.asset_ref).hasBoth"
+                   class="text-xs text-slate-400 font-mono mt-0.5">
+                {{ formatAssetDisplay(wo.asset_name, wo.asset_ref).sub }}
+              </div>
             </td>
             <td class="table-cell text-slate-600">{{ wo.pm_type || '—' }}</td>
             <td class="table-cell">
@@ -136,8 +141,8 @@ const filteredWOs = computed(() => {
               <div v-if="wo.assigned_to && wo.assigned_to_name" class="text-xs text-slate-400">{{ wo.assigned_to }}</div>
             </td>
             <td class="table-cell">
-              <span :class="['px-2.5 py-1 rounded-full text-xs font-medium', pmStatusClass(wo.status)]">
-                {{ pmStatusLabel(wo.status) }}
+              <span :class="['inline-block px-2.5 py-1 rounded-full text-xs font-medium', getStatusColor(wo.status)]">
+                {{ translateStatus(wo.status) }}
               </span>
             </td>
           </tr>

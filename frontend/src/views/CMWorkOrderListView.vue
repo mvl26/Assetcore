@@ -2,7 +2,8 @@
 import { onMounted, ref, computed, watch } from 'vue'
 import { useImm09Store } from '@/stores/imm09'
 import { useRouter } from 'vue-router'
-import { cmStatusLabel, cmStatusClass, priorityLabel, priorityClass, repairTypeLabel } from '@/utils/labels'
+import { priorityLabel, priorityClass, repairTypeLabel } from '@/utils/labels'
+import { formatAssetDisplay, translateStatus, getStatusColor, formatDateTime } from '@/utils/formatters'
 
 const store = useImm09Store()
 const router = useRouter()
@@ -105,8 +106,14 @@ const filteredWOs = computed(() => {
               <div v-if="wo.is_repeat_failure" class="text-xs text-orange-500 mt-0.5">↺ Tái hỏng</div>
             </td>
             <td class="table-cell">
-              <div class="font-medium text-slate-900">{{ wo.asset_name || wo.asset_ref }}</div>
-              <div class="text-xs text-slate-400 font-mono mt-0.5">{{ wo.asset_ref }}</div>
+              <!-- UX chuẩn: Tên chính — Mã phụ -->
+              <div class="font-medium text-slate-900">
+                {{ formatAssetDisplay(wo.asset_name, wo.asset_ref).main }}
+              </div>
+              <div v-if="formatAssetDisplay(wo.asset_name, wo.asset_ref).hasBoth"
+                   class="text-xs text-slate-400 font-mono mt-0.5">
+                {{ formatAssetDisplay(wo.asset_name, wo.asset_ref).sub }}
+              </div>
             </td>
             <td class="table-cell">
               <div class="text-sm text-slate-700">{{ repairTypeLabel(wo.repair_type) }}</div>
@@ -114,7 +121,7 @@ const filteredWOs = computed(() => {
                 {{ priorityLabel(wo.priority) }}
               </span>
             </td>
-            <td class="table-cell text-sm text-slate-600">{{ wo.open_datetime?.slice(0, 16).replace('T',' ') || '—' }}</td>
+            <td class="table-cell text-sm text-slate-600">{{ formatDateTime(wo.open_datetime) }}</td>
             <td class="table-cell">
               <div class="text-slate-700 text-sm">{{ wo.assigned_to_name || wo.assigned_to || '—' }}</div>
               <div v-if="wo.assigned_to && wo.assigned_to_name" class="text-xs text-slate-400">{{ wo.assigned_to }}</div>
@@ -126,8 +133,9 @@ const filteredWOs = computed(() => {
               <span v-else class="text-slate-400">—</span>
             </td>
             <td class="table-cell">
-              <span :class="['px-2.5 py-1 rounded-full text-xs font-medium', cmStatusClass(wo.status)]">
-                {{ cmStatusLabel(wo.status) }}
+              <!-- Badge trạng thái dùng formatters chung -->
+              <span :class="['inline-block px-2.5 py-1 rounded-full text-xs font-medium', getStatusColor(wo.status)]">
+                {{ translateStatus(wo.status) }}
               </span>
             </td>
           </tr>

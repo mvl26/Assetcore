@@ -182,6 +182,7 @@ export interface ImmSlaPolicy {
 export interface ImmAuditTrail {
   name: string
   asset: string
+  asset_name?: string
   event_type: string
   actor: string
   change_summary: string
@@ -238,8 +239,10 @@ export type TransferType = 'Internal' | 'Loan' | 'External' | 'Return'
 export interface AssetTransfer {
   name: string
   asset: string
+  asset_name?: string
   transfer_date: string
   transfer_type: TransferType
+  status?: string
   from_location?: string
   from_department?: string
   from_custodian?: string
@@ -248,6 +251,9 @@ export interface AssetTransfer {
   to_custodian?: string
   reason: string
   approved_by?: string
+  approval_date?: string
+  received_by?: string
+  received_date?: string
   expected_return_date?: string
   notes?: string
 }

@@ -1,12 +1,8 @@
 # Copyright (c) 2026, AssetCore Team
-"""Repositories cho User + AC User Profile."""
+"""Repository cho Frappe User."""
 
 from .base import BaseRepository
 
 
 class UserRepo(BaseRepository):
     DOCTYPE = "User"
-
-
-class UserProfileRepo(BaseRepository):
-    DOCTYPE = "AC User Profile"

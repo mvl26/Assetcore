@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { getCalibration, updateCalibration, submitCalibration } from '@/api/imm11'
+import { getCalibration, updateCalibration, submitCalibration, sendToLab, receiveCertificate, cancelCalibration } from '@/api/imm11'
 import type { AssetCalibration, CalibrationMeasurement } from '@/api/imm11'
 
 const props = defineProps<{ id: string }>()
@@ -15,6 +15,75 @@ const err = ref('')
 
 const isSubmitted = computed(() => form.value.docstatus === 1)
 const isFailed = computed(() => form.value.overall_result === 'Failed')
+const isExternal = computed(() => form.value.calibration_type === 'External')
+const canSendToLab = computed(() =>
+  isExternal.value && !isSubmitted.value &&
+  (form.value.status === 'Scheduled' || form.value.status === 'In Progress'),
+)
+const canReceiveCert = computed(() =>
+  isExternal.value && !isSubmitted.value && form.value.status === 'Sent to Lab',
+)
+const canCancel = computed(() =>
+  !isSubmitted.value && form.value.status !== 'Cancelled',
+)
+
+const showSendModal = ref(false)
+const showReceiveModal = ref(false)
+const showCancelModal = ref(false)
+const sendData = ref({ sent_date: '', lab_supplier: '', lab_contract_ref: '' })
+const recvData = ref({
+  certificate_file: '', certificate_number: '', certificate_date: '',
+  traceability_reference: '', reference_standard_serial: '',
+})
+const cancelReason = ref('')
+const actionLoading = ref(false)
+
+async function doSendToLab() {
+  actionLoading.value = true; err.value = ''
+  try {
+    await sendToLab(props.id, {
+      sent_date: sendData.value.sent_date || undefined,
+      lab_supplier: sendData.value.lab_supplier || undefined,
+      lab_contract_ref: sendData.value.lab_contract_ref || undefined,
+    })
+    showSendModal.value = false
+    sendData.value = { sent_date: '', lab_supplier: '', lab_contract_ref: '' }
+    await load()
+  } catch (e: unknown) { err.value = (e as Error).message || 'Lỗi khi gửi phòng hiệu chuẩn' }
+  finally { actionLoading.value = false }
+}
+
+async function doReceiveCert() {
+  if (!recvData.value.certificate_file || !recvData.value.certificate_number || !recvData.value.certificate_date) {
+    err.value = 'Bắt buộc: file chứng chỉ, số chứng chỉ, ngày cấp'
+    return
+  }
+  actionLoading.value = true; err.value = ''
+  try {
+    await receiveCertificate(props.id, {
+      certificate_file: recvData.value.certificate_file,
+      certificate_number: recvData.value.certificate_number,
+      certificate_date: recvData.value.certificate_date,
+      traceability_reference: recvData.value.traceability_reference || undefined,
+      reference_standard_serial: recvData.value.reference_standard_serial || undefined,
+    })
+    showReceiveModal.value = false
+    await load()
+  } catch (e: unknown) { err.value = (e as Error).message || 'Lỗi khi nhận chứng chỉ' }
+  finally { actionLoading.value = false }
+}
+
+async function doCancel() {
+  if (!cancelReason.value.trim()) { err.value = 'Bắt buộc nhập lý do hủy'; return }
+  actionLoading.value = true; err.value = ''
+  try {
+    await cancelCalibration(props.id, cancelReason.value)
+    showCancelModal.value = false
+    cancelReason.value = ''
+    await load()
+  } catch (e: unknown) { err.value = (e as Error).message || 'Lỗi khi hủy' }
+  finally { actionLoading.value = false }
+}
 
 const statusColor: Record<string, string> = {
   Scheduled: 'bg-blue-100 text-blue-700',
@@ -256,8 +325,14 @@ onMounted(load)
       </div>
 
       <!-- Actions -->
-      <div class="flex gap-2 justify-end pt-2">
+      <div class="flex gap-2 justify-end pt-2 flex-wrap">
         <button class="btn-ghost text-sm" @click="router.push('/calibration')">Quay lại</button>
+        <button v-if="canCancel" class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg text-sm"
+          @click="showCancelModal = true">Hủy phiếu</button>
+        <button v-if="canSendToLab" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm"
+          @click="showSendModal = true">Gửi phòng hiệu chuẩn</button>
+        <button v-if="canReceiveCert" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm"
+          @click="showReceiveModal = true">Nhận chứng chỉ</button>
         <template v-if="!isSubmitted">
           <button class="btn-ghost text-sm" :disabled="saving" @click="save">
             {{ saving ? 'Đang lưu...' : 'Lưu' }}
@@ -268,5 +343,82 @@ onMounted(load)
         </template>
       </div>
     </template>
+
+    <!-- Send to Lab Modal -->
+    <div v-if="showSendModal" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
+      <div class="bg-white rounded-xl p-6 w-full max-w-md space-y-4 shadow-xl">
+        <h2 class="font-semibold text-gray-800">Gửi phòng hiệu chuẩn</h2>
+        <div>
+          <label for="send-date" class="block text-sm font-medium mb-1">Ngày gửi</label>
+          <input id="send-date" v-model="sendData.sent_date" type="date" class="form-input w-full text-sm" />
+        </div>
+        <div>
+          <label for="send-lab" class="block text-sm font-medium mb-1">Phòng hiệu chuẩn</label>
+          <input id="send-lab" v-model="sendData.lab_supplier" type="text" class="form-input w-full text-sm" placeholder="Quatest, Vilas..." />
+        </div>
+        <div>
+          <label for="send-contract" class="block text-sm font-medium mb-1">Số hợp đồng</label>
+          <input id="send-contract" v-model="sendData.lab_contract_ref" type="text" class="form-input w-full text-sm" />
+        </div>
+        <div class="flex justify-end gap-2">
+          <button class="px-4 py-2 text-sm border rounded-lg" @click="showSendModal = false">Hủy</button>
+          <button :disabled="actionLoading" class="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50" @click="doSendToLab">
+            {{ actionLoading ? 'Đang gửi...' : 'Xác nhận gửi' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Receive Certificate Modal -->
+    <div v-if="showReceiveModal" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
+      <div class="bg-white rounded-xl p-6 w-full max-w-md space-y-4 shadow-xl">
+        <h2 class="font-semibold text-gray-800">Nhận chứng chỉ hiệu chuẩn</h2>
+        <div>
+          <label for="recv-file" class="block text-sm font-medium mb-1">URL file chứng chỉ <span class="text-red-500">*</span></label>
+          <input id="recv-file" v-model="recvData.certificate_file" type="text" class="form-input w-full text-sm" placeholder="/files/cert.pdf" />
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label for="recv-num" class="block text-sm font-medium mb-1">Số chứng chỉ <span class="text-red-500">*</span></label>
+            <input id="recv-num" v-model="recvData.certificate_number" type="text" class="form-input w-full text-sm" />
+          </div>
+          <div>
+            <label for="recv-date" class="block text-sm font-medium mb-1">Ngày cấp <span class="text-red-500">*</span></label>
+            <input id="recv-date" v-model="recvData.certificate_date" type="date" class="form-input w-full text-sm" />
+          </div>
+        </div>
+        <div>
+          <label for="recv-trace" class="block text-sm font-medium mb-1">Traceability ref</label>
+          <input id="recv-trace" v-model="recvData.traceability_reference" type="text" class="form-input w-full text-sm" />
+        </div>
+        <div>
+          <label for="recv-std" class="block text-sm font-medium mb-1">Serial thiết bị chuẩn</label>
+          <input id="recv-std" v-model="recvData.reference_standard_serial" type="text" class="form-input w-full text-sm" />
+        </div>
+        <div class="flex justify-end gap-2">
+          <button class="px-4 py-2 text-sm border rounded-lg" @click="showReceiveModal = false">Hủy</button>
+          <button :disabled="actionLoading" class="px-4 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50" @click="doReceiveCert">
+            {{ actionLoading ? 'Đang xử lý...' : 'Xác nhận' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Cancel Modal -->
+    <div v-if="showCancelModal" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
+      <div class="bg-white rounded-xl p-6 w-full max-w-md space-y-4 shadow-xl">
+        <h2 class="font-semibold text-gray-800">Hủy phiếu hiệu chuẩn</h2>
+        <div>
+          <label for="cal-cancel-reason" class="block text-sm font-medium mb-1">Lý do <span class="text-red-500">*</span></label>
+          <textarea id="cal-cancel-reason" v-model="cancelReason" rows="3" class="form-input w-full text-sm" placeholder="Lý do hủy phiếu..."></textarea>
+        </div>
+        <div class="flex justify-end gap-2">
+          <button class="px-4 py-2 text-sm border rounded-lg" @click="showCancelModal = false">Quay lại</button>
+          <button :disabled="actionLoading || !cancelReason.trim()" class="px-4 py-2 text-sm bg-gray-600 text-white rounded-lg hover:bg-gray-700 disabled:opacity-50" @click="doCancel">
+            {{ actionLoading ? 'Đang hủy...' : 'Xác nhận hủy' }}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>

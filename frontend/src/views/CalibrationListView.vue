@@ -3,6 +3,7 @@ import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { listCalibrations, getCalibrationKpis } from '@/api/imm11'
 import type { AssetCalibration, CalibrationKpis } from '@/api/imm11'
+import { formatAssetDisplay, translateStatus, getStatusColor, formatDate } from '@/utils/formatters'
 
 const router = useRouter()
 const items = ref<AssetCalibration[]>([])
@@ -10,17 +11,6 @@ const pagination = ref({ page: 1, page_size: 20, total: 0, total_pages: 1 })
 const kpis = ref<CalibrationKpis['kpis'] | null>(null)
 const loading = ref(false)
 const filterStatus = ref('')
-
-const statusColor: Record<string, string> = {
-  Scheduled: 'bg-blue-100 text-blue-700',
-  'Sent to Lab': 'bg-indigo-100 text-indigo-700',
-  'In Progress': 'bg-yellow-100 text-yellow-700',
-  'Certificate Received': 'bg-purple-100 text-purple-700',
-  Passed: 'bg-green-100 text-green-700',
-  Failed: 'bg-red-100 text-red-700',
-  'Conditionally Passed': 'bg-orange-100 text-orange-700',
-  Cancelled: 'bg-gray-100 text-gray-500',
-}
 
 const activeFilters = computed(() => {
   const f: Record<string, unknown> = {}
@@ -125,23 +115,31 @@ onMounted(() => { load(); loadKpis() })
         <tbody class="divide-y divide-slate-100">
           <tr v-for="c in items" :key="c.name" class="hover:bg-slate-50 cursor-pointer" @click="router.push(`/calibration/${c.name}`)">
             <td class="px-4 py-3 font-mono text-xs text-slate-400">{{ c.name }}</td>
-            <td class="px-4 py-3 font-medium text-slate-800">{{ c.asset }}</td>
+            <td class="px-4 py-3">
+              <div class="font-medium text-slate-900 truncate max-w-[240px]">
+                {{ formatAssetDisplay(c.asset_name, c.asset).main }}
+              </div>
+              <div v-if="formatAssetDisplay(c.asset_name, c.asset).hasBoth"
+                   class="text-xs text-slate-400 font-mono">
+                {{ formatAssetDisplay(c.asset_name, c.asset).sub }}
+              </div>
+            </td>
             <td class="px-4 py-3 text-slate-600">{{ c.calibration_type }}</td>
             <td class="px-4 py-3">
-              <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium" :class="statusColor[c.status] || 'bg-gray-100'">
-                {{ c.status }}
+              <span :class="['inline-block px-2 py-0.5 rounded-full text-xs font-medium', getStatusColor(c.status)]">
+                {{ translateStatus(c.status) }}
               </span>
             </td>
-            <td class="px-4 py-3 text-slate-600">{{ c.scheduled_date || '—' }}</td>
+            <td class="px-4 py-3 text-slate-600">{{ formatDate(c.scheduled_date) }}</td>
             <td class="px-4 py-3">
-              <span v-if="c.overall_result" class="text-xs font-semibold"
-                :class="c.overall_result === 'Passed' ? 'text-green-700' : c.overall_result === 'Failed' ? 'text-red-600' : 'text-orange-600'">
-                {{ c.overall_result }}
+              <span v-if="c.overall_result"
+                    :class="['inline-block px-2 py-0.5 rounded-full text-xs font-semibold', getStatusColor(c.overall_result)]">
+                {{ translateStatus(c.overall_result) }}
               </span>
               <span v-else class="text-slate-300">—</span>
             </td>
             <td class="px-4 py-3 text-xs" :class="isOverdue(c.next_calibration_date) ? 'text-red-600 font-semibold' : 'text-slate-500'">
-              {{ c.next_calibration_date || '—' }}
+              {{ formatDate(c.next_calibration_date) }}
             </td>
             <td class="px-4 py-3 text-right">
               <button class="text-blue-600 text-xs font-medium" @click.stop="router.push(`/calibration/${c.name}`)">Chi tiết</button>

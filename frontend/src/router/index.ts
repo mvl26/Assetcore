@@ -372,6 +372,13 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true, title: 'Chi tiết Sự cố' },
   },
   {
+    path: '/rca/:id',
+    name: 'RCADetail',
+    component: () => import('@/views/RCADetailView.vue'),
+    props: true,
+    meta: { requiresAuth: true, title: 'Phân tích nguyên nhân (RCA)' },
+  },
+  {
     path: '/capas',
     name: 'CAPAList',
     component: () => import('@/views/CAPAListView.vue'),

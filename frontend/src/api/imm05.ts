@@ -19,6 +19,7 @@ export interface Pagination {
 export interface AssetDocumentItem {
   name: string
   asset_ref: string
+  asset_name?: string
   doc_category: string
   doc_type_detail: string
   doc_number: string

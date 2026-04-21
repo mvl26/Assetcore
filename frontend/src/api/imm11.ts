@@ -6,6 +6,7 @@ import { frappeGet, frappePost } from './helpers'
 export interface CalibrationSchedule {
   name: string
   asset: string
+  asset_name?: string
   device_model: string
   calibration_type: 'External' | 'In-House'
   interval_days: number
@@ -30,6 +31,7 @@ export interface CalibrationMeasurement {
 export interface AssetCalibration {
   name: string
   asset: string
+  asset_name?: string
   device_model: string
   calibration_schedule: string | null
   calibration_type: 'External' | 'In-House'
@@ -137,5 +139,47 @@ export async function getCalibrationKpis(year?: number, month?: number) {
 export async function getAssetCalibrationHistory(asset: string, limit = 10) {
   return frappeGet<{ asset: string; history: AssetCalibration[] }>(
     `${BASE}.get_asset_calibration_history`, { asset, limit },
+  )
+}
+
+export async function sendToLab(name: string, payload: {
+  sent_date?: string; lab_supplier?: string; lab_contract_ref?: string
+} = {}) {
+  return frappePost<{ name: string; status: string; sent_date: string }>(
+    `${BASE}.send_to_lab`, { name, ...payload } as Record<string, unknown>,
+  )
+}
+
+export async function receiveCertificate(name: string, payload: {
+  certificate_file: string
+  certificate_number: string
+  certificate_date: string
+  traceability_reference?: string
+  reference_standard_serial?: string
+}) {
+  return frappePost<{ name: string; status: string; certificate_number: string }>(
+    `${BASE}.receive_certificate`, { name, ...payload } as Record<string, unknown>,
+  )
+}
+
+export async function cancelCalibration(name: string, reason: string) {
+  return frappePost<{ name: string; status: string }>(
+    `${BASE}.cancel_calibration`, { name, reason },
+  )
+}
+
+export interface DueCalibrationItem {
+  name: string
+  asset_name: string
+  device_model: string
+  location: string | null
+  next_calibration_date: string | null
+  calibration_status: string | null
+  days_left: number | null
+}
+
+export async function getDueCalibrations(days = 30, limit = 50) {
+  return frappeGet<{ items: DueCalibrationItem[]; threshold_days: number }>(
+    `${BASE}.get_due_calibrations`, { days, limit },
   )
 }

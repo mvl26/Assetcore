@@ -8,7 +8,15 @@
     </td>
 
     <!-- Thiết bị -->
-    <td>{{ doc.asset_ref }}</td>
+    <td>
+      <div class="font-medium text-gray-900 truncate max-w-[220px]">
+        {{ formatAssetDisplay(doc.asset_name, doc.asset_ref).main }}
+      </div>
+      <div v-if="formatAssetDisplay(doc.asset_name, doc.asset_ref).hasBoth"
+           class="text-xs text-gray-500 font-mono">
+        {{ formatAssetDisplay(doc.asset_name, doc.asset_ref).sub }}
+      </div>
+    </td>
 
     <!-- Nhóm -->
     <td>
@@ -92,6 +100,7 @@
 import { computed } from 'vue'
 import type { AssetDocumentItem } from '@/api/imm05'
 import { stateLabel, formatDate } from '@/utils/docUtils'
+import { formatAssetDisplay } from '@/utils/formatters'
 
 const props = defineProps<{ doc: AssetDocumentItem }>()
 

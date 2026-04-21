@@ -1,351 +1,154 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+// HTM Command Center — Dashboard tổng quan AssetCore.
+// Gom 4 khối (KPI / Donut chart / Active repairs / Upcoming maintenance)
+// từ một API duy nhất: assetcore.api.dashboard.get_dashboard_data
+import { onMounted, computed } from 'vue'
+import { storeToRefs } from 'pinia'
 import { useRouter } from 'vue-router'
-import { frappeGet } from '@/api/helpers'
-
-interface Overview {
-  generated_at: string
-  assets: { total: number; active: number; under_repair: number; calibrating: number; out_of_service: number; decommissioned: number; byt_expiring_30d: number; byt_expired: number }
-  commissioning: { pending: number; released: number; hold: number; open_nc: number }
-  documents: { total: number; expiring_30d: number; expired: number; requests_open: number }
-  pm: { open: number; overdue: number; due_next_7d: number; completed_30d: number }
-  cm: { open: number; sla_breached: number; repeat_failure: number; completed_30d: number }
-  calibration: { due_30d: number; overdue: number }
-  incidents: { open: number; critical_open: number }
-  capa: { open: number; overdue: number }
-  lifecycle_breakdown: Array<{ state: string; count: number }>
-  recent_incidents: Array<{ name: string; asset: string; asset_name?: string; severity: string; status: string; description: string; reported_at: string }>
-  recent_pm: Array<{ name: string; asset_ref: string; asset_name?: string; pm_type?: string; status: string; due_date?: string; is_late?: number }>
-}
+import { useDashboardStore } from '@/stores/useDashboardStore'
+import StatusDonutChart from '@/components/dashboard/StatusDonutChart.vue'
+import ActiveRepairsList from '@/components/dashboard/ActiveRepairsList.vue'
+import UpcomingMaintenanceList from '@/components/dashboard/UpcomingMaintenanceList.vue'
 
 const router = useRouter()
-const data = ref<Overview | null>(null)
-const loading = ref(false)
-const error = ref('')
+const store  = useDashboardStore()
+const { data, loading, error } = storeToRefs(store)
 
-const LIFECYCLE_LABEL: Record<string, string> = {
-  'Commissioned': 'Đã tiếp nhận',
-  'Active': 'Đang hoạt động',
-  'Under Repair': 'Đang sửa chữa',
-  'Calibrating': 'Đang hiệu chuẩn',
-  'Out of Service': 'Ngừng hoạt động',
-  'Decommissioned': 'Đã thanh lý',
+onMounted(() => store.load())
+
+const kpi = computed(() => data.value?.kpi_metrics ?? null)
+const chart = computed(() => data.value?.asset_status_chart ?? { labels: [], series: [], colors: [] })
+const repairs = computed(() => data.value?.active_repairs ?? [])
+const upcoming = computed(() => data.value?.upcoming_maintenance ?? [])
+
+function fmt(n?: number): string {
+  return (n ?? 0).toLocaleString('vi-VN')
 }
 
-const LIFECYCLE_COLOR: Record<string, string> = {
-  'Commissioned': '#2563eb',
-  'Active': '#059669',
-  'Under Repair': '#d97706',
-  'Calibrating': '#7c3aed',
-  'Out of Service': '#dc2626',
-  'Decommissioned': '#64748b',
+function refresh() { store.load({ force: true }) }
+
+interface KpiCard {
+  label: string
+  value: number
+  accent: string
+  bg: string
+  icon: string
+  to: string
 }
 
-const SEVERITY_LABEL: Record<string, string> = {
-  'Low': 'Thấp', 'Medium': 'Trung bình', 'High': 'Cao', 'Critical': 'Nghiêm trọng',
-}
-
-const SEVERITY_COLOR: Record<string, string> = {
-  'Low': 'bg-green-100 text-green-700',
-  'Medium': 'bg-yellow-100 text-yellow-700',
-  'High': 'bg-orange-100 text-orange-700',
-  'Critical': 'bg-red-100 text-red-700',
-}
-
-async function fetchData() {
-  loading.value = true
-  error.value = ''
-  try {
-    const res = await frappeGet<Overview>('/api/method/assetcore.api.dashboard.get_overview')
-    data.value = res
-  } catch (e: unknown) {
-    error.value = (e as Error).message || 'Không thể tải dữ liệu tổng quan'
-  } finally {
-    loading.value = false
-  }
-}
-
-const maxLifecycle = computed(() => Math.max(1, ...(data.value?.lifecycle_breakdown.map(s => s.count) ?? [1])))
-
-function fmtDate(d?: string) {
-  if (!d) return '—'
-  return new Date(d).toLocaleDateString('vi-VN')
-}
-
-function fmtDateTime(d?: string) {
-  if (!d) return '—'
-  return new Date(d).toLocaleString('vi-VN')
-}
-
-onMounted(fetchData)
+const kpiCards = computed<KpiCard[]>(() => {
+  const m = kpi.value
+  if (!m) return []
+  return [
+    {
+      label: 'Tổng thiết bị',
+      value: m.total_assets,
+      accent: 'text-blue-700',
+      bg: 'bg-blue-50',
+      icon: 'M4 7h16M4 12h16M4 17h16',
+      to: '/assets',
+    },
+    {
+      label: 'Đang sửa chữa',
+      value: m.under_repair,
+      accent: 'text-red-700',
+      bg: 'bg-red-50',
+      icon: 'M11.42 15.17L17.25 21A2.652 2.652 0 0021 17.25l-5.877-5.877M11.42 15.17l2.496-3.03c.317-.384.74-.626 1.208-.766M11.42 15.17l-4.655 5.653a2.548 2.548 0 11-3.586-3.586l6.837-5.63m5.108-.233c.55-.164 1.163-.188 1.743-.14a4.5 4.5 0 004.486-6.336l-3.276 3.277a3.004 3.004 0 01-2.25-2.25l3.276-3.276a4.5 4.5 0 00-6.336 4.486c.091 1.076-.071 2.264-.904 2.95l-.102.085m-1.745 1.437L5.909 7.5H4.5L2.25 3.75l1.5-1.5L7.5 4.5v1.409l4.26 4.26m-1.745 1.437l1.745-1.437m6.615 8.206L15.75 15.75M4.867 19.125h.008v.008h-.008v-.008z',
+      to: '/cm/work-orders',
+    },
+    {
+      label: 'Đang bảo trì',
+      value: m.under_maintenance,
+      accent: 'text-amber-700',
+      bg: 'bg-amber-50',
+      icon: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z',
+      to: '/pm/work-orders',
+    },
+    {
+      label: 'Phiếu chờ duyệt',
+      value: m.pending_commissioning,
+      accent: 'text-purple-700',
+      bg: 'bg-purple-50',
+      icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z',
+      to: '/commissioning',
+    },
+  ]
+})
 </script>
 
 <template>
   <div class="page-container animate-fade-in">
-    <!-- Header -->
-    <div class="flex items-start justify-between mb-7">
+
+    <!-- Page header -->
+    <div class="flex items-start justify-between mb-6">
       <div>
-        <p class="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-1">Tổng quan hệ thống</p>
-        <h1 class="font-display text-2xl font-bold text-slate-900 leading-tight">Trung tâm điều hành AssetCore</h1>
-        <p class="text-sm text-slate-500 mt-1">Theo dõi toàn bộ vòng đời thiết bị y tế — Tiếp nhận, Bảo trì, Sửa chữa, Hiệu chuẩn</p>
+        <p class="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-1">AssetCore · HTM</p>
+        <h1 class="text-2xl font-bold text-slate-900">Tổng quan quản trị thiết bị</h1>
+        <p class="text-sm text-slate-500 mt-1" v-if="data">
+          Cập nhật lần cuối: <span class="font-mono">{{ data.generated_at.slice(0, 19) }}</span>
+        </p>
       </div>
-      <button class="btn-secondary" :disabled="loading" @click="fetchData">
-        <svg class="w-4 h-4" :class="loading ? 'animate-spin-slow' : ''" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+      <button class="btn-secondary flex items-center gap-2" :disabled="loading" @click="refresh">
+        <svg class="w-4 h-4" :class="{ 'animate-spin': loading }" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round"
+                d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
         </svg>
-        Làm mới
+        {{ loading ? 'Đang tải...' : 'Làm mới' }}
       </button>
     </div>
 
-    <!-- Loading -->
-    <div v-if="loading && !data" class="card p-10 text-center text-slate-400">Đang tải dữ liệu...</div>
+    <div v-if="error" class="alert-error mb-6">{{ error }}</div>
 
-    <!-- Error -->
-    <div v-else-if="error && !data" class="alert-error">{{ error }}</div>
-
-    <template v-else-if="data">
-      <!-- Critical alerts row -->
-      <div v-if="data.incidents.critical_open > 0 || data.cm.sla_breached > 0 || data.pm.overdue > 0 || data.assets.byt_expired > 0" class="grid grid-cols-1 md:grid-cols-4 gap-3 mb-6">
-        <button
-          v-if="data.incidents.critical_open > 0"
-          class="flex items-center gap-3 p-3 rounded-xl border border-red-200 bg-red-50 hover:bg-red-100 transition-colors text-left"
-          @click="router.push('/incidents')"
-        >
-          <div class="w-9 h-9 rounded-lg bg-red-100 flex items-center justify-center shrink-0">🚨</div>
-          <div>
-            <p class="text-xs text-red-600 font-medium">Sự cố nghiêm trọng</p>
-            <p class="text-lg font-bold text-red-700">{{ data.incidents.critical_open }}</p>
-          </div>
-        </button>
-        <button
-          v-if="data.cm.sla_breached > 0"
-          class="flex items-center gap-3 p-3 rounded-xl border border-orange-200 bg-orange-50 hover:bg-orange-100 transition-colors text-left"
-          @click="router.push('/cm/work-orders')"
-        >
-          <div class="w-9 h-9 rounded-lg bg-orange-100 flex items-center justify-center shrink-0">⚠️</div>
-          <div>
-            <p class="text-xs text-orange-600 font-medium">Phiếu vi phạm SLA</p>
-            <p class="text-lg font-bold text-orange-700">{{ data.cm.sla_breached }}</p>
-          </div>
-        </button>
-        <button
-          v-if="data.pm.overdue > 0"
-          class="flex items-center gap-3 p-3 rounded-xl border border-amber-200 bg-amber-50 hover:bg-amber-100 transition-colors text-left"
-          @click="router.push('/pm/work-orders')"
-        >
-          <div class="w-9 h-9 rounded-lg bg-amber-100 flex items-center justify-center shrink-0">⏰</div>
-          <div>
-            <p class="text-xs text-amber-600 font-medium">Bảo trì quá hạn</p>
-            <p class="text-lg font-bold text-amber-700">{{ data.pm.overdue }}</p>
-          </div>
-        </button>
-        <button
-          v-if="data.assets.byt_expired > 0"
-          class="flex items-center gap-3 p-3 rounded-xl border border-red-200 bg-red-50 hover:bg-red-100 transition-colors text-left"
-          @click="router.push('/assets')"
-        >
-          <div class="w-9 h-9 rounded-lg bg-red-100 flex items-center justify-center shrink-0">📋</div>
-          <div>
-            <p class="text-xs text-red-600 font-medium">Hết hạn đăng ký BYT</p>
-            <p class="text-lg font-bold text-red-700">{{ data.assets.byt_expired }}</p>
-          </div>
-        </button>
-      </div>
-
-      <!-- Main KPI grid — 4 modules -->
-      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <!-- Thiết bị -->
-        <button class="card p-5 text-left hover:shadow-md transition-shadow animate-slide-up" @click="router.push('/assets')">
-          <div class="flex items-center justify-between mb-3">
-            <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Thiết bị</p>
-            <span class="text-xs text-slate-400">IMM-00</span>
-          </div>
-          <p class="font-display text-3xl font-bold text-slate-900 mb-2">{{ data.assets.total }}</p>
-          <div class="space-y-1 text-xs">
-            <div class="flex justify-between"><span class="text-slate-500">Đang hoạt động</span><span class="font-semibold text-green-600">{{ data.assets.active }}</span></div>
-            <div class="flex justify-between"><span class="text-slate-500">Đang sửa chữa</span><span class="font-semibold text-amber-600">{{ data.assets.under_repair }}</span></div>
-            <div class="flex justify-between"><span class="text-slate-500">Ngừng hoạt động</span><span class="font-semibold text-red-600">{{ data.assets.out_of_service }}</span></div>
-          </div>
-        </button>
-
-        <!-- Tiếp nhận -->
-        <button class="card p-5 text-left hover:shadow-md transition-shadow animate-slide-up" style="animation-delay: 60ms" @click="router.push('/commissioning')">
-          <div class="flex items-center justify-between mb-3">
-            <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Tiếp nhận</p>
-            <span class="text-xs text-slate-400">IMM-04</span>
-          </div>
-          <p class="font-display text-3xl font-bold text-slate-900 mb-2">{{ data.commissioning.pending }}</p>
-          <div class="space-y-1 text-xs">
-            <div class="flex justify-between"><span class="text-slate-500">Đã phát hành</span><span class="font-semibold text-green-600">{{ data.commissioning.released }}</span></div>
-            <div class="flex justify-between"><span class="text-slate-500">Tạm giữ lâm sàng</span><span class="font-semibold text-red-600">{{ data.commissioning.hold }}</span></div>
-            <div class="flex justify-between"><span class="text-slate-500">NC chưa xử lý</span><span class="font-semibold text-amber-600">{{ data.commissioning.open_nc }}</span></div>
-          </div>
-        </button>
-
-        <!-- Bảo trì PM -->
-        <button class="card p-5 text-left hover:shadow-md transition-shadow animate-slide-up" style="animation-delay: 120ms" @click="router.push('/pm/dashboard')">
-          <div class="flex items-center justify-between mb-3">
-            <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Bảo trì định kỳ</p>
-            <span class="text-xs text-slate-400">IMM-08</span>
-          </div>
-          <p class="font-display text-3xl font-bold text-slate-900 mb-2">{{ data.pm.open }}</p>
-          <div class="space-y-1 text-xs">
-            <div class="flex justify-between"><span class="text-slate-500">Đến hạn 7 ngày</span><span class="font-semibold text-amber-600">{{ data.pm.due_next_7d }}</span></div>
-            <div class="flex justify-between"><span class="text-slate-500">Quá hạn</span><span class="font-semibold text-red-600">{{ data.pm.overdue }}</span></div>
-            <div class="flex justify-between"><span class="text-slate-500">Hoàn thành 30d</span><span class="font-semibold text-green-600">{{ data.pm.completed_30d }}</span></div>
-          </div>
-        </button>
-
-        <!-- Sửa chữa CM -->
-        <button class="card p-5 text-left hover:shadow-md transition-shadow animate-slide-up" style="animation-delay: 180ms" @click="router.push('/cm/dashboard')">
-          <div class="flex items-center justify-between mb-3">
-            <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Sửa chữa</p>
-            <span class="text-xs text-slate-400">IMM-09</span>
-          </div>
-          <p class="font-display text-3xl font-bold text-slate-900 mb-2">{{ data.cm.open }}</p>
-          <div class="space-y-1 text-xs">
-            <div class="flex justify-between"><span class="text-slate-500">Vi phạm SLA</span><span class="font-semibold text-red-600">{{ data.cm.sla_breached }}</span></div>
-            <div class="flex justify-between"><span class="text-slate-500">Tái hỏng</span><span class="font-semibold text-orange-600">{{ data.cm.repeat_failure }}</span></div>
-            <div class="flex justify-between"><span class="text-slate-500">Hoàn thành 30d</span><span class="font-semibold text-green-600">{{ data.cm.completed_30d }}</span></div>
-          </div>
-        </button>
-      </div>
-
-      <!-- Secondary KPIs — 4 modules -->
-      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <button class="card p-4 text-left hover:shadow-md transition-shadow" @click="router.push('/documents')">
-          <div class="flex items-center gap-3">
-            <div class="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center text-xl">📁</div>
-            <div class="flex-1 min-w-0">
-              <p class="text-xs text-slate-500">Hồ sơ tài liệu (IMM-05)</p>
-              <p class="font-display text-xl font-bold text-slate-900">{{ data.documents.total }}</p>
-              <p class="text-xs text-amber-600 mt-0.5" v-if="data.documents.expired">
-                {{ data.documents.expired }} hết hạn
-              </p>
-            </div>
-          </div>
-        </button>
-
-        <button class="card p-4 text-left hover:shadow-md transition-shadow" @click="router.push('/calibration')">
-          <div class="flex items-center gap-3">
-            <div class="w-10 h-10 rounded-lg bg-purple-50 flex items-center justify-center text-xl">📏</div>
-            <div class="flex-1 min-w-0">
-              <p class="text-xs text-slate-500">Hiệu chuẩn (IMM-11)</p>
-              <p class="font-display text-xl font-bold text-slate-900">{{ data.calibration.due_30d + data.calibration.overdue }}</p>
-              <p class="text-xs text-red-600 mt-0.5" v-if="data.calibration.overdue">
-                {{ data.calibration.overdue }} quá hạn
-              </p>
-            </div>
-          </div>
-        </button>
-
-        <button class="card p-4 text-left hover:shadow-md transition-shadow" @click="router.push('/incidents')">
-          <div class="flex items-center gap-3">
-            <div class="w-10 h-10 rounded-lg bg-red-50 flex items-center justify-center text-xl">⚠️</div>
-            <div class="flex-1 min-w-0">
-              <p class="text-xs text-slate-500">Sự cố đang mở</p>
-              <p class="font-display text-xl font-bold text-slate-900">{{ data.incidents.open }}</p>
-              <p class="text-xs text-red-600 mt-0.5" v-if="data.incidents.critical_open">
-                {{ data.incidents.critical_open }} nghiêm trọng
-              </p>
-            </div>
-          </div>
-        </button>
-
-        <button class="card p-4 text-left hover:shadow-md transition-shadow" @click="router.push('/capas')">
-          <div class="flex items-center gap-3">
-            <div class="w-10 h-10 rounded-lg bg-orange-50 flex items-center justify-center text-xl">📝</div>
-            <div class="flex-1 min-w-0">
-              <p class="text-xs text-slate-500">CAPA đang mở</p>
-              <p class="font-display text-xl font-bold text-slate-900">{{ data.capa.open }}</p>
-              <p class="text-xs text-red-600 mt-0.5" v-if="data.capa.overdue">
-                {{ data.capa.overdue }} quá hạn
-              </p>
-            </div>
-          </div>
-        </button>
-      </div>
-
-      <!-- Charts + Recent lists -->
-      <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        <!-- Lifecycle breakdown chart -->
-        <div class="card p-5">
-          <h3 class="text-sm font-semibold text-slate-800 mb-4">Phân bổ vòng đời thiết bị</h3>
-          <div class="space-y-3">
-            <div v-for="s in data.lifecycle_breakdown" :key="s.state" class="flex items-center gap-3">
-              <div class="w-32 shrink-0 text-xs text-slate-600">{{ LIFECYCLE_LABEL[s.state] || s.state }}</div>
-              <div class="flex-1 h-2 rounded-full overflow-hidden bg-slate-100">
-                <div
-                  class="h-full rounded-full transition-all"
-                  :style="{ width: `${(s.count / maxLifecycle) * 100}%`, background: LIFECYCLE_COLOR[s.state] || '#64748b' }"
-                />
-              </div>
-              <span class="text-xs font-semibold text-slate-700 w-8 text-right tabular-nums">{{ s.count }}</span>
-            </div>
+    <!-- ═════════ DÒNG 1: KPI CARDS ═════════ -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      <button v-for="(c, i) in kpiCards" :key="i"
+              class="card p-5 flex items-start gap-4 text-left hover:shadow-md hover:-translate-y-0.5 transition-all"
+              @click="router.push(c.to)">
+        <div class="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" :class="c.bg">
+          <svg class="w-5 h-5" :class="c.accent" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" :d="c.icon" />
+          </svg>
+        </div>
+        <div class="flex-1 min-w-0">
+          <p class="text-xs font-medium text-slate-500 truncate">{{ c.label }}</p>
+          <p class="text-2xl font-bold tabular-nums mt-0.5" :class="c.accent">{{ fmt(c.value) }}</p>
+        </div>
+      </button>
+      <!-- Skeleton -->
+      <template v-if="!kpi && loading">
+        <div v-for="i in 4" :key="i" class="card p-5">
+          <div class="animate-pulse space-y-3">
+            <div class="h-4 w-24 bg-slate-200 rounded" />
+            <div class="h-6 w-16 bg-slate-200 rounded" />
           </div>
         </div>
+      </template>
+    </div>
 
-        <!-- Recent incidents -->
-        <div class="card p-0 overflow-hidden">
-          <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100">
-            <h3 class="text-sm font-semibold text-slate-800">Sự cố gần đây</h3>
-            <button class="text-xs text-blue-600 hover:underline" @click="router.push('/incidents')">Xem tất cả →</button>
-          </div>
-          <ul v-if="data.recent_incidents.length" class="divide-y divide-slate-100">
-            <li
-              v-for="ir in data.recent_incidents"
-              :key="ir.name"
-              class="px-5 py-3 hover:bg-slate-50 cursor-pointer transition-colors"
-              @click="router.push(`/incidents/${ir.name}`)"
-            >
-              <div class="flex items-start justify-between gap-2 mb-1">
-                <span class="text-sm font-medium text-slate-800 truncate flex-1">
-                  {{ ir.description?.replace(/<[^>]+>/g, '').slice(0, 60) || '—' }}
-                </span>
-                <span :class="['px-2 py-0.5 rounded text-[10px] font-medium shrink-0', SEVERITY_COLOR[ir.severity] || 'bg-gray-100 text-gray-600']">
-                  {{ SEVERITY_LABEL[ir.severity] || ir.severity }}
-                </span>
-              </div>
-              <p class="text-xs text-slate-500 truncate">
-                {{ ir.asset_name || ir.asset || '—' }} · {{ fmtDateTime(ir.reported_at) }}
-              </p>
-            </li>
-          </ul>
-          <div v-else class="px-5 py-10 text-center text-slate-400 text-sm">Không có sự cố gần đây</div>
+    <!-- ═════════ DÒNG 2: DONUT + ACTIVE REPAIRS ═════════ -->
+    <div class="grid grid-cols-1 lg:grid-cols-5 gap-4 mb-6">
+      <!-- Donut chart — 40% -->
+      <div class="lg:col-span-2 card p-5">
+        <h3 class="text-sm font-semibold text-slate-800 mb-5">
+          Tổng quan Trạng thái Thiết bị
+        </h3>
+        <div v-if="loading && !data" class="animate-pulse flex items-center justify-center h-48">
+          <div class="w-36 h-36 rounded-full bg-slate-100" />
         </div>
-
-        <!-- Upcoming PM -->
-        <div class="card p-0 overflow-hidden">
-          <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100">
-            <h3 class="text-sm font-semibold text-slate-800">Bảo trì sắp đến hạn</h3>
-            <button class="text-xs text-blue-600 hover:underline" @click="router.push('/pm/work-orders')">Xem tất cả →</button>
-          </div>
-          <ul v-if="data.recent_pm.length" class="divide-y divide-slate-100">
-            <li
-              v-for="wo in data.recent_pm"
-              :key="wo.name"
-              class="px-5 py-3 hover:bg-slate-50 cursor-pointer transition-colors"
-              @click="router.push(`/pm/work-orders/${wo.name}`)"
-            >
-              <div class="flex items-center justify-between gap-2">
-                <div class="flex-1 min-w-0">
-                  <p class="text-sm font-medium text-slate-800 truncate">{{ wo.asset_name || wo.asset_ref }}</p>
-                  <p class="text-xs text-slate-400 truncate">{{ wo.name }} · {{ wo.pm_type || 'PM' }}</p>
-                </div>
-                <div class="text-right shrink-0">
-                  <p :class="wo.is_late ? 'text-xs font-semibold text-red-600' : 'text-xs text-slate-600'">
-                    {{ fmtDate(wo.due_date) }}
-                  </p>
-                  <p v-if="wo.is_late" class="text-[10px] text-red-500">Quá hạn</p>
-                </div>
-              </div>
-            </li>
-          </ul>
-          <div v-else class="px-5 py-10 text-center text-slate-400 text-sm">Không có phiếu bảo trì sắp đến hạn</div>
-        </div>
+        <StatusDonutChart v-else
+                         :labels="chart.labels"
+                         :series="chart.series"
+                         :colors="chart.colors" />
       </div>
 
-      <p class="text-xs text-slate-400 mt-5 text-right">Cập nhật: {{ fmtDateTime(data.generated_at) }}</p>
-    </template>
+      <!-- Active repairs — 60% -->
+      <div class="lg:col-span-3">
+        <ActiveRepairsList :repairs="repairs" />
+      </div>
+    </div>
+
+    <!-- ═════════ DÒNG 3: UPCOMING MAINTENANCE ═════════ -->
+    <UpcomingMaintenanceList :items="upcoming" />
+
   </div>
 </template>

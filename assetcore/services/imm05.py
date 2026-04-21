@@ -149,6 +149,16 @@ def list_documents(filters: dict, *, page: int = 1, page_size: int = 20) -> dict
         filters=f, fields=_LIST_FIELDS,
         page=page, page_size=page_size,
     )
+    asset_ids = {r.get("asset_ref") for r in rows if r.get("asset_ref")}
+    if asset_ids:
+        arows, _ = AssetRepo.list(
+            filters={"name": ("in", list(asset_ids))},
+            fields=["name", "asset_name"],
+            page_size=len(asset_ids),
+        )
+        amap = {a["name"]: a.get("asset_name") for a in arows}
+        for r in rows:
+            r["asset_name"] = amap.get(r.get("asset_ref"), "")
     return {"items": rows, "pagination": pg}
 
 

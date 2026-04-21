@@ -19,7 +19,8 @@ import { useMasterDataStore, type MasterItem } from '@/stores/useMasterDataStore
 type DocType =
   | 'AC Asset' | 'AC Department' | 'AC Location' | 'AC Supplier'
   | 'AC Asset Category' | 'IMM Device Model' | 'IMM Calibration Schedule'
-  | 'Purchase Order' | 'User'
+  | 'Purchase Order' | 'User' | 'AC Warehouse'
+  | 'AC Spare Part Category' | 'AC Vendor'
 
 const props = defineProps<{
   modelValue: string | undefined | null
