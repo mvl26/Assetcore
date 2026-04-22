@@ -353,7 +353,13 @@ const routes: RouteRecordRaw[] = [
 
   // ─── 8. Incident & CAPA & Audit ────────────────────────────────────────────
   {
-    path: '/incidents',
+    path: '/incidents/dashboard',
+    name: 'IncidentDashboard',
+    component: () => import('@/views/IMM12DashboardView.vue'),
+    meta: { requiresAuth: true, title: 'Tổng quan Sự cố — IMM-12' },
+  },
+  {
+    path: '/incidents/list',
     name: 'IncidentList',
     component: () => import('@/views/IncidentListView.vue'),
     meta: { requiresAuth: true, title: 'Báo cáo Sự cố' },
@@ -371,6 +377,7 @@ const routes: RouteRecordRaw[] = [
     props: true,
     meta: { requiresAuth: true, title: 'Chi tiết Sự cố' },
   },
+  { path: '/incidents', redirect: '/incidents/dashboard' },
   {
     path: '/rca/:id',
     name: 'RCADetail',

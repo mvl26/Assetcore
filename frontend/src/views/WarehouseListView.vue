@@ -113,7 +113,7 @@ onMounted(load)
                 @click="router.push(`/warehouses/${w.name}`)">
               <td class="px-4 py-3 font-mono text-xs text-slate-600">{{ w.warehouse_code }}</td>
               <td class="px-4 py-3 font-medium text-slate-800">{{ w.warehouse_name }}</td>
-              <td class="px-4 py-3 text-xs text-slate-500 hidden md:table-cell">{{ w.department || '—' }}</td>
+              <td class="px-4 py-3 text-xs text-slate-500 hidden md:table-cell">{{ w.department_name || w.department || '—' }}</td>
               <td class="px-4 py-3 text-xs text-slate-500 hidden lg:table-cell">{{ w.manager || '—' }}</td>
               <td class="px-4 py-3 text-right text-sm">{{ w.stock_count || 0 }}</td>
               <td class="px-4 py-3 text-right text-sm font-medium text-emerald-700">{{ vnd(w.total_value) }}</td>

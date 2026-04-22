@@ -102,7 +102,7 @@ async function doCreateRca() {
 
 async function remove() {
   if (!confirm(`Xóa Incident "${name.value}"?`)) return
-  try { await deleteIncident(name.value); router.push('/incidents') }
+  try { await deleteIncident(name.value); router.push('/incidents/list') }
   catch (e: unknown) { err.value = (e as Error).message || 'Không thể xóa' }
 }
 
@@ -138,6 +138,7 @@ const STATUS_COLOR: Record<string, string> = {
   'Under Investigation': 'bg-yellow-100 text-yellow-800',
   'Resolved': 'bg-purple-100 text-purple-700',
   'Closed': 'bg-green-100 text-green-700',
+  'Cancelled': 'bg-gray-100 text-gray-500',
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -145,6 +146,7 @@ const STATUS_LABEL: Record<string, string> = {
   'Under Investigation': 'Đang điều tra',
   'Resolved': 'Đã giải quyết',
   'Closed': 'Đã đóng',
+  'Cancelled': 'Đã hủy',
 }
 
 onMounted(load)
@@ -155,7 +157,7 @@ onMounted(load)
     <!-- Header -->
     <div class="flex items-start justify-between flex-wrap gap-3">
       <div>
-        <button class="text-sm text-slate-500 hover:text-slate-700 mb-1" @click="router.push('/incidents')">← Danh sách Incident</button>
+        <button class="text-sm text-slate-500 hover:text-slate-700 mb-1" @click="router.push('/incidents/list')">← Danh sách Incident</button>
         <h1 class="text-xl font-semibold text-gray-800">{{ name }}</h1>
         <div class="flex items-center gap-2 mt-1 flex-wrap">
           <span :class="['px-2 py-0.5 rounded text-xs font-medium', sevColor(form.severity)]">{{ form.severity }}</span>

@@ -104,7 +104,10 @@ onMounted(load)
         <tbody class="divide-y divide-gray-100">
           <tr v-for="f in items" :key="f.name" class="hover:bg-gray-50">
             <td class="px-4 py-3 font-mono text-xs">{{ f.name }}</td>
-            <td class="px-4 py-3">{{ f.asset_ref }}</td>
+            <td class="px-4 py-3">
+              <div class="font-medium text-slate-800">{{ f.asset_name || f.asset_ref }}</div>
+              <div v-if="f.asset_name" class="text-xs text-slate-400 font-mono mt-0.5">{{ f.asset_ref }}</div>
+            </td>
             <td class="px-4 py-3 font-mono text-xs">{{ f.version_before || '—' }}</td>
             <td class="px-4 py-3 font-mono text-xs">{{ f.version_after || '—' }}</td>
             <td class="px-4 py-3">

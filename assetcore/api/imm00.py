@@ -1391,10 +1391,12 @@ def list_firmware_crs(page: int = 1, page_size: int = 20, status: str = None, as
     f = {}
     if status: f["status"] = status
     if asset: f["asset_ref"] = asset
-    return _paginated_list(_DT_FIRMWARE_CR, f,
+    result = _paginated_list(_DT_FIRMWARE_CR, f,
         ["name", "asset_ref", "version_before", "version_after", "status",
          "approved_by", "approved_datetime", "applied_datetime"],
         int(page), int(page_size))
+    _enrich(result["message"]["items"], "asset_ref", _DT_ASSET, "asset_name", "asset_name")
+    return result
 
 
 @frappe.whitelist()
@@ -1436,10 +1438,12 @@ def list_document_requests(page: int = 1, page_size: int = 20, status: str = Non
     f = {}
     if status: f["status"] = status
     if asset: f["asset_ref"] = asset
-    return _paginated_list(_DT_DOC_REQUEST, f,
+    result = _paginated_list(_DT_DOC_REQUEST, f,
         ["name", "asset_ref", "doc_type_required", "doc_category", "status",
          "priority", "assigned_to", "due_date", "fulfilled_by"],
         int(page), int(page_size), "due_date asc")
+    _enrich(result["message"]["items"], "asset_ref", _DT_ASSET, "asset_name", "asset_name")
+    return result
 
 
 @frappe.whitelist()

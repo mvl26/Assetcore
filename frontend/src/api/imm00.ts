@@ -340,6 +340,7 @@ export async function deletePmTemplate(name: string): Promise<ApiResponse<{ name
 export interface FirmwareCR {
   name: string
   asset_ref: string
+  asset_name?: string
   asset_repair_wo?: string
   version_before?: string
   version_after?: string
@@ -377,6 +378,7 @@ export async function deleteFirmwareCr(name: string): Promise<ApiResponse<{ name
 export interface DocumentRequest {
   name: string
   asset_ref: string
+  asset_name?: string
   doc_type_required: string
   doc_category?: string
   status?: string

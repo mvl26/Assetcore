@@ -54,7 +54,7 @@ async function submit() {
       immediate_action: form.value.immediate_action,
     })
     const r = res as unknown as { name?: string }
-    if (r?.name) router.push('/incidents')
+    if (r?.name) router.push('/incidents/dashboard')
     else error.value = 'Lỗi khi tạo Incident Report'
   } catch (e: unknown) {
     error.value = (e as Error).message || 'Lỗi khi tạo Incident Report'

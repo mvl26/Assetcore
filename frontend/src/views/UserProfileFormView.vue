@@ -176,7 +176,7 @@ async function load() {
       phone: d.phone || '',
       ac_department: d.ac_department || '',
     }
-    editRoles.value = (d.imm_roles ?? []).map(r => ({ role: r }))
+    editRoles.value = (d.imm_roles ?? []).map((r: any) => ({ role: typeof r === 'object' ? r.role : r }));
   } catch (e: unknown) {
     error.value = (e as Error).message || 'Không tải được hồ sơ'
   } finally {

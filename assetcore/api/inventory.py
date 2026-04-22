@@ -63,6 +63,24 @@ def list_warehouses(page: int = 1, page_size: int = 30, active_only: int = 1) ->
         e = enrich_map.get(r["name"], {})
         r["stock_count"] = int(e.get("stock_count") or 0)
         r["total_value"]  = float(e.get("total_value") or 0)
+
+    dept_codes = {r["department"] for r in rows if r.get("department")}
+    loc_codes  = {r["location"]   for r in rows if r.get("location")}
+    dept_map = (
+        {d.name: d.department_name for d in frappe.get_all(
+            "AC Department", filters={"name": ["in", list(dept_codes)]},
+            fields=["name", "department_name"])}
+        if dept_codes else {}
+    )
+    loc_map = (
+        {l.name: l.location_name for l in frappe.get_all(
+            "AC Location", filters={"name": ["in", list(loc_codes)]},
+            fields=["name", "location_name"])}
+        if loc_codes else {}
+    )
+    for r in rows:
+        r["department_name"] = dept_map.get(r.get("department") or "", "") or r.get("department") or ""
+        r["location_name"]   = loc_map.get(r.get("location") or "", "")   or r.get("location")   or ""
     return _ok({"items": rows, "pagination": {"page": page, "page_size": page_size, "total": total}})
 
 

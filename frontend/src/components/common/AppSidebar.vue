@@ -90,7 +90,14 @@ const navGroups: NavGroup[] = [
   {
     title: 'Chất lượng & Tuân thủ',
     items: [
-      { label: 'Sự cố', path: '/incidents', icon: 'alert' },
+      {
+        label: 'Sự cố & RCA', path: '/incidents/dashboard', icon: 'alert', badge: '12',
+        children: [
+          { label: 'Tổng quan', path: '/incidents/dashboard', icon: 'chart' },
+          { label: 'Danh sách sự cố', path: '/incidents/list', icon: 'list' },
+          { label: 'Báo cáo sự cố', path: '/incidents/new', icon: 'plus' },
+        ],
+      },
       { label: 'Khắc phục & Phòng ngừa', path: '/capas', icon: 'shield' },
       { label: 'Nhật ký kiểm toán', path: '/audit-trail', icon: 'lock' },
     ],
@@ -114,7 +121,7 @@ const navGroups: NavGroup[] = [
 
 const EXACT_MATCH_PATHS = new Set([
   '/commissioning', '/documents', '/assets', '/suppliers', '/device-models',
-  '/incidents', '/capas', '/asset-transfers', '/service-contracts',
+  '/incidents/dashboard', '/incidents/list', '/capas', '/asset-transfers', '/service-contracts',
   '/pm/work-orders', '/cm/work-orders', '/calibration',
 ])
 

@@ -279,6 +279,59 @@ _OPEN_STATUSES = (
 )
 
 
+def _build_asset_map(asset_refs: set) -> dict:
+    """Trả map asset_ref → {asset_name, department_name, location_name}."""
+    assets = frappe.get_all(
+        "AC Asset",
+        filters={"name": ["in", list(asset_refs)]},
+        fields=["name", "asset_name", "department", "location"],
+    )
+    dept_codes = {a.get("department") for a in assets if a.get("department")}
+    loc_codes  = {a.get("location")   for a in assets if a.get("location")}
+
+    dept_map = (
+        {d.name: d.department_name for d in frappe.get_all(
+            "AC Department", filters={"name": ["in", list(dept_codes)]},
+            fields=["name", "department_name"])}
+        if dept_codes else {}
+    )
+    loc_map = (
+        {l.name: l.location_name for l in frappe.get_all(
+            "AC Location", filters={"name": ["in", list(loc_codes)]},
+            fields=["name", "location_name"])}
+        if loc_codes else {}
+    )
+    return {
+        a.name: {
+            "asset_name":      a.get("asset_name") or a.name,
+            "department_name": dept_map.get(a.get("department") or "", "") or a.get("department") or "",
+            "location_name":   loc_map.get(a.get("location") or "", "")   or a.get("location")   or "",
+        }
+        for a in assets
+    }
+
+
+def _enrich_rows(rows: list) -> None:
+    """Gắn asset_name/department_name/location_name và assigned_to_name vào mỗi row."""
+    asset_refs = {r.get("asset_ref") for r in rows if r.get("asset_ref")}
+    if asset_refs:
+        asset_map = _build_asset_map(asset_refs)
+        for r in rows:
+            info = asset_map.get(r.get("asset_ref") or "", {})
+            r["asset_name"]      = info.get("asset_name")      or r.get("asset_name") or r.get("asset_ref") or ""
+            r["department_name"] = info.get("department_name") or ""
+            r["location_name"]   = info.get("location_name")   or ""
+
+    user_ids = {r.get("assigned_to") for r in rows if r.get("assigned_to")}
+    if user_ids:
+        users = frappe.get_all(
+            "User", filters={"name": ["in", list(user_ids)]},
+            fields=["name", "full_name"])
+        user_map = {u.name: u.full_name for u in users}
+        for r in rows:
+            r["assigned_to_name"] = user_map.get(r.get("assigned_to"), r.get("assigned_to") or "")
+
+
 def list_work_orders(filters: dict, *, page: int = 1, page_size: int = 20) -> dict:
     rows, pg = RepairRepo.list(
         filters=_normalize_filters(filters),
@@ -289,14 +342,7 @@ def list_work_orders(filters: dict, *, page: int = 1, page_size: int = 20) -> di
         order_by="open_datetime desc",
         page=page, page_size=page_size,
     )
-    user_ids = {r.get("assigned_to") for r in rows if r.get("assigned_to")}
-    if user_ids:
-        users = frappe.get_all(
-            "User", filters={"name": ["in", list(user_ids)]},
-            fields=["name", "full_name"])
-        user_map = {u.name: u.full_name for u in users}
-        for r in rows:
-            r["assigned_to_name"] = user_map.get(r.get("assigned_to"), r.get("assigned_to") or "")
+    _enrich_rows(rows)
     return {"data": rows, "pagination": pg}
 
 
@@ -305,12 +351,23 @@ def get_work_order(name: str) -> dict:
     if not doc:
         raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy WO: {name}")
     data = doc.as_dict()
-    data["asset_info"] = AssetRepo.get_value(
+    asset_info = AssetRepo.get_value(
         doc.asset_ref,
         ["asset_name", "asset_category", "lifecycle_status", "risk_classification",
-         "manufacturer_sn"],
+         "manufacturer_sn", "department", "location"],
         as_dict=True,
     ) or {}
+    data["asset_info"] = asset_info
+    # Flatten tên hiển thị lên top-level cho FE dùng trực tiếp
+    data["asset_name"] = asset_info.get("asset_name") or doc.asset_ref
+    dept_id = asset_info.get("department")
+    loc_id  = asset_info.get("location")
+    data["department_name"] = (
+        frappe.db.get_value("AC Department", dept_id, "department_name") or dept_id or ""
+    ) if dept_id else ""
+    data["location_name"] = (
+        frappe.db.get_value("AC Location", loc_id, "location_name") or loc_id or ""
+    ) if loc_id else ""
     return data
 
 

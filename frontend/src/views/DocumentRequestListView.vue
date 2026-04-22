@@ -99,7 +99,10 @@ onMounted(load)
         <tbody class="divide-y divide-gray-100">
           <tr v-for="d in items" :key="d.name" class="hover:bg-gray-50">
             <td class="px-4 py-3 font-mono text-xs">{{ d.name }}</td>
-            <td class="px-4 py-3">{{ d.asset_ref }}</td>
+            <td class="px-4 py-3">
+              <div class="font-medium text-slate-800">{{ d.asset_name || d.asset_ref }}</div>
+              <div v-if="d.asset_name" class="text-xs text-slate-400 font-mono mt-0.5">{{ d.asset_ref }}</div>
+            </td>
             <td class="px-4 py-3 font-medium">{{ d.doc_type_required }}</td>
             <td class="px-4 py-3 text-xs">{{ d.doc_category }}</td>
             <td class="px-4 py-3 text-xs" :class="prioColor(d.priority)">{{ d.priority }}</td>

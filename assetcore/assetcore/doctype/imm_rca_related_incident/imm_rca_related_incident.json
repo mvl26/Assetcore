@@ -1,0 +1,29 @@
+{
+ "actions": [],
+ "autoname": "autoincrement",
+ "creation": "2026-04-21 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "istable": 1,
+ "field_order": [
+  "incident_report",
+  "col_break",
+  "reported_at",
+  "severity"
+ ],
+ "fields": [
+  {"fieldname": "incident_report", "fieldtype": "Link", "label": "Incident Report", "options": "Incident Report", "reqd": 1, "in_list_view": 1},
+  {"fieldname": "col_break", "fieldtype": "Column Break"},
+  {"fieldname": "reported_at", "fieldtype": "Datetime", "label": "Reported At", "read_only": 1, "fetch_from": "incident_report.reported_at", "in_list_view": 1},
+  {"fieldname": "severity", "fieldtype": "Data", "label": "Severity", "read_only": 1, "fetch_from": "incident_report.severity", "in_list_view": 1}
+ ],
+ "links": [],
+ "modified": "2026-04-21 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "AssetCore",
+ "name": "IMM RCA Related Incident",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC"
+}

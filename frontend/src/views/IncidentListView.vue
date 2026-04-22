@@ -2,13 +2,12 @@
 // Copyright (c) 2026, AssetCore Team — IMM-12 Incident List
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { useIncidentStore } from '@/stores/imm00'
-import type { IncidentSeverity } from '@/types/imm00'
+import { useImm12Store } from '@/stores/useImm12Store'
 
 const router = useRouter()
-const store = useIncidentStore()
+const store = useImm12Store()
 
-const severityFilter = ref<IncidentSeverity | ''>('')
+const severityFilter = ref('')
 const statusFilter = ref('')
 
 const SEVERITIES = [
@@ -25,6 +24,7 @@ const STATUSES = [
   { value: 'Under Investigation', label: 'Đang điều tra' },
   { value: 'Resolved', label: 'Đã giải quyết' },
   { value: 'Closed', label: 'Đã đóng' },
+  { value: 'Cancelled', label: 'Đã hủy' },
 ]
 
 const SEV_COLOR: Record<string, string> = {
@@ -39,6 +39,7 @@ const STATUS_COLOR: Record<string, string> = {
   'Under Investigation': 'bg-yellow-100 text-yellow-800',
   Resolved: 'bg-purple-100 text-purple-700',
   Closed: 'bg-green-100 text-green-700',
+  Cancelled: 'bg-gray-100 text-gray-500',
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -46,6 +47,7 @@ const STATUS_LABEL: Record<string, string> = {
   'Under Investigation': 'Đang điều tra',
   Resolved: 'Đã giải quyết',
   Closed: 'Đã đóng',
+  Cancelled: 'Đã hủy',
 }
 
 function formatDateTime(d?: string) {

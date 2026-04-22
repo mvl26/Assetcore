@@ -9,6 +9,8 @@ export interface RegisterPayload {
   password: string
   phone?: string
   department?: string
+  employee_code?: string
+  job_title?: string
 }
 
 export interface RegisterResult {

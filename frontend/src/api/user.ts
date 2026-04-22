@@ -21,7 +21,7 @@ export interface IMMUser {
   imm_rejection_reason?: string
   ac_department?: string
   department_name?: string
-  imm_roles?: string[]
+  imm_roles?: Array<{ role: string }>
   // HR / Employee fields (optional — chỉ có khi User được liên kết Employee)
   hr_docname?: string      // Employee.name (docname), VD: "HR-EMP-00001"
   hr_full_name?: string    // Employee.employee_name
@@ -79,9 +79,7 @@ export const listUsers = (params: {
 export const getUserInfo = (user: string) =>
   frappeGet<IMMUser>(`${BASE}.get_user_info`, { user })
 
-export const updateUserInfo = (user: string, data: Partial<IMMUser> & {
-  imm_roles?: Array<{ role: string }>
-}) =>
+export const updateUserInfo = (user: string, data: Partial<IMMUser>) =>
   frappePost<{ user: string }>(`${BASE}.update_user_info`, {
     user,
     ...data,

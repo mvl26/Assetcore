@@ -206,7 +206,7 @@ def handle_calibration_pass(cal_doc) -> None:
 
 
 def handle_calibration_fail(cal_doc) -> None:
-    """on_submit Fail: transition → Out of Service + CAPA + lookback."""
+    """on_submit Fail: transition → Out of Service + CAPA + lookback + Incident."""
     AssetRepo.set_values(cal_doc.asset, {"calibration_status": CalibrationStatus.FAILED})
 
     failed_params = _failed_params(cal_doc)
@@ -232,6 +232,21 @@ def handle_calibration_fail(cal_doc) -> None:
         root_doctype=CalibrationRepo.DOCTYPE, root_record=cal_doc.name,
         reason=f"Calibration failed — {cal_doc.name}; CAPA: {capa_name}; lookback {len(lookback)} assets",
     )
+
+    # IMM-12 cross-module: auto-report incident for failed calibration
+    try:
+        from assetcore.services.imm12 import report_incident as _report_incident
+        _report_incident(
+            asset=cal_doc.asset,
+            incident_type="Malfunction",
+            severity="High",
+            description=f"Thiết bị không đạt hiệu chuẩn — {cal_doc.name}. Thông số lỗi: {failed_params}",
+            fault_code="CAL_FAIL",
+            linked_repair_wo=cal_doc.name,
+            reported_by=frappe.session.user,
+        )
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "IMM-11 → IMM-12 incident on cal_fail")
 
 
 def perform_lookback_assessment(device_model: str, exclude_asset: str) -> list[str]:

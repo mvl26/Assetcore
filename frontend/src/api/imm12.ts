@@ -11,7 +11,7 @@ export interface IncidentDetail {
   asset_name?: string
   incident_type: string
   severity: 'Low' | 'Medium' | 'High' | 'Critical'
-  status: 'Open' | 'Under Investigation' | 'Resolved' | 'Closed'
+  status: 'Open' | 'Under Investigation' | 'Resolved' | 'Closed' | 'Cancelled'
   description: string
   immediate_action?: string
   resolution_notes?: string
@@ -40,15 +40,19 @@ export interface RCADetail {
   name: string
   incident_report: string
   asset?: string
-  status: 'RCA Required' | 'RCA In Progress' | 'Completed'
+  status: 'RCA Required' | 'RCA In Progress' | 'Completed' | 'Cancelled'
   rca_method?: string
+  trigger_type?: string
   assigned_to?: string
+  due_date?: string
+  incident_count?: number
   root_cause?: string
   corrective_action_summary?: string
   preventive_action_summary?: string
   contributing_factors?: string
   rca_notes?: string
   linked_capa?: string
+  completed_by?: string
   completed_date?: string
   incident_severity?: string
   five_why_steps?: Array<{ why_number: number; why_question: string; why_answer: string }>
@@ -58,8 +62,8 @@ export interface ChronicFailure {
   asset: string
   asset_name?: string
   fault_code: string
-  incident_count: number
-  first_reported?: string
+  count: number
+  incident_count?: number
   last_reported?: string
 }
 
@@ -173,10 +177,26 @@ export function getChronicFailures() {
   return frappeGet<{ items: ChronicFailure[] }>(`${BASE}.get_chronic_failures`)
 }
 
+export interface DashboardStats {
+  total: number
+  open: number
+  investigating: number
+  resolved: number
+  closed: number
+  cancelled: number
+  critical: number
+  high: number
+  rca_pending: number
+  chronic: number
+}
+
+export interface DashboardData {
+  stats: DashboardStats
+  active_incidents: IncidentDetail[]
+  open_rcas: RCADetail[]
+  chronic_failures: ChronicFailure[]
+}
+
 export function getDashboard() {
-  return frappeGet<{
-    total: number; open: number; investigating: number; resolved: number; closed: number
-    critical: number; high: number; rca_pending: number; chronic: number
-    recent: IncidentDetail[]; chronic_list: ChronicFailure[]
-  }>(`${BASE}.get_dashboard`)
+  return frappeGet<DashboardData>(`${BASE}.get_dashboard`)
 }

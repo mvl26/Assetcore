@@ -3,7 +3,7 @@ import { onMounted, ref, computed, watch } from 'vue'
 import { useImm09Store } from '@/stores/imm09'
 import { useRouter } from 'vue-router'
 import { priorityLabel, priorityClass, repairTypeLabel } from '@/utils/labels'
-import { formatAssetDisplay, translateStatus, getStatusColor, formatDateTime } from '@/utils/formatters'
+import { translateStatus, getStatusColor, formatDateTime } from '@/utils/formatters'
 
 const store = useImm09Store()
 const router = useRouter()
@@ -106,13 +106,10 @@ const filteredWOs = computed(() => {
               <div v-if="wo.is_repeat_failure" class="text-xs text-orange-500 mt-0.5">↺ Tái hỏng</div>
             </td>
             <td class="table-cell">
-              <!-- UX chuẩn: Tên chính — Mã phụ -->
-              <div class="font-medium text-slate-900">
-                {{ formatAssetDisplay(wo.asset_name, wo.asset_ref).main }}
-              </div>
-              <div v-if="formatAssetDisplay(wo.asset_name, wo.asset_ref).hasBoth"
-                   class="text-xs text-slate-400 font-mono mt-0.5">
-                {{ formatAssetDisplay(wo.asset_name, wo.asset_ref).sub }}
+              <div class="font-medium text-slate-900">{{ wo.asset_name || wo.asset_ref }}</div>
+              <div class="text-xs text-slate-400 font-mono mt-0.5">{{ wo.asset_ref }}</div>
+              <div v-if="wo.department_name || wo.location_name" class="text-xs text-slate-500 mt-0.5">
+                {{ [wo.department_name, wo.location_name].filter(Boolean).join(' · ') }}
               </div>
             </td>
             <td class="table-cell">

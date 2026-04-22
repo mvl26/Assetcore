@@ -105,10 +105,10 @@ def _get_hr_data(user_name: str) -> dict:
         return {}
 
 
-def _get_imm_roles(user_name: str) -> list[str]:
-    """Trả danh sách tên IMM role hiện tại của user từ Has Role child table."""
+def _get_imm_roles(user_name: str) -> list[dict]:
+    """Trả danh sách IMM role hiện tại — format Has Role child table: [{"role": "..."}]."""
     return [
-        r.role
+        {"role": r.role}
         for r in frappe.get_doc("User", user_name).roles
         if r.role in _IMM_ROLES
     ]
