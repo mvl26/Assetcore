@@ -237,7 +237,10 @@ async function handleReject(): Promise<void> {
         <div class="flex items-start justify-between gap-4">
           <div class="min-w-0">
             <h1 class="text-xl font-bold text-gray-900 truncate">{{ doc.name }}</h1>
-            <p class="text-gray-500 text-sm mt-1">{{ doc.asset_ref }}</p>
+            <p class="text-gray-500 text-sm mt-1">
+              {{ doc.asset_name || doc.asset_ref }}
+              <span v-if="doc.asset_name" class="text-xs text-gray-400 font-mono ml-2">{{ doc.asset_ref }}</span>
+            </p>
           </div>
           <div class="flex items-center gap-2 shrink-0">
             <span
@@ -538,7 +541,7 @@ async function handleReject(): Promise<void> {
           <p class="text-sm text-gray-500 mb-4">
             Bạn sẽ được chuyển sang form tạo tài liệu mới với thông tin thiết bị và loại tài liệu được điền sẵn.
           </p>
-          <p class="text-sm text-gray-700 mb-1"><span class="font-medium">Thiết bị:</span> {{ doc.asset_ref }}</p>
+          <p class="text-sm text-gray-700 mb-1"><span class="font-medium">Thiết bị:</span> {{ doc.asset_name || doc.asset_ref }}</p>
           <p class="text-sm text-gray-700 mb-4"><span class="font-medium">Loại tài liệu:</span> {{ doc.doc_type_detail }}</p>
           <div class="flex justify-end gap-3">
             <button

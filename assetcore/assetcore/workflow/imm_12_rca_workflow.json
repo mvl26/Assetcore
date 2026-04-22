@@ -1,0 +1,65 @@
+{
+  "creation": "2026-04-22 00:00:00.000000",
+  "document_type": "IMM RCA Record",
+  "doctype": "Workflow",
+  "is_active": 1,
+  "modified": "2026-04-22 00:00:00.000000",
+  "modified_by": "Administrator",
+  "name": "IMM-12 RCA Workflow",
+  "owner": "Administrator",
+  "send_email_alert": 0,
+  "workflow_name": "IMM-12 RCA Workflow",
+  "workflow_state_field": "workflow_state",
+  "states": [
+    {
+      "allow_edit": "Biomed Engineer",
+      "doc_status": "0",
+      "state": "RCA Required",
+      "type": "Warning"
+    },
+    {
+      "allow_edit": "Biomed Engineer",
+      "doc_status": "0",
+      "state": "RCA In Progress",
+      "type": "Success"
+    },
+    {
+      "allow_edit": "System Manager",
+      "doc_status": "1",
+      "state": "Completed",
+      "type": "Success"
+    },
+    {
+      "allow_edit": "System Manager",
+      "doc_status": "2",
+      "state": "Cancelled",
+      "type": "Danger"
+    }
+  ],
+  "transitions": [
+    {
+      "action": "Bắt đầu phân tích RCA",
+      "allowed": "Biomed Engineer",
+      "next_state": "RCA In Progress",
+      "state": "RCA Required"
+    },
+    {
+      "action": "Hủy RCA",
+      "allowed": "System Manager",
+      "next_state": "Cancelled",
+      "state": "RCA Required"
+    },
+    {
+      "action": "Hoàn thành RCA",
+      "allowed": "Biomed Engineer",
+      "next_state": "Completed",
+      "state": "RCA In Progress"
+    },
+    {
+      "action": "Hủy RCA",
+      "allowed": "System Manager",
+      "next_state": "Cancelled",
+      "state": "RCA In Progress"
+    }
+  ]
+}

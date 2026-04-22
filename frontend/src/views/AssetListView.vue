@@ -15,6 +15,7 @@ const filters = ref<AssetListParams>({
   department: '',
   location: '',
   asset_category: '',
+  gmdn_status: '',
   search: '',
   page: 1,
   page_size: 20,
@@ -54,6 +55,7 @@ const cleanParams = computed<AssetListParams>(() => {
   if (filters.value.department) p.department = filters.value.department
   if (filters.value.location) p.location = filters.value.location
   if (filters.value.asset_category) p.asset_category = filters.value.asset_category
+  if (filters.value.gmdn_status) p.gmdn_status = filters.value.gmdn_status
   if (filters.value.search?.trim()) p.search = filters.value.search.trim()
   return p
 })
@@ -64,7 +66,7 @@ function applyFilters() {
 }
 
 function resetFilters() {
-  filters.value = { lifecycle_status: '', department: '', location: '', asset_category: '', search: '', page: 1, page_size: 20 }
+  filters.value = { lifecycle_status: '', department: '', location: '', asset_category: '', gmdn_status: '', search: '', page: 1, page_size: 20 }
   store.fetchList({})
 }
 
@@ -109,7 +111,7 @@ onMounted(async () => {
 
     <!-- Filters -->
     <div class="card mb-5 p-4">
-      <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+      <div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-3">
         <select v-model="filters.lifecycle_status" class="form-select text-sm">
           <option v-for="s in LIFECYCLE_STATUSES" :key="s.value" :value="s.value">{{ s.label }}</option>
         </select>
@@ -124,6 +126,11 @@ onMounted(async () => {
         <select v-model="filters.location" class="form-select text-sm">
           <option value="">Tất cả vị trí</option>
           <option v-for="l in refData.locations" :key="l.name" :value="l.name">{{ l.location_name }}</option>
+        </select>
+        <select v-model="filters.gmdn_status" class="form-select text-sm" @change="applyFilters">
+          <option value="">Trạng thái GMDN</option>
+          <option value="In Use">Đang sử dụng</option>
+          <option value="Not Use">Không sử dụng</option>
         </select>
       </div>
       <div class="flex gap-2">
@@ -152,6 +159,7 @@ onMounted(async () => {
             <th class="text-left px-4 py-3 font-semibold text-slate-600">Tên / Mã</th>
             <th class="text-left px-4 py-3 font-semibold text-slate-600">Danh mục</th>
             <th class="text-left px-4 py-3 font-semibold text-slate-600">Trạng thái</th>
+            <th class="text-left px-4 py-3 font-semibold text-slate-600">GMDN</th>
             <th class="text-left px-4 py-3 font-semibold text-slate-600">Khoa/Phòng</th>
             <th class="text-left px-4 py-3 font-semibold text-slate-600">Bảo trì tiếp theo</th>
             <th class="text-left px-4 py-3 font-semibold text-slate-600">BYT hết hạn</th>
@@ -175,6 +183,12 @@ onMounted(async () => {
             <td class="px-4 py-3">
               <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium" :class="statusColor[asset.lifecycle_status] || 'bg-gray-100 text-gray-600'">
                 {{ lifecycleLabel[asset.lifecycle_status] || asset.lifecycle_status }}
+              </span>
+            </td>
+            <td class="px-4 py-3">
+              <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium"
+                    :class="(asset.gmdn_status || 'Not Use') === 'In Use' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'">
+                {{ (asset.gmdn_status || 'Not Use') === 'In Use' ? 'Đang sử dụng' : 'Không sử dụng' }}
               </span>
             </td>
             <td class="px-4 py-3">

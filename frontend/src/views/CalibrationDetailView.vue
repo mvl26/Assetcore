@@ -177,7 +177,8 @@ onMounted(load)
         <div class="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
           <div>
             <p class="text-xs text-slate-400 mb-1">Thiết bị</p>
-            <p class="font-medium">{{ form.asset }}</p>
+            <p class="font-medium">{{ form.asset_name || form.asset }}</p>
+            <p v-if="form.asset_name" class="text-xs text-slate-400 font-mono">{{ form.asset }}</p>
           </div>
           <div>
             <p class="text-xs text-slate-400 mb-1">Loại hiệu chuẩn</p>

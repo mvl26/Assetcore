@@ -13,6 +13,8 @@ from assetcore.utils.response import _ok, _err
 from assetcore.utils.pagination import paginate
 from assetcore.services.imm00 import (
     transition_asset_status,
+    update_gmdn_status as svc_update_gmdn_status,
+    toggle_gmdn_status_via_qr as svc_toggle_gmdn_via_qr,
     validate_asset_for_operations,
     get_sla_policy,
     create_capa,
@@ -79,6 +81,7 @@ def list_assets(
     location: str = None,
     asset_category: str = None,
     search: str = None,
+    gmdn_status: str = None,
 ):
     """GET /api/method/assetcore.api.imm00.list_assets"""
     page, page_size = int(page), int(page_size)
@@ -91,6 +94,8 @@ def list_assets(
         filters["location"] = location
     if asset_category:
         filters["asset_category"] = asset_category
+    if gmdn_status:
+        filters["gmdn_status"] = gmdn_status
 
     or_filters = []
     if search:
@@ -107,6 +112,7 @@ def list_assets(
         "name", "asset_name", "asset_code", "lifecycle_status",
         "asset_category", "location", "department", "responsible_technician",
         "next_pm_date", "next_calibration_date", "byt_reg_expiry",
+        "gmdn_code", "gmdn_status",
     ]
     items = frappe.get_list(
         _DT_ASSET,
@@ -185,6 +191,32 @@ def transition_status(name: str, to_status: str, reason: str = ""):
         transition_asset_status(name, to_status, actor=actor, reason=reason)
         frappe.db.commit()
         return _ok({"name": name, "lifecycle_status": to_status})
+    except frappe.exceptions.ValidationError as e:
+        return _err(str(e), 422)
+
+
+@frappe.whitelist(methods=["POST"])
+def update_gmdn_status(name: str, gmdn_status: str, reason: str = ""):
+    """POST /api/method/assetcore.api.imm00.update_gmdn_status"""
+    if not frappe.db.exists(_DT_ASSET, name):
+        return _err(_(_ERR_ASSET_NOT_FOUND), 404)
+    try:
+        result = svc_update_gmdn_status(name, gmdn_status, reason)
+        frappe.db.commit()
+        return _ok(result)
+    except frappe.exceptions.ValidationError as e:
+        return _err(str(e), 422)
+
+
+@frappe.whitelist(methods=["POST"])
+def toggle_gmdn_status(name: str):
+    """POST /api/method/assetcore.api.imm00.toggle_gmdn_status — toggle qua QR scan."""
+    if not frappe.db.exists(_DT_ASSET, name):
+        return _err(_(_ERR_ASSET_NOT_FOUND), 404)
+    try:
+        result = svc_toggle_gmdn_via_qr(name)
+        frappe.db.commit()
+        return _ok(result)
     except frappe.exceptions.ValidationError as e:
         return _err(str(e), 422)
 
@@ -624,7 +656,10 @@ def get_capa(name: str):
     """GET /api/method/assetcore.api.imm00.get_capa"""
     if not frappe.db.exists(_DT_CAPA, name):
         return _err(_(_ERR_CAPA_NOT_FOUND), 404)
-    return _ok(frappe.get_doc(_DT_CAPA, name).as_dict())
+    doc = frappe.get_doc(_DT_CAPA, name).as_dict()
+    if doc.get("asset"):
+        doc["asset_name"] = frappe.db.get_value(_DT_ASSET, doc["asset"], "asset_name") or ""
+    return _ok(doc)
 
 
 @frappe.whitelist(methods=["POST"])
@@ -1282,10 +1317,7 @@ def _paginated_list(doctype: str, filters: dict, fields: list[str],
     total = frappe.db.count(doctype, filters)
     items = frappe.get_all(doctype, filters=filters, fields=fields,
                            order_by=order_by, limit=page_size, start=offset)
-    return _ok({
-        "items": items, "total": total,
-        "page": page, "page_size": page_size,
-    })
+    return items, {"total": total, "page": page, "page_size": page_size}
 
 
 @frappe.whitelist()
@@ -1293,14 +1325,11 @@ def list_pm_schedules(page: int = 1, page_size: int = 20, asset: str = None, sta
     f = {}
     if asset: f["asset_ref"] = asset
     if status: f["status"] = status
-    res = _paginated_list(_DT_PM_SCHEDULE, f,
+    items, meta = _paginated_list(_DT_PM_SCHEDULE, f,
         ["name", "asset_ref", "pm_type", "status", "pm_interval_days",
          "checklist_template", "responsible_technician",
          "last_pm_date", "next_due_date"],
         int(page), int(page_size), "next_due_date asc")
-    payload = res.get("message", res) if isinstance(res, dict) else res
-    data = payload.get("data", {}) if isinstance(payload, dict) else {}
-    items = data.get("items") or []
     asset_ids = {r.get("asset_ref") for r in items if r.get("asset_ref")}
     if asset_ids:
         name_map = {a["name"]: a["asset_name"] for a in frappe.get_all(
@@ -1308,7 +1337,7 @@ def list_pm_schedules(page: int = 1, page_size: int = 20, asset: str = None, sta
             fields=["name", "asset_name"])}
         for r in items:
             r["asset_name"] = name_map.get(r.get("asset_ref"), "")
-    return res
+    return _ok({"items": items, **meta})
 
 
 @frappe.whitelist()
@@ -1347,9 +1376,10 @@ def delete_pm_schedule(name: str):
 
 @frappe.whitelist()
 def list_pm_templates(page: int = 1, page_size: int = 50):
-    return _paginated_list(_DT_PM_TEMPLATE, {},
+    items, meta = _paginated_list(_DT_PM_TEMPLATE, {},
         ["name", "template_name", "asset_category", "pm_type", "version", "effective_date"],
         int(page), int(page_size), "modified desc")
+    return _ok({"items": items, **meta})
 
 
 @frappe.whitelist()
@@ -1391,12 +1421,12 @@ def list_firmware_crs(page: int = 1, page_size: int = 20, status: str = None, as
     f = {}
     if status: f["status"] = status
     if asset: f["asset_ref"] = asset
-    result = _paginated_list(_DT_FIRMWARE_CR, f,
+    items, meta = _paginated_list(_DT_FIRMWARE_CR, f,
         ["name", "asset_ref", "version_before", "version_after", "status",
          "approved_by", "approved_datetime", "applied_datetime"],
         int(page), int(page_size))
-    _enrich(result["message"]["items"], "asset_ref", _DT_ASSET, "asset_name", "asset_name")
-    return result
+    _enrich(items, "asset_ref", _DT_ASSET, "asset_name", "asset_name")
+    return _ok({"items": items, **meta})
 
 
 @frappe.whitelist()
@@ -1438,12 +1468,12 @@ def list_document_requests(page: int = 1, page_size: int = 20, status: str = Non
     f = {}
     if status: f["status"] = status
     if asset: f["asset_ref"] = asset
-    result = _paginated_list(_DT_DOC_REQUEST, f,
+    items, meta = _paginated_list(_DT_DOC_REQUEST, f,
         ["name", "asset_ref", "doc_type_required", "doc_category", "status",
          "priority", "assigned_to", "due_date", "fulfilled_by"],
         int(page), int(page_size), "due_date asc")
-    _enrich(result["message"]["items"], "asset_ref", _DT_ASSET, "asset_name", "asset_name")
-    return result
+    _enrich(items, "asset_ref", _DT_ASSET, "asset_name", "asset_name")
+    return _ok({"items": items, **meta})
 
 
 @frappe.whitelist()

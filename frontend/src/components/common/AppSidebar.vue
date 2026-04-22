@@ -29,6 +29,7 @@ const navGroups: NavGroup[] = [
         label: 'Thiết bị', path: '/assets', icon: 'cube',
         children: [
           { label: 'Danh sách', path: '/assets', icon: 'list' },
+          { label: 'Quét QR / GMDN', path: '/qr-scan', icon: 'scan' },
           { label: 'Luân chuyển', path: '/asset-transfers', icon: 'arrow' },
           { label: 'Hợp đồng DV', path: '/service-contracts', icon: 'document' },
           { label: 'Khấu hao', path: '/depreciation', icon: 'chart' },

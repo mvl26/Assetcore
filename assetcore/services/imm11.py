@@ -359,7 +359,10 @@ def get_calibration(name: str) -> dict:
     doc = CalibrationRepo.get(name)
     if not doc:
         raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy '{name}'")
-    return doc.as_dict()
+    data = doc.as_dict()
+    if data.get("asset"):
+        data["asset_name"] = frappe.db.get_value("AC Asset", data["asset"], "asset_name") or ""
+    return data
 
 
 def create_calibration(*, asset: str, calibration_type: str, scheduled_date: str,

@@ -27,6 +27,7 @@ export interface UpcomingItem {
   asset: string
   asset_name: string
   department: string | null
+  department_name: string | null
   due_date: string
   kind: 'PM' | 'Hiệu chuẩn'
   detail: string | null
@@ -38,6 +39,7 @@ export interface ActiveRepair {
   asset: string
   asset_name: string | null
   department: string | null
+  department_name: string | null
   status: string
   priority: string
   open_datetime: string

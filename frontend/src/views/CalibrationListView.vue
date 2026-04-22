@@ -1,35 +1,24 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { listCalibrations, getCalibrationKpis } from '@/api/imm11'
-import type { AssetCalibration, CalibrationKpis } from '@/api/imm11'
+import { useImm11Store } from '@/stores/imm11'
 import { formatAssetDisplay, translateStatus, getStatusColor, formatDate } from '@/utils/formatters'
 
 const router = useRouter()
-const items = ref<AssetCalibration[]>([])
-const pagination = ref({ page: 1, page_size: 20, total: 0, total_pages: 1 })
-const kpis = ref<CalibrationKpis['kpis'] | null>(null)
-const loading = ref(false)
+const store = useImm11Store()
+
+const items = computed(() => store.calibrations)
+const pagination = computed(() => store.pagination)
+const kpis = computed(() => store.kpis?.kpis ?? null)
+const loading = computed(() => store.loading)
 const filterStatus = ref('')
 
-const activeFilters = computed(() => {
-  const f: Record<string, unknown> = {}
-  if (filterStatus.value) f.status = filterStatus.value
-  return f
-})
-
 async function load(page = 1) {
-  loading.value = true
-  try {
-    const res = await listCalibrations(activeFilters.value, page, 20)
-    items.value = res.data || []
-    pagination.value = { ...pagination.value, ...res.pagination, page }
-  } finally { loading.value = false }
+  await store.fetchList({ page, page_size: 20, status: filterStatus.value || undefined })
 }
 
 async function loadKpis() {
-  const res = await getCalibrationKpis()
-  kpis.value = res.kpis
+  await store.fetchKpis()
 }
 
 function isOverdue(date: string | null) {

@@ -1,0 +1,131 @@
+{
+  "creation": "2026-04-22 00:00:00.000000",
+  "document_type": "Asset Repair",
+  "doctype": "Workflow",
+  "is_active": 1,
+  "modified": "2026-04-22 00:00:00.000000",
+  "modified_by": "Administrator",
+  "name": "IMM-09 Repair Workflow",
+  "owner": "Administrator",
+  "send_email_alert": 0,
+  "workflow_name": "IMM-09 Repair Workflow",
+  "workflow_state_field": "workflow_state",
+  "states": [
+    {
+      "allow_edit": "System Manager",
+      "doc_status": "0",
+      "state": "Open",
+      "type": "Warning"
+    },
+    {
+      "allow_edit": "System Manager",
+      "doc_status": "0",
+      "state": "Assigned",
+      "type": "Warning"
+    },
+    {
+      "allow_edit": "Biomed Engineer",
+      "doc_status": "0",
+      "state": "Diagnosing",
+      "type": "Success"
+    },
+    {
+      "allow_edit": "Biomed Engineer",
+      "doc_status": "0",
+      "state": "Pending Parts",
+      "type": "Warning"
+    },
+    {
+      "allow_edit": "Biomed Engineer",
+      "doc_status": "0",
+      "state": "In Repair",
+      "type": "Success"
+    },
+    {
+      "allow_edit": "System Manager",
+      "doc_status": "0",
+      "state": "Pending Inspection",
+      "type": "Warning"
+    },
+    {
+      "allow_edit": "System Manager",
+      "doc_status": "1",
+      "state": "Cannot Repair",
+      "type": "Danger"
+    },
+    {
+      "allow_edit": "System Manager",
+      "doc_status": "1",
+      "state": "Completed",
+      "type": "Success"
+    },
+    {
+      "allow_edit": "System Manager",
+      "doc_status": "2",
+      "state": "Cancelled",
+      "type": "Danger"
+    }
+  ],
+  "transitions": [
+    {
+      "action": "Phân công KTV",
+      "allowed": "System Manager",
+      "next_state": "Assigned",
+      "state": "Open"
+    },
+    {
+      "action": "Hủy phiếu",
+      "allowed": "System Manager",
+      "next_state": "Cancelled",
+      "state": "Open"
+    },
+    {
+      "action": "Bắt đầu chẩn đoán",
+      "allowed": "Biomed Engineer",
+      "next_state": "Diagnosing",
+      "state": "Assigned"
+    },
+    {
+      "action": "Yêu cầu linh kiện",
+      "allowed": "Biomed Engineer",
+      "next_state": "Pending Parts",
+      "state": "Diagnosing"
+    },
+    {
+      "action": "Bắt đầu sửa chữa",
+      "allowed": "Biomed Engineer",
+      "next_state": "In Repair",
+      "state": "Diagnosing"
+    },
+    {
+      "action": "Linh kiện đã nhận - bắt đầu sửa",
+      "allowed": "Biomed Engineer",
+      "next_state": "In Repair",
+      "state": "Pending Parts"
+    },
+    {
+      "action": "Hoàn thành sửa chữa - chờ kiểm tra",
+      "allowed": "Biomed Engineer",
+      "next_state": "Pending Inspection",
+      "state": "In Repair"
+    },
+    {
+      "action": "Không thể sửa chữa",
+      "allowed": "System Manager",
+      "next_state": "Cannot Repair",
+      "state": "In Repair"
+    },
+    {
+      "action": "Xác nhận hoàn thành",
+      "allowed": "System Manager",
+      "next_state": "Completed",
+      "state": "Pending Inspection"
+    },
+    {
+      "action": "Kiểm tra thất bại - sửa lại",
+      "allowed": "Biomed Engineer",
+      "next_state": "In Repair",
+      "state": "Pending Inspection"
+    }
+  ]
+}

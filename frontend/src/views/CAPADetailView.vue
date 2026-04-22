@@ -117,7 +117,11 @@ onMounted(load)
         </div>
 
         <div class="grid grid-cols-2 gap-4 text-sm pt-2 border-t border-gray-100">
-          <div><p class="text-gray-400 text-xs">Thiết bị</p><p class="font-medium">{{ capa.asset }}</p></div>
+          <div>
+            <p class="text-gray-400 text-xs">Thiết bị</p>
+            <p class="font-medium">{{ capa.asset_name || capa.asset || '—' }}</p>
+            <p v-if="capa.asset_name" class="text-xs text-gray-400 font-mono">{{ capa.asset }}</p>
+          </div>
           <div><p class="text-gray-400 text-xs">Hạn xử lý</p><p :class="['font-medium', capa.due_date && new Date(capa.due_date) < new Date() && capa.status !== 'Closed' ? 'text-red-600' : '']">{{ formatDate(capa.due_date) }}</p></div>
           <div><p class="text-gray-400 text-xs">Người phụ trách</p><p class="font-medium">{{ capa.owner || '—' }}</p></div>
           <div><p class="text-gray-400 text-xs">Ngày tạo</p><p class="font-medium">{{ formatDate(capa.creation) }}</p></div>

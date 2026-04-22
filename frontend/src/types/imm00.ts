@@ -10,6 +10,7 @@ export type MedicalDeviceClass = 'Class I' | 'Class II' | 'Class IIa' | 'Class I
 export type CapaSeverity = 'Minor' | 'Major' | 'Critical'
 export type CapaStatus = 'Open' | 'In Progress' | 'Pending Verification' | 'Closed' | 'Overdue'
 export type IncidentSeverity = 'Low' | 'Medium' | 'High' | 'Critical'
+export type GmdnStatus = 'In Use' | 'Not Use'
 
 export interface PaginatedResponse<T> {
   pagination: {
@@ -32,6 +33,7 @@ export interface AcAssetListItem {
   asset_category?: string
   category_name?: string
   location?: string
+  gmdn_status?: GmdnStatus
   location_name?: string
   department?: string
   department_name?: string
@@ -60,6 +62,7 @@ export interface AcAsset extends AcAssetListItem {
   manufacturer_sn?: string
   udi_code?: string
   gmdn_code?: string
+  gmdn_status?: GmdnStatus
   byt_reg_no?: string
   commissioning_date?: string
   commissioning_ref?: string
@@ -105,6 +108,8 @@ export interface AssetKpi {
   next_pm_date?: string
   next_calibration_date?: string
   byt_reg_expiry?: string
+  gmdn_code?: string
+  gmdn_status?: GmdnStatus
 }
 
 export interface AssetListParams {
@@ -115,6 +120,7 @@ export interface AssetListParams {
   location?: string
   asset_category?: string
   search?: string
+  gmdn_status?: GmdnStatus | ''
 }
 
 // ─── AC Supplier ──────────────────────────────────────────────────────────────

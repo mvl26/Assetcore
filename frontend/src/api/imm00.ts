@@ -33,6 +33,14 @@ export async function transitionStatus(name: string, to_status: string, reason =
   return frappePost(`${BASE}.transition_status`, { name, to_status, reason })
 }
 
+export async function updateGmdnStatus(name: string, gmdn_status: string, reason: string): Promise<ApiResponse<{ name: string; gmdn_status: string; previous: string }>> {
+  return frappePost(`${BASE}.update_gmdn_status`, { name, gmdn_status, reason })
+}
+
+export async function toggleGmdnStatus(name: string): Promise<ApiResponse<{ name: string; gmdn_status: string; previous: string }>> {
+  return frappePost(`${BASE}.toggle_gmdn_status`, { name })
+}
+
 export async function getAssetTimeline(name: string, page = 1, page_size = 50): Promise<ApiResponse<PaginatedResponse<AssetLifecycleEvent>>> {
   return frappeGet(`${BASE}.get_asset_timeline`, { name, page, page_size })
 }

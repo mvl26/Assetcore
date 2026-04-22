@@ -69,6 +69,12 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true, title: 'Danh sách Thiết bị — IMM-00' },
   },
   {
+    path: '/qr-scan',
+    name: 'QRScan',
+    component: () => import('@/views/QRScanView.vue'),
+    meta: { requiresAuth: true, title: 'Quét QR — GMDN Status' },
+  },
+  {
     path: '/assets/new',
     name: 'AssetCreate',
     component: () => import('@/views/AssetCreateView.vue'),
@@ -308,10 +314,11 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true, title: 'Yêu cầu cập nhật Firmware — IMM-09' },
   },
   {
-    // FirmwareCRDetail: chưa có view riêng — tạm redirect về list, focus item qua query
     path: '/cm/firmware/:id',
     name: 'FirmwareCrDetail',
-    redirect: (to) => ({ path: '/cm/firmware', query: { focus: to.params.id as string } }),
+    component: () => import('@/views/FirmwareCrDetailView.vue'),
+    props: true,
+    meta: { requiresAuth: true, title: 'Chi tiết Firmware CR — IMM-09' },
   },
   {
     path: '/cm/mttr',
