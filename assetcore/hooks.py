@@ -1,127 +1,105 @@
 app_name = "assetcore"
+after_install = "assetcore.setup.install.after_install"
+after_migrate = "assetcore.setup.install.after_migrate"
 app_title = "AssetCore"
 app_publisher = "miyano"
 app_description = "Medical Equipment Lifecycle Management (HTM)"
 app_email = ""
 app_license = "MIT"
 
-# Apps
-# ------------------
-# required_apps = ["frappe", "erpnext"]
+# ──────────────────────────────────────────────
+# Fixtures — IMM-00 v3 foundation
+# ──────────────────────────────────────────────
+fixtures = [
+    {"dt": "Role", "filters": [["name", "in", [
+        # IMM-00 governance roles
+        "IMM System Admin",
+        "IMM Department Head",
+        "IMM Operations Manager",
+        "IMM Workshop Lead",
+        "IMM Technician",
+        "IMM Document Officer",
+        "IMM Storekeeper",
+        "IMM QA Officer",
+        "IMM Clinical User",
+        # IMM-04/05/08/09/11 operational roles (hospital workflow)
+        "HTM Technician",
+        "CMMS Admin",
+        "Workshop Head",
+        "VP Block2",
+        "Biomed Engineer",
+        "Tổ HC-QLCL",
+        "Clinical Head",
+    ]]]},
+    {"dt": "IMM SLA Policy"},
+    {"dt": "Workflow", "filters": [["name", "in", [
+        "AC Asset Lifecycle",
+        "IMM-04 Workflow",
+    ]]]},
+    {"dt": "Workflow State", "filters": [["name", "in", [
+        "Draft", "Commissioned", "Active",
+        "Under Maintenance", "Under Repair", "Calibrating",
+        "Out of Service", "Decommissioned",
+    ]]]},
+    {"dt": "Workflow Action Master", "filters": [["name", "in", [
+        "Commission", "Activate",
+        "Bắt đầu bảo trì", "Hoàn thành bảo trì",
+        "Bắt đầu sửa chữa", "Bắt đầu hiệu chuẩn", "Đưa ra khỏi sử dụng",
+        "Hoàn thành sửa chữa", "Không thể sửa chữa",
+        "Hiệu chuẩn đạt", "Hiệu chuẩn không đạt",
+        "Khôi phục hoạt động", "Sửa chữa lại", "Thanh lý",
+    ]]]},
+]
 
-# Includes in <head>
-# ------------------
-# include_js = {"page,py" : "public/js/file.js"}
-# include_css = {"page,py" : "public/css/file.css"}
+# ──────────────────────────────────────────────
+# Document Events — IMM-00 v3
+# ──────────────────────────────────────────────
+doc_events = {
+    "Asset Commissioning": {
+        "on_submit": [
+            "assetcore.services.imm08.create_pm_schedule_from_commissioning",
+            "assetcore.services.imm11.create_calibration_schedule_from_commissioning",
+        ],
+    },
+}
 
-# Home Pages
-# ----------
-# home_page = "login"
+# ──────────────────────────────────────────────
+# Scheduler — IMM-00 v3 foundation jobs
+# ──────────────────────────────────────────────
+scheduler_events = {
+    "daily": [
+        # IMM-00 foundation alerts
+        "assetcore.services.imm00.check_capa_overdue",
+        "assetcore.services.imm00.check_vendor_contract_expiry",
+        "assetcore.services.imm00.check_registration_expiry",
+        "assetcore.services.imm00.check_insurance_expiry",
+        "assetcore.services.imm00.check_service_contract_expiry",
+        # IMM-05 document expiry alerts
+        "assetcore.services.imm05.check_document_expiry",
+        # IMM-08 PM auto work order generation
+        "assetcore.services.imm08.generate_pm_work_orders_from_schedule",
+        # IMM-11 Calibration auto WO + expiry check
+        "assetcore.services.imm11.create_due_calibration_wos",
+        "assetcore.services.imm11.check_calibration_expiry",
+        # IMM-12 Incident chronic failure detection
+        "assetcore.services.imm12.detect_chronic_failures",
+    ],
+    "monthly": [
+        "assetcore.services.imm00.rollup_asset_kpi",
+    ],
+}
 
-# Generators
-# ----------
-# website_generators = ["Web Page"]
+# ──────────────────────────────────────────────
+# Permission Query Conditions
+# ──────────────────────────────────────────────
+permission_query_conditions = {
+    "AC Asset": "assetcore.permissions.ac_asset_query",
+    "Incident Report": "assetcore.permissions.incident_report_query",
+    "Asset Repair": "assetcore.permissions.asset_repair_query",
+    "PM Work Order": "assetcore.permissions.pm_work_order_query",
+}
 
-# Jinja
-# ----------
-# jinja = {
-#     "methods": "assetcore.utils.jinja_methods",
-#     "filters": "assetcore.utils.jinja_filters"
-# }
-
-# Installation
-# ------------
-# before_install = "assetcore.install.before_install"
-# after_install = "assetcore.install.after_install"
-
-# Uninstallation
-# ------------
-# before_uninstall = "assetcore.uninstall.before_uninstall"
-# after_uninstall = "assetcore.uninstall.after_uninstall"
-
-# Desk Notifications
-# ------------------
-# notification_config = "assetcore.notifications.get_notification_config"
-
-# Permissions
-# -----------
-# permission_query_conditions = {
-#     "Event": "frappe.desk.doctype.event.event.get_permission_query_conditions",
-# }
-# has_permission = {
-#     "Event": "frappe.desk.doctype.event.event.has_permission",
-# }
-
-# DocType Class
-# ---------------
-# override_doctype_class = {
-#     "ToDo": "custom_app.overrides.CustomToDo"
-# }
-
-# Document Events
-# ---------------
-# doc_events = {
-#     "Asset": {
-#         "on_submit": "assetcore.events.asset.on_submit",
-#     }
-# }
-
-# Scheduled Tasks
-# ---------------
-# scheduler_events = {
-#     "all": ["assetcore.tasks.all"],
-#     "daily": ["assetcore.tasks.daily"],
-#     "hourly": ["assetcore.tasks.hourly"],
-#     "weekly": ["assetcore.tasks.weekly"],
-#     "monthly": ["assetcore.tasks.monthly"],
-# }
-
-# Testing
-# -------
-# before_tests = "assetcore.install.before_tests"
-
-# Overriding Methods
-# ------------------------------
-# override_whitelisted_methods = {
-#     "frappe.desk.doctype.event.event.get_permission_query_conditions": "assetcore.event.get_permission_query_conditions"
-# }
-
-# Each overriding function accepts a `data` argument;
-# generated from the base implementation of the doctype dashboard,
-# along with any modifications made in other Frappe apps
-# override_doctype_dashboards = {
-#     "Task": "assetcore.task.get_dashboard_data"
-# }
-
-# exempt linked doctypes from being automatically cancelled
-# auto_cancel_exempted_doctypes = ["Auto Repeat"]
-
-# Ignore links to specified DocTypes when deleting documents
-# ignore_links_on_delete = ["Communication", "ToDo"]
-
-# Request Events
-# ----------------
-# before_request = ["assetcore.utils.before_request"]
-# after_request = ["assetcore.utils.after_request"]
-
-# Job Events
-# ----------
-# before_job = ["assetcore.utils.before_job"]
-# after_job = ["assetcore.utils.after_job"]
-
-# User Data Protection
-# --------------------
-# user_data_fields = [
-#     {
-#         "doctype": "{doctype_1}",
-#         "filter_by": "{filter_by}",
-#         "redact_fields": ["{field_1}", "{field_2}"],
-#         "partial": 1,
-#     },
-# ]
-
-# Authentication and authorization
-# ---------------------------------
-# auth_hooks = [
-#     "assetcore.auth.validate"
-# ]
+# Not overriding any Frappe/ERPNext DocType — AssetCore is Frappe-only (no ERPNext dep)
+override_doctype_class = {}
+override_whitelisted_methods = {}
+website_route_rules = []

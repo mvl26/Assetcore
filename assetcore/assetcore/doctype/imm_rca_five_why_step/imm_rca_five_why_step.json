@@ -1,0 +1,22 @@
+{
+ "actions": [],
+ "creation": "2026-04-20 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "istable": 1,
+ "field_order": ["why_number", "why_question", "why_answer"],
+ "fields": [
+  {"fieldname": "why_number", "fieldtype": "Int", "label": "Why #", "in_list_view": 1, "columns": 1},
+  {"fieldname": "why_question", "fieldtype": "Text", "label": "Câu hỏi Why", "in_list_view": 1, "columns": 4},
+  {"fieldname": "why_answer", "fieldtype": "Text", "label": "Câu trả lời", "in_list_view": 1, "columns": 7}
+ ],
+ "links": [],
+ "modified": "2026-04-20 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "AssetCore",
+ "name": "IMM RCA Five Why Step",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC"
+}

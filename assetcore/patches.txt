@@ -1,2 +1,3 @@
 # Patches for assetcore
 # Format: assetcore.patches.patch_module.execute
+assetcore.patches.v3_0.001_migrate_from_v2

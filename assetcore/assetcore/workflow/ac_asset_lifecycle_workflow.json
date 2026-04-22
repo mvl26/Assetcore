@@ -1,0 +1,161 @@
+{
+ "creation": "2026-04-20 00:00:00.000000",
+ "doctype": "Workflow",
+ "document_type": "AC Asset",
+ "is_active": 1,
+ "modified": "2026-04-20 00:00:00.000000",
+ "modified_by": "Administrator",
+ "name": "AC Asset Lifecycle",
+ "owner": "Administrator",
+ "send_email_alert": 0,
+ "workflow_name": "AC Asset Lifecycle",
+ "workflow_state_field": "lifecycle_status",
+ "states": [
+  {
+   "allow_edit": "System Manager",
+   "doc_status": "0",
+   "state": "Draft",
+   "type": "Warning"
+  },
+  {
+   "allow_edit": "Biomed Engineer",
+   "doc_status": "0",
+   "state": "Commissioned",
+   "type": "Primary"
+  },
+  {
+   "allow_edit": "Biomed Engineer",
+   "doc_status": "0",
+   "state": "Active",
+   "type": "Success"
+  },
+  {
+   "allow_edit": "IMM Technician",
+   "doc_status": "0",
+   "state": "Under Maintenance",
+   "type": "Warning"
+  },
+  {
+   "allow_edit": "IMM Technician",
+   "doc_status": "0",
+   "state": "Under Repair",
+   "type": "Warning"
+  },
+  {
+   "allow_edit": "IMM Technician",
+   "doc_status": "0",
+   "state": "Calibrating",
+   "type": "Warning"
+  },
+  {
+   "allow_edit": "IMM Workshop Lead",
+   "doc_status": "0",
+   "state": "Out of Service",
+   "type": "Danger"
+  },
+  {
+   "allow_edit": "System Manager",
+   "doc_status": "0",
+   "state": "Decommissioned",
+   "type": "Inverse"
+  }
+ ],
+ "transitions": [
+  {
+   "action": "Commission",
+   "allowed": "Biomed Engineer",
+   "next_state": "Commissioned",
+   "state": "Draft"
+  },
+  {
+   "action": "Activate",
+   "allowed": "Biomed Engineer",
+   "next_state": "Active",
+   "state": "Commissioned"
+  },
+  {
+   "action": "Bắt đầu bảo trì",
+   "allowed": "IMM Technician",
+   "next_state": "Under Maintenance",
+   "state": "Active"
+  },
+  {
+   "action": "Hoàn thành bảo trì",
+   "allowed": "IMM Technician",
+   "next_state": "Active",
+   "state": "Under Maintenance"
+  },
+  {
+   "action": "Bắt đầu sửa chữa",
+   "allowed": "IMM Technician",
+   "next_state": "Under Repair",
+   "state": "Active"
+  },
+  {
+   "action": "Bắt đầu sửa chữa",
+   "allowed": "IMM Technician",
+   "next_state": "Under Repair",
+   "state": "Under Maintenance"
+  },
+  {
+   "action": "Bắt đầu hiệu chuẩn",
+   "allowed": "IMM Technician",
+   "next_state": "Calibrating",
+   "state": "Active"
+  },
+  {
+   "action": "Đưa ra khỏi sử dụng",
+   "allowed": "IMM Workshop Lead",
+   "next_state": "Out of Service",
+   "state": "Active"
+  },
+  {
+   "action": "Hoàn thành sửa chữa",
+   "allowed": "IMM Technician",
+   "next_state": "Active",
+   "state": "Under Repair"
+  },
+  {
+   "action": "Không thể sửa chữa",
+   "allowed": "IMM Workshop Lead",
+   "next_state": "Out of Service",
+   "state": "Under Repair"
+  },
+  {
+   "action": "Hiệu chuẩn đạt",
+   "allowed": "IMM Technician",
+   "next_state": "Active",
+   "state": "Calibrating"
+  },
+  {
+   "action": "Hiệu chuẩn không đạt",
+   "allowed": "IMM Workshop Lead",
+   "next_state": "Out of Service",
+   "state": "Calibrating"
+  },
+  {
+   "action": "Khôi phục hoạt động",
+   "allowed": "IMM Workshop Lead",
+   "next_state": "Active",
+   "state": "Out of Service"
+  },
+  {
+   "action": "Sửa chữa lại",
+   "allowed": "IMM Technician",
+   "next_state": "Under Repair",
+   "state": "Out of Service"
+  },
+  {
+   "action": "Thanh lý",
+   "allowed": "System Manager",
+   "next_state": "Decommissioned",
+   "state": "Out of Service"
+  },
+  {
+   "action": "Thanh lý",
+   "allowed": "System Manager",
+   "next_state": "Decommissioned",
+   "state": "Active"
+  }
+ ]
+}

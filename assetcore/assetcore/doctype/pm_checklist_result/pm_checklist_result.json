@@ -1,0 +1,28 @@
+{
+  "actions": [],
+  "creation": "2026-04-17 09:00:00.000000",
+  "doctype": "DocType",
+  "document_type": "Document",
+  "engine": "InnoDB",
+  "istable": 1,
+  "module": "AssetCore",
+  "name": "PM Checklist Result",
+  "field_order": [
+    "checklist_item_idx", "description", "measurement_type", "result",
+    "measured_value", "unit", "notes", "photo"
+  ],
+  "fields": [
+    {"fieldname": "checklist_item_idx", "fieldtype": "Int", "label": "STT m\u1ee5c", "read_only": 1, "in_list_view": 1},
+    {"fieldname": "description", "fieldtype": "Data", "label": "M\u00f4 t\u1ea3", "read_only": 1, "in_list_view": 1, "columns": 4},
+    {"fieldname": "measurement_type", "fieldtype": "Select", "label": "Lo\u1ea1i", "options": "Pass/Fail\nNumeric\nText", "read_only": 1},
+    {"fieldname": "result", "fieldtype": "Select", "label": "K\u1ebft qu\u1ea3", "options": "\nPass\nFail\u2013Minor\nFail\u2013Major\nN/A", "reqd": 1, "in_list_view": 1, "columns": 2},
+    {"fieldname": "measured_value", "fieldtype": "Float", "label": "Gi\u00e1 tr\u1ecb \u0111o", "depends_on": "eval:doc.measurement_type==='Numeric'"},
+    {"fieldname": "unit", "fieldtype": "Data", "label": "\u0110\u01a1n v\u1ecb", "read_only": 1},
+    {"fieldname": "notes", "fieldtype": "Text", "label": "Ghi ch\u00fa / M\u00f4 t\u1ea3 l\u1ed7i", "mandatory_depends_on": "eval:doc.result==='Fail\u2013Minor' || doc.result==='Fail\u2013Major'"},
+    {"fieldname": "photo", "fieldtype": "Attach", "label": "\u1ea2nh"}
+  ],
+  "modified": "2026-04-17 09:00:00.000000",
+  "modified_by": "Administrator",
+  "owner": "Administrator",
+  "permissions": []
+}

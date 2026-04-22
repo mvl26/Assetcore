@@ -1,0 +1,8 @@
+[
+ {"doctype": "IMM SLA Policy", "name": "P1C-Critical", "policy_name": "P1C-Critical", "priority": "P1 Critical", "risk_class": "Critical", "is_default": 1, "response_time_minutes": 15, "resolution_time_hours": 4, "working_hours_only": 0, "is_active": 1},
+ {"doctype": "IMM SLA Policy", "name": "P1C-High", "policy_name": "P1C-High", "priority": "P1 Critical", "risk_class": "High", "response_time_minutes": 30, "resolution_time_hours": 8, "working_hours_only": 0, "is_active": 1},
+ {"doctype": "IMM SLA Policy", "name": "P1H-High", "policy_name": "P1H-High", "priority": "P1 High", "risk_class": "High", "is_default": 1, "response_time_minutes": 60, "resolution_time_hours": 24, "working_hours_only": 0, "is_active": 1},
+ {"doctype": "IMM SLA Policy", "name": "P2-Medium", "policy_name": "P2-Medium", "priority": "P2", "risk_class": "Medium", "is_default": 1, "response_time_minutes": 240, "resolution_time_hours": 48, "working_hours_only": 1, "is_active": 1},
+ {"doctype": "IMM SLA Policy", "name": "P3-Low", "policy_name": "P3-Low", "priority": "P3", "risk_class": "Low", "is_default": 1, "response_time_minutes": 480, "resolution_time_hours": 120, "working_hours_only": 1, "is_active": 1},
+ {"doctype": "IMM SLA Policy", "name": "P4-Low", "policy_name": "P4-Low", "priority": "P4", "risk_class": "Low", "is_default": 1, "response_time_minutes": 1440, "resolution_time_hours": 240, "working_hours_only": 1, "is_active": 1}
+]

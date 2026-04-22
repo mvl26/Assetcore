@@ -1,0 +1,10 @@
+[
+ {"doctype": "Role", "role_name": "IMM System Admin", "name": "IMM System Admin", "desk_access": 1, "disabled": 0},
+ {"doctype": "Role", "role_name": "IMM Department Head", "name": "IMM Department Head", "desk_access": 1, "disabled": 0},
+ {"doctype": "Role", "role_name": "IMM Operations Manager", "name": "IMM Operations Manager", "desk_access": 1, "disabled": 0},
+ {"doctype": "Role", "role_name": "IMM Workshop Lead", "name": "IMM Workshop Lead", "desk_access": 1, "disabled": 0},
+ {"doctype": "Role", "role_name": "IMM Technician", "name": "IMM Technician", "desk_access": 1, "disabled": 0},
+ {"doctype": "Role", "role_name": "IMM Document Officer", "name": "IMM Document Officer", "desk_access": 1, "disabled": 0},
+ {"doctype": "Role", "role_name": "IMM Storekeeper", "name": "IMM Storekeeper", "desk_access": 1, "disabled": 0},
+ {"doctype": "Role", "role_name": "IMM QA Officer", "name": "IMM QA Officer", "desk_access": 1, "disabled": 0}
+]

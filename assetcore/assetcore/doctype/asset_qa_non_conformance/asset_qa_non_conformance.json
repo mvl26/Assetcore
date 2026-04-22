@@ -1,0 +1,162 @@
+{
+ "actions": [],
+ "autoname": "format:NC-.YY.-.MM.-.#####",
+ "creation": "2026-04-15 10:00:00.000000",
+ "doctype": "DocType",
+ "document_type": "Document",
+ "engine": "InnoDB",
+ "field_order": [
+  "ref_commissioning",
+  "nc_type",
+  "severity",
+  "col_break_1",
+  "resolution_status",
+  "transfer_to_capa",
+  "description",
+  "root_cause",
+  "damage_proof",
+  "resolution_note",
+  "return_to_vendor_ref",
+  "penalty_amount",
+  "closed_by",
+  "closed_date"
+ ],
+ "fields": [
+  {
+   "fieldname": "ref_commissioning",
+   "fieldtype": "Link",
+   "label": "Phiếu Commissioning Liên quan",
+   "options": "Asset Commissioning",
+   "reqd": 1,
+   "in_list_view": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "nc_type",
+   "fieldtype": "Select",
+   "label": "Loại Sự cố",
+   "options": "DOA\nMissing\nCrash\nOther",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "severity",
+   "fieldtype": "Select",
+   "label": "Mức độ nghiêm trọng",
+   "options": "Minor\nMajor\nCritical",
+   "reqd": 0,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "col_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "resolution_status",
+   "fieldtype": "Select",
+   "label": "Tình trạng Xử lý",
+   "options": "Open\nUnder Review\nResolved\nClosed\nTransferred",
+   "reqd": 1,
+   "default": "Open",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "transfer_to_capa",
+   "fieldtype": "Check",
+   "label": "Chuyển sang CAPA",
+   "default": "0"
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Mô tả Sự cố",
+   "reqd": 1
+  },
+  {
+   "fieldname": "root_cause",
+   "fieldtype": "Text",
+   "label": "Nguyên nhân gốc rễ",
+   "reqd": 0
+  },
+  {
+   "fieldname": "damage_proof",
+   "fieldtype": "Attach Image",
+   "label": "Ảnh Bằng chứng Hỏng hóc",
+   "mandatory_depends_on": "eval:doc.nc_type == 'DOA'"
+  },
+  {
+   "fieldname": "resolution_note",
+   "fieldtype": "Text",
+   "label": "Ghi chú Cách khắc phục",
+   "depends_on": "eval:doc.resolution_status == 'Fixed'"
+  },
+  {
+   "fieldname": "return_to_vendor_ref",
+   "fieldtype": "Data",
+   "label": "Số phiếu trả hàng",
+   "reqd": 0
+  },
+  {
+   "fieldname": "penalty_amount",
+   "fieldtype": "Currency",
+   "label": "Giá trị Bồi thường Hãng",
+   "permlevel": 1,
+   "description": "Chỉ Ban Lãnh đạo có thể xem và điền."
+  },
+  {
+   "fieldname": "closed_by",
+   "fieldtype": "Link",
+   "label": "Người đóng NC",
+   "options": "User",
+   "reqd": 0
+  },
+  {
+   "fieldname": "closed_date",
+   "fieldtype": "Date",
+   "label": "Ngày đóng NC",
+   "reqd": 0
+  }
+ ],
+ "is_submittable": 1,
+ "links": [],
+ "modified": "2026-04-17 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "AssetCore",
+ "name": "Asset QA Non Conformance",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "read": 1,
+   "role": "HTM Technician",
+   "write": 1
+  },
+  {
+   "create": 1,
+   "read": 1,
+   "role": "Biomed Engineer",
+   "write": 1
+  },
+  {
+   "cancel": 1,
+   "read": 1,
+   "role": "Workshop Head",
+   "submit": 1,
+   "write": 1,
+   "permlevel": 1
+  },
+  {
+   "cancel": 1,
+   "read": 1,
+   "role": "VP Block2",
+   "submit": 1,
+   "write": 1,
+   "permlevel": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

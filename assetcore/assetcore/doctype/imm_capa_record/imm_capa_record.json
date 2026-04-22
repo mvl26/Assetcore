@@ -1,0 +1,306 @@
+{
+ "actions": [],
+ "allow_import": 1,
+ "allow_rename": 0,
+ "autoname": "naming_series:",
+ "creation": "2026-04-18 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "is_submittable": 1,
+ "field_order": [
+  "section_basic",
+  "naming_series",
+  "capa_number",
+  "asset",
+  "column_break_basic",
+  "severity",
+  "status",
+  "workflow_state",
+  "section_source",
+  "source_type",
+  "source_ref",
+  "column_break_source",
+  "linked_incident",
+  "section_desc",
+  "description",
+  "root_cause",
+  "corrective_action",
+  "preventive_action",
+  "section_assign",
+  "responsible",
+  "opened_date",
+  "column_break_assign",
+  "due_date",
+  "closed_date",
+  "section_lookback",
+  "lookback_required",
+  "lookback_status",
+  "lookback_assets",
+  "section_verify",
+  "verification_notes",
+  "effectiveness_check",
+  "notes",
+  "amended_from"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_basic",
+   "fieldtype": "Section Break",
+   "label": "Thông tin cơ bản"
+  },
+  {
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Series",
+   "options": "CAPA-.YYYY.-.#####",
+   "reqd": 1
+  },
+  {
+   "fieldname": "capa_number",
+   "fieldtype": "Data",
+   "label": "CAPA Number",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "asset",
+   "fieldtype": "Link",
+   "label": "Asset",
+   "options": "AC Asset",
+   "reqd": 1,
+   "search_index": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "column_break_basic",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "severity",
+   "fieldtype": "Select",
+   "label": "Severity",
+   "options": "Minor\nMajor\nCritical",
+   "reqd": 1,
+   "search_index": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Open\nIn Progress\nPending Verification\nClosed\nOverdue",
+   "reqd": 1,
+   "default": "Open",
+   "search_index": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "workflow_state",
+   "fieldtype": "Link",
+   "label": "Workflow State",
+   "options": "Workflow State",
+   "read_only": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "section_source",
+   "fieldtype": "Section Break",
+   "label": "Source"
+  },
+  {
+   "fieldname": "source_type",
+   "fieldtype": "Select",
+   "label": "Source Type",
+   "options": "Incident Report\nNon-Conformance\nComplaint\nPM Work Order\nIMM Asset Calibration\nAsset Repair",
+   "reqd": 1
+  },
+  {
+   "fieldname": "source_ref",
+   "fieldtype": "Dynamic Link",
+   "label": "Source Reference",
+   "options": "source_type"
+  },
+  {
+   "fieldname": "column_break_source",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "linked_incident",
+   "fieldtype": "Link",
+   "label": "Linked Incident",
+   "options": "Incident Report"
+  },
+  {
+   "fieldname": "section_desc",
+   "fieldtype": "Section Break",
+   "label": "Mô tả & Hành động"
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Text Editor",
+   "label": "Description",
+   "reqd": 1
+  },
+  {
+   "fieldname": "root_cause",
+   "fieldtype": "Text Editor",
+   "label": "Root Cause Analysis"
+  },
+  {
+   "fieldname": "corrective_action",
+   "fieldtype": "Text Editor",
+   "label": "Corrective Action"
+  },
+  {
+   "fieldname": "preventive_action",
+   "fieldtype": "Text Editor",
+   "label": "Preventive Action"
+  },
+  {
+   "fieldname": "section_assign",
+   "fieldtype": "Section Break",
+   "label": "Assignment & Dates"
+  },
+  {
+   "fieldname": "responsible",
+   "fieldtype": "Link",
+   "label": "Responsible",
+   "options": "User",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "opened_date",
+   "fieldtype": "Date",
+   "label": "Opened Date",
+   "reqd": 1,
+   "default": "Today"
+  },
+  {
+   "fieldname": "column_break_assign",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "due_date",
+   "fieldtype": "Date",
+   "label": "Due Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "closed_date",
+   "fieldtype": "Date",
+   "label": "Closed Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_lookback",
+   "fieldtype": "Section Break",
+   "label": "Lookback Assessment"
+  },
+  {
+   "fieldname": "lookback_required",
+   "fieldtype": "Check",
+   "label": "Lookback Required",
+   "default": "0"
+  },
+  {
+   "fieldname": "lookback_status",
+   "fieldtype": "Select",
+   "label": "Lookback Status",
+   "options": "\nIn Progress\nCleared\nCompleted"
+  },
+  {
+   "fieldname": "lookback_assets",
+   "fieldtype": "Small Text",
+   "label": "Affected Assets (Lookback)"
+  },
+  {
+   "fieldname": "section_verify",
+   "fieldtype": "Section Break",
+   "label": "Verification"
+  },
+  {
+   "fieldname": "verification_notes",
+   "fieldtype": "Text",
+   "label": "Verification Notes"
+  },
+  {
+   "fieldname": "effectiveness_check",
+   "fieldtype": "Select",
+   "label": "Effectiveness Check",
+   "options": "\nEffective\nPartially Effective\nNot Effective"
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Text",
+   "label": "Notes"
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "options": "IMM CAPA Record",
+   "read_only": 1,
+   "no_copy": 1,
+   "print_hide": 1
+  }
+ ],
+ "links": [],
+ "modified": "2026-04-18 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "AssetCore",
+ "name": "IMM CAPA Record",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "IMM System Admin",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "submit": 1,
+   "cancel": 1,
+   "amend": 1
+  },
+  {
+   "role": "IMM QA Officer",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "submit": 1,
+   "cancel": 1,
+   "amend": 1
+  },
+  {
+   "role": "IMM Department Head",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "submit": 1
+  },
+  {
+   "role": "IMM Operations Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1
+  },
+  {
+   "role": "IMM Workshop Lead",
+   "read": 1,
+   "write": 1,
+   "create": 1
+  },
+  {
+   "role": "IMM Technician",
+   "read": 1
+  },
+  {
+   "role": "IMM Document Officer",
+   "read": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "track_changes": 1,
+ "states": []
+}

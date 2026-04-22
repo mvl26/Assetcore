@@ -1,0 +1,43 @@
+{
+  "actions": [],
+  "creation": "2026-04-19 09:00:00.000000",
+  "doctype": "DocType",
+  "document_type": "Document",
+  "engine": "InnoDB",
+  "module": "AssetCore",
+  "name": "IMM Calibration Schedule",
+  "autoname": "CAL-SCH-.YYYY.-.#####",
+  "naming_rule": "Expression (old style)",
+  "is_submittable": 0,
+  "track_changes": 1,
+  "field_order": [
+    "asset", "device_model", "col_break1",
+    "calibration_type", "interval_days",
+    "section_dates",
+    "last_calibration_date", "next_due_date", "col_break2",
+    "preferred_lab", "is_active"
+  ],
+  "fields": [
+    {"fieldname": "asset", "fieldtype": "Link", "label": "Thi\u1ebft b\u1ecb", "options": "AC Asset", "reqd": 1, "in_list_view": 1, "search_index": 1},
+    {"fieldname": "device_model", "fieldtype": "Link", "label": "Model", "options": "IMM Device Model", "read_only": 1, "in_list_view": 1},
+    {"fieldname": "col_break1", "fieldtype": "Column Break"},
+    {"fieldname": "calibration_type", "fieldtype": "Select", "label": "Lo\u1ea1i hi\u1ec7u chu\u1ea9n", "options": "External\nIn-House", "reqd": 1, "in_list_view": 1},
+    {"fieldname": "interval_days", "fieldtype": "Int", "label": "Chu k\u1ef3 (ng\u00e0y)", "reqd": 1},
+    {"fieldname": "section_dates", "fieldtype": "Section Break", "label": "L\u1ecbch"},
+    {"fieldname": "last_calibration_date", "fieldtype": "Date", "label": "Ng\u00e0y hi\u1ec7u chu\u1ea9n g\u1ea7n nh\u1ea5t", "read_only": 1},
+    {"fieldname": "next_due_date", "fieldtype": "Date", "label": "Ng\u00e0y \u0111\u1ebfn h\u1ea1n", "in_list_view": 1},
+    {"fieldname": "col_break2", "fieldtype": "Column Break"},
+    {"fieldname": "preferred_lab", "fieldtype": "Link", "label": "Lab \u01b0u ti\u00ean", "options": "AC Supplier"},
+    {"fieldname": "is_active", "fieldtype": "Check", "label": "\u0110ang ho\u1ea1t \u0111\u1ed9ng", "default": "1", "in_list_view": 1}
+  ],
+  "permissions": [
+    {"role": "HTM Technician", "read": 1, "write": 1, "create": 1},
+    {"role": "Workshop Head", "read": 1, "write": 1, "create": 1, "delete": 1},
+    {"role": "CMMS Admin", "read": 1, "write": 1, "create": 1, "delete": 1}
+  ],
+  "sort_field": "next_due_date",
+  "sort_order": "ASC",
+  "modified": "2026-04-19 09:00:00.000000",
+  "modified_by": "Administrator",
+  "owner": "Administrator"
+}

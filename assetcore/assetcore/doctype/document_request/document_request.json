@@ -1,0 +1,125 @@
+{
+  "name": "Document Request",
+  "module": "AssetCore",
+  "autoname": "format:DOCREQ-{YYYY}-{MM}-{#####}",
+  "naming_rule": "Expression",
+  "is_submittable": 0,
+  "track_changes": 1,
+  "fields": [
+    {
+      "fieldname": "asset_ref",
+      "fieldtype": "Link",
+      "label": "Tài sản",
+      "options": "AC Asset",
+      "reqd": 1,
+      "in_list_view": 1,
+      "search_index": 1
+    },
+    {
+      "fieldname": "doc_type_required",
+      "fieldtype": "Data",
+      "label": "Loại tài liệu cần",
+      "reqd": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "doc_category",
+      "fieldtype": "Select",
+      "label": "Nhóm",
+      "options": "Legal\nTechnical\nCertification\nTraining\nQA",
+      "reqd": 1
+    },
+    {
+      "fieldname": "col_break_1",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "status",
+      "fieldtype": "Select",
+      "label": "Trạng thái",
+      "options": "Open\nIn_Progress\nOverdue\nFulfilled\nCancelled",
+      "reqd": 1,
+      "default": "Open",
+      "in_list_view": 1,
+      "in_standard_filter": 1
+    },
+    {
+      "fieldname": "priority",
+      "fieldtype": "Select",
+      "label": "Ưu tiên",
+      "options": "Low\nMedium\nHigh\nCritical",
+      "default": "Medium",
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "section_assignment",
+      "fieldtype": "Section Break",
+      "label": "Phân công"
+    },
+    {
+      "fieldname": "assigned_to",
+      "fieldtype": "Link",
+      "label": "Giao cho",
+      "options": "User",
+      "reqd": 1
+    },
+    {
+      "fieldname": "due_date",
+      "fieldtype": "Date",
+      "label": "Hạn hoàn thành",
+      "reqd": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "col_break_2",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "source_type",
+      "fieldtype": "Select",
+      "label": "Nguồn tạo",
+      "options": "Manual\nDashboard\nGW2_Block\nScheduler",
+      "default": "Manual",
+      "read_only": 1
+    },
+    {
+      "fieldname": "escalation_sent",
+      "fieldtype": "Check",
+      "label": "Đã leo thang",
+      "read_only": 1
+    },
+    {
+      "fieldname": "section_detail",
+      "fieldtype": "Section Break",
+      "label": "Chi tiết"
+    },
+    {
+      "fieldname": "request_note",
+      "fieldtype": "Small Text",
+      "label": "Ghi chú yêu cầu"
+    },
+    {
+      "fieldname": "fulfilled_by",
+      "fieldtype": "Link",
+      "label": "Hoàn thành bởi",
+      "options": "Asset Document",
+      "read_only": 1
+    }
+  ],
+  "permissions": [
+    {"role": "HTM Technician", "read": 1, "write": 1, "create": 1},
+    {"role": "Tổ HC-QLCL", "read": 1, "write": 1, "create": 1},
+    {"role": "Biomed Engineer", "read": 1, "write": 1, "create": 1},
+    {"role": "Workshop Head", "read": 1, "write": 1, "create": 1, "delete": 1},
+    {"role": "CMMS Admin", "read": 1, "write": 1, "create": 1, "delete": 1}
+  ],
+  "search_fields": "asset_ref,doc_type_required",
+  "title_field": "doc_type_required",
+  "sort_field": "due_date",
+  "sort_order": "ASC",
+  "creation": "2026-04-17 00:00:00",
+  "modified": "2026-04-17 00:00:00",
+  "modified_by": "Administrator",
+  "owner": "Administrator",
+  "doctype": "DocType"
+}

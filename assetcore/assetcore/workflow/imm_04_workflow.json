@@ -1,0 +1,221 @@
+{
+ "creation": "2026-04-17 00:00:00.000000",
+ "document_type": "Asset Commissioning",
+ "doctype": "Workflow",
+ "is_active": 1,
+ "modified": "2026-04-17 00:00:00.000000",
+ "modified_by": "Administrator",
+ "name": "IMM-04 Workflow",
+ "owner": "Administrator",
+ "send_email_alert": 0,
+ "workflow_name": "IMM-04 Workflow",
+ "workflow_state_field": "workflow_state",
+ "states": [
+  {
+   "allow_edit": "System Manager",
+   "doc_status": "0",
+   "state": "Draft",
+   "type": "Success"
+  },
+  {
+   "allow_edit": "Biomed Engineer",
+   "doc_status": "0",
+   "state": "Pending Doc Verify",
+   "type": "Warning"
+  },
+  {
+   "allow_edit": "Biomed Engineer",
+   "doc_status": "0",
+   "state": "To Be Installed",
+   "type": "Success"
+  },
+  {
+   "allow_edit": "Biomed Engineer",
+   "doc_status": "0",
+   "state": "Installing",
+   "type": "Success"
+  },
+  {
+   "allow_edit": "Biomed Engineer",
+   "doc_status": "0",
+   "state": "Identification",
+   "type": "Success"
+  },
+  {
+   "allow_edit": "Biomed Engineer",
+   "doc_status": "0",
+   "state": "Initial Inspection",
+   "type": "Success"
+  },
+  {
+   "allow_edit": "Biomed Engineer",
+   "doc_status": "0",
+   "state": "Non Conformance",
+   "type": "Warning"
+  },
+  {
+   "allow_edit": "QA Officer",
+   "doc_status": "0",
+   "state": "Clinical Hold",
+   "type": "Warning"
+  },
+  {
+   "allow_edit": "Biomed Engineer",
+   "doc_status": "0",
+   "state": "Re Inspection",
+   "type": "Success"
+  },
+  {
+   "allow_edit": "System Manager",
+   "doc_status": "1",
+   "state": "Clinical Release",
+   "type": "Success"
+  },
+  {
+   "allow_edit": "System Manager",
+   "doc_status": "1",
+   "state": "Return To Vendor",
+   "type": "Danger"
+  }
+ ],
+ "transitions": [
+  {
+   "action": "Gửi kiểm tra tài liệu",
+   "allowed": "Biomed Engineer",
+   "next_state": "Pending Doc Verify",
+   "state": "Draft"
+  },
+  {
+   "action": "Gửi kiểm tra tài liệu",
+   "allowed": "CMMS Admin",
+   "next_state": "Pending Doc Verify",
+   "state": "Draft"
+  },
+  {
+   "action": "Xác nhận đủ tài liệu",
+   "allowed": "Biomed Engineer",
+   "next_state": "To Be Installed",
+   "state": "Pending Doc Verify"
+  },
+  {
+   "action": "Yêu cầu bổ sung tài liệu",
+   "allowed": "Biomed Engineer",
+   "next_state": "Draft",
+   "state": "Pending Doc Verify"
+  },
+  {
+   "action": "Bắt đầu lắp đặt",
+   "allowed": "Biomed Engineer",
+   "next_state": "Installing",
+   "state": "To Be Installed"
+  },
+  {
+   "action": "Báo cáo sự cố",
+   "allowed": "Biomed Engineer",
+   "next_state": "Non Conformance",
+   "state": "To Be Installed"
+  },
+  {
+   "action": "Báo cáo sự cố",
+   "allowed": "Vendor Engineer",
+   "next_state": "Non Conformance",
+   "state": "To Be Installed"
+  },
+  {
+   "action": "Lắp đặt hoàn thành",
+   "allowed": "Biomed Engineer",
+   "next_state": "Identification",
+   "state": "Installing"
+  },
+  {
+   "action": "Lắp đặt hoàn thành",
+   "allowed": "Vendor Engineer",
+   "next_state": "Identification",
+   "state": "Installing"
+  },
+  {
+   "action": "Báo cáo DOA",
+   "allowed": "Biomed Engineer",
+   "next_state": "Non Conformance",
+   "state": "Installing"
+  },
+  {
+   "action": "Báo cáo DOA",
+   "allowed": "Vendor Engineer",
+   "next_state": "Non Conformance",
+   "state": "Installing"
+  },
+  {
+   "action": "Bắt đầu kiểm tra",
+   "allowed": "Biomed Engineer",
+   "next_state": "Initial Inspection",
+   "state": "Identification"
+  },
+  {
+   "action": "Phê duyệt phát hành",
+   "allowed": "System Manager",
+   "next_state": "Clinical Release",
+   "state": "Initial Inspection"
+  },
+  {
+   "action": "Phê duyệt phát hành",
+   "allowed": "CMMS Admin",
+   "next_state": "Clinical Release",
+   "state": "Initial Inspection"
+  },
+  {
+   "action": "Giữ lâm sàng",
+   "allowed": "QA Officer",
+   "next_state": "Clinical Hold",
+   "state": "Initial Inspection"
+  },
+  {
+   "action": "Giữ lâm sàng",
+   "allowed": "CMMS Admin",
+   "next_state": "Clinical Hold",
+   "state": "Initial Inspection"
+  },
+  {
+   "action": "Báo cáo lỗi baseline",
+   "allowed": "Biomed Engineer",
+   "next_state": "Re Inspection",
+   "state": "Initial Inspection"
+  },
+  {
+   "action": "Gỡ giữ lâm sàng",
+   "allowed": "QA Officer",
+   "next_state": "Clinical Release",
+   "state": "Clinical Hold"
+  },
+  {
+   "action": "Gỡ giữ lâm sàng",
+   "allowed": "CMMS Admin",
+   "next_state": "Clinical Release",
+   "state": "Clinical Hold"
+  },
+  {
+   "action": "Phê duyệt sau tái kiểm",
+   "allowed": "System Manager",
+   "next_state": "Clinical Release",
+   "state": "Re Inspection"
+  },
+  {
+   "action": "Phê duyệt sau tái kiểm",
+   "allowed": "CMMS Admin",
+   "next_state": "Clinical Release",
+   "state": "Re Inspection"
+  },
+  {
+   "action": "Khắc phục xong",
+   "allowed": "Biomed Engineer",
+   "next_state": "To Be Installed",
+   "state": "Non Conformance"
+  },
+  {
+   "action": "Trả lại nhà cung cấp",
+   "allowed": "System Manager",
+   "next_state": "Return To Vendor",
+   "state": "Non Conformance"
+  }
+ ]
+}
