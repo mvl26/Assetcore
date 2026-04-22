@@ -143,9 +143,7 @@ async function submit() {
               <option value="">— Chọn mức phân loại —</option>
               <option value="Class I">Loại I — Rủi ro thấp</option>
               <option value="Class II">Loại II — Rủi ro trung bình</option>
-              <option value="Class IIa">Loại IIa — Rủi ro trung bình</option>
-              <option value="Class IIb">Loại IIb — Rủi ro cao</option>
-              <option value="Class III">Loại III — Rủi ro cao nhất</option>
+              <option value="Class III">Loại III — Rủi ro cao</option>
             </select>
           </div>
           <div>

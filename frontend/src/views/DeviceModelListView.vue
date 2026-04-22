@@ -16,10 +16,8 @@ const PAGE_SIZE = 30
 const BASE = '/api/method/assetcore.api.imm00'
 
 const CLASS_COLOR: Record<string, string> = {
-  'Class I': 'bg-green-100 text-green-700',
-  'Class II': 'bg-yellow-100 text-yellow-700',
-  'Class IIa': 'bg-yellow-100 text-yellow-700',
-  'Class IIb': 'bg-orange-100 text-orange-700',
+  'Class I':   'bg-green-100 text-green-700',
+  'Class II':  'bg-yellow-100 text-yellow-700',
   'Class III': 'bg-red-100 text-red-700',
 }
 

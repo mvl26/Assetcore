@@ -346,8 +346,9 @@
   },
   {
    "fieldname": "commissioning_ref",
-   "fieldtype": "Data",
-   "label": "Commissioning Reference"
+   "fieldtype": "Link",
+   "label": "Commissioning Reference",
+   "options": "Asset Commissioning"
   },
   {
    "fieldname": "calibration_status",

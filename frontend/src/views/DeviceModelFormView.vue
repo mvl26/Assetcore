@@ -84,11 +84,9 @@ onMounted(load)
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">Phân loại TB Y tế</label>
           <select v-model="form.medical_device_class" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
-            <option value="Class I">Class I</option>
-            <option value="Class II">Class II</option>
-            <option value="Class IIa">Class IIa</option>
-            <option value="Class IIb">Class IIb</option>
-            <option value="Class III">Class III</option>
+            <option value="Class I">Loại I — Rủi ro thấp</option>
+            <option value="Class II">Loại II — Rủi ro trung bình</option>
+            <option value="Class III">Loại III — Rủi ro cao</option>
           </select>
         </div>
         <div>

@@ -6,7 +6,7 @@ export type LifecycleStatus =
   | 'Out of Service' | 'Decommissioned'
 
 export type RiskClass = 'Low' | 'Medium' | 'High' | 'Critical'
-export type MedicalDeviceClass = 'Class I' | 'Class II' | 'Class IIa' | 'Class IIb' | 'Class III'
+export type MedicalDeviceClass = 'Class I' | 'Class II' | 'Class III'
 export type CapaSeverity = 'Minor' | 'Major' | 'Critical'
 export type CapaStatus = 'Open' | 'In Progress' | 'Pending Verification' | 'Closed' | 'Overdue'
 export type IncidentSeverity = 'Low' | 'Medium' | 'High' | 'Critical'

@@ -56,52 +56,288 @@
   "amended_from"
  ],
  "fields": [
-  {"fieldname": "section_basic", "fieldtype": "Section Break", "label": "Thông tin cơ bản"},
-  {"fieldname": "naming_series", "fieldtype": "Select", "label": "Series", "options": "IR-.YYYY.-.####", "reqd": 1},
-  {"fieldname": "incident_number", "fieldtype": "Data", "label": "Incident Number", "read_only": 1, "in_list_view": 1},
-  {"fieldname": "asset", "fieldtype": "Link", "label": "Asset", "options": "AC Asset", "reqd": 1, "search_index": 1, "in_list_view": 1},
-  {"fieldname": "column_break_basic", "fieldtype": "Column Break"},
-  {"fieldname": "reported_by", "fieldtype": "Link", "label": "Reported By", "options": "User", "reqd": 1, "default": "__user"},
-  {"fieldname": "reported_at", "fieldtype": "Datetime", "label": "Reported At", "reqd": 1, "default": "now", "in_list_view": 1},
-  {"fieldname": "assigned_to", "fieldtype": "Link", "label": "Giao cho KTV", "options": "User"},
-  {"fieldname": "section_classification", "fieldtype": "Section Break", "label": "Phân loại"},
-  {"fieldname": "incident_type", "fieldtype": "Select", "label": "Incident Type", "options": "Failure\nSafety Event\nNear Miss\nMalfunction", "reqd": 1, "search_index": 1, "in_list_view": 1},
-  {"fieldname": "severity", "fieldtype": "Select", "label": "Severity", "options": "Low\nMedium\nHigh\nCritical", "reqd": 1, "search_index": 1, "in_list_view": 1},
-  {"fieldname": "column_break_classification", "fieldtype": "Column Break"},
-  {"fieldname": "status", "fieldtype": "Select", "label": "Status", "options": "Open\nUnder Investigation\nResolved\nClosed\nCancelled", "reqd": 1, "default": "Open", "search_index": 1},
-  {"fieldname": "workflow_state", "fieldtype": "Link", "label": "Workflow State", "options": "Workflow State", "read_only": 1, "hidden": 1},
-  {"fieldname": "section_desc", "fieldtype": "Section Break", "label": "Mô tả & Xử lý"},
-  {"fieldname": "description", "fieldtype": "Text Editor", "label": "Description", "reqd": 1},
-  {"fieldname": "immediate_action", "fieldtype": "Text Editor", "label": "Immediate Action"},
-  {"fieldname": "section_patient", "fieldtype": "Section Break", "label": "Ảnh hưởng bệnh nhân"},
-  {"fieldname": "patient_affected", "fieldtype": "Check", "label": "Patient Affected"},
-  {"fieldname": "patient_impact_description", "fieldtype": "Text", "label": "Patient Impact Description", "depends_on": "patient_affected"},
-  {"fieldname": "section_byt", "fieldtype": "Section Break", "label": "Báo cáo BYT (NĐ98)"},
-  {"fieldname": "reported_to_byt", "fieldtype": "Check", "label": "Reported to BYT"},
-  {"fieldname": "byt_report_date", "fieldtype": "Date", "label": "BYT Report Date", "depends_on": "reported_to_byt"},
-  {"fieldname": "section_analysis", "fieldtype": "Section Break", "label": "Phân tích & Phân loại"},
-  {"fieldname": "fault_code", "fieldtype": "Data", "label": "Fault Code", "search_index": 1},
-  {"fieldname": "workaround_applied", "fieldtype": "Check", "label": "Đã áp dụng biện pháp tạm thời"},
-  {"fieldname": "col_break_analysis", "fieldtype": "Column Break"},
-  {"fieldname": "rca_required", "fieldtype": "Check", "label": "Yêu cầu RCA", "read_only": 1},
-  {"fieldname": "chronic_failure_flag", "fieldtype": "Check", "label": "Hỏng hóc mãn tính", "read_only": 1},
-  {"fieldname": "clinical_impact", "fieldtype": "Small Text", "label": "Ảnh hưởng lâm sàng", "mandatory_depends_on": "eval:doc.severity === 'Critical'", "depends_on": "eval:doc.severity === 'Critical'"},
-  {"fieldname": "section_links", "fieldtype": "Section Break", "label": "Liên kết"},
-  {"fieldname": "linked_repair_wo", "fieldtype": "Data", "label": "Linked Repair Work Order"},
-  {"fieldname": "linked_capa", "fieldtype": "Link", "label": "Linked CAPA", "options": "IMM CAPA Record"},
-  {"fieldname": "rca_record", "fieldtype": "Link", "label": "RCA Record", "options": "IMM RCA Record", "read_only": 1},
-  {"fieldname": "section_resolution", "fieldtype": "Section Break", "label": "Giải quyết"},
-  {"fieldname": "root_cause_summary", "fieldtype": "Text", "label": "Root Cause Summary"},
-  {"fieldname": "resolution_notes", "fieldtype": "Text", "label": "Resolution Notes"},
-  {"fieldname": "section_audit", "fieldtype": "Section Break", "label": "Audit Timestamps", "collapsible": 1},
-  {"fieldname": "acknowledged_by", "fieldtype": "Link", "label": "Acknowledged By", "options": "User", "read_only": 1},
-  {"fieldname": "acknowledged_at", "fieldtype": "Datetime", "label": "Acknowledged At", "read_only": 1},
-  {"fieldname": "col_break_audit", "fieldtype": "Column Break"},
-  {"fieldname": "resolved_by", "fieldtype": "Link", "label": "Resolved By", "options": "User", "read_only": 1},
-  {"fieldname": "resolved_at", "fieldtype": "Datetime", "label": "Resolved At", "read_only": 1},
-  {"fieldname": "closed_by", "fieldtype": "Link", "label": "Closed By", "options": "User", "read_only": 1},
-  {"fieldname": "closed_date", "fieldtype": "Date", "label": "Closed Date", "read_only": 1},
-  {"fieldname": "amended_from", "fieldtype": "Link", "label": "Amended From", "options": "Incident Report", "read_only": 1, "no_copy": 1, "print_hide": 1}
+  {
+   "fieldname": "section_basic",
+   "fieldtype": "Section Break",
+   "label": "Thông tin cơ bản"
+  },
+  {
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Series",
+   "options": "IR-.YYYY.-.####",
+   "reqd": 1
+  },
+  {
+   "fieldname": "incident_number",
+   "fieldtype": "Data",
+   "label": "Incident Number",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "asset",
+   "fieldtype": "Link",
+   "label": "Asset",
+   "options": "AC Asset",
+   "reqd": 1,
+   "search_index": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "column_break_basic",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "reported_by",
+   "fieldtype": "Link",
+   "label": "Reported By",
+   "options": "User",
+   "reqd": 1,
+   "default": "__user"
+  },
+  {
+   "fieldname": "reported_at",
+   "fieldtype": "Datetime",
+   "label": "Reported At",
+   "reqd": 1,
+   "default": "now",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "assigned_to",
+   "fieldtype": "Link",
+   "label": "Giao cho KTV",
+   "options": "User"
+  },
+  {
+   "fieldname": "section_classification",
+   "fieldtype": "Section Break",
+   "label": "Phân loại"
+  },
+  {
+   "fieldname": "incident_type",
+   "fieldtype": "Select",
+   "label": "Incident Type",
+   "options": "Failure\nSafety Event\nNear Miss\nMalfunction",
+   "reqd": 1,
+   "search_index": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "severity",
+   "fieldtype": "Select",
+   "label": "Severity",
+   "options": "Low\nMedium\nHigh\nCritical",
+   "reqd": 1,
+   "search_index": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "column_break_classification",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Open\nUnder Investigation\nResolved\nClosed\nCancelled",
+   "reqd": 1,
+   "default": "Open",
+   "search_index": 1
+  },
+  {
+   "fieldname": "workflow_state",
+   "fieldtype": "Link",
+   "label": "Workflow State",
+   "options": "Workflow State",
+   "read_only": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "section_desc",
+   "fieldtype": "Section Break",
+   "label": "Mô tả & Xử lý"
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Text Editor",
+   "label": "Description",
+   "reqd": 1
+  },
+  {
+   "fieldname": "immediate_action",
+   "fieldtype": "Text Editor",
+   "label": "Immediate Action"
+  },
+  {
+   "fieldname": "section_patient",
+   "fieldtype": "Section Break",
+   "label": "Ảnh hưởng bệnh nhân"
+  },
+  {
+   "fieldname": "patient_affected",
+   "fieldtype": "Check",
+   "label": "Patient Affected"
+  },
+  {
+   "fieldname": "patient_impact_description",
+   "fieldtype": "Text",
+   "label": "Patient Impact Description",
+   "depends_on": "patient_affected"
+  },
+  {
+   "fieldname": "section_byt",
+   "fieldtype": "Section Break",
+   "label": "Báo cáo BYT (NĐ98)"
+  },
+  {
+   "fieldname": "reported_to_byt",
+   "fieldtype": "Check",
+   "label": "Reported to BYT"
+  },
+  {
+   "fieldname": "byt_report_date",
+   "fieldtype": "Date",
+   "label": "BYT Report Date",
+   "depends_on": "reported_to_byt"
+  },
+  {
+   "fieldname": "section_analysis",
+   "fieldtype": "Section Break",
+   "label": "Phân tích & Phân loại"
+  },
+  {
+   "fieldname": "fault_code",
+   "fieldtype": "Data",
+   "label": "Fault Code",
+   "search_index": 1
+  },
+  {
+   "fieldname": "workaround_applied",
+   "fieldtype": "Check",
+   "label": "Đã áp dụng biện pháp tạm thời"
+  },
+  {
+   "fieldname": "col_break_analysis",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "rca_required",
+   "fieldtype": "Check",
+   "label": "Yêu cầu RCA",
+   "read_only": 1
+  },
+  {
+   "fieldname": "chronic_failure_flag",
+   "fieldtype": "Check",
+   "label": "Hỏng hóc mãn tính",
+   "read_only": 1
+  },
+  {
+   "fieldname": "clinical_impact",
+   "fieldtype": "Small Text",
+   "label": "Ảnh hưởng lâm sàng",
+   "mandatory_depends_on": "eval:doc.severity === 'Critical'",
+   "depends_on": "eval:doc.severity === 'Critical'"
+  },
+  {
+   "fieldname": "section_links",
+   "fieldtype": "Section Break",
+   "label": "Liên kết"
+  },
+  {
+   "fieldname": "linked_repair_wo",
+   "fieldtype": "Link",
+   "label": "Linked Repair Work Order",
+   "options": "Asset Repair"
+  },
+  {
+   "fieldname": "linked_capa",
+   "fieldtype": "Link",
+   "label": "Linked CAPA",
+   "options": "IMM CAPA Record"
+  },
+  {
+   "fieldname": "rca_record",
+   "fieldtype": "Link",
+   "label": "RCA Record",
+   "options": "IMM RCA Record",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_resolution",
+   "fieldtype": "Section Break",
+   "label": "Giải quyết"
+  },
+  {
+   "fieldname": "root_cause_summary",
+   "fieldtype": "Text",
+   "label": "Root Cause Summary"
+  },
+  {
+   "fieldname": "resolution_notes",
+   "fieldtype": "Text",
+   "label": "Resolution Notes"
+  },
+  {
+   "fieldname": "section_audit",
+   "fieldtype": "Section Break",
+   "label": "Audit Timestamps",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "acknowledged_by",
+   "fieldtype": "Link",
+   "label": "Acknowledged By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "acknowledged_at",
+   "fieldtype": "Datetime",
+   "label": "Acknowledged At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_break_audit",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "resolved_by",
+   "fieldtype": "Link",
+   "label": "Resolved By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "resolved_at",
+   "fieldtype": "Datetime",
+   "label": "Resolved At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "closed_by",
+   "fieldtype": "Link",
+   "label": "Closed By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "closed_date",
+   "fieldtype": "Date",
+   "label": "Closed Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "options": "Incident Report",
+   "read_only": 1,
+   "no_copy": 1,
+   "print_hide": 1
+  }
  ],
  "links": [],
  "modified": "2026-04-21 00:00:00.000000",
@@ -110,13 +346,54 @@
  "name": "Incident Report",
  "owner": "Administrator",
  "permissions": [
-  {"role": "IMM System Admin", "read": 1, "write": 1, "create": 1, "delete": 1, "submit": 1, "cancel": 1, "amend": 1},
-  {"role": "IMM QA Officer", "read": 1, "write": 1, "create": 1, "submit": 1, "cancel": 1},
-  {"role": "IMM Department Head", "read": 1, "write": 1, "create": 1, "submit": 1},
-  {"role": "IMM Operations Manager", "read": 1, "write": 1, "create": 1, "submit": 1},
-  {"role": "IMM Workshop Lead", "read": 1, "write": 1, "create": 1},
-  {"role": "IMM Technician", "read": 1, "write": 1, "create": 1},
-  {"role": "IMM Document Officer", "read": 1}
+  {
+   "role": "IMM System Admin",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "submit": 1,
+   "cancel": 1,
+   "amend": 1
+  },
+  {
+   "role": "IMM QA Officer",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "submit": 1,
+   "cancel": 1
+  },
+  {
+   "role": "IMM Department Head",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "submit": 1
+  },
+  {
+   "role": "IMM Operations Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "submit": 1
+  },
+  {
+   "role": "IMM Workshop Lead",
+   "read": 1,
+   "write": 1,
+   "create": 1
+  },
+  {
+   "role": "IMM Technician",
+   "read": 1,
+   "write": 1,
+   "create": 1
+  },
+  {
+   "role": "IMM Document Officer",
+   "read": 1
+  }
  ],
  "sort_field": "modified",
  "sort_order": "DESC",
