@@ -94,7 +94,7 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="page-container animate-fade-in max-w-5xl">
+  <div class="page-container animate-fade-in">
     <button class="btn-ghost mb-4" @click="router.push('/spare-parts')">← Quay lại</button>
 
     <div v-if="toast" class="mb-4 px-4 py-3 rounded-lg bg-emerald-50 text-emerald-700 text-sm">{{ toast }}</div>

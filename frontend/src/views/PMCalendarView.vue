@@ -193,7 +193,7 @@ function statusBadgeClass(status: string) {
     </div>
 
     <!-- Summary -->
-    <div v-if="store.calendarSummary" class="grid grid-cols-4 gap-3 mb-5">
+    <div v-if="store.calendarSummary" class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
       <div class="bg-white border rounded-lg p-3 text-center">
         <div class="font-bold text-gray-800">{{ store.calendarSummary.total }}</div>
         <div class="text-xs text-gray-500">Tổng phiếu</div>

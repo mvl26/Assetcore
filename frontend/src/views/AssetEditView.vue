@@ -36,7 +36,7 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="page-container animate-fade-in max-w-3xl">
+  <div class="page-container animate-fade-in">
     <div class="flex items-center gap-3 mb-6">
       <button class="btn-ghost" @click="router.push(`/assets/${id}`)">← Quay lại</button>
       <div>

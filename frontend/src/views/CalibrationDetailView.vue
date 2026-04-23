@@ -148,7 +148,7 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="page-container animate-fade-in space-y-5 max-w-4xl">
+  <div class="page-container animate-fade-in space-y-5">
     <div class="flex items-center justify-between">
       <div class="flex items-center gap-3">
         <button class="btn-ghost text-sm" @click="router.push('/calibration')">← Quay lại</button>
@@ -209,7 +209,7 @@ onMounted(load)
       <!-- Status + External fields -->
       <div v-if="!isSubmitted" class="card p-5 space-y-4">
         <h2 class="text-sm font-semibold text-slate-700 pb-2 border-b">Cập nhật trạng thái</h2>
-        <div class="grid grid-cols-2 gap-4">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label class="form-label">Trạng thái</label>
             <select v-model="form.status" class="form-select w-full text-sm">
@@ -227,7 +227,7 @@ onMounted(load)
         </div>
 
         <template v-if="form.calibration_type === 'External'">
-          <div class="grid grid-cols-2 gap-4">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label class="form-label">Số hợp đồng Lab</label>
               <input v-model="form.lab_contract_ref" type="text" class="form-input w-full text-sm" />
@@ -248,7 +248,7 @@ onMounted(load)
         </template>
 
         <template v-if="form.calibration_type === 'In-House'">
-          <div class="grid grid-cols-2 gap-4">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label class="form-label">Serial thiết bị chuẩn</label>
               <input v-model="form.reference_standard_serial" type="text" class="form-input w-full text-sm" />
@@ -378,7 +378,7 @@ onMounted(load)
           <label for="recv-file" class="block text-sm font-medium mb-1">URL file chứng chỉ <span class="text-red-500">*</span></label>
           <input id="recv-file" v-model="recvData.certificate_file" type="text" class="form-input w-full text-sm" placeholder="/files/cert.pdf" />
         </div>
-        <div class="grid grid-cols-2 gap-3">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label for="recv-num" class="block text-sm font-medium mb-1">Số chứng chỉ <span class="text-red-500">*</span></label>
             <input id="recv-num" v-model="recvData.certificate_number" type="text" class="form-input w-full text-sm" />

@@ -107,7 +107,7 @@ async function handleComplete() {
       </div>
     </Transition>
 
-    <div class="max-w-2xl space-y-5">
+    <div class="space-y-5">
       <!-- Progress bar -->
       <div class="card">
         <div class="flex items-center justify-between mb-2">

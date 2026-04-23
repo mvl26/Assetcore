@@ -122,7 +122,7 @@ async function handleStart() {
 </script>
 
 <template>
-  <div class="p-6 max-w-4xl mx-auto">
+  <div class="page-container animate-fade-in">
     <!-- Back + Header -->
     <div class="flex items-center gap-3 mb-5">
       <button class="text-gray-400 hover:text-gray-600 transition-colors" @click="router.back()">

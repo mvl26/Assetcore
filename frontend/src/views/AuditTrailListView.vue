@@ -111,7 +111,7 @@ onMounted(fetchTrails)
 </script>
 
 <template>
-  <div class="p-6 space-y-5">
+  <div class="page-container animate-fade-in space-y-5">
     <div class="flex items-center justify-between">
       <div>
         <h1 class="text-xl font-semibold text-gray-800">Audit Trail</h1>

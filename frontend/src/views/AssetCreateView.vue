@@ -47,7 +47,7 @@ async function submit() {
 </script>
 
 <template>
-  <div class="page-container animate-fade-in max-w-3xl">
+  <div class="page-container animate-fade-in">
     <!-- Header -->
     <div class="flex items-center gap-3 mb-6">
       <button class="btn-ghost" @click="router.push('/assets')">← Quay lại</button>

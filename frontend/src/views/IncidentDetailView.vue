@@ -153,7 +153,7 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="p-6 max-w-4xl mx-auto space-y-5">
+  <div class="page-container animate-fade-in space-y-5">
     <!-- Header -->
     <div class="flex items-start justify-between flex-wrap gap-3">
       <div>

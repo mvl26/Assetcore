@@ -47,7 +47,7 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="p-6 space-y-5">
+  <div class="page-container animate-fade-in space-y-5">
     <div class="flex items-center justify-between">
       <h1 class="text-xl font-semibold text-gray-800">Device Models</h1>
       <div class="flex items-center gap-3">
@@ -67,7 +67,7 @@ onMounted(load)
       <button @click="handleSearch" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium">Tìm</button>
     </div>
 
-    <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <div class="bg-white rounded-xl border border-gray-200 overflow-x-auto">
       <div v-if="loading" class="text-center text-gray-400 py-12">Đang tải...</div>
       <div v-else-if="error" class="text-center text-red-500 py-12 text-sm">{{ error }}</div>
       <div v-else-if="models.length === 0" class="text-center text-gray-400 py-12 text-sm">Không tìm thấy kết quả.</div>
@@ -84,7 +84,7 @@ onMounted(load)
           </tr>
         </thead>
         <tbody class="divide-y divide-gray-100">
-          <tr v-for="m in models" :key="m.name" class="hover:bg-gray-50">
+          <tr v-for="m in models" :key="m.name" class="hover:bg-gray-50 cursor-pointer" @click="router.push(`/device-models/${m.name}`)">
             <td class="px-4 py-3 font-mono text-xs text-gray-500">{{ m.name }}</td>
             <td class="px-4 py-3 font-medium text-gray-800">{{ m.model_name }}</td>
             <td class="px-4 py-3 text-gray-600">{{ m.manufacturer || '—' }}</td>

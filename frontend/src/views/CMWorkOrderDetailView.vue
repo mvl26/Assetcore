@@ -132,7 +132,7 @@ function navigateChecklist() {
         <!-- Asset Info -->
         <div class="bg-white rounded-xl shadow-sm border p-5">
           <h2 class="font-semibold text-gray-700 mb-3 text-sm uppercase tracking-wide">Thông tin thiết bị</h2>
-          <div class="grid grid-cols-2 gap-3 text-sm">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
             <div class="col-span-2">
               <span class="text-gray-500">Thiết bị:</span>
               <span class="font-semibold ml-1">{{ wo.asset_name || wo.asset_ref }}</span>

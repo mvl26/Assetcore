@@ -390,7 +390,7 @@ function goBack() {
 </template>
 
 <style scoped>
-.create-view { padding: 1.5rem; max-width: 860px; margin: 0 auto; }
+.create-view { padding: 1.75rem 1.5rem; width: 100%; }
 
 .page-header { margin-bottom: 1.5rem; }
 .page-header h1 { margin: 0.25rem 0 0; font-size: 1.4rem; }

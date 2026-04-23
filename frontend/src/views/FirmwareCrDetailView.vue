@@ -85,7 +85,7 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="p-6 max-w-3xl mx-auto space-y-5">
+  <div class="page-container animate-fade-in space-y-5">
     <!-- Header -->
     <div class="flex items-center justify-between">
       <div class="flex items-center gap-3">
@@ -142,7 +142,7 @@ onMounted(load)
       <!-- Info Section -->
       <div class="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
         <h2 class="text-sm font-semibold text-gray-700 uppercase tracking-wide">Thông tin chi tiết</h2>
-        <div class="grid grid-cols-2 gap-4 text-sm">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
           <div>
             <p class="text-xs text-gray-400 mb-0.5">Phiên bản trước</p>
             <p class="font-mono font-medium text-gray-800">{{ fcr.version_before || '—' }}</p>
@@ -169,7 +169,7 @@ onMounted(load)
       <!-- Status Section -->
       <div class="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
         <h2 class="text-sm font-semibold text-gray-700 uppercase tracking-wide">Trạng thái xử lý</h2>
-        <div class="grid grid-cols-2 gap-4 text-sm">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
           <div>
             <p class="text-xs text-gray-400 mb-0.5">Người phê duyệt</p>
             <p class="text-gray-800">{{ fcr.approved_by || '—' }}</p>

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // Copyright (c) 2026, AssetCore Team
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { listStockLevels } from '@/api/inventory'
 import type { StockRow } from '@/types/inventory'
@@ -14,9 +14,41 @@ const total = ref(0)
 const page = ref(1)
 const PAGE_SIZE = 50
 const loading = ref(false)
+const showFilters = ref(false)
 
 const warehouseFilter = ref('')
+const warehouseName = ref('')
 const lowOnly = ref(route.query.low === '1')
+
+interface Chip { key: 'warehouse' | 'low'; label: string }
+const activeChips = computed<Chip[]>(() => {
+  const chips: Chip[] = []
+  if (warehouseFilter.value) chips.push({ key: 'warehouse', label: `Kho: ${warehouseName.value || warehouseFilter.value}` })
+  if (lowOnly.value) chips.push({ key: 'low', label: 'Dưới mức min' })
+  return chips
+})
+const activeFilterCount = computed(() => activeChips.value.length)
+
+function clearChip(key: Chip['key']) {
+  if (key === 'warehouse') { warehouseFilter.value = ''; warehouseName.value = '' }
+  else lowOnly.value = false
+  page.value = 1; load()
+}
+
+function resetFilters() {
+  warehouseFilter.value = ''
+  warehouseName.value = ''
+  lowOnly.value = false
+  page.value = 1; load()
+}
+
+function quickFilterWarehouse(warehouse: string, name: string) {
+  if (!warehouse) return
+  warehouseFilter.value = warehouse
+  warehouseName.value = name
+  showFilters.value = false
+  page.value = 1; load()
+}
 
 async function load() {
   loading.value = true
@@ -47,32 +79,118 @@ onMounted(load)
 
 <template>
   <div class="page-container animate-fade-in">
-    <div class="flex items-start justify-between mb-6">
+
+    <!-- Header -->
+    <div class="flex items-start justify-between mb-5">
       <div>
         <p class="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-1">IMM-00 · Inventory</p>
         <h1 class="text-2xl font-bold text-slate-900">Tồn kho</h1>
-        <p class="text-sm text-slate-500 mt-1">{{ total }} dòng tồn kho (phụ tùng × kho)</p>
+        <p class="text-sm text-slate-500 mt-1">Tổng <strong class="text-slate-700">{{ total }}</strong> dòng tồn (phụ tùng × kho)</p>
       </div>
-      <button class="btn-primary" @click="router.push('/stock-movements/new')">+ Phiếu mới</button>
+      <div class="flex items-center gap-2 shrink-0">
+        <button
+          class="relative flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border transition-colors"
+          :class="showFilters
+            ? 'bg-brand-50 border-brand-300 text-brand-700'
+            : 'bg-white border-slate-300 text-slate-600 hover:border-slate-400'"
+          @click="showFilters = !showFilters"
+        >
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3 4h18M7 8h10M11 12h2M9 16h6" />
+          </svg>
+          Bộ lọc
+          <span v-if="activeFilterCount > 0"
+            class="inline-flex items-center justify-center w-4 h-4 text-[10px] font-bold rounded-full bg-blue-500 text-white">
+            {{ activeFilterCount }}
+          </span>
+          <svg class="w-3.5 h-3.5 transition-transform duration-200" :class="showFilters ? 'rotate-180' : ''"
+               fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+        <button class="btn-primary shrink-0" @click="router.push('/stock-movements/new')">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+          </svg>
+          Phiếu mới
+        </button>
+      </div>
     </div>
 
-    <!-- Filters -->
-    <div class="card p-4 mb-4">
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
-        <div>
-          <label class="form-label">Kho</label>
-          <SmartSelect v-model="warehouseFilter" doctype="AC Warehouse" placeholder="Tất cả..." />
+    <!-- Active chips -->
+    <Transition
+      enter-active-class="transition-all duration-200 ease-out"
+      enter-from-class="opacity-0 -translate-y-1"
+      enter-to-class="opacity-100 translate-y-0"
+      leave-active-class="transition-all duration-150 ease-in"
+      leave-from-class="opacity-100"
+      leave-to-class="opacity-0"
+    >
+      <div v-if="activeChips.length > 0 && !showFilters" class="flex flex-wrap items-center gap-2 mb-4">
+        <span class="text-xs text-slate-400 font-medium">Đang lọc:</span>
+        <button v-for="chip in activeChips" :key="chip.key"
+          class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors"
+          @click="clearChip(chip.key)"
+        >
+          {{ chip.label }}
+          <svg class="w-3 h-3 opacity-60" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+        <button class="text-xs text-slate-400 hover:text-red-500 underline underline-offset-2" @click="resetFilters">Xóa tất cả</button>
+      </div>
+    </Transition>
+
+    <!-- Collapsible filter panel -->
+    <Transition
+      enter-active-class="transition-all duration-200 ease-out overflow-hidden"
+      enter-from-class="opacity-0 max-h-0"
+      enter-to-class="opacity-100 max-h-40"
+      leave-active-class="transition-all duration-150 ease-in overflow-hidden"
+      leave-from-class="opacity-100 max-h-40"
+      leave-to-class="opacity-0 max-h-0"
+    >
+      <div v-show="showFilters" class="card p-4 mb-4 space-y-3">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+          <div>
+            <label for="sl-warehouse-filter" class="form-label">Kho</label>
+            <SmartSelect id="sl-warehouse-filter" v-model="warehouseFilter" doctype="AC Warehouse" placeholder="Tất cả kho..." />
+          </div>
+          <div class="flex items-center gap-3">
+            <input id="low-only" v-model="lowOnly" type="checkbox" class="h-4 w-4 text-red-600 rounded" />
+            <label for="low-only" class="text-sm text-slate-700">Chỉ tồn dưới mức min</label>
+          </div>
+          <button class="btn-ghost text-sm self-end" @click="resetFilters">Đặt lại</button>
         </div>
-        <div class="flex items-center gap-3 pt-6">
-          <input id="low-only" v-model="lowOnly" type="checkbox" class="h-4 w-4 text-red-600 rounded" />
-          <label for="low-only" class="text-sm text-slate-700">Chỉ hiển thị phụ tùng dưới mức min</label>
+        <div v-if="activeChips.length > 0" class="flex flex-wrap items-center gap-2 pt-3 border-t border-slate-100">
+          <span class="text-xs text-slate-400 font-medium">Đang lọc:</span>
+          <button v-for="chip in activeChips" :key="chip.key"
+            class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors"
+            @click="clearChip(chip.key)"
+          >
+            {{ chip.label }}
+            <svg class="w-3 h-3 opacity-60" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
         </div>
       </div>
-    </div>
+    </Transition>
 
     <div class="card overflow-hidden">
+      <!-- Info row -->
+      <div class="flex items-center justify-between px-4 py-2.5 border-b border-slate-100 bg-slate-50/60 text-xs text-slate-500">
+        <span>Hiển thị <strong class="text-slate-700">{{ rows.length }}</strong> / {{ total }} dòng</span>
+        <button v-if="activeFilterCount > 0" class="text-red-500 hover:text-red-700 font-medium" @click="resetFilters">Xóa tất cả</button>
+      </div>
+
       <div v-if="loading && !rows.length" class="text-center py-12 text-slate-400">Đang tải...</div>
-      <div v-else-if="rows.length === 0" class="text-center py-12 text-slate-400">Không có dữ liệu tồn.</div>
+      <div v-else-if="rows.length === 0" class="flex flex-col items-center justify-center py-16 text-slate-400">
+        <p class="text-sm">Không có dữ liệu tồn.</p>
+        <button v-if="activeFilterCount > 0" class="text-xs text-blue-500 hover:text-blue-700 underline mt-2" @click="resetFilters">
+          Xóa bộ lọc để xem tất cả
+        </button>
+      </div>
 
       <div v-else class="overflow-x-auto">
         <table class="w-full text-sm">
@@ -90,11 +208,15 @@ onMounted(load)
           </thead>
           <tbody class="divide-y divide-slate-50">
             <tr v-for="r in rows" :key="r.name"
-                :class="['hover:bg-slate-50/70 cursor-pointer',
-                         r.is_low ? 'bg-red-50/30' : '']"
-                @click="router.push(`/spare-parts/${r.spare_part}`)">
+              :class="['hover:bg-slate-50/70 cursor-pointer transition-all hover:translate-x-0.5', r.is_low ? 'bg-red-50/30' : '']"
+              @click="router.push(`/spare-parts/${r.spare_part}`)"
+            >
               <td class="px-4 py-3">
-                <p class="text-sm text-slate-700">{{ r.warehouse_name }}</p>
+                <button
+                  class="text-sm text-slate-700 hover:underline decoration-dotted underline-offset-2 text-left"
+                  :title="`Lọc: ${r.warehouse_name}`"
+                  @click.stop="quickFilterWarehouse(r.warehouse, r.warehouse_name)"
+                >{{ r.warehouse_name }}</button>
                 <p class="text-[10px] text-slate-400 font-mono">{{ r.warehouse }}</p>
               </td>
               <td class="px-4 py-3">

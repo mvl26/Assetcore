@@ -93,7 +93,7 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="max-w-3xl mx-auto p-6 space-y-6">
+  <div class="page-container animate-fade-in space-y-6">
     <div class="flex items-center gap-3">
       <button @click="router.back()" class="text-gray-500 hover:text-gray-700 text-sm">← Quay lại</button>
       <h1 class="text-xl font-semibold text-gray-800">Chi tiết CAPA</h1>
@@ -116,7 +116,7 @@ onMounted(load)
           </div>
         </div>
 
-        <div class="grid grid-cols-2 gap-4 text-sm pt-2 border-t border-gray-100">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm pt-2 border-t border-gray-100">
           <div>
             <p class="text-gray-400 text-xs">Thiết bị</p>
             <p class="font-medium">{{ capa.asset_name || capa.asset || '—' }}</p>

@@ -73,7 +73,7 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="page-container animate-fade-in max-w-4xl">
+  <div class="page-container animate-fade-in">
     <button class="btn-ghost mb-4" @click="router.push('/stock-movements')">← Quay lại</button>
 
     <div v-if="loading && !doc" class="text-center py-20 text-slate-400">Đang tải...</div>

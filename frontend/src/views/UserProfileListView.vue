@@ -48,7 +48,7 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="p-6 space-y-5">
+  <div class="page-container animate-fade-in space-y-5">
     <div class="flex items-center justify-between">
       <h1 class="text-xl font-semibold text-gray-800">Quản lý Người dùng IMM</h1>
       <div class="flex items-center gap-3">

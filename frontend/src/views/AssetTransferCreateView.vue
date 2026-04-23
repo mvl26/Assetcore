@@ -55,7 +55,7 @@ async function submit() {
 </script>
 
 <template>
-  <div class="max-w-2xl mx-auto p-6 space-y-6">
+  <div class="page-container animate-fade-in space-y-6">
     <div class="flex items-center gap-3">
       <button @click="router.back()" class="text-gray-500 hover:text-gray-700 text-sm">← Quay lại</button>
       <h1 class="text-xl font-semibold text-gray-800">Tạo phiếu điều chuyển thiết bị</h1>
@@ -64,7 +64,7 @@ async function submit() {
     <div class="bg-white rounded-xl border border-gray-200 p-6 space-y-5">
       <div v-if="error" class="text-red-600 text-sm bg-red-50 px-3 py-2 rounded-lg">{{ error }}</div>
 
-      <div class="grid grid-cols-2 gap-4">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">Thiết bị <span class="text-red-500">*</span></label>
           <SmartSelect v-model="form.asset" doctype="AC Asset" placeholder="Tìm thiết bị..." />
@@ -78,7 +78,7 @@ async function submit() {
         </div>
       </div>
 
-      <div class="grid grid-cols-2 gap-4">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <label for="at-date" class="block text-sm font-medium text-gray-700 mb-1">Ngày chuyển giao <span class="text-red-500">*</span></label>
           <input id="at-date" v-model="form.transfer_date" type="date" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
@@ -91,7 +91,7 @@ async function submit() {
 
       <div class="border-t border-gray-100 pt-4">
         <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Đến</p>
-        <div class="grid grid-cols-2 gap-4">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">Vị trí mới <span class="text-red-500">*</span></label>
             <SmartSelect v-model="form.to_location" doctype="AC Location" placeholder="Tìm vị trí..." />

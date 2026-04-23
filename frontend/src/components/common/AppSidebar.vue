@@ -71,7 +71,6 @@ const navGroups: NavGroup[] = [
         label: 'Sửa chữa', path: '/cm/dashboard', icon: 'repair', badge: '09',
         children: [
           { label: 'Tổng quan', path: '/cm/dashboard', icon: 'chart' },
-          { label: 'Tạo phiếu sửa chữa', path: '/cm/create', icon: 'plus' },
           { label: 'Danh sách phiếu', path: '/cm/work-orders', icon: 'list' },
           { label: 'Cập nhật Firmware', path: '/cm/firmware', icon: 'chip' },
           { label: 'Thời gian sửa TB', path: '/cm/mttr', icon: 'chart' },
@@ -83,7 +82,6 @@ const navGroups: NavGroup[] = [
           { label: 'Tổng quan', path: '/calibration/dashboard', icon: 'chart' },
           { label: 'Danh sách phiếu', path: '/calibration', icon: 'list' },
           { label: 'Lịch hiệu chuẩn', path: '/calibration/schedules', icon: 'calendar' },
-          { label: 'Tạo phiếu', path: '/calibration/new', icon: 'plus' },
         ],
       },
     ],

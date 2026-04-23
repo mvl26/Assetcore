@@ -60,13 +60,13 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="p-6 space-y-5">
+  <div class="page-container animate-fade-in space-y-5">
     <div class="flex items-center justify-between">
       <h1 class="text-xl font-semibold text-gray-800">Chính sách SLA — IMM-00</h1>
       <button @click="openCreate" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium">+ Thêm Policy</button>
     </div>
 
-    <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <div class="bg-white rounded-xl border border-gray-200 overflow-x-auto">
       <div v-if="loading" class="text-center text-gray-400 py-12">Đang tải...</div>
       <div v-else-if="policies.length === 0" class="text-center text-gray-400 py-12 text-sm">Chưa có SLA Policy.</div>
       <table v-else class="w-full text-sm">
