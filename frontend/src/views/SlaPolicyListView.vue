@@ -23,9 +23,12 @@ async function load() {
 function openCreate() {
   editingName.value = null
   form.value = {
-    policy_name: '', priority: 'Medium', risk_class: 'Medium',
+    policy_name: '', priority: 'P3', risk_class: 'Medium',
     response_time_minutes: 240, resolution_time_hours: 24,
     working_hours_only: 1, is_active: 1, is_default: 0,
+    escalation_l1_role: '', escalation_l1_hours: 4,
+    escalation_l2_role: '', escalation_l2_hours: 8,
+    effective_date: '', expiry_date: '',
   }
   err.value = ''; showForm.value = true
 }
@@ -111,17 +114,19 @@ onMounted(load)
             <input v-model="form.policy_name" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
           </div>
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Mức ưu tiên</label>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Mức ưu tiên <span class="text-red-500">*</span></label>
             <select v-model="form.priority" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
-              <option value="Low">Thấp</option>
-              <option value="Medium">Trung bình</option>
-              <option value="High">Cao</option>
-              <option value="Critical">Khẩn cấp</option>
+              <option value="P1 Critical">P1 Critical — Nguy hiểm tính mạng</option>
+              <option value="P1 High">P1 High — Khẩn cấp</option>
+              <option value="P2">P2 — Cao</option>
+              <option value="P3">P3 — Trung bình</option>
+              <option value="P4">P4 — Thấp</option>
             </select>
           </div>
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">Phân loại rủi ro</label>
             <select v-model="form.risk_class" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+              <option value="">— Tất cả —</option>
               <option value="Low">Thấp</option>
               <option value="Medium">Trung bình</option>
               <option value="High">Cao</option>
@@ -134,18 +139,49 @@ onMounted(load)
           </div>
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">Resolution time (giờ)</label>
-            <input type="number" v-model.number="form.resolution_time_hours" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+            <input v-model.number="form.resolution_time_hours" type="number" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Hiệu lực từ</label>
+            <input v-model="form.effective_date" type="date" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Hết hiệu lực</label>
+            <input v-model="form.expiry_date" type="date" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
           </div>
         </div>
+
+        <div class="border-t pt-3 space-y-3">
+          <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Escalation</p>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">L1 Role</label>
+              <input v-model="form.escalation_l1_role" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="VD: IMM Workshop Lead" />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">L1 sau (giờ)</label>
+              <input v-model.number="form.escalation_l1_hours" type="number" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">L2 Role</label>
+              <input v-model="form.escalation_l2_role" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="VD: IMM Department Head" />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">L2 sau (giờ)</label>
+              <input v-model.number="form.escalation_l2_hours" type="number" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+            </div>
+          </div>
+        </div>
+
         <div class="space-y-2">
           <label class="flex items-center gap-2 text-sm">
-            <input type="checkbox" v-model="form.working_hours_only" :true-value="1" :false-value="0" /> Chỉ giờ hành chính
+            <input v-model="form.working_hours_only" type="checkbox" :true-value="1" :false-value="0" /> Chỉ giờ hành chính
           </label>
           <label class="flex items-center gap-2 text-sm">
-            <input type="checkbox" v-model="form.is_default" :true-value="1" :false-value="0" /> Policy mặc định
+            <input v-model="form.is_default" type="checkbox" :true-value="1" :false-value="0" /> Policy mặc định
           </label>
           <label class="flex items-center gap-2 text-sm">
-            <input type="checkbox" v-model="form.is_active" :true-value="1" :false-value="0" /> Đang hoạt động
+            <input v-model="form.is_active" type="checkbox" :true-value="1" :false-value="0" /> Đang hoạt động
           </label>
         </div>
 

@@ -172,6 +172,18 @@ export async function deleteDeviceModel(name: string): Promise<ApiResponse<{ nam
 
 // ─── AC Location / Department / Category CRUD ───────────────────────────────
 
+export async function getLocation(name: string): Promise<ApiResponse<AcLocation>> {
+  return frappeGet(`${BASE}.get_location`, { name })
+}
+
+export async function getDepartment(name: string): Promise<ApiResponse<AcDepartment>> {
+  return frappeGet(`${BASE}.get_department`, { name })
+}
+
+export async function getAssetCategory(name: string): Promise<ApiResponse<AcAssetCategory>> {
+  return frappeGet(`${BASE}.get_asset_category`, { name })
+}
+
 export async function createLocation(data: Partial<AcLocation>): Promise<ApiResponse<{ name: string }>> {
   return frappePost(`${BASE}.create_location`, data as Record<string, unknown>)
 }

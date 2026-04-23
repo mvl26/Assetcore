@@ -1,19 +1,17 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { frappeGet } from '@/api/helpers'
-import { deleteDeviceModel } from '@/api/imm00'
+import { listDeviceModels, deleteDeviceModel } from '@/api/imm00'
 import type { ImmDeviceModel } from '@/types/imm00'
 
 const router = useRouter()
 const models = ref<ImmDeviceModel[]>([])
 const search = ref('')
 const loading = ref(false)
+const error = ref('')
 const page = ref(1)
 const totalCount = ref(0)
 const PAGE_SIZE = 30
-
-const BASE = '/api/method/assetcore.api.imm00'
 
 const CLASS_COLOR: Record<string, string> = {
   'Class I':   'bg-green-100 text-green-700',
@@ -23,14 +21,15 @@ const CLASS_COLOR: Record<string, string> = {
 
 async function load() {
   loading.value = true
-  const res = await frappeGet<{ items: ImmDeviceModel[]; pagination: { total: number } } | null>(
-    `${BASE}.list_device_models`,
-    { page: page.value, page_size: PAGE_SIZE, search: search.value },
-  )
-  loading.value = false
-  if (res) {
-    models.value = res.items || []
-    totalCount.value = res.pagination?.total || 0
+  error.value = ''
+  try {
+    const res = await listDeviceModels(page.value, PAGE_SIZE, search.value) as unknown as { items: ImmDeviceModel[]; pagination: { total: number } }
+    models.value = res?.items || []
+    totalCount.value = res?.pagination?.total || 0
+  } catch (e: unknown) {
+    error.value = (e as Error).message || 'Lỗi tải dữ liệu'
+  } finally {
+    loading.value = false
   }
 }
 
@@ -61,7 +60,7 @@ onMounted(load)
       <input
         v-model="search"
         type="text"
-        placeholder="Tìm model, nhà sản xuất, mã model..."
+        placeholder="Tìm theo mã, tên model, hãng SX, phiên bản, GMDN..."
         class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
         @keyup.enter="handleSearch"
       />
@@ -70,14 +69,15 @@ onMounted(load)
 
     <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
       <div v-if="loading" class="text-center text-gray-400 py-12">Đang tải...</div>
-      <div v-else-if="models.length === 0" class="text-center text-gray-400 py-12 text-sm">Không có dữ liệu.</div>
+      <div v-else-if="error" class="text-center text-red-500 py-12 text-sm">{{ error }}</div>
+      <div v-else-if="models.length === 0" class="text-center text-gray-400 py-12 text-sm">Không tìm thấy kết quả.</div>
       <table v-else class="w-full text-sm">
         <thead class="bg-gray-50 border-b border-gray-200">
           <tr>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Mã</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Tên model</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Nhà sản xuất</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Model number</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Phiên bản</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Phân loại</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">GMDN</th>
             <th class="px-4 py-3 text-right"></th>
@@ -88,7 +88,7 @@ onMounted(load)
             <td class="px-4 py-3 font-mono text-xs text-gray-500">{{ m.name }}</td>
             <td class="px-4 py-3 font-medium text-gray-800">{{ m.model_name }}</td>
             <td class="px-4 py-3 text-gray-600">{{ m.manufacturer || '—' }}</td>
-            <td class="px-4 py-3 text-gray-500">{{ m.model_number || '—' }}</td>
+            <td class="px-4 py-3 text-gray-500">{{ m.model_version || '—' }}</td>
             <td class="px-4 py-3">
               <span v-if="m.medical_device_class" :class="['text-xs px-2 py-1 rounded-full font-medium', CLASS_COLOR[m.medical_device_class] || 'bg-gray-100 text-gray-600']">
                 {{ m.medical_device_class }}

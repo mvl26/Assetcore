@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { getDeviceModel, createDeviceModel, updateDeviceModel, deleteDeviceModel } from '@/api/imm00'
-import type { ImmDeviceModel } from '@/types/imm00'
+import {
+  getDeviceModel, createDeviceModel, updateDeviceModel, deleteDeviceModel,
+  listAssetCategories,
+} from '@/api/imm00'
+import type { ImmDeviceModel, AcAssetCategory } from '@/types/imm00'
 
 const route = useRoute()
 const router = useRouter()
@@ -11,26 +14,42 @@ const name = computed(() => route.params.id as string | undefined)
 
 const form = ref<Partial<ImmDeviceModel> & Record<string, unknown>>({
   model_name: '',
-  model_number: '',
+  model_version: '',
   manufacturer: '',
+  asset_category: '',
+  country_of_origin: '',
+  power_supply: '',
+  expected_lifespan_years: 10,
   medical_device_class: 'Class II',
+  risk_classification: 'Medium',
   gmdn_code: '',
+  emdn_code: '',
+  hsn_code: '',
+  registration_required: 1,
   is_radiation_device: 0,
   is_pm_required: 1,
   pm_interval_days: 180,
+  pm_alert_days: 14,
   is_calibration_required: 0,
   calibration_interval_days: 365,
+  calibration_alert_days: 30,
+  default_calibration_type: '',
+  notes: '',
 })
+const categories = ref<AcAssetCategory[]>([])
 const loading = ref(false)
 const saving = ref(false)
 const err = ref('')
 
 async function load() {
-  if (!isEdit.value || !name.value) return
   loading.value = true
   try {
-    const res = await getDeviceModel(name.value)
-    if (res) form.value = { ...(res as unknown as ImmDeviceModel) }
+    const cats = await listAssetCategories() as unknown as AcAssetCategory[]
+    categories.value = cats || []
+    if (isEdit.value && name.value) {
+      const res = await getDeviceModel(name.value)
+      if (res) form.value = { ...(res as unknown as ImmDeviceModel) }
+    }
   } finally { loading.value = false }
 }
 
@@ -61,7 +80,7 @@ onMounted(load)
       <h1 class="text-xl font-semibold text-gray-800">
         {{ isEdit ? `Sửa Model — ${name}` : 'Thêm Device Model' }}
       </h1>
-      <button v-if="isEdit" @click="remove" class="text-red-600 hover:text-red-800 text-sm font-medium">Xóa</button>
+      <button v-if="isEdit" class="text-red-600 hover:text-red-800 text-sm font-medium" @click="remove">Xóa</button>
     </div>
 
     <div v-if="err" class="bg-red-50 text-red-700 p-3 rounded-lg text-sm">{{ err }}</div>
@@ -70,19 +89,38 @@ onMounted(load)
     <div v-else class="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
       <div class="grid grid-cols-2 gap-4">
         <div class="col-span-2">
-          <label class="block text-sm font-medium text-gray-700 mb-1">Tên Model *</label>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Tên Model <span class="text-red-500">*</span></label>
           <input v-model="form.model_name" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
         </div>
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Model Number</label>
-          <input v-model="form.model_number" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+          <label class="block text-sm font-medium text-gray-700 mb-1">Model Version</label>
+          <input v-model="form.model_version" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
         </div>
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Hãng sản xuất</label>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Hãng sản xuất <span class="text-red-500">*</span></label>
           <input v-model="form.manufacturer" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
         </div>
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Phân loại TB Y tế</label>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Danh mục thiết bị <span class="text-red-500">*</span></label>
+          <select v-model="form.asset_category" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+            <option value="">— Chọn danh mục —</option>
+            <option v-for="c in categories" :key="c.name" :value="c.name">{{ c.category_name }}</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Quốc gia sản xuất</label>
+          <input v-model="form.country_of_origin" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Nguồn điện</label>
+          <input v-model="form.power_supply" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="VD: 220V/50Hz" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Tuổi thọ dự kiến (năm)</label>
+          <input v-model.number="form.expected_lifespan_years" type="number" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Phân loại TB Y tế <span class="text-red-500">*</span></label>
           <select v-model="form.medical_device_class" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
             <option value="Class I">Loại I — Rủi ro thấp</option>
             <option value="Class II">Loại II — Rủi ro trung bình</option>
@@ -90,34 +128,71 @@ onMounted(load)
           </select>
         </div>
         <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Phân loại rủi ro</label>
+          <select v-model="form.risk_classification" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+            <option value="Low">Thấp</option>
+            <option value="Medium">Trung bình</option>
+            <option value="High">Cao</option>
+            <option value="Critical">Nghiêm trọng</option>
+          </select>
+        </div>
+        <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">GMDN Code</label>
           <input v-model="form.gmdn_code" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">EMDN Code</label>
+          <input v-model="form.emdn_code" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">HSN Code</label>
+          <input v-model="form.hsn_code" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
         </div>
       </div>
 
       <div class="border-t pt-4 space-y-3">
         <label class="flex items-center gap-2 text-sm">
-          <input type="checkbox" v-model="form.is_radiation_device" :true-value="1" :false-value="0" /> Thiết bị bức xạ
+          <input v-model="form.registration_required" type="checkbox" :true-value="1" :false-value="0" /> Yêu cầu đăng ký BYT
         </label>
         <label class="flex items-center gap-2 text-sm">
-          <input type="checkbox" v-model="form.is_pm_required" :true-value="1" :false-value="0" /> Yêu cầu PM định kỳ
+          <input v-model="form.is_radiation_device" type="checkbox" :true-value="1" :false-value="0" /> Thiết bị bức xạ
         </label>
-        <div v-if="form.is_pm_required" class="pl-6">
-          <label class="block text-sm font-medium text-gray-700 mb-1">PM Interval (ngày)</label>
-          <input type="number" v-model.number="form.pm_interval_days" class="w-48 border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+        <label class="flex items-center gap-2 text-sm">
+          <input v-model="form.is_pm_required" type="checkbox" :true-value="1" :false-value="0" /> Yêu cầu PM định kỳ
+        </label>
+        <div v-if="form.is_pm_required" class="grid grid-cols-2 gap-4 pl-6">
+          <div>
+            <label class="block text-xs font-medium text-gray-700 mb-1">PM Interval (ngày)</label>
+            <input v-model.number="form.pm_interval_days" type="number" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-700 mb-1">PM Alert trước (ngày)</label>
+            <input v-model.number="form.pm_alert_days" type="number" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+          </div>
         </div>
         <label class="flex items-center gap-2 text-sm">
-          <input type="checkbox" v-model="form.is_calibration_required" :true-value="1" :false-value="0" /> Yêu cầu hiệu chuẩn
+          <input v-model="form.is_calibration_required" type="checkbox" :true-value="1" :false-value="0" /> Yêu cầu hiệu chuẩn
         </label>
-        <div v-if="form.is_calibration_required" class="pl-6">
-          <label class="block text-sm font-medium text-gray-700 mb-1">Calibration Interval (ngày)</label>
-          <input type="number" v-model.number="form.calibration_interval_days" class="w-48 border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+        <div v-if="form.is_calibration_required" class="grid grid-cols-2 gap-4 pl-6">
+          <div>
+            <label class="block text-xs font-medium text-gray-700 mb-1">Chu kỳ hiệu chuẩn (ngày)</label>
+            <input v-model.number="form.calibration_interval_days" type="number" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-700 mb-1">Alert hiệu chuẩn trước (ngày)</label>
+            <input v-model.number="form.calibration_alert_days" type="number" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+          </div>
         </div>
       </div>
 
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Ghi chú</label>
+        <textarea v-model="form.notes" rows="3" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"></textarea>
+      </div>
+
       <div class="flex justify-end gap-2 pt-4 border-t border-gray-100">
-        <button @click="router.push('/device-models')" class="px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50">Hủy</button>
-        <button @click="save" :disabled="saving" class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
+        <button class="px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50" @click="router.push('/device-models')">Hủy</button>
+        <button class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50" :disabled="saving" @click="save">
           {{ saving ? 'Đang lưu...' : (isEdit ? 'Cập nhật' : 'Tạo mới') }}
         </button>
       </div>

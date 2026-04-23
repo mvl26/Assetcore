@@ -1,30 +1,29 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { frappeGet } from '@/api/helpers'
-import { deleteSupplier } from '@/api/imm00'
+import { listSuppliers, deleteSupplier } from '@/api/imm00'
 import type { AcSupplier } from '@/types/imm00'
 
 const router = useRouter()
 const suppliers = ref<AcSupplier[]>([])
 const search = ref('')
 const loading = ref(false)
+const error = ref('')
 const page = ref(1)
 const totalCount = ref(0)
 const PAGE_SIZE = 30
 
-const BASE = '/api/method/assetcore.api.imm00'
-
 async function load() {
   loading.value = true
-  const res = await frappeGet<{ items: AcSupplier[]; pagination: { total: number } } | null>(
-    `${BASE}.list_suppliers`,
-    { page: page.value, page_size: PAGE_SIZE, search: search.value },
-  )
-  loading.value = false
-  if (res) {
-    suppliers.value = res.items || []
-    totalCount.value = res.pagination?.total || 0
+  error.value = ''
+  try {
+    const res = await listSuppliers(page.value, PAGE_SIZE, search.value) as unknown as { items: AcSupplier[]; pagination: { total: number } }
+    suppliers.value = res?.items || []
+    totalCount.value = res?.pagination?.total || 0
+  } catch (e: unknown) {
+    error.value = (e as Error).message || 'Lỗi tải dữ liệu'
+  } finally {
+    loading.value = false
   }
 }
 
@@ -63,7 +62,7 @@ onMounted(load)
       <input
         v-model="search"
         type="text"
-        placeholder="Tìm kiếm nhà cung cấp..."
+        placeholder="Tìm theo mã, tên, email, mã số thuế..."
         class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
         @keyup.enter="handleSearch"
       />
@@ -72,7 +71,8 @@ onMounted(load)
 
     <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
       <div v-if="loading" class="text-center text-gray-400 py-12">Đang tải...</div>
-      <div v-else-if="suppliers.length === 0" class="text-center text-gray-400 py-12 text-sm">Không có dữ liệu.</div>
+      <div v-else-if="error" class="text-center text-red-500 py-12 text-sm">{{ error }}</div>
+      <div v-else-if="suppliers.length === 0" class="text-center text-gray-400 py-12 text-sm">Không tìm thấy kết quả.</div>
       <table v-else class="w-full text-sm">
         <thead class="bg-gray-50 border-b border-gray-200">
           <tr>
