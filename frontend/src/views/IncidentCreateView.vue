@@ -65,7 +65,7 @@ async function submit() {
 </script>
 
 <template>
-  <div class="max-w-2xl mx-auto p-6 space-y-6">
+  <div class="page-container animate-fade-in space-y-6">
     <div class="flex items-center gap-3">
       <button @click="router.back()" class="text-gray-500 hover:text-gray-700 text-sm">← Quay lại</button>
       <h1 class="text-xl font-semibold text-gray-800">Tạo Incident Report</h1>
@@ -79,7 +79,7 @@ async function submit() {
         <SmartSelect v-model="form.asset" doctype="AC Asset" placeholder="Tìm thiết bị theo tên / mã / serial..." />
       </div>
 
-      <div class="grid grid-cols-2 gap-4">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <label for="inc-type" class="block text-sm font-medium text-gray-700 mb-1">Loại sự cố <span class="text-red-500">*</span></label>
           <select id="inc-type" v-model="form.incident_type" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
@@ -102,7 +102,7 @@ async function submit() {
         <textarea id="inc-description" v-model="form.description" rows="4" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" placeholder="Mô tả đầy đủ sự cố, triệu chứng, bối cảnh..."></textarea>
       </div>
 
-      <div class="grid grid-cols-2 gap-4">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <label for="inc-fault-code" class="block text-sm font-medium text-gray-700 mb-1">Mã lỗi (Fault Code)</label>
           <input id="inc-fault-code" v-model="form.fault_code" type="text" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" placeholder="vd: E-42, HW-FAIL..." />

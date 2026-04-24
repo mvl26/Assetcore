@@ -153,7 +153,7 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="p-6 max-w-4xl mx-auto space-y-5">
+  <div class="page-container animate-fade-in space-y-5">
     <!-- Header -->
     <div class="flex items-start justify-between flex-wrap gap-3">
       <div>
@@ -233,7 +233,7 @@ onMounted(load)
         </div>
       </div>
 
-      <!-- Patient / BYT -->
+      <!-- Thông tin bệnh nhân / Bộ Y tế -->
       <div v-if="form.patient_affected || form.reported_to_byt" class="p-6 space-y-2">
         <div v-if="form.patient_affected" class="text-sm text-orange-700 bg-orange-50 p-3 rounded-lg">
           <strong>Ảnh hưởng bệnh nhân:</strong> {{ form.patient_impact_description || 'Có ảnh hưởng (chưa mô tả)' }}

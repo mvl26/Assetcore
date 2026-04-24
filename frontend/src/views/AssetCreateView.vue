@@ -47,7 +47,7 @@ async function submit() {
 </script>
 
 <template>
-  <div class="page-container animate-fade-in max-w-3xl">
+  <div class="page-container animate-fade-in">
     <!-- Header -->
     <div class="flex items-center gap-3 mb-6">
       <button class="btn-ghost" @click="router.push('/assets')">← Quay lại</button>
@@ -86,7 +86,7 @@ async function submit() {
           </div>
           <div>
             <label class="form-label">Nhà cung cấp</label>
-            <SmartSelect v-model="form.supplier" doctype="AC Supplier" placeholder="Tìm NCC..." />
+            <SmartSelect v-model="form.supplier" doctype="AC Supplier" placeholder="Tìm nhà cung cấp..." />
           </div>
           <div>
             <label class="form-label">Trạng thái ban đầu</label>
@@ -143,17 +143,15 @@ async function submit() {
               <option value="">— Chọn mức phân loại —</option>
               <option value="Class I">Loại I — Rủi ro thấp</option>
               <option value="Class II">Loại II — Rủi ro trung bình</option>
-              <option value="Class IIa">Loại IIa — Rủi ro trung bình</option>
-              <option value="Class IIb">Loại IIb — Rủi ro cao</option>
-              <option value="Class III">Loại III — Rủi ro cao nhất</option>
+              <option value="Class III">Loại III — Rủi ro cao</option>
             </select>
           </div>
           <div>
-            <label class="form-label">Số đăng ký BYT</label>
+            <label class="form-label">Số đăng ký Bộ Y tế</label>
             <input v-model="form.byt_reg_no" type="text" class="form-input w-full" />
           </div>
           <div>
-            <label class="form-label">Hạn đăng ký BYT</label>
+            <label class="form-label">Hạn đăng ký Bộ Y tế</label>
             <input v-model="form.byt_reg_expiry" type="date" class="form-input w-full" />
           </div>
         </div>

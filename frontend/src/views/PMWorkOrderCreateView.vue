@@ -61,7 +61,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="max-w-2xl mx-auto p-6 space-y-6">
+  <div class="page-container animate-fade-in space-y-6">
     <div class="flex items-center gap-3">
       <button class="text-slate-500 hover:text-slate-700 text-sm" @click="router.push('/pm/work-orders')">← Danh sách phiếu bảo trì</button>
       <div>

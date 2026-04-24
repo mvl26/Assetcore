@@ -77,7 +77,7 @@ async function handleSubmit() {
       </div>
     </Transition>
 
-    <div class="max-w-2xl space-y-5">
+    <div class="space-y-5">
       <!-- Root cause -->
       <div class="card slide-up-enter-active">
         <label class="block text-sm font-semibold text-slate-700 mb-3">

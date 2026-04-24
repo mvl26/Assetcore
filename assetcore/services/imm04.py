@@ -20,7 +20,7 @@ _DT_ASSET = "AC Asset"
 _DT_MODEL = "IMM Device Model"
 _DT_SUPPLIER = "AC Supplier"
 _DT_DEPT = "AC Department"
-_DT_PO = "Purchase Order"
+_DT_PO = "AC Purchase"
 
 _STATE_CLINICAL_RELEASE = "Clinical Release"
 _STATE_INITIAL_INSPECTION = "Initial Inspection"
@@ -326,14 +326,49 @@ def create_erpnext_asset(doc: Document) -> str:
 
 
 def _load_model_data(master_item: str) -> dict:
+    """Load Model (Tier 2) data + inherit Category (Tier 1) financial defaults.
+
+    Chain: AC Asset Category → IMM Device Model → (merged into result).
+    Model fields win over Category for interval overrides;
+    Category fills financial defaults only (no Model override).
+    """
     if not master_item:
         return {}
-    return frappe.db.get_value(
+    model = frappe.db.get_value(
         _DT_MODEL, master_item,
-        ["medical_device_class", "risk_classification", "is_pm_required", "pm_interval_days",
-         "is_calibration_required", "calibration_interval_days"],
+        ["asset_category", "medical_device_class", "risk_classification",
+         "is_pm_required", "pm_interval_days",
+         "is_calibration_required", "calibration_interval_days",
+         "expected_lifespan_years"],
         as_dict=True,
     ) or {}
+    if not model:
+        return {}
+
+    cat_name = model.get("asset_category")
+    if cat_name:
+        cat = frappe.db.get_value(
+            "AC Asset Category", cat_name,
+            ["default_depreciation_method", "total_depreciation_months",
+             "depreciation_frequency", "default_residual_value_pct",
+             "default_pm_required", "default_pm_interval_days",
+             "default_calibration_required", "default_calibration_interval_days"],
+            as_dict=True,
+        ) or {}
+        # Financial defaults come only from Category (single source of truth)
+        model["_cat_depreciation_method"]     = cat.get("default_depreciation_method") or ""
+        model["_cat_total_months"]            = int(cat.get("total_depreciation_months") or 0)
+        model["_cat_depreciation_frequency"]  = cat.get("depreciation_frequency") or "Monthly"
+        model["_cat_residual_value_pct"]      = cat.get("default_residual_value_pct") or 0
+        # PM/Calib: Model wins; fall back to Category if Model blank
+        if not model.get("is_pm_required"):
+            model["is_pm_required"] = cat.get("default_pm_required") or 0
+            model["pm_interval_days"] = model.get("pm_interval_days") or cat.get("default_pm_interval_days") or 0
+        if not model.get("is_calibration_required"):
+            model["is_calibration_required"] = cat.get("default_calibration_required") or 0
+            model["calibration_interval_days"] = model.get("calibration_interval_days") or cat.get("default_calibration_interval_days") or 0
+
+    return model
 
 
 def _resolve_risk_class(doc: Document, model_data: dict) -> tuple[str, str]:
@@ -352,15 +387,34 @@ def create_ac_asset(doc: Document) -> str:
     model_data = _load_model_data(doc.master_item)
     med_class, risk_clf = _resolve_risk_class(doc, model_data)
 
+    # Compute residual value from Category default pct (if any)
+    purchase_amount = float(doc.purchase_price or 0)
+    residual_pct = float(model_data.get("_cat_residual_value_pct") or 0)
+    residual_value = purchase_amount * residual_pct / 100.0 if residual_pct else 0
+
+    # Convert total months → useful_life_years (for existing Asset field)
+    total_months = int(model_data.get("_cat_total_months") or 0)
+    useful_years = (total_months // 12) if total_months else int(model_data.get("expected_lifespan_years") or 0)
+
     asset = frappe.get_doc({
         "doctype": _DT_ASSET,
         "asset_name": doc.asset_description or doc.master_item or doc.name,
         "device_model": doc.master_item or "",
+        # Tier 1 inheritance (canonical depreciation rules come from Category)
+        "asset_category": model_data.get("asset_category") or "",
+        "depreciation_method": model_data.get("_cat_depreciation_method") or "",
+        "total_depreciation_months": total_months,
+        "depreciation_frequency": model_data.get("_cat_depreciation_frequency") or "Monthly",
+        "depreciation_start_date": nowdate(),
+        "useful_life_years": useful_years,
+        "residual_value": residual_value,
+        # Operational fields
         "supplier": doc.vendor or "",
         "department": doc.clinical_dept or "",
         "location": doc.installation_location or doc.clinical_dept or "",
         "purchase_date": doc.reception_date or nowdate(),
-        "gross_purchase_amount": doc.purchase_price or 0,
+        "in_service_date": nowdate(),
+        "gross_purchase_amount": purchase_amount,
         "warranty_expiry_date": doc.warranty_expiry_date or None,
         "manufacturer_sn": doc.vendor_serial_no or "",
         "udi_code": doc.internal_tag_qr or "",
@@ -382,6 +436,24 @@ def create_ac_asset(doc: Document) -> str:
         root_doctype=_DT, root_record=doc.name,
         notes=f"Commissioned via IMM-04: {doc.name}",
     )
+
+    try:
+        transferred = _transfer_commissioning_documents_to_asset(doc, asset.name)
+        if transferred:
+            frappe.logger().info(
+                f"Transferred {transferred} documents from {doc.name} → Asset {asset.name}"
+            )
+    except Exception as e:
+        frappe.logger().warning(f"Document transfer failed for {asset.name}: {e}")
+
+    # Auto-generate depreciation schedule (Phase 2)
+    try:
+        from assetcore.services import depreciation as depr_svc
+        sched_result = depr_svc.generate_schedule(asset.name, force=False)
+        frappe.logger().info(f"Depreciation schedule generated for {asset.name}: {sched_result}")
+    except Exception as e:
+        frappe.logger().warning(f"Schedule generation failed for {asset.name}: {e}")
+
     return asset.name
 
 
@@ -493,6 +565,10 @@ def _serialize_commissioning(doc) -> dict:
         "reception_date": str(doc.get("reception_date") or ""),
         "risk_class": doc.get("risk_class") or "",
         "board_approver": doc.get("board_approver") or "",
+        "pending_approver":      doc.get("pending_approver") or "",
+        "approval_stage":        doc.get("approval_stage") or "",
+        "approval_submitted_at": str(doc.get("approval_submitted_at") or ""),
+        "approval_remarks":      doc.get("approval_remarks") or "",
         "clinical_head": doc.get("clinical_head") or "",
         "qa_officer": doc.get("qa_officer") or "",
         "facility_checklist_pass": doc.get("facility_checklist_pass") or 0,
@@ -563,7 +639,7 @@ def list_commissioning(filters: dict, page: int = 1, page_size: int = 20) -> dic
     dept_ids = {r.get("clinical_dept") for r in records if r.get("clinical_dept")}
 
     item_map = (
-        {i.name: i.item_name for i in frappe.get_all("Item", filters={"name": ["in", list(item_ids)]}, fields=["name", "item_name"])}
+        {i.name: i.model_name for i in frappe.get_all(_DT_MODEL, filters={"name": ["in", list(item_ids)]}, fields=["name", "model_name"])}
         if item_ids else {}
     )
     vendor_map = (
@@ -714,21 +790,20 @@ def search_link(doctype: str, query: str = "", page_length: int = 10) -> list:
 
 
 def get_po_details(po_name: str) -> dict:
-    if not frappe.db.exists("DocType", _DT_PO):
-        return {
-            "po_name": po_name, "supplier": "", "supplier_name": "",
-            "transaction_date": "", "items": [], "unavailable": True,
-            "note": "Purchase Order DocType không có. po_reference là soft reference.",
-        }
     if not frappe.db.exists(_DT_PO, po_name):
-        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy PO '{po_name}'")
+        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy đơn hàng '{po_name}'")
     po = frappe.get_doc(_DT_PO, po_name)
-    ac_supplier = frappe.db.get_value(_DT_SUPPLIER, {"supplier_name": po.supplier_name}, "name") or ""
+    supplier_name = frappe.db.get_value(_DT_SUPPLIER, po.supplier, "supplier_name") or po.supplier or ""
     return {
-        "po_name": po.name, "supplier": ac_supplier,
-        "supplier_name": po.supplier_name,
-        "transaction_date": str(po.transaction_date),
-        "items": [{"item_code": i.item_code, "item_name": i.item_name, "qty": i.qty} for i in po.items],
+        "po_name": po.name,
+        "supplier": po.supplier or "",
+        "supplier_name": supplier_name,
+        "invoice_no": po.invoice_no or "",
+        "transaction_date": str(po.purchase_date or ""),
+        "items": [
+            {"item_code": i.spare_part, "item_name": i.part_name, "qty": i.qty}
+            for i in (po.items or [])
+        ],
     }
 
 
@@ -1073,3 +1148,380 @@ def generate_handover_pdf(name: str) -> dict:
         f"?doctype=Asset+Commissioning&name={frappe.utils.quote(name)}&format=Biên+bản+Bàn+giao"
     )
     return {"pdf_url": pdf_url, "name": name}
+
+
+# ─── Submit-for-approval workflow ─────────────────────────────────────────────
+
+_STAGE_ROLE: dict[str, str] = {
+    "Doc Verify":       "Biomed Engineer",
+    "Facility Check":   "Biomed Engineer",
+    "Baseline Review":  "Biomed Engineer",
+    "Clinical Release": "VP Block2",
+}
+
+_STATE_TO_STAGE: dict[str, str] = {
+    "Draft":              "Doc Verify",
+    "Pending Doc Verify": "Doc Verify",
+    "To Be Installed":    "Facility Check",
+    "Installing":         "Facility Check",
+    "Identification":     "Baseline Review",
+    "Initial Inspection": "Clinical Release",
+    "Clinical Hold":      "Clinical Release",
+    "Re Inspection":      "Baseline Review",
+}
+
+_STAGE_TRANSITION: dict[str, dict[str, str]] = {
+    "Doc Verify":       {"from": "Pending Doc Verify", "action": "Xác nhận đủ tài liệu"},
+    "Facility Check":   {"from": "To Be Installed",    "action": "Bắt đầu lắp đặt"},
+    "Baseline Review":  {"from": "Initial Inspection", "action": "Phê duyệt phát hành lâm sàng"},
+    "Clinical Release": {"from": "Initial Inspection", "action": "Phê duyệt phát hành lâm sàng"},
+}
+
+
+def _notify_user(user: str, commissioning: str, subject: str, html_body: str) -> None:
+    """Create Notification Log + publish realtime for a user."""
+    frappe.get_doc({
+        "doctype":       "Notification Log",
+        "subject":       subject,
+        "email_content": html_body,
+        "for_user":      user,
+        "type":          "Alert",
+        "document_type": _DT,
+        "document_name": commissioning,
+        "from_user":     frappe.session.user,
+    }).insert(ignore_permissions=True)
+    frappe.publish_realtime(
+        "new_notification",
+        {"subject": subject, "document_type": _DT, "document_name": commissioning},
+        user=user,
+    )
+
+
+def _find_last_approval_submitter(doc) -> str:
+    """Latest 'Approval Submitted' event actor; fallback to doc.owner."""
+    for ev in reversed(doc.get("lifecycle_events") or []):
+        if ev.get("event_type") == "Approval Submitted":
+            return ev.get("actor") or ""
+    return doc.owner or ""
+
+
+def submit_for_approval(commissioning: str, approver: str, stage: str = "",
+                         remarks: str = "") -> dict:
+    """Assign pending approver + create notification."""
+    if not frappe.db.exists(_DT, commissioning):
+        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy phiếu '{commissioning}'")
+    if not approver:
+        raise ServiceError(ErrorCode.INVALID_PARAMS, "Phải chọn người duyệt")
+
+    doc = frappe.get_doc(_DT, commissioning)
+
+    if not stage:
+        stage = _STATE_TO_STAGE.get(doc.workflow_state, "")
+        if not stage:
+            raise ServiceError(
+                ErrorCode.INVALID_PARAMS,
+                f"Trạng thái '{doc.workflow_state}' không hỗ trợ gửi duyệt",
+            )
+
+    required_role = _STAGE_ROLE.get(stage)
+    if required_role:
+        user_roles = frappe.get_roles(approver)
+        if required_role not in user_roles and "CMMS Admin" not in user_roles:
+            raise ServiceError(
+                ErrorCode.FORBIDDEN,
+                f"Người duyệt '{approver}' không có vai trò '{required_role}'",
+            )
+
+    now = frappe.utils.now_datetime()
+    doc.db_set("pending_approver",      approver, update_modified=False)
+    doc.db_set("approval_stage",        stage,    update_modified=False)
+    doc.db_set("approval_submitted_at", now,      update_modified=False)
+    doc.db_set("approval_remarks",      remarks or "", update_modified=False)
+
+    submitter = frappe.session.user
+    submitter_name = frappe.db.get_value("User", submitter, "full_name") or submitter
+    subject = f"Yêu cầu duyệt phiếu tiếp nhận: {commissioning}"
+    content = (
+        f"<p><b>{submitter_name}</b> đã gửi phiếu <b>{commissioning}</b> "
+        f"đến bạn để duyệt giai đoạn <b>{stage}</b>.</p>"
+    )
+    if remarks:
+        content += f"<p><i>Ghi chú:</i> {frappe.utils.escape_html(remarks)}</p>"
+    _notify_user(approver, commissioning, subject, content)
+
+    try:
+        doc.reload()
+        doc.append("lifecycle_events", {
+            "event_type": "Approval Submitted",
+            "timestamp":  now,
+            "actor":      submitter,
+            "from_state": doc.workflow_state,
+            "to_state":   doc.workflow_state,
+            "remarks":    f"Gửi duyệt đến {approver} ({stage})" + (f": {remarks}" if remarks else ""),
+        })
+        doc.save(ignore_permissions=True)
+    except Exception:
+        pass
+
+    return {
+        "name":                  commissioning,
+        "pending_approver":      approver,
+        "approval_stage":        stage,
+        "approval_submitted_at": str(now),
+    }
+
+
+def approve_pending(commissioning: str, decision: str, remarks: str = "") -> dict:
+    """Approver accepts or rejects a pending approval."""
+    if not frappe.db.exists(_DT, commissioning):
+        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy phiếu '{commissioning}'")
+    if decision not in ("Approve", "Reject"):
+        raise ServiceError(ErrorCode.INVALID_PARAMS, "decision phải là 'Approve' hoặc 'Reject'")
+    if decision == "Reject" and not remarks.strip():
+        raise ServiceError(ErrorCode.INVALID_PARAMS, "Phải nhập lý do khi từ chối")
+
+    doc = frappe.get_doc(_DT, commissioning)
+    if not doc.pending_approver:
+        raise ServiceError(ErrorCode.INVALID_PARAMS, "Phiếu không có yêu cầu duyệt đang chờ")
+
+    current_user = frappe.session.user
+    if doc.pending_approver != current_user and "CMMS Admin" not in frappe.get_roles(current_user):
+        raise ServiceError(ErrorCode.FORBIDDEN, "Bạn không phải người được phân công duyệt phiếu này")
+
+    stage = doc.approval_stage or ""
+    submitter_user = _find_last_approval_submitter(doc)
+    current_user_name = frappe.db.get_value("User", current_user, "full_name") or current_user
+
+    if decision == "Reject":
+        doc.db_set("pending_approver",      "",   update_modified=False)
+        doc.db_set("approval_stage",        "",   update_modified=False)
+        doc.db_set("approval_submitted_at", None, update_modified=False)
+        doc.db_set("approval_remarks",      f"TỪ CHỐI: {remarks}", update_modified=False)
+        doc.reload()
+        doc.append("lifecycle_events", {
+            "event_type": "Approval Rejected",
+            "timestamp":  frappe.utils.now_datetime(),
+            "actor":      current_user,
+            "from_state": doc.workflow_state,
+            "to_state":   doc.workflow_state,
+            "remarks":    f"Từ chối ({stage}): {remarks}",
+        })
+        doc.save(ignore_permissions=True)
+        if submitter_user:
+            _notify_user(
+                submitter_user, commissioning,
+                f"Yêu cầu duyệt bị từ chối: {commissioning}",
+                f"<p><b>{current_user_name}</b> đã từ chối phiếu <b>{commissioning}</b>.</p>"
+                f"<p><i>Lý do:</i> {frappe.utils.escape_html(remarks)}</p>",
+            )
+        return {"name": commissioning, "decision": "Reject", "workflow_state": doc.workflow_state}
+
+    # Approve → trigger transition
+    transition = _STAGE_TRANSITION.get(stage)
+    if not transition or doc.workflow_state != transition["from"]:
+        raise ServiceError(
+            ErrorCode.CONFLICT,
+            f"Không thể duyệt: giai đoạn '{stage}' yêu cầu trạng thái "
+            f"'{transition['from'] if transition else '?'}' nhưng phiếu đang ở '{doc.workflow_state}'",
+        )
+
+    if stage == "Clinical Release" and not doc.board_approver:
+        doc.db_set("board_approver", current_user, update_modified=False)
+
+    doc.db_set("pending_approver",      "",   update_modified=False)
+    doc.db_set("approval_stage",        "",   update_modified=False)
+    doc.db_set("approval_submitted_at", None, update_modified=False)
+
+    doc.reload()
+    from frappe.model.workflow import apply_workflow
+    new_doc = apply_workflow(doc, transition["action"])
+    new_doc.append("lifecycle_events", {
+        "event_type": "Approval Granted",
+        "timestamp":  frappe.utils.now_datetime(),
+        "actor":      current_user,
+        "from_state": transition["from"],
+        "to_state":   new_doc.workflow_state,
+        "remarks":    f"Duyệt ({stage})" + (f": {remarks}" if remarks else ""),
+    })
+    new_doc.save(ignore_permissions=True)
+
+    if submitter_user:
+        _notify_user(
+            submitter_user, commissioning,
+            f"Yêu cầu duyệt được chấp nhận: {commissioning}",
+            f"<p><b>{current_user_name}</b> đã duyệt phiếu <b>{commissioning}</b>. "
+            f"Trạng thái mới: <b>{new_doc.workflow_state}</b>.</p>",
+        )
+
+    return {"name": commissioning, "decision": "Approve", "workflow_state": new_doc.workflow_state}
+
+
+def list_my_pending_approvals() -> list[dict]:
+    """Commissioning records where current user is the pending_approver."""
+    return frappe.get_all(
+        _DT,
+        filters={"pending_approver": frappe.session.user, "docstatus": ["!=", 2]},
+        fields=["name", "workflow_state", "master_item", "vendor", "clinical_dept",
+                "approval_stage", "approval_submitted_at", "approval_remarks",
+                "owner", "modified"],
+        order_by="approval_submitted_at desc",
+        limit_page_length=50,
+    )
+
+
+# ─── Purchase → Commissioning linkage (Wave 1 P1) ─────────────────────────────
+
+def create_commissioning_from_purchase(purchase_name: str, device_idx: int) -> dict:
+    """Tạo 1 Asset Commissioning draft từ 1 dòng thiết bị trong AC Purchase."""
+    if not frappe.db.exists(_DT_PO, purchase_name):
+        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy đơn hàng '{purchase_name}'")
+    try:
+        frappe.has_permission(_DT, ptype="create", throw=True)
+    except frappe.PermissionError:
+        raise ServiceError(ErrorCode.FORBIDDEN, "Bạn không có quyền tạo phiếu tiếp nhận")
+
+    po = frappe.get_doc(_DT_PO, purchase_name)
+    if po.docstatus != 1:
+        raise ServiceError(
+            ErrorCode.INVALID_PARAMS,
+            "Chỉ tạo phiếu tiếp nhận từ đơn hàng đã duyệt (docstatus=1)",
+        )
+    if po.status == "Cancelled":
+        raise ServiceError(ErrorCode.INVALID_PARAMS, "Đơn hàng đã bị huỷ")
+
+    devices = po.get("devices") or []
+    if not devices:
+        raise ServiceError(
+            ErrorCode.INVALID_PARAMS,
+            "Đơn hàng này không có thiết bị. Phụ tùng phải qua phiếu nhập kho.",
+        )
+    row = next((d for d in devices if int(d.idx) == int(device_idx)), None)
+    if not row:
+        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy dòng thiết bị #{device_idx}")
+    if row.commissioning_ref:
+        raise ServiceError(
+            ErrorCode.CONFLICT,
+            f"Thiết bị này đã có phiếu tiếp nhận '{row.commissioning_ref}'",
+        )
+    if not row.device_model:
+        raise ServiceError(ErrorCode.INVALID_PARAMS, "Dòng thiết bị chưa có Model")
+
+    warranty_expiry = None
+    if row.warranty_months and row.warranty_months > 0:
+        base = getdate(po.get("expected_delivery") or po.purchase_date or nowdate())
+        warranty_expiry = add_days(base, int(row.warranty_months) * 30)
+
+    doc = frappe.get_doc({
+        "doctype":                    _DT,
+        "po_reference":               purchase_name,
+        "master_item":                row.device_model,
+        "vendor":                     po.supplier,
+        "clinical_dept":              row.clinical_dept or "",
+        "expected_installation_date": po.get("expected_delivery") or nowdate(),
+        "reception_date":             nowdate(),
+        "purchase_price":             float(row.unit_cost or 0),
+        "warranty_expiry_date":       warranty_expiry,
+        "vendor_serial_no":           row.vendor_serial_no or "",
+    })
+    _populate_mandatory_documents(doc)
+    doc.insert(ignore_permissions=False)
+
+    # Link back on purchase row
+    frappe.db.set_value(
+        "AC Purchase Device Item", row.name, "commissioning_ref", doc.name,
+        update_modified=False,
+    )
+
+    return {"name": doc.name, "workflow_state": doc.workflow_state, "purchase": purchase_name}
+
+
+# ─── Auto-transfer commissioning documents → Asset Document (Wave 1 P2) ──────
+
+# Map commissioning doc_type → (Asset Document doc_category, default validity in months)
+_DOC_CATEGORY_MAP: dict[str, tuple[str, int]] = {
+    "CO - Chứng nhận Xuất xứ":    ("Certification", 0),
+    "CQ - Chứng nhận Chất lượng": ("Certification", 0),
+    "Packing List":                ("Technical",     0),
+    "Manual / HDSD":               ("Technical",     0),
+    "Warranty Card":               ("Legal",         0),
+    "Training Certificate":        ("Training",      0),
+}
+
+
+def _transfer_commissioning_documents_to_asset(
+    commissioning_doc: Document, asset_name: str,
+) -> int:
+    """Copy commissioning_documents (có file_url) sang Asset Document (IMM-05).
+
+    Returns: số bản ghi đã tạo.
+    """
+    if not asset_name or not commissioning_doc.get("commissioning_documents"):
+        return 0
+
+    created = 0
+    for row in commissioning_doc.commissioning_documents:
+        if not row.get("file_url"):
+            continue
+        if row.get("status") not in ("Received", "Waived"):
+            continue
+
+        category, default_months = _DOC_CATEGORY_MAP.get(
+            row.get("doc_type") or "", ("Technical", 0),
+        )
+        expiry = row.get("expiry_date") or None
+        if not expiry and default_months > 0:
+            expiry = add_days(nowdate(), default_months * 30)
+
+        try:
+            ad = frappe.get_doc({
+                "doctype":              "Asset Document",
+                "asset_ref":            asset_name,
+                "source_commissioning": commissioning_doc.name,
+                "source_module":        "IMM-04",
+                "doc_category":         category,
+                "doc_type_detail":      row.get("doc_type") or "",
+                "doc_number":           row.get("doc_number") or "",
+                "file_url":             row.get("file_url"),
+                "expiry_date":          expiry,
+                "received_date":        row.get("received_date") or nowdate(),
+                "remarks": f"Tự động từ phiếu tiếp nhận {commissioning_doc.name}",
+            })
+            ad.flags.ignore_mandatory = True
+            ad.flags.ignore_permissions = True
+            ad.insert(ignore_permissions=True)
+            created += 1
+        except Exception as e:
+            frappe.logger().warning(
+                f"Failed to transfer document '{row.get('doc_type')}' to Asset Document: {e}"
+            )
+    return created
+
+
+# ─── Get commissioning info for a device row (used by AssetDetailView) ────────
+
+def get_commissioning_origin(asset_name: str) -> dict:
+    """Return origin info (commissioning + purchase) for an asset."""
+    if not frappe.db.exists(_DT_ASSET, asset_name):
+        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy tài sản '{asset_name}'")
+
+    commissioning_ref = frappe.db.get_value(_DT_ASSET, asset_name, "commissioning_ref")
+    if not commissioning_ref:
+        return {"asset": asset_name, "commissioning": None}
+
+    comm = frappe.db.get_value(
+        _DT, commissioning_ref,
+        ["name", "workflow_state", "po_reference", "vendor", "master_item",
+         "reception_date", "commissioning_date", "vendor_serial_no",
+         "purchase_price", "warranty_expiry_date", "commissioned_by"],
+        as_dict=True,
+    )
+    if not comm:
+        return {"asset": asset_name, "commissioning": None}
+
+    # Count transferred documents
+    doc_count = frappe.db.count(
+        "Asset Document",
+        {"asset_ref": asset_name, "source_commissioning": commissioning_ref},
+    )
+    comm["transferred_doc_count"] = doc_count
+    return {"asset": asset_name, "commissioning": comm}

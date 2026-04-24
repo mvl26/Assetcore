@@ -1,10 +1,11 @@
 <script setup lang="ts">
 // Copyright (c) 2026, AssetCore Team
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useDebounceFn } from '@vueuse/core'
 import { listSpareParts, createSparePart } from '@/api/inventory'
 import type { SparePart } from '@/types/inventory'
+import SmartSelect from '@/components/common/SmartSelect.vue'
 
 const router = useRouter()
 const rows = ref<SparePart[]>([])
@@ -12,6 +13,7 @@ const total = ref(0)
 const page = ref(1)
 const PAGE_SIZE = 30
 const loading = ref(false)
+const showFilters = ref(false)
 
 const q = ref('')
 const categoryFilter = ref('')
@@ -21,8 +23,49 @@ const toast = ref('')
 
 const form = ref<Partial<SparePart>>({
   part_name: '', part_category: 'Other', manufacturer: '', manufacturer_part_no: '',
-  unit_cost: 0, uom: 'Nos', min_stock_level: 0, max_stock_level: 0, is_critical: 0, is_active: 1,
+  unit_cost: 0, stock_uom: 'Nos', min_stock_level: 0, max_stock_level: 0, is_critical: 0, is_active: 1,
 })
+
+const CATEGORIES = [
+  { v: '', l: 'Tất cả' },
+  { v: 'Electrical', l: 'Điện' },
+  { v: 'Mechanical', l: 'Cơ khí' },
+  { v: 'Consumable', l: 'Tiêu hao' },
+  { v: 'Filter', l: 'Bộ lọc' },
+  { v: 'Battery', l: 'Pin/Ắc-quy' },
+  { v: 'Sensor', l: 'Cảm biến' },
+  { v: 'Other', l: 'Khác' },
+]
+interface Chip { key: 'q' | 'category'; label: string }
+const activeChips = computed<Chip[]>(() => {
+  const chips: Chip[] = []
+  if (q.value.trim()) chips.push({ key: 'q', label: `"${q.value.trim()}"` })
+  if (categoryFilter.value) {
+    const c = CATEGORIES.find(x => x.v === categoryFilter.value)
+    chips.push({ key: 'category', label: c?.l ?? categoryFilter.value })
+  }
+  return chips
+})
+const activeFilterCount = computed(() => activeChips.value.length)
+
+function clearChip(key: Chip['key']) {
+  if (key === 'q') q.value = ''
+  else categoryFilter.value = ''
+  page.value = 1; load()
+}
+
+function resetFilters() {
+  q.value = ''
+  categoryFilter.value = ''
+  page.value = 1; load()
+}
+
+function quickFilter(_key: 'category', value: string) {
+  if (!value) return
+  categoryFilter.value = value
+  showFilters.value = false
+  page.value = 1; load()
+}
 
 async function load() {
   loading.value = true
@@ -40,7 +83,7 @@ watch(categoryFilter, () => { page.value = 1; load() })
 function openCreate() {
   form.value = {
     part_name: '', part_category: 'Other', manufacturer: '', manufacturer_part_no: '',
-    unit_cost: 0, uom: 'Nos', min_stock_level: 0, max_stock_level: 0, is_critical: 0, is_active: 1,
+    unit_cost: 0, stock_uom: 'Nos', min_stock_level: 0, max_stock_level: 0, is_critical: 0, is_active: 1,
   }
   showForm.value = true
 }
@@ -67,54 +110,128 @@ function vnd(v?: number) {
   return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 }).format(v)
 }
 
-const CATEGORIES = [
-  { v: '', l: 'Tất cả' },
-  { v: 'Electrical', l: 'Điện' },
-  { v: 'Mechanical', l: 'Cơ khí' },
-  { v: 'Consumable', l: 'Tiêu hao' },
-  { v: 'Filter', l: 'Bộ lọc' },
-  { v: 'Battery', l: 'Pin/Ắc-quy' },
-  { v: 'Sensor', l: 'Cảm biến' },
-  { v: 'Other', l: 'Khác' },
-]
-const UOMS = ['Nos', 'Pcs', 'Set', 'Box', 'Meter', 'Liter', 'Kg']
-
 onMounted(load)
 </script>
 
 <template>
   <div class="page-container animate-fade-in">
-    <div class="flex items-start justify-between mb-6">
+
+    <!-- Header -->
+    <div class="flex items-start justify-between mb-5">
       <div>
         <p class="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-1">IMM-00 · Inventory</p>
         <h1 class="text-2xl font-bold text-slate-900">Danh mục phụ tùng</h1>
-        <p class="text-sm text-slate-500 mt-1">{{ total }} phụ tùng</p>
+        <p class="text-sm text-slate-500 mt-1">Tổng <strong class="text-slate-700">{{ total }}</strong> phụ tùng</p>
       </div>
-      <button class="btn-primary" @click="openCreate">+ Phụ tùng mới</button>
+      <div class="flex items-center gap-2 shrink-0">
+        <button
+          class="relative flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border transition-colors"
+          :class="showFilters
+            ? 'bg-brand-50 border-brand-300 text-brand-700'
+            : 'bg-white border-slate-300 text-slate-600 hover:border-slate-400'"
+          @click="showFilters = !showFilters"
+        >
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3 4h18M7 8h10M11 12h2M9 16h6" />
+          </svg>
+          Bộ lọc
+          <span v-if="activeFilterCount > 0"
+            class="inline-flex items-center justify-center w-4 h-4 text-[10px] font-bold rounded-full bg-blue-500 text-white">
+            {{ activeFilterCount }}
+          </span>
+          <svg class="w-3.5 h-3.5 transition-transform duration-200" :class="showFilters ? 'rotate-180' : ''"
+               fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+        <button class="btn-primary shrink-0" @click="openCreate">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+          </svg>
+          Phụ tùng mới
+        </button>
+      </div>
     </div>
 
     <div v-if="toast" class="mb-4 px-4 py-3 rounded-lg bg-emerald-50 text-emerald-700 text-sm">{{ toast }}</div>
 
-    <!-- Filters -->
-    <div class="card p-4 mb-4">
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <div>
-          <label for="sp-search" class="form-label">Tìm kiếm</label>
-          <input id="sp-search" v-model="q" type="text" class="form-input w-full"
-                 placeholder="Tên / mã / part no NSX..." />
+    <!-- Active chips -->
+    <Transition
+      enter-active-class="transition-all duration-200 ease-out"
+      enter-from-class="opacity-0 -translate-y-1"
+      enter-to-class="opacity-100 translate-y-0"
+      leave-active-class="transition-all duration-150 ease-in"
+      leave-from-class="opacity-100"
+      leave-to-class="opacity-0"
+    >
+      <div v-if="activeChips.length > 0 && !showFilters" class="flex flex-wrap items-center gap-2 mb-4">
+        <span class="text-xs text-slate-400 font-medium">Đang lọc:</span>
+        <button v-for="chip in activeChips" :key="chip.key"
+          class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors"
+          @click="clearChip(chip.key)"
+        >
+          {{ chip.label }}
+          <svg class="w-3 h-3 opacity-60" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+        <button class="text-xs text-slate-400 hover:text-red-500 underline underline-offset-2" @click="resetFilters">Xóa tất cả</button>
+      </div>
+    </Transition>
+
+    <!-- Collapsible filter panel -->
+    <Transition
+      enter-active-class="transition-all duration-200 ease-out overflow-hidden"
+      enter-from-class="opacity-0 max-h-0"
+      enter-to-class="opacity-100 max-h-40"
+      leave-active-class="transition-all duration-150 ease-in overflow-hidden"
+      leave-from-class="opacity-100 max-h-40"
+      leave-to-class="opacity-0 max-h-0"
+    >
+      <div v-show="showFilters" class="card p-4 mb-4 space-y-3">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
+            <label for="sp-search" class="form-label">Tìm kiếm</label>
+            <input id="sp-search" v-model="q" type="text" class="form-input w-full"
+                   placeholder="Tên / mã / part no NSX..." />
+          </div>
+          <div>
+            <label for="sp-cat" class="form-label">Loại</label>
+            <select id="sp-cat" v-model="categoryFilter" class="form-select w-full">
+              <option v-for="c in CATEGORIES" :key="c.v" :value="c.v">{{ c.l }}</option>
+            </select>
+          </div>
         </div>
-        <div>
-          <label for="sp-cat" class="form-label">Loại</label>
-          <select id="sp-cat" v-model="categoryFilter" class="form-select w-full">
-            <option v-for="c in CATEGORIES" :key="c.v" :value="c.v">{{ c.l }}</option>
-          </select>
+        <div v-if="activeChips.length > 0" class="flex flex-wrap items-center gap-2 pt-3 border-t border-slate-100">
+          <span class="text-xs text-slate-400 font-medium">Đang lọc:</span>
+          <button v-for="chip in activeChips" :key="chip.key"
+            class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors"
+            @click="clearChip(chip.key)"
+          >
+            {{ chip.label }}
+            <svg class="w-3 h-3 opacity-60" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+          <button class="text-xs text-slate-400 hover:text-red-500 underline underline-offset-2" @click="resetFilters">Xóa tất cả</button>
         </div>
       </div>
-    </div>
+    </Transition>
 
     <div class="card overflow-hidden">
+      <!-- Info row -->
+      <div class="flex items-center justify-between px-4 py-2.5 border-b border-slate-100 bg-slate-50/60 text-xs text-slate-500">
+        <span>Hiển thị <strong class="text-slate-700">{{ rows.length }}</strong> / {{ total }} phụ tùng</span>
+        <button v-if="activeFilterCount > 0" class="text-red-500 hover:text-red-700 font-medium" @click="resetFilters">Xóa tất cả</button>
+      </div>
+
       <div v-if="loading && !rows.length" class="text-center py-12 text-slate-400">Đang tải...</div>
-      <div v-else-if="rows.length === 0" class="text-center py-12 text-slate-400">Không có phụ tùng.</div>
+      <div v-else-if="rows.length === 0" class="flex flex-col items-center justify-center py-16 text-slate-400">
+        <p class="text-sm">Không có phụ tùng nào.</p>
+        <button v-if="activeFilterCount > 0" class="text-xs text-blue-500 hover:text-blue-700 underline mt-2" @click="resetFilters">
+          Xóa bộ lọc để xem tất cả
+        </button>
+      </div>
 
       <div v-else class="overflow-x-auto">
         <table class="w-full text-sm">
@@ -130,8 +247,10 @@ onMounted(load)
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-50">
-            <tr v-for="p in rows" :key="p.name" class="hover:bg-slate-50/70 cursor-pointer"
-                @click="router.push(`/spare-parts/${p.name}`)">
+            <tr v-for="p in rows" :key="p.name"
+              class="hover:bg-slate-50/70 cursor-pointer transition-all hover:translate-x-0.5"
+              @click="router.push(`/spare-parts/${p.name}`)"
+            >
               <td class="px-4 py-3">
                 <p class="font-medium text-slate-800">{{ p.part_name }}</p>
                 <p class="text-[11px] text-slate-400 font-mono">{{ p.part_code || p.name }}</p>
@@ -140,15 +259,16 @@ onMounted(load)
                 {{ p.manufacturer || '—' }}<span v-if="p.manufacturer_part_no" class="ml-1 font-mono">· {{ p.manufacturer_part_no }}</span>
               </td>
               <td class="px-4 py-3">
-                <span v-if="p.part_category"
-                      class="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
-                  {{ p.part_category }}
-                </span>
+                <button v-if="p.part_category"
+                  class="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 transition-all hover:ring-2 hover:ring-offset-1 hover:ring-slate-300"
+                  :title="`Lọc: ${p.part_category}`"
+                  @click.stop="quickFilter('category', p.part_category!)"
+                >{{ p.part_category }}</button>
               </td>
               <td class="px-4 py-3 text-right text-sm">{{ vnd(p.unit_cost) }}</td>
               <td class="px-4 py-3 text-right font-medium"
                   :class="p.is_low_stock ? 'text-red-600' : 'text-slate-700'">
-                {{ p.total_stock || 0 }} <span class="text-xs text-slate-400">{{ p.uom }}</span>
+                {{ p.total_stock || 0 }} <span class="text-xs text-slate-400">{{ p.stock_uom }}</span>
               </td>
               <td class="px-4 py-3 text-right text-xs text-slate-400 hidden lg:table-cell">
                 {{ p.min_stock_level || '—' }}
@@ -211,10 +331,12 @@ onMounted(load)
                 <input id="sp-cost" v-model.number="form.unit_cost" type="number" min="0" class="form-input w-full" />
               </div>
               <div>
-                <label for="sp-uom" class="form-label">ĐVT</label>
-                <select id="sp-uom" v-model="form.uom" class="form-select w-full">
-                  <option v-for="u in UOMS" :key="u" :value="u">{{ u }}</option>
-                </select>
+                <p class="form-label">ĐVT cơ bản (Stock UOM)</p>
+                <SmartSelect v-model="form.stock_uom" doctype="AC UOM" placeholder="Nos, Cái, Hộp..." />
+              </div>
+              <div>
+                <p class="form-label">ĐVT mua hàng (Purchase UOM)</p>
+                <SmartSelect v-model="form.purchase_uom" doctype="AC UOM" placeholder="Để trống = dùng Stock UOM..." />
               </div>
               <div>
                 <label for="sp-min" class="form-label">Tồn min</label>
@@ -225,11 +347,11 @@ onMounted(load)
                 <input id="sp-max" v-model.number="form.max_stock_level" type="number" min="0" class="form-input w-full" />
               </div>
               <div class="flex items-center gap-3 pt-6">
-                <input v-model="form.is_critical" type="checkbox" :true-value="1" :false-value="0" id="sp-crit" class="h-4 w-4 rounded" />
+                <input id="sp-crit" v-model="form.is_critical" type="checkbox" :true-value="1" :false-value="0" class="h-4 w-4 rounded" />
                 <label for="sp-crit" class="text-sm text-slate-700">Phụ tùng quan trọng</label>
               </div>
               <div class="flex items-center gap-3 pt-6">
-                <input v-model="form.is_active" type="checkbox" :true-value="1" :false-value="0" id="sp-active" class="h-4 w-4 rounded" />
+                <input id="sp-active" v-model="form.is_active" type="checkbox" :true-value="1" :false-value="0" class="h-4 w-4 rounded" />
                 <label for="sp-active" class="text-sm text-slate-700">Đang sử dụng</label>
               </div>
             </div>

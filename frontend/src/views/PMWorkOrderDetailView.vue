@@ -122,7 +122,7 @@ async function handleStart() {
 </script>
 
 <template>
-  <div class="p-6 max-w-4xl mx-auto">
+  <div class="page-container animate-fade-in">
     <!-- Back + Header -->
     <div class="flex items-center gap-3 mb-5">
       <button class="text-gray-400 hover:text-gray-600 transition-colors" @click="router.back()">
@@ -198,7 +198,11 @@ async function handleStart() {
       <!-- Info grid -->
       <div class="bg-white rounded-xl shadow-sm border p-5 mb-5">
         <div class="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
-          <div><span class="text-gray-500">Thiết bị:</span> <span class="font-medium">{{ wo.asset_ref }}</span></div>
+          <div class="md:col-span-2">
+            <span class="text-gray-500">Thiết bị:</span>
+            <span class="font-semibold ml-1">{{ wo.asset_name || wo.asset_ref }}</span>
+            <span v-if="wo.asset_name" class="ml-2 text-xs text-gray-400 font-mono">{{ wo.asset_ref }}</span>
+          </div>
           <div><span class="text-gray-500">Đến hạn:</span>
             <span :class="wo.is_late ? 'font-semibold text-red-600' : 'font-medium'">{{ wo.due_date }}</span>
           </div>

@@ -1,0 +1,95 @@
+{
+ "actions": [],
+ "creation": "2026-04-24 14:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "device_model",
+  "qty",
+  "unit_cost",
+  "column_break_1",
+  "vendor_serial_no",
+  "warranty_months",
+  "clinical_dept",
+  "section_link",
+  "commissioning_ref",
+  "notes"
+ ],
+ "fields": [
+  {
+   "fieldname": "device_model",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Model thi\u1ebft b\u1ecb",
+   "options": "IMM Device Model",
+   "reqd": 1
+  },
+  {
+   "default": "1",
+   "fieldname": "qty",
+   "fieldtype": "Int",
+   "in_list_view": 0,
+   "label": "S\u1ed1 l\u01b0\u1ee3ng",
+   "hidden": 1,
+   "read_only": 1,
+   "description": "Lu\u00f4n = 1. M\u1ed7i d\u00f2ng l\u00e0 1 thi\u1ebft b\u1ecb ri\u00eang bi\u1ec7t."
+  },
+  {
+   "fieldname": "unit_cost",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "\u0110\u01a1n gi\u00e1",
+   "options": "VND"
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "vendor_serial_no",
+   "fieldtype": "Data",
+   "label": "Serial Number H\u00e3ng"
+  },
+  {
+   "fieldname": "warranty_months",
+   "fieldtype": "Int",
+   "label": "B\u1ea3o h\u00e0nh (th\u00e1ng)"
+  },
+  {
+   "fieldname": "clinical_dept",
+   "fieldtype": "Link",
+   "label": "Khoa s\u1eed d\u1ee5ng",
+   "options": "AC Department"
+  },
+  {
+   "fieldname": "section_link",
+   "fieldtype": "Section Break",
+   "label": "Li\u00ean k\u1ebft phi\u1ebfu ti\u1ebfp nh\u1eadn"
+  },
+  {
+   "fieldname": "commissioning_ref",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Phi\u1ebfu ti\u1ebfp nh\u1eadn",
+   "options": "Asset Commissioning",
+   "read_only": 1
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Small Text",
+   "label": "Ghi ch\u00fa"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-04-24 14:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "AssetCore",
+ "name": "AC Purchase Device Item",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

@@ -43,7 +43,7 @@ async function handleSubmit() {
 </script>
 
 <template>
-  <div class="p-6 max-w-2xl mx-auto">
+  <div class="page-container animate-fade-in">
     <div class="flex items-center gap-3 mb-6">
       <button class="text-gray-400 hover:text-gray-600" @click="router.back()">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -67,7 +67,7 @@ async function handleSubmit() {
       <div>
         <h2 class="font-semibold text-gray-700 mb-1">Nguồn sửa chữa <span class="text-red-500">*</span></h2>
         <p class="text-xs text-gray-500 mb-3">Điền ít nhất một trong hai trường bên dưới</p>
-        <div class="grid grid-cols-2 gap-3">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label for="incident-report" class="block text-sm text-gray-600 mb-1">Báo cáo sự cố</label>
             <input id="incident-report" v-model="form.incident_report" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="IR-2026-XXXXX" />
@@ -81,7 +81,7 @@ async function handleSubmit() {
       </div>
 
       <!-- Type & Priority -->
-      <div class="grid grid-cols-2 gap-3">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
           <label for="repair-type" class="block text-sm text-gray-600 mb-1">Loại sửa chữa *</label>
           <select id="repair-type" v-model="form.repair_type" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">

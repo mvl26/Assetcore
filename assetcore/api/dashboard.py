@@ -254,16 +254,20 @@ def get_dashboard_data() -> dict:
         upcoming_rows = frappe.db.sql(
             """
             (SELECT s.asset_ref AS asset, a.asset_name, a.department,
+                    COALESCE(d.department_name, a.department) AS department_name,
                     s.next_due_date AS due_date, 'PM' AS kind, s.pm_type AS detail
              FROM `tabPM Schedule` s
              JOIN `tabAC Asset` a ON a.name = s.asset_ref
+             LEFT JOIN `tabAC Department` d ON d.name = a.department
              WHERE s.status = 'Active'
                AND s.next_due_date BETWEEN %(today)s AND %(next30)s)
             UNION ALL
             (SELECT c.asset AS asset, a.asset_name, a.department,
+                    COALESCE(d.department_name, a.department) AS department_name,
                     c.next_due_date AS due_date, 'Hiệu chuẩn' AS kind, c.calibration_type AS detail
              FROM `tabIMM Calibration Schedule` c
              JOIN `tabAC Asset` a ON a.name = c.asset
+             LEFT JOIN `tabAC Department` d ON d.name = a.department
              WHERE c.is_active = 1
                AND c.next_due_date BETWEEN %(today)s AND %(next30)s)
             ORDER BY due_date ASC
@@ -281,10 +285,12 @@ def get_dashboard_data() -> dict:
         repair_rows = frappe.db.sql(
             """
             SELECT r.name, r.asset_ref AS asset, a.asset_name, a.department,
+                   COALESCE(d.department_name, a.department) AS department_name,
                    r.status, r.priority, r.open_datetime,
                    TIMESTAMPDIFF(DAY, r.open_datetime, NOW()) AS downtime_days
             FROM `tabAsset Repair` r
             LEFT JOIN `tabAC Asset` a ON a.name = r.asset_ref
+            LEFT JOIN `tabAC Department` d ON d.name = a.department
             WHERE r.status NOT IN ('Completed', 'Closed', 'Cancelled', 'Cannot Repair')
             ORDER BY r.open_datetime ASC
             LIMIT 20

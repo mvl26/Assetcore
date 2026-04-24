@@ -355,6 +355,20 @@ def report_major_failure(pm_wo_name: str, *, failure_description: str) -> dict:
                 f"<p>Thiết bị đã được đặt về <strong>Out of Service</strong>.</p>"
             ),
         )
+    try:
+        from assetcore.services.imm12 import report_incident as _report_incident_12  # noqa: PLC0415
+        _report_incident_12(
+            asset=wo.asset_ref,
+            incident_type="Malfunction",
+            severity="High",
+            description=f"Phát hiện lỗi nghiêm trọng trong PM — {wo.name}. {failure_description}",
+            fault_code="PM_MAJOR_FAIL",
+            linked_repair_wo=cm_wo.name,
+            reported_by=frappe.session.user,
+        )
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "IMM-08 → IMM-12 major failure incident")
+
     return {
         "pm_wo": pm_wo_name,
         "new_status": PMStatus.HALTED_MAJOR,

@@ -168,7 +168,10 @@ def get_document(name: str) -> dict:
         raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy tài liệu: {name}")
     if doc.visibility == Visibility.INTERNAL_ONLY and not _can_see_internal():
         raise ServiceError(ErrorCode.FORBIDDEN, "Không có quyền xem tài liệu này")
-    return doc.as_dict()
+    data = doc.as_dict()
+    if data.get("asset_ref"):
+        data["asset_name"] = frappe.db.get_value("AC Asset", data["asset_ref"], "asset_name") or ""
+    return data
 
 
 def create_document(data: dict) -> dict:

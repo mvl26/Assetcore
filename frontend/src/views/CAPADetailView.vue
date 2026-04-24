@@ -93,7 +93,7 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="max-w-3xl mx-auto p-6 space-y-6">
+  <div class="page-container animate-fade-in space-y-6">
     <div class="flex items-center gap-3">
       <button @click="router.back()" class="text-gray-500 hover:text-gray-700 text-sm">← Quay lại</button>
       <h1 class="text-xl font-semibold text-gray-800">Chi tiết CAPA</h1>
@@ -116,8 +116,12 @@ onMounted(load)
           </div>
         </div>
 
-        <div class="grid grid-cols-2 gap-4 text-sm pt-2 border-t border-gray-100">
-          <div><p class="text-gray-400 text-xs">Thiết bị</p><p class="font-medium">{{ capa.asset }}</p></div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm pt-2 border-t border-gray-100">
+          <div>
+            <p class="text-gray-400 text-xs">Thiết bị</p>
+            <p class="font-medium">{{ capa.asset_name || capa.asset || '—' }}</p>
+            <p v-if="capa.asset_name" class="text-xs text-gray-400 font-mono">{{ capa.asset }}</p>
+          </div>
           <div><p class="text-gray-400 text-xs">Hạn xử lý</p><p :class="['font-medium', capa.due_date && new Date(capa.due_date) < new Date() && capa.status !== 'Closed' ? 'text-red-600' : '']">{{ formatDate(capa.due_date) }}</p></div>
           <div><p class="text-gray-400 text-xs">Người phụ trách</p><p class="font-medium">{{ capa.owner || '—' }}</p></div>
           <div><p class="text-gray-400 text-xs">Ngày tạo</p><p class="font-medium">{{ formatDate(capa.creation) }}</p></div>

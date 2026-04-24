@@ -63,6 +63,9 @@ _SLA_MATRIX: dict[tuple[str, str], float] = {
 }
 _SLA_DEFAULT = 480.0
 
+# Keywords chỉ ra lỗi lặp lại / mãn tính — dùng cho IMM-09 → IMM-12 chronic hook
+_CHRONIC_KEYWORDS = ("chronic", "repeat", "recurring", "lặp lại", "mãn tính", "tái phát")
+
 
 def get_sla_target(risk_class: str, priority: str) -> float:
     return _SLA_MATRIX.get((risk_class, priority), _SLA_DEFAULT)
@@ -515,9 +518,21 @@ def close_work_order(name: str, *, repair_summary: str, root_cause_category: str
     if spare_parts:
         _apply_spare_parts(doc, spare_parts)
 
+    # Set is_repeat_failure nếu asset đã có repair WO hoàn thành trong 30 ngày gần nhất
+    doc.is_repeat_failure = 1 if check_repeat_failure(doc.asset_ref) else 0
+
     doc.status = RepairStatus.PENDING_INSPECTION
     doc.flags.ignore_links = True
     doc.submit()  # submit() gọi save() internally; ignore_links set trước
+
+    # Auto-flag chronic failure khi root_cause chỉ ra lỗi lặp lại — IMM-09 → IMM-12
+    if root_cause_category and any(kw in root_cause_category.lower() for kw in _CHRONIC_KEYWORDS):
+        try:
+            from assetcore.services.imm12 import detect_chronic_failures as _detect_12  # noqa: PLC0415
+            _detect_12()
+        except Exception:
+            frappe.log_error(frappe.get_traceback(), "IMM-09 → IMM-12 chronic detect")
+
     return {
         "name": name,
         "status": RepairStatus.COMPLETED,

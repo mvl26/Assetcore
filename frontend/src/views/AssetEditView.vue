@@ -36,7 +36,7 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="page-container animate-fade-in max-w-3xl">
+  <div class="page-container animate-fade-in">
     <div class="flex items-center gap-3 mb-6">
       <button class="btn-ghost" @click="router.push(`/assets/${id}`)">← Quay lại</button>
       <div>
@@ -74,7 +74,7 @@ onMounted(load)
           </div>
           <div>
             <label class="form-label">Nhà cung cấp</label>
-            <SmartSelect v-model="form.supplier" doctype="AC Supplier" placeholder="Tìm NCC..." />
+            <SmartSelect v-model="form.supplier" doctype="AC Supplier" placeholder="Tìm nhà cung cấp..." />
           </div>
           <div>
             <label class="form-label">Kỹ thuật viên phụ trách</label>
@@ -124,16 +124,17 @@ onMounted(load)
             <label class="form-label">Phân loại y tế</label>
             <select v-model="form.medical_device_class" class="form-select w-full">
               <option value="">— Chọn loại —</option>
-              <option>Class I</option><option>Class II</option>
-              <option>Class IIa</option><option>Class IIb</option><option>Class III</option>
+              <option>Class I</option>
+              <option>Class II</option>
+              <option>Class III</option>
             </select>
           </div>
           <div>
-            <label class="form-label">Số đăng ký BYT</label>
+            <label class="form-label">Số đăng ký Bộ Y tế</label>
             <input v-model="form.byt_reg_no" type="text" class="form-input w-full" />
           </div>
           <div>
-            <label class="form-label">Hạn đăng ký BYT</label>
+            <label class="form-label">Hạn đăng ký Bộ Y tế</label>
             <input v-model="form.byt_reg_expiry" type="date" class="form-input w-full" />
           </div>
         </div>

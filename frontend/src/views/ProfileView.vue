@@ -62,7 +62,7 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="page-container max-w-3xl space-y-5">
+  <div class="page-container space-y-5">
     <h1 class="text-xl font-semibold text-slate-800">Hồ sơ của tôi</h1>
 
     <div v-if="err" class="alert-error text-sm">{{ err }}</div>

@@ -108,7 +108,7 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="p-6 max-w-4xl mx-auto space-y-5">
+  <div class="page-container animate-fade-in space-y-5">
 
     <!-- Header -->
     <div class="flex items-center justify-between">
@@ -146,7 +146,7 @@ onMounted(load)
 
       <!-- Main form -->
       <div class="bg-white rounded-xl border border-gray-200 p-6 space-y-5">
-        <div class="grid grid-cols-2 gap-4">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">Thiết bị</label>
             <input v-model="form.asset" disabled class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-gray-50" />
@@ -168,7 +168,7 @@ onMounted(load)
         </div>
 
         <!-- From / To -->
-        <div class="grid grid-cols-2 gap-6 border-t pt-4">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-6 border-t pt-4">
           <div class="space-y-3">
             <h3 class="font-semibold text-sm text-gray-700">Từ (nguồn)</h3>
             <div>

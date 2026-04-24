@@ -136,14 +136,26 @@ Phiếu giao dịch kho. Submittable (docstatus 0/1/2).
 | from_warehouse | Link (AC Warehouse) | — | Reqd nếu Issue/Transfer/Adjustment |
 | to_warehouse | Link (AC Warehouse) | — | Reqd nếu Receipt/Transfer |
 | reference_type | Select | — | `Asset Repair`, `PM Work Order`, `Purchase`, `Manual` |
-| reference_name | Dynamic Link | — | Link tới chứng từ gốc |
+| reference_name | Data | — | Tùy loại chứng từ — xem bảng bên dưới |
 | supplier | Link (AC Supplier) | — | Chỉ Receipt |
 | requested_by | Link (User) | ✅ | Auto = `session.user` |
 | approved_by | Link (User) | — | Cho giao dịch cần duyệt (cost > threshold) |
 | status | Select | ✅ | `Draft`, `Submitted`, `Cancelled` |
-| notes | Text | — | — |
+| notes | Text | — | Bắt buộc khi `reference_type = Manual` hoặc `movement_type = Adjustment` |
 | items | Table (AC Stock Movement Item) | ✅ | ≥ 1 dòng |
 | total_value | Currency (calc) | — | Σ `items[].total_cost` |
+
+**reference_name theo từng reference_type:**
+
+| reference_type | Ý nghĩa nghiệp vụ | reference_name | FE input |
+|---|---|---|---|
+| `Asset Repair` | Xuất phụ tùng phục vụ sửa chữa thiết bị | Mã phiếu `Asset Repair` (link thực) | Search/dropdown từ danh sách Asset Repair |
+| `PM Work Order` | Xuất vật tư thực hiện bảo trì định kỳ | Mã `PM Work Order` (link thực) | Search/dropdown từ danh sách PM Work Order |
+| `Purchase` | Nhập kho từ mua hàng theo đơn NCC | Số hóa đơn / Mã PO từ nhà cung cấp (text tự do) | Text input — không link DocType |
+| `Manual` | Điều chỉnh kho thủ công: kiểm kê, hàng hỏng, số dư đầu kỳ | Không bắt buộc — mô tả ngắn nếu có | Text input tuỳ chọn — bắt buộc điền `notes` |
+
+> **Lý do `reference_name` là Data thay vì Dynamic Link:**
+> Frappe `Dynamic Link` yêu cầu `options` phải là tên DocType hợp lệ. `"Purchase"` và `"Manual"` không phải DocType — dùng Dynamic Link sẽ gây lỗi validation khi submit. Thay bằng `Data` giữ tính linh hoạt; API layer tự resolve link cho Asset Repair / PM Work Order.
 
 **Naming**: `AC-SM-.YYYY.-.#####`
 
@@ -154,6 +166,8 @@ Phiếu giao dịch kho. Submittable (docstatus 0/1/2).
 - `BR-INV-04` Adjustment: qty có thể âm/dương. Require `notes`.
 - `BR-INV-05` Chỉ submit (docstatus=1) mới cập nhật stock. Cancel (docstatus=2) → reverse stock.
 - `BR-INV-06` Sau submit không được edit — phải cancel + tạo mới.
+- `BR-INV-07` `reference_type = Manual` hoặc `movement_type = Adjustment`: `notes` bắt buộc.
+- `BR-INV-08` `reference_type = Asset Repair` / `PM Work Order`: `reference_name` phải tồn tại trong DocType tương ứng (validate ở service layer).
 
 ---
 

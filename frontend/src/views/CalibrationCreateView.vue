@@ -38,7 +38,7 @@ async function submit() {
 </script>
 
 <template>
-  <div class="page-container animate-fade-in max-w-2xl space-y-5">
+  <div class="page-container animate-fade-in space-y-5">
     <div class="flex items-center gap-3">
       <button class="btn-ghost" @click="router.push('/calibration')">← Quay lại</button>
       <div>
@@ -50,7 +50,7 @@ async function submit() {
     <div v-if="err" class="alert-error">{{ err }}</div>
 
     <form @submit.prevent="submit" class="card p-5 space-y-4">
-      <div class="grid grid-cols-2 gap-4">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div class="col-span-2">
           <label class="form-label">Thiết bị <span class="text-red-500">*</span></label>
           <SmartSelect v-model="form.asset" doctype="AC Asset" placeholder="Tìm thiết bị..." />

@@ -4,7 +4,10 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { getSparePart, updateSparePart, deleteSparePart } from '@/api/inventory'
 import type { SparePart, StockRow, StockMovement } from '@/types/inventory'
+import { getPartPurchases } from '@/api/purchase'
+import type { PartPurchaseRow } from '@/api/purchase'
 import SmartSelect from '@/components/common/SmartSelect.vue'
+import UomConverter from '@/components/common/UomConverter.vue'
 
 const props = defineProps<{ name: string }>()
 const router = useRouter()
@@ -16,6 +19,7 @@ type PartDetail = SparePart & {
 }
 
 const part = ref<PartDetail | null>(null)
+const partPurchases = ref<PartPurchaseRow[]>([])
 const loading = ref(false)
 const showEdit = ref(false)
 const saving = ref(false)
@@ -24,7 +28,14 @@ const form = ref<Partial<SparePart>>({})
 
 async function load() {
   loading.value = true
-  try { part.value = await getSparePart(props.name) as PartDetail }
+  try {
+    const [p, purchases] = await Promise.all([
+      getSparePart(props.name) as Promise<PartDetail>,
+      getPartPurchases(props.name),
+    ])
+    part.value = p
+    partPurchases.value = purchases
+  }
   finally { loading.value = false }
 }
 
@@ -37,7 +48,8 @@ function openEdit() {
     manufacturer_part_no: part.value.manufacturer_part_no,
     preferred_supplier: part.value.preferred_supplier,
     unit_cost: part.value.unit_cost,
-    uom: part.value.uom,
+    stock_uom: part.value.stock_uom,
+    purchase_uom: part.value.purchase_uom,
     min_stock_level: part.value.min_stock_level,
     max_stock_level: part.value.max_stock_level,
     is_critical: part.value.is_critical,
@@ -94,7 +106,7 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="page-container animate-fade-in max-w-5xl">
+  <div class="page-container animate-fade-in">
     <button class="btn-ghost mb-4" @click="router.push('/spare-parts')">← Quay lại</button>
 
     <div v-if="toast" class="mb-4 px-4 py-3 rounded-lg bg-emerald-50 text-emerald-700 text-sm">{{ toast }}</div>
@@ -123,7 +135,7 @@ onMounted(load)
       <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <div class="card p-4">
           <p class="text-xs text-slate-500 mb-1">Tổng tồn</p>
-          <p class="text-xl font-bold text-slate-900">{{ part.total_stock || 0 }} <span class="text-sm font-normal text-slate-400">{{ part.uom }}</span></p>
+          <p class="text-xl font-bold text-slate-900">{{ part.total_stock || 0 }} <span class="text-sm font-normal text-slate-400">{{ part.stock_uom }}</span></p>
         </div>
         <div class="card p-4">
           <p class="text-xs text-slate-500 mb-1">Đơn giá</p>
@@ -160,8 +172,8 @@ onMounted(load)
             <tbody>
               <tr v-for="s in part.stock_by_warehouse" :key="s.warehouse" class="border-b border-slate-50">
                 <td class="py-2.5">
-                  <p class="font-medium text-slate-800 text-sm">{{ s.warehouse_name || s.warehouse }}</p>
-                  <p class="text-[11px] text-slate-400 font-mono">{{ s.warehouse }}</p>
+                  <p class="font-medium text-slate-800 text-sm">{{ s.warehouse_name || s.warehouse_code || s.warehouse }}</p>
+                  <p v-if="s.warehouse_code && s.warehouse_code !== s.warehouse_name" class="text-[11px] text-slate-400 font-mono">{{ s.warehouse_code }}</p>
                 </td>
                 <td class="py-2.5 text-right font-semibold">{{ s.qty_on_hand }}</td>
                 <td class="py-2.5 text-right text-slate-500">{{ s.reserved_qty }}</td>
@@ -203,8 +215,8 @@ onMounted(load)
                   </span>
                 </td>
                 <td class="py-2 text-xs text-slate-500">{{ formatDt(m.movement_date) }}</td>
-                <td class="py-2 text-xs font-mono text-slate-500">{{ m.from_warehouse || '—' }}</td>
-                <td class="py-2 text-xs font-mono text-slate-500">{{ m.to_warehouse || '—' }}</td>
+                <td class="py-2 text-xs font-mono text-slate-500">{{ m.from_warehouse_code || m.from_warehouse_name || m.from_warehouse || '—' }}</td>
+                <td class="py-2 text-xs font-mono text-slate-500">{{ m.to_warehouse_code || m.to_warehouse_name || m.to_warehouse || '—' }}</td>
                 <td class="py-2 text-right font-medium">{{ m.qty }}</td>
                 <td class="py-2 text-right text-xs text-slate-500">{{ vnd(m.unit_cost) }}</td>
               </tr>
@@ -217,6 +229,64 @@ onMounted(load)
       <div v-if="part.specifications" class="card p-5 mt-6">
         <h3 class="text-sm font-semibold text-slate-700 mb-2">Thông số kỹ thuật</h3>
         <p class="text-sm text-slate-600 whitespace-pre-wrap">{{ part.specifications }}</p>
+      </div>
+
+      <!-- Purchase history -->
+      <div class="card p-5 mt-6">
+        <div class="flex items-center justify-between mb-4 pb-2 border-b border-slate-100">
+          <h3 class="text-sm font-semibold text-slate-700">Lịch sử đơn hàng mua</h3>
+          <div class="flex items-center gap-3">
+            <span class="text-xs text-slate-400">{{ partPurchases.length }} đơn</span>
+            <button class="text-xs text-blue-600 hover:underline"
+                    @click="router.push('/purchases/new')">+ Tạo đơn hàng</button>
+          </div>
+        </div>
+        <div v-if="!partPurchases.length" class="py-8 text-center text-slate-400 text-sm">
+          Phụ tùng này chưa có trong đơn hàng mua nào
+        </div>
+        <div v-else class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="text-xs text-slate-400 border-b border-slate-100">
+                <th class="py-2 text-left font-medium">Mã đơn</th>
+                <th class="py-2 text-left font-medium">Ngày đặt</th>
+                <th class="py-2 text-left font-medium">Nhà cung cấp</th>
+                <th class="py-2 text-right font-medium">SL đặt</th>
+                <th class="py-2 text-right font-medium">Đơn giá</th>
+                <th class="py-2 text-right font-medium">Thành tiền</th>
+                <th class="py-2 text-center font-medium">Trạng thái</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="r in partPurchases" :key="r.name"
+                  class="border-b border-slate-50 hover:bg-slate-50 cursor-pointer transition-colors"
+                  @click="router.push(`/purchases/${r.name}`)">
+                <td class="py-2.5 font-mono text-xs text-blue-600 hover:underline">{{ r.name }}</td>
+                <td class="py-2.5 text-slate-600 text-xs">{{ formatDt(r.purchase_date) }}</td>
+                <td class="py-2.5 text-slate-700">{{ r.supplier_name || r.supplier }}</td>
+                <td class="py-2.5 text-right font-semibold">{{ r.qty }}</td>
+                <td class="py-2.5 text-right text-xs text-slate-500">{{ vnd(r.unit_cost) }}</td>
+                <td class="py-2.5 text-right font-medium text-slate-800">{{ vnd(r.total_cost) }}</td>
+                <td class="py-2.5 text-center">
+                  <span class="text-xs px-2 py-0.5 rounded-full font-medium"
+                        :class="r.status === 'Received'  ? 'bg-emerald-50 text-emerald-700' :
+                                r.status === 'Submitted' ? 'bg-blue-50 text-blue-700' :
+                                r.status === 'Cancelled' ? 'bg-red-50 text-red-600' :
+                                                           'bg-slate-100 text-slate-600'">
+                    {{ r.status === 'Received' ? 'Đã nhận' : r.status === 'Submitted' ? 'Đã duyệt' :
+                       r.status === 'Cancelled' ? 'Đã huỷ' : 'Nháp' }}
+                  </span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- UOM Converter -->
+      <div class="card p-5 mt-6">
+        <h3 class="text-sm font-semibold text-slate-700 mb-4">Quy đổi đơn vị tính</h3>
+        <UomConverter :spare-part="part.name" />
       </div>
     </div>
 
@@ -240,8 +310,12 @@ onMounted(load)
                 <SmartSelect id="edit-category" v-model="form.part_category" doctype="AC Spare Part Category" placeholder="Chọn danh mục..." />
               </div>
               <div>
-                <label for="edit-uom" class="form-label">Đơn vị tính</label>
-                <input id="edit-uom" v-model="form.uom" type="text" class="form-input w-full" placeholder="cái, hộp, m..." />
+                <label for="edit-stock-uom" class="form-label">Đơn vị tồn kho (cơ bản)</label>
+                <SmartSelect id="edit-stock-uom" v-model="form.stock_uom" doctype="AC UOM" placeholder="Cái, Hộp, Nos..." />
+              </div>
+              <div>
+                <label for="edit-purchase-uom" class="form-label">Đơn vị mua hàng</label>
+                <SmartSelect id="edit-purchase-uom" v-model="form.purchase_uom" doctype="AC UOM" placeholder="Để trống nếu giống tồn kho" />
               </div>
               <div>
                 <label for="edit-manufacturer" class="form-label">Nhà sản xuất</label>
@@ -253,7 +327,7 @@ onMounted(load)
               </div>
               <div>
                 <label for="edit-supplier" class="form-label">Nhà cung cấp ưu tiên</label>
-                <SmartSelect id="edit-supplier" v-model="form.preferred_supplier" doctype="AC Vendor" placeholder="Chọn NCC..." />
+                <SmartSelect id="edit-supplier" v-model="form.preferred_supplier" doctype="AC Vendor" placeholder="Chọn nhà cung cấp..." />
               </div>
               <div>
                 <label for="edit-unit-cost" class="form-label">Đơn giá (VNĐ)</label>

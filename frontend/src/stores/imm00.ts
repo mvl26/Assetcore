@@ -8,9 +8,20 @@ import type {
   AcAsset, AcAssetListItem, AssetListParams,
   AcLocation, AcDepartment, AcAssetCategory, ImmDeviceModel,
   ImmSlaPolicy, AcSupplier, ImmCapaRecord, IncidentReport,
+  GmdnStatus,
 } from '@/types/imm00'
 
 const DEFAULT_PAGINATION = { page: 1, page_size: 20, total: 0, total_pages: 0, offset: 0 }
+
+export const GMDN_STATUS_LABEL: Record<string, string> = {
+  'In Use': 'Đang sử dụng',
+  'Not Use': 'Không sử dụng',
+}
+
+export const GMDN_OPTIONS: Array<{ value: GmdnStatus; label: string }> = [
+  { value: 'In Use',  label: 'Đang sử dụng' },
+  { value: 'Not Use', label: 'Không sử dụng' },
+]
 
 export const useAssetStore = defineStore('imm00_asset', () => {
   const assets = ref<AcAssetListItem[]>([])
@@ -56,6 +67,14 @@ export const useAssetStore = defineStore('imm00_asset', () => {
     return { success: true, data: res }
   }
 
+  async function updateGmdn(name: string, gmdn_status: GmdnStatus, reason: string) {
+    const res = await api.updateGmdnStatus(name, gmdn_status, reason) as unknown as { name: string; gmdn_status: GmdnStatus; previous: GmdnStatus }
+    if (res && currentAsset.value?.name === name) {
+      currentAsset.value.gmdn_status = res.gmdn_status
+    }
+    return res
+  }
+
   function reset() {
     assets.value = []
     currentAsset.value = null
@@ -63,7 +82,7 @@ export const useAssetStore = defineStore('imm00_asset', () => {
     error.value = null
   }
 
-  return { assets, currentAsset, pagination, loading, error, fetchList, fetchOne, transition, reset }
+  return { assets, currentAsset, pagination, loading, error, fetchList, fetchOne, transition, updateGmdn, reset }
 })
 
 export const useRefDataStore = defineStore('imm00_refdata', () => {

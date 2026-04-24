@@ -33,6 +33,14 @@ export async function transitionStatus(name: string, to_status: string, reason =
   return frappePost(`${BASE}.transition_status`, { name, to_status, reason })
 }
 
+export async function updateGmdnStatus(name: string, gmdn_status: string, reason: string): Promise<ApiResponse<{ name: string; gmdn_status: string; previous: string }>> {
+  return frappePost(`${BASE}.update_gmdn_status`, { name, gmdn_status, reason })
+}
+
+export async function toggleGmdnStatus(name: string): Promise<ApiResponse<{ name: string; gmdn_status: string; previous: string }>> {
+  return frappePost(`${BASE}.toggle_gmdn_status`, { name })
+}
+
 export async function getAssetTimeline(name: string, page = 1, page_size = 50): Promise<ApiResponse<PaginatedResponse<AssetLifecycleEvent>>> {
   return frappeGet(`${BASE}.get_asset_timeline`, { name, page, page_size })
 }
@@ -163,6 +171,18 @@ export async function deleteDeviceModel(name: string): Promise<ApiResponse<{ nam
 }
 
 // ─── AC Location / Department / Category CRUD ───────────────────────────────
+
+export async function getLocation(name: string): Promise<ApiResponse<AcLocation>> {
+  return frappeGet(`${BASE}.get_location`, { name })
+}
+
+export async function getDepartment(name: string): Promise<ApiResponse<AcDepartment>> {
+  return frappeGet(`${BASE}.get_department`, { name })
+}
+
+export async function getAssetCategory(name: string): Promise<ApiResponse<AcAssetCategory>> {
+  return frappeGet(`${BASE}.get_asset_category`, { name })
+}
 
 export async function createLocation(data: Partial<AcLocation>): Promise<ApiResponse<{ name: string }>> {
   return frappePost(`${BASE}.create_location`, data as Record<string, unknown>)
@@ -408,4 +428,86 @@ export async function updateDocumentRequest(name: string, data: Partial<Document
 
 export async function deleteDocumentRequest(name: string): Promise<ApiResponse<{ name: string; deleted: boolean }>> {
   return frappePost(`${BASE}.delete_document_request`, { name })
+}
+
+// ─── Depreciation Schedule (Phase 2) ─────────────────────────────────────────
+
+export interface DepreciationScheduleRow {
+  name: string
+  period_number: number
+  scheduled_date: string
+  depreciation_amount: number
+  accumulated_amount: number
+  remaining_value: number
+  status: 'Pending' | 'Executed' | 'Cancelled'
+  executed_on?: string
+  journal_entry?: string
+}
+
+export interface DepreciationScheduleResponse {
+  asset: string
+  asset_info: {
+    gross_purchase_amount?: number
+    residual_value?: number
+    accumulated_depreciation?: number
+    current_book_value?: number
+    depreciation_method?: string
+    total_depreciation_months?: number
+    depreciation_frequency?: string
+    depreciation_start_date?: string
+    in_service_date?: string
+  }
+  rows: DepreciationScheduleRow[]
+  summary: {
+    total_periods: number
+    executed_periods: number
+    pending_periods: number
+    total_depreciated: number
+  }
+}
+
+export async function getDepreciationSchedule(asset_name: string) {
+  return frappeGet<DepreciationScheduleResponse>(
+    `${BASE}.get_depreciation_schedule`, { asset_name },
+  )
+}
+
+export async function regenerateDepreciationSchedule(asset_name: string, force: 0 | 1 = 1) {
+  return frappePost<{ asset: string; periods: number; total_depreciable?: number; skipped?: boolean; reason?: string }>(
+    `${BASE}.regenerate_depreciation_schedule`, { asset_name, force },
+  )
+}
+
+export interface DepreciationPreviewRow {
+  period_number: number
+  scheduled_date: string
+  depreciation_amount: number
+  accumulated_amount: number
+  remaining_value: number
+}
+
+export async function previewDepreciationSchedule(params: {
+  gross: number
+  residual: number
+  method: string
+  total_months: number
+  frequency: string
+  start_date: string
+}) {
+  return frappeGet<DepreciationPreviewRow[]>(
+    `${BASE}.preview_depreciation_schedule`, params as unknown as Record<string, unknown>,
+  )
+}
+
+export async function runDueDepreciationNow(as_of?: string) {
+  return frappePost<{ executed_rows: number; updated_assets: number }>(
+    `${BASE}.run_due_depreciation_now`, { as_of: as_of || '' },
+  )
+}
+
+export async function bulkRegenerateScheduleByCategory(category_name: string) {
+  return frappePost<{
+    category: string; total_assets: number; regenerated: number;
+    skipped_has_history: number; errors: number
+  }>(`${BASE}.bulk_regenerate_schedule_by_category`, { category_name })
 }

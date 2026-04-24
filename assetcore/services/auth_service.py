@@ -44,7 +44,7 @@ def register_user(*, email: str, full_name: str, password: str,
     if UserRepo.exists(email):
         raise ServiceError(ErrorCode.DUPLICATE, "Email đã tồn tại trong hệ thống")
 
-    if department and not frappe.db.exists("Department", department):
+    if department and not frappe.db.exists("AC Department", department):
         raise ServiceError(ErrorCode.VALIDATION, f"Khoa/phòng '{department}' không tồn tại")
 
     user = UserRepo.create({
@@ -119,7 +119,7 @@ def get_current_user_profile() -> dict:
 
     dept_id = (frappe.db.get_value("User", user_name, "ac_department")
                if frappe.db.has_column("User", "ac_department") else None)
-    dept_name = (frappe.db.get_value("Department", dept_id, "department_name") or dept_id
+    dept_name = (frappe.db.get_value("AC Department", dept_id, "department_name") or dept_id
                  if dept_id else None)
     approval_status = (frappe.db.get_value("User", user_name, "imm_approval_status")
                        if frappe.db.has_column("User", "imm_approval_status") else "Approved")

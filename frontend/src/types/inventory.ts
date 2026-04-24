@@ -29,7 +29,11 @@ export interface SparePart {
   manufacturer_part_no?: string
   preferred_supplier?: string
   unit_cost?: number
+  /** @deprecated use stock_uom */
   uom?: string
+  stock_uom?: string
+  purchase_uom?: string
+  uom_conversions?: Array<{ uom: string; conversion_factor: number; is_purchase_uom: number; is_issue_uom: number }>
   min_stock_level?: number
   max_stock_level?: number
   shelf_life_months?: number
@@ -38,11 +42,14 @@ export interface SparePart {
   specifications?: string
   total_stock?: number
   is_low_stock?: boolean
+  qty_on_hand?: number
+  available_qty?: number
 }
 
 export interface StockRow {
   name: string
   warehouse: string
+  warehouse_code?: string
   warehouse_name?: string
   spare_part: string
   part_name: string
@@ -66,6 +73,8 @@ export interface StockMovementItem {
   part_name?: string
   uom?: string
   qty: number
+  conversion_factor?: number
+  stock_qty?: number
   unit_cost: number
   total_cost?: number
   serial_no?: string
@@ -77,7 +86,11 @@ export interface StockMovement {
   movement_type: MovementType
   movement_date: string
   from_warehouse?: string
+  from_warehouse_code?: string
+  from_warehouse_name?: string
   to_warehouse?: string
+  to_warehouse_code?: string
+  to_warehouse_name?: string
   supplier?: string
   reference_type?: string
   reference_name?: string

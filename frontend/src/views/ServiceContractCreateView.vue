@@ -52,7 +52,7 @@ async function submit() {
 </script>
 
 <template>
-  <div class="max-w-2xl mx-auto p-6 space-y-6">
+  <div class="page-container animate-fade-in space-y-6">
     <div class="flex items-center gap-3">
       <button @click="router.back()" class="text-gray-500 hover:text-gray-700 text-sm">← Quay lại</button>
       <h1 class="text-xl font-semibold text-gray-800">Tạo Hợp đồng dịch vụ</h1>
@@ -68,7 +68,7 @@ async function submit() {
 
       <div class="grid grid-cols-2 gap-4">
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">NCC <span class="text-red-500">*</span></label>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Nhà cung cấp <span class="text-red-500">*</span></label>
           <SmartSelect v-model="form.supplier" doctype="AC Supplier" placeholder="Tìm nhà cung cấp..." />
         </div>
         <div>

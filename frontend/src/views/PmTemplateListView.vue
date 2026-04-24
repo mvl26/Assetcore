@@ -61,7 +61,7 @@ function removeItem(i: number) { form.value.checklist_items.splice(i, 1) }
 async function save() {
   err.value = ''
   if (!form.value.template_name || !form.value.asset_category || !form.value.pm_type) {
-    err.value = 'Tên mẫu, Loại thiết bị, Loại bảo trì là bắt buộc'
+    err.value = 'Tên mẫu, Danh mục tài sản, Loại bảo trì là bắt buộc'
     return
   }
   const cleanItems = form.value.checklist_items
@@ -102,7 +102,7 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="p-6 space-y-5">
+  <div class="page-container animate-fade-in space-y-5">
     <div class="flex items-center justify-between">
       <h1 class="text-xl font-semibold text-gray-800">Template Checklist PM</h1>
       <div class="flex items-center gap-3">
@@ -111,7 +111,7 @@ onMounted(load)
       </div>
     </div>
 
-    <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <div class="bg-white rounded-xl border border-gray-200 overflow-x-auto">
       <div v-if="loading" class="text-center text-gray-400 py-12">Đang tải...</div>
       <div v-else-if="items.length === 0" class="text-center text-gray-400 py-12 text-sm">Chưa có template.</div>
       <table v-else class="w-full text-sm">
@@ -119,7 +119,7 @@ onMounted(load)
           <tr>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Mã</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Tên template</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Loại thiết bị</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Danh mục tài sản</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Loại PM</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Version</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Hiệu lực</th>
@@ -153,7 +153,7 @@ onMounted(load)
             <input v-model="form.template_name" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
           </label>
           <label class="block">
-            <span class="block text-sm font-medium text-gray-700 mb-1">Loại thiết bị *</span>
+            <span class="block text-sm font-medium text-gray-700 mb-1">Danh mục tài sản *</span>
             <input v-model="form.asset_category" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
           </label>
           <label class="block">

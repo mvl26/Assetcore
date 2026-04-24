@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import {
   listFirmwareCrs, getFirmwareCr, createFirmwareCr, updateFirmwareCr, deleteFirmwareCr,
   type FirmwareCR,
 } from '@/api/imm00'
+
+const router = useRouter()
 
 const items = ref<FirmwareCR[]>([])
 const total = ref(0)
@@ -17,8 +20,8 @@ async function load() {
   loading.value = true
   try {
     const r = await listFirmwareCrs()
-    const d = r as unknown as { items: FirmwareCR[]; pagination: { total: number } }
-    if (d) { items.value = d.items || []; total.value = d.pagination?.total || 0 }
+    const d = r as unknown as { items: FirmwareCR[]; total: number }
+    if (d) { items.value = d.items || []; total.value = d.total || 0 }
   } finally { loading.value = false }
 }
 
@@ -76,7 +79,7 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="p-6 space-y-5">
+  <div class="page-container animate-fade-in space-y-5">
     <div class="flex items-center justify-between">
       <h1 class="text-xl font-semibold text-gray-800">Yêu cầu Cập nhật Firmware</h1>
       <div class="flex items-center gap-3">
@@ -85,7 +88,7 @@ onMounted(load)
       </div>
     </div>
 
-    <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <div class="bg-white rounded-xl border border-gray-200 overflow-x-auto">
       <div v-if="loading" class="text-center text-gray-400 py-12">Đang tải...</div>
       <div v-else-if="items.length === 0" class="text-center text-gray-400 py-12 text-sm">Chưa có yêu cầu nào.</div>
       <table v-else class="w-full text-sm">
@@ -116,7 +119,8 @@ onMounted(load)
             <td class="px-4 py-3 text-xs text-gray-500">{{ f.approved_by || '—' }}</td>
             <td class="px-4 py-3 text-xs text-gray-500">{{ f.applied_datetime ? new Date(f.applied_datetime).toLocaleDateString('vi-VN') : '—' }}</td>
             <td class="px-4 py-3 text-right space-x-2 whitespace-nowrap">
-              <button @click="openEdit(f.name)" class="text-blue-600 text-xs font-medium">Sửa</button>
+              <button @click="router.push(`/cm/firmware/${f.name}`)" class="text-blue-600 text-xs font-medium">Chi tiết</button>
+              <button @click="openEdit(f.name)" class="text-gray-500 text-xs font-medium">Sửa</button>
               <button @click="remove(f.name)" class="text-red-600 text-xs font-medium">Xóa</button>
             </td>
           </tr>

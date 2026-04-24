@@ -87,7 +87,7 @@ const woStatusMap: Record<string, string> = {
         <p class="text-3xl font-bold text-slate-800">{{ kpis.total_completed }}</p>
       </div>
       <div class="kpi-card p-5" style="--kpi-color: #2563eb">
-        <p class="text-xs font-medium text-slate-500 mb-2">MTTR trung bình</p>
+        <p class="text-xs font-medium text-slate-500 mb-2">Thời gian sửa chữa trung bình</p>
         <p class="text-3xl font-bold text-brand-700">{{ kpis.mttr_avg_hours }}<span class="text-base font-normal text-slate-400 ml-0.5">h</span></p>
       </div>
       <div class="kpi-card p-5"

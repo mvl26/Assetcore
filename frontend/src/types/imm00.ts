@@ -6,10 +6,11 @@ export type LifecycleStatus =
   | 'Out of Service' | 'Decommissioned'
 
 export type RiskClass = 'Low' | 'Medium' | 'High' | 'Critical'
-export type MedicalDeviceClass = 'Class I' | 'Class II' | 'Class IIa' | 'Class IIb' | 'Class III'
+export type MedicalDeviceClass = 'Class I' | 'Class II' | 'Class III'
 export type CapaSeverity = 'Minor' | 'Major' | 'Critical'
 export type CapaStatus = 'Open' | 'In Progress' | 'Pending Verification' | 'Closed' | 'Overdue'
 export type IncidentSeverity = 'Low' | 'Medium' | 'High' | 'Critical'
+export type GmdnStatus = 'In Use' | 'Not Use'
 
 export interface PaginatedResponse<T> {
   pagination: {
@@ -32,6 +33,7 @@ export interface AcAssetListItem {
   asset_category?: string
   category_name?: string
   location?: string
+  gmdn_status?: GmdnStatus
   location_name?: string
   department?: string
   department_name?: string
@@ -39,6 +41,10 @@ export interface AcAssetListItem {
   next_pm_date?: string
   next_calibration_date?: string
   byt_reg_expiry?: string
+  // Depreciation summary (also in list)
+  gross_purchase_amount?: number
+  accumulated_depreciation?: number
+  current_book_value?: number
 }
 
 export interface AcAsset extends AcAssetListItem {
@@ -55,11 +61,22 @@ export interface AcAsset extends AcAssetListItem {
   device_model?: string
   device_model_name?: string
   responsible_technician_name?: string
+  // Depreciation fields (canonical rules inherited from Asset Category)
+  depreciation_method?: '' | 'Straight Line' | 'Double Declining' | 'Units of Production'
+  total_depreciation_months?: number
+  depreciation_frequency?: 'Monthly' | 'Quarterly' | 'Yearly'
+  depreciation_start_date?: string
+  useful_life_years?: number
+  residual_value?: number
+  accumulated_depreciation?: number
+  current_book_value?: number
+  in_service_date?: string
   medical_device_class?: MedicalDeviceClass
   risk_classification?: RiskClass
   manufacturer_sn?: string
   udi_code?: string
   gmdn_code?: string
+  gmdn_status?: GmdnStatus
   byt_reg_no?: string
   commissioning_date?: string
   commissioning_ref?: string
@@ -105,6 +122,8 @@ export interface AssetKpi {
   next_pm_date?: string
   next_calibration_date?: string
   byt_reg_expiry?: string
+  gmdn_code?: string
+  gmdn_status?: GmdnStatus
 }
 
 export interface AssetListParams {
@@ -115,17 +134,37 @@ export interface AssetListParams {
   location?: string
   asset_category?: string
   search?: string
+  gmdn_status?: GmdnStatus | ''
 }
 
 // ─── AC Supplier ──────────────────────────────────────────────────────────────
 
+export type VendorType = 'Manufacturer' | 'Distributor' | 'Service Provider' | 'Calibration Lab'
+
 export interface AcSupplier {
   name: string
   supplier_name: string
+  supplier_code?: string
   supplier_group?: string
+  vendor_type?: VendorType
   country?: string
+  tax_id?: string
+  website?: string
+  address?: string
+  phone?: string
+  mobile_no?: string
   email_id?: string
+  technical_email?: string
+  support_hotline?: string
+  local_representative?: string
+  iso_17025_cert?: string
+  iso_17025_expiry?: string
+  iso_13485_cert?: string
+  iso_13485_expiry?: string
+  contract_start?: string
   contract_end?: string
+  contract_value?: number
+  is_active?: 0 | 1
 }
 
 // ─── AC Location / Department / Category ─────────────────────────────────────
@@ -133,23 +172,46 @@ export interface AcSupplier {
 export interface AcLocation {
   name: string
   location_name: string
-  location_type?: string
-  parent_ac_location?: string
-  is_active?: 0 | 1
+  location_code?: string
+  parent_location?: string
+  is_group?: 0 | 1
+  clinical_area_type?: string
+  infection_control_level?: string
+  power_backup_available?: 0 | 1
+  emergency_contact?: string
+  dept_head?: string
+  technical_contact?: string
+  notes?: string
 }
 
 export interface AcDepartment {
   name: string
   department_name: string
-  parent_ac_department?: string
-  head_of_department?: string
+  department_code?: string
+  parent_department?: string
+  is_group?: 0 | 1
+  dept_head?: string
+  phone?: string
+  email?: string
+  is_active?: 0 | 1
 }
 
 export interface AcAssetCategory {
   name: string
   category_name: string
+  description?: string
+  // PM / Calibration defaults
+  default_pm_required?: 0 | 1
   default_pm_interval_days?: number
+  default_calibration_required?: 0 | 1
   default_calibration_interval_days?: number
+  // Depreciation / Finance defaults (Tier 1 rules — canonical)
+  default_depreciation_method?: '' | 'Straight Line' | 'Double Declining' | 'Units of Production'
+  total_depreciation_months?: number
+  depreciation_frequency?: 'Monthly' | 'Quarterly' | 'Yearly'
+  default_residual_value_pct?: number
+  has_radiation?: 0 | 1
+  is_active?: 0 | 1
 }
 
 // ─── IMM Device Model ─────────────────────────────────────────────────────────
@@ -157,10 +219,33 @@ export interface AcAssetCategory {
 export interface ImmDeviceModel {
   name: string
   model_name: string
-  model_number?: string
-  manufacturer?: string
-  medical_device_class?: MedicalDeviceClass
+  model_version?: string
+  manufacturer: string
+  asset_category: string
+  country_of_origin?: string
+  power_supply?: string
+  expected_lifespan_years?: number
+  medical_device_class: MedicalDeviceClass
+  risk_classification?: RiskClass
   gmdn_code?: string
+  emdn_code?: string
+  hsn_code?: string
+  registration_required?: 0 | 1
+  is_radiation_device?: 0 | 1
+  is_pm_required?: 0 | 1
+  pm_interval_days?: number
+  pm_alert_days?: number
+  is_calibration_required?: 0 | 1
+  calibration_interval_days?: number
+  calibration_alert_days?: number
+  default_calibration_type?: string
+  // Tier 2 media + technical specs
+  model_image?: string
+  catalog_file?: string
+  specifications?: string
+  dimensions?: string
+  weight_kg?: number
+  notes?: string
 }
 
 // ─── IMM SLA Policy ───────────────────────────────────────────────────────────
@@ -169,12 +254,18 @@ export interface ImmSlaPolicy {
   name: string
   policy_name: string
   priority: string
-  risk_class: RiskClass
+  risk_class?: RiskClass
   is_default?: 0 | 1
   response_time_minutes: number
   resolution_time_hours: number
-  working_hours_only: 0 | 1
-  is_active: 0 | 1
+  working_hours_only?: 0 | 1
+  escalation_l1_role?: string
+  escalation_l1_hours?: number
+  escalation_l2_role?: string
+  escalation_l2_hours?: number
+  effective_date?: string
+  expiry_date?: string
+  is_active?: 0 | 1
 }
 
 // ─── IMM Audit Trail ──────────────────────────────────────────────────────────

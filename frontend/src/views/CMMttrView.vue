@@ -114,9 +114,9 @@ function formatHours(h: number): string {
       <!-- MTTR Trend Chart (col-span-3) -->
       <div class="md:col-span-3 card animate-slide-up" style="animation-delay: 200ms">
         <div class="flex items-center justify-between mb-5">
-          <h3 class="text-sm font-semibold text-slate-800">MTTR Trend — 6 tháng gần nhất</h3>
+          <h3 class="text-sm font-semibold text-slate-800">Biến động thời gian sửa chữa TB — 6 tháng gần nhất</h3>
           <div class="flex items-center gap-2 text-xs text-slate-400">
-            <span class="inline-block w-3 h-0.5 bg-blue-500"></span> MTTR
+            <span class="inline-block w-3 h-0.5 bg-blue-500"></span> Thời gian sửa chữa TB
             <span class="inline-block w-3 h-0.5 bg-red-400 border-dashed ml-2"></span> SLA 24h
           </div>
         </div>
@@ -182,7 +182,7 @@ function formatHours(h: number): string {
       <svg class="w-12 h-12 mx-auto mb-3 text-slate-300" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
       </svg>
-      <p class="text-sm">Chưa có dữ liệu MTTR cho tháng {{ selectedMonth }}/{{ selectedYear }}</p>
+      <p class="text-sm">Chưa có dữ liệu thời gian sửa chữa cho tháng {{ selectedMonth }}/{{ selectedYear }}</p>
     </div>
   </div>
 </template>

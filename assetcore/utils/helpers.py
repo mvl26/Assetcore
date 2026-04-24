@@ -1,12 +1,26 @@
 # Copyright (c) 2026, AssetCore Team
 # Shared helper utilities — dùng chung cho toàn bộ API modules
 
+import json
+
 import frappe
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # API RESPONSE HELPERS
 # ─────────────────────────────────────────────────────────────────────────────
+
+def _parse_json(raw, default):
+    """Parse a JSON string; return default on failure or non-string input."""
+    if not raw:
+        return default
+    if not isinstance(raw, str):
+        return raw
+    try:
+        return json.loads(raw)
+    except (ValueError, TypeError):
+        return default
+
 
 def _ok(data: dict | list) -> dict:
     """Chuẩn trả về thành công."""

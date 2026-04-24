@@ -109,7 +109,7 @@ onMounted(fetchLabel)
             <span class="font-bold">{{ labelData.label.dept }}</span>
           </div>
           <div class="flex justify-between gap-2">
-            <span class="text-gray-500">Mã BYT:</span>
+            <span class="text-gray-500">Mã Bộ Y tế:</span>
             <span class="font-bold">{{ labelData.label.moh_code }}</span>
           </div>
           <div class="flex justify-between gap-2">

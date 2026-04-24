@@ -1,10 +1,12 @@
 <script setup lang="ts">
 // Copyright (c) 2026, AssetCore Team
-import { ref, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
-import { useAssetStore } from '@/stores/imm00'
+import { ref, onMounted, computed, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { useAssetStore, GMDN_STATUS_LABEL } from '@/stores/imm00'
 import { getAssetTimeline, getAssetKpi, verifyChain, deleteAsset } from '@/api/imm00'
+import { getCommissioningOrigin, type CommissioningOrigin } from '@/api/imm04'
 import AssetDowntimeWidget from '@/components/asset/AssetDowntimeWidget.vue'
+import AssetDepreciationSchedule from '@/components/asset/AssetDepreciationSchedule.vue'
 import type { AssetLifecycleEvent, AssetKpi, ChainVerifyResult, LifecycleStatus } from '@/types/imm00'
 
 const props = defineProps<{ id: string }>()
@@ -13,12 +15,13 @@ const store = useAssetStore()
 
 const timeline = ref<AssetLifecycleEvent[]>([])
 const kpi = ref<AssetKpi | null>(null)
+const origin = ref<CommissioningOrigin | null>(null)
 const chain = ref<ChainVerifyResult | null>(null)
 const transitioning = ref(false)
 const showTransitionModal = ref(false)
 const targetStatus = ref<LifecycleStatus | ''>('')
 const transitionReason = ref('')
-const activeTab = ref<'info' | 'timeline' | 'kpi' | 'audit'>('info')
+const activeTab = ref<'info' | 'depreciation' | 'timeline' | 'kpi' | 'audit'>('info')
 
 const TRANSITIONS: Record<string, LifecycleStatus[]> = {
   'Commissioned': ['Active', 'Out of Service', 'Decommissioned'],
@@ -117,8 +120,45 @@ async function onTabChange(tab: typeof activeTab.value) {
   if (tab === 'audit' && !chain.value) await loadChain()
 }
 
+// ─── GMDN Status ───
+const route = useRoute()
+const showGmdnModal = ref(false)
+const gmdnReason = ref('')
+const gmdnSaving = ref(false)
+const gmdnError = ref('')
+
+const currentGmdn = computed(() => store.currentAsset?.gmdn_status || 'Not Use')
+const targetGmdnStatus = computed(() => currentGmdn.value === 'In Use' ? 'Not Use' : 'In Use')
+const currentGmdnLabel = computed(() => GMDN_STATUS_LABEL[currentGmdn.value] || currentGmdn.value)
+const targetGmdnLabel = computed(() => GMDN_STATUS_LABEL[targetGmdnStatus.value] || targetGmdnStatus.value)
+
+async function doUpdateGmdn() {
+  if (!store.currentAsset) return
+  if (gmdnReason.value.trim().length < 5) {
+    gmdnError.value = 'Bắt buộc nhập lý do (tối thiểu 5 ký tự)'
+    return
+  }
+  gmdnSaving.value = true
+  gmdnError.value = ''
+  try {
+    await store.updateGmdn(store.currentAsset.name, targetGmdnStatus.value, gmdnReason.value.trim())
+    showGmdnModal.value = false
+    gmdnReason.value = ''
+  } catch (e: unknown) {
+    gmdnError.value = (e as Error).message || 'Lỗi cập nhật GMDN'
+  } finally {
+    gmdnSaving.value = false
+  }
+}
+
+watch(() => route.query.action, (action) => {
+  if (action === 'gmdn' && store.currentAsset) showGmdnModal.value = true
+})
+
 onMounted(async () => {
   await store.fetchOne(props.id)
+  try { origin.value = await getCommissioningOrigin(props.id) } catch { origin.value = null }
+  if (route.query.action === 'gmdn') showGmdnModal.value = true
 })
 </script>
 
@@ -172,6 +212,54 @@ onMounted(async () => {
         </div>
       </div>
 
+      <!-- Nguồn gốc: Purchase → Commissioning → Asset trail -->
+      <div v-if="origin?.commissioning" class="card p-4 mb-5 bg-gradient-to-r from-blue-50 to-emerald-50 border border-blue-200">
+        <p class="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-3">Nguồn gốc tài sản</p>
+        <div class="flex flex-wrap items-center gap-3 text-sm">
+          <router-link
+            v-if="origin.commissioning.po_reference"
+            :to="`/purchases/${origin.commissioning.po_reference}`"
+            class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white rounded-lg border border-slate-200 hover:border-blue-400 hover:shadow-sm transition-all"
+          >
+            <span class="text-xs text-slate-400">Đơn mua:</span>
+            <span class="font-mono text-xs font-semibold text-blue-700">{{ origin.commissioning.po_reference }}</span>
+          </router-link>
+          <svg class="w-4 h-4 text-slate-300" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
+          </svg>
+          <router-link
+            :to="`/commissioning/${origin.commissioning.name}`"
+            class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white rounded-lg border border-slate-200 hover:border-blue-400 hover:shadow-sm transition-all"
+          >
+            <span class="text-xs text-slate-400">Phiếu tiếp nhận:</span>
+            <span class="font-mono text-xs font-semibold text-indigo-700">{{ origin.commissioning.name }}</span>
+            <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 ml-1">
+              {{ origin.commissioning.workflow_state }}
+            </span>
+          </router-link>
+          <svg class="w-4 h-4 text-slate-300" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
+          </svg>
+          <span class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 rounded-lg text-white text-xs font-semibold">
+            ✓ Tài sản đã hình thành
+          </span>
+        </div>
+        <div class="flex flex-wrap gap-x-5 gap-y-1 mt-3 text-xs text-slate-600">
+          <span v-if="origin.commissioning.vendor_serial_no">
+            S/N: <span class="font-mono font-medium">{{ origin.commissioning.vendor_serial_no }}</span>
+          </span>
+          <span v-if="origin.commissioning.reception_date">
+            Nhận hàng: <b>{{ origin.commissioning.reception_date }}</b>
+          </span>
+          <span v-if="origin.commissioning.commissioning_date">
+            Nghiệm thu: <b>{{ origin.commissioning.commissioning_date }}</b>
+          </span>
+          <span v-if="origin.commissioning.transferred_doc_count !== undefined">
+            Hồ sơ IMM-05: <b>{{ origin.commissioning.transferred_doc_count }}</b> tài liệu tự động chuyển
+          </span>
+        </div>
+      </div>
+
       <!-- Cross-module quick actions — liên kết trực tiếp đến IMM-05/08/09/11/00 -->
       <div class="card p-3 mb-5">
         <div class="flex flex-wrap items-center gap-2">
@@ -185,7 +273,7 @@ onMounted(async () => {
             class="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors"
             @click="router.push(`/pm/work-orders?asset=${id}`)"
             title="Lịch sử bảo trì định kỳ (IMM-08)"
-          >🛠️ Bảo trì PM</button>
+          >🛠️ Bảo trì định kỳ</button>
           <button
             class="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md bg-amber-50 text-amber-700 hover:bg-amber-100 transition-colors"
             @click="router.push(`/cm/work-orders?asset=${id}`)"
@@ -212,13 +300,13 @@ onMounted(async () => {
       <!-- Tabs -->
       <div class="flex gap-1 mb-4 border-b border-slate-200">
         <button
-          v-for="tab in (['info', 'timeline', 'kpi', 'audit'] as const)"
+          v-for="tab in (['info', 'depreciation', 'timeline', 'kpi', 'audit'] as const)"
           :key="tab"
           class="px-4 py-2 text-sm font-medium transition-colors"
           :class="activeTab === tab ? 'text-blue-600 border-b-2 border-blue-600 -mb-px' : 'text-slate-500 hover:text-slate-800'"
           @click="onTabChange(tab)"
         >
-          {{ { info: 'Thông tin', timeline: 'Lịch sử', kpi: 'KPI', audit: 'Audit Trail' }[tab] }}
+          {{ { info: 'Thông tin', depreciation: 'Khấu hao', timeline: 'Lịch sử', kpi: 'KPI', audit: 'Audit Trail' }[tab] }}
         </button>
       </div>
 
@@ -273,9 +361,31 @@ onMounted(async () => {
             <div class="flex justify-between"><dt class="text-slate-400">Serial No</dt><dd class="text-slate-800 font-mono text-xs">{{ store.currentAsset.manufacturer_sn || '—' }}</dd></div>
             <div class="flex justify-between"><dt class="text-slate-400">UDI Code</dt><dd class="text-slate-800 font-mono text-xs">{{ store.currentAsset.udi_code || '—' }}</dd></div>
             <div class="flex justify-between"><dt class="text-slate-400">GMDN</dt><dd class="text-slate-800">{{ store.currentAsset.gmdn_code || '—' }}</dd></div>
-            <div class="flex justify-between"><dt class="text-slate-400">Số BYT</dt><dd class="text-slate-800">{{ store.currentAsset.byt_reg_no || '—' }}</dd></div>
+            <div class="flex justify-between items-center">
+              <dt class="text-slate-400 shrink-0">Phiếu nghiệm thu</dt>
+              <dd class="text-right">
+                <router-link
+                  v-if="store.currentAsset.commissioning_ref"
+                  :to="`/commissioning/${store.currentAsset.commissioning_ref}`"
+                  class="font-mono text-xs text-blue-600 hover:underline"
+                >{{ store.currentAsset.commissioning_ref }}</router-link>
+                <span v-else class="text-slate-400">—</span>
+              </dd>
+            </div>
+            <div class="flex justify-between"><dt class="text-slate-400">Ngày nghiệm thu</dt><dd class="text-slate-800">{{ formatDate(store.currentAsset.commissioning_date) }}</dd></div>
+            <div class="flex justify-between items-center">
+              <dt class="text-slate-400">GMDN Status</dt>
+              <dd class="flex items-center gap-2">
+                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium"
+                      :class="currentGmdn === 'In Use' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'">
+                  {{ currentGmdnLabel }}
+                </span>
+                <button class="text-xs text-blue-600 hover:underline" @click="showGmdnModal = true">Cập nhật</button>
+              </dd>
+            </div>
+            <div class="flex justify-between"><dt class="text-slate-400">Số đăng ký Bộ Y tế</dt><dd class="text-slate-800">{{ store.currentAsset.byt_reg_no || '—' }}</dd></div>
             <div class="flex justify-between">
-              <dt class="text-slate-400">Hạn BYT</dt>
+              <dt class="text-slate-400">Hạn đăng ký Bộ Y tế</dt>
               <dd :class="isPmOverdue(store.currentAsset.byt_reg_expiry) ? 'text-red-600 font-semibold' : 'text-slate-800'">
                 {{ formatDate(store.currentAsset.byt_reg_expiry) }}
               </dd>
@@ -294,6 +404,53 @@ onMounted(async () => {
             </div>
           </dl>
         </div>
+
+        <!-- Depreciation summary card (Tier 1 rules) -->
+        <div class="card p-4 md:col-span-2">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="text-sm font-semibold text-slate-700">Khấu hao</h3>
+            <button class="text-xs text-blue-600 hover:underline" @click="activeTab = 'depreciation'">
+              Xem chi tiết →
+            </button>
+          </div>
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+            <div>
+              <p class="text-xs text-slate-400 mb-0.5">Phương pháp</p>
+              <p class="font-medium text-slate-800">{{ store.currentAsset.depreciation_method || '—' }}</p>
+              <p v-if="store.currentAsset.total_depreciation_months" class="text-xs text-slate-400 mt-0.5">
+                {{ store.currentAsset.total_depreciation_months }} tháng · {{ store.currentAsset.depreciation_frequency || 'Monthly' }}
+              </p>
+            </div>
+            <div>
+              <p class="text-xs text-slate-400 mb-0.5">Nguyên giá</p>
+              <p class="font-semibold text-slate-900">
+                {{ store.currentAsset.gross_purchase_amount?.toLocaleString('vi-VN') || '—' }}
+              </p>
+              <p class="text-xs text-slate-400 mt-0.5">VND</p>
+            </div>
+            <div>
+              <p class="text-xs text-slate-400 mb-0.5">Đã khấu hao</p>
+              <p class="font-semibold text-red-600">
+                −{{ store.currentAsset.accumulated_depreciation?.toLocaleString('vi-VN') || '0' }}
+              </p>
+              <p class="text-xs text-slate-400 mt-0.5">VND</p>
+            </div>
+            <div>
+              <p class="text-xs text-slate-400 mb-0.5">Giá trị còn lại</p>
+              <p class="font-semibold text-emerald-600">
+                {{ store.currentAsset.current_book_value?.toLocaleString('vi-VN')
+                   || store.currentAsset.gross_purchase_amount?.toLocaleString('vi-VN')
+                   || '—' }}
+              </p>
+              <p class="text-xs text-slate-400 mt-0.5">VND</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab: Depreciation -->
+      <div v-if="activeTab === 'depreciation'">
+        <AssetDepreciationSchedule :asset-name="store.currentAsset.name" />
       </div>
 
       <!-- Tab: Timeline -->
@@ -333,7 +490,7 @@ onMounted(async () => {
             <p class="text-2xl font-bold text-green-600">{{ kpi.uptime_pct != null ? kpi.uptime_pct.toFixed(1) + '%' : '—' }}</p>
           </div>
           <div class="card p-4 text-center">
-            <p class="text-xs text-slate-400 mb-1">MTBF (ngày)</p>
+            <p class="text-xs text-slate-400 mb-1">Thời gian giữa 2 lần hỏng (ngày)</p>
             <p class="text-2xl font-bold text-blue-600">{{ kpi.mtbf_days ?? '—' }}</p>
           </div>
           <div class="card p-4 text-center">
@@ -391,6 +548,36 @@ onMounted(async () => {
           <button class="btn-ghost text-sm" @click="showTransitionModal = false">Huỷ</button>
           <button class="btn-primary text-sm" :disabled="transitioning" @click="confirmTransition">
             {{ transitioning ? 'Đang xử lý...' : 'Xác nhận' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- GMDN Status Modal -->
+    <div v-if="showGmdnModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40" @click.self="showGmdnModal = false">
+      <div class="bg-white rounded-xl shadow-xl p-6 w-full max-w-md mx-4 space-y-4">
+        <h3 class="font-semibold text-slate-900">Cập nhật GMDN Status</h3>
+        <p class="text-sm text-slate-600">
+          <span class="font-medium">{{ currentGmdnLabel }}</span>
+          → <span class="font-medium text-blue-600">{{ targetGmdnLabel }}</span>
+        </p>
+        <div>
+          <label for="gmdn-reason" class="block text-xs font-medium text-slate-600 mb-1">
+            Lý do thay đổi <span class="text-red-500">*</span>
+          </label>
+          <textarea
+            id="gmdn-reason"
+            v-model="gmdnReason"
+            rows="3"
+            class="form-input w-full text-sm"
+            placeholder="Nhập lý do (tối thiểu 5 ký tự)…"
+          />
+        </div>
+        <div v-if="gmdnError" class="text-red-600 text-sm">{{ gmdnError }}</div>
+        <div class="flex gap-2 justify-end">
+          <button class="btn-ghost text-sm" @click="showGmdnModal = false">Huỷ</button>
+          <button class="btn-primary text-sm" :disabled="gmdnSaving" @click="doUpdateGmdn">
+            {{ gmdnSaving ? 'Đang lưu…' : 'Xác nhận' }}
           </button>
         </div>
       </div>

@@ -132,7 +132,7 @@ function navigateChecklist() {
         <!-- Asset Info -->
         <div class="bg-white rounded-xl shadow-sm border p-5">
           <h2 class="font-semibold text-gray-700 mb-3 text-sm uppercase tracking-wide">Thông tin thiết bị</h2>
-          <div class="grid grid-cols-2 gap-3 text-sm">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
             <div class="col-span-2">
               <span class="text-gray-500">Thiết bị:</span>
               <span class="font-semibold ml-1">{{ wo.asset_name || wo.asset_ref }}</span>
@@ -292,7 +292,7 @@ function navigateChecklist() {
               <span class="text-gray-700">{{ wo.completion_datetime?.slice(0,16) }}</span>
             </div>
             <div v-if="wo.mttr_hours" class="flex justify-between">
-              <span class="text-gray-500">MTTR:</span>
+              <span class="text-gray-500">Thời gian sửa chữa TB:</span>
               <span :class="['font-semibold', wo.sla_breached ? 'text-red-600' : 'text-green-600']">{{ wo.mttr_hours }}h</span>
             </div>
           </div>

@@ -57,9 +57,7 @@ export function calibrationStatusClass(v: string) { return CALIBRATION_STATUS_CL
 export const MEDICAL_DEVICE_CLASS_LABEL: Record<string, string> = {
   'Class I':   'Loại I — Rủi ro thấp',
   'Class II':  'Loại II — Rủi ro trung bình',
-  'Class IIa': 'Loại IIa — Rủi ro trung bình',
-  'Class IIb': 'Loại IIb — Rủi ro cao',
-  'Class III': 'Loại III — Rủi ro cao nhất',
+  'Class III': 'Loại III — Rủi ro cao',
 }
 export function medicalDeviceClassLabel(v: string) { return MEDICAL_DEVICE_CLASS_LABEL[v] ?? v }
 
