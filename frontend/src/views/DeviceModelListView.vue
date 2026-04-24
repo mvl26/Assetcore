@@ -38,7 +38,7 @@ function prevPage() { if (page.value > 1) { page.value--; load() } }
 function nextPage() { if (page.value * PAGE_SIZE < totalCount.value) { page.value++; load() } }
 
 async function remove(name: string) {
-  if (!confirm(`Xóa Model "${name}"?`)) return
+  if (!confirm(`Xóa Model thiết bị "${name}"?`)) return
   try { await deleteDeviceModel(name); await load() }
   catch (e: unknown) { alert((e as Error).message || 'Không thể xóa — có thể đang được tham chiếu') }
 }
@@ -49,10 +49,10 @@ onMounted(load)
 <template>
   <div class="page-container animate-fade-in space-y-5">
     <div class="flex items-center justify-between">
-      <h1 class="text-xl font-semibold text-gray-800">Device Models</h1>
+      <h1 class="text-xl font-semibold text-gray-800">Model thiết bị</h1>
       <div class="flex items-center gap-3">
-        <span class="text-sm text-gray-500">{{ totalCount }} models</span>
-        <button @click="router.push('/device-models/new')" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium">+ Thêm Model</button>
+        <span class="text-sm text-gray-500">{{ totalCount }} model thiết bị</span>
+        <button @click="router.push('/device-models/new')" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium">+ Thêm Model thiết bị</button>
       </div>
     </div>
 
@@ -60,7 +60,7 @@ onMounted(load)
       <input
         v-model="search"
         type="text"
-        placeholder="Tìm theo mã, tên model, hãng SX, phiên bản, GMDN..."
+        placeholder="Tìm theo mã, tên model, hãng sản xuất, phiên bản, GMDN..."
         class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
         @keyup.enter="handleSearch"
       />
@@ -74,6 +74,7 @@ onMounted(load)
       <table v-else class="w-full text-sm">
         <thead class="bg-gray-50 border-b border-gray-200">
           <tr>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 w-12"></th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Mã</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Tên model</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Nhà sản xuất</th>
@@ -85,8 +86,16 @@ onMounted(load)
         </thead>
         <tbody class="divide-y divide-gray-100">
           <tr v-for="m in models" :key="m.name" class="hover:bg-gray-50 cursor-pointer" @click="router.push(`/device-models/${m.name}`)">
+            <td class="px-4 py-3">
+              <img v-if="m.model_image" :src="m.model_image" alt=""
+                   class="w-10 h-10 object-cover rounded-lg border border-slate-200 bg-slate-50" />
+              <div v-else class="w-10 h-10 rounded-lg border border-dashed border-slate-200 bg-slate-50/60 flex items-center justify-center text-slate-300 text-xs">—</div>
+            </td>
             <td class="px-4 py-3 font-mono text-xs text-gray-500">{{ m.name }}</td>
-            <td class="px-4 py-3 font-medium text-gray-800">{{ m.model_name }}</td>
+            <td class="px-4 py-3 font-medium text-gray-800">
+              {{ m.model_name }}
+              <p v-if="m.asset_category" class="text-[10px] text-slate-400 font-normal mt-0.5">{{ m.asset_category }}</p>
+            </td>
             <td class="px-4 py-3 text-gray-600">{{ m.manufacturer || '—' }}</td>
             <td class="px-4 py-3 text-gray-500">{{ m.model_version || '—' }}</td>
             <td class="px-4 py-3">

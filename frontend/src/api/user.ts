@@ -22,12 +22,21 @@ export interface IMMUser {
   ac_department?: string
   department_name?: string
   imm_roles?: Array<{ role: string }>
+  role_profile_name?: string | null
   // HR / Employee fields (optional — chỉ có khi User được liên kết Employee)
   hr_docname?: string      // Employee.name (docname), VD: "HR-EMP-00001"
   hr_full_name?: string    // Employee.employee_name
   designation?: string
   erp_department?: string
   has_employee?: boolean
+}
+
+export interface IMMUserRoleBadge { name: string; label: string; group: string }
+
+export interface RoleProfileOption {
+  name: string
+  label: string
+  roles: IMMUserRoleBadge[]
 }
 
 export interface IMMUserListItem {
@@ -40,6 +49,8 @@ export interface IMMUserListItem {
   ac_department?: string
   department_name?: string
   user_image?: string | null
+  imm_roles?: IMMUserRoleBadge[]
+  role_profile_name?: string | null
 }
 
 export interface CreateUserPayload {
@@ -116,8 +127,24 @@ export const resetUserPassword = (user: string, new_password: string) =>
 export const changeMyPassword = (old_password: string, new_password: string) =>
   frappePost<{ user: string }>(`${BASE}.change_my_password`, { old_password, new_password })
 
+export interface ImmRoleOption {
+  name: string
+  label: string
+  description: string
+  group: string
+}
+
 export const getAvailableImmRoles = () =>
-  frappeGet<Array<{ name: string; label: string }>>(`${BASE}.get_available_imm_roles`)
+  frappeGet<ImmRoleOption[]>(`${BASE}.get_available_imm_roles`)
+
+export const listRoleProfiles = () =>
+  frappeGet<RoleProfileOption[]>(`${BASE}.list_role_profiles`)
+
+export const assignRoleProfile = (user: string, role_profile: string) =>
+  frappePost<{ user: string; role_profile: string | null; imm_roles: Array<{ role: string }> }>(
+    `${BASE}.assign_role_profile`,
+    { user, role_profile },
+  )
 
 export const listFrappeUsers = (search: string = '', limit = 30) =>
   frappeGet<FrappeUserItem[]>(`${BASE}.list_frappe_users`, { search, limit })

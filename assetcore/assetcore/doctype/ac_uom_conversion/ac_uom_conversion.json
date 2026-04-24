@@ -1,0 +1,60 @@
+{
+ "actions": [],
+ "creation": "2026-04-24 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "uom",
+  "conversion_factor",
+  "is_purchase_uom",
+  "is_issue_uom"
+ ],
+ "fields": [
+  {
+   "fieldname": "uom",
+   "fieldtype": "Link",
+   "label": "Đơn vị tính",
+   "options": "AC UOM",
+   "reqd": 1,
+   "in_list_view": 1,
+   "bold": 1,
+   "description": "Đơn vị quy đổi (VD: Hộp, Thùng, Bộ)"
+  },
+  {
+   "fieldname": "conversion_factor",
+   "fieldtype": "Float",
+   "label": "Hệ số quy đổi",
+   "reqd": 1,
+   "in_list_view": 1,
+   "precision": "6",
+   "non_negative": 1,
+   "description": "1 [đơn vị trên] = ? [stock UOM]. VD: 1 Hộp = 10 Cái → nhập 10"
+  },
+  {
+   "fieldname": "is_purchase_uom",
+   "fieldtype": "Check",
+   "label": "Dùng khi Mua",
+   "default": "0",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "is_issue_uom",
+   "fieldtype": "Check",
+   "label": "Dùng khi Xuất",
+   "default": "0",
+   "in_list_view": 1
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "istable": 1,
+ "modified": "2026-04-24 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "AssetCore",
+ "name": "AC UOM Conversion",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "idx",
+ "sort_order": "ASC",
+ "states": []
+}

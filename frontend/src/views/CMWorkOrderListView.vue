@@ -94,7 +94,7 @@ const filteredWOs = computed(() => {
     <!-- Header -->
     <div class="flex items-start justify-between mb-5">
       <div>
-        <p class="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-1">IMM-09 · Sửa chữa CM</p>
+        <p class="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-1">IMM-09 · Sửa chữa</p>
         <h1 class="text-2xl font-bold text-slate-900">Danh sách Lệnh Sửa chữa</h1>
         <p class="text-sm text-slate-500 mt-1">
           Tổng <strong class="text-slate-700">{{ store.pagination.total ?? filteredWOs.length }}</strong> lệnh
@@ -219,7 +219,7 @@ const filteredWOs = computed(() => {
             <th class="table-header">Loại / Ưu tiên</th>
             <th class="table-header">Ngày tiếp nhận</th>
             <th class="table-header">Kỹ thuật viên</th>
-            <th class="table-header">MTTR</th>
+            <th class="table-header">Thời gian sửa chữa TB</th>
             <th class="table-header">Trạng thái</th>
           </tr>
         </thead>

@@ -86,7 +86,7 @@ async function submit() {
           </div>
           <div>
             <label class="form-label">Nhà cung cấp</label>
-            <SmartSelect v-model="form.supplier" doctype="AC Supplier" placeholder="Tìm NCC..." />
+            <SmartSelect v-model="form.supplier" doctype="AC Supplier" placeholder="Tìm nhà cung cấp..." />
           </div>
           <div>
             <label class="form-label">Trạng thái ban đầu</label>
@@ -147,11 +147,11 @@ async function submit() {
             </select>
           </div>
           <div>
-            <label class="form-label">Số đăng ký BYT</label>
+            <label class="form-label">Số đăng ký Bộ Y tế</label>
             <input v-model="form.byt_reg_no" type="text" class="form-input w-full" />
           </div>
           <div>
-            <label class="form-label">Hạn đăng ký BYT</label>
+            <label class="form-label">Hạn đăng ký Bộ Y tế</label>
             <input v-model="form.byt_reg_expiry" type="date" class="form-input w-full" />
           </div>
         </div>

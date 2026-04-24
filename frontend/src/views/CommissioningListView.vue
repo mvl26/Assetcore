@@ -69,7 +69,7 @@ function resetFilters() {
   store.fetchList({}, 1)
 }
 
-function quickFilter(key: 'workflow_state', value: string) {
+function quickFilter(_key: 'workflow_state', value: string) {
   if (!value) return
   filters.value.workflow_state = value as WorkflowState
   showFilters.value = false
@@ -93,7 +93,7 @@ watch(() => route.query.workflow_state, (val) => {
     <div class="flex items-start justify-between mb-5">
       <div>
         <p class="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-1">IMM-04</p>
-        <h1 class="text-2xl font-bold text-slate-900">Danh sách Phiếu Lắp đặt</h1>
+        <h1 class="text-2xl font-bold text-slate-900">Phiếu Tiếp nhận và lắp đặt</h1>
         <p class="text-sm text-slate-500 mt-1">
           Tổng <strong class="text-slate-700">{{ store.pagination.total }}</strong> phiếu
         </p>
@@ -242,6 +242,7 @@ watch(() => route.query.workflow_state, (val) => {
               <th class="table-header">Serial NSX</th>
               <th class="table-header">Ngày hẹn</th>
               <th class="table-header">Trạng thái</th>
+              <th class="table-header">Tài sản</th>
               <th class="table-header">Cập nhật</th>
             </tr>
           </thead>
@@ -286,10 +287,19 @@ watch(() => route.query.workflow_state, (val) => {
                   <StatusBadge :state="item.workflow_state" />
                 </button>
               </td>
+              <td class="table-cell">
+                <router-link
+                  v-if="item.final_asset"
+                  :to="`/assets/${item.final_asset}`"
+                  class="font-mono text-[11px] text-blue-600 hover:underline"
+                  @click.stop
+                >{{ item.final_asset }}</router-link>
+                <span v-else class="text-slate-300 text-xs">—</span>
+              </td>
               <td class="table-cell text-slate-400 text-xs">{{ formatDate(item.modified) }}</td>
             </tr>
             <tr v-if="!store.list.length">
-              <td colspan="8" class="px-5 py-16 text-center">
+              <td colspan="9" class="px-5 py-16 text-center">
                 <div class="flex flex-col items-center gap-3 text-slate-400">
                   <svg class="w-10 h-10 opacity-25" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"

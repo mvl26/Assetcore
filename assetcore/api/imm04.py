@@ -182,3 +182,93 @@ def delete_commissioning(name: str) -> dict:
 @frappe.whitelist(methods=["POST"])
 def cancel_commissioning(name: str) -> dict:
     return _handle(svc.cancel_commissioning, name)
+
+
+@frappe.whitelist()
+def get_users_by_role(role: str, search: str = "", limit: int = 20) -> dict:
+    """Return users with a given Frappe role, optionally filtered by name/email search."""
+    like = f"%{(search or '').strip()}%"
+    rows = frappe.db.sql("""
+        SELECT DISTINCT u.name, u.full_name, u.email, u.user_image
+        FROM `tabHas Role` hr
+        JOIN `tabUser` u ON u.name = hr.parent
+        WHERE hr.role = %(role)s
+          AND hr.parenttype = 'User'
+          AND u.enabled = 1
+          AND u.user_type = 'System User'
+          AND (%(search)s = '%%' OR u.full_name LIKE %(search)s OR u.email LIKE %(search)s)
+        ORDER BY u.full_name ASC
+        LIMIT %(limit)s
+    """, {"role": role, "search": like, "limit": int(limit)}, as_dict=True)
+    return _ok(rows)
+
+
+@frappe.whitelist()
+def get_gate_status(name: str) -> dict:
+    """Return G01–G06 gate pass/fail status for a commissioning record."""
+    try:
+        doc = frappe.get_doc("Asset Commissioning", name)
+    except frappe.DoesNotExistError:
+        return _err(_("Không tìm thấy phiếu"), 404)
+
+    # G01: all mandatory docs Received or Waived
+    comm_docs = doc.get("commissioning_documents") or []
+    mandatory = [d for d in comm_docs if d.get("is_mandatory")]
+    g01 = all(d.get("status") in ("Received", "Waived") for d in mandatory) if mandatory else False
+
+    # G02: facility checklist pass
+    g02 = bool(doc.get("facility_checklist_pass"))
+
+    # G03: all baseline tests Pass or N/A, at least 1 exists
+    tests = doc.get("baseline_tests") or []
+    g03 = bool(tests) and all(t.get("test_result") in ("Pass", "N/A") for t in tests)
+
+    # G04: not radiation OR (radiation AND qa_license_doc uploaded)
+    g04 = not bool(doc.get("is_radiation_device")) or bool(doc.get("qa_license_doc"))
+
+    # G05: no open Non Conformance records
+    open_nc = frappe.db.count("Asset QA Non Conformance",
+                               filters={"parent": name, "status": ["!=", "Closed"]})
+    g05 = open_nc == 0
+
+    # G06: board_approver set
+    g06 = bool(doc.get("board_approver"))
+
+    return _ok({
+        "g01_docs": g01,
+        "g02_facility": g02,
+        "g03_baseline": g03,
+        "g04_radiation": g04,
+        "g05_nc": g05,
+        "g06_approver": g06,
+    })
+
+
+# ─── Submit-for-approval endpoints ────────────────────────────────────────────
+
+@frappe.whitelist(methods=["POST"])
+def submit_for_approval(commissioning: str, approver: str, stage: str = "",
+                         remarks: str = "") -> dict:
+    return _handle(svc.submit_for_approval, commissioning, approver, stage, remarks)
+
+
+@frappe.whitelist(methods=["POST"])
+def approve_pending(commissioning: str, decision: str, remarks: str = "") -> dict:
+    return _handle(svc.approve_pending, commissioning, decision, remarks)
+
+
+@frappe.whitelist()
+def list_my_pending_approvals() -> dict:
+    return _handle(svc.list_my_pending_approvals)
+
+
+# ─── Purchase → Commissioning linkage (Wave 1) ────────────────────────────────
+
+@frappe.whitelist(methods=["POST"])
+def create_from_purchase(purchase_name: str, device_idx: int) -> dict:
+    return _handle(svc.create_commissioning_from_purchase, purchase_name, int(device_idx))
+
+
+@frappe.whitelist()
+def get_commissioning_origin(asset_name: str) -> dict:
+    return _handle(svc.get_commissioning_origin, asset_name)

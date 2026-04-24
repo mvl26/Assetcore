@@ -3,7 +3,7 @@
 import { frappeGet, frappePost } from '@/api/helpers'
 import type {
   Warehouse, SparePart, StockRow, StockMovement,
-  InventoryOverview, StockMovementItem,
+  InventoryOverview,
 } from '@/types/inventory'
 
 const BASE = '/api/method/assetcore.api.inventory'
@@ -41,8 +41,10 @@ export const createSparePart = (data: Partial<SparePart>) =>
 export const updateSparePart = (name: string, data: Partial<SparePart>) =>
   frappePost<{ name: string }>(`${BASE}.update_spare_part`, { name, ...data })
 
-export const searchParts = (q: string, limit = 10) =>
-  frappeGet<SparePart[]>(`${BASE}.search_parts_autocomplete`, { q, limit })
+export const searchParts = (q: string, limit = 10, warehouse = '', showStockOnly = 0) =>
+  frappeGet<SparePart[]>(`${BASE}.search_parts_autocomplete`, {
+    q, limit, warehouse, show_stock_only: showStockOnly,
+  })
 
 // ─── Stock ───────────────────────────────────────────────────────────────────
 export const listStockLevels = (params: Record<string, unknown> = {}) =>
@@ -55,6 +57,17 @@ export const listStockMovements = (params: Record<string, unknown> = {}) =>
 export const getStockMovement = (name: string) =>
   frappeGet<StockMovement>(`${BASE}.get_stock_movement`, { name })
 
+export interface MovementItemPayload {
+  spare_part: string
+  qty: number
+  uom?: string
+  conversion_factor?: number
+  stock_qty?: number
+  unit_cost?: number
+  serial_no?: string
+  notes?: string
+}
+
 export interface CreateMovementPayload {
   movement_type: 'Receipt' | 'Issue' | 'Transfer' | 'Adjustment'
   movement_date?: string
@@ -65,7 +78,7 @@ export interface CreateMovementPayload {
   reference_type?: string
   reference_name?: string
   notes?: string
-  items: StockMovementItem[]
+  items: MovementItemPayload[]
   auto_submit?: number
 }
 
@@ -100,3 +113,116 @@ export const updateStockMovement = (name: string, payload: Partial<CreateMovemen
 
 export const deleteStockMovement = (name: string) =>
   frappePost<{ deleted: string }>(`${BASE}.delete_stock_movement`, { name })
+
+// ─── Reference doc search (Asset Repair / PM Work Order) ─────────────────────
+export interface RefDoc { name: string; label: string; description?: string }
+export const searchReferenceDocs = (reference_type: string, query: string = '') =>
+  frappeGet<RefDoc[]>(`${BASE}.search_reference_docs`, { reference_type, query })
+
+// ─── UOM ─────────────────────────────────────────────────────────────────────
+export interface UomConversion { uom: string; conversion_factor: number; is_purchase_uom: number; is_issue_uom: number }
+export interface UomInfo {
+  spare_part: string
+  part_name?: string
+  stock_uom: string
+  purchase_uom: string | null
+  conversions: UomConversion[]
+}
+
+export const getUomInfo = (spare_part: string) =>
+  frappeGet<UomInfo>(`${BASE}.get_uom_info`, { spare_part })
+
+export const listUoms = (search = '', limit = 30) =>
+  frappeGet<{ items: Array<{ value: string; label: string }>; total: number }>(
+    `${BASE}.list_uoms`, { search, limit },
+  )
+
+// ─── AC UOM Master CRUD ──────────────────────────────────────────────────────
+
+export interface AcUom {
+  name: string
+  uom_name: string
+  symbol?: string
+  must_be_whole_number?: 0 | 1
+  is_active?: 0 | 1
+  description?: string
+  use_count?: number
+}
+
+export const listUomsFull = (params: { search?: string; active_only?: 0 | 1; limit?: number } = {}) =>
+  frappeGet<{ items: AcUom[]; total: number }>(
+    `${BASE}.list_uoms_full`, params as Record<string, unknown>,
+  )
+
+export const getUom = (name: string) =>
+  frappeGet<AcUom>(`${BASE}.get_uom`, { name })
+
+export const createUom = (data: Partial<AcUom>) =>
+  frappePost<{ name: string }>(`${BASE}.create_uom`, data as Record<string, unknown>)
+
+export const updateUom = (name: string, data: Partial<AcUom>) =>
+  frappePost<{ name: string }>(`${BASE}.update_uom`, { name, ...data } as Record<string, unknown>)
+
+export const deleteUom = (name: string) =>
+  frappePost<{ name: string; deleted?: boolean; soft_deleted?: boolean; reason?: string }>(
+    `${BASE}.delete_uom`, { name },
+  )
+
+export const seedAcUoms = () =>
+  frappePost<{ created: string[]; count: number }>(`${BASE}.seed_ac_uoms`, {})
+
+// ─── Part UOM assignment ─────────────────────────────────────────────────────
+
+export interface PartMissingUom {
+  name: string
+  part_code?: string
+  part_name: string
+  manufacturer?: string
+  manufacturer_part_no?: string
+  part_category?: string
+}
+
+export const listPartsMissingUom = (limit = 500) =>
+  frappeGet<{ items: PartMissingUom[]; total: number }>(
+    `${BASE}.list_parts_missing_uom`, { limit },
+  )
+
+export const updatePartUom = (spare_part: string, stock_uom = '', purchase_uom = '') =>
+  frappePost<{ name: string; stock_uom?: string; purchase_uom?: string | null }>(
+    `${BASE}.update_part_uom`, { spare_part, stock_uom, purchase_uom },
+  )
+
+export const bulkAssignDefaultUom = (default_uom = 'Cái') =>
+  frappePost<{ default_uom: string; assigned: number }>(
+    `${BASE}.bulk_assign_default_uom`, { default_uom },
+  )
+
+// ─── Per-part conversions ────────────────────────────────────────────────────
+
+export const upsertUomConversion = (params: {
+  spare_part: string; uom: string; conversion_factor: number;
+  is_purchase_uom?: 0 | 1; is_issue_uom?: 0 | 1
+}) =>
+  frappePost<{ spare_part: string; uom: string; conversion_factor: number }>(
+    `${BASE}.upsert_uom_conversion`, params as unknown as Record<string, unknown>,
+  )
+
+export const removeUomConversion = (spare_part: string, uom: string) =>
+  frappePost<{ spare_part: string; removed: string }>(
+    `${BASE}.remove_uom_conversion`, { spare_part, uom },
+  )
+
+// ─── List parts with UOM (enhanced) ──────────────────────────────────────────
+
+export interface PartUomRow {
+  name: string
+  part_code?: string
+  part_name: string
+  stock_uom?: string
+  purchase_uom?: string
+}
+
+export const listPartsUom = (search = '', limit = 200) =>
+  frappeGet<{ items: PartUomRow[] }>(
+    `${BASE}.list_parts_uom`, { search, limit },
+  )

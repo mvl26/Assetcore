@@ -333,3 +333,88 @@ export async function generateHandoverPdf(
 ): Promise<{ pdf_url: string; name: string }> {
   return frappeGet(`${BASE}.generate_handover_pdf`, { name })
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 22. GET USERS BY ROLE
+// ─────────────────────────────────────────────────────────────────────────────
+export const getUsersByRole = (role: string, search = '', limit = 20) =>
+  frappeGet<Array<{ name: string; full_name: string; email: string; user_image?: string }>>(
+    '/api/method/assetcore.api.imm04.get_users_by_role', { role, search, limit }
+  )
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 23. GET GATE STATUS
+// ─────────────────────────────────────────────────────────────────────────────
+export interface GateStatus {
+  g01_docs: boolean
+  g02_facility: boolean
+  g03_baseline: boolean
+  g04_radiation: boolean
+  g05_nc: boolean
+  g06_approver: boolean
+}
+
+export const getGateStatus = (name: string) =>
+  frappeGet<GateStatus>('/api/method/assetcore.api.imm04.get_gate_status', { name })
+
+// ─── Submit-for-approval flow ────────────────────────────────────────────────
+
+export interface PendingApprovalRow {
+  name: string
+  workflow_state: string
+  master_item: string
+  vendor: string
+  clinical_dept: string
+  approval_stage: string
+  approval_submitted_at: string
+  approval_remarks: string
+  owner: string
+  modified: string
+}
+
+export const submitForApproval = (commissioning: string, approver: string,
+                                   stage = '', remarks = '') =>
+  frappePost<{ name: string; pending_approver: string; approval_stage: string; approval_submitted_at: string }>(
+    '/api/method/assetcore.api.imm04.submit_for_approval',
+    { commissioning, approver, stage, remarks }
+  )
+
+export const approvePending = (commissioning: string, decision: 'Approve' | 'Reject', remarks = '') =>
+  frappePost<{ name: string; decision: string; workflow_state: string }>(
+    '/api/method/assetcore.api.imm04.approve_pending',
+    { commissioning, decision, remarks }
+  )
+
+export const listMyPendingApprovals = () =>
+  frappeGet<PendingApprovalRow[]>('/api/method/assetcore.api.imm04.list_my_pending_approvals')
+
+// ─── Purchase → Commissioning linkage (Wave 1) ────────────────────────────────
+
+export const createCommissioningFromPurchase = (purchase_name: string, device_idx: number) =>
+  frappePost<{ name: string; workflow_state: string; purchase: string }>(
+    '/api/method/assetcore.api.imm04.create_from_purchase',
+    { purchase_name, device_idx }
+  )
+
+export interface CommissioningOrigin {
+  asset: string
+  commissioning: null | {
+    name: string
+    workflow_state: string
+    po_reference: string
+    vendor: string
+    master_item: string
+    reception_date: string
+    commissioning_date: string
+    vendor_serial_no: string
+    purchase_price: number
+    warranty_expiry_date: string
+    commissioned_by: string
+    transferred_doc_count: number
+  }
+}
+
+export const getCommissioningOrigin = (asset_name: string) =>
+  frappeGet<CommissioningOrigin>(
+    '/api/method/assetcore.api.imm04.get_commissioning_origin', { asset_name }
+  )

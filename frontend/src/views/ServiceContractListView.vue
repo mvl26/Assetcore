@@ -239,7 +239,7 @@ onMounted(load)
             <tr>
               <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Mã HĐ</th>
               <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Tên hợp đồng</th>
-              <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">NCC</th>
+              <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Nhà cung cấp</th>
               <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Loại</th>
               <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Bắt đầu</th>
               <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Hết hạn</th>

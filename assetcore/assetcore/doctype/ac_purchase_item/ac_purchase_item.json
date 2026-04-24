@@ -1,0 +1,110 @@
+{
+ "actions": [],
+ "creation": "2026-04-23 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "istable": 1,
+ "field_order": [
+  "spare_part",
+  "part_name",
+  "uom",
+  "qty",
+  "conversion_factor",
+  "stock_qty",
+  "unit_cost",
+  "total_cost",
+  "notes"
+ ],
+ "fields": [
+  {
+   "fieldname": "spare_part",
+   "fieldtype": "Link",
+   "label": "Phụ tùng",
+   "options": "AC Spare Part",
+   "reqd": 1,
+   "in_list_view": 1,
+   "columns": 3
+  },
+  {
+   "fieldname": "part_name",
+   "fieldtype": "Data",
+   "label": "Tên",
+   "fetch_from": "spare_part.part_name",
+   "read_only": 1,
+   "in_list_view": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "uom",
+   "fieldtype": "Link",
+   "label": "ĐVT mua",
+   "options": "AC UOM",
+   "fetch_from": "spare_part.purchase_uom",
+   "fetch_if_empty": 1,
+   "in_list_view": 1,
+   "columns": 1,
+   "description": "Đơn vị đặt hàng; mặc định lấy từ ĐVT mua hàng của phụ tùng"
+  },
+  {
+   "fieldname": "qty",
+   "fieldtype": "Float",
+   "label": "SL",
+   "reqd": 1,
+   "non_negative": 1,
+   "in_list_view": 1,
+   "columns": 1
+  },
+  {
+   "fieldname": "conversion_factor",
+   "fieldtype": "Float",
+   "label": "Hệ số",
+   "default": "1",
+   "precision": "6",
+   "non_negative": 1,
+   "in_list_view": 0,
+   "description": "1 [ĐVT mua] = ? [stock UOM]; tự điền từ bảng quy đổi UOM"
+  },
+  {
+   "fieldname": "stock_qty",
+   "fieldtype": "Float",
+   "label": "SL tồn kho",
+   "read_only": 1,
+   "precision": "3",
+   "in_list_view": 0,
+   "description": "= qty × hệ số — số lượng thực nhập vào tồn kho (theo stock UOM)"
+  },
+  {
+   "fieldname": "unit_cost",
+   "fieldtype": "Currency",
+   "label": "Đơn giá",
+   "fetch_from": "spare_part.unit_cost",
+   "in_list_view": 1,
+   "columns": 1
+  },
+  {
+   "fieldname": "total_cost",
+   "fieldtype": "Currency",
+   "label": "Thành tiền",
+   "read_only": 1,
+   "in_list_view": 1,
+   "columns": 1
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Small Text",
+   "label": "Ghi chú"
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-04-24 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "AssetCore",
+ "name": "AC Purchase Item",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "idx",
+ "sort_order": "ASC",
+ "states": [],
+ "track_changes": 0
+}

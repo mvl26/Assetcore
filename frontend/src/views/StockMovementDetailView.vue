@@ -130,11 +130,13 @@ onMounted(load)
           </div>
           <div v-if="doc.from_warehouse">
             <p class="text-xs text-slate-500 mb-0.5">Kho xuất</p>
-            <p class="font-mono text-slate-700">{{ doc.from_warehouse }}</p>
+            <p class="font-medium text-slate-800">{{ doc.from_warehouse_code || doc.from_warehouse_name || doc.from_warehouse }}</p>
+            <p v-if="doc.from_warehouse_name && doc.from_warehouse_code" class="text-xs text-slate-400">{{ doc.from_warehouse_name }}</p>
           </div>
           <div v-if="doc.to_warehouse">
             <p class="text-xs text-slate-500 mb-0.5">Kho nhập</p>
-            <p class="font-mono text-slate-700">{{ doc.to_warehouse }}</p>
+            <p class="font-medium text-slate-800">{{ doc.to_warehouse_code || doc.to_warehouse_name || doc.to_warehouse }}</p>
+            <p v-if="doc.to_warehouse_name && doc.to_warehouse_code" class="text-xs text-slate-400">{{ doc.to_warehouse_name }}</p>
           </div>
           <div v-if="doc.supplier">
             <p class="text-xs text-slate-500 mb-0.5">Nhà cung cấp</p>
@@ -142,7 +144,22 @@ onMounted(load)
           </div>
           <div v-if="doc.reference_type">
             <p class="text-xs text-slate-500 mb-0.5">Chứng từ nguồn</p>
-            <p class="text-slate-700">{{ doc.reference_type }} · <span class="font-mono">{{ doc.reference_name }}</span></p>
+            <div class="text-sm flex items-center gap-1.5 flex-wrap">
+              <span class="text-xs px-2 py-0.5 rounded bg-slate-100 text-slate-500 font-medium">
+                {{ doc.reference_type === 'AC Purchase'   ? 'Mua hàng' :
+                   doc.reference_type === 'Asset Repair'  ? 'Sửa chữa' :
+                   doc.reference_type === 'PM Work Order' ? 'Bảo trì / Hiệu chuẩn' : 'Thủ công' }}
+              </span>
+              <button v-if="doc.reference_name && doc.reference_type === 'AC Purchase'"
+                      class="font-mono font-semibold text-blue-600 hover:underline"
+                      @click="router.push(`/purchases/${doc.reference_name}`)">
+                {{ doc.reference_name }}
+              </button>
+              <span v-else-if="doc.reference_name" class="font-mono font-medium text-slate-800">
+                {{ doc.reference_name }}
+              </span>
+              <span v-else class="italic text-slate-400">— thủ công</span>
+            </div>
           </div>
         </div>
         <div v-if="doc.notes" class="mt-4 pt-3 border-t border-slate-100">
@@ -161,6 +178,7 @@ onMounted(load)
                 <th class="py-2 text-left font-medium">Phụ tùng</th>
                 <th class="py-2 text-right font-medium">SL</th>
                 <th class="py-2 text-left font-medium">ĐVT</th>
+                <th class="py-2 text-right font-medium hidden md:table-cell">Tồn kho</th>
                 <th class="py-2 text-right font-medium">Đơn giá</th>
                 <th class="py-2 text-right font-medium">Thành tiền</th>
                 <th class="py-2 text-left font-medium hidden md:table-cell">Serial</th>
@@ -174,6 +192,13 @@ onMounted(load)
                 </td>
                 <td class="py-2.5 text-right font-semibold">{{ r.qty }}</td>
                 <td class="py-2.5 text-xs text-slate-500">{{ r.uom }}</td>
+                <td class="py-2.5 text-right text-xs text-slate-500 hidden md:table-cell">
+                  <span v-if="r.stock_qty !== undefined && r.conversion_factor && r.conversion_factor !== 1"
+                        class="px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded font-medium">
+                    {{ r.stock_qty }}
+                  </span>
+                  <span v-else class="text-slate-300">—</span>
+                </td>
                 <td class="py-2.5 text-right text-slate-600">{{ vnd(r.unit_cost) }}</td>
                 <td class="py-2.5 text-right font-medium text-slate-800">{{ vnd(r.total_cost) }}</td>
                 <td class="py-2.5 text-xs font-mono text-slate-500 hidden md:table-cell">{{ r.serial_no || '—' }}</td>

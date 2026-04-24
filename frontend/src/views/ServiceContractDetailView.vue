@@ -104,7 +104,7 @@ onMounted(load)
 
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
-          <p class="block text-sm font-medium text-gray-700 mb-1">NCC</p>
+          <p class="block text-sm font-medium text-gray-700 mb-1">Nhà cung cấp</p>
           <p class="text-sm text-gray-800 bg-gray-50 px-3 py-2 rounded-lg">{{ contract.supplier }}</p>
         </div>
         <div>

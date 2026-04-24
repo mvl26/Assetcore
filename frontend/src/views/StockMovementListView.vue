@@ -244,11 +244,17 @@ onMounted(load)
                 >{{ TYPE_LABELS[m.movement_type] || m.movement_type }}</button>
               </td>
               <td class="px-4 py-3 text-xs text-slate-500 hidden md:table-cell">{{ formatDt(m.movement_date) }}</td>
-              <td class="px-4 py-3 text-xs font-mono text-slate-500">
-                <span v-if="m.from_warehouse">{{ m.from_warehouse }}</span>
-                <span v-if="m.from_warehouse && m.to_warehouse" class="text-slate-400"> → </span>
-                <span v-if="m.to_warehouse">{{ m.to_warehouse }}</span>
-                <span v-if="!m.from_warehouse && !m.to_warehouse" class="text-slate-400">—</span>
+              <td class="px-4 py-3 text-xs text-slate-600">
+                <template v-if="m.from_warehouse || m.to_warehouse">
+                  <span v-if="m.from_warehouse" :title="m.from_warehouse" class="font-medium">
+                    {{ m.from_warehouse_code || m.from_warehouse_name || m.from_warehouse }}
+                  </span>
+                  <span v-if="m.from_warehouse && m.to_warehouse" class="text-slate-400 mx-1">→</span>
+                  <span v-if="m.to_warehouse" :title="m.to_warehouse" class="font-medium">
+                    {{ m.to_warehouse_code || m.to_warehouse_name || m.to_warehouse }}
+                  </span>
+                </template>
+                <span v-else class="text-slate-400">—</span>
               </td>
               <td class="px-4 py-3 text-right text-sm text-slate-700 hidden md:table-cell">{{ vnd(m.total_value) }}</td>
               <td class="px-4 py-3 text-xs text-slate-500 hidden lg:table-cell">

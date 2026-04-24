@@ -183,9 +183,13 @@ def _enrich_from_employee(user: str) -> dict:
     }
 
 
-@frappe.whitelist()
+@frappe.whitelist(allow_guest=True)
 def get_user_context():
     """GET /api/method/assetcore.api.layout.get_user_context
+
+    allow_guest=True để FE kiểm tra session trên Login page mà không bị Frappe
+    chặn bằng 403. Guest sẽ nhận envelope success=false, code=401 — auth store
+    catch đúng và redirect về /login mà không log 403 ra console.
 
     Graceful Degradation:
       - LUÔN trả 200 nếu user đã đăng nhập, dù có hay không AC User Profile / Employee.

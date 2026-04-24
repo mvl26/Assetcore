@@ -6,8 +6,12 @@ import SmartSelect from '@/components/common/SmartSelect.vue'
 import {
   getUserInfo, updateUserInfo, createSystemUser, approveRegistration,
   getAvailableImmRoles, listFrappeUsers,
+  listRoleProfiles, assignRoleProfile,
 } from '@/api/user'
-import type { IMMUser, CreateUserPayload, FrappeUserItem } from '@/api/user'
+import type {
+  IMMUser, CreateUserPayload, FrappeUserItem, ImmRoleOption, RoleProfileOption,
+} from '@/api/user'
+import { ROLE_GROUP_LABEL, type RoleGroup } from '@/constants/roles'
 
 const props = defineProps<{ user?: string }>()
 const router = useRouter()
@@ -19,7 +23,66 @@ const loading = ref(false)
 const error = ref('')
 const success = ref('')
 const detail = ref<IMMUser | null>(null)
-const availableRoles = ref<Array<{ name: string; label: string }>>([])
+const availableRoles = ref<ImmRoleOption[]>([])
+const roleProfiles = ref<RoleProfileOption[]>([])
+const selectedRoleProfile = ref<string>('')
+const applyingProfile = ref(false)
+
+const currentRoleProfile = computed<RoleProfileOption | null>(
+  () => roleProfiles.value.find(p => p.name === selectedRoleProfile.value) ?? null,
+)
+
+async function applyRoleProfile() {
+  if (!props.user) return
+  applyingProfile.value = true
+  error.value = ''
+  try {
+    await assignRoleProfile(props.user, selectedRoleProfile.value)
+    // Reload user để lấy roles đã sync từ profile
+    await reloadUser()
+    success.value = selectedRoleProfile.value
+      ? `Đã áp dụng Role Profile "${selectedRoleProfile.value}"`
+      : 'Đã bỏ Role Profile'
+  } catch (e: unknown) {
+    error.value = (e as Error).message || 'Lỗi áp dụng Role Profile'
+  } finally {
+    applyingProfile.value = false
+  }
+}
+
+async function reloadUser() {
+  if (!props.user) return
+  const d = await getUserInfo(props.user)
+  if (d) {
+    detail.value = d
+    selectedRoleProfile.value = d.role_profile_name ?? ''
+    editRoles.value = (d.imm_roles ?? []).map((r: unknown) =>
+      ({ role: typeof r === 'object' ? (r as { role: string }).role : (r as string) }))
+  }
+}
+
+// Role nhóm theo group để render UI rõ ràng
+const groupedRoles = computed<Array<{ group: RoleGroup; label: string; items: ImmRoleOption[] }>>(() => {
+  const buckets = new Map<string, ImmRoleOption[]>()
+  for (const r of availableRoles.value) {
+    const g = r.group || 'Other'
+    if (!buckets.has(g)) buckets.set(g, [])
+    buckets.get(g)!.push(r)
+  }
+  const order: RoleGroup[] = ['Governance', 'Department', 'Engineering', 'Support']
+  const result: Array<{ group: RoleGroup; label: string; items: ImmRoleOption[] }> = []
+  for (const g of order) {
+    const items = buckets.get(g)
+    if (items?.length) result.push({ group: g, label: ROLE_GROUP_LABEL[g], items })
+  }
+  // Gom nhóm còn sót (nếu BE trả group mới chưa biết)
+  for (const [g, items] of buckets) {
+    if (!order.includes(g as RoleGroup)) {
+      result.push({ group: g as RoleGroup, label: g, items })
+    }
+  }
+  return result
+})
 
 // ── Create mode toggle ─────────────────────────────────────────────────────
 const createMode = ref<'new' | 'pick'>('new')
@@ -177,6 +240,7 @@ async function load() {
       ac_department: d.ac_department || '',
     }
     editRoles.value = (d.imm_roles ?? []).map((r: any) => ({ role: typeof r === 'object' ? r.role : r }));
+    selectedRoleProfile.value = d.role_profile_name ?? ''
   } catch (e: unknown) {
     error.value = (e as Error).message || 'Không tải được hồ sơ'
   } finally {
@@ -185,7 +249,12 @@ async function load() {
 }
 
 onMounted(async () => {
-  availableRoles.value = (await getAvailableImmRoles()) ?? []
+  const [roles, profiles] = await Promise.all([
+    getAvailableImmRoles(),
+    listRoleProfiles(),
+  ])
+  availableRoles.value = roles ?? []
+  roleProfiles.value = profiles ?? []
   await load()
 })
 </script>
@@ -266,17 +335,28 @@ onMounted(async () => {
         </div>
       </div>
 
-      <div class="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
-        <h2 class="text-sm font-semibold text-gray-700 uppercase tracking-wide">Phân quyền IMM</h2>
-        <div class="grid grid-cols-2 gap-2">
-          <label
-            v-for="role in availableRoles" :key="role.name"
-            class="flex items-center gap-2 cursor-pointer rounded-lg border px-3 py-2 text-sm transition-colors"
-            :class="hasNewRole(role.name) ? 'border-blue-400 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-700 hover:bg-gray-50'"
-          >
-            <input type="checkbox" :checked="hasNewRole(role.name)" class="rounded" @change="toggleNewRole(role.name)" />
-            {{ role.name }}
-          </label>
+      <div class="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
+        <div class="flex items-baseline justify-between">
+          <h2 class="text-sm font-semibold text-gray-700 uppercase tracking-wide">Phân quyền IMM</h2>
+          <p class="text-xs text-gray-400">Tick vào vai trò để gán quyền truy cập</p>
+        </div>
+        <div v-for="bucket in groupedRoles" :key="bucket.group" class="space-y-2">
+          <h3 class="text-[11px] font-bold text-gray-400 uppercase tracking-widest">{{ bucket.label }}</h3>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+            <label
+              v-for="role in bucket.items" :key="role.name"
+              class="flex items-start gap-2.5 cursor-pointer rounded-lg border px-3 py-2.5 text-sm transition-colors"
+              :class="hasNewRole(role.name) ? 'border-blue-400 bg-blue-50' : 'border-gray-200 hover:bg-gray-50'"
+            >
+              <input type="checkbox" :checked="hasNewRole(role.name)" class="rounded mt-0.5 shrink-0" @change="toggleNewRole(role.name)" />
+              <div class="min-w-0 flex-1">
+                <div class="font-medium" :class="hasNewRole(role.name) ? 'text-blue-700' : 'text-gray-800'">
+                  {{ role.label }}
+                </div>
+                <p class="text-[11px] text-gray-500 mt-0.5 leading-tight">{{ role.description }}</p>
+              </div>
+            </label>
+          </div>
         </div>
       </div>
 
@@ -320,17 +400,28 @@ onMounted(async () => {
         </div>
       </div>
 
-      <div class="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
-        <h2 class="text-sm font-semibold text-gray-700 uppercase tracking-wide">Phân quyền IMM</h2>
-        <div class="grid grid-cols-2 gap-2">
-          <label
-            v-for="role in availableRoles" :key="role.name"
-            class="flex items-center gap-2 cursor-pointer rounded-lg border px-3 py-2 text-sm transition-colors"
-            :class="hasRole(role.name) ? 'border-blue-400 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-700 hover:bg-gray-50'"
-          >
-            <input type="checkbox" :checked="hasRole(role.name)" class="rounded" @change="toggleRole(role.name)" />
-            {{ role.name }}
-          </label>
+      <div class="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
+        <div class="flex items-baseline justify-between">
+          <h2 class="text-sm font-semibold text-gray-700 uppercase tracking-wide">Phân quyền IMM</h2>
+          <p class="text-xs text-gray-400">Tick vào vai trò để gán quyền truy cập</p>
+        </div>
+        <div v-for="bucket in groupedRoles" :key="bucket.group" class="space-y-2">
+          <h3 class="text-[11px] font-bold text-gray-400 uppercase tracking-widest">{{ bucket.label }}</h3>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+            <label
+              v-for="role in bucket.items" :key="role.name"
+              class="flex items-start gap-2.5 cursor-pointer rounded-lg border px-3 py-2.5 text-sm transition-colors"
+              :class="hasRole(role.name) ? 'border-blue-400 bg-blue-50' : 'border-gray-200 hover:bg-gray-50'"
+            >
+              <input type="checkbox" :checked="hasRole(role.name)" class="rounded mt-0.5 shrink-0" @change="toggleRole(role.name)" />
+              <div class="min-w-0 flex-1">
+                <div class="font-medium" :class="hasRole(role.name) ? 'text-blue-700' : 'text-gray-800'">
+                  {{ role.label }}
+                </div>
+                <p class="text-[11px] text-gray-500 mt-0.5 leading-tight">{{ role.description }}</p>
+              </div>
+            </label>
+          </div>
         </div>
       </div>
 
@@ -395,18 +486,66 @@ onMounted(async () => {
           </div>
         </div>
 
-        <!-- IMM Roles (admin only) -->
-        <div v-if="auth.isSystemAdmin" class="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
-          <h2 class="text-sm font-semibold text-gray-700 uppercase tracking-wide">Phân quyền IMM</h2>
-          <div class="grid grid-cols-2 gap-2">
-            <label
-              v-for="role in availableRoles" :key="role.name"
-              class="flex items-center gap-2 cursor-pointer rounded-lg border px-3 py-2 text-sm transition-colors"
-              :class="hasRole(role.name) ? 'border-blue-400 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-700 hover:bg-gray-50'"
+        <!-- Role Profile (Frappe core) — pick 1 profile, auto-sync roles -->
+        <div v-if="auth.isSystemAdmin" class="bg-white rounded-xl border border-blue-200 p-5 space-y-3">
+          <div class="flex items-baseline justify-between">
+            <h2 class="text-sm font-semibold text-blue-900 uppercase tracking-wide">Role Profile (persona)</h2>
+            <p class="text-xs text-gray-400">Chọn 1 persona — Frappe tự đồng bộ roles</p>
+          </div>
+          <div class="flex items-stretch gap-2">
+            <select
+              v-model="selectedRoleProfile"
+              :disabled="applyingProfile"
+              class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white disabled:bg-gray-50"
             >
-              <input type="checkbox" :checked="hasRole(role.name)" class="rounded" @change="toggleRole(role.name)" />
-              {{ role.name }}
-            </label>
+              <option value="">— Không áp dụng persona — quản lý role thủ công</option>
+              <option v-for="p in roleProfiles" :key="p.name" :value="p.name">
+                {{ p.label }}
+              </option>
+            </select>
+            <button
+              type="button"
+              :disabled="applyingProfile || selectedRoleProfile === (detail?.role_profile_name ?? '')"
+              class="bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg text-sm font-medium"
+              @click="applyRoleProfile"
+            >
+              {{ applyingProfile ? 'Đang áp dụng...' : 'Áp dụng' }}
+            </button>
+          </div>
+          <div v-if="currentRoleProfile" class="flex flex-wrap gap-1.5 pt-1">
+            <span class="text-[11px] text-gray-500">Profile này gán các role:</span>
+            <span
+              v-for="r in currentRoleProfile.roles" :key="r.name"
+              class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-blue-100 text-blue-700"
+            >
+              {{ r.label }}
+            </span>
+          </div>
+        </div>
+
+        <!-- IMM Roles (admin only) — fallback thủ công -->
+        <div v-if="auth.isSystemAdmin" class="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
+          <div class="flex items-baseline justify-between">
+            <h2 class="text-sm font-semibold text-gray-700 uppercase tracking-wide">Phân quyền IMM (chi tiết)</h2>
+            <p class="text-xs text-gray-400">Chỉnh thủ công nếu không dùng Role Profile</p>
+          </div>
+          <div v-for="bucket in groupedRoles" :key="bucket.group" class="space-y-2">
+            <h3 class="text-[11px] font-bold text-gray-400 uppercase tracking-widest">{{ bucket.label }}</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+              <label
+                v-for="role in bucket.items" :key="role.name"
+                class="flex items-start gap-2.5 cursor-pointer rounded-lg border px-3 py-2.5 text-sm transition-colors"
+                :class="hasRole(role.name) ? 'border-blue-400 bg-blue-50' : 'border-gray-200 hover:bg-gray-50'"
+              >
+                <input type="checkbox" :checked="hasRole(role.name)" class="rounded mt-0.5 shrink-0" @change="toggleRole(role.name)" />
+                <div class="min-w-0 flex-1">
+                  <div class="font-medium" :class="hasRole(role.name) ? 'text-blue-700' : 'text-gray-800'">
+                    {{ role.label }}
+                  </div>
+                  <p class="text-[11px] text-gray-500 mt-0.5 leading-tight">{{ role.description }}</p>
+                </div>
+              </label>
+            </div>
           </div>
         </div>
 

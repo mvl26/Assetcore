@@ -10,7 +10,7 @@ type DocType =
   | 'AC Asset' | 'AC Department' | 'AC Location' | 'AC Supplier'
   | 'AC Asset Category' | 'IMM Device Model' | 'IMM Calibration Schedule'
   | 'Purchase Order' | 'User' | 'Technical Specification' | 'AC Warehouse'
-  | 'AC Spare Part Category' | 'AC Vendor'
+  | 'AC Spare Part Category' | 'AC Vendor' | 'AC Purchase' | 'UOM' | 'AC UOM'
 
 const props = defineProps<{
   modelValue: string | undefined | null

@@ -99,7 +99,7 @@ watch(() => [props.assetName, props.year], load)
         </div>
         <div class="text-center bg-gray-50 rounded-lg py-3">
           <div class="text-xl font-semibold text-gray-800">{{ fmtHours(metrics.mttr_hours) }}</div>
-          <div class="text-xs text-gray-500 mt-1">MTTR</div>
+          <div class="text-xs text-gray-500 mt-1">Thời gian sửa chữa TB</div>
         </div>
       </div>
 

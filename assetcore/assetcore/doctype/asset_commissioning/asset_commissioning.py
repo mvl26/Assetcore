@@ -54,7 +54,7 @@ class AssetCommissioning(Document):
 			)
 		self.mint_core_asset()
 		self.create_initial_document_set()  # IMM-05: auto-import docs
-		self._log_lifecycle_event("Release", _STATE_INITIAL_INSPECTION, _STATE_CLINICAL_RELEASE, "Commissioning hoàn thành")
+		imm04_svc.log_lifecycle_event(self, "Release", _STATE_INITIAL_INSPECTION, _STATE_CLINICAL_RELEASE, "Commissioning hoàn thành")
 		self.fire_release_event()
 
 	def on_cancel(self) -> None:
@@ -64,7 +64,7 @@ class AssetCommissioning(Document):
 			frappe.throw(_("Không thể hủy commissioning đã hoàn thành hoặc đã trả hàng."))
 		if self.asset_ref:
 			frappe.throw(_("Không thể hủy commissioning đã tạo tài sản. Vui lòng liên hệ quản trị viên."))
-		self._log_lifecycle_event("Cancel", self.workflow_state, "Cancelled", "Commissioning bị hủy")
+		imm04_svc.log_lifecycle_event(self, "Cancel", self.workflow_state, "Cancelled", "Commissioning bị hủy")
 
 	# ──────────────────────────────────────────────
 	# VR-01: VALIDATE UNIQUE SERIAL

@@ -214,10 +214,10 @@ onMounted(load)
               <td class="px-4 py-3">
                 <button
                   class="text-sm text-slate-700 hover:underline decoration-dotted underline-offset-2 text-left"
-                  :title="`Lọc: ${r.warehouse_name}`"
-                  @click.stop="quickFilterWarehouse(r.warehouse, r.warehouse_name)"
-                >{{ r.warehouse_name }}</button>
-                <p class="text-[10px] text-slate-400 font-mono">{{ r.warehouse }}</p>
+                  :title="`Lọc: ${r.warehouse_name || r.warehouse_code}`"
+                  @click.stop="quickFilterWarehouse(r.warehouse, r.warehouse_name || r.warehouse_code || r.warehouse)"
+                >{{ r.warehouse_name || r.warehouse_code }}</button>
+                <p v-if="r.warehouse_code && r.warehouse_code !== r.warehouse_name" class="text-[10px] text-slate-400 font-mono">{{ r.warehouse_code }}</p>
               </td>
               <td class="px-4 py-3">
                 <p class="font-medium text-slate-800">{{ r.part_name }}</p>

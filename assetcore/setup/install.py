@@ -89,7 +89,35 @@ def create_user_custom_fields() -> None:
 
 def after_install() -> None:
     create_user_custom_fields()
+    _apply_rbac_matrix()
+    _seed_role_profiles()
 
 
 def after_migrate() -> None:
     create_user_custom_fields()
+    _apply_rbac_matrix()
+    _seed_role_profiles()
+
+
+def _apply_rbac_matrix() -> None:
+    """Apply AssetCore RBAC matrix. Import locally để tránh circular trong fixture load."""
+    try:
+        from assetcore.setup.setup_permissions import run as apply_permissions
+        apply_permissions()
+    except Exception:
+        frappe.log_error(
+            frappe.get_traceback(),
+            "AssetCore RBAC: setup_permissions.run failed",
+        )
+
+
+def _seed_role_profiles() -> None:
+    """Tạo Role Profile (core DocType) cho các persona AssetCore."""
+    try:
+        from assetcore.setup.setup_role_profiles import run as seed
+        seed()
+    except Exception:
+        frappe.log_error(
+            frappe.get_traceback(),
+            "AssetCore Role Profiles: setup_role_profiles.run failed",
+        )

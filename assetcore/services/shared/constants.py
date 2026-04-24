@@ -7,28 +7,106 @@ Mọi module nghiệp vụ import từ đây, không hardcode raw strings.
 
 
 class Roles:
-    """IMM role names — đồng bộ với fixtures trong hooks.py."""
+    """IMM role names — đồng bộ với fixtures/role.json và setup_permissions.py.
 
-    SYS_ADMIN = "IMM System Admin"
-    QA = "IMM QA Officer"
-    DEPT_HEAD = "IMM Department Head"
+    11 role phân theo nhóm:
+      - Governance:  SYS_ADMIN, OPS_MANAGER, AUDITOR
+      - Department:  DEPT_HEAD, DEPT_DEPUTY, CLINICAL
+      - Engineering: WORKSHOP, BIOMED, TECHNICIAN (legacy)
+      - Support:     QA, DOC_OFFICER, STOREKEEPER
+    """
+
+    SYS_ADMIN   = "IMM System Admin"
     OPS_MANAGER = "IMM Operations Manager"
-    WORKSHOP = "IMM Workshop Lead"
-    TECHNICIAN = "IMM Technician"
+    DEPT_HEAD   = "IMM Department Head"
+    DEPT_DEPUTY = "IMM Deputy Department Head"
+    WORKSHOP    = "IMM Workshop Lead"
+    QA          = "IMM QA Officer"
+    BIOMED      = "IMM Biomed Technician"
+    TECHNICIAN  = "IMM Technician"   # legacy alias
     DOC_OFFICER = "IMM Document Officer"
     STOREKEEPER = "IMM Storekeeper"
-    CLINICAL = "IMM Clinical User"
+    CLINICAL    = "IMM Clinical User"
+    AUDITOR     = "IMM Auditor"
 
     ALL_IMM = (
-        SYS_ADMIN, QA, DEPT_HEAD, OPS_MANAGER, WORKSHOP,
-        TECHNICIAN, DOC_OFFICER, STOREKEEPER, CLINICAL,
+        SYS_ADMIN, OPS_MANAGER, DEPT_HEAD, DEPT_DEPUTY, WORKSHOP,
+        QA, BIOMED, TECHNICIAN, DOC_OFFICER, STOREKEEPER, CLINICAL, AUDITOR,
     )
 
     # Role-group policies (dùng ở cả BE + FE router)
-    CAN_CREATE_WO = (SYS_ADMIN, OPS_MANAGER, WORKSHOP, TECHNICIAN)
-    CAN_APPROVE = (SYS_ADMIN, QA, DEPT_HEAD, OPS_MANAGER)
+    CAN_CREATE_WO   = (SYS_ADMIN, OPS_MANAGER, WORKSHOP, BIOMED, TECHNICIAN)
+    CAN_APPROVE     = (SYS_ADMIN, OPS_MANAGER, DEPT_HEAD, QA)
+    CAN_APPROVE_DEP = (SYS_ADMIN, OPS_MANAGER, DEPT_HEAD, DEPT_DEPUTY, QA)
+    CAN_CANCEL      = (SYS_ADMIN, OPS_MANAGER, DEPT_HEAD)   # phó không được hủy
     CAN_MANAGE_DOCS = (SYS_ADMIN, DOC_OFFICER, QA)
-    CAN_ADMIN_USER = (SYS_ADMIN, OPS_MANAGER)
+    CAN_MANAGE_STOCK = (SYS_ADMIN, STOREKEEPER, OPS_MANAGER)
+    CAN_ADMIN_USER  = (SYS_ADMIN, OPS_MANAGER)
+    READ_ONLY_ROLES = (AUDITOR,)
+
+
+ROLE_METADATA: dict[str, dict[str, str]] = {
+    Roles.SYS_ADMIN: {
+        "label": "Quản trị hệ thống",
+        "description": "Toàn quyền — cấu hình, quản lý user, phân quyền",
+        "group": "Governance",
+    },
+    Roles.OPS_MANAGER: {
+        "label": "Trưởng phòng TBYT",
+        "description": "Duyệt cuối các phiếu lớn: nghiệm thu, hợp đồng, CAPA",
+        "group": "Governance",
+    },
+    Roles.DEPT_HEAD: {
+        "label": "Trưởng khoa",
+        "description": "Duyệt cấp khoa + hủy phiếu, ký nhận thiết bị",
+        "group": "Department",
+    },
+    Roles.DEPT_DEPUTY: {
+        "label": "Phó khoa",
+        "description": "Hỗ trợ trưởng khoa, duyệt phiếu (không được hủy)",
+        "group": "Department",
+    },
+    Roles.WORKSHOP: {
+        "label": "Tổ trưởng xưởng",
+        "description": "Phân công + duyệt Work Order bảo trì/sửa chữa/hiệu chuẩn",
+        "group": "Engineering",
+    },
+    Roles.QA: {
+        "label": "Cán bộ QLCL",
+        "description": "QMS, CAPA, QA Non-Conformance, RCA — chuẩn ISO 13485",
+        "group": "Support",
+    },
+    Roles.BIOMED: {
+        "label": "Nhân viên kỹ thuật",
+        "description": "Thực hiện Work Order, nhập bảng kiểm, báo sự cố",
+        "group": "Engineering",
+    },
+    Roles.TECHNICIAN: {
+        "label": "Kỹ thuật viên (legacy)",
+        "description": "Alias cũ — dùng Nhân viên kỹ thuật cho user mới",
+        "group": "Engineering",
+    },
+    Roles.DOC_OFFICER: {
+        "label": "Cán bộ hồ sơ",
+        "description": "Quản lý hồ sơ IMM-05: upload, gia hạn, kiểm soát version",
+        "group": "Support",
+    },
+    Roles.STOREKEEPER: {
+        "label": "Thủ kho",
+        "description": "Quản lý kho vật tư, phụ tùng, phiếu xuất/nhập kho",
+        "group": "Support",
+    },
+    Roles.CLINICAL: {
+        "label": "Bác sĩ / Điều dưỡng",
+        "description": "Xem thiết bị của khoa mình, báo sự cố, yêu cầu hồ sơ",
+        "group": "Department",
+    },
+    Roles.AUDITOR: {
+        "label": "Kiểm toán viên",
+        "description": "Chỉ đọc — truy vết audit trail toàn hệ thống",
+        "group": "Governance",
+    },
+}
 
 
 class AssetStatus:

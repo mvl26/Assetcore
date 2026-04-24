@@ -4,6 +4,7 @@ import {
   listLocations, getLocation, createLocation, updateLocation, deleteLocation,
   listDepartments, getDepartment, createDepartment, updateDepartment, deleteDepartment,
   listAssetCategories, getAssetCategory, createAssetCategory, updateAssetCategory, deleteAssetCategory,
+  bulkRegenerateScheduleByCategory,
 } from '@/api/imm00'
 import type { AcLocation, AcDepartment, AcAssetCategory } from '@/types/imm00'
 import SmartSelect from '@/components/common/SmartSelect.vue'
@@ -59,6 +60,10 @@ function openCreate() {
     : { category_name: '', description: '',
         default_pm_required: 1, default_pm_interval_days: 180,
         default_calibration_required: 0, default_calibration_interval_days: 365,
+        default_depreciation_method: 'Straight Line',
+        total_depreciation_months: 60,
+        depreciation_frequency: 'Monthly',
+        default_residual_value_pct: 0,
         has_radiation: 0, is_active: 1 }
   err.value = ''; showForm.value = true
 }
@@ -112,6 +117,23 @@ async function save() {
   } catch (e: unknown) { err.value = (e as Error).message || 'Lỗi lưu' }
 }
 
+async function applyToExistingAssets() {
+  if (!editingName.value) return
+  const msg = `Áp dụng luật khấu hao cho tất cả tài sản thuộc "${editingName.value}"?\n\n` +
+              `Tài sản đã có kỳ khấu hao chạy sẽ được giữ nguyên (bảo vệ lịch sử).`
+  if (!confirm(msg)) return
+  try {
+    const res = await bulkRegenerateScheduleByCategory(editingName.value)
+    alert(
+      `Đã regenerate ${res.regenerated} tài sản.\n` +
+      `Bỏ qua ${res.skipped_has_history} (đã có lịch sử).\n` +
+      `Lỗi: ${res.errors}.`,
+    )
+  } catch (e: unknown) {
+    err.value = (e as Error).message || 'Lỗi áp dụng'
+  }
+}
+
 async function remove(name: string) {
   if (!confirm(`Xóa "${name}"?`)) return
   try {
@@ -130,7 +152,7 @@ const currentRows = computed(() =>
 )
 
 const tabLabel = computed(() =>
-  tab.value === 'location' ? 'Vị trí' : tab.value === 'department' ? 'Khoa/Phòng' : 'Loại thiết bị',
+  tab.value === 'location' ? 'Vị trí' : tab.value === 'department' ? 'Khoa/Phòng' : 'Danh mục tài sản',
 )
 
 function switchTab(t: Tab) { tab.value = t; showForm.value = false; load() }
@@ -151,7 +173,7 @@ onMounted(load)
         @click="switchTab(t)"
         :class="['px-4 py-2 text-sm font-medium border-b-2 -mb-px',
           tab === t ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700']">
-        {{ t === 'location' ? 'Vị trí' : t === 'department' ? 'Khoa/Phòng' : 'Loại thiết bị' }}
+        {{ t === 'location' ? 'Vị trí' : t === 'department' ? 'Khoa/Phòng' : 'Danh mục tài sản' }}
       </button>
     </div>
 
@@ -178,9 +200,11 @@ onMounted(load)
           </tr>
           <tr v-else>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Mã</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Tên loại</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Tên danh mục</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Phương pháp KH</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Số tháng KH</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Tần suất</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Bảo trì (ngày)</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Hiệu chuẩn (ngày)</th>
             <th class="px-4 py-3 text-right"></th>
           </tr>
         </thead>
@@ -202,8 +226,16 @@ onMounted(load)
             </template>
             <template v-else>
               <td class="px-4 py-3 font-medium text-gray-800">{{ r.category_name }}</td>
+              <td class="px-4 py-3 text-gray-600 text-xs">{{ r.default_depreciation_method || '—' }}</td>
+              <td class="px-4 py-3 text-gray-500">
+                <span v-if="r.total_depreciation_months">
+                  {{ r.total_depreciation_months }} tháng
+                  <span class="text-gray-400">({{ (Number(r.total_depreciation_months) / 12).toFixed(1) }}y)</span>
+                </span>
+                <span v-else>—</span>
+              </td>
+              <td class="px-4 py-3 text-gray-500 text-xs">{{ r.depreciation_frequency || '—' }}</td>
               <td class="px-4 py-3 text-gray-500">{{ r.default_pm_required ? (r.default_pm_interval_days || '—') : '—' }}</td>
-              <td class="px-4 py-3 text-gray-500">{{ r.default_calibration_required ? (r.default_calibration_interval_days || '—') : '—' }}</td>
             </template>
             <td class="px-4 py-3 text-right space-x-2">
               <button @click="openEdit(r)" class="text-blue-600 hover:text-blue-800 text-xs font-medium">Sửa</button>
@@ -318,7 +350,7 @@ onMounted(load)
 
         <div v-else class="space-y-3">
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Tên loại thiết bị <span class="text-red-500">*</span></label>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Tên danh mục <span class="text-red-500">*</span></label>
             <input v-model="form.category_name" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
           </div>
           <div>
@@ -343,12 +375,72 @@ onMounted(load)
               :disabled="form.default_calibration_required !== 1"
               class="w-48 border border-gray-300 rounded-lg px-3 py-2 text-sm disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed" />
           </div>
+          <div class="pt-3 mt-2 border-t border-gray-200">
+            <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+              Luật khấu hao <span class="text-[10px] font-normal text-gray-400">(áp dụng cho mọi Asset thuộc danh mục)</span>
+            </p>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+              <div>
+                <label class="block text-xs text-gray-600 mb-1">Phương pháp khấu hao</label>
+                <select v-model="form.default_depreciation_method"
+                        class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                  <option value="">—</option>
+                  <option value="Straight Line">Đường thẳng (Straight Line)</option>
+                  <option value="Double Declining">Số dư giảm dần (Double Declining)</option>
+                  <option value="Units of Production">Theo sản lượng (Units of Production)</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs text-gray-600 mb-1">Tần suất khấu hao</label>
+                <select v-model="form.depreciation_frequency"
+                        class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                  <option value="Monthly">Hàng tháng (Monthly)</option>
+                  <option value="Quarterly">Hàng quý (Quarterly)</option>
+                  <option value="Yearly">Hàng năm (Yearly)</option>
+                </select>
+              </div>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label class="block text-xs text-gray-600 mb-1">
+                  Tổng số tháng khấu hao
+                  <span class="text-gray-400 text-[10px]">(VD: 36 = 3 năm, 120 = 10 năm)</span>
+                </label>
+                <input v-model.number="form.total_depreciation_months" type="number" min="0" step="1"
+                       placeholder="VD: 120 cho thiết bị y tế"
+                       class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+                <p v-if="form.total_depreciation_months" class="text-[10px] text-gray-500 mt-1">
+                  ≈ {{ (Number(form.total_depreciation_months) / 12).toFixed(1) }} năm
+                </p>
+              </div>
+              <div>
+                <label class="block text-xs text-gray-600 mb-1">Giá trị thu hồi (%)</label>
+                <input v-model.number="form.default_residual_value_pct" type="number" min="0" max="100" step="0.5"
+                       placeholder="Thường là 0 hoặc 5"
+                       class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+                <p class="text-[10px] text-gray-500 mt-1">% giá trị còn lại khi hết vòng đời</p>
+              </div>
+            </div>
+          </div>
+
           <label class="flex items-center gap-2 text-sm">
             <input v-model="form.has_radiation" type="checkbox" :true-value="1" :false-value="0" /> Chứa nguồn bức xạ
           </label>
           <label class="flex items-center gap-2 text-sm">
             <input v-model="form.is_active" type="checkbox" :true-value="1" :false-value="0" /> Đang hoạt động
           </label>
+        </div>
+
+        <div v-if="tab === 'category' && editingName" class="pt-2">
+          <button
+            class="w-full text-xs px-3 py-2 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-colors"
+            @click="applyToExistingAssets"
+          >
+            🔄 Áp dụng luật khấu hao này cho tất cả tài sản thuộc danh mục
+          </button>
+          <p class="text-[10px] text-gray-500 mt-1 text-center">
+            Chỉ regenerate với tài sản chưa có kỳ nào đã chạy (bảo vệ lịch sử khấu hao)
+          </p>
         </div>
 
         <div class="flex justify-end gap-2 pt-2">

@@ -12,17 +12,20 @@ app_license = "MIT"
 # ──────────────────────────────────────────────
 fixtures = [
     {"dt": "Role", "filters": [["name", "in", [
-        # IMM-00 governance roles
+        # IMM governance roles — primary
         "IMM System Admin",
-        "IMM Department Head",
         "IMM Operations Manager",
+        "IMM Department Head",
+        "IMM Deputy Department Head",
         "IMM Workshop Lead",
+        "IMM QA Officer",
+        "IMM Biomed Technician",
         "IMM Technician",
         "IMM Document Officer",
         "IMM Storekeeper",
-        "IMM QA Officer",
         "IMM Clinical User",
-        # IMM-04/05/08/09/11 operational roles (hospital workflow)
+        "IMM Auditor",
+        # Legacy operational roles (kept for backward compatibility, to be migrated)
         "HTM Technician",
         "CMMS Admin",
         "Workshop Head",
@@ -61,6 +64,14 @@ doc_events = {
             "assetcore.services.imm11.create_calibration_schedule_from_commissioning",
         ],
     },
+    "AC Stock Movement": {
+        "on_submit": [
+            "assetcore.services.purchase.auto_mark_purchase_received",
+        ],
+        "on_cancel": [
+            "assetcore.services.purchase.auto_unmark_purchase_received",
+        ],
+    },
 }
 
 # ──────────────────────────────────────────────
@@ -83,9 +94,13 @@ scheduler_events = {
         "assetcore.services.imm11.check_calibration_expiry",
         # IMM-12 Incident chronic failure detection
         "assetcore.services.imm12.detect_chronic_failures",
+        # IMM-00 Inventory low-stock alert
+        "assetcore.services.inventory.check_low_stock",
     ],
     "monthly": [
         "assetcore.services.imm00.rollup_asset_kpi",
+        # IMM-00 Asset depreciation execution
+        "assetcore.services.depreciation.run_due_depreciation",
     ],
 }
 
