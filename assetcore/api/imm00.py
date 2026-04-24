@@ -122,6 +122,7 @@ def list_assets(
         "asset_category", "location", "department", "responsible_technician",
         "next_pm_date", "next_calibration_date", "byt_reg_expiry",
         "gmdn_code", "gmdn_status",
+        "gross_purchase_amount", "accumulated_depreciation", "current_book_value",
     ]
     items = frappe.get_list(
         _DT_ASSET,
@@ -405,8 +406,12 @@ def list_asset_categories():
     """GET /api/method/assetcore.api.imm00.list_asset_categories"""
     items = frappe.get_list(
         _DT_ASSET_CATEGORY,
-        fields=["name", "category_name", "description", "default_pm_required", "default_pm_interval_days",
-                "default_calibration_required", "default_calibration_interval_days", "has_radiation", "is_active"],
+        fields=["name", "category_name", "description",
+                "default_pm_required", "default_pm_interval_days",
+                "default_calibration_required", "default_calibration_interval_days",
+                "default_depreciation_method", "total_depreciation_months",
+                "depreciation_frequency", "default_residual_value_pct",
+                "has_radiation", "is_active"],
         order_by="category_name asc",
     )
     return _ok(items)
@@ -531,7 +536,8 @@ def list_device_models(page: int = 1, page_size: int = 20, manufacturer: str = N
         _DT_DEVICE_MODEL,
         filters=filters,
         or_filters=or_filters if or_filters else None,
-        fields=["name", "model_name", "model_version", "manufacturer", "medical_device_class", "gmdn_code"],
+        fields=["name", "model_name", "model_version", "manufacturer",
+                "medical_device_class", "gmdn_code", "asset_category", "model_image"],
         limit_start=pag["offset"],
         limit_page_length=page_size,
         order_by="model_name asc",
@@ -1655,3 +1661,78 @@ def get_asset_downtime_metrics(asset_name: str, year: int | None = None):
 def _assert_system_admin():
     if "System Manager" not in frappe.get_roles() and "IMM System Admin" not in frappe.get_roles():
         frappe.throw(_("Không có quyền thực hiện thao tác này"), frappe.PermissionError)
+
+
+# ─── Depreciation Schedule (Phase 2) ─────────────────────────────────────────
+
+@frappe.whitelist()
+def get_depreciation_schedule(asset_name: str):
+    """GET — Trả về schedule rows của 1 asset + tổng hợp."""
+    if not frappe.db.exists("AC Asset", asset_name):
+        return _err(_("Asset not found"), 404)
+    rows = frappe.get_all(
+        "AC Asset Depreciation Schedule",
+        filters={"parent": asset_name, "parenttype": "AC Asset"},
+        fields=["name", "period_number", "scheduled_date", "depreciation_amount",
+                "accumulated_amount", "remaining_value", "status",
+                "executed_on", "journal_entry"],
+        order_by="period_number asc",
+        limit_page_length=500,
+    )
+    summary = {
+        "total_periods": len(rows),
+        "executed_periods": sum(1 for r in rows if r.get("status") == "Executed"),
+        "pending_periods":  sum(1 for r in rows if r.get("status") == "Pending"),
+        "total_depreciated": sum(float(r.get("depreciation_amount") or 0)
+                                  for r in rows if r.get("status") == "Executed"),
+    }
+    asset = frappe.db.get_value(
+        "AC Asset", asset_name,
+        ["gross_purchase_amount", "residual_value", "accumulated_depreciation",
+         "current_book_value", "depreciation_method", "total_depreciation_months",
+         "depreciation_frequency", "depreciation_start_date", "in_service_date"],
+        as_dict=True,
+    ) or {}
+    return _ok({"asset": asset_name, "asset_info": asset, "rows": rows, "summary": summary})
+
+
+@frappe.whitelist(methods=["POST"])
+def regenerate_depreciation_schedule(asset_name: str, force: int = 1):
+    """POST — Sinh lại schedule (xóa cũ nếu force=1)."""
+    from assetcore.services import depreciation as depr_svc
+    try:
+        result = depr_svc.generate_schedule(asset_name, force=bool(int(force)))
+        return _ok(result)
+    except Exception as e:
+        return _err(str(e), 400)
+
+
+@frappe.whitelist()
+def preview_depreciation_schedule(gross: float, residual: float, method: str,
+                                    total_months: int, frequency: str, start_date: str):
+    """GET — Preview schedule không lưu DB (dùng cho form before commit)."""
+    from assetcore.services import depreciation as depr_svc
+    rows = depr_svc.preview_schedule(
+        float(gross or 0), float(residual or 0), method,
+        int(total_months or 0), frequency or "Monthly", start_date,
+    )
+    return _ok(rows)
+
+
+@frappe.whitelist(methods=["POST"])
+def run_due_depreciation_now(as_of: str = ""):
+    """POST — Thủ công chạy cron (dành cho admin/testing)."""
+    _assert_system_admin()
+    from assetcore.services import depreciation as depr_svc
+    return _ok(depr_svc.run_due_depreciation(as_of or None))
+
+
+@frappe.whitelist(methods=["POST"])
+def bulk_regenerate_schedule_by_category(category_name: str):
+    """POST — Áp dụng lại luật khấu hao của Category cho tất cả assets.
+
+    Skip các assets đã có kỳ Executed (bảo vệ lịch sử).
+    """
+    _assert_system_admin()
+    from assetcore.services import depreciation as depr_svc
+    return _ok(depr_svc.bulk_regenerate_by_category(category_name))

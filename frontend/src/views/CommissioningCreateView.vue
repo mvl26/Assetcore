@@ -97,7 +97,7 @@ const poLoading   = ref(false)
 
 // ─── Selected entity details (cho InfoCards) ──────────────────────────────────
 
-const poInfo           = ref<{ supplier_name: string; transaction_date: string; items_count: number } | null>(null)
+const poInfo           = ref<{ supplier_name: string; invoice_no: string; transaction_date: string; items_count: number } | null>(null)
 const deviceModelInfo  = ref<DeviceModelDetails | null>(null)
 const vendorInfo       = ref<MasterItem | null>(null)
 const deptInfo         = ref<MasterItem | null>(null)
@@ -120,6 +120,7 @@ async function lookupPO(poName: string) {
   if (data) {
     poInfo.value = {
       supplier_name: data.supplier_name,
+      invoice_no: (data as { invoice_no?: string }).invoice_no || '',
       transaction_date: data.transaction_date,
       items_count: data.items?.length ?? 0,
     }
@@ -249,8 +250,8 @@ async function handleCreate() {
             <p class="form-label">Lệnh mua hàng (PO) <span class="text-red-500">*</span></p>
             <SmartSelect
               v-model="form.po_reference"
-              doctype="Purchase Order"
-              placeholder="PO-2026-0041"
+              doctype="AC Purchase"
+              placeholder="AC-PUR-2026-00001"
               :has-error="!!fieldErrors.po_reference"
               @select="onPoSelect"
               @clear="onClearPo"
@@ -259,11 +260,12 @@ async function handleCreate() {
             <p v-if="fieldErrors.po_reference" class="mt-1 text-xs text-red-500">{{ fieldErrors.po_reference }}</p>
             <LinkInfoCard
               v-if="poInfo"
-              title="Thông tin PO"
+              title="Thông tin đơn hàng"
               variant="info"
               :fields="[
-                { label: 'NCC', value: poInfo.supplier_name },
-                { label: 'Ngày PO', value: poInfo.transaction_date },
+                { label: 'Nhà cung cấp', value: poInfo.supplier_name },
+                { label: 'Số HĐ', value: poInfo.invoice_no || '—' },
+                { label: 'Ngày đặt', value: poInfo.transaction_date },
                 { label: 'Số mặt hàng', value: poInfo.items_count },
               ]"
             />
@@ -288,7 +290,7 @@ async function handleCreate() {
               variant="success"
               :fields="[
                 { label: 'Tên', value: vendorInfo.name },
-                { label: 'Mã NCC', value: vendorInfo.id, type: 'mono' },
+                { label: 'Mã nhà cung cấp', value: vendorInfo.id, type: 'mono' },
                 { label: 'Loại / Mô tả', value: vendorInfo.description },
               ]"
             />
@@ -309,15 +311,15 @@ async function handleCreate() {
             <p v-if="fieldErrors.master_item" class="mt-1 text-xs text-red-500">{{ fieldErrors.master_item }}</p>
             <LinkInfoCard
               v-if="deviceModelInfo"
-              title="Chi tiết Device Model — auto-fill risk class & PM/Calibration"
+              title="Chi tiết Model thiết bị — tự động điền phân loại rủi ro, lịch bảo trì và hiệu chuẩn"
               variant="info"
               :fields="[
                 { label: 'Model', value: deviceModelInfo.model_name },
-                { label: 'Hãng', value: deviceModelInfo.manufacturer },
-                { label: 'WHO Class', value: deviceModelInfo.medical_device_class, type: 'badge' },
-                { label: 'Risk', value: deviceModelInfo.risk_classification, type: 'badge' },
+                { label: 'Hãng sản xuất', value: deviceModelInfo.manufacturer },
+                { label: 'Phân loại WHO', value: deviceModelInfo.medical_device_class, type: 'badge' },
+                { label: 'Mức rủi ro', value: deviceModelInfo.risk_classification, type: 'badge' },
                 { label: 'Bức xạ', value: deviceModelInfo.is_radiation_device ? 'Có ⚠️' : 'Không' },
-                { label: 'PM định kỳ', value: deviceModelInfo.is_pm_required ? `${deviceModelInfo.pm_interval_days} ngày` : 'Không yêu cầu' },
+                { label: 'Bảo trì định kỳ', value: deviceModelInfo.is_pm_required ? `${deviceModelInfo.pm_interval_days} ngày` : 'Không yêu cầu' },
                 { label: 'Hiệu chuẩn', value: deviceModelInfo.is_calibration_required ? `${deviceModelInfo.calibration_interval_days} ngày` : 'Không yêu cầu' },
               ]"
             />

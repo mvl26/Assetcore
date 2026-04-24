@@ -311,8 +311,9 @@ onMounted(async () => {
               <th class="text-left px-4 py-3 font-semibold text-slate-600">Trạng thái</th>
               <th class="text-left px-4 py-3 font-semibold text-slate-600">GMDN</th>
               <th class="text-left px-4 py-3 font-semibold text-slate-600">Khoa/Phòng</th>
+              <th class="text-right px-4 py-3 font-semibold text-slate-600">Giá trị còn lại</th>
               <th class="text-left px-4 py-3 font-semibold text-slate-600">Bảo trì tiếp theo</th>
-              <th class="text-left px-4 py-3 font-semibold text-slate-600">BYT hết hạn</th>
+              <th class="text-left px-4 py-3 font-semibold text-slate-600">Giấy ĐK Bộ Y tế hết hạn</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-100">
@@ -363,6 +364,17 @@ onMounted(async () => {
                 >{{ asset.department_name || asset.department }}</button>
                 <span v-else class="text-slate-400">—</span>
                 <div v-if="asset.department && asset.department_name" class="text-xs text-slate-400">{{ asset.department }}</div>
+              </td>
+              <td class="px-4 py-3 text-right">
+                <div v-if="asset.current_book_value || asset.gross_purchase_amount">
+                  <p class="font-semibold text-emerald-700">
+                    {{ (asset.current_book_value ?? asset.gross_purchase_amount ?? 0).toLocaleString('vi-VN') }}
+                  </p>
+                  <p v-if="asset.accumulated_depreciation" class="text-xs text-slate-400">
+                    −{{ asset.accumulated_depreciation.toLocaleString('vi-VN') }} đã KH
+                  </p>
+                </div>
+                <span v-else class="text-slate-400">—</span>
               </td>
               <td class="px-4 py-3">
                 <span :class="isPmOverdue(asset.next_pm_date) ? 'text-red-600 font-semibold' : 'text-slate-600'">

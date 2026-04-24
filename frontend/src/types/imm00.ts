@@ -41,6 +41,10 @@ export interface AcAssetListItem {
   next_pm_date?: string
   next_calibration_date?: string
   byt_reg_expiry?: string
+  // Depreciation summary (also in list)
+  gross_purchase_amount?: number
+  accumulated_depreciation?: number
+  current_book_value?: number
 }
 
 export interface AcAsset extends AcAssetListItem {
@@ -57,6 +61,16 @@ export interface AcAsset extends AcAssetListItem {
   device_model?: string
   device_model_name?: string
   responsible_technician_name?: string
+  // Depreciation fields (canonical rules inherited from Asset Category)
+  depreciation_method?: '' | 'Straight Line' | 'Double Declining' | 'Units of Production'
+  total_depreciation_months?: number
+  depreciation_frequency?: 'Monthly' | 'Quarterly' | 'Yearly'
+  depreciation_start_date?: string
+  useful_life_years?: number
+  residual_value?: number
+  accumulated_depreciation?: number
+  current_book_value?: number
+  in_service_date?: string
   medical_device_class?: MedicalDeviceClass
   risk_classification?: RiskClass
   manufacturer_sn?: string
@@ -186,10 +200,16 @@ export interface AcAssetCategory {
   name: string
   category_name: string
   description?: string
+  // PM / Calibration defaults
   default_pm_required?: 0 | 1
   default_pm_interval_days?: number
   default_calibration_required?: 0 | 1
   default_calibration_interval_days?: number
+  // Depreciation / Finance defaults (Tier 1 rules — canonical)
+  default_depreciation_method?: '' | 'Straight Line' | 'Double Declining' | 'Units of Production'
+  total_depreciation_months?: number
+  depreciation_frequency?: 'Monthly' | 'Quarterly' | 'Yearly'
+  default_residual_value_pct?: number
   has_radiation?: 0 | 1
   is_active?: 0 | 1
 }
@@ -219,6 +239,12 @@ export interface ImmDeviceModel {
   calibration_interval_days?: number
   calibration_alert_days?: number
   default_calibration_type?: string
+  // Tier 2 media + technical specs
+  model_image?: string
+  catalog_file?: string
+  specifications?: string
+  dimensions?: string
+  weight_kg?: number
   notes?: string
 }
 

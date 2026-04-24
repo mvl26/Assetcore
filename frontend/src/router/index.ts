@@ -117,20 +117,20 @@ const routes: RouteRecordRaw[] = [
     path: '/device-models',
     name: 'DeviceModelList',
     component: () => import('@/views/DeviceModelListView.vue'),
-    meta: { requiresAuth: true, title: 'Danh mục Mẫu thiết bị — IMM-00' },
+    meta: { requiresAuth: true, title: 'Model thiết bị — IMM-00' },
   },
   {
     path: '/device-models/new',
     name: 'DeviceModelCreate',
     component: () => import('@/views/DeviceModelFormView.vue'),
-    meta: { requiresAuth: true, title: 'Thêm Mẫu thiết bị — IMM-00', requiredRoles: ROLES_CREATE },
+    meta: { requiresAuth: true, title: 'Thêm Model thiết bị — IMM-00', requiredRoles: ROLES_CREATE },
   },
   {
     path: '/device-models/:id',
     name: 'DeviceModelEdit',
     component: () => import('@/views/DeviceModelFormView.vue'),
     props: true,
-    meta: { requiresAuth: true, title: 'Sửa Mẫu thiết bị — IMM-00', requiredRoles: ROLES_CREATE },
+    meta: { requiresAuth: true, title: 'Sửa Model thiết bị — IMM-00', requiredRoles: ROLES_CREATE },
   },
   {
     path: '/sla-policies',
@@ -522,6 +522,44 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/StockMovementDetailView.vue'),
     props: true,
     meta: { requiresAuth: true, title: 'Chi tiết phiếu kho' },
+  },
+  {
+    path: '/inventory/uom',
+    name: 'UomConversion',
+    component: () => import('@/views/UomConversionView.vue'),
+    meta: { requiresAuth: true, title: 'Đơn vị tính (UOM) — IMM-00' },
+  },
+  {
+    path: '/approvals/pending',
+    name: 'PendingApprovals',
+    component: () => import('@/views/PendingApprovalsView.vue'),
+    meta: { requiresAuth: true, title: 'Phiếu chờ tôi duyệt' },
+  },
+  {
+    path: '/purchases',
+    name: 'PurchaseList',
+    component: () => import('@/views/PurchaseListView.vue'),
+    meta: { requiresAuth: true, title: 'Đơn mua hàng' },
+  },
+  {
+    path: '/purchases/new',
+    name: 'PurchaseCreate',
+    component: () => import('@/views/PurchaseCreateView.vue'),
+    meta: { requiresAuth: true, title: 'Tạo đơn hàng' },
+  },
+  {
+    path: '/purchases/:name/edit',
+    name: 'PurchaseEdit',
+    component: () => import('@/views/PurchaseEditView.vue'),
+    props: true,
+    meta: { requiresAuth: true, title: 'Sửa đơn hàng' },
+  },
+  {
+    path: '/purchases/:name',
+    name: 'PurchaseDetail',
+    component: () => import('@/views/PurchaseDetailView.vue'),
+    props: true,
+    meta: { requiresAuth: true, title: 'Chi tiết đơn hàng' },
   },
 
   // ─── 10. Admin ─────────────────────────────────────────────────────────────

@@ -2,190 +2,274 @@
 """
 Ma trận phân quyền (RBAC) cho AssetCore.
 
-Chạy một lần sau khi cài app:
-    bench --site [site] execute assetcore.setup.setup_permissions.run
+Chạy một lần sau khi cài app hoặc khi thay đổi matrix:
+    bench --site <site> execute assetcore.setup.setup_permissions.run
 
-Hoặc thêm vào after_migrate trong hooks.py:
-    after_migrate = ["assetcore.setup.install.after_migrate",
-                     "assetcore.setup.setup_permissions.run"]
+Đã wire vào after_migrate trong hooks.py.
+
+Thiết kế (11 role nghiệp vụ):
+
+    Role (Frappe)                │ Vai trò nghiệp vụ
+    ─────────────────────────────┼────────────────────────────────────────
+    IMM System Admin             │ Quản trị hệ thống — toàn quyền
+    IMM Operations Manager       │ Trưởng phòng TBYT — duyệt cuối
+    IMM Department Head          │ Trưởng khoa — duyệt cấp khoa
+    IMM Deputy Department Head   │ Phó khoa — hỗ trợ duyệt (không cancel)
+    IMM Workshop Lead            │ Tổ trưởng xưởng — phân công/duyệt WO
+    IMM QA Officer               │ Cán bộ QLCL — CAPA, QA NC, RCA
+    IMM Biomed Technician        │ Nhân viên kỹ thuật — thực hiện WO
+    IMM Document Officer         │ Cán bộ hồ sơ — IMM-05 documents
+    IMM Storekeeper              │ Thủ kho — kho vật tư
+    IMM Clinical User            │ Bác sĩ/điều dưỡng — xem + báo hỏng
+    IMM Auditor                  │ Kiểm toán viên — read-only toàn bộ
+
+Ký hiệu cột DocPerm:
+    r=read  w=write  c=create  d=delete  s=submit  x=cancel  a=amend
 """
 from __future__ import annotations
 
 import frappe
 
-# ── Mapping vai trò ────────────────────────────────────────────────────────────
-#
-#  Role name (Frappe)       │ Vai trò nghiệp vụ
-#  ─────────────────────────┼──────────────────────────────────────
-#  IMM System Admin         │ AssetCore Admin — toàn quyền
-#  Tổ HC-QLCL               │ Phòng QLCL — quản lý hồ sơ, kế hoạch
-#  IMM Technician           │ Kỹ thuật viên — thực hiện work orders
-#  IMM Clinical User        │ Bác sĩ / Khoa lâm sàng — chỉ xem + báo hỏng
-#
-# ── Ký hiệu cột ───────────────────────────────────────────────────────────────
-#  r=read  w=write  c=create  d=delete  s=submit  x=cancel  a=amend
+# ─── Permission profiles ──────────────────────────────────────────────────────
 
-_FULL = dict(r=1, w=1, c=1, d=1, s=1, x=1, a=1)
-_RW   = dict(r=1, w=1, c=1, d=0, s=0, x=0, a=0)
-_RWS  = dict(r=1, w=1, c=1, d=0, s=1, x=0, a=0)
-_RWSX = dict(r=1, w=1, c=1, d=0, s=1, x=1, a=0)
-_READ = dict(r=1, w=0, c=0, d=0, s=0, x=0, a=0)
-_RC   = dict(r=1, w=0, c=1, d=0, s=0, x=0, a=0)
+_READ     = {"r": 1, "w": 0, "c": 0, "d": 0, "s": 0, "x": 0, "a": 0}
+_RC       = {"r": 1, "w": 0, "c": 1, "d": 0, "s": 0, "x": 0, "a": 0}
+_RW       = {"r": 1, "w": 1, "c": 1, "d": 0, "s": 0, "x": 0, "a": 0}
+_RWS      = {"r": 1, "w": 1, "c": 1, "d": 0, "s": 1, "x": 0, "a": 0}
+_RWSX     = {"r": 1, "w": 1, "c": 1, "d": 0, "s": 1, "x": 1, "a": 0}
+_APPROVE  = {"r": 1, "w": 1, "c": 0, "d": 0, "s": 1, "x": 1, "a": 1}  # duyệt + hủy + amend
+_DEPUTY   = {"r": 1, "w": 1, "c": 0, "d": 0, "s": 1, "x": 0, "a": 0}  # phó: duyệt, không hủy
+_FULL     = {"r": 1, "w": 1, "c": 1, "d": 1, "s": 1, "x": 1, "a": 1}
 
-ADMIN = "IMM System Admin"
-QLCL  = "Tổ HC-QLCL"
-KTV   = "IMM Technician"
-BS    = "IMM Clinical User"
+# ─── Role constants ───────────────────────────────────────────────────────────
 
-# ── Ma trận quyền ─────────────────────────────────────────────────────────────
-# Mỗi phần tử: (DocType, Role, quyền_dict)
-#
-# Quy tắc:
-#   ADMIN: toàn quyền trên mọi DocType AssetCore
-#   QLCL:  quản lý hồ sơ kỹ thuật, hợp đồng, CAPA, lịch bảo trì
-#   KTV:   thực hiện work order PM/CM/Calibration, nhập liệu kho
-#   BS:    chỉ xem thiết bị (+ User Permission giới hạn khoa), tạo báo hỏng
+ADMIN       = "IMM System Admin"
+OPS_MGR     = "IMM Operations Manager"
+DEPT_HEAD   = "IMM Department Head"
+DEPT_DEPUTY = "IMM Deputy Department Head"
+WORKSHOP    = "IMM Workshop Lead"
+QA          = "IMM QA Officer"
+BIOMED      = "IMM Biomed Technician"
+DOC_OFF     = "IMM Document Officer"
+STORE       = "IMM Storekeeper"
+CLINICAL    = "IMM Clinical User"
+AUDITOR     = "IMM Auditor"
 
-_MATRIX: list[tuple[str, str, dict]] = [
+# ─── Permission matrix ────────────────────────────────────────────────────────
+# Mỗi entry: (DocType, [(Role, perm_profile), ...])
+# Chỉ liệt kê parent DocType. Child DocType (is_table=1) thừa kế từ parent tự động.
 
-    # ── Master data ────────────────────────────────────────────────────────────
-    ("AC Asset",           ADMIN, _FULL),
-    ("AC Asset",           QLCL,  _READ),
-    ("AC Asset",           KTV,   _READ),
-    ("AC Asset",           BS,    _READ),   # giới hạn thêm bằng User Permission
+_MATRIX: list[tuple[str, list[tuple[str, dict]]]] = [
 
-    ("AC Asset Category",  ADMIN, _FULL),
-    ("AC Asset Category",  QLCL,  _READ),
-    ("AC Asset Category",  KTV,   _READ),
+    # ══════════ Master Data — IMM-00 ═════════════════════════════════════════
+    ("AC Asset", [
+        (ADMIN, _FULL), (OPS_MGR, _RWSX), (DEPT_HEAD, _RW),
+        (DEPT_DEPUTY, _RW), (WORKSHOP, _RW), (QA, _READ),
+        (BIOMED, _READ), (STORE, _READ), (CLINICAL, _READ),
+        (DOC_OFF, _READ), (AUDITOR, _READ),
+    ]),
+    ("AC Asset Category", [
+        (ADMIN, _FULL), (OPS_MGR, _RW), (QA, _READ),
+        (DEPT_HEAD, _READ), (BIOMED, _READ), (AUDITOR, _READ),
+    ]),
+    ("AC Department", [
+        (ADMIN, _FULL), (OPS_MGR, _RW), (DEPT_HEAD, _READ),
+        (DEPT_DEPUTY, _READ), (WORKSHOP, _READ), (QA, _READ),
+        (BIOMED, _READ), (STORE, _READ), (CLINICAL, _READ),
+        (DOC_OFF, _READ), (AUDITOR, _READ),
+    ]),
+    ("AC Location", [
+        (ADMIN, _FULL), (OPS_MGR, _RW), (DEPT_HEAD, _RW),
+        (WORKSHOP, _READ), (BIOMED, _READ), (STORE, _READ),
+        (CLINICAL, _READ), (AUDITOR, _READ),
+    ]),
+    ("AC Supplier", [
+        (ADMIN, _FULL), (OPS_MGR, _RWSX), (DEPT_HEAD, _RW),
+        (STORE, _READ), (DOC_OFF, _READ), (AUDITOR, _READ),
+    ]),
+    ("AC Warehouse", [
+        (ADMIN, _FULL), (OPS_MGR, _RW), (STORE, _RW),
+        (BIOMED, _READ), (AUDITOR, _READ),
+    ]),
+    ("AC UOM", [
+        (ADMIN, _FULL), (OPS_MGR, _RW), (STORE, _READ),
+        (BIOMED, _READ), (AUDITOR, _READ),
+    ]),
+    ("IMM Device Model", [
+        (ADMIN, _FULL), (OPS_MGR, _RW), (DEPT_HEAD, _READ),
+        (WORKSHOP, _RW), (QA, _READ), (BIOMED, _READ),
+        (DOC_OFF, _READ), (STORE, _READ), (AUDITOR, _READ),
+    ]),
+    ("IMM SLA Policy", [
+        (ADMIN, _FULL), (OPS_MGR, _RWSX), (QA, _RW),
+        (DEPT_HEAD, _READ), (WORKSHOP, _READ), (AUDITOR, _READ),
+    ]),
+    ("AC Authorized Technician", [
+        (ADMIN, _FULL), (OPS_MGR, _RW), (WORKSHOP, _RW),
+        (DEPT_HEAD, _READ), (AUDITOR, _READ),
+    ]),
 
-    ("AC Department",      ADMIN, _FULL),
-    ("AC Department",      QLCL,  _READ),
-    ("AC Department",      KTV,   _READ),
-    ("AC Department",      BS,    _READ),
+    # ══════════ Inventory / Purchasing ═══════════════════════════════════════
+    ("AC Spare Part", [
+        (ADMIN, _FULL), (OPS_MGR, _RW), (STORE, _RWSX),
+        (WORKSHOP, _RW), (BIOMED, _READ), (AUDITOR, _READ),
+    ]),
+    ("AC Spare Part Stock", [
+        (ADMIN, _FULL), (OPS_MGR, _READ), (STORE, _RW),
+        (WORKSHOP, _READ), (BIOMED, _READ), (AUDITOR, _READ),
+    ]),
+    ("AC Stock Movement", [
+        (ADMIN, _FULL), (OPS_MGR, _READ), (STORE, _RWSX),
+        (WORKSHOP, _READ), (BIOMED, _RC), (AUDITOR, _READ),
+    ]),
+    ("AC Purchase", [
+        (ADMIN, _FULL), (OPS_MGR, _APPROVE), (DEPT_HEAD, _DEPUTY),
+        (DEPT_DEPUTY, _DEPUTY), (STORE, _RWS), (DOC_OFF, _READ),
+        (AUDITOR, _READ),
+    ]),
 
-    ("AC Location",        ADMIN, _FULL),
-    ("AC Location",        QLCL,  _READ),
-    ("AC Location",        KTV,   _READ),
+    # ══════════ Commissioning — IMM-04 ═══════════════════════════════════════
+    ("Asset Commissioning", [
+        (ADMIN, _FULL), (OPS_MGR, _APPROVE), (DEPT_HEAD, _APPROVE),
+        (DEPT_DEPUTY, _DEPUTY), (WORKSHOP, _RWS), (QA, _RW),
+        (BIOMED, _RW), (DOC_OFF, _RW), (CLINICAL, _READ),
+        (AUDITOR, _READ),
+    ]),
+    ("Asset QA Non Conformance", [
+        (ADMIN, _FULL), (OPS_MGR, _RWSX), (QA, _RWSX),
+        (DEPT_HEAD, _RW), (WORKSHOP, _RW), (BIOMED, _RC),
+        (AUDITOR, _READ),
+    ]),
+    ("Required Document Type", [
+        (ADMIN, _FULL), (OPS_MGR, _RW), (DOC_OFF, _RW),
+        (QA, _READ), (AUDITOR, _READ),
+    ]),
 
-    ("AC Supplier",        ADMIN, _FULL),
-    ("AC Supplier",        QLCL,  _READ),
+    # ══════════ Documents — IMM-05 ═══════════════════════════════════════════
+    ("Asset Document", [
+        (ADMIN, _FULL), (OPS_MGR, _READ), (DEPT_HEAD, _READ),
+        (DOC_OFF, _RWSX), (QA, _RW), (WORKSHOP, _READ),
+        (BIOMED, _READ), (CLINICAL, _READ), (AUDITOR, _READ),
+    ]),
+    ("Document Request", [
+        (ADMIN, _FULL), (OPS_MGR, _READ), (DOC_OFF, _RWSX),
+        (QA, _RW), (WORKSHOP, _RC), (BIOMED, _RC),
+        (CLINICAL, _RC), (AUDITOR, _READ),
+    ]),
 
-    ("IMM Device Model",   ADMIN, _FULL),
-    ("IMM Device Model",   QLCL,  _READ),
-    ("IMM Device Model",   KTV,   _READ),
+    # ══════════ Preventive Maintenance — IMM-08 ══════════════════════════════
+    ("PM Schedule", [
+        (ADMIN, _FULL), (OPS_MGR, _RW), (WORKSHOP, _RWSX),
+        (QA, _READ), (BIOMED, _READ), (DEPT_HEAD, _READ),
+        (AUDITOR, _READ),
+    ]),
+    ("PM Work Order", [
+        (ADMIN, _FULL), (OPS_MGR, _READ), (WORKSHOP, _APPROVE),
+        (DEPT_HEAD, _READ), (QA, _READ), (BIOMED, _RWS),
+        (STORE, _READ), (AUDITOR, _READ),
+    ]),
+    ("PM Checklist Template", [
+        (ADMIN, _FULL), (OPS_MGR, _RW), (WORKSHOP, _RW),
+        (QA, _RW), (BIOMED, _READ), (AUDITOR, _READ),
+    ]),
+    ("PM Task Log", [
+        (ADMIN, _FULL), (OPS_MGR, _READ), (WORKSHOP, _READ),
+        (BIOMED, _RC), (AUDITOR, _READ),
+    ]),
 
-    ("IMM SLA Policy",     ADMIN, _FULL),
-    ("IMM SLA Policy",     QLCL,  _RW),
+    # ══════════ Corrective Maintenance — IMM-09 ══════════════════════════════
+    ("Asset Repair", [
+        (ADMIN, _FULL), (OPS_MGR, _READ), (WORKSHOP, _APPROVE),
+        (DEPT_HEAD, _READ), (QA, _READ), (BIOMED, _RWS),
+        (STORE, _READ), (CLINICAL, _READ), (AUDITOR, _READ),
+    ]),
+    ("Firmware Change Request", [
+        (ADMIN, _FULL), (OPS_MGR, _APPROVE), (WORKSHOP, _RWS),
+        (QA, _RW), (BIOMED, _RC), (AUDITOR, _READ),
+    ]),
 
-    # ── Vòng đời thiết bị ─────────────────────────────────────────────────────
-    ("Asset Commissioning",    ADMIN, _FULL),
-    ("Asset Commissioning",    QLCL,  _RWSX),
-    ("Asset Commissioning",    KTV,   _READ),
+    # ══════════ Calibration — IMM-11 ═════════════════════════════════════════
+    ("IMM Calibration Schedule", [
+        (ADMIN, _FULL), (OPS_MGR, _RW), (WORKSHOP, _RWSX),
+        (QA, _RW), (BIOMED, _READ), (AUDITOR, _READ),
+    ]),
+    ("IMM Asset Calibration", [
+        (ADMIN, _FULL), (OPS_MGR, _READ), (WORKSHOP, _APPROVE),
+        (QA, _RW), (BIOMED, _RWS), (AUDITOR, _READ),
+    ]),
 
-    ("Asset Lifecycle Event",  ADMIN, _FULL),
-    ("Asset Lifecycle Event",  QLCL,  _READ),
-    ("Asset Lifecycle Event",  KTV,   _RC),
+    # ══════════ Incidents / QMS — IMM-12 ═════════════════════════════════════
+    ("Incident Report", [
+        (ADMIN, _FULL), (OPS_MGR, _RWSX), (DEPT_HEAD, _RWS),
+        (DEPT_DEPUTY, _RWS), (WORKSHOP, _RWS), (QA, _RWSX),
+        (BIOMED, _RWS), (CLINICAL, _RWS), (DOC_OFF, _READ),
+        (AUDITOR, _READ),
+    ]),
+    ("IMM CAPA Record", [
+        (ADMIN, _FULL), (OPS_MGR, _APPROVE), (QA, _RWSX),
+        (DEPT_HEAD, _RW), (WORKSHOP, _RW), (BIOMED, _READ),
+        (AUDITOR, _READ),
+    ]),
+    ("IMM RCA Record", [
+        (ADMIN, _FULL), (OPS_MGR, _RW), (QA, _RWSX),
+        (WORKSHOP, _RW), (BIOMED, _RW), (AUDITOR, _READ),
+    ]),
 
-    ("Asset Transfer",         ADMIN, _FULL),
-    ("Asset Transfer",         QLCL,  _RW),
-    ("Asset Transfer",         KTV,   _READ),
+    # ══════════ Asset Operations ═════════════════════════════════════════════
+    ("Asset Transfer", [
+        (ADMIN, _FULL), (OPS_MGR, _APPROVE), (DEPT_HEAD, _APPROVE),
+        (DEPT_DEPUTY, _DEPUTY), (WORKSHOP, _RWS), (BIOMED, _RC),
+        (CLINICAL, _RC), (STORE, _READ), (AUDITOR, _READ),
+    ]),
+    ("Asset Lifecycle Event", [
+        (ADMIN, _FULL), (OPS_MGR, _READ), (DEPT_HEAD, _READ),
+        (WORKSHOP, _RC), (QA, _READ), (BIOMED, _RC),
+        (DOC_OFF, _READ), (CLINICAL, _READ), (AUDITOR, _READ),
+    ]),
+    ("AC Asset Downtime Log", [
+        (ADMIN, _FULL), (OPS_MGR, _READ), (WORKSHOP, _RW),
+        (QA, _READ), (BIOMED, _RC), (AUDITOR, _READ),
+    ]),
+    ("Expiry Alert Log", [
+        (ADMIN, _FULL), (OPS_MGR, _READ), (DEPT_HEAD, _READ),
+        (QA, _READ), (DOC_OFF, _READ), (AUDITOR, _READ),
+    ]),
 
-    # ── Bảo trì định kỳ (PM) ──────────────────────────────────────────────────
-    ("PM Schedule",         ADMIN, _FULL),
-    ("PM Schedule",         QLCL,  _RW),
-    ("PM Schedule",         KTV,   _READ),
+    # ══════════ Contracts ════════════════════════════════════════════════════
+    ("Service Contract", [
+        (ADMIN, _FULL), (OPS_MGR, _APPROVE), (DEPT_HEAD, _DEPUTY),
+        (DOC_OFF, _RW), (QA, _READ), (WORKSHOP, _READ),
+        (AUDITOR, _READ),
+    ]),
 
-    ("PM Work Order",       ADMIN, _FULL),
-    ("PM Work Order",       QLCL,  _READ),
-    ("PM Work Order",       KTV,   _RWSX),
-
-    # ── Sửa chữa (CM) ─────────────────────────────────────────────────────────
-    ("Asset Repair",        ADMIN, _FULL),
-    ("Asset Repair",        QLCL,  _READ),
-    ("Asset Repair",        KTV,   _RWSX),
-
-    # ── Sự cố / báo hỏng ──────────────────────────────────────────────────────
-    ("Incident Report",     ADMIN, _FULL),
-    ("Incident Report",     QLCL,  _READ),
-    ("Incident Report",     KTV,   _RWSX),
-    ("Incident Report",     BS,    _RWS),   # Bác sĩ tạo + submit báo hỏng
-
-    # ── Hiệu chuẩn ────────────────────────────────────────────────────────────
-    ("IMM Calibration Schedule", ADMIN, _FULL),
-    ("IMM Calibration Schedule", QLCL,  _RW),
-    ("IMM Calibration Schedule", KTV,   _READ),
-
-    ("IMM Asset Calibration",    ADMIN, _FULL),
-    ("IMM Asset Calibration",    QLCL,  _READ),
-    ("IMM Asset Calibration",    KTV,   _RWSX),
-
-    # ── Hồ sơ kỹ thuật (IMM-05) ───────────────────────────────────────────────
-    ("Asset Document",      ADMIN, _FULL),
-    ("Asset Document",      QLCL,  _RW),
-    ("Asset Document",      KTV,   _READ),
-
-    ("Document Request",    ADMIN, _FULL),
-    ("Document Request",    QLCL,  _RW),
-    ("Document Request",    KTV,   _RC),
-
-    # ── Hợp đồng dịch vụ ──────────────────────────────────────────────────────
-    ("Service Contract",    ADMIN, _FULL),
-    ("Service Contract",    QLCL,  _RWSX),
-    ("Service Contract",    KTV,   _READ),
-
-    # ── QMS / CAPA / RCA ──────────────────────────────────────────────────────
-    ("IMM CAPA Record",           ADMIN, _FULL),
-    ("IMM CAPA Record",           QLCL,  _RWSX),
-    ("IMM CAPA Record",           KTV,   _READ),
-
-    ("IMM RCA Record",            ADMIN, _FULL),
-    ("IMM RCA Record",            QLCL,  _RW),
-    ("IMM RCA Record",            KTV,   _READ),
-
-    ("Asset QA Non Conformance",  ADMIN, _FULL),
-    ("Asset QA Non Conformance",  QLCL,  _RW),
-
-    ("Asset Downtime Log",        ADMIN, _FULL),
-    ("Asset Downtime Log",        QLCL,  _READ),
-    ("Asset Downtime Log",        KTV,   _RC),
-
-    # ── Firmware / thay đổi cấu hình ──────────────────────────────────────────
-    ("Firmware Change Request",  ADMIN, _FULL),
-    ("Firmware Change Request",  QLCL,  _RWSX),
-    ("Firmware Change Request",  KTV,   _READ),
-
-    # ── Kho phụ tùng ──────────────────────────────────────────────────────────
-    ("AC Spare Part",       ADMIN, _FULL),
-    ("AC Spare Part",       QLCL,  _READ),
-    ("AC Spare Part",       KTV,   _RW),
-
-    ("AC Warehouse",        ADMIN, _FULL),
-    ("AC Warehouse",        QLCL,  _READ),
-    ("AC Warehouse",        KTV,   _READ),
-
-    ("AC Stock Movement",   ADMIN, _FULL),
-    ("AC Stock Movement",   QLCL,  _READ),
-    ("AC Stock Movement",   KTV,   _RW),
-
-    ("AC Spare Part Stock", ADMIN, _FULL),
-    ("AC Spare Part Stock", QLCL,  _READ),
-    ("AC Spare Part Stock", KTV,   _READ),
-
-    # ── Audit Trail (read-only cho mọi người có quyền) ────────────────────────
-    ("IMM Audit Trail",     ADMIN, _FULL),
-    ("IMM Audit Trail",     QLCL,  _READ),
-    ("IMM Audit Trail",     KTV,   _READ),
+    # ══════════ Audit Trail (immutable, read-only tất cả) ════════════════════
+    ("IMM Audit Trail", [
+        (ADMIN, _READ),       # Admin cũng không được sửa
+        (OPS_MGR, _READ), (DEPT_HEAD, _READ), (QA, _READ),
+        (WORKSHOP, _READ), (BIOMED, _READ), (DOC_OFF, _READ),
+        (STORE, _READ), (CLINICAL, _READ), (AUDITOR, _READ),
+    ]),
 ]
 
 
-# ── Engine ─────────────────────────────────────────────────────────────────────
+# ─── Engine ───────────────────────────────────────────────────────────────────
+
+_MANAGED_ROLES = frozenset({
+    ADMIN, OPS_MGR, DEPT_HEAD, DEPT_DEPUTY, WORKSHOP, QA,
+    BIOMED, DOC_OFF, STORE, CLINICAL, AUDITOR,
+})
+
 
 def _doctype_exists(doctype: str) -> bool:
-    return frappe.db.exists("DocType", doctype) is not None
+    return bool(frappe.db.exists("DocType", doctype))
 
 
-def _upsert_perm(doctype: str, role: str, perms: dict) -> None:
-    """Tạo mới hoặc cập nhật một dòng DocPerm (permlevel=0)."""
+def _role_exists(role: str) -> bool:
+    return bool(frappe.db.exists("Role", role))
+
+
+def _upsert_perm(doctype: str, role: str, perms: dict) -> str:
+    """Tạo mới hoặc cập nhật DocPerm (permlevel=0). Trả 'inserted' hoặc 'updated'."""
     existing = frappe.db.get_value(
         "DocPerm",
         {"parent": doctype, "parenttype": "DocType", "role": role, "permlevel": 0},
@@ -200,51 +284,95 @@ def _upsert_perm(doctype: str, role: str, perms: dict) -> None:
         "submit": perms.get("s", 0),
         "cancel": perms.get("x", 0),
         "amend":  perms.get("a", 0),
+        "report": 1 if perms.get("r") else 0,
+        "export": 1 if perms.get("r") else 0,
+        "print":  1 if perms.get("r") else 0,
+        "email":  1 if perms.get("r") else 0,
+        "share":  1 if perms.get("r") else 0,
     }
 
     if existing:
-        frappe.db.set_value("DocPerm", existing, fields)
-    else:
-        doc = frappe.get_doc({
-            "doctype": "DocPerm",
+        for k, v in fields.items():
+            frappe.db.set_value("DocPerm", existing, k, v)
+        return "updated"
+
+    doc = frappe.get_doc({
+        "doctype": "DocPerm",
+        "parent": doctype,
+        "parenttype": "DocType",
+        "parentfield": "permissions",
+        "role": role,
+        "permlevel": 0,
+        **fields,
+    })
+    doc.flags.ignore_permissions = True
+    doc.insert()
+    return "inserted"
+
+
+def _clear_stale_managed_perms(doctype: str, current_roles: set[str]) -> int:
+    """Xóa DocPerm của các managed role không còn trong matrix cho DocType này.
+
+    Tránh quyền rớt lại khi đã đổi matrix (ví dụ: đổi role của một DocType).
+    CHỈ đụng vào managed roles — không xóa legacy roles hoặc System Manager.
+    """
+    to_remove = (_MANAGED_ROLES - current_roles)
+    if not to_remove:
+        return 0
+    stale = frappe.db.get_all(
+        "DocPerm",
+        filters={
             "parent": doctype,
             "parenttype": "DocType",
-            "parentfield": "permissions",
-            "role": role,
+            "role": ("in", list(to_remove)),
             "permlevel": 0,
-            **fields,
-        })
-        doc.flags.ignore_permissions = True
-        doc.insert()
+        },
+        pluck="name",
+    )
+    for name in stale:
+        frappe.delete_doc("DocPerm", name, ignore_permissions=True, force=True)
+    return len(stale)
 
 
 def run() -> None:
-    """Điểm vào chính — chạy qua bench execute."""
+    """Điểm vào chính — chạy qua bench execute hoặc after_migrate."""
     frappe.flags.in_install = True
 
-    inserted = updated = skipped = 0
+    inserted = updated = removed = skipped_dt = skipped_role = 0
 
-    for doctype, role, perms in _MATRIX:
+    for doctype, role_perms in _MATRIX:
         if not _doctype_exists(doctype):
-            frappe.logger().warning(f"setup_permissions: DocType '{doctype}' không tồn tại — bỏ qua")
-            skipped += 1
+            frappe.logger().warning(
+                f"setup_permissions: DocType '{doctype}' không tồn tại — bỏ qua"
+            )
+            skipped_dt += 1
             continue
 
-        existing = frappe.db.get_value(
-            "DocPerm",
-            {"parent": doctype, "parenttype": "DocType", "role": role, "permlevel": 0},
-            "name",
-        )
-        _upsert_perm(doctype, role, perms)
+        current_roles = {r for r, _ in role_perms}
 
-        if existing:
-            updated += 1
-        else:
-            inserted += 1
+        for role, perms in role_perms:
+            if not _role_exists(role):
+                frappe.logger().warning(
+                    f"setup_permissions: Role '{role}' chưa tồn tại — bỏ qua {doctype}"
+                )
+                skipped_role += 1
+                continue
+
+            result = _upsert_perm(doctype, role, perms)
+            if result == "inserted":
+                inserted += 1
+            else:
+                updated += 1
+
+        # Xóa quyền cũ của managed role không còn trong matrix
+        removed += _clear_stale_managed_perms(doctype, current_roles)
 
     frappe.db.commit()
+    frappe.clear_cache()
 
-    frappe.logger().info(
-        f"setup_permissions: inserted={inserted}, updated={updated}, skipped={skipped}"
+    summary = (
+        f"[AssetCore] RBAC: {inserted} tạo mới, {updated} cập nhật, "
+        f"{removed} xóa stale, {skipped_dt} DocType bỏ qua, {skipped_role} Role bỏ qua."
     )
-    print(f"[AssetCore] Permissions: {inserted} tạo mới, {updated} cập nhật, {skipped} bỏ qua.")
+    frappe.logger().info(summary)
+    print(summary)

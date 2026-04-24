@@ -14,6 +14,12 @@
   "column_break_pm",
   "default_calibration_required",
   "default_calibration_interval_days",
+  "section_finance",
+  "default_depreciation_method",
+  "total_depreciation_months",
+  "depreciation_frequency",
+  "column_break_fin",
+  "default_residual_value_pct",
   "section_reg",
   "has_radiation",
   "is_active"
@@ -66,6 +72,40 @@
    "fieldtype": "Int",
    "label": "Default Calibration Interval (days)",
    "mandatory_depends_on": "eval:doc.default_calibration_required"
+  },
+  {
+   "fieldname": "section_finance",
+   "fieldtype": "Section Break",
+   "label": "Kh\u1ea5u hao / T\u00e0i ch\u00ednh (default)"
+  },
+  {
+   "fieldname": "default_depreciation_method",
+   "fieldtype": "Select",
+   "options": "\nStraight Line\nDouble Declining\nUnits of Production",
+   "label": "Ph\u01b0\u01a1ng ph\u00e1p kh\u1ea5u hao"
+  },
+  {
+   "fieldname": "total_depreciation_months",
+   "fieldtype": "Int",
+   "label": "T\u1ed5ng s\u1ed1 th\u00e1ng kh\u1ea5u hao",
+   "description": "VD: 36 (3 n\u0103m) cho m\u00e1y t\u00ednh, 120 (10 n\u0103m) cho thi\u1ebft b\u1ecb y t\u1ebf"
+  },
+  {
+   "fieldname": "depreciation_frequency",
+   "fieldtype": "Select",
+   "options": "Monthly\nQuarterly\nYearly",
+   "default": "Monthly",
+   "label": "T\u1ea7n su\u1ea5t kh\u1ea5u hao"
+  },
+  {
+   "fieldname": "column_break_fin",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "default_residual_value_pct",
+   "fieldtype": "Percent",
+   "label": "T\u1ec9 l\u1ec7 gi\u00e1 tr\u1ecb thu h\u1ed3i (%)",
+   "description": "Ph\u1ea7n c\u00f2n l\u1ea1i khi h\u1ebft kh\u1ea5u hao, v\u00ed d\u1ee5 5%"
   },
   {
    "fieldname": "section_reg",

@@ -127,11 +127,10 @@ onMounted(fetchTrails)
       <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
         <!-- Asset filter (SmartSelect — click để chọn, không cần gõ mã) -->
         <div>
-          <label for="audit-asset-filter" class="block text-xs font-medium text-slate-600 mb-1">
+          <p class="block text-xs font-medium text-slate-600 mb-1">
             Lọc theo thiết bị
-          </label>
+          </p>
           <SmartSelect
-            id="audit-asset-filter"
             v-model="assetFilter"
             doctype="AC Asset"
             placeholder="Chọn thiết bị (để trống = xem tất cả)"

@@ -26,18 +26,11 @@ from assetcore.utils.response import _ok, _err
 
 # ── Hằng số ────────────────────────────────────────────────────────────────────
 
-_IMM_ROLES: list[str] = [
-    "IMM System Admin",
-    "IMM QA Officer",
-    "IMM Department Head",
-    "IMM Operations Manager",
-    "IMM Workshop Lead",
-    "IMM Technician",
-    "IMM Document Officer",
-    "IMM Storekeeper",
-    "IMM Clinical User",
-]
-_ROLE_ADMIN = "IMM System Admin"
+from assetcore.services.shared.constants import Roles, ROLE_METADATA
+
+# Single source of truth — đồng bộ với fixtures/role.json
+_IMM_ROLES: list[str] = list(Roles.ALL_IMM)
+_ROLE_ADMIN = Roles.SYS_ADMIN
 _MSG_NOT_LOGGED_IN = "Chưa đăng nhập"
 
 # ── Private helpers ─────────────────────────────────────────────────────────────
@@ -288,11 +281,31 @@ def list_users(
             )
         }
 
+    # Batch-load IMM roles cho tất cả user trong trang (tránh N+1)
+    user_names = [u["name"] for u in users]
+    roles_map: dict[str, list[str]] = {n: [] for n in user_names}
+    if user_names:
+        rows = frappe.get_all(
+            "Has Role",
+            filters={"parent": ("in", user_names), "role": ("in", _IMM_ROLES)},
+            fields=["parent", "role"],
+        )
+        for r in rows:
+            roles_map.setdefault(r["parent"], []).append(r["role"])
+
     for u in users:
         u["department_name"] = dept_map.get(u.get("ac_department") or "", "")
         u["is_active"] = u.get("enabled", 1)
         if "imm_approval_status" not in u:
             u["imm_approval_status"] = "Approved"
+        u["imm_roles"] = [
+            {
+                "name": r,
+                "label": ROLE_METADATA.get(r, {}).get("label") or r.replace("IMM ", ""),
+                "group": ROLE_METADATA.get(r, {}).get("group", "Other"),
+            }
+            for r in roles_map.get(u["name"], [])
+        ]
 
     return _ok({
         "items": users,
@@ -536,7 +549,17 @@ def change_my_password(old_password: str, new_password: str) -> dict:
 
 @frappe.whitelist()
 def get_available_imm_roles() -> dict:
-    return _ok([{"name": r, "label": r.replace("IMM ", "")} for r in _IMM_ROLES])
+    """Danh sách role IMM kèm metadata để FE hiển thị nhãn tiếng Việt + mô tả + nhóm."""
+    items = []
+    for r in _IMM_ROLES:
+        meta = ROLE_METADATA.get(r, {})
+        items.append({
+            "name": r,
+            "label": meta.get("label") or r.replace("IMM ", ""),
+            "description": meta.get("description", ""),
+            "group": meta.get("group", "Other"),
+        })
+    return _ok(items)
 
 
 @frappe.whitelist()

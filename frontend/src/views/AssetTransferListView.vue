@@ -296,7 +296,7 @@ onMounted(load)
                 <button
                   :class="['inline-block px-2 py-0.5 rounded-full text-xs font-medium transition-all hover:ring-2 hover:ring-offset-1 hover:ring-current/50', getStatusColor(t.status)]"
                   :title="`Lọc: ${translateStatus(t.status)}`"
-                  @click.stop="quickFilter('status', t.status)"
+                  @click.stop="quickFilter('status', t.status ?? '')"
                 >{{ translateStatus(t.status) }}</button>
               </td>
               <td class="px-4 py-3 text-slate-500 text-xs">{{ t.from_location || '—' }}</td>

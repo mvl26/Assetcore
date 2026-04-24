@@ -1,38 +1,53 @@
 // Copyright (c) 2026, AssetCore Team
-// Role constants — đồng bộ với assetcore/services/shared/constants.py::Roles.
-// Dùng cho router guards, v-permission directive, auth store, component logic.
+// Role constants — đồng bộ với assetcore/services/shared/constants.py::Roles
+// và assetcore/fixtures/role.json. Dùng cho router guards, v-permission, auth.
 
 export const Roles = {
-  SYS_ADMIN: 'IMM System Admin',
-  QA: 'IMM QA Officer',
-  DEPT_HEAD: 'IMM Department Head',
+  SYS_ADMIN:   'IMM System Admin',
   OPS_MANAGER: 'IMM Operations Manager',
-  WORKSHOP: 'IMM Workshop Lead',
-  TECHNICIAN: 'IMM Technician',
+  DEPT_HEAD:   'IMM Department Head',
+  DEPT_DEPUTY: 'IMM Deputy Department Head',
+  WORKSHOP:    'IMM Workshop Lead',
+  QA:          'IMM QA Officer',
+  BIOMED:      'IMM Biomed Technician',
+  TECHNICIAN:  'IMM Technician',
   DOC_OFFICER: 'IMM Document Officer',
   STOREKEEPER: 'IMM Storekeeper',
-  CLINICAL: 'IMM Clinical User',
+  CLINICAL:    'IMM Clinical User',
+  AUDITOR:     'IMM Auditor',
 } as const
 
 export type RoleName = (typeof Roles)[keyof typeof Roles]
 
 export const ALL_IMM_ROLES: readonly RoleName[] = [
-  Roles.SYS_ADMIN, Roles.QA, Roles.DEPT_HEAD, Roles.OPS_MANAGER,
-  Roles.WORKSHOP, Roles.TECHNICIAN, Roles.DOC_OFFICER,
-  Roles.STOREKEEPER, Roles.CLINICAL,
+  Roles.SYS_ADMIN, Roles.OPS_MANAGER, Roles.DEPT_HEAD, Roles.DEPT_DEPUTY,
+  Roles.WORKSHOP, Roles.QA, Roles.BIOMED, Roles.TECHNICIAN,
+  Roles.DOC_OFFICER, Roles.STOREKEEPER, Roles.CLINICAL, Roles.AUDITOR,
 ] as const
 
 // Role-group policies (đồng bộ với BE Roles.CAN_*)
 export const ROLES_CREATE_WO: readonly RoleName[] = [
-  Roles.SYS_ADMIN, Roles.OPS_MANAGER, Roles.WORKSHOP, Roles.TECHNICIAN,
+  Roles.SYS_ADMIN, Roles.OPS_MANAGER, Roles.WORKSHOP, Roles.BIOMED, Roles.TECHNICIAN,
 ] as const
 
 export const ROLES_APPROVE: readonly RoleName[] = [
-  Roles.SYS_ADMIN, Roles.QA, Roles.DEPT_HEAD, Roles.OPS_MANAGER,
+  Roles.SYS_ADMIN, Roles.OPS_MANAGER, Roles.DEPT_HEAD, Roles.QA,
+] as const
+
+export const ROLES_APPROVE_DEP: readonly RoleName[] = [
+  Roles.SYS_ADMIN, Roles.OPS_MANAGER, Roles.DEPT_HEAD, Roles.DEPT_DEPUTY, Roles.QA,
+] as const
+
+export const ROLES_CANCEL: readonly RoleName[] = [
+  Roles.SYS_ADMIN, Roles.OPS_MANAGER, Roles.DEPT_HEAD,
 ] as const
 
 export const ROLES_MANAGE_DOCS: readonly RoleName[] = [
   Roles.SYS_ADMIN, Roles.DOC_OFFICER, Roles.QA,
+] as const
+
+export const ROLES_MANAGE_STOCK: readonly RoleName[] = [
+  Roles.SYS_ADMIN, Roles.STOREKEEPER, Roles.OPS_MANAGER,
 ] as const
 
 export const ROLES_ADMIN_USER: readonly RoleName[] = [
@@ -41,8 +56,26 @@ export const ROLES_ADMIN_USER: readonly RoleName[] = [
 
 export const ROLES_ADMIN_ONLY: readonly RoleName[] = [Roles.SYS_ADMIN] as const
 
-// Legacy aliases để tránh break các view hiện có
+// Legacy alias — giữ để không break các view hiện có
 export const ROLES_CREATE = [
-  Roles.SYS_ADMIN, Roles.QA, Roles.DEPT_HEAD, Roles.OPS_MANAGER,
-  Roles.WORKSHOP, Roles.TECHNICIAN,
+  Roles.SYS_ADMIN, Roles.OPS_MANAGER, Roles.DEPT_HEAD, Roles.DEPT_DEPUTY,
+  Roles.WORKSHOP, Roles.QA, Roles.BIOMED, Roles.TECHNICIAN,
 ] as const
+
+// Role metadata types
+export interface RoleMeta {
+  name: string
+  label: string
+  description: string
+  group: string
+}
+
+export const ROLE_GROUPS = ['Governance', 'Department', 'Engineering', 'Support'] as const
+export type RoleGroup = (typeof ROLE_GROUPS)[number]
+
+export const ROLE_GROUP_LABEL: Record<RoleGroup, string> = {
+  Governance:  'Quản trị & Duyệt',
+  Department:  'Khoa / Phòng',
+  Engineering: 'Kỹ thuật',
+  Support:     'Hỗ trợ / Hậu cần',
+}

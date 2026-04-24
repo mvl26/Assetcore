@@ -51,7 +51,7 @@ function resetFilters() {
   load(1)
 }
 
-function quickFilter(key: 'status', value: string) {
+function quickFilter(_key: 'status', value: string) {
   if (!value) return
   filterStatus.value = value
   showFilters.value = false

@@ -5,6 +5,7 @@ import { useRouter } from 'vue-router'
 import { useDebounceFn } from '@vueuse/core'
 import { listSpareParts, createSparePart } from '@/api/inventory'
 import type { SparePart } from '@/types/inventory'
+import SmartSelect from '@/components/common/SmartSelect.vue'
 
 const router = useRouter()
 const rows = ref<SparePart[]>([])
@@ -22,7 +23,7 @@ const toast = ref('')
 
 const form = ref<Partial<SparePart>>({
   part_name: '', part_category: 'Other', manufacturer: '', manufacturer_part_no: '',
-  unit_cost: 0, uom: 'Nos', min_stock_level: 0, max_stock_level: 0, is_critical: 0, is_active: 1,
+  unit_cost: 0, stock_uom: 'Nos', min_stock_level: 0, max_stock_level: 0, is_critical: 0, is_active: 1,
 })
 
 const CATEGORIES = [
@@ -35,8 +36,6 @@ const CATEGORIES = [
   { v: 'Sensor', l: 'Cảm biến' },
   { v: 'Other', l: 'Khác' },
 ]
-const UOMS = ['Nos', 'Pcs', 'Set', 'Box', 'Meter', 'Liter', 'Kg']
-
 interface Chip { key: 'q' | 'category'; label: string }
 const activeChips = computed<Chip[]>(() => {
   const chips: Chip[] = []
@@ -61,7 +60,7 @@ function resetFilters() {
   page.value = 1; load()
 }
 
-function quickFilter(key: 'category', value: string) {
+function quickFilter(_key: 'category', value: string) {
   if (!value) return
   categoryFilter.value = value
   showFilters.value = false
@@ -84,7 +83,7 @@ watch(categoryFilter, () => { page.value = 1; load() })
 function openCreate() {
   form.value = {
     part_name: '', part_category: 'Other', manufacturer: '', manufacturer_part_no: '',
-    unit_cost: 0, uom: 'Nos', min_stock_level: 0, max_stock_level: 0, is_critical: 0, is_active: 1,
+    unit_cost: 0, stock_uom: 'Nos', min_stock_level: 0, max_stock_level: 0, is_critical: 0, is_active: 1,
   }
   showForm.value = true
 }
@@ -269,7 +268,7 @@ onMounted(load)
               <td class="px-4 py-3 text-right text-sm">{{ vnd(p.unit_cost) }}</td>
               <td class="px-4 py-3 text-right font-medium"
                   :class="p.is_low_stock ? 'text-red-600' : 'text-slate-700'">
-                {{ p.total_stock || 0 }} <span class="text-xs text-slate-400">{{ p.uom }}</span>
+                {{ p.total_stock || 0 }} <span class="text-xs text-slate-400">{{ p.stock_uom }}</span>
               </td>
               <td class="px-4 py-3 text-right text-xs text-slate-400 hidden lg:table-cell">
                 {{ p.min_stock_level || '—' }}
@@ -332,10 +331,12 @@ onMounted(load)
                 <input id="sp-cost" v-model.number="form.unit_cost" type="number" min="0" class="form-input w-full" />
               </div>
               <div>
-                <label for="sp-uom" class="form-label">ĐVT</label>
-                <select id="sp-uom" v-model="form.uom" class="form-select w-full">
-                  <option v-for="u in UOMS" :key="u" :value="u">{{ u }}</option>
-                </select>
+                <p class="form-label">ĐVT cơ bản (Stock UOM)</p>
+                <SmartSelect v-model="form.stock_uom" doctype="AC UOM" placeholder="Nos, Cái, Hộp..." />
+              </div>
+              <div>
+                <p class="form-label">ĐVT mua hàng (Purchase UOM)</p>
+                <SmartSelect v-model="form.purchase_uom" doctype="AC UOM" placeholder="Để trống = dùng Stock UOM..." />
               </div>
               <div>
                 <label for="sp-min" class="form-label">Tồn min</label>

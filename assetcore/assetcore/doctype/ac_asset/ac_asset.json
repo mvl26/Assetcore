@@ -9,6 +9,7 @@
   "section_basic",
   "naming_series",
   "asset_name",
+  "uom",
   "asset_code",
   "asset_category",
   "item_code",
@@ -30,6 +31,9 @@
   "section_depreciation",
   "depreciation_method",
   "useful_life_years",
+  "total_depreciation_months",
+  "depreciation_frequency",
+  "depreciation_start_date",
   "in_service_date",
   "column_break_depreciation",
   "residual_value",
@@ -75,13 +79,15 @@
   "insurance_end_date",
   "section_notes",
   "notes",
-  "amended_from"
+  "amended_from",
+  "section_depreciation_schedule",
+  "depreciation_schedule"
  ],
  "fields": [
   {
    "fieldname": "section_basic",
    "fieldtype": "Section Break",
-   "label": "Thông tin cơ bản"
+   "label": "Th\u00f4ng tin c\u01a1 b\u1ea3n"
   },
   {
    "fieldname": "naming_series",
@@ -96,6 +102,14 @@
    "in_list_view": 1,
    "label": "Asset Name",
    "reqd": 1
+  },
+  {
+   "fieldname": "uom",
+   "fieldtype": "Link",
+   "label": "\u0110\u01a1n v\u1ecb t\u00ednh",
+   "options": "AC UOM",
+   "default": "Nos",
+   "description": "\u0110\u01a1n v\u1ecb \u0111o l\u01b0\u1eddng c\u1ee7a thi\u1ebft b\u1ecb (th\u01b0\u1eddng l\u00e0 C\u00e1i/M\u00e1y)"
   },
   {
    "fieldname": "asset_code",
@@ -138,7 +152,7 @@
   {
    "fieldname": "section_location",
    "fieldtype": "Section Break",
-   "label": "Vị trí và phụ trách"
+   "label": "V\u1ecb tr\u00ed v\u00e0 ph\u1ee5 tr\u00e1ch"
   },
   {
    "fieldname": "location",
@@ -174,7 +188,7 @@
   {
    "fieldname": "section_purchase",
    "fieldtype": "Section Break",
-   "label": "Thông tin mua sắm"
+   "label": "Th\u00f4ng tin mua s\u1eafm"
   },
   {
    "fieldname": "supplier",
@@ -204,23 +218,23 @@
   {
    "fieldname": "section_depreciation",
    "fieldtype": "Section Break",
-   "label": "Khấu hao"
+   "label": "Kh\u1ea5u hao"
   },
   {
    "fieldname": "depreciation_method",
    "fieldtype": "Select",
-   "label": "Phương pháp khấu hao",
+   "label": "Ph\u01b0\u01a1ng ph\u00e1p kh\u1ea5u hao",
    "options": "\nStraight Line\nDouble Declining\nUnits of Production\nNone"
   },
   {
    "fieldname": "useful_life_years",
    "fieldtype": "Int",
-   "label": "Thời gian sử dụng (năm)"
+   "label": "Th\u1eddi gian s\u1eed d\u1ee5ng (n\u0103m)"
   },
   {
    "fieldname": "in_service_date",
    "fieldtype": "Date",
-   "label": "Ngày đưa vào sử dụng"
+   "label": "Ng\u00e0y \u0111\u01b0a v\u00e0o s\u1eed d\u1ee5ng"
   },
   {
    "fieldname": "column_break_depreciation",
@@ -229,24 +243,24 @@
   {
    "fieldname": "residual_value",
    "fieldtype": "Currency",
-   "label": "Giá trị thu hồi"
+   "label": "Gi\u00e1 tr\u1ecb thu h\u1ed3i"
   },
   {
    "fieldname": "accumulated_depreciation",
    "fieldtype": "Currency",
-   "label": "Khấu hao lũy kế",
+   "label": "Kh\u1ea5u hao l\u0169y k\u1ebf",
    "read_only": 1
   },
   {
    "fieldname": "current_book_value",
    "fieldtype": "Currency",
-   "label": "Giá trị còn lại",
+   "label": "Gi\u00e1 tr\u1ecb c\u00f2n l\u1ea1i",
    "read_only": 1
   },
   {
    "fieldname": "section_htm",
    "fieldtype": "Section Break",
-   "label": "HTM - Thông tin kỹ thuật y tế"
+   "label": "HTM - Th\u00f4ng tin k\u1ef9 thu\u1eadt y t\u1ebf"
   },
   {
    "fieldname": "device_model",
@@ -303,7 +317,7 @@
   {
    "fieldname": "section_byt",
    "fieldtype": "Section Break",
-   "label": "HTM - Đăng ký BYT"
+   "label": "HTM - \u0110\u0103ng k\u00fd BYT"
   },
   {
    "fieldname": "byt_reg_no",
@@ -324,7 +338,7 @@
   {
    "fieldname": "section_lifecycle",
    "fieldtype": "Section Break",
-   "label": "HTM - Vòng đời"
+   "label": "HTM - V\u00f2ng \u0111\u1eddi"
   },
   {
    "default": "Commissioned",
@@ -359,7 +373,7 @@
   {
    "fieldname": "section_pm",
    "fieldtype": "Section Break",
-   "label": "HTM - Bảo trì định kỳ (PM)"
+   "label": "HTM - B\u1ea3o tr\u00ec \u0111\u1ecbnh k\u1ef3 (PM)"
   },
   {
    "default": "0",
@@ -393,7 +407,7 @@
   {
    "fieldname": "section_calibration",
    "fieldtype": "Section Break",
-   "label": "HTM - Hiệu chuẩn"
+   "label": "HTM - Hi\u1ec7u chu\u1ea9n"
   },
   {
    "default": "0",
@@ -427,18 +441,18 @@
   {
    "fieldname": "section_insurance",
    "fieldtype": "Section Break",
-   "label": "Bảo hiểm"
+   "label": "B\u1ea3o hi\u1ec3m"
   },
   {
    "fieldname": "insurance_policy_no",
    "fieldtype": "Data",
-   "label": "Số hợp đồng bảo hiểm",
+   "label": "S\u1ed1 h\u1ee3p \u0111\u1ed3ng b\u1ea3o hi\u1ec3m",
    "search_index": 1
   },
   {
    "fieldname": "insurer_name",
    "fieldtype": "Data",
-   "label": "Tên công ty bảo hiểm"
+   "label": "T\u00ean c\u00f4ng ty b\u1ea3o hi\u1ec3m"
   },
   {
    "fieldname": "column_break_insurance",
@@ -447,23 +461,23 @@
   {
    "fieldname": "insured_value",
    "fieldtype": "Currency",
-   "label": "Giá trị bảo hiểm"
+   "label": "Gi\u00e1 tr\u1ecb b\u1ea3o hi\u1ec3m"
   },
   {
    "fieldname": "insurance_start_date",
    "fieldtype": "Date",
-   "label": "Ngày bắt đầu bảo hiểm"
+   "label": "Ng\u00e0y b\u1eaft \u0111\u1ea7u b\u1ea3o hi\u1ec3m"
   },
   {
    "fieldname": "insurance_end_date",
    "fieldtype": "Date",
-   "label": "Ngày hết hạn bảo hiểm",
+   "label": "Ng\u00e0y h\u1ebft h\u1ea1n b\u1ea3o hi\u1ec3m",
    "search_index": 1
   },
   {
    "fieldname": "section_notes",
    "fieldtype": "Section Break",
-   "label": "Ghi chú"
+   "label": "Ghi ch\u00fa"
   },
   {
    "fieldname": "notes",
@@ -478,11 +492,42 @@
    "options": "AC Asset",
    "print_hide": 1,
    "read_only": 1
+  },
+  {
+   "fieldname": "total_depreciation_months",
+   "fieldtype": "Int",
+   "label": "T\u1ed5ng s\u1ed1 th\u00e1ng KH",
+   "description": "K\u1ebf th\u1eeba t\u1eeb danh m\u1ee5c t\u00e0i s\u1ea3n"
+  },
+  {
+   "fieldname": "depreciation_frequency",
+   "fieldtype": "Select",
+   "options": "\nMonthly\nQuarterly\nYearly",
+   "default": "Monthly",
+   "label": "T\u1ea7n su\u1ea5t KH"
+  },
+  {
+   "fieldname": "depreciation_start_date",
+   "fieldtype": "Date",
+   "label": "Ng\u00e0y b\u1eaft \u0111\u1ea7u kh\u1ea5u hao",
+   "description": "Th\u01b0\u1eddng l\u00e0 ng\u00e0y \u0111\u01b0a v\u00e0o s\u1eed d\u1ee5ng (in_service_date)"
+  },
+  {
+   "fieldname": "section_depreciation_schedule",
+   "fieldtype": "Section Break",
+   "label": "L\u1ecbch kh\u1ea5u hao (Depreciation Schedule)"
+  },
+  {
+   "fieldname": "depreciation_schedule",
+   "fieldtype": "Table",
+   "options": "AC Asset Depreciation Schedule",
+   "label": "L\u1ecbch kh\u1ea5u hao theo k\u1ef3",
+   "read_only": 1
   }
  ],
  "is_submittable": 1,
  "links": [],
- "modified": "2026-04-22 14:33:07.294795",
+ "modified": "2026-04-24 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "AssetCore",
  "name": "AC Asset",

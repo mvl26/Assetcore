@@ -115,6 +115,12 @@ export interface CommissioningDoc {
   qa_officer: string
   board_approver: string
 
+  // Approval flow
+  pending_approver: string
+  approval_stage: '' | 'Doc Verify' | 'Facility Check' | 'Baseline Review' | 'Clinical Release'
+  approval_submitted_at: string
+  approval_remarks: string
+
   // Identification
   vendor_serial_no: string
   internal_tag_qr: string

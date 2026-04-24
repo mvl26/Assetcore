@@ -1,372 +1,455 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+// Copyright (c) 2026, AssetCore Team
+import { ref, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useSidebar } from '@/composables/useSidebar'
 
 const router = useRouter()
-const route = useRoute()
-const { collapsed, toggle, sidebarClass, closeMobile } = useSidebar()
+const route  = useRoute()
+const { collapsed, toggle, sidebarClass } = useSidebar()
 
-interface NavItem {
-  label: string
-  path: string
-  icon: string
-  badge?: string          // Mã module (IMM-xx)
-  children?: NavItem[]    // Sub-items (hiển thị khi expand)
+// ─── Icons map (single source, no duplication) ────────────────────────────────
+const SZ = 'fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24" class="w-[18px] h-[18px]"'
+const ICONS: Record<string, string> = {
+  grid:      `<svg ${SZ}><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>`,
+  device:    `<svg ${SZ}><rect x="2" y="4" width="20" height="14" rx="2"/><path stroke-linecap="round" d="M8 20h8M12 18v2"/></svg>`,
+  template:  `<svg ${SZ}><rect x="3" y="3" width="18" height="18" rx="2"/><path stroke-linecap="round" d="M3 9h18M9 21V9"/></svg>`,
+  transfer:  `<svg ${SZ}><path stroke-linecap="round" stroke-linejoin="round" d="M7 16V4m0 0L3 8m4-4l4 4M17 8v12m0 0l4-4m-4 4l-4-4"/></svg>`,
+  trending:  `<svg ${SZ}><path stroke-linecap="round" stroke-linejoin="round" d="M22 17l-8.5-8.5-5 5L2 7"/><path stroke-linecap="round" stroke-linejoin="round" d="M16 17h6v-6"/></svg>`,
+  cart:      `<svg ${SZ}><path stroke-linecap="round" stroke-linejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2 9m12-9l2 9m-9-4h4"/></svg>`,
+  clipboard: `<svg ${SZ}><path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg>`,
+  chart:     `<svg ${SZ}><path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>`,
+  wrench:    `<svg ${SZ}><path stroke-linecap="round" stroke-linejoin="round" d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>`,
+  calendar:  `<svg ${SZ}><rect x="3" y="4" width="18" height="18" rx="2"/><path stroke-linecap="round" d="M16 2v4M8 2v4M3 10h18M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/></svg>`,
+  list:      `<svg ${SZ}><path stroke-linecap="round" d="M9 5h11M9 12h11M9 19h11"/><circle cx="4" cy="5" r="1.2" fill="currentColor"/><circle cx="4" cy="12" r="1.2" fill="currentColor"/><circle cx="4" cy="19" r="1.2" fill="currentColor"/></svg>`,
+  tool:      `<svg ${SZ}><path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><circle cx="12" cy="12" r="3"/></svg>`,
+  code:      `<svg ${SZ}><path stroke-linecap="round" stroke-linejoin="round" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/></svg>`,
+  gauge:     `<svg ${SZ}><path stroke-linecap="round" stroke-linejoin="round" d="M12 2a10 10 0 100 20 10 10 0 000-20zm0 0v4M4.22 4.22l2.83 2.83M2 12h4m13.78-7.78l-2.83 2.83M22 12h-4"/><path stroke-linecap="round" d="M12 12l3-4"/></svg>`,
+  alert:     `<svg ${SZ}><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>`,
+  shield:    `<svg ${SZ}><path stroke-linecap="round" stroke-linejoin="round" d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>`,
+  log:       `<svg ${SZ}><path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2M9 12h.01M9 16h.01M13 12h3M13 16h3"/></svg>`,
+  folder:    `<svg ${SZ}><path stroke-linecap="round" stroke-linejoin="round" d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg>`,
+  inbox:     `<svg ${SZ}><path stroke-linecap="round" stroke-linejoin="round" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0H4m8-5l-3 3m0 0l3 3m-3-3h6"/></svg>`,
+  box:       `<svg ${SZ}><path stroke-linecap="round" stroke-linejoin="round" d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><path stroke-linecap="round" stroke-linejoin="round" d="M3.27 6.96L12 12.01l8.73-5.05M12 22.08V12"/></svg>`,
+  cog:       `<svg ${SZ}><circle cx="12" cy="12" r="3"/><path stroke-linecap="round" stroke-linejoin="round" d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>`,
+  arrows:    `<svg ${SZ}><path stroke-linecap="round" stroke-linejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4M4 17h12M4 17l4-4M4 17l4 4"/></svg>`,
+  warehouse: `<svg ${SZ}><path stroke-linecap="round" stroke-linejoin="round" d="M3 21h18M3 10h18M5 6l7-3 7 3M4 10v11M20 10v11"/><rect x="9" y="14" width="6" height="7" rx="0.5"/></svg>`,
+  uom:       `<svg ${SZ}><path stroke-linecap="round" stroke-linejoin="round" d="M3 7h18M3 12h18M3 17h18"/><path stroke-linecap="round" d="M7 5v4M11 5v4M15 5v4M19 5v4M7 15v4M11 15v4M15 15v4M19 15v4"/></svg>`,
+  building:  `<svg ${SZ}><path stroke-linecap="round" stroke-linejoin="round" d="M3 21h18M3 10h18M5 6l7-3 7 3M4 10v11M20 10v11M8 14v3M12 14v3M16 14v3"/></svg>`,
+  contract:  `<svg ${SZ}><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6M9 16h4M5 4h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2z"/></svg>`,
+  clock:     `<svg ${SZ}><circle cx="12" cy="12" r="10"/><path stroke-linecap="round" d="M12 6v6l4 2"/></svg>`,
+  database:  `<svg ${SZ}><ellipse cx="12" cy="5" rx="9" ry="3"/><path stroke-linecap="round" d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path stroke-linecap="round" d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>`,
+  users:     `<svg ${SZ}><path stroke-linecap="round" stroke-linejoin="round" d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path stroke-linecap="round" stroke-linejoin="round" d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>`,
+  qr:        `<svg ${SZ}><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path stroke-linecap="round" d="M14 14h2m3 0h1M14 17h1M17 17h1M20 17v1M14 20h3M18 20h2"/><rect x="5" y="5" width="3" height="3" fill="currentColor"/><rect x="16" y="5" width="3" height="3" fill="currentColor"/><rect x="5" y="16" width="3" height="3" fill="currentColor"/></svg>`,
 }
-interface NavGroup { title: string; items: NavItem[] }
 
-// Sidebar theo WHO HTM lifecycle — giảm clutter, gộp theo nghiệp vụ
+// ─── Nav groups (WHO HTM lifecycle order) ─────────────────────────────────────
+
+interface NavItem  { label: string; path: string; icon: string }
+interface NavGroup { key: string; title: string; icon: string; items: NavItem[] }
+
 const navGroups: NavGroup[] = [
-  {
-    title: '',
-    items: [{ label: 'Trang chủ', path: '/dashboard', icon: 'dashboard' }],
-  },
-  {
-    title: 'Vòng đời thiết bị',
-    items: [
-      {
-        label: 'Thiết bị', path: '/assets', icon: 'cube',
-        children: [
-          { label: 'Danh sách', path: '/assets', icon: 'list' },
-          { label: 'Quét QR / GMDN', path: '/qr-scan', icon: 'scan' },
-          { label: 'Luân chuyển', path: '/asset-transfers', icon: 'arrow' },
-          { label: 'Hợp đồng DV', path: '/service-contracts', icon: 'document' },
-          { label: 'Khấu hao', path: '/depreciation', icon: 'chart' },
-        ],
-      },
-      { label: 'Tiếp nhận & Lắp đặt', path: '/commissioning', icon: 'truck', badge: '04' },
-      { label: 'Hồ sơ thiết bị', path: '/documents', icon: 'folder', badge: '05' },
-    ],
-  },
-  {
-    title: 'Kho vật tư',
-    items: [
-      {
-        label: 'Kho vật tư', path: '/inventory', icon: 'cube',
-        children: [
-          { label: 'Tổng quan', path: '/inventory', icon: 'chart' },
-          { label: 'Danh sách kho', path: '/warehouses', icon: 'building' },
-          { label: 'Danh mục phụ tùng', path: '/spare-parts', icon: 'template' },
-          { label: 'Tồn kho', path: '/stock', icon: 'list' },
-          { label: 'Phiếu xuất/nhập', path: '/stock-movements', icon: 'arrow' },
-        ],
-      },
-    ],
-  },
-  {
-    title: 'Bảo trì & Vận hành',
-    items: [
-      {
-        label: 'Bảo trì định kỳ', path: '/pm/dashboard', icon: 'wrench', badge: '08',
-        children: [
-          { label: 'Tổng quan', path: '/pm/dashboard', icon: 'chart' },
-          { label: 'Lịch bảo trì', path: '/pm/calendar', icon: 'calendar' },
-          { label: 'Danh sách phiếu', path: '/pm/work-orders', icon: 'list' },
-          { label: 'Kế hoạch bảo trì', path: '/pm/schedules', icon: 'repeat' },
-          { label: 'Mẫu bảng kiểm', path: '/pm/templates', icon: 'template' },
-        ],
-      },
-      {
-        label: 'Sửa chữa', path: '/cm/dashboard', icon: 'repair', badge: '09',
-        children: [
-          { label: 'Tổng quan', path: '/cm/dashboard', icon: 'chart' },
-          { label: 'Danh sách phiếu', path: '/cm/work-orders', icon: 'list' },
-          { label: 'Cập nhật Firmware', path: '/cm/firmware', icon: 'chip' },
-          { label: 'Thời gian sửa TB', path: '/cm/mttr', icon: 'chart' },
-        ],
-      },
-      {
-        label: 'Hiệu chuẩn', path: '/calibration/dashboard', icon: 'calibration', badge: '11',
-        children: [
-          { label: 'Tổng quan', path: '/calibration/dashboard', icon: 'chart' },
-          { label: 'Danh sách phiếu', path: '/calibration', icon: 'list' },
-          { label: 'Lịch hiệu chuẩn', path: '/calibration/schedules', icon: 'calendar' },
-        ],
-      },
-    ],
-  },
-  {
-    title: 'Chất lượng & Tuân thủ',
-    items: [
-      {
-        label: 'Sự cố & RCA', path: '/incidents/dashboard', icon: 'alert', badge: '12',
-        children: [
-          { label: 'Tổng quan', path: '/incidents/dashboard', icon: 'chart' },
-          { label: 'Danh sách sự cố', path: '/incidents/list', icon: 'list' },
-          { label: 'Báo cáo sự cố', path: '/incidents/new', icon: 'plus' },
-        ],
-      },
-      { label: 'Khắc phục & Phòng ngừa', path: '/capas', icon: 'shield' },
-      { label: 'Nhật ký kiểm toán', path: '/audit-trail', icon: 'lock' },
-    ],
-  },
-  {
-    title: 'Hệ thống',
-    items: [
-      {
-        label: 'Dữ liệu gốc', path: '/reference-data', icon: 'settings',
-        children: [
-          { label: 'Nhà cung cấp', path: '/suppliers', icon: 'building' },
-          { label: 'Mẫu thiết bị', path: '/device-models', icon: 'template' },
-          { label: 'Chính sách SLA', path: '/sla-policies', icon: 'document' },
-          { label: 'Dữ liệu tham chiếu', path: '/reference-data', icon: 'folder' },
-        ],
-      },
-      { label: 'Người dùng', path: '/user-profiles', icon: 'users' },
-    ],
-  },
+  { key: 'overview', title: 'Tổng quan', icon: 'grid', items: [
+    { label: 'Trang chính',  path: '/dashboard', icon: 'grid' },
+    { label: 'Quét mã QR',   path: '/qr-scan',   icon: 'qr'   },
+  ]},
+  { key: 'assets', title: 'Tài sản (IMM-00)', icon: 'device', items: [
+    { label: 'Danh sách thiết bị', path: '/assets',          icon: 'device'   },
+    { label: 'Model thiết bị',     path: '/device-models',   icon: 'template' },
+    { label: 'Chuyển giao',        path: '/asset-transfers', icon: 'transfer' },
+    { label: 'Khấu hao',           path: '/depreciation',    icon: 'trending' },
+  ]},
+  { key: 'procurement', title: 'Mua sắm & Tiếp nhận', icon: 'cart', items: [
+    { label: 'Đơn hàng mua',       path: '/purchases',     icon: 'cart'      },
+    { label: 'Tiếp nhận (IMM-04)', path: '/commissioning', icon: 'clipboard' },
+  ]},
+  { key: 'pm', title: 'Bảo trì định kỳ (IMM-08)', icon: 'wrench', items: [
+    { label: 'Tổng quan bảo trì',  path: '/pm/dashboard',   icon: 'chart'    },
+    { label: 'Lệnh bảo trì',       path: '/pm/work-orders', icon: 'wrench'   },
+    { label: 'Lịch bảo trì',       path: '/pm/calendar',    icon: 'calendar' },
+    { label: 'Kế hoạch bảo trì',   path: '/pm/schedules',   icon: 'list'     },
+    { label: 'Mẫu bảng kiểm',      path: '/pm/templates',   icon: 'template' },
+  ]},
+  { key: 'cm', title: 'Sửa chữa (IMM-09)', icon: 'tool', items: [
+    { label: 'Tổng quan sửa chữa',       path: '/cm/dashboard',   icon: 'chart'   },
+    { label: 'Lệnh sửa chữa',            path: '/cm/work-orders', icon: 'tool'    },
+    { label: 'Yêu cầu cập nhật firmware',path: '/cm/firmware',    icon: 'code'    },
+    { label: 'Thời gian sửa chữa TB',    path: '/cm/mttr',        icon: 'trending'},
+  ]},
+  { key: 'calibration', title: 'Hiệu chuẩn (IMM-11)', icon: 'gauge', items: [
+    { label: 'Phiếu hiệu chuẩn', path: '/calibration',           icon: 'gauge'    },
+    { label: 'Lịch hiệu chuẩn',  path: '/calibration/schedules', icon: 'calendar' },
+  ]},
+  { key: 'qms', title: 'Sự cố & QMS (IMM-12)', icon: 'alert', items: [
+    { label: 'Dashboard sự cố',    path: '/incidents/dashboard', icon: 'chart'  },
+    { label: 'Danh sách sự cố',    path: '/incidents/list',      icon: 'alert'  },
+    { label: 'CAPA',               path: '/capas',               icon: 'shield' },
+    { label: 'Nhật ký kiểm toán',  path: '/audit-trail',         icon: 'log'    },
+  ]},
+  { key: 'documents', title: 'Hồ sơ (IMM-05)', icon: 'folder', items: [
+    { label: 'Kho tài liệu',   path: '/documents',          icon: 'folder' },
+    { label: 'Yêu cầu hồ sơ',  path: '/documents/requests', icon: 'inbox'  },
+  ]},
+  { key: 'inventory', title: 'Kho & Phụ tùng', icon: 'box', items: [
+    { label: 'Tổng quan kho', path: '/inventory',       icon: 'chart'     },
+    { label: 'Tồn kho',       path: '/stock',           icon: 'box'       },
+    { label: 'Phụ tùng',      path: '/spare-parts',     icon: 'cog'       },
+    { label: 'Phiếu kho',     path: '/stock-movements', icon: 'arrows'    },
+    { label: 'Kho hàng',      path: '/warehouses',      icon: 'warehouse' },
+    { label: 'Đơn vị tính',   path: '/inventory/uom',   icon: 'uom'       },
+  ]},
+  { key: 'vendors', title: 'Đối tác & Hợp đồng', icon: 'building', items: [
+    { label: 'Nhà cung cấp',     path: '/suppliers',         icon: 'building' },
+    { label: 'Hợp đồng dịch vụ', path: '/service-contracts', icon: 'contract' },
+    { label: 'Chính sách SLA',   path: '/sla-policies',      icon: 'clock'    },
+  ]},
+  { key: 'settings', title: 'Hệ thống', icon: 'database', items: [
+    { label: 'Dữ liệu tham chiếu', path: '/reference-data', icon: 'database' },
+    { label: 'Người dùng',         path: '/user-profiles',  icon: 'users'    },
+  ]},
 ]
 
-const EXACT_MATCH_PATHS = new Set([
-  '/commissioning', '/documents', '/assets', '/suppliers', '/device-models',
-  '/incidents/dashboard', '/incidents/list', '/capas', '/asset-transfers', '/service-contracts',
-  '/pm/work-orders', '/cm/work-orders', '/calibration',
-])
+// ─── Collapsible groups with localStorage ─────────────────────────────────────
+
+const STORAGE_KEY = 'ac-sidebar-groups-v2'
+
+function loadGroupState(): Record<string, boolean> {
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') }
+  catch { return {} }
+}
+
+const groupOpen = ref<Record<string, boolean>>((() => {
+  const saved = loadGroupState()
+  const state: Record<string, boolean> = {}
+  for (const g of navGroups) state[g.key] = saved[g.key] !== false
+  return state
+})())
+
+function toggleGroup(key: string) {
+  groupOpen.value[key] = !groupOpen.value[key]
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(groupOpen.value)) } catch { /**/ }
+}
+
+// ─── Smooth accordion animation ───────────────────────────────────────────────
+
+function onBeforeEnter(el: Element) {
+  const e = el as HTMLElement
+  e.style.height = '0px'
+  e.style.opacity = '0'
+  e.style.overflow = 'hidden'
+}
+function onEnter(el: Element, done: () => void) {
+  const e = el as HTMLElement
+  const h = e.scrollHeight
+  requestAnimationFrame(() => {
+    e.style.transition = 'height 0.26s cubic-bezier(0.4,0,0.2,1), opacity 0.22s ease'
+    e.style.height = h + 'px'
+    e.style.opacity = '1'
+    const finish = () => { e.style.height = 'auto'; e.style.overflow = ''; done() }
+    e.addEventListener('transitionend', finish, { once: true })
+  })
+}
+function onBeforeLeave(el: Element) {
+  const e = el as HTMLElement
+  e.style.height = e.scrollHeight + 'px'
+  e.style.overflow = 'hidden'
+}
+function onLeave(el: Element, done: () => void) {
+  const e = el as HTMLElement
+  requestAnimationFrame(() => {
+    e.style.transition = 'height 0.22s cubic-bezier(0.4,0,0.2,1), opacity 0.16s ease'
+    e.style.height = '0px'
+    e.style.opacity = '0'
+    e.addEventListener('transitionend', done, { once: true })
+  })
+}
+
+// ─── Active state (longest-match wins — chỉ MỘT item active mỗi lần) ─────────
+
+// Route-name → nav-item-path cho các route không prefix-match được owner của nó.
+// Ví dụ: /incidents/:id, /rca/:id → map về "Danh sách sự cố" (/incidents/list).
+const NAME_TO_ITEM: Record<string, string> = {
+  IncidentDetail: '/incidents/list',
+  IncidentCreate: '/incidents/list',
+  RCADetail:      '/incidents/list',
+  CMCreate:       '/cm/work-orders',
+  CMDiagnose:     '/cm/work-orders',
+  CMParts:        '/cm/work-orders',
+  CMChecklist:    '/cm/work-orders',
+}
+
+const activeItemPath = computed<string>(() => {
+  const name = route.name as string | undefined
+  if (name && NAME_TO_ITEM[name]) return NAME_TO_ITEM[name]
+
+  const p = route.path
+  let best = ''
+  for (const g of navGroups) {
+    for (const it of g.items) {
+      const matches = p === it.path || p.startsWith(it.path + '/')
+      if (matches && it.path.length > best.length) best = it.path
+    }
+  }
+  return best
+})
 
 function isActive(path: string): boolean {
-  if (EXACT_MATCH_PATHS.has(path)) return route.path === path
-  return route.path === path || route.path.startsWith(path + '/')
+  return activeItemPath.value === path
 }
 
-// Group nào được expand (lưu trong localStorage)
-const EXPAND_STORAGE_KEY = 'ac-sidebar-expanded'
-const initialExpanded: Record<string, boolean> = (() => {
-  try {
-    return JSON.parse(localStorage.getItem(EXPAND_STORAGE_KEY) || '{}')
-  } catch { return {} }
-})()
-const expanded = ref<Record<string, boolean>>(initialExpanded)
-
-// Auto-expand nhóm chứa active route
-function hasActiveChild(item: NavItem): boolean {
-  if (!item.children) return false
-  return item.children.some(c => isActive(c.path))
-}
-
-function isExpanded(item: NavItem): boolean {
-  return expanded.value[item.path] === true || hasActiveChild(item)
-}
-
-function toggleExpand(item: NavItem, event: MouseEvent): void {
-  event.stopPropagation()
-  expanded.value = { ...expanded.value, [item.path]: !isExpanded(item) }
-  localStorage.setItem(EXPAND_STORAGE_KEY, JSON.stringify(expanded.value))
-}
-
-function navigate(path: string): void {
-  closeMobile()
-  router.push(path)
-}
-
-function handleItemClick(item: NavItem): void {
-  // Nếu có children và sidebar không collapsed, click vào item vừa mở vừa navigate
-  navigate(item.path)
-}
-
+const activeGroups = computed(() => {
+  const active = activeItemPath.value
+  if (!active) return new Set<string>()
+  const set = new Set<string>()
+  for (const g of navGroups) {
+    if (g.items.some(it => it.path === active)) set.add(g.key)
+  }
+  return set
+})
 </script>
 
 <template>
   <aside
-    :class="['fixed left-0 top-0 h-full z-40 flex flex-col transition-all duration-200 overflow-hidden', sidebarClass]"
-    style="background: #0d1117; box-shadow: 1px 0 0 rgba(255,255,255,0.05)"
+    :class="['fixed left-0 top-0 h-full z-40 flex flex-col transition-all duration-250 overflow-hidden', sidebarClass]"
+    class="sidebar-root"
   >
-    <!-- Logo -->
-    <div class="flex items-center h-14 px-3 shrink-0" style="border-bottom: 1px solid rgba(255,255,255,0.07)">
-      <div class="flex items-center gap-2.5 flex-1 min-w-0">
-        <div
-          class="shrink-0 w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs text-white"
-          style="background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)"
-        >
+    <!-- Logo / header -->
+    <div class="sidebar-header flex items-center h-16 px-3 shrink-0">
+      <div class="flex items-center gap-3 flex-1 min-w-0">
+        <div class="logo-badge shrink-0 w-9 h-9 rounded-xl flex items-center justify-center font-bold text-sm text-white">
           AC
         </div>
-        <div v-if="!collapsed" class="min-w-0">
-          <p class="font-display font-bold text-lg text-white truncate leading-tight">AssetCore</p>
-          <p class="text-[12px] mt-0.5 truncate" style="color: rgba(255,255,255,0.42)">Quản lý Thiết bị Y tế</p>
-        </div>
+        <Transition name="fade-x">
+          <div v-if="!collapsed" class="min-w-0">
+            <p class="font-bold text-[15px] text-white tracking-tight leading-none">AssetCore</p>
+            <p class="text-[11px] mt-1 text-slate-400 font-medium">Quản lý Thiết bị Y tế</p>
+          </div>
+        </Transition>
       </div>
-      <button
-        class="shrink-0 p-1.5 rounded-md transition-all duration-150"
-        style="color: rgba(255,255,255,0.3)"
-        :title="collapsed ? 'Mở rộng' : 'Thu gọn'"
-        @click="toggle"
-      >
-        <svg
-          class="w-3.5 h-3.5 transition-transform duration-200"
-          :class="collapsed ? 'rotate-180' : ''"
-          fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"
-        >
+      <button class="toggle-btn shrink-0 w-7 h-7 rounded-lg flex items-center justify-center"
+              :title="collapsed ? 'Mở rộng' : 'Thu gọn'"
+              @click="toggle">
+        <svg class="w-4 h-4 transition-transform duration-250"
+             :class="collapsed ? 'rotate-180' : ''"
+             fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" />
         </svg>
       </button>
     </div>
 
     <!-- Navigation -->
-    <nav class="flex-1 overflow-y-auto py-3 px-2">
-      <div v-for="(group, gi) in navGroups" :key="group.title || `g-${gi}`" class="mb-4">
-        <div
-          v-if="!collapsed && group.title"
-          class="font-display px-2.5 mb-2 text-[13px] font-semibold uppercase tracking-[0.08em]"
-          style="color: rgba(255,255,255,0.55)"
-        >
-          {{ group.title }}
-        </div>
-        <div v-else-if="collapsed && gi > 0" class="my-2.5" style="border-top: 1px solid rgba(255,255,255,0.06)" />
+    <nav class="flex-1 overflow-y-auto py-3 scrollbar-thin">
 
-        <template v-for="item in group.items" :key="item.path">
-          <!-- Main item button -->
-          <button
-            class="relative w-full flex items-center gap-3.5 px-3 py-3 text-base rounded-md transition-all duration-150 group"
-            :class="collapsed ? 'justify-center' : ''"
-            :style="isActive(item.path)
-              ? 'background: rgba(37,99,235,0.18); color: #bfdbfe; font-weight: 600;'
-              : 'color: rgba(255,255,255,0.7); font-weight: 450;'"
-            :title="collapsed ? item.label : ''"
-            @click="handleItemClick(item)"
-          >
-            <span
-              v-if="isActive(item.path)"
-              class="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 rounded-r"
-              style="background: #3b82f6"
-            />
+      <!-- ── Expanded sidebar ── -->
+      <template v-if="!collapsed">
+        <div v-for="group in navGroups" :key="group.key" class="px-3 mb-1">
 
-            <!-- Icon -->
-            <span class="shrink-0 w-5 h-5 flex items-center justify-center">
-              <svg v-if="item.icon === 'dashboard'" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" class="w-[18px] h-[18px]">
-                <rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" />
-                <rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" />
-              </svg>
-              <svg v-else-if="item.icon === 'list'" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" class="w-[18px] h-[18px]">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 10h16M4 14h16M4 18h16" />
-              </svg>
-              <svg v-else-if="item.icon === 'plus'" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" class="w-[18px] h-[18px]">
-                <circle cx="12" cy="12" r="9" /><path stroke-linecap="round" d="M12 8v8M8 12h8" />
-              </svg>
-              <svg v-else-if="item.icon === 'cube'" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" class="w-[18px] h-[18px]">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M21 7.5l-9-5.25L3 7.5m18 0l-9 5.25M21 7.5v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9" />
-              </svg>
-              <svg v-else-if="item.icon === 'truck'" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" class="w-[18px] h-[18px]">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h1m8-1a1 1 0 01-1 1H9m4-1V8a1 1 0 011-1h2.586a1 1 0 01.707.293l3.414 3.414a1 1 0 01.293.707V16a1 1 0 01-1 1h-1m-6-1a1 1 0 001 1h1M5 17a2 2 0 104 0m-4 0a2 2 0 114 0m6 0a2 2 0 104 0m-4 0a2 2 0 114 0" />
-              </svg>
-              <svg v-else-if="item.icon === 'folder'" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" class="w-[18px] h-[18px]">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" />
-              </svg>
-              <svg v-else-if="item.icon === 'wrench'" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" class="w-[18px] h-[18px]">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M11.42 15.17L17.25 21A2.652 2.652 0 0021 17.25l-5.877-5.877M11.42 15.17l2.496-3.03c.317-.384.74-.626 1.208-.766M11.42 15.17l-4.655 5.653a2.548 2.548 0 11-3.586-3.586l6.837-5.63m5.108-.233c.55-.164 1.163-.188 1.743-.14a4.5 4.5 0 004.486-6.336l-3.276 3.277a3.004 3.004 0 01-2.25-2.25l3.276-3.276a4.5 4.5 0 00-6.336 4.486c.091 1.076-.071 2.264-.904 2.95l-.102.085m-1.745 1.437L5.909 7.5H4.5L2.25 3.75l1.5-1.5L7.5 4.5v1.409l4.26 4.26m5.108-.233l-5.108.233" />
-              </svg>
-              <svg v-else-if="item.icon === 'repair'" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" class="w-[18px] h-[18px]">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
-              </svg>
-              <svg v-else-if="item.icon === 'calibration'" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" class="w-[18px] h-[18px]">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 1 1-3 0m3 0a1.5 1.5 0 1 0-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-9.75 0h9.75" />
-              </svg>
-              <svg v-else-if="item.icon === 'calendar'" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" class="w-[18px] h-[18px]">
-                <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
-                <line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
-              </svg>
-              <svg v-else-if="item.icon === 'repeat'" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" class="w-[18px] h-[18px]">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M16 4l4 4-4 4M20 8H8a4 4 0 00-4 4v1M8 20l-4-4 4-4M4 16h12a4 4 0 004-4v-1" />
-              </svg>
-              <svg v-else-if="item.icon === 'template'" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" class="w-[18px] h-[18px]">
-                <rect x="3" y="3" width="18" height="18" rx="2"/><path stroke-linecap="round" d="M3 9h18M9 21V9"/>
-              </svg>
-              <svg v-else-if="item.icon === 'chart'" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" class="w-[18px] h-[18px]">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M3 3v18h18M7 14l4-4 4 4 5-5" />
-              </svg>
-              <svg v-else-if="item.icon === 'chip'" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" class="w-[18px] h-[18px]">
-                <rect x="6" y="6" width="12" height="12" rx="1.5" /><path stroke-linecap="round" d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3" />
-              </svg>
-              <svg v-else-if="item.icon === 'document'" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" class="w-[18px] h-[18px]">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
-                <path stroke-linecap="round" stroke-linejoin="round" d="M14 2v6h6M9 13h6M9 17h4"/>
-              </svg>
-              <svg v-else-if="item.icon === 'alert'" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" class="w-[18px] h-[18px]">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
-              </svg>
-              <svg v-else-if="item.icon === 'shield'" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" class="w-[18px] h-[18px]">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-              </svg>
-              <svg v-else-if="item.icon === 'lock'" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" class="w-[18px] h-[18px]">
-                <rect x="4" y="11" width="16" height="10" rx="2"/><path stroke-linecap="round" d="M8 11V7a4 4 0 118 0v4"/>
-              </svg>
-              <svg v-else-if="item.icon === 'arrow'" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" class="w-[18px] h-[18px]">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M7 16V4m0 0L3 8m4-4l4 4M17 8v12m0 0l4-4m-4 4l-4-4"/>
-              </svg>
-              <svg v-else-if="item.icon === 'settings'" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" class="w-[18px] h-[18px]">
-                <circle cx="12" cy="12" r="3" />
-                <path stroke-linecap="round" stroke-linejoin="round" d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
-              </svg>
-              <svg v-else-if="item.icon === 'users'" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" class="w-[18px] h-[18px]">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
-                <circle cx="9" cy="7" r="4"/>
-                <path stroke-linecap="round" stroke-linejoin="round" d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>
-              </svg>
-              <svg v-else-if="item.icon === 'building'" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" class="w-[18px] h-[18px]">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M3 21h18M5 21V5a2 2 0 012-2h10a2 2 0 012 2v16M9 7h2M9 11h2M9 15h2M13 7h2M13 11h2M13 15h2"/>
-              </svg>
-            </span>
-
-            <!-- Label + badge -->
-            <span v-if="!collapsed" class="flex-1 truncate text-left">{{ item.label }}</span>
-            <span
-              v-if="!collapsed && item.badge"
-              class="text-[10px] font-mono px-1.5 py-0.5 rounded"
-              style="background: #2563eb; color: #ffffff;"
-            >{{ item.badge }}</span>
-
-            <!-- Chevron khi có children -->
-            <button
-              v-if="!collapsed && item.children"
-              class="shrink-0 p-0.5 rounded hover:bg-white/5"
-              @click="toggleExpand(item, $event)"
-              :title="isExpanded(item) ? 'Thu gọn' : 'Mở rộng'"
-            >
-              <svg
-                class="w-3 h-3 transition-transform duration-150"
-                :class="isExpanded(item) ? 'rotate-90' : ''"
-                fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"
-              >
-                <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
-              </svg>
-            </button>
-
-            <!-- Tooltip khi collapsed -->
-            <span
-              v-if="collapsed"
-              class="absolute left-full ml-2.5 px-2.5 py-1.5 text-xs rounded-md whitespace-nowrap
-                     opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 text-white"
-              style="background: #161b22; border: 1px solid rgba(255,255,255,0.10)"
-            >
-              {{ item.label }}<span v-if="item.badge" class="ml-1.5 opacity-60">· {{ item.badge }}</span>
-            </span>
+          <!-- Group header -->
+          <button class="group-header w-full flex items-center justify-between px-2 py-2 rounded-lg mb-0.5"
+                  :class="activeGroups.has(group.key) ? 'active' : ''"
+                  @click="toggleGroup(group.key)">
+            <div class="flex items-center gap-2.5">
+              <span class="group-header-icon shrink-0 w-[18px] h-[18px] flex items-center justify-center"
+                    v-html="ICONS[group.icon] || ICONS.grid" />
+              <span class="group-header-label text-[11.5px] font-semibold uppercase tracking-widest">
+                {{ group.title }}
+              </span>
+            </div>
+            <svg class="chevron w-3.5 h-3.5 transition-transform duration-250 shrink-0"
+                 :class="groupOpen[group.key] ? 'rotate-0' : '-rotate-90'"
+                 fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+            </svg>
           </button>
 
-          <!-- Sub-items (chỉ hiển thị khi expanded + sidebar không collapsed) -->
-          <div v-if="!collapsed && item.children && isExpanded(item)" class="ml-3 pl-3 mb-1" style="border-left: 1px solid rgba(255,255,255,0.06)">
-            <button
-              v-for="child in item.children"
-              :key="child.path"
-              class="w-full flex items-center gap-2.5 px-2 py-1.5 text-[12.5px] rounded-md transition-all duration-150"
-              :style="isActive(child.path)
-                ? 'color: #bfdbfe; background: rgba(37,99,235,0.12); font-weight: 500;'
-                : 'color: rgba(255,255,255,0.55); font-weight: 400;'"
-              @click="navigate(child.path)"
-            >
-              <span class="w-1 h-1 rounded-full shrink-0" style="background: currentColor"></span>
-              <span class="truncate text-left">{{ child.label }}</span>
-            </button>
-          </div>
-        </template>
-      </div>
+          <!-- Items with accordion animation -->
+          <Transition
+            @before-enter="onBeforeEnter"
+            @enter="onEnter"
+            @before-leave="onBeforeLeave"
+            @leave="onLeave"
+          >
+            <div v-if="groupOpen[group.key]" class="pl-1 space-y-0.5 pb-1">
+              <button
+                v-for="(item, idx) in group.items" :key="item.path"
+                class="nav-item w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all duration-150"
+                :class="isActive(item.path) ? 'active' : ''"
+                :style="{ animationDelay: `${idx * 35}ms` }"
+                @click="router.push(item.path)"
+              >
+                <span class="nav-icon shrink-0 w-[18px] h-[18px] flex items-center justify-center"
+                      v-html="ICONS[item.icon] || ICONS.grid" />
+                <span class="truncate text-left font-medium leading-snug">{{ item.label }}</span>
+              </button>
+            </div>
+          </Transition>
+
+          <div class="section-divider mx-1 mt-2 mb-1" />
+        </div>
+      </template>
+
+      <!-- ── Collapsed sidebar: icon-only ── -->
+      <template v-else>
+        <div v-for="group in navGroups" :key="group.key" class="px-2 mb-1">
+          <div class="collapsed-divider my-2" />
+          <button
+            v-for="item in group.items" :key="item.path"
+            class="collapsed-item relative w-full flex items-center justify-center py-2.5 rounded-lg mb-0.5 transition-all duration-150 group/tip"
+            :class="isActive(item.path) ? 'active' : ''"
+            :title="item.label"
+            @click="router.push(item.path)"
+          >
+            <span class="w-[18px] h-[18px] flex items-center justify-center"
+                  v-html="ICONS[item.icon] || ICONS.grid" />
+            <!-- Tooltip -->
+            <span class="tooltip">{{ item.label }}</span>
+          </button>
+        </div>
+      </template>
+
     </nav>
 
     <!-- Footer -->
-    <div
-      v-if="!collapsed"
-      class="px-4 py-3 text-[10px]"
-      style="border-top: 1px solid rgba(255,255,255,0.07); color: rgba(255,255,255,0.2)"
-    >
-      AssetCore v1.0 · Wave 1
-    </div>
+    <Transition name="fade-x">
+      <div v-if="!collapsed" class="sidebar-footer px-4 py-3">
+        <p class="text-[11px] text-slate-500 font-medium">AssetCore v1.0 · IMM Wave 1</p>
+      </div>
+    </Transition>
   </aside>
 </template>
+
+<style scoped>
+/* ── Sidebar shell ─────────────────────────────────────────────────────────── */
+.sidebar-root {
+  background: #0f1623;
+  border-right: 1px solid rgba(255,255,255,0.06);
+  box-shadow: 4px 0 24px rgba(0,0,0,0.4);
+}
+
+.sidebar-header {
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+  background: rgba(255,255,255,0.02);
+}
+
+.logo-badge {
+  background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+  box-shadow: 0 0 16px rgba(59,130,246,0.35);
+}
+
+.toggle-btn {
+  color: rgba(255,255,255,0.6);
+  transition: color 0.15s, background 0.15s;
+}
+.toggle-btn:hover {
+  color: rgba(255,255,255,0.75);
+  background: rgba(255,255,255,0.07);
+}
+
+.sidebar-footer {
+  border-top: 1px solid rgba(255,255,255,0.06);
+}
+
+/* ── Group header ──────────────────────────────────────────────────────────── */
+.group-header {
+  color: rgba(255,255,255,0.62);
+  transition: background 0.15s, color 0.15s;
+  cursor: pointer;
+}
+.group-header:hover {
+  background: rgba(255,255,255,0.05);
+  color: rgba(255,255,255,0.65);
+}
+.group-header.active {
+  color: #60a5fa;
+}
+.group-header-icon { opacity: 0.6; transition: opacity 0.15s; }
+.group-header:hover .group-header-icon,
+.group-header.active .group-header-icon { opacity: 1; }
+.group-header-label { letter-spacing: 0.08em; }
+.chevron { color: rgba(255,255,255,0.55); }
+.group-header.active .chevron { color: #60a5fa; }
+
+/* ── Nav items ─────────────────────────────────────────────────────────────── */
+.nav-item {
+  color: rgba(255,255,255,0.78);
+  animation: itemSlideIn 0.22s ease both;
+}
+.nav-item:hover {
+  background: rgba(255,255,255,0.06);
+  color: rgba(255,255,255,0.9);
+  transform: translateX(2px);
+}
+.nav-item.active {
+  background: rgba(59,130,246,0.15);
+  color: #93c5fd;
+  box-shadow: inset 3px 0 0 #3b82f6;
+}
+.nav-item.active:hover {
+  background: rgba(59,130,246,0.22);
+  transform: none;
+}
+.nav-icon { opacity: 0.6; transition: opacity 0.15s, transform 0.15s; }
+.nav-item:hover .nav-icon { opacity: 1; transform: scale(1.1); }
+.nav-item.active .nav-icon { opacity: 1; }
+
+/* ── Collapsed items ───────────────────────────────────────────────────────── */
+.collapsed-item {
+  color: rgba(255,255,255,0.7);
+}
+.collapsed-item:hover {
+  background: rgba(255,255,255,0.07);
+  color: rgba(255,255,255,0.9);
+}
+.collapsed-item.active {
+  background: rgba(59,130,246,0.18);
+  color: #93c5fd;
+  box-shadow: inset 3px 0 0 #3b82f6;
+}
+
+/* ── Tooltip ───────────────────────────────────────────────────────────────── */
+.tooltip {
+  position: absolute;
+  left: calc(100% + 10px);
+  top: 50%;
+  transform: translateY(-50%) translateX(-4px);
+  padding: 5px 10px;
+  background: #1e2a3a;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 8px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: rgba(255,255,255,0.88);
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+  z-index: 100;
+}
+.group\/tip:hover .tooltip {
+  opacity: 1;
+  transform: translateY(-50%) translateX(0);
+}
+
+/* ── Dividers ──────────────────────────────────────────────────────────────── */
+.section-divider   { height: 1px; background: rgba(255,255,255,0.05); }
+.collapsed-divider { height: 1px; background: rgba(255,255,255,0.06); }
+
+/* ── Animations ────────────────────────────────────────────────────────────── */
+@keyframes itemSlideIn {
+  from { opacity: 0; transform: translateX(-8px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* fade-x: logo text fade+slide */
+.fade-x-enter-active { transition: opacity 0.2s ease, transform 0.2s ease; }
+.fade-x-leave-active { transition: opacity 0.12s ease, transform 0.12s ease; }
+.fade-x-enter-from   { opacity: 0; transform: translateX(-8px); }
+.fade-x-leave-to     { opacity: 0; transform: translateX(-8px); }
+
+/* scrollbar */
+.scrollbar-thin::-webkit-scrollbar       { width: 4px; }
+.scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+.scrollbar-thin::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+.scrollbar-thin::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+</style>

@@ -32,7 +32,7 @@ function prevPage() { if (page.value > 1) { page.value--; load() } }
 function nextPage() { if (page.value * PAGE_SIZE < totalCount.value) { page.value++; load() } }
 
 async function remove(name: string) {
-  if (!confirm(`Xóa NCC "${name}"?`)) return
+  if (!confirm(`Xóa nhà cung cấp "${name}"?`)) return
   try { await deleteSupplier(name); await load() }
   catch (e: unknown) { alert((e as Error).message || 'Không thể xóa — có thể đang được tham chiếu') }
 }
@@ -53,8 +53,8 @@ onMounted(load)
     <div class="flex items-center justify-between">
       <h1 class="text-xl font-semibold text-gray-800">Nhà cung cấp</h1>
       <div class="flex items-center gap-3">
-        <span class="text-sm text-gray-500">{{ totalCount }} NCC</span>
-        <button @click="router.push('/suppliers/new')" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium">+ Thêm NCC</button>
+        <span class="text-sm text-gray-500">{{ totalCount }} nhà cung cấp</span>
+        <button @click="router.push('/suppliers/new')" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium">+ Thêm nhà cung cấp</button>
       </div>
     </div>
 
@@ -76,8 +76,8 @@ onMounted(load)
       <table v-else class="w-full text-sm">
         <thead class="bg-gray-50 border-b border-gray-200">
           <tr>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Mã NCC</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Tên NCC</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Mã nhà cung cấp</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Tên nhà cung cấp</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Loại</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Quốc gia</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Email liên hệ</th>

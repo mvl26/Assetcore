@@ -86,7 +86,7 @@ function resetFilters() {
   store.fetchWorkOrders({})
 }
 
-function quickFilter(key: 'status', value: string) {
+function quickFilter(_key: 'status', value: string) {
   if (!value) return
   statusFilter.value = value
   showFilters.value = false
@@ -100,7 +100,7 @@ function quickFilter(key: 'status', value: string) {
     <div class="flex items-start justify-between mb-5">
       <div>
         <p class="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-1">IMM-08</p>
-        <h1 class="text-2xl font-bold text-slate-900">Phiếu Bảo trì PM</h1>
+        <h1 class="text-2xl font-bold text-slate-900">Phiếu Bảo trì định kỳ</h1>
         <p class="text-sm text-slate-500 mt-1">
           Tổng <strong class="text-slate-700">{{ store.pagination.total ?? filteredWOs.length }}</strong> phiếu
         </p>

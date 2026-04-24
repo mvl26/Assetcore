@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // Copyright (c) 2026, AssetCore Team — IMM-00 QR Scan → GMDN toggle
-import { ref } from 'vue'
+import { ref, onMounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { getBarcodeLookup } from '@/api/imm04'
 import { toggleGmdnStatus, getAsset } from '@/api/imm00'
@@ -11,6 +11,13 @@ const manualCode = ref('')
 const loading = ref(false)
 const error = ref('')
 const result = ref<{ asset: string; name: string; from: string; to: string } | null>(null)
+const qrInput = ref<HTMLInputElement | null>(null)
+
+onMounted(() => {
+  nextTick(() => {
+    if (document.activeElement === document.body) qrInput.value?.focus()
+  })
+})
 
 async function scan() {
   const code = manualCode.value.trim()
@@ -61,11 +68,11 @@ async function scan() {
         </label>
         <input
           id="qr-code-input"
+          ref="qrInput"
           v-model="manualCode"
           type="text"
           class="form-input w-full text-sm"
           placeholder="Nhập hoặc scan mã thiết bị…"
-          autofocus
           @keyup.enter="scan"
         />
       </div>

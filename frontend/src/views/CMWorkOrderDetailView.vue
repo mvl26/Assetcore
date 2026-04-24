@@ -292,7 +292,7 @@ function navigateChecklist() {
               <span class="text-gray-700">{{ wo.completion_datetime?.slice(0,16) }}</span>
             </div>
             <div v-if="wo.mttr_hours" class="flex justify-between">
-              <span class="text-gray-500">MTTR:</span>
+              <span class="text-gray-500">Thời gian sửa chữa TB:</span>
               <span :class="['font-semibold', wo.sla_breached ? 'text-red-600' : 'text-green-600']">{{ wo.mttr_hours }}h</span>
             </div>
           </div>

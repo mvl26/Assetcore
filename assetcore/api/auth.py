@@ -60,7 +60,7 @@ def register_user(email: str, full_name: str, password: str,
     if frappe.db.exists("User", email):
         return _err("Email đã tồn tại trong hệ thống", 400)
 
-    if department and not frappe.db.exists("Department", department):
+    if department and not frappe.db.exists("AC Department", department):
         return _err(f"Khoa/phòng '{department}' không tồn tại", 400)
 
     user_doc = frappe.new_doc("User")

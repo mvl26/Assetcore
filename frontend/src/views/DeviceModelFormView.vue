@@ -34,9 +34,17 @@ const form = ref<Partial<ImmDeviceModel> & Record<string, unknown>>({
   calibration_interval_days: 365,
   calibration_alert_days: 30,
   default_calibration_type: '',
+  model_image: '',
+  catalog_file: '',
+  specifications: '',
+  dimensions: '',
+  weight_kg: 0,
   notes: '',
 })
 const categories = ref<AcAssetCategory[]>([])
+const selectedCategory = computed<AcAssetCategory | null>(() =>
+  categories.value.find(c => c.name === form.value.asset_category) ?? null,
+)
 const loading = ref(false)
 const saving = ref(false)
 const err = ref('')
@@ -64,7 +72,7 @@ async function save() {
 }
 
 async function remove() {
-  if (!name.value || !confirm(`Xóa Model "${name.value}"?`)) return
+  if (!name.value || !confirm(`Xóa Model thiết bị "${name.value}"?`)) return
   try {
     await deleteDeviceModel(name.value)
     router.push('/device-models')
@@ -78,7 +86,7 @@ onMounted(load)
   <div class="page-container animate-fade-in space-y-5">
     <div class="flex items-center justify-between">
       <h1 class="text-xl font-semibold text-gray-800">
-        {{ isEdit ? `Sửa Model — ${name}` : 'Thêm Device Model' }}
+        {{ isEdit ? `Sửa Model thiết bị — ${name}` : 'Thêm Model thiết bị' }}
       </h1>
       <button v-if="isEdit" class="text-red-600 hover:text-red-800 text-sm font-medium" @click="remove">Xóa</button>
     </div>
@@ -93,7 +101,7 @@ onMounted(load)
           <input v-model="form.model_name" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
         </div>
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Model Version</label>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Phiên bản Model</label>
           <input v-model="form.model_version" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
         </div>
         <div>
@@ -101,11 +109,34 @@ onMounted(load)
           <input v-model="form.manufacturer" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
         </div>
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Danh mục thiết bị <span class="text-red-500">*</span></label>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Danh mục tài sản <span class="text-red-500">*</span></label>
           <select v-model="form.asset_category" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
             <option value="">— Chọn danh mục —</option>
             <option v-for="c in categories" :key="c.name" :value="c.name">{{ c.category_name }}</option>
           </select>
+          <div v-if="selectedCategory" class="mt-2 p-2 rounded-lg bg-blue-50 border border-blue-200 text-xs text-blue-800">
+            <p class="font-semibold mb-0.5">Luật khấu hao kế thừa từ danh mục:</p>
+            <div class="flex flex-wrap gap-x-3 gap-y-0.5">
+              <span v-if="selectedCategory.default_depreciation_method">
+                Phương pháp: <b>{{ selectedCategory.default_depreciation_method }}</b>
+              </span>
+              <span v-if="selectedCategory.total_depreciation_months">
+                Thời gian: <b>{{ selectedCategory.total_depreciation_months }} tháng</b>
+              </span>
+              <span v-if="selectedCategory.depreciation_frequency">
+                Tần suất: <b>{{ selectedCategory.depreciation_frequency }}</b>
+              </span>
+              <span v-if="selectedCategory.default_residual_value_pct">
+                Thu hồi: <b>{{ selectedCategory.default_residual_value_pct }}%</b>
+              </span>
+              <span v-if="selectedCategory.default_pm_required">
+                Bảo trì mỗi <b>{{ selectedCategory.default_pm_interval_days }}</b> ngày
+              </span>
+              <span v-if="selectedCategory.default_calibration_required">
+                Hiệu chuẩn mỗi <b>{{ selectedCategory.default_calibration_interval_days }}</b> ngày
+              </span>
+            </div>
+          </div>
         </div>
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">Quốc gia sản xuất</label>
@@ -120,7 +151,7 @@ onMounted(load)
           <input v-model.number="form.expected_lifespan_years" type="number" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
         </div>
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Phân loại TB Y tế <span class="text-red-500">*</span></label>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Phân loại thiết bị y tế <span class="text-red-500">*</span></label>
           <select v-model="form.medical_device_class" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
             <option value="Class I">Loại I — Rủi ro thấp</option>
             <option value="Class II">Loại II — Rủi ro trung bình</option>
@@ -152,13 +183,13 @@ onMounted(load)
 
       <div class="border-t pt-4 space-y-3">
         <label class="flex items-center gap-2 text-sm">
-          <input v-model="form.registration_required" type="checkbox" :true-value="1" :false-value="0" /> Yêu cầu đăng ký BYT
+          <input v-model="form.registration_required" type="checkbox" :true-value="1" :false-value="0" /> Yêu cầu đăng ký Bộ Y tế
         </label>
         <label class="flex items-center gap-2 text-sm">
           <input v-model="form.is_radiation_device" type="checkbox" :true-value="1" :false-value="0" /> Thiết bị bức xạ
         </label>
         <label class="flex items-center gap-2 text-sm">
-          <input v-model="form.is_pm_required" type="checkbox" :true-value="1" :false-value="0" /> Yêu cầu PM định kỳ
+          <input v-model="form.is_pm_required" type="checkbox" :true-value="1" :false-value="0" /> Yêu cầu bảo trì định kỳ
         </label>
         <div v-if="form.is_pm_required" class="grid grid-cols-1 sm:grid-cols-2 gap-4 pl-6">
           <div>
@@ -182,6 +213,53 @@ onMounted(load)
             <label class="block text-xs font-medium text-gray-700 mb-1">Alert hiệu chuẩn trước (ngày)</label>
             <input v-model.number="form.calibration_alert_days" type="number" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
           </div>
+        </div>
+      </div>
+
+      <!-- Media + Specs (Tier 2) -->
+      <div class="pt-4 border-t border-gray-100 space-y-4">
+        <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Hình ảnh & Tài liệu</p>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Hình ảnh đại diện (URL)</label>
+            <input v-model="form.model_image" type="text"
+                   placeholder="/files/xxx.jpg hoặc URL"
+                   class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono" />
+            <img v-if="form.model_image" :src="form.model_image"
+                 class="mt-2 h-24 w-24 object-cover rounded-lg border border-gray-200" alt="Model preview" />
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Catalogue / Brochure (URL PDF)</label>
+            <input v-model="form.catalog_file" type="text"
+                   placeholder="/files/catalog.pdf"
+                   class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono" />
+            <a v-if="form.catalog_file" :href="form.catalog_file" target="_blank"
+               class="mt-2 inline-flex items-center text-xs text-blue-600 hover:underline">
+              📄 Xem catalog
+            </a>
+          </div>
+        </div>
+      </div>
+
+      <div class="pt-4 border-t border-gray-100 space-y-3">
+        <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Thông số kỹ thuật chi tiết</p>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Kích thước (DxRxC mm)</label>
+            <input v-model="form.dimensions" type="text" placeholder="1200x800x600"
+                   class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Khối lượng (kg)</label>
+            <input v-model.number="form.weight_kg" type="number" min="0" step="0.1"
+                   class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+          </div>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Thông số kỹ thuật đầy đủ</label>
+          <textarea v-model="form.specifications" rows="4"
+                    placeholder="Công suất, điện áp, tần số, yêu cầu môi trường, accessory…"
+                    class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"></textarea>
         </div>
       </div>
 

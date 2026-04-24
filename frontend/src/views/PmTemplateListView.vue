@@ -61,7 +61,7 @@ function removeItem(i: number) { form.value.checklist_items.splice(i, 1) }
 async function save() {
   err.value = ''
   if (!form.value.template_name || !form.value.asset_category || !form.value.pm_type) {
-    err.value = 'Tên mẫu, Loại thiết bị, Loại bảo trì là bắt buộc'
+    err.value = 'Tên mẫu, Danh mục tài sản, Loại bảo trì là bắt buộc'
     return
   }
   const cleanItems = form.value.checklist_items
@@ -119,7 +119,7 @@ onMounted(load)
           <tr>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Mã</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Tên template</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Loại thiết bị</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Danh mục tài sản</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Loại PM</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Version</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Hiệu lực</th>
@@ -153,7 +153,7 @@ onMounted(load)
             <input v-model="form.template_name" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
           </label>
           <label class="block">
-            <span class="block text-sm font-medium text-gray-700 mb-1">Loại thiết bị *</span>
+            <span class="block text-sm font-medium text-gray-700 mb-1">Danh mục tài sản *</span>
             <input v-model="form.asset_category" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
           </label>
           <label class="block">

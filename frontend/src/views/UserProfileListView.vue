@@ -24,6 +24,12 @@ const APPROVAL_COLORS: Record<string, string> = {
 const APPROVAL_LABELS: Record<string, string> = {
   Approved: 'Đã duyệt', Pending: 'Chờ duyệt', Rejected: 'Từ chối',
 }
+const ROLE_GROUP_COLORS: Record<string, string> = {
+  Governance:  'bg-purple-100 text-purple-700',
+  Department:  'bg-blue-100 text-blue-700',
+  Engineering: 'bg-emerald-100 text-emerald-700',
+  Support:     'bg-amber-100 text-amber-700',
+}
 
 async function load() {
   loading.value = true
@@ -89,6 +95,7 @@ onMounted(load)
               <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Họ và tên</th>
               <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Email</th>
               <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase hidden md:table-cell">Khoa/Phòng</th>
+              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Vai trò IMM</th>
               <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Trạng thái</th>
               <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Thao tác</th>
             </tr>
@@ -103,6 +110,17 @@ onMounted(load)
               <td class="px-4 py-3 text-gray-600 text-xs">{{ u.email || u.name }}</td>
               <td class="px-4 py-3 text-gray-600 text-xs hidden md:table-cell">
                 {{ u.department_name || '—' }}
+              </td>
+              <td class="px-4 py-3">
+                <div v-if="u.imm_roles?.length" class="flex flex-wrap gap-1">
+                  <span v-for="r in u.imm_roles" :key="r.name"
+                        :title="r.name"
+                        class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium"
+                        :class="ROLE_GROUP_COLORS[r.group] ?? 'bg-gray-100 text-gray-600'">
+                    {{ r.label }}
+                  </span>
+                </div>
+                <span v-else class="text-xs text-gray-300">Chưa gán</span>
               </td>
               <td class="px-4 py-3">
                 <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium"

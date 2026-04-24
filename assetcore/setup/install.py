@@ -89,7 +89,21 @@ def create_user_custom_fields() -> None:
 
 def after_install() -> None:
     create_user_custom_fields()
+    _apply_rbac_matrix()
 
 
 def after_migrate() -> None:
     create_user_custom_fields()
+    _apply_rbac_matrix()
+
+
+def _apply_rbac_matrix() -> None:
+    """Apply AssetCore RBAC matrix. Import locally để tránh circular trong fixture load."""
+    try:
+        from assetcore.setup.setup_permissions import run as apply_permissions
+        apply_permissions()
+    except Exception:
+        frappe.log_error(
+            frappe.get_traceback(),
+            "AssetCore RBAC: setup_permissions.run failed",
+        )

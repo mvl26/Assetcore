@@ -5,6 +5,7 @@ import WorkflowActions from '@/components/imm04/WorkflowActions.vue'
 import BaselineTestTable from '@/components/imm04/BaselineTestTable.vue'
 import DocumentChecklist from '@/components/imm04/DocumentChecklist.vue'
 import QRLabel from '@/components/imm04/QRLabel.vue'
+import ApproverSelect from '@/components/imm04/ApproverSelect.vue'
 import { useCommissioningStore } from '@/stores/commissioning'
 import type { CommissioningDoc, WorkflowState, DocumentRecord, BaselineTest } from '@/types/imm04'
 import { formatDatetime } from '@/utils/docUtils'
@@ -316,8 +317,15 @@ const showQaOfficer = computed(() => isHighRisk.value)
 
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div>
-          <label class="form-label">Lệnh mua hàng (PO)</label>
-          <input type="text" :value="doc.po_reference" class="form-input" readonly />
+          <label class="form-label">Đơn hàng mua (AC Purchase)</label>
+          <div class="form-input bg-slate-50 flex items-center gap-2">
+            <span class="font-mono text-sm text-slate-700">{{ doc.po_reference || '—' }}</span>
+            <router-link v-if="doc.po_reference"
+              :to="`/purchases/${doc.po_reference}`"
+              class="ml-auto text-xs text-blue-600 hover:underline shrink-0"
+              @click.stop
+            >Xem đơn hàng →</router-link>
+          </div>
         </div>
         <div>
           <label class="form-label">Model Thiết bị</label>
@@ -332,16 +340,14 @@ const showQaOfficer = computed(() => isHighRisk.value)
           <input type="text" :value="doc.clinical_dept" class="form-input" readonly />
         </div>
         <div>
-          <label class="form-label">Trưởng khoa</label>
-          <input
-            type="text"
-            :value="doc.clinical_head || ''"
-            @change="trackChange('clinical_head', ($event.target as HTMLInputElement).value)"
+          <ApproverSelect
+            :model-value="doc.clinical_head || ''"
+            role="Workshop Head"
+            label="Trưởng khoa"
+            placeholder="Tìm theo tên hoặc email..."
             :disabled="isReadonly"
-            placeholder="User ID trưởng khoa"
-            class="form-input"
+            @update:model-value="trackChange('clinical_head', $event)"
           />
-          <small class="form-hint">Nhập User ID (vd: user@hospital.com)</small>
         </div>
         <div>
           <label class="form-label">Ngày hẹn lắp đặt</label>
@@ -415,7 +421,7 @@ const showQaOfficer = computed(() => isHighRisk.value)
           </div>
         </div>
         <div>
-          <label class="form-label">Mã BYT (Bộ Y tế)</label>
+          <label class="form-label">Mã Bộ Y tế (Bộ Y tế)</label>
           <input
             type="text"
             :value="doc.custom_moh_code || ''"
@@ -444,7 +450,7 @@ const showQaOfficer = computed(() => isHighRisk.value)
           />
         </div>
         <div>
-          <label class="form-label">Giấy phép BYT / Cục ATBXHN</label>
+          <label class="form-label">Giấy phép Bộ Y tế / Cục An toàn Bức xạ Hạt nhân</label>
           <div v-if="doc.qa_license_doc" class="text-sm text-blue-600 mb-1">
             <a :href="doc.qa_license_doc" target="_blank" class="underline">{{ doc.qa_license_doc.split('/').pop() }}</a>
           </div>
@@ -505,35 +511,31 @@ const showQaOfficer = computed(() => isHighRisk.value)
       </div>
 
       <!-- QA Officer (chỉ hiện với thiết bị rủi ro cao) -->
-      <div v-if="showQaOfficer" class="form-row">
-        <label for="field-qa-officer" class="form-label">Nhân viên QA <span class="text-red-500">*</span></label>
-        <input
-          id="field-qa-officer"
-          type="text"
-          :value="doc.qa_officer || ''"
-          @change="trackChange('qa_officer', ($event.target as HTMLInputElement).value)"
+      <div v-if="showQaOfficer">
+        <ApproverSelect
+          :model-value="doc.qa_officer || ''"
+          role="QA Risk Team"
+          label="Nhân viên QA"
+          placeholder="Tìm theo tên hoặc email..."
+          :required="true"
           :disabled="isReadonly"
-          placeholder="User ID nhân viên QA"
-          class="form-input"
+          @update:model-value="trackChange('qa_officer', $event)"
         />
         <p class="form-hint text-orange-600">Bắt buộc với thiết bị Class C/D/Phóng xạ</p>
-        <small class="form-hint">Nhập User ID (vd: user@hospital.com)</small>
       </div>
 
       <!-- Board Approver (chỉ hiện gần Clinical Release) -->
-      <div v-if="showBoardApprover" class="form-row">
-        <label for="field-board-approver" class="form-label">Người phê duyệt BGĐ <span class="text-red-500">*</span></label>
-        <input
-          id="field-board-approver"
-          type="text"
-          :value="doc.board_approver || ''"
-          @change="trackChange('board_approver', ($event.target as HTMLInputElement).value)"
+      <div v-if="showBoardApprover">
+        <ApproverSelect
+          :model-value="doc.board_approver || ''"
+          role="VP Block2"
+          label="Người phê duyệt BGĐ"
+          placeholder="Tìm theo tên hoặc email..."
+          :required="true"
           :disabled="isReadonly"
-          placeholder="User ID người phê duyệt"
-          class="form-input"
+          @update:model-value="trackChange('board_approver', $event)"
         />
         <p class="form-hint text-red-600">BR-04-08: Bắt buộc trước khi phát hành lâm sàng</p>
-        <small class="form-hint">Nhập User ID (vd: user@hospital.com)</small>
       </div>
     </div>
 
@@ -570,16 +572,28 @@ const showQaOfficer = computed(() => isHighRisk.value)
             <p class="font-semibold text-green-800">Tài sản đã được tạo thành công</p>
             <p class="text-sm text-green-700 font-mono">{{ doc.final_asset }}</p>
           </div>
-          <!-- Nút chuyển sang IMM-05 -->
-          <a
-            :href="`/documents?asset=${doc.final_asset}`"
-            class="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-md transition-colors"
-          >
-            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
-            Cập nhật hồ sơ IMM-05
-          </a>
+          <div class="flex flex-col gap-2">
+            <!-- Nút xem thiết bị IMM-00 -->
+            <router-link
+              :to="`/assets/${doc.final_asset}`"
+              class="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium rounded-md transition-colors"
+            >
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18" />
+              </svg>
+              Xem thiết bị
+            </router-link>
+            <!-- Nút chuyển sang IMM-05 -->
+            <a
+              :href="`/documents?asset=${doc.final_asset}`"
+              class="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-md transition-colors"
+            >
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              Cập nhật hồ sơ IMM-05
+            </a>
+          </div>
         </div>
         <div v-else class="text-sm text-gray-500 italic p-4 bg-gray-50 rounded-lg">
           Tài sản sẽ được tạo tự động sau khi phiếu được Duyệt ở trạng thái Phát hành lâm sàng.

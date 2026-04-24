@@ -30,6 +30,8 @@ export interface IMMUser {
   has_employee?: boolean
 }
 
+export interface IMMUserRoleBadge { name: string; label: string; group: string }
+
 export interface IMMUserListItem {
   name: string
   full_name: string
@@ -40,6 +42,7 @@ export interface IMMUserListItem {
   ac_department?: string
   department_name?: string
   user_image?: string | null
+  imm_roles?: IMMUserRoleBadge[]
 }
 
 export interface CreateUserPayload {
@@ -116,8 +119,15 @@ export const resetUserPassword = (user: string, new_password: string) =>
 export const changeMyPassword = (old_password: string, new_password: string) =>
   frappePost<{ user: string }>(`${BASE}.change_my_password`, { old_password, new_password })
 
+export interface ImmRoleOption {
+  name: string
+  label: string
+  description: string
+  group: string
+}
+
 export const getAvailableImmRoles = () =>
-  frappeGet<Array<{ name: string; label: string }>>(`${BASE}.get_available_imm_roles`)
+  frappeGet<ImmRoleOption[]>(`${BASE}.get_available_imm_roles`)
 
 export const listFrappeUsers = (search: string = '', limit = 30) =>
   frappeGet<FrappeUserItem[]>(`${BASE}.list_frappe_users`, { search, limit })

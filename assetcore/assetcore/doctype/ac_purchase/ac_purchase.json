@@ -1,0 +1,172 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "naming_series:",
+ "creation": "2026-04-23 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "is_submittable": 1,
+ "field_order": [
+  "section_basic",
+  "naming_series",
+  "purchase_date",
+  "status",
+  "column_break_basic",
+  "supplier",
+  "invoice_no",
+  "expected_delivery",
+  "section_devices",
+  "devices",
+  "section_items",
+  "items",
+  "section_totals",
+  "total_value",
+  "notes"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_basic",
+   "fieldtype": "Section Break",
+   "label": "Th\u00f4ng tin \u0111\u01a1n h\u00e0ng"
+  },
+  {
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Series",
+   "options": "AC-PUR-.YYYY.-.#####",
+   "default": "AC-PUR-.YYYY.-.#####",
+   "hidden": 1
+  },
+  {
+   "fieldname": "purchase_date",
+   "fieldtype": "Datetime",
+   "label": "Ng\u00e0y \u0111\u1eb7t h\u00e0ng",
+   "reqd": 1,
+   "default": "Now",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Tr\u1ea1ng th\u00e1i",
+   "options": "Draft\nSubmitted\nReceived\nCancelled",
+   "default": "Draft",
+   "read_only": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "column_break_basic",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "supplier",
+   "fieldtype": "Link",
+   "label": "Nh\u00e0 cung c\u1ea5p",
+   "options": "AC Supplier",
+   "reqd": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "invoice_no",
+   "fieldtype": "Data",
+   "label": "S\u1ed1 h\u00f3a \u0111\u01a1n / M\u00e3 PO",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "expected_delivery",
+   "fieldtype": "Date",
+   "label": "Ng\u00e0y giao h\u00e0ng d\u1ef1 ki\u1ebfn"
+  },
+  {
+   "fieldname": "section_devices",
+   "fieldtype": "Section Break",
+   "label": "Thi\u1ebft b\u1ecb y t\u1ebf"
+  },
+  {
+   "fieldname": "devices",
+   "fieldtype": "Table",
+   "options": "AC Purchase Device Item",
+   "label": "Danh m\u1ee5c thi\u1ebft b\u1ecb"
+  },
+  {
+   "fieldname": "section_items",
+   "fieldtype": "Section Break",
+   "label": "Chi ti\u1ebft ph\u1ee5 t\u00f9ng"
+  },
+  {
+   "fieldname": "items",
+   "fieldtype": "Table",
+   "label": "Ph\u1ee5 t\u00f9ng",
+   "options": "AC Purchase Item",
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_totals",
+   "fieldtype": "Section Break",
+   "label": "T\u1ed5ng k\u1ebft"
+  },
+  {
+   "fieldname": "total_value",
+   "fieldtype": "Currency",
+   "label": "T\u1ed5ng gi\u00e1 tr\u1ecb",
+   "read_only": 1
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Text",
+   "label": "Ghi ch\u00fa"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-04-23 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "AssetCore",
+ "name": "AC Purchase",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "submit": 1,
+   "cancel": 1,
+   "amend": 1
+  },
+  {
+   "role": "IMM System Admin",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "submit": 1,
+   "cancel": 1
+  },
+  {
+   "role": "IMM Storekeeper",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "submit": 1,
+   "cancel": 1
+  },
+  {
+   "role": "IMM Operations Manager",
+   "read": 1,
+   "write": 1,
+   "submit": 1
+  },
+  {
+   "role": "IMM Department Head",
+   "read": 1
+  }
+ ],
+ "sort_field": "purchase_date",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

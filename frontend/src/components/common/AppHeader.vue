@@ -22,14 +22,14 @@ const navGroups = [
     ],
   },
   {
-    label: 'IMM-08 Bảo trì PM',
+    label: 'IMM-08 Bảo trì định kỳ',
     links: [
       { name: 'PMDashboard', to: '/pm/dashboard', label: 'Tổng quan Bảo trì' },
       { name: 'PMWorkOrderList', to: '/pm/work-orders', label: 'Danh sách phiếu' },
     ],
   },
   {
-    label: 'IMM-09 Sửa chữa CM',
+    label: 'IMM-09 Sửa chữa',
     links: [
       { name: 'CMDashboard', to: '/cm/dashboard', label: 'Tổng quan Sửa chữa' },
       { name: 'CMWorkOrderList', to: '/cm/work-orders', label: 'Danh sách phiếu' },

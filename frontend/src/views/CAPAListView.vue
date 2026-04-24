@@ -62,7 +62,7 @@ function resetFilters() {
   store.fetchList()
 }
 
-function quickFilter(key: 'status', value: string) {
+function quickFilter(_key: 'status', value: string) {
   if (!value) return
   statusFilter.value = value as CapaStatus
   showFilters.value = false

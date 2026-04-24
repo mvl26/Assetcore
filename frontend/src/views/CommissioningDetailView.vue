@@ -6,8 +6,11 @@ import { useImm05Store } from '@/stores/imm05Store'
 import { usePermissions } from '@/composables/usePermissions'
 import { useToast } from '@/composables/useToast'
 import CommissioningForm from '@/components/imm04/CommissioningForm.vue'
+import ApprovalPanel from '@/components/imm04/ApprovalPanel.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
+import { getGateStatus, approveClinicalRelease } from '@/api/imm04'
+import type { GateStatus } from '@/api/imm04'
 
 const props  = defineProps<{ id: string }>()
 const router = useRouter()
@@ -104,15 +107,69 @@ async function fetchImm05Status(asset: string) {
   imm05Missing.value   = imm05.missingRequired
 }
 
+// ─── Gate status ─────────────────────────────────────────────────────────────
+const defaultGateStatus: GateStatus = {
+  g01_docs: false, g02_facility: false, g03_baseline: false,
+  g04_radiation: false, g05_nc: false, g06_approver: false,
+}
+const gateStatus  = ref<GateStatus>({ ...defaultGateStatus })
+const panelSaving = ref(false)
+
+async function loadGateStatus() {
+  try {
+    gateStatus.value = await getGateStatus(props.id)
+  } catch {
+    gateStatus.value = { ...defaultGateStatus }
+  }
+}
+
 async function load() {
   editMode.value = false
-  await store.fetchDetail(props.id)
+  await Promise.all([store.fetchDetail(props.id), loadGateStatus()])
 }
 
 async function handleTransition(action: string) {
   const ok = await store.transitionState(props.id, action)
-  if (ok) toast.success('Đã chuyển trạng thái thành công.')
-  else    toast.error(store.error ?? 'Không thể thực hiện hành động.')
+  if (ok) {
+    toast.success('Đã chuyển trạng thái thành công.')
+    await loadGateStatus()
+  } else {
+    toast.error(store.error ?? 'Không thể thực hiện hành động.')
+  }
+}
+
+async function handleTransitionFromPanel(action: string) {
+  panelSaving.value = true
+  const ok = await store.transitionState(props.id, action)
+  panelSaving.value = false
+  if (ok) {
+    toast.success('Đã chuyển trạng thái thành công.')
+    await Promise.all([store.fetchDetail(props.id), loadGateStatus()])
+  } else {
+    toast.error(store.error ?? 'Không thể thực hiện hành động.')
+  }
+}
+
+async function handleApprove(boardApprover: string, remarks: string) {
+  panelSaving.value = true
+  try {
+    await approveClinicalRelease(props.id, boardApprover, remarks)
+    toast.success('Đã phê duyệt phát hành lâm sàng thành công.')
+    await Promise.all([store.fetchDetail(props.id), loadGateStatus()])
+  } catch (err: unknown) {
+    toast.error(err instanceof Error ? err.message : 'Không thể phê duyệt. Vui lòng thử lại.')
+  } finally {
+    panelSaving.value = false
+  }
+}
+
+async function handleFieldUpdate(field: string, value: unknown) {
+  const ok = await store.saveDoc(props.id, { [field]: value })
+  if (ok) {
+    await Promise.all([store.fetchDetail(props.id), loadGateStatus()])
+  } else {
+    toast.error(store.error ?? 'Không thể lưu thay đổi.')
+  }
 }
 
 async function handleSubmit() {
@@ -431,18 +488,36 @@ watch(finalAsset, (asset) => { if (asset) fetchImm05Status(asset) }, { immediate
         </div>
       </div>
 
-      <CommissioningForm
-        :doc="store.currentDoc"
-        :edit-mode="editMode"
-        :imm05-doc-status="imm05DocStatus"
-        :imm05-pct="imm05Pct"
-        :imm05-missing="imm05Missing"
-        :imm05-is-compliant="imm05IsCompliant"
-        @transition="handleTransition"
-        @submit="handleSubmit"
-        @saved="handleSaved"
-        @refresh-imm05="finalAsset ? fetchImm05Status(finalAsset) : undefined"
-      />
+      <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
+        <!-- Main form — takes 2/3 on wide screens -->
+        <div class="xl:col-span-2">
+          <CommissioningForm
+            :doc="store.currentDoc"
+            :edit-mode="editMode"
+            :imm05-doc-status="imm05DocStatus"
+            :imm05-pct="imm05Pct"
+            :imm05-missing="imm05Missing"
+            :imm05-is-compliant="imm05IsCompliant"
+            @transition="handleTransition"
+            @submit="handleSubmit"
+            @saved="handleSaved"
+            @refresh-imm05="finalAsset ? fetchImm05Status(finalAsset) : undefined"
+          />
+        </div>
+
+        <!-- Approval panel — sidebar on wide screens -->
+        <div class="xl:col-span-1">
+          <ApprovalPanel
+            :doc="store.currentDoc"
+            :gate-status="gateStatus"
+            :saving="panelSaving"
+            @transition="handleTransitionFromPanel"
+            @approve="handleApprove"
+            @update-field="handleFieldUpdate"
+            @refresh="load"
+          />
+        </div>
+      </div>
     </template>
 
   </div>
