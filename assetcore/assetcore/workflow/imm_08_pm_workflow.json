@@ -1,0 +1,113 @@
+{
+  "creation": "2026-04-22 00:00:00.000000",
+  "document_type": "PM Work Order",
+  "doctype": "Workflow",
+  "is_active": 1,
+  "modified": "2026-04-22 00:00:00.000000",
+  "modified_by": "Administrator",
+  "name": "IMM-08 PM Workflow",
+  "owner": "Administrator",
+  "send_email_alert": 0,
+  "workflow_name": "IMM-08 PM Workflow",
+  "workflow_state_field": "workflow_state",
+  "states": [
+    {
+      "allow_edit": "Biomed Engineer",
+      "doc_status": "0",
+      "state": "Open",
+      "type": "Warning"
+    },
+    {
+      "allow_edit": "Biomed Engineer",
+      "doc_status": "0",
+      "state": "In Progress",
+      "type": "Success"
+    },
+    {
+      "allow_edit": "Biomed Engineer",
+      "doc_status": "0",
+      "state": "Pending–Device Busy",
+      "type": "Warning"
+    },
+    {
+      "allow_edit": "System Manager",
+      "doc_status": "0",
+      "state": "Overdue",
+      "type": "Danger"
+    },
+    {
+      "allow_edit": "System Manager",
+      "doc_status": "0",
+      "state": "Halted–Major Failure",
+      "type": "Danger"
+    },
+    {
+      "allow_edit": "System Manager",
+      "doc_status": "1",
+      "state": "Completed",
+      "type": "Success"
+    },
+    {
+      "allow_edit": "System Manager",
+      "doc_status": "2",
+      "state": "Cancelled",
+      "type": "Danger"
+    }
+  ],
+  "transitions": [
+    {
+      "action": "Bắt đầu thực hiện",
+      "allowed": "Biomed Engineer",
+      "next_state": "In Progress",
+      "state": "Open"
+    },
+    {
+      "action": "Đánh dấu trễ hạn",
+      "allowed": "System Manager",
+      "next_state": "Overdue",
+      "state": "Open"
+    },
+    {
+      "action": "Hủy phiếu",
+      "allowed": "System Manager",
+      "next_state": "Cancelled",
+      "state": "Open"
+    },
+    {
+      "action": "Hoàn thành PM",
+      "allowed": "Biomed Engineer",
+      "next_state": "Completed",
+      "state": "In Progress"
+    },
+    {
+      "action": "Báo lỗi nghiêm trọng",
+      "allowed": "Biomed Engineer",
+      "next_state": "Halted–Major Failure",
+      "state": "In Progress"
+    },
+    {
+      "action": "Thiết bị bận - hoãn",
+      "allowed": "Biomed Engineer",
+      "next_state": "Pending–Device Busy",
+      "state": "In Progress"
+    },
+    {
+      "action": "Tiếp tục thực hiện",
+      "allowed": "Biomed Engineer",
+      "next_state": "In Progress",
+      "state": "Pending–Device Busy"
+    },
+    {
+      "action": "Bắt đầu muộn",
+      "allowed": "Biomed Engineer",
+      "next_state": "In Progress",
+      "state": "Overdue"
+    },
+    {
+      "action": "Tiếp tục sau xử lý",
+      "allowed": "System Manager",
+      "next_state": "In Progress",
+      "state": "Halted–Major Failure"
+    }
+  ]
+}

@@ -68,7 +68,7 @@
    "fieldtype": "Select",
    "label": "Kết quả",
    "options": "\nPass\nFail\nN/A",
-   "reqd": 1,
+   "default": "N/A",
    "in_list_view": 1,
    "columns": 2
   },

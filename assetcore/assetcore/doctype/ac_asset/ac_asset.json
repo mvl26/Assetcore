@@ -1,9 +1,8 @@
 {
  "actions": [],
  "allow_import": 1,
- "allow_rename": 0,
  "autoname": "naming_series:",
- "creation": "2026-04-18 00:00:00.000000",
+ "creation": "2026-04-18 00:00:00",
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
@@ -44,6 +43,7 @@
   "manufacturer_sn",
   "udi_code",
   "gmdn_code",
+  "gmdn_status",
   "section_byt",
   "byt_reg_no",
   "column_break_byt",
@@ -78,94 +78,482 @@
   "amended_from"
  ],
  "fields": [
-  {"fieldname": "section_basic", "fieldtype": "Section Break", "label": "Thông tin cơ bản"},
-  {"fieldname": "naming_series", "fieldtype": "Select", "label": "Series", "options": "AC-ASSET-.YYYY.-.#####", "reqd": 1},
-  {"fieldname": "asset_name", "fieldtype": "Data", "label": "Asset Name", "reqd": 1, "in_list_view": 1},
-  {"fieldname": "asset_code", "fieldtype": "Data", "label": "Asset Code", "unique": 1, "search_index": 1, "in_list_view": 1},
-  {"fieldname": "asset_category", "fieldtype": "Link", "label": "Asset Category", "options": "AC Asset Category", "reqd": 1, "search_index": 1},
-  {"fieldname": "item_code", "fieldtype": "Data", "label": "Item Code"},
-  {"fieldname": "column_break_basic", "fieldtype": "Column Break"},
-  {"fieldname": "image", "fieldtype": "Attach Image", "label": "Image"},
-  {"fieldname": "status", "fieldtype": "Select", "label": "Status", "options": "Submitted\nActive\nOut of Service\nDecommissioned\nUnder Repair\nCalibrating", "reqd": 1, "search_index": 1, "default": "Submitted"},
-  {"fieldname": "section_location", "fieldtype": "Section Break", "label": "Vị trí và phụ trách"},
-  {"fieldname": "location", "fieldtype": "Link", "label": "Location", "options": "AC Location", "search_index": 1},
-  {"fieldname": "department", "fieldtype": "Link", "label": "Department", "options": "AC Department", "search_index": 1},
-  {"fieldname": "column_break_location", "fieldtype": "Column Break"},
-  {"fieldname": "custodian", "fieldtype": "Link", "label": "Custodian", "options": "User"},
-  {"fieldname": "responsible_technician", "fieldtype": "Link", "label": "Responsible Technician", "options": "User", "search_index": 1},
-  {"fieldname": "section_purchase", "fieldtype": "Section Break", "label": "Thông tin mua sắm"},
-  {"fieldname": "supplier", "fieldtype": "Link", "label": "Supplier", "options": "AC Supplier"},
-  {"fieldname": "purchase_date", "fieldtype": "Date", "label": "Purchase Date"},
-  {"fieldname": "column_break_purchase", "fieldtype": "Column Break"},
-  {"fieldname": "gross_purchase_amount", "fieldtype": "Currency", "label": "Gross Purchase Amount"},
-  {"fieldname": "warranty_expiry_date", "fieldtype": "Date", "label": "Warranty Expiry Date"},
-  {"fieldname": "section_depreciation", "fieldtype": "Section Break", "label": "Khấu hao"},
-  {"fieldname": "depreciation_method", "fieldtype": "Select", "label": "Phương pháp khấu hao", "options": "\nStraight Line\nDouble Declining\nUnits of Production\nNone"},
-  {"fieldname": "useful_life_years", "fieldtype": "Int", "label": "Thời gian sử dụng (năm)"},
-  {"fieldname": "in_service_date", "fieldtype": "Date", "label": "Ngày đưa vào sử dụng"},
-  {"fieldname": "column_break_depreciation", "fieldtype": "Column Break"},
-  {"fieldname": "residual_value", "fieldtype": "Currency", "label": "Giá trị thu hồi"},
-  {"fieldname": "accumulated_depreciation", "fieldtype": "Currency", "label": "Khấu hao lũy kế", "read_only": 1},
-  {"fieldname": "current_book_value", "fieldtype": "Currency", "label": "Giá trị còn lại", "read_only": 1},
-  {"fieldname": "section_htm", "fieldtype": "Section Break", "label": "HTM - Thông tin kỹ thuật y tế"},
-  {"fieldname": "device_model", "fieldtype": "Link", "label": "Device Model", "options": "IMM Device Model", "search_index": 1},
-  {"fieldname": "medical_device_class", "fieldtype": "Select", "label": "Medical Device Class", "options": "\nClass I\nClass II\nClass III", "fetch_from": "device_model.medical_device_class"},
-  {"fieldname": "risk_classification", "fieldtype": "Select", "label": "Risk Classification", "options": "\nLow\nMedium\nHigh\nCritical", "fetch_from": "device_model.risk_classification", "read_only": 1},
-  {"fieldname": "column_break_htm", "fieldtype": "Column Break"},
-  {"fieldname": "manufacturer_sn", "fieldtype": "Data", "label": "Manufacturer SN", "search_index": 1},
-  {"fieldname": "udi_code", "fieldtype": "Data", "label": "UDI Code", "search_index": 1},
-  {"fieldname": "gmdn_code", "fieldtype": "Data", "label": "GMDN Code", "fetch_from": "device_model.gmdn_code"},
-  {"fieldname": "section_byt", "fieldtype": "Section Break", "label": "HTM - Đăng ký BYT"},
-  {"fieldname": "byt_reg_no", "fieldtype": "Data", "label": "BYT Registration No", "search_index": 1},
-  {"fieldname": "column_break_byt", "fieldtype": "Column Break"},
-  {"fieldname": "byt_reg_expiry", "fieldtype": "Date", "label": "BYT Registration Expiry", "search_index": 1},
-  {"fieldname": "section_lifecycle", "fieldtype": "Section Break", "label": "HTM - Vòng đời"},
-  {"fieldname": "lifecycle_status", "fieldtype": "Select", "label": "Lifecycle Status", "options": "Commissioned\nActive\nUnder Maintenance\nUnder Repair\nCalibrating\nOut of Service\nDecommissioned", "reqd": 1, "default": "Commissioned", "search_index": 1},
-  {"fieldname": "commissioning_date", "fieldtype": "Date", "label": "Commissioning Date"},
-  {"fieldname": "column_break_lifecycle", "fieldtype": "Column Break"},
-  {"fieldname": "commissioning_ref", "fieldtype": "Data", "label": "Commissioning Reference"},
-  {"fieldname": "calibration_status", "fieldtype": "Select", "label": "Calibration Status", "options": "\nNot Required\nOn Schedule\nDue Soon\nOverdue\nCalibration Failed"},
-  {"fieldname": "section_pm", "fieldtype": "Section Break", "label": "HTM - Bảo trì định kỳ (PM)"},
-  {"fieldname": "is_pm_required", "fieldtype": "Check", "label": "Is PM Required", "fetch_from": "device_model.is_pm_required"},
-  {"fieldname": "pm_interval_days", "fieldtype": "Int", "label": "PM Interval (days)", "mandatory_depends_on": "eval:doc.is_pm_required"},
-  {"fieldname": "column_break_pm", "fieldtype": "Column Break"},
-  {"fieldname": "last_pm_date", "fieldtype": "Date", "label": "Last PM Date", "read_only": 1},
-  {"fieldname": "next_pm_date", "fieldtype": "Date", "label": "Next PM Date", "search_index": 1},
-  {"fieldname": "section_calibration", "fieldtype": "Section Break", "label": "HTM - Hiệu chuẩn"},
-  {"fieldname": "is_calibration_required", "fieldtype": "Check", "label": "Is Calibration Required", "fetch_from": "device_model.is_calibration_required"},
-  {"fieldname": "calibration_interval_days", "fieldtype": "Int", "label": "Calibration Interval (days)", "mandatory_depends_on": "eval:doc.is_calibration_required"},
-  {"fieldname": "column_break_calibration", "fieldtype": "Column Break"},
-  {"fieldname": "last_calibration_date", "fieldtype": "Date", "label": "Last Calibration Date", "read_only": 1},
-  {"fieldname": "next_calibration_date", "fieldtype": "Date", "label": "Next Calibration Date", "search_index": 1},
-  {"fieldname": "section_insurance", "fieldtype": "Section Break", "label": "Bảo hiểm"},
-  {"fieldname": "insurance_policy_no", "fieldtype": "Data", "label": "Số hợp đồng bảo hiểm", "search_index": 1},
-  {"fieldname": "insurer_name", "fieldtype": "Data", "label": "Tên công ty bảo hiểm"},
-  {"fieldname": "column_break_insurance", "fieldtype": "Column Break"},
-  {"fieldname": "insured_value", "fieldtype": "Currency", "label": "Giá trị bảo hiểm"},
-  {"fieldname": "insurance_start_date", "fieldtype": "Date", "label": "Ngày bắt đầu bảo hiểm"},
-  {"fieldname": "insurance_end_date", "fieldtype": "Date", "label": "Ngày hết hạn bảo hiểm", "search_index": 1},
-  {"fieldname": "section_notes", "fieldtype": "Section Break", "label": "Ghi chú"},
-  {"fieldname": "notes", "fieldtype": "Text Editor", "label": "Notes"},
-  {"fieldname": "amended_from", "fieldtype": "Link", "label": "Amended From", "options": "AC Asset", "no_copy": 1, "print_hide": 1, "read_only": 1}
+  {
+   "fieldname": "section_basic",
+   "fieldtype": "Section Break",
+   "label": "Thông tin cơ bản"
+  },
+  {
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Series",
+   "options": "AC-ASSET-.YYYY.-.#####",
+   "reqd": 1
+  },
+  {
+   "fieldname": "asset_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Asset Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "asset_code",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Asset Code",
+   "unique": 1
+  },
+  {
+   "fieldname": "asset_category",
+   "fieldtype": "Link",
+   "label": "Asset Category",
+   "options": "AC Asset Category",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "item_code",
+   "fieldtype": "Data",
+   "label": "Item Code"
+  },
+  {
+   "fieldname": "column_break_basic",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "image",
+   "fieldtype": "Attach Image",
+   "label": "Image"
+  },
+  {
+   "default": "Submitted",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Submitted\nActive\nOut of Service\nDecommissioned\nUnder Repair\nCalibrating",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "section_location",
+   "fieldtype": "Section Break",
+   "label": "Vị trí và phụ trách"
+  },
+  {
+   "fieldname": "location",
+   "fieldtype": "Link",
+   "label": "Location",
+   "options": "AC Location",
+   "search_index": 1
+  },
+  {
+   "fieldname": "department",
+   "fieldtype": "Link",
+   "label": "Department",
+   "options": "AC Department",
+   "search_index": 1
+  },
+  {
+   "fieldname": "column_break_location",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "custodian",
+   "fieldtype": "Link",
+   "label": "Custodian",
+   "options": "User"
+  },
+  {
+   "fieldname": "responsible_technician",
+   "fieldtype": "Link",
+   "label": "Responsible Technician",
+   "options": "User",
+   "search_index": 1
+  },
+  {
+   "fieldname": "section_purchase",
+   "fieldtype": "Section Break",
+   "label": "Thông tin mua sắm"
+  },
+  {
+   "fieldname": "supplier",
+   "fieldtype": "Link",
+   "label": "Supplier",
+   "options": "AC Supplier"
+  },
+  {
+   "fieldname": "purchase_date",
+   "fieldtype": "Date",
+   "label": "Purchase Date"
+  },
+  {
+   "fieldname": "column_break_purchase",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "gross_purchase_amount",
+   "fieldtype": "Currency",
+   "label": "Gross Purchase Amount"
+  },
+  {
+   "fieldname": "warranty_expiry_date",
+   "fieldtype": "Date",
+   "label": "Warranty Expiry Date"
+  },
+  {
+   "fieldname": "section_depreciation",
+   "fieldtype": "Section Break",
+   "label": "Khấu hao"
+  },
+  {
+   "fieldname": "depreciation_method",
+   "fieldtype": "Select",
+   "label": "Phương pháp khấu hao",
+   "options": "\nStraight Line\nDouble Declining\nUnits of Production\nNone"
+  },
+  {
+   "fieldname": "useful_life_years",
+   "fieldtype": "Int",
+   "label": "Thời gian sử dụng (năm)"
+  },
+  {
+   "fieldname": "in_service_date",
+   "fieldtype": "Date",
+   "label": "Ngày đưa vào sử dụng"
+  },
+  {
+   "fieldname": "column_break_depreciation",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "residual_value",
+   "fieldtype": "Currency",
+   "label": "Giá trị thu hồi"
+  },
+  {
+   "fieldname": "accumulated_depreciation",
+   "fieldtype": "Currency",
+   "label": "Khấu hao lũy kế",
+   "read_only": 1
+  },
+  {
+   "fieldname": "current_book_value",
+   "fieldtype": "Currency",
+   "label": "Giá trị còn lại",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_htm",
+   "fieldtype": "Section Break",
+   "label": "HTM - Thông tin kỹ thuật y tế"
+  },
+  {
+   "fieldname": "device_model",
+   "fieldtype": "Link",
+   "label": "Device Model",
+   "options": "IMM Device Model",
+   "search_index": 1
+  },
+  {
+   "fetch_from": "device_model.medical_device_class",
+   "fieldname": "medical_device_class",
+   "fieldtype": "Select",
+   "label": "Medical Device Class",
+   "options": "\nClass I\nClass II\nClass III"
+  },
+  {
+   "fetch_from": "device_model.risk_classification",
+   "fieldname": "risk_classification",
+   "fieldtype": "Select",
+   "label": "Risk Classification",
+   "options": "\nLow\nMedium\nHigh\nCritical",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_htm",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "manufacturer_sn",
+   "fieldtype": "Data",
+   "label": "Manufacturer SN",
+   "search_index": 1
+  },
+  {
+   "fieldname": "udi_code",
+   "fieldtype": "Data",
+   "label": "UDI Code",
+   "search_index": 1
+  },
+  {
+   "fetch_from": "device_model.gmdn_code",
+   "fieldname": "gmdn_code",
+   "fieldtype": "Data",
+   "label": "GMDN Code"
+  },
+  {
+   "default": "Not Use",
+   "fieldname": "gmdn_status",
+   "fieldtype": "Select",
+   "label": "GMDN Status",
+   "options": "In Use\nNot Use",
+   "search_index": 1
+  },
+  {
+   "fieldname": "section_byt",
+   "fieldtype": "Section Break",
+   "label": "HTM - Đăng ký BYT"
+  },
+  {
+   "fieldname": "byt_reg_no",
+   "fieldtype": "Data",
+   "label": "BYT Registration No",
+   "search_index": 1
+  },
+  {
+   "fieldname": "column_break_byt",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "byt_reg_expiry",
+   "fieldtype": "Date",
+   "label": "BYT Registration Expiry",
+   "search_index": 1
+  },
+  {
+   "fieldname": "section_lifecycle",
+   "fieldtype": "Section Break",
+   "label": "HTM - Vòng đời"
+  },
+  {
+   "default": "Commissioned",
+   "fieldname": "lifecycle_status",
+   "fieldtype": "Select",
+   "label": "Lifecycle Status",
+   "options": "Commissioned\nActive\nUnder Maintenance\nUnder Repair\nCalibrating\nOut of Service\nDecommissioned",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "commissioning_date",
+   "fieldtype": "Date",
+   "label": "Commissioning Date"
+  },
+  {
+   "fieldname": "column_break_lifecycle",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "commissioning_ref",
+   "fieldtype": "Link",
+   "label": "Commissioning Reference",
+   "options": "Asset Commissioning"
+  },
+  {
+   "fieldname": "calibration_status",
+   "fieldtype": "Select",
+   "label": "Calibration Status",
+   "options": "\nNot Required\nOn Schedule\nDue Soon\nOverdue\nCalibration Failed"
+  },
+  {
+   "fieldname": "section_pm",
+   "fieldtype": "Section Break",
+   "label": "HTM - Bảo trì định kỳ (PM)"
+  },
+  {
+   "default": "0",
+   "fetch_from": "device_model.is_pm_required",
+   "fieldname": "is_pm_required",
+   "fieldtype": "Check",
+   "label": "Is PM Required"
+  },
+  {
+   "fieldname": "pm_interval_days",
+   "fieldtype": "Int",
+   "label": "PM Interval (days)",
+   "mandatory_depends_on": "eval:doc.is_pm_required"
+  },
+  {
+   "fieldname": "column_break_pm",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "last_pm_date",
+   "fieldtype": "Date",
+   "label": "Last PM Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "next_pm_date",
+   "fieldtype": "Date",
+   "label": "Next PM Date",
+   "search_index": 1
+  },
+  {
+   "fieldname": "section_calibration",
+   "fieldtype": "Section Break",
+   "label": "HTM - Hiệu chuẩn"
+  },
+  {
+   "default": "0",
+   "fetch_from": "device_model.is_calibration_required",
+   "fieldname": "is_calibration_required",
+   "fieldtype": "Check",
+   "label": "Is Calibration Required"
+  },
+  {
+   "fieldname": "calibration_interval_days",
+   "fieldtype": "Int",
+   "label": "Calibration Interval (days)",
+   "mandatory_depends_on": "eval:doc.is_calibration_required"
+  },
+  {
+   "fieldname": "column_break_calibration",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "last_calibration_date",
+   "fieldtype": "Date",
+   "label": "Last Calibration Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "next_calibration_date",
+   "fieldtype": "Date",
+   "label": "Next Calibration Date",
+   "search_index": 1
+  },
+  {
+   "fieldname": "section_insurance",
+   "fieldtype": "Section Break",
+   "label": "Bảo hiểm"
+  },
+  {
+   "fieldname": "insurance_policy_no",
+   "fieldtype": "Data",
+   "label": "Số hợp đồng bảo hiểm",
+   "search_index": 1
+  },
+  {
+   "fieldname": "insurer_name",
+   "fieldtype": "Data",
+   "label": "Tên công ty bảo hiểm"
+  },
+  {
+   "fieldname": "column_break_insurance",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "insured_value",
+   "fieldtype": "Currency",
+   "label": "Giá trị bảo hiểm"
+  },
+  {
+   "fieldname": "insurance_start_date",
+   "fieldtype": "Date",
+   "label": "Ngày bắt đầu bảo hiểm"
+  },
+  {
+   "fieldname": "insurance_end_date",
+   "fieldtype": "Date",
+   "label": "Ngày hết hạn bảo hiểm",
+   "search_index": 1
+  },
+  {
+   "fieldname": "section_notes",
+   "fieldtype": "Section Break",
+   "label": "Ghi chú"
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Text Editor",
+   "label": "Notes"
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "AC Asset",
+   "print_hide": 1,
+   "read_only": 1
+  }
  ],
  "is_submittable": 1,
  "links": [],
- "modified": "2026-04-18 00:00:00.000000",
+ "modified": "2026-04-22 14:33:07.294795",
  "modified_by": "Administrator",
  "module": "AssetCore",
  "name": "AC Asset",
  "owner": "Administrator",
  "permissions": [
-  {"role": "IMM System Admin", "read": 1, "write": 1, "create": 1, "delete": 1, "submit": 1, "cancel": 1, "amend": 1, "export": 1, "import": 1, "report": 1, "share": 1, "print": 1, "email": 1},
-  {"role": "IMM Department Head", "read": 1, "write": 1, "create": 1, "submit": 1, "report": 1, "print": 1, "email": 1},
-  {"role": "IMM Operations Manager", "read": 1, "write": 1, "create": 1, "submit": 1, "report": 1, "print": 1, "email": 1},
-  {"role": "IMM Workshop Lead", "read": 1, "write": 1, "report": 1, "print": 1},
-  {"role": "IMM Technician", "read": 1, "write": 1, "report": 1, "print": 1},
-  {"role": "IMM Document Officer", "read": 1, "report": 1, "print": 1},
-  {"role": "IMM QA Officer", "read": 1, "report": 1, "print": 1}
+  {
+   "amend": 1,
+   "cancel": 1,
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "import": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "IMM System Admin",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "IMM Department Head",
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "IMM Operations Manager",
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "IMM Workshop Lead",
+   "write": 1
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "IMM Technician",
+   "write": 1
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "IMM Document Officer"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "IMM QA Officer"
+  }
  ],
+ "row_format": "Dynamic",
  "sort_field": "modified",
  "sort_order": "DESC",
- "track_changes": 1,
- "states": []
+ "states": [],
+ "track_changes": 1
 }

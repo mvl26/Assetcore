@@ -172,3 +172,13 @@ def approve_clinical_release(commissioning: str, board_approver: str,
 @frappe.whitelist(methods=["POST"])
 def report_doa(commissioning: str, description: str) -> dict:
     return _handle(svc.report_doa, commissioning, description)
+
+
+@frappe.whitelist(methods=["POST"])
+def delete_commissioning(name: str) -> dict:
+    return _handle(svc.delete_commissioning, name)
+
+
+@frappe.whitelist(methods=["POST"])
+def cancel_commissioning(name: str) -> dict:
+    return _handle(svc.cancel_commissioning, name)

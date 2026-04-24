@@ -1,9 +1,8 @@
 {
  "actions": [],
  "allow_import": 1,
- "allow_rename": 0,
  "autoname": "field:category_name",
- "creation": "2026-04-18 00:00:00.000000",
+ "creation": "2026-04-18 00:00:00",
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
@@ -20,35 +19,129 @@
   "is_active"
  ],
  "fields": [
-  {"fieldname": "category_name", "fieldtype": "Data", "label": "Category Name", "reqd": 1, "unique": 1, "in_list_view": 1},
-  {"fieldname": "description", "fieldtype": "Small Text", "label": "Description"},
-  {"fieldname": "section_pm", "fieldtype": "Section Break", "label": "PM / Calibration Defaults"},
-  {"fieldname": "default_pm_required", "fieldtype": "Check", "label": "Default PM Required"},
-  {"fieldname": "default_pm_interval_days", "fieldtype": "Int", "label": "Default PM Interval (days)", "mandatory_depends_on": "eval:doc.default_pm_required"},
-  {"fieldname": "column_break_pm", "fieldtype": "Column Break"},
-  {"fieldname": "default_calibration_required", "fieldtype": "Check", "label": "Default Calibration Required"},
-  {"fieldname": "default_calibration_interval_days", "fieldtype": "Int", "label": "Default Calibration Interval (days)", "mandatory_depends_on": "eval:doc.default_calibration_required"},
-  {"fieldname": "section_reg", "fieldtype": "Section Break", "label": "Quy định"},
-  {"fieldname": "has_radiation", "fieldtype": "Check", "label": "Has Radiation"},
-  {"fieldname": "is_active", "fieldtype": "Check", "label": "Is Active", "default": "1"}
+  {
+   "fieldname": "category_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Category Name",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Description"
+  },
+  {
+   "fieldname": "section_pm",
+   "fieldtype": "Section Break",
+   "label": "PM / Calibration Defaults"
+  },
+  {
+   "default": "0",
+   "fieldname": "default_pm_required",
+   "fieldtype": "Check",
+   "label": "Default PM Required"
+  },
+  {
+   "depends_on": "eval:doc.default_pm_required",
+   "fieldname": "default_pm_interval_days",
+   "fieldtype": "Int",
+   "label": "Default PM Interval (days)",
+   "mandatory_depends_on": "eval:doc.default_pm_required"
+  },
+  {
+   "fieldname": "column_break_pm",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "default_calibration_required",
+   "fieldtype": "Check",
+   "label": "Default Calibration Required"
+  },
+  {
+   "depends_on": "eval:doc.default_calibration_required",
+   "fieldname": "default_calibration_interval_days",
+   "fieldtype": "Int",
+   "label": "Default Calibration Interval (days)",
+   "mandatory_depends_on": "eval:doc.default_calibration_required"
+  },
+  {
+   "fieldname": "section_reg",
+   "fieldtype": "Section Break",
+   "label": "Quy \u0111\u1ecbnh"
+  },
+  {
+   "default": "0",
+   "fieldname": "has_radiation",
+   "fieldtype": "Check",
+   "label": "Has Radiation"
+  },
+  {
+   "default": "1",
+   "fieldname": "is_active",
+   "fieldtype": "Check",
+   "label": "Is Active"
+  }
  ],
  "links": [],
- "modified": "2026-04-18 00:00:00.000000",
+ "modified": "2026-04-23 11:34:25.645443",
  "modified_by": "Administrator",
  "module": "AssetCore",
  "name": "AC Asset Category",
+ "naming_rule": "By fieldname",
  "owner": "Administrator",
  "permissions": [
-  {"role": "IMM System Admin", "read": 1, "write": 1, "create": 1, "delete": 1, "export": 1, "import": 1, "report": 1, "share": 1, "print": 1, "email": 1},
-  {"role": "IMM Department Head", "read": 1, "report": 1},
-  {"role": "IMM Operations Manager", "read": 1, "write": 1, "create": 1, "report": 1},
-  {"role": "IMM Workshop Lead", "read": 1, "report": 1},
-  {"role": "IMM Technician", "read": 1, "report": 1},
-  {"role": "IMM Document Officer", "read": 1, "report": 1},
-  {"role": "IMM QA Officer", "read": 1, "report": 1}
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "import": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "IMM System Admin",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "IMM Department Head"
+  },
+  {
+   "create": 1,
+   "read": 1,
+   "report": 1,
+   "role": "IMM Operations Manager",
+   "write": 1
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "IMM Workshop Lead"
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "IMM Technician"
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "IMM Document Officer"
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "IMM QA Officer"
+  }
  ],
+ "row_format": "Dynamic",
  "sort_field": "modified",
  "sort_order": "DESC",
- "track_changes": 1,
- "states": []
+ "states": [],
+ "track_changes": 1
 }

@@ -136,7 +136,7 @@ async function handleStartRepair() {
       </div>
     </Transition>
 
-    <div class="max-w-3xl space-y-5">
+    <div class="space-y-5">
       <!-- Search combobox -->
       <div class="card">
         <label class="block text-sm font-semibold text-slate-700 mb-2">Tìm vật tư</label>
@@ -182,7 +182,7 @@ async function handleStartRepair() {
       </div>
 
       <!-- Parts table -->
-      <div class="card p-0 overflow-hidden">
+      <div class="card p-0 overflow-x-auto">
         <div class="px-5 py-4 border-b border-slate-100">
           <h3 class="text-sm font-semibold text-slate-800">
             Danh sách vật tư

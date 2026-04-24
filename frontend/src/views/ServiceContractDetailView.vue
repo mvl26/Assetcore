@@ -76,7 +76,7 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="max-w-3xl mx-auto p-6 space-y-5">
+  <div class="page-container animate-fade-in space-y-5">
     <div class="flex items-center gap-3">
       <button @click="router.back()" class="text-gray-500 hover:text-gray-700 text-sm">← Quay lại</button>
       <h1 class="text-xl font-semibold text-gray-800">Chi tiết Hợp đồng dịch vụ</h1>
@@ -102,7 +102,7 @@ onMounted(load)
         <input id="d-title" v-model="contract.contract_title" :disabled="contract.docstatus === 1" type="text" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm disabled:bg-gray-50" />
       </div>
 
-      <div class="grid grid-cols-2 gap-4">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <p class="block text-sm font-medium text-gray-700 mb-1">NCC</p>
           <p class="text-sm text-gray-800 bg-gray-50 px-3 py-2 rounded-lg">{{ contract.supplier }}</p>
@@ -113,7 +113,7 @@ onMounted(load)
         </div>
       </div>
 
-      <div class="grid grid-cols-2 gap-4">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <p class="block text-sm font-medium text-gray-700 mb-1">Bắt đầu</p>
           <p class="text-sm text-gray-800 bg-gray-50 px-3 py-2 rounded-lg">{{ formatDate(contract.contract_start) }}</p>
@@ -124,7 +124,7 @@ onMounted(load)
         </div>
       </div>
 
-      <div class="grid grid-cols-2 gap-4">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <label for="d-value" class="block text-sm font-medium text-gray-700 mb-1">Giá trị HĐ</label>
           <input id="d-value" v-model.number="contract.contract_value" :disabled="contract.docstatus === 1" type="number" min="0" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm disabled:bg-gray-50" />

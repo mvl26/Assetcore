@@ -47,7 +47,7 @@ async function submit() {
 </script>
 
 <template>
-  <div class="page-container animate-fade-in max-w-3xl">
+  <div class="page-container animate-fade-in">
     <!-- Header -->
     <div class="flex items-center gap-3 mb-6">
       <button class="btn-ghost" @click="router.push('/assets')">← Quay lại</button>
@@ -143,9 +143,7 @@ async function submit() {
               <option value="">— Chọn mức phân loại —</option>
               <option value="Class I">Loại I — Rủi ro thấp</option>
               <option value="Class II">Loại II — Rủi ro trung bình</option>
-              <option value="Class IIa">Loại IIa — Rủi ro trung bình</option>
-              <option value="Class IIb">Loại IIb — Rủi ro cao</option>
-              <option value="Class III">Loại III — Rủi ro cao nhất</option>
+              <option value="Class III">Loại III — Rủi ro cao</option>
             </select>
           </div>
           <div>

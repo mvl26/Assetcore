@@ -29,6 +29,7 @@ const navGroups: NavGroup[] = [
         label: 'Thiết bị', path: '/assets', icon: 'cube',
         children: [
           { label: 'Danh sách', path: '/assets', icon: 'list' },
+          { label: 'Quét QR / GMDN', path: '/qr-scan', icon: 'scan' },
           { label: 'Luân chuyển', path: '/asset-transfers', icon: 'arrow' },
           { label: 'Hợp đồng DV', path: '/service-contracts', icon: 'document' },
           { label: 'Khấu hao', path: '/depreciation', icon: 'chart' },
@@ -87,7 +88,6 @@ const navGroups: NavGroup[] = [
         label: 'Sửa chữa', path: '/cm/dashboard', icon: 'repair', badge: '09',
         children: [
           { label: 'Tổng quan', path: '/cm/dashboard', icon: 'chart' },
-          { label: 'Tạo phiếu sửa chữa', path: '/cm/create', icon: 'plus' },
           { label: 'Danh sách phiếu', path: '/cm/work-orders', icon: 'list' },
           { label: 'Cập nhật Firmware', path: '/cm/firmware', icon: 'chip' },
           { label: 'Thời gian sửa TB', path: '/cm/mttr', icon: 'chart' },
@@ -99,7 +99,6 @@ const navGroups: NavGroup[] = [
           { label: 'Tổng quan', path: '/calibration/dashboard', icon: 'chart' },
           { label: 'Danh sách phiếu', path: '/calibration', icon: 'list' },
           { label: 'Lịch hiệu chuẩn', path: '/calibration/schedules', icon: 'calendar' },
-          { label: 'Tạo phiếu', path: '/calibration/new', icon: 'plus' },
         ],
       },
     ],
@@ -107,7 +106,14 @@ const navGroups: NavGroup[] = [
   {
     title: 'Chất lượng & Tuân thủ',
     items: [
-      { label: 'Sự cố', path: '/incidents', icon: 'alert' },
+      {
+        label: 'Sự cố & RCA', path: '/incidents/dashboard', icon: 'alert', badge: '12',
+        children: [
+          { label: 'Tổng quan', path: '/incidents/dashboard', icon: 'chart' },
+          { label: 'Danh sách sự cố', path: '/incidents/list', icon: 'list' },
+          { label: 'Báo cáo sự cố', path: '/incidents/new', icon: 'plus' },
+        ],
+      },
       { label: 'Khắc phục & Phòng ngừa', path: '/capas', icon: 'shield' },
       { label: 'Nhật ký kiểm toán', path: '/audit-trail', icon: 'lock' },
     ],
@@ -131,7 +137,7 @@ const navGroups: NavGroup[] = [
 
 const EXACT_MATCH_PATHS = new Set([
   '/commissioning', '/documents', '/assets', '/suppliers', '/device-models',
-  '/incidents', '/capas', '/asset-transfers', '/service-contracts',
+  '/incidents/dashboard', '/incidents/list', '/capas', '/asset-transfers', '/service-contracts',
   '/pm/work-orders', '/cm/work-orders', '/calibration',
   '/planning/needs-assessments', '/planning/procurement-plans',
   '/planning/technical-specs', '/planning/vendor-evaluations',

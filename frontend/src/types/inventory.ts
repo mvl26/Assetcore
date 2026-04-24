@@ -6,7 +6,9 @@ export interface Warehouse {
   warehouse_code: string
   warehouse_name: string
   department?: string
+  department_name?: string
   location?: string
+  location_name?: string
   manager?: string
   is_active: number
   notes?: string

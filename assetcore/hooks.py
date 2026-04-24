@@ -1,4 +1,6 @@
 app_name = "assetcore"
+after_install = "assetcore.setup.install.after_install"
+after_migrate = "assetcore.setup.install.after_migrate"
 app_title = "AssetCore"
 app_publisher = "miyano"
 app_description = "Medical Equipment Lifecycle Management (HTM)"
@@ -35,11 +37,13 @@ fixtures = [
         "IMM-04 Workflow",
     ]]]},
     {"dt": "Workflow State", "filters": [["name", "in", [
-        "Draft", "Commissioned", "Active", "Under Repair", "Calibrating",
+        "Draft", "Commissioned", "Active",
+        "Under Maintenance", "Under Repair", "Calibrating",
         "Out of Service", "Decommissioned",
     ]]]},
     {"dt": "Workflow Action Master", "filters": [["name", "in", [
         "Commission", "Activate",
+        "Bắt đầu bảo trì", "Hoàn thành bảo trì",
         "Bắt đầu sửa chữa", "Bắt đầu hiệu chuẩn", "Đưa ra khỏi sử dụng",
         "Hoàn thành sửa chữa", "Không thể sửa chữa",
         "Hiệu chuẩn đạt", "Hiệu chuẩn không đạt",
@@ -52,7 +56,10 @@ fixtures = [
 # ──────────────────────────────────────────────
 doc_events = {
     "Asset Commissioning": {
-        "on_submit": "assetcore.services.imm11.create_calibration_schedule_from_commissioning",
+        "on_submit": [
+            "assetcore.services.imm08.create_pm_schedule_from_commissioning",
+            "assetcore.services.imm11.create_calibration_schedule_from_commissioning",
+        ],
     },
 }
 
@@ -74,6 +81,8 @@ scheduler_events = {
         # IMM-11 Calibration auto WO + expiry check
         "assetcore.services.imm11.create_due_calibration_wos",
         "assetcore.services.imm11.check_calibration_expiry",
+        # IMM-12 Incident chronic failure detection
+        "assetcore.services.imm12.detect_chronic_failures",
     ],
     "monthly": [
         "assetcore.services.imm00.rollup_asset_kpi",

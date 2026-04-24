@@ -73,6 +73,12 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true, title: 'Danh sách Thiết bị — IMM-00' },
   },
   {
+    path: '/qr-scan',
+    name: 'QRScan',
+    component: () => import('@/views/QRScanView.vue'),
+    meta: { requiresAuth: true, title: 'Quét QR — GMDN Status' },
+  },
+  {
     path: '/assets/new',
     name: 'AssetCreate',
     component: () => import('@/views/AssetCreateView.vue'),
@@ -312,10 +318,11 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true, title: 'Yêu cầu cập nhật Firmware — IMM-09' },
   },
   {
-    // FirmwareCRDetail: chưa có view riêng — tạm redirect về list, focus item qua query
     path: '/cm/firmware/:id',
     name: 'FirmwareCrDetail',
-    redirect: (to) => ({ path: '/cm/firmware', query: { focus: to.params.id as string } }),
+    component: () => import('@/views/FirmwareCrDetailView.vue'),
+    props: true,
+    meta: { requiresAuth: true, title: 'Chi tiết Firmware CR — IMM-09' },
   },
   {
     path: '/cm/mttr',
@@ -357,7 +364,13 @@ const routes: RouteRecordRaw[] = [
 
   // ─── 8. Incident & CAPA & Audit ────────────────────────────────────────────
   {
-    path: '/incidents',
+    path: '/incidents/dashboard',
+    name: 'IncidentDashboard',
+    component: () => import('@/views/IMM12DashboardView.vue'),
+    meta: { requiresAuth: true, title: 'Tổng quan Sự cố — IMM-12' },
+  },
+  {
+    path: '/incidents/list',
     name: 'IncidentList',
     component: () => import('@/views/IncidentListView.vue'),
     meta: { requiresAuth: true, title: 'Báo cáo Sự cố' },
@@ -374,6 +387,14 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/IncidentDetailView.vue'),
     props: true,
     meta: { requiresAuth: true, title: 'Chi tiết Sự cố' },
+  },
+  { path: '/incidents', redirect: '/incidents/dashboard' },
+  {
+    path: '/rca/:id',
+    name: 'RCADetail',
+    component: () => import('@/views/RCADetailView.vue'),
+    props: true,
+    meta: { requiresAuth: true, title: 'Phân tích nguyên nhân (RCA)' },
   },
   {
     path: '/capas',
@@ -455,6 +476,13 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true, title: 'Danh sách Kho' },
   },
   {
+    path: '/warehouses/:name',
+    name: 'WarehouseDetail',
+    component: () => import('@/views/WarehouseDetailView.vue'),
+    props: true,
+    meta: { requiresAuth: true, title: 'Chi tiết Kho' },
+  },
+  {
     path: '/spare-parts',
     name: 'SparePartList',
     component: () => import('@/views/SparePartListView.vue'),
@@ -484,6 +512,13 @@ const routes: RouteRecordRaw[] = [
     name: 'StockMovementCreate',
     component: () => import('@/views/StockMovementCreateView.vue'),
     meta: { requiresAuth: true, title: 'Tạo phiếu kho' },
+  },
+  {
+    path: '/stock-movements/:name/edit',
+    name: 'StockMovementEdit',
+    component: () => import('@/views/StockMovementEditView.vue'),
+    props: true,
+    meta: { requiresAuth: true, title: 'Sửa phiếu kho' },
   },
   {
     path: '/stock-movements/:name',

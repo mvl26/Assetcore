@@ -151,3 +151,40 @@ def get_calibration_dashboard() -> dict:
 @frappe.whitelist()
 def get_asset_calibration_history(asset: str, limit: int = 10) -> dict:
     return _handle(svc.get_asset_history, asset, int(limit))
+
+
+# ─── 4. Workflow actions ─────────────────────────────────────────────────────
+
+@frappe.whitelist(methods=["POST"])
+def send_to_lab(name: str, sent_date: str = None, lab_supplier: str = None,
+                lab_contract_ref: str = None) -> dict:
+    return _handle(
+        svc.send_to_lab, name,
+        sent_date=sent_date, lab_supplier=lab_supplier,
+        lab_contract_ref=lab_contract_ref,
+    )
+
+
+@frappe.whitelist(methods=["POST"])
+def receive_certificate(name: str, certificate_file: str,
+                        certificate_number: str, certificate_date: str,
+                        traceability_reference: str = None,
+                        reference_standard_serial: str = None) -> dict:
+    return _handle(
+        svc.receive_certificate, name,
+        certificate_file=certificate_file,
+        certificate_number=certificate_number,
+        certificate_date=certificate_date,
+        traceability_reference=traceability_reference,
+        reference_standard_serial=reference_standard_serial,
+    )
+
+
+@frappe.whitelist(methods=["POST"])
+def cancel_calibration(name: str, reason: str) -> dict:
+    return _handle(svc.cancel_calibration, name, reason)
+
+
+@frappe.whitelist()
+def get_due_calibrations(days: int = 30, limit: int = 50) -> dict:
+    return _handle(svc.get_due_calibrations, int(days), int(limit))

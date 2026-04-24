@@ -132,9 +132,14 @@ function navigateChecklist() {
         <!-- Asset Info -->
         <div class="bg-white rounded-xl shadow-sm border p-5">
           <h2 class="font-semibold text-gray-700 mb-3 text-sm uppercase tracking-wide">Thông tin thiết bị</h2>
-          <div class="grid grid-cols-2 gap-3 text-sm">
-            <div><span class="text-gray-500">Thiết bị:</span> <span class="font-medium">{{ wo.asset_ref }}</span></div>
-            <div><span class="text-gray-500">Tên:</span> <span class="font-medium">{{ wo.asset_name }}</span></div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+            <div class="col-span-2">
+              <span class="text-gray-500">Thiết bị:</span>
+              <span class="font-semibold ml-1">{{ wo.asset_name || wo.asset_ref }}</span>
+              <span v-if="wo.asset_name" class="ml-2 text-xs text-gray-400 font-mono">{{ wo.asset_ref }}</span>
+            </div>
+            <div v-if="wo.department_name"><span class="text-gray-500">Khoa:</span> <span class="font-medium">{{ wo.department_name }}</span></div>
+            <div v-if="wo.location_name"><span class="text-gray-500">Vị trí:</span> <span class="font-medium">{{ wo.location_name }}</span></div>
             <div><span class="text-gray-500">Serial:</span> <span class="font-mono text-xs">{{ wo.serial_no || '—' }}</span></div>
             <div><span class="text-gray-500">Risk Class:</span> <span class="font-medium">{{ wo.risk_class }}</span></div>
             <div><span class="text-gray-500">Loại SC:</span> <span class="font-medium">{{ repairTypeLabel(wo.repair_type) }}</span></div>

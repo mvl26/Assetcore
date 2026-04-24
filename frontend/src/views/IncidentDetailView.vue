@@ -2,7 +2,7 @@
 // Copyright (c) 2026, AssetCore Team — IMM-12 Incident Detail + Workflow
 import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { getIncident, acknowledgeIncident, resolveIncident, closeIncident } from '@/api/imm12'
+import { getIncident, acknowledgeIncident, resolveIncident, closeIncident, cancelIncident, createRca } from '@/api/imm12'
 import { deleteIncident } from '@/api/imm00'
 import type { IncidentDetail } from '@/api/imm12'
 
@@ -18,11 +18,14 @@ const err = ref('')
 const showAckModal = ref(false)
 const showResolveModal = ref(false)
 const showCloseModal = ref(false)
+const showCancelModal = ref(false)
 const ackNotes = ref('')
 const ackAssignedTo = ref('')
 const resolveNotes = ref('')
 const rootCause = ref('')
 const verifyNotes = ref('')
+const cancelReason = ref('')
+const rcaCreating = ref(false)
 const actionLoading = ref(false)
 
 async function load() {
@@ -73,9 +76,33 @@ async function doClose() {
   finally { actionLoading.value = false }
 }
 
+async function doCancel() {
+  if (!cancelReason.value.trim()) { err.value = 'Bắt buộc nhập lý do hủy'; return }
+  actionLoading.value = true
+  err.value = ''
+  try {
+    await cancelIncident(name.value, cancelReason.value)
+    showCancelModal.value = false
+    cancelReason.value = ''
+    await load()
+  } catch (e: unknown) { err.value = (e as Error).message || 'Lỗi khi hủy' }
+  finally { actionLoading.value = false }
+}
+
+async function doCreateRca() {
+  rcaCreating.value = true
+  err.value = ''
+  try {
+    const res = await createRca(name.value, '5-Why')
+    const r = res as unknown as { name?: string }
+    if (r?.name) router.push(`/rca/${r.name}`)
+  } catch (e: unknown) { err.value = (e as Error).message || 'Không thể tạo RCA' }
+  finally { rcaCreating.value = false }
+}
+
 async function remove() {
   if (!confirm(`Xóa Incident "${name.value}"?`)) return
-  try { await deleteIncident(name.value); router.push('/incidents') }
+  try { await deleteIncident(name.value); router.push('/incidents/list') }
   catch (e: unknown) { err.value = (e as Error).message || 'Không thể xóa' }
 }
 
@@ -88,7 +115,13 @@ const canResolve = computed(() =>
 const canClose = computed(() =>
   form.value.status === 'Resolved' && (form.value.allowed_transitions ?? []).includes('Closed'),
 )
-const isClosed = computed(() => form.value.status === 'Closed')
+const isClosed = computed(() => form.value.status === 'Closed' || form.value.status === ('Cancelled' as never))
+const canCancel = computed(() =>
+  form.value.status === 'Open' || form.value.status === 'Under Investigation',
+)
+const needsRca = computed(() =>
+  (form.value.rca_required === 1) && !form.value.rca_record,
+)
 
 const SEV_COLOR: Record<string, string> = {
   Critical: 'bg-red-100 text-red-700',
@@ -105,6 +138,7 @@ const STATUS_COLOR: Record<string, string> = {
   'Under Investigation': 'bg-yellow-100 text-yellow-800',
   'Resolved': 'bg-purple-100 text-purple-700',
   'Closed': 'bg-green-100 text-green-700',
+  'Cancelled': 'bg-gray-100 text-gray-500',
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -112,17 +146,18 @@ const STATUS_LABEL: Record<string, string> = {
   'Under Investigation': 'Đang điều tra',
   'Resolved': 'Đã giải quyết',
   'Closed': 'Đã đóng',
+  'Cancelled': 'Đã hủy',
 }
 
 onMounted(load)
 </script>
 
 <template>
-  <div class="p-6 max-w-4xl mx-auto space-y-5">
+  <div class="page-container animate-fade-in space-y-5">
     <!-- Header -->
     <div class="flex items-start justify-between flex-wrap gap-3">
       <div>
-        <button class="text-sm text-slate-500 hover:text-slate-700 mb-1" @click="router.push('/incidents')">← Danh sách Incident</button>
+        <button class="text-sm text-slate-500 hover:text-slate-700 mb-1" @click="router.push('/incidents/list')">← Danh sách Incident</button>
         <h1 class="text-xl font-semibold text-gray-800">{{ name }}</h1>
         <div class="flex items-center gap-2 mt-1 flex-wrap">
           <span :class="['px-2 py-0.5 rounded text-xs font-medium', sevColor(form.severity)]">{{ form.severity }}</span>
@@ -148,6 +183,11 @@ onMounted(load)
           class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium"
           @click="showCloseModal = true">
           Đóng Incident
+        </button>
+        <button v-if="canCancel"
+          class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg text-sm font-medium"
+          @click="showCancelModal = true">
+          Hủy (False alarm)
         </button>
         <button v-if="!isClosed"
           class="text-red-500 hover:text-red-700 text-sm font-medium px-3 py-2"
@@ -218,6 +258,41 @@ onMounted(load)
         </div>
       </div>
 
+      <!-- RCA section -->
+      <div v-if="form.rca_required === 1 || form.rca_record" class="p-6 space-y-3">
+        <div class="flex items-center justify-between">
+          <div class="text-sm font-semibold text-gray-700">Root Cause Analysis (RCA)</div>
+          <button v-if="needsRca" :disabled="rcaCreating"
+            class="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white px-3 py-1.5 rounded-lg text-xs font-medium"
+            @click="doCreateRca">
+            {{ rcaCreating ? 'Đang tạo...' : 'Tạo RCA' }}
+          </button>
+        </div>
+        <div v-if="form.rca" class="bg-indigo-50 border border-indigo-200 rounded-lg p-3">
+          <div class="flex items-center justify-between">
+            <div>
+              <button class="text-sm font-mono text-indigo-700 hover:underline" @click="router.push(`/rca/${form.rca.name}`)">{{ form.rca.name }}</button>
+              <span class="ml-2 text-xs px-2 py-0.5 rounded bg-white border">{{ form.rca.status }}</span>
+            </div>
+          </div>
+          <div v-if="form.rca.root_cause" class="text-xs text-gray-700 mt-2 whitespace-pre-line">
+            <span class="text-slate-500">Root cause:</span> {{ form.rca.root_cause }}
+          </div>
+        </div>
+        <div v-else-if="needsRca" class="text-xs text-amber-700 bg-amber-50 p-3 rounded">
+          ⚠ Incident severity {{ form.severity }} yêu cầu RCA trước khi Resolved.
+        </div>
+      </div>
+
+      <div v-if="form.chronic_failure_flag === 1" class="p-6 bg-red-50 border-t border-red-200">
+        <div class="text-sm text-red-700"><strong>⚠ Chronic Failure:</strong> thiết bị này đã có ≥3 sự cố cùng mã lỗi trong 90 ngày.</div>
+      </div>
+
+      <div v-if="form.clinical_impact" class="p-6">
+        <div class="text-xs text-slate-500 mb-1">Tác động lâm sàng</div>
+        <div class="text-sm text-gray-700 whitespace-pre-line bg-red-50 p-3 rounded-lg">{{ form.clinical_impact }}</div>
+      </div>
+
       <!-- Links -->
       <div v-if="form.linked_repair_wo || form.linked_capa" class="p-6 flex gap-4 flex-wrap">
         <div v-if="form.linked_capa">
@@ -275,6 +350,23 @@ onMounted(load)
           <button class="px-4 py-2 text-sm border border-gray-300 rounded-lg" @click="showResolveModal = false">Hủy</button>
           <button :disabled="actionLoading || !resolveNotes.trim()" class="px-4 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50" @click="doResolve">
             {{ actionLoading ? 'Đang xử lý...' : 'Xác nhận giải quyết' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Cancel modal -->
+    <div v-if="showCancelModal" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
+      <div class="bg-white rounded-xl p-6 w-full max-w-md space-y-4 shadow-xl">
+        <h2 class="font-semibold text-gray-800">Hủy Incident (False Alarm)</h2>
+        <div>
+          <label for="cancel-reason" class="block text-sm font-medium text-gray-700 mb-1">Lý do hủy <span class="text-red-500">*</span></label>
+          <textarea id="cancel-reason" v-model="cancelReason" rows="3" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400" placeholder="Lý do (vd: báo cáo nhầm, không phải sự cố...)"></textarea>
+        </div>
+        <div class="flex justify-end gap-2">
+          <button class="px-4 py-2 text-sm border border-gray-300 rounded-lg" @click="showCancelModal = false">Quay lại</button>
+          <button :disabled="actionLoading || !cancelReason.trim()" class="px-4 py-2 text-sm bg-gray-600 text-white rounded-lg hover:bg-gray-700 disabled:opacity-50" @click="doCancel">
+            {{ actionLoading ? 'Đang hủy...' : 'Xác nhận hủy' }}
           </button>
         </div>
       </div>

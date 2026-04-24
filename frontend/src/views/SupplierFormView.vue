@@ -11,13 +11,20 @@ const name = computed(() => route.params.id as string | undefined)
 
 const form = ref<Partial<AcSupplier> & Record<string, string | number | null | undefined>>({
   supplier_name: '',
-  supplier_type: 'Distributor',
+  vendor_type: 'Distributor',
   country: 'Vietnam',
-  contact_email: '',
-  contact_phone: '',
+  email_id: '',
+  phone: '',
+  mobile_no: '',
   address: '',
   tax_id: '',
-  contract_expiry_date: '',
+  website: '',
+  contract_start: '',
+  contract_end: '',
+  iso_13485_cert: '',
+  iso_13485_expiry: '',
+  iso_17025_cert: '',
+  iso_17025_expiry: '',
   is_active: 1,
 })
 const loading = ref(false)
@@ -62,7 +69,7 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="p-6 max-w-3xl mx-auto space-y-5">
+  <div class="page-container animate-fade-in space-y-5">
     <div class="flex items-center justify-between">
       <h1 class="text-xl font-semibold text-gray-800">
         {{ isEdit ? `Sửa NCC — ${name}` : 'Thêm Nhà cung cấp' }}
@@ -74,14 +81,14 @@ onMounted(load)
 
     <div v-if="loading" class="text-center text-gray-400 py-12">Đang tải...</div>
     <div v-else class="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
-      <div class="grid grid-cols-2 gap-4">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div class="col-span-2">
           <label class="block text-sm font-medium text-gray-700 mb-1">Tên NCC *</label>
           <input v-model="form.supplier_name" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
         </div>
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">Loại NCC</label>
-          <select v-model="form.supplier_type" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+          <select v-model="form.vendor_type" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
             <option value="Manufacturer">Nhà sản xuất</option>
             <option value="Distributor">Nhà phân phối</option>
             <option value="Service Provider">Dịch vụ</option>
@@ -94,11 +101,19 @@ onMounted(load)
         </div>
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">Email liên hệ</label>
-          <input v-model="form.contact_email" type="email" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+          <input v-model="form.email_id" type="email" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
         </div>
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Điện thoại</label>
-          <input v-model="form.contact_phone" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+          <label class="block text-sm font-medium text-gray-700 mb-1">Điện thoại bàn</label>
+          <input v-model="form.phone" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Di động</label>
+          <input v-model="form.mobile_no" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Website</label>
+          <input v-model="form.website" type="url" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
         </div>
         <div class="col-span-2">
           <label class="block text-sm font-medium text-gray-700 mb-1">Địa chỉ</label>
@@ -109,8 +124,28 @@ onMounted(load)
           <input v-model="form.tax_id" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
         </div>
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Ngày hết hạn HĐ</label>
-          <input v-model="form.contract_expiry_date" type="date" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+          <label class="block text-sm font-medium text-gray-700 mb-1">Hợp đồng từ</label>
+          <input v-model="form.contract_start" type="date" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Hợp đồng đến</label>
+          <input v-model="form.contract_end" type="date" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Chứng chỉ ISO 13485</label>
+          <input v-model="form.iso_13485_cert" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">ISO 13485 hết hạn</label>
+          <input v-model="form.iso_13485_expiry" type="date" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Chứng chỉ ISO 17025</label>
+          <input v-model="form.iso_17025_cert" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">ISO 17025 hết hạn</label>
+          <input v-model="form.iso_17025_expiry" type="date" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
         </div>
       </div>
       <label class="flex items-center gap-2 text-sm">

@@ -33,6 +33,8 @@ _CAPA_OPEN_STATUSES = ("in", ["Open", "In Progress", "In Review"])
 _LOOKBACK_IN_PROGRESS = "In Progress"
 _DT_CAL = "IMM Asset Calibration"
 _CALIBRATING_TRIGGER_STATUSES = {CalibrationResult.IN_PROGRESS, CalibrationResult.SENT_TO_LAB}
+_MSG_ALREADY_SUBMITTED = "Phiếu đã Submit"
+_ORDER_NEXT_CAL_ASC = "next_calibration_date asc"
 
 
 def _transition_asset(asset_ref: str, to_status: str, cal_name: str, reason: str = "") -> None:
@@ -204,7 +206,7 @@ def handle_calibration_pass(cal_doc) -> None:
 
 
 def handle_calibration_fail(cal_doc) -> None:
-    """on_submit Fail: transition → Out of Service + CAPA + lookback."""
+    """on_submit Fail: transition → Out of Service + CAPA + lookback + Incident."""
     AssetRepo.set_values(cal_doc.asset, {"calibration_status": CalibrationStatus.FAILED})
 
     failed_params = _failed_params(cal_doc)
@@ -230,6 +232,21 @@ def handle_calibration_fail(cal_doc) -> None:
         root_doctype=CalibrationRepo.DOCTYPE, root_record=cal_doc.name,
         reason=f"Calibration failed — {cal_doc.name}; CAPA: {capa_name}; lookback {len(lookback)} assets",
     )
+
+    # IMM-12 cross-module: auto-report incident for failed calibration
+    try:
+        from assetcore.services.imm12 import report_incident as _report_incident
+        _report_incident(
+            asset=cal_doc.asset,
+            incident_type="Malfunction",
+            severity="High",
+            description=f"Thiết bị không đạt hiệu chuẩn — {cal_doc.name}. Thông số lỗi: {failed_params}",
+            fault_code="CAL_FAIL",
+            linked_repair_wo=cal_doc.name,
+            reported_by=frappe.session.user,
+        )
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "IMM-11 → IMM-12 incident on cal_fail")
 
 
 def perform_lookback_assessment(device_model: str, exclude_asset: str) -> list[str]:
@@ -257,6 +274,16 @@ def list_schedules(filters: dict | None = None, *, page: int = 1, page_size: int
         order_by="next_due_date asc",
         page=page, page_size=page_size,
     )
+    asset_ids = {r.get("asset") for r in rows if r.get("asset")}
+    if asset_ids:
+        asset_rows, _ = AssetRepo.list(
+            filters={"name": ("in", list(asset_ids))},
+            fields=["name", "asset_name"],
+            page_size=len(asset_ids),
+        )
+        amap = {a["name"]: a.get("asset_name") for a in asset_rows}
+        for r in rows:
+            r["asset_name"] = amap.get(r.get("asset"), "")
     return {"data": rows, "pagination": pg}
 
 
@@ -332,7 +359,10 @@ def get_calibration(name: str) -> dict:
     doc = CalibrationRepo.get(name)
     if not doc:
         raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy '{name}'")
-    return doc.as_dict()
+    data = doc.as_dict()
+    if data.get("asset"):
+        data["asset_name"] = frappe.db.get_value("AC Asset", data["asset"], "asset_name") or ""
+    return data
 
 
 def create_calibration(*, asset: str, calibration_type: str, scheduled_date: str,
@@ -397,7 +427,7 @@ def submit_calibration(name: str) -> dict:
     if not doc:
         raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy '{name}'")
     if doc.docstatus == 1:
-        raise ServiceError(ErrorCode.CONFLICT, "Phiếu đã Submit")
+        raise ServiceError(ErrorCode.CONFLICT, _MSG_ALREADY_SUBMITTED)
     doc = CalibrationRepo.submit(name)
     return {
         "name": doc.name,
@@ -503,13 +533,13 @@ def get_dashboard() -> dict:
         filters={"calibration_status": CalibrationStatus.OVERDUE,
                  "lifecycle_status": _NOT_DECOMMISSIONED},
         fields=["name", "asset_name", "device_model", "next_calibration_date", "location"],
-        order_by="next_calibration_date asc", page_size=10,
+        order_by=_ORDER_NEXT_CAL_ASC, page_size=10,
     )
     due_soon_assets, _ = AssetRepo.list(
         filters={"calibration_status": CalibrationStatus.DUE_SOON,
                  "lifecycle_status": _NOT_DECOMMISSIONED},
         fields=["name", "asset_name", "device_model", "next_calibration_date", "location"],
-        order_by="next_calibration_date asc", page_size=10,
+        order_by=_ORDER_NEXT_CAL_ASC, page_size=10,
     )
 
     # CAPA open list (top 5)
@@ -550,6 +580,131 @@ def get_dashboard() -> dict:
         "capa_open_list": capa_rows,
         "period": {"year": year, "month": month, "start": start, "end": end},
     }
+
+
+def send_to_lab(name: str, *, sent_date: str | None = None,
+                lab_supplier: str | None = None,
+                lab_contract_ref: str | None = None) -> dict:
+    """External cal: In Progress/Scheduled → Sent To Lab."""
+    doc = CalibrationRepo.get(name)
+    if not doc:
+        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy '{name}'")
+    if doc.docstatus == 1:
+        raise ServiceError(ErrorCode.BAD_STATE, _MSG_ALREADY_SUBMITTED)
+    if (doc.calibration_type or "") != "External":
+        raise ServiceError(ErrorCode.VALIDATION, "Chỉ áp dụng cho Calibration External")
+    if doc.status not in (CalibrationResult.SCHEDULED, CalibrationResult.IN_PROGRESS):
+        raise ServiceError(ErrorCode.BAD_STATE,
+                           f"Không thể Send To Lab từ '{doc.status}'")
+
+    patch: dict = {
+        "status": CalibrationResult.SENT_TO_LAB,
+        "sent_date": sent_date or nowdate(),
+        "sent_by": frappe.session.user,
+    }
+    if lab_supplier:
+        patch["lab_supplier"] = lab_supplier
+    if lab_contract_ref:
+        patch["lab_contract_ref"] = lab_contract_ref
+    CalibrationRepo.update_fields(name, patch)
+
+    cur = AssetRepo.get_value(doc.asset, "lifecycle_status")
+    if cur == AssetStatus.ACTIVE:
+        _transition_asset(doc.asset, AssetStatus.CALIBRATING, name,
+                          reason=f"Sent to lab — {name}")
+    log_audit_event(
+        asset=doc.asset, event_type="Calibration Sent To Lab",
+        actor=frappe.session.user, ref_doctype=_DT_CAL, ref_name=name,
+        change_summary=f"Lab: {patch.get('lab_supplier') or doc.lab_supplier or ''}",
+    )
+    return {"name": name, "status": patch["status"], "sent_date": patch["sent_date"]}
+
+
+def receive_certificate(name: str, *, certificate_file: str,
+                        certificate_number: str,
+                        certificate_date: str,
+                        traceability_reference: str | None = None,
+                        reference_standard_serial: str | None = None) -> dict:
+    """External: Sent To Lab → In Progress (chờ kỹ thuật nhập measurement + submit)."""
+    doc = CalibrationRepo.get(name)
+    if not doc:
+        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy '{name}'")
+    if doc.docstatus == 1:
+        raise ServiceError(ErrorCode.BAD_STATE, _MSG_ALREADY_SUBMITTED)
+    if doc.status != CalibrationResult.SENT_TO_LAB:
+        raise ServiceError(ErrorCode.BAD_STATE,
+                           "Chỉ nhận chứng chỉ khi trạng thái Sent To Lab")
+    if not certificate_file or not certificate_number or not certificate_date:
+        raise ServiceError(ErrorCode.VALIDATION,
+                           "Bắt buộc certificate_file, certificate_number, certificate_date")
+
+    patch: dict = {
+        "certificate_file": certificate_file,
+        "certificate_number": certificate_number,
+        "certificate_date": certificate_date,
+        "status": CalibrationResult.IN_PROGRESS,
+    }
+    if traceability_reference:
+        patch["traceability_reference"] = traceability_reference
+    if reference_standard_serial:
+        patch["reference_standard_serial"] = reference_standard_serial
+    CalibrationRepo.update_fields(name, patch)
+    log_audit_event(
+        asset=doc.asset, event_type="Calibration Certificate Received",
+        actor=frappe.session.user, ref_doctype=_DT_CAL, ref_name=name,
+        change_summary=f"Cert #{certificate_number} ngày {certificate_date}",
+    )
+    return {"name": name, "status": patch["status"],
+            "certificate_number": certificate_number}
+
+
+def cancel_calibration(name: str, reason: str) -> dict:
+    """Hủy phiếu trước submit (BR-11-08 false-alarm / thiết bị decommissioned)."""
+    doc = CalibrationRepo.get(name)
+    if not doc:
+        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy '{name}'")
+    if doc.docstatus == 1:
+        raise ServiceError(ErrorCode.BAD_STATE, "Phiếu đã Submit — không thể hủy")
+    if doc.status == CalibrationResult.CANCELLED:
+        raise ServiceError(ErrorCode.CONFLICT, "Phiếu đã Cancelled")
+    if not reason or not reason.strip():
+        raise ServiceError(ErrorCode.VALIDATION, "Bắt buộc nhập lý do hủy")
+
+    CalibrationRepo.update_fields(name, {
+        "status": CalibrationResult.CANCELLED,
+        "amendment_reason": f"[Cancelled] {reason}",
+    })
+    cur = AssetRepo.get_value(doc.asset, "lifecycle_status")
+    if cur == AssetStatus.CALIBRATING:
+        _transition_asset(doc.asset, AssetStatus.ACTIVE, name,
+                          reason=f"Calibration cancelled — {name}")
+    log_audit_event(
+        asset=doc.asset, event_type="Calibration Cancelled",
+        actor=frappe.session.user, ref_doctype=_DT_CAL, ref_name=name,
+        change_summary=reason[:200],
+    )
+    return {"name": name, "status": CalibrationResult.CANCELLED}
+
+
+def get_due_calibrations(days: int = 30, limit: int = 50) -> dict:
+    """Danh sách asset due_soon/overdue (≤ N ngày)."""
+    today = nowdate()
+    threshold = add_days(today, int(days))
+    rows, _ = AssetRepo.list(
+        filters={
+            "lifecycle_status": _NOT_DECOMMISSIONED,
+            "next_calibration_date": ("<=", threshold),
+        },
+        fields=["name", "asset_name", "device_model", "location",
+                "next_calibration_date", "calibration_status"],
+        order_by=_ORDER_NEXT_CAL_ASC,
+        page_size=int(limit),
+    )
+    today_d = getdate(today)
+    for r in rows:
+        nd = r.get("next_calibration_date")
+        r["days_left"] = date_diff(nd, today_d) if nd else None
+    return {"items": rows, "threshold_days": int(days)}
 
 
 def get_asset_history(asset: str, limit: int = 10) -> dict:

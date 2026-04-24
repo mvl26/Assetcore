@@ -1,9 +1,14 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import {
   listDocumentRequests, getDocumentRequest, createDocumentRequest,
   updateDocumentRequest, deleteDocumentRequest, type DocumentRequest,
 } from '@/api/imm00'
+import SmartSelect from '@/components/common/SmartSelect.vue'
+
+const route = useRoute()
+const router = useRouter()
 
 const items = ref<DocumentRequest[]>([])
 const total = ref(0)
@@ -13,19 +18,39 @@ const editingName = ref<string | null>(null)
 const form = ref<Partial<DocumentRequest> & Record<string, unknown>>({})
 const err = ref('')
 
+// Filter state
+const filterAsset = ref<string>((route.query.asset as string) || '')
+const filterStatus = ref('')
+
 async function load() {
   loading.value = true
   try {
-    const r = await listDocumentRequests()
+    const r = await listDocumentRequests({
+      asset: filterAsset.value || undefined,
+      status: filterStatus.value || undefined,
+    })
     const d = r as unknown as { items: DocumentRequest[]; pagination: { total: number } }
     if (d) { items.value = d.items || []; total.value = d.pagination?.total || 0 }
   } finally { loading.value = false }
 }
 
+function clearAssetFilter() {
+  filterAsset.value = ''
+  router.replace({ query: {} })
+  load()
+}
+
+// Re-load when query param changes (e.g. navigating from AssetDetail)
+watch(() => route.query.asset, (val) => {
+  filterAsset.value = (val as string) || ''
+  load()
+})
+
 function openCreate() {
   editingName.value = null
   form.value = {
-    asset_ref: '', doc_type_required: '', doc_category: 'Legal',
+    asset_ref: filterAsset.value || '',
+    doc_type_required: '', doc_category: 'Legal',
     status: 'Open', priority: 'Medium',
     due_date: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10),
   }
@@ -70,7 +95,7 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="p-6 space-y-5">
+  <div class="page-container animate-fade-in space-y-5">
     <div class="flex items-center justify-between">
       <h1 class="text-xl font-semibold text-gray-800">Yêu cầu Hồ sơ (Document Request)</h1>
       <div class="flex items-center gap-3">
@@ -79,7 +104,39 @@ onMounted(load)
       </div>
     </div>
 
-    <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <!-- Filter bar -->
+    <div class="flex items-center gap-3">
+      <div class="w-64">
+        <SmartSelect
+          v-model="filterAsset"
+          doctype="AC Asset"
+          placeholder="Lọc theo thiết bị..."
+          @update:model-value="load"
+        />
+      </div>
+      <select v-model="filterStatus" class="border border-gray-300 rounded-lg px-3 py-2 text-sm" @change="load">
+        <option value="">Tất cả trạng thái</option>
+        <option value="Open">Đang mở</option>
+        <option value="In_Progress">Đang xử lý</option>
+        <option value="Overdue">Quá hạn</option>
+        <option value="Fulfilled">Đã hoàn thành</option>
+        <option value="Cancelled">Đã hủy</option>
+      </select>
+      <button v-if="filterAsset || filterStatus" class="text-xs text-gray-400 hover:text-red-500 underline" @click="filterAsset = ''; filterStatus = ''; clearAssetFilter()">
+        Xóa lọc
+      </button>
+    </div>
+
+    <!-- Active asset filter banner -->
+    <div v-if="filterAsset" class="flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-lg px-4 py-2 text-sm text-blue-700">
+      <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+      Đang lọc yêu cầu của thiết bị: <strong class="font-mono">{{ filterAsset }}</strong>
+      <button class="ml-auto text-blue-400 hover:text-blue-700" @click="clearAssetFilter">✕</button>
+    </div>
+
+    <div class="bg-white rounded-xl border border-gray-200 overflow-x-auto">
       <div v-if="loading" class="text-center text-gray-400 py-12">Đang tải...</div>
       <div v-else-if="items.length === 0" class="text-center text-gray-400 py-12 text-sm">Chưa có yêu cầu.</div>
       <table v-else class="w-full text-sm">
@@ -99,7 +156,10 @@ onMounted(load)
         <tbody class="divide-y divide-gray-100">
           <tr v-for="d in items" :key="d.name" class="hover:bg-gray-50">
             <td class="px-4 py-3 font-mono text-xs">{{ d.name }}</td>
-            <td class="px-4 py-3">{{ d.asset_ref }}</td>
+            <td class="px-4 py-3">
+              <div class="font-medium text-slate-800">{{ d.asset_name || d.asset_ref }}</div>
+              <div v-if="d.asset_name" class="text-xs text-slate-400 font-mono mt-0.5">{{ d.asset_ref }}</div>
+            </td>
             <td class="px-4 py-3 font-medium">{{ d.doc_type_required }}</td>
             <td class="px-4 py-3 text-xs">{{ d.doc_category }}</td>
             <td class="px-4 py-3 text-xs" :class="prioColor(d.priority)">{{ d.priority }}</td>
@@ -123,11 +183,11 @@ onMounted(load)
         <div v-if="err" class="bg-red-50 text-red-700 text-sm p-3 rounded">{{ err }}</div>
         <div class="grid grid-cols-2 gap-3">
           <div class="col-span-2">
-            <label class="block text-sm font-medium text-gray-700 mb-1">Thiết bị (AC Asset) *</label>
-            <input v-model="form.asset_ref" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+            <label class="block text-sm font-medium text-gray-700 mb-1">Thiết bị (AC Asset) <span class="text-red-500">*</span></label>
+            <SmartSelect v-model="form.asset_ref as string" doctype="AC Asset" placeholder="Chọn thiết bị..." />
           </div>
           <div class="col-span-2">
-            <label class="block text-sm font-medium text-gray-700 mb-1">Loại tài liệu yêu cầu *</label>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Loại tài liệu yêu cầu <span class="text-red-500">*</span></label>
             <input v-model="form.doc_type_required" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
           </div>
           <div>
@@ -147,11 +207,11 @@ onMounted(load)
             </select>
           </div>
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Giao cho (người dùng)</label>
-            <input v-model="form.assigned_to" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+            <label class="block text-sm font-medium text-gray-700 mb-1">Giao cho</label>
+            <SmartSelect v-model="form.assigned_to as string" doctype="User" placeholder="Chọn người dùng..." />
           </div>
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Hạn xử lý *</label>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Hạn xử lý <span class="text-red-500">*</span></label>
             <input v-model="form.due_date" type="date" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
           </div>
           <div class="col-span-2">

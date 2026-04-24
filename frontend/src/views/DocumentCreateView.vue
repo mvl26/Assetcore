@@ -2,6 +2,7 @@
 import { ref, reactive } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useImm05Store } from '@/stores/imm05Store'
+import { uploadDocumentFile } from '@/api/imm05'
 import SmartSelect from '@/components/common/SmartSelect.vue'
 
 const router = useRouter()
@@ -66,20 +67,6 @@ function handleFileSelect(e: Event) {
   selectedFile.value = file
 }
 
-async function uploadFile(file: File): Promise<string> {
-  const formData = new FormData()
-  formData.append('file', file)
-  formData.append('is_private', '0')
-  formData.append('doctype', 'Asset Document')
-
-  const response = await fetch('/api/method/upload_file', {
-    method: 'POST',
-    headers: { 'X-Frappe-CSRF-Token': (globalThis as any).csrf_token ?? '' },
-    body: formData,
-  })
-  const data = await response.json()
-  return data.message?.file_url ?? ''
-}
 
 const saving = ref(false)
 const error = ref<string | null>(null)
@@ -151,9 +138,11 @@ async function handleSubmit() {
     // Upload file trước nếu người dùng đã chọn file
     let fileUrl = form.file_attachment
     if (selectedFile.value) {
-      fileUrl = await uploadFile(selectedFile.value)
-      if (!fileUrl) {
-        error.value = 'Upload file thất bại. Vui lòng thử lại.'
+      try {
+        const uploaded = await uploadDocumentFile(selectedFile.value, { isPrivate: false })
+        fileUrl = uploaded.file_url
+      } catch (uploadErr) {
+        error.value = uploadErr instanceof Error ? uploadErr.message : 'Upload file thất bại. Vui lòng thử lại.'
         saving.value = false
         return
       }
@@ -228,8 +217,8 @@ function goBack() {
 
         <!-- Doc Category -->
         <div class="form-field">
-          <label>Nhóm tài liệu <span class="required">*</span></label>
-          <select v-model="form.doc_category" class="input" @change="onCategoryChange">
+          <label for="field-doc-category">Nhóm tài liệu <span class="required">*</span></label>
+          <select id="field-doc-category" v-model="form.doc_category" class="input" @change="onCategoryChange">
             <option value="Legal">Pháp lý</option>
             <option value="Technical">Kỹ thuật</option>
             <option value="Certification">Kiểm định</option>
@@ -240,8 +229,9 @@ function goBack() {
 
         <!-- Doc Type Detail -->
         <div class="form-field form-field-wide">
-          <label>Loại tài liệu <span class="required">*</span></label>
+          <label for="field-doc-type">Loại tài liệu <span class="required">*</span></label>
           <input
+            id="field-doc-type"
             v-model="form.doc_type_detail"
             type="text"
             placeholder="Tên loại tài liệu..."
@@ -262,38 +252,39 @@ function goBack() {
 
         <!-- Doc Number -->
         <div class="form-field">
-          <label>Số hiệu tài liệu <span class="required">*</span></label>
-          <input v-model="form.doc_number" type="text" placeholder="VD: VN-REG-2026-001" class="input" />
+          <label for="field-doc-number">Số hiệu tài liệu <span class="required">*</span></label>
+          <input id="field-doc-number" v-model="form.doc_number" type="text" placeholder="VD: VN-REG-2026-001" class="input" />
         </div>
 
         <!-- Version -->
         <div class="form-field">
-          <label>Phiên bản <span class="required">*</span></label>
-          <input v-model="form.version" type="text" placeholder="1.0" class="input" />
+          <label for="field-version">Phiên bản <span class="required">*</span></label>
+          <input id="field-version" v-model="form.version" type="text" placeholder="1.0" class="input" />
         </div>
 
         <!-- Issued Date -->
         <div class="form-field">
-          <label>Ngày cấp <span class="required">*</span></label>
-          <input v-model="form.issued_date" type="date" class="input" />
+          <label for="field-issued-date">Ngày cấp <span class="required">*</span></label>
+          <input id="field-issued-date" v-model="form.issued_date" type="date" class="input" />
         </div>
 
         <!-- Expiry Date -->
         <div class="form-field">
-          <label>
+          <label for="field-expiry-date">
             Ngày hết hạn
             <span v-if="['Legal','Certification'].includes(form.doc_category)" class="required">*</span>
           </label>
-          <input v-model="form.expiry_date" type="date" class="input" />
+          <input id="field-expiry-date" v-model="form.expiry_date" type="date" class="input" />
         </div>
 
         <!-- Issuing Authority -->
         <div class="form-field">
-          <label>
+          <label for="field-issuing-authority">
             Cơ quan cấp
             <span v-if="form.doc_category === 'Legal'" class="required">*</span>
           </label>
           <input
+            id="field-issuing-authority"
             v-model="form.issuing_authority"
             type="text"
             placeholder="Bộ Y tế / Cục Quản lý Dược..."
@@ -303,8 +294,9 @@ function goBack() {
 
         <!-- File Attachment Upload -->
         <div class="form-field form-field-wide">
-          <label>File đính kèm <span class="required">*</span></label>
+          <label for="field-file-attachment">File đính kèm <span class="required">*</span></label>
           <input
+            id="field-file-attachment"
             ref="fileInputRef"
             type="file"
             accept=".pdf,.jpg,.jpeg,.png,.docx"
@@ -318,11 +310,12 @@ function goBack() {
 
         <!-- Change Summary (VR-09: bắt buộc khi version != 1.0) -->
         <div class="form-field form-field-wide">
-          <label>
+          <label for="field-change-summary">
             Tóm tắt thay đổi
             <span v-if="form.version && form.version !== '1.0'" class="required">*</span>
           </label>
           <textarea
+            id="field-change-summary"
             v-model="form.change_summary"
             rows="2"
             placeholder="Mô tả thay đổi so với phiên bản trước (bắt buộc khi phiên bản > 1.0)..."
@@ -332,8 +325,8 @@ function goBack() {
 
         <!-- Visibility -->
         <div class="form-field">
-          <label>Phạm vi hiển thị</label>
-          <select v-model="form.visibility" class="input">
+          <label for="field-visibility">Phạm vi hiển thị</label>
+          <select id="field-visibility" v-model="form.visibility" class="input">
             <option value="Public">Công khai (Public)</option>
             <option value="Internal_Only">Nội bộ (Internal Only)</option>
           </select>
@@ -397,7 +390,7 @@ function goBack() {
 </template>
 
 <style scoped>
-.create-view { padding: 1.5rem; max-width: 860px; margin: 0 auto; }
+.create-view { padding: 1.75rem 1.5rem; width: 100%; }
 
 .page-header { margin-bottom: 1.5rem; }
 .page-header h1 { margin: 0.25rem 0 0; font-size: 1.4rem; }

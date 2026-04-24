@@ -9,16 +9,13 @@ const loading = ref(false)
 const err = ref('')
 const ok = ref('')
 
-const edit = ref({ full_name: '', phone: '', job_title: '', employee_code: '' })
+const edit = ref({ full_name: '', phone: '' })
 const pw = ref({ old_password: '', new_password: '', confirm: '' })
 
 const APPROVAL_LABELS: Record<string, string> = {
   Approved: 'Đã phê duyệt',
   Pending: 'Chờ phê duyệt',
   Rejected: 'Từ chối',
-}
-function approvalLabel(s?: string): string {
-  return (s && APPROVAL_LABELS[s]) || s || '—'
 }
 
 async function load() {
@@ -28,12 +25,7 @@ async function load() {
     data.value = await getUserProfile()
     const p = data.value.profile
     if (p) {
-      edit.value = {
-        full_name: p.full_name || '',
-        phone: p.phone || '',
-        job_title: p.job_title || '',
-        employee_code: p.employee_code || '',
-      }
+      edit.value = { full_name: p.full_name || '', phone: p.phone || '' }
     }
   } catch (e: unknown) {
     err.value = (e as Error).message || 'Lỗi tải hồ sơ'
@@ -70,55 +62,54 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="page-container max-w-3xl space-y-5">
+  <div class="page-container space-y-5">
     <h1 class="text-xl font-semibold text-slate-800">Hồ sơ của tôi</h1>
 
     <div v-if="err" class="alert-error text-sm">{{ err }}</div>
     <div v-if="ok" class="bg-green-50 border border-green-200 text-green-800 rounded-lg p-3 text-sm">{{ ok }}</div>
 
     <div v-if="loading" class="card p-8 text-center text-slate-400">Đang tải...</div>
+
     <template v-else-if="data">
-      <!-- Thông tin cơ bản -->
+      <!-- Thông tin tài khoản -->
       <div class="card p-5 space-y-3">
         <h2 class="font-medium text-slate-700">Thông tin tài khoản</h2>
         <div class="grid grid-cols-2 gap-3 text-sm">
           <div><span class="text-slate-500">Email:</span> <b>{{ data.user.email }}</b></div>
           <div>
-            <span class="text-slate-500">Trạng thái duyệt:</span>
-            <b :class="data.profile?.approval_status === 'Approved' ? 'text-green-600' : 'text-amber-600'">
-              {{ approvalLabel(data.profile?.approval_status) }}
+            <span class="text-slate-500">Trạng thái:</span>
+            <b :class="data.profile?.imm_approval_status === 'Approved' ? 'text-green-600' : 'text-amber-600'">
+              {{ APPROVAL_LABELS[data.profile?.imm_approval_status ?? ''] ?? '—' }}
             </b>
           </div>
-          <div class="col-span-2">
-            <span class="text-slate-500">Khoa / Phòng:</span> <b>{{ data.profile?.department_name || '—' }}</b>
+          <div>
+            <span class="text-slate-500">Khoa / Phòng:</span>
+            <b>{{ data.profile?.department_name || '—' }}</b>
+          </div>
+          <div>
+            <span class="text-slate-500">Chức danh:</span>
+            <b>{{ data.profile?.designation || '—' }}</b>
           </div>
           <div class="col-span-2">
-            <span class="text-slate-500">Vai trò:</span>
-            <span v-for="r in data.roles" :key="r" class="inline-block bg-blue-50 text-blue-700 px-2 py-0.5 rounded text-xs ml-1">{{ r }}</span>
+            <span class="text-slate-500">Vai trò IMM:</span>
+            <span v-for="r in data.roles" :key="r"
+                  class="inline-block bg-blue-50 text-blue-700 px-2 py-0.5 rounded text-xs ml-1">{{ r }}</span>
             <span v-if="!data.roles.length" class="text-slate-400 text-xs ml-1">(chưa có vai trò)</span>
           </div>
         </div>
       </div>
 
-      <!-- Sửa thông tin cá nhân -->
+      <!-- Cập nhật hồ sơ -->
       <div class="card p-5 space-y-3">
         <h2 class="font-medium text-slate-700">Cập nhật hồ sơ</h2>
         <div class="grid grid-cols-2 gap-3">
           <div>
-            <label class="form-label">Họ và tên</label>
-            <input v-model="edit.full_name" class="form-input w-full" />
+            <label for="pf-name" class="form-label">Họ và tên</label>
+            <input id="pf-name" v-model="edit.full_name" class="form-input w-full" />
           </div>
           <div>
-            <label class="form-label">Số điện thoại</label>
-            <input v-model="edit.phone" class="form-input w-full" />
-          </div>
-          <div>
-            <label class="form-label">Chức danh</label>
-            <input v-model="edit.job_title" class="form-input w-full" />
-          </div>
-          <div>
-            <label class="form-label">Mã nhân viên</label>
-            <input v-model="edit.employee_code" class="form-input w-full" />
+            <label for="pf-phone" class="form-label">Số điện thoại</label>
+            <input id="pf-phone" v-model="edit.phone" class="form-input w-full" />
           </div>
         </div>
         <div class="flex justify-end">
@@ -131,16 +122,16 @@ onMounted(load)
         <h2 class="font-medium text-slate-700">Đổi mật khẩu</h2>
         <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
           <div>
-            <label class="form-label">Mật khẩu hiện tại</label>
-            <input v-model="pw.old_password" type="password" class="form-input w-full" autocomplete="current-password" />
+            <label for="pw-old" class="form-label">Mật khẩu hiện tại</label>
+            <input id="pw-old" v-model="pw.old_password" type="password" class="form-input w-full" autocomplete="current-password" />
           </div>
           <div>
-            <label class="form-label">Mật khẩu mới</label>
-            <input v-model="pw.new_password" type="password" class="form-input w-full" autocomplete="new-password" />
+            <label for="pw-new" class="form-label">Mật khẩu mới</label>
+            <input id="pw-new" v-model="pw.new_password" type="password" class="form-input w-full" autocomplete="new-password" />
           </div>
           <div>
-            <label class="form-label">Xác nhận</label>
-            <input v-model="pw.confirm" type="password" class="form-input w-full" autocomplete="new-password" />
+            <label for="pw-confirm" class="form-label">Xác nhận</label>
+            <input id="pw-confirm" v-model="pw.confirm" type="password" class="form-input w-full" autocomplete="new-password" />
           </div>
         </div>
         <div class="flex justify-end">

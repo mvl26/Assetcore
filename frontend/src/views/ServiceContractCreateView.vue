@@ -52,7 +52,7 @@ async function submit() {
 </script>
 
 <template>
-  <div class="max-w-2xl mx-auto p-6 space-y-6">
+  <div class="page-container animate-fade-in space-y-6">
     <div class="flex items-center gap-3">
       <button @click="router.back()" class="text-gray-500 hover:text-gray-700 text-sm">← Quay lại</button>
       <h1 class="text-xl font-semibold text-gray-800">Tạo Hợp đồng dịch vụ</h1>

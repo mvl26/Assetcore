@@ -18,7 +18,6 @@ from assetcore.utils.response import _ok, _err
 from assetcore.utils.pagination import paginate
 
 _DT_NOTIF = "Notification Log"
-_DT_PROFILE = "AC User Profile"
 _DT_DEPT = "AC Department"
 
 _MSG_NOT_LOGGED_IN = "Chưa đăng nhập"
@@ -150,46 +149,37 @@ def _safe_get_user_basic(user: str) -> dict:
     }
 
 
-def _safe_enrich_from_ac_profile(user: str) -> dict:
-    """Lookup AC User Profile (optional). Trả {} nếu không có."""
-    profile_name = frappe.db.exists(_DT_PROFILE, {"user": user})
-    if not profile_name:
-        return {}
-    prof = frappe.db.get_value(
-        _DT_PROFILE, profile_name,
-        ["job_title", "employee_code", "department"],
-        as_dict=True,
-    ) or {}
-    department_id = prof.get("department")
-    department_name = None
-    if department_id:
-        department_name = frappe.db.get_value(
-            _DT_DEPT, department_id, "department_name",
-        ) or department_id
-    return {
-        "has_ac_profile": True,
-        "job_title": prof.get("job_title"),
-        "employee_code": prof.get("employee_code"),
-        "department": department_id,
-        "department_name": department_name,
-    }
+def _enrich_from_user_custom_fields(user: str) -> dict:
+    """Lấy custom fields IMM trên User (imm_approval_status, ac_department)."""
+    result: dict = {}
+    if frappe.db.has_column("User", "ac_department"):
+        dept_id = frappe.db.get_value("User", user, "ac_department")
+        result["department"] = dept_id
+        if dept_id:
+            result["department_name"] = (
+                frappe.db.get_value(_DT_DEPT, dept_id, "department_name") or dept_id
+            )
+    return result
 
 
-def _safe_enrich_from_employee(user: str) -> dict:
-    """Lookup ERPNext Employee (optional fallback). Trả {} nếu HRMS chưa cài."""
+def _enrich_from_employee(user: str) -> dict:
+    """Lookup ERPNext Employee — designation + docname (optional)."""
     if not frappe.db.table_exists("Employee"):
         return {}
-    emp = frappe.db.get_value(
-        "Employee", {"user_id": user},
-        ["name", "designation", "department"],
-        as_dict=True,
-    )
+    try:
+        emp = frappe.db.get_value(
+            "Employee", {"user_id": user},
+            ["name", "designation"],
+            as_dict=True,
+        )
+    except Exception:
+        return {}
     if not emp:
         return {}
     return {
+        "hr_docname": emp.get("name"),
+        "designation": emp.get("designation"),
         "has_employee_link": True,
-        "job_title_fallback": emp.get("designation"),
-        "department_name_fallback": emp.get("department"),
     }
 
 
@@ -212,17 +202,15 @@ def get_user_context():
         return _err(_(_MSG_NOT_LOGGED_IN), 401)
 
     basic = _safe_get_user_basic(user)
-    ac = _safe_enrich_from_ac_profile(user)
-    emp = _safe_enrich_from_employee(user)
+    custom = _enrich_from_user_custom_fields(user)
+    emp = _enrich_from_employee(user)
 
-    job_title = ac.get("job_title") or emp.get("job_title_fallback")
-    department_name = ac.get("department_name") or emp.get("department_name_fallback")
-    department_id = ac.get("department")
-    has_ac = ac.get("has_ac_profile", False)
-    has_emp = emp.get("has_employee_link", False)
-
-    is_profile_completed = bool(has_ac and department_id and job_title)
+    department_id = custom.get("department")
+    department_name = custom.get("department_name") or emp.get("erp_department")
+    designation = emp.get("designation")
     roles = basic["roles"]
+
+    is_profile_completed = bool(department_id and designation)
 
     return _ok({
         "user": user,
@@ -231,13 +219,12 @@ def get_user_context():
         "phone": basic["phone"],
         "roles": roles,
         "imm_roles": [r for r in roles if r.startswith("IMM ")],
-        "job_title": job_title,
-        "employee_code": ac.get("employee_code"),
+        "designation": designation,
+        "hr_docname": emp.get("hr_docname"),
         "department": department_id,
         "department_name": department_name,
         "is_profile_completed": is_profile_completed,
-        "has_ac_profile": has_ac,
-        "has_employee_link": has_emp,
+        "has_employee_link": emp.get("has_employee_link", False),
     })
 
 

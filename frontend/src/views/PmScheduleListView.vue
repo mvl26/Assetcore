@@ -4,6 +4,7 @@ import {
   listPmSchedules, getPmSchedule, createPmSchedule, updatePmSchedule, deletePmSchedule,
   type PmSchedule,
 } from '@/api/imm00'
+import { formatAssetDisplay, translateStatus, getStatusColor, formatDate } from '@/utils/formatters'
 
 const items = ref<PmSchedule[]>([])
 const total = ref(0)
@@ -55,7 +56,6 @@ async function remove(name: string) {
   catch (e: unknown) { alert((e as Error).message || 'Không thể xóa') }
 }
 
-function fmt(d?: string) { return d ? new Date(d).toLocaleDateString('vi-VN') : '—' }
 function overdueColor(d?: string) {
   if (!d) return 'text-gray-400'
   const days = Math.ceil((new Date(d).getTime() - Date.now()) / 86400000)
@@ -66,7 +66,7 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="p-6 space-y-5">
+  <div class="page-container animate-fade-in space-y-5">
     <div class="flex items-center justify-between">
       <h1 class="text-xl font-semibold text-gray-800">Lịch bảo trì định kỳ</h1>
       <div class="flex gap-3 items-center">
@@ -95,13 +95,25 @@ onMounted(load)
         <tbody class="divide-y divide-gray-100">
           <tr v-for="s in items" :key="s.name" class="hover:bg-gray-50">
             <td class="px-4 py-3 font-mono text-xs text-gray-500">{{ s.name }}</td>
-            <td class="px-4 py-3 font-medium text-gray-800">{{ s.asset_ref }}</td>
+            <td class="px-4 py-3">
+              <div class="font-medium text-gray-900 truncate max-w-[240px]">
+                {{ formatAssetDisplay(s.asset_name, s.asset_ref).main }}
+              </div>
+              <div v-if="formatAssetDisplay(s.asset_name, s.asset_ref).hasBoth"
+                   class="text-xs text-gray-500 font-mono">
+                {{ formatAssetDisplay(s.asset_name, s.asset_ref).sub }}
+              </div>
+            </td>
             <td class="px-4 py-3">{{ s.pm_type }}</td>
             <td class="px-4 py-3">{{ s.pm_interval_days }}</td>
             <td class="px-4 py-3 text-xs text-gray-600">{{ s.responsible_technician || '—' }}</td>
-            <td class="px-4 py-3 text-xs text-gray-600">{{ fmt(s.last_pm_date) }}</td>
-            <td class="px-4 py-3 text-xs" :class="overdueColor(s.next_due_date)">{{ fmt(s.next_due_date) }}</td>
-            <td class="px-4 py-3"><span class="text-xs px-2 py-0.5 rounded bg-gray-100">{{ s.status }}</span></td>
+            <td class="px-4 py-3 text-xs text-gray-600">{{ formatDate(s.last_pm_date) }}</td>
+            <td class="px-4 py-3 text-xs" :class="overdueColor(s.next_due_date)">{{ formatDate(s.next_due_date) }}</td>
+            <td class="px-4 py-3">
+              <span :class="['inline-block px-2 py-0.5 rounded-full text-xs font-medium', getStatusColor(s.status)]">
+                {{ translateStatus(s.status) }}
+              </span>
+            </td>
             <td class="px-4 py-3 text-right space-x-2 whitespace-nowrap">
               <button @click="openEdit(s.name)" class="text-blue-600 text-xs font-medium">Sửa</button>
               <button @click="remove(s.name)" class="text-red-600 text-xs font-medium">Xóa</button>

@@ -3,6 +3,7 @@ import { onMounted, ref, computed } from 'vue'
 import { useImm08Store } from '@/stores/imm08'
 import { useRouter } from 'vue-router'
 import type { PMCalendarEvent } from '@/api/imm08'
+import { formatAssetDisplay, translateStatus } from '@/utils/formatters'
 
 const store = useImm08Store()
 const router = useRouter()
@@ -85,10 +86,27 @@ function eventsOnDay(day: number | null) {
   return store.calendarEvents.filter(e => e.due_date === dateStr)
 }
 
+const PM_STATUS_COLOR: Record<string, string> = {
+  'Open': 'bg-blue-500',
+  'In Progress': 'bg-yellow-500',
+  'Completed': 'bg-green-500',
+  'Overdue': 'bg-red-500',
+  'Cancelled': 'bg-gray-400',
+  'Pending–Device Busy': 'bg-orange-400',
+  'Halted–Major Failure': 'bg-red-700',
+}
+
+function pmStatusColor(status: string): string {
+  return PM_STATUS_COLOR[status] ?? 'bg-slate-400'
+}
+
 function eventColor(status: string) {
   if (status === 'Completed') return 'bg-green-100 text-green-700 border-green-200'
   if (status === 'Overdue') return 'bg-red-100 text-red-700 border-red-200'
   if (status === 'In Progress') return 'bg-blue-100 text-blue-700 border-blue-200'
+  if (status === 'Cancelled') return 'bg-gray-100 text-gray-500 border-gray-200'
+  if (status === 'Pending–Device Busy') return 'bg-orange-100 text-orange-700 border-orange-200'
+  if (status === 'Halted–Major Failure') return 'bg-red-200 text-red-800 border-red-300'
   return 'bg-yellow-100 text-yellow-700 border-yellow-200'
 }
 
@@ -165,15 +183,17 @@ function statusBadgeClass(status: string) {
         </div>
       </div>
       <div class="flex items-center gap-4 text-xs text-gray-500">
-        <span class="flex items-center gap-1"><span class="w-3 h-3 bg-green-200 rounded inline-block" />Hoàn thành</span>
-        <span class="flex items-center gap-1"><span class="w-3 h-3 bg-yellow-200 rounded inline-block" />Đã lên lịch</span>
-        <span class="flex items-center gap-1"><span class="w-3 h-3 bg-red-200 rounded inline-block" />Quá hạn</span>
-        <span class="flex items-center gap-1"><span class="w-3 h-3 bg-blue-200 rounded inline-block" />Đang thực hiện</span>
+        <span class="flex items-center gap-1"><span :class="['w-2.5 h-2.5 rounded-full inline-block', pmStatusColor('Completed')]" />Hoàn thành</span>
+        <span class="flex items-center gap-1"><span :class="['w-2.5 h-2.5 rounded-full inline-block', pmStatusColor('Open')]" />Đã lên lịch</span>
+        <span class="flex items-center gap-1"><span :class="['w-2.5 h-2.5 rounded-full inline-block', pmStatusColor('Overdue')]" />Quá hạn</span>
+        <span class="flex items-center gap-1"><span :class="['w-2.5 h-2.5 rounded-full inline-block', pmStatusColor('In Progress')]" />Đang thực hiện</span>
+        <span class="flex items-center gap-1"><span :class="['w-2.5 h-2.5 rounded-full inline-block', pmStatusColor('Pending–Device Busy')]" />Thiết bị bận</span>
+        <span class="flex items-center gap-1"><span :class="['w-2.5 h-2.5 rounded-full inline-block', pmStatusColor('Halted–Major Failure')]" />Hỏng nghiêm trọng</span>
       </div>
     </div>
 
     <!-- Summary -->
-    <div v-if="store.calendarSummary" class="grid grid-cols-4 gap-3 mb-5">
+    <div v-if="store.calendarSummary" class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
       <div class="bg-white border rounded-lg p-3 text-center">
         <div class="font-bold text-gray-800">{{ store.calendarSummary.total }}</div>
         <div class="text-xs text-gray-500">Tổng phiếu</div>
@@ -218,11 +238,12 @@ function statusBadgeClass(status: string) {
             <div
               v-for="event in eventsOnDay(day)"
               :key="event.name"
-              :class="['text-xs px-1.5 py-0.5 rounded border cursor-pointer truncate hover:opacity-80 transition-opacity', eventColor(event.status)]"
-              :title="`${event.asset_name} — ${event.status}`"
+              :class="['text-xs px-1.5 py-0.5 rounded border cursor-pointer truncate hover:opacity-80 transition-opacity flex items-center gap-1', eventColor(event.status)]"
+              :title="`${formatAssetDisplay(event.asset_name, event.asset_ref).main} — ${translateStatus(event.status)}`"
               @click.stop="openDrawer(event)"
             >
-              {{ event.asset_name || event.name }}
+              <span :class="['w-1.5 h-1.5 rounded-full shrink-0', pmStatusColor(event.status)]" />
+              {{ formatAssetDisplay(event.asset_name, event.asset_ref).main }}
             </div>
           </div>
         </div>
@@ -266,8 +287,13 @@ function statusBadgeClass(status: string) {
           <!-- Device -->
           <div>
             <p class="text-xs text-gray-400 mb-0.5">Thiết bị</p>
-            <p class="font-medium text-gray-900">{{ selectedEvent.asset_name }}</p>
-            <p class="text-xs text-gray-500">{{ selectedEvent.asset_ref }}</p>
+            <p class="font-medium text-gray-900">
+              {{ formatAssetDisplay(selectedEvent.asset_name, selectedEvent.asset_ref).main }}
+            </p>
+            <p v-if="formatAssetDisplay(selectedEvent.asset_name, selectedEvent.asset_ref).hasBoth"
+               class="text-xs text-gray-500 font-mono">
+              {{ formatAssetDisplay(selectedEvent.asset_name, selectedEvent.asset_ref).sub }}
+            </p>
           </div>
 
           <!-- KTV -->

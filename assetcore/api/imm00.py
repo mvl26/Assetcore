@@ -13,12 +13,19 @@ from assetcore.utils.response import _ok, _err
 from assetcore.utils.pagination import paginate
 from assetcore.services.imm00 import (
     transition_asset_status,
+    update_gmdn_status as svc_update_gmdn_status,
+    toggle_gmdn_status_via_qr as svc_toggle_gmdn_via_qr,
     validate_asset_for_operations,
     get_sla_policy,
     create_capa,
     close_capa,
     verify_audit_chain,
     transfer_asset,
+    create_transfer_request,
+    approve_transfer_request,
+    reject_transfer_request,
+    confirm_receipt,
+    cancel_transfer_request,
 )
 
 _DT_ASSET = "AC Asset"
@@ -60,6 +67,8 @@ _ERR_LIFECYCLE_NOT_FOUND = "Lifecycle Event không tồn tại"
 _ERR_INCIDENT_NOT_FOUND = "Incident Report không tồn tại"
 
 _ORDER_EVENT_TS_DESC = "timestamp desc"
+_ORDER_MODIFIED_DESC = "modified desc"
+_ORDER_DUE_DATE_ASC  = "due_date asc"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # AC Asset  (8 endpoints)
@@ -74,6 +83,7 @@ def list_assets(
     location: str = None,
     asset_category: str = None,
     search: str = None,
+    gmdn_status: str = None,
 ):
     """GET /api/method/assetcore.api.imm00.list_assets"""
     page, page_size = int(page), int(page_size)
@@ -86,22 +96,32 @@ def list_assets(
         filters["location"] = location
     if asset_category:
         filters["asset_category"] = asset_category
+    if gmdn_status:
+        filters["gmdn_status"] = gmdn_status
 
-    or_filters = []
+    or_filters = None
     if search:
+        like = f"%{search}%"
         or_filters = [
-            ["asset_name", "like", f"%{search}%"],
-            ["asset_code", "like", f"%{search}%"],
-            ["manufacturer_sn", "like", f"%{search}%"],
+            [_DT_ASSET, "asset_name",      "like", like],
+            [_DT_ASSET, "asset_code",      "like", like],
+            [_DT_ASSET, "manufacturer_sn", "like", like],
         ]
+        total = frappe.db.sql(
+            f"SELECT COUNT(*) FROM `tab{_DT_ASSET}`"
+            f" WHERE asset_name LIKE %s OR asset_code LIKE %s OR manufacturer_sn LIKE %s",
+            [like, like, like],
+        )[0][0]
+    else:
+        total = frappe.db.count(_DT_ASSET, filters=filters)
 
-    total = frappe.db.count(_DT_ASSET, filters=filters)
-    pag = paginate(total, page, page_size)
+    pag = paginate(int(total), page, page_size)
 
     fields = [
         "name", "asset_name", "asset_code", "lifecycle_status",
         "asset_category", "location", "department", "responsible_technician",
         "next_pm_date", "next_calibration_date", "byt_reg_expiry",
+        "gmdn_code", "gmdn_status",
     ]
     items = frappe.get_list(
         _DT_ASSET,
@@ -110,7 +130,7 @@ def list_assets(
         fields=fields,
         limit_start=pag["offset"],
         limit_page_length=page_size,
-        order_by="modified desc",
+        order_by=_ORDER_MODIFIED_DESC,
     )
     _enrich(items, "asset_category", _DT_ASSET_CATEGORY, "category_name")
     _enrich(items, "department", _DT_DEPARTMENT, "department_name")
@@ -184,6 +204,32 @@ def transition_status(name: str, to_status: str, reason: str = ""):
         return _err(str(e), 422)
 
 
+@frappe.whitelist(methods=["POST"])
+def update_gmdn_status(name: str, gmdn_status: str, reason: str = ""):
+    """POST /api/method/assetcore.api.imm00.update_gmdn_status"""
+    if not frappe.db.exists(_DT_ASSET, name):
+        return _err(_(_ERR_ASSET_NOT_FOUND), 404)
+    try:
+        result = svc_update_gmdn_status(name, gmdn_status, reason)
+        frappe.db.commit()
+        return _ok(result)
+    except frappe.exceptions.ValidationError as e:
+        return _err(str(e), 422)
+
+
+@frappe.whitelist(methods=["POST"])
+def toggle_gmdn_status(name: str):
+    """POST /api/method/assetcore.api.imm00.toggle_gmdn_status — toggle qua QR scan."""
+    if not frappe.db.exists(_DT_ASSET, name):
+        return _err(_(_ERR_ASSET_NOT_FOUND), 404)
+    try:
+        result = svc_toggle_gmdn_via_qr(name)
+        frappe.db.commit()
+        return _ok(result)
+    except frappe.exceptions.ValidationError as e:
+        return _err(str(e), 422)
+
+
 @frappe.whitelist()
 def get_asset_timeline(name: str, page: int = 1, page_size: int = 50):
     """GET /api/method/assetcore.api.imm00.get_asset_timeline"""
@@ -246,18 +292,31 @@ def list_suppliers(page: int = 1, page_size: int = 20, search: str = None, suppl
     filters = {}
     if supplier_type:
         filters["supplier_type"] = supplier_type
-    or_filters = []
+
+    or_filters = None
     if search:
+        like = f"%{search}%"
         or_filters = [
-            ["supplier_name", "like", f"%{search}%"],
-            ["tax_id", "like", f"%{search}%"],
+            [_DT_SUPPLIER, "name",          "like", like],
+            [_DT_SUPPLIER, "supplier_name", "like", like],
+            [_DT_SUPPLIER, "supplier_code", "like", like],
+            [_DT_SUPPLIER, "email_id",      "like", like],
+            [_DT_SUPPLIER, "tax_id",        "like", like],
         ]
-    total = frappe.db.count(_DT_SUPPLIER, filters=filters)
-    pag = paginate(total, page, page_size)
+        total = frappe.db.sql(
+            f"SELECT COUNT(*) FROM `tab{_DT_SUPPLIER}`"
+            f" WHERE name LIKE %s OR supplier_name LIKE %s OR supplier_code LIKE %s"
+            f" OR email_id LIKE %s OR tax_id LIKE %s",
+            [like, like, like, like, like],
+        )[0][0]
+    else:
+        total = frappe.db.count(_DT_SUPPLIER, filters=filters)
+
+    pag = paginate(int(total), page, page_size)
     items = frappe.get_list(
         _DT_SUPPLIER,
         filters=filters,
-        or_filters=or_filters if or_filters else None,
+        or_filters=or_filters,
         fields=["name", "supplier_name", "supplier_group", "country", "email_id", "contract_end"],
         limit_start=pag["offset"],
         limit_page_length=page_size,
@@ -317,7 +376,9 @@ def list_locations(parent: str = None):
     items = frappe.get_list(
         _DT_LOCATION,
         filters=filters,
-        fields=["name", "location_name", "location_type", "parent_location", "is_active"],
+        fields=["name", "location_name", "location_code", "parent_location", "is_group",
+                "clinical_area_type", "infection_control_level", "power_backup_available",
+                "emergency_contact", "dept_head", "technical_contact", "notes"],
         order_by="lft asc",
     )
     return _ok(items)
@@ -332,7 +393,8 @@ def list_departments(parent: str = None):
     items = frappe.get_list(
         _DT_DEPARTMENT,
         filters=filters,
-        fields=["name", "department_name", "parent_department", "head_of_department"],
+        fields=["name", "department_name", "department_code", "parent_department", "is_group",
+                "dept_head", "phone", "email", "is_active"],
         order_by="lft asc",
     )
     return _ok(items)
@@ -343,10 +405,49 @@ def list_asset_categories():
     """GET /api/method/assetcore.api.imm00.list_asset_categories"""
     items = frappe.get_list(
         _DT_ASSET_CATEGORY,
-        fields=["name", "category_name", "default_pm_interval_days", "default_calibration_interval_days"],
+        fields=["name", "category_name", "description", "default_pm_required", "default_pm_interval_days",
+                "default_calibration_required", "default_calibration_interval_days", "has_radiation", "is_active"],
         order_by="category_name asc",
     )
     return _ok(items)
+
+
+def _norm_check(d: dict, fields: list) -> dict:
+    """Normalize Frappe Check fields (True/False booleans) to 0/1 integers."""
+    for f in fields:
+        if f in d:
+            d[f] = 1 if d[f] else 0
+    return d
+
+
+@frappe.whitelist()
+def get_location(name: str):
+    """GET /api/method/assetcore.api.imm00.get_location"""
+    if not frappe.db.exists(_DT_LOCATION, name):
+        return _err(_("Location not found"), 404)
+    d = frappe.get_doc(_DT_LOCATION, name).as_dict()
+    _norm_check(d, ["is_group", "power_backup_available"])
+    return _ok(d)
+
+
+@frappe.whitelist()
+def get_department(name: str):
+    """GET /api/method/assetcore.api.imm00.get_department"""
+    if not frappe.db.exists(_DT_DEPARTMENT, name):
+        return _err(_("Department not found"), 404)
+    d = frappe.get_doc(_DT_DEPARTMENT, name).as_dict()
+    _norm_check(d, ["is_group", "is_active"])
+    return _ok(d)
+
+
+@frappe.whitelist()
+def get_asset_category(name: str):
+    """GET /api/method/assetcore.api.imm00.get_asset_category"""
+    if not frappe.db.exists(_DT_ASSET_CATEGORY, name):
+        return _err(_("Asset Category not found"), 404)
+    d = frappe.get_doc(_DT_ASSET_CATEGORY, name).as_dict()
+    _norm_check(d, ["default_pm_required", "default_calibration_required", "has_radiation", "is_active"])
+    return _ok(d)
 
 
 @frappe.whitelist(methods=["POST"])
@@ -405,17 +506,32 @@ def list_device_models(page: int = 1, page_size: int = 20, manufacturer: str = N
     or_filters = []
     if search:
         or_filters = [
-            ["model_name", "like", f"%{search}%"],
-            ["model_number", "like", f"%{search}%"],
-            ["gmdn_code", "like", f"%{search}%"],
+            [_DT_DEVICE_MODEL, "name", "like", f"%{search}%"],
+            [_DT_DEVICE_MODEL, "model_name", "like", f"%{search}%"],
+            [_DT_DEVICE_MODEL, "manufacturer", "like", f"%{search}%"],
+            [_DT_DEVICE_MODEL, "model_version", "like", f"%{search}%"],
+            [_DT_DEVICE_MODEL, "gmdn_code", "like", f"%{search}%"],
         ]
-    total = frappe.db.count(_DT_DEVICE_MODEL, filters=filters)
+        like = f"%{search}%"
+        filter_conds = " OR ".join([
+            f"name LIKE {frappe.db.escape(like)}",
+            f"model_name LIKE {frappe.db.escape(like)}",
+            f"manufacturer LIKE {frappe.db.escape(like)}",
+            f"model_version LIKE {frappe.db.escape(like)}",
+            f"gmdn_code LIKE {frappe.db.escape(like)}",
+        ])
+        manufacturer_cond = f" AND manufacturer = {frappe.db.escape(manufacturer)}" if manufacturer else ""
+        total = frappe.db.sql(
+            f"SELECT COUNT(*) FROM `tab{_DT_DEVICE_MODEL}` WHERE ({filter_conds}){manufacturer_cond}"
+        )[0][0]
+    else:
+        total = frappe.db.count(_DT_DEVICE_MODEL, filters=filters)
     pag = paginate(total, page, page_size)
     items = frappe.get_list(
         _DT_DEVICE_MODEL,
         filters=filters,
         or_filters=or_filters if or_filters else None,
-        fields=["name", "model_name", "model_number", "manufacturer", "medical_device_class", "gmdn_code"],
+        fields=["name", "model_name", "model_version", "manufacturer", "medical_device_class", "gmdn_code"],
         limit_start=pag["offset"],
         limit_page_length=page_size,
         order_by="model_name asc",
@@ -529,10 +645,10 @@ def list_audit_trail(asset: str = None, q: str = None,
             ["ref_name", "like", like],
         ]
 
-    total = frappe.db.count(_DT_AUDIT_TRAIL,
-                             filters=filters if not or_filters else None,
-                             or_filters=or_filters) if or_filters else \
-            frappe.db.count(_DT_AUDIT_TRAIL, filters)
+    if or_filters:
+        total = frappe.db.count(_DT_AUDIT_TRAIL, or_filters=or_filters)
+    else:
+        total = frappe.db.count(_DT_AUDIT_TRAIL, filters)
     pag = paginate(total, page, page_size)
     items = frappe.get_list(
         _DT_AUDIT_TRAIL,
@@ -545,6 +661,19 @@ def list_audit_trail(asset: str = None, q: str = None,
         limit_page_length=page_size,
         order_by=_ORDER_EVENT_TS_DESC,
     )
+    # Batch-enrich với asset_name (tránh N+1; dùng UX pattern "Tên chính — Mã phụ")
+    asset_ids = {r.get("asset") for r in items if r.get("asset")}
+    if asset_ids:
+        name_map = {
+            a["name"]: a["asset_name"]
+            for a in frappe.get_all(
+                _DT_ASSET,
+                filters={"name": ["in", list(asset_ids)]},
+                fields=["name", "asset_name"],
+            )
+        }
+        for r in items:
+            r["asset_name"] = name_map.get(r.get("asset"), "")
     return _ok({"pagination": pag, "items": items})
 
 
@@ -595,7 +724,7 @@ def list_capas(
                 "due_date", "owner", "creation"],
         limit_start=pag["offset"],
         limit_page_length=page_size,
-        order_by="due_date asc",
+        order_by=_ORDER_DUE_DATE_ASC,
     )
     _enrich(items, "asset", _DT_ASSET, "asset_name")
     return _ok({"pagination": pag, "items": items})
@@ -606,7 +735,10 @@ def get_capa(name: str):
     """GET /api/method/assetcore.api.imm00.get_capa"""
     if not frappe.db.exists(_DT_CAPA, name):
         return _err(_(_ERR_CAPA_NOT_FOUND), 404)
-    return _ok(frappe.get_doc(_DT_CAPA, name).as_dict())
+    doc = frappe.get_doc(_DT_CAPA, name).as_dict()
+    if doc.get("asset"):
+        doc["asset_name"] = frappe.db.get_value(_DT_ASSET, doc["asset"], "asset_name") or ""
+    return _ok(doc)
 
 
 @frappe.whitelist(methods=["POST"])
@@ -675,7 +807,7 @@ def list_overdue_capas(page: int = 1, page_size: int = 20):
         fields=["name", "capa_type", "status", "asset", "title", "due_date", "owner"],
         limit_start=pag["offset"],
         limit_page_length=page_size,
-        order_by="due_date asc",
+        order_by=_ORDER_DUE_DATE_ASC,
     )
     return _ok({"pagination": pag, "items": items})
 
@@ -814,24 +946,35 @@ def submit_incident(name: str):
 # ─────────────────────────────────────────────────────────────────────────────
 
 @frappe.whitelist()
-def list_transfers(asset: str = None, page: int = 1, page_size: int = 20):
+def list_transfers(asset: str = None, status: str = None,
+                   page: int = 1, page_size: int = 20):
     """GET /api/method/assetcore.api.imm00.list_transfers"""
     page, page_size = int(page), int(page_size)
     filters = {}
     if asset:
         filters["asset"] = asset
+    if status:
+        filters["status"] = status
     total = frappe.db.count(_DT_TRANSFER, filters=filters)
     pag = paginate(total, page, page_size)
     items = frappe.get_list(
         _DT_TRANSFER,
         filters=filters,
-        fields=["name", "asset", "transfer_date", "transfer_type",
+        fields=["name", "asset", "transfer_date", "transfer_type", "status",
                 "from_location", "to_location", "from_department", "to_department",
-                "from_custodian", "to_custodian", "reason", "approved_by"],
+                "from_custodian", "to_custodian", "reason",
+                "approved_by", "approval_date", "received_by", "received_date"],
         limit_start=pag["offset"],
         limit_page_length=page_size,
         order_by="transfer_date desc",
     )
+    asset_ids = {r.get("asset") for r in items if r.get("asset")}
+    if asset_ids:
+        name_map = {a["name"]: a["asset_name"] for a in frappe.get_all(
+            _DT_ASSET, filters={"name": ["in", list(asset_ids)]},
+            fields=["name", "asset_name"])}
+        for r in items:
+            r["asset_name"] = name_map.get(r.get("asset"), "")
     return _ok({"pagination": pag, "items": items})
 
 
@@ -844,48 +987,20 @@ def get_transfer(name: str):
 
 
 @frappe.whitelist(methods=["POST"])
-def delete_transfer(name: str):
-    """POST /api/method/assetcore.api.imm00.delete_transfer
-
-    Draft → xóa hẳn. Submitted → cancel (giữ audit trail theo BR-00-04).
-    """
-    if not frappe.db.exists(_DT_TRANSFER, name):
-        return _err(_(_ERR_TRANSFER_NOT_FOUND), 404)
+def create_transfer():
+    """POST — Tạo phiếu yêu cầu luân chuyển (status = Pending Approval)."""
+    data = {k: v for k, v in frappe.local.form_dict.items() if k not in ("cmd", "doctype")}
     try:
-        doc = frappe.get_doc(_DT_TRANSFER, name)
-        if doc.docstatus == 0:
-            frappe.delete_doc(_DT_TRANSFER, name, ignore_permissions=False)
-            frappe.db.commit()
-            return _ok({"name": name, "deleted": True})
-        if doc.docstatus == 1:
-            doc.cancel()
-            frappe.db.commit()
-            return _ok({"name": name, "cancelled": True,
-                        "message": "Transfer đã hủy; lifecycle event giữ lại để đảm bảo audit trail."})
-        return _err(_("Transfer đã bị hủy trước đó"), 422)
-    except (frappe.exceptions.ValidationError, frappe.exceptions.LinkExistsError) as e:
+        return _ok(create_transfer_request(data))
+    except frappe.exceptions.ValidationError as e:
         return _err(str(e), 422)
-    except Exception as e:
-        return _err(f"Không thể xóa: {e}", 500)
 
 
 @frappe.whitelist(methods=["POST"])
-def create_transfer():
-    """POST /api/method/assetcore.api.imm00.create_transfer"""
-    data = frappe.local.form_dict
-    required = ("asset", "transfer_date", "transfer_type", "to_location", "reason")
-    missing = [f for f in required if not data.get(f)]
-    if missing:
-        return _err(_(f"Thiếu trường bắt buộc: {', '.join(missing)}"), 422)
-    if not frappe.db.exists(_DT_ASSET, data["asset"]):
-        return _err(_(_ERR_ASSET_NOT_FOUND), 404)
+def delete_transfer(name: str):
+    """POST — Hủy phiếu luân chuyển (chỉ khi Pending Approval hoặc Rejected)."""
     try:
-        doc = frappe.new_doc(_DT_TRANSFER)
-        doc.update({k: v for k, v in data.items() if k not in ("cmd", "doctype")})
-        doc.insert()
-        doc.submit()
-        frappe.db.commit()
-        return _ok({"name": doc.name})
+        return _ok(cancel_transfer_request(name))
     except frappe.exceptions.ValidationError as e:
         return _err(str(e), 422)
 
@@ -1218,31 +1333,51 @@ def compute_depreciation(name: str):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Asset Transfer — full CRUD
+# Asset Transfer — Workflow endpoints
 # ─────────────────────────────────────────────────────────────────────────────
 
 @frappe.whitelist()
 def get_transfer_full(name: str):
+    """GET — Lấy toàn bộ thông tin phiếu luân chuyển."""
     if not frappe.db.exists(_DT_TRANSFER, name):
-        return _err(_("Transfer not found"), 404)
+        return _err(_("Phiếu luân chuyển không tồn tại"), 404)
     return _ok(frappe.get_doc(_DT_TRANSFER, name).as_dict())
 
 
 @frappe.whitelist(methods=["POST"])
 def update_transfer(name: str):
+    """POST — Cập nhật ghi chú / thông tin phiếu (chỉ khi Pending Approval)."""
+    doc_status = frappe.db.get_value(_DT_TRANSFER, name, "status")
+    if doc_status != "Pending Approval":
+        return _err(_("Chỉ có thể chỉnh sửa phiếu đang Pending Approval"), 422)
     return _generic_update(_DT_TRANSFER, name)
 
 
 @frappe.whitelist(methods=["POST"])
 def approve_transfer(name: str):
-    if not frappe.db.exists(_DT_TRANSFER, name):
-        return _err(_("Transfer not found"), 404)
-    doc = frappe.get_doc(_DT_TRANSFER, name)
-    doc.approved_by = frappe.session.user
-    doc.approval_date = nowdate()
-    doc.save()
-    frappe.db.commit()
-    return _ok({"name": name, "approved_by": doc.approved_by})
+    """POST — Phê duyệt phiếu luân chuyển → cập nhật vị trí thiết bị ngay."""
+    try:
+        return _ok(approve_transfer_request(name))
+    except frappe.exceptions.ValidationError as e:
+        return _err(str(e), 422)
+
+
+@frappe.whitelist(methods=["POST"])
+def reject_transfer(name: str, rejection_reason: str = ""):
+    """POST — Từ chối phiếu luân chuyển."""
+    try:
+        return _ok(reject_transfer_request(name, rejection_reason))
+    except frappe.exceptions.ValidationError as e:
+        return _err(str(e), 422)
+
+
+@frappe.whitelist(methods=["POST"])
+def receive_transfer(name: str, handover_notes: str = ""):
+    """POST — Bên nhận xác nhận đã tiếp nhận thiết bị."""
+    try:
+        return _ok(confirm_receipt(name, handover_notes))
+    except frappe.exceptions.ValidationError as e:
+        return _err(str(e), 422)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1256,15 +1391,12 @@ _DT_DOC_REQUEST = "Document Request"
 
 
 def _paginated_list(doctype: str, filters: dict, fields: list[str],
-                    page: int, page_size: int, order_by: str = "modified desc"):
+                    page: int, page_size: int, order_by: str = _ORDER_MODIFIED_DESC):
     offset = (page - 1) * page_size
     total = frappe.db.count(doctype, filters)
     items = frappe.get_all(doctype, filters=filters, fields=fields,
                            order_by=order_by, limit=page_size, start=offset)
-    return _ok({
-        "items": items, "total": total,
-        "page": page, "page_size": page_size,
-    })
+    return items, {"total": total, "page": page, "page_size": page_size}
 
 
 @frappe.whitelist()
@@ -1272,11 +1404,19 @@ def list_pm_schedules(page: int = 1, page_size: int = 20, asset: str = None, sta
     f = {}
     if asset: f["asset_ref"] = asset
     if status: f["status"] = status
-    return _paginated_list(_DT_PM_SCHEDULE, f,
+    items, meta = _paginated_list(_DT_PM_SCHEDULE, f,
         ["name", "asset_ref", "pm_type", "status", "pm_interval_days",
          "checklist_template", "responsible_technician",
          "last_pm_date", "next_due_date"],
         int(page), int(page_size), "next_due_date asc")
+    asset_ids = {r.get("asset_ref") for r in items if r.get("asset_ref")}
+    if asset_ids:
+        name_map = {a["name"]: a["asset_name"] for a in frappe.get_all(
+            _DT_ASSET, filters={"name": ["in", list(asset_ids)]},
+            fields=["name", "asset_name"])}
+        for r in items:
+            r["asset_name"] = name_map.get(r.get("asset_ref"), "")
+    return _ok({"items": items, **meta})
 
 
 @frappe.whitelist()
@@ -1315,9 +1455,10 @@ def delete_pm_schedule(name: str):
 
 @frappe.whitelist()
 def list_pm_templates(page: int = 1, page_size: int = 50):
-    return _paginated_list(_DT_PM_TEMPLATE, {},
+    items, meta = _paginated_list(_DT_PM_TEMPLATE, {},
         ["name", "template_name", "asset_category", "pm_type", "version", "effective_date"],
-        int(page), int(page_size), "modified desc")
+        int(page), int(page_size), _ORDER_MODIFIED_DESC)
+    return _ok({"items": items, **meta})
 
 
 @frappe.whitelist()
@@ -1359,10 +1500,12 @@ def list_firmware_crs(page: int = 1, page_size: int = 20, status: str = None, as
     f = {}
     if status: f["status"] = status
     if asset: f["asset_ref"] = asset
-    return _paginated_list(_DT_FIRMWARE_CR, f,
+    items, meta = _paginated_list(_DT_FIRMWARE_CR, f,
         ["name", "asset_ref", "version_before", "version_after", "status",
          "approved_by", "approved_datetime", "applied_datetime"],
         int(page), int(page_size))
+    _enrich(items, "asset_ref", _DT_ASSET, "asset_name", "asset_name")
+    return _ok({"items": items, **meta})
 
 
 @frappe.whitelist()
@@ -1404,10 +1547,12 @@ def list_document_requests(page: int = 1, page_size: int = 20, status: str = Non
     f = {}
     if status: f["status"] = status
     if asset: f["asset_ref"] = asset
-    return _paginated_list(_DT_DOC_REQUEST, f,
+    items, meta = _paginated_list(_DT_DOC_REQUEST, f,
         ["name", "asset_ref", "doc_type_required", "doc_category", "status",
          "priority", "assigned_to", "due_date", "fulfilled_by"],
-        int(page), int(page_size), "due_date asc")
+        int(page), int(page_size), _ORDER_DUE_DATE_ASC)
+    _enrich(items, "asset_ref", _DT_ASSET, "asset_name", "asset_name")
+    return _ok({"items": items, **meta})
 
 
 @frappe.whitelist()

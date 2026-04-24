@@ -6,10 +6,11 @@ export type LifecycleStatus =
   | 'Out of Service' | 'Decommissioned'
 
 export type RiskClass = 'Low' | 'Medium' | 'High' | 'Critical'
-export type MedicalDeviceClass = 'Class I' | 'Class II' | 'Class IIa' | 'Class IIb' | 'Class III'
+export type MedicalDeviceClass = 'Class I' | 'Class II' | 'Class III'
 export type CapaSeverity = 'Minor' | 'Major' | 'Critical'
 export type CapaStatus = 'Open' | 'In Progress' | 'Pending Verification' | 'Closed' | 'Overdue'
 export type IncidentSeverity = 'Low' | 'Medium' | 'High' | 'Critical'
+export type GmdnStatus = 'In Use' | 'Not Use'
 
 export interface PaginatedResponse<T> {
   pagination: {
@@ -32,6 +33,7 @@ export interface AcAssetListItem {
   asset_category?: string
   category_name?: string
   location?: string
+  gmdn_status?: GmdnStatus
   location_name?: string
   department?: string
   department_name?: string
@@ -60,6 +62,7 @@ export interface AcAsset extends AcAssetListItem {
   manufacturer_sn?: string
   udi_code?: string
   gmdn_code?: string
+  gmdn_status?: GmdnStatus
   byt_reg_no?: string
   commissioning_date?: string
   commissioning_ref?: string
@@ -105,6 +108,8 @@ export interface AssetKpi {
   next_pm_date?: string
   next_calibration_date?: string
   byt_reg_expiry?: string
+  gmdn_code?: string
+  gmdn_status?: GmdnStatus
 }
 
 export interface AssetListParams {
@@ -115,17 +120,37 @@ export interface AssetListParams {
   location?: string
   asset_category?: string
   search?: string
+  gmdn_status?: GmdnStatus | ''
 }
 
 // ─── AC Supplier ──────────────────────────────────────────────────────────────
 
+export type VendorType = 'Manufacturer' | 'Distributor' | 'Service Provider' | 'Calibration Lab'
+
 export interface AcSupplier {
   name: string
   supplier_name: string
+  supplier_code?: string
   supplier_group?: string
+  vendor_type?: VendorType
   country?: string
+  tax_id?: string
+  website?: string
+  address?: string
+  phone?: string
+  mobile_no?: string
   email_id?: string
+  technical_email?: string
+  support_hotline?: string
+  local_representative?: string
+  iso_17025_cert?: string
+  iso_17025_expiry?: string
+  iso_13485_cert?: string
+  iso_13485_expiry?: string
+  contract_start?: string
   contract_end?: string
+  contract_value?: number
+  is_active?: 0 | 1
 }
 
 // ─── AC Location / Department / Category ─────────────────────────────────────
@@ -133,23 +158,40 @@ export interface AcSupplier {
 export interface AcLocation {
   name: string
   location_name: string
-  location_type?: string
-  parent_ac_location?: string
-  is_active?: 0 | 1
+  location_code?: string
+  parent_location?: string
+  is_group?: 0 | 1
+  clinical_area_type?: string
+  infection_control_level?: string
+  power_backup_available?: 0 | 1
+  emergency_contact?: string
+  dept_head?: string
+  technical_contact?: string
+  notes?: string
 }
 
 export interface AcDepartment {
   name: string
   department_name: string
-  parent_ac_department?: string
-  head_of_department?: string
+  department_code?: string
+  parent_department?: string
+  is_group?: 0 | 1
+  dept_head?: string
+  phone?: string
+  email?: string
+  is_active?: 0 | 1
 }
 
 export interface AcAssetCategory {
   name: string
   category_name: string
+  description?: string
+  default_pm_required?: 0 | 1
   default_pm_interval_days?: number
+  default_calibration_required?: 0 | 1
   default_calibration_interval_days?: number
+  has_radiation?: 0 | 1
+  is_active?: 0 | 1
 }
 
 // ─── IMM Device Model ─────────────────────────────────────────────────────────
@@ -157,10 +199,27 @@ export interface AcAssetCategory {
 export interface ImmDeviceModel {
   name: string
   model_name: string
-  model_number?: string
-  manufacturer?: string
-  medical_device_class?: MedicalDeviceClass
+  model_version?: string
+  manufacturer: string
+  asset_category: string
+  country_of_origin?: string
+  power_supply?: string
+  expected_lifespan_years?: number
+  medical_device_class: MedicalDeviceClass
+  risk_classification?: RiskClass
   gmdn_code?: string
+  emdn_code?: string
+  hsn_code?: string
+  registration_required?: 0 | 1
+  is_radiation_device?: 0 | 1
+  is_pm_required?: 0 | 1
+  pm_interval_days?: number
+  pm_alert_days?: number
+  is_calibration_required?: 0 | 1
+  calibration_interval_days?: number
+  calibration_alert_days?: number
+  default_calibration_type?: string
+  notes?: string
 }
 
 // ─── IMM SLA Policy ───────────────────────────────────────────────────────────
@@ -169,12 +228,18 @@ export interface ImmSlaPolicy {
   name: string
   policy_name: string
   priority: string
-  risk_class: RiskClass
+  risk_class?: RiskClass
   is_default?: 0 | 1
   response_time_minutes: number
   resolution_time_hours: number
-  working_hours_only: 0 | 1
-  is_active: 0 | 1
+  working_hours_only?: 0 | 1
+  escalation_l1_role?: string
+  escalation_l1_hours?: number
+  escalation_l2_role?: string
+  escalation_l2_hours?: number
+  effective_date?: string
+  expiry_date?: string
+  is_active?: 0 | 1
 }
 
 // ─── IMM Audit Trail ──────────────────────────────────────────────────────────
@@ -182,6 +247,7 @@ export interface ImmSlaPolicy {
 export interface ImmAuditTrail {
   name: string
   asset: string
+  asset_name?: string
   event_type: string
   actor: string
   change_summary: string
@@ -238,8 +304,10 @@ export type TransferType = 'Internal' | 'Loan' | 'External' | 'Return'
 export interface AssetTransfer {
   name: string
   asset: string
+  asset_name?: string
   transfer_date: string
   transfer_type: TransferType
+  status?: string
   from_location?: string
   from_department?: string
   from_custodian?: string
@@ -248,6 +316,9 @@ export interface AssetTransfer {
   to_custodian?: string
   reason: string
   approved_by?: string
+  approval_date?: string
+  received_by?: string
+  received_date?: string
   expected_return_date?: string
   notes?: string
 }

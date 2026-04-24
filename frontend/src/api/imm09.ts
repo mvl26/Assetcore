@@ -9,6 +9,9 @@ export interface AssetRepair {
   asset_name: string
   asset_category: string
   risk_class: string
+  department_name?: string
+  location_name?: string
+  asset_info?: Record<string, unknown>
   serial_no: string
   repair_type: 'Corrective' | 'Emergency' | 'Warranty Repair'
   priority: 'Normal' | 'Urgent' | 'Emergency'

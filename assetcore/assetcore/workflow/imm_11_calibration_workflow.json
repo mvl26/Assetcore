@@ -1,0 +1,131 @@
+{
+  "creation": "2026-04-22 00:00:00.000000",
+  "document_type": "IMM Asset Calibration",
+  "doctype": "Workflow",
+  "is_active": 1,
+  "modified": "2026-04-22 00:00:00.000000",
+  "modified_by": "Administrator",
+  "name": "IMM-11 Calibration Workflow",
+  "owner": "Administrator",
+  "send_email_alert": 0,
+  "workflow_name": "IMM-11 Calibration Workflow",
+  "workflow_state_field": "workflow_state",
+  "states": [
+    {
+      "allow_edit": "Biomed Engineer",
+      "doc_status": "0",
+      "state": "Scheduled",
+      "type": "Warning"
+    },
+    {
+      "allow_edit": "Biomed Engineer",
+      "doc_status": "0",
+      "state": "In Progress",
+      "type": "Success"
+    },
+    {
+      "allow_edit": "Biomed Engineer",
+      "doc_status": "0",
+      "state": "Sent to Lab",
+      "type": "Warning"
+    },
+    {
+      "allow_edit": "System Manager",
+      "doc_status": "0",
+      "state": "Certificate Received",
+      "type": "Success"
+    },
+    {
+      "allow_edit": "System Manager",
+      "doc_status": "1",
+      "state": "Passed",
+      "type": "Success"
+    },
+    {
+      "allow_edit": "System Manager",
+      "doc_status": "1",
+      "state": "Failed",
+      "type": "Danger"
+    },
+    {
+      "allow_edit": "System Manager",
+      "doc_status": "1",
+      "state": "Conditionally Passed",
+      "type": "Warning"
+    },
+    {
+      "allow_edit": "System Manager",
+      "doc_status": "2",
+      "state": "Cancelled",
+      "type": "Danger"
+    }
+  ],
+  "transitions": [
+    {
+      "action": "Bắt đầu hiệu chuẩn",
+      "allowed": "Biomed Engineer",
+      "next_state": "In Progress",
+      "state": "Scheduled"
+    },
+    {
+      "action": "Gửi phòng hiệu chuẩn",
+      "allowed": "Biomed Engineer",
+      "next_state": "Sent to Lab",
+      "state": "Scheduled"
+    },
+    {
+      "action": "Hủy lịch",
+      "allowed": "System Manager",
+      "next_state": "Cancelled",
+      "state": "Scheduled"
+    },
+    {
+      "action": "Đạt hiệu chuẩn",
+      "allowed": "Biomed Engineer",
+      "next_state": "Passed",
+      "state": "In Progress"
+    },
+    {
+      "action": "Không đạt hiệu chuẩn",
+      "allowed": "Biomed Engineer",
+      "next_state": "Failed",
+      "state": "In Progress"
+    },
+    {
+      "action": "Đạt có điều kiện",
+      "allowed": "Biomed Engineer",
+      "next_state": "Conditionally Passed",
+      "state": "In Progress"
+    },
+    {
+      "action": "Hủy hiệu chuẩn",
+      "allowed": "System Manager",
+      "next_state": "Cancelled",
+      "state": "In Progress"
+    },
+    {
+      "action": "Nhận chứng chỉ",
+      "allowed": "Biomed Engineer",
+      "next_state": "Certificate Received",
+      "state": "Sent to Lab"
+    },
+    {
+      "action": "Phê duyệt đạt",
+      "allowed": "System Manager",
+      "next_state": "Passed",
+      "state": "Certificate Received"
+    },
+    {
+      "action": "Phê duyệt không đạt",
+      "allowed": "System Manager",
+      "next_state": "Failed",
+      "state": "Certificate Received"
+    },
+    {
+      "action": "Phê duyệt có điều kiện",
+      "allowed": "System Manager",
+      "next_state": "Conditionally Passed",
+      "state": "Certificate Received"
+    }
+  ]
+}

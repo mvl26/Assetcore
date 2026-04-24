@@ -4,6 +4,9 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { frappeGet } from '@/api/helpers'
+import { useImm11Store } from '@/stores/imm11'
+
+const store = useImm11Store()
 
 const router = useRouter()
 
@@ -59,6 +62,8 @@ async function load() {
   try {
     const res = await frappeGet<DashboardData>(`${BASE}.get_calibration_dashboard`)
     data.value = res
+    // Sync due items vào store để các view khác có thể dùng
+    await store.fetchDue()
   } catch (e: unknown) {
     err.value = (e as Error).message || 'Không tải được dashboard'
   } finally { loading.value = false }

@@ -21,6 +21,7 @@ from assetcore.services.shared import AssetStatus, ErrorCode, ServiceError
 from assetcore.utils.helpers import _get_role_emails, _safe_sendmail
 
 _DT_PM_WO = "PM Work Order"
+_DT_AC_ASSET = "AC Asset"
 
 
 def _transition_asset(asset_ref: str, to_status: str, wo_name: str) -> None:
@@ -94,6 +95,9 @@ def generate_pm_work_orders_from_schedule() -> dict:
     for sched in schedules:
         if not sched.get("next_due_date"):
             skipped.append(f"{sched['name']}: next_due_date trống")
+            continue
+        if not frappe.db.exists(_DT_AC_ASSET, sched.get("asset_ref")):
+            skipped.append(f"{sched['name']}: thiết bị '{sched.get('asset_ref')}' không tồn tại")
             continue
         alert_days = sched.get("alert_days_before") or 7
         trigger_date = add_days(today, alert_days)
@@ -174,7 +178,7 @@ def list_work_orders(filters: dict, *, page: int = 1, page_size: int = 20) -> di
     user_ids = {r["assigned_to"] for r in rows if r.get("assigned_to")}
     if asset_ids:
         asset_rows = frappe.get_all(
-            "AC Asset", filters={"name": ["in", list(asset_ids)]},
+            _DT_AC_ASSET, filters={"name": ["in", list(asset_ids)]},
             fields=["name", "asset_name"])
         asset_map = {a.name: a.asset_name for a in asset_rows}
     else:
@@ -248,6 +252,16 @@ def assign_technician(name: str, *, technician: str, scheduled_date: str | None 
     if wo.status not in (PMStatus.OPEN, PMStatus.OVERDUE):
         raise ServiceError(ErrorCode.BAD_STATE,
                            f"Không thể phân công khi WO ở trạng thái '{wo.status}'")
+    if wo.asset_ref and not frappe.db.exists(_DT_AC_ASSET, wo.asset_ref):
+        raise ServiceError(
+            ErrorCode.VALIDATION,
+            f"Thiết bị '{wo.asset_ref}' đã bị xóa. Phiếu này cần được hủy."
+        )
+    if wo.pm_schedule and not frappe.db.exists("PM Schedule", wo.pm_schedule):
+        raise ServiceError(
+            ErrorCode.VALIDATION,
+            f"Lịch PM '{wo.pm_schedule}' đã bị xóa. Phiếu này cần được hủy."
+        )
     wo.assigned_to = technician
     wo.assigned_by = frappe.session.user
     if scheduled_date:
@@ -307,8 +321,7 @@ def submit_result(name: str, *, checklist_results: list[dict], overall_result: s
     }
 
 
-def report_major_failure(pm_wo_name: str, *, failure_description: str,
-                         failed_item_indexes: list | None = None) -> dict:
+def report_major_failure(pm_wo_name: str, *, failure_description: str) -> dict:
     wo = PMWorkOrderRepo.get(pm_wo_name)
     if not wo:
         raise ServiceError(ErrorCode.NOT_FOUND, f"PM Work Order '{pm_wo_name}' không tồn tại")
@@ -342,6 +355,20 @@ def report_major_failure(pm_wo_name: str, *, failure_description: str,
                 f"<p>Thiết bị đã được đặt về <strong>Out of Service</strong>.</p>"
             ),
         )
+    try:
+        from assetcore.services.imm12 import report_incident as _report_incident_12  # noqa: PLC0415
+        _report_incident_12(
+            asset=wo.asset_ref,
+            incident_type="Malfunction",
+            severity="High",
+            description=f"Phát hiện lỗi nghiêm trọng trong PM — {wo.name}. {failure_description}",
+            fault_code="PM_MAJOR_FAIL",
+            linked_repair_wo=cm_wo.name,
+            reported_by=frappe.session.user,
+        )
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "IMM-08 → IMM-12 major failure incident")
+
     return {
         "pm_wo": pm_wo_name,
         "new_status": PMStatus.HALTED_MAJOR,
@@ -414,17 +441,7 @@ def create_adhoc_work_order(data: dict) -> dict:
     if data.get("technician_notes"):
         doc.technician_notes = data["technician_notes"]
 
-    tpl_name = sched.get("checklist_template")
-    if tpl_name:
-        tpl = PMChecklistTemplateRepo.get(tpl_name)
-        if tpl:
-            for idx, item in enumerate(tpl.checklist_items or [], start=1):
-                doc.append("checklist_results", {
-                    "checklist_item_idx": idx,
-                    "description": item.description,
-                    "measurement_type": item.measurement_type,
-                    "unit": item.unit,
-                })
+    _populate_checklist(doc, sched.get("checklist_template") or "")
     doc.insert(ignore_permissions=False)
     frappe.db.commit()
     return {
@@ -455,7 +472,7 @@ def get_calendar(*, year: int, month: int,
     asset_ids = {w["asset_ref"] for w in wos if w.get("asset_ref")}
     asset_map = {}
     if asset_ids:
-        rows = frappe.get_all("AC Asset", filters={"name": ["in", list(asset_ids)]},
+        rows = frappe.get_all(_DT_AC_ASSET, filters={"name": ["in", list(asset_ids)]},
                                fields=["name", "asset_name"])
         asset_map = {a.name: a.asset_name for a in rows}
     events = [
@@ -740,3 +757,47 @@ def delete_template(name: str) -> dict:
     except (frappe.ValidationError, frappe.LinkExistsError) as e:
         raise ServiceError(ErrorCode.CONFLICT, str(e)) from e
     return {"name": name, "deleted": True}
+
+
+# ─── Hook từ IMM-04 Commissioning ────────────────────────────────────────────
+
+_PM_TYPE_FROM_INTERVAL = [(91, "Quarterly"), (183, "Semi-Annual"), (366, "Annual")]
+
+
+def create_pm_schedule_from_commissioning(commissioning_doc) -> str | None:
+    """Hook: Asset Commissioning on_submit → tạo PM Schedule nếu thiết bị yêu cầu PM."""
+    asset = commissioning_doc.final_asset
+    if not asset:
+        return None
+    device_model = frappe.db.get_value(_DT_AC_ASSET, asset, "device_model")
+    if not device_model:
+        return None
+    model = frappe.db.get_value(
+        "IMM Device Model", device_model,
+        ["is_pm_required", "pm_interval_days", "pm_alert_days"],
+        as_dict=True,
+    )
+    if not model or not model.get("is_pm_required"):
+        return None
+    interval = int(model.get("pm_interval_days") or 365)
+    alert_days = int(model.get("pm_alert_days") or 7)
+    pm_type = next((t for days, t in _PM_TYPE_FROM_INTERVAL if interval <= days), "Annual")
+    base_date = commissioning_doc.commissioning_date or nowdate()
+    sched = PMScheduleRepo.create({
+        "asset_ref": asset,
+        "pm_type": pm_type,
+        "pm_interval_days": interval,
+        "alert_days_before": alert_days,
+        "status": PMScheduleStatus.ACTIVE,
+        "next_due_date": add_days(base_date, interval),
+        "created_from_commissioning": commissioning_doc.name,
+    })
+    from assetcore.services.imm00 import log_audit_event  # noqa: PLC0415
+    log_audit_event(
+        asset=asset, event_type="PM Schedule Created",
+        actor=frappe.session.user,
+        ref_doctype=PMScheduleRepo.DOCTYPE, ref_name=sched.name,
+        change_summary=f"Auto từ commissioning {commissioning_doc.name}",
+    )
+    frappe.logger().info(f"IMM-08 PM Schedule {sched.name} tạo từ commissioning {commissioning_doc.name}")
+    return sched.name

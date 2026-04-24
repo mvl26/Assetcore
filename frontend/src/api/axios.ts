@@ -29,11 +29,12 @@ export function setCsrfToken(token: string): void {
 function getCsrfToken(): string {
   if (_storedCsrfToken) return _storedCsrfToken
 
-  if (typeof window !== 'undefined' && (window as Window & { frappe?: { csrf_token?: string } }).frappe?.csrf_token) {
-    return (window as Window & { frappe?: { csrf_token?: string } }).frappe!.csrf_token!
+  const gw = globalThis as typeof globalThis & { frappe?: { csrf_token?: string } }
+  if (gw.frappe?.csrf_token) {
+    return gw.frappe.csrf_token
   }
 
-  const match = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/)
+  const match = /(?:^|;\s*)csrf_token=([^;]+)/.exec(document.cookie)
   if (match) {
     return decodeURIComponent(match[1])
   }
@@ -64,7 +65,7 @@ async function refreshCsrfToken(): Promise<string> {
     // ignore — fall through to cookie read
   }
   _storedCsrfToken = ''
-  const match = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/)
+  const match = /(?:^|;\s*)csrf_token=([^;]+)/.exec(document.cookie)
   if (match) {
     _storedCsrfToken = decodeURIComponent(match[1])
   }
@@ -124,7 +125,13 @@ async function handle400(
 ): Promise<AxiosResponse> {
   const msg = (error.response?.data as FrappeErrorData)?.message ?? ''
   const lower = msg.toLowerCase()
-  const isCsrfError = !msg || lower.includes('csrf') || lower.includes('invalid request') || lower.includes('incorrect')
+
+  // Chỉ retry khi là CSRF error thực sự — không match "incorrect" chung chung
+  // vì sẽ gây double-submit (tạo user 2 lần → 409 lần 2).
+  const isCsrfError = !msg
+    || lower.includes('csrf')
+    || lower === 'incorrect request'
+    || lower.includes('invalid request')
 
   const originalConfig = error.config as RetryableConfig | undefined
   if (isCsrfError && originalConfig && !originalConfig._csrfRetried) {
@@ -136,8 +143,48 @@ async function handle400(
     }
   }
 
-  throw new Error('Yêu cầu không hợp lệ. Vui lòng tải lại trang và thử lại (CSRF token hết hạn).')
+  throw new Error(parseServerMessages((error.response?.data as FrappeErrorData) ?? {}))
 }
+
+// ── Per-status handlers (extracted to keep interceptor flat) ──────────────────
+
+function handle401(error: AxiosError<FrappeErrorData>): never {
+  const url = error.config?.url ?? ''
+  const onLoginPage = url.includes('/api/method/login')
+    || globalThis.location.pathname.startsWith('/login')
+  if (!onLoginPage) {
+    globalThis.location.href = `/login?redirect=${encodeURIComponent(globalThis.location.pathname)}`
+    throw new Error('Phiên đăng nhập đã hết hạn. Đang chuyển hướng...')
+  }
+  throw new Error(error.response?.data?.message ?? 'Sai tên đăng nhập hoặc mật khẩu.')
+}
+
+async function handle403(): Promise<never> {
+  // Frappe trả 403 cho cả 2 TH: (1) session hết hạn → Guest,
+  // (2) đã login nhưng thiếu role. Phân biệt qua ping_session.
+  if (!globalThis.location.pathname.startsWith('/login')) {
+    try {
+      const ping = await axios.get<{ message?: { data?: { authenticated?: boolean } } }>(
+        '/api/method/assetcore.api.layout.ping_session',
+        { withCredentials: true },
+      )
+      if (!(ping.data?.message?.data?.authenticated ?? true)) {
+        globalThis.location.href = `/login?redirect=${encodeURIComponent(globalThis.location.pathname)}`
+        throw new Error('Phiên đăng nhập đã hết hạn. Đang chuyển hướng đến trang đăng nhập...')
+      }
+    } catch (e) {
+      if (e instanceof Error && e.message.includes('Phiên đăng nhập')) throw e
+    }
+  }
+  throw new Error('Bạn không có quyền thực hiện hành động này.')
+}
+
+function handle500(data: FrappeErrorData | undefined): never {
+  const last = data?.exc ? String(data.exc).split('\n').findLast(Boolean) ?? '' : ''
+  throw new Error('500 Lỗi máy chủ nội bộ' + (last ? ' — ' + last : ''))
+}
+
+// ── Response interceptor ───────────────────────────────────────────────────────
 
 api.interceptors.response.use(
   (response: AxiosResponse) => response,
@@ -149,45 +196,12 @@ api.interceptors.response.use(
     const { status, data } = error.response
 
     if (status === 400) return handle400(error)
-
-    if (status === 401) {
-      const url = error.config?.url ?? ''
-      if (!url.includes('/api/method/login') && !globalThis.location.pathname.startsWith('/login')) {
-        globalThis.location.href = `/login?redirect=${encodeURIComponent(globalThis.location.pathname)}`
-        throw new Error('Phiên đăng nhập đã hết hạn. Đang chuyển hướng...')
-      }
-      throw new Error(data?.message ?? 'Sai tên đăng nhập hoặc mật khẩu.')
-    }
-
-    if (status === 403) {
-      // Frappe trả 403 cho cả 2 TH: (1) session hết hạn → user là Guest,
-      // (2) đã login nhưng thiếu role. Phân biệt bằng ping_session (allow_guest).
-      if (!globalThis.location.pathname.startsWith('/login')) {
-        try {
-          const ping = await axios.get<{ message?: { data?: { authenticated?: boolean } } }>(
-            '/api/method/assetcore.api.layout.ping_session',
-            { withCredentials: true },
-          )
-          const authenticated = ping.data?.message?.data?.authenticated ?? true
-          if (!authenticated) {
-            globalThis.location.href = `/login?redirect=${encodeURIComponent(globalThis.location.pathname)}`
-            throw new Error('Phiên đăng nhập đã hết hạn. Đang chuyển hướng đến trang đăng nhập...')
-          }
-        } catch (e) {
-          if (e instanceof Error && e.message.includes('Phiên đăng nhập')) throw e
-        }
-      }
-      throw new Error('Bạn không có quyền thực hiện hành động này.')
-    }
-    if (status === 404) throw new Error('Không tìm thấy tài nguyên yêu cầu.')
-
+    if (status === 401) return handle401(error)
+    if (status === 403) return handle403()
+    if (status === 404) throw new Error(data?.message || 'Không tìm thấy tài nguyên yêu cầu.')
+    if (status === 409) throw new Error(data?.message || 'Dữ liệu đã tồn tại trong hệ thống.')
     if (status === 417) throw new Error(parseServerMessages(data ?? {}))
-
-    if (status === 500) {
-      const excSummary = data?.exc ? String(data.exc).split('\n').findLast(Boolean) ?? '' : ''
-      const hint = excSummary ? ' — ' + excSummary : ''
-      throw new Error('500 Lỗi máy chủ nội bộ' + hint)
-    }
+    if (status === 500) return handle500(data)
 
     throw new Error(data?.message ?? `Lỗi không xác định (HTTP ${status})`)
   },

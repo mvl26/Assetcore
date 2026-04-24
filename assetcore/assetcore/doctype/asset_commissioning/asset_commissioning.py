@@ -9,6 +9,8 @@ from assetcore.services import imm04 as imm04_svc
 
 _ASSET_DOCUMENT = "Asset Document"
 _STATE_CLINICAL_RELEASE = "Clinical Release"
+_STATE_INITIAL_INSPECTION = "Initial Inspection"
+_STATE_RE_INSPECTION = "Re Inspection"
 
 
 class AssetCommissioning(Document):
@@ -40,19 +42,19 @@ class AssetCommissioning(Document):
 		self.validate_backdate()
 		imm04_svc.validate_gate_g05_g06(self)      # G05+G06: NC closed + board_approver
 		# GW-2: IMM-05 compliance gate (BR-07)
-		if self.workflow_state in (_STATE_CLINICAL_RELEASE, "Pending_Release"):
+		if self.workflow_state in (_STATE_CLINICAL_RELEASE, "Pending Release"):
 			self._gw2_check_document_compliance()
 
 	def on_submit(self):
 		"""Chỉ chạy Mint Asset khi ở trạng thái Clinical_Release."""
-		if self.workflow_state != "Clinical_Release":
+		if self.workflow_state != _STATE_CLINICAL_RELEASE:
 			frappe.throw(
 				_("Không thể Submit khi trạng thái chưa phải Clinical Release. "
 				  "Hiện tại: {0}").format(self.workflow_state)
 			)
 		self.mint_core_asset()
 		self.create_initial_document_set()  # IMM-05: auto-import docs
-		self._log_lifecycle_event("Release", "Initial Inspection", _STATE_CLINICAL_RELEASE, "Commissioning hoàn thành")
+		self._log_lifecycle_event("Release", _STATE_INITIAL_INSPECTION, _STATE_CLINICAL_RELEASE, "Commissioning hoàn thành")
 		self.fire_release_event()
 
 	def on_cancel(self) -> None:
@@ -112,7 +114,7 @@ class AssetCommissioning(Document):
 		"""Gate G01: Tài liệu bắt buộc phải nhận trước khi lắp đặt (legacy - use imm04_svc.validate_gate_g01)."""
 		checked_states = {
 			"To Be Installed", "Installing", "Identification",
-			"Initial Inspection", "Clinical Hold", "Re Inspection", "Clinical Release",
+			_STATE_INITIAL_INSPECTION, "Clinical Hold", _STATE_RE_INSPECTION, _STATE_CLINICAL_RELEASE,
 		}
 		if self.workflow_state not in checked_states:
 			return
@@ -143,7 +145,7 @@ class AssetCommissioning(Document):
 		"""VR-07: Thiết bị bức xạ mà chưa có giấy phép thì không được Release."""
 		if (
 			self.is_radiation_device
-			and self.workflow_state in ("Clinical_Release", "Pending_Release")
+			and self.workflow_state in (_STATE_CLINICAL_RELEASE, "Pending Release")
 			and not self.qa_license_doc
 		):
 			frappe.throw(
@@ -158,7 +160,7 @@ class AssetCommissioning(Document):
 
 	def validate_checklist_completion(self):
 		"""VR-03: Kiểm tra Baseline lưới đo kiểm khi ở node Inspection."""
-		if self.workflow_state not in ("Initial_Inspection", "Re_Inspection", "Clinical_Release"):
+		if self.workflow_state not in (_STATE_INITIAL_INSPECTION, _STATE_RE_INSPECTION, _STATE_CLINICAL_RELEASE):
 			return
 
 		if not self.baseline_tests:
@@ -188,7 +190,7 @@ class AssetCommissioning(Document):
 				fail_rows.append(row.parameter)
 
 		# VR-03b: Nếu Fail row tồn tại → Chặn Release
-		if fail_rows and self.workflow_state == "Clinical_Release":
+		if fail_rows and self.workflow_state == _STATE_CLINICAL_RELEASE:
 			frappe.throw(
 				_("Lỗi VR-03b: Không thể Phát hành! Các tiêu chí sau Không Đạt: <br>"
 				  "<b>{0}</b><br>Vui lòng sửa chữa và thực hiện Re-Inspection.")
@@ -221,7 +223,7 @@ class AssetCommissioning(Document):
 
 	def block_release_if_nc_open(self):
 		"""VR-04: Không được Release nếu còn Phiếu NC chưa xử lý."""
-		if self.workflow_state != "Clinical_Release":
+		if self.workflow_state != _STATE_CLINICAL_RELEASE:
 			return
 
 		open_nc_count = frappe.db.count(
@@ -291,8 +293,8 @@ class AssetCommissioning(Document):
 			"root_record_id": self.name,
 			"asset_id": self.final_asset,
 			"actor": frappe.session.user,
-			"from_state": "Re_Inspection",
-			"to_state": "Clinical_Release",
+			"from_state": _STATE_RE_INSPECTION,
+			"to_state": _STATE_CLINICAL_RELEASE,
 			"immutable": True
 		}
 

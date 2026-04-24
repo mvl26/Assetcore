@@ -2,7 +2,7 @@
 // Copyright (c) 2026, AssetCore Team
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { getStockMovement, submitStockMovement, cancelStockMovement } from '@/api/inventory'
+import { getStockMovement, submitStockMovement, cancelStockMovement, deleteStockMovement } from '@/api/inventory'
 import type { StockMovement } from '@/types/inventory'
 
 const props = defineProps<{ name: string }>()
@@ -32,6 +32,20 @@ async function doSubmit() {
   } finally { acting.value = false; setTimeout(() => { toast.value = '' }, 3000) }
 }
 
+async function doDelete() {
+  if (!doc.value) return
+  if (!confirm('Xoá phiếu nháp này? Hành động không thể hoàn tác.')) return
+  acting.value = true
+  try {
+    await deleteStockMovement(doc.value.name)
+    router.push('/stock-movements')
+  } catch (e: unknown) {
+    toast.value = (e as Error).message || 'Lỗi xoá phiếu'
+    acting.value = false
+    setTimeout(() => { toast.value = '' }, 3000)
+  }
+}
+
 async function doCancel() {
   if (!doc.value) return
   if (!confirm('Xác nhận huỷ phiếu? Tồn kho sẽ được hoàn nguyên.')) return
@@ -59,7 +73,7 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="page-container animate-fade-in max-w-4xl">
+  <div class="page-container animate-fade-in">
     <button class="btn-ghost mb-4" @click="router.push('/stock-movements')">← Quay lại</button>
 
     <div v-if="loading && !doc" class="text-center py-20 text-slate-400">Đang tải...</div>
@@ -87,6 +101,10 @@ onMounted(load)
           </div>
         </div>
         <div class="flex gap-2">
+          <button v-if="doc.docstatus === 0" class="btn-ghost" :disabled="acting"
+                  @click="router.push(`/stock-movements/${doc.name}/edit`)">Sửa</button>
+          <button v-if="doc.docstatus === 0" class="text-sm px-3 py-1.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 font-medium"
+                  :disabled="acting" @click="doDelete">Xoá</button>
           <button v-if="doc.docstatus === 0" class="btn-primary" :disabled="acting" @click="doSubmit">
             {{ acting ? '...' : 'Duyệt phiếu' }}
           </button>

@@ -22,8 +22,10 @@ _DT_SUPPLIER = "AC Supplier"
 _DT_DEPT = "AC Department"
 _DT_PO = "Purchase Order"
 
-_STATE_CLINICAL_RELEASE = "Clinical_Release"
-_TERMINAL_STATES = frozenset({_STATE_CLINICAL_RELEASE, "Return_To_Vendor"})
+_STATE_CLINICAL_RELEASE = "Clinical Release"
+_STATE_INITIAL_INSPECTION = "Initial Inspection"
+_STATE_RE_INSPECTION = "Re Inspection"
+_TERMINAL_STATES = frozenset({_STATE_CLINICAL_RELEASE, "Return To Vendor"})
 _SUBMIT_ROLES = frozenset({"VP Block2", "Workshop Head"})
 
 _CLASS_I = "Class I"
@@ -130,6 +132,12 @@ _ALLOWED_SEARCH_DOCTYPES: dict[str, dict] = {
         "filters": {"enabled": 1},
         "extra_fields": ["full_name", "email"],
     },
+    "AC Warehouse": {
+        "label_field": "warehouse_name",
+        "search_fields": ["name", "warehouse_name", "warehouse_code"],
+        "filters": {"is_active": 1},
+        "extra_fields": ["warehouse_name", "warehouse_code"],
+    },
 }
 
 
@@ -203,7 +211,7 @@ def _vr01_unique_serial_number(doc: Document) -> None:
 
 
 def _vr05_risk_class_change_warning(doc: Document) -> None:
-    early = {"Draft", "Pending_Doc_Verify", "To_Be_Installed", "Installing", "Identification"}
+    early = {"Draft", "Pending Doc Verify", "To Be Installed", "Installing", "Identification"}
     if doc.is_new() or doc.workflow_state in early:
         return
     original = frappe.db.get_value(_DT, doc.name, "risk_class")
@@ -261,7 +269,7 @@ def validate_gate_g01(doc: Document) -> None:
 
 def validate_gate_g03(doc: Document) -> None:
     """Gate G03 (VR-03): 100% baseline tests Pass/N/A before Clinical Release."""
-    if doc.workflow_state not in ("Clinical Release", "Re Inspection"):
+    if doc.workflow_state not in (_STATE_CLINICAL_RELEASE, _STATE_RE_INSPECTION):
         return
     failed = [row.parameter for row in (doc.get("baseline_tests") or []) if row.test_result == "Fail"]
     if failed:
@@ -270,7 +278,7 @@ def validate_gate_g03(doc: Document) -> None:
 
 def validate_gate_g05_g06(doc: Document) -> None:
     """Gate G05+G06: no open NCs + board_approver required for Clinical Release."""
-    if doc.workflow_state != "Clinical Release":
+    if doc.workflow_state != _STATE_CLINICAL_RELEASE:
         return
     open_nc = frappe.db.count(_DT_NC, {"ref_commissioning": doc.name, "resolution_status": "Open"})
     if open_nc > 0:
@@ -625,7 +633,7 @@ def get_dashboard_stats() -> dict:
     return {
         "kpis": {
             "pending_count": sum(v for k, v in state_map.items() if k not in _TERMINAL_STATES),
-            "hold_count": state_map.get("Clinical_Hold", 0),
+            "hold_count": state_map.get("Clinical Hold", 0),
             "open_nc_count": frappe.db.count(_DT_NC, {"resolution_status": "Open", "docstatus": ("!=", 2)}),
             "released_this_month": frappe.db.count(_DT, {
                 "workflow_state": _STATE_CLINICAL_RELEASE, "docstatus": 1,
@@ -942,8 +950,8 @@ def submit_baseline_checklist(name: str, results: list) -> dict:
     doc = CommissioningRepo.get(name)
     if not doc:
         raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy: {name}")
-    if doc.workflow_state != "Initial Inspection":
-        raise ServiceError(ErrorCode.INVALID_PARAMS, "Chỉ submit checklist khi ở Initial Inspection")
+    if doc.workflow_state != _STATE_INITIAL_INSPECTION:
+        raise ServiceError(ErrorCode.INVALID_PARAMS, f"Chỉ submit checklist khi ở {_STATE_INITIAL_INSPECTION}")
     result_map = {r.get("parameter"): r for r in results}
     for row in doc.baseline_tests or []:
         if row.parameter in result_map:
@@ -1019,6 +1027,39 @@ def approve_clinical_release(commissioning: str, board_approver: str, approval_r
         "commissioning_date": str(doc.commissioning_date or nowdate()),
         "device_record_queued": True,
     }
+
+
+def delete_commissioning(name: str) -> dict:
+    """Xóa phiếu Commissioning ở trạng thái Bản nháp (docstatus=0)."""
+    doc = CommissioningRepo.get(name)
+    if not doc:
+        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy phiếu: {name}")
+    if doc.docstatus != 0:
+        raise ServiceError(ErrorCode.FORBIDDEN, "Chỉ có thể xóa phiếu Bản nháp (docstatus = 0)")
+    frappe.delete_doc(_DT, name, ignore_permissions=False)
+    return {"deleted": name}
+
+
+def cancel_commissioning(name: str) -> dict:
+    """Hủy phiếu Commissioning đã Submit (docstatus 1 → 2). Chỉ VP Block2 / Workshop Head."""
+    doc = CommissioningRepo.get(name)
+    if not doc:
+        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy phiếu: {name}")
+    if doc.docstatus != 1:
+        raise ServiceError(ErrorCode.INVALID_PARAMS, "Chỉ có thể hủy phiếu đã Submit (docstatus = 1)")
+    if doc.final_asset:
+        raise ServiceError(
+            ErrorCode.FORBIDDEN,
+            f"Không thể hủy vì Tài sản '{doc.final_asset}' đã được kích hoạt trong hệ thống",
+        )
+    _allowed = _SUBMIT_ROLES | {"System Manager", "Administrator"}
+    if not any(r in _allowed for r in frappe.get_roles()):
+        raise ServiceError(ErrorCode.FORBIDDEN, "Chỉ VP Block2 hoặc Workshop Head mới được phép hủy phiếu")
+    doc.cancel()
+    frappe.db.commit()
+    log_lifecycle_event(doc, "Cancelled", doc.workflow_state, "Cancelled",
+                        f"Phiếu bị hủy bởi {frappe.session.user}")
+    return {"name": name, "docstatus": 2, "cancelled_by": frappe.session.user}
 
 
 def generate_handover_pdf(name: str) -> dict:
