@@ -1,0 +1,259 @@
+{
+ "autoname": "TS-.YY.-.#####",
+ "creation": "2026-04-22 00:00:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "is_submittable": 1,
+ "module": "Assetcore",
+ "name": "Technical Specification",
+ "owner": "Administrator",
+ "field_order": [
+  "needs_assessment",
+  "device_model",
+  "column_break_1",
+  "status",
+  "approver",
+  "equipment_description",
+  "regulatory_class",
+  "mdd_class",
+  "sec_procurement",
+  "procurement_method",
+  "required_by_date",
+  "delivery_location",
+  "reference_price_estimate",
+  "sec_support",
+  "site_requirements",
+  "lifetime_support_requirements",
+  "device_evaluation_ref",
+  "section_requirements",
+  "performance_requirements",
+  "section_technical",
+  "safety_standards",
+  "accessories_included",
+  "column_break_2",
+  "warranty_terms",
+  "expected_delivery_weeks",
+  "installation_requirements",
+  "training_requirements",
+  "reference_standard",
+  "section_review",
+  "reviewed_by",
+  "review_date",
+  "review_notes"
+ ],
+ "fields": [
+  {
+   "fieldname": "needs_assessment",
+   "fieldtype": "Link",
+   "label": "Phiếu nhu cầu mua sắm",
+   "options": "Needs Assessment",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "device_model",
+   "fieldtype": "Link",
+   "options": "IMM Device Model",
+   "label": "Model thiết bị"
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Trạng thái",
+   "options": "Draft\nUnder Review\nApproved\nRevised",
+   "default": "Draft",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "approver",
+   "fieldtype": "Link",
+   "options": "User",
+   "label": "Người phê duyệt",
+   "read_only": 1
+  },
+  {
+   "fieldname": "equipment_description",
+   "fieldtype": "Data",
+   "label": "Tên thiết bị cần mua",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "regulatory_class",
+   "fieldtype": "Select",
+   "label": "Phân loại NĐ98 (A/B/C/D)",
+   "options": "\nClass A\nClass B\nClass C\nClass D",
+   "reqd": 1
+  },
+  {
+   "fieldname": "mdd_class",
+   "fieldtype": "Select",
+   "label": "Phân loại MDD (quốc tế)",
+   "options": "\nClass I\nClass IIa\nClass IIb\nClass III"
+  },
+  {
+   "fieldname": "sec_procurement",
+   "fieldtype": "Section Break",
+   "label": "Thông tin Mua sắm"
+  },
+  {
+   "fieldname": "procurement_method",
+   "fieldtype": "Select",
+   "label": "Phương thức mua sắm",
+   "options": "\nRFQ\nTender\nDirect\nSole Source",
+   "reqd": 1
+  },
+  {
+   "fieldname": "required_by_date",
+   "fieldtype": "Date",
+   "label": "Cần giao trước ngày"
+  },
+  {
+   "fieldname": "delivery_location",
+   "fieldtype": "Data",
+   "label": "Địa điểm lắp đặt"
+  },
+  {
+   "fieldname": "reference_price_estimate",
+   "fieldtype": "Currency",
+   "label": "Giá tham chiếu ước tính (VND)"
+  },
+  {
+   "fieldname": "sec_support",
+   "fieldtype": "Section Break",
+   "label": "Yêu cầu Vòng đời"
+  },
+  {
+   "fieldname": "site_requirements",
+   "fieldtype": "Text",
+   "label": "Yêu cầu địa điểm & hạ tầng"
+  },
+  {
+   "fieldname": "lifetime_support_requirements",
+   "fieldtype": "Text",
+   "label": "Yêu cầu hỗ trợ vòng đời (vận hành, bảo trì, phụ tùng)"
+  },
+  {
+   "fieldname": "device_evaluation_ref",
+   "fieldtype": "Data",
+   "label": "Chứng nhận thiết bị (IEC/ISO)"
+  },
+  {
+   "fieldname": "section_requirements",
+   "fieldtype": "Section Break",
+   "label": "Yêu cầu kỹ thuật"
+  },
+  {
+   "fieldname": "performance_requirements",
+   "fieldtype": "Text Editor",
+   "label": "Yêu cầu hiệu suất"
+  },
+  {
+   "fieldname": "section_technical",
+   "fieldtype": "Section Break",
+   "label": "Tiêu chuẩn & Phụ kiện"
+  },
+  {
+   "fieldname": "safety_standards",
+   "fieldtype": "Text",
+   "label": "Tiêu chuẩn an toàn"
+  },
+  {
+   "fieldname": "accessories_included",
+   "fieldtype": "Text",
+   "label": "Phụ kiện đi kèm"
+  },
+  {
+   "fieldname": "column_break_2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "warranty_terms",
+   "fieldtype": "Data",
+   "label": "Điều khoản bảo hành"
+  },
+  {
+   "fieldname": "expected_delivery_weeks",
+   "fieldtype": "Int",
+   "label": "Dự kiến giao hàng (tuần)"
+  },
+  {
+   "fieldname": "installation_requirements",
+   "fieldtype": "Text",
+   "label": "Yêu cầu lắp đặt"
+  },
+  {
+   "fieldname": "training_requirements",
+   "fieldtype": "Text",
+   "label": "Yêu cầu đào tạo"
+  },
+  {
+   "fieldname": "reference_standard",
+   "fieldtype": "Data",
+   "label": "Tiêu chuẩn tham chiếu"
+  },
+  {
+   "fieldname": "section_review",
+   "fieldtype": "Section Break",
+   "label": "Xem xét & Phê duyệt"
+  },
+  {
+   "fieldname": "reviewed_by",
+   "fieldtype": "Link",
+   "options": "User",
+   "label": "Xem xét bởi",
+   "read_only": 1
+  },
+  {
+   "fieldname": "review_date",
+   "fieldtype": "Date",
+   "label": "Ngày xem xét",
+   "read_only": 1
+  },
+  {
+   "fieldname": "review_notes",
+   "fieldtype": "Text",
+   "label": "Ghi chú xem xét"
+  }
+ ],
+ "permissions": [
+  {
+   "role": "IMM System Admin",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "submit": 1,
+   "cancel": 1
+  },
+  {
+   "role": "IMM Operations Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "submit": 1
+  },
+  {
+   "role": "IMM Technical Reviewer",
+   "read": 1,
+   "write": 1,
+   "submit": 1
+  },
+  {
+   "role": "IMM Department Head",
+   "read": 1
+  },
+  {
+   "role": "IMM Finance Officer",
+   "read": 1
+  },
+  {
+   "role": "IMM Clinical User",
+   "read": 1
+  }
+ ]
+}

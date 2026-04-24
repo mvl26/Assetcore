@@ -1,0 +1,208 @@
+{
+ "actions": [],
+ "autoname": "AAR-.YY.-.#####",
+ "creation": "2026-04-21 00:00:00.000000",
+ "doctype": "DocType",
+ "document_type": "Document",
+ "engine": "InnoDB",
+ "is_submittable": 1,
+ "field_order": [
+  "workflow_state",
+  "section_archive_info",
+  "asset",
+  "asset_name",
+  "decommission_request",
+  "col_break_1",
+  "archive_date",
+  "archived_by",
+  "section_retention",
+  "storage_location",
+  "retention_years",
+  "release_date",
+  "col_break_2",
+  "total_documents_archived",
+  "summary_report_url",
+  "archive_notes",
+  "tab_documents",
+  "documents",
+  "tab_lifecycle",
+  "lifecycle_events",
+  "status"
+ ],
+ "fields": [
+  {
+   "fieldname": "workflow_state",
+   "fieldtype": "Link",
+   "label": "Trạng thái",
+   "options": "Workflow State",
+   "read_only": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "print_hide": 1
+  },
+  {
+   "fieldname": "section_archive_info",
+   "fieldtype": "Section Break",
+   "label": "Thông tin Lưu trữ"
+  },
+  {
+   "fieldname": "asset",
+   "fieldtype": "Link",
+   "label": "Thiết bị",
+   "options": "AC Asset",
+   "reqd": 1,
+   "in_list_view": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "asset_name",
+   "fieldtype": "Data",
+   "label": "Tên Thiết bị",
+   "read_only": 1,
+   "fetch_from": "asset.asset_name",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "decommission_request",
+   "fieldtype": "Link",
+   "label": "Phiếu Thanh lý",
+   "options": "Decommission Request"
+  },
+  {
+   "fieldname": "col_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "archive_date",
+   "fieldtype": "Date",
+   "label": "Ngày Lưu trữ",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "archived_by",
+   "fieldtype": "Link",
+   "label": "Người Lưu trữ",
+   "options": "User"
+  },
+  {
+   "fieldname": "section_retention",
+   "fieldtype": "Section Break",
+   "label": "Chi tiết Lưu trữ"
+  },
+  {
+   "fieldname": "storage_location",
+   "fieldtype": "Data",
+   "label": "Vị trí Lưu trữ",
+   "description": "Vị trí vật lý hoặc số (URL/path DMS)"
+  },
+  {
+   "fieldname": "retention_years",
+   "fieldtype": "Int",
+   "label": "Số năm Lưu trữ",
+   "default": "10",
+   "description": "Tối thiểu 10 năm theo NĐ98/2021 §17"
+  },
+  {
+   "fieldname": "release_date",
+   "fieldtype": "Date",
+   "label": "Ngày Giải phóng Hồ sơ",
+   "read_only": 1,
+   "description": "Tự động tính = archive_date + retention_years",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "col_break_2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "total_documents_archived",
+   "fieldtype": "Int",
+   "label": "Tổng tài liệu đã lưu trữ",
+   "read_only": 1
+  },
+  {
+   "fieldname": "summary_report_url",
+   "fieldtype": "Attach",
+   "label": "Báo cáo Tóm tắt Vòng đời"
+  },
+  {
+   "fieldname": "archive_notes",
+   "fieldtype": "Text Editor",
+   "label": "Ghi chú Lưu trữ"
+  },
+  {
+   "fieldname": "tab_documents",
+   "fieldtype": "Tab Break",
+   "label": "Danh mục Tài liệu"
+  },
+  {
+   "fieldname": "documents",
+   "fieldtype": "Table",
+   "label": "Tài liệu Lưu trữ",
+   "options": "Archive Document Entry"
+  },
+  {
+   "fieldname": "tab_lifecycle",
+   "fieldtype": "Tab Break",
+   "label": "Lịch sử Vòng đời"
+  },
+  {
+   "fieldname": "lifecycle_events",
+   "fieldtype": "Table",
+   "label": "Lifecycle Events",
+   "options": "Asset Lifecycle Event",
+   "read_only": 1
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Trạng thái nghiệp vụ",
+   "options": "Draft\nCompiling\nVerified\nArchived",
+   "default": "Draft",
+   "hidden": 1,
+   "in_standard_filter": 1
+  }
+ ],
+ "links": [],
+ "modified": "2026-04-21 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Assetcore",
+ "name": "Asset Archive Record",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "IMM System Admin",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "submit": 1,
+   "cancel": 1,
+   "delete": 1,
+   "print": 1,
+   "export": 1
+  },
+  {
+   "role": "IMM HTM Manager",
+   "read": 1
+  },
+  {
+   "role": "IMM QA Officer",
+   "read": 1,
+   "write": 1
+  },
+  {
+   "role": "IMM Operations Manager",
+   "read": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [
+  {"color": "Grey", "title": "Draft"},
+  {"color": "Blue", "title": "Compiling"},
+  {"color": "Green", "title": "Verified"},
+  {"color": "Grey", "title": "Archived"}
+ ],
+ "track_changes": 1
+}

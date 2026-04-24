@@ -1,0 +1,213 @@
+{
+ "actions": [],
+ "autoname": "DOL-.YY.-.MM.-.DD.-.#####",
+ "creation": "2026-04-21 00:00:00.000000",
+ "doctype": "DocType",
+ "document_type": "Document",
+ "engine": "InnoDB",
+ "is_submittable": 1,
+ "field_order": [
+  "workflow_state",
+  "section_core",
+  "asset",
+  "log_date",
+  "shift",
+  "col_break_core",
+  "operated_by",
+  "dept",
+  "section_meter",
+  "start_meter_hours",
+  "end_meter_hours",
+  "runtime_hours",
+  "col_break_meter",
+  "usage_cycles",
+  "operational_status",
+  "section_anomaly",
+  "anomaly_detected",
+  "anomaly_type",
+  "anomaly_description",
+  "linked_incident",
+  "section_review",
+  "reviewed_by",
+  "review_date",
+  "amended_from"
+ ],
+ "fields": [
+  {
+   "fieldname": "workflow_state",
+   "fieldtype": "Data",
+   "label": "Workflow State",
+   "no_copy": 1,
+   "print_hide": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_core",
+   "fieldtype": "Section Break",
+   "label": "Thông tin Ca trực"
+  },
+  {
+   "fieldname": "asset",
+   "fieldtype": "Link",
+   "label": "Thiết bị",
+   "options": "AC Asset",
+   "reqd": 1,
+   "search_index": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "log_date",
+   "fieldtype": "Date",
+   "label": "Ngày",
+   "reqd": 1,
+   "default": "Today",
+   "search_index": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "shift",
+   "fieldtype": "Select",
+   "label": "Ca trực",
+   "options": "Morning 06-14\nAfternoon 14-22\nNight 22-06",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "col_break_core",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "operated_by",
+   "fieldtype": "Link",
+   "label": "Người vận hành",
+   "options": "User",
+   "reqd": 1
+  },
+  {
+   "fieldname": "dept",
+   "fieldtype": "Link",
+   "label": "Khoa / Phòng",
+   "options": "AC Department",
+   "search_index": 1
+  },
+  {
+   "fieldname": "section_meter",
+   "fieldtype": "Section Break",
+   "label": "Đồng hồ & Trạng thái"
+  },
+  {
+   "fieldname": "start_meter_hours",
+   "fieldtype": "Float",
+   "label": "Giờ máy đầu ca",
+   "default": "0"
+  },
+  {
+   "fieldname": "end_meter_hours",
+   "fieldtype": "Float",
+   "label": "Giờ máy cuối ca",
+   "default": "0"
+  },
+  {
+   "fieldname": "runtime_hours",
+   "fieldtype": "Float",
+   "label": "Thời gian chạy (giờ)",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "col_break_meter",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "usage_cycles",
+   "fieldtype": "Int",
+   "label": "Số chu kỳ",
+   "default": "0"
+  },
+  {
+   "fieldname": "operational_status",
+   "fieldtype": "Select",
+   "label": "Trạng thái vận hành",
+   "options": "Running\nStandby\nFault\nUnder Maintenance\nNot Used",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "section_anomaly",
+   "fieldtype": "Section Break",
+   "label": "Bất thường"
+  },
+  {
+   "fieldname": "anomaly_detected",
+   "fieldtype": "Check",
+   "label": "Phát hiện bất thường"
+  },
+  {
+   "fieldname": "anomaly_type",
+   "fieldtype": "Select",
+   "label": "Mức độ bất thường",
+   "options": "None\nMinor\nMajor\nCritical",
+   "default": "None",
+   "depends_on": "anomaly_detected"
+  },
+  {
+   "fieldname": "anomaly_description",
+   "fieldtype": "Text",
+   "label": "Mô tả bất thường",
+   "depends_on": "anomaly_detected"
+  },
+  {
+   "fieldname": "linked_incident",
+   "fieldtype": "Link",
+   "label": "Sự cố liên quan",
+   "options": "Incident Report",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_review",
+   "fieldtype": "Section Break",
+   "label": "Review"
+  },
+  {
+   "fieldname": "reviewed_by",
+   "fieldtype": "Link",
+   "label": "Người review",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "review_date",
+   "fieldtype": "Date",
+   "label": "Ngày review",
+   "read_only": 1
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "Daily Operation Log",
+   "print_hide": 1,
+   "read_only": 1
+  }
+ ],
+ "links": [],
+ "modified": "2026-04-21 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "AssetCore",
+ "name": "Daily Operation Log",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
+ "permissions": [
+  {"role": "Clinical Operator", "read": 1, "write": 1, "create": 1, "submit": 1},
+  {"role": "Nurse", "read": 1, "write": 1, "create": 1, "submit": 1},
+  {"role": "Department Head", "read": 1, "write": 1, "submit": 1, "cancel": 1},
+  {"role": "HTM Technician", "read": 1, "write": 1, "submit": 1},
+  {"role": "System Manager", "read": 1, "write": 1, "create": 1, "submit": 1, "cancel": 1, "amend": 1}
+ ],
+ "sort_field": "log_date",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "asset",
+ "track_changes": 1
+}

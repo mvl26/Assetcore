@@ -1,17 +1,7 @@
 <script setup lang="ts">
 // Copyright (c) 2026, AssetCore Team
 // SmartSelect — autocomplete dropdown dùng cache Master Data (Pinia).
-//
-// UX:
-//   - Input hiển thị "Tên (ID)" khi đã chọn
-//   - Click để mở dropdown → hiển thị toàn bộ master data
-//   - Có ô search bên trong dropdown để lọc theo Tên / ID
-//   - Phím mũi tên Up/Down + Enter + Escape hoạt động như native select
-//   - v-model trả về ID (không phải Tên)
-//
-// Khác LinkSearch:
-//   - LinkSearch: gọi API mỗi lần gõ
-//   - SmartSelect: chỉ gọi API 1 lần qua store, sau đó lọc in-memory → instant
+// Dropdown được Teleport về body để tránh bị clipped bởi overflow:hidden của card cha.
 
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useMasterDataStore, type MasterItem } from '@/stores/useMasterDataStore'
@@ -19,7 +9,7 @@ import { useMasterDataStore, type MasterItem } from '@/stores/useMasterDataStore
 type DocType =
   | 'AC Asset' | 'AC Department' | 'AC Location' | 'AC Supplier'
   | 'AC Asset Category' | 'IMM Device Model' | 'IMM Calibration Schedule'
-  | 'Purchase Order' | 'User'
+  | 'Purchase Order' | 'User' | 'Technical Specification' | 'AC Warehouse'
 
 const props = defineProps<{
   modelValue: string | undefined | null
@@ -27,7 +17,6 @@ const props = defineProps<{
   placeholder?: string
   disabled?: boolean
   hasError?: boolean
-  /** Chiều cao tối đa dropdown (px). Mặc định 320 */
   maxHeight?: number
 }>()
 
@@ -39,18 +28,19 @@ const emit = defineEmits<{
 
 const store = useMasterDataStore()
 
-const wrapperRef = ref<HTMLElement | null>(null)
+const triggerRef     = ref<HTMLElement | null>(null)
 const searchInputRef = ref<HTMLInputElement | null>(null)
-const open = ref(false)
-const searchQuery = ref('')
-const activeIndex = ref(-1)
+const open           = ref(false)
+const searchQuery    = ref('')
+const activeIndex    = ref(-1)
 
-// Resolve item hiển thị từ modelValue (bằng cache)
+// Vị trí dropdown (tính từ trigger button)
+const dropdownStyle  = ref<Record<string, string>>({})
+
 const selectedItem = computed<MasterItem | null>(() => {
   if (!props.modelValue) return null
   return store.getItemById(props.doctype, props.modelValue) ?? null
 })
-
 
 const allItems = computed<MasterItem[]>(() => store.getItems(props.doctype))
 
@@ -64,14 +54,36 @@ const filteredItems = computed<MasterItem[]>(() => {
   )
 })
 
-const dropdownStyle = computed(() => ({
-  maxHeight: `${props.maxHeight ?? 320}px`,
-}))
+function calcDropdownPosition() {
+  const el = triggerRef.value
+  if (!el) return
+  const rect = el.getBoundingClientRect()
+  const spaceBelow = window.innerHeight - rect.bottom
+  const maxH = props.maxHeight ?? 320
+  // Hiển thị lên trên nếu không đủ chỗ phía dưới
+  if (spaceBelow < 180 && rect.top > spaceBelow) {
+    dropdownStyle.value = {
+      position: 'fixed',
+      left:     `${rect.left}px`,
+      bottom:   `${window.innerHeight - rect.top}px`,
+      width:    `${rect.width}px`,
+      maxHeight:`${Math.min(maxH, rect.top - 8)}px`,
+      zIndex:   '9999',
+    }
+  } else {
+    dropdownStyle.value = {
+      position: 'fixed',
+      left:     `${rect.left}px`,
+      top:      `${rect.bottom + 4}px`,
+      width:    `${rect.width}px`,
+      maxHeight:`${Math.min(maxH, spaceBelow - 8)}px`,
+      zIndex:   '9999',
+    }
+  }
+}
 
 async function ensureLoaded() {
-  if (allItems.value.length === 0) {
-    await store.fetchDoctype(props.doctype)
-  }
+  if (allItems.value.length === 0) await store.fetchDoctype(props.doctype)
 }
 
 async function toggle() {
@@ -79,6 +91,7 @@ async function toggle() {
   open.value = !open.value
   if (open.value) {
     await ensureLoaded()
+    calcDropdownPosition()
     searchQuery.value = ''
     activeIndex.value = selectedItem.value
       ? filteredItems.value.findIndex(it => it.id === selectedItem.value!.id)
@@ -120,9 +133,7 @@ function onKeydown(e: KeyboardEvent) {
     scrollActiveIntoView()
   } else if (e.key === 'Enter') {
     e.preventDefault()
-    if (activeIndex.value >= 0 && items[activeIndex.value]) {
-      selectItem(items[activeIndex.value])
-    }
+    if (activeIndex.value >= 0 && items[activeIndex.value]) selectItem(items[activeIndex.value])
   } else if (e.key === 'Escape') {
     e.preventDefault()
     close()
@@ -131,30 +142,46 @@ function onKeydown(e: KeyboardEvent) {
 
 function scrollActiveIntoView() {
   nextTick(() => {
-    const list = wrapperRef.value?.querySelector('[data-smart-list]')
+    const list = document.querySelector('[data-smart-list]')
     const el = list?.children[activeIndex.value] as HTMLElement | undefined
     el?.scrollIntoView({ block: 'nearest' })
   })
 }
 
 function onClickOutside(e: MouseEvent) {
-  if (wrapperRef.value && !wrapperRef.value.contains(e.target as Node)) close()
+  const target = e.target as Node
+  // Đóng nếu click ra ngoài trigger và dropdown
+  if (triggerRef.value && !triggerRef.value.contains(target)) {
+    const dropdown = document.querySelector('[data-smart-dropdown]')
+    if (!dropdown || !dropdown.contains(target)) close()
+  }
 }
 
-// Khi modelValue từ bên ngoài set → đảm bảo đã load cache để resolve label
+// Cập nhật vị trí khi scroll hoặc resize
+function onScrollResize() {
+  if (open.value) calcDropdownPosition()
+}
+
 watch(() => props.modelValue, async (val) => {
   if (val && allItems.value.length === 0) await ensureLoaded()
 }, { immediate: true })
 
-// Reset search khi filter mới → focus item đầu
 watch(searchQuery, () => { activeIndex.value = filteredItems.value.length > 0 ? 0 : -1 })
 
-onMounted(() => document.addEventListener('mousedown', onClickOutside))
-onBeforeUnmount(() => document.removeEventListener('mousedown', onClickOutside))
+onMounted(() => {
+  document.addEventListener('mousedown', onClickOutside)
+  window.addEventListener('scroll', onScrollResize, true)
+  window.addEventListener('resize', onScrollResize)
+})
+onBeforeUnmount(() => {
+  document.removeEventListener('mousedown', onClickOutside)
+  window.removeEventListener('scroll', onScrollResize, true)
+  window.removeEventListener('resize', onScrollResize)
+})
 </script>
 
 <template>
-  <div ref="wrapperRef" class="smart-select relative">
+  <div ref="triggerRef" class="smart-select relative">
     <!-- Trigger button -->
     <button
       type="button"
@@ -200,84 +227,87 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onClickOutside))
       </span>
     </button>
 
-    <!-- Dropdown -->
-    <div
-      v-if="open"
-      class="absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-xl overflow-hidden"
-    >
-      <!-- Search inside dropdown -->
-      <div class="p-2 border-b border-slate-100 bg-slate-50">
-        <div class="relative">
-          <input
-            ref="searchInputRef"
-            v-model="searchQuery"
-            type="text"
-            class="w-full text-sm border border-slate-200 rounded-md pl-8 pr-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-brand-300"
-            placeholder="Tìm theo tên hoặc mã..."
-            @keydown="onKeydown"
-          />
-          <svg class="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400"
-               fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+    <!-- Dropdown — Teleport về body để tránh overflow:hidden của card cha -->
+    <Teleport to="body">
+      <div
+        v-if="open"
+        data-smart-dropdown
+        class="bg-white border border-slate-200 rounded-lg shadow-xl overflow-hidden"
+        :style="dropdownStyle"
+      >
+        <!-- Search -->
+        <div class="p-2 border-b border-slate-100 bg-slate-50">
+          <div class="relative">
+            <input
+              ref="searchInputRef"
+              v-model="searchQuery"
+              type="text"
+              class="w-full text-sm border border-slate-200 rounded-md pl-8 pr-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-brand-300"
+              placeholder="Tìm theo tên hoặc mã..."
+              @keydown="onKeydown"
+            />
+            <svg class="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400"
+                 fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+          </div>
+        </div>
+
+        <!-- Loading -->
+        <div v-if="store.isLoading(doctype) && !allItems.length"
+             class="px-3 py-4 text-center text-sm text-slate-400">
+          <svg class="w-4 h-4 inline-block animate-spin mr-2" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
           </svg>
+          Đang tải dữ liệu...
+        </div>
+
+        <!-- Empty -->
+        <div v-else-if="!filteredItems.length"
+             class="px-3 py-6 text-center text-sm text-slate-400">
+          <span v-if="searchQuery">Không tìm thấy "{{ searchQuery }}"</span>
+          <span v-else>Chưa có dữ liệu {{ doctype }}</span>
+        </div>
+
+        <!-- Items -->
+        <ul v-else
+            data-smart-list
+            class="overflow-y-auto py-1"
+            :style="{ maxHeight: dropdownStyle.maxHeight }">
+          <li
+            v-for="(item, idx) in filteredItems"
+            :key="item.id"
+            class="flex items-start gap-2.5 px-3 py-2 cursor-pointer text-sm transition-colors"
+            :class="[
+              idx === activeIndex ? 'bg-brand-50' : 'hover:bg-slate-50',
+              selectedItem?.id === item.id ? 'text-brand-700 font-medium' : 'text-slate-700',
+            ]"
+            @mousedown.prevent="selectItem(item)"
+            @mouseenter="activeIndex = idx"
+          >
+            <span class="shrink-0 mt-0.5 w-4 h-4 flex items-center justify-center">
+              <svg v-if="selectedItem?.id === item.id"
+                   class="w-4 h-4 text-brand-600" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+              <span v-else class="w-1.5 h-1.5 rounded-full bg-slate-300"></span>
+            </span>
+            <span class="flex-1 min-w-0 flex flex-col">
+              <span class="truncate">{{ item.name }}</span>
+              <span class="text-[11px] text-slate-400 truncate font-mono">
+                {{ item.id }}<span v-if="item.description"> · {{ item.description }}</span>
+              </span>
+            </span>
+          </li>
+        </ul>
+
+        <!-- Footer -->
+        <div v-if="filteredItems.length > 0"
+             class="px-3 py-1.5 border-t border-slate-100 text-[11px] text-slate-400 bg-slate-50">
+          {{ filteredItems.length }}/{{ allItems.length }} kết quả
         </div>
       </div>
-
-      <!-- Loading indicator -->
-      <div v-if="store.isLoading(doctype) && !allItems.length"
-           class="px-3 py-4 text-center text-sm text-slate-400">
-        <svg class="w-4 h-4 inline-block animate-spin mr-2" fill="none" viewBox="0 0 24 24">
-          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
-          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-        </svg>
-        Đang tải dữ liệu...
-      </div>
-
-      <!-- Empty state -->
-      <div v-else-if="!filteredItems.length"
-           class="px-3 py-6 text-center text-sm text-slate-400">
-        <span v-if="searchQuery">Không tìm thấy "{{ searchQuery }}"</span>
-        <span v-else>Chưa có dữ liệu {{ doctype }}</span>
-      </div>
-
-      <!-- Item list -->
-      <ul v-else
-          data-smart-list
-          class="overflow-y-auto py-1"
-          :style="dropdownStyle">
-        <li
-          v-for="(item, idx) in filteredItems"
-          :key="item.id"
-          class="flex items-start gap-2.5 px-3 py-2 cursor-pointer text-sm transition-colors"
-          :class="[
-            idx === activeIndex ? 'bg-brand-50' : 'hover:bg-slate-50',
-            selectedItem?.id === item.id ? 'text-brand-700 font-medium' : 'text-slate-700',
-          ]"
-          @mousedown.prevent="selectItem(item)"
-          @mouseenter="activeIndex = idx"
-        >
-          <!-- Check icon khi đã chọn -->
-          <span class="shrink-0 mt-0.5 w-4 h-4 flex items-center justify-center">
-            <svg v-if="selectedItem?.id === item.id"
-                 class="w-4 h-4 text-brand-600" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
-            </svg>
-            <span v-else class="w-1.5 h-1.5 rounded-full bg-slate-300"></span>
-          </span>
-          <span class="flex-1 min-w-0 flex flex-col">
-            <span class="truncate">{{ item.name }}</span>
-            <span class="text-[11px] text-slate-400 truncate font-mono">
-              {{ item.id }}<span v-if="item.description"> · {{ item.description }}</span>
-            </span>
-          </span>
-        </li>
-      </ul>
-
-      <!-- Footer: count -->
-      <div v-if="filteredItems.length > 0"
-           class="px-3 py-1.5 border-t border-slate-100 text-[11px] text-slate-400 bg-slate-50">
-        {{ filteredItems.length }}/{{ allItems.length }} kết quả
-      </div>
-    </div>
+    </Teleport>
   </div>
 </template>

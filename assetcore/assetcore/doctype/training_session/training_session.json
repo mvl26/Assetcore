@@ -1,0 +1,167 @@
+{
+ "actions": [],
+ "autoname": "TS-.YY.-.MM.-.#####",
+ "creation": "2026-04-21 00:00:00.000000",
+ "doctype": "DocType",
+ "document_type": "Document",
+ "engine": "InnoDB",
+ "is_submittable": 0,
+ "field_order": [
+  "section_core",
+  "handover_ref",
+  "asset",
+  "col_break_core",
+  "training_type",
+  "trainer_type",
+  "trainer",
+  "section_schedule",
+  "training_date",
+  "duration_hours",
+  "venue",
+  "col_break_schedule",
+  "materials_url",
+  "status",
+  "competency_confirmed",
+  "section_trainees",
+  "trainees",
+  "section_notes",
+  "notes"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_core",
+   "fieldtype": "Section Break",
+   "label": "Thông tin buổi đào tạo"
+  },
+  {
+   "fieldname": "handover_ref",
+   "fieldtype": "Link",
+   "label": "Phiếu bàn giao",
+   "options": "Handover Record",
+   "reqd": 1,
+   "search_index": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "asset",
+   "fieldtype": "Link",
+   "label": "Thiết bị",
+   "options": "AC Asset",
+   "fetch_from": "handover_ref.asset",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "col_break_core",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "training_type",
+   "fieldtype": "Select",
+   "label": "Loại đào tạo",
+   "options": "Operation\nSafety\nEmergency\nMaintenance\nFull",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "trainer_type",
+   "fieldtype": "Select",
+   "label": "Nguồn đào tạo",
+   "options": "HTM\nVendor",
+   "reqd": 1
+  },
+  {
+   "fieldname": "trainer",
+   "fieldtype": "Link",
+   "label": "Người đào tạo",
+   "options": "User",
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_schedule",
+   "fieldtype": "Section Break",
+   "label": "Lịch trình"
+  },
+  {
+   "fieldname": "training_date",
+   "fieldtype": "Date",
+   "label": "Ngày đào tạo",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "duration_hours",
+   "fieldtype": "Float",
+   "label": "Thời lượng (giờ)"
+  },
+  {
+   "fieldname": "venue",
+   "fieldtype": "Data",
+   "label": "Địa điểm"
+  },
+  {
+   "fieldname": "col_break_schedule",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "materials_url",
+   "fieldtype": "Data",
+   "label": "URL Tài liệu đào tạo"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Trạng thái",
+   "options": "Scheduled\nCompleted\nCancelled",
+   "default": "Scheduled",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "competency_confirmed",
+   "fieldtype": "Check",
+   "label": "Tất cả đạt năng lực",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_trainees",
+   "fieldtype": "Section Break",
+   "label": "Danh sách học viên"
+  },
+  {
+   "fieldname": "trainees",
+   "fieldtype": "Table",
+   "label": "Học viên",
+   "options": "Training Trainee"
+  },
+  {
+   "fieldname": "section_notes",
+   "fieldtype": "Section Break",
+   "label": "Ghi chú"
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Text",
+   "label": "Ghi chú buổi học"
+  }
+ ],
+ "links": [],
+ "modified": "2026-04-21 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "AssetCore",
+ "name": "Training Session",
+ "owner": "Administrator",
+ "permissions": [
+  {"role": "HTM Technician", "read": 1, "write": 1, "create": 1},
+  {"role": "Biomed Engineer", "read": 1, "write": 1, "create": 1},
+  {"role": "Vendor Engineer", "read": 1, "write": 1, "create": 1},
+  {"role": "QA Officer", "read": 1, "write": 1},
+  {"role": "Department Head", "read": 1},
+  {"role": "System Manager", "read": 1, "write": 1, "create": 1, "cancel": 1}
+ ],
+ "sort_field": "training_date",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "training_type",
+ "track_changes": 1
+}

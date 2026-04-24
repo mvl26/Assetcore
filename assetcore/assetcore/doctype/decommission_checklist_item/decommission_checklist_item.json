@@ -1,0 +1,68 @@
+{
+ "actions": [],
+ "creation": "2026-04-21 00:00:00.000000",
+ "doctype": "DocType",
+ "document_type": "Child Table",
+ "engine": "InnoDB",
+ "field_order": [
+  "task_name",
+  "responsible",
+  "due_date",
+  "col_break_1",
+  "completed",
+  "completion_date",
+  "notes"
+ ],
+ "fields": [
+  {
+   "fieldname": "task_name",
+   "fieldtype": "Data",
+   "label": "Tên công việc",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "responsible",
+   "fieldtype": "Link",
+   "label": "Người phụ trách",
+   "options": "User",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "due_date",
+   "fieldtype": "Date",
+   "label": "Hạn thực hiện"
+  },
+  {
+   "fieldname": "col_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "completed",
+   "fieldtype": "Check",
+   "label": "Đã hoàn thành",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "completion_date",
+   "fieldtype": "Date",
+   "label": "Ngày hoàn thành"
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Text",
+   "label": "Ghi chú"
+  }
+ ],
+ "istable": 1,
+ "links": [],
+ "modified": "2026-04-21 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Assetcore",
+ "name": "Decommission Checklist Item",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "idx",
+ "sort_order": "ASC",
+ "states": []
+}

@@ -25,6 +25,10 @@ import {
   ROLES_APPROVE,
   ROLES_MANAGE_DOCS as ROLES_DOC_MGMT,
   ROLES_ADMIN_ONLY,
+  ROLES_PLANNING_VIEW,
+  ROLES_PLANNING_MANAGE,
+  ROLES_PLANNING_REVIEW,
+  ROLES_PLANNING_FINANCE,
 } from '@/constants/roles'
 
 const routes: RouteRecordRaw[] = [
@@ -533,6 +537,135 @@ const routes: RouteRecordRaw[] = [
     name: 'AssetDashboardDebug',
     component: () => import('@/components/imm04/AssetDashboard.vue'),
     meta: { requiresAuth: true, title: 'Tổng quan Thiết bị (Debug)', devOnly: true, requiredRoles: ROLES_ADMIN_ONLY },
+  },
+
+  // ─── 13. IMM-01/02/03 — Planning & Procurement (Wave 2) ──────────────────────
+  {
+    path: '/planning/dashboard',
+    name: 'PlanningDashboard',
+    component: () => import('@/views/PlanningDashboardView.vue'),
+    meta: { requiresAuth: true, title: 'Tổng quan Kế hoạch — AssetCore', requiredRoles: [...ROLES_PLANNING_VIEW] },
+  },
+  // IMM-01 — Needs Assessment
+  {
+    path: '/planning/needs-assessments',
+    name: 'NeedsAssessmentList',
+    component: () => import('@/views/NeedsAssessmentListView.vue'),
+    meta: { requiresAuth: true, title: 'Đánh giá Nhu cầu — AssetCore', requiredRoles: [...ROLES_PLANNING_VIEW] },
+  },
+  {
+    path: '/planning/needs-assessments/new',
+    name: 'NeedsAssessmentCreate',
+    component: () => import('@/views/NeedsAssessmentCreateView.vue'),
+    meta: { requiresAuth: true, title: 'Tạo Đánh giá Nhu cầu — AssetCore', requiredRoles: [...ROLES_PLANNING_MANAGE] },
+  },
+  {
+    path: '/planning/needs-assessments/:id',
+    name: 'NeedsAssessmentDetail',
+    component: () => import('@/views/NeedsAssessmentDetailView.vue'),
+    props: true,
+    meta: { requiresAuth: true, title: 'Chi tiết Đánh giá Nhu cầu — AssetCore', requiredRoles: [...ROLES_PLANNING_VIEW] },
+  },
+  // IMM-02 — Procurement Plan
+  {
+    path: '/planning/procurement-plans',
+    name: 'ProcurementPlanList',
+    component: () => import('@/views/ProcurementPlanListView.vue'),
+    meta: { requiresAuth: true, title: 'Kế hoạch Mua sắm — AssetCore', requiredRoles: [...ROLES_PLANNING_VIEW] },
+  },
+  {
+    path: '/planning/procurement-plans/new',
+    name: 'ProcurementPlanCreate',
+    component: () => import('@/views/ProcurementPlanCreateView.vue'),
+    meta: { requiresAuth: true, title: 'Tạo Kế hoạch Mua sắm — AssetCore', requiredRoles: [...ROLES_PLANNING_MANAGE] },
+  },
+  {
+    path: '/planning/procurement-plans/:id',
+    name: 'ProcurementPlanDetail',
+    component: () => import('@/views/ProcurementPlanDetailView.vue'),
+    props: true,
+    meta: { requiresAuth: true, title: 'Chi tiết Kế hoạch Mua sắm — AssetCore', requiredRoles: [...ROLES_PLANNING_VIEW] },
+  },
+  // IMM-03 — Technical Specification
+  {
+    path: '/planning/technical-specs',
+    name: 'TechnicalSpecList',
+    component: () => import('@/views/TechnicalSpecListView.vue'),
+    meta: { requiresAuth: true, title: 'Đặc tả Kỹ thuật — AssetCore', requiredRoles: [...ROLES_PLANNING_VIEW] },
+  },
+  {
+    path: '/planning/technical-specs/new',
+    name: 'TechnicalSpecCreate',
+    component: () => import('@/views/TechnicalSpecCreateView.vue'),
+    meta: { requiresAuth: true, title: 'Tạo Đặc tả Kỹ thuật — AssetCore', requiredRoles: [...ROLES_PLANNING_MANAGE] },
+  },
+  {
+    path: '/planning/technical-specs/:id',
+    name: 'TechnicalSpecDetail',
+    component: () => import('@/views/TechnicalSpecDetailView.vue'),
+    props: true,
+    meta: { requiresAuth: true, title: 'Chi tiết Đặc tả Kỹ thuật — AssetCore', requiredRoles: [...ROLES_PLANNING_VIEW] },
+  },
+  // IMM-03 — Vendor Evaluation
+  {
+    path: '/planning/vendor-evaluations',
+    name: 'VendorEvaluationList',
+    component: () => import('@/views/VendorEvaluationListView.vue'),
+    meta: { requiresAuth: true, title: 'Đánh giá NCC — AssetCore', requiredRoles: [...ROLES_PLANNING_VIEW] },
+  },
+  {
+    path: '/planning/vendor-evaluations/new',
+    name: 'VendorEvaluationCreate',
+    component: () => import('@/views/VendorEvaluationCreateView.vue'),
+    meta: { requiresAuth: true, title: 'Tạo Đánh giá NCC — AssetCore', requiredRoles: [...ROLES_PLANNING_MANAGE] },
+  },
+  {
+    path: '/planning/vendor-evaluations/:id',
+    name: 'VendorEvaluationDetail',
+    component: () => import('@/views/VendorEvaluationDetailView.vue'),
+    props: true,
+    meta: { requiresAuth: true, title: 'Chi tiết Đánh giá NCC — AssetCore', requiredRoles: [...ROLES_PLANNING_REVIEW, ...ROLES_PLANNING_FINANCE] },
+  },
+  // IMM-03 — Purchase Order Request
+  {
+    path: '/planning/purchase-order-requests',
+    name: 'PORList',
+    component: () => import('@/views/PORListView.vue'),
+    meta: { requiresAuth: true, title: 'Yêu cầu Mua sắm — AssetCore', requiredRoles: [...ROLES_PLANNING_VIEW] },
+  },
+  {
+    path: '/planning/purchase-order-requests/new',
+    name: 'PORCreate',
+    component: () => import('@/views/PORCreateView.vue'),
+    meta: { requiresAuth: true, title: 'Tạo Yêu cầu Mua sắm — AssetCore', requiredRoles: [...ROLES_PLANNING_MANAGE, ...ROLES_PLANNING_FINANCE] },
+  },
+  {
+    path: '/planning/purchase-order-requests/:id',
+    name: 'PORDetail',
+    component: () => import('@/views/PORDetailView.vue'),
+    props: true,
+    meta: { requiresAuth: true, title: 'Chi tiết Yêu cầu Mua sắm — AssetCore', requiredRoles: [...ROLES_PLANNING_VIEW] },
+  },
+
+  // ─── 13b. IMM-06 — Handover & Training ────────────────────────────────────
+  {
+    path: '/handover',
+    name: 'HandoverList',
+    component: () => import('@/views/HandoverListView.vue'),
+    meta: { requiresAuth: true, title: 'Bàn giao & Đào tạo — IMM-06', requiredRoles: ROLES_CREATE },
+  },
+  {
+    path: '/handover/create',
+    name: 'HandoverCreate',
+    component: () => import('@/views/HandoverCreateView.vue'),
+    meta: { requiresAuth: true, title: 'Tạo Phiếu Bàn giao — IMM-06', requiredRoles: ROLES_CREATE },
+  },
+  {
+    path: '/handover/:id',
+    name: 'HandoverDetail',
+    component: () => import('@/views/HandoverDetailView.vue'),
+    props: true,
+    meta: { requiresAuth: true, title: 'Chi tiết Bàn giao — IMM-06', requiredRoles: ROLES_CREATE },
   },
 
   // ─── 12. Errors / 404 catch-all ────────────────────────────────────────────

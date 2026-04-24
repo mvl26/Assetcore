@@ -1,0 +1,84 @@
+{
+ "creation": "2026-04-21 00:00:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "istable": 1,
+ "module": "Assetcore",
+ "name": "Procurement Plan Item",
+ "owner": "Administrator",
+ "fields": [
+  {
+   "fieldname": "needs_assessment",
+   "fieldtype": "Link",
+   "options": "Needs Assessment",
+   "label": "Phiếu nhu cầu",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "device_model",
+   "fieldtype": "Link",
+   "options": "IMM Device Model",
+   "label": "Model thiết bị"
+  },
+  {
+   "fieldname": "equipment_description",
+   "fieldtype": "Data",
+   "label": "Mô tả thiết bị",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "quantity",
+   "fieldtype": "Int",
+   "label": "Số lượng",
+   "reqd": 1,
+   "default": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "estimated_unit_cost",
+   "fieldtype": "Currency",
+   "label": "Đơn giá ước tính",
+   "reqd": 1
+  },
+  {
+   "fieldname": "total_cost",
+   "fieldtype": "Currency",
+   "label": "Tổng",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "priority",
+   "fieldtype": "Select",
+   "label": "Ưu tiên",
+   "options": "Critical\nHigh\nMedium\nLow",
+   "reqd": 1,
+   "default": "Medium"
+  },
+  {
+   "fieldname": "planned_quarter",
+   "fieldtype": "Select",
+   "label": "Quý kế hoạch",
+   "options": "\nQ1\nQ2\nQ3\nQ4"
+  },
+  {
+   "fieldname": "vendor_shortlist",
+   "fieldtype": "Text",
+   "label": "NCC đề xuất"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Trạng thái",
+   "options": "Pending\nSpec Defined\nPO Raised\nOrdered\nDelivered\nCancelled",
+   "default": "Pending"
+  },
+  {
+   "fieldname": "por_reference",
+   "fieldtype": "Link",
+   "options": "Purchase Order Request",
+   "label": "PO Request"
+  }
+ ]
+}

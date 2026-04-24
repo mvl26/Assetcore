@@ -21,7 +21,7 @@ export interface MasterItem {
 type DocType =
   | 'AC Asset' | 'AC Department' | 'AC Location' | 'AC Supplier'
   | 'AC Asset Category' | 'IMM Device Model' | 'IMM Calibration Schedule'
-  | 'Purchase Order' | 'User'
+  | 'Purchase Order' | 'User' | 'Technical Specification' | 'AC Warehouse'
 
 interface CacheEntry {
   items: MasterItem[]

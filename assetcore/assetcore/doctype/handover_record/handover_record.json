@@ -1,0 +1,179 @@
+{
+ "actions": [],
+ "autoname": "HR-.YY.-.MM.-.#####",
+ "creation": "2026-04-21 00:00:00.000000",
+ "doctype": "DocType",
+ "document_type": "Document",
+ "engine": "InnoDB",
+ "is_submittable": 1,
+ "field_order": [
+  "workflow_state",
+  "section_commissioning",
+  "commissioning_ref",
+  "asset",
+  "col_break_comm",
+  "clinical_dept",
+  "handover_date",
+  "received_by",
+  "section_handover_info",
+  "handover_type",
+  "conditions_if_conditional",
+  "col_break_signoff",
+  "htm_engineer_signoff",
+  "dept_head_signoff",
+  "section_notes",
+  "handover_notes",
+  "section_status",
+  "status",
+  "amended_from"
+ ],
+ "fields": [
+  {
+   "fieldname": "workflow_state",
+   "fieldtype": "Data",
+   "label": "Workflow State",
+   "no_copy": 1,
+   "print_hide": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_commissioning",
+   "fieldtype": "Section Break",
+   "label": "Thông tin Commissioning"
+  },
+  {
+   "fieldname": "commissioning_ref",
+   "fieldtype": "Link",
+   "label": "Phiếu Nghiệm thu (IMM-04)",
+   "options": "Asset Commissioning",
+   "reqd": 1,
+   "search_index": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "asset",
+   "fieldtype": "Link",
+   "label": "Thiết bị",
+   "options": "AC Asset",
+   "reqd": 1,
+   "fetch_from": "commissioning_ref.final_asset",
+   "read_only": 1,
+   "search_index": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "col_break_comm",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "clinical_dept",
+   "fieldtype": "Link",
+   "label": "Khoa / Phòng nhận",
+   "options": "AC Department",
+   "reqd": 1,
+   "search_index": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "handover_date",
+   "fieldtype": "Date",
+   "label": "Ngày bàn giao",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "received_by",
+   "fieldtype": "Link",
+   "label": "Người đại diện nhận",
+   "options": "User",
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_handover_info",
+   "fieldtype": "Section Break",
+   "label": "Thông tin Bàn giao"
+  },
+  {
+   "fieldname": "handover_type",
+   "fieldtype": "Select",
+   "label": "Loại bàn giao",
+   "options": "Full\nConditional\nTemporary",
+   "reqd": 1,
+   "default": "Full"
+  },
+  {
+   "fieldname": "conditions_if_conditional",
+   "fieldtype": "Text",
+   "label": "Điều kiện (nếu Conditional/Temporary)",
+   "depends_on": "eval:in_list(['Conditional', 'Temporary'], doc.handover_type)"
+  },
+  {
+   "fieldname": "col_break_signoff",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "htm_engineer_signoff",
+   "fieldtype": "Link",
+   "label": "Xác nhận Kỹ sư HTM",
+   "options": "User"
+  },
+  {
+   "fieldname": "dept_head_signoff",
+   "fieldtype": "Link",
+   "label": "Chữ ký Trưởng khoa",
+   "options": "User"
+  },
+  {
+   "fieldname": "section_notes",
+   "fieldtype": "Section Break",
+   "label": "Ghi chú"
+  },
+  {
+   "fieldname": "handover_notes",
+   "fieldtype": "Text Editor",
+   "label": "Ghi chú bàn giao"
+  },
+  {
+   "fieldname": "section_status",
+   "fieldtype": "Section Break",
+   "label": "Trạng thái"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Trạng thái",
+   "options": "Draft\nTraining Scheduled\nTraining Completed\nHandover Pending\nHanded Over\nCancelled",
+   "reqd": 1,
+   "default": "Draft",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "Handover Record",
+   "print_hide": 1,
+   "read_only": 1
+  }
+ ],
+ "links": [],
+ "modified": "2026-04-21 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "AssetCore",
+ "name": "Handover Record",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
+ "permissions": [
+  {"role": "HTM Technician", "read": 1, "write": 1, "create": 1},
+  {"role": "Biomed Engineer", "read": 1, "write": 1, "create": 1},
+  {"role": "Department Head", "read": 1, "write": 1, "submit": 1},
+  {"role": "QA Officer", "read": 1, "write": 1, "submit": 1},
+  {"role": "System Manager", "read": 1, "write": 1, "create": 1, "submit": 1, "cancel": 1, "amend": 1}
+ ],
+ "sort_field": "handover_date",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "asset",
+ "track_changes": 1
+}

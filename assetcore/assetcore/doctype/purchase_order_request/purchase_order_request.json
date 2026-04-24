@@ -1,0 +1,258 @@
+{
+ "autoname": "POR-.YY.-.#####",
+ "creation": "2026-04-22 00:00:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "is_submittable": 1,
+ "module": "Assetcore",
+ "name": "Purchase Order Request",
+ "owner": "Administrator",
+ "field_order": [
+  "linked_plan_item",
+  "procurement_plan",
+  "linked_evaluation",
+  "linked_technical_spec",
+  "column_break_1",
+  "vendor",
+  "vendor_name",
+  "status",
+  "approver",
+  "requires_director_approval",
+  "section_equipment",
+  "equipment_description",
+  "quantity",
+  "unit_price",
+  "total_amount",
+  "column_break_2",
+  "delivery_terms",
+  "payment_terms",
+  "expected_delivery_date",
+  "warranty_period_months",
+  "incoterms",
+  "payment_schedule_notes",
+  "waiver_reason",
+  "section_approval",
+  "approved_by",
+  "approval_date",
+  "release_date",
+  "released_by",
+  "cancellation_reason"
+ ],
+ "fields": [
+  {
+   "fieldname": "linked_plan_item",
+   "fieldtype": "Link",
+   "options": "Procurement Plan Item",
+   "label": "Dòng kế hoạch",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "procurement_plan",
+   "fieldtype": "Link",
+   "options": "Procurement Plan",
+   "label": "Kế hoạch mua sắm",
+   "reqd": 1
+  },
+  {
+   "fieldname": "linked_evaluation",
+   "fieldtype": "Link",
+   "options": "Vendor Evaluation",
+   "label": "Phiếu đánh giá NCC",
+   "reqd": 1
+  },
+  {
+   "fieldname": "linked_technical_spec",
+   "fieldtype": "Link",
+   "options": "Technical Specification",
+   "label": "Đặc tả kỹ thuật"
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "vendor",
+   "fieldtype": "Link",
+   "options": "AC Supplier",
+   "label": "Nhà cung cấp",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "vendor_name",
+   "fieldtype": "Data",
+   "label": "Tên NCC",
+   "read_only": 1,
+   "fetch_from": "vendor.supplier_name"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Trạng thái",
+   "options": "Draft\nUnder Review\nApproved\nReleased\nFulfilled\nCancelled",
+   "default": "Draft",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "approver",
+   "fieldtype": "Link",
+   "options": "User",
+   "label": "Người phê duyệt",
+   "read_only": 1
+  },
+  {
+   "fieldname": "requires_director_approval",
+   "fieldtype": "Check",
+   "label": "Cần Giám đốc ký (>500M)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_equipment",
+   "fieldtype": "Section Break",
+   "label": "Thông tin thiết bị"
+  },
+  {
+   "fieldname": "equipment_description",
+   "fieldtype": "Data",
+   "label": "Mô tả thiết bị",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "quantity",
+   "fieldtype": "Int",
+   "label": "Số lượng",
+   "reqd": 1,
+   "default": 1
+  },
+  {
+   "fieldname": "unit_price",
+   "fieldtype": "Currency",
+   "label": "Đơn giá (VND)",
+   "reqd": 1
+  },
+  {
+   "fieldname": "total_amount",
+   "fieldtype": "Currency",
+   "label": "Tổng giá trị",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "column_break_2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "delivery_terms",
+   "fieldtype": "Data",
+   "label": "Điều khoản giao hàng"
+  },
+  {
+   "fieldname": "payment_terms",
+   "fieldtype": "Data",
+   "label": "Điều khoản thanh toán"
+  },
+  {
+   "fieldname": "expected_delivery_date",
+   "fieldtype": "Date",
+   "label": "Dự kiến giao hàng"
+  },
+  {
+   "fieldname": "warranty_period_months",
+   "fieldtype": "Int",
+   "label": "Bảo hành (tháng)"
+  },
+  {
+   "fieldname": "incoterms",
+   "fieldtype": "Select",
+   "label": "Incoterms",
+   "options": "\nEXW\nFOB\nCIF\nDDP\nDAP\nFCA"
+  },
+  {
+   "fieldname": "payment_schedule_notes",
+   "fieldtype": "Text",
+   "label": "Lịch thanh toán (WHO 6.4)"
+  },
+  {
+   "fieldname": "waiver_reason",
+   "fieldtype": "Text",
+   "label": "Lý do miễn trừ (VR-03-07)"
+  },
+  {
+   "fieldname": "section_approval",
+   "fieldtype": "Section Break",
+   "label": "Phê duyệt & Phát hành"
+  },
+  {
+   "fieldname": "approved_by",
+   "fieldtype": "Link",
+   "options": "User",
+   "label": "Phê duyệt bởi",
+   "read_only": 1
+  },
+  {
+   "fieldname": "approval_date",
+   "fieldtype": "Date",
+   "label": "Ngày phê duyệt",
+   "read_only": 1
+  },
+  {
+   "fieldname": "release_date",
+   "fieldtype": "Date",
+   "label": "Ngày phát hành",
+   "read_only": 1
+  },
+  {
+   "fieldname": "released_by",
+   "fieldtype": "Link",
+   "options": "User",
+   "label": "Phát hành bởi",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cancellation_reason",
+   "fieldtype": "Text",
+   "label": "Lý do hủy"
+  }
+ ],
+ "permissions": [
+  {
+   "role": "IMM System Admin",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "submit": 1,
+   "cancel": 1
+  },
+  {
+   "role": "IMM Operations Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "submit": 1
+  },
+  {
+   "role": "IMM Finance Officer",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "submit": 1
+  },
+  {
+   "role": "IMM Department Head",
+   "read": 1,
+   "submit": 1
+  },
+  {
+   "role": "IMM Technical Reviewer",
+   "read": 1
+  },
+  {
+   "role": "IMM Clinical User",
+   "read": 1
+  }
+ ]
+}

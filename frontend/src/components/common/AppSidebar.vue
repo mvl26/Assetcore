@@ -36,6 +36,23 @@ const navGroups: NavGroup[] = [
       },
       { label: 'Tiếp nhận & Lắp đặt', path: '/commissioning', icon: 'truck', badge: '04' },
       { label: 'Hồ sơ thiết bị', path: '/documents', icon: 'folder', badge: '05' },
+      { label: 'Bàn giao & Đào tạo', path: '/handover', icon: 'handover', badge: '06' },
+    ],
+  },
+  {
+    title: 'Kế hoạch Mua sắm',
+    items: [
+      {
+        label: 'Kế hoạch Mua sắm', path: '/planning/dashboard', icon: 'clipboard', badge: '01',
+        children: [
+          { label: 'Tổng quan', path: '/planning/dashboard', icon: 'chart' },
+          { label: 'Đánh giá nhu cầu', path: '/planning/needs-assessments', icon: 'list' },
+          { label: 'Kế hoạch mua sắm', path: '/planning/procurement-plans', icon: 'list' },
+          { label: 'Đặc tả kỹ thuật', path: '/planning/technical-specs', icon: 'folder' },
+          { label: 'Đánh giá NCC', path: '/planning/vendor-evaluations', icon: 'list' },
+          { label: 'Yêu cầu mua sắm', path: '/planning/purchase-order-requests', icon: 'document' },
+        ],
+      },
     ],
   },
   {
@@ -116,6 +133,9 @@ const EXACT_MATCH_PATHS = new Set([
   '/commissioning', '/documents', '/assets', '/suppliers', '/device-models',
   '/incidents', '/capas', '/asset-transfers', '/service-contracts',
   '/pm/work-orders', '/cm/work-orders', '/calibration',
+  '/planning/needs-assessments', '/planning/procurement-plans',
+  '/planning/technical-specs', '/planning/vendor-evaluations',
+  '/planning/purchase-order-requests', '/handover',
 ])
 
 function isActive(path: string): boolean {
@@ -297,6 +317,12 @@ function handleItemClick(item: NavItem): void {
               </svg>
               <svg v-else-if="item.icon === 'building'" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" class="w-[18px] h-[18px]">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M3 21h18M5 21V5a2 2 0 012-2h10a2 2 0 012 2v16M9 7h2M9 11h2M9 15h2M13 7h2M13 11h2M13 15h2"/>
+              </svg>
+              <svg v-else-if="item.icon === 'clipboard'" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" class="w-[18px] h-[18px]">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/>
+              </svg>
+              <svg v-else-if="item.icon === 'handover'" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" class="w-[18px] h-[18px]">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M7 11.5V14m0-2.5v-6a1.5 1.5 0 113 0m-3 6a1.5 1.5 0 00-3 0v2a7.5 7.5 0 0015 0v-5a1.5 1.5 0 00-3 0m-6-3V11m0-5.5v-1a1.5 1.5 0 013 0v1m0 0V11m0-5.5a1.5 1.5 0 013 0v3m0 0V11" />
               </svg>
             </span>
 

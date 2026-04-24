@@ -1,0 +1,379 @@
+{
+ "actions": [],
+ "autoname": "DR-.YY.-.MM.-.#####",
+ "creation": "2026-04-21 00:00:00.000000",
+ "doctype": "DocType",
+ "document_type": "Document",
+ "engine": "InnoDB",
+ "is_submittable": 1,
+ "field_order": [
+  "workflow_state",
+  "section_asset",
+  "asset",
+  "asset_name",
+  "decommission_reason",
+  "col_break_1",
+  "condition_at_decommission",
+  "last_service_date",
+  "reason_details",
+  "section_financials",
+  "total_maintenance_cost",
+  "current_book_value",
+  "col_break_2",
+  "estimated_disposal_value",
+  "disposal_method",
+  "transfer_destination",
+  "section_compliance",
+  "biological_hazard",
+  "bio_hazard_clearance",
+  "data_destruction_required",
+  "data_destruction_confirmed",
+  "col_break_3",
+  "regulatory_clearance_required",
+  "regulatory_clearance_doc",
+  "section_technical_review",
+  "technical_reviewer",
+  "technical_review_date",
+  "technical_review_notes",
+  "section_financial_review",
+  "finance_reviewer",
+  "finance_review_date",
+  "finance_review_notes",
+  "section_approval",
+  "approved_by",
+  "approval_date",
+  "approval_notes",
+  "section_execution",
+  "execution_date",
+  "executed_by",
+  "execution_notes",
+  "tab_checklist",
+  "checklist",
+  "tab_lifecycle",
+  "lifecycle_events",
+  "status"
+ ],
+ "fields": [
+  {
+   "fieldname": "workflow_state",
+   "fieldtype": "Link",
+   "label": "Trạng thái",
+   "options": "Workflow State",
+   "read_only": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "print_hide": 1
+  },
+  {
+   "fieldname": "section_asset",
+   "fieldtype": "Section Break",
+   "label": "Thông tin Thiết bị"
+  },
+  {
+   "fieldname": "asset",
+   "fieldtype": "Link",
+   "label": "Thiết bị",
+   "options": "AC Asset",
+   "reqd": 1,
+   "in_list_view": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "asset_name",
+   "fieldtype": "Data",
+   "label": "Tên Thiết bị",
+   "read_only": 1,
+   "fetch_from": "asset.asset_name",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "decommission_reason",
+   "fieldtype": "Select",
+   "label": "Lý do Thanh lý",
+   "options": "\nEnd of Life\nBeyond Economic Repair\nRegulatory Non-Compliance\nCatastrophic Failure\nTechnology Obsolescence\nDonated\nOther",
+   "reqd": 1
+  },
+  {
+   "fieldname": "col_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "condition_at_decommission",
+   "fieldtype": "Select",
+   "label": "Tình trạng Thiết bị khi Thanh lý",
+   "options": "\nPoor\nNon-functional\nPartially Functional\nFunctional but Obsolete"
+  },
+  {
+   "fieldname": "last_service_date",
+   "fieldtype": "Date",
+   "label": "Ngày bảo trì / sửa chữa cuối"
+  },
+  {
+   "fieldname": "reason_details",
+   "fieldtype": "Text Editor",
+   "label": "Chi tiết Lý do Thanh lý",
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_financials",
+   "fieldtype": "Section Break",
+   "label": "Thông tin Tài chính & Phương án"
+  },
+  {
+   "fieldname": "total_maintenance_cost",
+   "fieldtype": "Currency",
+   "label": "Tổng chi phí bảo trì (VNĐ)"
+  },
+  {
+   "fieldname": "current_book_value",
+   "fieldtype": "Currency",
+   "label": "Giá trị sổ sách hiện tại (VNĐ)"
+  },
+  {
+   "fieldname": "col_break_2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "estimated_disposal_value",
+   "fieldtype": "Currency",
+   "label": "Giá trị thanh lý ước tính (VNĐ)"
+  },
+  {
+   "fieldname": "disposal_method",
+   "fieldtype": "Select",
+   "label": "Phương án Thanh lý",
+   "options": "\nAuction\nTransfer to Facility\nScrap\nBio-hazard Disposal\nDonate\nReturn to Vendor",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "transfer_destination",
+   "fieldtype": "Data",
+   "label": "Đơn vị nhận (Transfer)",
+   "depends_on": "eval:doc.disposal_method=='Transfer to Facility'"
+  },
+  {
+   "fieldname": "section_compliance",
+   "fieldtype": "Section Break",
+   "label": "Tuân thủ & An toàn"
+  },
+  {
+   "fieldname": "biological_hazard",
+   "fieldtype": "Check",
+   "label": "Thiết bị có nguy hại sinh học"
+  },
+  {
+   "fieldname": "bio_hazard_clearance",
+   "fieldtype": "Data",
+   "label": "Biện pháp xử lý an toàn sinh học",
+   "depends_on": "eval:doc.biological_hazard==1",
+   "description": "Mô tả quy trình vệ sinh/xử lý chất thải sinh học. Bắt buộc khi thiết bị có nguy hại sinh học."
+  },
+  {
+   "fieldname": "data_destruction_required",
+   "fieldtype": "Check",
+   "label": "Cần xoá dữ liệu bệnh nhân"
+  },
+  {
+   "fieldname": "data_destruction_confirmed",
+   "fieldtype": "Check",
+   "label": "Đã xoá dữ liệu (xác nhận)",
+   "depends_on": "eval:doc.data_destruction_required==1"
+  },
+  {
+   "fieldname": "col_break_3",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "regulatory_clearance_required",
+   "fieldtype": "Check",
+   "label": "Cần giấy phép thanh lý từ cơ quan quản lý"
+  },
+  {
+   "fieldname": "regulatory_clearance_doc",
+   "fieldtype": "Attach",
+   "label": "File giấy phép thanh lý",
+   "depends_on": "eval:doc.regulatory_clearance_required==1"
+  },
+  {
+   "fieldname": "section_technical_review",
+   "fieldtype": "Section Break",
+   "label": "Đánh giá Kỹ thuật"
+  },
+  {
+   "fieldname": "technical_reviewer",
+   "fieldtype": "Link",
+   "label": "Kỹ sư đánh giá",
+   "options": "User"
+  },
+  {
+   "fieldname": "technical_review_date",
+   "fieldtype": "Date",
+   "label": "Ngày đánh giá kỹ thuật"
+  },
+  {
+   "fieldname": "technical_review_notes",
+   "fieldtype": "Text",
+   "label": "Ghi chú đánh giá kỹ thuật"
+  },
+  {
+   "fieldname": "section_financial_review",
+   "fieldtype": "Section Break",
+   "label": "Định giá Tài chính"
+  },
+  {
+   "fieldname": "finance_reviewer",
+   "fieldtype": "Link",
+   "label": "Kế toán định giá",
+   "options": "User"
+  },
+  {
+   "fieldname": "finance_review_date",
+   "fieldtype": "Date",
+   "label": "Ngày định giá tài chính"
+  },
+  {
+   "fieldname": "finance_review_notes",
+   "fieldtype": "Text",
+   "label": "Ghi chú định giá tài chính"
+  },
+  {
+   "fieldname": "section_approval",
+   "fieldtype": "Section Break",
+   "label": "Phê duyệt"
+  },
+  {
+   "fieldname": "approved_by",
+   "fieldtype": "Link",
+   "label": "Người phê duyệt",
+   "options": "User"
+  },
+  {
+   "fieldname": "approval_date",
+   "fieldtype": "Date",
+   "label": "Ngày phê duyệt"
+  },
+  {
+   "fieldname": "approval_notes",
+   "fieldtype": "Text",
+   "label": "Ghi chú phê duyệt"
+  },
+  {
+   "fieldname": "section_execution",
+   "fieldtype": "Section Break",
+   "label": "Thực thi Thanh lý"
+  },
+  {
+   "fieldname": "execution_date",
+   "fieldtype": "Date",
+   "label": "Ngày thực hiện thanh lý"
+  },
+  {
+   "fieldname": "executed_by",
+   "fieldtype": "Link",
+   "label": "Người thực hiện",
+   "options": "User"
+  },
+  {
+   "fieldname": "execution_notes",
+   "fieldtype": "Text",
+   "label": "Ghi chú thực hiện"
+  },
+  {
+   "fieldname": "tab_checklist",
+   "fieldtype": "Tab Break",
+   "label": "Checklist Thực thi"
+  },
+  {
+   "fieldname": "checklist",
+   "fieldtype": "Table",
+   "label": "Danh mục công việc",
+   "options": "Decommission Checklist Item"
+  },
+  {
+   "fieldname": "tab_lifecycle",
+   "fieldtype": "Tab Break",
+   "label": "Lịch sử Vòng đời"
+  },
+  {
+   "fieldname": "lifecycle_events",
+   "fieldtype": "Table",
+   "label": "Lifecycle Events",
+   "options": "Asset Lifecycle Event",
+   "read_only": 1
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Trạng thái nghiệp vụ",
+   "options": "Draft\nTechnical Review\nFinancial Valuation\nPending Approval\nBoard Approved\nExecution\nCompleted\nRejected",
+   "default": "Draft",
+   "hidden": 1,
+   "in_standard_filter": 1
+  }
+ ],
+ "links": [],
+ "modified": "2026-04-21 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Assetcore",
+ "name": "Decommission Request",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "IMM System Admin",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "submit": 1,
+   "cancel": 1,
+   "delete": 1,
+   "print": 1,
+   "export": 1
+  },
+  {
+   "role": "IMM HTM Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "print": 1
+  },
+  {
+   "role": "IMM Biomed Engineer",
+   "read": 1,
+   "write": 1
+  },
+  {
+   "role": "IMM Finance Director",
+   "read": 1,
+   "write": 1
+  },
+  {
+   "role": "IMM QA Officer",
+   "read": 1,
+   "write": 1
+  },
+  {
+   "role": "IMM VP Block2",
+   "read": 1,
+   "submit": 1,
+   "print": 1,
+   "export": 1
+  },
+  {
+   "role": "IMM Operations Manager",
+   "read": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [
+  {"color": "Grey", "title": "Draft"},
+  {"color": "Blue", "title": "Technical Review"},
+  {"color": "Purple", "title": "Financial Valuation"},
+  {"color": "Orange", "title": "Pending Approval"},
+  {"color": "Green", "title": "Board Approved"},
+  {"color": "Red", "title": "Execution"},
+  {"color": "Grey", "title": "Completed"},
+  {"color": "Red", "title": "Rejected"}
+ ],
+ "track_changes": 1
+}

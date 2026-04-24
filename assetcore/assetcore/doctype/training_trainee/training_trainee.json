@@ -1,0 +1,74 @@
+{
+ "actions": [],
+ "creation": "2026-04-21 00:00:00.000000",
+ "doctype": "DocType",
+ "document_type": "Document",
+ "engine": "InnoDB",
+ "istable": 1,
+ "field_order": [
+  "trainee_user",
+  "full_name",
+  "role",
+  "col_break_1",
+  "attendance",
+  "score",
+  "passed"
+ ],
+ "fields": [
+  {
+   "fieldname": "trainee_user",
+   "fieldtype": "Link",
+   "label": "Học viên",
+   "options": "User",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "full_name",
+   "fieldtype": "Data",
+   "label": "Họ và tên",
+   "fetch_from": "trainee_user.full_name",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "role",
+   "fieldtype": "Data",
+   "label": "Vai trò / Chức vụ",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "col_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "attendance",
+   "fieldtype": "Select",
+   "label": "Điểm danh",
+   "options": "Present\nAbsent",
+   "default": "Present",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "score",
+   "fieldtype": "Float",
+   "label": "Điểm số",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "passed",
+   "fieldtype": "Check",
+   "label": "Đạt",
+   "in_list_view": 1
+  }
+ ],
+ "links": [],
+ "modified": "2026-04-21 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "AssetCore",
+ "name": "Training Trainee",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

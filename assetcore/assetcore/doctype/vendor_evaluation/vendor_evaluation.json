@@ -1,0 +1,210 @@
+{
+ "autoname": "VE-.YY.-.#####",
+ "creation": "2026-04-22 00:00:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "is_submittable": 1,
+ "module": "Assetcore",
+ "name": "Vendor Evaluation",
+ "owner": "Administrator",
+ "field_order": [
+  "linked_plan",
+  "linked_technical_spec",
+  "column_break_1",
+  "status",
+  "evaluation_date",
+  "section_bid",
+  "bid_issue_date",
+  "bid_closing_date",
+  "bid_opening_date",
+  "bids_received_count",
+  "unsuccessful_vendor_notified",
+  "section_vendors",
+  "items",
+  "section_recommendation",
+  "recommended_vendor",
+  "selection_justification",
+  "committee_members",
+  "section_approval",
+  "approver",
+  "tech_reviewed_by",
+  "tech_review_date",
+  "approved_by",
+  "approval_date"
+ ],
+ "fields": [
+  {
+   "fieldname": "linked_plan",
+   "fieldtype": "Link",
+   "options": "Procurement Plan",
+   "label": "Kế hoạch mua sắm",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "linked_technical_spec",
+   "fieldtype": "Link",
+   "options": "Technical Specification",
+   "label": "Đặc tả kỹ thuật (tùy chọn)",
+   "reqd": 0
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Trạng thái",
+   "options": "Draft\nIn Progress\nTech Reviewed\nApproved\nCancelled",
+   "default": "Draft",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "evaluation_date",
+   "fieldtype": "Date",
+   "label": "Ngày đánh giá",
+   "reqd": 1,
+   "default": "Today"
+  },
+  {
+   "fieldname": "section_bid",
+   "fieldtype": "Section Break",
+   "label": "Quản lý Hồ sơ Thầu"
+  },
+  {
+   "fieldname": "bid_issue_date",
+   "fieldtype": "Date",
+   "label": "Ngày phát hành hồ sơ mời thầu"
+  },
+  {
+   "fieldname": "bid_closing_date",
+   "fieldtype": "Date",
+   "label": "Hạn nộp hồ sơ"
+  },
+  {
+   "fieldname": "bid_opening_date",
+   "fieldtype": "Date",
+   "label": "Ngày mở thầu"
+  },
+  {
+   "fieldname": "bids_received_count",
+   "fieldtype": "Int",
+   "label": "Số hồ sơ nhận được"
+  },
+  {
+   "fieldname": "unsuccessful_vendor_notified",
+   "fieldtype": "Check",
+   "label": "Đã thông báo NCC không trúng thầu"
+  },
+  {
+   "fieldname": "section_vendors",
+   "fieldtype": "Section Break",
+   "label": "Danh sách Nhà cung cấp & Điểm"
+  },
+  {
+   "fieldname": "items",
+   "fieldtype": "Table",
+   "label": "Nhà cung cấp",
+   "options": "Vendor Evaluation Item"
+  },
+  {
+   "fieldname": "section_recommendation",
+   "fieldtype": "Section Break",
+   "label": "Khuyến nghị"
+  },
+  {
+   "fieldname": "recommended_vendor",
+   "fieldtype": "Link",
+   "options": "AC Supplier",
+   "label": "NCC được đề xuất",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "selection_justification",
+   "fieldtype": "Text",
+   "label": "Lý do lựa chọn (bắt buộc nếu không chọn điểm cao nhất)"
+  },
+  {
+   "fieldname": "committee_members",
+   "fieldtype": "Text",
+   "label": "Thành viên hội đồng đánh giá"
+  },
+  {
+   "fieldname": "section_approval",
+   "fieldtype": "Section Break",
+   "label": "Phê duyệt"
+  },
+  {
+   "fieldname": "approver",
+   "fieldtype": "Link",
+   "options": "User",
+   "label": "Người phê duyệt",
+   "read_only": 1
+  },
+  {
+   "fieldname": "tech_reviewed_by",
+   "fieldtype": "Link",
+   "options": "User",
+   "label": "Người duyệt kỹ thuật",
+   "read_only": 1
+  },
+  {
+   "fieldname": "tech_review_date",
+   "fieldtype": "Date",
+   "label": "Ngày duyệt kỹ thuật",
+   "read_only": 1
+  },
+  {
+   "fieldname": "approved_by",
+   "fieldtype": "Link",
+   "options": "User",
+   "label": "Phê duyệt tài chính bởi",
+   "read_only": 1
+  },
+  {
+   "fieldname": "approval_date",
+   "fieldtype": "Date",
+   "label": "Ngày phê duyệt tài chính",
+   "read_only": 1
+  }
+ ],
+ "permissions": [
+  {
+   "role": "IMM System Admin",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "submit": 1,
+   "cancel": 1
+  },
+  {
+   "role": "IMM Operations Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1
+  },
+  {
+   "role": "IMM Technical Reviewer",
+   "read": 1,
+   "write": 1,
+   "submit": 1
+  },
+  {
+   "role": "IMM Finance Officer",
+   "read": 1,
+   "write": 1,
+   "submit": 1
+  },
+  {
+   "role": "IMM Department Head",
+   "read": 1
+  },
+  {
+   "role": "IMM Clinical User",
+   "read": 1
+  }
+ ]
+}

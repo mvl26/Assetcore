@@ -1,0 +1,110 @@
+{
+ "creation": "2026-04-22 00:00:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "istable": 1,
+ "module": "Assetcore",
+ "name": "Vendor Evaluation Item",
+ "owner": "Administrator",
+ "fields": [
+  {
+   "fieldname": "vendor",
+   "fieldtype": "Link",
+   "options": "AC Supplier",
+   "label": "Nhà cung cấp",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "vendor_name",
+   "fieldtype": "Data",
+   "label": "Tên NCC",
+   "read_only": 1,
+   "fetch_from": "vendor.supplier_name",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "bid_compliant",
+   "fieldtype": "Check",
+   "label": "Hồ sơ hợp lệ (tuân thủ quy định đấu thầu)",
+   "reqd": 1
+  },
+  {
+   "fieldname": "quoted_price",
+   "fieldtype": "Currency",
+   "label": "Giá chào (VND)",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "quoted_delivery_weeks",
+   "fieldtype": "Int",
+   "label": "Thời gian giao hàng đề xuất (tuần)"
+  },
+  {
+   "fieldname": "offered_payment_terms",
+   "fieldtype": "Data",
+   "label": "Điều khoản thanh toán đề xuất"
+  },
+  {
+   "fieldname": "technical_score",
+   "fieldtype": "Float",
+   "label": "Kỹ thuật (0-10, trọng số 40%)",
+   "reqd": 1
+  },
+  {
+   "fieldname": "financial_score",
+   "fieldtype": "Float",
+   "label": "Tài chính (0-10, trọng số 30%)",
+   "reqd": 1
+  },
+  {
+   "fieldname": "profile_score",
+   "fieldtype": "Float",
+   "label": "Hồ sơ NCC (0-10, trọng số 20%)",
+   "reqd": 1
+  },
+  {
+   "fieldname": "risk_score",
+   "fieldtype": "Float",
+   "label": "Rủi ro (0-10, trọng số 10%)",
+   "reqd": 1
+  },
+  {
+   "fieldname": "total_score",
+   "fieldtype": "Float",
+   "label": "Tổng điểm",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "score_band",
+   "fieldtype": "Select",
+   "label": "Xếp loại",
+   "options": "\nA (≥8)\nB (6–7.9)\nC (4–5.9)\nD (<4)",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "compliant_with_ts",
+   "fieldtype": "Check",
+   "label": "Tuân thủ đặc tả kỹ thuật",
+   "reqd": 1
+  },
+  {
+   "fieldname": "has_nd98_registration",
+   "fieldtype": "Check",
+   "label": "Có đăng ký NĐ98",
+   "reqd": 1
+  },
+  {
+   "fieldname": "is_recommended",
+   "fieldtype": "Check",
+   "label": "Đề xuất"
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Text",
+   "label": "Ghi chú"
+  }
+ ]
+}

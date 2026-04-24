@@ -49,6 +49,21 @@ const STATE_MAP: Record<string, BadgeConfig> = {
   In_Repair:         { label: 'Đang sửa chữa',      dot: '#a78bfa', bg: '#f5f3ff', text: '#6d28d9', pulse: true },
   Pending_Inspection:{ label: 'Chờ kiểm tra',       dot: '#38bdf8', bg: '#f0f9ff', text: '#0369a1', pulse: false },
   Cannot_Repair:     { label: 'Không sửa được',     dot: '#f43f5e', bg: '#fff1f2', text: '#9f1239', pulse: false },
+  // IMM-01/02/03 Planning (Wave 2)
+  'Spec Defined':    { label: 'Đã xác định ĐKT',   dot: '#06b6d4', bg: '#ecfeff', text: '#0e7490', pulse: false },
+  Submitted:         { label: 'Đã nộp',             dot: '#60a5fa', bg: '#eff6ff', text: '#1d4ed8', pulse: false },
+  'Under Review':    { label: 'Đang xét duyệt',     dot: '#818cf8', bg: '#eef2ff', text: '#3730a3', pulse: false },
+  Approved:          { label: 'Đã duyệt',           dot: '#10b981', bg: '#ecfdf5', text: '#065f46', pulse: false },
+  Planned:           { label: 'Đã lên kế hoạch',    dot: '#a855f7', bg: '#faf5ff', text: '#7e22ce', pulse: false },
+  'Budget Locked':   { label: 'Khóa ngân sách',     dot: '#8b5cf6', bg: '#f5f3ff', text: '#5b21b6', pulse: false },
+  'PO Raised':       { label: 'Đã lập PO',          dot: '#eab308', bg: '#fefce8', text: '#854d0e', pulse: false },
+  Ordered:           { label: 'Đã đặt hàng',        dot: '#3b82f6', bg: '#eff6ff', text: '#1d4ed8', pulse: false },
+  Delivered:         { label: 'Đã giao hàng',       dot: '#0d9488', bg: '#f0fdfa', text: '#0f766e', pulse: false },
+  Revised:           { label: 'Cần chỉnh sửa',      dot: '#f97316', bg: '#fff7ed', text: '#9a3412', pulse: false },
+  'Tech Reviewed':   { label: 'Đã duyệt KT',        dot: '#06b6d4', bg: '#ecfeff', text: '#0e7490', pulse: false },
+  Released:          { label: 'Đã phát hành',       dot: '#10b981', bg: '#ecfdf5', text: '#065f46', pulse: false },
+  Fulfilled:         { label: 'Đã hoàn thành',      dot: '#0d9488', bg: '#f0fdfa', text: '#0f766e', pulse: false },
+  Cancelled:         { label: 'Đã hủy',             dot: '#ef4444', bg: '#fff1f2', text: '#b91c1c', pulse: false },
 }
 
 const FALLBACK: BadgeConfig = { label: '', dot: '#94a3b8', bg: '#f8fafc', text: '#475569', pulse: false }
