@@ -119,6 +119,26 @@ const navGroups: NavGroup[] = [
     ],
   },
   {
+    title: 'Cuối vòng đời',
+    items: [
+      {
+        label: 'Ngừng sử dụng & Điều chuyển', path: '/decommission/dashboard', icon: 'ban', badge: '13',
+        children: [
+          { label: 'Tổng quan', path: '/decommission/dashboard', icon: 'chart' },
+          { label: 'Danh sách phiếu', path: '/decommission/list', icon: 'list' },
+          { label: 'Tạo phiếu mới', path: '/decommission/create', icon: 'plus' },
+        ],
+      },
+      {
+        label: 'Lưu trữ hồ sơ', path: '/archive/dashboard', icon: 'archive', badge: '14',
+        children: [
+          { label: 'Tổng quan', path: '/archive/dashboard', icon: 'chart' },
+          { label: 'Danh sách hồ sơ', path: '/archive/list', icon: 'list' },
+        ],
+      },
+    ],
+  },
+  {
     title: 'Hệ thống',
     items: [
       {
@@ -142,6 +162,7 @@ const EXACT_MATCH_PATHS = new Set([
   '/planning/needs-assessments', '/planning/procurement-plans',
   '/planning/technical-specs', '/planning/vendor-evaluations',
   '/planning/purchase-order-requests', '/handover',
+  '/decommission/list', '/archive/list',
 ])
 
 function isActive(path: string): boolean {
@@ -330,6 +351,13 @@ function handleItemClick(item: NavItem): void {
               <svg v-else-if="item.icon === 'handover'" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" class="w-[18px] h-[18px]">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M7 11.5V14m0-2.5v-6a1.5 1.5 0 113 0m-3 6a1.5 1.5 0 00-3 0v2a7.5 7.5 0 0015 0v-5a1.5 1.5 0 00-3 0m-6-3V11m0-5.5v-1a1.5 1.5 0 013 0v1m0 0V11m0-5.5a1.5 1.5 0 013 0v3m0 0V11" />
               </svg>
+              <svg v-else-if="item.icon === 'ban'" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" class="w-[18px] h-[18px]">
+                <circle cx="12" cy="12" r="9" />
+                <path stroke-linecap="round" d="M6.34 6.34l11.32 11.32" />
+              </svg>
+              <svg v-else-if="item.icon === 'archive'" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" class="w-[18px] h-[18px]">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
+              </svg>
             </span>
 
             <!-- Label + badge -->
@@ -392,7 +420,7 @@ function handleItemClick(item: NavItem): void {
       class="px-4 py-3 text-[10px]"
       style="border-top: 1px solid rgba(255,255,255,0.07); color: rgba(255,255,255,0.2)"
     >
-      AssetCore v1.0 · Wave 1
+      AssetCore v2.0 · Wave 2
     </div>
   </aside>
 </template>

@@ -63,8 +63,8 @@ const blocks = computed(() => {
       { code: 'IMM-17', name: 'KPI & Báo cáo',         icon: TrendingUp,    route: '/dashboard',         enabled: true,  badge: 0 },
     ] as ModDef[],
     d: [
-      { code: 'IMM-13', name: 'Thanh lý thiết bị',         icon: Trash2,  route: '/assets', enabled: false, badge: 0 },
-      { code: 'IMM-14', name: 'Lưu trữ & Kết thúc hồ sơ', icon: Archive, route: '/assets', enabled: false, badge: 0 },
+      { code: 'IMM-13', name: 'Ngừng sử dụng & Điều chuyển', icon: Trash2,  route: '/decommission/dashboard', enabled: true, badge: 0 },
+      { code: 'IMM-14', name: 'Lưu trữ & Đóng hồ sơ',        icon: Archive, route: '/archive/dashboard',      enabled: true, badge: 0 },
     ] as ModDef[],
   }
 })

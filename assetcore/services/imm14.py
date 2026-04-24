@@ -43,15 +43,15 @@ def finalize_archive_handler(doc) -> None:
     """on_submit: VR-14-04 + set Asset Archived + log ALE.
 
     Raises:
-        frappe.ValidationError: nếu status != Verified
+        frappe.ValidationError: nếu status != Finalized
     """
-    if doc.status != "Verified":
+    if doc.status != "Finalized":
         frappe.throw(
             _("Lỗi VR-14-04: Không thể hoàn tất lưu trữ. "
-              "Phiếu chưa được QA Officer xác minh (status hiện tại: {0}).").format(doc.status)
+              "Phiếu chưa được HTM Manager phê duyệt (status hiện tại: {0}).").format(doc.status)
         )
     _set_asset_archived(doc.asset)
-    log_lifecycle_event(doc, "archived", "Verified", "Archived", "Hồ sơ thiết bị đã lưu trữ dài hạn")
+    log_lifecycle_event(doc, "archived", "Finalized", "Archived", "Hồ sơ thiết bị đã lưu trữ dài hạn")
     doc.db_set("status", "Archived", commit=False)
 
 
@@ -271,6 +271,82 @@ def get_dashboard_stats() -> dict:
     }
 
 
+# ─── Verification & Approval ─────────────────────────────────────────────────
+
+def verify_document_completeness(name: str) -> dict:
+    """Kiểm tra tính đầy đủ của tài liệu trước khi verify.
+
+    Returns:
+        dict với keys: ready (bool), issues (list[str])
+    """
+    doc = frappe.get_doc("Asset Archive Record", name)
+    issues = []
+
+    # Check: no Required documents with archive_status=Missing
+    for entry in (doc.documents or []):
+        if entry.archive_status == "Missing":
+            issues.append(f"Thiếu tài liệu loại '{entry.document_type}'")
+
+    # Check: 4-way reconciliation flags
+    reconcile_checks = [
+        ("reconcile_cmms", "Đối soát CMMS"),
+        ("reconcile_inventory", "Đối soát Kho"),
+        ("reconcile_finance", "Đối soát Kế toán"),
+        ("reconcile_legal", "Đối soát Hồ sơ pháp lý"),
+    ]
+    for field, label in reconcile_checks:
+        if not doc.get(field):
+            issues.append(f"{label} chưa được xác nhận")
+
+    return {"ready": len(issues) == 0, "issues": issues}
+
+
+def verify_archive(name: str, verified_by: str, notes: str = "") -> None:
+    """QA Officer xác minh tính đầy đủ hồ sơ.
+
+    Transitions status: Compiling → Pending Approval
+    """
+    doc = frappe.get_doc("Asset Archive Record", name)
+
+    # Run completeness check first
+    check = verify_document_completeness(name)
+    if not check["ready"]:
+        issues_text = "; ".join(check["issues"])
+        frappe.throw(
+            _("Không thể xác minh: Hồ sơ chưa đầy đủ. Vấn đề: {0}").format(issues_text)
+        )
+
+    doc.status = "Pending Approval"
+    doc.qa_verified_by = verified_by
+    doc.qa_verification_date = nowdate()
+    doc.qa_verification_notes = notes
+    doc.save(ignore_permissions=True)
+    log_lifecycle_event(doc, "qa_verified", "Pending Verification", "Pending Approval",
+                        f"Xác minh bởi {verified_by}. {notes}")
+
+
+def approve_archive(name: str, approved_by: str, notes: str = "") -> None:
+    """HTM Manager phê duyệt closure record.
+
+    Transitions status: Pending Approval → Finalized
+    """
+    doc = frappe.get_doc("Asset Archive Record", name)
+
+    if doc.status != "Pending Approval":
+        frappe.throw(
+            _("Lỗi: Chỉ có thể phê duyệt hồ sơ ở trạng thái 'Pending Approval'. "
+              "Trạng thái hiện tại: {0}").format(doc.status)
+        )
+
+    doc.status = "Finalized"
+    doc.approved_by = approved_by
+    doc.approval_date = nowdate()
+    doc.approval_notes = notes
+    doc.save(ignore_permissions=True)
+    log_lifecycle_event(doc, "htm_approved", "Pending Approval", "Finalized",
+                        f"Phê duyệt bởi {approved_by}. {notes}")
+
+
 # ─── Audit Trail ─────────────────────────────────────────────────────────────
 
 def log_lifecycle_event(doc, event_type: str, from_status: str, to_status: str, notes: str = "") -> None:
@@ -293,6 +369,33 @@ def log_lifecycle_event(doc, event_type: str, from_status: str, to_status: str, 
 
 
 # ─── Scheduler ───────────────────────────────────────────────────────────────
+
+def check_stale_drafts() -> None:
+    """Scheduler: cảnh báo AAR ở Draft/Compiling không được cập nhật > 30 ngày."""
+    from frappe.utils import add_days
+    threshold = add_days(nowdate(), -30)
+    stale = frappe.db.get_all(
+        "Asset Archive Record",
+        filters={
+            "status": ("in", ["Draft", "Compiling"]),
+            "modified": ("<", threshold),
+        },
+        fields=["name", "asset", "status", "modified"],
+    )
+    if stale:
+        try:
+            from assetcore.utils.helpers import _get_role_emails, _safe_sendmail
+            recipients = _get_role_emails(["IMM System Admin", "IMM HTM Manager"])
+            if recipients:
+                items = "\n".join(f"- {r.name} (asset: {r.asset}, status: {r.status})" for r in stale)
+                _safe_sendmail(
+                    recipients=recipients,
+                    subject=f"[AssetCore] {len(stale)} hồ sơ lưu trữ chưa hoàn thành > 30 ngày",
+                    message=f"Các hồ sơ lưu trữ sau chưa được cập nhật trên 30 ngày:\n{items}",
+                )
+        except Exception:
+            frappe.log_error(frappe.get_traceback(), "IMM-14 check_stale_drafts failed")
+
 
 def check_archive_expiry() -> None:
     """Scheduler monthly: cảnh báo AAR sắp hết hạn lưu trữ (60 ngày)."""

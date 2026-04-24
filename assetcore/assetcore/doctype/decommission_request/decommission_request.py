@@ -9,27 +9,38 @@ from frappe.model.document import Document
 
 
 class DecommissionRequest(Document):
-    """Phiếu yêu cầu thanh lý thiết bị y tế — IMM-13.
+    """Phiếu Ngừng sử dụng & Điều chuyển Thiết bị — IMM-13.
 
-    Submittable document. Sau khi Submit:
-    - Asset.status = Decommissioned
-    - Asset Lifecycle Event "decommissioned" được tạo
-    - Asset Archive Record (IMM-14) được tự động tạo
+    Submittable document. Sau khi Submit (tùy outcome):
+    - Transfer: Asset.status = Transferred, location updated
+    - Suspend: Asset.status = Suspended
+    - Retire: Asset.status = Decommissioned + trigger IMM-14
+    Mọi transition đều log Asset Lifecycle Event.
     """
 
     # ── Lifecycle Hooks ──────────────────────────────────────────────────
 
-    def validate(self) -> None:
-        """Chạy toàn bộ validation rules VR-01 đến VR-05."""
+    def before_insert(self) -> None:
+        """Auto-insert 7 default suspension checklist items."""
         from assetcore.services import imm13 as svc
-        svc.validate_decommission_request(self)
+        svc.insert_default_checklist(self)
+
+    def validate(self) -> None:
+        """Chạy toàn bộ validation rules BR-13-01 đến BR-13-10."""
+        from assetcore.services import imm13 as svc
+        svc.validate_suspension_request(self)
+
+    def before_submit(self) -> None:
+        """Validation cuối trước submit: data destruction, high-value approval."""
+        from assetcore.services import imm13 as svc
+        svc.before_submit_handler(self)
 
     def on_submit(self) -> None:
-        """Khi Submit: set Asset Decommissioned + log ALE + trigger IMM-14."""
+        """Atomic: set asset status + log ALE + optional IMM-14 trigger."""
         from assetcore.services import imm13 as svc
         svc.on_submit_handler(self)
 
     def on_cancel(self) -> None:
-        """Block cancel nếu asset đã Decommissioned."""
+        """Log ALE cancelled; revert asset status if needed."""
         from assetcore.services import imm13 as svc
         svc.on_cancel_handler(self)

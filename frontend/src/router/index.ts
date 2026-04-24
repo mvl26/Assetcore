@@ -703,6 +703,56 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true, title: 'Chi tiết Bàn giao — IMM-06', requiredRoles: ROLES_CREATE },
   },
 
+  // ─── 14. IMM-13 — Suspension & Transfer ───────────────────────────────────
+  { path: '/decommission', redirect: '/decommission/dashboard' },
+  {
+    path: '/decommission/dashboard',
+    name: 'DecommissionDashboard',
+    component: () => import('@/views/DecommissionDashboardView.vue'),
+    meta: { requiresAuth: true, title: 'Tổng quan Ngừng sử dụng — IMM-13' },
+  },
+  {
+    path: '/decommission/list',
+    name: 'DecommissionList',
+    component: () => import('@/views/DecommissionListView.vue'),
+    meta: { requiresAuth: true, title: 'Danh sách Phiếu Ngừng sử dụng — IMM-13' },
+  },
+  {
+    path: '/decommission/create',
+    name: 'DecommissionCreate',
+    component: () => import('@/views/DecommissionCreateView.vue'),
+    meta: { requiresAuth: true, title: 'Tạo Phiếu Ngừng sử dụng — IMM-13', requiredRoles: ROLES_CREATE },
+  },
+  {
+    path: '/decommission/:id',
+    name: 'DecommissionDetail',
+    component: () => import('@/views/DecommissionDetailView.vue'),
+    props: true,
+    meta: { requiresAuth: true, title: 'Chi tiết Phiếu Ngừng sử dụng — IMM-13' },
+  },
+
+  // ─── 15. IMM-14 — Archive & Lifecycle Closure ─────────────────────────────
+  { path: '/archive', redirect: '/archive/dashboard' },
+  {
+    path: '/archive/dashboard',
+    name: 'ArchiveDashboard',
+    component: () => import('@/views/ArchiveDashboardView.vue'),
+    meta: { requiresAuth: true, title: 'Tổng quan Lưu trữ — IMM-14' },
+  },
+  {
+    path: '/archive/list',
+    name: 'ArchiveList',
+    component: () => import('@/views/ArchiveListView.vue'),
+    meta: { requiresAuth: true, title: 'Hồ sơ Lưu trữ Thiết bị — IMM-14' },
+  },
+  {
+    path: '/archive/:id',
+    name: 'ArchiveDetail',
+    component: () => import('@/views/ArchiveDetailView.vue'),
+    props: true,
+    meta: { requiresAuth: true, title: 'Chi tiết Hồ sơ Lưu trữ — IMM-14' },
+  },
+
   // ─── 12. Errors / 404 catch-all ────────────────────────────────────────────
   {
     path: '/:pathMatch(.*)*',

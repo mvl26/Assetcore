@@ -156,3 +156,27 @@ def finalize_archive(name: str) -> dict:
         return {"name": n, "status": "Archived", "asset": doc.asset}
 
     return _handle(_finalize, name)
+
+
+@frappe.whitelist(methods=["POST"])
+def verify_archive_record(name: str, verified_by: str = "", notes: str = "") -> dict:
+    """QA Officer xác minh tính đầy đủ hồ sơ (Compiling → Pending Approval)."""
+    def _v(n, vb, nt):
+        svc.verify_archive(n, vb or frappe.session.user, nt)
+        return {"name": n, "status": "Pending Approval"}
+    return _handle(_v, name, verified_by, notes)
+
+
+@frappe.whitelist(methods=["POST"])
+def approve_archive(name: str, approved_by: str = "", notes: str = "") -> dict:
+    """HTM Manager phê duyệt closure record (Pending Approval → Finalized)."""
+    def _a(n, ab, nt):
+        svc.approve_archive(n, ab or frappe.session.user, nt)
+        return {"name": n, "status": "Finalized"}
+    return _handle(_a, name, approved_by, notes)
+
+
+@frappe.whitelist()
+def check_document_completeness(name: str) -> dict:
+    """Kiểm tra tính đầy đủ tài liệu của hồ sơ lưu trữ."""
+    return _handle(svc.verify_document_completeness, name)
