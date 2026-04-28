@@ -1,5 +1,6 @@
 ---
 description: Build an audit trail completeness check for an AssetCore DocType or module
+argument-hint: <DocType or module>
 ---
 
 Build an **audit trail completeness check** for: `$ARGUMENTS`

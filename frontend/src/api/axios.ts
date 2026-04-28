@@ -15,6 +15,13 @@ import axios, {
 // Module-level cache — được set sau login hoặc refresh
 let _storedCsrfToken: string = ''
 
+const CSRF_COOKIE_RE = /(?:^|;\s*)csrf_token=([^;]+)/
+
+function readCsrfCookie(): string {
+  const match = CSRF_COOKIE_RE.exec(document.cookie)
+  return match ? decodeURIComponent(match[1]) : ''
+}
+
 /** Set CSRF token từ login response body (gọi từ auth store sau khi login thành công). */
 export function setCsrfToken(token: string): void {
   _storedCsrfToken = token
@@ -34,42 +41,45 @@ function getCsrfToken(): string {
     return gw.frappe.csrf_token
   }
 
-  const match = /(?:^|;\s*)csrf_token=([^;]+)/.exec(document.cookie)
-  if (match) {
-    return decodeURIComponent(match[1])
-  }
-
-  return ''
+  return readCsrfCookie()
 }
 
 /**
  * Gọi GET endpoint không cần CSRF để Frappe refresh cookie, sau đó đọc lại.
  * Dùng khi POST bị 400 CSRF error — retry 1 lần sau khi refresh.
  */
-async function refreshCsrfToken(): Promise<string> {
+type PingResp = {
+  message?: {
+    success?: boolean
+    data?: { user?: string; authenticated?: boolean; csrf_token?: string }
+  }
+}
+
+/**
+ * Gọi ping_session để lấy csrf_token mới + trạng thái session.
+ * Trả về { token, authenticated } — caller dùng `authenticated` để quyết định
+ * có cần redirect login hay không (case session bị clear khi admin sửa role).
+ */
+async function refreshCsrfToken(): Promise<{ token: string; authenticated: boolean }> {
+  let authenticated = true
   try {
-    // GET does not need CSRF — Frappe will set the csrf_token cookie in the response.
-    // After the Vite proxy strips Domain= from Set-Cookie the browser accepts it.
-    // AssetCore endpoint (allow_guest) — đảm bảo Frappe set csrf_token cookie
-    // mà không gọi trực tiếp vào frappe core API.
-    const res = await axios.get<{ csrf_token?: string }>(
+    const res = await axios.get<PingResp>(
       '/api/method/assetcore.api.layout.ping_session',
       { withCredentials: true },
     )
-    // Some Frappe versions include csrf_token in the response body
-    if (res.data?.csrf_token) {
-      _storedCsrfToken = res.data.csrf_token
-      return _storedCsrfToken
+    const data = res.data?.message?.data
+    if (data?.csrf_token) {
+      _storedCsrfToken = data.csrf_token
     }
+    if (typeof data?.authenticated === 'boolean') {
+      authenticated = data.authenticated
+    }
+    if (_storedCsrfToken) return { token: _storedCsrfToken, authenticated }
   } catch {
-    // ignore — fall through to cookie read
+    // fall through
   }
-  _storedCsrfToken = ''
-  const match = /(?:^|;\s*)csrf_token=([^;]+)/.exec(document.cookie)
-  if (match) {
-    _storedCsrfToken = decodeURIComponent(match[1])
-  }
-  return _storedCsrfToken
+  _storedCsrfToken = readCsrfCookie()
+  return { token: _storedCsrfToken, authenticated }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -136,7 +146,14 @@ async function handle400(
   const originalConfig = error.config as RetryableConfig | undefined
   if (isCsrfError && originalConfig && !originalConfig._csrfRetried) {
     originalConfig._csrfRetried = true
-    const newToken = await refreshCsrfToken()
+    const { token: newToken, authenticated } = await refreshCsrfToken()
+    // Khi admin sửa role, Frappe clear_sessions() → sid cũ chết, server coi là Guest.
+    // Trong case này retry sẽ fail tiếp; redirect login để user không bị kẹt với
+    // "Invalid Request" và phải tự logout.
+    if (!authenticated && !globalThis.location.pathname.startsWith('/login')) {
+      globalThis.location.href = `/login?redirect=${encodeURIComponent(globalThis.location.pathname)}`
+      throw new Error('Phiên đăng nhập đã thay đổi (role/quyền). Đang chuyển hướng đến trang đăng nhập...')
+    }
     if (newToken && originalConfig.headers) {
       originalConfig.headers['X-Frappe-CSRF-Token'] = newToken
       return api(originalConfig)

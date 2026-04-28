@@ -278,6 +278,7 @@ export interface PmSchedule {
   name: string
   asset_ref: string
   asset_name?: string
+  asset_code?: string
   pm_type?: string
   status?: string
   pm_interval_days?: number
@@ -503,6 +504,38 @@ export async function runDueDepreciationNow(as_of?: string) {
   return frappePost<{ executed_rows: number; updated_assets: number }>(
     `${BASE}.run_due_depreciation_now`, { as_of: as_of || '' },
   )
+}
+
+// ─── Device Model file upload ────────────────────────────────────────────────
+
+export interface DeviceModelFileUploadResult {
+  name: string
+  file_url: string
+  file_name: string
+  fieldname: string
+}
+
+export async function uploadDeviceModelFile(
+  file: File,
+  fieldname: 'model_image' | 'catalog_file',
+  model_name = '',
+): Promise<DeviceModelFileUploadResult> {
+  const form = new FormData()
+  form.append('file', file, file.name)
+  form.append('fieldname', fieldname)
+  if (model_name) form.append('model_name', model_name)
+  // axios v1 auto-fills the multipart boundary when Content-Type is 'multipart/form-data'
+  // and data is a FormData instance — overriding the instance default of 'application/json'.
+  const { default: api } = await import('./axios')
+  const res = await api.post<{ message: { success: boolean; data: DeviceModelFileUploadResult; error?: string } }>(
+    `${BASE}.upload_device_model_file`, form,
+    { headers: { 'Content-Type': 'multipart/form-data' } },
+  )
+  const env = res.data?.message
+  if (!env?.success || !env.data?.file_url) {
+    throw new Error(env?.error || 'Upload thất bại')
+  }
+  return env.data
 }
 
 export async function bulkRegenerateScheduleByCategory(category_name: string) {

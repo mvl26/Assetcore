@@ -383,6 +383,7 @@
    "label": "Is PM Required"
   },
   {
+   "fetch_from": "device_model.pm_interval_days",
    "fieldname": "pm_interval_days",
    "fieldtype": "Int",
    "label": "PM Interval (days)",
@@ -417,6 +418,7 @@
    "label": "Is Calibration Required"
   },
   {
+   "fetch_from": "device_model.calibration_interval_days",
    "fieldname": "calibration_interval_days",
    "fieldtype": "Int",
    "label": "Calibration Interval (days)",

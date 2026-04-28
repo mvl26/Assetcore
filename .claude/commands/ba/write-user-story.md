@@ -1,5 +1,6 @@
 ---
 description: Write user stories for an AssetCore feature or module
+argument-hint: <feature or module>
 ---
 
 Write **user stories** for: `$ARGUMENTS`

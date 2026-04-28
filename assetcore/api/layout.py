@@ -241,7 +241,19 @@ def ping_session():
     Trả về user hiện tại (Guest nếu chưa login).
     """
     user = frappe.session.user
-    return _ok({"user": user, "authenticated": user != "Guest"})
+    # Trả về csrf_token hiện tại để FE có thể đồng bộ sau khi role/session thay đổi.
+    # Khi admin cập nhật role, Frappe gọi clear_sessions() → sid cũ vô hiệu, session mới
+    # tạo ra với csrf_token mới. FE cần token này để retry POST mà không phải logout/login.
+    csrf_token = ""
+    try:
+        csrf_token = (frappe.local.session.data or {}).get("csrf_token") or ""
+    except Exception:
+        csrf_token = ""
+    return _ok({
+        "user": user,
+        "authenticated": user != "Guest",
+        "csrf_token": csrf_token,
+    })
 
 
 @frappe.whitelist(methods=["POST"])

@@ -1,7 +1,6 @@
 ---
 name: dashboard-spec-writer
 description: Write complete dashboard specifications for AssetCore IMM modules — KPIs, charts, alerts, backend APIs, frontend component structure
-type: skill
 ---
 
 # Dashboard Spec Writer — AssetCore

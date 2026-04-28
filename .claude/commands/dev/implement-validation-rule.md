@@ -1,5 +1,6 @@
 ---
 description: Implement a validation rule in AssetCore backend and/or frontend
+argument-hint: <rule description>
 ---
 
 Implement the following **validation rule**: `$ARGUMENTS`

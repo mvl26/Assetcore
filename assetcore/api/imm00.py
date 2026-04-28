@@ -583,6 +583,73 @@ def update_device_model(name: str):
         return _err(str(e), 422)
 
 
+# ─── Device Model file upload ────────────────────────────────────────────────
+_DEVICE_MODEL_FOLDER = "Home/Device Models"
+
+
+def _ensure_device_model_folder() -> str:
+    """Đảm bảo folder Home/Device Models tồn tại trong File tree, return name."""
+    if frappe.db.exists("File", _DEVICE_MODEL_FOLDER):
+        return _DEVICE_MODEL_FOLDER
+    folder = frappe.get_doc({
+        "doctype":   "File",
+        "file_name": "Device Models",
+        "is_folder": 1,
+        "folder":    "Home",
+    })
+    folder.insert(ignore_permissions=True)
+    return folder.name
+
+
+@frappe.whitelist(methods=["POST"])
+def upload_device_model_file(model_name: str = "", fieldname: str = "model_image"):
+    """POST — Upload 1 file vào folder Home/Device Models, attach vào IMM Device Model nếu có model_name.
+
+    Form-data:
+      - file: File (required)
+      - model_name: optional — nếu có sẽ attach vào doc + set field
+      - fieldname: 'model_image' | 'catalog_file' (default: model_image)
+
+    Returns: { file_url, file_name, name }
+    """
+    if fieldname not in ("model_image", "catalog_file"):
+        return _err(_("fieldname phải là 'model_image' hoặc 'catalog_file'"), 400)
+
+    files = frappe.request.files
+    if not files or "file" not in files:
+        return _err(_("Thiếu file upload"), 400)
+    upload = files["file"]
+    if not upload.filename:
+        return _err(_("File không có tên"), 400)
+
+    folder_name = _ensure_device_model_folder()
+
+    file_doc = frappe.get_doc({
+        "doctype":      "File",
+        "file_name":    upload.filename,
+        "folder":       folder_name,
+        "is_private":   0,
+        "content":      upload.stream.read(),
+        "decode":       False,
+    })
+    if model_name and frappe.db.exists(_DT_DEVICE_MODEL, model_name):
+        file_doc.attached_to_doctype = _DT_DEVICE_MODEL
+        file_doc.attached_to_name    = model_name
+        file_doc.attached_to_field   = fieldname
+    file_doc.save(ignore_permissions=True)
+
+    if model_name and frappe.db.exists(_DT_DEVICE_MODEL, model_name):
+        frappe.db.set_value(_DT_DEVICE_MODEL, model_name, fieldname, file_doc.file_url,
+                            update_modified=False)
+
+    return _ok({
+        "name":      file_doc.name,
+        "file_url":  file_doc.file_url,
+        "file_name": file_doc.file_name,
+        "fieldname": fieldname,
+    })
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # IMM SLA Policy  (2 endpoints)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1417,11 +1484,13 @@ def list_pm_schedules(page: int = 1, page_size: int = 20, asset: str = None, sta
         int(page), int(page_size), "next_due_date asc")
     asset_ids = {r.get("asset_ref") for r in items if r.get("asset_ref")}
     if asset_ids:
-        name_map = {a["name"]: a["asset_name"] for a in frappe.get_all(
+        info_map = {a["name"]: a for a in frappe.get_all(
             _DT_ASSET, filters={"name": ["in", list(asset_ids)]},
-            fields=["name", "asset_name"])}
+            fields=["name", "asset_name", "asset_code"])}
         for r in items:
-            r["asset_name"] = name_map.get(r.get("asset_ref"), "")
+            info = info_map.get(r.get("asset_ref")) or {}
+            r["asset_name"] = info.get("asset_name") or ""
+            r["asset_code"] = info.get("asset_code") or ""
     return _ok({"items": items, **meta})
 
 

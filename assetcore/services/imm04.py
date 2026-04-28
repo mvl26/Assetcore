@@ -138,6 +138,12 @@ _ALLOWED_SEARCH_DOCTYPES: dict[str, dict] = {
         "filters": {"is_active": 1},
         "extra_fields": ["warehouse_name", "warehouse_code"],
     },
+    "PM Checklist Template": {
+        "label_field": "template_name",
+        "search_fields": ["name", "template_name", "asset_category", "pm_type"],
+        "filters": {},
+        "extra_fields": ["template_name", "asset_category", "pm_type", "version"],
+    },
 }
 
 

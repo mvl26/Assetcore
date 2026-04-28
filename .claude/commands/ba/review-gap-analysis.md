@@ -1,5 +1,6 @@
 ---
 description: Review gaps between AssetCore current state and a target requirement
+argument-hint: <scope>
 ---
 
 Perform a **gap analysis** for: `$ARGUMENTS`

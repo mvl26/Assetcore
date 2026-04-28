@@ -57,14 +57,17 @@ Root project context is in `/CLAUDE.md` at the repo root.
 
 ---
 
-## Hooks (Manual Checklists)
+## Manual Checklists
 
-Review before key actions — see `hooks/` directory:
+Review before key actions — see `checklists/` directory:
 
 - `before-coding.md` — before writing any new feature
 - `before-closing-task.md` — before marking task done
 - `before-merging.md` — before merging to master
 - `before-writing-docs.md` — before creating documentation
+
+> Note: these are manual review checklists, not Claude Code event hooks.
+> Real automated hooks live in `settings.json` under the `hooks` key.
 
 ---
 

@@ -1,7 +1,6 @@
 ---
 name: erpnext-doctype-designer
 description: Design complete Frappe/ERPNext DocType specs for AssetCore domain entities — fields, naming, permissions, workflow, controller hooks
-type: skill
 ---
 
 # ERPNext DocType Designer — AssetCore

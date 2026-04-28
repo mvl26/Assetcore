@@ -1,7 +1,6 @@
 ---
 name: qms-mapper
 description: Map AssetCore IMM module features to QMS requirements — ISO 13485, WHO HTM, NĐ98, controlled documents, CAPA triggers, audit trail
-type: skill
 ---
 
 # QMS Mapper — AssetCore

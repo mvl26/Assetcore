@@ -88,7 +88,8 @@
    "fieldname": "devices",
    "fieldtype": "Table",
    "options": "AC Purchase Device Item",
-   "label": "Danh m\u1ee5c thi\u1ebft b\u1ecb"
+   "label": "Danh m\u1ee5c thi\u1ebft b\u1ecb",
+   "description": "Thi\u1ebft b\u1ecb y t\u1ebf (\u2192 phi\u1ebfu ti\u1ebfp nh\u1eadn IMM-04). C\u00f3 th\u1ec3 \u0111\u1ec3 tr\u1ed1ng n\u1ebfu \u0111\u01a1n h\u00e0ng ch\u1ec9 c\u00f3 ph\u1ee5 t\u00f9ng."
   },
   {
    "fieldname": "section_items",
@@ -100,7 +101,7 @@
    "fieldtype": "Table",
    "label": "Ph\u1ee5 t\u00f9ng",
    "options": "AC Purchase Item",
-   "reqd": 1
+   "description": "Ph\u1ee5 t\u00f9ng (\u2192 phi\u1ebfu nh\u1eadp kho IMM-00). C\u00f3 th\u1ec3 \u0111\u1ec3 tr\u1ed1ng n\u1ebfu \u0111\u01a1n h\u00e0ng ch\u1ec9 c\u00f3 thi\u1ebft b\u1ecb."
   },
   {
    "fieldname": "section_totals",

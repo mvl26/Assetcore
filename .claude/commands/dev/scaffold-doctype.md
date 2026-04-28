@@ -1,5 +1,6 @@
 ---
 description: Scaffold a new Frappe DocType with all required files for AssetCore
+argument-hint: <entity>
 ---
 
 Scaffold a new DocType for: `$ARGUMENTS`

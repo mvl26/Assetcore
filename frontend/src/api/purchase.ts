@@ -54,7 +54,6 @@ export interface CreatePurchaseDevicePayload {
   unit_cost?: number
   vendor_serial_no?: string
   warranty_months?: number
-  clinical_dept?: string
   notes?: string
 }
 
@@ -64,7 +63,7 @@ export interface CreatePurchasePayload {
   invoice_no?: string
   expected_delivery?: string
   notes?: string
-  items: { spare_part: string; qty: number; unit_cost?: number }[]
+  items?: { spare_part: string; qty: number; unit_cost?: number }[]
   devices?: CreatePurchaseDevicePayload[]
   auto_submit?: number
 }

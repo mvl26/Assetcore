@@ -55,13 +55,14 @@ function fmt(n: number): string { return n.toLocaleString('vi-VN') }
 
 <template>
   <div class="flex flex-col items-center gap-5">
-
-    <!-- SVG donut -->
+<!-- SVG donut -->
     <div class="relative shrink-0" :style="{ width: `${SIZE}px`, height: `${SIZE}px` }">
-      <svg :width="SIZE" :height="SIZE" :viewBox="`0 0 ${SIZE} ${SIZE}`"
+      <svg
+:width="SIZE" :height="SIZE" :viewBox="`0 0 ${SIZE} ${SIZE}`"
            class="-rotate-90 transform" style="filter: drop-shadow(0 4px 12px rgba(0,0,0,.06))">
         <!-- background ring -->
-        <circle :cx="SIZE/2" :cy="SIZE/2" :r="R"
+        <circle
+:cx="SIZE/2" :cy="SIZE/2" :r="R"
                 fill="none" stroke="#f1f5f9" :stroke-width="STROKE" />
         <!-- slices -->
         <circle
@@ -113,7 +114,8 @@ function fmt(n: number): string { return n.toLocaleString('vi-VN') }
       >
         <div class="flex items-center justify-between mb-1">
           <div class="flex items-center gap-2">
-            <span class="w-2.5 h-2.5 rounded-full shrink-0 transition-transform group-hover:scale-125"
+            <span
+class="w-2.5 h-2.5 rounded-full shrink-0 transition-transform group-hover:scale-125"
                   :style="{ background: a.color }" />
             <span class="text-xs text-slate-700 font-medium">{{ a.label }}</span>
           </div>
@@ -124,7 +126,8 @@ function fmt(n: number): string { return n.toLocaleString('vi-VN') }
         </div>
         <!-- mini progress bar -->
         <div class="h-1.5 bg-slate-100 rounded-full overflow-hidden">
-          <div class="h-full rounded-full transition-all duration-500"
+          <div
+class="h-full rounded-full transition-all duration-500"
                :style="{ width: (a.percent * 100) + '%', background: a.color,
                          opacity: hoveredIdx != null && hoveredIdx !== i ? 0.35 : 1 }" />
         </div>

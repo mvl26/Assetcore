@@ -1,5 +1,6 @@
 ---
 description: Prioritize AssetCore backlog items for the next sprint
+argument-hint: <backlog items>
 ---
 
 Prioritize the following backlog items for AssetCore: `$ARGUMENTS`

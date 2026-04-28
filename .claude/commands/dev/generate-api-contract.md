@@ -1,5 +1,6 @@
 ---
 description: Generate OpenAPI 3.0 contract for an AssetCore API module
+argument-hint: <API module>
 ---
 
 Generate the **OpenAPI 3.0 contract** for: `$ARGUMENTS`

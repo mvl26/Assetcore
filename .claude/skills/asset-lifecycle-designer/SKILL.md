@@ -1,7 +1,6 @@
 ---
 name: asset-lifecycle-designer
 description: Design complete lifecycle workflows for medical device events in AssetCore — states, transitions, triggers, SLA rules, audit trail, WHO HTM alignment
-type: skill
 ---
 
 # Asset Lifecycle Designer — AssetCore

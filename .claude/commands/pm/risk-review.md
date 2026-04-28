@@ -1,5 +1,6 @@
 ---
 description: Review risks for an AssetCore feature, sprint, or release
+argument-hint: <feature, sprint or release>
 ---
 
 Review risks for: `$ARGUMENTS`

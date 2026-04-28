@@ -7,7 +7,7 @@ import piniaPersistedState from 'pinia-plugin-persistedstate'
 import { VueQueryPlugin, QueryClient } from '@tanstack/vue-query'
 import App from './App.vue'
 import router from './router'
-import './assets/main.css'
+import './assets/styles/main.css'
 import axios from 'axios'
 import { setCsrfToken } from '@/api/axios'
 import { vPermission } from '@/directives/permission'
@@ -27,7 +27,7 @@ const app = createApp(App)
 
 // Global Vue error handler — log tất cả lỗi component, ngăn blank page silent
 app.config.errorHandler = (err, instance, info) => {
-  // eslint-disable-next-line no-console
+   
   console.error('[Vue errorHandler]', { message: (err as Error)?.message, info, err, component: instance?.$options?.name })
 }
 

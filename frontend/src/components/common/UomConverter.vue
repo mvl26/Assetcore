@@ -93,8 +93,7 @@ function fmtNum(n: number): string {
   </div>
 
   <div v-else class="space-y-4">
-
-    <!-- Bảng quy đổi -->
+<!-- Bảng quy đổi -->
     <div>
       <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
         Bảng quy đổi — {{ info.part_name }}
@@ -109,12 +108,14 @@ function fmtNum(n: number): string {
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-100">
-            <tr v-for="row in info.conversions" :key="row.uom"
+            <tr
+v-for="row in info.conversions" :key="row.uom"
                 :class="row.is_stock_uom ? 'bg-blue-50/60' : 'hover:bg-slate-50'"
                 class="transition-colors">
               <td class="px-3 py-2 font-semibold text-slate-800">
                 {{ row.uom }}
-                <span v-if="row.is_stock_uom"
+                <span
+v-if="row.is_stock_uom"
                       class="ml-1.5 text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-medium">
                   Cơ bản
                 </span>
@@ -124,9 +125,11 @@ function fmtNum(n: number): string {
               </td>
               <td class="px-3 py-2">
                 <div class="flex gap-1 flex-wrap">
-                  <span v-if="row.is_purchase_uom"
+                  <span
+v-if="row.is_purchase_uom"
                         class="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded">Mua</span>
-                  <span v-if="row.is_issue_uom"
+                  <span
+v-if="row.is_issue_uom"
                         class="text-[10px] bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded">Xuất</span>
                 </div>
               </td>
@@ -172,7 +175,8 @@ function fmtNum(n: number): string {
           @click="swap"
         >
           <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round"
+            <path
+stroke-linecap="round" stroke-linejoin="round"
                   d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 3M21 7.5H7.5" />
           </svg>
         </button>
@@ -189,7 +193,8 @@ function fmtNum(n: number): string {
       </div>
 
       <!-- Result -->
-      <div v-if="result && fromUom !== toUom"
+      <div
+v-if="result && fromUom !== toUom"
            class="flex items-baseline gap-2 bg-white rounded-lg border border-blue-200 px-4 py-3">
         <span class="text-lg font-bold text-blue-700 tabular-nums">{{ fmtNum(result.qty) }}</span>
         <span class="text-sm font-medium text-slate-700">{{ toUom }}</span>
@@ -197,15 +202,16 @@ function fmtNum(n: number): string {
           (hệ số: 1 {{ fromUom }} = {{ fmtNum(result.factor) }} {{ toUom }})
         </span>
       </div>
-      <div v-else-if="fromUom === toUom"
+      <div
+v-else-if="fromUom === toUom"
            class="text-xs text-slate-400 italic">
         Chọn 2 đơn vị khác nhau để tính quy đổi
       </div>
-      <div v-else-if="!result"
+      <div
+v-else-if="!result"
            class="text-xs text-red-500">
         Không tìm thấy hệ số quy đổi giữa {{ fromUom }} và {{ toUom }}
       </div>
     </div>
-
-  </div>
+</div>
 </template>

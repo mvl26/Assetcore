@@ -1,5 +1,6 @@
 ---
 description: Draft a formal requirement for an AssetCore feature
+argument-hint: <feature>
 ---
 
 Draft a formal **requirement specification** for: `$ARGUMENTS`
