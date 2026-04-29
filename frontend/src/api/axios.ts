@@ -7,6 +7,7 @@ import axios, {
   type AxiosResponse,
   type AxiosError,
 } from 'axios'
+import { ApiError, ErrorCode, httpStatusToCode } from './errors'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CSRF TOKEN HELPERS
@@ -152,7 +153,10 @@ async function handle400(
     // "Invalid Request" và phải tự logout.
     if (!authenticated && !globalThis.location.pathname.startsWith('/login')) {
       globalThis.location.href = `/login?redirect=${encodeURIComponent(globalThis.location.pathname)}`
-      throw new Error('Phiên đăng nhập đã thay đổi (role/quyền). Đang chuyển hướng đến trang đăng nhập...')
+      throw new ApiError(
+        'Phiên đăng nhập đã thay đổi (role/quyền). Đang chuyển hướng đến trang đăng nhập...',
+        ErrorCode.UNAUTHORIZED, 401,
+      )
     }
     if (newToken && originalConfig.headers) {
       originalConfig.headers['X-Frappe-CSRF-Token'] = newToken
@@ -160,7 +164,10 @@ async function handle400(
     }
   }
 
-  throw new Error(parseServerMessages((error.response?.data as FrappeErrorData) ?? {}))
+  throw new ApiError(
+    parseServerMessages((error.response?.data as FrappeErrorData) ?? {}),
+    ErrorCode.VALIDATION_ERROR, 400,
+  )
 }
 
 // ── Per-status handlers (extracted to keep interceptor flat) ──────────────────
@@ -171,9 +178,13 @@ function handle401(error: AxiosError<FrappeErrorData>): never {
     || globalThis.location.pathname.startsWith('/login')
   if (!onLoginPage) {
     globalThis.location.href = `/login?redirect=${encodeURIComponent(globalThis.location.pathname)}`
-    throw new Error('Phiên đăng nhập đã hết hạn. Đang chuyển hướng...')
+    throw new ApiError('Phiên đăng nhập đã hết hạn. Đang chuyển hướng...',
+      ErrorCode.UNAUTHORIZED, 401)
   }
-  throw new Error(error.response?.data?.message ?? 'Sai tên đăng nhập hoặc mật khẩu.')
+  throw new ApiError(
+    error.response?.data?.message ?? 'Sai tên đăng nhập hoặc mật khẩu.',
+    ErrorCode.UNAUTHORIZED, 401,
+  )
 }
 
 async function handle403(): Promise<never> {
@@ -187,18 +198,23 @@ async function handle403(): Promise<never> {
       )
       if (!(ping.data?.message?.data?.authenticated ?? true)) {
         globalThis.location.href = `/login?redirect=${encodeURIComponent(globalThis.location.pathname)}`
-        throw new Error('Phiên đăng nhập đã hết hạn. Đang chuyển hướng đến trang đăng nhập...')
+        throw new ApiError(
+          'Phiên đăng nhập đã hết hạn. Đang chuyển hướng đến trang đăng nhập...',
+          ErrorCode.UNAUTHORIZED, 401,
+        )
       }
     } catch (e) {
-      if (e instanceof Error && e.message.includes('Phiên đăng nhập')) throw e
+      if (e instanceof ApiError && e.code === ErrorCode.UNAUTHORIZED) throw e
     }
   }
-  throw new Error('Bạn không có quyền thực hiện hành động này.')
+  throw new ApiError('Bạn không có quyền thực hiện hành động này.',
+    ErrorCode.FORBIDDEN, 403)
 }
 
 function handle500(data: FrappeErrorData | undefined): never {
   const last = data?.exc ? String(data.exc).split('\n').findLast(Boolean) ?? '' : ''
-  throw new Error('500 Lỗi máy chủ nội bộ' + (last ? ' — ' + last : ''))
+  throw new ApiError('Lỗi máy chủ nội bộ' + (last ? ' — ' + last : ''),
+    ErrorCode.INTERNAL_ERROR, 500)
 }
 
 // ── Response interceptor ───────────────────────────────────────────────────────
@@ -207,7 +223,10 @@ api.interceptors.response.use(
   (response: AxiosResponse) => response,
   async (error: AxiosError<FrappeErrorData>) => {
     if (!error.response) {
-      throw new Error('Không thể kết nối đến máy chủ. Vui lòng kiểm tra kết nối mạng.')
+      throw new ApiError(
+        'Không thể kết nối đến máy chủ. Vui lòng kiểm tra kết nối mạng.',
+        ErrorCode.NETWORK_ERROR, 0,
+      )
     }
 
     const { status, data } = error.response
@@ -215,12 +234,24 @@ api.interceptors.response.use(
     if (status === 400) return handle400(error)
     if (status === 401) return handle401(error)
     if (status === 403) return handle403()
-    if (status === 404) throw new Error(data?.message || 'Không tìm thấy tài nguyên yêu cầu.')
-    if (status === 409) throw new Error(data?.message || 'Dữ liệu đã tồn tại trong hệ thống.')
-    if (status === 417) throw new Error(parseServerMessages(data ?? {}))
+    if (status === 404) {
+      throw new ApiError(data?.message || 'Không tìm thấy tài nguyên yêu cầu.',
+        ErrorCode.NOT_FOUND, 404)
+    }
+    if (status === 409) {
+      throw new ApiError(data?.message || 'Dữ liệu đã tồn tại trong hệ thống.',
+        ErrorCode.CONFLICT, 409)
+    }
+    if (status === 417 || status === 422) {
+      throw new ApiError(parseServerMessages(data ?? {}),
+        ErrorCode.BUSINESS_RULE, status)
+    }
     if (status === 500) return handle500(data)
 
-    throw new Error(data?.message ?? `Lỗi không xác định (HTTP ${status})`)
+    throw new ApiError(
+      data?.message ?? `Lỗi không xác định (HTTP ${status})`,
+      httpStatusToCode(status), status,
+    )
   },
 )
 

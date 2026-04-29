@@ -11,7 +11,7 @@ class ACSparePart(Document):
         if not self.part_code:
             self.part_code = self.name
         if not self.stock_uom:
-            self.stock_uom = "Nos"
+            self.stock_uom = "Cái"
         self._validate_uom_conversions()
 
     def _validate_uom_conversions(self) -> None:

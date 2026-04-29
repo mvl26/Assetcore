@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useToast } from '@/composables/useToast'
 import DateInput from '@/components/common/DateInput.vue'
 import { ref, computed, onMounted, reactive } from 'vue'
 import { useRouter } from 'vue-router'
@@ -6,6 +7,7 @@ import { useImm05Store } from '@/stores/imm05Store'
 import type { AssetDocumentDetail } from '@/api/imm05'
 import { stateLabel, formatDate } from '@/utils/docUtils'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
+const toast = useToast()
 
 const props = defineProps<{ name: string }>()
 
@@ -108,7 +110,7 @@ async function transitionState(name: string, action: string) {
 async function submitForReview(): Promise<void> {
   if (!doc.value) return
   if (!doc.value.file_attachment) {
-    alert('Vui lòng đính kèm file tài liệu trước khi gửi duyệt.')
+    toast.warning('Vui lòng đính kèm file tài liệu trước khi gửi duyệt.')
     return
   }
   actionLoading.value = true

@@ -123,12 +123,19 @@ const newUser = ref<CreateUserPayload>({
   imm_roles: [],
 })
 
-// Persist new-user draft only when creating (not edit, not pick-existing).
-// Exclude password to avoid keeping plaintext credentials in localStorage.
+// Form draft tắt hoàn toàn cho create-user form — email là trường unique,
+// việc restore email cũ từ localStorage gây nhầm lẫn (user nghĩ đã nhập mới
+// nhưng thực tế submit email cũ → 409 "đã tồn tại"). Trade-off: mất tính năng
+// khôi phục khi tab crash, nhưng UX rõ ràng hơn nhiều.
 const { clear: clearNewUserDraft } = useFormDraft('user-profile-create', newUser, {
-  enabled: !isEdit.value,
+  enabled: false,
   exclude: ['password'],
 })
+
+// Defensive: xóa draft cũ trong localStorage (nếu có từ phiên trước có draft enabled).
+if (typeof localStorage !== 'undefined') {
+  try { localStorage.removeItem('assetcore.draft.user-profile-create.v1') } catch { /* ignore */ }
+}
 
 // ── Pick/Edit shared state ─────────────────────────────────────────────────
 const isSelf = computed(() => props.user === auth.user?.name)
@@ -217,19 +224,41 @@ async function savePick() {
   } finally { saving.value = false }
 }
 
+/** Khi BE trả 409 với existing_user → cho phép FE hiển thị link "Xem user hiện có". */
+const existingUserConflict = ref<string | null>(null)
+
 async function saveNew() {
-  if (!newUser.value.email?.trim()) { error.value = 'Vui lòng nhập email'; return }
+  // Chuẩn hóa email: trim + lowercase trước khi gửi để khớp BE normalization.
+  // Cũng giúp tránh trường hợp user paste email có khoảng trắng hoặc CAPS LOCK.
+  const normalizedEmail = (newUser.value.email || '').trim().toLowerCase()
+  if (!normalizedEmail) { error.value = 'Vui lòng nhập email'; return }
   if (!newUser.value.first_name?.trim()) { error.value = 'Vui lòng nhập họ tên'; return }
-  saving.value = true; error.value = ''; success.value = ''
+  newUser.value.email = normalizedEmail
+
+  saving.value = true; error.value = ''; success.value = ''; existingUserConflict.value = null
+  // Diagnostic: log payload thực tế gửi đi (xóa khi đã ổn định)
+  console.log('[create-user] sending payload:', { ...newUser.value, password: '***' })
   try {
     const res = await createSystemUser(newUser.value)
+    console.log('[create-user] response:', res)
     if (res) {
       clearNewUserDraft()
       router.push(`/user-profiles/${encodeURIComponent(res.user)}`)
     }
   } catch (e: unknown) {
-    error.value = (e as Error).message || 'Lỗi khi tạo user'
+    console.error('[create-user] error:', e)
+    const err = e as { message?: string; extra?: Record<string, unknown>; httpStatus?: number; code?: string }
+    error.value = err.message || 'Lỗi khi tạo user'
+    if (err.extra?.existing_user) {
+      existingUserConflict.value = String(err.extra.existing_user)
+    }
   } finally { saving.value = false }
+}
+
+function viewExistingUser() {
+  if (existingUserConflict.value) {
+    router.push(`/user-profiles/${encodeURIComponent(existingUserConflict.value)}`)
+  }
 }
 
 function handleSubmit() {
@@ -274,7 +303,7 @@ onMounted(async () => {
   <div class="page-container animate-fade-in space-y-6">
     <!-- Header -->
     <div class="flex items-center gap-3">
-      <button class="text-gray-500 hover:text-gray-700" @click="router.back()">
+      <button class="text-gray-500 hover:text-gray-700" @click="router.push('/user-profiles')">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" />
         </svg>
@@ -306,13 +335,21 @@ Gán IMM cho user sẵn có
 </button>
     </div>
 
-    <div v-if="error" class="bg-red-50 text-red-700 text-sm p-3 rounded-lg border border-red-200">{{ error }}</div>
+    <div v-if="error" class="bg-red-50 text-red-700 text-sm p-3 rounded-lg border border-red-200 flex items-start justify-between gap-3">
+      <span class="flex-1">{{ error }}</span>
+      <button
+        v-if="existingUserConflict"
+        type="button"
+        class="shrink-0 text-xs font-medium text-blue-600 hover:text-blue-800 underline"
+        @click="viewExistingUser"
+      >Xem user hiện có →</button>
+    </div>
     <div v-if="success" class="bg-green-50 text-green-700 text-sm p-3 rounded-lg border border-green-200">{{ success }}</div>
 
     <!-- ─── FORM: TẠO USER MỚI ─────────────────────────────────────────── -->
     <form v-if="!isEdit && createMode === 'new'" class="space-y-6" @submit.prevent="handleSubmit">
       <div class="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
-        <h2 class="text-sm font-semibold text-gray-700 uppercase tracking-wide">Tài khoản Frappe</h2>
+        <h2 class="text-sm font-semibold text-gray-700 uppercase tracking-wide">Tài khoản người dùng</h2>
         <div class="grid grid-cols-2 gap-4">
           <div class="col-span-2">
             <label for="new-email" class="block text-xs font-medium text-gray-600 mb-1">Email <span class="text-red-500">*</span></label>
@@ -386,11 +423,11 @@ type="submit" :disabled="saving"
           class="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-6 py-2.5 rounded-lg text-sm font-medium">
           {{ saving ? 'Đang tạo...' : 'Tạo tài khoản' }}
         </button>
-        <button type="button" class="px-4 py-2.5 rounded-lg border border-gray-300 text-sm text-gray-600 hover:bg-gray-50" @click="router.back()">Hủy</button>
+        <button type="button" class="px-4 py-2.5 rounded-lg border border-gray-300 text-sm text-gray-600 hover:bg-gray-50" @click="router.push('/user-profiles')">Hủy</button>
       </div>
     </form>
 
-    <!-- ─── FORM: GÁN IMM CHO USER SẴN CÓ ────────────────────────────── -->
+    <!-- ─── FORM: GÁN ROLE CHO USER SẴN CÓ ────────────────────────────── -->
     <form v-else-if="!isEdit && createMode === 'pick'" class="space-y-6" @submit.prevent="handleSubmit">
       <div class="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
         <h2 class="text-sm font-semibold text-gray-700 uppercase tracking-wide">Chọn Frappe User</h2>
@@ -452,7 +489,7 @@ type="submit" :disabled="saving || !pickedUser"
           class="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-6 py-2.5 rounded-lg text-sm font-medium">
           {{ saving ? 'Đang lưu...' : 'Lưu' }}
         </button>
-        <button type="button" class="px-4 py-2.5 rounded-lg border border-gray-300 text-sm text-gray-600 hover:bg-gray-50" @click="router.back()">Hủy</button>
+        <button type="button" class="px-4 py-2.5 rounded-lg border border-gray-300 text-sm text-gray-600 hover:bg-gray-50" @click="router.push('/user-profiles')">Hủy</button>
       </div>
     </form>
 
@@ -580,7 +617,7 @@ type="submit" :disabled="saving"
             class="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-6 py-2.5 rounded-lg text-sm font-medium">
             {{ saving ? 'Đang lưu...' : 'Lưu hồ sơ' }}
           </button>
-          <button type="button" class="px-4 py-2.5 rounded-lg border border-gray-300 text-sm text-gray-600 hover:bg-gray-50" @click="router.back()">Hủy</button>
+          <button type="button" class="px-4 py-2.5 rounded-lg border border-gray-300 text-sm text-gray-600 hover:bg-gray-50" @click="router.push('/user-profiles')">Hủy</button>
         </div>
       </form>
     </template>

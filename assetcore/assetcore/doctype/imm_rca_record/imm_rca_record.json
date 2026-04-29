@@ -1,268 +1,416 @@
 {
-  "actions": [],
-  "autoname": "naming_series:",
-  "creation": "2026-04-20 00:00:00.000000",
-  "doctype": "DocType",
-  "engine": "InnoDB",
-  "is_submittable": 1,
-  "field_order": [
-    "section_basic",
-    "naming_series",
-    "incident_report",
-    "asset",
-    "col_break_basic",
-    "status",
-    "workflow_state",
-    "trigger_type",
-    "rca_method",
-    "assigned_to",
-    "due_date",
-    "incident_count",
-    "section_related",
-    "related_incidents",
-    "section_five_why",
-    "five_why_steps",
-    "section_root_cause",
-    "root_cause",
-    "col_break_rc",
-    "contributing_factors",
-    "section_action",
-    "corrective_action_summary",
-    "linked_capa",
-    "col_break_action",
-    "preventive_action_summary",
-    "section_notes",
-    "rca_notes",
-    "completed_by",
-    "completed_date",
-    "amended_from"
-  ],
-  "fields": [
-    {
-      "fieldname": "section_basic",
-      "fieldtype": "Section Break",
-      "label": "Thông tin cơ bản"
-    },
-    {
-      "fieldname": "naming_series",
-      "fieldtype": "Select",
-      "label": "Series",
-      "options": "RCA-.YYYY.-.####",
-      "reqd": 1
-    },
-    {
-      "fieldname": "incident_report",
-      "fieldtype": "Link",
-      "label": "Incident Report",
-      "options": "Incident Report",
-      "search_index": 1,
-      "in_list_view": 1
-    },
-    {
-      "fieldname": "asset",
-      "fieldtype": "Link",
-      "label": "Asset",
-      "options": "AC Asset",
-      "search_index": 1,
-      "in_list_view": 1
-    },
-    {
-      "fieldname": "col_break_basic",
-      "fieldtype": "Column Break"
-    },
-    {
-      "fieldname": "status",
-      "fieldtype": "Select",
-      "label": "Status",
-      "options": "RCA Required\nRCA In Progress\nCompleted\nCancelled",
-      "reqd": 1,
-      "default": "RCA Required",
-      "search_index": 1,
-      "in_list_view": 1
-    },
-    {
-      "fieldname": "workflow_state",
-      "fieldtype": "Link",
-      "label": "Workflow State",
-      "options": "Workflow State",
-      "read_only": 1,
-      "hidden": 1
-    },
-    {
-      "fieldname": "trigger_type",
-      "fieldtype": "Select",
-      "label": "Loại kích hoạt",
-      "options": "\nMajor Incident\nCritical Incident\nChronic Failure\nManual",
-      "in_list_view": 1
-    },
-    {
-      "fieldname": "rca_method",
-      "fieldtype": "Select",
-      "label": "Phương pháp RCA",
-      "options": "\n5-Why\nFishbone\nBoth",
-      "reqd": 1
-    },
-    {
-      "fieldname": "assigned_to",
-      "fieldtype": "Link",
-      "label": "Phụ trách RCA",
-      "options": "User"
-    },
-    {
-      "fieldname": "due_date",
-      "fieldtype": "Date",
-      "label": "Hạn hoàn thành RCA",
-      "in_list_view": 1
-    },
-    {
-      "fieldname": "incident_count",
-      "fieldtype": "Int",
-      "label": "Số Incident liên quan",
-      "read_only": 1
-    },
-    {
-      "fieldname": "section_related",
-      "fieldtype": "Section Break",
-      "label": "Incident liên quan (Chronic Failure)",
-      "depends_on": "eval:doc.trigger_type==='Chronic Failure'"
-    },
-    {
-      "fieldname": "related_incidents",
-      "fieldtype": "Table",
-      "label": "Incident liên quan",
-      "options": "IMM RCA Related Incident"
-    },
-    {
-      "fieldname": "section_five_why",
-      "fieldtype": "Section Break",
-      "label": "Phân tích 5-Why"
-    },
-    {
-      "fieldname": "five_why_steps",
-      "fieldtype": "Table",
-      "label": "5-Why Steps",
-      "options": "IMM RCA Five Why Step"
-    },
-    {
-      "fieldname": "section_root_cause",
-      "fieldtype": "Section Break",
-      "label": "Nguyên nhân gốc rễ"
-    },
-    {
-      "fieldname": "root_cause",
-      "fieldtype": "Text",
-      "label": "Nguyên nhân gốc rễ"
-    },
-    {
-      "fieldname": "col_break_rc",
-      "fieldtype": "Column Break"
-    },
-    {
-      "fieldname": "contributing_factors",
-      "fieldtype": "Text",
-      "label": "Yếu tố đóng góp"
-    },
-    {
-      "fieldname": "section_action",
-      "fieldtype": "Section Break",
-      "label": "Hành động khắc phục & Phòng ngừa"
-    },
-    {
-      "fieldname": "corrective_action_summary",
-      "fieldtype": "Text",
-      "label": "Tóm tắt hành động khắc phục"
-    },
-    {
-      "fieldname": "linked_capa",
-      "fieldtype": "Link",
-      "label": "CAPA liên kết",
-      "options": "IMM CAPA Record",
-      "read_only": 1
-    },
-    {
-      "fieldname": "col_break_action",
-      "fieldtype": "Column Break"
-    },
-    {
-      "fieldname": "preventive_action_summary",
-      "fieldtype": "Text",
-      "label": "Tóm tắt hành động phòng ngừa"
-    },
-    {
-      "fieldname": "section_notes",
-      "fieldtype": "Section Break",
-      "label": "Ghi chú"
-    },
-    {
-      "fieldname": "rca_notes",
-      "fieldtype": "Text Editor",
-      "label": "Ghi chú RCA"
-    },
-    {
-      "fieldname": "completed_by",
-      "fieldtype": "Link",
-      "label": "Hoàn thành bởi",
-      "options": "User",
-      "read_only": 1
-    },
-    {
-      "fieldname": "completed_date",
-      "fieldtype": "Date",
-      "label": "Ngày hoàn thành RCA",
-      "read_only": 1
-    },
-    {
-      "fieldname": "amended_from",
-      "fieldtype": "Link",
-      "label": "Amended From",
-      "options": "IMM RCA Record",
-      "read_only": 1,
-      "no_copy": 1,
-      "print_hide": 1
-    }
-  ],
-  "links": [],
-  "modified": "2026-04-21 00:00:00.000000",
-  "modified_by": "Administrator",
-  "module": "AssetCore",
-  "name": "IMM RCA Record",
-  "owner": "Administrator",
-  "permissions": [
-    {
-      "role": "IMM System Admin",
-      "read": 1,
-      "write": 1,
-      "create": 1,
-      "delete": 1
-    },
-    {
-      "role": "IMM QA Officer",
-      "read": 1,
-      "write": 1,
-      "create": 1
-    },
-    {
-      "role": "IMM Workshop Lead",
-      "read": 1,
-      "write": 1,
-      "create": 1
-    },
-    {
-      "role": "IMM Technician",
-      "read": 1,
-      "write": 1
-    },
-    {
-      "role": "IMM Operations Manager",
-      "read": 1
-    },
-    {
-      "role": "IMM Department Head",
-      "read": 1
-    }
-  ],
-  "sort_field": "modified",
-  "sort_order": "DESC",
-  "track_changes": 1,
-  "states": []
+ "actions": [],
+ "autoname": "naming_series:",
+ "creation": "2026-04-20 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "is_submittable": 1,
+ "field_order": [
+  "section_basic",
+  "naming_series",
+  "incident_report",
+  "asset",
+  "col_break_basic",
+  "status",
+  "workflow_state",
+  "trigger_type",
+  "rca_method",
+  "assigned_to",
+  "due_date",
+  "incident_count",
+  "section_related",
+  "related_incidents",
+  "section_five_why",
+  "five_why_steps",
+  "section_root_cause",
+  "root_cause",
+  "col_break_rc",
+  "contributing_factors",
+  "section_action",
+  "corrective_action_summary",
+  "linked_capa",
+  "col_break_action",
+  "preventive_action_summary",
+  "section_notes",
+  "rca_notes",
+  "completed_by",
+  "completed_date",
+  "amended_from"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_basic",
+   "fieldtype": "Section Break",
+   "label": "Thông tin cơ bản"
+  },
+  {
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Series",
+   "options": "RCA-.YYYY.-.####",
+   "reqd": 1
+  },
+  {
+   "fieldname": "incident_report",
+   "fieldtype": "Link",
+   "label": "Incident Report",
+   "options": "Incident Report",
+   "search_index": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "asset",
+   "fieldtype": "Link",
+   "label": "Asset",
+   "options": "AC Asset",
+   "search_index": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "col_break_basic",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "RCA Required\nRCA In Progress\nCompleted\nCancelled",
+   "reqd": 1,
+   "default": "RCA Required",
+   "search_index": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "workflow_state",
+   "fieldtype": "Link",
+   "label": "Workflow State",
+   "options": "Workflow State",
+   "read_only": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "trigger_type",
+   "fieldtype": "Select",
+   "label": "Loại kích hoạt",
+   "options": "\nMajor Incident\nCritical Incident\nChronic Failure\nManual",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "rca_method",
+   "fieldtype": "Select",
+   "label": "Phương pháp RCA",
+   "options": "\n5-Why\nFishbone\nBoth",
+   "reqd": 1
+  },
+  {
+   "fieldname": "assigned_to",
+   "fieldtype": "Link",
+   "label": "Phụ trách RCA",
+   "options": "User"
+  },
+  {
+   "fieldname": "due_date",
+   "fieldtype": "Date",
+   "label": "Hạn hoàn thành RCA",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "incident_count",
+   "fieldtype": "Int",
+   "label": "Số Incident liên quan",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_related",
+   "fieldtype": "Section Break",
+   "label": "Incident liên quan (Chronic Failure)",
+   "depends_on": "eval:doc.trigger_type==='Chronic Failure'"
+  },
+  {
+   "fieldname": "related_incidents",
+   "fieldtype": "Table",
+   "label": "Incident liên quan",
+   "options": "IMM RCA Related Incident"
+  },
+  {
+   "fieldname": "section_five_why",
+   "fieldtype": "Section Break",
+   "label": "Phân tích 5-Why"
+  },
+  {
+   "fieldname": "five_why_steps",
+   "fieldtype": "Table",
+   "label": "5-Why Steps",
+   "options": "IMM RCA Five Why Step"
+  },
+  {
+   "fieldname": "section_root_cause",
+   "fieldtype": "Section Break",
+   "label": "Nguyên nhân gốc rễ"
+  },
+  {
+   "fieldname": "root_cause",
+   "fieldtype": "Text",
+   "label": "Nguyên nhân gốc rễ"
+  },
+  {
+   "fieldname": "col_break_rc",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "contributing_factors",
+   "fieldtype": "Text",
+   "label": "Yếu tố đóng góp"
+  },
+  {
+   "fieldname": "section_action",
+   "fieldtype": "Section Break",
+   "label": "Hành động khắc phục & Phòng ngừa"
+  },
+  {
+   "fieldname": "corrective_action_summary",
+   "fieldtype": "Text",
+   "label": "Tóm tắt hành động khắc phục"
+  },
+  {
+   "fieldname": "linked_capa",
+   "fieldtype": "Link",
+   "label": "CAPA liên kết",
+   "options": "IMM CAPA Record",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_break_action",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "preventive_action_summary",
+   "fieldtype": "Text",
+   "label": "Tóm tắt hành động phòng ngừa"
+  },
+  {
+   "fieldname": "section_notes",
+   "fieldtype": "Section Break",
+   "label": "Ghi chú"
+  },
+  {
+   "fieldname": "rca_notes",
+   "fieldtype": "Text Editor",
+   "label": "Ghi chú RCA"
+  },
+  {
+   "fieldname": "completed_by",
+   "fieldtype": "Link",
+   "label": "Hoàn thành bởi",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "completed_date",
+   "fieldtype": "Date",
+   "label": "Ngày hoàn thành RCA",
+   "read_only": 1
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "options": "IMM RCA Record",
+   "read_only": 1,
+   "no_copy": 1,
+   "print_hide": 1
+  }
+ ],
+ "links": [],
+ "modified": "2026-04-21 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "AssetCore",
+ "name": "IMM RCA Record",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "IMM System Admin",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "submit": 1,
+   "cancel": 1,
+   "amend": 1
+  },
+  {
+   "role": "IMM Operations Manager",
+   "read": 1,
+   "write": 1,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "submit": 1,
+   "cancel": 0,
+   "amend": 0
+  },
+  {
+   "role": "IMM QA Officer",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "submit": 1,
+   "cancel": 1,
+   "amend": 1
+  },
+  {
+   "role": "IMM Auditor",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0
+  },
+  {
+   "role": "IMM Department Head",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0
+  },
+  {
+   "role": "IMM Deputy Department Head",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0
+  },
+  {
+   "role": "IMM Workshop Lead",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0
+  },
+  {
+   "role": "IMM Biomed Technician",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0
+  },
+  {
+   "role": "IMM Technician",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0
+  },
+  {
+   "role": "IMM Storekeeper",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 0,
+   "export": 0,
+   "print": 0,
+   "email": 0,
+   "share": 0,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0
+  },
+  {
+   "role": "IMM Document Officer",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "submit": 1,
+   "cancel": 0,
+   "amend": 0
+  },
+  {
+   "role": "IMM Clinical User",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 0,
+   "export": 0,
+   "print": 0,
+   "email": 0,
+   "share": 0,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "track_changes": 1,
+ "states": []
 }

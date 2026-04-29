@@ -1,281 +1,418 @@
 {
-  "name": "Asset Document",
-  "module": "AssetCore",
-  "autoname": "format:DOC-{asset_ref}-{YYYY}-{#####}",
-  "naming_rule": "Expression",
-  "is_submittable": 0,
-  "track_changes": 1,
-  "track_views": 1,
-  "fields": [
-    {
-      "fieldname": "workflow_state",
-      "fieldtype": "Link",
-      "label": "Trạng thái",
-      "options": "Workflow State",
-      "read_only": 1,
-      "in_list_view": 1,
-      "in_standard_filter": 1,
-      "search_index": 1,
-      "print_hide": 1
-    },
-    {
-      "fieldname": "section_asset",
-      "fieldtype": "Section Break",
-      "label": "Liên kết Thiết bị"
-    },
-    {
-      "fieldname": "asset_ref",
-      "fieldtype": "Link",
-      "label": "Tài sản",
-      "options": "AC Asset",
-      "reqd": 1,
-      "in_list_view": 1,
-      "search_index": 1
-    },
-    {
-      "fieldname": "model_ref",
-      "fieldtype": "Link",
-      "label": "Model Thiết bị",
-      "options": "IMM Device Model",
-      "search_index": 1
-    },
-    {
-      "fieldname": "is_model_level",
-      "fieldtype": "Check",
-      "label": "Áp dụng toàn bộ Model"
-    },
-    {
-      "fieldname": "clinical_dept",
-      "fieldtype": "Link",
-      "label": "Khoa / Phòng",
-      "options": "AC Department",
-      "read_only": 1,
-      "fetch_from": "asset_ref.location"
-    },
-    {
-      "fieldname": "col_break_asset",
-      "fieldtype": "Column Break"
-    },
-    {
-      "fieldname": "source_commissioning",
-      "fieldtype": "Link",
-      "label": "Phiếu Commissioning nguồn",
-      "options": "Asset Commissioning",
-      "read_only": 1
-    },
-    {
-      "fieldname": "source_module",
-      "fieldtype": "Data",
-      "label": "Module nguồn",
-      "read_only": 1
-    },
-    {
-      "fieldname": "section_classification",
-      "fieldtype": "Section Break",
-      "label": "Phân loại Tài liệu"
-    },
-    {
-      "fieldname": "doc_category",
-      "fieldtype": "Select",
-      "label": "Nhóm Hồ sơ",
-      "options": "Legal\nTechnical\nCertification\nTraining\nQA",
-      "reqd": 1,
-      "in_list_view": 1
-    },
-    {
-      "fieldname": "doc_type_detail",
-      "fieldtype": "Data",
-      "label": "Loại Tài liệu cụ thể",
-      "reqd": 1,
-      "in_list_view": 1
-    },
-    {
-      "fieldname": "col_break_classification",
-      "fieldtype": "Column Break"
-    },
-    {
-      "fieldname": "doc_number",
-      "fieldtype": "Data",
-      "label": "Số hiệu Tài liệu",
-      "reqd": 1,
-      "search_index": 1
-    },
-    {
-      "fieldname": "version",
-      "fieldtype": "Data",
-      "label": "Phiên bản",
-      "reqd": 1,
-      "default": "1.0"
-    },
-    {
-      "fieldname": "section_validity",
-      "fieldtype": "Section Break",
-      "label": "Thông tin Hiệu lực"
-    },
-    {
-      "fieldname": "issued_date",
-      "fieldtype": "Date",
-      "label": "Ngày cấp",
-      "reqd": 1
-    },
-    {
-      "fieldname": "expiry_date",
-      "fieldtype": "Date",
-      "label": "Ngày hết hạn",
-      "in_list_view": 1,
-      "search_index": 1
-    },
-    {
-      "fieldname": "issuing_authority",
-      "fieldtype": "Data",
-      "label": "Cơ quan cấp"
-    },
-    {
-      "fieldname": "col_break_validity",
-      "fieldtype": "Column Break"
-    },
-    {
-      "fieldname": "days_until_expiry",
-      "fieldtype": "Int",
-      "label": "Số ngày còn lại",
-      "read_only": 1
-    },
-    {
-      "fieldname": "is_expired",
-      "fieldtype": "Check",
-      "label": "Đã hết hạn",
-      "read_only": 1
-    },
-    {
-      "fieldname": "section_file",
-      "fieldtype": "Section Break",
-      "label": "File đính kèm"
-    },
-    {
-      "fieldname": "file_attachment",
-      "fieldtype": "Attach",
-      "label": "File Tài liệu",
-      "reqd": 1
-    },
-    {
-      "fieldname": "file_name_display",
-      "fieldtype": "Data",
-      "label": "Tên file",
-      "read_only": 1
-    },
-    {
-      "fieldname": "section_approval",
-      "fieldtype": "Section Break",
-      "label": "Phê duyệt"
-    },
-    {
-      "fieldname": "approved_by",
-      "fieldtype": "Link",
-      "label": "Người phê duyệt",
-      "options": "User",
-      "read_only": 1
-    },
-    {
-      "fieldname": "approval_date",
-      "fieldtype": "Date",
-      "label": "Ngày phê duyệt",
-      "read_only": 1
-    },
-    {
-      "fieldname": "rejection_reason",
-      "fieldtype": "Small Text",
-      "label": "Lý do Từ chối"
-    },
-    {
-      "fieldname": "section_version",
-      "fieldtype": "Section Break",
-      "label": "Version Control"
-    },
-    {
-      "fieldname": "superseded_by",
-      "fieldtype": "Link",
-      "label": "Thay thế bởi",
-      "options": "Asset Document",
-      "read_only": 1
-    },
-    {
-      "fieldname": "archived_by_version",
-      "fieldtype": "Data",
-      "label": "Lý do Archive",
-      "read_only": 1
-    },
-    {
-      "fieldname": "archive_date",
-      "fieldtype": "Date",
-      "label": "Ngày Archive",
-      "read_only": 1
-    },
-    {
-      "fieldname": "change_summary",
-      "fieldtype": "Small Text",
-      "label": "Tóm tắt thay đổi",
-      "description": "Bắt buộc khi version != 1.0 (VR-09)"
-    },
-    {
-      "fieldname": "section_access",
-      "fieldtype": "Section Break",
-      "label": "Kiểm soát Quyền truy cập"
-    },
-    {
-      "fieldname": "visibility",
-      "fieldtype": "Select",
-      "label": "Phạm vi xem",
-      "options": "Public\nInternal_Only",
-      "default": "Public",
-      "in_list_view": 1
-    },
-    {
-      "fieldname": "section_exempt",
-      "fieldtype": "Section Break",
-      "label": "Miễn đăng ký (NĐ98 Exempt)"
-    },
-    {
-      "fieldname": "is_exempt",
-      "fieldtype": "Check",
-      "label": "Miễn đăng ký NĐ98"
-    },
-    {
-      "fieldname": "exempt_reason",
-      "fieldtype": "Small Text",
-      "label": "Lý do miễn đăng ký"
-    },
-    {
-      "fieldname": "exempt_proof",
-      "fieldtype": "Attach",
-      "label": "Văn bản miễn đăng ký"
-    },
-    {
-      "fieldname": "section_notes",
-      "fieldtype": "Section Break",
-      "label": "Ghi chú"
-    },
-    {
-      "fieldname": "notes",
-      "fieldtype": "Text Editor",
-      "label": "Ghi chú nội bộ"
-    }
-  ],
-  "permissions": [
-    {"role": "HTM Technician", "read": 1, "write": 1, "create": 1},
-    {"role": "Biomed Engineer", "read": 1, "write": 1, "create": 1},
-    {"role": "Tổ HC-QLCL", "read": 1, "write": 1, "create": 1},
-    {"role": "Workshop Head", "read": 1, "write": 1, "create": 1, "cancel": 1, "amend": 1},
-    {"role": "VP Block2", "read": 1, "write": 1, "cancel": 1},
-    {"role": "CMMS Admin", "read": 1, "write": 1, "create": 1, "cancel": 1, "amend": 1, "delete": 1},
-    {"role": "Clinical Head", "read": 1}
-  ],
-  "search_fields": "asset_ref,doc_type_detail,doc_number",
-  "title_field": "doc_type_detail",
-  "sort_field": "modified",
-  "sort_order": "DESC",
-  "creation": "2026-04-17 00:00:00",
-  "modified": "2026-04-17 00:00:00",
-  "modified_by": "Administrator",
-  "owner": "Administrator",
-  "doctype": "DocType"
+ "name": "Asset Document",
+ "module": "AssetCore",
+ "autoname": "format:DOC-{asset_ref}-{YYYY}-{#####}",
+ "naming_rule": "Expression",
+ "is_submittable": 0,
+ "track_changes": 1,
+ "track_views": 1,
+ "fields": [
+  {
+   "fieldname": "workflow_state",
+   "fieldtype": "Link",
+   "label": "Trạng thái",
+   "options": "Workflow State",
+   "read_only": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "search_index": 1,
+   "print_hide": 1
+  },
+  {
+   "fieldname": "section_asset",
+   "fieldtype": "Section Break",
+   "label": "Liên kết Thiết bị"
+  },
+  {
+   "fieldname": "asset_ref",
+   "fieldtype": "Link",
+   "label": "Tài sản",
+   "options": "AC Asset",
+   "reqd": 1,
+   "in_list_view": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "model_ref",
+   "fieldtype": "Link",
+   "label": "Model Thiết bị",
+   "options": "IMM Device Model",
+   "search_index": 1
+  },
+  {
+   "fieldname": "is_model_level",
+   "fieldtype": "Check",
+   "label": "Áp dụng toàn bộ Model"
+  },
+  {
+   "fieldname": "clinical_dept",
+   "fieldtype": "Link",
+   "label": "Khoa / Phòng",
+   "options": "AC Department",
+   "read_only": 1,
+   "fetch_from": "asset_ref.location"
+  },
+  {
+   "fieldname": "col_break_asset",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "source_commissioning",
+   "fieldtype": "Link",
+   "label": "Phiếu Commissioning nguồn",
+   "options": "Asset Commissioning",
+   "read_only": 1
+  },
+  {
+   "fieldname": "source_module",
+   "fieldtype": "Data",
+   "label": "Module nguồn",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_classification",
+   "fieldtype": "Section Break",
+   "label": "Phân loại Tài liệu"
+  },
+  {
+   "fieldname": "doc_category",
+   "fieldtype": "Select",
+   "label": "Nhóm Hồ sơ",
+   "options": "Legal\nTechnical\nCertification\nTraining\nQA",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "doc_type_detail",
+   "fieldtype": "Data",
+   "label": "Loại Tài liệu cụ thể",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "col_break_classification",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "doc_number",
+   "fieldtype": "Data",
+   "label": "Số hiệu Tài liệu",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "version",
+   "fieldtype": "Data",
+   "label": "Phiên bản",
+   "reqd": 1,
+   "default": "1.0"
+  },
+  {
+   "fieldname": "section_validity",
+   "fieldtype": "Section Break",
+   "label": "Thông tin Hiệu lực"
+  },
+  {
+   "fieldname": "issued_date",
+   "fieldtype": "Date",
+   "label": "Ngày cấp",
+   "reqd": 1
+  },
+  {
+   "fieldname": "expiry_date",
+   "fieldtype": "Date",
+   "label": "Ngày hết hạn",
+   "in_list_view": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "issuing_authority",
+   "fieldtype": "Data",
+   "label": "Cơ quan cấp"
+  },
+  {
+   "fieldname": "col_break_validity",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "days_until_expiry",
+   "fieldtype": "Int",
+   "label": "Số ngày còn lại",
+   "read_only": 1
+  },
+  {
+   "fieldname": "is_expired",
+   "fieldtype": "Check",
+   "label": "Đã hết hạn",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_file",
+   "fieldtype": "Section Break",
+   "label": "File đính kèm"
+  },
+  {
+   "fieldname": "file_attachment",
+   "fieldtype": "Attach",
+   "label": "File Tài liệu",
+   "reqd": 1
+  },
+  {
+   "fieldname": "file_name_display",
+   "fieldtype": "Data",
+   "label": "Tên file",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_approval",
+   "fieldtype": "Section Break",
+   "label": "Phê duyệt"
+  },
+  {
+   "fieldname": "approved_by",
+   "fieldtype": "Link",
+   "label": "Người phê duyệt",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "approval_date",
+   "fieldtype": "Date",
+   "label": "Ngày phê duyệt",
+   "read_only": 1
+  },
+  {
+   "fieldname": "rejection_reason",
+   "fieldtype": "Small Text",
+   "label": "Lý do Từ chối"
+  },
+  {
+   "fieldname": "section_version",
+   "fieldtype": "Section Break",
+   "label": "Version Control"
+  },
+  {
+   "fieldname": "superseded_by",
+   "fieldtype": "Link",
+   "label": "Thay thế bởi",
+   "options": "Asset Document",
+   "read_only": 1
+  },
+  {
+   "fieldname": "archived_by_version",
+   "fieldtype": "Data",
+   "label": "Lý do Archive",
+   "read_only": 1
+  },
+  {
+   "fieldname": "archive_date",
+   "fieldtype": "Date",
+   "label": "Ngày Archive",
+   "read_only": 1
+  },
+  {
+   "fieldname": "change_summary",
+   "fieldtype": "Small Text",
+   "label": "Tóm tắt thay đổi",
+   "description": "Bắt buộc khi version != 1.0 (VR-09)"
+  },
+  {
+   "fieldname": "section_access",
+   "fieldtype": "Section Break",
+   "label": "Kiểm soát Quyền truy cập"
+  },
+  {
+   "fieldname": "visibility",
+   "fieldtype": "Select",
+   "label": "Phạm vi xem",
+   "options": "Public\nInternal_Only",
+   "default": "Public",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "section_exempt",
+   "fieldtype": "Section Break",
+   "label": "Miễn đăng ký (NĐ98 Exempt)"
+  },
+  {
+   "fieldname": "is_exempt",
+   "fieldtype": "Check",
+   "label": "Miễn đăng ký NĐ98"
+  },
+  {
+   "fieldname": "exempt_reason",
+   "fieldtype": "Small Text",
+   "label": "Lý do miễn đăng ký"
+  },
+  {
+   "fieldname": "exempt_proof",
+   "fieldtype": "Attach",
+   "label": "Văn bản miễn đăng ký"
+  },
+  {
+   "fieldname": "section_notes",
+   "fieldtype": "Section Break",
+   "label": "Ghi chú"
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Text Editor",
+   "label": "Ghi chú nội bộ"
+  }
+ ],
+ "permissions": [
+  {
+   "role": "IMM System Admin",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Operations Manager",
+   "read": 1,
+   "write": 1,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM QA Officer",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Auditor",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Department Head",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Deputy Department Head",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Workshop Lead",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Biomed Technician",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Technician",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Storekeeper",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 0,
+   "export": 0,
+   "print": 0,
+   "email": 0,
+   "share": 0
+  },
+  {
+   "role": "IMM Document Officer",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Clinical User",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 0,
+   "export": 0,
+   "print": 0,
+   "email": 0,
+   "share": 0
+  }
+ ],
+ "search_fields": "asset_ref,doc_type_detail,doc_number",
+ "title_field": "doc_type_detail",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "creation": "2026-04-17 00:00:00",
+ "modified": "2026-04-17 00:00:00",
+ "modified_by": "Administrator",
+ "owner": "Administrator",
+ "doctype": "DocType"
 }

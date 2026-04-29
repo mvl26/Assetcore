@@ -29,26 +29,139 @@
   "notes"
  ],
  "fields": [
-  {"fieldname": "section_basic", "fieldtype": "Section Break", "label": "Thông tin phiếu"},
-  {"fieldname": "naming_series", "fieldtype": "Select", "label": "Series", "options": "AC-SM-.YYYY.-.#####", "default": "AC-SM-.YYYY.-.#####", "hidden": 1},
-  {"fieldname": "movement_type", "fieldtype": "Select", "label": "Loại giao dịch", "options": "Receipt\nIssue\nTransfer\nAdjustment", "reqd": 1, "in_list_view": 1, "in_standard_filter": 1},
-  {"fieldname": "movement_date", "fieldtype": "Datetime", "label": "Ngày giao dịch", "reqd": 1, "default": "Now", "in_list_view": 1},
-  {"fieldname": "status", "fieldtype": "Select", "label": "Trạng thái", "options": "Draft\nSubmitted\nCancelled", "default": "Draft", "read_only": 1, "in_list_view": 1, "in_standard_filter": 1},
-  {"fieldname": "column_break_basic", "fieldtype": "Column Break"},
-  {"fieldname": "from_warehouse", "fieldtype": "Link", "label": "Kho xuất", "options": "AC Warehouse", "in_list_view": 1, "in_standard_filter": 1, "depends_on": "eval:['Issue','Transfer','Adjustment'].includes(doc.movement_type)"},
-  {"fieldname": "to_warehouse", "fieldtype": "Link", "label": "Kho nhập", "options": "AC Warehouse", "in_list_view": 1, "in_standard_filter": 1, "depends_on": "eval:['Receipt','Transfer'].includes(doc.movement_type)"},
-  {"fieldname": "supplier", "fieldtype": "Link", "label": "Nhà cung cấp", "options": "AC Supplier", "depends_on": "eval:doc.movement_type==='Receipt'"},
-  {"fieldname": "section_ref", "fieldtype": "Section Break", "label": "Nguồn chứng từ"},
-  {"fieldname": "reference_type", "fieldtype": "Select", "label": "Loại chứng từ", "options": "\nAsset Repair\nPM Work Order\nAC Purchase\nManual"},
-  {"fieldname": "reference_name", "fieldtype": "Dynamic Link", "label": "Mã chứng từ", "options": "reference_type", "depends_on": "eval:doc.reference_type && doc.reference_type !== 'Manual'"},
-  {"fieldname": "column_break_ref", "fieldtype": "Column Break"},
-  {"fieldname": "requested_by", "fieldtype": "Link", "label": "Người đề nghị", "options": "User", "reqd": 1, "default": "__user"},
-  {"fieldname": "approved_by", "fieldtype": "Link", "label": "Người duyệt", "options": "User"},
-  {"fieldname": "section_items", "fieldtype": "Section Break", "label": "Chi tiết"},
-  {"fieldname": "items", "fieldtype": "Table", "label": "Phụ tùng", "options": "AC Stock Movement Item", "reqd": 1},
-  {"fieldname": "section_totals", "fieldtype": "Section Break", "label": "Tổng kết"},
-  {"fieldname": "total_value", "fieldtype": "Currency", "label": "Tổng giá trị", "read_only": 1},
-  {"fieldname": "notes", "fieldtype": "Text", "label": "Ghi chú"}
+  {
+   "fieldname": "section_basic",
+   "fieldtype": "Section Break",
+   "label": "Thông tin phiếu"
+  },
+  {
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Series",
+   "options": "AC-SM-.YYYY.-.#####",
+   "default": "AC-SM-.YYYY.-.#####",
+   "hidden": 1
+  },
+  {
+   "fieldname": "movement_type",
+   "fieldtype": "Select",
+   "label": "Loại giao dịch",
+   "options": "Receipt\nIssue\nTransfer\nAdjustment",
+   "reqd": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "movement_date",
+   "fieldtype": "Datetime",
+   "label": "Ngày giao dịch",
+   "reqd": 1,
+   "default": "Now",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Trạng thái",
+   "options": "Draft\nSubmitted\nCancelled",
+   "default": "Draft",
+   "read_only": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "column_break_basic",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "from_warehouse",
+   "fieldtype": "Link",
+   "label": "Kho xuất",
+   "options": "AC Warehouse",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "depends_on": "eval:['Issue','Transfer','Adjustment'].includes(doc.movement_type)"
+  },
+  {
+   "fieldname": "to_warehouse",
+   "fieldtype": "Link",
+   "label": "Kho nhập",
+   "options": "AC Warehouse",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "depends_on": "eval:['Receipt','Transfer'].includes(doc.movement_type)"
+  },
+  {
+   "fieldname": "supplier",
+   "fieldtype": "Link",
+   "label": "Nhà cung cấp",
+   "options": "AC Supplier",
+   "depends_on": "eval:doc.movement_type==='Receipt'"
+  },
+  {
+   "fieldname": "section_ref",
+   "fieldtype": "Section Break",
+   "label": "Nguồn chứng từ"
+  },
+  {
+   "fieldname": "reference_type",
+   "fieldtype": "Select",
+   "label": "Loại chứng từ",
+   "options": "\nAsset Repair\nPM Work Order\nAC Purchase\nManual"
+  },
+  {
+   "fieldname": "reference_name",
+   "fieldtype": "Dynamic Link",
+   "label": "Mã chứng từ",
+   "options": "reference_type",
+   "depends_on": "eval:doc.reference_type && doc.reference_type !== 'Manual'"
+  },
+  {
+   "fieldname": "column_break_ref",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "requested_by",
+   "fieldtype": "Link",
+   "label": "Người đề nghị",
+   "options": "User",
+   "reqd": 1,
+   "default": "__user"
+  },
+  {
+   "fieldname": "approved_by",
+   "fieldtype": "Link",
+   "label": "Người duyệt",
+   "options": "User"
+  },
+  {
+   "fieldname": "section_items",
+   "fieldtype": "Section Break",
+   "label": "Chi tiết"
+  },
+  {
+   "fieldname": "items",
+   "fieldtype": "Table",
+   "label": "Phụ tùng",
+   "options": "AC Stock Movement Item",
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_totals",
+   "fieldtype": "Section Break",
+   "label": "Tổng kết"
+  },
+  {
+   "fieldname": "total_value",
+   "fieldtype": "Currency",
+   "label": "Tổng giá trị",
+   "read_only": 1
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Text",
+   "label": "Ghi chú"
+  }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
@@ -58,13 +171,186 @@
  "name": "AC Stock Movement",
  "owner": "Administrator",
  "permissions": [
-  {"role": "System Manager", "read": 1, "write": 1, "create": 1, "delete": 1, "submit": 1, "cancel": 1, "amend": 1},
-  {"role": "IMM System Admin", "read": 1, "write": 1, "create": 1, "delete": 1, "submit": 1, "cancel": 1},
-  {"role": "IMM Storekeeper", "read": 1, "write": 1, "create": 1, "submit": 1, "cancel": 1},
-  {"role": "IMM Operations Manager", "read": 1, "write": 1, "create": 1, "submit": 1},
-  {"role": "IMM Workshop Lead", "read": 1, "create": 1},
-  {"role": "IMM Technician", "read": 1, "create": 1},
-  {"role": "IMM Department Head", "read": 1}
+  {
+   "role": "IMM System Admin",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "submit": 1,
+   "cancel": 1,
+   "amend": 1
+  },
+  {
+   "role": "IMM Operations Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "submit": 1,
+   "cancel": 1,
+   "amend": 1
+  },
+  {
+   "role": "IMM QA Officer",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0
+  },
+  {
+   "role": "IMM Auditor",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0
+  },
+  {
+   "role": "IMM Department Head",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0
+  },
+  {
+   "role": "IMM Deputy Department Head",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0
+  },
+  {
+   "role": "IMM Workshop Lead",
+   "read": 1,
+   "write": 1,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "submit": 1,
+   "cancel": 0,
+   "amend": 0
+  },
+  {
+   "role": "IMM Biomed Technician",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0
+  },
+  {
+   "role": "IMM Technician",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0
+  },
+  {
+   "role": "IMM Storekeeper",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "submit": 1,
+   "cancel": 1,
+   "amend": 1
+  },
+  {
+   "role": "IMM Document Officer",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0
+  },
+  {
+   "role": "Vendor Engineer",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 0,
+   "export": 0,
+   "print": 0,
+   "email": 0,
+   "share": 0,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0
+  }
  ],
  "sort_field": "movement_date",
  "sort_order": "DESC",

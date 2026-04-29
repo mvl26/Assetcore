@@ -170,7 +170,7 @@ const activeUoms = computed(() => uoms.value.filter(u => u.is_active))
     <!-- Header -->
     <div class="mb-5">
       <p class="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-1">Đơn vị tính</p>
-      <h1 class="text-2xl font-bold text-slate-900">Quản lý Đơn vị tính (UOM)</h1>
+      <h1 class="text-2xl font-bold text-slate-900">Quản lý Đơn vị tính</h1>
       <p class="text-sm text-slate-500 mt-1">Tạo/sửa ĐVT, gán cho phụ tùng, và thiết lập bảng quy đổi.</p>
     </div>
 
@@ -204,7 +204,7 @@ v-model="uomSearch" type="text" placeholder="Tìm ĐVT..."
           <button class="btn-ghost text-sm" @click="loadUoms">Tìm</button>
         </div>
         <div class="flex gap-2">
-          <button class="btn-secondary text-sm" @click="doSeed">🌱 Seed UOM chuẩn</button>
+          <button class="btn-secondary text-sm" @click="doSeed">Tạo UOM chuẩn</button>
           <button class="btn-primary text-sm" @click="openCreateUom">+ Thêm ĐVT</button>
         </div>
       </div>

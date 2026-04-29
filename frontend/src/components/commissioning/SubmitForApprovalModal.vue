@@ -19,14 +19,14 @@ const emit = defineEmits<{
 interface StageInfo { stage: string; role: string; label: string }
 
 const STATE_TO_STAGE: Record<string, StageInfo> = {
-  'Draft':              { stage: 'Doc Verify',       role: 'Biomed Engineer', label: 'Kiểm tra tài liệu' },
-  'Pending Doc Verify': { stage: 'Doc Verify',       role: 'Biomed Engineer', label: 'Kiểm tra tài liệu' },
-  'To Be Installed':    { stage: 'Facility Check',   role: 'Biomed Engineer', label: 'Kiểm tra cơ sở hạ tầng' },
-  'Installing':         { stage: 'Facility Check',   role: 'Biomed Engineer', label: 'Xác nhận lắp đặt' },
-  'Identification':     { stage: 'Baseline Review',  role: 'Biomed Engineer', label: 'Duyệt định danh' },
-  'Initial Inspection': { stage: 'Clinical Release', role: 'VP Block2',       label: 'Phê duyệt phát hành lâm sàng' },
-  'Clinical Hold':      { stage: 'Clinical Release', role: 'VP Block2',       label: 'Gỡ giữ và phát hành' },
-  'Re Inspection':      { stage: 'Baseline Review',  role: 'Biomed Engineer', label: 'Duyệt kiểm tra lại' },
+  'Draft':              { stage: 'Doc Verify',       role: 'IMM Biomed Technician', label: 'Kiểm tra tài liệu' },
+  'Pending Doc Verify': { stage: 'Doc Verify',       role: 'IMM Biomed Technician', label: 'Kiểm tra tài liệu' },
+  'To Be Installed':    { stage: 'Facility Check',   role: 'IMM Biomed Technician', label: 'Kiểm tra cơ sở hạ tầng' },
+  'Installing':         { stage: 'Facility Check',   role: 'IMM Biomed Technician', label: 'Xác nhận lắp đặt' },
+  'Identification':     { stage: 'Baseline Review',  role: 'IMM Biomed Technician', label: 'Duyệt định danh' },
+  'Initial Inspection': { stage: 'Clinical Release', role: 'IMM Operations Manager',       label: 'Phê duyệt phát hành lâm sàng' },
+  'Clinical Hold':      { stage: 'Clinical Release', role: 'IMM Operations Manager',       label: 'Gỡ giữ và phát hành' },
+  'Re Inspection':      { stage: 'Baseline Review',  role: 'IMM Biomed Technician', label: 'Duyệt kiểm tra lại' },
 }
 
 const stageInfo = computed<StageInfo | null>(() => STATE_TO_STAGE[props.workflowState] ?? null)

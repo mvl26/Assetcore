@@ -7,6 +7,7 @@ import { getAssetTimeline, getAssetKpi, verifyChain, deleteAsset } from '@/api/i
 import { getCommissioningOrigin, type CommissioningOrigin } from '@/api/imm04'
 import AssetDowntimeWidget from '@/components/asset/AssetDowntimeWidget.vue'
 import AssetDepreciationSchedule from '@/components/asset/AssetDepreciationSchedule.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
 import type { AssetLifecycleEvent, AssetKpi, ChainVerifyResult, LifecycleStatus } from '@/types/imm00'
 
 const props = defineProps<{ id: string }>()
@@ -164,19 +165,21 @@ onMounted(async () => {
 
 <template>
   <div class="page-container animate-fade-in">
-    <!-- Back + Actions -->
-    <div class="flex items-center justify-between mb-5">
-      <button class="flex items-center gap-1 text-sm text-slate-500 hover:text-slate-800" @click="router.push('/assets')">
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" />
-        </svg>
-        Danh sách thiết bị
-      </button>
-      <div v-if="store.currentAsset" class="flex gap-2">
-        <button class="btn-ghost text-sm" @click="router.push(`/assets/${id}/edit`)">Chỉnh sửa</button>
-        <button class="text-red-600 hover:text-red-800 text-sm font-medium px-3 py-1.5" @click="remove">Xóa</button>
-      </div>
-    </div>
+    <PageHeader
+      back-to="/assets"
+      back-label="← Danh sách thiết bị"
+      :title="store.currentAsset?.asset_name || 'Chi tiết thiết bị'"
+      :subtitle="store.currentAsset ? `Mã: ${store.currentAsset.name}` : ''"
+      :breadcrumb="[
+        { label: 'Thiết bị', to: '/assets' },
+        { label: store.currentAsset?.asset_name || id },
+      ]"
+    >
+      <template #actions>
+        <button v-if="store.currentAsset" class="btn-ghost text-sm" @click="router.push(`/assets/${id}/edit`)">Chỉnh sửa</button>
+        <button v-if="store.currentAsset" class="text-red-600 hover:text-red-800 text-sm font-medium px-3 py-1.5" @click="remove">Xóa</button>
+      </template>
+    </PageHeader>
 
     <div v-if="store.loading" class="card p-8 text-center text-slate-400">Đang tải...</div>
     <div v-else-if="store.error" class="alert-error">{{ store.error }}</div>

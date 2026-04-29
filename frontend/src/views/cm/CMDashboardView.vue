@@ -1,17 +1,53 @@
 <script setup lang="ts">
-import { onMounted, computed } from 'vue'
+import { onMounted, computed, ref } from 'vue'
 import { useImm09Store } from '@/stores/imm09'
 import { useRouter } from 'vue-router'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
+import { getMttrReport } from '@/api/imm09'
 
 const store  = useImm09Store()
 const router = useRouter()
+
+interface TrendPoint { month: string; mttr: number; total: number; sla_pct: number }
+const trend = ref<TrendPoint[]>([])
+const loadingTrend = ref(false)
+
+async function loadTrend() {
+  loadingTrend.value = true
+  const now = new Date()
+  const points: TrendPoint[] = []
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+    const y = d.getFullYear()
+    const m = d.getMonth() + 1
+    try {
+      const r = await getMttrReport(y, m) as unknown as {
+        mttr_avg_hours?: number
+        total_completed?: number
+        sla_compliance_pct?: number
+      }
+      points.push({
+        month: `${m}/${y % 100}`,
+        mttr: Number(r?.mttr_avg_hours ?? 0),
+        total: Number(r?.total_completed ?? 0),
+        sla_pct: Number(r?.sla_compliance_pct ?? 0),
+      })
+    } catch {
+      points.push({ month: `${m}/${y % 100}`, mttr: 0, total: 0, sla_pct: 0 })
+    }
+  }
+  trend.value = points
+  loadingTrend.value = false
+}
+
+const maxMttr = computed(() => Math.max(...trend.value.map(p => p.mttr), 1))
 
 onMounted(async () => {
   await Promise.all([
     store.fetchKPIs(),
     store.fetchWorkOrders({ status: ['Open', 'Assigned', 'Diagnosing', 'Pending Parts', 'In Repair'] }),
+    loadTrend(),
   ])
 })
 
@@ -108,6 +144,38 @@ class="h-full rounded-full"
       <div class="kpi-card p-5" style="--kpi-color: #d97706">
         <p class="text-xs font-medium text-slate-500 mb-2">Phiếu đang mở</p>
         <p class="text-3xl font-bold text-amber-600">{{ kpis.open_wos }}</p>
+      </div>
+    </div>
+
+    <!-- 6-month MTTR + SLA trend -->
+    <div class="card mb-6 animate-slide-up" style="animation-delay: 150ms">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-sm font-semibold text-slate-800">Xu hướng MTTR & SLA — 6 tháng</h3>
+        <span class="text-xs text-slate-400">{{ loadingTrend ? 'Đang tải…' : '' }}</span>
+      </div>
+      <div v-if="loadingTrend && !trend.length" class="text-center text-sm text-slate-400 py-6">Đang tải...</div>
+      <div v-else-if="!trend.length" class="text-center text-sm text-slate-400 py-6">Chưa có dữ liệu</div>
+      <div v-else class="grid grid-cols-6 gap-3 items-end h-48">
+        <div v-for="p in trend" :key="p.month" class="flex flex-col items-center gap-1.5 h-full">
+          <div class="flex flex-col items-stretch w-full gap-1 flex-1 justify-end">
+            <div class="text-[10px] font-semibold text-slate-700 text-center tabular-nums">
+              {{ p.mttr.toFixed(1) }}h
+            </div>
+            <div
+              class="rounded-t-md transition-all"
+              :style="`height: ${(p.mttr / maxMttr) * 100}%; min-height:4px; background: linear-gradient(180deg, #3b82f6, #2563eb);`"
+              :title="`${p.month}: MTTR ${p.mttr}h, ${p.total} phiếu, SLA ${p.sla_pct}%`"
+            />
+          </div>
+          <div class="text-[11px] text-slate-500 mt-1">{{ p.month }}</div>
+          <div
+            class="text-[10px] font-medium tabular-nums"
+            :style="`color: ${slaColor(p.sla_pct)}`"
+          >
+            SLA {{ p.sla_pct }}%
+          </div>
+          <div class="text-[10px] text-slate-400">{{ p.total }} phiếu</div>
+        </div>
       </div>
     </div>
 

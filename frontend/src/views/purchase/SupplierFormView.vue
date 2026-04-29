@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import DateInput from '@/components/common/DateInput.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
 import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getSupplier, createSupplier, updateSupplier, deleteSupplier } from '@/api/imm00'
@@ -72,16 +73,13 @@ async function save() {
   try {
     if (isEdit.value && name.value) {
       await updateSupplier(name.value, form.value)
+      clearDraft()
+      router.push(`/suppliers/${name.value}`)
     } else {
-      const res = await createSupplier(form.value)
-      if (res && (res as unknown as { name: string }).name) {
-        clearDraft()
-        router.push(`/suppliers/${(res as unknown as { name: string }).name}`)
-        return
-      }
+      await createSupplier(form.value)
+      clearDraft()
+      router.push('/suppliers')
     }
-    clearDraft()
-    router.push('/suppliers')
   } catch (e: unknown) { err.value = (e as Error).message || 'Lỗi lưu' }
   finally { saving.value = false }
 }
@@ -99,12 +97,20 @@ onMounted(load)
 
 <template>
   <div class="page-container animate-fade-in space-y-5">
-    <div class="flex items-center justify-between">
-      <h1 class="text-xl font-semibold text-gray-800">
-        {{ isEdit ? `Sửa nhà cung cấp — ${name}` : 'Thêm Nhà cung cấp' }}
-      </h1>
-      <button v-if="isEdit" class="text-red-600 hover:text-red-800 text-sm font-medium" @click="remove">Xóa</button>
-    </div>
+    <PageHeader
+      :back-to="isEdit && name ? `/suppliers/${name}` : '/suppliers'"
+      :back-label="isEdit ? '← Chi tiết' : '← Danh sách'"
+      :title="isEdit ? `Sửa nhà cung cấp — ${name}` : 'Thêm nhà cung cấp'"
+      :breadcrumb="[
+        { label: 'Nhà cung cấp', to: '/suppliers' },
+        ...(isEdit && name ? [{ label: name, to: `/suppliers/${name}` }] : []),
+        { label: isEdit ? 'Sửa' : 'Thêm mới' },
+      ]"
+    >
+      <template #actions>
+        <button v-if="isEdit" class="text-red-600 hover:text-red-800 text-sm font-medium" @click="remove">Xóa</button>
+      </template>
+    </PageHeader>
 
     <div v-if="err" class="bg-red-50 text-red-700 p-3 rounded-lg text-sm">{{ err }}</div>
 

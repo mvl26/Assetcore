@@ -319,7 +319,7 @@ v-if="showEdit" class="fixed inset-0 z-50 flex items-center justify-center bg-bl
               </div>
               <div>
                 <label for="edit-stock-uom" class="form-label">Đơn vị tồn kho (cơ bản)</label>
-                <SmartSelect id="edit-stock-uom" v-model="form.stock_uom" doctype="AC UOM" placeholder="Cái, Hộp, Nos..." />
+                <SmartSelect id="edit-stock-uom" v-model="form.stock_uom" doctype="AC UOM" placeholder="Cái, Hộp, Bộ..." />
               </div>
               <div>
                 <label for="edit-purchase-uom" class="form-label">Đơn vị mua hàng</label>

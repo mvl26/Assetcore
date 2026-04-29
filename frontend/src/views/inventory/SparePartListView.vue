@@ -23,7 +23,7 @@ const toast = ref('')
 
 const form = ref<Partial<SparePart>>({
   part_name: '', part_category: 'Other', manufacturer: '', manufacturer_part_no: '',
-  unit_cost: 0, stock_uom: 'Nos', min_stock_level: 0, max_stock_level: 0, is_critical: 0, is_active: 1,
+  unit_cost: 0, stock_uom: 'Cái', min_stock_level: 0, max_stock_level: 0, is_critical: 0, is_active: 1,
 })
 
 const CATEGORIES = [
@@ -83,7 +83,7 @@ watch(categoryFilter, () => { page.value = 1; load() })
 function openCreate() {
   form.value = {
     part_name: '', part_category: 'Other', manufacturer: '', manufacturer_part_no: '',
-    unit_cost: 0, stock_uom: 'Nos', min_stock_level: 0, max_stock_level: 0, is_critical: 0, is_active: 1,
+    unit_cost: 0, stock_uom: 'Cái', min_stock_level: 0, max_stock_level: 0, is_critical: 0, is_active: 1,
   }
   showForm.value = true
 }
@@ -344,7 +344,7 @@ v-if="showForm" class="fixed inset-0 z-50 flex items-center justify-center bg-bl
               </div>
               <div>
                 <p class="form-label">ĐVT cơ bản (Stock UOM)</p>
-                <SmartSelect v-model="form.stock_uom" doctype="AC UOM" placeholder="Nos, Cái, Hộp..." />
+                <SmartSelect v-model="form.stock_uom" doctype="AC UOM" placeholder="Cái, Hộp, Bộ..." />
               </div>
               <div>
                 <p class="form-label">ĐVT mua hàng (Purchase UOM)</p>

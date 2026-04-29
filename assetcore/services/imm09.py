@@ -246,7 +246,7 @@ def check_repair_overdue() -> None:
     if not overdue:
         return
     try:
-        wm = frappe.db.get_value("User", {"role_profile_name": "Workshop Manager"}, "name")
+        wm = frappe.db.get_value("User", {"role_profile_name": "IMM Workshop Lead"}, "name")
         if wm:
             frappe.sendmail(
                 recipients=[wm],
@@ -654,7 +654,7 @@ def search_spare_parts(query: str, *, limit: int = 10) -> list[dict]:
             "item_code": r.get("manufacturer_part_no") or r.get("part_name") or "",
             "item_name": r.get("part_name") or "",
             "manufacturer_part_no": r.get("manufacturer_part_no") or "",
-            "qty": 1, "uom": "Nos",
+            "qty": 1, "uom": "Cái",
             "unit_cost": float(r.get("estimated_cost") or 0),
             "total_cost": float(r.get("estimated_cost") or 0),
             "stock_entry_ref": "", "notes": "", "idx": 0,

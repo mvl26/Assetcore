@@ -25,6 +25,49 @@ const rescheduleDate = ref('')
 const rescheduleReason = ref('')
 const rescheduling = ref(false)
 
+// Drag-and-drop reschedule
+const draggedEvent = ref<PMCalendarEvent | null>(null)
+const dropTargetDay = ref<number | null>(null)
+
+function onDragStart(event: PMCalendarEvent) {
+  // Only allow drag for non-final states
+  if (['Completed', 'Cancelled'].includes(event.status)) {
+    draggedEvent.value = null
+    return
+  }
+  draggedEvent.value = event
+}
+
+function onDragEnd() {
+  draggedEvent.value = null
+  dropTargetDay.value = null
+}
+
+function onDragOver(day: number | null, e: DragEvent) {
+  if (!day || !draggedEvent.value) return
+  e.preventDefault()
+  dropTargetDay.value = day
+}
+
+async function onDrop(day: number | null) {
+  const ev = draggedEvent.value
+  draggedEvent.value = null
+  dropTargetDay.value = null
+  if (!ev || !day) return
+
+  const newDate = `${year.value}-${String(month.value).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+  if (newDate === ev.due_date) return
+
+  const reason = window.prompt(
+    `Đổi lịch ${ev.name}\nTừ: ${ev.due_date}\nSang: ${newDate}\n\nLý do (bắt buộc):`,
+    '',
+  )
+  if (!reason || !reason.trim()) return
+
+  await store.doReschedule(ev.name, newDate, reason.trim())
+  await loadCalendar()
+}
+
 onMounted(() => loadCalendar())
 
 async function loadCalendar() {
@@ -233,11 +276,14 @@ v-for="d in ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN']" :key="d"
           v-for="(day, i) in displayDays"
           :key="i"
           :class="[
-            'min-h-24 border-r border-b p-1.5',
+            'min-h-24 border-r border-b p-1.5 transition-colors',
             !day ? 'bg-gray-50' : '',
             isToday(day) ? 'bg-blue-50' : '',
             viewMode === 'week' && day === null ? 'opacity-0 pointer-events-none' : '',
+            dropTargetDay === day && draggedEvent ? 'bg-blue-100 ring-2 ring-blue-400 ring-inset' : '',
           ]"
+          @dragover="onDragOver(day, $event)"
+          @drop="onDrop(day)"
         >
           <div v-if="day" :class="['text-sm font-medium mb-1', isToday(day) ? 'text-blue-600' : 'text-gray-700']">
             {{ day }}
@@ -246,9 +292,16 @@ v-for="d in ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN']" :key="d"
             <div
               v-for="event in eventsOnDay(day)"
               :key="event.name"
-              :class="['text-xs px-1.5 py-0.5 rounded border cursor-pointer truncate hover:opacity-80 transition-opacity flex items-center gap-1', eventColor(event.status)]"
-              :title="`${formatAssetDisplay(event.asset_name, event.asset_ref).main} — ${translateStatus(event.status)}`"
+              :draggable="!['Completed', 'Cancelled'].includes(event.status)"
+              :class="[
+                'text-xs px-1.5 py-0.5 rounded border cursor-pointer truncate hover:opacity-80 transition-opacity flex items-center gap-1',
+                eventColor(event.status),
+                !['Completed', 'Cancelled'].includes(event.status) ? 'cursor-grab active:cursor-grabbing' : '',
+              ]"
+              :title="`${formatAssetDisplay(event.asset_name, event.asset_ref).main} — ${translateStatus(event.status)}\n(Kéo-thả để đổi lịch)`"
               @click.stop="openDrawer(event)"
+              @dragstart="onDragStart(event)"
+              @dragend="onDragEnd"
             >
               <span :class="['w-1.5 h-1.5 rounded-full shrink-0', pmStatusColor(event.status)]" />
               {{ formatAssetDisplay(event.asset_name, event.asset_ref).main }}

@@ -5,6 +5,7 @@ import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { createAsset } from '@/api/imm00'
 import SmartSelect from '@/components/common/SmartSelect.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
 import { useFormDraft } from '@/composables/useFormDraft'
 import type { AcAsset } from '@/types/imm00'
 
@@ -55,13 +56,14 @@ async function submit() {
 
 <template>
   <div class="page-container animate-fade-in">
-    <!-- Header -->
-    <div class="flex items-center gap-3 mb-6">
-      <button class="btn-ghost" @click="router.push('/assets')">← Quay lại</button>
-      <div>
-        <h1 class="text-xl font-bold text-slate-900">Thêm thiết bị mới</h1>
-      </div>
-    </div>
+    <PageHeader
+      back-to="/assets"
+      title="Thêm thiết bị mới"
+      :breadcrumb="[
+        { label: 'Thiết bị', to: '/assets' },
+        { label: 'Tạo mới' },
+      ]"
+    />
 
     <div v-if="error" class="alert-error mb-4">{{ error }}</div>
 

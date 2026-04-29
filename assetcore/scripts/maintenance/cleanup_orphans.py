@@ -22,7 +22,7 @@ def run(dry_run: int = 1) -> None:
         ("Xoá AC Spare Part Stock mồ côi (spare_part đã xoá)",    fix_delete_orphan_stock_part),
         ("Xoá AC Spare Part Stock mồ côi (warehouse đã xoá)",     fix_delete_orphan_stock_wh),
         ("Clear reference_name sai ở AC Stock Movement",          fix_clear_bad_mov_ref),
-        ("Set stock_uom=Nos cho spare part thiếu",                fix_parts_missing_stock_uom),
+        ("Set stock_uom=Cái cho spare part thiếu",                fix_parts_missing_stock_uom),
         ("Clear manager không tồn tại trên AC Warehouse",         fix_clear_bad_wh_manager),
     ]
 
@@ -141,7 +141,7 @@ def fix_parts_missing_stock_uom(dry: bool) -> int:
         return 0
     if not dry:
         for r in rows:
-            frappe.db.set_value("AC Spare Part", r["name"], "stock_uom", "Nos",
+            frappe.db.set_value("AC Spare Part", r["name"], "stock_uom", "Cái",
                                 update_modified=False)
     return len(rows)
 

@@ -24,7 +24,7 @@ class AssetQANonConformance(Document):
 			)
 
 	def on_submit(self):
-		# Thông báo cho Workshop Head khi NC được đóng
+		# Thông báo cho IMM Workshop Lead khi NC được đóng
 		if self.resolution_status in ("Fixed", "Return"):
 			frappe.publish_realtime(
 				"imm04_nc_closed",

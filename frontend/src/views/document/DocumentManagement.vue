@@ -15,24 +15,24 @@
       </div>
     </div>
 
-    <!-- KPI Banner -->
+    <!-- KPI Banner — clickable filters -->
     <div v-if="store.kpis" class="kpi-grid">
-      <div class="kpi-card">
+      <button class="kpi-card kpi-clickable" @click="filterByKpi('active')">
         <span class="kpi-value">{{ store.kpis.total_active }}</span>
         <span class="kpi-label">Tài liệu Active</span>
-      </div>
-      <div class="kpi-card warn">
+      </button>
+      <button class="kpi-card warn kpi-clickable" @click="filterByKpi('expiring')">
         <span class="kpi-value">{{ store.kpis.expiring_90d }}</span>
         <span class="kpi-label">Sắp hết hạn (90 ngày)</span>
-      </div>
-      <div class="kpi-card danger">
+      </button>
+      <button class="kpi-card danger kpi-clickable" @click="filterByKpi('expired')">
         <span class="kpi-value">{{ store.kpis.expired_not_renewed }}</span>
         <span class="kpi-label">Đã hết hạn</span>
-      </div>
-      <div class="kpi-card info">
+      </button>
+      <button class="kpi-card info kpi-clickable" @click="filterByKpi('missing')">
         <span class="kpi-value">{{ store.kpis.assets_missing_docs }}</span>
         <span class="kpi-label">Thiết bị thiếu hồ sơ</span>
-      </div>
+      </button>
     </div>
 
     <!-- Filters -->
@@ -186,6 +186,7 @@
 </template>
 
 <script setup lang="ts">
+import { useToast } from '@/composables/useToast'
 import { ref, reactive, onMounted, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useImm05Store } from '@/stores/imm05Store'
@@ -196,6 +197,7 @@ import DocumentRow from '@/components/document/DocumentRow.vue'
 import DocumentRequestModal from '@/components/document/DocumentRequestModal.vue'
 import ExemptModal from '@/components/document/ExemptModal.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
+const toast = useToast()
 
 const router = useRouter()
 const route = useRoute()
@@ -204,8 +206,8 @@ const auth = useAuthStore()
 
 // ── Role-based visibility filter (Task 1c) ───────────────────────────────────
 function buildRoleVisibilityFilter(base: DocumentFilters): DocumentFilters {
-  const isClinicalHead = auth.roles.includes('Clinical Head')
-  const isPrivileged = auth.roles.includes('CMMS Admin') || auth.roles.includes('QA Risk Team')
+  const isClinicalHead = auth.roles.includes('IMM Department Head')
+  const isPrivileged = auth.roles.includes('IMM System Admin') || auth.roles.includes('IMM QA Officer')
   if (isClinicalHead && !isPrivileged) {
     return { ...base, visibility: 'Public' }
   }
@@ -274,6 +276,33 @@ function resetFilters() {
   store.fetchDocuments(buildRoleVisibilityFilter({}), 1)
 }
 
+function filterByKpi(kind: 'active' | 'expiring' | 'expired' | 'missing') {
+  showFilters.value = true
+  filters.doc_category = ''
+  filters.asset_ref = ''
+  if (kind === 'active') {
+    filters.workflow_state = 'Active'
+  } else if (kind === 'expired') {
+    filters.workflow_state = 'Expired'
+  } else if (kind === 'expiring') {
+    filters.workflow_state = 'Active'
+    // BE-side filter for expiring needs an additional param;
+    // for now we trigger an API helper that already exists.
+    fetchExpiringOnly()
+    return
+  } else if (kind === 'missing') {
+    toast.error('Tính năng "Thiết bị thiếu hồ sơ" — xem dashboard riêng (đang phát triển).')
+    return
+  }
+  applyFilters()
+}
+
+async function fetchExpiringOnly() {
+  await store.fetchExpiringDocuments(90)
+  const n = (store as unknown as { expiringDocs?: { length: number } }).expiringDocs?.length ?? 0
+  toast.success(`Có ${n} tài liệu sẽ hết hạn trong 90 ngày.`)
+}
+
 function goToCreate() {
   router.push('/documents/new')
 }
@@ -333,13 +362,13 @@ async function openHistoryDialog(name: string) {
 
 function onRequestCreated(name: string) {
   requestModal.open = false
-  alert(`Yêu cầu tài liệu ${name} đã được tạo.`)
+  toast.error(`Yêu cầu tài liệu ${name} đã được tạo.`)
 }
 
 function onExempted(docName: string) {
   exemptModal.open = false
   store.fetchDocuments(store.currentFilters, store.pagination.page)
-  alert(`Đã đánh dấu Exempt. Tài liệu mới: ${docName}`)
+  toast.success(`Đã đánh dấu Exempt. Tài liệu mới: ${docName}`)
 }
 
 </script>

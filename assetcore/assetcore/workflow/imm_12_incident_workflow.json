@@ -3,7 +3,7 @@
   "document_type": "Incident Report",
   "doctype": "Workflow",
   "is_active": 1,
-  "modified": "2026-04-22 00:00:00.000000",
+  "modified": "2026-04-29 00:00:00.000000",
   "modified_by": "Administrator",
   "name": "IMM-12 Incident Workflow",
   "owner": "Administrator",
@@ -12,22 +12,34 @@
   "workflow_state_field": "workflow_state",
   "states": [
     {
-      "allow_edit": "Biomed Engineer",
+      "allow_edit": "IMM Biomed Technician",
       "doc_status": "0",
       "state": "Open",
       "type": "Warning"
     },
     {
-      "allow_edit": "Biomed Engineer",
+      "allow_edit": "IMM Workshop Lead",
       "doc_status": "0",
-      "state": "Under Investigation",
+      "state": "Acknowledged",
       "type": "Warning"
     },
     {
-      "allow_edit": "System Manager",
+      "allow_edit": "IMM Biomed Technician",
+      "doc_status": "0",
+      "state": "In Progress",
+      "type": "Success"
+    },
+    {
+      "allow_edit": "IMM Biomed Technician",
       "doc_status": "0",
       "state": "Resolved",
       "type": "Success"
+    },
+    {
+      "allow_edit": "IMM QA Officer",
+      "doc_status": "0",
+      "state": "RCA Required",
+      "type": "Warning"
     },
     {
       "allow_edit": "System Manager",
@@ -37,16 +49,16 @@
     },
     {
       "allow_edit": "System Manager",
-      "doc_status": "2",
+      "doc_status": "0",
       "state": "Cancelled",
       "type": "Danger"
     }
   ],
   "transitions": [
     {
-      "action": "Tiếp nhận điều tra",
-      "allowed": "Biomed Engineer",
-      "next_state": "Under Investigation",
+      "action": "Tiếp nhận sự cố",
+      "allowed": "IMM Workshop Lead",
+      "next_state": "Acknowledged",
       "state": "Open"
     },
     {
@@ -54,29 +66,55 @@
       "allowed": "System Manager",
       "next_state": "Cancelled",
       "state": "Open"
+    },
+    {
+      "action": "Bắt đầu xử lý",
+      "allowed": "IMM Biomed Technician",
+      "next_state": "In Progress",
+      "state": "Acknowledged"
+    },
+    {
+      "action": "Hủy sự cố",
+      "allowed": "System Manager",
+      "next_state": "Cancelled",
+      "state": "Acknowledged"
     },
     {
       "action": "Đánh dấu đã giải quyết",
-      "allowed": "Biomed Engineer",
+      "allowed": "IMM Biomed Technician",
       "next_state": "Resolved",
-      "state": "Under Investigation"
+      "state": "In Progress"
     },
     {
       "action": "Hủy sự cố",
       "allowed": "System Manager",
       "next_state": "Cancelled",
-      "state": "Under Investigation"
+      "state": "In Progress"
+    },
+    {
+      "action": "Yêu cầu RCA",
+      "allowed": "IMM QA Officer",
+      "condition": "doc.severity in ('High', 'Critical') or doc.requires_rca == 1",
+      "next_state": "RCA Required",
+      "state": "Resolved"
     },
     {
       "action": "Đóng sự cố",
       "allowed": "System Manager",
+      "condition": "(doc.severity not in ('High','Critical')) and (doc.requires_rca != 1)",
       "next_state": "Closed",
       "state": "Resolved"
     },
     {
+      "action": "RCA hoàn tất - đóng sự cố",
+      "allowed": "System Manager",
+      "next_state": "Closed",
+      "state": "RCA Required"
+    },
+    {
       "action": "Mở lại điều tra",
       "allowed": "System Manager",
-      "next_state": "Under Investigation",
+      "next_state": "In Progress",
       "state": "Resolved"
     }
   ]

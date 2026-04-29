@@ -109,7 +109,7 @@ function navigateChecklist() {
   <div class="p-6">
     <!-- Header -->
     <div class="flex items-center gap-3 mb-5">
-      <button class="text-gray-400 hover:text-gray-600" @click="router.back()">
+      <button class="text-gray-400 hover:text-gray-600" @click="router.push('/cm/work-orders')">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" />
         </svg>

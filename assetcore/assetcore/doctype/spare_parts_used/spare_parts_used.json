@@ -51,7 +51,8 @@
    "label": "ĐVT",
    "description": "Đơn vị tính (string, v3: không link ERPNext UOM)",
    "reqd": 1,
-   "options": "AC UOM"
+   "options": "AC UOM",
+   "default": "Cái"
   },
   {
    "fieldname": "unit_cost",
@@ -81,21 +82,5 @@
  "modified": "2026-04-24 00:00:00.000000",
  "modified_by": "Administrator",
  "owner": "Administrator",
- "permissions": [
-  {
-   "role": "HTM Technician",
-   "read": 1,
-   "write": 1
-  },
-  {
-   "role": "Workshop Manager",
-   "read": 1,
-   "write": 1
-  },
-  {
-   "role": "Kho vật tư",
-   "read": 1,
-   "write": 1
-  }
- ]
+ "permissions": []
 }

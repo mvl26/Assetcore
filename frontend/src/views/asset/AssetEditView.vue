@@ -4,6 +4,7 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { getAsset, updateAsset } from '@/api/imm00'
 import SmartSelect from '@/components/common/SmartSelect.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
 import type { AcAsset } from '@/types/imm00'
 
 const props = defineProps<{ id: string }>()
@@ -38,12 +39,16 @@ onMounted(load)
 
 <template>
   <div class="page-container animate-fade-in">
-    <div class="flex items-center gap-3 mb-6">
-      <button class="btn-ghost" @click="router.push(`/assets/${id}`)">← Quay lại</button>
-      <div>
-        <h1 class="text-xl font-bold text-slate-900">Chỉnh sửa thiết bị</h1>
-      </div>
-    </div>
+    <PageHeader
+      :back-to="`/assets/${id}`"
+      back-label="← Chi tiết"
+      :title="form.asset_name ? `Chỉnh sửa: ${form.asset_name}` : 'Chỉnh sửa thiết bị'"
+      :breadcrumb="[
+        { label: 'Thiết bị', to: '/assets' },
+        { label: form.asset_name || id, to: `/assets/${id}` },
+        { label: 'Sửa' },
+      ]"
+    />
 
     <div v-if="loading" class="card p-8 text-center text-slate-400">Đang tải...</div>
     <div v-else-if="error" class="alert-error mb-4">{{ error }}</div>

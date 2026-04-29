@@ -26,7 +26,7 @@ _STATE_CLINICAL_RELEASE = "Clinical Release"
 _STATE_INITIAL_INSPECTION = "Initial Inspection"
 _STATE_RE_INSPECTION = "Re Inspection"
 _TERMINAL_STATES = frozenset({_STATE_CLINICAL_RELEASE, "Return To Vendor"})
-_SUBMIT_ROLES = frozenset({"VP Block2", "Workshop Head"})
+_SUBMIT_ROLES = frozenset({"IMM Operations Manager", "IMM Workshop Lead"})
 
 _CLASS_I = "Class I"
 _CLASS_II = "Class II"
@@ -63,6 +63,9 @@ _EDITABLE_FIELDS = frozenset({
     "risk_class", "reception_date", "clinical_head", "qa_officer",
     "board_approver", "facility_checklist_pass", "overall_inspection_result",
     "handover_doc", "radiation_license_no", "notes",
+    # Cho phép sửa các trường định danh (chỉ khi docstatus=0 — đã chặn ở save_commissioning):
+    "master_item", "vendor", "clinical_dept",
+    "expected_installation_date", "vendor_serial_no",
 })
 
 _LIST_FIELDS = [
@@ -85,9 +88,9 @@ _ORDER_MODIFIED = "modified desc"
 _ALLOWED_SEARCH_DOCTYPES: dict[str, dict] = {
     _DT_PO: {
         "label_field": "name",
-        "search_fields": ["name", "supplier_name"],
+        "search_fields": ["name", "supplier", "invoice_no"],
         "filters": {"docstatus": 1},
-        "extra_fields": ["supplier_name", "transaction_date"],
+        "extra_fields": ["supplier", "invoice_no", "purchase_date"],
         "optional": True,
     },
     _DT_SUPPLIER: {
@@ -262,15 +265,39 @@ def _validate_document_expiry(doc: Document) -> None:
 
 
 def validate_gate_g01(doc: Document) -> None:
-    """Gate G01 (VR-02): 100% mandatory docs Received before To_Be_Installed."""
-    if doc.workflow_state in {"Draft", "Pending Doc Verify"}:
+    """Gate G01 (VR-02): mandatory docs Received before To_Be_Installed.
+
+    Logic:
+    - Bỏ qua khi insert / Draft / Pending Doc Verify (đang soạn).
+    - Bỏ qua khi user MARK 'documents_incomplete=1' + có note giải thích → phiếu
+      vẫn duyệt được, hồ sơ bổ sung sau (yêu cầu nghiệp vụ: thực tế nhiều thiết bị
+      tới mà CO/CQ chậm — không thể block toàn bộ quy trình lắp đặt).
+    - Còn lại: thiếu hồ sơ bắt buộc → throw block transition.
+    """
+    if not doc.workflow_state or doc.workflow_state in {"Draft", "Pending Doc Verify"}:
         return
+
     missing = [
         d.doc_type for d in (doc.get("commissioning_documents") or [])
         if d.get("is_mandatory") and d.status not in ("Received", "Waived")
     ]
-    if missing:
-        frappe.throw(_("VR-02 (Gate G01): Chưa đủ tài liệu bắt buộc. Còn thiếu: {0}").format(", ".join(missing)))
+    if not missing:
+        return
+
+    # User xác nhận thiếu + có note → cho phép duyệt, log warning
+    if doc.get("documents_incomplete") and (doc.get("documents_incomplete_note") or "").strip():
+        frappe.msgprint(
+            _("⚠ Phiếu duyệt với hồ sơ thiếu: {0}. Ghi chú: {1}").format(
+                ", ".join(missing), doc.documents_incomplete_note,
+            ),
+            alert=True, indicator="orange",
+        )
+        return
+
+    frappe.throw(_(
+        "VR-02 (Gate G01): Chưa đủ tài liệu bắt buộc. Còn thiếu: {0}.\n"
+        "Nếu cần duyệt sớm, đánh dấu '☑ Thiếu hồ sơ — vẫn cho phép duyệt' và ghi rõ kế hoạch bổ sung."
+    ).format(", ".join(missing)))
 
 
 def validate_gate_g03(doc: Document) -> None:
@@ -466,7 +493,7 @@ def create_ac_asset(doc: Document) -> str:
 # ─── Scheduler ────────────────────────────────────────────────────────────────
 
 def check_commissioning_overdue() -> None:
-    """Daily: warn Workshop Manager on commissioning open > 30 days."""
+    """Daily: warn IMM Workshop Lead on commissioning open > 30 days."""
     cutoff = add_days(nowdate(), -30)
     overdue = frappe.get_all(
         _DT,
@@ -482,7 +509,7 @@ def check_commissioning_overdue() -> None:
 
 
 def _send_overdue_alert(comm: dict, days_open: int) -> None:
-    users = frappe.db.get_all("Has Role", filters={"role": "Workshop Head", "parenttype": "User"}, fields=["parent"])
+    users = frappe.db.get_all("Has Role", filters={"role": "IMM Workshop Lead", "parenttype": "User"}, fields=["parent"])
     emails = [frappe.db.get_value("User", u.parent, "email") for u in users]
     emails = [e for e in emails if e]
     if not emails:
@@ -558,14 +585,31 @@ def _serialize_lifecycle_events(doc) -> list:
 
 
 def _serialize_commissioning(doc) -> dict:
+    # Enrich label cho các Link field — FE hiển thị tên thay vì mã code
+    vendor_name = (
+        frappe.db.get_value(_DT_SUPPLIER, doc.vendor, "supplier_name")
+        if doc.vendor else ""
+    ) or doc.vendor or ""
+    master_item_name = (
+        frappe.db.get_value(_DT_MODEL, doc.master_item, "model_name")
+        if doc.master_item else ""
+    ) or doc.master_item or ""
+    clinical_dept_name = (
+        frappe.db.get_value(_DT_DEPT, doc.clinical_dept, "department_name")
+        if doc.clinical_dept else ""
+    ) or doc.clinical_dept or ""
+
     return {
         "name": doc.name,
         "workflow_state": doc.workflow_state,
         "docstatus": doc.docstatus,
         "po_reference": doc.po_reference,
         "master_item": doc.master_item,
+        "master_item_name": master_item_name,
         "vendor": doc.vendor,
+        "vendor_name": vendor_name,
         "clinical_dept": doc.clinical_dept,
+        "clinical_dept_name": clinical_dept_name,
         "expected_installation_date": str(doc.expected_installation_date or ""),
         "installation_date": str(doc.installation_date or ""),
         "reception_date": str(doc.get("reception_date") or ""),
@@ -585,6 +629,8 @@ def _serialize_commissioning(doc) -> dict:
         "vendor_engineer_name": doc.vendor_engineer_name,
         "is_radiation_device": doc.is_radiation_device,
         "doa_incident": doc.doa_incident,
+        "documents_incomplete": doc.get("documents_incomplete") or 0,
+        "documents_incomplete_note": doc.get("documents_incomplete_note") or "",
         "vendor_serial_no": doc.vendor_serial_no,
         "internal_tag_qr": doc.internal_tag_qr,
         "custom_moh_code": doc.custom_moh_code,
@@ -840,7 +886,7 @@ def submit_commissioning(name: str) -> dict:
     if not frappe.db.exists(_DT, name):
         raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy phiếu '{name}'")
     if not _SUBMIT_ROLES.intersection(set(frappe.get_roles(frappe.session.user))):
-        raise ServiceError(ErrorCode.FORBIDDEN, "Chỉ VP Block2 hoặc Workshop Head mới được Submit")
+        raise ServiceError(ErrorCode.FORBIDDEN, "Chỉ IMM Operations Manager hoặc IMM Workshop Lead mới được Submit")
     doc = frappe.get_doc(_DT, name)
     if doc.docstatus == 1:
         raise ServiceError(ErrorCode.INVALID_PARAMS, "Phiếu đã được Submit trước đó")
@@ -869,18 +915,37 @@ def _apply_baseline_updates(doc, rows: list) -> None:
             row.fail_note = upd["fail_note"]
 
 
+_DOC_FIELDS = ("doc_type", "status", "is_mandatory", "doc_number", "remarks", "file_url")
+_DOC_DATE_FIELDS = ("received_date", "expiry_date")
+
+
 def _apply_document_updates(doc, rows: list) -> None:
-    dmap = {r.get("idx"): r for r in rows if r.get("idx") is not None}
-    for row in doc.commissioning_documents:
-        upd = dmap.get(row.idx)
-        if upd is None:
-            continue
-        if "status" in upd:
-            row.status = upd["status"]
-        if "received_date" in upd:
-            row.received_date = upd["received_date"] or None
-        if "remarks" in upd:
-            row.remarks = upd["remarks"]
+    """Replace child table khi FE gửi danh sách đầy đủ.
+
+    FE gửi 1 list các row hiện đang hiển thị (đã merge pending + base). BE
+    so khớp theo idx; row mới (idx không tồn tại) → append; row bị bỏ → remove.
+    """
+    incoming = [r for r in rows if isinstance(r, dict)]
+    incoming_idx = {r.get("idx") for r in incoming if r.get("idx") is not None}
+
+    # Xóa row không còn trong incoming
+    doc.commissioning_documents = [
+        r for r in doc.commissioning_documents if r.idx in incoming_idx
+    ]
+
+    existing_by_idx = {r.idx: r for r in doc.commissioning_documents}
+
+    for upd in incoming:
+        idx = upd.get("idx")
+        target = existing_by_idx.get(idx)
+        if target is None:
+            target = doc.append("commissioning_documents", {})
+        for f in _DOC_FIELDS:
+            if f in upd:
+                target.set(f, upd[f])
+        for f in _DOC_DATE_FIELDS:
+            if f in upd:
+                target.set(f, upd[f] or None)
 
 
 def save_commissioning(name: str, fields: dict) -> dict:
@@ -1122,7 +1187,7 @@ def delete_commissioning(name: str) -> dict:
 
 
 def cancel_commissioning(name: str) -> dict:
-    """Hủy phiếu Commissioning đã Submit (docstatus 1 → 2). Chỉ VP Block2 / Workshop Head."""
+    """Hủy phiếu Commissioning đã Submit (docstatus 1 → 2). Chỉ IMM Operations Manager / IMM Workshop Lead."""
     doc = CommissioningRepo.get(name)
     if not doc:
         raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy phiếu: {name}")
@@ -1135,7 +1200,7 @@ def cancel_commissioning(name: str) -> dict:
         )
     _allowed = _SUBMIT_ROLES | {"System Manager", "Administrator"}
     if not any(r in _allowed for r in frappe.get_roles()):
-        raise ServiceError(ErrorCode.FORBIDDEN, "Chỉ VP Block2 hoặc Workshop Head mới được phép hủy phiếu")
+        raise ServiceError(ErrorCode.FORBIDDEN, "Chỉ IMM Operations Manager hoặc IMM Workshop Lead mới được phép hủy phiếu")
     doc.cancel()
     frappe.db.commit()
     log_lifecycle_event(doc, "Cancelled", doc.workflow_state, "Cancelled",
@@ -1159,10 +1224,10 @@ def generate_handover_pdf(name: str) -> dict:
 # ─── Submit-for-approval workflow ─────────────────────────────────────────────
 
 _STAGE_ROLE: dict[str, str] = {
-    "Doc Verify":       "Biomed Engineer",
-    "Facility Check":   "Biomed Engineer",
-    "Baseline Review":  "Biomed Engineer",
-    "Clinical Release": "VP Block2",
+    "Doc Verify":       "IMM Biomed Technician",
+    "Facility Check":   "IMM Biomed Technician",
+    "Baseline Review":  "IMM Biomed Technician",
+    "Clinical Release": "IMM Operations Manager",
 }
 
 _STATE_TO_STAGE: dict[str, str] = {
@@ -1232,7 +1297,7 @@ def submit_for_approval(commissioning: str, approver: str, stage: str = "",
     required_role = _STAGE_ROLE.get(stage)
     if required_role:
         user_roles = frappe.get_roles(approver)
-        if required_role not in user_roles and "CMMS Admin" not in user_roles:
+        if required_role not in user_roles and "IMM System Admin" not in user_roles:
             raise ServiceError(
                 ErrorCode.FORBIDDEN,
                 f"Người duyệt '{approver}' không có vai trò '{required_role}'",
@@ -1291,7 +1356,7 @@ def approve_pending(commissioning: str, decision: str, remarks: str = "") -> dic
         raise ServiceError(ErrorCode.INVALID_PARAMS, "Phiếu không có yêu cầu duyệt đang chờ")
 
     current_user = frappe.session.user
-    if doc.pending_approver != current_user and "CMMS Admin" not in frappe.get_roles(current_user):
+    if doc.pending_approver != current_user and "IMM System Admin" not in frappe.get_roles(current_user):
         raise ServiceError(ErrorCode.FORBIDDEN, "Bạn không phải người được phân công duyệt phiếu này")
 
     stage = doc.approval_stage or ""
@@ -1419,6 +1484,7 @@ def create_commissioning_from_purchase(purchase_name: str, device_idx: int) -> d
 
     doc = frappe.get_doc({
         "doctype":                    _DT,
+        "workflow_state":             "Draft",  # explicit — phiếu mở ra ở trạng thái nháp, user sửa rồi gửi duyệt
         "po_reference":               purchase_name,
         "master_item":                row.device_model,
         "vendor":                     po.supplier,

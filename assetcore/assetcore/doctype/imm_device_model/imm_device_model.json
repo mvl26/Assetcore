@@ -53,7 +53,7 @@
   {
    "fieldname": "section_model",
    "fieldtype": "Section Break",
-   "label": "Th\u00f4ng tin model"
+   "label": "Thông tin model"
   },
   {
    "fieldname": "naming_series",
@@ -105,29 +105,29 @@
   {
    "fieldname": "section_media",
    "fieldtype": "Section Break",
-   "label": "H\u00ecnh \u1ea3nh & T\u00e0i li\u1ec7u"
+   "label": "Hình ảnh & Tài liệu"
   },
   {
    "fieldname": "model_image",
    "fieldtype": "Attach Image",
-   "label": "H\u00ecnh \u1ea3nh \u0111\u1ea1i di\u1ec7n"
+   "label": "Hình ảnh đại diện"
   },
   {
    "fieldname": "catalog_file",
    "fieldtype": "Attach",
    "label": "Catalogue / Brochure",
-   "description": "PDF, brochure, datasheet c\u1ee7a nh\u00e0 s\u1ea3n xu\u1ea5t"
+   "description": "PDF, brochure, datasheet của nhà sản xuất"
   },
   {
    "fieldname": "section_specs",
    "fieldtype": "Section Break",
-   "label": "Th\u00f4ng s\u1ed1 k\u1ef9 thu\u1eadt chi ti\u1ebft"
+   "label": "Thông số kỹ thuật chi tiết"
   },
   {
    "fieldname": "specifications",
    "fieldtype": "Text Editor",
-   "label": "Th\u00f4ng s\u1ed1 k\u1ef9 thu\u1eadt",
-   "description": "B\u1ea3ng th\u00f4ng s\u1ed1 \u0111\u1ea7y \u0111\u1ee7 (nh\u1eadp rich text / b\u1ea3ng)"
+   "label": "Thông số kỹ thuật",
+   "description": "Bảng thông số đầy đủ (nhập rich text / bảng)"
   },
   {
    "fieldname": "column_break_specs",
@@ -136,12 +136,12 @@
   {
    "fieldname": "dimensions",
    "fieldtype": "Data",
-   "label": "K\u00edch th\u01b0\u1edbc (DxRxC, mm)"
+   "label": "Kích thước (DxRxC, mm)"
   },
   {
    "fieldname": "weight_kg",
    "fieldtype": "Float",
-   "label": "Kh\u1ed1i l\u01b0\u1ee3ng (kg)"
+   "label": "Khối lượng (kg)"
   },
   {
    "fieldname": "expected_lifespan_years",
@@ -151,7 +151,7 @@
   {
    "fieldname": "section_class",
    "fieldtype": "Section Break",
-   "label": "Ph\u00e2n lo\u1ea1i theo quy \u0111\u1ecbnh"
+   "label": "Phân loại theo quy định"
   },
   {
    "fieldname": "medical_device_class",
@@ -257,7 +257,7 @@
   {
    "fieldname": "section_parts",
    "fieldtype": "Section Break",
-   "label": "Ph\u1ee5 t\u00f9ng v\u00e0 ghi ch\u00fa"
+   "label": "Phụ tùng và ghi chú"
   },
   {
    "fieldname": "spare_parts_list",
@@ -284,49 +284,155 @@
    "write": 1,
    "create": 1,
    "delete": 1,
+   "report": 1,
    "export": 1,
-   "import": 1,
-   "report": 1,
-   "share": 1,
    "print": 1,
-   "email": 1
-  },
-  {
-   "role": "IMM Department Head",
-   "read": 1,
-   "report": 1,
-   "print": 1
+   "email": 1,
+   "share": 1
   },
   {
    "role": "IMM Operations Manager",
    "read": 1,
    "write": 1,
    "create": 1,
+   "delete": 0,
    "report": 1,
-   "print": 1
-  },
-  {
-   "role": "IMM Workshop Lead",
-   "read": 1,
-   "report": 1,
-   "print": 1
-  },
-  {
-   "role": "IMM Technician",
-   "read": 1,
-   "report": 1
-  },
-  {
-   "role": "IMM Document Officer",
-   "read": 1,
-   "report": 1,
-   "print": 1
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
   },
   {
    "role": "IMM QA Officer",
    "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
    "report": 1,
-   "print": 1
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Auditor",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Department Head",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Deputy Department Head",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Workshop Lead",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Biomed Technician",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Technician",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Storekeeper",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Document Officer",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Clinical User",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 0,
+   "export": 0,
+   "print": 0,
+   "email": 0,
+   "share": 0
+  },
+  {
+   "role": "Vendor Engineer",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 0,
+   "export": 0,
+   "print": 0,
+   "email": 0,
+   "share": 0
   }
  ],
  "sort_field": "modified",

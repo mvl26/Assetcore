@@ -7,6 +7,7 @@ import BaselineTestTable from '@/components/commissioning/BaselineTestTable.vue'
 import DocumentChecklist from '@/components/commissioning/DocumentChecklist.vue'
 import QRLabel from '@/components/commissioning/QRLabel.vue'
 import ApproverSelect from '@/components/commissioning/ApproverSelect.vue'
+import SmartSelect from '@/components/common/SmartSelect.vue'
 import { useCommissioningStore } from '@/stores/commissioning'
 import type { CommissioningDoc, WorkflowState, DocumentRecord, BaselineTest } from '@/types/imm04'
 import { formatDatetime } from '@/utils/docUtils'
@@ -62,18 +63,52 @@ async function handleSave() {
 
 // ─── Document checklist updates ─────────────────────────────────────────────
 
-function onDocUpdate(idx: number, field: keyof DocumentRecord, value: string) {
-  const docs = props.doc.commissioning_documents.map((d) => {
-    if (d.idx === idx) {
-      return { idx: d.idx, [field]: value }
-    }
-    return null
-  }).filter(Boolean)
+// Hiển thị: nếu có pending edits → dùng pending; ngược lại dùng props (read-from-server)
+const displayDocs = computed<DocumentRecord[]>(() => {
+  const pending = pendingChanges.commissioning_documents as DocumentRecord[] | undefined
+  if (pending && pending.length) return pending
+  return props.doc.commissioning_documents || []
+})
 
-  // Merge into pending
-  const existing = (pendingChanges.commissioning_documents as Record<string, unknown>[] | undefined) ?? []
-  const merged = [...existing.filter((r: Record<string, unknown>) => r.idx !== idx), ...docs]
-  pendingChanges.commissioning_documents = merged
+function _currentDocList(): Record<string, unknown>[] {
+  // Lấy snapshot hiện tại — ưu tiên pending edits, fallback về props
+  const fromPending = pendingChanges.commissioning_documents as Record<string, unknown>[] | undefined
+  if (fromPending && fromPending.length) return [...fromPending]
+  return (props.doc.commissioning_documents || []).map(d => ({ ...d }))
+}
+
+function onDocUpdate(idx: number, field: keyof DocumentRecord, value: string | number) {
+  const list = _currentDocList()
+  const row = list.find(r => r.idx === idx)
+  if (row) {
+    row[field as string] = value
+  } else {
+    // Hàng mới chưa có ở pending — chỉ gửi delta theo idx
+    list.push({ idx, [field]: value })
+  }
+  pendingChanges.commissioning_documents = list
+}
+
+function onDocAdd() {
+  const list = _currentDocList()
+  const maxIdx = list.reduce((m, r) => Math.max(m, Number(r.idx) || 0), 0)
+  list.push({
+    idx: maxIdx + 1,
+    doc_type: 'Other',
+    is_mandatory: 0,
+    status: 'Pending',
+    doc_number: '',
+    received_date: '',
+    expiry_date: '',
+    file_url: '',
+    remarks: '',
+  })
+  pendingChanges.commissioning_documents = list
+}
+
+function onDocRemove(idx: number) {
+  const list = _currentDocList().filter(r => r.idx !== idx)
+  pendingChanges.commissioning_documents = list
 }
 
 // ─── Baseline test updates ──────────────────────────────────────────────────
@@ -333,20 +368,41 @@ Xem đơn hàng →
         </div>
         <div>
           <label class="form-label">Model Thiết bị</label>
-          <input type="text" :value="doc.master_item" class="form-input" readonly />
+          <SmartSelect
+            v-if="!isReadonly"
+            :model-value="doc.master_item || ''"
+            doctype="IMM Device Model"
+            placeholder="Tìm theo tên model hoặc nhà sản xuất"
+            @update:model-value="trackChange('master_item', $event)"
+          />
+          <input v-else type="text" :value="doc.master_item_name || doc.master_item" :title="doc.master_item" class="form-input" readonly />
         </div>
         <div>
           <label class="form-label">Nhà cung cấp</label>
-          <input type="text" :value="doc.vendor" class="form-input" readonly />
+          <SmartSelect
+            v-if="!isReadonly"
+            :model-value="doc.vendor || ''"
+            doctype="AC Supplier"
+            placeholder="Tìm theo tên nhà cung cấp"
+            @update:model-value="trackChange('vendor', $event)"
+          />
+          <input v-else type="text" :value="doc.vendor_name || doc.vendor" :title="doc.vendor" class="form-input" readonly />
         </div>
         <div>
           <label class="form-label">Khoa / Phòng nhận</label>
-          <input type="text" :value="doc.clinical_dept" class="form-input" readonly />
+          <SmartSelect
+            v-if="!isReadonly"
+            :model-value="doc.clinical_dept || ''"
+            doctype="AC Department"
+            placeholder="Tìm theo tên khoa/phòng"
+            @update:model-value="trackChange('clinical_dept', $event)"
+          />
+          <input v-else type="text" :value="doc.clinical_dept_name || doc.clinical_dept" :title="doc.clinical_dept" class="form-input" readonly />
         </div>
         <div>
           <ApproverSelect
             :model-value="doc.clinical_head || ''"
-            role="Workshop Head"
+            role="IMM Workshop Lead"
             label="Trưởng khoa"
             placeholder="Tìm theo tên hoặc email..."
             :disabled="isReadonly"
@@ -355,7 +411,12 @@ Xem đơn hàng →
         </div>
         <div>
           <label class="form-label">Ngày hẹn lắp đặt</label>
-          <input type="text" :value="doc.expected_installation_date" class="form-input" readonly />
+          <DateInput
+            :model-value="doc.expected_installation_date || ''"
+            :disabled="isReadonly"
+            class="form-input"
+            @change="(v: string) => trackChange('expected_installation_date', v)"
+          />
         </div>
         <div>
           <label class="form-label">Ngày nhận hàng</label>
@@ -400,7 +461,14 @@ Xem đơn hàng →
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div>
           <label class="form-label">Serial Number Hãng (NSX)</label>
-          <input type="text" :value="doc.vendor_serial_no" class="form-input font-mono" readonly />
+          <input
+            type="text"
+            :value="doc.vendor_serial_no || ''"
+            class="form-input font-mono"
+            :readonly="isReadonly"
+            placeholder="Nhập serial number của nhà sản xuất..."
+            @change="trackChange('vendor_serial_no', ($event.target as HTMLInputElement).value)"
+          />
         </div>
         <div>
           <label class="form-label">Mã QR Nội bộ Bệnh viện</label>
@@ -512,7 +580,7 @@ Xem đơn hàng →
       <div v-if="showQaOfficer">
         <ApproverSelect
           :model-value="doc.qa_officer || ''"
-          role="QA Risk Team"
+          role="IMM QA Officer"
           label="Nhân viên QA"
           placeholder="Tìm theo tên hoặc email..."
           :required="true"
@@ -526,7 +594,7 @@ Xem đơn hàng →
       <div v-if="showBoardApprover">
         <ApproverSelect
           :model-value="doc.board_approver || ''"
-          role="VP Block2"
+          role="IMM Operations Manager"
           label="Người phê duyệt BGĐ"
           placeholder="Tìm theo tên hoặc email..."
           :required="true"
@@ -541,10 +609,45 @@ Xem đơn hàng →
     <div v-show="activeTab === 'documents'" class="card">
       <h3 class="text-base font-semibold text-gray-900 pb-2 border-b mb-4">Bảng kiểm Hồ sơ Đi kèm</h3>
       <DocumentChecklist
-        :documents="doc.commissioning_documents"
+        :documents="displayDocs"
         :readonly="isReadonly"
+        :incomplete-flag="doc.documents_incomplete"
         @update="onDocUpdate"
+        @add="onDocAdd"
+        @remove="onDocRemove"
       />
+
+      <!-- Cờ "thiếu hồ sơ — vẫn cho phép duyệt" -->
+      <div class="mt-5 pt-4 border-t border-slate-100 space-y-2">
+        <label class="flex items-start gap-2 text-sm cursor-pointer" :class="{ 'cursor-not-allowed opacity-60': isReadonly }">
+          <input
+            type="checkbox"
+            :checked="doc.documents_incomplete === 1"
+            :disabled="isReadonly"
+            class="mt-0.5 rounded"
+            @change="trackChange('documents_incomplete', ($event.target as HTMLInputElement).checked ? 1 : 0)"
+          />
+          <span>
+            <strong class="text-orange-700">Thiếu hồ sơ — vẫn cho phép duyệt</strong>
+            <p class="text-xs text-slate-500 mt-0.5">
+              Đánh dấu khi hồ sơ bắt buộc chưa đủ nhưng cần tiếp tục quy trình. Phải ghi rõ kế hoạch bổ sung.
+            </p>
+          </span>
+        </label>
+        <div v-if="doc.documents_incomplete">
+          <label class="block text-xs font-medium text-slate-600 mb-1">
+            Ghi chú thiếu hồ sơ <span class="text-red-500">*</span>
+          </label>
+          <textarea
+            :value="doc.documents_incomplete_note || ''"
+            :disabled="isReadonly"
+            rows="2"
+            class="form-input text-sm w-full"
+            placeholder="VD: CO/CQ chưa về, NCC cam kết gửi trong 7 ngày — sẽ bổ sung trước ngày DD/MM/YYYY"
+            @change="trackChange('documents_incomplete_note', ($event.target as HTMLTextAreaElement).value)"
+          />
+        </div>
+      </div>
     </div>
 
     <!-- Tab: Kiểm tra an toàn -->

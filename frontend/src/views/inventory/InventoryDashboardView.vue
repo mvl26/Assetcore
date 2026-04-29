@@ -40,7 +40,7 @@ onMounted(load)
     <div class="flex items-start justify-between mb-6">
       <div>
         <p class="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-1">Inventory</p>
-        <h1 class="text-2xl font-bold text-slate-900">Kho vật tư — Tổng quan</h1>
+        <h1 class="text-2xl font-bold text-slate-900">Tổng quan kho</h1>
         <p class="text-sm text-slate-500 mt-1">Danh mục phụ tùng, tồn kho, và giao dịch kho toàn hệ thống</p>
       </div>
       <div class="flex gap-2">
@@ -62,7 +62,7 @@ onMounted(load)
           <p class="text-xs text-slate-400 mt-1">đang quản lý trong catalog</p>
         </div>
         <div class="card p-5 hover:shadow-md cursor-pointer transition-shadow" @click="router.push('/warehouses')">
-          <p class="text-xs font-medium text-slate-500 mb-1">Kho vật tư</p>
+          <p class="text-xs font-medium text-slate-500 mb-1">IMM Storekeeper</p>
           <p class="text-2xl font-bold text-slate-900">{{ overview.total_warehouses }}</p>
           <p class="text-xs text-slate-400 mt-1">đang hoạt động</p>
         </div>
@@ -88,7 +88,7 @@ class="card p-5 hover:shadow-md cursor-pointer transition-shadow"
         <!-- Low stock alerts -->
         <div class="card p-5">
           <div class="flex items-center justify-between mb-4">
-            <h3 class="text-sm font-semibold text-slate-700">⚠️ Phụ tùng tồn thấp</h3>
+            <h3 class="text-sm font-semibold text-slate-700">Phụ tùng tồn thấp</h3>
             <button class="text-xs text-blue-600 hover:text-blue-800" @click="router.push('/stock?low=1')">
               Xem tất cả →
             </button>
@@ -96,7 +96,7 @@ class="card p-5 hover:shadow-md cursor-pointer transition-shadow"
           <div
 v-if="overview.low_stock_items.length === 0"
                class="text-center py-8 text-sm text-slate-400">
-            ✅ Không có phụ tùng nào dưới mức min
+            Không có phụ tùng nào dưới mức min
           </div>
           <div v-else class="space-y-2.5">
             <div

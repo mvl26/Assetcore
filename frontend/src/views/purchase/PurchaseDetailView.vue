@@ -9,6 +9,7 @@ import {
 import type { Purchase, LinkedMovement, LinkedCommissioning } from '@/api/purchase'
 import { createCommissioningFromPurchase } from '@/api/imm04'
 import SmartSelect from '@/components/common/SmartSelect.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
 
 const props = defineProps<{ name: string }>()
 const router = useRouter()
@@ -150,7 +151,15 @@ onMounted(load)
 
 <template>
   <div class="page-container animate-fade-in">
-    <button class="btn-ghost mb-4" @click="router.push('/purchases')">← Quay lại</button>
+    <PageHeader
+      back-to="/purchases"
+      :title="doc?.name || 'Chi tiết đơn mua hàng'"
+      subtitle="Đơn mua hàng"
+      :breadcrumb="[
+        { label: 'Đơn mua hàng', to: '/purchases' },
+        { label: doc?.name || 'Chi tiết' },
+      ]"
+    />
 
     <div v-if="loading && !doc" class="text-center py-20 text-slate-400">Đang tải...</div>
 

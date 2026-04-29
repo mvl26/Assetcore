@@ -341,7 +341,7 @@ const approveGateWarning = computed(() => {
         <!-- Board Approver — always required -->
         <ApproverSelect
           :model-value="doc.board_approver"
-          role="VP Block2"
+          role="IMM Operations Manager"
           label="Người phê duyệt BGĐ"
           placeholder="Tìm theo tên hoặc email..."
           :required="true"
@@ -352,16 +352,16 @@ const approveGateWarning = computed(() => {
         <ApproverSelect
           v-if="showQaOfficer"
           :model-value="doc.qa_officer"
-          role="QA Risk Team"
+          role="IMM QA Officer"
           label="Nhân viên QA"
           placeholder="Tìm theo tên hoặc email..."
           @update:model-value="emit('update-field', 'qa_officer', $event)"
         />
 
-        <!-- Clinical Head — always shown -->
+        <!-- IMM Department Head — always shown -->
         <ApproverSelect
           :model-value="doc.clinical_head"
-          role="Workshop Head"
+          role="IMM Workshop Lead"
           label="Trưởng khoa"
           placeholder="Tìm theo tên hoặc email..."
           @update:model-value="emit('update-field', 'clinical_head', $event)"
@@ -370,7 +370,7 @@ const approveGateWarning = computed(() => {
         <!-- Commissioned By -->
         <ApproverSelect
           :model-value="doc.commissioned_by"
-          role="Biomed Engineer"
+          role="IMM Biomed Technician"
           label="Kỹ sư thực hiện"
           placeholder="Tìm theo tên hoặc email..."
           @update:model-value="emit('update-field', 'commissioned_by', $event)"

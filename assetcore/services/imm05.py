@@ -34,11 +34,11 @@ class Visibility:
 
 
 # Legacy hospital roles (hospital workflow — dùng song song IMM roles)
-_LEGACY_QA = "Tổ HC-QLCL"
-_LEGACY_ADMIN = "CMMS Admin"
-_LEGACY_BIOMED = "Biomed Engineer"
-_LEGACY_WORKSHOP = "Workshop Head"
-_LEGACY_HTM_TECH = "HTM Technician"
+_LEGACY_QA = "IMM QA Officer"
+_LEGACY_ADMIN = "IMM System Admin"
+_LEGACY_BIOMED = "IMM Biomed Technician"
+_LEGACY_WORKSHOP = "IMM Workshop Lead"
+_LEGACY_HTM_TECH = "IMM Technician"
 _LEGACY_SYSTEM_MGR = "System Manager"
 
 _INTERNAL_VIEW_ROLES = {

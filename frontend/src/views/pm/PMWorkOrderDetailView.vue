@@ -1,9 +1,11 @@
 <script setup lang="ts">
+import { useToast } from '@/composables/useToast'
 import DateInput from '@/components/common/DateInput.vue'
 import { onMounted, computed, ref } from 'vue'
 import { useImm08Store } from '@/stores/imm08'
 import { useRouter } from 'vue-router'
 import { pmStatusLabel, pmStatusClass, resultLabel as _resultLabel } from '@/constants/labels'
+const toast = useToast()
 
 const props = defineProps<{ id: string }>()
 const store = useImm08Store()
@@ -75,7 +77,7 @@ async function handleMajorFailure() {
   const cmWo = await store.doReportMajorFailure(majorFailureDesc.value)
   if (cmWo) {
     showMajorModal.value = false
-    alert(`Đã báo lỗi nghiêm trọng. Phiếu sửa chữa đã được tạo: ${cmWo}\nThiết bị đã được đặt trạng thái Ngừng hoạt động.`)
+    toast.success(`Đã báo lỗi nghiêm trọng. Phiếu sửa chữa đã được tạo: ${cmWo}\nThiết bị đã được đặt trạng thái Ngừng hoạt động.`)
     router.push(`/cm/work-orders/${cmWo}`)
   } else {
     majorFailureError.value = store.error || 'Không thể báo lỗi. Vui lòng thử lại.'
@@ -126,7 +128,7 @@ async function handleStart() {
   <div class="page-container animate-fade-in">
     <!-- Back + Header -->
     <div class="flex items-center gap-3 mb-5">
-      <button class="text-gray-400 hover:text-gray-600 transition-colors" @click="router.back()">
+      <button class="text-gray-400 hover:text-gray-600 transition-colors" @click="router.push('/pm/work-orders')">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" />
         </svg>

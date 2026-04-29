@@ -12,19 +12,19 @@
   "workflow_state_field": "workflow_state",
   "states": [
     {
-      "allow_edit": "Biomed Engineer",
+      "allow_edit": "IMM Biomed Technician",
       "doc_status": "0",
       "state": "Open",
       "type": "Warning"
     },
     {
-      "allow_edit": "Biomed Engineer",
+      "allow_edit": "IMM Biomed Technician",
       "doc_status": "0",
       "state": "In Progress",
       "type": "Success"
     },
     {
-      "allow_edit": "Biomed Engineer",
+      "allow_edit": "IMM Biomed Technician",
       "doc_status": "0",
       "state": "Pending–Device Busy",
       "type": "Warning"
@@ -49,7 +49,7 @@
     },
     {
       "allow_edit": "System Manager",
-      "doc_status": "2",
+      "doc_status": "0",
       "state": "Cancelled",
       "type": "Danger"
     }
@@ -57,7 +57,7 @@
   "transitions": [
     {
       "action": "Bắt đầu thực hiện",
-      "allowed": "Biomed Engineer",
+      "allowed": "IMM Biomed Technician",
       "next_state": "In Progress",
       "state": "Open"
     },
@@ -75,31 +75,31 @@
     },
     {
       "action": "Hoàn thành PM",
-      "allowed": "Biomed Engineer",
+      "allowed": "IMM Biomed Technician",
       "next_state": "Completed",
       "state": "In Progress"
     },
     {
       "action": "Báo lỗi nghiêm trọng",
-      "allowed": "Biomed Engineer",
+      "allowed": "IMM Biomed Technician",
       "next_state": "Halted–Major Failure",
       "state": "In Progress"
     },
     {
       "action": "Thiết bị bận - hoãn",
-      "allowed": "Biomed Engineer",
+      "allowed": "IMM Biomed Technician",
       "next_state": "Pending–Device Busy",
       "state": "In Progress"
     },
     {
       "action": "Tiếp tục thực hiện",
-      "allowed": "Biomed Engineer",
+      "allowed": "IMM Biomed Technician",
       "next_state": "In Progress",
       "state": "Pending–Device Busy"
     },
     {
       "action": "Bắt đầu muộn",
-      "allowed": "Biomed Engineer",
+      "allowed": "IMM Biomed Technician",
       "next_state": "In Progress",
       "state": "Overdue"
     },
@@ -107,6 +107,30 @@
       "action": "Tiếp tục sau xử lý",
       "allowed": "System Manager",
       "next_state": "In Progress",
+      "state": "Halted–Major Failure"
+    },
+    {
+      "action": "Hủy phiếu",
+      "allowed": "System Manager",
+      "next_state": "Cancelled",
+      "state": "In Progress"
+    },
+    {
+      "action": "Hủy phiếu",
+      "allowed": "System Manager",
+      "next_state": "Cancelled",
+      "state": "Pending–Device Busy"
+    },
+    {
+      "action": "Hủy phiếu",
+      "allowed": "System Manager",
+      "next_state": "Cancelled",
+      "state": "Overdue"
+    },
+    {
+      "action": "Hủy phiếu",
+      "allowed": "System Manager",
+      "next_state": "Cancelled",
       "state": "Halted–Major Failure"
     }
   ]

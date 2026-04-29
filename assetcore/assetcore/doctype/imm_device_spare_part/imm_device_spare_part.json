@@ -28,7 +28,7 @@
    "fieldtype": "Link",
    "label": "ĐVT",
    "options": "AC UOM",
-   "default": "Nos",
+   "default": "Cái",
    "in_list_view": 1,
    "description": "Đơn vị tính của phụ tùng"
   },

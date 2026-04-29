@@ -21,7 +21,7 @@ const attempted = (route.query.forbidden as string) || ''
       </p>
       <p class="text-slate-400 text-xs">Liên hệ quản trị viên nếu bạn cần quyền này.</p>
       <div class="flex justify-center gap-2 pt-2">
-        <button class="btn-ghost text-sm" @click="router.back()">← Quay lại</button>
+        <button class="btn-ghost text-sm" @click="router.push('/')">← Quay lại</button>
         <button class="btn-primary text-sm" @click="router.push('/dashboard')">Về Dashboard</button>
       </div>
     </div>

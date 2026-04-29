@@ -23,30 +23,111 @@
   "section_assets",
   "covered_assets",
   "section_notes",
-  "notes",
-  "amended_from"
+  "notes"
  ],
  "fields": [
-  {"fieldname": "section_basic", "fieldtype": "Section Break", "label": "Thông tin hợp đồng"},
-  {"fieldname": "naming_series", "fieldtype": "Select", "label": "Series", "options": "SC-.YYYY.-.####", "reqd": 1},
-  {"fieldname": "contract_title", "fieldtype": "Data", "label": "Tên hợp đồng", "reqd": 1, "in_list_view": 1},
-  {"fieldname": "supplier", "fieldtype": "Link", "label": "Nhà cung cấp dịch vụ", "options": "AC Supplier", "reqd": 1, "in_list_view": 1, "search_index": 1},
-  {"fieldname": "contract_type", "fieldtype": "Select", "label": "Loại hợp đồng", "options": "\nPreventive Maintenance\nCalibration\nRepair\nFull Service\nWarranty Extension", "reqd": 1, "in_list_view": 1},
-  {"fieldname": "column_break_basic", "fieldtype": "Column Break"},
-  {"fieldname": "contract_start", "fieldtype": "Date", "label": "Ngày bắt đầu", "reqd": 1},
-  {"fieldname": "contract_end", "fieldtype": "Date", "label": "Ngày kết thúc", "reqd": 1, "in_list_view": 1, "search_index": 1},
-  {"fieldname": "contract_value", "fieldtype": "Currency", "label": "Giá trị hợp đồng"},
-  {"fieldname": "auto_renew", "fieldtype": "Check", "label": "Tự động gia hạn"},
-  {"fieldname": "section_sla", "fieldtype": "Section Break", "label": "SLA & Phạm vi"},
-  {"fieldname": "sla_response_hours", "fieldtype": "Int", "label": "Thời gian phản hồi (giờ)"},
-  {"fieldname": "coverage_description", "fieldtype": "Text", "label": "Mô tả phạm vi dịch vụ"},
-  {"fieldname": "section_assets", "fieldtype": "Section Break", "label": "Thiết bị thuộc hợp đồng"},
-  {"fieldname": "covered_assets", "fieldtype": "Table", "label": "Danh sách thiết bị", "options": "Service Contract Asset"},
-  {"fieldname": "section_notes", "fieldtype": "Section Break", "label": "Ghi chú"},
-  {"fieldname": "notes", "fieldtype": "Text Editor", "label": "Ghi chú"},
-  {"fieldname": "amended_from", "fieldtype": "Link", "label": "Amended From", "options": "Service Contract", "no_copy": 1, "print_hide": 1, "read_only": 1}
+  {
+   "fieldname": "section_basic",
+   "fieldtype": "Section Break",
+   "label": "Thông tin hợp đồng"
+  },
+  {
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Series",
+   "options": "SC-.YYYY.-.####",
+   "reqd": 1
+  },
+  {
+   "fieldname": "contract_title",
+   "fieldtype": "Data",
+   "label": "Tên hợp đồng",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "supplier",
+   "fieldtype": "Link",
+   "label": "Nhà cung cấp dịch vụ",
+   "options": "AC Supplier",
+   "reqd": 1,
+   "in_list_view": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "contract_type",
+   "fieldtype": "Select",
+   "label": "Loại hợp đồng",
+   "options": "\nPreventive Maintenance\nCalibration\nRepair\nFull Service\nWarranty Extension",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "column_break_basic",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "contract_start",
+   "fieldtype": "Date",
+   "label": "Ngày bắt đầu",
+   "reqd": 1
+  },
+  {
+   "fieldname": "contract_end",
+   "fieldtype": "Date",
+   "label": "Ngày kết thúc",
+   "reqd": 1,
+   "in_list_view": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "contract_value",
+   "fieldtype": "Currency",
+   "label": "Giá trị hợp đồng"
+  },
+  {
+   "fieldname": "auto_renew",
+   "fieldtype": "Check",
+   "label": "Tự động gia hạn"
+  },
+  {
+   "fieldname": "section_sla",
+   "fieldtype": "Section Break",
+   "label": "SLA & Phạm vi"
+  },
+  {
+   "fieldname": "sla_response_hours",
+   "fieldtype": "Int",
+   "label": "Thời gian phản hồi (giờ)"
+  },
+  {
+   "fieldname": "coverage_description",
+   "fieldtype": "Text",
+   "label": "Mô tả phạm vi dịch vụ"
+  },
+  {
+   "fieldname": "section_assets",
+   "fieldtype": "Section Break",
+   "label": "Thiết bị thuộc hợp đồng"
+  },
+  {
+   "fieldname": "covered_assets",
+   "fieldtype": "Table",
+   "label": "Danh sách thiết bị",
+   "options": "Service Contract Asset"
+  },
+  {
+   "fieldname": "section_notes",
+   "fieldtype": "Section Break",
+   "label": "Ghi chú"
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Text Editor",
+   "label": "Ghi chú"
+  }
  ],
- "is_submittable": 1,
+ "is_submittable": 0,
  "links": [],
  "modified": "2026-04-18 00:00:00.000000",
  "modified_by": "Administrator",
@@ -54,12 +135,162 @@
  "name": "Service Contract",
  "owner": "Administrator",
  "permissions": [
-  {"role": "IMM System Admin", "read": 1, "write": 1, "create": 1, "delete": 1, "submit": 1, "cancel": 1, "amend": 1, "export": 1, "report": 1, "share": 1, "print": 1},
-  {"role": "IMM Department Head", "read": 1, "write": 1, "create": 1, "submit": 1, "report": 1, "print": 1},
-  {"role": "IMM Operations Manager", "read": 1, "write": 1, "create": 1, "submit": 1, "report": 1, "print": 1},
-  {"role": "IMM Workshop Lead", "read": 1, "report": 1, "print": 1},
-  {"role": "IMM Technician", "read": 1, "report": 1},
-  {"role": "IMM Document Officer", "read": 1, "report": 1}
+  {
+   "role": "IMM System Admin",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Operations Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM QA Officer",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Auditor",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Department Head",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Deputy Department Head",
+   "read": 1,
+   "write": 1,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Workshop Lead",
+   "read": 1,
+   "write": 1,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Biomed Technician",
+   "read": 1,
+   "write": 1,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Technician",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Storekeeper",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Document Officer",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Clinical User",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 0,
+   "export": 0,
+   "print": 0,
+   "email": 0,
+   "share": 0
+  },
+  {
+   "role": "Vendor Engineer",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 0,
+   "export": 0,
+   "print": 0,
+   "email": 0,
+   "share": 0
+  }
  ],
  "sort_field": "contract_end",
  "sort_order": "ASC",

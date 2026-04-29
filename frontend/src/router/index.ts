@@ -108,6 +108,13 @@ const routes: RouteRecordRaw[] = [
   },
   {
     path: '/suppliers/:id',
+    name: 'SupplierDetail',
+    component: () => import('@/views/purchase/SupplierDetailView.vue'),
+    props: true,
+    meta: { requiresAuth: true, title: 'Chi tiết Nhà cung cấp' },
+  },
+  {
+    path: '/suppliers/:id/edit',
     name: 'SupplierEdit',
     component: () => import('@/views/purchase/SupplierFormView.vue'),
     props: true,
@@ -463,7 +470,7 @@ const routes: RouteRecordRaw[] = [
     path: '/inventory',
     name: 'InventoryDashboard',
     component: () => import('@/views/inventory/InventoryDashboardView.vue'),
-    meta: { requiresAuth: true, title: 'Kho vật tư — Tổng quan' },
+    meta: { requiresAuth: true, title: 'IMM Storekeeper — Tổng quan' },
   },
   {
     path: '/warehouses',

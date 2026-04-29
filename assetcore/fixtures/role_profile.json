@@ -1,0 +1,109 @@
+[
+ {
+  "doctype": "Role Profile",
+  "name": "IMM - System Administrator",
+  "role_profile": "IMM - System Administrator",
+  "roles": [
+   {"role": "IMM System Admin"}
+  ]
+ },
+ {
+  "doctype": "Role Profile",
+  "name": "IMM - Operations Manager",
+  "role_profile": "IMM - Operations Manager",
+  "roles": [
+   {"role": "IMM Operations Manager"}
+  ]
+ },
+ {
+  "doctype": "Role Profile",
+  "name": "IMM - Department Head",
+  "role_profile": "IMM - Department Head",
+  "roles": [
+   {"role": "IMM Department Head"}
+  ]
+ },
+ {
+  "doctype": "Role Profile",
+  "name": "IMM - Deputy Department Head",
+  "role_profile": "IMM - Deputy Department Head",
+  "roles": [
+   {"role": "IMM Deputy Department Head"}
+  ]
+ },
+ {
+  "doctype": "Role Profile",
+  "name": "IMM - Workshop Lead",
+  "role_profile": "IMM - Workshop Lead",
+  "roles": [
+   {"role": "IMM Workshop Lead"},
+   {"role": "IMM Biomed Technician"}
+  ]
+ },
+ {
+  "doctype": "Role Profile",
+  "name": "IMM - Biomed Technician",
+  "role_profile": "IMM - Biomed Technician",
+  "roles": [
+   {"role": "IMM Biomed Technician"},
+   {"role": "IMM Technician"}
+  ]
+ },
+ {
+  "doctype": "Role Profile",
+  "name": "IMM - Field Technician",
+  "role_profile": "IMM - Field Technician",
+  "roles": [
+   {"role": "IMM Technician"}
+  ]
+ },
+ {
+  "doctype": "Role Profile",
+  "name": "IMM - QA Officer",
+  "role_profile": "IMM - QA Officer",
+  "roles": [
+   {"role": "IMM QA Officer"},
+   {"role": "IMM Auditor"}
+  ]
+ },
+ {
+  "doctype": "Role Profile",
+  "name": "IMM - Internal Auditor",
+  "role_profile": "IMM - Internal Auditor",
+  "roles": [
+   {"role": "IMM Auditor"}
+  ]
+ },
+ {
+  "doctype": "Role Profile",
+  "name": "IMM - Storekeeper",
+  "role_profile": "IMM - Storekeeper",
+  "roles": [
+   {"role": "IMM Storekeeper"}
+  ]
+ },
+ {
+  "doctype": "Role Profile",
+  "name": "IMM - Document Officer",
+  "role_profile": "IMM - Document Officer",
+  "roles": [
+   {"role": "IMM Document Officer"}
+  ]
+ },
+ {
+  "doctype": "Role Profile",
+  "name": "IMM - Clinical User",
+  "role_profile": "IMM - Clinical User",
+  "roles": [
+   {"role": "IMM Clinical User"}
+  ]
+ },
+ {
+  "doctype": "Role Profile",
+  "name": "IMM - Vendor Engineer",
+  "role_profile": "IMM - Vendor Engineer",
+  "roles": [
+   {"role": "Vendor Engineer"}
+  ]
+ }
+]

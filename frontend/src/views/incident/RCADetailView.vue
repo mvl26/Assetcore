@@ -75,7 +75,7 @@ onMounted(load)
   <div class="page-container animate-fade-in space-y-5">
     <div class="flex items-start justify-between flex-wrap gap-3">
       <div>
-        <button class="text-sm text-slate-500 hover:text-slate-700 mb-1" @click="router.back()">← Quay lại</button>
+        <button class="text-sm text-slate-500 hover:text-slate-700 mb-1" @click="router.push(rca?.incident_report ? `/incidents/${rca.incident_report}` : '/incidents/list')">← Quay lại</button>
         <h1 class="text-xl font-semibold text-gray-800">{{ name }}</h1>
         <div class="flex items-center gap-2 mt-1">
           <span class="text-xs px-2 py-0.5 rounded bg-indigo-100 text-indigo-700">{{ rca.status }}</span>

@@ -43,7 +43,8 @@
    "fetch_if_empty": 1,
    "in_list_view": 1,
    "columns": 1,
-   "description": "Đơn vị đặt hàng; mặc định lấy từ ĐVT mua hàng của phụ tùng"
+   "description": "Đơn vị đặt hàng; mặc định lấy từ ĐVT mua hàng của phụ tùng",
+   "default": "Cái"
   },
   {
    "fieldname": "qty",

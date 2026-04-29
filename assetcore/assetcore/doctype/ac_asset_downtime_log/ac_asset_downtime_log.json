@@ -24,19 +24,90 @@
   "notes"
  ],
  "fields": [
-  {"fieldname": "section_core", "fieldtype": "Section Break", "label": "Core"},
-  {"fieldname": "naming_series", "fieldtype": "Select", "label": "Series", "options": "DTL-.YYYY.-.######", "reqd": 1},
-  {"fieldname": "asset", "fieldtype": "Link", "label": "Asset", "options": "AC Asset", "reqd": 1, "search_index": 1, "in_list_view": 1},
-  {"fieldname": "reason", "fieldtype": "Select", "label": "Reason", "options": "Sửa chữa\nBảo trì\nHiệu chuẩn\nHỏng hóc\nNgừng vận hành\nKhác", "reqd": 1, "search_index": 1, "in_list_view": 1},
-  {"fieldname": "column_break_core", "fieldtype": "Column Break"},
-  {"fieldname": "start_time", "fieldtype": "Datetime", "label": "Start Time", "reqd": 1, "in_list_view": 1},
-  {"fieldname": "end_time", "fieldtype": "Datetime", "label": "End Time", "in_list_view": 1},
-  {"fieldname": "downtime_hours", "fieldtype": "Float", "label": "Downtime (hours)", "precision": "2", "read_only": 1, "in_list_view": 1},
-  {"fieldname": "is_open", "fieldtype": "Check", "label": "Is Open", "default": "1", "search_index": 1},
-  {"fieldname": "section_ref", "fieldtype": "Section Break", "label": "Source Reference"},
-  {"fieldname": "reference_doctype", "fieldtype": "Link", "label": "Reference DocType", "options": "DocType"},
-  {"fieldname": "reference_name", "fieldtype": "Dynamic Link", "label": "Reference Name", "options": "reference_doctype"},
-  {"fieldname": "notes", "fieldtype": "Text", "label": "Notes"}
+  {
+   "fieldname": "section_core",
+   "fieldtype": "Section Break",
+   "label": "Core"
+  },
+  {
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Series",
+   "options": "DTL-.YYYY.-.######",
+   "reqd": 1
+  },
+  {
+   "fieldname": "asset",
+   "fieldtype": "Link",
+   "label": "Asset",
+   "options": "AC Asset",
+   "reqd": 1,
+   "search_index": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "reason",
+   "fieldtype": "Select",
+   "label": "Reason",
+   "options": "Sửa chữa\nBảo trì\nHiệu chuẩn\nHỏng hóc\nNgừng vận hành\nKhác",
+   "reqd": 1,
+   "search_index": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "column_break_core",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "start_time",
+   "fieldtype": "Datetime",
+   "label": "Start Time",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "end_time",
+   "fieldtype": "Datetime",
+   "label": "End Time",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "downtime_hours",
+   "fieldtype": "Float",
+   "label": "Downtime (hours)",
+   "precision": "2",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "is_open",
+   "fieldtype": "Check",
+   "label": "Is Open",
+   "default": "1",
+   "search_index": 1
+  },
+  {
+   "fieldname": "section_ref",
+   "fieldtype": "Section Break",
+   "label": "Source Reference"
+  },
+  {
+   "fieldname": "reference_doctype",
+   "fieldtype": "Link",
+   "label": "Reference DocType",
+   "options": "DocType"
+  },
+  {
+   "fieldname": "reference_name",
+   "fieldtype": "Dynamic Link",
+   "label": "Reference Name",
+   "options": "reference_doctype"
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Text",
+   "label": "Notes"
+  }
  ],
  "links": [],
  "modified": "2026-04-20 00:00:00.000000",
@@ -44,9 +115,150 @@
  "name": "AC Asset Downtime Log",
  "owner": "Administrator",
  "permissions": [
-  {"create": 1, "delete": 0, "email": 1, "export": 1, "print": 1, "read": 1, "report": 1, "role": "System Manager", "share": 1, "write": 1},
-  {"create": 0, "delete": 0, "email": 0, "export": 1, "print": 1, "read": 1, "report": 1, "role": "IMM Workshop Lead", "share": 0, "write": 0},
-  {"create": 0, "delete": 0, "email": 0, "export": 1, "print": 1, "read": 1, "report": 1, "role": "IMM Operations Manager", "share": 0, "write": 0}
+  {
+   "role": "IMM System Admin",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Operations Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM QA Officer",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Auditor",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Department Head",
+   "read": 1,
+   "write": 1,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Deputy Department Head",
+   "read": 1,
+   "write": 1,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Workshop Lead",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Biomed Technician",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Technician",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Storekeeper",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Document Officer",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "Vendor Engineer",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  }
  ],
  "sort_field": "start_time",
  "sort_order": "DESC",

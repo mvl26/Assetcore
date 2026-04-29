@@ -9,29 +9,32 @@ Mọi module nghiệp vụ import từ đây, không hardcode raw strings.
 class Roles:
     """IMM role names — đồng bộ với fixtures/role.json và setup_permissions.py.
 
-    11 role phân theo nhóm:
+    13 role phân theo nhóm:
       - Governance:  SYS_ADMIN, OPS_MANAGER, AUDITOR
       - Department:  DEPT_HEAD, DEPT_DEPUTY, CLINICAL
-      - Engineering: WORKSHOP, BIOMED, TECHNICIAN (legacy)
+      - Engineering: WORKSHOP, BIOMED, TECHNICIAN
       - Support:     QA, DOC_OFFICER, STOREKEEPER
+      - External:    VENDOR_ENGINEER (KTV nhà cung cấp)
     """
 
-    SYS_ADMIN   = "IMM System Admin"
-    OPS_MANAGER = "IMM Operations Manager"
-    DEPT_HEAD   = "IMM Department Head"
-    DEPT_DEPUTY = "IMM Deputy Department Head"
-    WORKSHOP    = "IMM Workshop Lead"
-    QA          = "IMM QA Officer"
-    BIOMED      = "IMM Biomed Technician"
-    TECHNICIAN  = "IMM Technician"   # legacy alias
-    DOC_OFFICER = "IMM Document Officer"
-    STOREKEEPER = "IMM Storekeeper"
-    CLINICAL    = "IMM Clinical User"
-    AUDITOR     = "IMM Auditor"
+    SYS_ADMIN       = "IMM System Admin"
+    OPS_MANAGER     = "IMM Operations Manager"
+    DEPT_HEAD       = "IMM Department Head"
+    DEPT_DEPUTY     = "IMM Deputy Department Head"
+    WORKSHOP        = "IMM Workshop Lead"
+    QA              = "IMM QA Officer"
+    BIOMED          = "IMM Biomed Technician"
+    TECHNICIAN      = "IMM Technician"
+    DOC_OFFICER     = "IMM Document Officer"
+    STOREKEEPER     = "IMM Storekeeper"
+    CLINICAL        = "IMM Clinical User"
+    AUDITOR         = "IMM Auditor"
+    VENDOR_ENGINEER = "Vendor Engineer"
 
     ALL_IMM = (
         SYS_ADMIN, OPS_MANAGER, DEPT_HEAD, DEPT_DEPUTY, WORKSHOP,
         QA, BIOMED, TECHNICIAN, DOC_OFFICER, STOREKEEPER, CLINICAL, AUDITOR,
+        VENDOR_ENGINEER,
     )
 
     # Role-group policies (dùng ở cả BE + FE router)
@@ -105,6 +108,11 @@ ROLE_METADATA: dict[str, dict[str, str]] = {
         "label": "Kiểm toán viên",
         "description": "Chỉ đọc — truy vết audit trail toàn hệ thống",
         "group": "Governance",
+    },
+    Roles.VENDOR_ENGINEER: {
+        "label": "KTV nhà cung cấp",
+        "description": "Bên thứ ba — thực hiện sửa chữa/PM/calibration theo hợp đồng",
+        "group": "External",
     },
 }
 

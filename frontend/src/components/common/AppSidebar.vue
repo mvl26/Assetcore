@@ -3,6 +3,7 @@
 import { ref, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useSidebar } from '@/composables/useSidebar'
+import LocaleSwitcher from '@/components/common/LocaleSwitcher.vue'
 
 const router = useRouter()
 const route  = useRoute()
@@ -318,8 +319,9 @@ class="w-[18px] h-[18px] flex items-center justify-center"
 
     <!-- Footer -->
     <Transition name="fade-x">
-      <div v-if="!collapsed" class="sidebar-footer px-4 py-3">
+      <div v-if="!collapsed" class="sidebar-footer px-4 py-3 flex items-center justify-between gap-2">
         <p class="text-[11px] text-slate-500 font-medium">AssetCore v1.0 · IMM Wave 1</p>
+        <LocaleSwitcher />
       </div>
     </Transition>
   </aside>

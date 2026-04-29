@@ -4,3 +4,7 @@ assetcore.patches.v3_0.001_migrate_from_v2
 assetcore.patches.v3_0.002_migrate_uom_to_link
 assetcore.patches.v3_0.003_migrate_to_ac_uom
 assetcore.patches.v3_0.004_rbac_matrix_v2
+assetcore.patches.v3_0.005_sla_escalation_role_to_user
+assetcore.patches.v3_0.006_service_contract_approval_workflow
+assetcore.patches.v3_0.007_service_contract_drop_approval
+assetcore.patches.v3_0.008_asset_commissioning_documents_incomplete

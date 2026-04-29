@@ -282,7 +282,7 @@ def get_sla_policy(priority: str, risk_class: str = None) -> dict:
         "IMM SLA Policy",
         filters={"priority": priority, "risk_class": risk_class, "is_active": 1},
         fields=["name", "response_time_minutes", "resolution_time_hours",
-                "working_hours_only", "escalation_l1_role", "escalation_l2_role"],
+                "escalation_l1_user", "escalation_l2_user"],
         limit=1,
     )
     if rows:
@@ -291,7 +291,7 @@ def get_sla_policy(priority: str, risk_class: str = None) -> dict:
         "IMM SLA Policy",
         filters={"priority": priority, "is_default": 1, "is_active": 1},
         fields=["name", "response_time_minutes", "resolution_time_hours",
-                "working_hours_only", "escalation_l1_role", "escalation_l2_role"],
+                "escalation_l1_user", "escalation_l2_user"],
         limit=1,
     )
     return rows[0] if rows else {}

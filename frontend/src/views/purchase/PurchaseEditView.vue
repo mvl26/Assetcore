@@ -9,6 +9,7 @@ import type { PurchaseItem, CreatePurchaseDevicePayload, PurchaseDeviceItem } fr
 import { searchParts } from '@/api/inventory'
 import type { SparePart } from '@/types/inventory'
 import SmartSelect from '@/components/common/SmartSelect.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
 
 const props = defineProps<{ name: string }>()
 const router = useRouter()
@@ -206,12 +207,16 @@ function vnd(v?: number) {
 
 <template>
   <div class="page-container animate-fade-in">
-    <button class="btn-ghost mb-4" @click="router.push(`/purchases/${props.name}`)">← Quay lại</button>
-
-    <div class="mb-6">
-      <p class="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-1">Mua hàng</p>
-      <h1 class="text-2xl font-bold text-slate-900">Sửa đơn hàng · <span class="font-mono text-slate-500">{{ props.name }}</span></h1>
-    </div>
+    <PageHeader
+      :back-to="`/purchases/${name}`"
+      back-label="← Chi tiết"
+      :title="`Sửa đơn hàng — ${name}`"
+      :breadcrumb="[
+        { label: 'Đơn mua hàng', to: '/purchases' },
+        { label: name, to: `/purchases/${name}` },
+        { label: 'Sửa' },
+      ]"
+    />
 
     <div v-if="loading" class="text-center py-20 text-slate-400">Đang tải...</div>
 

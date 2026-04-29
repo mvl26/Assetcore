@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useToast } from '@/composables/useToast'
 import { ref, computed, onMounted } from 'vue'
 import {
   listLocations, getLocation, createLocation, updateLocation, deleteLocation,
@@ -8,6 +9,7 @@ import {
 } from '@/api/imm00'
 import type { AcLocation, AcDepartment, AcAssetCategory } from '@/types/imm00'
 import SmartSelect from '@/components/common/SmartSelect.vue'
+const toast = useToast()
 
 type Tab = 'location' | 'department' | 'category'
 type FormData = Record<string, string | number | null | undefined>
@@ -121,7 +123,7 @@ async function applyToExistingAssets() {
   if (!confirm(msg)) return
   try {
     const res = await bulkRegenerateScheduleByCategory(editingName.value)
-    alert(
+    toast.success(
       `Đã regenerate ${res.regenerated} tài sản.\n` +
       `Bỏ qua ${res.skipped_has_history} (đã có lịch sử).\n` +
       `Lỗi: ${res.errors}.`,
@@ -138,7 +140,7 @@ async function remove(name: string) {
     else if (tab.value === 'department') await deleteDepartment(name)
     else await deleteAssetCategory(name)
     await load()
-  } catch (e: unknown) { alert((e as Error).message || 'Lỗi xóa — có thể đang được tham chiếu') }
+  } catch (e: unknown) { toast.error((e as Error).message || 'Lỗi xóa — có thể đang được tham chiếu') }
 }
 
 
@@ -257,8 +259,17 @@ v-for="t in (['location','department','category'] as Tab[])" :key="t"
               <input v-model="form.location_name" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
             </div>
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Mã vị trí</label>
-              <input v-model="form.location_code" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+              <label class="block text-sm font-medium text-gray-700 mb-1">
+                Mã vị trí
+                <span v-if="!editingName" class="text-xs text-gray-400 font-normal">(để trống → tự sinh)</span>
+                <span v-else class="text-xs text-gray-400 font-normal">(không đổi sau khi tạo)</span>
+              </label>
+              <input
+                v-model="form.location_code"
+                :disabled="!!editingName"
+                :placeholder="editingName ? '' : 'VD: ICU-3F (tùy chọn)'"
+                class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed"
+              />
             </div>
             <div>
               <label class="block text-sm font-medium text-gray-700 mb-1">Vị trí cha</label>
@@ -318,8 +329,17 @@ v-for="t in (['location','department','category'] as Tab[])" :key="t"
               <input v-model="form.department_name" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
             </div>
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Mã khoa</label>
-              <input v-model="form.department_code" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+              <label class="block text-sm font-medium text-gray-700 mb-1">
+                Mã khoa
+                <span v-if="!editingName" class="text-xs text-gray-400 font-normal">(để trống → tự sinh)</span>
+                <span v-else class="text-xs text-gray-400 font-normal">(không đổi sau khi tạo)</span>
+              </label>
+              <input
+                v-model="form.department_code"
+                :disabled="!!editingName"
+                :placeholder="editingName ? '' : 'VD: HSCC (tùy chọn)'"
+                class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed"
+              />
             </div>
             <div>
               <label class="block text-sm font-medium text-gray-700 mb-1">Khoa cha</label>
@@ -361,7 +381,7 @@ v-for="t in (['location','department','category'] as Tab[])" :key="t"
           <div class="pl-6">
             <label class="block text-sm font-medium text-gray-700 mb-1">Chu kỳ PM mặc định (ngày)</label>
             <input
-v-model.number="form.default_pm_interval_days" type="number"
+v-model.number="form.default_pm_interval_days" type="number" min="0"
               :disabled="form.default_pm_required !== 1"
               class="w-48 border border-gray-300 rounded-lg px-3 py-2 text-sm disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed" />
           </div>
@@ -371,7 +391,7 @@ v-model.number="form.default_pm_interval_days" type="number"
           <div class="pl-6">
             <label class="block text-sm font-medium text-gray-700 mb-1">Chu kỳ hiệu chuẩn mặc định (ngày)</label>
             <input
-v-model.number="form.default_calibration_interval_days" type="number"
+v-model.number="form.default_calibration_interval_days" type="number" min="0"
               :disabled="form.default_calibration_required !== 1"
               class="w-48 border border-gray-300 rounded-lg px-3 py-2 text-sm disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed" />
           </div>

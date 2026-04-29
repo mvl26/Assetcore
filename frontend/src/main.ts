@@ -7,6 +7,7 @@ import piniaPersistedState from 'pinia-plugin-persistedstate'
 import { VueQueryPlugin, QueryClient } from '@tanstack/vue-query'
 import App from './App.vue'
 import router from './router'
+import { i18n } from './locales'
 import './assets/styles/main.css'
 import axios from 'axios'
 import { setCsrfToken } from '@/api/axios'
@@ -45,6 +46,7 @@ const pinia = createPinia()
 pinia.use(piniaPersistedState)
 app.use(pinia)
 app.use(router)
+app.use(i18n)
 app.use(VueQueryPlugin, { queryClient })
 app.directive('permission', vPermission)
 

@@ -10,5 +10,6 @@
  {"doctype": "Role", "role_name": "IMM Document Officer",      "name": "IMM Document Officer",      "desk_access": 1, "disabled": 0},
  {"doctype": "Role", "role_name": "IMM Storekeeper",           "name": "IMM Storekeeper",           "desk_access": 1, "disabled": 0},
  {"doctype": "Role", "role_name": "IMM Clinical User",         "name": "IMM Clinical User",         "desk_access": 1, "disabled": 0},
- {"doctype": "Role", "role_name": "IMM Auditor",               "name": "IMM Auditor",               "desk_access": 1, "disabled": 0}
+ {"doctype": "Role", "role_name": "IMM Auditor",               "name": "IMM Auditor",               "desk_access": 1, "disabled": 0},
+ {"doctype": "Role", "role_name": "Vendor Engineer",            "name": "Vendor Engineer",           "desk_access": 1, "disabled": 0}
 ]

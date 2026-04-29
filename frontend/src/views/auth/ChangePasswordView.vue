@@ -43,7 +43,7 @@ async function submit(): Promise<void> {
 <template>
   <div class="p-6 max-w-md mx-auto space-y-5">
     <div class="flex items-center gap-3">
-      <button class="text-gray-500 hover:text-gray-700" @click="router.back()">←</button>
+      <button class="text-gray-500 hover:text-gray-700" @click="router.push('/profile')">←</button>
       <h1 class="text-xl font-semibold text-gray-800">Đổi mật khẩu</h1>
     </div>
 

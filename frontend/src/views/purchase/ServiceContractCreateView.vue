@@ -4,6 +4,7 @@ import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { frappePost } from '@/api/helpers'
 import SmartSelect from '@/components/common/SmartSelect.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
 import { useFormDraft } from '@/composables/useFormDraft'
 
 const router = useRouter()
@@ -26,7 +27,13 @@ const { clear: clearDraft } = useFormDraft('service-contract-create', form)
 const saving = ref(false)
 const error = ref('')
 
-const TYPES = ['Preventive Maintenance', 'Calibration', 'Repair', 'Full Service', 'Warranty Extension']
+const TYPES: { value: string; label: string }[] = [
+  { value: 'Preventive Maintenance', label: 'Bảo trì định kỳ' },
+  { value: 'Calibration', label: 'Hiệu chuẩn' },
+  { value: 'Repair', label: 'Sửa chữa' },
+  { value: 'Full Service', label: 'Trọn gói' },
+  { value: 'Warranty Extension', label: 'Gia hạn bảo hành' },
+]
 const BASE = '/api/method/assetcore.api.imm00'
 
 async function submit() {
@@ -58,10 +65,14 @@ async function submit() {
 
 <template>
   <div class="page-container animate-fade-in space-y-6">
-    <div class="flex items-center gap-3">
-      <button class="text-gray-500 hover:text-gray-700 text-sm" @click="router.back()">← Quay lại</button>
-      <h1 class="text-xl font-semibold text-gray-800">Tạo Hợp đồng dịch vụ</h1>
-    </div>
+    <PageHeader
+      back-to="/service-contracts"
+      title="Tạo hợp đồng dịch vụ"
+      :breadcrumb="[
+        { label: 'Hợp đồng dịch vụ', to: '/service-contracts' },
+        { label: 'Tạo mới' },
+      ]"
+    />
 
     <div class="bg-white rounded-xl border border-gray-200 p-6 space-y-5">
       <div v-if="error" class="text-red-600 text-sm bg-red-50 px-3 py-2 rounded-lg">{{ error }}</div>
@@ -80,7 +91,7 @@ async function submit() {
           <label for="sc-type" class="block text-sm font-medium text-gray-700 mb-1">Loại HĐ <span class="text-red-500">*</span></label>
           <select id="sc-type" v-model="form.contract_type" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
             <option value="">-- Chọn --</option>
-            <option v-for="t in TYPES" :key="t" :value="t">{{ t }}</option>
+            <option v-for="t in TYPES" :key="t.value" :value="t.value">{{ t.label }}</option>
           </select>
         </div>
       </div>

@@ -5,6 +5,7 @@ import {
   getDeviceModel, createDeviceModel, updateDeviceModel, deleteDeviceModel,
   listAssetCategories, uploadDeviceModelFile,
 } from '@/api/imm00'
+import PageHeader from '@/components/common/PageHeader.vue'
 import type { ImmDeviceModel, AcAssetCategory } from '@/types/imm00'
 import { useFormDraft } from '@/composables/useFormDraft'
 
@@ -172,12 +173,18 @@ onMounted(load)
 
 <template>
   <div class="page-container animate-fade-in space-y-5">
-    <div class="flex items-center justify-between">
-      <h1 class="text-xl font-semibold text-gray-800">
-        {{ isEdit ? `Sửa Model thiết bị — ${name}` : 'Thêm Model thiết bị' }}
-      </h1>
-      <button v-if="isEdit" class="text-red-600 hover:text-red-800 text-sm font-medium" @click="remove">Xóa</button>
-    </div>
+    <PageHeader
+      back-to="/device-models"
+      :title="isEdit ? `Sửa Model thiết bị — ${name}` : 'Thêm Model thiết bị'"
+      :breadcrumb="[
+        { label: 'Model thiết bị', to: '/device-models' },
+        { label: isEdit && name ? name : 'Tạo mới' },
+      ]"
+    >
+      <template #actions>
+        <button v-if="isEdit" class="text-red-600 hover:text-red-800 text-sm font-medium" @click="remove">Xóa</button>
+      </template>
+    </PageHeader>
 
     <div v-if="err" class="bg-red-50 text-red-700 p-3 rounded-lg text-sm">{{ err }}</div>
 
@@ -236,7 +243,7 @@ onMounted(load)
         </div>
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">Tuổi thọ dự kiến (năm)</label>
-          <input v-model.number="form.expected_lifespan_years" type="number" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+          <input v-model.number="form.expected_lifespan_years" type="number" min="0" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
         </div>
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">Phân loại thiết bị y tế <span class="text-red-500">*</span></label>
@@ -282,11 +289,11 @@ onMounted(load)
         <div v-if="form.is_pm_required" class="grid grid-cols-1 sm:grid-cols-2 gap-4 pl-6">
           <div>
             <label class="block text-xs font-medium text-gray-700 mb-1">PM Interval (ngày)</label>
-            <input v-model.number="form.pm_interval_days" type="number" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+            <input v-model.number="form.pm_interval_days" type="number" min="0" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
           </div>
           <div>
             <label class="block text-xs font-medium text-gray-700 mb-1">PM Alert trước (ngày)</label>
-            <input v-model.number="form.pm_alert_days" type="number" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+            <input v-model.number="form.pm_alert_days" type="number" min="0" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
           </div>
         </div>
         <label class="flex items-center gap-2 text-sm">
@@ -295,11 +302,11 @@ onMounted(load)
         <div v-if="form.is_calibration_required" class="grid grid-cols-1 sm:grid-cols-2 gap-4 pl-6">
           <div>
             <label class="block text-xs font-medium text-gray-700 mb-1">Chu kỳ hiệu chuẩn (ngày)</label>
-            <input v-model.number="form.calibration_interval_days" type="number" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+            <input v-model.number="form.calibration_interval_days" type="number" min="0" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
           </div>
           <div>
             <label class="block text-xs font-medium text-gray-700 mb-1">Alert hiệu chuẩn trước (ngày)</label>
-            <input v-model.number="form.calibration_alert_days" type="number" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+            <input v-model.number="form.calibration_alert_days" type="number" min="0" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
           </div>
         </div>
       </div>

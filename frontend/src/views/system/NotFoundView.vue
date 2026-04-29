@@ -14,7 +14,7 @@ const route = useRoute()
         Đường dẫn <code class="px-1.5 py-0.5 bg-gray-100 rounded text-xs">{{ route.fullPath }}</code> không tồn tại.
       </p>
       <div class="flex gap-3 justify-center pt-2">
-        <button class="btn-ghost" @click="router.back()">← Quay lại</button>
+        <button class="btn-ghost" @click="router.push('/')">← Quay lại</button>
         <button class="btn-primary" @click="router.push('/dashboard')">Về Dashboard</button>
       </div>
     </div>

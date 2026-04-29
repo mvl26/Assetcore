@@ -73,7 +73,7 @@ async function submit() {
 <template>
   <div class="page-container animate-fade-in space-y-6">
     <div class="flex items-center gap-3">
-      <button class="text-gray-500 hover:text-gray-700 text-sm" @click="router.back()">← Quay lại</button>
+      <button class="text-gray-500 hover:text-gray-700 text-sm" @click="router.push('/incidents/list')">← Quay lại</button>
       <h1 class="text-xl font-semibold text-gray-800">Tạo Incident Report</h1>
     </div>
 

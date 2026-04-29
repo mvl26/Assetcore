@@ -121,9 +121,8 @@ def get_spare_part_uom_info(spare_part: str) -> dict:
 def seed_ac_uoms() -> list[str]:
     """Tạo các AC UOM y tế chuẩn Việt Nam nếu chưa tồn tại."""
     entries = [
-        # Đơn vị đếm
-        {"uom_name": "Nos",    "symbol": "nos",  "must_be_whole_number": 1, "description": "Numbers (mặc định)"},
-        {"uom_name": "Cái",    "symbol": "cái",  "must_be_whole_number": 1},
+        # Đơn vị đếm tiếng Việt — "Cái" là mặc định khi không chọn
+        {"uom_name": "Cái",    "symbol": "cái",  "must_be_whole_number": 1, "description": "Đơn vị mặc định"},
         {"uom_name": "Hộp",    "symbol": "hộp",  "must_be_whole_number": 1},
         {"uom_name": "Thùng",  "symbol": "thùng","must_be_whole_number": 1},
         {"uom_name": "Bộ",     "symbol": "bộ",   "must_be_whole_number": 1},
@@ -137,13 +136,6 @@ def seed_ac_uoms() -> list[str]:
         {"uom_name": "Máy",    "symbol": "máy",  "must_be_whole_number": 1},
         {"uom_name": "Bình",   "symbol": "bình", "must_be_whole_number": 1},
         {"uom_name": "Chai",   "symbol": "chai", "must_be_whole_number": 1},
-        # Đo lường
-        {"uom_name": "mL",     "symbol": "mL",   "must_be_whole_number": 0},
-        {"uom_name": "L",      "symbol": "L",    "must_be_whole_number": 0},
-        {"uom_name": "mg",     "symbol": "mg",   "must_be_whole_number": 0},
-        {"uom_name": "g",      "symbol": "g",    "must_be_whole_number": 0},
-        {"uom_name": "cm",     "symbol": "cm",   "must_be_whole_number": 0},
-        {"uom_name": "mm",     "symbol": "mm",   "must_be_whole_number": 0},
     ]
     created = []
     for item in entries:

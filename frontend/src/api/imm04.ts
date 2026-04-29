@@ -80,7 +80,7 @@ export async function generateQrLabel(name: string): Promise<QrLabelData> {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Submit phiếu commissioning (chỉ VP Block2 / Workshop Head).
+ * Submit phiếu commissioning (chỉ IMM Operations Manager / IMM Workshop Lead).
  */
 export async function submitCommissioning(
   name: string,

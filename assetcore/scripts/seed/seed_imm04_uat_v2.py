@@ -237,7 +237,7 @@ def _seed_items_and_pos(erpnext_suppliers: list[str]) -> list[str]:
     for item_code, item_name, idx, supplier, price in items_po:
         _upsert(_DT_ITEM, {"item_code": item_code}, {
             "item_code": item_code, "item_name": item_name,
-            "item_group": _CATEGORY, "stock_uom": "Nos",
+            "item_group": _CATEGORY, "stock_uom": "Cái",
             "is_fixed_asset": 1, "is_stock_item": 0,
             "asset_category": _CATEGORY,
         }, ignore_mandatory=True)

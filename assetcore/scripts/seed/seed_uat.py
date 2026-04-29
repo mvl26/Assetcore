@@ -312,7 +312,6 @@ def _seed_sla_policies() -> list[str]:
             "risk_class": risk,
             "response_time_minutes": resp_min,
             "resolution_time_hours": res_hr,
-            "working_hours_only": 0,
             "is_active": 1,
             "is_default": is_default,
         })

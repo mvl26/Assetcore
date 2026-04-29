@@ -6,6 +6,7 @@ export type LifecycleStatus =
   | 'Out of Service' | 'Decommissioned'
 
 export type RiskClass = 'Low' | 'Medium' | 'High' | 'Critical'
+export type Priority = 'P1 Critical' | 'P1 High' | 'P2' | 'P3' | 'P4'
 export type MedicalDeviceClass = 'Class I' | 'Class II' | 'Class III'
 export type CapaSeverity = 'Minor' | 'Major' | 'Critical'
 export type CapaStatus = 'Open' | 'In Progress' | 'Pending Verification' | 'Closed' | 'Overdue'
@@ -258,10 +259,9 @@ export interface ImmSlaPolicy {
   is_default?: 0 | 1
   response_time_minutes: number
   resolution_time_hours: number
-  working_hours_only?: 0 | 1
-  escalation_l1_role?: string
+  escalation_l1_user?: string
   escalation_l1_hours?: number
-  escalation_l2_role?: string
+  escalation_l2_user?: string
   escalation_l2_hours?: number
   effective_date?: string
   expiry_date?: string
@@ -372,6 +372,7 @@ export interface ServiceContract {
   auto_renew?: 0 | 1
   sla_response_hours?: number
   coverage_description?: string
+  notes?: string
   covered_assets?: ServiceContractAsset[]
 }
 

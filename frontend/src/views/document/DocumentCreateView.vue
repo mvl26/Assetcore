@@ -169,7 +169,7 @@ async function handleSubmit() {
 }
 
 function goBack() {
-  router.back()
+  router.push('/documents')
 }
 </script>
 

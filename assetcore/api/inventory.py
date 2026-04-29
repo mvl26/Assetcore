@@ -230,7 +230,7 @@ def create_spare_part() -> dict:
         "manufacturer_part_no": data.get("manufacturer_part_no"),
         "preferred_supplier": data.get("preferred_supplier"),
         "unit_cost": float(data.get("unit_cost") or 0),
-        "stock_uom": data.get("stock_uom") or "Nos",
+        "stock_uom": data.get("stock_uom") or "Cái",
         "purchase_uom": data.get("purchase_uom") or "",
         "min_stock_level": int(data.get("min_stock_level") or 0),
         "max_stock_level": int(data.get("max_stock_level") or 0),

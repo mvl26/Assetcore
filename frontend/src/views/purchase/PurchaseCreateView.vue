@@ -9,6 +9,7 @@ import type { PurchaseItem, CreatePurchaseDevicePayload } from '@/api/purchase'
 import { searchParts } from '@/api/inventory'
 import type { SparePart } from '@/types/inventory'
 import SmartSelect from '@/components/common/SmartSelect.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
 import { useFieldsDraft } from '@/composables/useFormDraft'
 
 const router = useRouter()
@@ -182,11 +183,16 @@ function vnd(v?: number) {
 
 <template>
   <div class="page-container animate-fade-in">
-    <button class="btn-ghost mb-4" @click="router.push('/purchases')">← Quay lại</button>
+    <PageHeader
+      back-to="/purchases"
+      title="Tạo đơn mua hàng"
+      :breadcrumb="[
+        { label: 'Đơn mua hàng', to: '/purchases' },
+        { label: 'Tạo mới' },
+      ]"
+    />
 
     <div class="mb-6">
-      <p class="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-1">Mua hàng</p>
-      <h1 class="text-2xl font-bold text-slate-900">Tạo đơn mua hàng</h1>
       <p class="text-xs text-slate-500 mt-1">
         PO có thể chứa <b>thiết bị y tế</b> (→ phiếu tiếp nhận) <b>hoặc</b> <b>phụ tùng</b> (→ phiếu nhập kho) — không bắt buộc cả hai.
       </p>
