@@ -1,356 +1,513 @@
 {
-  "actions": [],
-  "autoname": "WO-CM-.YYYY.-.#####",
-  "naming_rule": "Expression (old style)",
-  "creation": "2026-04-17 09:00:00.000000",
-  "doctype": "DocType",
-  "document_type": "Document",
-  "engine": "InnoDB",
-  "is_submittable": 1,
-  "module": "AssetCore",
-  "name": "Asset Repair",
-  "track_changes": 1,
-  "field_order": [
-    "asset_ref",
-    "asset_name",
-    "asset_category",
-    "risk_class",
-    "serial_no",
-    "col_break_1",
-    "incident_report",
-    "source_pm_wo",
-    "repair_type",
-    "priority",
-    "status",
-    "section_time",
-    "open_datetime",
-    "assigned_datetime",
-    "completion_datetime",
-    "col_break_2",
-    "sla_target_hours",
-    "mttr_hours",
-    "sla_breached",
-    "is_repeat_failure",
-    "section_assign",
-    "assigned_to",
-    "assigned_by",
-    "section_diagnosis",
-    "diagnosis_notes",
-    "root_cause_category",
-    "repair_summary",
-    "section_parts",
-    "spare_parts_used",
-    "total_parts_cost",
-    "section_checklist",
-    "repair_checklist",
-    "section_firmware",
-    "firmware_updated",
-    "firmware_change_request",
-    "section_confirmation",
-    "dept_head_name",
-    "dept_head_confirmation_datetime",
-    "section_misc",
-    "is_warranty_claim",
-    "warranty_claim_ref",
-    "cannot_repair_reason",
-    "technician_notes",
-    "attachments",
-    "workflow_state"
-  ],
-  "fields": [
-    {
-      "fieldname": "asset_ref",
-      "fieldtype": "Link",
-      "label": "Thiết bị",
-      "options": "AC Asset",
-      "reqd": 1,
-      "in_list_view": 1,
-      "search_index": 1
-    },
-    {
-      "fieldname": "asset_name",
-      "fieldtype": "Data",
-      "label": "Tên thiết bị",
-      "read_only": 1,
-      "fetch_from": "asset_ref.asset_name"
-    },
-    {
-      "fieldname": "asset_category",
-      "fieldtype": "Data",
-      "label": "Danh mục",
-      "read_only": 1,
-      "fetch_from": "asset_ref.asset_category"
-    },
-    {
-      "fieldname": "risk_class",
-      "fieldtype": "Select",
-      "label": "Phân loại nguy cơ",
-      "options": "Class I\nClass II\nClass III",
-      "read_only": 1
-    },
-    {
-      "fieldname": "serial_no",
-      "fieldtype": "Data",
-      "label": "Số serial",
-      "read_only": 1
-    },
-    {
-      "fieldname": "col_break_1",
-      "fieldtype": "Column Break"
-    },
-    {
-      "fieldname": "incident_report",
-      "fieldtype": "Link",
-      "label": "Incident Report",
-      "options": "Incident Report"
-    },
-    {
-      "fieldname": "source_pm_wo",
-      "fieldtype": "Link",
-      "label": "PM Work Order liên kết",
-      "options": "PM Work Order"
-    },
-    {
-      "fieldname": "repair_type",
-      "fieldtype": "Select",
-      "label": "Loại sửa chữa",
-      "options": "Corrective\nEmergency\nWarranty Repair",
-      "reqd": 1,
-      "in_list_view": 1
-    },
-    {
-      "fieldname": "priority",
-      "fieldtype": "Select",
-      "label": "Ưu tiên",
-      "options": "Normal\nUrgent\nEmergency",
-      "reqd": 1,
-      "default": "Normal",
-      "in_list_view": 1
-    },
-    {
-      "fieldname": "status",
-      "fieldtype": "Select",
-      "label": "Trạng thái",
-      "options": "Open\nAssigned\nDiagnosing\nPending Parts\nIn Repair\nPending Inspection\nCompleted\nCannot Repair\nCancelled",
-      "default": "Open",
-      "in_list_view": 1
-    },
-    {
-      "fieldname": "section_time",
-      "fieldtype": "Section Break",
-      "label": "Thời gian"
-    },
-    {
-      "fieldname": "open_datetime",
-      "fieldtype": "Datetime",
-      "label": "Thời gian mở",
-      "read_only": 1
-    },
-    {
-      "fieldname": "assigned_datetime",
-      "fieldtype": "Datetime",
-      "label": "Thời gian phân công",
-      "read_only": 1
-    },
-    {
-      "fieldname": "completion_datetime",
-      "fieldtype": "Datetime",
-      "label": "Thời gian hoàn thành",
-      "read_only": 1
-    },
-    {
-      "fieldname": "col_break_2",
-      "fieldtype": "Column Break"
-    },
-    {
-      "fieldname": "sla_target_hours",
-      "fieldtype": "Float",
-      "label": "SLA mục tiêu (giờ)",
-      "read_only": 1
-    },
-    {
-      "fieldname": "mttr_hours",
-      "fieldtype": "Float",
-      "label": "MTTR (giờ)",
-      "read_only": 1
-    },
-    {
-      "fieldname": "sla_breached",
-      "fieldtype": "Check",
-      "label": "Vi phạm SLA",
-      "read_only": 1
-    },
-    {
-      "fieldname": "is_repeat_failure",
-      "fieldtype": "Check",
-      "label": "Lỗi lặp lại",
-      "read_only": 1
-    },
-    {
-      "fieldname": "section_assign",
-      "fieldtype": "Section Break",
-      "label": "Phân công"
-    },
-    {
-      "fieldname": "assigned_to",
-      "fieldtype": "Link",
-      "label": "KTV thực hiện",
-      "options": "User",
-      "in_list_view": 1
-    },
-    {
-      "fieldname": "assigned_by",
-      "fieldtype": "Link",
-      "label": "Người phân công",
-      "options": "User",
-      "read_only": 1
-    },
-    {
-      "fieldname": "section_diagnosis",
-      "fieldtype": "Section Break",
-      "label": "Chẩn đoán"
-    },
-    {
-      "fieldname": "diagnosis_notes",
-      "fieldtype": "Text",
-      "label": "Kết quả chẩn đoán"
-    },
-    {
-      "fieldname": "root_cause_category",
-      "fieldtype": "Select",
-      "label": "Nguyên nhân gốc",
-      "options": "Mechanical\nElectrical\nSoftware\nUser Error\nWear and Tear\nUnknown"
-    },
-    {
-      "fieldname": "repair_summary",
-      "fieldtype": "Text",
-      "label": "Tóm tắt sửa chữa"
-    },
-    {
-      "fieldname": "section_parts",
-      "fieldtype": "Section Break",
-      "label": "Vật tư sử dụng"
-    },
-    {
-      "fieldname": "spare_parts_used",
-      "fieldtype": "Table",
-      "label": "Vật tư sử dụng",
-      "options": "Spare Parts Used"
-    },
-    {
-      "fieldname": "total_parts_cost",
-      "fieldtype": "Currency",
-      "label": "Tổng chi phí vật tư",
-      "read_only": 1
-    },
-    {
-      "fieldname": "section_checklist",
-      "fieldtype": "Section Break",
-      "label": "Checklist nghiệm thu"
-    },
-    {
-      "fieldname": "repair_checklist",
-      "fieldtype": "Table",
-      "label": "Checklist sửa chữa",
-      "options": "Repair Checklist"
-    },
-    {
-      "fieldname": "section_firmware",
-      "fieldtype": "Section Break",
-      "label": "Firmware"
-    },
-    {
-      "fieldname": "firmware_updated",
-      "fieldtype": "Check",
-      "label": "Đã cập nhật firmware"
-    },
-    {
-      "fieldname": "firmware_change_request",
-      "fieldtype": "Link",
-      "label": "Firmware Change Request",
-      "options": "Firmware Change Request"
-    },
-    {
-      "fieldname": "section_confirmation",
-      "fieldtype": "Section Break",
-      "label": "Nghiệm thu trưởng khoa"
-    },
-    {
-      "fieldname": "dept_head_name",
-      "fieldtype": "Data",
-      "label": "Tên trưởng khoa xác nhận"
-    },
-    {
-      "fieldname": "dept_head_confirmation_datetime",
-      "fieldtype": "Datetime",
-      "label": "Thời gian xác nhận trưởng khoa",
-      "read_only": 1
-    },
-    {
-      "fieldname": "section_misc",
-      "fieldtype": "Section Break",
-      "label": "Thông tin thêm"
-    },
-    {
-      "fieldname": "is_warranty_claim",
-      "fieldtype": "Check",
-      "label": "Bảo hành"
-    },
-    {
-      "fieldname": "warranty_claim_ref",
-      "fieldtype": "Data",
-      "label": "Số bảo hành"
-    },
-    {
-      "fieldname": "cannot_repair_reason",
-      "fieldtype": "Text",
-      "label": "Lý do không sửa được"
-    },
-    {
-      "fieldname": "technician_notes",
-      "fieldtype": "Text",
-      "label": "Ghi chú KTV"
-    },
-    {
-      "fieldname": "attachments",
-      "fieldtype": "Attach Multiple",
-      "label": "Ảnh đính kèm"
-    },
-    {
-      "fieldname": "workflow_state",
-      "fieldtype": "Link",
-      "label": "Workflow State",
-      "options": "Workflow State",
-      "read_only": 1,
-      "hidden": 1
-    }
-  ],
-  "modified": "2026-04-17 09:00:00.000000",
-  "modified_by": "Administrator",
-  "owner": "Administrator",
-  "permissions": [
-    {
-      "role": "HTM Technician",
-      "read": 1,
-      "write": 1,
-      "if_owner": 1
-    },
-    {
-      "role": "Workshop Manager",
-      "read": 1,
-      "write": 1,
-      "create": 1,
-      "submit": 1,
-      "cancel": 1
-    },
-    {
-      "role": "CMMS Admin",
-      "read": 1,
-      "write": 1,
-      "create": 1,
-      "submit": 1,
-      "cancel": 1,
-      "delete": 1
-    }
-  ]
+ "actions": [],
+ "autoname": "WO-CM-.YYYY.-.#####",
+ "naming_rule": "Expression (old style)",
+ "creation": "2026-04-17 09:00:00.000000",
+ "doctype": "DocType",
+ "document_type": "Document",
+ "engine": "InnoDB",
+ "is_submittable": 1,
+ "module": "AssetCore",
+ "name": "Asset Repair",
+ "track_changes": 1,
+ "field_order": [
+  "asset_ref",
+  "asset_name",
+  "asset_category",
+  "risk_class",
+  "serial_no",
+  "col_break_1",
+  "incident_report",
+  "source_pm_wo",
+  "repair_type",
+  "priority",
+  "status",
+  "section_time",
+  "open_datetime",
+  "assigned_datetime",
+  "completion_datetime",
+  "col_break_2",
+  "sla_target_hours",
+  "mttr_hours",
+  "sla_breached",
+  "is_repeat_failure",
+  "section_assign",
+  "assigned_to",
+  "assigned_by",
+  "section_diagnosis",
+  "diagnosis_notes",
+  "root_cause_category",
+  "repair_summary",
+  "section_parts",
+  "spare_parts_used",
+  "total_parts_cost",
+  "section_checklist",
+  "repair_checklist",
+  "section_firmware",
+  "firmware_updated",
+  "firmware_change_request",
+  "section_confirmation",
+  "dept_head_name",
+  "dept_head_confirmation_datetime",
+  "section_misc",
+  "is_warranty_claim",
+  "warranty_claim_ref",
+  "cannot_repair_reason",
+  "technician_notes",
+  "attachments",
+  "workflow_state"
+ ],
+ "fields": [
+  {
+   "fieldname": "asset_ref",
+   "fieldtype": "Link",
+   "label": "Thiết bị",
+   "options": "AC Asset",
+   "reqd": 1,
+   "in_list_view": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "asset_name",
+   "fieldtype": "Data",
+   "label": "Tên thiết bị",
+   "read_only": 1,
+   "fetch_from": "asset_ref.asset_name"
+  },
+  {
+   "fieldname": "asset_category",
+   "fieldtype": "Data",
+   "label": "Danh mục",
+   "read_only": 1,
+   "fetch_from": "asset_ref.asset_category"
+  },
+  {
+   "fieldname": "risk_class",
+   "fieldtype": "Select",
+   "label": "Phân loại nguy cơ",
+   "options": "Class I\nClass II\nClass III",
+   "read_only": 1
+  },
+  {
+   "fieldname": "serial_no",
+   "fieldtype": "Data",
+   "label": "Số serial",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "incident_report",
+   "fieldtype": "Link",
+   "label": "Incident Report",
+   "options": "Incident Report"
+  },
+  {
+   "fieldname": "source_pm_wo",
+   "fieldtype": "Link",
+   "label": "PM Work Order liên kết",
+   "options": "PM Work Order"
+  },
+  {
+   "fieldname": "repair_type",
+   "fieldtype": "Select",
+   "label": "Loại sửa chữa",
+   "options": "Corrective\nEmergency\nWarranty Repair",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "priority",
+   "fieldtype": "Select",
+   "label": "Ưu tiên",
+   "options": "Normal\nUrgent\nEmergency",
+   "reqd": 1,
+   "default": "Normal",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Trạng thái",
+   "options": "Open\nAssigned\nDiagnosing\nPending Parts\nIn Repair\nPending Inspection\nCompleted\nCannot Repair\nCancelled",
+   "default": "Open",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "section_time",
+   "fieldtype": "Section Break",
+   "label": "Thời gian"
+  },
+  {
+   "fieldname": "open_datetime",
+   "fieldtype": "Datetime",
+   "label": "Thời gian mở",
+   "read_only": 1
+  },
+  {
+   "fieldname": "assigned_datetime",
+   "fieldtype": "Datetime",
+   "label": "Thời gian phân công",
+   "read_only": 1
+  },
+  {
+   "fieldname": "completion_datetime",
+   "fieldtype": "Datetime",
+   "label": "Thời gian hoàn thành",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_break_2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "sla_target_hours",
+   "fieldtype": "Float",
+   "label": "SLA mục tiêu (giờ)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "mttr_hours",
+   "fieldtype": "Float",
+   "label": "MTTR (giờ)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sla_breached",
+   "fieldtype": "Check",
+   "label": "Vi phạm SLA",
+   "read_only": 1
+  },
+  {
+   "fieldname": "is_repeat_failure",
+   "fieldtype": "Check",
+   "label": "Lỗi lặp lại",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_assign",
+   "fieldtype": "Section Break",
+   "label": "Phân công"
+  },
+  {
+   "fieldname": "assigned_to",
+   "fieldtype": "Link",
+   "label": "KTV thực hiện",
+   "options": "User",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "assigned_by",
+   "fieldtype": "Link",
+   "label": "Người phân công",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_diagnosis",
+   "fieldtype": "Section Break",
+   "label": "Chẩn đoán"
+  },
+  {
+   "fieldname": "diagnosis_notes",
+   "fieldtype": "Text",
+   "label": "Kết quả chẩn đoán"
+  },
+  {
+   "fieldname": "root_cause_category",
+   "fieldtype": "Select",
+   "label": "Nguyên nhân gốc",
+   "options": "Mechanical\nElectrical\nSoftware\nUser Error\nWear and Tear\nUnknown"
+  },
+  {
+   "fieldname": "repair_summary",
+   "fieldtype": "Text",
+   "label": "Tóm tắt sửa chữa"
+  },
+  {
+   "fieldname": "section_parts",
+   "fieldtype": "Section Break",
+   "label": "Vật tư sử dụng"
+  },
+  {
+   "fieldname": "spare_parts_used",
+   "fieldtype": "Table",
+   "label": "Vật tư sử dụng",
+   "options": "Spare Parts Used"
+  },
+  {
+   "fieldname": "total_parts_cost",
+   "fieldtype": "Currency",
+   "label": "Tổng chi phí vật tư",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_checklist",
+   "fieldtype": "Section Break",
+   "label": "Checklist nghiệm thu"
+  },
+  {
+   "fieldname": "repair_checklist",
+   "fieldtype": "Table",
+   "label": "Checklist sửa chữa",
+   "options": "Repair Checklist"
+  },
+  {
+   "fieldname": "section_firmware",
+   "fieldtype": "Section Break",
+   "label": "Firmware"
+  },
+  {
+   "fieldname": "firmware_updated",
+   "fieldtype": "Check",
+   "label": "Đã cập nhật firmware"
+  },
+  {
+   "fieldname": "firmware_change_request",
+   "fieldtype": "Link",
+   "label": "Firmware Change Request",
+   "options": "Firmware Change Request"
+  },
+  {
+   "fieldname": "section_confirmation",
+   "fieldtype": "Section Break",
+   "label": "Nghiệm thu trưởng khoa"
+  },
+  {
+   "fieldname": "dept_head_name",
+   "fieldtype": "Data",
+   "label": "Tên trưởng khoa xác nhận"
+  },
+  {
+   "fieldname": "dept_head_confirmation_datetime",
+   "fieldtype": "Datetime",
+   "label": "Thời gian xác nhận trưởng khoa",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_misc",
+   "fieldtype": "Section Break",
+   "label": "Thông tin thêm"
+  },
+  {
+   "fieldname": "is_warranty_claim",
+   "fieldtype": "Check",
+   "label": "Bảo hành"
+  },
+  {
+   "fieldname": "warranty_claim_ref",
+   "fieldtype": "Data",
+   "label": "Số bảo hành"
+  },
+  {
+   "fieldname": "cannot_repair_reason",
+   "fieldtype": "Text",
+   "label": "Lý do không sửa được"
+  },
+  {
+   "fieldname": "technician_notes",
+   "fieldtype": "Text",
+   "label": "Ghi chú KTV"
+  },
+  {
+   "fieldname": "attachments",
+   "fieldtype": "Attach Multiple",
+   "label": "Ảnh đính kèm"
+  },
+  {
+   "fieldname": "workflow_state",
+   "fieldtype": "Link",
+   "label": "Workflow State",
+   "options": "Workflow State",
+   "read_only": 1,
+   "hidden": 1
+  }
+ ],
+ "modified": "2026-04-17 09:00:00.000000",
+ "modified_by": "Administrator",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "IMM System Admin",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "submit": 1,
+   "cancel": 1,
+   "amend": 1
+  },
+  {
+   "role": "IMM Operations Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "submit": 1,
+   "cancel": 1,
+   "amend": 1
+  },
+  {
+   "role": "IMM QA Officer",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0
+  },
+  {
+   "role": "IMM Auditor",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0
+  },
+  {
+   "role": "IMM Department Head",
+   "read": 1,
+   "write": 1,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "submit": 1,
+   "cancel": 0,
+   "amend": 0
+  },
+  {
+   "role": "IMM Deputy Department Head",
+   "read": 1,
+   "write": 1,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "submit": 1,
+   "cancel": 0,
+   "amend": 0
+  },
+  {
+   "role": "IMM Workshop Lead",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "submit": 1,
+   "cancel": 1,
+   "amend": 1
+  },
+  {
+   "role": "IMM Biomed Technician",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "submit": 1,
+   "cancel": 0,
+   "amend": 0
+  },
+  {
+   "role": "IMM Technician",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "submit": 1,
+   "cancel": 0,
+   "amend": 0
+  },
+  {
+   "role": "IMM Storekeeper",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0
+  },
+  {
+   "role": "IMM Document Officer",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0
+  },
+  {
+   "role": "Vendor Engineer",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "submit": 1,
+   "cancel": 0,
+   "amend": 0
+  }
+ ]
 }

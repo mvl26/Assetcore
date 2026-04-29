@@ -56,8 +56,8 @@ class PMScheduleStatus:
     ALLOWED = (ACTIVE, PAUSED, SUSPENDED)
 
 
-_LEGACY_ROLE_WORKSHOP = "Workshop Head"
-_LEGACY_ROLE_PTP = "VP Block2"
+_LEGACY_ROLE_WORKSHOP = "IMM Workshop Lead"
+_LEGACY_ROLE_PTP = "IMM Operations Manager"
 
 _MEASUREMENT_PASS_FAIL = "Pass/Fail"
 

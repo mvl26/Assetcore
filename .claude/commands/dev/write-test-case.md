@@ -1,5 +1,6 @@
 ---
 description: Write UAT test cases for an AssetCore IMM module or feature
+argument-hint: <feature or module>
 ---
 
 Write complete **UAT test cases** for: `$ARGUMENTS`

@@ -29,25 +29,119 @@
   "prev_hash"
  ],
  "fields": [
-  {"fieldname": "section_core", "fieldtype": "Section Break", "label": "Core"},
-  {"fieldname": "naming_series", "fieldtype": "Select", "label": "Series", "options": "IMM-AUD-.YYYY.-.#######", "reqd": 1},
-  {"fieldname": "asset", "fieldtype": "Link", "label": "Asset", "options": "AC Asset", "reqd": 1, "search_index": 1, "in_list_view": 1},
-  {"fieldname": "event_type", "fieldtype": "Select", "label": "Event Type", "options": "State Change\nCAPA\nMaintenance\nCalibration\nDocument\nIncident\nAudit\nSystem\nTransfer", "reqd": 1, "in_list_view": 1},
-  {"fieldname": "column_break_core", "fieldtype": "Column Break"},
-  {"fieldname": "timestamp", "fieldtype": "Datetime", "label": "Timestamp", "reqd": 1, "in_list_view": 1},
-  {"fieldname": "actor", "fieldtype": "Link", "label": "Actor", "options": "User", "reqd": 1, "search_index": 1},
-  {"fieldname": "section_ref", "fieldtype": "Section Break", "label": "Source Reference"},
-  {"fieldname": "ref_doctype", "fieldtype": "Data", "label": "Ref DocType"},
-  {"fieldname": "ref_name", "fieldtype": "Data", "label": "Ref Name"},
-  {"fieldname": "column_break_ref", "fieldtype": "Column Break"},
-  {"fieldname": "from_status", "fieldtype": "Data", "label": "From Status"},
-  {"fieldname": "to_status", "fieldtype": "Data", "label": "To Status"},
-  {"fieldname": "section_details", "fieldtype": "Section Break", "label": "Details"},
-  {"fieldname": "change_summary", "fieldtype": "Text", "label": "Change Summary"},
-  {"fieldname": "ip_address", "fieldtype": "Data", "label": "IP Address", "read_only": 1},
-  {"fieldname": "section_hash", "fieldtype": "Section Break", "label": "Hash Chain (SHA-256)"},
-  {"fieldname": "hash_sha256", "fieldtype": "Data", "label": "Hash SHA-256", "reqd": 1, "read_only": 1, "length": 64},
-  {"fieldname": "prev_hash", "fieldtype": "Data", "label": "Prev Hash", "read_only": 1, "length": 64}
+  {
+   "fieldname": "section_core",
+   "fieldtype": "Section Break",
+   "label": "Core"
+  },
+  {
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Series",
+   "options": "IMM-AUD-.YYYY.-.#######",
+   "reqd": 1
+  },
+  {
+   "fieldname": "asset",
+   "fieldtype": "Link",
+   "label": "Asset",
+   "options": "AC Asset",
+   "reqd": 1,
+   "search_index": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "event_type",
+   "fieldtype": "Select",
+   "label": "Event Type",
+   "options": "State Change\nCAPA\nMaintenance\nCalibration\nDocument\nIncident\nAudit\nSystem\nTransfer",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "column_break_core",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "timestamp",
+   "fieldtype": "Datetime",
+   "label": "Timestamp",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "actor",
+   "fieldtype": "Link",
+   "label": "Actor",
+   "options": "User",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "section_ref",
+   "fieldtype": "Section Break",
+   "label": "Source Reference"
+  },
+  {
+   "fieldname": "ref_doctype",
+   "fieldtype": "Data",
+   "label": "Ref DocType"
+  },
+  {
+   "fieldname": "ref_name",
+   "fieldtype": "Data",
+   "label": "Ref Name"
+  },
+  {
+   "fieldname": "column_break_ref",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "from_status",
+   "fieldtype": "Data",
+   "label": "From Status"
+  },
+  {
+   "fieldname": "to_status",
+   "fieldtype": "Data",
+   "label": "To Status"
+  },
+  {
+   "fieldname": "section_details",
+   "fieldtype": "Section Break",
+   "label": "Details"
+  },
+  {
+   "fieldname": "change_summary",
+   "fieldtype": "Text",
+   "label": "Change Summary"
+  },
+  {
+   "fieldname": "ip_address",
+   "fieldtype": "Data",
+   "label": "IP Address",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_hash",
+   "fieldtype": "Section Break",
+   "label": "Hash Chain (SHA-256)"
+  },
+  {
+   "fieldname": "hash_sha256",
+   "fieldtype": "Data",
+   "label": "Hash SHA-256",
+   "reqd": 1,
+   "read_only": 1,
+   "length": 64
+  },
+  {
+   "fieldname": "prev_hash",
+   "fieldtype": "Data",
+   "label": "Prev Hash",
+   "read_only": 1,
+   "length": 64
+  }
  ],
  "links": [],
  "modified": "2026-04-18 00:00:00.000000",
@@ -56,13 +150,42 @@
  "name": "IMM Audit Trail",
  "owner": "Administrator",
  "permissions": [
-  {"role": "IMM System Admin", "read": 1},
-  {"role": "IMM QA Officer", "read": 1},
-  {"role": "IMM Department Head", "read": 1},
-  {"role": "IMM Operations Manager", "read": 1},
-  {"role": "IMM Workshop Lead", "read": 1},
-  {"role": "IMM Technician", "read": 1},
-  {"role": "IMM Document Officer", "read": 1}
+  {
+   "role": "IMM System Admin",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM QA Officer",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Auditor",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  }
  ],
  "sort_field": "timestamp",
  "sort_order": "DESC",

@@ -90,7 +90,8 @@ const nextPendingRow = computed<DepreciationScheduleRow | null>(() =>
 
 <template>
   <div class="space-y-4">
-    <div v-if="toast"
+    <div
+v-if="toast"
          class="px-4 py-2 rounded-lg text-sm"
          :class="toastError ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'">
       {{ toast }}
@@ -183,7 +184,8 @@ const nextPendingRow = computed<DepreciationScheduleRow | null>(() =>
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-100">
-            <tr v-for="r in data.rows" :key="r.name"
+            <tr
+v-for="r in data.rows" :key="r.name"
                 :class="r.status === 'Executed' ? 'bg-emerald-50/20' : ''">
               <td class="px-4 py-2 font-mono text-xs text-slate-600">#{{ r.period_number }}</td>
               <td class="px-4 py-2 text-slate-700">{{ formatDate(r.scheduled_date) }}</td>
@@ -191,7 +193,8 @@ const nextPendingRow = computed<DepreciationScheduleRow | null>(() =>
               <td class="px-4 py-2 text-right text-red-600">−{{ vnd(r.accumulated_amount) }}</td>
               <td class="px-4 py-2 text-right text-emerald-700 font-medium">{{ vnd(r.remaining_value) }}</td>
               <td class="px-4 py-2 text-center">
-                <span class="inline-block px-2 py-0.5 rounded-full text-[11px] font-medium border"
+                <span
+class="inline-block px-2 py-0.5 rounded-full text-[11px] font-medium border"
                       :class="statusClass(r.status)">
                   {{ statusLabel(r.status) }}
                 </span>

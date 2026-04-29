@@ -210,6 +210,11 @@ export function formatDate(d?: string | null): string {
   return dt.toLocaleDateString('vi-VN')
 }
 
+/** Frappe Check fields (`tinyint`) đến từ JSON có thể là 0/1, '0'/'1', false/true, null. */
+export function isCheckOn(v: unknown): boolean {
+  return v === 1 || v === true || v === '1' || v === 'true'
+}
+
 /** 1,234,567 đ */
 export function formatCurrency(v?: number | null): string {
   if (v == null) return '0 đ'

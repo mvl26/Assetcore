@@ -18,10 +18,44 @@ _CLASS_RISK_MAP = {
 class IMMDeviceModel(Document):
     """IMM Device Model - Master template for a model line of medical devices."""
 
+    def before_insert(self) -> None:
+        """Inherit PM / Calibration defaults from Asset Category on creation."""
+        self._inherit_pm_calibration_defaults()
+
     def validate(self) -> None:
         """Enforce BR-00-01 class -> risk mapping."""
         self._auto_map_risk_classification()
         self._validate_unique_model_manufacturer()
+
+    def _inherit_pm_calibration_defaults(self) -> None:
+        """Copy PM / Calibration defaults from Asset Category if user hasn't set them.
+
+        Only fills fields that are empty (None / 0 / '') so explicit user input
+        is never overridden.
+        """
+        if not self.asset_category:
+            return
+        cat = frappe.db.get_value(
+            "AC Asset Category",
+            self.asset_category,
+            [
+                "default_pm_required",
+                "default_pm_interval_days",
+                "default_calibration_required",
+                "default_calibration_interval_days",
+            ],
+            as_dict=True,
+        )
+        if not cat:
+            return
+        if not self.is_pm_required and cat.get("default_pm_required"):
+            self.is_pm_required = 1
+            if not self.pm_interval_days and cat.get("default_pm_interval_days"):
+                self.pm_interval_days = cat["default_pm_interval_days"]
+        if not self.is_calibration_required and cat.get("default_calibration_required"):
+            self.is_calibration_required = 1
+            if not self.calibration_interval_days and cat.get("default_calibration_interval_days"):
+                self.calibration_interval_days = cat["default_calibration_interval_days"]
 
     def _auto_map_risk_classification(self) -> None:
         """BR-00-01: risk_classification auto-derived from medical_device_class + is_radiation_device."""

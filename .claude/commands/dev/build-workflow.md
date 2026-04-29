@@ -1,5 +1,6 @@
 ---
 description: Build a Frappe Workflow JSON definition for an AssetCore DocType
+argument-hint: <DocType name>
 ---
 
 Design and output a complete **Frappe Workflow** for the DocType: `$ARGUMENTS`

@@ -46,26 +46,30 @@ function createWorkOrder(item: UpcomingItem) {
         <h3 class="text-sm font-semibold text-slate-800">Cảnh báo hạn bảo trì / hiệu chuẩn</h3>
         <span class="text-xs text-slate-400">(30 ngày tới · {{ items.length }})</span>
       </div>
-      <button class="text-xs font-medium text-blue-600 hover:text-blue-800 transition-colors"
-              @click="router.push('/pm/schedules')">Xem lịch đầy đủ →</button>
+      <button
+class="text-xs font-medium text-blue-600 hover:text-blue-800 transition-colors"
+              @click="router.push('/pm/schedules')">
+Xem lịch đầy đủ →
+</button>
     </div>
 
     <!-- Empty -->
-    <div v-if="items.length === 0"
+    <div
+v-if="items.length === 0"
          class="px-5 py-10 text-center text-sm text-slate-400 italic">
       Không có lịch bảo trì/hiệu chuẩn sắp đến
     </div>
 
     <div v-else class="p-5 space-y-5">
-
-      <!-- Nhóm: Quá hạn -->
+<!-- Nhóm: Quá hạn -->
       <div v-if="grouped.overdue.length">
         <div class="flex items-center gap-2 mb-3">
           <span class="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
           <p class="text-xs font-bold text-red-600 uppercase tracking-wide">Quá hạn ({{ grouped.overdue.length }})</p>
         </div>
         <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
-          <div v-for="(it, i) in grouped.overdue" :key="`ov-${i}`"
+          <div
+v-for="(it, i) in grouped.overdue" :key="`ov-${i}`"
                class="group relative rounded-xl border border-red-200 bg-red-50/40 p-4 hover:shadow-md hover:-translate-y-0.5 transition-all cursor-pointer ring-1 ring-red-100"
                @click="router.push(`/assets/${it.asset}`)">
             <div class="flex items-start justify-between gap-2 mb-2">
@@ -100,7 +104,8 @@ function createWorkOrder(item: UpcomingItem) {
           <p class="text-xs font-bold text-orange-600 uppercase tracking-wide">Sắp đến hạn — ≤ 7 ngày ({{ grouped.urgent.length }})</p>
         </div>
         <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
-          <div v-for="(it, i) in grouped.urgent" :key="`urg-${i}`"
+          <div
+v-for="(it, i) in grouped.urgent" :key="`urg-${i}`"
                class="group relative rounded-xl border border-orange-200 bg-orange-50/40 p-4 hover:shadow-md hover:-translate-y-0.5 transition-all cursor-pointer"
                @click="router.push(`/assets/${it.asset}`)">
             <div class="flex items-start justify-between gap-2 mb-2">
@@ -121,7 +126,8 @@ function createWorkOrder(item: UpcomingItem) {
             </p>
             <!-- urgency bar -->
             <div class="mt-2.5 h-1 bg-slate-100 rounded-full overflow-hidden">
-              <div class="h-full rounded-full bg-orange-400 transition-all"
+              <div
+class="h-full rounded-full bg-orange-400 transition-all"
                    :style="{ width: it.days_until != null ? Math.max(0, 100 - (it.days_until / 7) * 100) + '%' : '0%' }" />
             </div>
             <button
@@ -140,13 +146,16 @@ function createWorkOrder(item: UpcomingItem) {
           <p class="text-xs font-bold text-slate-500 uppercase tracking-wide">Sắp tới ({{ grouped.upcoming.length }})</p>
         </div>
         <div class="divide-y divide-slate-50 rounded-xl border border-slate-100 overflow-hidden">
-          <div v-for="(it, i) in grouped.upcoming" :key="`up-${i}`"
+          <div
+v-for="(it, i) in grouped.upcoming" :key="`up-${i}`"
                class="flex items-center gap-3 px-4 py-3 hover:bg-slate-50 transition-colors cursor-pointer"
                @click="router.push(`/assets/${it.asset}`)">
             <!-- kind icon -->
-            <div :class="['w-7 h-7 rounded-lg flex items-center justify-center shrink-0',
+            <div
+:class="['w-7 h-7 rounded-lg flex items-center justify-center shrink-0',
                           it.kind === 'PM' ? 'bg-blue-50' : 'bg-purple-50']">
-              <svg class="w-3.5 h-3.5" :class="it.kind === 'PM' ? 'text-blue-600' : 'text-purple-600'"
+              <svg
+class="w-3.5 h-3.5" :class="it.kind === 'PM' ? 'text-blue-600' : 'text-purple-600'"
                    fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" :d="kindConfig(it.kind).icon" />
               </svg>
@@ -161,12 +170,14 @@ function createWorkOrder(item: UpcomingItem) {
             <span :class="['text-[11px] px-2 py-0.5 rounded font-medium shrink-0', dueConfig(it.days_until).badge]">
               {{ dueConfig(it.days_until).label }}
             </span>
-            <button class="shrink-0 text-[11px] font-medium text-blue-600 hover:underline"
-                    @click.stop="createWorkOrder(it)">+ Tạo</button>
+            <button
+class="shrink-0 text-[11px] font-medium text-blue-600 hover:underline"
+                    @click.stop="createWorkOrder(it)">
++ Tạo
+</button>
           </div>
         </div>
       </div>
-
-    </div>
+</div>
   </div>
 </template>

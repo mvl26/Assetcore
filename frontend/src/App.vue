@@ -5,6 +5,10 @@ import { useAuthStore } from '@/stores/auth'
 import AppLayout from '@/components/common/AppLayout.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import RouteErrorBoundary from '@/components/common/RouteErrorBoundary.vue'
+import ToastContainer from '@/components/common/ToastContainer.vue'
+import { useToast } from '@/composables/useToast'
+
+const toast = useToast()
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -17,10 +21,24 @@ onMounted(async () => {
   }
 })
 
-// Bắt lỗi top-level để không bị blank page khi component con throw
+// Bắt lỗi top-level để không bị blank page khi component con throw.
+// RouteErrorBoundary đã render fallback UI trong route view; ở đây chỉ log + toast.
 onErrorCaptured((err, _inst, info) => {
-  console.error('[App.vue] top-level error:', { message: (err as Error)?.message, info, err })
+  const msg = (err as Error)?.message ?? 'Lỗi không xác định'
+  console.error('[App.vue] top-level error:', { message: msg, info, err })
+  toast.error(msg)
   return true
+})
+
+// Bắt unhandled promise rejection (ví dụ: API throw không try/catch trong handler)
+window.addEventListener('unhandledrejection', (ev) => {
+  const reason = ev.reason
+  const msg = reason instanceof Error ? reason.message : String(reason)
+  if (!msg) return
+  // Không spam toast cho lỗi hệ thống đã được axios xử lý qua redirect (401/403)
+  if (msg.includes('Đang chuyển hướng')) return
+  console.error('[unhandledrejection]', reason)
+  toast.error(msg)
 })
 </script>
 
@@ -43,5 +61,6 @@ onErrorCaptured((err, _inst, info) => {
       <!-- Unauthenticated: bare router view (Login page) -->
       <RouterView v-else />
     </template>
+    <ToastContainer />
   </div>
 </template>

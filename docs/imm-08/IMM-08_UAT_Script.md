@@ -46,7 +46,7 @@ PM Checklist Template `PMCT-Mechanical Ventilator-Quarterly` với ≥ 5 items (
 
 User test: `ktv_test@hospital.vn` (HTM Technician), `wm_test@hospital.vn` (Workshop Head), `ptp_test@hospital.vn` (VP Block2).
 
-Seed script: `bench --site miyano execute assetcore.tests.uat_imm08.setup_seed`.
+Seed script: `bench --site miyano execute assetcore.scripts.uat.uat_imm08.setup_seed`.
 
 ---
 

@@ -10,47 +10,113 @@ app_license = "MIT"
 # ──────────────────────────────────────────────
 # Fixtures — IMM-00 v3 foundation
 # ──────────────────────────────────────────────
+_IMM_ROLES = [
+    "IMM System Admin",
+    "IMM Operations Manager",
+    "IMM Department Head",
+    "IMM Deputy Department Head",
+    "IMM Workshop Lead",
+    "IMM QA Officer",
+    "IMM Biomed Technician",
+    "IMM Technician",
+    "IMM Document Officer",
+    "IMM Storekeeper",
+    "IMM Clinical User",
+    "IMM Auditor",
+    "Vendor Engineer",
+]
+_IMM_ROLE_PROFILES = [
+    "IMM - System Administrator",
+    "IMM - Operations Manager",
+    "IMM - Department Head",
+    "IMM - Deputy Department Head",
+    "IMM - Workshop Lead",
+    "IMM - Biomed Technician",
+    "IMM - Field Technician",
+    "IMM - QA Officer",
+    "IMM - Internal Auditor",
+    "IMM - Storekeeper",
+    "IMM - Document Officer",
+    "IMM - Clinical User",
+    "IMM - Vendor Engineer",
+]
 fixtures = [
-    {"dt": "Role", "filters": [["name", "in", [
-        # IMM governance roles — primary
-        "IMM System Admin",
-        "IMM Operations Manager",
-        "IMM Department Head",
-        "IMM Deputy Department Head",
-        "IMM Workshop Lead",
-        "IMM QA Officer",
-        "IMM Biomed Technician",
-        "IMM Technician",
-        "IMM Document Officer",
-        "IMM Storekeeper",
-        "IMM Clinical User",
-        "IMM Auditor",
-        # Legacy operational roles (kept for backward compatibility, to be migrated)
-        "HTM Technician",
-        "CMMS Admin",
-        "Workshop Head",
-        "VP Block2",
-        "Biomed Engineer",
-        "Tổ HC-QLCL",
-        "Clinical Head",
-    ]]]},
+    {"dt": "Role", "filters": [["name", "in", _IMM_ROLES]]},
+    {"dt": "Role Profile", "filters": [["name", "in", _IMM_ROLE_PROFILES]]},
+    # Has Role rows trong Role Profile — đảm bảo bundle role được export đầy đủ
+    {"dt": "Has Role", "filters": [
+        ["parenttype", "=", "Role Profile"],
+        ["parent", "in", _IMM_ROLE_PROFILES],
+    ]},
     {"dt": "IMM SLA Policy"},
+    {"dt": "Workspace", "filters": [["name", "in", ["IMM Operations"]]]},
     {"dt": "Workflow", "filters": [["name", "in", [
         "AC Asset Lifecycle",
         "IMM-04 Workflow",
+        "IMM-05 Document Workflow",
+        "IMM-08 PM Workflow",
+        "IMM-09 Repair Workflow",
+        "IMM-11 Calibration Workflow",
+        "IMM-12 Incident Workflow",
+        "IMM-12 RCA Workflow",
     ]]]},
     {"dt": "Workflow State", "filters": [["name", "in", [
+        # AC Asset Lifecycle
         "Draft", "Commissioned", "Active",
         "Under Maintenance", "Under Repair", "Calibrating",
         "Out of Service", "Decommissioned",
+        # IMM-04 Asset Commissioning
+        "Pending Doc Verify", "To Be Installed", "Installing", "Identification",
+        "Initial Inspection", "Non Conformance", "Clinical Hold",
+        "Re Inspection", "Clinical Release", "Return To Vendor",
+        # IMM-05 Asset Document
+        "Pending Review", "Rejected", "Archived", "Expired",
+        # IMM-08 PM Work Order / IMM-09 Asset Repair / IMM-11 Calibration
+        "Open", "In Progress", "Pending–Device Busy", "Overdue",
+        "Halted–Major Failure", "Completed", "Cancelled",
+        "Assigned", "Diagnosing", "Pending Parts", "In Repair",
+        "Pending Inspection", "Cannot Repair",
+        "Scheduled", "Sent to Lab", "Certificate Received",
+        "Passed", "Failed", "Conditionally Passed",
+        # IMM-12 Incident / RCA
+        "Acknowledged", "Resolved", "RCA Required", "Closed",
+        "RCA In Progress",
     ]]]},
     {"dt": "Workflow Action Master", "filters": [["name", "in", [
+        # AC Asset Lifecycle
         "Commission", "Activate",
         "Bắt đầu bảo trì", "Hoàn thành bảo trì",
         "Bắt đầu sửa chữa", "Bắt đầu hiệu chuẩn", "Đưa ra khỏi sử dụng",
         "Hoàn thành sửa chữa", "Không thể sửa chữa",
         "Hiệu chuẩn đạt", "Hiệu chuẩn không đạt",
         "Khôi phục hoạt động", "Sửa chữa lại", "Thanh lý",
+        # IMM-04
+        "Gửi kiểm tra tài liệu", "Xác nhận đủ tài liệu", "Yêu cầu bổ sung tài liệu",
+        "Bắt đầu lắp đặt", "Báo cáo sự cố", "Lắp đặt hoàn thành", "Báo cáo DOA",
+        "Bắt đầu kiểm tra", "Phê duyệt phát hành", "Giữ lâm sàng",
+        "Báo cáo lỗi baseline", "Gỡ giữ lâm sàng", "Phê duyệt sau tái kiểm",
+        "Khắc phục xong", "Trả lại nhà cung cấp",
+        # IMM-05
+        "Gửi duyệt", "Phê duyệt", "Từ chối", "Gửi lại", "Lưu trữ", "Hủy bỏ",
+        # IMM-08
+        "Bắt đầu thực hiện", "Đánh dấu trễ hạn", "Hủy phiếu",
+        "Hoàn thành PM", "Báo lỗi nghiêm trọng", "Thiết bị bận - hoãn",
+        "Tiếp tục thực hiện", "Bắt đầu muộn", "Tiếp tục sau xử lý",
+        # IMM-09
+        "Phân công KTV", "Bắt đầu chẩn đoán", "Yêu cầu linh kiện",
+        "Linh kiện đã nhận - bắt đầu sửa", "Hoàn thành sửa chữa - chờ kiểm tra",
+        "Xác nhận hoàn thành", "Kiểm tra thất bại - sửa lại",
+        # IMM-11
+        "Gửi phòng hiệu chuẩn", "Hủy lịch", "Đạt hiệu chuẩn",
+        "Không đạt hiệu chuẩn", "Đạt có điều kiện", "Hủy hiệu chuẩn",
+        "Nhận chứng chỉ", "Phê duyệt đạt", "Phê duyệt không đạt",
+        "Phê duyệt có điều kiện", "CAPA hoàn tất - chuyển có điều kiện",
+        # IMM-12 Incident
+        "Tiếp nhận sự cố", "Hủy sự cố", "Bắt đầu xử lý",
+        "Đánh dấu đã giải quyết", "Yêu cầu RCA", "Đóng sự cố",
+        "RCA hoàn tất - đóng sự cố", "Mở lại điều tra", "Mở lại sự cố",
+        # IMM-12 RCA
+        "Bắt đầu phân tích RCA", "Hủy RCA", "Hoàn thành RCA",
     ]]]},
 ]
 

@@ -45,7 +45,8 @@
    "read_only": 1,
    "columns": 1,
    "options": "AC UOM",
-   "fetch_if_empty": 1
+   "fetch_if_empty": 1,
+   "default": "Cái"
   },
   {
    "fieldname": "qty",

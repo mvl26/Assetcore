@@ -27,7 +27,7 @@
   {
    "fieldname": "section_basic",
    "fieldtype": "Section Break",
-   "label": "Th\u00f4ng tin \u0111\u01a1n h\u00e0ng"
+   "label": "Thông tin đơn hàng"
   },
   {
    "fieldname": "naming_series",
@@ -40,7 +40,7 @@
   {
    "fieldname": "purchase_date",
    "fieldtype": "Datetime",
-   "label": "Ng\u00e0y \u0111\u1eb7t h\u00e0ng",
+   "label": "Ngày đặt hàng",
    "reqd": 1,
    "default": "Now",
    "in_list_view": 1
@@ -48,7 +48,7 @@
   {
    "fieldname": "status",
    "fieldtype": "Select",
-   "label": "Tr\u1ea1ng th\u00e1i",
+   "label": "Trạng thái",
    "options": "Draft\nSubmitted\nReceived\nCancelled",
    "default": "Draft",
    "read_only": 1,
@@ -62,7 +62,7 @@
   {
    "fieldname": "supplier",
    "fieldtype": "Link",
-   "label": "Nh\u00e0 cung c\u1ea5p",
+   "label": "Nhà cung cấp",
    "options": "AC Supplier",
    "reqd": 1,
    "in_list_view": 1,
@@ -71,52 +71,53 @@
   {
    "fieldname": "invoice_no",
    "fieldtype": "Data",
-   "label": "S\u1ed1 h\u00f3a \u0111\u01a1n / M\u00e3 PO",
+   "label": "Số hóa đơn / Mã PO",
    "in_list_view": 1
   },
   {
    "fieldname": "expected_delivery",
    "fieldtype": "Date",
-   "label": "Ng\u00e0y giao h\u00e0ng d\u1ef1 ki\u1ebfn"
+   "label": "Ngày giao hàng dự kiến"
   },
   {
    "fieldname": "section_devices",
    "fieldtype": "Section Break",
-   "label": "Thi\u1ebft b\u1ecb y t\u1ebf"
+   "label": "Thiết bị y tế"
   },
   {
    "fieldname": "devices",
    "fieldtype": "Table",
    "options": "AC Purchase Device Item",
-   "label": "Danh m\u1ee5c thi\u1ebft b\u1ecb"
+   "label": "Danh mục thiết bị",
+   "description": "Thiết bị y tế (→ phiếu tiếp nhận IMM-04). Có thể để trống nếu đơn hàng chỉ có phụ tùng."
   },
   {
    "fieldname": "section_items",
    "fieldtype": "Section Break",
-   "label": "Chi ti\u1ebft ph\u1ee5 t\u00f9ng"
+   "label": "Chi tiết phụ tùng"
   },
   {
    "fieldname": "items",
    "fieldtype": "Table",
-   "label": "Ph\u1ee5 t\u00f9ng",
+   "label": "Phụ tùng",
    "options": "AC Purchase Item",
-   "reqd": 1
+   "description": "Phụ tùng (→ phiếu nhập kho IMM-00). Có thể để trống nếu đơn hàng chỉ có thiết bị."
   },
   {
    "fieldname": "section_totals",
    "fieldtype": "Section Break",
-   "label": "T\u1ed5ng k\u1ebft"
+   "label": "Tổng kết"
   },
   {
    "fieldname": "total_value",
    "fieldtype": "Currency",
-   "label": "T\u1ed5ng gi\u00e1 tr\u1ecb",
+   "label": "Tổng giá trị",
    "read_only": 1
   },
   {
    "fieldname": "notes",
    "fieldtype": "Text",
-   "label": "Ghi ch\u00fa"
+   "label": "Ghi chú"
   }
  ],
  "index_web_pages_for_search": 1,
@@ -128,41 +129,184 @@
  "owner": "Administrator",
  "permissions": [
   {
-   "role": "System Manager",
-   "read": 1,
-   "write": 1,
-   "create": 1,
-   "delete": 1,
-   "submit": 1,
-   "cancel": 1,
-   "amend": 1
-  },
-  {
    "role": "IMM System Admin",
    "read": 1,
    "write": 1,
    "create": 1,
    "delete": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
    "submit": 1,
-   "cancel": 1
+   "cancel": 1,
+   "amend": 1
+  },
+  {
+   "role": "IMM Operations Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "submit": 1,
+   "cancel": 1,
+   "amend": 1
+  },
+  {
+   "role": "IMM QA Officer",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0
+  },
+  {
+   "role": "IMM Auditor",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0
+  },
+  {
+   "role": "IMM Department Head",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0
+  },
+  {
+   "role": "IMM Deputy Department Head",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0
+  },
+  {
+   "role": "IMM Workshop Lead",
+   "read": 1,
+   "write": 1,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "submit": 1,
+   "cancel": 0,
+   "amend": 0
+  },
+  {
+   "role": "IMM Biomed Technician",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0
+  },
+  {
+   "role": "IMM Technician",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0
   },
   {
    "role": "IMM Storekeeper",
    "read": 1,
    "write": 1,
    "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
    "submit": 1,
-   "cancel": 1
+   "cancel": 1,
+   "amend": 1
   },
   {
-   "role": "IMM Operations Manager",
+   "role": "IMM Document Officer",
    "read": 1,
-   "write": 1,
-   "submit": 1
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0
   },
   {
-   "role": "IMM Department Head",
-   "read": 1
+   "role": "Vendor Engineer",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 0,
+   "export": 0,
+   "print": 0,
+   "email": 0,
+   "share": 0,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0
   }
  ],
  "sort_field": "purchase_date",

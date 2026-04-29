@@ -76,26 +76,26 @@
   {
    "fieldname": "section_finance",
    "fieldtype": "Section Break",
-   "label": "Kh\u1ea5u hao / T\u00e0i ch\u00ednh (default)"
+   "label": "Khấu hao / Tài chính (default)"
   },
   {
    "fieldname": "default_depreciation_method",
    "fieldtype": "Select",
    "options": "\nStraight Line\nDouble Declining\nUnits of Production",
-   "label": "Ph\u01b0\u01a1ng ph\u00e1p kh\u1ea5u hao"
+   "label": "Phương pháp khấu hao"
   },
   {
    "fieldname": "total_depreciation_months",
    "fieldtype": "Int",
-   "label": "T\u1ed5ng s\u1ed1 th\u00e1ng kh\u1ea5u hao",
-   "description": "VD: 36 (3 n\u0103m) cho m\u00e1y t\u00ednh, 120 (10 n\u0103m) cho thi\u1ebft b\u1ecb y t\u1ebf"
+   "label": "Tổng số tháng khấu hao",
+   "description": "VD: 36 (3 năm) cho máy tính, 120 (10 năm) cho thiết bị y tế"
   },
   {
    "fieldname": "depreciation_frequency",
    "fieldtype": "Select",
    "options": "Monthly\nQuarterly\nYearly",
    "default": "Monthly",
-   "label": "T\u1ea7n su\u1ea5t kh\u1ea5u hao"
+   "label": "Tần suất khấu hao"
   },
   {
    "fieldname": "column_break_fin",
@@ -104,13 +104,13 @@
   {
    "fieldname": "default_residual_value_pct",
    "fieldtype": "Percent",
-   "label": "T\u1ec9 l\u1ec7 gi\u00e1 tr\u1ecb thu h\u1ed3i (%)",
-   "description": "Ph\u1ea7n c\u00f2n l\u1ea1i khi h\u1ebft kh\u1ea5u hao, v\u00ed d\u1ee5 5%"
+   "label": "Tỉ lệ giá trị thu hồi (%)",
+   "description": "Phần còn lại khi hết khấu hao, ví dụ 5%"
   },
   {
    "fieldname": "section_reg",
    "fieldtype": "Section Break",
-   "label": "Quy \u0111\u1ecbnh"
+   "label": "Quy định"
   },
   {
    "default": "0",
@@ -134,49 +134,160 @@
  "owner": "Administrator",
  "permissions": [
   {
+   "role": "IMM System Admin",
+   "read": 1,
+   "write": 1,
    "create": 1,
    "delete": 1,
-   "email": 1,
+   "report": 1,
    "export": 1,
-   "import": 1,
    "print": 1,
-   "read": 1,
-   "report": 1,
-   "role": "IMM System Admin",
-   "share": 1,
-   "write": 1
+   "email": 1,
+   "share": 1
   },
   {
-   "read": 1,
-   "report": 1,
-   "role": "IMM Department Head"
-  },
-  {
-   "create": 1,
-   "read": 1,
-   "report": 1,
    "role": "IMM Operations Manager",
-   "write": 1
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
   },
   {
+   "role": "IMM QA Officer",
    "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
    "report": 1,
-   "role": "IMM Workshop Lead"
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
   },
   {
+   "role": "IMM Auditor",
    "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
    "report": 1,
-   "role": "IMM Technician"
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
   },
   {
+   "role": "IMM Department Head",
    "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
    "report": 1,
-   "role": "IMM Document Officer"
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
   },
   {
+   "role": "IMM Deputy Department Head",
    "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
    "report": 1,
-   "role": "IMM QA Officer"
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Workshop Lead",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Biomed Technician",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Technician",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Storekeeper",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Document Officer",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Clinical User",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 0,
+   "export": 0,
+   "print": 0,
+   "email": 0,
+   "share": 0
+  },
+  {
+   "role": "Vendor Engineer",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 0,
+   "export": 0,
+   "print": 0,
+   "email": 0,
+   "share": 0
   }
  ],
  "row_format": "Dynamic",

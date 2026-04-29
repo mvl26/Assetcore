@@ -91,16 +91,18 @@ def after_install() -> None:
     create_user_custom_fields()
     _apply_rbac_matrix()
     _seed_role_profiles()
+    _apply_core_permissions()
 
 
 def after_migrate() -> None:
     create_user_custom_fields()
     _apply_rbac_matrix()
     _seed_role_profiles()
+    _apply_core_permissions()
 
 
 def _apply_rbac_matrix() -> None:
-    """Apply AssetCore RBAC matrix. Import locally để tránh circular trong fixture load."""
+    """Cleanup legacy DocPerm/Has Role. Import locally để tránh circular."""
     try:
         from assetcore.setup.setup_permissions import run as apply_permissions
         apply_permissions()
@@ -112,7 +114,7 @@ def _apply_rbac_matrix() -> None:
 
 
 def _seed_role_profiles() -> None:
-    """Tạo Role Profile (core DocType) cho các persona AssetCore."""
+    """Tạo Role Profile cho các persona AssetCore + cleanup legacy."""
     try:
         from assetcore.setup.setup_role_profiles import run as seed
         seed()
@@ -120,4 +122,16 @@ def _seed_role_profiles() -> None:
         frappe.log_error(
             frappe.get_traceback(),
             "AssetCore Role Profiles: setup_role_profiles.run failed",
+        )
+
+
+def _apply_core_permissions() -> None:
+    """Custom DocPerm cho Frappe core DocType — IMM role tự đủ quyền dùng desk."""
+    try:
+        from assetcore.setup.setup_core_permissions import run as apply_core
+        apply_core()
+    except Exception:
+        frappe.log_error(
+            frappe.get_traceback(),
+            "AssetCore Core Permissions: setup_core_permissions.run failed",
         )

@@ -46,3 +46,37 @@ class ACPurchase(Document):
     def on_cancel(self):
         self.status = "Cancelled"
         self.db_set("status", "Cancelled")
+        self._unlink_references()
+
+    def _unlink_references(self) -> None:
+        """Gỡ mọi Link 2 chiều liên quan tới purchase này để cho phép delete trên UI.
+
+        Why: Asset Commissioning.po_reference (reqd=1) trỏ tới AC Purchase, đồng thời
+        child AC Purchase Device Item.commissioning_ref trỏ ngược lại Asset Commissioning
+        → Frappe block delete cả 2 phía. Khi Cancel, gỡ ràng buộc để admin có thể xóa.
+        Dùng db.set_value để bypass `reqd` validate trên Asset Commissioning.
+        """
+        # Outbound: child rows của chính purchase này
+        for row in self.get("devices") or []:
+            if row.get("commissioning_ref"):
+                row.db_set("commissioning_ref", None, update_modified=False)
+
+        # Inbound: Asset Commissioning trỏ tới purchase này qua po_reference
+        linked_comms = frappe.get_all(
+            "Asset Commissioning",
+            filters={"po_reference": self.name},
+            pluck="name",
+        )
+        for name in linked_comms:
+            frappe.db.set_value(
+                "Asset Commissioning", name, "po_reference", None,
+                update_modified=False,
+            )
+
+        if linked_comms:
+            frappe.msgprint(
+                _("Đã gỡ liên kết PO khỏi {0} phiếu Commissioning: {1}").format(
+                    len(linked_comms), ", ".join(linked_comms)
+                ),
+                alert=True, indicator="orange",
+            )

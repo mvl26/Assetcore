@@ -23,7 +23,8 @@ withDefaults(
 
   <!-- Table skeleton -->
   <div v-else-if="variant === 'table'" class="space-y-0" aria-busy="true" aria-label="Đang tải...">
-    <div v-for="row in rows" :key="row"
+    <div
+v-for="row in rows" :key="row"
          class="flex items-center gap-4 px-5 py-3.5 border-b border-slate-100"
          :class="`stagger-${Math.min(row, 8)}`"
          style="animation: fadeIn 0.3s ease-out both">
@@ -62,7 +63,8 @@ withDefaults(
 
   <!-- List skeleton -->
   <div v-else-if="variant === 'list'" class="space-y-2" aria-busy="true">
-    <div v-for="i in rows" :key="i"
+    <div
+v-for="i in rows" :key="i"
          class="flex items-center gap-3 p-3 rounded-lg border border-slate-100"
          style="animation: fadeIn 0.25s ease-out both"
          :style="`animation-delay: ${(i - 1) * 40}ms`">

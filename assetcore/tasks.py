@@ -7,8 +7,8 @@ from frappe.utils import add_days, nowdate, date_diff
 from assetcore.utils.helpers import _get_role_emails, _safe_sendmail
 
 _ASSET_DOCUMENT = "Asset Document"
-_ROLE_WORKSHOP_HEAD = "Workshop Head"
-_ROLE_VP_BLOCK2 = "VP Block2"
+_ROLE_WORKSHOP_HEAD = "IMM Workshop Lead"
+_ROLE_VP_BLOCK2 = "IMM Operations Manager"
 
 
 def check_clinical_hold_aging():
@@ -36,7 +36,7 @@ def check_clinical_hold_aging():
 def _send_hold_alert(form, days_held):
 	"""Gửi cảnh báo qua email và in-app notification."""
 	# Lấy danh sách email cần báo
-	recipients = _get_role_emails([_ROLE_WORKSHOP_HEAD, "QA Risk Team"])
+	recipients = _get_role_emails([_ROLE_WORKSHOP_HEAD, "IMM QA Officer"])
 
 	message = f"""
 	<p>Phiếu lắp đặt <b>{form.name}</b> đang bị <b>TẠMH GIỮU (Clinical Hold)</b>
@@ -105,7 +105,7 @@ def _send_sla_alert(form, days_overdue):
 
 def send_pending_approvals_reminder():
 	"""
-	Cron (hourly): Nhắc nhở Approver (VP_Block2, Workshop Head)
+	Cron (hourly): Nhắc nhở Approver (VP_Block2, IMM Workshop Lead)
 	các phiếu đang chờ họ duyệt.
 	"""
 	pending_release = frappe.db.get_all(
@@ -144,9 +144,9 @@ def check_document_expiry():
 	"""
 	THRESHOLDS = {
 		90: {"level": "Info",     "roles": [_ROLE_WORKSHOP_HEAD]},
-		60: {"level": "Warning",  "roles": [_ROLE_WORKSHOP_HEAD, "Biomed Engineer"]},
+		60: {"level": "Warning",  "roles": [_ROLE_WORKSHOP_HEAD, "IMM Biomed Technician"]},
 		30: {"level": "Critical", "roles": [_ROLE_WORKSHOP_HEAD, _ROLE_VP_BLOCK2]},
-		0:  {"level": "Danger",   "roles": [_ROLE_WORKSHOP_HEAD, _ROLE_VP_BLOCK2, "QA Risk Team"]},
+		0:  {"level": "Danger",   "roles": [_ROLE_WORKSHOP_HEAD, _ROLE_VP_BLOCK2, "IMM QA Officer"]},
 	}
 
 	total_alerts = 0
@@ -437,7 +437,7 @@ def _update_asset_pm_status():
 
 
 def _send_no_template_alert(sched):
-	recipients = _get_role_emails(["CMMS Admin", "Workshop Head"])
+	recipients = _get_role_emails(["IMM System Admin", "IMM Workshop Lead"])
 	if recipients:
 		_safe_sendmail(
 			recipients=recipients,
@@ -447,7 +447,7 @@ def _send_no_template_alert(sched):
 
 
 def _notify_workshop_manager_new_wos(count: int):
-	recipients = _get_role_emails(["Workshop Head"])
+	recipients = _get_role_emails(["IMM Workshop Lead"])
 	if recipients:
 		_safe_sendmail(
 			recipients=recipients,
@@ -457,7 +457,7 @@ def _notify_workshop_manager_new_wos(count: int):
 
 
 def _alert_workshop_manager_overdue(wo, days: int):
-	recipients = _get_role_emails(["Workshop Head"])
+	recipients = _get_role_emails(["IMM Workshop Lead"])
 	asset_name = frappe.db.get_value("Asset", wo.asset_ref, "asset_name") or wo.asset_ref
 	if recipients:
 		_safe_sendmail(
@@ -468,18 +468,18 @@ def _alert_workshop_manager_overdue(wo, days: int):
 
 
 def _escalate_to_ptp(wo, days: int):
-	recipients = _get_role_emails(["VP Block2", "Workshop Head"])
+	recipients = _get_role_emails(["IMM Operations Manager", "IMM Workshop Lead"])
 	asset_name = frappe.db.get_value("Asset", wo.asset_ref, "asset_name") or wo.asset_ref
 	if recipients:
 		_safe_sendmail(
 			recipients=recipients,
 			subject=f"[KHẨN] PM WO {wo.name} quá hạn {days} ngày — Cần leo thang",
-			message=f"<p>🔴 PM Work Order <b>{wo.name}</b> ({asset_name}) quá hạn <b>{days} ngày</b>. Yêu cầu leo thang xử lý.</p>",
+			message=f"<p>🔴 PM Work Order <b>{wo.name}</b> ({asset_name}) quá hạn <b>{days} ngày</b>. Yêu cầu cấp bậc xử lý.</p>",
 		)
 
 
 def _escalate_to_director(wo, days: int):
-	recipients = _get_role_emails(["VP Block2", "Workshop Head", "System Manager"])
+	recipients = _get_role_emails(["IMM Operations Manager", "IMM Workshop Lead", "System Manager"])
 	asset_name = frappe.db.get_value("Asset", wo.asset_ref, "asset_name") or wo.asset_ref
 	if recipients:
 		_safe_sendmail(

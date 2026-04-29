@@ -31,15 +31,20 @@ const MAX_DAYS = 21
         <h3 class="text-sm font-semibold text-slate-800">Thiết bị đang sửa chữa</h3>
         <span class="text-xs text-slate-400 tabular-nums">({{ repairs.length }})</span>
       </div>
-      <button class="text-xs font-medium text-blue-600 hover:text-blue-800 transition-colors"
-              @click="router.push('/cm/work-orders')">Xem tất cả →</button>
+      <button
+class="text-xs font-medium text-blue-600 hover:text-blue-800 transition-colors"
+              @click="router.push('/cm/work-orders')">
+Xem tất cả →
+</button>
     </div>
 
     <!-- Empty state -->
-    <div v-if="repairs.length === 0"
+    <div
+v-if="repairs.length === 0"
          class="flex-1 flex flex-col items-center justify-center py-12 gap-2 text-slate-400">
       <svg class="w-10 h-10 opacity-30" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round"
+        <path
+stroke-linecap="round" stroke-linejoin="round"
               d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
       </svg>
       <p class="text-sm font-medium">Không có thiết bị nào đang sửa chữa</p>
@@ -54,7 +59,8 @@ const MAX_DAYS = 21
       >
         <!-- Row 1: priority dot + tên + badge trạng thái -->
         <div class="flex items-start gap-3">
-          <span class="mt-1.5 w-2 h-2 rounded-full shrink-0"
+          <span
+class="mt-1.5 w-2 h-2 rounded-full shrink-0"
                 :class="priorityConfig(r.priority).dot" />
           <div class="flex-1 min-w-0">
             <div class="flex items-center gap-2 flex-wrap">
@@ -71,14 +77,16 @@ const MAX_DAYS = 21
               <span v-if="r.department_name" class="before:content-['·'] before:mr-2">
                 {{ r.department_name }}
               </span>
-              <span v-if="r.priority !== 'Normal'" class="before:content-['·'] before:mr-2 font-medium"
+              <span
+v-if="r.priority !== 'Normal'" class="before:content-['·'] before:mr-2 font-medium"
                     :class="priorityConfig(r.priority).cls">
                 {{ priorityConfig(r.priority).label }}
               </span>
             </div>
           </div>
           <!-- ngày downtime -->
-          <span class="shrink-0 text-[11px] px-2 py-0.5 rounded font-semibold tabular-nums"
+          <span
+class="shrink-0 text-[11px] px-2 py-0.5 rounded font-semibold tabular-nums"
                 :class="downtimeConfig(r.downtime_days).badge">
             {{ r.downtime_days }}d
           </span>
@@ -87,7 +95,8 @@ const MAX_DAYS = 21
         <!-- Row 3: downtime progress bar -->
         <div class="mt-2.5 ml-5">
           <div class="h-1.5 bg-slate-100 rounded-full overflow-hidden">
-            <div class="h-full rounded-full transition-all duration-500"
+            <div
+class="h-full rounded-full transition-all duration-500"
                  :class="downtimeConfig(r.downtime_days).bar"
                  :style="{ width: Math.min((r.downtime_days / MAX_DAYS) * 100, 100) + '%' }" />
           </div>

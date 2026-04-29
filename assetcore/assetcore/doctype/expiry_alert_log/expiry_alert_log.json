@@ -1,93 +1,231 @@
 {
-  "name": "Expiry Alert Log",
-  "module": "AssetCore",
-  "autoname": "format:EAL-{YYYY}-{MM}-{#####}",
-  "naming_rule": "Expression",
-  "is_submittable": 0,
-  "track_changes": 0,
-  "fields": [
-    {
-      "fieldname": "asset_document",
-      "fieldtype": "Link",
-      "label": "Tài liệu",
-      "options": "Asset Document",
-      "reqd": 1,
-      "read_only": 1,
-      "in_list_view": 1,
-      "search_index": 1
-    },
-    {
-      "fieldname": "asset_ref",
-      "fieldtype": "Link",
-      "label": "Tài sản",
-      "options": "AC Asset",
-      "reqd": 1,
-      "read_only": 1,
-      "in_list_view": 1,
-      "search_index": 1
-    },
-    {
-      "fieldname": "doc_type_detail",
-      "fieldtype": "Data",
-      "label": "Loại Tài liệu",
-      "read_only": 1,
-      "in_list_view": 1
-    },
-    {
-      "fieldname": "col_break_1",
-      "fieldtype": "Column Break"
-    },
-    {
-      "fieldname": "expiry_date",
-      "fieldtype": "Date",
-      "label": "Ngày hết hạn",
-      "reqd": 1,
-      "read_only": 1
-    },
-    {
-      "fieldname": "days_remaining",
-      "fieldtype": "Int",
-      "label": "Số ngày còn lại",
-      "reqd": 1,
-      "read_only": 1
-    },
-    {
-      "fieldname": "alert_level",
-      "fieldtype": "Select",
-      "label": "Mức cảnh báo",
-      "options": "Info\nWarning\nCritical\nDanger",
-      "reqd": 1,
-      "read_only": 1,
-      "in_list_view": 1
-    },
-    {
-      "fieldname": "alert_date",
-      "fieldtype": "Date",
-      "label": "Ngày gửi cảnh báo",
-      "reqd": 1,
-      "read_only": 1,
-      "search_index": 1
-    },
-    {
-      "fieldname": "notified_users",
-      "fieldtype": "Small Text",
-      "label": "Đã thông báo",
-      "read_only": 1
-    }
-  ],
-  "permissions": [
-    {"role": "HTM Technician", "read": 1},
-    {"role": "Biomed Engineer", "read": 1},
-    {"role": "Tổ HC-QLCL", "read": 1},
-    {"role": "Workshop Head", "read": 1},
-    {"role": "VP Block2", "read": 1},
-    {"role": "CMMS Admin", "read": 1, "write": 1, "create": 1, "delete": 1}
-  ],
-  "sort_field": "alert_date",
-  "sort_order": "DESC",
-  "creation": "2026-04-17 00:00:00",
-  "modified": "2026-04-17 00:00:00",
-  "modified_by": "Administrator",
-  "owner": "Administrator",
-  "doctype": "DocType"
+ "name": "Expiry Alert Log",
+ "module": "AssetCore",
+ "autoname": "format:EAL-{YYYY}-{MM}-{#####}",
+ "naming_rule": "Expression",
+ "is_submittable": 0,
+ "track_changes": 0,
+ "fields": [
+  {
+   "fieldname": "asset_document",
+   "fieldtype": "Link",
+   "label": "Tài liệu",
+   "options": "Asset Document",
+   "reqd": 1,
+   "read_only": 1,
+   "in_list_view": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "asset_ref",
+   "fieldtype": "Link",
+   "label": "Tài sản",
+   "options": "AC Asset",
+   "reqd": 1,
+   "read_only": 1,
+   "in_list_view": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "doc_type_detail",
+   "fieldtype": "Data",
+   "label": "Loại Tài liệu",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "col_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "expiry_date",
+   "fieldtype": "Date",
+   "label": "Ngày hết hạn",
+   "reqd": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "days_remaining",
+   "fieldtype": "Int",
+   "label": "Số ngày còn lại",
+   "reqd": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "alert_level",
+   "fieldtype": "Select",
+   "label": "Mức cảnh báo",
+   "options": "Info\nWarning\nCritical\nDanger",
+   "reqd": 1,
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "alert_date",
+   "fieldtype": "Date",
+   "label": "Ngày gửi cảnh báo",
+   "reqd": 1,
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "notified_users",
+   "fieldtype": "Small Text",
+   "label": "Đã thông báo",
+   "read_only": 1
+  }
+ ],
+ "permissions": [
+  {
+   "role": "IMM System Admin",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Operations Manager",
+   "read": 1,
+   "write": 1,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM QA Officer",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Auditor",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Department Head",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Deputy Department Head",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Workshop Lead",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Biomed Technician",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Technician",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Storekeeper",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 0,
+   "export": 0,
+   "print": 0,
+   "email": 0,
+   "share": 0
+  },
+  {
+   "role": "IMM Document Officer",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Clinical User",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 0,
+   "export": 0,
+   "print": 0,
+   "email": 0,
+   "share": 0
+  }
+ ],
+ "sort_field": "alert_date",
+ "sort_order": "DESC",
+ "creation": "2026-04-17 00:00:00",
+ "modified": "2026-04-17 00:00:00",
+ "modified_by": "Administrator",
+ "owner": "Administrator",
+ "doctype": "DocType"
 }

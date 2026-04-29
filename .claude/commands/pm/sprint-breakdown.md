@@ -1,5 +1,6 @@
 ---
 description: Break down a sprint goal into tasks for AssetCore development
+argument-hint: <sprint goal>
 ---
 
 Break down this sprint goal into tasks: `$ARGUMENTS`

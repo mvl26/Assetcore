@@ -1,5 +1,6 @@
 ---
 description: Build a requirements traceability matrix for an AssetCore module
+argument-hint: <module>
 ---
 
 Build a **Requirements Traceability Matrix (RTM)** for: `$ARGUMENTS`

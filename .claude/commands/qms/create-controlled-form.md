@@ -1,5 +1,6 @@
 ---
 description: Create a controlled form (BM document) specification for AssetCore
+argument-hint: <form name>
 ---
 
 Create a **controlled form (Biểu mẫu / BM)** for: `$ARGUMENTS`

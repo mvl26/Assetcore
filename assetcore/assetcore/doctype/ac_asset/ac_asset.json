@@ -87,7 +87,7 @@
   {
    "fieldname": "section_basic",
    "fieldtype": "Section Break",
-   "label": "Th\u00f4ng tin c\u01a1 b\u1ea3n"
+   "label": "Thông tin cơ bản"
   },
   {
    "fieldname": "naming_series",
@@ -106,10 +106,10 @@
   {
    "fieldname": "uom",
    "fieldtype": "Link",
-   "label": "\u0110\u01a1n v\u1ecb t\u00ednh",
+   "label": "Đơn vị tính",
    "options": "AC UOM",
-   "default": "Nos",
-   "description": "\u0110\u01a1n v\u1ecb \u0111o l\u01b0\u1eddng c\u1ee7a thi\u1ebft b\u1ecb (th\u01b0\u1eddng l\u00e0 C\u00e1i/M\u00e1y)"
+   "default": "Cái",
+   "description": "Đơn vị đo lường của thiết bị (thường là Cái/Máy)"
   },
   {
    "fieldname": "asset_code",
@@ -152,7 +152,7 @@
   {
    "fieldname": "section_location",
    "fieldtype": "Section Break",
-   "label": "V\u1ecb tr\u00ed v\u00e0 ph\u1ee5 tr\u00e1ch"
+   "label": "Vị trí và phụ trách"
   },
   {
    "fieldname": "location",
@@ -188,7 +188,7 @@
   {
    "fieldname": "section_purchase",
    "fieldtype": "Section Break",
-   "label": "Th\u00f4ng tin mua s\u1eafm"
+   "label": "Thông tin mua sắm"
   },
   {
    "fieldname": "supplier",
@@ -218,23 +218,23 @@
   {
    "fieldname": "section_depreciation",
    "fieldtype": "Section Break",
-   "label": "Kh\u1ea5u hao"
+   "label": "Khấu hao"
   },
   {
    "fieldname": "depreciation_method",
    "fieldtype": "Select",
-   "label": "Ph\u01b0\u01a1ng ph\u00e1p kh\u1ea5u hao",
+   "label": "Phương pháp khấu hao",
    "options": "\nStraight Line\nDouble Declining\nUnits of Production\nNone"
   },
   {
    "fieldname": "useful_life_years",
    "fieldtype": "Int",
-   "label": "Th\u1eddi gian s\u1eed d\u1ee5ng (n\u0103m)"
+   "label": "Thời gian sử dụng (năm)"
   },
   {
    "fieldname": "in_service_date",
    "fieldtype": "Date",
-   "label": "Ng\u00e0y \u0111\u01b0a v\u00e0o s\u1eed d\u1ee5ng"
+   "label": "Ngày đưa vào sử dụng"
   },
   {
    "fieldname": "column_break_depreciation",
@@ -243,24 +243,24 @@
   {
    "fieldname": "residual_value",
    "fieldtype": "Currency",
-   "label": "Gi\u00e1 tr\u1ecb thu h\u1ed3i"
+   "label": "Giá trị thu hồi"
   },
   {
    "fieldname": "accumulated_depreciation",
    "fieldtype": "Currency",
-   "label": "Kh\u1ea5u hao l\u0169y k\u1ebf",
+   "label": "Khấu hao lũy kế",
    "read_only": 1
   },
   {
    "fieldname": "current_book_value",
    "fieldtype": "Currency",
-   "label": "Gi\u00e1 tr\u1ecb c\u00f2n l\u1ea1i",
+   "label": "Giá trị còn lại",
    "read_only": 1
   },
   {
    "fieldname": "section_htm",
    "fieldtype": "Section Break",
-   "label": "HTM - Th\u00f4ng tin k\u1ef9 thu\u1eadt y t\u1ebf"
+   "label": "HTM - Thông tin kỹ thuật y tế"
   },
   {
    "fieldname": "device_model",
@@ -317,7 +317,7 @@
   {
    "fieldname": "section_byt",
    "fieldtype": "Section Break",
-   "label": "HTM - \u0110\u0103ng k\u00fd BYT"
+   "label": "HTM - Đăng ký BYT"
   },
   {
    "fieldname": "byt_reg_no",
@@ -338,14 +338,14 @@
   {
    "fieldname": "section_lifecycle",
    "fieldtype": "Section Break",
-   "label": "HTM - V\u00f2ng \u0111\u1eddi"
+   "label": "HTM - Vòng đời"
   },
   {
-   "default": "Commissioned",
+   "default": "Draft",
    "fieldname": "lifecycle_status",
    "fieldtype": "Select",
    "label": "Lifecycle Status",
-   "options": "Commissioned\nActive\nUnder Maintenance\nUnder Repair\nCalibrating\nOut of Service\nDecommissioned",
+   "options": "Draft\nCommissioned\nActive\nUnder Maintenance\nUnder Repair\nCalibrating\nOut of Service\nDecommissioned",
    "reqd": 1,
    "search_index": 1
   },
@@ -373,7 +373,7 @@
   {
    "fieldname": "section_pm",
    "fieldtype": "Section Break",
-   "label": "HTM - B\u1ea3o tr\u00ec \u0111\u1ecbnh k\u1ef3 (PM)"
+   "label": "HTM - Bảo trì định kỳ (PM)"
   },
   {
    "default": "0",
@@ -383,6 +383,7 @@
    "label": "Is PM Required"
   },
   {
+   "fetch_from": "device_model.pm_interval_days",
    "fieldname": "pm_interval_days",
    "fieldtype": "Int",
    "label": "PM Interval (days)",
@@ -407,7 +408,7 @@
   {
    "fieldname": "section_calibration",
    "fieldtype": "Section Break",
-   "label": "HTM - Hi\u1ec7u chu\u1ea9n"
+   "label": "HTM - Hiệu chuẩn"
   },
   {
    "default": "0",
@@ -417,6 +418,7 @@
    "label": "Is Calibration Required"
   },
   {
+   "fetch_from": "device_model.calibration_interval_days",
    "fieldname": "calibration_interval_days",
    "fieldtype": "Int",
    "label": "Calibration Interval (days)",
@@ -441,18 +443,18 @@
   {
    "fieldname": "section_insurance",
    "fieldtype": "Section Break",
-   "label": "B\u1ea3o hi\u1ec3m"
+   "label": "Bảo hiểm"
   },
   {
    "fieldname": "insurance_policy_no",
    "fieldtype": "Data",
-   "label": "S\u1ed1 h\u1ee3p \u0111\u1ed3ng b\u1ea3o hi\u1ec3m",
+   "label": "Số hợp đồng bảo hiểm",
    "search_index": 1
   },
   {
    "fieldname": "insurer_name",
    "fieldtype": "Data",
-   "label": "T\u00ean c\u00f4ng ty b\u1ea3o hi\u1ec3m"
+   "label": "Tên công ty bảo hiểm"
   },
   {
    "fieldname": "column_break_insurance",
@@ -461,23 +463,23 @@
   {
    "fieldname": "insured_value",
    "fieldtype": "Currency",
-   "label": "Gi\u00e1 tr\u1ecb b\u1ea3o hi\u1ec3m"
+   "label": "Giá trị bảo hiểm"
   },
   {
    "fieldname": "insurance_start_date",
    "fieldtype": "Date",
-   "label": "Ng\u00e0y b\u1eaft \u0111\u1ea7u b\u1ea3o hi\u1ec3m"
+   "label": "Ngày bắt đầu bảo hiểm"
   },
   {
    "fieldname": "insurance_end_date",
    "fieldtype": "Date",
-   "label": "Ng\u00e0y h\u1ebft h\u1ea1n b\u1ea3o hi\u1ec3m",
+   "label": "Ngày hết hạn bảo hiểm",
    "search_index": 1
   },
   {
    "fieldname": "section_notes",
    "fieldtype": "Section Break",
-   "label": "Ghi ch\u00fa"
+   "label": "Ghi chú"
   },
   {
    "fieldname": "notes",
@@ -496,32 +498,32 @@
   {
    "fieldname": "total_depreciation_months",
    "fieldtype": "Int",
-   "label": "T\u1ed5ng s\u1ed1 th\u00e1ng KH",
-   "description": "K\u1ebf th\u1eeba t\u1eeb danh m\u1ee5c t\u00e0i s\u1ea3n"
+   "label": "Tổng số tháng KH",
+   "description": "Kế thừa từ danh mục tài sản"
   },
   {
    "fieldname": "depreciation_frequency",
    "fieldtype": "Select",
    "options": "\nMonthly\nQuarterly\nYearly",
    "default": "Monthly",
-   "label": "T\u1ea7n su\u1ea5t KH"
+   "label": "Tần suất KH"
   },
   {
    "fieldname": "depreciation_start_date",
    "fieldtype": "Date",
-   "label": "Ng\u00e0y b\u1eaft \u0111\u1ea7u kh\u1ea5u hao",
-   "description": "Th\u01b0\u1eddng l\u00e0 ng\u00e0y \u0111\u01b0a v\u00e0o s\u1eed d\u1ee5ng (in_service_date)"
+   "label": "Ngày bắt đầu khấu hao",
+   "description": "Thường là ngày đưa vào sử dụng (in_service_date)"
   },
   {
    "fieldname": "section_depreciation_schedule",
    "fieldtype": "Section Break",
-   "label": "L\u1ecbch kh\u1ea5u hao (Depreciation Schedule)"
+   "label": "Lịch khấu hao (Depreciation Schedule)"
   },
   {
    "fieldname": "depreciation_schedule",
    "fieldtype": "Table",
    "options": "AC Asset Depreciation Schedule",
-   "label": "L\u1ecbch kh\u1ea5u hao theo k\u1ef3",
+   "label": "Lịch khấu hao theo kỳ",
    "read_only": 1
   }
  ],
@@ -534,66 +536,199 @@
  "owner": "Administrator",
  "permissions": [
   {
-   "amend": 1,
-   "cancel": 1,
+   "role": "IMM System Admin",
+   "read": 1,
+   "write": 1,
    "create": 1,
    "delete": 1,
-   "email": 1,
-   "export": 1,
-   "import": 1,
-   "print": 1,
-   "read": 1,
    "report": 1,
-   "role": "IMM System Admin",
+   "export": 1,
+   "print": 1,
+   "email": 1,
    "share": 1,
    "submit": 1,
-   "write": 1
+   "cancel": 1,
+   "amend": 1
   },
   {
-   "create": 1,
-   "email": 1,
-   "print": 1,
-   "read": 1,
-   "report": 1,
-   "role": "IMM Department Head",
-   "submit": 1,
-   "write": 1
-  },
-  {
-   "create": 1,
-   "email": 1,
-   "print": 1,
-   "read": 1,
-   "report": 1,
    "role": "IMM Operations Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
    "submit": 1,
-   "write": 1
+   "cancel": 1,
+   "amend": 1
   },
   {
-   "print": 1,
+   "role": "IMM QA Officer",
    "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
    "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0
+  },
+  {
+   "role": "IMM Auditor",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0
+  },
+  {
+   "role": "IMM Department Head",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "submit": 1,
+   "cancel": 0,
+   "amend": 0
+  },
+  {
+   "role": "IMM Deputy Department Head",
+   "read": 1,
+   "write": 1,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "submit": 1,
+   "cancel": 0,
+   "amend": 0
+  },
+  {
    "role": "IMM Workshop Lead",
-   "write": 1
+   "read": 1,
+   "write": 1,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "submit": 1,
+   "cancel": 0,
+   "amend": 0
   },
   {
-   "print": 1,
+   "role": "IMM Biomed Technician",
    "read": 1,
+   "write": 1,
+   "create": 0,
+   "delete": 0,
    "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0
+  },
+  {
    "role": "IMM Technician",
-   "write": 1
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0
   },
   {
-   "print": 1,
+   "role": "IMM Storekeeper",
    "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
    "report": 1,
-   "role": "IMM Document Officer"
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0
   },
   {
-   "print": 1,
+   "role": "IMM Document Officer",
    "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
    "report": 1,
-   "role": "IMM QA Officer"
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0
+  },
+  {
+   "role": "IMM Clinical User",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 0,
+   "export": 0,
+   "print": 0,
+   "email": 0,
+   "share": 0,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0
+  },
+  {
+   "role": "Vendor Engineer",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 0,
+   "export": 0,
+   "print": 0,
+   "email": 0,
+   "share": 0,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0
   }
  ],
  "row_format": "Dynamic",

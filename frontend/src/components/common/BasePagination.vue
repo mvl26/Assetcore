@@ -22,7 +22,9 @@ const emit = defineEmits<{ 'page-change': [page: number] }>()
             : 'border-slate-300 hover:bg-slate-50 text-slate-600',
         ]"
         @click="emit('page-change', p)"
-      >{{ p }}</button>
+      >
+{{ p }}
+</button>
     </div>
   </div>
 </template>

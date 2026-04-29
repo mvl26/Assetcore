@@ -9,7 +9,7 @@ Convention:
 import frappe
 from frappe import _
 
-from assetcore.utils.response import _ok, _err
+from assetcore.utils.response import _ok, _err, ErrorCode
 from assetcore.utils.pagination import paginate
 from assetcore.services.imm00 import (
     transition_asset_status,
@@ -163,12 +163,29 @@ def get_asset(name: str):
 
 @frappe.whitelist(methods=["POST"])
 def create_asset():
-    """POST /api/method/assetcore.api.imm00.create_asset"""
-    data = frappe.local.form_dict
+    """POST /api/method/assetcore.api.imm00.create_asset
+
+    Hỗ trợ 2 luồng:
+      1. Tài sản có sẵn (không qua phiếu tiếp nhận) → cho phép set lifecycle_status
+         ban đầu là Commissioned/Active. API insert ở Draft (theo workflow), rồi
+         dùng transition_asset_status để dịch chuyển → đúng workflow + audit trail.
+      2. Tài sản mua mới → đi qua flow IMM-04 Commissioning, không gọi endpoint này.
+    """
+    data = dict(frappe.local.form_dict)
+    desired_status = data.pop("lifecycle_status", None) or ""
     try:
         doc = frappe.new_doc(_DT_ASSET)
         doc.update({k: v for k, v in data.items() if k not in ("cmd", "doctype")})
         doc.insert(ignore_permissions=False)
+        if desired_status and desired_status != doc.lifecycle_status:
+            # Draft → Active phải đi qua Commissioned (state machine guard).
+            chain = ["Commissioned", "Active"] if desired_status == "Active" else [desired_status]
+            for step in chain:
+                transition_asset_status(
+                    doc.name, step,
+                    actor=frappe.session.user,
+                    reason=_("Khởi tạo tài sản có sẵn"),
+                )
         frappe.db.commit()
         return _ok({"name": doc.name})
     except frappe.exceptions.ValidationError as e:
@@ -318,7 +335,8 @@ def list_suppliers(page: int = 1, page_size: int = 20, search: str = None, suppl
         _DT_SUPPLIER,
         filters=filters,
         or_filters=or_filters,
-        fields=["name", "supplier_name", "supplier_group", "country", "email_id", "contract_end"],
+        fields=["name", "supplier_name", "supplier_code", "supplier_group", "vendor_type",
+                "country", "email_id", "phone", "contract_end", "is_active"],
         limit_start=pag["offset"],
         limit_page_length=page_size,
         order_by="supplier_name asc",
@@ -583,25 +601,104 @@ def update_device_model(name: str):
         return _err(str(e), 422)
 
 
+# ─── Device Model file upload ────────────────────────────────────────────────
+_DEVICE_MODEL_FOLDER = "Home/Device Models"
+
+
+def _ensure_device_model_folder() -> str:
+    """Đảm bảo folder Home/Device Models tồn tại trong File tree, return name."""
+    if frappe.db.exists("File", _DEVICE_MODEL_FOLDER):
+        return _DEVICE_MODEL_FOLDER
+    folder = frappe.get_doc({
+        "doctype":   "File",
+        "file_name": "Device Models",
+        "is_folder": 1,
+        "folder":    "Home",
+    })
+    folder.insert(ignore_permissions=True)
+    return folder.name
+
+
+@frappe.whitelist(methods=["POST"])
+def upload_device_model_file(model_name: str = "", fieldname: str = "model_image"):
+    """POST — Upload 1 file vào folder Home/Device Models, attach vào IMM Device Model nếu có model_name.
+
+    Form-data:
+      - file: File (required)
+      - model_name: optional — nếu có sẽ attach vào doc + set field
+      - fieldname: 'model_image' | 'catalog_file' (default: model_image)
+
+    Returns: { file_url, file_name, name }
+    """
+    if fieldname not in ("model_image", "catalog_file"):
+        return _err(_("fieldname phải là 'model_image' hoặc 'catalog_file'"), 400)
+
+    files = frappe.request.files
+    if not files or "file" not in files:
+        return _err(_("Thiếu file upload"), 400)
+    upload = files["file"]
+    if not upload.filename:
+        return _err(_("File không có tên"), 400)
+
+    folder_name = _ensure_device_model_folder()
+
+    file_doc = frappe.get_doc({
+        "doctype":      "File",
+        "file_name":    upload.filename,
+        "folder":       folder_name,
+        "is_private":   0,
+        "content":      upload.stream.read(),
+        "decode":       False,
+    })
+    if model_name and frappe.db.exists(_DT_DEVICE_MODEL, model_name):
+        file_doc.attached_to_doctype = _DT_DEVICE_MODEL
+        file_doc.attached_to_name    = model_name
+        file_doc.attached_to_field   = fieldname
+    file_doc.save(ignore_permissions=True)
+
+    if model_name and frappe.db.exists(_DT_DEVICE_MODEL, model_name):
+        frappe.db.set_value(_DT_DEVICE_MODEL, model_name, fieldname, file_doc.file_url,
+                            update_modified=False)
+
+    return _ok({
+        "name":      file_doc.name,
+        "file_url":  file_doc.file_url,
+        "file_name": file_doc.file_name,
+        "fieldname": fieldname,
+    })
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # IMM SLA Policy  (2 endpoints)
 # ─────────────────────────────────────────────────────────────────────────────
 
 @frappe.whitelist()
-def list_sla_policies(priority: str = None, risk_class: str = None):
-    """GET /api/method/assetcore.api.imm00.list_sla_policies"""
-    filters = {"is_active": 1}
+def list_sla_policies(priority: str = None, risk_class: str = None,
+                       is_active: str = None):
+    """GET /api/method/assetcore.api.imm00.list_sla_policies
+
+    Mặc định trả về TẤT CẢ chính sách (cả active và inactive) để FE tự lọc.
+    Truyền is_active=1 hoặc 0 nếu muốn lọc ở BE.
+    """
+    filters: dict = {}
     if priority:
         filters["priority"] = priority
     if risk_class:
         filters["risk_class"] = risk_class
+    if is_active in ("0", "1", 0, 1):
+        filters["is_active"] = int(is_active)
     items = frappe.get_list(
         _DT_SLA_POLICY,
         filters=filters,
         fields=["name", "policy_name", "priority", "risk_class", "is_default",
-                "response_time_minutes", "resolution_time_hours", "working_hours_only"],
-        order_by="priority asc, risk_class asc",
+                "is_active", "response_time_minutes", "resolution_time_hours"],
+        order_by="is_active desc, priority asc, risk_class asc",
+        ignore_permissions=False,
     )
+    # Normalize Check fields → int 0/1 (Frappe đôi khi trả str/bool gây sai lệch FE)
+    for it in items:
+        it["is_active"] = 1 if it.get("is_active") else 0
+        it["is_default"] = 1 if it.get("is_default") else 0
     return _ok(items)
 
 
@@ -1092,20 +1189,9 @@ def update_service_contract(name: str):
         return _err(str(e), 422)
 
 
-@frappe.whitelist(methods=["POST"])
-def submit_service_contract(name: str):
-    """POST /api/method/assetcore.api.imm00.submit_service_contract"""
-    if not frappe.db.exists(_DT_SERVICE_CONTRACT, name):
-        return _err(_(_ERR_CONTRACT_NOT_FOUND), 404)
-    try:
-        doc = frappe.get_doc(_DT_SERVICE_CONTRACT, name)
-        if doc.docstatus == 1:
-            return _err(_("Hợp đồng đã submit"), 422)
-        doc.submit()
-        frappe.db.commit()
-        return _ok({"name": doc.name, "docstatus": 1})
-    except frappe.exceptions.ValidationError as e:
-        return _err(str(e), 422)
+# Service Contract là DocType lưu trữ đơn giản — không có luồng duyệt.
+# Lifecycle: create → update → delete (hoặc để contract_end qua hạn = tự deprecate).
+# Dùng làm tham chiếu cho PM / Calibration / Repair WO khi thiết bị có hợp đồng.
 
 
 @frappe.whitelist(methods=["POST"])
@@ -1183,7 +1269,7 @@ def trigger_registration_expiry_check():
 
 def _generic_update(doctype: str, name: str):
     if not frappe.db.exists(doctype, name):
-        return _err(_(f"{doctype} not found"), 404)
+        return _err(_("Không tìm thấy {0}").format(doctype), ErrorCode.NOT_FOUND)
     data = frappe.local.form_dict
     try:
         doc = frappe.get_doc(doctype, name)
@@ -1192,22 +1278,23 @@ def _generic_update(doctype: str, name: str):
         frappe.db.commit()
         return _ok({"name": doc.name})
     except frappe.exceptions.ValidationError as e:
-        return _err(str(e), 422)
+        return _err(str(e), ErrorCode.BUSINESS_RULE)
 
 
 def _generic_delete(doctype: str, name: str):
     if not frappe.db.exists(doctype, name):
-        return _err(_(f"{doctype} not found"), 404)
+        return _err(_("Không tìm thấy {0}").format(doctype), ErrorCode.NOT_FOUND)
     try:
         frappe.delete_doc(doctype, name, ignore_permissions=False)
         frappe.db.commit()
         return _ok({"name": name, "deleted": True})
     except frappe.exceptions.LinkExistsError as e:
-        return _err(_(f"Không thể xóa — đang được tham chiếu: {e}"), 422)
+        return _err(_("Không thể xóa — đang được tham chiếu: {0}").format(e),
+                    ErrorCode.CONFLICT)
     except frappe.exceptions.ValidationError as e:
-        return _err(str(e), 422)
+        return _err(str(e), ErrorCode.BUSINESS_RULE)
     except Exception as e:
-        return _err(f"Không thể xóa: {e}", 500)
+        return _err(_("Không thể xóa: {0}").format(e), ErrorCode.INTERNAL_ERROR)
 
 
 @frappe.whitelist(methods=["POST"])
@@ -1268,15 +1355,31 @@ def delete_incident(name: str):
 def get_sla_policy(name: str):
     if not frappe.db.exists(_DT_SLA_POLICY, name):
         return _err(_("SLA Policy not found"), 404)
-    return _ok(frappe.get_doc(_DT_SLA_POLICY, name).as_dict())
+    d = frappe.get_doc(_DT_SLA_POLICY, name).as_dict()
+    # Normalize Check fields về int 0/1 để FE compare chính xác
+    d["is_active"] = 1 if d.get("is_active") else 0
+    d["is_default"] = 1 if d.get("is_default") else 0
+    return _ok(d)
+
+
+_SLA_CHECK_FIELDS = ("is_active", "is_default")
+
+
+def _coerce_sla_payload(data: dict) -> dict:
+    """Ép Check fields về int 0/1 để tránh sai lệch khi FE gửi '0'/'1' string."""
+    out = {k: v for k, v in data.items() if k not in ("cmd", "doctype", "name")}
+    for f in _SLA_CHECK_FIELDS:
+        if f in out:
+            v = out[f]
+            out[f] = 1 if str(v).lower() in ("1", "true", "yes", "on") else 0
+    return out
 
 
 @frappe.whitelist(methods=["POST"])
 def create_sla_policy():
-    data = frappe.local.form_dict
     try:
         doc = frappe.new_doc(_DT_SLA_POLICY)
-        doc.update({k: v for k, v in data.items() if k not in ("cmd", "doctype")})
+        doc.update(_coerce_sla_payload(dict(frappe.local.form_dict)))
         doc.insert()
         frappe.db.commit()
         return _ok({"name": doc.name})
@@ -1286,7 +1389,16 @@ def create_sla_policy():
 
 @frappe.whitelist(methods=["POST"])
 def update_sla_policy(name: str):
-    return _generic_update(_DT_SLA_POLICY, name)
+    if not frappe.db.exists(_DT_SLA_POLICY, name):
+        return _err(_("SLA Policy not found"), 404)
+    try:
+        doc = frappe.get_doc(_DT_SLA_POLICY, name)
+        doc.update(_coerce_sla_payload(dict(frappe.local.form_dict)))
+        doc.save()
+        frappe.db.commit()
+        return _ok({"name": doc.name})
+    except frappe.exceptions.ValidationError as e:
+        return _err(str(e), 422)
 
 
 @frappe.whitelist(methods=["POST"])
@@ -1417,32 +1529,51 @@ def list_pm_schedules(page: int = 1, page_size: int = 20, asset: str = None, sta
         int(page), int(page_size), "next_due_date asc")
     asset_ids = {r.get("asset_ref") for r in items if r.get("asset_ref")}
     if asset_ids:
-        name_map = {a["name"]: a["asset_name"] for a in frappe.get_all(
+        info_map = {a["name"]: a for a in frappe.get_all(
             _DT_ASSET, filters={"name": ["in", list(asset_ids)]},
-            fields=["name", "asset_name"])}
+            fields=["name", "asset_name", "asset_code"])}
         for r in items:
-            r["asset_name"] = name_map.get(r.get("asset_ref"), "")
+            info = info_map.get(r.get("asset_ref")) or {}
+            r["asset_name"] = info.get("asset_name") or ""
+            r["asset_code"] = info.get("asset_code") or ""
     return _ok({"items": items, **meta})
 
 
 @frappe.whitelist()
 def get_pm_schedule(name: str):
     if not frappe.db.exists(_DT_PM_SCHEDULE, name):
-        return _err(_("PM Schedule not found"), 404)
+        return _err(_("Không tìm thấy lịch PM"), ErrorCode.NOT_FOUND)
     return _ok(frappe.get_doc(_DT_PM_SCHEDULE, name).as_dict())
 
 
 @frappe.whitelist(methods=["POST"])
 def create_pm_schedule():
     data = frappe.local.form_dict
+    # Validate field-level trước khi insert — trả fields cho FE highlight.
+    missing = {}
+    if not data.get("asset_ref"):
+        missing["asset_ref"] = _("Vui lòng chọn thiết bị")
+    if not data.get("checklist_template"):
+        missing["checklist_template"] = _("Vui lòng chọn template checklist")
+    if not data.get("pm_interval_days"):
+        missing["pm_interval_days"] = _("Vui lòng nhập chu kỳ (ngày)")
+    if missing:
+        return _err(_("Thiếu thông tin bắt buộc"),
+                    ErrorCode.VALIDATION_ERROR, fields=missing)
+
     try:
         doc = frappe.new_doc(_DT_PM_SCHEDULE)
         doc.update({k: v for k, v in data.items() if k not in ("cmd", "doctype")})
         doc.insert()
         frappe.db.commit()
         return _ok({"name": doc.name})
+    except frappe.exceptions.DuplicateEntryError:
+        return _err(_("Lịch PM đã tồn tại cho thiết bị + loại PM này"),
+                    ErrorCode.CONFLICT)
+    except frappe.exceptions.LinkValidationError as e:
+        return _err(str(e), ErrorCode.VALIDATION_ERROR)
     except frappe.exceptions.ValidationError as e:
-        return _err(str(e), 422)
+        return _err(str(e), ErrorCode.BUSINESS_RULE)
 
 
 @frappe.whitelist(methods=["POST"])

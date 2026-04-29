@@ -1,5 +1,6 @@
 ---
 description: Map an AssetCore feature or module to its QMS document requirements
+argument-hint: <feature or module>
 ---
 
 Map the following to QMS document requirements: `$ARGUMENTS`

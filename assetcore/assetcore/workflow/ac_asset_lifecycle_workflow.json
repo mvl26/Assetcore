@@ -18,13 +18,13 @@
    "type": "Warning"
   },
   {
-   "allow_edit": "Biomed Engineer",
+   "allow_edit": "IMM Biomed Technician",
    "doc_status": "0",
    "state": "Commissioned",
    "type": "Primary"
   },
   {
-   "allow_edit": "Biomed Engineer",
+   "allow_edit": "IMM Biomed Technician",
    "doc_status": "0",
    "state": "Active",
    "type": "Success"
@@ -63,13 +63,13 @@
  "transitions": [
   {
    "action": "Commission",
-   "allowed": "Biomed Engineer",
+   "allowed": "IMM Biomed Technician",
    "next_state": "Commissioned",
    "state": "Draft"
   },
   {
    "action": "Activate",
-   "allowed": "Biomed Engineer",
+   "allowed": "IMM Biomed Technician",
    "next_state": "Active",
    "state": "Commissioned"
   },

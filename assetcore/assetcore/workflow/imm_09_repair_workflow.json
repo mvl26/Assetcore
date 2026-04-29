@@ -24,19 +24,19 @@
       "type": "Warning"
     },
     {
-      "allow_edit": "Biomed Engineer",
+      "allow_edit": "IMM Biomed Technician",
       "doc_status": "0",
       "state": "Diagnosing",
       "type": "Success"
     },
     {
-      "allow_edit": "Biomed Engineer",
+      "allow_edit": "IMM Biomed Technician",
       "doc_status": "0",
       "state": "Pending Parts",
       "type": "Warning"
     },
     {
-      "allow_edit": "Biomed Engineer",
+      "allow_edit": "IMM Biomed Technician",
       "doc_status": "0",
       "state": "In Repair",
       "type": "Success"
@@ -61,7 +61,7 @@
     },
     {
       "allow_edit": "System Manager",
-      "doc_status": "2",
+      "doc_status": "0",
       "state": "Cancelled",
       "type": "Danger"
     }
@@ -81,31 +81,31 @@
     },
     {
       "action": "Bắt đầu chẩn đoán",
-      "allowed": "Biomed Engineer",
+      "allowed": "IMM Biomed Technician",
       "next_state": "Diagnosing",
       "state": "Assigned"
     },
     {
       "action": "Yêu cầu linh kiện",
-      "allowed": "Biomed Engineer",
+      "allowed": "IMM Biomed Technician",
       "next_state": "Pending Parts",
       "state": "Diagnosing"
     },
     {
       "action": "Bắt đầu sửa chữa",
-      "allowed": "Biomed Engineer",
+      "allowed": "IMM Biomed Technician",
       "next_state": "In Repair",
       "state": "Diagnosing"
     },
     {
       "action": "Linh kiện đã nhận - bắt đầu sửa",
-      "allowed": "Biomed Engineer",
+      "allowed": "IMM Biomed Technician",
       "next_state": "In Repair",
       "state": "Pending Parts"
     },
     {
       "action": "Hoàn thành sửa chữa - chờ kiểm tra",
-      "allowed": "Biomed Engineer",
+      "allowed": "IMM Biomed Technician",
       "next_state": "Pending Inspection",
       "state": "In Repair"
     },
@@ -123,8 +123,38 @@
     },
     {
       "action": "Kiểm tra thất bại - sửa lại",
-      "allowed": "Biomed Engineer",
+      "allowed": "IMM Biomed Technician",
       "next_state": "In Repair",
+      "state": "Pending Inspection"
+    },
+    {
+      "action": "Hủy phiếu",
+      "allowed": "System Manager",
+      "next_state": "Cancelled",
+      "state": "Assigned"
+    },
+    {
+      "action": "Hủy phiếu",
+      "allowed": "System Manager",
+      "next_state": "Cancelled",
+      "state": "Diagnosing"
+    },
+    {
+      "action": "Hủy phiếu",
+      "allowed": "System Manager",
+      "next_state": "Cancelled",
+      "state": "Pending Parts"
+    },
+    {
+      "action": "Hủy phiếu",
+      "allowed": "System Manager",
+      "next_state": "Cancelled",
+      "state": "In Repair"
+    },
+    {
+      "action": "Hủy phiếu",
+      "allowed": "System Manager",
+      "next_state": "Cancelled",
       "state": "Pending Inspection"
     }
   ]

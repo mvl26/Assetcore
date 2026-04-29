@@ -381,7 +381,7 @@ def run_all():
     print("\n[KB05] PHÊ DUYỆT PHÁT HÀNH")
     print("-" * 50)
 
-    # Test 1: Xác nhận API form context có allowed_transitions cho VP Block2
+    # Test 1: Xác nhận API form context có allowed_transitions cho IMM Operations Manager
     try:
         from assetcore.api.imm04 import get_form_context
         ctx_result = get_form_context(doc.name)

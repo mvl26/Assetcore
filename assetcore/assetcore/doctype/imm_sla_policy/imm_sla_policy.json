@@ -16,13 +16,11 @@
   "section_times",
   "response_time_minutes",
   "resolution_time_hours",
-  "column_break_times",
-  "working_hours_only",
   "section_escalation",
-  "escalation_l1_role",
+  "escalation_l1_user",
   "escalation_l1_hours",
   "column_break_escalation",
-  "escalation_l2_role",
+  "escalation_l2_user",
   "escalation_l2_hours",
   "section_validity",
   "effective_date",
@@ -31,28 +29,122 @@
   "is_active"
  ],
  "fields": [
-  {"fieldname": "section_basic", "fieldtype": "Section Break", "label": "Thông tin cơ bản"},
-  {"fieldname": "policy_name", "fieldtype": "Data", "label": "Policy Name", "reqd": 1, "unique": 1, "in_list_view": 1},
-  {"fieldname": "priority", "fieldtype": "Select", "label": "Priority", "options": "P1 Critical\nP1 High\nP2\nP3\nP4", "reqd": 1, "search_index": 1, "in_list_view": 1},
-  {"fieldname": "column_break_basic", "fieldtype": "Column Break"},
-  {"fieldname": "risk_class", "fieldtype": "Select", "label": "Risk Class", "options": "\nLow\nMedium\nHigh\nCritical", "search_index": 1, "in_list_view": 1},
-  {"fieldname": "is_default", "fieldtype": "Check", "label": "Is Default for Priority"},
-  {"fieldname": "section_times", "fieldtype": "Section Break", "label": "SLA Times"},
-  {"fieldname": "response_time_minutes", "fieldtype": "Int", "label": "Response Time (minutes)", "reqd": 1, "in_list_view": 1},
-  {"fieldname": "resolution_time_hours", "fieldtype": "Int", "label": "Resolution Time (hours)", "reqd": 1, "in_list_view": 1},
-  {"fieldname": "column_break_times", "fieldtype": "Column Break"},
-  {"fieldname": "working_hours_only", "fieldtype": "Check", "label": "Working Hours Only (Mon-Fri 7-17)"},
-  {"fieldname": "section_escalation", "fieldtype": "Section Break", "label": "Escalation"},
-  {"fieldname": "escalation_l1_role", "fieldtype": "Link", "label": "Escalation L1 Role", "options": "Role"},
-  {"fieldname": "escalation_l1_hours", "fieldtype": "Int", "label": "Escalation L1 (hours)"},
-  {"fieldname": "column_break_escalation", "fieldtype": "Column Break"},
-  {"fieldname": "escalation_l2_role", "fieldtype": "Link", "label": "Escalation L2 Role", "options": "Role"},
-  {"fieldname": "escalation_l2_hours", "fieldtype": "Int", "label": "Escalation L2 (hours)"},
-  {"fieldname": "section_validity", "fieldtype": "Section Break", "label": "Validity"},
-  {"fieldname": "effective_date", "fieldtype": "Date", "label": "Effective Date"},
-  {"fieldname": "expiry_date", "fieldtype": "Date", "label": "Expiry Date"},
-  {"fieldname": "column_break_validity", "fieldtype": "Column Break"},
-  {"fieldname": "is_active", "fieldtype": "Check", "label": "Is Active", "default": "1"}
+  {
+   "fieldname": "section_basic",
+   "fieldtype": "Section Break",
+   "label": "Thông tin cơ bản"
+  },
+  {
+   "fieldname": "policy_name",
+   "fieldtype": "Data",
+   "label": "Policy Name",
+   "reqd": 1,
+   "unique": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "priority",
+   "fieldtype": "Select",
+   "label": "Priority",
+   "options": "P1 Critical\nP1 High\nP2\nP3\nP4",
+   "reqd": 1,
+   "search_index": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "column_break_basic",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "risk_class",
+   "fieldtype": "Select",
+   "label": "Risk Class",
+   "options": "\nLow\nMedium\nHigh\nCritical",
+   "search_index": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "is_default",
+   "fieldtype": "Check",
+   "label": "Is Default for Priority"
+  },
+  {
+   "fieldname": "section_times",
+   "fieldtype": "Section Break",
+   "label": "SLA Times"
+  },
+  {
+   "fieldname": "response_time_minutes",
+   "fieldtype": "Int",
+   "label": "Response Time (minutes)",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "resolution_time_hours",
+   "fieldtype": "Int",
+   "label": "Resolution Time (hours)",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "section_escalation",
+   "fieldtype": "Section Break",
+   "label": "Escalation"
+  },
+  {
+   "fieldname": "escalation_l1_user",
+   "fieldtype": "Link",
+   "label": "Escalation L1 User",
+   "options": "User",
+   "description": "User được leo thang khi quá hạn L1"
+  },
+  {
+   "fieldname": "escalation_l1_hours",
+   "fieldtype": "Int",
+   "label": "Escalation L1 (hours)"
+  },
+  {
+   "fieldname": "column_break_escalation",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "escalation_l2_user",
+   "fieldtype": "Link",
+   "label": "Escalation L2 User",
+   "options": "User",
+   "description": "User được leo thang khi quá hạn L2"
+  },
+  {
+   "fieldname": "escalation_l2_hours",
+   "fieldtype": "Int",
+   "label": "Escalation L2 (hours)"
+  },
+  {
+   "fieldname": "section_validity",
+   "fieldtype": "Section Break",
+   "label": "Validity"
+  },
+  {
+   "fieldname": "effective_date",
+   "fieldtype": "Date",
+   "label": "Effective Date"
+  },
+  {
+   "fieldname": "expiry_date",
+   "fieldtype": "Date",
+   "label": "Expiry Date"
+  },
+  {
+   "fieldname": "column_break_validity",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "is_active",
+   "fieldtype": "Check",
+   "label": "Is Active",
+   "default": "1"
+  }
  ],
  "links": [],
  "modified": "2026-04-18 00:00:00.000000",
@@ -61,12 +153,150 @@
  "name": "IMM SLA Policy",
  "owner": "Administrator",
  "permissions": [
-  {"role": "IMM System Admin", "read": 1, "write": 1, "create": 1, "delete": 1},
-  {"role": "IMM Department Head", "read": 1, "write": 1, "create": 1},
-  {"role": "IMM Operations Manager", "read": 1},
-  {"role": "IMM Workshop Lead", "read": 1},
-  {"role": "IMM Technician", "read": 1},
-  {"role": "IMM QA Officer", "read": 1}
+  {
+   "role": "IMM System Admin",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Operations Manager",
+   "read": 1,
+   "write": 1,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM QA Officer",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Auditor",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Department Head",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Deputy Department Head",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Workshop Lead",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Biomed Technician",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Technician",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Storekeeper",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 0,
+   "export": 0,
+   "print": 0,
+   "email": 0,
+   "share": 0
+  },
+  {
+   "role": "IMM Document Officer",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Clinical User",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 0,
+   "export": 0,
+   "print": 0,
+   "email": 0,
+   "share": 0
+  }
  ],
  "sort_field": "modified",
  "sort_order": "DESC",

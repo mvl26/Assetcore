@@ -1,5 +1,6 @@
 ---
 description: Draft a Standard Operating Procedure for an AssetCore process
+argument-hint: <process name>
 ---
 
 Draft a **Standard Operating Procedure (SOP/PR)** for: `$ARGUMENTS`

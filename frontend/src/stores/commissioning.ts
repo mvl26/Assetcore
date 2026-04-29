@@ -295,7 +295,7 @@ export const useCommissioningStore = defineStore('commissioning', () => {
     }
   }
 
-  /** Hủy phiếu đã Submit (docstatus 1→2) — chỉ VP Block2 / Workshop Head */
+  /** Hủy phiếu đã Submit (docstatus 1→2) — chỉ IMM Operations Manager / IMM Workshop Lead */
   async function cancelDoc(name: string): Promise<boolean> {
     loading.value = true
     error.value = null

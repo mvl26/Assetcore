@@ -167,7 +167,8 @@ onUnmounted(() => {
           @click="toggleNotif"
         >
           <svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" class="w-[18px] h-[18px]">
-            <path stroke-linecap="round" stroke-linejoin="round"
+            <path
+stroke-linecap="round" stroke-linejoin="round"
                   d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
           </svg>
           <!-- Unread badge -->
@@ -195,7 +196,8 @@ onUnmounted(() => {
             style="border: 1px solid #e2e8f0; box-shadow: 0 8px 24px -4px rgba(0,0,0,.18)"
           >
             <!-- Header -->
-            <div class="flex items-center justify-between px-4 py-2.5"
+            <div
+class="flex items-center justify-between px-4 py-2.5"
                  style="border-bottom: 1px solid #f1f5f9">
               <p class="text-sm font-semibold text-slate-800">Thông báo</p>
               <button
@@ -209,11 +211,13 @@ onUnmounted(() => {
 
             <!-- Body -->
             <div class="overflow-y-auto flex-1">
-              <div v-if="notifLoading && notifications.length === 0"
+              <div
+v-if="notifLoading && notifications.length === 0"
                    class="text-center py-10 text-xs text-slate-400">
                 Đang tải...
               </div>
-              <div v-else-if="notifications.length === 0"
+              <div
+v-else-if="notifications.length === 0"
                    class="text-center py-10 text-xs text-slate-400">
                 Không có thông báo mới
               </div>
@@ -227,17 +231,20 @@ onUnmounted(() => {
                 @click="handleNotifClick(item)"
               >
                 <!-- Unread dot -->
-                <span class="mt-1.5 shrink-0 w-2 h-2 rounded-full"
+                <span
+class="mt-1.5 shrink-0 w-2 h-2 rounded-full"
                       :class="item.read ? 'bg-transparent' : 'bg-blue-500'" />
 
                 <div class="flex-1 min-w-0">
                   <p class="text-sm font-medium text-slate-800 truncate">{{ item.subject }}</p>
-                  <p v-if="item.content"
+                  <p
+v-if="item.content"
                      class="text-xs text-slate-500 mt-0.5 line-clamp-2"
                      v-html="item.content"
                   />
                   <div class="flex items-center gap-2 mt-1.5">
-                    <span v-if="item.document_type"
+                    <span
+v-if="item.document_type"
                           class="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded">
                       {{ item.document_type }}
                     </span>
@@ -272,7 +279,9 @@ onUnmounted(() => {
             v-if="!userCtx?.user_image"
             class="w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold text-white select-none"
             style="background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)"
-          >{{ initials || 'U' }}</div>
+          >
+{{ initials || 'U' }}
+</div>
           <img
             v-else
             :src="userCtx.user_image"
@@ -285,7 +294,8 @@ onUnmounted(() => {
               {{ departmentLabel }}
             </span>
           </div>
-          <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"
+          <svg
+fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"
                class="w-3.5 h-3.5 text-slate-400 transition-transform duration-150"
                :class="userMenuOpen ? 'rotate-180' : ''">
             <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
@@ -370,7 +380,8 @@ onUnmounted(() => {
                 @click="handleLogout"
               >
                 <svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" class="w-4 h-4">
-                  <path stroke-linecap="round" stroke-linejoin="round"
+                  <path
+stroke-linecap="round" stroke-linejoin="round"
                         d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h6a2 2 0 012 2v1" />
                 </svg>
                 Đăng xuất

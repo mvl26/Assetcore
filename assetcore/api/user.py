@@ -187,6 +187,11 @@ def _set_rejection(user_doc: Any, reason: str) -> None:
 def _save_user(user_doc: Any) -> None:
     user_doc.flags.ignore_permissions = True
     user_doc.save()
+    # Frappe core validate() chạy set_system_user() — hạ user_type xuống
+    # "Website User" nếu user không có desk-access role. Module IMM coi mọi
+    # user trong scope là System User (kể cả khi tạm chưa gán role) → ép lại.
+    if user_doc.user_type != "System User":
+        frappe.db.set_value("User", user_doc.name, "user_type", "System User")
     frappe.db.commit()
 
 
@@ -451,6 +456,34 @@ def _build_new_user_doc(email: str, first_name: str, data: dict, imm_roles: list
     return user_doc
 
 
+def _cleanup_orphan_contacts(email: str) -> int:
+    """
+    Xóa Contact + Contact Email orphan (Contact với email_id = `email` mà không có
+    User tương ứng). Frappe khi tạo User auto-tạo Contact, nhưng `delete_doc(User)`
+    không cascade — để lại orphan gây DuplicateEntryError ở lần insert sau.
+    Return số Contact đã xóa.
+    """
+    rows = frappe.db.sql(
+        """
+        SELECT c.name FROM `tabContact` c
+        LEFT JOIN `tabUser` u ON LOWER(u.email) = LOWER(c.email_id)
+        WHERE LOWER(c.email_id) = %s AND u.name IS NULL
+        """,
+        (email.lower(),),
+        as_dict=True,
+    )
+    n = 0
+    for r in rows:
+        try:
+            frappe.delete_doc("Contact", r["name"], ignore_permissions=True, force=True)
+            n += 1
+        except Exception:
+            frappe.log_error(frappe.get_traceback(), f"Cleanup orphan Contact {r['name']} failed")
+    if n:
+        frappe.db.commit()
+    return n
+
+
 def _insert_user_doc(user_doc: Any, email: str) -> dict | None:
     """Insert user_doc vào DB. Trả _err dict nếu thất bại, None nếu thành công."""
     try:
@@ -458,7 +491,19 @@ def _insert_user_doc(user_doc: Any, email: str) -> dict | None:
         return None
     except frappe.DuplicateEntryError:
         frappe.db.rollback()
-        return _err(f"Email '{email}' đã tồn tại trong hệ thống", 409)
+        # Trường hợp Contact orphan từ User cũ đã xóa — auto-cleanup và retry 1 lần.
+        if _cleanup_orphan_contacts(email):
+            try:
+                user_doc.insert()
+                return None
+            except Exception:
+                frappe.db.rollback()
+        existing = frappe.db.exists("User", email) or frappe.db.exists("User", {"email": email})
+        return _err(
+            f"Email '{email}' đã tồn tại trong hệ thống",
+            409,
+            extra={"existing_user": existing} if existing else None,
+        )
     except frappe.exceptions.ValidationError as exc:
         frappe.db.rollback()
         return _err(str(exc), 400)
@@ -469,15 +514,23 @@ def _insert_user_doc(user_doc: Any, email: str) -> dict | None:
 
 
 def _stamp_imm_approval(email: str, ac_department: str | None) -> None:
-    """Ghi custom fields IMM sau khi User đã insert thành công."""
-    if not _safe_field("imm_approval_status"):
-        return
-    frappe.db.set_value("User", email, {
-        "imm_approval_status": "Approved",
-        "imm_approved_by": frappe.session.user,
-        "imm_approved_at": now_datetime(),
-        "ac_department": ac_department or None,
-    })
+    """Ghi custom fields IMM sau khi User đã insert thành công.
+
+    Đồng thời ép user_type = "System User": Frappe core `User.set_system_user()`
+    chạy trong validate() sẽ tự hạ cấp xuống "Website User" nếu user không có
+    role nào có desk_access=1 (xảy ra khi admin tạo user mà chưa tick role IMM
+    nào). Direct DB write bypass logic đó để user mới luôn xuất hiện trong
+    `list_users` (vốn lọc theo user_type="System User").
+    """
+    payload: dict = {"user_type": "System User"}
+    if _safe_field("imm_approval_status"):
+        payload.update({
+            "imm_approval_status": "Approved",
+            "imm_approved_by": frappe.session.user,
+            "imm_approved_at": now_datetime(),
+            "ac_department": ac_department or None,
+        })
+    frappe.db.set_value("User", email, payload)
 
 
 @frappe.whitelist(methods=["POST"])
@@ -495,8 +548,26 @@ def create_system_user() -> dict:
         return _err("Thiếu email", 400)
     if not first_name:
         return _err("Thiếu họ tên", 400)
-    if frappe.db.exists("User", email):
-        return _err(f"Email '{email}' đã tồn tại trong hệ thống", 409)
+    # Kiểm tra cả primary key (name) và field email — case-insensitive để tránh
+    # false negative khi user nhập IN HOA mà DB lưu thường.
+    by_name = frappe.db.exists("User", email)
+    by_email = frappe.db.exists("User", {"email": email}) if not by_name else None
+    existing = by_name or by_email
+    if existing:
+        # Log chi tiết để debug khi user báo "ko tạo được" — xem app log để biết
+        # lý do thực sự (maybe user thấy field bị restore từ form draft).
+        frappe.logger().info(
+            f"[create_system_user] DUPLICATE blocked: email={email!r} "
+            f"matched_by={'name' if by_name else 'email_field'} existing={existing!r}"
+        )
+        return _err(
+            f"Email '{email}' đã tồn tại trong hệ thống",
+            409,
+            extra={
+                "existing_user": existing,
+                "matched_by": "name" if by_name else "email_field",
+            },
+        )
 
     imm_roles = _extract_imm_role_names(_parse_json(data.get("imm_roles") or "[]"))
     user_doc = _build_new_user_doc(email, first_name, data, imm_roles)

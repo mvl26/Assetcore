@@ -1,5 +1,6 @@
 ---
 description: Write acceptance criteria for an AssetCore user story or requirement
+argument-hint: <user story>
 ---
 
 Write **acceptance criteria** for: `$ARGUMENTS`

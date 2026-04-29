@@ -86,15 +86,18 @@ export interface CommissioningDoc {
 
   // Procurement
   po_reference: string
-  master_item: string             // IMM Device Model
-  vendor: string                  // AC Supplier
+  master_item: string             // IMM Device Model — code (PK)
+  master_item_name?: string       // IMM Device Model — display name (resolved by BE)
+  vendor: string                  // AC Supplier — code (PK)
+  vendor_name?: string            // AC Supplier — display name (resolved by BE)
   asset_description: string
   delivery_note_no: string
   purchase_price: number | null
   warranty_expiry_date: string
 
   // Scheduling
-  clinical_dept: string           // AC Department
+  clinical_dept: string           // AC Department — code (PK)
+  clinical_dept_name?: string     // AC Department — display name (resolved by BE)
   expected_installation_date: string
 
   // Installation
@@ -108,6 +111,8 @@ export interface CommissioningDoc {
   radiation_license_no: string
   doa_incident: 0 | 1
   facility_checklist_pass: 0 | 1
+  documents_incomplete?: 0 | 1
+  documents_incomplete_note?: string
 
   // Risk & Approvers
   risk_class: RiskClass

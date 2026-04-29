@@ -12,19 +12,19 @@
   "workflow_state_field": "workflow_state",
   "states": [
     {
-      "allow_edit": "Biomed Engineer",
+      "allow_edit": "IMM Biomed Technician",
       "doc_status": "0",
       "state": "Scheduled",
       "type": "Warning"
     },
     {
-      "allow_edit": "Biomed Engineer",
+      "allow_edit": "IMM Biomed Technician",
       "doc_status": "0",
       "state": "In Progress",
       "type": "Success"
     },
     {
-      "allow_edit": "Biomed Engineer",
+      "allow_edit": "IMM Biomed Technician",
       "doc_status": "0",
       "state": "Sent to Lab",
       "type": "Warning"
@@ -55,7 +55,7 @@
     },
     {
       "allow_edit": "System Manager",
-      "doc_status": "2",
+      "doc_status": "0",
       "state": "Cancelled",
       "type": "Danger"
     }
@@ -63,13 +63,13 @@
   "transitions": [
     {
       "action": "Bắt đầu hiệu chuẩn",
-      "allowed": "Biomed Engineer",
+      "allowed": "IMM Biomed Technician",
       "next_state": "In Progress",
       "state": "Scheduled"
     },
     {
       "action": "Gửi phòng hiệu chuẩn",
-      "allowed": "Biomed Engineer",
+      "allowed": "IMM Biomed Technician",
       "next_state": "Sent to Lab",
       "state": "Scheduled"
     },
@@ -81,19 +81,19 @@
     },
     {
       "action": "Đạt hiệu chuẩn",
-      "allowed": "Biomed Engineer",
+      "allowed": "IMM Biomed Technician",
       "next_state": "Passed",
       "state": "In Progress"
     },
     {
       "action": "Không đạt hiệu chuẩn",
-      "allowed": "Biomed Engineer",
+      "allowed": "IMM Biomed Technician",
       "next_state": "Failed",
       "state": "In Progress"
     },
     {
       "action": "Đạt có điều kiện",
-      "allowed": "Biomed Engineer",
+      "allowed": "IMM Biomed Technician",
       "next_state": "Conditionally Passed",
       "state": "In Progress"
     },
@@ -105,7 +105,7 @@
     },
     {
       "action": "Nhận chứng chỉ",
-      "allowed": "Biomed Engineer",
+      "allowed": "IMM Biomed Technician",
       "next_state": "Certificate Received",
       "state": "Sent to Lab"
     },
@@ -126,6 +126,20 @@
       "allowed": "System Manager",
       "next_state": "Conditionally Passed",
       "state": "Certificate Received"
+    },
+    {
+      "action": "CAPA hoàn tất - chuyển có điều kiện",
+      "allowed": "IMM QA Officer",
+      "condition": "doc.capa_closed == 1",
+      "next_state": "Conditionally Passed",
+      "state": "Failed"
+    },
+    {
+      "action": "CAPA hoàn tất - chuyển có điều kiện",
+      "allowed": "System Manager",
+      "condition": "doc.capa_closed == 1",
+      "next_state": "Conditionally Passed",
+      "state": "Failed"
     }
   ]
 }

@@ -21,6 +21,7 @@ type DocType =
   | 'AC Asset Category' | 'IMM Device Model' | 'IMM Calibration Schedule'
   | 'Purchase Order' | 'User' | 'AC Warehouse'
   | 'AC Spare Part Category' | 'AC Vendor' | 'AC Purchase' | 'UOM' | 'AC UOM'
+  | 'PM Checklist Template'
 
 const props = defineProps<{
   modelValue: string | undefined | null
@@ -28,6 +29,8 @@ const props = defineProps<{
   placeholder?: string
   disabled?: boolean
   hasError?: boolean
+  /** HTML id cho internal input (dùng với <label for="..."> */
+  id?: string
   /** Chiều cao tối đa dropdown (px). Mặc định 320 */
   maxHeight?: number
 }>()
@@ -158,6 +161,7 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onClickOutside))
   <div ref="wrapperRef" class="smart-select relative">
     <!-- Trigger button -->
     <button
+      :id="id"
       type="button"
       :disabled="disabled"
       class="w-full flex items-center justify-between gap-2 form-input text-left transition-colors"
@@ -193,7 +197,8 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onClickOutside))
             <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
           </svg>
         </button>
-        <svg class="w-4 h-4 text-slate-400 transition-transform"
+        <svg
+class="w-4 h-4 text-slate-400 transition-transform"
              :class="open ? 'rotate-180' : ''"
              fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
@@ -217,7 +222,8 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onClickOutside))
             placeholder="Tìm theo tên hoặc mã..."
             @keydown="onKeydown"
           />
-          <svg class="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400"
+          <svg
+class="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400"
                fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
@@ -225,7 +231,8 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onClickOutside))
       </div>
 
       <!-- Loading indicator -->
-      <div v-if="store.isLoading(doctype) && !allItems.length"
+      <div
+v-if="store.isLoading(doctype) && !allItems.length"
            class="px-3 py-4 text-center text-sm text-slate-400">
         <svg class="w-4 h-4 inline-block animate-spin mr-2" fill="none" viewBox="0 0 24 24">
           <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
@@ -235,14 +242,16 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onClickOutside))
       </div>
 
       <!-- Empty state -->
-      <div v-else-if="!filteredItems.length"
+      <div
+v-else-if="!filteredItems.length"
            class="px-3 py-6 text-center text-sm text-slate-400">
         <span v-if="searchQuery">Không tìm thấy "{{ searchQuery }}"</span>
         <span v-else>Chưa có dữ liệu {{ doctype }}</span>
       </div>
 
       <!-- Item list -->
-      <ul v-else
+      <ul
+v-else
           data-smart-list
           class="overflow-y-auto py-1"
           :style="dropdownStyle">
@@ -259,7 +268,8 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onClickOutside))
         >
           <!-- Check icon khi đã chọn -->
           <span class="shrink-0 mt-0.5 w-4 h-4 flex items-center justify-center">
-            <svg v-if="selectedItem?.id === item.id"
+            <svg
+v-if="selectedItem?.id === item.id"
                  class="w-4 h-4 text-brand-600" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
             </svg>
@@ -275,7 +285,8 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onClickOutside))
       </ul>
 
       <!-- Footer: count -->
-      <div v-if="filteredItems.length > 0"
+      <div
+v-if="filteredItems.length > 0"
            class="px-3 py-1.5 border-t border-slate-100 text-[11px] text-slate-400 bg-slate-50">
         {{ filteredItems.length }}/{{ allItems.length }} kết quả
       </div>

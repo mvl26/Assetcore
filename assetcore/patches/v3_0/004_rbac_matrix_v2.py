@@ -7,8 +7,8 @@ Admin, Operations Manager, Department Head, Deputy Department Head,
 Workshop Lead, QA Officer, Biomed Technician, Document Officer,
 Storekeeper, Clinical User, Auditor.
 
-Idempotent — có thể chạy lại nhiều lần. Không xóa role legacy (HTM Technician,
-CMMS Admin, Workshop Head, VP Block2, Biomed Engineer, Tổ HC-QLCL, Clinical Head)
+Idempotent — có thể chạy lại nhiều lần. Không xóa role legacy (IMM Technician,
+IMM System Admin, IMM Workshop Lead, IMM Operations Manager, IMM Biomed Technician, IMM QA Officer, IMM Department Head)
 để tránh vỡ các user/workflow đang dùng.
 """
 from __future__ import annotations

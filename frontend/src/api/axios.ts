@@ -7,6 +7,7 @@ import axios, {
   type AxiosResponse,
   type AxiosError,
 } from 'axios'
+import { ApiError, ErrorCode, httpStatusToCode } from './errors'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CSRF TOKEN HELPERS
@@ -14,6 +15,13 @@ import axios, {
 
 // Module-level cache — được set sau login hoặc refresh
 let _storedCsrfToken: string = ''
+
+const CSRF_COOKIE_RE = /(?:^|;\s*)csrf_token=([^;]+)/
+
+function readCsrfCookie(): string {
+  const match = CSRF_COOKIE_RE.exec(document.cookie)
+  return match ? decodeURIComponent(match[1]) : ''
+}
 
 /** Set CSRF token từ login response body (gọi từ auth store sau khi login thành công). */
 export function setCsrfToken(token: string): void {
@@ -34,42 +42,45 @@ function getCsrfToken(): string {
     return gw.frappe.csrf_token
   }
 
-  const match = /(?:^|;\s*)csrf_token=([^;]+)/.exec(document.cookie)
-  if (match) {
-    return decodeURIComponent(match[1])
-  }
-
-  return ''
+  return readCsrfCookie()
 }
 
 /**
  * Gọi GET endpoint không cần CSRF để Frappe refresh cookie, sau đó đọc lại.
  * Dùng khi POST bị 400 CSRF error — retry 1 lần sau khi refresh.
  */
-async function refreshCsrfToken(): Promise<string> {
+type PingResp = {
+  message?: {
+    success?: boolean
+    data?: { user?: string; authenticated?: boolean; csrf_token?: string }
+  }
+}
+
+/**
+ * Gọi ping_session để lấy csrf_token mới + trạng thái session.
+ * Trả về { token, authenticated } — caller dùng `authenticated` để quyết định
+ * có cần redirect login hay không (case session bị clear khi admin sửa role).
+ */
+async function refreshCsrfToken(): Promise<{ token: string; authenticated: boolean }> {
+  let authenticated = true
   try {
-    // GET does not need CSRF — Frappe will set the csrf_token cookie in the response.
-    // After the Vite proxy strips Domain= from Set-Cookie the browser accepts it.
-    // AssetCore endpoint (allow_guest) — đảm bảo Frappe set csrf_token cookie
-    // mà không gọi trực tiếp vào frappe core API.
-    const res = await axios.get<{ csrf_token?: string }>(
+    const res = await axios.get<PingResp>(
       '/api/method/assetcore.api.layout.ping_session',
       { withCredentials: true },
     )
-    // Some Frappe versions include csrf_token in the response body
-    if (res.data?.csrf_token) {
-      _storedCsrfToken = res.data.csrf_token
-      return _storedCsrfToken
+    const data = res.data?.message?.data
+    if (data?.csrf_token) {
+      _storedCsrfToken = data.csrf_token
     }
+    if (typeof data?.authenticated === 'boolean') {
+      authenticated = data.authenticated
+    }
+    if (_storedCsrfToken) return { token: _storedCsrfToken, authenticated }
   } catch {
-    // ignore — fall through to cookie read
+    // fall through
   }
-  _storedCsrfToken = ''
-  const match = /(?:^|;\s*)csrf_token=([^;]+)/.exec(document.cookie)
-  if (match) {
-    _storedCsrfToken = decodeURIComponent(match[1])
-  }
-  return _storedCsrfToken
+  _storedCsrfToken = readCsrfCookie()
+  return { token: _storedCsrfToken, authenticated }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -136,14 +147,27 @@ async function handle400(
   const originalConfig = error.config as RetryableConfig | undefined
   if (isCsrfError && originalConfig && !originalConfig._csrfRetried) {
     originalConfig._csrfRetried = true
-    const newToken = await refreshCsrfToken()
+    const { token: newToken, authenticated } = await refreshCsrfToken()
+    // Khi admin sửa role, Frappe clear_sessions() → sid cũ chết, server coi là Guest.
+    // Trong case này retry sẽ fail tiếp; redirect login để user không bị kẹt với
+    // "Invalid Request" và phải tự logout.
+    if (!authenticated && !globalThis.location.pathname.startsWith('/login')) {
+      globalThis.location.href = `/login?redirect=${encodeURIComponent(globalThis.location.pathname)}`
+      throw new ApiError(
+        'Phiên đăng nhập đã thay đổi (role/quyền). Đang chuyển hướng đến trang đăng nhập...',
+        ErrorCode.UNAUTHORIZED, 401,
+      )
+    }
     if (newToken && originalConfig.headers) {
       originalConfig.headers['X-Frappe-CSRF-Token'] = newToken
       return api(originalConfig)
     }
   }
 
-  throw new Error(parseServerMessages((error.response?.data as FrappeErrorData) ?? {}))
+  throw new ApiError(
+    parseServerMessages((error.response?.data as FrappeErrorData) ?? {}),
+    ErrorCode.VALIDATION_ERROR, 400,
+  )
 }
 
 // ── Per-status handlers (extracted to keep interceptor flat) ──────────────────
@@ -154,9 +178,13 @@ function handle401(error: AxiosError<FrappeErrorData>): never {
     || globalThis.location.pathname.startsWith('/login')
   if (!onLoginPage) {
     globalThis.location.href = `/login?redirect=${encodeURIComponent(globalThis.location.pathname)}`
-    throw new Error('Phiên đăng nhập đã hết hạn. Đang chuyển hướng...')
+    throw new ApiError('Phiên đăng nhập đã hết hạn. Đang chuyển hướng...',
+      ErrorCode.UNAUTHORIZED, 401)
   }
-  throw new Error(error.response?.data?.message ?? 'Sai tên đăng nhập hoặc mật khẩu.')
+  throw new ApiError(
+    error.response?.data?.message ?? 'Sai tên đăng nhập hoặc mật khẩu.',
+    ErrorCode.UNAUTHORIZED, 401,
+  )
 }
 
 async function handle403(): Promise<never> {
@@ -170,18 +198,23 @@ async function handle403(): Promise<never> {
       )
       if (!(ping.data?.message?.data?.authenticated ?? true)) {
         globalThis.location.href = `/login?redirect=${encodeURIComponent(globalThis.location.pathname)}`
-        throw new Error('Phiên đăng nhập đã hết hạn. Đang chuyển hướng đến trang đăng nhập...')
+        throw new ApiError(
+          'Phiên đăng nhập đã hết hạn. Đang chuyển hướng đến trang đăng nhập...',
+          ErrorCode.UNAUTHORIZED, 401,
+        )
       }
     } catch (e) {
-      if (e instanceof Error && e.message.includes('Phiên đăng nhập')) throw e
+      if (e instanceof ApiError && e.code === ErrorCode.UNAUTHORIZED) throw e
     }
   }
-  throw new Error('Bạn không có quyền thực hiện hành động này.')
+  throw new ApiError('Bạn không có quyền thực hiện hành động này.',
+    ErrorCode.FORBIDDEN, 403)
 }
 
 function handle500(data: FrappeErrorData | undefined): never {
   const last = data?.exc ? String(data.exc).split('\n').findLast(Boolean) ?? '' : ''
-  throw new Error('500 Lỗi máy chủ nội bộ' + (last ? ' — ' + last : ''))
+  throw new ApiError('Lỗi máy chủ nội bộ' + (last ? ' — ' + last : ''),
+    ErrorCode.INTERNAL_ERROR, 500)
 }
 
 // ── Response interceptor ───────────────────────────────────────────────────────
@@ -190,7 +223,10 @@ api.interceptors.response.use(
   (response: AxiosResponse) => response,
   async (error: AxiosError<FrappeErrorData>) => {
     if (!error.response) {
-      throw new Error('Không thể kết nối đến máy chủ. Vui lòng kiểm tra kết nối mạng.')
+      throw new ApiError(
+        'Không thể kết nối đến máy chủ. Vui lòng kiểm tra kết nối mạng.',
+        ErrorCode.NETWORK_ERROR, 0,
+      )
     }
 
     const { status, data } = error.response
@@ -198,12 +234,24 @@ api.interceptors.response.use(
     if (status === 400) return handle400(error)
     if (status === 401) return handle401(error)
     if (status === 403) return handle403()
-    if (status === 404) throw new Error(data?.message || 'Không tìm thấy tài nguyên yêu cầu.')
-    if (status === 409) throw new Error(data?.message || 'Dữ liệu đã tồn tại trong hệ thống.')
-    if (status === 417) throw new Error(parseServerMessages(data ?? {}))
+    if (status === 404) {
+      throw new ApiError(data?.message || 'Không tìm thấy tài nguyên yêu cầu.',
+        ErrorCode.NOT_FOUND, 404)
+    }
+    if (status === 409) {
+      throw new ApiError(data?.message || 'Dữ liệu đã tồn tại trong hệ thống.',
+        ErrorCode.CONFLICT, 409)
+    }
+    if (status === 417 || status === 422) {
+      throw new ApiError(parseServerMessages(data ?? {}),
+        ErrorCode.BUSINESS_RULE, status)
+    }
     if (status === 500) return handle500(data)
 
-    throw new Error(data?.message ?? `Lỗi không xác định (HTTP ${status})`)
+    throw new ApiError(
+      data?.message ?? `Lỗi không xác định (HTTP ${status})`,
+      httpStatusToCode(status), status,
+    )
   },
 )
 

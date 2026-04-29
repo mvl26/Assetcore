@@ -23,6 +23,7 @@ type DocType =
   | 'AC Asset Category' | 'IMM Device Model' | 'IMM Calibration Schedule'
   | 'Purchase Order' | 'User' | 'AC Warehouse'
   | 'AC Spare Part Category' | 'AC Vendor' | 'AC Purchase' | 'UOM' | 'AC UOM'
+  | 'PM Checklist Template'
 
 interface CacheEntry {
   items: MasterItem[]

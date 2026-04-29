@@ -3,6 +3,7 @@
 import { ref, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useSidebar } from '@/composables/useSidebar'
+import LocaleSwitcher from '@/components/common/LocaleSwitcher.vue'
 
 const router = useRouter()
 const route  = useRoute()
@@ -53,7 +54,7 @@ const navGroups: NavGroup[] = [
     { label: 'Trang chính',  path: '/dashboard', icon: 'grid' },
     { label: 'Quét mã QR',   path: '/qr-scan',   icon: 'qr'   },
   ]},
-  { key: 'assets', title: 'Tài sản (IMM-00)', icon: 'device', items: [
+  { key: 'assets', title: 'Tài sản', icon: 'device', items: [
     { label: 'Danh sách thiết bị', path: '/assets',          icon: 'device'   },
     { label: 'Model thiết bị',     path: '/device-models',   icon: 'template' },
     { label: 'Chuyển giao',        path: '/asset-transfers', icon: 'transfer' },
@@ -61,32 +62,32 @@ const navGroups: NavGroup[] = [
   ]},
   { key: 'procurement', title: 'Mua sắm & Tiếp nhận', icon: 'cart', items: [
     { label: 'Đơn hàng mua',       path: '/purchases',     icon: 'cart'      },
-    { label: 'Tiếp nhận (IMM-04)', path: '/commissioning', icon: 'clipboard' },
+    { label: 'Tiếp nhận', path: '/commissioning', icon: 'clipboard' },
   ]},
-  { key: 'pm', title: 'Bảo trì định kỳ (IMM-08)', icon: 'wrench', items: [
+  { key: 'pm', title: 'Bảo trì định kỳ', icon: 'wrench', items: [
     { label: 'Tổng quan bảo trì',  path: '/pm/dashboard',   icon: 'chart'    },
     { label: 'Lệnh bảo trì',       path: '/pm/work-orders', icon: 'wrench'   },
     { label: 'Lịch bảo trì',       path: '/pm/calendar',    icon: 'calendar' },
     { label: 'Kế hoạch bảo trì',   path: '/pm/schedules',   icon: 'list'     },
     { label: 'Mẫu bảng kiểm',      path: '/pm/templates',   icon: 'template' },
   ]},
-  { key: 'cm', title: 'Sửa chữa (IMM-09)', icon: 'tool', items: [
+  { key: 'cm', title: 'Sửa chữa', icon: 'tool', items: [
     { label: 'Tổng quan sửa chữa',       path: '/cm/dashboard',   icon: 'chart'   },
     { label: 'Lệnh sửa chữa',            path: '/cm/work-orders', icon: 'tool'    },
     { label: 'Yêu cầu cập nhật firmware',path: '/cm/firmware',    icon: 'code'    },
     { label: 'Thời gian sửa chữa TB',    path: '/cm/mttr',        icon: 'trending'},
   ]},
-  { key: 'calibration', title: 'Hiệu chuẩn (IMM-11)', icon: 'gauge', items: [
+  { key: 'calibration', title: 'Hiệu chuẩn', icon: 'gauge', items: [
     { label: 'Phiếu hiệu chuẩn', path: '/calibration',           icon: 'gauge'    },
     { label: 'Lịch hiệu chuẩn',  path: '/calibration/schedules', icon: 'calendar' },
   ]},
-  { key: 'qms', title: 'Sự cố & QMS (IMM-12)', icon: 'alert', items: [
+  { key: 'qms', title: 'Sự cố & QMS', icon: 'alert', items: [
     { label: 'Dashboard sự cố',    path: '/incidents/dashboard', icon: 'chart'  },
     { label: 'Danh sách sự cố',    path: '/incidents/list',      icon: 'alert'  },
     { label: 'CAPA',               path: '/capas',               icon: 'shield' },
     { label: 'Nhật ký kiểm toán',  path: '/audit-trail',         icon: 'log'    },
   ]},
-  { key: 'documents', title: 'Hồ sơ (IMM-05)', icon: 'folder', items: [
+  { key: 'documents', title: 'Hồ sơ', icon: 'folder', items: [
     { label: 'Kho tài liệu',   path: '/documents',          icon: 'folder' },
     { label: 'Yêu cầu hồ sơ',  path: '/documents/requests', icon: 'inbox'  },
   ]},
@@ -216,8 +217,11 @@ const activeGroups = computed(() => {
     <!-- Logo / header -->
     <div class="sidebar-header flex items-center h-16 px-3 shrink-0">
       <div class="flex items-center gap-3 flex-1 min-w-0">
-        <div class="logo-badge shrink-0 w-9 h-9 rounded-xl flex items-center justify-center font-bold text-sm text-white">
-          AC
+        <div class="logo-badge shrink-0 w-9 h-9 rounded-xl overflow-hidden bg-white/10 flex items-center justify-center">
+          <img
+:src="'/files/Screenshot%202025-01-25%20222056e16930.png'"
+               alt="AssetCore"
+               class="w-full h-full object-contain" />
         </div>
         <Transition name="fade-x">
           <div v-if="!collapsed" class="min-w-0">
@@ -226,10 +230,12 @@ const activeGroups = computed(() => {
           </div>
         </Transition>
       </div>
-      <button class="toggle-btn shrink-0 w-7 h-7 rounded-lg flex items-center justify-center"
+      <button
+class="toggle-btn shrink-0 w-7 h-7 rounded-lg flex items-center justify-center"
               :title="collapsed ? 'Mở rộng' : 'Thu gọn'"
               @click="toggle">
-        <svg class="w-4 h-4 transition-transform duration-250"
+        <svg
+class="w-4 h-4 transition-transform duration-250"
              :class="collapsed ? 'rotate-180' : ''"
              fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" />
@@ -239,23 +245,24 @@ const activeGroups = computed(() => {
 
     <!-- Navigation -->
     <nav class="flex-1 overflow-y-auto py-3 scrollbar-thin">
-
-      <!-- ── Expanded sidebar ── -->
+<!-- ── Expanded sidebar ── -->
       <template v-if="!collapsed">
         <div v-for="group in navGroups" :key="group.key" class="px-3 mb-1">
-
-          <!-- Group header -->
-          <button class="group-header w-full flex items-center justify-between px-2 py-2 rounded-lg mb-0.5"
+<!-- Group header -->
+          <button
+class="group-header w-full flex items-center justify-between px-2 py-2 rounded-lg mb-0.5"
                   :class="activeGroups.has(group.key) ? 'active' : ''"
                   @click="toggleGroup(group.key)">
             <div class="flex items-center gap-2.5">
-              <span class="group-header-icon shrink-0 w-[18px] h-[18px] flex items-center justify-center"
+              <span
+class="group-header-icon shrink-0 w-[18px] h-[18px] flex items-center justify-center"
                     v-html="ICONS[group.icon] || ICONS.grid" />
               <span class="group-header-label text-[11.5px] font-semibold uppercase tracking-widest">
                 {{ group.title }}
               </span>
             </div>
-            <svg class="chevron w-3.5 h-3.5 transition-transform duration-250 shrink-0"
+            <svg
+class="chevron w-3.5 h-3.5 transition-transform duration-250 shrink-0"
                  :class="groupOpen[group.key] ? 'rotate-0' : '-rotate-90'"
                  fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
@@ -277,7 +284,8 @@ const activeGroups = computed(() => {
                 :style="{ animationDelay: `${idx * 35}ms` }"
                 @click="router.push(item.path)"
               >
-                <span class="nav-icon shrink-0 w-[18px] h-[18px] flex items-center justify-center"
+                <span
+class="nav-icon shrink-0 w-[18px] h-[18px] flex items-center justify-center"
                       v-html="ICONS[item.icon] || ICONS.grid" />
                 <span class="truncate text-left font-medium leading-snug">{{ item.label }}</span>
               </button>
@@ -299,20 +307,21 @@ const activeGroups = computed(() => {
             :title="item.label"
             @click="router.push(item.path)"
           >
-            <span class="w-[18px] h-[18px] flex items-center justify-center"
+            <span
+class="w-[18px] h-[18px] flex items-center justify-center"
                   v-html="ICONS[item.icon] || ICONS.grid" />
             <!-- Tooltip -->
             <span class="tooltip">{{ item.label }}</span>
           </button>
         </div>
       </template>
-
-    </nav>
+</nav>
 
     <!-- Footer -->
     <Transition name="fade-x">
-      <div v-if="!collapsed" class="sidebar-footer px-4 py-3">
+      <div v-if="!collapsed" class="sidebar-footer px-4 py-3 flex items-center justify-between gap-2">
         <p class="text-[11px] text-slate-500 font-medium">AssetCore v1.0 · IMM Wave 1</p>
+        <LocaleSwitcher />
       </div>
     </Transition>
   </aside>
@@ -341,8 +350,8 @@ const activeGroups = computed(() => {
   transition: color 0.15s, background 0.15s;
 }
 .toggle-btn:hover {
-  color: rgba(255,255,255,0.75);
-  background: rgba(255,255,255,0.07);
+  color: #ffffff;
+  background: rgba(255,255,255,0.12);
 }
 
 .sidebar-footer {
@@ -356,8 +365,8 @@ const activeGroups = computed(() => {
   cursor: pointer;
 }
 .group-header:hover {
-  background: rgba(255,255,255,0.05);
-  color: rgba(255,255,255,0.65);
+  background: rgba(255,255,255,0.08);
+  color: #ffffff;
 }
 .group-header.active {
   color: #60a5fa;
@@ -375,13 +384,13 @@ const activeGroups = computed(() => {
   animation: itemSlideIn 0.22s ease both;
 }
 .nav-item:hover {
-  background: rgba(255,255,255,0.06);
-  color: rgba(255,255,255,0.9);
+  background: rgba(255,255,255,0.1);
+  color: #ffffff;
   transform: translateX(2px);
 }
 .nav-item.active {
-  background: rgba(59,130,246,0.15);
-  color: #93c5fd;
+  background: rgba(59,130,246,0.25);
+  color: #dbeafe;
   box-shadow: inset 3px 0 0 #3b82f6;
 }
 .nav-item.active:hover {
@@ -397,12 +406,12 @@ const activeGroups = computed(() => {
   color: rgba(255,255,255,0.7);
 }
 .collapsed-item:hover {
-  background: rgba(255,255,255,0.07);
-  color: rgba(255,255,255,0.9);
+  background: rgba(255,255,255,0.12);
+  color: #ffffff;
 }
 .collapsed-item.active {
-  background: rgba(59,130,246,0.18);
-  color: #93c5fd;
+  background: rgba(59,130,246,0.28);
+  color: #dbeafe;
   box-shadow: inset 3px 0 0 #3b82f6;
 }
 

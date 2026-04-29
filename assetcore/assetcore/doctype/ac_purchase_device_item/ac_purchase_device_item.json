@@ -59,7 +59,9 @@
    "fieldname": "clinical_dept",
    "fieldtype": "Link",
    "label": "Khoa s\u1eed d\u1ee5ng",
-   "options": "AC Department"
+   "options": "AC Department",
+   "hidden": 1,
+   "description": "\u0110\u00e3 chuy\u1ec3n sang phi\u1ebfu ti\u1ebfp nh\u1eadn (IMM-04). Khoa \u0111\u01b0\u1ee3c ph\u00e2n c\u00f4ng khi t\u1ea1o Asset, kh\u00f4ng ph\u1ea3i tr\u00ean PO."
   },
   {
    "fieldname": "section_link",

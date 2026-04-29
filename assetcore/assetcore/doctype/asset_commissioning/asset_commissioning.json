@@ -54,6 +54,8 @@
   "tab_baseline",
   "baseline_tests",
   "tab_documents",
+  "documents_incomplete",
+  "documents_incomplete_note",
   "commissioning_documents",
   "section_output",
   "amend_reason",
@@ -66,7 +68,7 @@
   {
    "fieldname": "workflow_state",
    "fieldtype": "Link",
-   "label": "Tr\u1ea1ng th\u00e1i",
+   "label": "Trạng thái",
    "options": "Workflow State",
    "read_only": 1,
    "in_list_view": 1,
@@ -76,12 +78,12 @@
   {
    "fieldname": "section_procurement",
    "fieldtype": "Section Break",
-   "label": "Th\u00f4ng tin Mua s\u1eafm"
+   "label": "Thông tin Mua sắm"
   },
   {
    "fieldname": "po_reference",
    "fieldtype": "Link",
-   "label": "\u0110\u01a1n h\u00e0ng mua (AC Purchase)",
+   "label": "Đơn hàng mua (AC Purchase)",
    "options": "AC Purchase",
    "reqd": 1,
    "in_list_view": 1,
@@ -90,16 +92,16 @@
   {
    "fieldname": "master_item",
    "fieldtype": "Link",
-   "label": "Model Thi\u1ebft b\u1ecb (IMM Device Model)",
+   "label": "Model Thiết bị (IMM Device Model)",
    "options": "IMM Device Model",
    "reqd": 1,
    "in_list_view": 1,
-   "description": "Link t\u1edbi IMM Device Model \u0111\u1ec3 t\u1ef1 \u0111\u1ed9ng l\u1ea5y PM interval, calibration, risk class."
+   "description": "Link tới IMM Device Model để tự động lấy PM interval, calibration, risk class."
   },
   {
    "fieldname": "vendor",
    "fieldtype": "Link",
-   "label": "Nh\u00e0 cung c\u1ea5p",
+   "label": "Nhà cung cấp",
    "options": "AC Supplier",
    "reqd": 1
   },
@@ -110,96 +112,96 @@
   {
    "fieldname": "clinical_dept",
    "fieldtype": "Link",
-   "label": "Khoa / Ph\u00f2ng s\u1eed d\u1ee5ng",
+   "label": "Khoa / Phòng sử dụng",
    "options": "AC Department",
-   "reqd": 1
+   "mandatory_depends_on": "eval:doc.workflow_state && doc.workflow_state !== 'Draft'"
   },
   {
    "fieldname": "expected_installation_date",
    "fieldtype": "Date",
-   "label": "Ng\u00e0y h\u1eb9n l\u1eafp \u0111\u1eb7t",
-   "reqd": 1
+   "label": "Ngày hẹn lắp đặt",
+   "mandatory_depends_on": "eval:doc.workflow_state && doc.workflow_state !== 'Draft'"
   },
   {
    "fieldname": "reception_date",
    "fieldtype": "Date",
-   "label": "Ng\u00e0y nh\u1eadn h\u00e0ng",
+   "label": "Ngày nhận hàng",
    "reqd": 0
   },
   {
    "fieldname": "asset_description",
    "fieldtype": "Data",
-   "label": "T\u00ean / M\u00f4 t\u1ea3 T\u00e0i s\u1ea3n",
-   "description": "T\u00ean \u0111\u1ea7y \u0111\u1ee7 c\u1ee7a thi\u1ebft b\u1ecb theo h\u1ee3p \u0111\u1ed3ng/PO. D\u00f9ng l\u00e0m asset_name trong AC Asset.",
+   "label": "Tên / Mô tả Tài sản",
+   "description": "Tên đầy đủ của thiết bị theo hợp đồng/PO. Dùng làm asset_name trong AC Asset.",
    "reqd": 0,
    "in_list_view": 0
   },
   {
    "fieldname": "delivery_note_no",
    "fieldtype": "Data",
-   "label": "S\u1ed1 Phi\u1ebfu Giao H\u00e0ng / Packing List",
-   "description": "S\u1ed1 phi\u1ebfu giao h\u00e0ng ho\u1eb7c packing list t\u1eeb NCC.",
+   "label": "Số Phiếu Giao Hàng / Packing List",
+   "description": "Số phiếu giao hàng hoặc packing list từ NCC.",
    "reqd": 0
   },
   {
    "fieldname": "purchase_price",
    "fieldtype": "Currency",
-   "label": "Gi\u00e1 tr\u1ecb Mua s\u1eafm (VN\u0110)",
-   "description": "Gi\u00e1 tr\u1ecb theo PO/h\u1ee3p \u0111\u1ed3ng. D\u00f9ng khi t\u1ea1o AC Asset.",
+   "label": "Giá trị Mua sắm (VNĐ)",
+   "description": "Giá trị theo PO/hợp đồng. Dùng khi tạo AC Asset.",
    "reqd": 0
   },
   {
    "fieldname": "warranty_expiry_date",
    "fieldtype": "Date",
-   "label": "Ng\u00e0y H\u1ebft B\u1ea3o H\u00e0nh",
-   "description": "Ng\u00e0y k\u1ebft th\u00fac b\u1ea3o h\u00e0nh theo h\u1ee3p \u0111\u1ed3ng v\u1edbi NCC.",
+   "label": "Ngày Hết Bảo Hành",
+   "description": "Ngày kết thúc bảo hành theo hợp đồng với NCC.",
    "reqd": 0
   },
   {
    "fieldname": "section_installation",
    "fieldtype": "Section Break",
-   "label": "Th\u00f4ng tin L\u1eafp \u0111\u1eb7t"
+   "label": "Thông tin Lắp đặt"
   },
   {
    "fieldname": "installation_date",
    "fieldtype": "Datetime",
-   "label": "Ng\u00e0y gi\u1edd B\u1eaft \u0111\u1ea7u L\u1eafp \u0111\u1eb7t",
+   "label": "Ngày giờ Bắt đầu Lắp đặt",
    "read_only": 1
   },
   {
    "fieldname": "vendor_engineer_name",
    "fieldtype": "Data",
-   "label": "T\u00ean K\u1ef9 s\u01b0 H\u00e3ng"
+   "label": "Tên Kỹ sư Hãng"
   },
   {
    "fieldname": "commissioned_by",
    "fieldtype": "Link",
-   "label": "KTV ph\u1ee5 tr\u00e1ch",
+   "label": "KTV phụ trách",
    "options": "User",
    "reqd": 0
   },
   {
    "fieldname": "installation_location",
    "fieldtype": "Link",
-   "label": "V\u1ecb tr\u00ed L\u1eafp \u0111\u1eb7t (AC Location)",
+   "label": "Vị trí Lắp đặt (AC Location)",
    "options": "AC Location",
-   "description": "Ph\u00f2ng / khu v\u1ef1c l\u1eafp \u0111\u1eb7t c\u1ee5 th\u1ec3. S\u1ebd tr\u1edf th\u00e0nh location c\u1ee7a AC Asset.",
+   "description": "Phòng / khu vực lắp đặt cụ thể. Sẽ trở thành location của AC Asset.",
    "reqd": 0
   },
   {
    "fieldname": "received_by",
    "fieldtype": "Link",
-   "label": "Ng\u01b0\u1eddi Ti\u1ebfp Nh\u1eadn (Kho v\u1eadn)",
+   "label": "Người Tiếp Nhận (Kho vận)",
    "options": "User",
-   "description": "Nh\u00e2n vi\u00ean kho v\u1eadn x\u00e1c nh\u1eadn ti\u1ebfp nh\u1eadn thi\u1ebft b\u1ecb v\u1eadt l\u00fd.",
+   "description": "Nhân viên kho vận xác nhận tiếp nhận thiết bị vật lý.",
    "reqd": 0
   },
   {
    "fieldname": "dept_head_acceptance",
    "fieldtype": "Link",
-   "label": "Tr\u01b0\u1edfng Khoa Ti\u1ebfp Nh\u1eadn",
+   "label": "Trưởng Khoa Tiếp Nhận",
    "options": "User",
-   "description": "Tr\u01b0\u1edfng khoa / ph\u00f2ng k\u00fd bi\u00ean b\u1ea3n b\u00e0n giao thi\u1ebft b\u1ecb \u0111\u01b0a v\u00e0o v\u1eadn h\u00e0nh.",
+   "description": "Trưởng khoa / phòng ký biên bản bàn giao thiết bị đưa vào vận hành.",
    "reqd": 0
   },
   {
@@ -209,15 +211,15 @@
   {
    "fieldname": "is_radiation_device",
    "fieldtype": "Check",
-   "label": "Thi\u1ebft b\u1ecb c\u00f3 b\u1ee9c x\u1ea1 / tia X",
+   "label": "Thiết bị có bức xạ / tia X",
    "read_only": 1,
    "fetch_from": "master_item.is_radiation_device",
-   "description": "L\u1ea5y t\u1ef1 \u0111\u1ed9ng t\u1eeb IMM Device Model."
+   "description": "Lấy tự động từ IMM Device Model."
   },
   {
    "fieldname": "risk_class",
    "fieldtype": "Select",
-   "label": "Ph\u00e2n lo\u1ea1i r\u1ee7i ro",
+   "label": "Phân loại rủi ro",
    "options": "A\nB\nC\nD\nRadiation",
    "in_list_view": 0,
    "reqd": 0
@@ -225,83 +227,83 @@
   {
    "fieldname": "radiation_license_no",
    "fieldtype": "Data",
-   "label": "S\u1ed1 gi\u1ea5y ph\u00e9p ph\u00f3ng x\u1ea1",
+   "label": "Số giấy phép phóng xạ",
    "reqd": 0
   },
   {
    "fieldname": "doa_incident",
    "fieldtype": "Check",
-   "label": "S\u1ef1 c\u1ed1 DOA (ch\u1ebft ngay khi khui h\u1ed9p)"
+   "label": "Sự cố DOA (chết ngay khi khui hộp)"
   },
   {
    "fieldname": "clinical_head",
    "fieldtype": "Link",
-   "label": "Tr\u01b0\u1edfng khoa",
+   "label": "Trưởng khoa",
    "options": "User",
    "reqd": 0
   },
   {
    "fieldname": "qa_officer",
    "fieldtype": "Link",
-   "label": "Nh\u00e2n vi\u00ean QA",
+   "label": "Nhân viên QA",
    "options": "User",
    "reqd": 0
   },
   {
    "fieldname": "board_approver",
    "fieldtype": "Link",
-   "label": "Ng\u01b0\u1eddi ph\u00ea duy\u1ec7t BG\u0110",
+   "label": "Người phê duyệt BGĐ",
    "options": "User",
    "reqd": 0
   },
   {
    "fieldname": "facility_checklist_pass",
    "fieldtype": "Check",
-   "label": "C\u01a1 s\u1edf h\u1ea1 t\u1ea7ng \u0111\u1ea1t y\u00eau c\u1ea7u",
+   "label": "Cơ sở hạ tầng đạt yêu cầu",
    "default": "0"
   },
   {
    "fieldname": "section_approval_flow",
    "fieldtype": "Section Break",
-   "label": "Lu\u1ed3ng ph\u00ea duy\u1ec7t"
+   "label": "Luồng phê duyệt"
   },
   {
    "fieldname": "pending_approver",
    "fieldtype": "Link",
    "options": "User",
-   "label": "Ng\u01b0\u1eddi \u0111ang ch\u1edd duy\u1ec7t",
+   "label": "Người đang chờ duyệt",
    "read_only": 1
   },
   {
    "fieldname": "approval_stage",
    "fieldtype": "Select",
    "options": "\nDoc Verify\nFacility Check\nBaseline Review\nClinical Release",
-   "label": "Giai \u0111o\u1ea1n ph\u00ea duy\u1ec7t",
+   "label": "Giai đoạn phê duyệt",
    "read_only": 1
   },
   {
    "fieldname": "approval_submitted_at",
    "fieldtype": "Datetime",
-   "label": "Th\u1eddi \u0111i\u1ec3m g\u1eedi duy\u1ec7t",
+   "label": "Thời điểm gửi duyệt",
    "read_only": 1
   },
   {
    "fieldname": "approval_remarks",
    "fieldtype": "Small Text",
-   "label": "Ghi ch\u00fa g\u1eedi duy\u1ec7t",
+   "label": "Ghi chú gửi duyệt",
    "read_only": 1
   },
   {
    "fieldname": "commissioning_date",
    "fieldtype": "Date",
-   "label": "Ng\u00e0y commissioning",
+   "label": "Ngày commissioning",
    "reqd": 0,
    "read_only": 1
   },
   {
    "fieldname": "overall_inspection_result",
    "fieldtype": "Select",
-   "label": "K\u1ebft qu\u1ea3 ki\u1ec3m tra t\u1ed5ng th\u1ec3",
+   "label": "Kết quả kiểm tra tổng thể",
    "options": "\nPass\nFail\nConditional Pass",
    "reqd": 0,
    "read_only": 1
@@ -309,106 +311,122 @@
   {
    "fieldname": "section_identification",
    "fieldtype": "Section Break",
-   "label": "\u0110\u1ecbnh danh Thi\u1ebft b\u1ecb"
+   "label": "Định danh Thiết bị"
   },
   {
    "fieldname": "vendor_serial_no",
    "fieldtype": "Data",
-   "label": "Serial Number H\u00e3ng (NSX)",
-   "reqd": 1,
+   "label": "Serial Number Hãng (NSX)",
+   "mandatory_depends_on": "eval:doc.workflow_state && doc.workflow_state !== 'Draft'",
    "search_index": 1,
-   "description": "B\u1eaft bu\u1ed9c qu\u00e9t b\u1eb1ng Barcode scanner. H\u1ec7 th\u1ed1ng s\u1ebd ki\u1ec3m tra tr\u00f9ng l\u1eb7p."
+   "description": "Bắt buộc quét bằng Barcode scanner. Hệ thống sẽ kiểm tra trùng lặp."
   },
   {
    "fieldname": "internal_tag_qr",
    "fieldtype": "Data",
-   "label": "M\u00e3 QR N\u1ed9i b\u1ed9 B\u1ec7nh vi\u1ec7n",
+   "label": "Mã QR Nội bộ Bệnh viện",
    "read_only": 1,
-   "description": "Sinh t\u1ef1 \u0111\u1ed9ng sau khi Serial \u0111\u01b0\u1ee3c x\u00e1c nh\u1eadn."
+   "description": "Sinh tự động sau khi Serial được xác nhận."
   },
   {
    "fieldname": "custom_moh_code",
    "fieldtype": "Data",
-   "label": "M\u00e3 BYT (B\u1ed9 Y t\u1ebf)",
-   "description": "Kh\u00f4ng b\u1eaft bu\u1ed9c trong v1.0. Nh\u1eadp th\u1ee7 c\u00f4ng n\u1ebfu c\u00f3."
+   "label": "Mã BYT (Bộ Y tế)",
+   "description": "Không bắt buộc trong v1.0. Nhập thủ công nếu có."
   },
   {
    "fieldname": "section_qa",
    "fieldtype": "Section Break",
-   "label": "B\u1eb1ng ch\u1ee9ng & T\u00e0i li\u1ec7u QA"
+   "label": "Bằng chứng & Tài liệu QA"
   },
   {
    "fieldname": "site_photo",
    "fieldtype": "Attach Image",
-   "label": "\u1ea2nh X\u00e1c nh\u1eadn M\u1eb7t b\u1eb1ng",
-   "description": "Ch\u1ee5p \u1ea3nh m\u1eb7t b\u1eb1ng tr\u01b0\u1edbc khi l\u1eafp \u0111\u1eb7t. B\u1eaft bu\u1ed9c."
+   "label": "Ảnh Xác nhận Mặt bằng",
+   "description": "Chụp ảnh mặt bằng trước khi lắp đặt. Bắt buộc."
   },
   {
    "fieldname": "installation_evidence",
    "fieldtype": "Attach",
-   "label": "B\u1eb1ng ch\u1ee9ng Ho\u00e0n t\u1ea5t L\u1eafp \u0111\u1eb7t",
-   "description": "File \u1ea3nh/PDF do K\u1ef9 s\u01b0 h\u00e3ng cung c\u1ea5p sau khi l\u1eafp xong."
+   "label": "Bằng chứng Hoàn tất Lắp đặt",
+   "description": "File ảnh/PDF do Kỹ sư hãng cung cấp sau khi lắp xong."
   },
   {
    "fieldname": "qa_license_doc",
    "fieldtype": "Attach",
-   "label": "Gi\u1ea5y ph\u00e9p BYT / C\u1ee5c An to\u00e0n B\u1ee9c x\u1ea1",
-   "description": "B\u1eaft bu\u1ed9c n\u1ebfu thi\u1ebft b\u1ecb c\u00f3 is_radiation = 1."
+   "label": "Giấy phép BYT / Cục An toàn Bức xạ",
+   "description": "Bắt buộc nếu thiết bị có is_radiation = 1."
   },
   {
    "fieldname": "handover_doc",
    "fieldtype": "Attach",
-   "label": "Bi\u00ean b\u1ea3n b\u00e0n giao",
+   "label": "Biên bản bàn giao",
    "reqd": 0
   },
   {
    "fieldname": "tab_baseline",
    "fieldtype": "Tab Break",
-   "label": "K\u1ebft qu\u1ea3 Ki\u1ec3m tra An to\u00e0n"
+   "label": "Kết quả Kiểm tra An toàn"
   },
   {
    "fieldname": "baseline_tests",
    "fieldtype": "Table",
-   "label": "L\u01b0\u1edbi \u0110o ki\u1ec3m An to\u00e0n \u0110i\u1ec7n",
+   "label": "Lưới Đo kiểm An toàn Điện",
    "options": "Commissioning Checklist",
-   "reqd": 1
+   "mandatory_depends_on": "eval:doc.workflow_state === 'Initial Inspection' || doc.workflow_state === 'Re Inspection' || doc.workflow_state === 'Clinical Release'"
   },
   {
    "fieldname": "tab_documents",
    "fieldtype": "Tab Break",
-   "label": "H\u1ed3 s\u01a1 \u0110i k\u00e8m"
+   "label": "Hồ sơ Đi kèm"
+  },
+  {
+   "fieldname": "documents_incomplete",
+   "fieldtype": "Check",
+   "label": "Thiếu hồ sơ — vẫn cho phép duyệt",
+   "default": "0",
+   "description": "Đánh dấu khi tài sản này thiếu hồ sơ bắt buộc nhưng vẫn được phép tiếp tục quy trình. Hồ sơ thiếu sẽ bổ sung sau."
+  },
+  {
+   "fieldname": "documents_incomplete_note",
+   "fieldtype": "Small Text",
+   "label": "Ghi chú thiếu hồ sơ",
+   "depends_on": "documents_incomplete",
+   "mandatory_depends_on": "documents_incomplete",
+   "description": "Liệt kê hồ sơ còn thiếu + cam kết bổ sung — VD: 'CO/CQ chưa về, NCC sẽ gửi trong 7 ngày'."
   },
   {
    "fieldname": "commissioning_documents",
    "fieldtype": "Table",
-   "label": "B\u1ea3ng ki\u1ec3m H\u1ed3 s\u01a1",
-   "options": "Commissioning Document Record"
+   "label": "Bảng kiểm Hồ sơ",
+   "options": "Commissioning Document Record",
+   "description": "Có thể thêm/sửa/xóa hồ sơ. Mỗi thiết bị có thể có danh sách khác nhau tùy yêu cầu thực tế."
   },
   {
    "fieldname": "section_output",
    "fieldtype": "Section Break",
-   "label": "K\u1ebft qu\u1ea3 Tri\u1ec3n khai"
+   "label": "Kết quả Triển khai"
   },
   {
    "fieldname": "amend_reason",
    "fieldtype": "Small Text",
-   "label": "L\u00fd do S\u1eeda \u0111\u1ed5i (Amend)",
+   "label": "Lý do Sửa đổi (Amend)",
    "depends_on": "eval:doc.amended_from",
    "mandatory_depends_on": "eval:doc.amended_from",
-   "description": "B\u1eaft bu\u1ed9c \u0111i\u1ec1n l\u00fd do khi t\u1ea1o phi\u1ebfu s\u1eeda \u0111\u1ed5i."
+   "description": "Bắt buộc điền lý do khi tạo phiếu sửa đổi."
   },
   {
    "fieldname": "final_asset",
    "fieldtype": "Link",
-   "label": "T\u00e0i s\u1ea3n \u0111\u01b0\u1ee3c t\u1ea1o ra",
+   "label": "Tài sản được tạo ra",
    "options": "AC Asset",
    "read_only": 1,
-   "description": "T\u1ef1 \u0111\u1ed9ng \u0111i\u1ec1n khi phi\u1ebfu \u0111\u01b0\u1ee3c Submit & Release th\u00e0nh c\u00f4ng."
+   "description": "Tự động điền khi phiếu được Submit & Release thành công."
   },
   {
    "fieldname": "lifecycle_events_section",
    "fieldtype": "Section Break",
-   "label": "L\u1ecbch s\u1eed v\u00f2ng \u0111\u1eddi"
+   "label": "Lịch sử vòng đời"
   },
   {
    "fieldname": "lifecycle_events",
@@ -421,7 +439,7 @@
   {
    "fieldname": "amended_from",
    "fieldtype": "Link",
-   "label": "S\u1eeda \u0111\u1ed5i t\u1eeb",
+   "label": "Sửa đổi từ",
    "options": "Asset Commissioning",
    "read_only": 1,
    "print_hide": 1
@@ -437,66 +455,184 @@
  "owner": "Administrator",
  "permissions": [
   {
+   "role": "IMM System Admin",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "submit": 1,
+   "cancel": 1,
+   "amend": 1
+  },
+  {
+   "role": "IMM Operations Manager",
+   "read": 1,
+   "write": 1,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "submit": 1,
+   "cancel": 0,
+   "amend": 0
+  },
+  {
+   "role": "IMM QA Officer",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "submit": 1,
+   "cancel": 1,
+   "amend": 1
+  },
+  {
+   "role": "IMM Auditor",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0
+  },
+  {
+   "role": "IMM Department Head",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0
+  },
+  {
+   "role": "IMM Deputy Department Head",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0
+  },
+  {
+   "role": "IMM Workshop Lead",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0
+  },
+  {
+   "role": "IMM Biomed Technician",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0
+  },
+  {
+   "role": "IMM Technician",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0
+  },
+  {
+   "role": "IMM Storekeeper",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 0,
+   "export": 0,
+   "print": 0,
+   "email": 0,
+   "share": 0,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0
+  },
+  {
+   "role": "IMM Document Officer",
+   "read": 1,
+   "write": 1,
    "create": 1,
    "delete": 0,
-   "email": 1,
-   "export": 0,
-   "print": 1,
-   "read": 1,
-   "report": 0,
-   "role": "HTM Technician",
-   "share": 0,
-   "submit": 0,
-   "write": 1
-  },
-  {
-   "create": 0,
-   "delete": 0,
-   "email": 1,
-   "export": 0,
-   "print": 1,
-   "read": 1,
-   "report": 0,
-   "role": "Biomed Engineer",
-   "share": 0,
-   "submit": 0,
-   "write": 1
-  },
-  {
-   "amend": 1,
-   "cancel": 1,
-   "create": 0,
-   "delete": 0,
-   "email": 1,
+   "report": 1,
    "export": 1,
    "print": 1,
-   "read": 1,
-   "report": 1,
-   "role": "Workshop Head",
+   "email": 1,
    "share": 1,
    "submit": 1,
-   "write": 0
+   "cancel": 0,
+   "amend": 0
   },
   {
-   "amend": 0,
-   "cancel": 1,
+   "role": "IMM Clinical User",
+   "read": 1,
+   "write": 0,
    "create": 0,
    "delete": 0,
-   "email": 1,
-   "export": 1,
-   "print": 1,
-   "read": 1,
-   "report": 1,
-   "role": "VP Block2",
-   "share": 1,
-   "submit": 1,
-   "write": 0
-  },
-  {
-   "create": 0,
-   "read": 1,
-   "role": "QA Risk Team",
-   "write": 1
+   "report": 0,
+   "export": 0,
+   "print": 0,
+   "email": 0,
+   "share": 0,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0
   }
  ],
  "sort_field": "modified",

@@ -1,0 +1,89 @@
+{
+  "common": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "create": "Create",
+    "edit": "Edit",
+    "submit": "Submit",
+    "back": "Back",
+    "search": "Search",
+    "loading": "Loading...",
+    "no_data": "No data",
+    "required": "Required",
+    "yes": "Yes",
+    "no": "No"
+  },
+  "nav": {
+    "overview": "Overview",
+    "assets": "Assets",
+    "commissioning": "Commissioning",
+    "documents": "Documents",
+    "pm": "Preventive Maintenance",
+    "cm": "Corrective Maintenance",
+    "calibration": "Calibration",
+    "incidents": "Incidents",
+    "rca": "RCA",
+    "capa": "CAPA",
+    "audit_trail": "Audit Trail",
+    "inventory": "Inventory",
+    "purchase": "Purchase",
+    "system": "System"
+  },
+  "imm04": {
+    "title": "Asset Commissioning",
+    "states": {
+      "draft": "Draft",
+      "pending_doc_verify": "Pending Doc Verify",
+      "to_be_installed": "To Be Installed",
+      "installing": "Installing",
+      "identification": "Identification",
+      "initial_inspection": "Initial Inspection",
+      "non_conformance": "Non Conformance",
+      "clinical_hold": "Clinical Hold",
+      "re_inspection": "Re Inspection",
+      "clinical_release": "Clinical Release",
+      "return_to_vendor": "Return To Vendor"
+    }
+  },
+  "imm08": {
+    "title": "PM Work Order",
+    "create_title": "Create Ad-hoc PM Work Order",
+    "calendar_title": "Maintenance Calendar",
+    "drag_hint": "Drag-and-drop to reschedule"
+  },
+  "imm09": {
+    "title": "Asset Repair",
+    "create_title": "Create Repair Work Order",
+    "priority": {
+      "critical": "Critical",
+      "high": "High",
+      "medium": "Medium",
+      "low": "Low"
+    }
+  },
+  "imm11": {
+    "title": "Calibration",
+    "type": {
+      "external": "External Lab",
+      "in_house": "In-House"
+    }
+  },
+  "imm12": {
+    "title": "Incident Report",
+    "severity": {
+      "low": "Low",
+      "medium": "Medium",
+      "high": "High",
+      "critical": "Critical"
+    },
+    "rca_required_alert": "Severity {severity} → RCA required"
+  },
+  "errors": {
+    "decommissioned": "Asset is decommissioned",
+    "missing_field": "Please fill in all required fields",
+    "no_permission": "No permission",
+    "network": "Network error",
+    "unknown": "Unknown error"
+  }
+}
