@@ -4,7 +4,8 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useSidebar } from '@/composables/useSidebar'
 import {
-  getUnreadNotifications, markNotificationAsRead, markAllAsRead,
+  getUnreadNotifications, listNotifications,
+  markNotificationAsRead, markAllAsRead,
   getUserContext, logoutUser, resolveNotificationRoute,
   type NotificationItem, type UserContext,
 } from '@/api/layout'
@@ -18,9 +19,15 @@ const userMenuOpen = ref(false)
 const notifOpen = ref(false)
 
 const userCtx = ref<UserContext | null>(null)
-const notifications = ref<NotificationItem[]>([])
+const notifications = ref<NotificationItem[]>([])      // tab "Chưa đọc"
+const readNotifications = ref<NotificationItem[]>([])  // tab "Đã đọc"
 const unreadCount = ref(0)
 const notifLoading = ref(false)
+const notifTab = ref<'unread' | 'read'>('unread')
+
+const visibleNotifications = computed(() =>
+  notifTab.value === 'unread' ? notifications.value : readNotifications.value,
+)
 
 const POLL_INTERVAL_MS = 60_000  // 60s
 let pollTimer: ReturnType<typeof setInterval> | null = null
@@ -63,6 +70,24 @@ async function loadNotifications(): Promise<void> {
   finally { notifLoading.value = false }
 }
 
+async function loadReadNotifications(): Promise<void> {
+  notifLoading.value = true
+  try {
+    const res = await listNotifications(1, 20, false)
+    // Lọc ra các item đã đọc — endpoint list trả về cả 2 trạng thái
+    readNotifications.value = (res.items ?? []).filter((it) => Boolean(it.read))
+  } catch { /* silent */ }
+  finally { notifLoading.value = false }
+}
+
+function switchTab(tab: 'unread' | 'read'): void {
+  if (notifTab.value === tab) return
+  notifTab.value = tab
+  if (tab === 'read' && readNotifications.value.length === 0) {
+    void loadReadNotifications()
+  }
+}
+
 async function handleNotifClick(item: NotificationItem): Promise<void> {
   notifOpen.value = false
   if (!item.read) {
@@ -71,13 +96,14 @@ async function handleNotifClick(item: NotificationItem): Promise<void> {
   }
   const path = resolveNotificationRoute(item.document_type, item.document_name)
   if (path) router.push(path)
-  await loadNotifications()
+  // Refresh cả 2 tab — item vừa đọc xong sẽ chuyển tab
+  await Promise.all([loadNotifications(), loadReadNotifications()])
 }
 
 async function handleMarkAllRead(): Promise<void> {
   try {
     await markAllAsRead()
-    await loadNotifications()
+    await Promise.all([loadNotifications(), loadReadNotifications()])
   } catch { /* silent */ }
 }
 
@@ -86,6 +112,7 @@ function toggleNotif(): void {
   if (notifOpen.value) {
     userMenuOpen.value = false
     void loadNotifications()
+    if (notifTab.value === 'read') void loadReadNotifications()
   }
 }
 function toggleUserMenu(): void {
@@ -209,21 +236,59 @@ class="flex items-center justify-between px-4 py-2.5"
               </button>
             </div>
 
+            <!-- Tabs: Chưa đọc / Đã đọc -->
+            <div class="flex text-xs font-medium" style="border-bottom: 1px solid #f1f5f9">
+              <button
+                :class="[
+                  'flex-1 py-2 transition-colors relative',
+                  notifTab === 'unread'
+                    ? 'text-blue-600 font-semibold'
+                    : 'text-slate-500 hover:text-slate-700',
+                ]"
+                @click="switchTab('unread')"
+              >
+                Chưa đọc
+                <span
+                  v-if="unreadCount > 0"
+                  class="ml-1 text-[10px] bg-red-500 text-white rounded-full px-1.5 py-0.5"
+                >{{ unreadCount > 99 ? '99+' : unreadCount }}</span>
+                <span
+                  v-if="notifTab === 'unread'"
+                  class="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600"
+                />
+              </button>
+              <button
+                :class="[
+                  'flex-1 py-2 transition-colors relative',
+                  notifTab === 'read'
+                    ? 'text-blue-600 font-semibold'
+                    : 'text-slate-500 hover:text-slate-700',
+                ]"
+                @click="switchTab('read')"
+              >
+                Đã đọc
+                <span
+                  v-if="notifTab === 'read'"
+                  class="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600"
+                />
+              </button>
+            </div>
+
             <!-- Body -->
             <div class="overflow-y-auto flex-1">
               <div
-v-if="notifLoading && notifications.length === 0"
+v-if="notifLoading && visibleNotifications.length === 0"
                    class="text-center py-10 text-xs text-slate-400">
                 Đang tải...
               </div>
               <div
-v-else-if="notifications.length === 0"
+v-else-if="visibleNotifications.length === 0"
                    class="text-center py-10 text-xs text-slate-400">
-                Không có thông báo mới
+                {{ notifTab === 'unread' ? 'Không có thông báo mới' : 'Chưa có thông báo đã đọc' }}
               </div>
 
               <button
-                v-for="item in notifications"
+                v-for="item in visibleNotifications"
                 :key="item.name"
                 class="w-full text-left px-4 py-3 transition-colors hover:bg-slate-50 flex items-start gap-3"
                 :class="!item.read ? 'bg-blue-50/40' : ''"

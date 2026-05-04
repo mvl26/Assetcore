@@ -465,13 +465,25 @@ def search_reference_docs(reference_type: str, query: str = "", limit: int = 20)
         return _ok(rows)
 
     if reference_type == "AC Purchase":
+        # Stock Movement (Receipt) chỉ nhập phụ tùng — chỉ trả về PO có ≥1 dòng phụ tùng.
+        # Thiết bị y tế đi qua phiếu tiếp nhận (IMM-04 commissioning), không qua đây.
         rows = frappe.db.sql("""
             SELECT p.name,
                    CONCAT(p.name, IF(p.invoice_no, CONCAT(' · ', p.invoice_no), '')) AS label,
-                   CONCAT(COALESCE(s.supplier_name, p.supplier), ' — ', p.status) AS description
+                   CONCAT(
+                     COALESCE(s.supplier_name, p.supplier), ' — ',
+                     IFNULL(ic.cnt, 0), ' phụ tùng',
+                     IF(IFNULL(dc.cnt, 0) > 0, CONCAT(' + ', dc.cnt, ' thiết bị'), ''),
+                     ' · ', p.status
+                   ) AS description
             FROM `tabAC Purchase` p
             LEFT JOIN `tabAC Supplier` s ON s.name = p.supplier
+            LEFT JOIN (SELECT parent, COUNT(*) cnt FROM `tabAC Purchase Item` GROUP BY parent) ic
+                      ON ic.parent = p.name
+            LEFT JOIN (SELECT parent, COUNT(*) cnt FROM `tabAC Purchase Device Item` GROUP BY parent) dc
+                      ON dc.parent = p.name
             WHERE p.docstatus = 1
+              AND IFNULL(ic.cnt, 0) > 0
               AND (p.name LIKE %s OR p.invoice_no LIKE %s OR s.supplier_name LIKE %s)
             ORDER BY p.purchase_date DESC
             LIMIT %s

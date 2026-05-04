@@ -1,0 +1,32 @@
+{
+ "actions": [],
+ "creation": "2026-04-29 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "driver_type",
+  "weight_pct",
+  "column_break_1",
+  "projected_value",
+  "source_module"
+ ],
+ "fields": [
+  {"fieldname": "driver_type", "fieldtype": "Select", "label": "Driver", "in_list_view": 1, "reqd": 1,
+   "options": "replacement\nutilization_growth\nservice_expansion\ncompliance\nstrategic"},
+  {"fieldname": "weight_pct", "fieldtype": "Percent", "label": "Trọng số (%)", "in_list_view": 1},
+  {"fieldname": "column_break_1", "fieldtype": "Column Break"},
+  {"fieldname": "projected_value", "fieldtype": "Float", "label": "Giá trị dự báo", "in_list_view": 1},
+  {"fieldname": "source_module", "fieldtype": "Data", "label": "Nguồn module", "description": "VD: IMM-07, IMM-13, IMM-10"}
+ ],
+ "istable": 1,
+ "links": [],
+ "modified": "2026-04-29 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "AssetCore",
+ "name": "Forecast Driver",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

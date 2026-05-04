@@ -182,7 +182,7 @@ def search_parts(
         # Show stock levels for the given warehouse; optionally restrict to parts with stock
         stock_cond = "AND COALESCE(s.available_qty, 0) > 0" if show_stock_only else ""
         rows = frappe.db.sql(f"""
-            SELECT p.name AS spare_part, p.part_code, p.part_name, p.manufacturer_part_no,
+            SELECT p.name, p.name AS spare_part, p.part_code, p.part_name, p.manufacturer_part_no,
                    p.unit_cost, p.stock_uom, p.purchase_uom,
                    COALESCE(s.qty_on_hand, 0)  AS qty_on_hand,
                    COALESCE(s.available_qty, 0) AS available_qty
@@ -195,7 +195,7 @@ def search_parts(
         """, {"q": q_param, "lim": int(limit), "wh": warehouse}, as_dict=True)
     else:
         rows = frappe.db.sql(f"""
-            SELECT name AS spare_part, part_code, part_name, manufacturer_part_no,
+            SELECT name, name AS spare_part, part_code, part_name, manufacturer_part_no,
                    unit_cost, stock_uom, purchase_uom,
                    NULL AS qty_on_hand, NULL AS available_qty
             FROM `tabAC Spare Part`

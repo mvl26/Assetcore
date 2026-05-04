@@ -1,0 +1,49 @@
+{
+ "actions": [], "autoname": "naming_series:",
+ "creation": "2026-04-29 00:00:00.000000", "doctype": "DocType",
+ "engine": "InnoDB", "is_submittable": 1, "track_changes": 1,
+ "field_order": [
+  "section_h", "naming_series", "supplier", "device_category",
+  "column_break_1", "workflow_state", "validity_years",
+  "section_period", "valid_from", "valid_to",
+  "column_break_p1", "approver", "approval_doc",
+  "section_more", "condition_notes", "suspension_reason",
+  "amended_from"
+ ],
+ "fields": [
+  {"fieldname": "section_h", "fieldtype": "Section Break"},
+  {"fieldname": "naming_series", "fieldtype": "Select", "options": "IMM03-AVL-.YYYY.-.#####",
+   "default": "IMM03-AVL-.YYYY.-.#####", "reqd": 1},
+  {"fieldname": "supplier", "fieldtype": "Link", "options": "AC Supplier", "label": "Vendor", "reqd": 1, "in_list_view": 1},
+  {"fieldname": "device_category", "fieldtype": "Link", "options": "AC Asset Category", "label": "Nhóm thiết bị", "reqd": 1, "in_list_view": 1},
+  {"fieldname": "column_break_1", "fieldtype": "Column Break"},
+  {"fieldname": "workflow_state", "fieldtype": "Link", "options": "Workflow State", "read_only": 1, "default": "Draft", "no_copy": 1, "in_list_view": 1},
+  {"fieldname": "validity_years", "fieldtype": "Int", "label": "Hiệu lực (năm)", "default": "2", "reqd": 1},
+
+  {"fieldname": "section_period", "fieldtype": "Section Break", "label": "Hiệu lực"},
+  {"fieldname": "valid_from", "fieldtype": "Date", "label": "Từ", "reqd": 1, "in_list_view": 1},
+  {"fieldname": "valid_to", "fieldtype": "Date", "label": "Đến", "read_only": 1, "in_list_view": 1},
+  {"fieldname": "column_break_p1", "fieldtype": "Column Break"},
+  {"fieldname": "approver", "fieldtype": "Link", "options": "User", "label": "Người duyệt"},
+  {"fieldname": "approval_doc", "fieldtype": "Attach", "label": "QĐ phê duyệt"},
+
+  {"fieldname": "section_more", "fieldtype": "Section Break", "label": "Ghi chú"},
+  {"fieldname": "condition_notes", "fieldtype": "Long Text", "label": "Conditional notes"},
+  {"fieldname": "suspension_reason", "fieldtype": "Long Text", "label": "Lý do suspend"},
+
+  {"fieldname": "amended_from", "fieldtype": "Link", "options": "IMM AVL Entry",
+   "label": "Amended From", "no_copy": 1, "print_hide": 1, "read_only": 1}
+ ],
+ "links": [],
+ "modified": "2026-04-29 00:00:00.000000", "modified_by": "Administrator",
+ "module": "AssetCore", "name": "IMM AVL Entry", "owner": "Administrator",
+ "permissions": [
+  {"role": "IMM System Admin", "read": 1, "write": 1, "create": 1, "submit": 1, "cancel": 1, "amend": 1, "delete": 1, "export": 1, "report": 1, "share": 1, "print": 1, "email": 1},
+  {"role": "IMM Procurement Officer", "read": 1, "write": 1, "create": 1},
+  {"role": "IMM Risk Officer", "read": 1, "write": 1, "submit": 1, "cancel": 1},
+  {"role": "IMM Department Head", "read": 1, "write": 1},
+  {"role": "IMM Board Approver", "read": 1, "write": 1, "submit": 1, "cancel": 1},
+  {"role": "IMM Auditor", "read": 1, "report": 1, "export": 1}
+ ],
+ "sort_field": "modified", "sort_order": "DESC", "states": [], "title_field": "supplier"
+}

@@ -8,3 +8,7 @@ assetcore.patches.v3_0.005_sla_escalation_role_to_user
 assetcore.patches.v3_0.006_service_contract_approval_workflow
 assetcore.patches.v3_0.007_service_contract_drop_approval
 assetcore.patches.v3_0.008_asset_commissioning_documents_incomplete
+# ── Wave 2 ── IMM-01 / 02 / 03 ─────────────────────────────────────────
+assetcore.patches.v3_1.001_install_imm01
+assetcore.patches.v3_1.002_install_imm02
+assetcore.patches.v3_1.003_install_imm03

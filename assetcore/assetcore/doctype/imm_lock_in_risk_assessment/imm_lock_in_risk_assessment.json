@@ -1,0 +1,48 @@
+{
+ "actions": [], "autoname": "naming_series:",
+ "creation": "2026-04-29 00:00:00.000000", "doctype": "DocType",
+ "engine": "InnoDB", "is_submittable": 1, "track_changes": 1,
+ "field_order": [
+  "section_h", "naming_series", "spec_ref", "assessment_date",
+  "column_break_1", "workflow_state",
+  "section_score", "lock_in_score", "threshold_used",
+  "column_break_2", "items",
+  "section_mit", "mitigation_plan", "mitigation_evidence",
+  "amended_from"
+ ],
+ "fields": [
+  {"fieldname": "section_h", "fieldtype": "Section Break"},
+  {"fieldname": "naming_series", "fieldtype": "Select", "options": "IMM02-LR-.YY.-.#####",
+   "default": "IMM02-LR-.YY.-.#####", "reqd": 1},
+  {"fieldname": "spec_ref", "fieldtype": "Link", "options": "IMM Tech Spec", "label": "Tech Spec", "reqd": 1, "in_list_view": 1},
+  {"fieldname": "assessment_date", "fieldtype": "Date", "label": "Ngày đánh giá", "default": "Today", "reqd": 1},
+  {"fieldname": "column_break_1", "fieldtype": "Column Break"},
+  {"fieldname": "workflow_state", "fieldtype": "Link", "options": "Workflow State", "read_only": 1, "default": "Draft", "no_copy": 1},
+
+  {"fieldname": "section_score", "fieldtype": "Section Break", "label": "Score", "permlevel": 1},
+  {"fieldname": "lock_in_score", "fieldtype": "Float", "label": "Lock-in score", "read_only": 1, "precision": "4", "in_list_view": 1, "permlevel": 1},
+  {"fieldname": "threshold_used", "fieldtype": "Float", "label": "Threshold", "default": 2.5, "permlevel": 1},
+  {"fieldname": "column_break_2", "fieldtype": "Column Break"},
+  {"fieldname": "items", "fieldtype": "Table", "options": "Lock-in Risk Item", "label": "Items (5 chiều)"},
+
+  {"fieldname": "section_mit", "fieldtype": "Section Break", "label": "Mitigation", "permlevel": 1},
+  {"fieldname": "mitigation_plan", "fieldtype": "Long Text", "label": "Mitigation plan", "permlevel": 1},
+  {"fieldname": "mitigation_evidence", "fieldtype": "Attach", "label": "Mitigation evidence", "permlevel": 1},
+
+  {"fieldname": "amended_from", "fieldtype": "Link", "options": "IMM Lock-in Risk Assessment",
+   "label": "Amended From", "no_copy": 1, "print_hide": 1, "read_only": 1}
+ ],
+ "links": [],
+ "modified": "2026-04-29 00:00:00.000000", "modified_by": "Administrator",
+ "module": "AssetCore", "name": "IMM Lock-in Risk Assessment", "owner": "Administrator",
+ "permissions": [
+  {"role": "IMM System Admin", "read": 1, "write": 1, "create": 1, "submit": 1, "cancel": 1, "amend": 1, "delete": 1, "export": 1, "report": 1, "share": 1, "print": 1, "email": 1},
+  {"role": "IMM System Admin", "read": 1, "write": 1, "permlevel": 1},
+  {"role": "IMM Risk Officer", "read": 1, "write": 1, "create": 1, "submit": 1, "cancel": 1},
+  {"role": "IMM Risk Officer", "read": 1, "write": 1, "permlevel": 1},
+  {"role": "IMM Board Approver", "read": 1, "write": 1, "permlevel": 1},
+  {"role": "IMM Board Approver", "read": 1},
+  {"role": "IMM Auditor", "read": 1, "report": 1, "export": 1}
+ ],
+ "sort_field": "modified", "sort_order": "DESC", "states": [], "title_field": "spec_ref"
+}

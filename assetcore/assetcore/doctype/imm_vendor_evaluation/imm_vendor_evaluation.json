@@ -1,0 +1,54 @@
+{
+ "actions": [], "autoname": "naming_series:",
+ "creation": "2026-04-29 00:00:00.000000", "doctype": "DocType",
+ "engine": "InnoDB", "is_submittable": 1, "track_changes": 1,
+ "field_order": [
+  "section_h", "naming_series", "spec_ref", "draft_date",
+  "column_break_1", "workflow_state", "recommended_candidate", "plan_line",
+  "section_weight", "weighting_scheme",
+  "section_crit", "criteria",
+  "section_cands", "candidates",
+  "section_quotes", "quotations",
+  "amended_from"
+ ],
+ "fields": [
+  {"fieldname": "section_h", "fieldtype": "Section Break"},
+  {"fieldname": "naming_series", "fieldtype": "Select", "options": "IMM03-VE-.YY.-.#####",
+   "default": "IMM03-VE-.YY.-.#####", "reqd": 1},
+  {"fieldname": "spec_ref", "fieldtype": "Link", "options": "IMM Tech Spec", "label": "Tech Spec", "reqd": 1, "in_list_view": 1},
+  {"fieldname": "draft_date", "fieldtype": "Date", "label": "Ngày draft", "default": "Today", "reqd": 1},
+  {"fieldname": "column_break_1", "fieldtype": "Column Break"},
+  {"fieldname": "workflow_state", "fieldtype": "Link", "options": "Workflow State", "read_only": 1, "default": "Draft", "no_copy": 1, "in_list_view": 1},
+  {"fieldname": "recommended_candidate", "fieldtype": "Data", "label": "Candidate gợi ý", "read_only": 1, "in_list_view": 1},
+  {"fieldname": "plan_line", "fieldtype": "Data", "label": "Plan line ref"},
+
+  {"fieldname": "section_weight", "fieldtype": "Section Break", "label": "Trọng số 5 nhóm"},
+  {"fieldname": "weighting_scheme", "fieldtype": "JSON", "label": "Trọng số (% per group)",
+   "default": "{\"Technical\":35,\"Commercial\":25,\"Financial\":10,\"Support\":15,\"Compliance\":15}"},
+
+  {"fieldname": "section_crit", "fieldtype": "Section Break", "label": "Tiêu chí"},
+  {"fieldname": "criteria", "fieldtype": "Table", "options": "Vendor Eval Criterion", "label": "Criteria"},
+
+  {"fieldname": "section_cands", "fieldtype": "Section Break", "label": "Candidates"},
+  {"fieldname": "candidates", "fieldtype": "Table", "options": "Vendor Eval Candidate", "label": "Candidates"},
+
+  {"fieldname": "section_quotes", "fieldtype": "Section Break", "label": "Báo giá"},
+  {"fieldname": "quotations", "fieldtype": "Table", "options": "Vendor Quotation Line", "label": "Quotations"},
+
+  {"fieldname": "amended_from", "fieldtype": "Link", "options": "IMM Vendor Evaluation",
+   "label": "Amended From", "no_copy": 1, "print_hide": 1, "read_only": 1}
+ ],
+ "links": [],
+ "modified": "2026-04-29 00:00:00.000000", "modified_by": "Administrator",
+ "module": "AssetCore", "name": "IMM Vendor Evaluation", "owner": "Administrator",
+ "permissions": [
+  {"role": "IMM System Admin", "read": 1, "write": 1, "create": 1, "submit": 1, "cancel": 1, "amend": 1, "delete": 1, "export": 1, "report": 1, "share": 1, "print": 1, "email": 1},
+  {"role": "IMM Procurement Officer", "read": 1, "write": 1, "create": 1, "submit": 1, "cancel": 1},
+  {"role": "IMM Planning Officer", "read": 1, "write": 1},
+  {"role": "IMM HTM Engineer", "read": 1, "write": 1},
+  {"role": "IMM Risk Officer", "read": 1, "write": 1},
+  {"role": "IMM Department Head", "read": 1, "write": 1},
+  {"role": "IMM Auditor", "read": 1, "report": 1, "export": 1}
+ ],
+ "sort_field": "modified", "sort_order": "DESC", "states": [], "title_field": "spec_ref"
+}

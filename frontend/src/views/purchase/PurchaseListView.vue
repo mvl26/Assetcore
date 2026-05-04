@@ -228,6 +228,7 @@ v-for="chip in activeChips" :key="chip.key"
             <th class="px-4 py-3 text-left">Ngày đặt</th>
             <th class="px-4 py-3 text-left">Nhà cung cấp</th>
             <th class="px-4 py-3 text-left">Số hóa đơn</th>
+            <th class="px-4 py-3 text-center">Phân loại</th>
             <th class="px-4 py-3 text-right">Tổng giá trị</th>
             <th class="px-4 py-3 text-center">Trạng thái</th>
           </tr>
@@ -242,6 +243,19 @@ v-for="r in rows" :key="r.name"
             <td class="px-4 py-3 text-slate-700">{{ formatDate(r.purchase_date) }}</td>
             <td class="px-4 py-3 font-medium text-slate-800">{{ r.supplier_name || r.supplier }}</td>
             <td class="px-4 py-3 font-mono text-xs text-slate-500">{{ r.invoice_no || '—' }}</td>
+            <td class="px-4 py-3 text-center whitespace-nowrap">
+              <span
+                v-if="(r.device_count || 0) > 0"
+                class="inline-block text-xs px-2 py-0.5 rounded-full font-medium bg-indigo-100 text-indigo-700 mr-1"
+                :title="`${r.device_count} thiết bị → phiếu tiếp nhận (IMM-04)`"
+              >🩺 {{ r.device_count }}</span>
+              <span
+                v-if="(r.part_count || 0) > 0"
+                class="inline-block text-xs px-2 py-0.5 rounded-full font-medium bg-emerald-100 text-emerald-700"
+                :title="`${r.part_count} phụ tùng → phiếu nhập kho`"
+              >🔧 {{ r.part_count }}</span>
+              <span v-if="!(r.device_count || r.part_count)" class="text-slate-300">—</span>
+            </td>
             <td class="px-4 py-3 text-right font-semibold text-slate-800">{{ vnd(r.total_value) }}</td>
             <td class="px-4 py-3 text-center">
               <button

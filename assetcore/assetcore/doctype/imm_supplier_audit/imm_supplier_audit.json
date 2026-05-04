@@ -1,0 +1,50 @@
+{
+ "actions": [], "autoname": "naming_series:",
+ "creation": "2026-04-29 00:00:00.000000", "doctype": "DocType",
+ "engine": "InnoDB", "is_submittable": 1, "track_changes": 1,
+ "field_order": [
+  "section_h", "naming_series", "supplier", "audit_date",
+  "column_break_1", "audit_type", "auditors",
+  "section_results", "overall_result", "capa_required",
+  "column_break_r1", "follow_up_date",
+  "section_findings", "findings",
+  "amended_from"
+ ],
+ "fields": [
+  {"fieldname": "section_h", "fieldtype": "Section Break"},
+  {"fieldname": "naming_series", "fieldtype": "Select", "options": "IMM03-SA-.YY.-.#####",
+   "default": "IMM03-SA-.YY.-.#####", "reqd": 1},
+  {"fieldname": "supplier", "fieldtype": "Link", "options": "AC Supplier", "label": "Vendor", "reqd": 1, "in_list_view": 1},
+  {"fieldname": "audit_date", "fieldtype": "Date", "label": "Ngày audit", "reqd": 1, "default": "Today"},
+  {"fieldname": "column_break_1", "fieldtype": "Column Break"},
+  {"fieldname": "audit_type", "fieldtype": "Select", "label": "Loại audit", "in_list_view": 1,
+   "options": "Initial\nPeriodic\nFor-Cause", "default": "Periodic"},
+  {"fieldname": "auditors", "fieldtype": "Small Text", "label": "Auditor(s)"},
+
+  {"fieldname": "section_results", "fieldtype": "Section Break", "label": "Kết quả"},
+  {"fieldname": "overall_result", "fieldtype": "Select", "label": "Kết quả",
+   "options": "\nPass\nConditional\nFail", "in_list_view": 1},
+  {"fieldname": "capa_required", "fieldtype": "Check", "label": "Cần CAPA"},
+  {"fieldname": "column_break_r1", "fieldtype": "Column Break"},
+  {"fieldname": "follow_up_date", "fieldtype": "Date", "label": "Follow-up date"},
+
+  {"fieldname": "section_findings", "fieldtype": "Section Break", "label": "Findings"},
+  {"fieldname": "findings", "fieldtype": "Table", "options": "Audit Finding", "label": "Findings"},
+
+  {"fieldname": "amended_from", "fieldtype": "Link", "options": "IMM Supplier Audit",
+   "label": "Amended From", "no_copy": 1, "print_hide": 1, "read_only": 1}
+ ],
+ "links": [],
+ "modified": "2026-04-29 00:00:00.000000", "modified_by": "Administrator",
+ "module": "AssetCore", "name": "IMM Supplier Audit", "owner": "Administrator",
+ "permissions": [
+  {"role": "IMM System Admin", "read": 1, "write": 1, "create": 1, "submit": 1, "cancel": 1, "amend": 1, "delete": 1, "export": 1, "report": 1, "share": 1, "print": 1, "email": 1},
+  {"role": "IMM Risk Officer", "read": 1, "write": 1, "create": 1, "submit": 1, "cancel": 1},
+  {"role": "IMM QA Officer", "read": 1, "write": 1},
+  {"role": "IMM Procurement Officer", "read": 1, "write": 1},
+  {"role": "IMM Department Head", "read": 1},
+  {"role": "IMM Board Approver", "read": 1},
+  {"role": "IMM Auditor", "read": 1, "report": 1, "export": 1}
+ ],
+ "sort_field": "modified", "sort_order": "DESC", "states": [], "title_field": "supplier"
+}

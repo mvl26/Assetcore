@@ -1,0 +1,20 @@
+{
+ "actions": [], "creation": "2026-04-29 00:00:00.000000",
+ "doctype": "DocType", "engine": "InnoDB",
+ "field_order": ["group", "criterion", "weight_pct", "column_break_1", "scorer_role", "description"],
+ "fields": [
+  {"fieldname": "group", "fieldtype": "Select", "label": "Nhóm", "in_list_view": 1, "reqd": 1,
+   "options": "Technical\nCommercial\nFinancial\nSupport\nCompliance"},
+  {"fieldname": "criterion", "fieldtype": "Data", "label": "Tiêu chí", "in_list_view": 1, "reqd": 1},
+  {"fieldname": "weight_pct", "fieldtype": "Percent", "label": "Trọng số trong nhóm (%)", "in_list_view": 1},
+  {"fieldname": "column_break_1", "fieldtype": "Column Break"},
+  {"fieldname": "scorer_role", "fieldtype": "Select", "label": "Người chấm",
+   "options": "\nIMM HTM Engineer\nIMM Planning Officer\nIMM Finance Officer\nIMM Risk Officer"},
+  {"fieldname": "description", "fieldtype": "Small Text", "label": "Mô tả"}
+ ],
+ "istable": 1, "links": [],
+ "modified": "2026-04-29 00:00:00.000000", "modified_by": "Administrator",
+ "module": "AssetCore", "name": "Vendor Eval Criterion",
+ "owner": "Administrator", "permissions": [],
+ "sort_field": "modified", "sort_order": "DESC", "states": []
+}

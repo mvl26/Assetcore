@@ -1,0 +1,74 @@
+{
+ "actions": [], "autoname": "naming_series:",
+ "creation": "2026-04-29 00:00:00.000000", "doctype": "DocType",
+ "engine": "InnoDB", "is_submittable": 1, "track_changes": 1,
+ "field_order": [
+  "section_h", "naming_series", "spec_ref", "evaluation_ref",
+  "column_break_1", "workflow_state", "plan_ref", "plan_line",
+  "section_method", "procurement_method", "method_legal_basis",
+  "section_winner", "winner_supplier", "awarded_price", "envelope_check_pct",
+  "column_break_w1", "quantity",
+  "section_funding", "funding_source", "funding_evidence",
+  "column_break_f1", "board_approver", "awarded_date",
+  "section_contract", "contract_no", "contract_doc",
+  "column_break_c1", "ac_purchase_ref",
+  "amended_from"
+ ],
+ "fields": [
+  {"fieldname": "section_h", "fieldtype": "Section Break"},
+  {"fieldname": "naming_series", "fieldtype": "Select", "options": "IMM03-PD-.YY.-.#####",
+   "default": "IMM03-PD-.YY.-.#####", "reqd": 1},
+  {"fieldname": "spec_ref", "fieldtype": "Link", "options": "IMM Tech Spec", "label": "Tech Spec", "reqd": 1, "in_list_view": 1},
+  {"fieldname": "evaluation_ref", "fieldtype": "Link", "options": "IMM Vendor Evaluation", "label": "Evaluation", "reqd": 1},
+  {"fieldname": "column_break_1", "fieldtype": "Column Break"},
+  {"fieldname": "workflow_state", "fieldtype": "Link", "options": "Workflow State", "read_only": 1, "default": "Draft", "no_copy": 1, "in_list_view": 1},
+  {"fieldname": "plan_ref", "fieldtype": "Link", "options": "IMM Procurement Plan", "label": "Plan"},
+  {"fieldname": "plan_line", "fieldtype": "Data", "label": "Plan line"},
+
+  {"fieldname": "section_method", "fieldtype": "Section Break", "label": "Phương án mua sắm"},
+  {"fieldname": "procurement_method", "fieldtype": "Select", "label": "Phương án", "reqd": 1, "in_list_view": 1,
+   "options": "\nChỉ định thầu\nChào hàng cạnh tranh\nĐấu thầu rộng rãi\nMua sắm trực tiếp\nMua sắm tập trung"},
+  {"fieldname": "method_legal_basis", "fieldtype": "Long Text", "label": "Cơ sở pháp lý"},
+
+  {"fieldname": "section_winner", "fieldtype": "Section Break", "label": "Winner & Giá", "permlevel": 1},
+  {"fieldname": "winner_supplier", "fieldtype": "Link", "options": "AC Supplier", "label": "Vendor trúng thầu", "in_list_view": 1, "permlevel": 1},
+  {"fieldname": "awarded_price", "fieldtype": "Currency", "label": "Giá trúng thầu", "in_list_view": 1, "permlevel": 1},
+  {"fieldname": "envelope_check_pct", "fieldtype": "Percent", "label": "Envelope check (%)", "read_only": 1, "permlevel": 1},
+  {"fieldname": "column_break_w1", "fieldtype": "Column Break"},
+  {"fieldname": "quantity", "fieldtype": "Int", "label": "SL", "default": "1"},
+
+  {"fieldname": "section_funding", "fieldtype": "Section Break", "label": "Nguồn vốn", "permlevel": 1},
+  {"fieldname": "funding_source", "fieldtype": "Select", "label": "Nguồn vốn", "permlevel": 1,
+   "options": "\nNSNN\nTài trợ\nXã hội hóa\nBHYT\nKhác"},
+  {"fieldname": "funding_evidence", "fieldtype": "Attach", "label": "Bằng chứng nguồn vốn", "permlevel": 1},
+  {"fieldname": "column_break_f1", "fieldtype": "Column Break"},
+  {"fieldname": "board_approver", "fieldtype": "Link", "options": "User", "label": "Người duyệt BGĐ", "permlevel": 1},
+  {"fieldname": "awarded_date", "fieldtype": "Date", "label": "Ngày awarded", "read_only": 1},
+
+  {"fieldname": "section_contract", "fieldtype": "Section Break", "label": "Hợp đồng + PO"},
+  {"fieldname": "contract_no", "fieldtype": "Data", "label": "Số HĐ"},
+  {"fieldname": "contract_doc", "fieldtype": "Attach", "label": "File HĐ", "permlevel": 1},
+  {"fieldname": "column_break_c1", "fieldtype": "Column Break"},
+  {"fieldname": "ac_purchase_ref", "fieldtype": "Link", "options": "AC Purchase", "label": "AC Purchase", "read_only": 1},
+
+  {"fieldname": "amended_from", "fieldtype": "Link", "options": "IMM Procurement Decision",
+   "label": "Amended From", "no_copy": 1, "print_hide": 1, "read_only": 1}
+ ],
+ "links": [],
+ "modified": "2026-04-29 00:00:00.000000", "modified_by": "Administrator",
+ "module": "AssetCore", "name": "IMM Procurement Decision", "owner": "Administrator",
+ "permissions": [
+  {"role": "IMM System Admin", "read": 1, "write": 1, "create": 1, "submit": 1, "cancel": 1, "amend": 1, "delete": 1, "export": 1, "report": 1, "share": 1, "print": 1, "email": 1},
+  {"role": "IMM System Admin", "read": 1, "write": 1, "permlevel": 1},
+  {"role": "IMM Procurement Officer", "read": 1, "write": 1, "create": 1},
+  {"role": "IMM Procurement Officer", "read": 1, "write": 1, "permlevel": 1},
+  {"role": "IMM Planning Officer", "read": 1, "write": 1, "permlevel": 1},
+  {"role": "IMM Finance Officer", "read": 1, "write": 1, "permlevel": 1},
+  {"role": "IMM Department Head", "read": 1, "write": 1, "submit": 1, "cancel": 1, "permlevel": 0},
+  {"role": "IMM Department Head", "read": 1, "write": 1, "permlevel": 1},
+  {"role": "IMM Board Approver", "read": 1, "write": 1, "submit": 1, "cancel": 1, "permlevel": 0},
+  {"role": "IMM Board Approver", "read": 1, "write": 1, "permlevel": 1},
+  {"role": "IMM Auditor", "read": 1, "report": 1, "export": 1}
+ ],
+ "sort_field": "modified", "sort_order": "DESC", "states": [], "title_field": "spec_ref"
+}

@@ -11,5 +11,11 @@
  {"doctype": "Role", "role_name": "IMM Storekeeper",           "name": "IMM Storekeeper",           "desk_access": 1, "disabled": 0},
  {"doctype": "Role", "role_name": "IMM Clinical User",         "name": "IMM Clinical User",         "desk_access": 1, "disabled": 0},
  {"doctype": "Role", "role_name": "IMM Auditor",               "name": "IMM Auditor",               "desk_access": 1, "disabled": 0},
- {"doctype": "Role", "role_name": "Vendor Engineer",            "name": "Vendor Engineer",           "desk_access": 1, "disabled": 0}
+ {"doctype": "Role", "role_name": "Vendor Engineer",            "name": "Vendor Engineer",           "desk_access": 1, "disabled": 0},
+ {"doctype": "Role", "role_name": "IMM Planning Officer",      "name": "IMM Planning Officer",      "desk_access": 1, "disabled": 0},
+ {"doctype": "Role", "role_name": "IMM Finance Officer",       "name": "IMM Finance Officer",       "desk_access": 1, "disabled": 0},
+ {"doctype": "Role", "role_name": "IMM HTM Engineer",          "name": "IMM HTM Engineer",          "desk_access": 1, "disabled": 0},
+ {"doctype": "Role", "role_name": "IMM Procurement Officer",   "name": "IMM Procurement Officer",   "desk_access": 1, "disabled": 0},
+ {"doctype": "Role", "role_name": "IMM Risk Officer",          "name": "IMM Risk Officer",          "desk_access": 1, "disabled": 0},
+ {"doctype": "Role", "role_name": "IMM Board Approver",        "name": "IMM Board Approver",        "desk_access": 1, "disabled": 0}
 ]

@@ -1,0 +1,31 @@
+{
+  "creation": "2026-04-29 00:00:00.000000",
+  "document_type": "IMM Procurement Decision",
+  "doctype": "Workflow", "is_active": 1,
+  "modified": "2026-04-29 00:00:00.000000", "modified_by": "Administrator",
+  "name": "IMM-03 Decision Workflow", "owner": "Administrator",
+  "send_email_alert": 0,
+  "workflow_name": "IMM-03 Decision Workflow",
+  "workflow_state_field": "workflow_state",
+  "states": [
+    {"state": "Draft",             "doc_status": "0", "allow_edit": "IMM Procurement Officer", "type": "Success"},
+    {"state": "Method Selected",   "doc_status": "0", "allow_edit": "IMM Procurement Officer", "type": "Success"},
+    {"state": "Negotiation",       "doc_status": "0", "allow_edit": "IMM Procurement Officer", "type": "Warning"},
+    {"state": "Award Recommended", "doc_status": "0", "allow_edit": "IMM Department Head",     "type": "Warning"},
+    {"state": "Pending Approval",  "doc_status": "0", "allow_edit": "IMM Department Head",     "type": "Warning"},
+    {"state": "Awarded",           "doc_status": "1", "allow_edit": "IMM System Admin",        "type": "Success"},
+    {"state": "Contract Signed",   "doc_status": "1", "allow_edit": "IMM Finance Officer",     "type": "Success"},
+    {"state": "PO Issued",         "doc_status": "1", "allow_edit": "IMM Procurement Officer", "type": "Success"},
+    {"state": "Cancelled",         "doc_status": "1", "allow_edit": "IMM System Admin",        "type": "Danger"}
+  ],
+  "transitions": [
+    {"state": "Draft",             "next_state": "Method Selected",  "action": "Chọn phương án",        "allowed": "IMM Procurement Officer"},
+    {"state": "Method Selected",   "next_state": "Negotiation",      "action": "Bắt đầu thương thảo",   "allowed": "IMM Procurement Officer"},
+    {"state": "Negotiation",       "next_state": "Award Recommended","action": "Đề xuất trúng thầu",    "allowed": "IMM Procurement Officer"},
+    {"state": "Award Recommended", "next_state": "Pending Approval", "action": "Trình BGĐ",             "allowed": "IMM Department Head"},
+    {"state": "Pending Approval",  "next_state": "Awarded",          "action": "Phê duyệt trúng thầu",  "allowed": "IMM Board Approver"},
+    {"state": "Pending Approval",  "next_state": "Cancelled",        "action": "Huỷ Decision",          "allowed": "IMM Board Approver"},
+    {"state": "Awarded",           "next_state": "Contract Signed",  "action": "Ký HĐ",                 "allowed": "IMM Finance Officer"},
+    {"state": "Contract Signed",   "next_state": "PO Issued",        "action": "Phát hành PO",          "allowed": "IMM Procurement Officer"}
+  ]
+}

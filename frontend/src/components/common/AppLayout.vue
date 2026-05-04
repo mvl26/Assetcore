@@ -1,13 +1,25 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+import { useRoute } from 'vue-router'
 import AppSidebar from '@/components/common/AppSidebar.vue'
 import AppTopBar from '@/components/common/AppTopBar.vue'
 import { useSidebar } from '@/composables/useSidebar'
 
+const route = useRoute()
 const { mainClass, mobileOpen, closeMobile } = useSidebar()
+
+// Fullscreen routes (e.g., Launcher) ẩn sidebar + topbar để chiếm toàn viewport
+const fullscreen = computed(() => Boolean(route.meta.fullscreen))
 </script>
 
 <template>
-  <div class="flex h-screen overflow-hidden" style="background: var(--color-bg)">
+  <!-- Fullscreen mode: render slot only (Launcher quản lý layout của riêng nó) -->
+  <template v-if="fullscreen">
+    <slot />
+  </template>
+
+  <!-- Standard mode: sidebar + topbar + main -->
+  <div v-else class="flex h-screen overflow-hidden" style="background: var(--color-bg)">
     <!-- Mobile overlay backdrop -->
     <Transition name="fade">
       <div

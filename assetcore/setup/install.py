@@ -99,6 +99,17 @@ def after_migrate() -> None:
     _apply_rbac_matrix()
     _seed_role_profiles()
     _apply_core_permissions()
+    _install_notifications()
+
+
+def _install_notifications() -> None:
+    """Sync 7 IMM Notification rules — idempotent."""
+    try:
+        from assetcore.notifications.setup import install_notifications
+        result = install_notifications()
+        print(f"[AssetCore] Notifications: {result['count']} rule(s) đã sync.")
+    except Exception as e:
+        print(f"[AssetCore] Notification install failed: {e}")
 
 
 def _apply_rbac_matrix() -> None:

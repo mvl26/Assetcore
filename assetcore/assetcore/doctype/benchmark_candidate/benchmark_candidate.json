@@ -1,0 +1,31 @@
+{
+ "actions": [], "creation": "2026-04-29 00:00:00.000000",
+ "doctype": "DocType", "engine": "InnoDB",
+ "field_order": [
+  "manufacturer", "model", "country", "spec_match_pct",
+  "column_break_1", "price_estimate", "price_source", "support_tier",
+  "section_avl", "local_partner", "in_avl", "recommendation_score", "notes"
+ ],
+ "fields": [
+  {"fieldname": "manufacturer", "fieldtype": "Data", "label": "NSX", "in_list_view": 1, "reqd": 1},
+  {"fieldname": "model", "fieldtype": "Data", "label": "Model", "in_list_view": 1, "reqd": 1},
+  {"fieldname": "country", "fieldtype": "Data", "label": "Quốc gia"},
+  {"fieldname": "spec_match_pct", "fieldtype": "Percent", "label": "Spec match (%)", "in_list_view": 1},
+  {"fieldname": "column_break_1", "fieldtype": "Column Break"},
+  {"fieldname": "price_estimate", "fieldtype": "Currency", "label": "Giá ước tính", "in_list_view": 1},
+  {"fieldname": "price_source", "fieldtype": "Select", "label": "Nguồn giá",
+   "options": "\nVendor Quote\nPublic Tender\nWeb\nOther"},
+  {"fieldname": "support_tier", "fieldtype": "Select", "label": "Hỗ trợ",
+   "options": "\nTier1\nTier2\nTier3"},
+  {"fieldname": "section_avl", "fieldtype": "Section Break"},
+  {"fieldname": "local_partner", "fieldtype": "Data", "label": "Đại lý VN"},
+  {"fieldname": "in_avl", "fieldtype": "Check", "label": "Có AVL"},
+  {"fieldname": "recommendation_score", "fieldtype": "Float", "label": "Score gợi ý", "read_only": 1, "precision": "4"},
+  {"fieldname": "notes", "fieldtype": "Small Text", "label": "Ghi chú"}
+ ],
+ "istable": 1, "links": [],
+ "modified": "2026-04-29 00:00:00.000000", "modified_by": "Administrator",
+ "module": "AssetCore", "name": "Benchmark Candidate",
+ "owner": "Administrator", "permissions": [],
+ "sort_field": "modified", "sort_order": "DESC", "states": []
+}

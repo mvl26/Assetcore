@@ -79,15 +79,31 @@ def list_purchases(page: int = 1, page_size: int = 30, status: str = "",
         limit_start=(int(page) - 1) * int(page_size),
         limit_page_length=int(page_size),
     )
-    # enrich supplier names
+    # Batch-enrich supplier names + classification counts (parts vs devices)
+    po_names = [r.name for r in rows]
     sup_ids = {r.supplier for r in rows if r.supplier}
-    sup_map = {}
+    sup_map: dict = {}
     if sup_ids:
         for s in frappe.get_all("AC Supplier", filters={"name": ["in", list(sup_ids)]},
                                 fields=["name", "supplier_name"]):
             sup_map[s.name] = s.supplier_name
+
+    part_counts: dict = {}
+    device_counts: dict = {}
+    if po_names:
+        for x in frappe.db.get_all("AC Purchase Item",
+                                    filters={"parent": ["in", po_names]},
+                                    fields=["parent", "name"]):
+            part_counts[x.parent] = part_counts.get(x.parent, 0) + 1
+        for x in frappe.db.get_all("AC Purchase Device Item",
+                                    filters={"parent": ["in", po_names]},
+                                    fields=["parent", "name"]):
+            device_counts[x.parent] = device_counts.get(x.parent, 0) + 1
+
     for r in rows:
         r["supplier_name"] = sup_map.get(r.supplier, r.supplier)
+        r["part_count"] = part_counts.get(r.name, 0)
+        r["device_count"] = device_counts.get(r.name, 0)
     return _ok({"data": rows, "total": total})
 
 

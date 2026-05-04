@@ -22,9 +22,14 @@ import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import {
   ROLES_CREATE,
-  ROLES_APPROVE,
   ROLES_MANAGE_DOCS as ROLES_DOC_MGMT,
   ROLES_ADMIN_ONLY,
+  ROLES_PM_MANAGE,
+  ROLES_CM_MANAGE,
+  ROLES_CAL_MANAGE,
+  ROLES_INCIDENT_REPORT,
+  ROLES_RCA_OWNER,
+  ROLES_CAPA_CLOSE,
 } from '@/constants/roles'
 
 const routes: RouteRecordRaw[] = [
@@ -53,7 +58,18 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/auth/UnauthorizedView.vue'),
     meta: { requiresAuth: false, title: 'Không đủ quyền — AssetCore' },
   },
-  { path: '/', redirect: '/dashboard' },
+  { path: '/', redirect: '/launcher' },
+  {
+    path: '/launcher',
+    name: 'Launcher',
+    component: () => import('@/views/modules/LauncherView.vue'),
+    meta: { requiresAuth: true, title: 'AssetCore', fullscreen: true },
+  },
+  {
+    // Back-compat — trang module cũ giờ chuyển hướng tới launcher
+    path: '/modules',
+    redirect: '/launcher',
+  },
   {
     path: '/dashboard',
     name: 'Dashboard',
@@ -244,7 +260,7 @@ const routes: RouteRecordRaw[] = [
     path: '/pm/work-orders/new',
     name: 'PMWorkOrderCreate',
     component: () => import('@/views/pm/PMWorkOrderCreateView.vue'),
-    meta: { requiresAuth: true, title: 'Tạo Phiếu Bảo trì' },
+    meta: { requiresAuth: true, title: 'Tạo Phiếu Bảo trì', requiredRoles: ROLES_PM_MANAGE },
   },
   {
     path: '/pm/work-orders/:id',
@@ -257,13 +273,13 @@ const routes: RouteRecordRaw[] = [
     path: '/pm/schedules',
     name: 'PmScheduleList',
     component: () => import('@/views/pm/PmScheduleListView.vue'),
-    meta: { requiresAuth: true, title: 'Lịch Bảo trì định kỳ' },
+    meta: { requiresAuth: true, title: 'Lịch Bảo trì định kỳ', requiredRoles: ROLES_PM_MANAGE },
   },
   {
     path: '/pm/templates',
     name: 'PmTemplateList',
     component: () => import('@/views/pm/PmTemplateListView.vue'),
-    meta: { requiresAuth: true, title: 'Mẫu Bảng kiểm Bảo trì' },
+    meta: { requiresAuth: true, title: 'Mẫu Bảng kiểm Bảo trì', requiredRoles: ROLES_PM_MANAGE },
   },
 
   // ─── 6. IMM-09 — Corrective Maintenance ───────────────────────────────────
@@ -278,7 +294,7 @@ const routes: RouteRecordRaw[] = [
     path: '/cm/create',
     name: 'CMCreate',
     component: () => import('@/views/cm/CMCreateView.vue'),
-    meta: { requiresAuth: true, title: 'Tạo Phiếu Sửa chữa', requiredRoles: ROLES_CREATE },
+    meta: { requiresAuth: true, title: 'Tạo Phiếu Sửa chữa', requiredRoles: ROLES_CM_MANAGE },
   },
   {
     path: '/cm/work-orders',
@@ -349,13 +365,13 @@ const routes: RouteRecordRaw[] = [
     path: '/calibration/new',
     name: 'CalibrationCreate',
     component: () => import('@/views/calibration/CalibrationCreateView.vue'),
-    meta: { requiresAuth: true, title: 'Tạo Phiếu Hiệu chuẩn', requiredRoles: ROLES_CREATE },
+    meta: { requiresAuth: true, title: 'Tạo Phiếu Hiệu chuẩn', requiredRoles: ROLES_CAL_MANAGE },
   },
   {
     path: '/calibration/schedules',
     name: 'CalibrationScheduleList',
     component: () => import('@/views/calibration/CalibrationScheduleListView.vue'),
-    meta: { requiresAuth: true, title: 'Lịch Hiệu chuẩn' },
+    meta: { requiresAuth: true, title: 'Lịch Hiệu chuẩn', requiredRoles: ROLES_CAL_MANAGE },
   },
   {
     path: '/calibration/:id',
@@ -382,7 +398,7 @@ const routes: RouteRecordRaw[] = [
     path: '/incidents/new',
     name: 'IncidentCreate',
     component: () => import('@/views/incident/IncidentCreateView.vue'),
-    meta: { requiresAuth: true, title: 'Báo Sự cố', requiredRoles: ROLES_CREATE },
+    meta: { requiresAuth: true, title: 'Báo Sự cố', requiredRoles: ROLES_INCIDENT_REPORT },
   },
   {
     path: '/incidents/:id',
@@ -397,7 +413,7 @@ const routes: RouteRecordRaw[] = [
     name: 'RCADetail',
     component: () => import('@/views/incident/RCADetailView.vue'),
     props: true,
-    meta: { requiresAuth: true, title: 'Phân tích nguyên nhân (RCA)' },
+    meta: { requiresAuth: true, title: 'Phân tích nguyên nhân (RCA)', requiredRoles: ROLES_RCA_OWNER },
   },
   {
     path: '/capas',
@@ -410,7 +426,7 @@ const routes: RouteRecordRaw[] = [
     name: 'CAPADetail',
     component: () => import('@/views/incident/CAPADetailView.vue'),
     props: true,
-    meta: { requiresAuth: true, title: 'Chi tiết CAPA', requiredRoles: ROLES_APPROVE },
+    meta: { requiresAuth: true, title: 'Chi tiết CAPA', requiredRoles: ROLES_CAPA_CLOSE },
   },
   {
     path: '/audit-trail',
@@ -607,6 +623,89 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true, title: 'Hồ sơ của tôi' },
   },
 
+  // ─── Khối 1 — Hoạch định & Mua sắm ─────────────────────────────────────────
+  // Đề xuất nhu cầu thiết bị + Kế hoạch mua sắm
+  {
+    path: '/needs-requests',
+    name: 'NeedsRequestList',
+    component: () => import('@/views/imm01/NeedsRequestListView.vue'),
+    meta: { requiresAuth: true, title: 'Đề xuất nhu cầu thiết bị' },
+  },
+  {
+    path: '/needs-requests/new',
+    name: 'NeedsRequestCreate',
+    component: () => import('@/views/imm01/NeedsRequestCreateView.vue'),
+    meta: { requiresAuth: true, title: 'Tạo đề xuất nhu cầu', requiredRoles: ROLES_CREATE },
+  },
+  {
+    path: '/needs-requests/:id',
+    name: 'NeedsRequestDetail',
+    component: () => import('@/views/imm01/NeedsRequestDetailView.vue'),
+    props: true,
+    meta: { requiresAuth: true, title: 'Chi tiết đề xuất' },
+  },
+  {
+    path: '/procurement-plans',
+    name: 'ProcurementPlanList',
+    component: () => import('@/views/imm01/ProcurementPlanListView.vue'),
+    meta: { requiresAuth: true, title: 'Kế hoạch mua sắm' },
+  },
+
+  // Hồ sơ kỹ thuật
+  {
+    path: '/tech-specs',
+    name: 'TechSpecList',
+    component: () => import('@/views/imm02/TechSpecListView.vue'),
+    meta: { requiresAuth: true, title: 'Hồ sơ kỹ thuật' },
+  },
+  {
+    path: '/tech-specs/new',
+    name: 'TechSpecCreate',
+    component: () => import('@/views/imm02/TechSpecCreateView.vue'),
+    meta: { requiresAuth: true, title: 'Sinh hồ sơ kỹ thuật từ kế hoạch', requiredRoles: ROLES_CREATE },
+  },
+  {
+    path: '/tech-specs/:id',
+    name: 'TechSpecDetail',
+    component: () => import('@/views/imm02/TechSpecDetailView.vue'),
+    props: true,
+    meta: { requiresAuth: true, title: 'Chi tiết hồ sơ kỹ thuật' },
+  },
+
+  // Đánh giá NCC, Danh mục NCC duyệt (AVL), Quyết định mua sắm
+  {
+    path: '/vendor-evaluations',
+    name: 'VendorEvaluationList',
+    component: () => import('@/views/imm03/VendorEvalListView.vue'),
+    meta: { requiresAuth: true, title: 'Đánh giá nhà cung cấp' },
+  },
+  {
+    path: '/vendor-evaluations/:id',
+    name: 'VendorEvaluationDetail',
+    component: () => import('@/views/imm03/VendorEvalDetailView.vue'),
+    props: true,
+    meta: { requiresAuth: true, title: 'Chi tiết đánh giá NCC' },
+  },
+  {
+    path: '/approved-vendors',
+    name: 'ApprovedVendorList',
+    component: () => import('@/views/imm03/AvlListView.vue'),
+    meta: { requiresAuth: true, title: 'Danh mục NCC được duyệt (AVL)' },
+  },
+  {
+    path: '/procurement-decisions',
+    name: 'ProcurementDecisionList',
+    component: () => import('@/views/imm03/DecisionListView.vue'),
+    meta: { requiresAuth: true, title: 'Quyết định mua sắm' },
+  },
+  {
+    path: '/procurement-decisions/:id',
+    name: 'ProcurementDecisionDetail',
+    component: () => import('@/views/imm03/DecisionDetailView.vue'),
+    props: true,
+    meta: { requiresAuth: true, title: 'Chi tiết quyết định mua sắm' },
+  },
+
   // ─── 11. Debug (dev-only) ──────────────────────────────────────────────────
   {
     path: '/debug/asset-dashboard',
@@ -624,9 +723,68 @@ const routes: RouteRecordRaw[] = [
   },
 ]
 
+// ─── Workspace tagging ──────────────────────────────────────────────────────
+// Gán meta.workspaceId cho route theo path-prefix → AppSidebar lọc nav theo
+// workspace hiện tại. Tránh phải tag thủ công 80+ route.
+const WORKSPACE_RULES: Array<[RegExp, string]> = [
+  // Khối 1 — Hoạch định & Mua sắm
+  [/^\/needs-requests/,       'planning'],
+  [/^\/procurement-plans/,    'planning'],
+  [/^\/tech-specs/,           'planning'],
+  [/^\/vendor-evaluations/,   'planning'],
+  [/^\/approved-vendors/,     'planning'],
+  [/^\/procurement-decisions/,'planning'],
+  [/^\/purchases/,            'planning'],
+  // Khối 2 — Triển khai
+  [/^\/commissioning/,        'deployment'],
+  [/^\/documents/,            'deployment'],
+  // Khối 3 — Vận hành & Bảo trì
+  [/^\/pm/,                   'operations'],
+  [/^\/cm/,                   'operations'],
+  [/^\/calibration/,          'operations'],
+  [/^\/incidents/,            'operations'],
+  [/^\/rca/,                  'operations'],
+  [/^\/capas/,                'operations'],
+  [/^\/audit-trail/,          'operations'],
+  [/^\/inventory/,            'operations'],
+  [/^\/stock/,                'operations'],
+  [/^\/spare-parts/,          'operations'],
+  [/^\/warehouses/,           'operations'],
+  [/^\/approvals/,            'operations'],
+  // Khối 4 — Kết thúc vòng đời
+  [/^\/asset-transfers/,      'eol'],
+  [/^\/depreciation/,         'eol'],
+  // Master data + cross-workspace
+  [/^\/assets/,               'master'],
+  [/^\/device-models/,        'master'],
+  [/^\/qr-scan/,              'master'],
+  [/^\/suppliers/,            'master'],
+  [/^\/service-contracts/,    'master'],
+  [/^\/sla-policies/,         'master'],
+  [/^\/reference-data/,       'master'],
+  // System
+  [/^\/dashboard/,            'system'],
+  [/^\/user-profiles/,        'system'],
+  [/^\/account/,              'system'],
+]
+
+function tagWorkspace(rs: RouteRecordRaw[]): RouteRecordRaw[] {
+  for (const r of rs) {
+    if (typeof r.path === 'string') {
+      for (const [re, ws] of WORKSPACE_RULES) {
+        if (re.test(r.path)) {
+          r.meta = { ...r.meta, workspaceId: ws }
+          break
+        }
+      }
+    }
+  }
+  return rs
+}
+
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
-  routes,
+  routes: tagWorkspace(routes),
   scrollBehavior(_to, _from, savedPosition) {
     if (savedPosition) return savedPosition
     return { top: 0 }

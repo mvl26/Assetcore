@@ -138,6 +138,11 @@ doc_events = {
             "assetcore.services.purchase.auto_unmark_purchase_received",
         ],
     },
+    # ─── IMM-01 (Wave 2) — controllers tự gọi service; không cần khai ở đây ───
+    # ─── IMM-03 (Wave 2) — validate AC Purchase phải link IMM-03 Decision ───
+    "AC Purchase": {
+        "validate": "assetcore.services.imm03.validate_ac_purchase_imm_link",
+    },
 }
 
 # ──────────────────────────────────────────────
@@ -162,12 +167,35 @@ scheduler_events = {
         "assetcore.services.imm12.detect_chronic_failures",
         # IMM-00 Inventory low-stock alert
         "assetcore.services.inventory.check_low_stock",
+        # IMM-01 (Wave 2) — overdue Needs Request alert
+        "assetcore.services.imm01.check_pending_request_overdue",
+        # IMM-02 — overdue Tech Spec drafts
+        "assetcore.services.imm02.check_overdue_drafts",
+        # IMM-03 — daily checks
+        "assetcore.services.imm03.check_avl_expiry",
+        "assetcore.services.imm03.check_audit_due",
+        "assetcore.services.imm03.check_decision_overdue",
+    ],
+    "weekly": [
+        # IMM-01 — envelope utilization warning
+        "assetcore.services.imm01.budget_envelope_alert",
+        # IMM-02 — stale benchmark warning
+        "assetcore.services.imm02.benchmark_freshness_alert",
     ],
     "monthly": [
         "assetcore.services.imm00.rollup_asset_kpi",
         # IMM-00 Asset depreciation execution
         "assetcore.services.depreciation.run_due_depreciation",
+        # IMM-01 — Demand Forecast generation
+        "assetcore.services.imm01.generate_demand_forecast",
     ],
+    # Frappe v15 không có "quarterly" → dùng cron expression
+    "cron": {
+        # IMM-03 — Vendor Scorecard 1/4/7/10 hàng năm 02:00
+        "0 2 1 1,4,7,10 *": [
+            "assetcore.services.imm03.update_vendor_scorecard",
+        ],
+    },
 }
 
 # ──────────────────────────────────────────────

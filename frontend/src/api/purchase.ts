@@ -17,6 +17,9 @@ export interface Purchase {
   docstatus?: number
   items?: PurchaseItem[]
   devices?: PurchaseDeviceItem[]
+  // Classification counts (chỉ trả về trong list response, không có ở detail)
+  part_count?: number
+  device_count?: number
 }
 
 export interface PurchaseItem {

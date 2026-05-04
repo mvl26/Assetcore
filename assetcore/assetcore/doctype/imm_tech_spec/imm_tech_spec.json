@@ -1,0 +1,89 @@
+{
+ "actions": [], "allow_import": 1, "autoname": "naming_series:",
+ "creation": "2026-04-29 00:00:00.000000", "doctype": "DocType",
+ "engine": "InnoDB", "is_submittable": 1, "track_changes": 1,
+ "field_order": [
+  "section_header", "naming_series", "draft_date", "version",
+  "column_break_h1", "workflow_state", "parent_spec",
+  "section_source", "source_plan", "source_plan_line", "source_needs_request",
+  "section_target", "device_model_ref", "device_category", "quantity",
+  "column_break_t1", "spec_template_ref",
+  "section_requirements", "total_mandatory", "total_optional", "requirements", "documents",
+  "section_benchmark", "benchmark_ref", "candidate_count",
+  "section_infra", "infra_status_overall", "infra_compat",
+  "section_lockin", "lock_in_risk_ref", "lock_in_score", "mitigation_plan", "mitigation_evidence",
+  "section_approval", "approver", "approval_date", "withdrawal_reason",
+  "amended_from"
+ ],
+ "fields": [
+  {"fieldname": "section_header", "fieldtype": "Section Break"},
+  {"fieldname": "naming_series", "fieldtype": "Select", "options": "IMM02-TS-.YY.-.#####",
+   "default": "IMM02-TS-.YY.-.#####", "reqd": 1, "label": "Naming Series"},
+  {"fieldname": "draft_date", "fieldtype": "Date", "label": "Ngày draft", "default": "Today", "reqd": 1},
+  {"fieldname": "version", "fieldtype": "Data", "label": "Phiên bản", "default": "1.0"},
+  {"fieldname": "column_break_h1", "fieldtype": "Column Break"},
+  {"fieldname": "workflow_state", "fieldtype": "Link", "options": "Workflow State", "label": "Trạng thái",
+   "read_only": 1, "no_copy": 1, "default": "Draft", "in_list_view": 1},
+  {"fieldname": "parent_spec", "fieldtype": "Link", "options": "IMM Tech Spec",
+   "label": "Spec gốc (reissue)"},
+
+  {"fieldname": "section_source", "fieldtype": "Section Break", "label": "Nguồn"},
+  {"fieldname": "source_plan", "fieldtype": "Link", "options": "IMM Procurement Plan", "label": "Plan", "reqd": 1},
+  {"fieldname": "source_plan_line", "fieldtype": "Data", "label": "Plan line"},
+  {"fieldname": "source_needs_request", "fieldtype": "Link", "options": "IMM Needs Request", "label": "Needs Request", "reqd": 1},
+
+  {"fieldname": "section_target", "fieldtype": "Section Break", "label": "Mục tiêu"},
+  {"fieldname": "device_model_ref", "fieldtype": "Link", "options": "IMM Device Model", "label": "Model", "reqd": 1, "in_list_view": 1},
+  {"fieldname": "device_category", "fieldtype": "Link", "options": "AC Asset Category", "label": "Nhóm",
+   "fetch_from": "device_model_ref.asset_category", "read_only": 1},
+  {"fieldname": "quantity", "fieldtype": "Int", "label": "SL", "default": "1", "reqd": 1},
+  {"fieldname": "column_break_t1", "fieldtype": "Column Break"},
+  {"fieldname": "spec_template_ref", "fieldtype": "Data", "label": "Spec Template (placeholder)"},
+
+  {"fieldname": "section_requirements", "fieldtype": "Section Break", "label": "Yêu cầu kỹ thuật"},
+  {"fieldname": "total_mandatory", "fieldtype": "Int", "label": "Tổng mandatory", "read_only": 1, "in_list_view": 1},
+  {"fieldname": "total_optional", "fieldtype": "Int", "label": "Tổng optional", "read_only": 1},
+  {"fieldname": "requirements", "fieldtype": "Table", "options": "Tech Spec Requirement", "label": "Requirements"},
+  {"fieldname": "documents", "fieldtype": "Table", "options": "Tech Spec Document", "label": "Tài liệu input"},
+
+  {"fieldname": "section_benchmark", "fieldtype": "Section Break", "label": "Benchmark"},
+  {"fieldname": "benchmark_ref", "fieldtype": "Link", "options": "IMM Market Benchmark", "label": "Market Benchmark"},
+  {"fieldname": "candidate_count", "fieldtype": "Int", "label": "Số candidate", "read_only": 1, "in_list_view": 1},
+
+  {"fieldname": "section_infra", "fieldtype": "Section Break", "label": "Hạ tầng"},
+  {"fieldname": "infra_status_overall", "fieldtype": "Select", "label": "Tổng quan",
+   "options": "\nAll Compatible\nPartial\nNeed Major Upgrade", "read_only": 1},
+  {"fieldname": "infra_compat", "fieldtype": "Table", "options": "Infra Compatibility Item", "label": "Mục hạ tầng"},
+
+  {"fieldname": "section_lockin", "fieldtype": "Section Break", "label": "Lock-in Risk", "permlevel": 1},
+  {"fieldname": "lock_in_risk_ref", "fieldtype": "Link", "options": "IMM Lock-in Risk Assessment",
+   "label": "Lock-in Assessment", "permlevel": 1},
+  {"fieldname": "lock_in_score", "fieldtype": "Float", "label": "Score (0-5)", "read_only": 1, "precision": "4", "permlevel": 1, "in_list_view": 1},
+  {"fieldname": "mitigation_plan", "fieldtype": "Long Text", "label": "Mitigation plan", "permlevel": 1},
+  {"fieldname": "mitigation_evidence", "fieldtype": "Attach", "label": "Mitigation evidence", "permlevel": 1},
+
+  {"fieldname": "section_approval", "fieldtype": "Section Break", "label": "Phê duyệt"},
+  {"fieldname": "approver", "fieldtype": "Link", "options": "User", "label": "Người duyệt"},
+  {"fieldname": "approval_date", "fieldtype": "Date", "label": "Ngày duyệt", "read_only": 1},
+  {"fieldname": "withdrawal_reason", "fieldtype": "Long Text", "label": "Lý do withdraw"},
+
+  {"fieldname": "amended_from", "fieldtype": "Link", "options": "IMM Tech Spec",
+   "label": "Amended From", "no_copy": 1, "print_hide": 1, "read_only": 1}
+ ],
+ "links": [],
+ "modified": "2026-04-29 00:00:00.000000", "modified_by": "Administrator",
+ "module": "AssetCore", "name": "IMM Tech Spec", "owner": "Administrator",
+ "permissions": [
+  {"role": "IMM System Admin", "read": 1, "write": 1, "create": 1, "submit": 1, "cancel": 1, "amend": 1, "delete": 1, "export": 1, "report": 1, "share": 1, "print": 1, "email": 1},
+  {"role": "IMM System Admin", "read": 1, "write": 1, "permlevel": 1},
+  {"role": "IMM HTM Engineer", "read": 1, "write": 1, "create": 1},
+  {"role": "IMM Planning Officer", "read": 1, "write": 1},
+  {"role": "IMM Risk Officer", "read": 1, "write": 1},
+  {"role": "IMM Risk Officer", "read": 1, "write": 1, "permlevel": 1},
+  {"role": "IMM Department Head", "read": 1, "write": 1, "submit": 1, "cancel": 1},
+  {"role": "IMM Board Approver", "read": 1, "write": 1, "submit": 1, "cancel": 1},
+  {"role": "IMM Board Approver", "read": 1, "write": 1, "permlevel": 1},
+  {"role": "IMM Auditor", "read": 1, "report": 1, "export": 1}
+ ],
+ "sort_field": "modified", "sort_order": "DESC", "states": [], "title_field": "device_model_ref"
+}

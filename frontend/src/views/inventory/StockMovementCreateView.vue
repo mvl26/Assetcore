@@ -81,11 +81,21 @@ async function onRefSearch(q: string) {
   refQuery.value = q
   refLabel.value = q
   referenceName.value = ''
-  if (q.length < 2) { refResults.value = []; refDropdownOpen.value = false; return }
+  // Threshold 0: BE trả top 20 mới nhất khi query rỗng — UX browse-trước-rồi-lọc
   try {
     refResults.value = await searchReferenceDocs(referenceType.value, q)
     refDropdownOpen.value = refResults.value.length > 0
   } catch { refResults.value = []; refDropdownOpen.value = false }
+}
+
+async function onRefFocus() {
+  if (!needsRefSearch.value) return
+  // Mỗi lần focus → load lại top results để user thấy lựa chọn ngay (không cần gõ).
+  if (refResults.value.length) {
+    refDropdownOpen.value = true
+  } else {
+    await onRefSearch(refLabel.value || '')
+  }
 }
 
 function pickRefDoc(r: RefDoc) {
@@ -366,9 +376,10 @@ function vnd(v?: number) {
           <input
 id="sm-ref-name" type="text" class="form-input w-full font-mono"
                  :value="refLabel"
-                 :placeholder="referenceType === 'Asset Repair' ? 'Tìm phiếu sửa chữa...'
-                              : referenceType === 'AC Purchase' ? 'Tìm đơn hàng / hóa đơn...'
-                              : 'Tìm lệnh bảo trì / hiệu chuẩn...'"
+                 :placeholder="referenceType === 'Asset Repair' ? 'Click để xem danh sách hoặc gõ để lọc...'
+                              : referenceType === 'AC Purchase' ? 'Click để xem PO có phụ tùng hoặc gõ để lọc...'
+                              : 'Click để xem lệnh bảo trì hoặc gõ để lọc...'"
+                 @focus="onRefFocus()"
                  @input="onRefSearch(($event.target as HTMLInputElement).value)"
                  @blur="refDropdownOpen = false" />
           <div

@@ -3,7 +3,6 @@
 import { ref, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useSidebar } from '@/composables/useSidebar'
-import LocaleSwitcher from '@/components/common/LocaleSwitcher.vue'
 
 const router = useRouter()
 const route  = useRoute()
@@ -51,14 +50,23 @@ interface NavGroup { key: string; title: string; icon: string; items: NavItem[] 
 
 const navGroups: NavGroup[] = [
   { key: 'overview', title: 'Tổng quan', icon: 'grid', items: [
-    { label: 'Trang chính',  path: '/dashboard', icon: 'grid' },
-    { label: 'Quét mã QR',   path: '/qr-scan',   icon: 'qr'   },
+    { label: 'Trung tâm điều hành', path: '/launcher',  icon: 'grid'  },
+    { label: 'Dashboard KPI',       path: '/dashboard', icon: 'chart' },
+    { label: 'Quét mã QR',          path: '/qr-scan',   icon: 'qr'    },
   ]},
   { key: 'assets', title: 'Tài sản', icon: 'device', items: [
     { label: 'Danh sách thiết bị', path: '/assets',          icon: 'device'   },
     { label: 'Model thiết bị',     path: '/device-models',   icon: 'template' },
     { label: 'Chuyển giao',        path: '/asset-transfers', icon: 'transfer' },
     { label: 'Khấu hao',           path: '/depreciation',    icon: 'trending' },
+  ]},
+  { key: 'planning', title: 'Hoạch định & Đánh giá NCC', icon: 'clipboard', items: [
+    { label: 'Đề xuất nhu cầu',          path: '/needs-requests',        icon: 'inbox'    },
+    { label: 'Kế hoạch mua sắm',         path: '/procurement-plans',     icon: 'list'     },
+    { label: 'Hồ sơ kỹ thuật',           path: '/tech-specs',            icon: 'template' },
+    { label: 'Đánh giá nhà cung cấp',    path: '/vendor-evaluations',    icon: 'chart'    },
+    { label: 'Danh mục NCC duyệt (AVL)', path: '/approved-vendors',      icon: 'shield'   },
+    { label: 'Quyết định mua sắm',       path: '/procurement-decisions', icon: 'contract' },
   ]},
   { key: 'procurement', title: 'Mua sắm & Tiếp nhận', icon: 'cart', items: [
     { label: 'Đơn hàng mua',       path: '/purchases',     icon: 'cart'      },
@@ -207,6 +215,41 @@ const activeGroups = computed(() => {
   }
   return set
 })
+
+// ─── Workspace filter ───────────────────────────────────────────────────────
+// Mỗi workspace (4 khối + master + system) chỉ hiển thị nav group liên quan.
+// `overview` luôn show. Nếu không có workspaceId → show tất cả (legacy fallback).
+const SIDEBAR_WORKSPACE_MAP: Record<string, string[]> = {
+  // group.key → workspaceId nào hiển thị
+  overview:    ['planning', 'deployment', 'operations', 'eol', 'master', 'system'],
+  planning:    ['planning'],
+  procurement: ['planning', 'deployment'],
+  assets:      ['master', 'eol'],
+  pm:          ['operations'],
+  cm:          ['operations'],
+  calibration: ['operations'],
+  qms:         ['operations'],
+  documents:   ['deployment'],
+  inventory:   ['operations'],
+  vendors:     ['master'],
+  settings:    ['system'],
+}
+
+const currentWorkspace = computed<string | null>(() =>
+  (route.meta.workspaceId as string | undefined) ?? null,
+)
+
+const visibleNavGroups = computed<NavGroup[]>(() => {
+  const ws = currentWorkspace.value
+  if (!ws) return navGroups
+  return navGroups.filter((g) => {
+    const allowed = SIDEBAR_WORKSPACE_MAP[g.key]
+    return !allowed || allowed.includes(ws)
+  })
+})
+
+// Click logo → quay về Launcher (Module switcher style base.vn)
+function goLauncher() { router.push('/launcher') }
 </script>
 
 <template>
@@ -214,22 +257,28 @@ const activeGroups = computed(() => {
     :class="['fixed left-0 top-0 h-full z-40 flex flex-col transition-all duration-250 overflow-hidden', sidebarClass]"
     class="sidebar-root"
   >
-    <!-- Logo / header -->
+    <!-- Logo / header — click → mở Trung tâm điều hành (Launcher) -->
     <div class="sidebar-header flex items-center h-16 px-3 shrink-0">
-      <div class="flex items-center gap-3 flex-1 min-w-0">
+      <button
+        type="button"
+        class="logo-button flex items-center gap-3 flex-1 min-w-0 rounded-lg p-1 -m-1 transition-colors"
+        title="Mở Trung tâm điều hành"
+        @click="goLauncher"
+      >
         <div class="logo-badge shrink-0 w-9 h-9 rounded-xl overflow-hidden bg-white/10 flex items-center justify-center">
           <img
-:src="'/files/Screenshot%202025-01-25%20222056e16930.png'"
-               alt="AssetCore"
-               class="w-full h-full object-contain" />
+            :src="'/files/Screenshot%202025-01-25%20222056e16930.png'"
+            alt="AssetCore"
+            class="w-full h-full object-contain"
+          />
         </div>
         <Transition name="fade-x">
-          <div v-if="!collapsed" class="min-w-0">
+          <div v-if="!collapsed" class="min-w-0 text-left">
             <p class="font-bold text-[15px] text-white tracking-tight leading-none">AssetCore</p>
-            <p class="text-[11px] mt-1 text-slate-400 font-medium">Quản lý Thiết bị Y tế</p>
+            <p class="text-[11px] mt-1 text-slate-400 font-medium">Trung tâm điều hành</p>
           </div>
         </Transition>
-      </div>
+      </button>
       <button
 class="toggle-btn shrink-0 w-7 h-7 rounded-lg flex items-center justify-center"
               :title="collapsed ? 'Mở rộng' : 'Thu gọn'"
@@ -247,7 +296,7 @@ class="w-4 h-4 transition-transform duration-250"
     <nav class="flex-1 overflow-y-auto py-3 scrollbar-thin">
 <!-- ── Expanded sidebar ── -->
       <template v-if="!collapsed">
-        <div v-for="group in navGroups" :key="group.key" class="px-3 mb-1">
+        <div v-for="group in visibleNavGroups" :key="group.key" class="px-3 mb-1">
 <!-- Group header -->
           <button
 class="group-header w-full flex items-center justify-between px-2 py-2 rounded-lg mb-0.5"
@@ -298,7 +347,7 @@ class="nav-icon shrink-0 w-[18px] h-[18px] flex items-center justify-center"
 
       <!-- ── Collapsed sidebar: icon-only ── -->
       <template v-else>
-        <div v-for="group in navGroups" :key="group.key" class="px-2 mb-1">
+        <div v-for="group in visibleNavGroups" :key="group.key" class="px-2 mb-1">
           <div class="collapsed-divider my-2" />
           <button
             v-for="item in group.items" :key="item.path"
@@ -320,8 +369,7 @@ class="w-[18px] h-[18px] flex items-center justify-center"
     <!-- Footer -->
     <Transition name="fade-x">
       <div v-if="!collapsed" class="sidebar-footer px-4 py-3 flex items-center justify-between gap-2">
-        <p class="text-[11px] text-slate-500 font-medium">AssetCore v1.0 · IMM Wave 1</p>
-        <LocaleSwitcher />
+        <p class="text-[11px] text-slate-500 font-medium">AssetCore v1.0</p>
       </div>
     </Transition>
   </aside>
@@ -344,6 +392,14 @@ class="w-[18px] h-[18px] flex items-center justify-center"
   background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
   box-shadow: 0 0 16px rgba(59,130,246,0.35);
 }
+.logo-button {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+.logo-button:hover { background: rgba(255,255,255,0.05); }
+.logo-button:hover .logo-badge { box-shadow: 0 0 24px rgba(59,130,246,0.55); transform: scale(1.04); }
+.logo-button .logo-badge { transition: transform 0.2s ease, box-shadow 0.2s ease; }
 
 .toggle-btn {
   color: rgba(255,255,255,0.6);
