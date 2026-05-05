@@ -11,8 +11,8 @@
  ],
  "fields": [
   {"fieldname": "section_h", "fieldtype": "Section Break"},
-  {"fieldname": "naming_series", "fieldtype": "Select", "options": "IMM02-MB-.YY.-.#####",
-   "default": "IMM02-MB-.YY.-.#####", "reqd": 1, "label": "Naming Series"},
+  {"fieldname": "naming_series", "fieldtype": "Select", "options": "MB-.YY.-.#####",
+   "default": "MB-.YY.-.#####", "reqd": 1, "label": "Naming Series"},
   {"fieldname": "spec_ref", "fieldtype": "Link", "options": "IMM Tech Spec", "label": "Tech Spec", "reqd": 1, "in_list_view": 1},
   {"fieldname": "benchmark_date", "fieldtype": "Date", "label": "Ngày benchmark", "default": "Today", "reqd": 1},
   {"fieldname": "column_break_1", "fieldtype": "Column Break"},

@@ -70,7 +70,7 @@ GET /api/method/assetcore.api.imm01.list_needs_requests
 { "success": true, "data": {
     "items": [
       {
-        "name": "IMM01-NR-26-04-00012",
+        "name": "NR-26-04-00012",
         "request_type": "Replacement",
         "device_model_ref": "IMM-MDL-2024-0007",
         "requesting_department": "ICU",

@@ -26,7 +26,7 @@
  ],
  "fields": [
   {"fieldname": "section_header", "fieldtype": "Section Break"},
-  {"fieldname": "naming_series", "fieldtype": "Select", "options": "IMM01-PP-.YY.-.#####", "default": "IMM01-PP-.YY.-.#####", "reqd": 1, "label": "Naming Series"},
+  {"fieldname": "naming_series", "fieldtype": "Select", "options": "PP-.YY.-.#####", "default": "PP-.YY.-.#####", "reqd": 1, "label": "Naming Series"},
   {"fieldname": "plan_period", "fieldtype": "Select", "label": "Kỳ kế hoạch", "reqd": 1,
    "options": "Q1\nQ2\nQ3\nQ4\nAnnual", "default": "Annual", "in_list_view": 1},
   {"fieldname": "plan_year", "fieldtype": "Int", "label": "Năm kế hoạch", "reqd": 1, "in_list_view": 1},

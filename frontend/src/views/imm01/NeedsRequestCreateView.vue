@@ -50,11 +50,11 @@
 
         <div class="card">
           <h3>2. Thiết bị muốn mua</h3>
-          <label>Mẫu thiết bị <span class="req">*</span>
+          <label>Model thiết bị <span class="req">*</span>
             <SmartSelect
               v-model="form.device_model_ref"
               doctype="IMM Device Model"
-              placeholder="Tìm mẫu thiết bị theo tên / hãng / GMDN..."
+              placeholder="Tìm model thiết bị..."
             />
           </label>
           <label>Số lượng <span class="req">*</span>

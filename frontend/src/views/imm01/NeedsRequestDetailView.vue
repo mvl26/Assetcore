@@ -208,6 +208,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useImm01Store } from '@/stores/imm01'
+import { getAllowedTransitions } from '@/api/imm01'
 import type { NeedsPriorityScoringRow, NeedsRequestState } from '@/types/imm01'
 import {
   stateLabel, requestTypeLabel, criterionLabel,
@@ -239,24 +240,33 @@ const opexLines = computed(() =>
     .sort((a, b) => (a.year_offset || 0) - (b.year_offset || 0)),
 )
 
-const canApprove = computed(() => store.currentDoc?.workflow_state === 'Pending Approval')
-const canReject = computed(() => store.currentDoc?.workflow_state === 'Pending Approval')
+// 'Phê duyệt' & 'Bác đề xuất' tại Pending Approval render bằng nút riêng (cần prompt
+// approver / lý do) → loại khỏi danh sách generic.
+const SPECIAL_ACTIONS = new Set(['Phê duyệt', 'Bác đề xuất'])
 
-// Map state hiện tại → các action chuyển tiếp tương ứng (theo imm_01_needs_workflow.json)
-// Lưu ý: 'Phê duyệt' & 'Bác đề xuất' tại Pending Approval đã render bằng nút riêng
-// (vì cần prompt approver / lý do) → loại khỏi danh sách generic.
-const TRANSITIONS_BY_STATE: Record<string, string[]> = {
-  'Draft':             ['Gửi đề xuất'],
-  'Submitted':         ['Tiếp nhận rà soát', 'Yêu cầu bổ sung'],
-  'Reviewing':         ['Hoàn tất chấm điểm', 'Bác đề xuất sớm'],
-  'Prioritized':       ['Hoàn tất dự toán'],
-  'Budgeted':          ['Trình BGĐ'],
-  'Pending Approval':  ['Yêu cầu chỉnh dự toán'],
-}
+const allowedActions = ref<string[]>([])
+
+const canApprove = computed(() =>
+  store.currentDoc?.workflow_state === 'Pending Approval' && allowedActions.value.includes('Phê duyệt'),
+)
+const canReject = computed(() =>
+  store.currentDoc?.workflow_state === 'Pending Approval' && allowedActions.value.includes('Bác đề xuất'),
+)
 
 const availableActions = computed<string[]>(() =>
-  TRANSITIONS_BY_STATE[store.currentDoc?.workflow_state || ''] || [],
+  allowedActions.value.filter(a => !SPECIAL_ACTIONS.has(a)),
 )
+
+async function refreshAllowedActions() {
+  const name = store.currentDoc?.name
+  if (!name) { allowedActions.value = []; return }
+  try {
+    const res = await getAllowedTransitions(name)
+    allowedActions.value = res.transitions.map(t => t.action)
+  } catch {
+    allowedActions.value = []
+  }
+}
 
 function actionClass(action: string): string {
   if (action.startsWith('Yêu cầu') || action.startsWith('Bác')) return 'btn-danger'
@@ -307,6 +317,7 @@ async function doTransition(action: string) {
   if (!globalThis.confirm(`Thực hiện hành động "${action}" cho phiếu ${store.currentDoc.name}?`)) return
   await store.transition(store.currentDoc.name, action)
   await store.fetchOne(store.currentDoc.name)
+  await refreshAllowedActions()
 }
 
 async function doApprove() {
@@ -315,6 +326,7 @@ async function doApprove() {
   if (!approver) return
   await store.approve(store.currentDoc.name, approver, 'Đã duyệt')
   await store.fetchOne(store.currentDoc.name)
+  await refreshAllowedActions()
 }
 
 async function doReject() {
@@ -323,11 +335,14 @@ async function doReject() {
   if (!reason) return
   await store.reject(store.currentDoc.name, reason)
   await store.fetchOne(store.currentDoc.name)
+  await refreshAllowedActions()
 }
 
-onMounted(() => {
+onMounted(async () => {
   const name = props.id || (route.params.id as string)
-  if (name) store.fetchOne(name)
+  if (!name) return
+  await store.fetchOne(name)
+  await refreshAllowedActions()
 })
 </script>
 

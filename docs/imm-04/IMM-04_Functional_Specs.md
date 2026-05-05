@@ -67,7 +67,7 @@ Scenario: US-04-01 — Tạo Commissioning từ PO hợp lệ
   When tôi POST /api/method/assetcore.api.imm04.create_commissioning
     với {po_reference, master_item, vendor, clinical_dept, expected_installation_date}
   Then response.success = true
-    And data.name khớp regex "^IMM04-\d{2}-\d{2}-\d{5}$"
+    And data.name khớp regex "^ACC-\d{2}-\d{2}-\d{5}$"
     And workflow_state = "Draft"
     And mandatory documents (CO, CQ, Manual) được populate sẵn với status = Pending
     And nếu risk_class ∈ {C,D,Radiation} → thêm row "License" mandatory

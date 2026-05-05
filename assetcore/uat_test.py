@@ -11,7 +11,7 @@ def _cleanup():
     # Xóa Assets được tạo từ phiếu IMM-04 test (theo custom_comm_ref)
     test_assets = frappe.db.sql("""
         SELECT name, docstatus FROM `tabAsset`
-        WHERE custom_comm_ref LIKE 'IMM04-%' OR custom_vendor_serial IN (
+        WHERE custom_comm_ref LIKE 'ACC-%' OR custom_comm_ref LIKE 'IMM04-%' OR custom_vendor_serial IN (
             'VNT-PHL-20260001', 'XRAY-2026-0001'
         )
     """, as_dict=True)
@@ -80,7 +80,7 @@ def run_all():
         doc.insert(ignore_permissions=True)
         frappe.db.commit()
         comm_id = doc.name
-        is_real_name = comm_id != "IMM04-.YY.-.MM.-.#####"
+        is_real_name = comm_id != "ACC-.YY.-.MM.-.#####"
         print(f"  [1] {'✅ PASS' if is_real_name else '⚠️  PARTIAL'} — Phiếu: {comm_id}")
         results["KB01-1"] = "PASS" if is_real_name else "PARTIAL"
     except Exception as e:

@@ -27,6 +27,15 @@ export function getNeedsRequest(name: string): Promise<NeedsRequestDoc> {
   return frappeGet(`${BASE}.get_needs_request`, { name })
 }
 
+export interface AllowedTransitions {
+  workflow_state: string
+  transitions: { action: string; next_state: string }[]
+}
+
+export function getAllowedTransitions(name: string): Promise<AllowedTransitions> {
+  return frappeGet(`${BASE}.get_allowed_transitions`, { name })
+}
+
 export function createNeedsRequest(payload: Partial<NeedsRequestDoc>): Promise<{
   name: string; workflow_state: string
 }> {

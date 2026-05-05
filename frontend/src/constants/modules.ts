@@ -1,14 +1,12 @@
 // Copyright (c) 2026, AssetCore Team
-// Module Hub catalog — 4 khối kiến trúc (Ho_so_kien_truc_IMMIS.md §2)
-// + nhóm Master Data và Hệ thống.
+// Module Hub catalog — đầy đủ 17 module IMM-01..IMM-17 theo BA
+// Ho_so_kien_truc_IMMIS.md §A.4 + 2 group cross-cutting (master, system).
 //
-// Mỗi ModuleCard:
-//   - id, code (IMM-xx), label, description
-//   - icon (key trong ICONS map của hub)
-//   - to: route đích (dùng router.push)
-//   - roles: nếu rỗng → mọi user authenticated; nếu có → cần ≥ 1 role trong list
+// Quy tắc: mỗi IMM-XX = đúng 1 tile trong launcher. Sub-function nằm trong
+// sidebar của module đó (xem AppSidebar.MODULE_NAV).
 //
-// Role-based visibility: ModuleHubView lọc theo auth.hasAnyRole(card.roles).
+// Module chưa có FE+BE: disabled=true, không router.push.
+// Module có một phần (đợt 3 chưa hoàn thiện): badge "Một phần", link tạm route gần nhất.
 
 import {
   Roles,
@@ -19,13 +17,14 @@ import {
 
 export interface ModuleCard {
   id: string
-  code?: string                 // IMM-xx hoặc null cho master
+  code?: string                 // IMM-xx | undefined cho master/system items
   label: string
   description: string
-  icon: string                  // key icon
+  icon: string
   to: string                    // primary route
   roles: readonly RoleName[]    // [] = all authenticated; ngược lại lọc
-  badge?: string                // optional: "Mới", "Đợt 1", "Đợt 2"
+  badge?: string                // "Đợt 1" | "Đợt 2" | "Đợt 3" | "Một phần"
+  disabled?: boolean            // true = chưa có FE+BE, hiển thị nhưng không click
 }
 
 export interface ModuleGroup {
@@ -36,7 +35,7 @@ export interface ModuleGroup {
   cards: ModuleCard[]
 }
 
-// ── Role bundles dùng riêng cho hub ─────────────────────────────────────────
+// ── Role bundles ────────────────────────────────────────────────────────────
 const PROC_ROLES: readonly RoleName[] = [
   Roles.SYS_ADMIN, Roles.OPS_MANAGER, Roles.STOREKEEPER, Roles.DOC_OFFICER,
 ] as const
@@ -53,9 +52,10 @@ const DOC_ROLES: readonly RoleName[] = [
   Roles.SYS_ADMIN, Roles.DOC_OFFICER, Roles.QA, Roles.OPS_MANAGER, Roles.DEPT_HEAD,
 ] as const
 
-// ── Module catalog ──────────────────────────────────────────────────────────
+// ── 17 module + master + system ────────────────────────────────────────────
 export const MODULE_GROUPS: readonly ModuleGroup[] = [
-  // ──────────────── KHỐI 1 — Hoạch định & Mua sắm ────────────────
+  // ════════════════════ KHỐI 1 — Hoạch định & Mua sắm ════════════════════
+  // 3 module: IMM-01, 02, 03
   {
     id: 'planning',
     title: 'Khối 1 — Hoạch định & Mua sắm',
@@ -63,72 +63,37 @@ export const MODULE_GROUPS: readonly ModuleGroup[] = [
     accent: 'indigo',
     cards: [
       {
-        id: 'imm01',
-        code: 'IMM-01',
-        label: 'Nhu cầu & Dự toán',
-        description: 'Đề xuất, chấm điểm ưu tiên, lập dự toán mua sắm',
+        id: 'imm01', code: 'IMM-01',
+        label: 'Đánh giá nhu cầu & Dự toán',
+        description: 'Tiếp nhận nhu cầu, chấm điểm ưu tiên, lập dự toán, dự báo nhu cầu',
         icon: 'inbox',
         to: '/needs-requests',
         roles: PROC_ROLES,
         badge: 'Đợt 2',
       },
       {
-        id: 'procurement-plan',
-        code: 'IMM-01',
-        label: 'Kế hoạch mua sắm',
-        description: 'Tổng hợp kế hoạch năm, theo dõi giải ngân',
-        icon: 'list',
-        to: '/procurement-plans',
-        roles: PROC_ROLES,
-      },
-      {
-        id: 'imm02',
-        code: 'IMM-02',
-        label: 'Hồ sơ kỹ thuật',
-        description: 'Yêu cầu kỹ thuật, benchmark, tương thích hạ tầng',
+        id: 'imm02', code: 'IMM-02',
+        label: 'Thông số kỹ thuật & Phân tích thị trường',
+        description: 'Hồ sơ kỹ thuật, benchmark, tương thích hạ tầng, lock-in risk',
         icon: 'template',
         to: '/tech-specs',
         roles: PROC_ROLES,
+        badge: 'Đợt 2',
       },
       {
-        id: 'imm03-eval',
-        code: 'IMM-03',
-        label: 'Đánh giá NCC',
-        description: 'Vendor evaluation, scorecard',
+        id: 'imm03', code: 'IMM-03',
+        label: 'Đánh giá NCC & Quyết định mua sắm',
+        description: 'Vendor evaluation, AVL, scorecard, quyết định mua, đơn hàng',
         icon: 'chart',
         to: '/vendor-evaluations',
         roles: PROC_ROLES,
-      },
-      {
-        id: 'imm03-avl',
-        code: 'IMM-03',
-        label: 'Danh mục NCC duyệt (AVL)',
-        description: 'Approved vendor list, hậu kiểm năng lực',
-        icon: 'shield',
-        to: '/approved-vendors',
-        roles: PROC_ROLES,
-      },
-      {
-        id: 'imm03-decision',
-        code: 'IMM-03',
-        label: 'Quyết định mua sắm',
-        description: 'Hồ sơ quyết định lựa chọn nhà cung cấp',
-        icon: 'contract',
-        to: '/procurement-decisions',
-        roles: [Roles.SYS_ADMIN, Roles.OPS_MANAGER, Roles.DOC_OFFICER],
-      },
-      {
-        id: 'purchases',
-        label: 'Đơn hàng mua',
-        description: 'Theo dõi đơn mua thiết bị / vật tư',
-        icon: 'cart',
-        to: '/purchases',
-        roles: STOCK_ROLES,
+        badge: 'Đợt 2',
       },
     ],
   },
 
-  // ──────────────── KHỐI 2 — Triển khai & Lắp đặt ────────────────
+  // ════════════════════ KHỐI 2 — Triển khai & Lắp đặt ════════════════════
+  // 3 module: IMM-04, 05, 06
   {
     id: 'deployment',
     title: 'Khối 2 — Triển khai & Lắp đặt',
@@ -136,142 +101,159 @@ export const MODULE_GROUPS: readonly ModuleGroup[] = [
     accent: 'emerald',
     cards: [
       {
-        id: 'imm04',
-        code: 'IMM-04',
-        label: 'Tiếp nhận & Nghiệm thu',
-        description: 'Lắp đặt, định danh, baseline, release gate',
+        id: 'imm04', code: 'IMM-04',
+        label: 'Lắp đặt, Định danh & Kiểm tra ban đầu',
+        description: 'Tiếp nhận, baseline, initial inspection, release gate',
         icon: 'clipboard',
         to: '/commissioning',
         roles: TECH_ROLES.concat([Roles.DEPT_HEAD, Roles.QA]),
         badge: 'Đợt 1',
       },
       {
-        id: 'imm05',
-        code: 'IMM-05',
-        label: 'Hồ sơ & Cấp phép',
-        description: 'Document repository, kiểm soát hiệu lực',
+        id: 'imm05', code: 'IMM-05',
+        label: 'Đăng ký, Cấp phép & Hồ sơ',
+        description: 'Document repository, kiểm soát hiệu lực, audit trail tài liệu',
         icon: 'folder',
         to: '/documents',
         roles: DOC_ROLES,
         badge: 'Đợt 1',
       },
       {
-        id: 'imm05-req',
-        code: 'IMM-05',
-        label: 'Yêu cầu hồ sơ',
-        description: 'Yêu cầu bổ sung tài liệu thiết bị',
-        icon: 'inbox',
-        to: '/documents/requests',
-        roles: DOC_ROLES.concat([Roles.WORKSHOP, Roles.BIOMED, Roles.TECHNICIAN, Roles.CLINICAL]),
+        id: 'imm06', code: 'IMM-06',
+        label: 'Đào tạo người dùng',
+        description: 'Lịch đào tạo, tài liệu hướng dẫn, competency, chứng nhận',
+        icon: 'users',
+        to: '/training',
+        roles: TECH_ROLES.concat([Roles.CLINICAL, Roles.DEPT_HEAD]),
+        badge: 'Đợt 2',
+        disabled: true,
       },
     ],
   },
 
-  // ──────────────── KHỐI 3 — Vận hành & Bảo trì ────────────────
+  // ════════════════════ KHỐI 3 — Vận hành & Bảo trì ════════════════════
+  // 9 module: IMM-07, 08, 09, 10, 11, 12, 15, 16, 17
   {
     id: 'operations',
     title: 'Khối 3 — Vận hành & Bảo trì',
-    subtitle: 'PM · Sửa chữa · Hiệu chuẩn · Sự cố · Tồn kho · CAPA',
+    subtitle: 'KPI · PM · CM · Hậu kiểm · Hiệu chuẩn · CAPA · Tồn kho · Tuân thủ · Dự đoán',
     accent: 'blue',
     cards: [
       {
-        id: 'imm08',
-        code: 'IMM-08',
+        id: 'imm07', code: 'IMM-07',
+        label: 'Theo dõi hiệu suất',
+        description: 'KPI/KRI vận hành: availability, utilization, downtime, MTBF/MTTR',
+        icon: 'chart',
+        to: '/dashboard',
+        roles: TECH_ROLES.concat([Roles.QA, Roles.DEPT_HEAD]),
+        badge: 'Một phần',
+      },
+      {
+        id: 'imm08', code: 'IMM-08',
         label: 'Bảo trì định kỳ (PM)',
-        description: 'Lập lịch · Work Order · Bảng kiểm · Compliance',
+        description: 'Lập lịch · Work Order · Bảng kiểm · Compliance dashboard',
         icon: 'wrench',
         to: '/pm/dashboard',
         roles: TECH_ROLES,
         badge: 'Đợt 1',
       },
       {
-        id: 'imm09',
-        code: 'IMM-09',
-        label: 'Sửa chữa (CM)',
-        description: 'Corrective WO, phụ tùng, firmware change',
+        id: 'imm09', code: 'IMM-09',
+        label: 'Sửa chữa, Phụ tùng & Cập nhật phần mềm',
+        description: 'Corrective WO, truy nguyên phụ tùng, firmware/software change',
         icon: 'tool',
         to: '/cm/dashboard',
         roles: TECH_ROLES.concat([Roles.VENDOR_ENGINEER]),
         badge: 'Đợt 1',
       },
       {
-        id: 'imm11',
-        code: 'IMM-11',
-        label: 'Hiệu chuẩn',
-        description: 'Inspection, calibration, certificate',
+        id: 'imm10', code: 'IMM-10',
+        label: 'Hậu kiểm & Tuân thủ',
+        description: 'Post-market surveillance, recall/FSCA, action tracker',
+        icon: 'alert',
+        to: '/capas',
+        roles: QA_ROLES,
+        badge: 'Một phần',
+      },
+      {
+        id: 'imm11', code: 'IMM-11',
+        label: 'Hiệu năng & Hiệu chuẩn',
+        description: 'Inspection, calibration, certificate, fail/out-of-tolerance',
         icon: 'gauge',
-        to: '/calibration',
+        to: '/calibration/dashboard',
         roles: TECH_ROLES,
         badge: 'Đợt 1',
       },
       {
-        id: 'imm12-incident',
-        code: 'IMM-12',
-        label: 'Sự cố & Triage',
-        description: 'Báo sự cố, escalation, SLA corrective',
-        icon: 'alert',
+        id: 'imm12', code: 'IMM-12',
+        label: 'Bảo trì khắc phục',
+        description: 'Triage sự cố, escalation, RCA, SLA corrective',
+        icon: 'shield',
         to: '/incidents/dashboard',
         roles: [...TECH_ROLES, Roles.CLINICAL, Roles.QA, Roles.DEPT_HEAD, Roles.DEPT_DEPUTY],
+        badge: 'Đợt 1',
       },
       {
-        id: 'imm12-rca',
-        code: 'IMM-12',
-        label: 'RCA & CAPA',
-        description: 'Phân tích nguyên nhân, hành động khắc phục',
-        icon: 'shield',
-        to: '/capas',
-        roles: QA_ROLES.concat([Roles.WORKSHOP, Roles.BIOMED]),
-      },
-      {
-        id: 'imm15',
-        code: 'IMM-15',
-        label: 'Tồn kho phụ tùng',
-        description: 'Spare parts, kiểm kê, dự báo cấp phát',
+        id: 'imm15', code: 'IMM-15',
+        label: 'Theo dõi tồn kho phụ tùng',
+        description: 'Spare parts, kiểm kê, truy nguyên cấp phát, dự báo demand',
         icon: 'box',
         to: '/inventory',
         roles: STOCK_ROLES,
+        badge: 'Đợt 2',
       },
       {
-        id: 'imm16-audit',
-        code: 'IMM-16',
-        label: 'Nhật ký kiểm toán',
-        description: 'Audit trail, truy vết toàn hệ thống',
+        id: 'imm16', code: 'IMM-16',
+        label: 'Theo dõi tuân thủ',
+        description: 'Compliance monitoring, audit, NC/CAPA, scorecard',
         icon: 'log',
         to: '/audit-trail',
         roles: QA_ROLES,
+        badge: 'Đợt 2',
+      },
+      {
+        id: 'imm17', code: 'IMM-17',
+        label: 'Phân tích dự đoán',
+        description: 'Predictive analytics, model governance, what-if, replacement signal',
+        icon: 'trending',
+        to: '/predictive',
+        roles: QA_ROLES.concat([Roles.OPS_MANAGER]),
+        badge: 'Đợt 3',
+        disabled: true,
       },
     ],
   },
 
-  // ──────────────── KHỐI 4 — Kết thúc vòng đời ────────────────
+  // ════════════════════ KHỐI 4 — Kết thúc vòng đời ════════════════════
+  // 2 module: IMM-13, 14
   {
     id: 'eol',
     title: 'Khối 4 — Kết thúc vòng đời',
-    subtitle: 'Điều chuyển · Khấu hao · Thanh lý',
+    subtitle: 'Điều chuyển · Khấu hao · Giải nhiệm',
     accent: 'amber',
     cards: [
       {
-        id: 'imm13',
-        code: 'IMM-13',
-        label: 'Điều chuyển thiết bị',
-        description: 'Chuyển giao nội viện, đổi trạng thái',
+        id: 'imm13', code: 'IMM-13',
+        label: 'Ngừng sử dụng & Điều chuyển',
+        description: 'Chuyển trạng thái, điều chuyển nội viện, replacement review',
         icon: 'transfer',
         to: '/asset-transfers',
         roles: [Roles.SYS_ADMIN, Roles.OPS_MANAGER, Roles.DEPT_HEAD, Roles.DEPT_DEPUTY, Roles.WORKSHOP],
+        badge: 'Đợt 3',
       },
       {
-        id: 'imm14',
-        code: 'IMM-14',
-        label: 'Khấu hao & Thanh lý',
-        description: 'Đóng vòng đời, đối soát kế toán',
+        id: 'imm14', code: 'IMM-14',
+        label: 'Giải nhiệm thiết bị',
+        description: 'Đóng vòng đời, khấu hao, đối soát kế toán, closure record',
         icon: 'trending',
         to: '/depreciation',
         roles: [Roles.SYS_ADMIN, Roles.OPS_MANAGER, Roles.DEPT_HEAD],
+        badge: 'Một phần',
       },
     ],
   },
 
-  // ──────────────── Master / Tài sản & Đối tác ────────────────
+  // ════════════════════ Master / Tài sản & Đối tác ════════════════════
   {
     id: 'master',
     title: 'Tài sản & Đối tác',
@@ -329,16 +311,16 @@ export const MODULE_GROUPS: readonly ModuleGroup[] = [
     ],
   },
 
-  // ──────────────── Hệ thống ────────────────
+  // ════════════════════ Hệ thống ════════════════════
   {
     id: 'system',
     title: 'Hệ thống',
-    subtitle: 'Cấu hình hệ thống · Người dùng · Dashboard',
+    subtitle: 'Cấu hình hệ thống · Người dùng · Tổng quan',
     accent: 'rose',
     cards: [
       {
         id: 'dashboard',
-        label: 'Dashboard điều hành',
+        label: 'Dashboard tổng quan',
         description: 'KPI tổng quan, repair active, PM upcoming',
         icon: 'chart',
         to: '/dashboard',
@@ -359,6 +341,14 @@ export const MODULE_GROUPS: readonly ModuleGroup[] = [
         icon: 'database',
         to: '/reference-data',
         roles: ROLES_ADMIN_ONLY,
+      },
+      {
+        id: 'approvals',
+        label: 'Phê duyệt chờ',
+        description: 'Workflow chờ phê duyệt của bạn',
+        icon: 'inbox',
+        to: '/approvals/pending',
+        roles: [],
       },
     ],
   },

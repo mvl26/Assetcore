@@ -17,8 +17,8 @@
  ],
  "fields": [
   {"fieldname": "section_header", "fieldtype": "Section Break"},
-  {"fieldname": "naming_series", "fieldtype": "Select", "options": "IMM02-TS-.YY.-.#####",
-   "default": "IMM02-TS-.YY.-.#####", "reqd": 1, "label": "Naming Series"},
+  {"fieldname": "naming_series", "fieldtype": "Select", "options": "TS-.YY.-.#####",
+   "default": "TS-.YY.-.#####", "reqd": 1, "label": "Naming Series"},
   {"fieldname": "draft_date", "fieldtype": "Date", "label": "Ngày draft", "default": "Today", "reqd": 1},
   {"fieldname": "version", "fieldtype": "Data", "label": "Phiên bản", "default": "1.0"},
   {"fieldname": "column_break_h1", "fieldtype": "Column Break"},

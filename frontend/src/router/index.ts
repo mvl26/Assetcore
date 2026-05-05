@@ -723,57 +723,58 @@ const routes: RouteRecordRaw[] = [
   },
 ]
 
-// ─── Workspace tagging ──────────────────────────────────────────────────────
-// Gán meta.workspaceId cho route theo path-prefix → AppSidebar lọc nav theo
-// workspace hiện tại. Tránh phải tag thủ công 80+ route.
-const WORKSPACE_RULES: Array<[RegExp, string]> = [
+// ─── Module tagging ─────────────────────────────────────────────────────────
+// Gán meta.moduleId cho mỗi route. AppSidebar dùng moduleId để hiển thị
+// sidebar riêng cho từng module (mỗi IMM-XX có nav riêng).
+// Cross-cutting (master/system) dùng key 'master' / 'system'.
+const MODULE_RULES: Array<[RegExp, string]> = [
   // Khối 1 — Hoạch định & Mua sắm
-  [/^\/needs-requests/,       'planning'],
-  [/^\/procurement-plans/,    'planning'],
-  [/^\/tech-specs/,           'planning'],
-  [/^\/vendor-evaluations/,   'planning'],
-  [/^\/approved-vendors/,     'planning'],
-  [/^\/procurement-decisions/,'planning'],
-  [/^\/purchases/,            'planning'],
-  // Khối 2 — Triển khai
-  [/^\/commissioning/,        'deployment'],
-  [/^\/documents/,            'deployment'],
+  [/^\/needs-requests/,        'imm01'],
+  [/^\/procurement-plans/,     'imm01'],
+  [/^\/tech-specs/,            'imm02'],
+  [/^\/vendor-evaluations/,    'imm03'],
+  [/^\/approved-vendors/,      'imm03'],
+  [/^\/procurement-decisions/, 'imm03'],
+  [/^\/purchases/,             'imm03'],
+  // Khối 2 — Triển khai & Lắp đặt
+  [/^\/commissioning/,         'imm04'],
+  [/^\/documents/,             'imm05'],
   // Khối 3 — Vận hành & Bảo trì
-  [/^\/pm/,                   'operations'],
-  [/^\/cm/,                   'operations'],
-  [/^\/calibration/,          'operations'],
-  [/^\/incidents/,            'operations'],
-  [/^\/rca/,                  'operations'],
-  [/^\/capas/,                'operations'],
-  [/^\/audit-trail/,          'operations'],
-  [/^\/inventory/,            'operations'],
-  [/^\/stock/,                'operations'],
-  [/^\/spare-parts/,          'operations'],
-  [/^\/warehouses/,           'operations'],
-  [/^\/approvals/,            'operations'],
+  [/^\/pm/,                    'imm08'],
+  [/^\/cm/,                    'imm09'],
+  [/^\/calibration/,           'imm11'],
+  [/^\/incidents/,             'imm12'],
+  [/^\/rca/,                   'imm12'],
+  [/^\/capas/,                 'imm12'],   // RCA & CAPA — IMM-12 primary, dùng chung IMM-10/16
+  [/^\/audit-trail/,           'imm16'],
+  [/^\/inventory/,             'imm15'],
+  [/^\/stock/,                 'imm15'],
+  [/^\/spare-parts/,           'imm15'],
+  [/^\/warehouses/,            'imm15'],
   // Khối 4 — Kết thúc vòng đời
-  [/^\/asset-transfers/,      'eol'],
-  [/^\/depreciation/,         'eol'],
-  // Master data + cross-workspace
-  [/^\/assets/,               'master'],
-  [/^\/device-models/,        'master'],
-  [/^\/qr-scan/,              'master'],
-  [/^\/suppliers/,            'master'],
-  [/^\/service-contracts/,    'master'],
-  [/^\/sla-policies/,         'master'],
-  // System
-  [/^\/dashboard/,            'system'],
-  [/^\/user-profiles/,        'system'],
-  [/^\/reference-data/,       'system'],
-  [/^\/account/,              'system'],
+  [/^\/asset-transfers/,       'imm13'],
+  [/^\/depreciation/,          'imm14'],
+  // Master data
+  [/^\/assets/,                'master'],
+  [/^\/device-models/,         'master'],
+  [/^\/qr-scan/,               'master'],
+  [/^\/suppliers/,             'master'],
+  [/^\/service-contracts/,     'master'],
+  [/^\/sla-policies/,          'master'],
+  // Hệ thống
+  [/^\/dashboard/,             'system'],
+  [/^\/user-profiles/,         'system'],
+  [/^\/reference-data/,        'system'],
+  [/^\/account/,               'system'],
+  [/^\/approvals/,             'system'],
 ]
 
 function tagWorkspace(rs: RouteRecordRaw[]): RouteRecordRaw[] {
   for (const r of rs) {
     if (typeof r.path === 'string') {
-      for (const [re, ws] of WORKSPACE_RULES) {
+      for (const [re, mod] of MODULE_RULES) {
         if (re.test(r.path)) {
-          r.meta = { ...r.meta, workspaceId: ws }
+          r.meta = { ...r.meta, moduleId: mod }
           break
         }
       }

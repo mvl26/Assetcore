@@ -46,7 +46,7 @@ Side Effects:
                                    │ po_reference
                                    ▼
    ┌────────────────────────────────────────────────────┐
-   │   Asset Commissioning  (IMM04-YY-MM-#####)         │
+   │   Asset Commissioning  (ACC-YY-MM-#####)         │
    │   workflow_state, docstatus, vendor_serial_no,     │
    │   internal_tag_qr, risk_class, final_asset…        │
    └────────────────────────────────────────────────────┘
@@ -73,7 +73,7 @@ Side Effects:
 
 ### 2.1 `Asset Commissioning` (`tabAsset Commissioning`)
 
-**Autoname:** `IMM04-.YY.-.MM.-.#####`  
+**Autoname:** `ACC-.YY.-.MM.-.#####`  
 **is_submittable:** 1 · **track_changes:** 1 · **track_views:** 1  
 **Module:** AssetCore  
 **Workflow:** `IMM-04 Workflow` (state field `workflow_state`)

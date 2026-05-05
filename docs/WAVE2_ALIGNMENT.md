@@ -31,25 +31,27 @@ Tài liệu này là **bản ghi đè bắt buộc** — khi triển khai Wave 2
 
 ---
 
-## 2. Naming series (transactions IMM-01/02/03)
+## 2. Naming series — domain-only (refactor 2026-05-05)
 
-Wave 1 chuẩn: `IMM04-.YY.-.MM.-.#####`, `IMM05-.YY.-.MM.-.#####`, `AC-PUR-.YYYY.-.#####`.
+**Nguyên tắc:** Naming series là mã dữ liệu mô tả bản chất bản ghi, KHÔNG nhúng số module phát triển. Block 2/3 alignment (`WAVE2_ALIGNMENT_BLOCK23.md` §1) áp dụng nguyên tắc này cho TOÀN bộ codebase. Các DocType IMM-01/02/03 + IMM-04 đã được rename ngày 2026-05-05.
 
-| DocType (mới) | Naming series chuẩn Wave 2 |
+Wave 1 chuẩn cho reference: `ACC-.YY.-.MM.-.#####` (Asset Commissioning), `AC-PUR-.YYYY.-.#####`, `CAPA-.YYYY.-.#####`, `RCA-.YYYY.-.####`.
+
+| DocType | Naming series chuẩn (sau refactor) |
 |---|---|
-| IMM Needs Request | `IMM01-NR-.YY.-.MM.-.#####` (thay `NR-…` trong docs) |
-| IMM Procurement Plan | `IMM01-PP-.YY.-.#####` |
-| IMM Demand Forecast | `IMM01-DF-.YYYY.-.#####` |
-| IMM Tech Spec | `IMM02-TS-.YY.-.#####` |
-| IMM Market Benchmark | `IMM02-MB-.YY.-.#####` |
-| IMM Lock-in Risk Assessment | `IMM02-LR-.YY.-.#####` |
-| IMM Vendor Evaluation | `IMM03-VE-.YY.-.#####` |
-| IMM Procurement Decision | `IMM03-PD-.YY.-.#####` |
-| IMM AVL Entry | `IMM03-AVL-.YYYY.-.#####` |
-| IMM Vendor Scorecard | `IMM03-VS-.YYYY.-.QN-{Vendor}` |
-| IMM Supplier Audit | `IMM03-SA-.YY.-.#####` |
+| IMM Needs Request | `NR-.YY.-.MM.-.#####` |
+| IMM Procurement Plan | `PP-.YY.-.#####` |
+| IMM Demand Forecast | `DF-.YYYY.-.#####` |
+| IMM Tech Spec | `TS-.YY.-.#####` |
+| IMM Market Benchmark | `MB-.YY.-.#####` |
+| IMM Lock-in Risk Assessment | `LR-.YY.-.#####` |
+| IMM Vendor Evaluation | `VE-.YY.-.#####` |
+| IMM Procurement Decision | `PD-.YY.-.#####` |
+| IMM AVL Entry | `AVL-.YYYY.-.#####` |
+| IMM Vendor Scorecard | `format:VS-{period_year}-Q{period_quarter}-{supplier}` (đã đúng từ Wave 1) |
+| IMM Supplier Audit | `SA-.YY.-.#####` |
 
-**→ Thay khi đọc:** tiền tố naming series ở Module Overview §3 và Technical Design §2 các module 01/02/03.
+**Records LIVE giữ tên cũ (`IMM01-NR-26-05-00001`, `IMM04-26-05-00001`); records mới dùng prefix mới.**
 
 ---
 

@@ -32,7 +32,6 @@ _DT_DF    = "IMM Demand Forecast"
 _DT_ASSET = "AC Asset"
 _DT_AUDIT = "IMM Audit Trail"
 
-MIN_JUSTIFICATION_LEN = 200
 ENVELOPE_SOFT_PCT     = 80
 ENVELOPE_HARD_PCT     = 100   # áp dụng nếu master config enforce_envelope=1
 
@@ -106,6 +105,7 @@ def write_audit_trail(
 def before_insert_needs_request(doc: Document) -> None:
     if not doc.request_date:
         doc.request_date = today()
+    _sync_clinical_head_from_department(doc)
     # Auto-fetch utilization từ IMM-07 (placeholder — IMM-07 chưa expose API tại thời điểm
     # này; sẽ wire khi IMM-07 GA).
     if doc.request_type in ("Replacement", "Upgrade") and doc.replacement_for_asset:
@@ -113,7 +113,7 @@ def before_insert_needs_request(doc: Document) -> None:
 
 
 def validate_needs_request(doc: Document) -> None:
-    _vr03_clinical_justification(doc)
+    _sync_clinical_head_from_department(doc)
     _vr04_target_year(doc)
     _vr01_unique_active_request_per_asset(doc)
     _vr02_replacement_requires_decom_plan(doc)
@@ -121,6 +121,20 @@ def validate_needs_request(doc: Document) -> None:
     _vr05_score_consistency(doc)
     _rollup_budget(doc)
     _check_workflow_gates(doc)
+
+
+def _sync_clinical_head_from_department(doc: Document) -> None:
+    """Trưởng khoa luôn lấy từ `AC Department.dept_head` của khoa đề xuất.
+
+    Người dùng KHÔNG được phép tự nhập `clinical_head`: bất kỳ giá trị nào trong
+    payload đều bị ghi đè. Nếu khoa chưa khai báo Trưởng khoa thì để trống.
+    """
+    dept = getattr(doc, "requesting_department", None)
+    if not dept:
+        doc.clinical_head = None
+        return
+    head = frappe.db.get_value("AC Department", dept, "dept_head") or None
+    doc.clinical_head = head
 
 
 def before_submit_needs_request(doc: Document) -> None:
@@ -178,17 +192,6 @@ def _vr02_replacement_requires_decom_plan(doc: Document) -> None:
             _("VR-01-02 (warn): Replacement nên có IMM-13 Decommission Plan cho asset {0}. "
               "Hiện trạng asset: {1}.").format(doc.replacement_for_asset, asset_status or "—"),
             indicator="orange", title=_("Cảnh báo VR-01-02"),
-        )
-
-
-def _vr03_clinical_justification(doc: Document) -> None:
-    """VR-03: clinical_justification ≥ 200 ký tự (tính theo plain text length)."""
-    text = (doc.clinical_justification or "").strip()
-    if len(text) < MIN_JUSTIFICATION_LEN:
-        raise ServiceError(
-            ErrorCode.VALIDATION,
-            _("VR-01-03: clinical_justification phải ≥ {0} ký tự (hiện tại: {1})")
-            .format(MIN_JUSTIFICATION_LEN, len(text)),
         )
 
 

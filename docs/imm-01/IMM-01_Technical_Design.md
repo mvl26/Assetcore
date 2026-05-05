@@ -38,7 +38,7 @@ Module name (Frappe `modules.txt`): `AssetCore` (Wave 1 dùng 1 module duy nhấ
 
 ### 2.1 IMM Needs Request
 
-Naming: `IMM01-NR-.YY.-.MM.-.#####`. Submittable. Module: `AssetCore`.
+Naming: `NR-.YY.-.MM.-.#####`. Submittable. Module: `AssetCore`.
 
 | Section | Field | Type | Req | Default | Options / Link | Rule |
 |---|---|---|---|---|---|---|
@@ -82,7 +82,7 @@ Naming: `IMM01-NR-.YY.-.MM.-.#####`. Submittable. Module: `AssetCore`.
 
 ### 2.2 IMM Procurement Plan
 
-Naming: `IMM01-PP-.YY.-.#####`. Submittable. Module: `AssetCore`.
+Naming: `PP-.YY.-.#####`. Submittable. Module: `AssetCore`.
 
 | Section | Field | Type | Req | Note |
 |---|---|---|---|---|
@@ -98,7 +98,7 @@ Naming: `IMM01-PP-.YY.-.#####`. Submittable. Module: `AssetCore`.
 
 ### 2.3 IMM Demand Forecast
 
-Naming: `IMM01-DF-.YYYY.-.#####`. Read-only output, không submittable.
+Naming: `DF-.YYYY.-.#####`. Read-only output, không submittable.
 
 | Field | Type | Note |
 |---|---|---|

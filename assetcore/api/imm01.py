@@ -90,6 +90,31 @@ def _get_needs_request(name: str) -> dict:
     return doc.as_dict()
 
 
+@frappe.whitelist()
+def get_allowed_transitions(name: str) -> dict:
+    """Trả về các workflow action mà user hiện tại được phép thực hiện trên phiếu.
+
+    FE dùng để render đúng các nút bấm theo role — tránh "Not a valid Workflow Action".
+    """
+    return _handle(_get_allowed_transitions, name)
+
+
+def _get_allowed_transitions(name: str) -> dict:
+    from frappe.model.workflow import get_transitions
+    doc = frappe.get_doc(_DT_NR, name)
+    transitions = get_transitions(doc) or []
+    # `get_transitions` trả 1 row / (action × role match) — dedupe theo action.
+    seen = set()
+    unique = []
+    for t in transitions:
+        key = (t.get("action"), t.get("next_state"))
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append({"action": key[0], "next_state": key[1]})
+    return {"workflow_state": doc.workflow_state, "transitions": unique}
+
+
 # ─── Mutating endpoints ───────────────────────────────────────────────────────
 
 @frappe.whitelist(methods=["POST"])

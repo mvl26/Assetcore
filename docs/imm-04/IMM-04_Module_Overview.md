@@ -48,7 +48,7 @@ Không có phiếu IMM-04 ở trạng thái `Clinical Release` (docstatus=1) th�
 
 | DocType | Naming | Submittable | Mô tả |
 |---|---|---|---|
-| `Asset Commissioning` | `IMM04-.YY.-.MM.-.#####` | Yes | Phiếu nghiệm thu thiết bị — workflow 11 states, gateway tạo Asset |
+| `Asset Commissioning` | `ACC-.YY.-.MM.-.#####` | Yes | Phiếu nghiệm thu thiết bị — workflow 11 states, gateway tạo Asset |
 
 ### 3.2 Child Tables (gắn vào Asset Commissioning)
 
@@ -191,7 +191,7 @@ Workflow JSON: `assetcore/assetcore/workflow/imm_04_workflow.json` — `IMM-04 W
 
 | Hạng mục | Trạng thái | Ghi chú |
 |---|---|---|
-| DocType + child tables | ✅ DONE | `IMM04-YY-MM-#####` naming |
+| DocType + child tables | ✅ DONE | `ACC-YY-MM-#####` naming |
 | Workflow 11 states | ✅ DONE | `imm_04_workflow.json` active |
 | API layer (17 endpoints) | ✅ DONE | `assetcore/api/imm04.py` |
 | Service layer | ✅ DONE | `assetcore/services/imm04.py` |

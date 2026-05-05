@@ -28,7 +28,7 @@ AssetCore — module AssetCore (chia sẻ với IMM-01)
 
 ### 2.1 IMM Tech Spec
 
-Naming: `IMM02-TS-.YY.-.#####`. Submittable. Module: `AssetCore`.
+Naming: `TS-.YY.-.#####`. Submittable. Module: `AssetCore`.
 
 | Section | Field | Type | Req | Note |
 |---|---|---|---|---|
@@ -66,7 +66,7 @@ Indexes:
 
 ### 2.2 IMM Market Benchmark
 
-Naming: `IMM02-MB-.YY.-.#####`. Submittable.
+Naming: `MB-.YY.-.#####`. Submittable.
 
 | Field | Type | Note |
 |---|---|---|
@@ -78,7 +78,7 @@ Naming: `IMM02-MB-.YY.-.#####`. Submittable.
 
 ### 2.3 IMM Lock-in Risk Assessment
 
-Naming: `IMM02-LR-.YY.-.#####`. Submittable.
+Naming: `LR-.YY.-.#####`. Submittable.
 
 | Field | Type | Note |
 |---|---|---|

@@ -86,7 +86,7 @@ Module: `assetcore.api.imm04`
 | Path | `assetcore.api.imm04.get_form_context` |
 | Permission | `read` trên Asset Commissioning |
 
-**Params:** `?name=IMM04-26-04-00001`
+**Params:** `?name=ACC-26-04-00001`
 
 **Response 200:**
 
@@ -94,7 +94,7 @@ Module: `assetcore.api.imm04`
 {
   "success": true,
   "data": {
-    "name": "IMM04-26-04-00001",
+    "name": "ACC-26-04-00001",
     "workflow_state": "Identification",
     "docstatus": 0,
     "po_reference": "PO-2026-00023",
@@ -138,7 +138,7 @@ Default: `docstatus != 2` (loại Cancelled).
 {
   "success": true,
   "data": {
-    "items": [{ "name": "IMM04-26-04-00001", "workflow_state": "Identification", "vendor": "Philips", "modified": "2026-04-18 10:00" }],
+    "items": [{ "name": "ACC-26-04-00001", "workflow_state": "Identification", "vendor": "Philips", "modified": "2026-04-18 10:00" }],
     "pagination": { "page": 1, "page_size": 20, "total": 1, "total_pages": 1 }
   }
 }
@@ -162,7 +162,7 @@ Service `initialize_commissioning()` tự: set `reception_date=today`, fetch `ri
 **Response 200:**
 
 ```json
-{ "success": true, "data": { "name": "IMM04-26-04-00001", "workflow_state": "Draft", "message": "Phiếu IMM04-26-04-00001 đã được tạo thành công" } }
+{ "success": true, "data": { "name": "ACC-26-04-00001", "workflow_state": "Draft", "message": "Phiếu ACC-26-04-00001 đã được tạo thành công" } }
 ```
 
 **Errors:** 400 `MISSING_FIELDS`, 422 `VALIDATION_ERROR`, 500 `SYSTEM_ERROR`.
@@ -239,7 +239,7 @@ Yêu cầu state = "Clinical Release". Validate `board_approver` (G06) + count O
 {
   "success": true,
   "data": {
-    "commissioning": "IMM04-26-04-00001",
+    "commissioning": "ACC-26-04-00001",
     "new_status": "Clinical Release",
     "asset_ref": "ACC-ASS-2026-00001",
     "commissioning_date": "2026-04-18",
@@ -280,7 +280,7 @@ Yêu cầu state = "Identification". Validate VR-01 (SN unique).
 **Response 200:**
 
 ```json
-{ "success": true, "data": { "is_unique": false, "existing_commissioning": "IMM04-26-03-00012", "item": "ITM-XRAY-001" } }
+{ "success": true, "data": { "is_unique": false, "existing_commissioning": "ACC-26-03-00012", "item": "ITM-XRAY-001" } }
 ```
 
 ---
@@ -350,7 +350,7 @@ Update row trong `commissioning_documents`: status=Received, file_url, uploaded_
     "qr_value": "BV-CDHA-2026-0001",
     "label": {
       "title": "ASSETCORE — NHÃN THIẾT BỊ",
-      "commissioning_id": "IMM04-26-04-00001",
+      "commissioning_id": "ACC-26-04-00001",
       "internal_qr": "BV-CDHA-2026-0001",
       "vendor_serial": "PHI-SN98765",
       "model": "ITM-XRAY-001",
@@ -362,7 +362,7 @@ Update row trong `commissioning_documents`: status=Received, file_url, uploaded_
       "asset_id": "Chưa có",
       "print_date": "2026-04-18"
     },
-    "scan_url": "/app/asset-commissioning/IMM04-26-04-00001",
+    "scan_url": "/app/asset-commissioning/ACC-26-04-00001",
     "docs_url": null
   }
 }
@@ -479,7 +479,7 @@ Set `resolution_status="Closed"`, `closed_by=session.user`, `closed_date=today`.
       { "workflow_state": "Identification", "count": 5 },
       { "workflow_state": "Initial Inspection", "count": 4 }
     ],
-    "recent_list": [{ "name": "IMM04-26-04-00001", "workflow_state": "Identification", "modified": "..." }]
+    "recent_list": [{ "name": "ACC-26-04-00001", "workflow_state": "Identification", "modified": "..." }]
   }
 }
 ```

@@ -247,7 +247,7 @@ bench --site <site> execute assetcore.tests.fixtures.imm04_seed_v2.seed_all
 |---|---|
 | **Precondition** | Seed data v2 đã chạy. User login `htm.ktv01@hospital.vn` |
 | **Steps** | 1. `GET /api/method/assetcore.api.imm04.search_link?doctype=Purchase Order&query=PO-2026-00101`<br>2. `GET /api/method/assetcore.api.imm04.get_po_details?po_name=PO-2026-00101` → kỳ vọng `data.supplier = "AC-SUP-2026-0001"` (match theo supplier_name)<br>3. `GET /api/method/assetcore.api.imm00.get_device_model?name=IMM-MDL-2026-0001` → lấy `medical_device_class="Class II"`, `is_radiation_device=0`<br>4. `POST /api/method/assetcore.api.imm04.create_commissioning` với payload DS-01 |
-| **Expected** | `success=true`, `name` match `^IMM04-26-04-\d{5}$`, `workflow_state=Draft`. `commissioning_documents` có 4 rows: CO, CQ, Manual (mandatory), Warranty (optional). 1 Lifecycle Event `event_type=created` |
+| **Expected** | `success=true`, `name` match `^ACC-26-04-\d{5}$`, `workflow_state=Draft`. `commissioning_documents` có 4 rows: CO, CQ, Manual (mandatory), Warranty (optional). 1 Lifecycle Event `event_type=created` |
 | **Coverage** | BR-04-01, US-04-01 |
 
 **TC-04-02: Thiếu field bắt buộc**
