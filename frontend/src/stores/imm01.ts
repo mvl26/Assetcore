@@ -105,9 +105,9 @@ export const useImm01Store = defineStore('imm01', () => {
     return rejectNeedsRequest(name, rejection_reason)
   }
 
-  async function fetchPlans() {
+  async function fetchPlans(filters: Record<string, unknown> = {}, p = 1, ps = 50) {
     try {
-      const res = await listProcurementPlans({}, 1, 50)
+      const res = await listProcurementPlans(filters, p, ps)
       plans.value = res.items
     } catch (e) { _setError(e) }
   }

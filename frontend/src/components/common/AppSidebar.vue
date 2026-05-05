@@ -49,28 +49,21 @@ interface NavItem  { label: string; path: string; icon: string }
 interface NavGroup { key: string; title: string; icon: string; items: NavItem[] }
 
 const navGroups: NavGroup[] = [
-  { key: 'overview', title: 'Tổng quan', icon: 'grid', items: [
-    { label: 'Trung tâm điều hành', path: '/launcher',  icon: 'grid'  },
-    { label: 'Dashboard KPI',       path: '/dashboard', icon: 'chart' },
-    { label: 'Quét mã QR',          path: '/qr-scan',   icon: 'qr'    },
-  ]},
   { key: 'assets', title: 'Tài sản', icon: 'device', items: [
     { label: 'Danh sách thiết bị', path: '/assets',          icon: 'device'   },
+    { label: 'Quét mã QR',         path: '/qr-scan',         icon: 'qr'       },
     { label: 'Model thiết bị',     path: '/device-models',   icon: 'template' },
     { label: 'Chuyển giao',        path: '/asset-transfers', icon: 'transfer' },
     { label: 'Khấu hao',           path: '/depreciation',    icon: 'trending' },
   ]},
-  { key: 'planning', title: 'Hoạch định & Đánh giá NCC', icon: 'clipboard', items: [
+  { key: 'planning', title: 'Hoạch định & Mua sắm', icon: 'clipboard', items: [
     { label: 'Đề xuất nhu cầu',          path: '/needs-requests',        icon: 'inbox'    },
     { label: 'Kế hoạch mua sắm',         path: '/procurement-plans',     icon: 'list'     },
     { label: 'Hồ sơ kỹ thuật',           path: '/tech-specs',            icon: 'template' },
     { label: 'Đánh giá nhà cung cấp',    path: '/vendor-evaluations',    icon: 'chart'    },
     { label: 'Danh mục NCC duyệt (AVL)', path: '/approved-vendors',      icon: 'shield'   },
     { label: 'Quyết định mua sắm',       path: '/procurement-decisions', icon: 'contract' },
-  ]},
-  { key: 'procurement', title: 'Mua sắm & Tiếp nhận', icon: 'cart', items: [
-    { label: 'Đơn hàng mua',       path: '/purchases',     icon: 'cart'      },
-    { label: 'Tiếp nhận', path: '/commissioning', icon: 'clipboard' },
+    { label: 'Đơn hàng mua',             path: '/purchases',             icon: 'cart'     },
   ]},
   { key: 'pm', title: 'Bảo trì định kỳ', icon: 'wrench', items: [
     { label: 'Tổng quan bảo trì',  path: '/pm/dashboard',   icon: 'chart'    },
@@ -95,9 +88,10 @@ const navGroups: NavGroup[] = [
     { label: 'CAPA',               path: '/capas',               icon: 'shield' },
     { label: 'Nhật ký kiểm toán',  path: '/audit-trail',         icon: 'log'    },
   ]},
-  { key: 'documents', title: 'Hồ sơ', icon: 'folder', items: [
-    { label: 'Kho tài liệu',   path: '/documents',          icon: 'folder' },
-    { label: 'Yêu cầu hồ sơ',  path: '/documents/requests', icon: 'inbox'  },
+  { key: 'deployment', title: 'Triển khai & Lắp đặt', icon: 'clipboard', items: [
+    { label: 'Tiếp nhận',     path: '/commissioning',      icon: 'clipboard' },
+    { label: 'Kho tài liệu',  path: '/documents',          icon: 'folder'    },
+    { label: 'Yêu cầu hồ sơ', path: '/documents/requests', icon: 'inbox'     },
   ]},
   { key: 'inventory', title: 'Kho & Phụ tùng', icon: 'box', items: [
     { label: 'Tổng quan kho', path: '/inventory',       icon: 'chart'     },
@@ -113,8 +107,9 @@ const navGroups: NavGroup[] = [
     { label: 'Chính sách SLA',   path: '/sla-policies',      icon: 'clock'    },
   ]},
   { key: 'settings', title: 'Hệ thống', icon: 'database', items: [
-    { label: 'Dữ liệu tham chiếu', path: '/reference-data', icon: 'database' },
-    { label: 'Người dùng',         path: '/user-profiles',  icon: 'users'    },
+    { label: 'Dashboard điều hành', path: '/dashboard',      icon: 'chart'    },
+    { label: 'Người dùng',          path: '/user-profiles',  icon: 'users'    },
+    { label: 'Dữ liệu tham chiếu',  path: '/reference-data', icon: 'database' },
   ]},
 ]
 
@@ -221,15 +216,13 @@ const activeGroups = computed(() => {
 // `overview` luôn show. Nếu không có workspaceId → show tất cả (legacy fallback).
 const SIDEBAR_WORKSPACE_MAP: Record<string, string[]> = {
   // group.key → workspaceId nào hiển thị
-  overview:    ['planning', 'deployment', 'operations', 'eol', 'master', 'system'],
   planning:    ['planning'],
-  procurement: ['planning', 'deployment'],
+  deployment:  ['deployment'],
   assets:      ['master', 'eol'],
   pm:          ['operations'],
   cm:          ['operations'],
   calibration: ['operations'],
   qms:         ['operations'],
-  documents:   ['deployment'],
   inventory:   ['operations'],
   vendors:     ['master'],
   settings:    ['system'],

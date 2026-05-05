@@ -761,10 +761,10 @@ const WORKSPACE_RULES: Array<[RegExp, string]> = [
   [/^\/suppliers/,            'master'],
   [/^\/service-contracts/,    'master'],
   [/^\/sla-policies/,         'master'],
-  [/^\/reference-data/,       'master'],
   // System
   [/^\/dashboard/,            'system'],
   [/^\/user-profiles/,        'system'],
+  [/^\/reference-data/,       'system'],
   [/^\/account/,              'system'],
 ]
 

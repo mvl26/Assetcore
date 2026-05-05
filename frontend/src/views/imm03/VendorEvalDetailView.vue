@@ -158,9 +158,9 @@
             <tr v-for="c in store.currentEval.candidates || []" :key="c.idx">
               <td>{{ c.supplier }}</td>
               <td v-for="crit in criteriaInGroup" :key="crit.criterion" class="num">
-                <input type="number" min="0" max="5" step="0.5"
+                <input type="number" min="1" max="5" step="0.5"
                        :value="getScore(c.supplier, crit.criterion)"
-                       @change="setScore(c.supplier, crit.criterion, ($event.target as HTMLInputElement).value)" />
+                       @input="setScore(c.supplier, crit.criterion, ($event.target as HTMLInputElement).value)" />
               </td>
             </tr>
           </tbody>
@@ -329,7 +329,8 @@ function getScore(supplier: string, criterion: string): number | string {
 }
 function setScore(supplier: string, criterion: string, val: string) {
   ensureSupplier(supplier)
-  scoresMap[supplier][criterion] = parseFloat(val) || 0
+  const n = parseFloat(val) || 0
+  scoresMap[supplier][criterion] = Math.max(1, Math.min(5, n))
 }
 
 async function saveScoring() {

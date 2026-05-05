@@ -52,9 +52,6 @@
           <p class="justification">{{ store.currentDoc.clinical_justification }}</p>
           <div class="meta">
             Độ dài: {{ (store.currentDoc.clinical_justification || '').length }} ký tự
-            <span v-if="(store.currentDoc.clinical_justification || '').length < 200" class="error-text">
-              (cần tối thiểu 200 ký tự để gửi duyệt)
-            </span>
           </div>
         </div>
         <div class="card">
@@ -190,9 +187,16 @@
 
     <!-- Hành động quy trình -->
     <div class="action-bar">
-      <button v-if="canSubmit" class="btn btn-primary" @click="doTransition('Gửi đề xuất')">Gửi đề xuất</button>
       <button v-if="canApprove" class="btn btn-success" @click="doApprove">Phê duyệt</button>
       <button v-if="canReject" class="btn btn-danger" @click="doReject">Bác đề xuất</button>
+      <button
+        v-for="action in availableActions"
+        :key="action"
+        :class="['btn', actionClass(action)]"
+        @click="doTransition(action)"
+      >
+        {{ action }}
+      </button>
     </div>
   </div>
 
@@ -235,9 +239,30 @@ const opexLines = computed(() =>
     .sort((a, b) => (a.year_offset || 0) - (b.year_offset || 0)),
 )
 
-const canSubmit = computed(() => store.currentDoc?.workflow_state === 'Draft')
 const canApprove = computed(() => store.currentDoc?.workflow_state === 'Pending Approval')
 const canReject = computed(() => store.currentDoc?.workflow_state === 'Pending Approval')
+
+// Map state hiện tại → các action chuyển tiếp tương ứng (theo imm_01_needs_workflow.json)
+// Lưu ý: 'Phê duyệt' & 'Bác đề xuất' tại Pending Approval đã render bằng nút riêng
+// (vì cần prompt approver / lý do) → loại khỏi danh sách generic.
+const TRANSITIONS_BY_STATE: Record<string, string[]> = {
+  'Draft':             ['Gửi đề xuất'],
+  'Submitted':         ['Tiếp nhận rà soát', 'Yêu cầu bổ sung'],
+  'Reviewing':         ['Hoàn tất chấm điểm', 'Bác đề xuất sớm'],
+  'Prioritized':       ['Hoàn tất dự toán'],
+  'Budgeted':          ['Trình BGĐ'],
+  'Pending Approval':  ['Yêu cầu chỉnh dự toán'],
+}
+
+const availableActions = computed<string[]>(() =>
+  TRANSITIONS_BY_STATE[store.currentDoc?.workflow_state || ''] || [],
+)
+
+function actionClass(action: string): string {
+  if (action.startsWith('Yêu cầu') || action.startsWith('Bác')) return 'btn-danger'
+  if (action.startsWith('Hoàn tất') || action === 'Trình BGĐ') return 'btn-success'
+  return 'btn-primary'
+}
 
 function stepClass(_s: NeedsRequestState, i: number): string {
   const cur = store.currentDoc?.workflow_state

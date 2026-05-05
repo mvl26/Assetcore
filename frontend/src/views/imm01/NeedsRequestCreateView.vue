@@ -23,18 +23,39 @@
             </select>
           </label>
           <label>Khoa đề xuất <span class="req">*</span>
-            <input v-model="form.requesting_department" type="text" required placeholder="Chọn khoa..." />
+            <SmartSelect
+              v-model="form.requesting_department"
+              doctype="AC Department"
+              placeholder="Tìm khoa theo tên hoặc mã..."
+              @select="onDepartmentSelected"
+              @clear="onDepartmentCleared"
+            />
             <span class="hint">Khoa lâm sàng đề nghị mua sắm thiết bị</span>
           </label>
-          <label>Trưởng khoa <span class="req">*</span>
-            <input v-model="form.clinical_head" type="email" required placeholder="email@benhvien.vn" />
+          <label>Trưởng khoa
+            <div class="readonly-field" :class="{ empty: !clinicalHeadName }">
+              <span v-if="headLoading">Đang tải...</span>
+              <span v-else-if="clinicalHeadName">
+                {{ clinicalHeadName }}
+                <span class="readonly-id">({{ form.clinical_head }})</span>
+              </span>
+              <span v-else-if="form.requesting_department" class="muted">
+                Khoa này chưa khai báo Trưởng khoa
+              </span>
+              <span v-else class="muted">Chọn khoa đề xuất để tự điền</span>
+            </div>
+            <span class="hint">Trưởng khoa lấy tự động từ "Khoa đề xuất" — không thể chỉnh tay.</span>
           </label>
         </div>
 
         <div class="card">
           <h3>2. Thiết bị muốn mua</h3>
           <label>Mẫu thiết bị <span class="req">*</span>
-            <input v-model="form.device_model_ref" type="text" required placeholder="Chọn mẫu thiết bị..." />
+            <SmartSelect
+              v-model="form.device_model_ref"
+              doctype="IMM Device Model"
+              placeholder="Tìm mẫu thiết bị theo tên / hãng / GMDN..."
+            />
           </label>
           <label>Số lượng <span class="req">*</span>
             <input v-model.number="form.quantity" type="number" min="1" required />
@@ -45,7 +66,11 @@
           </label>
           <label v-if="form.request_type === 'Replacement'">
             Thiết bị cần thay thế <span class="req">*</span>
-            <input v-model="form.replacement_for_asset" type="text" placeholder="Chọn thiết bị..." />
+            <SmartSelect
+              v-model="form.replacement_for_asset"
+              doctype="AC Asset"
+              placeholder="Tìm thiết bị theo tên / mã / serial..."
+            />
             <span class="hint">Thiết bị thay thế phải có kế hoạch thanh lý đi kèm</span>
           </label>
         </div>
@@ -54,14 +79,7 @@
       <div class="card">
         <h3>3. Lý do lâm sàng <span class="req">*</span></h3>
         <textarea v-model="form.clinical_justification" rows="6" required
-                  placeholder="Mô tả nhu cầu lâm sàng, ảnh hưởng nếu không có thiết bị (tối thiểu 200 ký tự)..."></textarea>
-        <div class="char-count">
-          {{ (form.clinical_justification || '').length }} / 200 ký tự
-          <span v-if="(form.clinical_justification || '').length < 200" class="error-text">
-            (cần tối thiểu 200 ký tự)
-          </span>
-          <span v-else class="success-text">✓ đạt yêu cầu</span>
-        </div>
+          placeholder="Mô tả nhu cầu lâm sàng, ảnh hưởng nếu không có thiết bị..."></textarea>
       </div>
 
       <div v-if="form.request_type === 'Replacement' || form.request_type === 'Upgrade'" class="card">
@@ -92,6 +110,8 @@
 import { reactive, ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useImm01Store } from '@/stores/imm01'
+import { frappeGet } from '@/api/helpers'
+import SmartSelect from '@/components/common/SmartSelect.vue'
 import type { NeedsRequestDoc, RequestType } from '@/types/imm01'
 
 const router = useRouter()
@@ -99,6 +119,8 @@ const store = useImm01Store()
 
 const currentYear = new Date().getFullYear()
 const submitting = ref(false)
+const headLoading = ref(false)
+const clinicalHeadName = ref('')
 
 const form = reactive<Partial<NeedsRequestDoc>>({
   request_type: 'New' as RequestType,
@@ -116,18 +138,60 @@ const form = reactive<Partial<NeedsRequestDoc>>({
 const canSubmit = computed(() =>
   form.request_type
   && form.requesting_department
-  && form.clinical_head
   && form.device_model_ref
   && (form.quantity || 0) >= 1
   && (form.target_year || 0) >= currentYear
-  && (form.clinical_justification || '').length >= 200,
+  && (form.clinical_justification || '').length > 0
+  && (form.request_type !== 'Replacement' || !!form.replacement_for_asset),
 )
+
+async function onDepartmentSelected(item: { id: string }) {
+  if (!item?.id) {
+    resetClinicalHead()
+    return
+  }
+  headLoading.value = true
+  form.clinical_head = ''
+  clinicalHeadName.value = ''
+  try {
+    const dept = await frappeGet<{ dept_head?: string }>('/api/method/frappe.client.get_value', {
+      doctype: 'AC Department',
+      filters: item.id,
+      fieldname: JSON.stringify(['dept_head']),
+    })
+    if (dept?.dept_head) {
+      form.clinical_head = dept.dept_head
+      const user = await frappeGet<{ full_name?: string }>('/api/method/frappe.client.get_value', {
+        doctype: 'User',
+        filters: dept.dept_head,
+        fieldname: JSON.stringify(['full_name']),
+      })
+      clinicalHeadName.value = user?.full_name || dept.dept_head
+    }
+  } catch {
+    resetClinicalHead()
+  } finally {
+    headLoading.value = false
+  }
+}
+
+function onDepartmentCleared() {
+  resetClinicalHead()
+}
+
+function resetClinicalHead() {
+  form.clinical_head = ''
+  clinicalHeadName.value = ''
+}
 
 async function onSubmit() {
   if (!canSubmit.value) return
   submitting.value = true
   try {
-    const res = await store.create(form)
+    // BE auto-set clinical_head từ AC Department.dept_head — không gửi từ FE.
+    const { clinical_head: _ch, ...payload } = form
+    void _ch
+    const res = await store.create(payload)
     router.push({ name: 'NeedsRequestDetail', params: { id: res.name } })
   } catch {
     /* error đã set trong store */
@@ -161,4 +225,11 @@ async function onSubmit() {
 .btn-primary { background: #2563eb; color: white; border-color: #2563eb; }
 .btn-primary:disabled { background: #9ca3af; border-color: #9ca3af; cursor: not-allowed; }
 .btn-outline { background: white; color: #2563eb; border-color: #2563eb; }
+.readonly-field {
+  display: block; padding: 0.55rem; border: 1px dashed #d1d5db; border-radius: 6px;
+  margin-top: 0.25rem; background: #f9fafb; font-size: 0.95rem; color: #111827; min-height: 2.5rem;
+}
+.readonly-field.empty { color: #6b7280; }
+.readonly-field .readonly-id { color: #6b7280; font-size: 0.8rem; margin-left: 0.4rem; }
+.readonly-field .muted { color: #9ca3af; font-style: italic; }
 </style>
