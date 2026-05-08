@@ -5,9 +5,12 @@ import { useRoute, useRouter } from 'vue-router'
 import { getIncident, acknowledgeIncident, resolveIncident, closeIncident, cancelIncident, createRca } from '@/api/imm12'
 import { deleteIncident } from '@/api/imm00'
 import type { IncidentDetail } from '@/api/imm12'
+import SmartSelect from '@/components/common/SmartSelect.vue'
+import { useToast } from '@/composables/useToast'
 
 const route = useRoute()
 const router = useRouter()
+const toast = useToast()
 const name = computed(() => route.params.id as string)
 
 const form = ref<Partial<IncidentDetail>>({})
@@ -46,22 +49,34 @@ async function doAcknowledge() {
     await acknowledgeIncident(name.value, ackNotes.value, ackAssignedTo.value)
     showAckModal.value = false
     ackNotes.value = ''; ackAssignedTo.value = ''
+    toast.success('Đã bắt đầu điều tra Incident')
     await load()
-  } catch (e: unknown) { err.value = (e as Error).message || 'Lỗi khi acknowledge' }
-  finally { actionLoading.value = false }
+  } catch (e: unknown) {
+    const msg = (e as Error).message || 'Lỗi khi acknowledge'
+    err.value = msg
+    toast.error(msg)
+  } finally { actionLoading.value = false }
 }
 
 async function doResolve() {
-  if (!resolveNotes.value.trim()) { err.value = 'Bắt buộc nhập ghi chú giải quyết'; return }
+  if (!resolveNotes.value.trim()) {
+    err.value = 'Bắt buộc nhập ghi chú giải quyết'
+    toast.warning(err.value)
+    return
+  }
   actionLoading.value = true
   err.value = ''
   try {
     await resolveIncident(name.value, resolveNotes.value, rootCause.value)
     showResolveModal.value = false
     resolveNotes.value = ''; rootCause.value = ''
+    toast.success('Đã đánh dấu Incident là đã giải quyết')
     await load()
-  } catch (e: unknown) { err.value = (e as Error).message || 'Lỗi khi resolve' }
-  finally { actionLoading.value = false }
+  } catch (e: unknown) {
+    const msg = (e as Error).message || 'Lỗi khi resolve'
+    err.value = msg
+    toast.error(msg)
+  } finally { actionLoading.value = false }
 }
 
 async function doClose() {
@@ -71,22 +86,34 @@ async function doClose() {
     await closeIncident(name.value, verifyNotes.value)
     showCloseModal.value = false
     verifyNotes.value = ''
+    toast.success('Đã đóng Incident')
     await load()
-  } catch (e: unknown) { err.value = (e as Error).message || 'Lỗi khi close' }
-  finally { actionLoading.value = false }
+  } catch (e: unknown) {
+    const msg = (e as Error).message || 'Lỗi khi close'
+    err.value = msg
+    toast.error(msg)
+  } finally { actionLoading.value = false }
 }
 
 async function doCancel() {
-  if (!cancelReason.value.trim()) { err.value = 'Bắt buộc nhập lý do hủy'; return }
+  if (!cancelReason.value.trim()) {
+    err.value = 'Bắt buộc nhập lý do hủy'
+    toast.warning(err.value)
+    return
+  }
   actionLoading.value = true
   err.value = ''
   try {
     await cancelIncident(name.value, cancelReason.value)
     showCancelModal.value = false
     cancelReason.value = ''
+    toast.success('Đã hủy Incident')
     await load()
-  } catch (e: unknown) { err.value = (e as Error).message || 'Lỗi khi hủy' }
-  finally { actionLoading.value = false }
+  } catch (e: unknown) {
+    const msg = (e as Error).message || 'Lỗi khi hủy'
+    err.value = msg
+    toast.error(msg)
+  } finally { actionLoading.value = false }
 }
 
 async function doCreateRca() {
@@ -327,8 +354,9 @@ v-if="needsRca" :disabled="rcaCreating"
           <textarea id="ack-notes" v-model="ackNotes" rows="3" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400" placeholder="Mô tả bước tiếp theo, tình hình hiện tại..."></textarea>
         </div>
         <div>
-          <label for="ack-assigned" class="block text-sm font-medium text-gray-700 mb-1">Giao cho (email user)</label>
-          <input id="ack-assigned" v-model="ackAssignedTo" type="email" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400" placeholder="ktv@hospital.vn" />
+          <label class="block text-sm font-medium text-gray-700 mb-1">Giao cho (User)</label>
+          <SmartSelect v-model="ackAssignedTo" doctype="User" placeholder="Tìm user theo tên / email..." />
+          <p class="text-[11px] text-gray-400 mt-1">Tùy chọn — nếu chọn, hệ thống sẽ gửi email thông báo cho user này.</p>
         </div>
         <div class="flex justify-end gap-2">
           <button class="px-4 py-2 text-sm border border-gray-300 rounded-lg" @click="showAckModal = false">Hủy</button>

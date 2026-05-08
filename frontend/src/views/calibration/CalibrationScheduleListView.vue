@@ -96,16 +96,33 @@ async function openEdit(name: string) {
   err.value = ''; showForm.value = true
 }
 
+const todayIso = computed(() => new Date().toISOString().slice(0, 10))
+
 async function save() {
   err.value = ''
+  if (form.value.next_due_date && form.value.next_due_date < todayIso.value) {
+    err.value = 'Ngày đến hạn không được nằm trong quá khứ'
+    toast.error(err.value)
+    return
+  }
+  if (form.value.interval_days != null && form.value.interval_days <= 0) {
+    err.value = 'Chu kỳ (ngày) phải lớn hơn 0'
+    toast.error(err.value)
+    return
+  }
   try {
     if (editingName.value) {
       await updateCalibrationSchedule(editingName.value, form.value)
     } else {
       await createCalibrationSchedule(form.value)
     }
+    toast.success(editingName.value ? 'Đã cập nhật lịch hiệu chuẩn' : 'Đã tạo lịch hiệu chuẩn')
     showForm.value = false; await load()
-  } catch (e: unknown) { err.value = (e as Error).message || 'Lỗi lưu' }
+  } catch (e: unknown) {
+    const msg = (e as Error).message || 'Lỗi lưu'
+    err.value = msg
+    toast.error(msg)
+  }
 }
 
 async function remove(name: string) {
@@ -304,7 +321,8 @@ onMounted(load)
           </div>
           <div>
             <label class="form-label">Ngày đến hạn tiếp theo</label>
-            <DateInput v-model="form.next_due_date" class="form-input w-full text-sm" />
+            <DateInput v-model="form.next_due_date" :min="todayIso" class="form-input w-full text-sm" />
+            <p class="text-[11px] text-slate-400 mt-1">Không được chọn ngày trong quá khứ.</p>
           </div>
           <div>
             <label class="form-label">Lab ưu tiên</label>

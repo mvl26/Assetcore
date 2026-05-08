@@ -19,6 +19,7 @@ from assetcore.services.shared.constants import Roles
 
 # ── Canonical persona matrix (khớp fixtures/role_profile.json) ────────────────
 _PROFILES: list[tuple[str, list[str]]] = [
+    # Wave 1 — core HTM operations
     ("IMM - System Administrator",   [Roles.SYS_ADMIN]),
     ("IMM - Operations Manager",     [Roles.OPS_MANAGER]),
     ("IMM - Department Head",        [Roles.DEPT_HEAD]),
@@ -32,6 +33,13 @@ _PROFILES: list[tuple[str, list[str]]] = [
     ("IMM - Document Officer",       [Roles.DOC_OFFICER]),
     ("IMM - Clinical User",          [Roles.CLINICAL]),
     ("IMM - Vendor Engineer",        [Roles.VENDOR_ENGINEER]),
+    # Wave 2 — planning & procurement (IMM-01→03)
+    ("IMM - Planning Officer",       [Roles.PLANNING]),
+    ("IMM - Finance Officer",        [Roles.FINANCE]),
+    ("IMM - HTM Engineer",           [Roles.HTM_ENGINEER]),
+    ("IMM - Procurement Officer",    [Roles.PROCUREMENT]),
+    ("IMM - Risk Officer",           [Roles.RISK]),
+    ("IMM - Board Approver",         [Roles.BOARD_APPROVER]),
 ]
 
 # Profile cũ (tiếng Việt từ phiên bản trước) — sẽ xóa nếu tồn tại
@@ -72,6 +80,7 @@ def _upsert_role_profile(profile_name: str, role_names: list[str]) -> str:
         for role in valid_roles:
             doc.append("roles", {"role": role})
         doc.flags.ignore_permissions = True
+        doc.flags.ignore_update_check = True  # prevents queue_action → DocumentLockedError
         doc.save()
         return "updated"
 
@@ -80,6 +89,7 @@ def _upsert_role_profile(profile_name: str, role_names: list[str]) -> str:
     for role in valid_roles:
         doc.append("roles", {"role": role})
     doc.flags.ignore_permissions = True
+    doc.flags.ignore_update_check = True  # prevents queue_action → DocumentLockedError
     doc.insert()
     return "inserted"
 

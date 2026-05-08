@@ -91,6 +91,7 @@ def after_install() -> None:
     create_user_custom_fields()
     _apply_rbac_matrix()
     _seed_role_profiles()
+    _seed_module_profiles()
     _apply_core_permissions()
 
 
@@ -98,6 +99,7 @@ def after_migrate() -> None:
     create_user_custom_fields()
     _apply_rbac_matrix()
     _seed_role_profiles()
+    _seed_module_profiles()
     _apply_core_permissions()
     _install_notifications()
 
@@ -133,6 +135,18 @@ def _seed_role_profiles() -> None:
         frappe.log_error(
             frappe.get_traceback(),
             "AssetCore Role Profiles: setup_role_profiles.run failed",
+        )
+
+
+def _seed_module_profiles() -> None:
+    """Tạo Module Profile kiểm soát sidebar visibility cho từng nhóm user."""
+    try:
+        from assetcore.setup.setup_module_profiles import run as seed
+        seed()
+    except Exception:
+        frappe.log_error(
+            frappe.get_traceback(),
+            "AssetCore Module Profiles: setup_module_profiles.run failed",
         )
 
 

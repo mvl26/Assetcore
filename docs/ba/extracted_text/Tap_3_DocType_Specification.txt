@@ -1,0 +1,1145 @@
+BỘ TÀI LIỆU BÀN GIAO
+AssetCore on Frappe / ERPNext v15
+TẬP 3
+DATA & DOCTYPE SPECIFICATION
+ERD, mapping ERPNext ↔ AssetCore, DocType chi tiết, master data, identifier, migration
+Phiên bản: 1.0  |  Trạng thái: Final draft  |  Ngày: 2026-05-05
+Người soạn: AssetCore Architecture Team   |   Đối tượng đọc: Dev IT, BA, QA, DevOps
+Mục lục
+3.1 Conceptual ERD — Sơ đồ thực thể tổng thể
+Conceptual ERD chỉ mô tả các thực thể chính và quan hệ ở mức cao, không liệt kê field. Đây là bản đồ mental cho cả dự án; mọi DocType detail ở mục 3.4 phải nhất quán với sơ đồ này.
+```mermaid
+erDiagram
+  DEVICE_MODEL ||--o{ MEDICAL_ASSET : "instances of"
+  ITEM ||--o{ DEVICE_MODEL : "catalog of"
+  MEDICAL_ASSET ||--o{ ASSET_IDENTIFIER : "tagged by"
+  MEDICAL_ASSET ||--o{ LIFECYCLE_EVENT : "history"
+  MEDICAL_ASSET ||--o{ WORK_ORDER : "subject of"
+  MEDICAL_ASSET ||--o{ DOCUMENT_RECORD : "has documents"
+  MEDICAL_ASSET ||--o{ MAINTENANCE_PLAN : "has plans"
+  MEDICAL_ASSET ||--o{ CALIBRATION_PLAN : "has plans"
+  MEDICAL_ASSET ||--o{ COMPLIANCE_RECORD : "tracked by"
+  MEDICAL_ASSET ||--o{ ASSET_MOVEMENT : "moved"
+  MEDICAL_ASSET ||--o{ INITIAL_INSPECTION : "inspected"
+  MEDICAL_ASSET ||--o{ FAILURE_REPORT : "reported on"
+  MEDICAL_ASSET }|--|| LOCATION : "located at"
+  MEDICAL_ASSET }|--|| DEPARTMENT : "owned by"
+  MEDICAL_ASSET }|--|| ASSET_CATEGORY : "categorized"
+  MEDICAL_ASSET }o--|| RISK_CLASS : "risk classified"
+  MEDICAL_ASSET }o--|| CRITICALITY : "criticality"
+  WORK_ORDER ||--o{ WO_TASK : "has tasks"
+  WORK_ORDER ||--o{ SPARE_CONSUMPTION : "uses"
+  WORK_ORDER ||--o{ DOCUMENT_RECORD : "evidence"
+  WORK_ORDER }o--|| WORK_ORDER_TYPE : "type"
+  WORK_ORDER }o--|| MAINTENANCE_PLAN : "from plan"
+  WORK_ORDER }o--|| CALIBRATION_PLAN : "from plan"
+  FAILURE_REPORT ||--|| WORK_ORDER : "triggers CM"
+  FAILURE_REPORT ||--o{ ADVERSE_EVENT_REPORT : "may escalate"
+  ADVERSE_EVENT_REPORT ||--|| COMPLIANCE_CASE : "opens"
+  COMPLIANCE_CASE ||--o{ CAPA_CASE : "spawns"
+  CAPA_CASE ||--o{ EFFECTIVENESS_CHECK : "verified by"
+  CAPA_CASE ||--o{ DOCUMENT_RECORD : "evidence"
+  DOCUMENT_RECORD ||--o| QMS_ARTIFACT : "is QMS"
+  QMS_ARTIFACT }o--|| QMS_TIER : "tiered"
+  CHANGE_CONTROL ||--o{ DOCUMENT_RECORD : "affects"
+  CHANGE_CONTROL ||--o{ MEDICAL_ASSET : "affects"
+  AUDIT_LOG }o--|| MEDICAL_ASSET : "records"
+  METRIC_SNAPSHOT }o--|| METRIC_DEFINITION : "based on"
+  ALERT_RULE ||--o{ NOTIFICATION : "sends"
+  VENDOR ||--o{ DEVICE_MODEL : "manufactures"
+  VENDOR ||--o{ SERVICE_CONTRACT : "signs"
+  SERVICE_CONTRACT }o--|| MEDICAL_ASSET : "covers"
+```
+3.1.1 Phân loại thực thể
+3.2 Logical ERD theo module Wave 1
+3.2.1 ERD IMM-04 Lắp đặt, định danh, kiểm tra ban đầu
+```mermaid
+erDiagram
+  PURCHASE_RECEIPT ||--o{ MEDICAL_ASSET : "creates"
+  MEDICAL_ASSET ||--|| ASSET_IDENTIFIER : "1-1 primary"
+  MEDICAL_ASSET ||--o{ ASSET_IDENTIFIER : "alternates"
+  MEDICAL_ASSET ||--|| INSTALLATION_WO : "installed by"
+  MEDICAL_ASSET ||--|| INITIAL_INSPECTION : "inspected by"
+  INSTALLATION_WO ||--o{ DOCUMENT_RECORD : "evidence"
+  INITIAL_INSPECTION ||--o{ INITIAL_INSPECTION_ITEM : "items"
+  INITIAL_INSPECTION ||--o{ DOCUMENT_RECORD : "evidence"
+  MEDICAL_ASSET }o--|| DEVICE_MODEL : "model"
+  MEDICAL_ASSET }o--|| LOCATION : "location"
+  MEDICAL_ASSET }o--|| DEPARTMENT : "department"
+```
+3.2.2 ERD IMM-05 Đăng ký, hồ sơ pháp lý
+```mermaid
+erDiagram
+  MEDICAL_ASSET ||--o{ COMPLIANCE_RECORD : "tracks"
+  COMPLIANCE_RECORD }o--|| DOCUMENT_RECORD : "backed by"
+  DOCUMENT_RECORD }o--|| DOCUMENT_TYPE : "of type"
+  DOCUMENT_RECORD ||--o{ DOCUMENT_VERSION : "history"
+  DOCUMENT_TYPE }o--|| RISK_CLASS : "required for"
+  COMPLIANCE_RECORD ||--o{ NOTIFICATION : "alerts"
+  COMPLIANCE_RECORD }o--|| COMPLIANCE_STATUS : "status"
+```
+3.2.3 ERD IMM-08 Bảo trì định kỳ
+```mermaid
+erDiagram
+  MEDICAL_ASSET ||--o{ MAINTENANCE_PLAN : "has"
+  DEVICE_MODEL ||--o{ MAINTENANCE_PLAN_TEMPLATE : "default"
+  MAINTENANCE_PLAN ||--o{ MAINTENANCE_PLAN_TASK : "tasks"
+  MAINTENANCE_PLAN ||--o{ WORK_ORDER : "generates PM WO"
+  WORK_ORDER ||--o{ WO_TASK : "tasks"
+  WORK_ORDER ||--o{ SPARE_CONSUMPTION : "spares used"
+  WORK_ORDER ||--o{ DOCUMENT_RECORD : "evidence"
+  WORK_ORDER }o--|| WORK_ORDER_TYPE : "PM"
+  SPARE_CONSUMPTION }o--|| ITEM : "spare item"
+  SPARE_CONSUMPTION }o--|| STOCK_ENTRY : "stock movement"
+```
+3.2.4 ERD IMM-09 Sửa chữa, phụ tùng, software update
+```mermaid
+erDiagram
+  FAILURE_REPORT ||--|| WORK_ORDER : "creates CM"
+  FAILURE_REPORT }o--|| MEDICAL_ASSET : "on"
+  FAILURE_REPORT }o--|| SEVERITY : "severity"
+  WORK_ORDER ||--o{ SPARE_CONSUMPTION : "uses"
+  WORK_ORDER ||--o{ EXTERNAL_SERVICE_VISIT : "if outsourced"
+  EXTERNAL_SERVICE_VISIT }o--|| SERVICE_PROVIDER : "by"
+  SOFTWARE_UPDATE_RECORD }o--|| MEDICAL_ASSET : "on"
+  SOFTWARE_UPDATE_RECORD ||--o{ DOCUMENT_RECORD : "release notes"
+  RECALL_NOTICE ||--o{ MEDICAL_ASSET : "affects"
+  RECALL_NOTICE ||--o{ CAPA_CASE : "spawns"
+```
+3.2.5 ERD IMM-11 Hiệu năng và hiệu chuẩn
+```mermaid
+erDiagram
+  MEDICAL_ASSET ||--o{ CALIBRATION_PLAN : "has"
+  CALIBRATION_PLAN ||--o{ WORK_ORDER : "generates Cal WO"
+  WORK_ORDER ||--|| CALIBRATION_RESULT : "result"
+  CALIBRATION_RESULT ||--o{ TEST_POINT : "data points"
+  CALIBRATION_RESULT ||--|| CALIBRATION_CERTIFICATE : "issued"
+  CALIBRATION_CERTIFICATE }o--|| SERVICE_PROVIDER : "issued by"
+  CALIBRATION_CERTIFICATE }o--|| DOCUMENT_RECORD : "stored as"
+```
+3.2.6 ERD IMM-12 CM nghiêm trọng & CAPA
+```mermaid
+erDiagram
+  ADVERSE_EVENT_REPORT }o--|| MEDICAL_ASSET : "on"
+  ADVERSE_EVENT_REPORT ||--|| COMPLIANCE_CASE : "opens"
+  COMPLIANCE_CASE ||--o{ ROOT_CAUSE_ANALYSIS : "investigated by"
+  COMPLIANCE_CASE ||--o{ CAPA_CASE : "leads to"
+  CAPA_CASE ||--o{ CAPA_ACTION : "actions"
+  CAPA_CASE ||--|| EFFECTIVENESS_CHECK : "verified"
+  CAPA_CASE ||--o{ DOCUMENT_RECORD : "evidence"
+  ROOT_CAUSE_ANALYSIS ||--o{ DOCUMENT_RECORD : "evidence"
+```
+3.3 Mapping ERPNext core ↔ AssetCore
+3.3.1 Bảng mapping tổng
+Bảng dưới ánh xạ từng khái niệm AssetCore tới ERPNext core: Tận dụng nguyên (TN), Tận dụng + custom field (TN+CF), Custom DocType mới (CD), Hoặc Không liên quan core (KL).
+3.3.2 Cách Medical Asset liên kết với Asset core
+Mỗi Medical Asset có quan hệ 1-1 với Asset core của ERPNext. Asset core giữ vai trò kế toán (cost center, depreciation, gross purchase amount). Medical Asset giữ vai trò HTM (risk, criticality, location, lifecycle).
+```mermaid
+flowchart LR
+  PR[Purchase Receipt] -->|on_submit| ASSET[Asset (core)]
+  ASSET -->|hook auto-create| MA[Medical Asset (custom)]
+  MA -->|link asset_doc| ASSET
+  MA -->|link device_model| DM[Device Model]
+  MA -->|link department| DEP[Department]
+  MA -->|link location| LOC[Warehouse/Location]
+  MA -->|link asset_category| AC[Asset Category]
+```
+Quy ước naming: Asset core có name dạng `ACC-ASS-2026-00001` (Frappe default); Medical Asset có name dạng `MA-2026-00001` để dễ phân biệt khi đọc log.
+3.3.3 Custom field chèn vào DocType core
+3.4 DocType Specification chi tiết
+Mỗi DocType custom có spec đầy đủ. Trường có ký hiệu * = mandatory; ! = unique; → = link tới DocType khác. Các trường audit `created_by`, `creation`, `modified_by`, `modified`, `docstatus`, `idx` mặc định Frappe đã có nên không liệt kê lại.
+3.4.1 Medical Asset
+Metadata
+Fields
+Workflow states
+Permission summary
+Hooks & business logic
+before_insert: validate naming rule, kiểm tra primary_qr unique.
+validate: kiểm tra risk_class consistent với device_model; nếu Class C/D thì calibration_required mặc định True.
+on_update: nếu state đổi → tạo Lifecycle Event (gọi engine lifecycle).
+on_update: cập nhật asset.last_pm_date, next_pm_due qua scheduled job riêng (không trong on_update).
+permission_query_conditions: enforce ABAC theo department cho Biomed Engineer / Operator / Department Head.
+Related business rules
+BR-CORE-001
+BR-CORE-006
+BR-IMM04-001
+BR-IMM04-005
+BR-IMM05-002
+3.4.2 Device Model
+Metadata
+Fields
+Hooks & business logic
+validate: model_code unique; bắt buộc spec_sheet hoặc user_manual cho model active.
+Related business rules
+BR-CORE-001
+3.4.3 Asset Identifier
+Metadata
+Fields
+Hooks & business logic
+validate: identifier_value duy nhất theo identifier_type.
+validate: chỉ cho 1 is_primary cho mỗi pair (medical_asset, identifier_type='internal_qr').
+3.4.4 AC Work Order (Unified)
+Metadata
+Fields
+Workflow states
+Permission summary
+Hooks & business logic
+validate: severity và priority phải nhất quán; nếu wo_type=CM bắt buộc severity.
+before_submit: bắt buộc actual_start, actual_end, action_taken, evidences ≥ 1.
+on_submit: tạo Lifecycle Event tương ứng (pm_completed/repaired/calibration_completed…).
+on_submit: cập nhật asset.last_pm_date hoặc last_calibration_date qua scheduled job.
+on_cancel: chỉ cho phép HM với reason; sinh Lifecycle Event 'wo_cancelled'.
+scheduled job hourly: kiểm tra sla_due → set state=overdue & escalate notification.
+Related business rules
+BR-IMM08-002
+BR-IMM08-003
+BR-IMM08-004
+BR-IMM09-001
+BR-IMM09-002
+BR-IMM11-002
+BR-IMM11-004
+3.4.5 Maintenance Plan
+Metadata
+Fields
+Hooks & business logic
+validate: chỉ 1 plan active per asset cho cùng frequency.
+scheduler daily: tính next_due_date dựa last_completed_date + interval.
+scheduler daily: nếu next_due_date - 14/7/3/1 → tạo PM WO trạng thái planned (idempotent).
+Related business rules
+BR-IMM08-001
+BR-IMM08-002
+3.4.6 Calibration Plan
+Metadata
+Fields
+Hooks & business logic
+validate: nếu calibration_type=external/regulatory → service_provider mandatory.
+scheduler daily: tính next_due_date; sinh Calibration WO trước hạn 30/14/7/3 ngày.
+Related business rules
+BR-IMM11-001
+BR-IMM11-005
+3.4.7 Failure Report
+Metadata
+Fields
+Hooks & business logic
+validate: description ≥ 50 ký tự.
+on_submit: tự động asset.state -> in_repair (precaution) và mở CM WO link.
+on_submit: nếu clinical_impact=patient_harm → tạo Adverse Event Report linked.
+Related business rules
+BR-IMM09-001
+BR-IMM12-001
+3.4.8 Initial Inspection
+Metadata
+Fields
+Hooks & business logic
+validate: ≥ 1 evidence.
+before_submit: overall_result=pass thì asset.state -> commissioned; nếu fail giữ installed_failed.
+Related business rules
+BR-IMM04-003
+BR-IMM04-004
+3.4.9 Document Record
+Metadata
+Fields
+Workflow states
+Hooks & business logic
+validate: nếu is_qms_artifact=1 thì qms_tier mandatory; tạo QMS Artifact link.
+before_submit (effective): kiểm tra approved_by và approval_date.
+on_submit (effective): retire bản cũ cùng scope (BR-IMM05-004).
+scheduled daily: kiểm tra effective_until → set status=expired và sinh notification.
+Related business rules
+BR-IMM05-001
+BR-IMM05-002
+BR-IMM05-003
+BR-IMM05-004
+3.4.10 QMS Artifact
+Metadata
+Fields
+Related business rules
+BR-CORE-005
+3.4.11 Lifecycle Event
+Metadata
+Fields
+Hooks & business logic
+Append-only: không cho update sau insert (validate raise ValidationError).
+Permission: chỉ AssetCore HTM Manager + Auditor read; system create.
+Related business rules
+BR-CORE-003
+3.4.12 Compliance Record
+Metadata
+Fields
+Hooks & business logic
+scheduler daily: cập nhật status theo valid_until.
+3.4.13 Compliance Case
+Metadata
+Fields
+Hooks & business logic
+validate: severity=high → require RCA trước 7 ngày (BR-IMM12-002).
+Related business rules
+BR-IMM12-001
+BR-IMM12-002
+3.4.14 CAPA Case
+Metadata
+Fields
+Hooks & business logic
+validate: actions ≥ 1 (BR-IMM12-003).
+validate: due_date không quá xa (≤ 90 ngày cho preventive).
+Related business rules
+BR-IMM12-003
+BR-IMM12-004
+BR-IMM12-005
+3.4.15 Asset Audit Log
+Metadata
+Fields
+Hooks & business logic
+Append-only: insert thì tự tính entry_hash = sha256(prev_hash + payload).
+Không cho update/delete; mọi thao tác qua hook before_save raise nếu là update.
+3.4.16 Metric Definition
+Metadata
+Fields
+3.4.17 Metric Snapshot
+Metadata
+Fields
+3.4.18 Các DocType phụ (tóm tắt)
+Các DocType dưới đây là child table hoặc DocType bổ trợ, không cần spec dài. Bảng tóm tắt mục đích và field chính. Dev khi build thực tế cần làm spec đầy đủ giống các DocType chính.
+3.5 Master Data Catalog
+Master data được seed qua fixtures khi cài site. Sau khi cài, người dùng nghiệp vụ chỉnh sửa qua Form bình thường, có audit log.
+3.5.1 Risk Class
+3.5.2 Criticality
+3.5.3 Asset Category đề xuất
+3.5.4 Document Type
+3.5.5 Work Order Type
+3.6 Data Dictionary — định nghĩa field-level
+Data dictionary là nguồn sự thật cho ý nghĩa từng field. Khi có xung đột với Form Help text, dùng định nghĩa ở đây.
+3.6.1 Định nghĩa các trường thường dùng
+3.6.2 Quy ước kiểu dữ liệu
+Dates: lưu định dạng ISO 8601 (YYYY-MM-DD).
+Datetimes: lưu UTC; hiển thị theo timezone Asia/Ho_Chi_Minh.
+Currency: VND mặc định; hỗ trợ USD/EUR cho hợp đồng nước ngoài, có exchange snapshot.
+Phone number: chuẩn E.164 (vd: +84901234567).
+Boolean: dùng Frappe Check (0/1) — không dùng Yes/No string.
+JSON payload: lưu plain string trong Long Text; validate bằng JSON Schema khi insert.
+3.7 Identifier Strategy — Asset ID đa lớp
+3.7.1 Tầng định danh
+```mermaid
+flowchart TB
+  L1["Tầng 1 — asset_id\n(MA-YYYY-NNNNN, duy nhất nội bộ)"]
+  L2["Tầng 2 — primary_qr\n(QR vật lý dán trên thiết bị)"]
+  L3["Tầng 3 — serial_no\n(do nhà sản xuất cấp)"]
+  L4["Tầng 4 — alternate identifiers\n(asset_tag bệnh viện, regulatory_id)"]
+  L1 --> L2
+  L2 --> L3
+  L3 -.optional.-> L4
+```
+3.7.2 Asset ID convention
+Naming rule trong Frappe: `MA-.YYYY.-.#####`. Số thứ tự reset mỗi năm. Asset bị retire vẫn giữ ID; không tái sử dụng.
+3.7.3 QR code convention
+Khi user scan QR: redirect về form Medical Asset đã đăng nhập. Nếu chưa đăng nhập: hiển thị info công khai cơ bản (tên, model, location). Salt giúp phát hiện QR bị copy mà không có dữ liệu thật trong hệ thống.
+3.7.4 Asset Tag bệnh viện (alternate)
+Một số bệnh viện đã có hệ asset tag riêng (ví dụ: 6 chữ số do Phòng Tài chính cấp cho mục đích khấu hao). AssetCore lưu tag này dạng `Asset Identifier` với type=`asset_tag`, không phải primary.
+3.7.5 Regulatory ID
+Số đăng ký lưu hành Bộ Y tế và các regulatory ID khác lưu trong `Asset Identifier` với type=`regulatory_id`, có liên kết đến Document Record của giấy phép tương ứng.
+3.8 Data Quality Rules
+3.8.1 Completeness rules
+3.8.2 Uniqueness rules
+3.8.3 Cross-field consistency rules
+3.8.4 Referential integrity
+Soft-delete không cho phép trên DocType lifecycle (Lifecycle Event, Asset Audit Log, Document Record effective).
+Khi xoá Vendor / Service Provider có liên kết, chặn và yêu cầu transfer references.
+Khi đổi Department của Asset, sinh Asset Movement và Lifecycle Event 'transferred'.
+3.8.5 Data quality dashboard
+Dashboard 'Data Quality' (Tập 4 mục 4.7) hiển thị tỉ lệ vi phạm theo từng DQ rule, theo khoa và theo loại asset, drill-down về danh sách bản ghi vi phạm. Mục tiêu Wave 1: tổng vi phạm DQ Hard ≤ 2%; DQ Soft ≤ 10%.
+3.9 Migration Template
+Migration data từ hệ thống cũ (Excel/CSV/SQL) đi qua bộ template chuẩn dưới đây. Mỗi template là 1 file Excel với header rõ ràng, có hướng dẫn ô đầu, có data validation cơ bản (dropdown, date format, numeric).
+3.9.1 Danh sách template
+3.9.2 Cột bắt buộc cho MIG-Template-MedicalAsset.xlsx
+3.9.3 Quy trình migration
+Chuẩn bị: phòng Vật tư – TTBYT làm sạch master data trên Excel theo template. AssetCore không nhận file 'lộn xộn'.
+Validate offline: chạy `python migrate_validate.py file.xlsx` để kiểm tra schema, bắt buộc, dropdown, date format. Có report lỗi.
+Import dry-run trên staging: nhập sample 100 dòng đầu; review lỗi cross-field.
+Import full trên staging: review tổng số dòng, tổng số lỗi, percentage success.
+Stakeholder ký nghiệm thu sample 5% bản ghi đại diện.
+Import production trong maintenance window; backup trước; rollback plan có sẵn.
+Verify post-import: chạy DQ rules toàn bộ; report dashboard Data Quality; fix các vi phạm.
+3.9.4 Nguyên tắc migration
+Chỉ migrate dữ liệu master và asset registry; lịch sử PM/CM cũ chỉ migrate khi nghiệp vụ thực sự cần và có thể chứng minh quality.
+Mỗi bản ghi import có cột tham chiếu legacy_id để truy nguồn.
+Lifecycle Event 'imported_legacy' được sinh cho từng asset import, ghi rõ batch ID và file gốc.
+Sau go-live, cấm import trực tiếp vào DB production; mọi data fix qua API hoặc UI có audit.
+Kết Tập 3
+Tập 3 đã chốt mô hình dữ liệu: ERD tổng và theo module Wave 1, mapping với ERPNext core, DocType spec đầy đủ ~25 DocType chính + danh sách phụ, master data, data dictionary, identifier strategy, data quality rules và migration template. Đây là input bắt buộc cho Tập 4 (workflow, permission, engine spec) và Tập 7 (test). Mọi thay đổi DocType sau Tập 3 phải qua Change Control.
+
+
+--- TABLES ---
+
+Table 1:
+# | Mục | Chủ đề
+3.1 | Conceptual ERD | Sơ đồ thực thể tổng thể
+3.2 | Logical ERD theo module Wave 1 | ERD chi tiết IMM-04/05/08/09/11/12
+3.3 | Mapping ERPNext core ↔ AssetCore | Bảng song song, chiến lược kế thừa
+3.4 | DocType Specification | Spec đầy đủ ~25 custom DocType
+3.5 | Master Data Catalog | Risk Class, Criticality, Location, Document Type…
+3.6 | Data Dictionary | Định nghĩa field-level
+3.7 | Identifier Strategy | Asset ID đa lớp, QR/Barcode convention
+3.8 | Data Quality Rules | Validation cross-field, completeness, uniqueness
+3.9 | Migration Template | Excel/CSV mẫu cho từng entity
+
+Table 2:
+Nhóm | Thực thể | Vai trò
+Master / Catalog | Item, Device Model, Vendor, Service Provider, Location, Department, Asset Category, Risk Class, Criticality, Document Type, QMS Tier | Dữ liệu nền, ít thay đổi.
+Asset registry | Medical Asset, Asset Identifier, Asset Movement, Initial Inspection | Sổ đăng ký tài sản y tế.
+Work order | Work Order, WO Task, Spare Consumption, Failure Report, Maintenance Plan, Calibration Plan | Vận hành kỹ thuật.
+Document & QMS | Document Record, QMS Artifact, Change Control | Hồ sơ & QMS.
+Compliance / CAPA | Compliance Record, Compliance Case, CAPA Case, Effectiveness Check, Adverse Event Report, Audit Finding | Tuân thủ & CAPA.
+Lifecycle / Audit | Lifecycle Event, Asset Audit Log | Truy vết.
+Metric / Alert | Metric Definition, Metric Snapshot, Alert Rule, Dashboard Snapshot | Phân tích & cảnh báo.
+Governance | Decision Record, Management Review | Điều hành.
+
+Table 3:
+AssetCore concept | Quan hệ với ERPNext core | Chi tiết
+Item Master cho thiết bị | TN+CF | Item core; custom field `ac_is_medical_device`, `ac_default_risk_class`.
+Item Master cho phụ tùng | TN | Item core; phân biệt qua Item Group.
+Device Model | CD | DocType mới `Device Model`; child table `Device Model Variant`.
+Medical Asset | TN+CF (link tới Asset core) | DocType mới `Medical Asset` với link 1-1 đến Asset core; custom field trên Asset cho `ac_medical_asset`.
+Asset Identifier (QR/serial) | CD | DocType mới `Asset Identifier` (multi per asset, có primary).
+Asset Movement (điều chuyển) | TN+CF | Asset Movement core; custom field `ac_movement_reason`, `ac_doc_evidence`.
+Maintenance Plan | CD | DocType mới (không dùng Asset Maintenance core).
+Calibration Plan | CD | DocType mới.
+Work Order (PM/CM/Cal/Inspect/Recall/Retire) | CD | DocType mới `Work Order` của AssetCore (đặt tên `AC Work Order` để không trùng Manufacturing core).
+WO Task / Checklist Result | CD | Child tables.
+Spare Consumption | CD + link Stock Entry | DocType mới link Stock Entry để chuyển kho thật sự.
+Failure Report | CD | DocType mới.
+Adverse Event Report | CD | DocType mới.
+Initial Inspection | CD | DocType mới + child Inspection Item.
+Document Record | CD | DocType mới với version và state effective.
+QMS Artifact | CD (extends Document Record) | DocType mới link 1-1 với Document Record.
+Compliance Record / Case / Finding | CD | DocType riêng.
+CAPA Case / Action / Effectiveness Check | CD | DocType riêng.
+Change Control | CD | DocType riêng.
+Audit Log | CD | DocType append-only `Asset Audit Log`.
+Lifecycle Event | CD | DocType append-only `Lifecycle Event`.
+Metric Definition / Snapshot | CD | 2 DocType riêng.
+Alert Rule | TN+CF | Notification core + Notification Recipient core với custom field `ac_severity`, `ac_escalation`.
+Vendor / Service Provider | TN+CF | Supplier core + custom field `ac_legal_license_no`, `ac_service_scope`, `ac_iso_cert`.
+Service Contract | CD | DocType riêng (Buying Contract của ERPNext không đủ chi tiết HTM).
+Department / Location | TN | Department core + Location core (warehouse hierarchy của Stock cho location).
+Risk Class / Criticality / Document Type | CD | DocType master nhỏ.
+Need Request / Spec Sheet / Vendor Evaluation | CD | DocType mới (Wave 2).
+Decommission Record | CD | DocType mới.
+Management Review | CD | DocType mới.
+Decision Record | CD | DocType mới.
+
+Table 4:
+DocType core | Custom field | Type | Mục đích
+Asset | ac_medical_asset | Link → Medical Asset | Reverse link cho dễ tra cứu.
+Asset | ac_is_medical | Check | Cờ phân biệt medical asset.
+Item | ac_is_medical_device | Check | Cờ phân biệt device item.
+Item | ac_default_risk_class | Link → Risk Class | Default cho Device Model.
+Item | ac_default_calibration_required | Check | Cờ default cho item cần calibration.
+Supplier | ac_legal_license_no | Data | Số đăng ký kinh doanh / giấy phép.
+Supplier | ac_iso_cert | Data | Chứng chỉ ISO 13485 (nếu có).
+Supplier | ac_service_scope | Small Text | Phạm vi dịch vụ kỹ thuật.
+Asset Movement | ac_movement_reason | Select | Reason: relocation/repair/loan/return/decom.
+Asset Movement | ac_doc_evidence | Attach | Đính kèm biên bản.
+Purchase Receipt | ac_create_medical_asset | Check | Cờ trigger auto-create.
+Department | ac_dept_type | Select | Lâm sàng / Cận lâm sàng / Hành chính.
+User | ac_role_profile_assetcore | Link → Role Profile | Role profile chuyên biệt cho HTM.
+
+Table 5:
+Trường | Giá trị
+DocType name | Medical Asset
+Module | asset_registry
+Naming rule | MA-.YYYY.-.#####
+Is Submittable | No
+Track changes | Yes
+Quick Entry | No
+Search fields | asset_id, primary_qr, device_model, serial_no
+Sort field | modified
+Title field | asset_id
+
+Table 6:
+Fieldname | Label | Fieldtype | Options/Link | Mandatory | Mô tả
+asset_id | Asset ID | Data | — | *! | ID nội bộ AssetCore (auto từ naming).
+primary_qr | Primary QR/Barcode | Data | — | *! | Mã QR chính dán trên thiết bị.
+asset_doc | Asset (ERPNext) | Link | → Asset | * | Liên kết Asset core 1-1.
+device_model | Device Model | Link | → Device Model | * | Mẫu thiết bị.
+item_code | Item | Link (read-only) | → Item | — | Item của Device Model, fetch_from.
+serial_no | Serial Number | Data | — | — | Serial của nhà sản xuất.
+mfg_date | Manufacturing Date | Date | — | — | Ngày sản xuất.
+installation_date | Installation Date | Date | — | — | Ngày lắp đặt thực tế.
+commissioning_date | Commissioning Date | Date | — | — | Ngày commissioning.
+release_date | Release Date | Date | — | — | Ngày released_for_use.
+risk_class | Risk Class | Link | → Risk Class | * | A/B/C/D theo Nghị định 98.
+criticality | Criticality | Link | → Criticality | * | Critical / Major / Minor.
+asset_category | Category | Link | → Asset Category | * | Danh mục (imaging, lab, surgery…).
+department | Owning Department | Link | → Department | * | Khoa sở hữu.
+location | Location | Link | → Warehouse/Location | * | Vị trí vật lý hiện tại.
+custodian | Custodian | Link | → User | — | Người chịu trách nhiệm thường nhật.
+state | Lifecycle State | Select | (theo 1.7.2) | * | Trạng thái lifecycle (workflow controlled).
+calibration_required | Calibration Required | Check | — | — | Cờ bật/tắt yêu cầu calibration.
+legal_license_status | Legal License Status | Select | ok / expiring_soon / expired / missing | — | Auto theo IMM-05.
+warranty_until | Warranty Until | Date | — | — | Hạn bảo hành nhà sản xuất.
+service_contract | Service Contract | Link | → Service Contract | — | Hợp đồng dịch vụ kỹ thuật hiện hành.
+last_pm_date | Last PM Date | Date (read-only) | — | — | Tự cập nhật từ WO PM.
+next_pm_due | Next PM Due | Date (read-only) | — | — | Auto từ Maintenance Plan.
+last_calibration_date | Last Calibration Date | Date (read-only) | — | — | Tự.
+next_calibration_due | Next Calibration Due | Date (read-only) | — | — | Tự.
+uptime_30d | Uptime 30d | Percent (read-only) | — | — | Cập nhật bởi metric snapshot.
+mtbf_90d | MTBF 90d (hours) | Float (read-only) | — | — | Snapshot.
+mttr_90d | MTTR 90d (hours) | Float (read-only) | — | — | Snapshot.
+replacement_signal | Replacement Signal | Check (read-only) | — | — | Bật bởi IMM-17 predictive.
+notes | Notes | Text Editor | — | — | Ghi chú tự do.
+
+Table 7:
+State | Doc Status | Allow Edit Roles
+need_registered → installed_pending → installed → commissioned → released_for_use → in_use | Submitted=0 cho draft; submitted=1 sau commissioned. | BE/HM/QA tuỳ state
+in_use ↔ in_repair / out_of_service / idle / transferred | — | BE/HM
+* → retired → disposed/donated/stored_long_term | — | HM/Sponsor
+
+Table 8:
+Role | Read | Write | Create | Submit | Cancel | Amend | Note
+AssetCore HTM Manager | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | Toàn bộ asset
+AssetCore Biomed Engineer | ✓ | ✓ | — | — | — | — | Asset thuộc khoa được gán (ABAC)
+AssetCore Department Head | ✓ | — | — | — | — | — | Asset thuộc khoa của mình
+AssetCore Operator | ✓ (scope hẹp) | — | — | — | — | — | Asset thuộc khoa
+AssetCore QMS Officer | ✓ | — | — | — | — | — | Toàn bộ
+AssetCore Auditor | ✓ | — | — | — | — | — | Read-only
+
+Table 9:
+Trường | Giá trị
+DocType name | Device Model
+Module | asset_registry
+Naming rule | DM-{model_code}
+Is Submittable | No
+Track changes | Yes
+Quick Entry | No
+Search fields | model_code, model_name, manufacturer
+Sort field | modified
+Title field | model_name
+
+Table 10:
+Fieldname | Label | Fieldtype | Options/Link | Mandatory | Mô tả
+model_code | Model Code | Data | — | *! | Mã model nhà sản xuất.
+model_name | Model Name | Data | — | * | Tên model.
+manufacturer | Manufacturer | Link | → Supplier | * | Nhà sản xuất.
+item_code | Linked Item | Link | → Item | * | Item master.
+device_type | Device Type | Select | imaging/lab/surgery/icu/general/… | * | Loại thiết bị.
+risk_class_default | Default Risk Class | Link | → Risk Class | * | Default cho asset thuộc model.
+calibration_required_default | Calibration Required Default | Check | — | — | Default cho asset.
+pm_template | PM Template | Link | → Maintenance Plan Template | — | Template áp dụng auto.
+calibration_template | Calibration Template | Link | → Calibration Plan Template | — | Template.
+expected_lifetime_years | Expected Lifetime (years) | Int | — | — | Vòng đời kỹ thuật dự kiến.
+spec_sheet | Spec Sheet | Attach | — | — | PDF spec từ vendor.
+user_manual | User Manual | Attach | — | — | PDF user manual.
+service_manual | Service Manual | Attach | — | — | PDF service manual.
+
+Table 11:
+Trường | Giá trị
+DocType name | Asset Identifier
+Module | asset_registry
+Naming rule | AID-.YYYY.-.#####
+Is Submittable | No
+Track changes | Yes
+Quick Entry | No
+Search fields | identifier_value
+Sort field | modified
+Title field | name
+
+Table 12:
+Fieldname | Label | Fieldtype | Options/Link | Mandatory | Mô tả
+medical_asset | Medical Asset | Link | → Medical Asset | * | Asset gắn.
+identifier_type | Identifier Type | Select | internal_qr/external_serial/asset_tag/regulatory_id | * | Loại định danh.
+identifier_value | Identifier Value | Data | — | *! | Giá trị (unique trên cùng loại).
+is_primary | Primary | Check | — | — | Mỗi asset chỉ 1 primary mỗi loại internal_qr.
+issued_date | Issued Date | Date | — | — | Ngày in/cấp.
+valid_until | Valid Until | Date | — | — | Hạn (nếu có).
+printed_format | Printed Format | Select | sticker/laser/metal_tag/none | — | Định dạng vật lý.
+notes | Notes | Small Text | — | — | Ghi chú.
+
+Table 13:
+Trường | Giá trị
+DocType name | AC Work Order
+Module | work_order
+Naming rule | WO-{wo_type_short}-.YYYY.-.#####
+Is Submittable | Yes
+Track changes | Yes
+Quick Entry | No
+Search fields | subject, medical_asset, wo_type
+Sort field | modified
+Title field | subject
+
+Table 14:
+Fieldname | Label | Fieldtype | Options/Link | Mandatory | Mô tả
+subject | Subject | Data | — | * | Tóm tắt WO.
+wo_type | Work Order Type | Link | → Work Order Type (PM/CM/Inspection/Calibration/Recall/Retirement/Installation) | * | Loại WO.
+medical_asset | Medical Asset | Link | → Medical Asset | * | Asset đối tượng.
+from_plan | From Plan | Dynamic Link | Maintenance Plan / Calibration Plan | — | Nếu sinh từ plan.
+from_failure_report | From Failure Report | Link | → Failure Report | — | Nếu CM.
+from_recall | From Recall Notice | Link | → Recall Notice | — | Nếu Recall.
+severity | Severity | Select | S1/S2/S3/S4 | — | Cho CM.
+priority | Priority | Select | Critical/High/Medium/Low | — | Auto theo severity & criticality.
+planned_start | Planned Start | Datetime | — | — | Lịch dự kiến.
+planned_end | Planned End | Datetime | — | — | Lịch dự kiến.
+actual_start | Actual Start | Datetime | — | — | Thực tế.
+actual_end | Actual End | Datetime | — | — | Thực tế.
+sla_due | SLA Due | Datetime | — | — | Auto theo severity matrix.
+assigned_team | Assigned Team | Link | → HR Team | — | Đội thực hiện.
+assigned_to | Assigned To | Link | → User | — | Cá nhân thực hiện.
+state | State | Select | (theo 1.4.3) | * | Workflow controlled.
+downtime_hours | Downtime (hours) | Float | — | — | Tự hoặc nhập tay.
+root_cause | Root Cause | Small Text | — | — | Cho CM.
+action_taken | Action Taken | Text Editor | — | — | Mô tả công việc.
+close_code | Close Code | Select | completed_ok/completed_with_findings/transferred/cancelled | — | Code đóng.
+validation_result | Validation Result | Select | pass/fail/n_a | — | Kết quả test sau.
+linked_capa | Linked CAPA | Link | → CAPA Case | — | Nếu cần CAPA.
+cost_labor | Cost — Labor | Currency | — | — | Chi phí nhân công.
+cost_parts | Cost — Parts | Currency | — | — | Chi phí phụ tùng.
+cost_external | Cost — External Service | Currency | — | — | Service provider bên ngoài.
+wo_tasks | Tasks | Table | → AC Work Order Task | — | Child checklist.
+spare_consumption | Spare Consumption | Table | → AC Spare Consumption | — | Child.
+evidences | Evidences | Table | → Document Record Link | — | Đính kèm chuẩn hoá.
+
+Table 15:
+State | Doc Status | Allow Edit Roles
+planned | 0 | BE, HM
+scheduled | 0 | BE, HM
+in_progress | 0 | BE
+paused | 0 | BE, HM
+completed | 1 | HM
+closed | 1 | —
+overdue | 0/1 | Auto
+cancelled | 1 (cancel) | HM
+
+Table 16:
+Role | Read | Write | Create | Submit | Cancel | Amend | Note
+AssetCore HTM Manager | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | Toàn bộ
+AssetCore Biomed Engineer | ✓ | ✓ | ✓ | ✓ | — | — | Asset thuộc khoa được gán
+AssetCore Technician | ✓ | ✓ | — | — | — | — | Asset thuộc khoa
+AssetCore Department Head | ✓ | — | — | — | — | — | Asset thuộc khoa
+AssetCore QMS Officer | ✓ | — | — | — | — | — | Toàn bộ
+AssetCore Auditor | ✓ | — | — | — | — | — | Read-only
+
+Table 17:
+Trường | Giá trị
+DocType name | Maintenance Plan
+Module | maintenance_plan
+Naming rule | MP-.YYYY.-.#####
+Is Submittable | Yes
+Track changes | Yes
+Quick Entry | No
+Search fields | —
+Sort field | modified
+Title field | name
+
+Table 18:
+Fieldname | Label | Fieldtype | Options/Link | Mandatory | Mô tả
+medical_asset | Medical Asset | Link | → Medical Asset | * | Asset đối tượng.
+plan_template | Plan Template | Link | → Maintenance Plan Template | — | Áp dụng template (tuỳ chọn).
+frequency | Frequency | Select | monthly/quarterly/semi/annual/biennial/usage-based | * | Tần suất.
+interval_days | Interval (days) | Int | — | — | Nếu custom.
+interval_usage_hours | Interval (usage hours) | Int | — | — | Nếu usage-based.
+next_due_date | Next Due Date | Date (read-only) | — | * | Auto.
+last_completed_date | Last Completed Date | Date (read-only) | — | — | Auto từ WO.
+active | Active | Check | — | — | Có sinh WO hay không.
+effective_from | Effective From | Date | — | * | Bắt đầu áp dụng.
+effective_until | Effective Until | Date | — | — | Hết hiệu lực.
+tasks | Tasks | Table | → Maintenance Plan Task | — | Checklist mặc định.
+estimated_duration_hours | Estimated Duration (hours) | Float | — | — | Cho phép planning.
+required_skills | Required Skills | Small Text | — | — | Kỹ năng kỹ thuật cần.
+spare_estimate | Spare Estimate | Table | → Maintenance Plan Spare | — | Phụ tùng dự kiến mỗi PM.
+sop_reference | SOP Reference | Link | → QMS Artifact | — | Reference SOP.
+
+Table 19:
+Trường | Giá trị
+DocType name | Calibration Plan
+Module | calibration
+Naming rule | CP-.YYYY.-.#####
+Is Submittable | Yes
+Track changes | Yes
+Quick Entry | No
+Search fields | —
+Sort field | modified
+Title field | name
+
+Table 20:
+Fieldname | Label | Fieldtype | Options/Link | Mandatory | Mô tả
+medical_asset | Medical Asset | Link | → Medical Asset | * | Asset.
+plan_template | Plan Template | Link | → Calibration Plan Template | — | Template.
+calibration_type | Calibration Type | Select | internal/external/regulatory/safety | * | Loại.
+frequency_months | Frequency (months) | Int | — | * | Tần suất.
+next_due_date | Next Due Date | Date (read-only) | — | * | Auto.
+last_completed_date | Last Completed Date | Date (read-only) | — | — | Auto.
+service_provider | Service Provider | Link | → Supplier | — | Nếu external.
+tolerance_spec | Tolerance Specification | Text Editor | — | * | Tham chiếu SOP/standard.
+test_points | Test Points | Table | → Calibration Plan Test Point | — | Điểm đo.
+sop_reference | SOP Reference | Link | → QMS Artifact | * | SOP áp dụng.
+active | Active | Check | — | — | Có sinh WO.
+
+Table 21:
+Trường | Giá trị
+DocType name | Failure Report
+Module | corrective
+Naming rule | FR-.YYYY.-.#####
+Is Submittable | Yes
+Track changes | Yes
+Quick Entry | No
+Search fields | —
+Sort field | modified
+Title field | name
+
+Table 22:
+Fieldname | Label | Fieldtype | Options/Link | Mandatory | Mô tả
+medical_asset | Medical Asset | Link | → Medical Asset | * | Asset.
+reported_by | Reported By | Link | → User | * | Người báo cáo (nurse, doctor, BE).
+reported_at | Reported At | Datetime | — | * | Thời điểm báo.
+severity | Severity | Select | S1/S2/S3/S4 | * | Mức độ.
+description | Description | Text Editor | — | * | Mô tả triệu chứng (≥ 50 ký tự).
+clinical_impact | Clinical Impact | Select | patient_harm/no_patient_harm/near_miss/none | * | Ảnh hưởng lâm sàng.
+happened_during | Happened During | Select | scheduled_use/unscheduled/PM/calibration/idle/other | — | Bối cảnh.
+evidences | Evidences | Table | → Document Record Link | — | Ảnh, video, log.
+resulting_wo | Resulting CM Work Order | Link (read-only) | → AC Work Order | — | Auto-create.
+status | Status | Select | open/in_triage/wo_created/closed | * | Trạng thái.
+
+Table 23:
+Trường | Giá trị
+DocType name | Initial Inspection
+Module | asset_registry
+Naming rule | II-.YYYY.-.#####
+Is Submittable | Yes
+Track changes | Yes
+Quick Entry | No
+Search fields | —
+Sort field | modified
+Title field | name
+
+Table 24:
+Fieldname | Label | Fieldtype | Options/Link | Mandatory | Mô tả
+medical_asset | Medical Asset | Link | → Medical Asset | * | Asset.
+inspection_date | Inspection Date | Date | — | * | Ngày kiểm tra.
+inspector | Inspector | Link | → User | * | Người kiểm.
+checklist_template | Checklist Template | Link | → Initial Inspection Template | — | Template.
+items | Items | Table | → Initial Inspection Item | * | Các điểm kiểm tra.
+overall_result | Overall Result | Select | pass/fail/conditional | * | Kết luận.
+evidences | Evidences | Table | → Document Record Link | — | Ảnh/biên bản.
+approved_by | Approved By | Link | → User | — | HM ký.
+approval_date | Approval Date | Date | — | — | Ngày HM ký.
+
+Table 25:
+Trường | Giá trị
+DocType name | Document Record
+Module | document_qms
+Naming rule | DOC-.YYYY.-.#####
+Is Submittable | Yes
+Track changes | Yes
+Quick Entry | No
+Search fields | —
+Sort field | modified
+Title field | name
+
+Table 26:
+Fieldname | Label | Fieldtype | Options/Link | Mandatory | Mô tả
+title | Title | Data | — | * | Tiêu đề tài liệu.
+document_type | Document Type | Link | → Document Type | * | Loại tài liệu.
+scope_doctype | Scope DocType | Link | → DocType | — | Phạm vi (Medical Asset / Vendor / Site / Global).
+scope_doc | Scope Doc | Dynamic Link | — | — | Bản ghi cụ thể.
+version | Version | Data | — | * | Phiên bản (vd: 1.0, 1.1).
+effective_from | Effective From | Date | — | * | Ngày hiệu lực.
+effective_until | Effective Until | Date | — | — | Hết hiệu lực.
+status | Status | Select | draft/in_review/effective/superseded/retired/expired | * | Trạng thái.
+owner_user | Document Owner | Link | → User | * | Chủ tài liệu (khác người tạo).
+approved_by | Approved By | Link | → User | — | Người duyệt.
+approval_date | Approval Date | Date | — | — | Ngày duyệt.
+distribution_list | Distribution List | Table | → Document Distribution | — | Danh sách phân phối.
+files | Files | Table | → Document File | * | File đính kèm có metadata.
+language | Language | Select | vi/en/vi+en | * | Ngôn ngữ.
+is_qms_artifact | Is QMS Artifact | Check | — | — | Cờ tier QMS.
+qms_tier | QMS Tier | Select | QC/PR-SOP/WI-JD/BM-HS-KPI | — | Nếu là QMS.
+retention_years | Retention (years) | Int | — | * | Theo loại tài liệu / quy định.
+supersedes | Supersedes | Link | → Document Record | — | Bản cũ bị thay thế.
+
+Table 27:
+State | Doc Status | Allow Edit Roles
+draft | 0 | Document Owner
+in_review | 0 | QMS Officer
+effective | 1 | —
+superseded | 1 | —
+retired | 1 | —
+expired | 1 | Auto theo scheduler
+
+Table 28:
+Trường | Giá trị
+DocType name | QMS Artifact
+Module | document_qms
+Naming rule | QMS-.YYYY.-.#####
+Is Submittable | Yes
+Track changes | Yes
+Quick Entry | No
+Search fields | —
+Sort field | modified
+Title field | name
+
+Table 29:
+Fieldname | Label | Fieldtype | Options/Link | Mandatory | Mô tả
+document_record | Document Record | Link | → Document Record | *! | 1-1 với Document Record.
+qms_tier | QMS Tier | Select | QC/PR-SOP/WI-JD/BM-HS-KPI | * | Tier.
+scope | Scope | Select | global/department/asset_category/device_model/asset | * | Phạm vi.
+scope_doctype | Scope DocType | Link | → DocType | — | Tuỳ scope.
+scope_doc | Scope Doc | Dynamic Link | — | — | Bản ghi cụ thể.
+mandatory_for_roles | Mandatory For Roles | Table | → QMS Mandatory Role | — | Role bắt buộc đọc/đào tạo.
+required_training | Required Training | Check | — | — | Có yêu cầu training khi MAJOR change.
+review_frequency_months | Review Frequency (months) | Int | — | — | Lịch review.
+next_review_date | Next Review Date | Date | — | — | Auto.
+
+Table 30:
+Trường | Giá trị
+DocType name | Lifecycle Event
+Module | lifecycle
+Naming rule | LCE-.YYYY.-.######
+Is Submittable | No
+Track changes | No
+Quick Entry | No
+Search fields | —
+Sort field | modified
+Title field | name
+
+Table 31:
+Fieldname | Label | Fieldtype | Options/Link | Mandatory | Mô tả
+medical_asset | Medical Asset | Link | → Medical Asset | * | Asset.
+event_type | Event Type | Select | (theo 8.x) | * | Loại event.
+event_at | Event At | Datetime | — | * | Thời điểm.
+actor | Actor | Link | → User | — | Người gây ra (nếu có).
+source_doctype | Source DocType | Link | → DocType | — | DocType nguồn.
+source_doc | Source Doc | Dynamic Link | — | — | Bản ghi nguồn.
+payload_json | Payload (JSON) | Long Text | — | — | Chi tiết structured.
+state_before | State Before | Data | — | — | Asset state cũ.
+state_after | State After | Data | — | — | Asset state mới.
+reason_code | Reason Code | Data | — | — | Mã lý do (nếu có).
+notes | Notes | Small Text | — | — | Ghi chú.
+
+Table 32:
+Trường | Giá trị
+DocType name | Compliance Record
+Module | compliance
+Naming rule | CR-.YYYY.-.#####
+Is Submittable | No
+Track changes | Yes
+Quick Entry | No
+Search fields | —
+Sort field | modified
+Title field | name
+
+Table 33:
+Fieldname | Label | Fieldtype | Options/Link | Mandatory | Mô tả
+medical_asset | Medical Asset | Link | → Medical Asset | * | Asset.
+document_type | Document Type | Link | → Document Type | * | Loại hồ sơ pháp lý.
+document_record | Document Record | Link | → Document Record | — | Hồ sơ hiện hành.
+status | Status | Select | compliant/expiring_soon/expired/missing/exempted | * | Trạng thái.
+valid_from | Valid From | Date | — | — | Hiệu lực từ.
+valid_until | Valid Until | Date | — | — | Hết hạn.
+last_checked_at | Last Checked At | Datetime | — | — | Auto.
+notes | Notes | Small Text | — | — | —
+
+Table 34:
+Trường | Giá trị
+DocType name | Compliance Case
+Module | compliance
+Naming rule | CC-.YYYY.-.#####
+Is Submittable | Yes
+Track changes | Yes
+Quick Entry | No
+Search fields | —
+Sort field | modified
+Title field | name
+
+Table 35:
+Fieldname | Label | Fieldtype | Options/Link | Mandatory | Mô tả
+title | Title | Data | — | * | Tóm tắt case.
+case_type | Case Type | Select | adverse_event/audit_finding/license_breach/recall/other | * | —
+severity | Severity | Select | high/medium/low | * | —
+medical_asset | Medical Asset | Link | → Medical Asset | — | Nếu liên quan asset.
+opened_at | Opened At | Datetime | — | * | —
+opened_by | Opened By | Link | → User | * | —
+assigned_to | Assigned To | Link | → User | — | —
+state | State | Select | open/investigating/awaiting_capa/resolved/closed | * | Workflow.
+root_cause_analysis | RCA | Link | → Root Cause Analysis | — | —
+linked_capa | Linked CAPA | Link | → CAPA Case | — | —
+evidences | Evidences | Table | → Document Record Link | — | —
+resolution_summary | Resolution Summary | Text Editor | — | — | —
+closed_at | Closed At | Datetime | — | — | —
+closed_by | Closed By | Link | → User | — | —
+
+Table 36:
+Trường | Giá trị
+DocType name | CAPA Case
+Module | capa
+Naming rule | CAPA-.YYYY.-.#####
+Is Submittable | Yes
+Track changes | Yes
+Quick Entry | No
+Search fields | —
+Sort field | modified
+Title field | name
+
+Table 37:
+Fieldname | Label | Fieldtype | Options/Link | Mandatory | Mô tả
+title | Title | Data | — | * | Tóm tắt CAPA.
+compliance_case | From Compliance Case | Link | → Compliance Case | — | Nguồn.
+medical_asset | Medical Asset | Link | → Medical Asset | — | Nếu liên quan.
+device_model | Device Model | Link | → Device Model | — | Nếu áp dụng cho cả model.
+opened_at | Opened At | Datetime | — | * | —
+owner_user | CAPA Owner | Link | → User | * | —
+due_date | Due Date | Date | — | * | —
+state | State | Select | open/in_action/awaiting_eff_check/closed/reopened | * | Workflow.
+actions | Actions | Table | → CAPA Action | * | Hành động.
+effectiveness_check | Effectiveness Check | Link | → CAPA Effectiveness Check | — | —
+closed_at | Closed At | Datetime | — | — | —
+closure_summary | Closure Summary | Text Editor | — | — | —
+
+Table 38:
+Trường | Giá trị
+DocType name | Asset Audit Log
+Module | audit
+Naming rule | AAL-.YYYY.-.#######
+Is Submittable | No
+Track changes | No
+Quick Entry | No
+Search fields | —
+Sort field | modified
+Title field | name
+
+Table 39:
+Fieldname | Label | Fieldtype | Options/Link | Mandatory | Mô tả
+doctype_name | DocType | Data | — | * | —
+doc_name | Doc Name | Data | — | * | —
+action | Action | Select | create/update/submit/cancel/delete/state_change/permission_change | * | —
+actor | Actor | Link | → User | * | —
+action_at | Action At | Datetime | — | * | —
+before_json | Before (JSON) | Long Text | — | — | Snapshot trước.
+after_json | After (JSON) | Long Text | — | — | Snapshot sau.
+ip_address | IP Address | Data | — | — | —
+session_id | Session ID | Data | — | — | —
+entry_hash | Entry Hash | Data (read-only) | — | * | SHA-256 của entry này.
+prev_hash | Previous Hash | Data (read-only) | — | — | Hash của entry trước (chain).
+chain_index | Chain Index | Int | — | * | Số thứ tự chain.
+
+Table 40:
+Trường | Giá trị
+DocType name | Metric Definition
+Module | metric
+Naming rule | MET-{metric_code}
+Is Submittable | No
+Track changes | Yes
+Quick Entry | No
+Search fields | —
+Sort field | modified
+Title field | name
+
+Table 41:
+Fieldname | Label | Fieldtype | Options/Link | Mandatory | Mô tả
+metric_code | Metric Code | Data | — | *! | Mã (uptime_30d, mtbf_90d…).
+metric_name | Metric Name | Data | — | * | Tên đầy đủ.
+category | Category | Select | operational/clinical/compliance/financial/quality | * | —
+unit | Unit | Data | — | * | Đơn vị (%, hours, count).
+scope | Scope | Select | asset/department/asset_category/global | * | —
+calc_logic_md | Calculation Logic (Markdown) | Text Editor | — | * | Mô tả công thức.
+calc_function | Calc Function (Python path) | Data | — | * | Module:function.
+snapshot_freq | Snapshot Frequency | Select | hourly/daily/weekly/monthly | * | —
+owner_user | Metric Owner | Link | → User | * | —
+target_value | Target | Float | — | — | Mục tiêu.
+alert_threshold | Alert Threshold | Float | — | — | Ngưỡng cảnh báo.
+lineage_md | Data Lineage (Markdown) | Text Editor | — | * | Truy về DocType nguồn.
+
+Table 42:
+Trường | Giá trị
+DocType name | Metric Snapshot
+Module | metric
+Naming rule | SNP-.YYYY.-.######
+Is Submittable | No
+Track changes | No
+Quick Entry | No
+Search fields | —
+Sort field | modified
+Title field | name
+
+Table 43:
+Fieldname | Label | Fieldtype | Options/Link | Mandatory | Mô tả
+metric_definition | Metric | Link | → Metric Definition | * | —
+scope_doctype | Scope DocType | Link | → DocType | — | —
+scope_doc | Scope Doc | Dynamic Link | — | — | —
+snapshot_at | Snapshot At | Datetime | — | * | —
+value | Value | Float | — | * | —
+meta_json | Meta (JSON) | Long Text | — | — | Bộ phận tính.
+
+Table 44:
+DocType | Loại | Field chính
+AC Work Order Task | Child of AC Work Order | task_text, completed (check), completed_by, completed_at, result_pass_fail, notes.
+AC Spare Consumption | Child of AC Work Order | item, qty, warehouse, stock_entry, unit_cost, total_cost, returned_qty.
+Document Record Link | Child | document_record (Link), evidence_type (Select), notes.
+Document File | Child of Document Record | file (Attach), file_type, capture_date, language.
+Document Distribution | Child of Document Record | user, role, group, acknowledged_at.
+Maintenance Plan Task | Child of Maintenance Plan | task_text, default_duration, required_skill, sop_reference.
+Maintenance Plan Spare | Child of Maintenance Plan | item, default_qty, optional (check).
+Calibration Plan Test Point | Child of Calibration Plan | point_label, expected_value, tolerance, unit.
+Initial Inspection Item | Child of Initial Inspection | item_text, expected, observed, result_pass_fail, notes.
+CAPA Action | Child of CAPA Case | action_text, action_type (corrective/preventive/containment), owner, due_date, completed_at, evidence.
+CAPA Effectiveness Check | Doc | capa, check_date, method, conclusion (effective/not_effective/inconclusive), notes.
+Root Cause Analysis | Doc | compliance_case, technique (5whys/fishbone/fmea), conclusion_md, evidence_table.
+Adverse Event Report | Doc | medical_asset, reported_at, severity_clinical, patient_outcome, narrative, reported_to_authority (check), authority_ref_no.
+Recall Notice | Doc | vendor, device_model, scope_assets (table), severity, deadline, source_doc.
+Software Update Record | Doc | medical_asset, from_version, to_version, release_note, applied_at, applied_by, evidence.
+Service Contract | Doc | vendor, scope_assets, sla_terms, start_date, end_date, value, contract_doc.
+Decommission Record | Doc | medical_asset, decision_date, method (dispose/donate/store), recipient (nếu donate), evidence, sponsor_signoff.
+Decision Record | Doc | decision_id, title, context, decision_md, alternatives, owner, signed_by, signed_at.
+Management Review | Doc | review_date, period, attendees, kpi_snapshot_table, capa_review, decisions (link Decision Record), minutes.
+Change Control | Doc | title, change_type, scope (asset/document/process), risk_assessment, plan_md, approver, status, effective_date.
+
+Table 45:
+Code | Tên | Mô tả | Yêu cầu hồ sơ pháp lý
+A | Class A — thấp | Mức rủi ro thấp. | Số đăng ký lưu hành (khuyến nghị); hợp đồng dịch vụ (khuyến nghị).
+B | Class B — trung bình | Rủi ro trung bình. | Số đăng ký lưu hành (bắt buộc); hợp đồng dịch vụ (bắt buộc).
+C | Class C — cao | Rủi ro cao. | Đầy đủ: số đăng ký, COA, kiểm định, hợp đồng dịch vụ.
+D | Class D — rất cao | Rủi ro rất cao, can thiệp xâm lấn / cấy ghép. | Tương tự Class C, cộng kiểm soát chặt chẽ hơn về CAPA và recall.
+
+Table 46:
+Code | Tên | Mô tả | Ảnh hưởng SLA
+CRITICAL | Critical | Mất thiết bị này gây mất an toàn người bệnh hoặc dừng dịch vụ thiết yếu. | Severity tối thiểu S1 cho CM.
+MAJOR | Major | Mất thiết bị làm gián đoạn dịch vụ quan trọng. | Severity tối thiểu S2 cho CM.
+MINOR | Minor | Mất thiết bị có thể workaround. | Severity tự do theo case.
+NONE | Không quan trọng | Hầu như không ảnh hưởng nếu mất. | Có thể S3/S4.
+
+Table 47:
+Code | Tên | Ví dụ thiết bị
+IMG | Imaging — Chẩn đoán hình ảnh | X-quang, CT, MRI, siêu âm, mammography, DSA.
+LAB | Laboratory — Xét nghiệm | Máy huyết học, sinh hoá, miễn dịch, vi sinh.
+SUR | Surgery — Phẫu thuật | Bàn mổ, đèn mổ, máy gây mê, dao mổ điện.
+ICU | ICU — Hồi sức | Máy thở, monitor đa thông số, máy lọc máu.
+EMG | Emergency — Cấp cứu | Máy sốc tim, AED, máy thở vận chuyển.
+LDR | Labor & Delivery — Sản | Monitor sản, lồng ấp.
+NEO | Neonatal — Sơ sinh | Lồng ấp, đèn vàng da.
+DTL | Dental — Răng | Ghế nha, máy chụp răng.
+RHB | Rehabilitation | Máy vật lý trị liệu.
+GEN | General Ward | Monitor, bơm tiêm điện, giường điện.
+RAD | Radiation Therapy | Linac, brachytherapy.
+END | Endoscopy | Endoscope, máy súc rửa.
+DLZ | Dialysis | Máy thận nhân tạo, RO.
+BLD | Blood Bank | Tủ trữ máu, tủ huyết tương.
+STR | Sterilization | Autoclave, lò khí ethylene oxide.
+FAC | Facility / Utility | Máy phát điện cho phòng mổ, hệ khí y tế.
+
+Table 48:
+Code | Tên | Áp dụng cho | Retention (năm)
+LIC-MOH-REG | Số đăng ký lưu hành Bộ Y tế | Medical Asset | Suốt vòng đời + 5
+LIC-IMPORT | Giấy phép nhập khẩu | Medical Asset | Suốt vòng đời + 5
+CERT-COA | COA (Certificate of Analysis) | Medical Asset | Suốt vòng đời + 5
+CERT-COC | COC (Certificate of Conformity) | Medical Asset | Suốt vòng đời + 5
+CERT-CAL | Calibration Certificate | Medical Asset | 10
+CERT-RAD | Kiểm định an toàn bức xạ | Medical Asset | 10
+CERT-MET | Kiểm định phương tiện đo | Medical Asset | 10
+DOC-INSTAL | Biên bản nghiệm thu lắp đặt | Medical Asset | Suốt vòng đời + 5
+DOC-INSPECT | Initial Inspection Record | Medical Asset | Suốt vòng đời + 5
+DOC-PM | PM Report | Work Order | 10
+DOC-CM | CM Report | Work Order | 10
+DOC-TRAIN | Training Certificate | User + Asset | 5
+DOC-CONTRACT | Service Contract | Vendor + Asset | 10
+DOC-SOP | SOP | Global / Department / Asset Category | 5
+DOC-WI | Work Instruction | Department / Device Model | 5
+DOC-POL | Quality Policy / Manual | Global | 10
+DOC-CAPA | CAPA Document | CAPA Case | 10
+DOC-AE | Adverse Event Report | Compliance Case | 20
+DOC-DECOM | Decommission Record | Medical Asset | Suốt + 10 sau decom
+
+Table 49:
+Code | Tên | Phạm vi | Bắt buộc field
+PM | Preventive Maintenance | Asset | from_plan, planned_start, planned_end.
+CM | Corrective Maintenance | Asset | from_failure_report, severity.
+INSPECTION | Inspection / Initial Inspection | Asset | from_plan (nếu có), planned_start.
+CALIBRATION | Calibration | Asset | from_plan, severity if regulatory.
+RECALL | Recall / FSCA | Asset | from_recall, planned_end.
+RETIREMENT | Retirement / Decommission | Asset | —
+INSTALLATION | Installation | Asset | —
+
+Table 50:
+Field | DocType | Định nghĩa | Ví dụ | Quy ước
+asset_id | Medical Asset | ID nội bộ AssetCore, duy nhất, không đổi suốt vòng đời. | MA-2026-00012 | Auto bằng naming rule.
+primary_qr | Medical Asset | Mã QR chính dán trực tiếp lên thiết bị. | MA-2026-00012-QR | Khớp asset_id.
+serial_no | Medical Asset | Serial của nhà sản xuất. | GE-MR-A12345 | Như nhà sản xuất; có thể trùng giữa nhà sản xuất khác nhau.
+risk_class | Medical Asset | Phân loại rủi ro theo Nghị định 98. | C | A/B/C/D.
+criticality | Medical Asset | Mức trọng yếu vận hành, tự đánh giá theo ICU/ER/General. | CRITICAL | Phân biệt với risk_class.
+state | Medical Asset | Trạng thái lifecycle. | in_use | Theo state machine 1.7.
+legal_license_status | Medical Asset | Tổng hợp tình trạng hồ sơ pháp lý hiện hành. | expiring_soon | Auto tổng hợp từ Compliance Record.
+next_pm_due | Medical Asset | Ngày PM đến hạn kế tiếp; min của các Maintenance Plan active. | 2026-06-15 | Auto.
+wo_type | AC Work Order | Loại WO; quyết định field bắt buộc và workflow nhánh. | PM | PM/CM/INSPECTION/CALIBRATION/RECALL/RETIREMENT/INSTALLATION.
+severity | AC Work Order / Failure Report | Severity vận hành (S1–S4). | S2 | Khác clinical_impact.
+clinical_impact | Failure Report / Adverse Event | Tác động lâm sàng. | patient_harm | Bốn giá trị.
+downtime_hours | AC Work Order | Tổng thời gian thiết bị không phục vụ do CM/PM. | 12.5 | Tự tính từ actual_start–actual_end nếu thiếu.
+effective_from | Document Record | Ngày bản này có hiệu lực, bằng ngày approver ký. | 2026-05-01 | Không = ngày upload.
+entry_hash | Asset Audit Log | SHA-256 hex của payload + prev_hash. | 5a1c… | Tính lúc insert; không sửa.
+
+Table 51:
+Thành phần | Ví dụ | Mô tả
+Tiền tố | MA | Cố định 'MA' (Medical Asset).
+Năm | 2026 | 4 chữ số năm tạo asset.
+Số thứ tự | 00012 | 5 chữ số, increment trong năm.
+Đầy đủ | MA-2026-00012 | —
+
+Table 52:
+Thành phần | Ví dụ
+URL prefix | https://assetcore.local/qr/
+Asset ID encoded | MA-2026-00012
+Salt (chống giả) | 8 ký tự ngẫu nhiên, lưu trong Asset Identifier
+URL đầy đủ | https://assetcore.local/qr/MA-2026-00012?s=K8Z3jq2P
+
+Table 53:
+Rule | Mô tả | Áp dụng
+DQ-COMP-001 | Medical Asset 'released_for_use' phải có đầy đủ: device_model, risk_class, criticality, department, location, custodian, primary_qr, serial_no. | before submit
+DQ-COMP-002 | Mỗi Class C/D asset phải có ≥ 1 Document Record loại LIC-MOH-REG hiệu lực. | scheduler daily
+DQ-COMP-003 | Mỗi Maintenance Plan active phải có ≥ 3 task. | before submit
+DQ-COMP-004 | Mỗi WO closed phải có ≥ 1 evidence. | before submit
+
+Table 54:
+Rule | Mô tả
+DQ-UNIQ-001 | asset_id duy nhất toàn site.
+DQ-UNIQ-002 | primary_qr duy nhất; salt thêm để chống QR clone.
+DQ-UNIQ-003 | serial_no duy nhất theo (manufacturer, device_model).
+DQ-UNIQ-004 | model_code duy nhất theo manufacturer.
+DQ-UNIQ-005 | Document Type LIC-MOH-REG: chỉ 1 record effective tại 1 thời điểm cho 1 asset.
+
+Table 55:
+Rule | Mô tả
+DQ-CONS-001 | risk_class của Medical Asset không được thấp hơn risk_class_default của Device Model.
+DQ-CONS-002 | Nếu calibration_required=1 thì phải có ≥ 1 Calibration Plan active.
+DQ-CONS-003 | actual_start ≤ actual_end ≤ now.
+DQ-CONS-004 | WO downtime_hours = max(0, actual_end - actual_start) hoặc nhập tay nhưng có lý do.
+DQ-CONS-005 | PM Plan next_due_date = last_completed_date + interval (deviation cho phép ≤ 7 ngày).
+
+Table 56:
+File | DocType đích | Sheet trong file
+MIG-Template-Item.xlsx | Item (core) | Items, ItemGroups.
+MIG-Template-DeviceModel.xlsx | Device Model | DeviceModels.
+MIG-Template-Vendor.xlsx | Supplier (core) + custom field | Vendors.
+MIG-Template-Department.xlsx | Department (core) | Departments.
+MIG-Template-Location.xlsx | Warehouse (core) | Locations.
+MIG-Template-MedicalAsset.xlsx | Medical Asset + Asset core | MedicalAssets, AssetIdentifiers.
+MIG-Template-MaintenancePlan.xlsx | Maintenance Plan | MPs, Tasks, Spares.
+MIG-Template-CalibrationPlan.xlsx | Calibration Plan | CPs, TestPoints.
+MIG-Template-DocumentRecord.xlsx | Document Record | Docs, Files (manifest).
+MIG-Template-LegacyWorkOrder.xlsx | AC Work Order (history) | WOs, Tasks, Spares.
+
+Table 57:
+Cột | Bắt buộc | Loại | Quy ước
+asset_id_legacy | — | Text | Mã cũ để tham chiếu, không import.
+item_code | * | Text | Phải tồn tại trong Item (đã import trước).
+device_model_code | * | Text | Phải tồn tại trong Device Model.
+serial_no | — | Text | Như nhà sản xuất.
+mfg_date | — | Date YYYY-MM-DD | —
+installation_date | * | Date | —
+risk_class | * | Text | A/B/C/D.
+criticality | * | Text | CRITICAL/MAJOR/MINOR/NONE.
+asset_category_code | * | Text | Như 3.5.3.
+department_code | * | Text | Phải tồn tại.
+location_code | * | Text | Phải tồn tại.
+state | * | Text | Lifecycle state hiện tại.
+calibration_required | — | Bool 0/1 | Default theo device_model.
+last_pm_date | — | Date | Có thể bỏ trống.
+next_pm_due | — | Date | Auto sinh từ MP sau khi import.
+warranty_until | — | Date | —
+service_contract_code | — | Text | Tham chiếu Service Contract đã tồn tại.
+notes | — | Text | —

@@ -4,15 +4,11 @@ IMM-00 User Management API.
 
 Data model:
   User  (Frappe core) — xác thực, custom fields IMM, Has Role child table
-  Employee (ERPNext optional) — HR data, liên kết qua Employee.user_id = User.name
+  Employee (optional, nếu cài Frappe HR) — liên kết qua Employee.user_id = User.name
 
 Custom fields trên tabUser (tạo bởi assetcore.setup.install.after_migrate):
   imm_approval_status | imm_approved_by | imm_approved_at
   imm_rejection_reason | ac_department
-
-NOTE: tabEmployee dùng "name" (docname) làm định danh chính.
-      Liên kết User ↔ Employee qua cột user_id của Employee.
-      Frappe HR không có cột định danh phụ trong schema chuẩn.
 """
 from __future__ import annotations
 

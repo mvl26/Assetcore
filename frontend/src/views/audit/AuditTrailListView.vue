@@ -9,6 +9,10 @@ import type { ImmAuditTrail, ChainVerifyResult } from '@/types/imm00'
 import SmartSelect from '@/components/common/SmartSelect.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import { formatAssetDisplay, translateStatus, getStatusColor, formatDateTime, type AssetDisplay } from '@/utils/formatters'
+import { useToast } from '@/composables/useToast'
+
+const toast = useToast()
+const fetchError = ref('')
 
 // ─── Filters ────────────────────────────────────────────────────────────────
 const showFilters = ref(false)
@@ -68,6 +72,7 @@ const activeFilterCount = computed(() => activeChips.value.length)
 async function fetchTrails() {
   loading.value = true
   verifyResult.value = null
+  fetchError.value = ''
   try {
     const params: Record<string, string | number> = {
       page: filters.value.page,
@@ -84,9 +89,14 @@ async function fetchTrails() {
       const items = (res.items || []) as (ImmAuditTrail & { asset?: string; asset_name?: string })[]
       trails.value = items.map(t => ({ ...t, display: formatAssetDisplay(t.asset_name, t.asset) }))
       totalCount.value = res.pagination?.total || 0
+    } else {
+      trails.value = []; totalCount.value = 0
     }
-  } catch {
+  } catch (e: unknown) {
     trails.value = []; totalCount.value = 0
+    const msg = (e as Error)?.message || 'Lỗi khi tải nhật ký kiểm toán'
+    fetchError.value = msg
+    toast.error(msg)
   } finally {
     loading.value = false
   }
@@ -120,6 +130,8 @@ async function verify() {
   try {
     const res = await frappeGet<ChainVerifyResult | null>(`${BASE}.verify_chain`, { asset: filters.value.asset })
     if (res) verifyResult.value = res
+  } catch (e: unknown) {
+    toast.error((e as Error)?.message || 'Không thể xác minh chuỗi hash')
   } finally { verifying.value = false }
 }
 
@@ -256,6 +268,21 @@ onMounted(fetchTrails)
         </div>
       </div>
     </Transition>
+
+    <!-- Fetch error -->
+    <div
+      v-if="fetchError"
+      class="mb-4 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 flex items-start gap-2"
+    >
+      <svg class="w-4 h-4 mt-0.5 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+      </svg>
+      <div class="flex-1">
+        <p class="font-medium">Không tải được nhật ký kiểm toán</p>
+        <p class="text-xs text-red-600 mt-0.5">{{ fetchError }}</p>
+      </div>
+      <button class="text-xs underline hover:text-red-900" @click="fetchTrails">Thử lại</button>
+    </div>
 
     <!-- Chain verify result -->
     <div

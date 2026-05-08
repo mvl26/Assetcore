@@ -163,7 +163,7 @@ def _enrich_from_user_custom_fields(user: str) -> dict:
 
 
 def _enrich_from_employee(user: str) -> dict:
-    """Lookup ERPNext Employee — designation + docname (optional)."""
+    """Lookup Employee (optional, nếu có Frappe HR) — designation + docname."""
     if not frappe.db.table_exists("Employee"):
         return {}
     try:
@@ -198,8 +198,8 @@ def get_user_context():
 
     Sources (theo thứ tự ưu tiên):
       1. Frappe `User` doc — luôn có sẵn (full_name, user_image, roles)
-      2. AssetCore `AC User Profile` — optional (department, job_title, employee_code)
-      3. ERPNext `Employee` — optional fallback (designation, department)
+      2. AssetCore custom fields trên User (ac_department, imm_approval_status)
+      3. Frappe HR `Employee` — optional fallback (designation)
     """
     user = frappe.session.user
     if user == "Guest":

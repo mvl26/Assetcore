@@ -40,11 +40,14 @@ def _p(*flags: str) -> dict:
 
 
 # ─── Role groups ──────────────────────────────────────────────────────────────
-_ALL_DESK_ROLES = list(Roles.ALL_IMM)        # 13 roles incl. Vendor Engineer
+_ALL_DESK_ROLES = list(Roles.ALL_IMM)        # 19 roles incl. Vendor Engineer + Wave 2
 _ALL_INTERNAL = [r for r in Roles.ALL_IMM if r != Roles.VENDOR_ENGINEER]
-_GOVERNANCE = [Roles.SYS_ADMIN, Roles.OPS_MANAGER, Roles.QA, Roles.AUDITOR]
+_GOVERNANCE = [
+    Roles.SYS_ADMIN, Roles.OPS_MANAGER, Roles.QA, Roles.AUDITOR,
+    Roles.BOARD_APPROVER, Roles.RISK,  # Wave 2 governance
+]
 _ADMIN_OPS = [Roles.SYS_ADMIN, Roles.OPS_MANAGER]
-_VENDOR_MGMT = [Roles.SYS_ADMIN, Roles.OPS_MANAGER, Roles.STOREKEEPER]
+_VENDOR_MGMT = [Roles.SYS_ADMIN, Roles.OPS_MANAGER, Roles.STOREKEEPER, Roles.PROCUREMENT]
 
 
 # ─── Matrix: (DocType, [(role, perm_dict), ...]) ──────────────────────────────
@@ -88,9 +91,12 @@ _CORE_MATRIX: list[tuple[str, list[tuple[str, dict]]]] = [
     # Admin + Ops thêm W+C để tạo/sửa user qua trang user-profiles.
     ("User",            [(r, _p("R")) for r in _ALL_INTERNAL if r not in _ADMIN_OPS]),
     ("User",            [(r, _p("R", "W", "C")) for r in _ADMIN_OPS]),
-    ("Role",            [(r, _p("R")) for r in _ADMIN_OPS]),
+    ("Role",            [(r, _p("R")) for r in _ALL_INTERNAL]),  # mọi role nội bộ đọc được danh sách role
     ("Has Role",        [(r, _p("R", "W", "C", "D")) for r in _ADMIN_OPS]),
-    ("Role Profile",    [(r, _p("R")) for r in _ADMIN_OPS]),
+    ("Role Profile",    [(r, _p("R")) for r in _ALL_INTERNAL]),  # mọi role đọc được profile để tham chiếu
+    ("Role Profile",    [(r, _p("W", "C", "D")) for r in _ADMIN_OPS]),  # admin+ops tạo/sửa profile
+    ("Module Profile",  [(r, _p("R")) for r in _ALL_INTERNAL]),  # mọi role xem được module profile
+    ("Module Profile",  [(r, _p("W", "C", "D")) for r in _ADMIN_OPS]),  # admin tạo/sửa module profile
     ("DocType",         [(r, _p("R")) for r in _ALL_INTERNAL]),  # read meta để render form
     ("Custom Field",    [(r, _p("R", "W", "C", "D")) for r in [Roles.SYS_ADMIN]]),
     ("Custom DocPerm",  [(r, _p("R", "W", "C", "D")) for r in [Roles.SYS_ADMIN]]),

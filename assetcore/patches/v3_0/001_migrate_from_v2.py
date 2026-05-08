@@ -31,6 +31,8 @@ def execute():
 
 
 def _drop_custom_fields_on_asset():
+    if not frappe.db.exists("DocType", "Asset"):
+        return
     rows = frappe.db.sql(
         """
         SELECT name FROM `tabCustom Field`

@@ -1,0 +1,39 @@
+[
+ {
+  "doctype": "Module Profile",
+  "name": "IMM - Admin",
+  "module_profile_name": "IMM - Admin",
+  "block_modules": [
+   {"module": "Website"},
+   {"module": "Social"},
+   {"module": "Integrations"}
+  ]
+ },
+ {
+  "doctype": "Module Profile",
+  "name": "IMM - Standard",
+  "module_profile_name": "IMM - Standard",
+  "block_modules": [
+   {"module": "Website"},
+   {"module": "Social"},
+   {"module": "Integrations"},
+   {"module": "Automation"},
+   {"module": "Geo"}
+  ]
+ },
+ {
+  "doctype": "Module Profile",
+  "name": "IMM - Vendor",
+  "module_profile_name": "IMM - Vendor",
+  "block_modules": [
+   {"module": "Website"},
+   {"module": "Social"},
+   {"module": "Integrations"},
+   {"module": "Automation"},
+   {"module": "Geo"},
+   {"module": "Email"},
+   {"module": "Printing"},
+   {"module": "Contacts"}
+  ]
+ }
+]

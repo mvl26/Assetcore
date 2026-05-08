@@ -106,12 +106,11 @@ def check_repeat_failure(asset_ref: str) -> bool:
 
 
 def validate_spare_parts_stock_entries(doc) -> None:
-    """BR-09-02: Mỗi dòng Spare Parts phải có stock_entry_ref."""
-    stock_entry_exists = frappe.db.exists("DocType", "Stock Entry")
+    """BR-09-02: Mỗi dòng Spare Parts phải có stock_entry_ref trỏ đến AC Stock Movement."""
     for row in (doc.spare_parts_used or []):
         if not row.stock_entry_ref:
             frappe.throw(_(f"Vật tư '{row.item_name}' (dòng {row.idx}) thiếu phiếu xuất kho"))
-        if stock_entry_exists and not frappe.db.exists("Stock Entry", row.stock_entry_ref):
+        if not frappe.db.exists("AC Stock Movement", row.stock_entry_ref):
             frappe.throw(_(f"Phiếu xuất kho '{row.stock_entry_ref}' không tồn tại"))
 
 

@@ -11,15 +11,26 @@ class IncidentReport(Document):
         if not self.incident_number:
             self.incident_number = self.name
         self._validate_patient_impact()
-        self._validate_byt_critical()
+        self._warn_byt_critical()
 
     def _validate_patient_impact(self) -> None:
         if self.patient_affected and not (self.patient_impact_description or "").strip():
             frappe.throw(_("patient_impact_description bắt buộc khi patient_affected=1 (BR-INC-02)."))
 
-    def _validate_byt_critical(self) -> None:
+    def _warn_byt_critical(self) -> None:
+        # BR-INC-01: Critical incidents phải báo cáo BYT theo NĐ98.
+        # Chỉ cảnh báo khi save — không block workflow transition (acknowledge / resolve / close)
+        # vì việc báo cáo BYT là hành động ngoài hệ thống có thể diễn ra sau.
         if self.severity == _SEVERITY_CRITICAL and not self.reported_to_byt:
-            frappe.throw(_("Sự cố Critical phải báo cáo BYT theo NĐ98 (BR-INC-01)."))
+            frappe.msgprint(
+                _("Nhắc nhở: Sự cố Critical chưa được đánh dấu báo cáo BYT (NĐ98 — BR-INC-01)."),
+                indicator="orange", alert=True,
+            )
+
+    def before_submit(self) -> None:
+        # Hard-enforce BR-INC-01 chỉ khi submit
+        if self.severity == _SEVERITY_CRITICAL and not self.reported_to_byt:
+            frappe.throw(_("Sự cố Critical phải báo cáo BYT theo NĐ98 trước khi submit (BR-INC-01)."))
 
     def on_submit(self) -> None:
         from assetcore.services.imm00 import create_lifecycle_event, create_capa

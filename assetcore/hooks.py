@@ -11,6 +11,7 @@ app_license = "MIT"
 # Fixtures — IMM-00 v3 foundation
 # ──────────────────────────────────────────────
 _IMM_ROLES = [
+    # Wave 1 — core HTM operations
     "IMM System Admin",
     "IMM Operations Manager",
     "IMM Department Head",
@@ -24,8 +25,16 @@ _IMM_ROLES = [
     "IMM Clinical User",
     "IMM Auditor",
     "Vendor Engineer",
+    # Wave 2 — planning & procurement (IMM-01→03)
+    "IMM Planning Officer",
+    "IMM Finance Officer",
+    "IMM HTM Engineer",
+    "IMM Procurement Officer",
+    "IMM Risk Officer",
+    "IMM Board Approver",
 ]
 _IMM_ROLE_PROFILES = [
+    # Wave 1
     "IMM - System Administrator",
     "IMM - Operations Manager",
     "IMM - Department Head",
@@ -39,6 +48,18 @@ _IMM_ROLE_PROFILES = [
     "IMM - Document Officer",
     "IMM - Clinical User",
     "IMM - Vendor Engineer",
+    # Wave 2
+    "IMM - Planning Officer",
+    "IMM - Finance Officer",
+    "IMM - HTM Engineer",
+    "IMM - Procurement Officer",
+    "IMM - Risk Officer",
+    "IMM - Board Approver",
+]
+_IMM_MODULE_PROFILES = [
+    "IMM - Standard",
+    "IMM - Admin",
+    "IMM - Vendor",
 ]
 fixtures = [
     {"dt": "Role", "filters": [["name", "in", _IMM_ROLES]]},
@@ -48,6 +69,7 @@ fixtures = [
         ["parenttype", "=", "Role Profile"],
         ["parent", "in", _IMM_ROLE_PROFILES],
     ]},
+    {"dt": "Module Profile", "filters": [["name", "in", _IMM_MODULE_PROFILES]]},
     {"dt": "IMM SLA Policy"},
     {"dt": "Workspace", "filters": [["name", "in", ["IMM Operations"]]]},
     {"dt": "Workflow", "filters": [["name", "in", [

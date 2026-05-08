@@ -354,10 +354,6 @@ def handle_commissioning_cancel(doc: Document) -> None:
         )
 
 
-def create_erpnext_asset(doc: Document) -> str:
-    return create_ac_asset(doc)
-
-
 def _load_model_data(master_item: str) -> dict:
     """Load Model (Tier 2) data + inherit Category (Tier 1) financial defaults.
 

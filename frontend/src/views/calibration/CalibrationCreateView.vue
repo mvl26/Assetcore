@@ -2,12 +2,13 @@
 // Copyright (c) 2026, AssetCore Team — IMM-11 Calibration Create
 import { ref, computed, watch, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { createCalibration } from '@/api/imm11'
+import { createCalibration, listCalibrationSchedules, type CalibrationSchedule } from '@/api/imm11'
 import { frappeGet } from '@/api/helpers'
 import SmartSelect from '@/components/common/SmartSelect.vue'
 import DateInput from '@/components/common/DateInput.vue'
 import { useFormDraft } from '@/composables/useFormDraft'
 import { useApi } from '@/composables/useApi'
+import { useToast } from '@/composables/useToast'
 
 interface AssetMeta {
   device_model?: string
@@ -27,6 +28,10 @@ interface ScheduleMeta {
 const router = useRouter()
 const route = useRoute()
 const api = useApi()
+const toast = useToast()
+const todayIso = new Date().toISOString().slice(0, 10)
+const assetSchedules = ref<CalibrationSchedule[]>([])
+const loadingSchedules = ref(false)
 
 const form = ref({
   asset: (route.query.asset as string) || '',
@@ -71,6 +76,23 @@ async function loadAssetMeta() {
   } catch { assetMeta.value = null }
 }
 
+async function loadAssetSchedules() {
+  assetSchedules.value = []
+  if (!form.value.asset) return
+  loadingSchedules.value = true
+  try {
+    const res = await listCalibrationSchedules({ asset: form.value.asset, is_active: 1 }, 1, 20)
+    const list = res?.data || []
+    assetSchedules.value = list
+    // Nếu chưa có schedule được chọn và có lịch active → auto chọn lịch sớm nhất
+    if (!form.value.calibration_schedule && list.length > 0) {
+      const sorted = [...list].sort((a, b) => (a.next_due_date || '').localeCompare(b.next_due_date || ''))
+      form.value.calibration_schedule = sorted[0].name
+    }
+  } catch { assetSchedules.value = [] }
+  finally { loadingSchedules.value = false }
+}
+
 async function loadSchedule() {
   if (!form.value.calibration_schedule) { scheduleMeta.value = null; return }
   try {
@@ -95,12 +117,20 @@ async function loadSchedule() {
   } catch { scheduleMeta.value = null }
 }
 
-watch(() => form.value.asset, loadAssetMeta)
+watch(() => form.value.asset, () => {
+  loadAssetMeta()
+  loadAssetSchedules()
+})
 watch(() => form.value.calibration_schedule, loadSchedule)
 
 async function submit() {
   if (!canSubmit.value) {
     err.value = 'Vui lòng điền đầy đủ thông tin bắt buộc theo loại hiệu chuẩn.'
+    return
+  }
+  if (form.value.scheduled_date && form.value.scheduled_date < todayIso) {
+    err.value = 'Ngày dự kiến không được nằm trong quá khứ.'
+    toast.error(err.value)
     return
   }
   saving.value = true; err.value = ''
@@ -127,7 +157,10 @@ async function submit() {
 }
 
 onMounted(() => {
-  if (form.value.asset) loadAssetMeta()
+  if (form.value.asset) {
+    loadAssetMeta()
+    loadAssetSchedules()
+  }
   if (form.value.calibration_schedule) loadSchedule()
 })
 </script>
@@ -162,7 +195,33 @@ onMounted(() => {
       <!-- Schedule (optional) -->
       <div>
         <label class="form-label">Lịch hiệu chuẩn (nếu có)</label>
-        <SmartSelect v-model="form.calibration_schedule" doctype="IMM Calibration Schedule" placeholder="Tìm lịch..." />
+        <div v-if="loadingSchedules" class="text-xs text-slate-400 mb-2">Đang tải lịch sẵn có...</div>
+        <div
+          v-else-if="form.asset && assetSchedules.length > 0"
+          class="mb-2 grid grid-cols-1 gap-1.5 max-h-40 overflow-auto"
+        >
+          <button
+            v-for="s in assetSchedules" :key="s.name"
+            type="button"
+            class="flex items-center justify-between gap-2 px-3 py-2 rounded-lg border text-left text-xs transition-colors"
+            :class="form.calibration_schedule === s.name
+              ? 'bg-blue-50 border-blue-400 text-blue-800'
+              : 'bg-white border-slate-200 hover:border-blue-300 text-slate-700'"
+            @click="form.calibration_schedule = s.name"
+          >
+            <div>
+              <div class="font-mono text-[11px]">{{ s.name }}</div>
+              <div class="text-slate-500">
+                {{ s.calibration_type }} · {{ s.interval_days }} ngày · Lần tới: <b>{{ s.next_due_date || '—' }}</b>
+              </div>
+            </div>
+            <span v-if="form.calibration_schedule === s.name" class="text-blue-600">✓</span>
+          </button>
+        </div>
+        <div v-else-if="form.asset" class="mb-2 text-xs text-slate-400">
+          Thiết bị này chưa có lịch hiệu chuẩn — có thể tìm lịch khác hoặc tạo phiếu tự do.
+        </div>
+        <SmartSelect v-model="form.calibration_schedule" doctype="IMM Calibration Schedule" placeholder="Tìm lịch khác..." />
         <div v-if="scheduleMeta" class="mt-2 bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-800 grid grid-cols-3 gap-2">
           <div><span class="text-blue-600">Loại:</span> <b>{{ scheduleMeta.calibration_type }}</b></div>
           <div><span class="text-blue-600">Chu kỳ:</span> <b>{{ scheduleMeta.interval_days }} ngày</b></div>
@@ -180,7 +239,8 @@ onMounted(() => {
         </div>
         <div>
           <label class="form-label">Ngày dự kiến <span class="text-red-500">*</span></label>
-          <DateInput v-model="form.scheduled_date" class="form-input w-full" required />
+          <DateInput v-model="form.scheduled_date" :min="todayIso" class="form-input w-full" required />
+          <p class="text-[11px] text-slate-400 mt-1">Không được chọn ngày trong quá khứ.</p>
         </div>
         <div>
           <label class="form-label">Kỹ thuật viên <span class="text-red-500">*</span></label>

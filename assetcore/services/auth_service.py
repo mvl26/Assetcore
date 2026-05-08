@@ -1,6 +1,6 @@
 # Copyright (c) 2026, AssetCore Team
 # Auth & User Account — Tier 2 Business Service Layer.
-# Data model: Frappe User + ERPNext Employee (optional) + custom fields on User.
+# Data model: Frappe User + custom fields on User + Employee (optional, nếu có Frappe HR).
 
 from __future__ import annotations
 

@@ -105,5 +105,53 @@
   "roles": [
    {"role": "Vendor Engineer"}
   ]
+ },
+ {
+  "doctype": "Role Profile",
+  "name": "IMM - Planning Officer",
+  "role_profile": "IMM - Planning Officer",
+  "roles": [
+   {"role": "IMM Planning Officer"}
+  ]
+ },
+ {
+  "doctype": "Role Profile",
+  "name": "IMM - Finance Officer",
+  "role_profile": "IMM - Finance Officer",
+  "roles": [
+   {"role": "IMM Finance Officer"}
+  ]
+ },
+ {
+  "doctype": "Role Profile",
+  "name": "IMM - HTM Engineer",
+  "role_profile": "IMM - HTM Engineer",
+  "roles": [
+   {"role": "IMM HTM Engineer"}
+  ]
+ },
+ {
+  "doctype": "Role Profile",
+  "name": "IMM - Procurement Officer",
+  "role_profile": "IMM - Procurement Officer",
+  "roles": [
+   {"role": "IMM Procurement Officer"}
+  ]
+ },
+ {
+  "doctype": "Role Profile",
+  "name": "IMM - Risk Officer",
+  "role_profile": "IMM - Risk Officer",
+  "roles": [
+   {"role": "IMM Risk Officer"}
+  ]
+ },
+ {
+  "doctype": "Role Profile",
+  "name": "IMM - Board Approver",
+  "role_profile": "IMM - Board Approver",
+  "roles": [
+   {"role": "IMM Board Approver"}
+  ]
  }
 ]

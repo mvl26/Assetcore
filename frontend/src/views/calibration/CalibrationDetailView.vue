@@ -4,15 +4,18 @@ import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { getCalibration, updateCalibration, submitCalibration, sendToLab, receiveCertificate, cancelCalibration } from '@/api/imm11'
 import type { AssetCalibration, CalibrationMeasurement } from '@/api/imm11'
+import { useToast } from '@/composables/useToast'
 
 const props = defineProps<{ id: string }>()
 const router = useRouter()
+const toast = useToast()
 
 const form = ref<Partial<AssetCalibration> & { measurements?: CalibrationMeasurement[] }>({})
 const loading = ref(false)
 const saving = ref(false)
 const submitting = ref(false)
 const err = ref('')
+const uploadingCert = ref(false)
 
 const isSubmitted = computed(() => form.value.docstatus === 1)
 const isFailed = computed(() => form.value.overall_result === 'Failed')
@@ -49,14 +52,55 @@ async function doSendToLab() {
     })
     showSendModal.value = false
     sendData.value = { sent_date: '', lab_supplier: '', lab_contract_ref: '' }
+    toast.success('Đã gửi phòng hiệu chuẩn')
     await load()
-  } catch (e: unknown) { err.value = (e as Error).message || 'Lỗi khi gửi phòng hiệu chuẩn' }
-  finally { actionLoading.value = false }
+  } catch (e: unknown) {
+    const msg = (e as Error).message || 'Lỗi khi gửi phòng hiệu chuẩn'
+    err.value = msg
+    toast.error(msg)
+  } finally { actionLoading.value = false }
+}
+
+async function uploadCertificateFile(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input?.files?.[0]
+  if (!file) return
+  uploadingCert.value = true
+  err.value = ''
+  try {
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('doctype', 'IMM Asset Calibration')
+    formData.append('docname', props.id)
+    formData.append('fieldname', 'certificate_file')
+    formData.append('is_private', '1')
+    const res = await fetch('/api/method/upload_file', {
+      method: 'POST',
+      body: formData,
+      credentials: 'include',
+    })
+    const data = await res.json()
+    if (data.message?.file_url) {
+      recvData.value.certificate_file = data.message.file_url
+      toast.success(`Đã upload "${file.name}"`)
+    } else {
+      throw new Error(data.message?.exception || 'Upload thất bại')
+    }
+  } catch (e: unknown) {
+    const msg = (e as Error).message || 'Lỗi upload file chứng chỉ'
+    err.value = msg
+    toast.error(msg)
+  } finally {
+    uploadingCert.value = false
+    if (input) input.value = ''
+  }
 }
 
 async function doReceiveCert() {
   if (!recvData.value.certificate_file || !recvData.value.certificate_number || !recvData.value.certificate_date) {
-    err.value = 'Bắt buộc: file chứng chỉ, số chứng chỉ, ngày cấp'
+    const msg = 'Bắt buộc: file chứng chỉ, số chứng chỉ, ngày cấp'
+    err.value = msg
+    toast.warning(msg)
     return
   }
   actionLoading.value = true; err.value = ''
@@ -69,21 +113,33 @@ async function doReceiveCert() {
       reference_standard_serial: recvData.value.reference_standard_serial || undefined,
     })
     showReceiveModal.value = false
+    toast.success('Đã ghi nhận chứng chỉ hiệu chuẩn')
     await load()
-  } catch (e: unknown) { err.value = (e as Error).message || 'Lỗi khi nhận chứng chỉ' }
-  finally { actionLoading.value = false }
+  } catch (e: unknown) {
+    const msg = (e as Error).message || 'Lỗi khi nhận chứng chỉ'
+    err.value = msg
+    toast.error(msg)
+  } finally { actionLoading.value = false }
 }
 
 async function doCancel() {
-  if (!cancelReason.value.trim()) { err.value = 'Bắt buộc nhập lý do hủy'; return }
+  if (!cancelReason.value.trim()) {
+    err.value = 'Bắt buộc nhập lý do hủy'
+    toast.warning('Bắt buộc nhập lý do hủy')
+    return
+  }
   actionLoading.value = true; err.value = ''
   try {
     await cancelCalibration(props.id, cancelReason.value)
     showCancelModal.value = false
     cancelReason.value = ''
+    toast.success('Đã hủy phiếu hiệu chuẩn')
     await load()
-  } catch (e: unknown) { err.value = (e as Error).message || 'Lỗi khi hủy' }
-  finally { actionLoading.value = false }
+  } catch (e: unknown) {
+    const msg = (e as Error).message || 'Lỗi khi hủy'
+    err.value = msg
+    toast.error(msg)
+  } finally { actionLoading.value = false }
 }
 
 const statusColor: Record<string, string> = {
@@ -211,17 +267,18 @@ v-if="isSubmitted && form.overall_result" class="text-xs font-semibold px-2 py-1
 
       <!-- Status + External fields -->
       <div v-if="!isSubmitted" class="card p-5 space-y-4">
-        <h2 class="text-sm font-semibold text-slate-700 pb-2 border-b">Cập nhật trạng thái</h2>
+        <h2 class="text-sm font-semibold text-slate-700 pb-2 border-b">Thông tin bổ sung</h2>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label class="form-label">Trạng thái</label>
-            <select v-model="form.status" class="form-select w-full text-sm">
-              <option value="Scheduled">Đã lên lịch</option>
-              <option value="Sent to Lab">Đã gửi phòng hiệu chuẩn</option>
-              <option value="In Progress">Đang thực hiện</option>
-              <option value="Certificate Received">Đã nhận chứng nhận</option>
-              <option value="Cancelled">Đã hủy</option>
-            </select>
+            <div class="flex items-center gap-2 h-10">
+              <span
+                v-if="form.status"
+                class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium"
+                :class="statusColor[form.status] || 'bg-gray-100'"
+              >{{ form.status }}</span>
+              <span class="text-xs text-slate-400">— chuyển trạng thái qua các nút thao tác bên dưới</span>
+            </div>
           </div>
           <div v-if="form.calibration_type === 'External'">
             <label class="form-label">Ngày gửi phòng hiệu chuẩn</label>
@@ -389,8 +446,22 @@ Nhận chứng chỉ
       <div class="bg-white rounded-xl p-6 w-full max-w-md space-y-4 shadow-xl">
         <h2 class="font-semibold text-gray-800">Nhận chứng chỉ hiệu chuẩn</h2>
         <div>
-          <label for="recv-file" class="block text-sm font-medium mb-1">URL file chứng chỉ <span class="text-red-500">*</span></label>
-          <input id="recv-file" v-model="recvData.certificate_file" type="text" class="form-input w-full text-sm" placeholder="/files/cert.pdf" />
+          <label for="recv-file" class="block text-sm font-medium mb-1">File chứng chỉ <span class="text-red-500">*</span></label>
+          <div class="flex items-center gap-2">
+            <input
+              id="recv-file"
+              type="file"
+              accept="application/pdf,image/*"
+              class="form-input w-full text-sm"
+              :disabled="uploadingCert"
+              @change="uploadCertificateFile"
+            />
+            <span v-if="uploadingCert" class="text-xs text-slate-500">Đang upload...</span>
+          </div>
+          <p v-if="recvData.certificate_file" class="text-xs text-green-700 mt-1 truncate">
+            ✓ Đã đính kèm:
+            <a :href="recvData.certificate_file" target="_blank" class="underline">{{ recvData.certificate_file }}</a>
+          </p>
         </div>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>

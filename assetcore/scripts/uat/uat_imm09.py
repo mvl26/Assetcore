@@ -227,10 +227,10 @@ def tc_09_03(results: dict, wo_name: "str | None"):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# TC-09-04: Stock Entry validation (BR-09-02)
+# TC-09-04: AC Stock Movement validation (BR-09-02)
 # ═══════════════════════════════════════════════════════════════════════════════
 def tc_09_04(results: dict, wo_name: "str | None"):
-    print("\n[TC-09-04] Stock Entry validation (BR-09-02)")
+    print("\n[TC-09-04] AC Stock Movement validation (BR-09-02)")
     print("-" * 50)
     if not wo_name:
         results["TC-09-04"] = _p(False, "Bỏ qua")
