@@ -87,6 +87,14 @@ const MODULE_NAV: Record<string, ModuleNav> = {
       { label: 'Yêu cầu hồ sơ', path: '/documents/requests', icon: 'inbox'  },
     ],
   },
+  imm06: {
+    code: 'IMM-06', title: 'Đào tạo người dùng', icon: 'users',
+    items: [
+      { label: 'Chương trình đào tạo', path: '/imm06/programs',     icon: 'list'     },
+      { label: 'Buổi đào tạo',         path: '/imm06/sessions',     icon: 'calendar' },
+      { label: 'Năng lực',             path: '/imm06/competencies', icon: 'shield'   },
+    ],
+  },
   imm08: {
     code: 'IMM-08', title: 'Bảo trì định kỳ (PM)', icon: 'wrench',
     items: [

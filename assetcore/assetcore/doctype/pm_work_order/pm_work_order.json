@@ -77,7 +77,8 @@
    "label": "Trạng thái",
    "options": "Open\nIn Progress\nPending–Device Busy\nOverdue\nCompleted\nHalted–Major Failure\nCancelled",
    "default": "Open",
-   "in_list_view": 1
+   "in_list_view": 1,
+   "read_only": 1
   },
   {
    "fieldname": "is_late",

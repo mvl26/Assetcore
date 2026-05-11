@@ -125,7 +125,22 @@ function navigateChecklist() {
       </div>
     </div>
 
-    <div v-if="store.loading" class="text-center py-12 text-gray-400">Đang tải...</div>
+    <div v-if="store.loading && !wo" class="space-y-4">
+      <div class="bg-white rounded-xl border p-5 animate-pulse">
+        <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
+          <div v-for="i in 6" :key="i" class="h-5 bg-gray-100 rounded" />
+        </div>
+      </div>
+      <div class="bg-white rounded-xl border p-5 animate-pulse h-40" />
+    </div>
+    <div v-else-if="store.error && !wo" class="card text-center py-16">
+      <p class="text-base font-semibold text-slate-700 mb-1">Không thể tải lệnh sửa chữa</p>
+      <p class="text-sm text-red-500 mb-4">{{ store.error }}</p>
+      <div class="flex gap-3 justify-center">
+        <button class="btn-secondary" @click="router.push('/cm/work-orders')">Quay lại danh sách</button>
+        <button class="btn-primary" @click="store.fetchWorkOrder(props.id)">Thử lại</button>
+      </div>
+    </div>
     <div v-else-if="wo" class="grid md:grid-cols-5 gap-6">
       <!-- LEFT PANEL (60%) -->
       <div class="md:col-span-3 space-y-5">

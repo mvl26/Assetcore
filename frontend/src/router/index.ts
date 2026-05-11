@@ -30,6 +30,8 @@ import {
   ROLES_INCIDENT_REPORT,
   ROLES_RCA_OWNER,
   ROLES_CAPA_CLOSE,
+  ROLES_TRAINING_MANAGE,
+  ROLES_TRAINING_CONDUCT,
 } from '@/constants/roles'
 
 const routes: RouteRecordRaw[] = [
@@ -353,7 +355,9 @@ const routes: RouteRecordRaw[] = [
   // ─── 7. IMM-11 — Calibration ────────────────────────────────────────────────
   {
     path: '/calibration/dashboard',
-    redirect: '/calibration',
+    name: 'CalibrationDashboard',
+    component: () => import('@/views/calibration/CalibrationDashboard.vue'),
+    meta: { requiresAuth: true, title: 'Tổng quan Hiệu chuẩn' },
   },
   {
     path: '/calibration',
@@ -628,26 +632,26 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/needs-requests',
     name: 'NeedsRequestList',
-    component: () => import('@/views/imm01/NeedsRequestListView.vue'),
+    component: () => import('@/views/needs/NeedsRequestListView.vue'),
     meta: { requiresAuth: true, title: 'Đề xuất nhu cầu thiết bị' },
   },
   {
     path: '/needs-requests/new',
     name: 'NeedsRequestCreate',
-    component: () => import('@/views/imm01/NeedsRequestCreateView.vue'),
+    component: () => import('@/views/needs/NeedsRequestCreateView.vue'),
     meta: { requiresAuth: true, title: 'Tạo đề xuất nhu cầu', requiredRoles: ROLES_CREATE },
   },
   {
     path: '/needs-requests/:id',
     name: 'NeedsRequestDetail',
-    component: () => import('@/views/imm01/NeedsRequestDetailView.vue'),
+    component: () => import('@/views/needs/NeedsRequestDetailView.vue'),
     props: true,
     meta: { requiresAuth: true, title: 'Chi tiết đề xuất' },
   },
   {
     path: '/procurement-plans',
     name: 'ProcurementPlanList',
-    component: () => import('@/views/imm01/ProcurementPlanListView.vue'),
+    component: () => import('@/views/needs/ProcurementPlanListView.vue'),
     meta: { requiresAuth: true, title: 'Kế hoạch mua sắm' },
   },
 
@@ -655,19 +659,19 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/tech-specs',
     name: 'TechSpecList',
-    component: () => import('@/views/imm02/TechSpecListView.vue'),
+    component: () => import('@/views/tech-specs/TechSpecListView.vue'),
     meta: { requiresAuth: true, title: 'Hồ sơ kỹ thuật' },
   },
   {
     path: '/tech-specs/new',
     name: 'TechSpecCreate',
-    component: () => import('@/views/imm02/TechSpecCreateView.vue'),
+    component: () => import('@/views/tech-specs/TechSpecCreateView.vue'),
     meta: { requiresAuth: true, title: 'Sinh hồ sơ kỹ thuật từ kế hoạch', requiredRoles: ROLES_CREATE },
   },
   {
     path: '/tech-specs/:id',
     name: 'TechSpecDetail',
-    component: () => import('@/views/imm02/TechSpecDetailView.vue'),
+    component: () => import('@/views/tech-specs/TechSpecDetailView.vue'),
     props: true,
     meta: { requiresAuth: true, title: 'Chi tiết hồ sơ kỹ thuật' },
   },
@@ -676,34 +680,88 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/vendor-evaluations',
     name: 'VendorEvaluationList',
-    component: () => import('@/views/imm03/VendorEvalListView.vue'),
+    component: () => import('@/views/procurement/VendorEvalListView.vue'),
     meta: { requiresAuth: true, title: 'Đánh giá nhà cung cấp' },
   },
   {
     path: '/vendor-evaluations/:id',
     name: 'VendorEvaluationDetail',
-    component: () => import('@/views/imm03/VendorEvalDetailView.vue'),
+    component: () => import('@/views/procurement/VendorEvalDetailView.vue'),
     props: true,
     meta: { requiresAuth: true, title: 'Chi tiết đánh giá NCC' },
   },
   {
     path: '/approved-vendors',
     name: 'ApprovedVendorList',
-    component: () => import('@/views/imm03/AvlListView.vue'),
+    component: () => import('@/views/procurement/AvlListView.vue'),
     meta: { requiresAuth: true, title: 'Danh mục NCC được duyệt (AVL)' },
   },
   {
     path: '/procurement-decisions',
     name: 'ProcurementDecisionList',
-    component: () => import('@/views/imm03/DecisionListView.vue'),
+    component: () => import('@/views/procurement/DecisionListView.vue'),
     meta: { requiresAuth: true, title: 'Quyết định mua sắm' },
   },
   {
     path: '/procurement-decisions/:id',
     name: 'ProcurementDecisionDetail',
-    component: () => import('@/views/imm03/DecisionDetailView.vue'),
+    component: () => import('@/views/procurement/DecisionDetailView.vue'),
     props: true,
     meta: { requiresAuth: true, title: 'Chi tiết quyết định mua sắm' },
+  },
+
+  // ─── IMM-06 — Training & Competency ────────────────────────────────────────
+  { path: '/imm06', redirect: '/imm06/programs' },
+  {
+    path: '/imm06/programs',
+    name: 'TrainingProgramList',
+    component: () => import('@/views/training/ProgramListView.vue'),
+    meta: { requiresAuth: true, title: 'Chương trình đào tạo' },
+  },
+  {
+    path: '/imm06/programs/new',
+    name: 'TrainingProgramCreate',
+    component: () => import('@/views/training/ProgramDetailView.vue'),
+    meta: { requiresAuth: true, title: 'Tạo chương trình đào tạo', requiredRoles: ROLES_TRAINING_MANAGE },
+  },
+  {
+    path: '/imm06/programs/:name',
+    name: 'TrainingProgramDetail',
+    component: () => import('@/views/training/ProgramDetailView.vue'),
+    props: true,
+    meta: { requiresAuth: true, title: 'Chi tiết chương trình đào tạo' },
+  },
+  {
+    path: '/imm06/sessions',
+    name: 'TrainingSessionList',
+    component: () => import('@/views/training/SessionListView.vue'),
+    meta: { requiresAuth: true, title: 'Buổi đào tạo' },
+  },
+  {
+    path: '/imm06/sessions/new',
+    name: 'TrainingSessionCreate',
+    component: () => import('@/views/training/SessionDetailView.vue'),
+    meta: { requiresAuth: true, title: 'Tạo buổi đào tạo', requiredRoles: ROLES_TRAINING_CONDUCT },
+  },
+  {
+    path: '/imm06/sessions/:name',
+    name: 'TrainingSessionDetail',
+    component: () => import('@/views/training/SessionDetailView.vue'),
+    props: true,
+    meta: { requiresAuth: true, title: 'Chi tiết buổi đào tạo' },
+  },
+  {
+    path: '/imm06/competencies',
+    name: 'CompetencyList',
+    component: () => import('@/views/training/CompetencyListView.vue'),
+    meta: { requiresAuth: true, title: 'Hồ sơ năng lực' },
+  },
+  {
+    path: '/imm06/competencies/:name',
+    name: 'CompetencyDetail',
+    component: () => import('@/views/training/CompetencyDetailView.vue'),
+    props: true,
+    meta: { requiresAuth: true, title: 'Chi tiết năng lực' },
   },
 
   // ─── 11. Debug (dev-only) ──────────────────────────────────────────────────
@@ -739,6 +797,7 @@ const MODULE_RULES: Array<[RegExp, string]> = [
   // Khối 2 — Triển khai & Lắp đặt
   [/^\/commissioning/,         'imm04'],
   [/^\/documents/,             'imm05'],
+  [/^\/imm06/,                 'imm06'],
   // Khối 3 — Vận hành & Bảo trì
   [/^\/pm/,                    'imm08'],
   [/^\/cm/,                    'imm09'],

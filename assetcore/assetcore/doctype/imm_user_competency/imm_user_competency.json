@@ -1,0 +1,274 @@
+{
+  "actions": [],
+  "name": "IMM User Competency",
+  "doctype": "DocType",
+  "module": "AssetCore",
+  "engine": "InnoDB",
+  "document_type": "Document",
+  "is_submittable": 0,
+  "track_changes": 1,
+  "autoname": "COMP-.YYYY.-.#####",
+  "naming_rule": "Expression (old style)",
+  "title_field": "user",
+  "search_fields": "user,device_model,training_program",
+  "sort_field": "expiry_date",
+  "sort_order": "ASC",
+  "creation": "2026-05-08 00:00:00.000000",
+  "modified": "2026-05-08 00:00:00.000000",
+  "modified_by": "Administrator",
+  "owner": "Administrator",
+  "field_order": [
+    "workflow_state",
+    "user",
+    "device_model",
+    "training_program",
+    "section_source",
+    "training_session",
+    "department_at_assessment",
+    "section_result",
+    "competency_level",
+    "achieved_date",
+    "validity_months",
+    "expiry_date",
+    "recertification_due_date",
+    "section_scores",
+    "last_assessment_score",
+    "theory_score",
+    "practical_score",
+    "section_approval",
+    "supervisor_signoff",
+    "signoff_date",
+    "certificate_file",
+    "section_revoke",
+    "revoke_reason",
+    "revoke_capa_ref",
+    "revoked_by",
+    "revoked_date",
+    "suspended_until",
+    "section_expiry_status",
+    "days_until_expiry",
+    "is_expired"
+  ],
+  "fields": [
+    {
+      "fieldname": "workflow_state",
+      "fieldtype": "Link",
+      "label": "Trạng thái",
+      "options": "Workflow State",
+      "read_only": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "user",
+      "fieldtype": "Link",
+      "label": "Nhân viên",
+      "options": "User",
+      "reqd": 1,
+      "in_list_view": 1,
+      "search_index": 1
+    },
+    {
+      "fieldname": "device_model",
+      "fieldtype": "Link",
+      "label": "Device Model",
+      "options": "IMM Device Model",
+      "reqd": 1,
+      "in_list_view": 1,
+      "search_index": 1
+    },
+    {
+      "fieldname": "training_program",
+      "fieldtype": "Link",
+      "label": "Chương trình",
+      "options": "IMM Training Program",
+      "reqd": 1
+    },
+    {
+      "fieldtype": "Section Break",
+      "fieldname": "section_source",
+      "label": "Nguồn gốc"
+    },
+    {
+      "fieldname": "training_session",
+      "fieldtype": "Link",
+      "label": "Buổi đào tạo",
+      "options": "IMM Training Session",
+      "read_only": 1
+    },
+    {
+      "fieldname": "department_at_assessment",
+      "fieldtype": "Link",
+      "label": "Khoa tại thời điểm đánh giá",
+      "options": "AC Department",
+      "read_only": 1,
+      "search_index": 1
+    },
+    {
+      "fieldtype": "Section Break",
+      "fieldname": "section_result",
+      "label": "Kết quả đánh giá"
+    },
+    {
+      "fieldname": "competency_level",
+      "fieldtype": "Select",
+      "label": "Cấp độ năng lực",
+      "options": "Trainee\nOperator\nSenior Operator\nTrainer",
+      "reqd": 1
+    },
+    {
+      "fieldname": "achieved_date",
+      "fieldtype": "Date",
+      "label": "Ngày đạt",
+      "reqd": 1
+    },
+    {
+      "fieldname": "validity_months",
+      "fieldtype": "Int",
+      "label": "Hiệu lực (tháng)",
+      "default": "24"
+    },
+    {
+      "fieldname": "expiry_date",
+      "fieldtype": "Date",
+      "label": "Ngày hết hạn",
+      "read_only": 1,
+      "search_index": 1
+    },
+    {
+      "fieldname": "recertification_due_date",
+      "fieldtype": "Date",
+      "label": "Ngày cần tái chứng nhận",
+      "read_only": 1
+    },
+    {
+      "fieldtype": "Section Break",
+      "fieldname": "section_scores",
+      "label": "Điểm số"
+    },
+    {
+      "fieldname": "last_assessment_score",
+      "fieldtype": "Float",
+      "label": "Điểm tổng hợp",
+      "read_only": 1
+    },
+    {
+      "fieldname": "theory_score",
+      "fieldtype": "Float",
+      "label": "Điểm lý thuyết",
+      "read_only": 1
+    },
+    {
+      "fieldname": "practical_score",
+      "fieldtype": "Float",
+      "label": "Điểm thực hành",
+      "read_only": 1
+    },
+    {
+      "fieldtype": "Section Break",
+      "fieldname": "section_approval",
+      "label": "Phê duyệt"
+    },
+    {
+      "fieldname": "supervisor_signoff",
+      "fieldtype": "Link",
+      "label": "Người phê duyệt",
+      "options": "User",
+      "read_only": 1
+    },
+    {
+      "fieldname": "signoff_date",
+      "fieldtype": "Date",
+      "label": "Ngày phê duyệt",
+      "read_only": 1
+    },
+    {
+      "fieldname": "certificate_file",
+      "fieldtype": "Link",
+      "label": "File chứng nhận",
+      "options": "Asset Document"
+    },
+    {
+      "fieldtype": "Section Break",
+      "fieldname": "section_revoke",
+      "label": "Thu hồi / Tạm ngưng"
+    },
+    {
+      "fieldname": "revoke_reason",
+      "fieldtype": "Small Text",
+      "label": "Lý do thu hồi"
+    },
+    {
+      "fieldname": "revoke_capa_ref",
+      "fieldtype": "Link",
+      "label": "CAPA reference",
+      "options": "IMM CAPA Record"
+    },
+    {
+      "fieldname": "revoked_by",
+      "fieldtype": "Link",
+      "label": "Thu hồi bởi",
+      "options": "User",
+      "read_only": 1
+    },
+    {
+      "fieldname": "revoked_date",
+      "fieldtype": "Datetime",
+      "label": "Ngày thu hồi",
+      "read_only": 1
+    },
+    {
+      "fieldname": "suspended_until",
+      "fieldtype": "Date",
+      "label": "Tạm ngưng đến"
+    },
+    {
+      "fieldtype": "Section Break",
+      "fieldname": "section_expiry_status",
+      "label": "Trạng thái hết hạn"
+    },
+    {
+      "fieldname": "days_until_expiry",
+      "fieldtype": "Int",
+      "label": "Còn lại (ngày)",
+      "read_only": 1
+    },
+    {
+      "fieldname": "is_expired",
+      "fieldtype": "Check",
+      "label": "Đã hết hạn",
+      "read_only": 1
+    }
+  ],
+  "permissions": [
+    {
+      "role": "IMM System Admin",
+      "read": 1,
+      "write": 1,
+      "create": 1,
+      "delete": 1,
+      "report": 1,
+      "export": 1,
+      "print": 1
+    },
+    {
+      "role": "IMM Training Officer",
+      "read": 1,
+      "write": 1,
+      "create": 1,
+      "report": 1,
+      "print": 1
+    },
+    {
+      "role": "IMM Workshop Lead",
+      "read": 1,
+      "write": 1,
+      "create": 1,
+      "report": 1
+    },
+    {
+      "role": "IMM Biomed Technician",
+      "read": 1,
+      "report": 1
+    }
+  ]
+}

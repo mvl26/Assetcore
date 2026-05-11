@@ -25,8 +25,9 @@ You are extending a Frappe v15 (Python) backend that follows a **mandatory 3-tie
 - API layer must NOT contain business logic. It only parses input, calls service, formats output.
 - Service layer must NOT touch HTTP, JSON, or `frappe.whitelist`. It raises `ServiceError`.
 - DocType controller hooks (`before_insert`, `validate`, etc.) delegate to service functions — never inline rules.
-- Every state-changing action on an asset must call `log_audit_event(...)` from `assetcore.utils.lifecycle` (writes a SHA-256-chained `IMM Audit Trail` row). Don't hand-build audit rows.
+- Every state-changing action on an asset must call `log_audit_event(...)` from `assetcore.utils.lifecycle` (writes a SHA-256-chained `IMM Audit Trail` row). Don't hand-build audit rows. Don't define a local `_create_lifecycle_event` in a module — use the canonical one from `assetcore.utils.lifecycle`.
 - Use the shared constants from `assetcore.services.shared` (Roles, ErrorCode, AssetStatus, ApprovalStatus, CalibrationStatus, CalibrationResult). Never hardcode role names or status strings.
+- Never use bare `except: pass` or `except Exception: pass` — always at minimum `frappe.log_error(...)`. Silently swallowing exceptions hides data corruption.
 - Note: there are **two** `ErrorCode` classes in the repo. Service layer uses the one re-exported by `assetcore.services.shared` (the canonical one — `VALIDATION`, `BUSINESS_RULE`, `BAD_STATE`, `INVALID_PARAMS`, `INTERNAL`, etc. — see `services/shared/constants.py:213`). The legacy one in `utils/response.py` (`VALIDATION_ERROR`, `BUSINESS_RULE_VIOLATION`, `INTERNAL_ERROR`) is kept only for backwards compatibility with older `_err()` callers. Always import from `assetcore.services.shared`.
 
 ## Directory layout (where files go)
@@ -179,6 +180,10 @@ def create_thing(*, asset_ref: str, **kwargs) -> dict:
 
 **Conventions:**
 - Raise `ServiceError(ErrorCode.X, "vietnamese message")` for business errors. Use `frappe.throw(_("..."))` only inside DocType controller hooks (where Frappe converts it to a `ValidationError` the form layer understands).
+- **`frappe.throw(_(f"..."))` is wrong** — f-strings inside `_()` are never translatable (the string extractor sees a runtime value). Always use `frappe.throw(_("... {}").format(value))`.
+- **Never call `doc.save()` or `frappe.get_doc(...).save()` on a submitted document** (docstatus=1) — Frappe throws a re-submit guard. Use `frappe.db.set_value(DOCTYPE, name, field, value, update_modified=False)` for post-submit field updates.
+- Use `frappe.logger("immXX").info(...)` for operational telemetry (KPI compute, schedule ticks). Reserve `frappe.log_error(...)` for actual errors — it creates records in the Error Log DocType visible to all desk users.
+- Shared utilities (filter normalization, operator tokens) must go in `assetcore/services/shared/filters.py` — don't duplicate the same block across service files.
 - Real `ErrorCode` constants (from `services/shared/constants.py`): `NOT_FOUND`, `FORBIDDEN`, `UNAUTHORIZED`, `VALIDATION`, `BUSINESS_RULE`, `CONFLICT`, `BAD_STATE`, `DUPLICATE`, `INVALID_PARAMS`, `RATE_LIMITED`, `INTERNAL`. Do NOT use `VALIDATION_ERROR`/`BUSINESS_RULE_VIOLATION`/`INTERNAL_ERROR` — those belong to the legacy `utils.response.ErrorCode` kept for backwards compat.
 - Use the convenience factories in `services/shared/errors.py` when they fit: `not_found(msg)`, `forbidden(msg)`, `unauthorized(msg)`, `validation(msg)`, `conflict(msg)`, `bad_state(msg)`.
 - Keep validators pure (`validate_*(doc)`) so controllers can reuse them.
@@ -278,6 +283,10 @@ scheduler_events = {
 | `ServiceError` reaches caller as 500 | Missing `_handle()` wrap | Wrap every call in `_handle` |
 | Status string mismatch FE/BE | Hardcoded literal | Move to constant class, share via API response |
 | Stale data after `frappe.db.set_value` | Forgot `frappe.db.commit()` in CLI scripts | Inside web requests Frappe commits; for `bench execute` you must commit explicitly |
+| `ValidationError` on `doc.save()` after submit | Calling `.save()` on a submitted (docstatus=1) doc | Use `frappe.db.set_value(..., update_modified=False)` instead |
+| Audit trail gap for pre-asset records | Service called `frappe.get_doc({...}).insert()` directly instead of `log_audit_event` | Route all audit writes through the canonical helper |
+| Errors disappear silently | Bare `except: pass` or `except Exception: pass` in service/controller | At minimum `frappe.log_error(title, e)` inside the except |
+| Recurring records in hourly job | Boolean flag field not reset after processing (e.g., `is_open = 0` forgotten) | Always reset the flag that was used to select the records |
 
 ## Where to look for live examples
 
@@ -287,7 +296,8 @@ scheduler_events = {
 - `assetcore/services/shared/__init__.py` — canonical re-exports (always import from here)
 - `assetcore/services/shared/errors.py` — `ServiceError` + factories (`not_found`, `forbidden`, `validation`, `conflict`, `bad_state`)
 - `assetcore/repositories/base.py` — `BaseRepository` contract (`exists`, `get`, `list`, `count`, `find_one`, `create`, `update`, `delete`)
-- `assetcore/repositories/__init__.py` — current repos: `AssetRepo`, `RepairRepo`, `PMRepo`, `CalibrationRepo`, `CommissioningRepo`, `DocumentRepo`, `UserProfileRepo`, plus IMM-00 foundation repos
+- `assetcore/repositories/__init__.py` — canonical re-exports for all repos; import from here, not from the individual `_repo.py` files directly
+- `assetcore/services/shared/filters.py` — `normalize_filters()` for query filter normalization (do not duplicate per-module)
 - `assetcore/utils/response.py` — `_ok`, `_err`, legacy `ErrorCode` (do not use the legacy enum in new code)
 - `assetcore/utils/api_endpoint.py` — `@api_endpoint` decorator
 - `assetcore/utils/lifecycle.py` — `log_audit_event` (SHA-256 chain)
@@ -306,3 +316,20 @@ scheduler_events = {
 8. Implement API layer (whitelist + `_handle`).
 9. Run `bench --site <site> run-tests --module assetcore.tests.test_immXX`.
 10. Update `assetcore/api/README.md` with new endpoint signatures.
+
+---
+
+## Cross-skill conventions
+
+Read [`/.claude/skills/CONVENTIONS.md`](../CONVENTIONS.md) for project-wide rules. Especially relevant to this skill:
+
+- §2. Architecture Layers — strict 3-tier; never call `frappe.db.set_value` from service (use repo)
+- §3. Error Handling — use `ServiceError + ErrorCode` only; never throw ad-hoc strings
+- §4. Audit & Lifecycle — every state transition MUST emit IMM Audit Trail
+- §5. Permissions Layer 3 — centralize role guards in `services/shared/permissions.py`
+
+### Module-specific gotchas
+- `_normalize_filters` duplicated in imm08/09/11.py — import from `services.shared` instead
+- `_parse_json` is duplicated in every API file — TODO: consolidate to `api.utils`
+- Only `imm06` has explicit `_guard()` auth check; others rely on `@frappe.whitelist()` alone
+- Many services bypass repositories — when refactoring a service, route reads through its repo

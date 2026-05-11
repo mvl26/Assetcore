@@ -75,6 +75,48 @@ Common columns layout:
 </table>
 ```
 
+## Loading + error state (required in all List and Detail views)
+
+Every view that fetches async data must have all three branches. Never use just `v-if="loading"` + `v-else`:
+
+```vue
+<!-- List view pattern -->
+<div v-if="store.loading" class="py-8 text-center text-neutral-400">
+  Đang tải…
+</div>
+
+<div v-else-if="store.error"
+     class="rounded border border-rose-200 bg-rose-50 px-4 py-3 text-rose-700 flex items-center gap-3">
+  <span class="flex-1">{{ store.error }}</span>
+  <button class="text-sm underline" @click="load()">Thử lại</button>
+</div>
+
+<template v-else>
+  <table class="w-full text-sm">…</table>
+  <BasePagination … />
+</template>
+```
+
+```vue
+<!-- Detail view pattern — skeleton while loading, error card on failure -->
+<div v-if="store.loading && !store.current" class="space-y-4 animate-pulse">
+  <div class="h-6 bg-neutral-200 rounded w-1/3" />
+  <div class="h-4 bg-neutral-100 rounded w-2/3" />
+</div>
+
+<div v-else-if="store.error && !store.current"
+     class="rounded border border-rose-200 bg-rose-50 px-4 py-6 text-center text-rose-700">
+  <p class="mb-3">{{ store.error }}</p>
+  <button class="px-3 py-1 rounded bg-rose-100 text-sm" @click="load()">Thử lại</button>
+</div>
+
+<div v-else-if="store.current">
+  <!-- actual content -->
+</div>
+```
+
+**Rule:** `v-if/v-else-if/v-else` — always tri-branch. Missing the error branch means errors are swallowed silently and users see an empty state with no feedback.
+
 ## Form field with inline error
 
 ```vue

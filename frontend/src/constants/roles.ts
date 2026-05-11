@@ -16,6 +16,15 @@ export const Roles = {
   CLINICAL:    'IMM Clinical User',
   AUDITOR:     'IMM Auditor',
   VENDOR_ENGINEER: 'Vendor Engineer',
+  // Wave 2 — planning
+  PLANNING:        'IMM Planning Officer',
+  FINANCE:         'IMM Finance Officer',
+  HTM_ENGINEER:    'IMM HTM Engineer',
+  PROCUREMENT:     'IMM Procurement Officer',
+  RISK:            'IMM Risk Officer',
+  BOARD_APPROVER:  'IMM Board Approver',
+  // Wave 2 — training (IMM-06)
+  TRAINING_OFFICER: 'IMM Training Officer',
 } as const
 
 export type RoleName = (typeof Roles)[keyof typeof Roles]
@@ -103,6 +112,17 @@ export const ROLES_CAPA_CLOSE: readonly RoleName[] = [
 // IMM-05 Doc approve gate
 export const ROLES_DOC_APPROVE: readonly RoleName[] = [
   Roles.SYS_ADMIN, Roles.QA,
+] as const
+
+// IMM-06 Training & Competency
+export const ROLES_TRAINING_MANAGE: readonly RoleName[] = [
+  Roles.SYS_ADMIN, Roles.TRAINING_OFFICER,
+] as const
+export const ROLES_TRAINING_CONDUCT: readonly RoleName[] = [
+  Roles.SYS_ADMIN, Roles.TRAINING_OFFICER, Roles.WORKSHOP, Roles.BIOMED,
+] as const
+export const ROLES_TRAINING_SIGNOFF: readonly RoleName[] = [
+  Roles.SYS_ADMIN, Roles.TRAINING_OFFICER, Roles.WORKSHOP, Roles.DEPT_HEAD,
 ] as const
 
 // Legacy alias — giữ để không break các view hiện có

@@ -162,7 +162,7 @@ async function handleSubmit() {
     } else {
       error.value = store.error ?? 'Tạo tài liệu thất bại'
     }
-  } catch (e) {
+  } catch (e: unknown) {
     error.value = e instanceof Error ? e.message : 'Lỗi kết nối'
     saving.value = false
   }

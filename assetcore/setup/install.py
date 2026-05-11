@@ -88,6 +88,7 @@ def create_user_custom_fields() -> None:
 
 
 def after_install() -> None:
+    _sync_workflows()
     create_user_custom_fields()
     _apply_rbac_matrix()
     _seed_role_profiles()
@@ -96,12 +97,55 @@ def after_install() -> None:
 
 
 def after_migrate() -> None:
+    _sync_workflows()
     create_user_custom_fields()
     _apply_rbac_matrix()
     _seed_role_profiles()
     _seed_module_profiles()
     _apply_core_permissions()
     _install_notifications()
+
+
+def _sync_workflows() -> None:
+    """Import all AssetCore workflow JSON files and ensure Workflow State master records exist."""
+    import json as _json
+    import os
+
+    from frappe.modules.import_file import import_doc as _import_doc
+
+    workflow_dir = frappe.get_app_path("assetcore", "assetcore", "workflow")
+    if not os.path.exists(workflow_dir):
+        return
+
+    all_states: set[str] = set()
+
+    for fname in sorted(os.listdir(workflow_dir)):
+        if not fname.endswith(".json"):
+            continue
+        fpath = os.path.join(workflow_dir, fname)
+        try:
+            with open(fpath) as f:
+                docdict = _json.load(f)
+            _import_doc(docdict, path=fpath)
+            for state_row in docdict.get("states") or []:
+                if state_row.get("state"):
+                    all_states.add(state_row["state"])
+            print(f"[AssetCore] Workflow synced: {docdict.get('workflow_name') or fname}")
+        except Exception as e:
+            print(f"[AssetCore] Workflow sync error ({fname}): {e}")
+
+    # Ensure every state referenced in workflow JSONs exists in the Workflow State master.
+    for state_name in sorted(all_states):
+        if not frappe.db.exists("Workflow State", state_name):
+            try:
+                ws = frappe.new_doc("Workflow State")
+                ws.workflow_state_name = state_name
+                ws.flags.ignore_permissions = True
+                ws.insert(ignore_if_duplicate=True)
+            except Exception as e:
+                print(f"[AssetCore] Workflow State create error ({state_name!r}): {e}")
+
+    frappe.db.commit()
 
 
 def _install_notifications() -> None:

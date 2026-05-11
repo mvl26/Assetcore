@@ -16,9 +16,10 @@ from frappe.utils import (
     time_diff_in_seconds,
 )
 
-from assetcore.repositories.asset_repo import AssetRepo, LifecycleEventRepo
+from assetcore.repositories.asset_repo import AssetRepo
 from assetcore.repositories.repair_repo import FirmwareChangeRequestRepo, RepairRepo
 from assetcore.services.imm00 import transition_asset_status
+from assetcore.utils.lifecycle import create_lifecycle_event as _create_lifecycle_event
 from assetcore.services.shared import (
     AssetStatus,
     ErrorCode,
@@ -189,21 +190,21 @@ def complete_repair(doc) -> None:
         frappe.log_error(frappe.get_traceback(), "IMM-09 → IMM-11 recalibration hook failed")
 
 
-def _create_lifecycle_event(*, asset: str, event_type: str, from_status: str,
-                             to_status: str, root_record: str, notes: str = "") -> None:
+def _log_lifecycle_event(*, asset: str, event_type: str, from_status: str,
+                          to_status: str, root_record: str, notes: str = "") -> None:
+    """Wrapper cục bộ — gọi canonical create_lifecycle_event từ utils.lifecycle."""
     try:
-        LifecycleEventRepo.create({
-            "asset": asset,
-            "event_type": event_type,
-            "timestamp": now_datetime(),
-            "actor": frappe.session.user,
-            "from_status": from_status,
-            "to_status": to_status,
-            "root_record": root_record,
-            "notes": notes,
-        })
+        _create_lifecycle_event(
+            asset=asset,
+            event_type=event_type,
+            actor=frappe.session.user,
+            from_status=from_status,
+            to_status=to_status,
+            root_record=root_record,
+            notes=notes,
+        )
     except Exception:
-        pass
+        frappe.log_error(frappe.get_traceback(), f"IMM-09 lifecycle event failed for {asset}")
 
 
 # ─── Scheduler jobs ───────────────────────────────────────────────────────────
@@ -455,7 +456,7 @@ def submit_diagnosis(name: str, *, diagnosis_notes: str, needs_parts: int = 0) -
     doc.status = RepairStatus.PENDING_PARTS if int(needs_parts) else RepairStatus.IN_REPAIR
     doc.flags.ignore_links = True
     RepairRepo.save(doc)
-    _create_lifecycle_event(
+    _log_lifecycle_event(
         asset=doc.asset_ref, event_type="diagnosis_submitted",
         from_status=RepairStatus.ASSIGNED, to_status=doc.status,
         root_record=name,

@@ -32,6 +32,8 @@ _IMM_ROLES = [
     "IMM Procurement Officer",
     "IMM Risk Officer",
     "IMM Board Approver",
+    # Wave 2 — training & competency (IMM-06)
+    "IMM Training Officer",
 ]
 _IMM_ROLE_PROFILES = [
     # Wave 1
@@ -74,13 +76,29 @@ fixtures = [
     {"dt": "Workspace", "filters": [["name", "in", ["IMM Operations"]]]},
     {"dt": "Workflow", "filters": [["name", "in", [
         "AC Asset Lifecycle",
+        # Wave 2 — Planning & Procurement
+        "IMM-01 Needs Workflow",
+        "IMM-01 Plan Workflow",
+        "IMM-02 Spec Workflow",
+        "IMM-03 AVL Workflow",
+        "IMM-03 Vendor Eval Workflow",
+        "IMM-03 Decision Workflow",
+        # Wave 1
         "IMM-04 Workflow",
         "IMM-05 Document Workflow",
+        "IMM-06 Session Workflow",
+        "IMM-06 Competency Workflow",
         "IMM-08 PM Workflow",
         "IMM-09 Repair Workflow",
         "IMM-11 Calibration Workflow",
         "IMM-12 Incident Workflow",
         "IMM-12 RCA Workflow",
+        "IMM-15 Spare Allocation Workflow",
+        "IMM-15 Cycle Count Workflow",
+        "IMM-16 Compliance Finding Workflow",
+        "IMM-16 CAPA Workflow",
+        "IMM-16 Internal Audit Workflow",
+        "IMM-16 Management Review Workflow",
     ]]]},
     {"dt": "Workflow State", "filters": [["name", "in", [
         # AC Asset Lifecycle
@@ -103,6 +121,33 @@ fixtures = [
         # IMM-12 Incident / RCA
         "Acknowledged", "Resolved", "RCA Required", "Closed",
         "RCA In Progress",
+        # IMM-06 Training Session
+        "Planned", "Confirmed", "Verified",
+        # IMM-06 Competency
+        "Pending Assessment", "Expiring", "Suspended", "Revoked",
+        # IMM-15 Spare Allocation
+        "Requested", "Approved", "Picked", "Issued", "Returned",
+        # IMM-15 Cycle Count
+        "Counting", "Reviewed", "Posted",
+        # IMM-16 Compliance Finding
+        "Under Review", "Confirmed NC", "False Positive", "Waived",
+        # IMM-16 CAPA
+        "Investigating", "Action Plan", "Implementation", "Verification", "Re-opened",
+        # IMM-16 Internal Audit
+        "Reporting",
+        # IMM-16 Management Review
+        "Held", "Minutes Approved",
+        # IMM-01 Needs Workflow
+        "Submitted", "Reviewing", "Prioritized", "Budgeted", "Pending Approval",
+        # IMM-02 Spec Workflow
+        "Benchmarked", "Risk Assessed", "Locked", "Withdrawn",
+        # IMM-03 AVL Workflow
+        "Conditional",
+        # IMM-03 Vendor Eval Workflow
+        "Open RFQ", "Quotation Received", "Evaluated",
+        # IMM-03 Decision Workflow
+        "Method Selected", "Negotiation", "Award Recommended", "Awarded",
+        "Contract Signed", "PO Issued",
     ]]]},
     {"dt": "Workflow Action Master", "filters": [["name", "in", [
         # AC Asset Lifecycle
@@ -120,6 +165,11 @@ fixtures = [
         "Khắc phục xong", "Trả lại nhà cung cấp",
         # IMM-05
         "Gửi duyệt", "Phê duyệt", "Từ chối", "Gửi lại", "Lưu trữ", "Hủy bỏ",
+        # IMM-06 Training Session
+        "Xác nhận", "Bắt đầu", "Hoàn thành", "Verify", "Đóng", "Hủy",
+        # IMM-06 Competency
+        "Sign-off", "Tạm ngưng", "Khôi phục", "Thu hồi",
+        "Đánh dấu sắp hết hạn", "Hết hạn", "Tái chứng nhận",
         # IMM-08
         "Bắt đầu thực hiện", "Đánh dấu trễ hạn", "Hủy phiếu",
         "Hoàn thành PM", "Báo lỗi nghiêm trọng", "Thiết bị bận - hoãn",
@@ -139,6 +189,34 @@ fixtures = [
         "RCA hoàn tất - đóng sự cố", "Mở lại điều tra", "Mở lại sự cố",
         # IMM-12 RCA
         "Bắt đầu phân tích RCA", "Hủy RCA", "Hoàn thành RCA",
+        # IMM-15 Spare Allocation
+        "Phê duyệt", "Pick", "Issue", "Issue (Emergency)", "Trả phụ tùng", "Đóng phiếu",
+        # IMM-15 Cycle Count
+        "Bắt đầu đếm", "Hoàn tất đếm", "Sửa đếm lại", "Post",
+        # IMM-16 Compliance Finding
+        "Bắt đầu xem xét", "Xác nhận vi phạm", "Xác nhận không vi phạm",
+        "Miễn trừ", "Đánh dấu đã giải quyết", "Đóng finding",
+        # IMM-16 CAPA
+        "Bắt đầu điều tra", "Lập kế hoạch hành động", "Bắt đầu thực thi",
+        "Chuyển sang xác minh", "Đóng CAPA", "Mở lại do chưa hiệu quả",
+        "Bắt đầu điều tra lại",
+        # IMM-01 Needs Workflow
+        "Gửi đề xuất", "Tiếp nhận rà soát", "Yêu cầu bổ sung", "Hoàn tất chấm điểm",
+        "Bác đề xuất sớm", "Hoàn tất dự toán", "Trình BGĐ", "Phê duyệt", "Bác đề xuất",
+        "Yêu cầu chỉnh dự toán",
+        # IMM-01 Plan Workflow
+        "Phê duyệt kế hoạch", "Kích hoạt", "Đóng kỳ kế hoạch",
+        # IMM-02 Spec Workflow
+        "Gửi rà soát", "Yêu cầu chỉnh spec", "Hoàn tất benchmark",
+        "Đánh giá rủi ro xong", "Trình duyệt spec", "Phê duyệt spec", "Rút spec",
+        "Yêu cầu chỉnh risk",
+        # IMM-03 Vendor Eval Workflow
+        "Mở RFQ", "Nhận báo giá xong", "Hoàn tất chấm điểm", "Huỷ Eval",
+        # IMM-03 AVL Workflow
+        "Phê duyệt AVL", "Cấp Conditional", "Hạ xuống Conditional", "Đình chỉ", "Phục hồi Approved",
+        # IMM-03 Decision Workflow
+        "Chọn phương án", "Bắt đầu thương thảo", "Đề xuất trúng thầu",
+        "Phê duyệt trúng thầu", "Huỷ Decision", "Ký HĐ", "Phát hành PO",
     ]]]},
 ]
 
@@ -150,6 +228,7 @@ doc_events = {
         "on_submit": [
             "assetcore.services.imm08.create_pm_schedule_from_commissioning",
             "assetcore.services.imm11.create_calibration_schedule_from_commissioning",
+            "assetcore.services.imm16.eval_imm04_realtime",
         ],
     },
     "AC Stock Movement": {
@@ -160,10 +239,37 @@ doc_events = {
             "assetcore.services.purchase.auto_unmark_purchase_received",
         ],
     },
-    # ─── IMM-01 (Wave 2) — controllers tự gọi service; không cần khai ở đây ───
+    # ─── IMM-01/02/03 (Wave 2) — controllers tự gọi service ─────────────────
     # ─── IMM-03 (Wave 2) — validate AC Purchase phải link IMM-03 Decision ───
     "AC Purchase": {
         "validate": "assetcore.services.imm03.validate_ac_purchase_imm_link",
+    },
+    # ─── IMM-16 Compliance — CAPA hooks now handled by IMMCAPARecord controller ─
+    # (removed duplicate doc_events wiring — controller delegates to service layer)
+    # ─── IMM-06 Training & Competency ───────────────────────────────────────
+    "User": {
+        "on_update": "assetcore.services.imm06.handle_user_dept_change",
+    },
+    # ─── IMM-15 Spare Parts Inventory ───────────────────────────────────────
+    "PM Work Order": {
+        "validate": "assetcore.services.imm16.gate_wo_submit",
+        "before_submit": "assetcore.services.imm15.reserve_for_pm",
+        "on_submit": "assetcore.services.imm16.eval_imm08_09_realtime",
+    },
+    "Asset Repair": {
+        "validate": "assetcore.services.imm16.gate_wo_submit",
+        "before_submit": "assetcore.services.imm15.reserve_for_repair",
+        "on_submit": "assetcore.services.imm16.eval_imm08_09_realtime",
+    },
+    "AC Asset": {
+        "on_update": "assetcore.services.imm15.flag_obsolete_on_decommission",
+    },
+    # ─── IMM-16 Compliance real-time evaluation ───
+    "Asset Document": {
+        "on_update": "assetcore.services.imm16.eval_imm05_realtime",
+    },
+    "Calibration Record": {
+        "on_submit": "assetcore.services.imm16.eval_imm11_realtime",
     },
 }
 
@@ -197,12 +303,33 @@ scheduler_events = {
         "assetcore.services.imm03.check_avl_expiry",
         "assetcore.services.imm03.check_audit_due",
         "assetcore.services.imm03.check_decision_overdue",
+        # IMM-06 Training & Competency
+        "assetcore.services.imm06.check_expiring_competencies",
+        "assetcore.services.imm06.auto_expire_competencies",
+        # IMM-06 recertification check
+        "assetcore.services.imm06.check_recertification_due",
+        # IMM-15 Spare Parts Inventory
+        "assetcore.services.imm15.check_low_stock_and_alert",
+        # IMM-15 spare parts schedulers
+        "assetcore.services.imm15.check_critical_spare_breach",
+        "assetcore.services.imm15.check_expiring_batches",
+        "assetcore.services.imm15.compute_inventory_kpis",
+        # IMM-16 Compliance Monitoring
+        "assetcore.services.imm16.evaluate_all_compliance_rules",
+        "assetcore.services.imm16.check_capa_due",
+        # IMM-16 audit milestones
+        "assetcore.services.imm16.check_audit_milestones",
     ],
     "weekly": [
         # IMM-01 — envelope utilization warning
         "assetcore.services.imm01.budget_envelope_alert",
         # IMM-02 — stale benchmark warning
         "assetcore.services.imm02.benchmark_freshness_alert",
+        # IMM-06 weekly gap report
+        "assetcore.services.imm06.generate_weekly_gap_report",
+        # IMM-16 weekly compliance eval + management review check
+        "assetcore.services.imm16.run_compliance_evaluation_weekly",
+        "assetcore.services.imm16.check_management_review_due",
     ],
     "monthly": [
         "assetcore.services.imm00.rollup_asset_kpi",
@@ -210,12 +337,24 @@ scheduler_events = {
         "assetcore.services.depreciation.run_due_depreciation",
         # IMM-01 — Demand Forecast generation
         "assetcore.services.imm01.generate_demand_forecast",
+        # IMM-15 spare demand forecast
+        "assetcore.services.imm15.generate_spare_demand_forecast",
+        # IMM-16 monthly scorecard
+        "assetcore.services.imm16.update_compliance_scorecard",
+    ],
+    "hourly": [
+        # IMM-16 real-time stock breach evaluation
+        "assetcore.services.imm16.run_compliance_evaluation_hourly",
     ],
     # Frappe v15 không có "quarterly" → dùng cron expression
     "cron": {
         # IMM-03 — Vendor Scorecard 1/4/7/10 hàng năm 02:00
         "0 2 1 1,4,7,10 *": [
             "assetcore.services.imm03.update_vendor_scorecard",
+        ],
+        # IMM-15 ABC reclassification quarterly
+        "0 3 1 1,4,7,10 *": [
+            "assetcore.services.imm15.reclassify_abc",
         ],
     },
 }

@@ -1,0 +1,143 @@
+{
+  "creation": "2026-05-08 00:00:00.000000",
+  "document_type": "IMM Training Session",
+  "doctype": "Workflow",
+  "is_active": 1,
+  "modified": "2026-05-08 00:00:00.000000",
+  "modified_by": "Administrator",
+  "name": "IMM-06 Session Workflow",
+  "owner": "Administrator",
+  "send_email_alert": 0,
+  "workflow_name": "IMM-06 Session Workflow",
+  "workflow_state_field": "workflow_state",
+  "states": [
+    {
+      "allow_edit": "IMM Training Officer",
+      "doc_status": "0",
+      "state": "Planned",
+      "type": "Default"
+    },
+    {
+      "allow_edit": "IMM Training Officer",
+      "doc_status": "0",
+      "state": "Confirmed",
+      "type": "Warning"
+    },
+    {
+      "allow_edit": "IMM Training Officer",
+      "doc_status": "0",
+      "state": "In Progress",
+      "type": "Warning"
+    },
+    {
+      "allow_edit": "IMM Training Officer",
+      "doc_status": "0",
+      "state": "Completed",
+      "type": "Success"
+    },
+    {
+      "allow_edit": "IMM Workshop Lead",
+      "doc_status": "0",
+      "state": "Verified",
+      "type": "Success"
+    },
+    {
+      "allow_edit": "System Manager",
+      "doc_status": "1",
+      "state": "Closed",
+      "type": "Default"
+    },
+    {
+      "allow_edit": "System Manager",
+      "doc_status": "0",
+      "state": "Cancelled",
+      "type": "Danger"
+    }
+  ],
+  "transitions": [
+    {
+      "action": "Xác nhận",
+      "allowed": "IMM Training Officer",
+      "next_state": "Confirmed",
+      "state": "Planned"
+    },
+    {
+      "action": "Xác nhận",
+      "allowed": "IMM System Admin",
+      "next_state": "Confirmed",
+      "state": "Planned"
+    },
+    {
+      "action": "Bắt đầu",
+      "allowed": "IMM Training Officer",
+      "next_state": "In Progress",
+      "state": "Confirmed"
+    },
+    {
+      "action": "Bắt đầu",
+      "allowed": "IMM Biomed Technician",
+      "next_state": "In Progress",
+      "state": "Confirmed"
+    },
+    {
+      "action": "Hoàn thành",
+      "allowed": "IMM Training Officer",
+      "next_state": "Completed",
+      "state": "In Progress"
+    },
+    {
+      "action": "Hoàn thành",
+      "allowed": "IMM Biomed Technician",
+      "next_state": "Completed",
+      "state": "In Progress"
+    },
+    {
+      "action": "Verify",
+      "allowed": "IMM Workshop Lead",
+      "next_state": "Verified",
+      "state": "Completed"
+    },
+    {
+      "action": "Verify",
+      "allowed": "IMM System Admin",
+      "next_state": "Verified",
+      "state": "Completed"
+    },
+    {
+      "action": "Đóng",
+      "allowed": "IMM Workshop Lead",
+      "next_state": "Closed",
+      "state": "Verified"
+    },
+    {
+      "action": "Đóng",
+      "allowed": "IMM System Admin",
+      "next_state": "Closed",
+      "state": "Verified"
+    },
+    {
+      "action": "Hủy",
+      "allowed": "IMM Training Officer",
+      "next_state": "Cancelled",
+      "state": "Planned"
+    },
+    {
+      "action": "Hủy",
+      "allowed": "IMM System Admin",
+      "next_state": "Cancelled",
+      "state": "Planned"
+    },
+    {
+      "action": "Hủy",
+      "allowed": "IMM Training Officer",
+      "next_state": "Cancelled",
+      "state": "Confirmed"
+    },
+    {
+      "action": "Hủy",
+      "allowed": "IMM System Admin",
+      "next_state": "Cancelled",
+      "state": "Confirmed"
+    }
+  ]
+}

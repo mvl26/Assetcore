@@ -91,8 +91,8 @@ This writes JSON into `assetcore/fixtures/<doctype>.json`. **Always commit the d
 - `Module Profile` — 3 (`IMM - Standard`, `IMM - Admin`, `IMM - Vendor`)
 - `IMM SLA Policy`
 - `Workspace` — `IMM Operations`
-- `Workflow` — 8 wave-1 workflows (`AC Asset Lifecycle`, `IMM-04`, `IMM-05`, `IMM-08 PM`, `IMM-09 Repair`, `IMM-11 Calibration`, `IMM-12 Incident`, `IMM-12 RCA`)
-- `Workflow State` — every unique state name across all workflows (Open, Assigned, Diagnosing, Pending Parts, In Repair, …)
+- `Workflow` — Wave 1: `AC Asset Lifecycle`, `IMM-04`, `IMM-05`, `IMM-08 PM`, `IMM-09 Repair`, `IMM-11 Calibration`, `IMM-12 Incident`, `IMM-12 RCA`; Wave 2: `IMM-01 Needs`, `IMM-01 Plan`, `IMM-02 Spec`, `IMM-03 AVL`, `IMM-03 Vendor Eval`, `IMM-03 Decision`, `IMM-16 Management Review`, `IMM-16 Internal Audit` (keep this list current — the smoke test in `test_workflows.py` validates count)
+- `Workflow State` — every unique state name across all workflows
 - `Workflow Action Master` — every Vietnamese button label
 
 **Fixture rules:**
@@ -102,7 +102,8 @@ This writes JSON into `assetcore/fixtures/<doctype>.json`. **Always commit the d
   {"dt": "Workflow", "filters": [["name", "in", [...]]]}
   ```
 - After editing fixtures → run migrate on every dev site to import.
-- **Adding a new workflow** means updating THREE filter lists: `Workflow`, `Workflow State` (every new state name), and `Workflow Action Master` (every new action label). Forgetting any of the three breaks fresh-site provisioning.
+- **Adding a new workflow** means updating THREE filter lists: `Workflow`, `Workflow State` (every new state name), and `Workflow Action Master` (every new action label). Forgetting any of the three breaks fresh-site provisioning silently — the workflow loads on dev (JSON is live) but fails on a fresh site.
+- Run `bench --site <site> run-tests --module assetcore.tests.test_workflows` after any workflow change — this is the fastest way to confirm all three lists are consistent.
 
 ## Hooks dispatch order
 
@@ -225,3 +226,17 @@ Python: bench reloads on file change in dev mode. If not, `bench restart` or `ki
 - `assetcore/setup/setup_permissions.py` — runtime permission setup (idempotent)
 - `frappe-bench/sites/<site>/site_config.json` — per-site config (DB, Redis, etc.)
 - `frappe-bench/common_site_config.json` — shared config
+
+---
+
+## Cross-skill conventions
+
+Read [`/.claude/skills/CONVENTIONS.md`](../CONVENTIONS.md) for project-wide rules. Especially relevant to this skill:
+
+- §1. Fixture filename pattern — `immXX_custom_fields.json`
+- §7. Documentation Sync — fixture changes require `hooks.py` + `08_Deployment.md` update
+
+### Module-specific gotchas
+- Fixtures must be in `hooks.py.fixtures` list with explicit filter to avoid leaking System fixtures
+- After adding new IMM-XX DocType, run: `bench --site <site> migrate` then `bench export-fixtures`
+- Patches go in `assetcore/patches/v<N>_<M>/`; register in `patches.txt` in dependency order

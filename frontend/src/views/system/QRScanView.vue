@@ -3,6 +3,7 @@
 import { ref, onMounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { getBarcodeLookup } from '@/api/imm04'
+import PageHeader from '@/components/common/PageHeader.vue'
 import { toggleGmdnStatus, getAsset } from '@/api/imm00'
 import { GMDN_STATUS_LABEL } from '@/stores/imm00'
 
@@ -33,8 +34,8 @@ async function scan() {
       if (lookup?.asset_id) assetId = lookup.asset_id
     } catch { /* không phải barcode/QR tag → tiếp tục với code gốc */ }
 
-    const toggle = await toggleGmdnStatus(assetId) as unknown as { gmdn_status: string; previous: string }
-    const asset = await getAsset(assetId) as unknown as { asset_name: string }
+    const toggle = await toggleGmdnStatus(assetId)
+    const asset = await getAsset(assetId)
     result.value = {
       asset: assetId,
       name: asset?.asset_name || assetId,
@@ -43,7 +44,7 @@ async function scan() {
     }
     manualCode.value = ''
   } catch (e: unknown) {
-    error.value = (e as Error).message || 'Lỗi khi xử lý QR'
+    error.value = e instanceof Error ? e.message : 'Lỗi khi xử lý QR'
   } finally {
     loading.value = false
   }
@@ -52,13 +53,10 @@ async function scan() {
 
 <template>
   <div class="page-container animate-fade-in max-w-md mx-auto">
-    <div class="mb-6">
-      <h1 class="text-2xl font-bold text-slate-900">Quét QR — GMDN Status</h1>
-      <p class="text-sm text-slate-500 mt-1">
-        Quét QR khi bắt đầu sử dụng → chuyển <strong>Đang sử dụng</strong>.
-        Quét lại khi kết thúc → về <strong>Không sử dụng</strong>.
-      </p>
-    </div>
+    <PageHeader
+      title="Quét QR — GMDN Status"
+      subtitle="Quét QR khi bắt đầu sử dụng → chuyển Đang sử dụng. Quét lại khi kết thúc → về Không sử dụng."
+    />
 
     <div class="card p-6 space-y-4">
       <div>

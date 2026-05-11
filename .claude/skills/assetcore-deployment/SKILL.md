@@ -260,3 +260,18 @@ Run via `bench --site <site> execute assetcore.scripts.uat.uat_smoke.run`. If it
 - `frappe-bench/config/` — supervisor, nginx, redis configs
 - `frappe-bench/sites/<site>/site_config.json` — per-site config
 - `frappe-bench/sites/<site>/private/backups/` — backup destination
+
+---
+
+## Cross-skill conventions
+
+Read [`/.claude/skills/CONVENTIONS.md`](../CONVENTIONS.md) for project-wide rules. Especially relevant to this skill:
+
+- §9. Wave-aware — Wave 3 (IMM-15/16) DocTypes scaffolded but workflows + fixtures need fixture export
+- §7. Documentation Sync — release notes must list new DocTypes, workflows, fixtures, ErrorCodes
+
+### Module-specific gotchas
+- Pre-deploy: count workflows in `assetcore/workflow/` against test_workflows.py expectations
+- Wave 1 workflows: 8 active. Wave 2 adds 7 (imm-01 needs/plan, imm-02 spec, imm-03 avl/decision/vendor_eval, imm-06 session/competency). Wave 3 adds 8 (imm-15 alloc/cycle_count, imm-16 finding/audit/capa/mr).
+- Fixture import order matters: roles → role_profiles → custom fields → workflows
+- Backup before migrate: `bench --site <site> backup`

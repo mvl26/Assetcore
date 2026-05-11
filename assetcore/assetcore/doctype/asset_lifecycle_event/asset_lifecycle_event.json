@@ -43,7 +43,9 @@
    "options": "AC Asset",
    "reqd": 1,
    "search_index": 1,
-   "in_list_view": 1
+   "in_list_view": 1,
+   "read_only": 1,
+   "no_copy": 1
   },
   {
    "fieldname": "event_type",
@@ -52,7 +54,9 @@
    "options": "commissioned\nactivated\npm_started\npm_completed\nrepair_opened\nrepair_completed\ncalibration_started\ncalibration_passed\ncalibration_failed\nincident_reported\nout_of_service\nrestored\ndecommissioned\ntransferred\nregistered",
    "reqd": 1,
    "search_index": 1,
-   "in_list_view": 1
+   "in_list_view": 1,
+   "read_only": 1,
+   "no_copy": 1
   },
   {
    "fieldname": "column_break_core",
@@ -63,7 +67,9 @@
    "fieldtype": "Datetime",
    "label": "Timestamp",
    "reqd": 1,
-   "in_list_view": 1
+   "in_list_view": 1,
+   "read_only": 1,
+   "no_copy": 1
   },
   {
    "fieldname": "actor",
@@ -71,7 +77,9 @@
    "label": "Actor",
    "options": "User",
    "reqd": 1,
-   "search_index": 1
+   "search_index": 1,
+   "read_only": 1,
+   "no_copy": 1
   },
   {
    "fieldname": "section_transition",
@@ -81,12 +89,16 @@
   {
    "fieldname": "from_status",
    "fieldtype": "Data",
-   "label": "From Status"
+   "label": "From Status",
+   "read_only": 1,
+   "no_copy": 1
   },
   {
    "fieldname": "to_status",
    "fieldtype": "Data",
-   "label": "To Status"
+   "label": "To Status",
+   "read_only": 1,
+   "no_copy": 1
   },
   {
    "fieldname": "section_root",
@@ -96,13 +108,17 @@
   {
    "fieldname": "root_doctype",
    "fieldtype": "Data",
-   "label": "Root DocType"
+   "label": "Root DocType",
+   "read_only": 1,
+   "no_copy": 1
   },
   {
    "fieldname": "root_record",
    "fieldtype": "Dynamic Link",
    "label": "Root Record",
-   "options": "root_doctype"
+   "options": "root_doctype",
+   "read_only": 1,
+   "no_copy": 1
   },
   {
    "fieldname": "notes",

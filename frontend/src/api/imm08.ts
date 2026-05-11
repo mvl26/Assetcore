@@ -72,30 +72,27 @@ export interface PMListResponse {
 
 const BASE = '/api/method/assetcore.api.imm08'
 
-export async function listPMWorkOrders(filters = {}, page = 1, pageSize = 20): Promise<PMListResponse> {
-  const res = await frappeGet<PMListResponse>(`${BASE}.list_pm_work_orders`, {
+export function listPMWorkOrders(filters = {}, page = 1, pageSize = 20): Promise<PMListResponse> {
+  return frappeGet<PMListResponse>(`${BASE}.list_pm_work_orders`, {
     filters: JSON.stringify(filters),
     page,
     page_size: pageSize,
   })
-  return res
 }
 
-export async function getPMWorkOrder(name: string): Promise<PMWorkOrder> {
-  const res = await frappeGet<PMWorkOrder>(`${BASE}.get_pm_work_order`, { name })
-  return res
+export function getPMWorkOrder(name: string): Promise<PMWorkOrder> {
+  return frappeGet<PMWorkOrder>(`${BASE}.get_pm_work_order`, { name })
 }
 
-export async function assignTechnician(
+export function assignTechnician(
   name: string,
   technician: string,
   scheduledDate?: string,
 ): Promise<{ name: string; status: string }> {
-  const res = await frappePost<{ name: string; status: string }>(
+  return frappePost<{ name: string; status: string }>(
     `${BASE}.assign_technician`,
     { name, technician, scheduled_date: scheduledDate },
   )
-  return res
 }
 
 export async function submitPMResult(payload: {
@@ -106,7 +103,7 @@ export async function submitPMResult(payload: {
   pm_sticker_attached: boolean
   duration_minutes: number
 }): Promise<{ name: string; new_status: string; is_late: boolean; next_pm_date: string; cm_wo_created: string | null }> {
-  const res = await frappePost<{ name: string; new_status: string; is_late: boolean; next_pm_date: string; cm_wo_created: string | null }>(
+  return frappePost<{ name: string; new_status: string; is_late: boolean; next_pm_date: string; cm_wo_created: string | null }>(
     `${BASE}.submit_pm_result`,
     {
       ...payload,
@@ -114,21 +111,19 @@ export async function submitPMResult(payload: {
       pm_sticker_attached: payload.pm_sticker_attached ? 1 : 0,
     },
   )
-  return res
 }
 
-export async function reportMajorFailure(
+export function reportMajorFailure(
   pmWoName: string,
   failureDescription: string,
 ): Promise<{ pm_wo: string; cm_wo_created: string; asset_status: string }> {
-  const res = await frappePost<{ pm_wo: string; cm_wo_created: string; asset_status: string }>(
+  return frappePost<{ pm_wo: string; cm_wo_created: string; asset_status: string }>(
     `${BASE}.report_major_failure`,
     { pm_wo_name: pmWoName, failure_description: failureDescription },
   )
-  return res
 }
 
-export async function getPMCalendar(
+export function getPMCalendar(
   year: number,
   month: number,
   assetRef?: string,
@@ -137,40 +132,36 @@ export async function getPMCalendar(
   events: PMCalendarEvent[]
   summary: { total: number; completed: number; overdue: number; pending: number }
 }> {
-  const res = await frappeGet<{
+  return frappeGet<{
     month: string
     events: PMCalendarEvent[]
     summary: { total: number; completed: number; overdue: number; pending: number }
   }>(`${BASE}.get_pm_calendar`, { year, month, asset_ref: assetRef })
-  return res
 }
 
-export async function getPMDashboardStats(year?: number, month?: number): Promise<PMDashboardStats> {
-  const res = await frappeGet<PMDashboardStats>(`${BASE}.get_pm_dashboard_stats`, { year, month })
-  return res
+export function getPMDashboardStats(year?: number, month?: number): Promise<PMDashboardStats> {
+  return frappeGet<PMDashboardStats>(`${BASE}.get_pm_dashboard_stats`, { year, month })
 }
 
-export async function reschedulePM(
+export function reschedulePM(
   name: string,
   newDate: string,
   reason: string,
 ): Promise<{ name: string; old_date: string; new_date: string }> {
-  const res = await frappePost<{ name: string; old_date: string; new_date: string }>(
+  return frappePost<{ name: string; old_date: string; new_date: string }>(
     `${BASE}.reschedule_pm`,
     { name, new_date: newDate, reason },
   )
-  return res
 }
 
-export async function getAssetPMHistory(
+export function getAssetPMHistory(
   assetRef: string,
   limit = 10,
 ): Promise<{ asset_ref: string; total: number; history: PMWorkOrder[] }> {
-  const res = await frappeGet<{ asset_ref: string; total: number; history: PMWorkOrder[] }>(
+  return frappeGet<{ asset_ref: string; total: number; history: PMWorkOrder[] }>(
     `${BASE}.get_asset_pm_history`,
     { asset_ref: assetRef, limit },
   )
-  return res
 }
 
 export async function createAdhocPMWorkOrder(data: {

@@ -71,7 +71,7 @@ export const useDashboardStore = defineStore('dashboard', () => {
     try {
       data.value = await frappeGet<DashboardData>(ENDPOINT)
       loadedAt.value = Date.now()
-    } catch (e) {
+    } catch (e: unknown) {
       error.value = e instanceof Error ? e.message : 'Không tải được dashboard'
     } finally {
       loading.value = false

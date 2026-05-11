@@ -1,7 +1,11 @@
 // Copyright (c) 2026, AssetCore Team
 // API client cho IMM-00 — AC Asset foundation module
+//
+// NOTE: frappeGet/frappePost đã unwrap Frappe envelope ({ message: { success, data } })
+// và throw ApiError khi success === false. Các hàm ở đây trả thẳng kiểu dữ liệu T,
+// KHÔNG wrap thêm ApiResponse<T>.
 
-import { frappeGet, frappePost, type ApiResponse } from './helpers'
+import { frappeGet, frappePost } from './helpers'
 import type {
   AcAsset, AcAssetListItem, AcSupplier, AcLocation, AcDepartment,
   AcAssetCategory, ImmDeviceModel, ImmSlaPolicy, ImmAuditTrail,
@@ -13,234 +17,247 @@ const BASE = '/api/method/assetcore.api.imm00'
 
 // ─── AC Asset ─────────────────────────────────────────────────────────────────
 
-export async function listAssets(params: AssetListParams = {}): Promise<ApiResponse<PaginatedResponse<AcAssetListItem>>> {
+export function listAssets(params: AssetListParams = {}): Promise<PaginatedResponse<AcAssetListItem>> {
   return frappeGet(`${BASE}.list_assets`, params as Record<string, unknown>)
 }
 
-export async function getAsset(name: string): Promise<ApiResponse<AcAsset>> {
+export function getAsset(name: string): Promise<AcAsset> {
   return frappeGet(`${BASE}.get_asset`, { name })
 }
 
-export async function createAsset(data: Partial<AcAsset>): Promise<ApiResponse<{ name: string }>> {
+export function createAsset(data: Partial<AcAsset>): Promise<{ name: string }> {
   return frappePost(`${BASE}.create_asset`, data as Record<string, unknown>)
 }
 
-export async function updateAsset(name: string, data: Partial<AcAsset>): Promise<ApiResponse<{ name: string }>> {
+export function updateAsset(name: string, data: Partial<AcAsset>): Promise<{ name: string }> {
   return frappePost(`${BASE}.update_asset`, { name, ...data } as Record<string, unknown>)
 }
 
-export async function transitionStatus(name: string, to_status: string, reason = ''): Promise<ApiResponse<{ name: string; lifecycle_status: string }>> {
+export function transitionStatus(name: string, to_status: string, reason = ''): Promise<{ name: string; lifecycle_status: string }> {
   return frappePost(`${BASE}.transition_status`, { name, to_status, reason })
 }
 
-export async function updateGmdnStatus(name: string, gmdn_status: string, reason: string): Promise<ApiResponse<{ name: string; gmdn_status: string; previous: string }>> {
+export function updateGmdnStatus(name: string, gmdn_status: string, reason: string): Promise<{ name: string; gmdn_status: string; previous: string }> {
   return frappePost(`${BASE}.update_gmdn_status`, { name, gmdn_status, reason })
 }
 
-export async function toggleGmdnStatus(name: string): Promise<ApiResponse<{ name: string; gmdn_status: string; previous: string }>> {
+export function toggleGmdnStatus(name: string): Promise<{ name: string; gmdn_status: string; previous: string }> {
   return frappePost(`${BASE}.toggle_gmdn_status`, { name })
 }
 
-export async function getAssetTimeline(name: string, page = 1, page_size = 50): Promise<ApiResponse<PaginatedResponse<AssetLifecycleEvent>>> {
+export function getAssetTimeline(name: string, page = 1, page_size = 50): Promise<PaginatedResponse<AssetLifecycleEvent>> {
   return frappeGet(`${BASE}.get_asset_timeline`, { name, page, page_size })
 }
 
-export async function getAssetKpi(name: string): Promise<ApiResponse<AssetKpi>> {
+export function getAssetKpi(name: string): Promise<AssetKpi> {
   return frappeGet(`${BASE}.get_asset_kpi`, { name })
 }
 
-export async function validateForOperations(name: string): Promise<ApiResponse<{ valid: boolean; reason?: string }>> {
+export function validateForOperations(name: string): Promise<{ valid: boolean; reason?: string }> {
   return frappeGet(`${BASE}.validate_for_operations`, { name })
 }
 
 // ─── AC Supplier ──────────────────────────────────────────────────────────────
 
-export async function listSuppliers(page = 1, page_size = 50, search = ''): Promise<ApiResponse<PaginatedResponse<AcSupplier>>> {
+export function listSuppliers(page = 1, page_size = 50, search = ''): Promise<PaginatedResponse<AcSupplier>> {
   return frappeGet(`${BASE}.list_suppliers`, { page, page_size, search })
 }
 
 // ─── Reference data ───────────────────────────────────────────────────────────
 
-export async function listLocations(parent = ''): Promise<ApiResponse<AcLocation[]>> {
+export function listLocations(parent = ''): Promise<AcLocation[]> {
   return frappeGet(`${BASE}.list_locations`, { parent })
 }
 
-export async function listDepartments(parent = ''): Promise<ApiResponse<AcDepartment[]>> {
+export function listDepartments(parent = ''): Promise<AcDepartment[]> {
   return frappeGet(`${BASE}.list_departments`, { parent })
 }
 
-export async function listAssetCategories(): Promise<ApiResponse<AcAssetCategory[]>> {
+export function listAssetCategories(): Promise<AcAssetCategory[]> {
   return frappeGet(`${BASE}.list_asset_categories`)
 }
 
-export async function listDeviceModels(page = 1, page_size = 50, search = ''): Promise<ApiResponse<PaginatedResponse<ImmDeviceModel>>> {
+export function listDeviceModels(page = 1, page_size = 50, search = ''): Promise<PaginatedResponse<ImmDeviceModel>> {
   return frappeGet(`${BASE}.list_device_models`, { page, page_size, search })
 }
 
-export async function listSlaPolicies(): Promise<ApiResponse<ImmSlaPolicy[]>> {
+export function listSlaPolicies(): Promise<ImmSlaPolicy[]> {
   return frappeGet(`${BASE}.list_sla_policies`)
 }
 
 // ─── IMM Audit Trail ──────────────────────────────────────────────────────────
 
-export async function listAuditTrail(asset: string, page = 1, page_size = 50): Promise<ApiResponse<PaginatedResponse<ImmAuditTrail>>> {
+export function listAuditTrail(asset: string, page = 1, page_size = 50): Promise<PaginatedResponse<ImmAuditTrail>> {
   return frappeGet(`${BASE}.list_audit_trail`, { asset, page, page_size })
 }
 
-export async function verifyChain(asset: string): Promise<ApiResponse<ChainVerifyResult>> {
+export function verifyChain(asset: string): Promise<ChainVerifyResult> {
   return frappeGet(`${BASE}.verify_chain`, { asset })
 }
 
 // ─── IMM CAPA Record ──────────────────────────────────────────────────────────
 
-export async function listCapas(params: { page?: number; page_size?: number; status?: string; asset?: string } = {}): Promise<ApiResponse<PaginatedResponse<ImmCapaRecord>>> {
+export function listCapas(params: { page?: number; page_size?: number; status?: string; asset?: string } = {}): Promise<PaginatedResponse<ImmCapaRecord>> {
   return frappeGet(`${BASE}.list_capas`, params as Record<string, unknown>)
 }
 
-export async function getCapaOverdue(page = 1, page_size = 20): Promise<ApiResponse<PaginatedResponse<ImmCapaRecord>>> {
+export function getCapaOverdue(page = 1, page_size = 20): Promise<PaginatedResponse<ImmCapaRecord>> {
   return frappeGet(`${BASE}.list_overdue_capas`, { page, page_size })
 }
 
-export async function openCapa(data: {
+export function openCapa(data: {
   asset: string; severity: string; description: string; responsible: string;
   source_type?: string; source_ref?: string; due_days?: number
-}): Promise<ApiResponse<{ name: string }>> {
+}): Promise<{ name: string }> {
   return frappePost(`${BASE}.open_capa`, data as Record<string, unknown>)
+}
+
+export function getCapa(name: string): Promise<ImmCapaRecord> {
+  return frappeGet(`${BASE}.get_capa`, { name })
+}
+
+export function closeCapaRecord(name: string, data: {
+  root_cause: string
+  corrective_action: string
+  preventive_action: string
+  effectiveness_check?: string
+}): Promise<void> {
+  return frappePost(`${BASE}.close_capa_record`, { name, ...data })
 }
 
 // ─── Incident Report ──────────────────────────────────────────────────────────
 
-export async function listIncidents(params: { page?: number; page_size?: number; status?: string; severity?: string; asset?: string } = {}): Promise<ApiResponse<PaginatedResponse<IncidentReport>>> {
+export function listIncidents(params: { page?: number; page_size?: number; status?: string; severity?: string; asset?: string } = {}): Promise<PaginatedResponse<IncidentReport>> {
   return frappeGet(`${BASE}.list_incidents`, params as Record<string, unknown>)
 }
 
-export async function createIncident(data: Partial<IncidentReport>): Promise<ApiResponse<{ name: string }>> {
+export function createIncident(data: Partial<IncidentReport>): Promise<{ name: string }> {
   return frappePost(`${BASE}.create_incident`, data as Record<string, unknown>)
 }
 
-export async function getIncident(name: string): Promise<ApiResponse<IncidentReport>> {
+export function getIncident(name: string): Promise<IncidentReport> {
   return frappeGet(`${BASE}.get_incident`, { name })
 }
 
-export async function updateIncident(name: string, data: Partial<IncidentReport>): Promise<ApiResponse<{ name: string }>> {
+export function updateIncident(name: string, data: Partial<IncidentReport>): Promise<{ name: string }> {
   return frappePost(`${BASE}.update_incident`, { name, ...data } as Record<string, unknown>)
 }
 
-export async function submitIncident(name: string): Promise<ApiResponse<{ name: string; docstatus: number }>> {
+export function submitIncident(name: string): Promise<{ name: string; docstatus: number }> {
   return frappePost(`${BASE}.submit_incident`, { name })
 }
 
-export async function deleteIncident(name: string): Promise<ApiResponse<{ name: string; deleted: boolean }>> {
+export function deleteIncident(name: string): Promise<{ name: string; deleted: boolean }> {
   return frappePost(`${BASE}.delete_incident`, { name })
 }
 
 // ─── AC Supplier CRUD ────────────────────────────────────────────────────────
 
-export async function getSupplier(name: string): Promise<ApiResponse<AcSupplier>> {
+export function getSupplier(name: string): Promise<AcSupplier> {
   return frappeGet(`${BASE}.get_supplier`, { name })
 }
 
-export async function createSupplier(data: Partial<AcSupplier>): Promise<ApiResponse<{ name: string }>> {
+export function createSupplier(data: Partial<AcSupplier>): Promise<{ name: string }> {
   return frappePost(`${BASE}.create_supplier`, data as Record<string, unknown>)
 }
 
-export async function updateSupplier(name: string, data: Partial<AcSupplier>): Promise<ApiResponse<{ name: string }>> {
+export function updateSupplier(name: string, data: Partial<AcSupplier>): Promise<{ name: string }> {
   return frappePost(`${BASE}.update_supplier`, { name, ...data } as Record<string, unknown>)
 }
 
-export async function deleteSupplier(name: string): Promise<ApiResponse<{ name: string; deleted: boolean }>> {
+export function deleteSupplier(name: string): Promise<{ name: string; deleted: boolean }> {
   return frappePost(`${BASE}.delete_supplier`, { name })
 }
 
 // ─── IMM Device Model CRUD ───────────────────────────────────────────────────
 
-export async function getDeviceModel(name: string): Promise<ApiResponse<ImmDeviceModel>> {
+export function getDeviceModel(name: string): Promise<ImmDeviceModel> {
   return frappeGet(`${BASE}.get_device_model`, { name })
 }
 
-export async function createDeviceModel(data: Partial<ImmDeviceModel>): Promise<ApiResponse<{ name: string }>> {
+export function createDeviceModel(data: Partial<ImmDeviceModel>): Promise<{ name: string }> {
   return frappePost(`${BASE}.create_device_model`, data as Record<string, unknown>)
 }
 
-export async function updateDeviceModel(name: string, data: Partial<ImmDeviceModel>): Promise<ApiResponse<{ name: string }>> {
+export function updateDeviceModel(name: string, data: Partial<ImmDeviceModel>): Promise<{ name: string }> {
   return frappePost(`${BASE}.update_device_model`, { name, ...data } as Record<string, unknown>)
 }
 
-export async function deleteDeviceModel(name: string): Promise<ApiResponse<{ name: string; deleted: boolean }>> {
+export function deleteDeviceModel(name: string): Promise<{ name: string; deleted: boolean }> {
   return frappePost(`${BASE}.delete_device_model`, { name })
 }
 
 // ─── AC Location / Department / Category CRUD ───────────────────────────────
 
-export async function getLocation(name: string): Promise<ApiResponse<AcLocation>> {
+export function getLocation(name: string): Promise<AcLocation> {
   return frappeGet(`${BASE}.get_location`, { name })
 }
 
-export async function getDepartment(name: string): Promise<ApiResponse<AcDepartment>> {
+export function getDepartment(name: string): Promise<AcDepartment> {
   return frappeGet(`${BASE}.get_department`, { name })
 }
 
-export async function getAssetCategory(name: string): Promise<ApiResponse<AcAssetCategory>> {
+export function getAssetCategory(name: string): Promise<AcAssetCategory> {
   return frappeGet(`${BASE}.get_asset_category`, { name })
 }
 
-export async function createLocation(data: Partial<AcLocation>): Promise<ApiResponse<{ name: string }>> {
+export function createLocation(data: Partial<AcLocation>): Promise<{ name: string }> {
   return frappePost(`${BASE}.create_location`, data as Record<string, unknown>)
 }
 
-export async function updateLocation(name: string, data: Partial<AcLocation>): Promise<ApiResponse<{ name: string }>> {
+export function updateLocation(name: string, data: Partial<AcLocation>): Promise<{ name: string }> {
   return frappePost(`${BASE}.update_location`, { name, ...data } as Record<string, unknown>)
 }
 
-export async function deleteLocation(name: string): Promise<ApiResponse<{ name: string; deleted: boolean }>> {
+export function deleteLocation(name: string): Promise<{ name: string; deleted: boolean }> {
   return frappePost(`${BASE}.delete_location`, { name })
 }
 
-export async function createDepartment(data: Partial<AcDepartment>): Promise<ApiResponse<{ name: string }>> {
+export function createDepartment(data: Partial<AcDepartment>): Promise<{ name: string }> {
   return frappePost(`${BASE}.create_department`, data as Record<string, unknown>)
 }
 
-export async function updateDepartment(name: string, data: Partial<AcDepartment>): Promise<ApiResponse<{ name: string }>> {
+export function updateDepartment(name: string, data: Partial<AcDepartment>): Promise<{ name: string }> {
   return frappePost(`${BASE}.update_department`, { name, ...data } as Record<string, unknown>)
 }
 
-export async function deleteDepartment(name: string): Promise<ApiResponse<{ name: string; deleted: boolean }>> {
+export function deleteDepartment(name: string): Promise<{ name: string; deleted: boolean }> {
   return frappePost(`${BASE}.delete_department`, { name })
 }
 
-export async function createAssetCategory(data: Partial<AcAssetCategory>): Promise<ApiResponse<{ name: string }>> {
+export function createAssetCategory(data: Partial<AcAssetCategory>): Promise<{ name: string }> {
   return frappePost(`${BASE}.create_asset_category`, data as Record<string, unknown>)
 }
 
-export async function updateAssetCategory(name: string, data: Partial<AcAssetCategory>): Promise<ApiResponse<{ name: string }>> {
+export function updateAssetCategory(name: string, data: Partial<AcAssetCategory>): Promise<{ name: string }> {
   return frappePost(`${BASE}.update_asset_category`, { name, ...data } as Record<string, unknown>)
 }
 
-export async function deleteAssetCategory(name: string): Promise<ApiResponse<{ name: string; deleted: boolean }>> {
+export function deleteAssetCategory(name: string): Promise<{ name: string; deleted: boolean }> {
   return frappePost(`${BASE}.delete_asset_category`, { name })
 }
 
 // ─── IMM SLA Policy CRUD ─────────────────────────────────────────────────────
 
-export async function getSlaPolicy(name: string): Promise<ApiResponse<ImmSlaPolicy>> {
+export function getSlaPolicy(name: string): Promise<ImmSlaPolicy> {
   return frappeGet(`${BASE}.get_sla_policy`, { name })
 }
 
-export async function createSlaPolicy(data: Partial<ImmSlaPolicy>): Promise<ApiResponse<{ name: string }>> {
+export function createSlaPolicy(data: Partial<ImmSlaPolicy>): Promise<{ name: string }> {
   return frappePost(`${BASE}.create_sla_policy`, data as Record<string, unknown>)
 }
 
-export async function updateSlaPolicy(name: string, data: Partial<ImmSlaPolicy>): Promise<ApiResponse<{ name: string }>> {
+export function updateSlaPolicy(name: string, data: Partial<ImmSlaPolicy>): Promise<{ name: string }> {
   return frappePost(`${BASE}.update_sla_policy`, { name, ...data } as Record<string, unknown>)
 }
 
-export async function deleteSlaPolicy(name: string): Promise<ApiResponse<{ name: string; deleted: boolean }>> {
+export function deleteSlaPolicy(name: string): Promise<{ name: string; deleted: boolean }> {
   return frappePost(`${BASE}.delete_sla_policy`, { name })
 }
 
 // ─── AC Asset delete ─────────────────────────────────────────────────────────
 
-export async function deleteAsset(name: string): Promise<ApiResponse<{ name: string; deleted: boolean }>> {
+export function deleteAsset(name: string): Promise<{ name: string; deleted: boolean }> {
   return frappePost(`${BASE}.delete_asset`, { name })
 }
 
@@ -254,21 +271,21 @@ export interface DepreciationResult {
   note?: string
 }
 
-export async function computeDepreciation(name: string): Promise<ApiResponse<DepreciationResult>> {
+export function computeDepreciation(name: string): Promise<DepreciationResult> {
   return frappePost(`${BASE}.compute_depreciation`, { name })
 }
 
 // ─── Asset Transfer CRUD ─────────────────────────────────────────────────────
 
-export async function getTransferFull(name: string): Promise<ApiResponse<Record<string, unknown>>> {
+export function getTransferFull(name: string): Promise<Record<string, unknown>> {
   return frappeGet(`${BASE}.get_transfer_full`, { name })
 }
 
-export async function updateTransfer(name: string, data: Record<string, unknown>): Promise<ApiResponse<{ name: string }>> {
+export function updateTransfer(name: string, data: Record<string, unknown>): Promise<{ name: string }> {
   return frappePost(`${BASE}.update_transfer`, { name, ...data })
 }
 
-export async function approveTransfer(name: string): Promise<ApiResponse<{ name: string; approved_by: string }>> {
+export function approveTransfer(name: string): Promise<{ name: string; approved_by: string }> {
   return frappePost(`${BASE}.approve_transfer`, { name })
 }
 
@@ -290,23 +307,23 @@ export interface PmSchedule {
   notes?: string
 }
 
-export async function listPmSchedules(params: { page?: number; page_size?: number; asset?: string; status?: string } = {}): Promise<ApiResponse<{ items: PmSchedule[]; total: number }>> {
+export function listPmSchedules(params: { page?: number; page_size?: number; asset?: string; status?: string } = {}): Promise<{ items: PmSchedule[]; total: number }> {
   return frappeGet(`${BASE}.list_pm_schedules`, params as Record<string, unknown>)
 }
 
-export async function getPmSchedule(name: string): Promise<ApiResponse<PmSchedule>> {
+export function getPmSchedule(name: string): Promise<PmSchedule> {
   return frappeGet(`${BASE}.get_pm_schedule`, { name })
 }
 
-export async function createPmSchedule(data: Partial<PmSchedule>): Promise<ApiResponse<{ name: string }>> {
+export function createPmSchedule(data: Partial<PmSchedule>): Promise<{ name: string }> {
   return frappePost(`${BASE}.create_pm_schedule`, data as Record<string, unknown>)
 }
 
-export async function updatePmSchedule(name: string, data: Partial<PmSchedule>): Promise<ApiResponse<{ name: string }>> {
+export function updatePmSchedule(name: string, data: Partial<PmSchedule>): Promise<{ name: string }> {
   return frappePost(`${BASE}.update_pm_schedule`, { name, ...data } as Record<string, unknown>)
 }
 
-export async function deletePmSchedule(name: string): Promise<ApiResponse<{ name: string; deleted: boolean }>> {
+export function deletePmSchedule(name: string): Promise<{ name: string; deleted: boolean }> {
   return frappePost(`${BASE}.delete_pm_schedule`, { name })
 }
 
@@ -336,23 +353,23 @@ export interface PmTemplate {
 // Endpoints are served by assetcore.api.imm08 (service-based — handles checklist_items JSON)
 const _PM_TPL_BASE = '/api/method/assetcore.api.imm08'
 
-export async function listPmTemplates(page = 1, page_size = 50): Promise<ApiResponse<{ data: PmTemplate[]; pagination: { total: number; page: number; page_size: number } }>> {
+export function listPmTemplates(page = 1, page_size = 50): Promise<{ data: PmTemplate[]; pagination: { total: number; page: number; page_size: number } }> {
   return frappeGet(`${_PM_TPL_BASE}.list_pm_templates`, { page, page_size })
 }
 
-export async function getPmTemplate(name: string): Promise<ApiResponse<PmTemplate>> {
+export function getPmTemplate(name: string): Promise<PmTemplate> {
   return frappeGet(`${_PM_TPL_BASE}.get_pm_template`, { name })
 }
 
-export async function createPmTemplate(data: Partial<PmTemplate>): Promise<ApiResponse<{ name: string }>> {
+export function createPmTemplate(data: Partial<PmTemplate>): Promise<{ name: string }> {
   return frappePost(`${_PM_TPL_BASE}.create_pm_template`, data as Record<string, unknown>)
 }
 
-export async function updatePmTemplate(name: string, data: Partial<PmTemplate>): Promise<ApiResponse<{ name: string }>> {
+export function updatePmTemplate(name: string, data: Partial<PmTemplate>): Promise<{ name: string }> {
   return frappePost(`${_PM_TPL_BASE}.update_pm_template`, { name, ...data } as Record<string, unknown>)
 }
 
-export async function deletePmTemplate(name: string): Promise<ApiResponse<{ name: string; deleted: boolean }>> {
+export function deletePmTemplate(name: string): Promise<{ name: string; deleted: boolean }> {
   return frappePost(`${_PM_TPL_BASE}.delete_pm_template`, { name })
 }
 
@@ -374,23 +391,23 @@ export interface FirmwareCR {
   rollback_reason?: string
 }
 
-export async function listFirmwareCrs(params: { page?: number; page_size?: number; status?: string; asset?: string } = {}): Promise<ApiResponse<{ items: FirmwareCR[]; total: number }>> {
+export function listFirmwareCrs(params: { page?: number; page_size?: number; status?: string; asset?: string } = {}): Promise<{ items: FirmwareCR[]; total: number }> {
   return frappeGet(`${BASE}.list_firmware_crs`, params as Record<string, unknown>)
 }
 
-export async function getFirmwareCr(name: string): Promise<ApiResponse<FirmwareCR>> {
+export function getFirmwareCr(name: string): Promise<FirmwareCR> {
   return frappeGet(`${BASE}.get_firmware_cr`, { name })
 }
 
-export async function createFirmwareCr(data: Partial<FirmwareCR>): Promise<ApiResponse<{ name: string }>> {
+export function createFirmwareCr(data: Partial<FirmwareCR>): Promise<{ name: string }> {
   return frappePost(`${BASE}.create_firmware_cr`, data as Record<string, unknown>)
 }
 
-export async function updateFirmwareCr(name: string, data: Partial<FirmwareCR>): Promise<ApiResponse<{ name: string }>> {
+export function updateFirmwareCr(name: string, data: Partial<FirmwareCR>): Promise<{ name: string }> {
   return frappePost(`${BASE}.update_firmware_cr`, { name, ...data } as Record<string, unknown>)
 }
 
-export async function deleteFirmwareCr(name: string): Promise<ApiResponse<{ name: string; deleted: boolean }>> {
+export function deleteFirmwareCr(name: string): Promise<{ name: string; deleted: boolean }> {
   return frappePost(`${BASE}.delete_firmware_cr`, { name })
 }
 
@@ -411,23 +428,23 @@ export interface DocumentRequest {
   fulfilled_by?: string
 }
 
-export async function listDocumentRequests(params: { page?: number; page_size?: number; status?: string; asset?: string } = {}): Promise<ApiResponse<{ items: DocumentRequest[]; total: number }>> {
+export function listDocumentRequests(params: { page?: number; page_size?: number; status?: string; asset?: string } = {}): Promise<{ items: DocumentRequest[]; total: number }> {
   return frappeGet(`${BASE}.list_document_requests`, params as Record<string, unknown>)
 }
 
-export async function getDocumentRequest(name: string): Promise<ApiResponse<DocumentRequest>> {
+export function getDocumentRequest(name: string): Promise<DocumentRequest> {
   return frappeGet(`${BASE}.get_document_request`, { name })
 }
 
-export async function createDocumentRequest(data: Partial<DocumentRequest>): Promise<ApiResponse<{ name: string }>> {
+export function createDocumentRequest(data: Partial<DocumentRequest>): Promise<{ name: string }> {
   return frappePost(`${BASE}.create_document_request`, data as Record<string, unknown>)
 }
 
-export async function updateDocumentRequest(name: string, data: Partial<DocumentRequest>): Promise<ApiResponse<{ name: string }>> {
+export function updateDocumentRequest(name: string, data: Partial<DocumentRequest>): Promise<{ name: string }> {
   return frappePost(`${BASE}.update_document_request`, { name, ...data } as Record<string, unknown>)
 }
 
-export async function deleteDocumentRequest(name: string): Promise<ApiResponse<{ name: string; deleted: boolean }>> {
+export function deleteDocumentRequest(name: string): Promise<{ name: string; deleted: boolean }> {
   return frappePost(`${BASE}.delete_document_request`, { name })
 }
 
@@ -496,7 +513,7 @@ export async function previewDepreciationSchedule(params: {
   start_date: string
 }) {
   return frappeGet<DepreciationPreviewRow[]>(
-    `${BASE}.preview_depreciation_schedule`, params as unknown as Record<string, unknown>,
+    `${BASE}.preview_depreciation_schedule`, params as Record<string, unknown>,
   )
 }
 

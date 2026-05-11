@@ -10,7 +10,7 @@
 
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import api from '@/api/axios'
+import { frappeGet } from '@/api/helpers'
 
 export interface MasterItem {
   id: string           // Primary key (name trong Frappe)
@@ -67,13 +67,12 @@ export const useMasterDataStore = defineStore('masterData', () => {
     entry.loading = true
     entry.promise = (async () => {
       try {
-        const res = await api.get(BASE, {
-          params: { doctype, query: '', page_length: opts.pageLength ?? DEFAULT_PAGE_LENGTH },
-        })
-        const envelope = res.data?.message ?? res.data
-        const rows: Array<{ value: string; label: string; description?: string }> =
-          envelope?.success && Array.isArray(envelope.data) ? envelope.data : []
-        entry.items = rows.map(r => ({ id: r.value, name: r.label || r.value, description: r.description }))
+        // search_link trả { success, data: [{ value, label, description }] }
+        // frappeGet unwrap envelope → trả thẳng mảng data
+        const rows = await frappeGet<Array<{ value: string; label: string; description?: string }>>(
+          BASE, { doctype, query: '', page_length: opts.pageLength ?? DEFAULT_PAGE_LENGTH },
+        )
+        entry.items = (Array.isArray(rows) ? rows : []).map(r => ({ id: r.value, name: r.label || r.value, description: r.description }))
         entry.loadedAt = Date.now()
         return entry.items
       } finally {

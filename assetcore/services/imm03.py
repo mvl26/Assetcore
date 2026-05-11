@@ -420,9 +420,9 @@ def check_avl_expiry() -> None:
         as_dict=True,
     )
     for r in rows:
-        avl = frappe.get_doc(_DT_AVL, r.name)
-        avl.workflow_state = "Expired"
-        avl.save(ignore_permissions=True)
+        # AVL is a submitted doc — use db.set_value to bypass re-submit validation
+        frappe.db.set_value(_DT_AVL, r.name, "workflow_state", "Expired",
+                            update_modified=False)
         _sync_supplier_avl_status(r.supplier)
 
 

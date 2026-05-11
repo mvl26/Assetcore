@@ -3,6 +3,7 @@
 import { computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useImm12Store } from '@/stores/useImm12Store'
+import PageHeader from '@/components/common/PageHeader.vue'
 
 const router = useRouter()
 const store = useImm12Store()
@@ -55,17 +56,15 @@ onMounted(() => store.fetchDashboard())
 
 <template>
   <div class="page-container animate-fade-in">
-    <!-- Header -->
-    <div class="flex items-start justify-between mb-6">
-      <div>
-        <h1 class="text-2xl font-bold text-slate-900">Tổng quan Sự cố & RCA</h1>
-        <p class="text-sm text-slate-500 mt-1">Giám sát sự cố thiết bị, RCA và hỏng hóc mãn tính</p>
-      </div>
-      <div class="flex gap-2 shrink-0">
-        <button class="btn-ghost text-sm" @click="router.push('/incidents/list')">Danh sách</button>
-        <button class="btn-primary text-sm" @click="router.push('/incidents/new')">+ Báo cáo sự cố</button>
-      </div>
-    </div>
+    <PageHeader
+      title="Tổng quan Sự cố & RCA"
+      subtitle="Giám sát sự cố thiết bị, RCA và hỏng hóc mãn tính"
+    >
+      <template #actions>
+        <button class="btn-ghost" @click="router.push('/incidents/list')">Danh sách</button>
+        <button class="btn-primary" @click="router.push('/incidents/new')">+ Báo cáo sự cố</button>
+      </template>
+    </PageHeader>
 
     <!-- Loading -->
     <div v-if="store.dashboardLoading" class="p-12 text-center text-slate-400">Đang tải...</div>
@@ -78,27 +77,31 @@ onMounted(() => store.fetchDashboard())
       <!-- KPI cards -->
       <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4 mb-6">
         <div
-class="card p-4 text-center cursor-pointer hover:shadow-md transition-shadow"
-             @click="router.push('/incidents/list')">
-          <p class="text-3xl font-bold text-blue-600">{{ stats.open ?? 0 }}</p>
+          class="kpi-card p-4 text-center cursor-pointer"
+          style="--kpi-color: #2563eb"
+          @click="router.push('/incidents/list')"
+        >
+          <p class="text-3xl font-bold font-display tabular-nums text-blue-600">{{ stats.open ?? 0 }}</p>
           <p class="text-xs text-slate-500 mt-1">Mới mở</p>
         </div>
         <div
-class="card p-4 text-center cursor-pointer hover:shadow-md transition-shadow"
-             @click="router.push('/incidents/list')">
-          <p class="text-3xl font-bold text-yellow-600">{{ stats.investigating ?? 0 }}</p>
+          class="kpi-card p-4 text-center cursor-pointer"
+          style="--kpi-color: #d97706"
+          @click="router.push('/incidents/list')"
+        >
+          <p class="text-3xl font-bold font-display tabular-nums text-yellow-600">{{ stats.investigating ?? 0 }}</p>
           <p class="text-xs text-slate-500 mt-1">Đang điều tra</p>
         </div>
-        <div class="card p-4 text-center border-l-4 border-red-400">
-          <p class="text-3xl font-bold text-red-600">{{ stats.critical ?? 0 }}</p>
+        <div class="kpi-card p-4 text-center" style="--kpi-color: #dc2626">
+          <p class="text-3xl font-bold font-display tabular-nums text-red-600">{{ stats.critical ?? 0 }}</p>
           <p class="text-xs text-slate-500 mt-1">Critical</p>
         </div>
-        <div class="card p-4 text-center border-l-4 border-orange-400">
-          <p class="text-3xl font-bold text-orange-600">{{ stats.rca_pending ?? 0 }}</p>
+        <div class="kpi-card p-4 text-center" style="--kpi-color: #ea580c">
+          <p class="text-3xl font-bold font-display tabular-nums text-orange-600">{{ stats.rca_pending ?? 0 }}</p>
           <p class="text-xs text-slate-500 mt-1">Chờ RCA</p>
         </div>
-        <div class="card p-4 text-center border-l-4 border-purple-400">
-          <p class="text-3xl font-bold text-purple-600">{{ stats.chronic ?? 0 }}</p>
+        <div class="kpi-card p-4 text-center" style="--kpi-color: #7c3aed">
+          <p class="text-3xl font-bold font-display tabular-nums text-purple-600">{{ stats.chronic ?? 0 }}</p>
           <p class="text-xs text-slate-500 mt-1">Mãn tính</p>
         </div>
       </div>

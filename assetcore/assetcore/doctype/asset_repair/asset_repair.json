@@ -133,7 +133,8 @@
    "label": "Trạng thái",
    "options": "Open\nAssigned\nDiagnosing\nPending Parts\nIn Repair\nPending Inspection\nCompleted\nCannot Repair\nCancelled",
    "default": "Open",
-   "in_list_view": 1
+   "in_list_view": 1,
+   "read_only": 1
   },
   {
    "fieldname": "section_time",

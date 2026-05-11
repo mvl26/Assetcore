@@ -240,3 +240,18 @@ For any PR touching auth, perms, whitelisted endpoints, or DocPerm:
 - `frontend/src/constants/roles.ts` — FE mirror of BE `Roles`
 - `frontend/src/directives/permission.ts` — `v-permission` directive (DOM-removes element on missing role)
 - `frontend/src/composables/usePermissions.ts` — legacy thin wrapper (new code should use `useAuthStore` directly)
+
+---
+
+## Cross-skill conventions
+
+Read [`/.claude/skills/CONVENTIONS.md`](../CONVENTIONS.md) for project-wide rules. Especially relevant to this skill:
+
+- §4. Audit & Lifecycle — IMM Audit Trail SHA-256 chain; verify chain integrity periodically
+- §5. Permissions — 3 layers (DocPerm + query_conditions + service guard)
+- §10. Forbidden — never write to IMM Audit Trail directly
+
+### Module-specific gotchas
+- Vendor isolation: use `permission_query_conditions` to filter rows by vendor
+- IMM-16 BR-16-09 gate: Critical CAPA blocks new Work Order — implemented via `services.imm16.gate_wo_submit`
+- Audit chain verification script: walk from root, recompute hash, compare to row hash; mismatch = tampering

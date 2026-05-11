@@ -56,14 +56,13 @@ async function submit() {
       patient_impact_description: form.value.patient_impact_description,
       immediate_action: form.value.immediate_action,
     })
-    const r = res as unknown as { name?: string }
-    if (r?.name) {
+    if (res?.name) {
       clearDraft()
       router.push('/incidents/dashboard')
     }
     else error.value = 'Lỗi khi tạo Incident Report'
   } catch (e: unknown) {
-    error.value = (e as Error).message || 'Lỗi khi tạo Incident Report'
+    error.value = e instanceof Error ? e.message : 'Lỗi khi tạo Incident Report'
   }
   saving.value = false
 }

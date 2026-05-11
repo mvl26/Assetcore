@@ -74,7 +74,5 @@ export const useImm03Store = defineStore('imm03', () => {
     clearError,
     fetchEvaluations, fetchEvaluation,
     fetchAvl, fetchDecisions, fetchDecision, fetchKpis,
-    // re-export api functions for direct call from views
-    api,
   }
 })

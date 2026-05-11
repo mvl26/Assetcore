@@ -6,6 +6,7 @@ import { getStockMovement, updateStockMovement, searchParts, searchReferenceDocs
 import type { RefDoc } from '@/api/inventory'
 import type { MovementType, StockMovementItem, SparePart } from '@/types/inventory'
 import SmartSelect from '@/components/common/SmartSelect.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
 
 const props = defineProps<{ name: string }>()
 const router = useRouter()
@@ -231,12 +232,10 @@ onMounted(load)
 
 <template>
   <div class="page-container animate-fade-in">
-    <button class="btn-ghost mb-4" @click="router.push(`/stock-movements/${props.name}`)">← Quay lại</button>
-
-    <div class="mb-6">
-      <p class="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-1">Inventory</p>
-      <h1 class="text-2xl font-bold text-slate-900">Sửa phiếu kho <span class="font-mono text-lg">{{ props.name }}</span></h1>
-    </div>
+    <PageHeader
+      :title="`Sửa phiếu kho ${props.name}`"
+      :breadcrumb="[{ label: 'Kho', to: '/stock-movements' }, { label: props.name, to: `/stock-movements/${props.name}` }, { label: 'Chỉnh sửa' }]"
+    />
 
     <div v-if="loading" class="text-center py-20 text-slate-400">Đang tải...</div>
 

@@ -35,6 +35,8 @@ import type {
   LifecycleEvent,
   PoDetails,
   DeviceModelDetails,
+  DocumentRecord,
+  BaselineTest,
 } from '@/types/imm04'
 
 // ─── Module-level helpers (no store state needed) ─────────────────────────────
@@ -54,8 +56,7 @@ export async function checkSnUnique(
   excludeName = '',
 ): Promise<{ is_unique: boolean; existing_commissioning?: string }> {
   const res = await apiCheckSn(sn, excludeName)
-  const r = res as unknown as { is_unique?: boolean; existing_commissioning?: string } | null
-  return { is_unique: r?.is_unique ?? true, existing_commissioning: r?.existing_commissioning }
+  return { is_unique: res?.is_unique ?? true, existing_commissioning: res?.existing_commissioning }
 }
 
 export const useCommissioningStore = defineStore('commissioning', () => {
@@ -118,15 +119,15 @@ export const useCommissioningStore = defineStore('commissioning', () => {
   const allDocumentsReceived = computed(() => {
     if (!currentDoc.value?.commissioning_documents?.length) return false
     return currentDoc.value.commissioning_documents
-      .filter((d: any) => d.is_mandatory)
-      .every((d: any) => d.status === 'Received' || d.status === 'Waived')
+      .filter((d: DocumentRecord) => d.is_mandatory)
+      .every((d: DocumentRecord) => d.status === 'Received' || d.status === 'Waived')
   })
 
   /** Số tài liệu bắt buộc còn chờ */
   const pendingDocCount = computed(() => {
     if (!currentDoc.value?.commissioning_documents) return 0
     return currentDoc.value.commissioning_documents.filter(
-      (d: any) => d.is_mandatory && d.status !== 'Received' && d.status !== 'Waived',
+      (d: DocumentRecord) => d.is_mandatory && d.status !== 'Received' && d.status !== 'Waived',
     ).length
   })
 
@@ -139,7 +140,7 @@ export const useCommissioningStore = defineStore('commissioning', () => {
   /** Số baseline test Fail */
   const failedChecklistCount = computed(() => {
     if (!currentDoc.value?.baseline_tests) return 0
-    return currentDoc.value.baseline_tests.filter((t: any) => t.test_result === 'Fail').length
+    return currentDoc.value.baseline_tests.filter((t: BaselineTest) => t.test_result === 'Fail').length
   })
 
   // ─── Actions ────────────────────────────────────────────────────────────────
@@ -180,7 +181,7 @@ export const useCommissioningStore = defineStore('commissioning', () => {
     try {
       const res = await getFormContext(name)
       if (res) {
-        currentDoc.value = res as unknown as typeof currentDoc.value
+        currentDoc.value = res
       } else {
         error.value = `Không tìm thấy phiếu ${name}`
       }
@@ -462,7 +463,7 @@ export const useCommissioningStore = defineStore('commissioning', () => {
     error.value = null
     try {
       const res = await apiGetDashboardStats()
-      if (res) dashboardStats.value = res as unknown as typeof dashboardStats.value
+      if (res) dashboardStats.value = res
       else error.value = 'Không tải được dashboard'
     } catch (e) {
       error.value = e instanceof Error ? e.message : 'Lỗi kết nối'
@@ -483,7 +484,7 @@ export const useCommissioningStore = defineStore('commissioning', () => {
         '/api/method/assetcore.api.imm04.list_non_conformances',
         { commissioning: commissioningId },
       )
-      ncList.value = (res as unknown as NonConformance[]) ?? []
+      ncList.value = res ?? []
       _openNcCount.value = ncList.value.filter(n => n.resolution_status === 'Open').length
     } catch (e) {
       error.value = e instanceof Error ? e.message : 'Lỗi kết nối'
@@ -511,10 +512,10 @@ export const useCommissioningStore = defineStore('commissioning', () => {
     error.value = null
     try {
       const res = await frappeGet<{ events: LifecycleEvent[] }>(
-        'assetcore.api.imm04.get_lifecycle_timeline',
+        '/api/method/assetcore.api.imm04.get_lifecycle_timeline',
         { name: commissioningId },
       )
-      timeline.value = (res as any)?.events ?? []
+      timeline.value = res?.events ?? []
     } catch (e) {
       error.value = e instanceof Error ? e.message : 'Lỗi kết nối'
     } finally {

@@ -4,6 +4,10 @@ import { ref, onMounted, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { listStockMovements } from '@/api/inventory'
 import type { StockMovement, MovementType, MovementStatus } from '@/types/inventory'
+import PageHeader from '@/components/common/PageHeader.vue'
+import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
+import ListFilterBar from '@/components/common/ListFilterBar.vue'
+import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 
 const router = useRouter()
 const rows = ref<StockMovement[]>([])
@@ -43,7 +47,7 @@ const activeChips = computed<Chip[]>(() => {
 })
 const activeFilterCount = computed(() => activeChips.value.length)
 
-function clearChip(key: Chip['key']) {
+function clearChip(key: string) {
   if (key === 'type') typeFilter.value = ''
   else statusFilter.value = ''
   page.value = 1; load()
@@ -92,117 +96,51 @@ onMounted(load)
 
 <template>
   <div class="page-container animate-fade-in">
-<!-- Header -->
-    <div class="flex items-start justify-between mb-5">
-      <div>
-        <p class="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-1">Inventory</p>
-        <h1 class="text-2xl font-bold text-slate-900">Phiếu xuất / nhập kho</h1>
-        <p class="text-sm text-slate-500 mt-1">Tổng <strong class="text-slate-700">{{ total }}</strong> phiếu</p>
-      </div>
-      <div class="flex items-center gap-2 shrink-0">
-        <button
-          class="relative flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border transition-colors"
-          :class="showFilters
-            ? 'bg-brand-50 border-brand-300 text-brand-700'
-            : 'bg-white border-slate-300 text-slate-600 hover:border-slate-400'"
-          @click="showFilters = !showFilters"
-        >
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M3 4h18M7 8h10M11 12h2M9 16h6" />
-          </svg>
-          Bộ lọc
-          <span
-v-if="activeFilterCount > 0"
-            class="inline-flex items-center justify-center w-4 h-4 text-[10px] font-bold rounded-full bg-blue-500 text-white">
-            {{ activeFilterCount }}
-          </span>
-          <svg
-class="w-3.5 h-3.5 transition-transform duration-200" :class="showFilters ? 'rotate-180' : ''"
-               fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-          </svg>
-        </button>
+    <PageHeader
+      title="Phiếu xuất / nhập kho"
+      :subtitle="`Tổng ${total} phiếu`"
+    >
+      <template #actions>
+        <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
         <button class="btn-primary shrink-0" @click="router.push('/stock-movements/new')">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
           </svg>
           Tạo phiếu mới
         </button>
-      </div>
-    </div>
+      </template>
+    </PageHeader>
 
-    <!-- Active chips -->
-    <Transition
-      enter-active-class="transition-all duration-200 ease-out"
-      enter-from-class="opacity-0 -translate-y-1"
-      enter-to-class="opacity-100 translate-y-0"
-      leave-active-class="transition-all duration-150 ease-in"
-      leave-from-class="opacity-100"
-      leave-to-class="opacity-0"
+    <ListFilterBar
+      :show="showFilters"
+      :chips="activeChips"
+      :show-search="false"
+      @reset="resetFilters"
+      @clear-chip="clearChip"
+      @apply="() => { page = 1; load() }"
     >
-      <div v-if="activeChips.length > 0 && !showFilters" class="flex flex-wrap items-center gap-2 mb-4">
-        <span class="text-xs text-slate-400 font-medium">Đang lọc:</span>
-        <button
-v-for="chip in activeChips" :key="chip.key"
-          class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors"
-          @click="clearChip(chip.key)"
-        >
-          {{ chip.label }}
-          <svg class="w-3 h-3 opacity-60" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
-        <button class="text-xs text-slate-400 hover:text-red-500 underline underline-offset-2" @click="resetFilters">Xóa tất cả</button>
-      </div>
-    </Transition>
-
-    <!-- Collapsible filter panel -->
-    <Transition
-      enter-active-class="transition-all duration-200 ease-out overflow-hidden"
-      enter-from-class="opacity-0 max-h-0"
-      enter-to-class="opacity-100 max-h-40"
-      leave-active-class="transition-all duration-150 ease-in overflow-hidden"
-      leave-from-class="opacity-100 max-h-40"
-      leave-to-class="opacity-0 max-h-0"
-    >
-      <div v-show="showFilters" class="card p-4 mb-4 space-y-3">
-        <div class="flex flex-wrap gap-3 items-center">
-          <div class="flex items-center gap-2">
-            <label for="sm-type" class="text-sm text-slate-600 shrink-0">Loại GD:</label>
-            <select id="sm-type" v-model="typeFilter" class="form-select text-sm">
-              <option value="">Tất cả</option>
-              <option value="Receipt">Nhập kho</option>
-              <option value="Issue">Xuất kho</option>
-              <option value="Transfer">Chuyển kho</option>
-              <option value="Adjustment">Điều chỉnh</option>
-            </select>
-          </div>
-          <div class="flex items-center gap-2">
-            <label for="sm-status" class="text-sm text-slate-600 shrink-0">Trạng thái:</label>
-            <select id="sm-status" v-model="statusFilter" class="form-select text-sm">
-              <option value="">Tất cả</option>
-              <option value="Draft">Nháp</option>
-              <option value="Submitted">Đã duyệt</option>
-              <option value="Cancelled">Đã huỷ</option>
-            </select>
-          </div>
-          <button class="btn-ghost text-sm" @click="resetFilters">Đặt lại</button>
+      <template #fields>
+        <div class="form-group">
+          <label class="form-label">Loại giao dịch</label>
+          <select v-model="typeFilter" class="form-select text-sm">
+            <option value="">Tất cả</option>
+            <option value="Receipt">Nhập kho</option>
+            <option value="Issue">Xuất kho</option>
+            <option value="Transfer">Chuyển kho</option>
+            <option value="Adjustment">Điều chỉnh</option>
+          </select>
         </div>
-        <div v-if="activeChips.length > 0" class="flex flex-wrap items-center gap-2 pt-3 border-t border-slate-100">
-          <span class="text-xs text-slate-400 font-medium">Đang lọc:</span>
-          <button
-v-for="chip in activeChips" :key="chip.key"
-            class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors"
-            @click="clearChip(chip.key)"
-          >
-            {{ chip.label }}
-            <svg class="w-3 h-3 opacity-60" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+        <div class="form-group">
+          <label class="form-label">Trạng thái</label>
+          <select v-model="statusFilter" class="form-select text-sm">
+            <option value="">Tất cả</option>
+            <option value="Draft">Nháp</option>
+            <option value="Submitted">Đã duyệt</option>
+            <option value="Cancelled">Đã huỷ</option>
+          </select>
         </div>
-      </div>
-    </Transition>
+      </template>
+    </ListFilterBar>
 
     <div class="card overflow-hidden">
       <!-- Info row -->
@@ -211,7 +149,9 @@ v-for="chip in activeChips" :key="chip.key"
         <button v-if="activeFilterCount > 0" class="text-red-500 hover:text-red-700 font-medium" @click="resetFilters">Xóa tất cả</button>
       </div>
 
-      <div v-if="loading && !rows.length" class="text-center py-12 text-slate-400">Đang tải...</div>
+      <div v-if="loading && !rows.length" class="p-6">
+        <SkeletonLoader variant="table" :rows="6" />
+      </div>
       <div v-else-if="rows.length === 0" class="flex flex-col items-center justify-center py-16 text-slate-400">
         <p class="text-sm">Chưa có phiếu nào.</p>
         <button v-if="activeFilterCount > 0" class="text-xs text-blue-500 hover:text-blue-700 underline mt-2" @click="resetFilters">
@@ -223,13 +163,13 @@ v-for="chip in activeChips" :key="chip.key"
         <table class="w-full text-sm">
           <thead class="bg-slate-50 border-b border-slate-100">
             <tr>
-              <th class="px-4 py-3 text-left text-xs font-semibold text-slate-500">Mã phiếu</th>
-              <th class="px-4 py-3 text-left text-xs font-semibold text-slate-500">Loại</th>
-              <th class="px-4 py-3 text-left text-xs font-semibold text-slate-500 hidden md:table-cell">Ngày</th>
-              <th class="px-4 py-3 text-left text-xs font-semibold text-slate-500">Kho</th>
-              <th class="px-4 py-3 text-right text-xs font-semibold text-slate-500 hidden md:table-cell">Giá trị</th>
-              <th class="px-4 py-3 text-left text-xs font-semibold text-slate-500 hidden lg:table-cell">Chứng từ</th>
-              <th class="px-4 py-3 text-center text-xs font-semibold text-slate-500">Trạng thái</th>
+              <th class="table-header">Mã phiếu</th>
+              <th class="table-header">Loại</th>
+              <th class="table-header hidden md:table-cell">Ngày</th>
+              <th class="table-header">Kho</th>
+              <th class="table-header text-right hidden md:table-cell">Giá trị</th>
+              <th class="table-header hidden lg:table-cell">Chứng từ</th>
+              <th class="table-header text-center">Trạng thái</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-50">

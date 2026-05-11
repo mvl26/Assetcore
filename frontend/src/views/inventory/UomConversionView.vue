@@ -8,6 +8,7 @@ import {
   getUomInfo, upsertUomConversion, removeUomConversion,
   type AcUom, type PartUomRow, type PartMissingUom, type UomInfo,
 } from '@/api/inventory'
+import PageHeader from '@/components/common/PageHeader.vue'
 
 type Tab = 'master' | 'parts' | 'conversions'
 const tab = ref<Tab>('master')
@@ -167,12 +168,7 @@ const activeUoms = computed(() => uoms.value.filter(u => u.is_active))
 
 <template>
   <div class="page-container animate-fade-in">
-    <!-- Header -->
-    <div class="mb-5">
-      <p class="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-1">Đơn vị tính</p>
-      <h1 class="text-2xl font-bold text-slate-900">Quản lý Đơn vị tính</h1>
-      <p class="text-sm text-slate-500 mt-1">Tạo/sửa ĐVT, gán cho phụ tùng, và thiết lập bảng quy đổi.</p>
-    </div>
+    <PageHeader title="Quản lý Đơn vị tính" subtitle="Tạo/sửa ĐVT, gán cho phụ tùng, và thiết lập bảng quy đổi." />
 
     <!-- Toast -->
     <div

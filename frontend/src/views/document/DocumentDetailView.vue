@@ -101,7 +101,7 @@ async function transitionState(name: string, action: string) {
       action,
     })
     return res
-  } catch (e) {
+  } catch (e: unknown) {
     console.error(e)
     return null
   }

@@ -15,6 +15,7 @@ from .constants import (
     Roles,
 )
 from .errors import ServiceError
+from .filters import normalize_filters
 from .permissions import has_any_role, is_admin, require_admin, require_role
 
 __all__ = [
@@ -27,6 +28,7 @@ __all__ = [
     "ServiceError",
     "has_any_role",
     "is_admin",
+    "normalize_filters",
     "require_admin",
     "require_role",
 ]

@@ -4,6 +4,7 @@ import { useImm09Store } from '@/stores/imm09'
 import { useRouter } from 'vue-router'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
 import { getMttrReport } from '@/api/imm09'
 
 const store  = useImm09Store()
@@ -94,22 +95,20 @@ const woStatusMap: Record<string, string> = {
 
 <template>
   <div class="page-container animate-fade-in">
-<!-- Header -->
-    <div class="flex items-start justify-between mb-7">
-      <div>
-        <h1 class="text-2xl font-bold text-slate-900">Tổng quan Sửa chữa Khắc phục</h1>
-        <p class="text-sm text-slate-500 mt-1">Theo dõi sửa chữa thiết bị theo thời gian thực</p>
-      </div>
-      <div class="flex gap-2.5 shrink-0">
+    <PageHeader
+      title="Tổng quan Sửa chữa"
+      subtitle="Theo dõi lệnh sửa chữa, MTTR, SLA và vật tư"
+    >
+      <template #actions>
+        <button class="btn-secondary" @click="router.push('/cm/work-orders')">Danh sách phiếu</button>
         <button class="btn-primary" @click="router.push('/cm/create')">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
           </svg>
           Tạo phiếu mới
         </button>
-        <button class="btn-secondary" @click="router.push('/cm/work-orders')">Danh sách phiếu</button>
-      </div>
-    </div>
+      </template>
+    </PageHeader>
 
     <!-- KPI skeleton -->
     <SkeletonLoader v-if="store.loading && !kpis" variant="kpi-cards" class="mb-7" />

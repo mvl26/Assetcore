@@ -98,7 +98,8 @@
    "options": "Scheduled\nSent to Lab\nIn Progress\nCertificate Received\nPassed\nFailed\nConditionally Passed\nCancelled",
    "default": "Scheduled",
    "reqd": 1,
-   "in_list_view": 1
+   "in_list_view": 1,
+   "read_only": 1
   },
   {
    "fieldname": "is_recalibration",

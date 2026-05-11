@@ -5,6 +5,7 @@ import { useRouter } from 'vue-router'
 import { getWarehouse, updateWarehouse, deleteWarehouse } from '@/api/inventory'
 import type { Warehouse, StockRow } from '@/types/inventory'
 import SmartSelect from '@/components/common/SmartSelect.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
 
 const props = defineProps<{ name: string }>()
 const router = useRouter()
@@ -83,27 +84,16 @@ onMounted(load)
     <div v-if="loading && !wh" class="text-center py-20 text-slate-400">Đang tải...</div>
 
     <div v-else-if="wh">
-      <!-- Header -->
-      <div class="flex items-start justify-between mb-6">
-        <div>
-          <p class="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-1">{{ wh.warehouse_code }}</p>
-          <h1 class="text-2xl font-bold text-slate-900">{{ wh.warehouse_name }}</h1>
-          <div class="flex items-center gap-2 mt-2">
-            <span v-if="wh.department" class="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">{{ wh.department }}</span>
-            <span v-if="wh.location" class="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-600">{{ wh.location }}</span>
-            <span v-if="!wh.is_active" class="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">Ngừng hoạt động</span>
-          </div>
-        </div>
-        <div class="flex gap-2">
+      <PageHeader
+        :title="wh.warehouse_name"
+        :subtitle="wh.warehouse_code"
+        :breadcrumb="[{ label: 'Kho hàng', to: '/warehouses' }, { label: wh.warehouse_name }]"
+      >
+        <template #actions>
           <button class="btn-ghost" @click="openEdit">Sửa</button>
-          <button
-v-if="wh.is_active"
-                  class="text-sm px-3 py-1.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 font-medium"
-                  @click="doDeactivate">
-Ngừng
-</button>
-        </div>
-      </div>
+          <button v-if="wh.is_active" class="btn-ghost text-red-600" @click="doDeactivate">Ngừng</button>
+        </template>
+      </PageHeader>
 
       <!-- Summary -->
       <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">

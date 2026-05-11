@@ -3,6 +3,7 @@
 // — Depreciation & Asset Accounting
 import { ref, computed, onMounted } from 'vue'
 import { frappeGet, frappePost } from '@/api/helpers'
+import PageHeader from '@/components/common/PageHeader.vue'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface AssetDeprRow {
@@ -188,24 +189,20 @@ onMounted(() => Promise.all([loadStats(), loadList()]))
 
 <template>
   <div class="page-container animate-fade-in">
-<!-- Header -->
-    <div class="flex items-start justify-between mb-6">
-      <div>
-        <p class="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-1">Kế toán tài sản</p>
-        <h1 class="text-2xl font-bold text-slate-900">Khấu hao thiết bị</h1>
-        <p class="text-sm text-slate-500 mt-1">Theo dõi giá trị còn lại và lịch khấu hao toàn bộ danh mục</p>
-      </div>
-      <button
-        class="btn-primary flex items-center gap-2"
-        :disabled="computingAll"
-        @click="computeAll"
-      >
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-        </svg>
-        {{ computingAll ? 'Đang tính...' : 'Tính lại toàn bộ' }}
-      </button>
-    </div>
+    <PageHeader title="Khấu hao thiết bị" subtitle="Theo dõi giá trị còn lại và lịch khấu hao toàn bộ danh mục">
+      <template #actions>
+        <button
+          class="btn-primary flex items-center gap-2"
+          :disabled="computingAll"
+          @click="computeAll"
+        >
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+          {{ computingAll ? 'Đang tính...' : 'Tính lại toàn bộ' }}
+        </button>
+      </template>
+    </PageHeader>
 
     <!-- Toast -->
     <Transition name="fade">

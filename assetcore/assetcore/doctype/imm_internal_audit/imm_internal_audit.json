@@ -1,0 +1,190 @@
+{
+ "autoname": "format:AUD-INT-.YYYY.-.#####",
+ "naming_rule": "Expression (old style)",
+ "creation": "2026-05-08 00:00:00.000000",
+ "doctype": "DocType",
+ "document_type": "Document",
+ "engine": "InnoDB",
+ "is_submittable": 0,
+ "module": "AssetCore",
+ "name": "IMM Internal Audit",
+ "track_changes": 1,
+ "modified": "2026-05-08 00:00:00.000000",
+ "modified_by": "Administrator",
+ "owner": "Administrator",
+ "field_order": [
+  "audit_code",
+  "audit_type",
+  "planned_start",
+  "planned_end",
+  "actual_start",
+  "actual_end",
+  "lead_auditor",
+  "audit_plan_doc",
+  "checklist_template",
+  "checklist_items",
+  "findings",
+  "status",
+  "findings_count",
+  "total_score",
+  "audit_report",
+  "management_review_ref",
+  "workflow_state"
+ ],
+ "fields": [
+  {
+   "fieldname": "audit_code",
+   "fieldtype": "Data",
+   "label": "Mã audit",
+   "reqd": 1,
+   "unique": 1,
+   "in_list_view": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "audit_type",
+   "fieldtype": "Select",
+   "label": "Loại audit",
+   "options": "\nInternal\nSelf-assessment",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "planned_start",
+   "fieldtype": "Date",
+   "label": "Ngày bắt đầu kế hoạch",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "planned_end",
+   "fieldtype": "Date",
+   "label": "Ngày kết thúc kế hoạch",
+   "reqd": 1
+  },
+  {
+   "fieldname": "actual_start",
+   "fieldtype": "Date",
+   "label": "Ngày bắt đầu thực tế"
+  },
+  {
+   "fieldname": "actual_end",
+   "fieldtype": "Date",
+   "label": "Ngày kết thúc thực tế",
+   "read_only": 1
+  },
+  {
+   "fieldname": "lead_auditor",
+   "fieldtype": "Link",
+   "label": "Trưởng nhóm audit",
+   "options": "User",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "audit_plan_doc",
+   "fieldtype": "Attach",
+   "label": "Kế hoạch audit"
+  },
+  {
+   "fieldname": "checklist_template",
+   "fieldtype": "Link",
+   "label": "Mẫu checklist",
+   "options": "IMM Audit Checklist Template"
+  },
+  {
+   "fieldname": "checklist_items",
+   "fieldtype": "Table",
+   "label": "Danh sách kiểm tra",
+   "options": "IMM Audit Checklist Item"
+  },
+  {
+   "fieldname": "findings",
+   "fieldtype": "Table",
+   "label": "Phát hiện audit",
+   "options": "Audit Finding"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Trạng thái",
+   "options": "\nPlanned\nIn Progress\nReporting\nClosed",
+   "default": "Planned",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "findings_count",
+   "fieldtype": "Int",
+   "label": "Số phát hiện",
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_score",
+   "fieldtype": "Float",
+   "label": "Điểm tổng",
+   "read_only": 1
+  },
+  {
+   "fieldname": "audit_report",
+   "fieldtype": "Attach",
+   "label": "Báo cáo audit"
+  },
+  {
+   "fieldname": "management_review_ref",
+   "fieldtype": "Link",
+   "label": "Họp xem xét lãnh đạo",
+   "options": "IMM Management Review"
+  },
+  {
+   "fieldname": "workflow_state",
+   "fieldtype": "Link",
+   "label": "Workflow State",
+   "options": "Workflow State",
+   "read_only": 1,
+   "hidden": 1
+  }
+ ],
+ "permissions": [
+  {
+   "role": "Tổ HC-QLCL",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "submit": 1,
+   "cancel": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "Internal Auditor",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "submit": 0,
+   "cancel": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM System Admin",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "submit": 1,
+   "cancel": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  }
+ ]
+}

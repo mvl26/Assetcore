@@ -6,7 +6,7 @@ import {
   getDashboard,
   getIncidentStats,
 } from '@/api/imm12'
-import type { IncidentDetail, DashboardData, DashboardStats } from '@/api/imm12'
+import type { IncidentDetail, DashboardData, DashboardStats, IncidentStats } from '@/api/imm12'
 
 const DEFAULT_PAGINATION = { total: 0, page: 1, page_size: 20, total_pages: 1, offset: 0 }
 
@@ -20,7 +20,7 @@ export const useImm12Store = defineStore('imm12', () => {
   const dashboardLoading = ref(false)
   const dashboardError = ref<string | null>(null)
 
-  const stats = ref<DashboardStats | null>(null)
+  const stats = ref<DashboardStats | IncidentStats | null>(null)
 
   async function fetchList(params: {
     page?: number
@@ -32,13 +32,10 @@ export const useImm12Store = defineStore('imm12', () => {
     loading.value = true
     error.value = null
     try {
-      const res = await listIncidents(params) as unknown as {
-        items: IncidentDetail[]
-        pagination: typeof pagination.value
-      }
+      const res = await listIncidents(params)
       if (res?.items) {
         incidents.value = res.items
-        pagination.value = res.pagination
+        pagination.value = res.pagination as typeof pagination.value
       }
     } catch (e: unknown) {
       error.value = e instanceof Error ? e.message : String(e)
@@ -51,7 +48,7 @@ export const useImm12Store = defineStore('imm12', () => {
     dashboardLoading.value = true
     dashboardError.value = null
     try {
-      const res = await getDashboard() as unknown as DashboardData
+      const res = await getDashboard()
       dashboard.value = res
       if (res?.stats) stats.value = res.stats
     } catch (e: unknown) {
@@ -63,8 +60,7 @@ export const useImm12Store = defineStore('imm12', () => {
 
   async function fetchStats() {
     try {
-      const res = await getIncidentStats() as unknown as DashboardStats
-      stats.value = res
+      stats.value = await getIncidentStats()
     } catch {
       // non-blocking
     }

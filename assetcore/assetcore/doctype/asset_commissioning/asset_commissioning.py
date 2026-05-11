@@ -21,7 +21,6 @@ class AssetCommissioning(Document):
 
 	def before_insert(self):
 		"""Initialize commissioning record: set defaults, populate mandatory docs."""
-		from assetcore.services import imm04 as imm04_svc
 		imm04_svc.initialize_commissioning(self)
 
 	def before_save(self):
@@ -33,8 +32,8 @@ class AssetCommissioning(Document):
 			self.internal_tag_qr = self._generate_internal_qr()
 
 	def validate(self):
-		"""Chạy toàn bộ validation rules theo thứ tự ưu tiên."""
-		self.validate_unique_serial()
+		"""Delegate toàn bộ validation về service layer (imm04)."""
+		imm04_svc.validate_commissioning(self)     # VR-01, VR-05, VR-06, doc expiry
 		imm04_svc.validate_gate_g01(self)          # G01: mandatory docs
 		self._check_auto_clinical_hold()            # BR-04-05: risk_class → radiation flag
 		self.validate_radiation_hold()
@@ -65,69 +64,6 @@ class AssetCommissioning(Document):
 		if self.asset_ref:
 			frappe.throw(_("Không thể hủy commissioning đã tạo tài sản. Vui lòng liên hệ quản trị viên."))
 		imm04_svc.log_lifecycle_event(self, "Cancel", self.workflow_state, "Cancelled", "Commissioning bị hủy")
-
-	# ──────────────────────────────────────────────
-	# VR-01: VALIDATE UNIQUE SERIAL
-	# ──────────────────────────────────────────────
-
-	def validate_unique_serial(self):
-		"""VR-01: Serial Number Hãng phải là duy nhất trên toàn hệ thống."""
-		if not self.vendor_serial_no:
-			return
-
-		# Kiểm tra trong bảng AC Asset (v3: manufacturer_sn là field chuẩn)
-		existing_asset = frappe.db.get_value(
-			"AC Asset",
-			{"manufacturer_sn": self.vendor_serial_no},
-			"name"
-		)
-		if existing_asset and existing_asset != self.final_asset:
-			frappe.throw(
-				_("Lỗi VR-01: Serial Number <b>{0}</b> đã được đăng ký "
-				  "cho tài sản <a href='/app/asset/{1}'>{1}</a>. "
-				  "Vui lòng kiểm tra lại tem máy hoặc liên hệ phòng TBYT!")
-				.format(self.vendor_serial_no, existing_asset)
-			)
-
-		# Kiểm tra trong chính bảng Asset Commissioning (tránh trùng trong quá trình)
-		existing_comm = frappe.db.get_value(
-			"Asset Commissioning",
-			{
-				"vendor_serial_no": self.vendor_serial_no,
-				"name": ("!=", self.name),
-				"docstatus": ("!=", 2)  # Không phải Cancelled
-			},
-			"name"
-		)
-		if existing_comm:
-			frappe.throw(
-				_("Lỗi VR-01: Serial Number <b>{0}</b> đang được sử dụng "
-				  "trong phiếu Commissioning <b>{1}</b> khác!")
-				.format(self.vendor_serial_no, existing_comm)
-			)
-
-	# ──────────────────────────────────────────────
-	# VR-02: VALIDATE REQUIRED DOCUMENTS
-	# ──────────────────────────────────────────────
-
-	def validate_required_documents(self) -> None:
-		"""Gate G01: Tài liệu bắt buộc phải nhận trước khi lắp đặt (legacy - use imm04_svc.validate_gate_g01)."""
-		checked_states = {
-			"To Be Installed", "Installing", "Identification",
-			_STATE_INITIAL_INSPECTION, "Clinical Hold", _STATE_RE_INSPECTION, _STATE_CLINICAL_RELEASE,
-		}
-		if self.workflow_state not in checked_states:
-			return
-		for row in self.get("commissioning_documents") or []:
-			# Use is_mandatory flag if set, else fallback to doc_type prefix check
-			is_mandatory = row.get("is_mandatory") if row.get("is_mandatory") is not None else (
-				row.doc_type.startswith("CO") or row.doc_type.startswith("CQ")
-			)
-			if is_mandatory and row.status not in ("Received", "Waived"):
-				frappe.throw(
-					_("BR-04-02: Tài liệu '{0}' bắt buộc chưa được nhận. "
-					  "Vui lòng xác nhận trước khi tiến hành lắp đặt.").format(row.doc_type)
-				)
 
 	# ──────────────────────────────────────────────
 	# BR-04-05: SYNC risk_class → is_radiation_device
@@ -333,30 +269,16 @@ class AssetCommissioning(Document):
 
 	@frappe.whitelist()
 	def create_nc_from_form(self, nc_type: str, description: str, damage_photo: str = "") -> str:
-		"""Tạo phiếu Asset QA Non Conformance từ nút DOA trên form Commissioning."""
+		"""Tạo phiếu Asset QA Non Conformance từ nút DOA — delegate về service layer."""
 		if self.workflow_state != "Installing":
 			frappe.throw(_("Chỉ có thể báo DOA khi thiết bị đang ở trạng thái Installing."))
-
-		nc = frappe.get_doc({
-			"doctype": "Asset QA Non Conformance",
-			"ref_commissioning": self.name,
+		result = imm04_svc.report_nonconformance(self.name, {
 			"nc_type": nc_type,
+			"severity": "Critical" if nc_type == "DOA" else "Minor",
 			"description": description,
-			"damage_proof": damage_photo or None,
-			"resolution_status": "Open"
 		})
-		nc.insert(ignore_permissions=True)
-
-		# Đánh dấu phiếu commissioning có sự cố DOA
 		self.db_set("doa_incident", 1, commit=True)
-
-		frappe.log_error(
-			message=f"NC {nc.name} ({nc_type}) tạo bởi {frappe.session.user} "
-			        f"cho phiếu {self.name}",
-			title="IMM-04 DOA NC Created"
-		)
-
-		return nc.name
+		return result["name"]
 
 	# ──────────────────────────────────────────────
 	# HELPER: GENERATE QR CODE

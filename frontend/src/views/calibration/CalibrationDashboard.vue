@@ -5,6 +5,7 @@ import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { frappeGet } from '@/api/helpers'
 import { useImm11Store } from '@/stores/imm11'
+import PageHeader from '@/components/common/PageHeader.vue'
 
 const store = useImm11Store()
 
@@ -91,17 +92,16 @@ onMounted(load)
 
 <template>
   <div class="page-container space-y-5">
-    <!-- Header -->
-    <div class="flex items-center justify-between">
-      <div>
-        <h1 class="text-2xl font-bold text-slate-900">Bảng điều khiển Hiệu chuẩn</h1>
-      </div>
-      <div class="flex items-center gap-3">
-        <span class="text-sm text-slate-500">{{ periodLabel }}</span>
-        <button class="btn-ghost text-sm" @click="load">↻ Làm mới</button>
-        <button class="btn-primary text-sm" @click="router.push('/calibration/new')">+ Tạo phiếu</button>
-      </div>
-    </div>
+    <PageHeader
+      title="Bảng điều khiển Hiệu chuẩn"
+      :subtitle="periodLabel"
+      :breadcrumb="[{ label: 'IMM-11 · Hiệu chuẩn', to: '/calibration/dashboard' }, { label: 'Tổng quan' }]"
+    >
+      <template #actions>
+        <button class="btn-ghost" @click="load">↻ Làm mới</button>
+        <button class="btn-primary" @click="router.push('/calibration/new')">+ Tạo phiếu</button>
+      </template>
+    </PageHeader>
 
     <div v-if="err" class="alert-error">{{ err }}</div>
     <div v-if="loading && !data" class="card p-10 text-center text-slate-400">Đang tải...</div>
@@ -109,50 +109,46 @@ onMounted(load)
     <template v-else-if="data">
       <!-- KPI Row — 4 cards per UI/UX spec -->
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-        <!-- Tỷ lệ tuân thủ -->
-        <div class="card p-4">
-          <p class="text-xs text-slate-400 uppercase tracking-wider mb-1">Tỷ lệ tuân thủ</p>
+        <div
+          class="kpi-card p-4"
+          :style="`--kpi-color: ${data.kpis.compliance_pct >= 95 ? '#059669' : data.kpis.compliance_pct >= 80 ? '#d97706' : '#dc2626'}`"
+        >
+          <p class="text-xs text-slate-400 mb-1">Tỷ lệ tuân thủ</p>
           <p
-class="text-3xl font-bold"
-             :class="data.kpis.compliance_pct >= 95 ? 'text-green-600' : data.kpis.compliance_pct >= 80 ? 'text-yellow-600' : 'text-red-600'">
-            {{ data.kpis.compliance_pct }}%
-          </p>
+            class="text-3xl font-bold font-display tabular-nums"
+            :style="`color: ${data.kpis.compliance_pct >= 95 ? '#059669' : data.kpis.compliance_pct >= 80 ? '#d97706' : '#dc2626'}`"
+          >{{ data.kpis.compliance_pct }}%</p>
           <div class="mt-2 h-1.5 bg-slate-100 rounded-full overflow-hidden">
             <div
-class="h-full rounded-full transition-all"
-              :style="`width: ${data.kpis.compliance_pct}%`"
-              :class="data.kpis.compliance_pct >= 95 ? 'bg-green-500' : data.kpis.compliance_pct >= 80 ? 'bg-yellow-500' : 'bg-red-500'"></div>
+              class="h-full rounded-full transition-all"
+              :style="`width: ${data.kpis.compliance_pct}%; background: ${data.kpis.compliance_pct >= 95 ? '#059669' : data.kpis.compliance_pct >= 80 ? '#d97706' : '#dc2626'}`"
+            />
           </div>
           <p class="text-xs text-slate-500 mt-2">{{ data.kpis.completed }}/{{ data.kpis.total_scheduled }} đúng hạn</p>
         </div>
 
-        <!-- OOT Rate -->
-        <div class="card p-4">
-          <p class="text-xs text-slate-400 uppercase tracking-wider mb-1">Out-of-Tolerance</p>
+        <div class="kpi-card p-4" :style="`--kpi-color: ${data.kpis.oot_pct < 5 ? '#059669' : '#dc2626'}`">
+          <p class="text-xs text-slate-400 mb-1">Out-of-Tolerance</p>
           <p
-class="text-3xl font-bold"
-             :class="data.kpis.oot_pct < 5 ? 'text-green-600' : 'text-red-600'">
-            {{ data.kpis.oot_pct }}%
-          </p>
-          <p class="text-xs text-slate-500 mt-4">
-            {{ data.kpis.oot_count }}/{{ data.kpis.measurements_total || 0 }} tham số Fail
-          </p>
+            class="text-3xl font-bold font-display tabular-nums"
+            :style="`color: ${data.kpis.oot_pct < 5 ? '#059669' : '#dc2626'}`"
+          >{{ data.kpis.oot_pct }}%</p>
+          <p class="text-xs text-slate-500 mt-4">{{ data.kpis.oot_count }}/{{ data.kpis.measurements_total || 0 }} tham số Fail</p>
         </div>
 
-        <!-- CAPA Open -->
-        <div class="card p-4">
-          <p class="text-xs text-slate-400 uppercase tracking-wider mb-1">CAPA Open</p>
-          <p class="text-3xl font-bold" :class="data.kpis.capa_open > 0 ? 'text-orange-600' : 'text-green-600'">
-            {{ data.kpis.capa_open }}
-          </p>
+        <div class="kpi-card p-4" :style="`--kpi-color: ${data.kpis.capa_open > 0 ? '#ea580c' : '#059669'}`">
+          <p class="text-xs text-slate-400 mb-1">CAPA Open</p>
+          <p
+            class="text-3xl font-bold font-display tabular-nums"
+            :style="`color: ${data.kpis.capa_open > 0 ? '#ea580c' : '#059669'}`"
+          >{{ data.kpis.capa_open }}</p>
           <p v-if="data.kpis.capa_open > 0" class="text-xs text-orange-600 mt-4 font-medium">⚠ cần xử lý</p>
           <p v-else class="text-xs text-slate-500 mt-4">không có</p>
         </div>
 
-        <!-- Avg Days to Cert -->
-        <div class="card p-4">
-          <p class="text-xs text-slate-400 uppercase tracking-wider mb-1">Avg Days → Cert</p>
-          <p class="text-3xl font-bold text-blue-600">{{ data.kpis.avg_days_to_cert }}</p>
+        <div class="kpi-card p-4" style="--kpi-color: #2563eb">
+          <p class="text-xs text-slate-400 mb-1">Avg Days → Cert</p>
+          <p class="text-3xl font-bold font-display tabular-nums text-brand-600">{{ data.kpis.avg_days_to_cert }}</p>
           <p class="text-xs text-slate-500 mt-4">gửi → nhận (external)</p>
         </div>
       </div>

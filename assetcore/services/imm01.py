@@ -23,6 +23,7 @@ from frappe.utils import getdate, now_datetime, today, get_request_session
 from frappe.model.document import Document
 
 from assetcore.services.shared import ErrorCode, ServiceError
+from assetcore.utils.lifecycle import log_audit_event as _log_audit_event
 
 # ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -61,17 +62,13 @@ def write_audit_trail(
     from_status: str | None, to_status: str | None,
     notes: str = "",
 ) -> None:
-    """Ghi 1 row IMM Audit Trail nếu phiếu có liên kết Asset.
-
-    IMM Audit Trail (Wave 1) yêu cầu `asset` (Link → AC Asset) bắt buộc, và
-    `event_type` là Select fixed: State Change / CAPA / Maintenance / Calibration
-    / Document / Incident / Audit / System / Transfer.
+    """Ghi IMM Audit Trail nếu phiếu có liên kết Asset (replacement_for_asset).
 
     Với Needs Request:
       - Replacement → có replacement_for_asset → ghi audit trail (event_type=System)
-      - New / Upgrade / Add-on → chưa có asset → bỏ qua, rely on Frappe Version
-        (track_changes=1 trong DocType JSON đã bật) + workflow_state history.
-    Tham số `event_type` được map tương đối — chi tiết transitions vào change_summary.
+      - New / Upgrade / Add-on → chưa có asset → bỏ qua, Frappe Version (track_changes=1)
+        + workflow_state history xử lý tự động.
+    Delegate to canonical log_audit_event (không insert trực tiếp vào IMM Audit Trail).
     """
     asset_name = getattr(doc, "replacement_for_asset", None)
     if not asset_name:
@@ -83,19 +80,16 @@ def write_audit_trail(
     if notes:
         summary += f" | {notes}"
     try:
-        audit = frappe.get_doc({
-            "doctype":        _DT_AUDIT,
-            "asset":          asset_name,
-            "event_type":     "System",
-            "actor":          frappe.session.user or "Administrator",
-            "timestamp":      now_datetime(),
-            "ref_doctype":    doc.doctype,
-            "ref_name":       doc.name,
-            "from_status":    from_status or "",
-            "to_status":      to_status or "",
-            "change_summary": summary,
-        })
-        audit.insert(ignore_permissions=True)
+        _log_audit_event(
+            asset=asset_name,
+            event_type="System",
+            actor=frappe.session.user or "Administrator",
+            ref_doctype=doc.doctype,
+            ref_name=doc.name,
+            from_status=from_status or "",
+            to_status=to_status or "",
+            change_summary=summary,
+        )
     except Exception:
         frappe.log_error(frappe.get_traceback(), f"IMM-01 audit trail failed for {doc.name}")
 

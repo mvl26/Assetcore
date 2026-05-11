@@ -1,0 +1,281 @@
+<script setup lang="ts">
+import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
+import { useImm06Store } from '@/stores/imm06'
+import { useAuthStore } from '@/stores/auth'
+import { useApi } from '@/composables/useApi'
+import { ROLES_TRAINING_MANAGE, ROLES_TRAINING_SIGNOFF } from '@/constants/roles'
+import { getExpiringCompetencies } from '@/api/imm06'
+import type { UserCompetency } from '@/api/imm06'
+
+const props = defineProps<{ name: string }>()
+const router = useRouter()
+const store = useImm06Store()
+const authStore = useAuthStore()
+const api = useApi()
+
+const competency = ref<UserCompetency | null>(null)
+const loading = ref(false)
+
+const showRevokeModal = ref(false)
+const revokeReason = ref('')
+const revokeCapa = ref('')
+
+const canSignoff = computed(
+  () => competency.value?.workflow_state === 'Pending Signoff' && authStore.hasAnyRole(ROLES_TRAINING_SIGNOFF),
+)
+const canRevoke = computed(
+  () => competency.value?.workflow_state === 'Active' && authStore.hasAnyRole(ROLES_TRAINING_MANAGE),
+)
+
+function stateClass(state: string): string {
+  const map: Record<string, string> = {
+    'Active':          'bg-emerald-100 text-emerald-700',
+    'Pending Signoff': 'bg-yellow-100 text-yellow-700',
+    'Revoked':         'bg-red-100 text-red-700',
+    'Expired':         'bg-neutral-100 text-neutral-500',
+  }
+  return map[state] ?? 'bg-neutral-100 text-neutral-600'
+}
+
+function stateLabel(s: string): string {
+  const map: Record<string, string> = {
+    'Active':          'Hiệu lực',
+    'Pending Signoff': 'Chờ phê duyệt',
+    'Revoked':         'Đã thu hồi',
+    'Expired':         'Hết hạn',
+  }
+  return map[s] ?? s
+}
+
+function levelLabel(v: string): string {
+  const map: Record<string, string> = {
+    'Trainee':         'Học viên',
+    'Operator':        'Vận hành viên',
+    'Senior Operator': 'Vận hành viên cao cấp',
+    'Trainer':         'Giảng viên',
+  }
+  return map[v] ?? v
+}
+
+function expiryClass(days: number | null): string {
+  if (days === null) return 'text-slate-600'
+  if (days < 0) return 'text-red-600 font-semibold'
+  if (days < 30) return 'text-red-600 font-semibold'
+  if (days < 60) return 'text-amber-600 font-semibold'
+  return 'text-emerald-600'
+}
+
+function formatDays(days: number | null): string {
+  if (days === null) return '—'
+  if (days < 0) return `Đã hết hạn ${Math.abs(days)} ngày`
+  if (days === 0) return 'Hết hạn hôm nay'
+  return `Còn ${days} ngày`
+}
+
+async function load() {
+  loading.value = true
+  // We load from store to avoid extra fetch; use competency API if needed
+  await store.fetchCompetencies({ name: props.name }, 1)
+  const found = store.competencies.find(c => c.name === props.name)
+  if (found) {
+    competency.value = found
+  } else {
+    // Fallback: try to find in expiring list or fetch all with name filter
+    const allRes = await getExpiringCompetencies(9999).catch(() => [] as UserCompetency[])
+    competency.value = allRes.find(c => c.name === props.name) ?? null
+  }
+  loading.value = false
+}
+
+async function doSignoff() {
+  const ok = await api.run(
+    () => store.doSignoffCompetency(props.name),
+    { successMessage: 'Đã phê duyệt năng lực' },
+  )
+  if (ok) await load()
+}
+
+async function doRevoke() {
+  if (!revokeReason.value.trim()) return
+  const ok = await api.run(
+    () => store.doRevokeCompetency(props.name, revokeReason.value, revokeCapa.value || undefined),
+    { successMessage: 'Đã thu hồi năng lực' },
+  )
+  if (ok) {
+    showRevokeModal.value = false
+    revokeReason.value = ''
+    revokeCapa.value = ''
+    await load()
+  }
+}
+
+onMounted(load)
+</script>
+
+<template>
+  <div class="page-container animate-fade-in space-y-5">
+    <!-- Header -->
+    <div class="flex items-center justify-between flex-wrap gap-3">
+      <div class="flex items-center gap-3">
+        <button class="btn-ghost text-sm" @click="router.push('/training/competencies')">← Quay lại</button>
+        <div>
+          <p class="text-xs text-slate-400">Năng lực nhân viên</p>
+          <h1 class="text-xl font-bold text-slate-900">{{ props.name }}</h1>
+        </div>
+      </div>
+      <div class="flex items-center gap-2 flex-wrap">
+        <span
+          v-if="competency"
+          class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium"
+          :class="stateClass(competency.workflow_state)"
+        >
+          {{ stateLabel(competency.workflow_state) }}
+        </span>
+
+        <button
+          v-if="canSignoff"
+          class="btn-primary text-sm"
+          :disabled="api.loading.value"
+          @click="doSignoff"
+        >
+          Phê duyệt
+        </button>
+
+        <button
+          v-if="canRevoke"
+          class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm transition-colors"
+          @click="showRevokeModal = true"
+        >
+          Thu hồi
+        </button>
+      </div>
+    </div>
+
+    <div v-if="loading" class="card p-8 text-center text-slate-400">Đang tải...</div>
+
+    <template v-else-if="competency">
+      <!-- Main info -->
+      <div class="card p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-4 pb-2 border-b">Thông tin năng lực</h2>
+        <div class="grid grid-cols-2 md:grid-cols-3 gap-5 text-sm">
+          <div>
+            <p class="text-xs text-slate-400 mb-1">Nhân viên</p>
+            <p class="font-medium">{{ competency.user_full_name ?? competency.user }}</p>
+            <p v-if="competency.user_full_name" class="text-xs text-slate-400 font-mono mt-0.5">{{ competency.user }}</p>
+          </div>
+          <div>
+            <p class="text-xs text-slate-400 mb-1">Device Model</p>
+            <p class="font-medium">{{ competency.device_model }}</p>
+          </div>
+          <div>
+            <p class="text-xs text-slate-400 mb-1">Chương trình đào tạo</p>
+            <p>{{ competency.training_program }}</p>
+          </div>
+          <div>
+            <p class="text-xs text-slate-400 mb-1">Cấp độ năng lực</p>
+            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-700">
+              {{ levelLabel(competency.competency_level) }}
+            </span>
+          </div>
+          <div>
+            <p class="text-xs text-slate-400 mb-1">Ngày đạt được</p>
+            <p>{{ competency.achieved_date }}</p>
+          </div>
+          <div>
+            <p class="text-xs text-slate-400 mb-1">Ngày hết hạn</p>
+            <p :class="competency.is_expired ? 'text-red-500 font-medium' : ''">{{ competency.expiry_date ?? '—' }}</p>
+          </div>
+          <div>
+            <p class="text-xs text-slate-400 mb-1">Thời hạn còn lại</p>
+            <p :class="expiryClass(competency.days_until_expiry)">{{ formatDays(competency.days_until_expiry) }}</p>
+          </div>
+          <div>
+            <p class="text-xs text-slate-400 mb-1">Hạn tái chứng nhận</p>
+            <p>{{ competency.recertification_due_date ?? '—' }}</p>
+          </div>
+          <div>
+            <p class="text-xs text-slate-400 mb-1">Khoa/Phòng</p>
+            <p>{{ competency.department_at_assessment ?? '—' }}</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Assessment scores -->
+      <div class="card p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-4 pb-2 border-b">Kết quả đánh giá</h2>
+        <div class="grid grid-cols-2 md:grid-cols-3 gap-5 text-sm">
+          <div>
+            <p class="text-xs text-slate-400 mb-1">Điểm tổng cuối</p>
+            <p class="text-2xl font-bold font-display tabular-nums" :class="competency.last_assessment_score != null && competency.last_assessment_score >= 60 ? 'text-emerald-600' : 'text-red-600'">
+              {{ competency.last_assessment_score != null ? `${competency.last_assessment_score}%` : '—' }}
+            </p>
+          </div>
+          <div>
+            <p class="text-xs text-slate-400 mb-1">Điểm lý thuyết</p>
+            <p class="text-lg font-semibold text-slate-700">{{ competency.theory_score != null ? `${competency.theory_score}%` : '—' }}</p>
+          </div>
+          <div>
+            <p class="text-xs text-slate-400 mb-1">Điểm thực hành</p>
+            <p class="text-lg font-semibold text-slate-700">{{ competency.practical_score != null ? `${competency.practical_score}%` : '—' }}</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Signoff info -->
+      <div class="card p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-4 pb-2 border-b">Phê duyệt</h2>
+        <div class="grid grid-cols-2 gap-5 text-sm">
+          <div>
+            <p class="text-xs text-slate-400 mb-1">Người phê duyệt</p>
+            <p>{{ competency.supervisor_signoff ?? '—' }}</p>
+          </div>
+          <div>
+            <p class="text-xs text-slate-400 mb-1">Ngày phê duyệt</p>
+            <p>{{ competency.signoff_date ?? '—' }}</p>
+          </div>
+        </div>
+      </div>
+    </template>
+
+    <div v-else class="card p-8 text-center text-slate-400">Không tìm thấy bản ghi năng lực.</div>
+
+    <!-- Revoke Modal -->
+    <div v-if="showRevokeModal" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
+      <div class="bg-white rounded-xl p-6 w-full max-w-md space-y-4 shadow-xl">
+        <h2 class="font-semibold text-slate-800">Thu hồi năng lực</h2>
+        <div class="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-700">
+          Sau khi thu hồi, nhân viên cần hoàn thành đào tạo lại để lấy lại năng lực.
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">Lý do thu hồi <span class="text-red-500">*</span></label>
+          <textarea
+            v-model="revokeReason"
+            rows="3"
+            class="form-input w-full text-sm"
+            placeholder="Nhập lý do thu hồi năng lực..."
+          ></textarea>
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">Số CAPA liên quan (nếu có)</label>
+          <input v-model="revokeCapa" type="text" class="form-input w-full text-sm" placeholder="CAPA-XXXX" />
+        </div>
+        <div class="flex justify-end gap-2">
+          <button
+            class="px-4 py-2 text-sm border rounded-lg hover:bg-slate-50"
+            @click="showRevokeModal = false; revokeReason = ''; revokeCapa = ''"
+          >
+            Quay lại
+          </button>
+          <button
+            :disabled="api.loading.value || !revokeReason.trim()"
+            class="px-4 py-2 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors"
+            @click="doRevoke"
+          >
+            {{ api.loading.value ? 'Đang xử lý...' : 'Xác nhận thu hồi' }}
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>

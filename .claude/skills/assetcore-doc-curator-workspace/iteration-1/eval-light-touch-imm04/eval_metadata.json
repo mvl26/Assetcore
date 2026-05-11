@@ -1,0 +1,16 @@
+{
+  "eval_id": 2,
+  "eval_name": "light-touch-imm04",
+  "prompt": "Rà soát docs/imm-04/ theo template. Module này đã có content tốt — không rewrite. Chỉ bổ sung section thiếu, fix structure lệch.",
+  "assertions": [
+    {"text": "All 9 original files preserved (README + 02..09)", "type": "files_exist"},
+    {"text": "Total LOC of edited files >= 90% of original (no destructive rewrite)", "type": "preservation"},
+    {"text": "README.md has metadata block with at least 5 rows (Khối, Đợt, Owner, Trạng thái, Cập nhật)", "type": "structure"},
+    {"text": "README.md links to all 8 docs files with correct relative paths", "type": "links"},
+    {"text": "_REPORT.md exists in output dir listing files/sections touched", "type": "files_exist"},
+    {"text": "_REPORT.md mentions cross-reference added (WHO or GMDN)", "type": "content"},
+    {"text": "Original Pitch / Stakeholder content untouched (compare line count)", "type": "preservation"},
+    {"text": "No new placeholder sentinels TODO/FIXME — uses '*(...)*' format if any", "type": "format"},
+    {"text": "Heading consistency: file 02 has '# 02 — Phân tích thiết kế nghiệp vụ' or equivalent template heading", "type": "structure"}
+  ]
+}

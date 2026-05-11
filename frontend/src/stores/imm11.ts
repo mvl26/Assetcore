@@ -38,9 +38,9 @@ export const useImm11Store = defineStore('imm11', () => {
         { status: params.status, asset: params.asset },
         params.page ?? 1,
         params.page_size ?? 20,
-      ) as unknown as { data: AssetCalibration[]; pagination: typeof pagination.value }
+      )
       calibrations.value = res.data ?? []
-      if (res.pagination) pagination.value = res.pagination
+      if (res.pagination) pagination.value = res.pagination as typeof pagination.value
     } catch (e: unknown) {
       error.value = e instanceof Error ? e.message : String(e)
     } finally {
@@ -51,7 +51,7 @@ export const useImm11Store = defineStore('imm11', () => {
   async function fetchSchedules(filters = {}) {
     schedulesLoading.value = true
     try {
-      const res = await listCalibrationSchedules(filters, 1, 100) as unknown as { data: CalibrationSchedule[] }
+      const res = await listCalibrationSchedules(filters, 1, 100)
       schedules.value = res.data ?? []
     } finally {
       schedulesLoading.value = false
@@ -61,8 +61,7 @@ export const useImm11Store = defineStore('imm11', () => {
   async function fetchKpis(year?: number, month?: number) {
     kpisLoading.value = true
     try {
-      const res = await getCalibrationKpis(year, month) as unknown as CalibrationKpis
-      kpis.value = res
+      kpis.value = await getCalibrationKpis(year, month)
     } finally {
       kpisLoading.value = false
     }
@@ -70,7 +69,7 @@ export const useImm11Store = defineStore('imm11', () => {
 
   async function fetchDue() {
     try {
-      const res = await getDueCalibrations() as unknown as { items: DueCalibrationItem[] }
+      const res = await getDueCalibrations()
       dueItems.value = res.items ?? []
     } catch { /* non-blocking */ }
   }

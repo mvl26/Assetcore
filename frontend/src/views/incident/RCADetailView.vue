@@ -24,7 +24,7 @@ async function load() {
   loading.value = true
   err.value = ''
   try {
-    const res = await getRca(name.value) as unknown as RCADetail
+    const res = await getRca(name.value)
     rca.value = res
     const steps = res.five_why_steps ?? []
     fiveWhy.value = steps.length
@@ -34,8 +34,8 @@ async function load() {
     correctiveAction.value = res.corrective_action_summary || ''
     preventiveAction.value = res.preventive_action_summary || ''
     rcaNotes.value = res.rca_notes || ''
-  } catch {
-    err.value = 'Không tải được RCA'
+  } catch (e: unknown) {
+    err.value = e instanceof Error ? e.message : 'Không tải được RCA'
   } finally { loading.value = false }
 }
 
@@ -59,7 +59,7 @@ async function submit() {
     })
     await load()
   } catch (e: unknown) {
-    err.value = (e as Error).message || 'Lỗi khi submit RCA'
+    err.value = e instanceof Error ? e.message : 'Lỗi khi submit RCA'
   } finally { saving.value = false }
 }
 

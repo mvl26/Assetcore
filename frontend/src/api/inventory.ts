@@ -1,5 +1,5 @@
 // Copyright (c) 2026, AssetCore Team
-// IMM-00 Inventory API client
+// IMM-06 Inventory (Spare Parts & Warehouse) API client
 import { frappeGet, frappePost } from '@/api/helpers'
 import type {
   Warehouse, SparePart, StockRow, StockMovement,

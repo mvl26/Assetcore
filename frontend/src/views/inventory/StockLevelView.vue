@@ -5,6 +5,9 @@ import { useRoute, useRouter } from 'vue-router'
 import { listStockLevels } from '@/api/inventory'
 import type { StockRow } from '@/types/inventory'
 import SmartSelect from '@/components/common/SmartSelect.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
+import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
+import ListFilterBar from '@/components/common/ListFilterBar.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -29,7 +32,7 @@ const activeChips = computed<Chip[]>(() => {
 })
 const activeFilterCount = computed(() => activeChips.value.length)
 
-function clearChip(key: Chip['key']) {
+function clearChip(key: string) {
   if (key === 'warehouse') { warehouseFilter.value = ''; warehouseName.value = '' }
   else lowOnly.value = false
   page.value = 1; load()
@@ -79,106 +82,40 @@ onMounted(load)
 
 <template>
   <div class="page-container animate-fade-in">
-<!-- Header -->
-    <div class="flex items-start justify-between mb-5">
-      <div>
-        <p class="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-1">Inventory</p>
-        <h1 class="text-2xl font-bold text-slate-900">Tồn kho</h1>
-        <p class="text-sm text-slate-500 mt-1">Tổng <strong class="text-slate-700">{{ total }}</strong> dòng tồn (phụ tùng × kho)</p>
-      </div>
-      <div class="flex items-center gap-2 shrink-0">
-        <button
-          class="relative flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border transition-colors"
-          :class="showFilters
-            ? 'bg-brand-50 border-brand-300 text-brand-700'
-            : 'bg-white border-slate-300 text-slate-600 hover:border-slate-400'"
-          @click="showFilters = !showFilters"
-        >
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M3 4h18M7 8h10M11 12h2M9 16h6" />
-          </svg>
-          Bộ lọc
-          <span
-v-if="activeFilterCount > 0"
-            class="inline-flex items-center justify-center w-4 h-4 text-[10px] font-bold rounded-full bg-blue-500 text-white">
-            {{ activeFilterCount }}
-          </span>
-          <svg
-class="w-3.5 h-3.5 transition-transform duration-200" :class="showFilters ? 'rotate-180' : ''"
-               fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-          </svg>
-        </button>
+    <PageHeader title="Tồn kho" :subtitle="`Tổng ${total} dòng tồn (phụ tùng × kho)`">
+      <template #actions>
+        <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
         <button class="btn-primary shrink-0" @click="router.push('/stock-movements/new')">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
           </svg>
           Phiếu mới
         </button>
-      </div>
-    </div>
+      </template>
+    </PageHeader>
 
-    <!-- Active chips -->
-    <Transition
-      enter-active-class="transition-all duration-200 ease-out"
-      enter-from-class="opacity-0 -translate-y-1"
-      enter-to-class="opacity-100 translate-y-0"
-      leave-active-class="transition-all duration-150 ease-in"
-      leave-from-class="opacity-100"
-      leave-to-class="opacity-0"
+    <ListFilterBar
+      :show="showFilters"
+      :chips="activeChips"
+      :show-search="false"
+      @reset="resetFilters"
+      @clear-chip="clearChip"
+      @apply="() => { page = 1; load() }"
     >
-      <div v-if="activeChips.length > 0 && !showFilters" class="flex flex-wrap items-center gap-2 mb-4">
-        <span class="text-xs text-slate-400 font-medium">Đang lọc:</span>
-        <button
-v-for="chip in activeChips" :key="chip.key"
-          class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors"
-          @click="clearChip(chip.key)"
-        >
-          {{ chip.label }}
-          <svg class="w-3 h-3 opacity-60" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
-        <button class="text-xs text-slate-400 hover:text-red-500 underline underline-offset-2" @click="resetFilters">Xóa tất cả</button>
-      </div>
-    </Transition>
-
-    <!-- Collapsible filter panel -->
-    <Transition
-      enter-active-class="transition-all duration-200 ease-out overflow-hidden"
-      enter-from-class="opacity-0 max-h-0"
-      enter-to-class="opacity-100 max-h-40"
-      leave-active-class="transition-all duration-150 ease-in overflow-hidden"
-      leave-from-class="opacity-100 max-h-40"
-      leave-to-class="opacity-0 max-h-0"
-    >
-      <div v-show="showFilters" class="card p-4 mb-4 space-y-3">
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
-          <div>
-            <label for="sl-warehouse-filter" class="form-label">Kho</label>
-            <SmartSelect id="sl-warehouse-filter" v-model="warehouseFilter" doctype="AC Warehouse" placeholder="Tất cả kho..." />
-          </div>
+      <template #fields>
+        <div class="form-group">
+          <label for="sl-warehouse-filter" class="form-label">Kho</label>
+          <SmartSelect id="sl-warehouse-filter" v-model="warehouseFilter" doctype="AC Warehouse" placeholder="Tất cả kho..." />
+        </div>
+        <div class="form-group">
+          <label class="form-label">&nbsp;</label>
           <div class="flex items-center gap-3">
             <input id="low-only" v-model="lowOnly" type="checkbox" class="h-4 w-4 text-red-600 rounded" />
             <label for="low-only" class="text-sm text-slate-700">Chỉ tồn dưới mức min</label>
           </div>
-          <button class="btn-ghost text-sm self-end" @click="resetFilters">Đặt lại</button>
         </div>
-        <div v-if="activeChips.length > 0" class="flex flex-wrap items-center gap-2 pt-3 border-t border-slate-100">
-          <span class="text-xs text-slate-400 font-medium">Đang lọc:</span>
-          <button
-v-for="chip in activeChips" :key="chip.key"
-            class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors"
-            @click="clearChip(chip.key)"
-          >
-            {{ chip.label }}
-            <svg class="w-3 h-3 opacity-60" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-      </div>
-    </Transition>
+      </template>
+    </ListFilterBar>
 
     <div class="card overflow-hidden">
       <!-- Info row -->

@@ -33,17 +33,17 @@ async function load() {
   loadError.value = ''
   try {
     if (tab.value === 'location') {
-      const r = await listLocations() as unknown as AcLocation[]
-      if (seq === loadSeq) locations.value = r || []
+      const r = await listLocations()
+      if (seq === loadSeq) locations.value = r
     } else if (tab.value === 'department') {
-      const r = await listDepartments() as unknown as AcDepartment[]
-      if (seq === loadSeq) departments.value = r || []
+      const r = await listDepartments()
+      if (seq === loadSeq) departments.value = r
     } else {
-      const r = await listAssetCategories() as unknown as AcAssetCategory[]
-      if (seq === loadSeq) categories.value = r || []
+      const r = await listAssetCategories()
+      if (seq === loadSeq) categories.value = r
     }
   } catch (e: unknown) {
-    if (seq === loadSeq) loadError.value = (e as Error).message || 'Lỗi tải dữ liệu'
+    if (seq === loadSeq) loadError.value = e instanceof Error ? e.message : 'Lỗi tải dữ liệu'
   } finally {
     if (seq === loadSeq) loading.value = false
   }
@@ -113,7 +113,7 @@ async function save() {
     }
     showForm.value = false
     await load()
-  } catch (e: unknown) { err.value = (e as Error).message || 'Lỗi lưu' }
+  } catch (e: unknown) { err.value = e instanceof Error ? e.message : 'Lỗi lưu' }
 }
 
 async function applyToExistingAssets() {
@@ -129,7 +129,7 @@ async function applyToExistingAssets() {
       `Lỗi: ${res.errors}.`,
     )
   } catch (e: unknown) {
-    err.value = (e as Error).message || 'Lỗi áp dụng'
+    err.value = e instanceof Error ? e.message : 'Lỗi áp dụng'
   }
 }
 
@@ -140,7 +140,7 @@ async function remove(name: string) {
     else if (tab.value === 'department') await deleteDepartment(name)
     else await deleteAssetCategory(name)
     await load()
-  } catch (e: unknown) { toast.error((e as Error).message || 'Lỗi xóa — có thể đang được tham chiếu') }
+  } catch (e: unknown) { toast.error(e instanceof Error ? e.message : 'Lỗi xóa — có thể đang được tham chiếu') }
 }
 
 

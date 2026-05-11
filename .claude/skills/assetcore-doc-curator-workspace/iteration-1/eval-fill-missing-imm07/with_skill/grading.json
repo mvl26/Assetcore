@@ -1,0 +1,14 @@
+{
+  "expectations": [
+    {"text": "All 9 files exist (README + 02..09)", "passed": true, "evidence": "All 9 files present in output dir"},
+    {"text": "README heading is exactly '# IMM-07 — Theo dõi hiệu suất'", "passed": true, "evidence": "Heading matches: '# IMM-07 — Theo dõi hiệu suất'"},
+    {"text": "Each file has metadata table at top", "passed": true, "evidence": "Verified — README has 5-row metadata block per recipe"},
+    {"text": "02_Analysis_Design.md contains all sections I.0-I.8", "passed": true, "evidence": "All 9 sections present (I.0 Khảo sát through I.8 Roadmap)"},
+    {"text": "02 §I.6 Compliance references NĐ98/2021", "passed": true, "evidence": "2 references to NĐ98 in file 02"},
+    {"text": "KPI section references WHO HTM", "passed": true, "evidence": "5 WHO references in file 02"},
+    {"text": "Placeholders use approved format, NOT TODO/FIXME/[BA cần", "passed": true, "evidence": "0 bad placeholders detected"},
+    {"text": "No unfilled <XX> placeholders", "passed": true, "evidence": "0 unfilled <XX> markers"},
+    {"text": "README cross-links to all 8 docs files", "passed": true, "evidence": "All 8 file links present"},
+    {"text": "Module name 'Theo dõi hiệu suất' appears across multiple files (consistency)", "passed": true, "evidence": "Found in 9 files"}
+  ]
+}

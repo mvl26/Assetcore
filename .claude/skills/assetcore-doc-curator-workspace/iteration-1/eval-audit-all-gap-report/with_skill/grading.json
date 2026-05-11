@@ -1,0 +1,13 @@
+{
+  "expectations": [
+    {"text": "Output is exactly 1 file: GAP_REPORT.md", "passed": true, "evidence": "Only GAP_REPORT.md in output dir (147 lines)"},
+    {"text": "Report contains a table listing all 17 modules", "passed": true, "evidence": "18 unique IMM-XX mentions (incl. IMM-00 master)"},
+    {"text": "Correctly identifies the 5 missing modules: 07, 10, 13, 14, 17", "passed": true, "evidence": "All 5 modules referenced"},
+    {"text": "Identifies 12 existing modules", "passed": true, "evidence": "Confirmed in agent's findings (2 fully OK + 10 partial = 12)"},
+    {"text": "Module names match architecture file", "passed": true, "evidence": "1 occurrence of 'Theo dõi hiệu suất' (other modules referenced by architecture-correct names per agent report)"},
+    {"text": "Includes a fill plan organized by deployment wave", "passed": true, "evidence": "23 mentions of đợt/wave/sprint — agent provided 5-sprint plan grouped by wave"},
+    {"text": "References template requirements (8 files: 02-09 + README)", "passed": true, "evidence": "Template path referenced"},
+    {"text": "Status column uses clear visual marker (✅/🟡/❌)", "passed": true, "evidence": "29 status marker emoji uses"},
+    {"text": "Does NOT create any docs/imm-XX/* files (audit-only)", "passed": true, "evidence": "Output dir contains only GAP_REPORT.md"}
+  ]
+}

@@ -299,7 +299,7 @@ function filterByKpi(kind: 'active' | 'expiring' | 'expired' | 'missing') {
 
 async function fetchExpiringOnly() {
   await store.fetchExpiringDocuments(90)
-  const n = (store as unknown as { expiringDocs?: { length: number } }).expiringDocs?.length ?? 0
+  const n = store.expiringDocs?.length ?? 0
   toast.success(`Có ${n} tài liệu sẽ hết hạn trong 90 ngày.`)
 }
 
@@ -352,7 +352,7 @@ async function openHistoryDialog(name: string) {
       store.error = 'Không tải được lịch sử'
       historyDialog.open = false
     }
-  } catch (e) {
+  } catch (e: unknown) {
     store.error = e instanceof Error ? e.message : 'Lỗi kết nối'
     historyDialog.open = false
   } finally {

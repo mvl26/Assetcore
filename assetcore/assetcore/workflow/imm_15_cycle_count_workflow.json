@@ -1,0 +1,65 @@
+{
+  "creation": "2026-05-08 00:00:00.000000",
+  "document_type": "IMM Stock Cycle Count",
+  "doctype": "Workflow",
+  "is_active": 1,
+  "modified": "2026-05-08 00:00:00.000000",
+  "modified_by": "Administrator",
+  "name": "IMM-15 Cycle Count Workflow",
+  "owner": "Administrator",
+  "send_email_alert": 0,
+  "workflow_name": "IMM-15 Cycle Count Workflow",
+  "workflow_state_field": "workflow_state",
+  "states": [
+    {
+      "allow_edit": "IMM Storekeeper",
+      "doc_status": "0",
+      "state": "Planned",
+      "type": "Warning"
+    },
+    {
+      "allow_edit": "IMM Storekeeper",
+      "doc_status": "0",
+      "state": "Counting",
+      "type": "Warning"
+    },
+    {
+      "allow_edit": "IMM Workshop Lead",
+      "doc_status": "0",
+      "state": "Reviewed",
+      "type": "Success"
+    },
+    {
+      "allow_edit": "IMM System Admin",
+      "doc_status": "1",
+      "state": "Posted",
+      "type": "Success"
+    }
+  ],
+  "transitions": [
+    {
+      "action": "Bắt đầu đếm",
+      "allowed": "IMM Storekeeper",
+      "next_state": "Counting",
+      "state": "Planned"
+    },
+    {
+      "action": "Hoàn tất đếm",
+      "allowed": "IMM Workshop Lead",
+      "next_state": "Reviewed",
+      "state": "Counting"
+    },
+    {
+      "action": "Sửa đếm lại",
+      "allowed": "IMM Storekeeper",
+      "next_state": "Counting",
+      "state": "Reviewed"
+    },
+    {
+      "action": "Post",
+      "allowed": "IMM Workshop Lead",
+      "next_state": "Posted",
+      "state": "Reviewed"
+    }
+  ]
+}

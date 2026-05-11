@@ -10,6 +10,7 @@ from frappe import _
 from assetcore.services import imm03 as svc
 from assetcore.services.shared import ErrorCode, ServiceError
 from assetcore.utils.helpers import _ok, _err
+from assetcore.utils.lifecycle import log_audit_event as _audit
 
 _DT_VE  = "IMM Vendor Evaluation"
 _DT_PD  = "IMM Procurement Decision"
@@ -250,8 +251,20 @@ def transition_eval_workflow(name: str, action: str) -> dict:
 
 def _transition_eval_workflow(name, action):
     from frappe.model.workflow import apply_workflow
-    apply_workflow(frappe.get_doc(_DT_VE, name), action)
+    doc_before = frappe.get_doc(_DT_VE, name)
+    prev_state = doc_before.workflow_state or "Draft"
+    apply_workflow(doc_before, action)
     doc = frappe.get_doc(_DT_VE, name)
+    try:
+        _audit(
+            asset=doc.name,
+            event_type="imm03_eval_workflow_transition",
+            ref_doctype=_DT_VE,
+            ref_name=doc.name,
+            change_summary=f"IMM-03 Eval [{action}]: {prev_state} → {doc.workflow_state}",
+        )
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "IMM-03 audit trail failed")
     return {"name": doc.name, "workflow_state": doc.workflow_state, "docstatus": doc.docstatus}
 
 
@@ -262,8 +275,20 @@ def transition_decision_workflow(name: str, action: str) -> dict:
 
 def _transition_decision_workflow(name, action):
     from frappe.model.workflow import apply_workflow
-    apply_workflow(frappe.get_doc(_DT_PD, name), action)
+    doc_before = frappe.get_doc(_DT_PD, name)
+    prev_state = doc_before.workflow_state or "Draft"
+    apply_workflow(doc_before, action)
     doc = frappe.get_doc(_DT_PD, name)
+    try:
+        _audit(
+            asset=doc.name,
+            event_type="imm03_decision_workflow_transition",
+            ref_doctype=_DT_PD,
+            ref_name=doc.name,
+            change_summary=f"IMM-03 Decision [{action}]: {prev_state} → {doc.workflow_state}",
+        )
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "IMM-03 audit trail failed")
     return {"name": doc.name, "workflow_state": doc.workflow_state, "docstatus": doc.docstatus}
 
 
@@ -311,6 +336,16 @@ def _award_decision(name, winner_supplier, awarded_price, funding_source,
         pd.contract_doc = contract_doc
     pd.workflow_state  = "Awarded"
     pd.submit()
+    try:
+        _audit(
+            asset=pd.name,
+            event_type="imm03_decision_awarded",
+            ref_doctype=_DT_PD,
+            ref_name=pd.name,
+            change_summary=f"IMM-03 Decision awarded to {winner_supplier}. Board approver: {board_approver}. {remarks}",
+        )
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "IMM-03 audit trail failed")
     return {
         "name":            pd.name,
         "workflow_state":  pd.workflow_state,
@@ -333,6 +368,16 @@ def _record_contract(name, contract_no, contract_doc, signed_date):
     if contract_doc: pd.contract_doc = contract_doc
     pd.workflow_state = "Contract Signed"
     pd.save()
+    try:
+        _audit(
+            asset=pd.name,
+            event_type="imm03_contract_signed",
+            ref_doctype=_DT_PD,
+            ref_name=pd.name,
+            change_summary=f"IMM-03 Contract signed. No: {contract_no}.",
+        )
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "IMM-03 audit trail failed")
     return {"name": pd.name, "workflow_state": "Contract Signed"}
 
 

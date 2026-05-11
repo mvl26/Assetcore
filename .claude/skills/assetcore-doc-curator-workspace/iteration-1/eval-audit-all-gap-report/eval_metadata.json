@@ -1,0 +1,16 @@
+{
+  "eval_id": 3,
+  "eval_name": "audit-all-gap-report",
+  "prompt": "Audit toàn bộ 17 module IMM. Output là báo cáo gap markdown table. Đừng sinh file mới — chỉ report.",
+  "assertions": [
+    {"text": "Output is exactly 1 file: GAP_REPORT.md", "type": "files_exist"},
+    {"text": "Report contains a table listing all 17 modules (IMM-01 through IMM-17)", "type": "content"},
+    {"text": "Correctly identifies the 5 missing modules: IMM-07, 10, 13, 14, 17", "type": "content"},
+    {"text": "Correctly identifies the 12 existing modules (00, 01, 02, 03, 04, 05, 06, 08, 09, 11, 12, 15, 16) — note: imm-00 is master/foundation",  "type": "content"},
+    {"text": "Module names match architecture file (e.g., 'Theo dõi hiệu suất' for IMM-07)", "type": "content"},
+    {"text": "Includes a fill plan organized by deployment wave (Đợt 1/2/3)", "type": "content"},
+    {"text": "References template file requirements (8 files per module: 02-09 + README)", "type": "content"},
+    {"text": "Status column uses clear visual marker (✅/🟡/❌ or equivalent)", "type": "format"},
+    {"text": "Does NOT create any docs/imm-XX/* files (audit-only)", "type": "scope"}
+  ]
+}

@@ -84,7 +84,7 @@ export const useImm05Store = defineStore('imm05', () => {
     error.value = null
     currentFilters.value = filters
     try {
-      const res = await listDocuments(filters, page, pagination.value.page_size) as unknown as { items?: typeof documents.value; pagination?: typeof pagination.value } | null
+      const res = await listDocuments(filters, page, pagination.value.page_size)
       if (res?.items) {
         documents.value = res.items
         if (res.pagination) pagination.value = res.pagination
@@ -100,10 +100,7 @@ export const useImm05Store = defineStore('imm05', () => {
     loading.value = true
     error.value = null
     try {
-      const res = await getAssetDocuments(asset) as unknown as {
-        documents?: typeof assetDocuments.value; completeness_pct?: number;
-        document_status?: string; missing_required?: typeof missingRequired.value
-      } | null
+      const res = await getAssetDocuments(asset)
       if (res) {
         if (res.documents) assetDocuments.value = res.documents
         if (res.completeness_pct != null) assetCompletenessPct.value = res.completeness_pct
@@ -121,8 +118,7 @@ export const useImm05Store = defineStore('imm05', () => {
     dashboardLoading.value = true
     error.value = null
     try {
-      const res = await getDashboardStats() as unknown as typeof dashboardStats.value
-      if (res) dashboardStats.value = res
+      dashboardStats.value = await getDashboardStats()
     } catch (e: unknown) {
       error.value = e instanceof Error ? e.message : 'Lỗi kết nối'
     } finally {
@@ -156,7 +152,7 @@ export const useImm05Store = defineStore('imm05', () => {
 
   async function createRequest(payload: Parameters<typeof apiCreateRequest>[0]): Promise<string | null> {
     try {
-      const res = await apiCreateRequest(payload) as unknown as { name?: string }
+      const res = await apiCreateRequest(payload)
       return res?.name || null
     } catch (e: unknown) {
       error.value = e instanceof Error ? e.message : 'Tạo yêu cầu thất bại'
@@ -166,7 +162,7 @@ export const useImm05Store = defineStore('imm05', () => {
 
   async function fetchDocumentRequests(assetRef = '', status = '') {
     try {
-      const res = await getDocumentRequests(assetRef, status) as unknown as { items?: typeof documentRequests.value } | null
+      const res = await getDocumentRequests(assetRef, status)
       if (res?.items) documentRequests.value = res.items
     } catch (e: unknown) {
       error.value = e instanceof Error ? e.message : 'Lỗi kết nối'
@@ -175,7 +171,7 @@ export const useImm05Store = defineStore('imm05', () => {
 
   async function fetchExpiringDocuments(days = 30) {
     try {
-      const res = await getExpiringDocuments(days) as unknown as { items?: typeof expiringDocs.value } | null
+      const res = await getExpiringDocuments(days)
       if (res?.items) expiringDocs.value = res.items
     } catch (e: unknown) {
       error.value = e instanceof Error ? e.message : 'Lỗi kết nối'
@@ -189,7 +185,7 @@ export const useImm05Store = defineStore('imm05', () => {
     loading.value = true
     error.value = null
     try {
-      const res = await apiGetDocument(name) as unknown as AssetDocumentDetail | null
+      const res = await apiGetDocument(name)
       if (res) currentDocument.value = res
     } catch (e: unknown) {
       error.value = e instanceof Error ? e.message : 'Không tải được tài liệu'

@@ -1,0 +1,162 @@
+{
+ "autoname": "format:MR-.YYYY.-.#####",
+ "naming_rule": "Expression (old style)",
+ "creation": "2026-05-08 00:00:00.000000",
+ "doctype": "DocType",
+ "document_type": "Document",
+ "engine": "InnoDB",
+ "is_submittable": 0,
+ "module": "AssetCore",
+ "name": "IMM Management Review",
+ "track_changes": 1,
+ "modified": "2026-05-08 00:00:00.000000",
+ "modified_by": "Administrator",
+ "owner": "Administrator",
+ "field_order": [
+  "review_date",
+  "quarter",
+  "chair",
+  "attendees",
+  "scorecard_ref",
+  "inputs_summary",
+  "audit_summary",
+  "capa_summary",
+  "capa_effectiveness",
+  "training_compliance",
+  "risk_review",
+  "qms_changes_decided",
+  "output_actions",
+  "next_review_date",
+  "minutes_doc",
+  "status",
+  "workflow_state"
+ ],
+ "fields": [
+  {
+   "fieldname": "review_date",
+   "fieldtype": "Date",
+   "label": "Ngày họp",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "quarter",
+   "fieldtype": "Data",
+   "label": "Quý",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "chair",
+   "fieldtype": "Link",
+   "label": "Chủ tọa",
+   "options": "User",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "attendees",
+   "fieldtype": "Table",
+   "label": "Thành viên tham dự",
+   "options": "IMM MR Attendee"
+  },
+  {
+   "fieldname": "scorecard_ref",
+   "fieldtype": "Link",
+   "label": "Scorecard tham chiếu",
+   "options": "IMM Compliance Scorecard"
+  },
+  {
+   "fieldname": "inputs_summary",
+   "fieldtype": "Long Text",
+   "label": "Tóm tắt đầu vào"
+  },
+  {
+   "fieldname": "audit_summary",
+   "fieldtype": "Long Text",
+   "label": "Tóm tắt audit"
+  },
+  {
+   "fieldname": "capa_summary",
+   "fieldtype": "Long Text",
+   "label": "Tóm tắt CAPA"
+  },
+  {
+   "fieldname": "capa_effectiveness",
+   "fieldtype": "Long Text",
+   "label": "Hiệu quả CAPA"
+  },
+  {
+   "fieldname": "training_compliance",
+   "fieldtype": "Long Text",
+   "label": "Tuân thủ đào tạo"
+  },
+  {
+   "fieldname": "risk_review",
+   "fieldtype": "Long Text",
+   "label": "Xem xét rủi ro"
+  },
+  {
+   "fieldname": "qms_changes_decided",
+   "fieldtype": "Long Text",
+   "label": "Thay đổi QMS đã quyết định"
+  },
+  {
+   "fieldname": "output_actions",
+   "fieldtype": "Table",
+   "label": "Hành động đầu ra",
+   "options": "IMM MR Output Action"
+  },
+  {
+   "fieldname": "next_review_date",
+   "fieldtype": "Date",
+   "label": "Ngày họp tiếp theo"
+  },
+  {
+   "fieldname": "minutes_doc",
+   "fieldtype": "Attach",
+   "label": "Biên bản họp"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Trạng thái",
+   "options": "\nDraft\nHeld\nMinutes Approved\nClosed",
+   "default": "Draft",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "workflow_state",
+   "fieldtype": "Link",
+   "label": "Workflow State",
+   "options": "Workflow State",
+   "read_only": 1,
+   "hidden": 1
+  }
+ ],
+ "permissions": [
+  {
+   "role": "Tổ HC-QLCL",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM System Admin",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  }
+ ]
+}

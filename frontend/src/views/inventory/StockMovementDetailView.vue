@@ -4,6 +4,7 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { getStockMovement, submitStockMovement, cancelStockMovement, deleteStockMovement } from '@/api/inventory'
 import type { StockMovement } from '@/types/inventory'
+import PageHeader from '@/components/common/PageHeader.vue'
 
 const props = defineProps<{ name: string }>()
 const router = useRouter()
@@ -74,52 +75,38 @@ onMounted(load)
 
 <template>
   <div class="page-container animate-fade-in">
-    <button class="btn-ghost mb-4" @click="router.push('/stock-movements')">← Quay lại</button>
-
     <div v-if="loading && !doc" class="text-center py-20 text-slate-400">Đang tải...</div>
 
     <div v-else-if="doc">
-      <!-- Header -->
-      <div class="flex items-start justify-between mb-6">
-        <div>
-          <p class="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-1">Stock Movement</p>
-          <h1 class="text-2xl font-bold text-slate-900">{{ doc.name }}</h1>
-          <div class="flex items-center gap-2 mt-2">
-            <span
-class="text-xs px-2.5 py-1 rounded-full font-medium"
-                  :class="doc.movement_type === 'Receipt' ? 'bg-emerald-50 text-emerald-700' :
-                          doc.movement_type === 'Issue' ? 'bg-red-50 text-red-700' :
-                          doc.movement_type === 'Transfer' ? 'bg-blue-50 text-blue-700' :
-                                                                'bg-amber-50 text-amber-700'">
-              {{ TYPE_LABELS[doc.movement_type] }}
-            </span>
-            <span
-class="text-xs px-2.5 py-1 rounded-full font-medium"
-                  :class="doc.status === 'Submitted' ? 'bg-emerald-50 text-emerald-700' :
-                          doc.status === 'Cancelled' ? 'bg-red-50 text-red-700' :
-                                                       'bg-slate-100 text-slate-600'">
-              {{ doc.status === 'Draft' ? 'Nháp' : doc.status === 'Submitted' ? 'Đã duyệt' : 'Đã huỷ' }}
-            </span>
-          </div>
-        </div>
-        <div class="flex gap-2">
-          <button
-v-if="doc.docstatus === 0" class="btn-ghost" :disabled="acting"
-                  @click="router.push(`/stock-movements/${doc.name}/edit`)">
-Sửa
-</button>
-          <button
-v-if="doc.docstatus === 0" class="text-sm px-3 py-1.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 font-medium"
-                  :disabled="acting" @click="doDelete">
-Xoá
-</button>
+      <PageHeader
+        :title="doc.name"
+        :breadcrumb="[{ label: 'Kho', to: '/stock-movements' }, { label: doc.name }]"
+      >
+        <template #actions>
+          <button v-if="doc.docstatus === 0" class="btn-ghost" :disabled="acting" @click="router.push(`/stock-movements/${doc.name}/edit`)">Sửa</button>
+          <button v-if="doc.docstatus === 0" class="btn-ghost text-red-600" :disabled="acting" @click="doDelete">Xoá</button>
           <button v-if="doc.docstatus === 0" class="btn-primary" :disabled="acting" @click="doSubmit">
             {{ acting ? '...' : 'Duyệt phiếu' }}
           </button>
           <button v-if="doc.docstatus === 1" class="btn-secondary text-red-600" :disabled="acting" @click="doCancel">
             {{ acting ? '...' : 'Huỷ phiếu' }}
           </button>
-        </div>
+        </template>
+      </PageHeader>
+      <div class="flex items-center gap-2 mb-5">
+        <span
+          class="text-xs px-2.5 py-1 rounded-full font-medium"
+          :class="doc.movement_type === 'Receipt' ? 'bg-emerald-50 text-emerald-700' :
+                  doc.movement_type === 'Issue' ? 'bg-red-50 text-red-700' :
+                  doc.movement_type === 'Transfer' ? 'bg-blue-50 text-blue-700' :
+                                                      'bg-amber-50 text-amber-700'"
+        >{{ TYPE_LABELS[doc.movement_type] }}</span>
+        <span
+          class="text-xs px-2.5 py-1 rounded-full font-medium"
+          :class="doc.status === 'Submitted' ? 'bg-emerald-50 text-emerald-700' :
+                  doc.status === 'Cancelled' ? 'bg-red-50 text-red-700' :
+                                               'bg-slate-100 text-slate-600'"
+        >{{ doc.status === 'Draft' ? 'Nháp' : doc.status === 'Submitted' ? 'Đã duyệt' : 'Đã huỷ' }}</span>
       </div>
 
       <div v-if="toast" class="mb-4 px-4 py-3 rounded-lg bg-emerald-50 text-emerald-700 text-sm">{{ toast }}</div>

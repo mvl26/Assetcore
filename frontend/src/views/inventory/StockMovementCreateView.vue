@@ -8,6 +8,7 @@ import type { RefDoc, UomConversion } from '@/api/inventory'
 import type { MovementType, StockMovementItem, SparePart } from '@/types/inventory'
 import { getPurchase } from '@/api/purchase'
 import SmartSelect from '@/components/common/SmartSelect.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
 import { useFieldsDraft } from '@/composables/useFormDraft'
 
 const router = useRouter()
@@ -312,12 +313,10 @@ function vnd(v?: number) {
 
 <template>
   <div class="page-container animate-fade-in">
-    <button class="btn-ghost mb-4" @click="router.push('/stock-movements')">← Quay lại</button>
-
-    <div class="mb-6">
-      <p class="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-1">Inventory</p>
-      <h1 class="text-2xl font-bold text-slate-900">Tạo phiếu kho mới</h1>
-    </div>
+    <PageHeader
+      title="Tạo phiếu kho mới"
+      :breadcrumb="[{ label: 'Kho', to: '/stock-movements' }, { label: 'Tạo phiếu' }]"
+    />
 
     <div v-if="error" class="mb-4 alert-error">{{ error }}</div>
 

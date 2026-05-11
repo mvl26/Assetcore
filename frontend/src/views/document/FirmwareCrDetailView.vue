@@ -15,10 +15,9 @@ const err = ref('')
 async function load() {
   loading.value = true; err.value = ''
   try {
-    const res = await getFirmwareCr(props.id)
-    fcr.value = res as unknown as FirmwareCR
+    fcr.value = await getFirmwareCr(props.id)
   } catch (e: unknown) {
-    err.value = (e as Error).message || 'Không tải được dữ liệu'
+    err.value = e instanceof Error ? e.message : 'Không tải được dữ liệu'
   } finally { loading.value = false }
 }
 
@@ -29,7 +28,7 @@ async function approve() {
     await updateFirmwareCr(fcr.value.name, { status: 'Approved' })
     await load()
   } catch (e: unknown) {
-    err.value = (e as Error).message || 'Không thể phê duyệt'
+    err.value = e instanceof Error ? e.message : 'Không thể phê duyệt'
   } finally { saving.value = false }
 }
 
@@ -40,7 +39,7 @@ async function markDeployed() {
     await updateFirmwareCr(fcr.value.name, { status: 'Applied' })
     await load()
   } catch (e: unknown) {
-    err.value = (e as Error).message || 'Không thể cập nhật trạng thái'
+    err.value = e instanceof Error ? e.message : 'Không thể cập nhật trạng thái'
   } finally { saving.value = false }
 }
 

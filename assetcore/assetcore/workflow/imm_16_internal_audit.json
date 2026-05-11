@@ -1,0 +1,62 @@
+{
+ "creation": "2026-05-08 00:00:00.000000",
+ "document_type": "IMM Internal Audit",
+ "doctype": "Workflow",
+ "is_active": 1,
+ "modified": "2026-05-08 00:00:00.000000",
+ "modified_by": "Administrator",
+ "name": "IMM-16 Internal Audit Workflow",
+ "owner": "Administrator",
+ "send_email_alert": 0,
+ "workflow_name": "IMM-16 Internal Audit Workflow",
+ "workflow_state_field": "workflow_state",
+ "states": [
+  {
+   "allow_edit": "Tổ HC-QLCL",
+   "doc_status": "0",
+   "state": "Planned",
+   "type": "Default"
+  },
+  {
+   "allow_edit": "Internal Auditor",
+   "doc_status": "0",
+   "state": "In Progress",
+   "type": "Warning"
+  },
+  {
+   "allow_edit": "Tổ HC-QLCL",
+   "doc_status": "0",
+   "state": "Reporting",
+   "type": "Warning"
+  },
+  {
+   "allow_edit": "IMM System Admin",
+   "doc_status": "1",
+   "state": "Closed",
+   "type": "Success"
+  }
+ ],
+ "transitions": [
+  {
+   "action": "Bắt đầu Audit",
+   "allowed": "Internal Auditor",
+   "allow_self_approval": 0,
+   "state": "Planned",
+   "next_state": "In Progress"
+  },
+  {
+   "action": "Chuyển sang Báo cáo",
+   "allowed": "Tổ HC-QLCL",
+   "allow_self_approval": 0,
+   "state": "In Progress",
+   "next_state": "Reporting"
+  },
+  {
+   "action": "Đóng Audit",
+   "allowed": "Tổ HC-QLCL",
+   "allow_self_approval": 0,
+   "state": "Reporting",
+   "next_state": "Closed"
+  }
+ ]
+}

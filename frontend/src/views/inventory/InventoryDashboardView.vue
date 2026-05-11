@@ -5,6 +5,7 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { getInventoryOverview } from '@/api/inventory'
 import type { InventoryOverview } from '@/types/inventory'
+import PageHeader from '@/components/common/PageHeader.vue'
 
 const router = useRouter()
 const overview = ref<InventoryOverview | null>(null)
@@ -36,18 +37,12 @@ onMounted(load)
 
 <template>
   <div class="page-container animate-fade-in">
-    <!-- Header -->
-    <div class="flex items-start justify-between mb-6">
-      <div>
-        <p class="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-1">Inventory</p>
-        <h1 class="text-2xl font-bold text-slate-900">Tổng quan kho</h1>
-        <p class="text-sm text-slate-500 mt-1">Danh mục phụ tùng, tồn kho, và giao dịch kho toàn hệ thống</p>
-      </div>
-      <div class="flex gap-2">
+    <PageHeader title="Tổng quan kho" subtitle="Danh mục phụ tùng, tồn kho, và giao dịch kho toàn hệ thống">
+      <template #actions>
         <button class="btn-secondary" @click="router.push('/stock-movements/new')">+ Phiếu mới</button>
         <button class="btn-primary" @click="router.push('/spare-parts')">Danh mục phụ tùng</button>
-      </div>
-    </div>
+      </template>
+    </PageHeader>
 
     <div v-if="loading && !overview" class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
       <div v-for="i in 4" :key="i" class="card p-5 h-24 animate-pulse bg-slate-100" />
@@ -56,27 +51,28 @@ onMounted(load)
     <div v-else-if="overview">
       <!-- KPI Cards -->
       <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <div class="card p-5 hover:shadow-md cursor-pointer transition-shadow" @click="router.push('/spare-parts')">
-          <p class="text-xs font-medium text-slate-500 mb-1">Phụ tùng đang hoạt động</p>
-          <p class="text-2xl font-bold text-slate-900">{{ overview.total_parts }}</p>
+        <div class="kpi-card p-5 cursor-pointer" style="--kpi-color: #334155" @click="router.push('/spare-parts')">
+          <p class="text-xs text-slate-500 mb-1">Phụ tùng đang hoạt động</p>
+          <p class="text-3xl font-bold font-display tabular-nums text-slate-800">{{ overview.total_parts }}</p>
           <p class="text-xs text-slate-400 mt-1">đang quản lý trong catalog</p>
         </div>
-        <div class="card p-5 hover:shadow-md cursor-pointer transition-shadow" @click="router.push('/warehouses')">
-          <p class="text-xs font-medium text-slate-500 mb-1">IMM Storekeeper</p>
-          <p class="text-2xl font-bold text-slate-900">{{ overview.total_warehouses }}</p>
+        <div class="kpi-card p-5 cursor-pointer" style="--kpi-color: #334155" @click="router.push('/warehouses')">
+          <p class="text-xs text-slate-500 mb-1">IMM Storekeeper</p>
+          <p class="text-3xl font-bold font-display tabular-nums text-slate-800">{{ overview.total_warehouses }}</p>
           <p class="text-xs text-slate-400 mt-1">đang hoạt động</p>
         </div>
-        <div class="card p-5 hover:shadow-md cursor-pointer transition-shadow" @click="router.push('/stock')">
-          <p class="text-xs font-medium text-slate-500 mb-1">Tổng giá trị tồn</p>
-          <p class="text-2xl font-bold text-emerald-600">{{ vndShort(overview.total_value) }}</p>
+        <div class="kpi-card p-5 cursor-pointer" style="--kpi-color: #059669" @click="router.push('/stock')">
+          <p class="text-xs text-slate-500 mb-1">Tổng giá trị tồn</p>
+          <p class="text-3xl font-bold font-display tabular-nums text-emerald-600">{{ vndShort(overview.total_value) }}</p>
           <p class="text-xs text-slate-400 mt-1">theo đơn giá catalog</p>
         </div>
         <div
-class="card p-5 hover:shadow-md cursor-pointer transition-shadow"
-             :class="overview.low_stock_count > 0 ? 'ring-2 ring-red-200' : ''"
-             @click="router.push('/stock?low=1')">
-          <p class="text-xs font-medium text-slate-500 mb-1">Cảnh báo tồn thấp</p>
-          <p class="text-2xl font-bold" :class="overview.low_stock_count > 0 ? 'text-red-600' : 'text-slate-900'">
+          class="kpi-card p-5 cursor-pointer"
+          :style="`--kpi-color: ${overview.low_stock_count > 0 ? '#dc2626' : '#334155'}`"
+          @click="router.push('/stock?low=1')"
+        >
+          <p class="text-xs text-slate-500 mb-1">Cảnh báo tồn thấp</p>
+          <p class="text-3xl font-bold font-display tabular-nums" :class="overview.low_stock_count > 0 ? 'text-red-600' : 'text-slate-800'">
             {{ overview.low_stock_count }}
           </p>
           <p class="text-xs text-slate-400 mt-1">phụ tùng dưới mức min</p>

@@ -4,6 +4,11 @@ import { useImm09Store } from '@/stores/imm09'
 import { useRouter } from 'vue-router'
 import { priorityLabel, priorityClass, repairTypeLabel } from '@/constants/labels'
 import { translateStatus, getStatusColor, formatDateTime } from '@/utils/formatters'
+import PageHeader from '@/components/common/PageHeader.vue'
+import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
+import ListFilterBar from '@/components/common/ListFilterBar.vue'
+import BasePagination from '@/components/common/BasePagination.vue'
+import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 
 const store = useImm09Store()
 const router = useRouter()
@@ -48,7 +53,7 @@ const activeChips = computed<Chip[]>(() => {
 
 const activeFilterCount = computed(() => activeChips.value.length)
 
-function clearChip(key: Chip['key']) {
+function clearChip(key: string) {
   if (key === 'status') statusFilter.value = ''
   else if (key === 'priority') priorityFilter.value = ''
   else search.value = ''
@@ -90,122 +95,61 @@ const filteredWOs = computed(() => {
 
 <template>
   <div class="page-container animate-fade-in">
-<!-- Header -->
-    <div class="flex items-start justify-between mb-5">
-      <div>
-        <p class="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-1">Sửa chữa</p>
-        <h1 class="text-2xl font-bold text-slate-900">Danh sách Lệnh Sửa chữa</h1>
-        <p class="text-sm text-slate-500 mt-1">
-          Tổng <strong class="text-slate-700">{{ store.pagination.total ?? filteredWOs.length }}</strong> lệnh
-        </p>
-      </div>
-      <div class="flex items-center gap-2 shrink-0">
-        <button
-          class="relative flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border transition-colors"
-          :class="showFilters
-            ? 'bg-brand-50 border-brand-300 text-brand-700'
-            : 'bg-white border-slate-300 text-slate-600 hover:border-slate-400'"
-          @click="showFilters = !showFilters"
-        >
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M3 4h18M7 8h10M11 12h2M9 16h6" />
-          </svg>
-          Bộ lọc
-          <span
-v-if="activeFilterCount > 0"
-            class="inline-flex items-center justify-center w-4 h-4 text-[10px] font-bold rounded-full bg-blue-500 text-white">
-            {{ activeFilterCount }}
-          </span>
-          <svg
-class="w-3.5 h-3.5 transition-transform duration-200" :class="showFilters ? 'rotate-180' : ''"
-               fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-          </svg>
-        </button>
-        <button class="btn-primary shrink-0" @click="router.push('/cm/create')">
+    <PageHeader
+      title="Lệnh Sửa chữa"
+      :subtitle="`Tổng ${store.pagination.total ?? filteredWOs.length} lệnh`"
+      :breadcrumb="[{ label: 'IMM-09 · Sửa chữa', to: '/cm/dashboard' }, { label: 'Danh sách' }]"
+    >
+      <template #actions>
+        <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
+        <button class="btn-primary" @click="router.push('/cm/create')">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
           </svg>
           Tạo lệnh mới
         </button>
-      </div>
-    </div>
+      </template>
+    </PageHeader>
 
-    <!-- Active chips (khi panel đóng) -->
-    <Transition
-      enter-active-class="transition-all duration-200 ease-out"
-      enter-from-class="opacity-0 -translate-y-1"
-      enter-to-class="opacity-100 translate-y-0"
-      leave-active-class="transition-all duration-150 ease-in"
-      leave-from-class="opacity-100"
-      leave-to-class="opacity-0"
+    <ListFilterBar
+      :show="showFilters"
+      :chips="activeChips"
+      v-model:search="search"
+      search-placeholder="Tìm theo mã lệnh, tên thiết bị..."
+      @reset="resetFilters"
+      @clear-chip="clearChip"
+      @apply="applyFilters"
     >
-      <div v-if="activeChips.length > 0 && !showFilters" class="flex flex-wrap items-center gap-2 mb-4">
-        <span class="text-xs text-slate-400 font-medium">Đang lọc:</span>
-        <button
-v-for="chip in activeChips" :key="chip.key"
-          class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors"
-          @click="clearChip(chip.key)"
-        >
-          {{ chip.label }}
-          <svg class="w-3 h-3 opacity-60" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
-        <button class="text-xs text-slate-400 hover:text-red-500 underline underline-offset-2" @click="resetFilters">
-          Xóa tất cả
-        </button>
-      </div>
-    </Transition>
-
-    <!-- Collapsible filter panel -->
-    <Transition
-      enter-active-class="transition-all duration-200 ease-out overflow-hidden"
-      enter-from-class="opacity-0 max-h-0"
-      enter-to-class="opacity-100 max-h-40"
-      leave-active-class="transition-all duration-150 ease-in overflow-hidden"
-      leave-from-class="opacity-100 max-h-40"
-      leave-to-class="opacity-0 max-h-0"
-    >
-      <div v-show="showFilters" class="card mb-5 p-4 space-y-3">
-        <div class="flex flex-wrap gap-3">
-          <input
-v-model="search" placeholder="Tìm theo mã lệnh, tên thiết bị..."
-            class="form-input flex-1 min-w-48" @keyup.enter="applyFilters" />
-          <select v-model="statusFilter" class="form-select w-52">
+      <template #fields>
+        <div class="form-group">
+          <label class="form-label">Trạng thái</label>
+          <select v-model="statusFilter" class="form-select">
             <option value="">Tất cả trạng thái</option>
             <option v-for="s in CM_STATUSES" :key="s.value" :value="s.value">{{ s.label }}</option>
           </select>
-          <select v-model="priorityFilter" class="form-select w-40">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Ưu tiên</label>
+          <select v-model="priorityFilter" class="form-select">
             <option value="">Tất cả ưu tiên</option>
             <option v-for="p in PRIORITIES" :key="p.value" :value="p.value">{{ p.label }}</option>
           </select>
-          <button class="btn-ghost text-sm" @click="resetFilters">Đặt lại</button>
         </div>
-        <div v-if="activeChips.length > 0" class="flex flex-wrap items-center gap-2 pt-3 border-t border-slate-100">
-          <span class="text-xs text-slate-400 font-medium">Đang lọc:</span>
-          <button
-v-for="chip in activeChips" :key="chip.key"
-            class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors"
-            @click="clearChip(chip.key)"
-          >
-            {{ chip.label }}
-            <svg class="w-3 h-3 opacity-60" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-      </div>
-    </Transition>
+      </template>
+    </ListFilterBar>
 
     <!-- Loading -->
-    <div v-if="store.loading" class="card">
-      <div v-for="i in 6" :key="i" class="flex gap-4 py-3 border-b border-slate-100 last:border-0 animate-pulse">
-        <div class="h-4 bg-slate-100 rounded w-28" />
-        <div class="h-4 bg-slate-100 rounded flex-1" />
-        <div class="h-4 bg-slate-100 rounded w-20" />
-        <div class="h-4 bg-slate-100 rounded w-24" />
-      </div>
+    <div v-if="store.loading" class="table-wrapper">
+      <SkeletonLoader variant="table" :rows="6" />
+    </div>
+
+    <!-- Error -->
+    <div v-else-if="store.error" class="alert-error">
+      <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+      <span class="flex-1">{{ store.error }}</span>
+      <button class="text-xs font-semibold underline hover:no-underline" @click="store.fetchWorkOrders()">Thử lại</button>
     </div>
 
     <!-- Table -->
@@ -290,18 +234,6 @@ v-for="wo in filteredWOs" :key="wo.name"
       </table>
     </div>
 
-    <!-- Pagination -->
-    <div v-if="store.pagination.total_pages > 1" class="flex justify-center mt-5 gap-1">
-      <button
-v-for="p in store.pagination.total_pages" :key="p"
-        :class="['px-3 py-1.5 rounded-lg text-sm border transition-colors font-medium',
-          p === store.pagination.page
-            ? 'bg-blue-600 text-white border-blue-600'
-            : 'border-slate-300 text-slate-600 hover:bg-slate-50']"
-        @click="store.fetchWorkOrders({}, p)"
-      >
-{{ p }}
-</button>
-    </div>
+    <BasePagination :pagination="store.pagination" @page-change="p => store.fetchWorkOrders({}, p)" />
   </div>
 </template>

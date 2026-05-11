@@ -1,0 +1,26 @@
+{
+  "skill_name": "assetcore-doc-curator",
+  "evals": [
+    {
+      "id": 1,
+      "name": "fill-missing-imm07",
+      "prompt": "Module IMM-07 (Theo dõi hiệu suất) chưa có docs. Hãy tạo đầy đủ 8 file docs/imm-07/ (02-09 + README) theo template chuẩn. Pull content từ architecture (Ho_so_kien_truc_IMMIS.md), WHO HTM (Performance / Inventory management), và GMDN nếu áp dụng. Đánh dấu rõ chỗ nào cần BA bổ sung sau.",
+      "expected_output": "Tạo mới docs/imm-07/ với 9 file (README + 02..09). Mỗi file đúng heading template, có metadata block. Tên module 'Theo dõi hiệu suất' phải xuất hiện chính xác. KPI section reference WHO. Compliance NĐ98. Có placeholder rõ ràng cho phần thiếu data.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "light-touch-imm04",
+      "prompt": "Rà soát docs/imm-04/ (Lắp đặt, định danh và kiểm tra ban đầu) theo template chuẩn. Module này đã có content tốt — không rewrite. Chỉ bổ sung section thiếu, fix structure lệch, thêm cross-reference tới WHO Inventory management và Quyết định BYT về GMDN. Cập nhật README.md và đảm bảo 8 file có đầy đủ heading template.",
+      "expected_output": "Light-touch only: KHÔNG xoá content cũ. README.md có metadata block đầy đủ + cross-reference. Các file 02-09 được vá heading nếu lệch. Section thiếu được bổ sung với placeholder. Cuối lượt có report liệt kê file/section đã chạm.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "name": "audit-all-gap-report",
+      "prompt": "Audit toàn bộ 17 module IMM xem docs đã đủ chưa. Output là báo cáo gap (markdown table) liệt kê: module nào thiếu docs, module nào có nhưng thiếu file, module nào có file nhưng thiếu section bắt buộc. Đừng sinh file mới — chỉ report.",
+      "expected_output": "Báo cáo gap dạng bảng. Liệt kê chính xác 5 module thiếu (07, 10, 13, 14, 17) + nhận xét cho 12 module hiện có. Không tạo file mới. Có thể đề xuất kế hoạch fill thiếu (đợt 1/2/3).",
+      "files": []
+    }
+  ]
+}

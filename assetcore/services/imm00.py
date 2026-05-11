@@ -69,14 +69,17 @@ class InvalidAssetTransition(Exception):
 # ────────────────────────────────────────────
 
 def log_audit_event(**kwargs) -> str:
+    """Re-export: ghi 1 entry vào IMM Audit Trail (SHA-256 chain). Xem utils.lifecycle."""
     return _log_audit_event(**kwargs)
 
 
 def create_lifecycle_event(**kwargs) -> str:
+    """Re-export: ghi 1 row Asset Lifecycle Event (append-only). Xem utils.lifecycle."""
     return _create_lifecycle_event(**kwargs)
 
 
 def verify_audit_chain(asset: str) -> dict:
+    """Re-export: xác minh toàn bộ hash chain của audit trail cho 1 asset."""
     return _verify_audit_chain(asset)
 
 
@@ -92,6 +95,11 @@ def transition_asset_status(
     root_doctype: str = None,
     root_record: str = None,
 ) -> None:
+    """Chuyển lifecycle_status của AC Asset theo state machine (BR-00-02).
+
+    Ghi lifecycle event + audit trail + mở/đóng downtime log tự động.
+    Raises InvalidAssetTransition nếu transition không hợp lệ.
+    """
     prev_status = frappe.db.get_value(_DOCTYPE_ASSET, asset_name, "lifecycle_status") or ""
     if prev_status == to_status:
         return
@@ -186,6 +194,7 @@ def _close_open_downtime_log(asset: str) -> None:
     for r in rows:
         doc = frappe.get_doc(_DT_DOWNTIME_LOG, r["name"])
         doc.end_time = now_dt
+        doc.is_open = 0
         doc.save(ignore_permissions=True)
 
 
@@ -237,7 +246,7 @@ def update_gmdn_status(asset_name: str, gmdn_status: str, reason: str) -> dict:
         frappe.throw(_("Không thể kích hoạt GMDN khi thiết bị ở trạng thái '{0}'").format(lifecycle))
 
     if old_status == gmdn_status:
-        frappe.throw(_(f"GMDN Status đã là '{gmdn_status}'"))
+        frappe.throw(_("GMDN Status đã là '{0}'").format(gmdn_status))
 
     frappe.db.set_value(_DOCTYPE_ASSET, asset_name, "gmdn_status", gmdn_status)
 
@@ -270,7 +279,7 @@ def validate_asset_for_operations(asset_name: str) -> None:
     """BR-00-05: Out of Service / Decommissioned -> block tao Work Order."""
     status = frappe.db.get_value(_DOCTYPE_ASSET, asset_name, "lifecycle_status")
     if status in _BLOCKED_STATUSES:
-        frappe.throw(_(f"Khong the tao Work Order - thiet bi dang o trang thai '{status}' (BR-00-05)."))
+        frappe.throw(_("Không thể tạo Work Order — thiết bị đang ở trạng thái '{0}' (BR-00-05).").format(status))
 
 
 # ────────────────────────────────────────────
@@ -278,6 +287,11 @@ def validate_asset_for_operations(asset_name: str) -> None:
 # ────────────────────────────────────────────
 
 def get_sla_policy(priority: str, risk_class: str = None) -> dict:
+    """Trả về SLA Policy phù hợp theo (priority, risk_class).
+
+    Fallback: nếu không có policy theo risk_class, dùng is_default=1 cho priority đó.
+    Trả dict rỗng {} nếu không tìm thấy policy nào.
+    """
     rows = frappe.db.get_all(
         "IMM SLA Policy",
         filters={"priority": priority, "risk_class": risk_class, "is_active": 1},
@@ -303,6 +317,7 @@ def get_sla_policy(priority: str, risk_class: str = None) -> dict:
 
 def create_capa(asset: str, source_type: str, source_ref: str, severity: str,
                 description: str, responsible: str, due_days: int = 30) -> str:
+    """Tạo IMM CAPA Record và ghi audit trail. Trả về name của bản ghi mới."""
     doc = frappe.get_doc({
         "doctype": _DOCTYPE_CAPA,
         "asset": asset,
@@ -326,6 +341,7 @@ def create_capa(asset: str, source_type: str, source_ref: str, severity: str,
 def close_capa(capa_name: str, root_cause: str, corrective_action: str,
                preventive_action: str, effectiveness_check: str = None,
                actor: str = None) -> None:
+    """Submit và đóng CAPA Record với kết quả khắc phục. Ghi audit trail."""
     doc = frappe.get_doc(_DOCTYPE_CAPA, capa_name)
     doc.root_cause = root_cause
     doc.corrective_action = corrective_action
@@ -347,6 +363,7 @@ def close_capa(capa_name: str, root_cause: str, corrective_action: str,
 # ────────────────────────────────────────────
 
 def check_capa_overdue() -> None:
+    """Scheduler daily: đánh dấu CAPA quá hạn → Overdue, gửi email cảnh báo QA."""
     rows = frappe.db.sql(
         """
         SELECT name, asset, responsible, due_date
@@ -375,6 +392,7 @@ def check_capa_overdue() -> None:
 
 
 def check_vendor_contract_expiry() -> None:
+    """Scheduler daily: cảnh báo hợp đồng nhà cung cấp sắp hết hạn (90/60/30 ngày)."""
     thresholds = [90, 60, 30]
     recipients = get_role_emails([_ROLE_DEPT_HEAD])
     if not recipients:
@@ -393,6 +411,7 @@ def check_vendor_contract_expiry() -> None:
 
 
 def check_registration_expiry() -> None:
+    """Scheduler daily: cảnh báo đăng ký BYT sắp hết hạn (90/60/30/7 ngày)."""
     thresholds = [90, 60, 30, 7]
     recipients = get_role_emails([_ROLE_DEPT_HEAD])
     if not recipients:
@@ -670,6 +689,7 @@ def transfer_asset(
 
 
 def check_insurance_expiry() -> None:
+    """Scheduler daily: cảnh báo bảo hiểm thiết bị sắp hết hạn (90/60/30/7 ngày)."""
     thresholds = [90, 60, 30, 7]
     recipients = get_role_emails([_ROLE_DEPT_HEAD, _ROLE_OPS_MANAGER])
     if not recipients:
@@ -697,6 +717,7 @@ def check_insurance_expiry() -> None:
 
 
 def check_service_contract_expiry() -> None:
+    """Scheduler daily: cảnh báo hợp đồng dịch vụ sắp hết hạn (90/60/30 ngày)."""
     thresholds = [90, 60, 30]
     recipients = get_role_emails([_ROLE_DEPT_HEAD, _ROLE_OPS_MANAGER])
     if not recipients:

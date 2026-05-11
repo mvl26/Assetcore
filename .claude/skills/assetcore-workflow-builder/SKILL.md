@@ -5,7 +5,7 @@ description: Design or modify a Frappe Workflow JSON for AssetCore — choose st
 
 # AssetCore Workflow Builder
 
-A Frappe Workflow is a JSON file at `assetcore/assetcore/workflow/<name>.json` that defines a state machine for a DocType. AssetCore currently ships 14 workflow JSON files, of which 8 are smoke-tested in `tests/test_workflows.py:EXPECTED_WORKFLOWS` (Wave 1 + the AC Asset Lifecycle). When you add or modify a workflow, also extend that fixture and the smoke test.
+A Frappe Workflow is a JSON file at `assetcore/assetcore/workflow/<name>.json` that defines a state machine for a DocType. AssetCore ships workflow JSON files in `assetcore/assetcore/workflow/`. All workflows must be registered in fixtures AND smoke-tested in `tests/test_workflows.py:EXPECTED_WORKFLOWS`. A workflow JSON that exists in the repo but is missing from fixtures will NOT be imported on fresh sites — this is the most common deployment gap. When you add or modify a workflow, always update all three: the JSON, `hooks.py` fixtures, and `EXPECTED_WORKFLOWS`.
 
 ## Anatomy of a workflow
 
@@ -133,7 +133,12 @@ fixtures = [
 ]
 ```
 
-`Workflow State` and `Workflow Action Master` are reference DocTypes; missing entries → workflow won't import on a fresh site. Add **every new** state/action to both lists.
+**All three lists must be updated together.** Missing any one of them breaks fresh-site provisioning silently:
+- Missing from `Workflow` → workflow doesn't import
+- Missing from `Workflow State` → state resets to blank after import
+- Missing from `Workflow Action Master` → transition button label disappears
+
+Add **every new** state/action to all three lists in the same commit.
 
 Then add a smoke test entry in `tests/test_workflows.py` `EXPECTED_WORKFLOWS`:
 ```python
@@ -163,6 +168,9 @@ When you add a state to the workflow, also add it to the service constant class,
 | Transition button doesn't show for user | Role mismatch in `allowed` | Check user has the role; remember role == role profile is not the same |
 | State label changes to wrong value after save | Missing entry in `Workflow State` fixture | Add the state name to fixture filter; reload |
 | Migration fails on fresh site | New action label missing from `Workflow Action Master` fixture | Add the Vietnamese action string |
+| Workflow JSON exists in repo but missing from prod | Workflow exists at `assetcore/workflow/*.json` but is not listed in `hooks.py` fixtures | Add to ALL THREE fixture filters (Workflow, State, Action) |
+| Gate / SLA service function never fires | Function exists in `immXX.py` but not wired into `doc_events` in `hooks.py` | Add the `doc_events` entry; `bench migrate` to reload |
+| `EXPECTED_WORKFLOWS` count mismatch | New workflow added but test file not updated | Add entry with `min_states` and `min_transitions` matching the JSON |
 
 ## Build sequence
 
@@ -181,3 +189,18 @@ When you add a state to the workflow, also add it to the service constant class,
 - `assetcore/assetcore/workflow/imm_04_workflow.json` — long happy path (11 states, 20 transitions)
 - `assetcore/assetcore/workflow/ac_asset_lifecycle_workflow.json` — entity-level lifecycle (vs. work order)
 - `assetcore/tests/test_workflows.py` — the validator that all workflows must pass
+
+---
+
+## Cross-skill conventions
+
+Read [`/.claude/skills/CONVENTIONS.md`](../CONVENTIONS.md) for project-wide rules. Especially relevant to this skill:
+
+- §1. Naming Conventions — workflow state names use Title Case with spaces, NOT underscores
+- §10. Forbidden actions — never bypass state machine via `frappe.db.set_value`
+
+### Module-specific gotchas
+- IMM-04 has tech debt: `Clinical Release` (code) vs `Clinical_Release` (DB) — when fixing, audit all string comparisons
+- Existing live workflows: imm-04, imm-05, imm-08, imm-09, imm-11, imm-12 (Wave 1) + imm-01, imm-02, imm-03 (Wave 2) + imm-06, imm-15, imm-16 (Wave 2/3 scaffolded)
+- Workflow JSON `document_type` must EXACTLY match DocType name (case-sensitive)
+- `doc_status: "1"` for terminal-success states; `"2"` for cancelled-after-submit; `"0"` otherwise

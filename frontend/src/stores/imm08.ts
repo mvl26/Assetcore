@@ -17,7 +17,7 @@ export const useImm08Store = defineStore('imm08', () => {
   const calendarEvents = ref<PMCalendarEvent[]>([])
   const calendarSummary = ref({ total: 0, completed: 0, overdue: 0, pending: 0 })
   const dashboardStats = ref<PMDashboardStats | null>(null)
-  const pmHistory = ref<any[]>([])
+  const pmHistory = ref<PMWorkOrder[]>([])
   const loading = ref(false)
   const error = ref<string | null>(null)
   const pagination = ref({ page: 1, total: 0, total_pages: 0, page_size: 20 })
@@ -44,8 +44,8 @@ export const useImm08Store = defineStore('imm08', () => {
       const res = await listPMWorkOrders(filters, page)
       workOrders.value = res.data
       pagination.value = res.pagination
-    } catch (e: any) {
-      error.value = e.message
+    } catch (e: unknown) {
+      error.value = e instanceof Error ? e.message : String(e)
     } finally {
       loading.value = false
     }
@@ -56,8 +56,8 @@ export const useImm08Store = defineStore('imm08', () => {
     error.value = null
     try {
       currentWO.value = await getPMWorkOrder(name)
-    } catch (e: any) {
-      error.value = e.message
+    } catch (e: unknown) {
+      error.value = e instanceof Error ? e.message : String(e)
     } finally {
       loading.value = false
     }
@@ -74,8 +74,8 @@ export const useImm08Store = defineStore('imm08', () => {
       await assignTechnician(name, technician, scheduledDate)
       await fetchWorkOrder(name)
       return true
-    } catch (e: any) {
-      error.value = e.message
+    } catch (e: unknown) {
+      error.value = e instanceof Error ? e.message : String(e)
       return false
     }
   }
@@ -93,8 +93,8 @@ export const useImm08Store = defineStore('imm08', () => {
       })
       await fetchWorkOrder(currentWO.value.name)
       return { success: true, cmWoCreated: res.cm_wo_created }
-    } catch (e: any) {
-      error.value = e.message
+    } catch (e: unknown) {
+      error.value = e instanceof Error ? e.message : String(e)
       return { success: false }
     }
   }
@@ -105,8 +105,8 @@ export const useImm08Store = defineStore('imm08', () => {
       const res = await reportMajorFailure(currentWO.value.name, description)
       await fetchWorkOrder(currentWO.value.name)
       return res.cm_wo_created
-    } catch (e: any) {
-      error.value = e.message
+    } catch (e: unknown) {
+      error.value = e instanceof Error ? e.message : String(e)
       return null
     }
   }
@@ -117,8 +117,8 @@ export const useImm08Store = defineStore('imm08', () => {
       const res = await getPMCalendar(year, month)
       calendarEvents.value = res.events
       calendarSummary.value = res.summary
-    } catch (e: any) {
-      error.value = e.message
+    } catch (e: unknown) {
+      error.value = e instanceof Error ? e.message : String(e)
     } finally {
       loading.value = false
     }
@@ -128,8 +128,8 @@ export const useImm08Store = defineStore('imm08', () => {
     loading.value = true
     try {
       dashboardStats.value = await getPMDashboardStats(year, month)
-    } catch (e: any) {
-      error.value = e.message
+    } catch (e: unknown) {
+      error.value = e instanceof Error ? e.message : String(e)
     } finally {
       loading.value = false
     }
@@ -140,8 +140,8 @@ export const useImm08Store = defineStore('imm08', () => {
       await reschedulePM(name, newDate, reason)
       await fetchWorkOrders()
       return true
-    } catch (e: any) {
-      error.value = e.message
+    } catch (e: unknown) {
+      error.value = e instanceof Error ? e.message : String(e)
       return false
     }
   }
@@ -150,8 +150,8 @@ export const useImm08Store = defineStore('imm08', () => {
     try {
       const res = await getAssetPMHistory(assetRef)
       pmHistory.value = res.history
-    } catch (e: any) {
-      error.value = e.message
+    } catch (e: unknown) {
+      error.value = e instanceof Error ? e.message : String(e)
     }
   }
 

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { frappeGet, frappePost } from '@/api/helpers'
+import { getCapa, closeCapaRecord } from '@/api/imm00'
 import type { ImmCapaRecord } from '@/types/imm00'
 
 const route = useRoute()
@@ -15,8 +15,6 @@ const error = ref('')
 
 const closeForm = ref({ root_cause: '', corrective_action: '', preventive_action: '', effectiveness_check: '' })
 const showCloseForm = ref(false)
-
-const BASE = '/api/method/assetcore.api.imm00'
 
 const statusColor: Record<string, string> = {
   Open: 'bg-blue-100 text-blue-700',
@@ -59,10 +57,9 @@ const canClose = computed(() =>
 async function load() {
   loading.value = true
   try {
-    const res = await frappeGet<ImmCapaRecord>(`${BASE}.get_capa`, { name })
-    capa.value = res
+    capa.value = await getCapa(name)
   } catch (e: unknown) {
-    error.value = (e as Error).message || 'Không tải được CAPA'
+    error.value = e instanceof Error ? e.message : 'Không tải được CAPA'
   }
   loading.value = false
 }
@@ -75,11 +72,11 @@ async function submitClose() {
   saving.value = true
   error.value = ''
   try {
-    await frappePost<void>(`${BASE}.close_capa_record`, { name, ...closeForm.value })
+    await closeCapaRecord(name, closeForm.value)
     showCloseForm.value = false
     await load()
   } catch (e: unknown) {
-    error.value = (e as Error).message || 'Lỗi khi đóng CAPA'
+    error.value = e instanceof Error ? e.message : 'Lỗi khi đóng CAPA'
   }
   saving.value = false
 }

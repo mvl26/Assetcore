@@ -13,6 +13,7 @@ from frappe import _
 from assetcore.services import imm02 as svc
 from assetcore.services.shared import ErrorCode, ServiceError
 from assetcore.utils.helpers import _ok, _err
+from assetcore.utils.lifecycle import log_audit_event as _audit
 
 _DT_TS = "IMM Tech Spec"
 _DT_MB = "IMM Market Benchmark"
@@ -147,8 +148,20 @@ def transition_workflow(name: str, action: str) -> dict:
 
 def _transition_workflow(name: str, action: str) -> dict:
     from frappe.model.workflow import apply_workflow
-    apply_workflow(frappe.get_doc(_DT_TS, name), action)
+    doc_before = frappe.get_doc(_DT_TS, name)
+    prev_state = doc_before.workflow_state or "Draft"
+    apply_workflow(doc_before, action)
     doc = frappe.get_doc(_DT_TS, name)
+    try:
+        _audit(
+            asset=doc.name,
+            event_type="imm02_workflow_transition",
+            ref_doctype=_DT_TS,
+            ref_name=doc.name,
+            change_summary=f"IMM-02 [{action}]: {prev_state} → {doc.workflow_state}",
+        )
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "IMM-02 audit trail failed")
     return {"name": doc.name, "workflow_state": doc.workflow_state, "docstatus": doc.docstatus}
 
 
@@ -178,6 +191,16 @@ def _lock_spec(name: str, approver: str, remarks: str) -> dict:
     doc.approver = approver
     doc.workflow_state = "Locked"
     doc.submit()
+    try:
+        _audit(
+            asset=doc.name,
+            event_type="imm02_spec_locked",
+            ref_doctype=_DT_TS,
+            ref_name=doc.name,
+            change_summary=f"IMM-02 Spec locked. Approver: {approver}. {remarks}",
+        )
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "IMM-02 audit trail failed")
     return {"name": doc.name, "workflow_state": "Locked"}
 
 
@@ -196,10 +219,21 @@ def _withdraw_spec(name: str, withdrawal_reason: str) -> dict:
             _("Chỉ Pending Approval / Locked mới withdraw được (hiện: {0})")
             .format(doc.workflow_state),
         )
+    prev_state = doc.workflow_state
     doc.withdrawal_reason = withdrawal_reason
     doc.workflow_state = "Withdrawn"
     if doc.docstatus == 0:
         doc.submit()
+    try:
+        _audit(
+            asset=doc.name,
+            event_type="imm02_spec_withdrawn",
+            ref_doctype=_DT_TS,
+            ref_name=doc.name,
+            change_summary=f"IMM-02 Spec withdrawn from {prev_state}. Reason: {withdrawal_reason}",
+        )
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "IMM-02 audit trail failed")
     return {"name": doc.name, "workflow_state": "Withdrawn"}
 
 

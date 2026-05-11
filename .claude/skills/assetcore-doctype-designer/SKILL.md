@@ -77,21 +77,23 @@ ac_asset/
   "default": "Open",
   "reqd": 1,
   "read_only": 1,
+  "no_copy": 1,
   "in_list_view": 1
 }
 ```
-**Status is read-only at the form level** — only workflow + service can change it. Never let users edit it directly.
+**Status is read-only at the form level** — only workflow + service can change it. Never let users edit it directly. Set `no_copy: 1` so duplicating the record doesn't carry over an active status.
 
-### Datetime (occurrence)
+### Datetime (occurrence / system-set)
 ```json
 {
   "fieldname": "open_datetime",
   "label": "Thời điểm mở",
   "fieldtype": "Datetime",
-  "read_only": 1
+  "read_only": 1,
+  "no_copy": 1
 }
 ```
-Set in `before_insert`. Never let user edit timestamps; they're audit data.
+Set in `before_insert`. Never let user edit timestamps; they're audit data. Always set `no_copy: 1` on system-set datetime fields (`open_datetime`, `actual_end`, `close_datetime`, `completed_at`) — copying a record must not carry over its completion timestamp.
 
 ### Currency
 ```json
@@ -209,8 +211,9 @@ Reference: `patches/v3_0/001_migrate_from_v2.py` — dropped Custom Fields and s
 - [ ] `autoname` uses readable prefix
 - [ ] `track_changes: 1`
 - [ ] `is_submittable: 1` if has finalization step
-- [ ] All status fields are `read_only: 1`
-- [ ] All timestamps are `read_only: 1`
+- [ ] All status fields are `read_only: 1` AND `no_copy: 1`
+- [ ] All system-set timestamps (`open_datetime`, `actual_end`, `close_datetime`, `completed_at`) are `read_only: 1` AND `no_copy: 1`
+- [ ] For append-only records (`IMM Audit Trail`, `Asset Lifecycle Event`): ALL fields are `read_only: 1` AND `no_copy: 1` — these records must never be duplicated or edited after insert
 - [ ] Has Link to `AC Asset` (or parent) if asset-related
 - [ ] Permissions cover SYS_ADMIN + at least 2 operational roles
 - [ ] Controller hooks delegate to service layer, no inline logic
@@ -224,3 +227,24 @@ Reference: `patches/v3_0/001_migrate_from_v2.py` — dropped Custom Fields and s
 - `assetcore/assetcore/doctype/ac_asset/ac_asset.json` — core entity with many fields
 - `assetcore/assetcore/doctype/asset_lifecycle_event/asset_lifecycle_event.json` — append-only audit pattern
 - `assetcore/assetcore/doctype/asset_repair/asset_repair.py` — controller with ERPNext compat shims
+
+## Full DocType inventory by module
+
+To avoid naming conflicts or duplicating an existing DocType, see the canonical list at `.claude/skills/qms-mapper/references/artifacts.md` (Section 2 — DocTypes by Module). It covers all ~108 DocTypes across IMM-00 through IMM-16 with descriptions and module assignments.
+
+---
+
+## Cross-skill conventions
+
+Read [`/.claude/skills/CONVENTIONS.md`](../CONVENTIONS.md) for project-wide rules. Especially relevant to this skill:
+
+- §1. Naming Conventions — `IMM ` or `AC ` prefix mandatory for new DocTypes
+- §2. Layer rules — controllers ≤20 LOC, delegate to service
+- §4. Audit & Lifecycle — Link to `AC Asset` + `log_audit_event` integration mandatory for asset-touching DocTypes
+- §5. Permissions Layer 1 — never add `System Manager` to non-admin DocType
+
+### Module-specific gotchas
+- Wave 1 broke the prefix rule with `asset_commissioning`, `asset_repair` — DO NOT extend
+- Status fields must be `read_only: 1`; only workflow + service mutate state
+- Timestamp fields (`open_datetime`, `signoff_date`, etc.) must be `read_only: 1`
+- ERPNext core extension: parallel `AC <X>` DocType, never edit ERPNext JSON

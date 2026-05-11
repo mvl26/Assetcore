@@ -43,14 +43,14 @@ export function reissueSpec(from_spec: string): Promise<{ name: string; version:
   return frappePost(`${BASE}.reissue_spec`, { from_spec })
 }
 
-export function submitBenchmark(spec_ref: string, candidates: object[], weighting_scheme: object = {}): Promise<{ name: string; recommended: string }> {
+export function submitBenchmark(spec_ref: string, candidates: Record<string, unknown>[], weighting_scheme: Record<string, unknown> = {}): Promise<{ name: string; recommended: string }> {
   return frappePost(`${BASE}.submit_benchmark`, {
     spec_ref, candidates: JSON.stringify(candidates), weighting_scheme: JSON.stringify(weighting_scheme),
   })
 }
 
 export function submitLockInAssessment(
-  spec_ref: string, items: object[], threshold?: number,
+  spec_ref: string, items: Record<string, unknown>[], threshold?: number,
   mitigation_plan = '', mitigation_evidence = '',
 ): Promise<{ name: string; lock_in_score: number; threshold: number }> {
   return frappePost(`${BASE}.submit_lock_in_assessment`, {

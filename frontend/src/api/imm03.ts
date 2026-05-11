@@ -18,7 +18,7 @@ export function listEvaluations(filters: Record<string, unknown> = {}, page = 1,
 export function getEvaluation(name: string): Promise<EvalDoc> {
   return frappeGet(`${BASE}.get_evaluation`, { name })
 }
-export function createEvaluation(spec_ref: string, weighting_scheme: object = {}): Promise<{ name: string; workflow_state: string }> {
+export function createEvaluation(spec_ref: string, weighting_scheme: Record<string, unknown> = {}): Promise<{ name: string; workflow_state: string }> {
   return frappePost(`${BASE}.create_evaluation`, { spec_ref, weighting_scheme: JSON.stringify(weighting_scheme) })
 }
 export function addCandidate(name: string, supplier: string, sign_off_non_avl = ''): Promise<{ row_count: number; in_avl: 0 | 1; warning?: string | null }> {

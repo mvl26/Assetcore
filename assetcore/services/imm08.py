@@ -9,7 +9,7 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, date_diff, getdate, nowdate
 
-from assetcore.repositories.asset_repo import AssetRepo
+from assetcore.repositories.asset_repo import AssetRepo, DeviceModelRepo
 from assetcore.repositories.pm_repo import (
     PMChecklistTemplateRepo,
     PMScheduleRepo,
@@ -77,6 +77,97 @@ def _normalize_filters(f: dict | None) -> dict:
 def _month_range(year: int, month: int) -> tuple[str, str, int]:
     _, last_day = calendar.monthrange(year, month)
     return f"{year:04d}-{month:02d}-01", f"{year:04d}-{month:02d}-{last_day:02d}", last_day
+
+
+# ─── DocType controller delegates ────────────────────────────────────────────
+
+def validate_work_order(doc) -> None:
+    """Validate PM Work Order — called from controller.validate().
+
+    BR-08-08: all checklist items need results before completion.
+    BR-08-06: high-risk devices require photo attachments.
+    BR-08-02: corrective WO must reference an originating PM WO.
+    """
+    if doc.status in ("Completed", "Halted–Major Failure"):
+        for item in (doc.checklist_results or []):
+            if not item.result:
+                frappe.throw(_(
+                    "Tất cả mục checklist phải có kết quả trước khi Submit (BR-08-08). "
+                    "Mục '{0}' chưa điền."
+                ).format(item.description))
+
+    risk_class = AssetRepo.get_value(doc.asset_ref, "risk_classification") if doc.asset_ref else None
+    if risk_class in ("High", "Critical") and not doc.attachments:
+        frappe.throw(_(
+            "Thiết bị nguy cơ cao ({0}) bắt buộc upload ảnh trước/sau PM (BR-08-06)."
+        ).format(risk_class))
+
+    if doc.wo_type == "Corrective" and not doc.source_pm_wo:
+        frappe.throw(_("CM Work Order phải có tham chiếu PM WO gốc (BR-08-02)."))
+
+
+def handle_work_order_submit(doc) -> None:
+    """Execute post-submit lifecycle actions — called from controller.on_submit().
+
+    Sets completion date/late flag, advances PM Schedule, syncs AC Asset fields,
+    creates immutable PM Task Log, auto-creates CM WO and handles major failure.
+    """
+    from frappe.utils import date_diff as _date_diff, add_days as _add_days, nowdate as _nowdate
+
+    doc.completion_date = _nowdate()
+    if doc.due_date:
+        doc.is_late = 1 if _date_diff(doc.completion_date, doc.due_date) > 0 else 0
+
+    update_pm_schedule_after_completion(doc.pm_schedule, doc.completion_date)
+
+    sched_interval = PMScheduleRepo.get_value(doc.pm_schedule, "pm_interval_days") or 0 if doc.pm_schedule else 0
+    AssetRepo.set_values(doc.asset_ref, {
+        "last_pm_date": doc.completion_date,
+        "next_pm_date": _add_days(doc.completion_date, sched_interval),
+    })
+
+    days_late = _date_diff(doc.completion_date, doc.due_date) if doc.is_late else 0
+    PMTaskLogRepo.create({
+        "asset_ref": doc.asset_ref,
+        "pm_work_order": doc.name,
+        "pm_type": doc.pm_type,
+        "completion_date": doc.completion_date,
+        "technician": doc.assigned_to or frappe.session.user,
+        "overall_result": doc.overall_result,
+        "is_late": doc.is_late,
+        "days_late": days_late,
+        "next_pm_date": _add_days(doc.completion_date, sched_interval),
+        "summary": doc.technician_notes or "",
+    })
+
+    has_minor = any(r.result == "Fail–Minor" for r in (doc.checklist_results or []))
+    has_major = any(r.result == "Fail–Major" for r in (doc.checklist_results or []))
+
+    if has_major:
+        _create_cm_wo_from_failure(doc, priority="Critical")
+        _transition_asset(doc.asset_ref, AssetStatus.OUT_OF_SERVICE, doc.name)
+        PMWorkOrderRepo.set_values(doc.name, {"status": PMStatus.HALTED_MAJOR})
+    elif has_minor:
+        _create_cm_wo_from_failure(doc, priority="Medium")
+
+
+def _create_cm_wo_from_failure(doc, priority: str) -> None:
+    """Insert a Corrective PM Work Order referencing a failed PM WO."""
+    from frappe.utils import nowdate as _nowdate
+    failure_items = [
+        r.description for r in (doc.checklist_results or [])
+        if r.result in ("Fail–Minor", "Fail–Major")
+    ]
+    PMWorkOrderRepo.create({
+        "asset_ref": doc.asset_ref,
+        "pm_schedule": doc.pm_schedule,
+        "pm_type": doc.pm_type,
+        "wo_type": "Corrective",
+        "source_pm_wo": doc.name,
+        "status": PMStatus.OPEN,
+        "due_date": _nowdate(),
+        "technician_notes": "Tạo tự động từ PM failure. Lỗi: " + "; ".join(failure_items),
+    })
 
 
 # ─── Scheduler jobs ───────────────────────────────────────────────────────────
@@ -769,11 +860,11 @@ def create_pm_schedule_from_commissioning(commissioning_doc) -> str | None:
     asset = commissioning_doc.final_asset
     if not asset:
         return None
-    device_model = frappe.db.get_value(_DT_AC_ASSET, asset, "device_model")
+    device_model = AssetRepo.get_value(asset, "device_model")
     if not device_model:
         return None
-    model = frappe.db.get_value(
-        "IMM Device Model", device_model,
+    model = DeviceModelRepo.get_value(
+        device_model,
         ["is_pm_required", "pm_interval_days", "pm_alert_days"],
         as_dict=True,
     )

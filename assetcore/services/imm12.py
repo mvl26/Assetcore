@@ -26,6 +26,7 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, now_datetime, nowdate, today
 
+from assetcore.repositories.repair_repo import IncidentRepo, RCARepo
 from assetcore.services import imm00 as svc00
 
 _DT_INCIDENT = "Incident Report"
@@ -75,15 +76,17 @@ class IncidentError(Exception):
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
 def _get_incident(name: str) -> "frappe.Document":
-    if not frappe.db.exists(_DT_INCIDENT, name):
+    doc = IncidentRepo.get(name)
+    if not doc:
         raise IncidentError(_("Không tìm thấy Incident Report: {0}").format(name), 404)
-    return frappe.get_doc(_DT_INCIDENT, name)
+    return doc
 
 
 def _get_rca(name: str) -> "frappe.Document":
-    if not frappe.db.exists(_DT_RCA, name):
+    doc = RCARepo.get(name)
+    if not doc:
         raise IncidentError(_("Không tìm thấy RCA Record: {0}").format(name), 404)
-    return frappe.get_doc(_DT_RCA, name)
+    return doc
 
 
 def _assert_transition(doc: "frappe.Document", to_status: str) -> None:
@@ -400,7 +403,7 @@ def submit_rca(
     # BR-12-06: auto CAPA via IMM-00
     capa_name: str | None = None
     try:
-        incident = frappe.get_doc(_DT_INCIDENT, rca.incident_report) if rca.incident_report else None
+        incident = IncidentRepo.get(rca.incident_report) if rca.incident_report else None
         asset = rca.asset or (incident.asset if incident else None)
         severity = _map_severity(incident.severity if incident else "High")
         capa_name = svc00.create_capa(
@@ -463,8 +466,8 @@ def get_incident_detail(name: str) -> dict:
     if doc.asset:
         data["asset_name"] = frappe.db.get_value(_DT_ASSET, doc.asset, "asset_name")
     data["allowed_transitions"] = _VALID_TRANSITIONS.get(doc.status, [])
-    if doc.rca_record and frappe.db.exists(_DT_RCA, doc.rca_record):
-        rca = frappe.get_doc(_DT_RCA, doc.rca_record)
+    if doc.rca_record:
+        rca = RCARepo.get(doc.rca_record)
         data["rca"] = {
             "name": rca.name,
             "status": rca.status,

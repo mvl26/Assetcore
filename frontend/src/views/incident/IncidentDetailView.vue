@@ -35,10 +35,9 @@ async function load() {
   loading.value = true
   err.value = ''
   try {
-    const res = await getIncident(name.value)
-    if (res) form.value = res as unknown as IncidentDetail
-  } catch {
-    err.value = 'Không tải được Incident Report'
+    form.value = await getIncident(name.value)
+  } catch (e: unknown) {
+    err.value = e instanceof Error ? e.message : 'Không tải được Incident Report'
   } finally { loading.value = false }
 }
 
@@ -52,7 +51,7 @@ async function doAcknowledge() {
     toast.success('Đã bắt đầu điều tra Incident')
     await load()
   } catch (e: unknown) {
-    const msg = (e as Error).message || 'Lỗi khi acknowledge'
+    const msg = e instanceof Error ? e.message : 'Lỗi khi acknowledge'
     err.value = msg
     toast.error(msg)
   } finally { actionLoading.value = false }
@@ -73,7 +72,7 @@ async function doResolve() {
     toast.success('Đã đánh dấu Incident là đã giải quyết')
     await load()
   } catch (e: unknown) {
-    const msg = (e as Error).message || 'Lỗi khi resolve'
+    const msg = e instanceof Error ? e.message : 'Lỗi khi resolve'
     err.value = msg
     toast.error(msg)
   } finally { actionLoading.value = false }
@@ -89,7 +88,7 @@ async function doClose() {
     toast.success('Đã đóng Incident')
     await load()
   } catch (e: unknown) {
-    const msg = (e as Error).message || 'Lỗi khi close'
+    const msg = e instanceof Error ? e.message : 'Lỗi khi close'
     err.value = msg
     toast.error(msg)
   } finally { actionLoading.value = false }
@@ -110,7 +109,7 @@ async function doCancel() {
     toast.success('Đã hủy Incident')
     await load()
   } catch (e: unknown) {
-    const msg = (e as Error).message || 'Lỗi khi hủy'
+    const msg = e instanceof Error ? e.message : 'Lỗi khi hủy'
     err.value = msg
     toast.error(msg)
   } finally { actionLoading.value = false }
@@ -121,16 +120,15 @@ async function doCreateRca() {
   err.value = ''
   try {
     const res = await createRca(name.value, '5-Why')
-    const r = res as unknown as { name?: string }
-    if (r?.name) router.push(`/rca/${r.name}`)
-  } catch (e: unknown) { err.value = (e as Error).message || 'Không thể tạo RCA' }
+    if (res?.name) router.push(`/rca/${res.name}`)
+  } catch (e: unknown) { err.value = e instanceof Error ? e.message : 'Không thể tạo RCA' }
   finally { rcaCreating.value = false }
 }
 
 async function remove() {
   if (!confirm(`Xóa Incident "${name.value}"?`)) return
   try { await deleteIncident(name.value); router.push('/incidents/list') }
-  catch (e: unknown) { err.value = (e as Error).message || 'Không thể xóa' }
+  catch (e: unknown) { err.value = e instanceof Error ? e.message : 'Không thể xóa' }
 }
 
 const canAcknowledge = computed(() =>

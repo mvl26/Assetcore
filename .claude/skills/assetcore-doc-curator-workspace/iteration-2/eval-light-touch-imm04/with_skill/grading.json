@@ -1,0 +1,12 @@
+{
+  "expectations": [
+    {"text": "All 9 original files preserved", "passed": true, "evidence": "9 files in sandbox"},
+    {"text": "README heading wording PRESERVED (no destructive rewrite)", "passed": true, "evidence": "Still '# IMM-04 — Tài liệu module' (was rewritten in iter-1, fixed in iter-2)"},
+    {"text": "README metadata schema PRESERVED (Module/Wave/Trạng thái/Số file/Cập nhật cuối kept)", "passed": true, "evidence": "All 5 original rows present, only Cập nhật value changed + 2 rows appended"},
+    {"text": "README LOC delta minimal (append-only)", "passed": true, "evidence": "+10 LOC (76→86), no removals"},
+    {"text": "_REPORT.md exists with reserved items", "passed": true, "evidence": "98 lines, 8 'reserved/không sửa' mentions, lists 11 deviations"},
+    {"text": "Files outside README untouched", "passed": true, "evidence": "Agent report: 8/9 files NOT modified"},
+    {"text": "No new bad placeholder format introduced", "passed": true, "evidence": "Original placeholder count preserved"},
+    {"text": "Cross-reference WHO/GMDN added safely (new section, not overwriting)", "passed": true, "evidence": "Appended new ## Tham chiếu chéo, original ## Tham chiếu kept"}
+  ]
+}

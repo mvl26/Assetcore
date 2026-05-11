@@ -41,6 +41,9 @@ class Roles:
     RISK            = "IMM Risk Officer"
     BOARD_APPROVER  = "IMM Board Approver"
 
+    # Wave 2 — training & competency (IMM-06)
+    TRAINING_OFFICER = "IMM Training Officer"
+
     ALL_IMM = (
         # Wave 1
         SYS_ADMIN, OPS_MANAGER, DEPT_HEAD, DEPT_DEPUTY, WORKSHOP,
@@ -48,6 +51,7 @@ class Roles:
         VENDOR_ENGINEER,
         # Wave 2
         PLANNING, FINANCE, HTM_ENGINEER, PROCUREMENT, RISK, BOARD_APPROVER,
+        TRAINING_OFFICER,
     )
 
     # Role-group policies (dùng ở cả BE + FE router)
@@ -64,6 +68,11 @@ class Roles:
     CAN_PLAN        = (SYS_ADMIN, OPS_MANAGER, PLANNING, DEPT_HEAD)
     CAN_APPROVE_PROCUREMENT = (SYS_ADMIN, OPS_MANAGER, BOARD_APPROVER)
     CAN_ASSESS_RISK = (SYS_ADMIN, RISK, QA, AUDITOR)
+
+    # IMM-06 Training & Competency
+    CAN_MANAGE_TRAINING = (SYS_ADMIN, TRAINING_OFFICER)
+    CAN_CONDUCT_TRAINING = (SYS_ADMIN, TRAINING_OFFICER, WORKSHOP, BIOMED)
+    CAN_SIGNOFF_COMPETENCY = (SYS_ADMIN, TRAINING_OFFICER, WORKSHOP, DEPT_HEAD)
 
 
 ROLE_METADATA: dict[str, dict[str, str]] = {
@@ -161,6 +170,11 @@ ROLE_METADATA: dict[str, dict[str, str]] = {
         "label": "Người phê duyệt cấp ban",
         "description": "Phê duyệt cuối cùng cho kế hoạch mua sắm, hợp đồng lớn — IMM-01→03",
         "group": "Governance",
+    },
+    Roles.TRAINING_OFFICER: {
+        "label": "Cán bộ đào tạo",
+        "description": "Quản lý chương trình đào tạo, lịch học, năng lực nhân viên — IMM-06",
+        "group": "Support",
     },
 }
 

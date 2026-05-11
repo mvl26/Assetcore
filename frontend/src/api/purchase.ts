@@ -1,5 +1,5 @@
 // Copyright (c) 2026, AssetCore Team
-// IMM-00 Purchase API client
+// Purchase & Contract API client (liên quan IMM-01, IMM-03)
 import { frappeGet, frappePost } from '@/api/helpers'
 
 const BASE = '/api/method/assetcore.api.purchase'

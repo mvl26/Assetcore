@@ -4,6 +4,7 @@ import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { getCalibration, updateCalibration, submitCalibration, sendToLab, receiveCertificate, cancelCalibration } from '@/api/imm11'
 import type { AssetCalibration, CalibrationMeasurement } from '@/api/imm11'
+import { uploadDocumentFile } from '@/api/imm05'
 import { useToast } from '@/composables/useToast'
 
 const props = defineProps<{ id: string }>()
@@ -68,26 +69,11 @@ async function uploadCertificateFile(event: Event) {
   uploadingCert.value = true
   err.value = ''
   try {
-    const formData = new FormData()
-    formData.append('file', file)
-    formData.append('doctype', 'IMM Asset Calibration')
-    formData.append('docname', props.id)
-    formData.append('fieldname', 'certificate_file')
-    formData.append('is_private', '1')
-    const res = await fetch('/api/method/upload_file', {
-      method: 'POST',
-      body: formData,
-      credentials: 'include',
-    })
-    const data = await res.json()
-    if (data.message?.file_url) {
-      recvData.value.certificate_file = data.message.file_url
-      toast.success(`Đã upload "${file.name}"`)
-    } else {
-      throw new Error(data.message?.exception || 'Upload thất bại')
-    }
+    const result = await uploadDocumentFile(file, { docname: props.id, isPrivate: true })
+    recvData.value.certificate_file = result.file_url
+    toast.success(`Đã upload "${file.name}"`)
   } catch (e: unknown) {
-    const msg = (e as Error).message || 'Lỗi upload file chứng chỉ'
+    const msg = e instanceof Error ? e.message : 'Lỗi upload file chứng chỉ'
     err.value = msg
     toast.error(msg)
   } finally {

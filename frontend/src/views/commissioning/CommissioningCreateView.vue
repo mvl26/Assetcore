@@ -8,6 +8,7 @@ import SmartSelect from '@/components/common/SmartSelect.vue'
 import LinkInfoCard from '@/components/common/LinkInfoCard.vue'
 import type { DeviceModelDetails } from '@/types/imm04'
 import type { MasterItem } from '@/stores/useMasterDataStore'
+import PageHeader from '@/components/common/PageHeader.vue'
 
 const router = useRouter()
 const store  = useCommissioningStore()
@@ -198,24 +199,11 @@ async function handleCreate() {
 
 <template>
   <div class="page-container animate-fade-in">
-<!-- Breadcrumb -->
-    <nav class="flex items-center gap-1.5 text-xs text-slate-400 mb-6">
-      <button class="hover:text-slate-600 transition-colors" @click="router.push('/dashboard')">Tổng quan</button>
-      <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
-      </svg>
-      <button class="hover:text-slate-600 transition-colors" @click="router.push('/commissioning')">Danh sách phiếu</button>
-      <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
-      </svg>
-      <span class="font-semibold text-slate-700">Tạo phiếu mới</span>
-    </nav>
-
-    <!-- Page header -->
-    <div class="mb-7">
-      <h1 class="text-2xl font-bold text-slate-900">Tạo Phiếu Tiếp Nhận Thiết Bị</h1>
-      <p class="text-sm text-slate-500 mt-1">Điền đầy đủ thông tin để khởi tạo quy trình lắp đặt</p>
-    </div>
+    <PageHeader
+      title="Tạo Phiếu Tiếp Nhận Thiết Bị"
+      subtitle="Điền đầy đủ thông tin để khởi tạo quy trình lắp đặt"
+      :breadcrumb="[{ label: 'Tổng quan', to: '/dashboard' }, { label: 'IMM-04 · Tiếp nhận', to: '/commissioning' }, { label: 'Tạo phiếu mới' }]"
+    />
 
     <!-- Error banner -->
     <Transition

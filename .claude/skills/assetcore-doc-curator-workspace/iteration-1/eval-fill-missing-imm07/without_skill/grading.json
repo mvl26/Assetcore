@@ -1,0 +1,14 @@
+{
+  "expectations": [
+    {"text": "All 9 files exist (README + 02..09)", "passed": true, "evidence": "All 9 files present"},
+    {"text": "README heading is exactly '# IMM-07 — Theo dõi hiệu suất'", "passed": false, "evidence": "Heading is '# IMM-07 — Tài liệu module' — generic, not module name"},
+    {"text": "Each file has metadata table at top", "passed": true, "evidence": "Verified"},
+    {"text": "02_Analysis_Design.md contains all sections I.0-I.8", "passed": true, "evidence": "All 9 sections present"},
+    {"text": "02 §I.6 Compliance references NĐ98/2021", "passed": true, "evidence": "1 NĐ98 reference"},
+    {"text": "KPI section references WHO HTM", "passed": true, "evidence": "4 WHO references"},
+    {"text": "Placeholders use approved format, NOT TODO/FIXME/[BA cần", "passed": false, "evidence": "25 occurrences of '[BA cần bổ sung]' bracket-style placeholder — NOT the approved '*(BA bổ sung trong sprint kế tiếp)*' format"},
+    {"text": "No unfilled <XX> placeholders", "passed": true, "evidence": "0 unfilled <XX>"},
+    {"text": "README cross-links to all 8 docs files", "passed": true, "evidence": "Links present"},
+    {"text": "Module name 'Theo dõi hiệu suất' appears across multiple files", "passed": true, "evidence": "Found in 9 files"}
+  ]
+}

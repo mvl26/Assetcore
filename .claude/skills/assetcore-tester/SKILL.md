@@ -171,10 +171,18 @@ Always reset to Administrator in `finally` — leaking user state breaks subsequ
 
 ## Workflow smoke tests
 
-`tests/test_workflows.py` already validates every workflow's state/transition counts and docstatus rules. When you add a new workflow:
+`tests/test_workflows.py` validates every workflow's state/transition counts, docstatus rules, and role existence. This is a deploy gate — it must pass before any release.
 
-1. Add an entry to `EXPECTED_WORKFLOWS`.
-2. Run the smoke test.
+When you add a new workflow:
+
+1. Count the states and transitions in the workflow JSON (exact count, not an estimate).
+2. Add an entry to `EXPECTED_WORKFLOWS` with the verified counts:
+   ```python
+   "IMM-XX Foo Workflow": {"doctype": "Foo DocType", "min_states": 7, "min_transitions": 9},
+   ```
+3. Run the smoke test immediately: `bench --site <site> run-tests --module assetcore.tests.test_workflows`
+
+**Also check:** when a new workflow is added, verify `hooks.py` fixtures has entries in ALL THREE lists: `Workflow`, `Workflow State`, `Workflow Action Master`. A workflow missing from fixtures will import on dev (where JSON files are live-loaded) but fail on a fresh site — the test won't catch this gap.
 
 Don't write your own workflow tests — extend the shared one.
 
@@ -229,6 +237,8 @@ Skip:
 
 - [ ] All new tests pass: `bench --site <site> run-tests --app assetcore --module assetcore.tests.test_immXX`
 - [ ] Workflow smoke test still passes: `... --module assetcore.tests.test_workflows`
+- [ ] If a new workflow was added: `EXPECTED_WORKFLOWS` updated AND all 3 fixture lists in `hooks.py` updated
+- [ ] No bare `except: pass` introduced in new code
 - [ ] Manual UAT script (if applicable) ran clean
 
 ## Where to look for live examples
@@ -236,3 +246,18 @@ Skip:
 - `assetcore/tests/test_imm00.py` — DocType-level pattern (setUp/tearDown, naming series)
 - `assetcore/tests/test_workflows.py` — parameterized smoke testing
 - `assetcore/scripts/uat/uat_imm09.py` — end-to-end scenario
+
+---
+
+## Cross-skill conventions
+
+Read [`/.claude/skills/CONVENTIONS.md`](../CONVENTIONS.md) for project-wide rules. Especially relevant to this skill:
+
+- §6. Test Standards — service unit + workflow smoke + API integration + permission gate per module
+- §7. Doc sync — adding ErrorCode requires test asserting it raises
+
+### Module-specific gotchas
+- Test coverage gap: IMM-04, 05, 06, 08, 09, 11, 12 have no dedicated `test_imm<XX>.py` file — only `test_workflows.py` smoke
+- Wave 2 modules (IMM-01, 02, 03, 06) need test scaffolds before further changes
+- Tests run via `bench --site assetcore.local run-tests --app assetcore`
+- Use `frappe.set_user("Administrator")` in setUp; restore via tearDown to avoid permission test bleed
