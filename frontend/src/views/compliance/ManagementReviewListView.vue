@@ -154,7 +154,7 @@ onMounted(() => load(1))
                 <div class="text-xs text-slate-400 font-mono mt-0.5">{{ r.name }}</div>
               </td>
               <td class="table-cell text-slate-600">{{ formatDate(r.review_date) }}</td>
-              <td class="table-cell text-slate-600">{{ r.chair || '—' }}</td>
+              <td class="table-cell text-slate-600">{{ (r as any).chair_name || r.chair || '—' }}</td>
               <td class="table-cell">
                 <span v-if="r.scorecard_ref" class="font-mono text-xs text-blue-600">{{ r.scorecard_ref }}</span>
                 <span v-else class="text-slate-300">—</span>

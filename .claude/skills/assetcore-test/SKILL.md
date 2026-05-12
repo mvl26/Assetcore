@@ -473,3 +473,114 @@ Việc cần làm: [action items cụ thể]
 - `/home/miyano/frappe-bench/apps/assetcore/.env` — `TEST_USER` / `TEST_PASSWORD` cho Playwright login (đọc đầu mỗi session)
 - `docs/imm-XX/07_Testing_QA.md` — UAT scenarios nguồn
 - `.claude/skills/assetcore-test/references/playwright-patterns.md` — Playwright patterns chi tiết
+
+---
+
+## Lessons Learned 2026-05 — Patterns phải kiểm tra trong mọi test session
+
+### Quick audit script (chạy đầu mọi session test)
+
+Trước khi test 1 module, chạy các kiểm tra sau bằng grep/playwright:
+
+```bash
+# 1. Check Frappe whitelist functions dùng int|None (gây 417)
+grep -rn "int | None\|float | None\|Optional\[int\]" assetcore/api/ \
+  | grep -B1 "@frappe.whitelist" -A2
+
+# 2. Verify workflow action labels match between BE JSON và FE TRANSITIONS_BY_STATE
+for wf in assetcore/assetcore/workflow/*.json; do
+  python3 -c "import json; d=json.load(open('$wf')); \
+    print('$wf:', [t['action'] for t in d['transitions']])"
+done
+
+# 3. Count workflow states vs UI buttons trong FE views
+# Mỗi state có outgoing transition phải có button tương ứng
+
+# 4. Search FE for hardcoded supplier/department codes
+grep -rn "AC-SUP\|AC-DEPT\|IMM-MDL" frontend/src/views/*.vue \
+  | grep -v "\.test\.\|\.spec\.\|// "
+```
+
+### LL-TEST-1: Test phải bắt được "list page thiếu nút tạo"
+
+Trong UI test, mỗi list page bắt buộc verify:
+```
+browser_snapshot → grep tìm button "Tạo" hoặc "+ "
+Nếu không có → FAIL ngay, không tiếp tục test
+```
+
+### LL-TEST-2: Test phải bắt được "detail thiếu workflow buttons"
+
+Sau khi tạo record và navigate đến detail:
+1. Đếm số states trong workflow JSON
+2. Traverse từng state, mỗi state PHẢI có button transition
+3. Nếu kẹt ở state nào → bug TRANSITIONS_BY_STATE thiếu entry
+
+### LL-TEST-3: Test phải bắt được "hiển thị code thay vì tên"
+
+Sau mỗi page load, chạy `browser_evaluate`:
+```javascript
+const codes = document.body.innerText.match(/AC-(SUP|DEPT|ASSET)-\d+/g)
+return codes  // nếu có code ở nơi user-facing → bug
+```
+
+### LL-TEST-4: Test phải bắt được "Frappe child row hiển thị auto-name"
+
+```javascript
+// Auto-name pattern: 10 ký tự hex random
+const autoNames = [...document.body.innerText.matchAll(/\b[a-z0-9]{10}\b/g)]
+return autoNames.map(m => m[0])  // không nên có trên UI
+```
+
+### LL-TEST-5: Test phải traverse FULL lifecycle cho mọi workflow
+
+Định nghĩa "test thành công" cho workflow module:
+- Tạo record mới
+- Đi qua MỌI state (không skip)
+- Ở mỗi state: verify stepper hiển thị đúng + nút action đúng
+- Ở terminal state: verify không còn forward action
+
+**Bug đã gặp**: PD-26-00003 dừng ở "Contract Signed" vì FE thiếu nút "Phát hành PO" → chỉ phát hiện khi traverse full 8 states.
+
+### LL-TEST-6: Test phải catch HTTP 417 và 1054 (Frappe Type/Schema bugs)
+
+```javascript
+// Sau page load
+browser_console_messages(level="error")
+// Tìm pattern:
+// - "417 (EXPECTATION FAILED)" → BE whitelist type hint sai
+// - "Unknown column" hoặc "(1054, ...)" → BE service ref field không tồn tại
+```
+
+### LL-TEST-7: Verify Select field options FE = BE DocType options
+
+Trước test form submit:
+```bash
+# Lấy options từ DocType JSON
+python3 -c "import json; d=json.load(open('<doctype>.json')); \
+  [print(f['fieldname'], f.get('options','')) for f in d['fields'] if f['fieldtype']=='Select']"
+```
+So với options trong FE `<select>` của form. Phải match từng option.
+
+### LL-TEST-8: Form Link field phải dropdown — không cho text input
+
+Khi test form, snapshot `<input>` và `<select>`:
+- Field tương ứng với DocType Link → phải là `<select>` hoặc autocomplete
+- Nếu là `<input type="text">` → bug, sẽ fail validation khi submit
+
+### Bug patterns table (mở rộng — phải check trong mọi test)
+
+| Pattern | Symptom | Fix |
+|---|---|---|
+| HTTP 417 from GET endpoint | "EXPECTATION FAILED" trong console | BE: đổi `int \| None` → `str = ""` |
+| HTTP 1054 Unknown column | Error toast "Unknown column 'X' in 'SET'" | BE: verify DocType JSON có field 'X' |
+| Workflow action 422 | "Not a valid Workflow Action" | FE: action label phải khớp BE JSON exact |
+| Child row auto-name leak | UI hiển thị `5mvh1o4qsa` | FE: đọc Link field, không đọc `.name` |
+| Display code leak | UI hiển thị `AC-DEPT-0101` | BE: enrich `_name` companion; FE: ưu tiên `_name` |
+| Workflow state stuck | Detail không có action button | FE: thêm state vào `TRANSITIONS_BY_STATE` |
+| List page no create | Chỉ có filter, không có "+ Tạo" | FE: thêm button vào `PageHeader #actions` |
+| Status badge sai | Submitted hiển thị "Đã duyệt" | FE: sync `STATUS_LABEL`/`STATUS_COLOR` với BE state |
+| Link field free text | Save fail "Could not find Row" | FE: đổi `<input>` → `<select>` load từ API |
+| Select option mismatch | Save fail "Invalid Value" | FE: options khớp DocType JSON `options` |
+| Gate skipped | Save thành công nhưng action sau fail | BE: enforce gate trong validator, không chỉ ở service entrypoint |
+| AVL category mismatch | award fail VR-03-05 | Verify TS device_category ↔ AVL category trùng |

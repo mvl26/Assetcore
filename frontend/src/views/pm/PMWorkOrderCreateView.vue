@@ -70,7 +70,7 @@ async function loadAssetMeta() {
     return
   }
   try {
-    const r = await frappeGet<AssetMeta>('frappe.client.get_value', {
+    const r = await frappeGet<AssetMeta>('/api/method/frappe.client.get_value', {
       doctype: 'AC Asset',
       filters: form.value.asset_ref,
       fieldname: JSON.stringify(['device_model', 'asset_name', 'lifecycle_status', 'location']),
@@ -86,7 +86,7 @@ async function loadSchedules() {
   try {
     const res = await frappeGet<{ data: ScheduleRow[] }>(
       '/api/method/assetcore.api.imm08.list_pm_schedules',
-      { filters: JSON.stringify({ asset_ref: form.value.asset_ref, status: 'Active' }), page_size: 50 },
+      { asset_ref: form.value.asset_ref, status: 'Active', page_size: 50 },
     )
     schedules.value = res?.data ?? []
   } catch { schedules.value = [] }
@@ -102,7 +102,7 @@ watch(() => form.value.pm_schedule, async (sched) => {
   loadingChecklist.value = true
   try {
     const r = await frappeGet<{ checklist?: ChecklistItem[] }>(
-      'frappe.client.get',
+      '/api/method/frappe.client.get',
       { doctype: 'PM Template', name: tmpl },
     )
     const tplDoc = (r as { checklist?: ChecklistItem[] } | null)
@@ -135,6 +135,8 @@ async function submit() {
   }
 }
 
+// SmartSelect emits full asset name on selection — no debounce needed since SmartSelect only
+// emits on explicit selection, not per keystroke. Direct watch is safe here.
 watch(() => form.value.asset_ref, loadAssetMeta)
 
 onMounted(() => {

@@ -95,6 +95,7 @@ export interface StockMovement {
   reference_type?: string
   reference_name?: string
   requested_by: string
+  requested_by_name?: string
   approved_by?: string
   status: MovementStatus
   notes?: string

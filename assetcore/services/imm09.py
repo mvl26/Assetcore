@@ -159,14 +159,17 @@ def complete_repair(doc) -> None:
     doc.sla_breached = 1 if doc.mttr_hours > doc.sla_target_hours else 0
     doc.status = RepairStatus.COMPLETED
 
-    asset_updates: dict[str, Any] = {"last_repair_date": nowdate()}
+    # AC Asset DocType does not have last_repair_date / firmware_version columns —
+    # only update fields that actually exist in the schema.
+    asset_updates: dict[str, Any] = {}
     if doc.firmware_updated and doc.firmware_change_request:
         new_ver = FirmwareChangeRequestRepo.get_value(
             doc.firmware_change_request, "version_after")
-        if new_ver:
-            asset_updates["firmware_version"] = new_ver
+        # firmware_version not in AC Asset schema — skip to avoid OperationalError
+        # if new_ver: asset_updates["firmware_version"] = new_ver
 
-    AssetRepo.set_values(doc.asset_ref, asset_updates)
+    if asset_updates:
+        AssetRepo.set_values(doc.asset_ref, asset_updates)
     RepairRepo.set_values(doc.name, {
         "status": RepairStatus.COMPLETED,
         "completion_datetime": doc.completion_datetime,

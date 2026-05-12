@@ -42,12 +42,16 @@ _DT_SLA_POLICY = "IMM SLA Policy"
 def _enrich(items: list, field: str, doctype: str, display_field: str, out_field: str = None) -> None:
     """Batch-enrich a list of dicts with a display name for a linked field (avoids N+1)."""
     out = out_field or f"{field}_name"
-    ids = {row.get(field) for row in items if row.get(field)}
+    ids = list({row.get(field) for row in items if row.get(field)})
     if not ids:
         return
-    mapping = {r.name: r[display_field] for r in frappe.get_all(
-        doctype, filters={"name": ["in", list(ids)]}, fields=["name", display_field],
-    )}
+    table = f"tab{doctype}"
+    placeholders = ", ".join(["%s"] * len(ids))
+    rows = frappe.db.sql(
+        f"SELECT `name`, `{display_field}` FROM `{table}` WHERE `name` IN ({placeholders})",
+        ids,
+    )
+    mapping = {r[0]: r[1] for r in rows}
     for row in items:
         row[out] = mapping.get(row.get(field)) or row.get(field) or ""
 _DT_AUDIT_TRAIL = "IMM Audit Trail"
@@ -1293,7 +1297,8 @@ def _generic_update(doctype: str, name: str):
     try:
         doc = frappe.get_doc(doctype, name)
         doc.update({k: v for k, v in data.items() if k not in ("cmd", "name", "doctype")})
-        doc.save()
+        doc.flags.ignore_links = True
+        doc.save(ignore_permissions=True)
         frappe.db.commit()
         return _ok({"name": doc.name})
     except frappe.exceptions.ValidationError as e:
@@ -1709,6 +1714,7 @@ def list_document_requests(page: int = 1, page_size: int = 20, status: str = Non
          "priority", "assigned_to", "due_date", "fulfilled_by"],
         int(page), int(page_size), _ORDER_DUE_DATE_ASC)
     _enrich(items, "asset_ref", _DT_ASSET, "asset_name", "asset_name")
+    _enrich(items, "assigned_to", "User", "full_name", "assigned_to_name")
     return _ok({"items": items, **meta})
 
 

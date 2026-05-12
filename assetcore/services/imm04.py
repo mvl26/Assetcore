@@ -89,7 +89,7 @@ _ALLOWED_SEARCH_DOCTYPES: dict[str, dict] = {
     _DT_PO: {
         "label_field": "name",
         "search_fields": ["name", "supplier", "invoice_no"],
-        "filters": {"docstatus": 1},
+        "filters": {},
         "extra_fields": ["supplier", "invoice_no", "purchase_date"],
         "optional": True,
     },
@@ -890,6 +890,7 @@ def search_link(doctype: str, query: str = "", page_length: int = 10) -> list:
     results = frappe.db.get_all(
         doctype, filters=filters, or_filters=or_filters or None,
         fields=fields, limit=int(page_length), order_by=_ORDER_MODIFIED,
+        ignore_permissions=True,
     )
     label_field = config["label_field"]
     items = []
@@ -937,7 +938,9 @@ def transition_state(name: str, action: str) -> dict:
             f"Hành động '{action}' không hợp lệ từ '{current_state}'. Cho phép: {allowed_actions}",
         )
     doc = frappe.get_doc(_DT, name)
+    prev_state = doc.workflow_state
     frappe.model.workflow.apply_workflow(doc, action)
+    log_lifecycle_event(doc, action, prev_state, doc.workflow_state)
     doc.save(ignore_permissions=False)
     return {"name": name, "action_applied": action, "new_state": doc.workflow_state, "docstatus": doc.docstatus}
 

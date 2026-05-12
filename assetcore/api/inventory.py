@@ -431,6 +431,8 @@ def get_stock_movement(name: str) -> dict:
     _enrich_warehouse_fields(doc)
     if doc.get("supplier"):
         doc["supplier_name"] = frappe.db.get_value("AC Supplier", doc["supplier"], "supplier_name") or doc["supplier"]
+    if doc.get("requested_by"):
+        doc["requested_by_name"] = frappe.db.get_value("User", doc["requested_by"], "full_name") or doc["requested_by"]
     return _ok(doc)
 
 

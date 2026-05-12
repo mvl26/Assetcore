@@ -64,10 +64,10 @@ def list_compliance_findings(filters: str = "{}", page: int = 1,
 @frappe.whitelist(methods=["POST"])
 def create_finding(rule_ref: str, asset_ref: str = "",
                    work_order_ref: str = "", severity: str = "Medium",
-                   description: str = "",
-                   evaluation_date: str = "") -> dict:
+                   description: str = "", evaluation_date: str = "",
+                   actual_value: str = "", threshold_value: str = "") -> dict:
     return _handle(svc.create_finding, rule_ref, asset_ref, work_order_ref,
-                   severity, description, evaluation_date)
+                   severity, description, evaluation_date, actual_value, threshold_value)
 
 
 @frappe.whitelist(methods=["POST"])

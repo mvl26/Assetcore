@@ -341,3 +341,115 @@ Verdict: SECURE / NEEDS FIX
 | Test missing | `assetcore-test` |
 | Deployment issue | `assetcore-deploy` |
 | Doc gap | `assetcore-doc` |
+
+---
+
+## Lessons Learned 2026-05 — Audit checklist mở rộng
+
+Khi audit 1 module, bắt buộc check các pattern bug đã gặp:
+
+### A. Backend audit checks
+
+```bash
+# A1. Frappe 417 risk — int|None trong GET whitelist
+grep -rn "int | None\|float | None" assetcore/api/ \
+  | xargs -I{} grep -B2 "@frappe.whitelist" {} 2>/dev/null
+
+# A2. Schema mismatch — service ref field không có trong DocType
+# Cho mỗi service file, list field assignments rồi cross-check với DocType JSON
+grep -E "doc\.\w+ =" assetcore/services/<module>.py | sort -u
+
+# A3. Workflow action label inconsistency
+diff <(python3 -c "import json; d=json.load(open('workflow.json')); print(sorted(t['action'] for t in d['transitions']))") \
+     <(grep -E "transition.*action" assetcore/api/<module>.py)
+
+# A4. Response enrichment — Link field phải có _name companion
+grep -E "doctype.*Link" <doctype>.json
+# Verify api/<module>.py có batch _enrich() cho từng Link field
+
+# A5. Gate validator existence — mỗi gate G0X phải có function _validate_gate_g0X
+grep -E "^def _validate_gate_g" assetcore/services/<module>.py
+```
+
+### B. Frontend audit checks
+
+```bash
+# B1. TRANSITIONS_BY_STATE completeness — đếm states vs entries trong map
+states=$(python3 -c "import json; d=json.load(open('workflow.json')); print(len(d['states']))")
+entries=$(grep -c "':\\s*\\[" frontend/src/views/<module>/DetailView.vue)
+echo "States: $states | Map entries: $entries"  # phải bằng nhau (trừ terminal)
+
+# B2. List page thiếu create button
+for f in frontend/src/views/**/[A-Z]*ListView.vue; do
+  grep -L "Tạo\|+ \|create\|new" "$f"
+done
+
+# B3. Hardcoded internal codes trong template
+grep -rn "AC-SUP-\|AC-DEPT-\|AC-ASSET-\|IMM-MDL-" frontend/src/views/ \
+  | grep -v "\.test\.\|\.spec\."
+
+# B4. Link field as text input (bug pattern)
+# Tìm <input type="text"> bind v-model có tên trùng Link field
+grep -E "<input.*type=\"text\".*supplier|department|vendor|model" frontend/src/views/
+
+# B5. StatusBadge sync — mỗi BE state có entry trong formatters
+grep -E "^\s+'[A-Z][a-zA-Z\s]+':" assetcore/assetcore/workflow/*.json
+grep "STATUS_LABEL\|STATUS_COLOR" frontend/src/utils/formatters.ts
+```
+
+### C. UI audit checks (Playwright)
+
+Cho mỗi page trong module:
+
+```
+1. browser_navigate → list page
+2. browser_snapshot → grep "Tạo" || "+ "  # phải có button create
+3. browser_console_messages(error)  # phải 0 errors
+4. browser_evaluate: tìm regex /AC-(SUP|DEPT|ASSET)-\d+/g  # phải 0 matches in user-facing text
+5. browser_evaluate: tìm regex /\b[a-z0-9]{10}\b/g  # phải 0 matches (Frappe auto-name leak)
+
+6. Click row → detail page
+7. browser_snapshot → count workflow buttons  # phải >= 1 cho non-terminal state
+8. Traverse all states → mỗi state phải có forward button
+```
+
+### D. New audit verdict items
+
+Thêm vào audit report:
+
+```
+== Frappe API hygiene ==
+- [ ] No int|None params trong GET endpoints (LL-BE-1)
+- [ ] All Link fields enriched với _name companion (LL-BE-2)
+- [ ] Service code ref fields verified vs DocType JSON (LL-BE-3)
+- [ ] All gate validators implemented as functions (LL-BE-5)
+
+== FE-BE contract sync ==
+- [ ] Workflow action labels match exact (LL-BE-4, LL-FE-2)
+- [ ] TRANSITIONS_BY_STATE covers all states (LL-FE-1)
+- [ ] StatusBadge sync với BE workflow states (LL-FE-3)
+- [ ] Form Select options = DocType options (LL-FE-8)
+- [ ] Form Link fields use dropdown (LL-FE-9)
+
+== UI completeness ==
+- [ ] Every list has create button (LL-FE-4)
+- [ ] Every detail has workflow buttons for current state (LL-FE-5)
+- [ ] No code/email leaks user-facing (LL-FE-6)
+- [ ] No Frappe auto-name leaks (LL-FE-7)
+```
+
+### E. Audit cross-reference
+
+Khi audit bắt được pattern X → recommend fix theo skill tương ứng:
+
+| Pattern phát hiện | Skill fix | Reference |
+|---|---|---|
+| 417 EXPECTATION FAILED | `assetcore-be` | LL-BE-1 |
+| Unknown column 1054 | `assetcore-be` | LL-BE-3 |
+| Workflow action 422 | `assetcore-be` + `assetcore-fe` | LL-BE-4 + LL-FE-2 |
+| Code/email leak UI | `assetcore-be` + `assetcore-fe` | LL-BE-2 + LL-FE-6 |
+| List thiếu create | `assetcore-fe` | LL-FE-4 |
+| State stuck | `assetcore-fe` | LL-FE-1 |
+| Auto-name leak | `assetcore-fe` | LL-FE-7 |
+| Form Link as text | `assetcore-fe` | LL-FE-9 |
+| Gate enforced muộn | `assetcore-be` | LL-BE-5 |

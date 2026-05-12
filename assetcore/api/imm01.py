@@ -134,7 +134,15 @@ def get_needs_request(name: str) -> dict:
 
 def _get_needs_request(name: str) -> dict:
     doc = frappe.get_doc(_DT_NR, name)
-    return doc.as_dict()
+    data = doc.as_dict()
+    # Enrich with human-readable department name for FE display
+    if doc.requesting_department:
+        data["requesting_department_name"] = frappe.db.get_value(
+            "AC Department", doc.requesting_department, "department_name"
+        ) or doc.requesting_department
+    else:
+        data["requesting_department_name"] = ""
+    return data
 
 
 @frappe.whitelist()

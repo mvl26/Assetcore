@@ -26,10 +26,13 @@ const showFilters = ref(false)
 const canCreate = computed(() => authStore.hasAnyRole(ROLES_TRAINING_CONDUCT))
 
 const WORKFLOW_STATES = [
-  { value: 'Planned',    label: 'Đã lên kế hoạch' },
-  { value: 'Confirmed',  label: 'Đã xác nhận' },
-  { value: 'Completed',  label: 'Hoàn thành' },
-  { value: 'Cancelled',  label: 'Đã hủy' },
+  { value: 'Planned',     label: 'Đã lên kế hoạch' },
+  { value: 'Confirmed',   label: 'Đã xác nhận' },
+  { value: 'In Progress', label: 'Đang diễn ra' },
+  { value: 'Completed',   label: 'Hoàn thành' },
+  { value: 'Verified',    label: 'Đã xác minh' },
+  { value: 'Closed',      label: 'Đã đóng' },
+  { value: 'Cancelled',   label: 'Đã hủy' },
 ]
 
 const SESSION_TYPES = [
@@ -78,10 +81,13 @@ function sessionTypeLabel(v: string) {
 
 function stateClass(state: string): string {
   const map: Record<string, string> = {
-    Planned:   'bg-yellow-100 text-yellow-700',
-    Confirmed: 'bg-blue-100 text-blue-700',
-    Completed: 'bg-emerald-100 text-emerald-700',
-    Cancelled: 'bg-neutral-100 text-neutral-500',
+    Planned:       'bg-yellow-100 text-yellow-700',
+    Confirmed:     'bg-blue-100 text-blue-700',
+    'In Progress': 'bg-indigo-100 text-indigo-700',
+    Completed:     'bg-emerald-100 text-emerald-700',
+    Verified:      'bg-teal-100 text-teal-700',
+    Closed:        'bg-slate-100 text-slate-600',
+    Cancelled:     'bg-neutral-100 text-neutral-500',
   }
   return map[state] ?? 'bg-neutral-100 text-neutral-600'
 }
@@ -177,7 +183,7 @@ onMounted(() => load())
             >
               <td class="table-cell font-mono text-xs text-slate-500">{{ s.name }}</td>
               <td class="table-cell">
-                <div class="font-medium text-slate-900 truncate max-w-[200px]">{{ s.training_program }}</div>
+                <div class="font-medium text-slate-900 truncate max-w-[200px]">{{ (s as any).program_name || s.training_program }}</div>
               </td>
               <td class="table-cell text-slate-600 text-sm">{{ s.session_date }}</td>
               <td class="table-cell text-sm">
@@ -186,7 +192,7 @@ onMounted(() => load())
                 </span>
               </td>
               <td class="table-cell text-slate-600 text-sm">
-                {{ s.instructor ?? s.instructor_external_name ?? '—' }}
+                {{ (s as any).trainer_name || s.instructor_external_name || '—' }}
               </td>
               <td class="table-cell">
                 <span
@@ -195,13 +201,16 @@ onMounted(() => load())
                 >
                   {{ s.workflow_state === 'Planned' ? 'Đã lên kế hoạch'
                     : s.workflow_state === 'Confirmed' ? 'Đã xác nhận'
+                    : s.workflow_state === 'In Progress' ? 'Đang diễn ra'
                     : s.workflow_state === 'Completed' ? 'Hoàn thành'
+                    : s.workflow_state === 'Verified' ? 'Đã xác minh'
+                    : s.workflow_state === 'Closed' ? 'Đã đóng'
                     : s.workflow_state === 'Cancelled' ? 'Đã hủy'
                     : s.workflow_state }}
                 </span>
               </td>
               <td class="table-cell text-right text-sm font-medium text-slate-700">
-                {{ s.participant_count ?? (s.participants?.length ?? '—') }}
+                {{ (s as any).attendee_count ?? s.participant_count ?? (s.participants?.length ?? '—') }}
               </td>
             </tr>
           </tbody>

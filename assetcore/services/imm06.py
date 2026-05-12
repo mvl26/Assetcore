@@ -56,8 +56,8 @@ def list_training_programs(filters: dict, *, page: int = 1,
     rows, pg = TrainingProgramRepo.list(
         filters=normalize_filters(filters),
         fields=["name", "program_code", "program_name", "training_type",
-                "target_device_model", "is_active", "passing_score_pct",
-                "validity_period_months"],
+                "target_device_model", "target_device_category", "is_active",
+                "passing_score_pct", "validity_period_months", "duration_hours"],
         page=page, page_size=page_size,
     )
     return {"data": rows, "pagination": pg}
@@ -82,7 +82,11 @@ def get_training_program(name: str) -> dict:
     doc = TrainingProgramRepo.get(name)
     if not doc:
         raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy chương trình: {name}")
-    return doc.as_dict()
+    result = doc.as_dict()
+    if result.get("target_device_model"):
+        result["target_device_model_name"] = frappe.db.get_value(
+            "IMM Device Model", result["target_device_model"], "model_name") or result["target_device_model"]
+    return result
 
 
 # ─── Training Session ─────────────────────────────────────────────────────────
@@ -136,30 +140,38 @@ def complete_training_session(session_name: str, results: list[dict]) -> dict:
         raise ServiceError(ErrorCode.BAD_STATE,
                            f"Session phải ở trạng thái In Progress, hiện tại: {doc.workflow_state}")
 
-    # Apply results to participant rows
+    # Apply scores to participant rows
     result_map: dict[str, dict] = {r["user"]: r for r in results if r.get("user")}
     program_doc = frappe.get_doc("IMM Training Program", doc.training_program)
-    pass_score = program_doc.passing_score_pct or 70.0
+    pass_score = float(program_doc.passing_score_pct or 70.0)
 
-    new_competencies: list[str] = []
+    passing_participants = []
     for p in doc.participants:
         row_result = result_map.get(p.user)
         if not row_result:
             continue
         p.theory_score = row_result.get("theory_score", 0)
         p.practical_score = row_result.get("practical_score", 0)
-        avg_score = (p.theory_score + p.practical_score) / 2.0
+        avg_score = (float(p.theory_score) + float(p.practical_score)) / 2.0
         p.overall_result = "Pass" if avg_score >= pass_score else "Fail"
-
         if p.overall_result == "Pass":
-            comp_name = _create_competency_record(p, doc, program_doc)
-            if comp_name:
-                p.competency_record = comp_name
-                new_competencies.append(comp_name)
+            passing_participants.append(p)
 
+    # Save session as Completed first, then create competency records
     doc.workflow_state = SessionStatus.COMPLETED
+    doc.flags.ignore_links = True
     TrainingSessionRepo.save(doc)
     frappe.db.commit()
+
+    # Create competency records in separate transaction
+    new_competencies: list[str] = []
+    for p in passing_participants:
+        comp_name = _create_competency_record(p, doc, program_doc)
+        if comp_name:
+            new_competencies.append(comp_name)
+            frappe.db.set_value("IMM Training Participant", p.name, "competency_record", comp_name)
+    if new_competencies:
+        frappe.db.commit()
 
     return {
         "name": session_name,
@@ -193,6 +205,7 @@ def _create_competency_record(participant, session_doc, program_doc) -> str | No
             "workflow_state": CompetencyStatus.PENDING,
         })
         doc.flags.ignore_links = True
+        doc.flags.ignore_mandatory = True
         doc.insert(ignore_permissions=True)
         return doc.name
     except Exception:
@@ -779,7 +792,38 @@ def get_session(name: str) -> dict:
         SessionStatus.VERIFIED: [SessionStatus.CLOSED],
     }
     data["allowed_transitions"] = _transitions.get(data.get("workflow_state", ""), [])
-    return data
+
+    # Convert to plain dict to avoid Frappe serialization filtering
+    result = dict(data)
+
+    # Enrich display names
+    if result.get("training_program"):
+        result["training_program_name"] = (
+            frappe.db.get_value("IMM Training Program", result["training_program"], "program_name")
+            or result["training_program"]
+        )
+    if result.get("instructor"):
+        result["instructor_full_name"] = (
+            frappe.db.get_value("User", result["instructor"], "full_name")
+            or result["instructor"]
+        )
+
+    enriched_participants = []
+    for p in result.get("participants") or []:
+        ep = dict(p)
+        if ep.get("user"):
+            ep["user_full_name"] = (
+                frappe.db.get_value("User", ep["user"], "full_name") or ep["user"]
+            )
+        if ep.get("department"):
+            ep["department_name"] = (
+                frappe.db.get_value("AC Department", ep["department"], "department_name")
+                or ep["department"]
+            )
+        enriched_participants.append(ep)
+    result["participants"] = enriched_participants
+
+    return result
 
 
 def create_session(session_data: dict) -> dict:
@@ -852,6 +896,46 @@ def cancel_session(name: str, cancel_reason: str) -> dict:
     frappe.db.commit()
     _log_competency_audit(name, "", "SESSION_CANCELLED", cancel_reason[:120])
     return {"name": name, "workflow_state": SessionStatus.CANCELLED}
+
+
+def verify_session(name: str) -> dict:
+    """Chuyển Session từ Completed → Verified (BR-06-06).
+
+    Returns:
+        dict với name và workflow_state mới.
+    """
+    _require_training_officer()
+    doc = _get_session_or_raise(name)
+    if doc.workflow_state != SessionStatus.COMPLETED:
+        raise ServiceError(
+            ErrorCode.BAD_STATE,
+            f"Chỉ có thể xác minh buổi học ở trạng thái Completed. Hiện tại: {doc.workflow_state}",
+        )
+    doc.workflow_state = SessionStatus.VERIFIED
+    TrainingSessionRepo.save(doc)
+    frappe.db.commit()
+    _log_competency_audit(name, "", "SESSION_VERIFIED", "Completed → Verified")
+    return {"name": name, "workflow_state": SessionStatus.VERIFIED}
+
+
+def close_session(name: str) -> dict:
+    """Chuyển Session từ Verified → Closed (BR-06-07).
+
+    Returns:
+        dict với name và workflow_state mới.
+    """
+    _require_training_officer()
+    doc = _get_session_or_raise(name)
+    if doc.workflow_state != SessionStatus.VERIFIED:
+        raise ServiceError(
+            ErrorCode.BAD_STATE,
+            f"Chỉ có thể đóng buổi học ở trạng thái Verified. Hiện tại: {doc.workflow_state}",
+        )
+    doc.workflow_state = SessionStatus.CLOSED
+    TrainingSessionRepo.save(doc)
+    frappe.db.commit()
+    _log_competency_audit(name, "", "SESSION_CLOSED", "Verified → Closed")
+    return {"name": name, "workflow_state": SessionStatus.CLOSED}
 
 
 def list_competencies(filters: dict, page: int = 1, page_size: int = 20) -> dict:

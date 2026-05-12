@@ -181,6 +181,16 @@ const approveGateWarning = computed(() => {
   if (!props.gateStatus.g06_approver) return 'Chưa chỉ định Người phê duyệt BGĐ (G06). Vui lòng chỉ định trước khi phê duyệt.'
   return null
 })
+
+const uniqueTransitions = computed(() => {
+  const seen = new Set<string>()
+  return (props.doc?.allowed_transitions ?? []).filter(t => {
+    const label = actionLabel(t.action)
+    if (seen.has(label)) return false
+    seen.add(label)
+    return true
+  })
+})
 </script>
 
 <template>
@@ -380,14 +390,14 @@ const approveGateWarning = computed(() => {
 
     <!-- ─── C. Action Buttons ──────────────────────────────────────────────── -->
     <div
-      v-if="doc.allowed_transitions && doc.allowed_transitions.length > 0"
+      v-if="uniqueTransitions.length > 0"
       class="card"
     >
       <h3 class="text-base font-semibold text-slate-900 pb-3 border-b mb-4">Hành động workflow</h3>
 
       <!-- Gate warning for clinical release -->
       <div
-        v-if="approveGateWarning && doc.allowed_transitions.some(t => isApproveAction(t.action))"
+        v-if="approveGateWarning && uniqueTransitions.some(t => isApproveAction(t.action))"
         class="flex items-start gap-2 px-3 py-2.5 rounded-lg bg-amber-50 border border-amber-200 text-sm text-amber-800 mb-4"
       >
         <svg class="w-4 h-4 shrink-0 mt-0.5 text-amber-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -398,7 +408,7 @@ const approveGateWarning = computed(() => {
 
       <div class="flex flex-wrap gap-2">
         <button
-          v-for="t in doc.allowed_transitions"
+          v-for="t in uniqueTransitions"
           :key="t.action"
           :class="actionClass(t.action)"
           :disabled="saving"

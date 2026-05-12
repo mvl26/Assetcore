@@ -117,6 +117,12 @@ def confirm_session(name: str) -> dict:
 
 
 @frappe.whitelist(methods=["POST"])
+def start_session(name: str) -> dict:
+    """POST /api/method/assetcore.api.imm06.start_session"""
+    return _run(svc.start_training_session, name)
+
+
+@frappe.whitelist(methods=["POST"])
 def complete_session(name: str, participants_results: str = "[]") -> dict:
     """POST /api/method/assetcore.api.imm06.complete_session"""
     try:
@@ -130,6 +136,18 @@ def complete_session(name: str, participants_results: str = "[]") -> dict:
 def cancel_session(name: str, cancel_reason: str = "") -> dict:
     """POST /api/method/assetcore.api.imm06.cancel_session"""
     return _run(svc.cancel_session, name, cancel_reason)
+
+
+@frappe.whitelist(methods=["POST"])
+def verify_session(name: str) -> dict:
+    """POST /api/method/assetcore.api.imm06.verify_session"""
+    return _run(svc.verify_session, name)
+
+
+@frappe.whitelist(methods=["POST"])
+def close_session(name: str) -> dict:
+    """POST /api/method/assetcore.api.imm06.close_session"""
+    return _run(svc.close_session, name)
 
 
 # ─── Group C: User Competency ─────────────────────────────────────────────────

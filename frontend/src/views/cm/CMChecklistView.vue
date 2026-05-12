@@ -20,6 +20,13 @@ onMounted(async () => {
   }
   if (store.currentWO) {
     checklist.value = store.currentWO.repair_checklist.map(r => ({ ...r }))
+    // BR-09-04: If no checklist rows defined, auto-add a default completion confirmation row
+    // so the service's validate_repair_checklist_complete() does not block submit.
+    if (checklist.value.length === 0) {
+      checklist.value = [
+        { idx: 1, test_description: 'Xác nhận thiết bị hoạt động bình thường sau sửa chữa', result: null, measured_value: '', notes: '' } as RepairChecklistRow,
+      ]
+    }
   }
 })
 

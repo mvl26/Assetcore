@@ -564,3 +564,100 @@ Read [`/.claude/skills/CONVENTIONS.md`](../CONVENTIONS.md) for project-wide rule
 - `useWorkflow` composable is the canonical workflow-aware form pattern
 - `usePermissions` is legacy; new code should use `useAuthStore()`
 - Routes for IMM-XX live under `frontend/src/views/<module>/`
+
+---
+
+## Lessons Learned 2026-05 (bug patterns đã gặp — phải tránh)
+
+### LL-FE-1: `TRANSITIONS_BY_STATE` map phải đầy đủ TẤT CẢ states
+
+Bug: PD detail view có 8 states, nhưng `TRANSITIONS_BY_STATE` chỉ map 5 states đầu → state "Contract Signed" không có nút "Phát hành PO" → user kẹt.
+
+```typescript
+// ❌ SAI — thiếu state Contract Signed
+const TRANSITIONS_BY_STATE: Record<string, string[]> = {
+  'Draft':             ['Chọn phương án'],
+  'Method Selected':   ['Bắt đầu thương thảo'],
+  'Negotiation':       ['Đề xuất trúng thầu'],
+  'Award Recommended': ['Trình BGĐ'],
+  // ❌ Missing 'Contract Signed': ['Phát hành PO']
+}
+
+// ✅ ĐÚNG — đếm states từ workflow.json, map đủ
+// python3 -c "import json; d=json.load(open('workflow.json')); print(len(d['states']))"
+```
+
+**Quy tắc**: map phải có entry cho mọi state có outgoing transition. Test bằng cách traverse full lifecycle qua UI — nếu kẹt ở state nào → bug.
+
+### LL-FE-2: Workflow action labels phải khớp BE EXACT (tiếng Việt có dấu)
+
+Bug: FE gọi `"Trình Ban Giám đốc"` (đầy đủ) nhưng workflow JSON định nghĩa `"Trình BGĐ"` (viết tắt) → 422 `Not a valid Workflow Action`.
+
+**Quy tắc**: import constant từ `@/utils/wave2Labels` hoặc shared module, không hardcode string. Sau khi BE tạo workflow JSON, FE phải đồng bộ ngay.
+
+### LL-FE-3: StatusBadge label/color phải đồng bộ với BE state machine
+
+Bug: BE `workflow_state = "Submitted"`, FE formatter map `Submitted → "Đã duyệt"` (xanh) → user thấy "Đã duyệt" khi thực ra mới submit.
+
+**Quy tắc**: trong `formatters.ts` mỗi BE state có entry trong `STATUS_LABEL` (label đúng nghĩa) và `STATUS_COLOR`. Khi BE thêm state mới → update FE formatter cùng commit.
+
+### LL-FE-4: List page TỐI THIỂU phải có nút tạo mới
+
+Bug: `/procurement-plans` chỉ có filter, không có nút "+ Tạo" → user không tạo được plan qua UI.
+
+**Quy tắc** (DoD cho List page): mỗi list page (trừ trang view-only) phải có:
+- Nút "+ Tạo mới" trong `PageHeader #actions` slot
+- Modal hoặc navigate đến `/create` view
+- Sau khi tạo: navigate đến detail của record mới
+
+### LL-FE-5: Detail page phải có ĐẦY ĐỦ workflow buttons theo state
+
+Bug: PP detail chỉ có nút "Đưa NR vào kế hoạch" cho state Draft, thiếu "Phê duyệt"/"Kích hoạt"/"Đóng" cho các state khác.
+
+**Quy tắc**: count workflow states, count UI buttons. Mỗi state phải có ít nhất 1 button cho transition tiếp theo (trừ terminal states).
+
+### LL-FE-6: Hiển thị display name, không hiển thị code/email
+
+Bug: subtitle hiển thị `AC-DEPT-0101` thay vì `Khoa Tim mạch can thiệp`. Field `requesting_department` là Link, FE phải đọc `requesting_department_name` (BE đã enrich).
+
+```vue
+<!-- ❌ SAI -->
+<p>{{ doc.requesting_department }}</p>
+
+<!-- ✅ ĐÚNG — fallback nếu BE chưa enrich -->
+<p>{{ doc.requesting_department_name || doc.requesting_department || '—' }}</p>
+```
+
+**Quy tắc**: snapshot Playwright → grep tìm `AC-*`, `IMM-*`, `email@...` — nơi nào không phải là link/ID thuần thì bug.
+
+### LL-FE-7: Frappe child table — KHÔNG hiển thị `row.name`
+
+Bug: `plan_items` hiển thị `5mvh1o4qsa` (Frappe auto-name) thay vì `NR-26-05-00010`.
+
+```vue
+<!-- ❌ SAI -->
+<td>{{ item.name }}</td>
+
+<!-- ✅ ĐÚNG — đọc Link field gốc -->
+<td>{{ item.needs_request || '—' }}</td>
+```
+
+**Quy tắc**: `row.name` của child table là internal ID — không bao giờ show cho user.
+
+### LL-FE-8: Form Select options phải match BE DocType JSON
+
+Bug: FE form cho free-text `funding_source` nhưng BE DocType định nghĩa `Select` với options cố định → save fail với `Invalid Value`.
+
+```bash
+# Verify DocType options trước khi build form
+python3 -c "import json; d=json.load(open('<doctype>.json')); \
+  [print(f['fieldname'], '=', repr(f['options'])) for f in d['fields'] if f['fieldtype']=='Select']"
+```
+
+**Quy tắc**: dùng constant module shared cho enum/select options (FE + BE đọc cùng nguồn).
+
+### LL-FE-9: Link field input phải dropdown, không free text
+
+Bug: form thêm candidate vào Vendor Evaluation dùng `<input type="text">` cho supplier → user nhập "Philips Healthcare" nhưng BE DocType `supplier` là Link → "Could not find Row #1: Vendor: Philips Healthcare".
+
+**Quy tắc**: mọi field Link trong form PHẢI là dropdown/autocomplete load từ API list endpoint của target DocType.

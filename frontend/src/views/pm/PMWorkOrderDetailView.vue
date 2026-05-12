@@ -63,10 +63,15 @@ async function handleSubmit() {
   submitting.value = false
   showSubmitModal.value = false
   if (res.success) {
+    toast.success('Phiếu bảo trì đã hoàn thành')
+    // Force re-fetch to ensure reactive update
+    await store.fetchWorkOrder(props.id)
     if (res.cmWoCreated) {
       const go = confirm(`Đã hoàn thành bảo trì. Phiếu sửa chữa khắc phục đã được tạo: ${res.cmWoCreated}\n\nMở phiếu sửa chữa ngay?`)
       if (go) router.push(`/cm/work-orders/${res.cmWoCreated}`)
     }
+  } else {
+    toast.error(store.error || 'Không thể hoàn thành phiếu bảo trì')
   }
 }
 
@@ -120,7 +125,12 @@ async function handleStart() {
   startError.value = ''
   const ok = await store.doAssignTechnician(wo.value.name, wo.value.assigned_to)
   starting.value = false
-  if (!ok) startError.value = store.error || 'Không thể bắt đầu PM'
+  if (ok) {
+    toast.success('Đã bắt đầu thực hiện bảo trì')
+    await store.fetchWorkOrder(props.id)
+  } else {
+    startError.value = store.error || 'Không thể bắt đầu PM'
+  }
 }
 </script>
 

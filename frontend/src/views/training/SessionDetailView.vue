@@ -6,7 +6,8 @@ import { useImm06Store } from '@/stores/imm06'
 import { useAuthStore } from '@/stores/auth'
 import { useApi } from '@/composables/useApi'
 import { ROLES_TRAINING_MANAGE, ROLES_TRAINING_CONDUCT } from '@/constants/roles'
-import { confirmSession, cancelSession, createSession } from '@/api/imm06'
+import { confirmSession, startSession, completeSession, cancelSession, verifySession, closeSession, createSession } from '@/api/imm06'
+import type { TrainingParticipant } from '@/api/imm06'
 
 
 const props = defineProps<{ name?: string }>()
@@ -40,25 +41,34 @@ const canConduct = computed(() => authStore.hasAnyRole(ROLES_TRAINING_CONDUCT))
 const state = computed(() => currentSession.value?.workflow_state ?? '')
 
 const canConfirm = computed(() => state.value === 'Planned' && canManage.value)
-const canComplete = computed(() => state.value === 'Confirmed' && canConduct.value)
+const canStart = computed(() => state.value === 'Confirmed' && canConduct.value)
+const canComplete = computed(() => state.value === 'In Progress' && canConduct.value)
+const canVerify = computed(() => state.value === 'Completed' && canManage.value)
+const canClose = computed(() => state.value === 'Verified' && canManage.value)
 const canCancel = computed(() => (state.value === 'Planned' || state.value === 'Confirmed') && canManage.value)
 
 function stateClass(s: string): string {
   const map: Record<string, string> = {
-    Planned:   'bg-yellow-100 text-yellow-700',
-    Confirmed: 'bg-blue-100 text-blue-700',
-    Completed: 'bg-emerald-100 text-emerald-700',
-    Cancelled: 'bg-neutral-100 text-neutral-500',
+    Planned:     'bg-yellow-100 text-yellow-700',
+    Confirmed:   'bg-blue-100 text-blue-700',
+    'In Progress': 'bg-indigo-100 text-indigo-700',
+    Completed:   'bg-emerald-100 text-emerald-700',
+    Verified:    'bg-teal-100 text-teal-700',
+    Closed:      'bg-slate-100 text-slate-600',
+    Cancelled:   'bg-neutral-100 text-neutral-500',
   }
   return map[s] ?? 'bg-neutral-100 text-neutral-600'
 }
 
 function stateLabel(s: string) {
   const map: Record<string, string> = {
-    Planned:   'Đã lên kế hoạch',
-    Confirmed: 'Đã xác nhận',
-    Completed: 'Hoàn thành',
-    Cancelled: 'Đã hủy',
+    Planned:     'Đã lên kế hoạch',
+    Confirmed:   'Đã xác nhận',
+    'In Progress': 'Đang diễn ra',
+    Completed:   'Hoàn thành',
+    Verified:    'Đã xác minh',
+    Closed:      'Đã đóng',
+    Cancelled:   'Đã hủy',
   }
   return map[s] ?? s
 }
@@ -80,6 +90,39 @@ async function doConfirm() {
   const result = await api.run(
     () => confirmSession(props.name!),
     { successMessage: 'Đã xác nhận buổi đào tạo' },
+  )
+  if (result) await store.fetchSession(props.name!)
+}
+
+async function doStart() {
+  const result = await api.run(
+    () => startSession(props.name!),
+    { successMessage: 'Đã bắt đầu buổi đào tạo' },
+  )
+  if (result) await store.fetchSession(props.name!)
+}
+
+async function doComplete() {
+  const participants = (currentSession.value?.participants ?? []) as TrainingParticipant[]
+  const result = await api.run(
+    () => completeSession(props.name!, participants),
+    { successMessage: 'Đã hoàn thành buổi đào tạo' },
+  )
+  if (result) await store.fetchSession(props.name!)
+}
+
+async function doVerify() {
+  const result = await api.run(
+    () => verifySession(props.name!),
+    { successMessage: 'Đã xác minh buổi đào tạo' },
+  )
+  if (result) await store.fetchSession(props.name!)
+}
+
+async function doClose() {
+  const result = await api.run(
+    () => closeSession(props.name!),
+    { successMessage: 'Đã đóng buổi đào tạo' },
   )
   if (result) await store.fetchSession(props.name!)
 }
@@ -153,11 +196,39 @@ onMounted(load)
         </button>
 
         <button
-          v-if="canComplete"
-          class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm transition-colors"
-          @click="router.push(`/imm06/sessions/${props.name}/run`)"
+          v-if="canStart"
+          class="btn-primary text-sm"
+          :disabled="api.loading.value"
+          @click="doStart"
         >
-          Hoàn thành
+          Bắt đầu
+        </button>
+
+        <button
+          v-if="canComplete"
+          class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm transition-colors disabled:opacity-50"
+          :disabled="api.loading.value"
+          @click="doComplete"
+        >
+          {{ api.loading.value ? 'Đang lưu...' : 'Hoàn thành' }}
+        </button>
+
+        <button
+          v-if="canVerify"
+          class="bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 rounded-lg text-sm transition-colors disabled:opacity-50"
+          :disabled="api.loading.value"
+          @click="doVerify"
+        >
+          Xác minh
+        </button>
+
+        <button
+          v-if="canClose"
+          class="bg-slate-600 hover:bg-slate-700 text-white px-4 py-2 rounded-lg text-sm transition-colors disabled:opacity-50"
+          :disabled="api.loading.value"
+          @click="doClose"
+        >
+          Đóng buổi
         </button>
 
         <button
@@ -219,7 +290,7 @@ onMounted(load)
         <div class="grid grid-cols-2 md:grid-cols-3 gap-5 text-sm">
           <div>
             <p class="text-xs text-slate-400 mb-1">Chương trình</p>
-            <p class="font-medium">{{ currentSession.training_program }}</p>
+            <p class="font-medium">{{ (currentSession as any).training_program_name || currentSession.training_program }}</p>
           </div>
           <div>
             <p class="text-xs text-slate-400 mb-1">Ngày tổ chức</p>
@@ -239,7 +310,7 @@ onMounted(load)
           </div>
           <div>
             <p class="text-xs text-slate-400 mb-1">Giảng viên nội bộ</p>
-            <p>{{ currentSession.instructor ?? '—' }}</p>
+            <p>{{ (currentSession as any).instructor_full_name || currentSession.instructor || '—' }}</p>
           </div>
           <div>
             <p class="text-xs text-slate-400 mb-1">Giảng viên bên ngoài</p>
@@ -290,8 +361,8 @@ onMounted(load)
             </thead>
             <tbody class="divide-y divide-slate-100">
               <tr v-for="p in currentSession.participants" :key="p.user">
-                <td class="table-cell font-medium">{{ p.user }}</td>
-                <td class="table-cell text-slate-500">{{ p.department ?? '—' }}</td>
+                <td class="table-cell font-medium">{{ (p as any).user_full_name || p.user }}</td>
+                <td class="table-cell text-slate-500">{{ (p as any).department_name || p.department || '—' }}</td>
                 <td class="table-cell text-slate-500">{{ p.role_at_session || '—' }}</td>
                 <td class="table-cell text-right">{{ p.attendance_pct ?? '—' }}</td>
                 <td class="table-cell text-right">{{ p.theory_score ?? '—' }}</td>

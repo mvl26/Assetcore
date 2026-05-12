@@ -103,12 +103,18 @@ def list_compliance_findings(filters: dict, *, page: int = 1,
         order_by="detected_date desc",
         page=page, page_size=page_size,
     )
+    # Enrich with asset_name
+    for row in rows:
+        if row.get("asset"):
+            row["asset_name"] = frappe.db.get_value("AC Asset", row["asset"], "asset_name") or ""
     return {"data": rows, "pagination": pg}
 
 
 def create_finding(rule_ref: str, asset_ref: str, work_order_ref: str,
                    severity: str, description: str,
-                   evaluation_date: str = "") -> dict:
+                   evaluation_date: str = "",
+                   actual_value: str = "",
+                   threshold_value: str = "") -> dict:
     """Tạo Compliance Finding. Auto-tạo CAPA nếu severity=Critical."""
     if not ComplianceRuleRepo.exists(rule_ref):
         raise ServiceError(ErrorCode.NOT_FOUND,
@@ -131,6 +137,8 @@ def create_finding(rule_ref: str, asset_ref: str, work_order_ref: str,
         "status": FindingStatus.OPEN,
         "evaluation_date": eval_date,
         "notes": description,
+        "current_value": actual_value or "",
+        "threshold_value": threshold_value or "",
     })
 
     capa_name = None
@@ -199,6 +207,11 @@ def list_internal_audits(filters: dict, *, page: int = 1,
         order_by="planned_start desc",
         page=page, page_size=page_size,
     )
+    for row in rows:
+        if row.get("lead_auditor"):
+            row["lead_auditor_name"] = frappe.db.get_value(
+                "User", row["lead_auditor"], "full_name"
+            ) or row["lead_auditor"]
     return {"data": rows, "pagination": pg}
 
 
@@ -989,7 +1002,10 @@ def get_finding(name: str) -> dict:
     doc = ComplianceFindingRepo.get(name)
     if not doc:
         raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy Finding: {name}")
-    return doc.as_dict()
+    data = doc.as_dict()
+    if data.get("asset"):
+        data["asset_name"] = frappe.db.get_value("AC Asset", data["asset"], "asset_name") or ""
+    return data
 
 
 def confirm_finding(name: str, reviewer_note: str = "") -> dict:
@@ -1077,7 +1093,12 @@ def get_audit(name: str) -> dict:
     doc = InternalAuditRepo.get(name)
     if not doc:
         raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy Audit: {name}")
-    return doc.as_dict()
+    data = doc.as_dict()
+    if data.get("lead_auditor"):
+        data["lead_auditor_name"] = frappe.db.get_value(
+            "User", data["lead_auditor"], "full_name"
+        ) or data["lead_auditor"]
+    return data
 
 
 def create_audit(audit_data: dict) -> dict:
@@ -1445,6 +1466,11 @@ def list_management_reviews(filters: dict, *, page: int = 1,
         order_by="review_date desc",
         page=page, page_size=page_size,
     )
+    for row in rows:
+        if row.get("chair"):
+            row["chair_name"] = frappe.db.get_value(
+                "User", row["chair"], "full_name"
+            ) or row["chair"]
     return {"items": rows, "pagination": pg}
 
 
@@ -1452,7 +1478,12 @@ def get_management_review(name: str) -> dict:
     doc = ManagementReviewRepo.get(name)
     if not doc:
         raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy MR: {name}")
-    return doc.as_dict()
+    data = doc.as_dict()
+    if data.get("chair"):
+        data["chair_name"] = frappe.db.get_value(
+            "User", data["chair"], "full_name"
+        ) or data["chair"]
+    return data
 
 
 def create_management_review(data: dict) -> dict:

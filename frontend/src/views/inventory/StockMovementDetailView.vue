@@ -121,7 +121,7 @@ onMounted(load)
           </div>
           <div>
             <p class="text-xs text-slate-500 mb-0.5">Người đề nghị</p>
-            <p class="font-medium text-slate-800">{{ doc.requested_by }}</p>
+            <p class="font-medium text-slate-800">{{ doc.requested_by_name || doc.requested_by }}</p>
           </div>
           <div v-if="doc.from_warehouse">
             <p class="text-xs text-slate-500 mb-0.5">Kho xuất</p>

@@ -140,6 +140,12 @@ export async function confirmSession(
   return frappePost<{ name: string; new_state: string }>(`${BASE}.confirm_session`, { name })
 }
 
+export async function startSession(
+  name: string,
+): Promise<{ name: string; workflow_state: string }> {
+  return frappePost<{ name: string; workflow_state: string }>(`${BASE}.start_session`, { name })
+}
+
 export async function completeSession(
   name: string,
   participantsResults: TrainingParticipant[],
@@ -158,6 +164,14 @@ export async function cancelSession(
     name,
     cancel_reason: cancelReason,
   })
+}
+
+export async function verifySession(name: string): Promise<{ name: string; workflow_state: string }> {
+  return frappePost<{ name: string; workflow_state: string }>(`${BASE}.verify_session`, { name })
+}
+
+export async function closeSession(name: string): Promise<{ name: string; workflow_state: string }> {
+  return frappePost<{ name: string; workflow_state: string }>(`${BASE}.close_session`, { name })
 }
 
 export async function listCompetencies(

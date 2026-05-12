@@ -1,8 +1,8 @@
 {
  "name": "Asset Document",
  "module": "AssetCore",
- "autoname": "format:DOC-{asset_ref}-{YYYY}-{#####}",
- "naming_rule": "Expression",
+ "autoname": "DOC-.YYYY.-.#####",
+ "naming_rule": "Naming Series",
  "is_submittable": 0,
  "track_changes": 1,
  "track_views": 1,
@@ -28,7 +28,6 @@
    "fieldtype": "Link",
    "label": "Tài sản",
    "options": "AC Asset",
-   "reqd": 1,
    "in_list_view": 1,
    "search_index": 1
   },
@@ -154,8 +153,7 @@
   {
    "fieldname": "file_attachment",
    "fieldtype": "Attach",
-   "label": "File Tài liệu",
-   "reqd": 1
+   "label": "File Tài liệu"
   },
   {
    "fieldname": "file_name_display",

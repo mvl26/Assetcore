@@ -12,6 +12,11 @@ const toast = useToast()
 
 const props = defineProps<{ name: string }>()
 
+const CATEGORY_LABEL: Record<string, string> = {
+  Legal: 'Pháp lý', Technical: 'Kỹ thuật', Certification: 'Kiểm định',
+  Training: 'Đào tạo', QA: 'Chất lượng',
+}
+
 const router = useRouter()
 const store = useImm05Store()
 
@@ -360,7 +365,7 @@ async function handleReject(): Promise<void> {
         <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4 text-sm">
           <div>
             <dt class="text-gray-400 font-medium mb-0.5">Nhóm</dt>
-            <dd class="text-gray-800">{{ doc.doc_category }}</dd>
+            <dd class="text-gray-800">{{ doc?.doc_category ? (CATEGORY_LABEL[doc.doc_category] ?? doc.doc_category) : '—' }}</dd>
           </div>
           <div>
             <dt class="text-gray-400 font-medium mb-0.5">Loại tài liệu</dt>

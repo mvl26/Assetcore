@@ -354,3 +354,81 @@ transition_asset_status(asset_ref, AssetStatus.ACTIVE, root_record=wo_name)
 
 ## Cross-skill
 Đọc [`CONVENTIONS.md`](../CONVENTIONS.md) — §2 Architecture, §3 Error Handling, §4 Audit, §5 Permissions.
+
+---
+
+## Lessons Learned 2026-05 (bug patterns đã gặp — phải tránh)
+
+### LL-BE-1: `@frappe.whitelist()` KHÔNG được dùng `int | None`, `float | None` cho GET params
+
+Frappe v15 dùng `validate_argument_types` (typing_validations.py) tự động cast theo type hint. Khi GET request truyền query string trống (`year=`), Frappe nhận `""` rồi cố cast sang `int` → raise `FrappeTypeError` → HTTP **417 Expectation Failed**.
+
+```python
+# ❌ SAI — gây 417 khi FE truyền year=""
+@frappe.whitelist()
+def get_metrics(asset_name: str, year: int | None = None):
+    y = int(year) if year else default_year()
+
+# ✅ ĐÚNG — nhận str từ query, tự convert trong hàm
+@frappe.whitelist()
+def get_metrics(asset_name: str, year: str = ""):
+    y = int(year) if year else default_year()
+```
+
+**Quy tắc**: optional numeric params đến từ GET PHẢI khai báo là `str = ""`. POST body params có thể dùng `int | None` vì Frappe parse JSON đúng kiểu.
+
+### LL-BE-2: Response phải enrich tên display cho mọi Link field
+
+```python
+# ❌ SAI — FE nhận department="AC-DEPT-0101" và hiển thị code
+def _get_needs_request(name):
+    return frappe.get_doc("IMM Needs Request", name).as_dict()
+
+# ✅ ĐÚNG — bổ sung *_name fields cho mọi Link field quan trọng
+def _get_needs_request(name):
+    doc = frappe.get_doc("IMM Needs Request", name).as_dict()
+    if doc.get("requesting_department"):
+        doc["requesting_department_name"] = frappe.db.get_value(
+            "AC Department", doc["requesting_department"], "department_name"
+        )
+    if doc.get("device_model"):
+        doc["device_model_name"] = frappe.db.get_value(
+            "IMM Device Model", doc["device_model"], "model_name"
+        )
+    return doc
+```
+
+**Quy tắc**: mọi field kiểu Link bắt buộc có `_name` companion trong response. Dùng pattern `_enrich()` batch (xem `imm00.py`) cho list endpoints để tránh N+1.
+
+### LL-BE-3: Verify DocType JSON schema TRƯỚC khi viết service code
+
+Bug thực tế: `_record_contract()` set `doc.contract_signed_date = signed_date` nhưng field này không tồn tại trong DocType → `Unknown column 'contract_signed_date' in 'SET'` (1054).
+
+```bash
+# Trước khi viết service code động đến field nào, verify:
+python3 -c "import json; d=json.load(open('<doctype>.json')); \
+  print([f['fieldname'] for f in d['fields']])"
+```
+
+### LL-BE-4: Workflow action labels phải khớp EXACT với workflow JSON
+
+Bug: FE gọi `transition("Trình Ban Giám đốc")` nhưng workflow JSON định nghĩa action là `"Trình BGĐ"` → `WorkflowTransitionError`.
+
+**Quy tắc**: action label là string khớp byte-by-byte. Sau khi tạo workflow JSON:
+```bash
+python3 -c "import json; d=json.load(open('workflow.json')); \
+  [print(t['action']) for t in d['transitions']]"
+```
+Export ra constants module và dùng trong cả BE và FE.
+
+### LL-BE-5: Gate validators phải explicit, không "implicit nullable"
+
+Bug: G05 yêu cầu `contract_doc` trước khi award nhưng service chỉ kiểm tra `not doc.contract_doc` mà không enforce trong validator → user submit form không có contract_doc → save thành công nhưng award fail muộn.
+
+**Quy tắc**: mọi gate (G01, G04, G05...) phải có validator trong `_validate_gate_gNN()` hàm riêng, gọi từ workflow `on_update` hook hoặc service entrypoint. Test riêng từng gate.
+
+### LL-BE-6: Child table fieldname chuẩn — không reference `name`
+
+Bug: FE hiển thị `5mvh1o4qsa` (Frappe auto-name) thay vì `NR-26-05-00010`. Service trả về `plan_items` với mỗi row có `name` auto-generated + Link field `needs_request`.
+
+**Quy tắc**: khi service trả về child rows, FE phải đọc Link field (`it.needs_request`), KHÔNG đọc `it.name`. Document rõ trong API spec.

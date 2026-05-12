@@ -22,7 +22,7 @@ v-if="formatAssetDisplay(doc.asset_name, doc.asset_ref).hasBoth"
     <!-- Nhóm -->
     <td>
       <span class="badge" :class="`badge-${(doc.doc_category || 'general').toLowerCase()}`">
-        {{ doc.doc_category || '—' }}
+        {{ doc.doc_category ? categoryLabel(doc.doc_category) : '—' }}
       </span>
     </td>
 
@@ -114,6 +114,12 @@ import { stateLabel, formatDate } from '@/utils/docUtils'
 import { formatAssetDisplay } from '@/utils/formatters'
 
 const props = defineProps<{ doc: AssetDocumentItem }>()
+
+const CATEGORY_LABEL: Record<string, string> = {
+  Legal: 'Pháp lý', Technical: 'Kỹ thuật', Certification: 'Kiểm định',
+  Training: 'Đào tạo', QA: 'Chất lượng',
+}
+function categoryLabel(cat: string) { return CATEGORY_LABEL[cat] ?? cat }
 
 defineEmits<{
   approve: [name: string]

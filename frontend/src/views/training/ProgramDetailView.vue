@@ -136,7 +136,7 @@ onMounted(load)
           </div>
           <div>
             <p class="text-xs text-slate-400 mb-1">Device Model mục tiêu</p>
-            <p>{{ currentProgram.target_device_model ?? '—' }}</p>
+            <p>{{ (currentProgram as any).target_device_model_name || currentProgram.target_device_model || '—' }}</p>
           </div>
           <div>
             <p class="text-xs text-slate-400 mb-1">Danh mục thiết bị</p>

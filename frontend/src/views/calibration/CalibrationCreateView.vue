@@ -67,7 +67,7 @@ const canSubmit = computed(() => {
 async function loadAssetMeta() {
   if (!form.value.asset) { assetMeta.value = null; return }
   try {
-    const r = await frappeGet<AssetMeta>('frappe.client.get_value', {
+    const r = await frappeGet<AssetMeta>('/api/method/frappe.client.get_value', {
       doctype: 'AC Asset',
       filters: form.value.asset,
       fieldname: JSON.stringify(['device_model', 'asset_name', 'lifecycle_status', 'risk_class', 'location']),
@@ -97,7 +97,7 @@ async function loadSchedule() {
   if (!form.value.calibration_schedule) { scheduleMeta.value = null; return }
   try {
     const r = await frappeGet<ScheduleMeta & { name?: string }>(
-      'frappe.client.get_value',
+      '/api/method/frappe.client.get_value',
       {
         doctype: 'IMM Calibration Schedule',
         filters: form.value.calibration_schedule,

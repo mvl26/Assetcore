@@ -11,7 +11,7 @@ import { frappeGet } from '@/api/helpers'
 interface AssetMeta {
   device_model?: string
   lifecycle_status?: string
-  risk_class?: string
+  risk_classification?: string
   asset_name?: string
   location?: string
 }
@@ -65,7 +65,7 @@ const slaHoursMap: Record<string, number> = {
 const slaTarget = computed(() => slaHoursMap[form.value.priority] ?? 24)
 
 const isHighRisk = computed(() => {
-  const r = assetMeta.value?.risk_class
+  const r = assetMeta.value?.risk_classification
   return r === 'C' || r === 'D'
 })
 
@@ -76,11 +76,11 @@ async function loadAssetMeta() {
     return
   }
   try {
-    const r = await frappeGet<AssetMeta>('frappe.client.get_value', {
+    const r = await frappeGet<AssetMeta>('/api/method/frappe.client.get_value', {
       doctype: 'AC Asset',
       filters: form.value.asset_ref,
       fieldname: JSON.stringify([
-        'device_model', 'lifecycle_status', 'risk_class', 'asset_name', 'location',
+        'device_model', 'lifecycle_status', 'risk_classification', 'asset_name', 'location',
       ]),
     })
     assetMeta.value = r ?? null
@@ -89,7 +89,13 @@ async function loadAssetMeta() {
   }
 }
 
-watch(() => form.value.asset_ref, loadAssetMeta)
+// Debounce asset lookup — each keystroke would fire a separate API call causing race conditions
+let _assetDebounce: ReturnType<typeof setTimeout> | null = null
+watch(() => form.value.asset_ref, (val) => {
+  if (_assetDebounce) clearTimeout(_assetDebounce)
+  if (!val || val.length < 10) { assetMeta.value = null; return }
+  _assetDebounce = setTimeout(() => loadAssetMeta(), 400)
+})
 
 // ── Incident pre-fill ──
 async function loadIncidentMeta() {
@@ -228,14 +234,14 @@ onMounted(() => {
             <span class="text-gray-500">Trạng thái:</span> <b>{{ assetMeta.lifecycle_status || '—' }}</b>
           </div>
           <div :class="['rounded px-2 py-1.5', isHighRisk ? 'bg-orange-50 text-orange-700' : 'bg-gray-50']">
-            <span class="text-gray-500">Risk class:</span> <b>{{ assetMeta.risk_class || '—' }}</b>
+            <span class="text-gray-500">Risk class:</span> <b>{{ assetMeta.risk_classification || '—' }}</b>
           </div>
         </div>
         <div v-if="assetMeta?.lifecycle_status === 'Decommissioned'" class="mt-2 bg-red-50 border border-red-200 rounded-lg p-2 text-sm text-red-700">
           ⛔ Thiết bị đã thanh lý — không thể tạo phiếu sửa chữa.
         </div>
         <div v-if="isHighRisk" class="mt-2 bg-orange-50 border border-orange-200 rounded-lg p-2 text-sm text-orange-700">
-          ⚠ Risk class {{ assetMeta?.risk_class }} — bắt buộc QA approval khi đóng phiếu.
+          ⚠ Risk class {{ assetMeta?.risk_classification }} — bắt buộc QA approval khi đóng phiếu.
         </div>
       </div>
 
@@ -245,7 +251,7 @@ onMounted(() => {
           <label class="block text-sm text-gray-600 mb-1">Loại sửa chữa *</label>
           <select v-model="form.repair_type" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
             <option value="Corrective">Sửa chữa khắc phục</option>
-            <option value="Emergency">Cấp cứu</option>
+            <option value="Breakdown">Hỏng đột xuất</option>
             <option value="Warranty Repair">Bảo hành</option>
           </select>
         </div>

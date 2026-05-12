@@ -51,6 +51,11 @@ const PRIORITY_OPTIONS: { value: string; label: string }[] = [
 ]
 const PRIORITY_LABEL: Record<string, string> = Object.fromEntries(PRIORITY_OPTIONS.map(p => [p.value, p.label]))
 
+const CATEGORY_LABEL: Record<string, string> = {
+  Legal: 'Pháp lý', Technical: 'Kỹ thuật', Certification: 'Kiểm định',
+  Training: 'Đào tạo', QA: 'Chất lượng',
+}
+
 const filteredItems = computed(() => {
   let arr = items.value
   if (filters.value.priority) arr = arr.filter(d => d.priority === filters.value.priority)
@@ -249,10 +254,10 @@ onMounted(load)
                 class="font-medium text-slate-800 text-left hover:text-blue-600 hover:underline decoration-dotted underline-offset-2"
                 @click="quickFilter('asset', d.asset_ref!)"
               >{{ d.asset_name || d.asset_ref }}</button>
-              <div v-if="d.asset_name && d.asset_ref" class="text-xs text-slate-400 font-mono mt-0.5">{{ d.asset_ref }}</div>
+              <div v-if="d.asset_name && d.asset_ref && d.asset_name !== d.asset_ref" class="text-xs text-slate-400 font-mono mt-0.5">{{ d.asset_ref }}</div>
             </td>
             <td class="px-4 py-3 font-medium">{{ d.doc_type_required }}</td>
-            <td class="px-4 py-3 text-xs">{{ d.doc_category }}</td>
+            <td class="px-4 py-3 text-xs">{{ d.doc_category ? (CATEGORY_LABEL[d.doc_category] ?? d.doc_category) : '—' }}</td>
             <td class="px-4 py-3 text-xs">
               <button
                 v-if="d.priority"
@@ -262,7 +267,7 @@ onMounted(load)
               >{{ PRIORITY_LABEL[d.priority] || d.priority }}</button>
               <span v-else class="text-slate-400">—</span>
             </td>
-            <td class="px-4 py-3 text-xs">{{ d.assigned_to || '—' }}</td>
+            <td class="px-4 py-3 text-xs">{{ (d as any).assigned_to_name || d.assigned_to || '—' }}</td>
             <td class="px-4 py-3 text-xs">{{ d.due_date || '—' }}</td>
             <td class="px-4 py-3">
               <button

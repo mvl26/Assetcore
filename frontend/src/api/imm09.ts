@@ -13,7 +13,7 @@ export interface AssetRepair {
   location_name?: string
   asset_info?: Record<string, unknown>
   serial_no: string
-  repair_type: 'Corrective' | 'Emergency' | 'Warranty Repair'
+  repair_type: 'Corrective' | 'Breakdown' | 'Warranty Repair'
   priority: 'Normal' | 'Urgent' | 'Emergency'
   status: 'Open' | 'Assigned' | 'Diagnosing' | 'Pending Parts' | 'In Repair' | 'Pending Inspection' | 'Completed' | 'Cannot Repair' | 'Cancelled'
   open_datetime: string | null

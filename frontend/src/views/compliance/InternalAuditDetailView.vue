@@ -104,7 +104,7 @@ onMounted(load)
           </div>
           <div>
             <p class="text-xs text-slate-400 mb-1">Trưởng đoàn</p>
-            <p class="text-sm text-slate-700">{{ audit.lead_auditor || '—' }}</p>
+            <p class="text-sm text-slate-700">{{ (audit as any).lead_auditor_name || audit.lead_auditor || '—' }}</p>
           </div>
           <div>
             <p class="text-xs text-slate-400 mb-1">Bắt đầu thực tế</p>

@@ -174,7 +174,7 @@ onMounted(() => load())
                 </span>
               </td>
               <td class="table-cell text-slate-600 text-sm">{{ p.target_device_model ?? p.target_device_category ?? '—' }}</td>
-              <td class="table-cell text-slate-600 text-sm">{{ p.duration_hours }}h</td>
+              <td class="table-cell text-slate-600 text-sm">{{ p.duration_hours != null ? p.duration_hours + 'h' : '—' }}</td>
               <td class="table-cell text-slate-600 text-sm">{{ p.passing_score_pct }}%</td>
               <td class="table-cell">
                 <StatusBadge :state="p.is_active ? 'Active' : 'Inactive'" />

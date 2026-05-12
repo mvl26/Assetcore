@@ -188,7 +188,7 @@ v-for="w in filteredRows" :key="w.name"
               class="hover:bg-slate-50/70 cursor-pointer transition-all hover:translate-x-0.5"
               @click="router.push(`/warehouses/${w.name}`)"
             >
-              <td class="px-4 py-3 font-mono text-xs text-slate-600">{{ w.warehouse_code }}</td>
+              <td class="px-4 py-3 font-mono text-xs text-slate-600">{{ w.warehouse_code || w.name }}</td>
               <td class="px-4 py-3 font-medium text-slate-800">{{ w.warehouse_name }}</td>
               <td class="px-4 py-3 text-xs text-slate-500 hidden md:table-cell">{{ w.department_name || w.department || '—' }}</td>
               <td class="px-4 py-3 text-xs text-slate-500 hidden lg:table-cell">{{ w.manager || '—' }}</td>

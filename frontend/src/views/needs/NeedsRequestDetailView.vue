@@ -304,7 +304,7 @@ watch(currentDoc, (doc) => {
     <!-- ── Header ── -->
     <PageHeader
       :title="currentDoc.name ?? ''"
-      :subtitle="`${requestTypeLabel(currentDoc.request_type)} · Khoa ${currentDoc.requesting_department} · ${currentDoc.quantity} thiết bị · Năm ${currentDoc.target_year}`"
+      :subtitle="`${requestTypeLabel(currentDoc.request_type)} · ${currentDoc.requesting_department_name || currentDoc.requesting_department} · ${currentDoc.quantity} thiết bị · Năm ${currentDoc.target_year}`"
       :breadcrumb="[
         { label: 'IMM-01 · Đề xuất nhu cầu', to: '/needs-requests' },
         { label: currentDoc.name ?? '' },

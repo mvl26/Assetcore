@@ -149,7 +149,7 @@ onMounted(() => load(1))
               <td class="table-cell text-slate-600">{{ a.audit_type }}</td>
               <td class="table-cell text-slate-600">{{ formatDate(a.planned_start) }}</td>
               <td class="table-cell text-slate-600">{{ formatDate(a.planned_end) }}</td>
-              <td class="table-cell text-slate-600">{{ a.lead_auditor || '—' }}</td>
+              <td class="table-cell text-slate-600">{{ (a as any).lead_auditor_name || a.lead_auditor || '—' }}</td>
               <td class="table-cell"><StatusBadge :state="a.status" /></td>
               <td class="table-cell text-right font-semibold tabular-nums">{{ a.findings_count ?? 0 }}</td>
             </tr>

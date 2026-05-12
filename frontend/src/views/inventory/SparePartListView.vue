@@ -202,10 +202,10 @@ v-for="p in rows" :key="p.name"
                 <button
 v-if="p.part_category"
                   class="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 transition-all hover:ring-2 hover:ring-offset-1 hover:ring-slate-300"
-                  :title="`Lọc: ${p.part_category}`"
+                  :title="`Lọc: ${CATEGORIES.find(c => c.v === p.part_category)?.l ?? p.part_category}`"
                   @click.stop="quickFilter('category', p.part_category!)"
                 >
-{{ p.part_category }}
+{{ CATEGORIES.find(c => c.v === p.part_category)?.l ?? p.part_category }}
 </button>
               </td>
               <td class="px-4 py-3 text-right text-sm">{{ vnd(p.unit_cost) }}</td>
