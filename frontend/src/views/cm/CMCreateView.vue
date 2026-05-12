@@ -36,7 +36,7 @@ const form = ref({
   incident_report: (route.query.incident as string) || '',
   source_pm_wo: (route.query.pm_wo as string) || '',
   repair_type: 'Corrective',
-  priority: 'Medium',
+  priority: 'Normal',
   failure_description: '',
 })
 
@@ -60,7 +60,7 @@ const canSubmit = computed(() =>
 )
 
 const slaHoursMap: Record<string, number> = {
-  Critical: 4, High: 8, Medium: 24, Low: 72,
+  Emergency: 4, Urgent: 24, Normal: 72,
 }
 const slaTarget = computed(() => slaHoursMap[form.value.priority] ?? 24)
 
@@ -111,9 +111,9 @@ async function loadIncidentMeta() {
   if (asset && !form.value.asset_ref) form.value.asset_ref = asset
   // Auto-map severity → priority
   if (sev) {
-    form.value.priority = sev === 'Critical' ? 'Critical'
-      : sev === 'High' ? 'High'
-        : sev === 'Medium' ? 'Medium' : 'Low'
+    form.value.priority = sev === 'Critical' ? 'Emergency'
+      : sev === 'High' ? 'Urgent'
+        : 'Normal'
   }
   // Pre-fill description if empty
   if (desc && !form.value.failure_description) {
@@ -252,10 +252,9 @@ onMounted(() => {
         <div>
           <label class="block text-sm text-gray-600 mb-1">Ưu tiên *</label>
           <select v-model="form.priority" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
-            <option value="Low">Low</option>
-            <option value="Medium">Medium</option>
-            <option value="High">High</option>
-            <option value="Critical">Critical</option>
+            <option value="Normal">Normal</option>
+            <option value="Urgent">Urgent</option>
+            <option value="Emergency">Emergency</option>
           </select>
         </div>
         <div>
@@ -266,8 +265,8 @@ onMounted(() => {
         </div>
       </div>
 
-      <div v-if="form.priority === 'Critical'" class="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700">
-        ⚠ Phiếu <strong>CRITICAL</strong>. IMM Workshop Lead sẽ được thông báo realtime, SLA chỉ {{ slaTarget }}h.
+      <div v-if="form.priority === 'Emergency'" class="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700">
+        ⚠ Phiếu <strong>EMERGENCY</strong>. IMM Workshop Lead sẽ được thông báo realtime, SLA chỉ {{ slaTarget }}h.
       </div>
 
       <!-- Description -->

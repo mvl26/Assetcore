@@ -68,6 +68,7 @@ const MODULE_NAV: Record<string, ModuleNav> = {
   imm03: {
     code: 'IMM-03', title: 'Đánh giá NCC & Mua sắm', icon: 'chart',
     items: [
+      { label: 'Hồ sơ Nhà cung cấp',    path: '/vendor-profiles',       icon: 'user'     },
       { label: 'Đánh giá NCC',          path: '/vendor-evaluations',    icon: 'chart'    },
       { label: 'Danh mục NCC duyệt',    path: '/approved-vendors',      icon: 'shield'   },
       { label: 'Quyết định mua sắm',    path: '/procurement-decisions', icon: 'contract' },
@@ -145,19 +146,27 @@ const MODULE_NAV: Record<string, ModuleNav> = {
   imm15: {
     code: 'IMM-15', title: 'Tồn kho phụ tùng', icon: 'box',
     items: [
-      { label: 'Tổng quan kho', path: '/inventory',       icon: 'chart'     },
-      { label: 'Tồn kho',       path: '/stock',           icon: 'box'       },
-      { label: 'Phụ tùng',      path: '/spare-parts',     icon: 'cog'       },
-      { label: 'Phiếu kho',     path: '/stock-movements', icon: 'arrows'    },
-      { label: 'Kho hàng',      path: '/warehouses',      icon: 'warehouse' },
-      { label: 'Đơn vị tính',   path: '/inventory/uom',   icon: 'uom'       },
+      { label: 'Tổng quan kho', path: '/inventory',           icon: 'chart'     },
+      { label: 'Tồn kho',       path: '/stock',               icon: 'box'       },
+      { label: 'Phụ tùng',      path: '/spare-parts',         icon: 'cog'       },
+      { label: 'Phiếu kho',     path: '/stock-movements',     icon: 'arrows'    },
+      { label: 'Kho hàng',      path: '/warehouses',          icon: 'warehouse' },
+      { label: 'Đơn vị tính',   path: '/inventory/uom',       icon: 'uom'       },
+      { label: 'Dự báo phụ tùng', path: '/inventory/forecasts', icon: 'chart'   },
+      { label: 'Watchlist',     path: '/inventory/watchlist', icon: 'shield'    },
     ],
   },
   imm16: {
     code: 'IMM-16', title: 'Theo dõi tuân thủ', icon: 'log',
     items: [
-      { label: 'Nhật ký kiểm toán', path: '/audit-trail', icon: 'log'    },
-      { label: 'CAPA',              path: '/capas',       icon: 'shield' },
+      { label: 'Quy tắc tuân thủ',   path: '/compliance/rules',     icon: 'shield'   },
+      { label: 'Phát hiện',          path: '/compliance/findings',  icon: 'alert'    },
+      { label: 'Kiểm toán nội bộ',   path: '/compliance/audits',    icon: 'clipboard' },
+      { label: 'Bảng điểm',          path: '/compliance/scorecard', icon: 'chart'    },
+      { label: 'Soát xét quản lý',   path: '/compliance/mr',        icon: 'log'      },
+      { label: 'Bản đồ nhiệt',       path: '/compliance/heatmap',   icon: 'grid'     },
+      { label: 'CAPA',               path: '/capas',                icon: 'shield'   },
+      { label: 'Nhật ký kiểm toán',  path: '/audit-trail',          icon: 'database' },
     ],
   },
   master: {

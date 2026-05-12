@@ -239,6 +239,41 @@ const ROLES = {
 
 ---
 
+### 3.3a `update_needs_request`
+
+**Mô tả:** Sửa nội dung 1 Needs Request khi vẫn ở Draft (docstatus=0). Khác với `transition_workflow` (chỉ chuyển state) — endpoint này dùng để cập nhật field nội dung và child tables (`scoring_rows`, `budget_lines`).
+
+| Method | Path |
+|---|---|
+| POST | `/api/method/assetcore.api.imm01.update_needs_request` |
+
+**Request body:**
+
+```json
+{
+  "name": "NR-26-04-00012",
+  "payload": {
+    "quantity": 3,
+    "clinical_justification": "...",
+    "scoring_rows": [ { "criterion": "Clinical impact", "score": 4 } ],
+    "budget_lines": [ { "category": "CAPEX", "amount": 250000000 } ]
+  }
+}
+```
+
+**Response 200:** `{ "name": "NR-26-04-00012", "workflow_state": "Draft" }`
+
+**Lỗi:**
+
+| Tình huống | code |
+|---|---|
+| Phiếu đã submit/cancel (docstatus ≠ 0) | `BAD_STATE` |
+| Payload không hợp lệ JSON | `INVALID_PARAMS` |
+
+**Phân biệt với `transition_workflow` (§3.8):** `update_needs_request` ghi đè field nội dung trên phiếu Draft; `transition_workflow` chỉ đổi `workflow_state` qua workflow action không sửa data.
+
+---
+
 ### 3.4 `submit_needs_request`
 
 **Mô tả:** Chuyển Draft → Submitted (validate G01).

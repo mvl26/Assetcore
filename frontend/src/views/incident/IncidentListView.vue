@@ -2,7 +2,7 @@
 // Copyright (c) 2026, AssetCore Team Incident List
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { useImm12Store } from '@/stores/useImm12Store'
+import { useImm12Store } from '@/stores/imm12'
 import PageHeader from '@/components/common/PageHeader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar from '@/components/common/ListFilterBar.vue'
@@ -28,7 +28,9 @@ const SEVERITIES = [
 const STATUSES = [
   { value: '', label: 'Tất cả trạng thái' },
   { value: 'Open', label: 'Mới mở' },
-  { value: 'Under Investigation', label: 'Đang điều tra' },
+  { value: 'Acknowledged', label: 'Đã tiếp nhận' },
+  { value: 'In Progress', label: 'Đang điều tra' },
+  { value: 'RCA Required', label: 'Cần RCA' },
   { value: 'Resolved', label: 'Đã giải quyết' },
   { value: 'Closed', label: 'Đã đóng' },
   { value: 'Cancelled', label: 'Đã hủy' },

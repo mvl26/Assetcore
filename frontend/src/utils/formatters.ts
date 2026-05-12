@@ -106,7 +106,7 @@ const STATUS_MAP: Record<string, string> = {
   'Expiring Soon': 'Sắp hết hạn',
   Archived:        'Lưu trữ',
   Exempt:          'Miễn đăng ký',
-  Pending_Review:  'Chờ duyệt',
+  'Pending Review': 'Chờ duyệt',
   Pending_Approval:'Chờ phê duyệt',
   'Pending Approval':'Chờ phê duyệt',
 
@@ -165,7 +165,7 @@ const STATUS_COLOR: Record<string, string> = {
   Assigned: COLOR_BLUE,
   // vàng — chờ
   Pending: COLOR_YELLOW,   'Pending Approval': COLOR_YELLOW,
-  Pending_Approval: COLOR_YELLOW, Pending_Review: COLOR_YELLOW,
+  Pending_Approval: COLOR_YELLOW, Pending_Review: COLOR_YELLOW, 'Pending Review': COLOR_YELLOW,
   'Pending Doc Verify': COLOR_YELLOW, 'Pending Inspection': COLOR_YELLOW,
   Pending_Inspection: COLOR_YELLOW, 'Pending Parts': COLOR_YELLOW, Pending_Parts: COLOR_YELLOW,
   Scheduled: COLOR_YELLOW, 'Expiring Soon': COLOR_YELLOW, Expiring_Soon: COLOR_YELLOW,

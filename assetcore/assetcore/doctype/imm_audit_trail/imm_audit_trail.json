@@ -46,7 +46,7 @@
    "fieldtype": "Link",
    "label": "Asset",
    "options": "AC Asset",
-   "reqd": 1,
+   "reqd": 0,
    "search_index": 1,
    "in_list_view": 1,
    "read_only": 1,

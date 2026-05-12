@@ -91,7 +91,7 @@ function formatDt(s: string): string {
             </td>
             <td class="px-4 py-3 text-slate-700">
               <p class="text-xs text-slate-500">{{ r.master_item || '—' }}</p>
-              <p class="text-xs font-medium">{{ r.vendor || '—' }}</p>
+              <p class="text-xs font-medium">{{ r.vendor_name || r.vendor || '—' }}</p>
             </td>
             <td class="px-4 py-3 text-slate-600 text-xs">{{ r.clinical_dept || '—' }}</td>
             <td class="px-4 py-3 text-slate-600 text-xs">{{ r.owner }}</td>

@@ -343,6 +343,9 @@ def list_calibrations(filters: dict | None = None, *, page: int = 1, page_size: 
         page=page, page_size=page_size,
     )
     asset_ids = {r.get("asset") for r in rows if r.get("asset")}
+    lab_ids = {r.get("lab_supplier") for r in rows if r.get("lab_supplier")}
+    tech_ids = {r.get("technician") for r in rows if r.get("technician")}
+    asset_map: dict = {}
     if asset_ids:
         asset_rows, _ = AssetRepo.list(
             filters={"name": ("in", list(asset_ids))},
@@ -350,8 +353,24 @@ def list_calibrations(filters: dict | None = None, *, page: int = 1, page_size: 
             page_size=len(asset_ids),
         )
         asset_map = {a["name"]: a.get("asset_name") for a in asset_rows}
-        for r in rows:
-            r["asset_name"] = asset_map.get(r.get("asset"), r.get("asset") or "")
+    lab_map: dict = {}
+    if lab_ids:
+        lab_rows = frappe.get_all(
+            "AC Supplier", filters={"name": ("in", list(lab_ids))},
+            fields=["name", "supplier_name"],
+        )
+        lab_map = {l.name: l.supplier_name for l in lab_rows}
+    tech_map: dict = {}
+    if tech_ids:
+        tech_rows = frappe.get_all(
+            "User", filters={"name": ("in", list(tech_ids))},
+            fields=["name", "full_name"],
+        )
+        tech_map = {t.name: t.full_name for t in tech_rows}
+    for r in rows:
+        r["asset_name"] = asset_map.get(r.get("asset"), r.get("asset") or "")
+        r["lab_name"] = lab_map.get(r.get("lab_supplier"), r.get("lab_supplier") or "")
+        r["technician_name"] = tech_map.get(r.get("technician"), r.get("technician") or "")
     return {"data": rows, "pagination": pg}
 
 
@@ -679,7 +698,7 @@ def cancel_calibration(name: str, reason: str) -> dict:
         _transition_asset(doc.asset, AssetStatus.ACTIVE, name,
                           reason=f"Calibration cancelled — {name}")
     log_audit_event(
-        asset=doc.asset, event_type="Calibration Cancelled",
+        asset=doc.asset, event_type="Calibration",
         actor=frappe.session.user, ref_doctype=_DT_CAL, ref_name=name,
         change_summary=reason[:200],
     )

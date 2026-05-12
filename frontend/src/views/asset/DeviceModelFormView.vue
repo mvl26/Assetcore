@@ -158,6 +158,8 @@ watch(() => form.value.asset_category, (catName, prev) => {
   if (isEdit.value || !catName || catName === prev) return
   const cat = categories.value.find(c => c.name === catName)
   if (!cat) return
+  // GMDN: kế thừa từ danh mục nếu model chưa tự điền
+  if (!form.value.gmdn_code && cat.gmdn_code) form.value.gmdn_code = cat.gmdn_code
   form.value.is_pm_required = cat.default_pm_required ? 1 : 0
   if (cat.default_pm_required && cat.default_pm_interval_days) {
     form.value.pm_interval_days = cat.default_pm_interval_days
@@ -209,17 +211,20 @@ onMounted(load)
             <option value="">— Chọn danh mục —</option>
             <option v-for="c in categories" :key="c.name" :value="c.name">{{ c.category_name }}</option>
           </select>
-          <div v-if="selectedCategory" class="mt-2 p-2 rounded-lg bg-blue-50 border border-blue-200 text-xs text-blue-800">
-            <p class="font-semibold mb-0.5">Luật khấu hao kế thừa từ danh mục:</p>
+          <div v-if="selectedCategory" class="mt-2 p-2 rounded-lg bg-blue-50 border border-blue-200 text-xs text-blue-800 space-y-1">
+            <p class="font-semibold">Kế thừa từ danh mục:</p>
+            <div v-if="selectedCategory.gmdn_code" class="flex items-center gap-1.5">
+              <span class="text-blue-500 font-mono">GMDN</span>
+              <b>{{ selectedCategory.gmdn_code }}</b>
+              <span v-if="selectedCategory.gmdn_term" class="text-blue-600">— {{ selectedCategory.gmdn_term }}</span>
+              <span class="ml-1 px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 text-[10px]">tự điền vào ô GMDN Code</span>
+            </div>
             <div class="flex flex-wrap gap-x-3 gap-y-0.5">
               <span v-if="selectedCategory.default_depreciation_method">
-                Phương pháp: <b>{{ selectedCategory.default_depreciation_method }}</b>
+                Khấu hao: <b>{{ selectedCategory.default_depreciation_method }}</b>
               </span>
               <span v-if="selectedCategory.total_depreciation_months">
-                Thời gian: <b>{{ selectedCategory.total_depreciation_months }} tháng</b>
-              </span>
-              <span v-if="selectedCategory.depreciation_frequency">
-                Tần suất: <b>{{ selectedCategory.depreciation_frequency }}</b>
+                <b>{{ selectedCategory.total_depreciation_months }}</b> tháng
               </span>
               <span v-if="selectedCategory.default_residual_value_pct">
                 Thu hồi: <b>{{ selectedCategory.default_residual_value_pct }}%</b>

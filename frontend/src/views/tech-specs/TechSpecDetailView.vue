@@ -70,35 +70,79 @@
           ({{ store.currentSpec.total_mandatory || 0 }} bắt buộc ·
           {{ store.currentSpec.total_optional || 0 }} tùy chọn)
         </h3>
+        <RequirementTable
+          :spec-name="store.currentSpec.name!"
+          :rows="(store.currentSpec.requirements || []) as any"
+          :editable="store.currentSpec.docstatus === 0"
+          @refresh="store.fetchOne(store.currentSpec.name!)"
+        />
+      </div>
+    </section>
+
+    <!-- Thẻ: Benchmark -->
+    <section v-show="tab === 'benchmark'" class="tab-content">
+      <div class="card">
+        <h3>Phân tích thị trường (Benchmark)</h3>
+        <p class="muted">
+          Nhập ≥ 3 ứng viên (mã, tên, vendor, giá). Hệ thống sẽ recommend ứng viên có
+          weighted_score cao nhất theo `weighting_scheme`.
+        </p>
         <table class="data-table">
           <thead>
-            <tr>
-              <th>STT</th>
-              <th>Nhóm</th>
-              <th>Tham số</th>
-              <th>Giá trị / Dải</th>
-              <th>Đơn vị</th>
-              <th class="center">Bắt buộc</th>
-              <th class="num">Trọng số</th>
-              <th>Phương pháp kiểm tra</th>
-            </tr>
+            <tr><th>Model</th><th>Hãng sản xuất</th><th class="num">Giá ước tính (VND)</th><th></th></tr>
           </thead>
           <tbody>
-            <tr v-for="r in store.currentSpec.requirements" :key="r.idx">
-              <td>{{ r.seq }}</td>
-              <td>{{ requirementGroupLabel(r.group) }}</td>
-              <td><strong>{{ r.parameter }}</strong></td>
-              <td>{{ r.value_or_range }}</td>
-              <td>{{ r.unit }}</td>
-              <td class="center">{{ r.is_mandatory ? '✓' : '' }}</td>
-              <td class="num">{{ r.weight }}</td>
-              <td>{{ r.test_method }}</td>
+            <tr v-for="(c, i) in benchmarkDraft" :key="i">
+              <td><input v-model="c.model" placeholder="Model X" /></td>
+              <td><input v-model="c.manufacturer" placeholder="Philips / GE / Mindray" /></td>
+              <td class="num"><input v-model.number="c.price_estimate" type="number" min="0" /></td>
+              <td><button class="btn-icon" @click="benchmarkDraft.splice(i, 1)">×</button></td>
             </tr>
-            <tr v-if="!store.currentSpec.requirements?.length">
-              <td colspan="8" class="muted text-center">Chưa có yêu cầu kỹ thuật nào.</td>
+            <tr v-if="!benchmarkDraft.length">
+              <td colspan="5" class="muted text-center">Chưa có ứng viên nào.</td>
             </tr>
           </tbody>
         </table>
+        <div class="actions">
+          <button class="btn btn-outline" @click="addBenchmarkRow">+ Thêm ứng viên</button>
+          <button class="btn btn-primary" :disabled="benchmarkDraft.length < 3 || benchmarkBusy"
+                  @click="doSubmitBenchmark">
+            {{ benchmarkBusy ? 'Đang gửi...' : 'Gửi Benchmark' }}
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Thẻ: Lock-in Risk -->
+    <section v-show="tab === 'lockin-action'" class="tab-content">
+      <div class="card">
+        <h3>Đánh giá rủi ro phụ thuộc (Submit)</h3>
+        <p class="muted">5 hạng mục mặc định: Protocol, Consumable, Software, Parts, Service.</p>
+        <table class="data-table">
+          <thead>
+            <tr><th>Hạng mục</th><th class="num">Điểm (1-5)</th><th>Ghi chú</th></tr>
+          </thead>
+          <tbody>
+            <tr v-for="(it, i) in lockInDraft" :key="i">
+              <td><input v-model="it.dimension" /></td>
+              <td class="num"><input v-model.number="it.score" type="number" min="1" max="5" /></td>
+              <td><input v-model="it.rationale" placeholder="Lý giải..." /></td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="form-row">
+          <label>Threshold:
+            <input v-model.number="lockInThreshold" type="number" step="0.1" min="0" max="5" />
+          </label>
+          <label>Mitigation plan:
+            <input v-model="lockInMitigation" placeholder="Phương án giảm thiểu" />
+          </label>
+        </div>
+        <div class="actions">
+          <button class="btn btn-primary" :disabled="lockInBusy" @click="doSubmitLockIn">
+            {{ lockInBusy ? 'Đang gửi...' : 'Gửi đánh giá rủi ro' }}
+          </button>
+        </div>
       </div>
     </section>
 
@@ -160,20 +204,24 @@ import { useImm02Store } from '@/stores/imm02'
 import type { SpecState } from '@/types/imm02'
 import {
   stateLabel, formatVnd, formatVnDate,
-  requirementGroupLabel, infraDomainLabel, infraStatusLabel,
+  infraDomainLabel, infraStatusLabel,
 } from '@/utils/wave2Labels'
+import RequirementTable from '@/components/tech-specs/RequirementTable.vue'
+import { submitBenchmark, submitLockInAssessment } from '@/api/imm02'
 
 const props = defineProps<{ id: string }>()
 const route = useRoute()
 const router = useRouter()
 const store = useImm02Store()
 
-type TabId = 'overview' | 'req' | 'infra' | 'lockin'
+type TabId = 'overview' | 'req' | 'infra' | 'lockin' | 'benchmark' | 'lockin-action'
 const TABS: { id: TabId; label: string }[] = [
-  { id: 'overview', label: '1. Tổng quan' },
-  { id: 'req',      label: '2. Yêu cầu kỹ thuật' },
-  { id: 'infra',    label: '3. Tương thích hạ tầng' },
-  { id: 'lockin',   label: '4. Phụ thuộc nhà cung cấp' },
+  { id: 'overview',      label: '1. Tổng quan' },
+  { id: 'req',           label: '2. Yêu cầu kỹ thuật' },
+  { id: 'infra',         label: '3. Tương thích hạ tầng' },
+  { id: 'benchmark',     label: '4. Benchmark' },
+  { id: 'lockin-action', label: '5. Đánh giá rủi ro' },
+  { id: 'lockin',        label: '6. Phụ thuộc NCC (xem)' },
 ]
 const tab = ref<TabId>('overview')
 
@@ -220,6 +268,60 @@ async function doWithdraw() {
   await store.withdraw(store.currentSpec.name, reason)
   await store.fetchOne(store.currentSpec.name)
 }
+// ── Benchmark (FE-02-02) ──
+interface BenchmarkCandidate {
+  model: string
+  manufacturer: string
+  price_estimate?: number
+}
+const benchmarkDraft = ref<BenchmarkCandidate[]>([])
+const benchmarkBusy = ref(false)
+function addBenchmarkRow() {
+  benchmarkDraft.value.push({ model: '', manufacturer: '', price_estimate: 0 })
+}
+async function doSubmitBenchmark() {
+  if (!store.currentSpec?.name || benchmarkDraft.value.length < 3) return
+  benchmarkBusy.value = true
+  try {
+    await submitBenchmark(
+      store.currentSpec.name,
+      benchmarkDraft.value as unknown as Record<string, unknown>[],
+    )
+    benchmarkDraft.value = []
+    await store.fetchOne(store.currentSpec.name)
+  } finally {
+    benchmarkBusy.value = false
+  }
+}
+
+// ── Lock-in Risk submit (FE-02-02) ──
+interface LockInItem { dimension: string; score: number; rationale?: string }
+const lockInDraft = ref<LockInItem[]>([
+  { dimension: 'Protocol Standard', score: 2 },
+  { dimension: 'Consumable Source', score: 2 },
+  { dimension: 'Software License',  score: 2 },
+  { dimension: 'Parts Source',      score: 2 },
+  { dimension: 'Service Tooling',   score: 2 },
+])
+const lockInThreshold = ref<number>(2.5)
+const lockInMitigation = ref<string>('')
+const lockInBusy = ref(false)
+async function doSubmitLockIn() {
+  if (!store.currentSpec?.name) return
+  lockInBusy.value = true
+  try {
+    await submitLockInAssessment(
+      store.currentSpec.name,
+      lockInDraft.value as unknown as Record<string, unknown>[],
+      lockInThreshold.value,
+      lockInMitigation.value,
+    )
+    await store.fetchOne(store.currentSpec.name)
+  } finally {
+    lockInBusy.value = false
+  }
+}
+
 async function doReissue() {
   if (!store.currentSpec?.name) return
   const res = await store.reissue(store.currentSpec.name)
@@ -278,4 +380,10 @@ dl dd { margin: 0; font-weight: 500; }
 .loading { padding: 3rem; text-align: center; color: #6b7280; }
 .badge { display: inline-block; padding: 0.15rem 0.6rem; border-radius: 999px; font-size: 0.75rem; font-weight: 600; background: #e5e7eb; }
 code { font-family: ui-monospace, monospace; background: #f3f4f6; padding: 0.1rem 0.3rem; border-radius: 4px; }
+.actions { display: flex; gap: 0.5rem; padding-top: 0.75rem; }
+.form-row { display: flex; gap: 1rem; padding-top: 0.5rem; }
+.form-row label { display: flex; gap: 0.5rem; align-items: center; font-size: 0.85rem; color: #475569; }
+.form-row input { padding: 0.3rem 0.5rem; border: 1px solid #d1d5db; border-radius: 4px; }
+.btn-icon { background: none; border: none; cursor: pointer; color: #6b7280; font-size: 1rem; }
+.btn-icon:hover { color: #b91c1c; }
 </style>

@@ -14,13 +14,13 @@
 //   - SmartSelect: chỉ gọi API 1 lần qua store, sau đó lọc in-memory → instant
 
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
-import { useMasterDataStore, type MasterItem } from '@/stores/useMasterDataStore'
+import { useMasterDataStore, type MasterItem } from '@/stores/masterData'
 
 type DocType =
   | 'AC Asset' | 'AC Department' | 'AC Location' | 'AC Supplier'
   | 'AC Asset Category' | 'IMM Device Model' | 'IMM Calibration Schedule'
   | 'Purchase Order' | 'User' | 'AC Warehouse'
-  | 'AC Spare Part Category' | 'AC Vendor' | 'AC Purchase' | 'UOM' | 'AC UOM'
+  | 'AC Spare Part Category' | 'AC Spare Part' | 'AC Vendor' | 'AC Purchase' | 'UOM' | 'AC UOM'
   | 'PM Checklist Template'
 
 const props = defineProps<{

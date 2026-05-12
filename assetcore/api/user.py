@@ -447,7 +447,8 @@ def _build_new_user_doc(email: str, first_name: str, data: dict, imm_roles: list
     if data.get("password"):
         user_doc.new_password = data["password"]
     if imm_roles:
-        user_doc.add_roles(*imm_roles)
+        for role in imm_roles:
+            user_doc.append("roles", {"role": role})
     user_doc.flags.ignore_permissions = True
     return user_doc
 

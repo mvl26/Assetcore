@@ -2,7 +2,7 @@
 import DateInput from '@/components/common/DateInput.vue'
 import { ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { useImm05Store } from '@/stores/imm05Store'
+import { useImm05Store } from '@/stores/imm05'
 import { uploadDocumentFile } from '@/api/imm05'
 import SmartSelect from '@/components/common/SmartSelect.vue'
 import { useFormDraft } from '@/composables/useFormDraft'

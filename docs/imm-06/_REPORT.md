@@ -75,3 +75,9 @@ Phần V hiện có 12 NFR (NFR-06-01 → NFR-06-12). Các target hiện là **d
 2. **BE scaffold IMM-06** (Wave 2 sprint W2-S1 → W2-S4) — sau scaffold, chạy lại doc-curator round 2 để align `04_Backend_Design.md` + `05_API_Specification.md` với code thật.
 3. **FE scaffold IMM-06** (W2-S5) — sau scaffold, align `06_Frontend_Design.md`.
 4. **Sau pilot deploy** (W2-S7): consolidate baseline KPI từ pilot vào file 02 §I.5 chính thức (kết thúc reserved status).
+
+## 2026-05-11 Alignment Pass (Sprint 6 DoD)
+- BE: 3-tier compliance verified; endpoints align with docs/05_API_Specification.md
+- FE: store + views + routes + sidebar entry wired
+- Tests: see docs/res/dod-verification-report.md §1 for per-module results
+- Status: READY

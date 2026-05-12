@@ -1,79 +1,52 @@
 # AssetCore Skills
 
 Project-scoped skills cho phát triển AssetCore (Frappe v15 + Vue 3, HTM domain).
-Claude Code tự discover các skill này khi chạy trong workspace, không cần đăng ký.
+Claude Code tự discover các skill này khi chạy trong workspace.
 
-> **CONVENTIONS.md** — single source of truth cho cross-skill rules (naming, 3-tier, ErrorCode, audit, permissions, doc-sync). Mọi skill đều reference file này. Đọc trước khi build feature mới.
+> **CONVENTIONS.md** — single source of truth cho cross-skill rules (naming, 3-tier, ErrorCode, audit, permissions, doc-sync).
 
-## Khi nào dùng skill nào
+---
 
-### Build skills (dev hằng ngày)
+## 6 skills theo chu trình phát triển
 
-| Bạn nói… | Claude sẽ kích hoạt |
+```
+Doc → BE → FE → Test → Deploy → Audit (sửa lỗi / tái cấu trúc)
+```
+
+| Skill | Khi nào dùng | Trigger phrases |
+|---|---|---|
+| **assetcore-doc** | Viết/chuẩn hóa tài liệu BA, domain knowledge WHO HTM/GMDN/NĐ98, integration patterns | "viết tài liệu", "docs IMM-XX", "HTM lifecycle", "GMDN", "NĐ98", "integration giữa module" |
+| **assetcore-be** | Phát triển backend: API, service, repository, DocType schema, workflow state machine | "viết BE", "thêm endpoint", "service IMM-XX", "DocType mới", "workflow", "transition", "approval flow" |
+| **assetcore-fe** | Phát triển frontend: Vue views, Pinia store, API client, router, components | "tạo view", "trang IMM-XX", "Pinia store", "form WO", "list table", "thêm UI" |
+| **assetcore-test** | Viết/chạy tests: backend unit test, workflow smoke test, Playwright UI test | "viết test", "TDD", "bench run-tests", "test UI", "DoD", "playwright", "UI xong chưa" |
+| **assetcore-deploy** | Vận hành hàng ngày (bench, migrate, fixtures) + triển khai production | "bench", "migrate", "deploy", "lên prod", "release", "site lỗi", "clear cache" |
+| **assetcore-audit** | Kiểm tra production-readiness (8-pillar) + security review | "audit module", "IMM-XX sẵn sàng chưa", "tái cấu trúc", "phân quyền", "security review", "gap analysis" |
+
+---
+
+## References trong từng skill
+
+| Skill | References |
 |---|---|
-| "viết API IMM-XX", "thêm validator", "service mới", "controller hook" | **assetcore-be-module** |
-| "tạo view", "trang IMM-XX", "Pinia store", "form WO", "list table" | **assetcore-fe-module** |
-| "tạo DocType", "thêm field", "child table", "AC X" | **assetcore-doctype-designer** |
-| "workflow", "transition", "approval flow", "state machine" | **assetcore-workflow-builder** |
-| "viết test", "TDD", "kiểm thử", "bench run-tests" | **assetcore-tester** |
+| assetcore-be | `error-codes.md`, `permission-matrix.md` |
+| assetcore-fe | `component-patterns.md` |
+| assetcore-doc | `light-touch-recipes.md`, `module-catalog.md`, `source-map.md` |
+| assetcore-test | `playwright-patterns.md` |
 
-### Ops skills (vận hành / triển khai)
+---
 
-| Bạn nói… | Claude sẽ kích hoạt |
-|---|---|
-| "bench", "migrate", "fixture", "patch", "site lỗi" | **assetcore-devops** |
-| "phân quyền", "permission", "audit trail", "vendor isolation" | **assetcore-security** |
-| "deploy", "lên prod", "release", "rollback", "site mới cho hospital" | **assetcore-deployment** |
+## Build sequence module mới
 
-### Audit / domain skills (mới — Wave 2/3)
+```
+1. assetcore-doc   → đọc/viết BA docs (docs/imm-XX/ — 9 files: README + 02→09)
+2. assetcore-be    → DocType + Workflow JSON + Repository + Service + API + hooks.py (3-list)
+3. assetcore-fe    → api/immXX.ts + stores/immXX.ts + views/<domain>/ + router
+4. assetcore-test  → unit tests (Python) + Playwright UI DoD
+5. assetcore-deploy → export-fixtures + migrate + smoke test
+6. assetcore-audit → 8-pillar check trước khi tag release
+```
 
-| Bạn nói… | Claude sẽ kích hoạt |
-|---|---|
-| "is IMM-XX ready?", "module audit", "kiểm tra module hoàn chỉnh chưa", "gap analysis" | **assetcore-module-audit** |
-| "WHO HTM", "NĐ98", "GMDN", "lifecycle stage", "phân loại thiết bị y tế" | **assetcore-htm-domain** |
-| "imm-XX gọi imm-yy", "module integration", "compliance gate", "shared enum" | **assetcore-integration-patterns** |
-
-## Hai skill quan trọng nhất (theo CLAUDE.md)
-
-- `assetcore-be-module/` — kiến trúc 3-tier (api → service → repository), chuẩn ServiceError/ErrorCode, lifecycle event bắt buộc
-- `assetcore-fe-module/` — Vue 3 + Pinia + Vue Router, useApi pattern, ApiError typing
-
-Hai skill này có thêm `references/` (error-codes, permission-matrix, component-patterns) để nạp khi cần.
-
-## Build sequence khi thêm IMM module mới
-
-1. `assetcore-htm-domain` → confirm WHO HTM stage + NĐ98 compliance scope
-2. `assetcore-doctype-designer` → schema
-3. `assetcore-workflow-builder` → state machine
-4. `assetcore-tester` → viết test trước (TDD per CLAUDE.md §17)
-5. `assetcore-be-module` → service + api + controller hook
-6. `assetcore-integration-patterns` → wire cross-module hooks (nếu module phụ thuộc IMM-04/08/16)
-7. `assetcore-fe-module` → api client + store + view
-8. `assetcore-security` → review trước khi merge
-9. `assetcore-module-audit` → 8-pillar checklist (BE/FE/test/docs/...)
-10. `assetcore-devops` → migrate, fixture export
-11. `assetcore-deployment` → release lên prod
-
-## Skill catalog
-
-| # | Skill | Loại | Lines | Refs |
-|---|---|---|---|---|
-| 1 | assetcore-be-module | Build | 318 | error-codes, permission-matrix |
-| 2 | assetcore-fe-module | Build | 374 | component-patterns |
-| 3 | assetcore-doctype-designer | Build | 233 | — |
-| 4 | assetcore-workflow-builder | Build | 191 | — |
-| 5 | assetcore-tester | Build | 248 | — |
-| 6 | assetcore-devops | Ops | 228 | — |
-| 7 | assetcore-security | Ops | 242 | — |
-| 8 | assetcore-deployment | Ops | 262 | — |
-| 9 | assetcore-module-audit | Audit | 221 | — |
-| 10 | assetcore-htm-domain | Domain | 168 | — |
-| 11 | assetcore-integration-patterns | Architecture | 259 | — |
-
-Tất cả skill có Cross-skill conventions section ở cuối, link về [`CONVENTIONS.md`](./CONVENTIONS.md).
-
-## Cách edit skill
-
-Mỗi skill là 1 thư mục với `SKILL.md` (frontmatter `name` + `description` quyết định khi nào trigger). Sửa nội dung trực tiếp; Claude reload mỗi turn. Nếu thêm reference dài, đặt vào `references/` và link từ SKILL.md.
-
-Khi thay đổi rule cross-cutting (e.g., naming, error code), update `CONVENTIONS.md` trước, rồi audit các skill bị ảnh hưởng.
+> **Key rules:**
+> - `api/immXX.ts` và `stores/immXX.ts` dùng IMM-code; `views/` dùng domain folder (xem domain table trong assetcore-fe skill)
+> - `_parse_json` + `_handle` copy từ `api/imm09.py` — không redefine
+> - Fixture wiring: cập nhật CẢ 3 list trong `hooks.py` khi thêm workflow (CONVENTIONS.md §1b)

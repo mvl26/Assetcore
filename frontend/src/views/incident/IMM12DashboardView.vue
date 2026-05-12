@@ -2,7 +2,7 @@
 // Copyright (c) 2026, AssetCore Team Incident Dashboard
 import { computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { useImm12Store } from '@/stores/useImm12Store'
+import { useImm12Store } from '@/stores/imm12'
 import PageHeader from '@/components/common/PageHeader.vue'
 
 const router = useRouter()

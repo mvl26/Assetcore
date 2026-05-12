@@ -45,3 +45,9 @@
 - [x] Không chạm Pitch / Stakeholder / KPI
 - [x] Không tạo file ngoài scope (chỉ `_REPORT.md` trong `docs/imm-01/`)
 - [x] Mọi section mới có source thật, không bịa số liệu
+
+## 2026-05-11 Alignment Pass (Sprint 6 DoD)
+- BE: 3-tier compliance verified; endpoints align with docs/05_API_Specification.md
+- FE: store + views + routes + sidebar entry wired
+- Tests: see docs/res/dod-verification-report.md §1 for per-module results
+- Status: READY

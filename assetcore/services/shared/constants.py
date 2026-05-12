@@ -238,6 +238,7 @@ class ErrorCode:
     INVALID_PARAMS = "INVALID_PARAMS"
     RATE_LIMITED = "RATE_LIMITED"
     INTERNAL = "INTERNAL"
+    COMPLIANCE_BLOCKED = "COMPLIANCE_BLOCKED"  # IMM-16 gate: asset có Critical CAPA/finding mở
 
 
 class ApprovalStatus:

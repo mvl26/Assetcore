@@ -27,3 +27,9 @@ Theo gap audit iter-1, IMM-04 ở trạng thái ✅ Đầy đủ (8/8 file templ
 ## Việc còn lại (không phải scope skill này)
 
 Các TODO Sprint 7/8 đã liệt kê sẵn trong `README.md` § Roadmap (naming `Clinical Release`, DB UNIQUE `vendor_serial_no`, Print Format Biên bản Bàn giao, IMM-08 listener) — thuộc engineering backlog, không phải doc gap.
+
+## 2026-05-11 Alignment Pass (Sprint 6 DoD)
+- BE: 3-tier compliance verified; endpoints align with docs/05_API_Specification.md
+- FE: store + views + routes + sidebar entry wired
+- Tests: see docs/res/dod-verification-report.md §1 for per-module results
+- Status: READY

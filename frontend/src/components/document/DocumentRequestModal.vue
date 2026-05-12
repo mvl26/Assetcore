@@ -73,7 +73,7 @@
 <script setup lang="ts">
 import DateInput from '@/components/common/DateInput.vue'
 import { reactive, ref } from 'vue'
-import { useImm05Store } from '@/stores/imm05Store'
+import { useImm05Store } from '@/stores/imm05'
 import type { AssetDocumentItem } from '@/api/imm05'
 
 const props = defineProps<{ modelValue: AssetDocumentItem }>()

@@ -132,3 +132,252 @@ def run_compliance_evaluation() -> dict:
         return _ok({"message": "Evaluation completed"})
     except Exception as exc:
         return _err(str(exc), ErrorCode.INTERNAL)
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Canonical IMM-16 endpoints (docs/imm-16/05_API_Specification.md)
+# ════════════════════════════════════════════════════════════════════════════
+
+# ─── Rule ─────────────────────────────────────────────────────────────────────
+
+@frappe.whitelist()
+def list_rules(filters: str = "{}", page: int = 1, page_size: int = 20) -> dict:
+    return list_compliance_rules(filters=filters, page=page, page_size=page_size)
+
+
+@frappe.whitelist()
+def get_rule(name: str) -> dict:
+    return _handle(svc.get_rule, name)
+
+
+@frappe.whitelist(methods=["POST"])
+def create_rule(rule_data: str = "{}") -> dict:
+    try:
+        d = _parse_json(rule_data, field_name="rule_data")
+    except ServiceError as e:
+        return _err(e.message, e.code)
+    return _handle(svc.create_compliance_rule, d)
+
+
+@frappe.whitelist(methods=["POST"])
+def update_rule(name: str, rule_data: str = "{}",
+                change_summary: str = "") -> dict:
+    try:
+        d = _parse_json(rule_data, field_name="rule_data")
+    except ServiceError as e:
+        return _err(e.message, e.code)
+    return _handle(svc.update_rule, name, d, change_summary)
+
+
+@frappe.whitelist(methods=["POST"])
+def deactivate_rule(name: str) -> dict:
+    return _handle(svc.deactivate_rule, name)
+
+
+# ─── Finding ──────────────────────────────────────────────────────────────────
+
+@frappe.whitelist()
+def list_findings(filters: str = "{}", page: int = 1, page_size: int = 20) -> dict:
+    return list_compliance_findings(filters=filters, page=page, page_size=page_size)
+
+
+@frappe.whitelist()
+def get_finding(name: str) -> dict:
+    return _handle(svc.get_finding, name)
+
+
+@frappe.whitelist(methods=["POST"])
+def confirm_finding(name: str, reviewer_note: str = "") -> dict:
+    return _handle(svc.confirm_finding, name, reviewer_note)
+
+
+@frappe.whitelist(methods=["POST"])
+def mark_false_positive(name: str, reason: str) -> dict:
+    return _handle(svc.mark_false_positive, name, reason)
+
+
+@frappe.whitelist(methods=["POST"])
+def waive_finding(name: str, waiver_reason: str,
+                  waiver_evidence: str = "",
+                  waiver_expiry: str = "") -> dict:
+    return _handle(svc.waive_finding, name, waiver_reason,
+                   waiver_evidence, waiver_expiry)
+
+
+@frappe.whitelist(methods=["POST"])
+def link_to_capa(name: str, capa_ref: str) -> dict:
+    return _handle(svc.link_finding_to_capa, name, capa_ref)
+
+
+# ─── Audit ────────────────────────────────────────────────────────────────────
+
+@frappe.whitelist()
+def list_audits(filters: str = "{}", page: int = 1, page_size: int = 20) -> dict:
+    return list_internal_audits(filters=filters, page=page, page_size=page_size)
+
+
+@frappe.whitelist()
+def get_audit(name: str) -> dict:
+    return _handle(svc.get_audit, name)
+
+
+@frappe.whitelist(methods=["POST"])
+def create_audit(audit_data: str = "{}") -> dict:
+    try:
+        d = _parse_json(audit_data, field_name="audit_data")
+    except ServiceError as e:
+        return _err(e.message, e.code)
+    return _handle(svc.create_audit, d)
+
+
+@frappe.whitelist(methods=["POST"])
+def start_audit(name: str) -> dict:
+    return _handle(svc.start_audit, name)
+
+
+@frappe.whitelist(methods=["POST"])
+def complete_audit_checklist(audit_name: str, items: str = "[]") -> dict:
+    try:
+        items_list = _parse_json(items, field_name="items", default=[])
+    except ServiceError as e:
+        return _err(e.message, e.code)
+    return _handle(svc.complete_audit_checklist, audit_name, items_list)
+
+
+@frappe.whitelist(methods=["POST"])
+def close_audit(name: str, audit_report: str = "") -> dict:
+    return _handle(svc.close_audit, name, audit_report)
+
+
+# ─── CAPA ─────────────────────────────────────────────────────────────────────
+
+@frappe.whitelist(methods=["POST"])
+def create_capa_from_finding(finding_name: str,
+                              imm_risk_level: str = "Medium",
+                              imm_root_cause_method: str = "",
+                              responsible: str = "",
+                              due_date: str = "") -> dict:
+    return _handle(svc.create_capa_from_finding, finding_name,
+                   imm_risk_level, imm_root_cause_method,
+                   responsible, due_date)
+
+
+@frappe.whitelist(methods=["POST"])
+def advance_capa_state(name: str, target_state: str,
+                       payload: str = "{}") -> dict:
+    try:
+        p = _parse_json(payload, field_name="payload")
+    except ServiceError as e:
+        return _err(e.message, e.code)
+    return _handle(svc.advance_capa_state, name, target_state, p)
+
+
+@frappe.whitelist(methods=["POST"])
+def perform_effectiveness_check(name: str, result: str,
+                                 effectiveness_evidence: str = "") -> dict:
+    return _handle(svc.perform_effectiveness_check, name, result,
+                   effectiveness_evidence)
+
+
+@frappe.whitelist(methods=["POST"])
+def reopen_capa(name: str, reason: str = "") -> dict:
+    return _handle(svc.reopen_capa, name, reason)
+
+
+# ─── Scorecard ────────────────────────────────────────────────────────────────
+
+@frappe.whitelist()
+def list_scorecards(filters: str = "{}", page: int = 1,
+                    page_size: int = 20) -> dict:
+    try:
+        f = _parse_json(filters, field_name="filters")
+    except ServiceError as e:
+        return _err(e.message, e.code)
+    return _handle(svc.list_scorecards, f, page=int(page),
+                   page_size=int(page_size))
+
+
+@frappe.whitelist()
+def get_current_scorecard(scope: str = "Hospital") -> dict:
+    return _handle(svc.get_current_scorecard, scope)
+
+
+@frappe.whitelist()
+def get_scorecard_by_period(year: int, month: int,
+                             scope: str = "Hospital") -> dict:
+    return _handle(svc.get_scorecard_by_period, int(year), int(month), scope)
+
+
+@frappe.whitelist(methods=["POST"])
+def publish_scorecard(name: str) -> dict:
+    return _handle(svc.publish_scorecard, name)
+
+
+# ─── Management Review ────────────────────────────────────────────────────────
+
+@frappe.whitelist()
+def list_management_reviews(filters: str = "{}", page: int = 1,
+                             page_size: int = 20) -> dict:
+    try:
+        f = _parse_json(filters, field_name="filters")
+    except ServiceError as e:
+        return _err(e.message, e.code)
+    return _handle(svc.list_management_reviews, f, page=int(page),
+                   page_size=int(page_size))
+
+
+@frappe.whitelist()
+def get_management_review(name: str) -> dict:
+    return _handle(svc.get_management_review, name)
+
+
+@frappe.whitelist(methods=["POST"])
+def create_management_review(data: str = "{}") -> dict:
+    try:
+        d = _parse_json(data, field_name="data")
+    except ServiceError as e:
+        return _err(e.message, e.code)
+    return _handle(svc.create_management_review, d)
+
+
+@frappe.whitelist(methods=["POST"])
+def finalize_management_review(name: str, minutes_doc: str = "",
+                                output_actions: str = "[]") -> dict:
+    try:
+        actions = _parse_json(output_actions,
+                              field_name="output_actions", default=[])
+    except ServiceError as e:
+        return _err(e.message, e.code)
+    return _handle(svc.finalize_management_review, name, minutes_doc, actions)
+
+
+# ─── Dashboard / Reports ──────────────────────────────────────────────────────
+
+@frappe.whitelist()
+def get_dashboard_stats() -> dict:
+    return _handle(svc.get_dashboard_stats)
+
+
+@frappe.whitelist()
+def get_compliance_heatmap(period_year: int | None = None,
+                            period_month: int | None = None) -> dict:
+    py = int(period_year) if period_year else None
+    pm = int(period_month) if period_month else None
+    return _handle(svc.get_compliance_heatmap, py, pm)
+
+
+@frappe.whitelist()
+def get_capa_aging() -> dict:
+    return _handle(svc.get_capa_aging)
+
+
+@frappe.whitelist()
+def get_overdue_actions() -> dict:
+    return _handle(svc.get_overdue_actions)
+
+
+# ─── Cross-module gate ────────────────────────────────────────────────────────
+
+@frappe.whitelist()
+def check_asset_compliance_status(asset: str) -> dict:
+    return _handle(svc.check_asset_compliance_status, asset)

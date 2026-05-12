@@ -9,6 +9,48 @@ import type {
 
 const BASE = '/api/method/assetcore.api.imm03'
 
+// ─── Vendor Profile (BE-03-01) ────────────────────────────────────────────────
+
+export interface VendorProfileListItem {
+  name: string
+  supplier_name?: string
+  imm_avl_status?: string
+  imm_avl_categories?: string
+  imm_overall_score?: number
+  imm_last_audit_date?: string
+  imm_next_audit_date?: string
+  cert_count?: number
+  cert_expiring_soon?: number
+}
+
+export function listVendorProfiles(
+  filters: Record<string, unknown> = {}, page = 1, page_size = 20,
+): Promise<{ items: VendorProfileListItem[]; total: number; page: number; page_size: number }> {
+  return frappeGet(`${BASE}.list_vendor_profiles`, {
+    filters: JSON.stringify(filters), page, page_size,
+  })
+}
+
+export function getVendorProfile(name: string): Promise<Record<string, unknown>> {
+  return frappeGet(`${BASE}.get_vendor_profile`, { name })
+}
+
+export function createVendorProfile(payload: Record<string, unknown>):
+    Promise<{ name: string; supplier: string }> {
+  return frappePost(`${BASE}.create_vendor_profile`, {
+    payload: JSON.stringify(payload),
+  })
+}
+
+export function addVendorCert(
+  supplier: string, cert_type: string, cert_number: string,
+  issued_by = '', issued_date = '', expiry_date = '', attachment = '',
+): Promise<{ cert_row: string; cert_type: string; status: string }> {
+  return frappePost(`${BASE}.add_vendor_cert`, {
+    supplier, cert_type, cert_number, issued_by, issued_date, expiry_date, attachment,
+  })
+}
+
 // ─── Vendor Evaluation ────────────────────────────────────────────────────────
 
 export function listEvaluations(filters: Record<string, unknown> = {}, page = 1, page_size = 20):

@@ -75,7 +75,7 @@
    "fieldname": "threshold_definition",
    "fieldtype": "JSON",
    "label": "Định nghĩa ngưỡng",
-   "reqd": 1
+   "reqd": 0
   },
   {
    "fieldname": "evaluation_frequency",
@@ -99,8 +99,7 @@
    "fieldname": "owner_role",
    "fieldtype": "Link",
    "label": "Role chủ sở hữu",
-   "options": "Role",
-   "reqd": 1
+   "options": "Role"
   },
   {
    "fieldname": "qms_doc_ref",
@@ -122,7 +121,7 @@
    "fieldname": "effective_date",
    "fieldtype": "Date",
    "label": "Ngày có hiệu lực",
-   "reqd": 1
+   "reqd": 0
   },
   {
    "fieldname": "version",

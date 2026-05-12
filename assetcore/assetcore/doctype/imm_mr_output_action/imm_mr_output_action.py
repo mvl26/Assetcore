@@ -3,6 +3,6 @@ import frappe
 from frappe.model.document import Document
 
 
-class IMMROutputAction(Document):
+class IMMMROutputAction(Document):
     """Child table row for IMM Management Review output actions."""
     pass

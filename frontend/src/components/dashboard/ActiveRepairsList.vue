@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router'
-import type { ActiveRepair } from '@/stores/useDashboardStore'
+import type { ActiveRepair } from '@/stores/dashboard'
 import { translateStatus, getStatusColor } from '@/utils/formatters'
 
 defineProps<{ repairs: ActiveRepair[] }>()

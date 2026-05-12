@@ -7,37 +7,80 @@ applyTo:
 
 # AssetCore Module Developer
 
-Phát triển hoàn chỉnh một IMM module **end-to-end** theo `docs/imm-xx/`. Chạy qua đủ 8 skill theo build sequence — mỗi bước có gate điều kiện trước khi sang bước tiếp.
+Phát triển hoàn chỉnh một IMM module **end-to-end** theo `docs/imm-XX/`. Chạy qua đủ **6 skill** theo build sequence (9 bước) — mỗi bước có gate điều kiện trước khi sang bước tiếp.
+
+## Skill inventory (6 skill — invoke đúng bước)
+
+| Skill | Role trong build sequence |
+|-------|--------------------------|
+| `assetcore-doc` | Bước 0 — domain check, integration dependency, đọc/cập nhật docs |
+| `assetcore-be` | Bước 1-4 — DocType, Workflow, Repository, Service, API, Controller |
+| `assetcore-test` | Bước 3 (viết test trước), Bước 5 (verify), Bước 7 (UI DoD) |
+| `assetcore-fe` | Bước 5 — API client, Store, Views, Router, Sidebar, Launcher |
+| `assetcore-deploy` | Bước 6 — migrate, fixture export, fixtures 3-list verify |
+| `assetcore-audit` | Bước 7 — 8-pillar gap analysis + security review trước deploy |
 
 ## Nguyên tắc cốt lõi
 
-- `docs/imm-xx/` là source of truth — không tự "design" thêm field/state ngoài spec
+- `docs/imm-XX/` là source of truth — không tự "design" thêm field/state ngoài spec
 - TDD bắt buộc theo CLAUDE.md §17 — viết test trước, implement sau
 - Mọi status change asset → `transition_asset_status()`; mọi audit → `log_audit_event()` (không bypass)
 - Mỗi PR phải có: DocType + Workflow + Service + API + FE wire + Test + Fixture export
+- **BE-FE naming contract**: function name trong `api/immXX.py` = path FE gọi. Không để mismatch.
+- **DocType field sync**: mọi `doc.<field>` trong service phải có trong DocType JSON.
 
 ---
 
 ## Skill Orchestration (BẮT BUỘC chain theo build sequence)
 
-Mỗi bước build sequence dưới đây tương ứng 1 hoặc 2 skill. **AI phải invoke skill tương ứng trước khi viết code cho bước đó** — không skip.
+| Bước | Skill bắt buộc | Output |
+|------|----------------|--------|
+| 0. Hiểu domain + dependency | `assetcore-doc` | WHO HTM phase, NĐ98 article, cross-module gates |
+| 1. DocType schema | `assetcore-be` (DocType section) | DocType JSON + controller skeleton |
+| 2. Workflow state machine | `assetcore-be` (Workflow section) | Workflow JSON + hooks.py 3-list wiring |
+| 3. Test trước (TDD) | `assetcore-test` | Test file — fail đỏ (chưa implement) |
+| 4. BE implementation | `assetcore-be` (3-tier) | Repository + Service + API + Controller |
+| 4b. Verify test xanh | `assetcore-test` | Tất cả tests pass |
+| 5. FE wire | `assetcore-fe` | API client + Store + Views + Routes + Sidebar + Launcher |
+| 6. Migrate + Fixture | `assetcore-deploy` | `bench migrate` clean, fixtures exported, 3-list verified |
+| 7. Module readiness | `assetcore-audit` | 8-pillar pass + security review clean |
+| 7b. Đồng bộ docs | `assetcore-doc` | `docs/imm-XX/` 9 files khớp code thực tế |
+| 8. Deploy | `assetcore-deploy` | Site provision, FE build, smoke validation |
 
-| Bước | Skill bắt buộc | Skill bổ trợ | Output |
-|------|----------------|--------------|--------|
-| 0. Hiểu domain & lifecycle stage của module | `assetcore-htm-domain` | — | Map IMM-XX → WHO HTM phase, NĐ98 article |
-| 0. Map dependency với module khác | `assetcore-integration-patterns` | — | Danh sách gate / event / shared constant |
-| 1. Schema | `assetcore-doctype-designer` | — | DocType JSON + controller skeleton |
-| 2. State machine | `assetcore-workflow-builder` | — | Workflow JSON + fixtures wiring |
-| 3. Test trước (TDD) | `assetcore-tester` | — | Test file fail (đỏ) |
-| 4. BE implementation | `assetcore-be-module` | `assetcore-tester` (rerun) | Repository + Service + API + Controller |
-| 5. FE wire | `assetcore-fe-module` | `assetcore-integration-patterns` (sidebar/router) | API client + Store + View + Route + Sidebar + Launcher |
-| 6. Security review | `assetcore-security` | — | DocPerm + whitelist verified |
-| 7. Migrate + fixture | `assetcore-devops` | — | `bench migrate` clean, fixtures exported |
-| 8. Module readiness check | `assetcore-module-audit` | — | Gap analysis report — phải PASS trước deploy |
-| 8b. Đồng bộ tài liệu `docs/imm-XX/` (02–09 + README) | `assetcore-doc-curator` | — | 8 file docs khớp template, khớp code thực tế |
-| 9. Deploy | `assetcore-deployment` | `assetcore-devops` | Site provision, FE build, smoke validation |
+**Quy ước chain**: Bước N+1 chỉ bắt đầu khi gate của bước N pass.
 
-**Quy ước chain**: Bước N+1 chỉ bắt đầu khi gate của bước N pass. Nếu skill phát hiện vấn đề ngoài scope của nó, ghi nhận và quay lại bước có skill tương ứng.
+---
+
+## Pre-flight: BE-FE Alignment Checklist (BẮT BUỘC trước bước 5)
+
+### 1. Lấy danh sách BE endpoints thực tế
+```bash
+grep -n "@frappe.whitelist" assetcore/api/immXX.py -A2 | grep "def " | awk '{print $2}' | cut -d'(' -f1
+```
+Danh sách này là **ground truth** — FE phải gọi đúng những tên này.
+
+### 2. So sánh với spec
+Mở `docs/imm-XX/05_API_Specification.md` và verify mỗi endpoint spec đã có trong BE. Nếu mismatch: fix BE trước khi build FE.
+
+### 3. Verify DocType fields vs service
+```bash
+grep -n "doc\." assetcore/services/immXX.py | grep -v "frappe\|get_doc\|db\.\|#" | head -30
+```
+Với mỗi `doc.<field>` trong output, verify field tồn tại trong DocType JSON tương ứng.
+
+### 4. KHÔNG spawn BE + FE agent song song nếu spec có mismatch
+Thứ tự bắt buộc:
+1. Build + verify BE (endpoints đúng tên, fields đúng JSON)
+2. Extract endpoint names thực tế từ BE code
+3. Pass endpoint names thực tế vào FE prompt — không để FE tự đoán từ spec
+
+### 5. Verify BE-FE alignment sau khi cả hai xong
+```bash
+diff \
+  <(grep "@frappe.whitelist" -A2 assetcore/api/immXX.py | grep "def " | cut -d'(' -f1 | sort) \
+  <(grep "frappeGet\|frappePost" frontend/src/api/immXX.ts | grep -o "imm[0-9].*'" | cut -d"'" -f1 | rev | cut -d'.' -f1 | rev | sort)
+```
+Output phải empty (no diff). Nếu có diff: fix FE endpoint paths.
 
 ---
 
@@ -45,152 +88,112 @@ Mỗi bước build sequence dưới đây tương ứng 1 hoặc 2 skill. **AI 
 
 | File | Phải đọc khi |
 |------|-------------|
-| `docs/imm-xx/02_Analysis_Design.md` | Trước mọi việc — actor, use case, business rules |
-| `docs/imm-xx/04_Backend_Design.md` | Trước thiết kế DocType và service |
-| `docs/imm-xx/05_API_Specification.md` | Trước viết API layer |
-| `docs/imm-xx/06_Frontend_Design.md` | Trước build FE — page list, route map |
-| `docs/imm-xx/07_Testing_QA.md` | Trước viết test — coverage matrix |
-| `.claude/skills/qms-mapper/references/artifacts.md` | Tránh trùng tên DocType |
-| `.claude/skills/assetcore-be-module/references/error-codes.md` | Khi raise `ServiceError` |
-| `.claude/skills/assetcore-be-module/references/permission-matrix.md` | Khi viết DocPerm |
+| `docs/imm-XX/02_Analysis_Design.md` | Trước mọi việc — actor, use case, business rules |
+| `docs/imm-XX/04_Backend_Design.md` | Trước thiết kế DocType và service |
+| `docs/imm-XX/05_API_Specification.md` | Trước viết API layer |
+| `docs/imm-XX/06_Frontend_Design.md` | Trước build FE — page list, route map |
+| `docs/imm-XX/07_Testing_QA.md` | Trước viết test — UAT scenarios |
+| `.claude/skills/assetcore-be/references/error-codes.md` | Khi raise `ServiceError` |
+| `.claude/skills/assetcore-be/references/permission-matrix.md` | Khi viết DocPerm |
 
 ---
 
-## Build Sequence (8 bước — gate-based)
+## Build Sequence — chi tiết 9 bước
 
-### Bước 1 — `assetcore-doctype-designer`: Schema
-**Output**: DocType JSON + controller `.py` skeleton
+### Bước 1 — DocType Schema (`assetcore-be`)
+**Output**: `assetcore/assetcore/doctype/<snake_name>/` (4 files)
 
-Quy tắc bắt buộc:
+Rules bắt buộc:
 - `module: "AssetCore"`, `track_changes: 1`, `is_submittable: 1` nếu có finalization
-- `autoname: "format:..."` với readable prefix (`WO-PM-`, `WO-RP-`, `CAL-`, `IR-`, `DOC-`)
-- Naming: `AC ` (core entity), `IMM ` (governance), no prefix (operational)
-- System-set fields **bắt buộc** `read_only: 1`: `status`, timestamps, hash fields, `from_status`, `to_status`, `actor`
-- Immutable records (audit, lifecycle event): `no_copy: 1`
-- Permissions: cover `IMM System Admin` + ≥2 operational role; KHÔNG add `System Manager` cho non-admin DocType
-- Child table: naming `<Parent> Row`, `istable: 1`
+- `autoname: "format:..."` với readable prefix (`WO-PM-`, `WO-RP-`, `CAL-`, `IR-`)
+- Naming: `AC ` (core entity), `IMM ` (governance) — không bare name
+- System-set fields: `read_only: 1` — status, timestamps, hash fields, from_status, to_status, actor
+- Immutable records: `no_copy: 1` (audit trail, lifecycle event)
+- Permissions: `IMM System Admin` + ≥2 operational roles; KHÔNG `System Manager` cho non-admin
 
-Gate: `bench --site [site] migrate` clean, không error.
+**Gate**: `bench --site miyano migrate` clean.
 
-### Bước 2 — `assetcore-workflow-builder`: State Machine
-**Output**: `assetcore/workflow/imm_XX_<name>_workflow.json`
+### Bước 2 — Workflow (`assetcore-be`)
+**Output**: `assetcore/assetcore/workflow/imm_XX_<domain>_workflow.json`
 
-Quy tắc bắt buộc:
-- Mỗi state có: `doc_status` (0/1/2), `style` (Warning/Success/Danger), `allow_edit` role
-- Mỗi transition có: `state` từ → `next_state`, `allowed` role, `condition` nếu cần
-- Workflow PHẢI nằm trong `hooks.py` `fixtures` list (phổ biến lỗi: workflow JSON tồn tại nhưng không export)
-- Mỗi workflow state mới phải có entry trong `Workflow State` fixture
-- Không có orphan state (không thể đến hoặc không thể thoát)
-- Test entry trong `EXPECTED_WORKFLOWS` của `tests/test_workflows.py`
+Rules bắt buộc:
+- Mỗi state: `doc_status` (0/1/2), `style` (Warning/Success/Danger), `allow_edit` role
+- Mỗi transition: `state` từ → `next_state`, `allowed` role
+- Không có orphan state
+- **hooks.py 3-list update** trong cùng commit:
+  - `"dt": "Workflow"` list thêm tên workflow
+  - `"dt": "Workflow State"` list thêm TẤT CẢ state names từ JSON
+  - `"dt": "Workflow Action Master"` list thêm TẤT CẢ action labels từ JSON
+- `EXPECTED_WORKFLOWS` trong `tests/test_workflows.py` updated
 
-Gate: `bench migrate` import workflow thành công; UI thấy workflow visualization.
+Đếm states + transitions từ JSON (KHÔNG đoán):
+```bash
+python3 -c "import json; d=json.load(open('assetcore/assetcore/workflow/imm_XX_<name>_workflow.json')); print(len(d['states']), len(d['transitions']))"
+```
 
-### Bước 3 — `assetcore-tester`: Viết test TRƯỚC (TDD)
-**Output**: `assetcore/tests/test_immXX_<feature>.py`
+**Gate**: `bench migrate` import workflow thành công.
+
+### Bước 3 — Tests trước (TDD, `assetcore-test`)
+**Output**: `assetcore/tests/test_immXX.py`
 
 Cover bắt buộc:
 - Happy path (create → submit → terminal state)
 - Validation error (mỗi `ServiceError` raise point có ≥1 test)
-- Permission error (user không có role bị `FORBIDDEN`)
-- State transition (mỗi workflow edge có ≥1 test)
-- Audit trail integrity (sau action, `IMM Audit Trail` có row mới với hash chain hợp lệ)
+- Permission error (`FORBIDDEN` khi sai role)
+- Mỗi workflow edge có ≥1 test
+- Audit trail integrity (sau action có row `IMM Audit Trail` mới)
 
-Quy tắc:
-- KHÔNG mock database — dùng `frappe.test_runner` với real site
-- KHÔNG bare `except: pass` trong setup — fail loud
-- Chạy: `bench --site [site] run-tests --module assetcore.tests.test_immXX_<feature>`
+**Gate**: Tests chạy → đỏ (vì chưa implement). Đỏ là đúng.
 
-Gate: Test chạy → đỏ ở các test mới (vì chưa implement). Đỏ là đúng.
+### Bước 4 — BE Implementation (`assetcore-be`)
+**Output**: Repository + Service + API + Controller (3-tier đúng)
 
-### Bước 4 — `assetcore-be-module`: Repository + Service + API + Controller
-**Output**: 4 file BE wired đúng 3-tier
+Exact file paths:
+- `assetcore/repositories/<name>_repo.py` — kế thừa `BaseRepository`, export qua `__init__.py`
+- `assetcore/services/immXX.py` — constants class → validators → entrypoints
+- `assetcore/api/immXX.py` — copy `_parse_json` + `_handle` từ `api/imm09.py:17-33`
+- `assetcore/assetcore/doctype/<name>/<name>.py` — chỉ delegate, không inline logic
 
-**Repository** (`assetcore/repositories/<domain>_repo.py`):
-- Kế thừa `BaseRepository`
-- Export qua `repositories/__init__.py` (lỗi phổ biến: thiếu export → service import fail)
-- KHÔNG có business logic, chỉ db query
+**Gate**: Chạy lại tests bước 3 → tất cả xanh.
 
-**Service** (`assetcore/services/immXX.py`):
-- KHÔNG `frappe.db.*` trực tiếp — phải qua repository
-- KHÔNG `frappe.throw(_(f"..."))` — dùng `_("...").format(...)` (f-string không dịch được)
-- Status change: PHẢI `transition_asset_status(asset_ref, target_status, root_record=...)` từ `imm00.py`
-- Audit: PHẢI `log_audit_event(...)` từ `utils/lifecycle.py` — không insert `IMM Audit Trail` trực tiếp
-- Lifecycle event: PHẢI `create_lifecycle_event(...)` từ `utils/lifecycle.py` — không định nghĩa `_create_lifecycle_event` riêng
-- Filter normalization: dùng `normalize_filters()` từ `services/shared/filters.py` — không duplicate `_OP_TOKENS` / `_norm()`
-- Error: `raise ServiceError(ErrorCode.X, msg)` với canonical `ErrorCode` từ `services/shared/constants.py` (KHÔNG dùng legacy ErrorCode trong `utils/response.py`)
-- Logging: `frappe.logger().info()` cho operational data; `frappe.log_error()` chỉ cho exception thực sự
+### Bước 5 — FE Wire (`assetcore-fe`)
+**Output**: API client + Store + Views + Routes + Sidebar + Launcher tile
 
-**API** (`assetcore/api/immXX.py`):
-- `@frappe.whitelist()` đặt ĐÚNG ở `api/` layer, KHÔNG ở controller
-- Pattern A (`_handle` wrapper) hoặc Pattern B (`@api_endpoint` decorator) — chọn 1, nhất quán trong module
-- Trả về dict chuẩn (qua `_handle` hoặc decorator), không trả raw exception
+Exact file paths:
+- `frontend/src/api/immXX.ts` — `frappeGet`/`frappePost`, return `Promise<T>` không `Promise<ApiResponse<T>>`
+- `frontend/src/stores/immXX.ts` — Pinia setup syntax, không re-export `api` namespace
+- `frontend/src/views/<domain>/` — domain-named (xem mapping table trong `assetcore-fe` skill), KHÔNG `views/immXX/`
+- Router entry với `meta.moduleId: 'immXX'` + `meta.roles`
+- Sidebar entry trong `MODULE_NAV`
+- Launcher tile với `disabled: false` + route tồn tại
 
-**Controller** (`assetcore/assetcore/doctype/<x>/<x>.py`):
-- Chỉ chứa hook (`before_insert`, `validate`, `on_submit`...)
-- Mỗi hook chỉ gọi 1-3 service function — KHÔNG inline business logic
-- Lazy-import service để tránh circular dep
-- KHÔNG `@frappe.whitelist()` trong controller
-- KHÔNG `frappe.db.*` trong controller
-- KHÔNG `doc.save()` trên submitted doc — dùng `frappe.db.set_value(..., update_modified=False)`
+**Gate**: `npm run typecheck` + `npm run lint` pass; click launcher tile → vào được module.
 
-Gate: Chạy lại test bước 3 → tất cả xanh.
+### Bước 6 — Migrate + Fixture (`assetcore-deploy`)
+```bash
+bench --site miyano export-fixtures --app assetcore
+bench --site miyano migrate
+bench --site miyano run-tests --module assetcore.tests.test_immXX
+bench --site miyano run-tests --module assetcore.tests.test_workflows
+```
 
-### Bước 5 — `assetcore-fe-module`: API Client + Store + Views + Routes
-**Output**: API + Store + Views + Router entries + Sidebar entry + Launcher tile
+**Gate**: Fresh site provision thành công (workflow + roles sẵn có).
 
-**API** (`frontend/src/api/immXX.ts`):
-- Dùng `frappeGet`/`frappePost` từ `@/api/helpers` — KHÔNG `fetch` / `axios` trực tiếp
-- Return type `Promise<T>` — KHÔNG `Promise<ApiResponse<T>>` (frappeGet đã unwrap envelope)
-- URL format: `frappeGet('assetcore.api.immXX.method_name')`
-- Type đầy đủ — KHÔNG `any`, KHÔNG `as unknown as T`
+### Bước 7 — Module Readiness (`assetcore-audit`)
+Chạy 8-pillar checklist + security review. Output format audit report chuẩn.
 
-**Store** (`frontend/src/stores/immXX.ts`):
-- Pinia + TanStack Query — không re-export `* as api` (vi phạm layer)
-- State typed (`Record[]`, không `any[]`)
-- `staleTime` cấu hình phù hợp use case
+**Gate**: 0 Critical gaps.
 
-**Views** (`frontend/src/views/immXX/`):
-- `<script setup lang="ts">` strict
-- KHÔNG khai báo `const BASE = '...'` và gọi `frappeGet` trực tiếp — phải qua API function
-- `catch (e: unknown)` + `e instanceof Error` guard — KHÔNG `catch (e: any)`
-- List/Detail view phải có loading state + error state với "Thử lại" button
-- Label tiếng Việt; variable tiếng Anh
+### Bước 7b — Đồng bộ docs (`assetcore-doc`)
+Update `docs/imm-XX/`:
+- `04_Backend_Design.md` — DocType fields, service entrypoints thực tế
+- `05_API_Specification.md` — endpoint list khớp code
+- `06_Frontend_Design.md` — route map, views thực tế
+- `07_Testing_QA.md` — UAT scenarios
+- `09_Release.md` — release notes
 
-**Router** (`frontend/src/router/index.ts`):
-- Mỗi route có `meta.moduleId: 'immXX'` (key khớp `MODULE_NAV`)
-- `meta.requiresAuth: true` + `meta.roles: ROLES_XXX` (từ `@/constants/roles`)
-
-**Sidebar** (`frontend/src/components/common/AppSidebar.vue`):
-- Thêm entry vào `MODULE_NAV` với `code`, `title`, `icon`, `items[]`
-- Mỗi `path` trong `items[]` PHẢI khớp với route đã đăng ký
-
-**Launcher** (`frontend/src/views/modules/LauncherView.vue`):
-- Thêm tile cho module — không bỏ sót
-
-Gate: `npm run dev` không lỗi compile; click tile launcher → vào được module; sidebar hiển thị đúng nav-items.
-
-### Bước 6 — `assetcore-security`: Review trước merge
-- DocPerm matrix khớp `permission-matrix.md`
-- Không có `System Manager` ở non-admin DocType
-- Mọi `@frappe.whitelist()` được verified: cần auth? cần role? cần input validation?
-- Vendor isolation nếu có multi-tenant data
-
-### Bước 7 — `assetcore-devops`: Migrate + Fixture
-- `bench --site [site] migrate` clean
-- Export fixture: `bench --site [site] export-fixtures`
-- Cập nhật `hooks.py` `fixtures` list nếu có:
-  - Workflow mới
-  - Workflow State mới
-  - Role / Role Profile mới
-  - Custom Field mới
-- Verify: drop site → install lại → workflow + role có sẵn
-
-### Bước 8 — `assetcore-deployment`: Release checklist
-- Test pass (BE + FE build)
-- Migration clean trên fresh DB
-- Fixture exported đầy đủ
-- Smoke test trên staging
-- Rollback plan nếu có breaking schema change
+### Bước 8 — Deploy (`assetcore-deploy`)
+Deploy lên staging/prod theo pre-deployment checklist trong `assetcore-deploy` skill.
 
 ---
 
@@ -207,6 +210,7 @@ Gate: `npm run dev` không lỗi compile; click tile launcher → vào được 
 | Role constants | `Roles` | `assetcore.services.shared.constants` |
 | FE HTTP helpers | `frappeGet`, `frappePost` | `@/api/helpers` |
 | FE role constants | `ROLES_*` | `@/constants/roles` |
+| `_parse_json` + `_handle` | copy từ `assetcore/api/imm09.py:17-33` | không redefine |
 
 ---
 
@@ -219,31 +223,16 @@ Mỗi module phát triển xong phải có summary với:
 - Workflow diagram (text)
 - Audit trail integration point (nơi gọi `log_audit_event`)
 - KPI nếu có trong spec
-- Test coverage số liệu
 
 ---
 
 ## Ràng buộc (KHÔNG làm)
 
-- KHÔNG modify ERPNext core (CLAUDE.md §19) — extend bằng `AC <X>` parallel DocType
-- KHÔNG hardcode logic trong controller (CLAUDE.md §15) — service layer only
-- KHÔNG bỏ audit trail dù feature "đơn giản"
+- KHÔNG modify ERPNext core (CLAUDE.md §19)
+- KHÔNG hardcode logic trong controller — service layer only
+- KHÔNG bỏ audit trail
 - KHÔNG build UI trước workflow (CLAUDE.md §19)
-- KHÔNG skip TDD — dù task gấp
+- KHÔNG skip TDD
 - KHÔNG dùng `any` / `as unknown as T` để workaround type
 - KHÔNG inline import (`import json` trong function body khi đã import top)
-
----
-
-## Trigger phrases
-
-- "phát triển module IMM"
-- "build IMM-XX"
-- "implement IMM"
-- "viết API IMM"
-- "thêm backend logic"
-- "tạo DocType mới"
-- "thêm workflow cho IMM"
-- "viết test cho IMM"
-- "phát triển AssetCore"
-- "wire FE-BE cho IMM"
+- KHÔNG `_parse_json` signature khác với `api/imm09.py` canonical

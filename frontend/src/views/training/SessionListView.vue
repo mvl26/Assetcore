@@ -94,14 +94,14 @@ onMounted(() => load())
     <PageHeader
       title="Buổi đào tạo"
       :subtitle="`Tổng ${sessionPagination.total} buổi`"
-      :breadcrumb="[{ label: 'IMM-06 · Đào tạo & Năng lực', to: '/training/sessions' }, { label: 'Danh sách buổi đào tạo' }]"
+      :breadcrumb="[{ label: 'IMM-06 · Đào tạo & Năng lực', to: '/imm06/sessions' }, { label: 'Danh sách buổi đào tạo' }]"
     >
       <template #actions>
         <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
         <button
           v-if="canCreate"
           class="btn-primary"
-          @click="router.push('/training/sessions/new')"
+          @click="router.push('/imm06/sessions/new')"
         >
           <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
@@ -139,7 +139,7 @@ onMounted(() => load())
 
     <div class="table-wrapper">
       <div class="flex items-center justify-between px-4 py-2.5 border-b border-slate-100 bg-slate-50/60 text-xs text-slate-500">
-        <span>Hiển thị <strong class="text-slate-700">{{ sessions.length }}</strong> / {{ sessionPagination.total }} buổi</span>
+        <span>Hiển thị <strong class="text-slate-700">{{ sessions?.length ?? 0 }}</strong> / {{ sessionPagination.total }} buổi</span>
         <button v-if="activeFilterCount > 0" class="text-red-500 hover:text-red-700 font-medium" @click="resetFilters">Xóa tất cả</button>
       </div>
 
@@ -173,7 +173,7 @@ onMounted(() => load())
               v-for="s in sessions"
               :key="s.name"
               class="hover:bg-slate-50 cursor-pointer transition-colors"
-              @click="router.push(`/training/sessions/${s.name}`)"
+              @click="router.push(`/imm06/sessions/${s.name}`)"
             >
               <td class="table-cell font-mono text-xs text-slate-500">{{ s.name }}</td>
               <td class="table-cell">

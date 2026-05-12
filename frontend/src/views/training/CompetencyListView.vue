@@ -71,20 +71,26 @@ function levelLabel(v: string) {
 
 function stateClass(state: string): string {
   const map: Record<string, string> = {
-    'Active':          'bg-emerald-100 text-emerald-700',
-    'Pending Signoff': 'bg-yellow-100 text-yellow-700',
-    'Revoked':         'bg-red-100 text-red-700',
-    'Expired':         'bg-neutral-100 text-neutral-500',
+    'Active':              'bg-emerald-100 text-emerald-700',
+    'Pending Assessment':  'bg-blue-100 text-blue-700',
+    'Pending Signoff':     'bg-yellow-100 text-yellow-700',
+    'Expiring':            'bg-amber-100 text-amber-700',
+    'Revoked':             'bg-red-100 text-red-700',
+    'Expired':             'bg-neutral-100 text-neutral-500',
+    'Suspended':           'bg-orange-100 text-orange-700',
   }
   return map[state] ?? 'bg-neutral-100 text-neutral-600'
 }
 
 function stateLabel(s: string) {
   const map: Record<string, string> = {
-    'Active':          'Hiệu lực',
-    'Pending Signoff': 'Chờ phê duyệt',
-    'Revoked':         'Đã thu hồi',
-    'Expired':         'Hết hạn',
+    'Active':              'Hiệu lực',
+    'Pending Assessment':  'Chờ đánh giá',
+    'Pending Signoff':     'Chờ phê duyệt',
+    'Expiring':            'Sắp hết hạn',
+    'Revoked':             'Đã thu hồi',
+    'Expired':             'Hết hạn',
+    'Suspended':           'Tạm ngưng',
   }
   return map[s] ?? s
 }
@@ -111,7 +117,7 @@ onMounted(() => load())
     <PageHeader
       title="Năng lực nhân viên"
       :subtitle="`Tổng ${competencyPagination.total} bản ghi năng lực`"
-      :breadcrumb="[{ label: 'IMM-06 · Đào tạo & Năng lực', to: '/training/competencies' }, { label: 'Danh sách năng lực' }]"
+      :breadcrumb="[{ label: 'IMM-06 · Đào tạo & Năng lực', to: '/imm06/competencies' }, { label: 'Danh sách năng lực' }]"
     >
       <template #actions>
         <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
@@ -143,7 +149,7 @@ onMounted(() => load())
 
     <div class="table-wrapper">
       <div class="flex items-center justify-between px-4 py-2.5 border-b border-slate-100 bg-slate-50/60 text-xs text-slate-500">
-        <span>Hiển thị <strong class="text-slate-700">{{ competencies.length }}</strong> / {{ competencyPagination.total }} bản ghi</span>
+        <span>Hiển thị <strong class="text-slate-700">{{ competencies?.length ?? 0 }}</strong> / {{ competencyPagination.total }} bản ghi</span>
         <button v-if="activeFilterCount > 0" class="text-red-500 hover:text-red-700 font-medium" @click="resetFilters">Xóa tất cả</button>
       </div>
 
@@ -177,7 +183,7 @@ onMounted(() => load())
               v-for="c in competencies"
               :key="c.name"
               class="hover:bg-slate-50 cursor-pointer transition-colors"
-              @click="router.push(`/training/competencies/${c.name}`)"
+              @click="router.push(`/imm06/competencies/${c.name}`)"
             >
               <td class="table-cell">
                 <div class="font-medium text-slate-900">{{ c.user_full_name ?? c.user }}</div>

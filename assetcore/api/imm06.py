@@ -152,7 +152,23 @@ def get_user_competencies(user: str = "") -> dict:
 
 @frappe.whitelist(methods=["POST"])
 def signoff_competency(name: str) -> dict:
-    """POST /api/method/assetcore.api.imm06.signoff_competency"""
+    """POST /api/method/assetcore.api.imm06.signoff_competency
+
+    BE-06-01: Chỉ supervisor (Training Officer / Workshop Lead / QA / System Admin)
+    được phép sign-off. Side-effect: chuyển workflow_state PENDING → ACTIVE
+    và update IMM User Competency row.
+    """
+    user_roles = set(frappe.get_roles(frappe.session.user))
+    allowed = {
+        "IMM Training Officer", "IMM Workshop Lead",
+        "IMM Quality Assurance", "IMM System Admin",
+        "System Manager",  # admin fallback
+    }
+    if not (user_roles & allowed):
+        return _err(
+            "Chỉ Training Officer / Workshop Lead / QA / System Admin được sign-off",
+            ErrorCode.FORBIDDEN,
+        )
     return _run(svc.signoff_competency_by_name, name)
 
 
@@ -194,3 +210,13 @@ def get_expiring_competencies(days: int = 60) -> dict:
 def check_user_authorization(user: str, asset_name: str) -> dict:
     """GET — check if user has Active competency for given asset's device model."""
     return _run(svc.validate_user_authorized_for_asset, user, asset_name)
+
+
+@frappe.whitelist()
+def get_asset_operator_coverage(asset: str) -> dict:
+    """GET /api/method/assetcore.api.imm06.get_asset_operator_coverage
+
+    Docs §C.3 — Coverage operator cho 1 asset (BE-06-02).
+    Dùng bởi IMM-04 Clinical Release validate gate.
+    """
+    return _run(svc.get_asset_operator_coverage, asset)

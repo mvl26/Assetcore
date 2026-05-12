@@ -69,7 +69,10 @@ def create_training_program(data: dict) -> dict:
     if not data.get("target_device_model") and not data.get("target_device_category"):
         raise ServiceError(ErrorCode.VALIDATION,
                            "Phải có ít nhất Device Model hoặc Device Category")
-    doc = TrainingProgramRepo.create(data)
+    # Strip empty-string Link fields to avoid Frappe link validation errors
+    _LINK_FIELDS = ("target_device_model", "target_device_category", "qms_doc_ref")
+    clean = {k: v for k, v in data.items() if not (k in _LINK_FIELDS and v == "")}
+    doc = TrainingProgramRepo.create(clean)
     frappe.db.commit()
     return {"name": doc.name, "program_code": doc.program_code}
 
@@ -229,6 +232,7 @@ def revoke_competency(competency_name: str, reason: str) -> dict:
     doc.revoke_reason = reason
     doc.revoked_by = frappe.session.user
     doc.revoked_date = now_datetime()
+    doc.flags.ignore_workflow_status_check = True
     UserCompetencyRepo.save(doc)
 
     _invalidate_auth_cache(doc.user, doc.device_model)
@@ -257,6 +261,7 @@ def signoff_competency(competency_name: str, supervisor_user: str) -> dict:
         doc.expiry_date = add_months(doc.achieved_date, validity)
         doc.recertification_due_date = add_days(doc.expiry_date, -60)
 
+    doc.flags.ignore_workflow_status_check = True
     UserCompetencyRepo.save(doc)
     archive_old_competency(doc.user, doc.device_model, exclude=competency_name)
     _invalidate_auth_cache(doc.user, doc.device_model)
@@ -308,6 +313,58 @@ def validate_user_authorized_for_asset(user: str, asset_name: str) -> dict:
         }
     frappe.cache().set_value(cache_key, result, expires_in_sec=300)
     return result
+
+
+def get_asset_operator_coverage(asset: str) -> dict:
+    """Docs §C.3 — Trả coverage operator cho 1 asset.
+
+    Dùng bởi IMM-04 Clinical Release validate gate.
+
+    Args:
+        asset: tên AC Asset
+
+    Returns:
+        {asset, device_model, department, asset_class, operator_count,
+         operator_users, required_min, gate_pass}
+    """
+    if not frappe.db.exists("AC Asset", asset):
+        raise ServiceError(ErrorCode.NOT_FOUND, f"Asset {asset} không tồn tại")
+
+    a = frappe.db.get_value(
+        "AC Asset", asset,
+        ["device_model", "department", "risk_classification"],
+        as_dict=True,
+    ) or {}
+
+    device_model = a.get("device_model") or ""
+    department   = a.get("department") or ""
+    asset_class  = a.get("risk_classification") or ""
+
+    required_min = 2 if asset_class == "Class III" else 1
+
+    operator_users: list[str] = []
+    if device_model:
+        rows = frappe.get_all(
+            "IMM User Competency",
+            filters={
+                "device_model": device_model,
+                "workflow_state": ["in", list(CompetencyStatus.AUTHORIZED)],
+            },
+            fields=["user"],
+            ignore_permissions=True,
+        )
+        operator_users = sorted({r.user for r in rows if r.user})
+
+    return {
+        "asset":          asset,
+        "device_model":   device_model,
+        "department":     department,
+        "asset_class":    asset_class,
+        "operator_count": len(operator_users),
+        "operator_users": operator_users,
+        "required_min":   required_min,
+        "gate_pass":      len(operator_users) >= required_min,
+    }
 
 
 def generate_gap_report(filters: dict) -> dict:
@@ -583,8 +640,30 @@ def invalidate_authorization_cache(user: str, device_model: str) -> None:
 # ─── Service wrappers matching API signatures ─────────────────────────────────
 
 def list_programs(filters: dict, page: int = 1, page_size: int = 20) -> dict:
-    """Alias list_training_programs cho API imm06.py."""
-    return list_training_programs(filters, page=page, page_size=page_size)
+    """Alias list_training_programs cho API imm06.py — enrich display names (BE-DC-06-01)."""
+    res = list_training_programs(filters, page=page, page_size=page_size)
+    _enrich_program_display_names(res.get("data", []))
+    return res
+
+
+def _enrich_program_display_names(items: list[dict]) -> None:
+    if not items:
+        return
+    model_ids = {it.get("target_device_model") for it in items if it.get("target_device_model")}
+    model_map: dict = {}
+    if model_ids:
+        try:
+            rows = frappe.get_all(
+                "IMM Device Model",
+                filters={"name": ["in", list(model_ids)]},
+                fields=["name", "model_name"],
+                ignore_permissions=True,
+            )
+            model_map = {r["name"]: r.get("model_name") for r in rows}
+        except Exception:
+            pass
+    for it in items:
+        it["target_device_model_name"] = model_map.get(it.get("target_device_model"))
 
 
 def get_program(name: str) -> dict:
@@ -619,8 +698,64 @@ def update_program(name: str, program_data: dict) -> dict:
 
 
 def list_sessions(filters: dict, page: int = 1, page_size: int = 20) -> dict:
-    """Alias list_training_sessions cho API imm06.py."""
-    return list_training_sessions(filters, page=page, page_size=page_size)
+    """Alias list_training_sessions cho API imm06.py — enrich display (BE-DC-06-01).
+
+    Bổ sung `trainer_name`, `program_name`, `attendee_count` cho mỗi row.
+    """
+    res = list_training_sessions(filters, page=page, page_size=page_size)
+    _enrich_session_display_names(res.get("data", []))
+    return res
+
+
+def _enrich_session_display_names(items: list[dict]) -> None:
+    if not items:
+        return
+    prog_ids = {it.get("training_program") for it in items if it.get("training_program")}
+    user_ids = {it.get("instructor")       for it in items if it.get("instructor")}
+    names    = [it["name"] for it in items if it.get("name")]
+
+    prog_map: dict = {}
+    user_map: dict = {}
+    attendee_map: dict = {}
+
+    try:
+        if prog_ids:
+            rows = frappe.get_all(
+                "IMM Training Program",
+                filters={"name": ["in", list(prog_ids)]},
+                fields=["name", "program_name"], ignore_permissions=True,
+            )
+            prog_map = {r["name"]: r.get("program_name") for r in rows}
+    except Exception:
+        pass
+    try:
+        if user_ids:
+            rows = frappe.get_all(
+                "User",
+                filters={"name": ["in", list(user_ids)]},
+                fields=["name", "full_name"], ignore_permissions=True,
+            )
+            user_map = {r["name"]: r.get("full_name") for r in rows}
+    except Exception:
+        pass
+    # Attendee count = số participant rows / session
+    try:
+        if names:
+            rows = frappe.db.sql(
+                """SELECT parent, COUNT(*) FROM `tabIMM Training Participant`
+                   WHERE parent IN ({placeholders}) GROUP BY parent""".format(
+                    placeholders=", ".join(["%s"] * len(names)),
+                ),
+                tuple(names),
+            )
+            attendee_map = dict(rows)
+    except Exception:
+        pass
+
+    for it in items:
+        it["program_name"]    = prog_map.get(it.get("training_program"))
+        it["trainer_name"]    = user_map.get(it.get("instructor"))
+        it["attendee_count"]  = attendee_map.get(it.get("name"), 0)
 
 
 def get_session(name: str) -> dict:
@@ -720,8 +855,39 @@ def cancel_session(name: str, cancel_reason: str) -> dict:
 
 
 def list_competencies(filters: dict, page: int = 1, page_size: int = 20) -> dict:
-    """Alias list_user_competencies cho API imm06.py."""
-    return list_user_competencies(filters, page=page, page_size=page_size)
+    """Alias list_user_competencies cho API imm06.py — enrich display (BE-DC-06-01).
+
+    Bổ sung `user_full_name`, `device_model_name`.
+    """
+    res = list_user_competencies(filters, page=page, page_size=page_size)
+    _enrich_competency_display_names(res.get("data", []))
+    return res
+
+
+def _enrich_competency_display_names(items: list[dict]) -> None:
+    if not items:
+        return
+    user_ids  = {it.get("user")         for it in items if it.get("user")}
+    model_ids = {it.get("device_model") for it in items if it.get("device_model")}
+
+    def _map(doctype: str, ids: set, field: str) -> dict:
+        if not ids:
+            return {}
+        try:
+            rows = frappe.get_all(
+                doctype, filters={"name": ["in", list(ids)]},
+                fields=["name", field], ignore_permissions=True,
+            )
+            return {r["name"]: r.get(field) for r in rows}
+        except Exception:
+            return {}
+
+    user_map  = _map("User",             user_ids,  "full_name")
+    model_map = _map("IMM Device Model", model_ids, "model_name")
+
+    for it in items:
+        it["user_full_name"]    = user_map.get(it.get("user"))
+        it["device_model_name"] = model_map.get(it.get("device_model"))
 
 
 def get_user_competencies(user: str = "") -> dict:

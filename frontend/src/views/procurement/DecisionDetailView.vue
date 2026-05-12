@@ -37,7 +37,7 @@
           </dd>
           <dt>Nhà cung cấp trúng thầu:</dt>
           <dd>
-            <span v-if="store.currentDecision.winner_supplier">{{ store.currentDecision.winner_supplier }}</span>
+            <span v-if="store.currentDecision.winner_supplier">{{ store.currentDecision.winner_supplier_name || store.currentDecision.winner_supplier }}</span>
             <span v-else class="muted">— chưa chọn —</span>
           </dd>
           <dt>Số lượng:</dt><dd>{{ store.currentDecision.quantity || 1 }}</dd>
@@ -93,7 +93,7 @@
             <select v-model="awardForm.winner_supplier" required>
               <option value="">— Chọn nhà cung cấp —</option>
               <option v-for="c in evalCandidates" :key="c.supplier" :value="c.supplier">
-                {{ c.supplier }} (điểm: {{ c.weighted_score?.toFixed(2) ?? '—' }})
+                {{ c.supplier_name || c.supplier }} (điểm: {{ c.weighted_score?.toFixed(2) ?? '—' }})
                 {{ c.in_avl ? '✓ Đã được duyệt' : '⚠ Chưa được duyệt' }}
               </option>
             </select>
@@ -186,7 +186,8 @@ const TRANSITIONS_BY_STATE: Record<string, string[]> = {
   'Draft':             ['Chọn phương án'],
   'Method Selected':   ['Bắt đầu thương thảo'],
   'Negotiation':       ['Đề xuất trúng thầu'],
-  'Award Recommended': ['Trình Ban Giám đốc'],
+  'Award Recommended': ['Trình BGĐ'],
+  'Contract Signed':   ['Phát hành PO'],
 }
 
 const evalCandidates = ref<VendorEvalCandidate[]>([])

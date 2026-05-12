@@ -48,7 +48,7 @@
       <select v-model="filters.workflow_state" @change="applyFilters">
         <option value="">Tất cả trạng thái</option>
         <option value="Draft">Nháp</option>
-        <option value="Pending_Review">Chờ duyệt</option>
+        <option value="Pending Review">Chờ duyệt</option>
         <option value="Active">Hiệu lực</option>
         <option value="Expired">Hết hạn</option>
         <option value="Archived">Lưu trữ</option>
@@ -189,7 +189,7 @@
 import { useToast } from '@/composables/useToast'
 import { ref, reactive, onMounted, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { useImm05Store } from '@/stores/imm05Store'
+import { useImm05Store } from '@/stores/imm05'
 import { useAuthStore } from '@/stores/auth'
 import type { AssetDocumentItem, DocumentFilters } from '@/api/imm05'
 import { formatDatetime } from '@/utils/docUtils'

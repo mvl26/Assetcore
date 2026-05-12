@@ -58,7 +58,7 @@
                 :class="{ winner: store.currentEval.recommended_candidate === c.supplier }">
               <td>
                 <strong v-if="store.currentEval.recommended_candidate === c.supplier">★</strong>
-                {{ c.supplier }}
+                {{ c.supplier_name || c.supplier }}
               </td>
               <td class="center">
                 <span :class="['badge', c.in_avl ? 'avl-yes' : 'avl-no']">
@@ -92,7 +92,7 @@
               <td colspan="7" class="muted text-center">Chưa nhập báo giá.</td>
             </tr>
             <tr v-for="q in store.currentEval.quotations || []" :key="q.idx">
-              <td>{{ q.candidate_supplier }}</td>
+              <td>{{ q.candidate_supplier_name || q.candidate_supplier }}</td>
               <td>{{ q.quotation_no }}</td>
               <td :class="{ expired: isExpired(q.quotation_validity) }">
                 {{ formatVnDate(q.quotation_validity) }}
@@ -156,7 +156,7 @@
           </thead>
           <tbody>
             <tr v-for="c in store.currentEval.candidates || []" :key="c.idx">
-              <td>{{ c.supplier }}</td>
+              <td>{{ c.supplier_name || c.supplier }}</td>
               <td v-for="crit in criteriaInGroup" :key="crit.criterion" class="num">
                 <input type="number" min="1" max="5" step="0.5"
                        :value="getScore(c.supplier, crit.criterion)"
@@ -169,6 +169,52 @@
           <button class="btn btn-primary" @click="saveScoring" :disabled="savingScores">
             {{ savingScores ? 'Đang lưu…' : `Lưu điểm nhóm "${evalGroupLabel(scoringGroup)}"` }}
           </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Thẻ: Scorecard (FE-03-02) -->
+    <section v-show="tab === 'scorecard'" class="tab-content">
+      <div class="card">
+        <h3>Scorecard NCC</h3>
+        <div class="card-head">
+          <label>NCC:
+            <select v-model="scorecardSupplier">
+              <option value="">— Chọn —</option>
+              <option v-for="c in store.currentEval.candidates || []" :key="c.idx" :value="c.supplier">
+                {{ c.supplier_name || c.supplier }}
+              </option>
+            </select>
+          </label>
+          <label>Năm: <input v-model.number="scorecardYear" type="number" /></label>
+          <label>Quý: <input v-model.number="scorecardQuarter" type="number" min="1" max="4" /></label>
+          <button class="btn btn-primary" :disabled="!scorecardSupplier || scorecardBusy"
+                  @click="loadScorecard">
+            {{ scorecardBusy ? 'Đang tải...' : 'Xem' }}
+          </button>
+        </div>
+        <div v-if="scorecardError" class="alert alert-danger">{{ scorecardError }}</div>
+        <div v-if="scorecard" class="scorecard">
+          <div class="score-display">
+            <span class="score-value">{{ Number(scorecard.overall_score || 0).toFixed(2) }}</span>
+            <span class="score-label">/ 5 (kỳ {{ scorecard.period_year }}-Q{{ scorecard.period_quarter }})</span>
+          </div>
+          <table class="data-table small">
+            <thead>
+              <tr><th>KPI</th><th class="num">Điểm</th><th class="num">Trọng số</th><th class="num">Weighted</th></tr>
+            </thead>
+            <tbody>
+              <tr v-for="(r, i) in (scorecard.kpi_rows || [])" :key="i">
+                <td>{{ r.kpi || r.criterion }}</td>
+                <td class="num">{{ r.score }}</td>
+                <td class="num">{{ r.weight_pct }}%</td>
+                <td class="num">{{ r.weighted }}</td>
+              </tr>
+              <tr v-if="!(scorecard.kpi_rows || []).length">
+                <td colspan="4" class="muted text-center">Không có dòng KPI.</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
     </section>
@@ -190,7 +236,12 @@
         </div>
         <div class="modal-body">
           <label>Nhà cung cấp <span class="req">*</span>
-            <input v-model="newCand.supplier" type="text" placeholder="Chọn nhà cung cấp..." />
+            <select v-model="newCand.supplier">
+              <option value="">— Chọn nhà cung cấp —</option>
+              <option v-for="s in supplierOptions" :key="s.name" :value="s.name">
+                {{ s.supplier_name }} ({{ s.name }})
+              </option>
+            </select>
           </label>
           <label>Người ký duyệt ngoại lệ
             <input v-model="newCand.sign_off_non_avl" type="email"
@@ -217,7 +268,7 @@
             <select v-model="newQuote.candidate_supplier">
               <option value="">— Chọn —</option>
               <option v-for="c in store.currentEval.candidates || []" :key="c.idx" :value="c.supplier">
-                {{ c.supplier }}
+                {{ c.supplier_name || c.supplier }}
               </option>
             </select>
           </label>
@@ -262,6 +313,7 @@ import { useRoute } from 'vue-router'
 import { useImm03Store } from '@/stores/imm03'
 import {
   scoreEvaluation, addCandidate, submitQuotations, transitionEvalWorkflow,
+  getVendorScorecard, listVendorProfiles,
 } from '@/api/imm03'
 import type { EvalState, VendorQuotationLine } from '@/types/imm03'
 import { stateLabel, formatVnd, formatVnDate } from '@/utils/wave2Labels'
@@ -270,12 +322,36 @@ const props = defineProps<{ id: string }>()
 const route = useRoute()
 const store = useImm03Store()
 
-type TabId = 'candidates' | 'scoring'
+type TabId = 'candidates' | 'scoring' | 'scorecard'
 const TABS: { id: TabId; label: string }[] = [
   { id: 'candidates', label: '1. Ứng viên & Báo giá' },
   { id: 'scoring',    label: '2. Chấm điểm' },
+  { id: 'scorecard',  label: '3. Scorecard NCC' },
 ]
 const tab = ref<TabId>('candidates')
+
+// ── Scorecard (FE-03-02) ──
+const scorecardSupplier = ref<string>('')
+const scorecardYear     = ref<number>(new Date().getFullYear())
+const scorecardQuarter  = ref<number>(Math.floor(new Date().getMonth() / 3) + 1)
+const scorecard         = ref<Record<string, any> | null>(null)
+const scorecardBusy     = ref(false)
+const scorecardError    = ref<string | null>(null)
+async function loadScorecard() {
+  if (!scorecardSupplier.value) return
+  scorecardBusy.value = true
+  scorecardError.value = null
+  try {
+    scorecard.value = await getVendorScorecard(
+      scorecardSupplier.value, scorecardYear.value, scorecardQuarter.value,
+    ) as Record<string, any>
+  } catch (e: any) {
+    scorecardError.value = e?.message || String(e)
+    scorecard.value = null
+  } finally {
+    scorecardBusy.value = false
+  }
+}
 
 // Bản dịch nhóm tiêu chí (Technical/Commercial/...)
 function evalGroupLabel(g?: string): string {
@@ -360,6 +436,7 @@ async function saveScoring() {
 const showAddCandidate = ref(false)
 const newCand = reactive({ supplier: '', sign_off_non_avl: '' })
 const addCandWarning = ref('')
+const supplierOptions = ref<{ name: string; supplier_name: string }[]>([])
 async function doAddCandidate() {
   if (!store.currentEval?.name || !newCand.supplier) return
   const res = await addCandidate(
@@ -402,7 +479,11 @@ function isExpired(d?: string): boolean {
   return Boolean(d && new Date(d).getTime() < Date.now())
 }
 
-onMounted(() => store.fetchEvaluation(props.id || (route.params.id as string)))
+onMounted(async () => {
+  store.fetchEvaluation(props.id || (route.params.id as string))
+  const res = await listVendorProfiles({}, 1, 100)
+  supplierOptions.value = (res.items || []) as { name: string; supplier_name: string }[]
+})
 </script>
 
 <style scoped>
@@ -458,4 +539,10 @@ onMounted(() => store.fetchEvaluation(props.id || (route.params.id as string)))
 .modal-foot { padding: 1rem; border-top: 1px solid #e5e7eb; display: flex; justify-content: flex-end; gap: 0.5rem; }
 .loading { padding: 3rem; text-align: center; color: #6b7280; }
 code { font-family: ui-monospace, monospace; background: #f3f4f6; padding: 0.1rem 0.3rem; border-radius: 4px; font-size: 0.85rem; }
+.scorecard { margin-top: 1rem; }
+.score-display { font-size: 2rem; font-weight: 700; padding: 0.5rem 0 1rem; }
+.score-value { color: #065f46; }
+.score-label { font-size: 0.9rem; color: #6b7280; font-weight: 400; margin-left: 0.5rem; }
+.alert { background: #fef2f2; border: 1px solid #fca5a5; padding: 0.5rem 0.75rem; border-radius: 6px; margin: 0.5rem 0; }
+.alert-danger { color: #b91c1c; }
 </style>

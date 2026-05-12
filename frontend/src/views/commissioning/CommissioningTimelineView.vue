@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useCommissioningStore } from '@/stores/commissioning'
+import { useCommissioningStore } from '@/stores/imm04'
 import { formatDatetime } from '@/utils/docUtils'
 import type { LifecycleEvent } from '@/types/imm04'
 

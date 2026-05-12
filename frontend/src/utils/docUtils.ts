@@ -1,6 +1,6 @@
 export const DOC_STATE_LABEL: Record<string, string> = {
   Draft: 'Nháp',
-  Pending_Review: 'Chờ duyệt',
+  'Pending Review': 'Chờ duyệt',
   Active: 'Hiệu lực',
   Expired: 'Hết hạn',
   Archived: 'Lưu trữ',

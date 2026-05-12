@@ -1,107 +1,116 @@
 {
-  "creation": "2026-04-17 00:00:00.000000",
-  "document_type": "Asset Document",
-  "doctype": "Workflow",
-  "is_active": 1,
-  "modified": "2026-04-17 00:00:00.000000",
-  "modified_by": "Administrator",
-  "name": "IMM-05 Document Workflow",
-  "owner": "Administrator",
-  "send_email_alert": 0,
-  "workflow_name": "IMM-05 Document Workflow",
-  "workflow_state_field": "workflow_state",
-  "states": [
-    {
-      "allow_edit": "IMM Biomed Technician",
-      "doc_status": "0",
-      "state": "Draft",
-      "type": "Success"
-    },
-    {
-      "allow_edit": "IMM Biomed Technician",
-      "doc_status": "0",
-      "state": "Pending Review",
-      "type": "Warning"
-    },
-    {
-      "allow_edit": "IMM System Admin",
-      "doc_status": "1",
-      "state": "Active",
-      "type": "Success"
-    },
-    {
-      "allow_edit": "IMM Biomed Technician",
-      "doc_status": "0",
-      "state": "Rejected",
-      "type": "Danger"
-    },
-    {
-      "allow_edit": "IMM System Admin",
-      "doc_status": "1",
-      "state": "Archived",
-      "type": "Default"
-    },
-    {
-      "allow_edit": "IMM System Admin",
-      "doc_status": "1",
-      "state": "Expired",
-      "type": "Danger"
-    }
-  ],
-  "transitions": [
-    {
-      "action": "Gửi duyệt",
-      "allowed": "IMM Biomed Technician",
-      "next_state": "Pending Review",
-      "state": "Draft"
-    },
-    {
-      "action": "Gửi duyệt",
-      "allowed": "IMM System Admin",
-      "next_state": "Pending Review",
-      "state": "Draft"
-    },
-    {
-      "action": "Phê duyệt",
-      "allowed": "IMM QA Officer",
-      "next_state": "Active",
-      "state": "Pending Review"
-    },
-    {
-      "action": "Phê duyệt",
-      "allowed": "IMM System Admin",
-      "next_state": "Active",
-      "state": "Pending Review"
-    },
-    {
-      "action": "Từ chối",
-      "allowed": "IMM QA Officer",
-      "next_state": "Rejected",
-      "state": "Pending Review"
-    },
-    {
-      "action": "Từ chối",
-      "allowed": "IMM System Admin",
-      "next_state": "Rejected",
-      "state": "Pending Review"
-    },
-    {
-      "action": "Gửi lại",
-      "allowed": "IMM Biomed Technician",
-      "next_state": "Pending Review",
-      "state": "Rejected"
-    },
-    {
-      "action": "Gửi lại",
-      "allowed": "IMM System Admin",
-      "next_state": "Pending Review",
-      "state": "Rejected"
-    },
-    {
-      "action": "Lưu trữ",
-      "allowed": "IMM System Admin",
-      "next_state": "Archived",
-      "state": "Active"
-    }
-  ]
+ "creation": "2026-04-17 00:00:00.000000",
+ "document_type": "Asset Document",
+ "doctype": "Workflow",
+ "is_active": 1,
+ "modified": "2026-04-17 00:00:00.000000",
+ "modified_by": "Administrator",
+ "name": "IMM-05 Document Workflow",
+ "owner": "Administrator",
+ "send_email_alert": 0,
+ "workflow_name": "IMM-05 Document Workflow",
+ "workflow_state_field": "workflow_state",
+ "states": [
+  {
+   "allow_edit": "IMM Biomed Technician",
+   "doc_status": "0",
+   "state": "Draft",
+   "type": "Success"
+  },
+  {
+   "allow_edit": "IMM Biomed Technician",
+   "doc_status": "0",
+   "state": "Pending Review",
+   "type": "Warning"
+  },
+  {
+   "allow_edit": "IMM System Admin",
+   "doc_status": "1",
+   "state": "Active",
+   "type": "Success"
+  },
+  {
+   "allow_edit": "IMM Biomed Technician",
+   "doc_status": "0",
+   "state": "Rejected",
+   "type": "Danger"
+  },
+  {
+   "allow_edit": "IMM System Admin",
+   "doc_status": "1",
+   "state": "Archived",
+   "type": "Default"
+  },
+  {
+   "allow_edit": "IMM System Admin",
+   "doc_status": "1",
+   "state": "Expired",
+   "type": "Danger"
+  }
+ ],
+ "transitions": [
+  {
+   "action": "Gửi duyệt",
+   "allowed": "IMM Biomed Technician",
+   "next_state": "Pending Review",
+   "state": "Draft",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Gửi duyệt",
+   "allowed": "IMM System Admin",
+   "next_state": "Pending Review",
+   "state": "Draft",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Phê duyệt",
+   "allowed": "IMM QA Officer",
+   "next_state": "Active",
+   "state": "Pending Review",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Phê duyệt",
+   "allowed": "IMM System Admin",
+   "next_state": "Active",
+   "state": "Pending Review",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Từ chối",
+   "allowed": "IMM QA Officer",
+   "next_state": "Rejected",
+   "state": "Pending Review",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Từ chối",
+   "allowed": "IMM System Admin",
+   "next_state": "Rejected",
+   "state": "Pending Review",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Gửi lại",
+   "allowed": "IMM Biomed Technician",
+   "next_state": "Pending Review",
+   "state": "Rejected",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Gửi lại",
+   "allowed": "IMM System Admin",
+   "next_state": "Pending Review",
+   "state": "Rejected",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Lưu trữ",
+   "allowed": "IMM System Admin",
+   "next_state": "Archived",
+   "state": "Active",
+   "allow_self_approval": 1
+  }
+ ]
 }

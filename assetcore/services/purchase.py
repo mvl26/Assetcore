@@ -62,7 +62,7 @@ def create_receipt_movement(purchase_name: str, to_warehouse: str,
     return movement
 
 
-def auto_mark_purchase_received(movement_doc) -> None:
+def auto_mark_purchase_received(movement_doc, method=None) -> None:
     """Hook called after a Receipt Stock Movement is submitted."""
     if movement_doc.movement_type != "Receipt" or movement_doc.reference_type != _DT_PUR:
         return

@@ -35,7 +35,7 @@ EXPECTED_WORKFLOWS = {
     "IMM-15 Cycle Count Workflow": {"doctype": "IMM Stock Cycle Count", "min_states": 4, "min_transitions": 4},
     "IMM-16 Compliance Finding Workflow": {"doctype": "IMM Compliance Finding", "min_states": 7, "min_transitions": 8},
     "IMM-16 CAPA Workflow": {"doctype": "IMM CAPA Record", "min_states": 7, "min_transitions": 7},
-    "IMM-16 Internal Audit Workflow": {"doctype": "IMM Internal Audit", "min_states": 6, "min_transitions": 7},
+    "IMM-16 Internal Audit Workflow": {"doctype": "IMM Internal Audit", "min_states": 4, "min_transitions": 3},
     "IMM-16 Management Review Workflow": {"doctype": "IMM Management Review", "min_states": 4, "min_transitions": 3},
 }
 

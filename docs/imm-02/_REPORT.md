@@ -72,3 +72,9 @@ Theo cảnh báo gap-audit iter-1 và quy tắc skill §3 ("Không đụng" — 
 ## D. Files KHÔNG chạm (theo yêu cầu "KHÔNG chạm folder khác")
 
 `03_Diagrams.md`, `04_Backend_Design.md`, `05_API_Specification.md`, `06_Frontend_Design.md`, `07_Testing_QA.md`, `08_Deployment.md`, `09_Release.md` — không sửa trong run này.
+
+## 2026-05-11 Alignment Pass (Sprint 6 DoD)
+- BE: 3-tier compliance verified; endpoints align with docs/05_API_Specification.md
+- FE: store + views + routes + sidebar entry wired
+- Tests: see docs/res/dod-verification-report.md §1 for per-module results
+- Status: READY

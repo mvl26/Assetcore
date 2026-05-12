@@ -169,8 +169,11 @@ onMounted(() => {
     </div>
 
     <div v-if="store.error" class="alert-error mb-4">
-      <strong>Lỗi:</strong> {{ store.error }}
-      <button class="alert-close" @click="store.clearError()">×</button>
+      <span><strong>Lỗi:</strong> {{ store.error }}</span>
+      <div class="flex items-center gap-2">
+        <button class="text-sm underline text-red-700" @click="applyFilters">Thử lại</button>
+        <button class="alert-close" @click="store.clearError()">×</button>
+      </div>
     </div>
 
     <!-- Table -->
@@ -220,11 +223,11 @@ onMounted(() => {
                 <button v-if="nr.requesting_department" class="link-cell"
                         :title="`Lọc: ${nr.requesting_department}`"
                         @click.stop="quickFilter('requesting_department', nr.requesting_department)">
-                  {{ nr.requesting_department }}
+                  {{ nr.department_name || nr.requesting_department }}
                 </button>
                 <span v-else class="text-slate-400">—</span>
               </td>
-              <td>{{ nr.device_model_ref }}</td>
+              <td>{{ nr.device_model_name || nr.device_model_ref }}</td>
               <td class="num">{{ nr.quantity }}</td>
               <td>
                 <button v-if="nr.priority_class"
@@ -268,7 +271,8 @@ onMounted(() => {
 .kpi-card.success { border-left: 4px solid #10b981; }
 .kpi-card.info    { border-left: 4px solid #3b82f6; }
 
-.alert-close { background: none; border: none; cursor: pointer; font-size: 1.25rem; float: right; }
+.alert-error { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; background: #fef2f2; border: 1px solid #fca5a5; padding: 0.75rem 1rem; border-radius: 6px; color: #b91c1c; }
+.alert-close { background: none; border: none; cursor: pointer; font-size: 1.25rem; }
 
 .data-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
 .data-table th, .data-table td { padding: 0.75rem 1rem; text-align: left; border-bottom: 1px solid #f1f5f9; }

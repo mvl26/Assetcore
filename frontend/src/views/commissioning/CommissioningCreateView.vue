@@ -2,12 +2,12 @@
 import DateInput from '@/components/common/DateInput.vue'
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { useCommissioningStore, fetchPoDetails, fetchDeviceModelDetails } from '@/stores/commissioning'
+import { useCommissioningStore, fetchPoDetails, fetchDeviceModelDetails } from '@/stores/imm04'
 import { useFormDraft } from '@/composables/useFormDraft'
 import SmartSelect from '@/components/common/SmartSelect.vue'
 import LinkInfoCard from '@/components/common/LinkInfoCard.vue'
 import type { DeviceModelDetails } from '@/types/imm04'
-import type { MasterItem } from '@/stores/useMasterDataStore'
+import type { MasterItem } from '@/stores/masterData'
 import PageHeader from '@/components/common/PageHeader.vue'
 
 const router = useRouter()

@@ -206,7 +206,7 @@ export const MODULE_GROUPS: readonly ModuleGroup[] = [
         label: 'Theo dõi tuân thủ',
         description: 'Compliance monitoring, audit, NC/CAPA, scorecard',
         icon: 'log',
-        to: '/audit-trail',
+        to: '/compliance/findings',
         roles: QA_ROLES,
         badge: 'Đợt 2',
       },

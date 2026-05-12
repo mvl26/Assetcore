@@ -132,17 +132,17 @@ async function remove() {
 }
 
 const canAcknowledge = computed(() =>
-  form.value.status === 'Open' && (form.value.allowed_transitions ?? []).includes('Under Investigation'),
+  form.value.status === 'Open' && (form.value.allowed_transitions ?? []).includes('In Progress'),
 )
 const canResolve = computed(() =>
-  form.value.status === 'Under Investigation' && (form.value.allowed_transitions ?? []).includes('Resolved'),
+  form.value.status === 'In Progress' && (form.value.allowed_transitions ?? []).includes('Resolved'),
 )
 const canClose = computed(() =>
   form.value.status === 'Resolved' && (form.value.allowed_transitions ?? []).includes('Closed'),
 )
 const isClosed = computed(() => form.value.status === 'Closed' || form.value.status === ('Cancelled' as never))
 const canCancel = computed(() =>
-  form.value.status === 'Open' || form.value.status === 'Under Investigation',
+  form.value.status === 'Open' || form.value.status === 'In Progress',
 )
 const needsRca = computed(() =>
   (form.value.rca_required === 1) && !form.value.rca_record,
@@ -160,7 +160,9 @@ function sevColor(s?: string) {
 
 const STATUS_COLOR: Record<string, string> = {
   'Open': 'bg-blue-100 text-blue-700',
-  'Under Investigation': 'bg-yellow-100 text-yellow-800',
+  'Acknowledged': 'bg-blue-100 text-blue-800',
+  'In Progress': 'bg-yellow-100 text-yellow-800',
+  'RCA Required': 'bg-orange-100 text-orange-800',
   'Resolved': 'bg-purple-100 text-purple-700',
   'Closed': 'bg-green-100 text-green-700',
   'Cancelled': 'bg-gray-100 text-gray-500',
@@ -168,7 +170,9 @@ const STATUS_COLOR: Record<string, string> = {
 
 const STATUS_LABEL: Record<string, string> = {
   'Open': 'Mới mở',
-  'Under Investigation': 'Đang điều tra',
+  'Acknowledged': 'Đã tiếp nhận',
+  'In Progress': 'Đang điều tra',
+  'RCA Required': 'Cần RCA',
   'Resolved': 'Đã giải quyết',
   'Closed': 'Đã đóng',
   'Cancelled': 'Đã hủy',

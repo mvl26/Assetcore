@@ -275,13 +275,13 @@ def validate_market_benchmark(doc: Document) -> None:
     else:
         doc.recommended_candidate = ""
 
-    # Cập nhật Tech Spec.candidate_count + benchmark_ref
-    if doc.spec_ref:
+    # Cập nhật Tech Spec.candidate_count + benchmark_ref (direct DB write to avoid re-validate)
+    if doc.spec_ref and doc.name:
         try:
-            ts = frappe.get_doc(_DT_TS, doc.spec_ref)
-            ts.benchmark_ref = doc.name
-            ts.candidate_count = len(doc.candidates or [])
-            ts.save(ignore_permissions=True)
+            frappe.db.set_value(_DT_TS, doc.spec_ref, {
+                "benchmark_ref": doc.name,
+                "candidate_count": len(doc.candidates or []),
+            })
         except Exception:
             frappe.log_error(frappe.get_traceback(), "IMM-02 spec sync failed")
 
@@ -331,17 +331,82 @@ def validate_lock_in_assessment(doc: Document) -> None:
     if not doc.threshold_used:
         doc.threshold_used = LOCK_IN_THRESHOLD_DEFAULT
 
-    # Update Tech Spec link
-    if doc.spec_ref:
+    # Update Tech Spec link (direct DB write to avoid re-validate)
+    if doc.spec_ref and doc.name:
         try:
-            ts = frappe.get_doc(_DT_TS, doc.spec_ref)
-            ts.lock_in_risk_ref = doc.name
-            ts.lock_in_score = doc.lock_in_score
-            if doc.mitigation_plan: ts.mitigation_plan = doc.mitigation_plan
-            if doc.mitigation_evidence: ts.mitigation_evidence = doc.mitigation_evidence
-            ts.save(ignore_permissions=True)
+            update = {"lock_in_risk_ref": doc.name, "lock_in_score": doc.lock_in_score}
+            if doc.mitigation_plan:
+                update["mitigation_plan"] = doc.mitigation_plan
+            if doc.mitigation_evidence:
+                update["mitigation_evidence"] = doc.mitigation_evidence
+            frappe.db.set_value(_DT_TS, doc.spec_ref, update)
         except Exception:
             frappe.log_error(frappe.get_traceback(), "IMM-02 lock-in sync failed")
+
+
+# ─── Requirements management (docs §3.5, §3.6) ───────────────────────────────
+
+def add_requirement_to_spec(spec: str, requirement: dict) -> dict:
+    """Thêm 1 row vào child table `requirements` của Tech Spec (docs §3.5).
+
+    Tách khỏi `update_tech_spec` để semantic rõ ràng: chỉ thao tác requirements,
+    không touch các field khác.
+
+    Args:
+        spec: tên Tech Spec
+        requirement: dict các field của child row (criterion, is_mandatory,
+                     spec_value, unit, test_method, ...)
+
+    Returns:
+        {name, total_mandatory, total_optional, requirement_idx}
+    """
+    if not requirement:
+        raise ServiceError(ErrorCode.INVALID_PARAMS, _("requirement không được rỗng"))
+    doc = frappe.get_doc(_DT_TS, spec)
+    if doc.docstatus != 0:
+        raise ServiceError(ErrorCode.BAD_STATE,
+                            _("Spec đã submit/cancel — không thêm requirement"))
+    row = doc.append("requirements", requirement)
+    doc.save()
+    return {
+        "name": doc.name,
+        "requirement_idx": row.idx,
+        "total_mandatory": doc.total_mandatory,
+        "total_optional":  doc.total_optional,
+    }
+
+
+def bulk_import_requirements_from_csv(spec: str, rows: list[dict]) -> dict:
+    """Bulk thêm requirements từ list dict (đã parse từ CSV ở FE) — docs §3.6.
+
+    Args:
+        spec: tên Tech Spec
+        rows: list of dict, mỗi dict là 1 row trong child table
+
+    Returns:
+        {name, imported, total_mandatory, total_optional}
+    """
+    if not isinstance(rows, list):
+        raise ServiceError(ErrorCode.INVALID_PARAMS, _("rows phải là list"))
+    doc = frappe.get_doc(_DT_TS, spec)
+    if doc.docstatus != 0:
+        raise ServiceError(ErrorCode.BAD_STATE,
+                            _("Spec đã submit/cancel — không import requirements"))
+    imported = 0
+    for r in rows:
+        if not r:
+            continue
+        doc.append("requirements", r)
+        imported += 1
+    if imported == 0:
+        raise ServiceError(ErrorCode.VALIDATION, _("Không có row hợp lệ để import"))
+    doc.save()
+    return {
+        "name": doc.name,
+        "imported": imported,
+        "total_mandatory": doc.total_mandatory,
+        "total_optional":  doc.total_optional,
+    }
 
 
 # ─── Scheduler ────────────────────────────────────────────────────────────────

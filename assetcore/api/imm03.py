@@ -43,6 +43,216 @@ def _handle(fn, *args, **kwargs) -> dict:
         return _err(str(e), ErrorCode.INTERNAL)
 
 
+# ─── Vendor Profile (BE-03-01) ────────────────────────────────────────────────
+
+_DT_SUPPLIER = "AC Supplier"
+
+
+@frappe.whitelist()
+def list_vendor_profiles(filters: str = "{}", page: int = 1, page_size: int = 20) -> dict:
+    """Docs §3.1 — List AC Supplier kèm IMM AVL/audit fields & cert counts.
+
+    Data contract (BE-DC-03-01): trả supplier_name, cert_count, cert_expiring_soon.
+    """
+    return _handle(_list_vendor_profiles, filters, int(page), int(page_size))
+
+
+def _list_vendor_profiles(filters: str, page: int, page_size: int) -> dict:
+    f = _parse_json(filters) or {}
+    page_size = max(1, min(page_size, 100))
+    start = (max(1, page) - 1) * page_size
+
+    # Filters mapping
+    db_filters: dict = {}
+    if f.get("avl_status"):
+        db_filters["imm_avl_status"] = f["avl_status"]
+    if f.get("device_category"):
+        db_filters["imm_avl_categories"] = ["like", f"%{f['device_category']}%"]
+    if f.get("min_score") is not None:
+        db_filters["imm_overall_score"] = [">=", float(f["min_score"])]
+
+    fields = [
+        "name", "supplier_name", "imm_avl_status", "imm_avl_categories",
+        "imm_overall_score", "imm_last_audit_date", "imm_next_audit_date",
+    ]
+    items = frappe.get_list(
+        _DT_SUPPLIER, filters=db_filters or None, fields=fields,
+        order_by="supplier_name asc", start=start, page_length=page_size,
+    )
+
+    # Audit overdue filter (post-query — DB doesn't have computed flag)
+    if f.get("audit_overdue"):
+        today_d = frappe.utils.getdate(frappe.utils.today())
+        items = [it for it in items
+                 if it.get("imm_next_audit_date")
+                 and frappe.utils.getdate(it["imm_next_audit_date"]) < today_d]
+
+    # Cert counts (batch)
+    _enrich_vendor_cert_counts(items)
+
+    total = frappe.db.count(_DT_SUPPLIER, db_filters or None)
+    return {"items": items, "total": total, "page": page, "page_size": page_size}
+
+
+def _enrich_vendor_cert_counts(items: list[dict]) -> None:
+    if not items:
+        return
+    parent_names = [it["name"] for it in items]
+    rows = frappe.get_all(
+        "Vendor Cert", filters={"parent": ["in", parent_names]},
+        fields=["parent", "status", "expiry_date"], ignore_permissions=True,
+    ) if frappe.db.exists("DocType", "Vendor Cert") else []
+    today_d = frappe.utils.getdate(frappe.utils.today())
+    counts: dict = {p: {"total": 0, "expiring": 0} for p in parent_names}
+    for r in rows:
+        counts[r["parent"]]["total"] += 1
+        exp = r.get("expiry_date")
+        if exp:
+            try:
+                days = (frappe.utils.getdate(exp) - today_d).days
+                if 0 <= days <= 60:
+                    counts[r["parent"]]["expiring"] += 1
+            except Exception:
+                pass
+    for it in items:
+        c = counts.get(it["name"], {"total": 0, "expiring": 0})
+        it["cert_count"]         = c["total"]
+        it["cert_expiring_soon"] = c["expiring"]
+
+
+@frappe.whitelist()
+def get_vendor_profile(name: str) -> dict:
+    """Docs §3.2 — Chi tiết vendor profile kèm certs, AVL entries, scorecard history."""
+    return _handle(_get_vendor_profile, name)
+
+
+def _get_vendor_profile(name: str) -> dict:
+    if not frappe.db.exists(_DT_SUPPLIER, name):
+        raise ServiceError(ErrorCode.NOT_FOUND,
+                            _("Vendor {0} không tồn tại").format(name))
+    sup = frappe.get_doc(_DT_SUPPLIER, name)
+    data = sup.as_dict()
+    # AVL entries
+    data["avl_entries"] = frappe.get_all(
+        _DT_AVL, filters={"supplier": name},
+        fields=["name", "device_category", "workflow_state as status", "valid_from", "valid_to"],
+        order_by="valid_to desc",
+    )
+    # Scorecard history
+    data["scorecard_history"] = frappe.get_all(
+        _DT_VS, filters={"supplier": name},
+        fields=["name", "period_year", "period_quarter", "overall_score"],
+        order_by="period_year desc, period_quarter desc",
+    )
+    return data
+
+
+@frappe.whitelist(methods=["POST"])
+def create_vendor_profile(payload: str = "{}") -> dict:
+    """Docs §3.3 — Tạo/cập nhật vendor profile (extension trên AC Supplier).
+
+    Nếu `supplier` đã tồn tại → update fields. Nếu chưa → tạo mới AC Supplier.
+    """
+    return _handle(_create_vendor_profile, payload)
+
+
+def _create_vendor_profile(payload: str) -> dict:
+    data = _parse_json(payload)
+    if not data:
+        raise ServiceError(ErrorCode.INVALID_PARAMS, _("payload trống"))
+    supplier_name = data.get("supplier") or data.get("supplier_name") or data.get("name")
+    if not supplier_name:
+        raise ServiceError(ErrorCode.VALIDATION, _("Thiếu supplier"))
+
+    certs = data.pop("certifications", []) or []
+    if not certs:
+        raise ServiceError(
+            ErrorCode.VALIDATION,
+            _("VR-03-XX: Thiếu certifications — cần ≥ 1 chứng chỉ ISO 9001 hoặc ISO 13485"),
+        )
+
+    # Get or create
+    if frappe.db.exists(_DT_SUPPLIER, supplier_name):
+        doc = frappe.get_doc(_DT_SUPPLIER, supplier_name)
+    else:
+        doc = frappe.new_doc(_DT_SUPPLIER)
+        doc.supplier_name = supplier_name
+
+    for k, v in data.items():
+        if k in ("supplier", "name"):
+            continue
+        try:
+            setattr(doc, k, v)
+        except Exception:
+            pass
+
+    # Set defaults
+    if not doc.get("imm_avl_status"):
+        doc.imm_avl_status = "Not Applicable"
+
+    # Replace certs
+    if hasattr(doc, "imm_certifications"):
+        doc.set("imm_certifications", [])
+        for c in certs:
+            row = doc.append("imm_certifications", c)
+            if not row.get("status"):
+                row.status = "Active"
+
+    if doc.is_new():
+        doc.insert(ignore_permissions=True)
+    else:
+        doc.save(ignore_permissions=True)
+
+    return {"name": doc.name, "supplier": doc.supplier_name}
+
+
+@frappe.whitelist(methods=["POST"])
+def add_vendor_cert(supplier: str, cert_type: str, cert_number: str,
+                     issued_by: str = "", issued_date: str = "",
+                     expiry_date: str = "", attachment: str = "") -> dict:
+    """Docs §3.18 — Thêm 1 cert vào AC Supplier.imm_certifications.
+
+    Side effect: tạo lifecycle event `vendor_cert_added` (BE-03-02).
+    """
+    return _handle(_add_vendor_cert, supplier, cert_type, cert_number,
+                    issued_by, issued_date, expiry_date, attachment)
+
+
+def _add_vendor_cert(supplier: str, cert_type: str, cert_number: str,
+                      issued_by: str, issued_date: str, expiry_date: str,
+                      attachment: str) -> dict:
+    if not frappe.db.exists(_DT_SUPPLIER, supplier):
+        raise ServiceError(ErrorCode.NOT_FOUND,
+                            _("Vendor {0} không tồn tại").format(supplier))
+    if not cert_type or not cert_number:
+        raise ServiceError(ErrorCode.VALIDATION, _("cert_type và cert_number bắt buộc"))
+
+    doc = frappe.get_doc(_DT_SUPPLIER, supplier)
+    row_data = {
+        "cert_type": cert_type, "cert_number": cert_number,
+        "issued_by": issued_by or None,
+        "issued_date": issued_date or None,
+        "expiry_date": expiry_date or None,
+        "attachment": attachment or None,
+        "status": "Active",
+    }
+    row = doc.append("imm_certifications", row_data)
+    doc.save(ignore_permissions=True)
+
+    try:
+        _audit(
+            asset=doc.name,
+            event_type="vendor_cert_added",
+            ref_doctype=_DT_SUPPLIER,
+            ref_name=doc.name,
+            change_summary=f"IMM-03 cert added: {cert_type} {cert_number}",
+        )
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "IMM-03 vendor_cert_added audit failed")
+
+    return {"cert_row": row.name, "cert_type": cert_type, "status": "Active"}
+
+
 # ─── Vendor Evaluation ────────────────────────────────────────────────────────
 
 @frappe.whitelist()
@@ -51,13 +261,40 @@ def list_evaluations(filters: str = "{}", page: int = 1, page_size: int = 20) ->
 
 
 def _list_evaluations(filters, page, page_size):
+    """List Vendor Evaluation kèm display names (BE-DC-03-01)."""
     f = _parse_json(filters)
     page_size = max(1, min(page_size, 100))
     start = (max(1, page) - 1) * page_size
     fields = ["name", "spec_ref", "draft_date", "workflow_state", "recommended_candidate"]
     items = frappe.get_list(_DT_VE, filters=f or None, fields=fields,
                              order_by="draft_date desc", start=start, page_length=page_size)
+    _enrich_eval_display_names(items)
     return {"items": items, "total": frappe.db.count(_DT_VE, filters=f or None)}
+
+
+def _enrich_eval_display_names(items: list[dict]) -> None:
+    if not items:
+        return
+    spec_ids = {it.get("spec_ref") for it in items if it.get("spec_ref")}
+    sup_ids  = {it.get("recommended_candidate") for it in items if it.get("recommended_candidate")}
+    spec_map = _fetch_display("IMM Tech Spec",  spec_ids, "device_model_ref")
+    sup_map  = _fetch_display(_DT_SUPPLIER,     sup_ids,  "supplier_name")
+    for it in items:
+        it["tech_spec_ref_name"] = spec_map.get(it.get("spec_ref"))
+        it["vendor_name"]        = sup_map.get(it.get("recommended_candidate"))
+
+
+def _fetch_display(doctype: str, ids: set, field: str) -> dict:
+    if not ids:
+        return {}
+    try:
+        rows = frappe.get_all(
+            doctype, filters={"name": ["in", list(ids)]},
+            fields=["name", field], ignore_permissions=True,
+        )
+        return {r["name"]: r.get(field) for r in rows}
+    except Exception:
+        return {}
 
 
 @frappe.whitelist(methods=["POST"])
@@ -150,6 +387,11 @@ def _list_avl(filters):
                             fields=["name", "supplier", "device_category", "workflow_state",
                                     "valid_from", "valid_to"],
                             order_by="valid_to asc", page_length=100)
+    # BE-DC-03-01: kèm vendor_name
+    sup_ids = {it.get("supplier") for it in items if it.get("supplier")}
+    sup_map = _fetch_display(_DT_SUPPLIER, sup_ids, "supplier_name")
+    for it in items:
+        it["vendor_name"] = sup_map.get(it.get("supplier"))
     return {"items": items}
 
 
@@ -215,12 +457,41 @@ def _suspend_avl(name, suspension_reason):
 
 @frappe.whitelist()
 def get_evaluation(name: str) -> dict:
-    return _handle(lambda n: frappe.get_doc(_DT_VE, n).as_dict(), name)
+    def _get(n):
+        doc = frappe.get_doc(_DT_VE, n).as_dict()
+        candidates = doc.get("candidates") or []
+        quotations = doc.get("quotations") or []
+        all_sup_ids = (
+            {c.get("supplier") for c in candidates if c.get("supplier")}
+            | {q.get("candidate_supplier") for q in quotations if q.get("candidate_supplier")}
+        )
+        if all_sup_ids:
+            sup_map = _fetch_display(_DT_SUPPLIER, all_sup_ids, "supplier_name")
+            for c in candidates:
+                c["supplier_name"] = sup_map.get(c.get("supplier")) or c.get("supplier") or ""
+            for q in quotations:
+                q["candidate_supplier_name"] = sup_map.get(q.get("candidate_supplier")) or q.get("candidate_supplier") or ""
+        return doc
+    return _handle(_get, name)
 
 
 @frappe.whitelist()
 def get_decision(name: str) -> dict:
-    return _handle(lambda n: frappe.get_doc(_DT_PD, n).as_dict(), name)
+    def _get(n):
+        doc = frappe.get_doc(_DT_PD, n).as_dict()
+        candidates = doc.get("candidates") or []
+        winner = doc.get("winner_supplier")
+        sup_ids = {c.get("supplier") for c in candidates if c.get("supplier")}
+        if winner:
+            sup_ids.add(winner)
+        if sup_ids:
+            sup_map = _fetch_display(_DT_SUPPLIER, sup_ids, "supplier_name")
+            for c in candidates:
+                c["supplier_name"] = sup_map.get(c.get("supplier")) or c.get("supplier") or ""
+            if winner:
+                doc["winner_supplier_name"] = sup_map.get(winner) or winner
+        return doc
+    return _handle(_get, name)
 
 
 @frappe.whitelist()
@@ -241,6 +512,14 @@ def _list_decisions(filters, page, page_size):
         "name", "spec_ref", "winner_supplier", "awarded_price",
         "envelope_check_pct", "workflow_state", "ac_purchase_ref", "creation",
     ], order_by="creation desc", start=start, page_length=page_size)
+    # BE-DC-03-01: kèm vendor_name + tech_spec_ref_name
+    sup_ids  = {it.get("winner_supplier") for it in items if it.get("winner_supplier")}
+    spec_ids = {it.get("spec_ref")        for it in items if it.get("spec_ref")}
+    sup_map  = _fetch_display(_DT_SUPPLIER,    sup_ids,  "supplier_name")
+    spec_map = _fetch_display("IMM Tech Spec", spec_ids, "device_model_ref")
+    for it in items:
+        it["vendor_name"]        = sup_map.get(it.get("winner_supplier"))
+        it["tech_spec_ref_name"] = spec_map.get(it.get("spec_ref"))
     return {"items": items, "total": frappe.db.count(_DT_PD, filters=f or None)}
 
 
@@ -310,7 +589,6 @@ def _create_decision(evaluation_ref, procurement_method, method_legal_basis):
         pd.plan_ref  = ts.source_plan
         pd.plan_line = ts.source_plan_line
         pd.quantity  = ts.quantity
-    pd.workflow_state = "Method Selected" if procurement_method else "Draft"
     pd.insert()
     return {"name": pd.name, "workflow_state": pd.workflow_state}
 
@@ -361,13 +639,18 @@ def record_contract(name: str, contract_no: str, contract_doc: str = "",
 
 
 def _record_contract(name, contract_no, contract_doc, signed_date):
+    from frappe.model.workflow import apply_workflow
     pd = frappe.get_doc(_DT_PD, name)
     if pd.docstatus != 1:
         raise ServiceError(ErrorCode.BAD_STATE, _("Decision phải đã submit (Awarded)"))
-    pd.contract_no = contract_no
-    if contract_doc: pd.contract_doc = contract_doc
-    pd.workflow_state = "Contract Signed"
-    pd.save()
+    # Update contract fields via DB set_value (safe on submitted docs)
+    updates = {"contract_no": contract_no}
+    if contract_doc:
+        updates["contract_doc"] = contract_doc
+    # contract_signed_date not in DocType schema — skip
+    frappe.db.set_value(_DT_PD, name, updates)
+    # Advance workflow state using apply_workflow
+    apply_workflow(pd, "Ký HĐ")
     try:
         _audit(
             asset=pd.name,

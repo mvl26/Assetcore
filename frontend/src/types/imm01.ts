@@ -43,6 +43,8 @@ export interface NeedsRequestListItem {
   request_type: RequestType
   device_model_ref: string
   requesting_department: string
+  replacement_for_asset?: string
+  owner?: string
   quantity: number
   weighted_score?: number
   priority_class?: PriorityClass
@@ -50,6 +52,11 @@ export interface NeedsRequestListItem {
   request_date: string
   total_capex?: number
   tco_5y?: number
+  // Display names (BE-DC-01-01)
+  department_name?: string
+  device_model_name?: string
+  target_asset_name?: string
+  requester_name?: string
 }
 
 export interface NeedsRequestListResponse {

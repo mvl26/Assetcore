@@ -8,7 +8,7 @@ import {
 import type { ImmSlaPolicy, Priority, RiskClass } from '@/types/imm00'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import SmartSelect from '@/components/common/SmartSelect.vue'
-import { useMasterDataStore } from '@/stores/useMasterDataStore'
+import { useMasterDataStore } from '@/stores/masterData'
 import { formatDate, isCheckOn } from '@/utils/formatters'
 import PageHeader from '@/components/common/PageHeader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'

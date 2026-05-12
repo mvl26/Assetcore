@@ -82,3 +82,9 @@ Bảng 8 UC (UC-01..UC-08) bao gồm 2 UC đã chi tiết (UC-01, UC-02 ở §II
 - [x] Không có placeholder `<XX>` chưa thay
 - [x] Không động vào folder khác
 - [x] Body section cũ giữ nguyên wording
+
+## 2026-05-11 Alignment Pass (Sprint 6 DoD)
+- BE: 3-tier compliance verified; endpoints align with docs/05_API_Specification.md
+- FE: store + views + routes + sidebar entry wired
+- Tests: see docs/res/dod-verification-report.md §1 for per-module results
+- Status: READY

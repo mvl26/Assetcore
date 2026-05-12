@@ -11,7 +11,7 @@ import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar from '@/components/common/ListFilterBar.vue'
-import { useMasterDataStore } from '@/stores/useMasterDataStore'
+import { useMasterDataStore } from '@/stores/masterData'
 import { useApi } from '@/composables/useApi'
 
 const masterStore = useMasterDataStore()

@@ -4,11 +4,36 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { useImm01Store } from '@/stores/imm01'
 import type { ProcurementPlanState } from '@/types/imm01'
 import { stateLabel, stateSlug, formatVnd } from '@/utils/wave2Labels'
+import { createProcurementPlan } from '@/api/imm01'
+import { useRouter } from 'vue-router'
 import ListFilterBar, { type FilterChip } from '@/components/common/ListFilterBar.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 
 const store = useImm01Store()
+const router = useRouter()
+
+const showCreateModal = ref(false)
+const creating = ref(false)
+const createForm = reactive({ plan_year: new Date().getFullYear(), plan_period: 'Q1' as string, budget_envelope: 0 })
+const PLAN_PERIODS_LABELS = { Q1: 'Quý 1', Q2: 'Quý 2', Q3: 'Quý 3', Q4: 'Quý 4', Annual: 'Cả năm' }
+
+const createError = ref<string | null>(null)
+
+async function submitCreate() {
+  creating.value = true
+  createError.value = null
+  try {
+    const res = await createProcurementPlan(createForm.plan_year, createForm.plan_period, createForm.budget_envelope)
+    showCreateModal.value = false
+    await store.fetchPlans()
+    router.push(`/procurement-plans/${res.name}`)
+  } catch (e: unknown) {
+    createError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    creating.value = false
+  }
+}
 
 const PLAN_STATES: ProcurementPlanState[] = ['Draft', 'Approved', 'Active', 'Closed']
 const PLAN_PERIODS = ['Q1', 'Q2', 'Q3', 'Q4', 'Annual'] as const
@@ -81,6 +106,7 @@ onMounted(() => store.fetchPlans())
     <PageHeader title="Kế hoạch mua sắm" :subtitle="`Tổng ${store.plans.length} kế hoạch — gom đề xuất đã duyệt theo quý/năm.`">
       <template #actions>
         <FilterToggleButton v-model="showFilters" :count="activeChips.length" />
+        <button class="btn-primary text-sm" @click="showCreateModal = true">+ Tạo kế hoạch</button>
       </template>
     </PageHeader>
 
@@ -135,11 +161,16 @@ onMounted(() => store.fetchPlans())
               <th class="num">Đã phân bổ</th>
               <th class="num">Tỷ lệ sử dụng</th>
               <th>Trạng thái</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="p in store.plans" :key="p.name">
-              <td>{{ p.name }}</td>
+              <td>
+                <router-link :to="`/procurement-plans/${p.name}`" class="link-cell">
+                  {{ p.name }}
+                </router-link>
+              </td>
               <td>
                 <button class="link-cell" :title="`Lọc: ${planPeriodLabel(p.plan_period)}`"
                         @click="quickFilter('plan_period', p.plan_period)">
@@ -164,6 +195,9 @@ onMounted(() => store.fetchPlans())
                   {{ stateLabel(p.workflow_state) }}
                 </button>
               </td>
+              <td>
+                <router-link :to="`/procurement-plans/${p.name}`" class="link-cell text-xs text-blue-600 hover:underline">Chi tiết →</router-link>
+              </td>
             </tr>
           </tbody>
         </table>
@@ -172,6 +206,36 @@ onMounted(() => store.fetchPlans())
         <p class="text-sm">Không có kế hoạch nào phù hợp</p>
         <button v-if="activeChips.length > 0" class="mt-3 text-xs text-blue-500 hover:text-blue-700 underline" @click="resetFilters">
           Xóa bộ lọc để xem tất cả
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Create Plan Modal -->
+  <div v-if="showCreateModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40" @click.self="showCreateModal = false">
+    <div class="bg-white rounded-xl shadow-xl p-6 w-full max-w-md space-y-4">
+      <h3 class="text-base font-semibold text-slate-800">Tạo kế hoạch mua sắm mới</h3>
+      <div class="space-y-3">
+        <div v-if="createError" class="text-xs text-red-600 bg-red-50 border border-red-200 rounded p-2">{{ createError }}</div>
+        <div>
+          <label class="text-xs font-medium text-slate-600 block mb-1">Năm kế hoạch *</label>
+          <input v-model.number="createForm.plan_year" type="number" min="2020" max="2100" class="form-input w-full" />
+        </div>
+        <div>
+          <label class="text-xs font-medium text-slate-600 block mb-1">Kỳ kế hoạch *</label>
+          <select v-model="createForm.plan_period" class="form-select w-full">
+            <option v-for="(label, key) in PLAN_PERIODS_LABELS" :key="key" :value="key">{{ label }}</option>
+          </select>
+        </div>
+        <div>
+          <label class="text-xs font-medium text-slate-600 block mb-1">Ngân sách phê duyệt (VNĐ)</label>
+          <input v-model.number="createForm.budget_envelope" type="number" min="0" step="1000000" class="form-input w-full" placeholder="0" />
+        </div>
+      </div>
+      <div class="flex justify-end gap-2 pt-2">
+        <button class="btn-ghost text-sm" @click="showCreateModal = false">Hủy</button>
+        <button class="btn-primary text-sm" :disabled="creating" @click="submitCreate">
+          {{ creating ? 'Đang tạo...' : 'Tạo kế hoạch' }}
         </button>
       </div>
     </div>

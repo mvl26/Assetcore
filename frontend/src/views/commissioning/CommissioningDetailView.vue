@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { ref, watch, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { useCommissioningStore } from '@/stores/commissioning'
-import { useImm05Store } from '@/stores/imm05Store'
+import { useCommissioningStore } from '@/stores/imm04'
+import { useImm05Store } from '@/stores/imm05'
 import { usePermissions } from '@/composables/usePermissions'
 import { useToast } from '@/composables/useToast'
 import CommissioningForm from '@/components/commissioning/CommissioningForm.vue'

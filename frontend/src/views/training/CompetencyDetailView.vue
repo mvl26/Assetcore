@@ -5,7 +5,7 @@ import { useImm06Store } from '@/stores/imm06'
 import { useAuthStore } from '@/stores/auth'
 import { useApi } from '@/composables/useApi'
 import { ROLES_TRAINING_MANAGE, ROLES_TRAINING_SIGNOFF } from '@/constants/roles'
-import { getExpiringCompetencies } from '@/api/imm06'
+import { getExpiringCompetencies, signoffCompetency, revokeCompetency } from '@/api/imm06'
 import type { UserCompetency } from '@/api/imm06'
 
 const props = defineProps<{ name: string }>()
@@ -30,20 +30,26 @@ const canRevoke = computed(
 
 function stateClass(state: string): string {
   const map: Record<string, string> = {
-    'Active':          'bg-emerald-100 text-emerald-700',
-    'Pending Signoff': 'bg-yellow-100 text-yellow-700',
-    'Revoked':         'bg-red-100 text-red-700',
-    'Expired':         'bg-neutral-100 text-neutral-500',
+    'Active':              'bg-emerald-100 text-emerald-700',
+    'Pending Assessment':  'bg-blue-100 text-blue-700',
+    'Pending Signoff':     'bg-yellow-100 text-yellow-700',
+    'Expiring':            'bg-amber-100 text-amber-700',
+    'Revoked':             'bg-red-100 text-red-700',
+    'Expired':             'bg-neutral-100 text-neutral-500',
+    'Suspended':           'bg-orange-100 text-orange-700',
   }
   return map[state] ?? 'bg-neutral-100 text-neutral-600'
 }
 
 function stateLabel(s: string): string {
   const map: Record<string, string> = {
-    'Active':          'Hiệu lực',
-    'Pending Signoff': 'Chờ phê duyệt',
-    'Revoked':         'Đã thu hồi',
-    'Expired':         'Hết hạn',
+    'Active':              'Hiệu lực',
+    'Pending Assessment':  'Chờ đánh giá',
+    'Pending Signoff':     'Chờ phê duyệt',
+    'Expiring':            'Sắp hết hạn',
+    'Revoked':             'Đã thu hồi',
+    'Expired':             'Hết hạn',
+    'Suspended':           'Tạm ngưng',
   }
   return map[s] ?? s
 }
@@ -89,20 +95,20 @@ async function load() {
 }
 
 async function doSignoff() {
-  const ok = await api.run(
-    () => store.doSignoffCompetency(props.name),
+  const result = await api.run(
+    () => signoffCompetency(props.name),
     { successMessage: 'Đã phê duyệt năng lực' },
   )
-  if (ok) await load()
+  if (result) await load()
 }
 
 async function doRevoke() {
   if (!revokeReason.value.trim()) return
-  const ok = await api.run(
-    () => store.doRevokeCompetency(props.name, revokeReason.value, revokeCapa.value || undefined),
+  const result = await api.run(
+    () => revokeCompetency(props.name, revokeReason.value, revokeCapa.value || undefined),
     { successMessage: 'Đã thu hồi năng lực' },
   )
-  if (ok) {
+  if (result) {
     showRevokeModal.value = false
     revokeReason.value = ''
     revokeCapa.value = ''
@@ -118,7 +124,7 @@ onMounted(load)
     <!-- Header -->
     <div class="flex items-center justify-between flex-wrap gap-3">
       <div class="flex items-center gap-3">
-        <button class="btn-ghost text-sm" @click="router.push('/training/competencies')">← Quay lại</button>
+        <button class="btn-ghost text-sm" @click="router.push('/imm06/competencies')">← Quay lại</button>
         <div>
           <p class="text-xs text-slate-400">Năng lực nhân viên</p>
           <h1 class="text-xl font-bold text-slate-900">{{ props.name }}</h1>

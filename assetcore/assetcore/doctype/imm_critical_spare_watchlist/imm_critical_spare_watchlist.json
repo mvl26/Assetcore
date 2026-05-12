@@ -35,7 +35,7 @@
    "fieldtype": "Link",
    "label": "Thiết bị",
    "options": "AC Asset",
-   "reqd": 1,
+   "reqd": 0,
    "in_list_view": 1,
    "search_index": 1
   },

@@ -99,10 +99,38 @@ export function listProcurementPlans(filters: Record<string, unknown> = {}, page
   })
 }
 
+export function getProcurementPlan(name: string): Promise<Record<string, unknown>> {
+  return frappeGet(`${BASE}.get_procurement_plan`, { name })
+}
+
 export function rollIntoPlan(plan_year: number, plan_period: string, needs_requests: string[]): Promise<{ name: string }> {
   return frappePost(`${BASE}.roll_into_plan`, {
     plan_year, plan_period, needs_requests: JSON.stringify(needs_requests),
   })
+}
+
+export function createProcurementPlan(plan_year: number, plan_period: string, budget_envelope: number): Promise<{ name: string }> {
+  return frappePost(`${BASE}.create_procurement_plan`, { plan_year, plan_period, budget_envelope })
+}
+
+export function approvePlan(name: string): Promise<{ name: string; workflow_state: string }> {
+  return frappePost(`${BASE}.approve_plan`, { name })
+}
+
+export function activatePlan(name: string): Promise<{ name: string; workflow_state: string }> {
+  return frappePost(`${BASE}.activate_plan`, { name })
+}
+
+export function closePlan(name: string): Promise<{ name: string; workflow_state: string }> {
+  return frappePost(`${BASE}.close_plan`, { name })
+}
+
+export function setBudgetEnvelope(name: string, budget_envelope: number): Promise<Record<string, unknown>> {
+  return frappePost(`${BASE}.set_budget_envelope`, { name, budget_envelope })
+}
+
+export function removeFromPlan(plan_name: string, needs_request: string): Promise<{ name: string }> {
+  return frappePost(`${BASE}.remove_from_plan`, { plan_name, needs_request })
 }
 
 // ─── Demand Forecast & Dashboard ──────────────────────────────────────────────

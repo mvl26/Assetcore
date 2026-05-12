@@ -188,7 +188,7 @@ onMounted(() => { store.fetchDecisions(); store.fetchKpis() })
                 <button v-if="d.winner_supplier" class="link-cell"
                         :title="`Lọc: ${d.winner_supplier}`"
                         @click.stop="quickFilter('winner_supplier', d.winner_supplier)">
-                  {{ d.winner_supplier }}
+                  {{ d.vendor_name || d.winner_supplier }}
                 </button>
                 <span v-else class="text-slate-400">—</span>
               </td>

@@ -357,9 +357,9 @@ HTTP Request / Frappe Scheduler
 
 | FR ID | Mô tả | Actor | Phương thức |
 |---|---|---|---|
-| FR-00-43 | `AC Asset Category` có field `gmdn_code` là **nguồn kế thừa** cho toàn bộ thiết bị trong danh mục | System Admin, Workshop Lead | DocType field / `create_asset_category` |
-| FR-00-44 | `IMM Device Model` kế thừa `gmdn_code` tự động từ `asset_category.gmdn_code` khi tạo mới nếu trường `gmdn_code` trống; người dùng có thể override | Workshop Lead | `_inherit_pm_calibration_defaults()` tại `before_insert` |
-| FR-00-45 | `AC Asset` nhận `gmdn_code` từ `device_model.gmdn_code` qua `fetch_from`; không nhập tay trực tiếp | System (fetch_from) | DocType `fetch_from` mechanism |
+| FR-00-43 | `AC Asset Category` có fields `gmdn_code` và `gmdn_term` là **nguồn kế thừa cấp 1** cho toàn bộ thiết bị trong danh mục; hiển thị khi user chọn danh mục trong form Device Model | System Admin, Workshop Lead | DocType field / `create_asset_category` |
+| FR-00-44 | `IMM Device Model` kế thừa `gmdn_code` + `gmdn_term` tự động từ `asset_category` khi tạo mới nếu các trường đó trống; FE auto-fill khi user chọn danh mục; người dùng có thể override thủ công | Workshop Lead | `_inherit_pm_calibration_defaults()` tại `before_insert`; FE `watch(asset_category)` |
+| FR-00-45 | `AC Asset` kế thừa `gmdn_code` từ `device_model.gmdn_code` tại `before_insert`; FE auto-fill khi user chọn model (gọi `getDeviceModel`); người dùng có thể override | System / User | `ACAsset.before_insert()` → `_inherit_gmdn_from_device_model()`; FE `watch(device_model)` |
 | FR-00-46 | `list_device_models()` hỗ trợ filter theo `gmdn_code` để tra cứu thiết bị cùng mã GMDN | Tất cả role IMM | GET `list_device_models?gmdn_code=...` |
 
 ---
@@ -413,8 +413,8 @@ HTTP Request / Frappe Scheduler
 | BR-00-10 | Mọi thay đổi lifecycle_status → sinh 1 Asset Lifecycle Event | `transition_asset_status()` | Audit trail |
 | BR-00-11 | gmdn_status không thể → Đang sử dụng khi Decommissioned / Out of Service | `update_gmdn_status()` | NĐ 98/2021 |
 | BR-00-12 | Mọi thay đổi gmdn_status phải có reason ≥ 5 ký tự, ghi Audit Trail | Service layer | ISO 13485:8.2 |
-| BR-00-13 | `gmdn_code` là thuộc tính cấp danh mục. `AC Asset Category.gmdn_code` là nguồn kế thừa. `IMM Device Model` kế thừa khi `gmdn_code` trống lúc tạo mới. `AC Asset` nhận qua `fetch_from`. Kế thừa là **một chiều** (Category → Model → Asset). | `IMMDeviceModel.before_insert()` → `_inherit_pm_calibration_defaults()` | Internal |
-| BR-00-14 | Override GMDN được phép tại cấp `IMM Device Model` (người dùng có thể nhập tay). Không override tại cấp `AC Asset` — field là `fetch_from`, chỉ cập nhật được bằng cách đổi `device_model`. | `ACAsset.validate()` | Internal |
+| BR-00-13 | `gmdn_code` + `gmdn_term` là thuộc tính cấp danh mục. `AC Asset Category` là nguồn kế thừa cấp 1. `IMM Device Model` kế thừa tự động khi tạo mới nếu trống. `AC Asset` kế thừa từ `device_model` tại `before_insert`. Kế thừa một chiều: **Category → Model → Asset**. | `IMMDeviceModel.before_insert()` → `_inherit_pm_calibration_defaults()`; `ACAsset.before_insert()` → `_inherit_gmdn_from_device_model()` | Internal |
+| BR-00-14 | Override GMDN được phép tại **cả 3 cấp** (Category, Device Model, Asset) — kế thừa chỉ xảy ra một lần tại `before_insert` nếu field đang trống; nhập tay sau đó không bị ghi đè. | `before_insert` chỉ điền khi trống | Internal |
 | BR-INV-01→08 | Inventory rules: stock không âm, audit trail per movement, etc. | `services/inventory.py` | Internal |
 
 ---

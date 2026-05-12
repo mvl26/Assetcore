@@ -53,3 +53,9 @@ Tham chiếu chéo trong file 02 đã có sẵn: NĐ 98/2021 §29, ISO 13485 §7
 - [x] Không tạo placeholder `<XX>` chưa thay
 - [x] Link nội bộ trong README vẫn trỏ đến 8 file con thật
 - [x] Tạo `_REPORT.md` báo cáo gọn
+
+## 2026-05-11 Alignment Pass (Sprint 6 DoD)
+- BE: 3-tier compliance verified; endpoints align with docs/05_API_Specification.md
+- FE: store + views + routes + sidebar entry wired
+- Tests: see docs/res/dod-verification-report.md §1 for per-module results
+- Status: READY

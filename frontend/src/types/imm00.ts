@@ -201,6 +201,9 @@ export interface AcAssetCategory {
   name: string
   category_name: string
   description?: string
+  // GMDN — canonical code at category level, inherited down to Model → Asset
+  gmdn_code?: string
+  gmdn_term?: string
   // PM / Calibration defaults
   default_pm_required?: 0 | 1
   default_pm_interval_days?: number

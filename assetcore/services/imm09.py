@@ -397,7 +397,9 @@ def create_work_order(*, asset_ref: str, repair_type: str, priority: str,
             f"CM-002: Thiết bị đang có phiếu sửa chữa đang mở: {open_wo['name']}",
         )
 
-    risk_class = asset_data.get("risk_classification") or RiskClass.II
+    _risk_map = {"Low": RiskClass.I, "Medium": RiskClass.II, "High": RiskClass.III, "Critical": RiskClass.III}
+    risk_class_raw = asset_data.get("risk_classification") or ""
+    risk_class = _risk_map.get(risk_class_raw) or risk_class_raw or RiskClass.II
     sla_hours = get_sla_target(risk_class, priority)
 
     doc = frappe.get_doc({
@@ -491,7 +493,36 @@ def request_spare_parts(name: str, parts: list[dict]) -> dict:
         doc.status = RepairStatus.IN_REPAIR
     doc.flags.ignore_links = True
     RepairRepo.save(doc)
-    return {"name": name, "status": doc.status, "updated": updated}
+
+    # Gate 2 — IMM-09 → IMM-15: tạo allocation Requested để spare-parts truy về kho
+    allocation_name: str | None = None
+    try:
+        from assetcore.services.imm15 import create_allocation  # noqa: PLC0415
+        items = [
+            {"spare_part": p.get("spare_part") or p.get("item_code"),
+             "qty_requested": p.get("qty") or p.get("qty_requested") or 1}
+            for p in parts
+            if (p.get("spare_part") or p.get("item_code"))
+        ]
+        if items:
+            warehouse = ""
+            first_part = items[0]["spare_part"]
+            warehouse = frappe.db.get_value(
+                "AC Spare Part Stock", {"spare_part": first_part}, "warehouse"
+            ) or ""
+            if warehouse:
+                alloc = create_allocation(
+                    work_order_ref=name, items=items,
+                    asset=getattr(doc, "asset_ref", "") or "",
+                    warehouse=warehouse, urgency="Urgent",
+                )
+                allocation_name = alloc.get("name") if isinstance(alloc, dict) else None
+    except Exception:
+        frappe.log_error(frappe.get_traceback(),
+                         f"IMM-09 → IMM-15: create_allocation failed for {name}")
+
+    return {"name": name, "status": doc.status, "updated": updated,
+            "allocation": allocation_name}
 
 
 def close_work_order(name: str, *, repair_summary: str, root_cause_category: str,
@@ -683,12 +714,6 @@ def get_mttr_report(year: int, month: int) -> dict:
         "status": ("in", list(_OPEN_STATUSES)),
         "docstatus": 0,
     })
-    backlog_raw = frappe.db.sql("""
-        SELECT clinical_dept AS dept, COUNT(*) AS count
-        FROM `tabAsset Repair`
-        WHERE status NOT IN ('Completed','Cannot Repair','Cancelled') AND docstatus = 0
-        GROUP BY clinical_dept
-    """, as_dict=True)
 
     return {
         "mttr_avg": mttr_avg,
@@ -696,7 +721,7 @@ def get_mttr_report(year: int, month: int) -> dict:
         "backlog_count": backlog_count,
         "cost_per_repair": avg_cost,
         "mttr_trend": _mttr_trend(year, month),
-        "backlog_by_dept": [{"dept": r.dept or "—", "count": r.count} for r in backlog_raw],
+        "backlog_by_dept": [],
     }
 
 

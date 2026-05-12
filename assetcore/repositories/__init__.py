@@ -29,6 +29,9 @@ from .allocation_repo import (
     AllocationRepo,
     CriticalWatchlistRepo,
     CycleCountRepo,
+    SparePartForecastRepo,
+    SparePartRepo,
+    StockMovementRepo,
 )
 from .compliance_repo import (
     ComplianceFindingRepo,
@@ -115,6 +118,9 @@ __all__ = [
     "AllocationRepo",
     "CycleCountRepo",
     "CriticalWatchlistRepo",
+    "SparePartForecastRepo",
+    "SparePartRepo",
+    "StockMovementRepo",
     # IMM-16 Compliance
     "ComplianceRuleRepo",
     "ComplianceFindingRepo",

@@ -52,16 +52,52 @@ def list_tech_specs(filters: str = "{}", page: int = 1, page_size: int = 20) -> 
 
 
 def _list_tech_specs(filters: str, page: int, page_size: int) -> dict:
+    """List Tech Spec kèm display names (BE-DC-02-01).
+
+    Data contract: gắn `plan_ref_name`, `device_model_name`, `created_by_name`.
+    """
     f = _parse_json(filters)
     fields = ["name", "device_model_ref", "version", "candidate_count",
               "lock_in_score", "workflow_state", "source_plan", "source_needs_request",
-              "draft_date", "total_mandatory"]
+              "owner", "draft_date", "total_mandatory"]
     page_size = max(1, min(page_size, 100))
     start = (max(1, page) - 1) * page_size
     items = frappe.get_list(_DT_TS, filters=f or None, fields=fields,
                              order_by="draft_date desc", start=start, page_length=page_size)
+    _enrich_tech_spec_display_names(items)
     return {"items": items, "total": frappe.db.count(_DT_TS, filters=f or None),
             "page": page, "page_size": page_size}
+
+
+def _enrich_tech_spec_display_names(items: list[dict]) -> None:
+    if not items:
+        return
+    plan_ids  = {it.get("source_plan")      for it in items if it.get("source_plan")}
+    model_ids = {it.get("device_model_ref") for it in items if it.get("device_model_ref")}
+    user_ids  = {it.get("owner")            for it in items if it.get("owner")}
+
+    def _map(doctype, ids, field):
+        if not ids:
+            return {}
+        try:
+            rows = frappe.get_all(
+                doctype, filters={"name": ["in", list(ids)]},
+                fields=["name", field], ignore_permissions=True,
+            )
+            return {r["name"]: r.get(field) for r in rows}
+        except Exception:
+            return {}
+
+    plan_map  = _map("IMM Procurement Plan", plan_ids,  "plan_period")
+    model_map = _map("IMM Device Model",     model_ids, "model_name")
+    user_map  = _map("User",                 user_ids,  "full_name")
+
+    for it in items:
+        # plan_ref_name = plan_period + plan_year (đẹp hơn raw ID)
+        plan_val = plan_map.get(it.get("source_plan"))
+        it["plan_ref_name"]      = plan_val
+        it["device_model_name"]  = model_map.get(it.get("device_model_ref"))
+        it["created_by_name"]    = user_map.get(it.get("owner"))
 
 
 @frappe.whitelist()
@@ -138,6 +174,31 @@ def _update_tech_spec(name: str, payload: str) -> dict:
             setattr(doc, k, v)
     doc.save()
     return {"name": doc.name, "workflow_state": doc.workflow_state}
+
+
+@frappe.whitelist(methods=["POST"])
+def add_requirement(spec: str, requirement: str = "{}") -> dict:
+    """Docs §3.5 — Thêm 1 requirement row vào Tech Spec.
+
+    `requirement` truyền dưới dạng JSON string (Frappe HTTP form-encoded).
+    """
+    return _handle(_add_requirement, spec, requirement)
+
+
+def _add_requirement(spec: str, requirement: str) -> dict:
+    req = _parse_json(requirement)
+    return svc.add_requirement_to_spec(spec, req)
+
+
+@frappe.whitelist(methods=["POST"])
+def bulk_import_requirements(spec: str, rows: str = "[]") -> dict:
+    """Docs §3.6 — Bulk import requirements từ CSV (FE đã parse thành list dict)."""
+    return _handle(_bulk_import_requirements, spec, rows)
+
+
+def _bulk_import_requirements(spec: str, rows: str) -> dict:
+    rows_list = _parse_json(rows, default=[])
+    return svc.bulk_import_requirements_from_csv(spec, rows_list)
 
 
 @frappe.whitelist(methods=["POST"])

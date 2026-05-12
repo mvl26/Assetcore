@@ -195,12 +195,12 @@ def search_parts(
         """, {"q": q_param, "lim": int(limit), "wh": warehouse}, as_dict=True)
     else:
         rows = frappe.db.sql(f"""
-            SELECT name, name AS spare_part, part_code, part_name, manufacturer_part_no,
-                   unit_cost, stock_uom, purchase_uom,
+            SELECT p.name, p.name AS spare_part, p.part_code, p.part_name, p.manufacturer_part_no,
+                   p.unit_cost, p.stock_uom, p.purchase_uom,
                    NULL AS qty_on_hand, NULL AS available_qty
-            FROM `tabAC Spare Part`
-            WHERE is_active = 1 AND {name_filter}
-            ORDER BY part_name ASC
+            FROM `tabAC Spare Part` p
+            WHERE p.is_active = 1 AND {name_filter}
+            ORDER BY p.part_name ASC
             LIMIT %(lim)s
         """, {"q": q_param, "lim": int(limit)}, as_dict=True)
 

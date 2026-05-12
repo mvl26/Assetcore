@@ -39,7 +39,14 @@
   "section_verify",
   "verification_notes",
   "effectiveness_check",
+  "imm_effectiveness_evidence",
   "notes",
+  "section_imm16",
+  "imm_compliance_finding_ref",
+  "imm_risk_level",
+  "column_break_imm16",
+  "imm_root_cause_method",
+  "imm_reopen_count",
   "amended_from"
  ],
  "fields": [
@@ -67,7 +74,7 @@
    "fieldtype": "Link",
    "label": "Asset",
    "options": "AC Asset",
-   "reqd": 1,
+   "reqd": 0,
    "search_index": 1,
    "in_list_view": 1
   },
@@ -111,7 +118,7 @@
    "fieldname": "source_type",
    "fieldtype": "Select",
    "label": "Source Type",
-   "options": "Incident Report\nNon-Conformance\nComplaint\nPM Work Order\nIMM Asset Calibration\nAsset Repair",
+   "options": "Incident Report\nNon-Conformance\nComplaint\nPM Work Order\nIMM Asset Calibration\nAsset Repair\nIMM Compliance Finding\nCycle Count Variance\nCritical Stock Breach",
    "reqd": 1
   },
   {
@@ -234,6 +241,48 @@
    "fieldname": "notes",
    "fieldtype": "Text",
    "label": "Notes"
+  },
+  {
+   "fieldname": "imm_effectiveness_evidence",
+   "fieldtype": "Data",
+   "label": "Effectiveness Evidence",
+   "description": "Link hoặc mô tả bằng chứng kiểm tra hiệu quả"
+  },
+  {
+   "fieldname": "section_imm16",
+   "fieldtype": "Section Break",
+   "label": "IMM-16 Compliance Integration",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "imm_compliance_finding_ref",
+   "fieldtype": "Link",
+   "label": "Compliance Finding",
+   "options": "IMM Compliance Finding"
+  },
+  {
+   "fieldname": "imm_risk_level",
+   "fieldtype": "Select",
+   "label": "Risk Level",
+   "options": "\nLow\nMedium\nHigh\nCritical",
+   "default": ""
+  },
+  {
+   "fieldname": "column_break_imm16",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "imm_root_cause_method",
+   "fieldtype": "Select",
+   "label": "Root Cause Method",
+   "options": "\n5-Why\nFishbone\nFault Tree\nPareto\nOther"
+  },
+  {
+   "fieldname": "imm_reopen_count",
+   "fieldtype": "Int",
+   "label": "Reopen Count",
+   "default": "0",
+   "read_only": 1
   },
   {
    "fieldname": "amended_from",

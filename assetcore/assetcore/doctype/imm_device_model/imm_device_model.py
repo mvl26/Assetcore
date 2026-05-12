@@ -43,11 +43,18 @@ class IMMDeviceModel(Document):
                 "default_pm_interval_days",
                 "default_calibration_required",
                 "default_calibration_interval_days",
+                "gmdn_code",
+                "gmdn_term",
             ],
             as_dict=True,
         )
         if not cat:
             return
+        # GMDN: inherit từ category nếu model chưa có
+        if not self.gmdn_code and cat.get("gmdn_code"):
+            self.gmdn_code = cat["gmdn_code"]
+        if not self.gmdn_term and cat.get("gmdn_term"):
+            self.gmdn_term = cat["gmdn_term"]
         if not self.is_pm_required and cat.get("default_pm_required"):
             self.is_pm_required = 1
             if not self.pm_interval_days and cat.get("default_pm_interval_days"):

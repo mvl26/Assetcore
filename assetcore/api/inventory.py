@@ -428,7 +428,10 @@ def get_stock_movement(name: str) -> dict:
     if not frappe.db.exists(_DT_MOV, name):
         return _err(_(_MSG_MOV_NOT_FOUND), 404)
     doc = frappe.get_doc(_DT_MOV, name).as_dict()
-    return _ok(_enrich_warehouse_fields(doc))
+    _enrich_warehouse_fields(doc)
+    if doc.get("supplier"):
+        doc["supplier_name"] = frappe.db.get_value("AC Supplier", doc["supplier"], "supplier_name") or doc["supplier"]
+    return _ok(doc)
 
 
 @frappe.whitelist()

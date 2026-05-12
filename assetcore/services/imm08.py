@@ -270,10 +270,19 @@ def list_work_orders(filters: dict, *, page: int = 1, page_size: int = 20) -> di
     if asset_ids:
         asset_rows = frappe.get_all(
             _DT_AC_ASSET, filters={"name": ["in", list(asset_ids)]},
-            fields=["name", "asset_name"])
-        asset_map = {a.name: a.asset_name for a in asset_rows}
+            fields=["name", "asset_name", "location"])
+        asset_map = {a.name: a for a in asset_rows}
+        loc_ids = {a.get("location") for a in asset_rows if a.get("location")}
+        if loc_ids:
+            loc_rows = frappe.get_all(
+                "AC Location", filters={"name": ["in", list(loc_ids)]},
+                fields=["name", "location_name"])
+            loc_map = {l.name: l.location_name for l in loc_rows}
+        else:
+            loc_map = {}
     else:
         asset_map = {}
+        loc_map = {}
     if user_ids:
         user_rows = frappe.get_all(
             "User", filters={"name": ["in", list(user_ids)]},
@@ -282,7 +291,9 @@ def list_work_orders(filters: dict, *, page: int = 1, page_size: int = 20) -> di
     else:
         user_map = {}
     for r in rows:
-        r["asset_name"] = asset_map.get(r.get("asset_ref"), r.get("asset_ref") or "")
+        a = asset_map.get(r.get("asset_ref"))
+        r["asset_name"] = (a.asset_name if a else None) or r.get("asset_ref") or ""
+        r["location_name"] = (loc_map.get(a.location) if a and a.get("location") else "") or ""
         r["assigned_to_name"] = user_map.get(r.get("assigned_to"), r.get("assigned_to") or "")
     return {"data": rows, "pagination": pg}
 

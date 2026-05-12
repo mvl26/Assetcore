@@ -58,3 +58,20 @@ class ComplianceScorecardRepo(BaseRepository):
             {"period_year": year, "period_month": month, "scope": scope},
             fields=["name", "score_pct", "is_published"],
         )
+
+
+class ManagementReviewRepo(BaseRepository):
+    """Repository cho IMM Management Review."""
+    DOCTYPE = "IMM Management Review"
+
+    @classmethod
+    def find_by_quarter(cls, quarter: str) -> dict | None:
+        return cls.find_one(
+            {"quarter": quarter},
+            fields=["name", "status", "review_date"],
+        )
+
+
+class CAPARepo(BaseRepository):
+    """Repository cho IMM CAPA Record (reuse for IMM-16 linking)."""
+    DOCTYPE = "IMM CAPA Record"

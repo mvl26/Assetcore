@@ -51,7 +51,7 @@ export const useImm06Store = defineStore('imm06', () => {
     error.value = null
     try {
       const res = await listPrograms(filters, page)
-      programs.value = res.items
+      programs.value = res.data ?? []
       programPagination.value = res.pagination
     } catch (e: unknown) {
       _setError(e)
@@ -103,7 +103,7 @@ export const useImm06Store = defineStore('imm06', () => {
     error.value = null
     try {
       const res = await listSessions(filters, page)
-      sessions.value = res.items
+      sessions.value = res.data ?? []
       sessionPagination.value = res.pagination
     } catch (e: unknown) {
       _setError(e)
@@ -174,7 +174,7 @@ export const useImm06Store = defineStore('imm06', () => {
     error.value = null
     try {
       const res = await listCompetencies(filters, page)
-      competencies.value = res.items
+      competencies.value = res.data ?? []
       competencyPagination.value = res.pagination
     } catch (e: unknown) {
       _setError(e)

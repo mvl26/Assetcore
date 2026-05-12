@@ -1,20 +1,35 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useImm06Store } from '@/stores/imm06'
 import { useAuthStore } from '@/stores/auth'
 import { useApi } from '@/composables/useApi'
 import { ROLES_TRAINING_MANAGE, ROLES_TRAINING_CONDUCT } from '@/constants/roles'
+import { confirmSession, cancelSession, createSession } from '@/api/imm06'
 
 
-const props = defineProps<{ name: string }>()
+const props = defineProps<{ name?: string }>()
 const router = useRouter()
+const route = useRoute()
 const store = useImm06Store()
 const authStore = useAuthStore()
 const api = useApi()
 
 const { currentSession, loading } = storeToRefs(store)
+
+const isCreateMode = computed(() => !props.name)
+
+// Create form state
+const createForm = ref({
+  training_program: (route.query.program as string) ?? '',
+  session_date: '',
+  session_type: 'Onsite',
+  location: '',
+  instructor: '',
+  instructor_external_name: '',
+  duration_planned_hours: 8,
+})
 
 const showCancelModal = ref(false)
 const cancelReason = ref('')
@@ -62,26 +77,38 @@ function resultLabel(result: string | null) {
 }
 
 async function doConfirm() {
-  await api.run(
-    () => store.doConfirmSession(props.name),
+  const result = await api.run(
+    () => confirmSession(props.name!),
     { successMessage: 'Đã xác nhận buổi đào tạo' },
   )
+  if (result) await store.fetchSession(props.name!)
 }
 
 async function doCancel() {
   if (!cancelReason.value.trim()) return
-  const ok = await api.run(
-    () => store.doCancelSession(props.name, cancelReason.value),
+  const result = await api.run(
+    () => cancelSession(props.name!, cancelReason.value),
     { successMessage: 'Đã hủy buổi đào tạo' },
   )
-  if (ok) {
+  if (result) {
     showCancelModal.value = false
     cancelReason.value = ''
+    await store.fetchSession(props.name!)
   }
 }
 
+async function doCreate() {
+  const result = await api.run(
+    () => createSession(createForm.value as Record<string, unknown>),
+    { successMessage: 'Đã tạo buổi đào tạo' },
+  )
+  if (result) router.push(`/imm06/sessions/${result.name}`)
+}
+
 async function load() {
-  await store.fetchSession(props.name)
+  if (!isCreateMode.value) {
+    await store.fetchSession(props.name!)
+  }
 }
 
 onMounted(load)
@@ -92,10 +119,10 @@ onMounted(load)
     <!-- Header -->
     <div class="flex items-center justify-between flex-wrap gap-3">
       <div class="flex items-center gap-3">
-        <button class="btn-ghost text-sm" @click="router.push('/training/sessions')">← Quay lại</button>
+        <button class="btn-ghost text-sm" @click="router.push('/imm06/sessions')">← Quay lại</button>
         <div>
           <p class="text-xs text-slate-400">Buổi đào tạo</p>
-          <h1 class="text-xl font-bold text-slate-900">{{ props.name }}</h1>
+          <h1 class="text-xl font-bold text-slate-900">{{ isCreateMode ? 'Tạo buổi đào tạo mới' : props.name }}</h1>
         </div>
       </div>
       <div class="flex items-center gap-2 flex-wrap">
@@ -117,9 +144,18 @@ onMounted(load)
         </button>
 
         <button
+          v-if="isCreateMode"
+          class="btn-primary text-sm"
+          :disabled="api.loading.value"
+          @click="doCreate"
+        >
+          {{ api.loading.value ? 'Đang tạo...' : 'Tạo buổi đào tạo' }}
+        </button>
+
+        <button
           v-if="canComplete"
           class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm transition-colors"
-          @click="router.push(`/training/sessions/${props.name}/run`)"
+          @click="router.push(`/imm06/sessions/${props.name}/run`)"
         >
           Hoàn thành
         </button>
@@ -134,7 +170,47 @@ onMounted(load)
       </div>
     </div>
 
-    <div v-if="loading" class="card p-8 text-center text-slate-400">Đang tải...</div>
+    <!-- Create Form -->
+    <div v-if="isCreateMode" class="card p-6 space-y-4">
+      <h2 class="text-sm font-semibold text-slate-700 pb-2 border-b">Thông tin buổi đào tạo</h2>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+        <div>
+          <label class="form-label">Chương trình đào tạo <span class="text-red-500">*</span></label>
+          <input v-model="createForm.training_program" type="text" class="form-input w-full" placeholder="Mã chương trình..." />
+        </div>
+        <div>
+          <label class="form-label">Ngày tổ chức <span class="text-red-500">*</span></label>
+          <input v-model="createForm.session_date" type="date" class="form-input w-full" />
+        </div>
+        <div>
+          <label class="form-label">Hình thức</label>
+          <select v-model="createForm.session_type" class="form-select w-full">
+            <option value="Onsite">Tại chỗ</option>
+            <option value="Online">Trực tuyến</option>
+            <option value="Hybrid">Kết hợp</option>
+          </select>
+        </div>
+        <div>
+          <label class="form-label">Địa điểm</label>
+          <input v-model="createForm.location" type="text" class="form-input w-full" />
+        </div>
+        <div>
+          <label class="form-label">Giảng viên nội bộ</label>
+          <input v-model="createForm.instructor" type="text" class="form-input w-full" placeholder="Email người dùng..." />
+        </div>
+        <div>
+          <label class="form-label">Giảng viên bên ngoài</label>
+          <input v-model="createForm.instructor_external_name" type="text" class="form-input w-full" />
+        </div>
+        <div>
+          <label class="form-label">Thời lượng dự kiến (giờ)</label>
+          <input v-model.number="createForm.duration_planned_hours" type="number" min="0" step="0.5" class="form-input w-full" />
+        </div>
+      </div>
+      <p class="text-xs text-slate-400">* Phải có ít nhất một trong hai giảng viên.</p>
+    </div>
+
+    <div v-else-if="loading" class="card p-8 text-center text-slate-400">Đang tải...</div>
 
     <template v-else-if="currentSession">
       <!-- Session Info -->

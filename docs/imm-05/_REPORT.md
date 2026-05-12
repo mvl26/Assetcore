@@ -24,3 +24,9 @@ IMM-05 đã **đầy đủ** 9 file (README + 02–09) theo template chuẩn v4.
 ## 4. Việc còn lại
 
 Không có. Module sẵn sàng cho assetcore-be-module / assetcore-fe-module sử dụng làm input.
+
+## 2026-05-11 Alignment Pass (Sprint 6 DoD)
+- BE: 3-tier compliance verified; endpoints align with docs/05_API_Specification.md
+- FE: store + views + routes + sidebar entry wired
+- Tests: see docs/res/dod-verification-report.md §1 for per-module results
+- Status: READY

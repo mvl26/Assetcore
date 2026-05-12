@@ -29,6 +29,7 @@
   "medical_device_class",
   "risk_classification",
   "gmdn_code",
+  "gmdn_term",
   "emdn_code",
   "column_break_class",
   "hsn_code",
@@ -171,6 +172,12 @@
    "fieldname": "gmdn_code",
    "fieldtype": "Data",
    "label": "GMDN Code"
+  },
+  {
+   "fieldname": "gmdn_term",
+   "fieldtype": "Data",
+   "label": "GMDN Term",
+   "description": "Tên thuật ngữ GMDN — kế thừa từ Danh mục tài sản"
   },
   {
    "fieldname": "emdn_code",

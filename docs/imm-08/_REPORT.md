@@ -62,3 +62,9 @@ Yêu cầu user: KHÔNG đụng Pitch (I.1) / Stakeholder (I.3) / KPI (I.5) / Wo
 - [x] Pitch / Stakeholder / KPI / Workflow không bị chạm
 - [x] Folder khác không bị chạm
 - [x] _REPORT.md phát sinh trong cùng folder target
+
+## 2026-05-11 Alignment Pass (Sprint 6 DoD)
+- BE: 3-tier compliance verified; endpoints align with docs/05_API_Specification.md
+- FE: store + views + routes + sidebar entry wired
+- Tests: see docs/res/dod-verification-report.md §1 for per-module results
+- Status: READY

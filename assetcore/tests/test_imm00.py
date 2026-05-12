@@ -170,7 +170,9 @@ class TestACAsset(unittest.TestCase):
             frappe.delete_doc(dt, name, force=True, ignore_permissions=True)
 
     def _make_asset(self, suffix=""):
-        return frappe.get_doc({
+        # Use in_install bypass to insert with a non-initial lifecycle_status
+        # (AC Asset Lifecycle workflow blocks direct "Draft" → "Commissioned").
+        return _insert_asset_bypass_workflow({
             "doctype": "AC Asset",
             "asset_name": f"_Test Asset IMM00{suffix}",
             "asset_category": self.cat.name,
@@ -183,7 +185,7 @@ class TestACAsset(unittest.TestCase):
             "lifecycle_status": "Commissioned",
             "is_pm_required": 1,
             "pm_interval_days": 30,
-        }).insert(ignore_permissions=True)
+        })
 
     def test_asset_created_with_naming_series(self):
         asset = self._make_asset("-create")
@@ -239,20 +241,39 @@ class TestACAsset(unittest.TestCase):
             frappe.delete_doc("AC Asset", asset.name, force=True, ignore_permissions=True)
 
 
+def _insert_asset_bypass_workflow(data: dict):
+    """Insert AC Asset bypassing workflow validation (for test fixtures)."""
+    prev = frappe.flags.in_install
+    frappe.flags.in_install = "frappe"
+    try:
+        return frappe.get_doc(data).insert(ignore_permissions=True)
+    finally:
+        frappe.flags.in_install = prev
+
+
 class TestIMMCAPARecord(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        # Clean up leftovers from prior failed runs.
+        for a in frappe.get_all("AC Asset", filters={"asset_name": "_Test Asset CAPA"},
+                                fields=["name"]):
+            frappe.delete_doc("AC Asset", a.name, force=True, ignore_permissions=True)
+        if frappe.db.exists("AC Asset Category", "_TestCatCAPA"):
+            frappe.delete_doc("AC Asset Category", "_TestCatCAPA",
+                              force=True, ignore_permissions=True)
+        frappe.db.commit()
+
         cls.cat = frappe.get_doc({
             "doctype": "AC Asset Category",
             "category_name": "_TestCatCAPA",
         }).insert(ignore_permissions=True)
-        cls.asset = frappe.get_doc({
+        cls.asset = _insert_asset_bypass_workflow({
             "doctype": "AC Asset",
             "asset_name": "_Test Asset CAPA",
             "asset_category": cls.cat.name,
             "manufacturer_sn": "SN-CAPA-001",
             "lifecycle_status": "Active",
-        }).insert(ignore_permissions=True)
+        })
 
     @classmethod
     def tearDownClass(cls):
@@ -263,7 +284,7 @@ class TestIMMCAPARecord(unittest.TestCase):
         from assetcore.services.imm00 import create_capa
         name = create_capa(
             asset=self.asset.name,
-            source_type="Nonconformance",
+            source_type="Non-Conformance",
             source_ref="",
             severity="Minor",
             description="Root cause test — action taken — prevention plan",
@@ -278,7 +299,7 @@ class TestIMMCAPARecord(unittest.TestCase):
         from assetcore.services.imm00 import create_capa, close_capa
         name = create_capa(
             asset=self.asset.name,
-            source_type="Nonconformance",
+            source_type="Non-Conformance",
             source_ref="",
             severity="Minor",
             description="CAPA close test",
@@ -291,6 +312,7 @@ class TestIMMCAPARecord(unittest.TestCase):
             root_cause="Root cause identified",
             corrective_action="Action taken",
             preventive_action="Prevention plan",
+            effectiveness_check="Effective",
         )
         frappe.db.commit()
         doc = frappe.get_doc("IMM CAPA Record", name)
@@ -304,17 +326,26 @@ class TestIMMauditTrail(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
+        # Clean up leftovers from prior failed runs.
+        for a in frappe.get_all("AC Asset", filters={"asset_name": "_Test Asset Audit"},
+                                fields=["name"]):
+            frappe.delete_doc("AC Asset", a.name, force=True, ignore_permissions=True)
+        if frappe.db.exists("AC Asset Category", "_TestCatAudit"):
+            frappe.delete_doc("AC Asset Category", "_TestCatAudit",
+                              force=True, ignore_permissions=True)
+        frappe.db.commit()
+
         cls.cat = frappe.get_doc({
             "doctype": "AC Asset Category",
             "category_name": "_TestCatAudit",
         }).insert(ignore_permissions=True)
-        cls.asset = frappe.get_doc({
+        cls.asset = _insert_asset_bypass_workflow({
             "doctype": "AC Asset",
             "asset_name": "_Test Asset Audit",
             "asset_category": cls.cat.name,
             "manufacturer_sn": "SN-AUDIT-001",
             "lifecycle_status": "Commissioned",
-        }).insert(ignore_permissions=True)
+        })
 
     @classmethod
     def tearDownClass(cls):
@@ -345,17 +376,26 @@ class TestIMMauditTrail(unittest.TestCase):
 class TestIncidentReport(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        # Clean up any leftover fixtures from a prior failed run.
+        for asset in frappe.get_all("AC Asset", filters={"asset_name": "_Test Asset IR"},
+                                    fields=["name"]):
+            frappe.delete_doc("AC Asset", asset.name, force=True, ignore_permissions=True)
+        if frappe.db.exists("AC Asset Category", "_TestCatIR"):
+            frappe.delete_doc("AC Asset Category", "_TestCatIR",
+                              force=True, ignore_permissions=True)
+        frappe.db.commit()
+
         cls.cat = frappe.get_doc({
             "doctype": "AC Asset Category",
             "category_name": "_TestCatIR",
         }).insert(ignore_permissions=True)
-        cls.asset = frappe.get_doc({
+        cls.asset = _insert_asset_bypass_workflow({
             "doctype": "AC Asset",
             "asset_name": "_Test Asset IR",
             "asset_category": cls.cat.name,
             "manufacturer_sn": "SN-IR-001",
             "lifecycle_status": "Active",
-        }).insert(ignore_permissions=True)
+        })
 
     @classmethod
     def tearDownClass(cls):

@@ -23,6 +23,20 @@ export function updateTechSpec(name: string, payload: Partial<TechSpecDoc>): Pro
   return frappePost(`${BASE}.update_tech_spec`, { name, payload: JSON.stringify(payload) })
 }
 
+export function addRequirement(spec: string, requirement: Record<string, unknown>):
+    Promise<{ name: string; requirement_idx: number; total_mandatory: number; total_optional: number }> {
+  return frappePost(`${BASE}.add_requirement`, {
+    spec, requirement: JSON.stringify(requirement),
+  })
+}
+
+export function bulkImportRequirements(spec: string, rows: Record<string, unknown>[]):
+    Promise<{ name: string; imported: number; total_mandatory: number; total_optional: number }> {
+  return frappePost(`${BASE}.bulk_import_requirements`, {
+    spec, rows: JSON.stringify(rows),
+  })
+}
+
 export function draftFromPlan(plan: string, plan_lines: string[] = []): Promise<{ created: string[] }> {
   return frappePost(`${BASE}.draft_from_plan`, { plan, plan_lines: JSON.stringify(plan_lines) })
 }

@@ -3,6 +3,6 @@ import frappe
 from frappe.model.document import Document
 
 
-class IMMRAttendee(Document):
+class IMMMRAttendee(Document):
     """Child table row for IMM Management Review attendees."""
     pass

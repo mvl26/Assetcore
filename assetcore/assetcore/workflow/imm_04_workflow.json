@@ -83,139 +83,162 @@
    "action": "Gửi kiểm tra tài liệu",
    "allowed": "IMM Biomed Technician",
    "next_state": "Pending Doc Verify",
-   "state": "Draft"
+   "state": "Draft",
+   "allow_self_approval": 1
   },
   {
    "action": "Gửi kiểm tra tài liệu",
    "allowed": "IMM System Admin",
    "next_state": "Pending Doc Verify",
-   "state": "Draft"
+   "state": "Draft",
+   "allow_self_approval": 1
   },
   {
    "action": "Xác nhận đủ tài liệu",
    "allowed": "IMM Biomed Technician",
    "next_state": "To Be Installed",
-   "state": "Pending Doc Verify"
+   "state": "Pending Doc Verify",
+   "allow_self_approval": 1
   },
   {
    "action": "Yêu cầu bổ sung tài liệu",
    "allowed": "IMM Biomed Technician",
    "next_state": "Draft",
-   "state": "Pending Doc Verify"
+   "state": "Pending Doc Verify",
+   "allow_self_approval": 1
   },
   {
    "action": "Bắt đầu lắp đặt",
    "allowed": "IMM Biomed Technician",
    "next_state": "Installing",
-   "state": "To Be Installed"
+   "state": "To Be Installed",
+   "allow_self_approval": 1
   },
   {
    "action": "Báo cáo sự cố",
    "allowed": "IMM Biomed Technician",
    "next_state": "Non Conformance",
-   "state": "To Be Installed"
+   "state": "To Be Installed",
+   "allow_self_approval": 1
   },
   {
    "action": "Báo cáo sự cố",
    "allowed": "Vendor Engineer",
    "next_state": "Non Conformance",
-   "state": "To Be Installed"
+   "state": "To Be Installed",
+   "allow_self_approval": 1
   },
   {
    "action": "Lắp đặt hoàn thành",
    "allowed": "IMM Biomed Technician",
    "next_state": "Identification",
-   "state": "Installing"
+   "state": "Installing",
+   "allow_self_approval": 1
   },
   {
    "action": "Lắp đặt hoàn thành",
    "allowed": "Vendor Engineer",
    "next_state": "Identification",
-   "state": "Installing"
+   "state": "Installing",
+   "allow_self_approval": 1
   },
   {
    "action": "Báo cáo DOA",
    "allowed": "IMM Biomed Technician",
    "next_state": "Non Conformance",
-   "state": "Installing"
+   "state": "Installing",
+   "allow_self_approval": 1
   },
   {
    "action": "Báo cáo DOA",
    "allowed": "Vendor Engineer",
    "next_state": "Non Conformance",
-   "state": "Installing"
+   "state": "Installing",
+   "allow_self_approval": 1
   },
   {
    "action": "Bắt đầu kiểm tra",
    "allowed": "IMM Biomed Technician",
    "next_state": "Initial Inspection",
-   "state": "Identification"
+   "state": "Identification",
+   "allow_self_approval": 1
   },
   {
    "action": "Phê duyệt phát hành",
    "allowed": "System Manager",
    "next_state": "Clinical Release",
-   "state": "Initial Inspection"
+   "state": "Initial Inspection",
+   "allow_self_approval": 1
   },
   {
    "action": "Phê duyệt phát hành",
    "allowed": "IMM System Admin",
    "next_state": "Clinical Release",
-   "state": "Initial Inspection"
+   "state": "Initial Inspection",
+   "allow_self_approval": 1
   },
   {
    "action": "Giữ lâm sàng",
    "allowed": "IMM QA Officer",
    "next_state": "Clinical Hold",
-   "state": "Initial Inspection"
+   "state": "Initial Inspection",
+   "allow_self_approval": 1
   },
   {
    "action": "Giữ lâm sàng",
    "allowed": "IMM System Admin",
    "next_state": "Clinical Hold",
-   "state": "Initial Inspection"
+   "state": "Initial Inspection",
+   "allow_self_approval": 1
   },
   {
    "action": "Báo cáo lỗi baseline",
    "allowed": "IMM Biomed Technician",
    "next_state": "Re Inspection",
-   "state": "Initial Inspection"
+   "state": "Initial Inspection",
+   "allow_self_approval": 1
   },
   {
    "action": "Gỡ giữ lâm sàng",
    "allowed": "IMM QA Officer",
    "next_state": "Clinical Release",
-   "state": "Clinical Hold"
+   "state": "Clinical Hold",
+   "allow_self_approval": 1
   },
   {
    "action": "Gỡ giữ lâm sàng",
    "allowed": "IMM System Admin",
    "next_state": "Clinical Release",
-   "state": "Clinical Hold"
+   "state": "Clinical Hold",
+   "allow_self_approval": 1
   },
   {
    "action": "Phê duyệt sau tái kiểm",
    "allowed": "System Manager",
    "next_state": "Clinical Release",
-   "state": "Re Inspection"
+   "state": "Re Inspection",
+   "allow_self_approval": 1
   },
   {
    "action": "Phê duyệt sau tái kiểm",
    "allowed": "IMM System Admin",
    "next_state": "Clinical Release",
-   "state": "Re Inspection"
+   "state": "Re Inspection",
+   "allow_self_approval": 1
   },
   {
    "action": "Khắc phục xong",
    "allowed": "IMM Biomed Technician",
    "next_state": "To Be Installed",
-   "state": "Non Conformance"
+   "state": "Non Conformance",
+   "allow_self_approval": 1
   },
   {
    "action": "Trả lại nhà cung cấp",
    "allowed": "System Manager",
    "next_state": "Return To Vendor",
-   "state": "Non Conformance"
+   "state": "Non Conformance",
+   "allow_self_approval": 1
   }
  ]
 }

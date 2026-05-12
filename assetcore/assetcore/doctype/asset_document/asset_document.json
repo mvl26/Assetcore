@@ -50,7 +50,7 @@
    "label": "Khoa / Phòng",
    "options": "AC Department",
    "read_only": 1,
-   "fetch_from": "asset_ref.location"
+   "fetch_from": "asset_ref.department"
   },
   {
    "fieldname": "col_break_asset",

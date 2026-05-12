@@ -10,10 +10,12 @@ from frappe import _
 from frappe.utils import getdate, now_datetime, nowdate, add_days
 
 from assetcore.repositories.compliance_repo import (
+    CAPARepo,
     ComplianceFindingRepo,
     ComplianceRuleRepo,
     ComplianceScorecardRepo,
     InternalAuditRepo,
+    ManagementReviewRepo,
 )
 from assetcore.services.shared import ErrorCode, Roles, ServiceError, normalize_filters
 from assetcore.utils.lifecycle import log_audit_event
@@ -375,6 +377,36 @@ def generate_scorecard(module_ref: str, period: str) -> dict:
     }
 
 
+def validate_scorecard_immutability(doc) -> None:
+    """VR-09: once published (is_published=1), score_pct and non_compliant_count
+    become immutable. Create a new restate_of document to correct errors."""
+    if not doc.get("name") or doc.is_new():
+        return
+    if not doc.get("is_published"):
+        return
+    try:
+        prev = frappe.db.get_value(
+            "IMM Compliance Scorecard",
+            doc.name,
+            ["score_pct", "non_compliant_count", "is_published"],
+            as_dict=True,
+        )
+    except Exception:
+        return
+    if not prev:
+        return
+    if not prev.get("is_published"):
+        return
+    immutable_fields = ("score_pct", "non_compliant_count")
+    for fld in immutable_fields:
+        if doc.get(fld) != prev.get(fld):
+            raise ServiceError(
+                ErrorCode.VALIDATION,
+                _("Scorecard đã publish — field {0} không thể thay đổi. "
+                  "Tạo bản restate_of mới để điều chỉnh.").format(fld),
+            )
+
+
 # ─── Scheduler Jobs ───────────────────────────────────────────────────────────
 
 def evaluate_all_compliance_rules() -> None:
@@ -474,7 +506,7 @@ def capa_record_validate(doc, method=None) -> None:
     if ws in ("Action Plan", "Implementation", "Verification", "Closed"):
         if not doc.get("imm_root_cause_method"):
             frappe.throw(_("VR-05: Phải chọn phương pháp phân tích root cause."))
-    if doc.status == "Closed":
+    if doc.status == "Closed" and (doc.workflow_state or "") == "Closed":
         if not doc.effectiveness_check:
             frappe.throw(_("VR-06: Effectiveness check chưa hoàn tất."))
 
@@ -503,23 +535,58 @@ def capa_record_on_update(doc, method=None) -> None:
 
 
 def check_asset_compliance_status(asset: str) -> dict:
-    """BR-16-09: Kiểm tra asset có CAPA Critical mở không trước khi tạo WO."""
+    """BR-16-09: Cross-module gate.
+
+    Trả về:
+      {
+        "blocked": bool,
+        "asset": str | None,
+        "reasons": list[{type, ref, status, workflow_state, message}],
+        "active_findings_count": int,
+        "active_capas_count": int,
+        "blocking_findings": list[str],
+      }
+    Gọi bởi IMM-04/08/09/13/14 trước khi commission/WO/decommission.
+    """
     if not asset:
-        return {"blocked": False, "active_capas_count": 0}
-    crit_open = frappe.get_all(
+        return {"blocked": False, "asset": None,
+                "active_findings_count": 0, "active_capas_count": 0,
+                "blocking_findings": [], "reasons": []}
+
+    crit_capas = frappe.get_all(
         "IMM CAPA Record",
         filters={"asset": asset,
                  "imm_risk_level": "Critical",
                  "status": ("in", ["Open", "In Progress", "Pending Verification"])},
-        pluck="name",
+        fields=["name", "status", "workflow_state"],
     )
-    if crit_open:
-        return {
-            "blocked": True,
-            "reasons": [{"type": "CAPA_CRITICAL_OPEN", "ref": n} for n in crit_open],
-            "active_capas_count": len(crit_open),
-        }
-    return {"blocked": False, "active_capas_count": 0}
+
+    active_findings = frappe.get_all(
+        ComplianceFindingRepo.DOCTYPE,
+        filters={"asset": asset,
+                 "status": ("in", list(FindingStatus.ACTIVE)),
+                 "severity": ("in", ["High", "Critical"])},
+        fields=["name", "severity", "status"],
+    )
+
+    reasons: list[dict] = []
+    for c in crit_capas:
+        reasons.append({
+            "type": "CAPA_CRITICAL_OPEN",
+            "ref": c["name"],
+            "status": c.get("status"),
+            "workflow_state": c.get("workflow_state"),
+            "message": "CAPA Critical chưa close",
+        })
+
+    return {
+        "blocked": bool(crit_capas),
+        "asset": asset,
+        "reasons": reasons,
+        "active_findings_count": len(active_findings),
+        "active_capas_count": len(crit_capas),
+        "blocking_findings": [f["name"] for f in active_findings],
+    }
 
 
 # ─── Internal helpers ─────────────────────────────────────────────────────────
@@ -844,3 +911,764 @@ def _evaluate_single_rule_for_asset(rule: dict, asset: str,
         description=f"Rule {rule.get('rule_code')} violated by {source_doctype} {source_record}",
         evaluation_date=nowdate(),
     )
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Canonical IMM-16 service surface (per docs/imm-16/05_API_Specification.md)
+# ════════════════════════════════════════════════════════════════════════════
+
+_WAIVE_ROLES = (Roles.OPS_MANAGER, Roles.SYS_ADMIN)
+_PUBLISH_SCORECARD_ROLES = (Roles.QA, Roles.OPS_MANAGER, Roles.SYS_ADMIN)
+_FINALIZE_MR_ROLES = (Roles.OPS_MANAGER, Roles.SYS_ADMIN)
+_CLOSE_AUDIT_ROLES = (Roles.QA, Roles.OPS_MANAGER, Roles.SYS_ADMIN)
+_CREATE_RULE_ROLES = (Roles.QA, Roles.SYS_ADMIN)
+
+
+# ─── Compliance Rule (canonical) ─────────────────────────────────────────────
+
+def get_rule(name: str) -> dict:
+    """Chi tiết Compliance Rule."""
+    doc = ComplianceRuleRepo.get(name)
+    if not doc:
+        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy Rule: {name}")
+    return doc.as_dict()
+
+
+def update_rule(name: str, rule_data: dict, change_summary: str = "") -> dict:
+    """VR-11: enforce change_summary nếu threshold/severity đổi; bump version."""
+    from assetcore.services.shared import require_role
+    require_role(_CREATE_RULE_ROLES, "Không có quyền cập nhật Rule")
+
+    doc = ComplianceRuleRepo.get(name)
+    if not doc:
+        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy Rule: {name}")
+
+    rule_data = rule_data or {}
+    sensitive_changed = (
+        ("threshold_definition" in rule_data and
+         rule_data.get("threshold_definition") != doc.threshold_definition)
+        or ("severity" in rule_data and
+            rule_data.get("severity") != doc.severity)
+    )
+    if sensitive_changed and not (change_summary or "").strip():
+        raise ServiceError("FIN-011",
+                           "VR-11: Phải nhập change_summary khi đổi threshold/severity")
+
+    previous_version = doc.version or "1.0"
+    for field, val in rule_data.items():
+        if hasattr(doc, field):
+            setattr(doc, field, val)
+    if sensitive_changed:
+        try:
+            major, minor = previous_version.split(".")
+            doc.version = f"{major}.{int(minor) + 1}"
+        except Exception:
+            doc.version = "1.1"
+        doc.previous_version = previous_version
+        doc.change_summary = change_summary
+    ComplianceRuleRepo.save(doc)
+    frappe.db.commit()
+    return {"name": doc.name, "version": doc.version,
+            "previous_version": previous_version}
+
+
+def deactivate_rule(name: str) -> dict:
+    """Deactivate Rule (set is_active=0)."""
+    from assetcore.services.shared import require_role
+    require_role(_CREATE_RULE_ROLES, "Không có quyền deactivate Rule")
+    if not ComplianceRuleRepo.exists(name):
+        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy Rule: {name}")
+    frappe.db.set_value(ComplianceRuleRepo.DOCTYPE, name, "is_active", 0)
+    frappe.db.commit()
+    return {"name": name, "is_active": 0}
+
+
+# ─── Finding (canonical) ─────────────────────────────────────────────────────
+
+def get_finding(name: str) -> dict:
+    doc = ComplianceFindingRepo.get(name)
+    if not doc:
+        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy Finding: {name}")
+    return doc.as_dict()
+
+
+def confirm_finding(name: str, reviewer_note: str = "") -> dict:
+    _require_qa_or_admin()
+    doc = ComplianceFindingRepo.get(name)
+    if not doc:
+        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy Finding: {name}")
+    if doc.status not in FindingStatus.ACTIVE:
+        raise ServiceError(ErrorCode.BAD_STATE,
+                           f"Finding đã ở trạng thái: {doc.status}")
+    doc.status = FindingStatus.CONFIRMED_NC
+    doc.reviewer = frappe.session.user
+    doc.review_date = now_datetime()
+    if reviewer_note:
+        doc.notes = (doc.notes or "") + f"\n[Confirmed] {reviewer_note}"
+    ComplianceFindingRepo.save(doc)
+    frappe.db.commit()
+    return {"name": name, "status": FindingStatus.CONFIRMED_NC}
+
+
+def mark_false_positive(name: str, reason: str) -> dict:
+    _require_qa_or_admin()
+    if not (reason or "").strip():
+        raise ServiceError(ErrorCode.VALIDATION,
+                           "Phải nhập lý do mark False Positive")
+    doc = ComplianceFindingRepo.get(name)
+    if not doc:
+        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy Finding: {name}")
+    doc.status = FindingStatus.FALSE_POSITIVE
+    doc.reviewer = frappe.session.user
+    doc.review_date = now_datetime()
+    doc.notes = (doc.notes or "") + f"\n[False Positive] {reason}"
+    ComplianceFindingRepo.save(doc)
+    frappe.db.commit()
+    return {"name": name, "status": FindingStatus.FALSE_POSITIVE}
+
+
+def waive_finding(name: str, waiver_reason: str,
+                  waiver_evidence: str = "",
+                  waiver_expiry: str = "") -> dict:
+    """BR-16-06 + VR-04."""
+    from assetcore.services.shared import has_any_role
+    if not has_any_role(_WAIVE_ROLES):
+        raise ServiceError("FIN-006",
+                           "Chỉ VP Block2 hoặc CMMS Admin được phép waive")
+    if not waiver_reason or len(waiver_reason.strip()) < 50:
+        raise ServiceError("FIN-004",
+                           "VR-04: waiver_reason phải >= 50 ký tự")
+    if not waiver_evidence:
+        raise ServiceError("FIN-004", "VR-04: waiver_evidence là bắt buộc")
+    if not waiver_expiry or getdate(waiver_expiry) <= getdate(nowdate()):
+        raise ServiceError("FIN-004",
+                           "VR-04: waiver_expiry phải sau hôm nay")
+
+    doc = ComplianceFindingRepo.get(name)
+    if not doc:
+        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy Finding: {name}")
+    doc.status = FindingStatus.WAIVED
+    doc.waiver_reason = waiver_reason
+    doc.waiver_evidence = waiver_evidence
+    doc.waiver_expiry = waiver_expiry
+    doc.reviewer = frappe.session.user
+    doc.review_date = now_datetime()
+    ComplianceFindingRepo.save(doc)
+    frappe.db.commit()
+    return {"name": name, "status": FindingStatus.WAIVED}
+
+
+def link_finding_to_capa(name: str, capa_ref: str) -> dict:
+    _require_qa_or_admin()
+    doc = ComplianceFindingRepo.get(name)
+    if not doc:
+        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy Finding: {name}")
+    if not CAPARepo.exists(capa_ref):
+        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy CAPA: {capa_ref}")
+    doc.capa_ref = capa_ref
+    ComplianceFindingRepo.save(doc)
+    frappe.db.commit()
+    return {"name": name, "capa_ref": capa_ref}
+
+
+# ─── Internal Audit (canonical) ──────────────────────────────────────────────
+
+def get_audit(name: str) -> dict:
+    doc = InternalAuditRepo.get(name)
+    if not doc:
+        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy Audit: {name}")
+    return doc.as_dict()
+
+
+def create_audit(audit_data: dict) -> dict:
+    return create_internal_audit(audit_data)
+
+
+def start_audit(name: str) -> dict:
+    _require_qa_or_admin()
+    doc = InternalAuditRepo.get(name)
+    if not doc:
+        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy Audit: {name}")
+    if doc.status != AuditStatus.PLANNED:
+        raise ServiceError(ErrorCode.BAD_STATE,
+                           f"Audit phải ở trạng thái Planned, hiện: {doc.status}")
+    doc.status = AuditStatus.IN_PROGRESS
+    doc.actual_start = nowdate()
+    InternalAuditRepo.save(doc)
+    frappe.db.commit()
+    return {"name": name, "status": AuditStatus.IN_PROGRESS,
+            "actual_start": doc.actual_start}
+
+
+def complete_audit_checklist(audit_name: str, items: list[dict]) -> dict:
+    """§3.3.4: Update checklist items + auto-sinh Finding cho Major/Minor NC."""
+    _require_qa_or_admin()
+    doc = InternalAuditRepo.get(audit_name)
+    if not doc:
+        raise ServiceError(ErrorCode.NOT_FOUND,
+                           f"Không tìm thấy Audit: {audit_name}")
+    if doc.status not in (AuditStatus.IN_PROGRESS, AuditStatus.PLANNED):
+        raise ServiceError(ErrorCode.BAD_STATE,
+                           f"Audit ở trạng thái {doc.status} — không thể nhập checklist")
+
+    findings_created = 0
+    items = items or []
+    # Build idx -> payload map
+    payload_map = {int(it.get("idx", 0)): it for it in items if it.get("idx")}
+
+    for child in (doc.checklist_items or []):
+        payload = payload_map.get(int(child.idx))
+        if not payload:
+            continue
+        finding_status = payload.get("finding_status")
+        if hasattr(child, "finding_status"):
+            child.finding_status = finding_status
+        if hasattr(child, "notes"):
+            child.notes = payload.get("notes", "")
+        if hasattr(child, "clause_ref"):
+            child.clause_ref = payload.get("clause_ref", "")
+
+        if finding_status in ("Major NC", "Minor NC"):
+            severity = "High" if finding_status == "Major NC" else "Medium"
+            try:
+                finding_doc = ComplianceFindingRepo.create({
+                    "rule": getattr(child, "rule_ref", "") or "",
+                    "source_record_doctype": InternalAuditRepo.DOCTYPE,
+                    "source_record": doc.name,
+                    "detected_date": now_datetime(),
+                    "severity": severity,
+                    "status": FindingStatus.OPEN,
+                    "evaluation_date": nowdate(),
+                    "notes": payload.get("notes", ""),
+                })
+                if hasattr(child, "linked_finding"):
+                    child.linked_finding = finding_doc.name
+                findings_created += 1
+            except Exception:
+                frappe.log_error(frappe.get_traceback(),
+                                 "IMM-16 complete_audit_checklist: finding create failed")
+
+    doc.findings_count = (doc.findings_count or 0) + findings_created
+    InternalAuditRepo.save(doc)
+    frappe.db.commit()
+    return {"audit_name": audit_name, "items_count": len(items),
+            "findings_created": findings_created}
+
+
+def close_audit(name: str, audit_report: str = "") -> dict:
+    """§3.3.5: VR-08 enforce — block nếu còn Major NC chưa CAPA."""
+    from assetcore.services.shared import require_role
+    require_role(_CLOSE_AUDIT_ROLES, "Không có quyền đóng Audit")
+
+    doc = InternalAuditRepo.get(name)
+    if not doc:
+        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy Audit: {name}")
+    if doc.status == AuditStatus.CLOSED:
+        raise ServiceError(ErrorCode.BAD_STATE, "Audit đã đóng")
+
+    # VR-08: block if any Major NC finding without CAPA link
+    open_major = frappe.get_all(
+        ComplianceFindingRepo.DOCTYPE,
+        filters={
+            "source_record_doctype": InternalAuditRepo.DOCTYPE,
+            "source_record": name,
+            "severity": ("in", ["High", "Critical"]),
+            "capa_ref": ("in", ["", None]),
+            "status": ("in", list(FindingStatus.ACTIVE)),
+        },
+        pluck="name",
+    )
+    if open_major:
+        raise ServiceError("FIN-008",
+                           f"VR-08: Còn {len(open_major)} Major NC chưa link CAPA: "
+                           f"{', '.join(open_major[:3])}")
+
+    doc.status = AuditStatus.CLOSED
+    doc.actual_end = nowdate()
+    if audit_report:
+        doc.audit_report = audit_report
+    InternalAuditRepo.save(doc)
+    frappe.db.commit()
+    return {"name": name, "status": AuditStatus.CLOSED,
+            "actual_end": doc.actual_end}
+
+
+# ─── CAPA (canonical) ─────────────────────────────────────────────────────────
+
+def create_capa_from_finding(finding_name: str,
+                              imm_risk_level: str = "Medium",
+                              imm_root_cause_method: str = "",
+                              responsible: str = "",
+                              due_date: str = "") -> dict:
+    """§3.4.1: Tạo CAPA từ Finding, link 2-way."""
+    _require_qa_or_admin()
+    finding = ComplianceFindingRepo.get(finding_name)
+    if not finding:
+        raise ServiceError(ErrorCode.NOT_FOUND,
+                           f"Không tìm thấy Finding: {finding_name}")
+
+    from assetcore.services.imm00 import create_capa
+    capa_name = create_capa(
+        asset=finding.asset or "",
+        source_type="IMM Compliance Finding",
+        source_ref=finding_name,
+        severity=_map_severity(finding.severity or "Medium"),
+        description=f"[IMM-16] Finding {finding_name}: {finding.notes or ''}",
+        responsible=responsible or frappe.session.user,
+    )
+
+    # Set IMM-16 specific custom fields
+    update: dict = {
+        "imm_compliance_finding_ref": finding_name,
+        "imm_risk_level": imm_risk_level,
+    }
+    if imm_root_cause_method:
+        update["imm_root_cause_method"] = imm_root_cause_method
+    if responsible:
+        update["responsible"] = responsible
+    if due_date:
+        update["due_date"] = due_date
+    for k, v in update.items():
+        try:
+            frappe.db.set_value("IMM CAPA Record", capa_name, k, v)
+        except Exception:
+            pass
+
+    # Link finding → capa
+    ComplianceFindingRepo.set_values(finding_name, {"capa_ref": capa_name})
+    frappe.db.commit()
+    return {"capa_name": capa_name, "finding_name": finding_name,
+            "workflow_state": "Open"}
+
+
+_CAPA_TRANSITIONS = {
+    "Open": {"Investigating"},
+    "Investigating": {"Action Plan"},
+    "Action Plan": {"Implementation"},
+    "Implementation": {"Verification"},
+    "Verification": {"Closed", "Re-opened"},
+    "Re-opened": {"Investigating"},
+}
+
+
+def advance_capa_state(name: str, target_state: str,
+                       payload: dict | None = None) -> dict:
+    """§3.4.2: state-machine + VR-05/06/07/12 enforcement."""
+    _require_qa_or_admin()
+    payload = payload or {}
+    if not CAPARepo.exists(name):
+        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy CAPA: {name}")
+    doc = frappe.get_doc("IMM CAPA Record", name)
+
+    current = doc.workflow_state or "Open"
+    allowed = _CAPA_TRANSITIONS.get(current, set())
+    if target_state not in allowed:
+        raise ServiceError("INVALID_STATE",
+                           f"Không thể chuyển từ {current} sang {target_state}")
+
+    # State-specific validations
+    if target_state == "Action Plan":
+        method = payload.get("imm_root_cause_method") or getattr(doc, "imm_root_cause_method", "")
+        if not method:
+            raise ServiceError("FIN-005",
+                               "VR-05: Phải chọn imm_root_cause_method")
+        due = payload.get("due_date") or doc.due_date
+        if not due or getdate(due) <= getdate(nowdate()):
+            raise ServiceError("FIN-012",
+                               "VR-12: due_date phải sau hôm nay")
+        if method:
+            doc.imm_root_cause_method = method
+        if due:
+            doc.due_date = due
+
+    if target_state == "Implementation":
+        action_plan = getattr(doc, "imm_action_plan", None) or []
+        for row in action_plan:
+            if not getattr(row, "owner", None) or not getattr(row, "planned_date", None):
+                raise ServiceError(ErrorCode.VALIDATION,
+                                   "Tất cả action plan rows phải có owner + planned_date")
+
+    if target_state == "Verification":
+        action_plan = getattr(doc, "imm_action_plan", None) or []
+        for row in action_plan:
+            if getattr(row, "status", "") != "Done":
+                raise ServiceError(ErrorCode.VALIDATION,
+                                   "Tất cả action plan rows phải status=Done")
+
+    if target_state == "Closed":
+        if not doc.effectiveness_check:
+            raise ServiceError("FIN-007",
+                               "VR-06: effectiveness_check là bắt buộc")
+        if doc.effectiveness_check != "Effective":
+            raise ServiceError("FIN-007",
+                               "VR-07: effectiveness_check phải = 'Effective'")
+
+    doc.workflow_state = target_state
+    if target_state == "Closed":
+        doc.status = "Closed"
+        if not doc.closed_date:
+            doc.closed_date = nowdate()
+    elif target_state in ("Investigating", "Action Plan", "Implementation", "Verification"):
+        doc.status = "In Progress"
+    doc.save(ignore_permissions=True)
+    frappe.db.commit()
+    return {"name": name, "workflow_state": target_state,
+            "status": doc.status}
+
+
+def perform_effectiveness_check(name: str, result: str,
+                                 effectiveness_evidence: str = "") -> dict:
+    """§3.4.3: Effective → Close; Not Effective → Re-open + counter++."""
+    _require_qa_or_admin()
+    if result not in ("Effective", "Partially Effective", "Not Effective"):
+        raise ServiceError(ErrorCode.VALIDATION,
+                           "result phải là Effective/Partially Effective/Not Effective")
+    if not CAPARepo.exists(name):
+        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy CAPA: {name}")
+    reopen_count = int(frappe.db.get_value("IMM CAPA Record", name,
+                                           "imm_reopen_count") or 0)
+    if result == "Effective":
+        patch: dict = {
+            "effectiveness_check": result,
+            "workflow_state": "Closed",
+            "status": "Closed",
+            "closed_date": nowdate(),
+        }
+        new_state = "Closed"
+    else:
+        # Workflow: Verification → Re-opened (next manual step → Investigating).
+        reopen_count += 1
+        patch = {
+            "effectiveness_check": result,
+            "workflow_state": "Re-opened",
+            "status": "In Progress",
+            "imm_reopen_count": reopen_count,
+        }
+        if effectiveness_evidence:
+            patch["imm_effectiveness_evidence"] = effectiveness_evidence
+        new_state = "Re-opened"
+    # Use set_value to bypass Frappe's workflow transition guard — the service
+    # is the authoritative state machine; workflow state is set programmatically.
+    frappe.db.set_value("IMM CAPA Record", name, patch, update_modified=True)
+    frappe.db.commit()
+    return {"name": name, "new_state": new_state, "imm_reopen_count": reopen_count}
+
+
+def reopen_capa(name: str, reason: str = "") -> dict:
+    _require_qa_or_admin()
+    if not CAPARepo.exists(name):
+        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy CAPA: {name}")
+    doc = frappe.get_doc("IMM CAPA Record", name)
+    doc.workflow_state = "Re-opened"
+    doc.status = "In Progress"
+    if hasattr(doc, "imm_reopen_count"):
+        doc.imm_reopen_count = int(getattr(doc, "imm_reopen_count", 0) or 0) + 1
+    if reason:
+        doc.notes = (doc.notes or "") + f"\n[Reopen] {reason}"
+    doc.save(ignore_permissions=True)
+    frappe.db.commit()
+    return {"name": name, "workflow_state": "Re-opened"}
+
+
+# ─── Scorecard (canonical) ───────────────────────────────────────────────────
+
+def list_scorecards(filters: dict, *, page: int = 1, page_size: int = 20) -> dict:
+    rows, pg = ComplianceScorecardRepo.list(
+        filters=normalize_filters(filters),
+        fields=["name", "period_year", "period_month", "scope", "score_pct",
+                "is_published", "capa_open_count", "capa_overdue_count",
+                "trend_vs_prev_month"],
+        order_by="period_year desc, period_month desc",
+        page=page, page_size=page_size,
+    )
+    return {"items": rows, "pagination": pg}
+
+
+def get_current_scorecard(scope: str = "Hospital") -> dict:
+    from frappe.utils import getdate
+    today = getdate(nowdate())
+    return get_scorecard_by_period(today.year, today.month, scope)
+
+
+def get_scorecard_by_period(year: int, month: int, scope: str = "Hospital") -> dict:
+    sc = ComplianceScorecardRepo.find_one(
+        {"period_year": int(year), "period_month": int(month), "scope": scope},
+        fields=["name"],
+    )
+    if not sc:
+        return {"exists": False, "period_year": year, "period_month": month}
+    doc = frappe.get_doc(ComplianceScorecardRepo.DOCTYPE, sc["name"])
+    return doc.as_dict()
+
+
+def publish_scorecard(name: str) -> dict:
+    """§3.5.4: VR-09 immutable; VR-10 gate quý trước phải có MR Closed."""
+    from assetcore.services.shared import require_role
+    require_role(_PUBLISH_SCORECARD_ROLES, "Không có quyền publish Scorecard")
+    doc = ComplianceScorecardRepo.get(name)
+    if not doc:
+        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy Scorecard: {name}")
+    if doc.is_published:
+        raise ServiceError("FIN-009", "VR-09: Scorecard đã được publish")
+
+    # VR-10 — quý trước phải có MR Closed
+    pm, py = doc.period_month, doc.period_year
+    prev_q = ((pm - 1) // 3)  # 0..3 — previous quarter index
+    if prev_q == 0:
+        prev_q_label = f"Q4-{py - 1}"
+    else:
+        prev_q_label = f"Q{prev_q}-{py}"
+    has_mr = frappe.db.exists("IMM Management Review",
+                               {"quarter": prev_q_label, "status": "Closed"})
+    if not has_mr:
+        raise ServiceError("FIN-010",
+                           f"VR-10: Quý trước ({prev_q_label}) thiếu Management Review Closed")
+
+    doc.is_published = 1
+    doc.published_at = now_datetime()
+    doc.approved_by_for_review = frappe.session.user
+    ComplianceScorecardRepo.save(doc)
+    frappe.db.commit()
+    return {"name": name, "is_published": 1,
+            "published_at": str(doc.published_at),
+            "approved_by_for_review": doc.approved_by_for_review}
+
+
+# ─── Management Review (canonical) ───────────────────────────────────────────
+
+def list_management_reviews(filters: dict, *, page: int = 1,
+                             page_size: int = 20) -> dict:
+    rows, pg = ManagementReviewRepo.list(
+        filters=normalize_filters(filters),
+        fields=["name", "quarter", "review_date", "chair", "status",
+                "scorecard_ref", "next_review_date"],
+        order_by="review_date desc",
+        page=page, page_size=page_size,
+    )
+    return {"items": rows, "pagination": pg}
+
+
+def get_management_review(name: str) -> dict:
+    doc = ManagementReviewRepo.get(name)
+    if not doc:
+        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy MR: {name}")
+    return doc.as_dict()
+
+
+def create_management_review(data: dict) -> dict:
+    from assetcore.services.shared import require_role
+    require_role(_FINALIZE_MR_ROLES, "Không có quyền tạo Management Review")
+    if not data.get("quarter"):
+        raise ServiceError(ErrorCode.VALIDATION, "quarter là bắt buộc (vd: Q2-2026)")
+    if ManagementReviewRepo.find_by_quarter(data["quarter"]):
+        raise ServiceError(ErrorCode.DUPLICATE,
+                           f"MR cho quý {data['quarter']} đã tồn tại")
+    data.setdefault("status", "Draft")
+    data.setdefault("review_date", nowdate())
+    doc = ManagementReviewRepo.create(data)
+    frappe.db.commit()
+    return {"name": doc.name, "quarter": doc.quarter, "status": doc.status}
+
+
+def finalize_management_review(name: str,
+                                minutes_doc: str = "",
+                                output_actions: list[dict] | None = None) -> dict:
+    """§3.6.3: Closed + attach minutes_doc + output_actions."""
+    from assetcore.services.shared import require_role
+    require_role(_FINALIZE_MR_ROLES, "Không có quyền finalize MR")
+    doc = ManagementReviewRepo.get(name)
+    if not doc:
+        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy MR: {name}")
+    if doc.status == "Closed":
+        raise ServiceError(ErrorCode.BAD_STATE, "MR đã Closed")
+    if not minutes_doc:
+        raise ServiceError(ErrorCode.VALIDATION, "minutes_doc là bắt buộc")
+
+    doc.minutes_doc = minutes_doc
+    doc.status = "Closed"
+    if output_actions and hasattr(doc, "output_actions"):
+        # Replace output_actions child rows
+        doc.output_actions = []
+        for action in output_actions:
+            doc.append("output_actions", {
+                "action_description": action.get("action", ""),
+                "owner": action.get("owner", ""),
+                "due_date": action.get("due_date"),
+            })
+    ManagementReviewRepo.save(doc)
+    frappe.db.commit()
+    return {"name": name, "status": "Closed", "quarter": doc.quarter}
+
+
+# ─── Dashboard / Reports (canonical) ─────────────────────────────────────────
+
+def get_dashboard_stats() -> dict:
+    """§3.7.1: aggregated KPIs + 12m trend + top_modules_low + recent_findings."""
+    from frappe.utils import getdate, add_months
+
+    findings_open = ComplianceFindingRepo.count(
+        {"status": ("in", list(FindingStatus.ACTIVE))})
+    findings_critical = ComplianceFindingRepo.count(
+        {"status": ("in", list(FindingStatus.ACTIVE)), "severity": "Critical"})
+    capa_open = frappe.db.count("IMM CAPA Record",
+                                  {"status": ("in", ["Open", "In Progress"])})
+    capa_overdue = frappe.db.count("IMM CAPA Record",
+                                     {"status": ("not in", ["Closed"]),
+                                      "due_date": ("<", nowdate())})
+    audits_in_progress = InternalAuditRepo.count(
+        {"status": AuditStatus.IN_PROGRESS})
+
+    # Overall compliance from latest scorecard
+    latest_sc = frappe.get_all(
+        ComplianceScorecardRepo.DOCTYPE,
+        filters={"is_published": 1},
+        fields=["name", "score_pct", "period_year", "period_month"],
+        order_by="period_year desc, period_month desc",
+        limit_page_length=1,
+    )
+    overall_pct = float(latest_sc[0].score_pct) if latest_sc else 0.0
+
+    # MR quarterly status
+    today = getdate(nowdate())
+    q = ((today.month - 1) // 3) + 1
+    q_label = f"Q{q}-{today.year}"
+    mr_done = frappe.db.exists("IMM Management Review",
+                                {"quarter": q_label, "status": "Closed"})
+    mr_status = "Done" if mr_done else "Pending"
+
+    # 12-month trend
+    trend_12m = frappe.get_all(
+        ComplianceScorecardRepo.DOCTYPE,
+        filters={"is_published": 1},
+        fields=["period_year", "period_month", "score_pct"],
+        order_by="period_year desc, period_month desc",
+        limit_page_length=12,
+    )
+    trend_12m_out = [
+        {"month": f"{r.period_year}-{r.period_month:02d}",
+         "score_pct": float(r.score_pct or 0)}
+        for r in reversed(trend_12m)
+    ]
+
+    recent_findings = frappe.get_all(
+        ComplianceFindingRepo.DOCTYPE,
+        fields=["name", "rule", "asset", "severity", "status",
+                "detected_date", "responsible_dept"],
+        order_by="detected_date desc",
+        limit_page_length=10,
+    )
+
+    return {
+        "kpis": {
+            "overall_compliance_pct": overall_pct,
+            "findings_open": findings_open,
+            "findings_critical": findings_critical,
+            "capa_open": capa_open,
+            "capa_overdue": capa_overdue,
+            "audits_in_progress": audits_in_progress,
+            "mr_quarterly_status": mr_status,
+        },
+        "trend_12m": trend_12m_out,
+        "top_modules_low": [],
+        "recent_findings": recent_findings,
+    }
+
+
+def get_compliance_heatmap(period_year: int | None = None,
+                           period_month: int | None = None) -> dict:
+    """§3.7.2: Module × Department score grid từ Compliance Finding."""
+    from frappe.utils import getdate
+    today = getdate(nowdate())
+    py = int(period_year) if period_year else today.year
+    pm = int(period_month) if period_month else today.month
+
+    start = f"{py}-{pm:02d}-01"
+    end_y, end_m = (py + 1, 1) if pm == 12 else (py, pm + 1)
+    end = f"{end_y}-{end_m:02d}-01"
+
+    findings = frappe.get_all(
+        ComplianceFindingRepo.DOCTYPE,
+        filters={
+            "detected_date": ("between", [start, end]),
+            "status": ("!=", FindingStatus.FALSE_POSITIVE),
+        },
+        fields=["rule", "responsible_dept", "status", "severity"],
+    )
+
+    # Group by (module, dept)
+    by_cell: dict[tuple, dict] = {}
+    modules_set: set[str] = set()
+    depts_set: set[str] = set()
+    for f in findings:
+        module = (f.rule or "")[:6]  # IMM-XX
+        dept = f.responsible_dept or "Unknown"
+        modules_set.add(module)
+        depts_set.add(dept)
+        cell = by_cell.setdefault((module, dept), {"total": 0, "nc": 0})
+        cell["total"] += 1
+        if f.status == FindingStatus.CONFIRMED_NC:
+            cell["nc"] += 1
+
+    matrix = []
+    for (module, dept), c in by_cell.items():
+        score = 100.0 if c["total"] == 0 else round(
+            (c["total"] - c["nc"]) / c["total"] * 100, 1)
+        matrix.append({
+            "module": module, "dept": dept,
+            "score": score, "findings_count": c["total"],
+        })
+    return {
+        "modules": sorted(modules_set),
+        "departments": sorted(depts_set),
+        "matrix": matrix,
+    }
+
+
+def get_capa_aging() -> dict:
+    """§3.7.3: CAPA aging buckets."""
+    open_capas = frappe.get_all(
+        "IMM CAPA Record",
+        filters={"status": ("in", ["Open", "In Progress"])},
+        fields=["name", "due_date", "opened_date", "imm_risk_level"],
+    )
+    buckets = {"0-7": 0, "8-30": 0, "31-60": 0, "60+": 0}
+    today = getdate(nowdate())
+    for c in open_capas:
+        if not c.opened_date:
+            continue
+        age = (today - getdate(c.opened_date)).days
+        if age <= 7:
+            buckets["0-7"] += 1
+        elif age <= 30:
+            buckets["8-30"] += 1
+        elif age <= 60:
+            buckets["31-60"] += 1
+        else:
+            buckets["60+"] += 1
+    return {"buckets": buckets, "total_open": len(open_capas)}
+
+
+def get_overdue_actions() -> dict:
+    """§3.7.4: Overdue findings + CAPAs."""
+    overdue_findings = frappe.get_all(
+        ComplianceFindingRepo.DOCTYPE,
+        filters={
+            "status": ("in", list(FindingStatus.ACTIVE)),
+            "detected_date": ("<", add_days(nowdate(), -30)),
+        },
+        fields=["name", "rule", "severity", "detected_date", "asset"],
+        limit_page_length=50,
+    )
+    overdue_capas = frappe.get_all(
+        "IMM CAPA Record",
+        filters={"status": ("not in", ["Closed"]),
+                 "due_date": ("<", nowdate())},
+        fields=["name", "asset", "due_date", "responsible", "imm_risk_level"],
+        limit_page_length=50,
+    )
+    return {
+        "overdue_findings": overdue_findings,
+        "overdue_capas": overdue_capas,
+        "total": len(overdue_findings) + len(overdue_capas),
+    }
+

@@ -439,6 +439,58 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true, title: 'Nhật ký Kiểm toán (ISO 13485)' },
   },
 
+  // ─── IMM-16 — Compliance Monitoring & CAPA (Wave 3) ────────────────────────
+  {
+    path: '/compliance/rules',
+    name: 'ComplianceRuleList',
+    component: () => import('@/views/compliance/ComplianceRuleListView.vue'),
+    meta: { requiresAuth: true, title: 'Quy tắc tuân thủ' },
+  },
+  {
+    path: '/compliance/findings',
+    name: 'ComplianceFindingList',
+    component: () => import('@/views/compliance/FindingListView.vue'),
+    meta: { requiresAuth: true, title: 'Phát hiện tuân thủ' },
+  },
+  {
+    path: '/compliance/findings/:id',
+    name: 'ComplianceFindingDetail',
+    component: () => import('@/views/compliance/FindingDetailView.vue'),
+    props: true,
+    meta: { requiresAuth: true, title: 'Chi tiết phát hiện' },
+  },
+  {
+    path: '/compliance/audits',
+    name: 'InternalAuditList',
+    component: () => import('@/views/compliance/InternalAuditListView.vue'),
+    meta: { requiresAuth: true, title: 'Kiểm toán nội bộ' },
+  },
+  {
+    path: '/compliance/audits/:id',
+    name: 'InternalAuditDetail',
+    component: () => import('@/views/compliance/InternalAuditDetailView.vue'),
+    props: true,
+    meta: { requiresAuth: true, title: 'Chi tiết kiểm toán nội bộ' },
+  },
+  {
+    path: '/compliance/scorecard',
+    name: 'ComplianceScorecard',
+    component: () => import('@/views/compliance/ScorecardView.vue'),
+    meta: { requiresAuth: true, title: 'Bảng điểm tuân thủ' },
+  },
+  {
+    path: '/compliance/mr',
+    name: 'ManagementReviewList',
+    component: () => import('@/views/compliance/ManagementReviewListView.vue'),
+    meta: { requiresAuth: true, title: 'Soát xét quản lý' },
+  },
+  {
+    path: '/compliance/heatmap',
+    name: 'ComplianceHeatmap',
+    component: () => import('@/views/compliance/ComplianceHeatmapView.vue'),
+    meta: { requiresAuth: true, title: 'Bản đồ nhiệt tuân thủ' },
+  },
+
   // ─── 9. Asset Transfer / Service Contract / Depreciation ──────────────────
   {
     path: '/asset-transfers',
@@ -557,6 +609,18 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true, title: 'Đơn vị tính (UOM)' },
   },
   {
+    path: '/inventory/forecasts',
+    name: 'SpareForecastList',
+    component: () => import('@/views/inventory/SpareForecastView.vue'),
+    meta: { requiresAuth: true, title: 'Dự báo phụ tùng', moduleId: 'imm15' },
+  },
+  {
+    path: '/inventory/watchlist',
+    name: 'CriticalSpareWatchlist',
+    component: () => import('@/views/inventory/WatchlistView.vue'),
+    meta: { requiresAuth: true, title: 'Critical Spare Watchlist', moduleId: 'imm15' },
+  },
+  {
     path: '/approvals/pending',
     name: 'PendingApprovals',
     component: () => import('@/views/audit/PendingApprovalsView.vue'),
@@ -654,6 +718,13 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/needs/ProcurementPlanListView.vue'),
     meta: { requiresAuth: true, title: 'Kế hoạch mua sắm' },
   },
+  {
+    path: '/procurement-plans/:id',
+    name: 'ProcurementPlanDetail',
+    component: () => import('@/views/needs/ProcurementPlanDetailView.vue'),
+    props: true,
+    meta: { requiresAuth: true, title: 'Chi tiết kế hoạch mua sắm' },
+  },
 
   // Hồ sơ kỹ thuật
   {
@@ -708,6 +779,19 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/procurement/DecisionDetailView.vue'),
     props: true,
     meta: { requiresAuth: true, title: 'Chi tiết quyết định mua sắm' },
+  },
+  {
+    path: '/vendor-profiles',
+    name: 'VendorProfileList',
+    component: () => import('@/views/procurement/VendorProfileListView.vue'),
+    meta: { requiresAuth: true, title: 'Hồ sơ Nhà cung cấp' },
+  },
+  {
+    path: '/vendor-profiles/:id',
+    name: 'VendorProfileDetail',
+    component: () => import('@/views/procurement/VendorProfileDetailView.vue'),
+    props: true,
+    meta: { requiresAuth: true, title: 'Chi tiết Hồ sơ NCC' },
   },
 
   // ─── IMM-06 — Training & Competency ────────────────────────────────────────
@@ -793,6 +877,7 @@ const MODULE_RULES: Array<[RegExp, string]> = [
   [/^\/vendor-evaluations/,    'imm03'],
   [/^\/approved-vendors/,      'imm03'],
   [/^\/procurement-decisions/, 'imm03'],
+  [/^\/vendor-profiles/,       'imm03'],
   [/^\/purchases/,             'imm03'],
   // Khối 2 — Triển khai & Lắp đặt
   [/^\/commissioning/,         'imm04'],
@@ -806,6 +891,7 @@ const MODULE_RULES: Array<[RegExp, string]> = [
   [/^\/rca/,                   'imm12'],
   [/^\/capas/,                 'imm12'],   // RCA & CAPA — IMM-12 primary, dùng chung IMM-10/16
   [/^\/audit-trail/,           'imm16'],
+  [/^\/compliance/,            'imm16'],
   [/^\/inventory/,             'imm15'],
   [/^\/stock/,                 'imm15'],
   [/^\/spare-parts/,           'imm15'],

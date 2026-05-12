@@ -135,7 +135,7 @@ onMounted(load)
           </div>
           <div v-if="doc.supplier">
             <p class="text-xs text-slate-500 mb-0.5">Nhà cung cấp</p>
-            <p class="font-mono text-slate-700">{{ doc.supplier }}</p>
+            <p class="text-slate-700">{{ doc.supplier_name || doc.supplier }}</p>
           </div>
           <div v-if="doc.reference_type">
             <p class="text-xs text-slate-500 mb-0.5">Chứng từ nguồn</p>

@@ -179,12 +179,12 @@ class AssetDocument(Document):
 		if not self.asset_ref:
 			return
 		asset = frappe.db.get_value("AC Asset", self.asset_ref,
-			["device_model", "location"], as_dict=True)
+			["device_model", "department"], as_dict=True)
 		if asset:
 			if not self.model_ref and asset.device_model:
 				self.model_ref = asset.device_model
-			if asset.location:
-				self.clinical_dept = asset.location
+			if asset.department:
+				self.clinical_dept = asset.department
 
 	def set_computed_fields(self):
 		"""Tính days_until_expiry, is_expired, file_name_display."""

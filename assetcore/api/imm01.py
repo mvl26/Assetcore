@@ -64,9 +64,18 @@ def list_needs_requests(filters: str = "{}", page: int = 1, page_size: int = 20,
 
 
 def _list_needs_requests(filters: str, page: int, page_size: int, order_by: str) -> dict:
+    """Trả list Needs Request kèm display names (BE-DC-01-01).
+
+    Data contract: mọi Link field phải kèm display name trong cùng response.
+    - `requesting_department` (AC Department) → `department_name`
+    - `device_model_ref` (IMM Device Model) → `device_model_name`
+    - `replacement_for_asset` (AC Asset) → `target_asset_name`
+    - `owner` (User) → `requester_name`
+    """
     f = _parse_json(filters)
     fields = [
         "name", "request_type", "device_model_ref", "requesting_department",
+        "replacement_for_asset", "owner",
         "quantity", "weighted_score", "priority_class", "workflow_state",
         "request_date", "total_capex", "tco_5y",
     ]
@@ -76,8 +85,46 @@ def _list_needs_requests(filters: str, page: int, page_size: int, order_by: str)
         _DT_NR, filters=f or None, fields=fields,
         order_by=order_by, start=start, page_length=page_size,
     )
+    _enrich_needs_display_names(items)
     total = frappe.db.count(_DT_NR, filters=f or None)
     return {"items": items, "total": total, "page": page, "page_size": page_size}
+
+
+def _enrich_needs_display_names(items: list[dict]) -> None:
+    """Mutates `items` in-place: thêm department_name, device_model_name,
+    target_asset_name, requester_name. BE-DC-01-01.
+    """
+    if not items:
+        return
+    dept_ids   = {it.get("requesting_department")  for it in items if it.get("requesting_department")}
+    model_ids  = {it.get("device_model_ref")       for it in items if it.get("device_model_ref")}
+    asset_ids  = {it.get("replacement_for_asset")  for it in items if it.get("replacement_for_asset")}
+    user_ids   = {it.get("owner")                  for it in items if it.get("owner")}
+
+    dept_map  = _fetch_display_map("AC Department",     dept_ids,  "department_name")
+    model_map = _fetch_display_map("IMM Device Model",  model_ids, "model_name")
+    asset_map = _fetch_display_map("AC Asset",          asset_ids, "asset_name")
+    user_map  = _fetch_display_map("User",              user_ids,  "full_name")
+
+    for it in items:
+        it["department_name"]    = dept_map.get(it.get("requesting_department"))
+        it["device_model_name"]  = model_map.get(it.get("device_model_ref"))
+        it["target_asset_name"]  = asset_map.get(it.get("replacement_for_asset"))
+        it["requester_name"]     = user_map.get(it.get("owner"))
+
+
+def _fetch_display_map(doctype: str, ids: set, display_field: str) -> dict:
+    """Trả {id: display} cho 1 batch. Bỏ qua nếu doctype/field không tồn tại."""
+    if not ids:
+        return {}
+    try:
+        rows = frappe.get_all(
+            doctype, filters={"name": ["in", list(ids)]},
+            fields=["name", display_field], ignore_permissions=True,
+        )
+        return {r["name"]: r.get(display_field) for r in rows}
+    except Exception:
+        return {}
 
 
 @frappe.whitelist()
@@ -293,6 +340,125 @@ def _list_procurement_plans(filters: str, page: int, page_size: int) -> dict:
             "page": page, "page_size": page_size}
 
 
+@frappe.whitelist()
+def get_procurement_plan(name: str) -> dict:
+    """Chi tiết 1 Procurement Plan (kèm plan_items)."""
+    return _handle(_get_procurement_plan, name)
+
+
+def _get_procurement_plan(name: str) -> dict:
+    doc = frappe.get_doc(_DT_PP, name)
+    return doc.as_dict()
+
+
+@frappe.whitelist(methods=["POST"])
+def create_procurement_plan(plan_year: int, plan_period: str, budget_envelope: float = 0) -> dict:
+    return _handle(_create_procurement_plan, int(plan_year), plan_period, float(budget_envelope))
+
+
+def _create_procurement_plan(plan_year: int, plan_period: str, budget_envelope: float) -> dict:
+    if not plan_period:
+        raise ServiceError(ErrorCode.INVALID_PARAMS, _("plan_period không được rỗng"))
+    doc = frappe.new_doc(_DT_PP)
+    doc.plan_year = plan_year
+    doc.plan_period = plan_period
+    doc.budget_envelope = budget_envelope
+    doc.insert(ignore_permissions=True)
+    return {"name": doc.name}
+
+
+@frappe.whitelist(methods=["POST"])
+def set_budget_envelope(name: str, budget_envelope: float) -> dict:
+    return _handle(_set_budget_envelope, name, float(budget_envelope))
+
+
+def _set_budget_envelope(name: str, budget_envelope: float) -> dict:
+    doc = frappe.get_doc(_DT_PP, name)
+    if doc.workflow_state != "Draft":
+        raise ServiceError(
+            ErrorCode.BAD_STATE,
+            _("Chỉ kế hoạch Draft mới cập nhật budget_envelope được (hiện: {0})")
+            .format(doc.workflow_state),
+        )
+    doc.budget_envelope = budget_envelope
+    doc.save(ignore_permissions=True)
+    return doc.as_dict()
+
+
+@frappe.whitelist(methods=["POST"])
+def approve_plan(name: str) -> dict:
+    return _handle(_approve_plan, name)
+
+
+def _approve_plan(name: str) -> dict:
+    doc = frappe.get_doc(_DT_PP, name)
+    if doc.workflow_state != "Draft":
+        raise ServiceError(
+            ErrorCode.BAD_STATE,
+            _("Chỉ kế hoạch Draft mới Phê duyệt được (hiện: {0})")
+            .format(doc.workflow_state),
+        )
+    doc.workflow_state = "Approved"
+    doc.approved_by = frappe.session.user
+    doc.approved_date = frappe.utils.today()
+    doc.save(ignore_permissions=True)
+    return doc.as_dict()
+
+
+@frappe.whitelist(methods=["POST"])
+def activate_plan(name: str) -> dict:
+    return _handle(_activate_plan, name)
+
+
+def _activate_plan(name: str) -> dict:
+    doc = frappe.get_doc(_DT_PP, name)
+    if doc.workflow_state != "Approved":
+        raise ServiceError(
+            ErrorCode.BAD_STATE,
+            _("Chỉ kế hoạch Approved mới Kích hoạt được (hiện: {0})")
+            .format(doc.workflow_state),
+        )
+    doc.workflow_state = "Active"
+    doc.save(ignore_permissions=True)
+    return doc.as_dict()
+
+
+@frappe.whitelist(methods=["POST"])
+def close_plan(name: str) -> dict:
+    return _handle(_close_plan, name)
+
+
+def _close_plan(name: str) -> dict:
+    doc = frappe.get_doc(_DT_PP, name)
+    if doc.workflow_state != "Active":
+        raise ServiceError(
+            ErrorCode.BAD_STATE,
+            _("Chỉ kế hoạch Active mới Đóng được (hiện: {0})")
+            .format(doc.workflow_state),
+        )
+    doc.workflow_state = "Closed"
+    doc.save(ignore_permissions=True)
+    return doc.as_dict()
+
+
+@frappe.whitelist(methods=["POST"])
+def remove_from_plan(plan_name: str, needs_request: str) -> dict:
+    return _handle(_remove_from_plan, plan_name, needs_request)
+
+
+def _remove_from_plan(plan_name: str, needs_request: str) -> dict:
+    doc = frappe.get_doc(_DT_PP, plan_name)
+    row = next((r for r in doc.plan_items if r.needs_request == needs_request), None)
+    if not row:
+        raise ServiceError(
+            ErrorCode.NOT_FOUND,
+            _("Needs Request {0} không có trong kế hoạch {1}").format(needs_request, plan_name),
+        )
+    doc.remove(row)
+    doc.save(ignore_permissions=True)
+    return {"name": doc.name, "removed": needs_request}
+
+
 @frappe.whitelist(methods=["POST"])
 def roll_into_plan(plan_year: int, plan_period: str = "Annual",
                     needs_requests: str = "[]") -> dict:
@@ -366,12 +532,19 @@ def _dashboard_kpis(period: str | None) -> dict:
     }
 
 
+_PASSED_REVIEW_STATES = ["Reviewing", "Prioritized", "Budgeted", "Pending Approval", "Approved"]
+
 def _g01_pass_rate() -> float:
-    total = frappe.db.count(_DT_NR, {"docstatus": ["<", 2]})
-    if not total:
-        return 100.0
-    submitted_or_after = frappe.db.count(_DT_NR, {
+    # Denominator: all submitted records (Draft excluded — hasn't entered review yet)
+    total_submitted = frappe.db.count(_DT_NR, {
         "docstatus": ["<", 2],
         "workflow_state": ["not in", ["Draft"]],
     })
-    return round(submitted_or_after / total * 100, 2)
+    if not total_submitted:
+        return 0.0
+    # Numerator: records that passed initial review (Rejected = fail, Submitted = pending)
+    passed = frappe.db.count(_DT_NR, {
+        "docstatus": ["<", 2],
+        "workflow_state": ["in", _PASSED_REVIEW_STATES],
+    })
+    return round(passed / total_submitted * 100, 2)

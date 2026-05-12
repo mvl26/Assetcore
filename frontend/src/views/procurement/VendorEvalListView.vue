@@ -149,7 +149,7 @@ onMounted(() => store.fetchEvaluations())
           </tbody>
         </table>
       </div>
-      <div v-else-if="!store.evaluations.length" class="flex flex-col items-center justify-center py-16 text-slate-400">
+      <div v-else class="flex flex-col items-center justify-center py-16 text-slate-400">
         <p class="text-sm">Không có phiếu đánh giá nào phù hợp</p>
         <button v-if="activeChips.length > 0" class="mt-3 text-xs text-blue-500 hover:text-blue-700 underline" @click="resetFilters">
           Xóa bộ lọc để xem tất cả

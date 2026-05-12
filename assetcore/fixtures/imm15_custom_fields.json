@@ -5,7 +5,8 @@
     "fieldname": "imm_section_strategic",
     "fieldtype": "Section Break",
     "label": "Phân loại chiến lược (IMM-15)",
-    "insert_after": "section_flags"
+    "insert_after": "section_flags",
+    "name": "AC Spare Part-imm_section_strategic"
   },
   {
     "doctype": "Custom Field",
@@ -15,7 +16,8 @@
     "label": "Hạng phụ tùng",
     "options": "Critical\nMajor\nConsumable\nTool",
     "default": "Major",
-    "insert_after": "imm_section_strategic"
+    "insert_after": "imm_section_strategic",
+    "name": "AC Spare Part-imm_part_class"
   },
   {
     "doctype": "Custom Field",
@@ -25,7 +27,8 @@
     "label": "Hạng ABC",
     "options": "A\nB\nC",
     "default": "C",
-    "insert_after": "imm_part_class"
+    "insert_after": "imm_part_class",
+    "name": "AC Spare Part-imm_abc_class"
   },
   {
     "doctype": "Custom Field",
@@ -35,7 +38,8 @@
     "label": "Hạng XYZ",
     "options": "X\nY\nZ",
     "default": "Z",
-    "insert_after": "imm_abc_class"
+    "insert_after": "imm_abc_class",
+    "name": "AC Spare Part-imm_xyz_class"
   },
   {
     "doctype": "Custom Field",
@@ -44,7 +48,8 @@
     "fieldtype": "Int",
     "label": "Lead time (ngày)",
     "default": "30",
-    "insert_after": "imm_xyz_class"
+    "insert_after": "imm_xyz_class",
+    "name": "AC Spare Part-imm_lead_time_days"
   },
   {
     "doctype": "Custom Field",
@@ -53,7 +58,8 @@
     "fieldtype": "Int",
     "label": "Safety stock (ngày)",
     "default": "14",
-    "insert_after": "imm_lead_time_days"
+    "insert_after": "imm_lead_time_days",
+    "name": "AC Spare Part-imm_safety_stock_days"
   },
   {
     "doctype": "Custom Field",
@@ -62,7 +68,8 @@
     "fieldtype": "Check",
     "label": "Bắt buộc truy nguyên",
     "default": "0",
-    "insert_after": "imm_safety_stock_days"
+    "insert_after": "imm_safety_stock_days",
+    "name": "AC Spare Part-imm_traceability_required"
   },
   {
     "doctype": "Custom Field",
@@ -72,7 +79,8 @@
     "label": "Điều kiện lưu trữ",
     "options": "Normal\nCold_Chain\nESD\nHazardous",
     "default": "Normal",
-    "insert_after": "imm_traceability_required"
+    "insert_after": "imm_traceability_required",
+    "name": "AC Spare Part-imm_storage_condition"
   },
   {
     "doctype": "Custom Field",
@@ -81,7 +89,8 @@
     "fieldtype": "Table",
     "label": "Phụ tùng thay thế",
     "options": "IMM Spare Alternative",
-    "insert_after": "imm_storage_condition"
+    "insert_after": "imm_storage_condition",
+    "name": "AC Spare Part-imm_alternative_parts"
   },
   {
     "doctype": "Custom Field",
@@ -90,6 +99,7 @@
     "fieldtype": "Check",
     "label": "Cần review obsolete",
     "default": "0",
-    "insert_after": "imm_alternative_parts"
+    "insert_after": "imm_alternative_parts",
+    "name": "AC Spare Part-imm_obsolete_review_required"
   }
 ]

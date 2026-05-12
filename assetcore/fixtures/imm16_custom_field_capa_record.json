@@ -5,16 +5,8 @@
     "fieldname": "imm_section_imm16",
     "fieldtype": "Section Break",
     "label": "IMM-16 Compliance Fields",
-    "insert_after": "notes"
-  },
-  {
-    "doctype": "Custom Field",
-    "dt": "IMM CAPA Record",
-    "fieldname": "imm_root_cause_method",
-    "fieldtype": "Select",
-    "label": "Phương pháp phân tích root cause",
-    "options": "\n5-Why\nFishbone\nFMEA\nFTA\nOther",
-    "insert_after": "imm_section_imm16"
+    "insert_after": "notes",
+    "name": "IMM CAPA Record-imm_section_imm16"
   },
   {
     "doctype": "Custom Field",
@@ -22,7 +14,8 @@
     "fieldname": "imm_correction_immediate",
     "fieldtype": "Text",
     "label": "Hành động khắc phục tức thì",
-    "insert_after": "imm_root_cause_method"
+    "insert_after": "imm_root_cause_method",
+    "name": "IMM CAPA Record-imm_correction_immediate"
   },
   {
     "doctype": "Custom Field",
@@ -31,7 +24,8 @@
     "fieldtype": "Table",
     "label": "Kế hoạch hành động",
     "options": "IMM CAPA Action Step",
-    "insert_after": "imm_correction_immediate"
+    "insert_after": "imm_correction_immediate",
+    "name": "IMM CAPA Record-imm_action_plan"
   },
   {
     "doctype": "Custom Field",
@@ -39,15 +33,8 @@
     "fieldname": "imm_effectiveness_check_date",
     "fieldtype": "Date",
     "label": "Ngày kiểm tra hiệu lực",
-    "insert_after": "imm_action_plan"
-  },
-  {
-    "doctype": "Custom Field",
-    "dt": "IMM CAPA Record",
-    "fieldname": "imm_effectiveness_evidence",
-    "fieldtype": "Attach",
-    "label": "Bằng chứng hiệu lực",
-    "insert_after": "imm_effectiveness_check_date"
+    "insert_after": "imm_action_plan",
+    "name": "IMM CAPA Record-imm_effectiveness_check_date"
   },
   {
     "doctype": "Custom Field",
@@ -55,26 +42,8 @@
     "fieldname": "imm_change_control_ref",
     "fieldtype": "Data",
     "label": "Tham chiếu Change Control",
-    "insert_after": "imm_effectiveness_evidence"
-  },
-  {
-    "doctype": "Custom Field",
-    "dt": "IMM CAPA Record",
-    "fieldname": "imm_risk_level",
-    "fieldtype": "Select",
-    "label": "Mức độ rủi ro",
-    "options": "Low\nMedium\nHigh\nCritical",
-    "reqd": 1,
-    "insert_after": "imm_change_control_ref"
-  },
-  {
-    "doctype": "Custom Field",
-    "dt": "IMM CAPA Record",
-    "fieldname": "imm_compliance_finding_ref",
-    "fieldtype": "Link",
-    "label": "Compliance Finding",
-    "options": "IMM Compliance Finding",
-    "insert_after": "imm_risk_level"
+    "insert_after": "imm_effectiveness_evidence",
+    "name": "IMM CAPA Record-imm_change_control_ref"
   },
   {
     "doctype": "Custom Field",
@@ -82,7 +51,8 @@
     "fieldname": "imm_audit_finding_ref",
     "fieldtype": "Data",
     "label": "Audit Finding Ref",
-    "insert_after": "imm_compliance_finding_ref"
+    "insert_after": "imm_compliance_finding_ref",
+    "name": "IMM CAPA Record-imm_audit_finding_ref"
   },
   {
     "doctype": "Custom Field",
@@ -91,16 +61,7 @@
     "fieldtype": "Link",
     "label": "RCA Record",
     "options": "IMM RCA Record",
-    "insert_after": "imm_audit_finding_ref"
-  },
-  {
-    "doctype": "Custom Field",
-    "dt": "IMM CAPA Record",
-    "fieldname": "imm_reopen_count",
-    "fieldtype": "Int",
-    "label": "Số lần mở lại",
-    "default": "0",
-    "read_only": 1,
-    "insert_after": "imm_rca_ref"
+    "insert_after": "imm_audit_finding_ref",
+    "name": "IMM CAPA Record-imm_rca_ref"
   }
 ]

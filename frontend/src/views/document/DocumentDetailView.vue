@@ -3,7 +3,8 @@ import { useToast } from '@/composables/useToast'
 import DateInput from '@/components/common/DateInput.vue'
 import { ref, computed, onMounted, reactive } from 'vue'
 import { useRouter } from 'vue-router'
-import { useImm05Store } from '@/stores/imm05Store'
+import { useImm05Store } from '@/stores/imm05'
+import { submitForReview as apiSubmitForReview } from '@/api/imm05'
 import type { AssetDocumentDetail } from '@/api/imm05'
 import { stateLabel, formatDate } from '@/utils/docUtils'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
@@ -93,20 +94,6 @@ function resubmit(): void {
   startEditing()
 }
 
-async function transitionState(name: string, action: string) {
-  try {
-    const { frappePost } = await import('@/api/helpers')
-    const res = await frappePost('frappe.model.workflow.apply_workflow', {
-      doc: { doctype: 'Asset Document', name },
-      action,
-    })
-    return res
-  } catch (e: unknown) {
-    console.error(e)
-    return null
-  }
-}
-
 async function submitForReview(): Promise<void> {
   if (!doc.value) return
   if (!doc.value.file_attachment) {
@@ -115,8 +102,11 @@ async function submitForReview(): Promise<void> {
   }
   actionLoading.value = true
   try {
-    const res = await transitionState(doc.value.name, 'Gửi duyệt')
-    if (res) await loadDocument()
+    await apiSubmitForReview(doc.value.name)
+    await loadDocument()
+    toast.success('Đã gửi duyệt thành công.')
+  } catch (e: unknown) {
+    toast.error(e instanceof Error ? e.message : 'Gửi duyệt thất bại.')
   } finally {
     actionLoading.value = false
   }
@@ -170,7 +160,7 @@ function stateBadgeClass(state: string): string {
   const map: Record<string, string> = {
     Active: 'bg-green-100 text-green-800',
     Draft: 'bg-gray-100 text-gray-700',
-    Pending_Review: 'bg-yellow-100 text-yellow-800',
+    'Pending Review': 'bg-yellow-100 text-yellow-800',
     Expired: 'bg-red-100 text-red-800',
     Archived: 'bg-gray-100 text-gray-500',
     Rejected: 'bg-pink-100 text-pink-800',
@@ -266,7 +256,7 @@ async function handleReject(): Promise<void> {
         <!-- Action buttons row -->
         <div class="mt-5 pt-4 border-t border-gray-100 flex flex-wrap gap-3">
 <!-- Approve / Reject actions (Pending_Review) -->
-          <template v-if="doc.workflow_state === 'Pending_Review'">
+          <template v-if="doc.workflow_state === 'Pending Review'">
             <button
               class="px-4 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50"
               :disabled="actionLoading"

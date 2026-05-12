@@ -5,7 +5,7 @@
 import { onMounted, computed } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useRouter } from 'vue-router'
-import { useDashboardStore } from '@/stores/useDashboardStore'
+import { useDashboardStore } from '@/stores/dashboard'
 import StatusDonutChart from '@/components/dashboard/StatusDonutChart.vue'
 import ActiveRepairsList from '@/components/dashboard/ActiveRepairsList.vue'
 import UpcomingMaintenanceList from '@/components/dashboard/UpcomingMaintenanceList.vue'

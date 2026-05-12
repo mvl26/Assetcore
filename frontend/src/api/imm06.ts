@@ -74,7 +74,7 @@ export interface UserCompetency {
 }
 
 export interface Imm06ListResponse<T> {
-  items: T[]
+  data: T[]
   pagination: { page: number; page_size: number; total: number; total_pages: number }
 }
 
@@ -99,7 +99,7 @@ export async function getProgram(name: string): Promise<TrainingProgram> {
 export async function createProgram(
   data: Partial<TrainingProgram>,
 ): Promise<{ name: string }> {
-  return frappePost<{ name: string }>(`${BASE}.create_program`, data as Record<string, unknown>)
+  return frappePost<{ name: string }>(`${BASE}.create_program`, { program_data: JSON.stringify(data) })
 }
 
 export async function updateProgram(
@@ -108,7 +108,7 @@ export async function updateProgram(
 ): Promise<{ name: string; recert_triggered: boolean; affected_competencies_count: number }> {
   return frappePost<{ name: string; recert_triggered: boolean; affected_competencies_count: number }>(
     `${BASE}.update_program`,
-    { name, ...data } as Record<string, unknown>,
+    { name, program_data: JSON.stringify(data) },
   )
 }
 
@@ -131,7 +131,7 @@ export async function getSession(name: string): Promise<TrainingSession> {
 export async function createSession(
   data: Record<string, unknown>,
 ): Promise<{ name: string; workflow_state: string }> {
-  return frappePost<{ name: string; workflow_state: string }>(`${BASE}.create_session`, data)
+  return frappePost<{ name: string; workflow_state: string }>(`${BASE}.create_session`, { session_data: JSON.stringify(data) })
 }
 
 export async function confirmSession(

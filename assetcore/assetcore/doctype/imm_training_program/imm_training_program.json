@@ -98,7 +98,7 @@
       "fieldname": "content_outline",
       "fieldtype": "Text Editor",
       "label": "Nội dung chương trình",
-      "reqd": 1
+      "reqd": 0
     },
     {
       "fieldname": "duration_hours",

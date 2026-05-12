@@ -721,9 +721,16 @@ GET chi tiết + POST update (chỉ khi Pending Approval).
 
 ---
 
-## III.18. Depreciation (4 endpoints)
+## III.18. Depreciation (6 endpoints)
 
-`compute_depreciation` (POST), `get_depreciation_schedule` (GET), `regenerate_depreciation_schedule` (POST), `preview_depreciation_schedule` (GET), `run_due_depreciation_now` (POST), `bulk_regenerate_schedule_by_category` (POST).
+- `compute_depreciation` (POST) — Tính depreciation cho 1 asset tại thời điểm gọi.
+- `get_depreciation_schedule` (GET, params: `asset_name`) — Trả toàn bộ schedule rows + summary của asset.
+- `regenerate_depreciation_schedule` (POST, params: `asset_name, force=1`) — Sinh lại schedule (xoá cũ nếu force=1).
+- `preview_depreciation_schedule` (GET, params: `gross, residual, method, total_months, frequency, start_date`) — Preview không lưu DB.
+- `run_due_depreciation_now` (POST, params: `as_of?`) — **Admin only** (System Manager / IMM System Admin). Chạy thủ công job depreciation due.
+- `bulk_regenerate_schedule_by_category` (POST, params: `category_name`) — **Admin only**. Re-apply rule khấu hao của Category cho tất cả assets, skip kỳ Executed.
+
+> Hai endpoint admin dùng `_assert_system_admin()` guard, kiểm tra role `System Manager` hoặc `IMM System Admin`.
 
 ---
 

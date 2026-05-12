@@ -9,7 +9,7 @@ import { ROLES_TRAINING_MANAGE } from '@/constants/roles'
 import type { TrainingProgram } from '@/api/imm06'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 
-const props = defineProps<{ name: string }>()
+const props = defineProps<{ name?: string }>()
 const router = useRouter()
 const store = useImm06Store()
 const authStore = useAuthStore()
@@ -17,8 +17,18 @@ const api = useApi()
 
 const { currentProgram, loading } = storeToRefs(store)
 
+const isCreateMode = computed(() => !props.name)
 const editing = ref(false)
-const form = ref<Partial<TrainingProgram>>({})
+const form = ref<Partial<TrainingProgram>>({
+  training_type: 'Initial',
+  assessment_method: 'Both',
+  duration_hours: 8,
+  validity_period_months: 12,
+  passing_score_pct: 70,
+  is_mandatory_for_operation: 0,
+  is_active: 1,
+  content_outline: '',
+})
 
 const canManage = computed(() => authStore.hasAnyRole(ROLES_TRAINING_MANAGE))
 
@@ -54,15 +64,25 @@ function cancelEdit() {
 }
 
 async function save() {
-  await api.run(
-    () => store.doUpdateProgram(props.name, form.value),
-    { successMessage: 'Đã cập nhật chương trình đào tạo' },
-  )
-  editing.value = false
+  if (isCreateMode.value) {
+    const newName = await store.doCreateProgram(form.value)
+    if (newName) router.push(`/imm06/programs/${newName}`)
+  } else {
+    await api.run(
+      () => store.doUpdateProgram(props.name!, form.value),
+      { successMessage: 'Đã cập nhật chương trình đào tạo' },
+    )
+    editing.value = false
+  }
 }
 
 async function load() {
-  await store.fetchProgram(props.name)
+  if (!isCreateMode.value) {
+    await store.fetchProgram(props.name!)
+  } else {
+    // create mode: start in editing state with blank form
+    editing.value = true
+  }
 }
 
 onMounted(load)
@@ -73,21 +93,23 @@ onMounted(load)
     <!-- Header -->
     <div class="flex items-center justify-between flex-wrap gap-3">
       <div class="flex items-center gap-3">
-        <button class="btn-ghost text-sm" @click="router.push('/training/programs')">← Quay lại</button>
+        <button class="btn-ghost text-sm" @click="router.push('/imm06/programs')">← Quay lại</button>
         <div>
           <p class="text-xs text-slate-400">Chương trình đào tạo</p>
-          <h1 class="text-xl font-bold text-slate-900">{{ currentProgram?.program_name ?? props.name }}</h1>
+          <h1 class="text-xl font-bold text-slate-900">
+            {{ isCreateMode ? 'Tạo chương trình mới' : (currentProgram?.program_name ?? props.name) }}
+          </h1>
         </div>
       </div>
       <div class="flex items-center gap-2 flex-wrap">
-        <StatusBadge v-if="currentProgram" :state="currentProgram.is_active ? 'Active' : 'Inactive'" size="md" />
-        <template v-if="canManage && !editing">
+        <StatusBadge v-if="currentProgram && !isCreateMode" :state="currentProgram.is_active ? 'Active' : 'Inactive'" size="md" />
+        <template v-if="canManage && !editing && !isCreateMode">
           <button class="btn-ghost text-sm" @click="startEdit">Chỉnh sửa</button>
         </template>
-        <template v-if="editing">
-          <button class="btn-ghost text-sm" @click="cancelEdit">Hủy</button>
+        <template v-if="editing || isCreateMode">
+          <button v-if="!isCreateMode" class="btn-ghost text-sm" @click="cancelEdit">Hủy</button>
           <button class="btn-primary text-sm" :disabled="api.loading.value" @click="save">
-            {{ api.loading.value ? 'Đang lưu...' : 'Lưu thay đổi' }}
+            {{ api.loading.value ? 'Đang lưu...' : (isCreateMode ? 'Tạo chương trình' : 'Lưu thay đổi') }}
           </button>
         </template>
       </div>
@@ -95,11 +117,11 @@ onMounted(load)
 
     <div v-if="loading" class="card p-8 text-center text-slate-400">Đang tải...</div>
 
-    <template v-else-if="currentProgram">
+    <template v-else-if="currentProgram || isCreateMode">
       <!-- General Info -->
       <div class="card p-5">
         <h2 class="text-sm font-semibold text-slate-700 mb-4 pb-2 border-b">Thông tin chung</h2>
-        <div v-if="!editing" class="grid grid-cols-2 md:grid-cols-3 gap-5 text-sm">
+        <div v-if="!editing && !isCreateMode" class="grid grid-cols-2 md:grid-cols-3 gap-5 text-sm">
           <div>
             <p class="text-xs text-slate-400 mb-1">Mã chương trình</p>
             <p class="font-mono text-slate-600">{{ currentProgram.name }}</p>
@@ -146,8 +168,12 @@ onMounted(load)
           </div>
         </div>
 
-        <!-- Edit form -->
-        <div v-else class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+        <!-- Edit / Create form -->
+        <div v-if="editing || isCreateMode" class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+          <div>
+            <label class="form-label">Mã chương trình <span class="text-red-500">*</span></label>
+            <input v-model="form.program_code" type="text" class="form-input w-full" placeholder="VD: TRAIN-PB980-INIT" :readonly="!isCreateMode" />
+          </div>
           <div>
             <label class="form-label">Tên chương trình <span class="text-red-500">*</span></label>
             <input v-model="form.program_name" type="text" class="form-input w-full" />
@@ -211,9 +237,9 @@ onMounted(load)
 
       <!-- Content outline -->
       <div class="card p-5">
-        <h2 class="text-sm font-semibold text-slate-700 mb-3 pb-2 border-b">Đề cương nội dung</h2>
-        <div v-if="!editing">
-          <p v-if="currentProgram.content_outline" class="text-sm text-slate-700 whitespace-pre-line">{{ currentProgram.content_outline }}</p>
+        <h2 class="text-sm font-semibold text-slate-700 mb-3 pb-2 border-b">Đề cương nội dung <span v-if="isCreateMode || editing" class="text-red-500">*</span></h2>
+        <div v-if="!editing && !isCreateMode">
+          <p v-if="currentProgram?.content_outline" class="text-sm text-slate-700 whitespace-pre-line">{{ currentProgram.content_outline }}</p>
           <p v-else class="text-sm text-slate-400">Chưa có đề cương.</p>
         </div>
         <div v-else>
@@ -222,7 +248,7 @@ onMounted(load)
       </div>
 
       <!-- Instructor requirement (view only) -->
-      <div v-if="!editing && currentProgram.instructor_qualification_required" class="card p-5">
+      <div v-if="!editing && !isCreateMode && currentProgram?.instructor_qualification_required" class="card p-5">
         <h2 class="text-sm font-semibold text-slate-700 mb-2 pb-2 border-b">Yêu cầu giảng viên</h2>
         <p class="text-sm text-slate-700">{{ currentProgram.instructor_qualification_required }}</p>
       </div>

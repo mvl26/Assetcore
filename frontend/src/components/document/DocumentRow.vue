@@ -60,7 +60,7 @@ v-if="formatAssetDisplay(doc.asset_name, doc.asset_ref).hasBoth"
     <td class="actions">
       <!-- Approve / Reject chỉ khi Pending_Review -->
       <button
-        v-if="doc.workflow_state === 'Pending_Review'"
+        v-if="doc.workflow_state === 'Pending Review'"
         class="btn btn-xs btn-success"
         @click="$emit('approve', doc.name)"
       >
@@ -68,7 +68,7 @@ Duyệt
 </button>
 
       <button
-        v-if="doc.workflow_state === 'Pending_Review'"
+        v-if="doc.workflow_state === 'Pending Review'"
         class="btn btn-xs btn-danger"
         @click="$emit('reject', doc.name)"
       >
@@ -127,7 +127,7 @@ defineEmits<{
 const rowClass = computed(() => {
   if (props.doc.is_exempt) return ''
   const s = props.doc.workflow_state
-  if (s === 'Pending_Review') return 'row-pending'
+  if (s === 'Pending Review') return 'row-pending'
   if (s === 'Expired') return 'row-expired'
   if (s === 'Rejected') return 'row-rejected'
   return ''
