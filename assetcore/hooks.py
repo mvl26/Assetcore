@@ -64,12 +64,9 @@ _IMM_MODULE_PROFILES = [
 ]
 fixtures = [
     {"dt": "Role", "filters": [["name", "in", _IMM_ROLES]]},
+    # Role Profile fixture đã embed sẵn Has Role child rows — KHÔNG thêm "Has Role"
+    # thành fixture riêng, vì after_install cũng gọi setup_role_profiles.py → duplicate.
     {"dt": "Role Profile", "filters": [["name", "in", _IMM_ROLE_PROFILES]]},
-    # Has Role rows trong Role Profile — đảm bảo bundle role được export đầy đủ
-    {"dt": "Has Role", "filters": [
-        ["parenttype", "=", "Role Profile"],
-        ["parent", "in", _IMM_ROLE_PROFILES],
-    ]},
     {"dt": "Module Profile", "filters": [["name", "in", _IMM_MODULE_PROFILES]]},
     {"dt": "IMM SLA Policy"},
     {"dt": "Workspace", "filters": [["name", "in", ["IMM Operations"]]]},
