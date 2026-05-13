@@ -125,47 +125,47 @@ onMounted(load)
         <div v-if="!editing && !isCreateMode" class="grid grid-cols-2 md:grid-cols-3 gap-5 text-sm">
           <div>
             <p class="text-xs text-slate-400 mb-1">Mã chương trình</p>
-            <p class="font-mono text-slate-600">{{ currentProgram.name }}</p>
+            <p class="font-mono text-slate-600">{{ currentProgram?.name }}</p>
           </div>
           <div>
             <p class="text-xs text-slate-400 mb-1">Loại đào tạo</p>
-            <p>{{ typeLabel(currentProgram.training_type) }}</p>
+            <p>{{ typeLabel(currentProgram?.training_type ?? '') }}</p>
           </div>
           <div>
             <p class="text-xs text-slate-400 mb-1">Phương pháp đánh giá</p>
-            <p>{{ methodLabel(currentProgram.assessment_method) }}</p>
+            <p>{{ methodLabel(currentProgram?.assessment_method ?? '') }}</p>
           </div>
           <div>
             <p class="text-xs text-slate-400 mb-1">Device Model mục tiêu</p>
-            <p>{{ (currentProgram as any).target_device_model_name || currentProgram.target_device_model || '—' }}</p>
+            <p>{{ (currentProgram as any)?.target_device_model_name || currentProgram?.target_device_model || '—' }}</p>
           </div>
           <div>
             <p class="text-xs text-slate-400 mb-1">Danh mục thiết bị</p>
-            <p>{{ currentProgram.target_device_category ?? '—' }}</p>
+            <p>{{ currentProgram?.target_device_category ?? '—' }}</p>
           </div>
           <div>
             <p class="text-xs text-slate-400 mb-1">Thời lượng</p>
-            <p>{{ currentProgram.duration_hours }} giờ</p>
+            <p>{{ currentProgram?.duration_hours }} giờ</p>
           </div>
           <div>
             <p class="text-xs text-slate-400 mb-1">Hiệu lực (tháng)</p>
-            <p>{{ currentProgram.validity_period_months }} tháng</p>
+            <p>{{ currentProgram?.validity_period_months }} tháng</p>
           </div>
           <div>
             <p class="text-xs text-slate-400 mb-1">Điểm đạt</p>
-            <p class="font-semibold text-emerald-600">{{ currentProgram.passing_score_pct }}%</p>
+            <p class="font-semibold text-emerald-600">{{ currentProgram?.passing_score_pct }}%</p>
           </div>
           <div>
             <p class="text-xs text-slate-400 mb-1">Bắt buộc vận hành</p>
-            <p>{{ currentProgram.is_mandatory_for_operation ? 'Có' : 'Không' }}</p>
+            <p>{{ currentProgram?.is_mandatory_for_operation ? 'Có' : 'Không' }}</p>
           </div>
           <div>
             <p class="text-xs text-slate-400 mb-1">Tài liệu QMS</p>
-            <p>{{ currentProgram.qms_doc_ref ?? '—' }}</p>
+            <p>{{ currentProgram?.qms_doc_ref ?? '—' }}</p>
           </div>
           <div>
             <p class="text-xs text-slate-400 mb-1">Cập nhật lần cuối</p>
-            <p class="text-slate-500">{{ currentProgram.modified?.slice(0, 10) }}</p>
+            <p class="text-slate-500">{{ currentProgram?.modified?.slice(0, 10) }}</p>
           </div>
         </div>
 

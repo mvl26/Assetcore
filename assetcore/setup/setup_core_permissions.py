@@ -162,25 +162,47 @@ def _upsert_custom_docperm(parent: str, role: str, perm: dict) -> str:
     return "inserted"
 
 
+_PERM_FLAGS = (
+    "read", "write", "create", "delete", "submit", "cancel", "amend",
+    "report", "export", "print", "email", "share",
+)
+
+
+def _merge_matrix() -> dict[tuple[str, str, int], dict]:
+    """Coalesce nhiều entry cùng (parent, role, permlevel) bằng OR-merge các flag.
+    Tránh trường hợp dòng sau ghi đè (mất read) dòng trước cho cùng role."""
+    merged: dict[tuple[str, str, int], dict] = {}
+    for parent, role_perms in _CORE_MATRIX:
+        for role, perm in role_perms:
+            key = (parent, role, perm["permlevel"])
+            if key not in merged:
+                merged[key] = dict(perm)
+                continue
+            cur = merged[key]
+            for flag in _PERM_FLAGS:
+                if perm.get(flag):
+                    cur[flag] = 1
+    return merged
+
+
 def run() -> None:
     """Apply Custom DocPerm matrix cho Frappe core DocType. Idempotent."""
     stats = {"inserted": 0, "updated": 0, "skipped": 0, "missing_dt": 0, "missing_role": 0}
 
-    for parent, role_perms in _CORE_MATRIX:
+    for (parent, role, _permlevel), perm in _merge_matrix().items():
         if not _doctype_exists(parent):
             stats["missing_dt"] += 1
             continue
-        for role, perm in role_perms:
-            if not _role_exists(role):
-                stats["missing_role"] += 1
-                continue
-            try:
-                stats[_upsert_custom_docperm(parent, role, perm)] += 1
-            except Exception:
-                frappe.log_error(
-                    frappe.get_traceback(),
-                    f"setup_core_permissions: {parent} / {role}",
-                )
+        if not _role_exists(role):
+            stats["missing_role"] += 1
+            continue
+        try:
+            stats[_upsert_custom_docperm(parent, role, perm)] += 1
+        except Exception:
+            frappe.log_error(
+                frappe.get_traceback(),
+                f"setup_core_permissions: {parent} / {role}",
+            )
 
     frappe.db.commit()
     # Clear cache để Frappe reload permissions

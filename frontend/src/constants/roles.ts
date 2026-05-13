@@ -34,6 +34,9 @@ export const ALL_IMM_ROLES: readonly RoleName[] = [
   Roles.WORKSHOP, Roles.QA, Roles.BIOMED, Roles.TECHNICIAN,
   Roles.DOC_OFFICER, Roles.STOREKEEPER, Roles.CLINICAL, Roles.AUDITOR,
   Roles.VENDOR_ENGINEER,
+  // Wave 2
+  Roles.PLANNING, Roles.FINANCE, Roles.HTM_ENGINEER, Roles.PROCUREMENT,
+  Roles.RISK, Roles.BOARD_APPROVER, Roles.TRAINING_OFFICER,
 ] as const
 
 // Role-group policies (đồng bộ với BE Roles.CAN_*)
@@ -146,6 +149,49 @@ export const ROLES_TRAINING_CONDUCT: readonly RoleName[] = [
 ] as const
 export const ROLES_TRAINING_SIGNOFF: readonly RoleName[] = [
   Roles.SYS_ADMIN, Roles.TRAINING_OFFICER, Roles.WORKSHOP, Roles.DEPT_HEAD,
+] as const
+
+// ─── Module read-access groups (router guards for list/detail views) ──────────
+// PM (IMM-08): Tech thực hiện + quản lý + QA + Auditor xem
+export const ROLES_PM_VIEW: readonly RoleName[] = [
+  Roles.SYS_ADMIN, Roles.OPS_MANAGER, Roles.DEPT_HEAD, Roles.WORKSHOP,
+  Roles.BIOMED, Roles.TECHNICIAN, Roles.QA, Roles.AUDITOR,
+] as const
+
+// CM/Repair (IMM-09): tương tự PM
+export const ROLES_CM_VIEW: readonly RoleName[] = [
+  Roles.SYS_ADMIN, Roles.OPS_MANAGER, Roles.DEPT_HEAD, Roles.WORKSHOP,
+  Roles.BIOMED, Roles.TECHNICIAN, Roles.QA, Roles.AUDITOR,
+] as const
+
+// Calibration (IMM-11)
+export const ROLES_CAL_VIEW: readonly RoleName[] = [
+  Roles.SYS_ADMIN, Roles.OPS_MANAGER, Roles.WORKSHOP, Roles.BIOMED,
+  Roles.TECHNICIAN, Roles.QA, Roles.AUDITOR,
+] as const
+
+// Incident (IMM-12)
+export const ROLES_INCIDENT_VIEW: readonly RoleName[] = [
+  Roles.SYS_ADMIN, Roles.OPS_MANAGER, Roles.DEPT_HEAD, Roles.DEPT_DEPUTY,
+  Roles.WORKSHOP, Roles.BIOMED, Roles.TECHNICIAN, Roles.CLINICAL,
+  Roles.QA, Roles.AUDITOR,
+] as const
+
+// Spare Parts / Inventory (IMM-15)
+export const ROLES_SPARE_VIEW: readonly RoleName[] = [
+  Roles.SYS_ADMIN, Roles.OPS_MANAGER, Roles.WORKSHOP, Roles.BIOMED,
+  Roles.STOREKEEPER,
+] as const
+
+// Training (IMM-06)
+export const ROLES_TRAINING_VIEW: readonly RoleName[] = [
+  Roles.SYS_ADMIN, Roles.OPS_MANAGER, Roles.TRAINING_OFFICER, Roles.WORKSHOP,
+  Roles.BIOMED, Roles.TECHNICIAN,
+] as const
+
+// CAPA / Compliance / Audit (IMM-16)
+export const ROLES_COMPLIANCE_VIEW: readonly RoleName[] = [
+  Roles.SYS_ADMIN, Roles.OPS_MANAGER, Roles.QA, Roles.AUDITOR, Roles.RISK,
 ] as const
 
 // Legacy alias — giữ để không break các view hiện có

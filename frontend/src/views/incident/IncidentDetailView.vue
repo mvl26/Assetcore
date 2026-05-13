@@ -7,11 +7,19 @@ import { deleteIncident } from '@/api/imm00'
 import type { IncidentDetail } from '@/api/imm12'
 import SmartSelect from '@/components/common/SmartSelect.vue'
 import { useToast } from '@/composables/useToast'
+import { useAuthStore } from '@/stores/auth'
+import { ROLES_INCIDENT_ACK, ROLES_RCA_OWNER, ROLES_CANCEL, ROLES_ADMIN_USER } from '@/constants/roles'
 
 const route = useRoute()
 const router = useRouter()
 const toast = useToast()
+const auth = useAuthStore()
 const name = computed(() => route.params.id as string)
+
+const canAck = computed(() => auth.hasAnyRole(ROLES_INCIDENT_ACK))
+const canCloseIncident = computed(() => auth.hasAnyRole(ROLES_RCA_OWNER))
+const canCancelIncident = computed(() => auth.hasAnyRole(ROLES_CANCEL))
+const canDeleteIncident = computed(() => auth.hasAnyRole(ROLES_ADMIN_USER))
 
 const form = ref<Partial<IncidentDetail>>({})
 const loading = ref(false)
@@ -132,17 +140,17 @@ async function remove() {
 }
 
 const canAcknowledge = computed(() =>
-  form.value.status === 'Open' && (form.value.allowed_transitions ?? []).includes('In Progress'),
+  canAck.value && form.value.status === 'Open' && (form.value.allowed_transitions ?? []).includes('In Progress'),
 )
 const canResolve = computed(() =>
-  form.value.status === 'In Progress' && (form.value.allowed_transitions ?? []).includes('Resolved'),
+  canAck.value && form.value.status === 'Under Investigation' && (form.value.allowed_transitions ?? []).includes('Resolved'),
 )
 const canClose = computed(() =>
-  form.value.status === 'Resolved' && (form.value.allowed_transitions ?? []).includes('Closed'),
+  canCloseIncident.value && form.value.status === 'Resolved' && (form.value.allowed_transitions ?? []).includes('Closed'),
 )
 const isClosed = computed(() => form.value.status === 'Closed' || form.value.status === ('Cancelled' as never))
 const canCancel = computed(() =>
-  form.value.status === 'Open' || form.value.status === 'In Progress',
+  canCancelIncident.value && (form.value.status === 'Open' || form.value.status === 'Under Investigation'),
 )
 const needsRca = computed(() =>
   (form.value.rca_required === 1) && !form.value.rca_record,
@@ -223,7 +231,7 @@ v-if="canCancel"
           Hủy (False alarm)
         </button>
         <button
-v-if="!isClosed"
+v-if="!isClosed && canDeleteIncident"
           class="text-red-500 hover:text-red-700 text-sm font-medium px-3 py-2"
           @click="remove">
 Xóa

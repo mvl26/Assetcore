@@ -6,6 +6,7 @@ import { frappeGet, frappePost } from './helpers'
 export interface TrainingProgram {
   name: string
   program_name: string
+  program_code?: string
   training_type: 'Initial' | 'Refresher' | 'Advanced' | 'Certification'
   target_device_model: string | null
   target_device_category: string | null

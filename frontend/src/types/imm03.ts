@@ -15,6 +15,7 @@ export interface VendorEvalCandidate {
   name?: string
   idx?: number
   supplier: string
+  supplier_name?: string
   in_avl?: 0 | 1
   sign_off_non_avl?: string
   scores?: string  // JSON
@@ -25,6 +26,7 @@ export interface VendorEvalCandidate {
 export interface VendorQuotationLine {
   name?: string; idx?: number
   candidate_supplier: string
+  candidate_supplier_name?: string
   quotation_no?: string
   quotation_date?: string
   quotation_validity: string
@@ -60,6 +62,7 @@ export interface EvalDoc {
 export interface AvlListItem {
   name: string
   supplier: string
+  vendor_name?: string
   device_category: string
   workflow_state: AvlState
   valid_from: string
@@ -70,6 +73,8 @@ export interface DecisionListItem {
   name: string
   spec_ref: string
   winner_supplier?: string
+  winner_supplier_name?: string
+  vendor_name?: string
   awarded_price?: number
   envelope_check_pct?: number
   workflow_state: DecisionState

@@ -6,10 +6,13 @@ import { getCalibration, updateCalibration, submitCalibration, sendToLab, receiv
 import type { AssetCalibration, CalibrationMeasurement } from '@/api/imm11'
 import { uploadDocumentFile } from '@/api/imm05'
 import { useToast } from '@/composables/useToast'
+import { useAuthStore } from '@/stores/auth'
+import { ROLES_CAL_EXECUTE, ROLES_CAL_MANAGE } from '@/constants/roles'
 
 const props = defineProps<{ id: string }>()
 const router = useRouter()
 const toast = useToast()
+const auth = useAuthStore()
 
 const form = ref<Partial<AssetCalibration> & { measurements?: CalibrationMeasurement[] }>({})
 const loading = ref(false)
@@ -18,18 +21,21 @@ const submitting = ref(false)
 const err = ref('')
 const uploadingCert = ref(false)
 
+const canExecuteCal = computed(() => auth.hasAnyRole(ROLES_CAL_EXECUTE))
+const canManageCal = computed(() => auth.hasAnyRole(ROLES_CAL_MANAGE))
+
 const isSubmitted = computed(() => form.value.docstatus === 1)
 const isFailed = computed(() => form.value.overall_result === 'Failed')
 const isExternal = computed(() => form.value.calibration_type === 'External')
 const canSendToLab = computed(() =>
-  isExternal.value && !isSubmitted.value &&
+  canExecuteCal.value && isExternal.value && !isSubmitted.value &&
   (form.value.status === 'Scheduled' || form.value.status === 'In Progress'),
 )
 const canReceiveCert = computed(() =>
-  isExternal.value && !isSubmitted.value && form.value.status === 'Sent to Lab',
+  canExecuteCal.value && isExternal.value && !isSubmitted.value && form.value.status === 'Sent to Lab',
 )
 const canCancel = computed(() =>
-  !isSubmitted.value && form.value.status !== 'Cancelled',
+  canManageCal.value && !isSubmitted.value && form.value.status !== 'Cancelled',
 )
 
 const showSendModal = ref(false)
@@ -393,7 +399,7 @@ v-if="canReceiveCert" class="bg-purple-600 hover:bg-purple-700 text-white px-4 p
           @click="showReceiveModal = true">
 Nhận chứng chỉ
 </button>
-        <template v-if="!isSubmitted">
+        <template v-if="!isSubmitted && canExecuteCal">
           <button class="btn-ghost text-sm" :disabled="saving" @click="save">
             {{ saving ? 'Đang lưu...' : 'Lưu' }}
           </button>

@@ -315,6 +315,7 @@ export interface PendingApprovalRow {
   workflow_state: string
   master_item: string
   vendor: string
+  vendor_name?: string
   clinical_dept: string
   approval_stage: string
   approval_submitted_at: string

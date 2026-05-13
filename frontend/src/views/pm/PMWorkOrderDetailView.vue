@@ -5,11 +5,17 @@ import { onMounted, computed, ref } from 'vue'
 import { useImm08Store } from '@/stores/imm08'
 import { useRouter } from 'vue-router'
 import { pmStatusLabel, pmStatusClass, resultLabel as _resultLabel } from '@/constants/labels'
+import { useAuthStore } from '@/stores/auth'
+import { ROLES_PM_EXECUTE, ROLES_PM_MANAGE } from '@/constants/roles'
 const toast = useToast()
 
 const props = defineProps<{ id: string }>()
 const store = useImm08Store()
 const router = useRouter()
+const auth = useAuthStore()
+
+const canExecutePM = computed(() => auth.hasAnyRole(ROLES_PM_EXECUTE))
+const canManagePM = computed(() => auth.hasAnyRole(ROLES_PM_MANAGE))
 
 const showMajorModal = ref(false)
 const showSubmitModal = ref(false)
@@ -36,7 +42,7 @@ const progressPct = computed(() =>
 )
 
 const canSubmit = computed(() =>
-  store.checklistComplete && !store.hasMajorFailure
+  store.checklistComplete && !store.hasMajorFailure && canExecutePM.value
 )
 
 const isOverdue = computed(() => wo.value?.status === 'Overdue')
@@ -199,7 +205,7 @@ async function handleStart() {
             </div>
           </div>
           <div class="flex gap-2 shrink-0">
-            <button class="btn-secondary !py-1.5 !text-xs" @click="openRescheduleModal">Hoãn lịch</button>
+            <button v-if="canManagePM" class="btn-secondary !py-1.5 !text-xs" @click="openRescheduleModal">Hoãn lịch</button>
             <button class="btn-danger !py-1.5 !text-xs" @click="store.fetchWorkOrder(props.id)">Tiếp tục bảo trì</button>
           </div>
         </div>

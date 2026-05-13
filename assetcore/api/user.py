@@ -652,7 +652,7 @@ def list_role_profiles() -> dict:
     """
     profiles = frappe.get_all(
         _DT_ROLE_PROFILE,
-        filters={"role_profile": ("like", "IMM -%")},
+        filters={"role_profile": ("like", "AssetCore —%")},
         fields=["name", "role_profile"],
         order_by="role_profile asc",
     )

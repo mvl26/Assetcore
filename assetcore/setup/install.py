@@ -96,6 +96,12 @@ def after_install() -> None:
     _apply_core_permissions()
 
 
+def before_migrate() -> None:
+    """Xóa Has Role orphan rows thuộc AssetCore Role Profiles trước khi fixture sync.
+    Ngăn lỗi 'already has the role' khi Frappe delete+reinsert Role Profile fixture."""
+    _clear_role_profile_has_role_rows()
+
+
 def after_migrate() -> None:
     _sync_workflows()
     create_user_custom_fields()
@@ -203,4 +209,28 @@ def _apply_core_permissions() -> None:
         frappe.log_error(
             frappe.get_traceback(),
             "AssetCore Core Permissions: setup_core_permissions.run failed",
+        )
+
+
+def _clear_role_profile_has_role_rows() -> None:
+    """Xóa Has Role rows thuộc AssetCore Role Profiles khỏi DB.
+
+    Frappe fixture import (delete_old_doc → frappe.delete_doc with for_reload=True)
+    không xóa được child Has Role rows khi chạy migrate. Nếu after_migrate đã chạy
+    lần trước (thêm rows qua setup_role_profiles.run), lần migrate kế tiếp sẽ fail
+    với ValidationError 'already has the role'. Hook before_migrate gọi hàm này để
+    làm sạch trước khi fixture sync bắt đầu.
+    """
+    try:
+        deleted = frappe.db.delete(
+            "Has Role",
+            {"parenttype": "Role Profile", "parent": ["like", "AssetCore — %"]},
+        )
+        if deleted:
+            frappe.db.commit()
+            print(f"[AssetCore] before_migrate: cleared {deleted} Has Role rows (Role Profile).")
+    except Exception:
+        frappe.log_error(
+            frappe.get_traceback(),
+            "AssetCore before_migrate: _clear_role_profile_has_role_rows failed",
         )

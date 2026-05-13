@@ -7,7 +7,7 @@ export function usePermissions() {
   const roles = computed<string[]>(() => auth.user?.roles ?? [])
 
   const isAdmin = computed(() => roles.value.includes('System Manager') || roles.value.includes('Administrator'))
-  const isQA = computed(() => roles.value.includes('IMM Workshop Lead') || roles.value.includes('IMM Operations Manager'))
+  const isQA = computed(() => roles.value.includes('IMM QA Officer'))
   const isClinicalHead = computed(() => roles.value.includes('IMM Department Head'))
   const isTechnician = computed(() => roles.value.includes('IMM Technician') || roles.value.includes('IMM Biomed Technician'))
 

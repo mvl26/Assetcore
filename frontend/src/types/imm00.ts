@@ -368,6 +368,7 @@ export interface ServiceContract {
   name: string
   contract_title: string
   supplier: string
+  supplier_name?: string
   contract_type: ServiceContractType
   contract_start: string
   contract_end: string

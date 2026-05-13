@@ -1,6 +1,7 @@
 app_name = "assetcore"
 after_install = "assetcore.setup.install.after_install"
 after_migrate = "assetcore.setup.install.after_migrate"
+before_migrate = "assetcore.setup.install.before_migrate"
 app_title = "AssetCore"
 app_publisher = "miyano"
 app_description = "Medical Equipment Lifecycle Management (HTM)"
@@ -36,29 +37,9 @@ _IMM_ROLES = [
     "IMM Training Officer",
 ]
 _IMM_ROLE_PROFILES = [
-    # Wave 1
-    "IMM - System Administrator",
-    "IMM - Operations Manager",
-    "IMM - Department Head",
-    "IMM - Deputy Department Head",
-    "IMM - Workshop Lead",
-    "IMM - Biomed Technician",
-    "IMM - Field Technician",
-    "IMM - QA Officer",
-    "IMM - Internal Auditor",
-    "IMM - Storekeeper",
-    "IMM - Document Officer",
-    "IMM - Clinical User",
-    "IMM - Vendor Engineer",
-    # Wave 2
-    "IMM - Planning Officer",
-    "IMM - Finance Officer",
-    "IMM - HTM Engineer",
-    "IMM - Procurement Officer",
-    "IMM - Risk Officer",
-    "IMM - Board Approver",
-    "IMM - Training Officer",
-    # AssetCore-branded persona bundles (em-dash U+2014)
+    # AssetCore-branded persona bundles (em-dash U+2014) — only catalog.
+    # Legacy "IMM - *" Role Profiles removed by patch
+    # assetcore.patches.v3_1.005_remove_legacy_imm_role_profiles.
     "AssetCore — System Admin",
     "AssetCore — Operations Manager",
     "AssetCore — Department Head",

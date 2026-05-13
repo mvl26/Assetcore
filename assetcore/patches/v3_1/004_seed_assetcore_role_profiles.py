@@ -2,7 +2,8 @@
 """Patch: seed AssetCore-branded Role Profile catalog.
 
 Idempotent — delegates to assetcore.setup.setup_role_profiles.run(), which
-upserts both `IMM - <Name>` (legacy) and `AssetCore — <Name>` (current) bundles.
+upserts the canonical `AssetCore — <Name>` persona bundles and removes any
+legacy `IMM - *` / Vietnamese Role Profiles still present.
 
 Chạy thủ công:
     bench --site <site> execute \

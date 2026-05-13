@@ -106,6 +106,43 @@ class TestAssetCoreRoleProfiles(unittest.TestCase):
             ignore_permissions=True, force=True, delete_permanently=True,
         )
 
+    def test_no_legacy_imm_role_profiles_remain(self) -> None:
+        """Legacy `IMM - *` Role Profiles must not exist after cleanup patch."""
+        legacy = frappe.get_all(
+            "Role Profile",
+            filters=[["name", "like", "IMM - %"]],
+            pluck="name",
+        )
+        self.assertEqual(
+            legacy, [],
+            f"Legacy IMM Role Profiles still present: {legacy}. "
+            "Run patch v3_1.005_remove_legacy_imm_role_profiles.",
+        )
+
+    def test_assetcore_profile_count_matches_catalog(self) -> None:
+        """Exactly len(catalog) AssetCore Role Profiles must exist."""
+        actual = frappe.db.count(
+            "Role Profile",
+            filters=[["name", "like", "AssetCore%"]],
+        )
+        self.assertEqual(
+            actual, len(self.catalog),
+            f"Expected {len(self.catalog)} AssetCore profiles, found {actual}",
+        )
+
+    def test_every_profile_has_at_least_one_role(self) -> None:
+        """Each AssetCore Role Profile must contain ≥1 role binding."""
+        for name, _ in self.catalog:
+            with self.subTest(profile=name):
+                count = frappe.db.count(
+                    "Has Role",
+                    filters={"parenttype": "Role Profile", "parent": name},
+                )
+                self.assertGreaterEqual(
+                    count, 1,
+                    f"Role Profile '{name}' has 0 roles bound",
+                )
+
     def test_seed_is_idempotent(self) -> None:
         """Running seed twice should not duplicate roles or profiles."""
         before = {
