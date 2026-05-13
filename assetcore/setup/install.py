@@ -94,6 +94,7 @@ def after_install() -> None:
     _seed_role_profiles()
     _seed_module_profiles()
     _apply_core_permissions()
+    _build_frontend(force=True)
 
 
 def before_migrate() -> None:
@@ -110,6 +111,7 @@ def after_migrate() -> None:
     _seed_module_profiles()
     _apply_core_permissions()
     _install_notifications()
+    _build_frontend(force=False)
 
 
 def _sync_workflows() -> None:
@@ -210,6 +212,15 @@ def _apply_core_permissions() -> None:
             frappe.get_traceback(),
             "AssetCore Core Permissions: setup_core_permissions.run failed",
         )
+
+
+def _build_frontend(force: bool = False) -> None:
+    """Wrapper — build Vue SPA, không raise exception để không block install."""
+    try:
+        from assetcore.setup.setup_frontend import build_frontend
+        build_frontend(force=force)
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "AssetCore FE build failed")
 
 
 def _clear_role_profile_has_role_rows() -> None:
