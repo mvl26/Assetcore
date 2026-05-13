@@ -143,11 +143,22 @@ def _sync_imm_roles(user_doc: Any, new_roles: list[str]) -> None:
     """
     Thay thế toàn bộ IMM roles trên user_doc bằng new_roles.
     Frappe non-IMM roles (System Manager, v.v.) được giữ nguyên.
-    Dùng user_doc.add_roles() để append — chuẩn Frappe child table.
+
+    CHÚ Ý: KHÔNG dùng `user_doc.add_roles()` — method này gọi `self.save()`
+    nội bộ mà KHÔNG có `flags.ignore_permissions = True`. Frappe User DocType
+    có DocPerm restrictive nên save fail âm thầm và rollback role changes →
+    bug "Lưu thành công nhưng role không vào DB" (theo cảm nhận user). Thay
+    vào đó, chỉ MUTATE child table `roles` trong bộ nhớ; caller `_save_user`
+    sẽ gọi `user_doc.save()` MỘT LẦN duy nhất với `ignore_permissions = True`.
     """
-    user_doc.roles = [r for r in user_doc.roles if r.role not in _IMM_ROLES]
-    if new_roles:
-        user_doc.add_roles(*new_roles)
+    # 1. Giữ lại non-IMM roles (System Manager, Maintenance User, …)
+    user_doc.set("roles", [r for r in user_doc.roles if r.role not in _IMM_ROLES])
+    # 2. Append IMM roles mới — không gọi save, để _save_user lo
+    existing = {r.role for r in user_doc.roles}
+    for role in new_roles:
+        if role not in existing:
+            user_doc.append("roles", {"role": role})
+            existing.add(role)
 
 
 def _apply_scalar_fields(user_doc: Any, data: dict) -> None:

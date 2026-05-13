@@ -3,6 +3,8 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { getFirmwareCr, updateFirmwareCr, type FirmwareCR } from '@/api/imm00'
+import PageHeader from '@/components/common/PageHeader.vue'
+import StatusBadge from '@/components/common/StatusBadge.vue'
 
 const props = defineProps<{ id: string }>()
 const router = useRouter()
@@ -43,25 +45,6 @@ async function markDeployed() {
   } finally { saving.value = false }
 }
 
-const STATUS_LABELS: Record<string, string> = {
-  Draft: 'Nháp',
-  'Pending Approval': 'Chờ phê duyệt',
-  Approved: 'Đã phê duyệt',
-  Applied: 'Đã áp dụng',
-  Rejected: 'Từ chối',
-  'Rolled Back': 'Đã khôi phục',
-}
-
-function statusLabel(s?: string) { return (s && STATUS_LABELS[s]) || s || '—' }
-
-function statusBadge(s?: string) {
-  if (s === 'Approved') return 'bg-green-100 text-green-700'
-  if (s === 'Applied') return 'bg-blue-100 text-blue-700'
-  if (s === 'Rejected' || s === 'Rolled Back') return 'bg-red-100 text-red-700'
-  if (s === 'Pending Approval') return 'bg-yellow-100 text-yellow-700'
-  return 'bg-gray-100 text-gray-600'
-}
-
 const workflowSteps = [
   { key: 'Draft', label: 'Nháp' },
   { key: 'Approved', label: 'Phê duyệt' },
@@ -85,35 +68,28 @@ onMounted(load)
 
 <template>
   <div class="page-container animate-fade-in space-y-5">
-    <!-- Header -->
-    <div class="flex items-center justify-between">
-      <div class="flex items-center gap-3">
-        <button class="text-gray-500 hover:text-gray-700 text-sm flex items-center gap-1" @click="router.push('/cm/firmware')">
-          ← Quay lại
-        </button>
-        <span class="text-gray-300">|</span>
-        <p class="text-xs font-semibold text-slate-400 uppercase tracking-widest">FCR</p>
-      </div>
-    </div>
+    <PageHeader
+      :title="fcr ? `Cập nhật Firmware — ${fcr.asset_name || fcr.asset_ref}` : (props.id ?? 'Yêu cầu cập nhật firmware')"
+      :subtitle="fcr ? fcr.name : 'Yêu cầu cập nhật firmware'"
+      :back-to="'/cm/firmware'"
+      back-label="← Danh sách FCR"
+      :breadcrumb="[
+        { label: 'IMM-09 · Sửa chữa', to: '/cm/dashboard' },
+        { label: 'Firmware', to: '/cm/firmware' },
+        { label: props.id },
+      ]"
+    >
+      <template #actions>
+        <StatusBadge v-if="fcr?.status" :state="fcr.status" size="md" />
+      </template>
+    </PageHeader>
 
-    <div v-if="loading" class="bg-white rounded-xl border p-10 text-center text-gray-400">Đang tải...</div>
+    <div v-if="loading" class="bg-white rounded-xl border p-10 text-center text-slate-400">Đang tải…</div>
     <div v-else-if="err" class="bg-red-50 text-red-700 text-sm p-4 rounded-xl border border-red-200">{{ err }}</div>
 
     <template v-else-if="fcr">
-      <!-- Title + Status -->
-      <div class="bg-white rounded-xl border border-gray-200 p-5">
-        <div class="flex items-start justify-between gap-3">
-          <div>
-            <p class="font-mono text-xs text-gray-400 mb-1">{{ fcr.name }}</p>
-            <h1 class="text-xl font-bold text-gray-900">
-              Cập nhật Firmware — {{ fcr.asset_name || fcr.asset_ref }}
-            </h1>
-            <p class="text-sm text-gray-500 font-mono mt-0.5">{{ fcr.asset_ref }}</p>
-          </div>
-          <span :class="['px-3 py-1 rounded-full text-sm font-medium shrink-0', statusBadge(fcr.status)]">
-            {{ statusLabel(fcr.status) }}
-          </span>
-        </div>
+      <!-- Workflow steps card -->
+      <div class="bg-white rounded-xl border border-slate-200 p-5">
 
         <!-- Workflow Steps -->
         <div class="mt-5 flex items-center gap-0">
@@ -126,7 +102,7 @@ onMounted(load)
                 : idx === currentStepIdx ? 'bg-blue-600 border-blue-600 text-white'
                 : 'bg-white border-gray-300 text-gray-400'
               ]">
-                <span v-if="idx < currentStepIdx">✓</span>
+                <svg v-if="idx < currentStepIdx" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" /></svg>
                 <span v-else>{{ idx + 1 }}</span>
               </div>
               <p :class="['text-xs mt-1 font-medium', idx <= currentStepIdx ? 'text-gray-800' : 'text-gray-400']">
@@ -198,18 +174,20 @@ class="px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 hover:b
 Quay lại
 </button>
         <button
-v-if="fcr.status === 'Draft' || fcr.status === 'Pending Approval'"
+          v-if="fcr.status === 'Draft' || fcr.status === 'Pending Approval'"
           :disabled="saving"
-          class="px-5 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium disabled:opacity-50 transition-colors"
-          @click="approve">
-          {{ saving ? 'Đang xử lý...' : 'Phê duyệt' }}
+          class="btn-primary text-sm"
+          @click="approve"
+        >
+          {{ saving ? 'Đang xử lý…' : 'Phê duyệt' }}
         </button>
         <button
-v-else-if="fcr.status === 'Approved'"
+          v-else-if="fcr.status === 'Approved'"
           :disabled="saving"
-          class="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium disabled:opacity-50 transition-colors"
-          @click="markDeployed">
-          {{ saving ? 'Đang xử lý...' : 'Đã deploy' }}
+          class="btn-primary text-sm"
+          @click="markDeployed"
+        >
+          {{ saving ? 'Đang xử lý…' : 'Đã deploy' }}
         </button>
       </div>
     </template>

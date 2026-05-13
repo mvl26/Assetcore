@@ -11,6 +11,7 @@ import BasePagination from '@/components/common/BasePagination.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar from '@/components/common/ListFilterBar.vue'
+import StatusBadge from '@/components/common/StatusBadge.vue'
 
 const router = useRouter()
 const store = useImm06Store()
@@ -77,19 +78,6 @@ async function load(page = 1) {
 
 function sessionTypeLabel(v: string) {
   return SESSION_TYPES.find(t => t.value === v)?.label ?? v
-}
-
-function stateClass(state: string): string {
-  const map: Record<string, string> = {
-    Planned:       'bg-yellow-100 text-yellow-700',
-    Confirmed:     'bg-blue-100 text-blue-700',
-    'In Progress': 'bg-indigo-100 text-indigo-700',
-    Completed:     'bg-emerald-100 text-emerald-700',
-    Verified:      'bg-teal-100 text-teal-700',
-    Closed:        'bg-slate-100 text-slate-600',
-    Cancelled:     'bg-neutral-100 text-neutral-500',
-  }
-  return map[state] ?? 'bg-neutral-100 text-neutral-600'
 }
 
 onMounted(() => load())
@@ -195,19 +183,7 @@ onMounted(() => load())
                 {{ (s as any).trainer_name || s.instructor_external_name || '—' }}
               </td>
               <td class="table-cell">
-                <span
-                  class="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium"
-                  :class="stateClass(s.workflow_state)"
-                >
-                  {{ s.workflow_state === 'Planned' ? 'Đã lên kế hoạch'
-                    : s.workflow_state === 'Confirmed' ? 'Đã xác nhận'
-                    : s.workflow_state === 'In Progress' ? 'Đang diễn ra'
-                    : s.workflow_state === 'Completed' ? 'Hoàn thành'
-                    : s.workflow_state === 'Verified' ? 'Đã xác minh'
-                    : s.workflow_state === 'Closed' ? 'Đã đóng'
-                    : s.workflow_state === 'Cancelled' ? 'Đã hủy'
-                    : s.workflow_state }}
-                </span>
+                <StatusBadge :state="s.workflow_state" />
               </td>
               <td class="table-cell text-right text-sm font-medium text-slate-700">
                 {{ (s as any).attendee_count ?? s.participant_count ?? (s.participants?.length ?? '—') }}

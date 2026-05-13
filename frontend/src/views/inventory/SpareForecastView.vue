@@ -3,6 +3,7 @@
 import { onMounted, ref } from 'vue'
 import { useImm15Store } from '@/stores/imm15'
 import PageHeader from '@/components/common/PageHeader.vue'
+import StatusBadge from '@/components/common/StatusBadge.vue'
 
 const store = useImm15Store()
 const generating = ref(false)
@@ -16,7 +17,7 @@ async function generate() {
   generating.value = true
   try {
     const res = await store.generateForecastAction(horizon.value, 'Moving_Avg')
-    toast.value = `Đã tạo forecast ${res.name} (${res.items_count} dòng)`
+    toast.value = `Đã tạo dự báo ${res.name} (${res.items_count} dòng)`
     await load()
   } catch (e: unknown) {
     toast.value = e instanceof Error ? e.message : String(e)
@@ -31,6 +32,7 @@ async function approve(name: string) {
   try {
     const res = await store.approveForecastAction(name)
     toast.value = `Đã duyệt: ${res.reorder_recommendations} mục đề xuất đặt hàng`
+    await load()
   } catch (e: unknown) {
     toast.value = e instanceof Error ? e.message : String(e)
   } finally {
@@ -44,71 +46,72 @@ onMounted(load)
 
 <template>
   <div class="page-container animate-fade-in">
-    <PageHeader title="Dự báo phụ tùng" subtitle="IMM-15 — Spare Part Forecast (Moving Avg)">
+    <PageHeader
+      title="Dự báo nhu cầu phụ tùng"
+      subtitle="IMM-15 · Tồn kho phụ tùng — Dự báo bằng phương pháp trung bình động"
+      :breadcrumb="[{ label: 'IMM-15 · Tồn kho phụ tùng', to: '/inventory/dashboard' }, { label: 'Dự báo' }]"
+    >
       <template #actions>
         <div class="flex items-center gap-2">
-          <label class="text-sm text-slate-600">Horizon</label>
-          <input v-model.number="horizon" type="number" min="1" max="12" class="w-16 px-2 py-1 border rounded text-sm" />
-          <span class="text-sm text-slate-600">tháng</span>
+          <label class="text-sm text-slate-600" for="forecast-horizon">Khoảng dự báo</label>
+          <input id="forecast-horizon" v-model.number="horizon" type="number" min="1" max="12" class="w-20 form-input py-1.5 px-2 text-sm" />
+          <span class="text-sm text-slate-500">tháng</span>
           <button class="btn-primary" :disabled="generating" @click="generate">
-            {{ generating ? 'Đang tạo...' : 'Tạo forecast mới' }}
+            {{ generating ? 'Đang tạo…' : 'Tạo dự báo' }}
           </button>
         </div>
       </template>
     </PageHeader>
 
-    <div v-if="toast" class="mb-3 p-3 bg-blue-50 text-blue-800 rounded text-sm">{{ toast }}</div>
+    <div v-if="toast" class="mb-4 px-4 py-3 rounded-lg bg-emerald-50 text-emerald-700 text-sm border border-emerald-100">{{ toast }}</div>
 
-    <div class="card overflow-hidden">
-      <table class="w-full text-sm">
-        <thead class="bg-slate-50">
-          <tr>
-            <th class="px-3 py-2 text-left">Mã</th>
-            <th class="px-3 py-2 text-left">Kỳ</th>
-            <th class="px-3 py-2 text-left">Phương pháp</th>
-            <th class="px-3 py-2 text-left">Trạng thái</th>
-            <th class="px-3 py-2 text-left">Người tạo</th>
-            <th class="px-3 py-2 text-left">Người duyệt</th>
-            <th class="px-3 py-2"></th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-if="store.forecastsLoading">
-            <td colspan="7" class="px-3 py-6 text-center text-slate-500">Đang tải...</td>
-          </tr>
-          <tr v-else-if="!store.forecasts.length">
-            <td colspan="7" class="px-3 py-8 text-center text-slate-500">
-              Chưa có forecast. Nhấn "Tạo forecast mới" để bắt đầu.
-            </td>
-          </tr>
-          <tr v-for="f in store.forecasts" :key="f.name" class="border-t hover:bg-slate-50">
-            <td class="px-3 py-2 font-mono text-xs">{{ f.name }}</td>
-            <td class="px-3 py-2">{{ f.forecast_period }}</td>
-            <td class="px-3 py-2">{{ f.method }}</td>
-            <td class="px-3 py-2">
-              <span class="badge" :class="f.workflow_state === 'Approved' ? 'badge-success' : 'badge-warning'">
-                {{ f.workflow_state || 'Draft' }}
-              </span>
-            </td>
-            <td class="px-3 py-2">{{ f.generated_by_name || f.generated_by || '—' }}</td>
-            <td class="px-3 py-2">{{ f.approved_by_name || f.approved_by || '—' }}</td>
-            <td class="px-3 py-2 text-right">
-              <button v-if="(f.workflow_state || 'Draft') === 'Draft'"
-                      class="btn-secondary text-xs"
-                      :disabled="approving === f.name"
-                      @click="approve(f.name)">
-                {{ approving === f.name ? '...' : 'Duyệt' }}
-              </button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+    <div class="card overflow-hidden p-0">
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead class="bg-slate-50 border-b border-slate-200">
+            <tr>
+              <th class="table-header">Mã dự báo</th>
+              <th class="table-header">Kỳ</th>
+              <th class="table-header">Phương pháp</th>
+              <th class="table-header">Trạng thái</th>
+              <th class="table-header">Người tạo</th>
+              <th class="table-header">Người duyệt</th>
+              <th class="table-header text-right">Thao tác</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100">
+            <tr v-if="store.forecastsLoading">
+              <td colspan="7" class="px-4 py-10 text-center text-slate-400">Đang tải…</td>
+            </tr>
+            <tr v-else-if="!store.forecasts.length">
+              <td colspan="7" class="px-4 py-12 text-center">
+                <p class="text-sm text-slate-500">Chưa có dự báo nào.</p>
+                <p class="text-xs text-slate-400 mt-1">Nhấn "Tạo dự báo" để bắt đầu phân tích.</p>
+              </td>
+            </tr>
+            <tr v-for="f in store.forecasts" :key="f.name" class="hover:bg-slate-50 transition-colors">
+              <td class="px-4 py-3 font-mono text-xs text-brand-700 font-semibold">{{ f.name }}</td>
+              <td class="px-4 py-3 text-slate-700">{{ f.forecast_period }}</td>
+              <td class="px-4 py-3 text-slate-700">{{ f.method }}</td>
+              <td class="px-4 py-3">
+                <StatusBadge :state="f.workflow_state || 'Draft'" />
+              </td>
+              <td class="px-4 py-3 text-slate-700">{{ f.generated_by_name || f.generated_by || '—' }}</td>
+              <td class="px-4 py-3 text-slate-700">{{ f.approved_by_name || f.approved_by || '—' }}</td>
+              <td class="px-4 py-3 text-right">
+                <button
+                  v-if="(f.workflow_state || 'Draft') === 'Draft'"
+                  class="btn-secondary text-xs py-1.5 px-3"
+                  :disabled="approving === f.name"
+                  @click="approve(f.name)"
+                >
+                  {{ approving === f.name ? 'Đang duyệt…' : 'Phê duyệt' }}
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </div>
   </div>
 </template>
-
-<style scoped>
-.badge { display: inline-block; padding: 0.125rem 0.5rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 500 }
-.badge-success { background: #dcfce7; color: #166534 }
-.badge-warning { background: #fef3c7; color: #92400e }
-</style>

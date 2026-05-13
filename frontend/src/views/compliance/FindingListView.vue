@@ -98,12 +98,12 @@ onMounted(() => load(1))
   <div class="page-container animate-fade-in space-y-5">
     <PageHeader
       title="Phát hiện tuân thủ"
-      :subtitle="`Tổng ${pagination.total} phát hiện`"
-      :breadcrumb="[{ label: 'IMM-16 · Tuân thủ' }, { label: 'Phát hiện' }]"
+      :subtitle="`IMM-16 · Theo dõi tuân thủ — Tổng ${pagination.total} phát hiện`"
+      :breadcrumb="[{ label: 'IMM-16 · Theo dõi tuân thủ', to: '/compliance/scorecard' }, { label: 'Phát hiện' }]"
     >
       <template #actions>
         <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
-        <button class="btn-ghost text-sm" @click="router.push('/compliance/rules')">Quy tắc</button>
+        <button class="btn-secondary text-sm" @click="router.push('/compliance/rules')">Xem quy tắc</button>
       </template>
     </PageHeader>
 
@@ -148,8 +148,11 @@ onMounted(() => load(1))
       <div v-if="loading" class="p-4">
         <SkeletonLoader variant="table" :rows="6" />
       </div>
-      <div v-else-if="!items.length" class="flex flex-col items-center justify-center py-16 text-slate-400">
-        <p class="text-sm font-medium">Chưa có phát hiện nào</p>
+      <div v-else-if="!items.length" class="flex flex-col items-center justify-center py-16">
+        <p class="text-sm text-slate-500">Chưa có phát hiện phù hợp.</p>
+        <button v-if="activeFilterCount > 0" class="text-xs text-brand-600 hover:text-brand-700 font-medium underline mt-2" @click="resetFilters">
+          Xóa bộ lọc để xem tất cả
+        </button>
       </div>
       <div v-else class="overflow-x-auto">
         <table class="min-w-full divide-y divide-slate-100">
@@ -170,7 +173,7 @@ onMounted(() => load(1))
               class="hover:bg-slate-50 cursor-pointer transition-colors"
               @click="router.push(`/compliance/findings/${f.name}`)"
             >
-              <td class="table-cell font-mono text-xs text-slate-500">{{ f.name }}</td>
+              <td class="table-cell font-mono text-xs text-brand-700 font-semibold">{{ f.name }}</td>
               <td class="table-cell">
                 <div class="font-medium text-slate-900 truncate max-w-[260px]">{{ f.rule }}</div>
               </td>
@@ -178,7 +181,7 @@ onMounted(() => load(1))
                 <div class="font-medium text-slate-900 truncate max-w-[200px]">
                   {{ formatAssetDisplay(f.asset_name, f.asset).main }}
                 </div>
-                <div v-if="formatAssetDisplay(f.asset_name, f.asset).hasBoth" class="text-xs text-slate-400 font-mono mt-0.5">
+                <div v-if="formatAssetDisplay(f.asset_name, f.asset).hasBoth" class="font-mono text-xs text-brand-700 mt-0.5">
                   {{ formatAssetDisplay(f.asset_name, f.asset).sub }}
                 </div>
               </td>
@@ -189,7 +192,7 @@ onMounted(() => load(1))
                 </button>
               </td>
               <td class="table-cell">
-                <span v-if="f.capa_ref" class="font-mono text-xs text-blue-600">{{ f.capa_ref }}</span>
+                <span v-if="f.capa_ref" class="font-mono text-xs text-brand-700">{{ f.capa_ref }}</span>
                 <span v-else class="text-slate-300">—</span>
               </td>
               <td class="table-cell text-xs text-slate-500">{{ formatDate(f.detected_date) }}</td>

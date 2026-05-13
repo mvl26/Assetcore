@@ -115,8 +115,8 @@ onMounted(() => load(1))
   <div class="page-container animate-fade-in space-y-5">
     <PageHeader
       title="Quy tắc tuân thủ"
-      :subtitle="`Tổng ${pagination.total} quy tắc`"
-      :breadcrumb="[{ label: 'IMM-16 · Tuân thủ' }, { label: 'Quy tắc' }]"
+      :subtitle="`IMM-16 · Theo dõi tuân thủ — Tổng ${pagination.total} quy tắc`"
+      :breadcrumb="[{ label: 'IMM-16 · Theo dõi tuân thủ', to: '/compliance/scorecard' }, { label: 'Quy tắc' }]"
     >
       <template #actions>
         <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
@@ -168,8 +168,12 @@ onMounted(() => load(1))
       <div v-if="loading" class="p-4">
         <SkeletonLoader variant="table" :rows="6" />
       </div>
-      <div v-else-if="!items.length" class="flex flex-col items-center justify-center py-16 text-slate-400">
-        <p class="text-sm font-medium">Chưa có quy tắc tuân thủ nào</p>
+      <div v-else-if="!items.length" class="flex flex-col items-center justify-center py-16">
+        <p class="text-sm text-slate-500">Chưa có quy tắc tuân thủ phù hợp.</p>
+        <button v-if="activeFilterCount > 0" class="text-xs text-brand-600 hover:text-brand-700 font-medium underline mt-2" @click="resetFilters">
+          Xóa bộ lọc để xem tất cả
+        </button>
+        <button v-else class="btn-primary mt-3" @click="openCreate">Tạo quy tắc đầu tiên</button>
       </div>
       <div v-else class="overflow-x-auto">
         <table class="min-w-full divide-y divide-slate-100">
@@ -189,7 +193,7 @@ onMounted(() => load(1))
             <tr v-for="r in items" :key="r.name" class="hover:bg-slate-50">
               <td class="table-cell">
                 <div class="font-medium text-slate-900">{{ r.rule_name }}</div>
-                <div class="text-xs text-slate-400 font-mono mt-0.5">{{ r.rule_code }}</div>
+                <div class="font-mono text-xs text-brand-700 mt-0.5">{{ r.rule_code }}</div>
               </td>
               <td class="table-cell text-slate-600">{{ r.category || '—' }}</td>
               <td class="table-cell text-slate-600">{{ r.source_module || '—' }}</td>
@@ -199,14 +203,16 @@ onMounted(() => load(1))
               <td class="table-cell text-slate-600">{{ r.evaluation_frequency || '—' }}</td>
               <td class="table-cell font-mono text-xs text-slate-500">{{ r.version || '1.0' }}</td>
               <td class="table-cell">
-                <span :class="r.is_active ? 'text-emerald-700 bg-emerald-50 border-emerald-200' : 'text-slate-500 bg-slate-50 border-slate-200'"
-                      class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium border">
+                <span
+                  :class="r.is_active ? 'text-emerald-700 bg-emerald-50 border-emerald-100' : 'text-slate-600 bg-slate-50 border-slate-200'"
+                  class="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium border"
+                >
                   {{ r.is_active ? 'Đang áp dụng' : 'Ngừng áp dụng' }}
                 </span>
               </td>
               <td class="table-cell text-right">
-                <button v-if="r.is_active" class="text-xs text-red-600 hover:text-red-800 font-medium" @click="onDeactivate(r)">Ngừng</button>
-                <button v-else class="text-xs text-emerald-600 hover:text-emerald-800 font-medium" @click="onReactivate(r)">Kích hoạt</button>
+                <button v-if="r.is_active" class="text-xs text-red-600 hover:text-red-700 font-medium" @click="onDeactivate(r)">Ngừng áp dụng</button>
+                <button v-else class="text-xs text-emerald-600 hover:text-emerald-700 font-medium" @click="onReactivate(r)">Kích hoạt lại</button>
               </td>
             </tr>
           </tbody>
@@ -268,8 +274,10 @@ onMounted(() => load(1))
         </div>
       </div>
       <template #footer>
-        <button class="btn-ghost" @click="showCreate = false">Hủy</button>
-        <button class="btn-primary" :disabled="api.loading.value" @click="submitCreate">Tạo quy tắc</button>
+        <button class="btn-ghost" @click="showCreate = false">Huỷ</button>
+        <button class="btn-primary" :disabled="api.loading.value" @click="submitCreate">
+          {{ api.loading.value ? 'Đang lưu…' : 'Tạo quy tắc' }}
+        </button>
       </template>
     </BaseModal>
   </div>

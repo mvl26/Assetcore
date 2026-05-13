@@ -152,10 +152,10 @@ const SEV_COLOR: Record<string, string> = {
   Critical: 'bg-red-100 text-red-700',
   High: 'bg-orange-100 text-orange-700',
   Medium: 'bg-yellow-100 text-yellow-700',
-  Low: 'bg-gray-100 text-gray-700',
+  Low: 'bg-slate-100 text-slate-700',
 }
 function sevColor(s?: string) {
-  return SEV_COLOR[s ?? ''] ?? 'bg-gray-100 text-gray-700'
+  return SEV_COLOR[s ?? ''] ?? 'bg-slate-100 text-slate-700'
 }
 
 const STATUS_COLOR: Record<string, string> = {
@@ -165,7 +165,7 @@ const STATUS_COLOR: Record<string, string> = {
   'RCA Required': 'bg-orange-100 text-orange-800',
   'Resolved': 'bg-purple-100 text-purple-700',
   'Closed': 'bg-green-100 text-green-700',
-  'Cancelled': 'bg-gray-100 text-gray-500',
+  'Cancelled': 'bg-slate-100 text-slate-500',
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -187,10 +187,10 @@ onMounted(load)
     <div class="flex items-start justify-between flex-wrap gap-3">
       <div>
         <button class="text-sm text-slate-500 hover:text-slate-700 mb-1" @click="router.push('/incidents/list')">← Danh sách Incident</button>
-        <h1 class="text-xl font-semibold text-gray-800">{{ name }}</h1>
+        <h1 class="text-xl font-semibold text-slate-800">{{ name }}</h1>
         <div class="flex items-center gap-2 mt-1 flex-wrap">
           <span :class="['px-2 py-0.5 rounded text-xs font-medium', sevColor(form.severity)]">{{ form.severity }}</span>
-          <span :class="['px-2 py-0.5 rounded text-xs font-medium', STATUS_COLOR[form.status ?? ''] || 'bg-gray-100']">
+          <span :class="['px-2 py-0.5 rounded text-xs font-medium', STATUS_COLOR[form.status ?? ''] || 'bg-slate-100']">
             {{ STATUS_LABEL[form.status ?? ''] || form.status }}
           </span>
         </div>
@@ -218,7 +218,7 @@ v-if="canClose"
         </button>
         <button
 v-if="canCancel"
-          class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg text-sm font-medium"
+          class="bg-slate-500 hover:bg-slate-600 text-white px-4 py-2 rounded-lg text-sm font-medium"
           @click="showCancelModal = true">
           Hủy (False alarm)
         </button>
@@ -232,10 +232,10 @@ Xóa
     </div>
 
     <div v-if="err" class="bg-red-50 text-red-700 p-3 rounded-lg text-sm">{{ err }}</div>
-    <div v-if="loading" class="text-center text-gray-400 py-12">Đang tải...</div>
+    <div v-if="loading" class="text-center text-slate-400 py-12">Đang tải...</div>
 
     <!-- Detail card -->
-    <div v-else class="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
+    <div v-else class="bg-white rounded-xl border border-slate-200 divide-y divide-slate-100">
       <!-- Basic info -->
       <div class="p-6 grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
@@ -261,11 +261,11 @@ Xóa
       <div class="p-6 space-y-3">
         <div>
           <div class="text-xs text-slate-500 mb-1">Mô tả sự cố</div>
-          <div class="text-sm text-gray-700 whitespace-pre-line bg-gray-50 p-3 rounded-lg">{{ form.description || '—' }}</div>
+          <div class="text-sm text-slate-700 whitespace-pre-line bg-slate-50 p-3 rounded-lg">{{ form.description || '—' }}</div>
         </div>
         <div v-if="form.immediate_action">
           <div class="text-xs text-slate-500 mb-1">Biện pháp tức thời</div>
-          <div class="text-sm text-gray-700 whitespace-pre-line">{{ form.immediate_action }}</div>
+          <div class="text-sm text-slate-700 whitespace-pre-line">{{ form.immediate_action }}</div>
         </div>
       </div>
 
@@ -275,7 +275,7 @@ Xóa
           <strong>Ảnh hưởng bệnh nhân:</strong> {{ form.patient_impact_description || 'Có ảnh hưởng (chưa mô tả)' }}
         </div>
         <div v-if="form.reported_to_byt" class="text-sm text-slate-600">
-          ✓ Đã báo cáo Bộ Y tế ({{ form.byt_report_date || 'chưa ghi ngày' }})
+          Đã báo cáo Bộ Y tế ({{ form.byt_report_date || 'chưa ghi ngày' }})
         </div>
       </div>
 
@@ -283,11 +283,11 @@ Xóa
       <div v-if="form.resolution_notes || form.root_cause_summary" class="p-6 space-y-3">
         <div v-if="form.root_cause_summary">
           <div class="text-xs text-slate-500 mb-1">Nguyên nhân gốc rễ</div>
-          <div class="text-sm text-gray-700 whitespace-pre-line bg-gray-50 p-3 rounded-lg">{{ form.root_cause_summary }}</div>
+          <div class="text-sm text-slate-700 whitespace-pre-line bg-slate-50 p-3 rounded-lg">{{ form.root_cause_summary }}</div>
         </div>
         <div v-if="form.resolution_notes">
           <div class="text-xs text-slate-500 mb-1">Ghi chú giải quyết</div>
-          <div class="text-sm text-gray-700 whitespace-pre-line bg-gray-50 p-3 rounded-lg">{{ form.resolution_notes }}</div>
+          <div class="text-sm text-slate-700 whitespace-pre-line bg-slate-50 p-3 rounded-lg">{{ form.resolution_notes }}</div>
         </div>
         <div v-if="form.closed_date" class="text-xs text-slate-500">
           Ngày đóng: {{ new Date(form.closed_date).toLocaleDateString('vi-VN') }}
@@ -297,7 +297,7 @@ Xóa
       <!-- RCA section -->
       <div v-if="form.rca_required === 1 || form.rca_record" class="p-6 space-y-3">
         <div class="flex items-center justify-between">
-          <div class="text-sm font-semibold text-gray-700">Root Cause Analysis (RCA)</div>
+          <div class="text-sm font-semibold text-slate-700">Root Cause Analysis (RCA)</div>
           <button
 v-if="needsRca" :disabled="rcaCreating"
             class="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white px-3 py-1.5 rounded-lg text-xs font-medium"
@@ -312,22 +312,22 @@ v-if="needsRca" :disabled="rcaCreating"
               <span class="ml-2 text-xs px-2 py-0.5 rounded bg-white border">{{ form.rca.status }}</span>
             </div>
           </div>
-          <div v-if="form.rca.root_cause" class="text-xs text-gray-700 mt-2 whitespace-pre-line">
+          <div v-if="form.rca.root_cause" class="text-xs text-slate-700 mt-2 whitespace-pre-line">
             <span class="text-slate-500">Root cause:</span> {{ form.rca.root_cause }}
           </div>
         </div>
         <div v-else-if="needsRca" class="text-xs text-amber-700 bg-amber-50 p-3 rounded">
-          ⚠ Incident severity {{ form.severity }} yêu cầu RCA trước khi Resolved.
+          Sự cố mức {{ form.severity }} yêu cầu RCA trước khi đóng giải quyết.
         </div>
       </div>
 
       <div v-if="form.chronic_failure_flag === 1" class="p-6 bg-red-50 border-t border-red-200">
-        <div class="text-sm text-red-700"><strong>⚠ Chronic Failure:</strong> thiết bị này đã có ≥3 sự cố cùng mã lỗi trong 90 ngày.</div>
+        <div class="text-sm text-red-700"><strong>Sự cố lặp lại:</strong> thiết bị này đã có ≥3 sự cố cùng mã lỗi trong 90 ngày.</div>
       </div>
 
       <div v-if="form.clinical_impact" class="p-6">
         <div class="text-xs text-slate-500 mb-1">Tác động lâm sàng</div>
-        <div class="text-sm text-gray-700 whitespace-pre-line bg-red-50 p-3 rounded-lg">{{ form.clinical_impact }}</div>
+        <div class="text-sm text-slate-700 whitespace-pre-line bg-red-50 p-3 rounded-lg">{{ form.clinical_impact }}</div>
       </div>
 
       <!-- Links -->
@@ -350,18 +350,18 @@ v-if="needsRca" :disabled="rcaCreating"
     <!-- Acknowledge modal -->
     <div v-if="showAckModal" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
       <div class="bg-white rounded-xl p-6 w-full max-w-md space-y-4 shadow-xl">
-        <h2 class="font-semibold text-gray-800">Bắt đầu điều tra</h2>
+        <h2 class="font-semibold text-slate-800">Bắt đầu điều tra</h2>
         <div>
-          <label for="ack-notes" class="block text-sm font-medium text-gray-700 mb-1">Ghi chú</label>
-          <textarea id="ack-notes" v-model="ackNotes" rows="3" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400" placeholder="Mô tả bước tiếp theo, tình hình hiện tại..."></textarea>
+          <label for="ack-notes" class="block text-sm font-medium text-slate-700 mb-1">Ghi chú</label>
+          <textarea id="ack-notes" v-model="ackNotes" rows="3" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400" placeholder="Mô tả bước tiếp theo, tình hình hiện tại..."></textarea>
         </div>
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Giao cho (User)</label>
+          <label class="block text-sm font-medium text-slate-700 mb-1">Giao cho (User)</label>
           <SmartSelect v-model="ackAssignedTo" doctype="User" placeholder="Tìm user theo tên / email..." />
-          <p class="text-[11px] text-gray-400 mt-1">Tùy chọn — nếu chọn, hệ thống sẽ gửi email thông báo cho user này.</p>
+          <p class="text-[11px] text-slate-400 mt-1">Tùy chọn — nếu chọn, hệ thống sẽ gửi email thông báo cho user này.</p>
         </div>
         <div class="flex justify-end gap-2">
-          <button class="px-4 py-2 text-sm border border-gray-300 rounded-lg" @click="showAckModal = false">Hủy</button>
+          <button class="px-4 py-2 text-sm border border-slate-300 rounded-lg" @click="showAckModal = false">Hủy</button>
           <button :disabled="actionLoading" class="px-4 py-2 text-sm bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 disabled:opacity-50" @click="doAcknowledge">
             {{ actionLoading ? 'Đang xử lý...' : 'Xác nhận điều tra' }}
           </button>
@@ -372,20 +372,20 @@ v-if="needsRca" :disabled="rcaCreating"
     <!-- Resolve modal -->
     <div v-if="showResolveModal" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
       <div class="bg-white rounded-xl p-6 w-full max-w-md space-y-4 shadow-xl">
-        <h2 class="font-semibold text-gray-800">Đánh dấu đã giải quyết</h2>
+        <h2 class="font-semibold text-slate-800">Đánh dấu đã giải quyết</h2>
         <div>
-          <label for="resolve-notes" class="block text-sm font-medium text-gray-700 mb-1">Ghi chú giải quyết <span class="text-red-500">*</span></label>
-          <textarea id="resolve-notes" v-model="resolveNotes" rows="3" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400" placeholder="Đã làm gì để giải quyết sự cố..."></textarea>
+          <label for="resolve-notes" class="block text-sm font-medium text-slate-700 mb-1">Ghi chú giải quyết <span class="text-red-500">*</span></label>
+          <textarea id="resolve-notes" v-model="resolveNotes" rows="3" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400" placeholder="Đã làm gì để giải quyết sự cố..."></textarea>
         </div>
         <div>
-          <label for="root-cause" class="block text-sm font-medium text-gray-700 mb-1">Nguyên nhân gốc rễ</label>
-          <textarea id="root-cause" v-model="rootCause" rows="2" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400" placeholder="5-Why / Fishbone..."></textarea>
+          <label for="root-cause" class="block text-sm font-medium text-slate-700 mb-1">Nguyên nhân gốc rễ</label>
+          <textarea id="root-cause" v-model="rootCause" rows="2" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400" placeholder="5-Why / Fishbone..."></textarea>
         </div>
-        <p v-if="form.severity === 'High' || form.severity === 'Critical'" class="text-xs text-orange-600 bg-orange-50 p-2 rounded">
-          ⚠ Severity {{ form.severity }} — CAPA sẽ tự động tạo sau khi resolve.
+        <p v-if="form.severity === 'High' || form.severity === 'Critical'" class="text-xs text-amber-700 bg-amber-50 p-2 rounded">
+          Mức độ {{ form.severity }} — CAPA sẽ tự động tạo sau khi đóng giải quyết.
         </p>
         <div class="flex justify-end gap-2">
-          <button class="px-4 py-2 text-sm border border-gray-300 rounded-lg" @click="showResolveModal = false">Hủy</button>
+          <button class="px-4 py-2 text-sm border border-slate-300 rounded-lg" @click="showResolveModal = false">Hủy</button>
           <button :disabled="actionLoading || !resolveNotes.trim()" class="px-4 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50" @click="doResolve">
             {{ actionLoading ? 'Đang xử lý...' : 'Xác nhận giải quyết' }}
           </button>
@@ -396,14 +396,14 @@ v-if="needsRca" :disabled="rcaCreating"
     <!-- Cancel modal -->
     <div v-if="showCancelModal" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
       <div class="bg-white rounded-xl p-6 w-full max-w-md space-y-4 shadow-xl">
-        <h2 class="font-semibold text-gray-800">Hủy Incident (False Alarm)</h2>
+        <h2 class="font-semibold text-slate-800">Hủy Incident (False Alarm)</h2>
         <div>
-          <label for="cancel-reason" class="block text-sm font-medium text-gray-700 mb-1">Lý do hủy <span class="text-red-500">*</span></label>
-          <textarea id="cancel-reason" v-model="cancelReason" rows="3" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400" placeholder="Lý do (vd: báo cáo nhầm, không phải sự cố...)"></textarea>
+          <label for="cancel-reason" class="block text-sm font-medium text-slate-700 mb-1">Lý do hủy <span class="text-red-500">*</span></label>
+          <textarea id="cancel-reason" v-model="cancelReason" rows="3" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400" placeholder="Lý do (vd: báo cáo nhầm, không phải sự cố...)"></textarea>
         </div>
         <div class="flex justify-end gap-2">
-          <button class="px-4 py-2 text-sm border border-gray-300 rounded-lg" @click="showCancelModal = false">Quay lại</button>
-          <button :disabled="actionLoading || !cancelReason.trim()" class="px-4 py-2 text-sm bg-gray-600 text-white rounded-lg hover:bg-gray-700 disabled:opacity-50" @click="doCancel">
+          <button class="px-4 py-2 text-sm border border-slate-300 rounded-lg" @click="showCancelModal = false">Quay lại</button>
+          <button :disabled="actionLoading || !cancelReason.trim()" class="px-4 py-2 text-sm bg-slate-600 text-white rounded-lg hover:bg-slate-700 disabled:opacity-50" @click="doCancel">
             {{ actionLoading ? 'Đang hủy...' : 'Xác nhận hủy' }}
           </button>
         </div>
@@ -413,13 +413,13 @@ v-if="needsRca" :disabled="rcaCreating"
     <!-- Close modal -->
     <div v-if="showCloseModal" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
       <div class="bg-white rounded-xl p-6 w-full max-w-md space-y-4 shadow-xl">
-        <h2 class="font-semibold text-gray-800">Đóng Incident Report</h2>
+        <h2 class="font-semibold text-slate-800">Đóng Incident Report</h2>
         <div>
-          <label for="verify-notes" class="block text-sm font-medium text-gray-700 mb-1">Ghi chú xác minh (tùy chọn)</label>
-          <textarea id="verify-notes" v-model="verifyNotes" rows="3" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" placeholder="Đã xác minh kết quả xử lý, không tái phát..."></textarea>
+          <label for="verify-notes" class="block text-sm font-medium text-slate-700 mb-1">Ghi chú xác minh (tùy chọn)</label>
+          <textarea id="verify-notes" v-model="verifyNotes" rows="3" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" placeholder="Đã xác minh kết quả xử lý, không tái phát..."></textarea>
         </div>
         <div class="flex justify-end gap-2">
-          <button class="px-4 py-2 text-sm border border-gray-300 rounded-lg" @click="showCloseModal = false">Hủy</button>
+          <button class="px-4 py-2 text-sm border border-slate-300 rounded-lg" @click="showCloseModal = false">Hủy</button>
           <button :disabled="actionLoading" class="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50" @click="doClose">
             {{ actionLoading ? 'Đang đóng...' : 'Đóng Incident' }}
           </button>

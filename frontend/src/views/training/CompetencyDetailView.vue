@@ -1,15 +1,15 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
 import { useImm06Store } from '@/stores/imm06'
 import { useAuthStore } from '@/stores/auth'
 import { useApi } from '@/composables/useApi'
 import { ROLES_TRAINING_MANAGE, ROLES_TRAINING_SIGNOFF } from '@/constants/roles'
 import { getExpiringCompetencies, signoffCompetency, revokeCompetency } from '@/api/imm06'
 import type { UserCompetency } from '@/api/imm06'
+import PageHeader from '@/components/common/PageHeader.vue'
+import StatusBadge from '@/components/common/StatusBadge.vue'
 
 const props = defineProps<{ name: string }>()
-const router = useRouter()
 const store = useImm06Store()
 const authStore = useAuthStore()
 const api = useApi()
@@ -27,32 +27,6 @@ const canSignoff = computed(
 const canRevoke = computed(
   () => competency.value?.workflow_state === 'Active' && authStore.hasAnyRole(ROLES_TRAINING_MANAGE),
 )
-
-function stateClass(state: string): string {
-  const map: Record<string, string> = {
-    'Active':              'bg-emerald-100 text-emerald-700',
-    'Pending Assessment':  'bg-blue-100 text-blue-700',
-    'Pending Signoff':     'bg-yellow-100 text-yellow-700',
-    'Expiring':            'bg-amber-100 text-amber-700',
-    'Revoked':             'bg-red-100 text-red-700',
-    'Expired':             'bg-neutral-100 text-neutral-500',
-    'Suspended':           'bg-orange-100 text-orange-700',
-  }
-  return map[state] ?? 'bg-neutral-100 text-neutral-600'
-}
-
-function stateLabel(s: string): string {
-  const map: Record<string, string> = {
-    'Active':              'Hiệu lực',
-    'Pending Assessment':  'Chờ đánh giá',
-    'Pending Signoff':     'Chờ phê duyệt',
-    'Expiring':            'Sắp hết hạn',
-    'Revoked':             'Đã thu hồi',
-    'Expired':             'Hết hạn',
-    'Suspended':           'Tạm ngưng',
-  }
-  return map[s] ?? s
-}
 
 function levelLabel(v: string): string {
   const map: Record<string, string> = {
@@ -121,23 +95,19 @@ onMounted(load)
 
 <template>
   <div class="page-container animate-fade-in space-y-5">
-    <!-- Header -->
-    <div class="flex items-center justify-between flex-wrap gap-3">
-      <div class="flex items-center gap-3">
-        <button class="btn-ghost text-sm" @click="router.push('/imm06/competencies')">← Quay lại</button>
-        <div>
-          <p class="text-xs text-slate-400">Năng lực nhân viên</p>
-          <h1 class="text-xl font-bold text-slate-900">{{ props.name }}</h1>
-        </div>
-      </div>
-      <div class="flex items-center gap-2 flex-wrap">
-        <span
-          v-if="competency"
-          class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium"
-          :class="stateClass(competency.workflow_state)"
-        >
-          {{ stateLabel(competency.workflow_state) }}
-        </span>
+    <PageHeader
+      :title="competency?.user_full_name ?? props.name"
+      :subtitle="`Năng lực · ${props.name}`"
+      :back-to="'/imm06/competencies'"
+      back-label="← Danh sách năng lực"
+      :breadcrumb="[
+        { label: 'IMM-06 · Đào tạo & Năng lực', to: '/imm06/competencies' },
+        { label: 'Năng lực', to: '/imm06/competencies' },
+        { label: props.name },
+      ]"
+    >
+      <template #actions>
+        <StatusBadge v-if="competency" :state="competency.workflow_state" size="md" />
 
         <button
           v-if="canSignoff"
@@ -150,15 +120,15 @@ onMounted(load)
 
         <button
           v-if="canRevoke"
-          class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm transition-colors"
+          class="btn-ghost text-sm text-red-600 hover:bg-red-50"
           @click="showRevokeModal = true"
         >
           Thu hồi
         </button>
-      </div>
-    </div>
+      </template>
+    </PageHeader>
 
-    <div v-if="loading" class="card p-8 text-center text-slate-400">Đang tải...</div>
+    <div v-if="loading" class="card p-8 text-center text-slate-400">Đang tải…</div>
 
     <template v-else-if="competency">
       <!-- Main info -->

@@ -6,13 +6,15 @@ import { useImm01Store } from '@/stores/imm01'
 import { useRefDataStore } from '@/stores/imm00'
 import type { NeedsRequestFilters, RequestType, NeedsRequestState, PriorityClass } from '@/types/imm01'
 import {
-  stateLabel, stateSlug, requestTypeLabel, priorityBadge, formatVnd,
+  stateLabel, requestTypeLabel, priorityBadge, formatVnd,
 } from '@/utils/wave2Labels'
 import PageHeader from '@/components/common/PageHeader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar, { type FilterChip } from '@/components/common/ListFilterBar.vue'
 import BasePagination from '@/components/common/BasePagination.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
+import KpiCard from '@/components/common/KpiCard.vue'
+import StatusBadge from '@/components/common/StatusBadge.vue'
 
 const router = useRouter()
 const store  = useImm01Store()
@@ -120,8 +122,8 @@ onMounted(() => {
     </PageHeader>
 
     <ListFilterBar
-      :show="showFilters"
       v-model:search="filters.search"
+      :show="showFilters"
       :chips="activeChips"
       search-placeholder="Tìm theo mã, model, khoa..."
       @apply="applyFilters"
@@ -148,24 +150,28 @@ onMounted(() => {
       </template>
     </ListFilterBar>
 
-    <!-- KPI grid -->
-    <div v-if="store.kpis" class="kpi-grid mb-4">
-      <div class="kpi-card">
-        <span class="kpi-value">{{ store.kpis.backlog_over_30d }}</span>
-        <span class="kpi-label">Phiếu tồn quá 30 ngày</span>
-      </div>
-      <div class="kpi-card success">
-        <span class="kpi-value">{{ store.kpis.g01_pass_rate.toFixed(1) }}%</span>
-        <span class="kpi-label">Tỷ lệ qua kiểm tra ban đầu</span>
-      </div>
-      <div class="kpi-card info">
-        <span class="kpi-value">{{ store.kpis.envelope_utilization.toFixed(1) }}%</span>
-        <span class="kpi-label">Tỷ lệ sử dụng ngân sách</span>
-      </div>
-      <div class="kpi-card">
-        <span class="kpi-value">{{ totalApproved }}</span>
-        <span class="kpi-label">Đã được duyệt</span>
-      </div>
+    <!-- KPI strip -->
+    <div v-if="store.kpis" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+      <KpiCard
+        :label="'Phiếu tồn quá 30 ngày'"
+        :value="store.kpis.backlog_over_30d"
+        :color="store.kpis.backlog_over_30d > 0 ? 'warning' : 'neutral'"
+      />
+      <KpiCard
+        :label="'Tỷ lệ qua kiểm tra ban đầu'"
+        :value="`${store.kpis.g01_pass_rate.toFixed(1)}%`"
+        color="success"
+      />
+      <KpiCard
+        :label="'Tỷ lệ sử dụng ngân sách'"
+        :value="`${store.kpis.envelope_utilization.toFixed(1)}%`"
+        color="primary"
+      />
+      <KpiCard
+        :label="'Đã được duyệt'"
+        :value="totalApproved"
+        color="success"
+      />
     </div>
 
     <div v-if="store.error" class="alert-error mb-4">
@@ -196,54 +202,70 @@ onMounted(() => {
       <div v-if="store.loading" class="p-6">
         <SkeletonLoader variant="table" :rows="6" />
       </div>
-      <div v-else-if="store.needsRequests.length" class="overflow-x-auto">
-        <table class="data-table">
+      <div v-else-if="store.needsRequests.length" class="overflow-x-auto animate-fade-in">
+        <table class="w-full">
           <thead>
             <tr>
-              <th>Mã phiếu</th>
-              <th>Loại đề xuất</th>
-              <th>Khoa đề xuất</th>
-              <th>Model thiết bị</th>
-              <th class="num">Số lượng</th>
-              <th>Mức ưu tiên</th>
-              <th class="num">Tổng chi phí 5 năm</th>
-              <th>Trạng thái</th>
+              <th class="table-header">Mã phiếu</th>
+              <th class="table-header">Loại đề xuất</th>
+              <th class="table-header">Khoa đề xuất</th>
+              <th class="table-header">Model thiết bị</th>
+              <th class="table-header text-right">Số lượng</th>
+              <th class="table-header">Mức ưu tiên</th>
+              <th class="table-header text-right">Tổng chi phí 5 năm</th>
+              <th class="table-header">Trạng thái</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="nr in store.needsRequests" :key="nr.name" class="clickable" @click="goDetail(nr.name)">
-              <td>{{ nr.name }}</td>
-              <td>
-                <button class="link-cell" :title="`Lọc: ${requestTypeLabel(nr.request_type)}`"
+            <tr
+              v-for="(nr, idx) in store.needsRequests"
+              :key="nr.name"
+              class="table-row animate-fade-in"
+              :class="[`stagger-${Math.min(idx + 1, 8)}`]"
+              @click="goDetail(nr.name)"
+            >
+              <td class="table-cell">
+                <span class="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded text-slate-700">{{ nr.name }}</span>
+              </td>
+              <td class="table-cell">
+                <button
+class="link-cell" :title="`Lọc: ${requestTypeLabel(nr.request_type)}`"
                         @click.stop="quickFilter('request_type', nr.request_type)">
                   {{ requestTypeLabel(nr.request_type) }}
                 </button>
               </td>
-              <td>
-                <button v-if="nr.requesting_department" class="link-cell"
+              <td class="table-cell">
+                <button
+v-if="nr.requesting_department" class="link-cell"
                         :title="`Lọc: ${nr.requesting_department}`"
                         @click.stop="quickFilter('requesting_department', nr.requesting_department)">
                   {{ nr.department_name || nr.requesting_department }}
                 </button>
                 <span v-else class="text-slate-400">—</span>
               </td>
-              <td>{{ nr.device_model_name || nr.device_model_ref }}</td>
-              <td class="num">{{ nr.quantity }}</td>
-              <td>
-                <button v-if="nr.priority_class"
-                        :class="['badge', 'priority-' + nr.priority_class, 'badge-btn']"
-                        :title="`Lọc: ${nr.priority_class}`"
-                        @click.stop="quickFilter('priority_class', nr.priority_class)">
-                  {{ priorityBadge(nr.priority_class) }}
-                </button>
+              <td class="table-cell">{{ nr.device_model_name || nr.device_model_ref }}</td>
+              <td class="table-cell text-right">{{ nr.quantity }}</td>
+              <td class="table-cell">
+                <button
+                  v-if="nr.priority_class"
+                  type="button"
+                  :class="['priority-pill', `priority-${nr.priority_class}`]"
+                  :title="`Lọc: ${nr.priority_class}`"
+                  @click.stop="quickFilter('priority_class', nr.priority_class)"
+                >
+{{ priorityBadge(nr.priority_class) }}
+</button>
                 <span v-else class="text-slate-400">—</span>
               </td>
-              <td class="num">{{ formatVnd(nr.tco_5y) }}</td>
-              <td>
-                <button :class="['badge', 'state-' + stateSlug(nr.workflow_state), 'badge-btn']"
-                        :title="`Lọc trạng thái: ${stateLabel(nr.workflow_state)}`"
-                        @click.stop="quickFilter('workflow_state', nr.workflow_state)">
-                  {{ stateLabel(nr.workflow_state) }}
+              <td class="table-cell text-right">{{ formatVnd(nr.tco_5y) }}</td>
+              <td class="table-cell">
+                <button
+                  type="button"
+                  class="bg-transparent border-0 p-0 cursor-pointer"
+                  :title="`Lọc trạng thái: ${stateLabel(nr.workflow_state)}`"
+                  @click.stop="quickFilter('workflow_state', nr.workflow_state)"
+                >
+                  <StatusBadge :state="nr.workflow_state" />
                 </button>
               </td>
             </tr>
@@ -252,7 +274,8 @@ onMounted(() => {
       </div>
       <div v-else class="flex flex-col items-center justify-center py-16 text-slate-400">
         <p class="text-sm">Không có đề xuất nào phù hợp</p>
-        <button v-if="activeChips.length > 0" class="mt-3 text-xs text-blue-500 hover:text-blue-700 underline"
+        <button
+v-if="activeChips.length > 0" class="mt-3 text-xs text-brand-600 hover:text-brand-700 underline"
                 @click="resetFilters">
           Xóa bộ lọc để xem tất cả
         </button>
@@ -264,37 +287,29 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; }
-.kpi-card { background: white; border: 1px solid #e5e7eb; border-radius: 8px; padding: 1rem; display: flex; flex-direction: column; }
-.kpi-card .kpi-value { font-size: 1.75rem; font-weight: 700; color: #111827; }
-.kpi-card .kpi-label { color: #6b7280; font-size: 0.85rem; margin-top: 0.25rem; }
-.kpi-card.success { border-left: 4px solid #10b981; }
-.kpi-card.info    { border-left: 4px solid #3b82f6; }
-
-.alert-error { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; background: #fef2f2; border: 1px solid #fca5a5; padding: 0.75rem 1rem; border-radius: 6px; color: #b91c1c; }
 .alert-close { background: none; border: none; cursor: pointer; font-size: 1.25rem; }
-
-.data-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
-.data-table th, .data-table td { padding: 0.75rem 1rem; text-align: left; border-bottom: 1px solid #f1f5f9; }
-.data-table th { background: #f9fafb; font-weight: 600; font-size: 0.85rem; color: #475569; }
-.data-table .num { text-align: right; }
-.data-table tr.clickable { cursor: pointer; transition: background 0.1s; }
-.data-table tr.clickable:hover { background: #f9fafb; }
-
-.link-cell { background: none; border: none; padding: 0; color: #334155; cursor: pointer; text-align: left; }
+.link-cell { background: none; border: none; padding: 0; color: #334155; cursor: pointer; text-align: left; font: inherit; }
 .link-cell:hover { color: #2563eb; text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 2px; }
 
-.badge { display: inline-block; padding: 0.15rem 0.6rem; border-radius: 999px; font-size: 0.75rem; font-weight: 600; }
-.badge-btn { border: none; cursor: pointer; }
-.badge-btn:hover { box-shadow: 0 0 0 2px rgba(0,0,0,0.06); }
-.badge.priority-P1 { background: #fee2e2; color: #b91c1c; }
-.badge.priority-P2 { background: #fed7aa; color: #c2410c; }
-.badge.priority-P3 { background: #fef9c3; color: #a16207; }
-.badge.priority-P4 { background: #e5e7eb; color: #4b5563; }
-.badge.state-draft { background: #e5e7eb; color: #374151; }
-.badge.state-submitted, .badge.state-reviewing { background: #fef3c7; color: #92400e; }
-.badge.state-prioritized, .badge.state-budgeted { background: #dbeafe; color: #1e40af; }
-.badge.state-pending-approval { background: #fce7f3; color: #9d174d; }
-.badge.state-approved { background: #d1fae5; color: #065f46; }
-.badge.state-rejected { background: #fee2e2; color: #b91c1c; }
+/* Priority pills (4 levels) — DS semantic palette */
+.priority-pill {
+  display: inline-flex; align-items: center;
+  padding: 2px 8px; border-radius: 9999px;
+  font-size: 11px; font-weight: 600;
+  border: 0; cursor: pointer;
+  transition: box-shadow 120ms;
+}
+.priority-pill:hover { box-shadow: 0 0 0 2px rgba(0,0,0,0.06); }
+.priority-P1 { background: #fef2f2; color: #b91c1c; }
+.priority-P2 { background: #fffbeb; color: #a16207; }
+.priority-P3 { background: #eff6ff; color: #1d4ed8; }
+.priority-P4 { background: #f1f5f9; color: #475569; }
+</style>
+
+<style>
+.alert-error {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
+  background: #fef2f2; border: 1px solid #fecaca; padding: 0.75rem 1rem;
+  border-radius: 8px; color: #b91c1c; font-size: 0.875rem;
+}
 </style>

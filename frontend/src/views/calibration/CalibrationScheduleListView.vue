@@ -245,7 +245,7 @@ onMounted(load)
               {{ formatDate(s.next_due_date) }}
             </td>
             <td class="px-4 py-3">
-              <span class="text-xs px-2 py-0.5 rounded-full font-medium" :class="s.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'">
+              <span class="text-xs px-2 py-0.5 rounded-full font-medium" :class="s.is_active ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'">
                 {{ s.is_active ? 'Hoạt động' : 'Tạm dừng' }}
               </span>
             </td>

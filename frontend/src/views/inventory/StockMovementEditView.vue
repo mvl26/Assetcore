@@ -233,11 +233,13 @@ onMounted(load)
 <template>
   <div class="page-container animate-fade-in">
     <PageHeader
-      :title="`Sửa phiếu kho ${props.name}`"
-      :breadcrumb="[{ label: 'Kho', to: '/stock-movements' }, { label: props.name, to: `/stock-movements/${props.name}` }, { label: 'Chỉnh sửa' }]"
+      :back-to="`/stock-movements/${props.name}`"
+      :title="`Chỉnh sửa phiếu kho`"
+      :subtitle="`IMM-15 · Tồn kho phụ tùng — ${props.name}`"
+      :breadcrumb="[{ label: 'IMM-15 · Tồn kho phụ tùng', to: '/inventory/dashboard' }, { label: 'Phiếu kho', to: '/stock-movements' }, { label: props.name, to: `/stock-movements/${props.name}` }, { label: 'Chỉnh sửa' }]"
     />
 
-    <div v-if="loading" class="text-center py-20 text-slate-400">Đang tải...</div>
+    <div v-if="loading" class="text-center py-20 text-slate-400">Đang tải…</div>
 
     <template v-else>
       <div v-if="error" class="mb-4 alert-error">{{ error }}</div>
@@ -445,7 +447,7 @@ v-model.number="row.unit_cost" type="number" min="0" step="1000"
 class="p-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded transition-colors"
                       :disabled="items.length === 1"
                       @click="removeRow(idx)">
-✕
+<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
 </button>
             </div>
           </div>
@@ -468,7 +470,7 @@ id="sm-edit-notes" v-model="notes" rows="3" class="form-input w-full"
       <div class="flex gap-3 justify-end">
         <button class="btn-ghost" @click="router.push(`/stock-movements/${props.name}`)">Huỷ</button>
         <button class="btn-primary" :disabled="saving" @click="save">
-          {{ saving ? 'Đang lưu...' : 'Lưu thay đổi' }}
+          {{ saving ? 'Đang lưu…' : 'Lưu thay đổi' }}
         </button>
       </div>
     </template>

@@ -4,10 +4,12 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useImm03Store } from '@/stores/imm03'
 import type { DecisionState } from '@/types/imm03'
-import { stateLabel, stateSlug, formatVnd } from '@/utils/wave2Labels'
+import { stateLabel, formatVnd } from '@/utils/wave2Labels'
 import PageHeader from '@/components/common/PageHeader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar, { type FilterChip } from '@/components/common/ListFilterBar.vue'
+import KpiCard from '@/components/common/KpiCard.vue'
+import StatusBadge from '@/components/common/StatusBadge.vue'
 
 const router = useRouter()
 const store  = useImm03Store()
@@ -113,8 +115,8 @@ onMounted(() => { store.fetchDecisions(); store.fetchKpis() })
     </PageHeader>
 
     <ListFilterBar
-      :show="showFilters"
       v-model:search="filters.search"
+      :show="showFilters"
       :chips="activeChips"
       search-placeholder="Tìm theo mã quyết định, hồ sơ..."
       @apply="applyFilters"
@@ -133,19 +135,18 @@ onMounted(() => { store.fetchDecisions(); store.fetchKpis() })
       </template>
     </ListFilterBar>
 
-    <div v-if="store.kpis" class="kpi-grid mb-4">
-      <div class="kpi-card">
-        <span class="kpi-value">{{ store.kpis.decision_states['Awarded'] || 0 }}</span>
-        <span class="kpi-label">Đã trao thầu</span>
-      </div>
-      <div class="kpi-card warn">
-        <span class="kpi-value">{{ store.kpis.decision_states['Pending Approval'] || 0 }}</span>
-        <span class="kpi-label">Chờ phê duyệt</span>
-      </div>
-      <div class="kpi-card">
-        <span class="kpi-value">{{ store.kpis.decision_states['PO Issued'] || 0 }}</span>
-        <span class="kpi-label">Đã phát hành đơn hàng</span>
-      </div>
+    <div v-if="store.kpis" class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+      <KpiCard label="Đã trao thầu" :value="store.kpis.decision_states['Awarded'] || 0" color="success" />
+      <KpiCard
+        label="Chờ phê duyệt"
+        :value="store.kpis.decision_states['Pending Approval'] || 0"
+        :color="(store.kpis.decision_states['Pending Approval'] || 0) > 0 ? 'warning' : 'neutral'"
+      />
+      <KpiCard
+        label="Đã phát hành đơn hàng"
+        :value="store.kpis.decision_states['PO Issued'] || 0"
+        color="primary"
+      />
     </div>
 
     <div v-if="store.error" class="alert-error mb-4">
@@ -177,15 +178,21 @@ onMounted(() => { store.fetchDecisions(); store.fetchKpis() })
             </tr>
           </thead>
           <tbody>
-            <tr v-for="d in filteredDecisions" :key="d.name" class="clickable" @click="goDetail(d.name)">
-              <td>{{ d.name }}</td>
+            <tr
+              v-for="(d, idx) in filteredDecisions" :key="d.name"
+              class="clickable animate-fade-in"
+              :class="[`stagger-${Math.min(idx + 1, 8)}`]"
+              @click="goDetail(d.name)"
+            >
+              <td><span class="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded text-slate-700">{{ d.name }}</span></td>
               <td>
                 <button class="link-cell" :title="`Lọc: ${d.spec_ref}`" @click.stop="quickFilter('spec_ref', d.spec_ref)">
                   {{ d.spec_ref }}
                 </button>
               </td>
               <td>
-                <button v-if="d.winner_supplier" class="link-cell"
+                <button
+v-if="d.winner_supplier" class="link-cell"
                         :title="`Lọc: ${d.winner_supplier}`"
                         @click.stop="quickFilter('winner_supplier', d.winner_supplier)">
                   {{ d.vendor_name || d.winner_supplier }}
@@ -203,10 +210,11 @@ onMounted(() => { store.fetchDecisions(); store.fetchKpis() })
                 <span v-else class="text-slate-400">—</span>
               </td>
               <td>
-                <button :class="['badge', 'state-' + stateSlug(d.workflow_state), 'badge-btn']"
+                <button
+type="button" class="pill-btn"
                         :title="`Lọc trạng thái: ${stateLabel(d.workflow_state)}`"
                         @click.stop="quickFilter('workflow_state', d.workflow_state)">
-                  {{ stateLabel(d.workflow_state) }}
+                  <StatusBadge :state="d.workflow_state" />
                 </button>
               </td>
             </tr>
@@ -223,29 +231,4 @@ onMounted(() => { store.fetchDecisions(); store.fetchKpis() })
   </div>
 </template>
 
-<style scoped>
-.kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; }
-.kpi-card { background: white; border: 1px solid #e5e7eb; border-radius: 8px; padding: 1rem; display: flex; flex-direction: column; }
-.kpi-value { font-size: 1.75rem; font-weight: 700; }
-.kpi-label { color: #6b7280; font-size: 0.85rem; }
-.kpi-card.warn { border-left: 4px solid #f59e0b; }
-.alert-close { background: none; border: none; cursor: pointer; font-size: 1.25rem; float: right; }
-.data-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
-.data-table th, .data-table td { padding: 0.75rem 1rem; text-align: left; border-bottom: 1px solid #f1f5f9; }
-.data-table th { background: #f9fafb; font-weight: 600; font-size: 0.85rem; color: #475569; }
-.data-table .num { text-align: right; }
-.data-table tr.clickable { cursor: pointer; }
-.data-table tr.clickable:hover { background: #f9fafb; }
-.link-cell { background: none; border: none; padding: 0; color: #334155; cursor: pointer; }
-.link-cell:hover { color: #2563eb; text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 2px; }
-.over { color: #b91c1c; font-weight: 700; }
-.warn { color: #c2410c; font-weight: 600; }
-.ok { color: #065f46; }
-.badge { display: inline-block; padding: 0.15rem 0.6rem; border-radius: 999px; font-size: 0.75rem; font-weight: 600; }
-.badge-btn { border: none; cursor: pointer; }
-.badge-btn:hover { box-shadow: 0 0 0 2px rgba(0,0,0,0.06); }
-.badge.state-draft, .badge.state-method-selected { background: #e5e7eb; color: #374151; }
-.badge.state-negotiation, .badge.state-pending-approval, .badge.state-award-recommended { background: #fef3c7; color: #92400e; }
-.badge.state-awarded, .badge.state-contract-signed, .badge.state-po-issued { background: #d1fae5; color: #065f46; }
-.badge.state-cancelled { background: #fee2e2; color: #b91c1c; }
-</style>
+<!-- styles trong list-view.css -->

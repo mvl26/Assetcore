@@ -3,12 +3,13 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useImm01Store } from '@/stores/imm01'
 import type { ProcurementPlanState } from '@/types/imm01'
-import { stateLabel, stateSlug, formatVnd } from '@/utils/wave2Labels'
+import { stateLabel, formatVnd } from '@/utils/wave2Labels'
 import { createProcurementPlan } from '@/api/imm01'
 import { useRouter } from 'vue-router'
 import ListFilterBar, { type FilterChip } from '@/components/common/ListFilterBar.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
+import StatusBadge from '@/components/common/StatusBadge.vue'
 
 const store = useImm01Store()
 const router = useRouter()
@@ -111,8 +112,8 @@ onMounted(() => store.fetchPlans())
     </PageHeader>
 
     <ListFilterBar
-      :show="showFilters"
       v-model:search="filters.search"
+      :show="showFilters"
       :chips="activeChips"
       search-placeholder="Tìm theo mã kế hoạch..."
       @apply="applyFilters"
@@ -165,20 +166,22 @@ onMounted(() => store.fetchPlans())
             </tr>
           </thead>
           <tbody>
-            <tr v-for="p in store.plans" :key="p.name">
+            <tr v-for="(p, idx) in store.plans" :key="p.name" class="animate-fade-in" :class="[`stagger-${Math.min(idx + 1, 8)}`]">
               <td>
                 <router-link :to="`/procurement-plans/${p.name}`" class="link-cell">
-                  {{ p.name }}
+                  <span class="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded text-slate-700">{{ p.name }}</span>
                 </router-link>
               </td>
               <td>
-                <button class="link-cell" :title="`Lọc: ${planPeriodLabel(p.plan_period)}`"
+                <button
+class="link-cell" :title="`Lọc: ${planPeriodLabel(p.plan_period)}`"
                         @click="quickFilter('plan_period', p.plan_period)">
                   {{ planPeriodLabel(p.plan_period) }}
                 </button>
               </td>
               <td class="num">
-                <button class="link-cell" :title="`Lọc năm: ${p.plan_year}`"
+                <button
+class="link-cell" :title="`Lọc năm: ${p.plan_year}`"
                         @click="quickFilter('plan_year', p.plan_year)">
                   {{ p.plan_year }}
                 </button>
@@ -189,14 +192,17 @@ onMounted(() => store.fetchPlans())
                 <span :class="utilClass(p.utilization_pct)">{{ (p.utilization_pct || 0).toFixed(1) }}%</span>
               </td>
               <td>
-                <button :class="['badge', 'state-' + stateSlug(p.workflow_state), 'badge-btn']"
-                        :title="`Lọc trạng thái: ${stateLabel(p.workflow_state)}`"
-                        @click="quickFilter('workflow_state', p.workflow_state)">
-                  {{ stateLabel(p.workflow_state) }}
+                <button
+                  type="button"
+                  class="pill-btn"
+                  :title="`Lọc trạng thái: ${stateLabel(p.workflow_state)}`"
+                  @click="quickFilter('workflow_state', p.workflow_state)"
+                >
+                  <StatusBadge :state="p.workflow_state" />
                 </button>
               </td>
               <td>
-                <router-link :to="`/procurement-plans/${p.name}`" class="link-cell text-xs text-blue-600 hover:underline">Chi tiết →</router-link>
+                <router-link :to="`/procurement-plans/${p.name}`" class="text-xs text-brand-600 hover:underline">Chi tiết →</router-link>
               </td>
             </tr>
           </tbody>
@@ -242,20 +248,4 @@ onMounted(() => store.fetchPlans())
   </div>
 </template>
 
-<style scoped>
-.alert-close { background: none; border: none; cursor: pointer; font-size: 1.25rem; float: right; }
-.data-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
-.data-table th, .data-table td { padding: 0.75rem 1rem; text-align: left; border-bottom: 1px solid #f1f5f9; }
-.data-table th { background: #f9fafb; font-weight: 600; font-size: 0.85rem; color: #475569; }
-.data-table .num { text-align: right; }
-.link-cell { background: none; border: none; padding: 0; color: #334155; cursor: pointer; }
-.link-cell:hover { color: #2563eb; text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 2px; }
-.over { color: #b91c1c; font-weight: 600; }
-.warn { color: #c2410c; font-weight: 600; }
-.badge { display: inline-block; padding: 0.15rem 0.6rem; border-radius: 999px; font-size: 0.75rem; font-weight: 600; }
-.badge-btn { border: none; cursor: pointer; }
-.badge-btn:hover { box-shadow: 0 0 0 2px rgba(0,0,0,0.06); }
-.badge.state-draft { background: #e5e7eb; color: #374151; }
-.badge.state-approved, .badge.state-active { background: #d1fae5; color: #065f46; }
-.badge.state-closed { background: #dbeafe; color: #1e40af; }
-</style>
+<!-- list-view.css đã cung cấp .data-table, .link-cell, .alert-error, .pill-btn, thresholds. -->

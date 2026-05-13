@@ -37,9 +37,9 @@ onMounted(load)
 
 <template>
   <div class="page-container animate-fade-in">
-    <PageHeader title="Tổng quan kho" subtitle="Danh mục phụ tùng, tồn kho, và giao dịch kho toàn hệ thống">
+    <PageHeader title="Tồn kho phụ tùng" subtitle="IMM-15 · Tồn kho phụ tùng — Danh mục, tồn kho và giao dịch toàn hệ thống">
       <template #actions>
-        <button class="btn-secondary" @click="router.push('/stock-movements/new')">+ Phiếu mới</button>
+        <button class="btn-secondary" @click="router.push('/stock-movements/new')">Tạo phiếu kho</button>
         <button class="btn-primary" @click="router.push('/spare-parts')">Danh mục phụ tùng</button>
       </template>
     </PageHeader>
@@ -50,29 +50,29 @@ onMounted(load)
 
     <div v-else-if="overview">
       <!-- KPI Cards -->
-      <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <div class="kpi-card p-5 cursor-pointer" style="--kpi-color: #334155" @click="router.push('/spare-parts')">
-          <p class="text-xs text-slate-500 mb-1">Phụ tùng đang hoạt động</p>
-          <p class="text-3xl font-bold font-display tabular-nums text-slate-800">{{ overview.total_parts }}</p>
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <div class="kpi-card p-5 cursor-pointer" style="--kpi-color: #2563eb" @click="router.push('/spare-parts')">
+          <p class="t-eyebrow mb-2">Phụ tùng</p>
+          <p class="t-metric tabular-nums">{{ overview.total_parts }}</p>
           <p class="text-xs text-slate-400 mt-1">đang quản lý trong catalog</p>
         </div>
-        <div class="kpi-card p-5 cursor-pointer" style="--kpi-color: #334155" @click="router.push('/warehouses')">
-          <p class="text-xs text-slate-500 mb-1">IMM Storekeeper</p>
-          <p class="text-3xl font-bold font-display tabular-nums text-slate-800">{{ overview.total_warehouses }}</p>
+        <div class="kpi-card p-5 cursor-pointer" style="--kpi-color: #475569" @click="router.push('/warehouses')">
+          <p class="t-eyebrow mb-2">Kho</p>
+          <p class="t-metric tabular-nums">{{ overview.total_warehouses }}</p>
           <p class="text-xs text-slate-400 mt-1">đang hoạt động</p>
         </div>
         <div class="kpi-card p-5 cursor-pointer" style="--kpi-color: #059669" @click="router.push('/stock')">
-          <p class="text-xs text-slate-500 mb-1">Tổng giá trị tồn</p>
-          <p class="text-3xl font-bold font-display tabular-nums text-emerald-600">{{ vndShort(overview.total_value) }}</p>
+          <p class="t-eyebrow mb-2">Tổng giá trị tồn</p>
+          <p class="t-metric tabular-nums text-emerald-600">{{ vndShort(overview.total_value) }}</p>
           <p class="text-xs text-slate-400 mt-1">theo đơn giá catalog</p>
         </div>
         <div
           class="kpi-card p-5 cursor-pointer"
-          :style="`--kpi-color: ${overview.low_stock_count > 0 ? '#dc2626' : '#334155'}`"
+          :style="`--kpi-color: ${overview.low_stock_count > 0 ? '#dc2626' : '#94a3b8'}`"
           @click="router.push('/stock?low=1')"
         >
-          <p class="text-xs text-slate-500 mb-1">Cảnh báo tồn thấp</p>
-          <p class="text-3xl font-bold font-display tabular-nums" :class="overview.low_stock_count > 0 ? 'text-red-600' : 'text-slate-800'">
+          <p class="t-eyebrow mb-2">Cảnh báo tồn thấp</p>
+          <p class="t-metric tabular-nums" :class="overview.low_stock_count > 0 ? 'text-red-600' : 'text-slate-900'">
             {{ overview.low_stock_count }}
           </p>
           <p class="text-xs text-slate-400 mt-1">phụ tùng dưới mức min</p>
@@ -85,27 +85,27 @@ onMounted(load)
         <div class="card p-5">
           <div class="flex items-center justify-between mb-4">
             <h3 class="text-sm font-semibold text-slate-700">Phụ tùng tồn thấp</h3>
-            <button class="text-xs text-blue-600 hover:text-blue-800" @click="router.push('/stock?low=1')">
+            <button class="text-xs font-medium text-brand-600 hover:text-brand-700" @click="router.push('/stock?low=1')">
               Xem tất cả →
             </button>
           </div>
           <div
 v-if="overview.low_stock_items.length === 0"
                class="text-center py-8 text-sm text-slate-400">
-            Không có phụ tùng nào dưới mức min
+            Không có phụ tùng dưới mức min.
           </div>
           <div v-else class="space-y-2.5">
             <div
 v-for="item in overview.low_stock_items" :key="item.spare_part"
-                 class="flex items-center justify-between p-3 bg-red-50 rounded-lg border border-red-100 cursor-pointer hover:bg-red-100"
+                 class="flex items-center justify-between p-3 bg-red-50 rounded-lg border border-red-100 cursor-pointer hover:bg-red-100 transition-colors"
                  @click="router.push(`/spare-parts/${item.spare_part}`)">
-              <div>
-                <p class="text-sm font-medium text-slate-800">{{ item.part_name }}</p>
-                <p class="text-xs text-slate-500 font-mono">{{ item.spare_part }}</p>
+              <div class="min-w-0">
+                <p class="text-sm font-medium text-slate-800 truncate">{{ item.part_name }}</p>
+                <p class="font-mono text-xs text-brand-700 mt-0.5">{{ item.spare_part }}</p>
               </div>
-              <div class="text-right">
-                <p class="text-sm font-bold text-red-700">{{ item.total_qty }} / {{ item.min_stock_level }}</p>
-                <p class="text-[10px] text-red-500">thiếu {{ item.min_stock_level - item.total_qty }}</p>
+              <div class="text-right shrink-0">
+                <p class="text-sm font-bold text-red-600 tabular-nums">{{ item.total_qty }} / {{ item.min_stock_level }}</p>
+                <p class="text-[10px] text-red-500 mt-0.5">thiếu {{ item.min_stock_level - item.total_qty }}</p>
               </div>
             </div>
           </div>
@@ -115,23 +115,23 @@ v-for="item in overview.low_stock_items" :key="item.spare_part"
         <div class="card p-5">
           <div class="flex items-center justify-between mb-4">
             <h3 class="text-sm font-semibold text-slate-700">Giao dịch 30 ngày gần nhất</h3>
-            <button class="text-xs text-blue-600 hover:text-blue-800" @click="router.push('/stock-movements')">
+            <button class="text-xs font-medium text-brand-600 hover:text-brand-700" @click="router.push('/stock-movements')">
               Xem tất cả →
             </button>
           </div>
           <div class="grid grid-cols-2 gap-3">
             <div
 v-for="(cnt, type) in overview.movement_30d" :key="type"
-                 class="p-4 bg-slate-50 rounded-lg">
-              <p class="text-xs text-slate-500">{{ MOVEMENT_LABELS[type as string] || type }}</p>
-              <p class="text-2xl font-bold text-slate-900 mt-1">{{ cnt }}</p>
+                 class="p-4 bg-slate-50 rounded-lg border border-slate-100">
+              <p class="t-eyebrow">{{ MOVEMENT_LABELS[type as string] || type }}</p>
+              <p class="t-metric tabular-nums mt-1">{{ cnt }}</p>
               <p class="text-[10px] text-slate-400">phiếu</p>
             </div>
           </div>
           <div
 v-if="Object.keys(overview.movement_30d).length === 0"
                class="text-center py-8 text-sm text-slate-400">
-            Chưa có giao dịch nào trong 30 ngày
+            Chưa có giao dịch trong 30 ngày.
           </div>
         </div>
       </div>

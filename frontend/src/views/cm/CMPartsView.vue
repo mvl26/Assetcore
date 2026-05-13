@@ -116,7 +116,7 @@ async function handleStartRepair() {
     <!-- Header -->
     <div class="flex items-center gap-3 mb-6">
       <button
-        class="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+        class="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
         @click="router.push(`/cm/work-orders/${id}`)"
       >
         <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -142,7 +142,7 @@ async function handleStartRepair() {
         <label class="block text-sm font-semibold text-slate-700 mb-2">Tìm vật tư</label>
         <div class="relative">
           <div class="relative">
-            <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <circle cx="11" cy="11" r="8" /><path stroke-linecap="round" d="m21 21-4.35-4.35" />
             </svg>
             <input
@@ -155,7 +155,7 @@ async function handleStartRepair() {
               @focus="showDropdown = searchResults.length > 0"
             />
             <span v-if="searchLoading" class="absolute right-3 top-1/2 -translate-y-1/2">
-              <svg class="animate-spin w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24">
+              <svg class="animate-spin w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24">
                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
                 <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.4 0 0 5.4 0 12h4z" />
               </svg>
@@ -163,7 +163,7 @@ async function handleStartRepair() {
           </div>
           <!-- Dropdown results -->
           <Transition name="fade">
-            <div v-if="showDropdown" class="absolute z-20 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
+            <div v-if="showDropdown" class="absolute z-20 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg overflow-hidden">
               <button
                 v-for="item in searchResults"
                 :key="item.item_code"
@@ -223,7 +223,7 @@ async function handleStartRepair() {
                     v-model.number="part.qty"
                     type="number"
                     min="1"
-                    class="w-16 border border-gray-300 rounded px-2 py-1 text-sm text-center"
+                    class="w-16 border border-slate-300 rounded px-2 py-1 text-sm text-center"
                     @change="onQtyChange(part)"
                   />
                 </td>
@@ -241,18 +241,18 @@ async function handleStartRepair() {
                       :class="[
                         'flex-1 border rounded px-2 py-1 text-xs font-mono transition-colors',
                         stockEntryStatus(part) === 'valid'
-                          ? 'border-green-300 bg-green-50 text-green-800'
-                          : 'border-gray-300'
+                          ? 'border-emerald-300 bg-emerald-50 text-emerald-800'
+                          : 'border-slate-300'
                       ]"
                       placeholder="STE-2026-XXXXX"
                     />
-                    <span v-if="stockEntryStatus(part) === 'valid'" class="text-green-600 text-sm shrink-0">✓</span>
-                    <span v-else class="text-amber-500 text-sm shrink-0">⚠</span>
+                    <span v-if="stockEntryStatus(part) === 'valid'" class="text-emerald-600 text-xs font-semibold shrink-0">Đã xuất</span>
+                    <span v-else class="text-amber-600 text-xs font-semibold shrink-0">Chưa xuất</span>
                   </div>
                 </td>
                 <td class="table-cell">
                   <button
-                    class="p-1 rounded text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+                    class="p-1 rounded text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors"
                     @click="removePart(part.idx)"
                   >
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -279,7 +279,7 @@ async function handleStartRepair() {
         <!-- BR note -->
         <div class="px-5 py-3 border-t border-slate-100 bg-amber-50">
           <p class="text-xs text-amber-700">
-            ⚠ Tất cả vật tư phải có phiếu xuất kho (BR-09-02)
+            Tất cả vật tư phải có phiếu xuất kho (BR-09-02)
           </p>
         </div>
       </div>
@@ -287,7 +287,7 @@ async function handleStartRepair() {
       <!-- Actions -->
       <div class="flex justify-between items-center pt-2 pb-6">
         <button
-          class="px-5 py-2.5 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+          class="px-5 py-2.5 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
           @click="router.push(`/cm/work-orders/${id}`)"
         >
           Quay lại
@@ -297,7 +297,7 @@ async function handleStartRepair() {
             :disabled="submitting"
             :class="[
               'px-5 py-2.5 rounded-lg text-sm font-medium border transition-colors',
-              submitting ? 'border-gray-200 text-gray-400 cursor-not-allowed' : 'border-blue-300 text-blue-600 hover:bg-blue-50'
+              submitting ? 'border-slate-200 text-slate-400 cursor-not-allowed' : 'border-blue-300 text-blue-600 hover:bg-blue-50'
             ]"
             @click="handleSaveParts"
           >

@@ -188,7 +188,7 @@ onMounted(() => store.fetchList())
               <td class="table-cell">
                 <button
                   class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium transition-all hover:ring-2 hover:ring-offset-1 hover:ring-current/50"
-                  :class="SEV_COLOR[ir.severity] || 'bg-gray-100 text-gray-600'"
+                  :class="SEV_COLOR[ir.severity] || 'bg-slate-100 text-slate-600'"
                   @click.stop="quickFilter('severity', ir.severity)"
                 >{{ ir.severity }}</button>
               </td>

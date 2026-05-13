@@ -1,117 +1,11 @@
-<template>
-  <div class="needs-request-create">
-    <div class="page-header">
-      <h1>Tạo đề xuất nhu cầu thiết bị</h1>
-      <button class="btn btn-outline" @click="$router.back()">← Quay lại</button>
-    </div>
-
-    <div v-if="store.error" class="alert alert-danger">
-      <strong>Lỗi:</strong> {{ store.error }}
-      <button class="alert-close" @click="store.clearError()">×</button>
-    </div>
-
-    <form class="form" @submit.prevent="onSubmit">
-      <div class="grid-2col">
-        <div class="card">
-          <h3>1. Thông tin cơ bản</h3>
-          <label>Loại đề xuất <span class="req">*</span>
-            <select v-model="form.request_type" required>
-              <option value="New">Mua mới</option>
-              <option value="Replacement">Thay thế</option>
-              <option value="Upgrade">Nâng cấp</option>
-              <option value="Add-on">Bổ sung</option>
-            </select>
-          </label>
-          <label>Khoa đề xuất <span class="req">*</span>
-            <SmartSelect
-              v-model="form.requesting_department"
-              doctype="AC Department"
-              placeholder="Tìm khoa theo tên hoặc mã..."
-              @select="onDepartmentSelected"
-              @clear="onDepartmentCleared"
-            />
-            <span class="hint">Khoa lâm sàng đề nghị mua sắm thiết bị</span>
-          </label>
-          <label>Trưởng khoa
-            <div class="readonly-field" :class="{ empty: !clinicalHeadName }">
-              <span v-if="headLoading">Đang tải...</span>
-              <span v-else-if="clinicalHeadName">
-                {{ clinicalHeadName }}
-                <span class="readonly-id">({{ form.clinical_head }})</span>
-              </span>
-              <span v-else-if="form.requesting_department" class="muted">
-                Khoa này chưa khai báo Trưởng khoa
-              </span>
-              <span v-else class="muted">Chọn khoa đề xuất để tự điền</span>
-            </div>
-            <span class="hint">Trưởng khoa lấy tự động từ "Khoa đề xuất" — không thể chỉnh tay.</span>
-          </label>
-        </div>
-
-        <div class="card">
-          <h3>2. Thiết bị muốn mua</h3>
-          <label>Model thiết bị <span class="req">*</span>
-            <SmartSelect
-              v-model="form.device_model_ref"
-              doctype="IMM Device Model"
-              placeholder="Tìm model thiết bị..."
-            />
-          </label>
-          <label>Số lượng <span class="req">*</span>
-            <input v-model.number="form.quantity" type="number" min="1" required />
-          </label>
-          <label>Năm dự kiến mua <span class="req">*</span>
-            <input v-model.number="form.target_year" type="number" :min="currentYear" required />
-            <span class="hint">Phải từ năm {{ currentYear }} trở đi</span>
-          </label>
-          <label v-if="form.request_type === 'Replacement'">
-            Thiết bị cần thay thế <span class="req">*</span>
-            <SmartSelect
-              v-model="form.replacement_for_asset"
-              doctype="AC Asset"
-              placeholder="Tìm thiết bị theo tên / mã / serial..."
-            />
-            <span class="hint">Thiết bị thay thế phải có kế hoạch thanh lý đi kèm</span>
-          </label>
-        </div>
-      </div>
-
-      <div class="card">
-        <h3>3. Lý do lâm sàng <span class="req">*</span></h3>
-        <textarea v-model="form.clinical_justification" rows="6" required
-          placeholder="Mô tả nhu cầu lâm sàng, ảnh hưởng nếu không có thiết bị..."></textarea>
-      </div>
-
-      <div v-if="form.request_type === 'Replacement' || form.request_type === 'Upgrade'" class="card">
-        <h3>4. Dữ liệu sử dụng 12 tháng gần nhất</h3>
-        <p class="hint">
-          Bắt buộc với đề xuất thay thế / nâng cấp để hệ thống chấm điểm tín hiệu cần thay thế.
-        </p>
-        <div class="grid-2col">
-          <label>Tỷ lệ sử dụng (%)
-            <input v-model.number="form.utilization_pct_12m" type="number" step="0.01" min="0" max="100" />
-          </label>
-          <label>Thời gian ngừng hoạt động (giờ)
-            <input v-model.number="form.downtime_hr_12m" type="number" step="0.1" min="0" />
-          </label>
-        </div>
-      </div>
-
-      <div class="action-bar">
-        <button type="submit" class="btn btn-primary" :disabled="!canSubmit || submitting">
-          {{ submitting ? 'Đang lưu...' : 'Tạo Draft' }}
-        </button>
-      </div>
-    </form>
-  </div>
-</template>
-
 <script setup lang="ts">
+// Copyright (c) 2026, AssetCore Team
 import { reactive, ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useImm01Store } from '@/stores/imm01'
 import { frappeGet } from '@/api/helpers'
 import SmartSelect from '@/components/common/SmartSelect.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
 import type { NeedsRequestDoc, RequestType } from '@/types/imm01'
 
 const router = useRouter()
@@ -146,10 +40,7 @@ const canSubmit = computed(() =>
 )
 
 async function onDepartmentSelected(item: { id: string }) {
-  if (!item?.id) {
-    resetClinicalHead()
-    return
-  }
+  if (!item?.id) { resetClinicalHead(); return }
   headLoading.value = true
   form.clinical_head = ''
   clinicalHeadName.value = ''
@@ -175,20 +66,13 @@ async function onDepartmentSelected(item: { id: string }) {
   }
 }
 
-function onDepartmentCleared() {
-  resetClinicalHead()
-}
-
-function resetClinicalHead() {
-  form.clinical_head = ''
-  clinicalHeadName.value = ''
-}
+function onDepartmentCleared() { resetClinicalHead() }
+function resetClinicalHead() { form.clinical_head = ''; clinicalHeadName.value = '' }
 
 async function onSubmit() {
   if (!canSubmit.value) return
   submitting.value = true
   try {
-    // BE auto-set clinical_head từ AC Department.dept_head — không gửi từ FE.
     const { clinical_head: _ch, ...payload } = form
     void _ch
     const res = await store.create(payload)
@@ -201,35 +85,144 @@ async function onSubmit() {
 }
 </script>
 
+<template>
+  <div class="page-container animate-fade-in max-w-[1100px] mx-auto">
+    <PageHeader
+      title="Tạo đề xuất nhu cầu thiết bị"
+      subtitle="Khai báo thông tin cơ bản, thiết bị muốn mua và lý do lâm sàng."
+      :back-to="{ name: 'NeedsRequestList' }"
+    />
+
+    <div v-if="store.error" class="alert-error mb-4">
+      <span><strong>Lỗi:</strong> {{ store.error }}</span>
+      <button class="text-red-700 text-lg leading-none" @click="store.clearError()">×</button>
+    </div>
+
+    <form class="space-y-4 animate-slide-up" @submit.prevent="onSubmit">
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <section class="card">
+          <div class="section-title">1 · Thông tin cơ bản</div>
+          <div class="space-y-4">
+            <div class="form-group">
+              <label class="form-label">Loại đề xuất <span class="text-red-500">*</span></label>
+              <select v-model="form.request_type" required class="form-select">
+                <option value="New">Mua mới</option>
+                <option value="Replacement">Thay thế</option>
+                <option value="Upgrade">Nâng cấp</option>
+                <option value="Add-on">Bổ sung</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Khoa đề xuất <span class="text-red-500">*</span></label>
+              <SmartSelect
+                v-model="form.requesting_department"
+                doctype="AC Department"
+                placeholder="Tìm khoa theo tên hoặc mã..."
+                @select="onDepartmentSelected"
+                @clear="onDepartmentCleared"
+              />
+              <p class="text-xs text-slate-500 mt-1">Khoa lâm sàng đề nghị mua sắm thiết bị</p>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Trưởng khoa</label>
+              <div class="readonly-field" :class="{ empty: !clinicalHeadName }">
+                <span v-if="headLoading">Đang tải...</span>
+                <span v-else-if="clinicalHeadName">
+                  {{ clinicalHeadName }}
+                  <span class="font-mono text-xs text-slate-500 ml-1">({{ form.clinical_head }})</span>
+                </span>
+                <span v-else-if="form.requesting_department" class="text-slate-400 italic">
+                  Khoa này chưa khai báo Trưởng khoa
+                </span>
+                <span v-else class="text-slate-400 italic">Chọn khoa đề xuất để tự điền</span>
+              </div>
+              <p class="text-xs text-slate-500 mt-1">Trưởng khoa lấy tự động từ "Khoa đề xuất" — không thể chỉnh tay.</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="section-title">2 · Thiết bị muốn mua</div>
+          <div class="space-y-4">
+            <div class="form-group">
+              <label class="form-label">Model thiết bị <span class="text-red-500">*</span></label>
+              <SmartSelect
+                v-model="form.device_model_ref"
+                doctype="IMM Device Model"
+                placeholder="Tìm model thiết bị..."
+              />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Số lượng <span class="text-red-500">*</span></label>
+              <input v-model.number="form.quantity" type="number" min="1" required class="form-input" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Năm dự kiến mua <span class="text-red-500">*</span></label>
+              <input v-model.number="form.target_year" type="number" :min="currentYear" required class="form-input" />
+              <p class="text-xs text-slate-500 mt-1">Phải từ năm {{ currentYear }} trở đi</p>
+            </div>
+            <div v-if="form.request_type === 'Replacement'" class="form-group">
+              <label class="form-label">Thiết bị cần thay thế <span class="text-red-500">*</span></label>
+              <SmartSelect
+                v-model="form.replacement_for_asset"
+                doctype="AC Asset"
+                placeholder="Tìm thiết bị theo tên / mã / serial..."
+              />
+              <p class="text-xs text-slate-500 mt-1">Thiết bị thay thế phải có kế hoạch thanh lý đi kèm</p>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <section class="card">
+        <div class="section-title">3 · Lý do lâm sàng <span class="text-red-500 normal-case">*</span></div>
+        <textarea
+          v-model="form.clinical_justification" rows="6" required
+          class="form-textarea"
+          placeholder="Mô tả nhu cầu lâm sàng, ảnh hưởng nếu không có thiết bị..."
+        />
+      </section>
+
+      <section v-if="form.request_type === 'Replacement' || form.request_type === 'Upgrade'" class="card">
+        <div class="section-title">4 · Dữ liệu sử dụng 12 tháng gần nhất</div>
+        <p class="text-xs text-slate-500 mb-3">
+          Bắt buộc với đề xuất thay thế / nâng cấp để hệ thống chấm điểm tín hiệu cần thay thế.
+        </p>
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div class="form-group">
+            <label class="form-label">Tỷ lệ sử dụng (%)</label>
+            <input v-model.number="form.utilization_pct_12m" type="number" step="0.01" min="0" max="100" class="form-input" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Thời gian ngừng hoạt động (giờ)</label>
+            <input v-model.number="form.downtime_hr_12m" type="number" step="0.1" min="0" class="form-input" />
+          </div>
+        </div>
+      </section>
+
+      <div class="flex justify-end gap-2 pt-2">
+        <button type="button" class="btn-secondary" @click="router.push({ name: 'NeedsRequestList' })">Huỷ</button>
+        <button type="submit" class="btn-primary" :disabled="!canSubmit || submitting">
+          {{ submitting ? 'Đang lưu...' : 'Tạo Draft' }}
+        </button>
+      </div>
+    </form>
+  </div>
+</template>
+
 <style scoped>
-.needs-request-create { padding: 1.5rem; max-width: 1100px; margin: 0 auto; }
-.page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
-.grid-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
-.card { background: white; border: 1px solid #e5e7eb; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 1rem; }
-.card h3 { margin: 0 0 1rem; color: #111827; }
-.form label { display: block; margin-bottom: 0.75rem; font-weight: 500; }
-.form input, .form select, .form textarea {
-  display: block; width: 100%; padding: 0.55rem; border: 1px solid #d1d5db; border-radius: 6px;
-  margin-top: 0.25rem; font-family: inherit; font-size: 0.95rem;
-}
-.form textarea { resize: vertical; min-height: 100px; }
-.req { color: #ef4444; }
-.hint { font-size: 0.8rem; color: #6b7280; margin-top: 0.2rem; display: block; }
-.char-count { font-size: 0.85rem; color: #6b7280; }
-.error-text { color: #b91c1c; margin-left: 0.5rem; }
-.success-text { color: #065f46; margin-left: 0.5rem; }
-.action-bar { display: flex; justify-content: flex-end; padding-top: 1rem; gap: 0.5rem; }
-.alert { background: #fef2f2; border: 1px solid #fca5a5; padding: 0.75rem 1rem; border-radius: 6px; margin-bottom: 1rem; display: flex; justify-content: space-between; }
-.alert-close { background: none; border: none; cursor: pointer; }
-.btn { padding: 0.6rem 1.25rem; border-radius: 6px; border: 1px solid #d1d5db; background: white; cursor: pointer; font-size: 0.9rem; }
-.btn-primary { background: #2563eb; color: white; border-color: #2563eb; }
-.btn-primary:disabled { background: #9ca3af; border-color: #9ca3af; cursor: not-allowed; }
-.btn-outline { background: white; color: #2563eb; border-color: #2563eb; }
 .readonly-field {
-  display: block; padding: 0.55rem; border: 1px dashed #d1d5db; border-radius: 6px;
-  margin-top: 0.25rem; background: #f9fafb; font-size: 0.95rem; color: #111827; min-height: 2.5rem;
+  display: block; padding: 0.55rem 0.75rem;
+  border: 1px dashed #cbd5e1; border-radius: 8px;
+  background: #f8fafc; font-size: 0.9375rem; color: #0f172a; min-height: 2.5rem;
 }
-.readonly-field.empty { color: #6b7280; }
-.readonly-field .readonly-id { color: #6b7280; font-size: 0.8rem; margin-left: 0.4rem; }
-.readonly-field .muted { color: #9ca3af; font-style: italic; }
+.readonly-field.empty { color: #64748b; }
+</style>
+
+<style>
+.alert-error {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
+  background: #fef2f2; border: 1px solid #fecaca; padding: 0.75rem 1rem;
+  border-radius: 8px; color: #b91c1c; font-size: 0.875rem;
+}
 </style>

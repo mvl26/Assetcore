@@ -180,15 +180,15 @@ onMounted(() => {
         <label class="form-label">Thiết bị <span class="text-red-500">*</span></label>
         <SmartSelect v-model="form.asset" doctype="AC Asset" placeholder="Tìm thiết bị..." />
         <div v-if="assetMeta" class="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-          <div class="bg-gray-50 rounded px-2 py-1.5"><span class="text-gray-500">Tên:</span> <b>{{ assetMeta.asset_name || '—' }}</b></div>
-          <div class="bg-gray-50 rounded px-2 py-1.5"><span class="text-gray-500">Model:</span> {{ assetMeta.device_model || '—' }}</div>
-          <div :class="['rounded px-2 py-1.5', assetMeta.lifecycle_status === 'Decommissioned' ? 'bg-red-50 text-red-700' : 'bg-gray-50']">
-            <span class="text-gray-500">Trạng thái:</span> <b>{{ assetMeta.lifecycle_status || '—' }}</b>
+          <div class="bg-slate-50 rounded px-2 py-1.5"><span class="text-slate-500">Tên:</span> <b>{{ assetMeta.asset_name || '—' }}</b></div>
+          <div class="bg-slate-50 rounded px-2 py-1.5"><span class="text-slate-500">Model:</span> {{ assetMeta.device_model || '—' }}</div>
+          <div :class="['rounded px-2 py-1.5', assetMeta.lifecycle_status === 'Decommissioned' ? 'bg-red-50 text-red-700' : 'bg-slate-50']">
+            <span class="text-slate-500">Trạng thái:</span> <b>{{ assetMeta.lifecycle_status || '—' }}</b>
           </div>
-          <div class="bg-gray-50 rounded px-2 py-1.5"><span class="text-gray-500">Risk:</span> <b>{{ assetMeta.risk_class || '—' }}</b></div>
+          <div class="bg-slate-50 rounded px-2 py-1.5"><span class="text-slate-500">Mức rủi ro:</span> <b>{{ assetMeta.risk_class || '—' }}</b></div>
         </div>
-        <div v-if="assetMeta?.lifecycle_status === 'Decommissioned'" class="mt-2 alert-error">
-          ⛔ Thiết bị đã thanh lý — không thể hiệu chuẩn.
+        <div v-if="assetMeta?.lifecycle_status === 'Decommissioned'" class="mt-2 alert-error text-sm">
+          Thiết bị đã thanh lý — không thể hiệu chuẩn.
         </div>
       </div>
 
@@ -205,8 +205,8 @@ onMounted(() => {
             type="button"
             class="flex items-center justify-between gap-2 px-3 py-2 rounded-lg border text-left text-xs transition-colors"
             :class="form.calibration_schedule === s.name
-              ? 'bg-blue-50 border-blue-400 text-blue-800'
-              : 'bg-white border-slate-200 hover:border-blue-300 text-slate-700'"
+              ? 'bg-brand-50 border-brand-400 text-brand-800'
+              : 'bg-white border-slate-200 hover:border-brand-300 text-slate-700'"
             @click="form.calibration_schedule = s.name"
           >
             <div>
@@ -215,17 +215,17 @@ onMounted(() => {
                 {{ s.calibration_type }} · {{ s.interval_days }} ngày · Lần tới: <b>{{ s.next_due_date || '—' }}</b>
               </div>
             </div>
-            <span v-if="form.calibration_schedule === s.name" class="text-blue-600">✓</span>
+            <svg v-if="form.calibration_schedule === s.name" class="w-4 h-4 text-brand-600" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
           </button>
         </div>
         <div v-else-if="form.asset" class="mb-2 text-xs text-slate-400">
           Thiết bị này chưa có lịch hiệu chuẩn — có thể tìm lịch khác hoặc tạo phiếu tự do.
         </div>
         <SmartSelect v-model="form.calibration_schedule" doctype="IMM Calibration Schedule" placeholder="Tìm lịch khác..." />
-        <div v-if="scheduleMeta" class="mt-2 bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-800 grid grid-cols-3 gap-2">
-          <div><span class="text-blue-600">Loại:</span> <b>{{ scheduleMeta.calibration_type }}</b></div>
-          <div><span class="text-blue-600">Chu kỳ:</span> <b>{{ scheduleMeta.interval_days }} ngày</b></div>
-          <div><span class="text-blue-600">Lần tới:</span> <b>{{ scheduleMeta.next_due_date || '—' }}</b></div>
+        <div v-if="scheduleMeta" class="mt-2 bg-brand-50 border border-brand-200 rounded-lg p-3 text-xs text-brand-800 grid grid-cols-3 gap-2">
+          <div><span class="text-brand-600">Loại:</span> <b>{{ scheduleMeta.calibration_type }}</b></div>
+          <div><span class="text-brand-600">Chu kỳ:</span> <b>{{ scheduleMeta.interval_days }} ngày</b></div>
+          <div><span class="text-brand-600">Lần tới:</span> <b>{{ scheduleMeta.next_due_date || '—' }}</b></div>
         </div>
       </div>
 

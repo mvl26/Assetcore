@@ -54,10 +54,10 @@ function formatHours(h: number): string {
           <option v-for="y in [2025, 2026, 2027]" :key="y" :value="y">{{ y }}</option>
         </select>
         <!-- Export buttons (UI only) -->
-        <button disabled class="px-4 py-2 border border-gray-300 rounded-lg text-gray-400 cursor-not-allowed">
+        <button disabled class="px-4 py-2 border border-slate-300 rounded-lg text-slate-400 cursor-not-allowed">
           Xuất PDF
         </button>
-        <button disabled class="px-4 py-2 border border-gray-300 rounded-lg text-gray-400 cursor-not-allowed">
+        <button disabled class="px-4 py-2 border border-slate-300 rounded-lg text-slate-400 cursor-not-allowed">
           Xuất Excel
         </button>
       </template>

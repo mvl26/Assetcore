@@ -108,42 +108,41 @@ onMounted(load)
 
 <template>
   <div class="page-container animate-fade-in">
-    <button class="btn-ghost mb-4" @click="router.push('/spare-parts')">← Quay lại</button>
-
     <div v-if="toast" class="mb-4 px-4 py-3 rounded-lg bg-emerald-50 text-emerald-700 text-sm">{{ toast }}</div>
 
-    <div v-if="loading && !part" class="text-center py-20 text-slate-400">Đang tải...</div>
+    <div v-if="loading && !part" class="text-center py-20 text-slate-400">Đang tải…</div>
 
     <div v-else-if="part">
       <PageHeader
+        :back-to="'/spare-parts'"
         :title="part.part_name"
-        :subtitle="part.part_code"
-        :breadcrumb="[{ label: 'Phụ tùng', to: '/spare-parts' }, { label: part.part_name }]"
+        :subtitle="`IMM-15 · Tồn kho phụ tùng — ${part.part_code || part.name}`"
+        :breadcrumb="[{ label: 'IMM-15 · Tồn kho phụ tùng', to: '/inventory/dashboard' }, { label: 'Phụ tùng', to: '/spare-parts' }, { label: part.part_name }]"
       >
         <template #actions>
-          <button class="btn-ghost" @click="openEdit">Sửa</button>
-          <button v-if="part.is_active" class="btn-ghost text-red-600" @click="doDeactivate">Ngừng SD</button>
+          <button class="btn-secondary" @click="openEdit">Chỉnh sửa</button>
+          <button v-if="part.is_active" class="btn-ghost text-red-600 hover:bg-red-50" @click="doDeactivate">Ngừng sử dụng</button>
         </template>
       </PageHeader>
 
       <!-- Summary card -->
-      <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <div class="card p-4">
-          <p class="text-xs text-slate-500 mb-1">Tổng tồn</p>
-          <p class="text-xl font-bold text-slate-900">{{ part.total_stock || 0 }} <span class="text-sm font-normal text-slate-400">{{ part.stock_uom }}</span></p>
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <div class="kpi-card p-4" style="--kpi-color: #2563eb">
+          <p class="t-eyebrow mb-2">Tổng tồn</p>
+          <p class="t-metric tabular-nums">{{ part.total_stock || 0 }} <span class="text-sm font-normal text-slate-400">{{ part.stock_uom }}</span></p>
         </div>
-        <div class="card p-4">
-          <p class="text-xs text-slate-500 mb-1">Đơn giá</p>
-          <p class="text-xl font-bold text-emerald-600">{{ vnd(part.unit_cost) }}</p>
+        <div class="kpi-card p-4" style="--kpi-color: #059669">
+          <p class="t-eyebrow mb-2">Đơn giá</p>
+          <p class="t-metric tabular-nums text-emerald-600">{{ vnd(part.unit_cost) }}</p>
         </div>
-        <div class="card p-4">
-          <p class="text-xs text-slate-500 mb-1">Tồn min / max</p>
-          <p class="text-xl font-bold text-slate-700">{{ part.min_stock_level || 0 }} / {{ part.max_stock_level || '∞' }}</p>
+        <div class="kpi-card p-4" style="--kpi-color: #d97706">
+          <p class="t-eyebrow mb-2">Tồn min / max</p>
+          <p class="t-metric tabular-nums">{{ part.min_stock_level || 0 }} / {{ part.max_stock_level || '∞' }}</p>
         </div>
-        <div class="card p-4">
-          <p class="text-xs text-slate-500 mb-1">NSX</p>
-          <p class="text-sm font-medium text-slate-700">{{ part.manufacturer || '—' }}</p>
-          <p class="text-xs text-slate-400 font-mono">{{ part.manufacturer_part_no || '' }}</p>
+        <div class="kpi-card p-4" style="--kpi-color: #475569">
+          <p class="t-eyebrow mb-2">Nhà sản xuất</p>
+          <p class="text-sm font-semibold text-slate-900 truncate">{{ part.manufacturer || '—' }}</p>
+          <p v-if="part.manufacturer_part_no" class="font-mono text-xs text-brand-700 mt-0.5">{{ part.manufacturer_part_no }}</p>
         </div>
       </div>
 
@@ -203,7 +202,7 @@ onMounted(load)
               <tr
 v-for="m in part.recent_movements" :key="m.name" class="border-b border-slate-50 hover:bg-slate-50 cursor-pointer"
                   @click="router.push(`/stock-movements/${m.name}`)">
-                <td class="py-2 font-mono text-xs text-slate-600">{{ m.name }}</td>
+                <td class="py-2 font-mono text-xs text-brand-700">{{ m.name }}</td>
                 <td class="py-2">
                   <span
 class="text-xs px-2 py-0.5 rounded-full font-medium"
@@ -262,7 +261,7 @@ class="text-xs text-blue-600 hover:underline"
 v-for="r in partPurchases" :key="r.name"
                   class="border-b border-slate-50 hover:bg-slate-50 cursor-pointer transition-colors"
                   @click="router.push(`/purchases/${r.name}`)">
-                <td class="py-2.5 font-mono text-xs text-blue-600 hover:underline">{{ r.name }}</td>
+                <td class="py-2.5 font-mono text-xs text-brand-700 hover:underline">{{ r.name }}</td>
                 <td class="py-2.5 text-slate-600 text-xs">{{ formatDt(r.purchase_date) }}</td>
                 <td class="py-2.5 text-slate-700">{{ r.supplier_name || r.supplier }}</td>
                 <td class="py-2.5 text-right font-semibold">{{ r.qty }}</td>
@@ -298,9 +297,11 @@ class="text-xs px-2 py-0.5 rounded-full font-medium"
 v-if="showEdit" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
            @click.self="showEdit = false">
         <div class="bg-white rounded-2xl w-full max-w-2xl shadow-2xl max-h-[90vh] flex flex-col">
-          <div class="flex items-center justify-between px-6 py-4 border-b border-slate-100">
-            <h2 class="font-semibold text-slate-800">Sửa linh kiện</h2>
-            <button class="p-1.5 rounded-md text-slate-400 hover:bg-slate-100" @click="showEdit = false">✕</button>
+          <div class="flex items-center justify-between px-6 py-4 border-b border-slate-200">
+            <h2 class="font-semibold text-slate-900">Chỉnh sửa phụ tùng</h2>
+            <button class="p-1.5 rounded-md text-slate-400 hover:bg-slate-100" aria-label="Đóng" @click="showEdit = false">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
           </div>
           <div class="p-6 space-y-4 overflow-y-auto">
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -361,7 +362,7 @@ v-if="showEdit" class="fixed inset-0 z-50 flex items-center justify-center bg-bl
           <div class="flex gap-3 justify-end px-6 py-4 border-t border-slate-100">
             <button class="btn-ghost" @click="showEdit = false">Huỷ</button>
             <button class="btn-primary" :disabled="saving" @click="saveEdit">
-              {{ saving ? 'Đang lưu...' : 'Cập nhật' }}
+              {{ saving ? 'Đang lưu…' : 'Lưu thay đổi' }}
             </button>
           </div>
         </div>

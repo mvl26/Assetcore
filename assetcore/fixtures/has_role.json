@@ -1,0 +1,442 @@
+[
+ {
+  "docstatus": 0,
+  "doctype": "Has Role",
+  "modified": "2026-05-12 16:42:32.254347",
+  "name": "72ia8qnrvv",
+  "parent": "IMM - System Administrator",
+  "parentfield": "roles",
+  "parenttype": "Role Profile",
+  "role": "IMM System Admin"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Has Role",
+  "modified": "2026-05-12 16:42:32.260825",
+  "name": "72ieir7cse",
+  "parent": "IMM - Operations Manager",
+  "parentfield": "roles",
+  "parenttype": "Role Profile",
+  "role": "IMM Operations Manager"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Has Role",
+  "modified": "2026-05-12 16:42:32.268157",
+  "name": "72i1drhrkk",
+  "parent": "IMM - Department Head",
+  "parentfield": "roles",
+  "parenttype": "Role Profile",
+  "role": "IMM Department Head"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Has Role",
+  "modified": "2026-05-12 16:42:32.274944",
+  "name": "72ibduhoke",
+  "parent": "IMM - Deputy Department Head",
+  "parentfield": "roles",
+  "parenttype": "Role Profile",
+  "role": "IMM Deputy Department Head"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Has Role",
+  "modified": "2026-05-12 16:42:32.282055",
+  "name": "72ig0rrm5v",
+  "parent": "IMM - Workshop Lead",
+  "parentfield": "roles",
+  "parenttype": "Role Profile",
+  "role": "IMM Workshop Lead"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Has Role",
+  "modified": "2026-05-12 16:42:32.294418",
+  "name": "72i3dtc08r",
+  "parent": "IMM - Biomed Technician",
+  "parentfield": "roles",
+  "parenttype": "Role Profile",
+  "role": "IMM Biomed Technician"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Has Role",
+  "modified": "2026-05-12 16:42:32.302795",
+  "name": "72jblkia9a",
+  "parent": "IMM - Field Technician",
+  "parentfield": "roles",
+  "parenttype": "Role Profile",
+  "role": "IMM Technician"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Has Role",
+  "modified": "2026-05-12 16:42:32.310635",
+  "name": "72jdtdrqc5",
+  "parent": "IMM - QA Officer",
+  "parentfield": "roles",
+  "parenttype": "Role Profile",
+  "role": "IMM QA Officer"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Has Role",
+  "modified": "2026-05-12 16:42:32.319375",
+  "name": "72j24e1na8",
+  "parent": "IMM - Internal Auditor",
+  "parentfield": "roles",
+  "parenttype": "Role Profile",
+  "role": "IMM Auditor"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Has Role",
+  "modified": "2026-05-12 16:42:32.327493",
+  "name": "72j0sevf4j",
+  "parent": "IMM - Storekeeper",
+  "parentfield": "roles",
+  "parenttype": "Role Profile",
+  "role": "IMM Storekeeper"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Has Role",
+  "modified": "2026-05-12 16:42:32.333956",
+  "name": "72jnhtjg77",
+  "parent": "IMM - Document Officer",
+  "parentfield": "roles",
+  "parenttype": "Role Profile",
+  "role": "IMM Document Officer"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Has Role",
+  "modified": "2026-05-12 16:42:32.344019",
+  "name": "72je390tid",
+  "parent": "IMM - Clinical User",
+  "parentfield": "roles",
+  "parenttype": "Role Profile",
+  "role": "IMM Clinical User"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Has Role",
+  "modified": "2026-05-12 16:42:32.350061",
+  "name": "72jt86i5jn",
+  "parent": "IMM - Vendor Engineer",
+  "parentfield": "roles",
+  "parenttype": "Role Profile",
+  "role": "Vendor Engineer"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Has Role",
+  "modified": "2026-05-12 16:42:32.356494",
+  "name": "72jc758vnl",
+  "parent": "IMM - Planning Officer",
+  "parentfield": "roles",
+  "parenttype": "Role Profile",
+  "role": "IMM Planning Officer"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Has Role",
+  "modified": "2026-05-12 16:42:32.362528",
+  "name": "72jdjriqpf",
+  "parent": "IMM - Finance Officer",
+  "parentfield": "roles",
+  "parenttype": "Role Profile",
+  "role": "IMM Finance Officer"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Has Role",
+  "modified": "2026-05-12 16:42:32.368096",
+  "name": "72jncmqvcq",
+  "parent": "IMM - HTM Engineer",
+  "parentfield": "roles",
+  "parenttype": "Role Profile",
+  "role": "IMM HTM Engineer"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Has Role",
+  "modified": "2026-05-12 16:42:32.373810",
+  "name": "72jcq11bcm",
+  "parent": "IMM - Procurement Officer",
+  "parentfield": "roles",
+  "parenttype": "Role Profile",
+  "role": "IMM Procurement Officer"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Has Role",
+  "modified": "2026-05-12 16:42:32.379359",
+  "name": "72jkdnso7k",
+  "parent": "IMM - Risk Officer",
+  "parentfield": "roles",
+  "parenttype": "Role Profile",
+  "role": "IMM Risk Officer"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Has Role",
+  "modified": "2026-05-12 16:42:32.386169",
+  "name": "72jls2r18l",
+  "parent": "IMM - Board Approver",
+  "parentfield": "roles",
+  "parenttype": "Role Profile",
+  "role": "IMM Board Approver"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Has Role",
+  "modified": "2026-05-13 09:30:10.714392",
+  "name": "lfsfcngom7",
+  "parent": "IMM - Training Officer",
+  "parentfield": "roles",
+  "parenttype": "Role Profile",
+  "role": "IMM Training Officer"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Has Role",
+  "modified": "2026-05-13 09:30:10.882255",
+  "name": "lfsht49jlq",
+  "parent": "AssetCore — System Admin",
+  "parentfield": "roles",
+  "parenttype": "Role Profile",
+  "role": "IMM System Admin"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Has Role",
+  "modified": "2026-05-13 09:30:10.886317",
+  "name": "lfsa251not",
+  "parent": "AssetCore — Operations Manager",
+  "parentfield": "roles",
+  "parenttype": "Role Profile",
+  "role": "IMM Operations Manager"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Has Role",
+  "modified": "2026-05-13 09:30:10.888885",
+  "name": "lfs015lac5",
+  "parent": "AssetCore — Department Head",
+  "parentfield": "roles",
+  "parenttype": "Role Profile",
+  "role": "IMM Department Head"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Has Role",
+  "modified": "2026-05-13 09:30:10.891232",
+  "name": "lfscd5f351",
+  "parent": "AssetCore — Department Deputy",
+  "parentfield": "roles",
+  "parenttype": "Role Profile",
+  "role": "IMM Deputy Department Head"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Has Role",
+  "modified": "2026-05-13 09:30:10.901023",
+  "name": "lftrofq10q",
+  "parent": "AssetCore — Workshop Lead",
+  "parentfield": "roles",
+  "parenttype": "Role Profile",
+  "role": "IMM Workshop Lead"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Has Role",
+  "modified": "2026-05-13 09:30:10.903441",
+  "name": "lft2vqdbki",
+  "parent": "AssetCore — Biomed Technician",
+  "parentfield": "roles",
+  "parenttype": "Role Profile",
+  "role": "IMM Biomed Technician"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Has Role",
+  "modified": "2026-05-13 09:30:10.906772",
+  "name": "lft0oed6cu",
+  "parent": "AssetCore — Technician",
+  "parentfield": "roles",
+  "parenttype": "Role Profile",
+  "role": "IMM Technician"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Has Role",
+  "modified": "2026-05-13 09:30:10.908936",
+  "name": "lftdn3s3pm",
+  "parent": "AssetCore — Clinical User",
+  "parentfield": "roles",
+  "parenttype": "Role Profile",
+  "role": "IMM Clinical User"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Has Role",
+  "modified": "2026-05-13 09:30:10.911667",
+  "name": "lftddsh6ir",
+  "parent": "AssetCore — QA Officer",
+  "parentfield": "roles",
+  "parenttype": "Role Profile",
+  "role": "IMM QA Officer"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Has Role",
+  "modified": "2026-05-13 09:30:10.914526",
+  "name": "lftml6vsjg",
+  "parent": "AssetCore — Auditor",
+  "parentfield": "roles",
+  "parenttype": "Role Profile",
+  "role": "IMM Auditor"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Has Role",
+  "modified": "2026-05-13 09:30:10.917566",
+  "name": "lftsnhtfr8",
+  "parent": "AssetCore — Storekeeper",
+  "parentfield": "roles",
+  "parenttype": "Role Profile",
+  "role": "IMM Storekeeper"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Has Role",
+  "modified": "2026-05-13 09:30:10.919886",
+  "name": "lftgsh2p0q",
+  "parent": "AssetCore — Document Officer",
+  "parentfield": "roles",
+  "parenttype": "Role Profile",
+  "role": "IMM Document Officer"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Has Role",
+  "modified": "2026-05-13 09:30:10.922300",
+  "name": "lft247n75u",
+  "parent": "AssetCore — Planning Officer",
+  "parentfield": "roles",
+  "parenttype": "Role Profile",
+  "role": "IMM Planning Officer"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Has Role",
+  "modified": "2026-05-13 09:30:10.925439",
+  "name": "lfto445i34",
+  "parent": "AssetCore — Procurement Officer",
+  "parentfield": "roles",
+  "parenttype": "Role Profile",
+  "role": "IMM Procurement Officer"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Has Role",
+  "modified": "2026-05-13 09:30:10.929070",
+  "name": "lftj9kv42f",
+  "parent": "AssetCore — Vendor Engineer",
+  "parentfield": "roles",
+  "parenttype": "Role Profile",
+  "role": "Vendor Engineer"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Has Role",
+  "modified": "2026-05-13 09:30:10.932798",
+  "name": "lft65heh0q",
+  "parent": "AssetCore — Training Officer",
+  "parentfield": "roles",
+  "parenttype": "Role Profile",
+  "role": "IMM Training Officer"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Has Role",
+  "modified": "2026-05-12 16:42:32.282169",
+  "name": "72i0arbm50",
+  "parent": "IMM - Workshop Lead",
+  "parentfield": "roles",
+  "parenttype": "Role Profile",
+  "role": "IMM Biomed Technician"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Has Role",
+  "modified": "2026-05-12 16:42:32.294729",
+  "name": "72i5hgbhj3",
+  "parent": "IMM - Biomed Technician",
+  "parentfield": "roles",
+  "parenttype": "Role Profile",
+  "role": "IMM Technician"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Has Role",
+  "modified": "2026-05-12 16:42:32.310750",
+  "name": "72j8b7rv3h",
+  "parent": "IMM - QA Officer",
+  "parentfield": "roles",
+  "parenttype": "Role Profile",
+  "role": "IMM Auditor"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Has Role",
+  "modified": "2026-05-13 09:30:10.882255",
+  "name": "lfshp6p9d5",
+  "parent": "AssetCore — System Admin",
+  "parentfield": "roles",
+  "parenttype": "Role Profile",
+  "role": "IMM Operations Manager"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Has Role",
+  "modified": "2026-05-13 09:30:10.886317",
+  "name": "lfs506cdbf",
+  "parent": "AssetCore — Operations Manager",
+  "parentfield": "roles",
+  "parenttype": "Role Profile",
+  "role": "IMM QA Officer"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Has Role",
+  "modified": "2026-05-13 09:30:10.901023",
+  "name": "lft8i6iuda",
+  "parent": "AssetCore — Workshop Lead",
+  "parentfield": "roles",
+  "parenttype": "Role Profile",
+  "role": "IMM Biomed Technician"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Has Role",
+  "modified": "2026-05-13 09:30:10.903441",
+  "name": "lftsklu1fl",
+  "parent": "AssetCore — Biomed Technician",
+  "parentfield": "roles",
+  "parenttype": "Role Profile",
+  "role": "IMM Technician"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Has Role",
+  "modified": "2026-05-13 09:30:10.882255",
+  "name": "lfs8cfl9u2",
+  "parent": "AssetCore — System Admin",
+  "parentfield": "roles",
+  "parenttype": "Role Profile",
+  "role": "IMM Auditor"
+ }
+]

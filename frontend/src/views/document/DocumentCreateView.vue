@@ -6,6 +6,7 @@ import { useImm05Store } from '@/stores/imm05'
 import { uploadDocumentFile } from '@/api/imm05'
 import SmartSelect from '@/components/common/SmartSelect.vue'
 import { useFormDraft } from '@/composables/useFormDraft'
+import PageHeader from '@/components/common/PageHeader.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -155,7 +156,7 @@ async function handleSubmit() {
     const payload = buildPayload(fileUrl)
     const res = await store.createDocument(payload)
     saving.value = false
-    const r = res as unknown as { name?: string } | null
+    const r = res as { name?: string } | null
     if (r?.name) {
       clearDraft()
       router.push({ path: '/documents', query: form.value.asset_ref ? { asset: form.value.asset_ref } : {} })
@@ -175,13 +176,18 @@ function goBack() {
 
 <template>
   <div class="create-view">
-    <!-- Header -->
-    <div class="page-header">
-      <div>
-        <button class="back-btn" @click="goBack">← Quay lại</button>
-        <h1>Tải lên Tài liệu Mới</h1>
-      </div>
-    </div>
+    <PageHeader
+      title="Tải lên tài liệu mới"
+      subtitle="Khai báo hồ sơ thiết bị (NĐ98, GMDN, hiệu chuẩn…)"
+      :back-to="'/documents'"
+      back-label="← Danh sách hồ sơ"
+      :breadcrumb="[
+        { label: 'IMM-05 · Hồ sơ', to: '/documents' },
+        { label: 'Danh sách', to: '/documents' },
+        { label: 'Tải lên mới' },
+      ]"
+    />
+
 
     <!-- Form -->
     <div class="form-card">

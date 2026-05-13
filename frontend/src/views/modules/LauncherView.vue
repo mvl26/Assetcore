@@ -1,7 +1,8 @@
 <script setup lang="ts">
 // AssetCore Launcher — IMMIS Navigation Hub (light theme).
-// Bố cục: topbar BV → hero (title + lifecycle wheel) → 2×2 group cards → secondary row.
-// Render đầy đủ 17 module (IMM-01…IMM-17) qua MODULE_GROUPS, lọc theo role.
+// Bố cục: topbar BV → hero (title + KPI) → các phase section dùng chung phase-grid.
+// Render đầy đủ 17 module (IMM-01…IMM-17) + master + system qua MODULE_GROUPS,
+// lọc theo role. 4 khối lifecycle hiển thị trước, Master + System theo sau.
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
@@ -23,27 +24,34 @@ const visibleGroups = computed<ModuleGroup[]>(() =>
     .filter((g) => g.cards.length > 0),
 )
 
+// All groups render with the same phase-grid layout — master/system are
+// first-class phase sections (same visual weight as the 4 lifecycle phases)
+// so the launcher reads as one coherent surface. Order: the 4 lifecycle
+// phases first (Planning → EOL), then cross-cutting Master + System.
+const PHASE_ORDER = ['planning', 'deployment', 'operations', 'eol', 'master', 'system'] as const
 const businessGroups = computed(() =>
-  visibleGroups.value.filter((g) => ['planning', 'deployment', 'operations', 'eol'].includes(g.id)),
-)
-const utilityGroups = computed(() =>
-  visibleGroups.value.filter((g) => ['master', 'system'].includes(g.id)),
+  [...visibleGroups.value].sort(
+    (a, b) =>
+      PHASE_ORDER.indexOf(a.id as typeof PHASE_ORDER[number]) -
+      PHASE_ORDER.indexOf(b.id as typeof PHASE_ORDER[number]),
+  ),
 )
 
-// ── Group meta (header icon + accent) ──────────────────────────────────────
+// ── Group meta (DS Launcher.jsx phase palette) ───────────────────────────
+// color = code text, bg = icon tile bg, accent = rail/border on hover
 interface GroupMeta {
   icon: string
-  accentBg: string
-  accentText: string
-  tileTint: string
+  color: string
+  bg: string
+  accent: string
 }
 const GROUP_META: Record<string, GroupMeta> = {
-  planning:   { icon: 'planning',   accentBg: '#1e40af', accentText: '#dbeafe', tileTint: '#eff6ff' },
-  deployment: { icon: 'deployment', accentBg: '#0ea5e9', accentText: '#e0f2fe', tileTint: '#f0f9ff' },
-  operations: { icon: 'operations', accentBg: '#6366f1', accentText: '#e0e7ff', tileTint: '#eef2ff' },
-  eol:        { icon: 'eol',        accentBg: '#d97706', accentText: '#fef3c7', tileTint: '#fffbeb' },
-  master:     { icon: 'master',     accentBg: '#475569', accentText: '#f1f5f9', tileTint: '#f8fafc' },
-  system:     { icon: 'system',     accentBg: '#9333ea', accentText: '#f3e8ff', tileTint: '#faf5ff' },
+  planning:   { icon: 'planning',   color: '#1d4ed8', bg: '#eff6ff', accent: '#3b82f6' },
+  deployment: { icon: 'deployment', color: '#047857', bg: '#ecfdf5', accent: '#10b981' },
+  operations: { icon: 'operations', color: '#a16207', bg: '#fffbeb', accent: '#d97706' },
+  eol:        { icon: 'eol',        color: '#b91c1c', bg: '#fef2f2', accent: '#ef4444' },
+  master:     { icon: 'master',     color: '#475569', bg: '#f8fafc', accent: '#64748b' },
+  system:     { icon: 'system',     color: '#7e22ce', bg: '#faf5ff', accent: '#9333ea' },
 }
 
 // ── Inline icon paths (24×24 outline) ──────────────────────────────────────
@@ -88,9 +96,6 @@ function iconPath(key: string): string {
 function go(card: ModuleCard) {
   if (card.disabled) return
   router.push(card.to)
-}
-function goSearch() {
-  router.push('/launcher')
 }
 const showUserMenu = ref(false)
 function toggleUserMenu() { showUserMenu.value = !showUserMenu.value }
@@ -142,19 +147,6 @@ const totalModuleCount = computed(() =>
       </div>
 
       <div class="topbar-actions">
-        <button type="button" class="icon-btn" title="Tìm kiếm" @click="goSearch">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="11" cy="11" r="7" />
-            <path stroke-linecap="round" d="M21 21l-4.3-4.3" />
-          </svg>
-        </button>
-        <button type="button" class="icon-btn" title="Thông báo">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0" />
-          </svg>
-          <span class="badge-dot" />
-        </button>
-
         <div class="user-wrap">
           <button type="button" class="user-btn" @click="toggleUserMenu">
             <span class="avatar">{{ userInitials }}</span>
@@ -175,14 +167,35 @@ const totalModuleCount = computed(() =>
       </div>
     </header>
 
-    <!-- ───────── Hero ───────── -->
+    <!-- ───────── Hero · KPI strip (DS Launcher.jsx) ───────── -->
     <section class="hero">
-      <div class="hero-text">
-        <h1>Hub Điều Hướng Module Theo Kiến Trúc IMMIS</h1>
+      <div class="hero-inner">
+        <div class="eyebrow">HTM · CMMS · IMMIS</div>
+        <h1 class="hero-title">Hub điều hướng module</h1>
         <p class="hero-sub">
-          Điều phối vòng đời thiết bị y tế từ lập kế hoạch đến giải nhiệm —
-          <b>{{ totalModuleCount }}</b> chức năng được tổ chức theo kiến trúc 4 khối WHO HTM.
+          Điều phối vòng đời thiết bị y tế — từ lập kế hoạch, mua sắm, triển khai
+          đến vận hành và giải nhiệm.
+          <b>{{ totalModuleCount }}</b> chức năng theo kiến trúc 4 khối WHO HTM.
         </p>
+
+        <div class="kpi-strip">
+          <div class="kpi-tile" style="--kpi-stripe:#10b981">
+            <div class="kpi-l">Thiết bị vận hành</div>
+            <div class="kpi-v" style="color:#059669">—</div>
+          </div>
+          <div class="kpi-tile" style="--kpi-stripe:#2563eb">
+            <div class="kpi-l">PM tuần này</div>
+            <div class="kpi-v" style="color:#2563eb">—</div>
+          </div>
+          <div class="kpi-tile" style="--kpi-stripe:#d97706">
+            <div class="kpi-l">PM quá hạn</div>
+            <div class="kpi-v" style="color:#d97706">—</div>
+          </div>
+          <div class="kpi-tile" style="--kpi-stripe:#ef4444">
+            <div class="kpi-l">Sự cố mở</div>
+            <div class="kpi-v" style="color:#dc2626">—</div>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -192,92 +205,53 @@ const totalModuleCount = computed(() =>
       <p class="muted">Liên hệ <b>IMM System Admin</b> để được phân quyền.</p>
     </main>
 
-    <!-- ───────── 4 Group cards ───────── -->
-    <section v-else class="group-grid">
-      <article
+    <!-- ───────── Phase sections · 3-col tile grid ───────── -->
+    <section v-else class="phase-wrap">
+      <section
         v-for="group in businessGroups"
         :key="group.id"
-        class="group-card"
+        class="phase"
         :style="{
-          '--accent-bg':   GROUP_META[group.id]?.accentBg,
-          '--accent-text': GROUP_META[group.id]?.accentText,
-          '--tile-tint':   GROUP_META[group.id]?.tileTint,
+          '--phase-color': GROUP_META[group.id]?.color,
+          '--phase-bg': GROUP_META[group.id]?.bg,
+          '--phase-accent': GROUP_META[group.id]?.accent,
         }"
       >
-        <header class="gc-header">
-          <span class="gc-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
-                 v-html="iconPath(GROUP_META[group.id]?.icon || 'master')" />
-          </span>
-          <div class="gc-title-block">
-            <div class="gc-title">{{ group.title.replace(/^Khối \d+ — /, '') }}</div>
-            <div class="gc-subtitle">{{ group.subtitle }}</div>
+        <header class="phase-header">
+          <span class="phase-rail" />
+          <div class="phase-heading">
+            <h2 class="phase-title">{{ group.title.replace(/^Khối \d+ — /, '') }}</h2>
+            <p v-if="group.subtitle" class="phase-sub">{{ group.subtitle }}</p>
           </div>
-          <span class="gc-count">{{ group.cards.length }}</span>
+          <span class="phase-count">{{ group.cards.length }} mục</span>
         </header>
 
-        <div class="tile-grid">
+        <div class="phase-grid">
           <button
             v-for="card in group.cards"
             :key="card.id"
             type="button"
-            class="tile"
+            class="phase-tile"
             :class="{ 'is-disabled': card.disabled }"
             :disabled="card.disabled"
-            @click="go(card)"
             :title="card.description"
+            @click="go(card)"
           >
-            <span class="tile-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+            <span class="phase-tile-icon">
+              <svg
+viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
                    v-html="iconPath(card.icon)" />
             </span>
-            <div class="tile-text">
-              <div class="tile-code-row">
-                <span v-if="card.code" class="tile-code">{{ card.code }}</span>
-                <span v-if="card.badge" class="tile-badge">{{ card.badge }}</span>
-                <span v-if="card.disabled" class="tile-badge tile-badge-soon">Sắp ra mắt</span>
+            <div class="phase-tile-text">
+              <div class="phase-tile-code-row">
+                <span v-if="card.code" class="phase-tile-code">{{ card.code }}</span>
+                <span v-if="card.disabled" class="phase-tile-badge soon">Đang phát triển</span>
               </div>
-              <div class="tile-label">{{ card.label }}</div>
-              <div class="tile-desc">{{ card.description }}</div>
+              <div class="phase-tile-label">{{ card.label }}</div>
             </div>
           </button>
         </div>
-      </article>
-    </section>
-
-    <!-- ───────── Secondary row: Master + System ───────── -->
-    <section v-if="utilityGroups.length" class="utility-row">
-      <article
-        v-for="group in utilityGroups"
-        :key="group.id"
-        class="util-card"
-        :style="{ '--accent-bg': GROUP_META[group.id]?.accentBg }"
-      >
-        <header class="uc-header">
-          <span class="uc-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
-                 v-html="iconPath(GROUP_META[group.id]?.icon || 'master')" />
-          </span>
-          <div>
-            <div class="uc-title">{{ group.title }}</div>
-            <div class="uc-sub">{{ group.subtitle }}</div>
-          </div>
-        </header>
-        <div class="util-list">
-          <button
-            v-for="card in group.cards"
-            :key="card.id"
-            type="button"
-            class="util-link"
-            :disabled="card.disabled"
-            @click="go(card)"
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
-                 class="util-link-icon" v-html="iconPath(card.icon)" />
-            <span>{{ card.label }}</span>
-          </button>
-        </div>
-      </article>
+      </section>
     </section>
 
   </div>
@@ -287,16 +261,18 @@ const totalModuleCount = computed(() =>
 /* ── Root ──────────────────────────────────────────────────────────────── */
 .launcher {
   min-height: 100vh;
-  background:
-    radial-gradient(ellipse 80% 50% at 50% 0%, rgba(186, 230, 253, 0.55) 0%, transparent 70%),
-    linear-gradient(180deg, #eaf3ff 0%, #f5faff 35%, #ffffff 100%);
+  background: #f4f6fa;            /* DS §3 — single flat page bg */
   color: #0f172a;
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   display: flex; flex-direction: column;
   opacity: 0;
   transition: opacity 0.3s ease;
 }
 .launcher.is-mounted { opacity: 1; }
+.eyebrow {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.12em;
+  text-transform: uppercase; color: #94a3b8;
+}
 
 /* ── Topbar ────────────────────────────────────────────────────────────── */
 .topbar {
@@ -334,27 +310,6 @@ const totalModuleCount = computed(() =>
   display: flex; align-items: center; gap: 8px;
   justify-content: flex-end;
 }
-.icon-btn {
-  position: relative;
-  width: 36px; height: 36px;
-  display: inline-flex; align-items: center; justify-content: center;
-  background: #fff;
-  border: 1px solid #e2e8f0;
-  border-radius: 10px;
-  color: #475569;
-  cursor: pointer;
-  transition: background 0.15s, border-color 0.15s, color 0.15s;
-}
-.icon-btn:hover { background: #f1f5f9; color: #0f172a; }
-.icon-btn svg { width: 18px; height: 18px; }
-.badge-dot {
-  position: absolute; top: 6px; right: 6px;
-  width: 8px; height: 8px;
-  background: #ef4444;
-  border: 2px solid #fff;
-  border-radius: 50%;
-}
-
 .user-wrap { position: relative; }
 .user-btn {
   display: inline-flex; align-items: center; gap: 8px;
@@ -400,178 +355,125 @@ const totalModuleCount = computed(() =>
 .user-menu button.danger { color: #dc2626; }
 .user-menu hr { border: none; border-top: 1px solid #e2e8f0; margin: 4px 0; }
 
-/* ── Hero ──────────────────────────────────────────────────────────────── */
+/* ── Hero (DS Launcher.jsx) ────────────────────────────────────────────── */
 .hero {
-  max-width: 1280px;
   width: 100%;
-  margin: 0 auto;
-  padding: 36px 32px 12px;
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 32px;
-  align-items: center;
+  background: #ffffff;
+  border-bottom: 1px solid #e2e8f0;
 }
-.hero h1 {
-  font-size: clamp(22px, 2.4vw, 30px);
-  font-weight: 800;
-  margin: 0 0 8px;
-  color: #0c4a6e;
-  letter-spacing: -0.3px;
+.hero-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 32px 32px 28px;
+}
+.hero-title {
+  font-family: 'Manrope', 'Inter', system-ui, sans-serif;
+  font-weight: 800; font-size: 30px; letter-spacing: -0.02em;
+  color: #0f172a; margin: 8px 0 6px;
 }
 .hero-sub {
-  font-size: 14px; color: #475569; margin: 0;
-  max-width: 640px; line-height: 1.55;
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 15px; color: #475569; margin: 0;
+  max-width: 720px; line-height: 1.55;
 }
 .hero-sub b { color: #0f172a; font-weight: 700; }
 
-.wheel { width: 280px; height: 154px; flex-shrink: 0; }
+.kpi-strip {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-top: 22px;
+}
+.kpi-tile {
+  position: relative; overflow: hidden;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 16px 16px 14px;
+  box-shadow: 0 1px 3px 0 rgba(0,0,0,0.06);
+}
+.kpi-tile::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0;
+  height: 3px; background: var(--kpi-stripe);
+}
+.kpi-l { font-size: 12px; font-weight: 600; color: #475569; }
+.kpi-v {
+  font-family: 'Manrope', 'Inter', system-ui, sans-serif;
+  font-weight: 700; font-size: 28px;
+  letter-spacing: -0.02em; line-height: 1.1; margin-top: 6px;
+}
 
-/* ── Group grid ────────────────────────────────────────────────────────── */
-.group-grid {
-  max-width: 1280px;
+/* ── Phase sections ────────────────────────────────────────────────────── */
+.phase-wrap {
+  max-width: 1200px;
   width: 100%;
   margin: 0 auto;
-  padding: 16px 32px;
+  padding: 28px 32px 32px;
+}
+.phase { margin-bottom: 28px; }
+.phase-header {
+  display: flex; align-items: center; gap: 12px; margin-bottom: 14px;
+}
+.phase-rail {
+  width: 4px; height: 22px; border-radius: 2px;
+  background: var(--phase-accent);
+  display: inline-block;
+}
+.phase-heading { flex: 1; min-width: 0; }
+.phase-title {
+  font-family: 'Manrope', 'Inter', system-ui, sans-serif;
+  font-size: 18px; font-weight: 700; color: #0f172a;
+  margin: 0; letter-spacing: -0.015em;
+}
+.phase-sub { font-size: 12px; color: #64748b; margin-top: 2px; }
+.phase-count { font-size: 12px; color: #94a3b8; font-weight: 500; white-space: nowrap; }
+.phase-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 20px;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
 }
-.group-card {
-  background: #fff;
-  border: 1px solid #e2e8f0;
-  border-radius: 14px;
-  box-shadow: 0 2px 12px rgba(15, 23, 42, 0.04);
-  overflow: hidden;
-  display: flex; flex-direction: column;
+.phase-tile {
+  display: flex; align-items: flex-start; gap: 12px;
+  background: #fff; border: 1px solid #e2e8f0;
+  border-radius: 10px; padding: 16px;
+  cursor: pointer; text-align: left;
+  font-family: inherit; color: #0f172a;
+  transition: border-color 120ms, box-shadow 120ms, transform 120ms;
+  box-shadow: 0 1px 3px 0 rgba(0,0,0,0.04);
 }
-.gc-header {
-  display: flex; align-items: center; gap: 12px;
-  padding: 14px 18px;
-  background: var(--accent-bg);
-  color: #fff;
-}
-.gc-icon {
-  width: 36px; height: 36px;
-  display: inline-flex; align-items: center; justify-content: center;
-  background: rgba(255, 255, 255, 0.18);
-  border-radius: 10px;
-}
-.gc-icon svg { width: 22px; height: 22px; color: #fff; }
-.gc-title-block { flex: 1; min-width: 0; }
-.gc-title { font-size: 15px; font-weight: 700; }
-.gc-subtitle { font-size: 11.5px; color: var(--accent-text); margin-top: 1px; opacity: 0.9; }
-.gc-count {
-  display: inline-flex; align-items: center; justify-content: center;
-  min-width: 26px; height: 22px; padding: 0 8px;
-  background: rgba(255, 255, 255, 0.22);
-  border-radius: 999px;
-  font-size: 11px; font-weight: 700;
-}
-
-.tile-grid {
-  padding: 14px;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  background: #fff;
-}
-.tile {
-  display: flex; gap: 12px;
-  padding: 12px;
-  background: var(--tile-tint);
-  border: 1px solid transparent;
-  border-radius: 10px;
-  text-align: left;
-  cursor: pointer;
-  font-family: inherit;
-  color: #0f172a;
-  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s;
-}
-.tile:hover:not(.is-disabled) {
+.phase-tile:hover:not(.is-disabled) {
+  border-color: var(--phase-accent);
+  box-shadow: 0 6px 16px 0 rgba(0,0,0,0.08);
   transform: translateY(-1px);
-  border-color: rgba(37, 99, 235, 0.3);
-  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.06);
 }
-.tile.is-disabled { opacity: 0.55; cursor: not-allowed; }
-.tile-icon {
-  width: 36px; height: 36px;
+.phase-tile.is-disabled { opacity: 0.55; cursor: not-allowed; }
+.phase-tile-icon {
+  width: 40px; height: 40px; border-radius: 8px;
+  background: var(--phase-bg); color: var(--phase-color);
   display: inline-flex; align-items: center; justify-content: center;
-  background: #fff;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  color: var(--accent-bg);
   flex-shrink: 0;
 }
-.tile-icon svg { width: 20px; height: 20px; }
-.tile-text { min-width: 0; flex: 1; }
-.tile-code-row { display: flex; align-items: center; gap: 6px; margin-bottom: 2px; flex-wrap: wrap; }
-.tile-code {
-  font-family: ui-monospace, SFMono-Regular, monospace;
-  font-size: 10px; font-weight: 700;
-  color: var(--accent-bg);
-  background: #fff;
-  border: 1px solid currentColor;
-  padding: 1px 6px;
-  border-radius: 4px;
-  letter-spacing: 0.4px;
+.phase-tile-icon svg { width: 22px; height: 22px; }
+.phase-tile-text { flex: 1; min-width: 0; }
+.phase-tile-code-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.phase-tile-code {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px; font-weight: 600;
+  color: var(--phase-color);
+  margin-bottom: 2px;
 }
-.tile-badge {
+.phase-tile-badge {
   font-size: 9.5px; font-weight: 700;
   background: #10b981; color: #fff;
-  padding: 1px 6px;
-  border-radius: 4px;
+  padding: 1px 6px; border-radius: 4px;
   letter-spacing: 0.4px;
 }
-.tile-badge-soon { background: #94a3b8; }
-.tile-label { font-size: 13px; font-weight: 600; line-height: 1.3; }
-.tile-desc { font-size: 11px; color: #64748b; margin-top: 2px; line-height: 1.35; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
-
-/* ── Utility row ───────────────────────────────────────────────────────── */
-.utility-row {
-  max-width: 1280px;
-  width: 100%;
-  margin: 0 auto;
-  padding: 8px 32px 32px;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 20px;
+.phase-tile-badge.soon { background: #94a3b8; }
+.phase-tile-label {
+  font-family: 'Inter', sans-serif;
+  font-size: 14px; font-weight: 600; color: #0f172a;
+  line-height: 1.35; margin-top: 2px;
 }
-.util-card {
-  background: #fff;
-  border: 1px solid #e2e8f0;
-  border-radius: 12px;
-  padding: 14px 18px;
-  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.03);
-}
-.uc-header { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
-.uc-icon {
-  width: 32px; height: 32px;
-  display: inline-flex; align-items: center; justify-content: center;
-  background: var(--accent-bg);
-  color: #fff;
-  border-radius: 8px;
-}
-.uc-icon svg { width: 18px; height: 18px; }
-.uc-title { font-size: 14px; font-weight: 700; color: #0f172a; }
-.uc-sub { font-size: 11.5px; color: #64748b; }
-.util-list {
-  display: flex; flex-wrap: wrap; gap: 6px;
-}
-.util-link {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 6px 10px;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  cursor: pointer;
-  font-family: inherit;
-  font-size: 12.5px;
-  color: #0f172a;
-  transition: background 0.15s, border-color 0.15s;
-}
-.util-link:hover:not(:disabled) { background: #fff; border-color: var(--accent-bg); }
-.util-link:disabled { opacity: 0.5; cursor: not-allowed; }
-.util-link-icon { width: 14px; height: 14px; color: #64748b; }
 
 /* ── Empty / hint ──────────────────────────────────────────────────────── */
 .empty {
@@ -590,8 +492,8 @@ const totalModuleCount = computed(() =>
 
 /* ── Responsive ────────────────────────────────────────────────────────── */
 @media (max-width: 1024px) {
-  .hero { grid-template-columns: 1fr; }
-  .wheel { width: 240px; height: 132px; justify-self: center; }
+  .phase-grid { grid-template-columns: repeat(2, 1fr); }
+  .kpi-strip  { grid-template-columns: repeat(2, 1fr); }
 }
 @media (max-width: 768px) {
   .topbar { grid-template-columns: 1fr auto; padding: 10px 14px; gap: 10px; }
@@ -599,8 +501,9 @@ const totalModuleCount = computed(() =>
   .brand-org { font-size: 12px; }
   .brand-dept { font-size: 11px; }
   .user-name { display: none; }
-  .hero { padding: 24px 16px 8px; }
-  .group-grid, .utility-row { grid-template-columns: 1fr; padding: 12px 16px; gap: 14px; }
-  .tile-grid { grid-template-columns: 1fr; }
+  .hero-inner { padding: 24px 16px; }
+  .phase-wrap { padding: 16px 16px 24px; }
+  .phase-grid { grid-template-columns: 1fr; }
+  .kpi-strip  { grid-template-columns: 1fr 1fr; }
 }
 </style>

@@ -8,6 +8,7 @@ import { useApi } from '@/composables/useApi'
 import { ROLES_TRAINING_MANAGE } from '@/constants/roles'
 import type { TrainingProgram } from '@/api/imm06'
 import StatusBadge from '@/components/common/StatusBadge.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
 
 const props = defineProps<{ name?: string }>()
 const router = useRouter()
@@ -90,18 +91,18 @@ onMounted(load)
 
 <template>
   <div class="page-container animate-fade-in space-y-5">
-    <!-- Header -->
-    <div class="flex items-center justify-between flex-wrap gap-3">
-      <div class="flex items-center gap-3">
-        <button class="btn-ghost text-sm" @click="router.push('/imm06/programs')">← Quay lại</button>
-        <div>
-          <p class="text-xs text-slate-400">Chương trình đào tạo</p>
-          <h1 class="text-xl font-bold text-slate-900">
-            {{ isCreateMode ? 'Tạo chương trình mới' : (currentProgram?.program_name ?? props.name) }}
-          </h1>
-        </div>
-      </div>
-      <div class="flex items-center gap-2 flex-wrap">
+    <PageHeader
+      :title="isCreateMode ? 'Tạo chương trình mới' : (currentProgram?.program_name ?? props.name ?? '')"
+      :subtitle="isCreateMode ? 'Khai báo chương trình đào tạo mới' : 'Chương trình đào tạo'"
+      :back-to="'/imm06/programs'"
+      back-label="← Danh sách chương trình"
+      :breadcrumb="[
+        { label: 'IMM-06 · Đào tạo & Năng lực', to: '/imm06/programs' },
+        { label: 'Chương trình', to: '/imm06/programs' },
+        { label: isCreateMode ? 'Tạo mới' : (currentProgram?.program_name ?? props.name ?? '') },
+      ]"
+    >
+      <template #actions>
         <StatusBadge v-if="currentProgram && !isCreateMode" :state="currentProgram.is_active ? 'Active' : 'Inactive'" size="md" />
         <template v-if="canManage && !editing && !isCreateMode">
           <button class="btn-ghost text-sm" @click="startEdit">Chỉnh sửa</button>
@@ -109,13 +110,13 @@ onMounted(load)
         <template v-if="editing || isCreateMode">
           <button v-if="!isCreateMode" class="btn-ghost text-sm" @click="cancelEdit">Hủy</button>
           <button class="btn-primary text-sm" :disabled="api.loading.value" @click="save">
-            {{ api.loading.value ? 'Đang lưu...' : (isCreateMode ? 'Tạo chương trình' : 'Lưu thay đổi') }}
+            {{ api.loading.value ? 'Đang lưu…' : (isCreateMode ? 'Tạo chương trình' : 'Lưu thay đổi') }}
           </button>
         </template>
-      </div>
-    </div>
+      </template>
+    </PageHeader>
 
-    <div v-if="loading" class="card p-8 text-center text-slate-400">Đang tải...</div>
+    <div v-if="loading" class="card p-8 text-center text-slate-400">Đang tải…</div>
 
     <template v-else-if="currentProgram || isCreateMode">
       <!-- General Info -->

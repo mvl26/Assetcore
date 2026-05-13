@@ -430,6 +430,131 @@ class TestIncidentReport(unittest.TestCase):
             doc.insert(ignore_permissions=True)
 
 
+class TestUserRoleManagement(unittest.TestCase):
+    """Regression: update_user_info phải persist imm_roles vào tabHas Role.
+
+    Bug history: `_sync_imm_roles` từng dùng `user_doc.add_roles(*roles)` —
+    method này gọi `self.save()` mà không set `flags.ignore_permissions = True`,
+    nên Frappe DocPerm check fail SILENT và rollback role changes (FE thấy 200
+    OK + toast thành công nhưng DB không thay đổi). Fix: chỉ mutate child
+    table trong memory, để `_save_user` save 1 lần với ignore_permissions.
+    """
+
+    TEST_EMAIL = "_role_test@assetcore.test"
+
+    @classmethod
+    def setUpClass(cls):
+        # Tạo test user (system user)
+        if not frappe.db.exists("User", cls.TEST_EMAIL):
+            u = frappe.new_doc("User")
+            u.email = cls.TEST_EMAIL
+            u.first_name = "Role"
+            u.last_name = "Test"
+            u.user_type = "System User"
+            u.enabled = 1
+            u.send_welcome_email = 0
+            u.append("roles", {"role": "IMM Technician"})
+            u.flags.ignore_permissions = True
+            u.insert()
+        # Đảm bảo session là admin để qua _assert_admin
+        frappe.set_user("Administrator")
+
+    @classmethod
+    def tearDownClass(cls):
+        if frappe.db.exists("User", cls.TEST_EMAIL):
+            frappe.delete_doc("User", cls.TEST_EMAIL, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def _db_roles(self) -> list[str]:
+        return sorted(
+            r.role for r in frappe.db.sql(
+                "SELECT role FROM `tabHas Role` WHERE parent=%s AND role LIKE 'IMM%%'",
+                (self.TEST_EMAIL,), as_dict=True
+            )
+        )
+
+    def test_update_user_roles_persists_to_has_role_table(self):
+        """Gán roles mới qua update_user_info → DB phải có đúng các role đó."""
+        import json
+        from assetcore.api.user import update_user_info
+
+        frappe.local.form_dict = frappe._dict({
+            "user": self.TEST_EMAIL,
+            "imm_roles": json.dumps([
+                {"role": "IMM Workshop Lead"},
+                {"role": "IMM QA Officer"},
+            ]),
+        })
+        result = update_user_info()
+        frappe.db.commit()
+
+        self.assertTrue(result.get("success"), f"update_user_info failed: {result}")
+        self.assertEqual(self._db_roles(), ["IMM QA Officer", "IMM Workshop Lead"])
+
+    def test_update_user_roles_clears_old_roles(self):
+        """Gán roles mới phải XÓA các IMM role cũ không nằm trong payload."""
+        import json
+        from assetcore.api.user import update_user_info
+
+        # Seed: 3 roles
+        frappe.local.form_dict = frappe._dict({
+            "user": self.TEST_EMAIL,
+            "imm_roles": json.dumps([
+                {"role": "IMM Technician"},
+                {"role": "IMM Storekeeper"},
+                {"role": "IMM Document Officer"},
+            ]),
+        })
+        update_user_info()
+        frappe.db.commit()
+        self.assertEqual(
+            self._db_roles(),
+            ["IMM Document Officer", "IMM Storekeeper", "IMM Technician"],
+        )
+
+        # Replace: chỉ giữ 1
+        frappe.local.form_dict = frappe._dict({
+            "user": self.TEST_EMAIL,
+            "imm_roles": json.dumps([{"role": "IMM Clinical User"}]),
+        })
+        update_user_info()
+        frappe.db.commit()
+        self.assertEqual(self._db_roles(), ["IMM Clinical User"])
+
+    def test_non_admin_cannot_set_roles(self):
+        """Non-admin user phải bị reject 403 khi gọi update_user_info."""
+        import json
+        from assetcore.api.user import update_user_info
+
+        # Tạo non-admin user
+        guest_email = "_role_guest@assetcore.test"
+        if not frappe.db.exists("User", guest_email):
+            u = frappe.new_doc("User")
+            u.email = guest_email
+            u.first_name = "Guest"
+            u.user_type = "System User"
+            u.enabled = 1
+            u.send_welcome_email = 0
+            u.append("roles", {"role": "IMM Clinical User"})  # non-admin role
+            u.flags.ignore_permissions = True
+            u.insert()
+            frappe.db.commit()
+
+        try:
+            frappe.set_user(guest_email)
+            frappe.local.form_dict = frappe._dict({
+                "user": self.TEST_EMAIL,
+                "imm_roles": json.dumps([{"role": "IMM System Admin"}]),
+            })
+            result = update_user_info()
+            self.assertFalse(result.get("success"))
+            self.assertEqual(result.get("http_status"), 403)
+        finally:
+            frappe.set_user("Administrator")
+            frappe.delete_doc("User", guest_email, force=True, ignore_permissions=True)
+            frappe.db.commit()
+
+
 def run_all():
     """Convenience runner for bench console."""
     suite = unittest.TestLoader().loadTestsFromModule(__import__(__name__))

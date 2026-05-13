@@ -66,7 +66,7 @@ const slaBarColor = computed(() => {
 const slaTextColor = computed(() => {
   if (slaPercent.value >= 100) return 'text-red-600'
   if (slaPercent.value >= 75) return 'text-orange-500'
-  return 'text-gray-600'
+  return 'text-slate-600'
 })
 
 // Actions
@@ -109,26 +109,26 @@ function navigateChecklist() {
   <div class="p-6">
     <!-- Header -->
     <div class="flex items-center gap-3 mb-5">
-      <button class="text-gray-400 hover:text-gray-600" @click="router.push('/cm/work-orders')">
+      <button class="text-slate-400 hover:text-slate-600" @click="router.push('/cm/work-orders')">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" />
         </svg>
       </button>
       <div class="flex-1">
         <div class="flex items-center gap-2 flex-wrap">
-          <span class="font-mono text-lg font-bold text-gray-900">{{ wo?.name }}</span>
+          <span class="font-mono text-lg font-bold text-slate-900">{{ wo?.name }}</span>
           <span v-if="wo" :class="['px-2.5 py-1 rounded-full text-xs font-semibold', cmStatusClass(wo.status)]">{{ cmStatusLabel(wo.status) }}</span>
-          <span v-if="wo?.is_repeat_failure" class="px-2 py-0.5 rounded-full text-xs bg-orange-100 text-orange-700">↺ Tái hỏng</span>
-          <span v-if="wo?.sla_breached" class="px-2 py-0.5 rounded-full text-xs bg-red-100 text-red-700 font-semibold">⚠ SLA vi phạm</span>
+          <span v-if="wo?.is_repeat_failure" class="px-2 py-0.5 rounded-full text-xs bg-amber-100 text-amber-700 font-medium">Tái hỏng</span>
+          <span v-if="wo?.sla_breached" class="px-2 py-0.5 rounded-full text-xs bg-red-100 text-red-700 font-semibold">SLA vi phạm</span>
         </div>
-        <div class="text-sm text-gray-500 mt-0.5">{{ wo?.asset_name || wo?.asset_ref }}</div>
+        <div class="text-sm text-slate-500 mt-0.5">{{ wo?.asset_name || wo?.asset_ref }}</div>
       </div>
     </div>
 
     <div v-if="store.loading && !wo" class="space-y-4">
       <div class="bg-white rounded-xl border p-5 animate-pulse">
         <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
-          <div v-for="i in 6" :key="i" class="h-5 bg-gray-100 rounded" />
+          <div v-for="i in 6" :key="i" class="h-5 bg-slate-100 rounded" />
         </div>
       </div>
       <div class="bg-white rounded-xl border p-5 animate-pulse h-40" />
@@ -146,20 +146,20 @@ function navigateChecklist() {
       <div class="md:col-span-3 space-y-5">
         <!-- Asset Info -->
         <div class="bg-white rounded-xl shadow-sm border p-5">
-          <h2 class="font-semibold text-gray-700 mb-3 text-sm uppercase tracking-wide">Thông tin thiết bị</h2>
+          <h2 class="font-semibold text-slate-700 mb-3 text-sm uppercase tracking-wide">Thông tin thiết bị</h2>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
             <div class="col-span-2">
-              <span class="text-gray-500">Thiết bị:</span>
+              <span class="text-slate-500">Thiết bị:</span>
               <span class="font-semibold ml-1">{{ wo.asset_name || wo.asset_ref }}</span>
-              <span v-if="wo.asset_name" class="ml-2 text-xs text-gray-400 font-mono">{{ wo.asset_ref }}</span>
+              <span v-if="wo.asset_name" class="ml-2 text-xs text-slate-400 font-mono">{{ wo.asset_ref }}</span>
             </div>
-            <div v-if="wo.department_name"><span class="text-gray-500">Khoa:</span> <span class="font-medium">{{ wo.department_name }}</span></div>
-            <div v-if="wo.location_name"><span class="text-gray-500">Vị trí:</span> <span class="font-medium">{{ wo.location_name }}</span></div>
-            <div><span class="text-gray-500">Serial:</span> <span class="font-mono text-xs">{{ wo.serial_no || '—' }}</span></div>
-            <div><span class="text-gray-500">Risk Class:</span> <span class="font-medium">{{ wo.risk_class }}</span></div>
-            <div><span class="text-gray-500">Loại SC:</span> <span class="font-medium">{{ repairTypeLabel(wo.repair_type) }}</span></div>
+            <div v-if="wo.department_name"><span class="text-slate-500">Khoa:</span> <span class="font-medium">{{ wo.department_name }}</span></div>
+            <div v-if="wo.location_name"><span class="text-slate-500">Vị trí:</span> <span class="font-medium">{{ wo.location_name }}</span></div>
+            <div><span class="text-slate-500">Serial:</span> <span class="font-mono text-xs">{{ wo.serial_no || '—' }}</span></div>
+            <div><span class="text-slate-500">Risk Class:</span> <span class="font-medium">{{ wo.risk_class }}</span></div>
+            <div><span class="text-slate-500">Loại SC:</span> <span class="font-medium">{{ repairTypeLabel(wo.repair_type) }}</span></div>
             <div>
-              <span class="text-gray-500">Ưu tiên:</span>
+              <span class="text-slate-500">Ưu tiên:</span>
               <span :class="['ml-1 px-1.5 py-0.5 rounded text-xs font-medium', priorityClass(wo.priority)]">{{ priorityLabel(wo.priority) }}</span>
             </div>
           </div>
@@ -172,7 +172,7 @@ function navigateChecklist() {
               class="text-xs bg-purple-100 text-purple-700 hover:bg-purple-200 px-2 py-1 rounded-full transition-colors"
               title="Mở Incident Report nguồn"
             >
-📋 IR: {{ wo.incident_report }} →
+Sự cố {{ wo.incident_report }} →
 </router-link>
             <router-link
               v-if="wo.source_pm_wo"
@@ -180,53 +180,53 @@ function navigateChecklist() {
               class="text-xs bg-blue-100 text-blue-700 hover:bg-blue-200 px-2 py-1 rounded-full transition-colors"
               title="Mở phiếu bảo trì gốc"
             >
-🔧 Phiếu bảo trì: {{ wo.source_pm_wo }} →
+Phiếu bảo trì {{ wo.source_pm_wo }} →
 </router-link>
           </div>
         </div>
 
         <!-- Diagnosis -->
         <div v-if="wo.diagnosis_notes" class="bg-white rounded-xl shadow-sm border p-5">
-          <h2 class="font-semibold text-gray-700 mb-2 text-sm uppercase tracking-wide">Chẩn đoán</h2>
-          <div class="text-sm text-gray-600 whitespace-pre-wrap">{{ wo.diagnosis_notes }}</div>
+          <h2 class="font-semibold text-slate-700 mb-2 text-sm uppercase tracking-wide">Chẩn đoán</h2>
+          <div class="text-sm text-slate-600 whitespace-pre-wrap">{{ wo.diagnosis_notes }}</div>
           <div v-if="wo.root_cause_category" class="mt-2">
-            <span class="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded">{{ rootCauseLabel(wo.root_cause_category) }}</span>
+            <span class="text-xs bg-slate-100 text-slate-600 px-2 py-1 rounded">{{ rootCauseLabel(wo.root_cause_category) }}</span>
           </div>
         </div>
 
         <!-- Spare Parts -->
         <div v-if="wo.spare_parts_used?.length" class="bg-white rounded-xl shadow-sm border p-5">
-          <h2 class="font-semibold text-gray-700 mb-3 text-sm uppercase tracking-wide">
+          <h2 class="font-semibold text-slate-700 mb-3 text-sm uppercase tracking-wide">
             Vật tư sử dụng ({{ wo.spare_parts_used.length }} mục)
           </h2>
           <div class="overflow-x-auto">
 <table class="w-full text-sm">
-            <thead class="bg-gray-50">
+            <thead class="bg-slate-50">
               <tr>
-                <th class="text-left px-3 py-2 text-xs font-medium text-gray-500">Vật tư</th>
-                <th class="text-right px-3 py-2 text-xs font-medium text-gray-500">SL</th>
-                <th class="text-right px-3 py-2 text-xs font-medium text-gray-500">Thành tiền</th>
-                <th class="text-center px-3 py-2 text-xs font-medium text-gray-500">Phiếu XK</th>
+                <th class="text-left px-3 py-2 text-xs font-medium text-slate-500">Vật tư</th>
+                <th class="text-right px-3 py-2 text-xs font-medium text-slate-500">SL</th>
+                <th class="text-right px-3 py-2 text-xs font-medium text-slate-500">Thành tiền</th>
+                <th class="text-center px-3 py-2 text-xs font-medium text-slate-500">Phiếu XK</th>
               </tr>
             </thead>
             <tbody class="divide-y">
               <tr v-for="p in wo.spare_parts_used" :key="p.idx">
                 <td class="px-3 py-2">
                   <div class="font-medium">{{ p.item_name }}</div>
-                  <div class="text-xs text-gray-400 font-mono">{{ p.item_code }}</div>
+                  <div class="text-xs text-slate-400 font-mono">{{ p.item_code }}</div>
                 </td>
-                <td class="px-3 py-2 text-right text-gray-600">{{ p.qty }} {{ p.uom }}</td>
-                <td class="px-3 py-2 text-right text-gray-600">{{ p.total_cost?.toLocaleString('vi-VN') }}đ</td>
+                <td class="px-3 py-2 text-right text-slate-600">{{ p.qty }} {{ p.uom }}</td>
+                <td class="px-3 py-2 text-right text-slate-600">{{ p.total_cost?.toLocaleString('vi-VN') }}đ</td>
                 <td class="px-3 py-2 text-center">
-                  <span v-if="p.stock_entry_ref" class="text-green-600 text-xs">✓ {{ p.stock_entry_ref }}</span>
-                  <span v-else class="text-red-500 text-xs">⚠ Chưa có</span>
+                  <span v-if="p.stock_entry_ref" class="text-emerald-700 text-xs font-mono">{{ p.stock_entry_ref }}</span>
+                  <span v-else class="text-red-600 text-xs">Chưa có</span>
                 </td>
               </tr>
             </tbody>
-            <tfoot class="bg-gray-50">
+            <tfoot class="bg-slate-50">
               <tr>
-                <td colspan="2" class="px-3 py-2 text-sm text-gray-500 text-right font-medium">Tổng:</td>
-                <td class="px-3 py-2 text-right font-semibold text-gray-900">{{ wo.total_parts_cost?.toLocaleString('vi-VN') }}đ</td>
+                <td colspan="2" class="px-3 py-2 text-sm text-slate-500 text-right font-medium">Tổng:</td>
+                <td class="px-3 py-2 text-right font-semibold text-slate-900">{{ wo.total_parts_cost?.toLocaleString('vi-VN') }}đ</td>
                 <td></td>
               </tr>
             </tfoot>
@@ -237,13 +237,13 @@ function navigateChecklist() {
         <!-- Repair Checklist -->
         <div v-if="wo.repair_checklist?.length" class="bg-white rounded-xl shadow-sm border p-5">
           <div class="flex items-center justify-between mb-3">
-            <h2 class="font-semibold text-gray-700 text-sm uppercase tracking-wide">Checklist nghiệm thu</h2>
-            <span class="text-xs text-gray-500">
+            <h2 class="font-semibold text-slate-700 text-sm uppercase tracking-wide">Checklist nghiệm thu</h2>
+            <span class="text-xs text-slate-500">
               {{ wo.repair_checklist.filter(r => r.result === 'Pass').length }}/{{ wo.repair_checklist.length }} Đạt
             </span>
           </div>
           <!-- Progress -->
-          <div class="h-1.5 bg-gray-100 rounded-full mb-4 overflow-hidden">
+          <div class="h-1.5 bg-slate-100 rounded-full mb-4 overflow-hidden">
             <div
               class="h-1.5 bg-green-500 rounded-full"
               :style="{ width: `${Math.round(wo.repair_checklist.filter(r => r.result === 'Pass').length / wo.repair_checklist.length * 100)}%` }"
@@ -257,7 +257,7 @@ function navigateChecklist() {
                 'flex items-start gap-3 p-3 rounded-lg border',
                 item.result === 'Pass' ? 'bg-green-50 border-green-200' :
                 item.result === 'Fail' ? 'bg-red-50 border-red-200' :
-                item.result === 'N/A' ? 'bg-gray-50 border-gray-200' : 'border-gray-200'
+                item.result === 'N/A' ? 'bg-slate-50 border-slate-200' : 'border-slate-200'
               ]"
             >
               <span
@@ -265,12 +265,12 @@ function navigateChecklist() {
                 'shrink-0 px-1.5 py-0.5 rounded text-xs font-bold',
                 item.result === 'Pass' ? 'bg-green-500 text-white' :
                 item.result === 'Fail' ? 'bg-red-500 text-white' :
-                item.result === 'N/A' ? 'bg-gray-400 text-white' : 'bg-gray-200 text-gray-500'
+                item.result === 'N/A' ? 'bg-slate-400 text-white' : 'bg-slate-200 text-slate-500'
               ]">{{ item.result ? resultLabel(item.result) : '?' }}</span>
               <div>
-                <div class="text-sm text-gray-800">{{ item.test_description }}</div>
-                <div class="text-xs text-gray-400">{{ item.test_category }}</div>
-                <div v-if="item.notes" class="text-xs text-gray-600 mt-1 italic">{{ item.notes }}</div>
+                <div class="text-sm text-slate-800">{{ item.test_description }}</div>
+                <div class="text-xs text-slate-400">{{ item.test_category }}</div>
+                <div v-if="item.notes" class="text-xs text-slate-600 mt-1 italic">{{ item.notes }}</div>
               </div>
             </div>
           </div>
@@ -281,39 +281,39 @@ function navigateChecklist() {
       <div class="md:col-span-2 space-y-4">
         <!-- SLA Indicator -->
         <div class="bg-white rounded-xl shadow-sm border p-5">
-          <h2 class="font-semibold text-gray-700 mb-3 text-sm">Chỉ số SLA</h2>
+          <h2 class="font-semibold text-slate-700 mb-3 text-sm">Chỉ số SLA</h2>
           <div class="flex items-center justify-between mb-1">
-            <span class="text-xs text-gray-500">Đã trôi: {{ (elapsed / 3600).toFixed(1) }}h / {{ wo.sla_target_hours || '—' }}h SLA</span>
+            <span class="text-xs text-slate-500">Đã trôi: {{ (elapsed / 3600).toFixed(1) }}h / {{ wo.sla_target_hours || '—' }}h SLA</span>
             <span :class="['text-xs font-semibold', slaTextColor]">{{ slaPercent }}%</span>
           </div>
-          <div class="h-3 bg-gray-100 rounded-full overflow-hidden mb-2">
+          <div class="h-3 bg-slate-100 rounded-full overflow-hidden mb-2">
             <div :class="['h-3 rounded-full transition-all', slaBarColor]" :style="{ width: `${slaPercent}%` }" />
           </div>
-          <div class="text-center font-mono text-xl font-bold text-gray-700 mt-2">{{ elapsedDisplay }}</div>
+          <div class="text-center font-mono text-xl font-bold text-slate-700 mt-2">{{ elapsedDisplay }}</div>
         </div>
 
         <!-- KTV & Timeline -->
         <div class="bg-white rounded-xl shadow-sm border p-5">
-          <h2 class="font-semibold text-gray-700 mb-3 text-sm">Trạng thái</h2>
+          <h2 class="font-semibold text-slate-700 mb-3 text-sm">Trạng thái</h2>
           <div class="space-y-2 text-sm">
             <div class="flex justify-between">
-              <span class="text-gray-500">KTV:</span>
+              <span class="text-slate-500">KTV:</span>
               <span class="font-medium">{{ wo.assigned_to || '—' }}</span>
             </div>
             <div class="flex justify-between">
-              <span class="text-gray-500">Mở lúc:</span>
-              <span class="text-gray-700">{{ wo.open_datetime?.slice(0,16) }}</span>
+              <span class="text-slate-500">Mở lúc:</span>
+              <span class="text-slate-700">{{ wo.open_datetime?.slice(0,16) }}</span>
             </div>
             <div v-if="wo.assigned_datetime" class="flex justify-between">
-              <span class="text-gray-500">Phân công:</span>
-              <span class="text-gray-700">{{ wo.assigned_datetime?.slice(0,16) }}</span>
+              <span class="text-slate-500">Phân công:</span>
+              <span class="text-slate-700">{{ wo.assigned_datetime?.slice(0,16) }}</span>
             </div>
             <div v-if="wo.completion_datetime" class="flex justify-between">
-              <span class="text-gray-500">Hoàn thành:</span>
-              <span class="text-gray-700">{{ wo.completion_datetime?.slice(0,16) }}</span>
+              <span class="text-slate-500">Hoàn thành:</span>
+              <span class="text-slate-700">{{ wo.completion_datetime?.slice(0,16) }}</span>
             </div>
             <div v-if="wo.mttr_hours" class="flex justify-between">
-              <span class="text-gray-500">Thời gian sửa chữa TB:</span>
+              <span class="text-slate-500">Thời gian sửa chữa TB:</span>
               <span :class="['font-semibold', wo.sla_breached ? 'text-red-600' : 'text-green-600']">{{ wo.mttr_hours }}h</span>
             </div>
           </div>
@@ -321,7 +321,7 @@ function navigateChecklist() {
 
         <!-- Action Bar -->
         <div class="bg-white rounded-xl shadow-sm border p-5">
-          <h2 class="font-semibold text-gray-700 mb-3 text-sm">Thao tác</h2>
+          <h2 class="font-semibold text-slate-700 mb-3 text-sm">Thao tác</h2>
           <div class="space-y-2">
             <!-- Open → Assign (modal) -->
             <template v-if="wo.status === 'Open'">
@@ -392,28 +392,28 @@ Không thể sửa chữa
             </template>
 
             <!-- Terminal states -->
-            <div v-if="wo.status === 'Completed'" class="text-center py-2 text-green-600 font-semibold text-sm">
-              ✓ Đã hoàn thành
+            <div v-if="wo.status === 'Completed'" class="text-center py-2 text-emerald-600 font-semibold text-sm">
+              Đã hoàn thành
             </div>
             <div v-if="wo.status === 'Cannot Repair'" class="text-center py-2 text-red-600 font-semibold text-sm">
-              ✗ Không thể sửa chữa
+              Không thể sửa chữa
             </div>
           </div>
         </div>
 
         <!-- Vật tư summary (right panel) -->
         <div class="bg-white rounded-xl shadow-sm border p-4 text-sm">
-          <div class="flex justify-between text-gray-500">
+          <div class="flex justify-between text-slate-500">
             <span>Vật tư:</span>
-            <span class="font-medium text-gray-900">{{ wo.spare_parts_used?.length || 0 }} mục</span>
+            <span class="font-medium text-slate-900">{{ wo.spare_parts_used?.length || 0 }} mục</span>
           </div>
-          <div v-if="wo.total_parts_cost" class="flex justify-between text-gray-500 mt-1">
+          <div v-if="wo.total_parts_cost" class="flex justify-between text-slate-500 mt-1">
             <span>Chi phí:</span>
-            <span class="font-medium text-gray-900">{{ wo.total_parts_cost.toLocaleString('vi-VN') }}đ</span>
+            <span class="font-medium text-slate-900">{{ wo.total_parts_cost.toLocaleString('vi-VN') }}đ</span>
           </div>
-          <div class="flex justify-between text-gray-500 mt-1">
+          <div class="flex justify-between text-slate-500 mt-1">
             <span>Checklist:</span>
-            <span class="font-medium text-gray-900">{{ wo.repair_checklist?.filter(r => r.result === 'Pass').length || 0 }}/{{ wo.repair_checklist?.length || 0 }} Đạt</span>
+            <span class="font-medium text-slate-900">{{ wo.repair_checklist?.filter(r => r.result === 'Pass').length || 0 }}/{{ wo.repair_checklist?.length || 0 }} Đạt</span>
           </div>
         </div>
       </div>
@@ -426,12 +426,12 @@ Không thể sửa chữa
         <h3 class="font-bold text-lg mb-4">Phân công KTV</h3>
         <div class="space-y-3 mb-5">
           <div>
-            <label for="assign-email" class="block text-sm text-gray-600 mb-1">Email KTV *</label>
-            <input id="assign-email" v-model="assignEmail" type="email" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="ktv@hospital.vn" />
+            <label for="assign-email" class="block text-sm text-slate-600 mb-1">Email KTV *</label>
+            <input id="assign-email" v-model="assignEmail" type="email" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" placeholder="ktv@hospital.vn" />
           </div>
           <div>
-            <label for="assign-priority" class="block text-sm text-gray-600 mb-1">Ưu tiên</label>
-            <select id="assign-priority" v-model="assignPriority" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+            <label for="assign-priority" class="block text-sm text-slate-600 mb-1">Ưu tiên</label>
+            <select id="assign-priority" v-model="assignPriority" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
               <option value="">Giữ nguyên</option>
               <option value="Normal">Bình thường</option>
               <option value="Urgent">Gấp</option>
@@ -440,7 +440,7 @@ Không thể sửa chữa
           </div>
         </div>
         <div class="flex justify-end gap-3">
-          <button class="px-4 py-2 border border-gray-300 rounded-lg text-sm" @click="showAssignModal = false">Hủy</button>
+          <button class="px-4 py-2 border border-slate-300 rounded-lg text-sm" @click="showAssignModal = false">Hủy</button>
           <button :disabled="!assignEmail || submitting" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium disabled:opacity-50" @click="doAssign">
             {{ submitting ? 'Đang xử lý...' : 'Phân công' }}
           </button>
@@ -454,10 +454,10 @@ Không thể sửa chữa
     <div v-if="showCannotRepairModal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
       <div class="bg-white rounded-2xl p-6 w-full max-w-md mx-4 shadow-2xl">
         <h3 class="font-bold text-lg text-red-700 mb-2">Không thể sửa chữa</h3>
-        <p class="text-sm text-gray-600 mb-4">Thiết bị sẽ được đặt trạng thái "Ngừng hoạt động".</p>
-        <textarea v-model="cannotReason" rows="3" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm mb-4" placeholder="Lý do không thể sửa chữa..." />
+        <p class="text-sm text-slate-600 mb-4">Thiết bị sẽ được đặt trạng thái "Ngừng hoạt động".</p>
+        <textarea v-model="cannotReason" rows="3" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm mb-4" placeholder="Lý do không thể sửa chữa..." />
         <div class="flex justify-end gap-3">
-          <button class="px-4 py-2 border border-gray-300 rounded-lg text-sm" @click="showCannotRepairModal = false">Hủy</button>
+          <button class="px-4 py-2 border border-slate-300 rounded-lg text-sm" @click="showCannotRepairModal = false">Hủy</button>
           <button :disabled="!cannotReason || submitting" class="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium disabled:opacity-50" @click="doCannotRepair">
             {{ submitting ? 'Đang xử lý...' : 'Xác nhận' }}
           </button>

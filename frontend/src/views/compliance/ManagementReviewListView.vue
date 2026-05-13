@@ -31,6 +31,11 @@ const chips = computed(() => {
 })
 const activeFilterCount = computed(() => chips.value.length)
 
+function chairDisplay(r: ManagementReview): string {
+  const x = r as ManagementReview & { chair_name?: string }
+  return x.chair_name || r.chair || '—'
+}
+
 function buildFilters() {
   const f: Record<string, unknown> = {}
   if (filterStatus.value) f.status = filterStatus.value
@@ -94,8 +99,8 @@ onMounted(() => load(1))
   <div class="page-container animate-fade-in space-y-5">
     <PageHeader
       title="Soát xét quản lý"
-      :subtitle="`Tổng ${pagination.total} cuộc soát xét`"
-      :breadcrumb="[{ label: 'IMM-16 · Tuân thủ' }, { label: 'Soát xét quản lý' }]"
+      :subtitle="`IMM-16 · Theo dõi tuân thủ — Tổng ${pagination.total} cuộc soát xét`"
+      :breadcrumb="[{ label: 'IMM-16 · Theo dõi tuân thủ', to: '/compliance/scorecard' }, { label: 'Soát xét quản lý' }]"
     >
       <template #actions>
         <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
@@ -131,8 +136,12 @@ onMounted(() => load(1))
         <button v-if="activeFilterCount > 0" class="text-red-500 hover:text-red-700 font-medium" @click="resetFilters">Xóa tất cả</button>
       </div>
       <div v-if="loading" class="p-4"><SkeletonLoader variant="table" :rows="5" /></div>
-      <div v-else-if="!items.length" class="flex flex-col items-center justify-center py-16 text-slate-400">
-        <p class="text-sm font-medium">Chưa có cuộc soát xét nào</p>
+      <div v-else-if="!items.length" class="flex flex-col items-center justify-center py-16">
+        <p class="text-sm text-slate-500">Chưa có cuộc soát xét quản lý phù hợp.</p>
+        <button v-if="activeFilterCount > 0" class="text-xs text-brand-600 hover:text-brand-700 font-medium underline mt-2" @click="resetFilters">
+          Xóa bộ lọc để xem tất cả
+        </button>
+        <button v-else class="btn-primary mt-3" @click="openCreate">Tạo cuộc soát xét đầu tiên</button>
       </div>
       <div v-else class="overflow-x-auto">
         <table class="min-w-full divide-y divide-slate-100">
@@ -151,20 +160,22 @@ onMounted(() => load(1))
             <tr v-for="r in items" :key="r.name" class="hover:bg-slate-50">
               <td class="table-cell">
                 <div class="font-medium text-slate-900">{{ r.quarter }}</div>
-                <div class="text-xs text-slate-400 font-mono mt-0.5">{{ r.name }}</div>
+                <div class="font-mono text-xs text-brand-700 mt-0.5">{{ r.name }}</div>
               </td>
               <td class="table-cell text-slate-600">{{ formatDate(r.review_date) }}</td>
-              <td class="table-cell text-slate-600">{{ (r as any).chair_name || r.chair || '—' }}</td>
+              <td class="table-cell text-slate-800">{{ chairDisplay(r) }}</td>
               <td class="table-cell">
-                <span v-if="r.scorecard_ref" class="font-mono text-xs text-blue-600">{{ r.scorecard_ref }}</span>
+                <span v-if="r.scorecard_ref" class="font-mono text-xs text-brand-700 font-semibold">{{ r.scorecard_ref }}</span>
                 <span v-else class="text-slate-300">—</span>
               </td>
               <td class="table-cell"><StatusBadge :state="r.status" /></td>
               <td class="table-cell text-slate-600">{{ formatDate(r.next_review_date) }}</td>
               <td class="table-cell text-right">
-                <button v-if="r.status !== 'Closed'"
-                        class="text-xs text-emerald-700 hover:text-emerald-900 font-medium"
-                        @click="openFinalize(r)">Đóng & xuất biên bản</button>
+                <button
+                  v-if="r.status !== 'Closed'"
+                  class="text-xs text-emerald-700 hover:text-emerald-800 font-medium"
+                  @click="openFinalize(r)"
+                >Đóng và xuất biên bản</button>
                 <span v-else class="text-xs text-slate-400">—</span>
               </td>
             </tr>
@@ -196,8 +207,10 @@ onMounted(() => load(1))
         </div>
       </div>
       <template #footer>
-        <button class="btn-ghost" @click="showCreate = false">Hủy</button>
-        <button class="btn-primary" :disabled="api.loading.value" @click="submitCreate">Tạo</button>
+        <button class="btn-ghost" @click="showCreate = false">Huỷ</button>
+        <button class="btn-primary" :disabled="api.loading.value" @click="submitCreate">
+          {{ api.loading.value ? 'Đang lưu…' : 'Tạo soát xét' }}
+        </button>
       </template>
     </BaseModal>
 
@@ -214,7 +227,7 @@ onMounted(() => load(1))
         <div>
           <div class="flex items-center justify-between mb-2">
             <label class="form-label !mb-0">Hành động đầu ra</label>
-            <button class="text-xs text-blue-600 hover:underline" @click="addAction">+ Thêm hành động</button>
+            <button class="text-xs text-brand-600 hover:text-brand-700 font-medium hover:underline" @click="addAction">Thêm hành động</button>
           </div>
           <table class="min-w-full divide-y divide-slate-100">
             <thead>
@@ -231,7 +244,9 @@ onMounted(() => load(1))
                 <td class="table-cell"><input v-model="a.owner" class="form-input text-sm" placeholder="user@hospital.vn" /></td>
                 <td class="table-cell"><input v-model="a.due_date" type="date" class="form-input text-sm" /></td>
                 <td class="table-cell text-right">
-                  <button class="text-xs text-red-500 hover:text-red-700" @click="removeAction(i)">×</button>
+                  <button class="text-xs text-red-600 hover:text-red-700 font-medium" aria-label="Xoá hành động" @click="removeAction(i)">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+                  </button>
                 </td>
               </tr>
             </tbody>
@@ -239,8 +254,10 @@ onMounted(() => load(1))
         </div>
       </div>
       <template #footer>
-        <button class="btn-ghost" @click="showFinalize = false">Hủy</button>
-        <button class="btn-primary" :disabled="api.loading.value" @click="submitFinalize">Đóng soát xét</button>
+        <button class="btn-ghost" @click="showFinalize = false">Huỷ</button>
+        <button class="btn-primary" :disabled="api.loading.value" @click="submitFinalize">
+          {{ api.loading.value ? 'Đang đóng…' : 'Đóng soát xét' }}
+        </button>
       </template>
     </BaseModal>
   </div>

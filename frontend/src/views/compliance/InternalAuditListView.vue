@@ -83,8 +83,8 @@ onMounted(() => load(1))
   <div class="page-container animate-fade-in space-y-5">
     <PageHeader
       title="Kiểm toán nội bộ"
-      :subtitle="`Tổng ${pagination.total} đợt kiểm toán`"
-      :breadcrumb="[{ label: 'IMM-16 · Tuân thủ' }, { label: 'Kiểm toán nội bộ' }]"
+      :subtitle="`IMM-16 · Theo dõi tuân thủ — Tổng ${pagination.total} đợt kiểm toán`"
+      :breadcrumb="[{ label: 'IMM-16 · Theo dõi tuân thủ', to: '/compliance/scorecard' }, { label: 'Kiểm toán' }]"
     >
       <template #actions>
         <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
@@ -122,8 +122,12 @@ onMounted(() => load(1))
         <button v-if="activeFilterCount > 0" class="text-red-500 hover:text-red-700 font-medium" @click="resetFilters">Xóa tất cả</button>
       </div>
       <div v-if="loading" class="p-4"><SkeletonLoader variant="table" :rows="6" /></div>
-      <div v-else-if="!items.length" class="flex flex-col items-center justify-center py-16 text-slate-400">
-        <p class="text-sm font-medium">Chưa có kiểm toán nào</p>
+      <div v-else-if="!items.length" class="flex flex-col items-center justify-center py-16">
+        <p class="text-sm text-slate-500">Chưa có đợt kiểm toán phù hợp.</p>
+        <button v-if="activeFilterCount > 0" class="text-xs text-brand-600 hover:text-brand-700 font-medium underline mt-2" @click="resetFilters">
+          Xóa bộ lọc để xem tất cả
+        </button>
+        <button v-else class="btn-primary mt-3" @click="openCreate">Tạo đợt kiểm toán đầu tiên</button>
       </div>
       <div v-else class="overflow-x-auto">
         <table class="min-w-full divide-y divide-slate-100">
@@ -144,7 +148,7 @@ onMounted(() => load(1))
                 @click="router.push(`/compliance/audits/${a.name}`)">
               <td class="table-cell">
                 <div class="font-medium text-slate-900">{{ a.audit_code }}</div>
-                <div class="text-xs text-slate-400 font-mono mt-0.5">{{ a.name }}</div>
+                <div class="font-mono text-xs text-brand-700 mt-0.5">{{ a.name }}</div>
               </td>
               <td class="table-cell text-slate-600">{{ a.audit_type }}</td>
               <td class="table-cell text-slate-600">{{ formatDate(a.planned_start) }}</td>
@@ -188,8 +192,10 @@ onMounted(() => load(1))
         </div>
       </div>
       <template #footer>
-        <button class="btn-ghost" @click="showCreate = false">Hủy</button>
-        <button class="btn-primary" :disabled="api.loading.value" @click="submitCreate">Tạo</button>
+        <button class="btn-ghost" @click="showCreate = false">Huỷ</button>
+        <button class="btn-primary" :disabled="api.loading.value" @click="submitCreate">
+          {{ api.loading.value ? 'Đang lưu…' : 'Tạo kiểm toán' }}
+        </button>
       </template>
     </BaseModal>
   </div>

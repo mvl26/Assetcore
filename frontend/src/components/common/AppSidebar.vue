@@ -5,10 +5,29 @@
 import { computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useSidebar } from '@/composables/useSidebar'
+import { useAuthStore } from '@/stores/auth'
+import {
+  Roles,
+  ROLES_ADMIN_ONLY,
+  ROLES_ADMIN_USER,
+  ROLES_PM_MANAGE,
+  ROLES_CAL_MANAGE,
+  ROLES_DOC_APPROVE,
+  ROLES_COMPLIANCE_MANAGE,
+  ROLES_AUDIT_READ,
+  ROLES_STOCK_MANAGE,
+  ROLES_PLANNING,
+  ROLES_PROCUREMENT,
+  type RoleName,
+} from '@/constants/roles'
 
 const router = useRouter()
 const route  = useRoute()
+const auth   = useAuthStore()
 const { collapsed, toggle, sidebarClass } = useSidebar()
+
+// Superuser bypass — Frappe-level admin sees mọi nav item
+const isSuperuser = computed(() => auth.hasAnyRole(['System Manager', 'Administrator']))
 
 // ─── Icons ────────────────────────────────────────────────────────────────────
 const SZ = 'fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24" class="w-[18px] h-[18px]"'
@@ -48,31 +67,31 @@ const ICONS: Record<string, string> = {
 
 // ─── Module catalog ───────────────────────────────────────────────────────────
 // Mỗi entry = một sidebar context. moduleId được set ở route.meta.moduleId.
-interface NavItem  { label: string; path: string; icon: string }
+interface NavItem  { label: string; path: string; icon: string; roles?: readonly RoleName[] }
 interface ModuleNav { code: string; title: string; icon: string; items: NavItem[] }
 
 const MODULE_NAV: Record<string, ModuleNav> = {
   imm01: {
     code: 'IMM-01', title: 'Nhu cầu & Dự toán', icon: 'inbox',
     items: [
-      { label: 'Đề xuất nhu cầu',  path: '/needs-requests',    icon: 'inbox' },
-      { label: 'Kế hoạch mua sắm', path: '/procurement-plans', icon: 'list'  },
+      { label: 'Đề xuất nhu cầu',  path: '/needs-requests',    icon: 'inbox', roles: ROLES_PLANNING },
+      { label: 'Kế hoạch mua sắm', path: '/procurement-plans', icon: 'list',  roles: ROLES_PLANNING },
     ],
   },
   imm02: {
     code: 'IMM-02', title: 'Thông số kỹ thuật', icon: 'template',
     items: [
-      { label: 'Hồ sơ kỹ thuật', path: '/tech-specs', icon: 'template' },
+      { label: 'Hồ sơ kỹ thuật', path: '/tech-specs', icon: 'template', roles: ROLES_PROCUREMENT },
     ],
   },
   imm03: {
     code: 'IMM-03', title: 'Đánh giá NCC & Mua sắm', icon: 'chart',
     items: [
-      { label: 'Hồ sơ Nhà cung cấp',    path: '/vendor-profiles',       icon: 'user'     },
-      { label: 'Đánh giá NCC',          path: '/vendor-evaluations',    icon: 'chart'    },
-      { label: 'Danh mục NCC duyệt',    path: '/approved-vendors',      icon: 'shield'   },
-      { label: 'Quyết định mua sắm',    path: '/procurement-decisions', icon: 'contract' },
-      { label: 'Đơn hàng mua',          path: '/purchases',             icon: 'cart'     },
+      { label: 'Hồ sơ Nhà cung cấp',    path: '/vendor-profiles',       icon: 'user',     roles: ROLES_PROCUREMENT },
+      { label: 'Đánh giá NCC',          path: '/vendor-evaluations',    icon: 'chart',    roles: ROLES_PROCUREMENT },
+      { label: 'Danh mục NCC duyệt',    path: '/approved-vendors',      icon: 'shield',   roles: ROLES_PROCUREMENT },
+      { label: 'Quyết định mua sắm',    path: '/procurement-decisions', icon: 'contract', roles: ROLES_PROCUREMENT },
+      { label: 'Đơn hàng mua',          path: '/purchases',             icon: 'cart',     roles: ROLES_PROCUREMENT },
     ],
   },
   imm04: {
@@ -85,7 +104,7 @@ const MODULE_NAV: Record<string, ModuleNav> = {
     code: 'IMM-05', title: 'Đăng ký & Hồ sơ', icon: 'folder',
     items: [
       { label: 'Kho tài liệu',  path: '/documents',          icon: 'folder' },
-      { label: 'Yêu cầu hồ sơ', path: '/documents/requests', icon: 'inbox'  },
+      { label: 'Yêu cầu hồ sơ', path: '/documents/requests', icon: 'inbox', roles: ROLES_DOC_APPROVE },
     ],
   },
   imm06: {
@@ -102,8 +121,8 @@ const MODULE_NAV: Record<string, ModuleNav> = {
       { label: 'Tổng quan bảo trì', path: '/pm/dashboard',   icon: 'chart'    },
       { label: 'Lệnh bảo trì',      path: '/pm/work-orders', icon: 'wrench'   },
       { label: 'Lịch bảo trì',      path: '/pm/calendar',    icon: 'calendar' },
-      { label: 'Kế hoạch bảo trì',  path: '/pm/schedules',   icon: 'list'     },
-      { label: 'Mẫu bảng kiểm',     path: '/pm/templates',   icon: 'template' },
+      { label: 'Kế hoạch bảo trì',  path: '/pm/schedules',   icon: 'list',     roles: ROLES_PM_MANAGE },
+      { label: 'Mẫu bảng kiểm',     path: '/pm/templates',   icon: 'template', roles: ROLES_PM_MANAGE },
     ],
   },
   imm09: {
@@ -111,8 +130,8 @@ const MODULE_NAV: Record<string, ModuleNav> = {
     items: [
       { label: 'Tổng quan sửa chữa',     path: '/cm/dashboard',   icon: 'chart'    },
       { label: 'Lệnh sửa chữa',          path: '/cm/work-orders', icon: 'tool'     },
-      { label: 'Yêu cầu cập nhật firmware', path: '/cm/firmware', icon: 'code'     },
-      { label: 'Thời gian sửa chữa TB',  path: '/cm/mttr',        icon: 'trending' },
+      { label: 'Yêu cầu cập nhật firmware', path: '/cm/firmware', icon: 'code',     roles: [Roles.SYS_ADMIN, Roles.WORKSHOP, Roles.DOC_OFFICER] as const },
+      { label: 'Thời gian sửa chữa trung bình', path: '/cm/mttr',  icon: 'trending' },
     ],
   },
   imm11: {
@@ -120,15 +139,15 @@ const MODULE_NAV: Record<string, ModuleNav> = {
     items: [
       { label: 'Tổng quan hiệu chuẩn', path: '/calibration/dashboard', icon: 'chart'    },
       { label: 'Phiếu hiệu chuẩn',     path: '/calibration',           icon: 'gauge'    },
-      { label: 'Lịch hiệu chuẩn',      path: '/calibration/schedules', icon: 'calendar' },
+      { label: 'Lịch hiệu chuẩn',      path: '/calibration/schedules', icon: 'calendar', roles: ROLES_CAL_MANAGE },
     ],
   },
   imm12: {
     code: 'IMM-12', title: 'Sự cố & RCA/CAPA', icon: 'alert',
     items: [
-      { label: 'Dashboard sự cố', path: '/incidents/dashboard', icon: 'chart'  },
+      { label: 'Tổng quan sự cố', path: '/incidents/dashboard', icon: 'chart'  },
       { label: 'Danh sách sự cố', path: '/incidents/list',      icon: 'alert'  },
-      { label: 'CAPA',            path: '/capas',               icon: 'shield' },
+      { label: 'CAPA',            path: '/capas',               icon: 'shield', roles: [Roles.SYS_ADMIN, Roles.QA, Roles.OPS_MANAGER] as const },
     ],
   },
   imm13: {
@@ -151,22 +170,22 @@ const MODULE_NAV: Record<string, ModuleNav> = {
       { label: 'Phụ tùng',      path: '/spare-parts',         icon: 'cog'       },
       { label: 'Phiếu kho',     path: '/stock-movements',     icon: 'arrows'    },
       { label: 'Kho hàng',      path: '/warehouses',          icon: 'warehouse' },
-      { label: 'Đơn vị tính',   path: '/inventory/uom',       icon: 'uom'       },
-      { label: 'Dự báo phụ tùng', path: '/inventory/forecasts', icon: 'chart'   },
-      { label: 'Watchlist',     path: '/inventory/watchlist', icon: 'shield'    },
+      { label: 'Đơn vị tính',   path: '/inventory/uom',       icon: 'uom',      roles: ROLES_STOCK_MANAGE },
+      { label: 'Dự báo phụ tùng', path: '/inventory/forecasts', icon: 'chart',  roles: ROLES_STOCK_MANAGE },
+      { label: 'Watchlist',     path: '/inventory/watchlist', icon: 'shield',   roles: ROLES_STOCK_MANAGE },
     ],
   },
   imm16: {
     code: 'IMM-16', title: 'Theo dõi tuân thủ', icon: 'log',
     items: [
-      { label: 'Quy tắc tuân thủ',   path: '/compliance/rules',     icon: 'shield'   },
+      { label: 'Quy tắc tuân thủ',   path: '/compliance/rules',     icon: 'shield',   roles: ROLES_COMPLIANCE_MANAGE },
       { label: 'Phát hiện',          path: '/compliance/findings',  icon: 'alert'    },
       { label: 'Kiểm toán nội bộ',   path: '/compliance/audits',    icon: 'clipboard' },
-      { label: 'Bảng điểm',          path: '/compliance/scorecard', icon: 'chart'    },
-      { label: 'Soát xét quản lý',   path: '/compliance/mr',        icon: 'log'      },
+      { label: 'Bảng điểm',          path: '/compliance/scorecard', icon: 'chart',    roles: ROLES_COMPLIANCE_MANAGE },
+      { label: 'Soát xét quản lý',   path: '/compliance/mr',        icon: 'log',      roles: ROLES_COMPLIANCE_MANAGE },
       { label: 'Bản đồ nhiệt',       path: '/compliance/heatmap',   icon: 'grid'     },
-      { label: 'CAPA',               path: '/capas',                icon: 'shield'   },
-      { label: 'Nhật ký kiểm toán',  path: '/audit-trail',          icon: 'database' },
+      { label: 'CAPA',               path: '/capas',                icon: 'shield',   roles: [Roles.SYS_ADMIN, Roles.QA, Roles.OPS_MANAGER] as const },
+      { label: 'Nhật ký kiểm toán',  path: '/audit-trail',          icon: 'database', roles: ROLES_AUDIT_READ },
     ],
   },
   master: {
@@ -176,16 +195,16 @@ const MODULE_NAV: Record<string, ModuleNav> = {
       { label: 'Quét mã QR',         path: '/qr-scan',         icon: 'qr'       },
       { label: 'Model thiết bị',     path: '/device-models',   icon: 'template' },
       { label: 'Nhà cung cấp',       path: '/suppliers',       icon: 'building' },
-      { label: 'Hợp đồng dịch vụ',   path: '/service-contracts', icon: 'contract' },
-      { label: 'Chính sách SLA',     path: '/sla-policies',    icon: 'clock'    },
+      { label: 'Hợp đồng dịch vụ',   path: '/service-contracts', icon: 'contract', roles: [Roles.SYS_ADMIN, Roles.OPS_MANAGER, Roles.DOC_OFFICER, Roles.WORKSHOP, Roles.QA] as const },
+      { label: 'Chính sách SLA',     path: '/sla-policies',    icon: 'clock',    roles: ROLES_ADMIN_ONLY },
     ],
   },
   system: {
     code: '', title: 'Hệ thống', icon: 'cog',
     items: [
       { label: 'Dashboard tổng quan', path: '/dashboard',         icon: 'chart'    },
-      { label: 'Người dùng',          path: '/user-profiles',     icon: 'users'    },
-      { label: 'Dữ liệu tham chiếu',  path: '/reference-data',    icon: 'database' },
+      { label: 'Người dùng',          path: '/user-profiles',     icon: 'users',    roles: ROLES_ADMIN_USER },
+      { label: 'Dữ liệu tham chiếu',  path: '/reference-data',    icon: 'database', roles: ROLES_ADMIN_ONLY },
       { label: 'Phê duyệt chờ',       path: '/approvals/pending', icon: 'inbox'    },
     ],
   },
@@ -199,7 +218,16 @@ const currentModule = computed<ModuleNav | null>(() => {
   const id = currentModuleId.value
   return id ? (MODULE_NAV[id] ?? null) : null
 })
-const navItems = computed<NavItem[]>(() => currentModule.value?.items ?? [])
+// Role-aware filter: superuser luôn thấy tất cả; ngược lại lọc theo item.roles.
+// Item không có roles (undefined hoặc []) = mở cho mọi user đã xác thực.
+function itemVisible(item: NavItem): boolean {
+  if (isSuperuser.value) return true
+  if (!item.roles || item.roles.length === 0) return true
+  return auth.hasAnyRole(item.roles)
+}
+const navItems = computed<NavItem[]>(() =>
+  (currentModule.value?.items ?? []).filter(itemVisible),
+)
 
 // ─── Active item (longest prefix match) ───────────────────────────────────────
 const NAME_TO_PATH: Record<string, string> = {

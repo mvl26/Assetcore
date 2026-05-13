@@ -4,10 +4,11 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useImm03Store } from '@/stores/imm03'
 import type { EvalState } from '@/types/imm03'
-import { stateLabel, stateSlug, formatVnDate } from '@/utils/wave2Labels'
+import { stateLabel, formatVnDate } from '@/utils/wave2Labels'
 import PageHeader from '@/components/common/PageHeader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar, { type FilterChip } from '@/components/common/ListFilterBar.vue'
+import StatusBadge from '@/components/common/StatusBadge.vue'
 
 const router = useRouter()
 const store  = useImm03Store()
@@ -79,8 +80,8 @@ onMounted(() => store.fetchEvaluations())
     </PageHeader>
 
     <ListFilterBar
-      :show="showFilters"
       v-model:search="filters.search"
+      :show="showFilters"
       :chips="activeChips"
       search-placeholder="Tìm theo mã phiếu, hồ sơ..."
       @apply="applyFilters"
@@ -122,8 +123,13 @@ onMounted(() => store.fetchEvaluations())
             </tr>
           </thead>
           <tbody>
-            <tr v-for="ev in store.evaluations" :key="ev.name" class="clickable" @click="goDetail(ev.name)">
-              <td>{{ ev.name }}</td>
+            <tr
+              v-for="(ev, idx) in store.evaluations" :key="ev.name"
+              class="clickable animate-fade-in"
+              :class="[`stagger-${Math.min(idx + 1, 8)}`]"
+              @click="goDetail(ev.name)"
+            >
+              <td><span class="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded text-slate-700">{{ ev.name }}</span></td>
               <td>
                 <button class="link-cell" :title="`Lọc: ${ev.spec_ref}`" @click.stop="quickFilter('spec_ref', ev.spec_ref)">
                   {{ ev.spec_ref }}
@@ -131,7 +137,8 @@ onMounted(() => store.fetchEvaluations())
               </td>
               <td>{{ formatVnDate(ev.draft_date) }}</td>
               <td>
-                <button v-if="ev.recommended_candidate" class="link-cell"
+                <button
+v-if="ev.recommended_candidate" class="link-cell"
                         :title="`Lọc: ${ev.recommended_candidate}`"
                         @click.stop="quickFilter('recommended_candidate', ev.recommended_candidate)">
                   {{ ev.recommended_candidate }}
@@ -139,10 +146,11 @@ onMounted(() => store.fetchEvaluations())
                 <span v-else class="text-slate-400">—</span>
               </td>
               <td>
-                <button :class="['badge', 'state-' + stateSlug(ev.workflow_state), 'badge-btn']"
+                <button
+type="button" class="pill-btn"
                         :title="`Lọc trạng thái: ${stateLabel(ev.workflow_state)}`"
                         @click.stop="quickFilter('workflow_state', ev.workflow_state)">
-                  {{ stateLabel(ev.workflow_state) }}
+                  <StatusBadge :state="ev.workflow_state" />
                 </button>
               </td>
             </tr>
@@ -159,20 +167,4 @@ onMounted(() => store.fetchEvaluations())
   </div>
 </template>
 
-<style scoped>
-.alert-close { background: none; border: none; cursor: pointer; font-size: 1.25rem; float: right; }
-.data-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
-.data-table th, .data-table td { padding: 0.75rem 1rem; text-align: left; border-bottom: 1px solid #f1f5f9; }
-.data-table th { background: #f9fafb; font-weight: 600; font-size: 0.85rem; color: #475569; }
-.data-table tr.clickable { cursor: pointer; }
-.data-table tr.clickable:hover { background: #f9fafb; }
-.link-cell { background: none; border: none; padding: 0; color: #334155; cursor: pointer; }
-.link-cell:hover { color: #2563eb; text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 2px; }
-.badge { display: inline-block; padding: 0.15rem 0.6rem; border-radius: 999px; font-size: 0.75rem; font-weight: 600; }
-.badge-btn { border: none; cursor: pointer; }
-.badge-btn:hover { box-shadow: 0 0 0 2px rgba(0,0,0,0.06); }
-.badge.state-draft, .badge.state-open-rfq { background: #e5e7eb; color: #374151; }
-.badge.state-quotation-received { background: #fef3c7; color: #92400e; }
-.badge.state-evaluated { background: #d1fae5; color: #065f46; }
-.badge.state-cancelled { background: #fee2e2; color: #b91c1c; }
-</style>
+<!-- styles trong list-view.css -->

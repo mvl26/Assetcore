@@ -58,7 +58,7 @@ async function handleSubmit() {
     <!-- Header -->
     <div class="flex items-center gap-3 mb-6">
       <button
-        class="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+        class="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
         @click="router.push(`/cm/work-orders/${id}`)"
       >
         <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -92,7 +92,7 @@ async function handleSubmit() {
               'px-3 py-1.5 rounded-lg text-sm font-medium border transition-all duration-150',
               rootCause === rc.value
                 ? 'bg-purple-600 border-purple-600 text-white'
-                : 'bg-white border-gray-300 text-gray-700 hover:border-purple-400 hover:text-purple-600'
+                : 'bg-white border-slate-300 text-slate-700 hover:border-purple-400 hover:text-purple-600'
             ]"
             @click="rootCause = rc.value"
           >
@@ -116,7 +116,7 @@ async function handleSubmit() {
             'w-full border rounded-lg px-3 py-2.5 text-sm resize-none transition-colors',
             diagnosisDetail.length > 0 && !detailValid
               ? 'border-red-300 focus:ring-red-200 focus:border-red-400'
-              : 'border-gray-300 focus:ring-purple-200 focus:border-purple-400'
+              : 'border-slate-300 focus:ring-purple-200 focus:border-purple-400'
           ]"
           placeholder="Mô tả kỹ thuật: bộ phận bị hỏng, triệu chứng quan sát, các bước chẩn đoán đã thực hiện..."
         />
@@ -191,7 +191,7 @@ async function handleSubmit() {
       <!-- Actions -->
       <div class="flex justify-end gap-3 pt-2 pb-6">
         <button
-          class="px-5 py-2.5 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+          class="px-5 py-2.5 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
           @click="router.push(`/cm/work-orders/${id}`)"
         >
           Hủy

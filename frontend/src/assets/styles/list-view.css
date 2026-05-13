@@ -1,0 +1,96 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+   list-view.css — Shared styles for IMM-01/02/03 list views.
+   Maps the legacy .data-table / .link-cell / .alert-error patterns onto the
+   AssetCore Design System (colors_and_type.css §3).
+   Imported globally so scoped <style> blocks can be kept terse.
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9375rem;
+}
+.data-table th,
+.data-table td {
+  padding: 0.85rem 1.1rem;
+  text-align: left;
+  border-bottom: 1px solid #f1f5f9;
+  white-space: nowrap;
+}
+.data-table th {
+  background: #f8fafc;
+  font-weight: 600;
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #475569;
+}
+.data-table .num { text-align: right; }
+.data-table tr.clickable { cursor: pointer; transition: background 100ms; }
+.data-table tr.clickable:hover { background: rgba(248, 250, 252, 0.7); }
+
+.link-cell {
+  background: none;
+  border: none;
+  padding: 0;
+  color: #334155;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+.link-cell:hover {
+  color: #2563eb;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 2px;
+}
+
+/* Numeric thresholds */
+.data-table .ok   { color: #047857; font-weight: 500; }
+.data-table .warn { color: #b45309; font-weight: 600; }
+.data-table .over { color: #b91c1c; font-weight: 700; }
+
+/* Alert error inline banner (used at top of list views) */
+.alert-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  color: #b91c1c;
+  font-size: 0.875rem;
+}
+.alert-error .alert-close {
+  background: none;
+  border: 0;
+  cursor: pointer;
+  font-size: 1.25rem;
+  color: #b91c1c;
+  line-height: 1;
+}
+
+/* Generic pill button (state filters) — pairs with StatusBadge for click-to-filter */
+.pill-btn {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+.pill-btn:hover { filter: brightness(0.96); }
+
+/* Priority pills (P1..P4) — DS semantic palette */
+.priority-pill {
+  display: inline-flex; align-items: center;
+  padding: 2px 8px; border-radius: 9999px;
+  font-size: 11px; font-weight: 600;
+  border: 0; cursor: pointer;
+  transition: box-shadow 120ms;
+}
+.priority-pill:hover { box-shadow: 0 0 0 2px rgba(0,0,0,0.06); }
+.priority-pill.priority-P1 { background: #fef2f2; color: #b91c1c; }
+.priority-pill.priority-P2 { background: #fffbeb; color: #a16207; }
+.priority-pill.priority-P3 { background: #eff6ff; color: #1d4ed8; }
+.priority-pill.priority-P4 { background: #f1f5f9; color: #475569; }

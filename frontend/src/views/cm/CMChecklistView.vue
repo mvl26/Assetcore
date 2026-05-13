@@ -54,16 +54,16 @@ function resultButtonClass(item: RepairChecklistRow, result: 'Pass' | 'Fail' | '
   if (result === 'Pass') {
     return active
       ? `${base} bg-green-600 border-green-600 text-white`
-      : `${base} border-gray-300 text-gray-600 hover:border-green-400 hover:text-green-600`
+      : `${base} border-slate-300 text-slate-600 hover:border-green-400 hover:text-green-600`
   }
   if (result === 'Fail') {
     return active
       ? `${base} bg-red-600 border-red-600 text-white`
-      : `${base} border-gray-300 text-gray-600 hover:border-red-400 hover:text-red-600`
+      : `${base} border-slate-300 text-slate-600 hover:border-red-400 hover:text-red-600`
   }
   return active
-    ? `${base} bg-gray-500 border-gray-500 text-white`
-    : `${base} border-gray-300 text-gray-600 hover:border-gray-400`
+    ? `${base} bg-slate-500 border-gray-500 text-white`
+    : `${base} border-slate-300 text-slate-600 hover:border-slate-400`
 }
 
 async function handleComplete() {
@@ -94,7 +94,7 @@ async function handleComplete() {
     <!-- Header -->
     <div class="flex items-center gap-3 mb-6">
       <button
-        class="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+        class="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
         @click="router.push(`/cm/work-orders/${id}`)"
       >
         <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -125,15 +125,15 @@ async function handleComplete() {
           <div
             :class="[
               'h-3 rounded-full transition-all duration-500',
-              hasAnyFail ? 'bg-red-500' : progressPct === 100 ? 'bg-green-500' : 'bg-blue-500'
+              hasAnyFail ? 'bg-red-600' : progressPct === 100 ? 'bg-emerald-500' : 'bg-brand-600'
             ]"
             :style="{ width: `${progressPct}%` }"
           />
         </div>
         <div class="flex justify-between mt-2 text-xs text-slate-400">
           <span>{{ progressPct }}% hoàn thành</span>
-          <span v-if="hasAnyFail" class="text-red-500 font-medium">⚠ Có mục Fail — không thể hoàn thành</span>
-          <span v-else-if="allAnswered && progressPct === 100" class="text-green-600 font-medium">✓ Tất cả đã Pass</span>
+          <span v-if="hasAnyFail" class="text-red-600 font-medium">Có mục Không đạt — không thể hoàn thành</span>
+          <span v-else-if="allAnswered && progressPct === 100" class="text-emerald-600 font-medium">Tất cả đã Đạt</span>
         </div>
       </div>
 
@@ -148,9 +148,9 @@ async function handleComplete() {
           :key="item.idx"
           :class="[
             'card transition-all duration-200',
-            item.result === 'Pass' ? 'border-green-200 bg-green-50' :
-            item.result === 'Fail' ? 'border-red-200 bg-red-50' :
-            item.result === 'N/A' ? 'border-gray-200 bg-gray-50' : 'border-slate-200'
+            item.result === 'Pass' ? 'border-emerald-200 bg-emerald-50/60' :
+            item.result === 'Fail' ? 'border-red-200 bg-red-50/60' :
+            item.result === 'N/A' ? 'border-slate-200 bg-slate-50/60' : 'border-slate-200'
           ]"
         >
           <div class="flex items-start justify-between gap-4">
@@ -165,7 +165,7 @@ async function handleComplete() {
                 <span v-if="item.measured_value">Đo được: <strong>{{ item.measured_value }}</strong></span>
               </div>
               <p v-if="item.result === 'Fail'" class="mt-1.5 text-xs font-semibold text-red-600">
-                ⚠ Kết quả Không đạt — không thể hoàn thành nghiệm thu
+                Kết quả Không đạt — không thể hoàn thành nghiệm thu
               </p>
             </div>
             <!-- Result buttons -->
@@ -182,7 +182,7 @@ async function handleComplete() {
               type="text"
               :class="[
                 'w-full border rounded px-3 py-1.5 text-xs',
-                item.result === 'Fail' ? 'border-red-300 bg-white' : 'border-gray-300'
+                item.result === 'Fail' ? 'border-red-300 bg-white' : 'border-slate-300'
               ]"
               placeholder="Ghi chú (tùy chọn)..."
             />
@@ -223,7 +223,7 @@ async function handleComplete() {
       <!-- Actions -->
       <div class="flex justify-between items-center pt-2 pb-6">
         <button
-          class="px-5 py-2.5 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+          class="px-5 py-2.5 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
           @click="router.push(`/cm/work-orders/${id}`)"
         >
           Quay lại

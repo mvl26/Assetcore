@@ -76,10 +76,10 @@ onMounted(load)
     <div class="flex items-start justify-between flex-wrap gap-3">
       <div>
         <button class="text-sm text-slate-500 hover:text-slate-700 mb-1" @click="router.push(rca?.incident_report ? `/incidents/${rca.incident_report}` : '/incidents/list')">← Quay lại</button>
-        <h1 class="text-xl font-semibold text-gray-800">{{ name }}</h1>
+        <h1 class="text-xl font-semibold text-slate-800">{{ name }}</h1>
         <div class="flex items-center gap-2 mt-1">
           <span class="text-xs px-2 py-0.5 rounded bg-indigo-100 text-indigo-700">{{ rca.status }}</span>
-          <span v-if="rca.rca_method" class="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-700">{{ rca.rca_method }}</span>
+          <span v-if="rca.rca_method" class="text-xs px-2 py-0.5 rounded bg-slate-100 text-slate-700">{{ rca.rca_method }}</span>
           <button v-if="rca.incident_report" class="text-xs text-blue-600 hover:underline font-mono" @click="router.push(`/incidents/${rca.incident_report}`)">
             ← {{ rca.incident_report }}
           </button>
@@ -88,11 +88,11 @@ onMounted(load)
     </div>
 
     <div v-if="err" class="bg-red-50 text-red-700 p-3 rounded-lg text-sm">{{ err }}</div>
-    <div v-if="loading" class="text-center text-gray-400 py-12">Đang tải...</div>
+    <div v-if="loading" class="text-center text-slate-400 py-12">Đang tải...</div>
 
-    <div v-else class="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
+    <div v-else class="bg-white rounded-xl border border-slate-200 divide-y divide-slate-100">
       <div class="p-6">
-        <div class="text-sm font-semibold text-gray-800 mb-3">5-Why Analysis</div>
+        <div class="text-sm font-semibold text-slate-800 mb-3">5-Why Analysis</div>
         <div class="space-y-3">
           <div v-for="step in fiveWhy" :key="step.why_number" class="grid grid-cols-12 gap-2 items-start">
             <div class="col-span-1 pt-2 text-center text-sm font-mono text-indigo-600">#{{ step.why_number }}</div>
@@ -100,14 +100,14 @@ onMounted(load)
               <label :for="`why-q-${step.why_number}`" class="sr-only">Why {{ step.why_number }} question</label>
               <textarea
 :id="`why-q-${step.why_number}`" v-model="step.why_question" :disabled="isCompleted" rows="2"
-                class="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm disabled:bg-gray-50"
+                class="w-full border border-slate-300 rounded-lg px-2 py-1.5 text-sm disabled:bg-slate-50"
                 placeholder="Câu hỏi Why..."></textarea>
             </div>
             <div class="col-span-7">
               <label :for="`why-a-${step.why_number}`" class="sr-only">Why {{ step.why_number }} answer</label>
               <textarea
 :id="`why-a-${step.why_number}`" v-model="step.why_answer" :disabled="isCompleted" rows="2"
-                class="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm disabled:bg-gray-50"
+                class="w-full border border-slate-300 rounded-lg px-2 py-1.5 text-sm disabled:bg-slate-50"
                 placeholder="Câu trả lời Why..."></textarea>
             </div>
           </div>
@@ -119,31 +119,31 @@ onMounted(load)
 
       <div class="p-6 space-y-4">
         <div>
-          <label for="rca-root-cause" class="block text-sm font-medium text-gray-700 mb-1">Root Cause <span class="text-red-500">*</span></label>
+          <label for="rca-root-cause" class="block text-sm font-medium text-slate-700 mb-1">Root Cause <span class="text-red-500">*</span></label>
           <textarea
 id="rca-root-cause" v-model="rootCause" :disabled="isCompleted" rows="2"
-            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm disabled:bg-gray-50"
+            class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm disabled:bg-slate-50"
             placeholder="Nguyên nhân gốc rễ xác định được..."></textarea>
         </div>
         <div>
-          <label for="rca-corrective" class="block text-sm font-medium text-gray-700 mb-1">Corrective Action <span class="text-red-500">*</span></label>
+          <label for="rca-corrective" class="block text-sm font-medium text-slate-700 mb-1">Corrective Action <span class="text-red-500">*</span></label>
           <textarea
 id="rca-corrective" v-model="correctiveAction" :disabled="isCompleted" rows="3"
-            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm disabled:bg-gray-50"
+            class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm disabled:bg-slate-50"
             placeholder="Hành động khắc phục cụ thể..."></textarea>
         </div>
         <div>
-          <label for="rca-preventive" class="block text-sm font-medium text-gray-700 mb-1">Preventive Action</label>
+          <label for="rca-preventive" class="block text-sm font-medium text-slate-700 mb-1">Preventive Action</label>
           <textarea
 id="rca-preventive" v-model="preventiveAction" :disabled="isCompleted" rows="3"
-            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm disabled:bg-gray-50"
+            class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm disabled:bg-slate-50"
             placeholder="Hành động phòng ngừa tái diễn..."></textarea>
         </div>
         <div>
-          <label for="rca-notes" class="block text-sm font-medium text-gray-700 mb-1">Ghi chú</label>
+          <label for="rca-notes" class="block text-sm font-medium text-slate-700 mb-1">Ghi chú</label>
           <textarea
 id="rca-notes" v-model="rcaNotes" :disabled="isCompleted" rows="2"
-            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm disabled:bg-gray-50"></textarea>
+            class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm disabled:bg-slate-50"></textarea>
         </div>
       </div>
 
@@ -155,13 +155,13 @@ id="rca-notes" v-model="rcaNotes" :disabled="isCompleted" rows="2"
       <div v-if="!isCompleted" class="p-6 flex justify-end gap-2">
         <button
 :disabled="saving || !rootCause.trim() || !correctiveAction.trim()"
-          class="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium"
+          class="btn-primary"
           @click="submit">
-          {{ saving ? 'Đang gửi...' : 'Submit RCA (tạo CAPA)' }}
+          {{ saving ? 'Đang gửi...' : 'Gửi RCA và tạo CAPA' }}
         </button>
       </div>
-      <div v-else class="p-6 bg-green-50 text-green-700 text-sm">
-        ✓ RCA đã hoàn thành {{ rca.completed_date ? `(${rca.completed_date})` : '' }}
+      <div v-else class="alert-success">
+        RCA đã hoàn thành {{ rca.completed_date ? `(${rca.completed_date})` : '' }}
       </div>
     </div>
   </div>

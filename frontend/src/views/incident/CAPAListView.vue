@@ -177,7 +177,7 @@ class="text-xs font-medium"
               <td class="px-4 py-3">
                 <button
                   class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium transition-all hover:ring-2 hover:ring-offset-1 hover:ring-current/50"
-                  :class="STATUS_COLOR[capa.status] || 'bg-gray-100 text-gray-600'"
+                  :class="STATUS_COLOR[capa.status] || 'bg-slate-100 text-slate-600'"
                   :title="`Lọc: ${STATUS_LABEL[capa.status] || capa.status}`"
                   @click.stop="quickFilter('status', capa.status)"
                 >

@@ -82,14 +82,18 @@ onMounted(load)
 
 <template>
   <div class="page-container animate-fade-in">
-    <PageHeader title="Tồn kho" :subtitle="`Tổng ${total} dòng tồn (phụ tùng × kho)`">
+    <PageHeader
+      title="Tồn kho"
+      :subtitle="`IMM-15 · Tồn kho phụ tùng — ${total} dòng tồn (phụ tùng × kho)`"
+      :breadcrumb="[{ label: 'IMM-15 · Tồn kho phụ tùng', to: '/inventory/dashboard' }, { label: 'Tồn kho' }]"
+    >
       <template #actions>
         <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
         <button class="btn-primary shrink-0" @click="router.push('/stock-movements/new')">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
           </svg>
-          Phiếu mới
+          Tạo phiếu kho
         </button>
       </template>
     </PageHeader>
@@ -124,26 +128,26 @@ onMounted(load)
         <button v-if="activeFilterCount > 0" class="text-red-500 hover:text-red-700 font-medium" @click="resetFilters">Xóa tất cả</button>
       </div>
 
-      <div v-if="loading && !rows.length" class="text-center py-12 text-slate-400">Đang tải...</div>
-      <div v-else-if="rows.length === 0" class="flex flex-col items-center justify-center py-16 text-slate-400">
-        <p class="text-sm">Không có dữ liệu tồn.</p>
-        <button v-if="activeFilterCount > 0" class="text-xs text-blue-500 hover:text-blue-700 underline mt-2" @click="resetFilters">
+      <div v-if="loading && !rows.length" class="text-center py-12 text-slate-400">Đang tải…</div>
+      <div v-else-if="rows.length === 0" class="flex flex-col items-center justify-center py-16">
+        <p class="text-sm text-slate-500">Không có dữ liệu tồn.</p>
+        <button v-if="activeFilterCount > 0" class="text-xs text-brand-600 hover:text-brand-700 font-medium underline mt-2" @click="resetFilters">
           Xóa bộ lọc để xem tất cả
         </button>
       </div>
 
       <div v-else class="overflow-x-auto">
         <table class="w-full text-sm">
-          <thead class="bg-slate-50 border-b border-slate-100">
+          <thead class="bg-slate-50 border-b border-slate-200">
             <tr>
-              <th class="px-4 py-3 text-left text-xs font-semibold text-slate-500">Kho</th>
-              <th class="px-4 py-3 text-left text-xs font-semibold text-slate-500">Phụ tùng</th>
-              <th class="px-4 py-3 text-right text-xs font-semibold text-slate-500">Tồn</th>
-              <th class="px-4 py-3 text-right text-xs font-semibold text-slate-500 hidden md:table-cell">Giữ chỗ</th>
-              <th class="px-4 py-3 text-right text-xs font-semibold text-slate-500">Còn lại</th>
-              <th class="px-4 py-3 text-right text-xs font-semibold text-slate-500 hidden lg:table-cell">Min</th>
-              <th class="px-4 py-3 text-right text-xs font-semibold text-slate-500 hidden lg:table-cell">Giá trị</th>
-              <th class="px-4 py-3 text-left text-xs font-semibold text-slate-500 hidden md:table-cell">Giao dịch cuối</th>
+              <th class="table-header">Kho</th>
+              <th class="table-header">Phụ tùng</th>
+              <th class="table-header text-right">Tồn</th>
+              <th class="table-header text-right hidden md:table-cell">Giữ chỗ</th>
+              <th class="table-header text-right">Còn lại</th>
+              <th class="table-header text-right hidden lg:table-cell">Min</th>
+              <th class="table-header text-right hidden lg:table-cell">Giá trị</th>
+              <th class="table-header hidden md:table-cell">Giao dịch cuối</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-50">
@@ -163,25 +167,25 @@ v-for="r in rows" :key="r.name"
                 <p v-if="r.warehouse_code && r.warehouse_code !== r.warehouse_name" class="text-[10px] text-slate-400 font-mono">{{ r.warehouse_code }}</p>
               </td>
               <td class="px-4 py-3">
-                <p class="font-medium text-slate-800">{{ r.part_name }}</p>
+                <p class="font-medium text-slate-900">{{ r.part_name }}</p>
                 <div class="flex items-center gap-1 mt-0.5">
-                  <p class="text-[11px] text-slate-400 font-mono">{{ r.spare_part }}</p>
-                  <span v-if="r.is_critical" class="text-[9px] px-1 py-0 rounded bg-red-50 text-red-700 font-bold">!</span>
+                  <p class="font-mono text-xs text-brand-700">{{ r.spare_part }}</p>
+                  <span v-if="r.is_critical" class="text-[10px] px-1 py-0 rounded bg-red-50 text-red-700 font-semibold border border-red-100">Quan trọng</span>
                 </div>
               </td>
               <td
-class="px-4 py-3 text-right font-semibold"
-                  :class="r.is_low ? 'text-red-600' : 'text-slate-800'">
+class="px-4 py-3 text-right font-semibold tabular-nums"
+                  :class="r.is_low ? 'text-red-600' : 'text-slate-900'">
                 {{ r.qty_on_hand }} <span class="text-xs font-normal text-slate-400">{{ r.uom }}</span>
               </td>
-              <td class="px-4 py-3 text-right text-slate-500 hidden md:table-cell">{{ r.reserved_qty }}</td>
-              <td class="px-4 py-3 text-right text-emerald-600 font-medium">{{ r.available_qty }}</td>
-              <td class="px-4 py-3 text-right text-xs text-slate-400 hidden lg:table-cell">
+              <td class="px-4 py-3 text-right text-slate-500 tabular-nums hidden md:table-cell">{{ r.reserved_qty }}</td>
+              <td class="px-4 py-3 text-right text-emerald-600 font-medium tabular-nums">{{ r.available_qty }}</td>
+              <td class="px-4 py-3 text-right text-xs text-slate-500 tabular-nums hidden lg:table-cell">
                 {{ r.min_level || '—' }}
-                <span v-if="r.is_low" class="ml-1 text-red-500 font-bold">Low</span>
+                <span v-if="r.is_low" class="ml-1 text-red-600 font-semibold">Tồn thấp</span>
               </td>
-              <td class="px-4 py-3 text-right text-sm text-slate-600 hidden lg:table-cell">{{ vnd(r.stock_value) }}</td>
-              <td class="px-4 py-3 text-xs text-slate-400 hidden md:table-cell">{{ formatDt(r.last_movement_date) }}</td>
+              <td class="px-4 py-3 text-right text-sm text-slate-700 tabular-nums hidden lg:table-cell">{{ vnd(r.stock_value) }}</td>
+              <td class="px-4 py-3 text-xs text-slate-500 hidden md:table-cell">{{ formatDt(r.last_movement_date) }}</td>
             </tr>
           </tbody>
         </table>
@@ -190,8 +194,8 @@ class="px-4 py-3 text-right font-semibold"
       <div v-if="total > PAGE_SIZE" class="flex items-center justify-between px-4 py-3 border-t border-slate-100 text-sm text-slate-500">
         <span>{{ (page - 1) * PAGE_SIZE + 1 }}–{{ Math.min(page * PAGE_SIZE, total) }} / {{ total }}</span>
         <div class="flex gap-2">
-          <button :disabled="page === 1" class="px-3 py-1 rounded border border-slate-200 disabled:opacity-40 hover:bg-slate-50" @click="prevPage">‹</button>
-          <button :disabled="page * PAGE_SIZE >= total" class="px-3 py-1 rounded border border-slate-200 disabled:opacity-40 hover:bg-slate-50" @click="nextPage">›</button>
+          <button :disabled="page === 1" class="px-3 py-1 rounded border border-slate-200 disabled:opacity-40 hover:bg-slate-50" @click="prevPage">Trước</button>
+          <button :disabled="page * PAGE_SIZE >= total" class="px-3 py-1 rounded border border-slate-200 disabled:opacity-40 hover:bg-slate-50" @click="nextPage">Sau</button>
         </div>
       </div>
     </div>

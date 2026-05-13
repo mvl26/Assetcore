@@ -123,21 +123,21 @@ onMounted(load)
 
     <template v-else-if="finding">
       <PageHeader
+        :back-to="'/compliance/findings'"
         :title="finding.name"
-        :subtitle="`Quy tắc: ${finding.rule}`"
+        :subtitle="`IMM-16 · Theo dõi tuân thủ — Quy tắc ${finding.rule}`"
         :breadcrumb="[
-          { label: 'IMM-16 · Tuân thủ' },
+          { label: 'IMM-16 · Theo dõi tuân thủ', to: '/compliance/scorecard' },
           { label: 'Phát hiện', to: '/compliance/findings' },
           { label: finding.name },
         ]"
       >
         <template #actions>
-          <button class="btn-ghost text-sm" @click="router.push('/compliance/findings')">Quay lại</button>
           <button v-if="canConfirm" class="btn-primary text-sm" @click="showConfirm = true">Xác nhận NC</button>
-          <button v-if="canConfirm" class="btn-ghost text-sm" @click="showFP = true">Đánh dấu sai</button>
+          <button v-if="canConfirm" class="btn-secondary text-sm" @click="showFP = true">Đánh dấu sai</button>
           <button v-if="canWaive" class="btn-ghost text-sm" @click="showWaive = true">Miễn áp dụng</button>
           <button v-if="canCreateCapa" class="btn-primary text-sm" @click="showCreateCapa = true">Tạo CAPA</button>
-          <button v-if="finding.status === 'Confirmed NC' && !finding.capa_ref" class="btn-ghost text-sm" @click="showLinkCapa = true">Liên kết CAPA có sẵn</button>
+          <button v-if="finding.status === 'Confirmed NC' && !finding.capa_ref" class="btn-secondary text-sm" @click="showLinkCapa = true">Liên kết CAPA</button>
         </template>
       </PageHeader>
 
@@ -145,54 +145,60 @@ onMounted(load)
       <div class="card p-5 space-y-4">
         <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div>
-            <p class="text-xs text-slate-400 mb-1">Mức độ</p>
+            <p class="t-eyebrow mb-1.5">Mức độ</p>
             <StatusBadge :state="finding.severity" />
           </div>
           <div>
-            <p class="text-xs text-slate-400 mb-1">Trạng thái</p>
+            <p class="t-eyebrow mb-1.5">Trạng thái</p>
             <StatusBadge :state="finding.status" />
           </div>
           <div>
-            <p class="text-xs text-slate-400 mb-1">Ngày phát hiện</p>
+            <p class="t-eyebrow mb-1.5">Ngày phát hiện</p>
             <p class="text-sm text-slate-700">{{ formatDate(finding.detected_date) }}</p>
           </div>
           <div>
-            <p class="text-xs text-slate-400 mb-1">Đánh giá ngày</p>
+            <p class="t-eyebrow mb-1.5">Đánh giá ngày</p>
             <p class="text-sm text-slate-700">{{ formatDate(finding.evaluation_date) }}</p>
           </div>
         </div>
 
         <div class="grid grid-cols-2 gap-4 pt-4 border-t border-slate-100">
           <div>
-            <p class="text-xs text-slate-400 mb-1">Thiết bị</p>
-            <button v-if="finding.asset" class="font-medium text-blue-600 hover:text-blue-800 underline-offset-2 hover:underline"
-                    @click="router.push(`/assets/${finding.asset}`)">
+            <p class="t-eyebrow mb-1.5">Thiết bị</p>
+            <button
+              v-if="finding.asset" class="font-medium text-brand-700 hover:text-brand-800 underline-offset-2 hover:underline"
+              @click="router.push(`/assets/${finding.asset}`)"
+            >
               {{ formatAssetDisplay(finding.asset_name, finding.asset).main }}
             </button>
             <span v-else class="text-slate-400">—</span>
-            <div v-if="finding.asset && formatAssetDisplay(finding.asset_name, finding.asset).hasBoth"
-                 class="text-xs text-slate-400 font-mono mt-0.5">
+            <div
+              v-if="finding.asset && formatAssetDisplay(finding.asset_name, finding.asset).hasBoth"
+              class="font-mono text-xs text-brand-700 mt-0.5"
+            >
               {{ formatAssetDisplay(finding.asset_name, finding.asset).sub }}
             </div>
           </div>
           <div>
-            <p class="text-xs text-slate-400 mb-1">Khoa/Phòng chịu trách nhiệm</p>
+            <p class="t-eyebrow mb-1.5">Khoa / phòng chịu trách nhiệm</p>
             <p class="text-sm text-slate-700">{{ finding.responsible_dept || '—' }}</p>
           </div>
           <div>
-            <p class="text-xs text-slate-400 mb-1">Giá trị hiện tại</p>
+            <p class="t-eyebrow mb-1.5">Giá trị hiện tại</p>
             <p class="text-sm text-slate-700 font-mono">{{ finding.current_value ?? '—' }}</p>
           </div>
           <div>
-            <p class="text-xs text-slate-400 mb-1">Ngưỡng vi phạm</p>
+            <p class="t-eyebrow mb-1.5">Ngưỡng vi phạm</p>
             <p class="text-sm text-slate-700 font-mono">{{ finding.threshold_value ?? '—' }}</p>
           </div>
         </div>
 
         <div v-if="finding.capa_ref" class="pt-4 border-t border-slate-100">
-          <p class="text-xs text-slate-400 mb-1">CAPA liên kết</p>
-          <button class="font-mono text-sm text-blue-600 hover:underline"
-                  @click="router.push(`/capas/${finding.capa_ref}`)">
+          <p class="t-eyebrow mb-1.5">CAPA liên kết</p>
+          <button
+            class="font-mono text-sm text-brand-700 font-semibold hover:underline"
+            @click="router.push(`/capas/${finding.capa_ref}`)"
+          >
             {{ finding.capa_ref }}
           </button>
         </div>
@@ -209,7 +215,7 @@ onMounted(load)
         </div>
       </div>
       <template #footer>
-        <button class="btn-ghost" @click="showConfirm = false">Hủy</button>
+        <button class="btn-ghost" @click="showConfirm = false">Huỷ</button>
         <button class="btn-primary" :disabled="api.loading.value" @click="doConfirm">Xác nhận NC</button>
       </template>
     </BaseModal>
@@ -223,7 +229,7 @@ onMounted(load)
         </div>
       </div>
       <template #footer>
-        <button class="btn-ghost" @click="showFP = false">Hủy</button>
+        <button class="btn-ghost" @click="showFP = false">Huỷ</button>
         <button class="btn-primary" :disabled="api.loading.value" @click="doFP">Đánh dấu sai</button>
       </template>
     </BaseModal>
@@ -250,7 +256,7 @@ onMounted(load)
         </div>
       </div>
       <template #footer>
-        <button class="btn-ghost" @click="showWaive = false">Hủy</button>
+        <button class="btn-ghost" @click="showWaive = false">Huỷ</button>
         <button class="btn-primary" :disabled="api.loading.value" @click="doWaive">Xác nhận Waive</button>
       </template>
     </BaseModal>
@@ -262,7 +268,7 @@ onMounted(load)
         <input v-model="linkRef" class="form-input" placeholder="CAPA-2026-00001" />
       </div>
       <template #footer>
-        <button class="btn-ghost" @click="showLinkCapa = false">Hủy</button>
+        <button class="btn-ghost" @click="showLinkCapa = false">Huỷ</button>
         <button class="btn-primary" :disabled="api.loading.value" @click="doLinkCapa">Liên kết</button>
       </template>
     </BaseModal>
@@ -294,7 +300,7 @@ onMounted(load)
         </div>
       </div>
       <template #footer>
-        <button class="btn-ghost" @click="showCreateCapa = false">Hủy</button>
+        <button class="btn-ghost" @click="showCreateCapa = false">Huỷ</button>
         <button class="btn-primary" :disabled="api.loading.value" @click="doCreateCapa">Tạo CAPA</button>
       </template>
     </BaseModal>

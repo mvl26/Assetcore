@@ -40,6 +40,47 @@ _PROFILES: list[tuple[str, list[str]]] = [
     ("IMM - Procurement Officer",    [Roles.PROCUREMENT]),
     ("IMM - Risk Officer",           [Roles.RISK]),
     ("IMM - Board Approver",         [Roles.BOARD_APPROVER]),
+    # Wave 2 — Training & Competency (IMM-06)
+    ("IMM - Training Officer",       [Roles.TRAINING_OFFICER]),
+]
+
+# ── AssetCore-branded persona catalog (job-function oriented) ─────────────────
+# Naming: "AssetCore — <Persona>" (em-dash U+2014). Đây là profile bundle dành
+# cho việc gán nhanh persona cho user mới — kèm các role bổ trợ phù hợp job.
+# Idempotent qua _upsert_role_profile.
+_ASSETCORE_PROFILES: list[tuple[str, list[str]]] = [
+    ("AssetCore — System Admin",
+        [Roles.SYS_ADMIN, Roles.OPS_MANAGER, Roles.AUDITOR]),
+    ("AssetCore — Operations Manager",
+        [Roles.OPS_MANAGER, Roles.QA]),
+    ("AssetCore — Department Head",
+        [Roles.DEPT_HEAD]),
+    ("AssetCore — Department Deputy",
+        [Roles.DEPT_DEPUTY]),
+    ("AssetCore — Workshop Lead",
+        [Roles.WORKSHOP, Roles.BIOMED]),
+    ("AssetCore — Biomed Technician",
+        [Roles.BIOMED, Roles.TECHNICIAN]),
+    ("AssetCore — Technician",
+        [Roles.TECHNICIAN]),
+    ("AssetCore — Clinical User",
+        [Roles.CLINICAL]),
+    ("AssetCore — QA Officer",
+        [Roles.QA]),
+    ("AssetCore — Auditor",
+        [Roles.AUDITOR]),
+    ("AssetCore — Storekeeper",
+        [Roles.STOREKEEPER]),
+    ("AssetCore — Document Officer",
+        [Roles.DOC_OFFICER]),
+    ("AssetCore — Planning Officer",
+        [Roles.PLANNING]),
+    ("AssetCore — Procurement Officer",
+        [Roles.PROCUREMENT]),
+    ("AssetCore — Vendor Engineer",
+        [Roles.VENDOR_ENGINEER]),
+    ("AssetCore — Training Officer",
+        [Roles.TRAINING_OFFICER]),
 ]
 
 # Profile cũ (tiếng Việt từ phiên bản trước) — sẽ xóa nếu tồn tại
@@ -139,12 +180,30 @@ def run() -> None:
     for profile_name, role_names in _PROFILES:
         stats[_upsert_role_profile(profile_name, role_names)] += 1
 
+    # AssetCore-branded persona catalog
+    ac_stats = {"inserted": 0, "updated": 0, "skipped": 0}
+    for profile_name, role_names in _ASSETCORE_PROFILES:
+        ac_stats[_upsert_role_profile(profile_name, role_names)] += 1
+
     legacy_deleted = _delete_legacy_profiles()
     roles_disabled = _disable_legacy_roles()
     frappe.db.commit()
 
     print(
-        f"[AssetCore] Role Profiles: {stats['inserted']} tạo mới, "
-        f"{stats['updated']} cập nhật, {stats['skipped']} bỏ qua. "
-        f"Legacy: {legacy_deleted} profile xóa, {roles_disabled} role disabled."
+        f"[AssetCore] Role Profiles (IMM): {stats['inserted']} tạo mới, "
+        f"{stats['updated']} cập nhật, {stats['skipped']} bỏ qua."
     )
+    print(
+        f"[AssetCore] Role Profiles (AssetCore): {ac_stats['inserted']} tạo mới, "
+        f"{ac_stats['updated']} cập nhật, {ac_stats['skipped']} bỏ qua."
+    )
+    print(
+        f"[AssetCore] Legacy cleanup: {legacy_deleted} profile xóa, "
+        f"{roles_disabled} role disabled."
+    )
+
+
+# Public catalog accessor (for tests / introspection)
+def get_assetcore_profiles() -> list[tuple[str, list[str]]]:
+    """Return canonical AssetCore-branded Role Profile catalog (read-only copy)."""
+    return [(name, list(roles)) for name, roles in _ASSETCORE_PROFILES]

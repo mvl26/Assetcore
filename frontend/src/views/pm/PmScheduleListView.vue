@@ -175,9 +175,9 @@ async function remove(name: string) {
 }
 
 function overdueColor(d?: string) {
-  if (!d) return 'text-gray-400'
+  if (!d) return 'text-slate-400'
   const days = Math.ceil((new Date(d).getTime() - Date.now()) / 86400000)
-  return days < 0 ? 'text-red-600 font-semibold' : days < 14 ? 'text-yellow-600' : 'text-gray-600'
+  return days < 0 ? 'text-red-600 font-semibold' : days < 14 ? 'text-yellow-600' : 'text-slate-600'
 }
 
 onMounted(load)
@@ -243,12 +243,12 @@ onMounted(load)
         <SkeletonLoader v-for="i in 5" :key="i" class="h-10 mb-3" />
       </div>
       <div v-else-if="loadError" class="text-center py-12 px-6">
-        <div class="text-3xl mb-2">⚠️</div>
+        <svg class="w-10 h-10 mx-auto mb-2 text-red-400" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/></svg>
         <p class="text-sm text-red-700 mb-4">{{ loadError }}</p>
         <button class="btn-primary" @click="load">Thử lại</button>
       </div>
       <div v-else-if="filteredItems.length === 0" class="text-center py-12 px-6">
-        <div class="text-3xl mb-2 text-slate-300">📋</div>
+        <svg class="w-10 h-10 mx-auto mb-2 text-slate-300" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
         <p class="text-sm text-slate-500 mb-4">
           {{ activeFilterCount > 0 ? 'Không có lịch PM nào phù hợp với bộ lọc.' : 'Chưa có lịch PM nào.' }}
         </p>
@@ -257,20 +257,20 @@ onMounted(load)
       </div>
       <div v-else class="overflow-x-auto">
 <table class="w-full text-sm">
-        <thead class="bg-gray-50 border-b border-gray-200">
+        <thead class="bg-slate-50 border-b border-slate-200">
           <tr>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Mã</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Thiết bị</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Loại PM</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Chu kỳ (ngày)</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">KTV</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Lần trước</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Kế tiếp</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Trạng thái</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Mã</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Thiết bị</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Loại PM</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Chu kỳ (ngày)</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">KTV</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Lần trước</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Kế tiếp</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Trạng thái</th>
             <th class="px-4 py-3 text-right"></th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-gray-100">
+        <tbody class="divide-y divide-slate-100">
           <tr v-for="s in filteredItems" :key="s.name" class="hover:bg-slate-50">
             <td class="px-4 py-3 font-mono text-xs text-slate-500">{{ s.name }}</td>
             <td class="px-4 py-3">
@@ -319,7 +319,7 @@ onMounted(load)
         <div v-if="err" class="bg-red-50 text-red-700 text-sm p-3 rounded">{{ err }}</div>
         <div class="grid grid-cols-2 gap-3">
           <div class="col-span-2">
-            <label class="block text-sm font-medium text-gray-700 mb-1">Thiết bị (AC Asset) *</label>
+            <label class="block text-sm font-medium text-slate-700 mb-1">Thiết bị (AC Asset) *</label>
             <SmartSelect
               v-model="(form.asset_ref as string)"
               doctype="AC Asset"
@@ -329,8 +329,8 @@ onMounted(load)
             <p v-if="fieldErrors.asset_ref" class="text-xs text-red-600 mt-1">{{ fieldErrors.asset_ref }}</p>
           </div>
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Loại PM *</label>
-            <select v-model="form.pm_type" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+            <label class="block text-sm font-medium text-slate-700 mb-1">Loại PM *</label>
+            <select v-model="form.pm_type" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
               <option value="Quarterly">Quarterly — 3 tháng</option>
               <option value="Semi-Annual">Semi-Annual — 6 tháng</option>
               <option value="Annual">Annual — 12 tháng</option>
@@ -338,11 +338,11 @@ onMounted(load)
             </select>
           </div>
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Chu kỳ (ngày) *</label>
-            <input v-model.number="form.pm_interval_days" type="number" min="0" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+            <label class="block text-sm font-medium text-slate-700 mb-1">Chu kỳ (ngày) *</label>
+            <input v-model.number="form.pm_interval_days" type="number" min="0" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
           </div>
           <div class="col-span-2">
-            <label class="block text-sm font-medium text-gray-700 mb-1">Template checklist *</label>
+            <label class="block text-sm font-medium text-slate-700 mb-1">Template checklist *</label>
             <SmartSelect
               v-model="(form.checklist_template as string)"
               doctype="PM Checklist Template"
@@ -352,7 +352,7 @@ onMounted(load)
             <p v-if="fieldErrors.checklist_template" class="text-xs text-red-600 mt-1">{{ fieldErrors.checklist_template }}</p>
           </div>
           <div class="col-span-2">
-            <label class="block text-sm font-medium text-gray-700 mb-1">KTV phụ trách</label>
+            <label class="block text-sm font-medium text-slate-700 mb-1">KTV phụ trách</label>
             <SmartSelect
               v-model="(form.responsible_technician as string)"
               doctype="User"
@@ -360,28 +360,28 @@ onMounted(load)
             />
           </div>
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Ngày PM gần nhất</label>
-            <DateInput v-model="(form.last_pm_date as string)" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+            <label class="block text-sm font-medium text-slate-700 mb-1">Ngày PM gần nhất</label>
+            <DateInput v-model="(form.last_pm_date as string)" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
           </div>
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Cảnh báo trước (ngày)</label>
-            <input v-model.number="form.alert_days_before" type="number" min="0" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+            <label class="block text-sm font-medium text-slate-700 mb-1">Cảnh báo trước (ngày)</label>
+            <input v-model.number="form.alert_days_before" type="number" min="0" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
           </div>
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Trạng thái</label>
-            <select v-model="form.status" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+            <label class="block text-sm font-medium text-slate-700 mb-1">Trạng thái</label>
+            <select v-model="form.status" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
               <option value="Active">Đang hoạt động</option>
               <option value="Paused">Tạm dừng</option>
               <option value="Suspended">Đình chỉ</option>
             </select>
           </div>
           <div class="col-span-2">
-            <label class="block text-sm font-medium text-gray-700 mb-1">Ghi chú</label>
-            <textarea v-model="form.notes" rows="2" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"></textarea>
+            <label class="block text-sm font-medium text-slate-700 mb-1">Ghi chú</label>
+            <textarea v-model="form.notes" rows="2" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"></textarea>
           </div>
         </div>
         <div class="flex justify-end gap-2">
-          <button class="px-4 py-2 text-sm border border-gray-300 rounded-lg" :disabled="saving" @click="showForm = false">Hủy</button>
+          <button class="px-4 py-2 text-sm border border-slate-300 rounded-lg" :disabled="saving" @click="showForm = false">Hủy</button>
           <button
             class="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-lg inline-flex items-center gap-2"
             :disabled="saving"

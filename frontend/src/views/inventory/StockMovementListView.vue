@@ -98,7 +98,8 @@ onMounted(load)
   <div class="page-container animate-fade-in">
     <PageHeader
       title="Phiếu xuất / nhập kho"
-      :subtitle="`Tổng ${total} phiếu`"
+      :subtitle="`IMM-15 · Tồn kho phụ tùng — Tổng ${total} phiếu`"
+      :breadcrumb="[{ label: 'IMM-15 · Tồn kho phụ tùng', to: '/inventory/dashboard' }, { label: 'Phiếu kho' }]"
     >
       <template #actions>
         <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
@@ -152,11 +153,12 @@ onMounted(load)
       <div v-if="loading && !rows.length" class="p-6">
         <SkeletonLoader variant="table" :rows="6" />
       </div>
-      <div v-else-if="rows.length === 0" class="flex flex-col items-center justify-center py-16 text-slate-400">
-        <p class="text-sm">Chưa có phiếu nào.</p>
-        <button v-if="activeFilterCount > 0" class="text-xs text-blue-500 hover:text-blue-700 underline mt-2" @click="resetFilters">
+      <div v-else-if="rows.length === 0" class="flex flex-col items-center justify-center py-16">
+        <p class="text-sm text-slate-500">Chưa có phiếu kho phù hợp.</p>
+        <button v-if="activeFilterCount > 0" class="text-xs text-brand-600 hover:text-brand-700 font-medium underline mt-2" @click="resetFilters">
           Xóa bộ lọc để xem tất cả
         </button>
+        <button v-else class="btn-primary mt-3" @click="router.push('/stock-movements/new')">Tạo phiếu kho đầu tiên</button>
       </div>
 
       <div v-else class="overflow-x-auto">
@@ -178,7 +180,7 @@ v-for="m in rows" :key="m.name"
               class="hover:bg-slate-50/70 cursor-pointer transition-all hover:translate-x-0.5"
               @click="router.push(`/stock-movements/${m.name}`)"
             >
-              <td class="px-4 py-3 font-mono text-xs font-medium text-slate-700">{{ m.name }}</td>
+              <td class="px-4 py-3 font-mono text-xs text-brand-700 font-semibold">{{ m.name }}</td>
               <td class="px-4 py-3">
                 <button
                   class="text-xs px-2 py-0.5 rounded-full font-medium transition-all hover:ring-2 hover:ring-offset-1 hover:ring-current/50"
@@ -226,8 +228,8 @@ v-for="m in rows" :key="m.name"
       <div v-if="total > PAGE_SIZE" class="flex items-center justify-between px-4 py-3 border-t border-slate-100 text-sm text-slate-500">
         <span>{{ (page - 1) * PAGE_SIZE + 1 }}–{{ Math.min(page * PAGE_SIZE, total) }} / {{ total }}</span>
         <div class="flex gap-2">
-          <button :disabled="page === 1" class="px-3 py-1 rounded border border-slate-200 disabled:opacity-40 hover:bg-slate-50" @click="prevPage">‹</button>
-          <button :disabled="page * PAGE_SIZE >= total" class="px-3 py-1 rounded border border-slate-200 disabled:opacity-40 hover:bg-slate-50" @click="nextPage">›</button>
+          <button :disabled="page === 1" class="px-3 py-1 rounded border border-slate-200 disabled:opacity-40 hover:bg-slate-50" @click="prevPage">Trước</button>
+          <button :disabled="page * PAGE_SIZE >= total" class="px-3 py-1 rounded border border-slate-200 disabled:opacity-40 hover:bg-slate-50" @click="nextPage">Sau</button>
         </div>
       </div>
     </div>

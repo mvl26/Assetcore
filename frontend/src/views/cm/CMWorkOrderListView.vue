@@ -178,9 +178,9 @@ v-for="wo in filteredWOs" :key="wo.name"
             @click="router.push(`/cm/work-orders/${wo.name}`)"
           >
             <td class="table-cell">
-              <div class="font-mono text-sm font-semibold text-blue-700">{{ wo.name }}</div>
-              <div v-if="wo.sla_breached" class="text-xs text-red-600 font-medium mt-0.5">⚠ SLA vi phạm</div>
-              <div v-if="wo.is_repeat_failure" class="text-xs text-orange-500 mt-0.5">↺ Tái hỏng</div>
+              <div class="font-mono text-sm font-semibold text-brand-700">{{ wo.name }}</div>
+              <div v-if="wo.sla_breached" class="text-xs text-red-600 font-medium mt-0.5">SLA vi phạm</div>
+              <div v-if="wo.is_repeat_failure" class="text-xs text-amber-700 mt-0.5">Tái hỏng</div>
             </td>
             <td class="table-cell">
               <div class="font-medium text-slate-900">{{ wo.asset_name || wo.asset_ref }}</div>

@@ -28,6 +28,10 @@ async function load() {
   finally { loading.value = false }
 }
 
+const leadAuditorDisplay = computed(() => {
+  const a = audit.value as (InternalAudit & { lead_auditor_name?: string }) | null
+  return a?.lead_auditor_name || a?.lead_auditor || '—'
+})
 const canStart = computed(() => audit.value?.status === 'Planned')
 const canChecklist = computed(() => audit.value?.status === 'In Progress')
 const canClose = computed(() => audit.value && ['In Progress', 'Reporting'].includes(audit.value.status))
@@ -80,18 +84,18 @@ onMounted(load)
 
     <template v-else-if="audit">
       <PageHeader
+        :back-to="'/compliance/audits'"
         :title="audit.audit_code"
-        :subtitle="`${audit.audit_type} · ${formatDate(audit.planned_start)} → ${formatDate(audit.planned_end)}`"
+        :subtitle="`IMM-16 · Theo dõi tuân thủ — ${audit.audit_type} · ${formatDate(audit.planned_start)} → ${formatDate(audit.planned_end)}`"
         :breadcrumb="[
-          { label: 'IMM-16 · Tuân thủ' },
+          { label: 'IMM-16 · Theo dõi tuân thủ', to: '/compliance/scorecard' },
           { label: 'Kiểm toán', to: '/compliance/audits' },
           { label: audit.audit_code },
         ]"
       >
         <template #actions>
-          <button class="btn-ghost text-sm" @click="router.push('/compliance/audits')">Quay lại</button>
-          <button v-if="canStart" class="btn-primary text-sm" @click="doStart">Bắt đầu</button>
-          <button v-if="canClose" class="btn-ghost text-sm" @click="showClose = true">Đóng kiểm toán</button>
+          <button v-if="canStart" class="btn-primary text-sm" @click="doStart">Bắt đầu kiểm toán</button>
+          <button v-if="canClose" class="btn-secondary text-sm" @click="showClose = true">Đóng kiểm toán</button>
         </template>
       </PageHeader>
 
@@ -99,19 +103,19 @@ onMounted(load)
       <div class="card p-5">
         <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div>
-            <p class="text-xs text-slate-400 mb-1">Trạng thái</p>
+            <p class="t-eyebrow mb-1.5">Trạng thái</p>
             <StatusBadge :state="audit.status" />
           </div>
           <div>
-            <p class="text-xs text-slate-400 mb-1">Trưởng đoàn</p>
-            <p class="text-sm text-slate-700">{{ (audit as any).lead_auditor_name || audit.lead_auditor || '—' }}</p>
+            <p class="t-eyebrow mb-1.5">Trưởng đoàn</p>
+            <p class="text-sm text-slate-800">{{ leadAuditorDisplay }}</p>
           </div>
           <div>
-            <p class="text-xs text-slate-400 mb-1">Bắt đầu thực tế</p>
+            <p class="t-eyebrow mb-1.5">Bắt đầu thực tế</p>
             <p class="text-sm text-slate-700">{{ formatDate(audit.actual_start) }}</p>
           </div>
           <div>
-            <p class="text-xs text-slate-400 mb-1">Kết thúc thực tế</p>
+            <p class="t-eyebrow mb-1.5">Kết thúc thực tế</p>
             <p class="text-sm text-slate-700">{{ formatDate(audit.actual_end) }}</p>
           </div>
         </div>
@@ -121,17 +125,17 @@ onMounted(load)
       <div class="border-b border-slate-200">
         <nav class="-mb-px flex gap-6">
           <button :class="['py-2 px-1 border-b-2 text-sm font-medium transition-colors',
-            activeTab === 'overview' ? 'border-emerald-600 text-emerald-700' : 'border-transparent text-slate-500 hover:text-slate-700']"
+            activeTab === 'overview' ? 'border-brand-600 text-brand-700' : 'border-transparent text-slate-500 hover:text-slate-700']"
             @click="activeTab = 'overview'">
             Tổng quan
           </button>
           <button :class="['py-2 px-1 border-b-2 text-sm font-medium transition-colors',
-            activeTab === 'checklist' ? 'border-emerald-600 text-emerald-700' : 'border-transparent text-slate-500 hover:text-slate-700']"
+            activeTab === 'checklist' ? 'border-brand-600 text-brand-700' : 'border-transparent text-slate-500 hover:text-slate-700']"
             @click="activeTab = 'checklist'">
             Bảng kiểm
           </button>
           <button :class="['py-2 px-1 border-b-2 text-sm font-medium transition-colors',
-            activeTab === 'report' ? 'border-emerald-600 text-emerald-700' : 'border-transparent text-slate-500 hover:text-slate-700']"
+            activeTab === 'report' ? 'border-brand-600 text-brand-700' : 'border-transparent text-slate-500 hover:text-slate-700']"
             @click="activeTab = 'report'">
             Báo cáo & Phát hiện
           </button>
@@ -143,8 +147,10 @@ onMounted(load)
         <p class="text-sm text-slate-600">
           Tổng số phát hiện trong đợt kiểm toán: <strong>{{ audit.findings_count }}</strong>
         </p>
-        <button class="mt-3 text-sm text-blue-600 hover:underline"
-                @click="router.push({ path: '/compliance/findings', query: { audit: audit.name } })">
+        <button
+          class="mt-3 text-sm text-brand-600 hover:text-brand-700 font-medium hover:underline"
+          @click="router.push({ path: '/compliance/findings', query: { audit: audit.name } })"
+        >
           Xem các phát hiện liên quan →
         </button>
       </div>
@@ -168,7 +174,7 @@ onMounted(load)
               </thead>
               <tbody class="divide-y divide-slate-100">
                 <tr v-for="(item, i) in checklistItems" :key="i">
-                  <td class="table-cell font-mono text-xs text-slate-500">{{ item.idx }}</td>
+                  <td class="table-cell font-mono text-xs text-brand-700">{{ item.idx }}</td>
                   <td class="table-cell">
                     <input v-model="item.clause_ref" class="form-input text-sm" placeholder="ISO 13485 §7.5.6" />
                   </td>
@@ -184,18 +190,20 @@ onMounted(load)
                     <input v-model="item.notes" class="form-input text-sm" />
                   </td>
                   <td class="table-cell text-right">
-                    <button class="text-xs text-red-600 hover:text-red-800"
-                            :disabled="checklistItems.length === 1"
-                            @click="removeChecklistRow(i)">Xóa</button>
+                    <button
+                      class="text-xs text-red-600 hover:text-red-700 font-medium"
+                      :disabled="checklistItems.length === 1"
+                      @click="removeChecklistRow(i)"
+                    >Xoá</button>
                   </td>
                 </tr>
               </tbody>
             </table>
           </div>
           <div class="flex justify-between mt-3">
-            <button class="btn-ghost text-sm" @click="addChecklistRow">+ Thêm dòng</button>
+            <button class="btn-secondary text-sm" @click="addChecklistRow">Thêm dòng</button>
             <button class="btn-primary text-sm" :disabled="api.loading.value" @click="submitChecklist">
-              Hoàn tất bảng kiểm
+              {{ api.loading.value ? 'Đang lưu…' : 'Hoàn tất bảng kiểm' }}
             </button>
           </div>
         </template>
@@ -203,8 +211,10 @@ onMounted(load)
 
       <div v-else-if="activeTab === 'report'" class="card p-5">
         <p class="text-sm text-slate-600 mb-3">Danh sách phát hiện sinh từ đợt kiểm toán này.</p>
-        <button class="btn-ghost text-sm"
-                @click="router.push({ path: '/compliance/findings', query: { audit: audit.name } })">
+        <button
+          class="btn-secondary text-sm"
+          @click="router.push({ path: '/compliance/findings', query: { audit: audit.name } })"
+        >
           Mở danh sách phát hiện →
         </button>
       </div>
@@ -216,8 +226,10 @@ onMounted(load)
         <textarea v-model="reportSummary" rows="5" class="form-input" />
       </div>
       <template #footer>
-        <button class="btn-ghost" @click="showClose = false">Hủy</button>
-        <button class="btn-primary" :disabled="api.loading.value" @click="doClose">Đóng kiểm toán</button>
+        <button class="btn-ghost" @click="showClose = false">Huỷ</button>
+        <button class="btn-primary" :disabled="api.loading.value" @click="doClose">
+          {{ api.loading.value ? 'Đang đóng…' : 'Đóng kiểm toán' }}
+        </button>
       </template>
     </BaseModal>
   </div>

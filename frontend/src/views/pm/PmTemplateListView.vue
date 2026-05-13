@@ -211,14 +211,14 @@ onMounted(load)
         {{ activeFilterCount > 0 ? 'Không có template nào phù hợp.' : 'Chưa có template.' }}
       </div>
       <table v-else class="w-full text-sm">
-        <thead class="bg-gray-50 border-b border-gray-200">
+        <thead class="bg-slate-50 border-b border-slate-200">
           <tr>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Mã</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Tên template</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Danh mục tài sản</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Loại PM</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Version</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Hiệu lực</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Mã</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Tên template</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Danh mục tài sản</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Loại PM</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Version</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Hiệu lực</th>
             <th class="px-4 py-3 text-right"></th>
           </tr>
         </thead>
@@ -260,16 +260,16 @@ onMounted(load)
         <div v-if="err" class="bg-red-50 text-red-700 text-sm p-3 rounded">{{ err }}</div>
         <div class="grid grid-cols-2 gap-3">
           <label class="col-span-2 block">
-            <span class="block text-sm font-medium text-gray-700 mb-1">Tên template *</span>
-            <input v-model="form.template_name" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+            <span class="block text-sm font-medium text-slate-700 mb-1">Tên template *</span>
+            <input v-model="form.template_name" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
           </label>
           <label class="block">
-            <span class="block text-sm font-medium text-gray-700 mb-1">Danh mục tài sản *</span>
-            <input v-model="form.asset_category" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+            <span class="block text-sm font-medium text-slate-700 mb-1">Danh mục tài sản *</span>
+            <input v-model="form.asset_category" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
           </label>
           <label class="block">
-            <span class="block text-sm font-medium text-gray-700 mb-1">Loại bảo trì *</span>
-            <select v-model="form.pm_type" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+            <span class="block text-sm font-medium text-slate-700 mb-1">Loại bảo trì *</span>
+            <select v-model="form.pm_type" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
               <option value="Quarterly">Hàng quý</option>
               <option value="Semi-Annual">Nửa năm</option>
               <option value="Annual">Hàng năm</option>
@@ -277,39 +277,41 @@ onMounted(load)
             </select>
           </label>
           <label class="block">
-            <span class="block text-sm font-medium text-gray-700 mb-1">Phiên bản</span>
-            <input v-model="form.version" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+            <span class="block text-sm font-medium text-slate-700 mb-1">Phiên bản</span>
+            <input v-model="form.version" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
           </label>
           <label class="block">
-            <span class="block text-sm font-medium text-gray-700 mb-1">Ngày hiệu lực</span>
-            <DateInput v-model="form.effective_date" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+            <span class="block text-sm font-medium text-slate-700 mb-1">Ngày hiệu lực</span>
+            <DateInput v-model="form.effective_date" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
           </label>
         </div>
 
         <div class="border-t pt-4">
           <div class="flex items-center justify-between mb-2">
-            <span class="text-sm font-semibold text-gray-700">Hạng mục kiểm tra *</span>
+            <span class="text-sm font-semibold text-slate-700">Hạng mục kiểm tra *</span>
             <button type="button" class="text-blue-600 text-xs font-medium" @click="addItem">+ Thêm hạng mục</button>
           </div>
           <div class="space-y-2">
             <div v-for="(it, i) in form.checklist_items" :key="i" class="grid grid-cols-12 gap-2 items-center">
-              <input v-model="it.description" placeholder="Mô tả *" class="col-span-4 border border-gray-300 rounded px-2 py-1.5 text-sm" />
-              <select v-model="it.measurement_type" class="col-span-2 border border-gray-300 rounded px-2 py-1.5 text-sm">
+              <input v-model="it.description" placeholder="Mô tả *" class="col-span-4 border border-slate-300 rounded px-2 py-1.5 text-sm" />
+              <select v-model="it.measurement_type" class="col-span-2 border border-slate-300 rounded px-2 py-1.5 text-sm">
                 <option>Pass/Fail</option><option>Numeric</option><option>Text</option>
               </select>
-              <input v-model="it.unit" placeholder="Đơn vị" class="col-span-1 border border-gray-300 rounded px-2 py-1.5 text-sm" />
-              <input v-model.number="it.expected_min" type="number" placeholder="Min" class="col-span-1 border border-gray-300 rounded px-2 py-1.5 text-sm" />
-              <input v-model.number="it.expected_max" type="number" placeholder="Max" class="col-span-1 border border-gray-300 rounded px-2 py-1.5 text-sm" />
-              <label class="col-span-2 flex items-center gap-1 text-xs text-gray-600">
+              <input v-model="it.unit" placeholder="Đơn vị" class="col-span-1 border border-slate-300 rounded px-2 py-1.5 text-sm" />
+              <input v-model.number="it.expected_min" type="number" placeholder="Min" class="col-span-1 border border-slate-300 rounded px-2 py-1.5 text-sm" />
+              <input v-model.number="it.expected_max" type="number" placeholder="Max" class="col-span-1 border border-slate-300 rounded px-2 py-1.5 text-sm" />
+              <label class="col-span-2 flex items-center gap-1 text-xs text-slate-600">
                 <input v-model="it.is_critical" type="checkbox" /> Trọng yếu
               </label>
-              <button type="button" class="col-span-1 text-red-600 text-xs" @click="removeItem(i)">✕</button>
+              <button type="button" class="col-span-1 text-red-500 hover:text-red-700" aria-label="Xoá mục" @click="removeItem(i)">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+              </button>
             </div>
           </div>
         </div>
 
         <div class="flex justify-end gap-2 pt-2">
-          <button class="px-4 py-2 text-sm border border-gray-300 rounded-lg" @click="showForm = false">Hủy</button>
+          <button class="px-4 py-2 text-sm border border-slate-300 rounded-lg" @click="showForm = false">Hủy</button>
           <button class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg" @click="save">Lưu</button>
         </div>
       </div>

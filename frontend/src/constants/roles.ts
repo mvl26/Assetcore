@@ -114,6 +114,29 @@ export const ROLES_DOC_APPROVE: readonly RoleName[] = [
   Roles.SYS_ADMIN, Roles.QA,
 ] as const
 
+// IMM-16 — Audit trail read access (ISO 13485): SYS_ADMIN + AUDITOR + QA
+export const ROLES_AUDIT_READ: readonly RoleName[] = [
+  Roles.SYS_ADMIN, Roles.AUDITOR, Roles.QA,
+] as const
+
+// IMM-16 — Compliance management (rules + MR + scorecard write): QA + SYS_ADMIN
+export const ROLES_COMPLIANCE_MANAGE: readonly RoleName[] = [
+  Roles.SYS_ADMIN, Roles.QA,
+] as const
+
+// IMM-15 — Stock-keeping management (forecast, watchlist, UOM)
+export const ROLES_STOCK_MANAGE: readonly RoleName[] = [
+  Roles.SYS_ADMIN, Roles.OPS_MANAGER, Roles.STOREKEEPER,
+] as const
+
+// IMM-01..03 — Planning & procurement access
+export const ROLES_PLANNING: readonly RoleName[] = [
+  Roles.SYS_ADMIN, Roles.OPS_MANAGER, Roles.PLANNING, Roles.DEPT_HEAD, Roles.PROCUREMENT, Roles.FINANCE, Roles.BOARD_APPROVER,
+] as const
+export const ROLES_PROCUREMENT: readonly RoleName[] = [
+  Roles.SYS_ADMIN, Roles.OPS_MANAGER, Roles.PROCUREMENT, Roles.PLANNING, Roles.BOARD_APPROVER,
+] as const
+
 // IMM-06 Training & Competency
 export const ROLES_TRAINING_MANAGE: readonly RoleName[] = [
   Roles.SYS_ADMIN, Roles.TRAINING_OFFICER,

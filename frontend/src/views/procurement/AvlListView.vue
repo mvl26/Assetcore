@@ -4,10 +4,12 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { useImm03Store } from '@/stores/imm03'
 import { approveAvl, suspendAvl, createAvlEntry } from '@/api/imm03'
 import type { AvlListItem, AvlState } from '@/types/imm03'
-import { stateLabel, stateSlug, formatVnDate } from '@/utils/wave2Labels'
+import { stateLabel, formatVnDate } from '@/utils/wave2Labels'
 import PageHeader from '@/components/common/PageHeader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar, { type FilterChip } from '@/components/common/ListFilterBar.vue'
+import KpiCard from '@/components/common/KpiCard.vue'
+import StatusBadge from '@/components/common/StatusBadge.vue'
 
 const store = useImm03Store()
 
@@ -144,8 +146,8 @@ onMounted(() => {
     </PageHeader>
 
     <ListFilterBar
-      :show="showFilters"
       v-model:search="filters.search"
+      :show="showFilters"
       :chips="activeChips"
       search-placeholder="Tìm theo NCC, nhóm thiết bị..."
       @apply="applyFilters"
@@ -164,15 +166,13 @@ onMounted(() => {
       </template>
     </ListFilterBar>
 
-    <div v-if="store.kpis" class="kpi-grid mb-4">
-      <div class="kpi-card success">
-        <span class="kpi-value">{{ store.kpis.avl_active }}</span>
-        <span class="kpi-label">Đang hiệu lực</span>
-      </div>
-      <div class="kpi-card warn">
-        <span class="kpi-value">{{ store.kpis.avl_expiring_30d }}</span>
-        <span class="kpi-label">Sắp hết hạn (≤ 30 ngày)</span>
-      </div>
+    <div v-if="store.kpis" class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+      <KpiCard label="Đang hiệu lực" :value="store.kpis.avl_active" color="success" />
+      <KpiCard
+        label="Sắp hết hạn (≤ 30 ngày)"
+        :value="store.kpis.avl_expiring_30d"
+        :color="store.kpis.avl_expiring_30d > 0 ? 'warning' : 'neutral'"
+      />
     </div>
 
     <div v-if="store.error" class="alert-error mb-4">
@@ -203,8 +203,11 @@ onMounted(() => {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="a in filteredAvl" :key="a.name">
-              <td>{{ a.name }}</td>
+            <tr
+              v-for="(a, idx) in filteredAvl" :key="a.name"
+              class="animate-fade-in" :class="[`stagger-${Math.min(idx + 1, 8)}`]"
+            >
+              <td><span class="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded text-slate-700">{{ a.name }}</span></td>
               <td>
                 <button class="link-cell" :title="`Lọc: ${a.supplier}`" @click="quickFilter('supplier', a.supplier)">
                   {{ a.vendor_name || a.supplier }}
@@ -220,16 +223,20 @@ onMounted(() => {
                 <span v-if="isExpiring(a)" class="warn-text">⏰ Còn {{ daysLeft(a) }} ngày</span>
               </td>
               <td>
-                <button :class="['badge', 'state-' + stateSlug(a.workflow_state), 'badge-btn']"
+                <button
+type="button" class="pill-btn"
                         :title="`Lọc trạng thái: ${stateLabel(a.workflow_state)}`"
                         @click="quickFilter('workflow_state', a.workflow_state)">
-                  {{ stateLabel(a.workflow_state) }}
+                  <StatusBadge :state="a.workflow_state" />
                 </button>
               </td>
               <td class="actions-col">
                 <button v-if="a.workflow_state === 'Draft'" class="btn-mini btn-success" @click="doApproveAvl(a)">Phê duyệt</button>
-                <button v-if="a.workflow_state === 'Approved' || a.workflow_state === 'Conditional'"
-                        class="btn-mini btn-danger" @click="doSuspendAvl(a)">Đình chỉ</button>
+                <button
+v-if="a.workflow_state === 'Approved' || a.workflow_state === 'Conditional'"
+                        class="btn-mini btn-danger" @click="doSuspendAvl(a)">
+Đình chỉ
+</button>
               </td>
             </tr>
           </tbody>
@@ -274,31 +281,11 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; }
-.kpi-card { background: white; border: 1px solid #e5e7eb; border-radius: 8px; padding: 1rem; display: flex; flex-direction: column; }
-.kpi-value { font-size: 1.75rem; font-weight: 700; }
-.kpi-label { color: #6b7280; font-size: 0.85rem; }
-.kpi-card.success { border-left: 4px solid #10b981; }
-.kpi-card.warn    { border-left: 4px solid #f59e0b; }
-.alert-close { background: none; border: none; cursor: pointer; font-size: 1.25rem; float: right; }
-.data-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
-.data-table th, .data-table td { padding: 0.75rem 1rem; text-align: left; border-bottom: 1px solid #f1f5f9; }
-.data-table th { background: #f9fafb; font-weight: 600; font-size: 0.85rem; color: #475569; }
 .actions-col { display: flex; gap: 0.5rem; }
-.link-cell { background: none; border: none; padding: 0; color: #334155; cursor: pointer; }
-.link-cell:hover { color: #2563eb; text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 2px; }
-.warn-text { color: #c2410c; font-weight: 600; margin-left: 0.5rem; }
-.badge { display: inline-block; padding: 0.15rem 0.6rem; border-radius: 999px; font-size: 0.75rem; font-weight: 600; }
-.badge-btn { border: none; cursor: pointer; }
-.badge-btn:hover { box-shadow: 0 0 0 2px rgba(0,0,0,0.06); }
-.badge.state-draft { background: #e5e7eb; color: #374151; }
-.badge.state-approved { background: #d1fae5; color: #065f46; }
-.badge.state-conditional { background: #fef3c7; color: #92400e; }
-.badge.state-suspended { background: #fee2e2; color: #b91c1c; }
-.badge.state-expired { background: #e5e7eb; color: #6b7280; }
-.btn-mini { padding: 0.3rem 0.6rem; font-size: 0.8rem; border-radius: 6px; border: 1px solid #d1d5db; cursor: pointer; }
-.btn-success { background: #10b981; color: white; border-color: #10b981; }
-.btn-danger  { background: #ef4444; color: white; border-color: #ef4444; }
+.warn-text { color: #b45309; font-weight: 600; margin-left: 0.5rem; }
+.btn-mini { padding: 0.3rem 0.6rem; font-size: 0.8rem; border-radius: 6px; border: 1px solid #cbd5e1; cursor: pointer; font: inherit; }
+.btn-mini.btn-success { background: #059669; color: white; border-color: #059669; }
+.btn-mini.btn-danger  { background: #dc2626; color: white; border-color: #dc2626; }
 .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
 .modal { background: white; border-radius: 8px; width: 480px; max-width: 90vw; }
 .modal-head { display: flex; justify-content: space-between; align-items: center; padding: 1rem; border-bottom: 1px solid #e5e7eb; }

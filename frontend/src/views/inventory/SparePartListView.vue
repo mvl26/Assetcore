@@ -121,7 +121,8 @@ onMounted(load)
   <div class="page-container animate-fade-in">
     <PageHeader
       title="Danh mục phụ tùng"
-      :subtitle="`Tổng ${total} phụ tùng`"
+      :subtitle="`IMM-15 · Tồn kho phụ tùng — Tổng ${total} phụ tùng`"
+      :breadcrumb="[{ label: 'IMM-15 · Tồn kho phụ tùng', to: '/inventory/dashboard' }, { label: 'Danh mục' }]"
     >
       <template #actions>
         <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
@@ -129,7 +130,7 @@ onMounted(load)
           <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
           </svg>
-          Phụ tùng mới
+          Tạo phụ tùng
         </button>
       </template>
     </PageHeader>
@@ -165,11 +166,12 @@ onMounted(load)
       <div v-if="loading && !rows.length" class="p-6">
         <SkeletonLoader variant="table" :rows="6" />
       </div>
-      <div v-else-if="rows.length === 0" class="flex flex-col items-center justify-center py-16 text-slate-400">
-        <p class="text-sm">Không có phụ tùng nào.</p>
-        <button v-if="activeFilterCount > 0" class="text-xs text-blue-500 hover:text-blue-700 underline mt-2" @click="resetFilters">
+      <div v-else-if="rows.length === 0" class="flex flex-col items-center justify-center py-16">
+        <p class="text-sm text-slate-500">Chưa có phụ tùng phù hợp.</p>
+        <button v-if="activeFilterCount > 0" class="text-xs text-brand-600 hover:text-brand-700 font-medium underline mt-2" @click="resetFilters">
           Xóa bộ lọc để xem tất cả
         </button>
+        <button v-else class="btn-primary mt-3" @click="openCreate">Thêm phụ tùng đầu tiên</button>
       </div>
 
       <div v-else class="overflow-x-auto">
@@ -192,8 +194,8 @@ v-for="p in rows" :key="p.name"
               @click="router.push(`/spare-parts/${p.name}`)"
             >
               <td class="px-4 py-3">
-                <p class="font-medium text-slate-800">{{ p.part_name }}</p>
-                <p class="text-[11px] text-slate-400 font-mono">{{ p.part_code || p.name }}</p>
+                <p class="font-medium text-slate-900">{{ p.part_name }}</p>
+                <p class="font-mono text-xs text-brand-700 mt-0.5">{{ p.part_code || p.name }}</p>
               </td>
               <td class="px-4 py-3 text-xs text-slate-500 hidden md:table-cell">
                 {{ p.manufacturer || '—' }}<span v-if="p.manufacturer_part_no" class="ml-1 font-mono">· {{ p.manufacturer_part_no }}</span>
@@ -210,20 +212,20 @@ v-if="p.part_category"
               </td>
               <td class="px-4 py-3 text-right text-sm">{{ vnd(p.unit_cost) }}</td>
               <td
-class="px-4 py-3 text-right font-medium"
+class="px-4 py-3 text-right font-medium tabular-nums"
                   :class="p.is_low_stock ? 'text-red-600' : 'text-slate-700'">
                 {{ p.total_stock || 0 }} <span class="text-xs text-slate-400">{{ p.stock_uom }}</span>
               </td>
-              <td class="px-4 py-3 text-right text-xs text-slate-400 hidden lg:table-cell">
+              <td class="px-4 py-3 text-right text-xs text-slate-500 tabular-nums hidden lg:table-cell">
                 {{ p.min_stock_level || '—' }}
               </td>
               <td class="px-4 py-3 text-center">
                 <span
-v-if="p.is_critical" class="inline-block text-[10px] px-1.5 py-0.5 rounded bg-red-50 text-red-700 font-semibold"
-                      title="Phụ tùng quan trọng">!</span>
+v-if="p.is_critical" class="inline-block text-[10px] px-1.5 py-0.5 rounded bg-red-50 text-red-700 font-semibold border border-red-100"
+                      title="Phụ tùng quan trọng">Quan trọng</span>
                 <span
-v-if="p.is_low_stock" class="inline-block ml-1 text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 font-semibold"
-                      title="Tồn thấp">Low</span>
+v-if="p.is_low_stock" class="inline-block ml-1 text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 font-semibold border border-amber-100"
+                      title="Tồn dưới mức min">Tồn thấp</span>
               </td>
             </tr>
           </tbody>
@@ -233,8 +235,8 @@ v-if="p.is_low_stock" class="inline-block ml-1 text-[10px] px-1.5 py-0.5 rounded
       <div v-if="total > PAGE_SIZE" class="flex items-center justify-between px-4 py-3 border-t border-slate-100 text-sm text-slate-500">
         <span>{{ (page - 1) * PAGE_SIZE + 1 }}–{{ Math.min(page * PAGE_SIZE, total) }} / {{ total }}</span>
         <div class="flex gap-2">
-          <button :disabled="page === 1" class="px-3 py-1 rounded border border-slate-200 disabled:opacity-40 hover:bg-slate-50" @click="prevPage">‹</button>
-          <button :disabled="page * PAGE_SIZE >= total" class="px-3 py-1 rounded border border-slate-200 disabled:opacity-40 hover:bg-slate-50" @click="nextPage">›</button>
+          <button :disabled="page === 1" class="px-3 py-1 rounded border border-slate-200 disabled:opacity-40 hover:bg-slate-50" @click="prevPage">Trước</button>
+          <button :disabled="page * PAGE_SIZE >= total" class="px-3 py-1 rounded border border-slate-200 disabled:opacity-40 hover:bg-slate-50" @click="nextPage">Sau</button>
         </div>
       </div>
     </div>
@@ -244,10 +246,12 @@ v-if="p.is_low_stock" class="inline-block ml-1 text-[10px] px-1.5 py-0.5 rounded
       <div
 v-if="showForm" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
            @click.self="showForm = false">
-        <div class="bg-white rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-2xl">
-          <div class="flex items-center justify-between px-6 py-4 border-b border-slate-100">
-            <h2 class="font-semibold text-slate-800">Tạo phụ tùng mới</h2>
-            <button class="p-1.5 rounded-md text-slate-400 hover:bg-slate-100" @click="showForm = false">✕</button>
+        <div class="bg-white rounded-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-modal border border-slate-200">
+          <div class="flex items-center justify-between px-6 py-4 border-b border-slate-200">
+            <h2 class="font-semibold text-slate-900">Tạo phụ tùng</h2>
+            <button class="p-1.5 rounded-md text-slate-400 hover:bg-slate-100" aria-label="Đóng" @click="showForm = false">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
           </div>
           <div class="p-6 space-y-4">
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -303,10 +307,10 @@ v-if="showForm" class="fixed inset-0 z-50 flex items-center justify-center bg-bl
               </div>
             </div>
           </div>
-          <div class="flex gap-3 justify-end px-6 py-4 border-t border-slate-100">
+          <div class="flex gap-3 justify-end px-6 py-4 border-t border-slate-200">
             <button class="btn-ghost" @click="showForm = false">Huỷ</button>
             <button class="btn-primary" :disabled="saving" @click="submit">
-              {{ saving ? 'Đang lưu...' : 'Tạo' }}
+              {{ saving ? 'Đang lưu…' : 'Tạo phụ tùng' }}
             </button>
           </div>
         </div>

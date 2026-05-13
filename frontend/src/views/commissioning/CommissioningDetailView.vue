@@ -9,6 +9,7 @@ import CommissioningForm from '@/components/commissioning/CommissioningForm.vue'
 import ApprovalPanel from '@/components/commissioning/ApprovalPanel.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
 import { getGateStatus, approveClinicalRelease } from '@/api/imm04'
 import type { GateStatus } from '@/api/imm04'
 
@@ -279,21 +280,21 @@ stroke-linecap="round" stroke-linejoin="round"
       </Transition>
     </Teleport>
 
-    <!-- Breadcrumb -->
-    <nav class="flex items-center gap-1.5 text-xs text-slate-400 mb-6">
-      <button class="hover:text-slate-600 transition-colors" @click="router.push('/dashboard')">Dashboard</button>
-      <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
-      </svg>
-      <button class="hover:text-slate-600 transition-colors" @click="router.push('/commissioning')">Danh sách phiếu</button>
-      <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
-      </svg>
-      <span class="font-mono font-semibold text-slate-700">{{ id }}</span>
-      <template v-if="store.currentDoc">
-        <StatusBadge :state="store.currentDoc.workflow_state" size="xs" class="ml-1" />
+    <PageHeader
+      :title="id"
+      subtitle="Phiếu Tiếp nhận và lắp đặt"
+      :back-to="'/commissioning'"
+      back-label="← Danh sách"
+      :breadcrumb="[
+        { label: 'IMM-04 · Tiếp nhận', to: '/commissioning' },
+        { label: 'Danh sách', to: '/commissioning' },
+        { label: id },
+      ]"
+    >
+      <template #actions>
+        <StatusBadge v-if="store.currentDoc" :state="store.currentDoc.workflow_state" size="md" />
       </template>
-    </nav>
+    </PageHeader>
 
     <!-- ── ACTION TOOLBAR ─────────────────────────────────────────────────── -->
     <div v-if="store.currentDoc" class="flex flex-wrap items-center justify-between gap-3 mb-5">

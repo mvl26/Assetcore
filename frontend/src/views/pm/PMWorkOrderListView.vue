@@ -188,7 +188,7 @@ function quickFilter(_key: 'status', value: string) {
             @click="router.push(`/pm/work-orders/${wo.name}`)"
           >
             <td class="table-cell">
-              <div class="font-mono text-sm font-semibold text-blue-700">{{ wo.name }}</div>
+              <div class="font-mono text-sm font-semibold text-brand-700">{{ wo.name }}</div>
             </td>
             <td class="table-cell">
               <div class="font-medium text-slate-900 truncate max-w-[240px]">

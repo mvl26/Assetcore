@@ -4,10 +4,12 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useImm02Store } from '@/stores/imm02'
 import type { SpecState } from '@/types/imm02'
-import { stateLabel, stateSlug } from '@/utils/wave2Labels'
+import { stateLabel } from '@/utils/wave2Labels'
 import PageHeader from '@/components/common/PageHeader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar, { type FilterChip } from '@/components/common/ListFilterBar.vue'
+import KpiCard from '@/components/common/KpiCard.vue'
+import StatusBadge from '@/components/common/StatusBadge.vue'
 
 const router = useRouter()
 const store  = useImm02Store()
@@ -116,8 +118,8 @@ onMounted(() => { store.fetchList(); store.fetchKpis() })
     </PageHeader>
 
     <ListFilterBar
-      :show="showFilters"
       v-model:search="filters.search"
+      :show="showFilters"
       :chips="activeChips"
       search-placeholder="Tìm theo mã hồ sơ, model..."
       @apply="applyFilters"
@@ -136,19 +138,18 @@ onMounted(() => { store.fetchList(); store.fetchKpis() })
       </template>
     </ListFilterBar>
 
-    <div v-if="store.kpis" class="kpi-grid mb-4">
-      <div class="kpi-card">
-        <span class="kpi-value">{{ totalLocked }}</span>
-        <span class="kpi-label">Đã chốt hồ sơ</span>
-      </div>
-      <div class="kpi-card warn">
-        <span class="kpi-value">{{ store.kpis.backlog_over_30d }}</span>
-        <span class="kpi-label">Hồ sơ tồn quá 30 ngày</span>
-      </div>
-      <div class="kpi-card">
-        <span class="kpi-value">{{ store.kpis.avg_lock_in_score.toFixed(2) }}</span>
-        <span class="kpi-label">Điểm phụ thuộc TB (mục tiêu ≤ 2,5)</span>
-      </div>
+    <div v-if="store.kpis" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
+      <KpiCard label="Đã chốt hồ sơ" :value="totalLocked" color="success" />
+      <KpiCard
+        label="Hồ sơ tồn quá 30 ngày"
+        :value="store.kpis.backlog_over_30d"
+        :color="store.kpis.backlog_over_30d > 0 ? 'warning' : 'neutral'"
+      />
+      <KpiCard
+        label="Điểm phụ thuộc TB (mục tiêu ≤ 2,5)"
+        :value="store.kpis.avg_lock_in_score.toFixed(2)"
+        :color="store.kpis.avg_lock_in_score > 3.5 ? 'danger' : store.kpis.avg_lock_in_score > 2.5 ? 'warning' : 'success'"
+      />
     </div>
 
     <div v-if="store.error" class="alert-error mb-4">
@@ -180,11 +181,17 @@ onMounted(() => { store.fetchList(); store.fetchKpis() })
             </tr>
           </thead>
           <tbody>
-            <tr v-for="s in filteredSpecs" :key="s.name" class="clickable" @click="goDetail(s.name)">
-              <td>{{ s.name }}</td>
+            <tr
+              v-for="(s, idx) in filteredSpecs" :key="s.name"
+              class="clickable animate-fade-in"
+              :class="[`stagger-${Math.min(idx + 1, 8)}`]"
+              @click="goDetail(s.name)"
+            >
+              <td><span class="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded text-slate-700">{{ s.name }}</span></td>
               <td>{{ s.version }}</td>
               <td>
-                <button v-if="s.device_model_ref" class="link-cell" :title="`Lọc: ${s.device_model_ref}`"
+                <button
+v-if="s.device_model_ref" class="link-cell" :title="`Lọc: ${s.device_model_ref}`"
                         @click.stop="quickFilter('device_model_ref', s.device_model_ref)">
                   {{ s.device_model_ref }}
                 </button>
@@ -198,10 +205,13 @@ onMounted(() => { store.fetchList(); store.fetchKpis() })
                 </span>
               </td>
               <td>
-                <button :class="['badge', 'state-' + stateSlug(s.workflow_state), 'badge-btn']"
-                        :title="`Lọc trạng thái: ${stateLabel(s.workflow_state)}`"
-                        @click.stop="quickFilter('workflow_state', s.workflow_state)">
-                  {{ stateLabel(s.workflow_state) }}
+                <button
+                  type="button"
+                  class="pill-btn"
+                  :title="`Lọc trạng thái: ${stateLabel(s.workflow_state)}`"
+                  @click.stop="quickFilter('workflow_state', s.workflow_state)"
+                >
+                  <StatusBadge :state="s.workflow_state" />
                 </button>
               </td>
             </tr>
@@ -218,30 +228,4 @@ onMounted(() => { store.fetchList(); store.fetchKpis() })
   </div>
 </template>
 
-<style scoped>
-.kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; }
-.kpi-card { background: white; border: 1px solid #e5e7eb; border-radius: 8px; padding: 1rem; display: flex; flex-direction: column; }
-.kpi-value { font-size: 1.75rem; font-weight: 700; }
-.kpi-label { color: #6b7280; font-size: 0.85rem; }
-.kpi-card.warn { border-left: 4px solid #f59e0b; }
-.alert-close { background: none; border: none; cursor: pointer; font-size: 1.25rem; float: right; }
-.data-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
-.data-table th, .data-table td { padding: 0.75rem 1rem; text-align: left; border-bottom: 1px solid #f1f5f9; }
-.data-table th { background: #f9fafb; font-weight: 600; font-size: 0.85rem; color: #475569; }
-.data-table .num { text-align: right; }
-.data-table tr.clickable { cursor: pointer; }
-.data-table tr.clickable:hover { background: #f9fafb; }
-.link-cell { background: none; border: none; padding: 0; color: #334155; cursor: pointer; }
-.link-cell:hover { color: #2563eb; text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 2px; }
-.badge { display: inline-block; padding: 0.15rem 0.6rem; border-radius: 999px; font-size: 0.75rem; font-weight: 600; }
-.badge-btn { border: none; cursor: pointer; }
-.badge-btn:hover { box-shadow: 0 0 0 2px rgba(0,0,0,0.06); }
-.badge.state-draft { background: #e5e7eb; color: #374151; }
-.badge.state-reviewing { background: #fef3c7; color: #92400e; }
-.badge.state-benchmarked, .badge.state-locked { background: #d1fae5; color: #065f46; }
-.badge.state-risk-assessed, .badge.state-pending-approval { background: #fce7f3; color: #9d174d; }
-.badge.state-withdrawn { background: #fee2e2; color: #b91c1c; }
-.over { color: #b91c1c; font-weight: 700; }
-.warn { color: #c2410c; font-weight: 600; }
-.ok   { color: #065f46; font-weight: 500; }
-</style>
+<!-- list-view.css cung cấp .data-table, .link-cell, .pill-btn, .alert-error, ok/warn/over. -->

@@ -136,7 +136,7 @@ const statusColor: Record<string, string> = {
   Passed: 'bg-green-100 text-green-700',
   Failed: 'bg-red-100 text-red-700',
   'Conditionally Passed': 'bg-orange-100 text-orange-700',
-  Cancelled: 'bg-gray-100 text-gray-500',
+  Cancelled: 'bg-slate-100 text-slate-500',
 }
 
 async function load() {
@@ -203,7 +203,7 @@ onMounted(load)
       <div class="flex items-center gap-2">
         <span
 v-if="form.status" class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium"
-          :class="statusColor[form.status] || 'bg-gray-100'">{{ form.status }}</span>
+          :class="statusColor[form.status] || 'bg-slate-100'">{{ form.status }}</span>
         <span
 v-if="isSubmitted && form.overall_result" class="text-xs font-semibold px-2 py-1 rounded"
           :class="form.overall_result === 'Passed' ? 'text-green-700 bg-green-50' : 'text-red-600 bg-red-50'">
@@ -261,7 +261,7 @@ v-if="isSubmitted && form.overall_result" class="text-xs font-semibold px-2 py-1
               <span
                 v-if="form.status"
                 class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium"
-                :class="statusColor[form.status] || 'bg-gray-100'"
+                :class="statusColor[form.status] || 'bg-slate-100'"
               >{{ form.status }}</span>
               <span class="text-xs text-slate-400">— chuyển trạng thái qua các nút thao tác bên dưới</span>
             </div>
@@ -355,7 +355,9 @@ v-else-if="m.measured_value !== null && m.measured_value !== undefined" class="t
                 :class="computeResult(m) === 'Pass' ? 'text-green-600' : 'text-red-600'">
                 {{ computeResult(m) }}
               </span>
-              <button v-if="!isSubmitted" class="text-red-400 text-xs ml-auto" @click="removeMeasurement(i)">✕</button>
+              <button v-if="!isSubmitted" class="text-red-400 hover:text-red-600 ml-auto" aria-label="Xoá đo" @click="removeMeasurement(i)">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+              </button>
             </div>
           </div>
         </div>
@@ -377,7 +379,7 @@ v-else-if="m.measured_value !== null && m.measured_value !== undefined" class="t
       <div class="flex gap-2 justify-end pt-2 flex-wrap">
         <button class="btn-ghost text-sm" @click="router.push('/calibration')">Quay lại</button>
         <button
-v-if="canCancel" class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg text-sm"
+v-if="canCancel" class="bg-slate-500 hover:bg-slate-600 text-white px-4 py-2 rounded-lg text-sm"
           @click="showCancelModal = true">
 Hủy phiếu
 </button>
@@ -405,7 +407,7 @@ Nhận chứng chỉ
     <!-- Send to Lab Modal -->
     <div v-if="showSendModal" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
       <div class="bg-white rounded-xl p-6 w-full max-w-md space-y-4 shadow-xl">
-        <h2 class="font-semibold text-gray-800">Gửi phòng hiệu chuẩn</h2>
+        <h2 class="font-semibold text-slate-800">Gửi phòng hiệu chuẩn</h2>
         <div>
           <label for="send-date" class="block text-sm font-medium mb-1">Ngày gửi</label>
           <DateInput id="send-date" v-model="sendData.sent_date" class="form-input w-full text-sm" />
@@ -430,7 +432,7 @@ Nhận chứng chỉ
     <!-- Receive Certificate Modal -->
     <div v-if="showReceiveModal" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
       <div class="bg-white rounded-xl p-6 w-full max-w-md space-y-4 shadow-xl">
-        <h2 class="font-semibold text-gray-800">Nhận chứng chỉ hiệu chuẩn</h2>
+        <h2 class="font-semibold text-slate-800">Nhận chứng chỉ hiệu chuẩn</h2>
         <div>
           <label for="recv-file" class="block text-sm font-medium mb-1">File chứng chỉ <span class="text-red-500">*</span></label>
           <div class="flex items-center gap-2">
@@ -444,8 +446,8 @@ Nhận chứng chỉ
             />
             <span v-if="uploadingCert" class="text-xs text-slate-500">Đang upload...</span>
           </div>
-          <p v-if="recvData.certificate_file" class="text-xs text-green-700 mt-1 truncate">
-            ✓ Đã đính kèm:
+          <p v-if="recvData.certificate_file" class="text-xs text-emerald-700 mt-1 truncate">
+            Đã đính kèm:
             <a :href="recvData.certificate_file" target="_blank" class="underline">{{ recvData.certificate_file }}</a>
           </p>
         </div>
@@ -479,14 +481,14 @@ Nhận chứng chỉ
     <!-- Cancel Modal -->
     <div v-if="showCancelModal" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
       <div class="bg-white rounded-xl p-6 w-full max-w-md space-y-4 shadow-xl">
-        <h2 class="font-semibold text-gray-800">Hủy phiếu hiệu chuẩn</h2>
+        <h2 class="font-semibold text-slate-800">Hủy phiếu hiệu chuẩn</h2>
         <div>
           <label for="cal-cancel-reason" class="block text-sm font-medium mb-1">Lý do <span class="text-red-500">*</span></label>
           <textarea id="cal-cancel-reason" v-model="cancelReason" rows="3" class="form-input w-full text-sm" placeholder="Lý do hủy phiếu..."></textarea>
         </div>
         <div class="flex justify-end gap-2">
           <button class="px-4 py-2 text-sm border rounded-lg" @click="showCancelModal = false">Quay lại</button>
-          <button :disabled="actionLoading || !cancelReason.trim()" class="px-4 py-2 text-sm bg-gray-600 text-white rounded-lg hover:bg-gray-700 disabled:opacity-50" @click="doCancel">
+          <button :disabled="actionLoading || !cancelReason.trim()" class="px-4 py-2 text-sm bg-slate-600 text-white rounded-lg hover:bg-slate-700 disabled:opacity-50" @click="doCancel">
             {{ actionLoading ? 'Đang hủy...' : 'Xác nhận hủy' }}
           </button>
         </div>

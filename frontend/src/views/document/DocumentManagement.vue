@@ -1,19 +1,21 @@
 <template>
   <div class="document-management">
-<!-- Header -->
-    <div class="page-header">
-      <div>
-        <h1>Quản lý Hồ sơ Thiết bị</h1>
-        <p v-if="assetFilter" class="asset-filter-hint">
-          Đang xem hồ sơ thiết bị: <strong>{{ assetFilter }}</strong>
-          <button class="clear-filter" @click="clearAssetFilter">✕ Xóa</button>
-        </p>
-      </div>
-      <div class="header-actions">
-        <button class="btn btn-outline" @click="showFilters = !showFilters">Bộ lọc</button>
-        <button class="btn btn-primary" @click="goToCreate">+ Tải lên Tài liệu</button>
-      </div>
-    </div>
+    <PageHeader
+      title="Quản lý Hồ sơ Thiết bị"
+      :subtitle="assetFilter ? `Đang xem hồ sơ thiết bị ${assetFilter}` : 'Toàn bộ hồ sơ thiết bị y tế'"
+      :breadcrumb="[{ label: 'IMM-05 · Hồ sơ', to: '/documents' }, { label: 'Danh sách' }]"
+    >
+      <template #actions>
+        <button v-if="assetFilter" class="btn-ghost text-xs" @click="clearAssetFilter">Bỏ lọc theo thiết bị</button>
+        <button class="btn-ghost text-sm" @click="showFilters = !showFilters">Bộ lọc</button>
+        <button class="btn-primary text-sm" @click="goToCreate">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+          </svg>
+          Tải lên tài liệu
+        </button>
+      </template>
+    </PageHeader>
 
     <!-- KPI Banner — clickable filters -->
     <div v-if="store.kpis" class="kpi-grid">
@@ -197,6 +199,7 @@ import DocumentRow from '@/components/document/DocumentRow.vue'
 import DocumentRequestModal from '@/components/document/DocumentRequestModal.vue'
 import ExemptModal from '@/components/document/ExemptModal.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
 const toast = useToast()
 
 const router = useRouter()

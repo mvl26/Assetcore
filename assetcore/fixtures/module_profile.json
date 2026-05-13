@@ -1,39 +1,125 @@
 [
  {
+  "block_modules": [
+   {
+    "module": "Website",
+    "parent": "IMM - Admin",
+    "parentfield": "block_modules",
+    "parenttype": "Module Profile"
+   },
+   {
+    "module": "Social",
+    "parent": "IMM - Admin",
+    "parentfield": "block_modules",
+    "parenttype": "Module Profile"
+   },
+   {
+    "module": "Integrations",
+    "parent": "IMM - Admin",
+    "parentfield": "block_modules",
+    "parenttype": "Module Profile"
+   }
+  ],
+  "docstatus": 0,
   "doctype": "Module Profile",
-  "name": "IMM - Admin",
+  "modified": "2026-05-12 16:42:32.021144",
   "module_profile_name": "IMM - Admin",
-  "block_modules": [
-   {"module": "Website"},
-   {"module": "Social"},
-   {"module": "Integrations"}
-  ]
+  "name": "IMM - Admin"
  },
  {
+  "block_modules": [
+   {
+    "module": "Website",
+    "parent": "IMM - Standard",
+    "parentfield": "block_modules",
+    "parenttype": "Module Profile"
+   },
+   {
+    "module": "Social",
+    "parent": "IMM - Standard",
+    "parentfield": "block_modules",
+    "parenttype": "Module Profile"
+   },
+   {
+    "module": "Integrations",
+    "parent": "IMM - Standard",
+    "parentfield": "block_modules",
+    "parenttype": "Module Profile"
+   },
+   {
+    "module": "Automation",
+    "parent": "IMM - Standard",
+    "parentfield": "block_modules",
+    "parenttype": "Module Profile"
+   },
+   {
+    "module": "Geo",
+    "parent": "IMM - Standard",
+    "parentfield": "block_modules",
+    "parenttype": "Module Profile"
+   }
+  ],
+  "docstatus": 0,
   "doctype": "Module Profile",
-  "name": "IMM - Standard",
+  "modified": "2026-05-12 16:42:32.035725",
   "module_profile_name": "IMM - Standard",
-  "block_modules": [
-   {"module": "Website"},
-   {"module": "Social"},
-   {"module": "Integrations"},
-   {"module": "Automation"},
-   {"module": "Geo"}
-  ]
+  "name": "IMM - Standard"
  },
  {
-  "doctype": "Module Profile",
-  "name": "IMM - Vendor",
-  "module_profile_name": "IMM - Vendor",
   "block_modules": [
-   {"module": "Website"},
-   {"module": "Social"},
-   {"module": "Integrations"},
-   {"module": "Automation"},
-   {"module": "Geo"},
-   {"module": "Email"},
-   {"module": "Printing"},
-   {"module": "Contacts"}
-  ]
+   {
+    "module": "Website",
+    "parent": "IMM - Vendor",
+    "parentfield": "block_modules",
+    "parenttype": "Module Profile"
+   },
+   {
+    "module": "Social",
+    "parent": "IMM - Vendor",
+    "parentfield": "block_modules",
+    "parenttype": "Module Profile"
+   },
+   {
+    "module": "Integrations",
+    "parent": "IMM - Vendor",
+    "parentfield": "block_modules",
+    "parenttype": "Module Profile"
+   },
+   {
+    "module": "Automation",
+    "parent": "IMM - Vendor",
+    "parentfield": "block_modules",
+    "parenttype": "Module Profile"
+   },
+   {
+    "module": "Geo",
+    "parent": "IMM - Vendor",
+    "parentfield": "block_modules",
+    "parenttype": "Module Profile"
+   },
+   {
+    "module": "Email",
+    "parent": "IMM - Vendor",
+    "parentfield": "block_modules",
+    "parenttype": "Module Profile"
+   },
+   {
+    "module": "Printing",
+    "parent": "IMM - Vendor",
+    "parentfield": "block_modules",
+    "parenttype": "Module Profile"
+   },
+   {
+    "module": "Contacts",
+    "parent": "IMM - Vendor",
+    "parentfield": "block_modules",
+    "parenttype": "Module Profile"
+   }
+  ],
+  "docstatus": 0,
+  "doctype": "Module Profile",
+  "modified": "2026-05-12 16:42:32.047462",
+  "module_profile_name": "IMM - Vendor",
+  "name": "IMM - Vendor"
  }
 ]

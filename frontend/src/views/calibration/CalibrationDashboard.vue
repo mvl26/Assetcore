@@ -142,7 +142,7 @@ onMounted(load)
             class="text-3xl font-bold font-display tabular-nums"
             :style="`color: ${data.kpis.capa_open > 0 ? '#ea580c' : '#059669'}`"
           >{{ data.kpis.capa_open }}</p>
-          <p v-if="data.kpis.capa_open > 0" class="text-xs text-orange-600 mt-4 font-medium">⚠ cần xử lý</p>
+          <p v-if="data.kpis.capa_open > 0" class="text-xs text-amber-700 mt-4 font-medium">Cần xử lý</p>
           <p v-else class="text-xs text-slate-500 mt-4">không có</p>
         </div>
 

@@ -8,6 +8,8 @@ import { useApi } from '@/composables/useApi'
 import { ROLES_TRAINING_MANAGE, ROLES_TRAINING_CONDUCT } from '@/constants/roles'
 import { confirmSession, startSession, completeSession, cancelSession, verifySession, closeSession, createSession } from '@/api/imm06'
 import type { TrainingParticipant } from '@/api/imm06'
+import PageHeader from '@/components/common/PageHeader.vue'
+import StatusBadge from '@/components/common/StatusBadge.vue'
 
 
 const props = defineProps<{ name?: string }>()
@@ -46,32 +48,6 @@ const canComplete = computed(() => state.value === 'In Progress' && canConduct.v
 const canVerify = computed(() => state.value === 'Completed' && canManage.value)
 const canClose = computed(() => state.value === 'Verified' && canManage.value)
 const canCancel = computed(() => (state.value === 'Planned' || state.value === 'Confirmed') && canManage.value)
-
-function stateClass(s: string): string {
-  const map: Record<string, string> = {
-    Planned:     'bg-yellow-100 text-yellow-700',
-    Confirmed:   'bg-blue-100 text-blue-700',
-    'In Progress': 'bg-indigo-100 text-indigo-700',
-    Completed:   'bg-emerald-100 text-emerald-700',
-    Verified:    'bg-teal-100 text-teal-700',
-    Closed:      'bg-slate-100 text-slate-600',
-    Cancelled:   'bg-neutral-100 text-neutral-500',
-  }
-  return map[s] ?? 'bg-neutral-100 text-neutral-600'
-}
-
-function stateLabel(s: string) {
-  const map: Record<string, string> = {
-    Planned:     'Đã lên kế hoạch',
-    Confirmed:   'Đã xác nhận',
-    'In Progress': 'Đang diễn ra',
-    Completed:   'Hoàn thành',
-    Verified:    'Đã xác minh',
-    Closed:      'Đã đóng',
-    Cancelled:   'Đã hủy',
-  }
-  return map[s] ?? s
-}
 
 function resultClass(result: string | null) {
   if (!result) return 'text-slate-400'
@@ -159,23 +135,19 @@ onMounted(load)
 
 <template>
   <div class="page-container animate-fade-in space-y-5">
-    <!-- Header -->
-    <div class="flex items-center justify-between flex-wrap gap-3">
-      <div class="flex items-center gap-3">
-        <button class="btn-ghost text-sm" @click="router.push('/imm06/sessions')">← Quay lại</button>
-        <div>
-          <p class="text-xs text-slate-400">Buổi đào tạo</p>
-          <h1 class="text-xl font-bold text-slate-900">{{ isCreateMode ? 'Tạo buổi đào tạo mới' : props.name }}</h1>
-        </div>
-      </div>
-      <div class="flex items-center gap-2 flex-wrap">
-        <span
-          v-if="currentSession"
-          class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium"
-          :class="stateClass(currentSession.workflow_state)"
-        >
-          {{ stateLabel(currentSession.workflow_state) }}
-        </span>
+    <PageHeader
+      :title="isCreateMode ? 'Tạo buổi đào tạo mới' : (props.name ?? '')"
+      :subtitle="isCreateMode ? 'Khai báo buổi đào tạo mới' : 'Buổi đào tạo'"
+      :back-to="'/imm06/sessions'"
+      back-label="← Danh sách buổi"
+      :breadcrumb="[
+        { label: 'IMM-06 · Đào tạo & Năng lực', to: '/imm06/sessions' },
+        { label: 'Buổi đào tạo', to: '/imm06/sessions' },
+        { label: isCreateMode ? 'Tạo mới' : (props.name ?? '') },
+      ]"
+    >
+      <template #actions>
+        <StatusBadge v-if="currentSession" :state="currentSession.workflow_state" size="md" />
 
         <button
           v-if="canConfirm"
@@ -192,7 +164,7 @@ onMounted(load)
           :disabled="api.loading.value"
           @click="doCreate"
         >
-          {{ api.loading.value ? 'Đang tạo...' : 'Tạo buổi đào tạo' }}
+          {{ api.loading.value ? 'Đang tạo…' : 'Tạo buổi đào tạo' }}
         </button>
 
         <button
@@ -206,16 +178,16 @@ onMounted(load)
 
         <button
           v-if="canComplete"
-          class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm transition-colors disabled:opacity-50"
+          class="btn-primary text-sm"
           :disabled="api.loading.value"
           @click="doComplete"
         >
-          {{ api.loading.value ? 'Đang lưu...' : 'Hoàn thành' }}
+          {{ api.loading.value ? 'Đang lưu…' : 'Hoàn thành' }}
         </button>
 
         <button
           v-if="canVerify"
-          class="bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 rounded-lg text-sm transition-colors disabled:opacity-50"
+          class="btn-primary text-sm"
           :disabled="api.loading.value"
           @click="doVerify"
         >
@@ -224,7 +196,7 @@ onMounted(load)
 
         <button
           v-if="canClose"
-          class="bg-slate-600 hover:bg-slate-700 text-white px-4 py-2 rounded-lg text-sm transition-colors disabled:opacity-50"
+          class="btn-primary text-sm"
           :disabled="api.loading.value"
           @click="doClose"
         >
@@ -233,13 +205,13 @@ onMounted(load)
 
         <button
           v-if="canCancel"
-          class="bg-neutral-500 hover:bg-neutral-600 text-white px-4 py-2 rounded-lg text-sm transition-colors"
+          class="btn-ghost text-sm text-red-600 hover:bg-red-50"
           @click="showCancelModal = true"
         >
           Hủy buổi
         </button>
-      </div>
-    </div>
+      </template>
+    </PageHeader>
 
     <!-- Create Form -->
     <div v-if="isCreateMode" class="card p-6 space-y-4">
@@ -281,7 +253,7 @@ onMounted(load)
       <p class="text-xs text-slate-400">* Phải có ít nhất một trong hai giảng viên.</p>
     </div>
 
-    <div v-else-if="loading" class="card p-8 text-center text-slate-400">Đang tải...</div>
+    <div v-else-if="loading" class="card p-8 text-center text-slate-400">Đang tải…</div>
 
     <template v-else-if="currentSession">
       <!-- Session Info -->
@@ -393,7 +365,7 @@ onMounted(load)
             v-model="cancelReason"
             rows="3"
             class="form-input w-full text-sm"
-            placeholder="Nhập lý do hủy buổi đào tạo..."
+            placeholder="Nhập lý do hủy buổi đào tạo…"
           ></textarea>
         </div>
         <div class="flex justify-end gap-2">
@@ -403,7 +375,7 @@ onMounted(load)
             class="px-4 py-2 text-sm bg-neutral-600 text-white rounded-lg hover:bg-neutral-700 disabled:opacity-50 transition-colors"
             @click="doCancel"
           >
-            {{ api.loading.value ? 'Đang hủy...' : 'Xác nhận hủy' }}
+            {{ api.loading.value ? 'Đang hủy…' : 'Xác nhận hủy' }}
           </button>
         </div>
       </div>

@@ -9,6 +9,7 @@ import BasePagination from '@/components/common/BasePagination.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar from '@/components/common/ListFilterBar.vue'
+import StatusBadge from '@/components/common/StatusBadge.vue'
 
 const router = useRouter()
 const store = useImm06Store()
@@ -67,32 +68,6 @@ async function load(page = 1) {
 
 function levelLabel(v: string) {
   return COMPETENCY_LEVELS.find(l => l.value === v)?.label ?? v
-}
-
-function stateClass(state: string): string {
-  const map: Record<string, string> = {
-    'Active':              'bg-emerald-100 text-emerald-700',
-    'Pending Assessment':  'bg-blue-100 text-blue-700',
-    'Pending Signoff':     'bg-yellow-100 text-yellow-700',
-    'Expiring':            'bg-amber-100 text-amber-700',
-    'Revoked':             'bg-red-100 text-red-700',
-    'Expired':             'bg-neutral-100 text-neutral-500',
-    'Suspended':           'bg-orange-100 text-orange-700',
-  }
-  return map[state] ?? 'bg-neutral-100 text-neutral-600'
-}
-
-function stateLabel(s: string) {
-  const map: Record<string, string> = {
-    'Active':              'Hiệu lực',
-    'Pending Assessment':  'Chờ đánh giá',
-    'Pending Signoff':     'Chờ phê duyệt',
-    'Expiring':            'Sắp hết hạn',
-    'Revoked':             'Đã thu hồi',
-    'Expired':             'Hết hạn',
-    'Suspended':           'Tạm ngưng',
-  }
-  return map[s] ?? s
 }
 
 function expiryClass(days: number | null): string {
@@ -203,12 +178,7 @@ onMounted(() => load())
                 {{ formatDaysUntilExpiry(c.days_until_expiry) }}
               </td>
               <td class="table-cell">
-                <span
-                  class="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium"
-                  :class="stateClass(c.workflow_state)"
-                >
-                  {{ stateLabel(c.workflow_state) }}
-                </span>
+                <StatusBadge :state="c.workflow_state" />
               </td>
             </tr>
           </tbody>

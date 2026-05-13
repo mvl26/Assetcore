@@ -6,7 +6,6 @@
 // sidebar của module đó (xem AppSidebar.MODULE_NAV).
 //
 // Module chưa có FE+BE: disabled=true, không router.push.
-// Module có một phần (đợt 3 chưa hoàn thiện): badge "Một phần", link tạm route gần nhất.
 
 import {
   Roles,
@@ -23,7 +22,6 @@ export interface ModuleCard {
   icon: string
   to: string                    // primary route
   roles: readonly RoleName[]    // [] = all authenticated; ngược lại lọc
-  badge?: string                // "Đợt 1" | "Đợt 2" | "Đợt 3" | "Một phần"
   disabled?: boolean            // true = chưa có FE+BE, hiển thị nhưng không click
 }
 
@@ -69,7 +67,6 @@ export const MODULE_GROUPS: readonly ModuleGroup[] = [
         icon: 'inbox',
         to: '/needs-requests',
         roles: PROC_ROLES,
-        badge: 'Đợt 2',
       },
       {
         id: 'imm02', code: 'IMM-02',
@@ -78,7 +75,6 @@ export const MODULE_GROUPS: readonly ModuleGroup[] = [
         icon: 'template',
         to: '/tech-specs',
         roles: PROC_ROLES,
-        badge: 'Đợt 2',
       },
       {
         id: 'imm03', code: 'IMM-03',
@@ -87,7 +83,6 @@ export const MODULE_GROUPS: readonly ModuleGroup[] = [
         icon: 'chart',
         to: '/vendor-evaluations',
         roles: PROC_ROLES,
-        badge: 'Đợt 2',
       },
     ],
   },
@@ -107,7 +102,6 @@ export const MODULE_GROUPS: readonly ModuleGroup[] = [
         icon: 'clipboard',
         to: '/commissioning',
         roles: TECH_ROLES.concat([Roles.DEPT_HEAD, Roles.QA]),
-        badge: 'Đợt 1',
       },
       {
         id: 'imm05', code: 'IMM-05',
@@ -116,7 +110,6 @@ export const MODULE_GROUPS: readonly ModuleGroup[] = [
         icon: 'folder',
         to: '/documents',
         roles: DOC_ROLES,
-        badge: 'Đợt 1',
       },
       {
         id: 'imm06', code: 'IMM-06',
@@ -125,7 +118,6 @@ export const MODULE_GROUPS: readonly ModuleGroup[] = [
         icon: 'users',
         to: '/imm06/programs',
         roles: TECH_ROLES.concat([Roles.CLINICAL, Roles.DEPT_HEAD]),
-        badge: 'Đợt 2',
       },
     ],
   },
@@ -145,7 +137,6 @@ export const MODULE_GROUPS: readonly ModuleGroup[] = [
         icon: 'chart',
         to: '/dashboard',
         roles: TECH_ROLES.concat([Roles.QA, Roles.DEPT_HEAD]),
-        badge: 'Một phần',
       },
       {
         id: 'imm08', code: 'IMM-08',
@@ -154,7 +145,6 @@ export const MODULE_GROUPS: readonly ModuleGroup[] = [
         icon: 'wrench',
         to: '/pm/dashboard',
         roles: TECH_ROLES,
-        badge: 'Đợt 1',
       },
       {
         id: 'imm09', code: 'IMM-09',
@@ -163,7 +153,6 @@ export const MODULE_GROUPS: readonly ModuleGroup[] = [
         icon: 'tool',
         to: '/cm/dashboard',
         roles: TECH_ROLES.concat([Roles.VENDOR_ENGINEER]),
-        badge: 'Đợt 1',
       },
       {
         id: 'imm10', code: 'IMM-10',
@@ -172,7 +161,6 @@ export const MODULE_GROUPS: readonly ModuleGroup[] = [
         icon: 'alert',
         to: '/capas',
         roles: QA_ROLES,
-        badge: 'Một phần',
       },
       {
         id: 'imm11', code: 'IMM-11',
@@ -181,7 +169,6 @@ export const MODULE_GROUPS: readonly ModuleGroup[] = [
         icon: 'gauge',
         to: '/calibration/dashboard',
         roles: TECH_ROLES,
-        badge: 'Đợt 1',
       },
       {
         id: 'imm12', code: 'IMM-12',
@@ -190,7 +177,6 @@ export const MODULE_GROUPS: readonly ModuleGroup[] = [
         icon: 'shield',
         to: '/incidents/dashboard',
         roles: [...TECH_ROLES, Roles.CLINICAL, Roles.QA, Roles.DEPT_HEAD, Roles.DEPT_DEPUTY],
-        badge: 'Đợt 1',
       },
       {
         id: 'imm15', code: 'IMM-15',
@@ -199,7 +185,6 @@ export const MODULE_GROUPS: readonly ModuleGroup[] = [
         icon: 'box',
         to: '/inventory',
         roles: STOCK_ROLES,
-        badge: 'Đợt 2',
       },
       {
         id: 'imm16', code: 'IMM-16',
@@ -208,7 +193,6 @@ export const MODULE_GROUPS: readonly ModuleGroup[] = [
         icon: 'log',
         to: '/compliance/findings',
         roles: QA_ROLES,
-        badge: 'Đợt 2',
       },
       {
         id: 'imm17', code: 'IMM-17',
@@ -217,7 +201,6 @@ export const MODULE_GROUPS: readonly ModuleGroup[] = [
         icon: 'trending',
         to: '/predictive',
         roles: QA_ROLES.concat([Roles.OPS_MANAGER]),
-        badge: 'Đợt 3',
         disabled: true,
       },
     ],
@@ -238,7 +221,6 @@ export const MODULE_GROUPS: readonly ModuleGroup[] = [
         icon: 'transfer',
         to: '/asset-transfers',
         roles: [Roles.SYS_ADMIN, Roles.OPS_MANAGER, Roles.DEPT_HEAD, Roles.DEPT_DEPUTY, Roles.WORKSHOP],
-        badge: 'Đợt 3',
       },
       {
         id: 'imm14', code: 'IMM-14',
@@ -247,7 +229,6 @@ export const MODULE_GROUPS: readonly ModuleGroup[] = [
         icon: 'trending',
         to: '/depreciation',
         roles: [Roles.SYS_ADMIN, Roles.OPS_MANAGER, Roles.DEPT_HEAD],
-        badge: 'Một phần',
       },
     ],
   },

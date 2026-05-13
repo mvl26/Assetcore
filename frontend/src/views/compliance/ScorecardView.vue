@@ -89,8 +89,8 @@ onMounted(() => { loadLatest(); loadHistory() })
   <div class="page-container animate-fade-in space-y-5">
     <PageHeader
       title="Bảng điểm tuân thủ"
-      subtitle="Compliance Scorecard theo kỳ"
-      :breadcrumb="[{ label: 'IMM-16 · Tuân thủ' }, { label: 'Scorecard' }]"
+      subtitle="IMM-16 · Theo dõi tuân thủ — Compliance Scorecard theo kỳ"
+      :breadcrumb="[{ label: 'IMM-16 · Theo dõi tuân thủ' }, { label: 'Bảng điểm' }]"
     >
       <template #actions>
         <div class="flex items-center gap-2">
@@ -102,7 +102,7 @@ onMounted(() => { loadLatest(); loadHistory() })
           <select v-model.number="selectedMonth" class="form-select text-sm">
             <option v-for="m in 12" :key="m" :value="m">Tháng {{ m }}</option>
           </select>
-          <button class="btn-ghost text-sm" @click="loadCurrent">Tải</button>
+          <button class="btn-secondary text-sm" @click="loadCurrent">Tải bảng điểm</button>
         </div>
       </template>
     </PageHeader>
@@ -110,56 +110,61 @@ onMounted(() => { loadLatest(); loadHistory() })
     <!-- Current scorecard card -->
     <div class="card p-6">
       <div v-if="currentLoading"><SkeletonLoader variant="form" :rows="4" /></div>
-      <div v-else-if="!current" class="text-center py-12 text-slate-400">
-        <p class="text-sm">Chưa có scorecard cho kỳ này.</p>
+      <div v-else-if="!current" class="text-center py-12">
+        <p class="text-sm text-slate-500">Chưa có bảng điểm cho kỳ này.</p>
+        <p class="text-xs text-slate-400 mt-1">Chọn kỳ khác hoặc khởi chạy đánh giá tuân thủ.</p>
       </div>
       <template v-else>
-        <div class="flex items-start justify-between mb-6">
-          <div>
-            <div class="text-xs text-slate-400 mb-1">{{ current.name }}</div>
-            <div class="text-lg font-semibold text-slate-800">
+        <div class="flex items-start justify-between mb-6 gap-4 flex-wrap">
+          <div class="min-w-0">
+            <div class="font-mono text-xs text-brand-700 mb-1">{{ current.name }}</div>
+            <div class="text-lg font-semibold text-slate-900">
               Kỳ {{ String(current.period_month).padStart(2, '0') }}/{{ current.period_year }}
               <span class="text-xs text-slate-400 font-normal ml-2">· {{ current.scope }}</span>
             </div>
           </div>
-          <div class="flex items-center gap-2">
-            <span v-if="current.is_published"
-                  class="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
-              Đã publish · {{ formatDate(current.published_at) }}
+          <div class="flex items-center gap-2 shrink-0">
+            <span
+              v-if="current.is_published"
+              class="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-100"
+            >
+              Đã công bố · {{ formatDate(current.published_at) }}
             </span>
-            <span v-else
-                  class="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-600 border border-slate-200">
+            <span
+              v-else
+              class="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-600 border border-slate-200"
+            >
               Bản nháp
             </span>
-            <button v-if="!current.is_published"
-                    class="btn-primary text-sm" :disabled="api.loading.value"
-                    @click="publish">
-              Publish Scorecard
+            <button
+              v-if="!current.is_published"
+              class="btn-primary text-sm" :disabled="api.loading.value"
+              @click="publish"
+            >
+              {{ api.loading.value ? 'Đang công bố…' : 'Công bố bảng điểm' }}
             </button>
           </div>
         </div>
 
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <div class="kpi-card p-4" style="--kpi-color: #059669">
-            <p class="text-xs text-slate-400 mb-1">Điểm tuân thủ</p>
-            <p class="text-3xl font-bold font-display tabular-nums text-emerald-600">
-              {{ current.score_pct.toFixed(1) }}%
-            </p>
+            <p class="t-eyebrow mb-2">Điểm tuân thủ</p>
+            <p class="t-metric tabular-nums text-emerald-600">{{ current.score_pct.toFixed(1) }}%</p>
             <p class="text-xs mt-1" :class="trendClass">
               {{ trendIcon }} {{ current.trend_vs_prev_month >= 0 ? '+' : '' }}{{ current.trend_vs_prev_month.toFixed(1) }} pp
             </p>
           </div>
           <div class="kpi-card p-4" style="--kpi-color: #2563eb">
-            <p class="text-xs text-slate-400 mb-1">CAPA mở</p>
-            <p class="text-3xl font-bold font-display tabular-nums text-blue-600">{{ current.capa_open_count }}</p>
+            <p class="t-eyebrow mb-2">CAPA đang mở</p>
+            <p class="t-metric tabular-nums text-brand-600">{{ current.capa_open_count }}</p>
           </div>
           <div class="kpi-card p-4" style="--kpi-color: #dc2626">
-            <p class="text-xs text-slate-400 mb-1">CAPA quá hạn</p>
-            <p class="text-3xl font-bold font-display tabular-nums text-red-600">{{ current.capa_overdue_count }}</p>
+            <p class="t-eyebrow mb-2">CAPA quá hạn</p>
+            <p class="t-metric tabular-nums text-red-600">{{ current.capa_overdue_count }}</p>
           </div>
-          <div class="kpi-card p-4" style="--kpi-color: #334155">
-            <p class="text-xs text-slate-400 mb-1">Người duyệt</p>
-            <p class="text-sm font-medium text-slate-700 truncate">{{ current.approved_by_for_review || '—' }}</p>
+          <div class="kpi-card p-4" style="--kpi-color: #475569">
+            <p class="t-eyebrow mb-2">Người duyệt</p>
+            <p class="text-sm font-semibold text-slate-900 truncate mt-1">{{ current.approved_by_for_review || '—' }}</p>
           </div>
         </div>
       </template>
@@ -167,11 +172,11 @@ onMounted(() => { loadLatest(); loadHistory() })
 
     <!-- History list -->
     <div class="table-wrapper">
-      <div class="px-4 py-3 border-b border-slate-100 bg-slate-50/60 text-sm font-medium text-slate-700">
-        Lịch sử Scorecard ({{ historyPagination.total }})
+      <div class="px-4 py-3 border-b border-slate-200 bg-slate-50 text-sm font-medium text-slate-700">
+        Lịch sử bảng điểm ({{ historyPagination.total }})
       </div>
       <div v-if="historyLoading" class="p-4"><SkeletonLoader variant="table" :rows="4" /></div>
-      <div v-else-if="!history.length" class="py-10 text-center text-slate-400 text-sm">Chưa có lịch sử</div>
+      <div v-else-if="!history.length" class="py-10 text-center text-sm text-slate-500">Chưa có lịch sử bảng điểm.</div>
       <div v-else class="overflow-x-auto">
         <table class="min-w-full divide-y divide-slate-100">
           <thead>
@@ -198,9 +203,11 @@ onMounted(() => { loadLatest(); loadHistory() })
               <td class="table-cell tabular-nums">{{ s.capa_open_count }}</td>
               <td class="table-cell tabular-nums">{{ s.capa_overdue_count }}</td>
               <td class="table-cell">
-                <span :class="s.is_published ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-100 text-slate-600 border-slate-200'"
-                      class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium border">
-                  {{ s.is_published ? 'Published' : 'Draft' }}
+                <span
+                  :class="s.is_published ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-slate-100 text-slate-600 border-slate-200'"
+                  class="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium border"
+                >
+                  {{ s.is_published ? 'Đã công bố' : 'Bản nháp' }}
                 </span>
               </td>
             </tr>

@@ -310,7 +310,7 @@ stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                 { label: 'Hãng sản xuất', value: deviceModelInfo.manufacturer },
                 { label: 'Phân loại WHO', value: deviceModelInfo.medical_device_class, type: 'badge' },
                 { label: 'Mức rủi ro', value: deviceModelInfo.risk_classification, type: 'badge' },
-                { label: 'Bức xạ', value: deviceModelInfo.is_radiation_device ? 'Có ⚠️' : 'Không' },
+                { label: 'Bức xạ', value: deviceModelInfo.is_radiation_device ? 'Có' : 'Không' },
                 { label: 'Bảo trì định kỳ', value: deviceModelInfo.is_pm_required ? `${deviceModelInfo.pm_interval_days} ngày` : 'Không yêu cầu' },
                 { label: 'Hiệu chuẩn', value: deviceModelInfo.is_calibration_required ? `${deviceModelInfo.calibration_interval_days} ngày` : 'Không yêu cầu' },
               ]"

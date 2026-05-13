@@ -45,7 +45,7 @@ function severityLabel(s?: string): string {
 }
 
 const severityColor: Record<string, string> = {
-  Minor: 'bg-gray-100 text-gray-600',
+  Minor: 'bg-slate-100 text-slate-600',
   Major: 'bg-orange-100 text-orange-700',
   Critical: 'bg-red-100 text-red-700',
 }
@@ -92,20 +92,20 @@ onMounted(load)
 <template>
   <div class="page-container animate-fade-in space-y-6">
     <div class="flex items-center gap-3">
-      <button class="text-gray-500 hover:text-gray-700 text-sm" @click="router.push('/capas')">← Quay lại</button>
-      <h1 class="text-xl font-semibold text-gray-800">Chi tiết CAPA</h1>
+      <button class="text-slate-500 hover:text-slate-700 text-sm" @click="router.push('/capas')">← Quay lại</button>
+      <h1 class="text-xl font-semibold text-slate-800">Chi tiết CAPA</h1>
     </div>
 
-    <div v-if="loading" class="text-center text-gray-400 py-12">Đang tải...</div>
+    <div v-if="loading" class="text-center text-slate-400 py-12">Đang tải...</div>
     <div v-else-if="!capa" class="text-center text-red-500 py-12">{{ error || 'Không tìm thấy CAPA' }}</div>
 
     <template v-else>
       <!-- Header card -->
-      <div class="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
+      <div class="bg-white rounded-xl border border-slate-200 p-5 space-y-3">
         <div class="flex items-start justify-between gap-4">
           <div>
-            <p class="text-xs text-gray-400 font-mono">{{ capa.name }}</p>
-            <p class="text-base font-medium text-gray-800 mt-1">{{ capa.description || '(Không có mô tả)' }}</p>
+            <p class="text-xs text-slate-400 font-mono">{{ capa.name }}</p>
+            <p class="text-base font-medium text-slate-800 mt-1">{{ capa.description || '(Không có mô tả)' }}</p>
           </div>
           <div class="flex gap-2 flex-shrink-0">
             <span :class="['text-xs px-2 py-1 rounded-full font-medium', severityColor[capa.severity]]">{{ severityLabel(capa.severity) }}</span>
@@ -113,22 +113,22 @@ onMounted(load)
           </div>
         </div>
 
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm pt-2 border-t border-gray-100">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm pt-2 border-t border-slate-100">
           <div>
-            <p class="text-gray-400 text-xs">Thiết bị</p>
+            <p class="text-slate-400 text-xs">Thiết bị</p>
             <p class="font-medium">{{ capa.asset_name || capa.asset || '—' }}</p>
-            <p v-if="capa.asset_name" class="text-xs text-gray-400 font-mono">{{ capa.asset }}</p>
+            <p v-if="capa.asset_name" class="text-xs text-slate-400 font-mono">{{ capa.asset }}</p>
           </div>
-          <div><p class="text-gray-400 text-xs">Hạn xử lý</p><p :class="['font-medium', capa.due_date && new Date(capa.due_date) < new Date() && capa.status !== 'Closed' ? 'text-red-600' : '']">{{ formatDate(capa.due_date) }}</p></div>
-          <div><p class="text-gray-400 text-xs">Người phụ trách</p><p class="font-medium">{{ capa.owner || '—' }}</p></div>
-          <div><p class="text-gray-400 text-xs">Ngày tạo</p><p class="font-medium">{{ formatDate(capa.creation) }}</p></div>
+          <div><p class="text-slate-400 text-xs">Hạn xử lý</p><p :class="['font-medium', capa.due_date && new Date(capa.due_date) < new Date() && capa.status !== 'Closed' ? 'text-red-600' : '']">{{ formatDate(capa.due_date) }}</p></div>
+          <div><p class="text-slate-400 text-xs">Người phụ trách</p><p class="font-medium">{{ capa.owner || '—' }}</p></div>
+          <div><p class="text-slate-400 text-xs">Ngày tạo</p><p class="font-medium">{{ formatDate(capa.creation) }}</p></div>
         </div>
       </div>
 
       <!-- Close CAPA -->
-      <div v-if="canClose" class="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
+      <div v-if="canClose" class="bg-white rounded-xl border border-slate-200 p-5 space-y-4">
         <div class="flex items-center justify-between">
-          <h2 class="font-semibold text-gray-700">Đóng CAPA</h2>
+          <h2 class="font-semibold text-slate-700">Đóng CAPA</h2>
           <button
             class="text-sm bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-lg"
             @click="showCloseForm = !showCloseForm"
@@ -140,20 +140,20 @@ onMounted(load)
         <div v-if="showCloseForm" class="space-y-3">
           <div v-if="error" class="text-red-600 text-sm bg-red-50 px-3 py-2 rounded">{{ error }}</div>
           <div>
-            <label for="close-root-cause" class="block text-xs text-gray-500 mb-1">Root Cause <span class="text-red-500">*</span></label>
-            <textarea id="close-root-cause" v-model="closeForm.root_cause" rows="2" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" placeholder="Nguyên nhân gốc rễ..."></textarea>
+            <label for="close-root-cause" class="block text-xs text-slate-500 mb-1">Root Cause <span class="text-red-500">*</span></label>
+            <textarea id="close-root-cause" v-model="closeForm.root_cause" rows="2" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" placeholder="Nguyên nhân gốc rễ..."></textarea>
           </div>
           <div>
-            <label for="close-corrective" class="block text-xs text-gray-500 mb-1">Corrective Action <span class="text-red-500">*</span></label>
-            <textarea id="close-corrective" v-model="closeForm.corrective_action" rows="2" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" placeholder="Hành động khắc phục..."></textarea>
+            <label for="close-corrective" class="block text-xs text-slate-500 mb-1">Corrective Action <span class="text-red-500">*</span></label>
+            <textarea id="close-corrective" v-model="closeForm.corrective_action" rows="2" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" placeholder="Hành động khắc phục..."></textarea>
           </div>
           <div>
-            <label for="close-preventive" class="block text-xs text-gray-500 mb-1">Preventive Action <span class="text-red-500">*</span></label>
-            <textarea id="close-preventive" v-model="closeForm.preventive_action" rows="2" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" placeholder="Hành động phòng ngừa..."></textarea>
+            <label for="close-preventive" class="block text-xs text-slate-500 mb-1">Preventive Action <span class="text-red-500">*</span></label>
+            <textarea id="close-preventive" v-model="closeForm.preventive_action" rows="2" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" placeholder="Hành động phòng ngừa..."></textarea>
           </div>
           <div>
-            <label for="close-effectiveness" class="block text-xs text-gray-500 mb-1">Effectiveness Check</label>
-            <textarea id="close-effectiveness" v-model="closeForm.effectiveness_check" rows="2" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" placeholder="Xác minh hiệu quả (không bắt buộc)..."></textarea>
+            <label for="close-effectiveness" class="block text-xs text-slate-500 mb-1">Effectiveness Check</label>
+            <textarea id="close-effectiveness" v-model="closeForm.effectiveness_check" rows="2" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" placeholder="Xác minh hiệu quả (không bắt buộc)..."></textarea>
           </div>
           <button
             :disabled="saving"

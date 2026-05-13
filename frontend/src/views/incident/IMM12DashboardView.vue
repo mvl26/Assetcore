@@ -26,14 +26,14 @@ const STATUS_COLOR: Record<string, string> = {
   'Under Investigation': 'bg-yellow-100 text-yellow-800',
   Resolved: 'bg-purple-100 text-purple-700',
   Closed: 'bg-green-100 text-green-700',
-  Cancelled: 'bg-gray-100 text-gray-500',
+  Cancelled: 'bg-slate-100 text-slate-500',
 }
 
 const RCA_STATUS_COLOR: Record<string, string> = {
   'RCA Required': 'bg-red-100 text-red-700',
   'RCA In Progress': 'bg-yellow-100 text-yellow-800',
   Completed: 'bg-green-100 text-green-700',
-  Cancelled: 'bg-gray-100 text-gray-500',
+  Cancelled: 'bg-slate-100 text-slate-500',
 }
 
 function formatDateTime(d?: string) {
@@ -123,7 +123,7 @@ onMounted(() => store.fetchDashboard())
               >
                 <span
 class="mt-0.5 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium shrink-0"
-                      :class="SEV_COLOR[ir.severity] || 'bg-gray-100 text-gray-600'">
+                      :class="SEV_COLOR[ir.severity] || 'bg-slate-100 text-slate-600'">
                   {{ ir.severity }}
                 </span>
                 <div class="flex-1 min-w-0">
@@ -133,7 +133,7 @@ class="mt-0.5 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium s
                 <div class="text-right shrink-0">
                   <span
 class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium"
-                        :class="STATUS_COLOR[ir.status] || 'bg-gray-100 text-gray-600'">
+                        :class="STATUS_COLOR[ir.status] || 'bg-slate-100 text-slate-600'">
                     {{ ir.status }}
                   </span>
                   <p class="text-xs text-slate-400 mt-1">{{ formatDateTime(ir.reported_at) }}</p>
@@ -166,7 +166,7 @@ class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium"
                 <div class="text-right shrink-0">
                   <span
 class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium"
-                        :class="RCA_STATUS_COLOR[rca.status] || 'bg-gray-100 text-gray-600'">
+                        :class="RCA_STATUS_COLOR[rca.status] || 'bg-slate-100 text-slate-600'">
                     {{ rca.status }}
                   </span>
                   <p

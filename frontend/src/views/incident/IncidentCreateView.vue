@@ -72,58 +72,58 @@ async function submit() {
 <template>
   <div class="page-container animate-fade-in space-y-6">
     <div class="flex items-center gap-3">
-      <button class="text-gray-500 hover:text-gray-700 text-sm" @click="router.push('/incidents/list')">← Quay lại</button>
-      <h1 class="text-xl font-semibold text-gray-800">Tạo Incident Report</h1>
+      <button class="text-slate-500 hover:text-slate-700 text-sm" @click="router.push('/incidents/list')">← Quay lại</button>
+      <h1 class="text-xl font-semibold text-slate-800">Tạo Incident Report</h1>
     </div>
 
-    <div class="bg-white rounded-xl border border-gray-200 p-6 space-y-5">
+    <div class="bg-white rounded-xl border border-slate-200 p-6 space-y-5">
       <div v-if="error" class="text-red-600 text-sm bg-red-50 px-3 py-2 rounded-lg">{{ error }}</div>
 
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Thiết bị <span class="text-red-500">*</span></label>
+        <label class="block text-sm font-medium text-slate-700 mb-1">Thiết bị <span class="text-red-500">*</span></label>
         <SmartSelect v-model="form.asset" doctype="AC Asset" placeholder="Tìm thiết bị theo tên / mã / serial..." />
       </div>
 
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
-          <label for="inc-type" class="block text-sm font-medium text-gray-700 mb-1">Loại sự cố <span class="text-red-500">*</span></label>
-          <select id="inc-type" v-model="form.incident_type" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
+          <label for="inc-type" class="block text-sm font-medium text-slate-700 mb-1">Loại sự cố <span class="text-red-500">*</span></label>
+          <select id="inc-type" v-model="form.incident_type" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
             <option value="">-- Chọn --</option>
             <option v-for="t in INCIDENT_TYPES" :key="t" :value="t">{{ t }}</option>
           </select>
         </div>
         <div>
-          <label for="inc-severity" class="block text-sm font-medium text-gray-700 mb-1">Severity <span class="text-red-500">*</span></label>
-          <select id="inc-severity" v-model="form.severity" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
+          <label for="inc-severity" class="block text-sm font-medium text-slate-700 mb-1">Severity <span class="text-red-500">*</span></label>
+          <select id="inc-severity" v-model="form.severity" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
             <option value="">-- Chọn --</option>
             <option v-for="s in SEVERITIES" :key="s" :value="s">{{ s }}</option>
           </select>
-          <p v-if="form.severity === 'Critical'" class="text-xs text-red-600 mt-1">⚠ Critical sẽ tự động tạo CAPA khi submit.</p>
+          <p v-if="form.severity === 'Critical'" class="text-xs text-red-600 mt-1">Mức Khẩn cấp sẽ tự động tạo CAPA khi gửi.</p>
         </div>
       </div>
 
       <div>
-        <label for="inc-description" class="block text-sm font-medium text-gray-700 mb-1">Mô tả chi tiết sự cố <span class="text-red-500">*</span></label>
-        <textarea id="inc-description" v-model="form.description" rows="4" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" placeholder="Mô tả đầy đủ sự cố, triệu chứng, bối cảnh..."></textarea>
+        <label for="inc-description" class="block text-sm font-medium text-slate-700 mb-1">Mô tả chi tiết sự cố <span class="text-red-500">*</span></label>
+        <textarea id="inc-description" v-model="form.description" rows="4" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" placeholder="Mô tả đầy đủ sự cố, triệu chứng, bối cảnh..."></textarea>
       </div>
 
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
-          <label for="inc-fault-code" class="block text-sm font-medium text-gray-700 mb-1">Mã lỗi (Fault Code)</label>
-          <input id="inc-fault-code" v-model="form.fault_code" type="text" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" placeholder="vd: E-42, HW-FAIL..." />
-          <p class="text-xs text-gray-500 mt-1">Dùng cho phát hiện chronic failure (≥3 sự cố cùng mã trong 90 ngày).</p>
+          <label for="inc-fault-code" class="block text-sm font-medium text-slate-700 mb-1">Mã lỗi (Fault Code)</label>
+          <input id="inc-fault-code" v-model="form.fault_code" type="text" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" placeholder="vd: E-42, HW-FAIL..." />
+          <p class="text-xs text-slate-500 mt-1">Dùng cho phát hiện chronic failure (≥3 sự cố cùng mã trong 90 ngày).</p>
         </div>
         <div class="flex items-end">
           <label class="flex items-center gap-2 cursor-pointer">
             <input id="inc-workaround" v-model="form.workaround_applied" type="checkbox" class="w-4 h-4 rounded" />
-            <span class="text-sm text-gray-700">Đã áp dụng workaround tạm thời</span>
+            <span class="text-sm text-slate-700">Đã áp dụng workaround tạm thời</span>
           </label>
         </div>
       </div>
 
       <div>
-        <label for="inc-immediate" class="block text-sm font-medium text-gray-700 mb-1">Hành động khắc phục ngay</label>
-        <textarea id="inc-immediate" v-model="form.immediate_action" rows="2" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" placeholder="Đã làm gì ngay tại chỗ để xử lý sự cố..."></textarea>
+        <label for="inc-immediate" class="block text-sm font-medium text-slate-700 mb-1">Hành động khắc phục ngay</label>
+        <textarea id="inc-immediate" v-model="form.immediate_action" rows="2" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" placeholder="Đã làm gì ngay tại chỗ để xử lý sự cố..."></textarea>
       </div>
 
       <div v-if="form.severity === 'Critical'" class="bg-red-50 border border-red-200 rounded-lg p-4">
