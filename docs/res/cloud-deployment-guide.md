@@ -470,4 +470,131 @@ npm run preview
 
 ---
 
+---
+
+## 17. Chạy FE dev server liên tục qua Supervisor (dev/staging trên cloud)
+
+> Dùng khi muốn `npm run dev` chạy tự động, restart khi reboot, truy cập qua `http://cloud-ip:3000`.
+> Đây là setup **dev/staging** — không dùng cho production (dùng mục 6–7 cho production).
+
+### 17.1 Tại sao cần cấu hình thêm
+
+`npm run dev` là process chạy liên tục. Nếu SSH disconnect hoặc server reboot, nó dừng lại. Supervisor quản lý nó giống như gunicorn — tự start khi boot, tự restart khi crash.
+
+### 17.2 File `.env` cho dev server trên cloud
+
+Tạo `frontend/.env` — file này **không commit** (đã có trong `.gitignore`), mỗi server tạo riêng:
+
+```bash
+# Tạo trên cloud server, chỉnh VITE_FRAPPE_SITE cho đúng tên site
+cat > ~/frappe-bench/apps/assetcore/frontend/.env << 'EOF'
+VITE_FRAPPE_URL=http://localhost:8000
+VITE_FRAPPE_SITE=assetcore.yourdomain.com
+VITE_SERVE_FRAPPE_FILES=1
+EOF
+```
+
+- `VITE_FRAPPE_URL=http://localhost:8000` — Frappe gunicorn chạy local
+- `VITE_FRAPPE_SITE` — phải khớp tên site Frappe (`bench new-site` đã đặt)
+- `VITE_SERVE_FRAPPE_FILES=1` — Vite dev server tự serve file upload (không qua Nginx)
+
+### 17.3 Thêm FE vào `config/supervisor.conf`
+
+Thêm đoạn này vào cuối file `~/frappe-bench/config/supervisor.conf`, **trước dòng `[group:frappe-bench-web]`**:
+
+```ini
+[program:frappe-bench-assetcore-frontend]
+command=/usr/bin/npm run dev
+directory=/home/frappe/frappe-bench/apps/assetcore/frontend
+user=frappe
+autostart=true
+autorestart=true
+stdout_logfile=/home/frappe/frappe-bench/logs/frontend.log
+stderr_logfile=/home/frappe/frappe-bench/logs/frontend.error.log
+priority=5
+startretries=3
+```
+
+Sửa dòng group để bao gồm FE:
+
+```ini
+[group:frappe-bench-web]
+programs=frappe-bench-frappe-web,frappe-bench-node-socketio,frappe-bench-assetcore-frontend
+```
+
+> **Lưu ý:** `bench setup supervisor` sẽ ghi đè file này. Nếu chạy lại lệnh đó, cần thêm lại 2 đoạn trên.
+
+### 17.4 Áp dụng config
+
+```bash
+# Đường dẫn npm trên server (kiểm tra trước)
+which npm   # thường là /usr/bin/npm
+
+sudo supervisorctl reread
+sudo supervisorctl update
+sudo supervisorctl start frappe-bench-assetcore-frontend
+
+# Kiểm tra
+sudo supervisorctl status
+```
+
+Kết quả mong đợi:
+
+```text
+frappe-bench-web:frappe-bench-assetcore-frontend   RUNNING   pid 12345, uptime 0:00:10
+frappe-bench-web:frappe-bench-frappe-web-0         RUNNING   pid 12300, uptime 0:01:00
+frappe-bench-web:frappe-bench-node-socketio        RUNNING   pid 12301, uptime 0:01:00
+```
+
+### 17.5 Truy cập FE
+
+```text
+http://<cloud-ip>:3000
+```
+
+Nếu không vào được, mở firewall port 3000:
+
+```bash
+# Ubuntu ufw
+sudo ufw allow 3000/tcp
+
+# AWS EC2: mở inbound rule TCP 3000 trong Security Group
+# GCP: mở firewall rule allow tcp:3000
+```
+
+### 17.6 Workflow hàng ngày
+
+```bash
+# Restart tất cả (Frappe + FE)
+sudo supervisorctl restart frappe-bench-web:
+
+# Chỉ restart FE (sau khi sửa code — dev server tự hot-reload, thường không cần)
+sudo supervisorctl restart frappe-bench-assetcore-frontend
+
+# Xem log FE realtime
+tail -f ~/frappe-bench/logs/frontend.log
+
+# bench restart (alias cho supervisorctl restart frappe-bench-web:)
+bench restart
+```
+
+### 17.7 Sau khi pull code mới
+
+Dev server tự hot-reload khi file thay đổi — không cần restart. Chỉ cần:
+
+```bash
+cd ~/frappe-bench/apps/assetcore
+git pull origin master
+# FE tự reload trong vài giây
+```
+
+Nếu thêm package mới (`npm install`):
+
+```bash
+cd frontend && npm install
+sudo supervisorctl restart frappe-bench-assetcore-frontend
+```
+
+---
+
 *Last updated: 2026-05-13 — AssetCore Wave 2*
