@@ -14,13 +14,29 @@ import frappe
 
 EXPECTED_WORKFLOWS = {
     "AC Asset Lifecycle": {"doctype": "AC Asset", "min_states": 8, "min_transitions": 14},
+    # Wave 2 — Planning & Procurement
+    "IMM-01 Needs Workflow": {"doctype": "IMM Needs Request", "min_states": 8, "min_transitions": 20},
+    "IMM-01 Plan Workflow": {"doctype": "IMM Procurement Plan", "min_states": 4, "min_transitions": 4},
+    "IMM-02 Spec Workflow": {"doctype": "IMM Tech Spec", "min_states": 7, "min_transitions": 9},
+    "IMM-03 AVL Workflow": {"doctype": "IMM AVL Entry", "min_states": 5, "min_transitions": 7},
+    "IMM-03 Vendor Eval Workflow": {"doctype": "IMM Vendor Evaluation", "min_states": 5, "min_transitions": 6},
+    "IMM-03 Decision Workflow": {"doctype": "IMM Procurement Decision", "min_states": 9, "min_transitions": 8},
+    # Wave 1
     "IMM-04 Workflow": {"doctype": "Asset Commissioning", "min_states": 11, "min_transitions": 20},
     "IMM-05 Document Workflow": {"doctype": "Asset Document", "min_states": 6, "min_transitions": 8},
+    "IMM-06 Session Workflow": {"doctype": "IMM Training Session", "min_states": 7, "min_transitions": 14},
+    "IMM-06 Competency Workflow": {"doctype": "IMM User Competency", "min_states": 6, "min_transitions": 7},
     "IMM-08 PM Workflow": {"doctype": "PM Work Order", "min_states": 7, "min_transitions": 9},
     "IMM-09 Repair Workflow": {"doctype": "Asset Repair", "min_states": 9, "min_transitions": 10},
     "IMM-11 Calibration Workflow": {"doctype": "IMM Asset Calibration", "min_states": 8, "min_transitions": 11},
     "IMM-12 Incident Workflow": {"doctype": "Incident Report", "min_states": 7, "min_transitions": 8},
     "IMM-12 RCA Workflow": {"doctype": "IMM RCA Record", "min_states": 4, "min_transitions": 4},
+    "IMM-15 Spare Allocation Workflow": {"doctype": "IMM Spare Allocation", "min_states": 6, "min_transitions": 12},
+    "IMM-15 Cycle Count Workflow": {"doctype": "IMM Stock Cycle Count", "min_states": 4, "min_transitions": 4},
+    "IMM-16 Compliance Finding Workflow": {"doctype": "IMM Compliance Finding", "min_states": 7, "min_transitions": 8},
+    "IMM-16 CAPA Workflow": {"doctype": "IMM CAPA Record", "min_states": 7, "min_transitions": 7},
+    "IMM-16 Internal Audit Workflow": {"doctype": "IMM Internal Audit", "min_states": 4, "min_transitions": 3},
+    "IMM-16 Management Review Workflow": {"doctype": "IMM Management Review", "min_states": 4, "min_transitions": 3},
 }
 
 

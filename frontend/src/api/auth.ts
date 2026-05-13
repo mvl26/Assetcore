@@ -1,7 +1,15 @@
 // Copyright (c) 2026, AssetCore Team
 // API client: đăng ký, profile, đổi mật khẩu, duyệt user.
 
+import api from './axios'
 import { frappeGet, frappePost } from './helpers'
+
+/**
+ * Logout khỏi Frappe session (Frappe core endpoint).
+ */
+export async function logout(): Promise<void> {
+  await api.get('/api/method/logout')
+}
 
 export interface RegisterPayload {
   email: string

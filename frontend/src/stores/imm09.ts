@@ -15,7 +15,7 @@ export const useImm09Store = defineStore('imm09', () => {
   const workOrders = ref<AssetRepair[]>([])
   const currentWO = ref<AssetRepair | null>(null)
   const kpis = ref<RepairKPIs | null>(null)
-  const repairHistory = ref<any[]>([])
+  const repairHistory = ref<AssetRepair[]>([])
   const loading = ref(false)
   const error = ref<string | null>(null)
   const pagination = ref({ page: 1, total: 0, total_pages: 0, page_size: 20 })
@@ -34,8 +34,8 @@ export const useImm09Store = defineStore('imm09', () => {
       const res = await listRepairWorkOrders(filters, page)
       workOrders.value = res.data
       pagination.value = res.pagination
-    } catch (e: any) {
-      error.value = e.message
+    } catch (e: unknown) {
+      error.value = e instanceof Error ? e.message : String(e)
     } finally {
       loading.value = false
     }
@@ -46,8 +46,8 @@ export const useImm09Store = defineStore('imm09', () => {
     error.value = null
     try {
       currentWO.value = await getRepairWorkOrder(name)
-    } catch (e: any) {
-      error.value = e.message
+    } catch (e: unknown) {
+      error.value = e instanceof Error ? e.message : String(e)
     } finally {
       loading.value = false
     }
@@ -64,8 +64,8 @@ export const useImm09Store = defineStore('imm09', () => {
       await assignTechnician(name, technician, priority)
       await fetchWorkOrder(name)
       return true
-    } catch (e: any) {
-      error.value = e.message
+    } catch (e: unknown) {
+      error.value = e instanceof Error ? e.message : String(e)
       return false
     }
   }
@@ -76,8 +76,8 @@ export const useImm09Store = defineStore('imm09', () => {
       await submitDiagnosis(currentWO.value.name, diagnosisNotes, needsParts)
       await fetchWorkOrder(currentWO.value.name)
       return true
-    } catch (e: any) {
-      error.value = e.message
+    } catch (e: unknown) {
+      error.value = e instanceof Error ? e.message : String(e)
       return false
     }
   }
@@ -87,8 +87,8 @@ export const useImm09Store = defineStore('imm09', () => {
       await closeWorkOrder(payload)
       await fetchWorkOrder(payload.name)
       return true
-    } catch (e: any) {
-      error.value = e.message
+    } catch (e: unknown) {
+      error.value = e instanceof Error ? e.message : String(e)
       return false
     }
   }
@@ -96,17 +96,17 @@ export const useImm09Store = defineStore('imm09', () => {
   async function fetchKPIs(year?: number, month?: number) {
     try {
       kpis.value = await getRepairKPIs(year, month)
-    } catch (e: any) {
-      error.value = e.message
+    } catch (e: unknown) {
+      error.value = e instanceof Error ? e.message : String(e)
     }
   }
 
   async function fetchRepairHistory(assetRef: string) {
     try {
-      const res = await getAssetRepairHistory(assetRef) as any
+      const res = await getAssetRepairHistory(assetRef)
       repairHistory.value = res.history
-    } catch (e: any) {
-      error.value = e.message
+    } catch (e: unknown) {
+      error.value = e instanceof Error ? e.message : String(e)
     }
   }
 
@@ -115,8 +115,8 @@ export const useImm09Store = defineStore('imm09', () => {
   async function fetchMttrReport(year: number, month: number) {
     try {
       mttrReport.value = await getMttrReport(year, month)
-    } catch (e: any) {
-      error.value = e.message
+    } catch (e: unknown) {
+      error.value = e instanceof Error ? e.message : String(e)
     }
   }
 
@@ -125,8 +125,8 @@ export const useImm09Store = defineStore('imm09', () => {
       await requestSpareParts(woName, parts)
       await fetchWorkOrder(woName)
       return true
-    } catch (e: any) {
-      error.value = e.message
+    } catch (e: unknown) {
+      error.value = e instanceof Error ? e.message : String(e)
       return false
     }
   }
@@ -136,8 +136,8 @@ export const useImm09Store = defineStore('imm09', () => {
       await startRepair(woName)
       await fetchWorkOrder(woName)
       return true
-    } catch (e: any) {
-      error.value = e.message
+    } catch (e: unknown) {
+      error.value = e instanceof Error ? e.message : String(e)
       return false
     }
   }
@@ -146,8 +146,8 @@ export const useImm09Store = defineStore('imm09', () => {
     try {
       const res = await createRepairWorkOrder(payload)
       return res.name
-    } catch (e: any) {
-      error.value = e.message
+    } catch (e: unknown) {
+      error.value = e instanceof Error ? e.message : String(e)
       return null
     }
   }

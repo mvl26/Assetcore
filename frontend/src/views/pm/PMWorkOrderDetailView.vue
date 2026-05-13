@@ -5,11 +5,17 @@ import { onMounted, computed, ref } from 'vue'
 import { useImm08Store } from '@/stores/imm08'
 import { useRouter } from 'vue-router'
 import { pmStatusLabel, pmStatusClass, resultLabel as _resultLabel } from '@/constants/labels'
+import { useAuthStore } from '@/stores/auth'
+import { ROLES_PM_EXECUTE, ROLES_PM_MANAGE } from '@/constants/roles'
 const toast = useToast()
 
 const props = defineProps<{ id: string }>()
 const store = useImm08Store()
 const router = useRouter()
+const auth = useAuthStore()
+
+const canExecutePM = computed(() => auth.hasAnyRole(ROLES_PM_EXECUTE))
+const canManagePM = computed(() => auth.hasAnyRole(ROLES_PM_MANAGE))
 
 const showMajorModal = ref(false)
 const showSubmitModal = ref(false)
@@ -36,7 +42,7 @@ const progressPct = computed(() =>
 )
 
 const canSubmit = computed(() =>
-  store.checklistComplete && !store.hasMajorFailure
+  store.checklistComplete && !store.hasMajorFailure && canExecutePM.value
 )
 
 const isOverdue = computed(() => wo.value?.status === 'Overdue')
@@ -51,10 +57,10 @@ const overdueDays = computed(() => {
 })
 
 function resultClass(result: string | null) {
-  if (result === 'Pass') return 'border-green-400 bg-green-50'
-  if (result === 'Fail–Minor') return 'border-yellow-400 bg-yellow-50'
-  if (result === 'Fail–Major') return 'border-red-400 bg-red-50'
-  return 'border-gray-200'
+  if (result === 'Pass') return 'border-emerald-300 bg-emerald-50/60'
+  if (result === 'Fail–Minor') return 'border-amber-300 bg-amber-50/60'
+  if (result === 'Fail–Major') return 'border-red-300 bg-red-50/60'
+  return 'border-slate-200'
 }
 
 async function handleSubmit() {
@@ -63,10 +69,15 @@ async function handleSubmit() {
   submitting.value = false
   showSubmitModal.value = false
   if (res.success) {
+    toast.success('Phiếu bảo trì đã hoàn thành')
+    // Force re-fetch to ensure reactive update
+    await store.fetchWorkOrder(props.id)
     if (res.cmWoCreated) {
       const go = confirm(`Đã hoàn thành bảo trì. Phiếu sửa chữa khắc phục đã được tạo: ${res.cmWoCreated}\n\nMở phiếu sửa chữa ngay?`)
       if (go) router.push(`/cm/work-orders/${res.cmWoCreated}`)
     }
+  } else {
+    toast.error(store.error || 'Không thể hoàn thành phiếu bảo trì')
   }
 }
 
@@ -120,7 +131,12 @@ async function handleStart() {
   startError.value = ''
   const ok = await store.doAssignTechnician(wo.value.name, wo.value.assigned_to)
   starting.value = false
-  if (!ok) startError.value = store.error || 'Không thể bắt đầu PM'
+  if (ok) {
+    toast.success('Đã bắt đầu thực hiện bảo trì')
+    await store.fetchWorkOrder(props.id)
+  } else {
+    startError.value = store.error || 'Không thể bắt đầu PM'
+  }
 }
 </script>
 
@@ -128,34 +144,41 @@ async function handleStart() {
   <div class="page-container animate-fade-in">
     <!-- Back + Header -->
     <div class="flex items-center gap-3 mb-5">
-      <button class="text-gray-400 hover:text-gray-600 transition-colors" @click="router.push('/pm/work-orders')">
+      <button class="text-slate-400 hover:text-slate-700 transition-colors" aria-label="Quay lại danh sách" @click="router.push('/pm/work-orders')">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" />
         </svg>
       </button>
-      <div class="flex-1">
-        <div class="flex items-center gap-2">
-          <span class="font-mono text-lg font-semibold text-gray-900">{{ wo?.name }}</span>
-          <span v-if="wo" :class="['px-2.5 py-1 rounded-full text-xs font-semibold', pmStatusClass(wo.status)]">
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center gap-2 flex-wrap">
+          <span class="code-pill-lg">{{ wo?.name }}</span>
+          <span v-if="wo" :class="['px-2.5 py-0.5 rounded-full text-[11px] font-medium', pmStatusClass(wo.status)]">
             {{ pmStatusLabel(wo.status) }}
           </span>
+          <span class="text-[11.5px] text-slate-400 font-medium">IMM-08 · Bảo trì định kỳ</span>
         </div>
-        <div class="text-sm text-gray-500">{{ wo?.asset_name || wo?.asset_ref }}</div>
+        <h1 class="text-xl font-semibold text-slate-900 mt-1 truncate">{{ wo?.asset_name || wo?.asset_ref || 'Phiếu bảo trì' }}</h1>
       </div>
     </div>
 
     <!-- Loading Skeleton -->
     <div v-if="store.loading" class="space-y-4">
-      <div class="bg-white rounded-xl border p-5 animate-pulse">
+      <div class="card-sm animate-pulse">
         <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
-          <div v-for="i in 6" :key="i" class="h-5 bg-gray-100 rounded" />
+          <div v-for="i in 6" :key="i" class="h-5 bg-slate-100 rounded" />
         </div>
       </div>
-      <div class="bg-white rounded-xl border p-5 animate-pulse space-y-3">
-        <div class="h-4 bg-gray-100 rounded w-48" />
-        <div class="h-2 bg-gray-100 rounded-full" />
-        <div v-for="i in 4" :key="i" class="h-20 bg-gray-100 rounded-xl" />
+      <div class="card-sm animate-pulse space-y-3">
+        <div class="h-4 bg-slate-100 rounded w-48" />
+        <div class="h-2 bg-slate-100 rounded-full" />
+        <div v-for="i in 4" :key="i" class="h-20 bg-slate-100 rounded-lg" />
       </div>
+    </div>
+
+    <!-- Error -->
+    <div v-else-if="store.error && !wo" class="alert-error">
+      <span class="flex-1">{{ store.error }}</span>
+      <button class="text-xs font-semibold underline hover:no-underline" @click="store.fetchWorkOrder(props.id)">Thử lại</button>
     </div>
 
     <template v-else-if="wo">
@@ -168,7 +191,7 @@ async function handleStart() {
       >
         <div
           v-if="isOverdue"
-          class="mb-5 bg-red-50 border border-red-300 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
+          class="alert-error mb-5 flex-col sm:flex-row sm:items-center sm:justify-between"
         >
           <div class="flex items-start gap-3">
             <svg class="w-5 h-5 text-red-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -176,77 +199,63 @@ async function handleStart() {
             </svg>
             <div>
               <div class="font-semibold text-red-700 text-sm">
-                BẢO TRÌ QUÁ HẠN {{ overdueDays > 0 ? overdueDays + ' NGÀY' : '' }} — Đến hạn: {{ wo.due_date }}
+                Bảo trì quá hạn{{ overdueDays > 0 ? ` ${overdueDays} ngày` : '' }} — Đến hạn: {{ wo.due_date }}
               </div>
               <div class="text-xs text-red-600 mt-0.5">Vui lòng hoàn thành hoặc hoãn lịch có ghi lý do</div>
             </div>
           </div>
           <div class="flex gap-2 shrink-0">
-            <button
-              class="text-xs bg-white border border-red-300 text-red-600 px-3 py-1.5 rounded-lg hover:bg-red-50 transition-colors"
-              @click="openRescheduleModal"
-            >
-              Hoãn lịch
-            </button>
-            <button
-              class="text-xs bg-red-600 text-white px-3 py-1.5 rounded-lg hover:bg-red-700 transition-colors"
-              @click="store.fetchWorkOrder(props.id)"
-            >
-              Tiếp tục bảo trì
-            </button>
+            <button v-if="canManagePM" class="btn-secondary !py-1.5 !text-xs" @click="openRescheduleModal">Hoãn lịch</button>
+            <button class="btn-danger !py-1.5 !text-xs" @click="store.fetchWorkOrder(props.id)">Tiếp tục bảo trì</button>
           </div>
         </div>
       </Transition>
 
       <!-- Info grid -->
-      <div class="bg-white rounded-xl shadow-sm border p-5 mb-5">
+      <div class="card-sm mb-5">
         <div class="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
           <div class="md:col-span-2">
-            <span class="text-gray-500">Thiết bị:</span>
+            <span class="text-slate-500">Thiết bị:</span>
             <span class="font-semibold ml-1">{{ wo.asset_name || wo.asset_ref }}</span>
-            <span v-if="wo.asset_name" class="ml-2 text-xs text-gray-400 font-mono">{{ wo.asset_ref }}</span>
+            <span v-if="wo.asset_name" class="ml-2 text-xs text-slate-400 font-mono">{{ wo.asset_ref }}</span>
           </div>
           <div>
-<span class="text-gray-500">Đến hạn:</span>
-            <span :class="wo.is_late ? 'font-semibold text-red-600' : 'font-medium'">{{ wo.due_date }}</span>
+            <span class="text-slate-500">Đến hạn:</span>
+            <span :class="wo.is_late ? 'font-semibold text-red-600 ml-1' : 'font-medium ml-1'">{{ wo.due_date }}</span>
           </div>
-          <div><span class="text-gray-500">Loại bảo trì:</span> <span class="font-medium">{{ wo.pm_type }}</span></div>
-          <div><span class="text-gray-500">Kỹ thuật viên:</span> <span class="font-medium">{{ wo.assigned_to || '—' }}</span></div>
-          <div><span class="text-gray-500">Mức rủi ro:</span> <span class="font-medium">{{ wo.risk_class }}</span></div>
-          <div><span class="text-gray-500">Loại phiếu:</span> <span class="font-medium">{{ wo.wo_type }}</span></div>
+          <div><span class="text-slate-500">Loại bảo trì:</span> <span class="font-medium ml-1">{{ wo.pm_type }}</span></div>
+          <div><span class="text-slate-500">Kỹ thuật viên:</span> <span class="font-medium ml-1">{{ wo.assigned_to || '—' }}</span></div>
+          <div><span class="text-slate-500">Mức rủi ro:</span> <span class="font-medium ml-1">{{ wo.risk_class }}</span></div>
+          <div><span class="text-slate-500">Loại phiếu:</span> <span class="font-medium ml-1">{{ wo.wo_type }}</span></div>
         </div>
       </div>
 
       <!-- Start PM banner (Open/Overdue → In Progress) -->
-      <div v-if="canStart" class="mb-5 bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-center justify-between gap-3">
-        <div class="text-sm text-blue-900">
+      <div v-if="canStart" class="alert-info mb-5 sm:items-center sm:justify-between">
+        <div>
           <div class="font-semibold">Sẵn sàng bắt đầu bảo trì</div>
           <div class="text-xs text-blue-700 mt-0.5">Bấm "Bắt đầu bảo trì" để chuyển phiếu sang <strong>Đang thực hiện</strong> và đặt thiết bị về <strong>Đang sửa chữa</strong>.</div>
           <div v-if="startError" class="text-xs text-red-600 mt-1">{{ startError }}</div>
         </div>
-        <button
-          :disabled="starting"
-          class="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg whitespace-nowrap"
-          @click="handleStart"
-        >
-          {{ starting ? 'Đang bắt đầu...' : 'Bắt đầu PM' }}
+        <button :disabled="starting" class="btn-primary !py-2 !text-sm whitespace-nowrap ml-auto" @click="handleStart">
+          {{ starting ? 'Đang bắt đầu...' : 'Bắt đầu bảo trì' }}
         </button>
       </div>
 
       <!-- Checklist Section -->
-      <div class="bg-white rounded-xl shadow-sm border p-5 mb-5">
+      <div class="card-sm mb-5">
         <div class="flex items-center justify-between mb-3">
-          <h2 class="font-semibold text-gray-800">Checklist ({{ filledCount }}/{{ totalCount }} đã hoàn thành)</h2>
-          <span :class="['text-sm font-medium', progressPct === 100 ? 'text-green-600' : 'text-blue-600']">
+          <h2 class="font-semibold text-slate-800">Checklist ({{ filledCount }}/{{ totalCount }} đã hoàn thành)</h2>
+          <span :class="['text-sm font-medium', progressPct === 100 ? 'text-emerald-600' : 'text-brand-600']">
             {{ progressPct }}%
           </span>
         </div>
 
         <!-- Progress Bar (smooth 500ms transition) -->
-        <div class="h-2 bg-gray-100 rounded-full mb-5 overflow-hidden">
+        <div class="h-2 bg-slate-100 rounded-full mb-5 overflow-hidden">
           <div
             class="h-2 rounded-full transition-all duration-500"
-            :class="progressPct === 100 ? 'bg-green-500' : 'bg-blue-500'"
+            :class="progressPct === 100 ? 'bg-emerald-500' : 'bg-brand-600'"
             :style="{ width: `${progressPct}%` }"
           />
         </div>
@@ -256,21 +265,18 @@ async function handleStart() {
           <div
             v-for="item in wo.checklist_results"
             :key="item.idx"
-            :class="['border rounded-xl p-4 transition-colors duration-200', resultClass(item.result)]"
+            :class="['border rounded-lg p-4 transition-colors duration-200', resultClass(item.result)]"
           >
             <div class="flex items-start gap-3 mb-3">
-              <span class="shrink-0 w-6 h-6 rounded-full bg-gray-200 text-gray-600 text-xs font-bold flex items-center justify-center">
+              <span class="shrink-0 w-6 h-6 rounded-full bg-slate-200 text-slate-600 text-xs font-bold flex items-center justify-center">
                 {{ item.idx }}
               </span>
               <div class="flex-1">
                 <div class="flex items-center gap-2 flex-wrap">
-                  <span class="font-medium text-gray-800 text-sm">{{ item.description }}</span>
-                  <!-- CRITICAL badge: shown when checklist item result is Fail–Major -->
-                  <span
-                    v-if="item.result === 'Fail–Major'"
-                    class="text-xs bg-red-600 text-white px-1.5 py-0.5 rounded font-semibold tracking-wide"
-                  >NGHIÊM TRỌNG</span>
-                  <span v-if="item.measurement_type === 'Numeric'" class="text-xs bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded">Số đo</span>
+                  <span class="font-medium text-slate-800 text-sm">{{ item.description }}</span>
+                  <span v-if="item.result === 'Fail–Major'"
+                    class="text-[10px] bg-red-600 text-white px-1.5 py-0.5 rounded font-semibold uppercase tracking-wide">Nghiêm trọng</span>
+                  <span v-if="item.measurement_type === 'Numeric'" class="text-[10px] bg-brand-50 text-brand-700 px-1.5 py-0.5 rounded uppercase tracking-wide">Số đo</span>
                 </div>
               </div>
             </div>
@@ -281,13 +287,13 @@ async function handleStart() {
                 v-for="opt in ['Pass', 'Fail–Minor', 'Fail–Major', 'N/A']"
                 :key="opt"
                 :class="[
-                  'px-3 py-1.5 rounded-lg text-xs font-medium border transition-all duration-150',
+                  'px-3 py-1.5 rounded-md text-xs font-medium border transition-all duration-150',
                   item.result === opt
-                    ? opt === 'Pass' ? 'bg-green-500 text-white border-green-500'
-                    : opt === 'Fail–Minor' ? 'bg-yellow-500 text-white border-yellow-500'
-                    : opt === 'Fail–Major' ? 'bg-red-500 text-white border-red-500'
-                    : 'bg-gray-500 text-white border-gray-500'
-                    : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400'
+                    ? opt === 'Pass' ? 'bg-emerald-600 text-white border-emerald-600'
+                    : opt === 'Fail–Minor' ? 'bg-amber-500 text-white border-amber-500'
+                    : opt === 'Fail–Major' ? 'bg-red-600 text-white border-red-600'
+                    : 'bg-slate-500 text-white border-slate-500'
+                    : 'bg-white text-slate-600 border-slate-300 hover:border-slate-400'
                 ]"
                 @click="store.updateChecklistResult(item.idx, { result: opt as any })"
               >
@@ -297,9 +303,9 @@ async function handleStart() {
             <div v-else class="mb-2">
               <span
 :class="['px-2 py-1 rounded text-xs font-medium',
-                item.result === 'Pass' ? 'bg-green-100 text-green-700' :
-                item.result === 'Fail–Minor' ? 'bg-yellow-100 text-yellow-700' :
-                item.result === 'Fail–Major' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600']">
+                item.result === 'Pass' ? 'bg-emerald-100 text-emerald-700' :
+                item.result === 'Fail–Minor' ? 'bg-amber-100 text-amber-700' :
+                item.result === 'Fail–Major' ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-600']">
                 {{ item.result ? _resultLabel(item.result) : '—' }}
               </span>
             </div>
@@ -311,10 +317,10 @@ async function handleStart() {
                 :value="item.measured_value"
                 type="number"
                 placeholder="Giá trị đo được"
-                class="border border-gray-300 rounded px-3 py-1.5 text-sm w-40"
+                class="form-input !py-1.5 !text-sm w-40"
                 @input="store.updateChecklistResult(item.idx, { measured_value: Number(($event.target as HTMLInputElement).value) })"
               />
-              <span v-else class="text-sm text-gray-600">{{ item.measured_value }} {{ item.unit }}</span>
+              <span v-else class="text-sm text-slate-600">{{ item.measured_value }} {{ item.unit }}</span>
             </div>
 
             <!-- Notes for failures -->
@@ -324,75 +330,62 @@ async function handleStart() {
                 :value="item.notes"
                 placeholder="Ghi chú lỗi (bắt buộc khi Fail)..."
                 rows="2"
-                class="w-full border border-gray-300 rounded px-3 py-1.5 text-sm"
+                class="form-textarea !text-sm"
                 @input="store.updateChecklistResult(item.idx, { notes: ($event.target as HTMLTextAreaElement).value })"
               />
-              <p v-else class="text-sm text-gray-600 italic">{{ item.notes }}</p>
+              <p v-else class="text-sm text-slate-600 italic">{{ item.notes }}</p>
             </div>
           </div>
         </div>
       </div>
 
       <!-- Kết quả tổng thể -->
-      <div v-if="wo.status !== 'Completed'" class="bg-white rounded-xl shadow-sm border p-5 mb-5">
-        <h2 class="font-semibold text-gray-800 mb-4">Kết quả tổng thể</h2>
+      <div v-if="wo.status !== 'Completed'" class="card-sm mb-5">
+        <h2 class="font-semibold text-slate-800 mb-4">Kết quả tổng thể</h2>
         <div class="space-y-3">
-          <div>
-            <label for="tech-notes" class="block text-sm text-gray-600 mb-1">Ghi chú KTV</label>
-            <textarea id="tech-notes" v-model="techNotes" rows="3" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="Ghi chú kỹ thuật..." />
+          <div class="form-group">
+            <label for="tech-notes" class="form-label">Ghi chú kỹ thuật viên</label>
+            <textarea id="tech-notes" v-model="techNotes" rows="3" class="form-textarea !text-sm" placeholder="Ghi chú kỹ thuật..." />
           </div>
           <div class="flex items-center gap-3">
-            <input id="sticker" v-model="stickerAttached" type="checkbox" class="w-4 h-4" />
-            <label for="sticker" class="text-sm text-gray-700">Đã gắn sticker PM</label>
+            <input id="sticker" v-model="stickerAttached" type="checkbox" class="w-4 h-4 accent-brand-600" />
+            <label for="sticker" class="text-sm text-slate-700">Đã gắn sticker bảo trì</label>
           </div>
           <div class="flex items-center gap-3">
-            <label for="duration-min" class="text-sm text-gray-600 w-40">Thời gian thực hiện:</label>
-            <input id="duration-min" v-model="durationMin" type="number" min="0" class="border border-gray-300 rounded px-3 py-1.5 text-sm w-24" />
-            <span class="text-sm text-gray-500">phút</span>
+            <label for="duration-min" class="text-sm text-slate-600 w-40">Thời gian thực hiện:</label>
+            <input id="duration-min" v-model="durationMin" type="number" min="0" class="form-input !py-1.5 !text-sm w-24" />
+            <span class="text-sm text-slate-500">phút</span>
           </div>
         </div>
       </div>
 
       <!-- Action Buttons -->
       <div v-if="wo.status !== 'Completed' && wo.status !== 'Cancelled'" class="flex justify-between items-center">
-        <!-- Major failure: always visible; complete: disabled with tooltip when hasMajorFailure -->
-        <button
-          class="px-4 py-2.5 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 flex items-center gap-2 transition-colors"
-          @click="showMajorModal = true; majorFailureDesc = ''; majorFailureError = ''"
-        >
-          🔴 Báo lỗi Major
+        <button class="btn-danger" @click="showMajorModal = true; majorFailureDesc = ''; majorFailureError = ''">
+          Báo lỗi nghiêm trọng
         </button>
 
-        <div v-if="!store.hasMajorFailure" class="flex gap-3">
-          <div class="relative group">
-            <button
-              :disabled="!canSubmit || submitting"
-              :class="[
-                'px-5 py-2.5 rounded-lg text-sm font-medium transition-all flex items-center gap-2',
-                canSubmit && !submitting
-                  ? 'bg-green-600 text-white hover:bg-green-700'
-                  : 'bg-gray-100 text-gray-400 cursor-not-allowed'
-              ]"
-              @click="canSubmit && !submitting ? showSubmitModal = true : undefined"
-            >
-              ✓ Hoàn thành
-            </button>
-            <!-- Tooltip when disabled because checklist incomplete -->
-            <div
-              v-if="!canSubmit"
-              class="absolute bottom-full right-0 mb-2 w-48 bg-gray-800 text-white text-xs rounded-lg px-2.5 py-1.5 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity"
-            >
-              Hoàn thành toàn bộ checklist trước khi nộp
-            </div>
+        <div v-if="!store.hasMajorFailure" class="relative group">
+          <button
+            :disabled="!canSubmit || submitting"
+            class="btn-success"
+            @click="canSubmit && !submitting ? showSubmitModal = true : undefined"
+          >
+            Hoàn thành bảo trì
+          </button>
+          <div v-if="!canSubmit"
+            class="absolute bottom-full right-0 mb-2 w-56 bg-slate-800 text-white text-xs rounded-md px-2.5 py-1.5 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity">
+            Hoàn thành toàn bộ checklist trước khi nộp
           </div>
         </div>
-        <!-- When hasMajorFailure: complete button completely hidden -->
       </div>
 
       <!-- Completed summary -->
-      <div v-if="wo.status === 'Completed'" class="bg-green-50 border border-green-200 rounded-xl p-4">
-        <div class="text-green-700 font-semibold mb-1">✓ Bảo trì đã hoàn thành</div>
-        <div class="text-sm text-green-600">Kết quả: {{ wo.overall_result }} | Ngày: {{ wo.completion_date }}</div>
+      <div v-if="wo.status === 'Completed'" class="alert-success">
+        <div>
+          <div class="font-semibold mb-0.5">Bảo trì đã hoàn thành</div>
+          <div class="text-sm">Kết quả: {{ wo.overall_result }} · Ngày: {{ wo.completion_date }}</div>
+        </div>
       </div>
     </template>
 
@@ -403,37 +396,31 @@ async function handleStart() {
       leave-active-class="transition duration-150"
       leave-to-class="opacity-0 scale-95"
     >
-      <div v-if="showRescheduleModal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" @click.self="showRescheduleModal = false">
-        <div class="bg-white rounded-2xl p-6 w-full max-w-md mx-4 shadow-2xl">
-          <h3 class="font-bold text-lg text-gray-900 mb-4">Hoãn lịch bảo trì</h3>
+      <div v-if="showRescheduleModal" class="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50" @click.self="showRescheduleModal = false">
+        <div class="bg-white rounded-xl p-6 w-full max-w-md mx-4 shadow-dropdown">
+          <h3 class="font-semibold text-lg text-slate-900 mb-4">Hoãn lịch bảo trì</h3>
           <div class="space-y-4">
-            <div v-if="rescheduleError" class="bg-red-50 border border-red-200 text-red-700 rounded-lg px-3 py-2 text-sm">
-              {{ rescheduleError }}
+            <div v-if="rescheduleError" class="alert-error text-sm">{{ rescheduleError }}</div>
+            <div class="form-group">
+              <label for="reschedule-date" class="form-label">Ngày mới <span class="text-red-500">*</span></label>
+              <DateInput id="reschedule-date" v-model="rescheduleDate" class="form-input !text-sm" />
             </div>
-            <div>
-              <label for="reschedule-date" class="block text-sm text-gray-600 mb-1">Ngày mới <span class="text-red-500">*</span></label>
-              <DateInput id="reschedule-date" v-model="rescheduleDate" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
-            </div>
-            <div>
-              <label for="reschedule-reason" class="block text-sm text-gray-600 mb-1">Lý do hoãn <span class="text-red-500">*</span></label>
+            <div class="form-group">
+              <label for="reschedule-reason" class="form-label">Lý do hoãn <span class="text-red-500">*</span></label>
               <textarea
                 id="reschedule-reason"
                 v-model="rescheduleReason"
                 rows="3"
-                class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                class="form-textarea !text-sm"
                 placeholder="Nhập lý do hoãn lịch (tối thiểu 5 ký tự)..."
               />
             </div>
           </div>
-          <div class="flex justify-end gap-3 mt-5">
-            <button class="px-4 py-2 border border-gray-300 rounded-lg text-sm" @click="showRescheduleModal = false">Hủy</button>
-            <button
-              :disabled="!rescheduleDate || !rescheduleReason || rescheduling"
-              class="px-4 py-2 bg-orange-500 text-white rounded-lg text-sm font-medium hover:bg-orange-600 disabled:opacity-50 transition-colors"
-              @click="handleReschedule"
-            >
-{{ rescheduling ? 'Đang xử lý...' : 'Xác nhận hoãn' }}
-</button>
+          <div class="flex justify-end gap-2 mt-5">
+            <button class="btn-secondary" @click="showRescheduleModal = false">Huỷ</button>
+            <button :disabled="!rescheduleDate || !rescheduleReason || rescheduling" class="btn-primary" @click="handleReschedule">
+              {{ rescheduling ? 'Đang xử lý...' : 'Xác nhận hoãn' }}
+            </button>
           </div>
         </div>
       </div>
@@ -446,28 +433,22 @@ async function handleStart() {
       leave-active-class="transition duration-150"
       leave-to-class="opacity-0 scale-95"
     >
-      <div v-if="showMajorModal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" @click.self="showMajorModal = false">
-        <div class="bg-white rounded-2xl p-6 w-full max-w-md mx-4 shadow-2xl">
-          <h3 class="font-bold text-lg text-red-700 mb-2">⛔ Báo lỗi nghiêm trọng</h3>
-          <p class="text-sm text-gray-600 mb-4">Thiết bị sẽ được đặt trạng thái "Ngừng hoạt động" và tạo phiếu sửa chữa khẩn cấp.</p>
-          <div v-if="majorFailureError" class="mb-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{{ majorFailureError }}</div>
+      <div v-if="showMajorModal" class="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50" @click.self="showMajorModal = false">
+        <div class="bg-white rounded-xl p-6 w-full max-w-md mx-4 shadow-dropdown">
+          <h3 class="font-semibold text-lg text-red-700 mb-2">Báo lỗi nghiêm trọng</h3>
+          <p class="text-sm text-slate-600 mb-4">Thiết bị sẽ được đặt trạng thái "Ngừng hoạt động" và tạo phiếu sửa chữa khẩn cấp.</p>
+          <div v-if="majorFailureError" class="alert-error text-sm mb-3">{{ majorFailureError }}</div>
           <label for="major-failure-desc" class="sr-only">Mô tả lỗi nghiêm trọng</label>
           <textarea
             id="major-failure-desc"
             v-model="majorFailureDesc"
             rows="4"
-            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm mb-4"
+            class="form-textarea !text-sm mb-4"
             placeholder="Mô tả chi tiết lỗi nghiêm trọng..."
           />
-          <div class="flex justify-end gap-3">
-            <button class="px-4 py-2 border border-gray-300 rounded-lg text-sm" @click="showMajorModal = false">Hủy</button>
-            <button
-              :disabled="!majorFailureDesc"
-              class="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium disabled:opacity-50 transition-colors"
-              @click="handleMajorFailure"
-            >
-Xác nhận báo lỗi
-</button>
+          <div class="flex justify-end gap-2">
+            <button class="btn-secondary" @click="showMajorModal = false">Huỷ</button>
+            <button :disabled="!majorFailureDesc" class="btn-danger" @click="handleMajorFailure">Xác nhận báo lỗi</button>
           </div>
         </div>
       </div>
@@ -480,26 +461,22 @@ Xác nhận báo lỗi
       leave-active-class="transition duration-150"
       leave-to-class="opacity-0 scale-95"
     >
-      <div v-if="showSubmitModal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" @click.self="showSubmitModal = false">
-        <div class="bg-white rounded-2xl p-6 w-full max-w-md mx-4 shadow-2xl">
-          <h3 class="font-bold text-lg text-gray-900 mb-4">✓ Xác nhận hoàn thành bảo trì</h3>
-          <div class="text-sm text-gray-600 space-y-2 mb-4">
-            <div>Bảng kiểm: <strong class="text-green-600">{{ filledCount }}/{{ totalCount }} mục</strong></div>
+      <div v-if="showSubmitModal" class="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50" @click.self="showSubmitModal = false">
+        <div class="bg-white rounded-xl p-6 w-full max-w-md mx-4 shadow-dropdown">
+          <h3 class="font-semibold text-lg text-slate-900 mb-4">Xác nhận hoàn thành bảo trì</h3>
+          <div class="text-sm text-slate-600 space-y-2 mb-4">
+            <div>Bảng kiểm: <strong class="text-emerald-600">{{ filledCount }}/{{ totalCount }} mục</strong></div>
             <div>Thời gian: <strong>{{ durationMin }} phút</strong></div>
-            <div>Tem bảo trì: <strong>{{ stickerAttached ? '✓ Đã gắn' : '✗ Chưa gắn' }}</strong></div>
-            <div v-if="store.hasMinorFailure" class="text-yellow-600">
-              ⚠ Có {{ wo?.checklist_results.filter(r => r.result === 'Fail–Minor').length }} mục lỗi nhỏ — sẽ tạo phiếu sửa chữa mức ưu tiên Trung bình
+            <div>Tem bảo trì: <strong>{{ stickerAttached ? 'Đã gắn' : 'Chưa gắn' }}</strong></div>
+            <div v-if="store.hasMinorFailure" class="text-amber-700">
+              Có {{ wo?.checklist_results.filter(r => r.result === 'Fail–Minor').length }} mục lỗi nhỏ — sẽ tạo phiếu sửa chữa mức ưu tiên Trung bình
             </div>
           </div>
-          <div class="flex justify-end gap-3">
-            <button class="px-4 py-2 border border-gray-300 rounded-lg text-sm" @click="showSubmitModal = false">Hủy</button>
-            <button
-              :disabled="submitting"
-              class="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium disabled:opacity-50 transition-colors"
-              @click="handleSubmit"
-            >
-{{ submitting ? 'Đang xử lý...' : 'Hoàn thành bảo trì' }}
-</button>
+          <div class="flex justify-end gap-2">
+            <button class="btn-secondary" @click="showSubmitModal = false">Huỷ</button>
+            <button :disabled="submitting" class="btn-success" @click="handleSubmit">
+              {{ submitting ? 'Đang xử lý...' : 'Hoàn thành bảo trì' }}
+            </button>
           </div>
         </div>
       </div>

@@ -1,5 +1,5 @@
 // Copyright (c) 2026, AssetCore Team
-// IMM-00 Purchase API client
+// Purchase & Contract API client (liên quan IMM-01, IMM-03)
 import { frappeGet, frappePost } from '@/api/helpers'
 
 const BASE = '/api/method/assetcore.api.purchase'
@@ -17,6 +17,9 @@ export interface Purchase {
   docstatus?: number
   items?: PurchaseItem[]
   devices?: PurchaseDeviceItem[]
+  // Classification counts (chỉ trả về trong list response, không có ở detail)
+  part_count?: number
+  device_count?: number
 }
 
 export interface PurchaseItem {

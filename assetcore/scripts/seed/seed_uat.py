@@ -447,7 +447,7 @@ def _seed_assets(categories, models, locations, departments, suppliers) -> list[
             "gross_purchase_amount": price,
             "warranty_expiry_date": add_days(nowdate(), war_off),
             "commissioning_date": add_days(nowdate(), in_serv),
-            "commissioning_ref": f"ACC-{acode[-3:]}-{abs(purchase_off)}",
+            # commissioning_ref intentionally omitted — no ACC records exist in seed context
             # Khấu hao
             "depreciation_method": "Straight Line",
             "useful_life_years": life,
@@ -622,8 +622,15 @@ def run():
     print("[6/10] IMM SLA Policy…")
     totals[_DT_SLA] = _seed_sla_policies()
     print("[7/10] AC Asset (full fields)…")
-    assets = _seed_assets(cats, models, totals[_DT_LOCATION],
-                          totals[_DT_DEPT], suppliers)
+    # Temporarily disable workflow to allow direct status seeding
+    frappe.db.set_value("Workflow", "AC Asset Lifecycle", "is_active", 0)
+    frappe.db.commit()
+    try:
+        assets = _seed_assets(cats, models, totals[_DT_LOCATION],
+                              totals[_DT_DEPT], suppliers)
+    finally:
+        frappe.db.set_value("Workflow", "AC Asset Lifecycle", "is_active", 1)
+        frappe.db.commit()
     totals[_DT_ASSET] = assets
     print("[8/10] Service Contract…")
     totals[_DT_CONTRACT] = _seed_service_contracts(suppliers, assets)

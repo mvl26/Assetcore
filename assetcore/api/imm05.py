@@ -58,6 +58,11 @@ def create_document(doc_data: str = "{}") -> dict:
 
 
 @frappe.whitelist()
+def submit_for_review(name: str) -> dict:
+    return _handle(svc.submit_for_review, name)
+
+
+@frappe.whitelist()
 def update_document(name: str, doc_data: str = "{}") -> dict:
     try:
         data = _parse_json(doc_data, field_name="doc_data")

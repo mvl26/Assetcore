@@ -8,7 +8,7 @@ import DocumentChecklist from '@/components/commissioning/DocumentChecklist.vue'
 import QRLabel from '@/components/commissioning/QRLabel.vue'
 import ApproverSelect from '@/components/commissioning/ApproverSelect.vue'
 import SmartSelect from '@/components/common/SmartSelect.vue'
-import { useCommissioningStore } from '@/stores/commissioning'
+import { useCommissioningStore } from '@/stores/imm04'
 import type { CommissioningDoc, WorkflowState, DocumentRecord, BaselineTest } from '@/types/imm04'
 import { formatDatetime } from '@/utils/docUtils'
 

@@ -92,9 +92,11 @@ export interface StockMovement {
   to_warehouse_code?: string
   to_warehouse_name?: string
   supplier?: string
+  supplier_name?: string
   reference_type?: string
   reference_name?: string
   requested_by: string
+  requested_by_name?: string
   approved_by?: string
   status: MovementStatus
   notes?: string

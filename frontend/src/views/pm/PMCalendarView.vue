@@ -135,7 +135,7 @@ const PM_STATUS_COLOR: Record<string, string> = {
   'In Progress': 'bg-yellow-500',
   'Completed': 'bg-green-500',
   'Overdue': 'bg-red-500',
-  'Cancelled': 'bg-gray-400',
+  'Cancelled': 'bg-slate-400',
   'Pending–Device Busy': 'bg-orange-400',
   'Halted–Major Failure': 'bg-red-700',
 }
@@ -148,7 +148,7 @@ function eventColor(status: string) {
   if (status === 'Completed') return 'bg-green-100 text-green-700 border-green-200'
   if (status === 'Overdue') return 'bg-red-100 text-red-700 border-red-200'
   if (status === 'In Progress') return 'bg-blue-100 text-blue-700 border-blue-200'
-  if (status === 'Cancelled') return 'bg-gray-100 text-gray-500 border-gray-200'
+  if (status === 'Cancelled') return 'bg-slate-100 text-slate-500 border-slate-200'
   if (status === 'Pending–Device Busy') return 'bg-orange-100 text-orange-700 border-orange-200'
   if (status === 'Halted–Major Failure') return 'bg-red-200 text-red-800 border-red-300'
   return 'bg-yellow-100 text-yellow-700 border-yellow-200'
@@ -192,7 +192,7 @@ function statusBadgeClass(status: string) {
     'In Progress': 'bg-blue-100 text-blue-700',
     'Open': 'bg-yellow-100 text-yellow-700',
   }
-  return map[status] ?? 'bg-gray-100 text-gray-600'
+  return map[status] ?? 'bg-slate-100 text-slate-600'
 }
 </script>
 
@@ -200,15 +200,15 @@ function statusBadgeClass(status: string) {
   <div class="p-6">
     <div class="flex items-center justify-between mb-6 flex-wrap gap-3">
       <div class="flex items-center gap-4">
-        <h1 class="text-xl font-bold text-gray-900">Lịch Bảo trì</h1>
+        <h1 class="text-xl font-bold text-slate-900">Lịch Bảo trì</h1>
         <div class="flex items-center gap-2">
-          <button class="p-1.5 rounded-lg border hover:bg-gray-50" aria-label="Tháng trước" @click="prevMonth">
+          <button class="p-1.5 rounded-lg border hover:bg-slate-50" aria-label="Tháng trước" @click="prevMonth">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" />
             </svg>
           </button>
-          <span class="font-semibold text-gray-700 w-36 text-center">{{ monthLabel }}</span>
-          <button class="p-1.5 rounded-lg border hover:bg-gray-50" aria-label="Tháng sau" @click="nextMonth">
+          <span class="font-semibold text-slate-700 w-36 text-center">{{ monthLabel }}</span>
+          <button class="p-1.5 rounded-lg border hover:bg-slate-50" aria-label="Tháng sau" @click="nextMonth">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
             </svg>
@@ -217,20 +217,20 @@ function statusBadgeClass(status: string) {
         <!-- Week / Month toggle -->
         <div class="flex rounded-lg border overflow-hidden text-xs font-medium">
           <button
-            :class="['px-3 py-1.5 transition-colors', viewMode === 'month' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50']"
+            :class="['px-3 py-1.5 transition-colors', viewMode === 'month' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50']"
             @click="viewMode = 'month'"
           >
 Tháng
 </button>
           <button
-            :class="['px-3 py-1.5 transition-colors', viewMode === 'week' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50']"
+            :class="['px-3 py-1.5 transition-colors', viewMode === 'week' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50']"
             @click="viewMode = 'week'"
           >
 Tuần
 </button>
         </div>
       </div>
-      <div class="flex items-center gap-4 text-xs text-gray-500">
+      <div class="flex items-center gap-4 text-xs text-slate-500">
         <span class="flex items-center gap-1"><span :class="['w-2.5 h-2.5 rounded-full inline-block', pmStatusColor('Completed')]" />Hoàn thành</span>
         <span class="flex items-center gap-1"><span :class="['w-2.5 h-2.5 rounded-full inline-block', pmStatusColor('Open')]" />Đã lên lịch</span>
         <span class="flex items-center gap-1"><span :class="['w-2.5 h-2.5 rounded-full inline-block', pmStatusColor('Overdue')]" />Quá hạn</span>
@@ -243,30 +243,30 @@ Tuần
     <!-- Summary -->
     <div v-if="store.calendarSummary" class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
       <div class="bg-white border rounded-lg p-3 text-center">
-        <div class="font-bold text-gray-800">{{ store.calendarSummary.total }}</div>
-        <div class="text-xs text-gray-500">Tổng phiếu</div>
+        <div class="font-bold text-slate-800">{{ store.calendarSummary.total }}</div>
+        <div class="text-xs text-slate-500">Tổng phiếu</div>
       </div>
       <div class="bg-white border rounded-lg p-3 text-center">
         <div class="font-bold text-green-600">{{ store.calendarSummary.completed }}</div>
-        <div class="text-xs text-gray-500">Hoàn thành</div>
+        <div class="text-xs text-slate-500">Hoàn thành</div>
       </div>
       <div class="bg-white border rounded-lg p-3 text-center">
         <div class="font-bold text-red-600">{{ store.calendarSummary.overdue }}</div>
-        <div class="text-xs text-gray-500">Quá hạn</div>
+        <div class="text-xs text-slate-500">Quá hạn</div>
       </div>
       <div class="bg-white border rounded-lg p-3 text-center">
         <div class="font-bold text-yellow-600">{{ store.calendarSummary.pending }}</div>
-        <div class="text-xs text-gray-500">Chờ xử lý</div>
+        <div class="text-xs text-slate-500">Chờ xử lý</div>
       </div>
     </div>
 
     <!-- Calendar Grid -->
     <div class="bg-white rounded-xl shadow-sm border overflow-hidden">
       <!-- Day headers -->
-      <div class="grid grid-cols-7 bg-gray-50 border-b">
+      <div class="grid grid-cols-7 bg-slate-50 border-b">
         <div
 v-for="d in ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN']" :key="d"
-          class="py-2 text-center text-xs font-semibold text-gray-500">
+          class="py-2 text-center text-xs font-semibold text-slate-500">
 {{ d }}
 </div>
       </div>
@@ -277,7 +277,7 @@ v-for="d in ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN']" :key="d"
           :key="i"
           :class="[
             'min-h-24 border-r border-b p-1.5 transition-colors',
-            !day ? 'bg-gray-50' : '',
+            !day ? 'bg-slate-50' : '',
             isToday(day) ? 'bg-blue-50' : '',
             viewMode === 'week' && day === null ? 'opacity-0 pointer-events-none' : '',
             dropTargetDay === day && draggedEvent ? 'bg-blue-100 ring-2 ring-blue-400 ring-inset' : '',
@@ -285,7 +285,7 @@ v-for="d in ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN']" :key="d"
           @dragover="onDragOver(day, $event)"
           @drop="onDrop(day)"
         >
-          <div v-if="day" :class="['text-sm font-medium mb-1', isToday(day) ? 'text-blue-600' : 'text-gray-700']">
+          <div v-if="day" :class="['text-sm font-medium mb-1', isToday(day) ? 'text-blue-600' : 'text-slate-700']">
             {{ day }}
           </div>
           <div class="space-y-1">
@@ -329,8 +329,8 @@ v-for="d in ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN']" :key="d"
       >
         <!-- Drawer Header -->
         <div class="flex items-center justify-between px-5 py-4 border-b">
-          <h2 class="font-semibold text-gray-900 text-sm">Chi tiết phiếu bảo trì</h2>
-          <button class="text-gray-400 hover:text-gray-600 transition-colors" aria-label="Đóng" @click="closeDrawer">
+          <h2 class="font-semibold text-slate-900 text-sm">Chi tiết phiếu bảo trì</h2>
+          <button class="text-slate-400 hover:text-slate-600 transition-colors" aria-label="Đóng" @click="closeDrawer">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
             </svg>
@@ -341,33 +341,33 @@ v-for="d in ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN']" :key="d"
         <div class="flex-1 overflow-y-auto px-5 py-4 space-y-4">
           <!-- WO Name -->
           <div>
-            <p class="text-xs text-gray-400 mb-0.5">Mã phiếu</p>
+            <p class="text-xs text-slate-400 mb-0.5">Mã phiếu</p>
             <p class="font-mono font-semibold text-blue-600">{{ selectedEvent.name }}</p>
           </div>
 
           <!-- Device -->
           <div>
-            <p class="text-xs text-gray-400 mb-0.5">Thiết bị</p>
-            <p class="font-medium text-gray-900">
+            <p class="text-xs text-slate-400 mb-0.5">Thiết bị</p>
+            <p class="font-medium text-slate-900">
               {{ formatAssetDisplay(selectedEvent.asset_name, selectedEvent.asset_ref).main }}
             </p>
             <p
 v-if="formatAssetDisplay(selectedEvent.asset_name, selectedEvent.asset_ref).hasBoth"
-               class="text-xs text-gray-500 font-mono">
+               class="text-xs text-slate-500 font-mono">
               {{ formatAssetDisplay(selectedEvent.asset_name, selectedEvent.asset_ref).sub }}
             </p>
           </div>
 
           <!-- KTV -->
           <div>
-            <p class="text-xs text-gray-400 mb-0.5">KTV phụ trách</p>
-            <p class="text-gray-700">{{ selectedEvent.assigned_to || '— Chưa phân công' }}</p>
+            <p class="text-xs text-slate-400 mb-0.5">KTV phụ trách</p>
+            <p class="text-slate-700">{{ selectedEvent.assigned_to || '— Chưa phân công' }}</p>
           </div>
 
           <!-- Due Date -->
           <div>
-            <p class="text-xs text-gray-400 mb-0.5">Đến hạn</p>
-            <p :class="['font-medium', selectedEvent.is_late ? 'text-red-600' : 'text-gray-800']">
+            <p class="text-xs text-slate-400 mb-0.5">Đến hạn</p>
+            <p :class="['font-medium', selectedEvent.is_late ? 'text-red-600' : 'text-slate-800']">
               {{ selectedEvent.due_date }}
               <span v-if="selectedEvent.is_late" class="ml-1 text-xs font-normal text-red-500">Quá hạn</span>
             </p>
@@ -375,13 +375,13 @@ v-if="formatAssetDisplay(selectedEvent.asset_name, selectedEvent.asset_ref).hasB
 
           <!-- PM Type -->
           <div>
-            <p class="text-xs text-gray-400 mb-0.5">Loại PM</p>
-            <p class="text-gray-700">{{ selectedEvent.pm_type }}</p>
+            <p class="text-xs text-slate-400 mb-0.5">Loại PM</p>
+            <p class="text-slate-700">{{ selectedEvent.pm_type }}</p>
           </div>
 
           <!-- Status Badge -->
           <div>
-            <p class="text-xs text-gray-400 mb-1.5">Trạng thái</p>
+            <p class="text-xs text-slate-400 mb-1.5">Trạng thái</p>
             <span :class="['px-2.5 py-1 rounded-full text-xs font-medium', statusBadgeClass(selectedEvent.status)]">
               {{ selectedEvent.status }}
             </span>
@@ -397,7 +397,7 @@ v-if="formatAssetDisplay(selectedEvent.asset_name, selectedEvent.asset_ref).hasB
             Xem chi tiết
           </button>
           <button
-            class="w-full px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
+            class="w-full px-4 py-2.5 border border-slate-300 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors"
             @click="openReschedule"
           >
             Hoãn lịch
@@ -415,25 +415,25 @@ v-if="formatAssetDisplay(selectedEvent.asset_name, selectedEvent.asset_ref).hasB
     >
       <div v-if="showReschedule" class="fixed inset-0 bg-black/50 flex items-center justify-center z-[60]" @click.self="showReschedule = false">
         <div class="bg-white rounded-2xl p-6 w-full max-w-md mx-4 shadow-2xl">
-          <h3 class="font-bold text-lg text-gray-900 mb-4">Hoãn lịch PM</h3>
+          <h3 class="font-bold text-lg text-slate-900 mb-4">Hoãn lịch PM</h3>
           <div class="space-y-4">
             <div>
-              <label for="reschedule-date" class="block text-sm text-gray-600 mb-1">Ngày mới <span class="text-red-500">*</span></label>
-              <DateInput id="reschedule-date" v-model="rescheduleDate" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+              <label for="reschedule-date" class="block text-sm text-slate-600 mb-1">Ngày mới <span class="text-red-500">*</span></label>
+              <DateInput id="reschedule-date" v-model="rescheduleDate" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
             </div>
             <div>
-              <label for="reschedule-reason" class="block text-sm text-gray-600 mb-1">Lý do hoãn <span class="text-red-500">*</span></label>
+              <label for="reschedule-reason" class="block text-sm text-slate-600 mb-1">Lý do hoãn <span class="text-red-500">*</span></label>
               <textarea
                 id="reschedule-reason"
                 v-model="rescheduleReason"
                 rows="3"
-                class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
                 placeholder="Nhập lý do hoãn lịch..."
               />
             </div>
           </div>
           <div class="flex justify-end gap-3 mt-5">
-            <button class="px-4 py-2 border border-gray-300 rounded-lg text-sm" @click="showReschedule = false">Hủy</button>
+            <button class="px-4 py-2 border border-slate-300 rounded-lg text-sm" @click="showReschedule = false">Hủy</button>
             <button
               :disabled="!rescheduleDate || !rescheduleReason || rescheduling"
               class="px-4 py-2 bg-orange-500 text-white rounded-lg text-sm font-medium hover:bg-orange-600 disabled:opacity-50 transition-colors"

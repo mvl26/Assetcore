@@ -22,7 +22,7 @@ v-if="formatAssetDisplay(doc.asset_name, doc.asset_ref).hasBoth"
     <!-- Nhóm -->
     <td>
       <span class="badge" :class="`badge-${(doc.doc_category || 'general').toLowerCase()}`">
-        {{ doc.doc_category || '—' }}
+        {{ doc.doc_category ? categoryLabel(doc.doc_category) : '—' }}
       </span>
     </td>
 
@@ -60,7 +60,7 @@ v-if="formatAssetDisplay(doc.asset_name, doc.asset_ref).hasBoth"
     <td class="actions">
       <!-- Approve / Reject chỉ khi Pending_Review -->
       <button
-        v-if="doc.workflow_state === 'Pending_Review'"
+        v-if="doc.workflow_state === 'Pending Review'"
         class="btn btn-xs btn-success"
         @click="$emit('approve', doc.name)"
       >
@@ -68,7 +68,7 @@ Duyệt
 </button>
 
       <button
-        v-if="doc.workflow_state === 'Pending_Review'"
+        v-if="doc.workflow_state === 'Pending Review'"
         class="btn btn-xs btn-danger"
         @click="$emit('reject', doc.name)"
       >
@@ -115,6 +115,12 @@ import { formatAssetDisplay } from '@/utils/formatters'
 
 const props = defineProps<{ doc: AssetDocumentItem }>()
 
+const CATEGORY_LABEL: Record<string, string> = {
+  Legal: 'Pháp lý', Technical: 'Kỹ thuật', Certification: 'Kiểm định',
+  Training: 'Đào tạo', QA: 'Chất lượng',
+}
+function categoryLabel(cat: string) { return CATEGORY_LABEL[cat] ?? cat }
+
 defineEmits<{
   approve: [name: string]
   reject: [name: string]
@@ -127,7 +133,7 @@ defineEmits<{
 const rowClass = computed(() => {
   if (props.doc.is_exempt) return ''
   const s = props.doc.workflow_state
-  if (s === 'Pending_Review') return 'row-pending'
+  if (s === 'Pending Review') return 'row-pending'
   if (s === 'Expired') return 'row-expired'
   if (s === 'Rejected') return 'row-rejected'
   return ''

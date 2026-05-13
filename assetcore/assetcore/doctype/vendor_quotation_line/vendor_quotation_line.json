@@ -1,0 +1,28 @@
+{
+ "actions": [], "creation": "2026-04-29 00:00:00.000000",
+ "doctype": "DocType", "engine": "InnoDB",
+ "field_order": [
+  "candidate_supplier", "quotation_no", "quotation_date", "quotation_validity",
+  "column_break_1", "price", "currency", "payment_terms",
+  "section_more", "delivery_days", "warranty_months", "attachment"
+ ],
+ "fields": [
+  {"fieldname": "candidate_supplier", "fieldtype": "Link", "options": "AC Supplier", "label": "Vendor", "in_list_view": 1, "reqd": 1},
+  {"fieldname": "quotation_no", "fieldtype": "Data", "label": "Số báo giá", "in_list_view": 1},
+  {"fieldname": "quotation_date", "fieldtype": "Date", "label": "Ngày báo giá"},
+  {"fieldname": "quotation_validity", "fieldtype": "Date", "label": "Hết hạn", "in_list_view": 1, "reqd": 1},
+  {"fieldname": "column_break_1", "fieldtype": "Column Break"},
+  {"fieldname": "price", "fieldtype": "Currency", "label": "Giá", "in_list_view": 1, "reqd": 1},
+  {"fieldname": "currency", "fieldtype": "Link", "options": "Currency", "label": "Tiền tệ", "default": "VND"},
+  {"fieldname": "payment_terms", "fieldtype": "Data", "label": "Điều khoản TT"},
+  {"fieldname": "section_more", "fieldtype": "Section Break"},
+  {"fieldname": "delivery_days", "fieldtype": "Int", "label": "Giao hàng (ngày)"},
+  {"fieldname": "warranty_months", "fieldtype": "Int", "label": "Bảo hành (tháng)"},
+  {"fieldname": "attachment", "fieldtype": "Attach", "label": "File báo giá"}
+ ],
+ "istable": 1, "links": [],
+ "modified": "2026-04-29 00:00:00.000000", "modified_by": "Administrator",
+ "module": "AssetCore", "name": "Vendor Quotation Line",
+ "owner": "Administrator", "permissions": [],
+ "sort_field": "modified", "sort_order": "DESC", "states": []
+}

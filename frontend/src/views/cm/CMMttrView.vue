@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import { useImm09Store } from '@/stores/imm09'
+import PageHeader from '@/components/common/PageHeader.vue'
 
 const store = useImm09Store()
 
@@ -40,14 +41,8 @@ function formatHours(h: number): string {
 
 <template>
   <div class="page-container animate-fade-in">
-    <!-- Header -->
-    <div class="flex items-start justify-between mb-7">
-      <div>
-        <p class="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-1">Báo cáo</p>
-        <h1 class="text-2xl font-bold text-slate-900">Thời gian Sửa chữa Trung bình</h1>
-        <p class="text-sm text-slate-500 mt-1">Phân tích hiệu suất sửa chữa thiết bị</p>
-      </div>
-      <div class="flex items-center gap-3 shrink-0">
+    <PageHeader title="Thời gian Sửa chữa Trung bình" subtitle="Phân tích hiệu suất sửa chữa thiết bị">
+      <template #actions>
         <!-- Month selector -->
         <select
           v-model="selectedMonth"
@@ -59,14 +54,14 @@ function formatHours(h: number): string {
           <option v-for="y in [2025, 2026, 2027]" :key="y" :value="y">{{ y }}</option>
         </select>
         <!-- Export buttons (UI only) -->
-        <button disabled class="px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-400 cursor-not-allowed">
+        <button disabled class="px-4 py-2 border border-slate-300 rounded-lg text-slate-400 cursor-not-allowed">
           Xuất PDF
         </button>
-        <button disabled class="px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-400 cursor-not-allowed">
+        <button disabled class="px-4 py-2 border border-slate-300 rounded-lg text-slate-400 cursor-not-allowed">
           Xuất Excel
         </button>
-      </div>
-    </div>
+      </template>
+    </PageHeader>
 
     <!-- KPI Skeleton -->
     <div v-if="loading && !report" class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-7">

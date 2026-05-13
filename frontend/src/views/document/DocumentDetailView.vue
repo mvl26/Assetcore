@@ -3,13 +3,21 @@ import { useToast } from '@/composables/useToast'
 import DateInput from '@/components/common/DateInput.vue'
 import { ref, computed, onMounted, reactive } from 'vue'
 import { useRouter } from 'vue-router'
-import { useImm05Store } from '@/stores/imm05Store'
+import { useImm05Store } from '@/stores/imm05'
+import { submitForReview as apiSubmitForReview } from '@/api/imm05'
 import type { AssetDocumentDetail } from '@/api/imm05'
-import { stateLabel, formatDate } from '@/utils/docUtils'
+import { formatDate } from '@/utils/docUtils'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
+import StatusBadge from '@/components/common/StatusBadge.vue'
 const toast = useToast()
 
 const props = defineProps<{ name: string }>()
+
+const CATEGORY_LABEL: Record<string, string> = {
+  Legal: 'Pháp lý', Technical: 'Kỹ thuật', Certification: 'Kiểm định',
+  Training: 'Đào tạo', QA: 'Chất lượng',
+}
 
 const router = useRouter()
 const store = useImm05Store()
@@ -42,10 +50,6 @@ async function loadDocument(): Promise<void> {
 }
 
 onMounted(load)
-
-function goBack(): void {
-  router.push('/documents')
-}
 
 function startEditing(): void {
   if (!doc.value) return
@@ -93,20 +97,6 @@ function resubmit(): void {
   startEditing()
 }
 
-async function transitionState(name: string, action: string) {
-  try {
-    const { frappePost } = await import('@/api/helpers')
-    const res = await frappePost('frappe.model.workflow.apply_workflow', {
-      doc: { doctype: 'Asset Document', name },
-      action,
-    })
-    return res
-  } catch (e) {
-    console.error(e)
-    return null
-  }
-}
-
 async function submitForReview(): Promise<void> {
   if (!doc.value) return
   if (!doc.value.file_attachment) {
@@ -115,8 +105,11 @@ async function submitForReview(): Promise<void> {
   }
   actionLoading.value = true
   try {
-    const res = await transitionState(doc.value.name, 'Gửi duyệt')
-    if (res) await loadDocument()
+    await apiSubmitForReview(doc.value.name)
+    await loadDocument()
+    toast.success('Đã gửi duyệt thành công.')
+  } catch (e: unknown) {
+    toast.error(e instanceof Error ? e.message : 'Gửi duyệt thất bại.')
   } finally {
     actionLoading.value = false
   }
@@ -157,7 +150,7 @@ const expiryDisplay = computed<ExpiryDisplay>(() => {
   const expiry = new Date(raw)
   expiry.setHours(0, 0, 0, 0)
   const diffDays = Math.ceil((expiry.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
-  if (diffDays <= 0) return { cssClass: 'text-red-600 font-semibold', suffix: '⚠ Đã hết hạn' }
+  if (diffDays <= 0) return { cssClass: 'text-red-600 font-semibold', suffix: 'Đã hết hạn' }
   if (diffDays <= 30) return { cssClass: 'text-orange-600 font-semibold', suffix: `(còn ${diffDays} ngày)` }
   if (diffDays <= 90) return { cssClass: 'text-yellow-600', suffix: `(còn ${diffDays} ngày)` }
   return { cssClass: 'text-gray-800', suffix: '' }
@@ -165,18 +158,6 @@ const expiryDisplay = computed<ExpiryDisplay>(() => {
 
 // Keep backward compat alias used by template
 const expiryDateClass = computed(() => expiryDisplay.value.cssClass)
-
-function stateBadgeClass(state: string): string {
-  const map: Record<string, string> = {
-    Active: 'bg-green-100 text-green-800',
-    Draft: 'bg-gray-100 text-gray-700',
-    Pending_Review: 'bg-yellow-100 text-yellow-800',
-    Expired: 'bg-red-100 text-red-800',
-    Archived: 'bg-gray-100 text-gray-500',
-    Rejected: 'bg-pink-100 text-pink-800',
-  }
-  return map[state] ?? 'bg-gray-100 text-gray-700'
-}
 
 async function handleApprove(): Promise<void> {
   if (!doc.value) return
@@ -202,16 +183,25 @@ async function handleReject(): Promise<void> {
 
 <template>
   <div class="page-container animate-fade-in">
-    <!-- Back button -->
-    <button
-      class="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700 mb-4 transition-colors"
-      @click="goBack"
+    <PageHeader
+      :title="doc?.name ?? props.name"
+      :subtitle="doc ? (doc.asset_name || doc.asset_ref) : 'Đang tải hồ sơ…'"
+      :back-to="'/documents'"
+      back-label="← Danh sách hồ sơ"
+      :breadcrumb="[
+        { label: 'IMM-05 · Hồ sơ', to: '/documents' },
+        { label: 'Danh sách', to: '/documents' },
+        { label: doc?.name ?? props.name },
+      ]"
     >
-      <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" />
-      </svg>
-      Quay lại danh sách
-    </button>
+      <template #actions>
+        <StatusBadge v-if="doc" :state="doc.workflow_state" size="md" />
+        <span
+          v-if="doc?.is_exempt === 1"
+          class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-teal-100 text-teal-700"
+        >Miễn NĐ98</span>
+      </template>
+    </PageHeader>
 
     <!-- Loading skeleton -->
     <div v-if="loading" class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
@@ -235,38 +225,11 @@ async function handleReject(): Promise<void> {
 
     <!-- Document detail -->
     <template v-else-if="doc">
-      <!-- Header card -->
-      <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-4">
-        <div class="flex items-start justify-between gap-4">
-          <div class="min-w-0">
-            <h1 class="text-xl font-bold text-gray-900 truncate">{{ doc.name }}</h1>
-            <p class="text-gray-500 text-sm mt-1">
-              {{ doc.asset_name || doc.asset_ref }}
-              <span v-if="doc.asset_name" class="text-xs text-gray-400 font-mono ml-2">{{ doc.asset_ref }}</span>
-            </p>
-          </div>
-          <div class="flex items-center gap-2 shrink-0">
-            <span
-              :class="[
-                'inline-block px-3 py-1 rounded-full text-xs font-semibold',
-                stateBadgeClass(doc.workflow_state),
-              ]"
-            >
-              {{ stateLabel(doc.workflow_state) }}
-            </span>
-            <span
-              v-if="doc.is_exempt === 1"
-              class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-teal-100 text-teal-700"
-            >
-              Miễn NĐ98
-            </span>
-          </div>
-        </div>
-
-        <!-- Action buttons row -->
-        <div class="mt-5 pt-4 border-t border-gray-100 flex flex-wrap gap-3">
+      <!-- Actions card -->
+      <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5 mb-4">
+        <div class="flex flex-wrap gap-3">
 <!-- Approve / Reject actions (Pending_Review) -->
-          <template v-if="doc.workflow_state === 'Pending_Review'">
+          <template v-if="doc.workflow_state === 'Pending Review'">
             <button
               class="px-4 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50"
               :disabled="actionLoading"
@@ -370,7 +333,7 @@ async function handleReject(): Promise<void> {
         <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4 text-sm">
           <div>
             <dt class="text-gray-400 font-medium mb-0.5">Nhóm</dt>
-            <dd class="text-gray-800">{{ doc.doc_category }}</dd>
+            <dd class="text-gray-800">{{ doc?.doc_category ? (CATEGORY_LABEL[doc.doc_category] ?? doc.doc_category) : '—' }}</dd>
           </div>
           <div>
             <dt class="text-gray-400 font-medium mb-0.5">Loại tài liệu</dt>

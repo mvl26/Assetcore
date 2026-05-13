@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { useCommissioningStore } from '@/stores/commissioning'
-import type { NCStatus } from '@/types/imm04'
+import { useRoute } from 'vue-router'
+import { useCommissioningStore } from '@/stores/imm04'
+import PageHeader from '@/components/common/PageHeader.vue'
+import StatusBadge from '@/components/common/StatusBadge.vue'
 
 const route = useRoute()
-const router = useRouter()
 const store = useCommissioningStore()
 const commissioningId = computed(() => route.params.id as string)
 
@@ -78,20 +78,6 @@ async function confirmCloseNC(): Promise<void> {
   }
 }
 
-const severityBadge: Record<string, string> = {
-  Minor: 'bg-yellow-100 text-yellow-800',
-  Major: 'bg-orange-100 text-orange-800',
-  Critical: 'bg-red-100 text-red-800',
-}
-
-const statusBadge: Record<NCStatus, string> = {
-  Open: 'bg-red-100 text-red-700',
-  'Under Review': 'bg-yellow-100 text-yellow-700',
-  Resolved: 'bg-blue-100 text-blue-700',
-  Closed: 'bg-green-100 text-green-700',
-  Transferred: 'bg-gray-100 text-gray-700',
-}
-
 const openCount = computed(() => store.openNcCount)
 
 onMounted(loadNCs)
@@ -99,45 +85,33 @@ onMounted(loadNCs)
 
 <template>
   <div class="page-container animate-fade-in">
-    <!-- Back button -->
-    <button
-      class="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700 mb-4 transition-colors"
-      @click="router.push(`/commissioning/${commissioningId}`)"
+    <PageHeader
+      title="Sự không phù hợp (NC)"
+      :subtitle="`Phiếu ${commissioningId}`"
+      :back-to="`/commissioning/${commissioningId}`"
+      back-label="← Phiếu lắp đặt"
+      :breadcrumb="[
+        { label: 'IMM-04 · Tiếp nhận', to: '/commissioning' },
+        { label: commissioningId, to: `/commissioning/${commissioningId}` },
+        { label: 'Non-Conformance' },
+      ]"
     >
-      <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" />
-      </svg>
-      Quay lại
-    </button>
-
-    <!-- Header card -->
-    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-4">
-      <div class="flex items-start justify-between gap-4">
-        <div class="min-w-0">
-          <h1 class="text-xl font-bold text-gray-900">Non-Conformance</h1>
-          <p class="text-sm text-gray-500 mt-1">
-            Commissioning:
-            <span class="font-mono font-medium text-gray-700">{{ commissioningId }}</span>
-          </p>
-        </div>
-        <button
-          class="shrink-0 px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 transition-colors"
-          @click="showCreateForm = !showCreateForm"
-        >
+      <template #actions>
+        <button class="btn-primary text-sm" @click="showCreateForm = !showCreateForm">
           + Báo cáo NC
         </button>
-      </div>
+      </template>
+    </PageHeader>
 
-      <!-- Open NC warning -->
-      <div
-        v-if="openCount > 0"
-        class="mt-4 flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700"
-      >
-        <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
-        </svg>
-        Còn <strong class="mx-1">{{ openCount }}</strong> NC chưa đóng — thiết bị không thể Release.
-      </div>
+    <!-- Open NC warning -->
+    <div
+      v-if="openCount > 0"
+      class="mb-4 flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700"
+    >
+      <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+      </svg>
+      Còn <strong class="mx-1">{{ openCount }}</strong> NC chưa đóng — thiết bị không thể Release.
     </div>
 
     <!-- Create form -->
@@ -303,24 +277,10 @@ onMounted(loadNCs)
         <div class="flex items-start justify-between gap-3">
           <div class="min-w-0 flex-1">
             <div class="flex flex-wrap items-center gap-2 mb-2">
-              <span class="font-mono text-xs text-gray-500">{{ nc.name }}</span>
-              <span
-                :class="[
-                  'text-xs px-2 py-0.5 rounded-full font-medium',
-                  severityBadge[nc.severity] ?? 'bg-gray-100 text-gray-700',
-                ]"
-              >
-                {{ nc.severity }}
-              </span>
-              <span
-                :class="[
-                  'text-xs px-2 py-0.5 rounded-full font-medium',
-                  statusBadge[nc.resolution_status] ?? 'bg-gray-100 text-gray-700',
-                ]"
-              >
-                {{ nc.resolution_status }}
-              </span>
-              <span class="text-xs text-gray-400 bg-gray-50 px-2 py-0.5 rounded">
+              <span class="font-mono text-xs text-slate-500">{{ nc.name }}</span>
+              <StatusBadge :state="nc.severity" />
+              <StatusBadge :state="nc.resolution_status" />
+              <span class="text-xs text-slate-400 bg-slate-50 px-2 py-0.5 rounded">
                 {{ nc.nc_type }}
               </span>
             </div>

@@ -5,6 +5,7 @@ import { useRouter } from 'vue-router'
 import { getWarehouse, updateWarehouse, deleteWarehouse } from '@/api/inventory'
 import type { Warehouse, StockRow } from '@/types/inventory'
 import SmartSelect from '@/components/common/SmartSelect.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
 
 const props = defineProps<{ name: string }>()
 const router = useRouter()
@@ -76,53 +77,41 @@ onMounted(load)
 
 <template>
   <div class="page-container animate-fade-in">
-    <button class="btn-ghost mb-4" @click="router.push('/warehouses')">← Quay lại</button>
-
     <div v-if="toast" class="mb-4 px-4 py-3 rounded-lg bg-emerald-50 text-emerald-700 text-sm">{{ toast }}</div>
 
-    <div v-if="loading && !wh" class="text-center py-20 text-slate-400">Đang tải...</div>
+    <div v-if="loading && !wh" class="text-center py-20 text-slate-400">Đang tải…</div>
 
     <div v-else-if="wh">
-      <!-- Header -->
-      <div class="flex items-start justify-between mb-6">
-        <div>
-          <p class="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-1">{{ wh.warehouse_code }}</p>
-          <h1 class="text-2xl font-bold text-slate-900">{{ wh.warehouse_name }}</h1>
-          <div class="flex items-center gap-2 mt-2">
-            <span v-if="wh.department" class="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">{{ wh.department }}</span>
-            <span v-if="wh.location" class="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-600">{{ wh.location }}</span>
-            <span v-if="!wh.is_active" class="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">Ngừng hoạt động</span>
-          </div>
-        </div>
-        <div class="flex gap-2">
-          <button class="btn-ghost" @click="openEdit">Sửa</button>
-          <button
-v-if="wh.is_active"
-                  class="text-sm px-3 py-1.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 font-medium"
-                  @click="doDeactivate">
-Ngừng
-</button>
-        </div>
-      </div>
+      <PageHeader
+        :back-to="'/warehouses'"
+        :title="wh.warehouse_name"
+        :subtitle="`IMM-15 · Tồn kho phụ tùng — ${wh.warehouse_code || wh.name}`"
+        :breadcrumb="[{ label: 'IMM-15 · Tồn kho phụ tùng', to: '/inventory/dashboard' }, { label: 'Kho', to: '/warehouses' }, { label: wh.warehouse_name }]"
+      >
+        <template #actions>
+          <button class="btn-secondary" @click="openEdit">Chỉnh sửa</button>
+          <button v-if="wh.is_active" class="btn-ghost text-red-600 hover:bg-red-50" @click="doDeactivate">Ngừng hoạt động</button>
+        </template>
+      </PageHeader>
 
       <!-- Summary -->
-      <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <div class="card p-4">
-          <p class="text-xs text-slate-500 mb-1">Số SKU</p>
-          <p class="text-2xl font-bold text-slate-900">{{ wh.stock_count || wh.stock_items.length }}</p>
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <div class="kpi-card p-4" style="--kpi-color: #2563eb">
+          <p class="t-eyebrow mb-2">Số SKU</p>
+          <p class="t-metric tabular-nums">{{ wh.stock_count || wh.stock_items.length }}</p>
         </div>
-        <div class="card p-4">
-          <p class="text-xs text-slate-500 mb-1">Giá trị tồn</p>
-          <p class="text-xl font-bold text-emerald-600">{{ vnd(wh.total_value) }}</p>
+        <div class="kpi-card p-4" style="--kpi-color: #059669">
+          <p class="t-eyebrow mb-2">Giá trị tồn</p>
+          <p class="t-metric tabular-nums text-emerald-600">{{ vnd(wh.total_value) }}</p>
         </div>
-        <div class="card p-4">
-          <p class="text-xs text-slate-500 mb-1">Người phụ trách</p>
-          <p class="text-sm font-medium text-slate-700">{{ wh.manager || '—' }}</p>
+        <div class="kpi-card p-4" style="--kpi-color: #475569">
+          <p class="t-eyebrow mb-2">Người phụ trách</p>
+          <p class="text-sm font-semibold text-slate-900 truncate mt-1">{{ wh.manager || '—' }}</p>
         </div>
-        <div class="card p-4">
-          <p class="text-xs text-slate-500 mb-1">Trạng thái</p>
-          <span v-if="wh.is_active" class="text-xs px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-medium">Hoạt động</span>
-          <span v-else class="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 font-medium">Ngừng</span>
+        <div class="kpi-card p-4" :style="`--kpi-color: ${wh.is_active ? '#059669' : '#94a3b8'}`">
+          <p class="t-eyebrow mb-2">Trạng thái</p>
+          <span v-if="wh.is_active" class="text-[11px] px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-medium border border-emerald-100">Đang hoạt động</span>
+          <span v-else class="text-[11px] px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-600 font-medium border border-slate-200">Đã ngừng</span>
         </div>
       </div>
 
@@ -157,8 +146,8 @@ v-for="s in wh.stock_items" :key="s.spare_part"
                   class="border-b border-slate-50 hover:bg-slate-50 cursor-pointer"
                   @click="router.push(`/spare-parts/${s.spare_part}`)">
                 <td class="py-2.5">
-                  <p class="font-medium text-slate-800">{{ s.part_name || s.spare_part }}</p>
-                  <p class="text-[11px] text-slate-400 font-mono">{{ s.spare_part }}</p>
+                  <p class="font-medium text-slate-900">{{ s.part_name || s.spare_part }}</p>
+                  <p class="font-mono text-xs text-brand-700 mt-0.5">{{ s.spare_part }}</p>
                 </td>
                 <td class="py-2.5 text-right font-semibold text-slate-800">
                   {{ s.qty_on_hand }}
@@ -180,10 +169,12 @@ v-for="s in wh.stock_items" :key="s.spare_part"
       <div
 v-if="showEdit" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
            @click.self="showEdit = false">
-        <div class="bg-white rounded-2xl w-full max-w-xl shadow-2xl">
-          <div class="flex items-center justify-between px-6 py-4 border-b border-slate-100">
-            <h2 class="font-semibold text-slate-800">Sửa kho</h2>
-            <button class="p-1.5 rounded-md text-slate-400 hover:bg-slate-100" @click="showEdit = false">✕</button>
+        <div class="bg-white rounded-xl w-full max-w-xl shadow-modal border border-slate-200">
+          <div class="flex items-center justify-between px-6 py-4 border-b border-slate-200">
+            <h2 class="font-semibold text-slate-900">Chỉnh sửa kho</h2>
+            <button class="p-1.5 rounded-md text-slate-400 hover:bg-slate-100" aria-label="Đóng" @click="showEdit = false">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
           </div>
           <div class="p-6 space-y-4">
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -218,7 +209,7 @@ id="wh-edit-active" v-model="form.is_active" type="checkbox" :true-value="1" :fa
           <div class="flex gap-3 justify-end px-6 py-4 border-t border-slate-100">
             <button class="btn-ghost" @click="showEdit = false">Huỷ</button>
             <button class="btn-primary" :disabled="saving" @click="saveEdit">
-              {{ saving ? 'Đang lưu...' : 'Cập nhật' }}
+              {{ saving ? 'Đang lưu…' : 'Lưu thay đổi' }}
             </button>
           </div>
         </div>

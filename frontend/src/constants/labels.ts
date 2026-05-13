@@ -61,7 +61,7 @@ export const COMMISSIONING_STATE_LABELS: Record<string, string> = {
 export const DOC_STATUS_LABELS: Record<string, string> = {
   Active: 'Hiệu lực',
   Draft: 'Nháp',
-  Pending_Review: 'Chờ duyệt',
+  'Pending Review': 'Chờ duyệt',
   Pending_Approval: 'Chờ phê duyệt',
   Expired: 'Hết hạn',
   Expiring_Soon: 'Sắp hết hạn',

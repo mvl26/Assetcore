@@ -44,12 +44,17 @@ const STATUS_MAP: Record<string, string> = {
   // ── Docstatus & workflow chung ─────────────────────────────────────
   Draft:     'Bản nháp',
   Pending:   'Chờ xử lý',
-  Submitted: 'Đã duyệt',
+  Submitted: 'Đã gửi',
   Cancelled: 'Đã hủy',
   Approved:  'Đã phê duyệt',
   Rejected:  'Bị từ chối',
   Closed:    'Đã đóng',
   Open:      'Đang mở',
+
+  // ── IMM-01 Needs Request workflow states ──────────────────────────
+  Reviewing:   'Đang rà soát',
+  Prioritized: 'Đã chấm ưu tiên',
+  Budgeted:    'Đã lập dự toán',
 
   // ── Work Order / Repair ───────────────────────────────────────────
   'In Progress':         'Đang thực hiện',
@@ -106,12 +111,35 @@ const STATUS_MAP: Record<string, string> = {
   'Expiring Soon': 'Sắp hết hạn',
   Archived:        'Lưu trữ',
   Exempt:          'Miễn đăng ký',
-  Pending_Review:  'Chờ duyệt',
+  'Pending Review': 'Chờ duyệt',
   Pending_Approval:'Chờ phê duyệt',
   'Pending Approval':'Chờ phê duyệt',
 
   // ── Transfer / Receipt ────────────────────────────────────────────
   Received:  'Đã tiếp nhận',
+
+  // ── IMM-15 Inventory ─────────────────────────────────────────────
+  Requested:    'Đã yêu cầu',
+  Picked:       'Đã soạn hàng',
+  Issued:       'Đã xuất kho',
+  Returned:     'Đã hoàn trả',
+  Planned:      'Đã lập kế hoạch',
+  Counting:     'Đang kiểm đếm',
+  Reviewed:     'Đã rà soát',
+  Posted:       'Đã ghi nhận',
+  // IMM-16 Compliance findings/audits
+  'Under Review':    'Đang xem xét',
+  Under_Review:      'Đang xem xét',
+  'Confirmed NC':    'Đã xác nhận NC',
+  Confirmed_NC:      'Đã xác nhận NC',
+  'False Positive':  'Cảnh báo nhầm',
+  False_Positive:    'Cảnh báo nhầm',
+  Resolved:          'Đã khắc phục',
+  Waived:            'Đã miễn trừ',
+  Reporting:         'Đang lập báo cáo',
+  're-opened':       'Đã mở lại',
+  'Re-opened':       'Đã mở lại',
+  'Re Opened':       'Đã mở lại',
 
   // ── Priority / Severity ───────────────────────────────────────────
   Low:       'Thấp',
@@ -123,6 +151,22 @@ const STATUS_MAP: Record<string, string> = {
   Emergency: 'Cấp cứu',
   Minor:     'Nhỏ',
   Major:     'Nghiêm trọng',
+
+  // ── IMM-06 Training & Competency ─────────────────────────────────────
+  Transferred:          'Đã chuyển',
+  Inactive:             'Không hoạt động',
+  Applied:              'Đã áp dụng',
+  'Rolled Back':        'Đã khôi phục',
+  Rolled_Back:          'Đã khôi phục',
+  Confirmed:            'Đã xác nhận',
+  Verified:             'Đã xác minh',
+  'Pending Signoff':    'Chờ phê duyệt',
+  Pending_Signoff:      'Chờ phê duyệt',
+  'Pending Assessment': 'Chờ đánh giá',
+  Pending_Assessment:   'Chờ đánh giá',
+  Expiring:             'Sắp hết hạn',
+  Revoked:              'Đã thu hồi',
+  Suspended:            'Tạm ngưng',
 }
 
 /** Trả nhãn Tiếng Việt cho 1 status. Fallback: bỏ dấu gạch dưới. */
@@ -155,7 +199,7 @@ const COLOR_GRAY   = 'bg-slate-100 text-slate-600 border border-slate-200'
 
 const STATUS_COLOR: Record<string, string> = {
   // xanh lá — hoàn thành / đạt
-  Submitted: COLOR_GREEN,  Approved: COLOR_GREEN,     Completed: COLOR_GREEN,
+  Submitted: COLOR_BLUE,   Approved: COLOR_GREEN,     Completed: COLOR_GREEN,
   Active: COLOR_GREEN,     Passed: COLOR_GREEN,       'Clinical Release': COLOR_GREEN,
   Received: COLOR_GREEN,   'Certificate Received': COLOR_GREEN,
   // xanh dương — đang xử lý
@@ -163,9 +207,11 @@ const STATUS_COLOR: Record<string, string> = {
   'In Repair': COLOR_BLUE,  In_Repair: COLOR_BLUE,    Installing: COLOR_BLUE,
   Commissioned: COLOR_BLUE, 'Initial Inspection': COLOR_BLUE, 'Sent to Lab': COLOR_BLUE,
   Assigned: COLOR_BLUE,
+  Reviewing: COLOR_BLUE,
+  Prioritized: COLOR_BLUE,   Budgeted: COLOR_BLUE,
   // vàng — chờ
   Pending: COLOR_YELLOW,   'Pending Approval': COLOR_YELLOW,
-  Pending_Approval: COLOR_YELLOW, Pending_Review: COLOR_YELLOW,
+  Pending_Approval: COLOR_YELLOW, Pending_Review: COLOR_YELLOW, 'Pending Review': COLOR_YELLOW,
   'Pending Doc Verify': COLOR_YELLOW, 'Pending Inspection': COLOR_YELLOW,
   Pending_Inspection: COLOR_YELLOW, 'Pending Parts': COLOR_YELLOW, Pending_Parts: COLOR_YELLOW,
   Scheduled: COLOR_YELLOW, 'Expiring Soon': COLOR_YELLOW, Expiring_Soon: COLOR_YELLOW,
@@ -184,6 +230,60 @@ const STATUS_COLOR: Record<string, string> = {
   // xám — mặc định
   Draft: COLOR_GRAY, Closed: COLOR_GRAY, Archived: COLOR_GRAY,
   Decommissioned: COLOR_GRAY, Exempt: COLOR_GRAY,
+
+  // ── IMM-15 Inventory ───────────────────────────────────────────────
+  Requested:  COLOR_YELLOW,
+  Picked:     COLOR_BLUE,
+  Issued:     COLOR_GREEN,
+  Returned:   COLOR_GRAY,
+  Planned:    COLOR_YELLOW,
+  Counting:   COLOR_BLUE,
+  Reviewed:   COLOR_BLUE,
+  Posted:     COLOR_GREEN,
+
+  // ── IMM-16 Compliance ──────────────────────────────────────────────
+  'Under Review':   COLOR_BLUE,
+  Under_Review:     COLOR_BLUE,
+  'Confirmed NC':   COLOR_RED,
+  Confirmed_NC:     COLOR_RED,
+  'False Positive': COLOR_GRAY,
+  False_Positive:   COLOR_GRAY,
+  Resolved:         COLOR_GREEN,
+  Waived:           COLOR_GRAY,
+  Reporting:        COLOR_BLUE,
+  're-opened':      COLOR_ORANGE,
+  'Re-opened':      COLOR_ORANGE,
+  'Re Opened':      COLOR_ORANGE,
+
+  // ── IMM-06 Training & Competency ─────────────────────────────────────
+  Transferred:        COLOR_GRAY,
+  Inactive:           COLOR_GRAY,
+  Applied:            COLOR_BLUE,
+  'Rolled Back':      COLOR_RED,
+  Rolled_Back:        COLOR_RED,
+  Confirmed:          COLOR_BLUE,
+  Verified:           COLOR_GREEN,
+  'Pending Signoff':  COLOR_YELLOW,
+  Pending_Signoff:    COLOR_YELLOW,
+  'Pending Assessment': COLOR_BLUE,
+  Pending_Assessment: COLOR_BLUE,
+  Expiring:           COLOR_ORANGE,
+  Revoked:            COLOR_RED,
+  Suspended:          COLOR_ORANGE,
+}
+
+// ─── Relative time (Vietnamese) ─────────────────────────────────────────────
+/** "30s trước", "12 phút trước", "3 giờ trước", "2 ngày trước". */
+export function formatRelativeTime(d?: string | null): string {
+  if (!d) return '—'
+  const dt = new Date(d)
+  if (Number.isNaN(dt.getTime())) return d
+  const diff = Math.max(0, (Date.now() - dt.getTime()) / 1000)
+  if (diff < 60) return `${Math.floor(diff)}s trước`
+  if (diff < 3600) return `${Math.floor(diff / 60)} phút trước`
+  if (diff < 86400) return `${Math.floor(diff / 3600)} giờ trước`
+  if (diff < 86400 * 30) return `${Math.floor(diff / 86400)} ngày trước`
+  return formatDate(d)
 }
 
 /** Trả về chuỗi class Tailwind để làm badge. Fallback: xám. */

@@ -40,6 +40,22 @@ export function getUnreadNotifications(limit = 20): Promise<UnreadResponse> {
   return frappeGet(`${BASE}.get_unread_notifications`, { limit })
 }
 
+export interface ListNotifResponse {
+  pagination: { total: number; page: number; page_size: number; total_pages: number; offset: number }
+  items: NotificationItem[]
+}
+
+/** Paginated list — bao gồm cả đã đọc; dùng cho tab "Tất cả". */
+export function listNotifications(
+  page = 1,
+  pageSize = 20,
+  onlyUnread = false,
+): Promise<ListNotifResponse> {
+  return frappeGet(`${BASE}.list_notifications`, {
+    page, page_size: pageSize, only_unread: onlyUnread ? 1 : 0,
+  })
+}
+
 export function markNotificationAsRead(name: string): Promise<{ name: string; read: 1 }> {
   return frappePost(`${BASE}.mark_notification_as_read`, { name })
 }
@@ -72,8 +88,12 @@ const DOCTYPE_TO_ROUTE: Record<string, (name: string) => string> = {
   'IMM CAPA Record': (n) => `/capas/${encodeURIComponent(n)}`,
   'Asset Transfer': (n) => `/asset-transfers/${encodeURIComponent(n)}`,
   'Service Contract': (n) => `/service-contracts/${encodeURIComponent(n)}`,
+  'IMM Asset Calibration': (n) => `/calibration/${encodeURIComponent(n)}`,
   'IMM Calibration': (n) => `/calibration/${encodeURIComponent(n)}`,
+  'IMM Calibration Schedule': () => `/calibration/schedules`,
   'Calibration Result': (n) => `/calibration/${encodeURIComponent(n)}`,
+  'IMM RCA Record': (n) => `/rca/${encodeURIComponent(n)}`,
+  'Asset QA Non Conformance': (n) => `/commissioning/${encodeURIComponent(n)}/nc`,
   'IMM Device Model': (n) => `/device-models/${encodeURIComponent(n)}`,
   'AC Supplier': (n) => `/suppliers/${encodeURIComponent(n)}`,
   'Document Request': () => `/documents/requests`,

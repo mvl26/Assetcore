@@ -1,0 +1,192 @@
+{
+  "actions": [],
+  "name": "IMM Training Program",
+  "doctype": "DocType",
+  "module": "AssetCore",
+  "engine": "InnoDB",
+  "document_type": "Document",
+  "is_submittable": 0,
+  "track_changes": 1,
+  "autoname": "field:program_code",
+  "naming_rule": "By fieldname",
+  "title_field": "program_name",
+  "search_fields": "program_code,program_name,target_device_model",
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "creation": "2026-05-08 00:00:00.000000",
+  "modified": "2026-05-08 00:00:00.000000",
+  "modified_by": "Administrator",
+  "owner": "Administrator",
+  "field_order": [
+    "program_code",
+    "program_name",
+    "section_info",
+    "description",
+    "target_device_model",
+    "target_device_category",
+    "is_mandatory_for_operation",
+    "section_config",
+    "training_type",
+    "content_outline",
+    "duration_hours",
+    "validity_period_months",
+    "requires_recertification",
+    "assessment_method",
+    "passing_score_pct",
+    "instructor_qualification_required",
+    "qms_doc_ref",
+    "is_active"
+  ],
+  "fields": [
+    {
+      "fieldname": "program_code",
+      "fieldtype": "Data",
+      "label": "Mã chương trình",
+      "reqd": 1,
+      "in_list_view": 1,
+      "unique": 1
+    },
+    {
+      "fieldname": "program_name",
+      "fieldtype": "Data",
+      "label": "Tên chương trình",
+      "reqd": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldtype": "Section Break",
+      "fieldname": "section_info",
+      "label": "Thông tin chương trình"
+    },
+    {
+      "fieldname": "description",
+      "fieldtype": "Text",
+      "label": "Mô tả"
+    },
+    {
+      "fieldname": "target_device_model",
+      "fieldtype": "Link",
+      "label": "Device Model",
+      "options": "IMM Device Model",
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "target_device_category",
+      "fieldtype": "Link",
+      "label": "Device Category",
+      "options": "AC Asset Category"
+    },
+    {
+      "fieldname": "is_mandatory_for_operation",
+      "fieldtype": "Check",
+      "label": "Bắt buộc trước vận hành"
+    },
+    {
+      "fieldtype": "Section Break",
+      "fieldname": "section_config",
+      "label": "Cấu hình đào tạo"
+    },
+    {
+      "fieldname": "training_type",
+      "fieldtype": "Select",
+      "label": "Loại đào tạo",
+      "options": "Initial\nRefresher\nAdvanced\nCertification",
+      "reqd": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "content_outline",
+      "fieldtype": "Text Editor",
+      "label": "Nội dung chương trình",
+      "reqd": 0
+    },
+    {
+      "fieldname": "duration_hours",
+      "fieldtype": "Float",
+      "label": "Thời lượng (giờ)",
+      "default": "8",
+      "reqd": 1
+    },
+    {
+      "fieldname": "validity_period_months",
+      "fieldtype": "Int",
+      "label": "Hiệu lực (tháng)",
+      "default": "24",
+      "reqd": 1
+    },
+    {
+      "fieldname": "requires_recertification",
+      "fieldtype": "Check",
+      "label": "Yêu cầu tái chứng nhận",
+      "default": "1"
+    },
+    {
+      "fieldname": "assessment_method",
+      "fieldtype": "Select",
+      "label": "Phương pháp đánh giá",
+      "options": "Theory\nPractical\nBoth",
+      "reqd": 1
+    },
+    {
+      "fieldname": "passing_score_pct",
+      "fieldtype": "Float",
+      "label": "Điểm đạt (%)",
+      "default": "70",
+      "reqd": 1
+    },
+    {
+      "fieldname": "instructor_qualification_required",
+      "fieldtype": "Data",
+      "label": "Yêu cầu giảng viên"
+    },
+    {
+      "fieldname": "qms_doc_ref",
+      "fieldtype": "Link",
+      "label": "QMS Doc Ref",
+      "options": "Asset Document"
+    },
+    {
+      "fieldname": "is_active",
+      "fieldtype": "Check",
+      "label": "Đang hoạt động",
+      "default": "1",
+      "in_list_view": 1
+    }
+  ],
+  "permissions": [
+    {
+      "role": "IMM System Admin",
+      "read": 1,
+      "write": 1,
+      "create": 1,
+      "delete": 1,
+      "report": 1,
+      "export": 1,
+      "print": 1,
+      "email": 1,
+      "share": 1
+    },
+    {
+      "role": "IMM Training Officer",
+      "read": 1,
+      "write": 1,
+      "create": 1,
+      "report": 1,
+      "export": 1,
+      "print": 1
+    },
+    {
+      "role": "IMM Workshop Lead",
+      "read": 1,
+      "report": 1
+    },
+    {
+      "role": "IMM Biomed Technician",
+      "read": 1
+    },
+    {
+      "role": "HTM Technician",
+      "read": 1
+    }
+  ]
+}

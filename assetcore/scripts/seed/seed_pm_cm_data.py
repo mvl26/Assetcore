@@ -92,14 +92,14 @@ def seed_repair_work_orders(assets: list[str], technician: str):
 
     specs = [
         # (asset_idx, status, priority, repair_type, sla_hours, hours_ago, root_cause, sla_breached, is_repeat)
-        (0, "Open",           "Emergency", "Emergency",        4,  2,   None,         0, 0),
+        (0, "Open",           "Emergency", "Breakdown",        4,  2,   None,         0, 0),
         (1, "Assigned",       "Urgent",    "Corrective",       24, 12,  None,         0, 0),
         (2, "Diagnosing",     "Normal",    "Corrective",       48, 36,  None,         0, 0),
         (3, "In Repair",      "Urgent",    "Corrective",       24, 30,  None,         1, 0),
         (4, "Pending Parts",  "Normal",    "Corrective",       72, 50,  None,         0, 0),
         (0, "Completed",      "Normal",    "Corrective",       48, 72,  "Electrical", 0, 0),
         (1, "Completed",      "Urgent",    "Corrective",       24, 96,  "Mechanical", 1, 1),
-        (2, "Completed",      "Emergency", "Emergency",        4,  8,   "Software",   0, 0),
+        (2, "Completed",      "Emergency", "Breakdown",        4,  8,   "Software",   0, 0),
         (3, "Completed",      "Normal",    "Warranty Repair",  72, 168, "Wear and Tear", 0, 0),
         (4, _STATUS_CANNOT_REPAIR, "Normal", "Corrective",       48, 240, "Unknown",    1, 0),
     ]

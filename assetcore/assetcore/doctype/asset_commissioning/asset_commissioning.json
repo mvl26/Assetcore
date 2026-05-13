@@ -1,6 +1,6 @@
 {
  "actions": [],
- "autoname": "IMM04-.YY.-.MM.-.#####",
+ "autoname": "ACC-.YY.-.MM.-.#####",
  "creation": "2026-04-15 10:00:00.000000",
  "doctype": "DocType",
  "document_type": "Document",
@@ -186,7 +186,8 @@
    "label": "Vị trí Lắp đặt (AC Location)",
    "options": "AC Location",
    "description": "Phòng / khu vực lắp đặt cụ thể. Sẽ trở thành location của AC Asset.",
-   "reqd": 0
+   "reqd": 0,
+   "allow_on_submit": 1
   },
   {
    "fieldname": "received_by",
@@ -319,20 +320,23 @@
    "label": "Serial Number Hãng (NSX)",
    "mandatory_depends_on": "eval:doc.workflow_state && doc.workflow_state !== 'Draft'",
    "search_index": 1,
-   "description": "Bắt buộc quét bằng Barcode scanner. Hệ thống sẽ kiểm tra trùng lặp."
+   "description": "Bắt buộc quét bằng Barcode scanner. Hệ thống sẽ kiểm tra trùng lặp.",
+   "allow_on_submit": 1
   },
   {
    "fieldname": "internal_tag_qr",
    "fieldtype": "Data",
    "label": "Mã QR Nội bộ Bệnh viện",
    "read_only": 1,
-   "description": "Sinh tự động sau khi Serial được xác nhận."
+   "description": "Sinh tự động sau khi Serial được xác nhận.",
+   "allow_on_submit": 1
   },
   {
    "fieldname": "custom_moh_code",
    "fieldtype": "Data",
    "label": "Mã BYT (Bộ Y tế)",
-   "description": "Không bắt buộc trong v1.0. Nhập thủ công nếu có."
+   "description": "Không bắt buộc trong v1.0. Nhập thủ công nếu có.",
+   "allow_on_submit": 1
   },
   {
    "fieldname": "section_qa",
@@ -421,20 +425,13 @@
    "label": "Tài sản được tạo ra",
    "options": "AC Asset",
    "read_only": 1,
-   "description": "Tự động điền khi phiếu được Submit & Release thành công."
+   "description": "Tự động điền khi phiếu được Submit & Release thành công.",
+   "allow_on_submit": 1
   },
   {
    "fieldname": "lifecycle_events_section",
    "fieldtype": "Section Break",
    "label": "Lịch sử vòng đời"
-  },
-  {
-   "fieldname": "lifecycle_events",
-   "fieldtype": "Table",
-   "label": "Lifecycle Events",
-   "options": "Asset Lifecycle Event",
-   "reqd": 0,
-   "read_only": 1
   },
   {
    "fieldname": "amended_from",

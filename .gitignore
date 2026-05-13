@@ -46,3 +46,6 @@ htmlcov/
 # Database dumps
 *.sql
 *.dump
+
+#test-UI
+.playwright-mcp/

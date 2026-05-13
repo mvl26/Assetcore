@@ -1,0 +1,186 @@
+{
+ "creation": "2026-05-08 00:00:00.000000",
+ "document_type": "IMM User Competency",
+ "doctype": "Workflow",
+ "is_active": 1,
+ "modified": "2026-05-08 00:00:00.000000",
+ "modified_by": "Administrator",
+ "name": "IMM-06 Competency Workflow",
+ "owner": "Administrator",
+ "send_email_alert": 0,
+ "workflow_name": "IMM-06 Competency Workflow",
+ "workflow_state_field": "workflow_state",
+ "states": [
+  {
+   "allow_edit": "IMM Training Officer",
+   "doc_status": "0",
+   "state": "Pending Assessment",
+   "type": "Warning"
+  },
+  {
+   "allow_edit": "IMM Training Officer",
+   "doc_status": "0",
+   "state": "Active",
+   "type": "Success"
+  },
+  {
+   "allow_edit": "System Manager",
+   "doc_status": "0",
+   "state": "Expiring",
+   "type": "Warning"
+  },
+  {
+   "allow_edit": "System Manager",
+   "doc_status": "0",
+   "state": "Expired",
+   "type": "Danger"
+  },
+  {
+   "allow_edit": "IMM Workshop Lead",
+   "doc_status": "0",
+   "state": "Suspended",
+   "type": "Warning"
+  },
+  {
+   "allow_edit": "System Manager",
+   "doc_status": "0",
+   "state": "Revoked",
+   "type": "Danger"
+  }
+ ],
+ "transitions": [
+  {
+   "action": "Sign-off",
+   "allowed": "IMM Department Head",
+   "next_state": "Active",
+   "state": "Pending Assessment",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Sign-off",
+   "allowed": "IMM Workshop Lead",
+   "next_state": "Active",
+   "state": "Pending Assessment",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Sign-off",
+   "allowed": "IMM Training Officer",
+   "next_state": "Active",
+   "state": "Pending Assessment",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Đánh dấu sắp hết hạn",
+   "allowed": "IMM System Admin",
+   "next_state": "Expiring",
+   "state": "Active",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Hết hạn",
+   "allowed": "IMM System Admin",
+   "next_state": "Expired",
+   "state": "Active",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Hết hạn",
+   "allowed": "IMM System Admin",
+   "next_state": "Expired",
+   "state": "Expiring",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Tạm ngưng",
+   "allowed": "IMM Workshop Lead",
+   "next_state": "Suspended",
+   "state": "Active",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Tạm ngưng",
+   "allowed": "IMM Training Officer",
+   "next_state": "Suspended",
+   "state": "Active",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Khôi phục",
+   "allowed": "IMM Workshop Lead",
+   "next_state": "Active",
+   "state": "Suspended",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Khôi phục",
+   "allowed": "IMM Training Officer",
+   "next_state": "Active",
+   "state": "Suspended",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Thu hồi",
+   "allowed": "IMM Training Officer",
+   "next_state": "Revoked",
+   "state": "Active",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Thu hồi",
+   "allowed": "IMM System Admin",
+   "next_state": "Revoked",
+   "state": "Active",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Thu hồi",
+   "allowed": "IMM Training Officer",
+   "next_state": "Revoked",
+   "state": "Expiring",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Thu hồi",
+   "allowed": "IMM System Admin",
+   "next_state": "Revoked",
+   "state": "Expiring",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Thu hồi",
+   "allowed": "IMM Training Officer",
+   "next_state": "Revoked",
+   "state": "Expired",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Thu hồi",
+   "allowed": "IMM System Admin",
+   "next_state": "Revoked",
+   "state": "Expired",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Thu hồi",
+   "allowed": "IMM Training Officer",
+   "next_state": "Revoked",
+   "state": "Suspended",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Thu hồi",
+   "allowed": "IMM System Admin",
+   "next_state": "Revoked",
+   "state": "Suspended",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Tái chứng nhận",
+   "allowed": "IMM System Admin",
+   "next_state": "Active",
+   "state": "Expired",
+   "allow_self_approval": 1
+  }
+ ]
+}

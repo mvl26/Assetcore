@@ -16,5 +16,9 @@ class FirmwareChangeRequestRepo(BaseRepository):
     DOCTYPE = "Firmware Change Request"
 
 
+class RCARepo(BaseRepository):
+    DOCTYPE = "IMM RCA Record"
+
+
 class SparePartsUsedRepo(BaseRepository):
     DOCTYPE = "Spare Parts Used"

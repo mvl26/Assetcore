@@ -1,0 +1,105 @@
+[
+  {
+    "doctype": "Custom Field",
+    "dt": "AC Spare Part",
+    "fieldname": "imm_section_strategic",
+    "fieldtype": "Section Break",
+    "label": "Phân loại chiến lược (IMM-15)",
+    "insert_after": "section_flags",
+    "name": "AC Spare Part-imm_section_strategic"
+  },
+  {
+    "doctype": "Custom Field",
+    "dt": "AC Spare Part",
+    "fieldname": "imm_part_class",
+    "fieldtype": "Select",
+    "label": "Hạng phụ tùng",
+    "options": "Critical\nMajor\nConsumable\nTool",
+    "default": "Major",
+    "insert_after": "imm_section_strategic",
+    "name": "AC Spare Part-imm_part_class"
+  },
+  {
+    "doctype": "Custom Field",
+    "dt": "AC Spare Part",
+    "fieldname": "imm_abc_class",
+    "fieldtype": "Select",
+    "label": "Hạng ABC",
+    "options": "A\nB\nC",
+    "default": "C",
+    "insert_after": "imm_part_class",
+    "name": "AC Spare Part-imm_abc_class"
+  },
+  {
+    "doctype": "Custom Field",
+    "dt": "AC Spare Part",
+    "fieldname": "imm_xyz_class",
+    "fieldtype": "Select",
+    "label": "Hạng XYZ",
+    "options": "X\nY\nZ",
+    "default": "Z",
+    "insert_after": "imm_abc_class",
+    "name": "AC Spare Part-imm_xyz_class"
+  },
+  {
+    "doctype": "Custom Field",
+    "dt": "AC Spare Part",
+    "fieldname": "imm_lead_time_days",
+    "fieldtype": "Int",
+    "label": "Lead time (ngày)",
+    "default": "30",
+    "insert_after": "imm_xyz_class",
+    "name": "AC Spare Part-imm_lead_time_days"
+  },
+  {
+    "doctype": "Custom Field",
+    "dt": "AC Spare Part",
+    "fieldname": "imm_safety_stock_days",
+    "fieldtype": "Int",
+    "label": "Safety stock (ngày)",
+    "default": "14",
+    "insert_after": "imm_lead_time_days",
+    "name": "AC Spare Part-imm_safety_stock_days"
+  },
+  {
+    "doctype": "Custom Field",
+    "dt": "AC Spare Part",
+    "fieldname": "imm_traceability_required",
+    "fieldtype": "Check",
+    "label": "Bắt buộc truy nguyên",
+    "default": "0",
+    "insert_after": "imm_safety_stock_days",
+    "name": "AC Spare Part-imm_traceability_required"
+  },
+  {
+    "doctype": "Custom Field",
+    "dt": "AC Spare Part",
+    "fieldname": "imm_storage_condition",
+    "fieldtype": "Select",
+    "label": "Điều kiện lưu trữ",
+    "options": "Normal\nCold_Chain\nESD\nHazardous",
+    "default": "Normal",
+    "insert_after": "imm_traceability_required",
+    "name": "AC Spare Part-imm_storage_condition"
+  },
+  {
+    "doctype": "Custom Field",
+    "dt": "AC Spare Part",
+    "fieldname": "imm_alternative_parts",
+    "fieldtype": "Table",
+    "label": "Phụ tùng thay thế",
+    "options": "IMM Spare Alternative",
+    "insert_after": "imm_storage_condition",
+    "name": "AC Spare Part-imm_alternative_parts"
+  },
+  {
+    "doctype": "Custom Field",
+    "dt": "AC Spare Part",
+    "fieldname": "imm_obsolete_review_required",
+    "fieldtype": "Check",
+    "label": "Cần review obsolete",
+    "default": "0",
+    "insert_after": "imm_alternative_parts",
+    "name": "AC Spare Part-imm_obsolete_review_required"
+  }
+]

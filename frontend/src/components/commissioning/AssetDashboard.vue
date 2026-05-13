@@ -10,7 +10,7 @@
  */
 import { ref, onMounted, computed } from 'vue'
 import { useAuthStore } from '@/stores/auth'
-import { useCommissioningStore } from '@/stores/commissioning'
+import { useCommissioningStore } from '@/stores/imm04'
 import { commissioningListResource } from '@/services/frappeResource'
 import type { CommissioningListItem } from '@/types/imm04'
 import { formatDate } from '@/utils/docUtils'

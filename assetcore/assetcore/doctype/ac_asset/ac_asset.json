@@ -104,12 +104,12 @@
    "reqd": 1
   },
   {
+   "default": "Cái",
+   "description": "Đơn vị đo lường của thiết bị (thường là Cái/Máy)",
    "fieldname": "uom",
    "fieldtype": "Link",
    "label": "Đơn vị tính",
-   "options": "AC UOM",
-   "default": "Cái",
-   "description": "Đơn vị đo lường của thiết bị (thường là Cái/Máy)"
+   "options": "AC UOM"
   },
   {
    "fieldname": "asset_code",
@@ -145,7 +145,9 @@
    "fieldname": "status",
    "fieldtype": "Select",
    "label": "Status",
+   "no_copy": 1,
    "options": "Submitted\nActive\nOut of Service\nDecommissioned\nUnder Repair\nCalibrating",
+   "read_only": 1,
    "reqd": 1,
    "search_index": 1
   },
@@ -249,12 +251,14 @@
    "fieldname": "accumulated_depreciation",
    "fieldtype": "Currency",
    "label": "Khấu hao lũy kế",
+   "no_copy": 1,
    "read_only": 1
   },
   {
    "fieldname": "current_book_value",
    "fieldtype": "Currency",
    "label": "Giá trị còn lại",
+   "no_copy": 1,
    "read_only": 1
   },
   {
@@ -311,7 +315,9 @@
    "fieldname": "gmdn_status",
    "fieldtype": "Select",
    "label": "GMDN Status",
+   "no_copy": 1,
    "options": "In Use\nNot Use",
+   "read_only": 1,
    "search_index": 1
   },
   {
@@ -345,7 +351,9 @@
    "fieldname": "lifecycle_status",
    "fieldtype": "Select",
    "label": "Lifecycle Status",
+   "no_copy": 1,
    "options": "Draft\nCommissioned\nActive\nUnder Maintenance\nUnder Repair\nCalibrating\nOut of Service\nDecommissioned",
+   "read_only": 1,
    "reqd": 1,
    "search_index": 1
   },
@@ -368,7 +376,9 @@
    "fieldname": "calibration_status",
    "fieldtype": "Select",
    "label": "Calibration Status",
-   "options": "\nNot Required\nOn Schedule\nDue Soon\nOverdue\nCalibration Failed"
+   "no_copy": 1,
+   "options": "\nNot Required\nOn Schedule\nDue Soon\nOverdue\nCalibration Failed",
+   "read_only": 1
   },
   {
    "fieldname": "section_pm",
@@ -397,12 +407,15 @@
    "fieldname": "last_pm_date",
    "fieldtype": "Date",
    "label": "Last PM Date",
+   "no_copy": 1,
    "read_only": 1
   },
   {
    "fieldname": "next_pm_date",
    "fieldtype": "Date",
    "label": "Next PM Date",
+   "no_copy": 1,
+   "read_only": 1,
    "search_index": 1
   },
   {
@@ -432,12 +445,15 @@
    "fieldname": "last_calibration_date",
    "fieldtype": "Date",
    "label": "Last Calibration Date",
+   "no_copy": 1,
    "read_only": 1
   },
   {
    "fieldname": "next_calibration_date",
    "fieldtype": "Date",
    "label": "Next Calibration Date",
+   "no_copy": 1,
+   "read_only": 1,
    "search_index": 1
   },
   {
@@ -496,23 +512,23 @@
    "read_only": 1
   },
   {
+   "description": "Kế thừa từ danh mục tài sản",
    "fieldname": "total_depreciation_months",
    "fieldtype": "Int",
-   "label": "Tổng số tháng KH",
-   "description": "Kế thừa từ danh mục tài sản"
+   "label": "Tổng số tháng KH"
   },
   {
+   "default": "Monthly",
    "fieldname": "depreciation_frequency",
    "fieldtype": "Select",
-   "options": "\nMonthly\nQuarterly\nYearly",
-   "default": "Monthly",
-   "label": "Tần suất KH"
+   "label": "Tần suất KH",
+   "options": "\nMonthly\nQuarterly\nYearly"
   },
   {
+   "description": "Thường là ngày đưa vào sử dụng (in_service_date)",
    "fieldname": "depreciation_start_date",
    "fieldtype": "Date",
-   "label": "Ngày bắt đầu khấu hao",
-   "description": "Thường là ngày đưa vào sử dụng (in_service_date)"
+   "label": "Ngày bắt đầu khấu hao"
   },
   {
    "fieldname": "section_depreciation_schedule",
@@ -522,8 +538,8 @@
   {
    "fieldname": "depreciation_schedule",
    "fieldtype": "Table",
-   "options": "AC Asset Depreciation Schedule",
    "label": "Lịch khấu hao theo kỳ",
+   "options": "AC Asset Depreciation Schedule",
    "read_only": 1
   }
  ],

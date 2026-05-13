@@ -201,6 +201,41 @@
     animation: shimmer 1.6s linear infinite;
   }
 
+  /* ID pill — mã định danh in JetBrains Mono trên nền brand-50 (design system) */
+  .code-pill {
+    @apply inline-flex items-center px-1.5 py-[1px] rounded text-[11.5px] font-semibold
+           text-brand-700 bg-brand-50 font-mono whitespace-nowrap;
+  }
+  .code-pill-lg {
+    @apply inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold
+           text-brand-700 bg-brand-50 font-mono whitespace-nowrap;
+  }
+
+  /* Eyebrow — UPPERCASE small section label (design system §2 casing) */
+  .eyebrow {
+    @apply text-[11px] font-semibold uppercase tracking-[0.06em] text-slate-400;
+  }
+
+  /* Meta strip — 4-column key/value grid under page header (design system WO detail) */
+  .meta-strip {
+    @apply grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-3 px-6 py-4 bg-slate-50/60 border-y border-slate-100;
+  }
+  .meta-strip dt { @apply eyebrow; }
+  .meta-strip dd { @apply mt-1 text-sm font-semibold text-slate-900; }
+  .meta-strip dd small { @apply block mt-0.5 text-[11.5px] font-normal text-slate-400; }
+
+  /* Tab bar — underline tabs (design system WO detail) */
+  .tab-bar {
+    @apply flex border-b border-slate-200 px-6 gap-6 -mb-px;
+  }
+  .tab-item {
+    @apply pt-3 pb-3 -mb-px text-sm font-medium text-slate-500 border-b-2 border-transparent
+           hover:text-slate-700 transition-colors cursor-pointer;
+  }
+  .tab-item-active {
+    @apply tab-item text-brand-700 border-brand-600;
+  }
+
   /* Pagination button */
   .page-btn {
     @apply inline-flex items-center justify-center w-8 h-8 rounded-md text-sm font-medium

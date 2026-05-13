@@ -16,9 +16,10 @@ from frappe.utils import (
     time_diff_in_seconds,
 )
 
-from assetcore.repositories.asset_repo import AssetRepo, LifecycleEventRepo
+from assetcore.repositories.asset_repo import AssetRepo
 from assetcore.repositories.repair_repo import FirmwareChangeRequestRepo, RepairRepo
 from assetcore.services.imm00 import transition_asset_status
+from assetcore.utils.lifecycle import create_lifecycle_event as _create_lifecycle_event
 from assetcore.services.shared import (
     AssetStatus,
     ErrorCode,
@@ -106,12 +107,11 @@ def check_repeat_failure(asset_ref: str) -> bool:
 
 
 def validate_spare_parts_stock_entries(doc) -> None:
-    """BR-09-02: Mỗi dòng Spare Parts phải có stock_entry_ref."""
-    stock_entry_exists = frappe.db.exists("DocType", "Stock Entry")
+    """BR-09-02: Mỗi dòng Spare Parts phải có stock_entry_ref trỏ đến AC Stock Movement."""
     for row in (doc.spare_parts_used or []):
         if not row.stock_entry_ref:
             frappe.throw(_(f"Vật tư '{row.item_name}' (dòng {row.idx}) thiếu phiếu xuất kho"))
-        if stock_entry_exists and not frappe.db.exists("Stock Entry", row.stock_entry_ref):
+        if not frappe.db.exists("AC Stock Movement", row.stock_entry_ref):
             frappe.throw(_(f"Phiếu xuất kho '{row.stock_entry_ref}' không tồn tại"))
 
 
@@ -159,14 +159,17 @@ def complete_repair(doc) -> None:
     doc.sla_breached = 1 if doc.mttr_hours > doc.sla_target_hours else 0
     doc.status = RepairStatus.COMPLETED
 
-    asset_updates: dict[str, Any] = {"last_repair_date": nowdate()}
+    # AC Asset DocType does not have last_repair_date / firmware_version columns —
+    # only update fields that actually exist in the schema.
+    asset_updates: dict[str, Any] = {}
     if doc.firmware_updated and doc.firmware_change_request:
         new_ver = FirmwareChangeRequestRepo.get_value(
             doc.firmware_change_request, "version_after")
-        if new_ver:
-            asset_updates["firmware_version"] = new_ver
+        # firmware_version not in AC Asset schema — skip to avoid OperationalError
+        # if new_ver: asset_updates["firmware_version"] = new_ver
 
-    AssetRepo.set_values(doc.asset_ref, asset_updates)
+    if asset_updates:
+        AssetRepo.set_values(doc.asset_ref, asset_updates)
     RepairRepo.set_values(doc.name, {
         "status": RepairStatus.COMPLETED,
         "completion_datetime": doc.completion_datetime,
@@ -190,21 +193,21 @@ def complete_repair(doc) -> None:
         frappe.log_error(frappe.get_traceback(), "IMM-09 → IMM-11 recalibration hook failed")
 
 
-def _create_lifecycle_event(*, asset: str, event_type: str, from_status: str,
-                             to_status: str, root_record: str, notes: str = "") -> None:
+def _log_lifecycle_event(*, asset: str, event_type: str, from_status: str,
+                          to_status: str, root_record: str, notes: str = "") -> None:
+    """Wrapper cục bộ — gọi canonical create_lifecycle_event từ utils.lifecycle."""
     try:
-        LifecycleEventRepo.create({
-            "asset": asset,
-            "event_type": event_type,
-            "timestamp": now_datetime(),
-            "actor": frappe.session.user,
-            "from_status": from_status,
-            "to_status": to_status,
-            "root_record": root_record,
-            "notes": notes,
-        })
+        _create_lifecycle_event(
+            asset=asset,
+            event_type=event_type,
+            actor=frappe.session.user,
+            from_status=from_status,
+            to_status=to_status,
+            root_record=root_record,
+            notes=notes,
+        )
     except Exception:
-        pass
+        frappe.log_error(frappe.get_traceback(), f"IMM-09 lifecycle event failed for {asset}")
 
 
 # ─── Scheduler jobs ───────────────────────────────────────────────────────────
@@ -397,7 +400,9 @@ def create_work_order(*, asset_ref: str, repair_type: str, priority: str,
             f"CM-002: Thiết bị đang có phiếu sửa chữa đang mở: {open_wo['name']}",
         )
 
-    risk_class = asset_data.get("risk_classification") or RiskClass.II
+    _risk_map = {"Low": RiskClass.I, "Medium": RiskClass.II, "High": RiskClass.III, "Critical": RiskClass.III}
+    risk_class_raw = asset_data.get("risk_classification") or ""
+    risk_class = _risk_map.get(risk_class_raw) or risk_class_raw or RiskClass.II
     sla_hours = get_sla_target(risk_class, priority)
 
     doc = frappe.get_doc({
@@ -456,7 +461,7 @@ def submit_diagnosis(name: str, *, diagnosis_notes: str, needs_parts: int = 0) -
     doc.status = RepairStatus.PENDING_PARTS if int(needs_parts) else RepairStatus.IN_REPAIR
     doc.flags.ignore_links = True
     RepairRepo.save(doc)
-    _create_lifecycle_event(
+    _log_lifecycle_event(
         asset=doc.asset_ref, event_type="diagnosis_submitted",
         from_status=RepairStatus.ASSIGNED, to_status=doc.status,
         root_record=name,
@@ -491,7 +496,36 @@ def request_spare_parts(name: str, parts: list[dict]) -> dict:
         doc.status = RepairStatus.IN_REPAIR
     doc.flags.ignore_links = True
     RepairRepo.save(doc)
-    return {"name": name, "status": doc.status, "updated": updated}
+
+    # Gate 2 — IMM-09 → IMM-15: tạo allocation Requested để spare-parts truy về kho
+    allocation_name: str | None = None
+    try:
+        from assetcore.services.imm15 import create_allocation  # noqa: PLC0415
+        items = [
+            {"spare_part": p.get("spare_part") or p.get("item_code"),
+             "qty_requested": p.get("qty") or p.get("qty_requested") or 1}
+            for p in parts
+            if (p.get("spare_part") or p.get("item_code"))
+        ]
+        if items:
+            warehouse = ""
+            first_part = items[0]["spare_part"]
+            warehouse = frappe.db.get_value(
+                "AC Spare Part Stock", {"spare_part": first_part}, "warehouse"
+            ) or ""
+            if warehouse:
+                alloc = create_allocation(
+                    work_order_ref=name, items=items,
+                    asset=getattr(doc, "asset_ref", "") or "",
+                    warehouse=warehouse, urgency="Urgent",
+                )
+                allocation_name = alloc.get("name") if isinstance(alloc, dict) else None
+    except Exception:
+        frappe.log_error(frappe.get_traceback(),
+                         f"IMM-09 → IMM-15: create_allocation failed for {name}")
+
+    return {"name": name, "status": doc.status, "updated": updated,
+            "allocation": allocation_name}
 
 
 def close_work_order(name: str, *, repair_summary: str, root_cause_category: str,
@@ -683,12 +717,6 @@ def get_mttr_report(year: int, month: int) -> dict:
         "status": ("in", list(_OPEN_STATUSES)),
         "docstatus": 0,
     })
-    backlog_raw = frappe.db.sql("""
-        SELECT clinical_dept AS dept, COUNT(*) AS count
-        FROM `tabAsset Repair`
-        WHERE status NOT IN ('Completed','Cannot Repair','Cancelled') AND docstatus = 0
-        GROUP BY clinical_dept
-    """, as_dict=True)
 
     return {
         "mttr_avg": mttr_avg,
@@ -696,7 +724,7 @@ def get_mttr_report(year: int, month: int) -> dict:
         "backlog_count": backlog_count,
         "cost_per_repair": avg_cost,
         "mttr_trend": _mttr_trend(year, month),
-        "backlog_by_dept": [{"dept": r.dept or "—", "count": r.count} for r in backlog_raw],
+        "backlog_by_dept": [],
     }
 
 

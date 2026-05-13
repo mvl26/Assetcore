@@ -21,6 +21,9 @@
   "column_break_fin",
   "default_residual_value_pct",
   "section_reg",
+  "gmdn_code",
+  "gmdn_term",
+  "column_break_reg",
   "has_radiation",
   "is_active"
  ],
@@ -111,6 +114,22 @@
    "fieldname": "section_reg",
    "fieldtype": "Section Break",
    "label": "Quy định"
+  },
+  {
+   "fieldname": "gmdn_code",
+   "fieldtype": "Data",
+   "label": "GMDN Code",
+   "description": "Mã GMDN của danh mục thiết bị — kế thừa xuống Model và Asset"
+  },
+  {
+   "fieldname": "gmdn_term",
+   "fieldtype": "Data",
+   "label": "GMDN Term",
+   "description": "Tên thuật ngữ GMDN tương ứng"
+  },
+  {
+   "fieldname": "column_break_reg",
+   "fieldtype": "Column Break"
   },
   {
    "default": "0",

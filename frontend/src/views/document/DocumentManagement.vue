@@ -1,19 +1,21 @@
 <template>
   <div class="document-management">
-<!-- Header -->
-    <div class="page-header">
-      <div>
-        <h1>Quản lý Hồ sơ Thiết bị</h1>
-        <p v-if="assetFilter" class="asset-filter-hint">
-          Đang xem hồ sơ thiết bị: <strong>{{ assetFilter }}</strong>
-          <button class="clear-filter" @click="clearAssetFilter">✕ Xóa</button>
-        </p>
-      </div>
-      <div class="header-actions">
-        <button class="btn btn-outline" @click="showFilters = !showFilters">Bộ lọc</button>
-        <button class="btn btn-primary" @click="goToCreate">+ Tải lên Tài liệu</button>
-      </div>
-    </div>
+    <PageHeader
+      title="Quản lý Hồ sơ Thiết bị"
+      :subtitle="assetFilter ? `Đang xem hồ sơ thiết bị ${assetFilter}` : 'Toàn bộ hồ sơ thiết bị y tế'"
+      :breadcrumb="[{ label: 'IMM-05 · Hồ sơ', to: '/documents' }, { label: 'Danh sách' }]"
+    >
+      <template #actions>
+        <button v-if="assetFilter" class="btn-ghost text-xs" @click="clearAssetFilter">Bỏ lọc theo thiết bị</button>
+        <button class="btn-ghost text-sm" @click="showFilters = !showFilters">Bộ lọc</button>
+        <button class="btn-primary text-sm" @click="goToCreate">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+          </svg>
+          Tải lên tài liệu
+        </button>
+      </template>
+    </PageHeader>
 
     <!-- KPI Banner — clickable filters -->
     <div v-if="store.kpis" class="kpi-grid">
@@ -48,7 +50,7 @@
       <select v-model="filters.workflow_state" @change="applyFilters">
         <option value="">Tất cả trạng thái</option>
         <option value="Draft">Nháp</option>
-        <option value="Pending_Review">Chờ duyệt</option>
+        <option value="Pending Review">Chờ duyệt</option>
         <option value="Active">Hiệu lực</option>
         <option value="Expired">Hết hạn</option>
         <option value="Archived">Lưu trữ</option>
@@ -189,7 +191,7 @@
 import { useToast } from '@/composables/useToast'
 import { ref, reactive, onMounted, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { useImm05Store } from '@/stores/imm05Store'
+import { useImm05Store } from '@/stores/imm05'
 import { useAuthStore } from '@/stores/auth'
 import type { AssetDocumentItem, DocumentFilters } from '@/api/imm05'
 import { formatDatetime } from '@/utils/docUtils'
@@ -197,6 +199,7 @@ import DocumentRow from '@/components/document/DocumentRow.vue'
 import DocumentRequestModal from '@/components/document/DocumentRequestModal.vue'
 import ExemptModal from '@/components/document/ExemptModal.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
 const toast = useToast()
 
 const router = useRouter()
@@ -299,7 +302,7 @@ function filterByKpi(kind: 'active' | 'expiring' | 'expired' | 'missing') {
 
 async function fetchExpiringOnly() {
   await store.fetchExpiringDocuments(90)
-  const n = (store as unknown as { expiringDocs?: { length: number } }).expiringDocs?.length ?? 0
+  const n = store.expiringDocs?.length ?? 0
   toast.success(`Có ${n} tài liệu sẽ hết hạn trong 90 ngày.`)
 }
 
@@ -352,7 +355,7 @@ async function openHistoryDialog(name: string) {
       store.error = 'Không tải được lịch sử'
       historyDialog.open = false
     }
-  } catch (e) {
+  } catch (e: unknown) {
     store.error = e instanceof Error ? e.message : 'Lỗi kết nối'
     historyDialog.open = false
   } finally {

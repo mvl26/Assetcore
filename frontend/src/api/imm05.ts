@@ -175,6 +175,17 @@ export function createDocument(docData: Partial<AssetDocumentDetail>) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 3b. SUBMIT FOR REVIEW (Draft → Pending Review)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export function submitForReview(name: string) {
+  return frappePost<{ name: string; new_state: string }>(
+    `${BASE}.submit_for_review`,
+    { name },
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 4. UPDATE DOCUMENT
 // ─────────────────────────────────────────────────────────────────────────────
 

@@ -40,11 +40,14 @@ def _p(*flags: str) -> dict:
 
 
 # ─── Role groups ──────────────────────────────────────────────────────────────
-_ALL_DESK_ROLES = list(Roles.ALL_IMM)        # 13 roles incl. Vendor Engineer
+_ALL_DESK_ROLES = list(Roles.ALL_IMM)        # 19 roles incl. Vendor Engineer + Wave 2
 _ALL_INTERNAL = [r for r in Roles.ALL_IMM if r != Roles.VENDOR_ENGINEER]
-_GOVERNANCE = [Roles.SYS_ADMIN, Roles.OPS_MANAGER, Roles.QA, Roles.AUDITOR]
+_GOVERNANCE = [
+    Roles.SYS_ADMIN, Roles.OPS_MANAGER, Roles.QA, Roles.AUDITOR,
+    Roles.BOARD_APPROVER, Roles.RISK,  # Wave 2 governance
+]
 _ADMIN_OPS = [Roles.SYS_ADMIN, Roles.OPS_MANAGER]
-_VENDOR_MGMT = [Roles.SYS_ADMIN, Roles.OPS_MANAGER, Roles.STOREKEEPER]
+_VENDOR_MGMT = [Roles.SYS_ADMIN, Roles.OPS_MANAGER, Roles.STOREKEEPER, Roles.PROCUREMENT]
 
 
 # ─── Matrix: (DocType, [(role, perm_dict), ...]) ──────────────────────────────
@@ -88,9 +91,12 @@ _CORE_MATRIX: list[tuple[str, list[tuple[str, dict]]]] = [
     # Admin + Ops thêm W+C để tạo/sửa user qua trang user-profiles.
     ("User",            [(r, _p("R")) for r in _ALL_INTERNAL if r not in _ADMIN_OPS]),
     ("User",            [(r, _p("R", "W", "C")) for r in _ADMIN_OPS]),
-    ("Role",            [(r, _p("R")) for r in _ADMIN_OPS]),
+    ("Role",            [(r, _p("R")) for r in _ALL_INTERNAL]),  # mọi role nội bộ đọc được danh sách role
     ("Has Role",        [(r, _p("R", "W", "C", "D")) for r in _ADMIN_OPS]),
-    ("Role Profile",    [(r, _p("R")) for r in _ADMIN_OPS]),
+    ("Role Profile",    [(r, _p("R")) for r in _ALL_INTERNAL]),  # mọi role đọc được profile để tham chiếu
+    ("Role Profile",    [(r, _p("W", "C", "D")) for r in _ADMIN_OPS]),  # admin+ops tạo/sửa profile
+    ("Module Profile",  [(r, _p("R")) for r in _ALL_INTERNAL]),  # mọi role xem được module profile
+    ("Module Profile",  [(r, _p("W", "C", "D")) for r in _ADMIN_OPS]),  # admin tạo/sửa module profile
     ("DocType",         [(r, _p("R")) for r in _ALL_INTERNAL]),  # read meta để render form
     ("Custom Field",    [(r, _p("R", "W", "C", "D")) for r in [Roles.SYS_ADMIN]]),
     ("Custom DocPerm",  [(r, _p("R", "W", "C", "D")) for r in [Roles.SYS_ADMIN]]),
@@ -156,25 +162,47 @@ def _upsert_custom_docperm(parent: str, role: str, perm: dict) -> str:
     return "inserted"
 
 
+_PERM_FLAGS = (
+    "read", "write", "create", "delete", "submit", "cancel", "amend",
+    "report", "export", "print", "email", "share",
+)
+
+
+def _merge_matrix() -> dict[tuple[str, str, int], dict]:
+    """Coalesce nhiều entry cùng (parent, role, permlevel) bằng OR-merge các flag.
+    Tránh trường hợp dòng sau ghi đè (mất read) dòng trước cho cùng role."""
+    merged: dict[tuple[str, str, int], dict] = {}
+    for parent, role_perms in _CORE_MATRIX:
+        for role, perm in role_perms:
+            key = (parent, role, perm["permlevel"])
+            if key not in merged:
+                merged[key] = dict(perm)
+                continue
+            cur = merged[key]
+            for flag in _PERM_FLAGS:
+                if perm.get(flag):
+                    cur[flag] = 1
+    return merged
+
+
 def run() -> None:
     """Apply Custom DocPerm matrix cho Frappe core DocType. Idempotent."""
     stats = {"inserted": 0, "updated": 0, "skipped": 0, "missing_dt": 0, "missing_role": 0}
 
-    for parent, role_perms in _CORE_MATRIX:
+    for (parent, role, _permlevel), perm in _merge_matrix().items():
         if not _doctype_exists(parent):
             stats["missing_dt"] += 1
             continue
-        for role, perm in role_perms:
-            if not _role_exists(role):
-                stats["missing_role"] += 1
-                continue
-            try:
-                stats[_upsert_custom_docperm(parent, role, perm)] += 1
-            except Exception:
-                frappe.log_error(
-                    frappe.get_traceback(),
-                    f"setup_core_permissions: {parent} / {role}",
-                )
+        if not _role_exists(role):
+            stats["missing_role"] += 1
+            continue
+        try:
+            stats[_upsert_custom_docperm(parent, role, perm)] += 1
+        except Exception:
+            frappe.log_error(
+                frappe.get_traceback(),
+                f"setup_core_permissions: {parent} / {role}",
+            )
 
     frappe.db.commit()
     # Clear cache để Frappe reload permissions

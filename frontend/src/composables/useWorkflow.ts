@@ -261,7 +261,14 @@ export function useWorkflow(
    */
   const filteredActions = computed<WorkflowTransition[]>(() => {
     const userRoles = auth.roles
-    return allowedTransitions().filter((t) => userRoles.includes(t.allowed_role))
+    const seen = new Set<string>()
+    return allowedTransitions()
+      .filter((t) => userRoles.includes(t.allowed_role))
+      .filter((t) => {
+        if (seen.has(t.action)) return false
+        seen.add(t.action)
+        return true
+      })
   })
 
   /** Lấy config của một action */

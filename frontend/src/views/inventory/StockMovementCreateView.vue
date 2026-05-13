@@ -8,6 +8,7 @@ import type { RefDoc, UomConversion } from '@/api/inventory'
 import type { MovementType, StockMovementItem, SparePart } from '@/types/inventory'
 import { getPurchase } from '@/api/purchase'
 import SmartSelect from '@/components/common/SmartSelect.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
 import { useFieldsDraft } from '@/composables/useFormDraft'
 
 const router = useRouter()
@@ -81,11 +82,21 @@ async function onRefSearch(q: string) {
   refQuery.value = q
   refLabel.value = q
   referenceName.value = ''
-  if (q.length < 2) { refResults.value = []; refDropdownOpen.value = false; return }
+  // Threshold 0: BE trả top 20 mới nhất khi query rỗng — UX browse-trước-rồi-lọc
   try {
     refResults.value = await searchReferenceDocs(referenceType.value, q)
     refDropdownOpen.value = refResults.value.length > 0
   } catch { refResults.value = []; refDropdownOpen.value = false }
+}
+
+async function onRefFocus() {
+  if (!needsRefSearch.value) return
+  // Mỗi lần focus → load lại top results để user thấy lựa chọn ngay (không cần gõ).
+  if (refResults.value.length) {
+    refDropdownOpen.value = true
+  } else {
+    await onRefSearch(refLabel.value || '')
+  }
 }
 
 function pickRefDoc(r: RefDoc) {
@@ -302,12 +313,12 @@ function vnd(v?: number) {
 
 <template>
   <div class="page-container animate-fade-in">
-    <button class="btn-ghost mb-4" @click="router.push('/stock-movements')">← Quay lại</button>
-
-    <div class="mb-6">
-      <p class="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-1">Inventory</p>
-      <h1 class="text-2xl font-bold text-slate-900">Tạo phiếu kho mới</h1>
-    </div>
+    <PageHeader
+      :back-to="'/stock-movements'"
+      title="Tạo phiếu kho"
+      subtitle="IMM-15 · Tồn kho phụ tùng — Nhập / xuất / chuyển / điều chỉnh"
+      :breadcrumb="[{ label: 'IMM-15 · Tồn kho phụ tùng', to: '/inventory/dashboard' }, { label: 'Phiếu kho', to: '/stock-movements' }, { label: 'Tạo phiếu' }]"
+    />
 
     <div v-if="error" class="mb-4 alert-error">{{ error }}</div>
 
@@ -366,9 +377,10 @@ function vnd(v?: number) {
           <input
 id="sm-ref-name" type="text" class="form-input w-full font-mono"
                  :value="refLabel"
-                 :placeholder="referenceType === 'Asset Repair' ? 'Tìm phiếu sửa chữa...'
-                              : referenceType === 'AC Purchase' ? 'Tìm đơn hàng / hóa đơn...'
-                              : 'Tìm lệnh bảo trì / hiệu chuẩn...'"
+                 :placeholder="referenceType === 'Asset Repair' ? 'Click để xem danh sách hoặc gõ để lọc...'
+                              : referenceType === 'AC Purchase' ? 'Click để xem PO có phụ tùng hoặc gõ để lọc...'
+                              : 'Click để xem lệnh bảo trì hoặc gõ để lọc...'"
+                 @focus="onRefFocus()"
                  @input="onRefSearch(($event.target as HTMLInputElement).value)"
                  @blur="refDropdownOpen = false" />
           <div
@@ -540,11 +552,12 @@ v-if="row.uom && row._stock_uom && row.uom !== row._stock_uom && row.stock_qty !
           <!-- Remove row -->
           <div class="col-span-12 md:col-span-1 flex items-end pb-0.5">
             <button
-class="p-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded transition-colors"
+class="p-2 text-red-600 hover:text-red-700 hover:bg-red-50 rounded transition-colors"
                     :disabled="items.length === 1"
+                    aria-label="Xoá dòng"
                     @click="removeRow(idx)">
-✕
-</button>
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22M9 7V4a2 2 0 012-2h2a2 2 0 012 2v3"/></svg>
+            </button>
           </div>
 
           <!-- Serial / Notes sub-row -->
@@ -589,10 +602,10 @@ id="sm-notes" v-model="notes" rows="3" class="form-input w-full"
     <div class="flex gap-3 justify-end">
       <button class="btn-ghost" @click="router.push('/stock-movements')">Huỷ</button>
       <button class="btn-secondary" :disabled="saving" @click="submit(false)">
-        {{ saving ? 'Đang lưu...' : 'Lưu nháp' }}
+        {{ saving ? 'Đang lưu…' : 'Lưu nháp' }}
       </button>
       <button class="btn-primary" :disabled="saving" @click="submit(true)">
-        {{ saving ? 'Đang duyệt...' : 'Lưu & Duyệt' }}
+        {{ saving ? 'Đang duyệt…' : 'Lưu và duyệt' }}
       </button>
     </div>
   </div>

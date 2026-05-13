@@ -1,0 +1,68 @@
+{
+ "creation": "2026-05-08 00:00:00.000000",
+ "doctype": "DocType",
+ "document_type": "Document",
+ "engine": "InnoDB",
+ "istable": 1,
+ "module": "AssetCore",
+ "name": "IMM CAPA Action Step",
+ "track_changes": 0,
+ "modified": "2026-05-08 00:00:00.000000",
+ "modified_by": "Administrator",
+ "owner": "Administrator",
+ "field_order": [
+  "step_description",
+  "responsible",
+  "due_date",
+  "completion_date",
+  "status",
+  "evidence",
+  "notes"
+ ],
+ "fields": [
+  {
+   "fieldname": "step_description",
+   "fieldtype": "Data",
+   "label": "Mô tả bước hành động",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "responsible",
+   "fieldtype": "Link",
+   "label": "Người chịu trách nhiệm",
+   "options": "User",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "due_date",
+   "fieldtype": "Date",
+   "label": "Hạn hoàn thành",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "completion_date",
+   "fieldtype": "Date",
+   "label": "Ngày hoàn thành thực tế"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Trạng thái",
+   "options": "\nPending\nIn Progress\nCompleted\nOverdue",
+   "default": "Pending",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "evidence",
+   "fieldtype": "Attach",
+   "label": "Bằng chứng"
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Small Text",
+   "label": "Ghi chú"
+  }
+ ],
+ "permissions": []
+}

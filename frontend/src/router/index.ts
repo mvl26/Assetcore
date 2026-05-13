@@ -22,9 +22,29 @@ import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import {
   ROLES_CREATE,
-  ROLES_APPROVE,
   ROLES_MANAGE_DOCS as ROLES_DOC_MGMT,
   ROLES_ADMIN_ONLY,
+  ROLES_ADMIN_USER,
+  ROLES_PM_MANAGE,
+  ROLES_PM_VIEW,
+  ROLES_CM_MANAGE,
+  ROLES_CM_VIEW,
+  ROLES_CAL_MANAGE,
+  ROLES_CAL_VIEW,
+  ROLES_INCIDENT_REPORT,
+  ROLES_INCIDENT_VIEW,
+  ROLES_RCA_OWNER,
+  ROLES_CAPA_CLOSE,
+  ROLES_TRAINING_MANAGE,
+  ROLES_TRAINING_CONDUCT,
+  ROLES_TRAINING_VIEW,
+  ROLES_AUDIT_READ,
+  ROLES_COMPLIANCE_MANAGE,
+  ROLES_COMPLIANCE_VIEW,
+  ROLES_STOCK_MANAGE,
+  ROLES_SPARE_VIEW,
+  ROLES_PLANNING,
+  ROLES_PROCUREMENT,
 } from '@/constants/roles'
 
 const routes: RouteRecordRaw[] = [
@@ -53,7 +73,18 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/auth/UnauthorizedView.vue'),
     meta: { requiresAuth: false, title: 'Không đủ quyền — AssetCore' },
   },
-  { path: '/', redirect: '/dashboard' },
+  { path: '/', redirect: '/launcher' },
+  {
+    path: '/launcher',
+    name: 'Launcher',
+    component: () => import('@/views/modules/LauncherView.vue'),
+    meta: { requiresAuth: true, title: 'AssetCore', fullscreen: true },
+  },
+  {
+    // Back-compat — trang module cũ giờ chuyển hướng tới launcher
+    path: '/modules',
+    redirect: '/launcher',
+  },
   {
     path: '/dashboard',
     name: 'Dashboard',
@@ -143,13 +174,13 @@ const routes: RouteRecordRaw[] = [
     path: '/sla-policies',
     name: 'SlaPolicyList',
     component: () => import('@/views/master-data/SlaPolicyListView.vue'),
-    meta: { requiresAuth: true, title: 'Chính sách SLA' },
+    meta: { requiresAuth: true, title: 'Chính sách SLA', requiredRoles: ROLES_ADMIN_ONLY },
   },
   {
     path: '/reference-data',
     name: 'ReferenceData',
     component: () => import('@/views/master-data/ReferenceDataView.vue'),
-    meta: { requiresAuth: true, title: 'Dữ liệu tham chiếu' },
+    meta: { requiresAuth: true, title: 'Dữ liệu tham chiếu', requiredRoles: ROLES_ADMIN_ONLY },
   },
 
   // ─── 3. IMM-04 — Commissioning ─────────────────────────────────────────────
@@ -226,44 +257,44 @@ const routes: RouteRecordRaw[] = [
     path: '/pm/dashboard',
     name: 'PMDashboard',
     component: () => import('@/views/pm/PMDashboardView.vue'),
-    meta: { requiresAuth: true, title: 'Tổng quan Bảo trì' },
+    meta: { requiresAuth: true, title: 'Tổng quan Bảo trì', requiredRoles: ROLES_PM_VIEW },
   },
   {
     path: '/pm/calendar',
     name: 'PMCalendar',
     component: () => import('@/views/pm/PMCalendarView.vue'),
-    meta: { requiresAuth: true, title: 'Lịch Bảo trì' },
+    meta: { requiresAuth: true, title: 'Lịch Bảo trì', requiredRoles: ROLES_PM_VIEW },
   },
   {
     path: '/pm/work-orders',
     name: 'PMWorkOrderList',
     component: () => import('@/views/pm/PMWorkOrderListView.vue'),
-    meta: { requiresAuth: true, title: 'Danh sách Phiếu Bảo trì' },
+    meta: { requiresAuth: true, title: 'Danh sách Phiếu Bảo trì', requiredRoles: ROLES_PM_VIEW },
   },
   {
     path: '/pm/work-orders/new',
     name: 'PMWorkOrderCreate',
     component: () => import('@/views/pm/PMWorkOrderCreateView.vue'),
-    meta: { requiresAuth: true, title: 'Tạo Phiếu Bảo trì' },
+    meta: { requiresAuth: true, title: 'Tạo Phiếu Bảo trì', requiredRoles: ROLES_PM_MANAGE },
   },
   {
     path: '/pm/work-orders/:id',
     name: 'PMWorkOrderDetail',
     component: () => import('@/views/pm/PMWorkOrderDetailView.vue'),
     props: true,
-    meta: { requiresAuth: true, title: 'Chi tiết Phiếu Bảo trì' },
+    meta: { requiresAuth: true, title: 'Chi tiết Phiếu Bảo trì', requiredRoles: ROLES_PM_VIEW },
   },
   {
     path: '/pm/schedules',
     name: 'PmScheduleList',
     component: () => import('@/views/pm/PmScheduleListView.vue'),
-    meta: { requiresAuth: true, title: 'Lịch Bảo trì định kỳ' },
+    meta: { requiresAuth: true, title: 'Lịch Bảo trì định kỳ', requiredRoles: ROLES_PM_MANAGE },
   },
   {
     path: '/pm/templates',
     name: 'PmTemplateList',
     component: () => import('@/views/pm/PmTemplateListView.vue'),
-    meta: { requiresAuth: true, title: 'Mẫu Bảng kiểm Bảo trì' },
+    meta: { requiresAuth: true, title: 'Mẫu Bảng kiểm Bảo trì', requiredRoles: ROLES_PM_MANAGE },
   },
 
   // ─── 6. IMM-09 — Corrective Maintenance ───────────────────────────────────
@@ -272,97 +303,99 @@ const routes: RouteRecordRaw[] = [
     path: '/cm/dashboard',
     name: 'CMDashboard',
     component: () => import('@/views/cm/CMDashboardView.vue'),
-    meta: { requiresAuth: true, title: 'Tổng quan Sửa chữa' },
+    meta: { requiresAuth: true, title: 'Tổng quan Sửa chữa', requiredRoles: ROLES_CM_VIEW },
   },
   {
     path: '/cm/create',
     name: 'CMCreate',
     component: () => import('@/views/cm/CMCreateView.vue'),
-    meta: { requiresAuth: true, title: 'Tạo Phiếu Sửa chữa', requiredRoles: ROLES_CREATE },
+    meta: { requiresAuth: true, title: 'Tạo Phiếu Sửa chữa', requiredRoles: ROLES_CM_MANAGE },
   },
   {
     path: '/cm/work-orders',
     name: 'CMWorkOrderList',
     component: () => import('@/views/cm/CMWorkOrderListView.vue'),
-    meta: { requiresAuth: true, title: 'Danh sách Phiếu Sửa chữa' },
+    meta: { requiresAuth: true, title: 'Danh sách Phiếu Sửa chữa', requiredRoles: ROLES_CM_VIEW },
   },
   {
     path: '/cm/work-orders/:id',
     name: 'CMWorkOrderDetail',
     component: () => import('@/views/cm/CMWorkOrderDetailView.vue'),
     props: true,
-    meta: { requiresAuth: true, title: 'Chi tiết Phiếu Sửa chữa' },
+    meta: { requiresAuth: true, title: 'Chi tiết Phiếu Sửa chữa', requiredRoles: ROLES_CM_VIEW },
   },
   {
     path: '/cm/work-orders/:id/diagnose',
     name: 'CMDiagnose',
     component: () => import('@/views/cm/CMDiagnoseView.vue'),
     props: true,
-    meta: { requiresAuth: true, title: 'Chẩn đoán' },
+    meta: { requiresAuth: true, title: 'Chẩn đoán', requiredRoles: ROLES_CM_VIEW },
   },
   {
     path: '/cm/work-orders/:id/parts',
     name: 'CMParts',
     component: () => import('@/views/cm/CMPartsView.vue'),
     props: true,
-    meta: { requiresAuth: true, title: 'Quản lý vật tư' },
+    meta: { requiresAuth: true, title: 'Quản lý vật tư', requiredRoles: ROLES_CM_VIEW },
   },
   {
     path: '/cm/work-orders/:id/checklist',
     name: 'CMChecklist',
     component: () => import('@/views/cm/CMChecklistView.vue'),
     props: true,
-    meta: { requiresAuth: true, title: 'Bảng kiểm Sửa chữa' },
+    meta: { requiresAuth: true, title: 'Bảng kiểm Sửa chữa', requiredRoles: ROLES_CM_VIEW },
   },
   {
     path: '/cm/firmware',
     name: 'FirmwareCrList',
     component: () => import('@/views/document/FirmwareCrListView.vue'),
-    meta: { requiresAuth: true, title: 'Yêu cầu cập nhật Firmware' },
+    meta: { requiresAuth: true, title: 'Yêu cầu cập nhật Firmware', requiredRoles: ROLES_CM_VIEW },
   },
   {
     path: '/cm/firmware/:id',
     name: 'FirmwareCrDetail',
     component: () => import('@/views/document/FirmwareCrDetailView.vue'),
     props: true,
-    meta: { requiresAuth: true, title: 'Chi tiết Firmware CR' },
+    meta: { requiresAuth: true, title: 'Chi tiết Firmware CR', requiredRoles: ROLES_CM_VIEW },
   },
   {
     path: '/cm/mttr',
     name: 'CMMttr',
     component: () => import('@/views/cm/CMMttrView.vue'),
-    meta: { requiresAuth: true, title: 'Thời gian Sửa chữa Trung bình' },
+    meta: { requiresAuth: true, title: 'Thời gian Sửa chữa Trung bình', requiredRoles: ROLES_CM_VIEW },
   },
 
   // ─── 7. IMM-11 — Calibration ────────────────────────────────────────────────
   {
     path: '/calibration/dashboard',
-    redirect: '/calibration',
+    name: 'CalibrationDashboard',
+    component: () => import('@/views/calibration/CalibrationDashboard.vue'),
+    meta: { requiresAuth: true, title: 'Tổng quan Hiệu chuẩn', requiredRoles: ROLES_CAL_VIEW },
   },
   {
     path: '/calibration',
     name: 'CalibrationList',
     component: () => import('@/views/calibration/CalibrationListView.vue'),
-    meta: { requiresAuth: true, title: 'Hiệu chuẩn thiết bị' },
+    meta: { requiresAuth: true, title: 'Hiệu chuẩn thiết bị', requiredRoles: ROLES_CAL_VIEW },
   },
   {
     path: '/calibration/new',
     name: 'CalibrationCreate',
     component: () => import('@/views/calibration/CalibrationCreateView.vue'),
-    meta: { requiresAuth: true, title: 'Tạo Phiếu Hiệu chuẩn', requiredRoles: ROLES_CREATE },
+    meta: { requiresAuth: true, title: 'Tạo Phiếu Hiệu chuẩn', requiredRoles: ROLES_CAL_MANAGE },
   },
   {
     path: '/calibration/schedules',
     name: 'CalibrationScheduleList',
     component: () => import('@/views/calibration/CalibrationScheduleListView.vue'),
-    meta: { requiresAuth: true, title: 'Lịch Hiệu chuẩn' },
+    meta: { requiresAuth: true, title: 'Lịch Hiệu chuẩn', requiredRoles: ROLES_CAL_MANAGE },
   },
   {
     path: '/calibration/:id',
     name: 'CalibrationDetail',
     component: () => import('@/views/calibration/CalibrationDetailView.vue'),
     props: true,
-    meta: { requiresAuth: true, title: 'Chi tiết Hiệu chuẩn' },
+    meta: { requiresAuth: true, title: 'Chi tiết Hiệu chuẩn', requiredRoles: ROLES_CAL_VIEW },
   },
 
   // ─── 8. Incident & CAPA & Audit ────────────────────────────────────────────
@@ -370,26 +403,26 @@ const routes: RouteRecordRaw[] = [
     path: '/incidents/dashboard',
     name: 'IncidentDashboard',
     component: () => import('@/views/incident/IMM12DashboardView.vue'),
-    meta: { requiresAuth: true, title: 'Tổng quan Sự cố' },
+    meta: { requiresAuth: true, title: 'Tổng quan Sự cố', requiredRoles: ROLES_INCIDENT_VIEW },
   },
   {
     path: '/incidents/list',
     name: 'IncidentList',
     component: () => import('@/views/incident/IncidentListView.vue'),
-    meta: { requiresAuth: true, title: 'Báo cáo Sự cố' },
+    meta: { requiresAuth: true, title: 'Báo cáo Sự cố', requiredRoles: ROLES_INCIDENT_VIEW },
   },
   {
     path: '/incidents/new',
     name: 'IncidentCreate',
     component: () => import('@/views/incident/IncidentCreateView.vue'),
-    meta: { requiresAuth: true, title: 'Báo Sự cố', requiredRoles: ROLES_CREATE },
+    meta: { requiresAuth: true, title: 'Báo Sự cố', requiredRoles: ROLES_INCIDENT_REPORT },
   },
   {
     path: '/incidents/:id',
     name: 'IncidentDetail',
     component: () => import('@/views/incident/IncidentDetailView.vue'),
     props: true,
-    meta: { requiresAuth: true, title: 'Chi tiết Sự cố' },
+    meta: { requiresAuth: true, title: 'Chi tiết Sự cố', requiredRoles: ROLES_INCIDENT_VIEW },
   },
   { path: '/incidents', redirect: '/incidents/dashboard' },
   {
@@ -397,26 +430,78 @@ const routes: RouteRecordRaw[] = [
     name: 'RCADetail',
     component: () => import('@/views/incident/RCADetailView.vue'),
     props: true,
-    meta: { requiresAuth: true, title: 'Phân tích nguyên nhân (RCA)' },
+    meta: { requiresAuth: true, title: 'Phân tích nguyên nhân (RCA)', requiredRoles: ROLES_RCA_OWNER },
   },
   {
     path: '/capas',
     name: 'CAPAList',
     component: () => import('@/views/incident/CAPAListView.vue'),
-    meta: { requiresAuth: true, title: 'Hồ sơ Khắc phục & Phòng ngừa' },
+    meta: { requiresAuth: true, title: 'Hồ sơ Khắc phục & Phòng ngừa', moduleId: 'imm16', requiredRoles: ROLES_COMPLIANCE_VIEW },
   },
   {
     path: '/capas/:id',
     name: 'CAPADetail',
     component: () => import('@/views/incident/CAPADetailView.vue'),
     props: true,
-    meta: { requiresAuth: true, title: 'Chi tiết CAPA', requiredRoles: ROLES_APPROVE },
+    meta: { requiresAuth: true, title: 'Chi tiết CAPA', requiredRoles: ROLES_CAPA_CLOSE, moduleId: 'imm16' },
   },
   {
     path: '/audit-trail',
     name: 'AuditTrail',
     component: () => import('@/views/audit/AuditTrailListView.vue'),
-    meta: { requiresAuth: true, title: 'Nhật ký Kiểm toán (ISO 13485)' },
+    meta: { requiresAuth: true, title: 'Nhật ký Kiểm toán (ISO 13485)', moduleId: 'imm16', requiredRoles: ROLES_AUDIT_READ },
+  },
+
+  // ─── IMM-16 — Compliance Monitoring & CAPA (Wave 3) ────────────────────────
+  {
+    path: '/compliance/rules',
+    name: 'ComplianceRuleList',
+    component: () => import('@/views/compliance/ComplianceRuleListView.vue'),
+    meta: { requiresAuth: true, title: 'Quy tắc tuân thủ', moduleId: 'imm16', requiredRoles: ROLES_COMPLIANCE_MANAGE },
+  },
+  {
+    path: '/compliance/findings',
+    name: 'ComplianceFindingList',
+    component: () => import('@/views/compliance/FindingListView.vue'),
+    meta: { requiresAuth: true, title: 'Phát hiện tuân thủ', moduleId: 'imm16', requiredRoles: ROLES_COMPLIANCE_VIEW },
+  },
+  {
+    path: '/compliance/findings/:id',
+    name: 'ComplianceFindingDetail',
+    component: () => import('@/views/compliance/FindingDetailView.vue'),
+    props: true,
+    meta: { requiresAuth: true, title: 'Chi tiết phát hiện', moduleId: 'imm16', requiredRoles: ROLES_COMPLIANCE_VIEW },
+  },
+  {
+    path: '/compliance/audits',
+    name: 'InternalAuditList',
+    component: () => import('@/views/compliance/InternalAuditListView.vue'),
+    meta: { requiresAuth: true, title: 'Kiểm toán nội bộ', moduleId: 'imm16', requiredRoles: ROLES_COMPLIANCE_VIEW },
+  },
+  {
+    path: '/compliance/audits/:id',
+    name: 'InternalAuditDetail',
+    component: () => import('@/views/compliance/InternalAuditDetailView.vue'),
+    props: true,
+    meta: { requiresAuth: true, title: 'Chi tiết kiểm toán nội bộ', moduleId: 'imm16', requiredRoles: ROLES_COMPLIANCE_VIEW },
+  },
+  {
+    path: '/compliance/scorecard',
+    name: 'ComplianceScorecard',
+    component: () => import('@/views/compliance/ScorecardView.vue'),
+    meta: { requiresAuth: true, title: 'Bảng điểm tuân thủ', moduleId: 'imm16', requiredRoles: ROLES_COMPLIANCE_VIEW },
+  },
+  {
+    path: '/compliance/mr',
+    name: 'ManagementReviewList',
+    component: () => import('@/views/compliance/ManagementReviewListView.vue'),
+    meta: { requiresAuth: true, title: 'Soát xét quản lý', moduleId: 'imm16', requiredRoles: ROLES_COMPLIANCE_MANAGE },
+  },
+  {
+    path: '/compliance/heatmap',
+    name: 'ComplianceHeatmap',
+    component: () => import('@/views/compliance/ComplianceHeatmapView.vue'),
+    meta: { requiresAuth: true, title: 'Bản đồ nhiệt tuân thủ', moduleId: 'imm16', requiredRoles: ROLES_COMPLIANCE_VIEW },
   },
 
   // ─── 9. Asset Transfer / Service Contract / Depreciation ──────────────────
@@ -470,71 +555,83 @@ const routes: RouteRecordRaw[] = [
     path: '/inventory',
     name: 'InventoryDashboard',
     component: () => import('@/views/inventory/InventoryDashboardView.vue'),
-    meta: { requiresAuth: true, title: 'IMM Storekeeper — Tổng quan' },
+    meta: { requiresAuth: true, title: 'IMM Storekeeper — Tổng quan', moduleId: 'imm15', requiredRoles: ROLES_SPARE_VIEW },
   },
   {
     path: '/warehouses',
     name: 'WarehouseList',
     component: () => import('@/views/inventory/WarehouseListView.vue'),
-    meta: { requiresAuth: true, title: 'Danh sách Kho' },
+    meta: { requiresAuth: true, title: 'Danh sách Kho', moduleId: 'imm15', requiredRoles: ROLES_SPARE_VIEW },
   },
   {
     path: '/warehouses/:name',
     name: 'WarehouseDetail',
     component: () => import('@/views/inventory/WarehouseDetailView.vue'),
     props: true,
-    meta: { requiresAuth: true, title: 'Chi tiết Kho' },
+    meta: { requiresAuth: true, title: 'Chi tiết Kho', moduleId: 'imm15', requiredRoles: ROLES_SPARE_VIEW },
   },
   {
     path: '/spare-parts',
     name: 'SparePartList',
     component: () => import('@/views/inventory/SparePartListView.vue'),
-    meta: { requiresAuth: true, title: 'Danh mục phụ tùng' },
+    meta: { requiresAuth: true, title: 'Danh mục phụ tùng', moduleId: 'imm15', requiredRoles: ROLES_SPARE_VIEW },
   },
   {
     path: '/spare-parts/:name',
     name: 'SparePartDetail',
     component: () => import('@/views/inventory/SparePartDetailView.vue'),
     props: true,
-    meta: { requiresAuth: true, title: 'Chi tiết phụ tùng' },
+    meta: { requiresAuth: true, title: 'Chi tiết phụ tùng', moduleId: 'imm15', requiredRoles: ROLES_SPARE_VIEW },
   },
   {
     path: '/stock',
     name: 'StockLevels',
     component: () => import('@/views/inventory/StockLevelView.vue'),
-    meta: { requiresAuth: true, title: 'Tồn kho' },
+    meta: { requiresAuth: true, title: 'Tồn kho', moduleId: 'imm15', requiredRoles: ROLES_SPARE_VIEW },
   },
   {
     path: '/stock-movements',
     name: 'StockMovementList',
     component: () => import('@/views/inventory/StockMovementListView.vue'),
-    meta: { requiresAuth: true, title: 'Phiếu xuất nhập kho' },
+    meta: { requiresAuth: true, title: 'Phiếu xuất nhập kho', moduleId: 'imm15', requiredRoles: ROLES_SPARE_VIEW },
   },
   {
     path: '/stock-movements/new',
     name: 'StockMovementCreate',
     component: () => import('@/views/inventory/StockMovementCreateView.vue'),
-    meta: { requiresAuth: true, title: 'Tạo phiếu kho' },
+    meta: { requiresAuth: true, title: 'Tạo phiếu kho', moduleId: 'imm15', requiredRoles: ROLES_STOCK_MANAGE },
   },
   {
     path: '/stock-movements/:name/edit',
     name: 'StockMovementEdit',
     component: () => import('@/views/inventory/StockMovementEditView.vue'),
     props: true,
-    meta: { requiresAuth: true, title: 'Sửa phiếu kho' },
+    meta: { requiresAuth: true, title: 'Sửa phiếu kho', moduleId: 'imm15', requiredRoles: ROLES_STOCK_MANAGE },
   },
   {
     path: '/stock-movements/:name',
     name: 'StockMovementDetail',
     component: () => import('@/views/inventory/StockMovementDetailView.vue'),
     props: true,
-    meta: { requiresAuth: true, title: 'Chi tiết phiếu kho' },
+    meta: { requiresAuth: true, title: 'Chi tiết phiếu kho', moduleId: 'imm15', requiredRoles: ROLES_SPARE_VIEW },
   },
   {
     path: '/inventory/uom',
     name: 'UomConversion',
     component: () => import('@/views/inventory/UomConversionView.vue'),
-    meta: { requiresAuth: true, title: 'Đơn vị tính (UOM)' },
+    meta: { requiresAuth: true, title: 'Đơn vị tính (UOM)', moduleId: 'imm15', requiredRoles: ROLES_STOCK_MANAGE },
+  },
+  {
+    path: '/inventory/forecasts',
+    name: 'SpareForecastList',
+    component: () => import('@/views/inventory/SpareForecastView.vue'),
+    meta: { requiresAuth: true, title: 'Dự báo phụ tùng', moduleId: 'imm15', requiredRoles: ROLES_STOCK_MANAGE },
+  },
+  {
+    path: '/inventory/watchlist',
+    name: 'CriticalSpareWatchlist',
+    component: () => import('@/views/inventory/WatchlistView.vue'),
+    meta: { requiresAuth: true, title: 'Critical Spare Watchlist', moduleId: 'imm15', requiredRoles: ROLES_STOCK_MANAGE },
   },
   {
     path: '/approvals/pending',
@@ -574,12 +671,14 @@ const routes: RouteRecordRaw[] = [
     path: '/user-profiles',
     name: 'UserProfileList',
     component: () => import('@/views/auth/UserProfileListView.vue'),
-    meta: { requiresAuth: true, title: 'Quản lý Người dùng IMM', requiredRoles: ROLES_ADMIN_ONLY },
+    // ROLES_ADMIN_USER = [SYS_ADMIN, OPS_MANAGER] — align với sidebar visibility
+    meta: { requiresAuth: true, title: 'Quản lý Người dùng IMM', requiredRoles: ROLES_ADMIN_USER },
   },
   {
     path: '/user-profiles/new',
     name: 'UserProfileCreate',
     component: () => import('@/views/auth/UserProfileFormView.vue'),
+    // Tạo user mới — vẫn chỉ SYS_ADMIN
     meta: { requiresAuth: true, title: 'Thêm Người dùng IMM', requiredRoles: ROLES_ADMIN_ONLY },
   },
   {
@@ -607,6 +706,163 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true, title: 'Hồ sơ của tôi' },
   },
 
+  // ─── Khối 1 — Hoạch định & Mua sắm ─────────────────────────────────────────
+  // Đề xuất nhu cầu thiết bị + Kế hoạch mua sắm
+  {
+    path: '/needs-requests',
+    name: 'NeedsRequestList',
+    component: () => import('@/views/needs/NeedsRequestListView.vue'),
+    meta: { requiresAuth: true, title: 'Đề xuất nhu cầu thiết bị', requiredRoles: ROLES_PLANNING },
+  },
+  {
+    path: '/needs-requests/new',
+    name: 'NeedsRequestCreate',
+    component: () => import('@/views/needs/NeedsRequestCreateView.vue'),
+    meta: { requiresAuth: true, title: 'Tạo đề xuất nhu cầu', requiredRoles: ROLES_PLANNING },
+  },
+  {
+    path: '/needs-requests/:id',
+    name: 'NeedsRequestDetail',
+    component: () => import('@/views/needs/NeedsRequestDetailView.vue'),
+    props: true,
+    meta: { requiresAuth: true, title: 'Chi tiết đề xuất', requiredRoles: ROLES_PLANNING },
+  },
+  {
+    path: '/procurement-plans',
+    name: 'ProcurementPlanList',
+    component: () => import('@/views/needs/ProcurementPlanListView.vue'),
+    meta: { requiresAuth: true, title: 'Kế hoạch mua sắm', requiredRoles: ROLES_PLANNING },
+  },
+  {
+    path: '/procurement-plans/:id',
+    name: 'ProcurementPlanDetail',
+    component: () => import('@/views/needs/ProcurementPlanDetailView.vue'),
+    props: true,
+    meta: { requiresAuth: true, title: 'Chi tiết kế hoạch mua sắm', requiredRoles: ROLES_PLANNING },
+  },
+
+  // Hồ sơ kỹ thuật
+  {
+    path: '/tech-specs',
+    name: 'TechSpecList',
+    component: () => import('@/views/tech-specs/TechSpecListView.vue'),
+    meta: { requiresAuth: true, title: 'Hồ sơ kỹ thuật', requiredRoles: ROLES_PLANNING },
+  },
+  {
+    path: '/tech-specs/new',
+    name: 'TechSpecCreate',
+    component: () => import('@/views/tech-specs/TechSpecCreateView.vue'),
+    meta: { requiresAuth: true, title: 'Sinh hồ sơ kỹ thuật từ kế hoạch', requiredRoles: ROLES_PLANNING },
+  },
+  {
+    path: '/tech-specs/:id',
+    name: 'TechSpecDetail',
+    component: () => import('@/views/tech-specs/TechSpecDetailView.vue'),
+    props: true,
+    meta: { requiresAuth: true, title: 'Chi tiết hồ sơ kỹ thuật', requiredRoles: ROLES_PLANNING },
+  },
+
+  // Đánh giá NCC, Danh mục NCC duyệt (AVL), Quyết định mua sắm
+  {
+    path: '/vendor-evaluations',
+    name: 'VendorEvaluationList',
+    component: () => import('@/views/procurement/VendorEvalListView.vue'),
+    meta: { requiresAuth: true, title: 'Đánh giá nhà cung cấp', requiredRoles: ROLES_PROCUREMENT },
+  },
+  {
+    path: '/vendor-evaluations/:id',
+    name: 'VendorEvaluationDetail',
+    component: () => import('@/views/procurement/VendorEvalDetailView.vue'),
+    props: true,
+    meta: { requiresAuth: true, title: 'Chi tiết đánh giá NCC', requiredRoles: ROLES_PROCUREMENT },
+  },
+  {
+    path: '/approved-vendors',
+    name: 'ApprovedVendorList',
+    component: () => import('@/views/procurement/AvlListView.vue'),
+    meta: { requiresAuth: true, title: 'Danh mục NCC được duyệt (AVL)', requiredRoles: ROLES_PROCUREMENT },
+  },
+  {
+    path: '/procurement-decisions',
+    name: 'ProcurementDecisionList',
+    component: () => import('@/views/procurement/DecisionListView.vue'),
+    meta: { requiresAuth: true, title: 'Quyết định mua sắm', requiredRoles: ROLES_PROCUREMENT },
+  },
+  {
+    path: '/procurement-decisions/:id',
+    name: 'ProcurementDecisionDetail',
+    component: () => import('@/views/procurement/DecisionDetailView.vue'),
+    props: true,
+    meta: { requiresAuth: true, title: 'Chi tiết quyết định mua sắm', requiredRoles: ROLES_PROCUREMENT },
+  },
+  {
+    path: '/vendor-profiles',
+    name: 'VendorProfileList',
+    component: () => import('@/views/procurement/VendorProfileListView.vue'),
+    meta: { requiresAuth: true, title: 'Hồ sơ Nhà cung cấp', requiredRoles: ROLES_PROCUREMENT },
+  },
+  {
+    path: '/vendor-profiles/:id',
+    name: 'VendorProfileDetail',
+    component: () => import('@/views/procurement/VendorProfileDetailView.vue'),
+    props: true,
+    meta: { requiresAuth: true, title: 'Chi tiết Hồ sơ NCC', requiredRoles: ROLES_PROCUREMENT },
+  },
+
+  // ─── IMM-06 — Training & Competency ────────────────────────────────────────
+  { path: '/imm06', redirect: '/imm06/programs' },
+  {
+    path: '/imm06/programs',
+    name: 'TrainingProgramList',
+    component: () => import('@/views/training/ProgramListView.vue'),
+    meta: { requiresAuth: true, title: 'Chương trình đào tạo', requiredRoles: ROLES_TRAINING_VIEW },
+  },
+  {
+    path: '/imm06/programs/new',
+    name: 'TrainingProgramCreate',
+    component: () => import('@/views/training/ProgramDetailView.vue'),
+    meta: { requiresAuth: true, title: 'Tạo chương trình đào tạo', requiredRoles: ROLES_TRAINING_MANAGE },
+  },
+  {
+    path: '/imm06/programs/:name',
+    name: 'TrainingProgramDetail',
+    component: () => import('@/views/training/ProgramDetailView.vue'),
+    props: true,
+    meta: { requiresAuth: true, title: 'Chi tiết chương trình đào tạo', requiredRoles: ROLES_TRAINING_VIEW },
+  },
+  {
+    path: '/imm06/sessions',
+    name: 'TrainingSessionList',
+    component: () => import('@/views/training/SessionListView.vue'),
+    meta: { requiresAuth: true, title: 'Buổi đào tạo', requiredRoles: ROLES_TRAINING_VIEW },
+  },
+  {
+    path: '/imm06/sessions/new',
+    name: 'TrainingSessionCreate',
+    component: () => import('@/views/training/SessionDetailView.vue'),
+    meta: { requiresAuth: true, title: 'Tạo buổi đào tạo', requiredRoles: ROLES_TRAINING_CONDUCT },
+  },
+  {
+    path: '/imm06/sessions/:name',
+    name: 'TrainingSessionDetail',
+    component: () => import('@/views/training/SessionDetailView.vue'),
+    props: true,
+    meta: { requiresAuth: true, title: 'Chi tiết buổi đào tạo', requiredRoles: ROLES_TRAINING_VIEW },
+  },
+  {
+    path: '/imm06/competencies',
+    name: 'CompetencyList',
+    component: () => import('@/views/training/CompetencyListView.vue'),
+    meta: { requiresAuth: true, title: 'Hồ sơ năng lực', requiredRoles: ROLES_TRAINING_VIEW },
+  },
+  {
+    path: '/imm06/competencies/:name',
+    name: 'CompetencyDetail',
+    component: () => import('@/views/training/CompetencyDetailView.vue'),
+    props: true,
+    meta: { requiresAuth: true, title: 'Chi tiết năng lực', requiredRoles: ROLES_TRAINING_VIEW },
+  },
+
   // ─── 11. Debug (dev-only) ──────────────────────────────────────────────────
   {
     path: '/debug/asset-dashboard',
@@ -624,9 +880,72 @@ const routes: RouteRecordRaw[] = [
   },
 ]
 
+// ─── Module tagging ─────────────────────────────────────────────────────────
+// Gán meta.moduleId cho mỗi route. AppSidebar dùng moduleId để hiển thị
+// sidebar riêng cho từng module (mỗi IMM-XX có nav riêng).
+// Cross-cutting (master/system) dùng key 'master' / 'system'.
+const MODULE_RULES: Array<[RegExp, string]> = [
+  // Khối 1 — Hoạch định & Mua sắm
+  [/^\/needs-requests/,        'imm01'],
+  [/^\/procurement-plans/,     'imm01'],
+  [/^\/tech-specs/,            'imm02'],
+  [/^\/vendor-evaluations/,    'imm03'],
+  [/^\/approved-vendors/,      'imm03'],
+  [/^\/procurement-decisions/, 'imm03'],
+  [/^\/vendor-profiles/,       'imm03'],
+  [/^\/purchases/,             'imm03'],
+  // Khối 2 — Triển khai & Lắp đặt
+  [/^\/commissioning/,         'imm04'],
+  [/^\/documents/,             'imm05'],
+  [/^\/imm06/,                 'imm06'],
+  // Khối 3 — Vận hành & Bảo trì
+  [/^\/pm/,                    'imm08'],
+  [/^\/cm/,                    'imm09'],
+  [/^\/calibration/,           'imm11'],
+  [/^\/incidents/,             'imm12'],
+  [/^\/rca/,                   'imm12'],
+  [/^\/capas/,                 'imm12'],   // RCA & CAPA — IMM-12 primary, dùng chung IMM-10/16
+  [/^\/audit-trail/,           'imm16'],
+  [/^\/compliance/,            'imm16'],
+  [/^\/inventory/,             'imm15'],
+  [/^\/stock/,                 'imm15'],
+  [/^\/spare-parts/,           'imm15'],
+  [/^\/warehouses/,            'imm15'],
+  // Khối 4 — Kết thúc vòng đời
+  [/^\/asset-transfers/,       'imm13'],
+  [/^\/depreciation/,          'imm14'],
+  // Master data
+  [/^\/assets/,                'master'],
+  [/^\/device-models/,         'master'],
+  [/^\/qr-scan/,               'master'],
+  [/^\/suppliers/,             'master'],
+  [/^\/service-contracts/,     'master'],
+  [/^\/sla-policies/,          'master'],
+  // Hệ thống
+  [/^\/dashboard/,             'system'],
+  [/^\/user-profiles/,         'system'],
+  [/^\/reference-data/,        'system'],
+  [/^\/account/,               'system'],
+  [/^\/approvals/,             'system'],
+]
+
+function tagWorkspace(rs: RouteRecordRaw[]): RouteRecordRaw[] {
+  for (const r of rs) {
+    if (typeof r.path === 'string') {
+      for (const [re, mod] of MODULE_RULES) {
+        if (re.test(r.path)) {
+          r.meta = { ...r.meta, moduleId: mod }
+          break
+        }
+      }
+    }
+  }
+  return rs
+}
+
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
-  routes,
+  routes: tagWorkspace(routes),
   scrollBehavior(_to, _from, savedPosition) {
     if (savedPosition) return savedPosition
     return { top: 0 }

@@ -1,109 +1,272 @@
 [
  {
+  "docstatus": 0,
   "doctype": "Role Profile",
-  "name": "IMM - System Administrator",
-  "role_profile": "IMM - System Administrator",
+  "modified": "2026-05-13 09:30:10.882255",
+  "name": "AssetCore — System Admin",
+  "role_profile": "AssetCore — System Admin",
   "roles": [
-   {"role": "IMM System Admin"}
+   {
+    "parent": "AssetCore — System Admin",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "IMM System Admin"
+   },
+   {
+    "parent": "AssetCore — System Admin",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "IMM Operations Manager"
+   },
+   {
+    "parent": "AssetCore — System Admin",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "IMM Auditor"
+   }
   ]
  },
  {
+  "docstatus": 0,
   "doctype": "Role Profile",
-  "name": "IMM - Operations Manager",
-  "role_profile": "IMM - Operations Manager",
+  "modified": "2026-05-13 09:30:10.886317",
+  "name": "AssetCore — Operations Manager",
+  "role_profile": "AssetCore — Operations Manager",
   "roles": [
-   {"role": "IMM Operations Manager"}
+   {
+    "parent": "AssetCore — Operations Manager",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "IMM Operations Manager"
+   },
+   {
+    "parent": "AssetCore — Operations Manager",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "IMM QA Officer"
+   }
   ]
  },
  {
+  "docstatus": 0,
   "doctype": "Role Profile",
-  "name": "IMM - Department Head",
-  "role_profile": "IMM - Department Head",
+  "modified": "2026-05-13 09:30:10.888885",
+  "name": "AssetCore — Department Head",
+  "role_profile": "AssetCore — Department Head",
   "roles": [
-   {"role": "IMM Department Head"}
+   {
+    "parent": "AssetCore — Department Head",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "IMM Department Head"
+   }
   ]
  },
  {
+  "docstatus": 0,
   "doctype": "Role Profile",
-  "name": "IMM - Deputy Department Head",
-  "role_profile": "IMM - Deputy Department Head",
+  "modified": "2026-05-13 09:30:10.891232",
+  "name": "AssetCore — Department Deputy",
+  "role_profile": "AssetCore — Department Deputy",
   "roles": [
-   {"role": "IMM Deputy Department Head"}
+   {
+    "parent": "AssetCore — Department Deputy",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "IMM Deputy Department Head"
+   }
   ]
  },
  {
+  "docstatus": 0,
   "doctype": "Role Profile",
-  "name": "IMM - Workshop Lead",
-  "role_profile": "IMM - Workshop Lead",
+  "modified": "2026-05-13 09:30:10.901023",
+  "name": "AssetCore — Workshop Lead",
+  "role_profile": "AssetCore — Workshop Lead",
   "roles": [
-   {"role": "IMM Workshop Lead"},
-   {"role": "IMM Biomed Technician"}
+   {
+    "parent": "AssetCore — Workshop Lead",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "IMM Workshop Lead"
+   },
+   {
+    "parent": "AssetCore — Workshop Lead",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "IMM Biomed Technician"
+   }
   ]
  },
  {
+  "docstatus": 0,
   "doctype": "Role Profile",
-  "name": "IMM - Biomed Technician",
-  "role_profile": "IMM - Biomed Technician",
+  "modified": "2026-05-13 09:30:10.903441",
+  "name": "AssetCore — Biomed Technician",
+  "role_profile": "AssetCore — Biomed Technician",
   "roles": [
-   {"role": "IMM Biomed Technician"},
-   {"role": "IMM Technician"}
+   {
+    "parent": "AssetCore — Biomed Technician",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "IMM Biomed Technician"
+   },
+   {
+    "parent": "AssetCore — Biomed Technician",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "IMM Technician"
+   }
   ]
  },
  {
+  "docstatus": 0,
   "doctype": "Role Profile",
-  "name": "IMM - Field Technician",
-  "role_profile": "IMM - Field Technician",
+  "modified": "2026-05-13 09:30:10.906772",
+  "name": "AssetCore — Technician",
+  "role_profile": "AssetCore — Technician",
   "roles": [
-   {"role": "IMM Technician"}
+   {
+    "parent": "AssetCore — Technician",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "IMM Technician"
+   }
   ]
  },
  {
+  "docstatus": 0,
   "doctype": "Role Profile",
-  "name": "IMM - QA Officer",
-  "role_profile": "IMM - QA Officer",
+  "modified": "2026-05-13 09:30:10.908936",
+  "name": "AssetCore — Clinical User",
+  "role_profile": "AssetCore — Clinical User",
   "roles": [
-   {"role": "IMM QA Officer"},
-   {"role": "IMM Auditor"}
+   {
+    "parent": "AssetCore — Clinical User",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "IMM Clinical User"
+   }
   ]
  },
  {
+  "docstatus": 0,
   "doctype": "Role Profile",
-  "name": "IMM - Internal Auditor",
-  "role_profile": "IMM - Internal Auditor",
+  "modified": "2026-05-13 09:30:10.911667",
+  "name": "AssetCore — QA Officer",
+  "role_profile": "AssetCore — QA Officer",
   "roles": [
-   {"role": "IMM Auditor"}
+   {
+    "parent": "AssetCore — QA Officer",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "IMM QA Officer"
+   }
   ]
  },
  {
+  "docstatus": 0,
   "doctype": "Role Profile",
-  "name": "IMM - Storekeeper",
-  "role_profile": "IMM - Storekeeper",
+  "modified": "2026-05-13 09:30:10.914526",
+  "name": "AssetCore — Auditor",
+  "role_profile": "AssetCore — Auditor",
   "roles": [
-   {"role": "IMM Storekeeper"}
+   {
+    "parent": "AssetCore — Auditor",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "IMM Auditor"
+   }
   ]
  },
  {
+  "docstatus": 0,
   "doctype": "Role Profile",
-  "name": "IMM - Document Officer",
-  "role_profile": "IMM - Document Officer",
+  "modified": "2026-05-13 09:30:10.917566",
+  "name": "AssetCore — Storekeeper",
+  "role_profile": "AssetCore — Storekeeper",
   "roles": [
-   {"role": "IMM Document Officer"}
+   {
+    "parent": "AssetCore — Storekeeper",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "IMM Storekeeper"
+   }
   ]
  },
  {
+  "docstatus": 0,
   "doctype": "Role Profile",
-  "name": "IMM - Clinical User",
-  "role_profile": "IMM - Clinical User",
+  "modified": "2026-05-13 09:30:10.919886",
+  "name": "AssetCore — Document Officer",
+  "role_profile": "AssetCore — Document Officer",
   "roles": [
-   {"role": "IMM Clinical User"}
+   {
+    "parent": "AssetCore — Document Officer",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "IMM Document Officer"
+   }
   ]
  },
  {
+  "docstatus": 0,
   "doctype": "Role Profile",
-  "name": "IMM - Vendor Engineer",
-  "role_profile": "IMM - Vendor Engineer",
+  "modified": "2026-05-13 09:30:10.922300",
+  "name": "AssetCore — Planning Officer",
+  "role_profile": "AssetCore — Planning Officer",
   "roles": [
-   {"role": "Vendor Engineer"}
+   {
+    "parent": "AssetCore — Planning Officer",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "IMM Planning Officer"
+   }
+  ]
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Role Profile",
+  "modified": "2026-05-13 09:30:10.925439",
+  "name": "AssetCore — Procurement Officer",
+  "role_profile": "AssetCore — Procurement Officer",
+  "roles": [
+   {
+    "parent": "AssetCore — Procurement Officer",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "IMM Procurement Officer"
+   }
+  ]
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Role Profile",
+  "modified": "2026-05-13 09:30:10.929070",
+  "name": "AssetCore — Vendor Engineer",
+  "role_profile": "AssetCore — Vendor Engineer",
+  "roles": [
+   {
+    "parent": "AssetCore — Vendor Engineer",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "Vendor Engineer"
+   }
+  ]
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Role Profile",
+  "modified": "2026-05-13 09:30:10.932798",
+  "name": "AssetCore — Training Officer",
+  "role_profile": "AssetCore — Training Officer",
+  "roles": [
+   {
+    "parent": "AssetCore — Training Officer",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "IMM Training Officer"
+   }
   ]
  }
 ]

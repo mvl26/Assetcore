@@ -1,0 +1,26 @@
+{
+ "actions": [], "creation": "2026-04-29 00:00:00.000000",
+ "doctype": "DocType", "engine": "InnoDB",
+ "field_order": [
+  "severity", "category", "description", "section_capa",
+  "capa_action", "capa_owner", "capa_due", "capa_status"
+ ],
+ "fields": [
+  {"fieldname": "severity", "fieldtype": "Select", "label": "Mức độ", "in_list_view": 1, "reqd": 1,
+   "options": "Minor\nMajor\nCritical"},
+  {"fieldname": "category", "fieldtype": "Select", "label": "Phân loại",
+   "options": "Quality\nCompliance\nDelivery\nDocumentation\nOther"},
+  {"fieldname": "description", "fieldtype": "Long Text", "label": "Mô tả phát hiện", "in_list_view": 1, "reqd": 1},
+  {"fieldname": "section_capa", "fieldtype": "Section Break", "label": "CAPA"},
+  {"fieldname": "capa_action", "fieldtype": "Long Text", "label": "Hành động CAPA"},
+  {"fieldname": "capa_owner", "fieldtype": "Link", "options": "User", "label": "Owner"},
+  {"fieldname": "capa_due", "fieldtype": "Date", "label": "Hạn đóng"},
+  {"fieldname": "capa_status", "fieldtype": "Select", "label": "Trạng thái CAPA",
+   "options": "\nOpen\nIn Progress\nClosed", "default": "Open"}
+ ],
+ "istable": 1, "links": [],
+ "modified": "2026-04-29 00:00:00.000000", "modified_by": "Administrator",
+ "module": "AssetCore", "name": "Audit Finding",
+ "owner": "Administrator", "permissions": [],
+ "sort_field": "severity", "sort_order": "DESC", "states": []
+}

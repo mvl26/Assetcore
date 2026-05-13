@@ -2,8 +2,7 @@
 """
 Auth API — đăng ký tự phục vụ, đổi mật khẩu, profile cá nhân.
 
-Không còn phụ thuộc vào AC User Profile.
-Data model: Frappe User + ERPNext Employee (optional).
+Data model: Frappe User + Employee (optional, nếu có Frappe HR).
 """
 from __future__ import annotations
 

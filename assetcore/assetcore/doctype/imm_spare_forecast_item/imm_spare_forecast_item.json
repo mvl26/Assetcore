@@ -1,0 +1,70 @@
+{
+ "actions": [],
+ "creation": "2026-05-08 00:00:00.000000",
+ "doctype": "DocType",
+ "document_type": "Document",
+ "engine": "InnoDB",
+ "istable": 1,
+ "module": "AssetCore",
+ "name": "IMM Spare Forecast Item",
+ "track_changes": 1,
+ "field_order": [
+  "spare_part",
+  "forecast_qty",
+  "reorder_point",
+  "safety_stock",
+  "current_qty",
+  "historical_consumption_12m",
+  "recommended_action"
+ ],
+ "fields": [
+  {
+   "fieldname": "spare_part",
+   "fieldtype": "Link",
+   "label": "Phụ tùng",
+   "options": "AC Spare Part",
+   "reqd": 1,
+   "in_list_view": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "forecast_qty",
+   "fieldtype": "Float",
+   "label": "SL dự báo",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "reorder_point",
+   "fieldtype": "Float",
+   "label": "Điểm đặt hàng lại"
+  },
+  {
+   "fieldname": "safety_stock",
+   "fieldtype": "Float",
+   "label": "Tồn kho an toàn"
+  },
+  {
+   "fieldname": "current_qty",
+   "fieldtype": "Float",
+   "label": "SL hiện tại",
+   "read_only": 1
+  },
+  {
+   "fieldname": "historical_consumption_12m",
+   "fieldtype": "Float",
+   "label": "Tiêu thụ 12 tháng",
+   "read_only": 1
+  },
+  {
+   "fieldname": "recommended_action",
+   "fieldtype": "Select",
+   "label": "Hành động đề xuất",
+   "options": "\nHold\nReorder\nReduceMin\nObsolete",
+   "in_list_view": 1
+  }
+ ],
+ "modified": "2026-05-08 00:00:00.000000",
+ "modified_by": "Administrator",
+ "owner": "Administrator",
+ "permissions": []
+}

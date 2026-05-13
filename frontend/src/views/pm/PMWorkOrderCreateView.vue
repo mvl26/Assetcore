@@ -70,7 +70,7 @@ async function loadAssetMeta() {
     return
   }
   try {
-    const r = await frappeGet<AssetMeta>('frappe.client.get_value', {
+    const r = await frappeGet<AssetMeta>('/api/method/frappe.client.get_value', {
       doctype: 'AC Asset',
       filters: form.value.asset_ref,
       fieldname: JSON.stringify(['device_model', 'asset_name', 'lifecycle_status', 'location']),
@@ -86,7 +86,7 @@ async function loadSchedules() {
   try {
     const res = await frappeGet<{ data: ScheduleRow[] }>(
       '/api/method/assetcore.api.imm08.list_pm_schedules',
-      { filters: JSON.stringify({ asset_ref: form.value.asset_ref, status: 'Active' }), page_size: 50 },
+      { asset_ref: form.value.asset_ref, status: 'Active', page_size: 50 },
     )
     schedules.value = res?.data ?? []
   } catch { schedules.value = [] }
@@ -102,7 +102,7 @@ watch(() => form.value.pm_schedule, async (sched) => {
   loadingChecklist.value = true
   try {
     const r = await frappeGet<{ checklist?: ChecklistItem[] }>(
-      'frappe.client.get',
+      '/api/method/frappe.client.get',
       { doctype: 'PM Template', name: tmpl },
     )
     const tplDoc = (r as { checklist?: ChecklistItem[] } | null)
@@ -135,6 +135,8 @@ async function submit() {
   }
 }
 
+// SmartSelect emits full asset name on selection — no debounce needed since SmartSelect only
+// emits on explicit selection, not per keystroke. Direct watch is safe here.
 watch(() => form.value.asset_ref, loadAssetMeta)
 
 onMounted(() => {
@@ -150,44 +152,44 @@ onMounted(() => {
       <button class="text-slate-500 hover:text-slate-700 text-sm" @click="router.push('/pm/work-orders')">
         ← Danh sách phiếu bảo trì
       </button>
-      <h1 class="text-xl font-semibold text-gray-800">Tạo phiếu bảo trì đột xuất</h1>
+      <h1 class="text-xl font-semibold text-slate-800">Tạo phiếu bảo trì đột xuất</h1>
     </div>
 
     <div class="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-800">
       Phiếu bảo trì thường tạo tự động theo lịch. Form này dành cho trường hợp ngoại lệ.
     </div>
 
-    <div class="bg-white rounded-xl border border-gray-200 p-6 space-y-5">
+    <div class="bg-white rounded-xl border border-slate-200 p-6 space-y-5">
       <div v-if="error" class="text-red-600 text-sm bg-red-50 px-3 py-2 rounded-lg">{{ error }}</div>
 
       <!-- Asset -->
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">
+        <label class="block text-sm font-medium text-slate-700 mb-1">
           Thiết bị <span class="text-red-500">*</span>
         </label>
         <SmartSelect v-model="form.asset_ref" doctype="AC Asset" placeholder="Chọn thiết bị..." />
         <div v-if="assetMeta" class="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-          <div class="bg-gray-50 rounded px-2 py-1.5"><span class="text-gray-500">Tên:</span> <b>{{ assetMeta.asset_name || '—' }}</b></div>
-          <div class="bg-gray-50 rounded px-2 py-1.5"><span class="text-gray-500">Model:</span> {{ assetMeta.device_model || '—' }}</div>
-          <div class="bg-gray-50 rounded px-2 py-1.5"><span class="text-gray-500">Vị trí:</span> {{ assetMeta.location || '—' }}</div>
-          <div :class="['rounded px-2 py-1.5', assetMeta.lifecycle_status === 'Decommissioned' ? 'bg-red-50 text-red-700' : 'bg-gray-50']">
-            <span class="text-gray-500">Trạng thái:</span> <b>{{ assetMeta.lifecycle_status || '—' }}</b>
+          <div class="bg-slate-50 rounded px-2 py-1.5"><span class="text-slate-500">Tên:</span> <b>{{ assetMeta.asset_name || '—' }}</b></div>
+          <div class="bg-slate-50 rounded px-2 py-1.5"><span class="text-slate-500">Model:</span> {{ assetMeta.device_model || '—' }}</div>
+          <div class="bg-slate-50 rounded px-2 py-1.5"><span class="text-slate-500">Vị trí:</span> {{ assetMeta.location || '—' }}</div>
+          <div :class="['rounded px-2 py-1.5', assetMeta.lifecycle_status === 'Decommissioned' ? 'bg-red-50 text-red-700' : 'bg-slate-50']">
+            <span class="text-slate-500">Trạng thái:</span> <b>{{ assetMeta.lifecycle_status || '—' }}</b>
           </div>
         </div>
-        <div v-if="assetMeta?.lifecycle_status === 'Decommissioned'" class="mt-2 bg-red-50 border border-red-200 rounded-lg p-2 text-sm text-red-700">
-          ⛔ Thiết bị đã thanh lý — không thể tạo phiếu PM.
+        <div v-if="assetMeta?.lifecycle_status === 'Decommissioned'" class="mt-2 alert-error text-sm">
+          Thiết bị đã thanh lý — không thể tạo phiếu PM.
         </div>
       </div>
 
       <!-- PM Schedule -->
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">
-          PM Schedule <span class="text-red-500">*</span>
+        <label class="form-label">
+          Lịch bảo trì <span class="text-red-500">*</span>
         </label>
         <select
           v-model="form.pm_schedule"
           :disabled="!form.asset_ref || loadingSchedules"
-          class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:bg-gray-50 disabled:text-gray-400"
+          class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:bg-slate-50 disabled:text-slate-400"
         >
           <option value="">{{ loadingSchedules ? 'Đang tải...' : '-- Chọn lịch PM --' }}</option>
           <option v-for="s in schedules" :key="s.name" :value="s.name">
@@ -207,50 +209,50 @@ onMounted(() => {
 
       <!-- Checklist preview -->
       <div v-if="form.pm_schedule">
-        <label class="block text-sm font-medium text-gray-700 mb-1">Checklist (xem trước)</label>
-        <div v-if="loadingChecklist" class="text-xs text-gray-500">Đang tải checklist...</div>
-        <div v-else-if="!checklistPreview.length" class="text-xs text-gray-400 italic">
+        <label class="block text-sm font-medium text-slate-700 mb-1">Checklist (xem trước)</label>
+        <div v-if="loadingChecklist" class="text-xs text-slate-500">Đang tải checklist...</div>
+        <div v-else-if="!checklistPreview.length" class="text-xs text-slate-400 italic">
           PM Schedule này không gắn template checklist (KTV sẽ ghi nhận tự do trên phiếu).
         </div>
-        <ul v-else class="border border-gray-200 rounded-lg divide-y text-sm max-h-56 overflow-y-auto">
+        <ul v-else class="border border-slate-200 rounded-lg divide-y text-sm max-h-56 overflow-y-auto">
           <li v-for="(it, i) in checklistPreview" :key="i" class="px-3 py-2 flex justify-between items-center">
             <div>
               <span class="font-medium">{{ it.parameter }}</span>
-              <span class="text-gray-400 ml-2">→ {{ it.expected }}</span>
+              <span class="text-slate-400 ml-2">→ {{ it.expected }}</span>
             </div>
             <span v-if="it.is_critical" class="text-xs bg-red-100 text-red-700 rounded px-2 py-0.5">CRITICAL</span>
           </li>
         </ul>
-        <p v-if="checklistPreview.length" class="text-xs text-gray-500 mt-1">{{ checklistPreview.length }} mục — KTV sẽ điền kết quả khi In Progress.</p>
+        <p v-if="checklistPreview.length" class="text-xs text-slate-500 mt-1">{{ checklistPreview.length }} mục — KTV sẽ điền kết quả khi In Progress.</p>
       </div>
 
       <!-- Due Date -->
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">
+        <label class="block text-sm font-medium text-slate-700 mb-1">
           Ngày thực hiện <span class="text-red-500">*</span>
         </label>
-        <DateInput v-model="form.due_date" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+        <DateInput v-model="form.due_date" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
       </div>
 
       <!-- Assigned To -->
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Giao cho KTV (email)</label>
+        <label class="block text-sm font-medium text-slate-700 mb-1">Giao cho KTV (email)</label>
         <input
           v-model="form.assigned_to"
           type="email"
           placeholder="ktv@hospital.vn"
-          class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+          class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
         />
       </div>
 
       <!-- Notes -->
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Ghi chú</label>
+        <label class="block text-sm font-medium text-slate-700 mb-1">Ghi chú</label>
         <textarea
           v-model="form.technician_notes"
           rows="2"
           placeholder="Lý do tạo WO ngoài lịch..."
-          class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+          class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
         />
       </div>
 

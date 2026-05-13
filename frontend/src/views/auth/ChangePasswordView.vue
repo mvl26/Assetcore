@@ -12,28 +12,44 @@ const newPassword = ref('')
 const confirmPassword = ref('')
 const showOld = ref(false)
 const showNew = ref(false)
+const showConfirm = ref(false)
 
 const saving = ref(false)
 const error = ref('')
 const success = ref('')
 
-const canSubmit = computed(() =>
-  !!oldPassword.value && newPassword.value.length >= 8
-  && newPassword.value === confirmPassword.value
-  && newPassword.value !== oldPassword.value,
-)
+const validations = computed(() => ({
+  hasOld:    oldPassword.value.length > 0,
+  newLong:   newPassword.value.length >= 8,
+  match:     newPassword.value.length > 0 && newPassword.value === confirmPassword.value,
+  different: newPassword.value.length > 0 && newPassword.value !== oldPassword.value,
+}))
+
+const canSubmit = computed(() => Object.values(validations.value).every(Boolean))
+
+const hint = computed(() => {
+  const v = validations.value
+  if (!v.hasOld)    return 'Vui lòng nhập mật khẩu hiện tại.'
+  if (!v.newLong)   return 'Mật khẩu mới phải có tối thiểu 8 ký tự.'
+  if (!v.different) return 'Mật khẩu mới phải khác mật khẩu hiện tại.'
+  if (!v.match)     return 'Mật khẩu xác nhận chưa khớp.'
+  return ''
+})
 
 async function submit(): Promise<void> {
+  if (!canSubmit.value || saving.value) return
   error.value = ''
   success.value = ''
-  if (!canSubmit.value) return
   saving.value = true
   try {
     await changeMyPassword(oldPassword.value, newPassword.value)
     success.value = 'Đổi mật khẩu thành công. Bạn sẽ được đăng xuất.'
+    oldPassword.value = ''
+    newPassword.value = ''
+    confirmPassword.value = ''
     setTimeout(() => { void auth.logout() }, 1500)
   } catch (e: unknown) {
-    error.value = (e as Error).message || 'Lỗi đổi mật khẩu'
+    error.value = e instanceof Error ? e.message : 'Lỗi đổi mật khẩu'
   } finally {
     saving.value = false
   }
@@ -41,76 +57,122 @@ async function submit(): Promise<void> {
 </script>
 
 <template>
-  <div class="p-6 max-w-md mx-auto space-y-5">
-    <div class="flex items-center gap-3">
-      <button class="text-gray-500 hover:text-gray-700" @click="router.push('/profile')">←</button>
-      <h1 class="text-xl font-semibold text-gray-800">Đổi mật khẩu</h1>
+  <div class="page-container max-w-xl mx-auto">
+    <div class="flex items-center gap-3 mb-6">
+      <button
+        type="button"
+        class="w-9 h-9 inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+        title="Quay lại hồ sơ"
+        @click="router.push('/profile')"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-5 h-5">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M15 18l-6-6 6-6" />
+        </svg>
+      </button>
+      <h1 class="text-2xl font-bold text-slate-900">Đổi mật khẩu</h1>
     </div>
 
-    <div class="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
-      <p class="text-sm text-gray-500">
-        Người dùng: <span class="font-mono text-gray-800">{{ auth.user?.name }}</span>
+    <form
+      class="card space-y-4"
+      autocomplete="off"
+      @submit.prevent="submit"
+    >
+      <p class="text-sm text-slate-500">
+        Người dùng:
+        <span class="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded text-slate-700">
+          {{ auth.user?.name }}
+        </span>
       </p>
 
-      <div v-if="error" class="bg-red-50 text-red-700 text-sm p-3 rounded-lg">{{ error }}</div>
-      <div v-if="success" class="bg-green-50 text-green-700 text-sm p-3 rounded-lg">{{ success }}</div>
+      <div v-if="error" class="alert-error">
+        <span>{{ error }}</span>
+      </div>
+      <div v-if="success" class="alert-success">
+        <span>{{ success }}</span>
+      </div>
 
-      <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Mật khẩu hiện tại</label>
+      <div class="form-group">
+        <label class="form-label">Mật khẩu hiện tại</label>
         <div class="relative">
           <input
             v-model="oldPassword"
             :type="showOld ? 'text' : 'password'"
-            class="w-full border border-gray-300 rounded-lg px-3 py-2 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+            class="form-input pr-16"
             autocomplete="current-password"
+            :disabled="saving || !!success"
           />
           <button
-type="button" class="absolute inset-y-0 right-2 text-xs text-gray-500"
-                  @click="showOld = !showOld">
-{{ showOld ? 'Ẩn' : 'Hiện' }}
-</button>
+            type="button"
+            class="absolute inset-y-0 right-2 text-xs text-slate-500 hover:text-slate-700 px-2"
+            tabindex="-1"
+            @click="showOld = !showOld"
+          >
+            {{ showOld ? 'Ẩn' : 'Hiện' }}
+          </button>
         </div>
       </div>
 
-      <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Mật khẩu mới (≥ 8 ký tự)</label>
+      <div class="form-group">
+        <label class="form-label">Mật khẩu mới <span class="text-slate-400 font-normal">(≥ 8 ký tự)</span></label>
         <div class="relative">
           <input
             v-model="newPassword"
             :type="showNew ? 'text' : 'password'"
-            class="w-full border border-gray-300 rounded-lg px-3 py-2 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+            class="form-input pr-16"
             autocomplete="new-password"
+            :disabled="saving || !!success"
           />
           <button
-type="button" class="absolute inset-y-0 right-2 text-xs text-gray-500"
-                  @click="showNew = !showNew">
-{{ showNew ? 'Ẩn' : 'Hiện' }}
-</button>
+            type="button"
+            class="absolute inset-y-0 right-2 text-xs text-slate-500 hover:text-slate-700 px-2"
+            tabindex="-1"
+            @click="showNew = !showNew"
+          >
+            {{ showNew ? 'Ẩn' : 'Hiện' }}
+          </button>
         </div>
       </div>
 
-      <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Xác nhận mật khẩu mới</label>
-        <input
-          v-model="confirmPassword"
-          :type="showNew ? 'text' : 'password'"
-          class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-          autocomplete="new-password"
-        />
-        <p
-v-if="confirmPassword && newPassword !== confirmPassword"
-           class="text-xs text-red-600 mt-1">
-Mật khẩu xác nhận không khớp.
-</p>
+      <div class="form-group">
+        <label class="form-label">Xác nhận mật khẩu mới</label>
+        <div class="relative">
+          <input
+            v-model="confirmPassword"
+            :type="showConfirm ? 'text' : 'password'"
+            class="form-input pr-16"
+            autocomplete="new-password"
+            :disabled="saving || !!success"
+          />
+          <button
+            type="button"
+            class="absolute inset-y-0 right-2 text-xs text-slate-500 hover:text-slate-700 px-2"
+            tabindex="-1"
+            @click="showConfirm = !showConfirm"
+          >
+            {{ showConfirm ? 'Ẩn' : 'Hiện' }}
+          </button>
+        </div>
       </div>
 
-      <button
-        :disabled="!canSubmit || saving"
-        class="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white py-2.5 rounded-lg text-sm font-medium"
-        @click="submit"
-      >
-        {{ saving ? 'Đang cập nhật...' : 'Đổi mật khẩu' }}
-      </button>
-    </div>
+      <p v-if="hint && !success" class="text-xs text-amber-600">{{ hint }}</p>
+
+      <div class="flex items-center gap-2 pt-2">
+        <button
+          type="submit"
+          class="btn-primary"
+          :disabled="!canSubmit || saving || !!success"
+        >
+          {{ saving ? 'Đang cập nhật...' : 'Đổi mật khẩu' }}
+        </button>
+        <button
+          type="button"
+          class="btn-secondary"
+          :disabled="saving"
+          @click="router.push('/profile')"
+        >
+          Hủy
+        </button>
+      </div>
+    </form>
   </div>
 </template>

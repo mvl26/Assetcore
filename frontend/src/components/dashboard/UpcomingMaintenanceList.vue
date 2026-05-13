@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
-import type { UpcomingItem } from '@/stores/useDashboardStore'
+import type { UpcomingItem } from '@/stores/dashboard'
 
 const props = defineProps<{ items: UpcomingItem[] }>()
 const router = useRouter()

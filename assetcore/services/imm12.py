@@ -26,6 +26,7 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, now_datetime, nowdate, today
 
+from assetcore.repositories.repair_repo import IncidentRepo, RCARepo
 from assetcore.services import imm00 as svc00
 
 _DT_INCIDENT = "Incident Report"
@@ -34,7 +35,8 @@ _DT_CAPA = "IMM CAPA Record"
 _DT_ASSET = "AC Asset"
 
 _STATUS_OPEN = "Open"
-_STATUS_INVESTIGATING = "Under Investigation"
+_STATUS_ACKNOWLEDGED = "Acknowledged"
+_STATUS_INVESTIGATING = "In Progress"
 _STATUS_RESOLVED = "Resolved"
 _STATUS_CLOSED = "Closed"
 _STATUS_CANCELLED = "Cancelled"
@@ -52,8 +54,9 @@ _ASSET_OUT_OF_SERVICE = "Out of Service"
 _ASSET_ACTIVE = "Active"
 
 _VALID_TRANSITIONS: dict[str, list[str]] = {
-    _STATUS_OPEN: [_STATUS_INVESTIGATING, _STATUS_CANCELLED],
-    _STATUS_INVESTIGATING: [_STATUS_RESOLVED, _STATUS_CANCELLED],
+    _STATUS_OPEN: [_STATUS_ACKNOWLEDGED, _STATUS_INVESTIGATING, _STATUS_CANCELLED],
+    _STATUS_ACKNOWLEDGED: [_STATUS_INVESTIGATING, _STATUS_CANCELLED],
+    _STATUS_INVESTIGATING: [_STATUS_RESOLVED, _STATUS_CANCELLED, _RCA_REQUIRED],
     _STATUS_RESOLVED: [_STATUS_CLOSED],
 }
 
@@ -75,15 +78,17 @@ class IncidentError(Exception):
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
 def _get_incident(name: str) -> "frappe.Document":
-    if not frappe.db.exists(_DT_INCIDENT, name):
+    doc = IncidentRepo.get(name)
+    if not doc:
         raise IncidentError(_("Không tìm thấy Incident Report: {0}").format(name), 404)
-    return frappe.get_doc(_DT_INCIDENT, name)
+    return doc
 
 
 def _get_rca(name: str) -> "frappe.Document":
-    if not frappe.db.exists(_DT_RCA, name):
+    doc = RCARepo.get(name)
+    if not doc:
         raise IncidentError(_("Không tìm thấy RCA Record: {0}").format(name), 404)
-    return frappe.get_doc(_DT_RCA, name)
+    return doc
 
 
 def _assert_transition(doc: "frappe.Document", to_status: str) -> None:
@@ -123,13 +128,30 @@ def _needs_rca(severity: str) -> bool:
 
 def _enrich_asset_names(rows: list) -> None:
     asset_ids = {r["asset"] for r in rows if r.get("asset")}
-    if not asset_ids:
-        return
-    asset_map = {a.name: a.asset_name for a in frappe.get_all(
-        _DT_ASSET, filters={"name": ["in", list(asset_ids)]}, fields=["name", "asset_name"],
-    )}
+    if asset_ids:
+        asset_map = {a.name: a.asset_name for a in frappe.get_all(
+            _DT_ASSET, filters={"name": ["in", list(asset_ids)]}, fields=["name", "asset_name"],
+        )}
+        for r in rows:
+            r["asset_name"] = asset_map.get(r.get("asset"), r.get("asset") or "")
+
+    # Enrich user fields (Data Contract Wave 1: reporter_name, assigned_to_name)
+    user_ids: set = set()
     for r in rows:
-        r["asset_name"] = asset_map.get(r.get("asset"), r.get("asset") or "")
+        if r.get("reported_by"):
+            user_ids.add(r["reported_by"])
+        if r.get("assigned_to"):
+            user_ids.add(r["assigned_to"])
+    if user_ids:
+        user_map = {u.name: u.full_name for u in frappe.get_all(
+            "User", filters={"name": ["in", list(user_ids)]},
+            fields=["name", "full_name"],
+        )}
+        for r in rows:
+            if r.get("reported_by"):
+                r["reporter_name"] = user_map.get(r["reported_by"], r["reported_by"])
+            if r.get("assigned_to"):
+                r["assigned_to_name"] = user_map.get(r["assigned_to"], r["assigned_to"])
 
 
 def _build_incident_filters(status: str, severity: str, asset: str) -> dict:
@@ -400,7 +422,7 @@ def submit_rca(
     # BR-12-06: auto CAPA via IMM-00
     capa_name: str | None = None
     try:
-        incident = frappe.get_doc(_DT_INCIDENT, rca.incident_report) if rca.incident_report else None
+        incident = IncidentRepo.get(rca.incident_report) if rca.incident_report else None
         asset = rca.asset or (incident.asset if incident else None)
         severity = _map_severity(incident.severity if incident else "High")
         capa_name = svc00.create_capa(
@@ -463,8 +485,8 @@ def get_incident_detail(name: str) -> dict:
     if doc.asset:
         data["asset_name"] = frappe.db.get_value(_DT_ASSET, doc.asset, "asset_name")
     data["allowed_transitions"] = _VALID_TRANSITIONS.get(doc.status, [])
-    if doc.rca_record and frappe.db.exists(_DT_RCA, doc.rca_record):
-        rca = frappe.get_doc(_DT_RCA, doc.rca_record)
+    if doc.rca_record:
+        rca = RCARepo.get(doc.rca_record)
         data["rca"] = {
             "name": rca.name,
             "status": rca.status,

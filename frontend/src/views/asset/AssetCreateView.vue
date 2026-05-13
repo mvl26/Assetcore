@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import DateInput from '@/components/common/DateInput.vue'
 // Copyright (c) 2026, AssetCore Team
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { createAsset } from '@/api/imm00'
+import { createAsset, getDeviceModel } from '@/api/imm00'
 import SmartSelect from '@/components/common/SmartSelect.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import { useFormDraft } from '@/composables/useFormDraft'
@@ -30,6 +30,17 @@ const form = ref<Partial<AcAsset>>({
 })
 
 const { clear: clearDraft } = useFormDraft('asset-create', form)
+
+// Kế thừa gmdn_code từ Device Model khi user chọn
+watch(() => form.value.device_model, async (modelName) => {
+  if (!modelName || form.value.gmdn_code) return
+  try {
+    const model = await getDeviceModel(modelName)
+    if (model?.gmdn_code) form.value.gmdn_code = model.gmdn_code
+  } catch {
+    // silent — gmdn_code không bắt buộc
+  }
+})
 
 async function submit() {
   if (!form.value.asset_name?.trim()) {
@@ -142,8 +153,11 @@ async function submit() {
             <input v-model="form.udi_code" type="text" class="form-input w-full font-mono" />
           </div>
           <div>
-            <label class="form-label">GMDN Code</label>
-            <input v-model="form.gmdn_code" type="text" class="form-input w-full" />
+            <label class="form-label">
+              GMDN Code
+              <span v-if="form.device_model" class="ml-1 text-[10px] font-normal text-blue-500">(tự điền từ model)</span>
+            </label>
+            <input v-model="form.gmdn_code" type="text" class="form-input w-full" placeholder="Kế thừa từ Model thiết bị" />
           </div>
           <div>
             <label class="form-label">Phân loại y tế</label>

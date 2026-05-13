@@ -1,0 +1,38 @@
+{
+ "actions": [],
+ "creation": "2026-04-29 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "needs_request",
+  "priority_rank",
+  "weighted_score",
+  "column_break_1",
+  "allocated_budget",
+  "target_quarter",
+  "status"
+ ],
+ "fields": [
+  {"fieldname": "needs_request", "fieldtype": "Link", "options": "IMM Needs Request",
+   "label": "Phiếu đề xuất", "in_list_view": 1, "reqd": 1},
+  {"fieldname": "priority_rank", "fieldtype": "Int", "label": "Hạng ưu tiên", "in_list_view": 1, "read_only": 1},
+  {"fieldname": "weighted_score", "fieldtype": "Float", "label": "Điểm tổng", "read_only": 1, "precision": "4"},
+  {"fieldname": "column_break_1", "fieldtype": "Column Break"},
+  {"fieldname": "allocated_budget", "fieldtype": "Currency", "label": "Phân bổ ngân sách", "in_list_view": 1, "reqd": 1},
+  {"fieldname": "target_quarter", "fieldtype": "Select", "label": "Quý mục tiêu",
+   "options": "\nQ1\nQ2\nQ3\nQ4"},
+  {"fieldname": "status", "fieldtype": "Select", "label": "Trạng thái",
+   "options": "Pending Spec\nIn Spec\nIn Procurement\nAwarded\nCancelled", "default": "Pending Spec"}
+ ],
+ "istable": 1,
+ "links": [],
+ "modified": "2026-04-29 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "AssetCore",
+ "name": "Procurement Plan Line",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "priority_rank",
+ "sort_order": "ASC",
+ "states": []
+}

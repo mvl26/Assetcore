@@ -1,0 +1,26 @@
+{
+ "actions": [], "creation": "2026-04-29 00:00:00.000000",
+ "doctype": "DocType", "engine": "InnoDB",
+ "field_order": [
+  "cert_type", "cert_number", "issued_by", "column_break_1",
+  "issued_date", "expiry_date", "status", "section_file", "attachment"
+ ],
+ "fields": [
+  {"fieldname": "cert_type", "fieldtype": "Select", "label": "Loại chứng chỉ", "in_list_view": 1, "reqd": 1,
+   "options": "ISO 9001\nISO 13485\nĐKLH BYT\nGSP\nGDP\nCE\nFDA\nOther"},
+  {"fieldname": "cert_number", "fieldtype": "Data", "label": "Số chứng chỉ", "in_list_view": 1},
+  {"fieldname": "issued_by", "fieldtype": "Data", "label": "Cấp bởi"},
+  {"fieldname": "column_break_1", "fieldtype": "Column Break"},
+  {"fieldname": "issued_date", "fieldtype": "Date", "label": "Ngày cấp"},
+  {"fieldname": "expiry_date", "fieldtype": "Date", "label": "Hết hạn", "in_list_view": 1},
+  {"fieldname": "status", "fieldtype": "Select", "label": "Status", "read_only": 1,
+   "options": "\nActive\nExpiring\nExpired", "in_list_view": 1},
+  {"fieldname": "section_file", "fieldtype": "Section Break"},
+  {"fieldname": "attachment", "fieldtype": "Attach", "label": "File"}
+ ],
+ "istable": 1, "links": [],
+ "modified": "2026-04-29 00:00:00.000000", "modified_by": "Administrator",
+ "module": "AssetCore", "name": "Vendor Cert",
+ "owner": "Administrator", "permissions": [],
+ "sort_field": "expiry_date", "sort_order": "ASC", "states": []
+}

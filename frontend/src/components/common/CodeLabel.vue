@@ -17,11 +17,11 @@ defineProps<{
 
 <template>
   <span :class="inline ? 'inline-flex items-baseline gap-1.5' : 'flex flex-col gap-0.5'">
-    <span class="text-gray-900 font-medium leading-snug">{{ label }}</span>
+    <span class="text-slate-900 font-medium leading-snug">{{ label }}</span>
     <span v-if="code || hint" class="inline-flex items-center gap-1.5">
-      <span v-if="code" class="text-xs text-gray-400 font-mono leading-none">{{ code }}</span>
-      <span v-if="code && hint" class="text-gray-300 text-xs leading-none">·</span>
-      <span v-if="hint" class="text-xs text-gray-400 leading-none">{{ hint }}</span>
+      <span v-if="code" class="text-xs text-slate-400 font-mono leading-none">{{ code }}</span>
+      <span v-if="code && hint" class="text-slate-300 text-xs leading-none">·</span>
+      <span v-if="hint" class="text-xs text-slate-400 leading-none">{{ hint }}</span>
     </span>
   </span>
 </template>

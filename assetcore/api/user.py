@@ -4,15 +4,11 @@ IMM-00 User Management API.
 
 Data model:
   User  (Frappe core) — xác thực, custom fields IMM, Has Role child table
-  Employee (ERPNext optional) — HR data, liên kết qua Employee.user_id = User.name
+  Employee (optional, nếu cài Frappe HR) — liên kết qua Employee.user_id = User.name
 
 Custom fields trên tabUser (tạo bởi assetcore.setup.install.after_migrate):
   imm_approval_status | imm_approved_by | imm_approved_at
   imm_rejection_reason | ac_department
-
-NOTE: tabEmployee dùng "name" (docname) làm định danh chính.
-      Liên kết User ↔ Employee qua cột user_id của Employee.
-      Frappe HR không có cột định danh phụ trong schema chuẩn.
 """
 from __future__ import annotations
 
@@ -147,11 +143,22 @@ def _sync_imm_roles(user_doc: Any, new_roles: list[str]) -> None:
     """
     Thay thế toàn bộ IMM roles trên user_doc bằng new_roles.
     Frappe non-IMM roles (System Manager, v.v.) được giữ nguyên.
-    Dùng user_doc.add_roles() để append — chuẩn Frappe child table.
+
+    CHÚ Ý: KHÔNG dùng `user_doc.add_roles()` — method này gọi `self.save()`
+    nội bộ mà KHÔNG có `flags.ignore_permissions = True`. Frappe User DocType
+    có DocPerm restrictive nên save fail âm thầm và rollback role changes →
+    bug "Lưu thành công nhưng role không vào DB" (theo cảm nhận user). Thay
+    vào đó, chỉ MUTATE child table `roles` trong bộ nhớ; caller `_save_user`
+    sẽ gọi `user_doc.save()` MỘT LẦN duy nhất với `ignore_permissions = True`.
     """
-    user_doc.roles = [r for r in user_doc.roles if r.role not in _IMM_ROLES]
-    if new_roles:
-        user_doc.add_roles(*new_roles)
+    # 1. Giữ lại non-IMM roles (System Manager, Maintenance User, …)
+    user_doc.set("roles", [r for r in user_doc.roles if r.role not in _IMM_ROLES])
+    # 2. Append IMM roles mới — không gọi save, để _save_user lo
+    existing = {r.role for r in user_doc.roles}
+    for role in new_roles:
+        if role not in existing:
+            user_doc.append("roles", {"role": role})
+            existing.add(role)
 
 
 def _apply_scalar_fields(user_doc: Any, data: dict) -> None:
@@ -451,7 +458,8 @@ def _build_new_user_doc(email: str, first_name: str, data: dict, imm_roles: list
     if data.get("password"):
         user_doc.new_password = data["password"]
     if imm_roles:
-        user_doc.add_roles(*imm_roles)
+        for role in imm_roles:
+            user_doc.append("roles", {"role": role})
     user_doc.flags.ignore_permissions = True
     return user_doc
 
@@ -644,7 +652,7 @@ def list_role_profiles() -> dict:
     """
     profiles = frappe.get_all(
         _DT_ROLE_PROFILE,
-        filters={"role_profile": ("like", "IMM -%")},
+        filters={"role_profile": ("like", "AssetCore —%")},
         fields=["name", "role_profile"],
         order_by="role_profile asc",
     )

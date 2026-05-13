@@ -89,7 +89,7 @@ _ALLOWED_SEARCH_DOCTYPES: dict[str, dict] = {
     _DT_PO: {
         "label_field": "name",
         "search_fields": ["name", "supplier", "invoice_no"],
-        "filters": {"docstatus": 1},
+        "filters": {},
         "extra_fields": ["supplier", "invoice_no", "purchase_date"],
         "optional": True,
     },
@@ -146,6 +146,39 @@ _ALLOWED_SEARCH_DOCTYPES: dict[str, dict] = {
         "search_fields": ["name", "template_name", "asset_category", "pm_type"],
         "filters": {},
         "extra_fields": ["template_name", "asset_category", "pm_type", "version"],
+    },
+    "AC UOM": {
+        "label_field": "uom_name",
+        "search_fields": ["name", "uom_name", "symbol"],
+        "filters": {"is_active": 1},
+        "extra_fields": ["uom_name", "symbol"],
+    },
+    "AC Spare Part": {
+        "label_field": "part_name",
+        "search_fields": ["name", "part_name", "part_code"],
+        "filters": {},
+        "extra_fields": ["part_name", "part_code"],
+    },
+    "AC Spare Part Category": {
+        "label_field": "name",
+        "search_fields": ["name"],
+        "filters": {},
+        "extra_fields": [],
+        "optional": True,
+    },
+    "AC Vendor": {
+        "label_field": "name",
+        "search_fields": ["name"],
+        "filters": {},
+        "extra_fields": [],
+        "optional": True,
+    },
+    "IMM Calibration Schedule": {
+        "label_field": "name",
+        "search_fields": ["name", "asset_ref"],
+        "filters": {},
+        "extra_fields": ["asset_ref"],
+        "optional": True,
     },
 }
 
@@ -238,8 +271,8 @@ def _vr06_immutable_lifecycle_events(doc: Document) -> None:
         e["name"]: e
         for e in frappe.db.get_all(
             "Asset Lifecycle Event",
-            filters={"parent": doc.name, "parenttype": _DT},
-            fields=["name", "event_timestamp", "actor", "event_type"],
+            filters={"root_record": doc.name, "root_doctype": _DT},
+            fields=["name", "timestamp", "actor", "event_type"],
         )
     }
     for row in doc.get("lifecycle_events") or []:
@@ -354,10 +387,6 @@ def handle_commissioning_cancel(doc: Document) -> None:
         )
 
 
-def create_erpnext_asset(doc: Document) -> str:
-    return create_ac_asset(doc)
-
-
 def _load_model_data(master_item: str) -> dict:
     """Load Model (Tier 2) data + inherit Category (Tier 1) financial defaults.
 
@@ -454,7 +483,6 @@ def create_ac_asset(doc: Document) -> str:
         "commissioning_ref": doc.name,
         "medical_device_class": med_class,
         "risk_classification": risk_clf,
-        "lifecycle_status": "Commissioned",
         "commissioning_date": nowdate(),
         "is_pm_required": model_data.get("is_pm_required") or 0,
         "pm_interval_days": model_data.get("pm_interval_days") or 0,
@@ -463,6 +491,12 @@ def create_ac_asset(doc: Document) -> str:
     })
     asset.flags.ignore_mandatory = True
     asset.insert(ignore_permissions=True)
+    # Apply workflow transition Draft → Commissioned
+    try:
+        from frappe.model.workflow import apply_workflow
+        apply_workflow(asset, "Commission")
+    except Exception:
+        frappe.db.set_value(_DT_ASSET, asset.name, "lifecycle_status", "Commissioned")
     create_lifecycle_event(
         asset=asset.name, event_type="commissioned", actor=frappe.session.user,
         from_status="", to_status="Commissioned",
@@ -689,6 +723,8 @@ def list_commissioning(filters: dict, page: int = 1, page_size: int = 20) -> dic
     item_ids = {r.get("master_item") for r in records if r.get("master_item")}
     vendor_ids = {r.get("vendor") for r in records if r.get("vendor")}
     dept_ids = {r.get("clinical_dept") for r in records if r.get("clinical_dept")}
+    po_ids = {r.get("po_reference") for r in records if r.get("po_reference")}
+    asset_ids = {r.get("final_asset") for r in records if r.get("final_asset")}
 
     item_map = (
         {i.name: i.model_name for i in frappe.get_all(_DT_MODEL, filters={"name": ["in", list(item_ids)]}, fields=["name", "model_name"])}
@@ -702,11 +738,35 @@ def list_commissioning(filters: dict, page: int = 1, page_size: int = 20) -> dic
         {d.name: d.department_name for d in frappe.get_all(_DT_DEPT, filters={"name": ["in", list(dept_ids)]}, fields=["name", "department_name"])}
         if dept_ids else {}
     )
+    po_map: dict = {}
+    if po_ids:
+        try:
+            po_rows = frappe.get_all(
+                _DT_PO, filters={"name": ["in", list(po_ids)]},
+                fields=["name", "purchase_name"],
+            )
+            po_map = {p.name: (p.get("purchase_name") or p.name) for p in po_rows}
+        except Exception:
+            po_map = {}
+    asset_map: dict = {}
+    if asset_ids:
+        try:
+            asset_rows = frappe.get_all(
+                _DT_ASSET, filters={"name": ["in", list(asset_ids)]},
+                fields=["name", "asset_name"],
+            )
+            asset_map = {a.name: a.asset_name for a in asset_rows}
+        except Exception:
+            asset_map = {}
 
     for r in records:
         r["master_item_name"] = item_map.get(r.get("master_item"), r.get("master_item") or "")
+        r["device_model_name"] = r["master_item_name"]  # alias per DC contract
         r["vendor_name"] = vendor_map.get(r.get("vendor"), r.get("vendor") or "")
+        r["supplier_name"] = r["vendor_name"]  # alias per DC contract
         r["clinical_dept_name"] = dept_map.get(r.get("clinical_dept"), r.get("clinical_dept") or "")
+        r["po_ref_name"] = po_map.get(r.get("po_reference"), r.get("po_reference") or "")
+        r["asset_name"] = asset_map.get(r.get("final_asset"), r.get("final_asset") or "")
 
     return {"items": records, "pagination": pg}
 
@@ -830,6 +890,7 @@ def search_link(doctype: str, query: str = "", page_length: int = 10) -> list:
     results = frappe.db.get_all(
         doctype, filters=filters, or_filters=or_filters or None,
         fields=fields, limit=int(page_length), order_by=_ORDER_MODIFIED,
+        ignore_permissions=True,
     )
     label_field = config["label_field"]
     items = []
@@ -877,7 +938,9 @@ def transition_state(name: str, action: str) -> dict:
             f"Hành động '{action}' không hợp lệ từ '{current_state}'. Cho phép: {allowed_actions}",
         )
     doc = frappe.get_doc(_DT, name)
+    prev_state = doc.workflow_state
     frappe.model.workflow.apply_workflow(doc, action)
+    log_lifecycle_event(doc, action, prev_state, doc.workflow_state)
     doc.save(ignore_permissions=False)
     return {"name": name, "action_applied": action, "new_state": doc.workflow_state, "docstatus": doc.docstatus}
 
@@ -897,6 +960,28 @@ def submit_commissioning(name: str) -> dict:
             ErrorCode.INVALID_PARAMS,
             f"Phiếu phải ở '{_STATE_CLINICAL_RELEASE}'. Hiện tại: {doc.workflow_state}",
         )
+
+    # Gate 5 — IMM-04 ↔ IMM-16: block commissioning nếu asset có Critical CAPA/finding mở
+    asset_for_check = getattr(doc, "final_asset", "") or getattr(doc, "master_item", "")
+    if asset_for_check:
+        try:
+            from assetcore.services.imm16 import check_asset_compliance_status  # noqa: PLC0415
+            cstatus = check_asset_compliance_status(asset_for_check)
+            if cstatus.get("blocked"):
+                reasons_msg = "; ".join(
+                    f"{r.get('type')}={r.get('ref')}" for r in cstatus.get("reasons", [])
+                )
+                raise ServiceError(
+                    ErrorCode.COMPLIANCE_BLOCKED,
+                    _("IMM-16 gate: asset {0} bị block do compliance ({1})").format(
+                        asset_for_check, reasons_msg
+                    ),
+                )
+        except ServiceError:
+            raise
+        except Exception:
+            frappe.log_error(frappe.get_traceback(), "IMM-04: compliance gate failed")
+
     doc.submit()
     return {"name": name, "docstatus": 1, "final_asset": doc.final_asset}
 
@@ -1429,7 +1514,7 @@ def approve_pending(commissioning: str, decision: str, remarks: str = "") -> dic
 
 def list_my_pending_approvals() -> list[dict]:
     """Commissioning records where current user is the pending_approver."""
-    return frappe.get_all(
+    items = frappe.get_all(
         _DT,
         filters={"pending_approver": frappe.session.user, "docstatus": ["!=", 2]},
         fields=["name", "workflow_state", "master_item", "vendor", "clinical_dept",
@@ -1438,6 +1523,14 @@ def list_my_pending_approvals() -> list[dict]:
         order_by="approval_submitted_at desc",
         limit_page_length=50,
     )
+    vendor_ids = {r.get("vendor") for r in items if r.get("vendor")}
+    if vendor_ids:
+        mapping = {r.name: r.supplier_name for r in frappe.get_all(
+            "AC Supplier", filters={"name": ["in", list(vendor_ids)]}, fields=["name", "supplier_name"],
+        )}
+        for r in items:
+            r["vendor_name"] = mapping.get(r.get("vendor")) or r.get("vendor") or ""
+    return items
 
 
 # ─── Purchase → Commissioning linkage (Wave 1 P1) ─────────────────────────────

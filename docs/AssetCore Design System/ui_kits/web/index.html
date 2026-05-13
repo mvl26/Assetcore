@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8" />
+<title>AssetCore — UI Kit</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="../../colors_and_type.css" />
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; font-family: Inter, sans-serif; color: #0f172a; }
+  body { background: #f4f6fa; }
+  #root { height: 100vh; display: flex; }
+  button:focus-visible, input:focus-visible, select:focus-visible {
+    outline: none; box-shadow: 0 0 0 3px rgba(37,99,235,0.20);
+  }
+  input::placeholder { color: #94a3b8; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel" src="Icons.jsx"></script>
+<script type="text/babel" src="StatusBadge.jsx"></script>
+<script type="text/babel" src="Sidebar.jsx"></script>
+<script type="text/babel" src="Topbar.jsx"></script>
+<script type="text/babel" src="Launcher.jsx"></script>
+<script type="text/babel" src="Dashboard.jsx"></script>
+<script type="text/babel" src="AssetList.jsx"></script>
+<script type="text/babel" src="WorkOrderDetail.jsx"></script>
+
+<script type="text/babel">
+function App() {
+  // route: { kind: 'launcher' } | { kind: 'module', moduleId, view, asset? }
+  const [route, setRoute] = React.useState({ kind: "launcher" });
+  const M = window.MODULES;
+  const P = window.PHASES;
+
+  const openModule = (m) => setRoute({ kind: "module", moduleId: m.id, view: "dashboard" });
+  const goLauncher = () => setRoute({ kind: "launcher" });
+
+  // Module-scoped sidebar items
+  const sidebarItems = React.useMemo(() => {
+    if (route.kind !== "module") return [];
+    // IMM-08 sidebar (PM module example)
+    if (route.moduleId === "IMM-08") {
+      return [
+        { id: "dashboard", label: "Tổng quan",           icon: "grid" },
+        { id: "work",      label: "Lệnh bảo trì",        icon: "wrench", badge: 23 },
+        { id: "schedule",  label: "Lịch bảo trì",        icon: "calendar" },
+        { id: "plan",      label: "Kế hoạch PM",         icon: "list" },
+        { id: "templates", label: "Mẫu công việc PM",    icon: "template" },
+        { id: "history",   label: "Lịch sử bảo trì",     icon: "log" },
+        { id: "report",    label: "Báo cáo",             icon: "chart" },
+      ];
+    }
+    // Generic
+    return [
+      { id: "dashboard", label: "Tổng quan",          icon: "grid" },
+      { id: "list",      label: "Danh sách",          icon: "list" },
+      { id: "create",    label: "Tạo mới",            icon: "plus" },
+      { id: "report",    label: "Báo cáo",            icon: "chart" },
+    ];
+  }, [route.moduleId, route.kind]);
+
+  // Map IMM-08 nav clicks to view
+  const onNav = (id) => {
+    if (route.moduleId === "IMM-08") {
+      if (id === "work") return setRoute({ ...route, view: "list" });
+      if (id === "dashboard") return setRoute({ ...route, view: "dashboard" });
+    }
+    setRoute({ ...route, view: id });
+  };
+
+  // ----- launcher view -----
+  if (route.kind === "launcher") {
+    return (
+      <div style={{ display: "flex", flex: 1, flexDirection: "column" }}>
+        <window.Topbar title="HTM · CMMS · IMMIS" subtitle="Bệnh viện Nhi đồng 1" />
+        <window.Launcher onOpen={openModule} />
+      </div>
+    );
+  }
+
+  // ----- inside a module -----
+  const mod = M.find((x) => x.id === route.moduleId);
+  const phase = P.find((p) => p.id === mod.phase);
+  const activeNav = route.view === "list" && route.moduleId === "IMM-08" ? "work" : route.view;
+
+  let main;
+  if (route.view === "detail" && route.asset) {
+    main = <window.WorkOrderDetail asset={route.asset} onBack={() => setRoute({ ...route, view: "list", asset: null })} />;
+  } else if (route.view === "list") {
+    main = <window.AssetList onOpenAsset={(a) => setRoute({ ...route, view: "detail", asset: a })} />;
+  } else {
+    main = <window.Dashboard />;
+  }
+
+  return (
+    <>
+      <window.Sidebar
+        activeModule={activeNav}
+        items={sidebarItems}
+        onNav={onNav}
+        onLauncher={goLauncher}
+        brand={`${mod.id} · ${phase.title}`}
+      />
+      <div style={{ display: "flex", flex: 1, flexDirection: "column", minWidth: 0 }}>
+        <window.Topbar
+          title={mod.title}
+          subtitle={mod.id}
+          breadcrumbs={
+            route.view === "detail"
+              ? `Launcher / ${mod.id} / Lệnh bảo trì / WO-PM-1138`
+              : `Launcher / ${mod.id}`
+          }
+          onBack={route.view === "detail" ? () => setRoute({ ...route, view: "list", asset: null }) : null}
+        />
+        {main}
+      </div>
+    </>
+  );
+}
+
+const tryRender = () => {
+  if (!window.Launcher || !window.Sidebar || !window.Topbar || !window.Dashboard || !window.AssetList || !window.WorkOrderDetail || !window.StatusBadge || !window.Icons) {
+    return setTimeout(tryRender, 30);
+  }
+  ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+};
+tryRender();
+</script>
+</body>
+</html>

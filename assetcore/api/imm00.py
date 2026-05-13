@@ -9,7 +9,8 @@ Convention:
 import frappe
 from frappe import _
 
-from assetcore.utils.response import _ok, _err, ErrorCode
+from assetcore.utils.response import _ok, _err
+from assetcore.services.shared import ErrorCode
 from assetcore.utils.pagination import paginate
 from assetcore.services.imm00 import (
     transition_asset_status,
@@ -26,6 +27,7 @@ from assetcore.services.imm00 import (
     reject_transfer_request,
     confirm_receipt,
     cancel_transfer_request,
+    InvalidAssetTransition,
 )
 
 _DT_ASSET = "AC Asset"
@@ -40,12 +42,16 @@ _DT_SLA_POLICY = "IMM SLA Policy"
 def _enrich(items: list, field: str, doctype: str, display_field: str, out_field: str = None) -> None:
     """Batch-enrich a list of dicts with a display name for a linked field (avoids N+1)."""
     out = out_field or f"{field}_name"
-    ids = {row.get(field) for row in items if row.get(field)}
+    ids = list({row.get(field) for row in items if row.get(field)})
     if not ids:
         return
-    mapping = {r.name: r[display_field] for r in frappe.get_all(
-        doctype, filters={"name": ["in", list(ids)]}, fields=["name", display_field],
-    )}
+    table = f"tab{doctype}"
+    placeholders = ", ".join(["%s"] * len(ids))
+    rows = frappe.db.sql(
+        f"SELECT `name`, `{display_field}` FROM `{table}` WHERE `name` IN ({placeholders})",
+        ids,
+    )
+    mapping = {r[0]: r[1] for r in rows}
     for row in items:
         row[out] = mapping.get(row.get(field)) or row.get(field) or ""
 _DT_AUDIT_TRAIL = "IMM Audit Trail"
@@ -120,6 +126,7 @@ def list_assets(
     fields = [
         "name", "asset_name", "asset_code", "lifecycle_status",
         "asset_category", "location", "department", "responsible_technician",
+        "supplier", "device_model",
         "next_pm_date", "next_calibration_date", "byt_reg_expiry",
         "gmdn_code", "gmdn_status",
         "gross_purchase_amount", "accumulated_depreciation", "current_book_value",
@@ -136,6 +143,9 @@ def list_assets(
     _enrich(items, "asset_category", _DT_ASSET_CATEGORY, "category_name")
     _enrich(items, "department", _DT_DEPARTMENT, "department_name")
     _enrich(items, "location", _DT_LOCATION, "location_name")
+    _enrich(items, "supplier", _DT_SUPPLIER, "supplier_name")
+    _enrich(items, "device_model", _DT_DEVICE_MODEL, "model_name", out_field="device_model_name")
+    _enrich(items, "responsible_technician", "User", "full_name", out_field="responsible_technician_name")
     return _ok({"pagination": pag, "items": items})
 
 
@@ -214,12 +224,13 @@ def transition_status(name: str, to_status: str, reason: str = ""):
     if not frappe.db.exists(_DT_ASSET, name):
         return _err(_(_ERR_ASSET_NOT_FOUND), 404)
     try:
-        actor = frappe.session.user
-        transition_asset_status(name, to_status, actor=actor, reason=reason)
+        transition_asset_status(name, to_status, actor=frappe.session.user, reason=reason)
         frappe.db.commit()
         return _ok({"name": name, "lifecycle_status": to_status})
+    except InvalidAssetTransition as e:
+        return _err(str(e), ErrorCode.BAD_STATE)
     except frappe.exceptions.ValidationError as e:
-        return _err(str(e), 422)
+        return _err(str(e), ErrorCode.VALIDATION)
 
 
 @frappe.whitelist(methods=["POST"])
@@ -400,6 +411,9 @@ def list_locations(parent: str = None):
                 "emergency_contact", "dept_head", "technical_contact", "notes"],
         order_by="lft asc",
     )
+    _enrich(items, "parent_location", _DT_LOCATION, "location_name")
+    _enrich(items, "dept_head", "User", "full_name", out_field="dept_head_name")
+    _enrich(items, "technical_contact", "User", "full_name", out_field="technical_contact_name")
     return _ok(items)
 
 
@@ -416,6 +430,8 @@ def list_departments(parent: str = None):
                 "dept_head", "phone", "email", "is_active"],
         order_by="lft asc",
     )
+    _enrich(items, "parent_department", _DT_DEPARTMENT, "department_name")
+    _enrich(items, "dept_head", "User", "full_name", out_field="dept_head_name")
     return _ok(items)
 
 
@@ -425,6 +441,7 @@ def list_asset_categories():
     items = frappe.get_list(
         _DT_ASSET_CATEGORY,
         fields=["name", "category_name", "description",
+                "gmdn_code", "gmdn_term",
                 "default_pm_required", "default_pm_interval_days",
                 "default_calibration_required", "default_calibration_interval_days",
                 "default_depreciation_method", "total_depreciation_months",
@@ -560,6 +577,7 @@ def list_device_models(page: int = 1, page_size: int = 20, manufacturer: str = N
         limit_page_length=page_size,
         order_by="model_name asc",
     )
+    _enrich(items, "asset_category", _DT_ASSET_CATEGORY, "category_name")
     return _ok({"pagination": pag, "items": items})
 
 
@@ -708,10 +726,11 @@ def resolve_sla_policy(priority: str, risk_class: str):
     try:
         policy = get_sla_policy(priority, risk_class)
         if not policy:
-            return _err(_("Không tìm thấy SLA Policy phù hợp"), 404)
+            return _err(_("Không tìm thấy SLA Policy phù hợp"), ErrorCode.NOT_FOUND)
         return _ok(policy)
-    except Exception as e:
-        return _err(str(e), 500)
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "resolve_sla_policy error")
+        return _err(_("Lỗi server"), ErrorCode.INTERNAL)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -851,7 +870,7 @@ def open_capa():
     required = ("asset", "severity", "description", "responsible")
     missing = [f for f in required if not data.get(f)]
     if missing:
-        return _err(_(f"Thiếu trường bắt buộc: {', '.join(missing)}"), 422)
+        return _err(_("Thiếu trường bắt buộc: {0}").format(", ".join(missing)), ErrorCode.VALIDATION)
     try:
         name = create_capa(
             asset=data["asset"],
@@ -877,7 +896,7 @@ def close_capa_record(name: str):
     required = ("root_cause", "corrective_action", "preventive_action")
     missing = [f for f in required if not data.get(f)]
     if missing:
-        return _err(_(f"Thiếu trường bắt buộc: {', '.join(missing)}"), 422)
+        return _err(_("Thiếu trường bắt buộc: {0}").format(", ".join(missing)), ErrorCode.VALIDATION)
     try:
         close_capa(
             capa_name=name,
@@ -1001,7 +1020,7 @@ def create_incident():
     required = ("asset", "severity", "incident_type", "description")
     missing = [f for f in required if not data.get(f)]
     if missing:
-        return _err(_(f"Thiếu trường bắt buộc: {', '.join(missing)}"), 422)
+        return _err(_("Thiếu trường bắt buộc: {0}").format(", ".join(missing)), ErrorCode.VALIDATION)
     try:
         doc = frappe.new_doc(_DT_INCIDENT)
         doc.update({k: v for k, v in data.items() if k not in ("cmd", "doctype")})
@@ -1150,7 +1169,10 @@ def get_service_contract(name: str):
     """GET /api/method/assetcore.api.imm00.get_service_contract"""
     if not frappe.db.exists(_DT_SERVICE_CONTRACT, name):
         return _err(_(_ERR_CONTRACT_NOT_FOUND), 404)
-    return _ok(frappe.get_doc(_DT_SERVICE_CONTRACT, name).as_dict())
+    doc = frappe.get_doc(_DT_SERVICE_CONTRACT, name).as_dict()
+    if doc.get("supplier"):
+        doc["supplier_name"] = frappe.db.get_value(_DT_SUPPLIER, doc["supplier"], "supplier_name") or doc["supplier"]
+    return _ok(doc)
 
 
 @frappe.whitelist(methods=["POST"])
@@ -1160,7 +1182,7 @@ def create_service_contract():
     required = ("contract_title", "supplier", "contract_type", "contract_start", "contract_end")
     missing = [f for f in required if not data.get(f)]
     if missing:
-        return _err(_(f"Thiếu trường bắt buộc: {', '.join(missing)}"), 422)
+        return _err(_("Thiếu trường bắt buộc: {0}").format(", ".join(missing)), ErrorCode.VALIDATION)
     try:
         doc = frappe.new_doc(_DT_SERVICE_CONTRACT)
         doc.update({k: v for k, v in data.items() if k not in ("cmd", "doctype")})
@@ -1207,9 +1229,10 @@ def delete_service_contract(name: str):
         frappe.db.commit()
         return _ok({"name": name, "deleted": True})
     except (frappe.exceptions.ValidationError, frappe.exceptions.LinkExistsError) as e:
-        return _err(str(e), 422)
-    except Exception as e:
-        return _err(f"Không thể xóa: {e}", 500)
+        return _err(str(e), ErrorCode.VALIDATION)
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "delete_service_contract error")
+        return _err(_("Không thể xóa hợp đồng"), ErrorCode.INTERNAL)
 
 
 @frappe.whitelist()
@@ -1274,7 +1297,8 @@ def _generic_update(doctype: str, name: str):
     try:
         doc = frappe.get_doc(doctype, name)
         doc.update({k: v for k, v in data.items() if k not in ("cmd", "name", "doctype")})
-        doc.save()
+        doc.flags.ignore_links = True
+        doc.save(ignore_permissions=True)
         frappe.db.commit()
         return _ok({"name": doc.name})
     except frappe.exceptions.ValidationError as e:
@@ -1293,8 +1317,9 @@ def _generic_delete(doctype: str, name: str):
                     ErrorCode.CONFLICT)
     except frappe.exceptions.ValidationError as e:
         return _err(str(e), ErrorCode.BUSINESS_RULE)
-    except Exception as e:
-        return _err(_("Không thể xóa: {0}").format(e), ErrorCode.INTERNAL_ERROR)
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), f"delete {doctype} error")
+        return _err(_("Không thể xóa {0}").format(doctype), ErrorCode.INTERNAL)
 
 
 @frappe.whitelist(methods=["POST"])
@@ -1559,7 +1584,7 @@ def create_pm_schedule():
         missing["pm_interval_days"] = _("Vui lòng nhập chu kỳ (ngày)")
     if missing:
         return _err(_("Thiếu thông tin bắt buộc"),
-                    ErrorCode.VALIDATION_ERROR, fields=missing)
+                    ErrorCode.VALIDATION, fields=missing)
 
     try:
         doc = frappe.new_doc(_DT_PM_SCHEDULE)
@@ -1571,7 +1596,7 @@ def create_pm_schedule():
         return _err(_("Lịch PM đã tồn tại cho thiết bị + loại PM này"),
                     ErrorCode.CONFLICT)
     except frappe.exceptions.LinkValidationError as e:
-        return _err(str(e), ErrorCode.VALIDATION_ERROR)
+        return _err(str(e), ErrorCode.VALIDATION)
     except frappe.exceptions.ValidationError as e:
         return _err(str(e), ErrorCode.BUSINESS_RULE)
 
@@ -1689,6 +1714,7 @@ def list_document_requests(page: int = 1, page_size: int = 20, status: str = Non
          "priority", "assigned_to", "due_date", "fulfilled_by"],
         int(page), int(page_size), _ORDER_DUE_DATE_ASC)
     _enrich(items, "asset_ref", _DT_ASSET, "asset_name", "asset_name")
+    _enrich(items, "assigned_to", "User", "full_name", "assigned_to_name")
     return _ok({"items": items, **meta})
 
 
@@ -1730,7 +1756,7 @@ _DT_DOWNTIME_LOG = "AC Asset Downtime Log"
 
 
 @frappe.whitelist()
-def get_asset_downtime_metrics(asset_name: str, year: int | None = None):
+def get_asset_downtime_metrics(asset_name: str, year: str = ""):
     """Trả về thống kê dừng máy của 1 asset:
     - total_hours: tổng giờ dừng (closed + open đến hiện tại)
     - breakdown_count: số lần dừng máy (số log)

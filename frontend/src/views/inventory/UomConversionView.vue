@@ -8,6 +8,7 @@ import {
   getUomInfo, upsertUomConversion, removeUomConversion,
   type AcUom, type PartUomRow, type PartMissingUom, type UomInfo,
 } from '@/api/inventory'
+import PageHeader from '@/components/common/PageHeader.vue'
 
 type Tab = 'master' | 'parts' | 'conversions'
 const tab = ref<Tab>('master')
@@ -167,12 +168,11 @@ const activeUoms = computed(() => uoms.value.filter(u => u.is_active))
 
 <template>
   <div class="page-container animate-fade-in">
-    <!-- Header -->
-    <div class="mb-5">
-      <p class="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-1">Đơn vị tính</p>
-      <h1 class="text-2xl font-bold text-slate-900">Quản lý Đơn vị tính</h1>
-      <p class="text-sm text-slate-500 mt-1">Tạo/sửa ĐVT, gán cho phụ tùng, và thiết lập bảng quy đổi.</p>
-    </div>
+    <PageHeader
+      title="Quản lý đơn vị tính"
+      subtitle="IMM-15 · Tồn kho phụ tùng — Tạo / sửa đơn vị, gán cho phụ tùng, thiết lập bảng quy đổi"
+      :breadcrumb="[{ label: 'IMM-15 · Tồn kho phụ tùng', to: '/inventory/dashboard' }, { label: 'Đơn vị tính' }]"
+    />
 
     <!-- Toast -->
     <div
@@ -187,7 +187,7 @@ v-if="toast" class="mb-4 px-4 py-2.5 rounded-lg text-sm"
         v-for="t in (['master', 'parts', 'conversions'] as const)"
         :key="t"
         class="px-4 py-2 text-sm font-medium transition-colors"
-        :class="tab === t ? 'text-blue-600 border-b-2 border-blue-600 -mb-px' : 'text-slate-500 hover:text-slate-800'"
+        :class="tab === t ? 'text-brand-600 border-b-2 border-brand-600 -mb-px' : 'text-slate-500 hover:text-slate-800'"
         @click="tab = t"
       >
         {{ { master: 'Đơn vị tính (Master)', parts: `Phụ tùng & ĐVT ${partsMissing.length ? `(${partsMissing.length} thiếu)` : ''}`, conversions: 'Bảng quy đổi' }[t] }}
@@ -204,15 +204,15 @@ v-model="uomSearch" type="text" placeholder="Tìm ĐVT..."
           <button class="btn-ghost text-sm" @click="loadUoms">Tìm</button>
         </div>
         <div class="flex gap-2">
-          <button class="btn-secondary text-sm" @click="doSeed">Tạo UOM chuẩn</button>
-          <button class="btn-primary text-sm" @click="openCreateUom">+ Thêm ĐVT</button>
+          <button class="btn-secondary text-sm" @click="doSeed">Tạo đơn vị chuẩn</button>
+          <button class="btn-primary text-sm" @click="openCreateUom">Thêm đơn vị</button>
         </div>
       </div>
 
       <div class="card p-0 overflow-hidden">
-        <div v-if="uomLoading" class="text-center py-10 text-slate-400">Đang tải...</div>
-        <div v-else-if="!uoms.length" class="text-center py-10 text-slate-400 text-sm">
-          Chưa có ĐVT nào. Bấm "Seed UOM chuẩn" để tạo danh mục mặc định.
+        <div v-if="uomLoading" class="text-center py-10 text-slate-400">Đang tải…</div>
+        <div v-else-if="!uoms.length" class="text-center py-10 text-slate-500 text-sm">
+          Chưa có đơn vị tính nào. Nhấn "Tạo đơn vị chuẩn" để khởi tạo danh mục mặc định.
         </div>
         <table v-else class="w-full text-sm">
           <thead class="bg-slate-50 border-b border-slate-200">
@@ -243,8 +243,8 @@ v-model="uomSearch" type="text" placeholder="Tìm ĐVT..."
                 {{ u.description || '—' }}
               </td>
               <td class="px-4 py-2 text-right space-x-2 whitespace-nowrap">
-                <button class="text-blue-600 hover:text-blue-800 text-xs font-medium" @click="openEditUom(u)">Sửa</button>
-                <button class="text-red-600 hover:text-red-800 text-xs font-medium" @click="removeUom(u.name)">Xóa</button>
+                <button class="text-brand-600 hover:text-brand-700 text-xs font-medium" @click="openEditUom(u)">Chỉnh sửa</button>
+                <button class="text-red-600 hover:text-red-700 text-xs font-medium" @click="removeUom(u.name)">Xoá</button>
               </td>
             </tr>
           </tbody>
@@ -257,7 +257,7 @@ v-model="uomSearch" type="text" placeholder="Tìm ĐVT..."
       <!-- Missing UOM alert -->
       <div v-if="partsMissing.length" class="card p-4 mb-4 bg-amber-50 border border-amber-200">
         <div class="flex items-start gap-3">
-          <span class="text-2xl">⚠️</span>
+          <svg class="w-5 h-5 text-amber-600 shrink-0 mt-0.5" fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
           <div class="flex-1">
             <p class="font-semibold text-amber-900">
               {{ partsMissing.length }} phụ tùng chưa gán đơn vị tồn kho
@@ -270,7 +270,7 @@ v-model="uomSearch" type="text" placeholder="Tìm ĐVT..."
                 <option v-for="u in activeUoms" :key="u.name" :value="u.name">{{ u.uom_name }}</option>
               </select>
               <button class="btn-primary text-sm" @click="doBulkAssign">
-                Gán "{{ defaultUomForBulk }}" cho tất cả
+                Gán đơn vị "{{ defaultUomForBulk }}" cho tất cả
               </button>
             </div>
             <details class="mt-3">
@@ -300,7 +300,7 @@ v-model="partsSearch" type="text" placeholder="Tìm phụ tùng..."
       </div>
 
       <div class="card p-0 overflow-hidden">
-        <div v-if="partsLoading" class="text-center py-10 text-slate-400">Đang tải...</div>
+        <div v-if="partsLoading" class="text-center py-10 text-slate-400">Đang tải…</div>
         <table v-else class="w-full text-sm">
           <thead class="bg-slate-50 border-b border-slate-200">
             <tr>
@@ -315,8 +315,8 @@ v-model="partsSearch" type="text" placeholder="Tìm phụ tùng..."
             <tr
 v-for="p in parts" :key="p.name"
                 :class="!p.stock_uom ? 'bg-amber-50/40' : ''">
-              <td class="px-4 py-2 font-mono text-xs text-slate-500">{{ p.part_code || p.name }}</td>
-              <td class="px-4 py-2 font-medium text-slate-800">{{ p.part_name }}</td>
+              <td class="px-4 py-2 font-mono text-xs text-brand-700">{{ p.part_code || p.name }}</td>
+              <td class="px-4 py-2 font-medium text-slate-900">{{ p.part_name }}</td>
               <template v-if="editingPart === p.name">
                 <td class="px-4 py-2">
                   <select v-model="editStockUom" class="form-input text-sm w-32">
@@ -337,14 +337,14 @@ v-for="p in parts" :key="p.name"
               </template>
               <template v-else>
                 <td class="px-4 py-2">
-                  <span v-if="p.stock_uom" class="inline-block px-2 py-0.5 rounded bg-blue-50 text-blue-700 text-xs font-medium">
+                  <span v-if="p.stock_uom" class="inline-block px-2 py-0.5 rounded bg-brand-50 text-brand-700 text-xs font-medium border border-brand-100">
                     {{ p.stock_uom }}
                   </span>
-                  <span v-else class="text-red-500 text-xs italic">⚠️ thiếu</span>
+                  <span v-else class="text-red-600 text-xs italic">Chưa gán</span>
                 </td>
                 <td class="px-4 py-2 text-xs text-slate-600">{{ p.purchase_uom || '(= tồn kho)' }}</td>
                 <td class="px-4 py-2 text-right">
-                  <button class="text-blue-600 hover:text-blue-800 text-xs font-medium" @click="openEditPart(p)">Sửa</button>
+                  <button class="text-brand-600 hover:text-brand-700 text-xs font-medium" @click="openEditPart(p)">Chỉnh sửa</button>
                 </td>
               </template>
             </tr>
@@ -367,7 +367,7 @@ v-for="p in parts" :key="p.name"
         </select>
       </div>
 
-      <div v-if="convLoading" class="card p-8 text-center text-slate-400">Đang tải...</div>
+      <div v-if="convLoading" class="card p-8 text-center text-slate-400">Đang tải…</div>
 
       <div v-else-if="!convPart" class="card p-8 text-center text-slate-400 text-sm">
         Chọn 1 phụ tùng ở trên để xem / chỉnh bảng quy đổi.
@@ -433,7 +433,7 @@ v-model.number="newConv.conversion_factor" type="number" min="0.000001" step="an
               <tr class="bg-blue-50/40">
                 <td class="px-4 py-2 font-semibold">
 {{ convInfo.stock_uom }}
-                  <span class="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded ml-1">stock_uom</span>
+                  <span class="text-[10px] bg-brand-100 text-brand-700 px-1.5 py-0.5 rounded ml-1">đơn vị gốc</span>
                 </td>
                 <td class="px-4 py-2 text-right font-mono">1.0</td>
                 <td class="px-4 py-2"></td><td class="px-4 py-2"></td><td class="px-4 py-2"></td>

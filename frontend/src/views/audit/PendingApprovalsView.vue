@@ -4,6 +4,7 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { listMyPendingApprovals, type PendingApprovalRow } from '@/api/imm04'
+import PageHeader from '@/components/common/PageHeader.vue'
 
 const router = useRouter()
 
@@ -15,7 +16,7 @@ async function load() {
   loading.value = true
   error.value = ''
   try { rows.value = await listMyPendingApprovals() }
-  catch (e: unknown) { error.value = (e as Error).message || 'Lỗi tải danh sách' }
+  catch (e: unknown) { error.value = e instanceof Error ? e.message : 'Lỗi tải danh sách' }
   finally { loading.value = false }
 }
 
@@ -45,13 +46,10 @@ function formatDt(s: string): string {
 
 <template>
   <div class="page-container animate-fade-in">
-    <div class="mb-6">
-      <p class="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-1">Phê duyệt</p>
-      <h1 class="text-2xl font-bold text-slate-900">Phiếu chờ tôi duyệt</h1>
-      <p class="text-sm text-slate-500 mt-1">
-        Các phiếu tiếp nhận thiết bị đã được gửi đến bạn để duyệt ở một giai đoạn cụ thể.
-      </p>
-    </div>
+    <PageHeader
+      title="Phiếu chờ tôi duyệt"
+      subtitle="Các phiếu tiếp nhận thiết bị đã được gửi đến bạn để duyệt ở một giai đoạn cụ thể."
+    />
 
     <div v-if="error" class="alert-error mb-4">{{ error }}</div>
 
@@ -93,7 +91,7 @@ function formatDt(s: string): string {
             </td>
             <td class="px-4 py-3 text-slate-700">
               <p class="text-xs text-slate-500">{{ r.master_item || '—' }}</p>
-              <p class="text-xs font-medium">{{ r.vendor || '—' }}</p>
+              <p class="text-xs font-medium">{{ r.vendor_name || r.vendor || '—' }}</p>
             </td>
             <td class="px-4 py-3 text-slate-600 text-xs">{{ r.clinical_dept || '—' }}</td>
             <td class="px-4 py-3 text-slate-600 text-xs">{{ r.owner }}</td>

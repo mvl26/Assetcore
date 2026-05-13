@@ -21,7 +21,7 @@ from assetcore.services.shared import ErrorCode, Roles, ServiceError, has_any_ro
 
 class DocState:
     DRAFT = "Draft"
-    PENDING_REVIEW = "Pending_Review"
+    PENDING_REVIEW = "Pending Review"
     ACTIVE = "Active"
     ARCHIVED = "Archived"
     EXPIRED = "Expired"
@@ -140,6 +140,7 @@ _LIST_FIELDS = [
     "name", "asset_ref", "doc_category", "doc_type_detail",
     "doc_number", "version", "workflow_state", "expiry_date",
     "days_until_expiry", "visibility", "is_exempt", "modified",
+    "approved_by",
 ]
 
 
@@ -159,6 +160,24 @@ def list_documents(filters: dict, *, page: int = 1, page_size: int = 20) -> dict
         amap = {a["name"]: a.get("asset_name") for a in arows}
         for r in rows:
             r["asset_name"] = amap.get(r.get("asset_ref"), "")
+    # BE-DC-05-01: enrich approved_by_name
+    approver_ids = {r.get("approved_by") for r in rows if r.get("approved_by")}
+    if approver_ids:
+        umap: dict[str, str] = {}
+        try:
+            user_rows = frappe.get_all(
+                "User",
+                filters={"name": ("in", list(approver_ids))},
+                fields=["name", "full_name"],
+            )
+            umap = {u["name"]: u.get("full_name") or u["name"] for u in user_rows}
+        except Exception:
+            umap = {}
+        for r in rows:
+            r["approved_by_name"] = umap.get(r.get("approved_by"), "")
+    # doc_type_name alias for FE consistency (Link field display)
+    for r in rows:
+        r.setdefault("doc_type_name", r.get("doc_type_detail") or "")
     return {"items": rows, "pagination": pg}
 
 
@@ -182,6 +201,24 @@ def create_document(data: dict) -> dict:
     except frappe.ValidationError as e:
         raise ServiceError(ErrorCode.VALIDATION, str(e)) from e
     return {"name": doc.name, "workflow_state": doc.workflow_state}
+
+
+def submit_for_review(name: str) -> dict:
+    """Transition từ Draft/Rejected → Pending Review (VR-03: file bắt buộc)."""
+    doc = DocumentRepo.get(name)
+    if not doc:
+        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy: {name}")
+    if doc.workflow_state not in (DocState.DRAFT, DocState.REJECTED):
+        raise ServiceError(
+            ErrorCode.BAD_STATE,
+            f"Chỉ gửi duyệt từ Draft hoặc Rejected. Hiện tại: {doc.workflow_state}",
+        )
+    if not doc.file_attachment:
+        raise ServiceError(ErrorCode.VALIDATION, "VR-03: Vui lòng upload file tài liệu trước khi gửi duyệt.")
+    doc.workflow_state = DocState.PENDING_REVIEW
+    doc.flags.ignore_links = True
+    DocumentRepo.save(doc)
+    return {"name": name, "new_state": DocState.PENDING_REVIEW}
 
 
 def update_document(name: str, patch: dict) -> dict:

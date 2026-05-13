@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { useCommissioningStore } from '@/stores/commissioning'
+import { useRoute } from 'vue-router'
+import { useCommissioningStore } from '@/stores/imm04'
 import { formatDatetime } from '@/utils/docUtils'
 import type { LifecycleEvent } from '@/types/imm04'
+import PageHeader from '@/components/common/PageHeader.vue'
+import StatusBadge from '@/components/common/StatusBadge.vue'
 
 const route = useRoute()
-const router = useRouter()
 const store = useCommissioningStore()
 const commissioningId = computed(() => route.params.id as string)
 
@@ -71,42 +72,23 @@ onMounted(load)
 
 <template>
   <div class="page-container animate-fade-in">
-    <!-- Back button -->
-    <button
-      class="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700 mb-4 transition-colors"
-      @click="router.push(`/commissioning/${route.params.id}`)"
+    <PageHeader
+      title="Lịch sử vòng đời"
+      :subtitle="store.currentDoc?.vendor_serial_no
+        ? `${commissioningId} · SN ${store.currentDoc.vendor_serial_no}`
+        : commissioningId"
+      :back-to="`/commissioning/${commissioningId}`"
+      back-label="← Phiếu lắp đặt"
+      :breadcrumb="[
+        { label: 'IMM-04 · Tiếp nhận', to: '/commissioning' },
+        { label: commissioningId, to: `/commissioning/${commissioningId}` },
+        { label: 'Lịch sử' },
+      ]"
     >
-      <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" />
-      </svg>
-      Quay lại
-    </button>
-
-    <!-- Header card -->
-    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
-      <div class="flex items-start justify-between gap-4">
-        <div class="min-w-0">
-          <h1 class="text-xl font-bold text-gray-900">Lịch sử vòng đời</h1>
-          <p class="text-sm text-gray-500 mt-1">
-            <span class="font-mono font-medium text-gray-700">{{ commissioningId }}</span>
-            <template v-if="store.currentDoc">
-              <span class="mx-1 text-gray-300">·</span>
-              {{ store.currentDoc?.master_item }}
-              <template v-if="store.currentDoc?.vendor_serial_no">
-                <span class="mx-1 text-gray-300">·</span>
-                SN: {{ store.currentDoc?.vendor_serial_no }}
-              </template>
-            </template>
-          </p>
-        </div>
-        <span
-          v-if="store.currentDoc"
-          class="shrink-0 inline-block px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800"
-        >
-          {{ store.currentDoc?.workflow_state }}
-        </span>
-      </div>
-    </div>
+      <template #actions>
+        <StatusBadge v-if="store.currentDoc" :state="store.currentDoc.workflow_state" size="md" />
+      </template>
+    </PageHeader>
 
     <!-- Error state -->
     <div

@@ -2,7 +2,6 @@
 import { useToast } from '@/composables/useToast'
 import DateInput from '@/components/common/DateInput.vue'
 import { ref, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
 import {
   listCalibrationSchedules, createCalibrationSchedule,
   updateCalibrationSchedule, deleteCalibrationSchedule,
@@ -11,9 +10,11 @@ import type { CalibrationSchedule } from '@/api/imm11'
 import SmartSelect from '@/components/common/SmartSelect.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import { formatAssetDisplay, formatDate } from '@/utils/formatters'
+import PageHeader from '@/components/common/PageHeader.vue'
+import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
+import ListFilterBar from '@/components/common/ListFilterBar.vue'
 const toast = useToast()
 
-const router = useRouter()
 const items = ref<CalibrationSchedule[]>([])
 const total = ref(0)
 const loading = ref(false)
@@ -59,7 +60,7 @@ function quickFilter(key: 'calibration_type', value: string) {
   filters.value[key] = value
   showFilters.value = false
 }
-function clearChip(key: FilterChip['key']) {
+function clearChip(key: string) {
   if (key === 'is_active') filters.value.is_active = ''
   else if (key === 'overdue_only') filters.value.overdue_only = false
   else (filters.value as Record<string, unknown>)[key] = ''
@@ -96,16 +97,33 @@ async function openEdit(name: string) {
   err.value = ''; showForm.value = true
 }
 
+const todayIso = computed(() => new Date().toISOString().slice(0, 10))
+
 async function save() {
   err.value = ''
+  if (form.value.next_due_date && form.value.next_due_date < todayIso.value) {
+    err.value = 'Ngày đến hạn không được nằm trong quá khứ'
+    toast.error(err.value)
+    return
+  }
+  if (form.value.interval_days != null && form.value.interval_days <= 0) {
+    err.value = 'Chu kỳ (ngày) phải lớn hơn 0'
+    toast.error(err.value)
+    return
+  }
   try {
     if (editingName.value) {
       await updateCalibrationSchedule(editingName.value, form.value)
     } else {
       await createCalibrationSchedule(form.value)
     }
+    toast.success(editingName.value ? 'Đã cập nhật lịch hiệu chuẩn' : 'Đã tạo lịch hiệu chuẩn')
     showForm.value = false; await load()
-  } catch (e: unknown) { err.value = (e as Error).message || 'Lỗi lưu' }
+  } catch (e: unknown) {
+    const msg = (e as Error).message || 'Lỗi lưu'
+    err.value = msg
+    toast.error(msg)
+  }
 }
 
 async function remove(name: string) {
@@ -123,93 +141,53 @@ onMounted(load)
 
 <template>
   <div class="page-container animate-fade-in">
-    <!-- Header -->
-    <div class="flex items-start justify-between mb-4">
-      <div>
-        <div class="flex items-center gap-2 text-xs text-slate-500 mb-1">
-          <button class="hover:text-blue-600 hover:underline" @click="router.push('/calibration')">Phiếu hiệu chuẩn</button>
-          <span class="text-slate-300">/</span>
-          <span class="text-slate-700 font-medium">Lịch hiệu chuẩn</span>
-        </div>
-        <h1 class="text-2xl font-bold text-slate-900">Lịch hiệu chuẩn</h1>
-        <p class="text-sm text-slate-500 mt-1">Tổng <strong class="text-slate-700">{{ total }}</strong> lịch</p>
-      </div>
-      <div class="flex items-center gap-2 shrink-0">
-        <button
-          class="relative flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border transition-colors"
-          :class="showFilters
-            ? 'bg-brand-50 border-brand-300 text-brand-700'
-            : 'bg-white border-slate-300 text-slate-600 hover:border-slate-400'"
-          @click="showFilters = !showFilters"
-        >
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M3 4h18M7 8h10M11 12h2M9 16h6" />
-          </svg>
-          Bộ lọc
-          <span v-if="activeFilterCount > 0" class="inline-flex items-center justify-center w-4 h-4 text-[10px] font-bold rounded-full bg-blue-500 text-white">
-            {{ activeFilterCount }}
-          </span>
-          <svg class="w-3.5 h-3.5 transition-transform" :class="showFilters ? 'rotate-180' : ''" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-          </svg>
-        </button>
-        <button class="btn-primary shrink-0" @click="openCreate">
+    <PageHeader
+      title="Lịch hiệu chuẩn"
+      :subtitle="`Tổng ${total} lịch`"
+      :breadcrumb="[{ label: 'IMM-11 · Hiệu chuẩn', to: '/calibration' }, { label: 'Lịch hiệu chuẩn' }]"
+    >
+      <template #actions>
+        <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
+        <button class="btn-primary" @click="openCreate">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
           </svg>
           Thêm lịch
         </button>
-      </div>
-    </div>
+      </template>
+    </PageHeader>
 
-    <!-- Active chips -->
-    <div v-if="activeChips.length > 0 && !showFilters" class="flex flex-wrap items-center gap-2 mb-4">
-      <span class="text-xs text-slate-400 font-medium">Đang lọc:</span>
-      <button
-        v-for="chip in activeChips" :key="chip.key"
-        class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100"
-        @click="clearChip(chip.key)"
-      >
-        {{ chip.label }}
-        <svg class="w-3 h-3 opacity-60" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-        </svg>
-      </button>
-      <button class="text-xs text-slate-400 hover:text-red-500 underline underline-offset-2" @click="resetFilters">Xóa tất cả</button>
-    </div>
-
-    <!-- Filter panel -->
-    <Transition
-      enter-active-class="transition-all duration-200 ease-out overflow-hidden"
-      enter-from-class="opacity-0 max-h-0"
-      enter-to-class="opacity-100 max-h-96"
-      leave-active-class="transition-all duration-150 ease-in overflow-hidden"
-      leave-from-class="opacity-100 max-h-96"
-      leave-to-class="opacity-0 max-h-0"
+    <ListFilterBar
+      :show="showFilters"
+      :chips="activeChips"
+      v-model:search="filters.search"
+      search-placeholder="Tìm theo mã, tên thiết bị..."
+      @reset="resetFilters"
+      @clear-chip="clearChip"
     >
-      <div v-show="showFilters" class="card mb-5 p-4">
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
-          <select v-model="filters.calibration_type" class="form-select text-sm">
+      <template #fields>
+        <div class="form-group">
+          <label class="form-label">Loại hiệu chuẩn</label>
+          <select v-model="filters.calibration_type" class="form-select">
             <option value="">Tất cả loại</option>
             <option value="External">Bên ngoài</option>
             <option value="In-House">Nội bộ</option>
           </select>
-          <select v-model="filters.is_active" class="form-select text-sm">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Trạng thái</label>
+          <select v-model="filters.is_active" class="form-select">
             <option value="">Tất cả trạng thái</option>
             <option value="1">Đang hoạt động</option>
             <option value="0">Tạm dừng</option>
           </select>
-          <label class="flex items-center gap-2 text-sm text-slate-700 px-2">
-            <input v-model="filters.overdue_only" type="checkbox" />
-            Chỉ quá hạn
-          </label>
         </div>
-        <div class="flex gap-2">
-          <input v-model="filters.search" placeholder="Tìm theo mã, tên thiết bị..." class="form-input flex-1 text-sm" />
-          <button class="btn-ghost text-sm" @click="resetFilters">Đặt lại</button>
+        <div class="form-group flex items-center gap-2 pt-5">
+          <input v-model="filters.overdue_only" type="checkbox" class="rounded border-slate-300" />
+          <label class="form-label mb-0">Chỉ quá hạn</label>
         </div>
-      </div>
-    </Transition>
+      </template>
+    </ListFilterBar>
 
     <!-- Table -->
     <div class="card overflow-hidden">
@@ -267,7 +245,7 @@ onMounted(load)
               {{ formatDate(s.next_due_date) }}
             </td>
             <td class="px-4 py-3">
-              <span class="text-xs px-2 py-0.5 rounded-full font-medium" :class="s.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'">
+              <span class="text-xs px-2 py-0.5 rounded-full font-medium" :class="s.is_active ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'">
                 {{ s.is_active ? 'Hoạt động' : 'Tạm dừng' }}
               </span>
             </td>
@@ -304,7 +282,8 @@ onMounted(load)
           </div>
           <div>
             <label class="form-label">Ngày đến hạn tiếp theo</label>
-            <DateInput v-model="form.next_due_date" class="form-input w-full text-sm" />
+            <DateInput v-model="form.next_due_date" :min="todayIso" class="form-input w-full text-sm" />
+            <p class="text-[11px] text-slate-400 mt-1">Không được chọn ngày trong quá khứ.</p>
           </div>
           <div>
             <label class="form-label">Lab ưu tiên</label>

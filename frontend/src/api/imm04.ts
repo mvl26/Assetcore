@@ -1,7 +1,6 @@
 // Copyright (c) 2026, AssetCore Team
 // API calls cho Module IMM-04 — wrapping Frappe whitelist methods
 
-import api from './axios'
 import { frappeGet, frappePost } from './helpers'
 import type {
   CommissioningDoc,
@@ -146,54 +145,6 @@ export async function createCommissioning(
  */
 export async function getPoDetails(poName: string): Promise<PoDetails> {
   return frappeGet<PoDetails>(`${BASE}.get_po_details`, { po_name: poName })
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// SESSION / AUTH
-// ─────────────────────────────────────────────────────────────────────────────
-
-export interface FrappeSession {
-  name: string
-  full_name: string
-  roles: string[]
-  user_image: string | null
-}
-
-/**
- * Lấy thông tin user hiện tại từ Frappe session.
- * Dùng 2 call:
- *   1. get_logged_user → username
- *   2. frappe.client.get (full doc, không filter fields) → full_name, user_image, roles child table
- */
-export async function getCurrentSession(): Promise<FrappeSession> {
-  // 1. Lấy username từ session
-  const res = await api.get<{ message: string }>('/api/method/frappe.auth.get_logged_user')
-  const username = res.data.message
-
-  // 2. Lấy full User doc — KHÔNG dùng fields param vì child table 'roles' không được trả về khi filter
-  const userRes = await api.get<{
-    message: { full_name: string; user_image: string | null; roles: { role: string }[] }
-  }>('/api/method/frappe.client.get', {
-    params: {
-      doctype: 'User',
-      name: username,
-    },
-  })
-
-  const userData = userRes.data.message
-  return {
-    name: username,
-    full_name: userData.full_name ?? username,
-    user_image: userData.user_image ?? null,
-    roles: (userData.roles ?? []).map((r: { role: string }) => r.role),
-  }
-}
-
-/**
- * Logout khỏi Frappe.
- */
-export async function logout(): Promise<void> {
-  await api.get('/api/method/logout')
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -364,6 +315,7 @@ export interface PendingApprovalRow {
   workflow_state: string
   master_item: string
   vendor: string
+  vendor_name?: string
   clinical_dept: string
   approval_stage: string
   approval_submitted_at: string

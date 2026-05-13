@@ -158,6 +158,23 @@ def clear_clinical_hold(name: str, license_no: str = "") -> dict:
 
 
 @frappe.whitelist(methods=["POST"])
+def retry_mint_asset(name: str) -> dict:
+    """Retry minting AC Asset for a Clinical Release commissioning where minting failed."""
+    return _handle(_retry_mint_asset, name)
+
+
+def _retry_mint_asset(name: str) -> dict:
+    doc = frappe.get_doc("Asset Commissioning", name)
+    if doc.workflow_state != "Clinical Release":
+        raise ServiceError(ErrorCode.BAD_STATE, "Chỉ retry được khi ở Clinical Release")
+    if doc.final_asset:
+        return {"name": name, "final_asset": doc.final_asset, "already_minted": True}
+    asset_name = svc.create_ac_asset(doc)
+    frappe.db.set_value("Asset Commissioning", name, "final_asset", asset_name)
+    return {"name": name, "final_asset": asset_name}
+
+
+@frappe.whitelist(methods=["POST"])
 def upload_document(commissioning: str, doc_index: int, doc_type: str = "",
                     file_url: str = "", expiry_date: str = "", doc_number: str = "") -> dict:
     return _handle(svc.upload_document, commissioning, doc_index, file_url, expiry_date, doc_number)
@@ -228,7 +245,7 @@ def get_gate_status(name: str) -> dict:
 
     # G05: no open Non Conformance records
     open_nc = frappe.db.count("Asset QA Non Conformance",
-                               filters={"parent": name, "status": ["!=", "Closed"]})
+                               filters={"ref_commissioning": name, "resolution_status": ["!=", "Closed"]})
     g05 = open_nc == 0
 
     # G06: board_approver set
@@ -272,3 +289,21 @@ def create_from_purchase(purchase_name: str, device_idx: int) -> dict:
 @frappe.whitelist()
 def get_commissioning_origin(asset_name: str) -> dict:
     return _handle(svc.get_commissioning_origin, asset_name)
+
+
+@frappe.whitelist()
+def get_lifecycle_timeline(name: str) -> dict:
+    doc = frappe.get_doc("Asset Commissioning", name)
+    events = [
+        {
+            "idx": row.idx,
+            "event_type": row.get("event_type") or "",
+            "from_status": row.get("from_status") or "",
+            "to_status": row.get("to_status") or "",
+            "actor": row.get("actor") or "",
+            "event_timestamp": str(row.get("event_timestamp") or ""),
+            "remarks": row.get("remarks") or "",
+        }
+        for row in (doc.get("lifecycle_events") or [])
+    ]
+    return _ok({"events": events})

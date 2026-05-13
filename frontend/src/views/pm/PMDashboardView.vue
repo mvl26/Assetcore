@@ -3,6 +3,7 @@ import { onMounted, ref, computed } from 'vue'
 import { useImm08Store } from '@/stores/imm08'
 import { useRouter } from 'vue-router'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
 
 const store  = useImm08Store()
 const router = useRouter()
@@ -48,13 +49,11 @@ function daysUntil(dateStr: string): number {
 
 <template>
   <div class="page-container animate-fade-in">
-<!-- Header -->
-    <div class="flex items-start justify-between mb-7">
-      <div>
-        <h1 class="text-2xl font-bold text-slate-900">Tổng quan Bảo trì Định kỳ</h1>
-        <p class="text-sm text-slate-500 mt-1">{{ monthLabel }}</p>
-      </div>
-      <div class="flex gap-2.5 shrink-0">
+    <PageHeader
+      title="Tổng quan Bảo trì Định kỳ"
+      :subtitle="monthLabel"
+    >
+      <template #actions>
         <button class="btn-secondary" @click="router.push('/pm/calendar')">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
             <rect x="3" y="4" width="18" height="18" rx="2" />
@@ -64,8 +63,8 @@ function daysUntil(dateStr: string): number {
           Lịch PM
         </button>
         <button class="btn-primary" @click="router.push('/pm/work-orders')">Danh sách phiếu</button>
-      </div>
-    </div>
+      </template>
+    </PageHeader>
 
     <!-- KPI Cards -->
     <SkeletonLoader v-if="store.loading && !kpis" variant="kpi-cards" class="mb-7" />

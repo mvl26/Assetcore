@@ -15,6 +15,8 @@ class DocumentRequest(Document):
 			self.due_date = add_days(nowdate(), 30)
 		if not self.status:
 			self.status = "Open"
+		if not self.assigned_to:
+			self.assigned_to = frappe.session.user
 
 	def validate(self):
 		if self.status == "Fulfilled" and not self.fulfilled_by:

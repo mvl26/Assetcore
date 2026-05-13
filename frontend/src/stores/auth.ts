@@ -3,7 +3,7 @@
 
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { logout as apiLogout } from '@/api/imm04'
+import { logout as apiLogout } from '@/api/auth'
 import { getUserContext } from '@/api/layout'
 import api, { setCsrfToken } from '@/api/axios'
 import type { FrappeUser } from '@/types/imm04'

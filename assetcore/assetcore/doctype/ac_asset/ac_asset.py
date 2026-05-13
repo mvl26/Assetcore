@@ -20,6 +20,10 @@ def _is_workflow_apply() -> bool:
 class ACAsset(Document):
     """AC Asset - Native medical device asset record with first-class HTM fields."""
 
+    def before_insert(self) -> None:
+        """Kế thừa gmdn_code từ Device Model nếu asset chưa có."""
+        self._inherit_gmdn_from_device_model()
+
     def validate(self) -> None:
         self._validate_unique_asset_code()
         self._validate_unique_manufacturer_sn()
@@ -133,3 +137,11 @@ class ACAsset(Document):
             self.next_calibration_date = add_days(
                 getdate(self.last_calibration_date), int(self.calibration_interval_days)
             )
+
+    def _inherit_gmdn_from_device_model(self) -> None:
+        """Kế thừa gmdn_code từ Device Model nếu asset chưa tự điền."""
+        if self.gmdn_code or not self.device_model:
+            return
+        code = frappe.db.get_value("IMM Device Model", self.device_model, "gmdn_code")
+        if code:
+            self.gmdn_code = code

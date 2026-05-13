@@ -33,17 +33,17 @@ async function load() {
   loadError.value = ''
   try {
     if (tab.value === 'location') {
-      const r = await listLocations() as unknown as AcLocation[]
-      if (seq === loadSeq) locations.value = r || []
+      const r = await listLocations()
+      if (seq === loadSeq) locations.value = r
     } else if (tab.value === 'department') {
-      const r = await listDepartments() as unknown as AcDepartment[]
-      if (seq === loadSeq) departments.value = r || []
+      const r = await listDepartments()
+      if (seq === loadSeq) departments.value = r
     } else {
-      const r = await listAssetCategories() as unknown as AcAssetCategory[]
-      if (seq === loadSeq) categories.value = r || []
+      const r = await listAssetCategories()
+      if (seq === loadSeq) categories.value = r
     }
   } catch (e: unknown) {
-    if (seq === loadSeq) loadError.value = (e as Error).message || 'Lỗi tải dữ liệu'
+    if (seq === loadSeq) loadError.value = e instanceof Error ? e.message : 'Lỗi tải dữ liệu'
   } finally {
     if (seq === loadSeq) loading.value = false
   }
@@ -60,6 +60,7 @@ function openCreate() {
     ? { department_name: '', department_code: '', parent_department: '', is_group: 0,
         dept_head: '', phone: '', email: '', is_active: 1 }
     : { category_name: '', description: '',
+        gmdn_code: '', gmdn_term: '',
         default_pm_required: 1, default_pm_interval_days: 180,
         default_calibration_required: 0, default_calibration_interval_days: 365,
         default_depreciation_method: 'Straight Line',
@@ -113,7 +114,7 @@ async function save() {
     }
     showForm.value = false
     await load()
-  } catch (e: unknown) { err.value = (e as Error).message || 'Lỗi lưu' }
+  } catch (e: unknown) { err.value = e instanceof Error ? e.message : 'Lỗi lưu' }
 }
 
 async function applyToExistingAssets() {
@@ -129,7 +130,7 @@ async function applyToExistingAssets() {
       `Lỗi: ${res.errors}.`,
     )
   } catch (e: unknown) {
-    err.value = (e as Error).message || 'Lỗi áp dụng'
+    err.value = e instanceof Error ? e.message : 'Lỗi áp dụng'
   }
 }
 
@@ -140,7 +141,7 @@ async function remove(name: string) {
     else if (tab.value === 'department') await deleteDepartment(name)
     else await deleteAssetCategory(name)
     await load()
-  } catch (e: unknown) { toast.error((e as Error).message || 'Lỗi xóa — có thể đang được tham chiếu') }
+  } catch (e: unknown) { toast.error(e instanceof Error ? e.message : 'Lỗi xóa — có thể đang được tham chiếu') }
 }
 
 
@@ -201,9 +202,9 @@ v-for="t in (['location','department','category'] as Tab[])" :key="t"
           <tr v-else>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Mã</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Tên danh mục</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">GMDN Code</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Phương pháp KH</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Số tháng KH</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Tần suất</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Bảo trì (ngày)</th>
             <th class="px-4 py-3 text-right"></th>
           </tr>
@@ -226,6 +227,13 @@ v-for="t in (['location','department','category'] as Tab[])" :key="t"
             </template>
             <template v-else>
               <td class="px-4 py-3 font-medium text-gray-800">{{ r.category_name }}</td>
+              <td class="px-4 py-3">
+                <span v-if="r.gmdn_code" class="inline-flex items-center gap-1">
+                  <span class="font-mono text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded">{{ r.gmdn_code }}</span>
+                  <span v-if="r.gmdn_term" class="text-xs text-gray-500 truncate max-w-[120px]" :title="r.gmdn_term as string">{{ r.gmdn_term }}</span>
+                </span>
+                <span v-else class="text-gray-400">—</span>
+              </td>
               <td class="px-4 py-3 text-gray-600 text-xs">{{ r.default_depreciation_method || '—' }}</td>
               <td class="px-4 py-3 text-gray-500">
                 <span v-if="r.total_depreciation_months">
@@ -234,7 +242,6 @@ v-for="t in (['location','department','category'] as Tab[])" :key="t"
                 </span>
                 <span v-else>—</span>
               </td>
-              <td class="px-4 py-3 text-gray-500 text-xs">{{ r.depreciation_frequency || '—' }}</td>
               <td class="px-4 py-3 text-gray-500">{{ r.default_pm_required ? (r.default_pm_interval_days || '—') : '—' }}</td>
             </template>
             <td class="px-4 py-3 text-right space-x-2">
@@ -247,8 +254,8 @@ v-for="t in (['location','department','category'] as Tab[])" :key="t"
     </div>
 
     <!-- Modal Form -->
-    <div v-if="showForm" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50" @click.self="showForm = false">
-      <div class="bg-white rounded-xl p-6 w-[500px] max-w-full space-y-4">
+    <div v-if="showForm" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" @click.self="showForm = false">
+      <div class="bg-white rounded-xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto space-y-4">
         <h2 class="text-lg font-semibold">{{ editingName ? 'Sửa' : 'Thêm' }} {{ tabLabel }}</h2>
         <div v-if="err" class="bg-red-50 text-red-700 text-sm p-3 rounded">{{ err }}</div>
 
@@ -366,45 +373,85 @@ v-for="t in (['location','department','category'] as Tab[])" :key="t"
           </label>
         </div>
 
-        <div v-else class="space-y-3">
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Tên danh mục <span class="text-red-500">*</span></label>
-            <input v-model="form.category_name" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+        <div v-else class="space-y-4">
+          <!-- Thông tin cơ bản -->
+          <div class="grid grid-cols-2 gap-3">
+            <div class="col-span-2">
+              <label class="block text-sm font-medium text-gray-700 mb-1">Tên danh mục <span class="text-red-500">*</span></label>
+              <input v-model="form.category_name" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+            </div>
+            <div class="col-span-2">
+              <label class="block text-sm font-medium text-gray-700 mb-1">Mô tả</label>
+              <textarea v-model="form.description" rows="2" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"></textarea>
+            </div>
           </div>
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Mô tả</label>
-            <textarea v-model="form.description" rows="2" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"></textarea>
+
+          <!-- GMDN -->
+          <div class="pt-3 border-t border-gray-200">
+            <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+              Mã GMDN
+              <span class="text-[10px] font-normal text-blue-500 ml-1">(nguồn kế thừa → Model thiết bị → Tài sản)</span>
+            </p>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="block text-xs text-gray-600 mb-1">GMDN Code</label>
+                <input
+                  v-model="form.gmdn_code"
+                  placeholder="VD: 35943"
+                  class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono"
+                />
+                <p class="text-[10px] text-gray-400 mt-1">5–6 chữ số theo chuẩn GMDN</p>
+              </div>
+              <div>
+                <label class="block text-xs text-gray-600 mb-1">GMDN Term (tên danh mục)</label>
+                <input
+                  v-model="form.gmdn_term"
+                  placeholder="VD: Infusion pump, general-purpose"
+                  class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                />
+                <p class="text-[10px] text-gray-400 mt-1">Tên thuật ngữ GMDN quốc tế</p>
+              </div>
+            </div>
           </div>
-          <label class="flex items-center gap-2 text-sm">
-            <input v-model="form.default_pm_required" type="checkbox" :true-value="1" :false-value="0" /> Mặc định yêu cầu PM
-          </label>
-          <div class="pl-6">
-            <label class="block text-sm font-medium text-gray-700 mb-1">Chu kỳ PM mặc định (ngày)</label>
-            <input
-v-model.number="form.default_pm_interval_days" type="number" min="0"
-              :disabled="form.default_pm_required !== 1"
-              class="w-48 border border-gray-300 rounded-lg px-3 py-2 text-sm disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed" />
+
+          <!-- PM / Hiệu chuẩn -->
+          <div class="pt-3 border-t border-gray-200">
+            <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">PM & Hiệu chuẩn mặc định</p>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="flex items-center gap-2 text-sm mb-2">
+                  <input v-model="form.default_pm_required" type="checkbox" :true-value="1" :false-value="0" /> Mặc định yêu cầu PM
+                </label>
+                <input
+                  v-model.number="form.default_pm_interval_days" type="number" min="0"
+                  :disabled="form.default_pm_required !== 1"
+                  placeholder="Chu kỳ PM (ngày)"
+                  class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed"
+                />
+              </div>
+              <div>
+                <label class="flex items-center gap-2 text-sm mb-2">
+                  <input v-model="form.default_calibration_required" type="checkbox" :true-value="1" :false-value="0" /> Mặc định yêu cầu hiệu chuẩn
+                </label>
+                <input
+                  v-model.number="form.default_calibration_interval_days" type="number" min="0"
+                  :disabled="form.default_calibration_required !== 1"
+                  placeholder="Chu kỳ hiệu chuẩn (ngày)"
+                  class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed"
+                />
+              </div>
+            </div>
           </div>
-          <label class="flex items-center gap-2 text-sm">
-            <input v-model="form.default_calibration_required" type="checkbox" :true-value="1" :false-value="0" /> Mặc định yêu cầu hiệu chuẩn
-          </label>
-          <div class="pl-6">
-            <label class="block text-sm font-medium text-gray-700 mb-1">Chu kỳ hiệu chuẩn mặc định (ngày)</label>
-            <input
-v-model.number="form.default_calibration_interval_days" type="number" min="0"
-              :disabled="form.default_calibration_required !== 1"
-              class="w-48 border border-gray-300 rounded-lg px-3 py-2 text-sm disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed" />
-          </div>
-          <div class="pt-3 mt-2 border-t border-gray-200">
+
+          <!-- Khấu hao -->
+          <div class="pt-3 border-t border-gray-200">
             <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
               Luật khấu hao <span class="text-[10px] font-normal text-gray-400">(áp dụng cho mọi Asset thuộc danh mục)</span>
             </p>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+            <div class="grid grid-cols-2 gap-3">
               <div>
                 <label class="block text-xs text-gray-600 mb-1">Phương pháp khấu hao</label>
-                <select
-v-model="form.default_depreciation_method"
-                        class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                <select v-model="form.default_depreciation_method" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
                   <option value="">—</option>
                   <option value="Straight Line">Đường thẳng (Straight Line)</option>
                   <option value="Double Declining">Số dư giảm dần (Double Declining)</option>
@@ -413,24 +460,19 @@ v-model="form.default_depreciation_method"
               </div>
               <div>
                 <label class="block text-xs text-gray-600 mb-1">Tần suất khấu hao</label>
-                <select
-v-model="form.depreciation_frequency"
-                        class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
-                  <option value="Monthly">Hàng tháng (Monthly)</option>
-                  <option value="Quarterly">Hàng quý (Quarterly)</option>
-                  <option value="Yearly">Hàng năm (Yearly)</option>
+                <select v-model="form.depreciation_frequency" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                  <option value="Monthly">Hàng tháng</option>
+                  <option value="Quarterly">Hàng quý</option>
+                  <option value="Yearly">Hàng năm</option>
                 </select>
               </div>
-            </div>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div>
-                <label class="block text-xs text-gray-600 mb-1">
-                  Tổng số tháng khấu hao
-                </label>
+                <label class="block text-xs text-gray-600 mb-1">Tổng số tháng khấu hao</label>
                 <input
-v-model.number="form.total_depreciation_months" type="number" min="0" step="1"
-                       placeholder="VD: 120 cho thiết bị y tế"
-                       class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+                  v-model.number="form.total_depreciation_months" type="number" min="0" step="1"
+                  placeholder="VD: 120 cho thiết bị y tế"
+                  class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                />
                 <p v-if="form.total_depreciation_months" class="text-[10px] text-gray-500 mt-1">
                   ≈ {{ (Number(form.total_depreciation_months) / 12).toFixed(1) }} năm
                 </p>
@@ -438,20 +480,24 @@ v-model.number="form.total_depreciation_months" type="number" min="0" step="1"
               <div>
                 <label class="block text-xs text-gray-600 mb-1">Giá trị thu hồi (%)</label>
                 <input
-v-model.number="form.default_residual_value_pct" type="number" min="0" max="100" step="0.5"
-                       placeholder="Thường là 0 hoặc 5"
-                       class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+                  v-model.number="form.default_residual_value_pct" type="number" min="0" max="100" step="0.5"
+                  placeholder="Thường là 0 hoặc 5"
+                  class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                />
                 <p class="text-[10px] text-gray-500 mt-1">% giá trị còn lại khi hết vòng đời</p>
               </div>
             </div>
           </div>
 
-          <label class="flex items-center gap-2 text-sm">
-            <input v-model="form.has_radiation" type="checkbox" :true-value="1" :false-value="0" /> Chứa nguồn bức xạ
-          </label>
-          <label class="flex items-center gap-2 text-sm">
-            <input v-model="form.is_active" type="checkbox" :true-value="1" :false-value="0" /> Đang hoạt động
-          </label>
+          <!-- Cờ quy định -->
+          <div class="pt-3 border-t border-gray-200 flex gap-6">
+            <label class="flex items-center gap-2 text-sm">
+              <input v-model="form.has_radiation" type="checkbox" :true-value="1" :false-value="0" /> Chứa nguồn bức xạ
+            </label>
+            <label class="flex items-center gap-2 text-sm">
+              <input v-model="form.is_active" type="checkbox" :true-value="1" :false-value="0" /> Đang hoạt động
+            </label>
+          </div>
         </div>
 
         <div v-if="tab === 'category' && editingName" class="pt-2">

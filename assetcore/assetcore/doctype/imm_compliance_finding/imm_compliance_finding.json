@@ -1,0 +1,223 @@
+{
+ "autoname": "FND-.YYYY.-.#####",
+ "naming_rule": "Naming Series",
+ "creation": "2026-05-08 00:00:00.000000",
+ "doctype": "DocType",
+ "document_type": "Document",
+ "engine": "InnoDB",
+ "is_submittable": 0,
+ "module": "AssetCore",
+ "name": "IMM Compliance Finding",
+ "track_changes": 1,
+ "modified": "2026-05-08 00:00:00.000000",
+ "modified_by": "Administrator",
+ "owner": "Administrator",
+ "field_order": [
+  "rule",
+  "detected_date",
+  "source_record_doctype",
+  "source_record",
+  "asset",
+  "responsible_dept",
+  "severity",
+  "current_value",
+  "threshold_value",
+  "status",
+  "reviewer",
+  "review_date",
+  "capa_ref",
+  "waiver_reason",
+  "waiver_evidence",
+  "waiver_expiry",
+  "evaluation_date",
+  "evidence",
+  "notes",
+  "workflow_state"
+ ],
+ "fields": [
+  {
+   "fieldname": "rule",
+   "fieldtype": "Link",
+   "label": "Quy tắc tuân thủ",
+   "options": "IMM Compliance Rule",
+   "reqd": 1,
+   "in_list_view": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "detected_date",
+   "fieldtype": "Datetime",
+   "label": "Ngày phát hiện",
+   "reqd": 1,
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "source_record_doctype",
+   "fieldtype": "Link",
+   "label": "DocType nguồn",
+   "options": "DocType",
+   "search_index": 1
+  },
+  {
+   "fieldname": "source_record",
+   "fieldtype": "Dynamic Link",
+   "label": "Bản ghi nguồn",
+   "options": "source_record_doctype",
+   "search_index": 1
+  },
+  {
+   "fieldname": "asset",
+   "fieldtype": "Link",
+   "label": "Thiết bị",
+   "options": "AC Asset",
+   "search_index": 1
+  },
+  {
+   "fieldname": "responsible_dept",
+   "fieldtype": "Link",
+   "label": "Khoa/Phòng chịu trách nhiệm",
+   "options": "AC Department",
+   "search_index": 1
+  },
+  {
+   "fieldname": "severity",
+   "fieldtype": "Select",
+   "label": "Mức độ nghiêm trọng",
+   "options": "\nLow\nMedium\nHigh\nCritical",
+   "reqd": 1,
+   "in_list_view": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "current_value",
+   "fieldtype": "Data",
+   "label": "Giá trị hiện tại"
+  },
+  {
+   "fieldname": "threshold_value",
+   "fieldtype": "Data",
+   "label": "Ngưỡng vi phạm"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Trạng thái",
+   "options": "\nOpen\nUnder Review\nConfirmed NC\nFalse Positive\nResolved\nWaived\nClosed",
+   "reqd": 1,
+   "default": "Open",
+   "in_list_view": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "reviewer",
+   "fieldtype": "Link",
+   "label": "Người xem xét",
+   "options": "User"
+  },
+  {
+   "fieldname": "review_date",
+   "fieldtype": "Datetime",
+   "label": "Ngày xem xét",
+   "read_only": 1
+  },
+  {
+   "fieldname": "capa_ref",
+   "fieldtype": "Link",
+   "label": "CAPA liên kết",
+   "options": "IMM CAPA Record"
+  },
+  {
+   "fieldname": "waiver_reason",
+   "fieldtype": "Long Text",
+   "label": "Lý do miễn trừ"
+  },
+  {
+   "fieldname": "waiver_evidence",
+   "fieldtype": "Attach",
+   "label": "Bằng chứng miễn trừ"
+  },
+  {
+   "fieldname": "waiver_expiry",
+   "fieldtype": "Date",
+   "label": "Ngày hết hạn miễn trừ"
+  },
+  {
+   "fieldname": "evaluation_date",
+   "fieldtype": "Date",
+   "label": "Ngày đánh giá",
+   "reqd": 1,
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "evidence",
+   "fieldtype": "Attach",
+   "label": "Bằng chứng vi phạm"
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Text Editor",
+   "label": "Ghi chú"
+  },
+  {
+   "fieldname": "workflow_state",
+   "fieldtype": "Link",
+   "label": "Workflow State",
+   "options": "Workflow State",
+   "read_only": 1,
+   "hidden": 1,
+   "search_index": 1
+  }
+ ],
+ "permissions": [
+  {
+   "role": "Tổ HC-QLCL",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "Internal Auditor",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM System Admin",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Biomed Technician",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  }
+ ]
+}

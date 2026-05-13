@@ -8,8 +8,11 @@ import {
 import type { ImmSlaPolicy, Priority, RiskClass } from '@/types/imm00'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import SmartSelect from '@/components/common/SmartSelect.vue'
-import { useMasterDataStore } from '@/stores/useMasterDataStore'
+import { useMasterDataStore } from '@/stores/masterData'
 import { formatDate, isCheckOn } from '@/utils/formatters'
+import PageHeader from '@/components/common/PageHeader.vue'
+import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
+import ListFilterBar from '@/components/common/ListFilterBar.vue'
 const toast = useToast()
 const masterStore = useMasterDataStore()
 
@@ -87,7 +90,7 @@ const activeChips = computed<FilterChip[]>(() => {
 })
 const activeFilterCount = computed(() => activeChips.value.length)
 
-function clearChip(key: FilterChip['key']) {
+function clearChip(key: string) {
   if (key === 'is_active') filters.value.is_active = ''
   else (filters.value as Record<string, unknown>)[key] = ''
 }
@@ -98,8 +101,7 @@ function resetFilters() {
 async function load() {
   loading.value = true
   try {
-    const res = await listSlaPolicies()
-    if (res) policies.value = (res as unknown as ImmSlaPolicy[]) || []
+    policies.value = await listSlaPolicies()
   } finally { loading.value = false }
 }
 
@@ -123,14 +125,14 @@ async function openDetail(name: string) {
     getSlaPolicy(name),
     masterStore.fetchDoctype('User'),
   ])
-  if (res) detail.value = res as unknown as ImmSlaPolicy
+  if (res) detail.value = res
   showDetail.value = true
 }
 
 async function openEdit(name: string) {
   editingName.value = name
   const res = await getSlaPolicy(name)
-  if (res) form.value = { ...(res as unknown as ImmSlaPolicy) }
+  if (res) form.value = { ...res }
   err.value = ''; showDetail.value = false; showForm.value = true
 }
 
@@ -148,7 +150,7 @@ async function save() {
     else await createSlaPolicy(form.value)
     showForm.value = false
     await load()
-  } catch (e: unknown) { err.value = (e as Error).message || 'Lỗi lưu' }
+  } catch (e: unknown) { err.value = e instanceof Error ? e.message : 'Lỗi lưu' }
 }
 
 async function remove(name: string, ev?: Event) {
@@ -159,7 +161,7 @@ async function remove(name: string, ev?: Event) {
     showDetail.value = false
     await load()
   } catch (e: unknown) {
-    toast.error((e as Error).message || 'Không thể xóa — có thể đang được tham chiếu')
+    toast.error(e instanceof Error ? e.message : 'Không thể xóa — có thể đang được tham chiếu')
   }
 }
 
@@ -168,96 +170,54 @@ onMounted(load)
 
 <template>
   <div class="page-container animate-fade-in">
-    <div class="flex items-start justify-between mb-4">
-      <div>
-        <h1 class="text-2xl font-bold text-slate-900">Chính sách SLA</h1>
-        <p class="text-sm text-slate-500 mt-1">
-          Tổng <strong class="text-slate-700">{{ policies.length }}</strong> chính sách
-        </p>
-      </div>
-      <div class="flex items-center gap-2 shrink-0">
-        <button
-          class="relative flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border transition-colors"
-          :class="showFilters
-            ? 'bg-brand-50 border-brand-300 text-brand-700'
-            : 'bg-white border-slate-300 text-slate-600 hover:border-slate-400'"
-          @click="showFilters = !showFilters"
-        >
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M3 4h18M7 8h10M11 12h2M9 16h6" />
-          </svg>
-          Bộ lọc
-          <span v-if="activeFilterCount > 0" class="inline-flex items-center justify-center w-4 h-4 text-[10px] font-bold rounded-full bg-blue-500 text-white">
-            {{ activeFilterCount }}
-          </span>
-          <svg class="w-3.5 h-3.5 transition-transform" :class="showFilters ? 'rotate-180' : ''" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-          </svg>
-        </button>
-        <button class="btn-primary shrink-0" @click="openCreate">
+    <PageHeader
+      title="Chính sách SLA"
+      :subtitle="`Tổng ${policies.length} chính sách`"
+    >
+      <template #actions>
+        <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
+        <button class="btn-primary" @click="openCreate">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
           </svg>
           Thêm chính sách
         </button>
-      </div>
-    </div>
+      </template>
+    </PageHeader>
 
-    <!-- Active chips -->
-    <Transition
-      enter-active-class="transition-all duration-200 ease-out"
-      enter-from-class="opacity-0 -translate-y-1"
-      enter-to-class="opacity-100 translate-y-0"
+    <ListFilterBar
+      :show="showFilters"
+      :chips="activeChips"
+      v-model:search="filters.search"
+      search-placeholder="Tìm theo tên chính sách hoặc mã..."
+      @reset="resetFilters"
+      @clear-chip="clearChip"
     >
-      <div v-if="activeChips.length > 0 && !showFilters" class="flex flex-wrap items-center gap-2 mb-4">
-        <span class="text-xs text-slate-400 font-medium">Đang lọc:</span>
-        <button
-          v-for="chip in activeChips" :key="chip.key"
-          class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100"
-          @click="clearChip(chip.key)"
-        >
-          {{ chip.label }}
-          <svg class="w-3 h-3 opacity-60" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
-        <button class="text-xs text-slate-400 hover:text-red-500 underline underline-offset-2" @click="resetFilters">
-          Xóa tất cả
-        </button>
-      </div>
-    </Transition>
-
-    <!-- Filter panel -->
-    <Transition
-      enter-active-class="transition-all duration-200 ease-out overflow-hidden"
-      enter-from-class="opacity-0 max-h-0"
-      enter-to-class="opacity-100 max-h-96"
-      leave-active-class="transition-all duration-150 ease-in overflow-hidden"
-      leave-from-class="opacity-100 max-h-96"
-      leave-to-class="opacity-0 max-h-0"
-    >
-      <div v-show="showFilters" class="card mb-5 p-4">
-        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 mb-3">
-          <select v-model="filters.priority" class="form-select text-sm">
+      <template #fields>
+        <div class="form-group">
+          <label class="form-label">Mức ưu tiên</label>
+          <select v-model="filters.priority" class="form-select">
             <option value="">Tất cả mức ưu tiên</option>
             <option v-for="p in PRIORITY_OPTIONS" :key="p" :value="p">{{ PRIORITY_LABEL[p] || p }}</option>
           </select>
-          <select v-model="filters.risk_class" class="form-select text-sm">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Rủi ro</label>
+          <select v-model="filters.risk_class" class="form-select">
             <option value="">Tất cả rủi ro</option>
             <option v-for="r in RISK_OPTIONS" :key="r" :value="r">{{ RISK_LABEL[r] }}</option>
           </select>
-          <select v-model="filters.is_active" class="form-select text-sm">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Trạng thái</label>
+          <select v-model="filters.is_active" class="form-select">
             <option value="">Tất cả trạng thái</option>
             <option value="1">Đang hoạt động</option>
             <option value="0">Ngừng hoạt động</option>
           </select>
         </div>
-        <div class="flex gap-2">
-          <input v-model="filters.search" placeholder="Tìm theo tên chính sách hoặc mã..." class="form-input flex-1 text-sm" />
-          <button class="btn-ghost text-sm" @click="resetFilters">Đặt lại</button>
-        </div>
-      </div>
-    </Transition>
+      </template>
+    </ListFilterBar>
 
     <div class="card overflow-hidden">
       <div class="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50/60 text-xs text-slate-500">
