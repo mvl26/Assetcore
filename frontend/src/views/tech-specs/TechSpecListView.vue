@@ -193,7 +193,7 @@ onMounted(() => { store.fetchList(); store.fetchKpis() })
                 <button
 v-if="s.device_model_ref" class="link-cell" :title="`Lọc: ${s.device_model_ref}`"
                         @click.stop="quickFilter('device_model_ref', s.device_model_ref)">
-                  {{ s.device_model_ref }}
+                  {{ (s as any).device_model_name || s.device_model_ref }}
                 </button>
                 <span v-else class="text-slate-400">—</span>
               </td>

@@ -387,11 +387,14 @@ def _list_avl(filters):
                             fields=["name", "supplier", "device_category", "workflow_state",
                                     "valid_from", "valid_to"],
                             order_by="valid_to asc", page_length=100)
-    # BE-DC-03-01: kèm vendor_name
+    # BE-DC-03-01: kèm vendor_name + device_category_name
     sup_ids = {it.get("supplier") for it in items if it.get("supplier")}
     sup_map = _fetch_display(_DT_SUPPLIER, sup_ids, "supplier_name")
+    cat_ids = {it.get("device_category") for it in items if it.get("device_category")}
+    cat_map = _fetch_display("AC Asset Category", cat_ids, "category_name")
     for it in items:
         it["vendor_name"] = sup_map.get(it.get("supplier"))
+        it["device_category_name"] = cat_map.get(it.get("device_category"))
     return {"items": items}
 
 

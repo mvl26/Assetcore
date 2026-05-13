@@ -4,7 +4,7 @@
       <div>
         <h1>{{ store.currentSpec.name }} <span class="muted">phiên bản {{ store.currentSpec.version }}</span></h1>
         <div class="meta">
-          Mẫu {{ store.currentSpec.device_model_ref }} ·
+          Mẫu {{ (store.currentSpec as any).device_model_name || store.currentSpec.device_model_ref }} ·
           Số lượng {{ store.currentSpec.quantity }} ·
           Đề xuất {{ store.currentSpec.source_needs_request }} ·
           Kế hoạch {{ store.currentSpec.source_plan }}
@@ -38,8 +38,8 @@
           <dl>
             <dt>Kế hoạch nguồn:</dt><dd>{{ store.currentSpec.source_plan }}</dd>
             <dt>Đề xuất nhu cầu:</dt><dd>{{ store.currentSpec.source_needs_request }}</dd>
-            <dt>Mẫu thiết bị:</dt><dd>{{ store.currentSpec.device_model_ref }}</dd>
-            <dt>Nhóm thiết bị:</dt><dd>{{ store.currentSpec.device_category || '—' }}</dd>
+            <dt>Mẫu thiết bị:</dt><dd>{{ (store.currentSpec as any).device_model_name || store.currentSpec.device_model_ref }}</dd>
+            <dt>Nhóm thiết bị:</dt><dd>{{ (store.currentSpec as any).device_category_name || store.currentSpec.device_category || '—' }}</dd>
             <dt>Số lượng:</dt><dd>{{ store.currentSpec.quantity }}</dd>
             <dt>Phiên bản:</dt><dd>{{ store.currentSpec.version }}</dd>
             <dt v-if="store.currentSpec.parent_spec">Hồ sơ gốc (đã rút):</dt>

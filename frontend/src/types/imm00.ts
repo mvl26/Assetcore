@@ -33,6 +33,7 @@ export interface AcAssetListItem {
   lifecycle_status: LifecycleStatus
   asset_category?: string
   category_name?: string
+  asset_category_name?: string
   location?: string
   gmdn_status?: GmdnStatus
   location_name?: string

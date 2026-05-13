@@ -215,7 +215,7 @@ onMounted(() => {
               </td>
               <td>
                 <button class="link-cell" :title="`Lọc: ${a.device_category}`" @click="quickFilter('device_category', a.device_category)">
-                  {{ a.device_category }}
+                  {{ (a as any).device_category_name || a.device_category }}
                 </button>
               </td>
               <td>
