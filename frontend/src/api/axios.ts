@@ -8,6 +8,7 @@ import axios, {
   type AxiosError,
 } from 'axios'
 import { ApiError, ErrorCode, httpStatusToCode } from './errors'
+import { loginPath } from '@/utils/navigation'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CSRF TOKEN HELPERS
@@ -152,7 +153,7 @@ async function handle400(
     // Trong case này retry sẽ fail tiếp; redirect login để user không bị kẹt với
     // "Invalid Request" và phải tự logout.
     if (!authenticated && !globalThis.location.pathname.startsWith('/login')) {
-      globalThis.location.href = `/login?redirect=${encodeURIComponent(globalThis.location.pathname)}`
+      globalThis.location.href = loginPath(globalThis.location.pathname)
       throw new ApiError(
         'Phiên đăng nhập đã thay đổi (role/quyền). Đang chuyển hướng đến trang đăng nhập...',
         ErrorCode.UNAUTHORIZED, 401,
@@ -177,7 +178,7 @@ function handle401(error: AxiosError<FrappeErrorData>): never {
   const onLoginPage = url.includes('/api/method/login')
     || globalThis.location.pathname.startsWith('/login')
   if (!onLoginPage) {
-    globalThis.location.href = `/login?redirect=${encodeURIComponent(globalThis.location.pathname)}`
+    globalThis.location.href = loginPath(globalThis.location.pathname)
     throw new ApiError('Phiên đăng nhập đã hết hạn. Đang chuyển hướng...',
       ErrorCode.UNAUTHORIZED, 401)
   }
@@ -197,7 +198,7 @@ async function handle403(): Promise<never> {
         { withCredentials: true },
       )
       if (!(ping.data?.message?.data?.authenticated ?? true)) {
-        globalThis.location.href = `/login?redirect=${encodeURIComponent(globalThis.location.pathname)}`
+        globalThis.location.href = loginPath(globalThis.location.pathname)
         throw new ApiError(
           'Phiên đăng nhập đã hết hạn. Đang chuyển hướng đến trang đăng nhập...',
           ErrorCode.UNAUTHORIZED, 401,

@@ -4,6 +4,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { logout as apiLogout } from '@/api/auth'
+import { loginPath } from '@/utils/navigation'
 import { getUserContext } from '@/api/layout'
 import api, { setCsrfToken } from '@/api/axios'
 import type { FrappeUser } from '@/types/imm04'
@@ -114,7 +115,7 @@ export const useAuthStore = defineStore('auth', () => {
     } finally {
       user.value = null
       localStorage.removeItem(SESSION_KEY)
-      globalThis.location.href = '/login'
+      globalThis.location.href = loginPath()
     }
   }
 

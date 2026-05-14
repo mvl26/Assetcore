@@ -368,4 +368,6 @@ permission_query_conditions = {
 # Not overriding any Frappe/ERPNext DocType — AssetCore is Frappe-only (no ERPNext dep)
 override_doctype_class = {}
 override_whitelisted_methods = {}
-website_route_rules = []
+website_route_rules = [
+    {"from_route": "/assetcore/<path:app_path>", "to_route": "assetcore"},
+]
