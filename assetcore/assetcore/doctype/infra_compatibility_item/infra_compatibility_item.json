@@ -1,0 +1,28 @@
+{
+ "actions": [], "creation": "2026-04-29 00:00:00.000000",
+ "doctype": "DocType", "engine": "InnoDB",
+ "field_order": [
+  "domain", "compatibility_status", "current_state", "required_state",
+  "column_break_1", "upgrade_owner", "upgrade_eta", "upgrade_cost_estimate",
+  "section_evidence", "evidence"
+ ],
+ "fields": [
+  {"fieldname": "domain", "fieldtype": "Select", "label": "Mảng hạ tầng", "in_list_view": 1, "reqd": 1,
+   "options": "Electrical\nMedical Gas\nNetwork/IT\nHIS-PACS-LIS\nHVAC\nSpace-Layout"},
+  {"fieldname": "compatibility_status", "fieldtype": "Select", "label": "Tương thích", "in_list_view": 1, "reqd": 1,
+   "options": "Compatible\nNeed Upgrade\nNeed Major Upgrade\nN/A"},
+  {"fieldname": "current_state", "fieldtype": "Small Text", "label": "Hiện trạng"},
+  {"fieldname": "required_state", "fieldtype": "Small Text", "label": "Yêu cầu"},
+  {"fieldname": "column_break_1", "fieldtype": "Column Break"},
+  {"fieldname": "upgrade_owner", "fieldtype": "Link", "options": "User", "label": "Người chịu trách nhiệm"},
+  {"fieldname": "upgrade_eta", "fieldtype": "Date", "label": "ETA upgrade"},
+  {"fieldname": "upgrade_cost_estimate", "fieldtype": "Currency", "label": "Chi phí ước tính"},
+  {"fieldname": "section_evidence", "fieldtype": "Section Break"},
+  {"fieldname": "evidence", "fieldtype": "Attach", "label": "Bằng chứng"}
+ ],
+ "istable": 1, "links": [],
+ "modified": "2026-04-29 00:00:00.000000", "modified_by": "Administrator",
+ "module": "AssetCore", "name": "Infra Compatibility Item",
+ "owner": "Administrator", "permissions": [],
+ "sort_field": "domain", "sort_order": "ASC", "states": []
+}

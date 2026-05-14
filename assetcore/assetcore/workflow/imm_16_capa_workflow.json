@@ -1,0 +1,111 @@
+{
+ "creation": "2026-05-08 00:00:00.000000",
+ "document_type": "IMM CAPA Record",
+ "doctype": "Workflow",
+ "is_active": 1,
+ "modified": "2026-05-08 00:00:00.000000",
+ "modified_by": "Administrator",
+ "name": "IMM-16 CAPA Workflow",
+ "owner": "Administrator",
+ "send_email_alert": 0,
+ "workflow_name": "IMM-16 CAPA Workflow",
+ "workflow_state_field": "workflow_state",
+ "states": [
+  {
+   "allow_edit": "IMM QA Officer",
+   "doc_status": "0",
+   "state": "Open",
+   "type": "Warning"
+  },
+  {
+   "allow_edit": "IMM QA Officer",
+   "doc_status": "0",
+   "state": "Investigating",
+   "type": "Success"
+  },
+  {
+   "allow_edit": "IMM QA Officer",
+   "doc_status": "0",
+   "state": "Action Plan",
+   "type": "Primary"
+  },
+  {
+   "allow_edit": "IMM Workshop Lead",
+   "doc_status": "0",
+   "state": "Implementation",
+   "type": "Success"
+  },
+  {
+   "allow_edit": "IMM QA Officer",
+   "doc_status": "0",
+   "state": "Verification",
+   "type": "Warning"
+  },
+  {
+   "allow_edit": "System Manager",
+   "doc_status": "1",
+   "state": "Closed",
+   "type": "Success"
+  },
+  {
+   "allow_edit": "IMM QA Officer",
+   "doc_status": "0",
+   "state": "Re-opened",
+   "type": "Danger"
+  }
+ ],
+ "transitions": [
+  {
+   "action": "Bắt đầu điều tra",
+   "allowed": "IMM QA Officer",
+   "next_state": "Investigating",
+   "state": "Open",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Lập kế hoạch hành động",
+   "allowed": "IMM QA Officer",
+   "condition": "doc.imm_root_cause_method",
+   "next_state": "Action Plan",
+   "state": "Investigating",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Bắt đầu thực thi",
+   "allowed": "IMM Workshop Lead",
+   "next_state": "Implementation",
+   "state": "Action Plan",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Chuyển sang xác minh",
+   "allowed": "IMM QA Officer",
+   "next_state": "Verification",
+   "state": "Implementation",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Đóng CAPA",
+   "allowed": "IMM QA Officer",
+   "condition": "doc.effectiveness_check == \"Effective\"",
+   "next_state": "Closed",
+   "state": "Verification",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Mở lại do chưa hiệu quả",
+   "allowed": "IMM QA Officer",
+   "condition": "doc.effectiveness_check == \"Not Effective\"",
+   "next_state": "Re-opened",
+   "state": "Verification",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Bắt đầu điều tra lại",
+   "allowed": "IMM QA Officer",
+   "next_state": "Investigating",
+   "state": "Re-opened",
+   "allow_self_approval": 1
+  }
+ ]
+}

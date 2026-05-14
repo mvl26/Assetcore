@@ -1,0 +1,151 @@
+{
+ "actions": [],
+ "autoname": "BAT-.YYYY.-.#####",
+ "naming_rule": "Expression (old style)",
+ "creation": "2026-05-08 00:00:00.000000",
+ "doctype": "DocType",
+ "document_type": "Document",
+ "engine": "InnoDB",
+ "is_submittable": 0,
+ "module": "AssetCore",
+ "name": "IMM Spare Batch",
+ "track_changes": 1,
+ "field_order": [
+  "naming_series",
+  "spare_part",
+  "batch_no",
+  "manufacture_date",
+  "expiry_date",
+  "col_break_1",
+  "warehouse",
+  "qty_on_hand",
+  "supplier",
+  "supplier_lot_no",
+  "storage_condition",
+  "is_expired",
+  "is_quarantined",
+  "notes"
+ ],
+ "fields": [
+  {
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Naming Series",
+   "options": "BAT-.YYYY.-.#####",
+   "reqd": 1
+  },
+  {
+   "fieldname": "spare_part",
+   "fieldtype": "Link",
+   "label": "Phụ tùng",
+   "options": "AC Spare Part",
+   "reqd": 1,
+   "in_list_view": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "batch_no",
+   "fieldtype": "Data",
+   "label": "Số lô",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "manufacture_date",
+   "fieldtype": "Date",
+   "label": "Ngày sản xuất"
+  },
+  {
+   "fieldname": "expiry_date",
+   "fieldtype": "Date",
+   "label": "Ngày hết hạn",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "col_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "warehouse",
+   "fieldtype": "Link",
+   "label": "Kho",
+   "options": "AC Warehouse",
+   "reqd": 1
+  },
+  {
+   "fieldname": "qty_on_hand",
+   "fieldtype": "Float",
+   "label": "SL tồn kho",
+   "read_only": 1
+  },
+  {
+   "fieldname": "supplier",
+   "fieldtype": "Link",
+   "label": "Nhà cung cấp",
+   "options": "Supplier"
+  },
+  {
+   "fieldname": "supplier_lot_no",
+   "fieldtype": "Data",
+   "label": "Số lô NCC"
+  },
+  {
+   "fieldname": "storage_condition",
+   "fieldtype": "Select",
+   "label": "Điều kiện lưu trữ",
+   "options": "Normal\nCold_Chain\nESD\nHazardous",
+   "default": "Normal"
+  },
+  {
+   "fieldname": "is_expired",
+   "fieldtype": "Check",
+   "label": "Đã hết hạn",
+   "read_only": 1
+  },
+  {
+   "fieldname": "is_quarantined",
+   "fieldtype": "Check",
+   "label": "Đang cách ly"
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Small Text",
+   "label": "Ghi chú"
+  }
+ ],
+ "modified": "2026-05-08 00:00:00.000000",
+ "modified_by": "Administrator",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "IMM System Admin",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "submit": 0,
+   "cancel": 0,
+   "delete": 1,
+   "amend": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Storekeeper",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "submit": 0,
+   "cancel": 0,
+   "delete": 0,
+   "amend": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  }
+ ]
+}

@@ -1,0 +1,117 @@
+{
+ "creation": "2026-05-08 00:00:00.000000",
+ "document_type": "IMM Compliance Finding",
+ "doctype": "Workflow",
+ "is_active": 1,
+ "modified": "2026-05-08 00:00:00.000000",
+ "modified_by": "Administrator",
+ "name": "IMM-16 Compliance Finding Workflow",
+ "owner": "Administrator",
+ "send_email_alert": 0,
+ "workflow_name": "IMM-16 Compliance Finding Workflow",
+ "workflow_state_field": "workflow_state",
+ "states": [
+  {
+   "allow_edit": "IMM QA Officer",
+   "doc_status": "0",
+   "state": "Open",
+   "type": "Warning"
+  },
+  {
+   "allow_edit": "IMM QA Officer",
+   "doc_status": "0",
+   "state": "Under Review",
+   "type": "Warning"
+  },
+  {
+   "allow_edit": "IMM QA Officer",
+   "doc_status": "0",
+   "state": "Confirmed NC",
+   "type": "Danger"
+  },
+  {
+   "allow_edit": "System Manager",
+   "doc_status": "1",
+   "state": "False Positive",
+   "type": "Inverse"
+  },
+  {
+   "allow_edit": "System Manager",
+   "doc_status": "1",
+   "state": "Waived",
+   "type": "Inverse"
+  },
+  {
+   "allow_edit": "System Manager",
+   "doc_status": "1",
+   "state": "Resolved",
+   "type": "Success"
+  },
+  {
+   "allow_edit": "System Manager",
+   "doc_status": "1",
+   "state": "Closed",
+   "type": "Success"
+  }
+ ],
+ "transitions": [
+  {
+   "action": "Bắt đầu xem xét",
+   "allowed": "IMM QA Officer",
+   "next_state": "Under Review",
+   "state": "Open",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Xác nhận vi phạm",
+   "allowed": "IMM QA Officer",
+   "next_state": "Confirmed NC",
+   "state": "Under Review",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Xác nhận không vi phạm",
+   "allowed": "IMM QA Officer",
+   "next_state": "False Positive",
+   "state": "Under Review",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Miễn trừ",
+   "allowed": "IMM Operations Manager",
+   "condition": "doc.waiver_reason and doc.expiry_date",
+   "next_state": "Waived",
+   "state": "Under Review",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Đánh dấu đã giải quyết",
+   "allowed": "IMM QA Officer",
+   "condition": "doc.capa_ref",
+   "next_state": "Resolved",
+   "state": "Confirmed NC",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Đóng finding",
+   "allowed": "IMM QA Officer",
+   "next_state": "Closed",
+   "state": "False Positive",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Đóng finding",
+   "allowed": "IMM QA Officer",
+   "next_state": "Closed",
+   "state": "Waived",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Đóng finding",
+   "allowed": "IMM QA Officer",
+   "next_state": "Closed",
+   "state": "Resolved",
+   "allow_self_approval": 1
+  }
+ ]
+}

@@ -1,0 +1,228 @@
+{
+ "charts": [],
+ "content": "[{\"id\":\"hdr1\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>IMM Operations</b></span>\",\"col\":12}},{\"id\":\"sc1\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Asset Commissioning (IMM-04)\",\"col\":3}},{\"id\":\"sc2\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Asset Document (IMM-05)\",\"col\":3}},{\"id\":\"sc3\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"PM Work Order (IMM-08)\",\"col\":3}},{\"id\":\"sc4\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Asset Repair (IMM-09)\",\"col\":3}},{\"id\":\"sc5\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Calibration (IMM-11)\",\"col\":3}},{\"id\":\"sc6\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Incident Report (IMM-12)\",\"col\":3}},{\"id\":\"sc7\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"RCA Record (IMM-12)\",\"col\":3}},{\"id\":\"sc8\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"AC Asset\",\"col\":3}},{\"id\":\"hdr2\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h5\\\"><b>Lifecycle & Workflow</b></span>\",\"col\":12}},{\"id\":\"card1\",\"type\":\"card\",\"data\":{\"card_name\":\"Planning & Procurement\",\"col\":4}},{\"id\":\"card2\",\"type\":\"card\",\"data\":{\"card_name\":\"Operation\",\"col\":4}},{\"id\":\"card3\",\"type\":\"card\",\"data\":{\"card_name\":\"QMS & Compliance\",\"col\":4}}]",
+ "creation": "2026-04-29 00:00:00.000000",
+ "custom_blocks": [],
+ "docstatus": 0,
+ "doctype": "Workspace",
+ "for_user": "",
+ "hide_custom": 0,
+ "icon": "tool",
+ "idx": 0,
+ "is_hidden": 0,
+ "label": "IMM Operations",
+ "links": [
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Planning & Procurement",
+   "link_count": 0,
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "AC Purchase",
+   "link_to": "AC Purchase",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Asset Commissioning",
+   "link_to": "Asset Commissioning",
+   "link_type": "DocType",
+   "onboard": 1,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Asset Document",
+   "link_to": "Asset Document",
+   "link_type": "DocType",
+   "onboard": 1,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Operation",
+   "link_count": 0,
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "PM Work Order",
+   "link_to": "PM Work Order",
+   "link_type": "DocType",
+   "onboard": 1,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "PM Schedule",
+   "link_to": "PM Schedule",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Asset Repair",
+   "link_to": "Asset Repair",
+   "link_type": "DocType",
+   "onboard": 1,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "IMM Asset Calibration",
+   "link_to": "IMM Asset Calibration",
+   "link_type": "DocType",
+   "onboard": 1,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "IMM Calibration Schedule",
+   "link_to": "IMM Calibration Schedule",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "QMS & Compliance",
+   "link_count": 0,
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Incident Report",
+   "link_to": "Incident Report",
+   "link_type": "DocType",
+   "onboard": 1,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "IMM RCA Record",
+   "link_to": "IMM RCA Record",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Asset QA Non Conformance",
+   "link_to": "Asset QA Non Conformance",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Workflow",
+   "link_to": "Workflow",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  }
+ ],
+ "modified": "2026-04-29 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "AssetCore",
+ "name": "IMM Operations",
+ "number_cards": [],
+ "onboarding": "",
+ "owner": "Administrator",
+ "parent_page": "",
+ "public": 1,
+ "quick_lists": [],
+ "restrict_to_domain": "",
+ "roles": [],
+ "sequence_id": 99.0,
+ "shortcuts": [
+  {
+   "color": "Blue",
+   "doc_view": "List",
+   "label": "Asset Commissioning (IMM-04)",
+   "link_to": "Asset Commissioning",
+   "stats_filter": "{\"docstatus\":[\"!=\",2]}",
+   "type": "DocType"
+  },
+  {
+   "color": "Cyan",
+   "doc_view": "List",
+   "label": "Asset Document (IMM-05)",
+   "link_to": "Asset Document",
+   "stats_filter": "{\"workflow_state\":\"Active\"}",
+   "type": "DocType"
+  },
+  {
+   "color": "Yellow",
+   "doc_view": "List",
+   "label": "PM Work Order (IMM-08)",
+   "link_to": "PM Work Order",
+   "stats_filter": "{\"workflow_state\":[\"in\",[\"Open\",\"In Progress\",\"Overdue\"]]}",
+   "type": "DocType"
+  },
+  {
+   "color": "Orange",
+   "doc_view": "List",
+   "label": "Asset Repair (IMM-09)",
+   "link_to": "Asset Repair",
+   "stats_filter": "{\"workflow_state\":[\"in\",[\"Open\",\"Assigned\",\"In Repair\"]]}",
+   "type": "DocType"
+  },
+  {
+   "color": "Purple",
+   "doc_view": "List",
+   "label": "Calibration (IMM-11)",
+   "link_to": "IMM Asset Calibration",
+   "stats_filter": "{\"workflow_state\":[\"in\",[\"Scheduled\",\"In Progress\",\"Sent to Lab\"]]}",
+   "type": "DocType"
+  },
+  {
+   "color": "Red",
+   "doc_view": "List",
+   "label": "Incident Report (IMM-12)",
+   "link_to": "Incident Report",
+   "stats_filter": "{\"workflow_state\":[\"in\",[\"Open\",\"Acknowledged\",\"In Progress\",\"RCA Required\"]]}",
+   "type": "DocType"
+  },
+  {
+   "color": "Pink",
+   "doc_view": "List",
+   "label": "RCA Record (IMM-12)",
+   "link_to": "IMM RCA Record",
+   "stats_filter": "{\"workflow_state\":[\"in\",[\"RCA Required\",\"RCA In Progress\"]]}",
+   "type": "DocType"
+  },
+  {
+   "color": "Green",
+   "doc_view": "List",
+   "label": "AC Asset",
+   "link_to": "AC Asset",
+   "stats_filter": "{\"lifecycle_status\":[\"in\",[\"Active\",\"Commissioned\"]]}",
+   "type": "DocType"
+  }
+ ],
+ "title": "IMM Operations"
+}

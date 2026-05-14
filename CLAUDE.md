@@ -3,6 +3,7 @@
 ---
 
 ## 1. What This Is
+
 AssetCore là hệ thống quản lý vòng đời thiết bị y tế (HTM) xây trên ERPNext (Frappe).
 
 KHÔNG phải CMMS đơn lẻ → là operating architecture quản trị toàn lifecycle:
@@ -12,6 +13,7 @@ Needs → Procurement → Installation → Operation → Maintenance → Decommi
 ---
 
 ## 2. Tech Stack
+
 - Python (Frappe / ERPNext v15)
 - MariaDB
 - Frappe UI
@@ -21,6 +23,7 @@ Needs → Procurement → Installation → Operation → Maintenance → Decommi
 ---
 
 ## 3. Key Commands
+
 Run system: `bench start`
 Run tests: `bench --site \[site] run-tests`
 Migrate: `bench migrate`
@@ -29,7 +32,9 @@ Install app: `bench --site \[site] install-app assetcore`
 ---
 
 ## 4. Project Structure (Logical)
+
 /apps/assetcore/
+
 - doctype/ → data model
 - workflows/ → workflow config
 - services/ → business logic
@@ -42,6 +47,7 @@ Install app: `bench --site \[site] install-app assetcore`
 ---
 
 ## 5. Architecture Principles (CRITICAL)
+
 - ERPNext Asset = registry only (NOT full HTM)
 - Không modify core → chỉ extend
 - Tách đúng: Item ≠ Model ≠ Asset ≠ Event ≠ Work Order
@@ -52,11 +58,13 @@ Install app: `bench --site \[site] install-app assetcore`
 ---
 
 ## 6. System Layers
+
 User → Workflow → Business (IMM) → Data → Integration → Analytics → QMS
 
 ---
 
 ## 7. Module Structure
+
 A. Planning: IMM-01→03
 B. Deployment: IMM-04→06
 C. Operation: IMM-07→12,15–17
@@ -65,6 +73,7 @@ D. End-of-Life: IMM-13→14
 ---
 
 ## 8. Wave 1 Scope
+
 IMM-04 (Installation)
 IMM-05 (Registration)
 IMM-08 (PM)
@@ -77,17 +86,21 @@ IMM-12 (Corrective)
 ## 9. Domain Model
 
 Master:
+
 - Device Model, Vendor, Location, Contract
 
 Operational:
+
 - Asset, Work Order, Maintenance Plan, Incident, Spare Part
 
 Governance:
+
 - QMS Document, CAPA, Risk, SLA
 
 ---
 
 ## 10. Core Concept — Lifecycle Event
+
 Trục trung tâm hệ thống:
 
 Event gồm:
@@ -101,7 +114,9 @@ installed, commissioned, pm_completed, failure_reported, repaired, retired
 ---
 
 ## 11. CMMS Core
+
 Work Order = engine trung tâm:
+
 - PM, CM, Calibration, Inspection
 
 Không có action ngoài Work Order
@@ -109,9 +124,11 @@ Không có action ngoài Work Order
 ---
 
 ## 12. QMS Integration (MANDATORY)
+
 QC → PR → WI → BM → HS → KPI
 
 Bắt buộc:
+
 - Document control
 - Change control
 - CAPA
@@ -120,11 +137,13 @@ Bắt buộc:
 ---
 
 ## 13. Data & Compliance
+
 - UDI / serial tracking
 - Device nomenclature
 - WHO HTM + NĐ98
 
 Data phải:
+
 - versioned
 - auditable
 - traceable
@@ -132,6 +151,7 @@ Data phải:
 ---
 
 ## 14. Integration
+
 - FHIR (clinical)
 - OpenAPI (system)
 
@@ -141,6 +161,7 @@ HIS / EMR / LIS / RIS / PACS / Insurance
 ---
 
 ## 15. Code Style
+
 - Type hints cho mọi function
 - Bắt buộc docstring
 - Naming theo domain (vd: `maintenance\_schedule`)
@@ -149,6 +170,7 @@ HIS / EMR / LIS / RIS / PACS / Insurance
 ---
 
 ## 16. Domain Terms
+
 - Asset = thiết bị thực
 - Model = cấu hình
 - Work Order = lệnh công việc
@@ -160,6 +182,7 @@ HIS / EMR / LIS / RIS / PACS / Insurance
 ---
 
 ## 17. Workflow for New Features
+
 1. Confirm requirement
 2. Design theo lifecycle (NOT UI)
 3. Viết test trước (TDD)
@@ -171,7 +194,9 @@ HIS / EMR / LIS / RIS / PACS / Insurance
 ---
 
 ## 18. Output Rules (MANDATORY)
+
 Luôn include:
+
 - Module (IMM-xx)
 - Actor
 - Input / Output
@@ -183,6 +208,7 @@ Luôn include:
 ---
 
 ## 19. Do NOT
+
 - Hardcode logic
 - Build UI trước workflow
 - Bỏ audit trail
@@ -192,6 +218,7 @@ Luôn include:
 ---
 
 ## 20. Do ALWAYS
+
 - Design theo lifecycle
 - Sinh record cho mọi action
 - Tách domain rõ
@@ -201,6 +228,7 @@ Luôn include:
 ---
 
 ## 21. Maintenance Rule
+
 - Giữ file < 200 lines
 - Chỉ giữ thông tin lâu dài
 - Update khi có pattern mới

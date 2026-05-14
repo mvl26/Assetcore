@@ -1,0 +1,246 @@
+[
+  {
+    "doctype": "Custom Field",
+    "name": "Asset-custom_imm_section",
+    "dt": "Asset",
+    "fieldname": "custom_imm_section",
+    "fieldtype": "Section Break",
+    "label": "Thông tin HTM (AssetCore)",
+    "insert_after": "asset_category",
+    "collapsible": 1
+  },
+  {
+    "doctype": "Custom Field",
+    "name": "Asset-custom_imm_device_model",
+    "dt": "Asset",
+    "fieldname": "custom_imm_device_model",
+    "fieldtype": "Link",
+    "label": "Model Thiết bị (IMM)",
+    "options": "IMM Device Model",
+    "insert_after": "custom_imm_section",
+    "read_only": 0,
+    "reqd": 0,
+    "in_list_view": 0,
+    "search_index": 1
+  },
+  {
+    "doctype": "Custom Field",
+    "name": "Asset-custom_imm_asset_profile",
+    "dt": "Asset",
+    "fieldname": "custom_imm_asset_profile",
+    "fieldtype": "Link",
+    "label": "Hồ sơ IMM",
+    "options": "IMM Asset Profile",
+    "insert_after": "custom_imm_device_model",
+    "read_only": 1
+  },
+  {
+    "doctype": "Custom Field",
+    "name": "Asset-custom_imm_col1",
+    "dt": "Asset",
+    "fieldname": "custom_imm_col1",
+    "fieldtype": "Column Break",
+    "insert_after": "custom_imm_asset_profile"
+  },
+  {
+    "doctype": "Custom Field",
+    "name": "Asset-custom_imm_medical_class",
+    "dt": "Asset",
+    "fieldname": "custom_imm_medical_class",
+    "fieldtype": "Select",
+    "label": "Phân loại TBYT",
+    "options": "\nClass I\nClass II\nClass III",
+    "insert_after": "custom_imm_col1",
+    "read_only": 1,
+    "in_list_view": 0
+  },
+  {
+    "doctype": "Custom Field",
+    "name": "Asset-custom_imm_risk_class",
+    "dt": "Asset",
+    "fieldname": "custom_imm_risk_class",
+    "fieldtype": "Select",
+    "label": "Mức độ rủi ro",
+    "options": "\nLow\nMedium\nHigh\nCritical",
+    "insert_after": "custom_imm_medical_class",
+    "read_only": 1,
+    "in_list_view": 0
+  },
+  {
+    "doctype": "Custom Field",
+    "name": "Asset-custom_imm_lifecycle_section",
+    "dt": "Asset",
+    "fieldname": "custom_imm_lifecycle_section",
+    "fieldtype": "Section Break",
+    "label": "Trạng thái vòng đời HTM",
+    "insert_after": "custom_imm_risk_class",
+    "collapsible": 1
+  },
+  {
+    "doctype": "Custom Field",
+    "name": "Asset-custom_imm_lifecycle_status",
+    "dt": "Asset",
+    "fieldname": "custom_imm_lifecycle_status",
+    "fieldtype": "Select",
+    "label": "Trạng thái HTM",
+    "options": "\nActive\nUnder Repair\nCalibrating\nOut of Service\nDecommissioned",
+    "insert_after": "custom_imm_lifecycle_section",
+    "read_only": 1,
+    "in_list_view": 1,
+    "in_standard_filter": 1
+  },
+  {
+    "doctype": "Custom Field",
+    "name": "Asset-custom_imm_calibration_status",
+    "dt": "Asset",
+    "fieldname": "custom_imm_calibration_status",
+    "fieldtype": "Select",
+    "label": "Trạng thái hiệu chuẩn",
+    "options": "\nIn Tolerance\nOut of Tolerance\nNot Required\nOverdue",
+    "insert_after": "custom_imm_lifecycle_status",
+    "read_only": 1
+  },
+  {
+    "doctype": "Custom Field",
+    "name": "Asset-custom_imm_col2",
+    "dt": "Asset",
+    "fieldname": "custom_imm_col2",
+    "fieldtype": "Column Break",
+    "insert_after": "custom_imm_calibration_status"
+  },
+  {
+    "doctype": "Custom Field",
+    "name": "Asset-custom_imm_department",
+    "dt": "Asset",
+    "fieldname": "custom_imm_department",
+    "fieldtype": "Link",
+    "label": "Khoa/Phòng sử dụng",
+    "options": "Department",
+    "insert_after": "custom_imm_col2",
+    "search_index": 1,
+    "in_standard_filter": 1
+  },
+  {
+    "doctype": "Custom Field",
+    "name": "Asset-custom_imm_responsible_tech",
+    "dt": "Asset",
+    "fieldname": "custom_imm_responsible_tech",
+    "fieldtype": "Link",
+    "label": "KTV phụ trách",
+    "options": "User",
+    "insert_after": "custom_imm_department"
+  },
+  {
+    "doctype": "Custom Field",
+    "name": "Asset-custom_imm_maintenance_section",
+    "dt": "Asset",
+    "fieldname": "custom_imm_maintenance_section",
+    "fieldtype": "Section Break",
+    "label": "Lịch bảo trì & Hiệu chuẩn",
+    "insert_after": "custom_imm_responsible_tech",
+    "collapsible": 1
+  },
+  {
+    "doctype": "Custom Field",
+    "name": "Asset-custom_imm_last_pm_date",
+    "dt": "Asset",
+    "fieldname": "custom_imm_last_pm_date",
+    "fieldtype": "Date",
+    "label": "PM cuối",
+    "insert_after": "custom_imm_maintenance_section",
+    "read_only": 1
+  },
+  {
+    "doctype": "Custom Field",
+    "name": "Asset-custom_imm_next_pm_date",
+    "dt": "Asset",
+    "fieldname": "custom_imm_next_pm_date",
+    "fieldtype": "Date",
+    "label": "PM tiếp theo",
+    "insert_after": "custom_imm_last_pm_date",
+    "read_only": 1
+  },
+  {
+    "doctype": "Custom Field",
+    "name": "Asset-custom_imm_col3",
+    "dt": "Asset",
+    "fieldname": "custom_imm_col3",
+    "fieldtype": "Column Break",
+    "insert_after": "custom_imm_next_pm_date"
+  },
+  {
+    "doctype": "Custom Field",
+    "name": "Asset-custom_imm_last_calibration_date",
+    "dt": "Asset",
+    "fieldname": "custom_imm_last_calibration_date",
+    "fieldtype": "Date",
+    "label": "Hiệu chuẩn cuối",
+    "insert_after": "custom_imm_col3",
+    "read_only": 1
+  },
+  {
+    "doctype": "Custom Field",
+    "name": "Asset-custom_imm_next_calibration_date",
+    "dt": "Asset",
+    "fieldname": "custom_imm_next_calibration_date",
+    "fieldtype": "Date",
+    "label": "Hiệu chuẩn tiếp theo",
+    "insert_after": "custom_imm_last_calibration_date",
+    "read_only": 1
+  },
+  {
+    "doctype": "Custom Field",
+    "name": "Asset-custom_imm_identity_section",
+    "dt": "Asset",
+    "fieldname": "custom_imm_identity_section",
+    "fieldtype": "Section Break",
+    "label": "Định danh HTM",
+    "insert_after": "custom_imm_next_calibration_date",
+    "collapsible": 1
+  },
+  {
+    "doctype": "Custom Field",
+    "name": "Asset-custom_imm_byt_reg_no",
+    "dt": "Asset",
+    "fieldname": "custom_imm_byt_reg_no",
+    "fieldtype": "Data",
+    "label": "Số đăng ký BYT",
+    "insert_after": "custom_imm_identity_section"
+  },
+  {
+    "doctype": "Custom Field",
+    "name": "Asset-custom_imm_manufacturer_sn",
+    "dt": "Asset",
+    "fieldname": "custom_imm_manufacturer_sn",
+    "fieldtype": "Data",
+    "label": "Serial Number (NSX)",
+    "insert_after": "custom_imm_byt_reg_no",
+    "search_index": 1
+  },
+  {
+    "doctype": "Custom Field",
+    "name": "Asset-custom_imm_col4",
+    "dt": "Asset",
+    "fieldname": "custom_imm_col4",
+    "fieldtype": "Column Break",
+    "insert_after": "custom_imm_manufacturer_sn"
+  },
+  {
+    "doctype": "Custom Field",
+    "name": "Asset-custom_imm_udi_code",
+    "dt": "Asset",
+    "fieldname": "custom_imm_udi_code",
+    "fieldtype": "Data",
+    "label": "UDI Code",
+    "insert_after": "custom_imm_col4"
+  },
+  {
+    "doctype": "Custom Field",
+    "name": "Asset-custom_imm_gmdn_code",
+    "dt": "Asset",
+    "fieldname": "custom_imm_gmdn_code",
+    "fieldtype": "Data",
+    "label": "Mã GMDN",
+    "insert_after": "custom_imm_udi_code"
+  }
+]

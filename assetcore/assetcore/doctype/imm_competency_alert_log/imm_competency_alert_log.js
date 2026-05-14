@@ -1,0 +1,4 @@
+// Copyright (c) 2026, AssetCore Team
+frappe.ui.form.on("IMM Competency Alert Log", {
+  // client-side hooks
+});

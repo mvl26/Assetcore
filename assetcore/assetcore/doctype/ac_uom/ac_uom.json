@@ -1,0 +1,228 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "field:uom_name",
+ "creation": "2026-04-24 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "uom_name",
+  "symbol",
+  "must_be_whole_number",
+  "col_break",
+  "is_active",
+  "description"
+ ],
+ "fields": [
+  {
+   "fieldname": "uom_name",
+   "fieldtype": "Data",
+   "label": "Tên đơn vị tính",
+   "reqd": 1,
+   "unique": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "bold": 1
+  },
+  {
+   "fieldname": "symbol",
+   "fieldtype": "Data",
+   "label": "Ký hiệu",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "must_be_whole_number",
+   "fieldtype": "Check",
+   "label": "Chỉ nhập số nguyên",
+   "default": "0"
+  },
+  {
+   "fieldname": "col_break",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "is_active",
+   "fieldtype": "Check",
+   "label": "Đang sử dụng",
+   "default": "1",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Mô tả"
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-04-24 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "AssetCore",
+ "name": "AC UOM",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "IMM System Admin",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Operations Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM QA Officer",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Auditor",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Department Head",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Deputy Department Head",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Workshop Lead",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Biomed Technician",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Technician",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Storekeeper",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Document Officer",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Clinical User",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 0,
+   "export": 0,
+   "print": 0,
+   "email": 0,
+   "share": 0
+  },
+  {
+   "role": "Vendor Engineer",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 0,
+   "export": 0,
+   "print": 0,
+   "email": 0,
+   "share": 0
+  }
+ ],
+ "search_fields": "uom_name,symbol",
+ "show_name_in_global_search": 1,
+ "sort_field": "uom_name",
+ "sort_order": "ASC",
+ "states": [],
+ "title_field": "uom_name",
+ "track_changes": 1
+}

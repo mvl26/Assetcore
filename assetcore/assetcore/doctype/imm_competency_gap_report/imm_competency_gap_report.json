@@ -1,0 +1,102 @@
+{
+  "actions": [],
+  "name": "IMM Competency Gap Report",
+  "doctype": "DocType",
+  "module": "AssetCore",
+  "engine": "InnoDB",
+  "document_type": "Document",
+  "is_submittable": 0,
+  "track_changes": 0,
+  "autoname": "GAP-.YYYY.-.#####",
+  "naming_rule": "Expression (old style)",
+  "creation": "2026-05-08 00:00:00.000000",
+  "modified": "2026-05-08 00:00:00.000000",
+  "modified_by": "Administrator",
+  "owner": "Administrator",
+  "field_order": [
+    "report_date",
+    "scope",
+    "scope_filter_value",
+    "total_assets_class3",
+    "assets_with_gap_count",
+    "gap_details",
+    "summary_table"
+  ],
+  "fields": [
+    {
+      "fieldname": "report_date",
+      "fieldtype": "Date",
+      "label": "Ngày báo cáo",
+      "read_only": 1,
+      "default": "Today"
+    },
+    {
+      "fieldname": "scope",
+      "fieldtype": "Select",
+      "label": "Phạm vi",
+      "options": "Hospital-wide\nDepartment\nDevice Class"
+    },
+    {
+      "fieldname": "scope_filter_value",
+      "fieldtype": "Data",
+      "label": "Giá trị lọc"
+    },
+    {
+      "fieldname": "total_assets_class3",
+      "fieldtype": "Int",
+      "label": "Tổng assets Class III"
+    },
+    {
+      "fieldname": "assets_with_gap_count",
+      "fieldtype": "Int",
+      "label": "Số assets có gap"
+    },
+    {
+      "fieldname": "gap_details",
+      "fieldtype": "Long Text",
+      "label": "Chi tiết gap (JSON)"
+    },
+    {
+      "fieldname": "summary_table",
+      "fieldtype": "Table",
+      "label": "Bảng tóm tắt",
+      "options": "IMM Gap Detail Row"
+    }
+  ],
+  "permissions": [
+    {
+      "role": "IMM System Admin",
+      "read": 1,
+      "write": 1,
+      "create": 1,
+      "delete": 1,
+      "report": 1,
+      "export": 1,
+      "print": 1,
+      "email": 1,
+      "share": 1
+    },
+    {
+      "role": "IMM Training Officer",
+      "read": 1,
+      "write": 1,
+      "create": 1,
+      "report": 1,
+      "export": 1,
+      "print": 1
+    },
+    {
+      "role": "IMM Workshop Lead",
+      "read": 1,
+      "report": 1
+    },
+    {
+      "role": "IMM Biomed Technician",
+      "read": 1
+    },
+    {
+      "role": "HTM Technician",
+      "read": 1
+    }
+  ]
+}

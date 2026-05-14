@@ -1,0 +1,89 @@
+{
+  "common": {
+    "save": "Lưu",
+    "cancel": "Hủy",
+    "delete": "Xóa",
+    "create": "Tạo",
+    "edit": "Sửa",
+    "submit": "Submit",
+    "back": "Quay lại",
+    "search": "Tìm kiếm",
+    "loading": "Đang tải...",
+    "no_data": "Không có dữ liệu",
+    "required": "Bắt buộc",
+    "yes": "Có",
+    "no": "Không"
+  },
+  "nav": {
+    "overview": "Tổng quan",
+    "assets": "Thiết bị",
+    "commissioning": "Tiếp nhận",
+    "documents": "Hồ sơ",
+    "pm": "Bảo trì định kỳ",
+    "cm": "Sửa chữa khắc phục",
+    "calibration": "Hiệu chuẩn",
+    "incidents": "Sự cố",
+    "rca": "Phân tích RCA",
+    "capa": "CAPA",
+    "audit_trail": "Audit Trail",
+    "inventory": "Kho phụ tùng",
+    "purchase": "Mua sắm",
+    "system": "Hệ thống"
+  },
+  "imm04": {
+    "title": "Tiếp nhận thiết bị",
+    "states": {
+      "draft": "Nháp",
+      "pending_doc_verify": "Chờ kiểm tra tài liệu",
+      "to_be_installed": "Sẵn sàng lắp đặt",
+      "installing": "Đang lắp đặt",
+      "identification": "Định danh",
+      "initial_inspection": "Kiểm tra ban đầu",
+      "non_conformance": "Không tuân thủ",
+      "clinical_hold": "Giữ lâm sàng",
+      "re_inspection": "Tái kiểm",
+      "clinical_release": "Phát hành lâm sàng",
+      "return_to_vendor": "Trả lại NCC"
+    }
+  },
+  "imm08": {
+    "title": "Phiếu bảo trì định kỳ",
+    "create_title": "Tạo phiếu bảo trì đột xuất",
+    "calendar_title": "Lịch bảo trì",
+    "drag_hint": "Kéo-thả phiếu sang ngày khác để đổi lịch"
+  },
+  "imm09": {
+    "title": "Phiếu sửa chữa",
+    "create_title": "Tạo phiếu sửa chữa",
+    "priority": {
+      "critical": "Critical",
+      "high": "High",
+      "medium": "Medium",
+      "low": "Low"
+    }
+  },
+  "imm11": {
+    "title": "Hiệu chuẩn",
+    "type": {
+      "external": "External (Bên ngoài)",
+      "in_house": "In-House (Nội bộ)"
+    }
+  },
+  "imm12": {
+    "title": "Sự cố thiết bị",
+    "severity": {
+      "low": "Thấp",
+      "medium": "Trung bình",
+      "high": "Cao",
+      "critical": "Nguy kịch"
+    },
+    "rca_required_alert": "Severity {severity} → tự động yêu cầu RCA"
+  },
+  "errors": {
+    "decommissioned": "Thiết bị đã thanh lý",
+    "missing_field": "Vui lòng điền đầy đủ thông tin bắt buộc",
+    "no_permission": "Không có quyền thực hiện",
+    "network": "Lỗi kết nối",
+    "unknown": "Lỗi không xác định"
+  }
+}

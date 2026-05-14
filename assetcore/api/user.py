@@ -1,0 +1,740 @@
+# Copyright (c) 2026, AssetCore Team
+"""
+IMM-00 User Management API.
+
+Data model:
+  User  (Frappe core) — xác thực, custom fields IMM, Has Role child table
+  Employee (optional, nếu cài Frappe HR) — liên kết qua Employee.user_id = User.name
+
+Custom fields trên tabUser (tạo bởi assetcore.setup.install.after_migrate):
+  imm_approval_status | imm_approved_by | imm_approved_at
+  imm_rejection_reason | ac_department
+"""
+from __future__ import annotations
+
+import json
+from typing import Any
+
+import frappe
+from frappe.utils import now_datetime
+
+from assetcore.utils.response import _ok, _err
+
+# ── Hằng số ────────────────────────────────────────────────────────────────────
+
+from assetcore.services.shared.constants import Roles, ROLE_METADATA
+
+# Single source of truth — đồng bộ với fixtures/role.json
+_IMM_ROLES: list[str] = list(Roles.ALL_IMM)
+_ROLE_ADMIN = Roles.SYS_ADMIN
+_DT_ROLE_PROFILE = "Role Profile"
+_MSG_NOT_LOGGED_IN = "Chưa đăng nhập"
+
+# ── Private helpers ─────────────────────────────────────────────────────────────
+
+def _safe_field(fieldname: str) -> bool:
+    """True khi custom field đã được tạo trên tabUser (bench migrate đã chạy)."""
+    return frappe.db.has_column("User", fieldname)
+
+
+def _get_user_row(user_name: str) -> dict:
+    """Đọc các field cơ bản từ tabUser — graceful khi custom field chưa tồn tại."""
+    base: dict = frappe.db.get_value(
+        "User", user_name,
+        ["name", "full_name", "email", "phone", "user_image", "enabled", "role_profile_name"],
+        as_dict=True,
+    ) or {}
+
+    for cf in ("imm_approval_status", "imm_approved_by",
+               "imm_approved_at", "imm_rejection_reason", "ac_department"):
+        base[cf] = frappe.db.get_value("User", user_name, cf) if _safe_field(cf) else None
+
+    return base
+
+
+# ── HR data helper ─────────────────────────────────────────────────────────────
+# tabEmployee ERPNext dùng cột "name" (docname, VD: "HR-EMP-00001") làm định danh.
+# Liên kết tới tabUser qua cột "user_id" (= email của User).
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _get_hr_data(user_name: str) -> dict:
+    """
+    Lấy thông tin nhân sự từ bảng Employee.
+    Trả {} nếu:
+      - Module HR chưa cài (tabEmployee không tồn tại)
+      - User chưa có bản ghi Employee
+      - Bất kỳ lỗi schema nào
+    """
+    try:
+        if not frappe.db.table_exists("Employee"):
+            return {}
+
+        # Chỉ dùng các cột thực sự tồn tại trong tabEmployee chuẩn ERPNext:
+        #   name          = docname (mã định danh nhân viên)
+        #   employee_name = họ tên đầy đủ
+        #   department    = phòng ban ERPNext
+        #   designation   = chức danh
+        emp = frappe.db.get_value(
+            "Employee",
+            {"user_id": user_name},
+            ["name", "employee_name", "department", "designation"],
+            as_dict=True,
+        )
+        if not emp:
+            return {}
+
+        return {
+            "hr_docname":    emp.get("name"),           # docname = mã NV, VD: "HR-EMP-00001"
+            "hr_full_name":  emp.get("employee_name"),  # họ tên theo hồ sơ HR
+            "designation":   emp.get("designation"),    # chức danh
+            "erp_department": emp.get("department"),    # phòng ban ERPNext
+        }
+
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "_get_hr_data failed")
+        return {}
+
+
+def _get_imm_roles(user_name: str) -> list[dict]:
+    """Trả danh sách IMM role hiện tại — format Has Role child table: [{"role": "..."}]."""
+    return [
+        {"role": r.role}
+        for r in frappe.get_doc("User", user_name).roles
+        if r.role in _IMM_ROLES
+    ]
+
+
+def _get_dept_name(dept_id: str | None) -> str | None:
+    if not dept_id:
+        return None
+    return frappe.db.get_value("AC Department", dept_id, "department_name") or dept_id
+
+
+def _assert_admin() -> str | None:
+    """Trả None nếu caller là IMM Admin / System Manager. Trả chuỗi lỗi nếu không."""
+    actor = frappe.session.user
+    if actor == "Guest":
+        return _MSG_NOT_LOGGED_IN
+    actor_roles = {r.role for r in frappe.get_doc("User", actor).roles}
+    if _ROLE_ADMIN not in actor_roles and "System Manager" not in actor_roles:
+        return f"Chỉ {_ROLE_ADMIN} được thực hiện thao tác này"
+    return None
+
+
+def _parse_json(raw: Any) -> list:
+    if isinstance(raw, str):
+        return json.loads(raw or "[]")
+    return raw or []
+
+
+def _extract_imm_role_names(raw_roles: list) -> list[str]:
+    """Chuẩn hóa payload roles (list[str] hoặc list[dict]) → list[str] hợp lệ."""
+    result = []
+    for r in raw_roles:
+        name = r.get("role") if isinstance(r, dict) else r
+        if name in _IMM_ROLES:
+            result.append(name)
+    return result
+
+
+# ── Helpers thao tác trên User document ────────────────────────────────────────
+
+def _sync_imm_roles(user_doc: Any, new_roles: list[str]) -> None:
+    """
+    Thay thế toàn bộ IMM roles trên user_doc bằng new_roles.
+    Frappe non-IMM roles (System Manager, v.v.) được giữ nguyên.
+
+    CHÚ Ý: KHÔNG dùng `user_doc.add_roles()` — method này gọi `self.save()`
+    nội bộ mà KHÔNG có `flags.ignore_permissions = True`. Frappe User DocType
+    có DocPerm restrictive nên save fail âm thầm và rollback role changes →
+    bug "Lưu thành công nhưng role không vào DB" (theo cảm nhận user). Thay
+    vào đó, chỉ MUTATE child table `roles` trong bộ nhớ; caller `_save_user`
+    sẽ gọi `user_doc.save()` MỘT LẦN duy nhất với `ignore_permissions = True`.
+    """
+    # 1. Giữ lại non-IMM roles (System Manager, Maintenance User, …)
+    user_doc.set("roles", [r for r in user_doc.roles if r.role not in _IMM_ROLES])
+    # 2. Append IMM roles mới — không gọi save, để _save_user lo
+    existing = {r.role for r in user_doc.roles}
+    for role in new_roles:
+        if role not in existing:
+            user_doc.append("roles", {"role": role})
+            existing.add(role)
+
+
+def _apply_scalar_fields(user_doc: Any, data: dict) -> None:
+    # full_name is auto-computed from first_name + middle_name + last_name in Frappe's
+    # User.update_full_name(). Setting full_name directly is silently overwritten on save.
+    # Split into first_name + last_name so the change actually persists.
+    if "full_name" in data:
+        full = (data["full_name"] or "").strip()
+        parts = full.split(None, 1)
+        user_doc.first_name = parts[0] if parts else ""
+        user_doc.middle_name = ""
+        user_doc.last_name = parts[1] if len(parts) > 1 else ""
+    if "phone" in data:
+        user_doc.set("phone", data["phone"])
+    if "enabled" in data:
+        user_doc.enabled = int(data["enabled"])
+
+
+def _apply_custom_fields(user_doc: Any, data: dict) -> None:
+    for cf in ("ac_department", "imm_approval_status", "imm_rejection_reason"):
+        if cf in data and _safe_field(cf):
+            user_doc.set(cf, data[cf] or None)
+
+
+def _set_approval(user_doc: Any, roles: list[str]) -> None:
+    user_doc.enabled = 1
+    user_doc.imm_approval_status = "Approved"
+    user_doc.imm_approved_by = frappe.session.user
+    user_doc.imm_approved_at = now_datetime()
+    user_doc.imm_rejection_reason = ""
+    _sync_imm_roles(user_doc, roles)
+
+
+def _set_rejection(user_doc: Any, reason: str) -> None:
+    user_doc.enabled = 0
+    user_doc.imm_approval_status = "Rejected"
+    if reason:
+        user_doc.imm_rejection_reason = reason
+
+
+def _save_user(user_doc: Any) -> None:
+    user_doc.flags.ignore_permissions = True
+    user_doc.save()
+    # Frappe core validate() chạy set_system_user() — hạ user_type xuống
+    # "Website User" nếu user không có desk-access role. Module IMM coi mọi
+    # user trong scope là System User (kể cả khi tạm chưa gán role) → ép lại.
+    if user_doc.user_type != "System User":
+        frappe.db.set_value("User", user_doc.name, "user_type", "System User")
+    frappe.db.commit()
+
+
+# ── Payload builder ─────────────────────────────────────────────────────────────
+
+def _build_user_detail(user_name: str) -> dict:
+    """Tổng hợp User + HR data thành payload chuẩn trả về Frontend."""
+    row = _get_user_row(user_name)
+    hr = _get_hr_data(user_name)      # {} nếu chưa có bản ghi Employee
+    dept_id = row.get("ac_department")
+
+    return {
+        "name":              user_name,
+        "user":              user_name,
+        "full_name":         row.get("full_name") or user_name,
+        "email":             row.get("email") or user_name,
+        "phone":             row.get("phone"),
+        "user_image":        row.get("user_image"),
+        "enabled":           row.get("enabled", 1),
+        "imm_approval_status": row.get("imm_approval_status") or "Approved",
+        "imm_approved_by":   row.get("imm_approved_by"),
+        "imm_approved_at":   str(row.get("imm_approved_at") or ""),
+        "imm_rejection_reason": row.get("imm_rejection_reason"),
+        "ac_department":     dept_id,
+        "department_name":   _get_dept_name(dept_id),
+        "imm_roles":         _get_imm_roles(user_name),
+        "role_profile_name": row.get("role_profile_name"),
+        # HR fields — đọc từ Employee nếu có, None nếu chưa cài HR hoặc chưa có bản ghi
+        "hr_docname":        hr.get("hr_docname"),
+        "hr_full_name":      hr.get("hr_full_name"),
+        "designation":       hr.get("designation"),
+        "erp_department":    hr.get("erp_department"),
+        "has_employee":      bool(hr),
+    }
+
+
+# ── Public endpoints ────────────────────────────────────────────────────────────
+
+@frappe.whitelist()
+def list_users(
+    search: str = "",
+    department: str = "",
+    is_active: int = None,
+    approval_status: str = "",
+    page: int = 1,
+    page_size: int = 20,
+) -> dict:
+    """Liệt kê System Users có phân trang — kèm department_name."""
+    page, page_size = int(page), int(page_size)
+    offset = (page - 1) * page_size
+
+    filters: dict = {"user_type": "System User", "name": ["!=", "Guest"]}
+    if is_active is not None:
+        filters["enabled"] = int(is_active)
+    if department and _safe_field("ac_department"):
+        filters["ac_department"] = department
+    if approval_status and _safe_field("imm_approval_status"):
+        filters["imm_approval_status"] = approval_status
+
+    or_filters = None
+    if search:
+        or_filters = [
+            ["name", "like", f"%{search}%"],
+            ["full_name", "like", f"%{search}%"],
+        ]
+
+    total = frappe.db.count("User", filters)
+
+    fields = ["name", "full_name", "email", "enabled", "user_image", "role_profile_name"]
+    if _safe_field("imm_approval_status"):
+        fields.append("imm_approval_status")
+    if _safe_field("ac_department"):
+        fields.append("ac_department")
+
+    users = frappe.get_all(
+        "User",
+        filters=filters,
+        or_filters=or_filters,
+        fields=fields,
+        limit_start=offset,
+        limit_page_length=page_size,
+        order_by="full_name asc",
+    )
+
+    dept_ids = {u.get("ac_department") for u in users if u.get("ac_department")}
+    dept_map: dict = {}
+    if dept_ids:
+        dept_map = {
+            d.name: d.department_name
+            for d in frappe.get_all(
+                "AC Department",
+                filters={"name": ["in", list(dept_ids)]},
+                fields=["name", "department_name"],
+            )
+        }
+
+    # Batch-load IMM roles cho tất cả user trong trang (tránh N+1)
+    user_names = [u["name"] for u in users]
+    roles_map: dict[str, list[str]] = {n: [] for n in user_names}
+    if user_names:
+        rows = frappe.get_all(
+            "Has Role",
+            filters={"parent": ("in", user_names), "role": ("in", _IMM_ROLES)},
+            fields=["parent", "role"],
+        )
+        for r in rows:
+            roles_map.setdefault(r["parent"], []).append(r["role"])
+
+    for u in users:
+        u["department_name"] = dept_map.get(u.get("ac_department") or "", "")
+        u["is_active"] = u.get("enabled", 1)
+        if "imm_approval_status" not in u:
+            u["imm_approval_status"] = "Approved"
+        u["imm_roles"] = [
+            {
+                "name": r,
+                "label": ROLE_METADATA.get(r, {}).get("label") or r.replace("IMM ", ""),
+                "group": ROLE_METADATA.get(r, {}).get("group", "Other"),
+            }
+            for r in roles_map.get(u["name"], [])
+        ]
+
+    return _ok({
+        "items": users,
+        "pagination": {
+            "page": page,
+            "page_size": page_size,
+            "total": total,
+            "total_pages": max(1, (total + page_size - 1) // page_size),
+        },
+    })
+
+
+@frappe.whitelist()
+def get_user_info(user: str) -> dict:
+    """GET chi tiết một user — User fields + HR/Employee fields (optional)."""
+    if not frappe.db.exists("User", user):
+        return _err(f"Không tìm thấy user: {user}", 404)
+    try:
+        return _ok(_build_user_detail(user))
+    except Exception as exc:
+        frappe.log_error(frappe.get_traceback(), "get_user_info failed")
+        return _err(f"Lỗi tải thông tin user: {exc}", 500)
+
+
+@frappe.whitelist(methods=["POST"])
+def update_user_info() -> dict:
+    """Admin cập nhật thông tin user — trả về full detail mới sau khi save."""
+    err_msg = _assert_admin()
+    if err_msg:
+        return _err(err_msg, 403)
+
+    data = frappe.local.form_dict
+    user_name = data.get("user")
+    if not user_name or not frappe.db.exists("User", user_name):
+        return _err("user không hợp lệ", 400)
+
+    user_doc = frappe.get_doc("User", user_name)
+    _apply_scalar_fields(user_doc, data)
+    _apply_custom_fields(user_doc, data)
+    if "imm_roles" in data:
+        _sync_imm_roles(user_doc, _extract_imm_role_names(_parse_json(data["imm_roles"])))
+
+    _save_user(user_doc)
+
+    try:
+        return _ok(_build_user_detail(user_name))
+    except Exception as exc:
+        frappe.log_error(frappe.get_traceback(), "update_user_info: build detail failed")
+        return _ok({"user": user_name, "warning": str(exc)})
+
+
+@frappe.whitelist(methods=["POST"])
+def update_user_roles() -> dict:
+    """
+    Cập nhật IMM roles cho một user qua UI tích chọn role.
+
+    Payload: { "user": "<email>", "roles": ["IMM Technician", ...] }
+    Quyền: chỉ IMM System Admin / System Manager đổi role của người khác.
+    Logic: Frappe add_roles() append vào Has Role child table.
+    """
+    actor = frappe.session.user
+    if actor == "Guest":
+        return _err(_MSG_NOT_LOGGED_IN, 401)
+
+    data = frappe.local.form_dict
+    target = (data.get("user") or actor).strip()
+    raw_roles = _parse_json(data.get("roles") or "[]")
+    new_imm_roles = _extract_imm_role_names(raw_roles)
+
+    if target != actor:
+        err_msg = _assert_admin()
+        if err_msg:
+            return _err(err_msg, 403)
+
+    if not frappe.db.exists("User", target):
+        return _err(f"User không tồn tại: {target}", 404)
+
+    try:
+        user_doc = frappe.get_doc("User", target)
+        _sync_imm_roles(user_doc, new_imm_roles)
+        _save_user(user_doc)
+        return _ok({
+            "user": target,
+            "imm_roles": new_imm_roles,
+        })
+    except Exception as exc:
+        frappe.log_error(frappe.get_traceback(), "update_user_roles failed")
+        return _err(f"Lỗi cập nhật roles: {exc}", 500)
+
+
+@frappe.whitelist(methods=["POST"])
+def approve_registration() -> dict:
+    """Admin duyệt (approve) hoặc từ chối (reject) user đang Pending."""
+    err_msg = _assert_admin()
+    if err_msg:
+        return _err(err_msg, 403)
+
+    data = frappe.local.form_dict
+    user_name = data.get("user")
+    if not user_name or not frappe.db.exists("User", user_name):
+        return _err("User không tồn tại", 404)
+    if not _safe_field("imm_approval_status"):
+        return _err("Custom fields chưa cài. Hãy chạy bench migrate.", 500)
+
+    action = (data.get("action") or "approve").lower()
+    user_doc = frappe.get_doc("User", user_name)
+
+    if action == "reject":
+        _set_rejection(user_doc, data.get("rejection_reason") or "")
+    else:
+        _set_approval(
+            user_doc,
+            _extract_imm_role_names(_parse_json(data.get("roles") or "[]")),
+        )
+
+    _save_user(user_doc)
+    return _ok({
+        "user": user_name,
+        "status": user_doc.imm_approval_status,
+        "enabled": user_doc.enabled,
+    })
+
+
+def _build_new_user_doc(email: str, first_name: str, data: dict, imm_roles: list) -> Any:
+    """Tạo User document trong bộ nhớ — chưa insert vào DB."""
+    user_doc = frappe.new_doc("User")
+    user_doc.email = email
+    user_doc.first_name = first_name
+    user_doc.last_name = (data.get("last_name") or "").strip()
+    user_doc.phone = data.get("phone") or ""
+    user_doc.user_type = "System User"
+    user_doc.enabled = 1
+    user_doc.send_welcome_email = (
+        1 if data.get("send_welcome_email") in (1, "1", True, "true") else 0
+    )
+    if data.get("password"):
+        user_doc.new_password = data["password"]
+    if imm_roles:
+        for role in imm_roles:
+            user_doc.append("roles", {"role": role})
+    user_doc.flags.ignore_permissions = True
+    return user_doc
+
+
+def _cleanup_orphan_contacts(email: str) -> int:
+    """
+    Xóa Contact + Contact Email orphan (Contact với email_id = `email` mà không có
+    User tương ứng). Frappe khi tạo User auto-tạo Contact, nhưng `delete_doc(User)`
+    không cascade — để lại orphan gây DuplicateEntryError ở lần insert sau.
+    Return số Contact đã xóa.
+    """
+    rows = frappe.db.sql(
+        """
+        SELECT c.name FROM `tabContact` c
+        LEFT JOIN `tabUser` u ON LOWER(u.email) = LOWER(c.email_id)
+        WHERE LOWER(c.email_id) = %s AND u.name IS NULL
+        """,
+        (email.lower(),),
+        as_dict=True,
+    )
+    n = 0
+    for r in rows:
+        try:
+            frappe.delete_doc("Contact", r["name"], ignore_permissions=True, force=True)
+            n += 1
+        except Exception:
+            frappe.log_error(frappe.get_traceback(), f"Cleanup orphan Contact {r['name']} failed")
+    if n:
+        frappe.db.commit()
+    return n
+
+
+def _insert_user_doc(user_doc: Any, email: str) -> dict | None:
+    """Insert user_doc vào DB. Trả _err dict nếu thất bại, None nếu thành công."""
+    try:
+        user_doc.insert()
+        return None
+    except frappe.DuplicateEntryError:
+        frappe.db.rollback()
+        # Trường hợp Contact orphan từ User cũ đã xóa — auto-cleanup và retry 1 lần.
+        if _cleanup_orphan_contacts(email):
+            try:
+                user_doc.insert()
+                return None
+            except Exception:
+                frappe.db.rollback()
+        existing = frappe.db.exists("User", email) or frappe.db.exists("User", {"email": email})
+        return _err(
+            f"Email '{email}' đã tồn tại trong hệ thống",
+            409,
+            extra={"existing_user": existing} if existing else None,
+        )
+    except frappe.exceptions.ValidationError as exc:
+        frappe.db.rollback()
+        return _err(str(exc), 400)
+    except Exception as exc:
+        frappe.db.rollback()
+        frappe.log_error(frappe.get_traceback(), "create_system_user insert failed")
+        return _err(f"Không thể tạo user: {exc}", 500)
+
+
+def _stamp_imm_approval(email: str, ac_department: str | None) -> None:
+    """Ghi custom fields IMM sau khi User đã insert thành công.
+
+    Đồng thời ép user_type = "System User": Frappe core `User.set_system_user()`
+    chạy trong validate() sẽ tự hạ cấp xuống "Website User" nếu user không có
+    role nào có desk_access=1 (xảy ra khi admin tạo user mà chưa tick role IMM
+    nào). Direct DB write bypass logic đó để user mới luôn xuất hiện trong
+    `list_users` (vốn lọc theo user_type="System User").
+    """
+    payload: dict = {"user_type": "System User"}
+    if _safe_field("imm_approval_status"):
+        payload.update({
+            "imm_approval_status": "Approved",
+            "imm_approved_by": frappe.session.user,
+            "imm_approved_at": now_datetime(),
+            "ac_department": ac_department or None,
+        })
+    frappe.db.set_value("User", email, payload)
+
+
+@frappe.whitelist(methods=["POST"])
+def create_system_user() -> dict:
+    """Admin tạo Frappe User mới (enabled=1, Approved) — không qua luồng đăng ký."""
+    err_msg = _assert_admin()
+    if err_msg:
+        return _err(err_msg, 403)
+
+    data = frappe.local.form_dict
+    email = (data.get("email") or "").strip().lower()
+    first_name = (data.get("first_name") or "").strip()
+
+    if not email:
+        return _err("Thiếu email", 400)
+    if not first_name:
+        return _err("Thiếu họ tên", 400)
+    # Kiểm tra cả primary key (name) và field email — case-insensitive để tránh
+    # false negative khi user nhập IN HOA mà DB lưu thường.
+    by_name = frappe.db.exists("User", email)
+    by_email = frappe.db.exists("User", {"email": email}) if not by_name else None
+    existing = by_name or by_email
+    if existing:
+        # Log chi tiết để debug khi user báo "ko tạo được" — xem app log để biết
+        # lý do thực sự (maybe user thấy field bị restore từ form draft).
+        frappe.logger().info(
+            f"[create_system_user] DUPLICATE blocked: email={email!r} "
+            f"matched_by={'name' if by_name else 'email_field'} existing={existing!r}"
+        )
+        return _err(
+            f"Email '{email}' đã tồn tại trong hệ thống",
+            409,
+            extra={
+                "existing_user": existing,
+                "matched_by": "name" if by_name else "email_field",
+            },
+        )
+
+    imm_roles = _extract_imm_role_names(_parse_json(data.get("imm_roles") or "[]"))
+    user_doc = _build_new_user_doc(email, first_name, data, imm_roles)
+
+    insert_err = _insert_user_doc(user_doc, email)
+    if insert_err:
+        return insert_err
+
+    _stamp_imm_approval(email, data.get("ac_department"))
+    frappe.db.commit()
+    return _ok({"user": email, "full_name": user_doc.full_name})
+
+
+@frappe.whitelist(methods=["POST"])
+def reset_user_password(user: str, new_password: str) -> dict:
+    """Admin reset mật khẩu của bất kỳ user nào."""
+    err_msg = _assert_admin()
+    if err_msg:
+        return _err(err_msg, 403)
+    if not frappe.db.exists("User", user):
+        return _err(f"User không tồn tại: {user}", 404)
+    if len(new_password) < 8:
+        return _err("Mật khẩu phải tối thiểu 8 ký tự", 400)
+
+    from frappe.utils.password import update_password
+    update_password(user, new_password)
+    frappe.db.commit()
+    return _ok({"user": user, "reset_by": frappe.session.user})
+
+
+@frappe.whitelist(methods=["POST"])
+def change_my_password(old_password: str, new_password: str) -> dict:
+    """User tự đổi mật khẩu."""
+    user = frappe.session.user
+    if user == "Guest":
+        return _err(_MSG_NOT_LOGGED_IN, 401)
+    if len(new_password) < 8:
+        return _err("Mật khẩu mới phải tối thiểu 8 ký tự", 400)
+    if old_password == new_password:
+        return _err("Mật khẩu mới phải khác mật khẩu cũ", 400)
+
+    from frappe.utils.password import check_password, update_password
+    try:
+        check_password(user, old_password)
+    except frappe.AuthenticationError:
+        return _err("Mật khẩu hiện tại không đúng", 400)
+
+    update_password(user, new_password)
+    frappe.db.commit()
+    return _ok({"user": user})
+
+
+@frappe.whitelist()
+def get_available_imm_roles() -> dict:
+    """Danh sách role IMM kèm metadata để FE hiển thị nhãn tiếng Việt + mô tả + nhóm."""
+    items = []
+    for r in _IMM_ROLES:
+        meta = ROLE_METADATA.get(r, {})
+        items.append({
+            "name": r,
+            "label": meta.get("label") or r.replace("IMM ", ""),
+            "description": meta.get("description", ""),
+            "group": meta.get("group", "Other"),
+        })
+    return _ok(items)
+
+
+@frappe.whitelist()
+def list_role_profiles() -> dict:
+    """Danh sách Role Profile (core DocType) — chỉ các profile IMM.
+
+    Dùng Frappe core `Role Profile` DocType; FE chọn 1 profile → BE gán vào
+    `User.role_profile_name`, Frappe tự sync các role thành viên.
+    """
+    profiles = frappe.get_all(
+        _DT_ROLE_PROFILE,
+        filters={"role_profile": ("like", "AssetCore —%")},
+        fields=["name", "role_profile"],
+        order_by="role_profile asc",
+    )
+    # Kèm danh sách role thành viên (đọc child table Has Role)
+    result = []
+    for p in profiles:
+        roles = frappe.get_all(
+            "Has Role",
+            filters={"parent": p.name, "parenttype": _DT_ROLE_PROFILE},
+            fields=["role"],
+            pluck="role",
+        )
+        result.append({
+            "name": p.name,
+            "label": p.role_profile,
+            "roles": [
+                {
+                    "name": r,
+                    "label": ROLE_METADATA.get(r, {}).get("label") or r.replace("IMM ", ""),
+                    "group": ROLE_METADATA.get(r, {}).get("group", "Other"),
+                }
+                for r in roles
+            ],
+        })
+    return _ok(result)
+
+
+@frappe.whitelist(methods=["POST"])
+def assign_role_profile(user: str, role_profile: str = "") -> dict:
+    """Gán Role Profile cho user. Đặt chuỗi rỗng để bỏ profile.
+
+    Frappe core tự động sync các role trong profile vào user.roles khi
+    `role_profile_name` đổi (thông qua `User.validate_roles_through_role_profile`).
+    """
+    if not frappe.db.exists("User", user):
+        return _err(f"User '{user}' không tồn tại", 404)
+    if role_profile and not frappe.db.exists(_DT_ROLE_PROFILE, role_profile):
+        return _err(f"Role Profile '{role_profile}' không tồn tại", 404)
+
+    # Chỉ admin hoặc chính user mới được đổi
+    if frappe.session.user != user and _ROLE_ADMIN not in frappe.get_roles():
+        return _err("Bạn không có quyền đổi Role Profile của user này", 403)
+
+    user_doc = frappe.get_doc("User", user)
+    user_doc.role_profile_name = role_profile or None
+    user_doc.flags.ignore_permissions = True
+    user_doc.save()  # core Frappe code sẽ sync roles từ profile
+    frappe.db.commit()
+
+    return _ok({
+        "user": user,
+        "role_profile": role_profile or None,
+        "imm_roles": _get_imm_roles(user),
+    })
+
+
+@frappe.whitelist()
+def list_frappe_users(search: str = "", limit: int = 30) -> dict:
+    """Autocomplete tìm Frappe System Users theo tên / email."""
+    limit = max(1, min(int(limit), 100))
+    filters: dict = {"enabled": 1, "user_type": ["!=", "Website User"]}
+    or_filters = None
+    if search:
+        or_filters = [
+            ["name", "like", f"%{search}%"],
+            ["full_name", "like", f"%{search}%"],
+            ["email", "like", f"%{search}%"],
+        ]
+    users = frappe.get_all(
+        "User",
+        filters=filters,
+        or_filters=or_filters,
+        fields=["name", "full_name", "email", "user_image"],
+        order_by="full_name asc",
+        limit_page_length=limit,
+    )
+    return _ok(users)

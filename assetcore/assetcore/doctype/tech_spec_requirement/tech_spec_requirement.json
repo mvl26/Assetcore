@@ -1,0 +1,31 @@
+{
+ "actions": [],
+ "creation": "2026-04-29 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "seq", "group", "parameter", "value_or_range", "unit",
+  "column_break_1", "is_mandatory", "weight", "test_method",
+  "section_evidence", "evidence", "remark"
+ ],
+ "fields": [
+  {"fieldname": "seq", "fieldtype": "Int", "label": "Seq", "in_list_view": 1, "read_only": 1},
+  {"fieldname": "group", "fieldtype": "Select", "label": "Nhóm", "in_list_view": 1,
+   "options": "Performance\nSafety\nConnectivity\nPower\nMechanical\nSoftware\nService\nCompliance"},
+  {"fieldname": "parameter", "fieldtype": "Data", "label": "Tham số", "in_list_view": 1, "reqd": 1},
+  {"fieldname": "value_or_range", "fieldtype": "Data", "label": "Giá trị / Dải", "in_list_view": 1},
+  {"fieldname": "unit", "fieldtype": "Data", "label": "Đơn vị"},
+  {"fieldname": "column_break_1", "fieldtype": "Column Break"},
+  {"fieldname": "is_mandatory", "fieldtype": "Check", "label": "Bắt buộc", "in_list_view": 1},
+  {"fieldname": "weight", "fieldtype": "Int", "label": "Trọng số (1-10)"},
+  {"fieldname": "test_method", "fieldtype": "Small Text", "label": "Phương pháp kiểm tra"},
+  {"fieldname": "section_evidence", "fieldtype": "Section Break"},
+  {"fieldname": "evidence", "fieldtype": "Attach", "label": "Bằng chứng (datasheet)"},
+  {"fieldname": "remark", "fieldtype": "Small Text", "label": "Ghi chú"}
+ ],
+ "istable": 1, "links": [],
+ "modified": "2026-04-29 00:00:00.000000", "modified_by": "Administrator",
+ "module": "AssetCore", "name": "Tech Spec Requirement",
+ "owner": "Administrator", "permissions": [],
+ "sort_field": "seq", "sort_order": "ASC", "states": []
+}

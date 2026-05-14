@@ -1,0 +1,137 @@
+{
+ "creation": "2026-05-08 00:00:00.000000",
+ "document_type": "IMM Spare Allocation",
+ "doctype": "Workflow",
+ "is_active": 1,
+ "modified": "2026-05-08 00:00:00.000000",
+ "modified_by": "Administrator",
+ "name": "IMM-15 Spare Allocation Workflow",
+ "owner": "Administrator",
+ "send_email_alert": 0,
+ "workflow_name": "IMM-15 Spare Allocation Workflow",
+ "workflow_state_field": "workflow_state",
+ "states": [
+  {
+   "allow_edit": "IMM Biomed Technician",
+   "doc_status": "0",
+   "state": "Requested",
+   "type": "Warning"
+  },
+  {
+   "allow_edit": "IMM Workshop Lead",
+   "doc_status": "0",
+   "state": "Approved",
+   "type": "Success"
+  },
+  {
+   "allow_edit": "IMM Storekeeper",
+   "doc_status": "0",
+   "state": "Picked",
+   "type": "Warning"
+  },
+  {
+   "allow_edit": "IMM Storekeeper",
+   "doc_status": "1",
+   "state": "Issued",
+   "type": "Success"
+  },
+  {
+   "allow_edit": "IMM Storekeeper",
+   "doc_status": "1",
+   "state": "Returned",
+   "type": "Default"
+  },
+  {
+   "allow_edit": "IMM System Admin",
+   "doc_status": "0",
+   "state": "Cancelled",
+   "type": "Danger"
+  }
+ ],
+ "transitions": [
+  {
+   "action": "Phê duyệt",
+   "allowed": "IMM Workshop Lead",
+   "next_state": "Approved",
+   "state": "Requested",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Issue (Emergency)",
+   "allowed": "IMM Workshop Lead",
+   "next_state": "Issued",
+   "state": "Requested",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Hủy",
+   "allowed": "IMM Workshop Lead",
+   "next_state": "Cancelled",
+   "state": "Requested",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Hủy",
+   "allowed": "IMM System Admin",
+   "next_state": "Cancelled",
+   "state": "Requested",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Pick",
+   "allowed": "IMM Storekeeper",
+   "next_state": "Picked",
+   "state": "Approved",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Hủy",
+   "allowed": "IMM Workshop Lead",
+   "next_state": "Cancelled",
+   "state": "Approved",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Hủy",
+   "allowed": "IMM System Admin",
+   "next_state": "Cancelled",
+   "state": "Approved",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Issue",
+   "allowed": "IMM Storekeeper",
+   "next_state": "Issued",
+   "state": "Picked",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Hủy",
+   "allowed": "IMM Workshop Lead",
+   "next_state": "Cancelled",
+   "state": "Picked",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Hủy",
+   "allowed": "IMM System Admin",
+   "next_state": "Cancelled",
+   "state": "Picked",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Trả phụ tùng",
+   "allowed": "IMM Storekeeper",
+   "next_state": "Returned",
+   "state": "Issued",
+   "allow_self_approval": 1
+  },
+  {
+   "action": "Đóng phiếu",
+   "allowed": "IMM Storekeeper",
+   "next_state": "Issued",
+   "state": "Returned",
+   "allow_self_approval": 1
+  }
+ ]
+}

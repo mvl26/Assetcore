@@ -1,0 +1,272 @@
+[
+ {
+  "docstatus": 0,
+  "doctype": "Role Profile",
+  "modified": "2026-05-13 09:30:10.882255",
+  "name": "AssetCore — System Admin",
+  "role_profile": "AssetCore — System Admin",
+  "roles": [
+   {
+    "parent": "AssetCore — System Admin",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "IMM System Admin"
+   },
+   {
+    "parent": "AssetCore — System Admin",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "IMM Operations Manager"
+   },
+   {
+    "parent": "AssetCore — System Admin",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "IMM Auditor"
+   }
+  ]
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Role Profile",
+  "modified": "2026-05-13 09:30:10.886317",
+  "name": "AssetCore — Operations Manager",
+  "role_profile": "AssetCore — Operations Manager",
+  "roles": [
+   {
+    "parent": "AssetCore — Operations Manager",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "IMM Operations Manager"
+   },
+   {
+    "parent": "AssetCore — Operations Manager",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "IMM QA Officer"
+   }
+  ]
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Role Profile",
+  "modified": "2026-05-13 09:30:10.888885",
+  "name": "AssetCore — Department Head",
+  "role_profile": "AssetCore — Department Head",
+  "roles": [
+   {
+    "parent": "AssetCore — Department Head",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "IMM Department Head"
+   }
+  ]
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Role Profile",
+  "modified": "2026-05-13 09:30:10.891232",
+  "name": "AssetCore — Department Deputy",
+  "role_profile": "AssetCore — Department Deputy",
+  "roles": [
+   {
+    "parent": "AssetCore — Department Deputy",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "IMM Deputy Department Head"
+   }
+  ]
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Role Profile",
+  "modified": "2026-05-13 09:30:10.901023",
+  "name": "AssetCore — Workshop Lead",
+  "role_profile": "AssetCore — Workshop Lead",
+  "roles": [
+   {
+    "parent": "AssetCore — Workshop Lead",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "IMM Workshop Lead"
+   },
+   {
+    "parent": "AssetCore — Workshop Lead",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "IMM Biomed Technician"
+   }
+  ]
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Role Profile",
+  "modified": "2026-05-13 09:30:10.903441",
+  "name": "AssetCore — Biomed Technician",
+  "role_profile": "AssetCore — Biomed Technician",
+  "roles": [
+   {
+    "parent": "AssetCore — Biomed Technician",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "IMM Biomed Technician"
+   },
+   {
+    "parent": "AssetCore — Biomed Technician",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "IMM Technician"
+   }
+  ]
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Role Profile",
+  "modified": "2026-05-13 09:30:10.906772",
+  "name": "AssetCore — Technician",
+  "role_profile": "AssetCore — Technician",
+  "roles": [
+   {
+    "parent": "AssetCore — Technician",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "IMM Technician"
+   }
+  ]
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Role Profile",
+  "modified": "2026-05-13 09:30:10.908936",
+  "name": "AssetCore — Clinical User",
+  "role_profile": "AssetCore — Clinical User",
+  "roles": [
+   {
+    "parent": "AssetCore — Clinical User",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "IMM Clinical User"
+   }
+  ]
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Role Profile",
+  "modified": "2026-05-13 09:30:10.911667",
+  "name": "AssetCore — QA Officer",
+  "role_profile": "AssetCore — QA Officer",
+  "roles": [
+   {
+    "parent": "AssetCore — QA Officer",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "IMM QA Officer"
+   }
+  ]
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Role Profile",
+  "modified": "2026-05-13 09:30:10.914526",
+  "name": "AssetCore — Auditor",
+  "role_profile": "AssetCore — Auditor",
+  "roles": [
+   {
+    "parent": "AssetCore — Auditor",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "IMM Auditor"
+   }
+  ]
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Role Profile",
+  "modified": "2026-05-13 09:30:10.917566",
+  "name": "AssetCore — Storekeeper",
+  "role_profile": "AssetCore — Storekeeper",
+  "roles": [
+   {
+    "parent": "AssetCore — Storekeeper",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "IMM Storekeeper"
+   }
+  ]
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Role Profile",
+  "modified": "2026-05-13 09:30:10.919886",
+  "name": "AssetCore — Document Officer",
+  "role_profile": "AssetCore — Document Officer",
+  "roles": [
+   {
+    "parent": "AssetCore — Document Officer",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "IMM Document Officer"
+   }
+  ]
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Role Profile",
+  "modified": "2026-05-13 09:30:10.922300",
+  "name": "AssetCore — Planning Officer",
+  "role_profile": "AssetCore — Planning Officer",
+  "roles": [
+   {
+    "parent": "AssetCore — Planning Officer",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "IMM Planning Officer"
+   }
+  ]
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Role Profile",
+  "modified": "2026-05-13 09:30:10.925439",
+  "name": "AssetCore — Procurement Officer",
+  "role_profile": "AssetCore — Procurement Officer",
+  "roles": [
+   {
+    "parent": "AssetCore — Procurement Officer",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "IMM Procurement Officer"
+   }
+  ]
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Role Profile",
+  "modified": "2026-05-13 09:30:10.929070",
+  "name": "AssetCore — Vendor Engineer",
+  "role_profile": "AssetCore — Vendor Engineer",
+  "roles": [
+   {
+    "parent": "AssetCore — Vendor Engineer",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "Vendor Engineer"
+   }
+  ]
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Role Profile",
+  "modified": "2026-05-13 09:30:10.932798",
+  "name": "AssetCore — Training Officer",
+  "role_profile": "AssetCore — Training Officer",
+  "roles": [
+   {
+    "parent": "AssetCore — Training Officer",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "IMM Training Officer"
+   }
+  ]
+ }
+]

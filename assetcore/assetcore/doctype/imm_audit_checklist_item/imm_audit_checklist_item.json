@@ -1,0 +1,67 @@
+{
+ "creation": "2026-05-08 00:00:00.000000",
+ "doctype": "DocType",
+ "document_type": "Document",
+ "engine": "InnoDB",
+ "istable": 1,
+ "module": "AssetCore",
+ "name": "IMM Audit Checklist Item",
+ "track_changes": 0,
+ "modified": "2026-05-08 00:00:00.000000",
+ "modified_by": "Administrator",
+ "owner": "Administrator",
+ "field_order": [
+  "item_description",
+  "category",
+  "criteria",
+  "result",
+  "evidence",
+  "notes",
+  "finding_ref"
+ ],
+ "fields": [
+  {
+   "fieldname": "item_description",
+   "fieldtype": "Data",
+   "label": "Mô tả mục kiểm tra",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "category",
+   "fieldtype": "Select",
+   "label": "Phân loại",
+   "options": "\nDocument\nProcess\nSystem",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "criteria",
+   "fieldtype": "Text",
+   "label": "Tiêu chí"
+  },
+  {
+   "fieldname": "result",
+   "fieldtype": "Select",
+   "label": "Kết quả",
+   "options": "\nConforming\nNon-Conforming\nNot Applicable",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "evidence",
+   "fieldtype": "Attach",
+   "label": "Bằng chứng"
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Small Text",
+   "label": "Ghi chú"
+  },
+  {
+   "fieldname": "finding_ref",
+   "fieldtype": "Link",
+   "label": "Finding Reference",
+   "options": "Audit Finding"
+  }
+ ],
+ "permissions": []
+}

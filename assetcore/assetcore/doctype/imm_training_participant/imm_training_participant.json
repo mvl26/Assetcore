@@ -1,0 +1,96 @@
+{
+  "actions": [],
+  "name": "IMM Training Participant",
+  "doctype": "DocType",
+  "module": "AssetCore",
+  "engine": "InnoDB",
+  "istable": 1,
+  "autoname": "hash",
+  "track_changes": 0,
+  "creation": "2026-05-08 00:00:00.000000",
+  "modified": "2026-05-08 00:00:00.000000",
+  "modified_by": "Administrator",
+  "owner": "Administrator",
+  "field_order": [
+    "user",
+    "department",
+    "role_at_session",
+    "attendance_pct",
+    "theory_score",
+    "practical_score",
+    "overall_result",
+    "certificate_issued",
+    "retake_required",
+    "competency_record",
+    "remarks"
+  ],
+  "fields": [
+    {
+      "fieldname": "user",
+      "fieldtype": "Link",
+      "label": "Học viên",
+      "options": "User",
+      "reqd": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "department",
+      "fieldtype": "Link",
+      "label": "Khoa/Phòng",
+      "options": "AC Department",
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "role_at_session",
+      "fieldtype": "Data",
+      "label": "Vai trò"
+    },
+    {
+      "fieldname": "attendance_pct",
+      "fieldtype": "Float",
+      "label": "Tỷ lệ tham dự (%)",
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "theory_score",
+      "fieldtype": "Float",
+      "label": "Điểm lý thuyết",
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "practical_score",
+      "fieldtype": "Float",
+      "label": "Điểm thực hành",
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "overall_result",
+      "fieldtype": "Select",
+      "label": "Kết quả",
+      "options": "Pass\nFail\nConditional",
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "certificate_issued",
+      "fieldtype": "Check",
+      "label": "Đã cấp chứng nhận"
+    },
+    {
+      "fieldname": "retake_required",
+      "fieldtype": "Check",
+      "label": "Cần học lại"
+    },
+    {
+      "fieldname": "competency_record",
+      "fieldtype": "Link",
+      "label": "Hồ sơ năng lực",
+      "options": "IMM User Competency"
+    },
+    {
+      "fieldname": "remarks",
+      "fieldtype": "Small Text",
+      "label": "Ghi chú"
+    }
+  ],
+  "permissions": []
+}

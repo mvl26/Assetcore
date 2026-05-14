@@ -1,0 +1,28 @@
+{
+  "actions": [],
+  "creation": "2026-04-17 09:00:00.000000",
+  "doctype": "DocType",
+  "document_type": "Document",
+  "engine": "InnoDB",
+  "istable": 1,
+  "module": "AssetCore",
+  "name": "PM Checklist Item",
+  "field_order": [
+    "item_code", "description", "measurement_type", "unit",
+    "expected_min", "expected_max", "is_critical", "reference_section"
+  ],
+  "fields": [
+    {"fieldname": "item_code", "fieldtype": "Data", "label": "M\u00e3 m\u1ee5c", "in_list_view": 1, "columns": 2, "read_only": 1},
+    {"fieldname": "description", "fieldtype": "Text", "label": "M\u00f4 t\u1ea3 c\u00f4ng vi\u1ec7c", "reqd": 1, "in_list_view": 1, "columns": 4},
+    {"fieldname": "measurement_type", "fieldtype": "Select", "label": "Lo\u1ea1i \u0111o l\u01b0\u1eddng", "options": "Pass/Fail\nNumeric\nText", "reqd": 1, "in_list_view": 1, "columns": 2},
+    {"fieldname": "unit", "fieldtype": "Data", "label": "\u0110\u01a1n v\u1ecb", "depends_on": "eval:doc.measurement_type==='Numeric'"},
+    {"fieldname": "expected_min", "fieldtype": "Float", "label": "Gi\u00e1 tr\u1ecb min", "depends_on": "eval:doc.measurement_type==='Numeric'"},
+    {"fieldname": "expected_max", "fieldtype": "Float", "label": "Gi\u00e1 tr\u1ecb max", "depends_on": "eval:doc.measurement_type==='Numeric'"},
+    {"fieldname": "is_critical", "fieldtype": "Check", "label": "M\u1ee5c quan tr\u1ecdng (Critical)", "default": "0", "in_list_view": 1},
+    {"fieldname": "reference_section", "fieldtype": "Data", "label": "Tham chi\u1ebfu t\u00e0i li\u1ec7u"}
+  ],
+  "modified": "2026-04-17 09:00:00.000000",
+  "modified_by": "Administrator",
+  "owner": "Administrator",
+  "permissions": []
+}

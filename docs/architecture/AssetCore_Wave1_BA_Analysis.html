@@ -1,0 +1,1618 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AssetCore – BA Analysis Wave 1</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap');
+
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --surface2: #1c2333;
+    --border: #30363d;
+    --accent: #58a6ff;
+    --accent2: #f78166;
+    --accent3: #3fb950;
+    --accent4: #d29922;
+    --accent5: #bc8cff;
+    --text: #c9d1d9;
+    --text-muted: #8b949e;
+    --text-bright: #f0f6fc;
+    --tag-blue: #1f3553;
+    --tag-green: #1a3a2a;
+    --tag-orange: #3d2a10;
+    --tag-purple: #2d1f4a;
+    --tag-red: #3d1a1a;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'IBM Plex Sans', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 13.5px;
+    line-height: 1.6;
+  }
+
+  /* ── HEADER ── */
+  .doc-header {
+    background: linear-gradient(135deg, #0d1117 0%, #1a2332 50%, #0d1117 100%);
+    border-bottom: 1px solid var(--border);
+    padding: 40px 48px 32px;
+    position: relative;
+    overflow: hidden;
+  }
+  .doc-header::before {
+    content: '';
+    position: absolute;
+    top: -60px; right: -60px;
+    width: 300px; height: 300px;
+    background: radial-gradient(circle, rgba(88,166,255,0.08) 0%, transparent 70%);
+  }
+  .doc-header-meta {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--accent);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 12px;
+  }
+  .doc-header h1 {
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--text-bright);
+    margin-bottom: 8px;
+  }
+  .doc-header h1 span { color: var(--accent); }
+  .doc-header-sub {
+    font-size: 13px;
+    color: var(--text-muted);
+    max-width: 680px;
+  }
+  .doc-header-badges {
+    margin-top: 20px;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .badge {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    padding: 3px 10px;
+    border-radius: 3px;
+    border: 1px solid;
+    letter-spacing: 0.5px;
+  }
+  .badge-blue  { color: var(--accent);  border-color: var(--accent);  background: var(--tag-blue); }
+  .badge-green { color: var(--accent3); border-color: var(--accent3); background: var(--tag-green); }
+  .badge-orange{ color: var(--accent4); border-color: var(--accent4); background: var(--tag-orange); }
+  .badge-purple{ color: var(--accent5); border-color: var(--accent5); background: var(--tag-purple); }
+  .badge-red   { color: var(--accent2); border-color: var(--accent2); background: var(--tag-red); }
+
+  /* ── NAV ── */
+  .toc {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 0 48px;
+    display: flex;
+    gap: 0;
+    overflow-x: auto;
+  }
+  .toc a {
+    display: block;
+    padding: 14px 18px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--text-muted);
+    text-decoration: none;
+    border-bottom: 2px solid transparent;
+    white-space: nowrap;
+    transition: all 0.2s;
+  }
+  .toc a:hover { color: var(--accent); border-bottom-color: var(--accent); }
+
+  /* ── MAIN ── */
+  .main { padding: 0 48px 60px; }
+
+  /* ── MODULE BLOCK ── */
+  .module {
+    margin-top: 48px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .module-header {
+    background: var(--surface2);
+    padding: 20px 28px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  .module-id {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 4px 12px;
+    border-radius: 4px;
+    white-space: nowrap;
+  }
+  .mod-04 { background: var(--tag-blue);   color: var(--accent);  border: 1px solid var(--accent); }
+  .mod-05 { background: var(--tag-purple); color: var(--accent5); border: 1px solid var(--accent5); }
+  .mod-08 { background: var(--tag-green);  color: var(--accent3); border: 1px solid var(--accent3); }
+  .mod-09 { background: var(--tag-orange); color: var(--accent4); border: 1px solid var(--accent4); }
+  .mod-11 { background: var(--tag-red);    color: var(--accent2); border: 1px solid var(--accent2); }
+  .mod-12 { background: #1a2a3a;           color: #79c0ff;        border: 1px solid #79c0ff; }
+
+  .module-header h2 { font-size: 16px; font-weight: 600; color: var(--text-bright); }
+  .module-header p  { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+
+  /* ── SECTION ── */
+  .section {
+    padding: 24px 28px;
+    border-bottom: 1px solid var(--border);
+  }
+  .section:last-child { border-bottom: none; }
+  .section-title {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .section-title::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  /* ── TABLE ── */
+  .tbl {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12.5px;
+  }
+  .tbl th {
+    background: var(--surface2);
+    color: var(--text-muted);
+    font-weight: 600;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10.5px;
+    letter-spacing: 0.5px;
+    padding: 8px 12px;
+    text-align: left;
+    border: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  .tbl td {
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    vertical-align: top;
+    color: var(--text);
+    line-height: 1.55;
+  }
+  .tbl tr:nth-child(even) td { background: rgba(255,255,255,0.015); }
+  .tbl tr:hover td { background: rgba(88,166,255,0.04); }
+
+  /* ── PROCESS MAP ── */
+  .process-flow {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0;
+    align-items: center;
+  }
+  .pf-step {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 14px;
+    font-size: 12px;
+    min-width: 140px;
+    text-align: center;
+    position: relative;
+  }
+  .pf-step .step-num {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    color: var(--accent);
+    display: block;
+    margin-bottom: 4px;
+  }
+  .pf-step .step-label { color: var(--text-bright); font-weight: 500; }
+  .pf-step .step-actor { font-size: 10px; color: var(--text-muted); margin-top: 3px; }
+  .pf-arrow {
+    color: var(--border);
+    font-size: 18px;
+    padding: 0 6px;
+    flex-shrink: 0;
+  }
+  .pf-decision {
+    background: var(--tag-orange);
+    border-color: var(--accent4);
+  }
+  .pf-decision .step-num { color: var(--accent4); }
+  .pf-end {
+    background: var(--tag-green);
+    border-color: var(--accent3);
+  }
+  .pf-end .step-num { color: var(--accent3); }
+  .pf-start {
+    background: var(--tag-blue);
+    border-color: var(--accent);
+  }
+
+  /* ── CODE / GHERKIN ── */
+  .gherkin {
+    background: #0d1117;
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent3);
+    border-radius: 4px;
+    padding: 14px 18px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    line-height: 1.7;
+    white-space: pre-wrap;
+    color: var(--text);
+    margin-bottom: 12px;
+  }
+  .gherkin .k-scenario { color: var(--accent2); font-weight: 600; }
+  .gherkin .k-given    { color: var(--accent);  }
+  .gherkin .k-when     { color: var(--accent4); }
+  .gherkin .k-then     { color: var(--accent3); }
+  .gherkin .k-and      { color: var(--text-muted); }
+  .gherkin .k-but      { color: #f78166; }
+
+  /* ── TAGS ── */
+  .tag {
+    display: inline-block;
+    font-size: 10px;
+    font-family: 'IBM Plex Mono', monospace;
+    padding: 2px 8px;
+    border-radius: 3px;
+    margin: 1px 2px;
+  }
+  .tag-who    { background: var(--tag-blue);   color: var(--accent);  }
+  .tag-iso    { background: var(--tag-purple); color: var(--accent5); }
+  .tag-nd98   { background: var(--tag-orange); color: var(--accent4); }
+  .tag-erpnext{ background: var(--tag-green);  color: var(--accent3); }
+  .tag-crit   { background: var(--tag-red);    color: var(--accent2); }
+
+  /* ── INVEST ── */
+  .user-story {
+    background: var(--surface2);
+    border-left: 3px solid var(--accent5);
+    padding: 12px 16px;
+    border-radius: 0 4px 4px 0;
+    margin-bottom: 10px;
+  }
+  .user-story .story-text { font-size: 13px; color: var(--text-bright); margin-bottom: 6px; }
+  .user-story .story-meta { font-size: 11px; color: var(--text-muted); }
+
+  /* ── CALLOUT ── */
+  .callout {
+    display: flex;
+    gap: 12px;
+    padding: 12px 16px;
+    border-radius: 6px;
+    margin-bottom: 10px;
+    font-size: 12.5px;
+  }
+  .callout-warn  { background: var(--tag-orange); border: 1px solid rgba(210,153,34,0.3); }
+  .callout-info  { background: var(--tag-blue);   border: 1px solid rgba(88,166,255,0.3); }
+  .callout-crit  { background: var(--tag-red);    border: 1px solid rgba(247,129,102,0.3); }
+  .callout-ok    { background: var(--tag-green);  border: 1px solid rgba(63,185,80,0.3); }
+  .callout-icon  { font-size: 16px; flex-shrink: 0; margin-top: 1px; }
+
+  /* ── FOOTER ── */
+  .doc-footer {
+    margin-top: 60px;
+    padding: 24px 48px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    color: var(--text-muted);
+  }
+
+  /* Inline mono */
+  code {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11.5px;
+    background: var(--surface2);
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: var(--accent);
+  }
+
+  ul { padding-left: 18px; }
+  ul li { margin-bottom: 4px; }
+
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media(max-width:900px){ .two-col { grid-template-columns: 1fr; } }
+
+  .priority-chip {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-weight: 600;
+  }
+  .p-high   { background: #3d1a1a; color: var(--accent2); }
+  .p-med    { background: var(--tag-orange); color: var(--accent4); }
+  .p-low    { background: var(--tag-blue); color: var(--accent); }
+
+  hr.divider { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════ HEADER ═══════════════════════════════ -->
+<div class="doc-header">
+  <div class="doc-header-meta">AssetCore · BA Analysis · Wave 1</div>
+  <h1><span>Business Analysis</span> — Wave 1 Module Decomposition</h1>
+  <div class="doc-header-sub">
+    Phân tích nghiệp vụ chi tiết 6 module ưu tiên Đợt 1: Process map, Actor/Role, Input/Output,
+    User Story (INVEST), Acceptance Criteria (Gherkin), Business Rules, Exception Handling,
+    WHO Mapping và QMS Control.
+  </div>
+  <div class="doc-header-badges">
+    <span class="badge badge-blue">IMM-04 · Lắp đặt & Định danh</span>
+    <span class="badge badge-purple">IMM-05 · Đăng ký & Hồ sơ</span>
+    <span class="badge badge-green">IMM-08 · Bảo trì định kỳ</span>
+    <span class="badge badge-orange">IMM-09 · Sửa chữa & Phụ tùng</span>
+    <span class="badge badge-red">IMM-11 · Hiệu chuẩn & Kiểm định</span>
+    <span class="badge badge-blue">IMM-12 · Bảo trì khắc phục</span>
+  </div>
+</div>
+
+<!-- NAV -->
+<div class="toc">
+  <a href="#imm04">IMM-04</a>
+  <a href="#imm05">IMM-05</a>
+  <a href="#imm08">IMM-08</a>
+  <a href="#imm09">IMM-09</a>
+  <a href="#imm11">IMM-11</a>
+  <a href="#imm12">IMM-12</a>
+</div>
+
+<div class="main">
+
+<!-- ═══════════════════════════════════════════════════════════
+     MODULE IMM-04
+═══════════════════════════════════════════════════════════════ -->
+<div class="module" id="imm04">
+  <div class="module-header">
+    <div>
+      <span class="module-id mod-04">IMM-04</span>
+    </div>
+    <div>
+      <h2>Lắp đặt, Định danh và Kiểm tra ban đầu</h2>
+      <p>Khóa chất lượng tiếp nhận · Baseline kỹ thuật · Release gate trước khi đưa vào sử dụng</p>
+    </div>
+  </div>
+
+  <!-- 1. PROCESS MAP -->
+  <div class="section">
+    <div class="section-title">1 · Process Map (BPMN Style)</div>
+    <div class="process-flow" style="gap:4px; flex-wrap:wrap;">
+      <div class="pf-step pf-start">
+        <span class="step-num">START</span>
+        <div class="step-label">Nhận thiết bị từ kho / NCC</div>
+        <div class="step-actor">Kho vận · HTM</div>
+      </div>
+      <span class="pf-arrow">→</span>
+      <div class="pf-step">
+        <span class="step-num">1</span>
+        <div class="step-label">Kiểm tra hồ sơ giao hàng & đối chiếu PO</div>
+        <div class="step-actor">HTM / Kho</div>
+      </div>
+      <span class="pf-arrow">→</span>
+      <div class="pf-step pf-decision">
+        <span class="step-num">GW-1</span>
+        <div class="step-label">Hồ sơ đầy đủ?</div>
+        <div class="step-actor">KT. HTM</div>
+      </div>
+      <span class="pf-arrow">→</span>
+      <div class="pf-step">
+        <span class="step-num">2</span>
+        <div class="step-label">Định danh đa lớp (mã TBYT, S/N, QR/barcode)</div>
+        <div class="step-actor">KT. HTM</div>
+      </div>
+      <span class="pf-arrow">→</span>
+      <div class="pf-step">
+        <span class="step-num">3</span>
+        <div class="step-label">Chuẩn bị mặt bằng & điều kiện lắp đặt</div>
+        <div class="step-actor">Khoa phòng · Workshop</div>
+      </div>
+      <span class="pf-arrow">→</span>
+      <div class="pf-step">
+        <span class="step-num">4</span>
+        <div class="step-label">Lắp đặt & kết nối (điện, mạng, khí, nước)</div>
+        <div class="step-actor">Workshop / NCC</div>
+      </div>
+      <span class="pf-arrow">→</span>
+      <div class="pf-step">
+        <span class="step-num">5</span>
+        <div class="step-label">Kiểm tra ban đầu — Initial Inspection checklist</div>
+        <div class="step-actor">KT. HTM</div>
+      </div>
+      <span class="pf-arrow">→</span>
+      <div class="pf-step pf-decision">
+        <span class="step-num">GW-2</span>
+        <div class="step-label">Passed all checks?</div>
+        <div class="step-actor">KT. HTM</div>
+      </div>
+      <span class="pf-arrow">→</span>
+      <div class="pf-step">
+        <span class="step-num">6</span>
+        <div class="step-label">Gắn nhãn trạng thái "Passed" + QR</div>
+        <div class="step-actor">KT. HTM</div>
+      </div>
+      <span class="pf-arrow">→</span>
+      <div class="pf-step pf-end">
+        <span class="step-num">END</span>
+        <div class="step-label">Asset status → "In Service" / "Ready"</div>
+        <div class="step-actor">CMMS · IMMIS</div>
+      </div>
+    </div>
+    <div style="margin-top:12px;">
+      <div class="callout callout-warn">
+        <span class="callout-icon">⚠</span>
+        <div><strong>Exception path:</strong> GW-1 fail → Lập phiếu NC (non-conformance), giữ thiết bị cách ly, thông báo NCC. GW-2 fail → Mở CM Work Order hoặc trả hàng.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. ACTOR & ROLE -->
+  <div class="section">
+    <div class="section-title">2 · Actor & Role</div>
+    <table class="tbl">
+      <tr><th>Actor</th><th>Vai trò</th><th>Quyền hệ thống</th><th>Trách nhiệm chính</th></tr>
+      <tr><td>Kỹ thuật viên HTM</td><td>Người thực hiện chính</td><td>Create/Edit Asset, Initial Inspection</td><td>Định danh, lắp đặt, điền checklist, ký biên bản</td></tr>
+      <tr><td>Trưởng Workshop / KT trưởng</td><td>Phê duyệt kỹ thuật</td><td>Approve Inspection, Release Asset</td><td>Xem xét kết quả inspection, quyết định release</td></tr>
+      <tr><td>PTP phụ trách Khối 2</td><td>Giám sát & escalation</td><td>View All, Approve NC</td><td>Phê duyệt ngoại lệ, xử lý NC nghiêm trọng</td></tr>
+      <tr><td>Kho vận</td><td>Bàn giao vật lý</td><td>View Asset, Delivery Confirm</td><td>Ký biên bản giao nhận, cập nhật vị trí kho</td></tr>
+      <tr><td>Khoa phòng sử dụng</td><td>Tiếp nhận vận hành</td><td>View Asset, Accept Transfer</td><td>Xác nhận điều kiện lắp đặt, ký biên bản bàn giao</td></tr>
+      <tr><td>QLCL / Tổ HC-QLCL</td><td>Kiểm soát chất lượng</td><td>Audit View, NC Review</td><td>Theo dõi NC, cập nhật compliance record</td></tr>
+    </table>
+  </div>
+
+  <!-- 3. INPUT / OUTPUT -->
+  <div class="section">
+    <div class="section-title">3 · Input / Output</div>
+    <div class="two-col">
+      <div>
+        <strong style="color:var(--accent4); font-size:11px; font-family:'IBM Plex Mono',monospace;">INPUT</strong>
+        <table class="tbl" style="margin-top:8px;">
+          <tr><th>Tài liệu / Dữ liệu đầu vào</th><th>Nguồn</th></tr>
+          <tr><td>Phiếu giao hàng / Packing list</td><td>NCC / Kho</td></tr>
+          <tr><td>Hợp đồng / PO (reference)</td><td>IMM-03</td></tr>
+          <tr><td>Thông số kỹ thuật (spec sheet)</td><td>IMM-02 / NCC</td></tr>
+          <tr><td>Checklist lắp đặt của nhà sản xuất</td><td>IFU / Service manual</td></tr>
+          <tr><td>Điều kiện mặt bằng (site readiness report)</td><td>Khoa phòng / Kỹ thuật hạ tầng</td></tr>
+          <tr><td>Danh mục thiết bị cần nhận (Asset category)</td><td>Asset Category master</td></tr>
+        </table>
+      </div>
+      <div>
+        <strong style="color:var(--accent3); font-size:11px; font-family:'IBM Plex Mono',monospace;">OUTPUT</strong>
+        <table class="tbl" style="margin-top:8px;">
+          <tr><th>Đầu ra / Chứng từ</th><th>DocType (ERPNext)</th></tr>
+          <tr><td>Asset record (mã định danh duy nhất)</td><td><code>Asset</code></td></tr>
+          <tr><td>Biên bản lắp đặt & kiểm tra ban đầu</td><td><code>Asset Commissioning</code> (custom)</td></tr>
+          <tr><td>Initial Inspection checklist đã ký</td><td><code>Asset Commissioning → Child Table</code></td></tr>
+          <tr><td>Nhãn QR / barcode gắn thiết bị</td><td>Print Format từ Asset</td></tr>
+          <tr><td>Phiếu NC (nếu fail)</td><td><code>Quality Inspection</code> / NC Log</td></tr>
+          <tr><td>Biên bản bàn giao khoa phòng</td><td><code>Asset Movement</code></td></tr>
+          <tr><td>Trạng thái asset: In Service / Hold</td><td><code>Asset.status</code></td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4. USER STORY -->
+  <div class="section">
+    <div class="section-title">4 · User Stories (INVEST)</div>
+    <div class="user-story">
+      <div class="story-text">🔵 <strong>US-04-01:</strong> Với tư cách là <em>Kỹ thuật viên HTM</em>, tôi muốn <em>nhập thông tin định danh thiết bị (S/N, model, nhà sản xuất, năm SX) ngay khi nhận hàng</em> để <em>mọi thiết bị có mã duy nhất trong CMMS trước khi lắp đặt</em>.</div>
+      <div class="story-meta">✅ Independent · Negotiable · Valuable · Estimable · Small · Testable | SP: 5</div>
+    </div>
+    <div class="user-story">
+      <div class="story-text">🔵 <strong>US-04-02:</strong> Với tư cách là <em>Kỹ thuật viên HTM</em>, tôi muốn <em>điền checklist kiểm tra ban đầu trực tiếp trên tablet/điện thoại</em> để <em>loại bỏ giấy tờ thủ công và có bằng chứng số thời gian thực</em>.</div>
+      <div class="story-meta">✅ Independent · Negotiable · Valuable · Estimable · Small · Testable | SP: 8</div>
+    </div>
+    <div class="user-story">
+      <div class="story-text">🔵 <strong>US-04-03:</strong> Với tư cách là <em>Trưởng Workshop</em>, tôi muốn <em>xem danh sách thiết bị đang chờ release gate và phê duyệt/từ chối từ một màn hình</em> để <em>kiểm soát chất lượng trước khi thiết bị vào vận hành</em>.</div>
+      <div class="story-meta">✅ Independent · Valuable · Estimable · Small · Testable | SP: 5</div>
+    </div>
+    <div class="user-story">
+      <div class="story-text">🔵 <strong>US-04-04:</strong> Với tư cách là <em>PTP Khối 2</em>, tôi muốn <em>xem dashboard tỷ lệ thiết bị hoàn thành commissioning đúng hạn</em> để <em>theo dõi tiến độ triển khai theo kế hoạch đầu tư</em>.</div>
+      <div class="story-meta">✅ Valuable · Estimable · Testable | SP: 3</div>
+    </div>
+  </div>
+
+  <!-- 5. ACCEPTANCE CRITERIA -->
+  <div class="section">
+    <div class="section-title">5 · Acceptance Criteria (Gherkin)</div>
+    <div class="gherkin"><span class="k-scenario">Scenario: Tạo Asset và hoàn thành Initial Inspection thành công</span>
+<span class="k-given">Given</span> KTV đã nhận thiết bị có đủ hồ sơ giao hàng
+<span class="k-when">When</span> KTV tạo record trong <code>Asset Commissioning</code> và điền đủ S/N, model, manufacturer, category
+<span class="k-and">And</span> KTV hoàn thành tất cả mục trong checklist với kết quả "Pass"
+<span class="k-and">And</span> Trưởng Workshop bấm "Approve Release"
+<span class="k-then">Then</span> Asset.status = "Active / In Service"
+<span class="k-and">And</span> Asset.asset_number được gán theo Naming Series <code>TBYT-YYYY-#####</code>
+<span class="k-and">And</span> Biên bản commissioning được lock (không thể edit)
+<span class="k-and">And</span> Hệ thống tự động tạo lịch PM đầu tiên theo asset category</div>
+
+    <div class="gherkin"><span class="k-scenario">Scenario: Phát hiện lỗi khi kiểm tra ban đầu</span>
+<span class="k-given">Given</span> KTV đang điền checklist Initial Inspection
+<span class="k-when">When</span> KTV đánh dấu bất kỳ mục nào là "Fail"
+<span class="k-then">Then</span> Hệ thống bắt buộc KTV nhập mô tả lỗi và ảnh đính kèm
+<span class="k-and">And</span> Asset.status = "Hold – Pending Inspection"
+<span class="k-and">And</span> Hệ thống tạo NC record và gửi alert đến Trưởng Workshop
+<span class="k-but">But</span> Nút "Approve Release" bị disable cho đến khi NC được đóng</div>
+  </div>
+
+  <!-- 6. BUSINESS RULES -->
+  <div class="section">
+    <div class="section-title">6 · Business Rules</div>
+    <table class="tbl">
+      <tr><th>Mã rule</th><th>Nội dung</th><th>Hệ quả vi phạm</th><th>Kiểm soát trong ERPNext</th></tr>
+      <tr><td><code>BR-04-01</code></td><td>Mỗi thiết bị PHẢI có mã định danh duy nhất trước khi lắp đặt</td><td>Không cho phép tạo Commissioning record nếu chưa có Asset code</td><td>Mandatory field + Naming Series</td></tr>
+      <tr><td><code>BR-04-02</code></td><td>Checklist PHẢI hoàn thành 100% trước khi release</td><td>Block nút Submit nếu còn mục chưa điền</td><td>Validation script trên Child Table</td></tr>
+      <tr><td><code>BR-04-03</code></td><td>Asset KHÔNG được chuyển trạng thái "Active" nếu có NC chưa đóng</td><td>Workflow transition bị block</td><td>Workflow condition</td></tr>
+      <tr><td><code>BR-04-04</code></td><td>Tất cả thay đổi về S/N, model sau khi Submit phải có lý do và người duyệt</td><td>Audit trail bắt buộc</td><td>Amend + Custom log</td></tr>
+      <tr><td><code>BR-04-05</code></td><td>Thiết bị nguy cơ cao (class III) phải có ảnh chụp thực tế gắn kèm commissioning</td><td>Submit bị block nếu thiếu attachment</td><td>File attachment mandatory check by category</td></tr>
+    </table>
+  </div>
+
+  <!-- 7. EXCEPTION HANDLING -->
+  <div class="section">
+    <div class="section-title">7 · Exception Handling</div>
+    <table class="tbl">
+      <tr><th>Tình huống ngoại lệ</th><th>Điều kiện kích hoạt</th><th>Xử lý hệ thống</th><th>Xử lý nghiệp vụ</th></tr>
+      <tr><td>Hồ sơ giao hàng không đủ</td><td>Thiếu packing list hoặc không khớp PO</td><td>Create NC record, đặt asset = "Quarantine"</td><td>Liên hệ NCC trong 24h, leo thang PTP nếu >48h</td></tr>
+      <tr><td>Thiết bị bị hư hỏng khi vận chuyển</td><td>KTV ghi nhận hư hỏng vật lý khi mở kiện</td><td>Tạo incident report, chụp ảnh, block release</td><td>Lập biên bản với NCC/bảo hiểm, trả hàng hoặc yêu cầu thay thế</td></tr>
+      <tr><td>NCC cần hỗ trợ lắp đặt nhưng chưa đến</td><td>Commissioning deadline gần nhưng NCC vắng</td><td>Cảnh báo deadline, alert tự động</td><td>Leo thang phòng vật tư – hợp đồng NCC</td></tr>
+      <tr><td>Thiết bị không đạt tiêu chí kỹ thuật sau lắp đặt</td><td>Performance check fail nhưng không phải hư hỏng</td><td>Status = "Hold", mở CM Work Order</td><td>KTV + NCC debug, re-inspection sau sửa</td></tr>
+      <tr><td>Site chưa sẵn sàng (điện, hạ tầng)</td><td>Pre-installation checklist fail</td><td>Block commissioning step 4, tạo site readiness task</td><td>Phối hợp khoa phòng + kỹ thuật hạ tầng BV</td></tr>
+    </table>
+  </div>
+
+  <!-- 8. WHO MAPPING -->
+  <div class="section">
+    <div class="section-title">8 · Mapping WHO Guideline</div>
+    <table class="tbl">
+      <tr><th>Yêu cầu AssetCore</th><th>WHO Reference</th><th>Nội dung WHO</th></tr>
+      <tr><td>Site preparation trước lắp đặt</td><td>WHO HTM 2025, §3.2.2</td><td>"Ensuring location meets requirements for power, ventilation, water before device arrives"</td></tr>
+      <tr><td>Initial inspection + commissioning</td><td>WHO HTM 2025, §3.2.3</td><td>"Formal testing and validation that device works as intended before routine clinical use"</td></tr>
+      <tr><td>Định danh: ghi nhận manufacturer, model, S/N, year</td><td>WHO HTM 2025, §3.2.3</td><td>"Device carefully identified and recorded – ensures traceability and proper documentation"</td></tr>
+      <tr><td>Performance & safety checks theo manufacturer guidelines</td><td>WHO HTM 2025, §3.2.3 + ISO/IEC 17020</td><td>"Biomedical engineers conduct checks according to international standards or manufacturer guidelines"</td></tr>
+      <tr><td>Release gate trước khi vào clinical use</td><td>WHO Procurement §6.6</td><td>"Commissioning = series of tests and adjustments to check equipment is functioning correctly and safely"</td></tr>
+    </table>
+  </div>
+
+  <!-- 9. QMS CONTROL -->
+  <div class="section">
+    <div class="section-title">9 · QMS Control Mapping</div>
+    <table class="tbl">
+      <tr><th>QMS Element</th><th>ISO 9001:2015 Clause</th><th>Điểm kiểm soát trong IMM-04</th><th>Hồ sơ bằng chứng</th></tr>
+      <tr><td>Kiểm soát sản phẩm/dịch vụ được cung cấp từ bên ngoài</td><td>§8.4</td><td>Đối chiếu PO vs packing list, NC khi không khớp</td><td>Biên bản giao nhận, NC record</td></tr>
+      <tr><td>Kiểm soát đầu ra không phù hợp</td><td>§8.7</td><td>Status "Hold" khi inspection fail, block release</td><td>NC Log, Hold tag (physical + digital)</td></tr>
+      <tr><td>Xác định & truy nguyên</td><td>§8.5.2</td><td>Naming series, QR code, link Asset ↔ hồ sơ</td><td>Asset record với đầy đủ metadata</td></tr>
+      <tr><td>Kiểm soát tài liệu hồ sơ</td><td>§7.5</td><td>Biên bản commissioning locked sau Submit</td><td>Immutable commissioning record</td></tr>
+      <tr><td>Hành động khắc phục</td><td>§10.2</td><td>NC → CM Work Order → Re-inspection</td><td>NC record + CM WO + Re-inspection log</td></tr>
+      <tr><td>Năng lực nhân sự</td><td>§7.2</td><td>Chỉ KTV được phân quyền mới có thể release</td><td>Role permission matrix</td></tr>
+    </table>
+  </div>
+</div><!-- /IMM-04 -->
+
+
+<!-- ═══════════════════════════════════════════════════════════
+     MODULE IMM-05
+═══════════════════════════════════════════════════════════════ -->
+<div class="module" id="imm05">
+  <div class="module-header">
+    <div><span class="module-id mod-05">IMM-05</span></div>
+    <div>
+      <h2>Đăng ký, Cấp phép và Hồ sơ</h2>
+      <p>Document repository · Hiệu lực hồ sơ · Audit trail tài liệu · Pháp lý & Kỹ thuật</p>
+    </div>
+  </div>
+
+  <!-- 1. PROCESS MAP -->
+  <div class="section">
+    <div class="section-title">1 · Process Map (BPMN Style)</div>
+    <div class="process-flow" style="gap:4px; flex-wrap:wrap;">
+      <div class="pf-step pf-start">
+        <span class="step-num">START</span>
+        <div class="step-label">Asset được tạo (từ IMM-04)</div>
+        <div class="step-actor">Trigger từ IMM-04</div>
+      </div>
+      <span class="pf-arrow">→</span>
+      <div class="pf-step">
+        <span class="step-num">1</span>
+        <div class="step-label">Thu thập hồ sơ pháp lý (số ĐK lưu hành, giấy phép nhập khẩu)</div>
+        <div class="step-actor">Tổ HC-QLCL</div>
+      </div>
+      <span class="pf-arrow">→</span>
+      <div class="pf-step">
+        <span class="step-num">2</span>
+        <div class="step-label">Upload & phân loại tài liệu kỹ thuật (IFU, manual, certificate)</div>
+        <div class="step-actor">KT. HTM</div>
+      </div>
+      <span class="pf-arrow">→</span>
+      <div class="pf-step">
+        <span class="step-num">3</span>
+        <div class="step-label">Đăng ký số ĐK lưu hành và theo dõi hiệu lực</div>
+        <div class="step-actor">Tổ HC-QLCL</div>
+      </div>
+      <span class="pf-arrow">→</span>
+      <div class="pf-step pf-decision">
+        <span class="step-num">GW</span>
+        <div class="step-label">Bộ hồ sơ đủ tối thiểu?</div>
+        <div class="step-actor">QMS Check</div>
+      </div>
+      <span class="pf-arrow">→</span>
+      <div class="pf-step">
+        <span class="step-num">4</span>
+        <div class="step-label">Phê duyệt bộ hồ sơ & đặt expiry alert</div>
+        <div class="step-actor">PTP Khối 2 / QLCL</div>
+      </div>
+      <span class="pf-arrow">→</span>
+      <div class="pf-step pf-end">
+        <span class="step-num">END</span>
+        <div class="step-label">Hồ sơ "Active & Compliant"</div>
+        <div class="step-actor">CMMS</div>
+      </div>
+    </div>
+    <div style="margin-top:10px;">
+      <div class="callout callout-info">
+        <span class="callout-icon">ℹ</span>
+        <div><strong>Lưu ý thiết kế:</strong> IMM-05 hoạt động song song với IMM-04. Hồ sơ cần được hoàn thiện TRƯỚC khi asset có thể release (GW-2 của IMM-04 phải kiểm tra IMM-05 status). Đây là điểm khóa compliance.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. ACTOR & ROLE -->
+  <div class="section">
+    <div class="section-title">2 · Actor & Role</div>
+    <table class="tbl">
+      <tr><th>Actor</th><th>Vai trò</th><th>Quyền hệ thống</th><th>Trách nhiệm chính</th></tr>
+      <tr><td>Tổ HC-QLCL & Risk</td><td>Document owner</td><td>Create/Edit/Approve Document Record</td><td>Thu thập, phân loại, theo dõi hiệu lực hồ sơ pháp lý</td></tr>
+      <tr><td>Kỹ thuật viên HTM</td><td>Document contributor</td><td>Upload documents, Edit technical docs</td><td>Upload tài liệu kỹ thuật, manual, certificate</td></tr>
+      <tr><td>PTP Khối 2</td><td>Approver</td><td>Approve document set</td><td>Phê duyệt bộ hồ sơ đủ điều kiện vận hành</td></tr>
+      <tr><td>CMMS Admin</td><td>System control</td><td>Manage expiry alerts, document lifecycle</td><td>Cấu hình cảnh báo hết hạn, kiểm soát phiên bản</td></tr>
+    </table>
+  </div>
+
+  <!-- 3. INPUT / OUTPUT -->
+  <div class="section">
+    <div class="section-title">3 · Input / Output</div>
+    <div class="two-col">
+      <div>
+        <strong style="color:var(--accent4); font-size:11px; font-family:'IBM Plex Mono',monospace;">INPUT</strong>
+        <table class="tbl" style="margin-top:8px;">
+          <tr><th>Tài liệu</th><th>Loại</th></tr>
+          <tr><td>Số đăng ký lưu hành (Bộ Y tế)</td><td>Pháp lý – NĐ 98/2021</td></tr>
+          <tr><td>Giấy phép nhập khẩu thiết bị y tế</td><td>Pháp lý</td></tr>
+          <tr><td>Hướng dẫn sử dụng (IFU / User manual)</td><td>Kỹ thuật</td></tr>
+          <tr><td>Service manual / Maintenance manual</td><td>Kỹ thuật</td></tr>
+          <tr><td>Certificate of Conformity / CE / FDA 510k</td><td>Chứng nhận</td></tr>
+          <tr><td>Biên bản nghiệm thu (từ IMM-04)</td><td>Nội bộ</td></tr>
+          <tr><td>Hợp đồng bảo hành</td><td>Thương mại</td></tr>
+          <tr><td>Catalogue, technical specs</td><td>Kỹ thuật</td></tr>
+        </table>
+      </div>
+      <div>
+        <strong style="color:var(--accent3); font-size:11px; font-family:'IBM Plex Mono',monospace;">OUTPUT</strong>
+        <table class="tbl" style="margin-top:8px;">
+          <tr><th>Đầu ra</th><th>DocType</th></tr>
+          <tr><td>Document record gắn với Asset</td><td><code>Asset Document</code> (custom)</td></tr>
+          <tr><td>Trạng thái hồ sơ: Compliant / Incomplete / Expired</td><td><code>Asset.document_status</code></td></tr>
+          <tr><td>Alert hết hạn ĐK / Giấy phép</td><td>Frappe Notification</td></tr>
+          <tr><td>Dashboard compliance rate</td><td>KPI-DASH-IMMIS-05</td></tr>
+          <tr><td>Audit trail mọi thay đổi tài liệu</td><td>Document Change Log</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4. USER STORY -->
+  <div class="section">
+    <div class="section-title">4 · User Stories (INVEST)</div>
+    <div class="user-story">
+      <div class="story-text">🟣 <strong>US-05-01:</strong> Với tư cách là <em>Tổ HC-QLCL</em>, tôi muốn <em>upload và phân loại tài liệu theo loại (pháp lý/kỹ thuật/chứng nhận) và gắn trực tiếp với từng Asset ID</em> để <em>tra cứu hồ sơ nhanh trong kiểm tra</em>.</div>
+      <div class="story-meta">✅ SP: 5</div>
+    </div>
+    <div class="user-story">
+      <div class="story-text">🟣 <strong>US-05-02:</strong> Với tư cách là <em>Tổ HC-QLCL</em>, tôi muốn <em>nhận cảnh báo trước 90/60/30 ngày khi giấy phép hoặc ĐK lưu hành sắp hết hạn</em> để <em>chủ động gia hạn trước khi vi phạm pháp lý</em>.</div>
+      <div class="story-meta">✅ SP: 3</div>
+    </div>
+    <div class="user-story">
+      <div class="story-text">🟣 <strong>US-05-03:</strong> Với tư cách là <em>PTP Khối 2</em>, tôi muốn <em>xem tỷ lệ tài sản có đủ hồ sơ hợp lệ theo khoa/phòng</em> để <em>ưu tiên xử lý tồn đọng hồ sơ</em>.</div>
+      <div class="story-meta">✅ SP: 3</div>
+    </div>
+  </div>
+
+  <!-- 5. ACCEPTANCE CRITERIA -->
+  <div class="section">
+    <div class="section-title">5 · Acceptance Criteria (Gherkin)</div>
+    <div class="gherkin"><span class="k-scenario">Scenario: Upload và gắn tài liệu cho Asset</span>
+<span class="k-given">Given</span> Asset đã được tạo với status "Active"
+<span class="k-when">When</span> HC-QLCL upload file PDF và chọn loại "Số đăng ký lưu hành" + nhập ngày hết hạn
+<span class="k-then">Then</span> Tài liệu được lưu gắn với Asset ID tương ứng
+<span class="k-and">And</span> System tự tạo reminder 90 ngày trước expiry date
+<span class="k-and">And</span> Document version = 1.0, status = "Active"</div>
+
+    <div class="gherkin"><span class="k-scenario">Scenario: Tài liệu hết hạn và cảnh báo</span>
+<span class="k-given">Given</span> Số đăng ký lưu hành của Asset XYZ có expiry_date = hôm nay + 25 ngày
+<span class="k-when">When</span> Hệ thống chạy job kiểm tra định kỳ hàng ngày
+<span class="k-then">Then</span> Gửi email + in-app notification đến Tổ HC-QLCL
+<span class="k-and">And</span> Asset.document_status = "Expiring Soon"
+<span class="k-and">And</span> Dashboard compliance widget highlight màu vàng cho asset đó</div>
+  </div>
+
+  <!-- 6. BUSINESS RULES -->
+  <div class="section">
+    <div class="section-title">6 · Business Rules</div>
+    <table class="tbl">
+      <tr><th>Mã rule</th><th>Nội dung</th><th>Kiểm soát</th></tr>
+      <tr><td><code>BR-05-01</code></td><td>Thiết bị y tế thuộc nhóm A/B/C theo NĐ98/2021 PHẢI có số ĐK lưu hành hoặc miễn đăng ký có văn bản trước khi release</td><td>Document completeness check linked to IMM-04 GW-2</td></tr>
+      <tr><td><code>BR-05-02</code></td><td>Mọi tài liệu được phê duyệt không được xóa, chỉ được archive với lý do</td><td>Hard delete disabled; only "Archived" status change</td></tr>
+      <tr><td><code>BR-05-03</code></td><td>Phiên bản mới của tài liệu phải có change summary và người duyệt</td><td>Version control + approver field mandatory</td></tr>
+      <tr><td><code>BR-05-04</code></td><td>Alert hết hạn phải gửi tối thiểu 90 ngày trước, nhắc lại 60 và 30 ngày</td><td>Frappe Notification Rules</td></tr>
+      <tr><td><code>BR-05-05</code></td><td>Hồ sơ tối thiểu cho một asset phải bao gồm: IFU, số ĐK (nếu có), service manual</td><td>Document checklist validation on Asset</td></tr>
+    </table>
+  </div>
+
+  <!-- 7. EXCEPTION HANDLING -->
+  <div class="section">
+    <div class="section-title">7 · Exception Handling</div>
+    <table class="tbl">
+      <tr><th>Tình huống</th><th>Xử lý hệ thống</th><th>Xử lý nghiệp vụ</th></tr>
+      <tr><td>Thiết bị nhập khẩu cần miễn ĐK theo NĐ98</td><td>Cho phép chọn "Exempt" + upload văn bản miễn đăng ký</td><td>Tổ HC-QLCL lưu công văn miễn đăng ký làm bằng chứng</td></tr>
+      <tr><td>Tài liệu bị mất / NCC không cung cấp</td><td>Tạo "Document Request" task với deadline, set status = "Incomplete"</td><td>Phòng vật tư theo dõi yêu cầu NCC; leo thang nếu quá 30 ngày</td></tr>
+      <tr><td>Số ĐK lưu hành hết hạn khi đang vận hành</td><td>Asset.document_status = "Non-Compliant", cảnh báo đỏ dashboard</td><td>Tạm đình chỉ nếu không gia hạn được; leo thang BGĐ</td></tr>
+      <tr><td>Tài liệu confidential của NCC</td><td>Đặt document visibility = "Internal Only"</td><td>Chỉ nhóm HTM và QLCL truy cập được</td></tr>
+    </table>
+  </div>
+
+  <!-- 8-9 WHO & QMS -->
+  <div class="section">
+    <div class="section-title">8 · WHO + 9 · QMS Mapping</div>
+    <table class="tbl">
+      <tr><th>Khía cạnh</th><th>WHO / QMS Reference</th><th>Áp dụng vào IMM-05</th></tr>
+      <tr><td>Document repository per asset/model</td><td>WHO CMMS §3.2.3; HTM 2025 §4.2</td><td>Asset Document child table gắn với Asset record</td></tr>
+      <tr><td>Kiểm soát tài liệu</td><td>ISO 9001 §7.5 "Documented Information"</td><td>Version control, approval workflow, immutable after approve</td></tr>
+      <tr><td>Tuân thủ pháp lý Việt Nam</td><td>NĐ 98/2021/NĐ-CP – Quản lý TTBYT</td><td>Trường số ĐK lưu hành, ngày hết hạn, loại thiết bị A/B/C</td></tr>
+      <tr><td>Post-market surveillance documents</td><td>WHO HTM §6.4 "Regulatory compliance"</td><td>Link tới IMM-10 khi có recall/FSCA liên quan đến số model</td></tr>
+      <tr><td>Audit trail</td><td>ISO 9001 §7.5.3</td><td>Document Change Log với timestamp + user</td></tr>
+    </table>
+  </div>
+</div><!-- /IMM-05 -->
+
+
+<!-- ═══════════════════════════════════════════════════════════
+     MODULE IMM-08
+═══════════════════════════════════════════════════════════════ -->
+<div class="module" id="imm08">
+  <div class="module-header">
+    <div><span class="module-id mod-08">IMM-08</span></div>
+    <div>
+      <h2>Bảo trì Định kỳ (Preventive Maintenance)</h2>
+      <p>PM Schedule · Work Order · Checklist · Compliance tracking · PM dashboard</p>
+    </div>
+  </div>
+
+  <!-- 1. PROCESS MAP -->
+  <div class="section">
+    <div class="section-title">1 · Process Map (BPMN Style)</div>
+    <div class="process-flow" style="gap:4px; flex-wrap:wrap;">
+      <div class="pf-step pf-start">
+        <span class="step-num">START</span>
+        <div class="step-label">Lịch PM đến hạn / Trigger tự động</div>
+        <div class="step-actor">CMMS Scheduler</div>
+      </div>
+      <span class="pf-arrow">→</span>
+      <div class="pf-step">
+        <span class="step-num">1</span>
+        <div class="step-label">Tạo PM Work Order tự động</div>
+        <div class="step-actor">CMMS Auto</div>
+      </div>
+      <span class="pf-arrow">→</span>
+      <div class="pf-step">
+        <span class="step-num">2</span>
+        <div class="step-label">Assign KTV & xác nhận lịch</div>
+        <div class="step-actor">Workshop Manager</div>
+      </div>
+      <span class="pf-arrow">→</span>
+      <div class="pf-step">
+        <span class="step-num">3</span>
+        <div class="step-label">Thông báo khoa phòng & điều phối thiết bị</div>
+        <div class="step-actor">KTV / Workshop</div>
+      </div>
+      <span class="pf-arrow">→</span>
+      <div class="pf-step">
+        <span class="step-num">4</span>
+        <div class="step-label">Thực hiện PM theo checklist chuẩn</div>
+        <div class="step-actor">KTV HTM</div>
+      </div>
+      <span class="pf-arrow">→</span>
+      <div class="pf-step pf-decision">
+        <span class="step-num">GW</span>
+        <div class="step-label">Phát hiện lỗi?</div>
+        <div class="step-actor">KTV HTM</div>
+      </div>
+      <span class="pf-arrow">→</span>
+      <div class="pf-step">
+        <span class="step-num">5</span>
+        <div class="step-label">Cập nhật kết quả & đóng WO</div>
+        <div class="step-actor">KTV HTM</div>
+      </div>
+      <span class="pf-arrow">→</span>
+      <div class="pf-step">
+        <span class="step-num">6</span>
+        <div class="step-label">Cập nhật lịch PM tiếp theo</div>
+        <div class="step-actor">CMMS Auto</div>
+      </div>
+      <span class="pf-arrow">→</span>
+      <div class="pf-step pf-end">
+        <span class="step-num">END</span>
+        <div class="step-label">PM gắn sticker + trả thiết bị</div>
+        <div class="step-actor">KTV HTM</div>
+      </div>
+    </div>
+    <div style="margin-top:10px;">
+      <div class="callout callout-warn">
+        <span class="callout-icon">⚠</span>
+        <div><strong>Exception path (phát hiện lỗi khi PM):</strong> Nếu lỗi minor → hoàn thành PM + mở CM WO tham chiếu PM WO. Nếu lỗi major → dừng PM, set status "Out of Service", mở CM WO khẩn. Cả hai case đều tham chiếu số PM WO gốc.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. ACTOR & ROLE -->
+  <div class="section">
+    <div class="section-title">2 · Actor & Role</div>
+    <table class="tbl">
+      <tr><th>Actor</th><th>Vai trò</th><th>Quyền</th><th>Trách nhiệm</th></tr>
+      <tr><td>CMMS Scheduler</td><td>Hệ thống – auto trigger</td><td>System process</td><td>Tạo WO tự động theo PM Schedule</td></tr>
+      <tr><td>Workshop Manager</td><td>Lập kế hoạch & phân công</td><td>Assign WO, view PM calendar</td><td>Phân công KTV, điều phối lịch với khoa phòng</td></tr>
+      <tr><td>Kỹ thuật viên HTM</td><td>Thực hiện PM</td><td>Execute WO, fill checklist</td><td>Thực hiện PM, điền kết quả, gắn sticker</td></tr>
+      <tr><td>Trưởng khoa phòng</td><td>Phối hợp</td><td>View schedule, confirm availability</td><td>Xác nhận thiết bị sẵn sàng cho PM, ký biên bản</td></tr>
+      <tr><td>PTP Khối 2</td><td>Giám sát KPI PM compliance</td><td>View PM dashboard</td><td>Theo dõi tỷ lệ PM đúng hạn, quyết định escalation</td></tr>
+    </table>
+  </div>
+
+  <!-- 3. INPUT / OUTPUT -->
+  <div class="section">
+    <div class="section-title">3 · Input / Output</div>
+    <div class="two-col">
+      <div>
+        <strong style="color:var(--accent4); font-size:11px; font-family:'IBM Plex Mono',monospace;">INPUT</strong>
+        <table class="tbl" style="margin-top:8px;">
+          <tr><th>Đầu vào</th><th>Nguồn</th></tr>
+          <tr><td>PM Schedule (interval, due date)</td><td>Asset Maintenance Schedule</td></tr>
+          <tr><td>PM Checklist template theo Asset Category</td><td>Maintenance Template</td></tr>
+          <tr><td>Lịch sử PM trước (last PM date, last result)</td><td>Asset Maintenance Log</td></tr>
+          <tr><td>Service manual (phần PM)</td><td>IMM-05 document</td></tr>
+          <tr><td>Danh sách vật tư tiêu hao cần thay</td><td>Spare parts catalog</td></tr>
+        </table>
+      </div>
+      <div>
+        <strong style="color:var(--accent3); font-size:11px; font-family:'IBM Plex Mono',monospace;">OUTPUT</strong>
+        <table class="tbl" style="margin-top:8px;">
+          <tr><th>Đầu ra</th><th>DocType</th></tr>
+          <tr><td>PM Work Order (WO)</td><td><code>Asset Maintenance</code></td></tr>
+          <tr><td>PM Maintenance Log (kết quả từng lần)</td><td><code>Asset Maintenance Log</code></td></tr>
+          <tr><td>Checklist kết quả PM đã ký</td><td>Child table of Maintenance</td></tr>
+          <tr><td>PM sticker (physical) + digital tag</td><td>Print Format + Asset field update</td></tr>
+          <tr><td>CM WO (nếu phát sinh)</td><td><code>Asset Repair</code></td></tr>
+          <tr><td>Lịch PM kỳ tiếp theo (auto)</td><td><code>Asset Maintenance.next_due_date</code></td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4. USER STORY -->
+  <div class="section">
+    <div class="section-title">4 · User Stories (INVEST)</div>
+    <div class="user-story">
+      <div class="story-text">🟢 <strong>US-08-01:</strong> Với tư cách là <em>CMMS</em>, tôi muốn <em>tự động tạo PM Work Order khi đến ngày đáo hạn theo lịch</em> để <em>không có thiết bị nào bị bỏ sót PM do quên lịch thủ công</em>.</div>
+      <div class="story-meta">✅ SP: 8</div>
+    </div>
+    <div class="user-story">
+      <div class="story-text">🟢 <strong>US-08-02:</strong> Với tư cách là <em>Kỹ thuật viên HTM</em>, tôi muốn <em>xem PM checklist theo template của từng model thiết bị ngay trong WO</em> để <em>thực hiện đúng quy trình mà không cần tra tài liệu riêng</em>.</div>
+      <div class="story-meta">✅ SP: 5</div>
+    </div>
+    <div class="user-story">
+      <div class="story-text">🟢 <strong>US-08-03:</strong> Với tư cách là <em>Workshop Manager</em>, tôi muốn <em>xem lịch PM của tuần/tháng theo dạng calendar view</em> để <em>điều phối nhân lực và lịch với khoa phòng hiệu quả</em>.</div>
+      <div class="story-meta">✅ SP: 3</div>
+    </div>
+    <div class="user-story">
+      <div class="story-text">🟢 <strong>US-08-04:</strong> Với tư cách là <em>PTP Khối 2</em>, tôi muốn <em>xem PM compliance rate (% WO hoàn thành đúng hạn) theo tháng</em> để <em>báo cáo BGĐ và cải tiến kế hoạch PM</em>.</div>
+      <div class="story-meta">✅ SP: 3</div>
+    </div>
+  </div>
+
+  <!-- 5. ACCEPTANCE CRITERIA -->
+  <div class="section">
+    <div class="section-title">5 · Acceptance Criteria (Gherkin)</div>
+    <div class="gherkin"><span class="k-scenario">Scenario: Tự động tạo PM WO và hoàn thành</span>
+<span class="k-given">Given</span> Asset A có PM Schedule interval = 3 tháng, last_pm_date = 90 ngày trước
+<span class="k-when">When</span> CMMS scheduler chạy daily job
+<span class="k-then">Then</span> Tạo Asset Maintenance WO với type = "Preventive Maintenance"
+<span class="k-and">And</span> WO được assign tự động đến Workshop queue
+<span class="k-and">And</span> Gửi notification đến Workshop Manager
+<span class="k-when">When</span> KTV hoàn thành checklist và Submit WO
+<span class="k-then">Then</span> Asset.last_pm_date = today
+<span class="k-and">And</span> Asset.next_pm_date = today + interval
+<span class="k-and">And</span> Maintenance Log entry được tạo với timestamp và KTV name</div>
+
+    <div class="gherkin"><span class="k-scenario">Scenario: PM quá hạn</span>
+<span class="k-given">Given</span> PM WO có due_date = hôm nay - 5 ngày và status = "Open"
+<span class="k-when">When</span> Scheduler chạy overdue check
+<span class="k-then">Then</span> WO status = "Overdue"
+<span class="k-and">And</span> Gửi alert đến Workshop Manager và PTP Khối 2
+<span class="k-and">And</span> Asset hiển thị badge "PM Overdue" trên dashboard</div>
+  </div>
+
+  <!-- 6. BUSINESS RULES -->
+  <div class="section">
+    <div class="section-title">6 · Business Rules</div>
+    <table class="tbl">
+      <tr><th>Mã</th><th>Rule</th><th>Kiểm soát</th></tr>
+      <tr><td><code>BR-08-01</code></td><td>PM WO phải có checklist template tương ứng với Asset Category trước khi assign</td><td>Validate template exists on WO creation</td></tr>
+      <tr><td><code>BR-08-02</code></td><td>Khi phát hiện lỗi trong PM, phải mở CM WO có tham chiếu số PM WO gốc</td><td>CM WO field "source_pm_wo" mandatory khi từ PM</td></tr>
+      <tr><td><code>BR-08-03</code></td><td>Ngày PM tiếp theo được tính từ ngày HOÀN THÀNH (không phải ngày dự kiến)</td><td>next_pm_date = completion_date + interval</td></tr>
+      <tr><td><code>BR-08-04</code></td><td>Thiết bị "Out of Service" không được tạo PM WO mới cho đến khi restored</td><td>Workflow condition check on WO creation</td></tr>
+      <tr><td><code>BR-08-05</code></td><td>PM WO hoàn thành sau due_date vẫn tính là "Late" trên compliance report</td><td>Late flag = completion_date > due_date</td></tr>
+    </table>
+  </div>
+
+  <!-- 7. EXCEPTION HANDLING -->
+  <div class="section">
+    <div class="section-title">7 · Exception Handling</div>
+    <table class="tbl">
+      <tr><th>Tình huống</th><th>Xử lý hệ thống</th><th>Xử lý nghiệp vụ</th></tr>
+      <tr><td>Thiết bị đang sử dụng ca cấp cứu khi PM đến hạn</td><td>WO status = "Pending – Device Busy", reschedule</td><td>Workshop phối hợp khoa phòng đặt lại lịch trong vòng 7 ngày</td></tr>
+      <tr><td>KTV bị ốm / vắng khi PM đến hạn</td><td>WO unassigned, alert Workshop Manager</td><td>Manager reassign KTV khác hoặc hoãn có ghi lý do</td></tr>
+      <tr><td>Không có vật tư tiêu hao cần thay thế</td><td>WO blocked, trigger spare part request</td><td>Liên hệ kho, nếu tồn kho = 0 thì đặt mua khẩn</td></tr>
+      <tr><td>Thiết bị có multiple PM types (annual + quarterly)</td><td>Tạo riêng WO cho mỗi loại PM, phân biệt bằng maintenance_type</td><td>Workshop có thể combine nếu cùng ngày</td></tr>
+    </table>
+  </div>
+
+  <!-- 8-9 -->
+  <div class="section">
+    <div class="section-title">8 · WHO + 9 · QMS Mapping</div>
+    <table class="tbl">
+      <tr><th>Khía cạnh</th><th>Reference</th><th>Áp dụng IMM-08</th></tr>
+      <tr><td>PM là scheduled activity, interval theo manufacturer</td><td>WHO Maintenance §5.3.1; WHO CMMS §3.2.3</td><td>Maintenance Template per Asset Category, interval configurable</td></tr>
+      <tr><td>Work order system</td><td>WHO Maintenance Programme §5.3.6</td><td>Asset Maintenance DocType với đủ procedure + history</td></tr>
+      <tr><td>PM compliance tracking</td><td>WHO HTM 2025 §6.2</td><td>PM compliance rate KPI = completed on time / total scheduled</td></tr>
+      <tr><td>Kiểm soát sản xuất & cung cấp dịch vụ</td><td>ISO 9001 §8.5.1</td><td>PM checklist mandatory, completion sign-off</td></tr>
+      <tr><td>Hồ sơ bảo trì</td><td>ISO 9001 §7.5; WHO Maintenance §5.3.5</td><td>Asset Maintenance Log immutable, searchable by asset/date</td></tr>
+    </table>
+  </div>
+</div><!-- /IMM-08 -->
+
+
+<!-- ═══════════════════════════════════════════════════════════
+     MODULE IMM-09
+═══════════════════════════════════════════════════════════════ -->
+<div class="module" id="imm09">
+  <div class="module-header">
+    <div><span class="module-id mod-09">IMM-09</span></div>
+    <div>
+      <h2>Sửa chữa, Phụ tùng và Cập nhật Phần mềm</h2>
+      <p>Corrective execution · Spare part traceability · Firmware change control · Cost tracking</p>
+    </div>
+  </div>
+
+  <!-- 1. PROCESS MAP -->
+  <div class="section">
+    <div class="section-title">1 · Process Map (BPMN Style)</div>
+    <div class="process-flow" style="gap:4px; flex-wrap:wrap;">
+      <div class="pf-step pf-start">
+        <span class="step-num">START</span>
+        <div class="step-label">Yêu cầu sửa chữa (từ khoa phòng hoặc PM/CM)</div>
+        <div class="step-actor">Khoa phòng / KTV</div>
+      </div>
+      <span class="pf-arrow">→</span>
+      <div class="pf-step">
+        <span class="step-num">1</span>
+        <div class="step-label">Tạo CM Work Order + mô tả sự cố</div>
+        <div class="step-actor">KTV / Workshop</div>
+      </div>
+      <span class="pf-arrow">→</span>
+      <div class="pf-step">
+        <span class="step-num">2</span>
+        <div class="step-label">Đánh giá lỗi (troubleshoot)</div>
+        <div class="step-actor">KTV HTM</div>
+      </div>
+      <span class="pf-arrow">→</span>
+      <div class="pf-step pf-decision">
+        <span class="step-num">GW-1</span>
+        <div class="step-label">Cần phụ tùng?</div>
+        <div class="step-actor">KTV</div>
+      </div>
+      <span class="pf-arrow">→</span>
+      <div class="pf-step">
+        <span class="step-num">3</span>
+        <div class="step-label">Yêu cầu & cấp phát phụ tùng từ kho</div>
+        <div class="step-actor">KTV / Kho</div>
+      </div>
+      <span class="pf-arrow">→</span>
+      <div class="pf-step">
+        <span class="step-num">4</span>
+        <div class="step-label">Thực hiện sửa chữa / thay linh kiện</div>
+        <div class="step-actor">KTV HTM</div>
+      </div>
+      <span class="pf-arrow">→</span>
+      <div class="pf-step">
+        <span class="step-num">5</span>
+        <div class="step-label">Kiểm tra sau sửa chữa</div>
+        <div class="step-actor">KTV HTM</div>
+      </div>
+      <span class="pf-arrow">→</span>
+      <div class="pf-step pf-decision">
+        <span class="step-num">GW-2</span>
+        <div class="step-label">Pass test?</div>
+        <div class="step-actor">KTV / KT trưởng</div>
+      </div>
+      <span class="pf-arrow">→</span>
+      <div class="pf-step pf-end">
+        <span class="step-num">END</span>
+        <div class="step-label">Return to service · WO closed</div>
+        <div class="step-actor">CMMS</div>
+      </div>
+    </div>
+    <div style="margin-top:10px;">
+      <div class="callout callout-crit">
+        <span class="callout-icon">🔴</span>
+        <div><strong>Firmware/SW update path:</strong> Cập nhật firmware phải qua Change Control — cần phê duyệt KT trưởng và log version trước/sau. Không thực hiện update firmware nếu chưa có approved change request.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. ACTOR & ROLE -->
+  <div class="section">
+    <div class="section-title">2 · Actor & Role</div>
+    <table class="tbl">
+      <tr><th>Actor</th><th>Vai trò</th><th>Quyền</th><th>Trách nhiệm</th></tr>
+      <tr><td>Khoa phòng sử dụng</td><td>Báo cáo sự cố</td><td>Create Service Request</td><td>Báo lỗi thiết bị, cung cấp mô tả hiện tượng</td></tr>
+      <tr><td>KTV HTM</td><td>Sửa chữa chính</td><td>Create/Execute CM WO, Request spare parts</td><td>Troubleshoot, sửa, thay linh kiện, test</td></tr>
+      <tr><td>Kho vận</td><td>Cấp phát phụ tùng</td><td>Issue spare parts, update inventory</td><td>Cấp phát linh kiện, ghi nhận xuất kho</td></tr>
+      <tr><td>KT trưởng / Workshop Manager</td><td>Kiểm soát phụ tùng và firmware</td><td>Approve firmware change, sign-off repair</td><td>Phê duyệt change request firmware, verify sau sửa</td></tr>
+      <tr><td>NCC / Đại lý bảo hành</td><td>External service provider</td><td>View WO (read-only external portal)</td><td>Thực hiện sửa chữa ngoài warranty/contract</td></tr>
+    </table>
+  </div>
+
+  <!-- 3. INPUT / OUTPUT -->
+  <div class="section">
+    <div class="section-title">3 · Input / Output</div>
+    <div class="two-col">
+      <div>
+        <strong style="color:var(--accent4); font-size:11px; font-family:'IBM Plex Mono',monospace;">INPUT</strong>
+        <table class="tbl" style="margin-top:8px;">
+          <tr><th>Đầu vào</th><th>Nguồn</th></tr>
+          <tr><td>Yêu cầu sửa chữa / mô tả sự cố</td><td>Khoa phòng / PM WO</td></tr>
+          <tr><td>Lịch sử sửa chữa trước</td><td>Asset Repair history</td></tr>
+          <tr><td>Danh sách spare parts catalog</td><td>IMM-15 / Kho</td></tr>
+          <tr><td>Service manual – phần sửa chữa</td><td>IMM-05 document</td></tr>
+          <tr><td>Firmware version hiện tại</td><td>Asset technical specs field</td></tr>
+        </table>
+      </div>
+      <div>
+        <strong style="color:var(--accent3); font-size:11px; font-family:'IBM Plex Mono',monospace;">OUTPUT</strong>
+        <table class="tbl" style="margin-top:8px;">
+          <tr><th>Đầu ra</th><th>DocType</th></tr>
+          <tr><td>CM Work Order</td><td><code>Asset Repair</code></td></tr>
+          <tr><td>Danh sách phụ tùng đã dùng + chi phí</td><td><code>Asset Repair.items (child table)</code></td></tr>
+          <tr><td>Firmware change log (version trước/sau)</td><td><code>Asset Activity</code> / custom field</td></tr>
+          <tr><td>Biên bản bàn giao sau sửa chữa</td><td>Print Format WO</td></tr>
+          <tr><td>Tổng chi phí sửa chữa</td><td><code>Asset Repair.repair_cost</code></td></tr>
+          <tr><td>MTTR metric</td><td>KPI-DASH-IMMIS-09</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4. USER STORY -->
+  <div class="section">
+    <div class="section-title">4 · User Stories (INVEST)</div>
+    <div class="user-story">
+      <div class="story-text">🟠 <strong>US-09-01:</strong> Với tư cách là <em>KTV HTM</em>, tôi muốn <em>ghi nhận phụ tùng đã dùng trong WO và hệ thống tự cập nhật tồn kho</em> để <em>truy nguyên được phụ tùng đã gắn vào từng thiết bị</em>.</div>
+      <div class="story-meta">✅ SP: 8</div>
+    </div>
+    <div class="user-story">
+      <div class="story-text">🟠 <strong>US-09-02:</strong> Với tư cách là <em>KT trưởng</em>, tôi muốn <em>phê duyệt change request trước khi firmware được cập nhật</em> để <em>ngăn cập nhật không kiểm soát ảnh hưởng đến vận hành lâm sàng</em>.</div>
+      <div class="story-meta">✅ SP: 5</div>
+    </div>
+    <div class="user-story">
+      <div class="story-text">🟠 <strong>US-09-03:</strong> Với tư cách là <em>PTP Khối 2</em>, tôi muốn <em>xem Mean Time To Repair (MTTR) theo loại thiết bị</em> để <em>đánh giá hiệu quả xử lý sự cố và xác định điểm cải tiến</em>.</div>
+      <div class="story-meta">✅ SP: 3</div>
+    </div>
+  </div>
+
+  <!-- 5. ACCEPTANCE CRITERIA -->
+  <div class="section">
+    <div class="section-title">5 · Acceptance Criteria (Gherkin)</div>
+    <div class="gherkin"><span class="k-scenario">Scenario: Ghi nhận phụ tùng và tự cập nhật tồn kho</span>
+<span class="k-given">Given</span> CM WO đang ở trạng thái "In Progress"
+<span class="k-when">When</span> KTV thêm spare part "Filter HEPA – part#123" qty=1 vào WO
+<span class="k-then">Then</span> Warehouse stock của part#123 giảm 1 đơn vị
+<span class="k-and">And</span> Ghi nhận xuất kho với reference = CM WO number
+<span class="k-and">And</span> WO cost được cập nhật = giá phụ tùng × qty + labor cost</div>
+
+    <div class="gherkin"><span class="k-scenario">Scenario: Cập nhật firmware phải qua approval</span>
+<span class="k-given">Given</span> KTV muốn cập nhật firmware từ v2.1 → v2.3 cho Asset ID XYZ
+<span class="k-when">When</span> KTV chọn "Firmware Update" trong WO và nhập version mới
+<span class="k-then">Then</span> Hệ thống tạo "Firmware Change Request" và chuyển trạng thái "Pending Approval"
+<span class="k-and">And</span> KT trưởng nhận notification để review
+<span class="k-but">But</span> KTV không thể submit WO với firmware update cho đến khi được duyệt
+<span class="k-when">When</span> KT trưởng Approve
+<span class="k-then">Then</span> Asset.firmware_version được cập nhật = v2.3 với timestamp + approver</div>
+  </div>
+
+  <!-- 6. BUSINESS RULES -->
+  <div class="section">
+    <div class="section-title">6 · Business Rules</div>
+    <table class="tbl">
+      <tr><th>Mã</th><th>Rule</th><th>Kiểm soát</th></tr>
+      <tr><td><code>BR-09-01</code></td><td>Mọi phụ tùng thay thế phải truy nguyên về WO cụ thể</td><td>Spare part item line trong WO mandatory</td></tr>
+      <tr><td><code>BR-09-02</code></td><td>Firmware update phải có approval trước khi thực hiện</td><td>Firmware Change Request workflow</td></tr>
+      <tr><td><code>BR-09-03</code></td><td>CM WO từ PM phải reference số PM WO gốc</td><td>source_wo field mandatory</td></tr>
+      <tr><td><code>BR-09-04</code></td><td>Sửa chữa do NCC thực hiện phải ghi nhận chi phí và kết quả kiểm tra after-repair của KTV nội bộ</td><td>External repair flag + internal verification mandatory</td></tr>
+      <tr><td><code>BR-09-05</code></td><td>MTTR = thời gian từ lúc WO tạo đến lúc WO closed + asset returned to service</td><td>Computed field = closed_at - created_at</td></tr>
+    </table>
+  </div>
+
+  <!-- 7. EXCEPTION + 8-9 -->
+  <div class="section">
+    <div class="section-title">7 · Exception Handling + 8 · WHO + 9 · QMS</div>
+    <table class="tbl">
+      <tr><th>Loại</th><th>Nội dung</th><th>Áp dụng</th></tr>
+      <tr><td>Exception: Không có phụ tùng tồn kho</td><td>WO blocked "Waiting Parts", tạo spare part request</td><td>Link sang IMM-15 để mua phụ tùng khẩn</td></tr>
+      <tr><td>Exception: Sửa nhiều lần không khỏi</td><td>Sau 3 lần CM WO cùng lỗi → trigger "Chronic Failure Alert"</td><td>Escalate lên xem xét replacement (IMM-13)</td></tr>
+      <tr><td>WHO: Corrective maintenance</td><td>WHO Maintenance §6.2 – "resolve problem, replace/mend faulty parts, test device"</td><td>CM WO với troubleshoot step, repair action, after-repair test</td></tr>
+      <tr><td>WHO: MTTR tracking</td><td>WHO HTM 2025 – "mean time to repair measure of effectiveness"</td><td>MTTR KPI per asset category on dashboard</td></tr>
+      <tr><td>QMS: Change control</td><td>ISO 9001 §8.5.6 "Control of changes"</td><td>Firmware Change Request approval workflow</td></tr>
+      <tr><td>QMS: Truy nguyên phụ tùng</td><td>ISO 9001 §8.5.2 "Identification and traceability"</td><td>Spare part → WO → Asset → Date linkage</td></tr>
+    </table>
+  </div>
+</div><!-- /IMM-09 -->
+
+
+<!-- ═══════════════════════════════════════════════════════════
+     MODULE IMM-11
+═══════════════════════════════════════════════════════════════ -->
+<div class="module" id="imm11">
+  <div class="module-header">
+    <div><span class="module-id mod-11">IMM-11</span></div>
+    <div>
+      <h2>Hiệu năng và Hiệu chuẩn (Inspection & Calibration)</h2>
+      <p>Calibration planning · Certificate management · Out-of-tolerance handling · CAPA trigger</p>
+    </div>
+  </div>
+
+  <!-- 1. PROCESS MAP -->
+  <div class="section">
+    <div class="section-title">1 · Process Map (BPMN Style)</div>
+    <div class="process-flow" style="gap:4px; flex-wrap:wrap;">
+      <div class="pf-step pf-start">
+        <span class="step-num">START</span>
+        <div class="step-label">Lịch hiệu chuẩn đến hạn</div>
+        <div class="step-actor">CMMS Scheduler</div>
+      </div>
+      <span class="pf-arrow">→</span>
+      <div class="pf-step">
+        <span class="step-num">1</span>
+        <div class="step-label">Tạo Calibration/Inspection WO</div>
+        <div class="step-actor">CMMS Auto / KT trưởng</div>
+      </div>
+      <span class="pf-arrow">→</span>
+      <div class="pf-step">
+        <span class="step-num">2</span>
+        <div class="step-label">Gửi thiết bị đến lab hiệu chuẩn (nội bộ/bên ngoài)</div>
+        <div class="step-actor">Workshop</div>
+      </div>
+      <span class="pf-arrow">→</span>
+      <div class="pf-step">
+        <span class="step-num">3</span>
+        <div class="step-label">Đo lường baseline → điều chỉnh → xác minh</div>
+        <div class="step-actor">KTV / Lab hiệu chuẩn</div>
+      </div>
+      <span class="pf-arrow">→</span>
+      <div class="pf-step pf-decision">
+        <span class="step-num">GW</span>
+        <div class="step-label">Kết quả Pass?</div>
+        <div class="step-actor">KTV</div>
+      </div>
+      <span class="pf-arrow">→</span>
+      <div class="pf-step">
+        <span class="step-num">4</span>
+        <div class="step-label">Upload certificate + cập nhật ngày hiệu lực</div>
+        <div class="step-actor">KTV / QLCL</div>
+      </div>
+      <span class="pf-arrow">→</span>
+      <div class="pf-step pf-end">
+        <span class="step-num">END</span>
+        <div class="step-label">Asset = "Calibrated & Valid"</div>
+        <div class="step-actor">CMMS</div>
+      </div>
+    </div>
+    <div style="margin-top:10px;">
+      <div class="callout callout-crit">
+        <span class="callout-icon">🔴</span>
+        <div><strong>Out-of-tolerance path:</strong> Fail → Asset status = "Out of Service", trigger CAPA record, phân tích nguyên nhân, xem xét toàn bộ kết quả lâm sàng liên quan trong khoảng thời gian thiết bị lệch chuẩn (lookback period).</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. ACTOR & ROLE -->
+  <div class="section">
+    <div class="section-title">2 · Actor & Role</div>
+    <table class="tbl">
+      <tr><th>Actor</th><th>Vai trò</th><th>Quyền</th><th>Trách nhiệm</th></tr>
+      <tr><td>Workshop / KTV hiệu chuẩn</td><td>Thực hiện</td><td>Create Calibration WO, upload cert</td><td>Thực hiện calibration, ghi kết quả đo</td></tr>
+      <tr><td>Lab hiệu chuẩn bên ngoài</td><td>External provider</td><td>Provide certificate (offline)</td><td>Phát hành chứng chỉ hiệu chuẩn có truy nguyên</td></tr>
+      <tr><td>Tổ HC-QLCL</td><td>CAPA owner</td><td>Create CAPA, manage lookback</td><td>Xử lý CAPA khi out-of-tolerance, assess risk lâm sàng</td></tr>
+      <tr><td>KT trưởng</td><td>Sign-off</td><td>Approve calibration result</td><td>Phê duyệt kết quả và cho phép tái vận hành</td></tr>
+      <tr><td>PTP Khối 2</td><td>Oversight</td><td>Dashboard view, CAPA oversight</td><td>Theo dõi compliance, chỉ đạo CAPA nghiêm trọng</td></tr>
+    </table>
+  </div>
+
+  <!-- 3. INPUT / OUTPUT -->
+  <div class="section">
+    <div class="section-title">3 · Input / Output</div>
+    <div class="two-col">
+      <div>
+        <strong style="color:var(--accent4); font-size:11px; font-family:'IBM Plex Mono',monospace;">INPUT</strong>
+        <table class="tbl" style="margin-top:8px;">
+          <tr><th>Đầu vào</th><th>Nguồn</th></tr>
+          <tr><td>Lịch hiệu chuẩn (interval, due date)</td><td>Asset calibration schedule</td></tr>
+          <tr><td>Tiêu chí chấp nhận (tolerance)</td><td>Manufacturer spec / ISO standard</td></tr>
+          <tr><td>Certificate hiệu chuẩn cũ</td><td>IMM-05 document</td></tr>
+          <tr><td>Reference standard (thiết bị chuẩn đo)</td><td>Lab hiệu chuẩn</td></tr>
+        </table>
+      </div>
+      <div>
+        <strong style="color:var(--accent3); font-size:11px; font-family:'IBM Plex Mono',monospace;">OUTPUT</strong>
+        <table class="tbl" style="margin-top:8px;">
+          <tr><th>Đầu ra</th><th>DocType</th></tr>
+          <tr><td>Calibration/Inspection record</td><td><code>Asset Maintenance Log</code> (type=Calibration)</td></tr>
+          <tr><td>Chứng chỉ hiệu chuẩn (PDF) đính kèm</td><td><code>File attachment on Asset</code></td></tr>
+          <tr><td>Certificate expiry date</td><td><code>Asset.calibration_due_date</code></td></tr>
+          <tr><td>CAPA record (nếu fail)</td><td><code>Quality Inspection / CAPA</code></td></tr>
+          <tr><td>Lookback assessment report</td><td>Custom report</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4-5 USER STORY + GHERKIN -->
+  <div class="section">
+    <div class="section-title">4 · User Stories (INVEST)</div>
+    <div class="user-story">
+      <div class="story-text">🔴 <strong>US-11-01:</strong> Với tư cách là <em>KTV hiệu chuẩn</em>, tôi muốn <em>upload certificate PDF và hệ thống tự đọc ngày hết hạn để cập nhật lịch kỳ tiếp theo</em> để <em>không phải nhập tay và tránh nhầm ngày</em>.</div>
+      <div class="story-meta">✅ SP: 5 | [Giả định: cần manual input, auto OCR là enhancement]</div>
+    </div>
+    <div class="user-story">
+      <div class="story-text">🔴 <strong>US-11-02:</strong> Với tư cách là <em>Tổ HC-QLCL</em>, tôi muốn <em>hệ thống tự động tạo CAPA khi thiết bị fail hiệu chuẩn</em> để <em>đảm bảo rủi ro lâm sàng được đánh giá kịp thời</em>.</div>
+      <div class="story-meta">✅ SP: 8</div>
+    </div>
+    <div class="user-story">
+      <div class="story-text">🔴 <strong>US-11-03:</strong> Với tư cách là <em>PTP Khối 2</em>, tôi muốn <em>xem danh sách thiết bị đang hết hạn hiệu chuẩn trong 30 ngày tới</em> để <em>lên kế hoạch kinh phí và nhân lực</em>.</div>
+      <div class="story-meta">✅ SP: 3</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">5 · Acceptance Criteria (Gherkin)</div>
+    <div class="gherkin"><span class="k-scenario">Scenario: Hiệu chuẩn thành công</span>
+<span class="k-given">Given</span> Calibration WO đang "In Progress" cho Asset ID ABC
+<span class="k-when">When</span> KTV ghi kết quả đo = "Pass" và upload certificate PDF
+<span class="k-then">Then</span> Asset.calibration_status = "Calibrated"
+<span class="k-and">And</span> Asset.calibration_cert_expiry = ngày ghi trên certificate
+<span class="k-and">And</span> Hệ thống tạo lịch calibration kỳ tiếp theo = expiry - buffer period
+<span class="k-and">And</span> Certificate được lưu trong IMM-05 document repository</div>
+
+    <div class="gherkin"><span class="k-scenario">Scenario: Thiết bị fail hiệu chuẩn (out-of-tolerance)</span>
+<span class="k-given">Given</span> KTV ghi kết quả = "Fail – Out of Tolerance" 
+<span class="k-then">Then</span> Asset.status = "Out of Service"
+<span class="k-and">And</span> Hệ thống tự tạo CAPA record với type = "Calibration Failure"
+<span class="k-and">And</span> Alert gửi đến Tổ HC-QLCL và PTP Khối 2
+<span class="k-and">And</span> CAPA yêu cầu nhập "lookback_period" và "clinical_impact_assessment"
+<span class="k-but">But</span> Asset không thể return to service cho đến khi CAPA closed và re-calibration passed</div>
+  </div>
+
+  <!-- 6-9 -->
+  <div class="section">
+    <div class="section-title">6 · Business Rules + 7 · Exception + 8-9 · WHO/QMS</div>
+    <table class="tbl">
+      <tr><th>Loại</th><th>Nội dung</th><th>Kiểm soát / Reference</th></tr>
+      <tr><td><span class="priority-chip p-high">RULE</span> BR-11-01</td><td>Thiết bị đo lường lâm sàng PHẢI có certificate hiệu chuẩn còn hiệu lực mới được sử dụng</td><td>Calibration status check trước khi cho phép lâm sàng dùng</td></tr>
+      <tr><td><span class="priority-chip p-high">RULE</span> BR-11-02</td><td>Out-of-tolerance PHẢI kích hoạt CAPA, không được đóng WO nếu chưa có CAPA</td><td>Workflow condition: fail → CAPA mandatory</td></tr>
+      <tr><td><span class="priority-chip p-med">RULE</span> BR-11-03</td><td>Certificate hiệu chuẩn phải từ lab được công nhận (ISO 17025 hoặc cơ quan kiểm định VN)</td><td>Lab accreditation field trong WO</td></tr>
+      <tr><td><span class="priority-chip p-med">EXCEPTION</span></td><td>Không có lab nội bộ → gửi ra ngoài: WO status = "Sent to External Lab"</td><td>External lab tracking với estimated return date</td></tr>
+      <tr><td><span class="priority-chip p-high">WHO</span></td><td>WHO HTM 2025 §6.4.3 "Calibration = baseline measurement, adjustment, verification, documentation"</td><td>4-step calibration log field trong WO</td></tr>
+      <tr><td><span class="priority-chip p-high">QMS</span></td><td>ISO 9001 §7.1.5 "Monitoring and measuring resources – calibration"</td><td>Calibration cert linkage, alert, audit trail</td></tr>
+      <tr><td><span class="priority-chip p-high">QMS</span></td><td>ISO 9001 §10.2 "Nonconformity and corrective action"</td><td>CAPA workflow gắn với calibration fail record</td></tr>
+    </table>
+  </div>
+</div><!-- /IMM-11 -->
+
+
+<!-- ═══════════════════════════════════════════════════════════
+     MODULE IMM-12
+═══════════════════════════════════════════════════════════════ -->
+<div class="module" id="imm12">
+  <div class="module-header">
+    <div><span class="module-id mod-12">IMM-12</span></div>
+    <div>
+      <h2>Bảo trì Khắc phục (Corrective Maintenance)</h2>
+      <p>Incident triage · Escalation · RCA · SLA tracking · Recovery management</p>
+    </div>
+  </div>
+
+  <!-- 1. PROCESS MAP -->
+  <div class="section">
+    <div class="section-title">1 · Process Map (BPMN Style)</div>
+    <div class="process-flow" style="gap:4px; flex-wrap:wrap;">
+      <div class="pf-step pf-start">
+        <span class="step-num">START</span>
+        <div class="step-label">Sự cố xảy ra / Báo cáo từ user</div>
+        <div class="step-actor">Khoa phòng</div>
+      </div>
+      <span class="pf-arrow">→</span>
+      <div class="pf-step">
+        <span class="step-num">1</span>
+        <div class="step-label">Tiếp nhận & triage sự cố (P1/P2/P3/P4)</div>
+        <div class="step-actor">Workshop / Hotline</div>
+      </div>
+      <span class="pf-arrow">→</span>
+      <div class="pf-step">
+        <span class="step-num">2</span>
+        <div class="step-label">Tạo CM Incident WO + gán priority</div>
+        <div class="step-actor">Workshop</div>
+      </div>
+      <span class="pf-arrow">→</span>
+      <div class="pf-step">
+        <span class="step-num">3</span>
+        <div class="step-label">Assign KTV & thực hiện corrective action</div>
+        <div class="step-actor">Workshop Manager</div>
+      </div>
+      <span class="pf-arrow">→</span>
+      <div class="pf-step pf-decision">
+        <span class="step-num">GW-1</span>
+        <div class="step-label">Giải quyết được nội bộ?</div>
+        <div class="step-actor">KT trưởng</div>
+      </div>
+      <span class="pf-arrow">→</span>
+      <div class="pf-step">
+        <span class="step-num">4</span>
+        <div class="step-label">Kiểm tra sau sửa & xác nhận phục hồi</div>
+        <div class="step-actor">KTV / Khoa phòng</div>
+      </div>
+      <span class="pf-arrow">→</span>
+      <div class="pf-step pf-decision">
+        <span class="step-num">GW-2</span>
+        <div class="step-label">RCA cần thiết?</div>
+        <div class="step-actor">KT trưởng</div>
+      </div>
+      <span class="pf-arrow">→</span>
+      <div class="pf-step pf-end">
+        <span class="step-num">END</span>
+        <div class="step-label">WO closed · SLA recorded · RCA filed</div>
+        <div class="step-actor">CMMS</div>
+      </div>
+    </div>
+    <div style="margin-top:10px;">
+      <div class="callout callout-warn">
+        <span class="callout-icon">⚠</span>
+        <div><strong>Escalation path:</strong> GW-1 = No → Escalate NCC/bên ngoài, SLA clock continues. P1 (thiết bị cấp cứu) response SLA = 2h, resolution SLA = 8h. P2 = 4h/24h. P3 = 24h/72h. P4 = 72h/7 ngày.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. ACTOR & ROLE -->
+  <div class="section">
+    <div class="section-title">2 · Actor & Role</div>
+    <table class="tbl">
+      <tr><th>Actor</th><th>Vai trò</th><th>Quyền</th><th>Trách nhiệm</th></tr>
+      <tr><td>Nhân viên khoa phòng</td><td>Báo sự cố</td><td>Submit Service Request</td><td>Mô tả hiện tượng, cung cấp Asset ID</td></tr>
+      <tr><td>Workshop (triage team)</td><td>Tiếp nhận & triage</td><td>Create CM WO, set priority</td><td>Phân loại mức độ khẩn cấp, tạo WO</td></tr>
+      <tr><td>KTV HTM</td><td>Thực hiện CM</td><td>Execute WO, update status</td><td>Sửa chữa, ghi nhận action, test thiết bị</td></tr>
+      <tr><td>KT trưởng</td><td>Kiểm soát & leo thang</td><td>Escalate, Approve RCA</td><td>Quyết định escalation, phê duyệt RCA</td></tr>
+      <tr><td>Tổ HC-QLCL</td><td>RCA + CAPA owner</td><td>Create/manage RCA, CAPA</td><td>Điều tra nguyên nhân gốc, đề xuất hành động</td></tr>
+      <tr><td>PTP Khối 2</td><td>SLA oversight</td><td>Dashboard, override SLA</td><td>Theo dõi SLA, chỉ đạo xử lý sự cố P1</td></tr>
+    </table>
+  </div>
+
+  <!-- 3. INPUT / OUTPUT -->
+  <div class="section">
+    <div class="section-title">3 · Input / Output</div>
+    <div class="two-col">
+      <div>
+        <strong style="color:var(--accent4); font-size:11px; font-family:'IBM Plex Mono',monospace;">INPUT</strong>
+        <table class="tbl" style="margin-top:8px;">
+          <tr><th>Đầu vào</th><th>Nguồn</th></tr>
+          <tr><td>Mô tả sự cố từ user</td><td>Khoa phòng</td></tr>
+          <tr><td>Asset ID bị ảnh hưởng</td><td>User / Asset lookup</td></tr>
+          <tr><td>Lịch sử sự cố trước</td><td>Asset Repair history</td></tr>
+          <tr><td>SLA matrix theo equipment criticality</td><td>SLA config master</td></tr>
+          <tr><td>Danh sách backup equipment</td><td>Asset inventory</td></tr>
+        </table>
+      </div>
+      <div>
+        <strong style="color:var(--accent3); font-size:11px; font-family:'IBM Plex Mono',monospace;">OUTPUT</strong>
+        <table class="tbl" style="margin-top:8px;">
+          <tr><th>Đầu ra</th><th>DocType</th></tr>
+          <tr><td>CM Incident Work Order</td><td><code>Asset Repair</code> (type=Corrective)</td></tr>
+          <tr><td>SLA response/resolution time log</td><td><code>Asset Repair.response_time, resolution_time</code></td></tr>
+          <tr><td>RCA report</td><td><code>Quality Inspection / custom RCA DocType</code></td></tr>
+          <tr><td>CAPA record (nếu cần)</td><td><code>CAPA linked to RCA</code></td></tr>
+          <tr><td>Downtime record cho thiết bị</td><td><code>Asset Activity</code> (type=Downtime)</td></tr>
+          <tr><td>MTTR, SLA compliance KPI</td><td>KPI-DASH-IMMIS-12</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4-5 STORY + GHERKIN -->
+  <div class="section">
+    <div class="section-title">4 · User Stories (INVEST)</div>
+    <div class="user-story">
+      <div class="story-text">🔵 <strong>US-12-01:</strong> Với tư cách là <em>Workshop</em>, tôi muốn <em>hệ thống tự động tính SLA breach time và gửi cảnh báo khi sắp vi phạm SLA</em> để <em>đảm bảo phản hồi kịp thời với thiết bị ưu tiên cao</em>.</div>
+      <div class="story-meta">✅ SP: 8</div>
+    </div>
+    <div class="user-story">
+      <div class="story-text">🔵 <strong>US-12-02:</strong> Với tư cách là <em>Tổ HC-QLCL</em>, tôi muốn <em>tạo RCA record gắn với CM WO và theo dõi trạng thái hành động khắc phục</em> để <em>ngăn tái phát sự cố tương tự</em>.</div>
+      <div class="story-meta">✅ SP: 5</div>
+    </div>
+    <div class="user-story">
+      <div class="story-text">🔵 <strong>US-12-03:</strong> Với tư cách là <em>Khoa phòng</em>, tôi muốn <em>nhận cập nhật tự động về tiến trình sửa chữa thiết bị của mình</em> để <em>chủ động điều chỉnh hoạt động lâm sàng khi thiết bị dừng</em>.</div>
+      <div class="story-meta">✅ SP: 3</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">5 · Acceptance Criteria (Gherkin)</div>
+    <div class="gherkin"><span class="k-scenario">Scenario: Triage sự cố P1 và SLA tracking</span>
+<span class="k-given">Given</span> Khoa ICU báo máy thở bị lỗi lúc 14:30
+<span class="k-when">When</span> Workshop tạo CM WO và gán Priority = P1
+<span class="k-then">Then</span> SLA response_deadline = 14:30 + 2h = 16:30
+<span class="k-and">And</span> SLA resolution_deadline = 14:30 + 8h = 22:30
+<span class="k-and">And</span> Alert gửi đến KT trưởng và PTP Khối 2 ngay lập tức
+<span class="k-and">And</span> Notification cảnh báo 30 phút trước khi breach SLA response</div>
+
+    <div class="gherkin"><span class="k-scenario">Scenario: Tạo RCA khi sự cố tái diễn</span>
+<span class="k-given">Given</span> Asset ID XYZ có 3 CM WO cùng fault type trong 6 tháng
+<span class="k-when">When</span> KT trưởng đóng CM WO lần thứ 3
+<span class="k-then">Then</span> Hệ thống hiển thị cảnh báo "Chronic Failure – RCA Recommended"
+<span class="k-and">And</span> Tạo liên kết đến 3 WO trước để phục vụ RCA
+<span class="k-and">And</span> Tổ HC-QLCL nhận notification để mở RCA record</div>
+  </div>
+
+  <!-- 6-9 -->
+  <div class="section">
+    <div class="section-title">6 · Business Rules + 7 · Exception + 8-9 · WHO/QMS</div>
+    <table class="tbl">
+      <tr><th>Loại</th><th>Nội dung</th><th>Kiểm soát / Reference</th></tr>
+      <tr><td><span class="priority-chip p-high">RULE</span> BR-12-01</td><td>P1 (life-critical device) phải có response ≤ 2h, resolution ≤ 8h</td><td>SLA config per equipment criticality class</td></tr>
+      <tr><td><span class="priority-chip p-high">RULE</span> BR-12-02</td><td>WO P1 không thể close nếu chưa có xác nhận "Return to Service" từ khoa phòng</td><td>Workflow: require department sign-off cho P1</td></tr>
+      <tr><td><span class="priority-chip p-med">RULE</span> BR-12-03</td><td>Sự cố tái phát ≥ 3 lần cùng fault → bắt buộc RCA</td><td>Chronic failure detection + mandatory RCA flag</td></tr>
+      <tr><td><span class="priority-chip p-med">EXCEPTION</span></td><td>Không có backup device khi P1 dừng → cần điều chuyển thiết bị khoa khác</td><td>Link sang IMM-13 Asset Movement khẩn</td></tr>
+      <tr><td><span class="priority-chip p-high">WHO</span></td><td>WHO Maintenance §6.2 "Corrective maintenance: restore functionality, minimize downtime, MTTR tracking"</td><td>MTTR = WO created → WO closed + return to service</td></tr>
+      <tr><td><span class="priority-chip p-high">WHO</span></td><td>WHO HTM 2025 – "Efficient response required; heavy reliance on CM not recommended"</td><td>Chronic failure alert → trigger replacement review</td></tr>
+      <tr><td><span class="priority-chip p-high">QMS</span></td><td>ISO 9001 §10.2 "Nonconformity and corrective action – RCA, CAPA"</td><td>RCA DocType linked to CM WO, CAPA lifecycle management</td></tr>
+      <tr><td><span class="priority-chip p-med">QMS</span></td><td>ISO 9001 §8.5.1 "Control of production – availability of equipment"</td><td>Downtime tracking, equipment availability KPI</td></tr>
+    </table>
+  </div>
+</div><!-- /IMM-12 -->
+
+
+<!-- ═══════════════════════ SUMMARY MATRIX ═══════════════════════ -->
+<div class="module" style="margin-top:48px; border-color: var(--accent);">
+  <div class="module-header" style="background: rgba(88,166,255,0.05);">
+    <div>
+      <h2 style="color:var(--accent);">Wave 1 — Cross-Module Summary Matrix</h2>
+      <p>DocType mapping · ERPNext native vs. custom · Dependency chain</p>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">DocType Mapping — Existing vs. Required</div>
+    <table class="tbl">
+      <tr><th>Module</th><th>DocType ERPNext Native</th><th>Cần bổ sung field</th><th>Custom DocType mới</th><th>Lý do custom</th></tr>
+      <tr>
+        <td><code>IMM-04</code></td>
+        <td>Asset, Asset Category, Asset Movement, Location</td>
+        <td>Asset: commissioning_status, installation_date, initial_inspection_result, asset_qr_code</td>
+        <td>Asset Commissioning (child checklist)</td>
+        <td>ERPNext không có initial inspection checklist template theo asset category</td>
+      </tr>
+      <tr>
+        <td><code>IMM-05</code></td>
+        <td>File attachment on Asset</td>
+        <td>Asset: document_status, cert_expiry_date</td>
+        <td>Asset Document (phân loại: pháp lý/kỹ thuật/chứng nhận, expiry, version)</td>
+        <td>Cần theo dõi hiệu lực từng loại tài liệu riêng biệt, không chỉ lưu file</td>
+      </tr>
+      <tr>
+        <td><code>IMM-08</code></td>
+        <td>Asset Maintenance, Asset Maintenance Log, Asset Maintenance Task</td>
+        <td>Asset Maintenance: pm_checklist_template, pm_compliance_flag, overdue_flag</td>
+        <td>Maintenance Checklist Template (per asset category)</td>
+        <td>ERPNext Maintenance Task chưa đủ cấu trúc checklist theo model</td>
+      </tr>
+      <tr>
+        <td><code>IMM-09</code></td>
+        <td>Asset Repair (có sẵn items child table, repair_cost)</td>
+        <td>Asset Repair: source_pm_wo, firmware_version_before, firmware_version_after, mttr</td>
+        <td>Firmware Change Request</td>
+        <td>Change control firmware là nghiệp vụ riêng, cần approval workflow độc lập</td>
+      </tr>
+      <tr>
+        <td><code>IMM-11</code></td>
+        <td>Asset Maintenance Log (dùng type=Calibration)</td>
+        <td>Asset: calibration_due_date, calibration_status, calibration_cert_expiry; Maintenance Log: calibration_result, tolerance_pass</td>
+        <td>CAPA Record (nếu chưa có trong ERPNext Quality module)</td>
+        <td>Lookback period & clinical impact assessment là field đặc thù y tế</td>
+      </tr>
+      <tr>
+        <td><code>IMM-12</code></td>
+        <td>Asset Repair (dùng làm CM Incident WO)</td>
+        <td>Asset Repair: incident_priority, sla_response_deadline, sla_resolution_deadline, response_time_actual, rca_required</td>
+        <td>RCA Record (gắn với Asset Repair), Downtime Log (Asset Activity extension)</td>
+        <td>SLA tracking và RCA lifecycle cần workflow riêng, không có sẵn trong ERPNext core</td>
+      </tr>
+    </table>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Module Dependency Chain</div>
+    <table class="tbl">
+      <tr><th>Module</th><th>Phụ thuộc vào</th><th>Cung cấp cho</th><th>Trigger point</th></tr>
+      <tr><td>IMM-04</td><td>IMM-03 (PO/Asset spec)</td><td>IMM-05 (tạo asset để gắn hồ sơ), IMM-08 (tạo PM schedule sau commissioning)</td><td>Asset tạo xong → tự trigger IMM-05 checklist + IMM-08 first schedule</td></tr>
+      <tr><td>IMM-05</td><td>IMM-04 (asset phải tồn tại)</td><td>IMM-04 GW-2 (release gate), IMM-08, IMM-09, IMM-11, IMM-12</td><td>Document expire → alert, non-compliant → block release nếu cần</td></tr>
+      <tr><td>IMM-08</td><td>IMM-04 (asset active), IMM-05 (service manual)</td><td>IMM-09 (PM fail → CM), IMM-12 (PM fail → incident)</td><td>PM due date → auto WO; PM fail → CM WO</td></tr>
+      <tr><td>IMM-09</td><td>IMM-08 (PM source WO), IMM-12 (incident trigger)</td><td>IMM-11 (sau CM cần re-calibrate), IMM-15 (spare part consumption)</td><td>Repair complete → return to service or flag for re-calibration</td></tr>
+      <tr><td>IMM-11</td><td>IMM-04 (baseline), IMM-09 (post-repair)</td><td>IMM-12 (CAPA), IMM-05 (cert storage)</td><td>Calibration fail → CAPA; Pass → update cert expiry</td></tr>
+      <tr><td>IMM-12</td><td>IMM-08/09 (fail triggers), khoa phòng (incident report)</td><td>IMM-09 (repair action), IMM-11 (post-repair calibration), IMM-13 (chronic failure → replacement)</td><td>Incident open → SLA clock start; chronic fail → RCA</td></tr>
+    </table>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Tổng hợp Business Rule Priority</div>
+    <table class="tbl">
+      <tr><th>Module</th><th>Rule Critical nhất</th><th>Risk nếu bỏ qua</th></tr>
+      <tr><td>IMM-04</td><td>BR-04-03: Không release nếu còn NC chưa đóng</td><td>Thiết bị lỗi đi vào vận hành lâm sàng</td></tr>
+      <tr><td>IMM-05</td><td>BR-05-01: Số ĐK lưu hành bắt buộc trước release</td><td>Vi phạm NĐ 98/2021, rủi ro pháp lý</td></tr>
+      <tr><td>IMM-08</td><td>BR-08-02: CM WO phải reference PM WO gốc</td><td>Mất truy nguyên, không phân tích PM-CM correlation</td></tr>
+      <tr><td>IMM-09</td><td>BR-09-02: Firmware phải qua approval</td><td>Update không kiểm soát → lỗi lâm sàng</td></tr>
+      <tr><td>IMM-11</td><td>BR-11-02: Fail calibration → CAPA bắt buộc</td><td>Kết quả đo sai ảnh hưởng chẩn đoán/điều trị</td></tr>
+      <tr><td>IMM-12</td><td>BR-12-01: P1 SLA ≤ 2h response</td><td>Thiết bị cấp cứu dừng lâu → rủi ro bệnh nhân</td></tr>
+    </table>
+  </div>
+</div>
+
+</div><!-- /main -->
+
+<div class="doc-footer">
+  <div>AssetCore · BA Analysis Wave 1 · v1.0 · 2025</div>
+  <div>6 Modules: IMM-04 · IMM-05 · IMM-08 · IMM-09 · IMM-11 · IMM-12</div>
+  <div>WHO HTM + ISO 9001 + NĐ 98/2021 + ERPNext/Frappe</div>
+</div>
+
+</body>
+</html>

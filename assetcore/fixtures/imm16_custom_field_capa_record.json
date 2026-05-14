@@ -1,0 +1,67 @@
+[
+  {
+    "doctype": "Custom Field",
+    "dt": "IMM CAPA Record",
+    "fieldname": "imm_section_imm16",
+    "fieldtype": "Section Break",
+    "label": "IMM-16 Compliance Fields",
+    "insert_after": "notes",
+    "name": "IMM CAPA Record-imm_section_imm16"
+  },
+  {
+    "doctype": "Custom Field",
+    "dt": "IMM CAPA Record",
+    "fieldname": "imm_correction_immediate",
+    "fieldtype": "Text",
+    "label": "Hành động khắc phục tức thì",
+    "insert_after": "imm_root_cause_method",
+    "name": "IMM CAPA Record-imm_correction_immediate"
+  },
+  {
+    "doctype": "Custom Field",
+    "dt": "IMM CAPA Record",
+    "fieldname": "imm_action_plan",
+    "fieldtype": "Table",
+    "label": "Kế hoạch hành động",
+    "options": "IMM CAPA Action Step",
+    "insert_after": "imm_correction_immediate",
+    "name": "IMM CAPA Record-imm_action_plan"
+  },
+  {
+    "doctype": "Custom Field",
+    "dt": "IMM CAPA Record",
+    "fieldname": "imm_effectiveness_check_date",
+    "fieldtype": "Date",
+    "label": "Ngày kiểm tra hiệu lực",
+    "insert_after": "imm_action_plan",
+    "name": "IMM CAPA Record-imm_effectiveness_check_date"
+  },
+  {
+    "doctype": "Custom Field",
+    "dt": "IMM CAPA Record",
+    "fieldname": "imm_change_control_ref",
+    "fieldtype": "Data",
+    "label": "Tham chiếu Change Control",
+    "insert_after": "imm_effectiveness_evidence",
+    "name": "IMM CAPA Record-imm_change_control_ref"
+  },
+  {
+    "doctype": "Custom Field",
+    "dt": "IMM CAPA Record",
+    "fieldname": "imm_audit_finding_ref",
+    "fieldtype": "Data",
+    "label": "Audit Finding Ref",
+    "insert_after": "imm_compliance_finding_ref",
+    "name": "IMM CAPA Record-imm_audit_finding_ref"
+  },
+  {
+    "doctype": "Custom Field",
+    "dt": "IMM CAPA Record",
+    "fieldname": "imm_rca_ref",
+    "fieldtype": "Link",
+    "label": "RCA Record",
+    "options": "IMM RCA Record",
+    "insert_after": "imm_audit_finding_ref",
+    "name": "IMM CAPA Record-imm_rca_ref"
+  }
+]

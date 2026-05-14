@@ -1,0 +1,56 @@
+{
+ "creation": "2026-05-08 00:00:00.000000",
+ "doctype": "DocType",
+ "document_type": "Document",
+ "engine": "InnoDB",
+ "istable": 1,
+ "module": "AssetCore",
+ "name": "IMM Scorecard Department Row",
+ "track_changes": 0,
+ "modified": "2026-05-08 00:00:00.000000",
+ "modified_by": "Administrator",
+ "owner": "Administrator",
+ "field_order": [
+  "department",
+  "total_rules",
+  "compliant",
+  "non_compliant",
+  "score_pct"
+ ],
+ "fields": [
+  {
+   "fieldname": "department",
+   "fieldtype": "Link",
+   "label": "Khoa/Phòng",
+   "options": "AC Department",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "total_rules",
+   "fieldtype": "Int",
+   "label": "Tổng quy tắc",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "compliant",
+   "fieldtype": "Int",
+   "label": "Tuân thủ",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "non_compliant",
+   "fieldtype": "Int",
+   "label": "Không tuân thủ",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "score_pct",
+   "fieldtype": "Float",
+   "label": "Điểm (%)",
+   "read_only": 1,
+   "in_list_view": 1
+  }
+ ],
+ "permissions": []
+}

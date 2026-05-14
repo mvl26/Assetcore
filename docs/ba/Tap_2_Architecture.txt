@@ -1,0 +1,437 @@
+BỘ TÀI LIỆU BÀN GIAO
+AssetCore on Frappe / ERPNext v15
+TẬP 2
+SOLUTION ARCHITECTURE
+Kiến trúc tổng thể, module decomposition, decision log, NFR, security, environment
+Phiên bản: 1.0  |  Trạng thái: Final draft  |  Ngày: 2026-05-05
+Người soạn: AssetCore Architecture Team   |   Đối tượng đọc: Dev IT, BA, QA, DevOps
+Mục lục
+2.1 Logical Architecture
+AssetCore tổ chức theo 7 lớp kiến trúc logic. Quy tắc bất biến: business rule không được nhúng vào lớp UI; integration không được nhúng vào lớp domain; mỗi lớp chỉ phụ thuộc vào lớp ngay dưới nó. Mục tiêu là cô lập domain HTM khỏi hạ tầng để có thể thay framework, thay UI hoặc thay tích hợp mà không phá nghiệp vụ.
+2.1.1 Sơ đồ 7 lớp
+```mermaid
+flowchart TB
+  L1["L1 — User & Channel Layer\n(Web, Mobile PWA, Email, SMS, Telegram, Print)"]
+  L2["L2 — Workflow & Application Service Layer\n(Form, List, Workflow, Notification, Print Format)"]
+  L3["L3 — Domain / Business Layer\n(Engines: Lifecycle, Work Order, Document/QMS, CAPA, Metric)"]
+  L4["L4 — Data / Document Layer\n(DocType, Master Data, Attachment, Index)"]
+  L5["L5 — Integration Layer\n(REST/OpenAPI, FHIR, Webhook, ETL, Message Bus)"]
+  L6["L6 — Analytics / Dashboard / Alert Layer\n(Snapshot, Drill-down, KPI, Alert Rules)"]
+  L7["L7 — QMS / Governance Layer\n(Document Control, CAPA, Change Control, Audit, Mgmt Review)"]
+  L1 --> L2 --> L3 --> L4
+  L3 --> L5
+  L5 --> L4
+  L3 --> L6 --> L4
+  L7 -.cross-cuts.-> L1
+  L7 -.cross-cuts.-> L2
+  L7 -.cross-cuts.-> L3
+  L7 -.cross-cuts.-> L4
+```
+2.1.2 Trách nhiệm từng lớp
+2.1.3 Nguyên tắc bất biến giữa các lớp
+Domain layer (L3) không được import Frappe-specific HTTP/request module; chỉ dùng frappe.db, frappe.get_doc, frappe.new_doc.
+Mỗi business rule có một module Python riêng trong L3, có unit test độc lập, không phụ thuộc UI.
+Notification chạy qua một service queue duy nhất ở L2; không gửi email trực tiếp từ L3.
+KPI ở L6 chỉ đọc snapshot; không tính lại on-the-fly từ transactional data trong dashboard production trừ khi data nhỏ.
+L7 QMS audit log không bị ghi đè được; mỗi entry là append-only và có hash chain.
+2.2 Physical Architecture
+2.2.1 Sơ đồ triển khai
+```mermaid
+flowchart TB
+  USER["End-user (Web/PWA)"] --> NGINX["Nginx Reverse Proxy + TLS"]
+  EXT["Hệ thống ngoài (HIS/EMR/LIS/RIS/PACS/BHYT)"] --> NGINX
+  NGINX --> WEB["Frappe/ERPNext Web Workers (Gunicorn)"]
+  NGINX --> SOCK["Frappe Socket.IO (Realtime)"]
+  WEB --> RQ["Redis Queue (Background Worker)"]
+  WEB --> CACHE["Redis Cache"]
+  WEB --> DB["MariaDB 10.6 Master"]
+  RQ --> DB
+  DB --> REPL["MariaDB Replica (Read)"]
+  WEB --> FS["File Storage / NFS / S3-compatible"]
+  RQ --> FS
+  WEB --> SCHED["Scheduler"]
+  SCHED --> RQ
+  RQ --> SMTP["SMTP Gateway"]
+  RQ --> SMS["SMS Gateway"]
+  WEB --> LOG["Log Sink (Loki)"]
+  WEB --> METRIC["Prometheus + Grafana"]
+  DB --> BKP["Backup Storage"]
+  FS --> BKP
+```
+2.2.2 Stack chuẩn
+2.2.3 Yêu cầu hạ tầng tối thiểu
+2.2.4 Network topology
+```mermaid
+flowchart LR
+  WAN["Internet"] -->|HTTPS 443| FW["Firewall + WAF"]
+  FW --> LB["Load Balancer / Nginx"]
+  LB --> APP1["App Node 1"]
+  LB --> APP2["App Node 2"]
+  APP1 --> DBM["MariaDB Master"]
+  APP2 --> DBM
+  DBM --> DBR["MariaDB Replica"]
+  APP1 --> RDS["Redis Cluster"]
+  APP2 --> RDS
+  APP1 --> NFS["File Storage"]
+  APP2 --> NFS
+  APP1 --> MON["Monitoring (Prom+Loki)"]
+  HIS["HIS / EMR / LIS"] --> FW
+  BCK["Backup site"] -.replicate.-> DBM
+  BCK -.replicate.-> NFS
+```
+Nguyên tắc: app node nằm trong VLAN ứng dụng; DB nằm trong VLAN dữ liệu; file storage ở VLAN riêng. Truy cập DB và file storage chỉ cho phép từ app node và backup node. Các kết nối từ HIS/EMR đi qua firewall và WAF với rule riêng theo nguồn IP.
+2.3 Module Decomposition của app `assetcore`
+App `assetcore` được tổ chức theo domain, không theo loại file. Mỗi sub-module gói gọn DocType, business logic, hooks, fixtures, report, dashboard, test liên quan đến một nhóm nghiệp vụ HTM.
+2.3.1 Cây sub-modules
+assetcore/
+├── assetcore/
+│   ├── __init__.py
+│   ├── hooks.py
+│   ├── modules.txt
+│   ├── patches.txt
+│   ├── fixtures/                # role, workflow, custom field
+│   ├── public/                  # JS/CSS shared
+│   ├── api/                     # REST endpoints (L5)
+│   │
+│   ├── asset_registry/          # Medical Asset, Device Model, Identifier
+│   │   ├── doctype/
+│   │   ├── report/
+│   │   ├── dashboard_chart/
+│   │   ├── notification/
+│   │   └── tests/
+│   │
+│   ├── lifecycle/               # Lifecycle Event Engine
+│   ├── work_order/              # Unified WO Engine
+│   ├── maintenance_plan/        # PM Plan + scheduler
+│   ├── calibration/             # Calibration Plan + scheduler + cert
+│   ├── corrective/              # CM, Failure Report, Severity
+│   ├── document_qms/            # Document Record + QMS Artifact
+│   ├── compliance/              # Compliance Record, Compliance Case
+│   ├── capa/                    # CAPA, RCA, Effectiveness Check
+│   ├── change_control/          # Change Control workflow
+│   ├── audit/                   # Audit log, hash chain
+│   ├── metric/                  # Metric Definition, Snapshot
+│   ├── alert/                   # Alert rule + dispatcher
+│   ├── integration/             # FHIR mapper, HIS/EMR adapter
+│   ├── migration/               # Import templates, validators
+│   └── governance/              # Mgmt review, decision record
+└── setup.py
+2.3.2 Dependency graph giữa sub-modules
+```mermaid
+flowchart LR
+  AR[asset_registry]
+  LE[lifecycle]
+  WO[work_order]
+  MP[maintenance_plan]
+  CL[calibration]
+  CO[corrective]
+  DQ[document_qms]
+  CP[compliance]
+  CA[capa]
+  CC[change_control]
+  AU[audit]
+  ME[metric]
+  AL[alert]
+  IN[integration]
+  MG[migration]
+  GV[governance]
+  AR --> LE
+  AR --> DQ
+  WO --> LE
+  MP --> WO
+  CL --> WO
+  CO --> WO
+  DQ --> AR
+  CP --> AR
+  CA --> CP
+  CC --> DQ
+  AU --> AR
+  AU --> WO
+  AU --> DQ
+  ME --> AR
+  ME --> WO
+  ME --> CL
+  ME --> CO
+  ME --> CP
+  AL --> ME
+  IN --> AR
+  IN --> WO
+  IN --> DQ
+  MG --> AR
+  GV --> CA
+  GV --> CP
+```
+2.3.3 Quy tắc dependency
+Sub-module không được import lẫn nhau theo chiều ngược lại của dependency graph.
+`asset_registry` là sub-module gốc; mọi sub-module khác có thể đọc Medical Asset nhưng phải đi qua API của asset_registry để write.
+`lifecycle` chỉ ghi nhận event, không sửa state nghiệp vụ — state sửa bởi sub-module sở hữu workflow tương ứng.
+`audit` được gọi qua hooks tự động ở Frappe; sub-module khác không cần gọi trực tiếp.
+`metric` đọc cross-module; cấm metric write back transactional state.
+2.4 Decision Log — Core ERPNext vs Custom AssetCore
+Bảng dưới ghi các quyết định kiến trúc lớn của AssetCore Wave 1, với lý do từng quyết định. Mỗi quyết định có ID dạng `DEC-<số>`, được khóa cứng, không sửa retroactive — nếu cần thay đổi phải có quyết định mới với ID kế tiếp và đánh dấu quyết định cũ là 'superseded by DEC-X'.
+2.4.1 Decisions
+2.4.2 Mapping ERPNext core entity ↔ AssetCore custom
+2.5 Non-Functional Requirements
+NFR là yêu cầu phi chức năng được kiểm tra trong UAT và load test. Các con số dưới đây là baseline cho Wave 1; có thể tăng theo Wave 2/3.
+2.5.1 Performance
+2.5.2 Availability
+2.5.3 Scalability
+2.5.4 Observability
+Mỗi background job log đầy đủ: job name, start, end, duration, doc affected, error nếu có.
+Mỗi API endpoint log status code, latency, user, IP, payload size (không log payload thực tế trừ debug).
+Mỗi state-change của workflow tạo audit entry và log structured JSON.
+Prometheus metrics: latency p50/p95/p99 từng endpoint, queue depth, db connection, slow query.
+Alert rules: queue depth > 1000 trong 10 phút; slow query > 5s; error rate > 1% trong 5 phút; db replication lag > 60s.
+2.5.5 Maintainability & Deployability
+Mỗi PR có CI chạy: lint, test, build, smoke deploy lên ephemeral env (≤ 8 phút).
+Mọi schema migration phải reversible hoặc có rollback plan thủ công.
+Code coverage tối thiểu 70% cho domain layer L3.
+Tài liệu DocType, workflow, business rule cập nhật trong cùng PR sửa code, không lệch sprint.
+2.6 Security & Compliance Architecture
+2.6.1 Mô hình phân quyền
+AssetCore dùng RBAC làm trục chính, bổ sung điều kiện ABAC để phân tách theo khoa và theo loại thiết bị. RBAC định ra có thể làm gì với DocType; ABAC định ra có thể làm với record nào.
+2.6.2 Audit log architecture
+Audit log của AssetCore có 3 lớp: Frappe Activity Log (tự động), AssetCore Asset Audit Log (custom append-only), QMS Audit Trail (cho document control).
+```mermaid
+flowchart TB
+  ACT[Action by user] --> HOOK[Frappe Hook]
+  HOOK --> FAL[Frappe Activity Log]
+  HOOK --> AAL["AssetCore Asset Audit Log\n(append-only + hash chain)"]
+  HOOK --> QAT["QMS Audit Trail\n(for Document Record / QMS Artifact)"]
+  AAL --> EXP["Periodic export to immutable archive"]
+  QAT --> EXP
+```
+2.6.3 Data classification
+2.6.4 Threat model rút gọn (STRIDE)
+2.6.5 Kiểm soát mật khẩu và phiên
+Password tối thiểu 10 ký tự, có chữ hoa, số, ký tự đặc biệt; cấm 100 password phổ biến nhất.
+Hash mật khẩu bằng PBKDF2-SHA256 hoặc Argon2id (theo Frappe default, không downgrade).
+Session timeout 60 phút idle; absolute timeout 8 giờ.
+Cookie HTTPOnly + Secure + SameSite=Lax.
+CSRF token bắt buộc cho mọi state-changing request (Frappe default).
+2FA bắt buộc cho role Manager, QMS, Sponsor, Admin; tuỳ chọn cho role khác.
+Failed login: khoá tài khoản 15 phút sau 5 lần fail liên tục; alert đến IT.
+2.6.6 Quản lý khoá và bí mật
+Secret (DB password, API key, SMTP password) lưu trong file `site_config.json` ngoài git, mode 0600 owner = frappe.
+Có vault tuỳ chọn (HashiCorp Vault hoặc Doppler) cho prod, key rotation 90 ngày.
+API key cho integration external có scope tối thiểu, log truy cập, có thể rotate online.
+Không commit secret vào git; CI có scanner.
+2.6.7 Tuân thủ quy định Việt Nam
+Thông tư 14/2020/TT-BYT: lưu hồ sơ thiết bị tối thiểu 5 năm sau decommission.
+Nghị định 98/2021/NĐ-CP: phân loại Risk Class A/B/C/D có ràng buộc hồ sơ pháp lý khác nhau.
+Luật Khám chữa bệnh 2023 và văn bản hướng dẫn: lưu trữ tài liệu liên quan ca lâm sàng theo thời hạn quy định.
+Quy định kiểm định an toàn bức xạ và phương tiện đo: tích hợp lịch kiểm định bắt buộc.
+2.7 Environment & Branching Strategy
+2.7.1 Bốn môi trường chuẩn
+2.7.2 Git branching
+```mermaid
+gitGraph
+  commit id: "init"
+  branch develop
+  commit
+  branch feature/imm04-installation
+  commit
+  commit
+  checkout develop
+  merge feature/imm04-installation tag: "v1.0.0-rc1"
+  branch release/1.0
+  checkout release/1.0
+  commit
+  checkout main
+  merge release/1.0 tag: "v1.0.0"
+  checkout develop
+  merge main
+```
+2.7.3 Fixture strategy
+`assetcore/fixtures/` chứa: Role, Workflow, Workflow State, Workflow Action, Custom Field, Property Setter, Notification, Print Format, Report, Dashboard Chart, Number Card.
+Master data nghiệp vụ chuẩn (Risk Class catalog, Criticality catalog, Document Type catalog…) cũng đi qua fixtures với flag `is_standard=1`.
+Fixture được seed bằng `bench --site <site> migrate` mỗi lần deploy; thay đổi fixture phải có patch tương ứng để cập nhật prod.
+Demo data (sample asset, sample WO) tách thành fixtures riêng trong sub-package `assetcore/demo/`, chỉ load trên dev/staging.
+2.7.4 Patch / migration strategy
+Schema change qua DocType modify; AssetCore không sửa core ERPNext schema.
+Data migration phức tạp đi qua patch trong `patches.txt` với tên dạng `assetcore.patches.v1_2.migrate_asset_risk_class`.
+Patch phải idempotent: chạy nhiều lần không gây side-effect.
+Patch phải có log structured: doc affected, count, error.
+2.7.5 Deployment topology mặc định
+# /opt/frappe-bench/
+bench/
+├── apps/
+│   ├── frappe/
+│   ├── erpnext/
+│   └── assetcore/        <- app custom
+├── sites/
+│   ├── apps.txt
+│   └── assetcore.local/  <- site
+├── config/               <- supervisor, nginx, redis
+└── logs/
+Bench production setup tạo supervisor, nginx, redis config tự động. Mọi cấu hình nhạy cảm nằm trong site_config.json riêng từng môi trường.
+2.7.6 Quy tắc cấm trong code
+Cấm `frappe.db.sql` raw có user input không tham số hoá.
+Cấm `eval`, `exec` trừ trường hợp Server Script được kiểm soát qua workflow QA.
+Cấm hardcode đường dẫn tuyệt đối.
+Cấm log sensitive data (mật khẩu, token, attachment binary, payload PHI).
+Cấm gọi external HTTP đồng bộ trong validate hook (phải dispatch qua RQ).
+Cấm import lẫn nhau giữa sub-modules ngược chiều dependency graph (mục 2.3.2).
+Kết Tập 2
+Tập 2 đã chốt kiến trúc logic, kiến trúc vật lý, decomposition app `assetcore`, decision log core/custom, NFR, security và environment. Các quyết định DEC-001 đến DEC-020 là khoá cứng cho Wave 1, mọi thay đổi phải qua Change Control. Tập 3 sẽ đi sâu vào dữ liệu và DocType cụ thể, dựa trên kiến trúc và decision log đã chốt ở Tập 2.
+
+
+--- TABLES ---
+
+Table 1:
+# | Mục | Chủ đề
+2.1 | Logical Architecture | 7 lớp kiến trúc và trách nhiệm từng lớp
+2.2 | Physical Architecture | Stack Frappe, MariaDB, Redis, Nginx, storage
+2.3 | Module Decomposition app `assetcore` | Sub-modules, dependency graph
+2.4 | Decision Log — Core vs Custom | Phần nào dùng ERPNext core, phần nào custom
+2.5 | Non-Functional Requirements | Performance, availability, scalability, observability
+2.6 | Security & Compliance | RBAC, ABAC, audit log, data classification
+2.7 | Environment & Branching | dev/staging/UAT/prod, git flow, fixture strategy
+
+Table 2:
+Lớp | Trách nhiệm chính | Bị cấm
+L1 User & Channel | Render giao diện, nhận thao tác user, hiển thị notification, in ấn. | Không chứa business rule. Không truy vấn DB trực tiếp ngoài Frappe API.
+L2 Workflow & App Service | Form/List/Report của Frappe; orchestration workflow; routing notification. | Không chứa logic miền sâu (sinh Lifecycle Event, tính KPI, áp dụng QMS rule). Chỉ delegate xuống L3.
+L3 Domain / Business | Các engine miền: Lifecycle Event, Work Order, Document/QMS, CAPA, Metric. Business rule thực thi tại đây. | Không phụ thuộc Frappe HTTP layer; phải có thể test offline.
+L4 Data / Document | DocType, schema, query, index, file storage, audit log. | Không nhúng business rule (chỉ field-level validation cơ bản đi qua DocType validate).
+L5 Integration | API in/out, FHIR, ETL, message bus, file import/export. | Không quyết định trạng thái nghiệp vụ; phải gọi engine ở L3 để thay đổi state.
+L6 Analytics / Dashboard / Alert | Snapshot KPI, drill-down, alert rule, scheduled report. | Không write transactional data ngoại trừ snapshot.
+L7 QMS / Governance | Document Control, CAPA, Change Control, Audit, Mgmt Review. | Không tạo workflow trùng lặp với L2; tích hợp qua API ở L3.
+
+Table 3:
+Thành phần | Phiên bản tối thiểu | Lý do chọn | Cấu hình
+Frappe Framework | v15.x latest stable | Lõi của ERPNext, ổn định, có hỗ trợ LTS. | bench production setup; supervisor.
+ERPNext | v15.x latest stable | Cung cấp module Asset, Stock, Buying, Maintenance core. | Cài chung site với app `assetcore`.
+Python | 3.11 | Tương thích Frappe v15. | venv per bench.
+Node.js | 18 LTS | Build assets, frontend. | Sử dụng yarn.
+MariaDB | 10.6+ | Tương thích Frappe. | InnoDB; row-format DYNAMIC; utf8mb4.
+Redis | 7.x | Cache + queue + socketio. | 3 instance riêng: cache, queue, socketio.
+Nginx | 1.24+ | Reverse proxy, TLS, gzip, rate limit cơ bản. | TLS 1.2+; HSTS bật.
+Gunicorn | 21.x | WSGI worker. | Sync worker, worker count = CPU * 2.
+Supervisor | 4.x | Process manager. | Quản lý web/worker/scheduler.
+File Storage | NFS hoặc S3-compatible (MinIO) | Tách file khỏi DB; dễ backup. | Encryption at rest; lifecycle policy.
+Prometheus + Grafana | Latest stable | Monitoring. | Scrape Frappe metrics + node-exporter + mysqld-exporter.
+Loki + Promtail | Latest stable | Log centralization. | Retention 90 ngày minimum.
+Borg / Restic | Latest | Backup mã hoá deduplication. | Ngày 1 full + delta.
+
+Table 4:
+Môi trường | CPU | RAM | Disk | DB size dự kiến | User concurrent
+Dev | 4 vCPU | 8 GB | 100 GB SSD | ≤ 5 GB | ≤ 5
+Staging | 8 vCPU | 16 GB | 200 GB SSD | ≤ 20 GB | ≤ 20
+UAT | 8 vCPU | 16 GB | 200 GB SSD | ≤ 20 GB | ≤ 30
+Production (200 user) | 16 vCPU | 32 GB | 500 GB SSD + 2 TB file storage | ≤ 50 GB year 1 | 200
+Production (500 user) | 24 vCPU | 64 GB | 1 TB SSD + 5 TB file storage | ≤ 150 GB year 1 | 500
+DR site | Tối thiểu = 50% prod | = 50% prod | = prod (full replica) | = prod | —
+
+Table 5:
+ID | Quyết định | Lý do | Thay thế / Liên quan
+DEC-001 | Dùng ERPNext Asset là System of Record cơ bản cho tài sản y tế. | Tận dụng asset tracking, depreciation, movement có sẵn; đảm bảo tích hợp Accounts. | —
+DEC-002 | Thêm DocType custom 'Medical Asset' mở rộng Asset core qua field `ac_*` và DocType liên kết, không thay thế Asset. | Giữ tương thích upgrade ERPNext; tách context y tế khỏi asset chung. | DEC-001
+DEC-003 | Tạo DocType custom 'Lifecycle Event' append-only thay vì dùng comments hoặc activity log của Frappe. | Activity log không structured đủ; cần payload, cần truy vấn nhanh, cần immutability. | —
+DEC-004 | Không dùng ERPNext Maintenance Schedule làm engine PM chính. | Maintenance Schedule thiếu severity, downtime, evidence, link CAPA. Phù hợp tham chiếu, không đủ cho HTM. | DEC-005
+DEC-005 | Tạo Unified Work Order Engine (DocType 'Work Order') cho PM/CM/Inspection/Calibration/Recall/Retirement. | Một engine WO thống nhất giúp dashboard, audit, SLA xuyên suốt; tránh nhiều DocType WO trùng nhau. | DEC-004
+DEC-006 | Tách Document Record và QMS Artifact thành 2 DocType (cha-con). | Document Record chung; QMS Artifact bổ sung tier QMS, distribution, retention; không gộp tránh sai phạm vi. | —
+DEC-007 | CAPA, Compliance, Change Control là DocType custom riêng với workflow riêng. | QMS yêu cầu trace riêng biệt; không gộp vào ToDo hoặc Issue của Frappe. | —
+DEC-008 | Audit log dùng append-only DocType custom 'Asset Audit Log' với hash chain của 5 bản ghi gần nhất. | Log của Frappe không tamper-proof đủ cho QMS audit; cần chain để phát hiện chỉnh sửa lén. | —
+DEC-009 | Metric Snapshot lưu trong DocType riêng, không tính lại dashboard từ transactional data trong giờ cao điểm. | Đảm bảo dashboard không kéo CPU; có lineage rõ ràng cho audit. | —
+DEC-010 | API ngoại bộ định nghĩa qua OpenAPI 3.x; payload chuẩn FHIR cho Device, Location, Practitioner. | Tích hợp HIS/EMR/RIS bền vững theo chuẩn quốc tế; dễ swap vendor. | —
+DEC-011 | Dùng Frappe Workflow thay vì state field thủ công cho mọi DocType có lifecycle ≥ 4 trạng thái. | Frappe Workflow có UI duyệt, có role-per-state, có audit transition. | —
+DEC-012 | Permission dùng Role-Based Access Control với điều kiện ABAC cho department, để hỗ trợ ranh giới khoa. | RBAC không đủ phân tách đa khoa; cần ABAC để chặn đọc cross-khoa khi không cần. | —
+DEC-013 | Mỗi Asset có ít nhất 1 Maintenance Plan trước khi 'released_for_use' — enforce ở rule BR-IMM08-001. | Đảm bảo HTM không có 'orphan asset' không được PM. | —
+DEC-014 | Không lưu Personal Health Information trong AssetCore; khi cần liên kết tới ca lâm sàng chỉ lưu tham chiếu encounter ID, không lưu nội dung lâm sàng. | Tách trách nhiệm với HIS/EMR; tránh phụ thuộc compliance bệnh nhân. | —
+DEC-015 | Triển khai on-premise hoặc private cloud của bệnh viện; không dùng public SaaS cho dữ liệu y tế. | Tuân thủ chính sách dữ liệu y tế nội bộ; tránh rủi ro data residency. | —
+DEC-016 | Mỗi DocType custom có fixtures riêng để seed minimum data; site mới có thể chạy ngay với fixtures. | Đơn giản hoá deploy; đảm bảo tính tái lập. | —
+DEC-017 | Không sửa file core ERPNext. Tất cả mở rộng đi qua hooks, fixtures, custom DocType. | Đảm bảo nâng cấp ERPNext không vỡ AssetCore. | —
+DEC-018 | Mọi background job nặng (PM scheduler, snapshot, FHIR sync) chạy trên Redis Queue, không trên web worker. | Tránh request timeout; tách concern. | —
+DEC-019 | QR code dán cứng (laser engraved hoặc tag chống nước) cho Class C/D; QR sticker cho Class A/B. | Class C/D bền vững nhiều năm; class thấp đỡ chi phí. | —
+DEC-020 | Effective date của QMS document là ngày Approver ký, không phải ngày upload. | Đảm bảo audit retroactive khớp ngày thực tế triển khai SOP. | —
+
+Table 6:
+ERPNext core | AssetCore xử lý ra sao | Lý do
+Asset (core) | Vẫn dùng làm parent record kế toán cho khấu hao và movement; mọi medical asset đều có 1 Asset core đi kèm. | Tận dụng kế toán/khấu hao.
+Asset Category | Dùng làm phân loại lớn (vd: Imaging, Lab, Surgery). | Đủ dùng.
+Asset Movement | Dùng nguyên cho điều chuyển khoa. | Đủ dùng; thêm custom field `ac_reason`.
+Asset Maintenance / Maintenance Schedule | Chỉ dùng để tham chiếu lịch sử cũ; engine PM chính là `Maintenance Plan` + `Work Order` của AssetCore. | Maintenance Schedule không đủ chi tiết.
+Item / Item Group | Dùng cho danh mục mua sắm và spare parts. | Đủ dùng.
+Purchase Order / Receipt / Invoice | Dùng nguyên trong quy trình mua sắm; AssetCore tạo Medical Asset từ Receipt. | Đủ dùng.
+Supplier / Customer | Dùng làm Vendor / Service Provider; thêm custom fields về license và scope dịch vụ. | Custom field thêm `ac_legal_license_no`, `ac_service_scope`.
+Stock Entry / Bin / Warehouse | Dùng cho phụ tùng và spare parts. | Đủ dùng.
+Serial No | Dùng cho thành phần thay thế cần track riêng (vd: probe của siêu âm). | Đủ dùng.
+Workflow / Workflow State / Workflow Action Master | Dùng nguyên engine; AssetCore tạo workflow custom cho Medical Asset, Work Order, Document Record, CAPA… | Workflow engine của Frappe đủ tốt.
+File / Communication | Dùng nguyên cho attachment. | Bổ sung metadata bắt buộc qua hook before_attach.
+Notification | Dùng nguyên; AssetCore seed các notification rule qua fixtures. | Đủ dùng.
+Report Builder / Query Report / Print Format | Dùng nguyên; AssetCore seed các report custom. | Đủ dùng.
+Dashboard / Dashboard Chart / Number Card | Dùng nguyên; AssetCore seed các dashboard custom. | Đủ dùng.
+User / Role / Role Profile / Permission | Dùng nguyên; AssetCore seed role custom (HTM Manager, Biomed Engineer, QMS Officer, Auditor…). | Bổ sung permission ABAC qua hooks `permission_query_conditions`.
+Project / Task | Không dùng cho HTM nội bộ; có thể tham chiếu cho dự án triển khai mới. | Tránh nhầm với Work Order.
+Issue (Help) | Không dùng làm Failure Report; dùng DocType riêng để giữ schema rõ. | Tránh trộn support ticket với failure HTM.
+
+Table 7:
+Chỉ tiêu | Mục tiêu Wave 1 | Phương pháp đo
+List view 50 records (Medical Asset) | P95 ≤ 1.5s | JMeter / k6 trên staging.
+Form view + workflow load (Work Order) | P95 ≤ 2s | k6.
+Submit Work Order với 5 attachments | P95 ≤ 4s | k6.
+Dashboard HTM main | P95 ≤ 3s, snapshot < 24h cũ | k6.
+Search global | P95 ≤ 2s với 100k assets | k6.
+Bulk import 1000 assets | ≤ 60s | Migration script.
+Scheduler PM due daily job | ≤ 5 phút cho 100k assets | Logging.
+
+Table 8:
+Chỉ tiêu | Mục tiêu | Ghi chú
+Uptime business hours (07:00–17:00) | 99.5% | Tương đương ≤ 22 giờ downtime/quý.
+Uptime ngoài giờ | 99.0% | Cho phép maintenance window.
+RTO (Recovery Time Objective) | ≤ 4 giờ | Khôi phục từ DR site.
+RPO (Recovery Point Objective) | ≤ 1 giờ | Backup binlog 1 giờ + full daily.
+Maintenance window | Chủ Nhật 23:00–04:00 Thứ Hai | Có thông báo trước ≥ 48h.
+
+Table 9:
+Chỉ tiêu | Wave 1 | Wave 3 mục tiêu
+Số Medical Asset active | ≤ 20,000 | ≤ 100,000
+Số Work Order/năm | ≤ 50,000 | ≤ 250,000
+Số Document Record | ≤ 100,000 | ≤ 500,000
+Số user concurrent | 200 | 500
+DB size | ≤ 50 GB | ≤ 200 GB
+File storage | ≤ 2 TB | ≤ 10 TB
+
+Table 10:
+Role | Ý nghĩa | DocType chính được truy cập | Phạm vi ABAC
+AssetCore HTM Manager | Trưởng nhóm HTM | Medical Asset, Work Order, Maintenance Plan, Calibration Plan, Document Record, CAPA | Toàn bộ asset.
+AssetCore Biomed Engineer | Kỹ sư y sinh | Work Order, Failure Report, Spare Consumption, Initial Inspection | Asset thuộc khoa được gán.
+AssetCore Technician | Kỹ thuật viên | Work Order (read/update không submit close) | Asset thuộc khoa được gán.
+AssetCore Department Head | Trưởng khoa | Medical Asset (read), Work Order (approve), Failure Report (create), Asset Movement (approve receive) | Asset thuộc khoa của mình.
+AssetCore Operator | End-user vận hành | Failure Report (create), Medical Asset (read scope hẹp), Training Certificate (own) | Asset thuộc khoa của mình.
+AssetCore QMS Officer | QMS Officer | Document Record, QMS Artifact, CAPA, Compliance Case, Audit Finding, Change Control | Toàn bộ.
+AssetCore Procurement | Procurement | Purchase Order, Vendor Evaluation, Need Request, Spec Sheet (read) | Toàn bộ.
+AssetCore Auditor | Kiểm toán | Tất cả DocType với quyền read-only và xem audit log | Toàn bộ với chế độ read-only enforced.
+
+Table 11:
+Mức | Ví dụ dữ liệu | Yêu cầu kiểm soát
+Public | Tài liệu pháp quy đã công bố, manual nhà sản xuất công khai. | Không cần đặc biệt.
+Internal | Asset Registry, Maintenance Plan, Work Order. | Chỉ user đăng nhập; encryption in transit.
+Confidential | Hợp đồng, vendor evaluation, dữ liệu chi phí. | Role hạn chế; encryption at rest cho file storage.
+Sensitive | PHI nếu có (chỉ tham chiếu encounter ID, không lưu nội dung), thông tin nhân sự đào tạo. | Audit truy cập chi tiết; cảnh báo bất thường.
+Critical | Audit log, hash chain, fixtures. | Chỉ admin; mọi thay đổi phải qua change control.
+
+Table 12:
+Threat | Vector | Đối phó AssetCore
+Spoofing | Người ngoài giả nhân viên | Bắt buộc 2FA cho role Manager/QMS/Sponsor; SSO nếu bệnh viện có; password policy mạnh.
+Tampering | Sửa record trực tiếp DB | DB không cho user app sửa trực tiếp; audit log hash chain phát hiện sửa lén; backup immutable định kỳ.
+Repudiation | Phủ nhận thao tác | Audit log đầy đủ; signed timestamp; export vào archive bên ngoài.
+Information Disclosure | Lộ dữ liệu PHI hoặc hồ sơ pháp lý | Không lưu PHI nội dung; ABAC theo khoa; encryption at rest; access log.
+Denial of Service | Tấn công làm sập dịch vụ | Rate limit Nginx; WAF; auto-scale; rollback plan.
+Elevation of Privilege | User leo quyền | Permission test trong CI; audit role change; periodic role review.
+
+Table 13:
+Môi trường | Mục đích | Data | Refresh policy
+dev | Lập trình hằng ngày của dev. | Fixture data + sample. | Reset bất cứ khi nào dev cần.
+staging | Tích hợp continuous + smoke test sau merge. | Sanitized clone từ prod (PII/PHI scrubbed). | Refresh hằng tuần.
+uat | Người dùng nghiệp vụ kiểm thử trước go-live và demo. | Subset prod sanitized + golden scenarios fixture. | Refresh trước mỗi UAT cycle.
+prod | Vận hành thật. | Dữ liệu thật. | Không refresh; chỉ migrate forward.
+
+Table 14:
+Nhánh | Vai trò | Quy tắc
+main | Phản ánh production hiện tại. | Chỉ nhận merge từ release/* và hotfix/*. Mọi commit có git tag semver.
+develop | Tích hợp tính năng cho release kế. | Nhận merge từ feature/*. Phải pass CI.
+feature/<id>-<slug> | Phát triển 1 user story. | Branch từ develop; rebase trước khi PR; merge khi đạt DoD.
+release/x.y | Chuẩn bị release. | Branch từ develop; chỉ nhận bug fix + tài liệu; merge về main và develop.
+hotfix/<id>-<slug> | Vá lỗi prod khẩn. | Branch từ main; merge về cả main và develop.

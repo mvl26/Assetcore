@@ -1,0 +1,38 @@
+{
+ "actions": [],
+ "creation": "2026-04-29 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "criterion",
+  "score",
+  "column_break_1",
+  "weight_pct",
+  "weighted",
+  "section_evidence",
+  "evidence"
+ ],
+ "fields": [
+  {"fieldname": "criterion", "fieldtype": "Select", "label": "Tiêu chí", "in_list_view": 1, "reqd": 1,
+   "options": "clinical_impact\nrisk\nutilization_gap\nreplacement_signal\ncompliance_gap\nbudget_fit"},
+  {"fieldname": "score", "fieldtype": "Int", "label": "Điểm (1-5)", "in_list_view": 1, "reqd": 1,
+   "description": "Thang điểm 1 (thấp nhất) → 5 (cao nhất)"},
+  {"fieldname": "column_break_1", "fieldtype": "Column Break"},
+  {"fieldname": "weight_pct", "fieldtype": "Percent", "label": "Trọng số (%)", "in_list_view": 1, "read_only": 1,
+   "description": "Đọc từ master Priority Weight; auto compute"},
+  {"fieldname": "weighted", "fieldtype": "Float", "label": "Điểm có trọng số", "read_only": 1, "precision": "4"},
+  {"fieldname": "section_evidence", "fieldtype": "Section Break", "label": "Lý giải"},
+  {"fieldname": "evidence", "fieldtype": "Long Text", "label": "Lý giải / Bằng chứng"}
+ ],
+ "istable": 1,
+ "links": [],
+ "modified": "2026-04-29 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "AssetCore",
+ "name": "Needs Priority Scoring",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

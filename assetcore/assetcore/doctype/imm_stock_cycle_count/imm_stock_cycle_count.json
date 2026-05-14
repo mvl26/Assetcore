@@ -1,0 +1,196 @@
+{
+ "actions": [],
+ "autoname": "CYC-.YYYY.-.#####",
+ "naming_rule": "Expression (old style)",
+ "creation": "2026-05-08 00:00:00.000000",
+ "doctype": "DocType",
+ "document_type": "Document",
+ "engine": "InnoDB",
+ "is_submittable": 1,
+ "module": "AssetCore",
+ "name": "IMM Stock Cycle Count",
+ "track_changes": 1,
+ "field_order": [
+  "naming_series",
+  "workflow_state",
+  "warehouse",
+  "count_date",
+  "count_type",
+  "col_break_1",
+  "counted_by",
+  "verified_by",
+  "status",
+  "section_items",
+  "items",
+  "section_summary",
+  "variance_count",
+  "variance_value",
+  "posted_movement_ref",
+  "section_misc",
+  "notes"
+ ],
+ "fields": [
+  {
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Naming Series",
+   "options": "CYC-.YYYY.-.#####",
+   "reqd": 1
+  },
+  {
+   "fieldname": "workflow_state",
+   "fieldtype": "Link",
+   "label": "Workflow State",
+   "options": "Workflow State",
+   "read_only": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "warehouse",
+   "fieldtype": "Link",
+   "label": "Kho",
+   "options": "AC Warehouse",
+   "reqd": 1,
+   "in_list_view": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "count_date",
+   "fieldtype": "Date",
+   "label": "Ngày kiểm kê",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "count_type",
+   "fieldtype": "Select",
+   "label": "Loại kiểm kê",
+   "options": "Full\nABC_A_Monthly\nCycle\nSpot",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "col_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "counted_by",
+   "fieldtype": "Link",
+   "label": "Người kiểm",
+   "options": "User",
+   "reqd": 1
+  },
+  {
+   "fieldname": "verified_by",
+   "fieldtype": "Link",
+   "label": "Người xác nhận",
+   "options": "User"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Trạng thái",
+   "options": "Planned\nCounting\nReviewed\nPosted",
+   "reqd": 1,
+   "default": "Planned",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "section_items",
+   "fieldtype": "Section Break",
+   "label": "Phụ tùng kiểm kê"
+  },
+  {
+   "fieldname": "items",
+   "fieldtype": "Table",
+   "label": "Phụ tùng",
+   "options": "IMM Cycle Count Item",
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_summary",
+   "fieldtype": "Section Break",
+   "label": "Tổng hợp"
+  },
+  {
+   "fieldname": "variance_count",
+   "fieldtype": "Int",
+   "label": "Số phụ tùng lệch",
+   "read_only": 1
+  },
+  {
+   "fieldname": "variance_value",
+   "fieldtype": "Currency",
+   "label": "Giá trị lệch",
+   "read_only": 1
+  },
+  {
+   "fieldname": "posted_movement_ref",
+   "fieldtype": "Link",
+   "label": "AC Stock Movement (Adjustment)",
+   "options": "AC Stock Movement",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_misc",
+   "fieldtype": "Section Break",
+   "label": "Thông tin thêm"
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Text Editor",
+   "label": "Ghi chú"
+  }
+ ],
+ "modified": "2026-05-08 00:00:00.000000",
+ "modified_by": "Administrator",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "IMM System Admin",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "submit": 1,
+   "cancel": 1,
+   "delete": 1,
+   "amend": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Workshop Lead",
+   "read": 1,
+   "write": 1,
+   "create": 0,
+   "submit": 1,
+   "cancel": 1,
+   "delete": 0,
+   "amend": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "IMM Storekeeper",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "submit": 1,
+   "cancel": 0,
+   "delete": 0,
+   "amend": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  }
+ ]
+}

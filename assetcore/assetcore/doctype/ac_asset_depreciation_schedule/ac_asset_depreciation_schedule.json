@@ -1,0 +1,95 @@
+{
+ "actions": [],
+ "creation": "2026-04-24 15:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "period_number",
+  "scheduled_date",
+  "depreciation_amount",
+  "accumulated_amount",
+  "remaining_value",
+  "column_break_1",
+  "status",
+  "executed_on",
+  "journal_entry"
+ ],
+ "fields": [
+  {
+   "fieldname": "period_number",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Kỳ",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "scheduled_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Ngày khấu hao",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "depreciation_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Số tiền KH",
+   "options": "VND",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "accumulated_amount",
+   "fieldtype": "Currency",
+   "label": "Lũy kế",
+   "options": "VND",
+   "read_only": 1
+  },
+  {
+   "fieldname": "remaining_value",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Giá trị còn lại",
+   "options": "VND",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Pending",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Trạng thái",
+   "options": "Pending\nExecuted\nCancelled"
+  },
+  {
+   "fieldname": "executed_on",
+   "fieldtype": "Date",
+   "label": "Ngày thực thi",
+   "read_only": 1
+  },
+  {
+   "fieldname": "journal_entry",
+   "fieldtype": "Data",
+   "label": "Bút toán (JE ref)",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-04-24 15:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "AssetCore",
+ "name": "AC Asset Depreciation Schedule",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "period_number",
+ "sort_order": "ASC",
+ "states": []
+}

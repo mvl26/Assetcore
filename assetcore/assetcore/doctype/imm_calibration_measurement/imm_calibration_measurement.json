@@ -1,0 +1,30 @@
+{
+  "actions": [],
+  "creation": "2026-04-19 09:00:00.000000",
+  "doctype": "DocType",
+  "document_type": "Document",
+  "engine": "InnoDB",
+  "module": "AssetCore",
+  "name": "IMM Calibration Measurement",
+  "istable": 1,
+  "field_order": [
+    "parameter_name", "unit", "nominal_value", "col_break1",
+    "tolerance_positive", "tolerance_negative", "measured_value", "col_break2",
+    "out_of_tolerance", "pass_fail"
+  ],
+  "fields": [
+    {"fieldname": "parameter_name", "fieldtype": "Data", "label": "Tham s\u1ed1", "reqd": 1, "in_list_view": 1},
+    {"fieldname": "unit", "fieldtype": "Data", "label": "\u0110\u01a1n v\u1ecb", "reqd": 1, "in_list_view": 1},
+    {"fieldname": "nominal_value", "fieldtype": "Float", "label": "Gi\u00e1 tr\u1ecb danh \u0111\u1ecbnh", "reqd": 1},
+    {"fieldname": "col_break1", "fieldtype": "Column Break"},
+    {"fieldname": "tolerance_positive", "fieldtype": "Float", "label": "Dung sai (+) %", "reqd": 1},
+    {"fieldname": "tolerance_negative", "fieldtype": "Float", "label": "Dung sai (-) %", "reqd": 1},
+    {"fieldname": "measured_value", "fieldtype": "Float", "label": "Gi\u00e1 tr\u1ecb \u0111o", "in_list_view": 1},
+    {"fieldname": "col_break2", "fieldtype": "Column Break"},
+    {"fieldname": "out_of_tolerance", "fieldtype": "Check", "label": "Ngo\u00e0i dung sai", "read_only": 1, "in_list_view": 1},
+    {"fieldname": "pass_fail", "fieldtype": "Select", "label": "K\u1ebft qu\u1ea3", "options": "\nPass\nFail", "read_only": 1, "in_list_view": 1}
+  ],
+  "modified": "2026-04-19 09:00:00.000000",
+  "modified_by": "Administrator",
+  "owner": "Administrator"
+}
