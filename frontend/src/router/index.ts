@@ -946,8 +946,16 @@ function tagWorkspace(rs: RouteRecordRaw[]): RouteRecordRaw[] {
   return rs
 }
 
+// __APP_BASE__ is injected by Vite define at build time; fallback for dev/test.
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore
+// biome-ignore lint: injected global
+declare const __APP_BASE__: string
+let _appBase = ''
+try { _appBase = __APP_BASE__ } catch { _appBase = '' }
+
 const router = createRouter({
-  history: createWebHistory(import.meta.env.BASE_URL),
+  history: createWebHistory(_appBase || '/'),
   routes: tagWorkspace(routes),
   scrollBehavior(_to, _from, savedPosition) {
     if (savedPosition) return savedPosition

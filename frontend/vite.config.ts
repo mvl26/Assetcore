@@ -6,7 +6,7 @@ import { createReadStream, existsSync, statSync } from 'node:fs'
 import { extname } from 'node:path'
 import type { ClientRequest, IncomingMessage } from 'node:http'
 
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ command, mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
   const frappe_base = env.VITE_FRAPPE_URL || 'http://localhost:80'
   const site = env.VITE_FRAPPE_SITE || 'miyano'
@@ -109,7 +109,9 @@ export default defineConfig(({ mode }) => {
     },
 
     build: {
-      outDir: 'dist',
+      outDir: '../assetcore/public/frontend',
+      manifest: true,
+      emptyOutDir: true,
       sourcemap: mode !== 'production',
       rollupOptions: {
         output: {
@@ -128,9 +130,12 @@ export default defineConfig(({ mode }) => {
       },
     },
 
+    base: command === 'build' ? '/assets/assetcore/frontend/' : '/',
+
     define: {
       // Đảm bảo define version an toàn
       __APP_VERSION__: JSON.stringify(process.env.npm_package_version || '1.0.0'),
+      __APP_BASE__: JSON.stringify(command === 'build' ? '/assetcore' : ''),
     },
   }
 })
