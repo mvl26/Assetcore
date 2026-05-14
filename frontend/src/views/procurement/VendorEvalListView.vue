@@ -32,7 +32,7 @@ const activeChips = computed<FilterChip[]>(() => {
   const c: FilterChip[] = []
   if (filters.workflow_state)        c.push({ key: 'workflow_state', label: stateLabel(filters.workflow_state) })
   if (filters.spec_ref)              c.push({ key: 'spec_ref', label: `Hồ sơ: ${filters.spec_ref}` })
-  if (filters.recommended_candidate) c.push({ key: 'recommended_candidate', label: `NCC đề xuất: ${filters.recommended_candidate}` })
+  if (filters.recommended_candidate) c.push({ key: 'recommended_candidate', label: `Nhà cung cấp đề xuất: ${filters.recommended_candidate}` })
   if (filters.search.trim())         c.push({ key: 'search', label: `"${filters.search.trim()}"` })
   return c
 })

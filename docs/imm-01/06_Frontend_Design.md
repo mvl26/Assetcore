@@ -6,13 +6,14 @@
 |---|---|
 | Module | IMM-01 — Đánh giá nhu cầu và dự toán |
 | Tech stack | Vue 3 + TypeScript + Pinia + Vue Router + TailwindCSS + TanStack Query |
+| Cập nhật | 2026-05-14 |
 | Liên kết | [05 API](./05_API_Specification.md) · [04 Backend](./04_Backend_Design.md) |
 
 ---
 
 ## §I Sitemap (Routes)
 
-**Vue files thực tế:** `frontend/src/views/imm01/`
+**Vue files thực tế:** `frontend/src/views/needs/` (route paths: `/needs-requests`, `/needs-requests/new`, `/needs-requests/:id`, `/procurement-plans`, `/procurement-plans/:id`)
 
 | Route name | File (.vue) | API calls chính | Ghi chú |
 |---|---|---|---|
@@ -20,8 +21,9 @@
 | `NeedsRequestCreate` | `NeedsRequestCreateView.vue` | `create_needs_request` | Form create với SmartSelect cho Department + Device Model + Asset |
 | `NeedsRequestDetail` | `NeedsRequestDetailView.vue` | `get_needs_request`, `get_allowed_transitions`, `score_needs_request`, `submit_budget_estimate`, `transition_workflow`, `approve_needs_request`, `reject_needs_request` | 3-tab: Tổng quan / Chấm điểm / Dự toán |
 | `ProcurementPlanList` | `ProcurementPlanListView.vue` | `list_procurement_plans` | List + filter theo state / period / year |
+| `ProcurementPlanDetail` | `ProcurementPlanDetailView.vue` | `get_procurement_plan`, `set_budget_envelope`, `approve_plan`, `activate_plan`, `close_plan`, `roll_into_plan`, `remove_from_plan` | Chi tiết Plan + lifecycle Draft → Approved → Active → Closed |
 
-> Note: `TechSpecListView.vue`, `TechSpecCreateView.vue`, `TechSpecDetailView.vue` trong thư mục `views/imm01/` là alias dẫn sang IMM-02 — các route chính của IMM-02 xem `../imm-02/06_Frontend_Design.md`.
+> Note: Các view Tech Spec (IMM-02) nằm ở `frontend/src/views/procurement/` và là phạm vi của module IMM-02 — xem `../imm-02/06_Frontend_Design.md`.
 
 ---
 
@@ -158,7 +160,9 @@ Gọi API query `IMM Audit Trail` filter root_doctype + root_record. Hiển th�
 
 ---
 
-### `<DemandForecastHeatmap>` — Ma trận dự báo + drilldown
+### `<DemandForecastHeatmap>` — Ma trận dự báo + drilldown (planned)
+
+> Component này chưa tách thành Vue file riêng — endpoint `get_demand_forecast` đã sẵn nhưng `projected_qty` / `projected_capex` còn placeholder 0 cho đến khi IMM-07/IMM-13 expose data thực. UI heatmap = roadmap.
 
 ```
 Device Category × Year (projected_qty)
@@ -187,7 +191,9 @@ Hiển thị value lớn, target nhỏ bên dưới, delta arrow (xanh lá = t�
 
 ---
 
-### `<Imm01Dashboard>` — Dashboard 6 KPI
+### `<Imm01Dashboard>` — Dashboard KPI (inline, planned standalone)
+
+> Hiện KPI tiles được render INLINE trên `NeedsRequestListView.vue` (4 KPI từ `dashboard_kpis`: `backlog_over_30d`, `by_state`, `g01_pass_rate`, `envelope_utilization`). View dashboard chuyên biệt với 6 tiles + chart = roadmap.
 
 ```
 [Lead time → Approved]  [G01 pass rate]    [Envelope utilization]

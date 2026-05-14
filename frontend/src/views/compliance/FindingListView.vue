@@ -45,7 +45,7 @@ const chips = computed(() => {
   }
   if (filterSeverity.value) c.push({ key: 'severity', label: `Mức: ${filterSeverity.value}` })
   if (filterRule.value) c.push({ key: 'rule', label: `Quy tắc: ${filterRule.value}` })
-  if (filterAsset.value) c.push({ key: 'asset', label: `TB: ${filterAsset.value}` })
+  if (filterAsset.value) c.push({ key: 'asset', label: `Thiết bị: ${filterAsset.value}` })
   return c
 })
 const activeFilterCount = computed(() => chips.value.length)

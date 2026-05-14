@@ -85,11 +85,11 @@ const MODULE_NAV: Record<string, ModuleNav> = {
     ],
   },
   imm03: {
-    code: 'IMM-03', title: 'Đánh giá NCC & Mua sắm', icon: 'chart',
+    code: 'IMM-03', title: 'Đánh giá Nhà cung cấp & Mua sắm', icon: 'chart',
     items: [
-      { label: 'Hồ sơ Nhà cung cấp',    path: '/vendor-profiles',       icon: 'user',     roles: ROLES_PROCUREMENT },
-      { label: 'Đánh giá NCC',          path: '/vendor-evaluations',    icon: 'chart',    roles: ROLES_PROCUREMENT },
-      { label: 'Danh mục NCC duyệt',    path: '/approved-vendors',      icon: 'shield',   roles: ROLES_PROCUREMENT },
+      { label: 'Hồ sơ Nhà cung cấp',     path: '/vendor-profiles',       icon: 'user',     roles: ROLES_PROCUREMENT },
+      { label: 'Đánh giá Nhà cung cấp',  path: '/vendor-evaluations',    icon: 'chart',    roles: ROLES_PROCUREMENT },
+      { label: 'Danh mục NCC được duyệt',path: '/approved-vendors',      icon: 'shield',   roles: ROLES_PROCUREMENT },
       { label: 'Quyết định mua sắm',    path: '/procurement-decisions', icon: 'contract', roles: ROLES_PROCUREMENT },
       { label: 'Đơn hàng mua',          path: '/purchases',             icon: 'cart',     roles: ROLES_PROCUREMENT },
     ],
@@ -143,11 +143,10 @@ const MODULE_NAV: Record<string, ModuleNav> = {
     ],
   },
   imm12: {
-    code: 'IMM-12', title: 'Sự cố & RCA/CAPA', icon: 'alert',
+    code: 'IMM-12', title: 'Sự cố & RCA', icon: 'alert',
     items: [
       { label: 'Tổng quan sự cố', path: '/incidents/dashboard', icon: 'chart'  },
       { label: 'Danh sách sự cố', path: '/incidents/list',      icon: 'alert'  },
-      { label: 'CAPA',            path: '/capas',               icon: 'shield', roles: [Roles.SYS_ADMIN, Roles.QA, Roles.OPS_MANAGER] as const },
     ],
   },
   imm13: {
@@ -158,9 +157,7 @@ const MODULE_NAV: Record<string, ModuleNav> = {
   },
   imm14: {
     code: 'IMM-14', title: 'Giải nhiệm thiết bị', icon: 'trending',
-    items: [
-      { label: 'Khấu hao & Giải nhiệm', path: '/depreciation', icon: 'trending' },
-    ],
+    items: [],
   },
   imm15: {
     code: 'IMM-15', title: 'Tồn kho phụ tùng', icon: 'box',
@@ -173,6 +170,7 @@ const MODULE_NAV: Record<string, ModuleNav> = {
       { label: 'Đơn vị tính',   path: '/inventory/uom',       icon: 'uom',      roles: ROLES_STOCK_MANAGE },
       { label: 'Dự báo phụ tùng', path: '/inventory/forecasts', icon: 'chart',  roles: ROLES_STOCK_MANAGE },
       { label: 'Watchlist',     path: '/inventory/watchlist', icon: 'shield',   roles: ROLES_STOCK_MANAGE },
+      { label: 'Điều chuyển thiết bị', path: '/asset-transfers', icon: 'transfer' },
     ],
   },
   imm16: {
@@ -192,6 +190,7 @@ const MODULE_NAV: Record<string, ModuleNav> = {
     code: '', title: 'Tài sản & Đối tác', icon: 'device',
     items: [
       { label: 'Danh sách thiết bị', path: '/assets',          icon: 'device'   },
+      { label: 'Khấu hao tài sản',   path: '/depreciation',    icon: 'trending' },
       { label: 'Quét mã QR',         path: '/qr-scan',         icon: 'qr'       },
       { label: 'Model thiết bị',     path: '/device-models',   icon: 'template' },
       { label: 'Nhà cung cấp',       path: '/suppliers',       icon: 'building' },

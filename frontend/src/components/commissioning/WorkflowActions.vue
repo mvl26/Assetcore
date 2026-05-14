@@ -58,10 +58,10 @@ const isProcessing = computed(() => props.loading || processing.value)
 
 const hasActions = computed(() => filteredActions.value.length > 0 || props.canSubmit)
 
-// GW-2: chặn Submit nếu chưa compliant (chỉ áp dụng ở Clinical_Release)
+// GW-2: chặn Submit nếu chưa compliant (chỉ áp dụng ở Clinical Release)
 const gw2Block = computed(() =>
   props.canSubmit &&
-  props.currentState === 'Clinical_Release' &&
+  props.currentState === 'Clinical Release' &&
   props.imm05IsCompliant === false
 )
 </script>

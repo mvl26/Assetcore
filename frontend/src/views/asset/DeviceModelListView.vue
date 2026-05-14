@@ -209,7 +209,7 @@ onMounted(load)
               <td class="px-4 py-3 font-mono text-xs text-slate-500">{{ m.name }}</td>
               <td class="px-4 py-3 font-medium text-slate-800">
                 {{ m.model_name }}
-                <p v-if="m.asset_category" class="text-[10px] text-slate-400 font-normal mt-0.5">{{ m.asset_category }}</p>
+                <p v-if="m.asset_category" class="text-[10px] text-slate-400 font-normal mt-0.5">{{ (m as any).asset_category_name || (m as any).category_name || m.asset_category }}</p>
               </td>
               <td class="px-4 py-3">
                 <button

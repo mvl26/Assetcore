@@ -3,10 +3,10 @@
 | Mục | Giá trị |
 |---|---|
 | Module | **IMM-11 — Hiệu chuẩn (Calibration)** |
-| Phiên bản | 0.1.0-draft |
-| Ngày cập nhật | 2026-05-08 |
+| Phiên bản | 1.1.0 |
+| Ngày cập nhật | 2026-05-14 |
 | Owner | DevOps + Tech Lead + QMS Officer |
-| Trạng thái | ⚠️ DRAFT — ahead-of-code; deploy chưa thực hiện được |
+| Trạng thái | ✅ Live — code đã deploy. Checklist + rollback giữ ở mức playbook chuẩn cho release tiếp theo. |
 | Liên kết | [07 Testing QA](./07_Testing_QA.md) · [Module Overview](./IMM-11_Module_Overview.md) |
 
 ---

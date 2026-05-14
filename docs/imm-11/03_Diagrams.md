@@ -6,7 +6,8 @@
 | Phạm vi | Per-module |
 | Owner | System Analyst / Tech Lead / DBA |
 | Liên kết | 02 Analysis & Design · 04 Backend Design |
-| Trạng thái | ⚠️ Pending implementation — đây là thiết kế ahead-of-code |
+| Cập nhật | 2026-05-14 |
+| Trạng thái | ✅ Live — ERD + Class diagram + Sequence diagram phản ánh đúng `services/imm11.py` + DocType hiện hành |
 
 ---
 
@@ -86,13 +87,13 @@ erDiagram
 
 ## I.3. Entity catalog
 
-### Entities module sở hữu (⚠️ Pending)
+### Entities module sở hữu (✅ Live)
 
 | Entity | DocType | Naming | Lifecycle | Volume/năm/site |
 |---|---|---|---|---|
-| IMM Calibration Schedule | `IMM Calibration Schedule` | `CAL-SCH-.YYYY.-.#####` | Non-submittable, tồn tại đến khi asset Decommissioned | 1 per calibratable asset |
-| IMM Asset Calibration | `IMM Asset Calibration` | `CAL-.YYYY.-.#####` | Submittable, immutable sau Submit | ~500–2000 |
-| IMM Calibration Measurement | child table | (auto) | Child của IMM Asset Calibration | ~5000–20000 rows |
+| IMM Calibration Schedule | `IMM Calibration Schedule` (folder `imm_calibration_schedule`) | `CAL-SCH-.YYYY.-.#####` | Non-submittable, tồn tại đến khi asset Decommissioned | 1 per calibratable asset |
+| IMM Asset Calibration | `IMM Asset Calibration` (folder `imm_asset_calibration`) | `CAL-.YYYY.-.#####` | Submittable, immutable sau Submit | ~500–2000 |
+| IMM Calibration Measurement | `IMM Calibration Measurement` (folder `imm_calibration_measurement`) — child table | (auto) | Child của IMM Asset Calibration | ~5000–20000 rows |
 
 ### Entities tham chiếu cross-module (từ IMM-00)
 
@@ -107,7 +108,7 @@ erDiagram
 
 ## I.4. Data dictionary
 
-### Bảng 1.1: IMM Calibration Schedule ⚠️ Pending
+### Bảng 1.1: IMM Calibration Schedule ✅ Live
 
 | Field | Type | Length | Required | Default | PII | Validation | Mô tả |
 |---|---|---|---|---|---|---|---|
@@ -120,7 +121,7 @@ erDiagram
 | `preferred_lab` | Link | 140 | ✗ | — | — | iso_17025_certified=1 | Lab ưu tiên |
 | `is_active` | Check | — | ✓ | 1 | — | — | Đang hoạt động |
 
-### Bảng 1.2: IMM Asset Calibration ⚠️ Pending
+### Bảng 1.2: IMM Asset Calibration ✅ Live
 
 | Field | Type | Length | Required | Default | PII | Validation | Mô tả |
 |---|---|---|---|---|---|---|---|
@@ -136,7 +137,7 @@ erDiagram
 | `is_recalibration` | Check | — | ✗ | 0 | — | — | Tái cal sau CAPA |
 | `amendment_reason` | Small Text | 255 | Conditional | — | — | Bắt buộc khi Amend | Lý do Amend |
 
-### Bảng 1.3: IMM Calibration Measurement ⚠️ Pending
+### Bảng 1.3: IMM Calibration Measurement ✅ Live
 
 | Field | Type | Length | Required | Default | PII | Validation | Mô tả |
 |---|---|---|---|---|---|---|---|

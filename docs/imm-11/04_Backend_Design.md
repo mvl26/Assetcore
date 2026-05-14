@@ -6,6 +6,7 @@
 | Phạm vi | Per-module |
 | Owner | Tech Lead / BE Lead |
 | Liên kết | 02 Analysis & Design · 03 Diagrams · 05 API |
+| Cập nhật | 2026-05-14 |
 | Trạng thái | ✅ Live — `services/imm11.py` và `api/imm11.py` đã implement |
 
 ---
@@ -89,7 +90,7 @@ Child table: **IMM Calibration Measurement** (`imm_calibration_measurement`) —
 
 ## 3. Workflow
 
-**File:** `assetcore/workflow/imm_11_asset_calibration_workflow.json`
+**File:** `assetcore/assetcore/workflow/imm_11_calibration_workflow.json` (document_type = `IMM Asset Calibration`, workflow_state_field = `workflow_state`)
 
 | State | Style | docstatus | allow_edit role |
 |---|---|---|---|
@@ -102,15 +103,22 @@ Child table: **IMM Calibration Measurement** (`imm_calibration_measurement`) —
 | Conditionally Passed | Warning | 1 | — |
 | Cancelled | Danger | 2 | — |
 
-| From | To | Action label | Allowed role | Condition |
+Actual transitions (from `imm_11_calibration_workflow.json`):
+
+| From | To | Action label (tiếng Việt) | Allowed role | Condition |
 |---|---|---|---|---|
-| Scheduled | Sent to Lab | Bàn giao Lab | Technician | calibration_type=External |
-| Scheduled | In Progress | Bắt đầu | Technician | calibration_type=In-House |
+| Scheduled | In Progress | Bắt đầu hiệu chuẩn | Technician | calibration_type=In-House |
+| Scheduled | Sent to Lab | Gửi phòng hiệu chuẩn | Technician | calibration_type=External |
 | Scheduled | Cancelled | Hủy lịch | Workshop Lead | docstatus=0 |
+| In Progress | Passed | Đạt hiệu chuẩn | Technician | overall_result=Passed |
+| In Progress | Failed | Không đạt hiệu chuẩn | Technician | overall_result=Failed |
+| In Progress | Conditionally Passed | Đạt có điều kiện | Technician | overall_result=Conditionally Passed |
+| In Progress | Cancelled | Hủy hiệu chuẩn | Technician | — |
 | Sent to Lab | Certificate Received | Nhận chứng chỉ | Technician | — |
-| (any draft) | Passed | Submit | Technician | overall_result=Passed |
-| (any draft) | Failed | Submit | Technician | overall_result=Failed |
-| Failed | Conditionally Passed | System auto | System | CAPA Closed + recal Pass |
+| Certificate Received | Passed | Phê duyệt đạt | Workshop Lead / QA | — |
+| Certificate Received | Failed | Phê duyệt không đạt | Workshop Lead / QA | — |
+| Certificate Received | Conditionally Passed | Phê duyệt có điều kiện | Workshop Lead / QA | — |
+| Failed | Conditionally Passed | CAPA hoàn tất - chuyển có điều kiện | QA Officer | CAPA Closed + recal Pass |
 
 **Controller hooks (delegate-only):**
 
@@ -238,22 +246,26 @@ Idempotency guard in `create_due_calibration_wos`: checks `CalibrationRepo.exist
 | `check_calibration_expiry` | Daily 06:30 | `scheduler_events.daily` | Update calibration_status + email alerts 90/60/30/7/0 ngày |
 | `check_capa_overdue` (IMM-00) | Daily 02:00 | IMM-00 | CAPA Open > due_date → Overdue + email QA |
 
-**hooks.py registration:**
+**hooks.py registration (actual `assetcore/hooks.py`):**
 
 ```python
 doc_events = {
-    "IMM Commissioning": {
-        "on_submit": "assetcore.services.imm11.create_calibration_schedule_from_commissioning",
+    "Asset Commissioning": {
+        "on_submit": [
+            "assetcore.services.imm08.create_pm_schedule_from_commissioning",
+            "assetcore.services.imm11.create_calibration_schedule_from_commissioning",
+            "assetcore.services.imm16.eval_imm04_realtime",
+        ],
     },
-    "IMM Asset Repair": {
-        "on_submit": "assetcore.services.imm11.create_post_repair_calibration",
-    },
+    # Note: `create_post_repair_calibration` KHÔNG dùng doc_events.
+    # IMM-09 service tự gọi nó qua Pattern B (direct service-to-service lazy import)
+    # trong `services/imm09.py`.
 }
 
 scheduler_events = {
     "daily": [
-        "assetcore.services.imm11.create_due_calibration_wos",   # 06:00 — threshold 30 days
-        "assetcore.services.imm11.check_calibration_expiry",     # 06:30 — Overdue/DueSoon/OnSchedule
+        "assetcore.services.imm11.create_due_calibration_wos",   # threshold 30 days
+        "assetcore.services.imm11.check_calibration_expiry",     # Overdue/DueSoon/OnSchedule
     ],
 }
 ```
@@ -266,8 +278,8 @@ scheduler_events = {
 
 | Module | Chiều | Trigger | Function |
 |---|---|---|---|
-| IMM-04 Installation | IN | Commissioning `on_submit` | `create_calibration_schedule_from_commissioning()` |
-| IMM-09 Repair | IN | Repair completed `on_submit` | `create_post_repair_calibration()` |
+| IMM-04 Installation | IN | `Asset Commissioning` doc_events.on_submit (hooks.py) | `create_calibration_schedule_from_commissioning()` |
+| IMM-09 Repair | IN | `services/imm09.py` gọi trực tiếp (Pattern B lazy import, không qua hooks.py) | `create_post_repair_calibration(asset_name)` |
 | IMM-00 Foundation | OUT | Mọi action nghiệp vụ | `transition_asset_status`, `create_capa`, `log_audit_event`, `create_lifecycle_event` |
 | IMM-12 Incident | OUT | Cal Fail → auto-create Incident | `imm12.report_incident(fault_code="CAL_FAIL")` — non-blocking |
 

@@ -7,8 +7,8 @@
 | Owner | DevOps / IMM System Admin |
 | Liên kết | [07 Testing & QA](./07_Testing_QA.md) · [09 Release](./09_Release.md) |
 | Nguồn tham chiếu | `docs/imm-00/IMM-00_Setup_Guide.md` (Setup Guide đầy đủ) |
-| Phiên bản | 1.0.0 |
-| Trạng thái | **Planned** |
+| Phiên bản | 1.1.0 |
+| Trạng thái | **Live ✅** — synced vs `assetcore/fixtures/` + `hooks.py` 2026-05-14 |
 
 ---
 
@@ -192,6 +192,35 @@ def execute():
         ADD UNIQUE KEY `unique_warehouse_part` (`warehouse`, `spare_part`)
     """, ignore_ddl=True)
     frappe.db.commit()
+```
+
+## III.4.1. Fixture Inventory (sync tự động qua `bench migrate`)
+
+> **Cập nhật 2026-05-14:** Fixture roles trước đây là `imm_roles.json` (8 roles) đã được thay bằng `role.json` (19 IMM roles Wave 1 + Wave 2) + `has_role.json` (commit `5b4158e` "install assetcore with fixtures/has_role"). `bench migrate` tự sync tất cả fixtures dưới đây.
+
+| Fixture file | DocType target | Mục đích |
+|---|---|---|
+| `fixtures/role.json` | Role | 19 IMM roles (System Admin, Dept Head, Deputy Dept Head, Ops Manager, Workshop Lead, QA Officer, Biomed Technician, Technician, Document Officer, Storekeeper, Clinical User, Auditor, Vendor Engineer, Planning, Finance, HTM Engineer, Procurement, Risk, Board Approver, Training Officer) |
+| `fixtures/has_role.json` | Has Role | Default role→user assignments |
+| `fixtures/role_profile.json` | Role Profile | Bundling theo persona |
+| `fixtures/module_profile.json` | Module Profile | Workspace grouping |
+| `fixtures/workflow.json` | Workflow | Tất cả workflows (Asset Repair, PM WO, CAPA, Incident, Transfer, Needs Request, Procurement Plan, Tech Spec, Vendor Eval, AVL, Decision, …) |
+| `fixtures/workflow_state.json` | Workflow State | Catalog states (Open, In Progress, …) |
+| `fixtures/workflow_action_master.json` | Workflow Action Master | Action labels tiếng Việt |
+| `fixtures/workspace.json` | Workspace | Sidebar layout |
+| `fixtures/imm_sla_policy.json` | IMM SLA Policy | SLA matrix P1–P4 × risk_class |
+| `fixtures/imm15_custom_fields.json` | Custom Field | IMM-15 Spare Parts custom fields |
+| `fixtures/imm16_custom_field_capa_record.json` | Custom Field | IMM-16 CAPA custom field |
+
+Verify sau khi `bench migrate`:
+
+```bash
+bench --site <site> console <<'PY'
+import frappe
+print("IMM Roles:", frappe.db.count("Role", {"name": ["like", "IMM%"]}))     # >= 19
+print("SLA Policies:", frappe.db.count("IMM SLA Policy"))                     # >= 1
+print("Workflows:", frappe.db.count("Workflow", {"document_type": ["like", "%"]}))
+PY
 ```
 
 ## III.5. Chạy migrate

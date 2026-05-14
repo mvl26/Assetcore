@@ -1,15 +1,47 @@
 # IMM-15 — Deployment
 
-> ⚠️ Pending implementation — Wave 3
+> ✅ Wave 2 IMPLEMENTED. Code đã trên `feature/hieuc/wave-2` (commit `4b4b0db`). Deploy gắn với release tag `v1.0.0-rc.2`.
 
 | Thuộc tính | Giá trị |
 |---|---|
 | Module | IMM-15 — Spare Parts Inventory Tracking |
-| Phiên bản | 1.0.0-draft |
+| Phiên bản | 1.0.0-rc.2 |
 | Template | 08 Deployment |
-| Ngày cập nhật | 2026-05-08 |
-| Trạng thái | PLANNED — Wave 3 |
+| Ngày cập nhật | 2026-05-14 |
+| Trạng thái | IMPLEMENTED — Wave 2 |
 | Phụ thuộc bắt buộc | AC Inventory Backbone Wave 1 LIVE |
+
+---
+
+## §0 — Wired Artefacts (CURRENT, 2026-05-14)
+
+### Hooks (verified `assetcore/hooks.py`)
+
+`doc_events`:
+- `IMM PM Work Order` → `before_submit`: `assetcore.services.imm15.reserve_for_pm`
+- `IMM Repair Work Order` → `before_submit`: `assetcore.services.imm15.reserve_for_repair`
+- `AC Asset` → `on_update`: `assetcore.services.imm15.flag_obsolete_on_decommission`
+
+`scheduler_events`:
+- hourly: `check_low_stock_and_alert`, `check_critical_spare_breach`, `check_expiring_batches`, `compute_inventory_kpis`
+- daily: `generate_spare_demand_forecast`
+- weekly: `reclassify_abc`
+
+### Fixtures (verified `assetcore/fixtures/`)
+
+- `imm15_custom_fields.json` — Custom Field bundle (7 CFs trên AC Spare Part)
+- `workflow.json`, `workflow_state.json`, `workflow_action_master.json` — chứa state machine Spare Allocation, Stock Cycle Count, Spare Part Forecast
+- `role.json`, `role_profile.json` — IMM Storekeeper / Workshop Lead / QA Officer
+
+### DocType folders (verified `assetcore/assetcore/doctype/`)
+
+`imm_spare_allocation`, `imm_spare_allocation_item`, `imm_stock_cycle_count`, `imm_stock_cycle_count_item`, `imm_cycle_count_item`, `imm_spare_part_forecast`, `imm_spare_forecast_item`, `imm_critical_spare_watchlist`, `imm_spare_batch`, `imm_spare_alternative`, `imm_device_spare_part`, `ac_spare_part`, `ac_spare_part_stock`, `ac_stock_movement(_item)`, `ac_warehouse`, `ac_uom(_conversion)`.
+
+### Patches
+
+`assetcore/patches.txt` hiện không chứa entry IMM-15 riêng — schema được load qua fixture + DocType JSON. Nếu cần data migration sau này thì viết patch `assetcore.patches.v3_2.NNN_*` và bổ sung vào `patches.txt`.
+
+> ⚠️ Các section §I–§VI dưới đây là deployment plan template — giữ làm checklist. Đối chiếu với §0 nếu có khác biệt, §0 là source-of-truth.
 
 ---
 

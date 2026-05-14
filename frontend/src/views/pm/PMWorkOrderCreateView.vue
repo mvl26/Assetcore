@@ -212,7 +212,7 @@ onMounted(() => {
         <label class="block text-sm font-medium text-slate-700 mb-1">Checklist (xem trước)</label>
         <div v-if="loadingChecklist" class="text-xs text-slate-500">Đang tải checklist...</div>
         <div v-else-if="!checklistPreview.length" class="text-xs text-slate-400 italic">
-          PM Schedule này không gắn template checklist (KTV sẽ ghi nhận tự do trên phiếu).
+          PM Schedule này không gắn template checklist (kỹ thuật viên sẽ ghi nhận tự do trên phiếu).
         </div>
         <ul v-else class="border border-slate-200 rounded-lg divide-y text-sm max-h-56 overflow-y-auto">
           <li v-for="(it, i) in checklistPreview" :key="i" class="px-3 py-2 flex justify-between items-center">
@@ -223,7 +223,7 @@ onMounted(() => {
             <span v-if="it.is_critical" class="text-xs bg-red-100 text-red-700 rounded px-2 py-0.5">CRITICAL</span>
           </li>
         </ul>
-        <p v-if="checklistPreview.length" class="text-xs text-slate-500 mt-1">{{ checklistPreview.length }} mục — KTV sẽ điền kết quả khi In Progress.</p>
+        <p v-if="checklistPreview.length" class="text-xs text-slate-500 mt-1">{{ checklistPreview.length }} mục — kỹ thuật viên sẽ điền kết quả khi In Progress.</p>
       </div>
 
       <!-- Due Date -->
@@ -236,7 +236,7 @@ onMounted(() => {
 
       <!-- Assigned To -->
       <div>
-        <label class="block text-sm font-medium text-slate-700 mb-1">Giao cho KTV (email)</label>
+        <label class="block text-sm font-medium text-slate-700 mb-1">Giao cho kỹ thuật viên (email)</label>
         <input
           v-model="form.assigned_to"
           type="email"

@@ -3,12 +3,12 @@
 | Mục | Giá trị |
 |---|---|
 | Module | IMM-16 — Compliance Monitoring & CAPA |
-| Phiên bản | 0.3.0 |
-| Ngày cập nhật | 2026-05-08 |
+| Phiên bản | 1.0.0-rc.2 |
+| Ngày cập nhật | 2026-05-14 |
 | Owner | Tech Lead + System Analyst |
 | Liên kết | [02 Analysis](./02_Analysis_Design.md) · [04 Backend](./04_Backend_Design.md) · [05 API](./05_API_Specification.md) |
 
-> ⚠️ Pending implementation — Wave 3
+> ✅ IMPLEMENTED — Wave 2. Diagrams phản ánh DocType + workflow + service đã merge.
 
 ---
 

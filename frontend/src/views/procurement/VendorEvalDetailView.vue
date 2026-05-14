@@ -176,9 +176,9 @@
     <!-- Thẻ: Scorecard (FE-03-02) -->
     <section v-show="tab === 'scorecard'" class="tab-content">
       <div class="card">
-        <h3>Scorecard NCC</h3>
+        <h3>Scorecard Nhà cung cấp</h3>
         <div class="card-head">
-          <label>NCC:
+          <label>Nhà cung cấp:
             <select v-model="scorecardSupplier">
               <option value="">— Chọn —</option>
               <option v-for="c in store.currentEval.candidates || []" :key="c.idx" :value="c.supplier">
@@ -326,7 +326,7 @@ type TabId = 'candidates' | 'scoring' | 'scorecard'
 const TABS: { id: TabId; label: string }[] = [
   { id: 'candidates', label: '1. Ứng viên & Báo giá' },
   { id: 'scoring',    label: '2. Chấm điểm' },
-  { id: 'scorecard',  label: '3. Scorecard NCC' },
+  { id: 'scorecard',  label: '3. Scorecard Nhà cung cấp' },
 ]
 const tab = ref<TabId>('candidates')
 

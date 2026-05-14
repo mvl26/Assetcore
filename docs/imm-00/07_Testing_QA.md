@@ -7,7 +7,7 @@
 | Owner | QA Lead / Tech Lead |
 | Liên kết | [04 Backend Design](./04_Backend_Design.md) · [05 API Specification](./05_API_Specification.md) |
 | Phiên bản | 1.1.0 |
-| Trạng thái | **Live (BE code) / Planned (tests)** — test cases là spec; BE đã implement. Reviewed 2026-05-08. |
+| Trạng thái | **Live (BE code + tests) ✅** — `assetcore/tests/test_imm00.py` + per-doctype tests đã implement (TestACAssetCategory, TestACDepartment, TestACLocation, TestACSupplier, TestIMMDeviceModel, TestIMSLAPolicy, TestACAsset, TestIMMCAPARecord, TestIMMauditTrail, TestIncidentReport, TestUserRoleManagement). Test IDs `TC-S-*` trong doc giữ vai trò spec mapping. Synced 2026-05-14. |
 
 ---
 

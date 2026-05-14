@@ -7,7 +7,8 @@
 | Owner | BE Lead |
 | Base URL | `/api/method/assetcore.api.imm11.<function>` |
 | Auth | Frappe session HOẶC `Authorization: token <key>:<secret>` |
-| Trạng thái | ✅ Live — `assetcore/api/imm11.py` deployed |
+| Cập nhật | 2026-05-14 |
+| Trạng thái | ✅ Live — `assetcore/api/imm11.py` deployed (18 endpoint) |
 
 ---
 
@@ -229,14 +230,12 @@ FE đọc `response.data.data` (axios + Frappe lớp ngoài đã wrap).
 
 **Curl ví dụ:**
 ```bash
-curl -X POST 'https://hospital.assetcore.vn/api/method/assetcore.api.imm11.submit_calibration_results' \
+curl -X POST 'https://hospital.assetcore.vn/api/method/assetcore.api.imm11.submit_calibration' \
   -H 'Authorization: token <key>:<secret>' \
   -H 'Content-Type: application/json' \
-  -d '{
-    "name": "CAL-2026-00001",
-    "certificate_date": "2026-04-24",
-    "measurements": [{"parameter_name":"WBC","unit":"10³/µL","nominal_value":7.5,"tolerance_positive":3,"tolerance_negative":3,"measured_value":7.6}]
-  }'
+  -d '{"name": "CAL-2026-00001"}'
+
+# Measurements được nhập trước qua `add_measurement` (xem §7 Smoke test).
 ```
 
 ---

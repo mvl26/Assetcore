@@ -32,9 +32,11 @@ const TRANSFER_TYPES = [
 ]
 
 const TRANSFER_STATUSES = [
-  { value: 'Draft',     label: 'Nháp' },
-  { value: 'Submitted', label: 'Đã xác nhận' },
-  { value: 'Cancelled', label: 'Đã hủy' },
+  { value: 'Pending Approval', label: 'Chờ phê duyệt' },
+  { value: 'Approved',         label: 'Đã phê duyệt' },
+  { value: 'Rejected',         label: 'Từ chối' },
+  { value: 'Received',         label: 'Đã nhận' },
+  { value: 'Cancelled',        label: 'Đã hủy' },
 ]
 
 const TYPE_COLORS: Record<string, string> = {
@@ -62,7 +64,7 @@ const activeChips = computed<Chip[]>(() => {
     const s = TRANSFER_STATUSES.find(x => x.value === statusFilter.value)
     chips.push({ key: 'status', label: s?.label ?? statusFilter.value })
   }
-  if (assetFilter.value) chips.push({ key: 'asset', label: `TB: ${assetFilter.value}` })
+  if (assetFilter.value) chips.push({ key: 'asset', label: `Thiết bị: ${assetFilter.value}` })
   return chips
 })
 const activeFilterCount = computed(() => activeChips.value.length)

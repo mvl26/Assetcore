@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// AssetCore Launcher — IMMIS Navigation Hub (light theme).
+// AssetCore Launcher — phần mềm quản lý vòng đời tài sản (light theme).
 // Bố cục: topbar BV → hero (title + KPI) → các phase section dùng chung phase-grid.
 // Render đầy đủ 17 module (IMM-01…IMM-17) + master + system qua MODULE_GROUPS,
 // lọc theo role. 4 khối lifecycle hiển thị trước, Master + System theo sau.
@@ -7,7 +7,30 @@ import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { MODULE_GROUPS, type ModuleGroup, type ModuleCard } from '@/constants/modules'
+import { useOverviewDashboard } from '@/composables/useDashboard'
 import logoNd1 from '@/assets/logo-nd1.png'
+
+// ── Live KPI: pull from dashboard.get_overview ────────────────────────────
+interface OverviewPayload {
+  assets?: { active?: number }
+  pm?: { due_next_7d?: number; overdue?: number }
+  incidents?: { open?: number }
+}
+const { data: overview, isLoading: overviewLoading } = useOverviewDashboard()
+const kpi = computed(() => {
+  const d = (overview.value as OverviewPayload | undefined) || {}
+  return {
+    active:    d.assets?.active        ?? null,
+    pm_week:   d.pm?.due_next_7d       ?? null,
+    pm_late:   d.pm?.overdue           ?? null,
+    incidents: d.incidents?.open       ?? null,
+  }
+})
+function kpiText(v: number | null): string {
+  if (overviewLoading.value && v === null) return '…'
+  if (v === null || v === undefined) return '—'
+  return new Intl.NumberFormat('vi-VN').format(v)
+}
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -171,30 +194,30 @@ const totalModuleCount = computed(() =>
     <section class="hero">
       <div class="hero-inner">
         <div class="eyebrow">HTM · CMMS · IMMIS</div>
-        <h1 class="hero-title">Hub điều hướng module</h1>
+        <h1 class="hero-title">Phần mềm quản lý vòng đời tài sản</h1>
         <p class="hero-sub">
-          Điều phối vòng đời thiết bị y tế — từ lập kế hoạch, mua sắm, triển khai
+          Quản lý vòng đời thiết bị y tế từ lập kế hoạch, mua sắm, triển khai
           đến vận hành và giải nhiệm.
           <b>{{ totalModuleCount }}</b> chức năng theo kiến trúc 4 khối WHO HTM.
         </p>
 
         <div class="kpi-strip">
-          <div class="kpi-tile" style="--kpi-stripe:#10b981">
+          <button type="button" class="kpi-tile" style="--kpi-stripe:#10b981" @click="router.push({ path: '/assets', query: { status: 'Active' } })">
             <div class="kpi-l">Thiết bị vận hành</div>
-            <div class="kpi-v" style="color:#059669">—</div>
-          </div>
-          <div class="kpi-tile" style="--kpi-stripe:#2563eb">
+            <div class="kpi-v" style="color:#059669">{{ kpiText(kpi.active) }}</div>
+          </button>
+          <button type="button" class="kpi-tile" style="--kpi-stripe:#2563eb" @click="router.push({ path: '/pm/work-orders', query: { due: 'next7' } })">
             <div class="kpi-l">PM tuần này</div>
-            <div class="kpi-v" style="color:#2563eb">—</div>
-          </div>
-          <div class="kpi-tile" style="--kpi-stripe:#d97706">
+            <div class="kpi-v" style="color:#2563eb">{{ kpiText(kpi.pm_week) }}</div>
+          </button>
+          <button type="button" class="kpi-tile" style="--kpi-stripe:#d97706" @click="router.push({ path: '/pm/work-orders', query: { due: 'overdue' } })">
             <div class="kpi-l">PM quá hạn</div>
-            <div class="kpi-v" style="color:#d97706">—</div>
-          </div>
-          <div class="kpi-tile" style="--kpi-stripe:#ef4444">
+            <div class="kpi-v" style="color:#d97706">{{ kpiText(kpi.pm_late) }}</div>
+          </button>
+          <button type="button" class="kpi-tile" style="--kpi-stripe:#ef4444" @click="router.push('/incidents/list')">
             <div class="kpi-l">Sự cố mở</div>
-            <div class="kpi-v" style="color:#dc2626">—</div>
-          </div>
+            <div class="kpi-v" style="color:#dc2626">{{ kpiText(kpi.incidents) }}</div>
+          </button>
         </div>
       </div>
     </section>
@@ -391,6 +414,15 @@ viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
   border-radius: 10px;
   padding: 16px 16px 14px;
   box-shadow: 0 1px 3px 0 rgba(0,0,0,0.06);
+  text-align: left;
+  font-family: inherit; color: inherit;
+  cursor: pointer;
+  transition: border-color 120ms, box-shadow 120ms, transform 120ms;
+}
+.kpi-tile:hover {
+  border-color: #cbd5e1;
+  box-shadow: 0 6px 16px 0 rgba(0,0,0,0.08);
+  transform: translateY(-1px);
 }
 .kpi-tile::before {
   content: ''; position: absolute; top: 0; left: 0; right: 0;

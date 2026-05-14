@@ -30,3 +30,24 @@ Không có. Module sẵn sàng cho assetcore-be-module / assetcore-fe-module s�
 - FE: store + views + routes + sidebar entry wired
 - Tests: see docs/res/dod-verification-report.md §1 for per-module results
 - Status: READY
+
+## 2026-05-14 Light-touch Sync (Wave-2 branch)
+- `02_Analysis_Design.md`: replace tất cả `Pending_Review` (underscore) → `Pending Review` (space) — đồng bộ ground truth `services/imm05.py:DocState.PENDING_REVIEW = "Pending Review"` và `imm_05_document_workflow.json`.
+- `05_API_Specification.md`: rewrite `DocumentWorkflowState` enum dùng space; fix 2 step description (`approve_document` / `reject_document`) tham chiếu state.
+- `06_Frontend_Design.md`: fix `DocState`/`BADGE_MAP`/`pendingReviewDocs` filter dùng space; rename mọi reference store `imm05Store.ts` → `imm05.ts` (file thực tế).
+- Không đụng `04_Backend_Design.md` (đã đúng — dùng "Pending Review" space).
+- Không đụng `03/07/08/09` (light-touch).
+
+## Pass 2 — Deep reconciliation (2026-05-14)
+
+Endpoint count actual = **15** (whitelist `assetcore/api/imm05.py` — pass 1 sai khi đếm 14). LOC service = 561, LOC api = 151. Catalog thiếu `submit_for_review`.
+
+- `README.md`: "14 endpoints" → "15 endpoints".
+- `02_Analysis_Design.md`: BR-05-04 đổi `Clinical_Release` → `"Clinical Release"`.
+- `04_Backend_Design.md`: §7 Scheduler — sửa file path `assetcore/tasks.py` → `assetcore/services/imm05.py`; chỉ rõ `check_document_expiry` là job duy nhất đăng ký; đánh dấu `update_asset_completeness` + `check_overdue_document_requests` *(Not yet implemented)*. §8.2 doc_events viết lại đúng ground truth (`Asset Document.on_update` → `imm16.eval_imm05_realtime`, không có entry IMM-05 riêng).
+- `05_API_Specification.md`: catalog thêm hàng #5 `submit_for_review`; renumber 6–15; thêm spec §2.4b `submit_for_review`; DoD "14 endpoints" → "15 endpoints".
+- `06_Frontend_Design.md`: untouched (đã đúng sau pass 1).
+- `07_Testing_QA.md`: thêm callout — service layer đã có (561 LOC); test scaffold gộp 1 file `test_imm05.py` (237 LOC); pyramid "14 endpoints" → "15 endpoints".
+- `08_Deployment.md`: sửa 4 chỗ `assetcore.tasks.check_document_expiry`/`update_asset_completeness` → namespace thực `assetcore.services.imm05.*` hoặc đánh dấu chưa wire.
+- `09_Release.md`: row endpoint 14 → 15 (kèm tên hàm thực); LOC thay đổi từ ước tính sang con số thật; thêm row `Scheduler thực tế = 1`.
+- `03_Diagrams.md`: untouched (đã dùng "Pending Review" space sau pass 1).

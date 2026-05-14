@@ -268,7 +268,7 @@ flowchart TD
     Start([Bắt đầu]) --> A[Reviewer mở doc Pending Review]
     A --> B{Thuộc _APPROVE_ROLES?}
     B -->|Không| Err1[Lỗi FORBIDDEN]
-    B -->|Có| C{State = Pending_Review?}
+    B -->|Có| C{State = Pending Review?}
     C -->|Không| Err2[Lỗi INVALID_STATE]
     C -->|Có| D[Gọi approve_document]
     D --> E[Query Active docs cùng asset + doc_type_detail]
@@ -398,7 +398,7 @@ UC03 ..> UC02 : <<extend>> [state=Pending]
 | ID | UC-IMM05-03 |
 | Brief | Reviewer phê duyệt hoặc từ chối doc đang Pending Review |
 | Primary actor | Tổ HC-QLCL / CMMS Admin |
-| Pre-condition | Doc ở Pending_Review; user thuộc _APPROVE_ROLES |
+| Pre-condition | Doc ở Pending Review; user thuộc _APPROVE_ROLES |
 | Post-condition | Doc ở Active (version cũ Archived) hoặc Rejected |
 | Trigger | Reviewer nhấn Approve hoặc Reject |
 
@@ -467,12 +467,12 @@ UC03 ..> UC02 : <<extend>> [state=Pending]
 - Priority: Must | Estimate: 3 SP
 
 **AC-01:**
-- Given: doc cũ DOC-001 ở Active, doc mới DOC-002 ở Pending_Review (cùng asset + doc_type_detail)
+- Given: doc cũ DOC-001 ở Active, doc mới DOC-002 ở Pending Review (cùng asset + doc_type_detail)
 - When: `approve_document("DOC-002")`
 - Then: DOC-002.workflow_state=Active; DOC-001.workflow_state=Archived; DOC-001.superseded_by=DOC-002
 
 **AC-02 — Reject thiếu reason:**
-- Given: doc ở Pending_Review
+- Given: doc ở Pending Review
 - When: `reject_document(name)` thiếu `rejection_reason`
 - Then: response.success=false, code="VALIDATION_ERROR" (VR-06)
 
@@ -483,7 +483,7 @@ UC03 ..> UC02 : <<extend>> [state=Pending]
 | BR-05-01 | 1 Active doc per (asset_ref + doc_type_detail) | `archive_old_versions()` on `on_update` + `approve_document` | Internal |
 | BR-05-02 | Không xóa cứng — chỉ archive | `on_trash()` throw | NĐ98 |
 | BR-05-03 | Expiry alert 90/60/30/0 idempotent | `check_document_expiry` daily | WHO HTM |
-| BR-05-04 | Auto-import từ IMM-04 khi Clinical_Release | IMM-04 `on_submit` hook | Internal |
+| BR-05-04 | Auto-import từ IMM-04 khi `Clinical Release` (state space) | IMM-04 `on_submit` hook | Internal |
 | BR-05-05 | Bộ hồ sơ bắt buộc qua `Required Document Type` | `update_asset_completeness` | ISO 13485 |
 | BR-05-06 | `is_model_level=1` áp dụng toàn bộ asset cùng model | UI filter + report | Internal |
 | BR-05-07 | GW-2: Block IMM-04 Submit nếu thiếu CN ĐK lưu hành + không exempt | IMM-04 `validate()` | NĐ98 |
@@ -496,10 +496,10 @@ UC03 ..> UC02 : <<extend>> [state=Pending]
 ```mermaid
 stateDiagram-v2
     [*] --> Draft: create_document
-    Draft --> Pending_Review: Gửi duyệt (Biomed / CMMS Admin)
-    Pending_Review --> Active: Phê duyệt (Tổ HC-QLCL / CMMS Admin)
-    Pending_Review --> Rejected: Từ chối + reason (VR-06)
-    Rejected --> Pending_Review: Gửi lại (Biomed / CMMS Admin)
+    Draft --> Pending Review: Gửi duyệt (Biomed / CMMS Admin)
+    Pending Review --> Active: Phê duyệt (Tổ HC-QLCL / CMMS Admin)
+    Pending Review --> Rejected: Từ chối + reason (VR-06)
+    Rejected --> Pending Review: Gửi lại (Biomed / CMMS Admin)
     Active --> Archived: Lưu trữ (CMMS Admin)
     Draft --> Archived: Hủy bỏ (CMMS Admin)
     Active --> Archived: Auto khi version mới Active (BR-05-01)

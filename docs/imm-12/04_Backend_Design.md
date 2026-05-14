@@ -5,6 +5,7 @@
 | Module | IMM-12 — Incident & CAPA Management |
 | Phạm vi | Per-module |
 | Owner | BE Lead |
+| Cập nhật | 2026-05-14 |
 | Trạng thái | ✅ Live — `services/imm12.py` và `api/imm12.py` đã implement |
 
 ---
@@ -115,25 +116,35 @@ Naming: `RCA-.YYYY.-.#####` · Submittable
 
 ## 3. Workflow — Incident Report ✅ LIVE
 
-### States (actual implementation)
+### States (actual — constants `services/imm12.py:37-47` + `imm_12_incident_workflow.json`)
 
 | State | docstatus | Mô tả |
 |---|---|---|
 | Open | 0 | IR mới tạo |
-| Under Investigation | 0 | Workshop Lead tiếp nhận (actual: "Under Investigation" not "Acknowledged") |
+| Acknowledged | 0 | Workshop Lead/Technician đã tiếp nhận |
+| In Progress | 0 | Đang xử lý |
 | Resolved | 0 | Đã giải quyết |
+| RCA Required | 0 | High/Critical hoặc chronic — chờ RCA Completed trước Close |
 | Closed | 0 | Final — IR đóng |
 | Cancelled | 0 | False alarm |
 
-### Transitions (actual `_VALID_TRANSITIONS` dict in service)
+> Internal docstring trong `services/imm12.py` đôi chỗ ghi "Under Investigation" — đây là alias lịch sử cho `In Progress`. Tên state thực tế trong code & DocType là `In Progress`.
+
+### Transitions (actual `_VALID_TRANSITIONS` dict in service + workflow JSON)
 
 | From | To | Trigger function | Actor | Validation |
 |---|---|---|---|---|
-| Open | Under Investigation | `acknowledge_incident()` | Workshop Lead, Technician | — |
+| Open | Acknowledged | `acknowledge_incident()` | Workshop Lead, Technician | — |
+| Open | In Progress | `acknowledge_incident()` (skip Acknowledged) | Workshop Lead, Technician | — |
 | Open | Cancelled | `cancel_incident()` | Workshop Lead | reason required |
-| Under Investigation | Resolved | `resolve_incident()` | Workshop Lead, Technician | resolution_notes required |
-| Under Investigation | Cancelled | `cancel_incident()` | Workshop Lead | reason required |
-| Resolved | Closed | `close_incident()` | Workshop Lead, QA Officer | BR-12-02: High/Critical → RCA Completed required |
+| Acknowledged | In Progress | (workflow action "Bắt đầu xử lý") | Workshop Lead, Technician | — |
+| Acknowledged | Cancelled | `cancel_incident()` | Workshop Lead | reason required |
+| In Progress | Resolved | `resolve_incident()` | Workshop Lead, Technician | resolution_notes required |
+| In Progress | RCA Required | `resolve_incident()` cho High/Critical | System | severity ∈ {High, Critical} |
+| In Progress | Cancelled | `cancel_incident()` | Workshop Lead | reason required |
+| Resolved | Closed | `close_incident()` | Workshop Lead, QA Officer | BR-12-02: High/Critical → RCA `Completed` required |
+| Resolved | In Progress | (workflow action "Mở lại điều tra") | Workshop Lead | — |
+| RCA Required | Closed | `close_incident()` sau RCA `Completed` | Workshop Lead, QA Officer | — |
 
 **RCA States:** `RCA Required` → `RCA In Progress` → `Completed` / `Cancelled`
 
@@ -232,17 +243,19 @@ Tất cả gọi `imm00.log_audit_event()` → SHA-256 hash chain (NĐ98/ISO 134
 | Chronic failure detection | Daily | `imm12.detect_chronic_failures` | BR-12-03: ≥3 same (asset, fault_code) in 90d — returns `{flagged, rca_created, groups}` |
 | CAPA overdue check | Daily | `imm00.check_capa_overdue` | ✅ LIVE — BR-00-09 |
 
-**Registration trong `hooks.py`:**
+**Registration thực tế trong `assetcore/hooks.py`:**
 ```python
 scheduler_events = {
-    "cron": {
-        "0 2 * * *": [
-            "assetcore.services.imm00.check_capa_overdue",
-            "assetcore.services.imm12.detect_chronic_failures",
-        ],
-    },
+    "daily": [
+        "assetcore.services.imm00.check_capa_overdue",
+        # ...
+        "assetcore.services.imm12.detect_chronic_failures",
+        # ...
+    ],
 }
 ```
+
+> `check_capa_overdue` và `detect_chronic_failures` đăng ký trong `scheduler_events.daily` (không phải cron riêng) — Frappe sẽ chạy 1 lần/ngày tại khung scheduler tick mặc định.
 
 ---
 
@@ -264,7 +277,7 @@ scheduler_events = {
 |---|---|---|
 | Idempotency | `acknowledge/resolve/close`: repeat call → return current state | Check status before transition |
 | Concurrency | No double-acknowledge | DB-level status check + ValidationError |
-| Chronic detection | Idempotent | Guard: `frappe.db.exists("RCA Record", {status in [Required, InProgress]})` |
+| Chronic detection | Idempotent | Guard: `frappe.db.exists("IMM RCA Record", {status in ["RCA Required", "RCA In Progress"]})` |
 | Logging | All errors logged to Frappe error log | `frappe.log_error()` in `_handle()` |
 | Performance | List query < 500ms p95 | Index on `(asset, fault_code, reported_at)` + `(severity, status)` |
 

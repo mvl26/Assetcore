@@ -9,7 +9,7 @@
 | URL pattern | `/api/method/assetcore.api.imm06.<function>` |
 | Liên kết | [02 Analysis](./02_Analysis_Design.md) · [04 Backend](./04_Backend_Design.md) · [06 Frontend](./06_Frontend_Design.md) |
 
-> ⚠️ Pending implementation — Wave 2. Endpoints chưa được whitelist. Tài liệu này là thiết kế spec.
+> ✅ Implemented (Wave 2) — endpoints đã whitelist trong `assetcore/api/imm06.py` (**23** `@frappe.whitelist()` functions, đếm ngày 2026-05-14 trên branch `feature/hieuc/wave-2`). Khi có drift, code wins; cập nhật doc.
 
 ---
 
@@ -399,6 +399,23 @@ _DASHBOARD_ROLES = {
 
 ---
 
+#### B.4b `start_session`
+
+| Method | POST |
+|---|---|
+| Roles | `_SESSION_WRITE_ROLES` |
+| Service | `services/imm06.py::start_training_session` |
+
+**Request body:** `{"name": "TRN-2026-00042"}`
+
+**Behavior:** Confirmed → In Progress. Validate `session_date` không ở quá khứ quá ngưỡng. Đặt `started_at = now`.
+
+**Response 200:** `{ "success": true, "data": { "name": "...", "new_state": "In Progress" } }`
+
+**Errors:** `FORBIDDEN`, `NOT_FOUND`, `BUSINESS_RULE` (sai state), `VALIDATION`
+
+---
+
 #### B.5 `complete_session`
 
 | Method | POST |
@@ -482,6 +499,40 @@ _DASHBOARD_ROLES = {
 ```
 
 **Errors:** `FORBIDDEN`, `NOT_FOUND`, `BUSINESS_RULE` (BR-06-12 — không thể hủy sau Verified)
+
+---
+
+#### B.7 `verify_session`
+
+| Method | POST |
+|---|---|
+| Roles | `IMM QA Officer`, `IMM Training Officer`, `IMM System Admin` |
+| Service | `services/imm06.py::verify_session` |
+
+**Request body:** `{"name": "TRN-2026-00042"}`
+
+**Behavior:** Completed → Verified. QA Officer xác nhận kết quả buổi đào tạo trước khi competency được phép `signoff`. Ghi `verified_by`, `verified_at`.
+
+**Response 200:** `{ "success": true, "data": { "name": "...", "new_state": "Verified" } }`
+
+**Errors:** `FORBIDDEN`, `NOT_FOUND`, `BUSINESS_RULE` (sai state)
+
+---
+
+#### B.8 `close_session`
+
+| Method | POST |
+|---|---|
+| Roles | `IMM Training Officer`, `IMM System Admin` |
+| Service | `services/imm06.py::close_session` |
+
+**Request body:** `{"name": "TRN-2026-00042"}`
+
+**Behavior:** Verified → Closed. Khoá final state — không sửa được participant results. Gắn audit trail.
+
+**Response 200:** `{ "success": true, "data": { "name": "...", "new_state": "Closed" } }`
+
+**Errors:** `FORBIDDEN`, `NOT_FOUND`, `BUSINESS_RULE` (chưa Verified)
 
 ---
 
@@ -927,8 +978,7 @@ _DASHBOARD_ROLES = {
 ## §V TypeScript Types
 
 ```typescript
-// frontend/src/types/imm06.ts
-// ⚠️ Pending implementation
+// frontend/src/types/imm06.ts (đã có)
 
 export type TrainingType = 'Initial' | 'Refresher' | 'Advanced' | 'Certification'
 export type SessionType = 'Onsite' | 'Online' | 'Hybrid'

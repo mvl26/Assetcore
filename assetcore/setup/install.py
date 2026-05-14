@@ -90,11 +90,13 @@ def create_user_custom_fields() -> None:
 def after_install() -> None:
     _sync_workflows()
     create_user_custom_fields()
+    _apply_erpnext_asset_custom_fields()
     _apply_rbac_matrix()
     _seed_role_profiles()
     _seed_module_profiles()
     _apply_core_permissions()
     _build_frontend(force=True)
+    _patch_nginx()
 
 
 def before_migrate() -> None:
@@ -106,6 +108,7 @@ def before_migrate() -> None:
 def after_migrate() -> None:
     _sync_workflows()
     create_user_custom_fields()
+    _apply_erpnext_asset_custom_fields()
     _apply_rbac_matrix()
     _seed_role_profiles()
     _seed_module_profiles()
@@ -114,46 +117,79 @@ def after_migrate() -> None:
     _build_frontend(force=False)
 
 
+def _import_workflow_file(fpath: str) -> set[str]:
+    """Import một workflow JSON, trả về tập states tìm thấy."""
+    import json as _json
+    from frappe.modules.import_file import import_doc as _import_doc
+
+    with open(fpath) as f:
+        docdict = _json.load(f)
+    _import_doc(docdict, path=fpath)
+    states = {row["state"] for row in (docdict.get("states") or []) if row.get("state")}
+    print(f"[AssetCore] Workflow synced: {docdict.get('workflow_name') or fpath}")
+    return states
+
+
+def _ensure_workflow_state(state_name: str) -> None:
+    if frappe.db.exists("Workflow State", state_name):
+        return
+    try:
+        ws = frappe.new_doc("Workflow State")
+        ws.workflow_state_name = state_name
+        ws.flags.ignore_permissions = True
+        ws.insert(ignore_if_duplicate=True)
+    except Exception as e:
+        print(f"[AssetCore] Workflow State create error ({state_name!r}): {e}")
+
+
 def _sync_workflows() -> None:
     """Import all AssetCore workflow JSON files and ensure Workflow State master records exist."""
-    import json as _json
     import os
-
-    from frappe.modules.import_file import import_doc as _import_doc
 
     workflow_dir = frappe.get_app_path("assetcore", "assetcore", "workflow")
     if not os.path.exists(workflow_dir):
         return
 
     all_states: set[str] = set()
-
     for fname in sorted(os.listdir(workflow_dir)):
         if not fname.endswith(".json"):
             continue
-        fpath = os.path.join(workflow_dir, fname)
         try:
-            with open(fpath) as f:
-                docdict = _json.load(f)
-            _import_doc(docdict, path=fpath)
-            for state_row in docdict.get("states") or []:
-                if state_row.get("state"):
-                    all_states.add(state_row["state"])
-            print(f"[AssetCore] Workflow synced: {docdict.get('workflow_name') or fname}")
+            all_states |= _import_workflow_file(os.path.join(workflow_dir, fname))
         except Exception as e:
             print(f"[AssetCore] Workflow sync error ({fname}): {e}")
 
-    # Ensure every state referenced in workflow JSONs exists in the Workflow State master.
     for state_name in sorted(all_states):
-        if not frappe.db.exists("Workflow State", state_name):
-            try:
-                ws = frappe.new_doc("Workflow State")
-                ws.workflow_state_name = state_name
-                ws.flags.ignore_permissions = True
-                ws.insert(ignore_if_duplicate=True)
-            except Exception as e:
-                print(f"[AssetCore] Workflow State create error ({state_name!r}): {e}")
+        _ensure_workflow_state(state_name)
 
     frappe.db.commit()
+
+
+def _apply_erpnext_asset_custom_fields() -> None:
+    """Áp dụng custom fields HTM lên ERPNext Asset — chỉ khi ERPNext đã cài."""
+    import json as _json
+    import os
+    from frappe.modules.import_file import import_doc as _import_doc
+
+    if not frappe.db.exists("DocType", "Asset"):
+        return
+
+    json_path = frappe.get_app_path(
+        "assetcore", "assetcore", "config", "erpnext_integration", "asset_custom_fields.json"
+    )
+    if not os.path.exists(json_path):
+        return
+
+    try:
+        with open(json_path) as f:
+            docs = _json.load(f)
+        for doc in docs:
+            _import_doc(doc, path=json_path)
+        frappe.db.commit()
+        print(f"[AssetCore] ERPNext Asset custom fields applied ({len(docs)} fields).")
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "AssetCore: apply ERPNext Asset custom fields failed")
+        print(f"[AssetCore] ERPNext Asset custom fields warning: {e}")
 
 
 def _install_notifications() -> None:
@@ -221,6 +257,18 @@ def _build_frontend(force: bool = False) -> None:
         build_frontend(force=force)
     except Exception:
         frappe.log_error(frappe.get_traceback(), "AssetCore FE build failed")
+
+
+def _patch_nginx() -> None:
+    """Patch bench nginx.conf để serve FE tại '/'. Không raise exception."""
+    try:
+        import os
+        from assetcore.setup.setup_frontend import patch_nginx_conf, _bench_dir, _frontend_path
+        bench = _bench_dir()
+        dist = os.path.join(_frontend_path(), "dist")
+        patch_nginx_conf(bench, dist)
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "AssetCore nginx patch failed")
 
 
 def _clear_role_profile_has_role_rows() -> None:

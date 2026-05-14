@@ -6,6 +6,7 @@
 | Phạm vi | Per-module |
 | Owner | FE Lead + Designer |
 | Module accent | `cyan-600` |
+| Cập nhật | 2026-05-14 |
 | Trạng thái | ✅ Live — Vue components đã build |
 
 ---
@@ -14,33 +15,31 @@
 
 Routes and component names are based on **actual Vue files** in `frontend/src/views/calibration/`.
 
-| Route | Tên trang | Archetype | Role | Vue Component (actual filename) |
+> Path prefix thực tế là `/calibration/...` (xem `frontend/src/router/index.ts`). Module key `imm11` được map qua regex `/^\/calibration/` → `imm11` để chuyển sidebar.
+
+| Route (actual) | Tên trang | Archetype | Role | Vue Component (actual filename) |
 |---|---|---|---|---|
-| `/imm-11/` | Bảng điều khiển | Dashboard | All | `CalibrationDashboard.vue` |
-| `/imm-11/list` | Danh sách phiếu | List | All | `CalibrationListView.vue` |
-| `/imm-11/create` | Tạo phiếu mới | Form | Workshop Lead, Technician | `CalibrationCreateView.vue` |
-| `/imm-11/:id` | Chi tiết phiếu | Detail | All | `CalibrationDetailView.vue` |
-| `/imm-11/schedule` | Lịch hiệu chuẩn | List | Workshop Lead | `CalibrationScheduleListView.vue` |
-| `/imm-11/capa` | Danh sách CAPA | List | QA Officer, Workshop Lead | `CAPAListView.vue` |
-| `/imm-11/capa/:id` | Chi tiết CAPA | Detail | QA Officer | `CAPADetailView.vue` |
+| `/calibration/dashboard` | Bảng điều khiển | Dashboard | All | `views/calibration/CalibrationDashboard.vue` |
+| `/calibration` | Danh sách phiếu | List | All | `views/calibration/CalibrationListView.vue` |
+| `/calibration/new` | Tạo phiếu mới | Form | Workshop Lead, Technician | `views/calibration/CalibrationCreateView.vue` |
+| `/calibration/schedules` | Lịch hiệu chuẩn | List | Workshop Lead | `views/calibration/CalibrationScheduleListView.vue` |
+| `/calibration/:id` | Chi tiết phiếu | Detail | All | `views/calibration/CalibrationDetailView.vue` |
+
+> CAPA list/detail (CAPAListView/CAPADetailView) thuộc folder `views/incident/` và phục vụ IMM-12; IMM-11 hiển thị CAPA dạng panel/inline trong `CalibrationDetailView` (không có route CAPA riêng cho IMM-11).
 
 ---
 
 ## 2. Sidebar nav module
 
 ```ts
-"imm-11": {
-  title: "IMM-11 · Hiệu chuẩn",
-  accent: "cyan-600",
-  items: [
-    { icon: "chart",    label: "Tổng quan",          to: "/imm-11/" },
-    { icon: "list",     label: "Phiếu hiệu chuẩn",   to: "/imm-11/list" },
-    { icon: "calendar", label: "Lịch hiệu chuẩn",    to: "/imm-11/schedule" },
-    { icon: "clock",    label: "Sắp đến hạn",         to: "/imm-11/list?filter=due_soon" },
-    { icon: "alert",    label: "Quá hạn",              to: "/imm-11/list?filter=overdue" },
-    { icon: "shield",   label: "CAPA",                to: "/imm-11/capa" },
-    { icon: "bar-chart","label": "Báo cáo",           to: "/imm-11/report/compliance" },
-  ],
+// frontend/src/constants/modules.ts — entry imm11
+{
+  id: 'imm11', code: 'IMM-11',
+  label: 'Hiệu năng & Hiệu chuẩn',
+  description: 'Inspection, calibration, certificate, fail/out-of-tolerance',
+  icon: 'gauge',
+  to: '/calibration/dashboard',
+  roles: TECH_ROLES,
 }
 ```
 
@@ -141,7 +140,7 @@ Routes and component names are based on **actual Vue files** in `frontend/src/vi
 
 ### 3.c. Trang chi tiết theo archetype
 
-#### 3.1. Dashboard (`/imm-11/`)
+#### 3.1. Dashboard (`/calibration/`)
 
 | Filter / KPI | Type | Default |
 |---|---|---|
@@ -157,7 +156,7 @@ Routes and component names are based on **actual Vue files** in `frontend/src/vi
 - Loading: Skeleton 4 KPI card + skeleton list
 - Empty: "Chưa có dữ liệu hiệu chuẩn — bắt đầu bằng cách tạo phiếu đầu tiên"
 
-#### 3.2. List (`/imm-11/list`)
+#### 3.2. List (`/calibration/list`)
 
 | Filter | Type | Default |
 |---|---|---|
@@ -236,9 +235,10 @@ import { submitCalibration } from '@/api/imm11'
 async function onSubmit() {
   const result = await submitCalibration(calName.value)
   if (result.overall_result === 'Failed') {
-    router.push(`/imm-11/capa/${result.capa_created}`)
+    // CAPA chi tiết thuộc IMM-12; chuyển sang route đó
+    router.push(`/capa/${result.capa_created}`)
   } else {
-    router.push(`/imm-11/${result.name}`)
+    router.push(`/calibration/${result.name}`)
   }
 }
 ```

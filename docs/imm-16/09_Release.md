@@ -3,13 +3,24 @@
 | Mục | Giá trị |
 |---|---|
 | Module | **IMM-16 — Giám sát Tuân thủ & CAPA** |
-| Phiên bản | 1.0.0 |
-| Ngày phát hành | Pending (Wave 3) |
+| Phiên bản | 1.0.0-rc.2 |
+| Ngày phát hành | 2026-05-14 (rc) — chờ UAT để cut GA |
 | Owner | PM + BA + Tech Writer |
 | Liên kết | [07 Testing QA](./07_Testing_QA.md) · [08 Deployment](./08_Deployment.md) · [Module Overview](./IMM-16_Module_Overview.md) |
-| Wave | 3 — PLANNED |
+| Wave | 2 — IMPLEMENTED |
 
-> ⚠️ Pending implementation — Wave 3. Tài liệu này là draft — nội dung chính thức sẽ finalize sau UAT pass.
+> ✅ Implemented — Wave 2 (feature/hieuc/wave-2). Đợi UAT sign-off để cut v1.0.0 GA. User guide bên dưới dùng cho hoạt động sản xuất; release notes Wave-2 cập nhật trong §IV.
+
+## §0 — Wave 2 Sync Notes (2026-05-14)
+
+- BE: `assetcore/services/imm16.py` (~1705 dòng) phủ Rule Evaluator, Finding upsertor (idempotent), CAPA workflow advance, Audit lifecycle, Scorecard aggregator, Management Review gate, escalation matrix, 4 realtime evaluators (`eval_imm04_realtime`, `eval_imm05_realtime`, `eval_imm08_09_realtime`, `eval_imm11_realtime`), `gate_wo_submit` (BR-16-09).
+- API: `assetcore/api/imm16.py` whitelist ~30 endpoint (xem 05). Có vài alias: `list_compliance_rules`/`list_rules`, `list_compliance_findings`/`list_findings`, `list_internal_audits`/`list_audits`.
+- Scheduler: hourly + daily + weekly + monthly (xem 04 §VI hoặc `hooks.py`).
+- FE: `frontend/src/api/imm16.ts`, `frontend/src/stores/imm16.ts` (composition API). 8 view dưới `frontend/src/views/compliance/` + 3 view dưới `frontend/src/views/audit/` (`CapaListView`, `CapaDetailView`, `AuditTrailListView`, `PendingApprovalsView`).
+- Sidebar: entry IMM-16 trong `MODULE_NAV`; tile trong `LauncherView.vue`.
+- Wave-2 housekeeping: tách `/capas`, `/audit-trail` ra khỏi prefix `/compliance/*` cho gọn nav; `ManagementReviewListView` thay `ManagementReviewDetailView`; toàn bộ view dùng envelope `{success, data}` không còn `as unknown as`.
+
+
 
 ---
 
@@ -280,11 +291,11 @@ A: Mở CAPA → tab **"Lịch sử hoạt động"** — toàn bộ thay đổi
 
 # Phần II — Release Notes
 
-> ⚠️ Pending implementation — Wave 3. Release Notes sẽ hoàn chỉnh sau ngày go-live.
+> ✅ IMPLEMENTED — Wave 2. Release Notes phản ánh code đã merge (`feature/hieuc/wave-2`, commit `4b4b0db`). Tag chính thức cấp khi UAT sign-off.
 
-## II.1 Version 1.0.0 — IMM-16 General Availability
+## II.1 Version 1.0.0-rc.2 — IMM-16 General Availability (Release Candidate)
 
-**Ngày phát hành:** Pending (Wave 3)
+**Ngày phát hành:** 2026-05-14 (rc.2)
 **Phiên bản AssetCore:** 1.1.0
 
 ### Tính năng mới
@@ -365,7 +376,7 @@ Không có breaking change với module hiện có. IMM CAPA Record được **e
 
 # Phần III — Traceability Matrix
 
-> ⚠️ Pending implementation — Wave 3. Cột `Released-in` sẽ điền sau go-live.
+> ✅ IMPLEMENTED — Wave 2. Cột `Released-in` đặt `v1.0.0-rc.2` cho các hạng mục đã có code; còn lại để `—` cho hạng mục backlog.
 
 | ID | Loại | Mô tả | Test Case | Released-in |
 |---|---|---|---|---|

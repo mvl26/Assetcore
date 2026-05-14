@@ -338,8 +338,8 @@ v-for="(d, idx) in doc.devices" :key="d.name || idx"
             <thead>
               <tr class="text-xs text-slate-400 border-b border-slate-100">
                 <th class="py-2 text-left font-medium">Phụ tùng</th>
-                <th class="py-2 text-right font-medium">SL đặt</th>
-                <th class="py-2 text-left font-medium">ĐVT</th>
+                <th class="py-2 text-right font-medium">Số lượng đặt</th>
+                <th class="py-2 text-left font-medium">Đơn vị tính</th>
                 <th class="py-2 text-right font-medium">Đơn giá</th>
                 <th class="py-2 text-right font-medium">Thành tiền</th>
               </tr>

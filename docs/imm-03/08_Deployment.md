@@ -6,7 +6,7 @@
 |---|---|
 | Module | IMM-03 — Vendor Evaluation & Procurement Decision |
 | Phiên bản | 0.1.0 |
-| Ngày | 2026-05-08 |
+| Ngày | 2026-05-14 |
 | Trạng thái | LIVE — Wave 2 |
 
 ---
@@ -23,11 +23,11 @@
 | 4 | IMM-01 (Procurement Plan) Wave 2 đã triển khai | check module | AVL + Decision cần Plan ref |
 | 5 | IMM-02 (Tech Spec) Wave 2 đã triển khai | check module | Eval seed cần Locked spec |
 | 6 | IMM Audit Trail DocType đã có | `frappe.db.exists("DocType", "IMM Audit Trail")` | Chung hệ thống |
-| 7 | 6 patch files đã commit | `git log patches/v0_1_0/` | — |
-| 8 | 3 Workflow JSON đã có | `ls assetcore/workflow/imm_03_*` | — |
-| 9 | Unit test ≥ 85% pass | `bench run-tests --module assetcore.tests.test_imm03` | — |
-| 10 | Frontend build thành công | `yarn build` | — |
-| 11 | `patches.txt` đã đăng ký 6 patch | `cat patches.txt` | — |
+| 7 | Patch v3_1.003_install_imm03 đã commit | `git log assetcore/patches/v3_1/003_install_imm03.py` | Bootstrap gộp 1 patch |
+| 8 | 3 Workflow JSON đã có | `ls assetcore/assetcore/workflow/imm_03_*` | — |
+| 9 | Unit test pass | `bench run-tests --module assetcore.tests.test_imm03` | 5 class hiện có |
+| 10 | Frontend build thành công | `yarn build` (hoặc `npm run build`) | — |
+| 11 | `patches.txt` đã đăng ký `assetcore.patches.v3_1.003_install_imm03` | `cat patches.txt` | — |
 | 12 | Backup database + site | `bench backup --with-files` | Bắt buộc trước migrate |
 
 ### I.2 Stack Versioning
@@ -80,28 +80,26 @@
 
 ### I.4 Migration Patches
 
-Thứ tự chạy (bắt buộc theo thứ tự này):
+Wave 2 LIVE đã gộp toàn bộ bootstrap IMM-03 vào **1 patch duy nhất** (idempotent):
 
 ```
-# patches.txt (Wave 2 section)
-assetcore.patches.v0_1_0.create_imm03_doctypes
-assetcore.patches.v0_1_0.add_supplier_imm_fields
-assetcore.patches.v0_1_0.add_po_imm_fields
-assetcore.patches.v0_1_0.install_imm03_workflows
-assetcore.patches.v0_1_0.seed_eval_criteria_default
-assetcore.patches.v0_1_0.seed_procurement_method_config
+# patches.txt (Wave 2)
+assetcore.patches.v3_1.003_install_imm03
 ```
 
-**Chi tiết từng patch:**
+**Patch detail (`assetcore/patches/v3_1/003_install_imm03.py`):**
 
-| Patch | Mục đích | Schema risk | Rollback |
-|---|---|---|---|
-| `create_imm03_doctypes` | Tạo 5 DocType + 6 child table | Low (new tables) | Drop tables mới |
-| `add_supplier_imm_fields` | Custom fields trên AC Supplier | Medium (alter table) | Remove custom fields |
-| `add_po_imm_fields` | Custom fields trên AC Purchase | Medium (alter table) | Remove custom fields |
-| `install_imm03_workflows` | Deploy 3 Workflow JSON | Low | Delete workflow records |
-| `seed_eval_criteria_default` | Data seed — 5 nhóm criteria | Low (insert only) | Delete seeded records |
-| `seed_procurement_method_config` | Data seed — ngưỡng NĐ | Low (insert only) | Delete seeded records |
+| Bước | Hành động | Module path |
+|---|---|---|
+| 1 | `frappe.reload_doc("assetcore", "doctype", ...)` cho 11 DocType (5 chính + 6 child) | DocType JSON đã commit |
+| 2 | `create_custom_fields({"AC Supplier": _AC_SUPPLIER_CFIELDS}, update=True)` | 7 fields IMM AVL + Cert |
+| 3 | `create_custom_fields({"AC Purchase": _AC_PURCHASE_CFIELDS}, update=True)` | section + 3 link/select fields |
+| 4 | Upsert 3 Workflow + tự sinh Workflow State + Workflow Action Master | 3 JSON file `imm_03_*_workflow.json` |
+| 5 | `frappe.clear_cache()` | — |
+
+**Rollback:** Frappe `migrate` không có cơ chế down — phải restore từ backup. Đối với 1 patch duy nhất, rollback = drop 5 + 6 = 11 table mới + remove 7 custom fields trên AC Supplier + 4 trên AC Purchase + delete 3 Workflow records.
+
+**Data seeds (criteria template / method config):** KHÔNG có patch seed riêng trong bản LIVE; criteria + weighting_scheme set ở runtime qua `create_evaluation` (default `_parse_weighting`).
 
 ### I.5 Deploy Sequence
 
@@ -151,21 +149,21 @@ def test_imm03_smoke():
     ac_supplier_fields = [f.fieldname for f in frappe.get_meta("AC Supplier").fields]
     assert "imm_avl_status" in ac_supplier_fields
     assert "imm_overall_score" in ac_supplier_fields
-    assert "certifications" in ac_supplier_fields
+    assert "imm_certifications" in ac_supplier_fields  # KHÔNG phải "certifications"
 
     # 3. Kiểm tra custom fields trên AC Purchase
     ac_purchase_fields = [f.fieldname for f in frappe.get_meta("AC Purchase").fields]
     assert "imm_procurement_decision" in ac_purchase_fields
+    assert "imm_tech_spec" in ac_purchase_fields
     assert "imm_funding_source" in ac_purchase_fields
 
-    # 4. Kiểm tra Workflow tồn tại
-    assert frappe.db.exists("Workflow", "IMM Vendor Evaluation Workflow")
-    assert frappe.db.exists("Workflow", "IMM Procurement Decision Workflow")
-    assert frappe.db.exists("Workflow", "IMM AVL Workflow")
+    # 4. Kiểm tra Workflow tồn tại (tên match _WORKFLOWS trong patch)
+    assert frappe.db.exists("Workflow", "IMM-03 Vendor Eval Workflow")
+    assert frappe.db.exists("Workflow", "IMM-03 Decision Workflow")
+    assert frappe.db.exists("Workflow", "IMM-03 AVL Workflow")
 
-    # 5. Kiểm tra seed data
-    criteria_count = frappe.db.count("Vendor Eval Criterion Template")
-    assert criteria_count >= 5, f"Expected ≥5 criteria templates, got {criteria_count}"
+    # 5. Seed data: V1 KHÔNG có "Vendor Eval Criterion Template" DocType riêng.
+    #    Default weighting set ở runtime trong _parse_weighting (services/imm03.py).
 
     print("✓ IMM-03 Smoke test PASS")
 ```

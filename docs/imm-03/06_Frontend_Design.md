@@ -6,24 +6,26 @@
 |---|---|
 | Module | IMM-03 — Vendor Evaluation & Procurement Decision |
 | Phiên bản | 0.1.0 |
-| Ngày | 2026-05-08 |
+| Ngày | 2026-05-14 |
 | Trạng thái | LIVE — Wave 2 |
 
 ---
 
 ## I. Sitemap & Routes (LIVE)
 
-> ✅ Routes thực tế khác với spec ban đầu. Ground truth: `frontend/src/router/index.ts`.
+> ✅ Routes thực tế. Ground truth: `frontend/src/router/index.ts` + `frontend/src/views/procurement/`.
 
-| Route thực tế | Component thực tế | Route name | Mô tả |
-|---|---|---|---|
-| `/vendor-evaluations` | `VendorEvalListView.vue` | `VendorEvaluationList` | Danh sách Vendor Evaluation |
-| `/vendor-evaluations/:id` | `VendorEvalDetailView.vue` | `VendorEvaluationDetail` | Chi tiết Evaluation 3 tab |
-| `/approved-vendors` | `AvlListView.vue` | `ApprovedVendorList` | Danh sách AVL |
-| `/procurement-decisions` | `DecisionListView.vue` | `ProcurementDecisionList` | Danh sách Procurement Decision (với KPI tiles) |
-| `/procurement-decisions/:id` | `DecisionDetailView.vue` | `ProcurementDecisionDetail` | Chi tiết Decision |
+| Route | Component (path: `frontend/src/views/procurement/`) | Mô tả |
+|---|---|---|
+| `/vendor-profiles` | `VendorProfileListView.vue` | Danh sách Vendor Profile (qua `list_vendor_profiles`) |
+| `/vendor-profiles/:id` | `VendorProfileDetailView.vue` | Chi tiết Vendor Profile 4 tab + add cert |
+| `/vendor-evaluations` | `VendorEvalListView.vue` | Danh sách Vendor Evaluation |
+| `/vendor-evaluations/:id` | `VendorEvalDetailView.vue` | Chi tiết Evaluation (tabs Candidates/Scoring/Summary) |
+| `/approved-vendors` | `AvlListView.vue` | Danh sách AVL |
+| `/procurement-decisions` | `DecisionListView.vue` | Danh sách Procurement Decision |
+| `/procurement-decisions/:id` | `DecisionDetailView.vue` | Chi tiết Decision (Award form + Contract recorder) |
 
-**Chưa implement (spec only):** VendorProfileList, VendorProfileDetail, AvlDetail, ScorecardView, SupplierAuditDetail, Imm03Dashboard.
+**Spec-only (chưa có code FE):** AvlDetail, ScorecardView (radar), SupplierAuditDetail, Imm03Dashboard (KPI tiles). Endpoint `dashboard_kpis`, `get_vendor_scorecard` đã sẵn ở BE.
 
 ---
 
@@ -31,7 +33,9 @@
 
 > ✅ = đã implement (Wave 2 LIVE); _(Spec only)_ = chưa có code.
 
-### II.1 `VendorProfileList.vue` _(Spec only)_
+### II.1 `VendorProfileListView.vue` ✅ LIVE (`frontend/src/views/procurement/VendorProfileListView.vue`)
+
+Wired tới `listVendorProfiles({avl_status, device_category, min_score, audit_overdue}, page=1, page_size=100)`. Hiển thị badge `imm_avl_status` (Approved/Conditional/Suspended/Expired/Not Applicable), điểm `imm_overall_score`, count `cert_count` + `cert_expiring_soon`.
 
 ```
 Nhà cung cấp                                           [+ Tạo profile]
@@ -55,7 +59,9 @@ Filter: [AVL Status▾] [Category▾] [Score ≥▾] [Audit quá hạn ⏰]   �
 
 ---
 
-### II.2 `VendorProfileDetail.vue` _(Spec only)_
+### II.2 `VendorProfileDetailView.vue` ✅ LIVE (`frontend/src/views/procurement/VendorProfileDetailView.vue`)
+
+Wired tới `getVendorProfile(id)` + `addVendorCert(...)`. Hiển thị: AC Supplier core (`supplier_name`, `country`, `tax_id`, `email_id`, `phone`...), custom fields IMM (`imm_avl_status`, `imm_avl_categories`, `imm_overall_score`, `imm_last_audit_date`, `imm_next_audit_date`), child table `imm_certifications`, derived `avl_entries`, `scorecard_history`.
 
 ```
 ← Danh sách                   VINAMED · Vinamed JSC · ★★★★ 4.3 · ✓ Approved
@@ -299,13 +305,82 @@ Phát hiện:
 
 ## IV. Pinia Store (LIVE — Composition API)
 
-> ✅ Store thực tế dùng Composition API setup function, không phải Options API như spec ban đầu. Export: `useImm03Store`. State: `evaluations`, `currentEval`, `avlEntries`, `decisions`, `currentDecision`, `kpis`, `loading`, `error`. Store re-exports `api` object cho views gọi trực tiếp.
+> ✅ Store thực tế dùng `defineStore('imm03', () => {...})` (Composition setup) — KHÔNG Options API. Tối thiểu chỉ chứa state + 6 fetcher (`fetchEvaluations`, `fetchEvaluation`, `fetchAvl`, `fetchDecisions`, `fetchDecision`, `fetchKpis`). Các mutator (createDecision/award/addCandidate/score/recordContract/transition) **KHÔNG sống trong store** — views import trực tiếp từ `@/api/imm03` (xem `DecisionDetailView.vue`). Error wrapping qua `ApiError`.
 
 ```typescript
-// stores/imm03.ts — SPEC (Options API). Ground truth: frontend/src/stores/imm03.ts (Composition API)
+// frontend/src/stores/imm03.ts — GROUND TRUTH (78 lines)
+import { defineStore } from 'pinia'
+import { ref } from 'vue'
+import * as api from '@/api/imm03'
+import type {
+  EvalListItem, EvalDoc, AvlListItem, DecisionListItem, DecisionDoc, DashboardKpis,
+} from '@/types/imm03'
+import { ApiError } from '@/api/errors'
+
+export const useImm03Store = defineStore('imm03', () => {
+  // State
+  const evaluations = ref<EvalListItem[]>([])
+  const currentEval = ref<EvalDoc | null>(null)
+  const avlEntries = ref<AvlListItem[]>([])
+  const decisions = ref<DecisionListItem[]>([])
+  const currentDecision = ref<DecisionDoc | null>(null)
+  const loading = ref(false)
+  const error = ref<string | null>(null)
+  const kpis = ref<DashboardKpis | null>(null)
+
+  function clearError() { error.value = null }
+  function _setError(e: unknown) {
+    error.value = e instanceof ApiError ? e.message : (e instanceof Error ? e.message : String(e))
+  }
+
+  async function fetchEvaluations(filters = {}, page = 1, page_size = 20) {
+    loading.value = true; error.value = null
+    try { evaluations.value = (await api.listEvaluations(filters, page, page_size)).items }
+    catch (e) { _setError(e) } finally { loading.value = false }
+  }
+  async function fetchEvaluation(name: string) {
+    loading.value = true; error.value = null
+    try { currentEval.value = await api.getEvaluation(name) }
+    catch (e) { _setError(e); throw e } finally { loading.value = false }
+  }
+  async function fetchAvl(filters = {}) {
+    loading.value = true; error.value = null
+    try { avlEntries.value = (await api.listAvl(filters)).items }
+    catch (e) { _setError(e) } finally { loading.value = false }
+  }
+  async function fetchDecisions(filters = {}) {
+    loading.value = true; error.value = null
+    try { decisions.value = (await api.listDecisions(filters)).items }
+    catch (e) { _setError(e) } finally { loading.value = false }
+  }
+  async function fetchDecision(name: string) {
+    loading.value = true; error.value = null
+    try { currentDecision.value = await api.getDecision(name) }
+    catch (e) { _setError(e); throw e } finally { loading.value = false }
+  }
+  async function fetchKpis() {
+    try { kpis.value = await api.getDashboardKpis() } catch (e) { _setError(e) }
+  }
+
+  return {
+    evaluations, currentEval, avlEntries, decisions, currentDecision,
+    loading, error, kpis, clearError,
+    fetchEvaluations, fetchEvaluation, fetchAvl, fetchDecisions, fetchDecision, fetchKpis,
+  }
+})
+```
+
+**Notes:**
+- `awardDecision` được gọi từ `DecisionDetailView.vue` qua `import { awardDecision } from '@/api/imm03'`. Payload args: `(name, winner_supplier, awarded_price, funding_source, board_approver, contract_doc, remarks)` — KHÔNG có `winner_candidate`/`awarded_vendor`.
+- `scoreEvaluation` args: `(name, scorer_role, scores_by_supplier)` — key của map là supplier name (khớp `cand.supplier`), KHÔNG phải row name.
+- Vendor Profile pages KHÔNG dùng store — views gọi `listVendorProfiles`/`getVendorProfile`/`addVendorCert` trực tiếp.
+
+<details><summary>Spec-only block (Options API, ignore)</summary>
+
+```typescript
+// LEGACY SPEC — KHÔNG còn được implement
 import { defineStore } from "pinia";
 import { useApi } from "@/composables/useApi";
-import type { VendorProfile, VendorEvaluation, ProcurementDecision, AVLEntry, VendorScorecard } from "@/types/imm03";
 
 export const useImm03Store = defineStore("imm03", {
   state: () => ({
@@ -521,6 +596,8 @@ export const useImm03Store = defineStore("imm03", {
   },
 });
 ```
+
+</details>
 
 ---
 

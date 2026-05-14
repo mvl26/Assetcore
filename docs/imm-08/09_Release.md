@@ -7,6 +7,7 @@
 | Ngày phát hành | 2026-05-08 |
 | Owner | PM + BA + Tech Writer |
 | Liên kết | [07 Testing QA](./07_Testing_QA.md) · [08 Deployment](./08_Deployment.md) · [Functional Specs](./IMM-08_Functional_Specs.md) |
+| Cập nhật | 2026-05-14 |
 
 ---
 

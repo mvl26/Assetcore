@@ -8,6 +8,7 @@
 | Base path | `assetcore.api.imm01` |
 | URL pattern | `/api/method/assetcore.api.imm01.<function>` |
 | Phiên bản | 0.1.0 — Wave 2 Live |
+| Cập nhật | 2026-05-14 |
 
 ---
 
@@ -79,9 +80,16 @@ User không có Role hợp lệ → HTTP 200 + `{success: false, code: "FORBIDDE
 | 3.10 | `approve_needs_request` | POST | IMM Board Approver | Pending Approval → Approved (set board_approver, submit) |
 | 3.11 | `reject_needs_request` | POST | IMM Board Approver | Pending Approval → Rejected (rejection_reason bắt buộc) |
 | 3.12 | `list_procurement_plans` | GET | IMM Planning Officer, IMM Department Head, IMM Board Approver | List Procurement Plan |
-| 3.13 | `roll_into_plan` | POST | IMM Planning Officer | Gom Approved NR vào Plan (`plan_year`, `plan_period`, `needs_requests` JSON array) |
-| 3.14 | `get_demand_forecast` | GET | IMM Planning Officer, IMM Department Head | Demand Forecast theo `forecast_year` và `device_category` |
-| 3.15 | `dashboard_kpis` | GET | IMM Planning Officer, IMM Department Head, IMM Board Approver | KPI: `backlog_over_30d`, `by_state`, `g01_pass_rate`, `envelope_utilization` |
+| 3.13 | `get_procurement_plan` | GET | IMM Planning Officer, IMM Department Head, IMM Board Approver | Chi tiết 1 Plan (kèm `plan_items`) |
+| 3.14 | `create_procurement_plan` | POST | IMM Planning Officer | Tạo Plan Draft (`plan_year`, `plan_period`, `budget_envelope`) |
+| 3.15 | `set_budget_envelope` | POST | IMM Planning Officer | Cập nhật `budget_envelope` khi Plan vẫn Draft |
+| 3.16 | `approve_plan` | POST | IMM Board Approver | Plan Draft → Approved |
+| 3.17 | `activate_plan` | POST | IMM Planning Officer | Plan Approved → Active |
+| 3.18 | `close_plan` | POST | IMM Planning Officer | Plan Active → Closed |
+| 3.19 | `roll_into_plan` | POST | IMM Planning Officer | Gom Approved NR vào Plan (`plan_year`, `plan_period`, `needs_requests` JSON array) |
+| 3.20 | `remove_from_plan` | POST | IMM Planning Officer | Gỡ 1 Needs Request khỏi `plan_items` |
+| 3.21 | `get_demand_forecast` | GET | IMM Planning Officer, IMM Department Head | Demand Forecast theo `forecast_year` và `device_category` |
+| 3.22 | `dashboard_kpis` | GET | IMM Planning Officer, IMM Department Head, IMM Board Approver | KPI: `backlog_over_30d`, `by_state`, `g01_pass_rate`, `envelope_utilization` |
 
 ---
 
@@ -186,10 +194,13 @@ const ROLES = {
     "tco_5y": 0,
     "scoring_rows": [],
     "budget_lines": [],
-    "lifecycle_events": []
+    "requesting_department_name": "ICU",
+    "device_category_name": "Imaging"
   }
 }
 ```
+
+> Endpoint enrich thêm `requesting_department_name` (từ `AC Department.department_name`) và `device_category_name` (từ `AC Asset Category.category_name`). KHÔNG trả `lifecycle_events` (audit gắn ở `IMM Audit Trail` shared, query riêng).
 
 **Lỗi:** `{success: false, error: "IMM Needs Request không tồn tại", code: "NOT_FOUND"}`
 
@@ -276,7 +287,7 @@ const ROLES = {
 
 ### 3.4 `submit_needs_request`
 
-**Mô tả:** Chuyển Draft → Submitted (validate G01).
+**Mô tả:** Gọi `doc.submit()` trực tiếp (docstatus 0→1). Endpoint này hiện được dùng cho các state terminal đi qua `doc.submit()` (Approved/Rejected). Để chuyển Draft → Submitted (vẫn docstatus=0), FE dùng `transition_workflow` với action `"Gửi đề xuất"`. Endpoint chạy `before_submit_needs_request` (G05) và `_check_workflow_gates` theo target state hiện tại.
 
 | Method | Path |
 |---|---|
@@ -300,7 +311,7 @@ const ROLES = {
 }
 ```
 
-**Lỗi:** `BUSINESS_RULE` nếu G01 fail (thiếu utilization data cho Replacement/Upgrade).
+**Lỗi:** `BAD_STATE` nếu phiếu đã submit/cancel; `BUSINESS_RULE` nếu G05 fail (thiếu funding_source / board_approver).
 
 ---
 
@@ -466,11 +477,12 @@ const ROLES = {
   "success": true,
   "data": {
     "name": "NR-26-04-00012",
-    "workflow_state": "Approved",
-    "approval_date": "2026-05-08"
+    "workflow_state": "Approved"
   }
 }
 ```
+
+> `approval_date` được set trong `before_submit` (xem `before_submit_needs_request`) và có trong document, không trong response payload của endpoint này.
 
 ---
 
@@ -519,8 +531,7 @@ const ROLES = {
         "budget_envelope": 50000000000,
         "allocated_capex": 38400000000,
         "utilization_pct": 76.8,
-        "workflow_state": "Approved",
-        "item_count": 12
+        "workflow_state": "Approved"
       }
     ],
     "total": 1,
@@ -556,13 +567,12 @@ const ROLES = {
 {
   "success": true,
   "data": {
-    "plan_name": "PP-26-001",
-    "items_added": 2,
-    "allocated_capex": 38400000000,
-    "utilization_pct": 76.8
+    "name": "PP-26-001"
   }
 }
 ```
+
+> Endpoint trả về tên Plan (mới tạo hoặc đã có). Để lấy chi tiết rollup mới (allocated_capex / utilization_pct / plan_items), gọi tiếp `get_procurement_plan(name)`.
 
 ---
 
@@ -572,7 +582,7 @@ const ROLES = {
 
 | Method | Path |
 |---|---|
-| GET | `/api/method/assetcore.api.imm01.get_demand_forecast?forecast_year=2027&horizon_years=5&device_category=Imaging` |
+| GET | `/api/method/assetcore.api.imm01.get_demand_forecast?forecast_year=2027&device_category=Imaging` |
 
 **Response 200:**
 
@@ -580,25 +590,22 @@ const ROLES = {
 {
   "success": true,
   "data": {
-    "forecast_year": 2027,
-    "horizon_years": 5,
-    "device_category": "Imaging",
-    "matrix": [
-      {"year": 2027, "projected_qty": 5, "projected_capex": 7500000000},
-      {"year": 2028, "projected_qty": 4, "projected_capex": 6200000000},
-      {"year": 2029, "projected_qty": 6, "projected_capex": 9300000000},
-      {"year": 2030, "projected_qty": 5, "projected_capex": 8000000000},
-      {"year": 2031, "projected_qty": 4, "projected_capex": 6500000000}
-    ],
-    "drivers": [
-      {"driver_type": "replacement",       "weight_pct": 50, "projected_value": 12},
-      {"driver_type": "utilization_growth","weight_pct": 25, "projected_value": 4},
-      {"driver_type": "service_expansion", "weight_pct": 25, "projected_value": 3}
-    ],
-    "accuracy_prev": 0.87
+    "items": [
+      {
+        "name": "DF-2027-Imaging",
+        "forecast_year": 2027,
+        "horizon_years": 5,
+        "device_category": "Imaging",
+        "projected_qty": 5,
+        "projected_capex": 7500000000,
+        "accuracy_prev": 0.87
+      }
+    ]
   }
 }
 ```
+
+> v0.1: endpoint chỉ chấp nhận `forecast_year` (bắt buộc) + `device_category` (tùy chọn). `horizon_years` là field trong record (hiện cố định 5 ở scheduler), KHÔNG phải query param. Matrix theo năm + driver breakdown sẽ là enhancement khi IMM-07/IMM-13 expose data thực; hiện `projected_qty`/`projected_capex` là placeholder 0 (xem `services.imm01.generate_demand_forecast`).
 
 ---
 
@@ -650,12 +657,12 @@ const ROLES = {
 | Tình huống | code | Ví dụ `error` |
 |---|---|---|
 | Trùng Active Replacement Request cho Asset | `DUPLICATE` | "VR-01-01: Asset đã có Needs Request Replacement Active" |
-| Replacement thiếu Decommission Plan IMM-13 | `BUSINESS_RULE` | "VR-01-02: Replacement yêu cầu Decommission Plan IMM-13" |
-| clinical_justification < 200 ký tự | `VALIDATION` | "VR-01-03: clinical_justification phải ≥ 200 ký tự" |
+| Replacement thiếu Decommission Plan IMM-13 | (warn — không error) | Soft `frappe.msgprint` orange; sẽ chuyển `BUSINESS_RULE` khi IMM-13 LIVE |
+| clinical_justification rỗng | `VALIDATION` (Frappe MandatoryError) | "Lý do lâm sàng: required field" — chỉ check rỗng, chưa check độ dài |
 | target_year < current_year | `VALIDATION` | "VR-01-04: target_year không được nhỏ hơn năm hiện tại" |
-| weighted_score không khớp Σ score×weight | `VALIDATION` | "VR-01-05: weighted_score không khớp — hệ thống sẽ tự recompute" |
-| Cấm sửa lifecycle event đã có | `BUSINESS_RULE` | "VR-01-06: Audit trail bất biến" |
-| G01 thiếu utilization data | `BUSINESS_RULE` | "G01: Cần utilization data 12 tháng cho Replacement/Upgrade trước khi Submit" |
+| weighted_score không khớp Σ score×weight | `VALIDATION` | "VR-01-05: weighted_score không khớp Σ scoring_rows" |
+| VR-01-06 (audit trail bất biến) | enforce ở `IMM Audit Trail` DocPerm | Không raise từ IMM-01 service |
+| G01 thiếu utilization data | `BUSINESS_RULE` | "G01: Yêu cầu utilization_pct_12m khi request_type = Replacement/Upgrade" — kích hoạt khi vào state Reviewing |
 | G02 thiếu scoring row | `BUSINESS_RULE` | "G02: Cần đủ 6/6 tiêu chí chấm điểm trước khi chuyển Prioritized" |
 | G03 thiếu OPEX year | `BUSINESS_RULE` | "G03: Budget Estimate phải có cả CAPEX + OPEX 5 năm" |
 | G04 vượt envelope | `BUSINESS_RULE` | "G04: Tổng dự toán vượt 100% budget envelope" |
@@ -720,8 +727,12 @@ export interface DashboardKpis {
 
 ## §6 Realtime Events
 
-| Event | Channel | Payload | Subscriber |
+> **Status: Not implemented.** Tìm trong codebase không có `frappe.publish_realtime` call nào tại `services/imm01.py` hoặc `api/imm01.py` (so sánh với IMM-02/03/09/15 đều có). Các module Wave 2 khác phát realtime; IMM-01 hiện chỉ dùng polling từ FE (TanStack Query refetch).
+
+| Event (planned) | Channel | Payload dự kiến | Subscriber |
 |---|---|---|---|
 | `imm01_needs_submitted` | `publish_realtime` | `{name, requesting_department, priority_class}` | PTP Khối 1 dashboard |
 | `imm01_needs_approved` | `publish_realtime` | `{name, plan, allocated_budget}` | KH-TC, IMM-02 trigger |
-| `imm01_demand_forecast_published` | `publish_realtime` | `{forecast_year, horizon_years}` | IMM-15, IMM-17 |
+| `imm01_demand_forecast_published` | `publish_realtime` | `{forecast_year, device_category}` | IMM-15, IMM-17 |
+
+> Roadmap: thêm `frappe.publish_realtime` trong `on_submit_needs_request`, `approve_needs_request` (sau doc.submit), và cuối `generate_demand_forecast`. Đến khi đó FE giữ pattern refetch.

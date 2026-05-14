@@ -110,7 +110,7 @@ IMM-04 nhận input từ **IMM-03** (PO), sản xuất output cho **IMM-05** (h�
 | Race condition trên `vendor_serial_no` | Low | Medium | Thêm DB UNIQUE constraint (tech-debt) |
 | `mint_core_asset` không rollback khi IMM-05 import fail | Medium | Medium | Wrap try/except + savepoint (tech-debt) |
 | PM auto-create không hoạt động (UAT TC-32 FAIL) | High | Medium | Track in backlog; IMM-08 implement listener |
-| Mixed naming `Clinical Release` vs `Clinical_Release` | Low | Low | Chuẩn hóa trong sprint kế tiếp |
+| ~~Mixed naming `Clinical Release` vs `Clinical_Release`~~ ✅ Resolved (Wave-2) | — | — | Workflow JSON + service constants + types đều dùng space. |
 | Print Format Biên bản chưa config | Medium | Low | Config Frappe Print Format trước go-live |
 
 **Open questions:**
@@ -118,7 +118,7 @@ IMM-04 nhận input từ **IMM-03** (PO), sản xuất output cho **IMM-05** (h�
 | Câu hỏi | Owner | Deadline |
 |---|---|---|
 | IMM-08 listener cho `imm04_asset_released` — sprint nào? | Tech Lead IMM-08 | Sprint 8 |
-| Chuẩn hóa `Clinical Release` (space) vs `Clinical_Release` (underscore)? | Tech Lead | Sprint 7 |
+| ~~Chuẩn hóa `Clinical Release` (space) vs `Clinical_Release` (underscore)~~ ✅ DONE — space là chuẩn duy nhất. | Tech Lead | DONE (Wave-2) |
 | PDF Biên bản Bàn giao — cần config Print Format trong Frappe? | Workshop Head + BA | Sprint 7 |
 
 ## I.8. Roadmap thực thi
@@ -573,7 +573,7 @@ stateDiagram-v2
 |---|---|---|---|
 | EC-04-01 | Hai KTV nhập cùng SN trong 1 giây (race condition) | App-layer check VR-01 bắt được; DB UNIQUE (TODO) cần thêm | `VALIDATION` |
 | EC-04-02 | Cancel phiếu khi `final_asset` đã tồn tại | Block với message "Không thể Cancel khi Asset đã được tạo" | `BAD_STATE` |
-| EC-04-03 | Submit khi `workflow_state` ≠ `Clinical_Release` | Block với `WRONG_STATE` | `BAD_STATE` |
+| EC-04-03 | Submit khi `workflow_state` ≠ `"Clinical Release"` | Block với `WRONG_STATE` | `BAD_STATE` |
 | EC-04-04 | Upload doc có `expiry_date < today` | Block với VR-DocExpiry message | `VALIDATION` |
 | EC-04-05 | Đổi `risk_class` sau Initial Inspection | Warning msgprint (không block) — VR-05 | `BUSINESS_RULE` (cảnh báo) |
 | EC-04-06 | `baseline_tests` empty khi vào Initial Inspection | Warning FE; không block submit nếu không có test nào | `VALIDATION` |
@@ -588,7 +588,7 @@ stateDiagram-v2
 
 **Open issues:**
 - DB UNIQUE constraint cho `vendor_serial_no` (Owner: DBA, Deadline: Sprint 7)
-- Chuẩn hóa naming `Clinical Release` vs `Clinical_Release` (Owner: Tech Lead, Sprint 7)
+- ~~Chuẩn hóa naming `Clinical Release` vs `Clinical_Release`~~ ✅ DONE (Wave-2 — space là chuẩn duy nhất)
 
 ---
 

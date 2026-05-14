@@ -159,7 +159,7 @@ bench --site assetcore.local set-maintenance-mode off
 
 # 11. Smoke test (§I.6)
 # 12. Test scheduler thủ công
-bench --site assetcore.local execute assetcore.tasks.check_document_expiry
+bench --site assetcore.local execute assetcore.services.imm05.check_document_expiry
 ```
 
 ### Production (giống staging + thêm)
@@ -184,7 +184,7 @@ bench --site assetcore.local execute assetcore.tasks.check_document_expiry
 - Patch `update_asset_completeness` chạy trên tất cả Assets sau deploy.
 - Ước tính: ≤ 500 Assets (Wave 1 dev data).
 - Batch size: 200 assets/iteration với `frappe.db.commit()` sau mỗi batch.
-- Chạy sau migrate: `bench --site ... execute assetcore.tasks.update_asset_completeness`
+- Chạy sau migrate: `bench --site ... execute assetcore.services.imm05.check_document_expiry` (job `update_asset_completeness` chưa implement — xem `04_Backend_Design.md` §7).
 
 ## I.6. Smoke Test Sau Deploy
 
@@ -199,7 +199,7 @@ bench --site assetcore.local execute assetcore.tasks.check_document_expiry
 | 7 | Kiểm tra Workflow IMM-05 | `frappe.get_doc("Workflow", "IMM-05 Document Workflow")` tồn tại |
 | 8 | Kiểm tra Required Document Type | ≥ 5 records (CO, CQ, Manual, License, Radiation License) |
 | 9 | Kiểm tra Custom Fields trên Asset | `custom_doc_completeness_pct`, `custom_document_status` tồn tại |
-| 10 | Cron jobs registered | `bench --site ... scheduled-jobs` có `check_document_expiry` + `update_asset_completeness` |
+| 10 | Cron jobs registered | `bench --site ... scheduled-jobs` có `assetcore.services.imm05.check_document_expiry` (job `update_asset_completeness` chưa wire — backlog) |
 | 11 | File upload test | Upload PDF < 25 MB thành công |
 | 12 | Permission test | Clinical Head login → không thấy Internal_Only docs |
 
@@ -317,7 +317,7 @@ Khi đã có user upload documents trong cửa sổ giữa deploy và rollback:
 | §3.2 — Documentation | Hệ thống lưu trữ tài liệu tập trung per-device | `Asset Document` per-asset + `is_model_level` | DocType fields |
 | Annex 7 — Record retention | Tài liệu kỹ thuật lưu suốt vòng đời + 5 năm sau loại bỏ | BR-05-02 + `on_trash` block | `asset_document.py` |
 | §6.4 — Document control | Version control, không xóa phiên bản cũ | BR-05-01: archive cũ (không xóa) khi phiên bản mới Active | `archive_old_versions()` |
-| §3.4 — Compliance tracking | Theo dõi tỷ lệ tuân thủ hồ sơ theo khoa | `update_asset_completeness()` + `get_compliance_by_dept()` | `tasks.py` + `api/imm05.py` |
+| §3.4 — Compliance tracking | Theo dõi tỷ lệ tuân thủ hồ sơ theo khoa | `_compute_document_status()` (realtime on_update) + `get_compliance_by_dept()` | `services/imm05.py` + `api/imm05.py` |
 
 ### ISO 13485:2016 — Medical Devices QMS
 

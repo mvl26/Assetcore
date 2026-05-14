@@ -142,6 +142,11 @@ def _get_needs_request(name: str) -> dict:
         ) or doc.requesting_department
     else:
         data["requesting_department_name"] = ""
+    # Enrich asset category display name
+    if doc.get("device_category"):
+        data["device_category_name"] = frappe.db.get_value(
+            "AC Asset Category", doc.get("device_category"), "category_name"
+        ) or doc.get("device_category")
     return data
 
 

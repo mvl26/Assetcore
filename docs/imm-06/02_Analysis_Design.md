@@ -168,7 +168,7 @@ Output: IMM User Competency (hồ sơ năng lực), IMM Competency Gap Report, A
 [N Competency → Active]
         │
         ▼
-[IMM-04 GW-2 Clinical_Release:
+[IMM-04 GW-2 "Clinical Release":
  get_asset_operator_coverage(asset)
  → operator_count >= required_min → gate_pass = true]
         │

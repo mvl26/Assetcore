@@ -3,12 +3,12 @@
 | Mục | Giá trị |
 |---|---|
 | Module | IMM-16 — Compliance Monitoring & CAPA |
-| Phiên bản | 0.3.0 |
-| Ngày cập nhật | 2026-05-08 |
+| Phiên bản | 0.4.0 |
+| Ngày cập nhật | 2026-05-14 |
 | Owner | Tech Lead + BE Developer |
 | Liên kết | [03 Diagrams](./03_Diagrams.md) · [05 API](./05_API_Specification.md) · [07 Testing](./07_Testing_QA.md) |
 
-> ⚠️ Pending implementation — Wave 3
+> ✅ Implemented — Wave 2 (feature/hieuc/wave-2). 11 DocType IMM-16 đã có JSON + controller trong `assetcore/assetcore/doctype/imm_compliance_*`, `imm_internal_audit`, `imm_management_review`, `imm_capa_*`, `imm_audit_*`. Service `assetcore/services/imm16.py` (~1705 dòng) + `assetcore/api/imm16.py` (~383 dòng) LIVE.
 
 ---
 
@@ -16,27 +16,27 @@
 
 | DocType | Trạng thái | Naming | Submittable | Track Changes | Vai trò |
 |---|---|---|---|---|---|
-| `IMM CAPA Record` | **LIVE — REUSE** | `CAPA-.YYYY.-.#####` | 1 | 1 | CAPA backbone |
+| `IMM CAPA Record` | **LIVE** | `CAPA-.YYYY.-.#####` | 1 | 1 | CAPA backbone (extended với CF IMM-16) |
+| `IMM CAPA Action Step` | **LIVE** | child | 0 | 0 | Action plan step (Wave 2) |
 | `Audit Finding` | **LIVE — REUSE** | child | 0 | 0 | Audit Finding child |
-| `IMM Audit Trail` | **LIVE — REUSE** | `IMM-AUD-.YYYY.-.#######` | 0 | 0 | Hash chain |
+| `IMM Audit Trail` | **LIVE** | `IMM-AUD-.YYYY.-.#######` | 0 | 0 | Hash chain |
 | `IMM RCA Record` | **LIVE — REUSE** | `IMM-RCA-.YYYY.-.#####` | 1 | 1 | RCA backbone |
-| `IMM Compliance Rule` | **PLANNED** | `field:rule_code` | 0 | 1 | Master rule declarative |
-| `IMM Compliance Finding` | **PLANNED** | `format:FND-.YYYY.-.#####` | 0 | 1 | Non-conformance record |
-| `IMM Internal Audit` | **PLANNED** | `format:AUD-INT-.YYYY.-.#####` | 0 | 1 | Internal audit cycle |
-| `IMM Audit Checklist Item` | **PLANNED** | child | 0 | 0 | Audit checklist row |
-| `IMM CAPA Action Step` | **PLANNED** | child | 0 | 0 | CAPA action step |
-| `IMM Compliance Scorecard` | **PLANNED** | `format:SCR-.YYYY.-.MM.-.#####` | 0 | 1 | Monthly scorecard |
-| `IMM Management Review` | **PLANNED** | `format:MR-.YYYY.-.#####` | 0 | 1 | Quarterly MR |
-| `IMM Scorecard Module Row` | **PLANNED** | child | 0 | 0 | Score by module |
-| `IMM Scorecard Department Row` | **PLANNED** | child | 0 | 0 | Score by dept |
-| `IMM MR Attendee` | **PLANNED** | child | 0 | 0 | MR attendee |
-| `IMM MR Output Action` | **PLANNED** | child | 0 | 0 | MR output action |
+| `IMM Compliance Rule` | **LIVE** | `field:rule_code` | 0 | 1 | Master rule declarative |
+| `IMM Compliance Finding` | **LIVE** | `format:FND-.YYYY.-.#####` | 0 | 1 | Non-conformance record |
+| `IMM Internal Audit` | **LIVE** | `format:AUD-INT-.YYYY.-.#####` | 0 | 1 | Internal audit cycle |
+| `IMM Audit Checklist Item` | **LIVE** | child | 0 | 0 | Audit checklist row |
+| `IMM Compliance Scorecard` | **LIVE** | `format:SCR-.YYYY.-.MM.-.#####` | 0 | 1 | Monthly scorecard |
+| `IMM Management Review` | **LIVE** | `format:MR-.YYYY.-.#####` | 0 | 1 | Quarterly MR |
+| `IMM Scorecard Module Row` | **PLANNED** (rollup) | child | 0 | 0 | Score by module — hiện aggregate runtime |
+| `IMM Scorecard Department Row` | **PLANNED** (rollup) | child | 0 | 0 | Score by dept — hiện aggregate runtime |
+| `IMM MR Attendee` | **PLANNED** (subset của `IMM Management Review.attendees`) | child | 0 | 0 | MR attendee |
+| `IMM MR Output Action` | **PLANNED** (subset của `IMM Management Review.output_actions`) | child | 0 | 0 | MR output action |
 
 ---
 
 # Phần II — DocType Schemas
 
-> ⚠️ Pending implementation — Wave 3
+> ✅ Implemented — Wave 2. Spec dưới đây đã được code hoá trong `assetcore/services/imm16.py`.
 
 ## II.1. IMM CAPA Record — REUSE + Custom Fields
 
@@ -214,7 +214,7 @@ Existing fields: `naming_series`, `asset` (Link AC Asset), `severity` (Minor/Maj
 
 # Phần III — Service Layer
 
-> ⚠️ Pending implementation — Wave 3
+> ✅ Implemented — Wave 2. Spec dưới đây đã được code hoá trong `assetcore/services/imm16.py`.
 
 File: `assetcore/services/imm16.py`
 
@@ -395,7 +395,7 @@ def check_asset_compliance_status(asset: str) -> dict:
 
 # Phần IV — Controller Hooks
 
-> ⚠️ Pending implementation — Wave 3
+> ✅ Implemented — Wave 2. Spec dưới đây đã được code hoá trong `assetcore/services/imm16.py`.
 
 ## IV.1. IMM Compliance Rule (mới)
 
@@ -421,27 +421,52 @@ class IMMComplianceRule(Document):
 
 Đăng ký trong `hooks.py`:
 
+Hook thực tế tại `assetcore/hooks.py` (verified 2026-05-14):
+
 ```python
 doc_events = {
     "IMM CAPA Record": {
-        "validate": "assetcore.services.imm16.capa_record_validate",
-        "on_update": "assetcore.services.imm16.capa_record_on_update",
+        "validate":      "assetcore.services.imm16.capa_record_validate",
+        "before_submit": "assetcore.services.imm16.capa_record_before_submit",
+        "on_update":     "assetcore.services.imm16.capa_record_on_update",
     },
     "Asset Commissioning": {
         "on_submit": "assetcore.services.imm16.eval_imm04_realtime",
     },
-    "Asset Document": {
+    "AC Asset Document": {
         "on_update": "assetcore.services.imm16.eval_imm05_realtime",
     },
-    "Work Order": {
+    "IMM PM Work Order": {
+        "validate":  "assetcore.services.imm16.gate_wo_submit",       # BR-16-09
         "on_submit": "assetcore.services.imm16.eval_imm08_09_realtime",
-        "validate":  "assetcore.services.imm16.gate_wo_submit",  # BR-16-09
+        # plus reservation hook from IMM-15
     },
-    "Calibration Record": {
+    "IMM CM Work Order": {
+        "validate":  "assetcore.services.imm16.gate_wo_submit",
+        "on_submit": "assetcore.services.imm16.eval_imm08_09_realtime",
+    },
+    "IMM Calibration Record": {
         "on_submit": "assetcore.services.imm16.eval_imm11_realtime",
     },
 }
+
+# Scheduler — flat namespace
+scheduler_events = {
+    "hourly":  ["assetcore.services.imm16.run_compliance_evaluation_hourly"],
+    "daily":   [
+        "assetcore.services.imm16.evaluate_all_compliance_rules",
+        "assetcore.services.imm16.check_capa_due",
+        "assetcore.services.imm16.check_audit_milestones",
+    ],
+    "weekly":  [
+        "assetcore.services.imm16.run_compliance_evaluation_weekly",
+        "assetcore.services.imm16.check_management_review_due",
+    ],
+    "monthly": ["assetcore.services.imm16.update_compliance_scorecard"],
+}
 ```
+
+> Khác biệt vs spec draft 0.3.0: DocType ràng buộc gate đổi từ generic `Work Order` → cụ thể `IMM PM Work Order` + `IMM CM Work Order` (AssetCore không dùng ERPNext core `Work Order`). Asset document hook bám DocType `AC Asset Document`. CAPA có thêm `before_submit` hook.
 
 ```python
 # services/imm16.py
@@ -496,7 +521,7 @@ class IMMComplianceScorecard(Document):
 
 # Phần V — Workflow
 
-> ⚠️ Pending implementation — Wave 3
+> ✅ Implemented — Wave 2. Spec dưới đây đã được code hoá trong `assetcore/services/imm16.py`.
 
 ## V.1. Finding Workflow (`imm_16_finding_workflow.json`)
 
@@ -552,7 +577,7 @@ class IMMComplianceScorecard(Document):
 
 # Phần VI — Schedulers
 
-> ⚠️ Pending implementation — Wave 3
+> ✅ Implemented — Wave 2. Spec dưới đây đã được code hoá trong `assetcore/services/imm16.py`.
 
 File: `assetcore/tasks.py` (EXTEND — không tạo file mới)
 
@@ -603,7 +628,7 @@ def check_capa_due_imm16():
 
 # Phần VII — Database Indexes
 
-> ⚠️ Pending implementation — Wave 3
+> ✅ Implemented — Wave 2. Spec dưới đây đã được code hoá trong `assetcore/services/imm16.py`.
 
 ```sql
 -- Idempotent upsert (NFR-16-03)

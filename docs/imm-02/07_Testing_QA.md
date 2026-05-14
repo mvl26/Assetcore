@@ -1,12 +1,12 @@
 # IMM-02 — Testing & QA
 
-> ⚠️ Pending implementation — Wave 2
+> **Wave 2 — Live.** Unit test thực tế tại `assetcore/tests/test_imm02.py` (7 TestClass · ~24 test method).
 
 | Mục | Giá trị |
 |---|---|
 | Module | **IMM-02 — Thông số Kỹ thuật & Phân tích Thị trường** |
-| Phiên bản | 1.0.0 |
-| Ngày cập nhật | 2026-05-08 |
+| Phiên bản | 1.0.1 |
+| Ngày cập nhật | 2026-05-14 |
 | Owner | QA Lead + Dev |
 | Liên kết | [04 Backend Design](./04_Backend_Design.md) · [05 API Specification](./05_API_Specification.md) · [08 Deployment](./08_Deployment.md) |
 
@@ -31,31 +31,41 @@
   └────────────────────────────────┘
 ```
 
-## I.2. Test Classes (Unit)
+## I.2. Test Classes — Thực tế
 
-| Test Class | Functions covered | File |
+File: `assetcore/tests/test_imm02.py` (single file, 7 TestClass).
+
+| Test Class | Service function | Test method (line) |
 |---|---|---|
-| `TestDraftFromPlan` | `draft_from_plan`, `_vr01_unique_per_plan_line` | `test_imm_tech_spec.py` |
-| `TestSeedDefaultRequirements` | `seed_default_requirements` | `test_imm_tech_spec.py` |
-| `TestVR02MandatoryMin` | `_vr02_mandatory_min_count` | `test_imm_tech_spec.py` |
-| `TestVR03TestMethod` | `_vr03_test_method_present` | `test_imm_tech_spec.py` |
-| `TestVR04BenchmarkMin3` | `_vr04_benchmark_min_3` | `test_imm_market_benchmark.py` |
-| `TestVR05InfraCompleteness` | `_vr05_infra_completeness` | `test_imm_tech_spec.py` |
-| `TestGateG01` | `validate_gate_g01` | `test_imm_tech_spec.py` |
-| `TestGateG02` | `validate_gate_g02` | `test_imm_tech_spec.py` |
-| `TestGateG03` | `validate_gate_g03` | `test_imm_tech_spec.py` |
-| `TestGateG04` | `validate_gate_g04` | `test_imm_tech_spec.py` |
-| `TestLockSpec` | `lock_spec`, `before_submit_tech_spec` | `test_imm_tech_spec.py` |
-| `TestComputeLockIn` | `compute_lock_in`, DEFAULT_WEIGHTS | `test_lock_in_risk.py` |
-| `TestSpecMatch` | `compute_spec_match` | `test_imm_market_benchmark.py` |
-| `TestReissue` | `withdraw_spec`, `reissue_spec` | `test_imm_tech_spec.py` |
-| `TestSchedulers` | `check_overdue_drafts`, `benchmark_freshness_alert` | `test_tasks_imm02.py` |
+| `TestRollupInfraStatus` | `_rollup_infra_status` | empty_returns_blank · all_compatible · need_upgrade_gives_partial · need_major_upgrade_wins · no_statuses_returns_blank |
+| `TestRollupRequirementCounts` | `_rollup_requirement_counts` | counts_mandatory_optional · sets_seq_on_each_row |
+| `TestGateG01` | `_validate_gate_g01` | below_minimum_raises · exactly_minimum_passes · missing_test_method_raises |
+| `TestGateG04` | `_validate_gate_g04` | below_threshold_passes · above_threshold_no_plan_raises · above_threshold_with_plan_but_no_evidence_raises · above_threshold_with_plan_and_evidence_passes |
+| `TestComputeCandidateScore` | `_compute_candidate_score` | returns_float_in_range · higher_spec_match_gives_higher_score · tier1_better_than_tier3 |
+| `TestParseWeighting` | `_parse_weighting` | none_returns_defaults · dict_passthrough · json_string_parsed · invalid_json_returns_defaults |
+| `TestValidateLockInAssessment` | `validate_lock_in_assessment` | computes_weighted_score · sets_default_threshold · unknown_dimension_ignored |
 
-## I.3. Test Stubs (Python — FrappeTestCase Pattern)
+**Run:**
+```bash
+bench --site <site> run-tests --app assetcore --module assetcore.tests.test_imm02
+```
+
+**Test class CHƯA tồn tại (gap để bổ sung Wave 3):**
+
+| Class | Lý do |
+|---|---|
+| `TestDraftFromPlan` | Cần fixture `IMM Procurement Plan` + plan_line; happy path + VR-02-01 duplicate |
+| `TestGateG02` / `TestGateG03` | Hiện chỉ có G01/G04 |
+| `TestReissue` | API `reissue_spec` / `withdraw_spec` chưa có integration test |
+| `TestSchedulers` | `check_overdue_drafts` / `benchmark_freshness_alert` chưa có unit test |
+
+## I.3. Test Stubs (Python — FrappeTestCase Pattern, illustrative only)
+
+> Các stub dưới đây MINH HOẠ pattern dự kiến cho gap test (`TestDraftFromPlan`, `TestReissue`, ...). File `assetcore/tests/test_imm02.py` HIỆN TẠI chỉ chứa 7 TestClass liệt kê ở §I.2.
 
 ```python
-# ⚠️ Pending implementation — Wave 2
-# assetcore/assetcore/doctype/imm_tech_spec/test_imm_tech_spec.py
+# ⚠️ ILLUSTRATIVE — function `draft_from_plan` thực tế nằm ở `assetcore.api.imm02._draft_from_plan`,
+#   không ở `assetcore.services.imm02`. Stub này chỉ để định hướng test pattern.
 
 import frappe
 import unittest
@@ -117,11 +127,12 @@ class TestGateG01(unittest.TestCase):
 
 
 class TestComputeLockIn(unittest.TestCase):
-    """Test compute_lock_in: DEFAULT_WEIGHTS + score calculation"""
+    """Test lock-in score: thực tế dùng `validate_lock_in_assessment(doc)` — không có hàm
+    `compute_lock_in` riêng. Đã được cover trong TestValidateLockInAssessment."""
 
     def test_compute_lock_in_correct_weights(self):
         """DEFAULT_WEIGHTS: Protocol 0.30, Consumable 0.20, Software 0.20, Parts 0.15, Service 0.15"""
-        from assetcore.services.imm02 import compute_lock_in
+        from assetcore.services.imm02 import validate_lock_in_assessment as compute_lock_in
         doc = frappe.new_doc("IMM Lock-in Risk Assessment")
         doc.append("items", {"dimension": "Protocol Standard", "score": 5})
         doc.append("items", {"dimension": "Consumable Source", "score": 3})

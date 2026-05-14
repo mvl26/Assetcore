@@ -8,13 +8,36 @@ import frappe
 from frappe.utils import nowdate, add_days
 
 
+def setUpModule():
+    """Seed master records required by AC Asset link validation."""
+    frappe.set_user("Administrator")
+    if not frappe.db.exists("AC UOM", "Cái"):
+        frappe.get_doc({"doctype": "AC UOM", "uom_name": "Cái"}).insert(ignore_permissions=True)
+        frappe.db.commit()
+
+
+def tearDownModule():
+    """Remove UOM seed record created in setUpModule."""
+    if frappe.db.exists("AC UOM", "Cái"):
+        frappe.delete_doc("AC UOM", "Cái", force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+
 class TestACAssetCategory(unittest.TestCase):
     def setUp(self):
         self.cat = frappe.get_doc({
             "doctype": "AC Asset Category",
-            "category_name": "_Test Category IMM00",
+            "category_name": "Thiết bị Hô hấp & Hồi sức (ICU)",
+            "description": "Máy thở, máy hút đờm, máy CPAP/BiPAP sử dụng tại khoa ICU và phòng mổ",
+            "default_pm_required": 1,
             "default_pm_interval_days": 90,
+            "default_calibration_required": 1,
             "default_calibration_interval_days": 365,
+            "default_depreciation_method": "Straight Line",
+            "total_depreciation_months": 120,
+            "depreciation_frequency": "Yearly",
+            "default_residual_value_pct": 5.0,
+            "is_active": 1,
         }).insert(ignore_permissions=True)
 
     def tearDown(self):
@@ -33,7 +56,11 @@ class TestACDepartment(unittest.TestCase):
     def setUp(self):
         self.dept = frappe.get_doc({
             "doctype": "AC Department",
-            "department_name": "_Test Dept IMM00",
+            "department_name": "Khoa Hồi sức tích cực (ICU)",
+            "department_code": "ICU",
+            "phone": "028-3855-4269",
+            "email": "icu@nd1.hospital.vn",
+            "is_active": 1,
         }).insert(ignore_permissions=True)
 
     def tearDown(self):
@@ -43,15 +70,16 @@ class TestACDepartment(unittest.TestCase):
         self.assertTrue(frappe.db.exists("AC Department", self.dept.name))
 
     def test_naming_series(self):
-        self.assertTrue(self.dept.name.startswith("AC-DEPT-"))
+        # AC Department is a tree DocType — Frappe uses department_name as primary key
+        self.assertEqual(self.dept.name, self.dept.department_name)
 
 
 class TestACLocation(unittest.TestCase):
     def setUp(self):
         self.loc = frappe.get_doc({
             "doctype": "AC Location",
-            "location_name": "_Test Location IMM00",
-            "location_type": "Floor",
+            "location_name": "Phòng ICU 3 — Tầng 3, Nhà A",
+            "location_type": "Room",
         }).insert(ignore_permissions=True)
 
     def tearDown(self):
@@ -68,9 +96,16 @@ class TestACSupplier(unittest.TestCase):
     def setUp(self):
         self.sup = frappe.get_doc({
             "doctype": "AC Supplier",
-            "supplier_name": "_Test Supplier IMM00",
-            "supplier_type": "Manufacturer",
+            "supplier_name": "Công ty TNHH Dräger Medical Vietnam",
+            "supplier_group": "Manufacturer",
+            "vendor_type": "Manufacturer",
             "country": "Vietnam",
+            "tax_id": "0312345678",
+            "address": "10 Nguyễn Đình Chiểu, Phường Đa Kao, Quận 1, TPHCM",
+            "phone": "028-3824-5566",
+            "email_id": "nv.phong@drager.com.vn",
+            "local_representative": "Nguyễn Văn Phong",
+            "is_active": 1,
         }).insert(ignore_permissions=True)
 
     def tearDown(self):
@@ -88,7 +123,7 @@ class TestIMMDeviceModel(unittest.TestCase):
     def setUpClass(cls):
         cls._cat = frappe.get_doc({
             "doctype": "AC Asset Category",
-            "category_name": "_TestCatModel",
+            "category_name": "Thiết bị Chẩn đoán Hình ảnh",
         }).insert(ignore_permissions=True)
 
     @classmethod
@@ -98,11 +133,25 @@ class TestIMMDeviceModel(unittest.TestCase):
     def setUp(self):
         self.model = frappe.get_doc({
             "doctype": "IMM Device Model",
-            "model_name": "_Test Model IMM00",
-            "model_number": "MDL-TEST-001",
-            "manufacturer": "TestMfg",
-            "medical_device_class": "Class II",
+            "model_name": "Máy thở Dräger Evita V500",
+            "manufacturer": "Dräger Medical GmbH",
+            "medical_device_class": "Class III",
+            "risk_classification": "Critical",
             "asset_category": self._cat.name,
+            "country_of_origin": "Germany",
+            "expected_lifespan_years": 10,
+            "gmdn_code": "56987",
+            "gmdn_term": "Ventilator, continuous, for use with adults/children",
+            "registration_required": 1,
+            "is_pm_required": 1,
+            "pm_interval_days": 182,
+            "pm_alert_days": 14,
+            "is_calibration_required": 1,
+            "calibration_interval_days": 365,
+            "calibration_alert_days": 30,
+            "default_calibration_type": "External",
+            "power_supply": "220V/50Hz",
+            "weight_kg": 25.5,
         }).insert(ignore_permissions=True)
 
     def tearDown(self):
@@ -138,25 +187,33 @@ class TestACAsset(unittest.TestCase):
     def setUpClass(cls):
         cls.cat = frappe.get_doc({
             "doctype": "AC Asset Category",
-            "category_name": "_TestCatAsset",
+            "category_name": "Máy thở & Hỗ trợ hô hấp",
             "default_pm_interval_days": 30,
         }).insert(ignore_permissions=True)
 
         cls.dept = frappe.get_doc({
             "doctype": "AC Department",
-            "department_name": "_TestDeptAsset",
+            "department_name": "Khoa Hồi sức tích cực (ICU)",
         }).insert(ignore_permissions=True)
 
         cls.loc = frappe.get_doc({
             "doctype": "AC Location",
-            "location_name": "_TestLocAsset",
+            "location_name": "Phòng ICU 3 — Tầng 3, Nhà A",
             "location_type": "Room",
         }).insert(ignore_permissions=True)
 
         cls.sup = frappe.get_doc({
             "doctype": "AC Supplier",
-            "supplier_name": "_TestSupAsset",
-            "supplier_type": "Distributor",
+            "supplier_name": "Công ty TNHH Dräger Medical Vietnam",
+            "supplier_group": "Manufacturer",
+            "vendor_type": "Manufacturer",
+            "country": "Vietnam",
+            "tax_id": "0312345678",
+            "address": "10 Nguyễn Đình Chiểu, Phường Đa Kao, Quận 1, TPHCM",
+            "phone": "028-3824-5566",
+            "email_id": "nv.phong@drager.com.vn",
+            "local_representative": "Nguyễn Văn Phong",
+            "is_active": 1,
         }).insert(ignore_permissions=True)
 
     @classmethod
@@ -172,19 +229,34 @@ class TestACAsset(unittest.TestCase):
     def _make_asset(self, suffix=""):
         # Use in_install bypass to insert with a non-initial lifecycle_status
         # (AC Asset Lifecycle workflow blocks direct "Draft" → "Commissioned").
+        tag = suffix.lstrip("-") or "0001"
         return _insert_asset_bypass_workflow({
             "doctype": "AC Asset",
-            "asset_name": f"_Test Asset IMM00{suffix}",
+            "asset_name": f"Dräger Evita V500 — ICU{suffix}",
             "asset_category": self.cat.name,
             "department": self.dept.name,
             "location": self.loc.name,
             "supplier": self.sup.name,
-            "purchase_date": nowdate(),
-            "gross_purchase_amount": 50000000,
-            "manufacturer_sn": f"SN-TEST-{suffix or '001'}",
+            "purchase_date": "2023-03-15",
+            "gross_purchase_amount": 850_000_000,
+            "warranty_expiry_date": "2026-03-15",
+            "in_service_date": "2023-03-20",
+            "commissioning_date": "2023-03-20",
+            "manufacturer_sn": f"EVT-2023-{tag}",
+            "medical_device_class": "Class III",
+            "risk_classification": "Critical",
+            "gmdn_code": "56987",
+            "byt_reg_no": "BYT-TB-2022-00891",
+            "byt_reg_expiry": "2027-12-31",
             "lifecycle_status": "Commissioned",
             "is_pm_required": 1,
-            "pm_interval_days": 30,
+            "pm_interval_days": 182,
+            "is_calibration_required": 1,
+            "calibration_interval_days": 365,
+            "useful_life_years": 10,
+            "depreciation_method": "Straight Line",
+            "total_depreciation_months": 120,
+            "residual_value": 42_500_000,
         })
 
     def test_asset_created_with_naming_series(self):
@@ -199,7 +271,7 @@ class TestACAsset(unittest.TestCase):
         from assetcore.services.imm00 import transition_asset_status
         asset = self._make_asset("-trans")
         try:
-            transition_asset_status(asset.name, "Active", actor="Administrator", reason="Smoke test")
+            transition_asset_status(asset.name, "Active", actor="Administrator", reason="Thiết bị đã hoàn thành nghiệm thu và sẵn sàng đưa vào vận hành lâm sàng")
             frappe.db.commit()
             asset.reload()
             self.assertEqual(asset.lifecycle_status, "Active")
@@ -222,7 +294,7 @@ class TestACAsset(unittest.TestCase):
         from assetcore.services.imm00 import transition_asset_status, validate_asset_for_operations
         asset = self._make_asset("-decom")
         try:
-            transition_asset_status(asset.name, "Decommissioned", actor="Administrator", reason="EOL")
+            transition_asset_status(asset.name, "Decommissioned", actor="Administrator", reason="Thiết bị hết niên hạn sử dụng theo quy định BYT; đã lập biên bản thanh lý")
             frappe.db.commit()
             with self.assertRaises(frappe.ValidationError):
                 validate_asset_for_operations(asset.name)
@@ -255,23 +327,32 @@ class TestIMMCAPARecord(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         # Clean up leftovers from prior failed runs.
-        for a in frappe.get_all("AC Asset", filters={"asset_name": "_Test Asset CAPA"},
+        for a in frappe.get_all("AC Asset", filters={"asset_name": "Monitor Mindray BeneView T9 — ICU"},
                                 fields=["name"]):
             frappe.delete_doc("AC Asset", a.name, force=True, ignore_permissions=True)
-        if frappe.db.exists("AC Asset Category", "_TestCatCAPA"):
-            frappe.delete_doc("AC Asset Category", "_TestCatCAPA",
+        if frappe.db.exists("AC Asset Category", "Thiết bị Theo dõi Bệnh nhân"):
+            frappe.delete_doc("AC Asset Category", "Thiết bị Theo dõi Bệnh nhân",
                               force=True, ignore_permissions=True)
         frappe.db.commit()
 
         cls.cat = frappe.get_doc({
             "doctype": "AC Asset Category",
-            "category_name": "_TestCatCAPA",
+            "category_name": "Thiết bị Theo dõi Bệnh nhân",
         }).insert(ignore_permissions=True)
         cls.asset = _insert_asset_bypass_workflow({
             "doctype": "AC Asset",
-            "asset_name": "_Test Asset CAPA",
+            "asset_name": "Monitor Mindray BeneView T9 — ICU",
             "asset_category": cls.cat.name,
-            "manufacturer_sn": "SN-CAPA-001",
+            "manufacturer_sn": "MBT9-2024-CAPA01",
+            "medical_device_class": "Class II",
+            "risk_classification": "High",
+            "purchase_date": "2024-01-20",
+            "gross_purchase_amount": 320_000_000,
+            "warranty_expiry_date": "2027-01-20",
+            "in_service_date": "2024-01-25",
+            "byt_reg_no": "BYT-TB-2023-01122",
+            "is_pm_required": 1,
+            "pm_interval_days": 90,
             "lifecycle_status": "Active",
         })
 
@@ -287,7 +368,7 @@ class TestIMMCAPARecord(unittest.TestCase):
             source_type="Non-Conformance",
             source_ref="",
             severity="Minor",
-            description="Root cause test — action taken — prevention plan",
+            description="Van PEEP bị mòn do vượt chu kỳ thay thế khuyến nghị (>18 tháng). Hành động: thay van mới theo BOM Dräger. Phòng ngừa: cập nhật lịch bảo dưỡng Q6.",
             responsible="Administrator",
             due_days=30,
         )
@@ -302,16 +383,16 @@ class TestIMMCAPARecord(unittest.TestCase):
             source_type="Non-Conformance",
             source_ref="",
             severity="Minor",
-            description="CAPA close test",
+            description="Cảm biến SpO2 lỏng tiếp điểm, kết quả đo nhiễu. Đã kiểm tra và siết lại đầu nối; hiệu chuẩn lại theo QP-CAL-07.",
             responsible="Administrator",
             due_days=7,
         )
         frappe.db.commit()
         close_capa(
             capa_name=name,
-            root_cause="Root cause identified",
-            corrective_action="Action taken",
-            preventive_action="Prevention plan",
+            root_cause="Lỏng đầu nối cảm biến do rung động khi di chuyển thiết bị giữa các phòng",
+            corrective_action="Siết lại và dán cố định cáp cảm biến; ghi nhận vào hồ sơ thiết bị",
+            preventive_action="Bổ sung checklist kiểm tra đầu nối trước mỗi ca vận hành",
             effectiveness_check="Effective",
         )
         frappe.db.commit()
@@ -327,23 +408,40 @@ class TestIMMauditTrail(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         # Clean up leftovers from prior failed runs.
-        for a in frappe.get_all("AC Asset", filters={"asset_name": "_Test Asset Audit"},
+        for a in frappe.get_all("AC Asset", filters={"asset_name": "Máy siêu âm Philips EPIQ 7 — CĐHA"},
                                 fields=["name"]):
             frappe.delete_doc("AC Asset", a.name, force=True, ignore_permissions=True)
-        if frappe.db.exists("AC Asset Category", "_TestCatAudit"):
-            frappe.delete_doc("AC Asset Category", "_TestCatAudit",
+        if frappe.db.exists("AC Asset Category", "Thiết bị Phẫu thuật"):
+            frappe.delete_doc("AC Asset Category", "Thiết bị Phẫu thuật",
                               force=True, ignore_permissions=True)
         frappe.db.commit()
 
         cls.cat = frappe.get_doc({
             "doctype": "AC Asset Category",
-            "category_name": "_TestCatAudit",
+            "category_name": "Thiết bị Phẫu thuật",
         }).insert(ignore_permissions=True)
         cls.asset = _insert_asset_bypass_workflow({
             "doctype": "AC Asset",
-            "asset_name": "_Test Asset Audit",
+            "asset_name": "Máy siêu âm Philips EPIQ 7 — CĐHA",
             "asset_category": cls.cat.name,
-            "manufacturer_sn": "SN-AUDIT-001",
+            "manufacturer_sn": "EPQ7-2022-AUDIT01",
+            "medical_device_class": "Class II",
+            "risk_classification": "High",
+            "purchase_date": "2022-08-10",
+            "gross_purchase_amount": 1_250_000_000,
+            "warranty_expiry_date": "2025-08-10",
+            "in_service_date": "2022-08-20",
+            "byt_reg_no": "BYT-TB-2021-00445",
+            "byt_reg_expiry": "2026-12-31",
+            "gmdn_code": "33587",
+            "useful_life_years": 10,
+            "depreciation_method": "Straight Line",
+            "total_depreciation_months": 120,
+            "residual_value": 62_500_000,
+            "is_pm_required": 1,
+            "pm_interval_days": 365,
+            "is_calibration_required": 1,
+            "calibration_interval_days": 365,
             "lifecycle_status": "Commissioned",
         })
 
@@ -355,7 +453,7 @@ class TestIMMauditTrail(unittest.TestCase):
     def test_audit_trail_created_on_transition(self):
         from assetcore.services.imm00 import transition_asset_status
         before = frappe.db.count("IMM Audit Trail", {"asset": self.asset.name})
-        transition_asset_status(self.asset.name, "Active", actor="Administrator", reason="Audit test")
+        transition_asset_status(self.asset.name, "Active", actor="Administrator", reason="Thiết bị được nghiệm thu và đưa vào sử dụng chính thức tại Khoa CĐHA")
         frappe.db.commit()
         after = frappe.db.count("IMM Audit Trail", {"asset": self.asset.name})
         self.assertGreater(after, before)
@@ -377,23 +475,40 @@ class TestIncidentReport(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         # Clean up any leftover fixtures from a prior failed run.
-        for asset in frappe.get_all("AC Asset", filters={"asset_name": "_Test Asset IR"},
+        for asset in frappe.get_all("AC Asset", filters={"asset_name": "Máy X-quang Canon CXDI-Elite — Khoa CĐHA"},
                                     fields=["name"]):
             frappe.delete_doc("AC Asset", asset.name, force=True, ignore_permissions=True)
-        if frappe.db.exists("AC Asset Category", "_TestCatIR"):
-            frappe.delete_doc("AC Asset Category", "_TestCatIR",
+        if frappe.db.exists("AC Asset Category", "Thiết bị Cấp cứu & Tái hồi"):
+            frappe.delete_doc("AC Asset Category", "Thiết bị Cấp cứu & Tái hồi",
                               force=True, ignore_permissions=True)
         frappe.db.commit()
 
         cls.cat = frappe.get_doc({
             "doctype": "AC Asset Category",
-            "category_name": "_TestCatIR",
+            "category_name": "Thiết bị Cấp cứu & Tái hồi",
         }).insert(ignore_permissions=True)
         cls.asset = _insert_asset_bypass_workflow({
             "doctype": "AC Asset",
-            "asset_name": "_Test Asset IR",
+            "asset_name": "Máy X-quang Canon CXDI-Elite — Khoa CĐHA",
             "asset_category": cls.cat.name,
-            "manufacturer_sn": "SN-IR-001",
+            "manufacturer_sn": "CXD-2023-IR01",
+            "medical_device_class": "Class II",
+            "risk_classification": "High",
+            "purchase_date": "2023-05-12",
+            "gross_purchase_amount": 980_000_000,
+            "warranty_expiry_date": "2026-05-12",
+            "in_service_date": "2023-05-18",
+            "byt_reg_no": "BYT-TB-2022-00678",
+            "byt_reg_expiry": "2027-06-30",
+            "gmdn_code": "40939",
+            "useful_life_years": 10,
+            "depreciation_method": "Straight Line",
+            "total_depreciation_months": 120,
+            "residual_value": 49_000_000,
+            "is_pm_required": 1,
+            "pm_interval_days": 182,
+            "is_calibration_required": 1,
+            "calibration_interval_days": 365,
             "lifecycle_status": "Active",
         })
 
@@ -407,9 +522,9 @@ class TestIncidentReport(unittest.TestCase):
             "doctype": "Incident Report",
             "asset": self.asset.name,
             "severity": "Medium",
-            "incident_title": "_Test Incident",
+            "incident_title": "Máy X-quang hiển thị artifact dạng sọc ngang sau khi di chuyển thiết bị",
             "incident_datetime": nowdate(),
-            "description": "Test incident description",
+            "description": "Thiết bị báo lỗi artifact dạng sọc ngang ảnh hưởng chất lượng chẩn đoán. Sự cố xảy ra sau khi di chuyển máy từ phòng CĐHA-1 sang CĐHA-2 lúc 08:30 ngày vận hành.",
             "patient_affected": 0,
         }).insert(ignore_permissions=True)
         self.assertTrue(ir.name.startswith("IR-"))
@@ -420,9 +535,9 @@ class TestIncidentReport(unittest.TestCase):
         doc.update({
             "asset": self.asset.name,
             "severity": "Critical",
-            "incident_title": "_Test Incident Patient",
+            "incident_title": "Máy thở báo lỗi E-001 — áp lực đường thở tăng bất thường",
             "incident_datetime": nowdate(),
-            "description": "Critical with patient",
+            "description": "Máy thở Dräger Evita V500 tại ICU giường số 5 báo lỗi E-001 lúc 02:15, bệnh nhân thở thụ động, áp lực đường thở tăng vượt ngưỡng cảnh báo. Đã chuyển sang máy dự phòng và tạm dừng sử dụng thiết bị.",
             "patient_affected": 1,
             "patient_impact": "",  # missing — should fail
         })
@@ -440,7 +555,7 @@ class TestUserRoleManagement(unittest.TestCase):
     table trong memory, để `_save_user` save 1 lần với ignore_permissions.
     """
 
-    TEST_EMAIL = "_role_test@assetcore.test"
+    TEST_EMAIL = "ky.thuat.vien.test@nd1.hospital.vn"
 
     @classmethod
     def setUpClass(cls):
@@ -527,7 +642,7 @@ class TestUserRoleManagement(unittest.TestCase):
         from assetcore.api.user import update_user_info
 
         # Tạo non-admin user
-        guest_email = "_role_guest@assetcore.test"
+        guest_email = "nhan.vien.guest.test@nd1.hospital.vn"
         if not frappe.db.exists("User", guest_email):
             u = frappe.new_doc("User")
             u.email = guest_email

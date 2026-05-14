@@ -148,7 +148,7 @@ export default routes
 │  [RepairSourceBadge]              │  [DurationTimer]            │
 │  📋 IR-2026-00123                 │  ⏱ 06:23:15                │
 │                                   │                             │
-│  [RepairRepeatFailureBanner]      │  KTV: Nguyễn Văn A         │
+│  [RepairRepeatFailureBanner]      │  Kỹ thuật viên: Nguyễn V.A │
 │  (nếu is_repeat_failure = true)   │  Phân công: 14/04 08:30     │
 │                                   │                             │
 │  Chẩn đoán                        │  Vật tư: 3 mục / 1.25Mđ    │
@@ -255,9 +255,9 @@ export default routes
 ┌─────────────────────────────────────────────────────────────────┐
 │  Danh sách Phiếu Sửa Chữa             [+ Tạo WO] [↓ Export]   │
 ├────────────┬─────────────────┬──────────┬──────────┬───────────┤
-│  [Status▼] │ [Dept▼]         │ [KTV▼]   │ [Prior▼] │ [Search🔍]│
-├────────────┴─────────────────┴──────────┴──────────┴───────────┤
-│ Số WO          │ Thiết bị      │ Status        │ KTV    │ SLA  │ │
+│  [Status▼] │ [Dept▼]         │ [Kỹ thuật viên▼] │ [Prior▼] │ [🔍]│
+├────────────┴─────────────────┴──────────────────┴──────────┴────┤
+│ Số WO          │ Thiết bị      │ Status        │ Kỹ thuật viên │ SLA │ │
 ├────────────────┼───────────────┼───────────────┼────────┼──────┤ │
 │ WO-CM-2026-042 │ Máy thở ICU3  │ 🔴 In Repair  │ Anh    │  67% │ │
 │ WO-CM-2026-041 │ Monitor P305  │ 🟡 P.Parts    │ Bình   │  40% │ │
@@ -507,7 +507,7 @@ interface ActionButton {
 }
 
 const ACTION_MAP: Record<RepairStatus, ActionButton[]> = {
-  'Open':               [{ label: 'Phân công KTV',          event: 'assign',          roles: ['Workshop Manager'] }],
+  'Open':               [{ label: 'Phân công kỹ thuật viên', event: 'assign',          roles: ['Workshop Manager'] }],
   'Assigned':           [{ label: 'Bắt đầu chẩn đoán',     event: 'diagnose',         roles: ['KTV HTM'] }],
   'Diagnosing':         [{ label: 'Lưu chẩn đoán',          event: 'save_diagnosis',   roles: ['KTV HTM'] }],
   'Pending Parts':      [{ label: 'Xác nhận đã có vật tư', event: 'parts_received',   roles: ['KTV HTM', 'Workshop Manager'] }],
@@ -577,7 +577,7 @@ const validateSource = (): boolean => {
 | Asset | Thiết bị |
 | Repair Type | Loại sửa chữa |
 | Priority | Ưu tiên |
-| Assigned To | KTV thực hiện |
+| Assigned To | Kỹ thuật viên thực hiện |
 | Diagnosis Notes | Nội dung chẩn đoán |
 | Root Cause Category | Phân loại nguyên nhân |
 | Spare Parts | Vật tư / Linh kiện |

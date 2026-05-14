@@ -1,14 +1,14 @@
 # IMM-02 — Phân tích & Thiết kế (Analysis & Design)
 
-> ⚠️ Pending implementation — Wave 2
+> **Wave 2 — Live.**
 
 | Mục | Giá trị |
 |---|---|
 | Module | **IMM-02 — Thông số Kỹ thuật & Phân tích Thị trường (Tech Spec & Market Analysis)** |
-| Phiên bản | 1.0.0 |
-| Ngày cập nhật | 2026-05-08 |
+| Phiên bản | 1.0.1 |
+| Ngày cập nhật | 2026-05-14 |
 | Owner | BA Lead + Tech Lead |
-| Liên kết | [Module Overview](./IMM-02_Module_Overview.md) · [Functional Specs](./IMM-02_Functional_Specs.md) · [03 Diagrams](./03_Diagrams.md) |
+| Liên kết | [03 Diagrams](./03_Diagrams.md) · [04 Backend Design](./04_Backend_Design.md) · [05 API Specification](./05_API_Specification.md) |
 
 ---
 

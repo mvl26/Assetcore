@@ -489,11 +489,11 @@ Trace: `BR-06-06 → revoke_competency(reason, capa_ref) → VR-08 enforce CAPA 
 | DocType (child) | 1 | `IMM Training Participant` |
 | DocType (utility) | 1 | `IMM Competency Alert Log` (idempotency tracker) |
 | Workflow JSON | 2 | `IMM-06 Session Workflow` (7 states) + `IMM-06 Competency Workflow` (6 states) |
-| API endpoint | 19 | `list_programs, get_program, create_program, update_program, list_sessions, get_session, create_session, confirm_session, complete_session, cancel_session, list_competencies, get_user_competencies, get_asset_operator_coverage, get_competency_gaps_by_dept, get_expiring_competencies, revoke_competency, recertify_competency, get_dashboard_stats, check_user_authorization` |
+| API endpoint | 23 | `list_programs, get_program, create_program, update_program, list_sessions, get_session, create_session, confirm_session, start_session, complete_session, cancel_session, verify_session, close_session, list_competencies, get_user_competencies, signoff_competency, revoke_competency, recertify_competency, get_dashboard_stats, get_competency_gaps_by_dept, get_expiring_competencies, check_user_authorization, get_asset_operator_coverage` |
 | FE view / page | 6 | ProgramListView, ProgramDetail, SessionListView, SessionDetail, CompetencyListView, TrainingDashboard |
 | FE store | 1 | `stores/imm06.ts` |
 | Service function | 12 | `check_user_authorization, auto_create_competency_from_session, signoff_competency, revoke_competency, check_competency_expiry, auto_expire_competency, check_recertification_due, generate_competency_gap_report, trigger_recertification_on_program_change, get_asset_operator_coverage, archive_old_competency, on_trash` |
-| Scheduler job | 4 | `check_competency_expiry` (daily 02:00), `auto_expire_competency` (daily 02:30), `check_recertification_due` (daily 03:00), `generate_competency_gap_report` (weekly Mon 02:00) |
+| Scheduler job | 4 | `check_expiring_competencies` (daily), `auto_expire_competencies` (daily), `check_recertification_due` (daily), `generate_weekly_gap_report` (weekly Mon) — đã đăng ký trong `hooks.py` |
 | Business Rule | 12 | BR-06-01 → BR-06-12 |
 | Validation Rule | 12 | VR-01 → VR-12 |
 | Role áp dụng | 7 | Tổ HC-QLCL, Biomed Engineer, Workshop Head, Department Manager, Clinical Head, HTM Technician/Operator, CMMS Admin |

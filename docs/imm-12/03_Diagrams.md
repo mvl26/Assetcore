@@ -5,7 +5,8 @@
 | Module | IMM-12 — Incident & CAPA Management |
 | Phạm vi | Per-module |
 | Owner | BA + Architect |
-| Trạng thái | ⚠️ Pending implementation — diagrams thiết kế ahead-of-code |
+| Cập nhật | 2026-05-14 |
+| Trạng thái | ✅ Live — ERD / class / sequence diagrams khớp DocType + `services/imm12.py` hiện hành |
 
 ---
 
@@ -90,15 +91,15 @@ erDiagram
 | IMM CAPA Record | IMM CAPA Record | ✅ LIVE (IMM-00) | IMM-00 |
 | Asset Lifecycle Event | Asset Lifecycle Event | ✅ LIVE (IMM-00) | IMM-00 |
 | IMM Audit Trail | IMM Audit Trail | ✅ LIVE (IMM-00) | IMM-00 |
-| RCA Record | RCA Record | ⚠️ Pending (IMM-12) | IMM-12 |
-| RCA Related Incident | RCA Related Incident | ⚠️ Pending — Child table | IMM-12 |
-| RCA Five Why Step | RCA Five Why Step | ⚠️ Pending — Child table | IMM-12 |
+| IMM RCA Record | IMM RCA Record (folder `imm_rca_record`) | ✅ Live (IMM-12) | IMM-12 |
+| RCA Related Incident | RCA Related Incident | ✅ Live — Child table | IMM-12 |
+| RCA Five Why Step | RCA Five Why Step | ✅ Live — Child table | IMM-12 |
 
 ---
 
 ## 3. Data Dictionary
 
-### 3.1 Incident Report — Custom Fields (⚠️ Pending IMM-12)
+### 3.1 Incident Report — Custom Fields (✅ Live IMM-12)
 
 > Base fields LIVE từ IMM-00: `asset`, `reported_by`, `reported_at`, `fault_description`, `status`, `resolution_notes`.
 
@@ -120,7 +121,7 @@ erDiagram
 | `chronic_failure_flag` | Check | True if chronic group | Set by scheduler |
 | `assigned_to` | Link User | Technician in charge | — |
 
-### 3.2 RCA Record (⚠️ Pending)
+### 3.2 RCA Record (✅ Live)
 
 Naming: `RCA-YYYY-NNNNN` · Submittable
 
@@ -279,7 +280,7 @@ sequenceDiagram
     SVC->>SVC: _validate_rca_complete (BR-12-07: root_cause + rca_method required)
     SVC->>DB: Update RCA Record (status=Completed, completed_date=today)
 
-    SVC->>SVC00: create_capa(asset, "RCA Record", rca_name, fault_severity, due_days=30)
+    SVC->>SVC00: create_capa(asset, "IMM RCA Record", rca_name, fault_severity, due_days=30)
     SVC00->>DB: Insert IMM CAPA Record (status=Open)
     SVC00-->>SVC: capa_name
 
@@ -331,18 +332,18 @@ sequenceDiagram
 ```mermaid
 flowchart TD
     subgraph api ["api/ (thin wrapper)"]
-        A1["imm12.py ⚠️ Pending\n• report_incident\n• acknowledge_incident\n• resolve_incident\n• close_incident\n• submit_rca\n• get_dashboard"]
+        A1["imm12.py ✅ Live\n• report_incident\n• acknowledge_incident\n• resolve_incident\n• close_incident\n• submit_rca\n• get_dashboard"]
         A0["imm00.py ✅ LIVE\n• create_capa\n• close_capa\n• list_capa"]
     end
 
     subgraph svc ["services/ (business logic)"]
-        S12["imm12.py ⚠️ Pending\n• report_incident()\n• trigger_rca_if_required()\n• detect_chronic_failures()\n• submit_rca_and_create_capa()"]
+        S12["imm12.py ✅ Live\n• report_incident()\n• trigger_rca_if_required()\n• detect_chronic_failures()\n• submit_rca_and_create_capa()"]
         S00["imm00.py ✅ LIVE\n• create_capa()\n• close_capa()\n• log_audit_event()\n• create_lifecycle_event()\n• transition_asset_status()"]
     end
 
     subgraph doctype ["DocType Controllers"]
-        D12["IncidentReport.py ⚠️ Pending\n(custom fields + validate)"]
-        DRCA["RCARecord.py ⚠️ Pending"]
+        D12["IncidentReport.py ✅ Live\n(custom fields + validate)"]
+        DRCA["RCARecord.py ✅ Live"]
         D00["IMMCAPARecord.py ✅ LIVE"]
     end
 
@@ -360,7 +361,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    subgraph views ["views/imm12/ ⚠️ Pending"]
+    subgraph views ["views/imm12/ ✅ Live"]
         V1["IncidentListView.vue"]
         V2["IncidentFormView.vue"]
         V3["CAPAListView.vue"]
@@ -370,7 +371,7 @@ flowchart TD
         V7["Imm12DashboardView.vue"]
     end
 
-    subgraph comps ["components/imm12/ ⚠️ Pending"]
+    subgraph comps ["components/imm12/ ✅ Live"]
         C1["SeverityBadge.vue"]
         C2["IncidentStatusBadge.vue"]
         C3["CAPAStatusBadge.vue"]
@@ -379,11 +380,11 @@ flowchart TD
         C6["IncidentTimeline.vue"]
     end
 
-    subgraph store ["stores/ ⚠️ Pending"]
+    subgraph store ["stores/ ✅ Live"]
         ST["imm12.ts (Pinia)\nuseImm12Store"]
     end
 
-    subgraph api_layer ["api/ ⚠️ Pending"]
+    subgraph api_layer ["api/ ✅ Live"]
         AP["imm12.ts\n• reportIncident()\n• acknowledgeIncident()\n• submitRCA()"]
     end
 

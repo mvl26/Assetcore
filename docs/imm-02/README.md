@@ -5,8 +5,8 @@
 | Module | **IMM-02 — Thông số Kỹ thuật & Phân tích Thị trường (Tech Spec & Market Analysis)** |
 | Wave | 2 |
 | Trạng thái | Wave 2 — Live ✅ |
-| Số file hiện có | 8 (template chuẩn) |
-| Cập nhật cuối | 2026-05-10 |
+| Số file hiện có | 8 file template chuẩn (README + 02–09) + 1 file `_REPORT.md` audit log = 9 file tổng cộng |
+| Cập nhật cuối | 2026-05-14 |
 | Khối kiến trúc | A. KHỐI 1 |
 | Đợt triển khai | 2 |
 | Owner | PTP Khối 1 · Nhóm KH-TC |
@@ -21,7 +21,7 @@
 | 02 Analysis_Design | [`02_Analysis_Design.md`](./02_Analysis_Design.md) | `IMM-02_Module_Overview.md` + `IMM-02_Functional_Specs.md` | ✅ Chuẩn hóa |
 | 03 Diagrams (ERD/Class/Sequence/Communication/Package) | [`03_Diagrams.md`](./03_Diagrams.md) | (rút từ `IMM-02_Technical_Design.md`) | ✅ Chuẩn hóa |
 | 04 Backend_Design | [`04_Backend_Design.md`](./04_Backend_Design.md) | (archived) | ✅ Cập nhật — service functions thực tế, DocType folders thực tế |
-| 05 API_Specification | [`05_API_Specification.md`](./05_API_Specification.md) | (archived) | ✅ Cập nhật — 14 endpoints thực tế, params/response shapes đúng |
+| 05 API_Specification | [`05_API_Specification.md`](./05_API_Specification.md) | (archived) | ✅ Cập nhật — 16 endpoints thực tế, params/response shapes đúng |
 | 06 Frontend_Design | [`06_Frontend_Design.md`](./06_Frontend_Design.md) | (archived) | ✅ Cập nhật — 3 Vue files thực tế, store actions thực tế |
 | 07 Testing QA (Test Plan + UAT + Security + Code quality) | [`07_Testing_QA.md`](./07_Testing_QA.md) | `IMM-02_UAT_Script.md` | ✅ Chuẩn hóa |
 | 08 Deployment + QMS Mapping | [`08_Deployment.md`](./08_Deployment.md) | — | ✅ Mới |
@@ -32,7 +32,7 @@
 - [`02_Analysis_Design.md`](./02_Analysis_Design.md) — Module overview, BPMN, Use Cases (6 UC), 7 BRs, 10 NFRs
 - [`03_Diagrams.md`](./03_Diagrams.md) — ERD Mermaid (10 entities), Class Diagram, Sequence Diagrams
 - [`04_Backend_Design.md`](./04_Backend_Design.md) — DocType catalog, Service layer thực tế, Workflow 7 states, Schedulers (2 jobs thực tế), DB indexes
-- [`05_API_Specification.md`](./05_API_Specification.md) — 14 endpoints thực tế, params/response đúng với code, note rõ endpoints KHÔNG tồn tại
+- [`05_API_Specification.md`](./05_API_Specification.md) — 16 endpoints thực tế, params/response đúng với code, note rõ endpoints KHÔNG tồn tại
 - [`06_Frontend_Design.md`](./06_Frontend_Design.md) — 3 Vue files thực tế, Pinia store actions thực tế, note components TODO
 - [`07_Testing_QA.md`](./07_Testing_QA.md) — Test pyramid, UAT scenarios, STRIDE, DocPerm matrix
 - [`08_Deployment.md`](./08_Deployment.md) — Pre-deploy checklist, migration patches, QMS mapping, 6 KPIs

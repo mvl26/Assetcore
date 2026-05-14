@@ -7,8 +7,8 @@
 | Owner | BA + System Architect |
 | Liên kết | [03 Diagrams](./03_Diagrams.md) · [04 Backend](./04_Backend_Design.md) · [05 API](./05_API_Specification.md) · [06 Frontend](./06_Frontend_Design.md) |
 | Chuẩn tham chiếu | WHO HTM 2025, NĐ 98/2021/NĐ-CP, ISO 13485:2016, ISO/IEC 17025 |
-| Phiên bản | 4.0.0 |
-| Trạng thái | **Partially Live** — một số DocType đã tồn tại; phần còn lại đang được triển khai |
+| Phiên bản | 4.1.0 |
+| Trạng thái | **Live ✅** — BE foundation + scheduler + service layer đã implement; FE đang cuốn chiếu (synced 2026-05-14) |
 
 ---
 
@@ -46,16 +46,16 @@ Nguyên tắc kiến trúc bắt buộc: AssetCore **chỉ phụ thuộc Frappe 
 
 | Hạng mục | Trạng thái | Ghi chú |
 |---|---|---|
-| 5 Core DocTypes (AC prefix) | **Planned** | Đang thiết kế, chưa implement |
-| 6 Governance DocTypes (IMM prefix) | **Planned** | Đang thiết kế |
-| 5 Inventory DocTypes (v4) | **Planned** | Mở rộng scope v4 |
-| Services (imm00.py) | **Planned** | Chưa viết hoàn chỉnh |
-| Role fixtures | **Planned** | Đã thiết kế, chưa seed |
-| Permission query | **Planned** | Chưa implement |
-| Scheduler (4 jobs) | **Planned** | Chưa đăng ký |
-| FE shell + views | **Planned** | Chưa viết |
+| 5 Core DocTypes (AC prefix) | **Live ✅** | AC Asset, AC Supplier, AC Location, AC Department, AC Asset Category đã có trong `assetcore/assetcore/doctype/` |
+| 6 Governance DocTypes (IMM prefix) | **Live ✅** | IMM Audit Trail, IMM CAPA Record, Asset Lifecycle Event, Incident Report, IMM Device Model, IMM SLA Policy |
+| 5 Inventory DocTypes (v4) | **Live ✅** | AC Warehouse, AC Spare Part, AC Spare Part Stock, AC Stock Movement (+ Item child), AC Stock Movement Item |
+| Services (imm00.py) | **Live ✅** | 23+ functions implement (transfer, GMDN, scheduler, KPI rollup) |
+| Role fixtures | **Live ✅** | 19 IMM roles seed qua `fixtures/role.json` (commit `5b4158e`) |
+| Permission query | **Live ✅** | `permission.py` cho AC Asset (scoped theo `responsible_technician`) |
+| Scheduler | **Live ✅** | 5 daily IMM-00 jobs + weekly + monthly (xem §III.7) |
+| FE shell + views | **Partial** | 2 views built (ReferenceData, SlaPolicyList); phần còn lại cuốn chiếu |
 
-> Wave 1 (IMM-04/08/09/11/12) đang được phát triển song song với IMM-00. Code Wave 1 hiện tại tạm thời phụ thuộc ERPNext Asset sẽ được refactor sau khi IMM-00 v3 hoàn chỉnh.
+> Wave 1 (IMM-04/08/09/11/12) đã refactor sang AC Asset registry; không còn phụ thuộc ERPNext Asset.
 
 ## I.3. Vị trí trong kiến trúc WHO HTM lifecycle
 
@@ -90,9 +90,9 @@ Nguyên tắc kiến trúc bắt buộc: AssetCore **chỉ phụ thuộc Frappe 
 - CAPA workflow (Open → In Progress → Pending Verification → Closed / Overdue)
 - SLA lookup engine theo priority × risk_class
 - Incident Report → trigger Repair WO + CAPA
-- 4 daily scheduler jobs
-- 8 role fixtures + permission query
-- 42 REST endpoints
+- 5 daily scheduler jobs + 1 monthly (`rollup_asset_kpi`)
+- 19 role fixtures (Wave 1 + Wave 2) + permission query
+- 107 whitelisted REST endpoints trong `api/imm00.py`
 
 **Out-of-scope (defer sang giai đoạn sau):**
 - AC Purchase Request (mua phụ tùng khi tồn < min) — Wave 2
@@ -174,10 +174,10 @@ Roadmap IMM-00 gắn với 3 đợt triển khai và lớp QMS theo `Ho_so_kien_
 │  [Asset Lifecycle Event]  [Incident Report]                 │
 │  [Inventory: AC Warehouse, AC Spare Part, ...]              │
 │                                                             │
-│  services/imm00.py: 10 shared functions                     │
+│  services/imm00.py: 23+ shared functions                    │
 │  utils/: response.py, lifecycle.py, email.py, pagination.py │
-│  4 daily scheduler jobs                                     │
-│  8 role fixtures + permission.py                            │
+│  5 daily + 1 monthly scheduler jobs                         │
+│  19 role fixtures + permission.py                           │
 └────┬────────┬──────┬──────┬──────┬──────┬──────┬──────┬────┘
      │        │      │      │      │      │      │      │
   IMM-04   IMM-05 IMM-08 IMM-09 IMM-11 IMM-12 IMM-13 IMM-15/16
@@ -204,7 +204,10 @@ HTTP Request / Frappe Scheduler
            ▼
     API Layer (api/imm00.py + api/inventory.py)
            │   @frappe.whitelist()
-           │   42 endpoints + 15 inventory endpoints
+           │   107 endpoints trong api/imm00.py (Asset, Supplier, Location/Dept/Cat,
+           │   Device Model, SLA, Audit, CAPA, ALE, Incident, GMDN, Transfer,
+           │   Service Contract, PM Schedule/Template, Firmware CR, Document Request,
+           │   Depreciation, Downtime Metrics, Scheduler triggers)
            ▼
     Service Layer (services/imm00.py + services/inventory.py)
            │   Business logic · SLA lookup · validation gates
@@ -229,36 +232,36 @@ HTTP Request / Frappe Scheduler
 
 | DocType | Prefix | Mục đích | Trạng thái |
 |---|---|---|---|
-| AC Asset | AC-ASSET- | Bản ghi thiết bị y tế với HTM fields first-class | Planned |
-| AC Supplier | AC-SUP- | NCC, lab hiệu chuẩn, đơn vị bảo trì | Planned |
-| AC Location | AC-LOC- | Vị trí vật lý (tree) | Planned |
-| AC Department | AC-DEPT- | Khoa/phòng (tree) | Planned |
-| AC Asset Category | (by name) | Phân loại thiết bị | Planned |
+| AC Asset | AC-ASSET- | Bản ghi thiết bị y tế với HTM fields first-class | Live ✅ |
+| AC Supplier | AC-SUP- | NCC, lab hiệu chuẩn, đơn vị bảo trì | Live ✅ |
+| AC Location | AC-LOC- | Vị trí vật lý (tree) | Live ✅ |
+| AC Department | AC-DEPT- | Khoa/phòng (tree) | Live ✅ |
+| AC Asset Category | (by name) | Phân loại thiết bị | Live ✅ |
 
 ## III.2. Domain catalog DocTypes
 
 | DocType | Prefix | Mục đích | Trạng thái |
 |---|---|---|---|
-| IMM Device Model | IMM-MDL- | Master template thiết bị với BOM spare parts | Planned |
-| IMM SLA Policy | (by name) | Ma trận SLA P1–P4 × risk_class | Planned |
+| IMM Device Model | IMM-MDL- | Master template thiết bị với BOM spare parts | Live ✅ |
+| IMM SLA Policy | (by name) | Ma trận SLA P1–P4 × risk_class | Live ✅ |
 
 ## III.3. Governance / Audit DocTypes
 
 | DocType | Prefix | Mục đích | Trạng thái |
 |---|---|---|---|
-| IMM Audit Trail | IMM-AUD- | Log bất biến SHA-256 chain | Planned |
-| IMM CAPA Record | CAPA- | Corrective/Preventive Actions (ISO 13485:8.5) | Planned |
-| Asset Lifecycle Event | ALE- | Sự kiện vòng đời chuẩn hoá (append-only) | Planned |
-| Incident Report | IR- | Sự cố thiết bị → trigger CM/CAPA | Planned |
+| IMM Audit Trail | IMM-AUD- | Log bất biến SHA-256 chain | Live ✅ |
+| IMM CAPA Record | CAPA- | Corrective/Preventive Actions (ISO 13485:8.5) | Live ✅ |
+| Asset Lifecycle Event | ALE- | Sự kiện vòng đời chuẩn hoá (append-only) | Live ✅ |
+| Incident Report | IR- | Sự cố thiết bị → trigger CM/CAPA | Live ✅ |
 
 ## III.4. Inventory DocTypes (v4 mới)
 
 | DocType | Prefix | Mục đích | Trạng thái |
 |---|---|---|---|
-| AC Warehouse | AC-WH- | Kho vật tư | Planned |
-| AC Spare Part | AC-SP- | Master catalog phụ tùng | Planned |
-| AC Spare Part Stock | {warehouse}::{spare_part} | Tồn kho thực tế | Planned |
-| AC Stock Movement | AC-SM- | Phiếu nhập/xuất/chuyển/điều chỉnh | Planned |
+| AC Warehouse | AC-WH- | Kho vật tư | Live ✅ |
+| AC Spare Part | AC-SP- | Master catalog phụ tùng | Live ✅ |
+| AC Spare Part Stock | {warehouse}::{spare_part} | Tồn kho thực tế | Live ✅ |
+| AC Stock Movement | AC-SM- | Phiếu nhập/xuất/chuyển/điều chỉnh | Live ✅ |
 
 ## III.5. Shared utilities
 
@@ -269,27 +272,40 @@ HTTP Request / Frappe Scheduler
 | `utils/email.py` | `get_role_emails(roles)`, `safe_sendmail()` | Scheduler jobs |
 | `utils/pagination.py` | `paginate(query, page, page_size)` | List APIs |
 
-## III.6. Role fixtures
+## III.6. Role fixtures (19 IMM roles)
+
+> Wave 1 (13 role) + Wave 2 (6 role) — danh sách đầy đủ trong `assetcore/services/shared/constants.py::Roles`.
 
 | Role | Quyền hạn chính |
 |---|---|
 | IMM System Admin | Create/Write/Delete mọi DocType AssetCore |
-| IMM Department Head | Read/Write AC Asset; nhận cảnh báo scheduler |
-| IMM Operations Manager | Read/Write AC Asset, AC Supplier; Read SLA |
-| IMM Workshop Lead | Read/Write IMM Device Model, AC Asset; Create CAPA |
-| IMM Technician | Read AC Asset (chỉ thiết bị được gán) |
-| IMM Document Officer | Read all; không Create/Edit |
-| IMM Storekeeper | Read/Write AC Supplier; Read/Write inventory |
-| IMM QA Officer | Read/Write/Submit CAPA; xem full Audit Trail |
+| IMM Operations Manager | Duyệt cuối phiếu lớn; CRUD AC Asset, AC Supplier |
+| IMM Department Head | Duyệt cấp khoa + hủy phiếu; nhận cảnh báo scheduler |
+| IMM Deputy Department Head | Hỗ trợ trưởng khoa (không được hủy) |
+| IMM Workshop Lead | Phân công + duyệt Work Order; Create CAPA |
+| IMM QA Officer | QMS, CAPA, RCA, verify hash chain |
+| IMM Biomed Technician | Thực hiện WO, nhập checklist, báo sự cố |
+| IMM Technician | Legacy alias; Read AC Asset scoped |
+| IMM Document Officer | Quản lý hồ sơ IMM-05 |
+| IMM Storekeeper | Quản lý kho, phụ tùng, stock movement |
+| IMM Clinical User | Xem thiết bị khoa mình, báo sự cố |
+| IMM Auditor | Read-only — truy vết audit trail |
+| Vendor Engineer | Bên thứ ba (KTV nhà cung cấp) |
+| IMM Planning / Finance / HTM Engineer / Procurement / Risk / Board Approver | Wave 2 (IMM-01→03) |
+| IMM Training Officer | Wave 2 (IMM-06) |
 
-## III.7. Scheduler jobs (4 daily)
+## III.7. Scheduler jobs
+
+> Đăng ký tại `assetcore/hooks.py::scheduler_events`. Riêng IMM-00 foundation đóng góp 5 daily jobs (cũ: 4 — đã bổ sung `check_insurance_expiry` và `check_service_contract_expiry`).
 
 | Job | Tần suất | Logic |
 |---|---|---|
-| `check_capa_overdue` | Daily 02:00 | CAPA Open + due_date < today → Overdue + email |
-| `check_vendor_contract_expiry` | Daily 02:15 | contract_end in {90,60,30} ngày → email Dept Head |
-| `check_registration_expiry` | Daily 02:30 | byt_reg_expiry in {90,60,30,7} ngày, non-Decommissioned → email |
-| `rollup_asset_kpi` | Daily 03:00 | Tính MTTR avg, PM compliance % (no email) |
+| `check_capa_overdue` | Daily | CAPA Open/In Progress + due_date < today → Overdue + email QA Officer |
+| `check_vendor_contract_expiry` | Daily | contract_end in {90,60,30} ngày → email Dept Head |
+| `check_registration_expiry` | Daily | byt_reg_expiry in {90,60,30,7} ngày, non-Decommissioned → email |
+| `check_insurance_expiry` | Daily | Cảnh báo hết hạn bảo hiểm thiết bị {90,60,30,7} ngày |
+| `check_service_contract_expiry` | Daily | Cảnh báo Service Contract end {90,60,30} ngày |
+| `rollup_asset_kpi` | Monthly | Tính MTTR avg, uptime % cho từng asset (no email) |
 
 ---
 
@@ -345,11 +361,11 @@ HTTP Request / Frappe Scheduler
 
 | FR ID | Mô tả | Actor | Phương thức |
 |---|---|---|---|
-| FR-00-38 | AC Asset có field `gmdn_status` (Đang sử dụng / Không sử dụng) | Ops Manager, System Admin | DocType field |
+| FR-00-38 | AC Asset có field `gmdn_status` enum `In Use` / `Not Use` (DocType options; default `Not Use`, `read_only=1`) | Ops Manager, System Admin | DocType field |
 | FR-00-39 | Filter và hiển thị gmdn_status trong `list_assets()` | Tất cả role IMM | GET `list_assets?gmdn_status=...` |
-| FR-00-40 | API `update_gmdn_status()` — cập nhật thủ công có lý do, ghi Audit Trail | Ops Manager | POST |
-| FR-00-41 | QR Scan Toggle Flow: `toggle_gmdn_status()` tự động đảo trạng thái | KTV / Bác sĩ | POST `/qr-scan` |
-| FR-00-42 | Block `gmdn_status → Đang sử dụng` khi lifecycle_status = Decommissioned / Out of Service | System | `validate()` + service |
+| FR-00-40 | API `update_gmdn_status()` — cập nhật thủ công có lý do, ghi Audit Trail | Ops Manager | POST `update_gmdn_status` |
+| FR-00-41 | QR Scan Toggle Flow: `toggle_gmdn_status()` tự động đảo trạng thái `In Use ↔ Not Use` | KTV / Bác sĩ | POST `toggle_gmdn_status` |
+| FR-00-42 | Block `gmdn_status → In Use` khi lifecycle_status ∈ {Decommissioned, Out of Service} | System | `update_gmdn_status()` service |
 
 ## IV.7. Nhóm GMDN Code Hierarchy (FR-00-43 → FR-00-46)
 
@@ -392,7 +408,7 @@ HTTP Request / Frappe Scheduler
 | NFR-00-09 | Error message qua `frappe._()` | Gói ngôn ngữ `vi.csv` |
 | NFR-00-10 | Tất cả service function log request_id + actor | `frappe.logger("imm00")` |
 | NFR-00-11 | Response chuẩn `_ok(data)` / `_err(msg, code)` | Enforce qua `utils/response.py` |
-| NFR-00-12 | 4 scheduler jobs idempotent | Retry tối đa 3 lần; fail → ERROR log + email admin |
+| NFR-00-12 | 5 daily + 1 monthly scheduler jobs idempotent | Retry tối đa 3 lần; fail → ERROR log + email admin |
 | NFR-00-13 | AC Location tree depth ≤ 6 | Lft/rgt nested set (Frappe NestedSet) |
 
 ---
@@ -411,7 +427,7 @@ HTTP Request / Frappe Scheduler
 | BR-00-08 | CAPA before_submit: root_cause + corrective_action + preventive_action | `IMMCAPARecord.before_submit()` | ISO 13485:8.5 |
 | BR-00-09 | CAPA quá due_date → auto Overdue qua daily scheduler | `check_capa_overdue()` | Internal |
 | BR-00-10 | Mọi thay đổi lifecycle_status → sinh 1 Asset Lifecycle Event | `transition_asset_status()` | Audit trail |
-| BR-00-11 | gmdn_status không thể → Đang sử dụng khi Decommissioned / Out of Service | `update_gmdn_status()` | NĐ 98/2021 |
+| BR-00-11 | gmdn_status không thể → `In Use` khi Decommissioned / Out of Service | `update_gmdn_status()` | NĐ 98/2021 |
 | BR-00-12 | Mọi thay đổi gmdn_status phải có reason ≥ 5 ký tự, ghi Audit Trail | Service layer | ISO 13485:8.2 |
 | BR-00-13 | `gmdn_code` + `gmdn_term` là thuộc tính cấp danh mục. `AC Asset Category` là nguồn kế thừa cấp 1. `IMM Device Model` kế thừa tự động khi tạo mới nếu trống. `AC Asset` kế thừa từ `device_model` tại `before_insert`. Kế thừa một chiều: **Category → Model → Asset**. | `IMMDeviceModel.before_insert()` → `_inherit_pm_calibration_defaults()`; `ACAsset.before_insert()` → `_inherit_gmdn_from_device_model()` | Internal |
 | BR-00-14 | Override GMDN được phép tại **cả 3 cấp** (Category, Device Model, Asset) — kế thừa chỉ xảy ra một lần tại `before_insert` nếu field đang trống; nhập tay sau đó không bị ghi đè. | `before_insert` chỉ điền khi trống | Internal |

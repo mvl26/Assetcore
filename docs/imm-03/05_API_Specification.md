@@ -6,7 +6,7 @@
 |---|---|
 | Module | IMM-03 — Vendor Evaluation & Procurement Decision |
 | Phiên bản | 0.1.0 |
-| Ngày | 2026-05-08 |
+| Ngày | 2026-05-14 |
 | Base path | `/api/method/assetcore.api.imm03.<endpoint>` |
 | Trạng thái | LIVE — Wave 2 |
 
@@ -95,7 +95,9 @@ ROLE_ADMIN        = "IMM System Admin"           # CMMS Admin
 
 ## 3. Endpoint Specifications
 
-> **Thực tế vs Spec ban đầu:** Endpoints `list_vendor_profiles`, `get_vendor_profile`, `create_vendor_profile`, `add_vendor_cert` KHÔNG tồn tại trong `api/imm03.py` hiện tại. Vendor Profile management đi qua AC Supplier trực tiếp (ERPNext core). Các endpoints thực tế được implement:
+> **Catalog endpoint thực tế** (`api/imm03.py`, 22 endpoints):
+>
+> **Vendor Profile (BE-03-01):** `list_vendor_profiles`, `get_vendor_profile`, `create_vendor_profile`, `add_vendor_cert` — ✅ LIVE; thao tác qua `AC Supplier` + custom fields IMM (`imm_avl_status`, `imm_avl_categories`, `imm_overall_score`, `imm_last_audit_date`, `imm_next_audit_date`, `imm_certifications` table → Vendor Cert).
 >
 > **Vendor Evaluation:** `list_evaluations`, `get_evaluation`, `create_evaluation`, `add_candidate`, `submit_quotations`, `score_evaluation`, `transition_eval_workflow`
 >
@@ -105,7 +107,7 @@ ROLE_ADMIN        = "IMM System Admin"           # CMMS Admin
 >
 > **Dashboard:** `dashboard_kpis`, `get_vendor_scorecard`
 
-### 3.1 `list_vendor_profiles` _(Spec only — chưa implement)_
+### 3.1 `list_vendor_profiles` ✅ LIVE
 
 ```
 GET /api/method/assetcore.api.imm03.list_vendor_profiles
@@ -122,7 +124,7 @@ GET /api/method/assetcore.api.imm03.list_vendor_profiles
 | `page` | int | 1 | Trang |
 | `page_size` | int | 20 | Kích thước trang |
 
-**Response:**
+**Response:** (fields fixed bởi `_list_vendor_profiles`; `cert_count` + `cert_expiring_soon` enrich post-query qua `_enrich_vendor_cert_counts`; `audit_overdue` filter chạy in-Python sau khi load do MariaDB không có boolean computed)
 ```json
 {
   "success": true,
@@ -149,47 +151,46 @@ GET /api/method/assetcore.api.imm03.list_vendor_profiles
 
 ---
 
-### 3.2 `get_vendor_profile` _(Spec only — chưa implement)_
+### 3.2 `get_vendor_profile` ✅ LIVE
 
 ```
 GET /api/method/assetcore.api.imm03.get_vendor_profile?name=VINAMED
 ```
 
-**Response:**
+**Response:** payload là `AC Supplier.as_dict()` (kèm core + custom fields) + 2 trường tổng hợp `avl_entries` và `scorecard_history`.
 ```json
 {
   "success": true,
   "data": {
     "name": "VINAMED",
     "supplier_name": "Vinamed JSC",
-    "legal_name": "CTCP Vinamed",
-    "vat_code": "0301234567",
-    "country": "VN",
-    "rep_name": "Nguyễn Văn A",
-    "rep_phone": "0901234567",
-    "rep_email": "a.nguyen@vinamed.vn",
-    "device_categories": "Imaging,Life Support",
-    "financial_health": "A",
+    "supplier_code": "VINAMED",
+    "supplier_group": "Manufacturer",
+    "country": "Vietnam",
+    "tax_id": "0301234567",
+    "email_id": "a.nguyen@vinamed.vn",
+    "phone": "0901234567",
     "imm_avl_status": "Approved",
+    "imm_avl_categories": "Imaging, Life Support",
     "imm_overall_score": 4.3,
-    "certifications": [
-      {
-        "cert_type": "ISO 9001",
-        "cert_number": "ISO-9001-2024-VINAMED",
-        "expiry_date": "2027-01-15",
-        "status": "Active"
-      }
+    "imm_last_audit_date": "2026-01-15",
+    "imm_next_audit_date": "2027-01-15",
+    "imm_certifications": [
+      {"cert_type": "ISO 9001", "cert_number": "ISO-9001-2024-VINAMED",
+       "expiry_date": "2027-01-15", "status": "Active"}
     ],
     "avl_entries": [
-      {"name": "AVL-2026-00045", "device_category": "Imaging", "status": "Approved", "valid_to": "2028-04-30"}
+      {"name": "AVL-2026-00045", "device_category": "Imaging",
+       "status": "Approved", "valid_from": "2026-05-01", "valid_to": "2028-04-30"}
     ],
     "scorecard_history": [
-      {"period": "2026-Q1", "overall_score": 4.1},
-      {"period": "2025-Q4", "overall_score": 4.3}
+      {"name": "VS-2026-Q1-...", "period_year": 2026, "period_quarter": 1, "overall_score": 4.1}
     ]
   }
 }
 ```
+
+> Lưu ý: field child Table là `imm_certifications` (KHÔNG phải `certifications`). Trong `avl_entries` SQL alias `workflow_state as status` → FE thấy key `status`.
 
 **Errors:**
 ```json
@@ -198,39 +199,36 @@ GET /api/method/assetcore.api.imm03.get_vendor_profile?name=VINAMED
 
 ---
 
-### 3.3 `create_vendor_profile` _(Spec only — chưa implement)_
+### 3.3 `create_vendor_profile` ✅ LIVE
 
 ```
 POST /api/method/assetcore.api.imm03.create_vendor_profile
 ```
 
-**Request body:**
+**Wrapper:** body cần gói trong `payload` (string JSON) khi gọi qua `frappePost`.
+
+**Payload (JSON object):**
 ```json
 {
   "supplier": "Vinamed JSC",
-  "legal_name": "CTCP Vinamed",
-  "vat_code": "0301234567",
-  "country": "VN",
-  "rep_name": "Nguyễn Văn A",
-  "rep_phone": "0901234567",
-  "rep_email": "a.nguyen@vinamed.vn",
-  "device_categories": "Imaging,Life Support",
-  "financial_health": "A",
+  "country": "Vietnam",
+  "tax_id": "0301234567",
+  "email_id": "a.nguyen@vinamed.vn",
+  "phone": "0901234567",
+  "imm_avl_categories": "Imaging, Life Support",
   "certifications": [
-    {
-      "cert_type": "ISO 9001",
-      "cert_number": "ISO-9001-2024-VINAMED",
-      "issued_by": "Bureau Veritas",
-      "issued_date": "2024-01-15",
-      "expiry_date": "2027-01-15"
-    }
+    {"cert_type": "ISO 9001", "cert_number": "ISO-9001-2024-VINAMED",
+     "issued_by": "Bureau Veritas", "issued_date": "2024-01-15",
+     "expiry_date": "2027-01-15"}
   ]
 }
 ```
 
 **Side effects:**
-- Cập nhật custom fields trên `AC Supplier`
-- Set `imm_avl_status = "Not Applicable"` nếu chưa có AVL
+- Nếu `AC Supplier` chưa tồn tại → tạo mới với `supplier_name = supplier`; ngược lại update các fields có trong payload (qua `setattr`).
+- `imm_avl_status` mặc định "Not Applicable" nếu chưa set.
+- Thay thế `imm_certifications` child table bằng list mới (clear + append); mỗi cert default `status="Active"` nếu thiếu.
+- VR: nếu thiếu `certifications` → throw `VALIDATION` "VR-03-XX: Thiếu certifications — cần ≥ 1 chứng chỉ ISO 9001 hoặc ISO 13485".
 
 **Response:**
 ```json
@@ -580,8 +578,11 @@ POST /api/method/assetcore.api.imm03.record_contract
 ```
 
 **Side effects:**
-- `workflow_state = "Contract Signed"`
-- Ghi IMM Audit Trail
+- Pre-condition: Decision phải đã submit (`docstatus=1` — state Awarded). Nếu chưa → throw `BAD_STATE`.
+- Update `contract_no` + `contract_doc` qua `frappe.db.set_value` (safe trên doc đã submitted).
+- Field `contract_signed_date` KHÔNG tồn tại trong DocType schema — param `signed_date` được nhận nhưng skip.
+- Gọi `frappe.model.workflow.apply_workflow(doc, "Ký HĐ")` → `workflow_state = "Contract Signed"`.
+- Audit log qua `log_audit_event(event_type="imm03_contract_signed")`.
 
 **Response:**
 ```json
@@ -624,25 +625,25 @@ GET /api/method/assetcore.api.imm03.get_vendor_scorecard?supplier=Vinamed JSC&ye
 ### 3.15 `dashboard_kpis`
 
 ```
-GET /api/method/assetcore.api.imm03.dashboard_kpis?period=2026-Q2
+GET /api/method/assetcore.api.imm03.dashboard_kpis
 ```
+
+> **Thực tế V1:** endpoint trả về funnel state counts + AVL active/expiring — KHÔNG có các KPI "lead_time/avl_pick_rate/cost_saving" (đó là roadmap Wave 3). Không nhận param `period`.
 
 **Response:**
 ```json
 {
   "success": true,
   "data": {
-    "period": "2026-Q2",
-    "lead_time_eval_to_awarded_days": {"value": 55, "target": 60, "status": "green"},
-    "avl_pick_rate_pct": {"value": 92, "target": 90, "status": "green"},
-    "avg_vendor_score": {"value": 4.1, "target": 4.0, "status": "green"},
-    "avl_coverage_pct": {"value": 82, "target": 80, "status": "green"},
-    "audit_completion_rate_pct": {"value": 97, "target": 95, "status": "green"},
-    "supplier_nc_rate_pct": {"value": 0.8, "target": null, "status": "down"},
-    "cost_saving_pct": {"value": 7.2, "target": 5, "status": "green"}
+    "eval_states": {"Draft": 2, "Open RFQ": 1, "Quotation Received": 3, "Evaluated": 8},
+    "decision_states": {"Draft": 1, "Method Selected": 2, "Pending Approval": 1, "Awarded": 5, "Contract Signed": 4, "PO Issued": 12},
+    "avl_active": 24,
+    "avl_expiring_30d": 3
   }
 }
 ```
+
+`eval_states` / `decision_states`: COUNT(*) GROUP BY `workflow_state` cho docstatus<2. `avl_active`: AVL docstatus=1 và state ∈ (Approved, Conditional). `avl_expiring_30d`: AVL docstatus=1, state ∈ (Approved, Conditional), `DATEDIFF(valid_to, CURDATE()) BETWEEN 0 AND 30`.
 
 ---
 
@@ -652,7 +653,7 @@ GET /api/method/assetcore.api.imm03.dashboard_kpis?period=2026-Q2
 GET /api/method/assetcore.api.imm03.list_evaluations?workflow_state=Quotation+Received&page=1
 ```
 
-**Response:**
+**Response:** fields = `name`, `spec_ref`, `draft_date`, `workflow_state`, `recommended_candidate` + enrich `tech_spec_ref_name` (display IMM Tech Spec.device_model_ref) + `vendor_name` (display AC Supplier.supplier_name của recommended_candidate).
 ```json
 {
   "success": true,
@@ -661,15 +662,14 @@ GET /api/method/assetcore.api.imm03.list_evaluations?workflow_state=Quotation+Re
       {
         "name": "VE-26-00120",
         "spec_ref": "TS-26-00045",
-        "workflow_state": "Quotation Received",
-        "candidate_count": 3,
+        "tech_spec_ref_name": "DM-MRI-3T-Siemens",
         "draft_date": "2026-04-15",
-        "recommended_candidate": null
+        "workflow_state": "Quotation Received",
+        "recommended_candidate": null,
+        "vendor_name": null
       }
     ],
-    "total": 8,
-    "page": 1,
-    "page_size": 20
+    "total": 8
   }
 }
 ```
@@ -679,10 +679,12 @@ GET /api/method/assetcore.api.imm03.list_evaluations?workflow_state=Quotation+Re
 ### 3.17 `list_avl`
 
 ```
-GET /api/method/assetcore.api.imm03.list_avl?status=Approved&device_category=Imaging
+GET /api/method/assetcore.api.imm03.list_avl?filters={"workflow_state":"Approved","device_category":"Imaging"}
 ```
 
-**Response:**
+> Endpoint nhận 1 arg `filters` (JSON string). KHÔNG có pagination — `page_length=100` hard-coded. KHÔNG có `total`. Trả về `workflow_state` (KHÔNG có field `status`).
+
+**Response:** fields = `name`, `supplier`, `device_category`, `workflow_state`, `valid_from`, `valid_to` + enrich `vendor_name` (AC Supplier.supplier_name) + `device_category_name` (AC Asset Category.category_name).
 ```json
 {
   "success": true,
@@ -690,41 +692,32 @@ GET /api/method/assetcore.api.imm03.list_avl?status=Approved&device_category=Ima
     "items": [
       {
         "name": "AVL-2026-00045",
-        "supplier": "Vinamed JSC",
-        "device_category": "Imaging",
-        "status": "Approved",
+        "supplier": "VINAMED",
+        "vendor_name": "Vinamed JSC",
+        "device_category": "CAT-IMAGING",
+        "device_category_name": "Imaging",
+        "workflow_state": "Approved",
         "valid_from": "2026-05-01",
-        "valid_to": "2028-04-30",
-        "days_remaining": 722
+        "valid_to": "2028-04-30"
       }
-    ],
-    "total": 12,
-    "page": 1,
-    "page_size": 20
+    ]
   }
 }
 ```
 
 ---
 
-### 3.18 `add_vendor_cert` _(Spec only — chưa implement)_
+### 3.18 `add_vendor_cert` ✅ LIVE
 
 ```
 POST /api/method/assetcore.api.imm03.add_vendor_cert
 ```
 
-**Request body:**
-```json
-{
-  "supplier": "Vinamed JSC",
-  "cert_type": "ISO 13485",
-  "cert_number": "ISO-13485-2024-VINAMED",
-  "issued_by": "TUV SUD",
-  "issued_date": "2024-03-01",
-  "expiry_date": "2027-03-01",
-  "attachment": "/files/iso-13485-vinamed.pdf"
-}
-```
+**Params (flat — không gói `payload`):** `supplier`, `cert_type`, `cert_number` (bắt buộc); `issued_by`, `issued_date`, `expiry_date`, `attachment` (optional).
+
+**Side effects:**
+- Append row vào `AC Supplier.imm_certifications` (status mặc định "Active").
+- Audit log `event_type="vendor_cert_added"` qua `log_audit_event`.
 
 **Response:**
 ```json

@@ -7,7 +7,8 @@
 | Owner | BE Lead |
 | Base URL | `/api/method/assetcore.api.imm12.<function>` |
 | Auth | Frappe session HOẶC `Authorization: token <key>:<secret>` |
-| Trạng thái | ✅ Live — `assetcore/api/imm12.py` deployed |
+| Cập nhật | 2026-05-14 |
+| Trạng thái | ✅ Live — `assetcore/api/imm12.py` deployed (14 endpoint) |
 
 ---
 
@@ -20,8 +21,8 @@
 | 1 | `assetcore.api.imm12.report_incident` | POST | Tạo Incident Report | authenticated | US-12-01 |
 | 2 | `assetcore.api.imm12.get_incident` | GET | Chi tiết 1 IR (calls `get_incident_detail`) | authenticated | US-12-07 |
 | 3 | `assetcore.api.imm12.list_incidents` | GET | List IR với filter + pagination | authenticated | US-12-07 |
-| 4 | `assetcore.api.imm12.acknowledge_incident` | POST | Open → Under Investigation | ROLES_INVESTIGATE | US-12-02 |
-| 5 | `assetcore.api.imm12.resolve_incident` | POST | Under Investigation → Resolved + auto RCA | ROLES_INVESTIGATE | US-12-02 |
+| 4 | `assetcore.api.imm12.acknowledge_incident` | POST | Open → Acknowledged (hoặc → In Progress) | ROLES_INVESTIGATE | US-12-02 |
+| 5 | `assetcore.api.imm12.resolve_incident` | POST | In Progress → Resolved + auto RCA cho High/Critical | ROLES_INVESTIGATE | US-12-02 |
 | 6 | `assetcore.api.imm12.close_incident` | POST | Resolved → Closed (validate RCA Completed) | ROLES_CLOSE | US-12-02 |
 | 7 | `assetcore.api.imm12.cancel_incident` | POST | Huỷ IR (false alarm) | ROLES_INVESTIGATE | US-12-02 |
 | 8 | `assetcore.api.imm12.create_rca` | POST | Tạo IMM RCA Record liên kết IR | ROLES_INVESTIGATE | US-12-03 |

@@ -72,9 +72,18 @@ function priorityStyle(priority: string): string {
 }
 
 function slaPercent(wo: Record<string, unknown>): number {
-  if (!wo.open_datetime || !wo.sla_target_hours) return 0
-  const elapsed = (Date.now() - new Date(wo.open_datetime as string).getTime()) / 3_600_000
-  return Math.min(100, Math.round(((elapsed as number) / (wo.sla_target_hours as number)) * 100))
+  if (!wo.sla_target_hours) return 0
+  const closed = ['Completed', 'Cannot Repair', 'Cancelled'].includes(wo.status as string)
+  let elapsed: number
+  if (closed) {
+    if (wo.mttr_hours != null) elapsed = Number(wo.mttr_hours)
+    else if (wo.completion_datetime && wo.open_datetime) elapsed = (new Date(wo.completion_datetime as string).getTime() - new Date(wo.open_datetime as string).getTime()) / 3_600_000
+    else return 0
+  } else {
+    if (!wo.open_datetime) return 0
+    elapsed = (Date.now() - new Date(wo.open_datetime as string).getTime()) / 3_600_000
+  }
+  return Math.min(100, Math.round((elapsed / (wo.sla_target_hours as number)) * 100))
 }
 
 function slaBarColor(pct: number): string {

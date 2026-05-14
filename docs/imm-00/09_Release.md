@@ -3,8 +3,8 @@
 | Mục | Giá trị |
 |---|---|
 | Module | **IMM-00 — Master / Cross-cutting Foundation** |
-| Phiên bản | 4.0.0 |
-| Ngày phát hành | 2026-05-08 |
+| Phiên bản | 4.2.0 |
+| Ngày phát hành | 2026-05-14 |
 | Owner | PM + BA + Tech Writer |
 | Liên kết | [07 Testing QA](./07_Testing_QA.md) · [08 Deployment](./08_Deployment.md) · [Module Overview](./IMM-00_Module_Overview.md) |
 
@@ -353,6 +353,7 @@ Vào **AssetCore → Dashboard** để xem tổng quan toàn hệ thống:
 
 | Phiên bản | Ngày | Thay đổi | Owner |
 |---|---|---|---|
+| 4.2.0 | 2026-05-14 | Wave 2 GA — 19 IMM roles, Asset Finance Hub, fixture sync hardening; doc deep-sync vs codebase | BA Lead |
 | 4.0.0 | 2026-05-08 | Phát hành lần đầu tài liệu template-chuẩn IMM-00 v4 — thêm Inventory sub-domain | BA Lead |
 | 3.2.0 | 2026-03-01 | Bổ sung GMDN Status Management (FR-00-38→42), Inventory DocTypes v3.2 | BA Lead |
 | 3.0.0 | 2025-12-01 | Tái cấu trúc — tách AssetCore khỏi ERPNext, toàn bộ DocType prefix AC/IMM | Tech Lead |
@@ -404,10 +405,51 @@ Quản lý trạng thái GMDN (Global Medical Device Nomenclature) trên thiết
 
 | Version | Ngày | Nội dung tóm tắt |
 |---|---|---|
+| 4.2.0 | 2026-05-14 | **Wave 2 GA** — IMM-01/02/03 (Needs/Spec/Procurement), IMM-06 (Training), IMM-15 (Spare Parts), IMM-16 (Compliance); 19 IMM roles + has_role fixtures; Asset Finance Hub (Depreciation list/stats); FE restructure FE/BE folders |
+| 4.1.0 | 2026-05-11 | Sprint 6 DoD — 3-tier BE compliance, FE store + views wired, scheduler insurance + service contract |
 | 4.0.0 | 2026-05-08 | Inventory sub-domain, GMDN QR scan, tài liệu template-chuẩn đầy đủ |
 | 3.2.0 | 2026-03-01 | GMDN status field, Inventory DocTypes stub |
 | 3.0.0 | 2025-12-01 | Tách khỏi ERPNext — toàn bộ DocType prefix AC/IMM — breaking migration |
 | 2.x | 2025-06-01 | ERPNext-based — deprecated |
+
+## II.4.1. Wave 2 Release Notes — v4.2.0 (2026-05-14)
+
+**Phạm vi ảnh hưởng IMM-00:** Foundation cần phục vụ thêm 6 module Wave 2 với thay đổi schema và services.
+
+### Tính năng IMM-00 đóng góp cho Wave 2
+
+| Hạng mục | Commit(s) | Mô tả |
+|---|---|---|
+| Role expansion 8 → 19 | `5b4158e` `820e3fe` | Bổ sung Wave 2 roles (Planning, Finance, HTM Engineer, Procurement, Risk, Board Approver, Training Officer, Deputy Dept Head, Biomed Technician, Clinical User, Auditor, Vendor Engineer). Fixture chuyển từ `imm_roles.json` → `role.json` + `has_role.json` |
+| Fixture sync hardening | `227e786` | Sửa warning "Skipping fixture syncing" lúc `bench migrate` |
+| FE/BE folder restructure | `33a9668` | Refactor `frontend/src/api/`, `stores/`, `views/`; tách module IMM-XX rõ ràng |
+| Launcher + UI optimization | `820e3fe` | Sidebar role-aware; launcher cards theo module |
+| Depreciation Asset Finance Hub | (Wave 2 BE) | Thêm `list_assets_depreciation`, `get_depreciation_stats`, `compute_all_depreciation`, `bulk_regenerate_schedule_by_category` — 9 endpoints depreciation tổng |
+| Service Contract + Insurance scheduler | (v4.1) | `check_insurance_expiry`, `check_service_contract_expiry` daily; total 5 daily IMM-00 jobs |
+| `rollup_asset_kpi` chuyển sang monthly | (v4.1) | Hooks `monthly` thay vì `daily` |
+| FE fullname + list view polish | `fce3655` | Hiển thị user fullname; cải thiện list view một số module |
+| npm build + role permission fixes | `65c5dbc` `bcddfac` | Resolve npm build errors, frontend env trong frappe bench |
+
+### Breaking changes (Wave 2)
+
+| Thay đổi | Migration | Tác động |
+|---|---|---|
+| Fixture role JSON đổi tên | `bench migrate` tự áp `role.json` + `has_role.json` | Site cũ vẫn giữ role cũ — không cần manual cleanup |
+| `scheduler_events["daily"]` thêm 2 job (insurance, service contract) | Tự áp khi update app | Khối lượng cron tăng nhẹ |
+| `scheduler_events["monthly"]` mới (rollup_asset_kpi, run_due_depreciation) | Tự áp | KPI dashboard cập nhật chu kỳ tháng thay vì ngày |
+
+### Khả năng tương thích
+
+| Wave 1 module (IMM-04/05/08/09/11/12) | Tương thích ngược | Không cần thay đổi code |
+| AC Asset registry | Không đổi schema breaking | Field thêm: `gmdn_status` (đã có từ v3.2), depreciation fields (v4.0) |
+| API envelope `_ok/_err` | Không đổi | Wave 2 modules tuân thủ |
+
+### Known issues v4.2.0
+
+| Vấn đề | Workaround | Fix |
+|---|---|---|
+| Một số PM Template endpoints có 2 implementations (imm00 + imm08) — FE route sang imm08 | FE đã pin sang imm08; BE giữ imm00 cho backward compat | v4.3 hợp nhất |
+| FE coverage IMM-00 vẫn partial (Asset/Audit/CAPA detail forms chưa build hết) | Dùng Frappe Desk fallback | Cuốn chiếu theo Wave 3 |
 
 ## II.5. Sửa Lỗi
 

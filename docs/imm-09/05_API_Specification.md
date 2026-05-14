@@ -4,7 +4,7 @@
 |---|---|
 | Module | **IMM-09 — Corrective Maintenance / Repair** |
 | Phiên bản tài liệu | 1.0 |
-| Ngày cập nhật | 2026-05-08 |
+| Ngày cập nhật | 2026-05-14 |
 | Trạng thái | Chuẩn hóa từ IMM-09_API_Interface.md |
 | Base path | `assetcore.api.imm09` |
 | URL pattern | `/api/method/assetcore.api.imm09.<function>` |
@@ -64,7 +64,7 @@ User không có Role hợp lệ → HTTP 403 + `CM-010`.
 | 3.1 | `list_repair_work_orders` | GET | Tất cả có đăng nhập | Danh sách WO + filter + phân trang |
 | 3.2 | `get_repair_work_order` | GET | Tất cả có đăng nhập | Chi tiết WO + asset_info enriched |
 | 3.3 | `create_repair_work_order` | POST | Workshop Manager / CMMS Admin | Tạo WO mới |
-| 3.4 | `assign_technician` | POST | Workshop Manager | Phân công KTV |
+| 3.4 | `assign_technician` | POST | Workshop Manager | Phân công Kỹ thuật viên |
 | 3.5 | `submit_diagnosis` | POST | KTV HTM | Nộp chẩn đoán |
 | 3.6 | `request_spare_parts` | POST | KTV HTM / Kho | Cập nhật stock_entry_ref |
 | 3.7 | `start_repair` | POST | KTV HTM | Bắt đầu sửa chữa |

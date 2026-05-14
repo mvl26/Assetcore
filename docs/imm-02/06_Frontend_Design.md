@@ -5,8 +5,8 @@
 | Mục | Giá trị |
 |---|---|
 | Module | **IMM-02 — Thông số Kỹ thuật & Phân tích Thị trường** |
-| Phiên bản | 1.0.0 |
-| Ngày cập nhật | 2026-05-08 |
+| Phiên bản | 1.0.1 |
+| Ngày cập nhật | 2026-05-14 |
 | Stack | Vue 3 + TypeScript + Pinia + TanStack Query + TailwindCSS |
 | Owner | FE Lead |
 | Liên kết | [05 API Specification](./05_API_Specification.md) · [07 Testing QA](./07_Testing_QA.md) |
@@ -15,11 +15,21 @@
 
 # Phần I — Sitemap & Routes
 
-**Vue files thực tế:** `frontend/src/views/imm02/`
+**Vue files thực tế:** `frontend/src/views/tech-specs/`
+
+**Routes (`frontend/src/router/index.ts`):**
+
+| Path | Component | Module key |
+|---|---|---|
+| `/tech-specs` | `views/tech-specs/TechSpecListView.vue` | `imm02` |
+| `/tech-specs/new` | `views/tech-specs/TechSpecCreateView.vue` | `imm02` |
+| `/tech-specs/:id` | `views/tech-specs/TechSpecDetailView.vue` | `imm02` |
+
+Route-to-module map dùng regex `[/^\/tech-specs/, 'imm02']` để gắn breadcrumb + sidebar group.
 
 | File (.vue) | API calls chính | Ghi chú |
 |---|---|---|
-| `TechSpecListView.vue` | `list_tech_specs`, `dashboard_kpis` | List với 4 filter + KPI tiles; filter lock_in_bucket áp dụng client-side |
+| `TechSpecListView.vue` | `list_tech_specs`, `dashboard_kpis` | List với filter + KPI tiles; filter lock_in_bucket áp dụng client-side |
 | `TechSpecCreateView.vue` | `create_tech_spec` | Form create Tech Spec |
 | `TechSpecDetailView.vue` | `get_tech_spec`, `transition_workflow`, `lock_spec`, `withdraw_spec`, `reissue_spec` | Detail với workflow stepper + tabs |
 

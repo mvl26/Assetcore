@@ -28,11 +28,19 @@ const showFilters = ref(false)
 const filterStatus = ref<string>('')
 const filterType = ref<string>('')
 
-const STATUSES = ['Planned', 'In Progress', 'Reporting', 'Closed']
+const STATUSES: { value: string; label: string }[] = [
+  { value: 'Planned',     label: 'Đã lập kế hoạch' },
+  { value: 'In Progress', label: 'Đang thực hiện' },
+  { value: 'Reporting',   label: 'Đang lập báo cáo' },
+  { value: 'Closed',      label: 'Đã đóng' },
+]
 
 const chips = computed(() => {
   const c: { key: string; label: string }[] = []
-  if (filterStatus.value) c.push({ key: 'status', label: filterStatus.value })
+  if (filterStatus.value) {
+    const s = STATUSES.find(x => x.value === filterStatus.value)
+    c.push({ key: 'status', label: s?.label ?? filterStatus.value })
+  }
   if (filterType.value) c.push({ key: 'type', label: `Loại: ${filterType.value}` })
   return c
 })
@@ -106,7 +114,7 @@ onMounted(() => load(1))
           <label class="form-label">Trạng thái</label>
           <select v-model="filterStatus" class="form-select" @change="load(1)">
             <option value="">Tất cả</option>
-            <option v-for="s in STATUSES" :key="s" :value="s">{{ s }}</option>
+            <option v-for="s in STATUSES" :key="s.value" :value="s.value">{{ s.label }}</option>
           </select>
         </div>
         <div class="form-group">

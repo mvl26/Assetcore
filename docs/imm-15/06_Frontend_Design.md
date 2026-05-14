@@ -1,47 +1,54 @@
 # IMM-15 — Frontend Design
 
-> ⚠️ Pending implementation — Wave 3
+> ✅ Implemented — Wave 2. Routes/views/store đều LIVE. Wireframes & component spec dưới đây giữ nguyên làm thiết kế tham chiếu; bảng route ở §I.1 đã sync với `frontend/src/router/index.ts`.
 
 | Thuộc tính | Giá trị |
 |---|---|
 | Module | IMM-15 — Spare Parts Inventory Tracking |
-| Phiên bản | 1.0.0-draft |
+| Phiên bản | 1.1.0 |
 | Template | 06 Frontend_Design |
-| Ngày cập nhật | 2026-05-08 |
-| Trạng thái | PLANNED — Wave 3 |
+| Ngày cập nhật | 2026-05-14 |
+| Trạng thái | IMPLEMENTED (Wave 2) |
 | Phụ thuộc | AC Spare Part, AC Stock Movement, AC Warehouse (Wave 1 LIVE) |
 
 ---
 
 ## §I — Sitemap & Routes
 
-### I.1 Route Catalog
+### I.1 Route Catalog (sync với `frontend/src/router/index.ts`, kiểm tra 2026-05-14)
 
-| # | Route | Component | Guard (role) | LIVE / PLANNED |
+| # | Route | Component | meta.moduleId | Roles meta |
 |---|---|---|---|---|
-| 1 | `/imm15/spares` | `views/SpareItemsList.vue` | All authenticated | PLANNED |
-| 2 | `/imm15/spares/:item_code` | `views/SpareItemDetail.vue` | All authenticated | PLANNED |
-| 3 | `/imm15/allocations` | `views/AllocationList.vue` | Biomed, HTM Tech, Storekeeper, Workshop Head, VP Block 1, CMMS Admin | PLANNED |
-| 4 | `/imm15/allocations/:name` | `views/AllocationDetail.vue` | Biomed, HTM Tech, Storekeeper, Workshop Head, VP Block 1, CMMS Admin | PLANNED |
-| 5 | `/imm15/allocations/new` | `views/AllocationCreate.vue` | Biomed, HTM Tech, Storekeeper, Workshop Head, CMMS Admin | PLANNED |
-| 6 | `/imm15/cycle-counts` | `views/CycleCountList.vue` | Storekeeper, Workshop Head, CMMS Admin, QA Officer | PLANNED |
-| 7 | `/imm15/cycle-counts/:name` | `views/CycleCountDetail.vue` | Storekeeper, Workshop Head, CMMS Admin, QA Officer | PLANNED |
-| 8 | `/imm15/forecasts/:period` | `views/ForecastView.vue` | Workshop Head, VP Block 1, CMMS Admin, Accountant | PLANNED |
-| 9 | `/imm15/watchlist` | `views/WatchlistView.vue` | Storekeeper, Workshop Head, VP Block 1, CMMS Admin | PLANNED |
-| 10 | `/imm15/dashboard` | `views/InventoryDashboard.vue` | Storekeeper, Workshop Head, VP Block 1, QA Officer, CMMS Admin, Accountant | PLANNED |
-| 11 | (modal) | `components/imm15/EmergencyOverrideModal.vue` | Workshop Head, VP Block 1, CMMS Admin (approvers) | PLANNED |
-| 12 | `/assets/:name/spares` | embedded tab in Asset detail | All authenticated | PLANNED |
+| 1 | `/inventory` | `views/inventory/InventoryDashboardView.vue` | imm15 | `ROLES_SPARE_VIEW` |
+| 2 | `/warehouses` | `views/inventory/WarehouseListView.vue` | imm15 | `ROLES_SPARE_VIEW` |
+| 3 | `/warehouses/:name` | `views/inventory/WarehouseDetailView.vue` | imm15 | `ROLES_SPARE_VIEW` |
+| 4 | `/spare-parts` | `views/inventory/SparePartListView.vue` | imm15 | `ROLES_SPARE_VIEW` |
+| 5 | `/spare-parts/:name` | `views/inventory/SparePartDetailView.vue` | imm15 | `ROLES_SPARE_VIEW` |
+| 6 | `/stock` | `views/inventory/StockLevelView.vue` | imm15 | `ROLES_SPARE_VIEW` |
+| 7 | `/stock-movements` | `views/inventory/StockMovementListView.vue` | imm15 | `ROLES_SPARE_VIEW` |
+| 8 | `/stock-movements/new` | `views/inventory/StockMovementCreateView.vue` | imm15 | `ROLES_STOCK_MANAGE` |
+| 9 | `/stock-movements/:name` | `views/inventory/StockMovementDetailView.vue` | imm15 | `ROLES_SPARE_VIEW` |
+| 10 | `/stock-movements/:name/edit` | `views/inventory/StockMovementEditView.vue` | imm15 | `ROLES_STOCK_MANAGE` |
+| 11 | `/inventory/uom` | `views/inventory/UomConversionView.vue` | imm15 | `ROLES_STOCK_MANAGE` |
+| 12 | `/inventory/forecasts` | `views/inventory/SpareForecastView.vue` | imm15 | `ROLES_STOCK_MANAGE` |
+| 13 | `/inventory/watchlist` | `views/inventory/WatchlistView.vue` | imm15 | `ROLES_STOCK_MANAGE` |
 
-### I.2 Navigation Structure
+> Quyết định wave-2: dùng path domain (`/inventory`, `/spare-parts`, `/stock-movements`, `/warehouses`) thay vì prefix `/imm15/*` — sync với pattern các module khác (`/cm`, `/pm`, `/compliance`). Sidebar mapping qua regex `[/^\/inventory/, 'imm15']`, `[/^\/spare-parts/, 'imm15']`, `[/^\/stock/, 'imm15']`, `[/^\/warehouses/, 'imm15']` trong `router/index.ts`.
+>
+> Allocation / Cycle Count UI hiện chưa có route riêng — store action có sẵn (`useImm15Store.fetchAllocations`, `fetchCycleCounts`) chờ FE phát triển trong sprint kế. Wireframes §II.3–II.8 dưới đây giữ làm spec tham chiếu.
+
+### I.2 Navigation Structure (`MODULE_NAV['imm15']`)
 
 ```
-IMM-15 Sidebar
-├── Phụ tùng Y tế (/imm15/spares)
-├── Phiếu cấp phát (/imm15/allocations)
-├── Kiểm kê chu kỳ (/imm15/cycle-counts)
-├── Dự báo nhu cầu (/imm15/forecasts/:period)
-├── Critical Watchlist (/imm15/watchlist)
-└── Dashboard (/imm15/dashboard)
+IMM-15 Sidebar (Storekeeper)
+├── Tổng quan kho (/inventory)
+├── Danh mục phụ tùng (/spare-parts)
+├── Tồn kho (/stock)
+├── Phiếu xuất nhập kho (/stock-movements)
+├── Danh sách kho (/warehouses)
+├── Đơn vị tính (/inventory/uom)
+├── Dự báo phụ tùng (/inventory/forecasts)
+└── Critical Watchlist (/inventory/watchlist)
 ```
 
 ---
@@ -531,7 +538,7 @@ Realtime subscribe `imm15:Workshop Head` → KPI tile update khi có `critical_b
 
 ### III.1 useImm15Store
 
-**File**: `frontend/src/stores/imm15Store.ts`
+**File**: `frontend/src/stores/imm15.ts` (đã đổi tên — bỏ suffix `Store` cho thống nhất với các module khác). API client: `frontend/src/api/imm15.ts` + `frontend/src/api/inventory.ts`.
 
 ```typescript
 import { defineStore } from 'pinia'
@@ -997,4 +1004,4 @@ CycleCount `counted_qty` input hỗ trợ scan QR (`custom_internal_qr` từ IMM
 
 ---
 
-*IMM-15 Module — Wave 3 PLANNED. Frontend Design v1.0.0-draft. Cập nhật 2026-05-08.*
+*IMM-15 Module — Wave 2 IMPLEMENTED. Frontend Design v1.1.0. Cập nhật 2026-05-14.*

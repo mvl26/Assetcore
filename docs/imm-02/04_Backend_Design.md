@@ -5,8 +5,8 @@
 | Mục | Giá trị |
 |---|---|
 | Module | **IMM-02 — Thông số Kỹ thuật & Phân tích Thị trường** |
-| Phiên bản | 1.0.0 |
-| Ngày cập nhật | 2026-05-08 |
+| Phiên bản | 1.0.1 |
+| Ngày cập nhật | 2026-05-14 |
 | Owner | Tech Lead |
 | Liên kết | [03 Diagrams](./03_Diagrams.md) · [05 API Specification](./05_API_Specification.md) |
 
@@ -35,34 +35,40 @@
 
 Naming: `TS-.YY.-.#####` · Submittable · track_changes=1
 
+> Nguồn ground truth: `assetcore/assetcore/doctype/imm_tech_spec/imm_tech_spec.json`. Field list dưới đây liệt kê đầy đủ theo schema thực tế (đã bỏ field bịa `spec_id`).
+
 | Section | Field | Type | Required | Permlevel | Note |
 |---|---|---|---|---|---|
-| Header | `spec_id` | Data (auto) | — | 0 | naming |
-| | `draft_date` | Date | Y | 0 | auto today |
-| | `source_plan` | Link → IMM Procurement Plan | Y | 0 | |
-| | `source_plan_line` | Data | Y | 0 | name of plan_item row |
+| Header | `naming_series` | Select (`TS-.YY.-.#####`) | Y | 0 | default `TS-.YY.-.#####` |
+| | `draft_date` | Date | Y | 0 | default Today |
+| | `version` | Data | N | 0 | default "1.0", bump khi reissue |
+| | `workflow_state` | Link → Workflow State | — (auto) | 0 | read-only, no_copy, default `Draft`, in_list_view |
+| | `parent_spec` | Link → IMM Tech Spec | N | 0 | dùng cho reissue |
+| Source | `source_plan` | Link → IMM Procurement Plan | Y | 0 | |
+| | `source_plan_line` | Data | N | 0 | tên row plan_line (validate ở service, không reqd JSON) |
 | | `source_needs_request` | Link → IMM Needs Request | Y | 0 | |
-| Target | `device_model_ref` | Link → IMM Device Model | Y | 0 | fetch spec_template_ref |
-| | `device_category` | Link → Asset Category | N (auto) | 0 | |
-| | `quantity` | Int | Y | 0 | |
-| | `spec_template_ref` | Link → IMM Spec Template | N | 0 | seed requirements |
-| | `parent_spec` | Link → IMM Tech Spec | N | 0 | versioning reissue |
-| | `version` | Data | N | 0 | "1.0", "2.0", ... |
-| Requirements | `total_mandatory` | Int (auto) | — | 0 | |
-| | `total_optional` | Int (auto) | — | 0 | |
-| | `requirements` | Table → Tech Spec Requirement | Y | 0 | ≥ 8 mandatory at G01 |
+| Target | `device_model_ref` | Link → IMM Device Model | Y | 0 | in_list_view |
+| | `device_category` | Link → AC Asset Category | N (auto) | 0 | `fetch_from=device_model_ref.asset_category`, read_only |
+| | `quantity` | Int | Y | 0 | default 1 |
+| | `spec_template_ref` | Data | N | 0 | placeholder — Spec Template DocType chưa tồn tại |
+| Requirements | `total_mandatory` | Int | — | 0 | read_only, auto rollup, in_list_view |
+| | `total_optional` | Int | — | 0 | read_only, auto rollup |
+| | `requirements` | Table → Tech Spec Requirement | N (validate ở G01) | 0 | ≥ 8 mandatory at G01 |
 | | `documents` | Table → Tech Spec Document | N | 0 | |
 | Benchmark | `benchmark_ref` | Link → IMM Market Benchmark | N | 0 | |
-| | `candidate_count` | Int (auto) | — | 0 | ≥ 3 at G02 |
-| Infra | `infra_compat` | Table → Infra Compatibility Item | Y | 0 | 6 items at G03 |
-| | `infra_status_overall` | Select | — (auto) | 0 | All Compatible / Partial / Need Major Upgrade |
-| Lock-in | `lock_in_risk_ref` | Link → IMM Lock-in Risk Assessment | Y | 0 | before G04 |
-| | `lock_in_score` | Float (auto) | — | **1** | QA Risk + PTP K1 + VP Block1 + Admin only |
+| | `candidate_count` | Int | — | 0 | read_only, in_list_view, ≥ 3 at G02 |
+| Infra | `infra_status_overall` | Select (`All Compatible` / `Partial` / `Need Major Upgrade`) | — (auto) | 0 | read_only |
+| | `infra_compat` | Table → Infra Compatibility Item | N (validate VR-02-05) | 0 | 6 items at G03 |
+| Lock-in | `lock_in_risk_ref` | Link → IMM Lock-in Risk Assessment | N | **1** | |
+| | `lock_in_score` | Float (precision=4) | — | **1** | read_only, in_list_view |
 | | `mitigation_plan` | Long Text | Conditional | **1** | required if lock_in_score > threshold |
-| Approval | `approver` | Link → User | Conditional | **1** | before Lock |
-| | `approval_date` | Date | N | 0 | |
-| | `withdrawal_reason` | Long Text | Conditional | 0 | when Withdrawn |
-| Workflow | `workflow_state` | Data | Y | 0 | managed by Frappe Workflow |
+| | `mitigation_evidence` | Attach | Conditional | **1** | required cùng mitigation_plan tại G04 |
+| Approval | `approver` | Link → User | Conditional | 0 | điền trước Lock |
+| | `approval_date` | Date | N | 0 | read_only |
+| | `withdrawal_reason` | Long Text | Conditional | 0 | bắt buộc khi withdraw |
+| Footer | `amended_from` | Link → IMM Tech Spec | — | 0 | Frappe amend chain, read_only |
+
+> `is_submittable=1`, `track_changes=1`, `title_field=device_model_ref`. Section `Lock-in Risk` được set `permlevel=1` ở Section Break — kế thừa lên 4 field bên trong.
 
 **Permissions (IMM Tech Spec):**
 
@@ -294,30 +300,39 @@ Controller gọi service theo pattern chuẩn AssetCore 3-tier:
 
 # Phần V — Workflow Definition
 
+> Nguồn ground truth: `assetcore/assetcore/workflow/imm_02_spec_workflow.json` + patch `v3_1.002_install_imm02`.
+
 ## V.1. States (7)
 
-| State | doc_status | Style | Allow Edit | Gate |
+| State | doc_status | Style (`type`) | Allow Edit | Gate |
 |---|---|---|---|---|
-| `Draft` | 0 | success | HTM Engineer | — |
-| `Reviewing` | 0 | warning | HTM Engineer / CMMS Admin | G01 (để vào) |
-| `Benchmarked` | 0 | success | KH-TC Officer | G02 (để vào) |
-| `Risk Assessed` | 0 | warning | QA Risk Team | G03 (để vào) |
-| `Pending Approval` | 0 | warning | PTP Khối 1 | — |
-| `Locked` | 1 | success | (read-only) | G04 (terminal +) |
-| `Withdrawn` | 2 | danger | — | terminal − |
+| `Draft` | 0 | Success | IMM HTM Engineer | — |
+| `Reviewing` | 0 | Warning | IMM HTM Engineer | G01 (để vào) |
+| `Benchmarked` | 0 | Success | IMM Planning Officer | G02 (để vào) |
+| `Risk Assessed` | 0 | Warning | IMM Risk Officer | G03 (để vào) |
+| `Pending Approval` | 0 | Warning | IMM Department Head | — |
+| `Locked` | 1 | Success | IMM System Admin | G04 (terminal +) |
+| `Withdrawn` | 1 | Danger | IMM System Admin | terminal − |
 
-## V.2. Transitions (8)
+> `Withdrawn` có `doc_status=1` trong JSON (Frappe lưu spec đã withdraw như submitted record để bảo toàn audit trail; service tự set `withdrawal_reason`).
 
-| From | To | Action (Vietnamese) | Allowed Role | Gate |
-|---|---|---|---|---|
-| Draft | Reviewing | Gửi rà soát | IMM HTM Engineer | G01 |
-| Reviewing | Draft | Yêu cầu chỉnh sửa | IMM HTM Engineer / IMM Planning Officer | — |
-| Reviewing | Benchmarked | Hoàn tất benchmark | IMM Planning Officer | G02 |
-| Benchmarked | Risk Assessed | Hoàn tất đánh giá rủi ro | IMM Risk Officer | G03 |
-| Risk Assessed | Pending Approval | Trình duyệt | IMM Department Head | — |
-| Pending Approval | Locked | Phê duyệt | IMM Board Approver | G04 |
-| Pending Approval | Withdrawn | Rút hồ sơ | IMM Board Approver / IMM Department Head | — |
-| Pending Approval | Risk Assessed | Yêu cầu đánh giá lại rủi ro | IMM Board Approver | — |
+## V.2. Transitions (9 — JSON thực tế)
+
+`Reviewing → Draft` được khai báo 2 lần (1 cho `IMM HTM Engineer`, 1 cho `IMM Planning Officer`), tổng 9 transitions.
+
+| # | From | To | Action (Vietnamese) | Allowed Role | Gate |
+|---|---|---|---|---|---|
+| 1 | Draft | Reviewing | Gửi rà soát | IMM HTM Engineer | G01 |
+| 2 | Reviewing | Draft | Yêu cầu chỉnh spec | IMM HTM Engineer | — |
+| 3 | Reviewing | Draft | Yêu cầu chỉnh spec | IMM Planning Officer | — |
+| 4 | Reviewing | Benchmarked | Hoàn tất benchmark | IMM Planning Officer | G02 |
+| 5 | Benchmarked | Risk Assessed | Đánh giá rủi ro xong | IMM Risk Officer | G03 |
+| 6 | Risk Assessed | Pending Approval | Trình duyệt spec | IMM Department Head | — |
+| 7 | Pending Approval | Locked | Phê duyệt spec | IMM Board Approver | G04 |
+| 8 | Pending Approval | Withdrawn | Rút spec | IMM Board Approver | — |
+| 9 | Pending Approval | Risk Assessed | Yêu cầu chỉnh risk | IMM Board Approver | — |
+
+Mọi transition đều có `allow_self_approval=1` (settings nội bộ — không yêu cầu second person).
 
 ---
 
@@ -332,30 +347,21 @@ Controller gọi service theo pattern chuẩn AssetCore 3-tier:
 
 # Phần VII — Database Indexes
 
+**Hiện trạng Wave 2 (verify từ DocType JSON + patch `assetcore.patches.v3_1.002_install_imm02`):** không khai báo composite index hay `search_fields` tùy biến — module hoàn toàn dùng index mặc định của Frappe.
+
+Mặc định Frappe tạo sẵn:
+- PRIMARY KEY `name` cho mọi DocType (`tabIMM Tech Spec`, `tabIMM Market Benchmark`, `tabIMM Lock-in Risk Assessment`, `tabTech Spec Requirement`, `tabBenchmark Candidate`, `tabInfra Compatibility Item`, `tabLock-in Risk Item`, `tabTech Spec Document`).
+- KEY trên `parent`, `parentfield`, `parenttype` cho mọi child table.
+- KEY `creation`, `modified`, `owner`, `modified_by` chuẩn Frappe.
+- Mỗi `Link` field (vd `source_plan`, `source_needs_request`, `device_model_ref`, `parent_spec`, `benchmark_ref`, `lock_in_risk_ref`, `spec_ref`, `approver`, `amended_from`, `workflow_state`) tự được tạo index khi `frappe.db.sync_doctypes` chạy.
+
+**Composite index cần bổ sung (post-Wave 2, theo dõi p95 trước khi quyết định):**
+
 ```sql
--- ⚠️ Pending implementation — Wave 2
-
--- IMM Tech Spec: filter by state + plan
-CREATE INDEX idx_ts_state_plan
-  ON `tabIMM Tech Spec` (workflow_state, source_plan);
-
--- IMM Tech Spec: versioning lookup
-CREATE INDEX idx_ts_parent
-  ON `tabIMM Tech Spec` (parent_spec);
-
--- IMM Tech Spec: device model lookup
-CREATE INDEX idx_ts_device_model
-  ON `tabIMM Tech Spec` (device_model_ref, workflow_state);
-
--- IMM Market Benchmark: spec lookup
-CREATE INDEX idx_mb_spec
-  ON `tabIMM Market Benchmark` (spec_ref);
-
--- IMM Lock-in Risk Assessment: spec lookup
-CREATE INDEX idx_lr_spec
-  ON `tabIMM Lock-in Risk Assessment` (spec_ref);
-
--- Tech Spec Requirement: filter mandatory
-CREATE INDEX idx_tsr_mandatory
-  ON `tabTech Spec Requirement` (parent, is_mandatory);
+-- Khuyến nghị nếu p95 list_tech_specs vượt 1.5s (NFR-02-01)
+CREATE INDEX idx_ts_state_plan       ON `tabIMM Tech Spec`(workflow_state, source_plan);
+CREATE INDEX idx_ts_device_model_st  ON `tabIMM Tech Spec`(device_model_ref, workflow_state);
+CREATE INDEX idx_tsr_parent_mand     ON `tabTech Spec Requirement`(parent, is_mandatory);
 ```
+
+Cách add khi cần (idempotent): viết patch `v3_x.add_imm02_indexes` gọi `frappe.db.add_index("IMM Tech Spec", ["workflow_state", "source_plan"])`. Không bắt buộc ở Wave 2.

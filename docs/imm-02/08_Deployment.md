@@ -1,14 +1,14 @@
 # IMM-02 — Triển khai & Tuân thủ (Deployment & QMS)
 
-> ⚠️ Pending implementation — Wave 2
+> **Wave 2 — Live.** Patch `assetcore.patches.v3_1.002_install_imm02` đã chạy. Module versioning đi theo `assetcore/__init__.py` (`v3.1.x`).
 
 | Mục | Giá trị |
 |---|---|
 | Module | **IMM-02 — Thông số Kỹ thuật & Phân tích Thị trường (Tech Spec & Market Analysis)** |
-| Phiên bản | 1.0.0 |
-| Ngày cập nhật | 2026-05-08 |
+| Phiên bản | 1.0.1 |
+| Ngày cập nhật | 2026-05-14 |
 | Owner | DevOps + Tech Lead + QMS Officer |
-| Liên kết | [07 Testing QA](./07_Testing_QA.md) · [Module Overview](./IMM-02_Module_Overview.md) |
+| Liên kết | [07 Testing QA](./07_Testing_QA.md) · [04 Backend Design](./04_Backend_Design.md) |
 
 ---
 
@@ -39,14 +39,9 @@
 | Node.js | 20 LTS | 20.x |
 | MariaDB | 10.6+ | 10.6.x |
 | Redis | 7.x | 7.x |
-| App `assetcore` | v1.2.0 (IMM-02 GA, Wave 2) | v1.1.x (IMM-01) |
+| App `assetcore` | v3.1.x (Wave 2 release line) | xem `assetcore/__init__.py` |
 
-> IMM-02 phụ thuộc IMM-01 đã deployed (v1.1.0+).
-
-Cập nhật `assetcore/__init__.py`:
-```python
-__version__ = "1.2.0"  # IMM-02 General Availability — Wave 2
-```
+> Wave 2 = release line `v3.1` bundle IMM-01 + IMM-02 + IMM-03 cùng lúc (xem `patches.txt`). Không deploy IMM-02 độc lập.
 
 ## I.2b. Cấu Hình Môi Trường
 
@@ -62,22 +57,21 @@ __version__ = "1.2.0"  # IMM-02 General Availability — Wave 2
 
 ## I.3. Deployment Artefacts
 
-### Patch files
+### Patch files — Thực tế (Wave 2)
 
 | Patch | File | Mô tả | Idempotent? |
 |---|---|---|---|
-| `v1_2_0.create_imm02_doctypes` | `assetcore/patches/v1_2_0/create_imm02_doctypes.py` | Tạo 3 primary DocType + 5 child tables (Tech Spec, Market Benchmark, Lock-in Risk, Tech Spec Requirement, Benchmark Candidate, Infra Compat Item, Lock-in Risk Item, Tech Spec Document) | ✅ `frappe.db.table_exists` |
-| `v1_2_0.install_imm02_workflow` | `assetcore/patches/v1_2_0/install_imm02_workflow.py` | Import `IMM-02 Spec Workflow` (7 states, 8 transitions) + Workflow State + Workflow Action Master | ✅ `frappe.db.exists("Workflow", ...)` |
-| `v1_2_0.seed_lock_in_weights` | `assetcore/patches/v1_2_0/seed_lock_in_weights.py` | Insert master weights: Protocol 30%, Consumable 20%, Software 20%, Parts 15%, Service 15% vào `IMM Lock-in Weight Config` | ✅ `if not frappe.db.exists` |
-| `v1_2_0.seed_default_spec_templates` | `assetcore/patches/v1_2_0/seed_default_spec_templates.py` | Seed 10 `IMM Spec Template` cho các device category phổ biến: Life Support, Imaging, Monitoring, Lab, Surgical, Endoscopy, Radiotherapy, Dialysis, Infusion, Sterilization | ✅ `if not frappe.db.exists` |
+| `v3_1.002_install_imm02` | `assetcore/patches/v3_1/002_install_imm02.py` | Reload 8 DocType IMM-02 (3 primary + 5 child) qua `frappe.reload_doc`, sau đó upsert `IMM-02 Spec Workflow` (7 states / 9 transitions) + auto-seed `Workflow State` + `Workflow Action Master`. | ✅ — kiểm tra `frappe.db.exists("Workflow", ...)`, set lại states/transitions trước khi save |
+
+Lock-in weights KHÔNG seed qua patch — `DEFAULT_WEIGHTS` được hard-code trong `assetcore.services.imm02` (Protocol 0.30 · Consumable 0.20 · Software 0.20 · Parts 0.15 · Service 0.15). Spec Template DocType chưa tồn tại; field `spec_template_ref` ở `IMM Tech Spec` là `Data` placeholder.
 
 Đăng ký trong `assetcore/patches.txt`:
 
 ```
-assetcore.patches.v1_2_0.create_imm02_doctypes
-assetcore.patches.v1_2_0.install_imm02_workflow
-assetcore.patches.v1_2_0.seed_lock_in_weights
-assetcore.patches.v1_2_0.seed_default_spec_templates
+# ── Wave 2 ── IMM-01 / 02 / 03 ──
+assetcore.patches.v3_1.001_install_imm01
+assetcore.patches.v3_1.002_install_imm02
+assetcore.patches.v3_1.003_install_imm03
 ```
 
 ### Fixtures cần re-import
@@ -175,11 +169,11 @@ bench --site assetcore.local set-maintenance-mode off
 | 3 | Mở `/imm-02` (Tech Spec List) | Danh sách load, không JS error |
 | 4 | Gọi `list_tech_specs` API | `{"success": true, "data": {...}}` |
 | 5 | Kiểm tra workflow IMM-02 | `frappe.get_doc("Workflow", "IMM-02 Spec Workflow")` tồn tại |
-| 6 | Kiểm tra Lock-in Weight Config | 5 records `IMM Lock-in Weight Config`, tổng = 100% |
-| 7 | Kiểm tra Spec Templates | 10 records `IMM Spec Template` |
-| 8 | Gọi `dashboard_kpis` API | Response có `total_specs`, `avg_lock_in_score` |
+| 6 | Kiểm tra DEFAULT_WEIGHTS | `python -c "from assetcore.services.imm02 import DEFAULT_WEIGHTS; print(sum(DEFAULT_WEIGHTS.values()))"` = `1.0` (hard-coded, không phải DocType) |
+| 7 | Spec Template | `IMM Spec Template` DocType CHƯA tồn tại ở Wave 2 — bỏ qua step này |
+| 8 | Gọi `dashboard_kpis` API | Response có 3 field: `by_state`, `avg_lock_in_score`, `backlog_over_30d` (KHÔNG có `total_specs` ở Wave 2) |
 | 9 | Test bulk import | Upload Excel 5 rows → imported=5 |
-| 10 | Cron jobs registered | `bench scheduled-jobs` có `check_overdue_drafts`, `benchmark_freshness_alert`, `compatibility_recheck` |
+| 10 | Cron jobs registered | `bench scheduled-jobs` có `assetcore.services.imm02.check_overdue_drafts` (daily) và `assetcore.services.imm02.benchmark_freshness_alert` (weekly, theo `hooks.py`) |
 | 11 | Permlevel check | HTM Engineer GET spec → không thấy `lock_in_score` |
 | 12 | Frontend assets | `/imm-02/dashboard` render, không 404 |
 

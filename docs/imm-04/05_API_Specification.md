@@ -12,7 +12,7 @@
 
 ## 0. API Catalog — Toàn bộ endpoint module
 
-> Ground truth: `assetcore/api/imm04.py` — 27 `@frappe.whitelist()` endpoints.
+> Ground truth: `assetcore/api/imm04.py` — **33** `@frappe.whitelist()` endpoints (Wave-2 branch, 2026-05-14).
 
 | # | Endpoint | Method | Mô tả ngắn | Idempotent |
 |---|---|---|---|---|
@@ -39,14 +39,16 @@
 | 21 | `assign_identification` | POST | Gán SN + QR | ✓ |
 | 22 | `submit_baseline_checklist` | POST | Nộp kết quả đo kiểm | ✗ |
 | 23 | `clear_clinical_hold` | POST | Gỡ Clinical Hold | ✗ |
-| 24 | `upload_document` | POST | Upload hồ sơ CO/CQ/... | ✓ |
-| 25 | `approve_clinical_release` | POST | Set board_approver + approve | ✗ |
-| 26 | `report_doa` | POST | Báo DOA | ✗ |
-| 27 | `delete_commissioning` | POST | Xóa phiếu (Draft only) | ✗ |
-| 28 | `cancel_commissioning` | POST | Hủy phiếu (Submitted) | ✗ |
-| 29 | `submit_for_approval` | POST | Gửi phiếu cho người duyệt | ✗ |
-| 30 | `approve_pending` | POST | Duyệt / Từ chối phiếu chờ | ✗ |
-| 31 | `create_from_purchase` | POST | Tạo phiếu từ AC Purchase (link) | ✗ |
+| 24 | `retry_mint_asset` | POST | Retry tạo AC Asset (sau lỗi `mint_asset_pending`) | ✗ |
+| 25 | `upload_document` | POST | Upload hồ sơ CO/CQ/... | ✓ |
+| 26 | `approve_clinical_release` | POST | Set board_approver + approve | ✗ |
+| 27 | `report_doa` | POST | Báo DOA | ✗ |
+| 28 | `delete_commissioning` | POST | Xóa phiếu (Draft only) | ✗ |
+| 29 | `cancel_commissioning` | POST | Hủy phiếu (Submitted) | ✗ |
+| 30 | `submit_for_approval` | POST | Gửi phiếu cho người duyệt | ✗ |
+| 31 | `approve_pending` | POST | Duyệt / Từ chối phiếu chờ | ✗ |
+| 32 | `create_from_purchase` | POST | Tạo phiếu từ AC Purchase (link) | ✗ |
+| 33 | `get_lifecycle_timeline` | GET | Timeline `Asset Lifecycle Event` của phiếu | ✓ |
 
 ---
 
@@ -99,7 +101,7 @@ FE đọc `response.data.data` (axios + Frappe outer wrap thêm `message`, FE he
 
 | Code cũ | Map về | Khi nào |
 |---|---|---|
-| `WRONG_STATE` | `BAD_STATE` | Submit khi state ≠ Clinical_Release |
+| `WRONG_STATE` | `BAD_STATE` | Submit khi state ≠ Clinical Release |
 | `TRANSITION_NOT_ALLOWED` | `FORBIDDEN` | Action không trong allowed transitions |
 | `OPEN_NC` | `BUSINESS_RULE` | Còn NC chưa đóng (G05) |
 | `QR_NOT_GENERATED` | `BAD_STATE` | Phiếu chưa có internal_tag_qr |
@@ -128,19 +130,16 @@ FE đọc `response.data.data` (axios + Frappe outer wrap thêm `message`, FE he
 
 export type WorkflowState =
   | 'Draft'
-  | 'Draft_Reception'
-  | 'Pending_Doc_Verify'
-  | 'To_Be_Installed'
+  | 'Pending Doc Verify'
+  | 'To Be Installed'
   | 'Installing'
   | 'Identification'
-  | 'Initial_Inspection'
-  | 'Non_Conformance'
-  | 'Clinical_Hold'
-  | 'Re_Inspection'
-  | 'Clinical_Release'
-  | 'Return_To_Vendor'
-  | 'Pending_Release'
-  | 'DOA_Incident'
+  | 'Initial Inspection'
+  | 'Non Conformance'
+  | 'Clinical Hold'
+  | 'Re Inspection'
+  | 'Clinical Release'
+  | 'Return To Vendor'
 
 export type RiskClass = 'A' | 'B' | 'C' | 'D' | 'Radiation' | ''
 
@@ -175,7 +174,7 @@ export interface WorkflowTransition {
 }
 ```
 
-**Lưu ý:** Workflow state values dùng underscore (`Pending_Doc_Verify`, không phải `Pending Doc Verify`). Đây là giá trị thực tế trong DB và Frappe Workflow config.
+**Lưu ý:** Workflow state values dùng **space** (`Pending Doc Verify`, `Clinical Release`, ...) — đồng bộ giữa workflow fixture, service constants, và TypeScript enum. Tech debt naming cũ (underscore) đã được resolve.
 
 ### 1.6. Pagination & Datetime
 
@@ -367,7 +366,7 @@ curl -X POST 'http://site/api/method/assetcore.api.imm04.create_commissioning' \
 | Code (BE) | Code (FE) | Khi nào |
 |---|---|---|
 | `FORBIDDEN` | `FORBIDDEN` | User không có role Workshop Head / VP Block2 |
-| `BAD_STATE` | `BAD_STATE` | workflow_state ≠ Clinical_Release |
+| `BAD_STATE` | `BAD_STATE` | workflow_state ≠ Clinical Release |
 | `VALIDATION` | `VALIDATION_ERROR` | G05 (Open NC tồn tại) / G06 (thiếu board_approver) / GW-2 |
 | `CONFLICT` | `CONFLICT` | Phiếu đã submit (docstatus=1) |
 
@@ -604,7 +603,7 @@ curl 'http://site/api/method/assetcore.api.imm04.list_commissioning?filters={}&p
 
 ## DoD — File 05 hoàn chỉnh
 
-- [x] API Catalog (§0) liệt kê 31 endpoint — đối chiếu `assetcore/api/imm04.py`
+- [x] API Catalog (§0) liệt kê 33 endpoint — đối chiếu `assetcore/api/imm04.py` (Wave-2)
 - [x] Response envelope chuẩn `{"success": true, "data": {...}}` — không `{"message": {...}}`
 - [x] Error envelope chuẩn `{"success": false, "error": "msg vi", "code": "CODE"}`
 - [x] Type definitions §1.5 đủ TypeScript interfaces

@@ -26,7 +26,7 @@ const err = ref('')
 const showFilters = ref(false)
 const filters = ref({ status: '', asset: '', search: '' })
 
-const STATUS_KEYS = ['Draft', 'Pending Approval', 'Approved', 'Applied', 'Rejected', 'Rolled Back']
+const STATUS_KEYS = ['Draft', 'Pending Approval', 'Approved', 'Applied', 'Rollback Required', 'Rolled Back']
 
 interface FilterChip { key: 'status' | 'asset' | 'search'; label: string }
 const filteredItems = computed(() => {
@@ -117,7 +117,7 @@ const STATUS_LABELS: Record<string, string> = {
   'Pending Approval': 'Chờ phê duyệt',
   Approved: 'Đã phê duyệt',
   Applied: 'Đã áp dụng',
-  Rejected: 'Từ chối',
+  'Rollback Required': 'Cần khôi phục',
   'Rolled Back': 'Đã khôi phục',
 }
 function statusLabel(s?: string): string {
@@ -263,7 +263,7 @@ onMounted(load)
               <option value="Pending Approval">Chờ phê duyệt</option>
               <option value="Approved">Đã phê duyệt</option>
               <option value="Applied">Đã áp dụng</option>
-              <option value="Rejected">Từ chối</option>
+              <option value="Rollback Required">Cần khôi phục</option>
               <option value="Rolled Back">Đã khôi phục</option>
             </select>
           </div>

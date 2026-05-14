@@ -505,7 +505,7 @@ Trace: `Asset Commissioning → board_approver = ceo.nguyen + approval_date → 
 | Workflow JSON | 1 | `IMM-04 Workflow` — 11 states, 15+ transitions |
 | Gate | 6 | G01 → G06 |
 | Validation Rule | 7 | VR-01 → VR-07 |
-| API endpoint | 17 | `list, get, create, submit_documents, assign_identification, submit_baseline, approve_release, get_dashboard_stats, ...` |
+| API endpoint | 33 | Đầy đủ trong `05_API_Specification.md` §0 — incl. `get_form_context, list_commissioning, create_commissioning, submit_commissioning, transition_state, assign_identification, submit_baseline_checklist, clear_clinical_hold, retry_mint_asset, approve_clinical_release, submit_for_approval, approve_pending, create_from_purchase, get_lifecycle_timeline, ...` |
 | FE view / page | 6+ | CommissioningList, CommissioningDetail, CommissioningCreate, CommissioningChecklist, CommissioningDocs, Dashboard |
 | Service function | 12 | `initialize_commissioning, validate_gate_g01/g03/g05_g06, check_auto_clinical_hold, mint_core_asset, ...` |
 | Scheduler job | 3 | Daily overdue check, Clinical Hold aging, SLA check |
@@ -514,8 +514,8 @@ Trace: `Asset Commissioning → board_approver = ceo.nguyen + approval_date → 
 | Test case unit | ~40 | 12 test class × ~3-4 case avg |
 | UAT scenario | 12 | UAT-IMM04-01 → 12 |
 | UAT PASS | 31/32 | TC-32 (PM auto-create) FAIL — known, deferred |
-| LOC BE (`services/imm04.py`) | ~300 | Không tính comments |
-| LOC API (`api/imm04.py`) | ~250 | 17 endpoints |
+| LOC BE (`services/imm04.py`) | 1692 | Wave-2 hardening đã ship |
+| LOC API (`api/imm04.py`) | 309 | 33 endpoints (whitelist count, 2026-05-14) |
 | Sprint hoàn thành (Wave 1) | 4 | Sprint 1-4, mỗi sprint 2 tuần |
 | User Story | 8 | US-04-01 → 04-08 |
 

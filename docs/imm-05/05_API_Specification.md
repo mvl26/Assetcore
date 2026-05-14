@@ -18,16 +18,17 @@
 | 2 | `get_document` | GET | CRUD | Chi tiết 1 tài liệu |
 | 3 | `create_document` | POST | CRUD | Tạo Draft mới |
 | 4 | `update_document` | POST | CRUD | Sửa metadata (Draft/Rejected) |
-| 5 | `approve_document` | POST | Workflow | Phê duyệt → Active |
-| 6 | `reject_document` | POST | Workflow | Từ chối + lý do |
-| 7 | `get_asset_documents` | GET | Asset-centric | Tài liệu theo Asset |
-| 8 | `get_dashboard_stats` | GET | Dashboard | KPI + expiry timeline + compliance |
-| 9 | `get_expiring_documents` | GET | Dashboard | Tài liệu sắp hết hạn |
-| 10 | `get_compliance_by_dept` | GET | Dashboard | Compliance theo khoa |
-| 11 | `get_document_history` | GET | Audit | Lịch sử thay đổi (Frappe Version) |
-| 12 | `create_document_request` | POST | Request | Tạo yêu cầu bổ sung tài liệu |
-| 13 | `get_document_requests` | GET | Request | Liệt kê Document Request |
-| 14 | `mark_exempt` | POST | Exempt | Đánh dấu Miễn đăng ký NĐ98 |
+| 5 | `submit_for_review` | POST | Workflow | Draft/Rejected → Pending Review |
+| 6 | `approve_document` | POST | Workflow | Phê duyệt → Active |
+| 7 | `reject_document` | POST | Workflow | Từ chối + lý do |
+| 8 | `get_asset_documents` | GET | Asset-centric | Tài liệu theo Asset |
+| 9 | `get_dashboard_stats` | GET | Dashboard | KPI + expiry timeline + compliance |
+| 10 | `get_expiring_documents` | GET | Dashboard | Tài liệu sắp hết hạn |
+| 11 | `get_compliance_by_dept` | GET | Dashboard | Compliance theo khoa |
+| 12 | `get_document_history` | GET | Audit | Lịch sử thay đổi (Frappe Version) |
+| 13 | `create_document_request` | POST | Request | Tạo yêu cầu bổ sung tài liệu |
+| 14 | `get_document_requests` | GET | Request | Liệt kê Document Request |
+| 15 | `mark_exempt` | POST | Exempt | Đánh dấu Miễn đăng ký NĐ98 |
 
 ---
 
@@ -115,10 +116,10 @@ _INTERNAL_VIEW_ROLES = {
 
 ```typescript
 // Workflow state values — ground truth từ services/imm05.py class DocState
-// Dùng UNDERSCORE, không phải space
+// Dùng SPACE (đồng bộ với workflow fixture + service constants)
 export type DocumentWorkflowState =
   | "Draft"
-  | "Pending_Review"   // underscore — KHÔNG phải "Pending Review"
+  | "Pending Review"
   | "Active"
   | "Rejected"
   | "Archived"
@@ -311,6 +312,28 @@ Auto-default: `workflow_state = "Draft"`, `version = "1.0"`.
 
 ---
 
+### §2.4b `submit_for_review` — Gửi duyệt
+
+| Thuộc tính | Giá trị |
+|---|---|
+| Method | POST |
+| Path | `assetcore.api.imm05.submit_for_review` |
+| Service | `services/imm05.py::submit_for_review` |
+
+**Request body:** `name` (string).
+
+**Constraint:** `workflow_state IN ("Draft", "Rejected")` — ngược lại trả `INVALID_STATE`. Set `workflow_state = "Pending Review"`.
+
+**Response data:**
+
+```jsonc
+{ "success": true, "data": { "name": "...", "new_state": "Pending Review" } }
+```
+
+**Errors:** `NOT_FOUND`, `INVALID_STATE`, `INTERNAL_ERROR`.
+
+---
+
 ### §2.5 `approve_document` — Phê duyệt
 
 | Thuộc tính | Giá trị |
@@ -327,7 +350,7 @@ Auto-default: `workflow_state = "Draft"`, `version = "1.0"`.
 
 **Hành vi:**
 1. Validate user IN `_APPROVE_ROLES` → else `FORBIDDEN`
-2. Validate `workflow_state = "Pending_Review"` → else `INVALID_STATE`
+2. Validate `workflow_state = "Pending Review"` → else `INVALID_STATE`
 3. Query Active docs cùng `(asset_ref, doc_type_detail)` ≠ name → set `workflow_state = "Archived"`
 4. Set `workflow_state = "Active"`, `approved_by = session.user`, `approval_date = today`
 5. Save với `flags.ignore_links = True`
@@ -366,7 +389,7 @@ Auto-default: `workflow_state = "Draft"`, `version = "1.0"`.
 }
 ```
 
-**Hành vi:** Validate `rejection_reason` không rỗng (VR-06), validate `workflow_state = "Pending_Review"`, set `workflow_state = "Rejected"` + lưu `rejection_reason`.
+**Hành vi:** Validate `rejection_reason` không rỗng (VR-06), validate `workflow_state = "Pending Review"`, set `workflow_state = "Rejected"` + lưu `rejection_reason`.
 
 **Errors:** `VALIDATION_ERROR` (thiếu reason — VR-06), `NOT_FOUND`, `INVALID_STATE`.
 
@@ -731,13 +754,13 @@ Expected: `{"success": true, "data": {...}}` cho tất cả. Không có `{"messa
 
 ## DoD Checklist
 
-- [x] API Catalog 14 endpoints đầy đủ
+- [x] API Catalog 15 endpoints đầy đủ (incl. `submit_for_review`)
 - [x] Envelope chuẩn `{"success": true, "data": ...}` (KHÔNG Frappe message wrapper)
 - [x] Error envelope `{"success": false, "error": ..., "code": ...}`
 - [x] Error code catalog đầy đủ
 - [x] Visibility filter documented
 - [x] TypeScript types cho FE reference
-- [x] 14 endpoint specs với request/response examples
+- [x] 15 endpoint specs với request/response examples
 - [x] Webhook/realtime events table
 - [x] Rate limits
 - [x] Smoke test playbook

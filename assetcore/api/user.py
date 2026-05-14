@@ -162,9 +162,17 @@ def _sync_imm_roles(user_doc: Any, new_roles: list[str]) -> None:
 
 
 def _apply_scalar_fields(user_doc: Any, data: dict) -> None:
-    for field in ("full_name", "phone"):
-        if field in data:
-            user_doc.set(field, data[field])
+    # full_name is auto-computed from first_name + middle_name + last_name in Frappe's
+    # User.update_full_name(). Setting full_name directly is silently overwritten on save.
+    # Split into first_name + last_name so the change actually persists.
+    if "full_name" in data:
+        full = (data["full_name"] or "").strip()
+        parts = full.split(None, 1)
+        user_doc.first_name = parts[0] if parts else ""
+        user_doc.middle_name = ""
+        user_doc.last_name = parts[1] if len(parts) > 1 else ""
+    if "phone" in data:
+        user_doc.set("phone", data["phone"])
     if "enabled" in data:
         user_doc.enabled = int(data["enabled"])
 

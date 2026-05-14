@@ -26,16 +26,16 @@ const filters = ref<CommissioningFilters>({
 const WORKFLOW_STATES: { value: WorkflowState | ''; label: string }[] = [
   { value: '', label: 'Tất cả trạng thái' },
   { value: 'Draft', label: 'Nháp' },
-  { value: 'Pending_Doc_Verify', label: 'Chờ kiểm tra tài liệu' },
-  { value: 'To_Be_Installed', label: 'Chờ lắp đặt' },
+  { value: 'Pending Doc Verify', label: 'Chờ kiểm tra tài liệu' },
+  { value: 'To Be Installed', label: 'Chờ lắp đặt' },
   { value: 'Installing', label: 'Đang lắp đặt' },
   { value: 'Identification', label: 'Nhận dạng' },
-  { value: 'Initial_Inspection', label: 'Kiểm tra ban đầu' },
-  { value: 'Clinical_Hold', label: 'Tạm giữ lâm sàng' },
-  { value: 'Re_Inspection', label: 'Kiểm tra lại' },
-  { value: 'Pending_Release', label: 'Chờ phê duyệt' },
-  { value: 'Clinical_Release', label: 'Phát hành lâm sàng' },
-  { value: 'Return_To_Vendor', label: 'Trả nhà cung cấp' },
+  { value: 'Initial Inspection', label: 'Kiểm tra ban đầu' },
+  { value: 'Non Conformance', label: 'Không phù hợp' },
+  { value: 'Clinical Hold', label: 'Tạm giữ lâm sàng' },
+  { value: 'Re Inspection', label: 'Kiểm tra lại' },
+  { value: 'Clinical Release', label: 'Phát hành lâm sàng' },
+  { value: 'Return To Vendor', label: 'Trả nhà cung cấp' },
 ]
 
 interface Chip { key: 'workflow_state' | 'vendor_serial_no' | 'master_item' | 'clinical_dept'; label: string }

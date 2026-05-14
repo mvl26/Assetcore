@@ -8,7 +8,7 @@
 | Liên kết | [05 API Specification](./05_API_Specification.md) · [07 Testing & QA](./07_Testing_QA.md) |
 | Tech Stack | Vue 3 · TypeScript · Pinia · Vue Router 4 · TailwindCSS · Frappe UI |
 | Phiên bản | 3.1.0 |
-| Trạng thái | **Live (partial) ✅** — 2 views đã build; sitemap còn lại là spec. Reviewed vs code 2026-05-08. |
+| Trạng thái | **Live (partial) ✅** — 2 master-data views built (ReferenceData, SlaPolicyList); Asset List/Depreciation/Transfer/Audit + Inventory đã có view riêng (xem `frontend/src/views/asset/`, `inventory/`); sitemap chi tiết còn lại là spec. Synced vs code 2026-05-14. |
 
 ---
 
@@ -335,7 +335,30 @@ Khi `severity = Critical AND patient_affected = true`:
 
 # Phần IV — Pinia Stores (từ `frontend/src/stores/imm00.ts`)
 
-> **Verified vs code:** File `stores/imm00.ts` export 4 stores (không phải pattern assetStore.ts riêng).
+> **Verified vs code 2026-05-14 (sau commits `33a9668` restructure + `820e3fe` role/launcher):** File `stores/imm00.ts` export 4 stores cho IMM-00 foundation. Các module IMM-01→16 có file store riêng (`stores/imm01.ts`, …, `stores/imm16.ts`); ngoài ra `stores/auth.ts`, `stores/dashboard.ts`, `stores/masterData.ts` là cross-cutting.
+
+**Catalog tổng (16 stores):**
+
+| File | Store key | Vai trò |
+|---|---|---|
+| `stores/auth.ts` | `auth` | Session + roles + permissions |
+| `stores/dashboard.ts` | `dashboard` | Aggregated KPI cho launcher |
+| `stores/masterData.ts` | `masterData` | Cross-module reference cache (locations, depts, categories, suppliers) |
+| `stores/imm00.ts` | `imm00_asset` / `imm00_refdata` / `imm00_capa` / `imm00_incident` | IMM-00 foundation (4 stores trong cùng 1 file) |
+| `stores/imm01.ts` | `imm01` | IMM-01 Needs Request |
+| `stores/imm02.ts` | `imm02` | IMM-02 Tech Spec |
+| `stores/imm03.ts` | `imm03` | IMM-03 Procurement Decision / Vendor Eval / AVL |
+| `stores/imm04.ts` | `commissioning` | IMM-04 Commissioning (rename từ `imm04`) |
+| `stores/imm05.ts` | `imm05` | IMM-05 Registration |
+| `stores/imm06.ts` | `imm06` | IMM-06 Training & Competency |
+| `stores/imm08.ts` | `imm08` | IMM-08 PM |
+| `stores/imm09.ts` | `imm09` | IMM-09 Repair |
+| `stores/imm11.ts` | `imm11` | IMM-11 Calibration |
+| `stores/imm12.ts` | `imm12` | IMM-12 Corrective |
+| `stores/imm15.ts` | `imm15` | IMM-15 Spare Parts |
+| `stores/imm16.ts` | `imm16` | IMM-16 Compliance |
+
+Stores nội bộ IMM-00 (chi tiết bên dưới):
 
 ## IV.1. `useAssetStore` — `defineStore('imm00_asset')`
 
@@ -406,7 +429,7 @@ export const GMDN_OPTIONS: Array<{ value: GmdnStatus; label: string }>
 
 # Phần V — API Client Layer (từ `frontend/src/api/imm00.ts`)
 
-> **Verified vs code:** `api/imm00.ts` export các hàm riêng lẻ (không phải object `imm00Api`). BASE = `'/api/method/assetcore.api.imm00'`.
+> **Verified vs code 2026-05-14:** `api/imm00.ts` export các hàm riêng lẻ (không phải object `imm00Api`). Wrapper `frappeCall<T>()` unwrap `.message.data` nên signatures dưới đây trả `T` thay vì `ApiResponse<T>`. File còn export inline interfaces (AssetDepreciationRow, DepreciationStats, PmSchedule, PmTemplate, FirmwareCR, DocumentRequest, DepreciationScheduleRow/Response, DepreciationPreviewRow, DeviceModelFileUploadResult).
 
 ## V.1. Key function signatures (actual exports)
 
@@ -434,22 +457,33 @@ export async function getSlaPolicy(name: string): Promise<...>  // NOT getSlaFor
 // resolve_sla_policy không có wrapper trong imm00.ts
 
 // CAPA
-export async function listCapas(params): Promise<...>
-export async function getCapaOverdue(page, page_size): Promise<...>
-export async function openCapa(data): Promise<...>  // NOT createCapa
+export function listCapas(params): Promise<PaginatedResponse<ImmCapaRecord>>
+export function getCapaOverdue(page, page_size): Promise<PaginatedResponse<ImmCapaRecord>>
+export function openCapa(data: { asset, severity, description, responsible, source_type?, source_ref?, due_days? }): Promise<{ name: string }>
+export function getCapa(name: string): Promise<ImmCapaRecord>
+export function closeCapaRecord(name: string, data: { root_cause, corrective_action, preventive_action, effectiveness_check? }): Promise<{ name: string; status: string }>
 
 // Transfer
 export async function getTransferFull(name: string): Promise<...>
 export async function approveTransfer(name: string): Promise<...>
 export async function updateTransfer(name: string, data): Promise<...>
 
-// Depreciation
-export async function computeDepreciation(name: string): Promise<ApiResponse<DepreciationResult>>
-export async function getDepreciationSchedule(asset_name: string): Promise<...>
-export async function regenerateDepreciationSchedule(asset_name: string, force: 0|1): Promise<...>
-export async function previewDepreciationSchedule(params: {...}): Promise<...>
-export async function runDueDepreciationNow(as_of?: string): Promise<...>
-export async function bulkRegenerateScheduleByCategory(category_name: string): Promise<...>
+// Depreciation (Asset Finance Hub — full coverage)
+export function computeDepreciation(name: string): Promise<DepreciationComputeResult>
+export function listAssetsDepreciation(params: { page?, page_size?, method_filter?, status_filter?, category_filter? }): Promise<{ items: AssetDepreciationRow[]; pagination }>
+export function getDepreciationStats(): Promise<DepreciationStats>
+export function computeAllDepreciation(): Promise<{ generated_schedules, skipped, executed_rows, updated_assets }>
+export async function getDepreciationSchedule(asset_name: string): Promise<DepreciationScheduleResponse>
+export async function regenerateDepreciationSchedule(asset_name: string, force: 0|1): Promise<{ generated: number }>
+export async function previewDepreciationSchedule(params: { gross, residual, method, total_months, frequency, start_date }): Promise<DepreciationPreviewRow[]>
+export async function runDueDepreciationNow(as_of?: string): Promise<{ executed_rows; updated_assets }>
+export async function bulkRegenerateScheduleByCategory(category_name: string): Promise<{ assets_processed: number }>
+
+// PM Schedule + PM Template + Firmware CR + Document Request — full CRUD wrappers
+// listPmSchedules / getPmSchedule / createPmSchedule / updatePmSchedule / deletePmSchedule
+// listPmTemplates / getPmTemplate / createPmTemplate / updatePmTemplate / deletePmTemplate
+// listFirmwareCrs / getFirmwareCr / createFirmwareCr / updateFirmwareCr / deleteFirmwareCr
+// listDocumentRequests / getDocumentRequest / createDocumentRequest / updateDocumentRequest / deleteDocumentRequest
 
 // File upload
 export async function uploadDeviceModelFile(file: File, fieldname: 'model_image'|'catalog_file', model_name = ''): Promise<DeviceModelFileUploadResult>

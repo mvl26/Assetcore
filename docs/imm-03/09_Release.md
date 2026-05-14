@@ -6,7 +6,7 @@
 |---|---|
 | Module | IMM-03 — Vendor Evaluation & Procurement Decision |
 | Phiên bản | 1.0.0 (dự kiến) |
-| Ngày | 2026-05-08 |
+| Ngày | 2026-05-14 |
 | Trạng thái | LIVE — Wave 2 |
 
 ---
@@ -279,6 +279,19 @@ A: Hệ thống gửi cảnh báo tự động 60 ngày và 30 ngày trước h�
 ## II. Release Notes — v1.0.0
 
 > Dự kiến release khi Wave 2 hoàn thành triển khai.
+
+### II.0. Commit History (Wave 2)
+
+| Commit | Tiêu đề | Phạm vi IMM-03 |
+|---|---|---|
+| `810179e` | feat (BE+FE): add module 1,2,3, update UI dashboard (/launcher) | Khởi tạo IMM-03: 11 DocType, 3 Workflow, `services/imm03.py` (496 LOC), `api/imm03.py` (379 LOC), patch `v3_1.003_install_imm03.py`, FE views `imm03/AvlListView`, `imm03/DecisionListView`, `imm03/DecisionDetailView`, `imm03/VendorEvalListView`, `imm03/VendorEvalDetailView` + `stores/imm03.ts`, `types/imm03.ts`, `api/imm03.ts` |
+| `0b22048` | feat: add depreciation, PO, UOM and update sidebar | AC Purchase DocType + child tables (target cho `imm_procurement_decision` custom field) |
+| `66d9f81` | refactor: update module workflows and fix procurement issues | Tinh chỉnh 3 Workflow JSON; fix workflow upsert |
+| `82a9607` | fix (FE): Modal create new needs-requests, UI sidebar, add filter for imm-1,2,3 | FE filter cho list view IMM-03 |
+| `33a9668` | refactor: restructure FE/BE folders and update UI forms | Move views: `frontend/src/views/imm03/*` → `frontend/src/views/procurement/*` |
+| `d56c0cd` | fix: resolve Wave 1 & 2 bugs and enhance AI agents | Bug fixes IMM-03 service/API |
+| `fce3655` | fix(FE): update fullname user and list view some page | FE polish |
+| `4a3ad1c` | fix: resolve all conflicts and sync Wave 2 with global formatters | Wave 2 sync (final) |
 
 ### II.1 Tóm tắt
 

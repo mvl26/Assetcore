@@ -8,7 +8,7 @@
 | Liên kết | [03 Diagrams](./03_Diagrams.md) · [04 Backend](./04_Backend_Design.md) · [05 API](./05_API_Specification.md) · [06 Frontend](./06_Frontend_Design.md) |
 | Chuẩn tham chiếu | ISO 13485:2016 §8.2.4, §8.5, §5.6; WHO HTM 5.4; NĐ 98/2021/NĐ-CP §35-§38 |
 
-> ⚠️ Module PLANNED — Wave 3. Chưa triển khai.
+> ✅ Module IMPLEMENTED — Wave 2 (`services/imm16.py`, `api/imm16.py`, 11 DocType folders: compliance_rule/finding/scorecard, capa_record/action_step, internal_audit/supplier_audit, audit_checklist_item, audit_finding, management_review, scorecard rows). Cập nhật 2026-05-14.
 
 ---
 

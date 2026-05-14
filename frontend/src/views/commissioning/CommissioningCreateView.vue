@@ -469,11 +469,11 @@ stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
 
           <!-- Commissioned by -->
           <div class="form-group">
-            <p class="form-label">KTV thực hiện lắp đặt</p>
+            <p class="form-label">Kỹ thuật viên thực hiện lắp đặt</p>
             <SmartSelect
               v-model="form.commissioned_by"
               doctype="User"
-              placeholder="Chọn KTV..."
+              placeholder="Chọn kỹ thuật viên..."
             />
           </div>
 
@@ -483,7 +483,7 @@ stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
             <SmartSelect
               v-model="form.received_by"
               doctype="User"
-              placeholder="NV kho vận xác nhận hàng..."
+              placeholder="Nhân viên kho vận xác nhận hàng..."
             />
           </div>
 

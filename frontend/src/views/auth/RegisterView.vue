@@ -115,7 +115,7 @@ async function handleSubmit() {
         </div>
 
         <button
-          class="btn-primary w-full mt-2"
+          class="btn-primary w-full mt-2 flex items-center justify-center"
           :disabled="submitting || success !== null"
           @click="handleSubmit"
         >

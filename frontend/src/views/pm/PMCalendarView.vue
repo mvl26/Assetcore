@@ -358,9 +358,9 @@ v-if="formatAssetDisplay(selectedEvent.asset_name, selectedEvent.asset_ref).hasB
             </p>
           </div>
 
-          <!-- KTV -->
+          <!-- Kỹ thuật viên -->
           <div>
-            <p class="text-xs text-slate-400 mb-0.5">KTV phụ trách</p>
+            <p class="text-xs text-slate-400 mb-0.5">Kỹ thuật viên phụ trách</p>
             <p class="text-slate-700">{{ selectedEvent.assigned_to || '— Chưa phân công' }}</p>
           </div>
 

@@ -88,14 +88,18 @@ async function refreshActions() {
 
 // ── scoring tab ───────────────────────────────────────────────────────────────
 const scoringDraft = ref<NeedsPriorityScoringRow[]>([])
+const num = (v: unknown): number => {
+  const n = typeof v === 'number' ? v : parseFloat(v as string)
+  return Number.isFinite(n) ? n : 0
+}
 const totalWeight  = computed(() =>
-  scoringDraft.value.reduce((s, r) => s + (r.weight_pct ?? 0), 0),
+  scoringDraft.value.reduce((s, r) => s + num(r.weight_pct), 0),
 )
 const weightError  = computed(() =>
   Math.abs(totalWeight.value - 100) > 0.01 ? `Tổng trọng số phải bằng 100% (hiện: ${totalWeight.value.toFixed(0)}%)` : null,
 )
 const previewScore = computed(() =>
-  scoringDraft.value.reduce((s, r) => s + (r.score * (r.weight_pct ?? 0)) / 100, 0),
+  scoringDraft.value.reduce((s, r) => s + (num(r.score) * num(r.weight_pct)) / 100, 0),
 )
 
 const DEFAULT_CRITERIA: Array<{ criterion: NeedsPriorityScoringRow['criterion']; weight_pct: number }> = [
@@ -386,7 +390,7 @@ watch(currentDoc, (doc) => {
           <dt class="text-neutral-500">Mã model</dt>
           <dd class="font-medium">{{ currentDoc.device_model_ref }}</dd>
           <dt class="text-neutral-500">Danh mục</dt>
-          <dd>{{ currentDoc.device_category || '—' }}</dd>
+          <dd>{{ (currentDoc as any).device_category_name || (currentDoc as any).asset_category_name || currentDoc.device_category || '—' }}</dd>
           <dt class="text-neutral-500">Thay thế cho</dt>
           <dd>{{ currentDoc.replacement_for_asset || '—' }}</dd>
           <template v-if="currentDoc.utilization_pct_12m != null">
@@ -495,10 +499,10 @@ watch(currentDoc, (doc) => {
                          v-model.number="row.weight_pct"
                          type="number" min="0" max="100" step="5"
                          class="w-16 text-center border border-neutral-300 rounded px-1.5 py-0.5 text-sm focus:ring-1 focus:ring-blue-500 focus:border-blue-500" />
-                  <span v-else class="text-neutral-600">{{ row.weight_pct?.toFixed(0) }}%</span>
+                  <span v-else class="text-neutral-600">{{ num(row.weight_pct).toFixed(0) }}%</span>
                 </td>
                 <td class="td text-right font-semibold text-neutral-700">
-                  {{ ((row.score * (row.weight_pct ?? 0)) / 100).toFixed(3) }}
+                  {{ ((num(row.score) * num(row.weight_pct)) / 100).toFixed(3) }}
                 </td>
                 <td class="td">
                   <input v-if="canScore"
@@ -579,7 +583,7 @@ watch(currentDoc, (doc) => {
             <thead>
               <tr class="border-b border-neutral-100">
                 <th class="th text-left">Hạng mục</th>
-                <th class="th text-right w-16">SL</th>
+                <th class="th text-right w-16">Số lượng</th>
                 <th class="th text-right w-28">Đơn giá</th>
                 <th class="th text-right w-28">Thành tiền</th>
                 <th v-if="budgetEditMode" class="th w-8" />

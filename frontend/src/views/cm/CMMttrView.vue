@@ -100,7 +100,7 @@ function formatHours(h: number): string {
       <div class="kpi-card p-5" style="--kpi-color: #7c3aed; animation-delay: 180ms">
         <p class="text-xs font-medium text-slate-500 mb-1">Chi phí / Sửa</p>
         <p class="text-3xl font-bold text-violet-600">
-          {{ (report.cost_per_repair / 1000).toFixed(0) }}<span class="text-base font-normal text-slate-400 ml-0.5">Kđ</span>
+          {{ (report.cost_per_repair / 1000).toFixed(0) }}<span class="text-base font-normal text-slate-400 ml-1">nghìn đồng</span>
         </p>
       </div>
     </div>

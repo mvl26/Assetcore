@@ -33,11 +33,22 @@ function startTimer() {
   const wo = store.currentWO
   if (!wo?.open_datetime) return
   const startMs = new Date(wo.open_datetime).getTime()
+  const isClosed = ['Completed', 'Cannot Repair', 'Cancelled'].includes(wo.status)
+  if (isClosed) {
+    // Đã đóng: dùng mttr_hours (BE-authoritative, = completion - open) — KHÔNG dùng Date.now()
+    if (wo.mttr_hours != null) {
+      elapsed.value = Math.max(0, Math.floor(wo.mttr_hours * 3600))
+    } else if (wo.completion_datetime) {
+      const endMs = new Date(wo.completion_datetime).getTime()
+      elapsed.value = Math.max(0, Math.floor((endMs - startMs) / 1000))
+    } else {
+      elapsed.value = 0
+    }
+    return
+  }
   const update = () => { elapsed.value = Math.floor((Date.now() - startMs) / 1000) }
   update()
-  if (!['Completed', 'Cannot Repair', 'Cancelled'].includes(wo.status)) {
-    timer = setInterval(update, 1000)
-  }
+  timer = setInterval(update, 1000)
 }
 
 const wo = computed(() => store.currentWO)
@@ -204,7 +215,7 @@ Phiếu bảo trì {{ wo.source_pm_wo }} →
             <thead class="bg-slate-50">
               <tr>
                 <th class="text-left px-3 py-2 text-xs font-medium text-slate-500">Vật tư</th>
-                <th class="text-right px-3 py-2 text-xs font-medium text-slate-500">SL</th>
+                <th class="text-right px-3 py-2 text-xs font-medium text-slate-500">Số lượng</th>
                 <th class="text-right px-3 py-2 text-xs font-medium text-slate-500">Thành tiền</th>
                 <th class="text-center px-3 py-2 text-xs font-medium text-slate-500">Phiếu XK</th>
               </tr>
@@ -282,22 +293,50 @@ Phiếu bảo trì {{ wo.source_pm_wo }} →
         <!-- SLA Indicator -->
         <div class="bg-white rounded-xl shadow-sm border p-5">
           <h2 class="font-semibold text-slate-700 mb-3 text-sm">Chỉ số SLA</h2>
-          <div class="flex items-center justify-between mb-1">
-            <span class="text-xs text-slate-500">Đã trôi: {{ (elapsed / 3600).toFixed(1) }}h / {{ wo.sla_target_hours || '—' }}h SLA</span>
-            <span :class="['text-xs font-semibold', slaTextColor]">{{ slaPercent }}%</span>
-          </div>
-          <div class="h-3 bg-slate-100 rounded-full overflow-hidden mb-2">
-            <div :class="['h-3 rounded-full transition-all', slaBarColor]" :style="{ width: `${slaPercent}%` }" />
-          </div>
-          <div class="text-center font-mono text-xl font-bold text-slate-700 mt-2">{{ elapsedDisplay }}</div>
+
+          <!-- WO đã đóng: kết quả cuối, không có timer/progress -->
+          <template v-if="['Completed', 'Cannot Repair', 'Cancelled'].includes(wo.status)">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-xs text-slate-500">Thời gian sửa chữa (TTR)</span>
+              <span class="text-xs text-slate-500">SLA target</span>
+            </div>
+            <div class="flex items-center justify-between mb-3">
+              <span :class="['text-xl font-bold font-mono', wo.sla_breached ? 'text-red-600' : 'text-emerald-600']">
+                {{ wo.mttr_hours != null ? `${wo.mttr_hours}h` : '—' }}
+              </span>
+              <span class="text-slate-400 text-sm">/</span>
+              <span class="text-xl font-bold font-mono text-slate-700">{{ wo.sla_target_hours ?? '—' }}h</span>
+            </div>
+            <div class="flex items-center justify-center gap-2 py-2 rounded-lg"
+                 :class="wo.sla_breached ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'">
+              <span class="text-base font-semibold">
+                {{ wo.sla_breached ? '✗ Vi phạm SLA' : '✓ Đạt SLA' }}
+              </span>
+            </div>
+            <div v-if="wo.status !== 'Completed'" class="text-xs text-center text-slate-400 mt-2">
+              ({{ wo.status === 'Cancelled' ? 'Phiếu đã huỷ' : 'Không thể sửa chữa' }})
+            </div>
+          </template>
+
+          <!-- WO active: timer + progress bar -->
+          <template v-else>
+            <div class="flex items-center justify-between mb-1">
+              <span class="text-xs text-slate-500">Đã trôi: {{ (elapsed / 3600).toFixed(1) }}h / {{ wo.sla_target_hours || '—' }}h SLA</span>
+              <span :class="['text-xs font-semibold', slaTextColor]">{{ slaPercent }}%</span>
+            </div>
+            <div class="h-3 bg-slate-100 rounded-full overflow-hidden mb-2">
+              <div :class="['h-3 rounded-full transition-all', slaBarColor]" :style="{ width: `${slaPercent}%` }" />
+            </div>
+            <div class="text-center font-mono text-xl font-bold text-slate-700 mt-2">{{ elapsedDisplay }}</div>
+          </template>
         </div>
 
-        <!-- KTV & Timeline -->
+        <!-- Kỹ thuật viên & Timeline -->
         <div class="bg-white rounded-xl shadow-sm border p-5">
           <h2 class="font-semibold text-slate-700 mb-3 text-sm">Trạng thái</h2>
           <div class="space-y-2 text-sm">
             <div class="flex justify-between">
-              <span class="text-slate-500">KTV:</span>
+              <span class="text-slate-500">Kỹ thuật viên:</span>
               <span class="font-medium">{{ wo.assigned_to || '—' }}</span>
             </div>
             <div class="flex justify-between">
@@ -313,7 +352,7 @@ Phiếu bảo trì {{ wo.source_pm_wo }} →
               <span class="text-slate-700">{{ wo.completion_datetime?.slice(0,16) }}</span>
             </div>
             <div v-if="wo.mttr_hours" class="flex justify-between">
-              <span class="text-slate-500">Thời gian sửa chữa TB:</span>
+              <span class="text-slate-500">Thời gian sửa chữa (TTR):</span>
               <span :class="['font-semibold', wo.sla_breached ? 'text-red-600' : 'text-green-600']">{{ wo.mttr_hours }}h</span>
             </div>
           </div>
@@ -328,7 +367,7 @@ Phiếu bảo trì {{ wo.source_pm_wo }} →
               <button
 class="w-full px-4 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
                 @click="showAssignModal = true">
-Phân công KTV
+Phân công kỹ thuật viên
 </button>
             </template>
 
@@ -423,10 +462,10 @@ Không thể sửa chữa
     <Transition name="fade">
     <div v-if="showAssignModal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
       <div class="bg-white rounded-2xl p-6 w-full max-w-md mx-4 shadow-2xl">
-        <h3 class="font-bold text-lg mb-4">Phân công KTV</h3>
+        <h3 class="font-bold text-lg mb-4">Phân công kỹ thuật viên</h3>
         <div class="space-y-3 mb-5">
           <div>
-            <label for="assign-email" class="block text-sm text-slate-600 mb-1">Email KTV *</label>
+            <label for="assign-email" class="block text-sm text-slate-600 mb-1">Email kỹ thuật viên *</label>
             <input id="assign-email" v-model="assignEmail" type="email" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" placeholder="ktv@hospital.vn" />
           </div>
           <div>

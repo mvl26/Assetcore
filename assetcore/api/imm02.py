@@ -102,7 +102,22 @@ def _enrich_tech_spec_display_names(items: list[dict]) -> None:
 
 @frappe.whitelist()
 def get_tech_spec(name: str) -> dict:
-    return _handle(lambda n: frappe.get_doc(_DT_TS, n).as_dict(), name)
+    return _handle(_get_tech_spec, name)
+
+
+def _get_tech_spec(name: str) -> dict:
+    doc = frappe.get_doc(_DT_TS, name)
+    data = doc.as_dict()
+    # Enrich display names so FE doesn't show raw codes/slugs.
+    if doc.get("device_model_ref"):
+        data["device_model_name"] = frappe.db.get_value(
+            "IMM Device Model", doc.get("device_model_ref"), "model_name"
+        ) or doc.get("device_model_ref")
+    if doc.get("device_category"):
+        data["device_category_name"] = frappe.db.get_value(
+            "AC Asset Category", doc.get("device_category"), "category_name"
+        ) or doc.get("device_category")
+    return data
 
 
 @frappe.whitelist(methods=["POST"])

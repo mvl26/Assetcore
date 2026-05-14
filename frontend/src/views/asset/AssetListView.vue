@@ -235,7 +235,7 @@ onMounted(async () => {
                   v-if="asset.asset_category"
                   class="text-left text-slate-700 hover:text-blue-600 hover:underline decoration-dotted underline-offset-2 transition-colors"
                   @click.stop="quickFilter('asset_category', asset.asset_category!)"
-                >{{ asset.category_name || asset.asset_category }}</button>
+                >{{ asset.asset_category_name || asset.category_name || asset.asset_category }}</button>
                 <span v-else class="text-slate-400">—</span>
               </td>
               <td class="table-cell">
@@ -264,7 +264,7 @@ onMounted(async () => {
                     {{ (asset.current_book_value ?? asset.gross_purchase_amount ?? 0).toLocaleString('vi-VN') }}
                   </p>
                   <p v-if="asset.accumulated_depreciation" class="text-xs text-slate-400">
-                    −{{ asset.accumulated_depreciation.toLocaleString('vi-VN') }} đã KH
+                    −{{ asset.accumulated_depreciation.toLocaleString('vi-VN') }} đã khấu hao
                   </p>
                 </div>
                 <span v-else class="text-slate-400">—</span>

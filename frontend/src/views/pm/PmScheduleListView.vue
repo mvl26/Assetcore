@@ -23,7 +23,7 @@ const PM_TYPES = ['Quarterly', 'Semi-Annual', 'Annual', 'Ad-hoc']
 const PM_TYPE_LABEL: Record<string, string> = {
   Quarterly: 'Hàng quý', 'Semi-Annual': 'Nửa năm', Annual: 'Hàng năm', 'Ad-hoc': 'Đột xuất',
 }
-const STATUS_OPTIONS = ['Active', 'Paused', 'Cancelled']
+const STATUS_OPTIONS = ['Active', 'Paused', 'Suspended']
 
 interface FilterChip { key: 'pm_type' | 'status' | 'search'; label: string }
 const filteredItems = computed(() => {
@@ -263,7 +263,7 @@ onMounted(load)
             <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Thiết bị</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Loại PM</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Chu kỳ (ngày)</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">KTV</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Kỹ thuật viên</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Lần trước</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Kế tiếp</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Trạng thái</th>
@@ -352,7 +352,7 @@ onMounted(load)
             <p v-if="fieldErrors.checklist_template" class="text-xs text-red-600 mt-1">{{ fieldErrors.checklist_template }}</p>
           </div>
           <div class="col-span-2">
-            <label class="block text-sm font-medium text-slate-700 mb-1">KTV phụ trách</label>
+            <label class="block text-sm font-medium text-slate-700 mb-1">Kỹ thuật viên phụ trách</label>
             <SmartSelect
               v-model="(form.responsible_technician as string)"
               doctype="User"

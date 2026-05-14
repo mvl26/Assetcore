@@ -458,7 +458,7 @@ sequenceDiagram
     Svc->>DB: COUNT Asset QA NC WHERE resolution_status=Open
     DB-->>Svc: count = 0
 
-    alt workflow_state != Clinical_Release
+    alt workflow_state != "Clinical Release"
         Svc-->>API: ServiceError(BAD_STATE, "Phiếu chưa ở trạng thái Clinical Release")
         API-->>Browser: {success: false, code: "BAD_STATE"}
     else state hợp lệ
