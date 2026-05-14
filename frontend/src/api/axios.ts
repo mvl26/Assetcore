@@ -8,7 +8,7 @@ import axios, {
   type AxiosError,
 } from 'axios'
 import { ApiError, ErrorCode, httpStatusToCode } from './errors'
-import { loginPath } from '@/utils/navigation'
+import { loginPath, isOnLoginPage } from '@/utils/navigation'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CSRF TOKEN HELPERS
@@ -152,7 +152,7 @@ async function handle400(
     // Khi admin sửa role, Frappe clear_sessions() → sid cũ chết, server coi là Guest.
     // Trong case này retry sẽ fail tiếp; redirect login để user không bị kẹt với
     // "Invalid Request" và phải tự logout.
-    if (!authenticated && !globalThis.location.pathname.startsWith('/login')) {
+    if (!authenticated && !isOnLoginPage()) {
       globalThis.location.href = loginPath(globalThis.location.pathname)
       throw new ApiError(
         'Phiên đăng nhập đã thay đổi (role/quyền). Đang chuyển hướng đến trang đăng nhập...',
@@ -176,7 +176,7 @@ async function handle400(
 function handle401(error: AxiosError<FrappeErrorData>): never {
   const url = error.config?.url ?? ''
   const onLoginPage = url.includes('/api/method/login')
-    || globalThis.location.pathname.startsWith('/login')
+    || isOnLoginPage()
   if (!onLoginPage) {
     globalThis.location.href = loginPath(globalThis.location.pathname)
     throw new ApiError('Phiên đăng nhập đã hết hạn. Đang chuyển hướng...',
@@ -191,7 +191,7 @@ function handle401(error: AxiosError<FrappeErrorData>): never {
 async function handle403(): Promise<never> {
   // Frappe trả 403 cho cả 2 TH: (1) session hết hạn → Guest,
   // (2) đã login nhưng thiếu role. Phân biệt qua ping_session.
-  if (!globalThis.location.pathname.startsWith('/login')) {
+  if (!isOnLoginPage()) {
     try {
       const ping = await axios.get<{ message?: { data?: { authenticated?: boolean } } }>(
         '/api/method/assetcore.api.layout.ping_session',
