@@ -5,8 +5,8 @@
 | Mục | Giá trị |
 |---|---|
 | Module | **IMM-02 — Thông số Kỹ thuật & Phân tích Thị trường** |
-| Phiên bản | 1.0.0 |
-| Ngày cập nhật | 2026-05-08 |
+| Phiên bản | 1.0.1 |
+| Ngày cập nhật | 2026-05-14 |
 | Base path | `/api/method/assetcore.api.imm02.<endpoint>` |
 | Owner | Tech Lead |
 | Liên kết | [04 Backend Design](./04_Backend_Design.md) · [06 Frontend Design](./06_Frontend_Design.md) |
@@ -82,7 +82,7 @@ export const IMM02_ROLES = {
 
 ---
 
-# §3 — Endpoints (14 — Thực tế)
+# §3 — Endpoints (16 — Thực tế)
 
 **Catalog thực tế (từ `@frappe.whitelist()` decorators trong `assetcore/api/imm02.py`):**
 
@@ -93,17 +93,21 @@ export const IMM02_ROLES = {
 | 3.3 | `create_tech_spec` | POST | Tạo Tech Spec mới (payload JSON) |
 | 3.4 | `draft_from_plan` | POST | Tạo Tech Spec drafts từ Procurement Plan (1 spec / NR) |
 | 3.5 | `update_tech_spec` | POST | Cập nhật Tech Spec (chỉ khi docstatus=0) |
-| 3.6 | `transition_workflow` | POST | Áp dụng workflow action lên Tech Spec |
-| 3.7 | `get_market_benchmark` | GET | Chi tiết 1 IMM Market Benchmark |
-| 3.8 | `get_lock_in_assessment` | GET | Chi tiết 1 IMM Lock-in Risk Assessment |
-| 3.9 | `lock_spec` | POST | Pending Approval → Locked (approver + submit) |
-| 3.10 | `withdraw_spec` | POST | Withdraw spec (withdrawal_reason bắt buộc) |
-| 3.11 | `reissue_spec` | POST | Tạo phiên bản mới từ Withdrawn spec (copy_doc + version bump) |
-| 3.12 | `submit_benchmark` | POST | Tạo IMM Market Benchmark cho spec_ref |
-| 3.13 | `submit_lock_in_assessment` | POST | Tạo IMM Lock-in Risk Assessment cho spec_ref |
-| 3.14 | `dashboard_kpis` | GET | KPI: `by_state`, `avg_lock_in_score`, `backlog_over_30d` |
+| 3.6 | `add_requirement` | POST | Thêm 1 row vào child table `requirements` (svc.add_requirement_to_spec) |
+| 3.7 | `bulk_import_requirements` | POST | Bulk thêm requirements từ list dict đã parse từ CSV ở FE |
+| 3.8 | `transition_workflow` | POST | Áp dụng workflow action lên Tech Spec |
+| 3.9 | `get_market_benchmark` | GET | Chi tiết 1 IMM Market Benchmark |
+| 3.10 | `get_lock_in_assessment` | GET | Chi tiết 1 IMM Lock-in Risk Assessment |
+| 3.11 | `lock_spec` | POST | Pending Approval → Locked (approver + submit) |
+| 3.12 | `withdraw_spec` | POST | Withdraw spec (withdrawal_reason bắt buộc) |
+| 3.13 | `reissue_spec` | POST | Tạo phiên bản mới từ Withdrawn spec (copy_doc + version bump) |
+| 3.14 | `submit_benchmark` | POST | Tạo IMM Market Benchmark cho spec_ref |
+| 3.15 | `submit_lock_in_assessment` | POST | Tạo IMM Lock-in Risk Assessment cho spec_ref |
+| 3.16 | `dashboard_kpis` | GET | KPI: `by_state`, `avg_lock_in_score`, `backlog_over_30d` |
 
-> **Endpoints KHÔNG tồn tại** (xuất hiện trong design cũ nhưng chưa implement): `add_requirement`, `bulk_import_requirements`, `submit_infra_compat`. Thay vào đó dùng `update_tech_spec` với payload chứa `requirements` / `infra_compat` arrays.
+> **Endpoints KHÔNG tồn tại** (xuất hiện trong design cũ nhưng chưa implement): `submit_infra_compat`. Infra compat hiện update qua `update_tech_spec` với payload chứa `infra_compat` array.
+>
+> Note: `add_requirement` (line 195) và `bulk_import_requirements` (line 209) ĐÃ implement trong `assetcore/api/imm02.py`, delegate sang `services/imm02.add_requirement_to_spec` / `bulk_import_requirements_from_csv`. FE wrapper: `addRequirement`, `bulkImportRequirements` trong `frontend/src/api/imm02.ts`.
 
 ---
 
@@ -201,7 +205,36 @@ GET ?name=TS-26-00045
 }
 ```
 
-## 3.3 `draft_from_plan` — POST
+## 3.3 `create_tech_spec` — POST
+
+Tạo Tech Spec mới (payload tự do — gọi `frappe.get_doc`).
+
+**Request:**
+```json
+{
+  "payload": {
+    "source_plan": "PP-26-001",
+    "source_plan_line": "PP-26-001#L3",
+    "source_needs_request": "NR-26-04-00012",
+    "device_model_ref": "Hamilton C6",
+    "quantity": 2
+  }
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "name": "TS-26-00045",
+    "workflow_state": "Draft",
+    "version": "1.0"
+  }
+}
+```
+
+## 3.4 `draft_from_plan` — POST
 
 Tạo Tech Spec draft từ Procurement Plan Lines.
 
@@ -239,7 +272,7 @@ Tạo Tech Spec draft từ Procurement Plan Lines.
 }
 ```
 
-## 3.4 `update_tech_spec` — POST
+## 3.5 `update_tech_spec` — POST
 
 Cập nhật header fields (chỉ khi Draft hoặc Reviewing).
 
@@ -265,14 +298,14 @@ Cập nhật header fields (chỉ khi Draft hoặc Reviewing).
 }
 ```
 
-## 3.5 `add_requirement` — POST
+## 3.6 `add_requirement` — POST
 
-Thêm 1 requirement vào Tech Spec.
+Thêm 1 requirement vào Tech Spec. **Params thực tế: `spec`, `requirement` (JSON object).**
 
 **Request:**
 ```json
 {
-  "name": "TS-26-00045",
+  "spec": "TS-26-00045",
   "requirement": {
     "group": "Performance",
     "parameter": "Tidal Volume",
@@ -285,27 +318,155 @@ Thêm 1 requirement vào Tech Spec.
 }
 ```
 
-**Response:**
+**Response (thực tế):**
 ```json
 {
   "success": true,
   "data": {
-    "row_name": "TSR-00123",
+    "name": "TS-26-00045",
+    "requirement_idx": 9,
     "total_mandatory": 9,
     "total_optional": 3
   }
 }
 ```
 
-## 3.6 `bulk_import_requirements` — POST
+## 3.7 `bulk_import_requirements` — POST
 
-Import requirements từ Excel file.
+Bulk thêm requirements từ list dict (đã parse từ CSV/Excel ở FE). **Params thực tế: `spec`, `rows` (JSON array of objects).**
+
+**Request:**
+```json
+{
+  "spec": "TS-26-00045",
+  "rows": [
+    {"group": "Performance", "parameter": "Tidal Volume", "value_or_range": "20–2000 mL", "is_mandatory": 1, "test_method": "IEC 60601-2-12"},
+    {"group": "Safety", "parameter": "Alarm Priority", "value_or_range": "P1/P2/P3", "is_mandatory": 1, "test_method": "Manual verify"}
+  ]
+}
+```
+
+**Response (thực tế):**
+```json
+{
+  "success": true,
+  "data": {
+    "name": "TS-26-00045",
+    "imported": 2,
+    "total_mandatory": 12,
+    "total_optional": 13
+  }
+}
+```
+
+## 3.8 `transition_workflow` — POST
+
+Thực thi 1 workflow transition.
 
 **Request:**
 ```json
 {
   "name": "TS-26-00045",
-  "file_url": "/files/requirements_template.xlsx"
+  "action": "Gửi rà soát"
+}
+```
+
+**Response (thực tế):**
+```json
+{
+  "success": true,
+  "data": {
+    "name": "TS-26-00045",
+    "workflow_state": "Reviewing",
+    "docstatus": 0
+  }
+}
+```
+
+## 3.9 `get_market_benchmark` — GET
+
+Lấy chi tiết 1 IMM Market Benchmark.
+
+**Request:**
+```
+GET ?name=MB-26-00021
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "name": "MB-26-00021",
+    "spec_ref": "TS-26-00045",
+    "benchmark_date": "2026-05-01",
+    "recommended_candidate": "Hamilton Medical C6",
+    "weighting_scheme": "{\"price\":30,\"spec\":40,\"support\":20,\"brand\":10}",
+    "candidates": [ ... ]
+  }
+}
+```
+
+## 3.10 `get_lock_in_assessment` — GET
+
+Lấy chi tiết 1 IMM Lock-in Risk Assessment.
+
+**Request:**
+```
+GET ?name=LR-26-00009
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "name": "LR-26-00009",
+    "spec_ref": "TS-26-00045",
+    "assessment_date": "2026-05-02",
+    "lock_in_score": 3.05,
+    "threshold_used": 2.5,
+    "items": [ ... ],
+    "mitigation_plan": "..."
+  }
+}
+```
+
+> Note: `lock_in_score`, `threshold_used`, `mitigation_plan`, `mitigation_evidence` ở permlevel 1.
+
+## 3.11 `lock_spec` — POST
+
+Submit Tech Spec (Pending Approval → Locked). **Params thực tế: `name`, `approver` (bắt buộc), `remarks` (optional).**
+
+**Request:**
+```json
+{
+  "name": "TS-26-00045",
+  "approver": "vp.block1@hospital.vn",
+  "remarks": "Duyệt theo biên bản họp 2026-05-08"
+}
+```
+
+**Response (thực tế):**
+```json
+{
+  "success": true,
+  "data": {
+    "name": "TS-26-00045",
+    "workflow_state": "Locked"
+  }
+}
+```
+
+## 3.12 `withdraw_spec` — POST
+
+Rút hồ sơ. **Param thực tế: `withdrawal_reason` (không phải `reason`).**
+
+**Request:**
+```json
+{
+  "name": "TS-26-00045",
+  "withdrawal_reason": "Cần cập nhật thông số do thay đổi phiên bản thiết bị mới"
 }
 ```
 
@@ -314,16 +475,36 @@ Import requirements từ Excel file.
 {
   "success": true,
   "data": {
-    "imported": 25,
-    "skipped": 0,
-    "errors": [],
-    "total_mandatory": 12,
-    "total_optional": 13
+    "name": "TS-26-00045",
+    "workflow_state": "Withdrawn"
   }
 }
 ```
 
-## 3.12 `submit_benchmark` — POST
+## 3.13 `reissue_spec` — POST
+
+Tái phát hành phiên bản mới từ spec đã Withdrawn. **Param thực tế: `from_spec` (không phải `name`).**
+
+**Request:**
+```json
+{
+  "from_spec": "TS-26-00045"
+}
+```
+
+**Response (thực tế):**
+```json
+{
+  "success": true,
+  "data": {
+    "name": "TS-26-00048",
+    "version": "2.0",
+    "parent_spec": "TS-26-00045"
+  }
+}
+```
+
+## 3.14 `submit_benchmark` — POST
 
 Tạo IMM Market Benchmark cho Tech Spec. **Tên param thực tế: `spec_ref`, `candidates` (JSON array), `weighting_scheme` (JSON object).**
 
@@ -366,8 +547,7 @@ Tạo IMM Market Benchmark cho Tech Spec. **Tên param thực tế: `spec_ref`, 
         "local_partner": "Mindray VN",
         "in_avl": 0
       }
-    ]
-  }
+  ]
 }
 ```
 
@@ -384,7 +564,7 @@ Tạo IMM Market Benchmark cho Tech Spec. **Tên param thực tế: `spec_ref`, 
 
 > Note: `recommended` field (không phải `recommended_candidate`) — từ `_submit_benchmark` return `{"name": mb.name, "recommended": mb.recommended_candidate}`.
 
-## 3.13 `submit_lock_in_assessment` — POST
+## 3.15 `submit_lock_in_assessment` — POST
 
 Submit đánh giá lock-in risk. **Tên param thực tế: `spec_ref`, `items` (JSON array), `threshold` (optional float), `mitigation_plan`, `mitigation_evidence`.**
 
@@ -417,103 +597,7 @@ Submit đánh giá lock-in risk. **Tên param thực tế: `spec_ref`, `items` (
 }
 ```
 
-## 3.6 `transition_workflow` — POST
-
-Thực thi 1 workflow transition.
-
-**Request:**
-```json
-{
-  "name": "TS-26-00045",
-  "action": "Gửi rà soát"
-}
-```
-
-**Response:**
-```json
-{
-  "success": true,
-  "data": {
-    "name": "TS-26-00045",
-    "from_state": "Draft",
-    "to_state": "Reviewing",
-    "action": "Gửi rà soát"
-  }
-}
-```
-
-## 3.9 `lock_spec` — POST
-
-Submit Tech Spec (Pending Approval → Locked). **Params thực tế: `name`, `approver` (bắt buộc), `remarks` (optional).**
-
-**Request:**
-```json
-{
-  "name": "TS-26-00045",
-  "approver": "vp.block1@hospital.vn",
-  "remarks": "Duyệt theo biên bản họp 2026-05-08"
-}
-```
-
-**Response (thực tế):**
-```json
-{
-  "success": true,
-  "data": {
-    "name": "TS-26-00045",
-    "workflow_state": "Locked"
-  }
-}
-```
-
-## 3.10 `withdraw_spec` — POST
-
-Rút hồ sơ (Locked / Pending Approval → Withdrawn). **Param thực tế: `withdrawal_reason` (không phải `reason`).**
-
-**Request:**
-```json
-{
-  "name": "TS-26-00045",
-  "withdrawal_reason": "Cần cập nhật thông số do thay đổi phiên bản thiết bị mới"
-}
-```
-
-**Response:**
-```json
-{
-  "success": true,
-  "data": {
-    "name": "TS-26-00045",
-    "workflow_state": "Withdrawn",
-    "withdrawal_reason": "Cần cập nhật thông số do thay đổi phiên bản thiết bị mới"
-  }
-}
-```
-
-## 3.11 `reissue_spec` — POST
-
-Tái phát hành phiên bản mới từ spec đã Withdrawn. **Param thực tế: `from_spec` (không phải `name`).**
-
-**Request:**
-```json
-{
-  "from_spec": "TS-26-00045"
-}
-```
-
-**Response (thực tế):**
-```json
-{
-  "success": true,
-  "data": {
-    "name": "TS-26-00048",
-    "version": "2.0",
-    "parent_spec": "TS-26-00045"
-  }
-}
-```
-
-## 3.14 `dashboard_kpis` — GET
+## 3.16 `dashboard_kpis` — GET
 
 Dashboard KPI cho IMM-02. **Không có query params (endpoint không nhận args).**
 

@@ -26,11 +26,15 @@ const filterActive = ref<'' | '1' | '0'>('')
 const filterCategory = ref('')
 const filterSeverity = ref<'' | FindingSeverity>('')
 
+const SEVERITY_LABELS: Record<string, string> = {
+  Low: 'Thấp', Medium: 'Trung bình', High: 'Cao', Critical: 'Nghiêm trọng',
+}
+
 const chips = computed(() => {
   const c: { key: string; label: string }[] = []
   if (filterActive.value !== '') c.push({ key: 'active', label: filterActive.value === '1' ? 'Đang áp dụng' : 'Ngừng áp dụng' })
   if (filterCategory.value) c.push({ key: 'category', label: `Nhóm: ${filterCategory.value}` })
-  if (filterSeverity.value) c.push({ key: 'severity', label: `Mức: ${filterSeverity.value}` })
+  if (filterSeverity.value) c.push({ key: 'severity', label: `Mức: ${SEVERITY_LABELS[filterSeverity.value] ?? filterSeverity.value}` })
   return c
 })
 const activeFilterCount = computed(() => chips.value.length)

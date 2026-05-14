@@ -19,7 +19,7 @@
                   │  E2E / UAT │  ← Playwright; 1 Golden Scenario full commissioning
                  ─┴────────────┴─
               ┌──────────────────────┐
-              │   API Integration    │  ← pytest + Frappe whitelist (17 endpoints)
+              │   API Integration    │  ← pytest + Frappe whitelist (33 endpoints)
              ─┴──────────────────────┴─
           ┌────────────────────────────────┐
           │  Workflow + DocType lifecycle  │  ← pytest FrappeTestCase (11 states)
@@ -30,6 +30,10 @@
 ```
 
 Mọi service function phải có test trước khi code (TDD — CLAUDE.md §17). Mỗi gate (G01–G06) và validation rule (VR-01 → VR-07) có ≥ 1 happy + 1 negative test.
+
+**Trạng thái thực tế (2026-05-14):**
+- ✅ Test scaffold: **một file duy nhất** `assetcore/tests/test_imm04.py` (246 LOC). Các file con (`test_imm04_service.py`, `test_imm04_validators.py`, `test_imm04_workflow.py`, `test_imm04_audit.py`, `test_imm04_api.py`, `test_imm04_doctype.py`, e2e `test_imm04_golden.py`) **chưa được tách** — phần I.2–I.8 dưới đây là **kế hoạch chia file** đã được consolidate trong `test_imm04.py`.
+- ✅ API count theo whitelist: **33 endpoints** (xem `05_API_Specification.md` §0 catalog đã refresh).
 
 ## I.2. Unit Test — Service Layer
 

@@ -261,18 +261,77 @@ export function deleteAsset(name: string): Promise<{ name: string; deleted: bool
   return frappePost(`${BASE}.delete_asset`, { name })
 }
 
-// ─── Depreciation ────────────────────────────────────────────────────────────
+// ─── Depreciation: List + Stats (Asset Finance Hub) ─────────────────────────
 
-export interface DepreciationResult {
-  accumulated: number
-  book_value: number
-  method?: string
-  days_elapsed?: number
-  note?: string
+export interface AssetDepreciationRow {
+  name: string
+  asset_name: string
+  asset_category?: string
+  department?: string
+  location?: string
+  purchase_date?: string
+  in_service_date?: string
+  depreciation_start_date?: string
+  gross_purchase_amount?: number
+  residual_value?: number
+  depreciation_method?: string
+  total_depreciation_months?: number
+  depreciation_frequency?: string
+  accumulated_depreciation?: number
+  current_book_value?: number
+  lifecycle_status?: string
+  configured: boolean
+  pct_depreciated: number
+  executed_periods: number
+  total_periods: number
 }
 
-export function computeDepreciation(name: string): Promise<DepreciationResult> {
+export interface DepreciationStats {
+  total_assets: number
+  configured_count: number
+  unconfigured_count: number
+  fully_depreciated: number
+  total_gross: number
+  total_accumulated: number
+  total_book_value: number
+  overall_pct: number
+  by_method: { method: string; count: number }[]
+  by_category: { category: string; book_value: number }[]
+}
+
+export interface DepreciationComputeResult {
+  name: string
+  accumulated: number
+  book_value: number
+  method: string
+  pct_depreciated: number
+}
+
+export function listAssetsDepreciation(params: {
+  page?: number
+  page_size?: number
+  method_filter?: string
+  status_filter?: string
+  category_filter?: string
+} = {}): Promise<{ items: AssetDepreciationRow[]; pagination: { page: number; page_size: number; total: number } }> {
+  return frappeGet(`${BASE}.list_assets_depreciation`, params as Record<string, unknown>)
+}
+
+export function getDepreciationStats(): Promise<DepreciationStats> {
+  return frappeGet(`${BASE}.get_depreciation_stats`)
+}
+
+export function computeDepreciation(name: string): Promise<DepreciationComputeResult> {
   return frappePost(`${BASE}.compute_depreciation`, { name })
+}
+
+export function computeAllDepreciation(): Promise<{
+  generated_schedules: number
+  skipped: number
+  executed_rows: number
+  updated_assets: number
+}> {
+  return frappePost(`${BASE}.compute_all_depreciation`)
 }
 
 // ─── Asset Transfer CRUD ─────────────────────────────────────────────────────

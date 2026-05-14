@@ -1,13 +1,13 @@
 # 03 — Sơ đồ kỹ thuật — IMM-15 Theo dõi tồn kho phụ tùng
 
-> ⚠️ Module PLANNED — Wave 3. AC Inventory Backbone LIVE; IMM transaction layer chưa triển khai.
+> ✅ Module IMPLEMENTED — Wave 2. Diagrams phản ánh DocType + workflow + service đã merge (xem `_REPORT.md` 2026-05-14 Pass 2).
 
 | Thuộc tính | Giá trị |
 |---|---|
 | Module | IMM-15 — Spare Parts Inventory Tracking |
-| Phiên bản | 0.1.0 |
-| Ngày | 2026-05-08 |
-| Trạng thái | PLANNED |
+| Phiên bản | 1.0.0-rc.2 |
+| Ngày | 2026-05-14 |
+| Trạng thái | IMPLEMENTED — Wave 2 |
 
 ---
 

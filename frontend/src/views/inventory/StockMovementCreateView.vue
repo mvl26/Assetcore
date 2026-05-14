@@ -523,7 +523,7 @@ v-else-if="activeRowIdx === idx && !searchLoading && (row._searchQuery?.length ?
 
           <!-- UOM select -->
           <div class="col-span-4 md:col-span-2">
-            <p class="text-[10px] text-slate-500 mb-1">ĐVT</p>
+            <p class="text-[10px] text-slate-500 mb-1">Đơn vị tính</p>
             <select
 v-if="row._uom_options && row._uom_options.length > 1"
                     v-model="row.uom"

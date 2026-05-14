@@ -34,7 +34,7 @@
 - [`02_Analysis_Design.md`](./02_Analysis_Design.md) — Phân tích nghiệp vụ + Use Case + Functional Specs + NFR
 - [`03_Diagrams.md`](./03_Diagrams.md) — ERD + Class Diagram + Sequence Diagram + Package Diagram
 - [`04_Backend_Design.md`](./04_Backend_Design.md) — DocType + Workflow + Service + API + Scheduler
-- [`05_API_Specification.md`](./05_API_Specification.md) — API Catalog + 20 endpoints + Envelope chuẩn
+- [`05_API_Specification.md`](./05_API_Specification.md) — API Catalog + 33 endpoints + Envelope chuẩn
 - [`06_Frontend_Design.md`](./06_Frontend_Design.md) — Sitemap + Mockup + Components + Pinia + UX rules
 
 ### Files tham chiếu (giữ trong module)
@@ -62,7 +62,8 @@ Source docs (cũ) đã archive tại `docs/architecture/archive/imm-04/`:
 - [x] Tạo **`04_Backend_Design.md`** — Backend design chuẩn 3-tier
 - [x] Tạo **`05_API_Specification.md`** — API Catalog với envelope `{success, data}` chuẩn AssetCore
 - [x] Tạo **`06_Frontend_Design.md`** — Frontend design chuẩn Vue 3 + Pinia
-- [ ] Chuẩn hóa naming `Clinical Release` vs `Clinical_Release` trong code (Sprint 7)
+- [x] Chuẩn hóa naming `Clinical Release` vs `Clinical_Release` trong code (DONE — workflow/services/types đều dùng space)
+- [x] Rename Pinia store `stores/commissioning.ts` → `stores/imm04.ts` (DONE — align convention `immXX.ts`)
 - [ ] Thêm DB UNIQUE constraint cho `vendor_serial_no` (Sprint 7)
 - [ ] Config Print Format Biên bản Bàn giao (Sprint 7)
 - [ ] IMM-08 listener cho `imm04_asset_released` (Sprint 8)

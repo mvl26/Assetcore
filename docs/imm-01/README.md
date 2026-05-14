@@ -6,7 +6,7 @@
 | Wave | 2 |
 | Trạng thái | Wave 2 — Live ✅ |
 | Số file hiện có | 8 (template chuẩn) |
-| Cập nhật cuối | 2026-05-10 |
+| Cập nhật cuối | 2026-05-14 |
 | Khối kiến trúc | A. KHỐI 1 |
 | Đợt triển khai | 2 |
 | Owner | PTP Khối 1 · Nhóm KH-TC |
@@ -21,8 +21,8 @@
 | 02 Analysis_Design | [`02_Analysis_Design.md`](./02_Analysis_Design.md) | `IMM-01_Module_Overview.md` + `IMM-01_Functional_Specs.md` | ✅ Chuẩn hóa |
 | 03 Diagrams (ERD/Class/Sequence/Communication/Package) | [`03_Diagrams.md`](./03_Diagrams.md) | (rút từ `IMM-01_Technical_Design.md`) | ✅ Chuẩn hóa |
 | 04 Backend_Design | [`04_Backend_Design.md`](./04_Backend_Design.md) | (archived) | ✅ Cập nhật — phản ánh code thực tế |
-| 05 API_Specification | [`05_API_Specification.md`](./05_API_Specification.md) | (archived) | ✅ Cập nhật — 15 endpoints thực tế, response shapes đúng |
-| 06 Frontend_Design | [`06_Frontend_Design.md`](./06_Frontend_Design.md) | (archived) | ✅ Cập nhật — 4 Vue files thực tế, store actions thực tế |
+| 05 API_Specification | [`05_API_Specification.md`](./05_API_Specification.md) | (archived) | ✅ Cập nhật — 22 endpoints thực tế, response shapes đúng |
+| 06 Frontend_Design | [`06_Frontend_Design.md`](./06_Frontend_Design.md) | (archived) | ✅ Cập nhật — 5 Vue files thực tế, store actions thực tế |
 | 07 Testing QA (Test Plan + UAT + Security + Code quality) | [`07_Testing_QA.md`](./07_Testing_QA.md) | `IMM-01_UAT_Script.md` | ✅ Chuẩn hóa |
 | 08 Deployment + QMS Mapping | [`08_Deployment.md`](./08_Deployment.md) | — | ✅ Mới |
 | 09 User Guide + Release Notes + Traceability | [`09_Release.md`](./09_Release.md) | — | ✅ Mới |
@@ -32,8 +32,8 @@
 - [`02_Analysis_Design.md`](./02_Analysis_Design.md) — Module overview, BPMN, Use Cases, BRs, NFRs
 - [`03_Diagrams.md`](./03_Diagrams.md) — ERD Mermaid, Class Diagram, Sequence Diagrams
 - [`04_Backend_Design.md`](./04_Backend_Design.md) — DocType catalog, Service layer (đã implement), Workflow, Schedulers, DB indexes
-- [`05_API_Specification.md`](./05_API_Specification.md) — 15 endpoints thực tế (incl. `get_allowed_transitions`), response shapes đúng với code
-- [`06_Frontend_Design.md`](./06_Frontend_Design.md) — Routes (4 Vue files thực tế), Pinia store actions thực tế, i18n
+- [`05_API_Specification.md`](./05_API_Specification.md) — 22 endpoints thực tế (incl. `get_allowed_transitions`), response shapes đúng với code
+- [`06_Frontend_Design.md`](./06_Frontend_Design.md) — Routes (5 Vue files thực tế), Pinia store actions thực tế, i18n
 - [`07_Testing_QA.md`](./07_Testing_QA.md) — Test pyramid, UAT scenarios, STRIDE, DocPerm matrix
 - [`08_Deployment.md`](./08_Deployment.md) — Pre-deploy checklist, migration patches, QMS mapping, KPIs, Risk register
 - [`09_Release.md`](./09_Release.md) — User guide tiếng Việt, FAQ, Release Notes, Traceability matrix
@@ -65,4 +65,4 @@ File cũ (`IMM-01_*.md`) đã được move sang `docs/architecture/archive/imm-
 
 ---
 
-*Module index — Wave 2 docs chuẩn hóa hoàn chỉnh 2026-05-08.*
+*Module index — Wave 2 docs chuẩn hóa hoàn chỉnh 2026-05-14 (deep doc-sync pass).*

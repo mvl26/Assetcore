@@ -1,14 +1,14 @@
 # IMM-02 — Phát hành (User Guide + Release Notes + Traceability)
 
-> ⚠️ Pending implementation — Wave 2
+> **Wave 2 — Live.** Bundle phát hành cùng IMM-01 / IMM-03 trên nhánh `feature/hieuc/wave-2`.
 
 | Mục | Giá trị |
 |---|---|
 | Module | **IMM-02 — Thông số Kỹ thuật & Phân tích Thị trường (Tech Spec & Market Analysis)** |
-| Phiên bản | 1.0.0 |
-| Ngày phát hành | (Wave 2 — TBD) |
+| Phiên bản | 1.0.1 |
+| Ngày phát hành | 2026-05-14 (Wave 2 live) |
 | Owner | PM + BA + Tech Writer |
-| Liên kết | [07 Testing QA](./07_Testing_QA.md) · [08 Deployment](./08_Deployment.md) · [Functional Specs](./IMM-02_Functional_Specs.md) |
+| Liên kết | [07 Testing QA](./07_Testing_QA.md) · [08 Deployment](./08_Deployment.md) · [02 Analysis & Design](./02_Analysis_Design.md) |
 
 ---
 
@@ -186,7 +186,18 @@ Module **Đặc tả Kỹ thuật & Phân tích Thị trường (IMM-02)** là b
 
 ## II.1. Tóm Tắt
 
-Phiên bản 1.0.0 (Wave 2) đưa module **Đặc tả Kỹ thuật & Phân tích Thị trường (IMM-02)** vào vận hành. Module chuẩn hóa quy trình soạn thảo ĐKTKT theo chuẩn WHO HTM và ISO 13485, đảm bảo tính khách quan trong benchmark thị trường và kiểm soát nguy cơ lock-in nhà cung cấp. Downtime dự kiến 30-60 phút.
+Wave 2 đưa module **Đặc tả Kỹ thuật & Phân tích Thị trường (IMM-02)** vào vận hành đồng thời với IMM-01 + IMM-03. Module chuẩn hóa quy trình soạn thảo ĐKTKT theo chuẩn WHO HTM và ISO 13485, đảm bảo tính khách quan trong benchmark thị trường và kiểm soát nguy cơ lock-in nhà cung cấp.
+
+**Commit chính (nhánh `feature/hieuc/wave-2`):**
+
+| Commit | Mô tả |
+|---|---|
+| `d2279ab` | Add module IMM-01, IMM-02, IMM-03 (BE skeleton + workflow) |
+| `4a3ad1c` | Resolve conflicts và sync Wave 2 với global formatters |
+| `d56c0cd` | Fix bug Wave 1 & 2, enhance AI agents |
+| `810179e` | feat (BE+FE): add module 1,2,3, update UI dashboard `/launcher` |
+| `82a9607` | fix (FE): Modal create new needs-requests, sidebar, filter IMM-1/2/3 |
+| `fce3655` | fix(FE): update fullname user + list view một số page |
 
 ## II.2. Tính Năng Mới
 
@@ -324,12 +335,12 @@ So sánh ≥ 3 thiết bị cùng loại với tính điểm tự động dựa 
 |---|---|---|
 | DocType (chính) | 3 | `IMM Tech Spec`, `IMM Market Benchmark`, `IMM Lock-in Risk Assessment` |
 | DocType (child) | 5 | `Tech Spec Requirement`, `Benchmark Candidate`, `Infra Compatibility Item`, `Lock-in Risk Item`, `Tech Spec Document` |
-| Workflow JSON | 1 | `IMM-02 Spec Workflow` — 7 states, 8 transitions |
-| API endpoint | 14 | `list, get, draft_from_plan, update, add_requirement, bulk_import, submit_benchmark, submit_infra_compat, submit_lock_in, transition, lock_spec, withdraw_spec, reissue_spec, dashboard_kpis` |
-| FE view / page | 5 | TechSpecList, TechSpecDetail, MarketBenchmarkDetail, LockInRiskDetail, Imm02Dashboard |
-| FE store | 1 | `stores/imm02.ts` |
-| Service function | 18+ | `draft_from_plan, seed_default_requirements, validate_tech_spec, compute_lock_in, lock_spec, withdraw_spec, reissue_spec, ...` |
-| Scheduler job | 3 | Daily overdue check, Weekly benchmark freshness, Quarterly infra recheck (cron) |
+| Workflow JSON | 1 | `IMM-02 Spec Workflow` — 7 states, 9 transitions (xem 04 §V.2) |
+| API endpoint | 16 | `list_tech_specs, get_tech_spec, create_tech_spec, draft_from_plan, update_tech_spec, add_requirement, bulk_import_requirements, transition_workflow, get_market_benchmark, get_lock_in_assessment, lock_spec, withdraw_spec, reissue_spec, submit_benchmark, submit_lock_in_assessment, dashboard_kpis` |
+| FE view / page | 3 | `TechSpecListView`, `TechSpecCreateView`, `TechSpecDetailView` (Benchmark + Lock-in detail embed trong Tech Spec Detail) |
+| FE store | 1 | `stores/imm02.ts` — Pinia store id `imm02` |
+| Service function | 23 | xem `assetcore/services/imm02.py`: 4 lifecycle hooks + 4 VR + 4 Gate + 2 rollup + 2 benchmark/lockin validator + 2 weighting helper + 2 requirement helper + 2 scheduler + `_check_workflow_gates_ts` |
+| Scheduler job | 2 | Daily `check_overdue_drafts`, Weekly `benchmark_freshness_alert` (xem `hooks.py`) |
 | Business Rule | 7 | BR-02-01 → BR-02-07 |
 | Role áp dụng | 7 | HTM Engineer, Planning Officer, Risk Officer, System Admin, Dept Head, Board Approver, System Admin (CNTT) |
 | Test case unit | ~45 | 15 test class × ~3 case avg |

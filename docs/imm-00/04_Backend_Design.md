@@ -7,7 +7,7 @@
 | Owner | Tech Lead / BE Lead |
 | Liên kết | [03 Diagrams](./03_Diagrams.md) · [05 API Specification](./05_API_Specification.md) |
 | Phiên bản | 4.1.0 |
-| Trạng thái | **Live ✅** — đã implement, reviewed vs codebase 2026-05-08 |
+| Trạng thái | **Live ✅** — đã implement, synced vs codebase 2026-05-14 |
 
 ---
 
@@ -90,7 +90,7 @@ DocType folder path: `assetcore/assetcore/doctype/` (78 folders tổng — bản
 | `manufacturer_sn` | varchar(140) | NO | Số serial NSX | IDX; UNIQUE nếu có |
 | `udi_code` | varchar(140) | NO | Mã UDI (GS1/HIBC) | IDX |
 | `gmdn_code` | varchar(20) | NO | Mã GMDN (5–6 số) | fetch_from device_model |
-| `gmdn_status` | varchar(50) | NO | Đang sử dụng/Không sử dụng | default: Không sử dụng |
+| `gmdn_status` | varchar(50) | NO | Select `In Use` / `Not Use` (DocType options) | default `Not Use`; `read_only=1` (chỉ đổi qua `update_gmdn_status` / `toggle_gmdn_status`) |
 
 ### II.1.4 Fields — Đăng ký BYT
 
@@ -550,16 +550,24 @@ for r in roles:
 PY
 ```
 
-Fixtures shipped:
+Fixtures shipped (verified vs `assetcore/fixtures/` 2026-05-14):
 
 ```
 assetcore/fixtures/
-├── imm_roles.json              # 8 roles
-├── imm_workflows.json          # CAPA + Incident workflow
-├── imm_sla_policies.json       # 9 SLA policy defaults
-├── imm_device_models_sample.json  # 5 device models mẫu
-└── imm_naming_series.json      # naming series AC/IMM
+├── role.json                          # 19 IMM roles (Wave 1 + Wave 2) — commit 5b4158e
+├── has_role.json                      # IMM↔User pre-seed (commit 5b4158e)
+├── role_profile.json                  # Role bundling per persona
+├── module_profile.json                # Workspaces/sidebar grouping
+├── workflow.json                      # Tất cả workflows AssetCore module
+├── workflow_state.json                # State catalog (Open, In Progress, …)
+├── workflow_action_master.json        # Action labels VN
+├── workspace.json                     # Sidebar workspaces
+├── imm_sla_policy.json                # SLA policy defaults (P1–P4 × risk_class)
+├── imm15_custom_fields.json           # IMM-15 Spare Parts custom fields
+└── imm16_custom_field_capa_record.json # IMM-16 CAPA custom field
 ```
+
+> Fixture roles trước đây tên `imm_roles.json` đã được thay bằng `role.json` + `has_role.json` (commit `5b4158e` "install assetcore with fixtures/has_role").
 
 ## IV.5. SLA Policy defaults
 
@@ -586,13 +594,21 @@ assetcore/fixtures/
 ```python
 scheduler_events = {
     "daily": [
+        # IMM-00 foundation alerts
         "assetcore.services.imm00.check_capa_overdue",
         "assetcore.services.imm00.check_vendor_contract_expiry",
         "assetcore.services.imm00.check_registration_expiry",
+        "assetcore.services.imm00.check_insurance_expiry",
+        "assetcore.services.imm00.check_service_contract_expiry",
+        # ... (các module IMM-05/08/11/12/15/16 + Wave 2 đăng ký thêm)
+    ],
+    "monthly": [
         "assetcore.services.imm00.rollup_asset_kpi",
     ],
 }
 ```
+
+> Foundation IMM-00 đóng góp **5 daily jobs** + **1 monthly job** (`rollup_asset_kpi`). Các IMM-05/08/11/12/15/16 đăng ký thêm scheduler riêng — xem `hooks.py::scheduler_events` để có danh sách đầy đủ.
 
 ## V.2. `assetcore/hooks.py` — Permission Query
 
@@ -617,13 +633,21 @@ def get_ac_asset_permission_query(user: str) -> str:
 
 ## V.3. `assetcore/hooks.py` — Fixtures
 
-```python
-fixtures = [
-    {"dt": "Role", "filters": [["name", "like", "IMM%"]]},
-    {"dt": "IMM SLA Policy"},
-    {"dt": "Workflow", "filters": [["module", "=", "AssetCore"]]},
-]
-```
+Fixtures hiện đăng ký qua file JSON trong `assetcore/fixtures/` (bench tự sync khi `bench migrate`):
+
+| Fixture | Doctype gốc | Mục đích |
+|---|---|---|
+| `role.json` | Role | 19 IMM roles |
+| `has_role.json` | Has Role | Default role assignments |
+| `role_profile.json` | Role Profile | Persona bundling |
+| `module_profile.json` | Module Profile | Workspace grouping |
+| `workflow.json` | Workflow | Tất cả AssetCore workflows |
+| `workflow_state.json` | Workflow State | State catalog |
+| `workflow_action_master.json` | Workflow Action Master | Action labels VN |
+| `workspace.json` | Workspace | Sidebar layout |
+| `imm_sla_policy.json` | IMM SLA Policy | SLA defaults |
+| `imm15_custom_fields.json` | Custom Field | IMM-15 fields |
+| `imm16_custom_field_capa_record.json` | Custom Field | IMM-16 CAPA field |
 
 ## V.4. Database indexes
 
@@ -661,7 +685,7 @@ fixtures = [
 - [x] Incident Report (NĐ98 fields)
 
 ### III. Service layer
-- [x] imm00.py: 22 functions (verified vs code — bao gồm transfer, GMDN, scheduler, KPI)
+- [x] imm00.py: 23+ public functions (verified vs code: lifecycle re-exports, `transition_asset_status`, GMDN update/toggle, validate_asset_for_operations, get_sla_policy, CAPA open/close, transfer CRUD + workflow + `transfer_asset`, 5 daily scheduler + monthly KPI rollup)
 - [x] services/shared/: constants.py, errors.py, permissions.py (verified)
 - [x] utils/: response, lifecycle, email, pagination (verified import paths)
 - [x] ErrorCode string constants (verified vs constants.py)

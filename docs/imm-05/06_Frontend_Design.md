@@ -188,7 +188,7 @@
 
 ### §4.2 `DocumentStatusBadge` — spec
 
-> **Lưu ý quan trọng:** Workflow state values trong DB/service code dùng underscore (`Pending_Review`), xác nhận từ `services/imm05.py` class `DocState` và `imm05Store.ts` filter `d.workflow_state === 'Pending_Review'`.
+> **Lưu ý:** Workflow state values dùng **space** (`Pending Review`) — đồng bộ giữa `services/imm05.py` class `DocState`, workflow fixture `imm_05_document_workflow.json`, và `stores/imm05.ts`.
 
 ```typescript
 // Props
@@ -199,7 +199,7 @@ interface DocumentStatusBadgeProps {
 // DocState values (ground truth từ services/imm05.py)
 class DocState {
   DRAFT = "Draft"
-  PENDING_REVIEW = "Pending_Review"  // underscore, không phải space
+  PENDING_REVIEW = "Pending Review"  // space, không phải underscore
   ACTIVE = "Active"
   ARCHIVED = "Archived"
   EXPIRED = "Expired"
@@ -209,7 +209,7 @@ class DocState {
 // Badge mapping — dùng đúng key từ DocState
 const BADGE_MAP: Record<string, { label: string; class: string }> = {
   "Draft":          { label: "Nháp",           class: "badge-gray" },
-  "Pending_Review": { label: "Chờ duyệt",      class: "badge-yellow" },
+  "Pending Review": { label: "Chờ duyệt",      class: "badge-yellow" },
   "Active":         { label: "Đang hiệu lực",  class: "badge-green" },
   "Rejected":       { label: "Bị từ chối",     class: "badge-red" },
   "Archived":       { label: "Đã lưu trữ",     class: "badge-gray" },
@@ -238,9 +238,9 @@ function getExpiryClass(days: number | null): string {
 
 ## §5 — Pinia Store
 
-> Source of truth: `frontend/src/stores/imm05Store.ts`
+> Source of truth: `frontend/src/stores/imm05.ts`
 
-**File:** `frontend/src/stores/imm05Store.ts` — export `useImm05Store`
+**File:** `frontend/src/stores/imm05.ts` — export `useImm05Store`
 
 Store dùng **Composition API** pattern (`defineStore('imm05', () => {...})`), không phải Options API.
 
@@ -264,7 +264,7 @@ const currentDocument = ref<AssetDocumentDetail | null>(null)
 
 **Getters thực tế:**
 - `totalDocuments` — `pagination.total`
-- `pendingReviewDocs` — filter `workflow_state === 'Pending_Review'`
+- `pendingReviewDocs` — filter `workflow_state === 'Pending Review'`
 - `expiredDocs` — filter `workflow_state === 'Expired'`
 - `kpis` — from `dashboardStats.kpis`
 - `openRequests` — filter `status === 'Open' || 'Overdue'`

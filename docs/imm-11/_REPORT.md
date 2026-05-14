@@ -62,3 +62,49 @@
 - FE: store + views + routes + sidebar entry wired
 - Tests: see docs/res/dod-verification-report.md §1 for per-module results
 - Status: READY
+
+## 2026-05-14 Code-to-Doc Sync Pass
+
+**Scope**: Đối chiếu IMM-11 docs vs code thực tế.
+
+**File đã chạm:**
+- `README.md` — bump `Cập nhật cuối` → 2026-05-14.
+
+**No drift detected:**
+- `assetcore/api/imm11.py` — 18 `@frappe.whitelist` endpoints, khớp `05_API_Specification.md` (`Catalog · 18 actual endpoints`) và README. Service stable kể từ commit `d56c0cd` (2026-05-08), không thay đổi gần đây.
+- DocType `imm_asset_calibration`, `imm_calibration_schedule`, `imm_calibration_measurement` — tên + field khớp `04_Backend_Design.md`.
+- FE `frontend/src/views/calibration/` (5 views) — không có uncommitted change trong scope wave-2 branch hiện tại. Route/store/api map khớp `06_Frontend_Design.md`.
+
+**Cross-module dependency note (không sửa, chỉ ghi nhận):**
+- BR-11-02 (failed calibration → auto-create CM via IMM-09) vẫn đúng — service `imm11.submit_calibration` gọi canonical `transition_asset_status` và emit lifecycle event `calibration_failed` để IMM-09 hook nhận.
+- IMM-00 uncommitted rewrite `get_asset_kpi` KHÔNG đụng calibration metrics — IMM-11 KPI vẫn lấy từ `get_calibration_kpis` + `get_calibration_dashboard` (BE-owned).
+
+**Không chạm:** Toàn bộ section content (Pitch, Stakeholder, KPI, Workflow, mockup, ERD). Chỉ metadata README.
+
+**Việc còn lại:**
+- UAT execution (đã pending từ README Roadmap).
+- §I.0 baseline khảo sát từng site (đã ghi placeholder từ pass 2026-05-10).
+
+**Bug-fix references:** Không có bug-fix IMM-11 trong wave-2 branch — module stable từ Sprint 6.
+
+## 2026-05-14 — Full sync 02-09 với code
+
+**Phạm vi**: 8 file 02–09 đối chiếu với `services/imm11.py`, `api/imm11.py`, DocType JSON, workflow JSON, `hooks.py`, FE routes/store/views.
+
+**File đã chạm + loại drift:**
+- `02_Analysis_Design.md` — header status `⚠️ Pending` → `✅ Live`; Roadmap §I.8 chuyển 5/6 sprint sang ✅ Done; thêm `Cập nhật: 2026-05-14`.
+- `03_Diagrams.md` — header status; entity catalog bổ sung tên folder DocType; thay toàn bộ `⚠️ Pending` → `✅ Live`.
+- `04_Backend_Design.md` — sửa tên file workflow JSON sai (`imm_11_asset_calibration_workflow.json` → `imm_11_calibration_workflow.json`); viết lại bảng transition theo JSON thật (12 transition bao gồm In Progress, Certificate Received, Cancelled, Conditionally Passed); sửa hooks.py: DocType `IMM Commissioning` → `Asset Commissioning`, gỡ entry `IMM Asset Repair on_submit` (do `create_post_repair_calibration` được `services/imm09.py` gọi trực tiếp Pattern B, KHÔNG qua doc_events).
+- `05_API_Specification.md` — sửa curl ví dụ endpoint sai tên (`submit_calibration_results` → `submit_calibration`); thêm cập nhật.
+- `06_Frontend_Design.md` — route prefix sai nặng: `/imm-11/...` → `/calibration/...` (5 route thật: `/calibration/dashboard`, `/calibration`, `/calibration/new`, `/calibration/schedules`, `/calibration/:id`); xoá 2 route CAPA không thuộc IMM-11; thay sidebar config sai bằng entry thực tế trong `frontend/src/constants/modules.ts` (id=`imm11`, accent=gauge, to=`/calibration/dashboard`); sửa router push CAPA → `/capa/...` (thuộc IMM-12).
+- `07_Testing_QA.md` — header `⚠️ DRAFT` → `🟡` (test_imm11.py LIVE); chỉ rõ file test thực tế.
+- `08_Deployment.md` — header `⚠️ DRAFT` → `✅ Live`.
+- `09_Release.md` — header `⚠️ DRAFT` → `✅ Live`.
+
+**Bug-fix references đáng chú ý:**
+- Xác nhận `_VALID_TRANSITIONS` + workflow JSON `imm_11_calibration_workflow.json` khớp nhau (8 state, 12 transition).
+- `create_post_repair_calibration` callsite `services/imm09.py:190-191` (Pattern B lazy import).
+
+**Việc còn lại:**
+- UAT execution + screenshot UI thực tế cho doc 06/09 (đã pending từ 2026-05-10).
+- §I.0 baseline khảo sát từng site.

@@ -1,15 +1,15 @@
 # 05 — Đặc tả API — IMM-15 Theo dõi tồn kho phụ tùng
 
-> ⚠️ Module PLANNED — Wave 3. AC Inventory Backbone LIVE (api/inventory.py); IMM transaction endpoints chưa triển khai.
+> ✅ Implemented — Wave 2. Cả `api/inventory.py` (AC backbone) và `api/imm15.py` (IMM transaction layer) đều LIVE. FE đã wire qua `frontend/src/api/imm15.ts` và `frontend/src/api/inventory.ts`.
 
 | Thuộc tính | Giá trị |
 |---|---|
 | Module | IMM-15 — Spare Parts Inventory Tracking |
-| Phiên bản | 0.1.0 |
-| Ngày | 2026-05-08 |
-| Base path (LIVE) | `/api/method/assetcore.api.inventory.<endpoint>` |
-| Base path (PLANNED) | `/api/method/assetcore.api.imm15.<endpoint>` |
-| Trạng thái | PLANNED |
+| Phiên bản | 0.2.0 |
+| Ngày | 2026-05-14 |
+| Base path (AC backbone) | `/api/method/assetcore.api.inventory.<endpoint>` |
+| Base path (IMM-15) | `/api/method/assetcore.api.imm15.<endpoint>` |
+| Trạng thái | IMPLEMENTED |
 
 ---
 
@@ -35,8 +35,10 @@ Frappe session / API Key. Mọi endpoint yêu cầu login.
 
 | File | Status | Mô tả |
 |---|---|---|
-| `api/inventory.py` | **LIVE** | 30 endpoints master + movement (AC backbone) — IMM-15 FE tái sử dụng |
-| `api/imm15.py` | **PLANNED** | ~16 endpoints transaction mới (Allocation / Cycle Count / Forecast / Watchlist) |
+| `api/inventory.py` | **LIVE** | ~30 endpoints master + movement (AC backbone) — IMM-15 FE tái sử dụng |
+| `api/imm15.py` | **LIVE** | Transaction endpoints (Allocation / Cycle Count / Forecast / Watchlist / Dashboard / Low-Stock alerts) — 21 whitelist methods. Xem `assetcore/api/imm15.py` để biết signature chính xác |
+
+> Endpoint bổ sung so với draft 0.1.0 (đã có trong code 0.2.0): `submit_cycle_count` (đếm xong → Reviewed), `return_allocation` (alias path), `get_stock_snapshot`, `get_critical_watchlist`. Mọi endpoint giữ envelope `{success, data}` qua `_handle()` wrapper (xem `api/imm15.py:29`).
 
 ---
 
@@ -79,7 +81,7 @@ _FORECAST_APPROVE_ROLES   = {ROLE_WORKSHOP_LEAD, ROLE_OPS_MANAGER, ROLE_IMM_ADMI
 
 ---
 
-## 3. Endpoint Specifications — PLANNED (imm15.py)
+## 3. Endpoint Specifications — IMPLEMENTED (`assetcore/api/imm15.py`)
 
 ### 3.1 `list_allocations`
 

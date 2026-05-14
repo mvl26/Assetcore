@@ -80,3 +80,53 @@ KHÔNG chạm Pitch / Stakeholder / KPI / Workflow (per user constraint).
 - FE: store + views + routes + sidebar entry wired
 - Tests: see docs/res/dod-verification-report.md §1 for per-module results
 - Status: READY
+
+## 2026-05-14 Code-to-Doc Sync Pass
+
+**Scope**: Đối chiếu docs vs code sau commits `797f5b6` + uncommitted CM view changes (`CMMttrView.vue`, `CMPartsView.vue`, `CMWorkOrderDetailView.vue`) trên `feature/hieuc/wave-2`.
+
+**File đã chạm:**
+- `README.md` — bump `Cập nhật cuối` → 2026-05-14.
+- `06_Frontend_Design.md` — đồng bộ thuật ngữ UI:
+  - Mockup Detail (§3.a, line ~151): `KTV: Nguyễn Văn A` → `Kỹ thuật viên: Nguyễn V.A`.
+  - Mockup List filter chips (§3.c, line ~258, 260): `[KTV▼]` → `[Kỹ thuật viên▼]`; column header `KTV` → `Kỹ thuật viên`.
+  - `ACTION_MAP['Open']` (§7, line ~510): action label `'Phân công KTV'` → `'Phân công kỹ thuật viên'` (khớp button trong `CMWorkOrderDetailView.vue` mới).
+  - Glossary (§9, line ~580): `Assigned To = KTV thực hiện` → `Kỹ thuật viên thực hiện`.
+- **Giữ nguyên** role names trong `meta.roles` (`KTV HTM`) và trong tham số `roles: ['KTV HTM']` của `ACTION_MAP` — đây là role constant Frappe, KHÔNG phải display label.
+
+**Endpoint count verify:** code có 12 `@frappe.whitelist` trong `api/imm09.py` — khớp `05_API_Specification.md` §0 (`Catalog 12 endpoints`) và README. `search_spare_parts` đã live + đồng bộ với inventory module IMM-15.
+
+**Workflow / DocType verify:**
+- `Asset Repair` status options (DocType JSON) khớp `04_Backend_Design.md` §III state table.
+- `mttr_hours`, `sla_breached`, `is_repeat_failure`, `total_parts_cost` field đều tồn tại trong code; docs cite đúng.
+
+**Không chạm:** Pitch (I.1), Stakeholder (I.3), KPI (I.5), Workflow (IV.3), business rules BR-09-01..05, ErrorCode, role names. Folder ngoài `docs/imm-09/` không động.
+
+**Việc còn lại / cần user confirm:**
+- IMM-00 uncommitted rewrite `get_asset_kpi` đọc `Asset Repair` records để compute `mttr_hours` + `total_repair_cost` aggregate. Pattern này song song với `get_repair_kpis` IMM-09 nhưng output khác (per-asset vs cohort). Có thể cần section "Cross-module integration" trong `04_Backend_Design.md` IMM-09 mention "IMM-00 `get_asset_kpi` reads `Asset Repair` table" — **chưa thêm** vì chờ IMM-00 commit ổn định.
+- Bug-fix CM views (terminology) đã reflect; logic action button chưa thay đổi nên không cần sửa diagram §03.
+
+**Bug-fix references:**
+- `797f5b6` — fix bug FE views + API imm08/09 (terminology + roles).
+- Uncommitted `feature/hieuc/wave-2` — CM views Vietnamese terminology (`KTV`→`Kỹ thuật viên`, `SL`→`Số lượng`, currency suffix `Kđ`→`nghìn đồng`).
+
+## 2026-05-14 — Full sync 02-09 với code
+
+| File | Số chỗ sửa | Loại drift chính |
+|---|---|---|
+| 02_Analysis_Design.md | 1 | Header `Cập nhật 2026-05-14` |
+| 03_Diagrams.md | 1 | Header `Cập nhật` |
+| 04_Backend_Design.md | 5 | Controller `before_insert` đúng pattern (`check_repeat_failure(asset_ref)` trả bool gán `is_repeat_failure`); §7 scheduler flag 3 function **chưa wire** trong `hooks.py` (gap thực); §8 integration thêm Pattern B (IMM-09→IMM-15 lazy-import `create_allocation`) + Pattern C (IMM-16 `gate_wo_submit(doc, method=None)` signature thật, KHÔNG phải `(asset_ref, wo_type="CM")`) + cite line numbers; header date |
+| 05_API_Specification.md | 2 | `Phân công KTV` → `Phân công Kỹ thuật viên` trong mô tả endpoint; header date |
+| 07_Testing_QA.md | 1 | Header date |
+| 08_Deployment.md | 1 | Header date |
+| 09_Release.md | 1 | Header thêm `Cập nhật` (giữ `Ngày phát hành 2026-05-08`) |
+
+**Bug-fix references:** uncommitted `feature/hieuc/wave-2` — đã reflect: terminology + Pattern C signature đúng `(doc, method=None)`, Pattern B lazy-import `imm15.create_allocation` (đã hiện diện trong service line ~500).
+
+**Code-to-doc gap đáng chú ý (cần wire trong patch tiếp theo):**
+- `assetcore/hooks.py::scheduler_events` chưa đăng ký `check_repair_sla_breach` (hourly), `check_repair_overdue` (daily), `update_asset_mttr_avg` (monthly). 3 function tồn tại trong `services/imm09.py` nhưng không bao giờ chạy. Đã flag trong §7 với cảnh báo ⚠.
+
+**Việc còn lại cần user quyết:**
+- Wire 3 scheduler job IMM-09 vào `hooks.py` — cần BE Lead approve trước khi thêm.
+- 02_Analysis_Design.md vẫn dùng "KTV HTM" trong UML; giữ vì role constant. Đổi display label trong UML cần task riêng.

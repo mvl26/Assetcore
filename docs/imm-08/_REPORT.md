@@ -68,3 +68,45 @@ Yêu cầu user: KHÔNG đụng Pitch (I.1) / Stakeholder (I.3) / KPI (I.5) / Wo
 - FE: store + views + routes + sidebar entry wired
 - Tests: see docs/res/dod-verification-report.md §1 for per-module results
 - Status: READY
+
+## 2026-05-14 Code-to-Doc Sync Pass
+
+**Scope**: Đối chiếu docs vs code thực tế sau commits `797f5b6` (bug fix mod 6/8/9) + uncommitted PM/CM view changes trên `feature/hieuc/wave-2`.
+
+**File đã chạm:**
+- `README.md` — bump `Cập nhật cuối` → 2026-05-14.
+- `06_Frontend_Design.md` — đồng bộ thuật ngữ UI: "KTV" → "Kỹ thuật viên" trong mockup PM Calendar/List/Detail (section 3.a Mockup 2/3/4), bảng route §1, bảng filter §3.2, cột list §3.3, panel detail §3.4. **Giữ nguyên** tên role "HTM Technician" / "KTV HTM" trong cột `Roles` và mọi spec backend — đây là role constant, không phải display label.
+
+**Endpoint count verify:** code có 23 `@frappe.whitelist` trong `assetcore/api/imm08.py` — đúng số liệu docs (`05_API_Specification.md` §0 + README).
+
+**Workflow state verify:**
+- `PM Schedule.status` (DocType JSON `pm_schedule.json` line 55) = `Active\nPaused\nSuspended` → khớp `04_Backend_Design.md` §I.1 bảng field (line 46). FE `PmScheduleListView.vue` vừa đổi `Cancelled` → `Suspended` (uncommitted) để khớp BE — không phải doc drift.
+- `PM Work Order.status` (DocType JSON `pm_work_order.json` line 78) = `Open\nIn Progress\nPending–Device Busy\nOverdue\nCompleted\nHalted–Major Failure\nCancelled` → khớp `04_Backend_Design.md` §III state table (line 128–134).
+
+**Không chạm:** Pitch (I.1), Stakeholder (I.3), KPI (I.5), Workflow (IV.3), tên role, ErrorCode, business rules. Folder ngoài `docs/imm-08/` không bị động.
+
+**Việc còn lại / cần user confirm:**
+- IMM-00 commit uncommitted rewrite `get_asset_kpi` (compute on-the-fly từ `AC Asset Downtime Log` + `Asset Repair` + `PM Work Order`) đụng tới KPI mà IMM-08 dashboard tiêu thụ qua `get_pm_dashboard_stats`. Cần BA IMM-00 confirm trước khi reflect xuống IMM-08 (hiện docs IMM-08 chỉ cite `get_pm_dashboard_stats`, không cite trực tiếp `get_asset_kpi` → không cần sửa IMM-08, nhưng cần note cross-module).
+- Screenshot post-build (§3.b) vẫn pending — chưa add file vào `docs/imm-08/screenshots/`.
+
+**Bug-fix references:**
+- `797f5b6` — fix bug FE views + API imm08 (đã reflect: terminology consistent với mockup).
+- Uncommitted `feature/hieuc/wave-2` — PM views Vietnamese terminology + PM Schedule status fix `Cancelled`→`Suspended`.
+
+## 2026-05-14 — Full sync 02-09 với code
+
+| File | Số chỗ sửa | Loại drift chính |
+|---|---|---|
+| 02_Analysis_Design.md | 1 | Header thêm `Cập nhật 2026-05-14` |
+| 03_Diagrams.md | 1 | Header `Cập nhật` |
+| 04_Backend_Design.md | 7 | Controller hooks (`validate_work_order`/`handle_work_order_submit`); service public fn list (đúng tên `submit_result`, `report_major_failure`, `reschedule`, `generate_pm_work_orders_from_schedule`, `create_pm_schedule_from_commissioning`); §4b Repository (4 Repo trong `pm_repo.py`); §7 scheduler đúng 1 entry + doc_events; §8 integration Pattern A/C cite signature thật `gate_wo_submit(doc, method=None)`; tổng quan kiến trúc đổi từ "controller chứa logic" → "3-tier strict" + `_create_cm_wo_from_failure`; header date |
+| 05_API_Specification.md | 4 | `KTV` → `Kỹ thuật viên` trong API table mô tả `assign_technician` / `submit_pm_result`; section heading §3, §4; header date |
+| 07_Testing_QA.md | 3 | Cảnh báo test code hợp nhất `test_imm08.py` (không tách `test_imm08_service.py` v.v.); scheduler test trỏ `services.imm08.generate_pm_work_orders_from_schedule`; header date |
+| 08_Deployment.md | 1 | Header date |
+| 09_Release.md | 1 | Header thêm `Cập nhật` (giữ `Ngày phát hành 2026-05-08`) |
+
+**Bug-fix references:** uncommitted `feature/hieuc/wave-2` — đã reflect: hooks function name `create_pm_schedule_from_commissioning`, 3-tier service+repo pattern, scheduler hợp nhất.
+
+**Việc còn lại cần user quyết:**
+- 02_Analysis_Design.md vẫn dùng actor "KTV / KTV HTM" trong UML/Mermaid — chưa đổi vì xem như role constant. Nếu BA muốn rename display → cần task riêng.
+- §4 04 cite `submit_pm_result` nhưng service file đặt là `submit_result`; giữ alias API name `submit_pm_result` vì khớp endpoint, đã ghi cả hai trong bảng public functions.

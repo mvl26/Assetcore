@@ -8,7 +8,11 @@
 | Stack | Vue 3 + TypeScript + Pinia + TanStack Vue Query + TailwindCSS |
 | Liên kết | [02 Analysis](./02_Analysis_Design.md) · [04 Backend](./04_Backend_Design.md) · [05 API](./05_API_Specification.md) |
 
-> ⚠️ Pending implementation — Wave 2. UI chưa xây dựng. Tài liệu này là thiết kế spec.
+> ✅ Implemented (Wave 2). UI hiện có: `frontend/src/views/training/{Program,Session,Competency}{List,Detail}View.vue` (6 views); store `frontend/src/stores/imm06.ts`; API client `frontend/src/api/imm06.ts`. Types không có file riêng `types/imm06.ts` — interfaces khai báo inline trong `stores/imm06.ts` + `api/imm06.ts` (theo convention đơn giản hoá cho module này).
+>
+> **Đã ship (8 routes thực tế trong `router/index.ts`):** `/imm06/programs`, `/imm06/programs/new`, `/imm06/programs/:name`, `/imm06/sessions`, `/imm06/sessions/new`, `/imm06/sessions/:name`, `/imm06/competencies`, `/imm06/competencies/:name`.
+>
+> **Chưa ship (planned trong §I bên dưới — giữ làm backlog):** `/imm06/dashboard`, `/imm06/sessions/:name/run`, `/me/competencies`, `/imm06/gap-reports/:name`, các modal `RevokeCompetencyModal`/`SignoffModal`. Route `sessions/new` hiện reuse `SessionDetailView` (không có `SessionCreateView.vue` tách riêng).
 
 ---
 
@@ -421,9 +425,9 @@ API: `signoff_competency`. Sau success: toast xanh + reload competency list.
 
 ---
 
-## §III Pinia Store (`imm06Store.ts`)
+## §III Pinia Store (`stores/imm06.ts`)
 
-> ⚠️ Pending implementation — file `frontend/src/stores/imm06Store.ts` chưa tồn tại.
+> ✅ Implemented — file `frontend/src/stores/imm06.ts` đã có. Snippet dưới là contract minh hoạ; code wins khi drift.
 
 ```typescript
 // frontend/src/stores/imm06Store.ts

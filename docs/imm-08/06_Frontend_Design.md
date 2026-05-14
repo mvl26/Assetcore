@@ -18,7 +18,7 @@
 | `/pm/calendar` | Lịch bảo trì PM | Calendar | Workshop Head, HTM Technician | `PMCalendarView.vue` |
 | `/pm/work-orders` | Danh sách phiếu PM | List | All IMM roles | `PMWorkOrderListView.vue` |
 | `/pm/work-orders/create` | Tạo phiếu PM thủ công | Form | Workshop Head, CMMS Admin | `PMWorkOrderCreateView.vue` |
-| `/pm/work-orders/:id` | Chi tiết phiếu PM | Detail+Form | Workshop Head, KTV (assigned) | `PMWorkOrderDetailView.vue` |
+| `/pm/work-orders/:id` | Chi tiết phiếu PM | Detail+Form | Workshop Head, Kỹ thuật viên (assigned) | `PMWorkOrderDetailView.vue` |
 | `/pm/schedules` | Danh sách lịch PM | List | Workshop Head, CMMS Admin | `PmScheduleListView.vue` |
 | `/pm/templates` | Checklist Template PM | List | Workshop Head, CMMS Admin | `PmTemplateListView.vue` |
 
@@ -73,7 +73,7 @@
 ```
 ┌────────────────────────────────────────────────────────────────────┐
 │  Lịch PM Tháng 4/2026                [◀]  [Tháng] [Tuần]  [▶]    │
-│  Filter: [KTV ▼] [Asset ▼]                                         │
+│  Filter: [Kỹ thuật viên ▼] [Asset ▼]                               │
 ├───────┬───────┬───────┬───────┬───────┬───────┬───────┬───────────┤
 │  T2   │  T3   │  T4   │  T5   │  T6   │  T7   │  CN   │           │
 │  14   │  15   │  16   │  17   │  18   │  19   │  20   │           │
@@ -87,9 +87,9 @@
 ```
 ┌────────────────────────────────────────────────────────────────────┐
 │ Phiếu Bảo trì PM                           [+ Tạo PM thủ công]     │
-│ Filter: [Trạng thái ▼] [KTV ▼] [Asset...] [Từ ngày] [Đến ngày]    │
-├──────────┬──────────────┬──────────┬──────────┬────────┬───────────┤
-│ Mã WO    │ Thiết bị     │ Loại PM  │ Đến hạn  │ KTV    │ Trạng thái│
+│ Filter: [Trạng thái ▼] [Kỹ thuật viên ▼] [Asset...] [Từ] [Đến]    │
+├──────────┬──────────────┬──────────┬──────────┬────────────┬───────┤
+│ Mã WO    │ Thiết bị     │ Loại PM  │ Đến hạn  │ Kỹ thuật viên │ TT │
 ├──────────┼──────────────┼──────────┼──────────┼────────┼───────────┤
 │ PM-00001 │ Máy thở DC   │ Quarterly│ 17/04    │ ktv1   │🔴 Quá hạn │
 │ PM-00003 │ Monitor PH   │ Annual   │ 22/04    │ ktv2   │🟢 Hoàn thành│
@@ -105,7 +105,7 @@
 ├────────────────────────────────────────────────────────────────────┤
 │ THÔNG TIN CHUNG                                                    │
 │ Thiết bị: AC-ASSET-2026-0003    │ Đến hạn: 17/04/2026             │
-│ KTV:      ktv1@bv.vn            │ Loại PM: Quarterly              │
+│ Kỹ thuật viên: ktv1@bv.vn       │ Loại PM: Quarterly              │
 │ Khoa:     ICU                   │ Class:   III ⚠ Cần ảnh          │
 ├────────────────────────────────────────────────────────────────────┤
 │ CHECKLIST  (4 / 10 đã điền)    ▓▓▓▓░░░░░░ 40%                     │
@@ -115,7 +115,7 @@
 │     Giá trị đo: [225] V    Notes: [..rò rỉ van..] *bắt buộc       │
 ├────────────────────────────────────────────────────────────────────┤
 │ KẾT QUẢ TỔNG THỂ                                                   │
-│ Tóm tắt KTV: [........................................]             │
+│ Tóm tắt kỹ thuật viên: [..............................]            │
 │ Đã gắn sticker PM: ☐   Thời gian: [__] phút                       │
 ├────────────────────────────────────────────────────────────────────┤
 │  [Báo lỗi Major 🔴]  [Hoãn lịch]  [Lưu nháp]  [Hoàn thành ✓]    │
@@ -151,7 +151,7 @@ Screenshots thực tế lưu tại: `docs/imm-08/screenshots/` (thêm sau khi bu
 | Filter | Type | Default |
 |---|---|---|
 | Tháng/Năm | date picker | tháng hiện tại |
-| KTV | LinkSearch User | — |
+| Kỹ thuật viên | LinkSearch User | — |
 | Asset | LinkSearch Asset | — |
 
 **API:** `get_pm_calendar?year&month&technician?&asset_ref?`
@@ -168,15 +168,15 @@ Screenshots thực tế lưu tại: `docs/imm-08/screenshots/` (thêm sau khi bu
 | Thiết bị | text | asset_name |
 | Loại PM | badge | pm_type |
 | Đến hạn | date | dd/MM/yyyy |
-| KTV | text | assigned_to |
+| Kỹ thuật viên | text | assigned_to |
 | Trạng thái | StatusChip | màu theo state |
 
-**Filter bar:** Trạng thái · KTV · Asset (free text) · Từ ngày – Đến ngày.
+**Filter bar:** Trạng thái · Kỹ thuật viên · Asset (free text) · Từ ngày – Đến ngày.
 
 #### 3.4. Detail — PM Work Order (`:id`)
 
 **Left panel (60%):** Thông tin WO + Checklist items (one per row, radio Pass/Fail/N/A).
-**Right panel (40%):** SLA countdown + KTV info + action buttons.
+**Right panel (40%):** SLA countdown + Kỹ thuật viên info + action buttons.
 
 ---
 

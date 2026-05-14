@@ -69,7 +69,7 @@ const activeChips = computed<PMChip[]>(() => {
   }
   if (dateFrom.value) chips.push({ key: 'dateFrom', label: `Từ ${dateFrom.value}` })
   if (dateTo.value) chips.push({ key: 'dateTo', label: `Đến ${dateTo.value}` })
-  if (assetFilter.value) chips.push({ key: 'asset', label: `TB: ${assetFilter.value}` })
+  if (assetFilter.value) chips.push({ key: 'asset', label: `Thiết bị: ${assetFilter.value}` })
   if (search.value.trim()) chips.push({ key: 'search', label: `"${search.value.trim()}"` })
   return chips
 })
@@ -176,7 +176,7 @@ function quickFilter(_key: 'status', value: string) {
             <th class="table-header">Thiết bị</th>
             <th class="table-header">Loại PM</th>
             <th class="table-header">Đến hạn</th>
-            <th class="table-header">KTV</th>
+            <th class="table-header">Kỹ thuật viên</th>
             <th class="table-header">Trạng thái</th>
           </tr>
         </thead>

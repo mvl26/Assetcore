@@ -107,43 +107,40 @@ Side Effects:
 
 **States — tên chính xác trong workflow_state field:**
 
-> Cảnh báo: workflow_state values dùng underscore khi stored trong DB và trong TypeScript types (xác nhận từ `types/imm04.ts`). Một số label display có thể khác.
+> Lưu ý: workflow_state values dùng **space** (không phải underscore) — xác nhận từ `imm_04_workflow.json`, `services/imm04.py` constants, và `types/imm04.ts` (`WorkflowState` enum). Tech debt naming đã được resolve.
 
 | workflow_state value | Style | docstatus | Gate |
 |---|---|---|---|
 | `Draft` | Success | 0 | — |
-| `Pending_Doc_Verify` | Warning | 0 | G01 |
-| `To_Be_Installed` | Success | 0 | G02 |
+| `Pending Doc Verify` | Warning | 0 | G01 |
+| `To Be Installed` | Success | 0 | G02 |
 | `Installing` | Success | 0 | — |
 | `Identification` | Success | 0 | VR-01 |
-| `Initial_Inspection` | Success | 0 | G03 |
-| `Non_Conformance` | Warning | 0 | — |
-| `Clinical_Hold` | Warning | 0 | G04 |
-| `Re_Inspection` | Success | 0 | — |
-| `Pending_Release` | Warning | 0 | — |
-| `Clinical_Release` | Success | 1 | G05+G06+GW-2 (terminal) |
-| `Return_To_Vendor` | Danger | 1 | terminal negative |
-| `DOA_Incident` | Danger | 0 | — |
+| `Initial Inspection` | Success | 0 | G03 |
+| `Non Conformance` | Warning | 0 | — |
+| `Clinical Hold` | Warning | 0 | G04 |
+| `Re Inspection` | Success | 0 | — |
+| `Clinical Release` | Success | 1 | G05+G06+GW-2 (terminal) |
+| `Return To Vendor` | Danger | 1 | terminal negative |
 
-Service code constants: `_STATE_CLINICAL_RELEASE = "Clinical Release"`, `_STATE_INITIAL_INSPECTION = "Initial Inspection"`, `_STATE_RE_INSPECTION = "Re Inspection"`, `_TERMINAL_STATES = {"Clinical Release", "Return To Vendor"}` — đây là giá trị so sánh trong service layer (space), cần đồng bộ với workflow config thực tế.
+Service code constants: `_STATE_CLINICAL_RELEASE = "Clinical Release"`, `_STATE_INITIAL_INSPECTION = "Initial Inspection"`, `_STATE_RE_INSPECTION = "Re Inspection"`, `_TERMINAL_STATES = {"Clinical Release", "Return To Vendor"}` — đồng bộ giá trị space giữa service layer, workflow config, và FE types.
 
-**TODO (Sprint 7):** Chuẩn hóa naming `Clinical Release` vs `Clinical_Release` — đây là tech debt đã ghi nhận trong README.md.
-
-**Transitions (rút gọn từ codebase):**
+**Transitions (rút gọn từ codebase `imm_04_workflow.json`):**
 
 | From → To | Ghi chú |
 |---|---|
-| `Draft` → `Pending_Doc_Verify` | Gửi kiểm tra tài liệu |
-| `Pending_Doc_Verify` → `To_Be_Installed` | Xác nhận đủ tài liệu |
-| `Pending_Doc_Verify` → `Draft` | Yêu cầu bổ sung |
-| `To_Be_Installed` → `Installing` | Bắt đầu lắp đặt |
+| `Draft` → `Pending Doc Verify` | Gửi kiểm tra tài liệu |
+| `Pending Doc Verify` → `To Be Installed` | Xác nhận đủ tài liệu |
+| `Pending Doc Verify` → `Draft` | Yêu cầu bổ sung |
+| `To Be Installed` → `Installing` | Bắt đầu lắp đặt |
+| `To Be Installed` → `Non Conformance` | Báo cáo sự cố trước lắp đặt |
 | `Installing` → `Identification` | Lắp đặt hoàn thành |
-| `Installing` → `Non_Conformance` | Báo cáo DOA |
-| `Identification` → `Initial_Inspection` | Bắt đầu kiểm tra |
-| `Initial_Inspection` → `Clinical_Release` | Phê duyệt phát hành |
-| `Initial_Inspection` → `Clinical_Hold` | Giữ lâm sàng |
-| `Clinical_Hold` → `Clinical_Release` | Gỡ giữ lâm sàng |
-| `Non_Conformance` → `Return_To_Vendor` | Trả lại NCC |
+| `Installing` → `Non Conformance` | Báo cáo DOA |
+| `Identification` → `Initial Inspection` | Bắt đầu kiểm tra |
+| `Initial Inspection` → `Clinical Release` | Phê duyệt phát hành |
+| `Initial Inspection` → `Clinical Hold` | Giữ lâm sàng |
+| `Clinical Hold` → `Clinical Release` | Gỡ giữ lâm sàng |
+| `Non Conformance` → `Return To Vendor` | Trả lại NCC |
 
 **Lifecycle hooks (controller chỉ delegate):**
 
@@ -164,7 +161,7 @@ class AssetCommissioning(Document):
         before_save_commissioning(self)
 
     def on_submit(self):
-        # Yêu cầu state = Clinical_Release
+        # Yêu cầu state = Clinical Release
         self.create_ac_asset()
         self.create_initial_document_set()
         from assetcore.services.imm04 import log_lifecycle_event
@@ -361,20 +358,19 @@ def _handle(fn, *args, **kwargs) -> dict:
 
 ## 7. Background jobs / Scheduler
 
-| Job | Tần suất | Hook trong hooks.py | Mục đích |
+| Job | Tần suất | Trạng thái đăng ký | Mục đích |
 |---|---|---|---|
-| `assetcore.services.imm04.check_commissioning_overdue` | daily | `scheduler_events["daily"]` | Email Workshop Head phiếu mở >30 ngày |
-| `assetcore.tasks.check_clinical_hold_aging` | daily | `scheduler_events["daily"]` | Email QA Officer phiếu Clinical Hold quá N ngày |
-| `assetcore.tasks.check_commissioning_sla` | daily | `scheduler_events["daily"]` | SLA vi phạm |
+| `assetcore.services.imm04.check_commissioning_overdue` | daily | *(Defined nhưng CHƯA đăng ký trong `hooks.py:scheduler_events`)* | Email Workshop Head phiếu mở >30 ngày |
+| `assetcore.tasks.check_clinical_hold_aging` | daily | *(Not yet implemented — module không có `assetcore/tasks.py`)* | Email QA Officer phiếu Clinical Hold quá N ngày |
+| `assetcore.tasks.check_commissioning_sla` | daily | *(Not yet implemented)* | SLA vi phạm |
 
-**Đăng ký trong `hooks.py`:**
+> Ground truth `assetcore/hooks.py` (2026-05-14): chưa có entry IMM-04 nào trong `scheduler_events`. Để kích hoạt `check_commissioning_overdue`, cần thêm thủ công:
 
 ```python
 scheduler_events = {
     "daily": [
         "assetcore.services.imm04.check_commissioning_overdue",
-        "assetcore.tasks.check_clinical_hold_aging",
-        "assetcore.tasks.check_commissioning_sla",
+        # 2 job clinical_hold_aging / commissioning_sla — backlog, chưa cài
     ],
 }
 ```
@@ -413,21 +409,23 @@ def check_commissioning_overdue() -> None:
 | IMM-08 (PM Schedule) | OUT (TODO) | `fire_release_event()` publish `imm04_asset_released` — IMM-08 chưa subscribe |
 | IMM-12 / QMS | OUT | `Asset QA Non Conformance.transfer_to_capa` flag |
 
-**doc_events trong hooks.py:**
+**doc_events trong hooks.py (Wave-2 ground truth):**
 
 ```python
 doc_events = {
     "Asset Commissioning": {
-        "before_insert": "assetcore.services.imm04.initialize_commissioning",
+        "on_submit": [
+            "assetcore.services.imm08.create_pm_schedule_from_commissioning",
+            "assetcore.services.imm11.create_calibration_schedule_from_commissioning",
+            "assetcore.services.imm16.eval_imm04_realtime",
+        ],
     },
 }
-
-fixtures = [
-    {"dt": "Workflow", "filters": [["name", "in", ["IMM-04 Workflow"]]]},
-    {"dt": "Required Document Type"},
-    {"dt": "Custom Field", "filters": [["dt", "in", ["Asset"]]]},
-]
 ```
+
+> `before_insert` / `validate` cho Asset Commissioning KHÔNG đi qua `doc_events` mà gắn trực tiếp trong controller `assetcore/assetcore/doctype/asset_commissioning/asset_commissioning.py` (`def before_insert(self): imm04_svc.initialize_commissioning(self)` + `def validate(self): imm04_svc.validate_commissioning(self)`). Đây là pattern chuẩn AssetCore (controller delegates to service).
+
+**Fixtures liên quan IMM-04** (trong `assetcore/fixtures/workflow.json` + `assetcore/fixtures/role_profile.json`): `IMM-04 Workflow` + Workflow States (`Pending Doc Verify`, `To Be Installed`, `Installing`, `Identification`, `Initial Inspection`, `Non Conformance`, `Clinical Hold`, `Re Inspection`, `Clinical Release`, `Return To Vendor`).
 
 ---
 

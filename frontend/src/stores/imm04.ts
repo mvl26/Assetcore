@@ -107,7 +107,7 @@ export const useCommissioningStore = defineStore('commissioning', () => {
   const canSubmitDoc = computed(() => {
     if (!currentDoc.value) return false
     if (isLocked.value) return false
-    if (currentDoc.value.workflow_state !== 'Clinical_Release') return false
+    if (currentDoc.value.workflow_state !== 'Clinical Release') return false
     return auth.canSubmit
   })
 

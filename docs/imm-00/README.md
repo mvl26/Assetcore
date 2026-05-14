@@ -4,9 +4,9 @@
 |---|---|
 | Module | **IMM-00 — Master / Cross-cutting** |
 | Wave | Master |
-| Trạng thái | **Live ✅ — docs reviewed vs code 2026-05-08** |
+| Trạng thái | **Live ✅ — docs synced vs code 2026-05-14** |
 | Số file hiện có | 8 (numbered 02–09) |
-| Cập nhật cuối | 2026-05-10 |
+| Cập nhật cuối | 2026-05-14 |
 | Khối kiến trúc | Cross-cutting (foundation cho A/B/C/D) |
 | Owner | — (Cross-cutting — System Architect + BA Lead) |
 

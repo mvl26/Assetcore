@@ -77,3 +77,58 @@
 - FE: store + views + routes + sidebar entry wired
 - Tests: see docs/res/dod-verification-report.md §1 for per-module results
 - Status: READY
+
+## 2026-05-14 Wave-2 Sync Pass (light-touch)
+
+Drift phát hiện vs codebase (`feature/hieuc/wave-2`):
+
+| File | Stale | Fix |
+|---|---|---|
+| `README.md` | Wave 3 — PLANNED; DocType table 5/9 PLANNED | Đổi sang Wave 2 — IMPLEMENTED; cập nhật DocType table → 11 LIVE (thêm `IMM CAPA Action Step`, `IMM Audit Checklist Item`); date 2026-05-14 |
+| `04_Backend_Design.md` | Banner "Pending implementation — Wave 3" lặp 7 lần; DocType §I dán PLANNED; §IV.2 hook block dùng `Work Order` (DocType ERPNext core) + thiếu `before_submit` CAPA + thiếu scheduler events | Thay banner thành "Implemented — Wave 2"; cập nhật DocType statuses LIVE; rewrite hook block dùng `IMM PM Work Order` + `IMM CM Work Order` + `AC Asset Document`; thêm scheduler events đầy đủ (hourly/daily/weekly/monthly) |
+| `05_API_Specification.md` | "PLANNED — chuẩn hóa từ IMM-16_API_Interface.md" | Đổi sang "IMPLEMENTED — Wave 2"; note alias endpoints (`list_compliance_rules`/`list_rules` …); date 2026-05-14 |
+| `06_Frontend_Design.md` | Route catalog dùng prefix `/imm16/*` (không tồn tại) | Replace bằng 11 route thực tế dưới `/compliance/*`, `/capas`, `/audit-trail`; note Wave-2 path-domain decision |
+| `09_Release.md` | "Pending (Wave 3)"; chưa có sync note | Đổi sang "v1.0.0-rc.2 — 2026-05-14"; bổ sung §0 Wave 2 Sync Notes chi tiết BE/API/Scheduler/FE/Sidebar/Housekeeping |
+
+KHÔNG đụng:
+
+- `02_Analysis_Design.md`, `03_Diagrams.md` — concept/diagrams không drift
+- `07_Testing_QA.md`, `08_Deployment.md` — chưa đối chiếu chi tiết test ID/patch list, để pass sau
+- §II DocType field tables trong `04_Backend_Design.md` — trùng JSON DocType thực tế
+- §III service signatures, §V workflow, §VII DB indexes — không có drift quan trọng
+
+TODO cần human input:
+
+1. Baseline KPI targets cho scorecard (compliance % minimum, CAPA aging buckets, MR cadence) — hiện đặt ví dụ trong wireframe.
+2. Cut tag `v1.0.0` GA sau UAT sign-off (hiện `1.0.0-rc.2`).
+3. Compliance Dashboard riêng (`/compliance/dashboard`) chưa có — code có endpoint `get_dashboard_stats`/`get_compliance_heatmap`/`get_capa_aging` nhưng UI hiện gộp vào Heatmap/Scorecard view. BA quyết định: tách view riêng (template §II.1) hay giữ gộp.
+4. PLANNED DocType `IMM Scorecard Module Row`, `IMM Scorecard Department Row`, `IMM MR Attendee`, `IMM MR Output Action` — code đang aggregate runtime thay vì persist child rows. Cần BA quyết: (a) chấp nhận runtime aggregation (sửa doc), hoặc (b) build child DocType (sprint sau).
+5. §07 Testing — sync test ID khi `assetcore/tests/test_imm16_*.py` ổn định.
+
+## 2026-05-14 Pass 2 (files 02/03/07/08 sync)
+
+Light-touch updates to files NOT covered in Pass 1.
+
+| File | Drift fixed |
+|---|---|
+| `02_Analysis_Design.md` | Banner `PLANNED — Wave 3` → `IMPLEMENTED — Wave 2` với list 11 DocType folder thực tế. BPMN/use-case/BR sections giữ nguyên (cross-referenced `services/imm16.py` — function names match). |
+| `03_Diagrams.md` | Header + metadata table updated (version `0.3.0` → `1.0.0-rc.2`, date → 2026-05-14). ERD/state machine giữ nguyên. |
+| `07_Testing_QA.md` | Header updated. PREPENDED §0 — Test Suite Inventory liệt kê 9 TestCase + 14 test method thực tế trong `assetcore/tests/test_imm16.py` (rule lifecycle, finding waiver, audit close, CAPA workflow, effectiveness, scorecard, cross-module gate, dashboard). Test plan template §I–§VII giữ làm backlog. |
+| `08_Deployment.md` | Header updated. PREPENDED §0 — Wired Artefacts với verified `doc_events` (Rule/Finding/CAPA validate+submit+update, Internal Audit validate, Scorecard immutability, WO submit gate, 4 real-time eval hooks) + scheduler (4 hourly, 1 daily, 2 weekly), fixture list (`imm16_custom_field_capa_record.json` + workflow JSONs), 14 DocType folder name. Note `patches.txt` không có entry IMM-16. |
+| `05_API_Specification.md` (Pass 1 leftover) | §5 TypeScript Types banner `Pending Wave 3` → `IMPLEMENTED Wave 2`. |
+| `06_Frontend_Design.md` (Pass 1 leftover) | §II.1 dashboard route `/imm16/dashboard` → `/compliance/heatmap` (note dashboard hợp nhất); §II.2 `/imm16/heatmap` → `/compliance/heatmap`; §II.3 `/imm16/capa` → `/capas`; §II.4 `/imm16/capa/:name` → `/capas/:id`; drill-down link sửa sang `/compliance/findings`; §III store filename `imm16Store.ts` → `imm16.ts`. |
+| `09_Release.md` (Pass 1 leftover) | §II.1 banner `Pending Wave 3` → `IMPLEMENTED Wave 2`; release date `Pending` → `2026-05-14 (rc.2)`; tag `1.0.0` → `1.0.0-rc.2`. §III RTM banner updated. |
+
+KHÔNG đụng:
+
+- DocType field tables, workflow state machines — code khớp doc.
+- Service function specifications — function names + ErrorCode đã đúng.
+- BR/VR enumerations, KPI formulas.
+- Standalone Compliance Dashboard `/compliance/dashboard` — UI hiện gộp vào Heatmap, đã note trong II.1.
+
+Residual TODOs:
+
+1. PLANNED DocType `IMM Scorecard Module Row` / `Department Row` / `IMM MR Attendee` / `MR Output Action` — code aggregates runtime; BA quyết định persist hay giữ runtime (carry-over Pass 1).
+2. Compliance Dashboard tách riêng `/compliance/dashboard` — endpoint `get_dashboard_stats` đã có; cần BA quyết: tách view hay giữ gộp Heatmap (carry-over Pass 1).
+3. Test ID convention: hiện class+method format. Nếu BA cần `TC-16-01..11`, map qua docstring.
+4. `IMM Supplier Audit` DocType có folder nhưng test suite chưa cover — bổ sung trong sprint sau.

@@ -360,21 +360,24 @@ Truy xuất audit: `imm05.get_document_history(name)` — wrap Frappe Version Do
 
 ## §7 — Scheduler
 
-**File:** `assetcore/tasks.py`
+**File ground truth:** `assetcore/services/imm05.py` (KHÔNG có `assetcore/tasks.py` trong app này).
 
-### §7.1 Đăng ký hooks.py
+### §7.1 Đăng ký hooks.py (thực tế 2026-05-14)
 
 ```python
 scheduler_events = {
     "daily": [
-        "assetcore.tasks.check_document_expiry",       # 00:30
-        "assetcore.tasks.update_asset_completeness",   # 01:00
-        "assetcore.tasks.check_overdue_document_requests",
+        # ... entries khác ...
+        "assetcore.services.imm05.check_document_expiry",   # IMM-05 — đã đăng ký
+        # update_asset_completeness + check_overdue_document_requests:
+        # CHƯA implement trong services/imm05.py — backlog Sprint 7+.
     ]
 }
 ```
 
-### §7.2 `check_document_expiry` — Daily 00:30
+> **Drift flag:** Hai job `update_asset_completeness` và `check_overdue_document_requests` được mô tả phía dưới như spec dự kiến — chưa có hàm thực trong code. Khi implement xong cần đăng ký thủ công trong `hooks.py`.
+
+### §7.2 `assetcore.services.imm05.check_document_expiry` — Daily
 
 ```python
 def check_document_expiry() -> None:
@@ -415,11 +418,11 @@ def check_document_expiry() -> None:
                 doc.save(ignore_permissions=True)
 ```
 
-### §7.3 `update_asset_completeness` — Daily 01:00
+### §7.3 `update_asset_completeness` — Daily 01:00 *(Not yet implemented)*
 
-Batch chạy `update_asset_completeness()` trên mọi Asset có doc thay đổi gần đây. Tính `nearest_expiry` qua SQL aggregate.
+Batch chạy `update_asset_completeness()` trên mọi Asset có doc thay đổi gần đây. Tính `nearest_expiry` qua SQL aggregate. **Hiện chưa có hàm trong `services/imm05.py`** — logic `_compute_document_status` chạy realtime trên `on_update` controller, chưa batch.
 
-### §7.4 `check_overdue_document_requests` — Daily
+### §7.4 `check_overdue_document_requests` — Daily *(Not yet implemented)*
 
 ```python
 def check_overdue_document_requests() -> None:
@@ -450,16 +453,19 @@ def check_overdue_document_requests() -> None:
 | IMM-05 → IMM-04 | Outbound | GW-2 compliance gate: IMM-04 query Active CN ĐK lưu hành hoặc is_exempt |
 | IMM-05 → IMM-13 | Outbound | Asset retired → archive all Active docs |
 
-### §8.2 doc_events
+### §8.2 doc_events (ground truth 2026-05-14)
 
 ```python
-# hooks.py — hiện chưa có entry IMM-05 (controller tự gọi)
-# IMM-04 listener cho imm04_asset_released (xem IMM-04 hooks.py)
+# assetcore/hooks.py
 doc_events = {
-    # IMM-05 controller không cần doc_events riêng
-    # archive và completeness update nằm trong on_update()
+    "Asset Document": {
+        # IMM-16 Compliance realtime evaluation (KHÔNG phải IMM-05 — listener cross-module)
+        "on_update": "assetcore.services.imm16.eval_imm05_realtime",
+    },
 }
 ```
+
+> IMM-05 controller (`asset_document.py`) tự handle archive cũ + completeness compute trong `validate`/`on_update` — không qua `doc_events` riêng.
 
 ### §8.3 Fixtures
 

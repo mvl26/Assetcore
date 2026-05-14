@@ -3,13 +3,13 @@
 | Mục | Giá trị |
 |---|---|
 | Module | IMM-16 — Compliance Monitoring & CAPA |
-| Phiên bản tài liệu | 1.0 |
-| Ngày cập nhật | 2026-05-08 |
-| Trạng thái | PLANNED — chuẩn hóa từ IMM-16_API_Interface.md |
+| Phiên bản tài liệu | 1.1 |
+| Ngày cập nhật | 2026-05-14 |
+| Trạng thái | IMPLEMENTED — Wave 2 (feature/hieuc/wave-2) |
 | Base path | `assetcore.api.imm16` |
 | URL pattern | `/api/method/assetcore.api.imm16.<function>` |
 
-> ⚠️ Pending implementation — Wave 3
+> ✅ Implemented — Wave 2. Toàn bộ ~30 endpoint trong §3 đã được whitelist trong `assetcore/api/imm16.py`. FE consume qua `frontend/src/api/imm16.ts` + `frontend/src/stores/imm16.ts`. Một số endpoint có alias do migration: `list_compliance_rules` ≡ `list_rules`, `list_compliance_findings` ≡ `list_findings`, `list_internal_audits` ≡ `list_audits`, `create_finding` ≡ legacy entry — xem `assetcore/api/imm16.py` (đầu file `_handle()` wrapper) cho danh sách chính xác.
 
 ---
 
@@ -702,7 +702,7 @@ _AUDIT_LEAD_ROLES         = {"Tổ HC-QLCL", "Internal Auditor", "CMMS Admin"}
 
 ## §5 TypeScript Types
 
-> ⚠️ Pending implementation — Wave 3
+> ✅ IMPLEMENTED — Wave 2. Types đã có ở `frontend/src/types/imm16.ts` (xem §06).
 
 ```typescript
 // frontend/src/types/imm16.ts

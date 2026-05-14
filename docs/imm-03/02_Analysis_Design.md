@@ -31,6 +31,8 @@ Trước khi triển khai IMM-03, quy trình mua sắm thiết bị y tế tại
 
 Hiện tại, bệnh viện chọn vendor mua sắm thiết bị y tế theo thủ tục thủ công — thiếu tiêu chí đánh giá chuẩn hóa, không có Approved Vendor List (AVL) theo category, quyết định mua sắm không truy xuất được nguồn. IMM-03 chuẩn hóa toàn bộ chuỗi từ tiếp nhận Tech Spec đã Lock (IMM-02) đến khi mint Purchase Order: chấm điểm vendor đa tiêu chí, quản lý AVL theo device_category, chọn phương án mua sắm hợp pháp, và tạo `AC Purchase` có liên kết ngược với Procurement Decision. Mục tiêu: lead time Eval → Awarded < 60 ngày, ≥ 90% PO đi qua AVL vendor.
 
+> **Cập nhật:** 2026-05-14
+
 ## I.2. Vị trí trong WHO HTM lifecycle
 
 | Phase | Chạm? | Ghi chú |
@@ -61,14 +63,14 @@ Output: AC Purchase, Procurement Decision Awarded, trigger IMM-04 prep.
 ## I.4. Scope
 
 **In-scope:**
-- 6 DocType: IMM Vendor Evaluation (VE-…), IMM Procurement Decision (PD-…), IMM AVL Entry (AVL-…), IMM Vendor Scorecard (VS-…), IMM Supplier Audit (SA-…) + vendor master extension qua Custom Fields trên AC Supplier
-- 7 Child Tables: Vendor Eval Criterion, Vendor Eval Candidate, Vendor Quotation Line, Vendor Cert, Audit Finding, Scorecard KPI Row
-- 3 Workflow: Vendor Evaluation (5 state), Procurement Decision (9 state), AVL (4 state)
-- 7 Business Rules (BR-03-01 → BR-03-08) + 5 Gates (G01 → G05)
-- 18 REST endpoints
-- Vendor Scorecard quarterly từ feedback IMM-04/09/15/10
-- AVL expiry auto + cảnh báo 60/30 ngày
-- Mint AC Purchase khi Decision Awarded
+- 5 DocType chính: IMM Vendor Evaluation (VE-…), IMM Procurement Decision (PD-…), IMM AVL Entry (AVL-…), IMM Vendor Scorecard (VS-…), IMM Supplier Audit (SA-…) + vendor master extension qua Custom Fields trên AC Supplier
+- 6 Child Tables: Vendor Eval Criterion, Vendor Eval Candidate, Vendor Quotation Line, Vendor Cert, Audit Finding, Scorecard KPI Row
+- 3 Workflow: Vendor Evaluation (5 state), Procurement Decision (9 state), AVL (5 state — Draft/Approved/Conditional/Suspended/Expired)
+- 8 Business Rules (BR-03-01 → BR-03-08); enforce ở service layer: VR-03-01/03/04/05/07 + G04/G05. Eval-side gates G01/G02/G03 chưa implement trong service V1.
+- 22 REST endpoints (Vendor Profile / Vendor Eval / AVL / Decision / Scorecard / Dashboard)
+- Vendor Scorecard quarterly: V1 sinh skeleton placeholder (KPI source_module="TBD"); wire dữ liệu thật từ IMM-04/09/15/10 ở Wave 3
+- AVL expiry auto (scheduler set state=Expired); cảnh báo 60/30 ngày email — TODO
+- Mint AC Purchase khi Decision on_submit (state Awarded)
 
 **Out-of-scope:**
 - Hệ thống đấu thầu E-bidding (chỉ upload kết quả)
@@ -81,9 +83,9 @@ Output: AC Purchase, Procurement Decision Awarded, trigger IMM-04 prep.
 - IMM-02 Tech Spec đã ở trạng thái Locked trước khi seed Vendor Evaluation
 
 **Dependencies:**
-- IMM-02: `imm02_spec_locked` event → `seed_evaluation_from_spec()`
-- IMM-01: budget envelope; cập nhật `Procurement Plan Line.status=Awarded`
-- AC Supplier / AC Purchase (Wave 1): custom fields + validate hook
+- IMM-02 Tech Spec: pull-mode — `create_evaluation(spec_ref)` đọc `IMM Tech Spec.device_category/source_plan/source_plan_line/quantity`. (V1: KHÔNG có event listener `imm02_spec_locked` trong `hooks.py`; auto-seed sẽ làm trong Wave 3.)
+- IMM-01: budget envelope từ `Procurement Plan Line.allocated_budget`; cập nhật `status="Awarded"` khi Decision on_submit.
+- AC Supplier / AC Purchase (Wave 1): custom fields qua patch `v3_1.003_install_imm03` + validate hook `validate_ac_purchase_imm_link` (V1 soft warning).
 
 ## I.5. KPI mục tiêu
 
@@ -118,8 +120,8 @@ Output: AC Purchase, Procurement Decision Awarded, trigger IMM-04 prep.
 | R-03-07 | Conflict of interest: cán bộ chấm điểm có quan hệ với vendor | Trung bình | Cao | Bắt buộc khai báo COI trong Vendor Eval; permlevel 1 cho `funding_source`; audit trail bất biến |
 
 **Giả định**:
-- AC Supplier (Wave 1) đã enable custom fields `imm_avl_status`, `imm_avl_category`, `imm_legal_doc_*`.
-- IMM-02 publish event `imm02_spec_locked` với payload đủ `device_category`, `allocated_budget`, `lockin_risk`.
+- AC Supplier (Wave 1) đã được patch `v3_1.003_install_imm03` thêm custom fields `imm_avl_status`, `imm_avl_categories`, `imm_overall_score`, `imm_last_audit_date`, `imm_next_audit_date`, `imm_certifications` (child Table → Vendor Cert).
+- IMM-02 Tech Spec đã ở docstatus phù hợp + có `device_category`, `device_model_ref`, `source_plan`, `source_plan_line`, `quantity` để `create_decision` đọc được.
 - VP Block1 / PTP Khối 1 đã có account RBAC trên Frappe site, không dùng tài khoản chung.
 - Luật Đấu thầu 22/2023/QH15 và NĐ 98/2021 không có sửa đổi lớn trong horizon Wave 2.
 
@@ -260,20 +262,20 @@ Scheduler `check_avl_expiry()` daily → set status=Expired, update `AC Supplier
 | ID | UC-IMM03-01 |
 | Brief | Procurement Officer chạy evaluation cho 1 Tech Spec đã Lock |
 | Primary actor | IMM Procurement Officer |
-| Pre-condition | IMM-02 Tech Spec ở trạng thái Locked; event `imm02_spec_locked` đã publish |
-| Post-condition | IMM Vendor Evaluation ở trạng thái Evaluated (docstatus=1); recommended_candidate xác định |
-| Trigger | `seed_evaluation_from_spec()` listener nhận event |
+| Pre-condition | IMM-02 Tech Spec đã tồn tại với `device_category` |
+| Post-condition | IMM Vendor Evaluation ở trạng thái Evaluated (docstatus=1); recommended_candidate = supplier name top weighted |
+| Trigger | Procurement Officer gọi `create_evaluation(spec_ref)` (V1: pull-mode, không có event listener) |
 
 **Main flow:**
 
 | Bước | Actor | System |
 |---|---|---|
-| 1 | Spec locked | `seed_evaluation_from_spec()` tạo VE Draft với criteria default 5 nhóm |
-| 2 | Procurement Officer add candidates | `add_candidate()`: check AVL, warning nếu non-AVL |
-| 3 | Click "Open RFQ" | State → Open RFQ |
-| 4 | Nhập quotation per vendor | G02 check: ≥ 1 quotation hợp lệ |
-| 5 | Các nhóm chấm điểm | `compute_eval_score()` auto compute weighted_score |
-| 6 | Submit Evaluation | G01 pass → docstatus=1, state Evaluated |
+| 1 | Procurement Officer gọi `create_evaluation(spec_ref, weighting_scheme)` | Tạo VE Draft, lưu weighting_scheme JSON |
+| 2 | Procurement Officer add candidates qua `add_candidate(name, supplier, sign_off_non_avl)` | `_is_supplier_in_avl()` set `in_avl` flag; warning nếu non-AVL |
+| 3 | Transition "Mở RFQ" qua `transition_eval_workflow` | State → Open RFQ |
+| 4 | `submit_quotations(name, quotations[])` | `_vr03_quotation_validity` check khi state ≥ Quotation Received |
+| 5 | `score_evaluation(name, scorer_role, scores_by_supplier)` | `_compute_eval_scores` Σ(score × group_weight × crit_weight); set recommended_candidate = supplier name top weighted |
+| 6 | Transition "Hoàn tất chấm điểm" | `apply_workflow` → docstatus=1, state Evaluated. V1: gate Eval-side chưa enforce trong service. |
 
 ### UC-02: Procurement Decision → Award
 
@@ -352,37 +354,37 @@ Là **VP Block1**, tôi muốn **Approve Decision và hệ thống tự động 
 
 | ID | Rule | Implement ở | Test |
 |---|---|---|---|
-| BR-03-01 | 1 Tech Spec ↔ 1 Procurement Decision Awarded | `_vr07_unique_decision_per_spec` | TC-28 |
-| BR-03-02 | Min candidates phù hợp phương án | `_vr01_min_3_candidates` | TC-14 |
-| BR-03-03 | Vendor non-AVL cần sign-off VP Block1 | `_vr02_avl_check` | TC-13 |
-| BR-03-04 | Quotation hết hạn không dùng cho Award | `_vr03_quotation_validity` | TC-16 |
-| BR-03-05 | Awarded price > 105% envelope cần justification | `_vr04_decision_within_envelope` | TC-25 |
-| BR-03-06 | Phương án mua sắm hợp pháp với giá trị + loại hàng | `validate_gate_g04` | TC-23, TC-24 |
-| BR-03-07 | Awarded vendor phải có AVL Active hoặc Conditional + sign-off | `_vr05_avl_active_required` | TC-26, TC-27 |
-| BR-03-08 | PO TBYT chỉ tạo qua `award_decision()` | controller hook trên AC Purchase | TC-31 |
+| BR-03-01 | 1 Tech Spec ↔ 1 Procurement Decision Awarded | `_vr07_unique_decision_per_spec` | TestGateG04Method (v1: smoke) |
+| BR-03-02 | Min candidates phù hợp phương án | `_vr01_min_candidates` (V1: msgprint warning, không throw) | — |
+| BR-03-03 | Vendor non-AVL cần sign-off VP Block1 | `_check_avl_warnings` + check `sign_off_non_avl` (V1: warning ở `add_candidate`; chưa throw ở submit) | — |
+| BR-03-04 | Quotation hết hạn không dùng cho Award | `_vr03_quotation_validity` | TC-16 (planned) |
+| BR-03-05 | Awarded price > 105% envelope cần justification | `_vr04_envelope_check` (ENVELOPE_HARD_LIMIT_PCT=105) | TC-25 (planned) |
+| BR-03-06 | Phương án mua sắm hợp pháp với giá trị + loại hàng | `_validate_gate_g04_method` (_METHOD_RULES dict) | TestGateG04Method.* |
+| BR-03-07 | Awarded vendor phải có AVL Approved hoặc Conditional cho device_category | `_vr05_winner_avl_required` | TC-26/27 (planned) |
+| BR-03-08 | PO TBYT cần link IMM Procurement Decision | `validate_ac_purchase_imm_link` (V1: soft warning) | TC-31 (planned) |
 
 ## IV.3. Validation Rules
 
 | VR ID | Rule | Error message |
 |---|---|---|
-| VR-03-01 | Min candidates phù hợp method (≥3 Đấu thầu rộng rãi/CHCT; =1 Chỉ định) | "VR-03-01: Đấu thầu rộng rãi yêu cầu ≥ 3 candidate" |
-| VR-03-02 | Vendor non-AVL cần sign_off_non_avl (warn at add, throw at submit) | "VR-03-02: Vendor non-AVL — cần sign-off IMM Board Approver" |
-| VR-03-03 | Quotation chưa hết hạn | "VR-03-03: Quotation hết hiệu lực" |
-| VR-03-04 | Awarded ≤ 105% allocated_budget | "VR-03-04: Awarded > 105% envelope — cần giải trình" |
-| VR-03-05 | Awarded vendor có AVL Active hoặc Conditional + sign-off | "VR-03-05: Winner phải có AVL Active hoặc Conditional + sign-off" |
-| VR-03-06 | Lifecycle event bất biến | "VR-03-06: Audit trail bất biến" |
-| VR-03-07 | 1 Tech Spec ↔ 1 Decision Awarded | "VR-03-07: Tech Spec đã có Decision Awarded" |
-| VR-03-08 | PO TBYT phải có imm_procurement_decision | "VR-03-08: AC Purchase TBYT phải đi qua IMM-03 Procurement Decision" |
+| VR-03-01 | Min candidates phù hợp method (≥3 cho Đấu thầu rộng rãi/CHCT khi state ≥ Quotation Received) | V1: msgprint warning (không throw), gợi ý ≥ 3 candidate |
+| VR-03-02 | Vendor non-AVL cần `sign_off_non_avl` | V1: warning trả về từ `add_candidate` ("Vendor non-AVL — cần sign-off IMM Board Approver"); chưa hard-throw ở submit |
+| VR-03-03 | Quotation chưa hết hạn (state ≥ Quotation Received) | "VR-03-03: Quotation đã hết hạn: {list}" — throw `VALIDATION` |
+| VR-03-04 | Awarded ≤ 105% `Procurement Plan Line.allocated_budget` | "VR-03-04: Awarded {price} > 105% envelope {budget} ({pct}%) — yêu cầu giải trình ở method_legal_basis" — throw `CONFLICT` khi state in ("Pending Approval","Awarded") |
+| VR-03-05 | Winner có AVL Approved/Conditional cho `device_category` | "VR-03-05: Winner '{supplier}' không có AVL Active/Conditional cho category '{cat}'" — throw `BUSINESS_RULE` ở `before_submit` |
+| VR-03-06 | Lifecycle event/audit trail bất biến | V1: KHÔNG có hard-enforce trong service. Bảo vệ qua `permlevel` của `IMM Audit Trail` DocType (chung hệ thống). |
+| VR-03-07 | 1 Tech Spec ↔ 1 Decision Awarded/Contract Signed/PO Issued | "VR-03-07: Tech Spec {spec} đã có Decision Awarded ({existing})" — throw `DUPLICATE` |
+| VR-03-08 | AC Purchase có device rows nên có `imm_procurement_decision` | "BR-03-08 (warn): AC Purchase chứa thiết bị nhưng chưa link IMM-03..." — V1 soft `msgprint`, hard-enforce sẽ kích hoạt khi `enforce_imm_link=1` |
 
 ## IV.4. Gates
 
 | Gate | Yêu cầu | Block transition |
 |---|---|---|
-| G01 | Eval đủ candidate + criteria full + scoring complete | Eval → Evaluated |
-| G02 | ≥ 1 quotation hợp lệ (không hết hạn) | Open RFQ → Quotation Received |
-| G03 | AVL pass / sign-off cho mọi candidate | Award Recommended |
-| G04 | procurement_method hợp pháp với giá trị + loại hàng | Draft → Method Selected |
-| G05 | contract_doc + funding_source + board_approver | Pending Approval → Awarded |
+| G01 | Eval đủ candidate + criteria full + scoring complete | Eval → Evaluated | V1: chưa implement trong service (chỉ workflow JSON gate-kept bằng role) |
+| G02 | ≥ 1 quotation hợp lệ (không hết hạn) | Open RFQ → Quotation Received | V1: chưa implement trong service (VR-03-03 chỉ chạy ở validate evaluation khi state ≥ Quotation Received) |
+| G03 | AVL pass / sign-off cho mọi candidate | Award Recommended | V1: chưa implement (VR-03-05 enforce ở Decision before_submit) |
+| G04 | `procurement_method` hợp pháp theo `_METHOD_RULES` (Chỉ định≤50M; Mua sắm trực tiếp≤100M; CHCT≤1B; Đấu thầu rộng rãi/Mua sắm tập trung không giới hạn) | validate_decision (skip ở Draft) | LIVE — `_validate_gate_g04_method` |
+| G05 | `funding_source` + `board_approver` + `contract_doc` | Pending Approval → Awarded | LIVE — `_validate_gate_g05` ở `before_submit_decision` |
 
 ## IV.5. Edge cases & Errors
 

@@ -207,11 +207,11 @@ Lưu ảnh tại `docs/imm-04/screenshots/`:
 
 ## 5. Pinia store
 
-> Source of truth: `frontend/src/stores/commissioning.ts`
+> Source of truth: `frontend/src/stores/imm04.ts`
 
-**File thực tế:** `frontend/src/stores/commissioning.ts` (không phải `imm04Store.ts`)
+**File thực tế:** `frontend/src/stores/imm04.ts` (renamed từ `commissioning.ts` để align convention `immXX.ts`).
 
-Store được import bằng `useCommissioningStore` (xem `CommissioningListView.vue` line 5).
+Store được export bằng `useCommissioningStore` (giữ tên symbol để giảm churn — xem các views: `CommissioningListView.vue`, `CommissioningCreateView.vue`, `CommissioningDetailView.vue`, components `CommissioningForm.vue`, `AssetDashboard.vue`).
 
 Store dùng Composition API pattern (`defineStore('commissioning', () => {...})`).
 

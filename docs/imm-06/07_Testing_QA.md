@@ -19,7 +19,7 @@
                   │  E2E / UAT │  ← Playwright; 1 Golden Scenario (session lifecycle)
                  ─┴────────────┴─
               ┌──────────────────────┐
-              │   API Integration    │  ← pytest + Frappe whitelist (17 endpoints)
+              │   API Integration    │  ← pytest + Frappe whitelist (23 endpoints)
              ─┴──────────────────────┴─
           ┌────────────────────────────────┐
           │  Workflow + DocType lifecycle  │  ← pytest FrappeTestCase (Session + Competency)
@@ -30,6 +30,10 @@
 ```
 
 Mọi service function phải có test trước khi code (TDD — CLAUDE.md §17). Mỗi business rule (BR-06-01 → 12) có ≥ 1 happy + 1 negative test.
+
+**Trạng thái thực tế (2026-05-14):**
+- ✅ Test scaffold: **một file duy nhất** `assetcore/tests/test_imm06.py` (314 LOC). Các file con (`test_imm06_service.py`, `test_imm06_validators.py`, `test_imm06_doctype.py`, `test_imm06_workflow.py`, `test_imm06_audit.py`, `test_imm06_api.py`, e2e `test_imm06_golden.py`) **chưa được tách** — phần I.2–I.8 dưới đây là **kế hoạch chia file**.
+- ✅ API count theo whitelist: **23 endpoints** (cũng cập nhật ở `05_API_Specification.md`).
 
 ## I.2. Unit Test — Service Layer
 
@@ -722,7 +726,7 @@ Trước release đầu tiên (go-live bệnh viện):
 - [x] ≥ 1 happy + 1 negative test mỗi function
 - [x] 2 workflow (Session + Competency) — mọi transition có test
 - [x] Audit chain test (intact + tampered)
-- [x] API test ≥ 60% coverage target (17 endpoints)
+- [x] API test ≥ 60% coverage target (23 endpoints)
 - [x] Performance target xác định (k6) — đặc biệt `check_user_authorization` ≤ 200ms
 - [x] CI command xác định
 - [x] SonarQube + Lighthouse target xác định

@@ -170,17 +170,17 @@ const TABS: Tab[] = [
   {
     id: 'documents',
     label: 'Hồ sơ đi kèm',
-    visibleStates: ['Draft', 'Identification', 'Installing', 'Initial_Inspection', 'Clinical_Hold', 'Re_Inspection', 'Pending_Release', 'Clinical_Release'],
+    visibleStates: ['Draft', 'Identification', 'Installing', 'Initial Inspection', 'Clinical Hold', 'Re Inspection', 'Clinical Release'],
   },
   {
     id: 'safety',
     label: 'Kiểm tra an toàn',
-    visibleStates: ['Installing', 'Initial_Inspection', 'Clinical_Hold', 'Re_Inspection', 'Pending_Release', 'Clinical_Release'],
+    visibleStates: ['Installing', 'Initial Inspection', 'Clinical Hold', 'Re Inspection', 'Clinical Release'],
   },
   {
     id: 'output',
     label: 'Kết quả triển khai',
-    visibleStates: ['Pending_Release', 'Clinical_Release'],
+    visibleStates: ['Clinical Release'],
   },
 ]
 
@@ -211,7 +211,7 @@ const hasAsset = computed(() => Boolean(props.doc.final_asset))
 const showRadiationWarning = computed(
   () =>
     props.doc.is_radiation_device &&
-    !['Clinical_Release', 'Return_To_Vendor'].includes(props.doc.workflow_state),
+    !['Clinical Release', 'Return To Vendor'].includes(props.doc.workflow_state),
 )
 
 const showDOAAlert = computed(() => props.doc.doa_incident)
@@ -222,13 +222,13 @@ const isHighRisk = computed(() =>
 )
 
 const showBoardApprover = computed(() =>
-  ['Initial_Inspection', 'Clinical_Hold', 'Re_Inspection', 'Clinical_Release', 'Pending_Release']
+  ['Initial Inspection', 'Clinical Hold', 'Re Inspection', 'Clinical Release']
     .includes(props.doc?.workflow_state ?? '')
 )
 
 const showOverallInspectionResult = computed(() => {
   if (props.doc?.overall_inspection_result) return true
-  return ['Initial_Inspection', 'Re_Inspection', 'Clinical_Hold', 'Clinical_Release', 'Pending_Release']
+  return ['Initial Inspection', 'Re Inspection', 'Clinical Hold', 'Clinical Release']
     .includes(props.doc?.workflow_state ?? '')
 })
 
@@ -643,7 +643,7 @@ Xem đơn hàng →
             :disabled="isReadonly"
             rows="2"
             class="form-input text-sm w-full"
-            placeholder="VD: CO/CQ chưa về, NCC cam kết gửi trong 7 ngày — sẽ bổ sung trước ngày DD/MM/YYYY"
+            placeholder="VD: CO/CQ chưa về, nhà cung cấp cam kết gửi trong 7 ngày — sẽ bổ sung trước ngày DD/MM/YYYY"
             @change="trackChange('documents_incomplete_note', ($event.target as HTMLTextAreaElement).value)"
           />
         </div>

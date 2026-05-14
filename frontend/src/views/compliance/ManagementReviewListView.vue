@@ -24,9 +24,19 @@ const loading = computed(() => store.reviewsLoading)
 const showFilters = ref(false)
 const filterStatus = ref<string>('')
 
+const MR_STATUSES: { value: string; label: string }[] = [
+  { value: 'Draft',           label: 'Bản nháp' },
+  { value: 'Held',            label: 'Đã họp' },
+  { value: 'Minutes Approved', label: 'Biên bản đã duyệt' },
+  { value: 'Closed',          label: 'Đã đóng' },
+]
+
 const chips = computed(() => {
   const c: { key: string; label: string }[] = []
-  if (filterStatus.value) c.push({ key: 'status', label: filterStatus.value })
+  if (filterStatus.value) {
+    const s = MR_STATUSES.find(x => x.value === filterStatus.value)
+    c.push({ key: 'status', label: s?.label ?? filterStatus.value })
+  }
   return c
 })
 const activeFilterCount = computed(() => chips.value.length)
@@ -122,9 +132,7 @@ onMounted(() => load(1))
           <label class="form-label">Trạng thái</label>
           <select v-model="filterStatus" class="form-select" @change="load(1)">
             <option value="">Tất cả</option>
-            <option value="Draft">Bản nháp</option>
-            <option value="In Progress">Đang thực hiện</option>
-            <option value="Closed">Đã đóng</option>
+            <option v-for="s in MR_STATUSES" :key="s.value" :value="s.value">{{ s.label }}</option>
           </select>
         </div>
       </template>

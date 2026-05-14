@@ -1,13 +1,13 @@
 # 04 — Thiết kế Backend — IMM-15 Theo dõi tồn kho phụ tùng
 
-> ⚠️ Module PLANNED — Wave 3. AC Inventory Backbone LIVE; IMM transaction layer chưa triển khai.
+> ✅ Implemented — Wave 2 (feature/hieuc/wave-2). AC Inventory Backbone LIVE; IMM transaction layer (Allocation / Cycle Count / Forecast / Watchlist) đã merge và đang chờ UAT. Naming series `ac_*` đã được dùng cho master backbone — xem §I.
 
 | Thuộc tính | Giá trị |
 |---|---|
 | Module | IMM-15 — Spare Parts Inventory Tracking |
-| Phiên bản | 0.1.0 |
-| Ngày | 2026-05-08 |
-| Trạng thái | PLANNED |
+| Phiên bản | 0.2.0 |
+| Ngày | 2026-05-14 |
+| Trạng thái | IMPLEMENTED (Wave 2) |
 
 ---
 
@@ -26,19 +26,22 @@
 | `IMM Device Spare Part` | — | — (child) | LIVE |
 | `Spare Parts Used` | — | — (child) | LIVE |
 
-### I.2 PLANNED — IMM-15 Layer
+### I.2 LIVE — IMM-15 Layer (merged Wave 2)
 
 | # | DocType | Naming | Submittable | Mô tả |
 |---|---|---|---|---|
 | 1 | `IMM Spare Allocation` | `SAL-.YYYY.-.#####` | Yes | Phiếu cấp phát phụ tùng per WO |
-| C1 | `IMM Spare Allocation Item` | — | — | Dòng allocation |
+| C1 | `IMM Spare Allocation Item` | — | — (child) | Dòng allocation |
 | 2 | `IMM Stock Cycle Count` | `CYC-.YYYY.-.#####` | Yes | Phiên kiểm kê |
-| C2 | `IMM Cycle Count Item` | — | — | Dòng kiểm kê |
+| C2 | `IMM Stock Cycle Count Item` | — | — (child) | Dòng kiểm kê (folder `imm_stock_cycle_count_item`) |
 | 3 | `IMM Spare Part Forecast` | `SFC-.YYYY.-.#####` | Yes | Forecast part-level (≠ IMM Demand Forecast IMM-01) |
-| C3 | `IMM Spare Forecast Item` | — | — | Dòng forecast |
+| C3 | `IMM Spare Forecast Item` | — | — (child) | Dòng forecast |
 | 4 | `IMM Critical Spare Watchlist` | `field:watchlist_name` | No | Mapping critical asset → spare |
-| C4 | `IMM Spare Alternative` | — | — | Alt parts (child CF trên AC Spare Part) |
-| 5 | `IMM Spare Batch` | `BAT-.YYYY.-.#####` | No | Lot/expiry tracking (gated) |
+| C4 | `IMM Spare Alternative` | — | — (child) | Alt parts (child CF trên AC Spare Part) |
+| 5 | `IMM Spare Batch` | `BAT-.YYYY.-.#####` | No | Lot/expiry tracking (gated qua scheduler `check_expiring_batches`) |
+| 6 | `IMM Device Spare Part` | — | — (child) | Mapping device → recommended spare |
+
+> Tất cả DocType trên đã có folder JSON dưới `assetcore/assetcore/doctype/imm_*` và service code tương ứng trong `assetcore/services/imm15.py`.
 
 ---
 
@@ -428,43 +431,44 @@ def check_part_availability_bulk(parts: list[dict]) -> dict:
 
 ## V. Controller Hooks
 
+Hooks thực tế đang dùng trong `assetcore/hooks.py` (Wave 2 — flat namespace `assetcore.services.imm15.<fn>`):
+
 ```python
-# hooks.py
+# hooks.py — IMM-15 wiring (verified 2026-05-14)
 
 doc_events = {
     "IMM PM Work Order": {
-        "before_submit": "assetcore.services.imm15.allocation_service.reserve_for_pm",
+        "before_submit": "assetcore.services.imm15.reserve_for_pm",
+        # gate + realtime eval do IMM-16 owns:
+        # "validate":  "assetcore.services.imm16.gate_wo_submit",
+        # "on_submit": "assetcore.services.imm16.eval_imm08_09_realtime",
     },
     "IMM CM Work Order": {
-        "before_submit": "assetcore.services.imm15.allocation_service.reserve_for_cm",
-    },
-    "Asset Repair": {
-        "before_submit": "assetcore.services.imm15.allocation_service.reserve_for_repair",
+        "before_submit": "assetcore.services.imm15.reserve_for_repair",
     },
     "AC Asset": {
-        "on_update": "assetcore.services.imm15.watchlist_service.flag_obsolete_on_decommission",
+        "on_update": "assetcore.services.imm15.flag_obsolete_on_decommission",
     },
 }
 
 scheduler_events = {
     "daily": [
-        # LIVE (Wave 1)
-        "assetcore.services.inventory.check_low_stock",
-        # NEW IMM-15
-        "assetcore.tasks.check_low_stock_alerts",          # 02:00 — extend + watchlist escalation
-        "assetcore.tasks.check_critical_spare_breach",     # 02:30
-        "assetcore.tasks.check_expiring_batches",          # 03:00 (gated)
-        "assetcore.tasks.compute_inventory_kpis",          # 04:00
+        "assetcore.services.imm15.check_low_stock_and_alert",
+        "assetcore.services.imm15.check_critical_spare_breach",
+        "assetcore.services.imm15.check_expiring_batches",       # gated (no-op nếu IMM Spare Batch empty)
+        "assetcore.services.imm15.compute_inventory_kpis",
     ],
     "monthly": [
-        "assetcore.tasks.generate_spare_demand_forecast",  # 1st 02:00
+        "assetcore.services.imm15.generate_spare_demand_forecast",
     ],
-    # ABC quarterly reclassification
+    # ABC reclassification quarterly (cron)
     "cron": {
-        "0 3 1 1,4,7,10 *": ["assetcore.services.imm15.forecast_service.reclassify_abc"],
+        "0 3 1 1,4,7,10 *": ["assetcore.services.imm15.reclassify_abc"],
     },
 }
 ```
+
+> Lưu ý: spec gốc dùng tên module `allocation_service` / `watchlist_service` / `forecast_service` cho clarity. Code thực tế đặt tất cả ở module phẳng `services.imm15` — function name giữ nguyên (`reserve_for_pm`, `reserve_for_repair`, `flag_obsolete_on_decommission`, `reclassify_abc`, …).
 
 ---
 

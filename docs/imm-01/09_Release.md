@@ -1,14 +1,15 @@
 # IMM-01 — Phát hành (User Guide + Release Notes + Traceability)
 
-> ⚠️ Pending implementation — Wave 2
+> **Wave 2 — Live.** Module IMM-01 đã GA. Tài liệu này tổng hợp User Guide + Release Notes + Traceability Matrix dựa trên codebase thực tế.
 
 | Mục | Giá trị |
 |---|---|
 | Module | **IMM-01 — Đánh giá Nhu cầu & Dự toán (Needs Assessment & Budget Estimation)** |
-| Phiên bản | 1.0.0 |
-| Ngày phát hành | (Wave 2 — TBD) |
+| Phiên bản | 1.0.0 (Wave 2 GA) |
+| Ngày phát hành | 2026-05 (Wave 2) |
+| Cập nhật | 2026-05-14 |
 | Owner | PM + BA + Tech Writer |
-| Liên kết | [07 Testing QA](./07_Testing_QA.md) · [08 Deployment](./08_Deployment.md) · [Functional Specs](./IMM-01_Functional_Specs.md) |
+| Liên kết | [02 Analysis](./02_Analysis_Design.md) · [07 Testing QA](./07_Testing_QA.md) · [08 Deployment](./08_Deployment.md) |
 
 ---
 
@@ -362,7 +363,19 @@ Không có.
 
 | Version | Ngày | Nội dung |
 |---|---|---|
-| 1.0.0 | (Wave 2 — TBD) | IMM-01 General Availability — Wave 2 |
+| 1.0.0 | 2026-05 | IMM-01 General Availability — Wave 2 |
+
+### Commits liên quan Wave 2 IMM-01 (branch `feature/hieuc/wave-2`)
+
+| Commit | Summary |
+|---|---|
+| `810179e` | feat (BE+FE): add module 1,2,3, update UI dashboard (/launcher) — initial IMM-01 BE+FE landing |
+| `82a9607` | fix (FE): Modal create new needs-requests, UI sidebar, add filter for imm-1,2,3 |
+| `d2279ab` | (Wave 2 fix — refactor) |
+| `4a3ad1c` | fix: resolve all conflicts and sync Wave 2 with global formatters |
+| `66d9f81` | refactor: update module workflows and fix procurement issues |
+| `d56c0cd` | fix: resolve Wave 1 & 2 bugs and enhance AI agents |
+| `fce3655` | fix(FE): update fullname user and list view some page |
 
 ---
 
@@ -467,21 +480,18 @@ Trace: `IMM Procurement Plan → workflow_state=Approved → IMM Audit Trail rec
 | Hạng mục | Số lượng | Ghi chú |
 |---|---|---|
 | DocType (chính) | 3 | `IMM Needs Request`, `IMM Procurement Plan`, `IMM Demand Forecast` |
-| DocType (child) | 4 | `IMM Needs Priority Scoring`, `IMM Budget Estimate Line`, `IMM Procurement Plan Line`, `IMM Demand Forecast Matrix` |
-| Workflow JSON | 2 | `IMM-01 Needs Request Workflow` (8 states), `IMM-01 Procurement Plan Workflow` (5 states) |
-| API endpoint | 14 | `list, get, create, update, submit, score, compute_priority, submit_budget, transition, approve, reject, list_plans, roll_into_plan, dashboard_kpis` |
-| FE view / page | 7 | NRList, NRDetail, NRCreate, ScoringGrid, BudgetEditor, PlanDetail, DemandForecast |
+| DocType (child) | 4 | `Needs Priority Scoring`, `Budget Estimate Line`, `Procurement Plan Line`, `Forecast Driver` |
+| Workflow JSON | 2 | `IMM-01 Needs Workflow` (8 states), `IMM-01 Plan Workflow` (4 states) |
+| API endpoint | 22 | xem 05 §1.4 (incl. `get_allowed_transitions`, `set_budget_envelope`, `approve_plan`, `activate_plan`, `close_plan`, `remove_from_plan`, `get_procurement_plan`, `create_procurement_plan`, `dashboard_kpis`, etc.) |
+| FE view / page | 5 | `NeedsRequestListView`, `NeedsRequestCreateView`, `NeedsRequestDetailView`, `ProcurementPlanListView`, `ProcurementPlanDetailView` |
 | FE store | 1 | `stores/imm01.ts` |
-| Service function | 15+ | `initialize_needs_request, validate_needs_request, compute_priority_score, validate_budget_estimate, roll_into_procurement_plan, generate_demand_forecast, ...` |
-| Scheduler job | 3 | Monthly demand forecast, Daily overdue check, Weekly budget envelope alert |
-| Business Rule | 7 | BR-01-01 → BR-01-07 |
-| Role áp dụng | 7 | Clinical User, HTM Engineer, Planning Officer, Finance Officer, Department Head, Board Approver, System Admin |
-| Test case unit | ~45 | 15 test class × ~3 case avg |
+| Service function | 25+ | xem 04 §III + Class Diagram trong 03 |
+| Scheduler job | 3 | `generate_demand_forecast` (monthly), `check_pending_request_overdue` (daily), `budget_envelope_alert` (weekly) |
+| Business Rule | 8 (enforce) + 2 (planned VR-01-03/06) | xem 02 §IV.2 |
+| Role áp dụng | 7 | Clinical User, HTM Engineer, Planning Officer, Finance Officer, Department Head, Board Approver, System Admin (+ Auditor read-only) |
+| Test case unit | 2 test class (`TestPriorityClassification` 5 cases, `TestComputePriorityScore` 2 cases) — phần còn lại = roadmap | xem 07 §I.2 |
 | UAT scenario | 12 | UAT-IMM01-01 → 12 |
-| LOC BE (`services/imm01.py`) | ~400 | Ước tính, không tính comments |
-| LOC API (`api/imm01.py`) | ~220 | 14 endpoints |
-| LOC FE (tất cả views + store) | ~2,000 | Ước tính từ 7 views + 1 store |
-| Sprint hoàn thành (Wave 2) | 4 | Sprint 5-8, mỗi sprint 2 tuần |
+| Patch | 1 | `v3_1.001_install_imm01` |
 | User Story | 6 | US-01-001, US-01-002, US-01-010, US-01-020, US-01-030, US-01-040 |
 
 ---

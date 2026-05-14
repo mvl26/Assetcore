@@ -88,3 +88,54 @@ Bảng 8 UC (UC-01..UC-08) bao gồm 2 UC đã chi tiết (UC-01, UC-02 ở §II
 - FE: store + views + routes + sidebar entry wired
 - Tests: see docs/res/dod-verification-report.md §1 for per-module results
 - Status: READY
+
+## 2026-05-14 Wave-2 Sync Pass (light-touch)
+
+Drift phát hiện vs codebase:
+
+| File | Stale | Fix |
+|---|---|---|
+| `README.md` | "Wave 3 — PLANNED" — module đã ship trên wave-2 | Đổi sang "Wave 2 — IMPLEMENTED", date 2026-05-14 |
+| `04_Backend_Design.md` | §I.2 dán nhãn DocType "PLANNED"; §V hook path namespace dotted (`imm15.allocation_service.reserve_for_pm`) không khớp `hooks.py` thực tế | §I.2 → "LIVE — IMM-15 Layer (merged Wave 2)"; thêm `IMM Stock Cycle Count Item` (folder thực tế) & `IMM Device Spare Part`; rewrite hook block dùng flat namespace `assetcore.services.imm15.<fn>` |
+| `05_API_Specification.md` | "PLANNED — ~16 endpoints chưa triển khai" | Đổi sang "LIVE — 21 whitelist methods"; note bổ sung `submit_cycle_count`, `return_allocation`, `get_stock_snapshot`, `get_critical_watchlist` |
+| `06_Frontend_Design.md` | Route catalog dùng prefix `/imm15/*` (không tồn tại); navigation tree sai | Replace bằng 13 route thực tế dưới `/inventory`, `/spare-parts`, `/stock-movements`, `/warehouses`, `/inventory/uom\|forecasts\|watchlist`; cập nhật store filename `imm15.ts` (bỏ suffix `Store`) |
+| `09_Release.md` | Header "PLANNED — Wave 3"; thiếu entry Wave 2 | Đổi sang "Wave 2 IMPLEMENTED — v1.0.0-rc.2"; APPEND entry v1.0.0-rc.2 liệt kê BE/FE/hook/gate fixes |
+
+KHÔNG đụng:
+
+- `02_Analysis_Design.md`, `03_Diagrams.md` (BPMN/ERD/Class) — concept không đổi
+- `07_Testing_QA.md`, `08_Deployment.md` — chưa đối chiếu chi tiết, để pass sau
+- §III field tables trong `04_Backend_Design.md` — trùng JSON DocType actual, không có drift quan trọng
+- §VI workflow state machine — code workflow JSON khớp với bảng
+- §VIII DB indexes, §IX migration patches — không có drift codebase
+
+TODO cần human input:
+
+1. Baseline KPI numbers cho dashboard tiles (turnover, days-on-hand, MAPE target) — hiện đặt tạm trong wireframe ở §II.11.
+2. Quyết định cut tag `v1.0.0` sau UAT sign-off (hiện `1.0.0-rc.2`).
+3. Allocation / Cycle Count / Forecast UI route — code BE đầy đủ + store action sẵn nhưng chưa có view file. Cần BA quyết liệu dùng path domain (`/allocations`, `/cycle-counts`, `/forecasts`) hay prefix `/inventory/*`.
+4. §07 Testing — cập nhật test ID khi `assetcore/tests/test_imm15_*.py` hoàn thiện.
+
+## 2026-05-14 Pass 2 (files 02/03/07/08 sync)
+
+Light-touch updates to files NOT covered in Pass 1.
+
+| File | Drift fixed |
+|---|---|
+| `02_Analysis_Design.md` | Header `PLANNED — Wave 3` → `IMPLEMENTED — Wave 2`; version `0.1.0` → `1.0.0-rc.2`; date `2026-05-08` → `2026-05-14`. Body sections (KPI formulas, BR-IDs, BPMN narrative) preserved — code paths đã đúng. |
+| `03_Diagrams.md` | Header banner + table updated tương tự. ERD/state machine/sequence diagrams giữ nguyên — entities (`IMM_SPARE_ALLOCATION`, `IMM_STOCK_CYCLE_COUNT`, `IMM_SPARE_PART_FORECAST`, `IMM_CRITICAL_SPARE_WATCHLIST`) khớp DocType folder thực tế. |
+| `07_Testing_QA.md` | Header updated. PREPENDED §0 — Test Suite Inventory liệt kê 7 TestCase class + 11 test method thực tế trong `assetcore/tests/test_imm15.py`. Cảnh báo §II–§III template là backlog. |
+| `08_Deployment.md` | Header updated. PREPENDED §0 — Wired Artefacts với hook list verified từ `hooks.py` (3 doc_events + 6 scheduler tasks), fixture list (`imm15_custom_fields.json` + workflow JSONs), 14 DocType folder name thực tế, note `patches.txt` không có entry IMM-15 riêng. |
+| `05_API_Specification.md` (Pass 1 leftover) | §3 heading `PLANNED (imm15.py)` → `IMPLEMENTED (assetcore/api/imm15.py)`. |
+
+KHÔNG đụng:
+
+- Body wireframes, KPI/BR/VR enumerations — concept không đổi, một số ID là backlog nhưng cần BA confirm trước khi xóa.
+- §I–§VI deployment plan template trong 08 — giữ làm checklist.
+- Test plan template §II–§III trong 07 — backlog.
+
+Residual TODOs:
+
+1. Test ID hiện tại đặt theo class+method (TestAllocationLifecycle.test_*). Nếu BA cần ID format `TC-15-01..07`, cần map trong test code bằng docstring marker.
+2. `IMM Spare Batch` scheduler `check_expiring_batches` là no-op (chưa có batch tracking) — đã ghi ở 09_Release.md KI-01.
+3. Allocation/Cycle Count/Forecast UI detail route — code BE + store action sẵn sàng, FE view chưa build (carry-over từ Pass 1).

@@ -43,7 +43,7 @@ const filters = reactive<{
 const activeChips = computed<FilterChip[]>(() => {
   const c: FilterChip[] = []
   if (filters.workflow_state)   c.push({ key: 'workflow_state', label: stateLabel(filters.workflow_state) })
-  if (filters.winner_supplier)  c.push({ key: 'winner_supplier', label: `NCC: ${filters.winner_supplier}` })
+  if (filters.winner_supplier)  c.push({ key: 'winner_supplier', label: `Nhà cung cấp: ${filters.winner_supplier}` })
   if (filters.spec_ref)         c.push({ key: 'spec_ref', label: `Hồ sơ: ${filters.spec_ref}` })
   if (filters.envelope_bucket) {
     const b = ENVELOPE_BUCKETS.find(x => x.value === filters.envelope_bucket)

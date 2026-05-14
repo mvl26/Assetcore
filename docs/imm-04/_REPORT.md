@@ -33,3 +33,25 @@ Các TODO Sprint 7/8 đã liệt kê sẵn trong `README.md` § Roadmap (naming 
 - FE: store + views + routes + sidebar entry wired
 - Tests: see docs/res/dod-verification-report.md §1 for per-module results
 - Status: READY
+
+## 2026-05-14 Light-touch Sync (Wave-2 branch)
+Branch: `feature/hieuc/wave-2`. Đồng bộ docs với fix gần đây:
+- `04_Backend_Design.md` §3 Workflow: thay toàn bộ underscore states (`Pending_Doc_Verify`, `Clinical_Release`, ...) bằng giá trị space đang dùng thực tế (`Pending Doc Verify`, `Clinical Release`, ...). Đồng nhất với `imm_04_workflow.json` + `services/imm04.py` constants + `types/imm04.ts WorkflowState`. Xóa tech-debt TODO Sprint 7 đã resolve.
+- `05_API_Specification.md` §1.5 Type definitions: rewrite `WorkflowState` enum dùng space; xóa các state không tồn tại (`Draft_Reception`, `Pending_Release`, `DOA_Incident`); cập nhật lưu ý từ "dùng underscore" → "dùng space". Sửa BAD_STATE table tham chiếu `Clinical Release`.
+- `06_Frontend_Design.md` §5 Pinia store: cập nhật path `stores/commissioning.ts` → `stores/imm04.ts` (file đã rename) và liệt kê các views/components import từ store mới.
+- `README.md` Roadmap: tick 2 mục Clinical Release naming + store rename là DONE.
+- Không đụng `02/03/07/08/09` (light-touch — không phát hiện drift trong scope đó).
+
+## Pass 2 — Deep reconciliation (2026-05-14)
+
+Endpoint count actual = **33** (whitelist trong `assetcore/api/imm04.py`). LOC service = 1692, LOC api = 309.
+
+- `README.md`: API count "20 endpoints" → "33 endpoints".
+- `02_Analysis_Design.md`: tick các risk/open-question/issue về `Clinical Release` vs `Clinical_Release` thành DONE (Wave-2); EC-04-03 dùng quoted space.
+- `03_Diagrams.md`: fix `Clinical_Release` (sequence diagram alt branch line 461) → `"Clinical Release"`.
+- `04_Backend_Design.md`: §7 Scheduler — đánh dấu `check_commissioning_overdue` defined-but-not-registered; `check_clinical_hold_aging` + `check_commissioning_sla` đánh dấu *(Not yet implemented)* (không có `assetcore/tasks.py`). §8 doc_events viết lại đúng ground truth (on_submit listener IMM-08/11/16; `before_insert/validate` ở controller).
+- `05_API_Specification.md`: catalog header "27" → "33"; thêm row #24 `retry_mint_asset` và #33 `get_lifecycle_timeline`; renumber 25–32; DoD checklist "31" → "33".
+- `06_Frontend_Design.md`: untouched (đã chính xác sau pass 1).
+- `07_Testing_QA.md`: thêm callout trạng thái thực tế — test scaffold gộp 1 file `test_imm04.py` (246 LOC), file con là kế hoạch chia; pyramid "17 endpoints" → "33 endpoints".
+- `08_Deployment.md`: untouched (bench commands hợp lệ).
+- `09_Release.md`: thay row "17 endpoints" và LOC ước tính bằng số thực (33 endpoints, 1692/309 LOC).

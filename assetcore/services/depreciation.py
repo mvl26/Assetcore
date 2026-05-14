@@ -157,18 +157,25 @@ def generate_schedule(asset_name: str, *, force: bool = False) -> dict:
 
 # ─── Cron: Execute due periods ───────────────────────────────────────────────
 
-def run_due_depreciation(as_of: str | None = None) -> dict:
+def run_due_depreciation(as_of: str | None = None, asset: str | None = None) -> dict:
     """Chạy định kỳ: đánh dấu Executed cho các dòng Pending đến hạn,
     cập nhật accumulated_depreciation + current_book_value trên Asset.
 
     Args:
         as_of: ISO date (YYYY-MM-DD). Mặc định là today.
+        asset: Nếu set, chỉ chạy cho 1 asset cụ thể (dùng cho nút Cập nhật).
 
     Returns: {"executed_rows": N, "updated_assets": M}
     """
     cutoff = getdate(as_of or today())
 
-    rows = frappe.db.sql("""
+    params: dict = {"cutoff": cutoff}
+    asset_clause = ""
+    if asset:
+        asset_clause = " AND d.parent = %(asset)s"
+        params["asset"] = asset
+
+    rows = frappe.db.sql(f"""
         SELECT d.name, d.parent AS asset, d.depreciation_amount, d.period_number
         FROM `tabAC Asset Depreciation Schedule` d
         JOIN `tabAC Asset` a ON a.name = d.parent
@@ -176,8 +183,9 @@ def run_due_depreciation(as_of: str | None = None) -> dict:
           AND d.scheduled_date <= %(cutoff)s
           AND a.docstatus != 2
           AND a.lifecycle_status NOT IN ('Decommissioned', 'Out of Service')
+          {asset_clause}
         ORDER BY d.parent, d.period_number ASC
-    """, {"cutoff": cutoff}, as_dict=True)
+    """, params, as_dict=True)
 
     if not rows:
         return {"executed_rows": 0, "updated_assets": 0}

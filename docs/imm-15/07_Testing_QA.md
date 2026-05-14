@@ -1,14 +1,42 @@
 # IMM-15 — Testing & QA
 
-> ⚠️ Pending implementation — Wave 3
+> ✅ Wave 2 IMPLEMENTED. Test thực tế: `assetcore/tests/test_imm15.py` (7 TestCase, 11 test method). Coverage formal report chưa chạy — xem §I.1.
 
 | Thuộc tính | Giá trị |
 |---|---|
 | Module | IMM-15 — Spare Parts Inventory Tracking |
-| Phiên bản | 1.0.0-draft |
+| Phiên bản | 1.0.0-rc.2 |
 | Template | 07 Testing_QA |
-| Ngày cập nhật | 2026-05-08 |
-| Trạng thái | PLANNED — Wave 3 |
+| Ngày cập nhật | 2026-05-14 |
+| Trạng thái | IMPLEMENTED — Wave 2 |
+
+---
+
+## §0 — Test Suite Inventory (CURRENT, 2026-05-14)
+
+File: `assetcore/tests/test_imm15.py`
+
+| Class | Test method | Covers |
+|---|---|---|
+| `TestAllocationLifecycle` | `test_create_requires_work_order_for_non_emergency` | VR-15-08 / BR-15-01 (non-emergency requires WO) |
+| `TestAllocationLifecycle` | `test_create_emergency_without_wo_succeeds` | BR-15-01 Emergency override |
+| `TestAllocationLifecycle` | `test_approve_requires_correct_role` | Workflow Requested→Approved |
+| `TestAllocationLifecycle` | `test_approve_bad_state` | ErrorCode.BAD_STATE re-approve |
+| `TestUrgencyValidation` | `test_invalid_urgency_rejected` | VR-15-05 urgency enum |
+| `TestWarehouseValidation` | `test_inactive_warehouse_rejected` | VR-15-13 inactive warehouse |
+| `TestReturnValidation` | `test_return_qty_exceeds_issued` | VR-15-08 return qty cap |
+| `TestForecastGeneration` | `test_generate_forecast` | `generate_spare_forecast` Moving_Avg |
+| `TestWatchlist` | `test_add_critical_part_ok` | Watchlist Critical-only happy path |
+| `TestWatchlist` | `test_add_non_critical_rejected` | VR-15-09 Critical-only enforcement |
+| `TestDashboardStats` | `test_dashboard_keys` | `get_dashboard_stats` schema |
+
+Run:
+
+```bash
+bench --site [site] run-tests --app assetcore --module assetcore.tests.test_imm15
+```
+
+> ⚠️ Các test class / coverage target lý thuyết liệt kê dưới §II–§III (TestImm15ValidationRules, TestImm15AllocationService, ...) là **draft chưa triển khai** — giữ làm backlog. Test ID chính xác là class + method ở §0 ở trên.
 
 ---
 

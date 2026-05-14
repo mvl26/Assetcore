@@ -18,19 +18,16 @@ export interface ApiResponse<T> {
 
 export type WorkflowState =
   | 'Draft'
-  | 'Draft_Reception'
-  | 'Pending_Doc_Verify'
-  | 'To_Be_Installed'
+  | 'Pending Doc Verify'
+  | 'To Be Installed'
   | 'Installing'
   | 'Identification'
-  | 'Initial_Inspection'
-  | 'Non_Conformance'
-  | 'Clinical_Hold'
-  | 'Re_Inspection'
-  | 'Clinical_Release'
-  | 'Return_To_Vendor'
-  | 'Pending_Release'
-  | 'DOA_Incident'
+  | 'Initial Inspection'
+  | 'Non Conformance'
+  | 'Clinical Hold'
+  | 'Re Inspection'
+  | 'Clinical Release'
+  | 'Return To Vendor'
 
 export interface WorkflowTransition {
   action: string

@@ -157,7 +157,7 @@ bench --site assetcore.local set-maintenance-mode off
 | Thay đổi | Risk | Mitigation |
 |---|---|---|
 | Thêm 5 DocType mới | Low | `frappe.db.table_exists` check trong patch |
-| Thêm 4 Scheduler jobs vào `tasks.py` | Low | Idempotent — chỉ chạy 1 lần/ngày theo cron |
+| Thêm 4 Scheduler jobs vào `services/imm06.py` (đã đăng ký trong `hooks.py:scheduler_events`) | Low | Idempotent — chỉ chạy 1 lần/ngày theo cron |
 | Hook `before_assign_technician` IMM-08/09/12 | Medium | Flag check in patch; dry-run staging trước; test backward compat với WO existing |
 | Hook IMM-04 Clinical_Release gate | Medium | Gate chỉ apply cho transition mới; WO existing không bị ảnh hưởng |
 | Role mới `Tổ HC-QLCL` | Low | `if not frappe.db.exists` + fixture idempotent |
@@ -287,7 +287,7 @@ Khi đã có user mutation (competency sign-off trong cửa sổ giữa deploy v
 |---|---|---|---|
 | HTM 4.4 — Training & Competence | Operator đủ năng lực trước khi vận hành | BR-06-01 + BR-06-05 sign-off gate | `check_user_authorization()` |
 | Annex 5 — Training Program | Chương trình đào tạo chuẩn với đánh giá | `IMM Training Program` (curriculum) + `IMM Training Session` (delivery) | DocType fields |
-| Annex 5 — Recertification | Tái chứng nhận định kỳ trước expiry | BR-06-03: Scheduler `check_recertification_due` + `auto_expire_competency` | `tasks.py` |
+| Annex 5 — Recertification | Tái chứng nhận định kỳ trước expiry | BR-06-03: Scheduler `check_recertification_due` + `auto_expire_competencies` | `services/imm06.py` |
 | §4.3 — KPI | Đo training compliance KPI | `get_dashboard_stats()` — coverage per dept, expiring count | `api/imm06.py` |
 
 ### ISO 13485:2016 — Medical Devices QMS

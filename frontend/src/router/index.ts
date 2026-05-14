@@ -904,17 +904,17 @@ const MODULE_RULES: Array<[RegExp, string]> = [
   [/^\/calibration/,           'imm11'],
   [/^\/incidents/,             'imm12'],
   [/^\/rca/,                   'imm12'],
-  [/^\/capas/,                 'imm12'],   // RCA & CAPA — IMM-12 primary, dùng chung IMM-10/16
+  [/^\/capas/,                 'imm16'],   // CAPA canonically thuộc IMM-16 (Compliance); IMM-12 chỉ trigger qua RCA
   [/^\/audit-trail/,           'imm16'],
   [/^\/compliance/,            'imm16'],
   [/^\/inventory/,             'imm15'],
   [/^\/stock/,                 'imm15'],
   [/^\/spare-parts/,           'imm15'],
   [/^\/warehouses/,            'imm15'],
-  // Khối 4 — Kết thúc vòng đời
-  [/^\/asset-transfers/,       'imm13'],
-  [/^\/depreciation/,          'imm14'],
+  // Khối 4 — Kết thúc vòng đời (IMM-13/14 chưa build → tạm gắn transfer vào IMM-15)
+  [/^\/asset-transfers/,       'imm15'],
   // Master data
+  [/^\/depreciation/,          'master'],
   [/^\/assets/,                'master'],
   [/^\/device-models/,         'master'],
   [/^\/qr-scan/,               'master'],
@@ -931,12 +931,15 @@ const MODULE_RULES: Array<[RegExp, string]> = [
 
 function tagWorkspace(rs: RouteRecordRaw[]): RouteRecordRaw[] {
   for (const r of rs) {
-    if (typeof r.path === 'string') {
-      for (const [re, mod] of MODULE_RULES) {
-        if (re.test(r.path)) {
-          r.meta = { ...r.meta, moduleId: mod }
-          break
-        }
+    if (typeof r.path !== 'string') continue
+    // Tôn trọng moduleId đã khai báo tường minh trong route.meta — không ghi đè.
+    // Regex chỉ áp dụng cho route chưa có moduleId, tránh bug shared-path
+    // (vd /capas thuộc IMM-16 nhưng regex từng gán nhầm sang IMM-12).
+    if (r.meta?.moduleId) continue
+    for (const [re, mod] of MODULE_RULES) {
+      if (re.test(r.path)) {
+        r.meta = { ...r.meta, moduleId: mod }
+        break
       }
     }
   }

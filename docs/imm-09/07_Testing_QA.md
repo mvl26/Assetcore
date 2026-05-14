@@ -4,7 +4,7 @@
 |---|---|
 | Module | **IMM-09 — Sửa chữa (Corrective Maintenance)** |
 | Phiên bản | 1.0.0 |
-| Ngày cập nhật | 2026-05-08 |
+| Ngày cập nhật | 2026-05-14 |
 | Owner | QA Lead + Tech Lead |
 | Liên kết | [Module Overview](./IMM-09_Module_Overview.md) · [Functional Specs](./IMM-09_Functional_Specs.md) · [API Interface](./IMM-09_API_Interface.md) |
 

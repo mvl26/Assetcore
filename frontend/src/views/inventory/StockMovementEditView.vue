@@ -427,7 +427,7 @@ v-model.number="row.qty" type="number" :min="movementType === 'Adjustment' ? und
 
             <!-- UOM badge -->
             <div class="col-span-4 md:col-span-2">
-              <p class="text-[10px] text-slate-500 mb-1">ĐVT</p>
+              <p class="text-[10px] text-slate-500 mb-1">Đơn vị tính</p>
               <div class="flex items-center h-9 px-2.5 rounded-lg bg-slate-100 border border-slate-200 text-sm text-slate-600">
                 {{ row.uom || '—' }}
               </div>

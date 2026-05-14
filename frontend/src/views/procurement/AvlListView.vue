@@ -55,7 +55,7 @@ function isExpiring(a: AvlListItem): boolean {
 const activeChips = computed<FilterChip[]>(() => {
   const c: FilterChip[] = []
   if (filters.workflow_state)  c.push({ key: 'workflow_state', label: stateLabel(filters.workflow_state) })
-  if (filters.supplier)        c.push({ key: 'supplier', label: `NCC: ${filters.supplier}` })
+  if (filters.supplier)        c.push({ key: 'supplier', label: `Nhà cung cấp: ${filters.supplier}` })
   if (filters.device_category) c.push({ key: 'device_category', label: `Nhóm: ${filters.device_category}` })
   if (filters.expiry_bucket) {
     const b = EXPIRY_BUCKETS.find(x => x.value === filters.expiry_bucket)
@@ -149,7 +149,7 @@ onMounted(() => {
       v-model:search="filters.search"
       :show="showFilters"
       :chips="activeChips"
-      search-placeholder="Tìm theo NCC, nhóm thiết bị..."
+      search-placeholder="Tìm theo nhà cung cấp, nhóm thiết bị..."
       @apply="applyFilters"
       @reset="resetFilters"
       @clear-chip="clearChip"

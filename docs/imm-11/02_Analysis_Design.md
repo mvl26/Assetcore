@@ -6,7 +6,8 @@
 | Phạm vi | Per-module |
 | Owner | BA + System Analyst |
 | Liên kết | 03 Diagrams · 04 Backend · 05 API · 06 Frontend |
-| Trạng thái | ⚠️ Pending implementation — toàn bộ module chưa có code |
+| Cập nhật | 2026-05-14 |
+| Trạng thái | ✅ Live — service `assetcore/services/imm11.py` + API `assetcore/api/imm11.py` (18 endpoint) + DocType + Workflow + FE views đã deploy |
 
 ---
 
@@ -110,12 +111,12 @@ IMM-11 giải quyết vấn đề bệnh viện không theo dõi được trạn
 
 | Sprint | Hạng mục | Owner | Status |
 |---|---|---|---|
-| 11.1 | DocType JSON (3) + custom fields AC Asset (3) | BE Lead | ⚠️ Pending |
-| 11.2 | Service layer `services/imm11.py` + IMM-00 integration | BE Lead | ⚠️ Pending |
-| 11.3 | API layer `api/imm11.py` + scheduler + hooks | BE Lead | ⚠️ Pending |
-| 11.4 | Workflow JSON + permission fixtures | BE Lead | ⚠️ Pending |
-| 11.5 | Frontend Vue (Dashboard, Form, Detail, CAPA panel) | FE Lead | ⚠️ Pending |
-| 11.6 | Test suite + UAT execution (target 70% coverage) | QA | ⚠️ Pending |
+| 11.1 | DocType JSON (3) + custom fields AC Asset (3) | BE Lead | ✅ Done |
+| 11.2 | Service layer `services/imm11.py` + IMM-00 integration | BE Lead | ✅ Done |
+| 11.3 | API layer `api/imm11.py` + scheduler + hooks | BE Lead | ✅ Done |
+| 11.4 | Workflow JSON (`imm_11_calibration_workflow.json`) + permission fixtures | BE Lead | ✅ Done |
+| 11.5 | Frontend Vue (Dashboard, List, Create, Detail, Schedule) | FE Lead | ✅ Done |
+| 11.6 | Test suite (`tests/test_imm11.py`) + UAT execution | QA | 🟡 Tests live; UAT pending |
 
 ---
 

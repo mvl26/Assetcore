@@ -4,7 +4,7 @@
 |---|---|
 | Module | **IMM-08 — Bảo trì Định kỳ (Preventive Maintenance)** |
 | Phiên bản | 1.0.0 |
-| Ngày cập nhật | 2026-05-08 |
+| Ngày cập nhật | 2026-05-14 |
 | Owner | QA Lead + Tech Lead |
 | Liên kết | [Module Overview](./IMM-08_Module_Overview.md) · [Functional Specs](./IMM-08_Functional_Specs.md) · [API Interface](./IMM-08_API_Interface.md) |
 
@@ -33,12 +33,14 @@ Mọi service function phải có test trước khi code (TDD — CLAUDE.md §17
 
 ## I.2. Unit Test — Service Layer
 
-**File:** `assetcore/tests/test_imm08_service.py`
+> **Trạng thái thực tế (2026-05-14):** test code hợp nhất trong **một file duy nhất** `assetcore/tests/test_imm08.py` (class `TestPMChecklistTemplate`, `TestPMSchedule`, `TestPMWorkOrder`, …). Các phần dưới đây tách theo loại test để dễ đọc — split sang nhiều file là mục tiêu Wave 2 refactor.
+
+**File:** `assetcore/tests/test_imm08.py`
 
 | Test class | Hàm cover | Cases dự kiến |
 |---|---|---|
-| `TestGeneratePMWorkOrders` | `tasks.generate_pm_work_orders()` | happy(due today), skip(Out of Service BR-08-04), skip(no template BR-08-01), idempotent(no dup WO) |
-| `TestCheckPMOverdue` | `tasks.check_pm_overdue()` | happy(set Overdue), email ≤7d Workshop, email 8-30d VP Block2, email >30d BGĐ, skip Completed |
+| `TestGeneratePMWorkOrders` | `services.imm08.generate_pm_work_orders_from_schedule()` | happy(due today), skip(Out of Service BR-08-04), skip(no template BR-08-01), idempotent(no dup WO) |
+| `TestCheckPMOverdue` | bao gồm trong cùng scheduler `generate_pm_work_orders_from_schedule` (đánh `Overdue` ngay trong vòng lặp) | happy(set Overdue), email ≤7d Workshop, email 8-30d VP Block2, email >30d BGĐ, skip Completed |
 | `TestValidateChecklist` | `pm_work_order._validate_checklist_complete()` | all results filled → pass, 1 empty → VR-08-03 raise |
 | `TestValidatePhoto` | `pm_work_order._validate_photo_for_high_risk()` | Class I → skip, Class III + no photo → VR-08-04 raise |
 | `TestValidateCmSource` | `pm_work_order._validate_cm_source()` | wo_type=Corrective + source → pass, wo_type=Corrective + no source → VR-08-05 raise |

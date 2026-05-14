@@ -1,14 +1,14 @@
 # IMM-01 — Triển khai & Tuân thủ (Deployment & QMS)
 
-> ⚠️ Pending implementation — Wave 2
+> **Wave 2 — Live.** Patch `assetcore.patches.v3_1.001_install_imm01` đã merge và đang là phần của bench migrate path. Fixtures workflow IMM-01 (Needs + Plan) đã ship qua `assetcore/fixtures/workflow.json`.
 
 | Mục | Giá trị |
 |---|---|
 | Module | **IMM-01 — Đánh giá Nhu cầu & Dự toán (Needs Assessment & Budget Estimation)** |
-| Phiên bản | 1.0.0 |
-| Ngày cập nhật | 2026-05-08 |
+| Phiên bản | 1.0.0 (Wave 2 GA) |
+| Ngày cập nhật | 2026-05-14 |
 | Owner | DevOps + Tech Lead + QMS Officer |
-| Liên kết | [07 Testing QA](./07_Testing_QA.md) · [Module Overview](./IMM-01_Module_Overview.md) |
+| Liên kết | [07 Testing QA](./07_Testing_QA.md) · [README](./README.md) |
 
 ---
 
@@ -71,31 +71,33 @@ __version__ = "1.1.0"  # IMM-01 General Availability — Wave 2
 
 ## I.3. Deployment Artefacts
 
-### Patch files
+### Patch files (thực tế)
 
 | Patch | File | Mô tả | Idempotent? |
 |---|---|---|---|
-| `v1_1_0.create_imm01_doctypes` | `assetcore/patches/v1_1_0/create_imm01_doctypes.py` | Tạo 3 primary DocType (`IMM Needs Request`, `IMM Procurement Plan`, `IMM Demand Forecast`) + 4 child tables | ✅ `frappe.db.table_exists` check |
-| `v1_1_0.install_imm01_workflow` | `assetcore/patches/v1_1_0/install_imm01_workflow.py` | Import `IMM-01 Needs Request Workflow` + `IMM-01 Procurement Plan Workflow`, Workflow State, Workflow Action Master | ✅ `frappe.db.exists("Workflow", ...)` check |
-| `v1_1_0.seed_priority_weights` | `assetcore/patches/v1_1_0/seed_priority_weights.py` | Insert 6 bộ trọng số chấm điểm ưu tiên mặc định (clinical_impact 0.25, risk 0.20, utilization_gap 0.20, replacement_signal 0.15, compliance_gap 0.10, budget_fit 0.10) vào `IMM Priority Weight Config` | ✅ `if not frappe.db.exists` |
-| `v1_1_0.backfill_replacement_links` | `assetcore/patches/v1_1_0/backfill_replacement_links.py` | Quét `IMM Needs Request` có `request_type = "Thay thế"` mà thiếu `asset_to_replace` → link với `AC Asset` tương ứng theo `serial_no` (batch 100/run) | ✅ skip if already has link |
+| `v3_1.001_install_imm01` | `assetcore/patches/v3_1/001_install_imm01.py` | Reload 7 DocType (3 primary + 4 child) + upsert 2 workflow JSON từ `assetcore/assetcore/workflow/`: `imm_01_needs_workflow.json`, `imm_01_plan_workflow.json` | ✅ Re-run an toàn — workflow upsert thủ công |
 
-Đăng ký trong `assetcore/patches.txt` (thứ tự cố định, không đổi):
+Đăng ký trong `assetcore/patches.txt`:
 
 ```
-assetcore.patches.v1_1_0.create_imm01_doctypes
-assetcore.patches.v1_1_0.install_imm01_workflow
-assetcore.patches.v1_1_0.seed_priority_weights
-assetcore.patches.v1_1_0.backfill_replacement_links
+# ── Wave 2 ── IMM-01 / 02 / 03 ─────────────────────────────────────────
+assetcore.patches.v3_1.001_install_imm01
+assetcore.patches.v3_1.002_install_imm02
+assetcore.patches.v3_1.003_install_imm03
+assetcore.patches.v3_1.004_seed_assetcore_role_profiles
+assetcore.patches.v3_1.005_remove_legacy_imm_role_profiles
 ```
+
+> Không có patch riêng `seed_priority_weights` — trọng số 6 tiêu chí hardcoded ở `DEFAULT_PRIORITY_WEIGHTS` trong `services/imm01.py` (chưa tách thành master DocType). Cũng không có `backfill_replacement_links` (đó là roadmap khi go-live khách hàng có data legacy).
 
 ### Fixtures cần re-import
 
 ```bash
-bench --site assetcore.local import-fixtures --app assetcore
+bench --site <site> migrate
+bench --site <site> import-fixtures --app assetcore   # Frappe v15: hooks fixtures auto-sync khi migrate
 ```
 
-Fixtures: `Role`, `Role Profile`, `Has Role`, `Workspace`, `Workflow` (IMM-01 Needs Request Workflow + IMM-01 Procurement Plan Workflow), `Workflow State`, `Workflow Action Master`, `IMM Priority Weight Config`.
+Fixtures hiện có (xem `assetcore/fixtures/`): `Role` (22 roles), `Role Profile`, `Module Profile`, `IMM SLA Policy`, `Workspace`, `Workflow` (incl. `IMM-01 Needs Workflow`, `IMM-01 Plan Workflow`), `Workflow State`, `Workflow Action Master`. Không có `IMM Priority Weight Config` fixture (weights hardcoded).
 
 ### Frontend build
 
@@ -187,14 +189,14 @@ bench --site assetcore.local set-maintenance-mode off
 | 2 | Mở workspace `IMM Planning` | Workspace load, module IMM-01 có trong sidebar |
 | 3 | Mở `/imm-01` (List Needs Requests) | Danh sách load, không có JS error console |
 | 4 | Tạo 1 Needs Request test (không submit) | Form hiển thị đúng, Priority Score section hiện |
-| 5 | Gọi `list_needs_requests` API | `{"success": true, "data": {...}}` |
-| 6 | Gọi `compute_priority_score` API với payload mẫu | Response đúng format, có `total_score`, `priority_class` |
-| 7 | Gọi `get_dashboard_kpis` API | Response có `pending_count`, `approved_count`, `p1_ratio` |
-| 8 | Kiểm tra workflow IMM-01 | `frappe.get_doc("Workflow", "IMM-01 Needs Request Workflow")` tồn tại |
-| 9 | Kiểm tra Priority Weight Config | 6 records `IMM Priority Weight Config` tồn tại với tổng weight = 1.00 |
-| 10 | Audit trail verify | Tạo NR test → submit → `IMM Audit Trail` record sinh |
-| 11 | Cron jobs registered | `bench --site assetcore.local scheduled-jobs` có `check_pending_request_overdue`, `generate_demand_forecast` |
-| 12 | Frontend assets load | `/assets/assetcore/` không 404, `/imm-01/dashboard` render |
+| 5 | Gọi `list_needs_requests` API | `{"message": {"success": true, "data": {...}}}` |
+| 6 | Gọi `score_needs_request` với NR mẫu + 6 scoring rows | Response có `weighted_score`, `priority_class` |
+| 7 | Gọi `dashboard_kpis` API | Response có `backlog_over_30d`, `by_state`, `g01_pass_rate`, `envelope_utilization` |
+| 8 | Kiểm tra workflow IMM-01 | `frappe.get_doc("Workflow", "IMM-01 Needs Workflow")` tồn tại; cũng `IMM-01 Plan Workflow` |
+| 9 | Kiểm tra Priority Weights | (Hardcoded `DEFAULT_PRIORITY_WEIGHTS` trong service — không có DocType riêng) |
+| 10 | Audit trail verify | Tạo NR Replacement → Approve → `IMM Audit Trail` ghi (vì có `replacement_for_asset`). Với New: chỉ Frappe Version. |
+| 11 | Cron jobs registered | `bench --site <site> scheduler --help` + `bench show-scheduler-events` có `check_pending_request_overdue` (daily), `budget_envelope_alert` (weekly), `generate_demand_forecast` (monthly) |
+| 12 | Frontend assets load | `/needs-requests` và `/procurement-plans` render qua Vue Router |
 
 ## I.7. Rollback Plan
 

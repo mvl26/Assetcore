@@ -200,7 +200,7 @@ async function handleStartRepair() {
               <tr>
                 <th class="table-header">#</th>
                 <th class="table-header">Vật tư</th>
-                <th class="table-header w-20">SL</th>
+                <th class="table-header w-20">Số lượng</th>
                 <th class="table-header w-24">Đơn giá</th>
                 <th class="table-header w-28">Thành tiền</th>
                 <th class="table-header">Phiếu XK</th>

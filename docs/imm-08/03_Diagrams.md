@@ -6,6 +6,7 @@
 | Phạm vi | Per-module |
 | Owner | System Analyst / Tech Lead / DBA |
 | Liên kết | [02 Analysis & Design](./02_Analysis_Design.md) · [04 Backend Design](./04_Backend_Design.md) |
+| Cập nhật | 2026-05-14 |
 
 ---
 

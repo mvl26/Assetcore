@@ -28,21 +28,14 @@ const STATE_CONFIG: Record<WorkflowState, StateConfig> = {
     icon: 'pencil',
     isTerminal: false,
   },
-  Draft_Reception: {
-    label: 'Nháp tiếp nhận',
-    color: 'gray',
-    badgeClass: 'bg-gray-100 text-gray-800',
-    icon: 'pencil',
-    isTerminal: false,
-  },
-  Pending_Doc_Verify: {
+  'Pending Doc Verify': {
     label: 'Chờ kiểm tra tài liệu',
     color: 'purple',
     badgeClass: 'bg-purple-100 text-purple-800',
     icon: 'file-text',
     isTerminal: false,
   },
-  To_Be_Installed: {
+  'To Be Installed': {
     label: 'Chờ lắp đặt',
     color: 'blue',
     badgeClass: 'bg-blue-100 text-blue-800',
@@ -63,60 +56,46 @@ const STATE_CONFIG: Record<WorkflowState, StateConfig> = {
     icon: 'qr-code',
     isTerminal: false,
   },
-  Initial_Inspection: {
+  'Initial Inspection': {
     label: 'Kiểm tra lần đầu',
     color: 'blue',
     badgeClass: 'bg-indigo-100 text-indigo-800',
     icon: 'clipboard-check',
     isTerminal: false,
   },
-  Non_Conformance: {
+  'Non Conformance': {
     label: 'Không phù hợp',
     color: 'orange',
     badgeClass: 'bg-orange-100 text-orange-800',
     icon: 'alert-triangle',
     isTerminal: false,
   },
-  Clinical_Hold: {
+  'Clinical Hold': {
     label: 'Tạm giữ lâm sàng',
     color: 'red',
     badgeClass: 'bg-red-100 text-red-800',
     icon: 'pause-circle',
     isTerminal: false,
   },
-  Re_Inspection: {
+  'Re Inspection': {
     label: 'Kiểm tra lại',
     color: 'orange',
     badgeClass: 'bg-orange-100 text-orange-800',
     icon: 'refresh',
     isTerminal: false,
   },
-  Clinical_Release: {
+  'Clinical Release': {
     label: 'Phát hành lâm sàng',
     color: 'green',
     badgeClass: 'bg-green-100 text-green-800',
     icon: 'check-circle',
     isTerminal: true,
   },
-  Return_To_Vendor: {
+  'Return To Vendor': {
     label: 'Trả lại nhà cung cấp',
     color: 'red',
     badgeClass: 'bg-red-200 text-red-900',
     icon: 'arrow-left',
-    isTerminal: true,
-  },
-  Pending_Release: {
-    label: 'Chờ phê duyệt phát hành',
-    color: 'purple',
-    badgeClass: 'bg-purple-100 text-purple-800',
-    icon: 'clock',
-    isTerminal: false,
-  },
-  DOA_Incident: {
-    label: 'Sự cố DOA',
-    color: 'red',
-    badgeClass: 'bg-red-200 text-red-900',
-    icon: 'alert-triangle',
     isTerminal: true,
   },
 }

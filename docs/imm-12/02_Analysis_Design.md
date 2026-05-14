@@ -6,7 +6,8 @@
 | Phạm vi | Per-module |
 | Owner | BA + System Analyst |
 | Liên kết | 03 Diagrams · 04 Backend · 05 API · 06 Frontend |
-| Trạng thái | ⚠️ DRAFT — Incident Report DocType LIVE (IMM-00); IMM-12 code pending |
+| Cập nhật | 2026-05-14 |
+| Trạng thái | ✅ Live — `services/imm12.py` + `api/imm12.py` (14 endpoint) + DocType `Incident Report` / `IMM RCA Record` + Workflow JSON + FE views/store đã deploy |
 
 ---
 
@@ -118,13 +119,13 @@ IMM-12 giải quyết vấn đề sự cố thiết bị y tế không được 
 
 | Sprint | Hạng mục | Owner | Status |
 |---|---|---|---|
-| 12.1 | Custom fields Incident Report (severity, rca_record, clinical_impact, chronic_failure_flag) | BE Lead | ⚠️ Pending |
-| 12.2 | RCA Record DocType + child tables (Related Incident, Five Why Step) | BE Lead | ⚠️ Pending |
-| 12.3 | `services/imm12.py` (orchestration calling imm00) | BE Lead | ⚠️ Pending |
-| 12.4 | `api/imm12.py` REST endpoints (11+ endpoints) | BE Lead | ⚠️ Pending |
-| 12.5 | Scheduler `detect_chronic_failures` (daily 02:00) | BE Lead | ⚠️ Pending |
-| 12.6 | FE Incident List/Form, CAPA, RCA, Dashboard (Vue 3) | FE Lead | ⚠️ Pending |
-| 12.7 | UAT execution (TC-12-01 → TC-12-NN) | QA | ⚠️ Pending |
+| 12.1 | Custom fields Incident Report (severity, rca_record, clinical_impact, chronic_failure_flag) | BE Lead | ✅ Done |
+| 12.2 | RCA Record DocType + child tables (Related Incident, Five Why Step) | BE Lead | ✅ Done |
+| 12.3 | `services/imm12.py` (orchestration calling imm00) | BE Lead | ✅ Done |
+| 12.4 | `api/imm12.py` REST endpoints (14 endpoints) | BE Lead | ✅ Done |
+| 12.5 | Scheduler `detect_chronic_failures` (daily) | BE Lead | ✅ Done |
+| 12.6 | FE Incident List/Form, RCA, CAPA, Dashboard (Vue 3) | FE Lead | ✅ Done |
+| 12.7 | UAT execution (TC-12-01 → TC-12-NN) | QA | 🟡 Pending |
 
 ---
 
@@ -265,7 +266,7 @@ flowchart TD
 
 ## III.1. Use Case Diagram
 
-## III.1.a. Biểu đồ use case tổng quát
+### III.1.a. Biểu đồ use case tổng quát
 
 ```
 [Reporting User] ---> (UC-01 Tạo Incident Report)
@@ -377,15 +378,17 @@ flowchart TD
 
 ## IV.2. Business Rules
 
+> Severity canonical values trong DocType `Incident Report.severity` = **Low / Medium / High / Critical** (4 mức). Khi tài liệu này gọi "Major" hãy hiểu là "High" theo schema thực tế (service map qua `_map_severity()` trong `services/imm12.py`).
+
 | ID | Rule | Implement ở | Liên kết test |
 |---|---|---|---|
-| BR-12-01 | Critical → bắt buộc `clinical_impact` | `IncidentReport.validate()` | US-12-01 AC-02 |
-| BR-12-02 | Major/Critical → RCA Completed trước khi Close | `close_incident()` validate | TC-12-Close-Without-RCA |
-| BR-12-03 | ≥3 incidents cùng fault_code/asset/90 ngày → auto RCA + chronic flag | `detect_chronic_failures()` scheduler | US-12-02 |
-| BR-12-04 | Critical submit → auto `transition_asset_status(Out of Service)` | `report_incident()` | US-12-01 AC-01 |
-| BR-12-05 | Mọi transition → `log_audit_event()` bắt buộc | Mọi service function | — |
-| BR-12-06 | Submit RCA → bắt buộc `create_capa()` (CAPA link RCA) | `submit_rca_and_create_capa()` | — |
-| BR-12-07 | RCA `root_cause` + `rca_method` ∈ {5Why, Fishbone, Other} bắt buộc trước Submit | `RCARecord.before_submit()` | — |
+| BR-12-01 | Critical → bắt buộc `clinical_impact` | `services/imm12.py: report_incident()` | US-12-01 AC-02 |
+| BR-12-02 | High/Critical → RCA `Completed` trước khi Close | `services/imm12.py: close_incident()` | TC-12-Close-Without-RCA |
+| BR-12-03 | ≥3 incidents cùng `fault_code` / asset trong 90 ngày → auto RCA + `chronic_failure_flag` | `services/imm12.py: detect_chronic_failures()` (scheduler daily) | US-12-02 |
+| BR-12-04 | Critical → `report_incident()` auto `transition_asset_status(Out of Service)`. High → auto OOS khi `acknowledge_incident()`. | `services/imm12.py` | US-12-01 AC-01 |
+| BR-12-05 | Mọi transition → `log_audit_event()` (SHA-256 chain) | Helper `_log()` trong service | — |
+| BR-12-06 | Submit RCA → auto `imm00.create_capa()` + ghi `linked_capa` lên RCA và Incident | `services/imm12.py: submit_rca()` | — |
+| BR-12-07 | RCA `root_cause` + `rca_method` ∈ {5-Why, Fishbone, Other} bắt buộc trước Submit | `services/imm12.py: submit_rca()` | — |
 | BR-00-08 | CAPA `root_cause + corrective + preventive` bắt buộc trước Submit CAPA | `IMMCAPARecord.before_submit()` (IMM-00 LIVE) | — |
 | BR-00-09 | CAPA quá due_date → auto Overdue via scheduler | `check_capa_overdue()` (IMM-00 LIVE) | — |
 
@@ -397,15 +400,20 @@ flowchart TD
 stateDiagram-v2
     [*] --> Open : report_incident()
     Open --> Acknowledged : acknowledge_incident()
+    Open --> InProgress : acknowledge_incident() (skip Acknowledged khi đã có người xử lý)
     Open --> Cancelled : cancel_incident() (false alarm)
-    Acknowledged --> InProgress : Repair WO opened
+    Acknowledged --> InProgress : Workshop Lead bắt đầu xử lý
+    Acknowledged --> Cancelled : cancel_incident()
     InProgress --> Resolved : resolve_incident()
-    Resolved --> Closed : close_incident() (Minor only)
-    Resolved --> RCA_Required : Major/Critical/Chronic — trigger_rca_if_required()
-    RCA_Required --> Closed : RCA Completed (BR-12-02 satisfied)
+    InProgress --> RCA_Required : resolve_incident() khi High/Critical/Chronic
+    InProgress --> Cancelled : cancel_incident()
+    Resolved --> Closed : close_incident() (Low/Medium only)
+    RCA_Required --> Closed : close_incident() (sau khi RCA `Completed`, BR-12-02)
     Closed --> [*]
     Cancelled --> [*]
 ```
+
+> States khớp với constants trong `services/imm12.py`: `Open`, `Acknowledged`, `In Progress`, `Resolved`, `Closed`, `Cancelled` + mid-state RCA `RCA Required`. Workflow JSON: `assetcore/assetcore/workflow/imm_12_incident_workflow.json`.
 
 ### RCA Record
 

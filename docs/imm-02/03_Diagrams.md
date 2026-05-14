@@ -1,12 +1,12 @@
 # IMM-02 — Sơ đồ Kiến trúc (Diagrams)
 
-> ⚠️ Pending implementation — Wave 2
+> **Wave 2 — Live.** Diagrams được verify lại theo DocType JSON, workflow JSON và source code thực tế.
 
 | Mục | Giá trị |
 |---|---|
 | Module | **IMM-02 — Thông số Kỹ thuật & Phân tích Thị trường** |
-| Phiên bản | 1.0.0 |
-| Ngày cập nhật | 2026-05-08 |
+| Phiên bản | 1.0.1 |
+| Ngày cập nhật | 2026-05-14 |
 | Owner | Tech Lead |
 | Liên kết | [02 Analysis Design](./02_Analysis_Design.md) · [04 Backend Design](./04_Backend_Design.md) |
 
@@ -18,7 +18,7 @@
 erDiagram
     IMM_Tech_Spec {
         string name PK
-        string spec_id
+        string naming_series
         date draft_date
         string source_plan FK
         string source_plan_line
@@ -194,45 +194,48 @@ classDiagram
     }
 
     class Imm02Service {
-        +draft_from_plan(plan: str, plan_lines: List[str]) -> List[str]
-        +seed_default_requirements(doc: Document) -> None
-        +validate_tech_spec(doc: Document) -> None
-        +_vr01_unique_per_plan_line(doc: Document) -> None
-        +_vr02_mandatory_min_count(doc: Document) -> None
-        +_vr03_test_method_present(doc: Document) -> None
-        +_vr04_benchmark_min_3(doc: Document) -> None
-        +_vr05_infra_completeness(doc: Document) -> None
-        +_vr06_immutable_lifecycle_events(doc: Document) -> None
-        +validate_gate_g01(doc: Document) -> None
-        +validate_gate_g02(doc: Document) -> None
-        +validate_gate_g03(doc: Document) -> None
-        +validate_gate_g04(doc: Document) -> None
-        +before_submit_tech_spec(doc: Document) -> None
-        +lock_spec(doc: Document) -> None
-        +validate_benchmark(doc: Document) -> None
-        +compute_lock_in(doc: Document) -> None
-        +compare_to_baseline(spec: Document) -> dict
-        +check_overdue_drafts() -> None
-        +withdraw_spec(spec_name: str, reason: str) -> dict
-        +reissue_spec(spec_name: str) -> str
-        +log_lifecycle_event(doc: Document, event_type: str) -> None
+        +before_insert_tech_spec(doc) None
+        +validate_tech_spec(doc) None
+        +before_submit_tech_spec(doc) None
+        +on_submit_tech_spec(doc) None
+        +_vr01_unique_per_plan_line(doc) None
+        +_vr02_mandatory_min_count(doc) None
+        +_vr03_test_method_present(doc) None
+        +_vr05_infra_completeness(doc) None
+        +_rollup_requirement_counts(doc) None
+        +_rollup_infra_status(doc) None
+        +_check_workflow_gates_ts(doc) None
+        +_validate_gate_g01(doc) None
+        +_validate_gate_g02(doc) None
+        +_validate_gate_g03(doc) None
+        +_validate_gate_g04(doc) None
+        +validate_market_benchmark(doc) None
+        +_parse_weighting(raw) dict
+        +_compute_candidate_score(cand, weights) float
+        +validate_lock_in_assessment(doc) None
+        +add_requirement_to_spec(spec, requirement) dict
+        +bulk_import_requirements_from_csv(spec, rows) dict
+        +check_overdue_drafts() None
+        +benchmark_freshness_alert() None
     }
 
     class Imm02API {
-        +list_tech_specs(workflow_state, device_category, page, page_size) -> dict
-        +get_tech_spec(name) -> dict
-        +draft_from_plan(plan, plan_lines) -> dict
-        +update_tech_spec(name, data) -> dict
-        +add_requirement(name, requirement) -> dict
-        +bulk_import_requirements(name, file_url) -> dict
-        +submit_benchmark(spec_name, benchmark_data) -> dict
-        +submit_infra_compat(spec_name, compat_data) -> dict
-        +submit_lock_in_assessment(spec_name, assessment_data) -> dict
-        +transition_workflow(name, action) -> dict
-        +lock_spec(name) -> dict
-        +withdraw_spec(name, reason) -> dict
-        +reissue_spec(name) -> dict
-        +dashboard_kpis() -> dict
+        +list_tech_specs(filters, page, page_size) dict
+        +get_tech_spec(name) dict
+        +create_tech_spec(payload) dict
+        +draft_from_plan(plan, plan_lines) dict
+        +update_tech_spec(name, payload) dict
+        +add_requirement(spec, requirement) dict
+        +bulk_import_requirements(spec, rows) dict
+        +transition_workflow(name, action) dict
+        +get_market_benchmark(name) dict
+        +get_lock_in_assessment(name) dict
+        +lock_spec(name, approver, remarks) dict
+        +withdraw_spec(name, withdrawal_reason) dict
+        +reissue_spec(from_spec) dict
+        +submit_benchmark(spec_ref, candidates, weighting_scheme) dict
+        +submit_lock_in_assessment(spec_ref, items, threshold, mitigation_plan, mitigation_evidence) dict
+        +dashboard_kpis() dict
     }
 
     class ServiceError {
@@ -365,58 +368,46 @@ IMM-02 → IMM-17:  export benchmark data to market trend data mart
 # Phần V — Package Diagram (File Layout)
 
 ```
-assetcore/                                    ⚠️ PLANNED
+assetcore/                                    ✅ Live (Wave 2)
 ├── assetcore/
 │   ├── doctype/
-│   │   ├── imm_tech_spec/                    ⚠️ PLANNED
+│   │   ├── imm_tech_spec/
 │   │   │   ├── imm_tech_spec.json
-│   │   │   ├── imm_tech_spec.py
-│   │   │   └── test_imm_tech_spec.py
-│   │   ├── imm_market_benchmark/             ⚠️ PLANNED
+│   │   │   └── imm_tech_spec.py              (controller — delegate sang services.imm02)
+│   │   ├── imm_market_benchmark/
 │   │   │   ├── imm_market_benchmark.json
-│   │   │   ├── imm_market_benchmark.py
-│   │   │   └── test_imm_market_benchmark.py
-│   │   ├── imm_lock_in_risk_assessment/      ⚠️ PLANNED
+│   │   │   └── imm_market_benchmark.py
+│   │   ├── imm_lock_in_risk_assessment/
 │   │   │   ├── imm_lock_in_risk_assessment.json
 │   │   │   └── imm_lock_in_risk_assessment.py
-│   │   ├── tech_spec_requirement/            ⚠️ PLANNED
-│   │   ├── benchmark_candidate/              ⚠️ PLANNED
-│   │   ├── infra_compatibility_item/         ⚠️ PLANNED
-│   │   ├── lock_in_risk_item/                ⚠️ PLANNED
-│   │   └── tech_spec_document/               ⚠️ PLANNED
-│   ├── workflow/
-│   │   └── imm_02_spec_workflow.json         ⚠️ PLANNED
-│   └── fixtures/
-│       ├── imm_lock_in_weights.json          ⚠️ PLANNED
-│       └── imm_default_spec_templates.json   ⚠️ PLANNED
+│   │   ├── tech_spec_requirement/            (child)
+│   │   ├── tech_spec_document/               (child)
+│   │   ├── benchmark_candidate/              (child)
+│   │   ├── infra_compatibility_item/         (child)
+│   │   └── lock_in_risk_item/                (child)
+│   └── workflow/
+│       └── imm_02_spec_workflow.json         (7 states, 9 transitions)
 ├── services/
-│   └── imm02.py                              ⚠️ PLANNED
+│   └── imm02.py                              (validators, gates, rollup, scheduler)
 ├── api/
-│   └── imm02.py                              ⚠️ PLANNED
-├── tasks_imm02.py                            ⚠️ PLANNED
+│   └── imm02.py                              (16 whitelisted endpoints)
+├── tests/
+│   └── test_imm02.py                         (7 TestClass — rollup, gates, scoring, lock-in)
 └── patches/
-    └── v1_1_0/
-        ├── create_imm02_doctypes.py          ⚠️ PLANNED
-        ├── install_imm02_workflow.py         ⚠️ PLANNED
-        ├── seed_lock_in_weights.py           ⚠️ PLANNED
-        └── seed_default_spec_templates.py    ⚠️ PLANNED
+    └── v3_1/
+        └── 002_install_imm02.py              (reload doctypes + upsert workflow, idempotent)
 
 frontend/src/
-├── views/imm02/
-│   ├── TechSpecList.vue                      ⚠️ PLANNED
-│   ├── TechSpecDetail.vue                    ⚠️ PLANNED
-│   ├── MarketBenchmarkDetail.vue             ⚠️ PLANNED
-│   ├── LockInRiskDetail.vue                  ⚠️ PLANNED
-│   └── Imm02Dashboard.vue                   ⚠️ PLANNED
-├── components/imm02/
-│   ├── RequirementEditor.vue                 ⚠️ PLANNED
-│   ├── BenchmarkTable.vue                    ⚠️ PLANNED
-│   ├── InfraCompatCardGrid.vue               ⚠️ PLANNED
-│   ├── LockInRadar.vue                       ⚠️ PLANNED
-│   ├── WorkflowStepper.vue                   ⚠️ PLANNED
-│   └── VersionTimeline.vue                  ⚠️ PLANNED
+├── views/tech-specs/
+│   ├── TechSpecListView.vue
+│   ├── TechSpecCreateView.vue
+│   └── TechSpecDetailView.vue
 ├── stores/
-│   └── imm02.ts                              ⚠️ PLANNED
-└── api/
-    └── imm02.ts                              ⚠️ PLANNED
+│   └── imm02.ts                              (Pinia: fetchList, fetchOne, fetchKpis, transition, lock, withdraw, reissue)
+├── api/
+│   └── imm02.ts                              (16 wrappers tương ứng api/imm02.py)
+└── types/
+    └── imm02.ts                              (TechSpec, BenchmarkCandidate, LockInRiskAssessment, ...)
 ```
+
+> Chưa có Vue riêng cho `MarketBenchmarkDetail`, `LockInRiskDetail`, `Imm02Dashboard` — các thao tác này được embed trong `TechSpecDetailView.vue` hoặc gọi API trực tiếp.

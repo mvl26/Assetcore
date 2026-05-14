@@ -282,11 +282,11 @@ v-if="showForm" class="fixed inset-0 z-50 flex items-center justify-center bg-bl
                 <input id="sp-cost" v-model.number="form.unit_cost" type="number" min="0" class="form-input w-full" />
               </div>
               <div>
-                <p class="form-label">ĐVT cơ bản (Stock UOM)</p>
+                <p class="form-label">Đơn vị tính cơ bản (Stock UOM)</p>
                 <SmartSelect v-model="form.stock_uom" doctype="AC UOM" placeholder="Cái, Hộp, Bộ..." />
               </div>
               <div>
-                <p class="form-label">ĐVT mua hàng (Purchase UOM)</p>
+                <p class="form-label">Đơn vị tính mua hàng (Purchase UOM)</p>
                 <SmartSelect v-model="form.purchase_uom" doctype="AC UOM" placeholder="Để trống = dùng Stock UOM..." />
               </div>
               <div>

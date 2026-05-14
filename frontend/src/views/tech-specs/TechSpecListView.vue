@@ -146,7 +146,7 @@ onMounted(() => { store.fetchList(); store.fetchKpis() })
         :color="store.kpis.backlog_over_30d > 0 ? 'warning' : 'neutral'"
       />
       <KpiCard
-        label="Điểm phụ thuộc TB (mục tiêu ≤ 2,5)"
+        label="Điểm phụ thuộc thiết bị (mục tiêu ≤ 2,5)"
         :value="store.kpis.avg_lock_in_score.toFixed(2)"
         :color="store.kpis.avg_lock_in_score > 3.5 ? 'danger' : store.kpis.avg_lock_in_score > 2.5 ? 'warning' : 'success'"
       />

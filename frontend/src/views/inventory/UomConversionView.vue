@@ -101,7 +101,7 @@ async function savePartUom() {
   if (!editingPart.value) return
   try {
     await updatePartUom(editingPart.value, editStockUom.value, editPurchaseUom.value)
-    showToast('Đã cập nhật ĐVT cho phụ tùng')
+    showToast('Đã cập nhật đơn vị tính cho phụ tùng')
     editingPart.value = null
     await loadParts()
   } catch (e: unknown) { showToast((e as Error).message || 'Lỗi', true) }
@@ -109,7 +109,7 @@ async function savePartUom() {
 
 async function doBulkAssign() {
   if (!defaultUomForBulk.value) { showToast('Chọn UOM default', true); return }
-  if (!confirm(`Gán "${defaultUomForBulk.value}" cho ${partsMissing.value.length} phụ tùng thiếu ĐVT?`)) return
+  if (!confirm(`Gán "${defaultUomForBulk.value}" cho ${partsMissing.value.length} phụ tùng thiếu đơn vị tính?`)) return
   try {
     const res = await bulkAssignDefaultUom(defaultUomForBulk.value)
     showToast(`Đã gán cho ${res.assigned} phụ tùng`)
@@ -190,7 +190,7 @@ v-if="toast" class="mb-4 px-4 py-2.5 rounded-lg text-sm"
         :class="tab === t ? 'text-brand-600 border-b-2 border-brand-600 -mb-px' : 'text-slate-500 hover:text-slate-800'"
         @click="tab = t"
       >
-        {{ { master: 'Đơn vị tính (Master)', parts: `Phụ tùng & ĐVT ${partsMissing.length ? `(${partsMissing.length} thiếu)` : ''}`, conversions: 'Bảng quy đổi' }[t] }}
+        {{ { master: 'Đơn vị tính (Master)', parts: `Phụ tùng & Đơn vị tính ${partsMissing.length ? `(${partsMissing.length} thiếu)` : ''}`, conversions: 'Bảng quy đổi' }[t] }}
       </button>
     </div>
 
@@ -199,7 +199,7 @@ v-if="toast" class="mb-4 px-4 py-2.5 rounded-lg text-sm"
       <div class="flex items-center justify-between mb-3">
         <div class="flex gap-2">
           <input
-v-model="uomSearch" type="text" placeholder="Tìm ĐVT..."
+v-model="uomSearch" type="text" placeholder="Tìm đơn vị tính..."
                  class="form-input text-sm" @keyup.enter="loadUoms" />
           <button class="btn-ghost text-sm" @click="loadUoms">Tìm</button>
         </div>
@@ -217,7 +217,7 @@ v-model="uomSearch" type="text" placeholder="Tìm ĐVT..."
         <table v-else class="w-full text-sm">
           <thead class="bg-slate-50 border-b border-slate-200">
             <tr>
-              <th class="px-4 py-2 text-left text-xs font-medium text-slate-500">Tên ĐVT</th>
+              <th class="px-4 py-2 text-left text-xs font-medium text-slate-500">Tên đơn vị tính</th>
               <th class="px-4 py-2 text-left text-xs font-medium text-slate-500">Ký hiệu</th>
               <th class="px-4 py-2 text-center text-xs font-medium text-slate-500">Số nguyên</th>
               <th class="px-4 py-2 text-center text-xs font-medium text-slate-500">Đang dùng</th>
@@ -306,8 +306,8 @@ v-model="partsSearch" type="text" placeholder="Tìm phụ tùng..."
             <tr>
               <th class="px-4 py-2 text-left text-xs font-medium text-slate-500">Mã</th>
               <th class="px-4 py-2 text-left text-xs font-medium text-slate-500">Tên phụ tùng</th>
-              <th class="px-4 py-2 text-left text-xs font-medium text-slate-500">ĐVT tồn kho</th>
-              <th class="px-4 py-2 text-left text-xs font-medium text-slate-500">ĐVT mua hàng</th>
+              <th class="px-4 py-2 text-left text-xs font-medium text-slate-500">Đơn vị tính tồn kho</th>
+              <th class="px-4 py-2 text-left text-xs font-medium text-slate-500">Đơn vị tính mua hàng</th>
               <th class="px-4 py-2 text-right"></th>
             </tr>
           </thead>
@@ -326,7 +326,7 @@ v-for="p in parts" :key="p.name"
                 </td>
                 <td class="px-4 py-2">
                   <select v-model="editPurchaseUom" class="form-input text-sm w-32">
-                    <option value="">(giống ĐVT tồn kho)</option>
+                    <option value="">(giống đơn vị tính tồn kho)</option>
                     <option v-for="u in activeUoms" :key="u.name" :value="u.name">{{ u.uom_name }}</option>
                   </select>
                 </td>
@@ -470,10 +470,10 @@ v-if="showUomForm" class="fixed inset-0 bg-slate-900/50 z-50 flex items-center j
          @click.self="showUomForm = false">
       <div class="bg-white rounded-xl shadow-xl max-w-md w-full p-6 space-y-4">
         <h2 class="text-lg font-semibold text-slate-900">
-          {{ uomEditing ? `Sửa ĐVT: ${uomEditing}` : 'Thêm đơn vị tính' }}
+          {{ uomEditing ? `Sửa đơn vị tính: ${uomEditing}` : 'Thêm đơn vị tính' }}
         </h2>
         <div>
-          <label class="block text-xs font-medium text-slate-600 mb-1">Tên ĐVT *</label>
+          <label class="block text-xs font-medium text-slate-600 mb-1">Tên đơn vị tính *</label>
           <input
 v-model="uomForm.uom_name" :disabled="!!uomEditing" type="text"
                  class="form-input w-full disabled:bg-slate-100" placeholder="VD: Cái, Hộp, mL" />

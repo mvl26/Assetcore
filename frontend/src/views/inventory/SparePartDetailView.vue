@@ -194,7 +194,7 @@ onMounted(load)
                 <th class="py-2 text-left font-medium">Ngày</th>
                 <th class="py-2 text-left font-medium">Từ kho</th>
                 <th class="py-2 text-left font-medium">Đến kho</th>
-                <th class="py-2 text-right font-medium">SL</th>
+                <th class="py-2 text-right font-medium">Số lượng</th>
                 <th class="py-2 text-right font-medium">Đơn giá</th>
               </tr>
             </thead>
@@ -250,7 +250,7 @@ class="text-xs text-blue-600 hover:underline"
                 <th class="py-2 text-left font-medium">Mã đơn</th>
                 <th class="py-2 text-left font-medium">Ngày đặt</th>
                 <th class="py-2 text-left font-medium">Nhà cung cấp</th>
-                <th class="py-2 text-right font-medium">SL đặt</th>
+                <th class="py-2 text-right font-medium">Số lượng đặt</th>
                 <th class="py-2 text-right font-medium">Đơn giá</th>
                 <th class="py-2 text-right font-medium">Thành tiền</th>
                 <th class="py-2 text-center font-medium">Trạng thái</th>

@@ -8,7 +8,7 @@
 | Liên kết | [04 Backend Design](./04_Backend_Design.md) · [06 Frontend Design](./06_Frontend_Design.md) |
 | Base URL | `/api/method/assetcore.api.imm00` |
 | Phiên bản API | 3.1.0 |
-| Trạng thái | **Live ✅** — reviewed vs `api/imm00.py` 2026-05-08 |
+| Trạng thái | **Live ✅** — synced vs `api/imm00.py` 2026-05-14 (107 whitelisted endpoints) |
 
 ---
 
@@ -149,23 +149,21 @@ Vượt hạn → HTTP 429.
 |---|---|---|---|---|---|---|---|---|
 | list/get assets | ✓ | ✓ | ✓ | ✓ | ✓ (scoped) | ✓ | ✓ | — |
 | create/update asset | ✓ | ✓ | ✓ | — | — | — | — | — |
-| transition_asset_status | ✓ | ✓ | ✓ | — | — | ✓ | — | — |
-| search_assets_by_udi | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| transition_status | ✓ | ✓ | ✓ | — | — | ✓ | — | — |
 | list/get supplier | ✓ | ✓ | ✓ | — | — | — | — | ✓ |
 | create/update supplier | ✓ | — | ✓ | — | — | — | — | — |
-| list_locations_tree | All | All | All | All | All | All | All | All |
+| list_locations / list_departments | All | All | All | All | All | All | All | All |
 | create location/dept/category | ✓ | ✓ (dept) | — | ✓ (cat) | — | — | — | — |
 | list/get device_model | All | All | All | All | All | All | All | — |
 | create/update device_model | ✓ | — | — | ✓ | — | — | — | — |
 | list/get SLA | All | All | All | All | All | All | All | All |
-| list/get audit_events | ✓ | — | — | — | — | ✓ | ✓ | — |
-| verify_audit_chain | ✓ | — | — | — | — | ✓ | — | — |
+| list_audit_trail / get_audit_entry | ✓ | — | — | — | — | ✓ | ✓ | — |
+| verify_chain | ✓ | — | — | — | — | ✓ | — | — |
 | list/get CAPA | ✓ | ✓ | ✓ | — | — | ✓ | — | — |
-| create_capa | ✓ | — | ✓ | ✓ | — | ✓ | — | — |
-| update/close CAPA | ✓ | — | — | — | — | ✓ | — | — |
+| open_capa | ✓ | — | ✓ | ✓ | — | ✓ | — | — |
+| close_capa_record | ✓ | — | — | — | — | ✓ | — | — |
 | list/get lifecycle_events | All | All | All | All | All | All | All | All |
-| list/get/create incident | All | All | All | All | All | All | — | All |
-| close_incident | ✓ | ✓ | — | — | — | ✓ | — | — |
+| list/get/create/submit incident | All | All | All | All | All | All | — | All |
 | scheduler triggers | ✓ | — | — | — | — | — | — | — |
 | inventory endpoints | ✓ | ✓ | ✓ | ✓ | ✓ | — | — | ✓ |
 
@@ -658,7 +656,7 @@ POST `assetcore.api.imm00.delete_incident`. Body: `{ "name": "IR-..." }`.
 
 POST `assetcore.api.imm00.update_gmdn_status`. Body: `{ "name": "AC-ASSET-...", "gmdn_status": "In Use", "reason": "Bắt đầu ca phẫu thuật" }`
 
-- `gmdn_status` nhận: `"In Use"` hoặc `"Not Use"` (không phải tiếng Việt)
+- `gmdn_status` nhận đúng 2 giá trị enum: `"In Use"` hoặc `"Not Use"` (khớp với DocType `ac_asset.gmdn_status` options)
 - `reason` bắt buộc ≥ 5 ký tự (BR-00-12)
 - Block nếu `lifecycle_status ∈ {Decommissioned, Out of Service}` (BR-00-11)
 - Ghi IMM Audit Trail "State Change" với change_summary
@@ -707,11 +705,50 @@ GET chi tiết + POST update (chỉ khi Pending Approval).
 
 > **Lưu ý:** FE client (`frontend/src/api/imm00.ts`) route các PM Template endpoints sang `assetcore.api.imm08` (service-based xử lý checklist_items JSON), nhưng BE có cả 2 implementations.
 
+### `list_pm_templates` — GET
+
+| Method | GET |
+|---|---|
+| Path | `assetcore.api.imm00.list_pm_templates` |
+| Params | `page=1, page_size=50` |
+| Permission | All IMM roles |
+
+Response: paginated list `PmTemplate{name, template_name, asset_category?, pm_type?, version?, checklist_items?}`.
+
+### `get_pm_template` / `create_pm_template` / `update_pm_template` / `delete_pm_template`
+
+CRUD pattern. POST body: `{ "name": "..." }` + fields.
+
+**Errors:** `AC-E001` (404), `AC-E011` (409 trùng template_name + version).
+
 ---
 
 ## III.16. Firmware Change Request (5 endpoints)
 
 `list_firmware_crs`, `get_firmware_cr`, `create_firmware_cr`, `update_firmware_cr`, `delete_firmware_cr`.
+
+### `list_firmware_crs` — GET
+
+| Method | GET |
+|---|---|
+| Path | `assetcore.api.imm00.list_firmware_crs` |
+| Params | `page=1, page_size=20, status?, asset?` |
+
+Response items: `FirmwareCR{name, asset_ref, version_before?, version_after?, status?, ...}`.
+
+### `get_firmware_cr` — GET `?name=...`
+
+### `create_firmware_cr` — POST
+
+Body required: `asset_ref` (Link AC Asset), `version_after`. Optional: `version_before`, `status`, attachments.
+
+**Response 200:** `{ "name": "FCR-..." }`.
+
+**Errors:** 422 nếu thiếu `asset_ref`.
+
+### `update_firmware_cr` / `delete_firmware_cr`
+
+POST. Body `{ "name": "..." }` + update fields (resp. `{ "name": "..." }` for delete).
 
 ---
 
@@ -719,18 +756,64 @@ GET chi tiết + POST update (chỉ khi Pending Approval).
 
 `list_document_requests`, `get_document_request`, `create_document_request`, `update_document_request`, `delete_document_request`.
 
+### `list_document_requests` — GET
+
+| Method | GET |
+|---|---|
+| Path | `assetcore.api.imm00.list_document_requests` |
+| Params | `page=1, page_size=20, status?, asset?` |
+
+Response items: `DocumentRequest{name, asset_ref, doc_type_required, status?, priority?, ...}`.
+
+### `get_document_request` / `create_document_request` / `update_document_request` / `delete_document_request`
+
+Standard CRUD. `create` requires: `asset_ref`, `doc_type_required`. Returns `{ "name": "DR-..." }`.
+
+**Errors:** 422 thiếu required; 404 (`AC-E001`) khi không tìm thấy.
+
 ---
 
-## III.18. Depreciation (6 endpoints)
+## III.18. Depreciation (9 endpoints)
 
-- `compute_depreciation` (POST) — Tính depreciation cho 1 asset tại thời điểm gọi.
-- `get_depreciation_schedule` (GET, params: `asset_name`) — Trả toàn bộ schedule rows + summary của asset.
-- `regenerate_depreciation_schedule` (POST, params: `asset_name, force=1`) — Sinh lại schedule (xoá cũ nếu force=1).
-- `preview_depreciation_schedule` (GET, params: `gross, residual, method, total_months, frequency, start_date`) — Preview không lưu DB.
-- `run_due_depreciation_now` (POST, params: `as_of?`) — **Admin only** (System Manager / IMM System Admin). Chạy thủ công job depreciation due.
-- `bulk_regenerate_schedule_by_category` (POST, params: `category_name`) — **Admin only**. Re-apply rule khấu hao của Category cho tất cả assets, skip kỳ Executed.
+### `compute_depreciation` (POST)
 
-> Hai endpoint admin dùng `_assert_system_admin()` guard, kiểm tra role `System Manager` hoặc `IMM System Admin`.
+Body: `name` (AC Asset). Trả `{ accumulated, book_value, method?, days_elapsed?, note? }`.
+
+### `get_depreciation_schedule` (GET)
+
+Params: `asset_name`. Trả `{ asset, asset_info, rows[], summary{total_periods, executed_periods, pending_periods, total_depreciated} }`.
+
+**Errors:** 404 (`AC-E001`) khi không tồn tại asset.
+
+### `regenerate_depreciation_schedule` (POST)
+
+Params: `asset_name, force=1`. Sinh lại schedule (xoá cũ nếu force=1). Service: `assetcore.services.depreciation.generate_schedule`.
+
+### `preview_depreciation_schedule` (GET)
+
+Params: `gross, residual, method, total_months, frequency, start_date`. Preview rows không lưu DB. Phục vụ form before-commit.
+
+### `run_due_depreciation_now` (POST) — Admin only
+
+Params: `as_of?` (date string). Chạy thủ công job depreciation due. Guard: `_assert_system_admin()` — role `System Manager` hoặc `IMM System Admin`.
+
+### `bulk_regenerate_schedule_by_category` (POST) — Admin only
+
+Params: `category_name`. Re-apply rule khấu hao của Category cho tất cả assets, skip kỳ Executed (bảo vệ lịch sử).
+
+### `list_assets_depreciation` (GET) — Asset Finance Hub
+
+Params: `page=1, page_size=50, method_filter?, status_filter?, category_filter?`. Trả paginated list assets kèm: `gross_purchase_amount, residual_value, accumulated_depreciation, current_book_value, depreciation_method, total_depreciation_months, depreciation_frequency, configured, pct_depreciated, executed_periods, total_periods`.
+
+### `get_depreciation_stats` (GET)
+
+Trả tổng hợp tài chính toàn danh mục: `{ total_assets, configured_count, unconfigured_count, fully_depreciated, total_gross, total_accumulated, total_book_value, overall_pct, by_method[], by_category[] }`.
+
+### `compute_all_depreciation` (POST) — Admin only
+
+Regenerate schedule cho mọi asset đã cấu hình (skip nếu schedule tồn tại) + run due depreciation đến `today`. Trả `{ generated_schedules, skipped, executed_rows, updated_assets }`.
+
+> 3 endpoint admin (`run_due_depreciation_now`, `bulk_regenerate_schedule_by_category`, `compute_all_depreciation`) đều dùng `_assert_system_admin()` guard.
 
 ---
 
@@ -779,14 +862,14 @@ Tất cả trả về `_ok(data)` / `_err(msg, code)` envelope chuẩn.
 | Endpoint | Business Rule áp dụng |
 |---|---|
 | `create_device_model`, `update_device_model` | BR-00-01, VR-00-03 |
-| `transition_asset_status`, `update_asset` | BR-00-02, BR-00-04, BR-00-10 |
-| `list_audit_events`, `verify_audit_chain` | BR-00-03 |
+| `transition_status`, `update_asset` | BR-00-02, BR-00-04, BR-00-10 |
+| `list_audit_trail`, `get_audit_entry`, `verify_chain` | BR-00-03 |
 | `create_asset` (validate), Work Order APIs | BR-00-05 (`validate_asset_for_operations`) |
 | `create_supplier`, `update_supplier` | BR-00-06 |
 | SLA Policy controller (validate) | BR-00-07 |
-| `close_capa` | BR-00-08 |
-| Scheduler `trigger_check_capa_overdue` | BR-00-09 |
-| `create_incident`, `submit_incident`, `close_incident` | VR-00-04, AC-E008, AC-E009 |
+| `close_capa_record` | BR-00-08 |
+| Scheduler `trigger_capa_overdue_check` | BR-00-09 |
+| `create_incident`, `update_incident`, `submit_incident` | VR-00-04, AC-E008, AC-E009 |
 | `update_gmdn_status`, `toggle_gmdn_status` | BR-00-11, BR-00-12 |
 | Inventory submit/cancel | BR-INV-01 → BR-INV-08 |
 
@@ -824,7 +907,7 @@ Tất cả trả về `_ok(data)` / `_err(msg, code)` envelope chuẩn.
 - [x] PM Checklist Template (5 endpoints)
 - [x] Firmware Change Request (5 endpoints)
 - [x] Document Request (5 endpoints)
-- [x] Depreciation Schedule (6 endpoints)
+- [x] Depreciation (9 endpoints — compute, get_schedule, regenerate, preview, run_due_now, bulk_regenerate, list_assets_depreciation, get_depreciation_stats, compute_all_depreciation)
 - [x] Asset Downtime Metrics (1 endpoint)
 
 ### IV. Business Rule mapping

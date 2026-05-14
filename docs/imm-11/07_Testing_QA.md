@@ -3,10 +3,10 @@
 | Mục | Giá trị |
 |---|---|
 | Module | **IMM-11 — Hiệu chuẩn (Calibration)** |
-| Phiên bản | 0.1.0-draft |
-| Ngày cập nhật | 2026-05-08 |
+| Phiên bản | 1.1.0 |
+| Ngày cập nhật | 2026-05-14 |
 | Owner | QA Lead + Tech Lead |
-| Trạng thái | ⚠️ DRAFT — ahead-of-code; tests chưa được viết |
+| Trạng thái | 🟡 Tests cốt lõi đã có (`assetcore/tests/test_imm11.py`); UAT/E2E/Pentest pending |
 | Liên kết | [Module Overview](./IMM-11_Module_Overview.md) · [Functional Specs](./IMM-11_Functional_Specs.md) · [UAT Script](./IMM-11_UAT_Script.md) |
 
 ---
@@ -34,7 +34,7 @@
 
 ## I.2. Unit Test — Service Layer
 
-**File (cần tạo):** `assetcore/tests/test_imm11_service.py`
+**File hiện hữu:** `assetcore/tests/test_imm11.py` ✅ (đang cover các BR-11-xx chính; bổ sung thêm case khi cần)
 
 | Test class | Hàm cover | Cases dự kiến |
 |---|---|---|

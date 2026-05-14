@@ -31,6 +31,7 @@ from assetcore.services.imm00 import (
 )
 
 _DT_ASSET = "AC Asset"
+_DT_DOWNTIME_LOG = "AC Asset Downtime Log"
 _DT_SUPPLIER = "AC Supplier"
 _DT_LOCATION = "AC Location"
 _DT_DEPARTMENT = "AC Department"
@@ -292,21 +293,93 @@ def validate_for_operations(name: str):
 
 @frappe.whitelist()
 def get_asset_kpi(name: str):
-    """GET /api/method/assetcore.api.imm00.get_asset_kpi"""
+    """GET /api/method/assetcore.api.imm00.get_asset_kpi
+
+    Tính KPI on-the-fly từ:
+      - AC Asset Downtime Log (uptime, downtime_hours)
+      - Asset Repair docstatus=1 (MTTR, MTBF, total_repair_cost)
+      - PM Work Order (pm_compliance_pct = on-time/total)
+    Bug fix: trước đây đọc `doc.get("uptime_pct")` từ các field không tồn tại
+    trong AC Asset schema → luôn trả None. Nay compute từ source records.
+    """
     if not frappe.db.exists(_DT_ASSET, name):
         return _err(_(_ERR_ASSET_NOT_FOUND), 404)
     doc = frappe.get_doc(_DT_ASSET, name)
+
+    # Window: 12 tháng gần nhất
+    from frappe.utils import nowdate, add_months, now_datetime, get_datetime, time_diff_in_hours
+    window_start = add_months(nowdate(), -12)
+    now_dt = now_datetime()
+    window_hours = 365.0 * 24.0
+
+    # Downtime hours từ AC Asset Downtime Log
+    dt_rows = frappe.get_all(
+        _DT_DOWNTIME_LOG,
+        filters={"asset": name, "start_time": [">=", window_start]},
+        fields=["start_time", "end_time", "downtime_hours", "is_open"],
+        limit_page_length=0,
+    )
+    total_downtime_h = 0.0
+    breakdown_count = len(dt_rows)
+    for r in dt_rows:
+        if r["is_open"]:
+            total_downtime_h += float(time_diff_in_hours(now_dt, r["start_time"]) or 0)
+        else:
+            total_downtime_h += float(r["downtime_hours"] or 0)
+    uptime_pct = round(max(0.0, (window_hours - total_downtime_h) / window_hours * 100.0), 2)
+
+    # MTTR (giờ) — trung bình mttr_hours từ Asset Repair Completed
+    rep_rows = frappe.get_all(
+        "Asset Repair",
+        filters={"asset_ref": name, "status": "Completed", "docstatus": 1},
+        fields=["mttr_hours", "total_parts_cost", "completion_datetime"],
+    )
+    mttr_hours = (
+        round(sum(float(r["mttr_hours"] or 0) for r in rep_rows) / len(rep_rows), 2)
+        if rep_rows else None
+    )
+    total_repair_cost = sum(float(r["total_parts_cost"] or 0) for r in rep_rows) or None
+
+    # MTBF (ngày) — khoảng cách trung bình giữa các lần hỏng
+    if len(rep_rows) >= 2:
+        sorted_dates = sorted([get_datetime(r["completion_datetime"]) for r in rep_rows if r["completion_datetime"]])
+        if len(sorted_dates) >= 2:
+            diffs = [(sorted_dates[i+1] - sorted_dates[i]).days for i in range(len(sorted_dates)-1)]
+            mtbf_days = round(sum(diffs) / len(diffs), 0) if diffs else None
+        else:
+            mtbf_days = None
+    elif len(rep_rows) == 1:
+        # 1 lần hỏng → khoảng từ commissioning → repair
+        if doc.commissioning_date and rep_rows[0]["completion_datetime"]:
+            mtbf_days = (get_datetime(rep_rows[0]["completion_datetime"]).date() - doc.commissioning_date).days
+        else:
+            mtbf_days = None
+    else:
+        mtbf_days = None
+
+    # PM compliance: completed-on-time / total scheduled trong 12 tháng
+    pm_rows = frappe.get_all(
+        "PM Work Order",
+        filters={"asset_ref": name, "due_date": [">=", window_start]},
+        fields=["status", "is_late"],
+    )
+    pm_total = len(pm_rows)
+    pm_on_time = sum(1 for p in pm_rows if p["status"] == "Completed" and not p["is_late"])
+    pm_compliance_pct = round(pm_on_time / pm_total * 100.0, 1) if pm_total else None
+
     return _ok({
         "name": name,
         "lifecycle_status": doc.lifecycle_status,
-        "uptime_pct": doc.get("uptime_pct"),
-        "mtbf_days": doc.get("mtbf_days"),
-        "mttr_hours": doc.get("mttr_hours"),
-        "pm_compliance_pct": doc.get("pm_compliance_pct"),
-        "total_repair_cost": doc.get("total_repair_cost"),
+        "uptime_pct": uptime_pct,
+        "mtbf_days": mtbf_days,
+        "mttr_hours": mttr_hours,
+        "pm_compliance_pct": pm_compliance_pct,
+        "total_repair_cost": total_repair_cost,
         "next_pm_date": doc.next_pm_date,
         "next_calibration_date": doc.next_calibration_date,
         "byt_reg_expiry": doc.byt_reg_expiry,
+        "breakdown_count": breakdown_count,
+        "total_downtime_hours": round(total_downtime_h, 2),
     })
 
 
@@ -1440,39 +1513,51 @@ def delete_sla_policy(name: str):
 # Depreciation (straight-line calculation)
 # ─────────────────────────────────────────────────────────────────────────────
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def compute_depreciation(name: str):
-    """Compute straight-line depreciation based on in_service_date & useful_life_years."""
-    from frappe.utils import getdate, nowdate, date_diff
+    """Sinh schedule (nếu thiếu) + chạy mọi kỳ đến hạn cho 1 asset, đến today.
+
+    - Nếu chưa có schedule → `generate_schedule(force=False)`.
+    - Mark Executed cho mọi dòng Pending có `scheduled_date <= today`.
+    - Cập nhật accumulated_depreciation + current_book_value trên asset.
+    - Trả về summary mới (đã refresh).
+    """
+    from assetcore.services import depreciation as depr_svc
+
     if not frappe.db.exists(_DT_ASSET, name):
         return _err(_(_ERR_ASSET_NOT_FOUND), 404)
-    a = frappe.db.get_value(_DT_ASSET, name, [
-        "gross_purchase_amount", "residual_value", "useful_life_years",
-        "in_service_date", "depreciation_method",
-    ], as_dict=True) or {}
+
+    rows_count = frappe.db.count(
+        "AC Asset Depreciation Schedule",
+        {"parent": name, "parenttype": _DT_ASSET},
+    )
+    generated = False
+    if rows_count == 0:
+        depr_svc.generate_schedule(name, force=False)
+        generated = True
+
+    run_res = depr_svc.run_due_depreciation(asset=name)
+
+    a = frappe.db.get_value(
+        _DT_ASSET, name,
+        ["gross_purchase_amount", "residual_value",
+         "accumulated_depreciation", "current_book_value",
+         "depreciation_method"],
+        as_dict=True,
+    ) or {}
     gross = float(a.get("gross_purchase_amount") or 0)
-    residual = float(a.get("residual_value") or 0)
-    years = int(a.get("useful_life_years") or 0)
-    start = a.get("in_service_date")
-    method = (a.get("depreciation_method") or "").strip()
-    if method in ("", "None") or gross <= 0 or years <= 0 or not start:
-        return _ok({"accumulated": 0, "book_value": gross, "note": "Thiếu thông tin hoặc phương pháp = None"})
-    depreciable = max(0.0, gross - residual)
-    days_elapsed = max(0, date_diff(nowdate(), getdate(start)))
-    total_days = years * 365
-    if method == "Double Declining":
-        rate = 2.0 / years
-        accumulated = min(depreciable, depreciable * rate * (days_elapsed / 365))
-    else:  # Straight Line + default
-        accumulated = min(depreciable, depreciable * (days_elapsed / total_days))
-    accumulated = round(accumulated, 2)
-    book_value = round(gross - accumulated, 2)
-    frappe.db.set_value(_DT_ASSET, name, {
-        "accumulated_depreciation": accumulated,
-        "current_book_value": book_value,
+    accumulated = float(a.get("accumulated_depreciation") or 0)
+    book_value = float(a.get("current_book_value") or gross)
+    pct = round(accumulated / gross * 100, 1) if gross > 0 else 0.0
+    return _ok({
+        "name": name,
+        "accumulated": accumulated,
+        "book_value": book_value,
+        "method": a.get("depreciation_method") or "",
+        "pct_depreciated": pct,
+        "schedule_generated": generated,
+        "executed_rows": run_res.get("executed_rows", 0),
     })
-    frappe.db.commit()
-    return _ok({"accumulated": accumulated, "book_value": book_value, "method": method, "days_elapsed": days_elapsed})
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1752,8 +1837,6 @@ def delete_document_request(name: str):
 # Asset Downtime Metrics
 # ─────────────────────────────────────────────────────────────────────────────
 
-_DT_DOWNTIME_LOG = "AC Asset Downtime Log"
-
 
 @frappe.whitelist()
 def get_asset_downtime_metrics(asset_name: str, year: str = ""):
@@ -1893,3 +1976,212 @@ def bulk_regenerate_schedule_by_category(category_name: str):
     _assert_system_admin()
     from assetcore.services import depreciation as depr_svc
     return _ok(depr_svc.bulk_regenerate_by_category(category_name))
+
+
+# ─── Depreciation: List + Stats (Asset Finance Hub) ───────────────────────────
+
+_DEPR_LIST_FIELDS = [
+    "name", "asset_name", "asset_category",
+    "department", "location",
+    "purchase_date", "in_service_date", "depreciation_start_date",
+    "gross_purchase_amount", "residual_value",
+    "depreciation_method", "total_depreciation_months", "depreciation_frequency",
+    "accumulated_depreciation", "current_book_value",
+    "lifecycle_status",
+]
+
+
+def _depr_row_progress(asset_name: str) -> tuple[int, int]:
+    """Return (executed_periods, total_periods) for the asset schedule."""
+    rows = frappe.db.sql(
+        """SELECT status FROM `tabAC Asset Depreciation Schedule`
+           WHERE parent = %s AND parenttype = 'AC Asset'""",
+        (asset_name,),
+    )
+    total = len(rows)
+    executed = sum(1 for (s,) in rows if s == "Executed")
+    return executed, total
+
+
+def _depr_enrich_row(a: dict) -> dict:
+    gross = float(a.get("gross_purchase_amount") or 0)
+    accumulated = float(a.get("accumulated_depreciation") or 0)
+    book_value = float(a.get("current_book_value") or gross)
+    method = (a.get("depreciation_method") or "").strip()
+    months = int(a.get("total_depreciation_months") or 0)
+    configured = bool(method and method != "None" and gross > 0 and months > 0)
+
+    executed, total = _depr_row_progress(a["name"])
+    a["configured"]        = configured
+    a["pct_depreciated"]   = round(accumulated / gross * 100, 1) if gross > 0 else 0.0
+    a["executed_periods"]  = executed
+    a["total_periods"]     = total
+    a["current_book_value"] = book_value
+    return a
+
+
+@frappe.whitelist()
+def list_assets_depreciation(page: int = 1, page_size: int = 50,
+                              method_filter: str = "",
+                              status_filter: str = "",
+                              category_filter: str = ""):
+    """GET — Danh sách asset kèm thông tin khấu hao (sourced từ schedule rows)."""
+    filters: dict = {"docstatus": ("!=", 2)}
+    if method_filter:
+        filters["depreciation_method"] = method_filter
+    if status_filter:
+        filters["lifecycle_status"] = status_filter
+    if category_filter:
+        filters["asset_category"] = category_filter
+
+    page    = int(page)
+    pg_size = int(page_size)
+    total   = frappe.db.count(_DT_ASSET, filters)
+
+    assets = frappe.get_all(
+        _DT_ASSET, filters=filters,
+        fields=_DEPR_LIST_FIELDS,
+        limit_start=(page - 1) * pg_size,
+        limit_page_length=pg_size,
+        order_by="asset_name asc",
+    )
+    for a in assets:
+        _depr_enrich_row(a)
+
+    return _ok({
+        "items": assets,
+        "pagination": {"page": page, "page_size": pg_size, "total": total},
+    })
+
+
+@frappe.whitelist()
+def get_depreciation_stats():
+    """GET — Tổng hợp tài chính khấu hao toàn danh mục.
+
+    Lưu ý: total_accumulated lấy từ `accumulated_depreciation` (đã được cron
+    cập nhật từ các kỳ Executed) — không tính trên-the-fly nữa.
+    """
+    BATCH = 500
+    totals = {
+        "total_gross": 0.0, "total_accumulated": 0.0, "total_book": 0.0,
+        "configured": 0, "unconfigured": 0, "fully_depreciated": 0,
+        "by_method": {}, "by_category": {},
+    }
+    count = 0
+    offset = 0
+    while True:
+        batch = frappe.get_all(
+            _DT_ASSET,
+            filters={"docstatus": ("!=", 2)},
+            fields=_DEPR_LIST_FIELDS,
+            limit_start=offset, limit_page_length=BATCH,
+        )
+        if not batch:
+            break
+        count += len(batch)
+        for a in batch:
+            gross    = float(a.get("gross_purchase_amount") or 0)
+            residual = float(a.get("residual_value") or 0)
+            accum    = float(a.get("accumulated_depreciation") or 0)
+            book     = float(a.get("current_book_value") or gross)
+            method   = (a.get("depreciation_method") or "").strip()
+            months   = int(a.get("total_depreciation_months") or 0)
+            configured = bool(method and method != "None" and gross > 0 and months > 0)
+
+            totals["total_gross"] += gross
+            totals["total_accumulated"] += accum
+            totals["total_book"] += book
+
+            if configured:
+                totals["configured"] += 1
+                if book <= residual + 1:
+                    totals["fully_depreciated"] += 1
+                m = method
+            else:
+                totals["unconfigured"] += 1
+                m = "Chưa cấu hình"
+
+            totals["by_method"][m] = totals["by_method"].get(m, 0) + 1
+            cat = a.get("asset_category") or "Chưa phân loại"
+            totals["by_category"][cat] = totals["by_category"].get(cat, 0.0) + book
+
+        if len(batch) < BATCH:
+            break
+        offset += BATCH
+
+    tg = totals["total_gross"]
+    ta = totals["total_accumulated"]
+
+    # Enrich category ID -> human-readable category_name
+    cat_ids = [k for k in totals["by_category"].keys() if k and k != "Chưa phân loại"]
+    cat_name_map: dict = {}
+    if cat_ids:
+        rows = frappe.get_all(
+            _DT_ASSET_CATEGORY,
+            filters={"name": ("in", cat_ids)},
+            fields=["name", "category_name"],
+        )
+        cat_name_map = {r["name"]: (r.get("category_name") or r["name"]) for r in rows}
+
+    return _ok({
+        "total_assets":       count,
+        "configured_count":   totals["configured"],
+        "unconfigured_count": totals["unconfigured"],
+        "fully_depreciated":  totals["fully_depreciated"],
+        "total_gross":        round(tg, 0),
+        "total_accumulated":  round(ta, 0),
+        "total_book_value":   round(totals["total_book"], 0),
+        "overall_pct":        round(ta / tg * 100, 1) if tg > 0 else 0.0,
+        "by_method":          [{"method": k, "count": v} for k, v in totals["by_method"].items()],
+        "by_category":        sorted(
+            [{"category": cat_name_map.get(k, k), "book_value": v} for k, v in totals["by_category"].items()],
+            key=lambda x: -x["book_value"],
+        )[:8],
+    })
+
+
+@frappe.whitelist(methods=["POST"])
+def compute_all_depreciation():
+    """POST — Regenerate schedule + execute due rows cho TẤT CẢ assets đã cấu hình.
+
+    Equivalent to: (1) regen mọi asset chưa có schedule (force=False), rồi
+    (2) chạy run_due_depreciation để cập nhật accumulated/book value đến today.
+    """
+    _assert_system_admin()
+    from assetcore.services import depreciation as depr_svc
+
+    assets = frappe.get_all(
+        _DT_ASSET,
+        filters={"docstatus": ("!=", 2)},
+        fields=["name", "depreciation_method", "total_depreciation_months",
+                "gross_purchase_amount"],
+        limit_page_length=10000,
+    )
+
+    generated = 0
+    skipped   = 0
+    for a in assets:
+        method = (a.get("depreciation_method") or "").strip()
+        months = int(a.get("total_depreciation_months") or 0)
+        gross  = float(a.get("gross_purchase_amount") or 0)
+        if not method or method == "None" or months <= 0 or gross <= 0:
+            skipped += 1
+            continue
+        existing = frappe.db.count(
+            "AC Asset Depreciation Schedule",
+            {"parent": a["name"], "parenttype": _DT_ASSET},
+        )
+        if existing == 0:
+            try:
+                depr_svc.generate_schedule(a["name"], force=False)
+                generated += 1
+            except Exception:
+                skipped += 1
+
+    run_res = depr_svc.run_due_depreciation(None)
+    return _ok({
+        "generated_schedules": generated,
+        "skipped":             skipped,
+        "executed_rows":       run_res.get("executed_rows", 0),
+        "updated_assets":      run_res.get("updated_assets", 0),
+    })

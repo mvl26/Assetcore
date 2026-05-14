@@ -81,3 +81,29 @@ Phần V hiện có 12 NFR (NFR-06-01 → NFR-06-12). Các target hiện là **d
 - FE: store + views + routes + sidebar entry wired
 - Tests: see docs/res/dod-verification-report.md §1 for per-module results
 - Status: READY
+
+## 2026-05-14 Light-touch Sync (Wave-2 branch)
+Module đã được implement đầy đủ — không còn "Pending implementation". Cập nhật metadata + status markers:
+- `README.md`: đổi `Wave 2 — PLANNED` → `Wave 2`; trạng thái → `Implemented`; cập nhật codebase ground truth với LOC + workflow fixtures + DocType list thực tế.
+- `04_Backend_Design.md`: thay 5 callout `⚠️ Pending implementation` (header, §IV Service Layer, §V Hooks, §VII Schedulers, §VIII Hooks.py, DDL SQL) bằng `✅ Implemented` + chỉ thị code wins khi drift; xóa block comment `# ⚠️ Pending implementation — Wave 2` trong python snippet.
+- `05_API_Specification.md`: thay 2 callout Pending → Implemented (header + TypeScript types section).
+- `06_Frontend_Design.md`: thay 2 callout Pending → Implemented (header + §III Pinia Store); cập nhật heading store path `imm06Store.ts` → `stores/imm06.ts`.
+
+Gaps flagged (chưa fix tự động — cần BA quyết hoặc deeper audit):
+- KPI I.5 baseline + I.6 Compliance citation vẫn `[Cần workshop BA]` — không thay đổi vì không có số liệu mới.
+- Số endpoint thực tế trong `api/imm06.py` = 27 (whitelist); README ghi "19 endpoints" — chưa rà toàn bộ catalog vs spec (workshop khuyến nghị cho sprint sau).
+- Tên DocType `IMM User Competency` chưa thấy trong `assetcore/assetcore/doctype/` listing tách thư mục riêng; có thể nằm trong namespace khác — cần verify trước khi spec hoá kỹ hơn.
+
+## Pass 2 — Deep reconciliation (2026-05-14)
+
+Đếm lại whitelist `assetcore/api/imm06.py` = **23** endpoints (KHÔNG phải 19 README cũ, cũng KHÔNG phải 27 callout trong API spec — cả 2 đều sai). DocType `imm_user_competency` ✅ TỒN TẠI trong `assetcore/assetcore/doctype/imm_user_competency/`. LOC service = 1323, LOC api = 240. Test scaffold = 1 file `test_imm06.py` (314 LOC). FE routes thực = 8 (doc cũ nói 14).
+
+- `README.md`: count "19 endpoints" → "23 endpoints" (3 lần); cập nhật ground truth references (LOC + workflow names + DocType list chính xác, bỏ ghi chú "IMM User Competency chưa tách thư mục").
+- `02_Analysis_Design.md`: BPMN text "Clinical_Release" → "Clinical Release".
+- `04_Backend_Design.md`: §VII heading file path `assetcore/tasks.py` → `assetcore/services/imm06.py`; rename 3 Job heading theo tên hàm thực (`check_expiring_competencies`, `auto_expire_competencies`, `generate_weekly_gap_report`); §VIII Hooks.py block code viết lại theo `scheduler_events` thực tế trong `assetcore/hooks.py` (daily + weekly entries).
+- `05_API_Specification.md`: callout "27 functions" → "23 functions"; thêm 3 sub-section endpoint còn thiếu: `B.4b start_session`, `B.7 verify_session`, `B.8 close_session`.
+- `06_Frontend_Design.md`: callout header — clarify 8 routes thực ship + danh sách 5 component/route planned-but-not-shipped; ghi rõ `types/imm06.ts` không có file riêng (inline trong store + api).
+- `07_Testing_QA.md`: thêm callout — test gộp 1 file (314 LOC); pyramid "17 endpoints" → "23 endpoints"; DoD `60% coverage target (17 endpoints)` → `(23 endpoints)`.
+- `08_Deployment.md`: 2 row table chuyển `tasks.py` → `services/imm06.py`; rename `auto_expire_competency` → `auto_expire_competencies`.
+- `09_Release.md`: row endpoint 19 → 23 (full tên 23 hàm); row Scheduler đổi tên hàm theo ground truth.
+- `03_Diagrams.md`: untouched (không phát hiện state name drift).

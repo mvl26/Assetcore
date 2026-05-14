@@ -83,3 +83,55 @@
 - FE: store + views + routes + sidebar entry wired
 - Tests: see docs/res/dod-verification-report.md §1 for per-module results
 - Status: READY
+
+## 2026-05-14 Code-to-Doc Sync Pass
+
+**Scope**: Đối chiếu IMM-12 docs vs code thực tế.
+
+**File đã chạm:**
+- `README.md` — bump `Cập nhật cuối` → 2026-05-14.
+
+**No drift detected:**
+- `assetcore/api/imm12.py` — 14 `@frappe.whitelist` endpoints, khớp `05_API_Specification.md` (`Catalog · 14 actual endpoints`) và README.
+- Service stable kể từ commit `d56c0cd` (2026-05-08), không thay đổi gần đây.
+- DocType `incident_report`, `imm_rca_record`, `imm_capa_record`, `imm_rca_five_why_step`, `imm_rca_related_incident` — tên + field khớp `04_Backend_Design.md`.
+- FE `frontend/src/views/incident/` (6 views: IncidentList/Create/Detail, RCADetail, CAPAList/Detail) — không có uncommitted change.
+
+**Cross-module dependency note:**
+- BR-12-04 (Critical incident → CAPA SLA 24h, IMM-16) — `services/imm12.py:submit_rca` gọi IMM-16 service để auto-create CAPA. Stable.
+- IMM-00 uncommitted rewrite `get_asset_kpi` đọc `Asset Repair` chứ không đọc `Incident Report` → KHÔNG đụng IMM-12 KPI surface.
+
+**Không chạm:** Toàn bộ section content. Chỉ metadata README.
+
+**Discrepancy carry-over (chưa fix — đã ghi từ 2026-05-10):**
+- File `02_Analysis_Design.md` header `⚠️ DRAFT — IMM-12 code pending` vs README `✅ Live — Code deployed` — vẫn conflict (chưa rewrite vì user cấm). Khuyến nghị BA align.
+- `## III.1.a` dùng level `##` thay vì `###` — vẫn lệch template. Không tự fix.
+
+**Việc còn lại:**
+- UAT execution (đã pending).
+- BA fill UC-02..04, 06..09 detail trong §III.3 (đã pending từ pass 2026-05-10).
+
+**Bug-fix references:** Không có bug-fix IMM-12 trong wave-2 branch — module stable.
+
+## 2026-05-14 — Full sync 02-09 với code
+
+**Phạm vi**: 8 file 02–09 đối chiếu với `services/imm12.py`, `api/imm12.py`, DocType JSON (`incident_report`, `imm_rca_record`, child tables), workflow JSON, `hooks.py`, FE routes/store/views.
+
+**File đã chạm + loại drift:**
+- `02_Analysis_Design.md` — header `⚠️ DRAFT — IMM-12 code pending` → `✅ Live` (carry-over discrepancy giải quyết); demote `## III.1.a` sang `### III.1.a` đúng level; thêm `Cập nhật: 2026-05-14`; sửa BR-12-xx table với severity canonical Low/Medium/High/Critical (theo DocType options) — thêm alignment note cho từ "Major" trong narrative; viết lại state diagram khớp `_VALID_TRANSITIONS` thật (7 state); Roadmap §I.8 chuyển 6/7 sprint sang ✅ Done.
+- `03_Diagrams.md` — header `⚠️ Pending` → `✅ Live`; bulk replace `⚠️ Pending` → `✅ Live`; sửa tên DocType `RCA Record` → `IMM RCA Record`.
+- `04_Backend_Design.md` — sửa state list §3: bỏ `Under Investigation` (alias docstring cũ) thay bằng 7 state thật `Open / Acknowledged / In Progress / Resolved / RCA Required / Closed / Cancelled`; mở rộng bảng transition (11 dòng) khớp `_VALID_TRANSITIONS` + workflow JSON; sửa scheduler registration `cron "0 2 * * *"` → `scheduler_events.daily` (cấu hình thực tế trong hooks.py); sửa idempotency guard `RCA Record` → `IMM RCA Record` với status options đúng.
+- `05_API_Specification.md` — sửa mô tả endpoint #4-5: `Open → Under Investigation` → `Open → Acknowledged (hoặc → In Progress)`; ghi rõ auto-RCA cho High/Critical.
+- `06_Frontend_Design.md` — route prefix sai nặng: `/imm-12/...` → `/incidents/...` + `/rca/...` + `/capa/...` (router thực tế); sidebar config được thay bằng entry thực trong `frontend/src/constants/modules.ts`; sửa note "No separate imm12.ts store" → store ✅ Live; mở rộng IncidentStatusBadge state list (5 → 7); design tokens 4 severity Low/Medium/High/Critical.
+- `07_Testing_QA.md` — header `⚠️ DRAFT` → `🟡` (test_imm12.py LIVE); version 0.1.0-draft → 1.2.0.
+- `08_Deployment.md` — header `⚠️ DRAFT` → `✅ Live`.
+- `09_Release.md` — header `⚠️ DRAFT` → `✅ Live`.
+
+**Bug-fix references đáng chú ý:**
+- `services/imm12.py:37-47` (state constants) là nguồn ground-truth — docstring header line 5 còn "Under Investigation" alias.
+- Workflow JSON `imm_12_incident_workflow.json` confirm 7 state + 10 transition.
+
+**Việc còn lại:**
+- UAT execution (UAT-IMM12-NN).
+- BA fill UC-02..04, 06..09 detail trong §III.3.
+- BA xem xét rename narrative "Major" → "High" toàn bộ trong file 02/05/07/09 cho thống nhất DocType options (pass này chỉ thêm note alignment; chưa rewrite giọng văn).

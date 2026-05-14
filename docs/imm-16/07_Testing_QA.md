@@ -1,9 +1,40 @@
 # IMM-16 — Testing & QA Plan
 
 **Module:** IMM-16 — Compliance Monitoring & CAPA
-**Wave:** 3 — PLANNED
-**Ngày:** 2026-05-08
-**Status:** PLANNED — chưa implement
+**Wave:** 2 — IMPLEMENTED
+**Ngày:** 2026-05-14
+**Status:** IMPLEMENTED — `assetcore/tests/test_imm16.py` (9 TestCase, 13 test method)
+
+---
+
+## §0 — Test Suite Inventory (CURRENT, 2026-05-14)
+
+File: `assetcore/tests/test_imm16.py`
+
+| Class | Test method | Covers |
+|---|---|---|
+| `TestRuleLifecycle` | `test_update_rule_without_change_summary_fails` | VR-11 / FIN-011 |
+| `TestRuleLifecycle` | `test_update_rule_with_change_summary_bumps_version` | VR-11 version bump |
+| `TestRuleLifecycle` | `test_deactivate_rule` | `deactivate_rule` |
+| `TestFindingWaiver` | `test_waive_with_short_reason_fails` | VR-04 / FIN-004 (reason length) |
+| `TestFindingWaiver` | `test_waive_missing_evidence_fails` | VR-04 evidence required |
+| `TestFindingWaiver` | `test_waive_expired_expiry_fails` | VR-04 expiry future |
+| `TestAuditClose` | `test_close_audit_missing_planned_audit` | NOT_FOUND on missing audit |
+| `TestCapaWorkflow` | `test_advance_to_action_plan_requires_root_cause_method` | FIN-005 root cause method |
+| `TestCapaWorkflow` | `test_advance_to_action_plan_requires_future_due_date` | FIN-012 due-date future |
+| `TestEffectivenessCheck` | `test_not_effective_reopens_capa` | BR-16-06 Not Effective → Re-opened |
+| `TestScorecardPublish` | `test_publish_scorecard_without_prev_mr_fails` | FIN-010 prev quarter MR gate |
+| `TestCrossModuleGate` | `test_check_asset_compliance_returns_unblocked_for_empty` | BR-16-09 schema |
+| `TestCrossModuleGate` | `test_check_asset_compliance_returns_unblocked_for_clean_asset` | BR-16-09 keys |
+| `TestDashboard` | `test_dashboard_stats_shape` | dashboard kpis/trend/recent schema |
+
+Run:
+
+```bash
+bench --site [site] run-tests --app assetcore --module assetcore.tests.test_imm16
+```
+
+> ⚠️ Test plan template phía dưới (§I–§VII) là backlog mở rộng. Test ID chính xác là class + method ở §0 ở trên.
 
 ---
 

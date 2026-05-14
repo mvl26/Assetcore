@@ -7,6 +7,7 @@
 | Owner | BE Lead |
 | Base URL | `/api/method/assetcore.api.imm08.<function>` |
 | Auth | Frappe session HOẶC `Authorization: token <key>:<secret>` |
+| Cập nhật | 2026-05-14 |
 
 ---
 
@@ -18,8 +19,8 @@
 |---|---|---|---|---|---|---|
 | 1 | `assetcore.api.imm08.list_pm_work_orders` | GET | List PM WO + filter + pagination | All IMM roles | ✓ | US-08-01 |
 | 2 | `assetcore.api.imm08.get_pm_work_order` | GET | Chi tiết 1 WO + checklist | All IMM roles | ✓ | — |
-| 3 | `assetcore.api.imm08.assign_technician` | POST | Phân công KTV cho WO Open/Overdue | Workshop Head, CMMS Admin | ✗ | US-08-06 |
-| 4 | `assetcore.api.imm08.submit_pm_result` | POST | KTV nộp kết quả PM (submit WO) | HTM Technician, Workshop Head | ✗ | US-08-02 |
+| 3 | `assetcore.api.imm08.assign_technician` | POST | Phân công Kỹ thuật viên cho WO Open/Overdue | Workshop Head, CMMS Admin | ✗ | US-08-06 |
+| 4 | `assetcore.api.imm08.submit_pm_result` | POST | Kỹ thuật viên nộp kết quả PM (submit WO) | HTM Technician, Workshop Head | ✗ | US-08-02 |
 | 5 | `assetcore.api.imm08.report_major_failure` | POST | Dừng PM + tạo CM khẩn + Asset OOS | HTM Technician, Workshop Head | ✗ | US-08-03 |
 | 6 | `assetcore.api.imm08.reschedule_pm` | POST | Hoãn lịch PM (lý do bắt buộc) | Workshop Head, CMMS Admin | ✗ | US-08-06 |
 | 7 | `assetcore.api.imm08.create_pm_work_order` | POST | Tạo PM WO thủ công (ad-hoc) | Workshop Head, CMMS Admin | ✗ | — |
@@ -268,7 +269,7 @@ export interface PMDashboardStats {
 
 ---
 
-### 3. assign_technician — Phân công KTV
+### 3. assign_technician — Phân công Kỹ thuật viên
 
 | Mục | Giá trị |
 |---|---|
@@ -304,7 +305,7 @@ export interface PMDashboardStats {
 
 ---
 
-### 4. submit_pm_result — KTV nộp kết quả PM
+### 4. submit_pm_result — Kỹ thuật viên nộp kết quả PM
 
 | Mục | Giá trị |
 |---|---|

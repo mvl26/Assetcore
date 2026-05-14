@@ -94,7 +94,7 @@ v-model.number="filters.min_score" type="number" min="0" max="5" step="0.1"
         <table class="data-table">
           <thead>
             <tr>
-              <th>Tên NCC</th>
+              <th>Tên Nhà cung cấp</th>
               <th>AVL Status</th>
               <th>Nhóm thiết bị (AVL)</th>
               <th class="num">Điểm</th>

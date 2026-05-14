@@ -5,7 +5,8 @@
 | Module | IMM-12 — Incident & CAPA Management |
 | Phạm vi | Per-module |
 | Owner | FE Lead |
-| Trạng thái | ✅ Live — Vue components đã build |
+| Cập nhật | 2026-05-14 |
+| Trạng thái | ✅ Live — Vue components + store + 14 endpoint API đã build |
 
 ---
 
@@ -13,31 +14,28 @@
 
 Routes and component names are based on **actual Vue files** in `frontend/src/views/incident/`.
 
-| Route | Vue Component (actual filename) | Role Guard | Status |
-|---|---|---|---|
-| `/imm-12/` | — Redirect → `/imm-12/incidents` | Any | — |
-| `/imm-12/incidents` | `IncidentListView.vue` | Any | ✅ Live |
-| `/imm-12/incidents/new` | `IncidentCreateView.vue` | Reporting User, Workshop Lead | ✅ Live |
-| `/imm-12/incidents/:name` | `IncidentDetailView.vue` | Any (actions per role) | ✅ Live |
-| `/imm-12/rca/:name` | `RCADetailView.vue` | Workshop Lead, QA Officer | ✅ Live |
-| `/imm-12/capa` | `CAPAListView.vue` | Any | ✅ Live |
-| `/imm-12/capa/:name` | `CAPADetailView.vue` | Any (close: QA Officer only) | ✅ Live |
-| `/imm-12/dashboard` | `IMM12DashboardView.vue` | Workshop Lead, QA, Ops Manager | ✅ Live |
+> Path prefix thực tế = `/incidents/...` (xem `frontend/src/router/index.ts`). Module key `imm12` được map qua regex `/^\/incidents/` → `imm12` cho sidebar.
 
-**Sidebar nav config:**
+| Route (actual) | Vue Component (actual filename) | Role Guard | Status |
+|---|---|---|---|
+| `/incidents` (redirect) | → `/incidents/dashboard` | Any | ✅ Live |
+| `/incidents/dashboard` | `views/incident/IMM12DashboardView.vue` | Workshop Lead, QA, Ops Manager | ✅ Live |
+| `/incidents/list` | `views/incident/IncidentListView.vue` | Any | ✅ Live |
+| `/incidents/new` | `views/incident/IncidentCreateView.vue` | Reporting User, Workshop Lead | ✅ Live |
+| `/incidents/:id` | `views/incident/IncidentDetailView.vue` | Any (actions per role) | ✅ Live |
+| `/rca/:id` | `views/incident/RCADetailView.vue` | Workshop Lead, QA Officer | ✅ Live |
+| `/capa` | `views/incident/CAPAListView.vue` | Any | ✅ Live |
+| `/capa/:id` | `views/incident/CAPADetailView.vue` | Any (close: QA Officer only) | ✅ Live |
+
+**Sidebar nav config (`frontend/src/constants/modules.ts`):**
 ```typescript
-// src/config/nav.ts
 {
-  module: "imm-12",
-  label: "Sự cố & CAPA",
-  icon: "alert-triangle",
-  children: [
-    { label: "Sự cố thiết bị", to: "/imm-12/incidents" },
-    { label: "RCA Records", to: "/imm-12/rca" },
-    { label: "CAPA Records", to: "/imm-12/capa" },
-    { label: "Chronic Failures", to: "/imm-12/chronic", roles: ["IMM Workshop Lead", "IMM QA Officer"] },
-    { label: "Dashboard", to: "/imm-12/dashboard", roles: ["IMM Workshop Lead", "IMM QA Officer", "IMM Ops Manager"] },
-  ],
+  id: 'imm12', code: 'IMM-12',
+  label: 'Bảo trì khắc phục',
+  description: 'Triage sự cố, escalation, RCA, SLA corrective',
+  icon: 'shield',
+  to: '/incidents/dashboard',
+  roles: [...TECH_ROLES, Roles.CLINICAL, Roles.QA, Roles.DEPT_HEAD, Roles.DEPT_DEPUTY],
 }
 ```
 
@@ -45,7 +43,7 @@ Routes and component names are based on **actual Vue files** in `frontend/src/vi
 
 ## 2. Mockups
 
-### 2.1 Incident List (`/imm-12/incidents`)
+### 2.1 Incident List (`/incidents/list`)
 
 ```text
 ┌─────────────────────────────────────────────────────────────────┐
@@ -63,9 +61,9 @@ Routes and component names are based on **actual Vue files** in `frontend/src/vi
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-**API:** `list_incidents` · **State:** `useImm12Store.incidents` · **Filter defaults:** `status in [Open, Under Investigation]` (actual state names — no "Acknowledged" or "In Progress" or "RCA Required" in code)
+**API:** `list_incidents` · **State:** `useImm12Store.incidents` · **Filter defaults:** `status in [Open, Acknowledged, In Progress]` (actual states từ `services/imm12.py`: Open / Acknowledged / In Progress / Resolved / RCA Required / Closed / Cancelled)
 
-### 2.2 New Incident Form (`/imm-12/incidents/new`)
+### 2.2 New Incident Form (`/incidents/list/new`)
 
 ```text
 ┌─────────────────────────────────────────────────────────────────┐
@@ -90,7 +88,7 @@ Routes and component names are based on **actual Vue files** in `frontend/src/vi
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### 2.3 Incident Detail (`/imm-12/incidents/:name`)
+### 2.3 Incident Detail (`/incidents/list/:name`)
 
 ```text
 ┌─────────────────────────────────────────────────────────────────┐
@@ -118,7 +116,7 @@ Routes and component names are based on **actual Vue files** in `frontend/src/vi
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### 2.4 RCA Form (`/imm-12/rca/:name`)
+### 2.4 RCA Form (`/rca/:id`)
 
 ```text
 ┌─────────────────────────────────────────────────────────────────┐
@@ -152,32 +150,35 @@ Routes and component names are based on **actual Vue files** in `frontend/src/vi
 
 | Component | Props | Mô tả |
 |---|---|---|
-| `SeverityBadge.vue` | `severity: "Low"|"Medium"|"High"|"Critical"` | Color badge với icon (actual: 4 severity levels not 3) |
-| `IncidentStatusBadge.vue` | `status: string` | Actual states: Open / Under Investigation / Resolved / Closed / Cancelled |
+| `SeverityBadge.vue` | `severity: "Low"\|"Medium"\|"High"\|"Critical"` | Color badge với icon (DocType `Incident Report.severity` có 4 mức Low/Medium/High/Critical) |
+| `IncidentStatusBadge.vue` | `status: string` | Actual states: Open / Acknowledged / In Progress / Resolved / RCA Required / Closed / Cancelled |
 | `CAPAStatusBadge.vue` | `status: string` | CAPA status badge |
 | `RCAFiveWhyEditor.vue` | `modelValue: FiveWhyStep[]` | Steps use `{why_number, why_question, why_answer}` (actual field names) |
 | `CAPACloseDialog.vue` | `capaName: string`, `@close` | Modal close CAPA |
 | `IncidentTimeline.vue` | `incidentName: string` | Audit trail timeline |
 | `ClinicalImpactWarning.vue` | `severity: string` | Banner for Critical severity |
 
-**Design tokens — Severity:**
+**Design tokens — Severity (4 mức theo DocType):**
 ```typescript
 // tokens/severity.ts
 export const severityTokens = {
-  Minor:    { bg: "bg-yellow-50",  border: "border-yellow-600", text: "text-yellow-700", icon: "ℹ️" },
-  Major:    { bg: "bg-orange-50",  border: "border-orange-600", text: "text-orange-700", icon: "⚠️" },
-  Critical: { bg: "bg-red-50",     border: "border-red-600",    text: "text-red-700",    icon: "🔴" },
+  Low:      { bg: "bg-slate-50",   border: "border-slate-500",  text: "text-slate-700",  icon: "·"  },
+  Medium:   { bg: "bg-yellow-50",  border: "border-yellow-600", text: "text-yellow-700", icon: "i"  },
+  High:     { bg: "bg-orange-50",  border: "border-orange-600", text: "text-orange-700", icon: "!"  },
+  Critical: { bg: "bg-red-50",     border: "border-red-600",    text: "text-red-700",    icon: "!!" },
 } as const
 ```
 
-**Design tokens — Status badge (corrected to actual states):**
+**Design tokens — Status badge (khớp `_VALID_TRANSITIONS` trong `services/imm12.py`):**
 ```typescript
 export const incidentStatusTokens = {
-  Open:                  { color: "gray",   icon: "◯" },
-  "Under Investigation": { color: "blue",   icon: "◐" },  // actual state (not "Acknowledged" or "In Progress")
-  Resolved:              { color: "green",  icon: "◕" },
-  Closed:                { color: "slate",  icon: "●" },
-  Cancelled:             { color: "red",    icon: "✕" },
+  Open:           { color: "gray",   icon: "o" },
+  Acknowledged:   { color: "blue",   icon: ">" },
+  "In Progress":  { color: "indigo", icon: "~" },
+  Resolved:       { color: "green",  icon: "v" },
+  "RCA Required": { color: "amber",  icon: "?" },
+  Closed:         { color: "slate",  icon: "x" },
+  Cancelled:      { color: "red",    icon: "-" },
 } as const
 ```
 
@@ -185,10 +186,10 @@ export const incidentStatusTokens = {
 
 ## 4. Pinia Store — `useImm12Store`
 
-> Note: No separate `imm12.ts` store file was found in `frontend/src/stores/`. The views use the `api/imm12.ts` client directly or via composables. The design below remains as the target architecture spec.
+> ✅ Store đã hiện hữu tại `frontend/src/stores/imm12.ts`. Các view trong `views/incident/` cũng có thể gọi trực tiếp `api/imm12.ts` qua composable khi không cần state chia sẻ. Skeleton dưới đây phản ánh interface store.
 
 ```typescript
-// src/stores/imm12.ts  (design spec — verify actual store path if refactored)
+// src/stores/imm12.ts  (actual file — interface tham khảo)
 import { defineStore } from "pinia"
 import { ref, computed } from "vue"
 import type { IncidentReport, CAPARecord, RCARecord, ChronicFailure } from "@/types/imm12"
@@ -344,7 +345,7 @@ watch(() => form.severity, (val) => {
 | Error (network) | All | Toast đỏ "Không thể tải dữ liệu. Vui lòng thử lại." + [Retry] |
 | Error (BUSINESS_RULE: BR-12-01) | IncidentFormView | Inline: "Sự cố Critical bắt buộc mô tả tác động lâm sàng" |
 | Error (BAD_STATE: BR-12-02) | IncidentDetailView | Modal: "Không thể đóng sự cố khi RCA chưa hoàn thành. Mở RCA-2026-0012 →" |
-| Success (create IR) | IncidentFormView | Toast xanh "Sự cố đã ghi nhận" + redirect → `/imm-12/incidents/:name` |
+| Success (create IR) | IncidentFormView | Toast xanh "Sự cố đã ghi nhận" + redirect → `/incidents/list/:name` |
 | Success (close CAPA) | CAPAFormView | Modal "CAPA đã đóng — audit đã ghi nhận." |
 | Critical alert | App shell banner | 🔴 "Sự cố Critical đang mở: [IR-2026-0042] — Máy thở Drager E. — ICU" |
 

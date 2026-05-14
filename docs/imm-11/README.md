@@ -6,7 +6,7 @@
 | Wave | 1 |
 | Trạng thái | ✅ Live — Code deployed (BE + FE + DocTypes) |
 | Số file | 8 (5 template chuẩn + 3 deployment docs) |
-| Cập nhật cuối | 2026-05-10 |
+| Cập nhật cuối | 2026-05-14 |
 | Khối kiến trúc | C. KHỐI 3 |
 | Đợt triển khai | 1 |
 | Owner | PTP Khối 2 · Workshop / Nhóm TBYT |

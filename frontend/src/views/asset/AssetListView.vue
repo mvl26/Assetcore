@@ -264,7 +264,7 @@ onMounted(async () => {
                     {{ (asset.current_book_value ?? asset.gross_purchase_amount ?? 0).toLocaleString('vi-VN') }}
                   </p>
                   <p v-if="asset.accumulated_depreciation" class="text-xs text-slate-400">
-                    −{{ asset.accumulated_depreciation.toLocaleString('vi-VN') }} đã KH
+                    −{{ asset.accumulated_depreciation.toLocaleString('vi-VN') }} đã khấu hao
                   </p>
                 </div>
                 <span v-else class="text-slate-400">—</span>

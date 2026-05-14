@@ -6,8 +6,8 @@
 |---|---|
 | Module | IMM-03 — Vendor Evaluation & Procurement Decision |
 | Phiên bản | 0.1.0 |
-| Ngày | 2026-05-08 |
-| Trạng thái | LIVE — Wave 2 |
+| Ngày | 2026-05-14 |
+| Trạng thái | LIVE — Wave 2 (unit tests planted; integration/UAT planned) |
 
 ---
 
@@ -29,9 +29,21 @@
 
 ---
 
-### I.2 Unit Test Stubs
+### I.2 Unit Tests — Implemented vs Planned
 
-File: `assetcore/tests/test_imm03.py`
+**File ground truth:** `assetcore/tests/test_imm03.py` — chứa 5 class actual (pure-Python, KHÔNG mở DB):
+
+| Class | Methods | Mô tả |
+|---|---|---|
+| `TestParseWeighting` | `test_none_returns_defaults`, `test_dict_passthrough`, `test_valid_json_parsed`, `test_invalid_json_returns_defaults` | Helper `_parse_weighting` |
+| `TestParseJsonField` | `test_none_returns_empty_dict`, `test_dict_passthrough`, `test_valid_json_string`, `test_invalid_json_returns_empty` | Helper `_parse_json_field` |
+| `TestComputeEvalScores` | `test_higher_score_candidate_wins`, `test_unknown_criterion_ignored`, `test_empty_candidates_no_recommended` | `_compute_eval_scores` + `recommended_candidate = top supplier name` |
+| `TestGateG04Method` | `test_draft_state_skips_check`, `test_chi_dinh_thau_exceeds_limit_raises`, `test_chi_dinh_thau_within_limit_but_no_legal_basis_raises`, `test_chao_hang_within_limit_and_legal_basis_passes`, `test_unknown_method_skips`, `test_no_method_skips` | `_validate_gate_g04_method` |
+| `TestMethodRules` | `test_chi_dinh_thau_limit_is_50m`, `test_chao_hang_canh_tranh_limit_is_1b`, `test_dau_thau_rong_rai_has_no_price_cap` | Hằng số `_METHOD_RULES` |
+
+**Planned (chưa viết):** VR-03-03 quotation validity, VR-03-04 envelope, VR-03-05 winner AVL, VR-03-07 unique decision per spec, G05, mint AC Purchase integration, AVL expiry scheduler, scorecard idempotency. Các stub dưới đây là **roadmap**, không phải code hiện hữu.
+
+### I.2.a Test Stub Roadmap (chưa implement)
 
 ```python
 import frappe

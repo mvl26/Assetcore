@@ -1,12 +1,13 @@
 # 02 — Phân tích thiết kế nghiệp vụ — IMM-01 Đánh giá Nhu cầu & Dự toán
 
-> ⚠️ Module PLANNED — Wave 2. Chưa triển khai.
+> **Wave 2 — Live.** Tài liệu phản ánh code thực tế tại `assetcore/services/imm01.py`, `assetcore/api/imm01.py`, các DocType `IMM Needs Request`, `IMM Procurement Plan`, `IMM Demand Forecast`.
 
 | Mục | Giá trị |
 |---|---|
 | Module | IMM-01 — Đánh giá nhu cầu và dự toán (Needs Assessment & Budget Estimation) |
 | Phạm vi | Per-module |
 | Owner | BA + System Analyst |
+| Cập nhật | 2026-05-14 |
 | Liên kết | [03 Diagrams](./03_Diagrams.md) · [04 Backend](./04_Backend_Design.md) · [05 API](./05_API_Specification.md) · [06 Frontend](./06_Frontend_Design.md) |
 | Chuẩn tham chiếu | WHO HTM Needs Assessment 2011/2025, ISO 13485 §7.1, NĐ 98/2021/NĐ-CP §32, Luật Đấu thầu 22/2023 |
 
@@ -70,10 +71,10 @@ Output: Procurement Plan (Approved) → IMM-02 (Tech Spec), IMM-03 (Vendor/PO); 
 
 **In-scope:**
 - 3 Primary DocTypes: `IMM Needs Request`, `IMM Procurement Plan`, `IMM Demand Forecast`
-- 5 Child tables: `Needs Priority Scoring`, `Budget Estimate Line`, `Procurement Plan Line`, `Forecast Driver` + reuse `IMM Audit Trail`
-- Workflow 8 states, 10 transitions
-- 6 Validation Rules (VR-01-01 → VR-01-06), 5 Gates (G01 → G05)
-- 14+ REST API endpoints
+- 4 Child tables: `Needs Priority Scoring`, `Budget Estimate Line`, `Procurement Plan Line`, `Forecast Driver` (+ reuse `IMM Audit Trail` cross-module)
+- 2 Workflow: `IMM-01 Needs Workflow` (8 states), `IMM-01 Plan Workflow` (4 states)
+- Validation Rules đã enforce: VR-01-01 (unique active), VR-01-02 (soft warn), VR-01-04 (target_year), VR-01-05 (score consistency); 5 Gates G01..G05
+- 22 REST API endpoints (`assetcore/api/imm01.py`)
 - Frontend list + detail + create cho 3 primary DocType
 - 3 Scheduler jobs (daily overdue, monthly forecast, weekly envelope alert)
 - Dashboard KPI 6 chỉ số
@@ -113,7 +114,7 @@ Output: Procurement Plan (Approved) → IMM-02 (Tech Spec), IMM-03 (Vendor/PO); 
 | Quy định | Yêu cầu áp lên module | Doc tham chiếu |
 |---|---|---|
 | NĐ 98/2021/NĐ-CP §32 | Kế hoạch đầu tư trang thiết bị y tế phải lập và duyệt | Procurement Plan workflow |
-| WHO HTM Needs Assessment §3.2 | Clinical justification bắt buộc | BR-01-01: clinical_justification ≥ 200 ký tự |
+| WHO HTM Needs Assessment §3.2 | Clinical justification bắt buộc | BR-01-01: field `clinical_justification` `reqd=1` ở DocType (validation độ dài là planned — chưa enforce trong code) |
 | WHO HTM §2.4 | Utilization data 12 tháng bắt buộc cho Replacement | G01 gate |
 | WHO HTM Annex 4 | Total Cost of Ownership = CAPEX + OPEX | Budget Estimate CAPEX + OPEX 5y |
 | ISO 13485 §7.1 | Planning of product realization | Workflow + Gates |
@@ -169,8 +170,9 @@ Khoa lâm sàng gửi đề xuất thiết bị qua email/văn bản → PTP Kh�
 
 ```
 Swimlane: Department User / Clinical Head
-  [Tạo Draft NR] → (VR-03 clinical_justification ≥ 200) → [Submit Draft]
-  → G01 gate (utilization data nếu Replacement) → [Submitted]
+  [Tạo Draft NR] → (clinical_justification reqd) → [Submit Draft]
+  → [Submitted]
+  (Note: G01 gate fires khi chuyển vào Reviewing, không phải Submit — xem 04 §III)
 
 Swimlane: HTM Reviewer / KH-TC Officer
   [Reviewing NR] → [Chấm điểm 6 tiêu chí]
@@ -200,7 +202,7 @@ Swimlane: Scheduler (monthly)
 | Điểm | Câu hỏi | Quy tắc |
 |---|---|---|
 | Tạo NR | request_type = Replacement? | Có → phải có replacement_for_asset + Decommission Plan (VR-01-02) |
-| Submit | G01 pass? | clinical_justification + utilization_pct (nếu Replacement/Upgrade) |
+| Reviewing transition | G01 pass? | utilization_pct_12m bắt buộc khi request_type ∈ {Replacement, Upgrade} (kiểm tra trong validate khi target state = Reviewing) |
 | Prioritize | G02 pass? | 6/6 scoring rows + weighted_score computed |
 | Budget | G03 pass? | total_capex > 0 + 5 OPEX years present |
 | Budget | G04 pass? | tổng allocated ≤ budget envelope (soft warning / hard block) |
@@ -271,7 +273,7 @@ UC-06 <<extend>> Yêu cầu chỉnh dự toán [score thấp]
 | Brief | Clinical Head tạo phiếu đề xuất thiết bị, gửi đến HTM Reviewer |
 | Primary actor | Clinical Head |
 | Pre-condition | Đăng nhập với role IMM Clinical User; IMM Device Model tồn tại |
-| Post-condition | NR ở Submitted; ALE "submitted" ghi; email gửi PTP Khối 1 + KH-TC |
+| Post-condition | NR ở Submitted; Frappe Version track_changes ghi history. (Email notification = roadmap — chưa wire). |
 | Trigger | Khoa có nhu cầu mua mới / thay thế / nâng cấp thiết bị |
 
 **Main flow:**
@@ -282,8 +284,8 @@ UC-06 <<extend>> Yêu cầu chỉnh dự toán [score thấp]
 | 2 | Chọn request_type, device_model_ref, quantity, target_year | device_category auto-fetch từ model |
 | 3 | Nhập clinical_justification ≥ 200 ký tự | — |
 | 4 | Nếu Replacement: chọn replacement_for_asset | Auto-fetch utilization_pct_12m từ IMM-07 |
-| 5 | Nhấn "Gửi đề xuất" | G01 validate (utilization nếu Replacement); VR-01-02 kiểm tra Decom Plan |
-| 6 | — | Workflow state Draft → Submitted; ALE "Submitted" ghi; email gửi |
+| 5 | Nhấn "Gửi đề xuất" | VR-01-02 (soft warn cho Replacement chưa có IMM-13 plan); validate cơ bản |
+| 6 | — | Workflow state Draft → Submitted (G01 sẽ check khi HTM Reviewer chuyển vào Reviewing) |
 
 ### UC-06: Approve Needs Request
 
@@ -313,17 +315,19 @@ Given tôi là Clinical Head của khoa "ICU"
 When tôi mở form Needs Request và chọn request_type="New", device_model_ref, clinical_justification (≥ 200 ký tự)
 And tôi nhập requesting_department="ICU", quantity=2, target_year=2027
 And tôi nhấn "Gửi đề xuất"
-Then phiếu chuyển từ Draft → Submitted
-And lifecycle_event "Submitted" được ghi với actor=tôi
-And email thông báo gửi PTP Khối 1 + KH-TC Officer
+Then phiếu chuyển từ Draft → Submitted (docstatus vẫn 0)
+And Frappe Version track_changes ghi history thay đổi
+And (roadmap) email thông báo gửi PTP Khối 1 + KH-TC Officer khi cấu hình notification
 ```
 
-**AC-2 — Thiếu clinical_justification:**
+**AC-2 — Thiếu clinical_justification (reqd):**
 ```gherkin
-Given tôi nhập clinical_justification chỉ 50 ký tự
+Given tôi bỏ trống clinical_justification
 When tôi nhấn Lưu
-Then hệ thống throw "VR-01-03: clinical_justification phải ≥ 200 ký tự"
+Then Frappe MandatoryError block với label field "Lý do lâm sàng"
 ```
+
+> Note: Validation độ dài (≥ 200 ký tự) hiện CHƯA enforce trong code — chỉ `reqd: 1`. Lộ trình: thêm `_vr03_clinical_justification` ở `services/imm01.py` (planned).
 
 ### US-01-002 — Replacement phải link Decommission Plan
 
@@ -373,8 +377,9 @@ Là **VP Block1**, tôi muốn **duyệt/bác phiếu kèm lý do và funding_so
 ```gherkin
 Given phiếu ở Pending Approval
 When tôi nhập board_approver="self", funding_source="NSNN" và nhấn "Approved"
-Then phiếu chuyển Approved (docstatus=1)
-And lifecycle_event "Approved" ghi với approver, funding_source, approval_date
+Then phiếu chuyển Approved (docstatus=1) qua `approve_needs_request` endpoint
+And `before_submit_needs_request` set `approval_date = today()`
+And `write_audit_trail` ghi IMM Audit Trail CHỈ khi `replacement_for_asset` có giá trị (audit gắn vào Asset). Với New/Upgrade/Add-on (chưa có asset) → Frappe Version track_changes lưu history.
 ```
 
 ### US-01-040 — Xem Procurement Plan tổng hợp
@@ -392,26 +397,28 @@ And có thể "Generate IMM-02 Spec Drafts" tạo loạt phiếu Tech Spec rỗn
 
 | ID | Rule | Implement ở | Test |
 |---|---|---|---|
-| BR-01-01 | Mỗi NR phải có requesting_department + clinical_justification ≥ 200 ký tự | `_vr03_clinical_justification()` before_insert | TC-02 |
-| BR-01-02 (G01) | Utilization data 12 tháng bắt buộc nếu request_type=Replacement/Upgrade | `validate_gate_g01()` | TC-09 |
-| BR-01-03 (VR-01) | 1 Asset chỉ có 1 Needs Request Active thay thế tại 1 thời điểm | `_vr01_unique_active_request_per_asset()` | TC-— |
-| BR-01-04 (G02) | Priority scoring đủ 6/6 tiêu chí + weighted_score tính đúng | `compute_priority_score()` + `validate_gate_g02()` | TC-12 |
-| BR-01-05 (G03) | Budget Estimate phải có CAPEX + OPEX 5 năm; thiếu OPEX bị block | `validate_gate_g03()` | TC-16 |
-| BR-01-06 (G04) | Tổng dự toán không vượt budget envelope quý (soft warning / hard cap) | `validate_gate_g04()` | TC-17/18 |
-| BR-01-07 (G05) | board_approver + funding_source bắt buộc trước Approved | `validate_gate_g05()` | TC-19 |
-| BR-01-08 | Replacement request phải link Decommission Plan IMM-13 (Pending/Approved) | `_vr02_replacement_requires_decom_plan()` | TC-03/04 |
+| BR-01-01 | Mỗi NR phải có requesting_department + clinical_justification (reqd ở DocType) | DocType `reqd: 1`; validation độ dài planned | — |
+| BR-01-02 (G01) | utilization_pct_12m bắt buộc nếu request_type ∈ {Replacement, Upgrade} (kích hoạt khi target state=Reviewing) | `_validate_gate_g01()` | `test_imm01.py` (gián tiếp qua compute_priority_score) |
+| BR-01-03 (VR-01-01) | 1 Asset chỉ có 1 Needs Request Replacement Active | `_vr01_unique_active_request_per_asset()` | — (test stub planned) |
+| BR-01-04 (G02) | Priority scoring đủ 6/6 tiêu chí + weighted_score tính đúng | `_compute_priority_score()` + `_validate_gate_g02()` | `TestComputePriorityScore` |
+| BR-01-05 (G03) | Budget Estimate phải có CAPEX > 0 + OPEX đủ year_offset 1..5 | `_validate_gate_g03()` | — (test stub planned) |
+| BR-01-06 (G04) | Tổng dự toán vs budget envelope (hiện chỉ sanity check ở service; cross-doc rollup tại `_rollup_plan_capex`) | `_validate_gate_g04()` (soft) | — |
+| BR-01-07 (G05) | board_approver + funding_source bắt buộc trước Submit | `_validate_gate_g05()` (gọi từ `before_submit`) | — |
+| BR-01-08 (VR-01-02) | Replacement nên có IMM-13 Decommission Plan — hiện chỉ soft warn (`msgprint`), sẽ đổi thành block khi IMM-13 LIVE | `_vr02_replacement_requires_decom_plan()` | — |
+| BR-01-09 (VR-01-04) | target_year ≥ năm hiện tại | `_vr04_target_year()` | — |
+| BR-01-10 (VR-01-05) | abs(weighted_score - Σ scoring_rows.weighted) < 0.01 | `_vr05_score_consistency()` | — |
 
 ## IV.3. State Machine
 
 | State | doc_status | Type | Mô tả | Gate |
 |---|---|---|---|---|
 | Draft | 0 | Success | NR mới tạo hoặc trả về | — |
-| Submitted | 0 | Warning | Đã gửi, chờ HTM Review | G01 |
-| Reviewing | 0 | Warning | HTM đang rà soát | — |
+| Submitted | 0 | Warning | Đã gửi, chờ HTM Review | — |
+| Reviewing | 0 | Warning | HTM đang rà soát | G01 (kích hoạt khi vào state này) |
 | Prioritized | 0 | Success | Đã chấm điểm xong | G02 |
-| Budgeted | 0 | Success | Dự toán xong | G03 + G04 |
+| Budgeted | 0 | Success | Dự toán xong | G03 + G04 (soft) |
 | Pending Approval | 0 | Warning | Chờ BGĐ phê duyệt | — |
-| Approved | 1 | Success | Được duyệt (terminal positive) | G05 |
+| Approved | 1 | Success | Được duyệt (terminal positive) | G05 (kích hoạt ở `before_submit`) |
 | Rejected | 1 | Danger | Bị bác (terminal negative) | — |
 
 ---

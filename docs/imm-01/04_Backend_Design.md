@@ -5,6 +5,7 @@
 | Mục | Giá trị |
 |---|---|
 | Module | IMM-01 — Đánh giá nhu cầu và dự toán |
+| Cập nhật | 2026-05-14 |
 | Liên kết | [02 Analysis](./02_Analysis_Design.md) · [03 Diagrams](./03_Diagrams.md) · [05 API](./05_API_Specification.md) |
 
 ---
@@ -27,51 +28,55 @@
 
 ### 2.1 IMM Needs Request
 
-Naming: `NR-.YY.-.MM.-.#####`. Module: `AssetCore`. Submittable. track_changes=1.
+Naming: `NR-.YY.-.MM.-.#####`. Module: `AssetCore`. Submittable. track_changes=1. title_field=`device_model_ref`.
 
 | Section | Field | Fieldtype | Reqd | Default | Options / Link | Ghi chú |
 |---|---|---|---|---|---|---|
-| **Header** | request_id | Data | Y (auto) | — | — | Read-only naming |
-| | request_date | Date | Y | today | — | Set in before_insert |
-| | request_type | Select | Y | New | New\nReplacement\nUpgrade\nAdd-on | Drives VR-01-02 |
-| | requesting_department | Link | Y | user dept | Department | — |
-| | clinical_head | Link | Y | dept head | User | Auto-fetch |
-| | workflow_state | Data | Y (auto) | Draft | — | Frappe workflow |
-| **Target** | device_model_ref | Link | Y | — | IMM Device Model | Phải Active |
-| | device_category | Link | N | fetch | Asset Category | Auto từ model |
-| | quantity | Int | Y | 1 | — | min=1 |
-| | target_year | Int | Y | year+1 | — | ≥ current year (VR-04) |
-| | priority_class | Select | N (auto) | — | P1\nP2\nP3\nP4 | Auto từ weighted_score |
-| **Justification** | clinical_justification | Long Text | Y | — | — | ≥ 200 chars (VR-03) |
-| | replacement_for_asset | Link | C* | — | Asset | Bắt buộc khi type=Replacement |
-| | utilization_pct_12m | Float | C | — | — | Auto-fetch từ IMM-07 |
-| | downtime_hr_12m | Float | C | — | — | Auto-fetch từ IMM-07 |
-| | compliance_driven | Check | N | 0 | — | Cờ từ IMM-10 |
-| **Scoring** | weighted_score | Float | N (auto) | 0 | — | Auto-compute từ scoring_rows |
-| | scoring_rows | Table | C | — | Needs Priority Scoring | 6 rows mandatory ở G02 |
-| **Budget** | total_capex | Currency | N (auto) | — | — | Σ budget_lines (CAPEX) |
-| | total_opex_5y | Currency | N (auto) | — | — | Σ budget_lines (OPEX) |
+| **Header** | naming_series | Select | Y | `NR-.YY.-.MM.-.#####` | — | Naming series chuẩn |
+| | request_date | Date | Y | Today | — | Service đảm bảo set ở `before_insert_needs_request` nếu trống |
+| | request_type | Select | Y | New | `New\nReplacement\nUpgrade\nAdd-on` | Drives VR-01-01/02 |
+| | requesting_department | Link | Y | — | `AC Department` | — |
+| | clinical_head | Link | N (auto) | — | `User` | `fetch_from = requesting_department.dept_head`; service force-overwrite (`_sync_clinical_head_from_department`) — user KHÔNG được tự nhập |
+| | workflow_state | Link | N (auto) | Draft | `Workflow State` | — |
+| | priority_class | Select | N (auto) | — | `P1\nP2\nP3\nP4` | Tính bởi `_classify_priority` |
+| **Target** | device_model_ref | Link | Y | — | `IMM Device Model` | — |
+| | device_category | Link | N (auto) | — | `AC Asset Category` | `fetch_from = device_model_ref.asset_category`, read_only |
+| | quantity | Int | Y | 1 | — | — |
+| | target_year | Int | Y | — | — | VR-01-04: ≥ năm hiện tại |
+| | weighted_score | Float | N (auto) | — | precision=4 | Auto-compute từ scoring_rows |
+| **Justification** | clinical_justification | Long Text | Y | — | — | Chỉ `reqd:1` ở DocType; validation độ dài chưa enforce |
+| | replacement_for_asset | Link | conditional | — | `AC Asset` | `mandatory_depends_on: doc.request_type=='Replacement'` |
+| | utilization_pct_12m | Percent | N | — | — | Auto-fetch từ IMM-07 (chưa wire) |
+| | downtime_hr_12m | Float | N | — | — | Auto-fetch từ IMM-07 (chưa wire) |
+| | compliance_driven | Check | N | 0 | — | Cờ từ IMM-10 (chưa wire) |
+| **Scoring** | scoring_rows | Table | N | — | `Needs Priority Scoring` | Đủ 6 criterion keys khi G02 |
+| **Budget** | budget_lines | Table | N | — | `Budget Estimate Line` | CAPEX > 0 + OPEX year_offset 1..5 khi G03 |
+| | total_capex | Currency | N (auto) | — | — | Σ CAPEX (`_rollup_budget`) |
+| | total_opex_5y | Currency | N (auto) | — | — | Σ OPEX |
 | | tco_5y | Currency | N (auto) | — | — | total_capex + total_opex_5y |
-| | budget_lines | Table | C | — | Budget Estimate Line | ≥ 1 CAPEX + 5 OPEX years (G03) |
-| | funding_source | Select | C | — | NSNN\nTài trợ\nXã hội hóa\nBHYT\nKhác | Bắt buộc trước Approved (G05) |
-| | funding_evidence | Attach | N | — | — | Tài liệu cam kết nguồn vốn |
-| **Approval** | board_approver | Link | C | — | User | Bắt buộc trước Approved (G05); permlevel 1 |
-| | approval_date | Date | N (auto) | — | — | Set on_submit |
-| | rejection_reason | Long Text | C | — | — | Bắt buộc khi Reject |
-| **Linkage** | procurement_plan | Link | N | — | IMM Procurement Plan | Set khi gom vào plan |
-| | tech_spec_ref | Link | N | — | IMM Tech Spec | Set khi IMM-02 generate |
+| **Funding** (permlevel 1) | funding_source | Select | N | — | `NSNN\nTài trợ\nXã hội hóa\nBHYT\nKhác` | Bắt buộc trước Submit (G05) |
+| | funding_evidence | Attach | N | — | — | permlevel 1 |
+| | board_approver | Link | N | — | `User` | Bắt buộc trước Submit (G05); permlevel 1 |
+| | approval_date | Date | N (auto) | — | — | Set ở `before_submit` nếu trống; permlevel 1; read_only |
+| | rejection_reason | Long Text | N | — | — | Bắt buộc khi gọi `reject_needs_request`; permlevel 1 |
+| **Linkage** | procurement_plan | Link | N (auto) | — | `IMM Procurement Plan` | Set ở `on_submit_procurement_plan` |
+| | tech_spec_ref | Data | N | — | — | Placeholder vì IMM-02 DocType riêng — hiện là free-text Data (sẽ chuyển Link khi IMM-02 GA) |
+| | amended_from | Link | N | — | `IMM Needs Request` | Standard Frappe amend |
 
-**Permissions (permlevel 0 default; permlevel 1: funding_source, funding_evidence, board_approver):**
+**Permissions (từ DocType JSON):**
 
-| Role | Read | Write | Create | Submit | Cancel | Permlevel 1 W |
-|---|---|---|---|---|---|---|
-| IMM Clinical User | own dept | own dept (Draft) | Y | — | — | — |
-| IMM HTM Engineer | All | Reviewing | — | — | — | — |
-| IMM Planning Officer | All | Prioritized | — | — | — | — |
-| IMM Finance Officer | All | Budgeted | — | — | — | Y |
-| IMM Department Head | All | Pending Approval | — | Y | Y | Y |
-| IMM Board Approver | All | — | — | Y | Y | Y |
-| IMM System Admin | All | All | Y | Y | Y | Y |
+| Role | Permlevel 0 (Read/Write/Create/Submit/Cancel/Amend/Delete) | Permlevel 1 (Read/Write) |
+|---|---|---|
+| IMM System Admin | R/W/C/S/Cn/A/D | R/W |
+| IMM Clinical User | R/W/C | — |
+| IMM HTM Engineer | R/W | — |
+| IMM Planning Officer | R/W | — |
+| IMM Finance Officer | R/W | R/W |
+| IMM Department Head | R/W/S/Cn | R/W |
+| IMM Board Approver | R/W/S/Cn | R/W |
+| IMM Auditor | R + Report + Export | — |
+
+> Row-level filtering (Clinical User chỉ thấy NR khoa mình) chưa được cài đặt qua `permission_query_conditions` — hiện DocPerm cấp module-wide. Roadmap.
 
 ### 2.2 IMM Procurement Plan
 
@@ -79,49 +84,55 @@ Naming: `PP-.YY.-.#####`. Module: `AssetCore`. Submittable. track_changes=1.
 
 | Section | Field | Fieldtype | Reqd | Ghi chú |
 |---|---|---|---|---|
-| **Header** | plan_period | Select | Y | Q1\nQ2\nQ3\nQ4\nAnnual |
+| **Header** | naming_series | Select | Y | `PP-.YY.-.#####` |
+| | plan_period | Select | Y | `Q1\nQ2\nQ3\nQ4\nAnnual`, default `Annual` |
 | | plan_year | Int | Y | — |
-| | budget_envelope | Currency | Y | Tổng cap được duyệt cho kỳ |
-| | allocated_capex | Currency | N (auto) | Σ allocated_budget của plan_items |
-| | utilization_pct | Percent | N (auto) | allocated / envelope |
-| | workflow_state | Data | — | Draft\nApproved\nActive\nClosed |
-| **Items** | plan_items | Table | Y | Procurement Plan Line |
-| **Approval** | approved_by | Link | C | User |
-| | approved_date | Date | N | Auto set on_submit |
+| | workflow_state | Link | N (auto) | `Workflow State`, default `Draft`. States: Draft → Approved → Active → Closed |
+| | approved_by | Link | N | `User` (set ở `approve_plan`) |
+| | approved_date | Date | N (auto) | Set ở `approve_plan` (today) |
+| **Envelope** | budget_envelope | Currency | Y | — |
+| | allocated_capex | Currency | N (auto) | `_rollup_plan_capex` Σ plan_items.allocated_budget |
+| | utilization_pct | Percent | N (auto) | allocated / envelope × 100 |
+| **Items** | plan_items | Table | N | `Procurement Plan Line` |
+| | amended_from | Link | N | `IMM Procurement Plan` |
 
 **Permissions:**
 
-| Role | Read | Write | Create | Submit |
-|---|---|---|---|---|
-| IMM Planning Officer | Y | Y | Y | — |
-| IMM Department Head | Y | Y | — | Y |
-| IMM Board Approver | Y | — | — | Y |
-| IMM System Admin | Y | Y | Y | Y |
+| Role | Read | Write | Create | Submit | Cancel |
+|---|---|---|---|---|---|
+| IMM System Admin | Y | Y | Y | Y | Y |
+| IMM Planning Officer | Y | Y | Y | — | — |
+| IMM Department Head | Y | Y | — | Y | Y |
+| IMM Board Approver | Y | — | — | Y | Y |
+| IMM Finance Officer | Y | — | — | — | — |
+| IMM HTM Engineer | Y | — | — | — | — |
+| IMM Auditor | Y + Export + Report | — | — | — | — |
 
 ### 2.3 IMM Demand Forecast
 
-Naming: `DF-.YYYY.-.#####`. Module: `AssetCore`. Read-only (không submittable).
+Naming: `DF-.YYYY.-.#####`. Module: `AssetCore`. Không submittable. track_changes=1.
 
 | Field | Fieldtype | Reqd | Ghi chú |
 |---|---|---|---|
-| forecast_year | Int | Y | Năm bắt đầu dự báo |
-| horizon_years | Int | Y | 3 hoặc 5 |
-| device_category | Link | N | Asset Category; null = toàn danh mục |
-| projected_qty | Int | N (auto) | Tổng số thiết bị dự kiến |
-| projected_capex | Currency | N (auto) | Tổng CAPEX dự kiến |
-| accuracy_prev | Percent | N | Đối chiếu kỳ trước |
-| drivers | Table | Y | Forecast Driver |
-| generated_at | Datetime | Y (auto) | Auto timestamp |
-| generated_by | Link | Y (auto) | scheduler user |
+| naming_series | Select | Y | `DF-.YYYY.-.#####` |
+| forecast_year | Int | Y | — |
+| horizon_years | Int | Y | default 5 |
+| device_category | Link | N | `AC Asset Category` |
+| generated_at | Datetime | N (auto) | Set ở `generate_demand_forecast` |
+| generated_by | Link | N (auto) | `User`, set "Administrator" trong scheduler hiện tại |
+| projected_qty | Int | N | Placeholder 0 (TODO: wire IMM-07 + IMM-13) |
+| projected_capex | Currency | N | Placeholder 0 |
+| accuracy_prev | Percent | N | Đối chiếu kỳ trước (chưa tính tự động) |
+| drivers | Table | N | `Forecast Driver` |
 
 ### 2.4 Child Table: Needs Priority Scoring
 
 | Field | Fieldtype | Reqd | Ghi chú |
 |---|---|---|---|
-| criterion | Select | Y | clinical_impact\nrisk\nutilization_gap\nreplacement_signal\ncompliance_gap\nbudget_fit |
-| score | Int | Y | 1–5 |
-| weight_pct | Percent | N (auto) | Fetch từ master config |
-| weighted | Float | N (auto) | score × weight |
+| criterion | Select | Y | `clinical_impact\nrisk\nutilization_gap\nreplacement_signal\ncompliance_gap\nbudget_fit` |
+| score | Int | Y | Thang 1–5 |
+| weight_pct | Percent | N (auto) | Tính từ `DEFAULT_PRIORITY_WEIGHTS` × 100; master config "IMM Priority Weight" = placeholder, chưa tạo DocType |
+| weighted | Float | N (auto) | `score × weight`, precision=4 |
 | evidence | Long Text | N | Lý giải điểm |
 
 ### 2.5 Child Table: Budget Estimate Line
@@ -141,20 +152,21 @@ Naming: `DF-.YYYY.-.#####`. Module: `AssetCore`. Read-only (không submittable).
 
 | Field | Fieldtype | Reqd | Ghi chú |
 |---|---|---|---|
-| needs_request | Link | Y | IMM Needs Request |
-| priority_rank | Int | N (auto) | Sort by weighted_score desc |
+| needs_request | Link | Y | `IMM Needs Request` |
+| priority_rank | Int | N (auto) | Sort by `weighted_score` desc trong `_rollup_plan_capex` |
+| weighted_score | Float | N (auto) | Copy từ NR khi `roll_into_plan` |
 | allocated_budget | Currency | Y | — |
-| target_quarter | Select | N | Q1\nQ2\nQ3\nQ4 |
-| status | Select | N | Pending Spec\nIn Spec\nIn Procurement\nAwarded\nCancelled |
+| target_quarter | Select | N | `Q1\nQ2\nQ3\nQ4` |
+| status | Select | N | `Pending Spec\nIn Spec\nIn Procurement\nAwarded\nCancelled`, default `Pending Spec` |
 
 ### 2.7 Child Table: Forecast Driver
 
 | Field | Fieldtype | Reqd | Ghi chú |
 |---|---|---|---|
-| driver_type | Select | Y | replacement\nutilization_growth\nservice_expansion\ncompliance\nstrategic |
-| weight_pct | Percent | Y | — |
-| projected_value | Float | Y | — |
-| source_module | Data | N | IMM-07 / IMM-13 / IMM-10 |
+| driver_type | Select | Y | `replacement\nutilization_growth\nservice_expansion\ncompliance\nstrategic` |
+| weight_pct | Percent | N | — |
+| projected_value | Float | N | — |
+| source_module | Data | N | VD: `IMM-07`, `IMM-13`, `IMM-10`, `Manual` |
 
 ---
 
@@ -183,9 +195,11 @@ Function `write_audit_trail(doc, event_type, from_status, to_status, notes)`:
 | VR | Function | Logic |
 |---|---|---|
 | VR-01-01 | `_vr01_unique_active_request_per_asset` | 1 Asset chỉ có 1 active Replacement NR (docstatus<1, state not in Approved/Rejected) |
-| VR-01-02 | `_vr02_replacement_requires_decom_plan` | Replacement → soft warn nếu asset không ở Pending Decommission/Decommissioned (IMM-13 chưa LIVE) |
-| VR-01-04 | `_vr04_target_year` | `target_year ≥ current_year` |
+| VR-01-02 | `_vr02_replacement_requires_decom_plan` | Replacement → kiểm tra `AC Asset.imm_lifecycle_status` ∈ {Decommissioned, Pending Decommission}. Hiện **soft warn (msgprint orange)**, KHÔNG block; sẽ đổi thành ServiceError khi IMM-13 LIVE |
+| VR-01-04 | `_vr04_target_year` | `target_year ≥ current_year`; raise `ServiceError(VALIDATION)` |
 | VR-01-05 | `_vr05_score_consistency` | `abs(weighted_score - Σ scoring_rows.weighted) < 0.01` |
+
+> VR-01-03 (clinical_justification ≥ 200 ký tự) và VR-01-06 (audit trail bất biến) **chưa được enforce trong service layer**. clinical_justification chỉ `reqd:1` ở DocType; audit trail immutable được hành xử ở DocPerm cấp `IMM Audit Trail` (Wave 1 shared).
 
 ### Priority scoring
 
@@ -214,11 +228,11 @@ Function `_rollup_budget(doc)`:
 
 | Gate | Kích hoạt khi | Logic |
 |---|---|---|
-| G01 | state = "Reviewing" | `utilization_pct_12m` bắt buộc với Replacement/Upgrade |
-| G02 | state = "Prioritized" | Đủ 6/6 scoring rows (đủ 6 criterion keys) |
-| G03 | state = "Budgeted" | `total_capex > 0` + OPEX có đủ year_offset 1..5 |
-| G04 | state = "Budgeted" | Soft check (envelope validation cross-doc) — hiện chỉ sanity check |
-| G05 | before_submit | `funding_source` + `board_approver` bắt buộc |
+| G01 | target state = "Reviewing" (kiểm tra trong `validate_needs_request` → `_check_workflow_gates`) | `utilization_pct_12m is not None` bắt buộc khi `request_type ∈ {Replacement, Upgrade}` |
+| G02 | target state = "Prioritized" | Đủ 6/6 criterion keys: `clinical_impact, risk, utilization_gap, replacement_signal, compliance_gap, budget_fit` |
+| G03 | target state = "Budgeted" | `total_capex > 0` + OPEX có đủ `year_offset` 1,2,3,4,5 |
+| G04 | target state = "Budgeted" | Soft check: hiện chỉ return (placeholder). Envelope rollup thực hiện ở `_rollup_plan_capex` (Procurement Plan side) |
+| G05 | `before_submit_needs_request` | `funding_source` + `board_approver` bắt buộc |
 
 ### Procurement Plan functions
 
@@ -256,33 +270,50 @@ Child table DocType: `needs_priority_scoring` (folder `needs_priority_scoring/`)
 
 ## §V Workflow
 
-### 5.1 States
+Có **2 workflow** trong `assetcore/assetcore/workflow/`:
+- `IMM-01 Needs Workflow` — 8 states, áp dụng cho `IMM Needs Request`, dùng `frappe.model.workflow.apply_workflow` qua endpoint `transition_workflow`.
+- `IMM-01 Plan Workflow` — 4 states, áp dụng cho `IMM Procurement Plan`. **KHÔNG dùng `apply_workflow`**: state transitions được quản lý bằng các dedicated endpoint (`approve_plan`, `activate_plan`, `close_plan`) trong `api/imm01.py` — chúng set `workflow_state` trực tiếp + `doc.save()` (không submit/docstatus change).
 
-| State | doc_status | Badge type | Allow Edit | Gate |
-|---|---|---|---|---|
-| Draft | 0 | Success | IMM Clinical User | — |
-| Submitted | 0 | Warning | IMM HTM Engineer, IMM Planning Officer | G01 |
-| Reviewing | 0 | Warning | IMM HTM Engineer | — |
-| Prioritized | 0 | Success | IMM Finance Officer | G02 |
-| Budgeted | 0 | Success | IMM Department Head | G03 + G04 |
-| Pending Approval | 0 | Warning | IMM Board Approver | — |
-| Approved | 1 | Success | (read-only) | G05 (terminal positive) |
-| Rejected | 1 | Danger | (read-only) | terminal negative |
+### 5.1 Needs Workflow — States (fixture `imm_01_needs_workflow.json`)
 
-### 5.2 Transition Matrix
-
-| From → To | Action (vi) | Allowed Role | Gate |
+| State | doc_status | allow_edit role | Gate kích hoạt |
 |---|---|---|---|
-| Draft → Submitted | Gửi đề xuất | IMM Clinical User | G01 check |
-| Submitted → Reviewing | Tiếp nhận rà soát | IMM HTM Engineer, IMM Planning Officer | — |
+| Draft | 0 | IMM Clinical User | — |
+| Submitted | 0 | IMM HTM Engineer | — |
+| Reviewing | 0 | IMM HTM Engineer | G01 (validate khi vào state) |
+| Prioritized | 0 | IMM Planning Officer | G02 |
+| Budgeted | 0 | IMM Finance Officer | G03 + G04 (soft) |
+| Pending Approval | 0 | IMM Department Head | — |
+| Approved | 1 | IMM System Admin | G05 (ở `before_submit`) |
+| Rejected | 1 | IMM System Admin | — |
+
+### 5.2 Needs Workflow — Transitions (trích lược từ fixture)
+
+| From → To | Action | Allowed Role(s) | Gate |
+|---|---|---|---|
+| Draft → Submitted | Gửi đề xuất | IMM Clinical User · IMM Department Head · IMM System Admin | — |
+| Submitted → Reviewing | Tiếp nhận rà soát | IMM HTM Engineer · IMM Planning Officer | G01 |
 | Submitted → Draft | Yêu cầu bổ sung | IMM HTM Engineer | — |
 | Reviewing → Prioritized | Hoàn tất chấm điểm | IMM Planning Officer | G02 |
-| Reviewing → Rejected | Bác đề xuất (sớm) | IMM Department Head | — |
-| Prioritized → Budgeted | Lập dự toán xong | IMM Finance Officer | G03 + G04 |
+| Reviewing → Rejected | Bác sớm | IMM Department Head | — |
+| Prioritized → Budgeted | Lập dự toán xong | IMM Finance Officer | G03 |
 | Budgeted → Pending Approval | Trình BGĐ | IMM Department Head | — |
-| Pending Approval → Approved | Phê duyệt | IMM Board Approver | G05 |
-| Pending Approval → Rejected | Từ chối | IMM Board Approver | rejection_reason required |
+| Pending Approval → Approved | Phê duyệt | IMM Board Approver | G05 + doc.submit() |
+| Pending Approval → Rejected | Từ chối | IMM Board Approver | rejection_reason required (endpoint) |
 | Pending Approval → Budgeted | Yêu cầu chỉnh dự toán | IMM Board Approver | — |
+
+> Approve/Reject ở state Pending Approval thường được gọi qua dedicated endpoint `approve_needs_request` / `reject_needs_request` (không qua `apply_workflow`), vì endpoint set `board_approver` + `rejection_reason` + submit cùng lúc.
+
+### 5.3 Plan Workflow — States (fixture `imm_01_plan_workflow.json`)
+
+| State | doc_status | Endpoint chuyển state |
+|---|---|---|
+| Draft | 0 | (create) |
+| Approved | 1 | `approve_plan` (set workflow_state + approved_by + approved_date, save) |
+| Active | 1 | `activate_plan` |
+| Closed | 1 | `close_plan` |
+
+> Plan workflow fixture cũng có action "Phê duyệt kế hoạch", "Kích hoạt", "Đóng kế hoạch" — nhưng **code sử dụng dedicated endpoints**, không `apply_workflow`. Fixture giữ để Frappe UI Workflow Dashboard nhận diện states.
 
 ---
 
@@ -298,7 +329,9 @@ Child table DocType: `needs_priority_scoring` (folder `needs_priority_scoring/`)
 
 ## §VII Database Indexes
 
-| Index | DocType | SQL |
+> Hiện tại Frappe tự tạo index trên các Link field qua MySQL standard. **Chưa có custom index** được khai báo qua Property Setter hoặc patch SQL trong codebase. Các index dưới đây là **roadmap** đã được khuyến nghị theo NFR-01-09 (10k NR < 2s).
+
+| Index (roadmap) | DocType | SQL |
 |---|---|---|
 | `idx_nr_state_dept` | `IMM Needs Request` | `CREATE INDEX idx_nr_state_dept ON \`tabIMM Needs Request\` (workflow_state, requesting_department);` |
 | `idx_nr_replacement` | `IMM Needs Request` | `CREATE INDEX idx_nr_replacement ON \`tabIMM Needs Request\` (replacement_for_asset);` |

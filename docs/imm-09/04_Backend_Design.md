@@ -6,6 +6,7 @@
 | Phạm vi | Per-module |
 | Owner | Tech Lead / BE Lead |
 | Liên kết | [02 Analysis & Design](./02_Analysis_Design.md) · [03 Diagrams](./03_Diagrams.md) · [05 API](./05_API_Specification.md) |
+| Cập nhật | 2026-05-14 |
 
 ---
 
@@ -122,11 +123,13 @@ State machine enforce **qua controller + API guard** — không dùng Frappe Wor
 # assetcore/assetcore/doctype/asset_repair/asset_repair.py
 class AssetRepair(Document):
     def before_insert(self):
-        from assetcore.services import imm09 as svc
-        svc.validate_repair_source(self)                    # BR-09-01
-        svc.validate_asset_not_under_repair(self.asset_ref) # BR-09-05
-        svc.check_repeat_failure(self)                      # BR-09-06
-        self.open_datetime = now_datetime()                 # audit timestamp
+        from assetcore.services.imm09 import (
+            validate_repair_source, validate_asset_not_under_repair, check_repeat_failure,
+        )
+        validate_repair_source(self)                          # BR-09-01
+        validate_asset_not_under_repair(self.asset_ref)       # BR-09-05
+        self.is_repeat_failure = check_repeat_failure(self.asset_ref)  # BR-09-06 (returns bool)
+        self.open_datetime = now_datetime()                   # audit timestamp
 
     def on_insert(self):
         from assetcore.services import imm09 as svc
@@ -357,7 +360,7 @@ Tất cả ALE insert qua `_create_lifecycle_event(...)` trong `services/imm09.p
 ## 7. Background jobs / Scheduler
 
 ```python
-# assetcore/hooks.py
+# assetcore/hooks.py — kế hoạch (xem ghi chú dưới)
 scheduler_events = {
     "hourly": ["assetcore.services.imm09.check_repair_sla_breach"],
     "daily":  ["assetcore.services.imm09.check_repair_overdue"],
@@ -365,21 +368,25 @@ scheduler_events = {
 }
 ```
 
-| Job | Tần suất | Mục đích |
-|---|---|---|
-| `check_repair_sla_breach` | Hourly | Mark `sla_breached=1` khi elapsed ≥ target; publish realtime `cm_sla_breached` đến KTV |
-| `check_repair_overdue` | Daily 07:00 | Email Workshop Manager khi WO > 7 ngày chưa đóng |
-| `update_asset_mttr_avg` | Monthly day 01 06:00 | Cập nhật `Asset.custom_mttr_avg_hours` (avg 12 WO gần nhất) |
+| Job | Tần suất | Mục đích | Trạng thái wire `hooks.py` |
+|---|---|---|---|
+| `check_repair_sla_breach` | Hourly | Mark `sla_breached=1` khi elapsed ≥ target; publish realtime `cm_sla_breached` đến Kỹ thuật viên | ⚠ chưa wire (function tồn tại trong `services/imm09.py:215`) |
+| `check_repair_overdue` | Daily 07:00 | Email Workshop Manager khi WO > 7 ngày chưa đóng | ⚠ chưa wire (function tồn tại trong `services/imm09.py:239`) |
+| `update_asset_mttr_avg` | Monthly day 01 06:00 | Cập nhật `Asset.custom_mttr_avg_hours` (avg 12 WO gần nhất) | ⚠ chưa wire (function tồn tại trong `services/imm09.py:263`) |
+
+> **Code-to-doc gap (2026-05-14):** 3 function trên đã hiện diện trong service nhưng **chưa được đăng ký** trong `assetcore/hooks.py::scheduler_events`. Cần thêm trong patch Wave 2 release.
 
 ---
 
 ## 8. Integration
 
 **Module nội bộ:**
-- IMM-08 → IMM-09: PM `report_major_failure` auto-insert Asset Repair với `source_pm_wo`
-- IMM-12 → IMM-09: User tạo WO từ Incident Report
-- IMM-09 → IMM-11: Sau Completed, nếu `Device Model.requires_calibration=True` → trigger calibration WO (manual rule hiện tại)
-- IMM-09 → IMM-12 CAPA: `is_repeat_failure=1` → FE gợi ý tạo CAPA
+- IMM-08 → IMM-09: `services/imm08.py::_create_cm_wo_from_failure` (line 154) auto-insert `Asset Repair` với `source_pm_wo` khi PM `report_major_failure` hoặc Fail-Major.
+- IMM-12 → IMM-09: User tạo WO từ Incident Report (`incident_report` field trong `create_work_order`).
+- IMM-09 → IMM-11: Sau Completed, nếu `Device Model.requires_calibration=True` → trigger calibration WO (manual rule hiện tại).
+- IMM-09 → IMM-12 CAPA: `is_repeat_failure=1` → FE gợi ý tạo CAPA.
+- **IMM-09 ↔ IMM-15 (Pattern B lazy-import)**: `services/imm09.py::request_spare_parts` (line ~500) lazy-import `assetcore.services.imm15.create_allocation` và mở allocation Requested truy về kho. Lỗi không throw — chỉ log `frappe.log_error` để giữ flow chính chạy.
+- **IMM-09 ↔ IMM-16 (Pattern C compliance gate)**: `Asset Repair.validate` gọi `assetcore.services.imm16.gate_wo_submit(doc, method=None)` — signature `(doc, method=None)` chứ KHÔNG phải `(asset_ref, wo_type="CM")`. Trên `on_submit` gọi `imm16.eval_imm08_09_realtime` để cập nhật scorecard. Cả hai wired trong `hooks.py::doc_events["Asset Repair"]`.
 
 **Bên ngoài:**
 - ERPNext Stock: validate `stock_entry_ref` tồn tại

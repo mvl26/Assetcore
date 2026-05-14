@@ -1,11 +1,12 @@
 # 07 — Kiểm thử & An ninh — IMM-01 Đánh giá Nhu cầu & Dự toán
 
-> ⚠️ Pending implementation — Wave 2. Test stubs và UAT scenarios dưới đây là thiết kế kế hoạch, chưa có code thực thi.
+> **Wave 2 — Live.** Test suite hiện tại: `assetcore/tests/test_imm01.py` (123 LOC) — cover scoring formula & priority classification thuần. Các test class còn lại trong tài liệu này (lifecycle, gates, workflow, API, security) là **roadmap** chưa implement.
 
 | Mục | Giá trị |
 |---|---|
 | Module | IMM-01 — Đánh giá nhu cầu và dự toán |
 | Phiên bản | 0.1.0 |
+| Cập nhật | 2026-05-14 |
 | Owner | QA Lead + Tech Lead |
 | Liên kết | [04 Backend](./04_Backend_Design.md) · [05 API](./05_API_Specification.md) |
 
@@ -34,93 +35,52 @@ Mọi service function phải có test trước khi code (TDD — CLAUDE.md §17
 
 ## I.2. Unit Test — Service Layer
 
-**File:** `assetcore/tests/test_imm01_service.py`
+**File hiện có:** `assetcore/tests/test_imm01.py` (123 LOC).
 
-| Test class | Function cover | Cases dự kiến |
-|---|---|---|
-| `TestInitializeNeedsRequest` | `initialize_needs_request()` | happy: request_date set, clinical_head auto-fetch; fail: missing dept |
-| `TestClinicalJustification` | `_vr03_clinical_justification()` | happy(≥200 chars), fail(50 chars), fail(empty) |
-| `TestTargetYear` | `_vr04_target_year()` | happy(current+1), fail(current-1), boundary(current year OK) |
-| `TestUniqueActiveRequest` | `_vr01_unique_active_request_per_asset()` | happy(no active), fail(already active Replacement) |
-| `TestReplacementDecomPlan` | `_vr02_replacement_requires_decom_plan()` | happy(Pending plan), happy(Approved plan), fail(no plan), fail(plan Rejected) |
-| `TestComputePriorityScore` | `compute_priority_score()` | 6 rows → weighted_score=4.30 P1; 5 rows → VALIDATION; score edge P1/P2 boundary |
-| `TestScoreConsistency` | `_vr05_score_consistency()` | happy(sai số < 0.01), fail(sai số > 0.01 → recompute) |
-| `TestGateG01` | `validate_gate_g01()` | happy(New type), happy(Replacement + util), fail(Replacement no util) |
-| `TestGateG02` | `validate_gate_g02()` | happy(6 rows), fail(5 rows) |
-| `TestGateG03` | `validate_gate_g03()` | happy(CAPEX + 5y OPEX), fail(missing OPEX year 4) |
-| `TestGateG04` | `validate_gate_g04()` | happy(80% soft warning), fail(100% hard block enforce) |
-| `TestGateG05` | `validate_gate_g05()` | happy(both set), fail(missing board_approver), fail(missing funding_source) |
-| `TestRollIntoPlan` | `roll_into_procurement_plan()` | tạo mới plan, append existing plan, sort by score desc |
-| `TestDemandForecast` | `generate_demand_forecast()` | pipeline 5 steps, accuracy_prev compute |
-| `TestOverdueCheck` | `check_pending_request_overdue()` | 30d+ NR → email sent; < 30d → no email |
+| Test class | Status | Function cover | Cases hiện có |
+|---|---|---|---|
+| `TestPriorityClassification` | ✅ Live | `_classify_priority()` | P1/P2/P3/P4 thresholds + zero/negative |
+| `TestComputePriorityScore` | ✅ Live | `_compute_priority_score()` | all-max → 5.0/P1; all-zero → 0.0/None |
+| `TestTargetYear` | ⬜ Planned | `_vr04_target_year()` | happy(current+1), fail(current-1) |
+| `TestUniqueActiveRequest` | ⬜ Planned | `_vr01_unique_active_request_per_asset()` | happy/fail duplicate |
+| `TestReplacementDecomPlan` | ⬜ Planned | `_vr02_replacement_requires_decom_plan()` | hiện soft warn — test msgprint emit |
+| `TestScoreConsistency` | ⬜ Planned | `_vr05_score_consistency()` | sai số > 0.01 → VALIDATION |
+| `TestGateG01..G05` | ⬜ Planned | `_validate_gate_g01..g05` | per gate happy/fail |
+| `TestRollIntoPlan` | ⬜ Planned | `roll_into_plan()` | tạo mới plan, append, reject non-Approved NR |
+| `TestDemandForecast` | ⬜ Planned | `generate_demand_forecast()` | skeleton record per category |
+| `TestOverdueCheck` | ⬜ Planned | `check_pending_request_overdue()` | 30d+ NR → log |
 
-**Pattern seed:**
+**Pattern hiện có** (trích từ `test_imm01.py`):
 
 ```python
-# assetcore/tests/test_imm01_service.py  ⚠️ Pending implementation — Wave 2
+# assetcore/tests/test_imm01.py — actual file
+import unittest
+from types import SimpleNamespace
+from assetcore.services.imm01 import (
+    DEFAULT_PRIORITY_WEIGHTS, _classify_priority, _compute_priority_score,
+)
 
-from frappe.tests.utils import FrappeTestCase
-from assetcore.services.shared import ErrorCode, ServiceError
+class TestPriorityClassification(unittest.TestCase):
+    def test_p1_threshold(self):
+        self.assertEqual(_classify_priority(4.0), "P1")
+        # ...
 
-
-class TestClinicalJustification(FrappeTestCase):
-    def setUp(self):
-        self.doc = make_needs_request_doc(
-            request_type="New",
-            requesting_department="ICU",
-        )
-
-    def test_validate_ok_200_chars(self):
-        self.doc.clinical_justification = "A" * 200
-        _vr03_clinical_justification(self.doc)  # không raise
-
-    def test_validate_fail_50_chars(self):
-        self.doc.clinical_justification = "A" * 50
-        with self.assertRaises(ServiceError) as ctx:
-            _vr03_clinical_justification(self.doc)
-        self.assertEqual(ctx.exception.code, ErrorCode.VALIDATION)
-        self.assertIn("VR-01-03", str(ctx.exception))
-
-
-class TestComputePriorityScore(FrappeTestCase):
-    def test_compute_p1_score(self):
-        doc = make_needs_request_doc()
-        doc.scoring_rows = [
-            make_scoring_row("clinical_impact",    5),
-            make_scoring_row("risk",               5),
-            make_scoring_row("utilization_gap",    4),
-            make_scoring_row("replacement_signal", 5),
-            make_scoring_row("compliance_gap",     3),
-            make_scoring_row("budget_fit",         3),
-        ]
-        result = compute_priority_score(doc)
-        self.assertAlmostEqual(result, 4.30, places=2)
+class TestComputePriorityScore(unittest.TestCase):
+    def test_all_max_yields_5(self):
+        doc = _make_doc([
+            {"criterion": k, "score": 5, "weight_pct": None, "weighted": None}
+            for k in DEFAULT_PRIORITY_WEIGHTS
+        ])
+        _compute_priority_score(doc)
+        self.assertEqual(doc.weighted_score, 5.0)
         self.assertEqual(doc.priority_class, "P1")
-
-    def test_compute_fail_missing_row(self):
-        doc = make_needs_request_doc()
-        doc.scoring_rows = [make_scoring_row("clinical_impact", 5)]  # only 1
-        with self.assertRaises(ServiceError) as ctx:
-            compute_priority_score(doc)
-        self.assertEqual(ctx.exception.code, ErrorCode.VALIDATION)
-
-
-class TestGateG03(FrappeTestCase):
-    def test_g03_pass_full_capex_opex(self):
-        doc = make_needs_request_doc_with_full_budget()
-        validate_gate_g03(doc)  # không raise
-
-    def test_g03_fail_missing_opex_year4(self):
-        doc = make_needs_request_doc_missing_opex_year(4)
-        with self.assertRaises(ServiceError) as ctx:
-            validate_gate_g03(doc)
-        self.assertEqual(ctx.exception.code, ErrorCode.BUSINESS_RULE)
-        self.assertIn("G03", str(ctx.exception))
 ```
 
-## I.3. Integration Test — DocType Lifecycle
+> Run: `bench --site miyano run-tests --app assetcore --module assetcore.tests.test_imm01`. Test sử dụng `SimpleNamespace` (không DB), an toàn chạy offline.
 
-**File:** `assetcore/tests/test_imm_needs_request_doctype.py`
+## I.3. Integration Test — DocType Lifecycle (planned)
+
+**File (roadmap):** `assetcore/tests/test_imm_needs_request_doctype.py` — chưa tạo.
 
 | Test | Setup | Action | Assert |
 |---|---|---|---|
@@ -131,9 +91,9 @@ class TestGateG03(FrappeTestCase):
 | `test_on_submit_creates_audit_trail` | NR approved | `doc.submit()` | `IMM Audit Trail` record exists |
 | `test_roll_into_plan_creates_plan` | 3 Approved NR | `roll_into_procurement_plan()` | `IMM Procurement Plan` tạo; plan_items sorted by score desc |
 
-## I.4. Workflow Tests
+## I.4. Workflow Tests (planned)
 
-**File:** `assetcore/tests/test_imm01_workflow.py`
+**File (roadmap):** `assetcore/tests/test_imm01_workflow.py` — chưa tạo.
 
 | Transition | From → To | Role required | Test |
 |---|---|---|---|
@@ -148,9 +108,9 @@ class TestGateG03(FrappeTestCase):
 | Từ chối | Pending Approval → Rejected | IMM Board Approver | pass + fail(no rejection_reason) |
 | Yêu cầu chỉnh dự toán | Pending Approval → Budgeted | IMM Board Approver | pass |
 
-## I.5. API Tests
+## I.5. API Tests (planned)
 
-**File:** `assetcore/tests/test_imm01_api.py`
+**File (roadmap):** `assetcore/tests/test_imm01_api.py` — chưa tạo.
 
 | Test | Endpoint | Verify |
 |---|---|---|
@@ -270,10 +230,12 @@ class TestGateG03(FrappeTestCase):
 | Rate limit | ⚠️ Roadmap | Cần cấu hình cho `create_needs_request`, `approve_needs_request` |
 | Permlevel 1 | ✅ | funding_source, funding_evidence, board_approver chỉ TCKT + PTP + VP |
 
-## III.4. Row-level Permission
+## III.4. Row-level Permission (planned)
+
+> Hiện chưa có `permission_query_conditions` cho `IMM Needs Request` trong `hooks.py`. DocPerm cấp module-wide (xem 04 §II.1). Roadmap snippet:
 
 ```python
-# assetcore/permissions.py  ⚠️ Pending implementation — Wave 2
+# assetcore/permissions.py  ⬜ Planned
 def needs_request_query(user):
     """Department User chỉ thấy NR của khoa mình."""
     if frappe.has_role("IMM Department Head", user) or \

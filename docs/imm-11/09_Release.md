@@ -3,10 +3,10 @@
 | Mục | Giá trị |
 |---|---|
 | Module | **IMM-11 — Hiệu chuẩn (Calibration)** |
-| Phiên bản | 0.1.0-draft |
-| Ngày cập nhật | 2026-05-08 |
+| Phiên bản | 1.1.0 |
+| Ngày cập nhật | 2026-05-14 |
 | Owner | PM + BA + Tech Writer |
-| Trạng thái | ⚠️ DRAFT — ahead-of-code; User Guide mô tả trải nghiệm dự kiến khi implement |
+| Trạng thái | ✅ Live — User Guide đối ứng đúng UI hiện tại; screenshot UI sẽ bổ sung sau UAT |
 | Liên kết | [07 Testing QA](./07_Testing_QA.md) · [08 Deployment](./08_Deployment.md) · [Functional Specs](./IMM-11_Functional_Specs.md) |
 
 ---

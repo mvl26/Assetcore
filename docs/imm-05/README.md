@@ -34,7 +34,7 @@
 - [`02_Analysis_Design.md`](./02_Analysis_Design.md) — Phân tích nghiệp vụ + Use Case + Functional Specs + NFR
 - [`03_Diagrams.md`](./03_Diagrams.md) — ERD + Class Diagram + Sequence Diagram + Package Diagram
 - [`04_Backend_Design.md`](./04_Backend_Design.md) — DocType + Workflow + Service + API + Scheduler
-- [`05_API_Specification.md`](./05_API_Specification.md) — API Catalog + 14 endpoints + Envelope chuẩn
+- [`05_API_Specification.md`](./05_API_Specification.md) — API Catalog + 15 endpoints + Envelope chuẩn
 - [`06_Frontend_Design.md`](./06_Frontend_Design.md) — Sitemap + Mockup + Components + Pinia + UX rules
 
 ### Files tham chiếu (giữ trong module)

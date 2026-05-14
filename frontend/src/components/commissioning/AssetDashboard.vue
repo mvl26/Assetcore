@@ -70,36 +70,32 @@ onMounted(async () => {
 function stateClass(state: string): string {
   const map: Record<string, string> = {
     Draft: 'bg-gray-100 text-gray-700',
-    Reception: 'bg-blue-100 text-blue-700',
-    Site_Preparation: 'bg-yellow-100 text-yellow-700',
+    'Pending Doc Verify': 'bg-blue-100 text-blue-700',
+    'To Be Installed': 'bg-yellow-100 text-yellow-700',
+    Installing: 'bg-yellow-100 text-yellow-700',
     Identification: 'bg-purple-100 text-purple-700',
-    Baseline_Safety: 'bg-orange-100 text-orange-700',
-    Pending_Release: 'bg-indigo-100 text-indigo-700',
-    Clinical_Release: 'bg-green-100 text-green-700',
-    Commissioned: 'bg-emerald-100 text-emerald-700',
-    Return_To_Vendor: 'bg-red-100 text-red-700',
-    Radiation_Hold: 'bg-pink-100 text-pink-700',
+    'Initial Inspection': 'bg-orange-100 text-orange-700',
+    'Non Conformance': 'bg-red-100 text-red-700',
+    'Clinical Hold': 'bg-pink-100 text-pink-700',
+    'Re Inspection': 'bg-indigo-100 text-indigo-700',
+    'Clinical Release': 'bg-green-100 text-green-700',
+    'Return To Vendor': 'bg-red-100 text-red-700',
   }
   return map[state] ?? 'bg-gray-100 text-gray-600'
 }
 
 const STATE_LABELS: Record<string, string> = {
   Draft: 'Nháp',
-  Reception: 'Tiếp nhận',
-  Site_Preparation: 'Chuẩn bị hiện trường',
-  Identification: 'Nhận dạng',
-  Baseline_Safety: 'Kiểm tra an toàn',
-  Pending_Release: 'Chờ phê duyệt',
-  Clinical_Release: 'Phát hành lâm sàng',
-  Commissioned: 'Đã đưa vào sử dụng',
-  Return_To_Vendor: 'Trả nhà cung cấp',
-  Radiation_Hold: 'Tạm giữ phóng xạ',
+  'Pending Doc Verify': 'Chờ kiểm tra hồ sơ',
+  'To Be Installed': 'Chờ lắp đặt',
   Installing: 'Đang lắp đặt',
-  Initial_Inspection: 'Kiểm tra ban đầu',
-  Clinical_Hold: 'Tạm giữ lâm sàng',
-  Re_Inspection: 'Kiểm tra lại',
-  Pending_Doc_Verify: 'Chờ kiểm tra hồ sơ',
-  To_Be_Installed: 'Chờ lắp đặt',
+  Identification: 'Nhận dạng',
+  'Initial Inspection': 'Kiểm tra ban đầu',
+  'Non Conformance': 'Không phù hợp',
+  'Clinical Hold': 'Tạm giữ lâm sàng',
+  'Re Inspection': 'Kiểm tra lại',
+  'Clinical Release': 'Phát hành lâm sàng',
+  'Return To Vendor': 'Trả nhà cung cấp',
 }
 function stateLabel(state: string | null | undefined = 'Draft'): string {
   const s = state || 'Draft'

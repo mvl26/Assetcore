@@ -3,13 +3,47 @@
 | Mục | Giá trị |
 |---|---|
 | Module | **IMM-16 — Compliance Monitoring & CAPA** |
-| Phiên bản | 1.0.0 |
-| Ngày cập nhật | 2026-05-08 |
+| Phiên bản | 1.0.0-rc.2 |
+| Ngày cập nhật | 2026-05-14 |
 | Owner | DevOps + Tech Lead + QMS Officer |
 | Liên kết | [07 Testing QA](./07_Testing_QA.md) · [Module Overview](./IMM-16_Module_Overview.md) |
-| Wave | 3 — PLANNED |
+| Wave | 2 — IMPLEMENTED |
 
-> ⚠️ Pending implementation — Wave 3. Toàn bộ tài liệu này là planning artifact — chưa có code/migration thực tế.
+> ✅ IMPLEMENTED — Wave 2. Code đã merge trên `feature/hieuc/wave-2` (commit `4b4b0db`). Tài liệu này song hành với release tag `v1.0.0-rc.2`.
+
+---
+
+## §0 — Wired Artefacts (CURRENT, 2026-05-14)
+
+### Hooks (verified `assetcore/hooks.py`)
+
+`doc_events`:
+- `IMM Compliance Rule`, `IMM Compliance Finding`, `IMM CAPA Record` — `validate`, `before_submit`, `on_update` mapped to `assetcore.services.imm16.compliance_rule_validate / compliance_finding_validate / capa_record_validate / capa_record_before_submit / capa_record_on_update`
+- `IMM Internal Audit` — `validate`: `validate_internal_audit`, `on_update`: `on_update_internal_audit`
+- `IMM Compliance Scorecard` — `validate`: `validate_scorecard_immutability`
+- WO submit gate: `validate`: `gate_wo_submit` (IMM PM Work Order, IMM Repair Work Order)
+- Real-time eval: `eval_imm04_realtime`, `eval_imm05_realtime`, `eval_imm08_09_realtime`, `eval_imm11_realtime`
+
+`scheduler_events`:
+- hourly: `evaluate_all_compliance_rules`, `check_capa_due`, `check_audit_milestones`, `run_compliance_evaluation_hourly`
+- daily: `update_compliance_scorecard`
+- weekly: `run_compliance_evaluation_weekly`, `check_management_review_due`
+
+### Fixtures (verified `assetcore/fixtures/`)
+
+- `imm16_custom_field_capa_record.json` — CAPA Record Custom Field
+- `workflow.json`, `workflow_state.json`, `workflow_action_master.json` — state machines Rule, Finding, CAPA, Internal Audit, Management Review, Scorecard
+- `role.json` — IMM QA Officer, IMM Auditor, IMM Management Reviewer
+
+### DocType folders (verified `assetcore/assetcore/doctype/`)
+
+`imm_compliance_rule`, `imm_compliance_finding`, `imm_compliance_scorecard`, `imm_capa_record`, `imm_capa_action_step`, `imm_internal_audit`, `imm_supplier_audit`, `imm_audit_checklist_item`, `imm_management_review`, `imm_scorecard_module_row`, `imm_scorecard_department_row`, `imm_vendor_scorecard`, `audit_finding`, `scorecard_kpi_row`.
+
+### Patches
+
+`assetcore/patches.txt` không chứa entry IMM-16 riêng — DocType + Custom Field load qua fixture. Data migration tương lai bổ sung `assetcore.patches.v3_2.NNN_*` nếu cần.
+
+> ⚠️ Các section còn lại là deployment plan template — §0 là source-of-truth.
 
 ---
 

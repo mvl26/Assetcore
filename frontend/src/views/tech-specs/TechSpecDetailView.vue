@@ -221,7 +221,7 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'infra',         label: '3. Tương thích hạ tầng' },
   { id: 'benchmark',     label: '4. Benchmark' },
   { id: 'lockin-action', label: '5. Đánh giá rủi ro' },
-  { id: 'lockin',        label: '6. Phụ thuộc NCC (xem)' },
+  { id: 'lockin',        label: '6. Phụ thuộc nhà cung cấp (xem)' },
 ]
 const tab = ref<TabId>('overview')
 

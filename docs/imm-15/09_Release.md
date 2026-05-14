@@ -1,14 +1,14 @@
 # IMM-15 — Release & User Guide
 
-> ⚠️ Pending implementation — Wave 3
+> ✅ Implemented — Wave 2 (feature/hieuc/wave-2). Đợi UAT sign-off để cut v1.0.0.
 
 | Thuộc tính | Giá trị |
 |---|---|
 | Module | IMM-15 — Spare Parts Inventory Tracking |
-| Phiên bản | 1.0.0-draft |
+| Phiên bản | 1.0.0-rc.2 |
 | Template | 09 Release |
-| Ngày cập nhật | 2026-05-08 |
-| Trạng thái | PLANNED — Wave 3 |
+| Ngày cập nhật | 2026-05-14 |
+| Trạng thái | IMPLEMENTED — Wave 2 (chờ UAT) |
 
 ---
 
@@ -270,9 +270,23 @@ Hai loại không liên quan và không thể gộp chung.
 
 ---
 
-## §IV — Release Notes v1.0.0
+## §IV — Release Notes
 
-### Tổng quan
+### v1.0.0-rc.2 — Wave 2 sync (2026-05-14)
+
+Sync cuối với branch `feature/hieuc/wave-2`. Tổng hợp các fix/optimize đã merge:
+
+- **BE**: 21 endpoint trong `assetcore/api/imm15.py` đã wire qua wrapper `_handle()` envelope `{success, data}`. Service `assetcore/services/imm15.py` (~1270 dòng) phủ 6 service group (allocation, cycle count, forecast, watchlist, dashboard, alerts).
+- **BE fix**: chỉnh `imm_spare_batch/imm_spare_batch.py` (controller validate). `api/imm00.py` sửa naming/gating helpers liên quan asset–spare linkage.
+- **Hooks**: dùng namespace phẳng `assetcore.services.imm15.<fn>` (xem 04 §V). Scheduler: daily 4 jobs + monthly forecast + cron quarterly ABC.
+- **Gate**: `IMM PM Work Order.before_submit` → `reserve_for_pm`; `IMM CM Work Order.before_submit` → `reserve_for_repair` (cùng tham gia gate IMM-16 `gate_wo_submit`).
+- **FE**: `frontend/src/api/imm15.ts` + `frontend/src/stores/imm15.ts` (defineStore composition-API). 13 view files dưới `frontend/src/views/inventory/` đã LIVE. Router dùng path domain (`/inventory`, `/spare-parts`, `/stock-movements`, `/warehouses`).
+- **Sidebar**: entry IMM-15 trong `MODULE_NAV` của `AppSidebar.vue`; tile trong `LauncherView.vue`.
+- **Wave-2 housekeeping**: bỏ suffix `Store` ở filename (`imm15Store.ts` → `imm15.ts`), chuẩn hoá toast/error envelope, fix list-view loading/error states.
+
+### v1.0.0 — original target
+
+Tổng quan
 
 IMM-15 v1.0.0 là lần phát hành đầu tiên của module **Theo dõi tồn kho phụ tùng y tế chiến lược**. Module này xây dựng trên nền tảng AC Inventory Backbone (Wave 1) đã hoạt động.
 
@@ -428,4 +442,4 @@ NFR coverage (33%) tăng lên khi có k6 load test chạy đủ trong CI/CD pipe
 
 ---
 
-*IMM-15 Module — Wave 3 PLANNED. Release & User Guide v1.0.0-draft. Cập nhật 2026-05-08.*
+*IMM-15 Module — Wave 2 IMPLEMENTED. Release & User Guide v1.0.0-rc.2. Cập nhật 2026-05-14.*

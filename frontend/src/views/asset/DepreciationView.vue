@@ -1,64 +1,18 @@
 <script setup lang="ts">
 // Copyright (c) 2026, AssetCore Team
-// — Depreciation & Asset Accounting
+// IMM-00 — Asset Finance / Depreciation Hub
 import { ref, computed, onMounted } from 'vue'
-import { frappeGet, frappePost } from '@/api/helpers'
 import PageHeader from '@/components/common/PageHeader.vue'
-
-// ─── Types ────────────────────────────────────────────────────────────────────
-interface AssetDeprRow {
-  name: string
-  asset_name: string
-  asset_category?: string
-  department?: string
-  purchase_date?: string
-  in_service_date?: string
-  gross_purchase_amount?: number
-  residual_value?: number
-  depreciation_method?: string
-  useful_life_years?: number
-  accumulated_depreciation?: number
-  current_book_value?: number
-  lifecycle_status?: string
-  configured?: boolean
-  pct_depreciated?: number
-}
-interface Stats {
-  total_assets: number
-  configured_count: number
-  unconfigured_count: number
-  fully_depreciated: number
-  total_gross: number
-  total_accumulated: number
-  total_book_value: number
-  overall_pct: number
-  by_method: { method: string; count: number }[]
-  by_category: { category: string; book_value: number }[]
-}
-interface ScheduleRow {
-  year: number
-  annual_depr: number
-  accumulated: number
-  book_value: number
-  is_current: boolean
-  is_future: boolean
-}
-interface Schedule {
-  name: string
-  asset_name: string
-  gross: number
-  residual: number
-  method: string
-  years: number
-  in_service: string
-  schedule: ScheduleRow[]
-}
-
-const BASE = '/api/method/assetcore.api.depreciation'
+import AssetDepreciationSchedule from '@/components/asset/AssetDepreciationSchedule.vue'
+import {
+  listAssetsDepreciation, getDepreciationStats,
+  computeDepreciation, computeAllDepreciation,
+  type AssetDepreciationRow, type DepreciationStats,
+} from '@/api/imm00'
 
 // ─── State ────────────────────────────────────────────────────────────────────
-const stats        = ref<Stats | null>(null)
-const rows         = ref<AssetDeprRow[]>([])
+const stats        = ref<DepreciationStats | null>(null)
+const rows         = ref<AssetDepreciationRow[]>([])
 const total        = ref(0)
 const page         = ref(1)
 const PAGE_SIZE    = 30
@@ -75,33 +29,28 @@ const toast         = ref('')
 const toastOk       = ref(true)
 
 const scheduleOpen   = ref(false)
-const schedule       = ref<Schedule | null>(null)
-const scheduleLoading = ref(false)
+const scheduleAsset  = ref<{ name: string; asset_name: string } | null>(null)
 
 // ─── Fetch ────────────────────────────────────────────────────────────────────
 async function loadStats() {
   statsLoading.value = true
   try {
-    stats.value = await frappeGet<Stats>(`${BASE}.get_depreciation_stats`)
+    stats.value = await getDepreciationStats()
   } finally { statsLoading.value = false }
 }
 
 async function loadList() {
   listLoading.value = true
   try {
-    const res = await frappeGet<{ items: AssetDeprRow[]; pagination: { total: number } }>(
-      `${BASE}.list_assets_depreciation`, {
-        page: page.value,
-        page_size: PAGE_SIZE,
-        method_filter:   methodFilter.value,
-        status_filter:   statusFilter.value,
-        category_filter: categoryFilter.value,
-      },
-    )
-    if (res) {
-      rows.value  = res.items || []
-      total.value = res.pagination?.total || 0
-    }
+    const res = await listAssetsDepreciation({
+      page: page.value,
+      page_size: PAGE_SIZE,
+      method_filter:   methodFilter.value,
+      status_filter:   statusFilter.value,
+      category_filter: categoryFilter.value,
+    })
+    rows.value  = res?.items || []
+    total.value = res?.pagination?.total || 0
   } finally { listLoading.value = false }
 }
 
@@ -117,8 +66,8 @@ function nextPage() { if (page.value * PAGE_SIZE < total.value) { page.value++; 
 async function computeOne(name: string) {
   computing.value = name
   try {
-    await frappeGet(`${BASE}.compute_one_depreciation`, { name })
-    showToast('Đã tính lại khấu hao', true)
+    await computeDepreciation(name)
+    showToast('Đã cập nhật khấu hao theo schedule', true)
     await Promise.all([loadStats(), loadList()])
   } catch (e: unknown) {
     showToast((e as Error).message || 'Lỗi tính khấu hao', false)
@@ -126,11 +75,14 @@ async function computeOne(name: string) {
 }
 
 async function computeAll() {
-  if (!confirm(`Tính lại khấu hao cho toàn bộ ${stats.value?.configured_count || 0} thiết bị đã cấu hình?`)) return
+  if (!confirm(`Sinh schedule còn thiếu và chạy các kỳ khấu hao đến hạn cho toàn bộ ${stats.value?.configured_count || 0} thiết bị đã cấu hình?`)) return
   computingAll.value = true
   try {
-    const res = await frappePost<{ updated: number; skipped: number }>(`${BASE}.compute_all_depreciation`)
-    showToast(`Cập nhật ${res?.updated || 0} thiết bị, bỏ qua ${res?.skipped || 0}`, true)
+    const res = await computeAllDepreciation()
+    showToast(
+      `Sinh mới ${res.generated_schedules} schedule · Chạy ${res.executed_rows} kỳ khấu hao · Cập nhật ${res.updated_assets} thiết bị`,
+      true,
+    )
     await Promise.all([loadStats(), loadList()])
   } catch (e: unknown) {
     showToast((e as Error).message || 'Lỗi tính khấu hao hàng loạt', false)
@@ -138,13 +90,9 @@ async function computeAll() {
 }
 
 // ─── Schedule modal ───────────────────────────────────────────────────────────
-async function openSchedule(name: string) {
-  scheduleOpen.value   = true
-  scheduleLoading.value = true
-  schedule.value       = null
-  try {
-    schedule.value = await frappeGet<Schedule>(`${BASE}.get_depreciation_schedule`, { name })
-  } finally { scheduleLoading.value = false }
+function openSchedule(row: AssetDepreciationRow) {
+  scheduleAsset.value = { name: row.name, asset_name: row.asset_name }
+  scheduleOpen.value  = true
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -174,14 +122,19 @@ function pctColor(pct?: number) {
 
 function methodLabel(m?: string) {
   const map: Record<string, string> = {
-    'Straight Line': 'Đường thẳng',
-    'Double Declining': 'Số dư giảm dần',
+    'Straight Line':       'Đường thẳng',
+    'Double Declining':    'Số dư giảm dần',
+    'Units of Production': 'Theo sản lượng',
   }
   return m ? (map[m] || m) : '—'
 }
+function freqLabel(f?: string) {
+  const map: Record<string, string> = { Monthly: 'Tháng', Quarterly: 'Quý', Yearly: 'Năm' }
+  return f ? (map[f] || f) : '—'
+}
 
 const maxCategoryValue = computed(() =>
-  Math.max(...(stats.value?.by_category?.map(c => c.book_value) || [1]), 1)
+  Math.max(...(stats.value?.by_category?.map(c => c.book_value) || [1]), 1),
 )
 
 onMounted(() => Promise.all([loadStats(), loadList()]))
@@ -189,7 +142,7 @@ onMounted(() => Promise.all([loadStats(), loadList()]))
 
 <template>
   <div class="page-container animate-fade-in">
-    <PageHeader title="Khấu hao thiết bị" subtitle="Theo dõi giá trị còn lại và lịch khấu hao toàn bộ danh mục">
+    <PageHeader title="Khấu hao tài sản" subtitle="IMM-00 — Theo dõi giá trị còn lại và lịch khấu hao theo kỳ">
       <template #actions>
         <button
           class="btn-primary flex items-center gap-2"
@@ -199,21 +152,20 @@ onMounted(() => Promise.all([loadStats(), loadList()]))
           <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
           </svg>
-          {{ computingAll ? 'Đang tính...' : 'Tính lại toàn bộ' }}
+          {{ computingAll ? 'Đang chạy...' : 'Sinh + chạy kỳ đến hạn' }}
         </button>
       </template>
     </PageHeader>
 
-    <!-- Toast -->
     <Transition name="fade">
       <div
-v-if="toast"
-           :class="['mb-4 px-4 py-3 rounded-lg text-sm font-medium', toastOk ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-700 border border-red-200']">
+        v-if="toast"
+        :class="['mb-4 px-4 py-3 rounded-lg text-sm font-medium', toastOk ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-700 border border-red-200']">
         {{ toast }}
       </div>
     </Transition>
 
-    <!-- KPI Cards -->
+    <!-- KPI -->
     <div v-if="statsLoading && !stats" class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
       <div v-for="i in 4" :key="i" class="card p-5 h-24 animate-pulse bg-slate-100" />
     </div>
@@ -232,7 +184,7 @@ v-if="toast"
       <div class="card p-5">
         <p class="text-xs font-medium text-slate-500 mb-1">Giá trị còn lại</p>
         <p class="text-2xl font-bold text-emerald-600">{{ vndShort(stats.total_book_value) }}</p>
-        <p class="text-xs text-slate-400 mt-1">{{ 100 - stats.overall_pct }}% giá trị</p>
+        <p class="text-xs text-slate-400 mt-1">{{ Math.max(0, 100 - stats.overall_pct).toFixed(1) }}% giá trị</p>
       </div>
       <div class="card p-5">
         <p class="text-xs font-medium text-slate-500 mb-1">Trạng thái cấu hình</p>
@@ -241,9 +193,8 @@ v-if="toast"
       </div>
     </div>
 
-    <!-- Charts row -->
+    <!-- Charts -->
     <div v-if="stats" class="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-6">
-<!-- Overall progress -->
       <div class="card p-5">
         <h3 class="text-sm font-semibold text-slate-700 mb-4">Tiến độ khấu hao tổng thể</h3>
         <div class="flex items-center justify-center mb-4">
@@ -251,10 +202,10 @@ v-if="toast"
             <svg viewBox="0 0 36 36" class="w-full h-full -rotate-90">
               <circle cx="18" cy="18" r="15.9" fill="none" stroke="#f1f5f9" stroke-width="3" />
               <circle
-cx="18" cy="18" r="15.9" fill="none"
-                      :stroke="pctColor(stats.overall_pct)" stroke-width="3"
-                      :stroke-dasharray="`${stats.overall_pct} ${100 - stats.overall_pct}`"
-                      stroke-linecap="round" />
+                cx="18" cy="18" r="15.9" fill="none"
+                :stroke="pctColor(stats.overall_pct)" stroke-width="3"
+                :stroke-dasharray="`${stats.overall_pct} ${100 - stats.overall_pct}`"
+                stroke-linecap="round" />
             </svg>
             <div class="absolute inset-0 flex flex-col items-center justify-center">
               <span class="text-2xl font-bold text-slate-900">{{ stats.overall_pct }}%</span>
@@ -263,22 +214,12 @@ cx="18" cy="18" r="15.9" fill="none"
           </div>
         </div>
         <div class="space-y-2 text-xs">
-          <div class="flex justify-between">
-            <span class="text-slate-500">Nguyên giá</span>
-            <span class="font-medium">{{ vndShort(stats.total_gross) }}</span>
-          </div>
-          <div class="flex justify-between text-amber-600">
-            <span>Đã khấu hao</span>
-            <span class="font-medium">{{ vndShort(stats.total_accumulated) }}</span>
-          </div>
-          <div class="flex justify-between text-emerald-600">
-            <span>Còn lại</span>
-            <span class="font-medium">{{ vndShort(stats.total_book_value) }}</span>
-          </div>
+          <div class="flex justify-between"><span class="text-slate-500">Nguyên giá</span><span class="font-medium">{{ vndShort(stats.total_gross) }}</span></div>
+          <div class="flex justify-between text-amber-600"><span>Đã khấu hao</span><span class="font-medium">{{ vndShort(stats.total_accumulated) }}</span></div>
+          <div class="flex justify-between text-emerald-600"><span>Còn lại</span><span class="font-medium">{{ vndShort(stats.total_book_value) }}</span></div>
         </div>
       </div>
 
-      <!-- By method -->
       <div class="card p-5">
         <h3 class="text-sm font-semibold text-slate-700 mb-4">Phương pháp khấu hao</h3>
         <div class="space-y-3">
@@ -290,28 +231,14 @@ cx="18" cy="18" r="15.9" fill="none"
               </div>
               <div class="h-2 bg-slate-100 rounded-full">
                 <div
-class="h-2 bg-blue-500 rounded-full"
-                     :style="`width:${Math.round(m.count / stats!.configured_count * 100)}%`" />
-              </div>
-            </div>
-          </div>
-          <div v-if="stats.unconfigured_count > 0" class="flex items-center gap-3">
-            <div class="flex-1">
-              <div class="flex justify-between mb-1">
-                <span class="text-xs text-slate-400">Chưa cấu hình</span>
-                <span class="text-xs">{{ stats.unconfigured_count }} TS</span>
-              </div>
-              <div class="h-2 bg-slate-100 rounded-full">
-                <div
-class="h-2 bg-slate-300 rounded-full"
-                     :style="`width:${Math.round(stats.unconfigured_count / stats.total_assets * 100)}%`" />
+                  class="h-2 bg-blue-500 rounded-full"
+                  :style="`width:${Math.round(m.count / stats!.total_assets * 100)}%`" />
               </div>
             </div>
           </div>
         </div>
       </div>
 
-      <!-- By category -->
       <div class="card p-5">
         <h3 class="text-sm font-semibold text-slate-700 mb-4">Giá trị còn lại theo danh mục</h3>
         <div class="space-y-2">
@@ -322,8 +249,8 @@ class="h-2 bg-slate-300 rounded-full"
             </div>
             <div class="h-1.5 bg-slate-100 rounded-full">
               <div
-class="h-1.5 bg-emerald-500 rounded-full"
-                   :style="`width:${Math.round(c.book_value / maxCategoryValue * 100)}%`" />
+                class="h-1.5 bg-emerald-500 rounded-full"
+                :style="`width:${Math.round(c.book_value / maxCategoryValue * 100)}%`" />
             </div>
           </div>
         </div>
@@ -339,6 +266,7 @@ class="h-1.5 bg-emerald-500 rounded-full"
             <option value="">Tất cả</option>
             <option value="Straight Line">Đường thẳng</option>
             <option value="Double Declining">Số dư giảm dần</option>
+            <option value="Units of Production">Theo sản lượng</option>
           </select>
         </div>
         <div>
@@ -354,9 +282,7 @@ class="h-1.5 bg-emerald-500 rounded-full"
         </div>
         <div>
           <label for="depr-category-filter" class="form-label">Danh mục</label>
-          <input
-id="depr-category-filter" v-model="categoryFilter" type="text" class="form-input w-full"
-                 placeholder="Lọc theo danh mục..." @input="applyFilters" />
+          <input id="depr-category-filter" v-model="categoryFilter" type="text" class="form-input w-full" placeholder="Lọc theo danh mục..." @input="applyFilters" />
         </div>
       </div>
     </div>
@@ -379,12 +305,12 @@ id="depr-category-filter" v-model="categoryFilter" type="text" class="form-input
             <tr>
               <th class="px-4 py-3 text-left text-xs font-semibold text-slate-500">Thiết bị</th>
               <th class="px-4 py-3 text-left text-xs font-semibold text-slate-500">Phương pháp</th>
-              <th class="px-4 py-3 text-left text-xs font-semibold text-slate-500 hidden md:table-cell">Ngày đưa vào SD</th>
-              <th class="px-4 py-3 text-left text-xs font-semibold text-slate-500 hidden lg:table-cell">Tuổi thọ</th>
+              <th class="px-4 py-3 text-left text-xs font-semibold text-slate-500 hidden md:table-cell">Bắt đầu KH</th>
+              <th class="px-4 py-3 text-left text-xs font-semibold text-slate-500 hidden lg:table-cell">Thời gian / Tần suất</th>
               <th class="px-4 py-3 text-right text-xs font-semibold text-slate-500">Nguyên giá</th>
               <th class="px-4 py-3 text-right text-xs font-semibold text-slate-500 hidden md:table-cell">Lũy kế KH</th>
               <th class="px-4 py-3 text-right text-xs font-semibold text-slate-500">Còn lại</th>
-              <th class="px-4 py-3 text-left text-xs font-semibold text-slate-500">% KH</th>
+              <th class="px-4 py-3 text-left text-xs font-semibold text-slate-500">Tiến độ</th>
               <th class="px-4 py-3" />
             </tr>
           </thead>
@@ -401,10 +327,13 @@ id="depr-category-filter" v-model="categoryFilter" type="text" class="form-input
                 <span v-else class="text-xs text-slate-400">Chưa cấu hình</span>
               </td>
               <td class="px-4 py-3 text-xs text-slate-500 hidden md:table-cell">
-                {{ a.in_service_date || '—' }}
+                {{ a.depreciation_start_date || a.in_service_date || '—' }}
               </td>
               <td class="px-4 py-3 text-xs text-slate-500 hidden lg:table-cell">
-                {{ a.useful_life_years ? a.useful_life_years + ' năm' : '—' }}
+                <template v-if="a.total_depreciation_months">
+                  {{ a.total_depreciation_months }} tháng · {{ freqLabel(a.depreciation_frequency) }}
+                </template>
+                <template v-else>—</template>
               </td>
               <td class="px-4 py-3 text-right text-sm font-medium text-slate-700">
                 {{ vnd(a.gross_purchase_amount) }}
@@ -416,30 +345,35 @@ id="depr-category-filter" v-model="categoryFilter" type="text" class="form-input
                 {{ vnd(a.current_book_value) }}
               </td>
               <td class="px-4 py-3">
-                <div v-if="a.configured" class="flex items-center gap-2 min-w-[80px]">
-                  <div class="flex-1 h-1.5 bg-slate-100 rounded-full">
-                    <div
-class="h-1.5 rounded-full transition-all"
-                         :style="`width:${pctBar(a.pct_depreciated)}%;background:${pctColor(a.pct_depreciated)}`" />
+                <div v-if="a.configured" class="min-w-[110px]">
+                  <div class="flex items-center gap-2">
+                    <div class="flex-1 h-1.5 bg-slate-100 rounded-full">
+                      <div
+                        class="h-1.5 rounded-full transition-all"
+                        :style="`width:${pctBar(a.pct_depreciated)}%;background:${pctColor(a.pct_depreciated)}`" />
+                    </div>
+                    <span class="text-xs text-slate-500 w-9 shrink-0">{{ a.pct_depreciated }}%</span>
                   </div>
-                  <span class="text-xs text-slate-500 w-9 shrink-0">{{ a.pct_depreciated }}%</span>
+                  <p class="text-[10px] text-slate-400 mt-0.5">
+                    {{ a.executed_periods }}/{{ a.total_periods }} kỳ
+                  </p>
                 </div>
                 <span v-else class="text-xs text-slate-300">—</span>
               </td>
               <td class="px-4 py-3">
                 <div class="flex items-center gap-2 justify-end">
                   <button
-v-if="a.configured"
-                          class="text-xs text-slate-500 hover:text-blue-600 font-medium transition-colors"
-                          @click="openSchedule(a.name)">
-                    Lịch KH
+                    v-if="a.configured"
+                    class="text-xs text-slate-500 hover:text-blue-600 font-medium transition-colors"
+                    @click="openSchedule(a)">
+                    Lịch khấu hao
                   </button>
                   <button
-v-if="a.configured"
-                          class="text-xs text-blue-600 hover:text-blue-800 font-medium disabled:opacity-40"
-                          :disabled="computing === a.name"
-                          @click="computeOne(a.name)">
-                    {{ computing === a.name ? '...' : 'Tính lại' }}
+                    v-if="a.configured"
+                    class="text-xs text-blue-600 hover:text-blue-800 font-medium disabled:opacity-40"
+                    :disabled="computing === a.name"
+                    @click="computeOne(a.name)">
+                    {{ computing === a.name ? '...' : 'Cập nhật' }}
                   </button>
                 </div>
               </td>
@@ -452,99 +386,38 @@ v-if="a.configured"
       <div v-if="total > PAGE_SIZE" class="flex items-center justify-between px-4 py-3 border-t border-slate-100 text-sm text-slate-500">
         <span>{{ (page - 1) * PAGE_SIZE + 1 }}–{{ Math.min(page * PAGE_SIZE, total) }} / {{ total }}</span>
         <div class="flex gap-2">
-          <button
-:disabled="page === 1"
-                  class="px-3 py-1 rounded border border-slate-200 disabled:opacity-40 hover:bg-slate-50"
-                  @click="prevPage">
-‹
-</button>
-          <button
-:disabled="page * PAGE_SIZE >= total"
-                  class="px-3 py-1 rounded border border-slate-200 disabled:opacity-40 hover:bg-slate-50"
-                  @click="nextPage">
-›
-</button>
+          <button :disabled="page === 1" class="px-3 py-1 rounded border border-slate-200 disabled:opacity-40 hover:bg-slate-50" @click="prevPage">‹</button>
+          <button :disabled="page * PAGE_SIZE >= total" class="px-3 py-1 rounded border border-slate-200 disabled:opacity-40 hover:bg-slate-50" @click="nextPage">›</button>
         </div>
       </div>
     </div>
 
-    <!-- Depreciation Schedule Modal -->
+    <!-- Schedule modal — reuse shared component (real per-period rows) -->
     <Transition name="fade">
       <div
-v-if="scheduleOpen" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
-           @click.self="scheduleOpen = false">
-        <div class="bg-white rounded-2xl w-full max-w-2xl max-h-[80vh] flex flex-col shadow-2xl">
-<!-- Modal header -->
+        v-if="scheduleOpen" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+        @click.self="scheduleOpen = false">
+        <div class="bg-white rounded-2xl w-full max-w-4xl max-h-[85vh] flex flex-col shadow-2xl">
           <div class="flex items-center justify-between px-6 py-4 border-b border-slate-100">
             <div>
-              <h2 class="font-semibold text-slate-800 text-base">Lịch khấu hao</h2>
-              <p v-if="schedule" class="text-xs text-slate-500 mt-0.5">{{ schedule.asset_name }}</p>
+              <h2 class="font-semibold text-slate-800 text-base">Lịch khấu hao theo kỳ</h2>
+              <p v-if="scheduleAsset" class="text-xs text-slate-500 mt-0.5">{{ scheduleAsset.asset_name }}</p>
             </div>
             <button
-class="p-1.5 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100"
-                    @click="scheduleOpen = false">
+              class="p-1.5 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100"
+              @click="scheduleOpen = false">
               <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
           </div>
-
-          <!-- Modal body -->
           <div class="overflow-y-auto flex-1 px-6 py-4">
-            <div v-if="scheduleLoading" class="text-center text-slate-400 py-8">Đang tải...</div>
-            <div v-else-if="schedule">
-              <!-- Summary -->
-              <div class="grid grid-cols-3 gap-3 mb-5 text-center">
-                <div class="bg-slate-50 rounded-lg p-3">
-                  <p class="text-[10px] text-slate-400 mb-1">Nguyên giá</p>
-                  <p class="text-sm font-semibold text-slate-700">{{ vnd(schedule.gross) }}</p>
-                </div>
-                <div class="bg-slate-50 rounded-lg p-3">
-                  <p class="text-[10px] text-slate-400 mb-1">Phương pháp</p>
-                  <p class="text-sm font-semibold text-slate-700">{{ methodLabel(schedule.method) }}</p>
-                </div>
-                <div class="bg-slate-50 rounded-lg p-3">
-                  <p class="text-[10px] text-slate-400 mb-1">Tuổi thọ</p>
-                  <p class="text-sm font-semibold text-slate-700">{{ schedule.years }} năm</p>
-                </div>
-              </div>
-
-              <!-- Schedule table -->
-              <table class="w-full text-sm">
-                <thead>
-                  <tr class="text-xs text-slate-400 border-b border-slate-100">
-                    <th class="py-2 text-left font-medium">Năm</th>
-                    <th class="py-2 text-right font-medium">KH năm</th>
-                    <th class="py-2 text-right font-medium">Lũy kế</th>
-                    <th class="py-2 text-right font-medium">Còn lại</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr
-v-for="r in schedule.schedule" :key="r.year"
-                      :class="['border-b border-slate-50',
-                                r.is_current ? 'bg-blue-50/60 font-medium' : '',
-                                r.is_future ? 'text-slate-400' : '']">
-                    <td class="py-2.5 text-left">
-                      {{ r.year }}
-                      <span
-v-if="r.is_current"
-                            class="ml-1.5 text-[10px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded-full">
-                        Năm nay
-                      </span>
-                    </td>
-                    <td class="py-2.5 text-right text-amber-600">{{ vnd(r.annual_depr) }}</td>
-                    <td class="py-2.5 text-right text-slate-500">{{ vnd(r.accumulated) }}</td>
-                    <td class="py-2.5 text-right text-emerald-600 font-semibold">{{ vnd(r.book_value) }}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
+            <AssetDepreciationSchedule v-if="scheduleAsset" :asset-name="scheduleAsset.name" />
           </div>
         </div>
       </div>
     </Transition>
-</div>
+  </div>
 </template>
 
 <style scoped>

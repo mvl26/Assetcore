@@ -6,25 +6,28 @@
 | Phạm vi | Per-module |
 | Owner | Tech Lead / BE Lead |
 | Liên kết | [02 Analysis & Design](./02_Analysis_Design.md) · [03 Diagrams](./03_Diagrams.md) · [05 API](./05_API_Specification.md) |
+| Cập nhật | 2026-05-14 |
 
 ---
 
 ## 1. Tổng quan kiến trúc
 
-IMM-08 bám kiến trúc **3-tier strict**: API → Controller/Scheduler → ORM/DB. Logic nghiệp vụ chứa trong controller `pm_work_order.py` và scheduler `tasks.py`. API layer (`api/imm08.py`) là thin wrapper dùng `_handle / _ok / _err`.
+IMM-08 bám kiến trúc **3-tier strict**: API (`api/imm08.py`) → Service (`services/imm08.py`) → Repository (`repositories/pm_repo.py`). Controller `pm_work_order.py` / `pm_schedule.py` chỉ delegate sang service (`validate_work_order`, `handle_work_order_submit`). API layer là thin wrapper dùng `_handle / _ok / _err`. Scheduler `generate_pm_work_orders_from_schedule` chạy daily.
 
 ```
 Browser/Client
     │ HTTP (token/sid)
     ▼
-api/imm08.py          ← 9 endpoints, thin wrapper
-    │ frappe.get_doc / db.*
-    ▼
-pm_work_order.py      ← validate + on_submit hooks (business logic)
-tasks.py              ← 2 scheduler jobs
+api/imm08.py            ← 23 endpoints, thin wrapper (_handle/_ok/_err)
     │
     ▼
-Frappe ORM + MariaDB  ← 6 DocTypes
+services/imm08.py       ← business logic (PMStatus / PMScheduleStatus enums)
+    │
+    ▼
+repositories/pm_repo.py ← 4 Repo (Schedule / WO / Template / TaskLog)
+    │
+    ▼
+Frappe ORM + MariaDB    ← 8 DocTypes (xem §2)
 ```
 
 > **Quy ước ngôn ngữ:** Code/fieldname tiếng Anh · Field label tiếng Việt · Error message tiếng Việt qua `frappe._()` · DTO mirror FE TypeScript types
@@ -150,18 +153,12 @@ File fixture: `assetcore/workflow/imm_08_pm_work_order_workflow.json` (optional 
 # assetcore/assetcore/doctype/pm_work_order/pm_work_order.py
 class PMWorkOrder(Document):
     def validate(self):
-        from assetcore.services.imm08 import (
-            validate_checklist_complete,
-            validate_photo_for_high_risk,
-            validate_cm_source,
-        )
-        validate_checklist_complete(self)    # BR-08-08
-        validate_photo_for_high_risk(self)  # BR-08-06
-        validate_cm_source(self)            # BR-08-02
+        from assetcore.services.imm08 import validate_work_order
+        validate_work_order(self)   # gộp BR-08-02 / 06 / 08
 
     def on_submit(self):
-        from assetcore.services.imm08 import complete_pm_work_order
-        complete_pm_work_order(self)
+        from assetcore.services.imm08 import handle_work_order_submit
+        handle_work_order_submit(self)
 ```
 
 ---
@@ -174,12 +171,15 @@ File: `assetcore/services/imm08.py`
 
 | Function | Input | Output | Side effect |
 |---|---|---|---|
-| `validate_checklist_complete(doc)` | PM Work Order doc | None | raise ServiceError BR-08-08 |
-| `validate_photo_for_high_risk(doc)` | PM Work Order doc | None | raise ServiceError BR-08-06 |
-| `validate_cm_source(doc)` | PM Work Order doc | None | raise ServiceError BR-08-02 |
-| `complete_pm_work_order(doc)` | PM Work Order doc | None | set_completion, update_schedule, update_asset, create_task_log, handle_failures |
-| `get_pm_dashboard_stats(year, month)` | int, int | dict | — |
-| `get_pm_calendar_events(year, month, ...)` | int, int, ... | dict | — |
+| `validate_work_order(doc)` | PM Work Order doc | None | raise ServiceError (BR-08-02/06/08 gộp) |
+| `handle_work_order_submit(doc)` | PM Work Order doc | None | set completion, advance PM Schedule, sync Asset, ghi PM Task Log, tạo CM nếu Fail-Major |
+| `submit_result(name, ...)` | str + kwargs | dict | đóng WO, chuyển status `Completed` |
+| `report_major_failure(pm_wo_name, *, failure_description)` | str + str | dict | set `Halted–Major Failure`, gọi `_create_cm_wo_from_failure` |
+| `reschedule(name, *, new_date, reason)` | str + str + str | dict | chuyển `Pending–Device Busy`, lưu reason |
+| `generate_pm_work_orders_from_schedule()` | — | dict | scheduler daily: tạo WO mới + đánh `Overdue` |
+| `create_pm_schedule_from_commissioning(doc)` | Asset Commissioning doc | str / None | tạo PM Schedule khi commissioning submit |
+| `get_dashboard_stats(*, year, month)` | int, int | dict | — |
+| `get_calendar(*, year, month, ...)` | int, int, ... | dict | — |
 
 ### Validators
 
@@ -209,10 +209,11 @@ def _validate_photo_for_high_risk(doc) -> None:
 from assetcore.services.shared.constants import ErrorCode
 from assetcore.services.shared.errors import ServiceError
 
-def complete_pm_work_order(doc) -> None:
-    """Complete PM WO: set completion, advance schedule, sync asset, create log, handle failures."""
-    if doc.docstatus == 1:
-        raise ServiceError(ErrorCode.BAD_STATE, "PM Work Order đã được Submit.")
+def handle_work_order_submit(doc) -> None:
+    """Trigger on_submit: chốt completion, advance PM Schedule, sync Asset,
+    ghi PM Task Log, sinh CM nếu Fail-Major."""
+    if doc.docstatus != 1:
+        raise ServiceError(ErrorCode.BAD_STATE, "PM Work Order chưa được Submit.")
     _set_completion(doc)
     _update_pm_schedule(doc)
     _update_asset_fields(doc)
@@ -224,30 +225,18 @@ def complete_pm_work_order(doc) -> None:
 
 ## 4b. Repository Layer
 
-Tham chiếu `frappe.get_all` / `frappe.get_doc` trực tiếp trong service vì module wave-1 đơn giản. Refactor sang repository class khi data > 50k WO.
+File `assetcore/repositories/pm_repo.py` định nghĩa 4 repository extends `BaseRepository`:
 
-Các DB access chính:
+| Repo | DocType | Dùng cho |
+|---|---|---|
+| `PMScheduleRepo` | `PM Schedule` | CRUD + scheduler query (`status=Active`, `next_due_date<=today+alert`) |
+| `PMWorkOrderRepo` | `PM Work Order` | CRUD + dashboard / calendar aggregate |
+| `PMChecklistTemplateRepo` | `PM Checklist Template` | Template CRUD + clone vào WO |
+| `PMTaskLogRepo` | `PM Task Log` | Audit-final insert sau khi WO Completed |
 
-```python
-# Trong tasks.py
-schedules = frappe.get_all(
-    "PM Schedule",
-    filters={"status": "Active", "next_due_date": ("<=", add_days(today(), alert))},
-    fields=["name", "asset_ref", "pm_type", "checklist_template", ...]
-)
+Service `imm08.py` gọi qua repository (`PMWorkOrderRepo.set_values`, `PMWorkOrderRepo.get`, …) — không `frappe.db.*` thô trừ ở scheduler `generate_pm_work_orders_from_schedule` (idempotency check).
 
-# Check existing WO (idempotent)
-existing = frappe.db.exists("PM Work Order", {
-    "pm_schedule": schedule.name,
-    "status": ("in", ["Open", "In Progress", "Pending–Device Busy"])
-})
-
-# Dashboard aggregate
-wos = frappe.get_all("PM Work Order",
-    filters={"due_date": ("between", [start, end])},
-    fields=["status", "completion_date", "due_date", "is_late"]
-)
-```
+Idempotency key scheduler: `(pm_schedule, status NOT IN [Completed, Cancelled])` — xem `generate_pm_work_orders_from_schedule` line 175.
 
 ---
 
@@ -321,26 +310,38 @@ Hash chain: sử dụng Frappe native `track_changes` trên PM Work Order. PM Ta
 ```python
 scheduler_events = {
     "daily": [
-        "assetcore.tasks.generate_pm_work_orders",   # 06:00
-        "assetcore.tasks.check_pm_overdue",          # 08:00
+        "assetcore.services.imm08.generate_pm_work_orders_from_schedule",
     ],
+}
+
+doc_events = {
+    "Asset Commissioning": {
+        "on_submit": [
+            "assetcore.services.imm08.create_pm_schedule_from_commissioning",
+            # ...
+        ],
+    },
+    "PM Work Order": {
+        "validate": "assetcore.services.imm16.gate_wo_submit",
+        "on_submit": "assetcore.services.imm16.eval_imm08_09_realtime",
+    },
 }
 ```
 
 | Job | Tần suất | Hook | Mục đích |
 |---|---|---|---|
-| `generate_pm_work_orders` | Daily 06:00 | `tasks.generate_pm_work_orders` | Tạo PM WO mới từ PM Schedule đến hạn |
-| `check_pm_overdue` | Daily 08:00 | `tasks.check_pm_overdue` | Mark Overdue + leo thang email |
+| `generate_pm_work_orders_from_schedule` | Daily | `services.imm08` | Sinh PM WO mới từ PM Schedule đến hạn + đánh `Overdue` cho WO quá ngày |
 
-**Idempotency key `generate`:** `(pm_schedule, status IN [Open, InProgress, PendingBusy])` — skip nếu đã tồn tại.
+**Idempotency key:** trong service đã check `(pm_schedule, status NOT IN [Completed, Cancelled])` → skip nếu đã tồn tại.
 
 ---
 
 ## 8. Integration
 
 **Module nội bộ:**
-- IMM-04 → IMM-08: `Asset Commissioning.on_submit` trong `services/imm04.py` tạo PM Schedule đầu tiên
-- IMM-08 → IMM-09: Halted–Major Failure hoặc Fail-Major → `frappe.get_doc({"doctype":"PM Work Order","wo_type":"Corrective",...}).insert()`
+- IMM-04 → IMM-08 (Pattern A): `Asset Commissioning.on_submit` → `assetcore.services.imm08.create_pm_schedule_from_commissioning` tạo PM Schedule đầu tiên (xem `hooks.py` §doc_events).
+- IMM-08 → IMM-09: Halted–Major Failure hoặc Fail-Major → `_create_cm_wo_from_failure(doc, priority)` insert một `Asset Repair` (doctype CM, không phải PM Work Order) với `source_pm_wo` liên kết. Function nằm trong `services/imm08.py:154`.
+- IMM-08 ↔ IMM-16 (Pattern C compliance gate): `PM Work Order.validate` gọi `imm16.gate_wo_submit(doc, method=None)` — gate raise ServiceError nếu CAPA Critical chặn. `on_submit` gọi `imm16.eval_imm08_09_realtime` để cập nhật scorecard.
 
 **Bên ngoài:**
 - Frappe Email Queue: daily summary + escalation email

@@ -3,10 +3,10 @@
 | Mục | Giá trị |
 |---|---|
 | Module | **IMM-12 — Sự cố & CAPA (Incident & Corrective Action)** |
-| Phiên bản | 0.1.0-draft |
-| Ngày cập nhật | 2026-05-08 |
+| Phiên bản | 1.2.0 |
+| Ngày cập nhật | 2026-05-14 |
 | Owner | QA Lead + Tech Lead |
-| Trạng thái | ⚠️ DRAFT — ahead-of-code; `Incident Report` + `IMM CAPA Record` (IMM-00) đã LIVE; `services/imm12.py`, `api/imm12.py`, `RCA Record` DocType chưa tồn tại |
+| Trạng thái | 🟡 BE/FE LIVE — `services/imm12.py`, `api/imm12.py` (14 endpoint), DocType `IMM RCA Record` đã có. Test cốt lõi tại `assetcore/tests/test_imm12.py` ✅. UAT/E2E/Pentest pending. |
 | Liên kết | [Module Overview](./IMM-12_Module_Overview.md) · [Functional Specs](./IMM-12_Functional_Specs.md) · [UAT Script](./IMM-12_UAT_Script.md) |
 
 ---

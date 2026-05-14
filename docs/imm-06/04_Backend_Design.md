@@ -7,7 +7,7 @@
 | Ngày cập nhật | 2026-05-08 |
 | Liên kết | [02 Analysis](./02_Analysis_Design.md) · [03 Diagrams](./03_Diagrams.md) · [05 API](./05_API_Specification.md) · [06 Frontend](./06_Frontend_Design.md) |
 
-> ⚠️ Pending implementation — Wave 2. Tài liệu này là thiết kế spec, chưa có code thực tế.
+> ✅ Implemented (Wave 2). Code ground truth: `assetcore/services/imm06.py`, `assetcore/api/imm06.py`, workflow fixtures `imm_06_session_workflow.json` + `imm_06_competency_workflow.json`, DocTypes `imm_training_program/session/participant` + `IMM User Competency`.
 
 ---
 
@@ -272,11 +272,10 @@
 
 ## §IV Service Layer (`assetcore/services/imm06.py`)
 
-> ⚠️ Pending implementation — file chưa tồn tại. Build mới hoàn toàn (không lặp tech-debt IMM-05).
+> ✅ Implemented — file đã có (~1.3k LOC). Snippets dưới đây thể hiện contract chính.
 
 ```python
 # assetcore/services/imm06.py
-# ⚠️ Pending implementation — Wave 2
 
 from assetcore.utils.errors import ServiceError, ErrorCode
 
@@ -446,7 +445,7 @@ def invalidate_authorization_cache(user: str, device_model: str) -> None:
 
 ## §V Controller Hooks (lifecycle)
 
-> ⚠️ Pending implementation
+> ✅ Implemented — controllers wire vào `validate`/`before_save`/`on_update` của Program/Session/Competency.
 
 ```python
 # assetcore/assetcore/doctype/imm_user_competency/imm_user_competency.py
@@ -576,11 +575,15 @@ class IMMTrainingProgram(Document):
 
 ---
 
-## §VII Schedulers (`assetcore/tasks.py`)
+## §VII Schedulers (`assetcore/services/imm06.py`)
 
-> ⚠️ Pending implementation — 4 jobs cần thêm vào `tasks.py`.
+> ✅ Implemented — service entries thực tế trong `assetcore/services/imm06.py` (KHÔNG ở `assetcore/tasks.py` — module không có file đó). Tên hàm ground truth (đã đăng ký trong `hooks.py:scheduler_events`):
+> - daily: `check_expiring_competencies`, `auto_expire_competencies`, `check_recertification_due`
+> - weekly: `generate_weekly_gap_report`
+>
+> Pseudocode bên dưới giữ nguyên ngữ nghĩa nhưng tên hàm tham chiếu theo ground truth.
 
-### Job 1: `check_competency_expiry()` — Daily 02:00
+### Job 1: `check_expiring_competencies()` — Daily 02:00
 
 **Mục đích:** Quét Active competency tại mốc 90/60/30 ngày trước `expiry_date` → set Expiring, gửi email, idempotent qua Alert Log.
 
@@ -602,7 +605,7 @@ For each milestone IN (90, 60, 30):
             If milestone == 60: trigger_recertification(comp.name) if no Refresher Planned
 ```
 
-### Job 2: `auto_expire_competency()` — Daily 02:30
+### Job 2: `auto_expire_competencies()` — Daily 02:30
 
 **Mục đích:** Tự động set Expired cho competency quá hạn. Vô hiệu hóa quyền vận hành (via cache invalidate).
 
@@ -641,7 +644,7 @@ Send digest email Tổ HC-QLCL:
     "{len(due_comps)} người cần tái chứng nhận trong 60 ngày. {len(created)} phiên mới tạo."
 ```
 
-### Job 4: `generate_competency_gap_report()` — Weekly Monday 02:00
+### Job 4: `generate_weekly_gap_report()` — Weekly Monday 02:00
 
 **Mục đích:** Tính coverage operator per (department × device_class) → tạo Gap Report + email.
 
@@ -659,25 +662,24 @@ Send email IMM Workshop Lead + VP Block2:
 
 ## §VIII Hooks.py Registration
 
-> ⚠️ Pending implementation — thêm vào `assetcore/hooks.py`
+> ✅ Implemented trong `assetcore/hooks.py` (verify khi sync fixtures).
 
 ```python
-# assetcore/hooks.py — các entries cần thêm cho IMM-06
+# assetcore/hooks.py — entries thực tế cho IMM-06 (đã đăng ký, Wave-2)
 
 scheduler_events = {
     "daily": [
-        # ... existing IMM-05 entries ...
-        # IMM-06 — thêm mới
-        "assetcore.tasks.check_competency_expiry",
-        "assetcore.tasks.auto_expire_competency",
-        "assetcore.tasks.check_recertification_due",
+        # ... existing entries ...
+        # IMM-06 Training & Competency
+        "assetcore.services.imm06.check_expiring_competencies",
+        "assetcore.services.imm06.auto_expire_competencies",
+        # IMM-06 recertification check
+        "assetcore.services.imm06.check_recertification_due",
     ],
-    "cron": {
-        # IMM-06: weekly Monday 02:00 VN time
-        "0 2 * * 1": [
-            "assetcore.tasks.generate_competency_gap_report",
-        ],
-    },
+    "weekly": [
+        # IMM-06 weekly gap report
+        "assetcore.services.imm06.generate_weekly_gap_report",
+    ],
 }
 
 doc_events = {
@@ -719,7 +721,7 @@ fixtures = [
 **SQL DDL:**
 
 ```sql
--- ⚠️ Pending implementation — chạy qua bench migrate sau khi DocType scaffold
+-- DDL — verify đã apply qua bench migrate (DocType đã ship Wave 2)
 
 CREATE INDEX idx_comp_user_model_state
   ON `tabIMM User Competency` (user, device_model, workflow_state);
