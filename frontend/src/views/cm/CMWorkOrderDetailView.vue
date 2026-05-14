@@ -293,14 +293,42 @@ Phiếu bảo trì {{ wo.source_pm_wo }} →
         <!-- SLA Indicator -->
         <div class="bg-white rounded-xl shadow-sm border p-5">
           <h2 class="font-semibold text-slate-700 mb-3 text-sm">Chỉ số SLA</h2>
-          <div class="flex items-center justify-between mb-1">
-            <span class="text-xs text-slate-500">Đã trôi: {{ (elapsed / 3600).toFixed(1) }}h / {{ wo.sla_target_hours || '—' }}h SLA</span>
-            <span :class="['text-xs font-semibold', slaTextColor]">{{ slaPercent }}%</span>
-          </div>
-          <div class="h-3 bg-slate-100 rounded-full overflow-hidden mb-2">
-            <div :class="['h-3 rounded-full transition-all', slaBarColor]" :style="{ width: `${slaPercent}%` }" />
-          </div>
-          <div class="text-center font-mono text-xl font-bold text-slate-700 mt-2">{{ elapsedDisplay }}</div>
+
+          <!-- WO đã đóng: kết quả cuối, không có timer/progress -->
+          <template v-if="['Completed', 'Cannot Repair', 'Cancelled'].includes(wo.status)">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-xs text-slate-500">Thời gian sửa chữa (TTR)</span>
+              <span class="text-xs text-slate-500">SLA target</span>
+            </div>
+            <div class="flex items-center justify-between mb-3">
+              <span :class="['text-xl font-bold font-mono', wo.sla_breached ? 'text-red-600' : 'text-emerald-600']">
+                {{ wo.mttr_hours != null ? `${wo.mttr_hours}h` : '—' }}
+              </span>
+              <span class="text-slate-400 text-sm">/</span>
+              <span class="text-xl font-bold font-mono text-slate-700">{{ wo.sla_target_hours ?? '—' }}h</span>
+            </div>
+            <div class="flex items-center justify-center gap-2 py-2 rounded-lg"
+                 :class="wo.sla_breached ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'">
+              <span class="text-base font-semibold">
+                {{ wo.sla_breached ? '✗ Vi phạm SLA' : '✓ Đạt SLA' }}
+              </span>
+            </div>
+            <div v-if="wo.status !== 'Completed'" class="text-xs text-center text-slate-400 mt-2">
+              ({{ wo.status === 'Cancelled' ? 'Phiếu đã huỷ' : 'Không thể sửa chữa' }})
+            </div>
+          </template>
+
+          <!-- WO active: timer + progress bar -->
+          <template v-else>
+            <div class="flex items-center justify-between mb-1">
+              <span class="text-xs text-slate-500">Đã trôi: {{ (elapsed / 3600).toFixed(1) }}h / {{ wo.sla_target_hours || '—' }}h SLA</span>
+              <span :class="['text-xs font-semibold', slaTextColor]">{{ slaPercent }}%</span>
+            </div>
+            <div class="h-3 bg-slate-100 rounded-full overflow-hidden mb-2">
+              <div :class="['h-3 rounded-full transition-all', slaBarColor]" :style="{ width: `${slaPercent}%` }" />
+            </div>
+            <div class="text-center font-mono text-xl font-bold text-slate-700 mt-2">{{ elapsedDisplay }}</div>
+          </template>
         </div>
 
         <!-- Kỹ thuật viên & Timeline -->
@@ -324,7 +352,7 @@ Phiếu bảo trì {{ wo.source_pm_wo }} →
               <span class="text-slate-700">{{ wo.completion_datetime?.slice(0,16) }}</span>
             </div>
             <div v-if="wo.mttr_hours" class="flex justify-between">
-              <span class="text-slate-500">MTTR (thời gian sửa chữa):</span>
+              <span class="text-slate-500">Thời gian sửa chữa (TTR):</span>
               <span :class="['font-semibold', wo.sla_breached ? 'text-red-600' : 'text-green-600']">{{ wo.mttr_hours }}h</span>
             </div>
           </div>

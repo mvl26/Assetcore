@@ -96,6 +96,7 @@ def after_install() -> None:
     _seed_module_profiles()
     _apply_core_permissions()
     _build_frontend(force=True)
+    _patch_nginx()
 
 
 def before_migrate() -> None:
@@ -256,6 +257,18 @@ def _build_frontend(force: bool = False) -> None:
         build_frontend(force=force)
     except Exception:
         frappe.log_error(frappe.get_traceback(), "AssetCore FE build failed")
+
+
+def _patch_nginx() -> None:
+    """Patch bench nginx.conf để serve FE tại '/'. Không raise exception."""
+    try:
+        import os
+        from assetcore.setup.setup_frontend import patch_nginx_conf, _bench_dir, _frontend_path
+        bench = _bench_dir()
+        dist = os.path.join(_frontend_path(), "dist")
+        patch_nginx_conf(bench, dist)
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "AssetCore nginx patch failed")
 
 
 def _clear_role_profile_has_role_rows() -> None:
