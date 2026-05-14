@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AssetCore</title>
+  {% if build_missing %}
+  <style>
+    body { font-family: sans-serif; display: flex; align-items: center;
+           justify-content: center; height: 100vh; margin: 0; background: #f8fafc; }
+    .msg { text-align: center; color: #374151; }
+    code { background: #e5e7eb; padding: 2px 6px; border-radius: 4px; font-size: 0.9em; }
+  </style>
+  {% else %}
+  {% for src in style_srcs %}<link rel="stylesheet" href="{{ src }}">{% endfor %}
+  {% endif %}
+</head>
+<body>
+  {% if build_missing %}
+  <div class="msg">
+    <h2>AssetCore frontend chưa được build</h2>
+    <p>Chạy: <code>cd frontend &amp;&amp; npm run build</code></p>
+  </div>
+  {% else %}
+  <div id="app"></div>
+  <script type="module" src="{{ script_src }}"></script>
+  {% endif %}
+</body>
+</html>
