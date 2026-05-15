@@ -5,7 +5,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import {
   listRepairWorkOrders, getRepairWorkOrder, assignTechnician,
-  submitDiagnosis, closeWorkOrder, getRepairKPIs, getAssetRepairHistory,
+  submitDiagnosis, closeWorkOrder, confirmInspection, getRepairKPIs, getAssetRepairHistory,
   requestSpareParts, startRepair, getMttrReport, createRepairWorkOrder,
   searchSpareParts,
   type AssetRepair, type RepairKPIs, type MttrReport, type SparePartRow,
@@ -93,6 +93,17 @@ export const useImm09Store = defineStore('imm09', () => {
     }
   }
 
+  async function doConfirmInspection(woName: string): Promise<boolean> {
+    try {
+      await confirmInspection(woName)
+      await fetchWorkOrder(woName)
+      return true
+    } catch (e: unknown) {
+      error.value = e instanceof Error ? e.message : String(e)
+      return false
+    }
+  }
+
   async function fetchKPIs(year?: number, month?: number) {
     try {
       kpis.value = await getRepairKPIs(year, month)
@@ -160,7 +171,7 @@ export const useImm09Store = defineStore('imm09', () => {
     workOrders, currentWO, kpis, repairHistory, mttrReport, loading, error, pagination,
     openWOs, breachedWOs, checklistComplete,
     fetchWorkOrders, fetchWorkOrder, updateChecklistResult,
-    doAssignTechnician, doSubmitDiagnosis, doCloseWorkOrder,
+    doAssignTechnician, doSubmitDiagnosis, doCloseWorkOrder, doConfirmInspection,
     fetchKPIs, fetchRepairHistory, fetchMttrReport, doSaveParts, doStartRepair,
     doCreateRepairWorkOrder, doSearchSpareParts,
   }

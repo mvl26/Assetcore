@@ -849,6 +849,73 @@ def version_template(source_name: str, new_version: str) -> dict:
     return {"name": new_doc.name, "version": new_version}
 
 
+def apply_template_to_category_assets(template_name: str) -> dict:
+    """Bulk-tạo PM Schedule cho mọi AC Asset thuộc danh mục của template.
+
+    Logic:
+        - Bỏ qua asset đã Decommissioned/Disposed.
+        - Bỏ qua asset đã có PM Schedule cùng pm_type (giữ nguyên lịch hiện hữu).
+        - Lấy pm_interval_days từ AC Asset Category.default_pm_interval_days
+          (fallback 180 nếu trống).
+        - PM Schedule mới sẽ tự kích hoạt on_update → tạo WO nếu đến hạn.
+    """
+    template = PMChecklistTemplateRepo.get(template_name)
+    if not template:
+        raise ServiceError(ErrorCode.NOT_FOUND,
+                           f"PM Checklist Template '{template_name}' không tồn tại")
+    if not template.asset_category:
+        raise ServiceError(ErrorCode.VALIDATION,
+                           "Template chưa gán Danh mục tài sản")
+    category_defaults = frappe.db.get_value(
+        "AC Asset Category", template.asset_category,
+        ["default_pm_required", "default_pm_interval_days"],
+        as_dict=True,
+    ) or {}
+    interval = int(category_defaults.get("default_pm_interval_days") or 180)
+
+    assets = frappe.get_all(
+        "AC Asset",
+        filters={
+            "asset_category": template.asset_category,
+            "lifecycle_status": ["not in", ["Decommissioned", "Disposed"]],
+        },
+        fields=["name", "commissioning_date"],
+        limit_page_length=10_000,
+    )
+    created, skipped, errors = [], [], []
+    for asset in assets:
+        if PMScheduleRepo.exists({"asset_ref": asset["name"], "pm_type": template.pm_type}):
+            skipped.append(asset["name"])
+            continue
+        try:
+            base_date = asset.get("commissioning_date") or nowdate()
+            payload = {
+                "asset_ref": asset["name"],
+                "pm_type": template.pm_type,
+                "pm_interval_days": interval,
+                "checklist_template": template.name,
+                "alert_days_before": 7,
+                "status": PMScheduleStatus.ACTIVE,
+                "last_pm_date": base_date,
+                "next_due_date": add_days(getdate(base_date), interval),
+            }
+            doc = PMScheduleRepo.create(payload, ignore_permissions=True)
+            created.append(doc.name)
+        except Exception as exc:
+            frappe.log_error(frappe.get_traceback(),
+                             f"apply_template_to_category_assets {asset['name']}")
+            errors.append(f"{asset['name']}: {exc}")
+    frappe.db.commit()
+    return {
+        "template": template.name,
+        "asset_category": template.asset_category,
+        "total_assets": len(assets),
+        "created": len(created),
+        "skipped_existing": len(skipped),
+        "errors": len(errors),
+    }
+
+
 def delete_template(name: str) -> dict:
     if not PMChecklistTemplateRepo.exists(name):
         raise ServiceError(ErrorCode.NOT_FOUND,
@@ -864,6 +931,99 @@ def delete_template(name: str) -> dict:
 # ─── Hook từ IMM-04 Commissioning ────────────────────────────────────────────
 
 _PM_TYPE_FROM_INTERVAL = [(91, "Quarterly"), (183, "Semi-Annual"), (366, "Annual")]
+
+
+def _resolve_checklist_template(asset_category: str | None, pm_type: str) -> str | None:
+    """Tìm PM Checklist Template khớp danh mục — ưu tiên đúng pm_type, fallback
+    bất kỳ template cùng danh mục."""
+    if not asset_category:
+        return None
+    return (
+        frappe.db.get_value(
+            "PM Checklist Template",
+            {"asset_category": asset_category, "pm_type": pm_type},
+            "name",
+        )
+        or frappe.db.get_value(
+            "PM Checklist Template", {"asset_category": asset_category}, "name"
+        )
+    )
+
+
+def create_pm_schedule_from_asset(asset_doc) -> str | None:
+    """Hook: AC Asset after_insert → tạo PM Schedule nếu user tick `is_pm_required`.
+
+    Cho phép tạo lịch bảo trì NGAY khi tạo tài sản trực tiếp (không bắt buộc
+    qua luồng Commissioning). Điều kiện:
+        - asset_doc.is_pm_required = 1
+        - Có PM Checklist Template cho asset_category (nếu chưa có → bỏ qua,
+          KHÔNG throw để tránh vỡ thao tác tạo asset).
+        - Chưa tồn tại PM Schedule cùng pm_type cho asset (tránh trùng).
+    """
+    if not getattr(asset_doc, "is_pm_required", 0):
+        return None
+
+    interval = int(asset_doc.get("pm_interval_days") or 0)
+    if interval <= 0:
+        # Fallback từ Device Model nếu asset chưa nhập chu kỳ.
+        device_model = asset_doc.get("device_model")
+        if device_model:
+            interval = int(
+                DeviceModelRepo.get_value(device_model, "pm_interval_days") or 0
+            )
+    if interval <= 0:
+        interval = 365  # mặc định an toàn — 1 năm
+
+    pm_type = next((t for days, t in _PM_TYPE_FROM_INTERVAL if interval <= days), "Annual")
+
+    if PMScheduleRepo.exists({"asset_ref": asset_doc.name, "pm_type": pm_type}):
+        return None
+
+    checklist_template = _resolve_checklist_template(
+        asset_doc.get("asset_category"), pm_type
+    )
+    if not checklist_template:
+        frappe.logger().warning(
+            f"IMM-08: bỏ qua tạo PM Schedule cho {asset_doc.name} — chưa có PM "
+            f"Checklist Template cho danh mục '{asset_doc.get('asset_category')}'."
+        )
+        return None
+
+    base_date = (
+        asset_doc.get("last_pm_date")
+        or asset_doc.get("commissioning_date")
+        or asset_doc.get("purchase_date")
+        or nowdate()
+    )
+    try:
+        sched = PMScheduleRepo.create({
+            "asset_ref": asset_doc.name,
+            "pm_type": pm_type,
+            "pm_interval_days": interval,
+            "alert_days_before": 7,
+            "checklist_template": checklist_template,
+            "status": PMScheduleStatus.ACTIVE,
+            "last_pm_date": base_date,
+            "next_due_date": add_days(getdate(base_date), interval),
+        }, ignore_permissions=True)
+    except Exception:
+        frappe.log_error(
+            frappe.get_traceback(),
+            f"IMM-08 create_pm_schedule_from_asset failed: {asset_doc.name}",
+        )
+        return None
+
+    from assetcore.services.imm00 import log_audit_event  # noqa: PLC0415
+    log_audit_event(
+        asset=asset_doc.name, event_type="PM Schedule Created",
+        actor=frappe.session.user,
+        ref_doctype=PMScheduleRepo.DOCTYPE, ref_name=sched.name,
+        change_summary=f"Auto từ tạo tài sản (is_pm_required) — {pm_type}, {interval} ngày",
+    )
+    frappe.logger().info(
+        f"IMM-08 PM Schedule {sched.name} tạo tự động từ AC Asset {asset_doc.name}"
+    )
+    return sched.name
 
 
 def create_pm_schedule_from_commissioning(commissioning_doc) -> str | None:
@@ -885,12 +1045,38 @@ def create_pm_schedule_from_commissioning(commissioning_doc) -> str | None:
     alert_days = int(model.get("pm_alert_days") or 7)
     pm_type = next((t for days, t in _PM_TYPE_FROM_INTERVAL if interval <= days), "Annual")
     base_date = commissioning_doc.commissioning_date or nowdate()
+
+    # checklist_template là BẮT BUỘC (PMSchedule.validate throw nếu trống) — phải
+    # tìm template khớp asset_category + pm_type, nếu không có thì bỏ qua lịch
+    # thay vì để exception làm vỡ on_submit của Asset Commissioning.
+    asset_category = AssetRepo.get_value(asset, "asset_category")
+    checklist_template = None
+    if asset_category:
+        checklist_template = (
+            frappe.db.get_value(
+                "PM Checklist Template",
+                {"asset_category": asset_category, "pm_type": pm_type},
+                "name",
+            )
+            or frappe.db.get_value(
+                "PM Checklist Template", {"asset_category": asset_category}, "name"
+            )
+        )
+    if not checklist_template:
+        frappe.logger().warning(
+            f"IMM-08: bỏ qua tạo PM Schedule cho {asset} — chưa có PM Checklist "
+            f"Template cho danh mục '{asset_category}'."
+        )
+        return None
+
     sched = PMScheduleRepo.create({
         "asset_ref": asset,
         "pm_type": pm_type,
         "pm_interval_days": interval,
         "alert_days_before": alert_days,
+        "checklist_template": checklist_template,
         "status": PMScheduleStatus.ACTIVE,
+        "last_pm_date": base_date,
         "next_due_date": add_days(base_date, interval),
         "created_from_commissioning": commissioning_doc.name,
     })

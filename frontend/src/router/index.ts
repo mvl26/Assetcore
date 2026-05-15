@@ -349,14 +349,14 @@ const routes: RouteRecordRaw[] = [
     path: '/cm/firmware',
     name: 'FirmwareCrList',
     component: () => import('@/views/document/FirmwareCrListView.vue'),
-    meta: { requiresAuth: true, title: 'Yêu cầu cập nhật Firmware', requiredRoles: ROLES_CM_VIEW },
+    meta: { requiresAuth: true, title: 'Yêu cầu cập nhật Firmware', requiredRoles: ROLES_CM_VIEW, moduleId: 'imm09' },
   },
   {
     path: '/cm/firmware/:id',
     name: 'FirmwareCrDetail',
     component: () => import('@/views/document/FirmwareCrDetailView.vue'),
     props: true,
-    meta: { requiresAuth: true, title: 'Chi tiết Firmware CR', requiredRoles: ROLES_CM_VIEW },
+    meta: { requiresAuth: true, title: 'Chi tiết Firmware CR', requiredRoles: ROLES_CM_VIEW, moduleId: 'imm09' },
   },
   {
     path: '/cm/mttr',

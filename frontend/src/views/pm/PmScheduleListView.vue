@@ -93,8 +93,8 @@ async function load() {
     loadError.value = apiCall.lastError.value?.message || 'Không tải được dữ liệu'
     return
   }
-  const d = res[0] as unknown as { items: PmSchedule[]; total: number }
-  if (d) { items.value = d.items || []; total.value = d.total || 0 }
+  const d = res[0]
+  if (d) { items.value = d.data || []; total.value = d.pagination?.total || 0 }
 }
 
 function openCreate() {

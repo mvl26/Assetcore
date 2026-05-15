@@ -1,7 +1,7 @@
 {
  "actions": [],
  "autoname": "FCR-.YYYY.-.#####",
- "naming_rule": "Expression (old style)",
+ "naming_rule": "Naming Series",
  "creation": "2026-04-17 09:00:00.000000",
  "doctype": "DocType",
  "document_type": "Document",
@@ -36,8 +36,7 @@
    "fieldname": "asset_repair_wo",
    "fieldtype": "Link",
    "label": "Asset Repair WO",
-   "options": "Asset Repair",
-   "reqd": 1
+   "options": "Asset Repair"
   },
   {
    "fieldname": "version_before",

@@ -141,6 +141,15 @@ export function closeWorkOrder(payload: {
   )
 }
 
+export function confirmInspection(
+  name: string,
+): Promise<{ name: string; status: string; mttr_hours: number; sla_breached: boolean }> {
+  return frappePost<{ name: string; status: string; mttr_hours: number; sla_breached: boolean }>(
+    `${BASE}.confirm_inspection`,
+    { name },
+  )
+}
+
 export function getRepairKPIs(year?: number, month?: number): Promise<RepairKPIs> {
   return frappeGet<RepairKPIs>(`${BASE}.get_repair_kpis`, { year, month })
 }

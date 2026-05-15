@@ -258,6 +258,7 @@ doc_events = {
         "on_submit": "assetcore.services.imm16.eval_imm08_09_realtime",
     },
     "AC Asset": {
+        "after_insert": "assetcore.services.imm08.create_pm_schedule_from_asset",
         "on_update": "assetcore.services.imm15.flag_obsolete_on_decommission",
     },
     # ─── IMM-16 Compliance real-time evaluation ───

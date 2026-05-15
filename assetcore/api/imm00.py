@@ -1752,6 +1752,7 @@ def list_firmware_crs(page: int = 1, page_size: int = 20, status: str = None, as
          "approved_by", "approved_datetime", "applied_datetime"],
         int(page), int(page_size))
     _enrich(items, "asset_ref", _DT_ASSET, "asset_name", "asset_name")
+    _enrich(items, "approved_by", "User", "full_name", "approved_by_name")
     return _ok({"items": items, **meta})
 
 
@@ -1759,7 +1760,11 @@ def list_firmware_crs(page: int = 1, page_size: int = 20, status: str = None, as
 def get_firmware_cr(name: str):
     if not frappe.db.exists(_DT_FIRMWARE_CR, name):
         return _err(_("FCR not found"), 404)
-    return _ok(frappe.get_doc(_DT_FIRMWARE_CR, name).as_dict())
+    doc = frappe.get_doc(_DT_FIRMWARE_CR, name).as_dict()
+    items = [doc]
+    _enrich(items, "asset_ref", _DT_ASSET, "asset_name", "asset_name")
+    _enrich(items, "approved_by", "User", "full_name", "approved_by_name")
+    return _ok(doc)
 
 
 @frappe.whitelist(methods=["POST"])

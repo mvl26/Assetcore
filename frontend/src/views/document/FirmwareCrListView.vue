@@ -1,17 +1,20 @@
 <script setup lang="ts">
 import { useToast } from '@/composables/useToast'
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   listFirmwareCrs, getFirmwareCr, createFirmwareCr, updateFirmwareCr, deleteFirmwareCr,
   type FirmwareCR,
 } from '@/api/imm00'
+import { listRepairWorkOrders } from '@/api/imm09'
+import { frappeGet } from '@/api/helpers'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar from '@/components/common/ListFilterBar.vue'
-const toast = useToast()
+import SmartSelect from '@/components/common/SmartSelect.vue'
 
+const toast = useToast()
 const router = useRouter()
 
 const items = ref<FirmwareCR[]>([])
@@ -27,7 +30,67 @@ const showFilters = ref(false)
 const filters = ref({ status: '', asset: '', search: '' })
 
 const STATUS_KEYS = ['Draft', 'Pending Approval', 'Approved', 'Applied', 'Rollback Required', 'Rolled Back']
+const STATUS_LABELS: Record<string, string> = {
+  Draft: 'Nháp',
+  'Pending Approval': 'Chờ phê duyệt',
+  Approved: 'Đã phê duyệt',
+  Applied: 'Đã áp dụng',
+  'Rollback Required': 'Cần khôi phục',
+  'Rolled Back': 'Đã khôi phục',
+}
+function statusLabel(s?: string): string { return (s && STATUS_LABELS[s]) || s || '' }
+function statusColor(s?: string) {
+  return s === 'Approved' ? 'bg-green-100 text-green-700'
+    : s === 'Applied' ? 'bg-blue-100 text-blue-700'
+    : s === 'Rejected' || s === 'Rolled Back' ? 'bg-red-100 text-red-700'
+    : 'bg-gray-100 text-gray-700'
+}
 
+// ─── Asset metadata (loaded on selection via SmartSelect) ────────────────────
+interface AssetMeta { asset_name?: string; device_model?: string; lifecycle_status?: string; location?: string }
+const assetMeta = ref<AssetMeta | null>(null)
+
+async function loadAssetMeta() {
+  if (!form.value.asset_ref) { assetMeta.value = null; return }
+  try {
+    const r = await frappeGet<AssetMeta>('/api/method/frappe.client.get_value', {
+      doctype: 'AC Asset',
+      filters: form.value.asset_ref,
+      fieldname: JSON.stringify(['asset_name', 'device_model', 'lifecycle_status', 'location']),
+    })
+    assetMeta.value = r ?? null
+  } catch { assetMeta.value = null }
+}
+
+watch(() => form.value.asset_ref, loadAssetMeta)
+
+// ─── WO autocomplete ─────────────────────────────────────────────────────────
+const woQuery = ref('')
+const woResults = ref<{ name: string; asset_name?: string }[]>([])
+const woDropdownOpen = ref(false)
+let woTimer: ReturnType<typeof setTimeout>
+
+function onWoInput() {
+  clearTimeout(woTimer)
+  if (!woQuery.value.trim()) { woResults.value = []; woDropdownOpen.value = false; return }
+  woTimer = setTimeout(async () => {
+    const res = await listRepairWorkOrders({}, 1, 10)
+    woResults.value = (res.data ?? [])
+      .filter(w => w.name.toLowerCase().includes(woQuery.value.toLowerCase()) || (w.asset_name || '').toLowerCase().includes(woQuery.value.toLowerCase()))
+      .slice(0, 8)
+    woDropdownOpen.value = woResults.value.length > 0
+  }, 280)
+}
+
+function selectWo(item: { name: string }) {
+  form.value.asset_repair_wo = item.name
+  woQuery.value = item.name
+  woDropdownOpen.value = false
+}
+
+function closeWoDropdown() { window.setTimeout(() => { woDropdownOpen.value = false }, 200) }
+
+// ─── Filters ──────────────────────────────────────────────────────────────────
 interface FilterChip { key: 'status' | 'asset' | 'search'; label: string }
 const filteredItems = computed(() => {
   let arr = items.value
@@ -60,12 +123,12 @@ const activeChips = computed<FilterChip[]>(() => {
 const activeFilterCount = computed(() => activeChips.value.length)
 function quickFilter(key: 'status' | 'asset', value: string) {
   if (!value || filters.value[key] === value) return
-  filters.value[key] = value
-  showFilters.value = false
+  filters.value[key] = value; showFilters.value = false
 }
 function clearChip(key: string) { (filters.value as Record<string, string>)[key] = '' }
 function resetFilters() { filters.value = { status: '', asset: '', search: '' } }
 
+// ─── Load ─────────────────────────────────────────────────────────────────────
 async function load() {
   loading.value = true
   try {
@@ -74,12 +137,11 @@ async function load() {
   } finally { loading.value = false }
 }
 
+// ─── Form ─────────────────────────────────────────────────────────────────────
 function openCreate() {
   editingName.value = null
-  form.value = {
-    asset_ref: '', version_before: '', version_after: '', status: 'Draft',
-    change_notes: '', source_reference: '',
-  }
+  form.value = { asset_ref: '', version_before: '', version_after: '', status: 'Draft', change_notes: '', source_reference: '' }
+  assetMeta.value = null; woQuery.value = ''
   err.value = ''; showForm.value = true
 }
 
@@ -87,6 +149,7 @@ async function openEdit(name: string) {
   editingName.value = name
   const r = await getFirmwareCr(name)
   form.value = { ...r }
+  woQuery.value = r.asset_repair_wo || ''
   err.value = ''; showForm.value = true
 }
 
@@ -103,25 +166,6 @@ async function remove(name: string) {
   if (!confirm(`Xóa FCR "${name}"?`)) return
   try { await deleteFirmwareCr(name); await load() }
   catch (e: unknown) { toast.error(e instanceof Error ? e.message : 'Không thể xóa') }
-}
-
-function statusColor(s?: string) {
-  return s === 'Approved' ? 'bg-green-100 text-green-700'
-    : s === 'Applied' ? 'bg-blue-100 text-blue-700'
-    : s === 'Rejected' || s === 'Rolled Back' ? 'bg-red-100 text-red-700'
-    : 'bg-gray-100 text-gray-700'
-}
-
-const STATUS_LABELS: Record<string, string> = {
-  Draft: 'Nháp',
-  'Pending Approval': 'Chờ phê duyệt',
-  Approved: 'Đã phê duyệt',
-  Applied: 'Đã áp dụng',
-  'Rollback Required': 'Cần khôi phục',
-  'Rolled Back': 'Đã khôi phục',
-}
-function statusLabel(s?: string): string {
-  return (s && STATUS_LABELS[s]) || s || ''
 }
 
 onMounted(load)
@@ -204,7 +248,7 @@ onMounted(load)
             <div class="flex flex-wrap gap-x-2 gap-y-1 mt-1.5 text-xs text-slate-500">
               <span v-if="f.version_before">{{ f.version_before }}</span>
               <span v-if="f.version_after">→ {{ f.version_after }}</span>
-              <span v-if="f.approved_by">· {{ f.approved_by }}</span>
+              <span v-if="f.approved_by">· {{ f.approved_by_name || f.approved_by }}</span>
             </div>
           </div>
         </div>
@@ -240,11 +284,10 @@ onMounted(load)
                 <button
                   v-if="f.status"
                   :class="['text-xs px-2 py-0.5 rounded font-medium hover:ring-2 hover:ring-current/50', statusColor(f.status)]"
-                  :title="`Lọc: ${statusLabel(f.status)}`"
                   @click="quickFilter('status', f.status!)"
                 >{{ statusLabel(f.status) }}</button>
               </td>
-              <td class="px-4 py-3 text-xs text-slate-500">{{ f.approved_by || '—' }}</td>
+              <td class="px-4 py-3 text-xs text-slate-500">{{ f.approved_by_name || f.approved_by || '—' }}</td>
               <td class="px-4 py-3 text-xs text-slate-500">{{ f.applied_datetime ? new Date(f.applied_datetime).toLocaleDateString('vi-VN') : '—' }}</td>
               <td class="px-4 py-3 text-right space-x-2 whitespace-nowrap">
                 <button class="text-blue-600 hover:text-blue-800 text-xs font-medium" @click="router.push(`/cm/firmware/${f.name}`)">Chi tiết</button>
@@ -257,54 +300,109 @@ onMounted(load)
       </template>
     </div>
 
-    <div v-if="showForm" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50" @click.self="showForm = false">
-      <div class="bg-white rounded-xl p-6 w-[600px] max-w-full space-y-4">
-        <h2 class="text-lg font-semibold">{{ editingName ? 'Sửa' : 'Thêm' }} yêu cầu cập nhật Firmware</h2>
-        <div v-if="err" class="bg-red-50 text-red-700 text-sm p-3 rounded">{{ err }}</div>
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div class="sm:col-span-2">
-            <label class="block text-sm font-medium text-gray-700 mb-1">Thiết bị (AC Asset) *</label>
-            <input v-model="form.asset_ref" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
-          </div>
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Phiên bản hiện tại</label>
-            <input v-model="form.version_before" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono" />
-          </div>
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Phiên bản mới *</label>
-            <input v-model="form.version_after" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono" />
-          </div>
-          <div class="col-span-2">
-            <label class="block text-sm font-medium text-gray-700 mb-1">Nguồn (thông báo nhà sản xuất, mã lỗ hổng CVE, v.v.)</label>
-            <input v-model="form.source_reference" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
-          </div>
-          <div class="col-span-2">
-            <label class="block text-sm font-medium text-gray-700 mb-1">Nội dung thay đổi *</label>
-            <textarea v-model="form.change_notes" rows="3" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"></textarea>
-          </div>
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Trạng thái</label>
-            <select v-model="form.status" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
-              <option value="Draft">Nháp</option>
-              <option value="Pending Approval">Chờ phê duyệt</option>
-              <option value="Approved">Đã phê duyệt</option>
-              <option value="Applied">Đã áp dụng</option>
-              <option value="Rollback Required">Cần khôi phục</option>
-              <option value="Rolled Back">Đã khôi phục</option>
-            </select>
-          </div>
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Liên kết phiếu sửa chữa</label>
-            <input v-model="form.asset_repair_wo" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="SỬA-..." />
-          </div>
-          <div v-if="form.status === 'Rolled Back'" class="col-span-2">
-            <label class="block text-sm font-medium text-gray-700 mb-1">Lý do khôi phục</label>
-            <textarea v-model="form.rollback_reason" rows="2" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"></textarea>
+    <!-- Form modal -->
+    <div v-if="showForm" class="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" @click.self="showForm = false">
+      <div class="bg-white rounded-t-2xl sm:rounded-xl w-full sm:max-w-2xl max-h-[90svh] overflow-y-auto">
+        <div class="sticky top-0 bg-white border-b border-slate-100 px-5 py-4 flex items-center justify-between">
+          <h2 class="text-base font-semibold text-slate-900">{{ editingName ? 'Sửa' : 'Thêm' }} yêu cầu cập nhật Firmware</h2>
+          <button class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-500" @click="showForm = false">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <div class="p-5 space-y-4">
+          <div v-if="err" class="alert-error">{{ err }}</div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <!-- Asset SmartSelect -->
+            <div class="sm:col-span-2 form-group">
+              <label class="form-label">Thiết bị (AC Asset) <span class="text-red-500">*</span></label>
+              <SmartSelect
+                v-model="form.asset_ref as string"
+                doctype="AC Asset"
+                placeholder="Tìm thiết bị theo tên / mã / serial..."
+              />
+              <div v-if="assetMeta" class="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+                <div class="bg-slate-50 rounded px-2 py-1.5">
+                  <span class="text-slate-500">Tên:</span> <b>{{ assetMeta.asset_name || '—' }}</b>
+                </div>
+                <div class="bg-slate-50 rounded px-2 py-1.5">
+                  <span class="text-slate-500">Model:</span> {{ assetMeta.device_model || '—' }}
+                </div>
+                <div
+                  :class="['rounded px-2 py-1.5', assetMeta.lifecycle_status === 'Decommissioned' ? 'bg-red-50 text-red-700' : 'bg-slate-50']"
+                >
+                  <span class="text-slate-500">Trạng thái:</span> <b>{{ assetMeta.lifecycle_status || '—' }}</b>
+                </div>
+              </div>
+              <div v-if="assetMeta?.lifecycle_status === 'Decommissioned'" class="mt-1.5 text-xs text-red-600">
+                Thiết bị đã thanh lý — không thể tạo yêu cầu firmware.
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Phiên bản hiện tại</label>
+              <input v-model="form.version_before" class="form-input font-mono" placeholder="v1.2.3" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Phiên bản mới <span class="text-red-500">*</span></label>
+              <input v-model="form.version_after" class="form-input font-mono" placeholder="v1.3.0" />
+            </div>
+
+            <div class="sm:col-span-2 form-group">
+              <label class="form-label">Nguồn tham chiếu</label>
+              <input v-model="form.source_reference" class="form-input" placeholder="Thông báo NSX, mã CVE, v.v." />
+            </div>
+            <div class="sm:col-span-2 form-group">
+              <label class="form-label">Nội dung thay đổi <span class="text-red-500">*</span></label>
+              <textarea v-model="form.change_notes" rows="3" class="form-textarea" placeholder="Mô tả các thay đổi của bản firmware mới..."></textarea>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Trạng thái</label>
+              <select v-model="form.status" class="form-select">
+                <option v-for="s in STATUS_KEYS" :key="s" :value="s">{{ STATUS_LABELS[s] }}</option>
+              </select>
+            </div>
+
+            <!-- WO autocomplete -->
+            <div class="form-group">
+              <label class="form-label">Liên kết lệnh sửa chữa</label>
+              <div class="relative">
+                <input
+                  v-model="woQuery"
+                  class="form-input font-mono"
+                  placeholder="Tìm mã WO..."
+                  autocomplete="off"
+                  @input="onWoInput"
+                  @blur="closeWoDropdown"
+                />
+                <div v-if="woDropdownOpen" class="absolute top-full left-0 right-0 z-50 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg overflow-hidden">
+                  <button
+                    v-for="w in woResults"
+                    :key="w.name"
+                    class="w-full text-left px-3 py-2.5 hover:bg-slate-50 flex flex-col gap-0.5 border-b border-slate-100 last:border-0"
+                    @mousedown.prevent="selectWo(w)"
+                  >
+                    <span class="text-xs font-mono font-medium text-slate-800">{{ w.name }}</span>
+                    <span v-if="w.asset_name" class="text-xs text-slate-400">{{ w.asset_name }}</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div v-if="form.status === 'Rolled Back'" class="sm:col-span-2 form-group">
+              <label class="form-label">Lý do khôi phục</label>
+              <textarea v-model="form.rollback_reason" rows="2" class="form-textarea"></textarea>
+            </div>
           </div>
         </div>
-        <div class="flex justify-end gap-2">
-          <button class="px-4 py-2 text-sm border border-gray-300 rounded-lg" @click="showForm = false">Hủy</button>
-          <button class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg" @click="save">Lưu</button>
+
+        <div class="sticky bottom-0 bg-white border-t border-slate-100 px-5 py-4 flex justify-end gap-2">
+          <button class="btn-secondary" @click="showForm = false">Hủy</button>
+          <button class="btn-primary" @click="save">Lưu</button>
         </div>
       </div>
     </div>

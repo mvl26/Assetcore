@@ -47,7 +47,7 @@ def get_repair_work_order(name: str):
     return _handle(svc.get_work_order, name)
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def create_repair_work_order(asset_ref: str, repair_type: str, priority: str,
                               failure_description: str, incident_report: str = "",
                               source_pm_wo: str = "") -> dict:
@@ -59,12 +59,12 @@ def create_repair_work_order(asset_ref: str, repair_type: str, priority: str,
     )
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def assign_technician(name: str, technician: str, priority: str = ""):
     return _handle(svc.assign_technician, name, technician=technician, priority=priority)
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def submit_diagnosis(name: str, diagnosis_notes: str, needs_parts: int = 0):
     return _handle(svc.submit_diagnosis, name,
                    diagnosis_notes=diagnosis_notes,
@@ -76,7 +76,7 @@ def start_repair(name: str) -> dict:
     return _handle(svc.start_repair, name)
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def request_spare_parts(name: str, parts: str = "[]"):
     try:
         parts_list = _parse_json(parts, field_name="parts", default=[])
@@ -85,7 +85,7 @@ def request_spare_parts(name: str, parts: str = "[]"):
     return _handle(svc.request_spare_parts, name, parts_list)
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def close_work_order(name: str, repair_summary: str, root_cause_category: str,
                      dept_head_name: str, checklist_results: str = "[]",
                      spare_parts: str = "[]", firmware_updated: int = 0,
@@ -106,8 +106,14 @@ def close_work_order(name: str, repair_summary: str, root_cause_category: str,
     )
 
 
+@frappe.whitelist(methods=["POST"])
+def confirm_inspection(name: str) -> dict:
+    """Nghiệm thu sau sửa chữa: Pending Inspection → Completed."""
+    return _handle(svc.confirm_inspection, name)
+
+
 @frappe.whitelist()
-def get_repair_kpis(year: int = None, month: int = None):
+def get_repair_kpis(year=None, month=None):
     today = getdate(nowdate())
     return _handle(svc.get_kpis,
                    int(year) if year else today.year,
@@ -115,17 +121,17 @@ def get_repair_kpis(year: int = None, month: int = None):
 
 
 @frappe.whitelist()
-def get_asset_repair_history(asset_ref: str, limit: int = 10):
+def get_asset_repair_history(asset_ref: str, limit=10):
     return _handle(svc.get_asset_history, asset_ref, limit=int(limit))
 
 
 @frappe.whitelist()
-def search_spare_parts(query: str = "", limit: int = 10) -> dict:
+def search_spare_parts(query: str = "", limit=10) -> dict:
     return _handle(svc.search_spare_parts, query, limit=int(limit))
 
 
 @frappe.whitelist()
-def get_mttr_report(year: int = None, month: int = None) -> dict:
+def get_mttr_report(year=None, month=None) -> dict:
     today = getdate(nowdate())
     return _handle(svc.get_mttr_report,
                    int(year) if year else today.year,

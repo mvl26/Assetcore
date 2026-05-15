@@ -114,6 +114,12 @@ function navigateParts() {
 function navigateChecklist() {
   router.push(`/cm/work-orders/${props.id}/checklist`)
 }
+
+async function doConfirmInspection() {
+  submitting.value = true
+  await store.doConfirmInspection(wo.value!.name)
+  submitting.value = false
+}
 </script>
 
 <template>
@@ -412,13 +418,17 @@ Hoàn thành sửa chữa
 </button>
             </template>
 
-            <!-- Pending Inspection → navigate /checklist -->
+            <!-- Pending Inspection → xác nhận nghiệm thu (QA / trưởng khoa) -->
             <template v-if="wo.status === 'Pending Inspection'">
               <button
-class="w-full px-4 py-2.5 bg-cyan-600 text-white rounded-lg text-sm font-medium hover:bg-cyan-700 transition-colors"
-                @click="navigateChecklist">
-Nghiệm thu
-</button>
+                class="w-full px-4 py-2.5 bg-cyan-600 text-white rounded-lg text-sm font-medium hover:bg-cyan-700 disabled:opacity-50 transition-colors"
+                :disabled="submitting"
+                @click="doConfirmInspection">
+                {{ submitting ? 'Đang xử lý...' : 'Xác nhận nghiệm thu — Hoàn thành' }}
+              </button>
+              <p class="text-[11px] text-center text-slate-400 mt-1">
+                Yêu cầu quyền phê duyệt cấp khoa/QA. Sau bước này MTTR & SLA được chốt.
+              </p>
             </template>
 
             <!-- Cannot Repair button for non-terminal statuses -->
