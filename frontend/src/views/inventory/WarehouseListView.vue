@@ -170,52 +170,87 @@ onMounted(load)
         <button v-else class="btn-primary mt-3" @click="openCreate">Tạo kho đầu tiên</button>
       </div>
 
-      <div v-else class="overflow-x-auto">
-        <table class="w-full text-sm">
-          <thead class="bg-slate-50 border-b border-slate-100">
-            <tr>
-              <th class="table-header">Mã kho</th>
-              <th class="table-header">Tên kho</th>
-              <th class="table-header hidden md:table-cell">Khoa quản lý</th>
-              <th class="table-header hidden lg:table-cell">Người phụ trách</th>
-              <th class="table-header text-right">Số SKU</th>
-              <th class="table-header text-right">Giá trị tồn</th>
-              <th class="table-header text-center">Trạng thái</th>
-              <th class="px-4 py-3" />
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-slate-50">
-            <tr
-v-for="w in filteredRows" :key="w.name"
-              class="hover:bg-slate-50/70 cursor-pointer transition-all hover:translate-x-0.5"
-              @click="router.push(`/warehouses/${w.name}`)"
-            >
-              <td class="px-4 py-3 font-mono text-xs text-brand-700">{{ w.warehouse_code || w.name }}</td>
-              <td class="px-4 py-3 font-medium text-slate-900">{{ w.warehouse_name }}</td>
-              <td class="px-4 py-3 text-xs text-slate-500 hidden md:table-cell">{{ w.department_name || w.department || '—' }}</td>
-              <td class="px-4 py-3 text-xs text-slate-500 hidden lg:table-cell">{{ w.manager || '—' }}</td>
-              <td class="px-4 py-3 text-right text-sm">{{ w.stock_count || 0 }}</td>
-              <td class="px-4 py-3 text-right text-sm font-medium text-emerald-700">{{ vnd(w.total_value) }}</td>
-              <td class="px-4 py-3 text-center">
-                <button
-                  class="text-xs px-2 py-0.5 rounded-full transition-all hover:ring-2 hover:ring-offset-1 hover:ring-current/50"
-                  :class="w.is_active ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'"
-                  :title="`Lọc: ${w.is_active ? 'Hoạt động' : 'Ngừng'}`"
-                  @click.stop="quickFilter(!!w.is_active)"
-                >
-{{ w.is_active ? 'Hoạt động' : 'Ngừng' }}
-</button>
-              </td>
-              <td class="px-4 py-3 text-right">
-                <div class="flex justify-end gap-3">
-                  <button class="text-xs text-brand-600 hover:text-brand-700 font-medium" @click.stop="openEdit(w)">Chỉnh sửa</button>
-                  <button v-if="w.is_active" class="text-xs text-red-600 hover:text-red-700 font-medium" @click.stop="doDelete(w)">Ngừng</button>
-                </div>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <template v-else>
+        <!-- Mobile cards (< sm) -->
+        <div class="mobile-card-list sm:hidden">
+          <div
+            v-for="w in filteredRows"
+            :key="w.name"
+            class="mobile-card"
+            @click="router.push(`/warehouses/${w.name}`)"
+          >
+            <div class="flex items-center justify-between mb-2">
+              <span class="font-mono text-sm font-semibold text-brand-700">{{ w.warehouse_code || w.name }}</span>
+              <button
+                class="text-xs px-2 py-0.5 rounded-full"
+                :class="w.is_active ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'"
+                @click.stop="quickFilter(!!w.is_active)"
+              >{{ w.is_active ? 'Hoạt động' : 'Ngừng' }}</button>
+            </div>
+            <p class="text-sm font-medium text-slate-900 truncate">{{ w.warehouse_name }}</p>
+            <div class="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1.5 text-xs text-slate-500">
+              <span>{{ w.department_name || w.department || '—' }}</span>
+              <span class="text-slate-300">·</span>
+              <span>{{ w.stock_count || 0 }} SKU</span>
+              <span class="text-slate-300">·</span>
+              <span class="text-emerald-700 font-medium">{{ vnd(w.total_value) }}</span>
+            </div>
+            <div class="flex justify-end gap-3 mt-2 pt-2 border-t border-slate-100" @click.stop>
+              <button class="text-xs text-brand-600 font-medium" @click="openEdit(w)">Chỉnh sửa</button>
+              <button v-if="w.is_active" class="text-xs text-red-600 font-medium" @click="doDelete(w)">Ngừng</button>
+            </div>
+          </div>
+          <div v-if="filteredRows.length === 0" class="py-12 text-center text-slate-400">
+            <p class="text-sm font-medium">Không có dữ liệu</p>
+          </div>
+        </div>
+
+        <!-- Desktop table (sm+) -->
+        <div class="hidden sm:block overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead class="bg-slate-50 border-b border-slate-100">
+              <tr>
+                <th class="table-header">Mã kho</th>
+                <th class="table-header">Tên kho</th>
+                <th class="table-header hidden md:table-cell">Khoa quản lý</th>
+                <th class="table-header hidden lg:table-cell">Người phụ trách</th>
+                <th class="table-header text-right">Số SKU</th>
+                <th class="table-header text-right">Giá trị tồn</th>
+                <th class="table-header text-center">Trạng thái</th>
+                <th class="px-4 py-3" />
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-50">
+              <tr
+                v-for="w in filteredRows" :key="w.name"
+                class="hover:bg-slate-50/70 cursor-pointer transition-all hover:translate-x-0.5"
+                @click="router.push(`/warehouses/${w.name}`)"
+              >
+                <td class="px-4 py-3 font-mono text-xs text-brand-700">{{ w.warehouse_code || w.name }}</td>
+                <td class="px-4 py-3 font-medium text-slate-900">{{ w.warehouse_name }}</td>
+                <td class="px-4 py-3 text-xs text-slate-500 hidden md:table-cell">{{ w.department_name || w.department || '—' }}</td>
+                <td class="px-4 py-3 text-xs text-slate-500 hidden lg:table-cell">{{ w.manager || '—' }}</td>
+                <td class="px-4 py-3 text-right text-sm">{{ w.stock_count || 0 }}</td>
+                <td class="px-4 py-3 text-right text-sm font-medium text-emerald-700">{{ vnd(w.total_value) }}</td>
+                <td class="px-4 py-3 text-center">
+                  <button
+                    class="text-xs px-2 py-0.5 rounded-full transition-all hover:ring-2 hover:ring-offset-1 hover:ring-current/50"
+                    :class="w.is_active ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'"
+                    :title="`Lọc: ${w.is_active ? 'Hoạt động' : 'Ngừng'}`"
+                    @click.stop="quickFilter(!!w.is_active)"
+                  >{{ w.is_active ? 'Hoạt động' : 'Ngừng' }}</button>
+                </td>
+                <td class="px-4 py-3 text-right">
+                  <div class="flex justify-end gap-3">
+                    <button class="text-xs text-brand-600 hover:text-brand-700 font-medium" @click.stop="openEdit(w)">Chỉnh sửa</button>
+                    <button v-if="w.is_active" class="text-xs text-red-600 hover:text-red-700 font-medium" @click.stop="doDelete(w)">Ngừng</button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </template>
     </div>
 
     <!-- Modal form -->

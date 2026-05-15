@@ -255,7 +255,35 @@ onMounted(load)
         <button v-if="activeFilterCount > 0" class="btn-ghost" @click="resetFilters">Xóa bộ lọc</button>
         <button v-else class="btn-primary" @click="openCreate">+ Thêm lịch PM</button>
       </div>
-      <div v-else class="overflow-x-auto">
+      <template v-else>
+        <!-- Mobile cards -->
+        <div class="mobile-card-list sm:hidden">
+          <div
+            v-for="s in filteredItems"
+            :key="s.name"
+            class="mobile-card"
+          >
+            <div class="flex items-center justify-between mb-2">
+              <span class="font-mono text-sm font-semibold text-brand-700">{{ s.name }}</span>
+              <span
+                v-if="s.status"
+                :class="['text-xs px-2 py-0.5 rounded-full font-medium', getStatusColor(s.status)]"
+              >{{ translateStatus(s.status) }}</span>
+            </div>
+            <p class="text-sm font-medium text-slate-900 truncate">{{ s.asset_name || s.asset_code || s.asset_ref }}</p>
+            <div class="flex flex-wrap gap-x-2 gap-y-1 mt-1.5 text-xs text-slate-500">
+              <span>{{ PM_TYPE_LABEL[s.pm_type || ''] || s.pm_type }}</span>
+              <span :class="overdueColor(s.next_due_date)">· {{ formatDate(s.next_due_date) }}</span>
+            </div>
+            <div class="mt-2 flex gap-2">
+              <button class="text-blue-600 hover:text-blue-800 text-xs font-medium" @click="openEdit(s.name)">Sửa</button>
+              <button class="text-red-600 hover:text-red-800 text-xs font-medium" @click="remove(s.name)">Xóa</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Desktop table -->
+        <div class="hidden sm:block overflow-x-auto">
 <table class="w-full text-sm">
         <thead class="bg-slate-50 border-b border-slate-200">
           <tr>
@@ -310,15 +338,16 @@ onMounted(load)
           </tr>
         </tbody>
       </table>
-      </div>
+        </div>
+      </template>
     </div>
 
     <div v-if="showForm" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50" @click.self="showForm = false">
       <div class="bg-white rounded-xl p-6 w-[560px] max-w-full space-y-4">
         <h2 class="text-lg font-semibold">{{ editingName ? 'Sửa' : 'Thêm' }} lịch bảo trì</h2>
         <div v-if="err" class="bg-red-50 text-red-700 text-sm p-3 rounded">{{ err }}</div>
-        <div class="grid grid-cols-2 gap-3">
-          <div class="col-span-2">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div class="sm:col-span-2">
             <label class="block text-sm font-medium text-slate-700 mb-1">Thiết bị (AC Asset) *</label>
             <SmartSelect
               v-model="(form.asset_ref as string)"

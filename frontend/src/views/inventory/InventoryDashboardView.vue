@@ -44,7 +44,7 @@ onMounted(load)
       </template>
     </PageHeader>
 
-    <div v-if="loading && !overview" class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+    <div v-if="loading && !overview" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
       <div v-for="i in 4" :key="i" class="card p-5 h-24 animate-pulse bg-slate-100" />
     </div>
 

@@ -69,7 +69,7 @@ function daysUntil(dateStr: string): number {
     <!-- KPI Cards -->
     <SkeletonLoader v-if="store.loading && !kpis" variant="kpi-cards" class="mb-7" />
 
-    <div v-else-if="kpis" class="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-7">
+    <div v-else-if="kpis" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-7">
       <!-- Compliance rate — large card -->
       <div
 class="kpi-card p-5 lg:col-span-1 flex flex-col items-start gap-2"

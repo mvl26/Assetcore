@@ -190,58 +190,88 @@ onMounted(() => {
       </div>
 
       <div v-if="store.loading" class="p-6 text-sm text-slate-500">Đang tải...</div>
-      <div v-else-if="filteredAvl.length" class="overflow-x-auto">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Mã giấy phép</th>
-              <th>Nhà cung cấp</th>
-              <th>Nhóm thiết bị</th>
-              <th>Thời hạn hiệu lực</th>
-              <th>Trạng thái</th>
-              <th>Hành động</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              v-for="(a, idx) in filteredAvl" :key="a.name"
-              class="animate-fade-in" :class="[`stagger-${Math.min(idx + 1, 8)}`]"
-            >
-              <td><span class="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded text-slate-700">{{ a.name }}</span></td>
-              <td>
-                <button class="link-cell" :title="`Lọc: ${a.supplier}`" @click="quickFilter('supplier', a.supplier)">
-                  {{ a.vendor_name || a.supplier }}
-                </button>
-              </td>
-              <td>
-                <button class="link-cell" :title="`Lọc: ${a.device_category}`" @click="quickFilter('device_category', a.device_category)">
-                  {{ (a as any).device_category_name || a.device_category }}
-                </button>
-              </td>
-              <td>
-                {{ formatVnDate(a.valid_from) }} → {{ formatVnDate(a.valid_to) }}
-                <span v-if="isExpiring(a)" class="warn-text">⏰ Còn {{ daysLeft(a) }} ngày</span>
-              </td>
-              <td>
-                <button
-type="button" class="pill-btn"
-                        :title="`Lọc trạng thái: ${stateLabel(a.workflow_state)}`"
-                        @click="quickFilter('workflow_state', a.workflow_state)">
-                  <StatusBadge :state="a.workflow_state" />
-                </button>
-              </td>
-              <td class="actions-col">
-                <button v-if="a.workflow_state === 'Draft'" class="btn-mini btn-success" @click="doApproveAvl(a)">Phê duyệt</button>
-                <button
-v-if="a.workflow_state === 'Approved' || a.workflow_state === 'Conditional'"
-                        class="btn-mini btn-danger" @click="doSuspendAvl(a)">
-Đình chỉ
-</button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <template v-else-if="filteredAvl.length">
+        <!-- Mobile cards -->
+        <div class="mobile-card-list sm:hidden">
+          <div
+            v-for="a in filteredAvl"
+            :key="a.name"
+            class="mobile-card"
+          >
+            <div class="flex items-center justify-between mb-2">
+              <span class="font-mono text-sm font-semibold text-brand-700">{{ a.name }}</span>
+              <StatusBadge :state="a.workflow_state" />
+            </div>
+            <p class="text-sm font-medium text-slate-900 truncate">{{ a.vendor_name || a.supplier }}</p>
+            <div class="flex flex-wrap gap-x-2 gap-y-1 mt-1.5 text-xs text-slate-500">
+              <span>{{ (a as any).device_category_name || a.device_category }}</span>
+              <span>· {{ formatVnDate(a.valid_from) }} → {{ formatVnDate(a.valid_to) }}</span>
+              <span v-if="isExpiring(a)" class="warn-text">⏰ Còn {{ daysLeft(a) }} ngày</span>
+            </div>
+            <div class="flex gap-2 mt-2">
+              <button v-if="a.workflow_state === 'Draft'" class="btn-mini btn-success" @click.stop="doApproveAvl(a)">Phê duyệt</button>
+              <button v-if="a.workflow_state === 'Approved' || a.workflow_state === 'Conditional'" class="btn-mini btn-danger" @click.stop="doSuspendAvl(a)">Đình chỉ</button>
+            </div>
+          </div>
+          <div v-if="filteredAvl.length === 0" class="py-12 text-center text-slate-400">
+            <p class="text-sm">Không có dữ liệu</p>
+          </div>
+        </div>
+
+        <!-- Desktop table -->
+        <div class="hidden sm:block overflow-x-auto">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Mã giấy phép</th>
+                <th>Nhà cung cấp</th>
+                <th>Nhóm thiết bị</th>
+                <th>Thời hạn hiệu lực</th>
+                <th>Trạng thái</th>
+                <th>Hành động</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="(a, idx) in filteredAvl" :key="a.name"
+                class="animate-fade-in" :class="[`stagger-${Math.min(idx + 1, 8)}`]"
+              >
+                <td><span class="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded text-slate-700">{{ a.name }}</span></td>
+                <td>
+                  <button class="link-cell" :title="`Lọc: ${a.supplier}`" @click="quickFilter('supplier', a.supplier)">
+                    {{ a.vendor_name || a.supplier }}
+                  </button>
+                </td>
+                <td>
+                  <button class="link-cell" :title="`Lọc: ${a.device_category}`" @click="quickFilter('device_category', a.device_category)">
+                    {{ (a as any).device_category_name || a.device_category }}
+                  </button>
+                </td>
+                <td>
+                  {{ formatVnDate(a.valid_from) }} → {{ formatVnDate(a.valid_to) }}
+                  <span v-if="isExpiring(a)" class="warn-text">⏰ Còn {{ daysLeft(a) }} ngày</span>
+                </td>
+                <td>
+                  <button
+  type="button" class="pill-btn"
+                          :title="`Lọc trạng thái: ${stateLabel(a.workflow_state)}`"
+                          @click="quickFilter('workflow_state', a.workflow_state)">
+                    <StatusBadge :state="a.workflow_state" />
+                  </button>
+                </td>
+                <td class="actions-col">
+                  <button v-if="a.workflow_state === 'Draft'" class="btn-mini btn-success" @click="doApproveAvl(a)">Phê duyệt</button>
+                  <button
+  v-if="a.workflow_state === 'Approved' || a.workflow_state === 'Conditional'"
+                          class="btn-mini btn-danger" @click="doSuspendAvl(a)">
+  Đình chỉ
+  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </template>
       <div v-else-if="!filteredAvl.length" class="flex flex-col items-center justify-center py-16 text-slate-400">
         <p class="text-sm">Không có giấy phép nào phù hợp</p>
         <button v-if="activeChips.length > 0" class="mt-3 text-xs text-blue-500 hover:text-blue-700 underline" @click="resetFilters">

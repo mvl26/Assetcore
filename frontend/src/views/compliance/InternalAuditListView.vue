@@ -137,7 +137,30 @@ onMounted(() => load(1))
         </button>
         <button v-else class="btn-primary mt-3" @click="openCreate">Tạo đợt kiểm toán đầu tiên</button>
       </div>
-      <div v-else class="overflow-x-auto">
+      <template v-else>
+        <!-- Mobile cards -->
+        <div class="mobile-card-list sm:hidden">
+          <div
+            v-for="a in items"
+            :key="a.name"
+            class="mobile-card"
+            @click="router.push(`/compliance/audits/${a.name}`)"
+          >
+            <div class="flex items-center justify-between mb-2">
+              <span class="font-mono text-sm font-semibold text-brand-700">{{ a.name }}</span>
+              <StatusBadge :state="a.status" />
+            </div>
+            <p class="text-sm font-medium text-slate-900 truncate">{{ a.audit_code }}</p>
+            <div class="flex flex-wrap gap-x-2 gap-y-1 mt-1.5 text-xs text-slate-500">
+              <span>{{ a.audit_type }}</span>
+              <span>· {{ formatDate(a.planned_start) }}</span>
+              <span v-if="(a as any).lead_auditor_name || a.lead_auditor">· {{ (a as any).lead_auditor_name || a.lead_auditor }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Desktop table -->
+        <div class="hidden sm:block overflow-x-auto">
         <table class="min-w-full divide-y divide-slate-100">
           <thead>
             <tr>
@@ -167,13 +190,14 @@ onMounted(() => load(1))
             </tr>
           </tbody>
         </table>
-      </div>
+        </div>
+      </template>
     </div>
 
     <BasePagination :pagination="pagination" @page-change="load" />
 
     <BaseModal v-if="showCreate" title="Tạo đợt kiểm toán" size="lg" @close="showCreate = false">
-      <div class="space-y-3 grid grid-cols-2 gap-3">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div class="form-group">
           <label class="form-label">Mã kiểm toán *</label>
           <input v-model="form.audit_code" class="form-input" placeholder="AUD-2026-Q1" />

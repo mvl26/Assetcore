@@ -149,49 +149,76 @@ onMounted(() => load())
           Xóa bộ lọc để xem tất cả
         </button>
       </div>
-      <div v-else class="overflow-x-auto">
-        <table class="min-w-full divide-y divide-slate-100">
-          <thead>
-            <tr>
-              <th class="table-header">Mã</th>
-              <th class="table-header">Chương trình</th>
-              <th class="table-header">Ngày</th>
-              <th class="table-header">Hình thức</th>
-              <th class="table-header">Giảng viên</th>
-              <th class="table-header">Trạng thái</th>
-              <th class="table-header text-right">Số học viên</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-slate-100">
-            <tr
-              v-for="s in sessions"
-              :key="s.name"
-              class="hover:bg-slate-50 cursor-pointer transition-colors"
-              @click="router.push(`/imm06/sessions/${s.name}`)"
-            >
-              <td class="table-cell font-mono text-xs text-slate-500">{{ s.name }}</td>
-              <td class="table-cell">
-                <div class="font-medium text-slate-900 truncate max-w-[200px]">{{ (s as any).program_name || s.training_program }}</div>
-              </td>
-              <td class="table-cell text-slate-600 text-sm">{{ s.session_date }}</td>
-              <td class="table-cell text-sm">
-                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-600">
-                  {{ sessionTypeLabel(s.session_type) }}
-                </span>
-              </td>
-              <td class="table-cell text-slate-600 text-sm">
-                {{ (s as any).trainer_name || s.instructor_external_name || '—' }}
-              </td>
-              <td class="table-cell">
-                <StatusBadge :state="s.workflow_state" />
-              </td>
-              <td class="table-cell text-right text-sm font-medium text-slate-700">
-                {{ (s as any).attendee_count ?? s.participant_count ?? (s.participants?.length ?? '—') }}
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <template v-else>
+        <!-- Mobile cards -->
+        <div class="mobile-card-list sm:hidden">
+          <div
+            v-for="s in sessions"
+            :key="s.name"
+            class="mobile-card"
+            @click="router.push(`/imm06/sessions/${s.name}`)"
+          >
+            <div class="flex items-center justify-between mb-2">
+              <span class="font-mono text-sm font-semibold text-brand-700">{{ s.name }}</span>
+              <StatusBadge :state="s.workflow_state" />
+            </div>
+            <p class="text-sm font-medium text-slate-900 truncate">{{ (s as any).program_name || s.training_program }}</p>
+            <div class="flex flex-wrap gap-x-2 gap-y-1 mt-1.5 text-xs text-slate-500">
+              <span v-if="s.session_date">{{ s.session_date }}</span>
+              <span>· {{ sessionTypeLabel(s.session_type) }}</span>
+              <span v-if="(s as any).trainer_name || s.instructor_external_name">· {{ (s as any).trainer_name || s.instructor_external_name }}</span>
+            </div>
+          </div>
+          <div v-if="sessions.length === 0" class="py-12 text-center text-slate-400">
+            <p class="text-sm">Không có dữ liệu</p>
+          </div>
+        </div>
+
+        <!-- Desktop table -->
+        <div class="hidden sm:block overflow-x-auto">
+          <table class="min-w-full divide-y divide-slate-100">
+            <thead>
+              <tr>
+                <th class="table-header">Mã</th>
+                <th class="table-header">Chương trình</th>
+                <th class="table-header">Ngày</th>
+                <th class="table-header">Hình thức</th>
+                <th class="table-header">Giảng viên</th>
+                <th class="table-header">Trạng thái</th>
+                <th class="table-header text-right">Số học viên</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+              <tr
+                v-for="s in sessions"
+                :key="s.name"
+                class="hover:bg-slate-50 cursor-pointer transition-colors"
+                @click="router.push(`/imm06/sessions/${s.name}`)"
+              >
+                <td class="table-cell font-mono text-xs text-slate-500">{{ s.name }}</td>
+                <td class="table-cell">
+                  <div class="font-medium text-slate-900 truncate max-w-[200px]">{{ (s as any).program_name || s.training_program }}</div>
+                </td>
+                <td class="table-cell text-slate-600 text-sm">{{ s.session_date }}</td>
+                <td class="table-cell text-sm">
+                  <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-600">
+                    {{ sessionTypeLabel(s.session_type) }}
+                  </span>
+                </td>
+                <td class="table-cell text-slate-600 text-sm">
+                  {{ (s as any).trainer_name || s.instructor_external_name || '—' }}
+                </td>
+                <td class="table-cell">
+                  <StatusBadge :state="s.workflow_state" />
+                </td>
+                <td class="table-cell text-right text-sm font-medium text-slate-700">
+                  {{ (s as any).attendee_count ?? s.participant_count ?? (s.participants?.length ?? '—') }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </template>
     </div>
 
     <BasePagination :pagination="sessionPagination" @page-change="load" />

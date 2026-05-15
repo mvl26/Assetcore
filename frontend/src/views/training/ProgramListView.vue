@@ -140,49 +140,78 @@ onMounted(() => load())
           Xóa bộ lọc để xem tất cả
         </button>
       </div>
-      <div v-else class="overflow-x-auto">
-        <table class="min-w-full divide-y divide-slate-100">
-          <thead>
-            <tr>
-              <th class="table-header">Mã</th>
-              <th class="table-header">Tên chương trình</th>
-              <th class="table-header">Loại đào tạo</th>
-              <th class="table-header">Device Model</th>
-              <th class="table-header">Thời lượng</th>
-              <th class="table-header">Điểm đạt</th>
-              <th class="table-header">Trạng thái</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-slate-100">
-            <tr
-              v-for="p in programs"
-              :key="p.name"
-              class="hover:bg-slate-50 cursor-pointer transition-colors"
-              @click="router.push(`/imm06/programs/${p.name}`)"
-            >
-              <td class="table-cell font-mono text-xs text-slate-500">{{ p.name }}</td>
-              <td class="table-cell">
-                <div class="font-medium text-slate-900 truncate max-w-[240px]">{{ p.program_name }}</div>
-                <div v-if="p.is_mandatory_for_operation" class="text-xs text-amber-600 font-medium mt-0.5">Bắt buộc vận hành</div>
-              </td>
-              <td class="table-cell">
-                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-700">
-                  {{ p.training_type === 'Initial' ? 'Ban đầu'
-                    : p.training_type === 'Refresher' ? 'Nhắc lại'
-                    : p.training_type === 'Advanced' ? 'Nâng cao'
-                    : 'Chứng nhận' }}
-                </span>
-              </td>
-              <td class="table-cell text-slate-600 text-sm">{{ p.target_device_model ?? p.target_device_category ?? '—' }}</td>
-              <td class="table-cell text-slate-600 text-sm">{{ p.duration_hours != null ? p.duration_hours + 'h' : '—' }}</td>
-              <td class="table-cell text-slate-600 text-sm">{{ p.passing_score_pct }}%</td>
-              <td class="table-cell">
-                <StatusBadge :state="p.is_active ? 'Active' : 'Inactive'" />
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <template v-else>
+        <!-- Mobile cards -->
+        <div class="mobile-card-list sm:hidden">
+          <div
+            v-for="p in programs"
+            :key="p.name"
+            class="mobile-card"
+            @click="router.push(`/imm06/programs/${p.name}`)"
+          >
+            <div class="flex items-center justify-between mb-2">
+              <span class="font-mono text-sm font-semibold text-brand-700">{{ p.name }}</span>
+              <StatusBadge :state="p.is_active ? 'Active' : 'Inactive'" />
+            </div>
+            <p class="text-sm font-medium text-slate-900 truncate">{{ p.program_name }}</p>
+            <div class="flex flex-wrap gap-x-2 gap-y-1 mt-1.5 text-xs text-slate-500">
+              <span class="px-2 py-0.5 rounded bg-blue-50 text-blue-700">
+                {{ p.training_type === 'Initial' ? 'Ban đầu' : p.training_type === 'Refresher' ? 'Nhắc lại' : p.training_type === 'Advanced' ? 'Nâng cao' : 'Chứng nhận' }}
+              </span>
+              <span v-if="p.duration_hours != null">· {{ p.duration_hours }}h</span>
+              <span>· Đạt: {{ p.passing_score_pct }}%</span>
+            </div>
+          </div>
+          <div v-if="programs.length === 0" class="py-12 text-center text-slate-400">
+            <p class="text-sm">Không có dữ liệu</p>
+          </div>
+        </div>
+
+        <!-- Desktop table -->
+        <div class="hidden sm:block overflow-x-auto">
+          <table class="min-w-full divide-y divide-slate-100">
+            <thead>
+              <tr>
+                <th class="table-header">Mã</th>
+                <th class="table-header">Tên chương trình</th>
+                <th class="table-header">Loại đào tạo</th>
+                <th class="table-header">Device Model</th>
+                <th class="table-header">Thời lượng</th>
+                <th class="table-header">Điểm đạt</th>
+                <th class="table-header">Trạng thái</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+              <tr
+                v-for="p in programs"
+                :key="p.name"
+                class="hover:bg-slate-50 cursor-pointer transition-colors"
+                @click="router.push(`/imm06/programs/${p.name}`)"
+              >
+                <td class="table-cell font-mono text-xs text-slate-500">{{ p.name }}</td>
+                <td class="table-cell">
+                  <div class="font-medium text-slate-900 truncate max-w-[240px]">{{ p.program_name }}</div>
+                  <div v-if="p.is_mandatory_for_operation" class="text-xs text-amber-600 font-medium mt-0.5">Bắt buộc vận hành</div>
+                </td>
+                <td class="table-cell">
+                  <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-700">
+                    {{ p.training_type === 'Initial' ? 'Ban đầu'
+                      : p.training_type === 'Refresher' ? 'Nhắc lại'
+                      : p.training_type === 'Advanced' ? 'Nâng cao'
+                      : 'Chứng nhận' }}
+                  </span>
+                </td>
+                <td class="table-cell text-slate-600 text-sm">{{ p.target_device_model ?? p.target_device_category ?? '—' }}</td>
+                <td class="table-cell text-slate-600 text-sm">{{ p.duration_hours != null ? p.duration_hours + 'h' : '—' }}</td>
+                <td class="table-cell text-slate-600 text-sm">{{ p.passing_score_pct }}%</td>
+                <td class="table-cell">
+                  <StatusBadge :state="p.is_active ? 'Active' : 'Inactive'" />
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </template>
     </div>
 
     <BasePagination :pagination="programPagination" @page-change="load" />

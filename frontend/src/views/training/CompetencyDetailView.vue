@@ -201,7 +201,7 @@ onMounted(load)
       <!-- Signoff info -->
       <div class="card p-5">
         <h2 class="text-sm font-semibold text-slate-700 mb-4 pb-2 border-b">Phê duyệt</h2>
-        <div class="grid grid-cols-2 gap-5 text-sm">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-5 text-sm">
           <div>
             <p class="text-xs text-slate-400 mb-1">Người phê duyệt</p>
             <p>{{ competency.supervisor_signoff ?? '—' }}</p>

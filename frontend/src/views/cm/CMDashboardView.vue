@@ -123,7 +123,7 @@ const woStatusMap: Record<string, string> = {
     <SkeletonLoader v-if="store.loading && !kpis" variant="kpi-cards" class="mb-7" />
 
     <!-- KPI cards -->
-    <div v-else-if="kpis" class="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-7">
+    <div v-else-if="kpis" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-7">
       <div class="kpi-card p-5" style="--kpi-color: #334155">
         <p class="text-xs font-medium text-slate-500 mb-2">Đã hoàn thành</p>
         <p class="text-3xl font-bold text-slate-800">{{ kpis.total_completed }}</p>
@@ -163,26 +163,28 @@ class="h-full rounded-full"
       </div>
       <div v-if="loadingTrend && !trend.length" class="text-center text-sm text-slate-400 py-6">Đang tải...</div>
       <div v-else-if="!trend.length" class="text-center text-sm text-slate-400 py-6">Chưa có dữ liệu</div>
-      <div v-else class="grid grid-cols-6 gap-3 items-end h-48">
-        <div v-for="p in trend" :key="p.month" class="flex flex-col items-center gap-1.5 h-full">
-          <div class="flex flex-col items-stretch w-full gap-1 flex-1 justify-end">
-            <div class="text-[10px] font-semibold text-slate-700 text-center tabular-nums">
-              {{ p.mttr.toFixed(1) }}h
+      <div v-else class="overflow-x-auto">
+        <div class="grid grid-cols-6 gap-3 items-end h-48 min-w-[360px]">
+          <div v-for="p in trend" :key="p.month" class="flex flex-col items-center gap-1.5 h-full">
+            <div class="flex flex-col items-stretch w-full gap-1 flex-1 justify-end">
+              <div class="text-[10px] font-semibold text-slate-700 text-center tabular-nums">
+                {{ p.mttr.toFixed(1) }}h
+              </div>
+              <div
+                class="rounded-t-md transition-all"
+                :style="`height: ${(p.mttr / maxMttr) * 100}%; min-height:4px; background: linear-gradient(180deg, #3b82f6, #2563eb);`"
+                :title="`${p.month}: MTTR ${p.mttr}h, ${p.total} phiếu, SLA ${p.sla_pct}%`"
+              />
             </div>
+            <div class="text-[11px] text-slate-500 mt-1">{{ p.month }}</div>
             <div
-              class="rounded-t-md transition-all"
-              :style="`height: ${(p.mttr / maxMttr) * 100}%; min-height:4px; background: linear-gradient(180deg, #3b82f6, #2563eb);`"
-              :title="`${p.month}: MTTR ${p.mttr}h, ${p.total} phiếu, SLA ${p.sla_pct}%`"
-            />
+              class="text-[10px] font-medium tabular-nums"
+              :style="`color: ${slaColor(p.sla_pct)}`"
+            >
+              SLA {{ p.sla_pct }}%
+            </div>
+            <div class="text-[10px] text-slate-400">{{ p.total }} phiếu</div>
           </div>
-          <div class="text-[11px] text-slate-500 mt-1">{{ p.month }}</div>
-          <div
-            class="text-[10px] font-medium tabular-nums"
-            :style="`color: ${slaColor(p.sla_pct)}`"
-          >
-            SLA {{ p.sla_pct }}%
-          </div>
-          <div class="text-[10px] text-slate-400">{{ p.total }} phiếu</div>
         </div>
       </div>
     </div>

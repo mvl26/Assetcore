@@ -350,8 +350,8 @@ Gán IMM cho user sẵn có
     <form v-if="!isEdit && createMode === 'new'" class="space-y-6" @submit.prevent="handleSubmit">
       <div class="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
         <h2 class="text-sm font-semibold text-gray-700 uppercase tracking-wide">Tài khoản người dùng</h2>
-        <div class="grid grid-cols-2 gap-4">
-          <div class="col-span-2">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div class="sm:col-span-2">
             <label for="new-email" class="block text-xs font-medium text-gray-600 mb-1">Email <span class="text-red-500">*</span></label>
             <input
 id="new-email" v-model="newUser.email" type="email" placeholder="ktv@hospital.vn"
@@ -372,8 +372,19 @@ id="new-last-name" v-model="newUser.last_name" type="text" placeholder="A"
           <div>
             <label for="new-password" class="block text-xs font-medium text-gray-600 mb-1">Mật khẩu ban đầu</label>
             <input
-id="new-password" v-model="newUser.password" type="password" placeholder="(để trống = auto-generate)"
-              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" autocomplete="new-password" />
+id="new-password" v-model="newUser.password" type="password" placeholder="Tối thiểu 8 ký tự (để trống = auto-generate)"
+              minlength="8" autocomplete="new-password"
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+            <div class="mt-1.5 text-[11px] text-gray-500 leading-snug space-y-0.5">
+              <p class="font-medium text-gray-600">Hướng dẫn tạo mật khẩu an toàn:</p>
+              <ul class="list-disc list-inside space-y-0.5 pl-1">
+                <li>Tối thiểu <b>8 ký tự</b> (khuyến nghị ≥ 12)</li>
+                <li>Kết hợp <b>chữ hoa, chữ thường, số</b> và <b>ký tự đặc biệt</b> (@, #, !, %, …)</li>
+                <li>Không dùng email, họ tên, ngày sinh hoặc mật khẩu phổ biến (<i>123456</i>, <i>password</i>…)</li>
+                <li>Người dùng sẽ được yêu cầu đổi lại trong lần đăng nhập đầu tiên</li>
+              </ul>
+              <p class="text-gray-400 italic">Để trống → hệ thống tự sinh và gửi qua email chào mừng.</p>
+            </div>
           </div>
           <div>
             <label for="new-phone" class="block text-xs font-medium text-gray-600 mb-1">Điện thoại</label>
@@ -498,7 +509,7 @@ type="submit" :disabled="saving || !pickedUser"
       <!-- Thông tin đọc-only từ Employee -->
       <div class="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
         <h2 class="text-sm font-semibold text-gray-700 uppercase tracking-wide">Thông tin tài khoản</h2>
-        <div class="grid grid-cols-2 gap-3 text-sm">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
           <div><span class="text-gray-500">Email:</span> <b>{{ detail.email }}</b></div>
           <div>
             <span class="text-gray-500">Trạng thái:</span>
@@ -528,8 +539,8 @@ class="ml-1 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-mediu
       <form v-if="canEdit" class="space-y-6" @submit.prevent="handleSubmit">
         <div class="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
           <h2 class="text-sm font-semibold text-gray-700 uppercase tracking-wide">Thông tin cơ bản</h2>
-          <div class="grid grid-cols-2 gap-4">
-            <div class="col-span-2">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div class="sm:col-span-2">
               <label for="edit-fullname" class="block text-xs font-medium text-gray-600 mb-1">Họ và tên</label>
               <input
 id="edit-fullname" v-model="editFields.full_name" type="text"

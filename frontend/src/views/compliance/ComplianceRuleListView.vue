@@ -179,7 +179,35 @@ onMounted(() => load(1))
         </button>
         <button v-else class="btn-primary mt-3" @click="openCreate">Tạo quy tắc đầu tiên</button>
       </div>
-      <div v-else class="overflow-x-auto">
+      <template v-else>
+        <!-- Mobile cards -->
+        <div class="mobile-card-list sm:hidden">
+          <div
+            v-for="r in items"
+            :key="r.name"
+            class="mobile-card"
+          >
+            <div class="flex items-center justify-between mb-2">
+              <span class="font-mono text-sm font-semibold text-brand-700">{{ r.rule_code }}</span>
+              <StatusBadge :state="r.severity" />
+            </div>
+            <p class="text-sm font-medium text-slate-900 truncate">{{ r.rule_name }}</p>
+            <div class="flex flex-wrap gap-x-2 gap-y-1 mt-1.5 text-xs text-slate-500">
+              <span v-if="r.category">{{ r.category }}</span>
+              <span v-if="r.source_module">· {{ r.source_module }}</span>
+              <span
+                :class="r.is_active ? 'text-emerald-700' : 'text-slate-400'"
+              >· {{ r.is_active ? 'Đang áp dụng' : 'Ngừng' }}</span>
+            </div>
+            <div class="mt-2 flex gap-2">
+              <button v-if="r.is_active" class="text-xs text-red-600 hover:text-red-700 font-medium" @click="onDeactivate(r)">Ngừng áp dụng</button>
+              <button v-else class="text-xs text-emerald-600 hover:text-emerald-700 font-medium" @click="onReactivate(r)">Kích hoạt lại</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Desktop table -->
+        <div class="hidden sm:block overflow-x-auto">
         <table class="min-w-full divide-y divide-slate-100">
           <thead>
             <tr>
@@ -221,7 +249,8 @@ onMounted(() => load(1))
             </tr>
           </tbody>
         </table>
-      </div>
+        </div>
+      </template>
     </div>
 
     <BasePagination :pagination="pagination" @page-change="load" />
@@ -229,7 +258,7 @@ onMounted(() => load(1))
     <!-- Create Modal -->
     <BaseModal v-if="showCreate" title="Tạo quy tắc tuân thủ" size="lg" @close="showCreate = false">
       <div class="space-y-3">
-        <div class="grid grid-cols-2 gap-3">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div class="form-group">
             <label class="form-label">Mã quy tắc *</label>
             <input v-model="form.rule_code" class="form-input" placeholder="R-IMM08-PM-COMP-90" />

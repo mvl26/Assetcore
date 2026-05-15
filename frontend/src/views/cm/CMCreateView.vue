@@ -7,6 +7,7 @@ import { useApi } from '@/composables/useApi'
 import { getIncident } from '@/api/imm12'
 import { searchSpareParts } from '@/api/imm09'
 import { frappeGet } from '@/api/helpers'
+import SmartSelect from '@/components/common/SmartSelect.vue'
 
 interface AssetMeta {
   device_model?: string
@@ -45,6 +46,13 @@ const partSearch = ref('')
 const partResults = ref<Array<{ name: string; part_name: string; stock_qty?: number }>>([])
 
 const { clear: clearDraft } = useFormDraft('cm-create', form)
+
+// Luôn ưu tiên asset từ query khi điều hướng từ AssetDetail — tránh draft cũ
+// che mất thiết bị user vừa chọn.
+const _queryAsset = (route.query.asset as string) || ''
+if (_queryAsset) form.value.asset_ref = _queryAsset
+const _queryIncident = (route.query.incident as string) || ''
+if (_queryIncident) form.value.incident_report = _queryIncident
 
 const sourceError = computed(() =>
   !form.value.incident_report && !form.value.source_pm_wo
@@ -89,13 +97,9 @@ async function loadAssetMeta() {
   }
 }
 
-// Debounce asset lookup — each keystroke would fire a separate API call causing race conditions
-let _assetDebounce: ReturnType<typeof setTimeout> | null = null
-watch(() => form.value.asset_ref, (val) => {
-  if (_assetDebounce) clearTimeout(_assetDebounce)
-  if (!val || val.length < 10) { assetMeta.value = null; return }
-  _assetDebounce = setTimeout(() => loadAssetMeta(), 400)
-})
+// SmartSelect emits asset name on explicit selection (không phải per keystroke) →
+// gọi loadAssetMeta() trực tiếp, không cần debounce.
+watch(() => form.value.asset_ref, () => { loadAssetMeta() })
 
 // ── Incident pre-fill ──
 async function loadIncidentMeta() {
@@ -225,8 +229,8 @@ onMounted(() => {
 
       <!-- Asset -->
       <div>
-        <h2 class="font-semibold text-slate-700 mb-3">Thiết bị</h2>
-        <input v-model="form.asset_ref" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" placeholder="ACC-ASS-2026-XXXXX *" />
+        <h2 class="font-semibold text-slate-700 mb-3">Thiết bị <span class="text-red-500">*</span></h2>
+        <SmartSelect v-model="form.asset_ref" doctype="AC Asset" placeholder="Tìm thiết bị theo tên / mã / serial..." />
         <div v-if="assetMeta" class="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
           <div class="bg-slate-50 rounded px-2 py-1.5"><span class="text-slate-500">Tên:</span> <b>{{ assetMeta.asset_name || '—' }}</b></div>
           <div class="bg-slate-50 rounded px-2 py-1.5"><span class="text-slate-500">Model:</span> {{ assetMeta.device_model || '—' }}</div>

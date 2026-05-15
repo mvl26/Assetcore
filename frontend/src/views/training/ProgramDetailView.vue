@@ -122,7 +122,7 @@ onMounted(load)
       <!-- General Info -->
       <div class="card p-5">
         <h2 class="text-sm font-semibold text-slate-700 mb-4 pb-2 border-b">Thông tin chung</h2>
-        <div v-if="!editing && !isCreateMode" class="grid grid-cols-2 md:grid-cols-3 gap-5 text-sm">
+        <div v-if="!editing && !isCreateMode" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-5 text-sm">
           <div>
             <p class="text-xs text-slate-400 mb-1">Mã chương trình</p>
             <p class="font-mono text-slate-600">{{ currentProgram?.name }}</p>

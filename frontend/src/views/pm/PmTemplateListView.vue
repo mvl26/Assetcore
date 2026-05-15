@@ -210,7 +210,35 @@ onMounted(load)
       <div v-else-if="filteredItems.length === 0" class="text-center text-slate-400 py-12 text-sm">
         {{ activeFilterCount > 0 ? 'Không có template nào phù hợp.' : 'Chưa có template.' }}
       </div>
-      <table v-else class="w-full text-sm">
+      <template v-else>
+        <!-- Mobile cards -->
+        <div class="mobile-card-list sm:hidden">
+          <div
+            v-for="t in filteredItems"
+            :key="t.name"
+            class="mobile-card"
+          >
+            <div class="flex items-center justify-between mb-2">
+              <span class="font-mono text-sm font-semibold text-brand-700">{{ t.name }}</span>
+              <span
+                v-if="t.pm_type"
+                class="text-xs px-2 py-0.5 rounded-full font-medium bg-slate-100 text-slate-700"
+              >{{ PM_TYPE_LABEL[t.pm_type] || t.pm_type }}</span>
+            </div>
+            <p class="text-sm font-medium text-slate-900 truncate">{{ t.template_name }}</p>
+            <div class="flex flex-wrap gap-x-2 gap-y-1 mt-1.5 text-xs text-slate-500">
+              <span v-if="t.asset_category">{{ t.asset_category }}</span>
+              <span>· v{{ t.version || '—' }}</span>
+            </div>
+            <div class="mt-2 flex gap-2">
+              <button class="text-blue-600 hover:text-blue-800 text-xs font-medium" @click="openEdit(t.name)">Sửa</button>
+              <button class="text-red-600 hover:text-red-800 text-xs font-medium" @click="remove(t.name)">Xóa</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Desktop table -->
+        <table class="hidden sm:table w-full text-sm">
         <thead class="bg-slate-50 border-b border-slate-200">
           <tr>
             <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Mã</th>
@@ -252,14 +280,15 @@ onMounted(load)
           </tr>
         </tbody>
       </table>
+      </template>
     </div>
 
     <div v-if="showForm" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 overflow-y-auto py-6" @click.self="showForm = false">
       <div class="bg-white rounded-xl p-6 w-[860px] max-w-full space-y-4 my-auto">
         <h2 class="text-lg font-semibold">{{ editingName ? 'Sửa' : 'Thêm' }} Template Checklist PM</h2>
         <div v-if="err" class="bg-red-50 text-red-700 text-sm p-3 rounded">{{ err }}</div>
-        <div class="grid grid-cols-2 gap-3">
-          <label class="col-span-2 block">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <label class="sm:col-span-2 block">
             <span class="block text-sm font-medium text-slate-700 mb-1">Tên template *</span>
             <input v-model="form.template_name" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
           </label>

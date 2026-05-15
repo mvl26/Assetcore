@@ -111,13 +111,13 @@ onMounted(load)
 <template>
   <div class="page-container animate-fade-in space-y-5">
 <!-- Header -->
-    <div class="flex items-center justify-between">
+    <div class="flex flex-wrap items-start justify-between gap-3">
       <div>
         <p class="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-1">Phiếu Luân chuyển</p>
         <h1 class="text-xl font-semibold text-gray-800">{{ name }}</h1>
         <p class="text-xs text-gray-500 mt-1">{{ form.transfer_type }} · {{ form.transfer_date }}</p>
       </div>
-      <div class="flex items-center gap-3">
+      <div class="flex flex-wrap items-center gap-3">
         <span v-if="status" class="text-xs font-semibold px-2.5 py-1 rounded-full" :class="STATUS_COLOR[status]">
           {{ STATUS_LABEL[status] || status }}
         </span>

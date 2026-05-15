@@ -225,7 +225,7 @@ v-if="isSubmitted && form.overall_result" class="text-xs font-semibold px-2 py-1
       <!-- Info Grid -->
       <div class="card p-5">
         <h2 class="text-sm font-semibold text-slate-700 mb-4 pb-2 border-b">Thông tin chung</h2>
-        <div class="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
+        <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 text-sm">
           <div>
             <p class="text-xs text-slate-400 mb-1">Thiết bị</p>
             <p class="font-medium">{{ form.asset_name || form.asset }}</p>

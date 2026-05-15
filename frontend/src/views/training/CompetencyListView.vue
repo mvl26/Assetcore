@@ -140,50 +140,77 @@ onMounted(() => load())
           Xóa bộ lọc để xem tất cả
         </button>
       </div>
-      <div v-else class="overflow-x-auto">
-        <table class="min-w-full divide-y divide-slate-100">
-          <thead>
-            <tr>
-              <th class="table-header">Nhân viên</th>
-              <th class="table-header">Device Model</th>
-              <th class="table-header">Cấp độ</th>
-              <th class="table-header">Ngày đạt</th>
-              <th class="table-header">Ngày hết hạn</th>
-              <th class="table-header text-right">Còn lại</th>
-              <th class="table-header">Trạng thái</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-slate-100">
-            <tr
-              v-for="c in competencies"
-              :key="c.name"
-              class="hover:bg-slate-50 cursor-pointer transition-colors"
-              @click="router.push(`/imm06/competencies/${c.name}`)"
-            >
-              <td class="table-cell">
-                <div class="font-medium text-slate-900">{{ c.user_full_name ?? c.user }}</div>
-                <div v-if="c.user_full_name" class="text-xs text-slate-400 font-mono">{{ c.user }}</div>
-              </td>
-              <td class="table-cell text-slate-600 text-sm">{{ c.device_model }}</td>
-              <td class="table-cell text-sm">
-                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-700">
-                  {{ levelLabel(c.competency_level) }}
-                </span>
-              </td>
-              <td class="table-cell text-slate-600 text-sm">{{ c.achieved_date }}</td>
-              <td class="table-cell text-sm" :class="c.is_expired ? 'text-red-500 font-medium' : 'text-slate-600'">
-                {{ c.expiry_date ?? '—' }}
-              </td>
-              <td class="table-cell text-right text-sm" :class="expiryClass(c.days_until_expiry)">
-                {{ formatDaysUntilExpiry(c.days_until_expiry) }}
-              </td>
-              <td class="table-cell">
-                <StatusBadge :state="c.workflow_state" />
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <template v-else>
+        <!-- Mobile cards -->
+        <div class="mobile-card-list sm:hidden">
+          <div
+            v-for="c in competencies"
+            :key="c.name"
+            class="mobile-card"
+            @click="router.push(`/imm06/competencies/${c.name}`)"
+          >
+            <div class="flex items-center justify-between mb-2">
+              <span class="font-mono text-sm font-semibold text-brand-700">{{ c.name }}</span>
+              <StatusBadge :state="c.workflow_state" />
+            </div>
+            <p class="text-sm font-medium text-slate-900 truncate">{{ c.user_full_name ?? c.user }}</p>
+            <div class="flex flex-wrap gap-x-2 gap-y-1 mt-1.5 text-xs text-slate-500">
+              <span>{{ c.device_model }}</span>
+              <span>· <span class="px-1.5 py-0.5 rounded bg-blue-50 text-blue-700">{{ levelLabel(c.competency_level) }}</span></span>
+              <span :class="expiryClass(c.days_until_expiry)">· {{ formatDaysUntilExpiry(c.days_until_expiry) }}</span>
+            </div>
+          </div>
+          <div v-if="competencies.length === 0" class="py-12 text-center text-slate-400">
+            <p class="text-sm">Không có dữ liệu</p>
+          </div>
+        </div>
+
+        <!-- Desktop table -->
+        <div class="hidden sm:block overflow-x-auto">
+          <table class="min-w-full divide-y divide-slate-100">
+            <thead>
+              <tr>
+                <th class="table-header">Nhân viên</th>
+                <th class="table-header">Device Model</th>
+                <th class="table-header">Cấp độ</th>
+                <th class="table-header">Ngày đạt</th>
+                <th class="table-header">Ngày hết hạn</th>
+                <th class="table-header text-right">Còn lại</th>
+                <th class="table-header">Trạng thái</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+              <tr
+                v-for="c in competencies"
+                :key="c.name"
+                class="hover:bg-slate-50 cursor-pointer transition-colors"
+                @click="router.push(`/imm06/competencies/${c.name}`)"
+              >
+                <td class="table-cell">
+                  <div class="font-medium text-slate-900">{{ c.user_full_name ?? c.user }}</div>
+                  <div v-if="c.user_full_name" class="text-xs text-slate-400 font-mono">{{ c.user }}</div>
+                </td>
+                <td class="table-cell text-slate-600 text-sm">{{ c.device_model }}</td>
+                <td class="table-cell text-sm">
+                  <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-700">
+                    {{ levelLabel(c.competency_level) }}
+                  </span>
+                </td>
+                <td class="table-cell text-slate-600 text-sm">{{ c.achieved_date }}</td>
+                <td class="table-cell text-sm" :class="c.is_expired ? 'text-red-500 font-medium' : 'text-slate-600'">
+                  {{ c.expiry_date ?? '—' }}
+                </td>
+                <td class="table-cell text-right text-sm" :class="expiryClass(c.days_until_expiry)">
+                  {{ formatDaysUntilExpiry(c.days_until_expiry) }}
+                </td>
+                <td class="table-cell">
+                  <StatusBadge :state="c.workflow_state" />
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </template>
     </div>
 
     <BasePagination :pagination="competencyPagination" @page-change="load" />

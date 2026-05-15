@@ -90,50 +90,79 @@ v-model.number="filters.min_score" type="number" min="0" max="5" step="0.1"
 
     <div class="card overflow-hidden">
       <div v-if="loading" class="p-6 text-sm text-slate-500">Đang tải...</div>
-      <div v-else-if="items.length" class="overflow-x-auto">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Tên Nhà cung cấp</th>
-              <th>AVL Status</th>
-              <th>Nhóm thiết bị (AVL)</th>
-              <th class="num">Điểm</th>
-              <th>Audit gần nhất</th>
-              <th>Audit kế tiếp</th>
-              <th class="num">Chứng chỉ</th>
-              <th class="num">Sắp hết hạn</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              v-for="(v, idx) in items" :key="v.name"
-              class="animate-fade-in" :class="[`stagger-${Math.min(idx + 1, 8)}`]"
-            >
-              <td>
-                <router-link :to="`/vendor-profiles/${v.name}`" class="link-cell font-medium">
-                  {{ v.supplier_name || v.name }}
-                </router-link>
-                <div class="mt-0.5"><span class="font-mono text-[11px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-600">{{ v.name }}</span></div>
-              </td>
-              <td>
-                <span :class="['inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border', statusBgClass(v.imm_avl_status)]">
-                  {{ v.imm_avl_status || '—' }}
-                </span>
-              </td>
-              <td>{{ v.imm_avl_categories || '—' }}</td>
-              <td class="num">{{ (v.imm_overall_score || 0).toFixed(2) }}</td>
-              <td>{{ v.imm_last_audit_date || '—' }}</td>
-              <td>{{ v.imm_next_audit_date || '—' }}</td>
-              <td class="num">{{ v.cert_count || 0 }}</td>
-              <td class="num">
-                <span :class="(v.cert_expiring_soon || 0) > 0 ? 'warn' : ''">
-                  {{ v.cert_expiring_soon || 0 }}
-                </span>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <template v-else-if="items.length">
+        <!-- Mobile cards -->
+        <div class="mobile-card-list sm:hidden">
+          <div
+            v-for="v in items"
+            :key="v.name"
+            class="mobile-card"
+            @click="$router.push(`/vendor-profiles/${v.name}`)"
+          >
+            <div class="flex items-center justify-between mb-2">
+              <span class="font-mono text-sm font-semibold text-brand-700">{{ v.name }}</span>
+              <span :class="['px-2.5 py-0.5 rounded-full text-xs font-medium border', statusBgClass(v.imm_avl_status)]">
+                {{ v.imm_avl_status || '—' }}
+              </span>
+            </div>
+            <p class="text-sm font-medium text-slate-900 truncate">{{ v.supplier_name || v.name }}</p>
+            <div class="flex flex-wrap gap-x-2 gap-y-1 mt-1.5 text-xs text-slate-500">
+              <span v-if="v.imm_avl_categories">{{ v.imm_avl_categories }}</span>
+              <span>· Điểm: {{ (v.imm_overall_score || 0).toFixed(2) }}</span>
+              <span v-if="(v.cert_expiring_soon || 0) > 0">· Sắp hết hạn: {{ v.cert_expiring_soon }}</span>
+            </div>
+          </div>
+          <div v-if="items.length === 0" class="py-12 text-center text-slate-400">
+            <p class="text-sm">Không có dữ liệu</p>
+          </div>
+        </div>
+
+        <!-- Desktop table -->
+        <div class="hidden sm:block overflow-x-auto">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Tên Nhà cung cấp</th>
+                <th>AVL Status</th>
+                <th>Nhóm thiết bị (AVL)</th>
+                <th class="num">Điểm</th>
+                <th>Audit gần nhất</th>
+                <th>Audit kế tiếp</th>
+                <th class="num">Chứng chỉ</th>
+                <th class="num">Sắp hết hạn</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="(v, idx) in items" :key="v.name"
+                class="animate-fade-in" :class="[`stagger-${Math.min(idx + 1, 8)}`]"
+              >
+                <td>
+                  <router-link :to="`/vendor-profiles/${v.name}`" class="link-cell font-medium">
+                    {{ v.supplier_name || v.name }}
+                  </router-link>
+                  <div class="mt-0.5"><span class="font-mono text-[11px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-600">{{ v.name }}</span></div>
+                </td>
+                <td>
+                  <span :class="['inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border', statusBgClass(v.imm_avl_status)]">
+                    {{ v.imm_avl_status || '—' }}
+                  </span>
+                </td>
+                <td>{{ v.imm_avl_categories || '—' }}</td>
+                <td class="num">{{ (v.imm_overall_score || 0).toFixed(2) }}</td>
+                <td>{{ v.imm_last_audit_date || '—' }}</td>
+                <td>{{ v.imm_next_audit_date || '—' }}</td>
+                <td class="num">{{ v.cert_count || 0 }}</td>
+                <td class="num">
+                  <span :class="(v.cert_expiring_soon || 0) > 0 ? 'warn' : ''">
+                    {{ v.cert_expiring_soon || 0 }}
+                  </span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </template>
       <div v-else class="flex flex-col items-center justify-center py-16 text-slate-400">
         <p class="text-sm">Chưa có nhà cung cấp nào.</p>
       </div>

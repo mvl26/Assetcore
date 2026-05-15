@@ -74,7 +74,7 @@ onMounted(load)
       <!-- Thông tin tài khoản -->
       <div class="card p-5 space-y-3">
         <h2 class="font-medium text-slate-700">Thông tin tài khoản</h2>
-        <div class="grid grid-cols-2 gap-3 text-sm">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
           <div><span class="text-slate-500">Email:</span> <b>{{ data.user.email }}</b></div>
           <div>
             <span class="text-slate-500">Trạng thái:</span>
@@ -103,7 +103,7 @@ v-for="r in data.roles" :key="r"
       <!-- Cập nhật hồ sơ -->
       <div class="card p-5 space-y-3">
         <h2 class="font-medium text-slate-700">Cập nhật hồ sơ</h2>
-        <div class="grid grid-cols-2 gap-3">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label for="pf-name" class="form-label">Họ và tên</label>
             <input id="pf-name" v-model="edit.full_name" class="form-input w-full" />

@@ -111,52 +111,78 @@ onMounted(() => store.fetchEvaluations())
       </div>
 
       <div v-if="store.loading" class="p-6 text-sm text-slate-500">Đang tải...</div>
-      <div v-else-if="store.evaluations.length" class="overflow-x-auto">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Mã phiếu đánh giá</th>
-              <th>Hồ sơ kỹ thuật</th>
-              <th>Ngày khởi tạo</th>
-              <th>Nhà cung cấp đề xuất</th>
-              <th>Trạng thái</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              v-for="(ev, idx) in store.evaluations" :key="ev.name"
-              class="clickable animate-fade-in"
-              :class="[`stagger-${Math.min(idx + 1, 8)}`]"
-              @click="goDetail(ev.name)"
-            >
-              <td><span class="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded text-slate-700">{{ ev.name }}</span></td>
-              <td>
-                <button class="link-cell" :title="`Lọc: ${ev.spec_ref}`" @click.stop="quickFilter('spec_ref', ev.spec_ref)">
-                  {{ ev.spec_ref }}
-                </button>
-              </td>
-              <td>{{ formatVnDate(ev.draft_date) }}</td>
-              <td>
-                <button
-v-if="ev.recommended_candidate" class="link-cell"
-                        :title="`Lọc: ${ev.recommended_candidate}`"
-                        @click.stop="quickFilter('recommended_candidate', ev.recommended_candidate)">
-                  {{ ev.recommended_candidate }}
-                </button>
-                <span v-else class="text-slate-400">—</span>
-              </td>
-              <td>
-                <button
-type="button" class="pill-btn"
-                        :title="`Lọc trạng thái: ${stateLabel(ev.workflow_state)}`"
-                        @click.stop="quickFilter('workflow_state', ev.workflow_state)">
-                  <StatusBadge :state="ev.workflow_state" />
-                </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <template v-else-if="store.evaluations.length">
+        <!-- Mobile cards -->
+        <div class="mobile-card-list sm:hidden">
+          <div
+            v-for="ev in store.evaluations"
+            :key="ev.name"
+            class="mobile-card"
+            @click="goDetail(ev.name)"
+          >
+            <div class="flex items-center justify-between mb-2">
+              <span class="font-mono text-sm font-semibold text-brand-700">{{ ev.name }}</span>
+              <StatusBadge :state="ev.workflow_state" />
+            </div>
+            <p class="text-sm font-medium text-slate-900 truncate">{{ ev.spec_ref }}</p>
+            <div class="flex flex-wrap gap-x-2 gap-y-1 mt-1.5 text-xs text-slate-500">
+              <span v-if="ev.draft_date">{{ formatVnDate(ev.draft_date) }}</span>
+              <span v-if="ev.recommended_candidate">· {{ ev.recommended_candidate }}</span>
+            </div>
+          </div>
+          <div v-if="store.evaluations.length === 0" class="py-12 text-center text-slate-400">
+            <p class="text-sm">Không có dữ liệu</p>
+          </div>
+        </div>
+
+        <!-- Desktop table -->
+        <div class="hidden sm:block overflow-x-auto">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Mã phiếu đánh giá</th>
+                <th>Hồ sơ kỹ thuật</th>
+                <th>Ngày khởi tạo</th>
+                <th>Nhà cung cấp đề xuất</th>
+                <th>Trạng thái</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="(ev, idx) in store.evaluations" :key="ev.name"
+                class="clickable animate-fade-in"
+                :class="[`stagger-${Math.min(idx + 1, 8)}`]"
+                @click="goDetail(ev.name)"
+              >
+                <td><span class="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded text-slate-700">{{ ev.name }}</span></td>
+                <td>
+                  <button class="link-cell" :title="`Lọc: ${ev.spec_ref}`" @click.stop="quickFilter('spec_ref', ev.spec_ref)">
+                    {{ ev.spec_ref }}
+                  </button>
+                </td>
+                <td>{{ formatVnDate(ev.draft_date) }}</td>
+                <td>
+                  <button
+  v-if="ev.recommended_candidate" class="link-cell"
+                          :title="`Lọc: ${ev.recommended_candidate}`"
+                          @click.stop="quickFilter('recommended_candidate', ev.recommended_candidate)">
+                    {{ ev.recommended_candidate }}
+                  </button>
+                  <span v-else class="text-slate-400">—</span>
+                </td>
+                <td>
+                  <button
+  type="button" class="pill-btn"
+                          :title="`Lọc trạng thái: ${stateLabel(ev.workflow_state)}`"
+                          @click.stop="quickFilter('workflow_state', ev.workflow_state)">
+                    <StatusBadge :state="ev.workflow_state" />
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </template>
       <div v-else class="flex flex-col items-center justify-center py-16 text-slate-400">
         <p class="text-sm">Không có phiếu đánh giá nào phù hợp</p>
         <button v-if="activeChips.length > 0" class="mt-3 text-xs text-blue-500 hover:text-blue-700 underline" @click="resetFilters">

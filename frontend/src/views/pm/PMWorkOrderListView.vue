@@ -168,75 +168,108 @@ function quickFilter(_key: 'status', value: string) {
     </div>
 
     <!-- Table -->
-    <div v-else class="table-wrapper">
-      <table class="min-w-full divide-y divide-slate-100">
-        <thead>
-          <tr>
-            <th class="table-header">Mã WO</th>
-            <th class="table-header">Thiết bị</th>
-            <th class="table-header">Loại PM</th>
-            <th class="table-header">Đến hạn</th>
-            <th class="table-header">Kỹ thuật viên</th>
-            <th class="table-header">Trạng thái</th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-slate-50">
-          <tr
-            v-for="wo in filteredWOs"
-            :key="wo.name"
-            class="hover:bg-slate-50 cursor-pointer transition-all hover:translate-x-0.5"
-            @click="router.push(`/pm/work-orders/${wo.name}`)"
-          >
-            <td class="table-cell">
-              <div class="font-mono text-sm font-semibold text-brand-700">{{ wo.name }}</div>
-            </td>
-            <td class="table-cell">
-              <div class="font-medium text-slate-900 truncate max-w-[240px]">
-                {{ formatAssetDisplay(wo.asset_name, wo.asset_ref).main }}
-              </div>
-              <div
-v-if="formatAssetDisplay(wo.asset_name, wo.asset_ref).hasBoth"
-                   class="text-xs text-slate-400 font-mono mt-0.5">
-                {{ formatAssetDisplay(wo.asset_name, wo.asset_ref).sub }}
-              </div>
-            </td>
-            <td class="table-cell text-slate-600">{{ wo.pm_type || '—' }}</td>
-            <td class="table-cell">
-              <span :class="wo.is_late ? 'text-red-600 font-semibold' : 'text-slate-600'">
-                {{ wo.due_date || '—' }}
-              </span>
-              <div v-if="wo.is_late" class="text-xs text-red-500 mt-0.5">Quá hạn</div>
-            </td>
-            <td class="table-cell">
-              <div class="text-slate-700">{{ wo.assigned_to_name || wo.assigned_to || '—' }}</div>
-              <div v-if="wo.assigned_to && wo.assigned_to_name" class="text-xs text-slate-400">{{ wo.assigned_to }}</div>
-            </td>
-            <td class="table-cell">
-              <button
-                :class="['inline-block px-2.5 py-1 rounded-full text-xs font-medium transition-all hover:ring-2 hover:ring-offset-1 hover:ring-current/50', getStatusColor(wo.status)]"
-                :title="`Lọc: ${translateStatus(wo.status)}`"
-                @click.stop="quickFilter('status', wo.status)"
-              >
-{{ translateStatus(wo.status) }}
-</button>
-            </td>
-          </tr>
+    <template v-else>
+      <!-- Mobile cards (< sm) -->
+      <div class="mobile-card-list sm:hidden">
+        <div class="flex items-center justify-between text-xs text-slate-500 pb-1">
+          <span>Hiển thị <strong class="text-slate-700">{{ filteredWOs.length }}</strong> phiếu</span>
+          <button v-if="activeFilterCount > 0" class="text-red-500 font-medium" @click="resetFilters">Xóa tất cả</button>
+        </div>
+        <div
+          v-for="wo in filteredWOs"
+          :key="wo.name"
+          class="mobile-card"
+          @click="router.push(`/pm/work-orders/${wo.name}`)"
+        >
+          <div class="flex items-center justify-between mb-2">
+            <span class="font-mono text-sm font-semibold text-brand-700">{{ wo.name }}</span>
+            <button
+              :class="['px-2.5 py-0.5 rounded-full text-xs font-medium', getStatusColor(wo.status)]"
+              @click.stop="quickFilter('status', wo.status)"
+            >{{ translateStatus(wo.status) }}</button>
+          </div>
+          <p class="text-sm font-medium text-slate-900 truncate">{{ formatAssetDisplay(wo.asset_name, wo.asset_ref).main }}</p>
+          <div class="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1.5 text-xs text-slate-500">
+            <span v-if="wo.pm_type">{{ wo.pm_type }}</span>
+            <span class="text-slate-300">·</span>
+            <span :class="wo.is_late ? 'text-red-600 font-semibold' : ''">{{ wo.due_date || '—' }}</span>
+            <span v-if="wo.is_late" class="text-red-500">Quá hạn</span>
+          </div>
+        </div>
+        <div v-if="filteredWOs.length === 0" class="py-12 text-center text-slate-400">
+          <p class="text-sm font-medium">Không tìm thấy phiếu bảo trì</p>
+        </div>
+      </div>
 
-          <!-- Empty state -->
-          <tr v-if="filteredWOs.length === 0">
-            <td colspan="6" class="py-16 text-center">
-              <div class="flex flex-col items-center gap-3 text-slate-400">
-                <svg class="w-12 h-12 text-slate-200" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                </svg>
-                <p class="text-sm font-medium text-slate-500">Không tìm thấy phiếu bảo trì</p>
-                <p class="text-xs text-slate-400">Thử thay đổi bộ lọc hoặc từ khóa tìm kiếm</p>
-              </div>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+      <!-- Desktop table (sm+) -->
+      <div class="hidden sm:block table-wrapper">
+        <table class="min-w-full divide-y divide-slate-100">
+          <thead>
+            <tr>
+              <th class="table-header">Mã WO</th>
+              <th class="table-header">Thiết bị</th>
+              <th class="table-header">Loại PM</th>
+              <th class="table-header">Đến hạn</th>
+              <th class="table-header">Kỹ thuật viên</th>
+              <th class="table-header">Trạng thái</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-50">
+            <tr
+              v-for="wo in filteredWOs"
+              :key="wo.name"
+              class="hover:bg-slate-50 cursor-pointer transition-all hover:translate-x-0.5"
+              @click="router.push(`/pm/work-orders/${wo.name}`)"
+            >
+              <td class="table-cell">
+                <div class="font-mono text-sm font-semibold text-brand-700">{{ wo.name }}</div>
+              </td>
+              <td class="table-cell">
+                <div class="font-medium text-slate-900 truncate max-w-[240px]">
+                  {{ formatAssetDisplay(wo.asset_name, wo.asset_ref).main }}
+                </div>
+                <div
+                  v-if="formatAssetDisplay(wo.asset_name, wo.asset_ref).hasBoth"
+                  class="text-xs text-slate-400 font-mono mt-0.5">
+                  {{ formatAssetDisplay(wo.asset_name, wo.asset_ref).sub }}
+                </div>
+              </td>
+              <td class="table-cell text-slate-600">{{ wo.pm_type || '—' }}</td>
+              <td class="table-cell">
+                <span :class="wo.is_late ? 'text-red-600 font-semibold' : 'text-slate-600'">
+                  {{ wo.due_date || '—' }}
+                </span>
+                <div v-if="wo.is_late" class="text-xs text-red-500 mt-0.5">Quá hạn</div>
+              </td>
+              <td class="table-cell">
+                <div class="text-slate-700">{{ wo.assigned_to_name || wo.assigned_to || '—' }}</div>
+                <div v-if="wo.assigned_to && wo.assigned_to_name" class="text-xs text-slate-400">{{ wo.assigned_to }}</div>
+              </td>
+              <td class="table-cell">
+                <button
+                  :class="['inline-block px-2.5 py-1 rounded-full text-xs font-medium transition-all hover:ring-2 hover:ring-offset-1 hover:ring-current/50', getStatusColor(wo.status)]"
+                  :title="`Lọc: ${translateStatus(wo.status)}`"
+                  @click.stop="quickFilter('status', wo.status)"
+                >{{ translateStatus(wo.status) }}</button>
+              </td>
+            </tr>
+
+            <!-- Empty state -->
+            <tr v-if="filteredWOs.length === 0">
+              <td colspan="6" class="py-16 text-center">
+                <div class="flex flex-col items-center gap-3 text-slate-400">
+                  <svg class="w-12 h-12 text-slate-200" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                  </svg>
+                  <p class="text-sm font-medium text-slate-500">Không tìm thấy phiếu bảo trì</p>
+                  <p class="text-xs text-slate-400">Thử thay đổi bộ lọc hoặc từ khóa tìm kiếm</p>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </template>
 
     <BasePagination :pagination="store.pagination" @page-change="p => store.fetchWorkOrders({}, p)" />
   </div>

@@ -1,7 +1,7 @@
 # Thiết Kế Dashboard UI & Hệ thống Cảnh Báo (Alert) 
 # Định hướng Dữ liệu Quản trị (Data-Driven UX) cho IMM-04
 
-**Phân hệ:** AssetCore v1.0
+**Phân hệ:** AssetCore v0.0.1
 **Nguyên tắc thiết kế Thống kê:** Dashboard trong ERPNext không phải là trang trí. Nó là Công cụ định hướng dòng tiền (KPI Release) và rủi ro Sinh ngọc (DOA Rate). Thiết kế phân theo từng Role chứ không thiết kế chung 1 màn hình Rác.
 
 ---

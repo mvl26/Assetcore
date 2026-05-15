@@ -151,7 +151,35 @@ onMounted(() => load(1))
         </button>
         <button v-else class="btn-primary mt-3" @click="openCreate">Tạo cuộc soát xét đầu tiên</button>
       </div>
-      <div v-else class="overflow-x-auto">
+      <template v-else>
+        <!-- Mobile cards -->
+        <div class="mobile-card-list sm:hidden">
+          <div
+            v-for="r in items"
+            :key="r.name"
+            class="mobile-card"
+          >
+            <div class="flex items-center justify-between mb-2">
+              <span class="font-mono text-sm font-semibold text-brand-700">{{ r.name }}</span>
+              <StatusBadge :state="r.status" />
+            </div>
+            <p class="text-sm font-medium text-slate-900 truncate">{{ r.quarter }}</p>
+            <div class="flex flex-wrap gap-x-2 gap-y-1 mt-1.5 text-xs text-slate-500">
+              <span>{{ formatDate(r.review_date) }}</span>
+              <span>· {{ chairDisplay(r) }}</span>
+            </div>
+            <div class="mt-2">
+              <button
+                v-if="r.status !== 'Closed'"
+                class="text-xs text-emerald-700 hover:text-emerald-800 font-medium"
+                @click="openFinalize(r)"
+              >Đóng và xuất biên bản</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Desktop table -->
+        <div class="hidden sm:block overflow-x-auto">
         <table class="min-w-full divide-y divide-slate-100">
           <thead>
             <tr>
@@ -189,14 +217,15 @@ onMounted(() => load(1))
             </tr>
           </tbody>
         </table>
-      </div>
+        </div>
+      </template>
     </div>
 
     <BasePagination :pagination="pagination" @page-change="load" />
 
     <!-- Create Modal -->
     <BaseModal v-if="showCreate" title="Tạo soát xét quản lý" size="lg" @close="showCreate = false">
-      <div class="space-y-3 grid grid-cols-2 gap-3">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div class="form-group">
           <label class="form-label">Quý (VD: 2026-Q1) *</label>
           <input v-model="form.quarter" class="form-input" placeholder="2026-Q2" />

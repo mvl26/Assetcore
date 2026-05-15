@@ -152,7 +152,7 @@ function navigateChecklist() {
         <button class="btn-primary" @click="store.fetchWorkOrder(props.id)">Thử lại</button>
       </div>
     </div>
-    <div v-else-if="wo" class="grid md:grid-cols-5 gap-6">
+    <div v-else-if="wo" class="grid grid-cols-1 md:grid-cols-5 gap-6">
       <!-- LEFT PANEL (60%) -->
       <div class="md:col-span-3 space-y-5">
         <!-- Asset Info -->

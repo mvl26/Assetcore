@@ -154,7 +154,29 @@ onMounted(() => load(1))
           Xóa bộ lọc để xem tất cả
         </button>
       </div>
-      <div v-else class="overflow-x-auto">
+      <template v-else>
+        <!-- Mobile cards -->
+        <div class="mobile-card-list sm:hidden">
+          <div
+            v-for="f in items"
+            :key="f.name"
+            class="mobile-card"
+            @click="router.push(`/compliance/findings/${f.name}`)"
+          >
+            <div class="flex items-center justify-between mb-2">
+              <span class="font-mono text-sm font-semibold text-brand-700">{{ f.name }}</span>
+              <StatusBadge :state="f.severity" />
+            </div>
+            <p class="text-sm font-medium text-slate-900 truncate">{{ f.rule }}</p>
+            <div class="flex flex-wrap gap-x-2 gap-y-1 mt-1.5 text-xs text-slate-500">
+              <span>{{ formatAssetDisplay(f.asset_name, f.asset).main }}</span>
+              <span>· {{ formatDate(f.detected_date) }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Desktop table -->
+        <div class="hidden sm:block overflow-x-auto">
         <table class="min-w-full divide-y divide-slate-100">
           <thead>
             <tr>
@@ -199,7 +221,8 @@ onMounted(() => load(1))
             </tr>
           </tbody>
         </table>
-      </div>
+        </div>
+      </template>
     </div>
 
     <BasePagination :pagination="pagination" @page-change="load" />

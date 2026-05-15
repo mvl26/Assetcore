@@ -19,7 +19,7 @@
 | ID | Tiêu chí | B.Buộc | Owner | Bằng chứng xác nhận | Kết quả |
 |---|---|---|---|---|---|
 | CFG-01 | `bench migrate` chạy thành công, không có lỗi traceback | ★ | Dev Lead | Screenshot terminal output cuối cùng của `bench migrate` | ☐ Pass ☐ Fail |
-| CFG-02 | Hệ thống đang chạy đúng version `assetcore v1.0` | ★ | Dev Lead | Output `bench version` hoặc git tag `imm04-sandbox-v1` | ☐ Pass ☐ Fail |
+| CFG-02 | Hệ thống đang chạy đúng version `AssetCore v0.0.1` | ★ | Dev Lead | Output `bench version` hoặc git tag `imm04-sandbox-v1` | ☐ Pass ☐ Fail |
 | CFG-03 | Timezone hệ thống đặt là `Asia/Ho_Chi_Minh` | ★ | Sys Admin | System Settings → Time Zone = Asia/Ho_Chi_Minh (screenshot) | ☐ Pass ☐ Fail |
 | CFG-04 | Email server đã cấu hình và gửi được test email | — | Sys Admin | Gửi test email từ menu Email Queue, xác nhận nhận được | ☐ Pass ☐ Fail |
 | CFG-05 | Module `AssetCore` xuất hiện đúng trong menu điều hướng | ★ | Dev Lead | Screenshot menu sau khi login với account user thường | ☐ Pass ☐ Fail |

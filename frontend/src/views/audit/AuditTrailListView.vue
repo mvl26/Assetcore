@@ -237,7 +237,31 @@ onMounted(fetchTrails)
           Xóa bộ lọc để xem tất cả
         </button>
       </div>
-      <div v-else class="overflow-x-auto">
+      <template v-else>
+        <!-- Mobile cards -->
+        <div class="mobile-card-list sm:hidden">
+          <div
+            v-for="t in trails"
+            :key="t.name"
+            class="mobile-card"
+            @click="openDetail(t)"
+          >
+            <div class="flex items-center justify-between mb-2">
+              <span class="font-mono text-sm font-semibold text-brand-700">{{ t.name }}</span>
+              <span :class="['text-xs px-2 py-0.5 rounded-full font-medium', EVENT_COLORS[t.event_type] || 'bg-gray-100 text-gray-600']">
+                {{ EVENT_LABEL[t.event_type] || t.event_type }}
+              </span>
+            </div>
+            <p class="text-sm font-medium text-slate-900 truncate">{{ t.display.main }}</p>
+            <div class="flex flex-wrap gap-x-2 gap-y-1 mt-1.5 text-xs text-slate-500">
+              <span>{{ formatDateTime(t.timestamp ?? t.event_timestamp) }}</span>
+              <span v-if="t.actor">· {{ t.actor }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Desktop table -->
+        <div class="hidden sm:block overflow-x-auto">
         <table class="w-full text-sm">
           <thead class="bg-slate-50 border-b border-slate-200">
             <tr>
@@ -311,7 +335,8 @@ onMounted(fetchTrails)
             </tr>
           </tbody>
         </table>
-      </div>
+        </div>
+      </template>
 
       <!-- Pagination -->
       <div v-if="totalCount > PAGE_SIZE" class="flex items-center justify-between px-4 py-3 border-t border-slate-100 text-sm text-slate-500">

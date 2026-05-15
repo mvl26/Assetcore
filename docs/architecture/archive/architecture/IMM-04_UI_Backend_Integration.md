@@ -1,7 +1,7 @@
 # Thiết Kế Tích Hợp UI ↔ Backend (Integration Map)
 # Kết Nối Luồng Giao Diện với Hệ thống Lõi ERPNext / Frappe (IMM-04)
 
-**Phân hệ:** AssetCore v1.0
+**Phân hệ:** AssetCore v0.0.1
 **Nguyên lý Thiết kế:** AssetCore đi theo chủ nghĩa **"Lực đẩy Backend"** (Backend-Driven UI). Mọi quyết định hiển thị, cấm/cho phép trên UI Client đều phải lấy thông số trạng thái từ DocType Controller (Python), không phó mặc rủi ro cho JavaScript bảo vệ.
 
 ---
