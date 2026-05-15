@@ -96,12 +96,15 @@ v-if="overview.low_stock_items.length === 0"
           </div>
           <div v-else class="space-y-2.5">
             <div
-v-for="item in overview.low_stock_items" :key="item.spare_part"
+v-for="item in overview.low_stock_items" :key="item.bin || item.spare_part"
                  class="flex items-center justify-between p-3 bg-red-50 rounded-lg border border-red-100 cursor-pointer hover:bg-red-100 transition-colors"
                  @click="router.push(`/spare-parts/${item.spare_part}`)">
               <div class="min-w-0">
                 <p class="text-sm font-medium text-slate-800 truncate">{{ item.part_name }}</p>
-                <p class="font-mono text-xs text-brand-700 mt-0.5">{{ item.spare_part }}</p>
+                <p class="font-mono text-xs text-brand-700 mt-0.5">
+                  {{ item.spare_part }}
+                  <span v-if="item.warehouse_name" class="font-sans text-slate-400">· {{ item.warehouse_name }}</span>
+                </p>
               </div>
               <div class="text-right shrink-0">
                 <p class="text-sm font-bold text-red-600 tabular-nums">{{ item.total_qty }} / {{ item.min_stock_level }}</p>

@@ -39,6 +39,7 @@ const form = ref({
   pm_schedule: '',
   due_date: '',
   assigned_to: '',
+  supervisor: '',
   technician_notes: '',
 })
 
@@ -243,6 +244,12 @@ onMounted(() => {
           placeholder="ktv@hospital.vn"
           class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
         />
+      </div>
+
+      <!-- Supervisor -->
+      <div>
+        <label class="block text-sm font-medium text-slate-700 mb-1">Người giám sát</label>
+        <SmartSelect v-model="form.supervisor" doctype="User" placeholder="Chọn người giám sát..." />
       </div>
 
       <!-- Notes -->

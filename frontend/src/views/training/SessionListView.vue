@@ -18,7 +18,7 @@ const store = useImm06Store()
 const authStore = useAuthStore()
 const api = useApi()
 
-const { sessions, sessionPagination, loading } = storeToRefs(store)
+const { sessions, sessionPagination, loading, error } = storeToRefs(store)
 
 const filterState = ref('')
 const filterType = ref('')
@@ -140,6 +140,10 @@ onMounted(() => load())
       <div v-if="loading" class="p-4">
         <SkeletonLoader variant="table" :rows="6" />
       </div>
+      <div v-else-if="error" class="m-4 rounded border border-rose-200 bg-rose-50 px-4 py-3 text-rose-700 flex items-center gap-3">
+        <span class="flex-1">{{ error }}</span>
+        <button class="text-sm underline" @click="load()">Thử lại</button>
+      </div>
       <div v-else-if="!sessions.length" class="flex flex-col items-center justify-center py-16 text-slate-400">
         <svg class="w-10 h-10 mb-3 text-slate-300" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
@@ -162,11 +166,11 @@ onMounted(() => load())
               <span class="font-mono text-sm font-semibold text-brand-700">{{ s.name }}</span>
               <StatusBadge :state="s.workflow_state" />
             </div>
-            <p class="text-sm font-medium text-slate-900 truncate">{{ (s as any).program_name || s.training_program }}</p>
+            <p class="text-sm font-medium text-slate-900 truncate">{{ s.program_name || s.training_program }}</p>
             <div class="flex flex-wrap gap-x-2 gap-y-1 mt-1.5 text-xs text-slate-500">
               <span v-if="s.session_date">{{ s.session_date }}</span>
               <span>· {{ sessionTypeLabel(s.session_type) }}</span>
-              <span v-if="(s as any).trainer_name || s.instructor_external_name">· {{ (s as any).trainer_name || s.instructor_external_name }}</span>
+              <span v-if="s.trainer_name || s.instructor_external_name">· {{ s.trainer_name || s.instructor_external_name }}</span>
             </div>
           </div>
           <div v-if="sessions.length === 0" class="py-12 text-center text-slate-400">
@@ -197,7 +201,7 @@ onMounted(() => load())
               >
                 <td class="table-cell font-mono text-xs text-slate-500">{{ s.name }}</td>
                 <td class="table-cell">
-                  <div class="font-medium text-slate-900 truncate max-w-[200px]">{{ (s as any).program_name || s.training_program }}</div>
+                  <div class="font-medium text-slate-900 truncate max-w-[200px]">{{ s.program_name || s.training_program }}</div>
                 </td>
                 <td class="table-cell text-slate-600 text-sm">{{ s.session_date }}</td>
                 <td class="table-cell text-sm">
@@ -206,13 +210,13 @@ onMounted(() => load())
                   </span>
                 </td>
                 <td class="table-cell text-slate-600 text-sm">
-                  {{ (s as any).trainer_name || s.instructor_external_name || '—' }}
+                  {{ s.trainer_name || s.instructor_external_name || '—' }}
                 </td>
                 <td class="table-cell">
                   <StatusBadge :state="s.workflow_state" />
                 </td>
                 <td class="table-cell text-right text-sm font-medium text-slate-700">
-                  {{ (s as any).attendee_count ?? s.participant_count ?? (s.participants?.length ?? '—') }}
+                  {{ s.attendee_count ?? s.participant_count ?? (s.participants?.length ?? '—') }}
                 </td>
               </tr>
             </tbody>

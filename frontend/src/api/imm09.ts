@@ -169,8 +169,12 @@ export function createRepairWorkOrder(payload: {
   repair_type: string
   priority: string
   failure_description: string
+  /** Ảnh mô tả lỗi (file URL sau khi upload) — optional */
+  fault_image?: string
+  /** BR-09-01 đã nới — incident/PM giờ optional (standalone repair) */
   incident_report?: string
   source_pm_wo?: string
+  sla_target_hours?: number
 }): Promise<{ name: string; status: string; sla_target_hours: number }> {
   return frappePost<{ name: string; status: string; sla_target_hours: number }>(
     `${BASE}.create_repair_work_order`,

@@ -1,0 +1,112 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "naming_series:",
+ "creation": "2026-05-16 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "naming_series",
+  "trainer_name",
+  "organization",
+  "is_internal",
+  "user",
+  "col_break_1",
+  "email",
+  "phone",
+  "certification"
+ ],
+ "fields": [
+  {
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Naming Series",
+   "options": "TRN-.YYYY.-.#####",
+   "reqd": 1,
+   "default": "TRN-.YYYY.-.#####"
+  },
+  {
+   "fieldname": "trainer_name",
+   "fieldtype": "Data",
+   "label": "Tên giảng viên",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "organization",
+   "fieldtype": "Data",
+   "label": "Tổ chức",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "is_internal",
+   "fieldtype": "Check",
+   "label": "Giảng viên nội bộ"
+  },
+  {
+   "fieldname": "user",
+   "fieldtype": "Link",
+   "label": "Tài khoản người dùng",
+   "options": "User"
+  },
+  {
+   "fieldname": "col_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "email",
+   "fieldtype": "Data",
+   "label": "Email",
+   "options": "Email"
+  },
+  {
+   "fieldname": "phone",
+   "fieldtype": "Data",
+   "label": "Điện thoại"
+  },
+  {
+   "fieldname": "certification",
+   "fieldtype": "Small Text",
+   "label": "Chứng chỉ"
+  }
+ ],
+ "links": [],
+ "module": "AssetCore",
+ "name": "IMM Trainer",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "IMM System Admin",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1
+  },
+  {
+   "role": "IMM Training Officer",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "report": 1,
+   "print": 1
+  },
+  {
+   "role": "IMM Workshop Lead",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "report": 1
+  },
+  {
+   "role": "IMM Biomed Technician",
+   "read": 1,
+   "report": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "track_changes": 1
+}

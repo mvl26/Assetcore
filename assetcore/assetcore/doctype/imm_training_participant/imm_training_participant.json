@@ -19,6 +19,7 @@
     "theory_score",
     "practical_score",
     "overall_result",
+    "result",
     "certificate_issued",
     "retake_required",
     "competency_record",
@@ -85,6 +86,13 @@
       "fieldtype": "Link",
       "label": "Hồ sơ năng lực",
       "options": "IMM User Competency"
+    },
+    {
+      "fieldname": "result",
+      "fieldtype": "Select",
+      "label": "Kết quả",
+      "options": "\nĐạt\nKhông đạt",
+      "read_only": 1
     },
     {
       "fieldname": "remarks",

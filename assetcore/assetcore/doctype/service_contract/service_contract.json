@@ -9,13 +9,16 @@
  "field_order": [
   "section_basic",
   "naming_series",
+  "contract_code",
   "contract_title",
   "supplier",
   "contract_type",
   "column_break_basic",
   "contract_start",
   "contract_end",
+  "sign_date",
   "contract_value",
+  "amount_in_words",
   "auto_renew",
   "section_sla",
   "sla_response_hours",
@@ -37,6 +40,14 @@
    "label": "Series",
    "options": "SC-.YYYY.-.####",
    "reqd": 1
+  },
+  {
+   "fieldname": "contract_code",
+   "fieldtype": "Data",
+   "label": "Mã hợp đồng",
+   "reqd": 1,
+   "unique": 1,
+   "in_list_view": 1
   },
   {
    "fieldname": "contract_title",
@@ -81,9 +92,20 @@
    "search_index": 1
   },
   {
+   "fieldname": "sign_date",
+   "fieldtype": "Date",
+   "label": "Ngày ký"
+  },
+  {
    "fieldname": "contract_value",
    "fieldtype": "Currency",
    "label": "Giá trị hợp đồng"
+  },
+  {
+   "fieldname": "amount_in_words",
+   "fieldtype": "Small Text",
+   "label": "Số tiền bằng chữ",
+   "read_only": 1
   },
   {
    "fieldname": "auto_renew",

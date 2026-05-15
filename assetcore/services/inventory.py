@@ -87,6 +87,44 @@ def validate_stock_movement(doc) -> None:
         if not (doc.get("notes") or "").strip():
             frappe.throw(_("Phiếu Manual / Điều chỉnh bắt buộc phải có Ghi chú (lý do)"))
 
+    # Slide 27: Phiếu Xuất kho bắt buộc có Khoa/Phòng nhận
+    if doc.get("movement_type") == "Issue":
+        if not (doc.get("receiver_department") or "").strip():
+            frappe.throw(_("Phiếu Xuất kho bắt buộc phải chỉ định Khoa/Phòng nhận"))
+
+    # Slide 18: Khi phiếu Nhập kho tham chiếu PO, validate với procurement (IMM-03)
+    if doc.get("movement_type") == "Receipt" and ref_type == _DT_PUR and ref_name:
+        _validate_receipt_against_po(ref_name, doc)
+
+
+def _validate_receipt_against_po(po_name: str, doc) -> None:
+    """Slide 18: gọi validator procurement (IMM-03) cho phiếu Nhập kho theo PO.
+
+    Validator do agent IMM-03 cung cấp. Import lazy; nếu chưa có
+    (ImportError/AttributeError) → log TODO warning thay vì crash.
+    """
+    try:
+        from assetcore.services.imm03 import validate_receipt_against_po
+    except (ImportError, AttributeError):
+        frappe.log_error(
+            message=f"TODO[Slide18]: assetcore.services.imm03.validate_receipt_against_po "
+                    f"chưa khả dụng — bỏ qua kiểm tra PO {po_name} cho phiếu {doc.get('name')}",
+            title="Stock Receipt PO validation skipped",
+        )
+        return
+    received_items = [
+        {"spare_part": r.spare_part,
+         "qty": float(r.stock_qty or 0) or float(r.qty or 0)}
+        for r in (doc.items or [])
+    ]
+    try:
+        validate_receipt_against_po(po_name, received_items)
+    except (ImportError, AttributeError):
+        frappe.log_error(
+            message=f"TODO[Slide18]: validate_receipt_against_po lỗi import/attr cho PO {po_name}",
+            title="Stock Receipt PO validation skipped",
+        )
+
 
 def apply_stock_movement(doc) -> None:
     """Apply a submitted AC Stock Movement to AC Spare Part Stock.
@@ -137,17 +175,50 @@ def get_stock_overview() -> dict:
         JOIN `tabAC Spare Part` p ON p.name = s.spare_part
     """)[0][0] or 0
 
+    # Per-warehouse-bin low-stock evaluation — MUST match the stock-level
+    # page (assetcore.api.inventory._list_stock_low / _LOW_COND): each
+    # spare-part × warehouse bin is compared against its effective minimum
+    # (per-bin override falls back to the part-level min). Aggregating
+    # SUM(qty_on_hand) across warehouses hides bins that are individually
+    # below min, so it is intentionally NOT used here.
     low_stock = frappe.db.sql("""
-        SELECT p.name AS spare_part, p.part_name, p.min_stock_level,
-               COALESCE(SUM(s.qty_on_hand), 0) AS total_qty
-        FROM `tabAC Spare Part` p
-        LEFT JOIN `tabAC Spare Part Stock` s ON s.spare_part = p.name
-        WHERE p.is_active = 1 AND p.min_stock_level > 0
-        GROUP BY p.name, p.part_name, p.min_stock_level
-        HAVING total_qty < p.min_stock_level
-        ORDER BY (p.min_stock_level - COALESCE(SUM(s.qty_on_hand), 0)) DESC
+        SELECT s.name AS bin, s.spare_part, p.part_name, s.warehouse,
+               s.qty_on_hand AS total_qty,
+               COALESCE(NULLIF(s.min_stock_override, 0), p.min_stock_level, 0)
+                   AS min_stock_level
+        FROM `tabAC Spare Part Stock` s
+        JOIN `tabAC Spare Part` p ON p.name = s.spare_part
+        WHERE p.is_active = 1
+          AND COALESCE(NULLIF(s.min_stock_override, 0), p.min_stock_level, 0) > 0
+          AND s.qty_on_hand
+              < COALESCE(NULLIF(s.min_stock_override, 0), p.min_stock_level, 0)
+        ORDER BY (COALESCE(NULLIF(s.min_stock_override, 0), p.min_stock_level, 0)
+                  - s.qty_on_hand) DESC
         LIMIT 10
     """, as_dict=True)
+
+    # The full per-bin low-stock count (the dashboard KPI must reflect every
+    # flagged bin, not just the 10 shown in the list widget).
+    low_stock_count = frappe.db.sql("""
+        SELECT COUNT(*)
+        FROM `tabAC Spare Part Stock` s
+        JOIN `tabAC Spare Part` p ON p.name = s.spare_part
+        WHERE p.is_active = 1
+          AND COALESCE(NULLIF(s.min_stock_override, 0), p.min_stock_level, 0) > 0
+          AND s.qty_on_hand
+              < COALESCE(NULLIF(s.min_stock_override, 0), p.min_stock_level, 0)
+    """)[0][0] or 0
+
+    if low_stock:
+        wh_ids = list({r["warehouse"] for r in low_stock if r.get("warehouse")})
+        wh_map = {w["name"]: w for w in frappe.get_all(
+            _DT_WH, filters={"name": ["in", wh_ids]},
+            fields=["name", "warehouse_code", "warehouse_name"],
+        )} if wh_ids else {}
+        for r in low_stock:
+            wh = wh_map.get(r.get("warehouse")) or {}
+            r["warehouse_code"] = wh.get("warehouse_code") or r.get("warehouse")
+            r["warehouse_name"] = wh.get("warehouse_name") or r.get("warehouse")
 
     movement_30d = frappe.db.sql("""
         SELECT movement_type, COUNT(*) AS cnt
@@ -160,7 +231,7 @@ def get_stock_overview() -> dict:
         "total_parts":      total_parts,
         "total_warehouses": total_warehouses,
         "total_value":      float(total_value),
-        "low_stock_count":  len(low_stock),
+        "low_stock_count":  int(low_stock_count),
         "low_stock_items":  low_stock,
         "movement_30d":     {m["movement_type"]: m["cnt"] for m in movement_30d},
     }

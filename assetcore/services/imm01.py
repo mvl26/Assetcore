@@ -106,8 +106,29 @@ def before_insert_needs_request(doc: Document) -> None:
         _autofetch_replacement_metrics(doc)
 
 
+def _validate_device_target(doc: Document) -> None:
+    """Mục tiêu mua: `device_category` BẮT BUỘC, `device_model_ref` TÙY CHỌN.
+
+    Quyết định nghiệp vụ (Slide 10): tại bước Needs Request thường chưa chốt Model
+    cụ thể — Model được xác định sau ở IMM-02 (Tech Spec). Vì vậy chỉ yêu cầu nhóm
+    thiết bị. Nếu người dùng có chọn Model thì tự điền lại `device_category` theo
+    Model để đảm bảo nhất quán (thay cho `fetch_from` đã gỡ khỏi DocType).
+    """
+    if doc.device_model_ref:
+        cat = frappe.db.get_value("IMM Device Model", doc.device_model_ref, "asset_category")
+        if cat:
+            doc.device_category = cat
+    if not doc.device_category:
+        raise ServiceError(
+            ErrorCode.VALIDATION,
+            _("Phải chọn ít nhất Nhóm thiết bị (device_category). "
+              "Model thiết bị là tùy chọn — có thể xác định sau ở IMM-02."),
+        )
+
+
 def validate_needs_request(doc: Document) -> None:
     _sync_clinical_head_from_department(doc)
+    _validate_device_target(doc)
     _vr04_target_year(doc)
     _vr01_unique_active_request_per_asset(doc)
     _vr02_replacement_requires_decom_plan(doc)
@@ -289,8 +310,21 @@ def _check_workflow_gates(doc: Document) -> None:
         _validate_gate_g04(doc)
 
 
+_VR0103_MIN_CHARS = 200
+
+
 def _validate_gate_g01(doc: Document) -> None:
     """G01: clinical_justification + utilization_pct_12m (nếu Replacement/Upgrade)."""
+    # VR-01-03: lý do lâm sàng phải đủ chi tiết (≥ 200 ký tự) để đảm bảo chất
+    # lượng thẩm định. Chỉ enforce khi phiếu rời Draft (vào Reviewing) — Draft
+    # vẫn lưu được bản nháp ngắn.
+    cj = (doc.clinical_justification or "").strip()
+    if len(cj) < _VR0103_MIN_CHARS:
+        raise ServiceError(
+            ErrorCode.VALIDATION,
+            _("VR-01-03: clinical_justification phải ≥ {0} ký tự "
+              "(hiện {1}).").format(_VR0103_MIN_CHARS, len(cj)),
+        )
     if doc.request_type in ("Replacement", "Upgrade"):
         if doc.utilization_pct_12m is None:
             raise ServiceError(

@@ -37,7 +37,7 @@ v-if="formatAssetDisplay(doc.asset_name, doc.asset_ref).hasBoth"
 
     <!-- Trạng thái -->
     <td>
-      <span class="state-badge" :class="`state-${(doc.workflow_state || 'draft').toLowerCase()}`">
+      <span class="state-badge" :class="`state-${(doc.workflow_state || 'draft').toLowerCase().replace(/\s+/g, '_')}`">
         {{ stateLabel(doc.workflow_state || '') }}
       </span>
       <span

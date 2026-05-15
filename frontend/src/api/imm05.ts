@@ -215,6 +215,18 @@ export function rejectDocument(name: string, rejectionReason: string) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 6b. ARCHIVE DOCUMENT (Active → Archived "Lưu trữ" / Draft → Archived "Hủy bỏ")
+// NĐ98 Điều 41: tài liệu không bị xóa — chỉ lưu trữ (giữ 10 năm).
+// ─────────────────────────────────────────────────────────────────────────────
+
+export function archiveDocument(name: string, reason = '') {
+  return frappePost<{ name: string; new_state: string }>(
+    `${BASE}.archive_document`,
+    { name, reason },
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 7. GET ASSET DOCUMENTS (grouped)
 // ─────────────────────────────────────────────────────────────────────────────
 

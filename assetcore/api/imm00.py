@@ -916,6 +916,7 @@ def list_capas(
         _DT_CAPA,
         filters=filters,
         fields=["name", "capa_type", "status", "asset", "title",
+                "severity", "description", "source_type", "source_ref",
                 "due_date", "owner", "creation"],
         limit_start=pag["offset"],
         limit_page_length=page_size,

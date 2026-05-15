@@ -229,7 +229,13 @@ onMounted(load)
                 <td class="px-4 py-3 font-mono text-xs text-brand-700">{{ w.warehouse_code || w.name }}</td>
                 <td class="px-4 py-3 font-medium text-slate-900">{{ w.warehouse_name }}</td>
                 <td class="px-4 py-3 text-xs text-slate-500 hidden md:table-cell">{{ w.department_name || w.department || '—' }}</td>
-                <td class="px-4 py-3 text-xs text-slate-500 hidden lg:table-cell">{{ w.manager || '—' }}</td>
+                <td class="px-4 py-3 text-xs text-slate-500 hidden lg:table-cell">
+                  <template v-if="w.manager">
+                    <p class="text-slate-700">{{ w.manager_name || w.manager }}</p>
+                    <p v-if="w.manager_name && w.manager_name !== w.manager" class="text-[10px] text-slate-400">{{ w.manager }}</p>
+                  </template>
+                  <span v-else>—</span>
+                </td>
                 <td class="px-4 py-3 text-right text-sm">{{ w.stock_count || 0 }}</td>
                 <td class="px-4 py-3 text-right text-sm font-medium text-emerald-700">{{ vnd(w.total_value) }}</td>
                 <td class="px-4 py-3 text-center">

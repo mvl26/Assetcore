@@ -11,6 +11,7 @@ class ACStockMovement(Document):
         self._validate_warehouses()
         self._validate_items()
         self._compute_total()
+        inv_svc.validate_stock_movement(self)
 
     def _validate_warehouses(self):
         t = self.movement_type

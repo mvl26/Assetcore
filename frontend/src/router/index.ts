@@ -460,6 +460,13 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true, title: 'Quy tắc tuân thủ', moduleId: 'imm16', requiredRoles: ROLES_COMPLIANCE_MANAGE },
   },
   {
+    path: '/compliance/rules/:id',
+    name: 'ComplianceRuleDetail',
+    component: () => import('@/views/compliance/ComplianceRuleDetailView.vue'),
+    props: true,
+    meta: { requiresAuth: true, title: 'Chi tiết quy tắc', moduleId: 'imm16', requiredRoles: ROLES_COMPLIANCE_MANAGE },
+  },
+  {
     path: '/compliance/findings',
     name: 'ComplianceFindingList',
     component: () => import('@/views/compliance/FindingListView.vue'),
@@ -496,6 +503,13 @@ const routes: RouteRecordRaw[] = [
     name: 'ManagementReviewList',
     component: () => import('@/views/compliance/ManagementReviewListView.vue'),
     meta: { requiresAuth: true, title: 'Soát xét quản lý', moduleId: 'imm16', requiredRoles: ROLES_COMPLIANCE_MANAGE },
+  },
+  {
+    path: '/compliance/mr/:id',
+    name: 'ManagementReviewDetail',
+    component: () => import('@/views/compliance/ManagementReviewDetailView.vue'),
+    props: true,
+    meta: { requiresAuth: true, title: 'Chi tiết soát xét quản lý', moduleId: 'imm16', requiredRoles: ROLES_COMPLIANCE_MANAGE },
   },
   {
     path: '/compliance/heatmap',

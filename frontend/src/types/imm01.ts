@@ -73,8 +73,8 @@ export interface NeedsRequestDoc {
   requesting_department: string
   requesting_department_name?: string
   clinical_head: string
-  device_model_ref: string
-  device_category?: string
+  device_category: string
+  device_model_ref?: string
   quantity: number
   target_year: number
   priority_class?: PriorityClass

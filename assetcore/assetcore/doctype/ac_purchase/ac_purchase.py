@@ -39,6 +39,15 @@ class ACPurchase(Document):
         device_total = sum(float(r.unit_cost or 0) for r in (self.get("devices") or []))
         self.total_value = spare_total + device_total
 
+        # Slide 14b — mặc định ngày giao thực tế khi status chuyển Received
+        from assetcore.services.imm03 import set_actual_delivery_on_received
+        set_actual_delivery_on_received(self)
+
+    def after_insert(self):
+        # Slide 14c — po_code = định danh phiếu (hiển thị đầu form)
+        if not self.po_code:
+            self.db_set("po_code", self.name, update_modified=False)
+
     def on_submit(self):
         self.status = "Submitted"
         self.db_set("status", "Submitted")

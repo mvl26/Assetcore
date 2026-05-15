@@ -50,12 +50,13 @@ def get_repair_work_order(name: str):
 @frappe.whitelist(methods=["POST"])
 def create_repair_work_order(asset_ref: str, repair_type: str, priority: str,
                               failure_description: str, incident_report: str = "",
-                              source_pm_wo: str = "") -> dict:
+                              source_pm_wo: str = "", fault_image: str = "") -> dict:
     return _handle(
         svc.create_work_order,
         asset_ref=asset_ref, repair_type=repair_type, priority=priority,
         failure_description=failure_description,
         incident_report=incident_report, source_pm_wo=source_pm_wo,
+        fault_image=fault_image,
     )
 
 

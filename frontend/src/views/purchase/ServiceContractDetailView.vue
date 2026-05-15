@@ -197,6 +197,9 @@ onMounted(load)
             <p v-else class="text-sm font-semibold text-emerald-700 bg-gray-50 px-3 py-2 rounded-lg">
               {{ vnd(contract.contract_value) }}
             </p>
+            <p v-if="contract.amount_in_words" class="text-xs text-gray-500 italic mt-1">
+              ({{ contract.amount_in_words }})
+            </p>
           </div>
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">SLA phản hồi (giờ)</label>

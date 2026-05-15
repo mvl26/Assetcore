@@ -16,7 +16,7 @@ const store = useImm06Store()
 const authStore = useAuthStore()
 const api = useApi()
 
-const { currentProgram, loading } = storeToRefs(store)
+const { currentProgram, loading, error } = storeToRefs(store)
 
 const isCreateMode = computed(() => !props.name)
 const editing = ref(false)
@@ -118,7 +118,13 @@ onMounted(load)
 
     <div v-if="loading" class="card p-8 text-center text-slate-400">Đang tải…</div>
 
+    <div v-else-if="error && !isCreateMode" class="card border border-rose-200 bg-rose-50 px-4 py-3 text-rose-700 flex items-center gap-3">
+      <span class="flex-1">{{ error }}</span>
+      <button class="text-sm underline" @click="load()">Thử lại</button>
+    </div>
+
     <template v-else-if="currentProgram || isCreateMode">
+      <div v-if="error && isCreateMode" class="card border border-rose-200 bg-rose-50 px-4 py-3 text-rose-700 text-sm">{{ error }}</div>
       <!-- General Info -->
       <div class="card p-5">
         <h2 class="text-sm font-semibold text-slate-700 mb-4 pb-2 border-b">Thông tin chung</h2>
@@ -137,7 +143,7 @@ onMounted(load)
           </div>
           <div>
             <p class="text-xs text-slate-400 mb-1">Device Model mục tiêu</p>
-            <p>{{ (currentProgram as any)?.target_device_model_name || currentProgram?.target_device_model || '—' }}</p>
+            <p>{{ currentProgram?.target_device_model_name || currentProgram?.target_device_model || '—' }}</p>
           </div>
           <div>
             <p class="text-xs text-slate-400 mb-1">Danh mục thiết bị</p>

@@ -3,11 +3,12 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
-import { listUsers, type IMMUserListItem } from '@/api/user'
+import { listUsers, getAvailableImmRoles, type IMMUserListItem, type ImmRoleOption } from '@/api/user'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar from '@/components/common/ListFilterBar.vue'
+import SmartSelect from '@/components/common/SmartSelect.vue'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -20,20 +21,25 @@ const PAGE_SIZE = 20
 
 // Filter state
 const showFilters = ref(false)
-const filters = ref({ search: '', approval_status: '' })
+const filters = ref({ search: '', approval_status: '', department: '', role: '' })
+const availableRoles = ref<ImmRoleOption[]>([])
 
-interface FilterChip { key: 'search' | 'approval_status'; label: string }
+interface FilterChip { key: 'search' | 'approval_status' | 'department' | 'role'; label: string }
 const activeChips = computed<FilterChip[]>(() => {
   const chips: FilterChip[] = []
   if (filters.value.approval_status) {
     chips.push({ key: 'approval_status', label: APPROVAL_LABELS[filters.value.approval_status] || filters.value.approval_status })
+  }
+  if (filters.value.department) chips.push({ key: 'department', label: filters.value.department })
+  if (filters.value.role) {
+    chips.push({ key: 'role', label: availableRoles.value.find(r => r.name === filters.value.role)?.label || filters.value.role })
   }
   if (filters.value.search.trim()) chips.push({ key: 'search', label: `"${filters.value.search.trim()}"` })
   return chips
 })
 const activeFilterCount = computed(() => activeChips.value.length)
 function clearChip(key: string) { (filters.value as Record<string, string>)[key] = ''; load() }
-function resetFilters() { filters.value = { search: '', approval_status: '' }; load() }
+function resetFilters() { filters.value = { search: '', approval_status: '', department: '', role: '' }; load() }
 function quickFilter(key: 'approval_status', value: string) {
   if (!value || filters.value[key] === value) return
   filters.value[key] = value
@@ -61,6 +67,8 @@ async function load() {
   const res = await listUsers({
     search: filters.value.search,
     approval_status: filters.value.approval_status,
+    department: filters.value.department || undefined,
+    role: filters.value.role || undefined,
     page: page.value,
     page_size: PAGE_SIZE,
   })
@@ -75,12 +83,15 @@ function applyFilters() { page.value = 1; load() }
 function prevPage() { if (page.value > 1) { page.value--; load() } }
 function nextPage() { if (page.value * PAGE_SIZE < total.value) { page.value++; load() } }
 
-onMounted(load)
+onMounted(async () => {
+  availableRoles.value = (await getAvailableImmRoles()) ?? []
+  await load()
+})
 </script>
 
 <template>
   <div class="page-container animate-fade-in">
-    <PageHeader title="Quản lý người dùng IMM" :subtitle="`Tổng ${total} người dùng`">
+    <PageHeader title="Quản lý người dùng" :subtitle="`Tổng ${total} người dùng`">
       <template #actions>
         <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
         <button
@@ -113,6 +124,23 @@ onMounted(load)
             <option value="Approved">Đã duyệt</option>
             <option value="Pending">Chờ duyệt</option>
             <option value="Rejected">Từ chối</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Khoa / Phòng</label>
+          <SmartSelect
+            v-model="filters.department"
+            doctype="AC Department"
+            placeholder="Tất cả khoa/phòng..."
+            @select="applyFilters"
+            @clear="applyFilters"
+          />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Vai trò</label>
+          <select v-model="filters.role" class="form-select text-sm" @change="applyFilters">
+            <option value="">Tất cả vai trò</option>
+            <option v-for="r in availableRoles" :key="r.name" :value="r.name">{{ r.label }}</option>
           </select>
         </div>
       </template>

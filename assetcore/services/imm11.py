@@ -381,6 +381,10 @@ def get_calibration(name: str) -> dict:
     data = doc.as_dict()
     if data.get("asset"):
         data["asset_name"] = frappe.db.get_value("AC Asset", data["asset"], "asset_name") or ""
+    tech = data.get("technician")
+    data["technician_name"] = (
+        frappe.db.get_value("User", tech, "full_name") or tech or ""
+    ) if tech else ""
     return data
 
 

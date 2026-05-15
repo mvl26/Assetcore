@@ -44,6 +44,8 @@ export interface EvalListItem {
   draft_date: string
   workflow_state: EvalState
   recommended_candidate?: string
+  vendor_name?: string
+  tech_spec_ref_name?: string
 }
 
 export interface EvalDoc {

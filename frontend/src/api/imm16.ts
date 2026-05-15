@@ -32,6 +32,14 @@ export interface ComplianceRule {
   is_active: 0 | 1
   version?: string
   previous_version?: string
+  threshold_definition?: string
+  data_source_doctype?: string
+  data_source_field?: string
+  owner_role?: string
+  qms_doc_ref?: string
+  regulatory_reference?: string
+  effective_date?: string
+  change_summary?: string
 }
 
 export interface ComplianceFinding {
@@ -40,7 +48,10 @@ export interface ComplianceFinding {
   detected_date: string
   asset: string | null
   asset_name?: string
+  rule_name?: string
   responsible_dept: string | null
+  responsible_dept_name?: string
+  notes?: string
   severity: FindingSeverity
   current_value: string | null
   threshold_value: string | null
@@ -103,15 +114,49 @@ export interface ComplianceScorecard {
   approved_by_for_review?: string | null
 }
 
+export type MRStatus = 'Draft' | 'Held' | 'Minutes Approved' | 'Closed'
+
+export interface MRAttendee {
+  user: string
+  user_name?: string
+  role_title?: string
+  present?: 0 | 1 | boolean
+  signed?: 0 | 1 | boolean
+}
+
+export interface MROutputActionRow {
+  action_description: string
+  responsible: string
+  responsible_name?: string
+  due_date?: string
+  priority?: 'High' | 'Medium' | 'Low'
+  status?: 'Open' | 'In Progress' | 'Closed'
+  notes?: string
+}
+
 export interface ManagementReview {
   name: string
   quarter: string
   review_date: string
   chair: string
-  status: 'Draft' | 'In Progress' | 'Closed'
+  chair_name?: string
+  status: MRStatus
+  workflow_state?: string
   scorecard_ref?: string
+  scorecard_score_pct?: number
+  scorecard_period?: string
+  scorecard_published?: 0 | 1
   next_review_date?: string
   minutes_doc?: string
+  inputs_summary?: string
+  audit_summary?: string
+  capa_summary?: string
+  capa_effectiveness?: string
+  training_compliance?: string
+  risk_review?: string
+  qms_changes_decided?: string
+  attendees?: MRAttendee[]
+  output_actions?: MROutputActionRow[]
 }
 
 export interface DashboardKpis {
@@ -134,6 +179,8 @@ export interface DashboardStats {
 export interface HeatmapCell {
   module: string
   dept: string
+  module_label?: string
+  dept_label?: string
   score: number
   findings_count: number
 }
@@ -141,6 +188,8 @@ export interface HeatmapCell {
 export interface ComplianceHeatmap {
   modules: string[]
   departments: string[]
+  module_labels?: Record<string, string>
+  department_labels?: Record<string, string>
   matrix: HeatmapCell[]
 }
 
@@ -190,6 +239,39 @@ export const updateRule = (name: string, rule_data: Partial<ComplianceRule>, cha
 
 export const deactivateRule = (name: string) =>
   frappePost<{ name: string; is_active: 0 }>(`${BASE}.deactivate_rule`, { name })
+
+export const reactivateRule = (name: string) =>
+  frappePost<{ name: string; is_active: 1 }>(`${BASE}.reactivate_rule`, { name })
+
+// ─── Record history (audit trail) ─────────────────────────────────────────────
+
+export interface RecordHistoryEntry {
+  name: string
+  event_type: string
+  timestamp: string
+  actor: string
+  actor_name?: string
+  from_status?: string | null
+  to_status?: string | null
+  change_summary?: string
+}
+
+export const getRecordHistory = (ref_doctype: string, ref_name: string, limit = 50) =>
+  frappeGet<{ items: RecordHistoryEntry[]; total: number }>(
+    `${BASE}.get_record_history`,
+    { ref_doctype, ref_name, limit },
+  )
+
+// ─── Compliance evaluation engine trigger (BUG-16-03/09) ─────────────────────
+
+export const runComplianceEvaluation = () =>
+  frappePost<{ message: string }>(`${BASE}.run_compliance_evaluation`, {})
+
+export const generateScorecard = (module_ref = '', period = '') =>
+  frappePost<{ name?: string; score_pct?: number } & Record<string, unknown>>(
+    `${BASE}.generate_scorecard`,
+    { module_ref, period },
+  )
 
 // ─── Finding ──────────────────────────────────────────────────────────────────
 
@@ -274,6 +356,30 @@ export const createCapaFromFinding = (
     { finding_name, ...payload },
   )
 
+export interface CapaDetail extends CapaRecord {
+  asset_name?: string
+  responsible?: string
+  responsible_name?: string
+  description?: string
+  root_cause?: string
+  corrective_action?: string
+  preventive_action?: string
+  verification_notes?: string
+  finding_ref?: string
+  finding_rule?: string
+  opened_date?: string
+  creation?: string
+}
+
+export const getCapaDetail = (name: string) =>
+  frappeGet<CapaDetail>(`${BASE}.get_capa`, { name })
+
+export const updateCapaFields = (name: string, data: Record<string, unknown>) =>
+  frappePost<{ name: string; updated_fields: string[]; workflow_state: string }>(
+    `${BASE}.update_capa_fields`,
+    { name, data: JSON.stringify(data) },
+  )
+
 export const advanceCapaState = (
   name: string,
   target_state: CapaWorkflowState,
@@ -333,6 +439,24 @@ export const getManagementReview = (name: string) =>
 export const createManagementReview = (data: Partial<ManagementReview>) =>
   frappePost<{ name: string; quarter: string; status: string }>(
     `${BASE}.create_management_review`, { data: JSON.stringify(data) },
+  )
+
+export const updateManagementReview = (
+  name: string,
+  data: Partial<ManagementReview> & {
+    attendees?: MRAttendee[]
+    output_actions?: MROutputActionRow[]
+  },
+) =>
+  frappePost<{ name: string; status: MRStatus; quarter: string }>(
+    `${BASE}.update_management_review`,
+    { name, data: JSON.stringify(data) },
+  )
+
+export const advanceMrState = (name: string, target_state: MRStatus) =>
+  frappePost<{ name: string; status: MRStatus; quarter: string }>(
+    `${BASE}.advance_mr_state`,
+    { name, target_state },
   )
 
 export interface MROutputAction {

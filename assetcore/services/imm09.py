@@ -77,9 +77,19 @@ def get_sla_target(risk_class: str, priority: str) -> float:
 # ─── Validators (gọi từ controller / service) ────────────────────────────────
 
 def validate_repair_source(doc) -> None:
-    """BR-09-01: WO phải có nguồn (incident_report OR source_pm_wo)."""
-    if not doc.incident_report and not doc.source_pm_wo:
-        frappe.throw(_("Phải có nguồn sửa chữa: Incident Report hoặc PM Work Order gốc"))
+    """BR-09-01 (relaxed — Slide 24b DECISION CONFIRMED): repair WO được phép
+    standalone, KHÔNG bắt buộc liên kết Incident Report hoặc PM Work Order.
+
+    Chỉ enforce nguồn khi `source_type` chỉ rõ là liên kết:
+      - source_type == "Incident" → bắt buộc incident_report
+      - source_type == "PM"       → bắt buộc source_pm_wo
+    Mặc định (standalone) → bỏ qua.
+    """
+    source_type = (getattr(doc, "source_type", "") or "").strip()
+    if source_type == "Incident" and not doc.incident_report:
+        frappe.throw(_("source_type=Incident yêu cầu liên kết Incident Report"))
+    if source_type == "PM" and not doc.source_pm_wo:
+        frappe.throw(_("source_type=PM yêu cầu liên kết PM Work Order gốc"))
 
 
 def validate_asset_not_under_repair(asset_ref: str) -> None:
@@ -376,18 +386,27 @@ def get_work_order(name: str) -> dict:
     data["location_name"] = (
         frappe.db.get_value("AC Location", loc_id, "location_name") or loc_id or ""
     ) if loc_id else ""
+    req_by = data.get("requested_by")
+    data["requested_by_name"] = (
+        frappe.db.get_value("User", req_by, "full_name") or req_by or ""
+    ) if req_by else ""
+    assignee = data.get("assigned_to")
+    data["assigned_to_name"] = (
+        frappe.db.get_value("User", assignee, "full_name") or assignee or ""
+    ) if assignee else ""
     return data
 
 
 def create_work_order(*, asset_ref: str, repair_type: str, priority: str,
                       failure_description: str, incident_report: str = "",
-                      source_pm_wo: str = "") -> dict:
+                      source_pm_wo: str = "", fault_image: str = "") -> dict:
+    """Tạo phiếu sửa chữa.
+
+    Slide 24b (DECISION CONFIRMED): cho phép standalone — KHÔNG bắt buộc
+    incident_report/source_pm_wo. Hai trường vẫn là optional Link.
+    Slide 24a/26: `requested_by` luôn = session user (không user-editable).
+    """
     require_role(Roles.CAN_CREATE_WO, "Không đủ quyền tạo phiếu sửa chữa")
-    if not incident_report and not source_pm_wo:
-        raise ServiceError(
-            "CM_NO_SOURCE",
-            "CM-001: Phải có nguồn sửa chữa: Incident Report hoặc PM Work Order gốc",
-        )
     asset_data = AssetRepo.get_value(
         asset_ref, ["asset_name", "risk_classification"], as_dict=True)
     if not asset_data:
@@ -415,6 +434,8 @@ def create_work_order(*, asset_ref: str, repair_type: str, priority: str,
         "repair_type": repair_type,
         "priority": priority,
         "failure_description": failure_description,
+        "fault_image": fault_image,
+        "requested_by": frappe.session.user,
         "incident_report": incident_report,
         "source_pm_wo": source_pm_wo,
         "status": RepairStatus.OPEN,

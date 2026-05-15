@@ -4,6 +4,7 @@ import { computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useImm12Store } from '@/stores/imm12'
 import PageHeader from '@/components/common/PageHeader.vue'
+import { incidentStatusLabel, incidentStatusClass } from '@/constants/labels'
 
 const router = useRouter()
 const store = useImm12Store()
@@ -19,14 +20,6 @@ const SEV_COLOR: Record<string, string> = {
   Medium: 'bg-yellow-100 text-yellow-700',
   High: 'bg-orange-100 text-orange-700',
   Critical: 'bg-red-100 text-red-700',
-}
-
-const STATUS_COLOR: Record<string, string> = {
-  Open: 'bg-blue-100 text-blue-700',
-  'Under Investigation': 'bg-yellow-100 text-yellow-800',
-  Resolved: 'bg-purple-100 text-purple-700',
-  Closed: 'bg-green-100 text-green-700',
-  Cancelled: 'bg-slate-100 text-slate-500',
 }
 
 const RCA_STATUS_COLOR: Record<string, string> = {
@@ -133,8 +126,8 @@ class="mt-0.5 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium s
                 <div class="text-right shrink-0">
                   <span
 class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium"
-                        :class="STATUS_COLOR[ir.status] || 'bg-slate-100 text-slate-600'">
-                    {{ ir.status }}
+                        :class="incidentStatusClass(ir.status)">
+                    {{ incidentStatusLabel(ir.status) }}
                   </span>
                   <p class="text-xs text-slate-400 mt-1">{{ formatDateTime(ir.reported_at) }}</p>
                 </div>

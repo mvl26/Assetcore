@@ -4,6 +4,8 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useImm16Store } from '@/stores/imm16'
+import { useApi } from '@/composables/useApi'
+import { runComplianceEvaluation } from '@/api/imm16'
 import type { FindingSeverity, FindingStatus } from '@/api/imm16'
 import { formatDate, formatAssetDisplay } from '@/utils/formatters'
 import PageHeader from '@/components/common/PageHeader.vue'
@@ -16,6 +18,14 @@ import StatusBadge from '@/components/common/StatusBadge.vue'
 const router = useRouter()
 const route = useRoute()
 const store = useImm16Store()
+const api = useApi()
+
+async function runEvaluation() {
+  const res = await api.run(() => runComplianceEvaluation(), {
+    successMessage: 'Đã chạy đánh giá tuân thủ — danh sách được cập nhật',
+  })
+  if (res) await load(1)
+}
 
 const items = computed(() => store.findings)
 const pagination = computed(() => store.findingsPagination)
@@ -104,6 +114,11 @@ onMounted(() => load(1))
       <template #actions>
         <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
         <button class="btn-secondary text-sm" @click="router.push('/compliance/rules')">Xem quy tắc</button>
+        <button
+          class="btn-primary text-sm"
+          :disabled="api.loading.value"
+          @click="runEvaluation"
+        >{{ api.loading.value ? 'Đang đánh giá...' : 'Chạy đánh giá tuân thủ' }}</button>
       </template>
     </PageHeader>
 

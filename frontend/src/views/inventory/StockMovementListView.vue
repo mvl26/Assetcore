@@ -180,9 +180,9 @@ onMounted(load)
             </div>
             <p class="text-sm font-medium text-slate-900 truncate">
               <template v-if="m.from_warehouse || m.to_warehouse">
-                {{ m.from_warehouse_code || m.from_warehouse_name || m.from_warehouse || '' }}
+                {{ m.from_warehouse_name || m.from_warehouse_code || m.from_warehouse || '' }}
                 <span v-if="m.from_warehouse && m.to_warehouse"> → </span>
-                {{ m.to_warehouse_code || m.to_warehouse_name || m.to_warehouse || '' }}
+                {{ m.to_warehouse_name || m.to_warehouse_code || m.to_warehouse || '' }}
               </template>
               <span v-else>—</span>
             </p>
@@ -235,12 +235,12 @@ onMounted(load)
                 <td class="px-4 py-3 text-xs text-slate-500 hidden md:table-cell">{{ formatDt(m.movement_date) }}</td>
                 <td class="px-4 py-3 text-xs text-slate-600">
                   <template v-if="m.from_warehouse || m.to_warehouse">
-                    <span v-if="m.from_warehouse" :title="m.from_warehouse" class="font-medium">
-                      {{ m.from_warehouse_code || m.from_warehouse_name || m.from_warehouse }}
+                    <span v-if="m.from_warehouse" :title="m.from_warehouse_code || m.from_warehouse" class="font-medium">
+                      {{ m.from_warehouse_name || m.from_warehouse_code || m.from_warehouse }}
                     </span>
                     <span v-if="m.from_warehouse && m.to_warehouse" class="text-slate-400 mx-1">→</span>
-                    <span v-if="m.to_warehouse" :title="m.to_warehouse" class="font-medium">
-                      {{ m.to_warehouse_code || m.to_warehouse_name || m.to_warehouse }}
+                    <span v-if="m.to_warehouse" :title="m.to_warehouse_code || m.to_warehouse" class="font-medium">
+                      {{ m.to_warehouse_name || m.to_warehouse_code || m.to_warehouse }}
                     </span>
                   </template>
                   <span v-else class="text-slate-400">—</span>

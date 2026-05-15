@@ -1326,11 +1326,15 @@ _STATE_TO_STAGE: dict[str, str] = {
     "Re Inspection":      "Baseline Review",
 }
 
-_STAGE_TRANSITION: dict[str, dict[str, str]] = {
-    "Doc Verify":       {"from": "Pending Doc Verify", "action": "Xác nhận đủ tài liệu"},
-    "Facility Check":   {"from": "To Be Installed",    "action": "Bắt đầu lắp đặt"},
-    "Baseline Review":  {"from": "Initial Inspection", "action": "Phê duyệt phát hành lâm sàng"},
-    "Clinical Release": {"from": "Initial Inspection", "action": "Phê duyệt phát hành lâm sàng"},
+# Approval-grant resolves the next workflow action from the *current*
+# workflow_state (not the stage) so every approvable state maps to the exact
+# action string in imm_04_workflow.json. Keyed by workflow_state.
+_APPROVE_ACTION_BY_STATE: dict[str, str] = {
+    "Pending Doc Verify": "Xác nhận đủ tài liệu",   # → To Be Installed
+    "To Be Installed":    "Bắt đầu lắp đặt",         # → Installing
+    "Initial Inspection": "Phê duyệt phát hành",     # → Clinical Release
+    "Clinical Hold":      "Gỡ giữ lâm sàng",         # → Clinical Release
+    "Re Inspection":      "Phê duyệt sau tái kiểm",  # → Clinical Release
 }
 
 
@@ -1472,13 +1476,14 @@ def approve_pending(commissioning: str, decision: str, remarks: str = "") -> dic
             )
         return {"name": commissioning, "decision": "Reject", "workflow_state": doc.workflow_state}
 
-    # Approve → trigger transition
-    transition = _STAGE_TRANSITION.get(stage)
-    if not transition or doc.workflow_state != transition["from"]:
+    # Approve → trigger transition (resolve action from current state)
+    from_state = doc.workflow_state
+    action = _APPROVE_ACTION_BY_STATE.get(from_state)
+    if not action:
         raise ServiceError(
             ErrorCode.CONFLICT,
-            f"Không thể duyệt: giai đoạn '{stage}' yêu cầu trạng thái "
-            f"'{transition['from'] if transition else '?'}' nhưng phiếu đang ở '{doc.workflow_state}'",
+            f"Không thể duyệt: trạng thái '{from_state}' không có bước duyệt hợp lệ "
+            f"(giai đoạn '{stage}')",
         )
 
     if stage == "Clinical Release" and not doc.board_approver:
@@ -1490,12 +1495,12 @@ def approve_pending(commissioning: str, decision: str, remarks: str = "") -> dic
 
     doc.reload()
     from frappe.model.workflow import apply_workflow
-    new_doc = apply_workflow(doc, transition["action"])
+    new_doc = apply_workflow(doc, action)
     new_doc.append("lifecycle_events", {
         "event_type": "Approval Granted",
         "timestamp":  frappe.utils.now_datetime(),
         "actor":      current_user,
-        "from_state": transition["from"],
+        "from_state": from_state,
         "to_state":   new_doc.workflow_state,
         "remarks":    f"Duyệt ({stage})" + (f": {remarks}" if remarks else ""),
     })

@@ -286,6 +286,32 @@ def reject_document(name: str, rejection_reason: str) -> dict:
     return {"name": name, "new_state": DocState.REJECTED}
 
 
+def archive_document(name: str, reason: str = "") -> dict:
+    """Manual archive (04_Backend_Design.md:151-152).
+
+    - "Lưu trữ": Active  → Archived
+    - "Hủy bỏ":  Draft   → Archived
+    NĐ98 Điều 41: document never deleted, only archived (retention 10 năm).
+    """
+    _require_approve_role()
+    doc = DocumentRepo.get(name)
+    if not doc:
+        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy: {name}")
+    if doc.workflow_state not in (DocState.ACTIVE, DocState.DRAFT):
+        raise ServiceError(
+            ErrorCode.BAD_STATE,
+            f"Chỉ lưu trữ từ Active hoặc Draft. Hiện tại: {doc.workflow_state}",
+        )
+    patch: dict = {
+        "workflow_state": DocState.ARCHIVED,
+        "archive_date": nowdate(),
+    }
+    if reason:
+        patch["change_summary"] = reason
+    DocumentRepo.update_fields(name, patch)
+    return {"name": name, "new_state": DocState.ARCHIVED}
+
+
 # ─── Asset-centric views ──────────────────────────────────────────────────────
 
 def get_asset_documents(asset: str) -> dict:

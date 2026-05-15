@@ -23,7 +23,7 @@ type DocType =
   | 'AC Asset Category' | 'IMM Device Model' | 'IMM Calibration Schedule'
   | 'Purchase Order' | 'User' | 'AC Warehouse'
   | 'AC Spare Part Category' | 'AC Spare Part' | 'AC Vendor' | 'AC Purchase' | 'UOM' | 'AC UOM'
-  | 'PM Checklist Template'
+  | 'PM Checklist Template' | 'IMM Trainer'
 
 interface CacheEntry {
   items: MasterItem[]
@@ -83,6 +83,59 @@ export const useMasterDataStore = defineStore('masterData', () => {
     return entry.promise
   }
 
+  // ── Filtered fetch (cascade dropdowns) ──────────────────────────────────
+  // Không cache chung theo doctype vì kết quả phụ thuộc filter. Cache theo
+  // key = doctype + JSON(filters) để cascade vẫn instant khi lặp lại.
+  const filteredCache = ref<Record<string, CacheEntry>>({})
+
+  function _filteredEntry(key: string): CacheEntry {
+    if (!filteredCache.value[key]) {
+      filteredCache.value[key] = { items: [], loadedAt: 0, loading: false, promise: null }
+    }
+    return filteredCache.value[key]
+  }
+
+  async function fetchFiltered(
+    doctype: DocType,
+    filters: Record<string, unknown>,
+    opts: { forceRefresh?: boolean; pageLength?: number } = {},
+  ): Promise<MasterItem[]> {
+    const key = `${doctype}::${JSON.stringify(filters)}`
+    const entry = _filteredEntry(key)
+    if (!opts.forceRefresh && _fresh(entry)) return entry.items
+    if (entry.promise) return entry.promise
+
+    entry.loading = true
+    entry.promise = (async () => {
+      try {
+        const rows = await frappeGet<Array<{ value: string; label: string; description?: string }>>(
+          BASE,
+          {
+            doctype,
+            query: '',
+            page_length: opts.pageLength ?? DEFAULT_PAGE_LENGTH,
+            filters: JSON.stringify(filters),
+          },
+        )
+        entry.items = (Array.isArray(rows) ? rows : []).map(r => ({ id: r.value, name: r.label || r.value, description: r.description }))
+        entry.loadedAt = Date.now()
+        return entry.items
+      } finally {
+        entry.loading = false
+        entry.promise = null
+      }
+    })()
+    return entry.promise
+  }
+
+  function getFilteredItems(doctype: DocType, filters: Record<string, unknown>): MasterItem[] {
+    return _filteredEntry(`${doctype}::${JSON.stringify(filters)}`).items
+  }
+
+  function isLoadingFiltered(doctype: DocType, filters: Record<string, unknown>): boolean {
+    return _filteredEntry(`${doctype}::${JSON.stringify(filters)}`).loading
+  }
+
   function getItems(doctype: DocType): MasterItem[] {
     return _entry(doctype).items
   }
@@ -120,6 +173,9 @@ export const useMasterDataStore = defineStore('masterData', () => {
     fetchSuppliers,
     fetchDeviceModels,
     fetchUsers,
+    fetchFiltered,
+    getFilteredItems,
+    isLoadingFiltered,
     getItems,
     getItemById,
     isLoading,

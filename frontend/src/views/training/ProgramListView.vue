@@ -18,7 +18,7 @@ const store = useImm06Store()
 const authStore = useAuthStore()
 const api = useApi()
 
-const { programs, programPagination, loading } = storeToRefs(store)
+const { programs, programPagination, loading, error } = storeToRefs(store)
 
 const filterType = ref('')
 const filterActive = ref('')
@@ -130,6 +130,10 @@ onMounted(() => load())
 
       <div v-if="loading" class="p-4">
         <SkeletonLoader variant="table" :rows="6" />
+      </div>
+      <div v-else-if="error" class="m-4 rounded border border-rose-200 bg-rose-50 px-4 py-3 text-rose-700 flex items-center gap-3">
+        <span class="flex-1">{{ error }}</span>
+        <button class="text-sm underline" @click="load()">Thử lại</button>
       </div>
       <div v-else-if="!programs.length" class="flex flex-col items-center justify-center py-16 text-slate-400">
         <svg class="w-10 h-10 mb-3 text-slate-300" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">

@@ -387,8 +387,8 @@ watch(currentDoc, (doc) => {
       <div class="card space-y-3">
         <h3 class="card-title">Thông tin thiết bị</h3>
         <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-sm">
-          <dt class="text-neutral-500">Mã model</dt>
-          <dd class="font-medium">{{ currentDoc.device_model_ref }}</dd>
+          <dt class="text-neutral-500">Model thiết bị</dt>
+          <dd class="font-medium">{{ (currentDoc as any).device_model_name || currentDoc.device_model_ref || '—' }}</dd>
           <dt class="text-neutral-500">Danh mục</dt>
           <dd>{{ (currentDoc as any).device_category_name || (currentDoc as any).asset_category_name || currentDoc.device_category || '—' }}</dd>
           <dt class="text-neutral-500">Thay thế cho</dt>

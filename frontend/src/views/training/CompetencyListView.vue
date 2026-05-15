@@ -15,17 +15,20 @@ const router = useRouter()
 const store = useImm06Store()
 const api = useApi()
 
-const { competencies, competencyPagination, loading } = storeToRefs(store)
+const { competencies, competencyPagination, loading, error } = storeToRefs(store)
 
 const filterState = ref('')
 const filterModel = ref('')
 const showFilters = ref(false)
 
+// Phải khớp chính xác BE CompetencyStatus (services/imm06.py)
 const WORKFLOW_STATES = [
-  { value: 'Active',           label: 'Hiệu lực' },
-  { value: 'Pending Signoff',  label: 'Chờ phê duyệt' },
-  { value: 'Revoked',          label: 'Đã thu hồi' },
-  { value: 'Expired',          label: 'Hết hạn' },
+  { value: 'Pending Assessment', label: 'Chờ đánh giá' },
+  { value: 'Active',             label: 'Hiệu lực' },
+  { value: 'Expiring',           label: 'Sắp hết hạn' },
+  { value: 'Expired',            label: 'Hết hạn' },
+  { value: 'Suspended',          label: 'Tạm ngưng' },
+  { value: 'Revoked',            label: 'Đã thu hồi' },
 ]
 
 const COMPETENCY_LEVELS = [
@@ -130,6 +133,10 @@ onMounted(() => load())
 
       <div v-if="loading" class="p-4">
         <SkeletonLoader variant="table" :rows="6" />
+      </div>
+      <div v-else-if="error" class="m-4 rounded border border-rose-200 bg-rose-50 px-4 py-3 text-rose-700 flex items-center gap-3">
+        <span class="flex-1">{{ error }}</span>
+        <button class="text-sm underline" @click="load()">Thử lại</button>
       </div>
       <div v-else-if="!competencies.length" class="flex flex-col items-center justify-center py-16 text-slate-400">
         <svg class="w-10 h-10 mb-3 text-slate-300" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">

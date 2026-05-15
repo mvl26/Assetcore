@@ -34,6 +34,8 @@ const movementDate = ref(nowLocalISO())
 const requestedBy = ref('')
 const fromWarehouse = ref('')
 const toWarehouse = ref('')
+const receiverDepartment = ref('')
+const receiverPerson = ref('')
 const supplier = ref('')
 const referenceType = ref('')
 const referenceName = ref('')
@@ -49,6 +51,8 @@ const { clear: clearDraft } = useFieldsDraft('stock-movement-create', {
   requestedBy: requestedBy as Ref<unknown>,
   fromWarehouse: fromWarehouse as Ref<unknown>,
   toWarehouse: toWarehouse as Ref<unknown>,
+  receiverDepartment: receiverDepartment as Ref<unknown>,
+  receiverPerson: receiverPerson as Ref<unknown>,
   supplier: supplier as Ref<unknown>,
   referenceType: referenceType as Ref<unknown>,
   referenceName: referenceName as Ref<unknown>,
@@ -261,6 +265,9 @@ async function submit(autoSubmit: boolean) {
   if (movementType.value === 'Transfer' && fromWarehouse.value === toWarehouse.value) {
     error.value = 'Kho nguồn và kho đích phải khác nhau'; return
   }
+  if (movementType.value === 'Issue' && !receiverDepartment.value) {
+    error.value = 'Phiếu xuất kho bắt buộc chọn Khoa/Phòng nhận'; return
+  }
   if (items.value.length === 0 || items.value.some(r => !r.spare_part || !r.qty)) {
     error.value = 'Phải có ít nhất 1 dòng với phụ tùng và số lượng'; return
   }
@@ -282,6 +289,8 @@ async function submit(autoSubmit: boolean) {
       requested_by: requestedBy.value || undefined,
       from_warehouse: fromWarehouse.value || undefined,
       to_warehouse: toWarehouse.value || undefined,
+      receiver_department: receiverDepartment.value || undefined,
+      receiver_person: receiverPerson.value || undefined,
       supplier: supplier.value || undefined,
       reference_type: referenceType.value || undefined,
       reference_name: referenceName.value || undefined,
@@ -348,6 +357,15 @@ function vnd(v?: number) {
         <div v-if="needsToWarehouse">
           <p class="form-label">Kho nhập / đích *</p>
           <SmartSelect v-model="toWarehouse" doctype="AC Warehouse" placeholder="Chọn kho..." />
+        </div>
+
+        <div v-if="movementType === 'Issue'">
+          <p class="form-label">Khoa/Phòng nhận <span class="text-red-500">*</span></p>
+          <SmartSelect v-model="receiverDepartment" doctype="AC Department" placeholder="Chọn khoa/phòng nhận..." />
+        </div>
+        <div v-if="movementType === 'Issue'">
+          <p class="form-label">Người nhận</p>
+          <SmartSelect v-model="receiverPerson" doctype="User" placeholder="Chọn người nhận..." />
         </div>
 
         <div v-if="movementType === 'Receipt'">

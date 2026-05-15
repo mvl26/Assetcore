@@ -343,7 +343,7 @@ Phiếu bảo trì {{ wo.source_pm_wo }} →
           <div class="space-y-2 text-sm">
             <div class="flex justify-between">
               <span class="text-slate-500">Kỹ thuật viên:</span>
-              <span class="font-medium">{{ wo.assigned_to || '—' }}</span>
+              <span class="font-medium" :title="wo.assigned_to || ''">{{ wo.assigned_to_name || wo.assigned_to || '—' }}</span>
             </div>
             <div class="flex justify-between">
               <span class="text-slate-500">Mở lúc:</span>
