@@ -4,7 +4,7 @@ import { useImm06Store } from '@/stores/imm06'
 import { useAuthStore } from '@/stores/auth'
 import { useApi } from '@/composables/useApi'
 import { ROLES_TRAINING_MANAGE, ROLES_TRAINING_SIGNOFF } from '@/constants/roles'
-import { getExpiringCompetencies, signoffCompetency, revokeCompetency } from '@/api/imm06'
+import { getExpiringCompetencies, signoffCompetency, revokeCompetency, recertifyCompetency } from '@/api/imm06'
 import type { UserCompetency } from '@/api/imm06'
 import PageHeader from '@/components/common/PageHeader.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
@@ -21,11 +21,22 @@ const showRevokeModal = ref(false)
 const revokeReason = ref('')
 const revokeCapa = ref('')
 
+const showRecertModal = ref(false)
+const recertSession = ref('')
+
+// BE CompetencyStatus.PENDING = "Pending Assessment" (services/imm06.py:41)
 const canSignoff = computed(
-  () => competency.value?.workflow_state === 'Pending Signoff' && authStore.hasAnyRole(ROLES_TRAINING_SIGNOFF),
+  () => competency.value?.workflow_state === 'Pending Assessment' && authStore.hasAnyRole(ROLES_TRAINING_SIGNOFF),
 )
+// Workflow JSON: "Thu hồi" allowed from Active / Expiring / Expired / Suspended
 const canRevoke = computed(
-  () => competency.value?.workflow_state === 'Active' && authStore.hasAnyRole(ROLES_TRAINING_MANAGE),
+  () => ['Active', 'Expiring', 'Expired', 'Suspended'].includes(competency.value?.workflow_state ?? '')
+    && authStore.hasAnyRole(ROLES_TRAINING_MANAGE),
+)
+// Workflow JSON: "Tái chứng nhận" allowed from Expired (also surface for Expiring per BR-06 recert flow)
+const canRecertify = computed(
+  () => ['Expired', 'Expiring'].includes(competency.value?.workflow_state ?? '')
+    && authStore.hasAnyRole(ROLES_TRAINING_MANAGE),
 )
 
 function levelLabel(v: string): string {
@@ -90,6 +101,19 @@ async function doRevoke() {
   }
 }
 
+async function doRecertify() {
+  if (!recertSession.value.trim()) return
+  const result = await api.run(
+    () => recertifyCompetency(props.name, recertSession.value.trim()),
+    { successMessage: 'Đã tái chứng nhận năng lực' },
+  )
+  if (result) {
+    showRecertModal.value = false
+    recertSession.value = ''
+    await load()
+  }
+}
+
 onMounted(load)
 </script>
 
@@ -119,6 +143,15 @@ onMounted(load)
         </button>
 
         <button
+          v-if="canRecertify"
+          class="btn-primary text-sm"
+          :disabled="api.loading.value"
+          @click="showRecertModal = true"
+        >
+          Tái chứng nhận
+        </button>
+
+        <button
           v-if="canRevoke"
           class="btn-ghost text-sm text-red-600 hover:bg-red-50"
           @click="showRevokeModal = true"
@@ -129,6 +162,11 @@ onMounted(load)
     </PageHeader>
 
     <div v-if="loading" class="card p-8 text-center text-slate-400">Đang tải…</div>
+
+    <div v-else-if="store.error && !competency" class="card border border-rose-200 bg-rose-50 px-4 py-3 text-rose-700 flex items-center gap-3">
+      <span class="flex-1">{{ store.error }}</span>
+      <button class="text-sm underline" @click="load()">Thử lại</button>
+    </div>
 
     <template v-else-if="competency">
       <!-- Main info -->
@@ -201,7 +239,7 @@ onMounted(load)
       <!-- Signoff info -->
       <div class="card p-5">
         <h2 class="text-sm font-semibold text-slate-700 mb-4 pb-2 border-b">Phê duyệt</h2>
-        <div class="grid grid-cols-2 gap-5 text-sm">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-5 text-sm">
           <div>
             <p class="text-xs text-slate-400 mb-1">Người phê duyệt</p>
             <p>{{ competency.supervisor_signoff ?? '—' }}</p>
@@ -249,6 +287,35 @@ onMounted(load)
             @click="doRevoke"
           >
             {{ api.loading.value ? 'Đang xử lý...' : 'Xác nhận thu hồi' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Recertify Modal -->
+    <div v-if="showRecertModal" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
+      <div class="bg-white rounded-xl p-6 w-full max-w-md space-y-4 shadow-xl">
+        <h2 class="font-semibold text-slate-800">Tái chứng nhận năng lực</h2>
+        <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-700">
+          Liên kết hồ sơ năng lực này với một buổi đào tạo nhắc lại (Refresher) để tái chứng nhận.
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">Mã buổi đào tạo <span class="text-red-500">*</span></label>
+          <input v-model="recertSession" type="text" class="form-input w-full text-sm" placeholder="TRN-2026-XXXXX" />
+        </div>
+        <div class="flex justify-end gap-2">
+          <button
+            class="px-4 py-2 text-sm border rounded-lg hover:bg-slate-50"
+            @click="showRecertModal = false; recertSession = ''"
+          >
+            Quay lại
+          </button>
+          <button
+            :disabled="api.loading.value || !recertSession.trim()"
+            class="px-4 py-2 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors"
+            @click="doRecertify"
+          >
+            {{ api.loading.value ? 'Đang xử lý...' : 'Xác nhận tái chứng nhận' }}
           </button>
         </div>
       </div>

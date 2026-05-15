@@ -192,67 +192,98 @@ onMounted(load)
           Xóa bộ lọc để xem tất cả
         </button>
       </div>
-      <div v-else class="overflow-x-auto">
-        <table class="w-full text-sm">
-          <thead class="bg-slate-50 border-b border-slate-200">
-            <tr>
-              <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Mã phiếu</th>
-              <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Ngày</th>
-              <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Thiết bị</th>
-              <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Loại</th>
-              <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Trạng thái</th>
-              <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Từ</th>
-              <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Đến</th>
-              <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Lý do</th>
-              <th class="px-4 py-3"></th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-slate-100">
-            <tr
-v-for="t in transfers" :key="t.name"
-              class="hover:bg-slate-50 cursor-pointer transition-all hover:translate-x-0.5"
-              @click="router.push(`/asset-transfers/${t.name}`)"
-            >
-              <td class="px-4 py-3 font-mono text-xs text-slate-400">{{ t.name }}</td>
-              <td class="px-4 py-3 text-slate-600 whitespace-nowrap">{{ formatDate(t.transfer_date) }}</td>
-              <td class="px-4 py-3">
-                <div class="font-medium text-slate-900 truncate max-w-[220px]">
-                  {{ formatAssetDisplay(t.asset_name, t.asset).main }}
-                </div>
-                <div
-v-if="formatAssetDisplay(t.asset_name, t.asset).hasBoth"
-                     class="text-xs text-slate-400 font-mono">
-                  {{ formatAssetDisplay(t.asset_name, t.asset).sub }}
-                </div>
-              </td>
-              <td class="px-4 py-3">
-                <button
-                  :class="['text-xs px-2 py-1 rounded-full font-medium transition-all hover:ring-2 hover:ring-offset-1 hover:ring-current/50', TYPE_COLORS[t.transfer_type] || 'bg-slate-100 text-slate-600']"
-                  :title="`Lọc: ${TYPE_LABELS[t.transfer_type] || t.transfer_type}`"
-                  @click.stop="quickFilter('type', t.transfer_type)"
-                >
-{{ TYPE_LABELS[t.transfer_type] || t.transfer_type }}
-</button>
-              </td>
-              <td class="px-4 py-3">
-                <button
-                  :class="['inline-block px-2 py-0.5 rounded-full text-xs font-medium transition-all hover:ring-2 hover:ring-offset-1 hover:ring-current/50', getStatusColor(t.status)]"
-                  :title="`Lọc: ${translateStatus(t.status)}`"
-                  @click.stop="quickFilter('status', t.status ?? '')"
-                >
-{{ translateStatus(t.status) }}
-</button>
-              </td>
-              <td class="px-4 py-3 text-slate-500 text-xs">{{ t.from_location || '—' }}</td>
-              <td class="px-4 py-3 text-slate-500 text-xs">{{ t.to_location }}</td>
-              <td class="px-4 py-3 text-slate-500 max-w-xs truncate">{{ t.reason }}</td>
-              <td class="px-4 py-3 text-right" @click.stop>
-                <button class="text-xs text-red-600 hover:text-red-800" @click="remove(t.name)">Xóa</button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <template v-else>
+        <!-- Mobile cards (< sm) -->
+        <div class="mobile-card-list sm:hidden">
+          <div
+            v-for="t in transfers"
+            :key="t.name"
+            class="mobile-card"
+            @click="router.push(`/asset-transfers/${t.name}`)"
+          >
+            <div class="flex items-center justify-between mb-2">
+              <span class="font-mono text-sm font-semibold text-brand-700">{{ t.name }}</span>
+              <button
+                :class="['px-2.5 py-0.5 rounded-full text-xs font-medium', getStatusColor(t.status)]"
+                @click.stop="quickFilter('status', t.status ?? '')"
+              >{{ translateStatus(t.status) }}</button>
+            </div>
+            <p class="text-sm font-medium text-slate-900 truncate">{{ formatAssetDisplay(t.asset_name, t.asset).main }}</p>
+            <div class="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1.5 text-xs text-slate-500">
+              <button
+                :class="['px-1.5 py-0.5 rounded-full text-[11px] font-medium', TYPE_COLORS[t.transfer_type] || 'bg-slate-100 text-slate-600']"
+                @click.stop="quickFilter('type', t.transfer_type)"
+              >{{ TYPE_LABELS[t.transfer_type] || t.transfer_type }}</button>
+              <span class="text-slate-300">·</span>
+              <span>{{ formatDate(t.transfer_date) }}</span>
+              <span v-if="t.to_location" class="text-slate-300">·</span>
+              <span v-if="t.to_location">→ {{ t.to_location }}</span>
+            </div>
+          </div>
+          <div v-if="transfers.length === 0" class="py-12 text-center text-slate-400">
+            <p class="text-sm font-medium">Không có dữ liệu</p>
+          </div>
+        </div>
+
+        <!-- Desktop table (sm+) -->
+        <div class="hidden sm:block overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead class="bg-slate-50 border-b border-slate-200">
+              <tr>
+                <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Mã phiếu</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Ngày</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Thiết bị</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Loại</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Trạng thái</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Từ</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Đến</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Lý do</th>
+                <th class="px-4 py-3"></th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+              <tr
+                v-for="t in transfers" :key="t.name"
+                class="hover:bg-slate-50 cursor-pointer transition-all hover:translate-x-0.5"
+                @click="router.push(`/asset-transfers/${t.name}`)"
+              >
+                <td class="px-4 py-3 font-mono text-xs text-slate-400">{{ t.name }}</td>
+                <td class="px-4 py-3 text-slate-600 whitespace-nowrap">{{ formatDate(t.transfer_date) }}</td>
+                <td class="px-4 py-3">
+                  <div class="font-medium text-slate-900 truncate max-w-[220px]">
+                    {{ formatAssetDisplay(t.asset_name, t.asset).main }}
+                  </div>
+                  <div
+                    v-if="formatAssetDisplay(t.asset_name, t.asset).hasBoth"
+                    class="text-xs text-slate-400 font-mono">
+                    {{ formatAssetDisplay(t.asset_name, t.asset).sub }}
+                  </div>
+                </td>
+                <td class="px-4 py-3">
+                  <button
+                    :class="['text-xs px-2 py-1 rounded-full font-medium transition-all hover:ring-2 hover:ring-offset-1 hover:ring-current/50', TYPE_COLORS[t.transfer_type] || 'bg-slate-100 text-slate-600']"
+                    :title="`Lọc: ${TYPE_LABELS[t.transfer_type] || t.transfer_type}`"
+                    @click.stop="quickFilter('type', t.transfer_type)"
+                  >{{ TYPE_LABELS[t.transfer_type] || t.transfer_type }}</button>
+                </td>
+                <td class="px-4 py-3">
+                  <button
+                    :class="['inline-block px-2 py-0.5 rounded-full text-xs font-medium transition-all hover:ring-2 hover:ring-offset-1 hover:ring-current/50', getStatusColor(t.status)]"
+                    :title="`Lọc: ${translateStatus(t.status)}`"
+                    @click.stop="quickFilter('status', t.status ?? '')"
+                  >{{ translateStatus(t.status) }}</button>
+                </td>
+                <td class="px-4 py-3 text-slate-500 text-xs">{{ t.from_location || '—' }}</td>
+                <td class="px-4 py-3 text-slate-500 text-xs">{{ t.to_location }}</td>
+                <td class="px-4 py-3 text-slate-500 max-w-xs truncate">{{ t.reason }}</td>
+                <td class="px-4 py-3 text-right" @click.stop>
+                  <button class="text-xs text-red-600 hover:text-red-800" @click="remove(t.name)">Xóa</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </template>
 
       <div v-if="totalCount > PAGE_SIZE" class="flex items-center justify-between px-4 py-3 border-t border-slate-100 text-sm text-slate-500">
         <span>{{ (page - 1) * PAGE_SIZE + 1 }}–{{ Math.min(page * PAGE_SIZE, totalCount) }} / {{ totalCount }}</span>

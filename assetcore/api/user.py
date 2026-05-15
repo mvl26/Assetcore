@@ -564,6 +564,13 @@ def create_system_user() -> dict:
         return _err("Thiếu email", 400)
     if not first_name:
         return _err("Thiếu họ tên", 400)
+    password = (data.get("password") or "").strip()
+    if password and len(password) < 8:
+        return _err(
+            "Mật khẩu phải có tối thiểu 8 ký tự. Khuyến nghị kết hợp chữ hoa, "
+            "chữ thường, số và ký tự đặc biệt.",
+            400,
+        )
     # Kiểm tra cả primary key (name) và field email — case-insensitive để tránh
     # false negative khi user nhập IN HOA mà DB lưu thường.
     by_name = frappe.db.exists("User", email)

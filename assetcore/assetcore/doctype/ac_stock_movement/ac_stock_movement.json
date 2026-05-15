@@ -22,6 +22,8 @@
   "column_break_ref",
   "requested_by",
   "approved_by",
+  "receiver_department",
+  "receiver_person",
   "section_items",
   "items",
   "section_totals",
@@ -132,6 +134,18 @@
    "fieldname": "approved_by",
    "fieldtype": "Link",
    "label": "Người duyệt",
+   "options": "User"
+  },
+  {
+   "fieldname": "receiver_department",
+   "fieldtype": "Link",
+   "label": "Khoa/Phòng nhận",
+   "options": "AC Department"
+  },
+  {
+   "fieldname": "receiver_person",
+   "fieldtype": "Link",
+   "label": "Người nhận",
    "options": "User"
   },
   {

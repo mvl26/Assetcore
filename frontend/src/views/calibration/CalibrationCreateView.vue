@@ -222,7 +222,7 @@ onMounted(() => {
           Thiết bị này chưa có lịch hiệu chuẩn — có thể tìm lịch khác hoặc tạo phiếu tự do.
         </div>
         <SmartSelect v-model="form.calibration_schedule" doctype="IMM Calibration Schedule" placeholder="Tìm lịch khác..." />
-        <div v-if="scheduleMeta" class="mt-2 bg-brand-50 border border-brand-200 rounded-lg p-3 text-xs text-brand-800 grid grid-cols-3 gap-2">
+        <div v-if="scheduleMeta" class="mt-2 bg-brand-50 border border-brand-200 rounded-lg p-3 text-xs text-brand-800 grid grid-cols-1 sm:grid-cols-3 gap-2">
           <div><span class="text-brand-600">Loại:</span> <b>{{ scheduleMeta.calibration_type }}</b></div>
           <div><span class="text-brand-600">Chu kỳ:</span> <b>{{ scheduleMeta.interval_days }} ngày</b></div>
           <div><span class="text-brand-600">Lần tới:</span> <b>{{ scheduleMeta.next_due_date || '—' }}</b></div>

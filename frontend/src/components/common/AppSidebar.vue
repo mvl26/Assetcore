@@ -24,7 +24,7 @@ import {
 const router = useRouter()
 const route  = useRoute()
 const auth   = useAuthStore()
-const { collapsed, toggle, sidebarClass } = useSidebar()
+const { collapsed, toggle, sidebarClass, mobileOpen, closeMobile } = useSidebar()
 
 // Superuser bypass — Frappe-level admin sees mọi nav item
 const isSuperuser = computed(() => auth.hasAnyRole(['System Manager', 'Administrator']))
@@ -260,7 +260,11 @@ function goLauncher() { router.push('/launcher') }
 
 <template>
   <aside
-    :class="['fixed left-0 top-0 h-full z-40 flex flex-col transition-all duration-250 overflow-hidden', sidebarClass]"
+    :class="[
+      'fixed left-0 top-0 h-full z-40 flex flex-col transition-all duration-300 overflow-hidden',
+      sidebarClass,
+      mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0',
+    ]"
     class="sidebar-root"
   >
     <!-- ── Header ─────────────────────────────────────────────────────────── -->
@@ -284,8 +288,19 @@ function goLauncher() { router.push('/launcher') }
           </div>
         </Transition>
       </button>
+      <!-- Mobile close button (X) — hidden on desktop -->
       <button
-        class="toggle-btn shrink-0 w-7 h-7 rounded-lg flex items-center justify-center"
+        class="toggle-btn shrink-0 w-7 h-7 rounded-lg flex items-center justify-center lg:hidden"
+        title="Đóng menu"
+        @click="closeMobile"
+      >
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
+      <!-- Desktop collapse toggle — hidden on mobile -->
+      <button
+        class="toggle-btn shrink-0 w-7 h-7 rounded-lg items-center justify-center hidden lg:flex"
         :title="collapsed ? 'Mở rộng' : 'Thu gọn'"
         @click="toggle"
       >
@@ -372,7 +387,7 @@ function goLauncher() { router.push('/launcher') }
         </Transition>
       </button>
       <Transition name="fade-x">
-        <p v-if="!collapsed" class="text-[10.5px] text-slate-500 font-medium text-center mt-2">AssetCore v1.0</p>
+        <p v-if="!collapsed" class="text-[10.5px] text-slate-500 font-medium text-center mt-2">AssetCore v0.0.1</p>
       </Transition>
     </div>
   </aside>
@@ -384,6 +399,12 @@ function goLauncher() { router.push('/launcher') }
   background: #0f1623;
   border-right: 1px solid rgba(255,255,255,0.06);
   box-shadow: 4px 0 24px rgba(0,0,0,0.4);
+}
+
+/* Mobile: sidebar is always full-width drawer (collapse state ignored) */
+@media (max-width: 1023px) {
+  .sidebar-root { width: 16rem !important; }
+  .sidebar-root:not(.translate-x-0) { pointer-events: none; }
 }
 .sidebar-header {
   border-bottom: 1px solid rgba(255,255,255,0.07);

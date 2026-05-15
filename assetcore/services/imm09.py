@@ -23,7 +23,9 @@ from assetcore.utils.lifecycle import create_lifecycle_event as _create_lifecycl
 from assetcore.services.shared import (
     AssetStatus,
     ErrorCode,
+    Roles,
     ServiceError,
+    require_role,
 )
 
 
@@ -75,9 +77,19 @@ def get_sla_target(risk_class: str, priority: str) -> float:
 # ─── Validators (gọi từ controller / service) ────────────────────────────────
 
 def validate_repair_source(doc) -> None:
-    """BR-09-01: WO phải có nguồn (incident_report OR source_pm_wo)."""
-    if not doc.incident_report and not doc.source_pm_wo:
-        frappe.throw(_("Phải có nguồn sửa chữa: Incident Report hoặc PM Work Order gốc"))
+    """BR-09-01 (relaxed — Slide 24b DECISION CONFIRMED): repair WO được phép
+    standalone, KHÔNG bắt buộc liên kết Incident Report hoặc PM Work Order.
+
+    Chỉ enforce nguồn khi `source_type` chỉ rõ là liên kết:
+      - source_type == "Incident" → bắt buộc incident_report
+      - source_type == "PM"       → bắt buộc source_pm_wo
+    Mặc định (standalone) → bỏ qua.
+    """
+    source_type = (getattr(doc, "source_type", "") or "").strip()
+    if source_type == "Incident" and not doc.incident_report:
+        frappe.throw(_("source_type=Incident yêu cầu liên kết Incident Report"))
+    if source_type == "PM" and not doc.source_pm_wo:
+        frappe.throw(_("source_type=PM yêu cầu liên kết PM Work Order gốc"))
 
 
 def validate_asset_not_under_repair(asset_ref: str) -> None:
@@ -374,17 +386,27 @@ def get_work_order(name: str) -> dict:
     data["location_name"] = (
         frappe.db.get_value("AC Location", loc_id, "location_name") or loc_id or ""
     ) if loc_id else ""
+    req_by = data.get("requested_by")
+    data["requested_by_name"] = (
+        frappe.db.get_value("User", req_by, "full_name") or req_by or ""
+    ) if req_by else ""
+    assignee = data.get("assigned_to")
+    data["assigned_to_name"] = (
+        frappe.db.get_value("User", assignee, "full_name") or assignee or ""
+    ) if assignee else ""
     return data
 
 
 def create_work_order(*, asset_ref: str, repair_type: str, priority: str,
                       failure_description: str, incident_report: str = "",
-                      source_pm_wo: str = "") -> dict:
-    if not incident_report and not source_pm_wo:
-        raise ServiceError(
-            "CM_NO_SOURCE",
-            "CM-001: Phải có nguồn sửa chữa: Incident Report hoặc PM Work Order gốc",
-        )
+                      source_pm_wo: str = "", fault_image: str = "") -> dict:
+    """Tạo phiếu sửa chữa.
+
+    Slide 24b (DECISION CONFIRMED): cho phép standalone — KHÔNG bắt buộc
+    incident_report/source_pm_wo. Hai trường vẫn là optional Link.
+    Slide 24a/26: `requested_by` luôn = session user (không user-editable).
+    """
+    require_role(Roles.CAN_CREATE_WO, "Không đủ quyền tạo phiếu sửa chữa")
     asset_data = AssetRepo.get_value(
         asset_ref, ["asset_name", "risk_classification"], as_dict=True)
     if not asset_data:
@@ -412,6 +434,8 @@ def create_work_order(*, asset_ref: str, repair_type: str, priority: str,
         "repair_type": repair_type,
         "priority": priority,
         "failure_description": failure_description,
+        "fault_image": fault_image,
+        "requested_by": frappe.session.user,
         "incident_report": incident_report,
         "source_pm_wo": source_pm_wo,
         "status": RepairStatus.OPEN,
@@ -433,6 +457,7 @@ def create_work_order(*, asset_ref: str, repair_type: str, priority: str,
 
 
 def assign_technician(name: str, *, technician: str, priority: str = "") -> dict:
+    require_role(Roles.CAN_CREATE_WO, "Không đủ quyền phân công kỹ thuật viên")
     doc = RepairRepo.get(name)
     if not doc:
         raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy WO: {name}")
@@ -451,6 +476,7 @@ def assign_technician(name: str, *, technician: str, priority: str = "") -> dict
 
 
 def submit_diagnosis(name: str, *, diagnosis_notes: str, needs_parts: int = 0) -> dict:
+    require_role(Roles.CAN_CREATE_WO, "Không đủ quyền nộp chẩn đoán")
     doc = RepairRepo.get(name)
     if not doc:
         raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy WO: {name}")
@@ -470,6 +496,7 @@ def submit_diagnosis(name: str, *, diagnosis_notes: str, needs_parts: int = 0) -
 
 
 def start_repair(name: str) -> dict:
+    require_role(Roles.CAN_CREATE_WO, "Không đủ quyền bắt đầu sửa chữa")
     doc = RepairRepo.get(name)
     if not doc:
         raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy WO: {name}")
@@ -483,6 +510,7 @@ def start_repair(name: str) -> dict:
 
 
 def request_spare_parts(name: str, parts: list[dict]) -> dict:
+    require_role(Roles.CAN_CREATE_WO, "Không đủ quyền yêu cầu vật tư")
     doc = RepairRepo.get(name)
     if not doc:
         raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy WO: {name}")
@@ -533,17 +561,37 @@ def close_work_order(name: str, *, repair_summary: str, root_cause_category: str
                      spare_parts: list | None = None, firmware_updated: int = 0,
                      firmware_change_request: str = "", cannot_repair: int = 0,
                      cannot_repair_reason: str = "") -> dict:
+    """KTV hoàn thành sửa chữa → WO chuyển sang 'Pending Inspection'.
+
+    Đây KHÔNG phải bước cuối: WO dừng ở 'Pending Inspection' chờ nghiệm thu
+    (xem confirm_inspection). Trước đây hàm này submit() ngay → complete_repair()
+    nhảy thẳng 'Completed', khiến state 'Pending Inspection' trong workflow + FE
+    không bao giờ tới được.
+    """
+    require_role(Roles.CAN_CREATE_WO, "Không đủ quyền hoàn thành sửa chữa")
     doc = RepairRepo.get(name)
     if not doc:
         raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy WO: {name}")
 
     if int(cannot_repair):
+        if doc.status not in (RepairStatus.IN_REPAIR, RepairStatus.DIAGNOSING,
+                              RepairStatus.PENDING_PARTS, RepairStatus.ASSIGNED):
+            raise ServiceError(
+                ErrorCode.BAD_STATE,
+                f"Không thể đánh dấu 'Không thể sửa' ở trạng thái '{doc.status}'",
+            )
         return _mark_cannot_repair(doc, name, cannot_repair_reason)
+
+    if doc.status != RepairStatus.IN_REPAIR:
+        raise ServiceError(
+            ErrorCode.BAD_STATE,
+            f"Chỉ hoàn thành sửa chữa được từ trạng thái 'In Repair'. "
+            f"Hiện tại: '{doc.status}'",
+        )
 
     doc.repair_summary = repair_summary
     doc.root_cause_category = root_cause_category
     doc.dept_head_name = dept_head_name
-    doc.dept_head_confirmation_datetime = now_datetime()
     doc.firmware_updated = int(firmware_updated)
     if firmware_change_request:
         doc.firmware_change_request = firmware_change_request
@@ -557,10 +605,47 @@ def close_work_order(name: str, *, repair_summary: str, root_cause_category: str
 
     doc.status = RepairStatus.PENDING_INSPECTION
     doc.flags.ignore_links = True
-    doc.submit()  # submit() gọi save() internally; ignore_links set trước
+    RepairRepo.save(doc)  # chưa submit — chờ nghiệm thu
+
+    _log_lifecycle_event(
+        asset=doc.asset_ref, event_type="repair_pending_inspection",
+        from_status=RepairStatus.IN_REPAIR, to_status=RepairStatus.PENDING_INSPECTION,
+        root_record=name,
+    )
+
+    return {
+        "name": name,
+        "status": RepairStatus.PENDING_INSPECTION,
+        "mttr_hours": doc.mttr_hours,
+        "sla_breached": doc.sla_breached,
+    }
+
+
+def confirm_inspection(name: str) -> dict:
+    """Nghiệm thu sau sửa chữa: 'Pending Inspection' → 'Completed'.
+
+    Submit document → on_submit hook gọi complete_repair() (tính MTTR, SLA,
+    đưa Asset về Active, hook recalibration IMM-11). Yêu cầu quyền phê duyệt
+    cấp khoa/QA — đây là bước kiểm soát chất lượng cuối.
+    """
+    require_role(Roles.CAN_APPROVE_DEP, "Không đủ quyền nghiệm thu phiếu sửa chữa")
+    doc = RepairRepo.get(name)
+    if not doc:
+        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy WO: {name}")
+    if doc.status != RepairStatus.PENDING_INSPECTION:
+        raise ServiceError(
+            ErrorCode.BAD_STATE,
+            f"Chỉ nghiệm thu được từ trạng thái 'Pending Inspection'. "
+            f"Hiện tại: '{doc.status}'",
+        )
+
+    doc.dept_head_confirmation_datetime = now_datetime()
+    doc.flags.ignore_links = True
+    doc.submit()  # on_submit → complete_repair() → status = Completed
 
     # Auto-flag chronic failure khi root_cause chỉ ra lỗi lặp lại — IMM-09 → IMM-12
-    if root_cause_category and any(kw in root_cause_category.lower() for kw in _CHRONIC_KEYWORDS):
+    rcc = doc.root_cause_category or ""
+    if rcc and any(kw in rcc.lower() for kw in _CHRONIC_KEYWORDS):
         try:
             from assetcore.services.imm12 import detect_chronic_failures as _detect_12  # noqa: PLC0415
             _detect_12()

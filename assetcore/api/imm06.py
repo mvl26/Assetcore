@@ -123,6 +123,29 @@ def start_session(name: str) -> dict:
 
 
 @frappe.whitelist(methods=["POST"])
+def enroll_participants(name: str, participants: str = "[]") -> dict:
+    """POST /api/method/assetcore.api.imm06.enroll_participants
+
+    Slide 19: thêm học viên vào buổi học (FE add/create trainee).
+    `participants` là JSON list[{user|external_name, department?, role_at_session?}].
+    """
+    try:
+        rows = _parse(participants, field="participants", default=[])
+    except ServiceError as e:
+        return _err(e.message, e.code)
+    return _run(svc.enroll_participants, name, rows)
+
+
+@frappe.whitelist(methods=["POST"])
+def remove_participant(name: str, row_name: str) -> dict:
+    """POST /api/method/assetcore.api.imm06.remove_participant
+
+    Xóa 1 dòng học viên (row name của IMM Training Participant) khỏi buổi học.
+    """
+    return _run(svc.remove_participant, name, row_name)
+
+
+@frappe.whitelist(methods=["POST"])
 def complete_session(name: str, participants_results: str = "[]") -> dict:
     """POST /api/method/assetcore.api.imm06.complete_session"""
     try:

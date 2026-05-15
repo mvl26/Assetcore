@@ -27,6 +27,13 @@ function getCell(module: string, dept: string) {
   return heatmap.value.matrix.find(c => c.module === module && c.dept === dept) ?? null
 }
 
+function moduleLabel(m: string) {
+  return heatmap.value?.module_labels?.[m] || m
+}
+function deptLabel(d: string) {
+  return heatmap.value?.department_labels?.[d] || d
+}
+
 function cellColor(score: number | undefined | null): string {
   if (score == null) return 'bg-slate-100 text-slate-400'
   if (score >= 90) return 'bg-emerald-600 text-white'
@@ -93,19 +100,19 @@ onMounted(load)
               v-for="dept in heatmap.departments" :key="dept"
               class="text-xs font-medium text-slate-600 px-2 py-2 whitespace-nowrap"
             >
-              {{ dept }}
+              {{ deptLabel(dept) }}
             </th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="module in heatmap.modules" :key="module">
-            <td class="text-sm font-medium text-slate-800 px-2 py-1 whitespace-nowrap sticky left-0 bg-white">{{ module }}</td>
+            <td class="text-sm font-medium text-slate-800 px-2 py-1 whitespace-nowrap sticky left-0 bg-white">{{ moduleLabel(module) }}</td>
             <td v-for="dept in heatmap.departments" :key="dept">
               <button
                 v-if="getCell(module, dept)"
                 :class="['w-full min-w-[64px] h-12 rounded font-semibold text-sm tabular-nums transition-all hover:scale-105 hover:shadow-card-hover',
                          cellColor(getCell(module, dept)?.score)]"
-                :title="`${module} · ${dept}: ${getCell(module, dept)?.score}% — ${getCell(module, dept)?.findings_count} phát hiện`"
+                :title="`${moduleLabel(module)} · ${deptLabel(dept)}: ${getCell(module, dept)?.score}% — ${getCell(module, dept)?.findings_count} phát hiện`"
                 @click="onCellClick(module, dept)"
               >
                 <span>{{ getCell(module, dept)?.score }}</span>

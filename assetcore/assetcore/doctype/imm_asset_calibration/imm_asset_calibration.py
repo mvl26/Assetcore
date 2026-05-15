@@ -15,9 +15,23 @@ class IMMAssetCalibration(Document):
     def before_submit(self):
         if not self.actual_date:
             self.actual_date = frappe.utils.nowdate()
+        # BR-11-08: phải có ≥1 tham số đo trước khi Submit phiếu hiệu chuẩn.
+        if not self.measurements:
+            frappe.throw(_(
+                "Phải nhập ít nhất 1 tham số đo trước khi gửi duyệt phiếu "
+                "hiệu chuẩn (CAL-005)."
+            ))
         for m in self.measurements or []:
             if m.measured_value is None:
                 frappe.throw(_(f"Tham số '{m.parameter_name}' chưa có giá trị đo (CAL-004)"))
+        # Đảm bảo overall_result đã được tính từ measurements.
+        self._compute_measurement_results()
+        # BR-11-09: phải có kết quả tổng (Passed/Failed/Conditionally Passed).
+        if self.overall_result not in ("Passed", "Failed", "Conditionally Passed"):
+            frappe.throw(_(
+                "Phiếu hiệu chuẩn phải có kết quả tổng (Đạt/Không đạt/Đạt có "
+                "điều kiện) trước khi gửi duyệt (CAL-006)."
+            ))
 
     def on_submit(self):
         if self.overall_result == "Failed":

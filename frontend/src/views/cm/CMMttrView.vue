@@ -64,7 +64,7 @@ function formatHours(h: number): string {
     </PageHeader>
 
     <!-- KPI Skeleton -->
-    <div v-if="loading && !report" class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-7">
+    <div v-if="loading && !report" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-7">
       <div v-for="i in 4" :key="i" class="kpi-card p-5 animate-pulse">
         <div class="h-3 bg-slate-200 rounded w-24 mb-3" />
         <div class="h-8 bg-slate-200 rounded w-16" />
@@ -72,7 +72,7 @@ function formatHours(h: number): string {
     </div>
 
     <!-- KPI Cards -->
-    <div v-else-if="report" class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-7">
+    <div v-else-if="report" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-7">
       <div class="kpi-card p-5 slide-up-enter-active" style="--kpi-color: #2563eb; animation-delay: 0ms">
         <p class="text-xs font-medium text-slate-500 mb-1">Thời gian sửa TB</p>
         <p class="text-3xl font-bold text-blue-600">

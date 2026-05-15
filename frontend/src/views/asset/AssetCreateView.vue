@@ -42,6 +42,11 @@ watch(() => form.value.device_model, async (modelName) => {
   }
 })
 
+// Cascade: đổi danh mục → reset model đã chọn (model phụ thuộc category)
+function onCategoryChange() {
+  form.value.device_model = ''
+}
+
 async function submit() {
   if (!form.value.asset_name?.trim()) {
     error.value = 'Tên thiết bị là bắt buộc'
@@ -50,7 +55,7 @@ async function submit() {
   saving.value = true
   error.value = null
   try {
-    const res = await createAsset(form.value) as unknown as { name?: string }
+    const res = await createAsset(form.value)
     if (res?.name) {
       clearDraft()
       router.push(`/assets/${res.name}`)
@@ -89,11 +94,16 @@ async function submit() {
           </div>
           <div>
             <label class="form-label">Danh mục</label>
-            <SmartSelect v-model="form.asset_category" doctype="AC Asset Category" placeholder="Tìm danh mục..." />
+            <SmartSelect v-model="form.asset_category" doctype="AC Asset Category" placeholder="Tìm danh mục..." @select="onCategoryChange" @clear="onCategoryChange" />
           </div>
           <div>
             <label class="form-label">Model thiết bị</label>
-            <SmartSelect v-model="form.device_model" doctype="IMM Device Model" placeholder="Tìm model..." />
+            <SmartSelect
+              v-model="form.device_model"
+              doctype="IMM Device Model"
+              :filters="{ asset_category: form.asset_category }"
+              placeholder="Tìm model..."
+            />
           </div>
           <div>
             <label class="form-label">Khoa/Phòng</label>

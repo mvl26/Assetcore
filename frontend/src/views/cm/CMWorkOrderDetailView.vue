@@ -114,6 +114,12 @@ function navigateParts() {
 function navigateChecklist() {
   router.push(`/cm/work-orders/${props.id}/checklist`)
 }
+
+async function doConfirmInspection() {
+  submitting.value = true
+  await store.doConfirmInspection(wo.value!.name)
+  submitting.value = false
+}
 </script>
 
 <template>
@@ -152,7 +158,7 @@ function navigateChecklist() {
         <button class="btn-primary" @click="store.fetchWorkOrder(props.id)">Thử lại</button>
       </div>
     </div>
-    <div v-else-if="wo" class="grid md:grid-cols-5 gap-6">
+    <div v-else-if="wo" class="grid grid-cols-1 md:grid-cols-5 gap-6">
       <!-- LEFT PANEL (60%) -->
       <div class="md:col-span-3 space-y-5">
         <!-- Asset Info -->
@@ -337,7 +343,7 @@ Phiếu bảo trì {{ wo.source_pm_wo }} →
           <div class="space-y-2 text-sm">
             <div class="flex justify-between">
               <span class="text-slate-500">Kỹ thuật viên:</span>
-              <span class="font-medium">{{ wo.assigned_to || '—' }}</span>
+              <span class="font-medium" :title="wo.assigned_to || ''">{{ wo.assigned_to_name || wo.assigned_to || '—' }}</span>
             </div>
             <div class="flex justify-between">
               <span class="text-slate-500">Mở lúc:</span>
@@ -412,13 +418,17 @@ Hoàn thành sửa chữa
 </button>
             </template>
 
-            <!-- Pending Inspection → navigate /checklist -->
+            <!-- Pending Inspection → xác nhận nghiệm thu (QA / trưởng khoa) -->
             <template v-if="wo.status === 'Pending Inspection'">
               <button
-class="w-full px-4 py-2.5 bg-cyan-600 text-white rounded-lg text-sm font-medium hover:bg-cyan-700 transition-colors"
-                @click="navigateChecklist">
-Nghiệm thu
-</button>
+                class="w-full px-4 py-2.5 bg-cyan-600 text-white rounded-lg text-sm font-medium hover:bg-cyan-700 disabled:opacity-50 transition-colors"
+                :disabled="submitting"
+                @click="doConfirmInspection">
+                {{ submitting ? 'Đang xử lý...' : 'Xác nhận nghiệm thu — Hoàn thành' }}
+              </button>
+              <p class="text-[11px] text-center text-slate-400 mt-1">
+                Yêu cầu quyền phê duyệt cấp khoa/QA. Sau bước này MTTR & SLA được chốt.
+              </p>
             </template>
 
             <!-- Cannot Repair button for non-terminal statuses -->

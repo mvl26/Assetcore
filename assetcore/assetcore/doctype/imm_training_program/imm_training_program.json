@@ -33,6 +33,8 @@
     "requires_recertification",
     "assessment_method",
     "passing_score_pct",
+    "min_score",
+    "max_score",
     "instructor_qualification_required",
     "qms_doc_ref",
     "is_active"
@@ -133,6 +135,18 @@
       "label": "Điểm đạt (%)",
       "default": "70",
       "reqd": 1
+    },
+    {
+      "fieldname": "min_score",
+      "fieldtype": "Float",
+      "label": "Điểm tối thiểu",
+      "default": "0"
+    },
+    {
+      "fieldname": "max_score",
+      "fieldtype": "Float",
+      "label": "Điểm tối đa",
+      "default": "100"
     },
     {
       "fieldname": "instructor_qualification_required",

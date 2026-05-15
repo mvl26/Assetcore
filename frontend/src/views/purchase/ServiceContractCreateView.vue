@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import DateInput from '@/components/common/DateInput.vue'
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { frappePost } from '@/api/helpers'
 import SmartSelect from '@/components/common/SmartSelect.vue'
@@ -10,9 +10,11 @@ import { useFormDraft } from '@/composables/useFormDraft'
 const router = useRouter()
 
 const form = ref({
+  contract_code: '',
   contract_title: '',
   supplier: '',
   contract_type: '',
+  sign_date: '',
   contract_start: '',
   contract_end: '',
   contract_value: 0,
@@ -20,6 +22,17 @@ const form = ref({
   sla_response_hours: 0,
   coverage_description: '',
   notes: '',
+})
+
+// Hiển thị contract_value với dấu phân cách hàng nghìn, lưu giá trị số.
+const contractValueDisplay = computed<string>({
+  get: () => form.value.contract_value
+    ? new Intl.NumberFormat('vi-VN').format(form.value.contract_value)
+    : '',
+  set: (v: string) => {
+    const n = Number(String(v).replace(/[^\d]/g, ''))
+    form.value.contract_value = Number.isFinite(n) ? n : 0
+  },
 })
 
 const { clear: clearDraft } = useFormDraft('service-contract-create', form)
@@ -37,8 +50,8 @@ const TYPES: { value: string; label: string }[] = [
 const BASE = '/api/method/assetcore.api.imm00'
 
 async function submit() {
-  if (!form.value.contract_title || !form.value.supplier || !form.value.contract_type
-      || !form.value.contract_start || !form.value.contract_end) {
+  if (!form.value.contract_code || !form.value.contract_title || !form.value.supplier
+      || !form.value.contract_type || !form.value.contract_start || !form.value.contract_end) {
     error.value = 'Vui lòng điền đầy đủ các trường bắt buộc (*).'
     return
   }
@@ -56,7 +69,7 @@ async function submit() {
     clearDraft()
     router.push('/service-contracts')
   } catch (e: unknown) {
-    error.value = (e as Error).message || 'Lỗi khi tạo hợp đồng'
+    error.value = e instanceof Error ? e.message : 'Lỗi khi tạo hợp đồng'
   }
   saving.value = false
 }
@@ -77,12 +90,23 @@ async function submit() {
     <div class="bg-white rounded-xl border border-gray-200 p-6 space-y-5">
       <div v-if="error" class="text-red-600 text-sm bg-red-50 px-3 py-2 rounded-lg">{{ error }}</div>
 
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+          <label for="sc-code" class="block text-sm font-medium text-gray-700 mb-1">Mã hợp đồng <span class="text-red-500">*</span></label>
+          <input id="sc-code" v-model="form.contract_code" type="text" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-400" placeholder="VD: HD-2026-001" />
+        </div>
+        <div>
+          <label for="sc-sign-date" class="block text-sm font-medium text-gray-700 mb-1">Ngày ký</label>
+          <DateInput id="sc-sign-date" v-model="form.sign_date" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+        </div>
+      </div>
+
       <div>
         <label for="sc-title" class="block text-sm font-medium text-gray-700 mb-1">Tên hợp đồng <span class="text-red-500">*</span></label>
         <input id="sc-title" v-model="form.contract_title" type="text" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
       </div>
 
-      <div class="grid grid-cols-2 gap-4">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">Nhà cung cấp <span class="text-red-500">*</span></label>
           <SmartSelect v-model="form.supplier" doctype="AC Supplier" placeholder="Tìm nhà cung cấp..." />
@@ -96,7 +120,7 @@ async function submit() {
         </div>
       </div>
 
-      <div class="grid grid-cols-2 gap-4">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <label for="sc-start" class="block text-sm font-medium text-gray-700 mb-1">Bắt đầu <span class="text-red-500">*</span></label>
           <DateInput id="sc-start" v-model="form.contract_start" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
@@ -107,10 +131,10 @@ async function submit() {
         </div>
       </div>
 
-      <div class="grid grid-cols-2 gap-4">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <label for="sc-value" class="block text-sm font-medium text-gray-700 mb-1">Giá trị HĐ (VND)</label>
-          <input id="sc-value" v-model.number="form.contract_value" type="number" min="0" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+          <input id="sc-value" v-model="contractValueDisplay" type="text" inputmode="numeric" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-right focus:outline-none focus:ring-2 focus:ring-blue-400" placeholder="0" />
         </div>
         <div>
           <label for="sc-sla" class="block text-sm font-medium text-gray-700 mb-1">SLA phản hồi (giờ)</label>

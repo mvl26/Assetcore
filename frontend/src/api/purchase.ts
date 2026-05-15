@@ -6,11 +6,13 @@ const BASE = '/api/method/assetcore.api.purchase'
 
 export interface Purchase {
   name: string
+  po_code?: string
   purchase_date: string
   supplier: string
   supplier_name?: string
   invoice_no?: string
   expected_delivery?: string
+  actual_delivery_date?: string
   status: 'Draft' | 'Submitted' | 'Received' | 'Cancelled'
   total_value?: number
   notes?: string
@@ -42,6 +44,7 @@ export interface PurchaseDeviceItem {
   device_model: string
   device_model_name?: string
   manufacturer?: string
+  qty?: number
   unit_cost?: number
   vendor_serial_no?: string
   warranty_months?: number
@@ -54,7 +57,10 @@ export interface PurchaseDeviceItem {
 
 export interface CreatePurchaseDevicePayload {
   device_model: string
+  qty?: number
   unit_cost?: number
+  /** Serial numbers per unit (khi qty > 1) — fallback dùng vendor_serial_no khi qty = 1 */
+  vendor_serial_nos?: string[]
   vendor_serial_no?: string
   warranty_months?: number
   notes?: string
@@ -65,6 +71,7 @@ export interface CreatePurchasePayload {
   purchase_date?: string
   invoice_no?: string
   expected_delivery?: string
+  actual_delivery_date?: string
   notes?: string
   items?: { spare_part: string; qty: number; unit_cost?: number }[]
   devices?: CreatePurchaseDevicePayload[]

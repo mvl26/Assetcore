@@ -141,6 +141,15 @@ export function closeWorkOrder(payload: {
   )
 }
 
+export function confirmInspection(
+  name: string,
+): Promise<{ name: string; status: string; mttr_hours: number; sla_breached: boolean }> {
+  return frappePost<{ name: string; status: string; mttr_hours: number; sla_breached: boolean }>(
+    `${BASE}.confirm_inspection`,
+    { name },
+  )
+}
+
 export function getRepairKPIs(year?: number, month?: number): Promise<RepairKPIs> {
   return frappeGet<RepairKPIs>(`${BASE}.get_repair_kpis`, { year, month })
 }
@@ -160,8 +169,12 @@ export function createRepairWorkOrder(payload: {
   repair_type: string
   priority: string
   failure_description: string
+  /** Ảnh mô tả lỗi (file URL sau khi upload) — optional */
+  fault_image?: string
+  /** BR-09-01 đã nới — incident/PM giờ optional (standalone repair) */
   incident_report?: string
   source_pm_wo?: string
+  sla_target_hours?: number
 }): Promise<{ name: string; status: string; sla_target_hours: number }> {
   return frappePost<{ name: string; status: string; sla_target_hours: number }>(
     `${BASE}.create_repair_work_order`,

@@ -535,7 +535,8 @@ onMounted(async () => {
 .modal-body { padding: 1rem; }
 .modal-body label { display: block; margin-bottom: 0.75rem; font-weight: 500; font-size: 0.9rem; }
 .modal-body input, .modal-body select { display: block; width: 100%; padding: 0.4rem; border: 1px solid #d1d5db; border-radius: 4px; margin-top: 0.2rem; }
-.modal-body .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+.modal-body .grid-2 { display: grid; grid-template-columns: 1fr; gap: 0.5rem; }
+@media (min-width: 480px) { .modal-body .grid-2 { grid-template-columns: 1fr 1fr; } }
 .modal-foot { padding: 1rem; border-top: 1px solid #e5e7eb; display: flex; justify-content: flex-end; gap: 0.5rem; }
 .loading { padding: 3rem; text-align: center; color: #6b7280; }
 code { font-family: ui-monospace, monospace; background: #f3f4f6; padding: 0.1rem 0.3rem; border-radius: 4px; font-size: 0.85rem; }

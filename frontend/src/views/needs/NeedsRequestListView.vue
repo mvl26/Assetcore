@@ -202,76 +202,104 @@ onMounted(() => {
       <div v-if="store.loading" class="p-6">
         <SkeletonLoader variant="table" :rows="6" />
       </div>
-      <div v-else-if="store.needsRequests.length" class="overflow-x-auto animate-fade-in">
-        <table class="w-full">
-          <thead>
-            <tr>
-              <th class="table-header">Mã phiếu</th>
-              <th class="table-header">Loại đề xuất</th>
-              <th class="table-header">Khoa đề xuất</th>
-              <th class="table-header">Model thiết bị</th>
-              <th class="table-header text-right">Số lượng</th>
-              <th class="table-header">Mức ưu tiên</th>
-              <th class="table-header text-right">Tổng chi phí 5 năm</th>
-              <th class="table-header">Trạng thái</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              v-for="(nr, idx) in store.needsRequests"
-              :key="nr.name"
-              class="table-row animate-fade-in"
-              :class="[`stagger-${Math.min(idx + 1, 8)}`]"
-              @click="goDetail(nr.name)"
-            >
-              <td class="table-cell">
-                <span class="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded text-slate-700">{{ nr.name }}</span>
-              </td>
-              <td class="table-cell">
-                <button
-class="link-cell" :title="`Lọc: ${requestTypeLabel(nr.request_type)}`"
-                        @click.stop="quickFilter('request_type', nr.request_type)">
-                  {{ requestTypeLabel(nr.request_type) }}
-                </button>
-              </td>
-              <td class="table-cell">
-                <button
-v-if="nr.requesting_department" class="link-cell"
-                        :title="`Lọc: ${nr.requesting_department}`"
-                        @click.stop="quickFilter('requesting_department', nr.requesting_department)">
-                  {{ nr.department_name || nr.requesting_department }}
-                </button>
-                <span v-else class="text-slate-400">—</span>
-              </td>
-              <td class="table-cell">{{ nr.device_model_name || nr.device_model_ref }}</td>
-              <td class="table-cell text-right">{{ nr.quantity }}</td>
-              <td class="table-cell">
-                <button
-                  v-if="nr.priority_class"
-                  type="button"
-                  :class="['priority-pill', `priority-${nr.priority_class}`]"
-                  :title="`Lọc: ${nr.priority_class}`"
-                  @click.stop="quickFilter('priority_class', nr.priority_class)"
-                >
-{{ priorityBadge(nr.priority_class) }}
-</button>
-                <span v-else class="text-slate-400">—</span>
-              </td>
-              <td class="table-cell text-right">{{ formatVnd(nr.tco_5y) }}</td>
-              <td class="table-cell">
-                <button
-                  type="button"
-                  class="bg-transparent border-0 p-0 cursor-pointer"
-                  :title="`Lọc trạng thái: ${stateLabel(nr.workflow_state)}`"
-                  @click.stop="quickFilter('workflow_state', nr.workflow_state)"
-                >
-                  <StatusBadge :state="nr.workflow_state" />
-                </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <template v-else-if="store.needsRequests.length">
+        <!-- Mobile cards -->
+        <div class="mobile-card-list sm:hidden">
+          <div
+            v-for="nr in store.needsRequests"
+            :key="nr.name"
+            class="mobile-card"
+            @click="goDetail(nr.name)"
+          >
+            <div class="flex items-center justify-between mb-2">
+              <span class="font-mono text-sm font-semibold text-brand-700">{{ nr.name }}</span>
+              <StatusBadge :state="nr.workflow_state" />
+            </div>
+            <p class="text-sm font-medium text-slate-900 truncate">{{ nr.device_model_name || nr.device_model_ref || '—' }}</p>
+            <div class="flex flex-wrap gap-x-2 gap-y-1 mt-1.5 text-xs text-slate-500">
+              <span>{{ requestTypeLabel(nr.request_type) }}</span>
+              <span v-if="nr.department_name || nr.requesting_department">· {{ nr.department_name || nr.requesting_department }}</span>
+              <span v-if="nr.priority_class">· {{ priorityBadge(nr.priority_class) }}</span>
+              <span v-if="nr.tco_5y">· {{ formatVnd(nr.tco_5y) }}</span>
+            </div>
+          </div>
+          <div v-if="store.needsRequests.length === 0" class="py-12 text-center text-slate-400">
+            <p class="text-sm">Không có dữ liệu</p>
+          </div>
+        </div>
+
+        <!-- Desktop table -->
+        <div class="hidden sm:block overflow-x-auto animate-fade-in">
+          <table class="w-full">
+            <thead>
+              <tr>
+                <th class="table-header">Mã phiếu</th>
+                <th class="table-header">Loại đề xuất</th>
+                <th class="table-header">Khoa đề xuất</th>
+                <th class="table-header">Model thiết bị</th>
+                <th class="table-header text-right">Số lượng</th>
+                <th class="table-header">Mức ưu tiên</th>
+                <th class="table-header text-right">Tổng chi phí 5 năm</th>
+                <th class="table-header">Trạng thái</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="(nr, idx) in store.needsRequests"
+                :key="nr.name"
+                class="table-row animate-fade-in"
+                :class="[`stagger-${Math.min(idx + 1, 8)}`]"
+                @click="goDetail(nr.name)"
+              >
+                <td class="table-cell">
+                  <span class="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded text-slate-700">{{ nr.name }}</span>
+                </td>
+                <td class="table-cell">
+                  <button
+  class="link-cell" :title="`Lọc: ${requestTypeLabel(nr.request_type)}`"
+                          @click.stop="quickFilter('request_type', nr.request_type)">
+                    {{ requestTypeLabel(nr.request_type) }}
+                  </button>
+                </td>
+                <td class="table-cell">
+                  <button
+  v-if="nr.requesting_department" class="link-cell"
+                          :title="`Lọc: ${nr.requesting_department}`"
+                          @click.stop="quickFilter('requesting_department', nr.requesting_department)">
+                    {{ nr.department_name || nr.requesting_department }}
+                  </button>
+                  <span v-else class="text-slate-400">—</span>
+                </td>
+                <td class="table-cell">{{ nr.device_model_name || nr.device_model_ref }}</td>
+                <td class="table-cell text-right">{{ nr.quantity }}</td>
+                <td class="table-cell">
+                  <button
+                    v-if="nr.priority_class"
+                    type="button"
+                    :class="['priority-pill', `priority-${nr.priority_class}`]"
+                    :title="`Lọc: ${nr.priority_class}`"
+                    @click.stop="quickFilter('priority_class', nr.priority_class)"
+                  >
+  {{ priorityBadge(nr.priority_class) }}
+  </button>
+                  <span v-else class="text-slate-400">—</span>
+                </td>
+                <td class="table-cell text-right">{{ formatVnd(nr.tco_5y) }}</td>
+                <td class="table-cell">
+                  <button
+                    type="button"
+                    class="bg-transparent border-0 p-0 cursor-pointer"
+                    :title="`Lọc trạng thái: ${stateLabel(nr.workflow_state)}`"
+                    @click.stop="quickFilter('workflow_state', nr.workflow_state)"
+                  >
+                    <StatusBadge :state="nr.workflow_state" />
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </template>
       <div v-else class="flex flex-col items-center justify-center py-16 text-slate-400">
         <p class="text-sm">Không có đề xuất nào phù hợp</p>
         <button

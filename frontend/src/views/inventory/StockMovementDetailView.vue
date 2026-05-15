@@ -67,6 +67,14 @@ function vnd(v?: number) {
 }
 function formatDt(d?: string) { return d ? new Date(d).toLocaleString('vi-VN') : '—' }
 
+// Per-line extended amount: prefer the stored total_cost, otherwise derive
+// qty × unit_cost (the child doctype's total_cost is not auto-populated, so
+// older / hook-applied rows leave it empty even though qty & unit_cost are set).
+function lineAmount(r: { total_cost?: number; qty?: number; unit_cost?: number }): number {
+  if (r.total_cost) return r.total_cost
+  return (r.qty || 0) * (r.unit_cost || 0)
+}
+
 const TYPE_LABELS: Record<string, string> = {
   Receipt: 'Nhập kho', Issue: 'Xuất kho', Transfer: 'Chuyển kho', Adjustment: 'Điều chỉnh',
 }
@@ -123,13 +131,13 @@ onMounted(load)
           </div>
           <div v-if="doc.from_warehouse">
             <p class="text-xs text-slate-500 mb-0.5">Kho xuất</p>
-            <p class="font-medium text-slate-800">{{ doc.from_warehouse_code || doc.from_warehouse_name || doc.from_warehouse }}</p>
-            <p v-if="doc.from_warehouse_name && doc.from_warehouse_code" class="text-xs text-slate-400">{{ doc.from_warehouse_name }}</p>
+            <p class="font-medium text-slate-800">{{ doc.from_warehouse_name || doc.from_warehouse_code || doc.from_warehouse }}</p>
+            <p v-if="doc.from_warehouse_name && doc.from_warehouse_code" class="text-xs text-slate-400 font-mono">{{ doc.from_warehouse_code }}</p>
           </div>
           <div v-if="doc.to_warehouse">
             <p class="text-xs text-slate-500 mb-0.5">Kho nhập</p>
-            <p class="font-medium text-slate-800">{{ doc.to_warehouse_code || doc.to_warehouse_name || doc.to_warehouse }}</p>
-            <p v-if="doc.to_warehouse_name && doc.to_warehouse_code" class="text-xs text-slate-400">{{ doc.to_warehouse_name }}</p>
+            <p class="font-medium text-slate-800">{{ doc.to_warehouse_name || doc.to_warehouse_code || doc.to_warehouse }}</p>
+            <p v-if="doc.to_warehouse_name && doc.to_warehouse_code" class="text-xs text-slate-400 font-mono">{{ doc.to_warehouse_code }}</p>
           </div>
           <div v-if="doc.supplier">
             <p class="text-xs text-slate-500 mb-0.5">Nhà cung cấp</p>
@@ -195,7 +203,7 @@ v-if="r.stock_qty !== undefined && r.conversion_factor && r.conversion_factor !=
                   <span v-else class="text-slate-300">—</span>
                 </td>
                 <td class="py-2.5 text-right text-slate-600">{{ vnd(r.unit_cost) }}</td>
-                <td class="py-2.5 text-right font-medium text-slate-800">{{ vnd(r.total_cost) }}</td>
+                <td class="py-2.5 text-right font-medium text-slate-800">{{ vnd(lineAmount(r)) }}</td>
                 <td class="py-2.5 text-xs font-mono text-slate-500 hidden md:table-cell">{{ r.serial_no || '—' }}</td>
               </tr>
             </tbody>

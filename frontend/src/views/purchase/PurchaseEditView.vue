@@ -22,6 +22,7 @@ const supplier = ref('')
 const purchaseDate = ref('')
 const invoiceNo = ref('')
 const expectedDelivery = ref('')
+const actualDelivery = ref('')
 const notes = ref('')
 const items = ref<PurchaseItem[]>([])
 const devices = ref<(CreatePurchaseDevicePayload & { commissioning_ref?: string })[]>([])
@@ -86,6 +87,7 @@ onMounted(async () => {
     purchaseDate.value = toLocalDatetimeStr(doc.purchase_date)
     invoiceNo.value = doc.invoice_no || ''
     expectedDelivery.value = doc.expected_delivery || ''
+    actualDelivery.value = doc.actual_delivery_date || ''
     notes.value = doc.notes || ''
     items.value = (doc.items || []).map(r => ({ ...r }))
     devices.value = (doc.devices || []).map((d: PurchaseDeviceItem) => ({
@@ -185,6 +187,7 @@ async function save() {
       purchase_date: purchaseDate.value ? purchaseDate.value.replace('T', ' ') + ':00' : undefined,
       invoice_no: invoiceNo.value || undefined,
       expected_delivery: expectedDelivery.value || undefined,
+      actual_delivery_date: actualDelivery.value || undefined,
       notes: notes.value || undefined,
       items: validItems.map(r => ({ spare_part: r.spare_part, qty: r.qty, unit_cost: r.unit_cost })),
       devices: validDevices.map(d => ({
@@ -237,14 +240,18 @@ function vnd(v?: number) {
               <DateTimeInput id="edit-date" v-model="purchaseDate" class="form-input w-full" />
             </div>
             <div>
-              <label for="edit-invoice" class="form-label">Số hóa đơn / Mã PO</label>
+              <label for="edit-invoice" class="form-label">Số hóa đơn</label>
               <input
 id="edit-invoice" v-model="invoiceNo" type="text" class="form-input w-full font-mono"
-                     placeholder="VD: INV-2026-0001, PO-00123" />
+                     placeholder="VD: INV-2026-0001" />
             </div>
             <div>
-              <label for="edit-delivery" class="form-label">Ngày giao hàng dự kiến</label>
+              <label for="edit-delivery" class="form-label">Thời hạn giao hàng (muộn nhất)</label>
               <DateInput id="edit-delivery" v-model="expectedDelivery" class="form-input w-full" />
+            </div>
+            <div>
+              <label for="edit-actual-delivery" class="form-label">Ngày giao hàng thực tế</label>
+              <DateInput id="edit-actual-delivery" v-model="actualDelivery" class="form-input w-full" />
             </div>
           </div>
         </div>

@@ -114,6 +114,42 @@ class TestImm16Base(unittest.TestCase):
     def tearDown(self):
         frappe.db.rollback()
 
+    @classmethod
+    def tearDownClass(cls):
+        """BUG-16-01: xoá fixture đã commit ở setUpClass để không rò rỉ
+        dữ liệu test (``TEST-R-IMM08-PM-90``, "Test PM 90%") sang site
+        thật. setUpClass commit nên rollback per-test không dọn được."""
+        with suppress(Exception):
+            # Mọi fixture test đều mang tiền tố TEST- (rule_code) hoặc tên
+            # TEST-...; service nội bộ commit nên rollback per-test không
+            # dọn được — phải xoá tường minh để không rò rỉ sang site thật.
+            for dt, filt in (
+                ("IMM Compliance Finding", {"rule": "TEST-R-IMM08-PM-90"}),
+                ("IMM CAPA Record", {"name": ("like", "TEST-CAPA-%")}),
+                ("IMM Compliance Scorecard", {"name": ("like", "TEST-SCR-%")}),
+                ("IMM Management Review", {"name": ("like", "TEST-MR-%")}),
+                ("IMM Internal Audit", {"name": ("like", "TEST-AUD-%")}),
+                ("IMM Compliance Finding", {"name": ("like", "TEST-FND-%")}),
+            ):
+                for nm in frappe.get_all(dt, filters=filt, pluck="name"):
+                    with suppress(Exception):
+                        frappe.delete_doc(dt, nm, force=True,
+                                          ignore_permissions=True,
+                                          ignore_on_trash=True)
+            # Scorecard test dùng autoname (SCR-YYYY-MM-#####) — dọn theo kỳ.
+            for nm in frappe.get_all(
+                "IMM Compliance Scorecard",
+                filters={"period_year": 2026, "period_month": 4,
+                         "scope": "Hospital", "score_pct": 87.5},
+                pluck="name",
+            ):
+                with suppress(Exception):
+                    frappe.delete_doc("IMM Compliance Scorecard", nm,
+                                      force=True, ignore_permissions=True,
+                                      ignore_on_trash=True)
+            _delete_if_exists("IMM Compliance Rule", "TEST-R-IMM08-PM-90")
+            frappe.db.commit()
+
 
 # ── TC-16-01: Create + update rule with version bump (VR-11) ────────────────
 
@@ -276,16 +312,29 @@ class TestEffectivenessCheck(TestImm16Base):
 
 class TestScorecardPublish(TestImm16Base):
     def test_publish_scorecard_without_prev_mr_fails(self):
-        sc_name = _ensure(
-            "IMM Compliance Scorecard", "TEST-SCR-2026-04",
-            {
-                "period_year": 2026,
-                "period_month": 4,
-                "scope": "Hospital",
-                "score_pct": 87.5,
-                "is_published": 0,
-            },
-        )
+        # Scorecard dùng autoname format: — không ép literal name được.
+        # Dọn mọi scorecard test cùng kỳ trước, để Frappe tự sinh name.
+        for nm in frappe.get_all(
+            "IMM Compliance Scorecard",
+            filters={"period_year": 2026, "period_month": 4,
+                     "scope": "Hospital"},
+            pluck="name",
+        ):
+            _delete_if_exists("IMM Compliance Scorecard", nm)
+        sc_doc = frappe.get_doc({
+            "doctype": "IMM Compliance Scorecard",
+            "period_year": 2026, "period_month": 4,
+            "scope": "Hospital", "score_pct": 87.5, "is_published": 0,
+        })
+        sc_doc.flags.ignore_mandatory = True
+        sc_doc.insert(ignore_permissions=True)
+        frappe.db.commit()
+        sc_name = sc_doc.name
+        # VR-10 gate: prev quarter (Q1-2026) phải KHÔNG có MR Closed để
+        # khẳng định publish bị chặn. Đảm bảo cô lập dữ liệu.
+        if frappe.db.exists("IMM Management Review",
+                            {"quarter": "Q1-2026", "status": "Closed"}):
+            self.skipTest("Site có MR Closed Q1-2026 — VR-10 gate không áp dụng")
         with self.assertRaises(ServiceError) as ctx:
             svc.publish_scorecard(sc_name)
         # Expect FIN-010 (missing prev quarter MR) or permission denied
@@ -325,6 +374,129 @@ class TestDashboard(TestImm16Base):
                     "findings_critical", "capa_open", "capa_overdue",
                     "audits_in_progress", "mr_quarterly_status"):
             self.assertIn(key, kpis)
+
+
+# ── TC-16-12: get_record_history (audit trail) ─────────────────────────────
+
+class TestRecordHistory(TestImm16Base):
+    def test_history_validation(self):
+        with self.assertRaises(ServiceError):
+            svc.get_record_history("", "")
+
+    def test_history_shape(self):
+        res = svc.get_record_history("IMM Compliance Rule", self.rule)
+        self.assertIn("items", res)
+        self.assertIn("total", res)
+        self.assertIsInstance(res["items"], list)
+
+    def test_confirm_finding_writes_audit_trail(self):
+        finding = _ensure(
+            "IMM Compliance Finding", "TEST-FND-AUD-01",
+            {
+                "rule": self.rule,
+                "detected_date": nowdate(),
+                "evaluation_date": nowdate(),
+                "severity": "High",
+                "status": "Under Review",
+            },
+        )
+        svc.confirm_finding(finding, "audit-test")
+        hist = svc.get_record_history("IMM Compliance Finding", finding)
+        self.assertGreaterEqual(hist["total"], 1)
+
+
+# ── TC-16-13: reactivate_rule round-trip ───────────────────────────────────
+
+class TestRuleReactivate(TestImm16Base):
+    def test_deactivate_then_reactivate(self):
+        svc.deactivate_rule(self.rule)
+        self.assertEqual(
+            frappe.db.get_value("IMM Compliance Rule", self.rule, "is_active"), 0)
+        svc.reactivate_rule(self.rule)
+        self.assertEqual(
+            frappe.db.get_value("IMM Compliance Rule", self.rule, "is_active"), 1)
+
+
+# ── TC-16-14: update_capa_fields + get_capa ────────────────────────────────
+
+class TestCapaFieldsAndGet(TestImm16Base):
+    def _capa(self) -> str:
+        if not self.test_asset:
+            self.skipTest("No AC Asset found")
+        return _ensure(
+            "IMM CAPA Record", "TEST-CAPA-FLD-01",
+            {
+                "asset": self.test_asset,
+                "source_type": "Non-Conformance",
+                "severity": "Major",
+                "description": "Test fields",
+                "opened_date": nowdate(),
+                "due_date": add_days(nowdate(), 30),
+                "responsible": "Administrator",
+                "workflow_state": "Investigating",
+                "status": "In Progress",
+            },
+        )
+
+    def test_update_capa_fields_persists(self):
+        capa = self._capa()
+        svc.update_capa_fields(capa, {
+            "root_cause": "RC narrative",
+            "corrective_action": "CA narrative",
+            "imm_root_cause_method": "5-Why",
+        })
+        doc = svc.get_capa(capa)
+        self.assertEqual(doc["root_cause"], "RC narrative")
+        self.assertEqual(doc["imm_root_cause_method"], "5-Why")
+
+    def test_get_capa_not_found(self):
+        with self.assertRaises(ServiceError):
+            svc.get_capa("NON-EXISTENT-CAPA")
+
+
+# ── TC-16-15: Management Review lifecycle (update + advance) ────────────────
+
+class TestMRLifecycle(TestImm16Base):
+    def _mr(self) -> str:
+        return _ensure(
+            "IMM Management Review", "TEST-MR-Q1-2099",
+            {
+                "quarter": "Q1-2099",
+                "review_date": nowdate(),
+                "chair": "Administrator",
+                "status": "Draft",
+                "workflow_state": "Draft",
+            },
+        )
+
+    def test_advance_draft_to_held(self):
+        mr = self._mr()
+        res = svc.advance_mr_state(mr, "Held")
+        self.assertEqual(res["status"], "Held")
+
+    def test_advance_invalid_transition_rejected(self):
+        mr = self._mr()
+        with self.assertRaises(ServiceError):
+            svc.advance_mr_state(mr, "Closed")
+
+    def test_update_management_review_content(self):
+        mr = self._mr()
+        svc.update_management_review(mr, {
+            "inputs_summary": "Đầu vào quý",
+            "output_actions": [
+                {"action_description": "Cải tiến PM", "responsible": "Administrator",
+                 "due_date": add_days(nowdate(), 30)},
+            ],
+        })
+        doc = svc.get_management_review(mr)
+        self.assertEqual(doc["inputs_summary"], "Đầu vào quý")
+        self.assertGreaterEqual(len(doc.get("output_actions") or []), 1)
+
+    def test_finalize_requires_output_action(self):
+        mr = self._mr()
+        with self.assertRaises(ServiceError):
+            svc.finalize_management_review(mr, minutes_doc="/files/m.pdf",
+                                           output_actions=[])
 
 
 if __name__ == "__main__":

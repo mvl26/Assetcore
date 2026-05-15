@@ -174,52 +174,83 @@ onMounted(() => { load(); loadKpis() })
           Xóa bộ lọc để xem tất cả
         </button>
       </div>
-      <div v-else class="overflow-x-auto">
-        <table class="min-w-full divide-y divide-slate-100">
-          <thead>
-            <tr>
-              <th class="table-header">Mã</th>
-              <th class="table-header">Thiết bị</th>
-              <th class="table-header">Loại</th>
-              <th class="table-header">Trạng thái</th>
-              <th class="table-header">Ngày dự kiến</th>
-              <th class="table-header">Kết quả</th>
-              <th class="table-header">Ngày cal tiếp</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-slate-100">
-            <tr
-              v-for="c in items" :key="c.name"
-              class="hover:bg-slate-50 cursor-pointer transition-colors"
-              @click="router.push(`/calibration/${c.name}`)"
-            >
-              <td class="table-cell font-mono text-xs text-slate-500">{{ c.name }}</td>
-              <td class="table-cell">
-                <div class="font-medium text-slate-900 truncate max-w-[240px]">
-                  {{ formatAssetDisplay(c.asset_name, c.asset).main }}
-                </div>
-                <div v-if="formatAssetDisplay(c.asset_name, c.asset).hasBoth" class="text-xs text-slate-400 font-mono mt-0.5">
-                  {{ formatAssetDisplay(c.asset_name, c.asset).sub }}
-                </div>
-              </td>
-              <td class="table-cell text-slate-600">{{ c.calibration_type }}</td>
-              <td class="table-cell">
-                <button @click.stop="quickFilter('status', c.status)">
-                  <StatusBadge :state="c.status" />
-                </button>
-              </td>
-              <td class="table-cell text-slate-600">{{ formatDate(c.scheduled_date) }}</td>
-              <td class="table-cell">
-                <StatusBadge v-if="c.overall_result" :state="c.overall_result" />
-                <span v-else class="text-slate-300">—</span>
-              </td>
-              <td class="table-cell text-xs" :class="isOverdue(c.next_calibration_date) ? 'text-red-600 font-semibold' : 'text-slate-500'">
-                {{ formatDate(c.next_calibration_date) }}
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <template v-else>
+        <!-- Mobile cards (< sm) -->
+        <div class="mobile-card-list sm:hidden">
+          <div
+            v-for="c in items"
+            :key="c.name"
+            class="mobile-card"
+            @click="router.push(`/calibration/${c.name}`)"
+          >
+            <div class="flex items-center justify-between mb-2">
+              <span class="font-mono text-sm font-semibold text-brand-700">{{ c.name }}</span>
+              <button @click.stop="quickFilter('status', c.status)">
+                <StatusBadge :state="c.status" />
+              </button>
+            </div>
+            <p class="text-sm font-medium text-slate-900 truncate">{{ formatAssetDisplay(c.asset_name, c.asset).main }}</p>
+            <div class="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1.5 text-xs text-slate-500">
+              <span>{{ c.calibration_type }}</span>
+              <span class="text-slate-300">·</span>
+              <span>{{ formatDate(c.scheduled_date) }}</span>
+              <span v-if="c.overall_result" class="text-slate-300">·</span>
+              <StatusBadge v-if="c.overall_result" :state="c.overall_result" />
+            </div>
+          </div>
+          <div v-if="items.length === 0" class="py-12 text-center text-slate-400">
+            <p class="text-sm font-medium">Không có dữ liệu</p>
+          </div>
+        </div>
+
+        <!-- Desktop table (sm+) -->
+        <div class="hidden sm:block overflow-x-auto">
+          <table class="min-w-full divide-y divide-slate-100">
+            <thead>
+              <tr>
+                <th class="table-header">Mã</th>
+                <th class="table-header">Thiết bị</th>
+                <th class="table-header">Loại</th>
+                <th class="table-header">Trạng thái</th>
+                <th class="table-header">Ngày dự kiến</th>
+                <th class="table-header">Kết quả</th>
+                <th class="table-header">Ngày cal tiếp</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+              <tr
+                v-for="c in items" :key="c.name"
+                class="hover:bg-slate-50 cursor-pointer transition-colors"
+                @click="router.push(`/calibration/${c.name}`)"
+              >
+                <td class="table-cell font-mono text-xs text-slate-500">{{ c.name }}</td>
+                <td class="table-cell">
+                  <div class="font-medium text-slate-900 truncate max-w-[240px]">
+                    {{ formatAssetDisplay(c.asset_name, c.asset).main }}
+                  </div>
+                  <div v-if="formatAssetDisplay(c.asset_name, c.asset).hasBoth" class="text-xs text-slate-400 font-mono mt-0.5">
+                    {{ formatAssetDisplay(c.asset_name, c.asset).sub }}
+                  </div>
+                </td>
+                <td class="table-cell text-slate-600">{{ c.calibration_type }}</td>
+                <td class="table-cell">
+                  <button @click.stop="quickFilter('status', c.status)">
+                    <StatusBadge :state="c.status" />
+                  </button>
+                </td>
+                <td class="table-cell text-slate-600">{{ formatDate(c.scheduled_date) }}</td>
+                <td class="table-cell">
+                  <StatusBadge v-if="c.overall_result" :state="c.overall_result" />
+                  <span v-else class="text-slate-300">—</span>
+                </td>
+                <td class="table-cell text-xs" :class="isOverdue(c.next_calibration_date) ? 'text-red-600 font-semibold' : 'text-slate-500'">
+                  {{ formatDate(c.next_calibration_date) }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </template>
     </div>
 
     <BasePagination :pagination="pagination" @page-change="load" />

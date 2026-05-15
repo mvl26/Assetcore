@@ -74,6 +74,8 @@ export interface CreateMovementPayload {
   requested_by?: string
   from_warehouse?: string
   to_warehouse?: string
+  receiver_department?: string
+  receiver_person?: string
   supplier?: string
   reference_type?: string
   reference_name?: string

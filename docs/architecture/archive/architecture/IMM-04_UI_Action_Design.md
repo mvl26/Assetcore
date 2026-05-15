@@ -1,7 +1,7 @@
 # Thiết kế Hành vi Giao diện & Nút Điều hướng (UI Action Design)
 # Bóc tách Action Button theo Mạng Lưới Trạng Thái (State Machine) IMM-04
 
-**Phân hệ:** AssetCore v1.0
+**Phân hệ:** AssetCore v0.0.1
 **Nguyên tắc thiết kế Hành vi:** Mọi tương tác chuyển State (Bấm nút) đều bị kiểm soát bởi 3 Gate bảo vệ: **Actor Gate** (chỉ hiển thị đúng người), **Condition Gate** (Dữ liệu chưa sạch sẽ chìm màu/Disable), và **Validation Gate** (Nếu bấm lúc data bẩn sẽ chặn lưu và quăng Error màu đỏ).
 
 ---

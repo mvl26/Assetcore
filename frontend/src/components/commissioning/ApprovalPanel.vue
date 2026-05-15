@@ -16,7 +16,6 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'transition', action: string): void
-  (e: 'approve', boardApprover: string, remarks: string): void
   (e: 'update-field', field: string, value: unknown): void
   (e: 'refresh'): void
 }>()
@@ -62,7 +61,7 @@ async function handleDecision(decision: 'Approve' | 'Reject') {
     decisionRemarks.value = ''
     emit('refresh')
   } catch (e: unknown) {
-    decisionError.value = (e as Error).message || 'Lỗi xử lý'
+    decisionError.value = e instanceof Error ? e.message : String(e)
   } finally {
     decisionSaving.value = false
   }
@@ -75,22 +74,11 @@ function formatDt(s: string): string {
   return d.toLocaleString('vi-VN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
 
-// ─── Inline approval form ─────────────────────────────────────────────────────
-
-const showApproveForm  = ref(false)
-const approvalRemarks  = ref('')
-
-function openApproveForm() { showApproveForm.value = true }
-function cancelApproveForm() {
-  showApproveForm.value = false
-  approvalRemarks.value = ''
-}
-
-function confirmApprove() {
-  emit('approve', props.doc.board_approver, approvalRemarks.value)
-  showApproveForm.value = false
-  approvalRemarks.value = ''
-}
+// Inline approve form đã gỡ: endpoint approve_clinical_release chỉ hợp lệ khi
+// phiếu ĐÃ ở 'Clinical Release' (state docstatus=1, không còn transition), nên
+// form này không bao giờ tới được. Approve clinical release giờ là workflow
+// transition 'Phê duyệt phát hành' / 'Phê duyệt sau tái kiểm' / 'Gỡ giữ lâm sàng'
+// đi qua transition_state với đúng chuỗi action khớp workflow JSON.
 
 // ─── Conditional approver field visibility ────────────────────────────────────
 
@@ -132,48 +120,56 @@ const allGatesPassed = computed(() =>
 
 // ─── Transition label & color map ─────────────────────────────────────────────
 
+// Actions that move the record into Clinical Release. Phải khớp EXACT với
+// `action` trong IMM-04 Workflow JSON (lệch chuỗi → 422 Not a valid Workflow Action).
 const APPROVE_ACTIONS = [
-  'Phê duyệt phát hành lâm sàng',
-  'Approve Clinical Release',
+  'Phê duyệt phát hành',
+  'Phê duyệt sau tái kiểm',
+  'Gỡ giữ lâm sàng',
 ]
 
 function isApproveAction(action: string): boolean {
   return APPROVE_ACTIONS.includes(action)
 }
 
+// Label map — keys = action chính xác trong workflow JSON. Value = nhãn hiển thị.
 function actionLabel(action: string): string {
   const MAP: Record<string, string> = {
-    'Gửi kiểm tra tài liệu':             'Gửi kiểm tra tài liệu',
-    'Submit for Doc Review':              'Gửi kiểm tra tài liệu',
-    'Xác nhận đủ tài liệu':              'Xác nhận đủ tài liệu',
-    'Bắt đầu lắp đặt':                   'Bắt đầu lắp đặt',
-    'Lắp đặt hoàn thành':                'Lắp đặt hoàn thành',
-    'Phê duyệt phát hành lâm sàng':      'Phê duyệt phát hành lâm sàng',
-    'Approve Clinical Release':           'Phê duyệt phát hành lâm sàng',
-    'Giữ lâm sàng':                      'Giữ lâm sàng',
-    'Clinical Hold':                      'Giữ lâm sàng',
-    'Gỡ giữ lâm sàng':                   'Gỡ giữ lâm sàng',
-    'Trả lại nhà cung cấp':                        'Trả lại nhà cung cấp',
-    'Return to Vendor':                   'Trả lại nhà cung cấp',
+    'Gửi kiểm tra tài liệu':       'Gửi kiểm tra tài liệu',
+    'Xác nhận đủ tài liệu':        'Xác nhận đủ tài liệu',
+    'Yêu cầu bổ sung tài liệu':    'Yêu cầu bổ sung tài liệu',
+    'Bắt đầu lắp đặt':             'Bắt đầu lắp đặt',
+    'Báo cáo sự cố':               'Báo cáo sự cố',
+    'Lắp đặt hoàn thành':          'Lắp đặt hoàn thành',
+    'Báo cáo DOA':                 'Báo cáo DOA',
+    'Bắt đầu kiểm tra':            'Bắt đầu kiểm tra',
+    'Phê duyệt phát hành':         'Phê duyệt phát hành',
+    'Giữ lâm sàng':                'Giữ lâm sàng',
+    'Báo cáo lỗi baseline':        'Báo cáo lỗi baseline',
+    'Gỡ giữ lâm sàng':             'Gỡ giữ lâm sàng',
+    'Phê duyệt sau tái kiểm':      'Phê duyệt sau tái kiểm',
+    'Khắc phục xong':              'Khắc phục xong',
+    'Trả lại nhà cung cấp':        'Trả lại nhà cung cấp',
   }
   return MAP[action] ?? action
 }
 
 function actionClass(action: string): string {
   if (isApproveAction(action)) return 'bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed'
-  if (['Giữ lâm sàng', 'Clinical Hold'].includes(action)) return 'bg-amber-500 hover:bg-amber-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed'
-  if (['Trả lại nhà cung cấp', 'Return to Vendor'].includes(action)) return 'bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed'
-  if (['Gửi kiểm tra tài liệu', 'Submit for Doc Review', 'Xác nhận đủ tài liệu', 'Bắt đầu lắp đặt', 'Lắp đặt hoàn thành'].includes(action))
+  if (action === 'Giữ lâm sàng') return 'bg-amber-500 hover:bg-amber-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed'
+  if (['Trả lại nhà cung cấp', 'Báo cáo DOA', 'Báo cáo sự cố'].includes(action)) return 'bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed'
+  if (['Báo cáo lỗi baseline', 'Yêu cầu bổ sung tài liệu'].includes(action)) return 'bg-amber-500 hover:bg-amber-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed'
+  if (['Gửi kiểm tra tài liệu', 'Xác nhận đủ tài liệu', 'Bắt đầu lắp đặt', 'Lắp đặt hoàn thành', 'Bắt đầu kiểm tra', 'Khắc phục xong'].includes(action))
     return 'btn-primary disabled:opacity-50 disabled:cursor-not-allowed'
   return 'btn-secondary disabled:opacity-50 disabled:cursor-not-allowed'
 }
 
 function handleTransitionClick(action: string) {
-  if (isApproveAction(action)) {
-    openApproveForm()
-  } else {
-    emit('transition', action)
-  }
+  // 'Phê duyệt phát hành' / 'Phê duyệt sau tái kiểm' là workflow transition
+  // (không phải approve_clinical_release — endpoint đó chỉ chạy khi đã ở
+  // Clinical Release). Emit transition để store gọi transition_state với
+  // đúng chuỗi action khớp workflow JSON.
+  emit('transition', action)
 }
 
 // Warn if trying to approve without G06 set
@@ -423,62 +419,6 @@ const uniqueTransitions = computed(() => {
           </span>
         </button>
       </div>
-
-      <!-- Inline Approval Form -->
-      <Transition
-        enter-active-class="transition duration-200 ease-out"
-        enter-from-class="opacity-0 -translate-y-2"
-        enter-to-class="opacity-100 translate-y-0"
-        leave-active-class="transition duration-150 ease-in"
-        leave-from-class="opacity-100"
-        leave-to-class="opacity-0"
-      >
-        <div
-          v-if="showApproveForm"
-          class="mt-4 p-4 rounded-xl border border-emerald-200 bg-emerald-50"
-        >
-          <p class="text-sm font-semibold text-emerald-800 mb-3">Xác nhận phê duyệt phát hành lâm sàng</p>
-
-          <div class="mb-3">
-            <label class="form-label text-xs mb-1 block">Ghi chú phê duyệt (không bắt buộc)</label>
-            <textarea
-              v-model="approvalRemarks"
-              rows="3"
-              placeholder="Nhập ghi chú hoặc điều kiện phê duyệt..."
-              class="form-input w-full text-sm resize-none"
-            />
-          </div>
-
-          <div class="flex gap-2 justify-end">
-            <button
-              type="button"
-              class="btn-ghost"
-              :disabled="saving"
-              @click="cancelApproveForm"
-            >
-              Hủy
-            </button>
-            <button
-              type="button"
-              class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
-              :disabled="saving || !doc.board_approver"
-              @click="confirmApprove"
-            >
-              <span class="flex items-center gap-1.5">
-                <svg v-if="saving" class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
-                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
-                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
-                </svg>
-                Xác nhận phê duyệt
-              </span>
-            </button>
-          </div>
-
-          <p v-if="!doc.board_approver" class="text-xs text-red-600 mt-2">
-            Bắt buộc chỉ định Người phê duyệt BGĐ trước khi phê duyệt.
-          </p>
-        </div>
-      </Transition>
     </div>
 </div>
 </template>

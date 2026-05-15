@@ -431,7 +431,7 @@ class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium"
               Xem chi tiết →
             </button>
           </div>
-          <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+          <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 text-sm">
             <div>
               <p class="text-xs text-slate-400 mb-0.5">Phương pháp</p>
               <p class="font-medium text-slate-800">{{ store.currentAsset.depreciation_method || '—' }}</p>
@@ -502,7 +502,7 @@ class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium"
       <!-- Tab: KPI -->
       <div v-if="activeTab === 'kpi'">
         <div v-if="!kpi" class="card p-8 text-center text-slate-400 text-sm">Đang tải KPI...</div>
-        <div v-else class="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div v-else class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
           <div class="card p-4 text-center">
             <p class="text-xs text-slate-400 mb-1">Uptime</p>
             <p class="text-2xl font-bold text-green-600">{{ kpi.uptime_pct != null ? kpi.uptime_pct.toFixed(1) + '%' : '—' }}</p>

@@ -8,6 +8,7 @@ import { uploadDocumentFile } from '@/api/imm05'
 import { useToast } from '@/composables/useToast'
 import { useAuthStore } from '@/stores/auth'
 import { ROLES_CAL_EXECUTE, ROLES_CAL_MANAGE } from '@/constants/roles'
+import StatusBadge from '@/components/common/StatusBadge.vue'
 
 const props = defineProps<{ id: string }>()
 const router = useRouter()
@@ -134,16 +135,30 @@ async function doCancel() {
   } finally { actionLoading.value = false }
 }
 
-const statusColor: Record<string, string> = {
-  Scheduled: 'bg-blue-100 text-blue-700',
-  'Sent to Lab': 'bg-indigo-100 text-indigo-700',
-  'In Progress': 'bg-yellow-100 text-yellow-700',
-  'Certificate Received': 'bg-purple-100 text-purple-700',
-  Passed: 'bg-green-100 text-green-700',
-  Failed: 'bg-red-100 text-red-700',
-  'Conditionally Passed': 'bg-orange-100 text-orange-700',
-  Cancelled: 'bg-slate-100 text-slate-500',
-}
+const showSubmitModal = ref(false)
+
+// IMM-11-E (FE mirror của gate BE before_submit): cần ≥1 tham số đo + mọi
+// tham số đã có giá trị + có kết quả tổng trước khi gửi duyệt.
+const measurementCount = computed(() => form.value.measurements?.length ?? 0)
+const allMeasured = computed(() =>
+  measurementCount.value > 0 &&
+  (form.value.measurements ?? []).every(
+    m => m.measured_value !== null && m.measured_value !== undefined,
+  ),
+)
+const computedOverall = computed<'Passed' | 'Failed' | null>(() => {
+  if (!allMeasured.value) return null
+  const anyFail = (form.value.measurements ?? []).some(m => computeResult(m) === 'Fail')
+  return anyFail ? 'Failed' : 'Passed'
+})
+const submitBlockReason = computed(() => {
+  if (!canExecuteCal.value) return 'Bạn không có quyền gửi duyệt phiếu hiệu chuẩn'
+  if (measurementCount.value === 0) return 'Phải nhập ít nhất 1 tham số đo trước khi gửi duyệt'
+  if (!allMeasured.value) return 'Tất cả tham số phải có giá trị đo trước khi gửi duyệt'
+  if (!computedOverall.value) return 'Phiếu chưa có kết quả tổng (Đạt/Không đạt)'
+  return ''
+})
+const canSubmitCal = computed(() => submitBlockReason.value === '')
 
 async function load() {
   loading.value = true
@@ -162,14 +177,28 @@ async function save() {
   finally { saving.value = false }
 }
 
+function openSubmitModal() {
+  if (!canSubmitCal.value) {
+    err.value = submitBlockReason.value
+    toast.warning(submitBlockReason.value)
+    return
+  }
+  err.value = ''
+  showSubmitModal.value = true
+}
+
 async function submit() {
-  if (!confirm('Submit phiếu hiệu chuẩn? Sau khi submit sẽ không thể chỉnh sửa.')) return
   submitting.value = true; err.value = ''
   try {
     await submitCalibration(props.id)
+    showSubmitModal.value = false
+    toast.success('Đã gửi duyệt phiếu hiệu chuẩn')
     await load()
-  } catch (e: unknown) { err.value = (e as Error).message || 'Lỗi submit' }
-  finally { submitting.value = false }
+  } catch (e: unknown) {
+    const msg = (e as Error).message || 'Lỗi gửi duyệt'
+    err.value = msg
+    toast.error(msg)
+  } finally { submitting.value = false }
 }
 
 function addMeasurement() {
@@ -207,14 +236,8 @@ onMounted(load)
         </div>
       </div>
       <div class="flex items-center gap-2">
-        <span
-v-if="form.status" class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium"
-          :class="statusColor[form.status] || 'bg-slate-100'">{{ form.status }}</span>
-        <span
-v-if="isSubmitted && form.overall_result" class="text-xs font-semibold px-2 py-1 rounded"
-          :class="form.overall_result === 'Passed' ? 'text-green-700 bg-green-50' : 'text-red-600 bg-red-50'">
-          {{ form.overall_result }}
-        </span>
+        <StatusBadge v-if="form.status" :state="form.status" size="md" />
+        <StatusBadge v-if="isSubmitted && form.overall_result" :state="form.overall_result" size="md" />
       </div>
     </div>
 
@@ -225,7 +248,7 @@ v-if="isSubmitted && form.overall_result" class="text-xs font-semibold px-2 py-1
       <!-- Info Grid -->
       <div class="card p-5">
         <h2 class="text-sm font-semibold text-slate-700 mb-4 pb-2 border-b">Thông tin chung</h2>
-        <div class="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
+        <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 text-sm">
           <div>
             <p class="text-xs text-slate-400 mb-1">Thiết bị</p>
             <p class="font-medium">{{ form.asset_name || form.asset }}</p>
@@ -237,7 +260,7 @@ v-if="isSubmitted && form.overall_result" class="text-xs font-semibold px-2 py-1
           </div>
           <div>
             <p class="text-xs text-slate-400 mb-1">Kỹ thuật viên</p>
-            <p>{{ form.technician }}</p>
+            <p>{{ form.technician_name || form.technician || '—' }}</p>
           </div>
           <div>
             <p class="text-xs text-slate-400 mb-1">Ngày dự kiến</p>
@@ -264,11 +287,7 @@ v-if="isSubmitted && form.overall_result" class="text-xs font-semibold px-2 py-1
           <div>
             <label class="form-label">Trạng thái</label>
             <div class="flex items-center gap-2 h-10">
-              <span
-                v-if="form.status"
-                class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium"
-                :class="statusColor[form.status] || 'bg-slate-100'"
-              >{{ form.status }}</span>
+              <StatusBadge v-if="form.status" :state="form.status" size="md" />
               <span class="text-xs text-slate-400">— chuyển trạng thái qua các nút thao tác bên dưới</span>
             </div>
           </div>
@@ -362,7 +381,7 @@ v-else-if="m.measured_value !== null && m.measured_value !== undefined" class="t
                 {{ computeResult(m) }}
               </span>
               <button v-if="!isSubmitted" class="text-red-400 hover:text-red-600 ml-auto" aria-label="Xoá đo" @click="removeMeasurement(i)">
-                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
             </div>
           </div>
@@ -403,9 +422,21 @@ Nhận chứng chỉ
           <button class="btn-ghost text-sm" :disabled="saving" @click="save">
             {{ saving ? 'Đang lưu...' : 'Lưu' }}
           </button>
-          <button class="btn-primary text-sm" :disabled="submitting" @click="submit">
-            {{ submitting ? 'Đang submit...' : 'Submit' }}
-          </button>
+          <div class="relative group">
+            <button
+              class="btn-primary text-sm"
+              :disabled="submitting || !canSubmitCal"
+              @click="openSubmitModal"
+            >
+              {{ submitting ? 'Đang gửi duyệt...' : 'Gửi duyệt' }}
+            </button>
+            <div
+              v-if="!canSubmitCal"
+              class="absolute bottom-full right-0 mb-2 w-64 bg-slate-800 text-white text-xs rounded-md px-2.5 py-1.5 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity z-10"
+            >
+              {{ submitBlockReason }}
+            </div>
+          </div>
         </template>
       </div>
     </template>
@@ -496,6 +527,31 @@ Nhận chứng chỉ
           <button class="px-4 py-2 text-sm border rounded-lg" @click="showCancelModal = false">Quay lại</button>
           <button :disabled="actionLoading || !cancelReason.trim()" class="px-4 py-2 text-sm bg-slate-600 text-white rounded-lg hover:bg-slate-700 disabled:opacity-50" @click="doCancel">
             {{ actionLoading ? 'Đang hủy...' : 'Xác nhận hủy' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Submit Confirmation Modal (IMM-11-E: thay confirm() native) -->
+    <div v-if="showSubmitModal" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
+      <div class="bg-white rounded-xl p-6 w-full max-w-md space-y-4 shadow-xl">
+        <h2 class="font-semibold text-slate-800">Xác nhận gửi duyệt phiếu hiệu chuẩn</h2>
+        <div class="text-sm text-slate-600 space-y-1.5">
+          <div>Số tham số đo: <strong>{{ measurementCount }}</strong></div>
+          <div>
+            Kết quả tổng:
+            <strong :class="computedOverall === 'Failed' ? 'text-red-600' : 'text-green-600'">
+              {{ computedOverall === 'Failed' ? 'Không đạt' : computedOverall === 'Passed' ? 'Đạt' : '—' }}
+            </strong>
+          </div>
+          <p class="text-xs text-amber-700 bg-amber-50 p-2 rounded">
+            Sau khi gửi duyệt sẽ không thể chỉnh sửa phiếu (BR-11-05).
+          </p>
+        </div>
+        <div class="flex justify-end gap-2">
+          <button class="px-4 py-2 text-sm border rounded-lg" @click="showSubmitModal = false">Hủy</button>
+          <button :disabled="submitting" class="btn-primary text-sm disabled:opacity-50" @click="submit">
+            {{ submitting ? 'Đang gửi duyệt...' : 'Xác nhận gửi duyệt' }}
           </button>
         </div>
       </div>

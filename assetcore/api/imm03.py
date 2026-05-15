@@ -17,6 +17,8 @@ _DT_PD  = "IMM Procurement Decision"
 _DT_AVL = "IMM AVL Entry"
 _DT_VS  = "IMM Vendor Scorecard"
 _DT_SA  = "IMM Supplier Audit"
+_DT_PP  = "IMM Procurement Plan"
+_DT_PURCHASE = "AC Purchase"
 
 
 def _parse_json(raw, *, default=None):
@@ -474,8 +476,24 @@ def get_evaluation(name: str) -> dict:
                 c["supplier_name"] = sup_map.get(c.get("supplier")) or c.get("supplier") or ""
             for q in quotations:
                 q["candidate_supplier_name"] = sup_map.get(q.get("candidate_supplier")) or q.get("candidate_supplier") or ""
+        _enrich_decision_chain(doc)
         return doc
     return _handle(_get, name)
+
+
+def _enrich_decision_chain(doc: dict) -> None:
+    """Slide-09 traceability: enrich plan + PO display names trên Decision."""
+    if doc.get("plan_ref"):
+        pp = frappe.db.get_value(
+            _DT_PP, doc["plan_ref"], ["plan_period", "plan_year"], as_dict=True
+        )
+        doc["plan_ref_name"] = (
+            f"{pp.plan_period} {pp.plan_year}" if pp else doc["plan_ref"]
+        )
+    if doc.get("ac_purchase_ref"):
+        doc["ac_purchase_ref_name"] = frappe.db.get_value(
+            _DT_PURCHASE, doc["ac_purchase_ref"], "po_code"
+        ) or doc["ac_purchase_ref"]
 
 
 @frappe.whitelist()
@@ -493,6 +511,7 @@ def get_decision(name: str) -> dict:
                 c["supplier_name"] = sup_map.get(c.get("supplier")) or c.get("supplier") or ""
             if winner:
                 doc["winner_supplier_name"] = sup_map.get(winner) or winner
+        _enrich_decision_chain(doc)
         return doc
     return _handle(_get, name)
 

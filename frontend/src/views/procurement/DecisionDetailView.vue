@@ -289,7 +289,8 @@ onMounted(async () => {
 .step { padding: 0.4rem 0.9rem; border-radius: 999px; background: #f3f4f6; color: #6b7280; font-size: 0.8rem; }
 .step.done { background: #d1fae5; color: #065f46; }
 .step.active { background: #2563eb; color: white; font-weight: 600; }
-.grid-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+.grid-2col { display: grid; grid-template-columns: 1fr; gap: 1rem; }
+@media (min-width: 640px) { .grid-2col { grid-template-columns: 1fr 1fr; } }
 .card { background: white; border: 1px solid #e5e7eb; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 1rem; }
 .card h3 { margin: 0 0 0.75rem; }
 .award-card { border-left: 4px solid #f59e0b; background: #fffbeb; }

@@ -4,7 +4,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useImm16Store } from '@/stores/imm16'
 import { useApi } from '@/composables/useApi'
-import { getCurrentScorecard, getScorecardByPeriod } from '@/api/imm16'
+import { getCurrentScorecard, getScorecardByPeriod, runComplianceEvaluation, generateScorecard } from '@/api/imm16'
 import type { ComplianceScorecard } from '@/api/imm16'
 import { formatDate } from '@/utils/formatters'
 import PageHeader from '@/components/common/PageHeader.vue'
@@ -69,6 +69,16 @@ async function publish() {
   if (res) await loadCurrent()
 }
 
+async function runEvaluation() {
+  const period = `${selectedYear.value}-${String(selectedMonth.value).padStart(2, '0')}`
+  const res = await api.run(async () => {
+    await runComplianceEvaluation()
+    await generateScorecard('', period)
+    return true
+  }, { successMessage: `Đã đánh giá tuân thủ & tạo bảng điểm kỳ ${period}` })
+  if (res) { await loadCurrent(); await loadHistory() }
+}
+
 const trendClass = computed(() => {
   if (!current.value) return ''
   const t = current.value.trend_vs_prev_month
@@ -103,6 +113,10 @@ onMounted(() => { loadLatest(); loadHistory() })
             <option v-for="m in 12" :key="m" :value="m">Tháng {{ m }}</option>
           </select>
           <button class="btn-secondary text-sm" @click="loadCurrent">Tải bảng điểm</button>
+          <button
+            class="btn-primary text-sm" :disabled="api.loading.value"
+            @click="runEvaluation"
+          >{{ api.loading.value ? 'Đang đánh giá…' : 'Chạy đánh giá tuân thủ' }}</button>
         </div>
       </template>
     </PageHeader>
@@ -112,7 +126,10 @@ onMounted(() => { loadLatest(); loadHistory() })
       <div v-if="currentLoading"><SkeletonLoader variant="form" :rows="4" /></div>
       <div v-else-if="!current" class="text-center py-12">
         <p class="text-sm text-slate-500">Chưa có bảng điểm cho kỳ này.</p>
-        <p class="text-xs text-slate-400 mt-1">Chọn kỳ khác hoặc khởi chạy đánh giá tuân thủ.</p>
+        <p class="text-xs text-slate-400 mt-1 mb-3">Chọn kỳ khác hoặc khởi chạy đánh giá tuân thủ.</p>
+        <button class="btn-primary text-sm" :disabled="api.loading.value" @click="runEvaluation">
+          {{ api.loading.value ? 'Đang đánh giá…' : 'Chạy đánh giá tuân thủ' }}
+        </button>
       </div>
       <template v-else>
         <div class="flex items-start justify-between mb-6 gap-4 flex-wrap">

@@ -4,6 +4,8 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useImm16Store } from '@/stores/imm16'
+import { useApi } from '@/composables/useApi'
+import { runComplianceEvaluation } from '@/api/imm16'
 import type { FindingSeverity, FindingStatus } from '@/api/imm16'
 import { formatDate, formatAssetDisplay } from '@/utils/formatters'
 import PageHeader from '@/components/common/PageHeader.vue'
@@ -16,6 +18,14 @@ import StatusBadge from '@/components/common/StatusBadge.vue'
 const router = useRouter()
 const route = useRoute()
 const store = useImm16Store()
+const api = useApi()
+
+async function runEvaluation() {
+  const res = await api.run(() => runComplianceEvaluation(), {
+    successMessage: 'Đã chạy đánh giá tuân thủ — danh sách được cập nhật',
+  })
+  if (res) await load(1)
+}
 
 const items = computed(() => store.findings)
 const pagination = computed(() => store.findingsPagination)
@@ -104,6 +114,11 @@ onMounted(() => load(1))
       <template #actions>
         <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
         <button class="btn-secondary text-sm" @click="router.push('/compliance/rules')">Xem quy tắc</button>
+        <button
+          class="btn-primary text-sm"
+          :disabled="api.loading.value"
+          @click="runEvaluation"
+        >{{ api.loading.value ? 'Đang đánh giá...' : 'Chạy đánh giá tuân thủ' }}</button>
       </template>
     </PageHeader>
 
@@ -154,7 +169,29 @@ onMounted(() => load(1))
           Xóa bộ lọc để xem tất cả
         </button>
       </div>
-      <div v-else class="overflow-x-auto">
+      <template v-else>
+        <!-- Mobile cards -->
+        <div class="mobile-card-list sm:hidden">
+          <div
+            v-for="f in items"
+            :key="f.name"
+            class="mobile-card"
+            @click="router.push(`/compliance/findings/${f.name}`)"
+          >
+            <div class="flex items-center justify-between mb-2">
+              <span class="font-mono text-sm font-semibold text-brand-700">{{ f.name }}</span>
+              <StatusBadge :state="f.severity" />
+            </div>
+            <p class="text-sm font-medium text-slate-900 truncate">{{ f.rule }}</p>
+            <div class="flex flex-wrap gap-x-2 gap-y-1 mt-1.5 text-xs text-slate-500">
+              <span>{{ formatAssetDisplay(f.asset_name, f.asset).main }}</span>
+              <span>· {{ formatDate(f.detected_date) }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Desktop table -->
+        <div class="hidden sm:block overflow-x-auto">
         <table class="min-w-full divide-y divide-slate-100">
           <thead>
             <tr>
@@ -199,7 +236,8 @@ onMounted(() => load(1))
             </tr>
           </tbody>
         </table>
-      </div>
+        </div>
+      </template>
     </div>
 
     <BasePagination :pagination="pagination" @page-change="load" />

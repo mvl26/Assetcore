@@ -10,6 +10,7 @@ export interface Warehouse {
   location?: string
   location_name?: string
   manager?: string
+  manager_name?: string
   is_active: number
   notes?: string
   stock_count?: number
@@ -93,6 +94,10 @@ export interface StockMovement {
   to_warehouse_name?: string
   supplier?: string
   supplier_name?: string
+  receiver_department?: string
+  receiver_department_name?: string
+  receiver_person?: string
+  receiver_person_name?: string
   reference_type?: string
   reference_name?: string
   requested_by: string
@@ -111,8 +116,12 @@ export interface InventoryOverview {
   total_value: number
   low_stock_count: number
   low_stock_items: Array<{
+    bin: string
     spare_part: string
     part_name: string
+    warehouse?: string
+    warehouse_code?: string
+    warehouse_name?: string
     min_stock_level: number
     total_qty: number
   }>

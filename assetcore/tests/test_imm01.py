@@ -15,7 +15,9 @@ from assetcore.services.imm01 import (
     DEFAULT_PRIORITY_WEIGHTS,
     _classify_priority,
     _compute_priority_score,
+    _validate_device_target,
 )
+from assetcore.services.shared import ServiceError
 
 
 def _make_doc(scoring_rows: list[dict]) -> SimpleNamespace:
@@ -121,3 +123,20 @@ class TestComputePriorityScore(unittest.TestCase):
     def test_weights_sum_to_one(self):
         """Sanity check: trọng số mặc định cộng dồn = 1.0."""
         self.assertAlmostEqual(sum(DEFAULT_PRIORITY_WEIGHTS.values()), 1.0, places=4)
+
+
+class TestValidateDeviceTarget(unittest.TestCase):
+    """Slide 10 — device_category bắt buộc, device_model_ref tùy chọn."""
+
+    def test_category_only_ok(self):
+        """Chỉ có category → hợp lệ (model là tùy chọn)."""
+        doc = SimpleNamespace(device_category="CAT-XRAY", device_model_ref=None)
+        _validate_device_target(doc)  # must not raise
+        self.assertEqual(doc.device_category, "CAT-XRAY")
+
+    def test_nothing_set_rejects(self):
+        """Không category, không model → reject với lỗi VN rõ ràng."""
+        doc = SimpleNamespace(device_category=None, device_model_ref=None)
+        with self.assertRaises(ServiceError) as ctx:
+            _validate_device_target(doc)
+        self.assertIn("Nhóm thiết bị", str(ctx.exception.message))

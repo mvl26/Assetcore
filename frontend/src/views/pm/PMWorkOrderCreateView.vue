@@ -39,6 +39,7 @@ const form = ref({
   pm_schedule: '',
   due_date: '',
   assigned_to: '',
+  supervisor: '',
   technician_notes: '',
 })
 
@@ -199,7 +200,7 @@ onMounted(() => {
         <p v-if="form.asset_ref && !loadingSchedules && !schedules.length" class="text-xs text-orange-600 mt-1">
           Thiết bị này chưa có PM Schedule Active. Tạo lịch trước tại mục PM Schedule.
         </p>
-        <div v-if="selectedSchedule" class="mt-2 bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-800 grid grid-cols-2 gap-2">
+        <div v-if="selectedSchedule" class="mt-2 bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-800 grid grid-cols-1 sm:grid-cols-2 gap-2">
           <div><span class="text-blue-600">Loại:</span> <b>{{ selectedSchedule.pm_type }}</b></div>
           <div><span class="text-blue-600">Chu kỳ:</span> <b>{{ selectedSchedule.pm_interval_days }} ngày</b></div>
           <div><span class="text-blue-600">Ước lượng:</span> <b>{{ selectedSchedule.estimated_minutes ?? '—' }} phút</b></div>
@@ -243,6 +244,12 @@ onMounted(() => {
           placeholder="ktv@hospital.vn"
           class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
         />
+      </div>
+
+      <!-- Supervisor -->
+      <div>
+        <label class="block text-sm font-medium text-slate-700 mb-1">Người giám sát</label>
+        <SmartSelect v-model="form.supervisor" doctype="User" placeholder="Chọn người giám sát..." />
       </div>
 
       <!-- Notes -->

@@ -219,7 +219,7 @@ stroke-linecap="round" stroke-linejoin="round"
         >
           <div
             v-if="notifOpen"
-            class="absolute right-0 top-full mt-2 w-[360px] bg-white rounded-xl py-1 z-50 max-h-[480px] flex flex-col"
+            class="notif-dropdown absolute right-0 top-full mt-2 w-[360px] bg-white rounded-xl py-1 z-50 max-h-[480px] flex flex-col"
             style="border: 1px solid #e2e8f0; box-shadow: 0 8px 24px -4px rgba(0,0,0,.18)"
           >
             <!-- Header -->
@@ -377,7 +377,7 @@ fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"
         >
           <div
             v-if="userMenuOpen"
-            class="absolute right-0 top-full mt-2 w-64 bg-white rounded-xl py-1 z-50"
+            class="user-menu-dropdown absolute right-0 top-full mt-2 w-64 bg-white rounded-xl py-1 z-50"
             style="border: 1px solid #e2e8f0; box-shadow: 0 8px 24px -4px rgba(0,0,0,.18)"
           >
             <!-- Profile header -->
@@ -461,3 +461,28 @@ stroke-linecap="round" stroke-linejoin="round"
     </div>
   </header>
 </template>
+
+<style scoped>
+/* Mobile: dropdowns become fixed panels below topbar instead of absolute-positioned */
+@media (max-width: 639px) {
+  .notif-dropdown {
+    position: fixed !important;
+    left: 0.5rem !important;
+    right: 0.5rem !important;
+    width: auto !important;
+    top: calc(var(--topbar-height) + 0.375rem) !important;
+    max-height: calc(100svh - var(--topbar-height) - 1rem) !important;
+    border-radius: 1rem !important;
+  }
+  .user-menu-dropdown {
+    position: fixed !important;
+    left: 0.5rem !important;
+    right: 0.5rem !important;
+    width: auto !important;
+    top: calc(var(--topbar-height) + 0.375rem) !important;
+    max-height: calc(100svh - var(--topbar-height) - 1rem) !important;
+    overflow-y: auto !important;
+    border-radius: 1rem !important;
+  }
+}
+</style>

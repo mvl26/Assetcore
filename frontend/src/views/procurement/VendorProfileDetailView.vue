@@ -223,11 +223,12 @@ onMounted(load)
 
 <style scoped>
 .page-container { padding: 1.5rem; }
-.page-header { display: flex; justify-content: space-between; margin-bottom: 1rem; }
+.page-header { display: flex; justify-content: space-between; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem; }
 .muted { color: #6b7280; }
 .text-center { text-align: center; }
-.actions { display: flex; gap: 0.5rem; }
-.grid-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+.actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+.grid-2col { display: grid; grid-template-columns: 1fr; gap: 1rem; }
+@media (min-width: 640px) { .grid-2col { grid-template-columns: 1fr 1fr; } }
 .card { background: white; border: 1px solid #e5e7eb; border-radius: 8px; padding: 1rem; margin-bottom: 1rem; }
 .card h3 { margin: 0 0 0.75rem; }
 dl { display: grid; grid-template-columns: max-content 1fr; gap: 0.5rem 1rem; margin: 0; }
@@ -242,7 +243,7 @@ dl dd { margin: 0; }
 .btn-outline { background: white; color: #2563eb; border-color: #2563eb; }
 .btn:disabled { opacity: 0.55; cursor: not-allowed; }
 .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; z-index: 50; }
-.modal { background: white; border-radius: 12px; padding: 1.25rem; min-width: 460px; max-width: 90vw; display: flex; flex-direction: column; gap: 0.5rem; }
+.modal { background: white; border-radius: 12px; padding: 1.25rem; width: min(460px, 92vw); max-height: 90vh; overflow-y: auto; display: flex; flex-direction: column; gap: 0.5rem; }
 .modal label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.85rem; }
 .modal input { padding: 0.4rem 0.6rem; border: 1px solid #d1d5db; border-radius: 6px; }
 .modal-actions { display: flex; gap: 0.5rem; justify-content: flex-end; padding-top: 0.5rem; }

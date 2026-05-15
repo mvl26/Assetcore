@@ -6,10 +6,11 @@ import { useImm06Store } from '@/stores/imm06'
 import { useAuthStore } from '@/stores/auth'
 import { useApi } from '@/composables/useApi'
 import { ROLES_TRAINING_MANAGE, ROLES_TRAINING_CONDUCT } from '@/constants/roles'
-import { confirmSession, startSession, completeSession, cancelSession, verifySession, closeSession, createSession } from '@/api/imm06'
+import { confirmSession, startSession, completeSession, cancelSession, verifySession, closeSession, createSession, enrollParticipants, removeParticipant } from '@/api/imm06'
 import type { TrainingParticipant } from '@/api/imm06'
 import PageHeader from '@/components/common/PageHeader.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
+import SmartSelect from '@/components/common/SmartSelect.vue'
 
 
 const props = defineProps<{ name?: string }>()
@@ -19,7 +20,7 @@ const store = useImm06Store()
 const authStore = useAuthStore()
 const api = useApi()
 
-const { currentSession, loading } = storeToRefs(store)
+const { currentSession, loading, error } = storeToRefs(store)
 
 const isCreateMode = computed(() => !props.name)
 
@@ -31,11 +32,44 @@ const createForm = ref({
   location: '',
   instructor: '',
   instructor_external_name: '',
+  evaluation_method: 'Cả hai' as 'Lý thuyết' | 'Thực hành' | 'Cả hai',
+  trainer_ref: '',
   duration_planned_hours: 8,
 })
 
 const showCancelModal = ref(false)
 const cancelReason = ref('')
+
+// ── Enroll participants ──
+const showEnroll = ref(false)
+const enrollUser = ref('')
+const enrollDepartment = ref('')
+const enrolling = ref(false)
+
+async function doEnroll() {
+  if (!enrollUser.value || !props.name) return
+  enrolling.value = true
+  const result = await api.run(
+    () => enrollParticipants(props.name!, [{ user: enrollUser.value, department: enrollDepartment.value || null }]),
+    { successMessage: 'Đã thêm học viên' },
+  )
+  enrolling.value = false
+  if (result) {
+    enrollUser.value = ''
+    enrollDepartment.value = ''
+    showEnroll.value = false
+    await store.fetchSession(props.name!)
+  }
+}
+
+async function doRemoveParticipant(p: TrainingParticipant) {
+  if (!p.name || !props.name) return
+  const result = await api.run(
+    () => removeParticipant(props.name!, p.name!),
+    { successMessage: 'Đã xóa học viên' },
+  )
+  if (result) await store.fetchSession(props.name!)
+}
 
 const canManage = computed(() => authStore.hasAnyRole(ROLES_TRAINING_MANAGE))
 const canConduct = computed(() => authStore.hasAnyRole(ROLES_TRAINING_CONDUCT))
@@ -77,6 +111,8 @@ async function doStart() {
   )
   if (result) await store.fetchSession(props.name!)
 }
+
+const isScoring = computed(() => state.value === 'In Progress' && canConduct.value)
 
 async function doComplete() {
   const participants = (currentSession.value?.participants ?? []) as TrainingParticipant[]
@@ -246,6 +282,18 @@ onMounted(load)
           <input v-model="createForm.instructor_external_name" type="text" class="form-input w-full" />
         </div>
         <div>
+          <label class="form-label">Giảng viên (IMM Trainer)</label>
+          <SmartSelect v-model="createForm.trainer_ref" doctype="IMM Trainer" placeholder="Chọn giảng viên..." />
+        </div>
+        <div>
+          <label class="form-label">Phương pháp đánh giá</label>
+          <select v-model="createForm.evaluation_method" class="form-select w-full">
+            <option value="Lý thuyết">Lý thuyết</option>
+            <option value="Thực hành">Thực hành</option>
+            <option value="Cả hai">Cả hai</option>
+          </select>
+        </div>
+        <div>
           <label class="form-label">Thời lượng dự kiến (giờ)</label>
           <input v-model.number="createForm.duration_planned_hours" type="number" min="0" step="0.5" class="form-input w-full" />
         </div>
@@ -255,6 +303,11 @@ onMounted(load)
 
     <div v-else-if="loading" class="card p-8 text-center text-slate-400">Đang tải…</div>
 
+    <div v-else-if="error" class="card border border-rose-200 bg-rose-50 px-4 py-3 text-rose-700 flex items-center gap-3">
+      <span class="flex-1">{{ error }}</span>
+      <button class="text-sm underline" @click="load()">Thử lại</button>
+    </div>
+
     <template v-else-if="currentSession">
       <!-- Session Info -->
       <div class="card p-5">
@@ -262,7 +315,7 @@ onMounted(load)
         <div class="grid grid-cols-2 md:grid-cols-3 gap-5 text-sm">
           <div>
             <p class="text-xs text-slate-400 mb-1">Chương trình</p>
-            <p class="font-medium">{{ (currentSession as any).training_program_name || currentSession.training_program }}</p>
+            <p class="font-medium">{{ currentSession.training_program_name || currentSession.training_program }}</p>
           </div>
           <div>
             <p class="text-xs text-slate-400 mb-1">Ngày tổ chức</p>
@@ -282,7 +335,7 @@ onMounted(load)
           </div>
           <div>
             <p class="text-xs text-slate-400 mb-1">Giảng viên nội bộ</p>
-            <p>{{ (currentSession as any).instructor_full_name || currentSession.instructor || '—' }}</p>
+            <p>{{ currentSession.instructor_full_name || currentSession.instructor || '—' }}</p>
           </div>
           <div>
             <p class="text-xs text-slate-400 mb-1">Giảng viên bên ngoài</p>
@@ -291,6 +344,14 @@ onMounted(load)
           <div>
             <p class="text-xs text-slate-400 mb-1">Tổ chức giảng viên</p>
             <p>{{ currentSession.instructor_external_org || '—' }}</p>
+          </div>
+          <div>
+            <p class="text-xs text-slate-400 mb-1">Giảng viên (IMM Trainer)</p>
+            <p>{{ currentSession.trainer_ref_name || currentSession.trainer_ref || '—' }}</p>
+          </div>
+          <div>
+            <p class="text-xs text-slate-400 mb-1">Phương pháp đánh giá</p>
+            <p>{{ currentSession.evaluation_method || '—' }}</p>
           </div>
           <div>
             <p class="text-xs text-slate-400 mb-1">Thời lượng dự kiến</p>
@@ -312,6 +373,37 @@ onMounted(load)
               {{ currentSession.participants?.length ?? 0 }}
             </span>
           </h2>
+          <button
+            v-if="canManage"
+            type="button"
+            class="text-xs px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium"
+            @click="showEnroll = !showEnroll"
+          >
+            {{ showEnroll ? 'Đóng' : '+ Thêm học viên' }}
+          </button>
+        </div>
+
+        <div v-if="showEnroll" class="mb-4 p-3 rounded-lg border border-dashed border-blue-200 bg-blue-50/40">
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+            <div>
+              <label class="text-[11px] text-slate-500 mb-1 block">Học viên *</label>
+              <SmartSelect v-model="enrollUser" doctype="User" placeholder="Chọn người dùng..." />
+            </div>
+            <div>
+              <label class="text-[11px] text-slate-500 mb-1 block">Khoa/Phòng</label>
+              <SmartSelect v-model="enrollDepartment" doctype="AC Department" placeholder="Chọn khoa/phòng..." />
+            </div>
+            <div>
+              <button
+                type="button"
+                :disabled="!enrollUser || enrolling"
+                class="w-full text-sm px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-medium"
+                @click="doEnroll"
+              >
+                {{ enrolling ? 'Đang thêm...' : 'Thêm vào buổi đào tạo' }}
+              </button>
+            </div>
+          </div>
         </div>
 
         <div v-if="!currentSession.participants?.length" class="text-sm text-slate-400 py-4 text-center">
@@ -329,22 +421,42 @@ onMounted(load)
                 <th class="table-header text-right">Điểm TH</th>
                 <th class="table-header">Kết quả</th>
                 <th class="table-header">Cần thi lại</th>
+                <th v-if="canManage" class="table-header text-right">Thao tác</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-slate-100">
               <tr v-for="p in currentSession.participants" :key="p.user">
-                <td class="table-cell font-medium">{{ (p as any).user_full_name || p.user }}</td>
-                <td class="table-cell text-slate-500">{{ (p as any).department_name || p.department || '—' }}</td>
+                <td class="table-cell font-medium">{{ p.user_full_name || p.user }}</td>
+                <td class="table-cell text-slate-500">{{ p.department_name || p.department || '—' }}</td>
                 <td class="table-cell text-slate-500">{{ p.role_at_session || '—' }}</td>
-                <td class="table-cell text-right">{{ p.attendance_pct ?? '—' }}</td>
-                <td class="table-cell text-right">{{ p.theory_score ?? '—' }}</td>
-                <td class="table-cell text-right">{{ p.practical_score ?? '—' }}</td>
+                <td class="table-cell text-right">
+                  <input v-if="isScoring" v-model.number="p.attendance_pct" type="number" min="0" max="100" class="form-input w-20 text-right text-sm" />
+                  <span v-else>{{ p.attendance_pct ?? '—' }}</span>
+                </td>
+                <td class="table-cell text-right">
+                  <input v-if="isScoring" v-model.number="p.theory_score" type="number" min="0" max="100" class="form-input w-20 text-right text-sm" />
+                  <span v-else>{{ p.theory_score ?? '—' }}</span>
+                </td>
+                <td class="table-cell text-right">
+                  <input v-if="isScoring" v-model.number="p.practical_score" type="number" min="0" max="100" class="form-input w-20 text-right text-sm" />
+                  <span v-else>{{ p.practical_score ?? '—' }}</span>
+                </td>
                 <td class="table-cell">
                   <span :class="resultClass(p.overall_result)">{{ resultLabel(p.overall_result) }}</span>
                 </td>
                 <td class="table-cell">
                   <span v-if="p.retake_required" class="text-xs text-amber-600 font-medium">Có</span>
                   <span v-else class="text-slate-300">—</span>
+                </td>
+                <td v-if="canManage" class="table-cell text-right">
+                  <button
+                    type="button"
+                    class="text-red-500 hover:text-red-700 text-xs font-medium"
+                    title="Xóa học viên"
+                    @click="doRemoveParticipant(p)"
+                  >
+                    ✕
+                  </button>
                 </td>
               </tr>
             </tbody>

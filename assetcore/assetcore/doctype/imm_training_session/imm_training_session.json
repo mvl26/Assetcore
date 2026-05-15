@@ -24,6 +24,7 @@
     "session_type",
     "location",
     "section_instructor",
+    "trainer_ref",
     "instructor",
     "instructor_external_name",
     "instructor_external_org",
@@ -79,6 +80,12 @@
       "label": "Giảng viên"
     },
     {
+      "fieldname": "trainer_ref",
+      "fieldtype": "Link",
+      "label": "Giảng viên (hồ sơ)",
+      "options": "IMM Trainer"
+    },
+    {
       "fieldname": "instructor",
       "fieldtype": "Link",
       "label": "Giảng viên nội bộ",
@@ -122,8 +129,9 @@
     },
     {
       "fieldname": "evaluation_method",
-      "fieldtype": "Small Text",
-      "label": "Phương pháp đánh giá"
+      "fieldtype": "Select",
+      "label": "Phương pháp đánh giá",
+      "options": "Lý thuyết\nThực hành\nCả hai"
     },
     {
       "fieldname": "status_remarks",

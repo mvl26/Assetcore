@@ -95,6 +95,18 @@ def validate_work_order(doc) -> None:
                     "Tất cả mục checklist phải có kết quả trước khi Submit (BR-08-08). "
                     "Mục '{0}' chưa điền."
                 ).format(item.description))
+        # BR-08-09: thời gian thực hiện phải > 0 phút khi hoàn thành PM.
+        if not doc.duration_minutes or doc.duration_minutes <= 0:
+            frappe.throw(_(
+                "Thời gian thực hiện (phút) phải lớn hơn 0 trước khi hoàn thành PM "
+                "(BR-08-09)."
+            ))
+        # BR-08-10: phải gắn tem bảo trì trước khi hoàn thành PM.
+        if not doc.pm_sticker_attached:
+            frappe.throw(_(
+                "Phải xác nhận đã gắn tem bảo trì trước khi hoàn thành PM "
+                "(BR-08-10)."
+            ))
 
     risk_class = AssetRepo.get_value(doc.asset_ref, "risk_classification") if doc.asset_ref else None
     if risk_class in ("High", "Critical") and not doc.attachments:
@@ -213,6 +225,76 @@ def generate_pm_work_orders_from_schedule() -> dict:
     return result
 
 
+def backfill_pm_schedules_for_due_assets() -> dict:
+    """Scheduler daily: tạo PM Schedule cho AC Asset có next_pm_date đến hạn
+    nhưng chưa có lịch PM Active (slide 08c — vá lỗ hổng auto-gen).
+
+    Pipeline sẵn có (``generate_pm_work_orders_from_schedule``) chỉ lặp trên
+    PM Schedule, bỏ sót thiết bị đã set ``next_pm_date`` mà chưa có lịch.
+    Hàm này tạo PM Schedule (qua ``create_pm_schedule_from_asset``) để pipeline
+    đang chạy nhặt tiếp ở lượt sau.
+
+    Returns:
+        dict thống kê ``{"created", "skipped", "errors", "names"}``.
+    """
+    today = getdate(nowdate())
+    created, skipped, errors = [], [], []
+
+    candidates = frappe.get_all(
+        _DT_AC_ASSET,
+        filters=[
+            [_DT_AC_ASSET, "next_pm_date", "is", "set"],
+            [_DT_AC_ASSET, "next_pm_date", "<=", str(today)],
+        ],
+        fields=["name"],
+        limit_page_length=0,
+    )
+
+    for row in candidates:
+        asset_name = row["name"]
+        if PMScheduleRepo.exists({
+            "asset_ref": asset_name,
+            "status": PMScheduleStatus.ACTIVE,
+        }):
+            skipped.append(f"{asset_name}: đã có PM Schedule Active")
+            continue
+        try:
+            asset_doc = frappe.get_doc(_DT_AC_ASSET, asset_name)
+            sched_name = create_pm_schedule_from_asset(asset_doc)
+            if sched_name:
+                created.append(sched_name)
+                from assetcore.services.imm00 import log_audit_event  # noqa: PLC0415
+                log_audit_event(
+                    asset=asset_name,
+                    event_type="Maintenance",
+                    actor=frappe.session.user,
+                    ref_doctype=PMScheduleRepo.DOCTYPE,
+                    ref_name=sched_name,
+                    change_summary=(
+                        f"PM Schedule {sched_name} auto backfill — thiết bị có "
+                        "next_pm_date đến hạn nhưng chưa có lịch PM (slide 08c)"
+                    ),
+                )
+            else:
+                skipped.append(f"{asset_name}: không đủ điều kiện tạo lịch")
+        except Exception as exc:  # noqa: BLE001
+            frappe.log_error(
+                frappe.get_traceback(),
+                f"IMM-08 backfill PM Schedule failed: {asset_name}",
+            )
+            errors.append(f"{asset_name}: {exc}")
+
+    frappe.db.commit()
+    result = {
+        "created": len(created),
+        "skipped": len(skipped),
+        "errors": len(errors),
+        "names": created,
+    }
+    frappe.logger().info(f"IMM-08 backfill_pm_schedules_for_due_assets: {result}")
+    return result
+
+
 def _create_wo_from_schedule(sched: dict) -> str:
     wo = frappe.new_doc(PMWorkOrderRepo.DOCTYPE)
     wo.asset_ref = sched["asset_ref"]
@@ -260,13 +342,14 @@ def list_work_orders(filters: dict, *, page: int = 1, page_size: int = 20) -> di
     rows, pg = PMWorkOrderRepo.list(
         filters=_normalize_filters(filters),
         fields=["name", "asset_ref", "pm_type", "wo_type", "status",
-                "due_date", "completion_date", "assigned_to",
+                "due_date", "completion_date", "assigned_to", "supervisor",
                 "overall_result", "is_late", "source_pm_wo"],
         order_by="due_date asc",
         page=page, page_size=page_size,
     )
     asset_ids = {r["asset_ref"] for r in rows if r.get("asset_ref")}
     user_ids = {r["assigned_to"] for r in rows if r.get("assigned_to")}
+    user_ids |= {r["supervisor"] for r in rows if r.get("supervisor")}
     if asset_ids:
         asset_rows = frappe.get_all(
             _DT_AC_ASSET, filters={"name": ["in", list(asset_ids)]},
@@ -295,6 +378,7 @@ def list_work_orders(filters: dict, *, page: int = 1, page_size: int = 20) -> di
         r["asset_name"] = (a.asset_name if a else None) or r.get("asset_ref") or ""
         r["location_name"] = (loc_map.get(a.location) if a and a.get("location") else "") or ""
         r["assigned_to_name"] = user_map.get(r.get("assigned_to"), r.get("assigned_to") or "")
+        r["supervisor_name"] = user_map.get(r.get("supervisor"), r.get("supervisor") or "")
     return {"data": rows, "pagination": pg}
 
 
@@ -337,6 +421,9 @@ def get_work_order(name: str) -> dict:
         "scheduled_date": str(wo.scheduled_date) if wo.scheduled_date else None,
         "completion_date": str(wo.completion_date) if wo.completion_date else None,
         "assigned_to": wo.assigned_to,
+        "assigned_to_name": frappe.db.get_value("User", wo.assigned_to, "full_name") if wo.assigned_to else "",
+        "supervisor": wo.supervisor,
+        "supervisor_name": frappe.db.get_value("User", wo.supervisor, "full_name") if wo.supervisor else "",
         "overall_result": wo.overall_result,
         "technician_notes": wo.technician_notes,
         "pm_sticker_attached": bool(wo.pm_sticker_attached),
@@ -397,10 +484,18 @@ def submit_result(name: str, *, checklist_results: list[dict], overall_result: s
     wo.duration_minutes = duration_minutes
     wo.status = PMStatus.COMPLETED
     wo.completion_date = nowdate()
-    PMWorkOrderRepo.save(wo)
+    try:
+        PMWorkOrderRepo.save(wo)
+    except frappe.ValidationError as e:
+        # BR-08-08/09/10 completion gate raised in controller.validate()
+        raise ServiceError(ErrorCode.VALIDATION, str(e)) from e
 
     try:
         wo.submit()
+    except ServiceError:
+        raise
+    except frappe.ValidationError as e:
+        raise ServiceError(ErrorCode.VALIDATION, str(e)) from e
     except Exception as e:
         raise ServiceError(ErrorCode.INTERNAL, str(e)) from e
 
@@ -849,6 +944,73 @@ def version_template(source_name: str, new_version: str) -> dict:
     return {"name": new_doc.name, "version": new_version}
 
 
+def apply_template_to_category_assets(template_name: str) -> dict:
+    """Bulk-tạo PM Schedule cho mọi AC Asset thuộc danh mục của template.
+
+    Logic:
+        - Bỏ qua asset đã Decommissioned/Disposed.
+        - Bỏ qua asset đã có PM Schedule cùng pm_type (giữ nguyên lịch hiện hữu).
+        - Lấy pm_interval_days từ AC Asset Category.default_pm_interval_days
+          (fallback 180 nếu trống).
+        - PM Schedule mới sẽ tự kích hoạt on_update → tạo WO nếu đến hạn.
+    """
+    template = PMChecklistTemplateRepo.get(template_name)
+    if not template:
+        raise ServiceError(ErrorCode.NOT_FOUND,
+                           f"PM Checklist Template '{template_name}' không tồn tại")
+    if not template.asset_category:
+        raise ServiceError(ErrorCode.VALIDATION,
+                           "Template chưa gán Danh mục tài sản")
+    category_defaults = frappe.db.get_value(
+        "AC Asset Category", template.asset_category,
+        ["default_pm_required", "default_pm_interval_days"],
+        as_dict=True,
+    ) or {}
+    interval = int(category_defaults.get("default_pm_interval_days") or 180)
+
+    assets = frappe.get_all(
+        "AC Asset",
+        filters={
+            "asset_category": template.asset_category,
+            "lifecycle_status": ["not in", ["Decommissioned", "Disposed"]],
+        },
+        fields=["name", "commissioning_date"],
+        limit_page_length=10_000,
+    )
+    created, skipped, errors = [], [], []
+    for asset in assets:
+        if PMScheduleRepo.exists({"asset_ref": asset["name"], "pm_type": template.pm_type}):
+            skipped.append(asset["name"])
+            continue
+        try:
+            base_date = asset.get("commissioning_date") or nowdate()
+            payload = {
+                "asset_ref": asset["name"],
+                "pm_type": template.pm_type,
+                "pm_interval_days": interval,
+                "checklist_template": template.name,
+                "alert_days_before": 7,
+                "status": PMScheduleStatus.ACTIVE,
+                "last_pm_date": base_date,
+                "next_due_date": add_days(getdate(base_date), interval),
+            }
+            doc = PMScheduleRepo.create(payload, ignore_permissions=True)
+            created.append(doc.name)
+        except Exception as exc:
+            frappe.log_error(frappe.get_traceback(),
+                             f"apply_template_to_category_assets {asset['name']}")
+            errors.append(f"{asset['name']}: {exc}")
+    frappe.db.commit()
+    return {
+        "template": template.name,
+        "asset_category": template.asset_category,
+        "total_assets": len(assets),
+        "created": len(created),
+        "skipped_existing": len(skipped),
+        "errors": len(errors),
+    }
+
+
 def delete_template(name: str) -> dict:
     if not PMChecklistTemplateRepo.exists(name):
         raise ServiceError(ErrorCode.NOT_FOUND,
@@ -866,8 +1028,109 @@ def delete_template(name: str) -> dict:
 _PM_TYPE_FROM_INTERVAL = [(91, "Quarterly"), (183, "Semi-Annual"), (366, "Annual")]
 
 
-def create_pm_schedule_from_commissioning(commissioning_doc) -> str | None:
-    """Hook: Asset Commissioning on_submit → tạo PM Schedule nếu thiết bị yêu cầu PM."""
+def _resolve_checklist_template(asset_category: str | None, pm_type: str) -> str | None:
+    """Tìm PM Checklist Template khớp danh mục — ưu tiên đúng pm_type, fallback
+    bất kỳ template cùng danh mục."""
+    if not asset_category:
+        return None
+    return (
+        frappe.db.get_value(
+            "PM Checklist Template",
+            {"asset_category": asset_category, "pm_type": pm_type},
+            "name",
+        )
+        or frappe.db.get_value(
+            "PM Checklist Template", {"asset_category": asset_category}, "name"
+        )
+    )
+
+
+def create_pm_schedule_from_asset(asset_doc, method: str | None = None) -> str | None:
+    """Hook: AC Asset after_insert → tạo PM Schedule nếu user tick `is_pm_required`.
+
+    Tham số ``method`` để tương thích chữ ký doc-event của Frappe
+    (``after_insert`` truyền ``(doc, method)``); không dùng trong logic.
+
+    Cho phép tạo lịch bảo trì NGAY khi tạo tài sản trực tiếp (không bắt buộc
+    qua luồng Commissioning). Điều kiện:
+        - asset_doc.is_pm_required = 1
+        - Có PM Checklist Template cho asset_category (nếu chưa có → bỏ qua,
+          KHÔNG throw để tránh vỡ thao tác tạo asset).
+        - Chưa tồn tại PM Schedule cùng pm_type cho asset (tránh trùng).
+    """
+    if not getattr(asset_doc, "is_pm_required", 0):
+        return None
+
+    interval = int(asset_doc.get("pm_interval_days") or 0)
+    if interval <= 0:
+        # Fallback từ Device Model nếu asset chưa nhập chu kỳ.
+        device_model = asset_doc.get("device_model")
+        if device_model:
+            interval = int(
+                DeviceModelRepo.get_value(device_model, "pm_interval_days") or 0
+            )
+    if interval <= 0:
+        interval = 365  # mặc định an toàn — 1 năm
+
+    pm_type = next((t for days, t in _PM_TYPE_FROM_INTERVAL if interval <= days), "Annual")
+
+    if PMScheduleRepo.exists({"asset_ref": asset_doc.name, "pm_type": pm_type}):
+        return None
+
+    checklist_template = _resolve_checklist_template(
+        asset_doc.get("asset_category"), pm_type
+    )
+    if not checklist_template:
+        frappe.logger().warning(
+            f"IMM-08: bỏ qua tạo PM Schedule cho {asset_doc.name} — chưa có PM "
+            f"Checklist Template cho danh mục '{asset_doc.get('asset_category')}'."
+        )
+        return None
+
+    base_date = (
+        asset_doc.get("last_pm_date")
+        or asset_doc.get("commissioning_date")
+        or asset_doc.get("purchase_date")
+        or nowdate()
+    )
+    try:
+        sched = PMScheduleRepo.create({
+            "asset_ref": asset_doc.name,
+            "pm_type": pm_type,
+            "pm_interval_days": interval,
+            "alert_days_before": 7,
+            "checklist_template": checklist_template,
+            "status": PMScheduleStatus.ACTIVE,
+            "last_pm_date": base_date,
+            "next_due_date": add_days(getdate(base_date), interval),
+        }, ignore_permissions=True)
+    except Exception:
+        frappe.log_error(
+            frappe.get_traceback(),
+            f"IMM-08 create_pm_schedule_from_asset failed: {asset_doc.name}",
+        )
+        return None
+
+    from assetcore.services.imm00 import log_audit_event  # noqa: PLC0415
+    log_audit_event(
+        asset=asset_doc.name, event_type="Maintenance",
+        actor=frappe.session.user,
+        ref_doctype=PMScheduleRepo.DOCTYPE, ref_name=sched.name,
+        change_summary=f"PM Schedule {sched.name} auto từ tạo tài sản (is_pm_required) — {pm_type}, {interval} ngày",
+    )
+    frappe.logger().info(
+        f"IMM-08 PM Schedule {sched.name} tạo tự động từ AC Asset {asset_doc.name}"
+    )
+    return sched.name
+
+
+def create_pm_schedule_from_commissioning(
+    commissioning_doc, method: str | None = None
+) -> str | None:
+    """Hook: Asset Commissioning on_submit → tạo PM Schedule nếu thiết bị yêu cầu PM.
+
+    ``method`` để tương thích chữ ký doc-event Frappe ``(doc, method)``.
+    """
     asset = commissioning_doc.final_asset
     if not asset:
         return None
@@ -885,21 +1148,47 @@ def create_pm_schedule_from_commissioning(commissioning_doc) -> str | None:
     alert_days = int(model.get("pm_alert_days") or 7)
     pm_type = next((t for days, t in _PM_TYPE_FROM_INTERVAL if interval <= days), "Annual")
     base_date = commissioning_doc.commissioning_date or nowdate()
+
+    # checklist_template là BẮT BUỘC (PMSchedule.validate throw nếu trống) — phải
+    # tìm template khớp asset_category + pm_type, nếu không có thì bỏ qua lịch
+    # thay vì để exception làm vỡ on_submit của Asset Commissioning.
+    asset_category = AssetRepo.get_value(asset, "asset_category")
+    checklist_template = None
+    if asset_category:
+        checklist_template = (
+            frappe.db.get_value(
+                "PM Checklist Template",
+                {"asset_category": asset_category, "pm_type": pm_type},
+                "name",
+            )
+            or frappe.db.get_value(
+                "PM Checklist Template", {"asset_category": asset_category}, "name"
+            )
+        )
+    if not checklist_template:
+        frappe.logger().warning(
+            f"IMM-08: bỏ qua tạo PM Schedule cho {asset} — chưa có PM Checklist "
+            f"Template cho danh mục '{asset_category}'."
+        )
+        return None
+
     sched = PMScheduleRepo.create({
         "asset_ref": asset,
         "pm_type": pm_type,
         "pm_interval_days": interval,
         "alert_days_before": alert_days,
+        "checklist_template": checklist_template,
         "status": PMScheduleStatus.ACTIVE,
+        "last_pm_date": base_date,
         "next_due_date": add_days(base_date, interval),
         "created_from_commissioning": commissioning_doc.name,
     })
     from assetcore.services.imm00 import log_audit_event  # noqa: PLC0415
     log_audit_event(
-        asset=asset, event_type="PM Schedule Created",
+        asset=asset, event_type="Maintenance",
         actor=frappe.session.user,
         ref_doctype=PMScheduleRepo.DOCTYPE, ref_name=sched.name,
-        change_summary=f"Auto từ commissioning {commissioning_doc.name}",
+        change_summary=f"PM Schedule {sched.name} auto từ commissioning {commissioning_doc.name}",
     )
     frappe.logger().info(f"IMM-08 PM Schedule {sched.name} tạo từ commissioning {commissioning_doc.name}")
     return sched.name

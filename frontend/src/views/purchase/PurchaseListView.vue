@@ -159,7 +159,32 @@ onMounted(load)
         </button>
       </div>
 
-      <table v-else class="w-full text-sm">
+      <template v-else>
+        <!-- Mobile cards -->
+        <div class="mobile-card-list sm:hidden">
+          <div
+            v-for="r in rows"
+            :key="r.name"
+            class="mobile-card"
+            @click="router.push(`/purchases/${r.name}`)"
+          >
+            <div class="flex items-center justify-between mb-2">
+              <span class="font-mono text-sm font-semibold text-brand-700">{{ r.name }}</span>
+              <span
+                class="text-xs px-2 py-0.5 rounded-full font-medium"
+                :class="STATUS_CLASS[r.status] || 'bg-slate-100 text-slate-600'"
+              >{{ STATUSES.find(s => s.value === r.status)?.label || r.status }}</span>
+            </div>
+            <p class="text-sm font-medium text-slate-900 truncate">{{ r.supplier_name || r.supplier }}</p>
+            <div class="flex flex-wrap gap-x-2 gap-y-1 mt-1.5 text-xs text-slate-500">
+              <span>{{ formatDate(r.purchase_date) }}</span>
+              <span>· {{ vnd(r.total_value) }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Desktop table -->
+        <table class="hidden sm:table w-full text-sm">
         <thead class="bg-slate-50 border-b border-slate-200">
           <tr class="text-xs text-slate-500 font-medium">
             <th class="px-4 py-3 text-left">Mã đơn</th>
@@ -208,6 +233,7 @@ v-for="r in rows" :key="r.name"
           </tr>
         </tbody>
       </table>
+      </template>
 
       <div v-if="total > PAGE_SIZE" class="px-4 py-3 border-t border-slate-100 flex items-center justify-between text-sm text-slate-500">
         <span>{{ (page - 1) * PAGE_SIZE + 1 }}–{{ Math.min(page * PAGE_SIZE, total) }} / {{ total }}</span>

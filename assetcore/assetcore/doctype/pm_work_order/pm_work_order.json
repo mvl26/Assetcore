@@ -23,6 +23,7 @@
   "completion_date",
   "section_assign",
   "assigned_to",
+  "supervisor",
   "assigned_by",
   "section_result",
   "overall_result",
@@ -116,6 +117,12 @@
    "label": "KTV thực hiện",
    "options": "User",
    "in_list_view": 1
+  },
+  {
+   "fieldname": "supervisor",
+   "fieldtype": "Link",
+   "label": "Người giám sát",
+   "options": "User"
   },
   {
    "fieldname": "assigned_by",

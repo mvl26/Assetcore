@@ -1,7 +1,7 @@
 # Hướng dẫn Cấu hình Chi tiết IMM-04 (Step-by-Step Configuration Guide)
 # Nền tảng: ERPNext / Frappe Framework
 
-**Dự án:** AssetCore v1.0
+**Dự án:** AssetCore v0.0.1
 **Dành cho:** System Admin / Người dùng triển khai cấu hình
 **Mục tiêu:** Tự tay cấu hình luồng IMM-04 từ giao diện UI của ERPNext mà không cần can thiệp code (trừ các Server Script quan trọng liệt kê bên dưới).
 

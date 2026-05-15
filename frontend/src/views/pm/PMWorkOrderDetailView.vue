@@ -33,17 +33,23 @@ onMounted(() => store.fetchWorkOrder(props.id))
 
 const wo = computed(() => store.currentWO)
 
-const filledCount = computed(() =>
-  wo.value?.checklist_results.filter(r => r.result !== null).length ?? 0
-)
+// Chỉ đếm mục đã có kết quả (Đạt/Không đạt/N/A) là "đã hoàn thành" (IMM-08-A).
+const filledCount = computed(() => store.ratedCount)
 const totalCount = computed(() => wo.value?.checklist_results.length ?? 0)
 const progressPct = computed(() =>
   totalCount.value > 0 ? Math.round((filledCount.value / totalCount.value) * 100) : 0
 )
 
-const canSubmit = computed(() =>
-  store.checklistComplete && !store.hasMajorFailure && canExecutePM.value
-)
+// Lý do không thể hoàn thành (FE mirror của gate BE BR-08-08/09/10).
+const completionBlockReason = computed(() => {
+  if (!canExecutePM.value) return 'Bạn không có quyền hoàn thành bảo trì'
+  if (!store.checklistComplete) return 'Phải chấm kết quả cho tất cả mục checklist trước khi hoàn thành'
+  if (durationMin.value <= 0) return 'Thời gian thực hiện phải lớn hơn 0 phút'
+  if (!stickerAttached.value) return 'Phải xác nhận đã gắn tem bảo trì'
+  if (store.hasMajorFailure) return 'Có lỗi nghiêm trọng — dùng "Báo lỗi nghiêm trọng"'
+  return ''
+})
+const canSubmit = computed(() => completionBlockReason.value === '')
 
 const isOverdue = computed(() => wo.value?.status === 'Overdue')
 
@@ -224,7 +230,8 @@ async function handleStart() {
             <span :class="wo.is_late ? 'font-semibold text-red-600 ml-1' : 'font-medium ml-1'">{{ wo.due_date }}</span>
           </div>
           <div><span class="text-slate-500">Loại bảo trì:</span> <span class="font-medium ml-1">{{ wo.pm_type }}</span></div>
-          <div><span class="text-slate-500">Kỹ thuật viên:</span> <span class="font-medium ml-1">{{ wo.assigned_to || '—' }}</span></div>
+          <div><span class="text-slate-500">Kỹ thuật viên:</span> <span class="font-medium ml-1">{{ wo.assigned_to_name || wo.assigned_to || '—' }}</span></div>
+          <div><span class="text-slate-500">Người giám sát:</span> <span class="font-medium ml-1">{{ wo.supervisor_name || wo.supervisor || '—' }}</span></div>
           <div><span class="text-slate-500">Mức rủi ro:</span> <span class="font-medium ml-1">{{ wo.risk_class }}</span></div>
           <div><span class="text-slate-500">Loại phiếu:</span> <span class="font-medium ml-1">{{ wo.wo_type }}</span></div>
         </div>
@@ -374,8 +381,8 @@ async function handleStart() {
             Hoàn thành bảo trì
           </button>
           <div v-if="!canSubmit"
-            class="absolute bottom-full right-0 mb-2 w-56 bg-slate-800 text-white text-xs rounded-md px-2.5 py-1.5 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity">
-            Hoàn thành toàn bộ checklist trước khi nộp
+            class="absolute bottom-full right-0 mb-2 w-64 bg-slate-800 text-white text-xs rounded-md px-2.5 py-1.5 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity">
+            {{ completionBlockReason }}
           </div>
         </div>
       </div>

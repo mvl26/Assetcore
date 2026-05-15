@@ -20,10 +20,16 @@ export interface TrainingProgram {
   instructor_qualification_required: string
   qms_doc_ref: string | null
   modified: string
+  /** Enriched by BE get_program */
+  target_device_model_name?: string
 }
 
 export interface TrainingParticipant {
+  /** Child row name (Frappe) — dùng cho removeParticipant, không hiển thị */
+  name?: string
   user: string
+  user_full_name?: string
+  department_name?: string
   department: string | null
   role_at_session: string
   attendance_pct: number | null
@@ -45,12 +51,22 @@ export interface TrainingSession {
   instructor: string | null
   instructor_external_name: string
   instructor_external_org: string
+  evaluation_method?: 'Lý thuyết' | 'Thực hành' | 'Cả hai'
+  trainer_ref?: string | null
+  trainer_ref_name?: string | null
   duration_planned_hours: number
   duration_actual_hours: number | null
   workflow_state: string
   participant_count?: number
   participants?: TrainingParticipant[]
   modified: string
+  /** Enriched by BE list_sessions / get_session — không phải DocType field */
+  program_name?: string
+  training_program_name?: string
+  instructor_full_name?: string
+  trainer_name?: string
+  attendee_count?: number
+  allowed_transitions?: string[]
 }
 
 export interface UserCompetency {
@@ -133,6 +149,31 @@ export async function createSession(
   data: Record<string, unknown>,
 ): Promise<{ name: string; workflow_state: string }> {
   return frappePost<{ name: string; workflow_state: string }>(`${BASE}.create_session`, { session_data: JSON.stringify(data) })
+}
+
+export interface EnrollParticipantInput {
+  user: string
+  department?: string | null
+}
+
+export async function enrollParticipants(
+  session: string,
+  participants: EnrollParticipantInput[],
+): Promise<{ name: string; participant_count: number }> {
+  return frappePost<{ name: string; participant_count: number }>(
+    `${BASE}.enroll_participants`,
+    { name: session, participants: JSON.stringify(participants) },
+  )
+}
+
+export async function removeParticipant(
+  session: string,
+  rowName: string,
+): Promise<{ name: string; participant_count: number }> {
+  return frappePost<{ name: string; participant_count: number }>(
+    `${BASE}.remove_participant`,
+    { name: session, row_name: rowName },
+  )
 }
 
 export async function confirmSession(

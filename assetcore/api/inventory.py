@@ -69,9 +69,17 @@ def list_warehouses(page: int = 1, page_size: int = 30, active_only: int = 1) ->
             fields=["name", "location_name"])}
         if loc_codes else {}
     )
+    mgr_ids = {r["manager"] for r in rows if r.get("manager")}
+    mgr_map = (
+        {u.name: u.full_name for u in frappe.get_all(
+            "User", filters={"name": ["in", list(mgr_ids)]},
+            fields=["name", "full_name"])}
+        if mgr_ids else {}
+    )
     for r in rows:
         r["department_name"] = dept_map.get(r.get("department") or "", "") or r.get("department") or ""
         r["location_name"]   = loc_map.get(r.get("location") or "", "")   or r.get("location")   or ""
+        r["manager_name"]    = mgr_map.get(r.get("manager") or "", "")    or r.get("manager")    or ""
     return _ok({"items": rows, "pagination": {"page": page, "page_size": page_size, "total": total}})
 
 
@@ -433,6 +441,12 @@ def get_stock_movement(name: str) -> dict:
         doc["supplier_name"] = frappe.db.get_value("AC Supplier", doc["supplier"], "supplier_name") or doc["supplier"]
     if doc.get("requested_by"):
         doc["requested_by_name"] = frappe.db.get_value("User", doc["requested_by"], "full_name") or doc["requested_by"]
+    if doc.get("receiver_department"):
+        doc["receiver_department_name"] = frappe.db.get_value(
+            "AC Department", doc["receiver_department"], "department_name") or doc["receiver_department"]
+    if doc.get("receiver_person"):
+        doc["receiver_person_name"] = frappe.db.get_value(
+            "User", doc["receiver_person"], "full_name") or doc["receiver_person"]
     return _ok(doc)
 
 
@@ -544,6 +558,8 @@ def create_stock_movement(payload: str = "") -> dict:
         "reference_type": data.get("reference_type") or None,
         "reference_name": data.get("reference_name") or None,
         "requested_by": data.get("requested_by") or frappe.session.user,
+        "receiver_department": data.get("receiver_department") or None,
+        "receiver_person": data.get("receiver_person") or None,
         "notes": data.get("notes"),
         "items": [_build_movement_item(i) for i in items],
     })
@@ -655,7 +671,8 @@ def update_stock_movement(name: str, payload: str = "") -> dict:
 
     data = _parse_json(payload, {}) or dict(frappe.local.form_dict)
     for field in ("movement_date", "from_warehouse", "to_warehouse",
-                  "supplier", "reference_type", "reference_name", "notes"):
+                  "supplier", "reference_type", "reference_name", "notes",
+                  "receiver_department", "receiver_person"):
         val = data.get(field)
         if val is not None:
             setattr(doc, field, val or None)

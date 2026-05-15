@@ -30,20 +30,13 @@ const fullscreen = computed(() => Boolean(route.meta.fullscreen))
     </Transition>
 
     <!-- Sidebar: always visible on desktop (lg+), drawer on mobile -->
-    <div
-      :class="[
-        'fixed left-0 top-0 h-full z-40 transition-transform duration-200',
-        'lg:translate-x-0',
-        mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0',
-      ]"
-    >
-      <AppSidebar />
-    </div>
+    <AppSidebar />
 
-    <!-- Main content -->
-    <div :class="['flex flex-col flex-1 min-h-0 transition-all duration-200', mainClass]">
+    <!-- Main content — min-w-0 cho phép flex item co lại thay vì đẩy layout
+         vượt khỏi viewport khi màn hình hẹp hoặc khi bên trong có bảng/grid rộng. -->
+    <div :class="['flex flex-col flex-1 min-w-0 min-h-0 transition-all duration-200', mainClass]">
       <AppTopBar />
-      <main class="flex-1 overflow-y-auto" style="margin-top: var(--topbar-height)">
+      <main class="flex-1 overflow-auto" style="margin-top: var(--topbar-height)">
         <slot />
       </main>
     </div>

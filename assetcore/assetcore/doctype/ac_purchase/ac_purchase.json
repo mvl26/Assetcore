@@ -8,13 +8,16 @@
  "is_submittable": 1,
  "field_order": [
   "section_basic",
+  "po_code",
   "naming_series",
   "purchase_date",
   "status",
   "column_break_basic",
   "supplier",
+  "procurement_decision_ref",
   "invoice_no",
   "expected_delivery",
+  "actual_delivery_date",
   "section_devices",
   "devices",
   "section_items",
@@ -28,6 +31,16 @@
    "fieldname": "section_basic",
    "fieldtype": "Section Break",
    "label": "Thông tin đơn hàng"
+  },
+  {
+   "fieldname": "po_code",
+   "fieldtype": "Data",
+   "label": "Mã PO",
+   "read_only": 1,
+   "no_copy": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "description": "Mã PO do hệ thống sinh (= định danh phiếu)."
   },
   {
    "fieldname": "naming_series",
@@ -69,15 +82,29 @@
    "in_standard_filter": 1
   },
   {
+   "fieldname": "procurement_decision_ref",
+   "fieldtype": "Link",
+   "options": "IMM Procurement Decision",
+   "label": "Quyết định mua sắm (IMM-03)",
+   "read_only": 1,
+   "description": "Back-reference tới IMM Procurement Decision đã sinh ra PO này."
+  },
+  {
    "fieldname": "invoice_no",
    "fieldtype": "Data",
-   "label": "Số hóa đơn / Mã PO",
+   "label": "Số hóa đơn",
    "in_list_view": 1
   },
   {
    "fieldname": "expected_delivery",
    "fieldtype": "Date",
-   "label": "Ngày giao hàng dự kiến"
+   "label": "Thời hạn giao hàng (muộn nhất)"
+  },
+  {
+   "fieldname": "actual_delivery_date",
+   "fieldtype": "Date",
+   "label": "Ngày giao hàng thực tế",
+   "description": "Tự điền = hôm nay khi chuyển trạng thái Received nếu chưa nhập."
   },
   {
    "fieldname": "section_devices",

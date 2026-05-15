@@ -39,6 +39,7 @@ export interface AssetCalibration {
   scheduled_date: string
   actual_date: string | null
   technician: string
+  technician_name?: string
   assigned_by: string | null
   lab_supplier: string | null
   lab_accreditation_number: string | null

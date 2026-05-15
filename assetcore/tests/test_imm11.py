@@ -154,3 +154,54 @@ class TestCalibrationCancellation(unittest.TestCase):
         self.assertEqual(result["status"], CalibrationResult.CANCELLED)
         doc = frappe.get_doc("IMM Asset Calibration", self.cal_name)
         self.assertEqual(doc.status, CalibrationResult.CANCELLED)
+
+
+class TestCalibrationSubmitGate(unittest.TestCase):
+    """BR-11-08/09 — Submit phải có ≥1 measurement + overall_result."""
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.asset = _make_asset("-subgate")
+
+    @classmethod
+    def tearDownClass(cls):
+        for cal in frappe.get_all(
+            "IMM Asset Calibration", filters={"asset": cls.asset.name}, fields=["name"]
+        ):
+            # Submitted calibrations cannot be cancelled (BR-11-05) — purge rows directly.
+            frappe.db.delete("IMM Calibration Measurement", {"parent": cal.name})
+            frappe.db.delete("IMM Asset Calibration", {"name": cal.name})
+        frappe.delete_doc("AC Asset", cls.asset.name, force=True, ignore_permissions=True)
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+
+    def _make_cal(self):
+        res = create_calibration(
+            asset=self.asset.name,
+            calibration_type="In-House",
+            scheduled_date=add_days(nowdate(), 7),
+            technician="Administrator",
+            reference_standard_serial="STD-TEST-001",
+        )
+        frappe.db.commit()
+        return res["name"]
+
+    def test_submit_blocked_without_measurements(self):
+        from assetcore.services.imm11 import submit_calibration
+        name = self._make_cal()
+        with self.assertRaises(Exception):
+            submit_calibration(name)
+
+    def test_submit_succeeds_with_measurement_and_result(self):
+        from assetcore.services.imm11 import submit_calibration, add_measurement
+        name = self._make_cal()
+        add_measurement(
+            name, parameter_name="Temp", unit="C", nominal_value=100,
+            tolerance_positive=5, tolerance_negative=5, measured_value=101,
+        )
+        frappe.db.commit()
+        res = submit_calibration(name)
+        frappe.db.commit()
+        self.assertIn(res["overall_result"], ("Passed", "Conditionally Passed"))

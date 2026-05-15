@@ -24,6 +24,7 @@ const supplier = ref('')
 const purchaseDate = ref(nowLocalISO())
 const invoiceNo = ref('')
 const expectedDelivery = ref('')
+const actualDelivery = ref('')
 const notes = ref('')
 const items = ref<PurchaseItem[]>([])
 const devices = ref<CreatePurchaseDevicePayload[]>([])
@@ -35,35 +36,49 @@ const { clear: clearDraft } = useFieldsDraft('purchase-create', {
   purchaseDate: purchaseDate as Ref<unknown>,
   invoiceNo: invoiceNo as Ref<unknown>,
   expectedDelivery: expectedDelivery as Ref<unknown>,
+  actualDelivery: actualDelivery as Ref<unknown>,
   notes: notes as Ref<unknown>,
   items: items as Ref<unknown>,
   devices: devices as Ref<unknown>,
 })
 
-function makeDevice(model = '', cost = 0): CreatePurchaseDevicePayload {
+function makeDevice(model = '', cost = 0, qty = 1): CreatePurchaseDevicePayload {
   return {
-    device_model: model, unit_cost: cost,
+    device_model: model, qty, unit_cost: cost,
     vendor_serial_no: '', warranty_months: 12, notes: '',
   }
 }
 function addDevice() { devices.value.push(makeDevice()) }
 function removeDevice(i: number) { devices.value.splice(i, 1) }
 
-// Quick-add N units of same model
+// Quick-add N units of same model — gộp thành 1 dòng với qty=N nếu cùng
+// model + giá + bảo hành (thay vì đẩy N dòng riêng lẻ).
 const quickModel = ref('')
 const quickCount = ref(1)
 const quickCost  = ref(0)
 function quickAddDevices() {
   if (!quickModel.value || quickCount.value < 1) return
   const n = Math.min(Math.max(1, Math.floor(quickCount.value)), 50)
-  for (let i = 0; i < n; i++) devices.value.push(makeDevice(quickModel.value, quickCost.value))
+  const existing = devices.value.find(d =>
+    d.device_model === quickModel.value
+    && (d.unit_cost || 0) === quickCost.value
+    && (d.warranty_months || 12) === 12,
+  )
+  if (existing) {
+    existing.qty = (existing.qty || 1) + n
+  } else {
+    devices.value.push(makeDevice(quickModel.value, quickCost.value, n))
+  }
   quickModel.value = ''
   quickCount.value = 1
   quickCost.value = 0
 }
 
 const deviceTotal = computed(() =>
-  devices.value.reduce((s, d) => s + (d.unit_cost || 0), 0),
+  devices.value.reduce((s, d) => s + (d.unit_cost || 0) * (d.qty || 1), 0),
+)
+const deviceUnitTotal = computed(() =>
+  devices.value.reduce((s, d) => s + (d.qty || 1), 0),
 )
 
 // Part search state
@@ -163,15 +178,16 @@ async function submit(autoSubmit: boolean) {
       purchase_date: purchaseDate.value ? purchaseDate.value.replace('T', ' ') + ':00' : undefined,
       invoice_no: invoiceNo.value || undefined,
       expected_delivery: expectedDelivery.value || undefined,
+      actual_delivery_date: actualDelivery.value || undefined,
       notes: notes.value || undefined,
       items: validItems.map(r => ({ spare_part: r.spare_part, qty: r.qty, unit_cost: r.unit_cost })),
-      devices: validDevices,
+      devices: validDevices.map(d => ({ ...d, qty: d.qty || 1 })),
       auto_submit: autoSubmit ? 1 : 0,
     })
     clearDraft()
     router.push(`/purchases/${res.name}`)
   } catch (e: unknown) {
-    error.value = (e as Error).message || 'Lỗi tạo đơn hàng'
+    error.value = e instanceof Error ? e.message : 'Lỗi tạo đơn hàng'
   } finally { saving.value = false }
 }
 
@@ -216,14 +232,18 @@ function vnd(v?: number) {
           <DateTimeInput id="pur-date" v-model="purchaseDate" class="form-input w-full" />
         </div>
         <div>
-          <label for="pur-invoice" class="form-label">Số hóa đơn / Mã PO</label>
+          <label for="pur-invoice" class="form-label">Số hóa đơn</label>
           <input
 id="pur-invoice" v-model="invoiceNo" type="text" class="form-input w-full font-mono"
-                 placeholder="VD: INV-2026-0001, PO-00123" />
+                 placeholder="VD: INV-2026-0001" />
         </div>
         <div>
-          <label for="pur-delivery" class="form-label">Ngày giao hàng dự kiến</label>
+          <label for="pur-delivery" class="form-label">Thời hạn giao hàng (muộn nhất)</label>
           <DateInput id="pur-delivery" v-model="expectedDelivery" class="form-input w-full" />
+        </div>
+        <div>
+          <label for="pur-actual-delivery" class="form-label">Ngày giao hàng thực tế</label>
+          <DateInput id="pur-actual-delivery" v-model="actualDelivery" class="form-input w-full" />
         </div>
       </div>
     </div>
@@ -286,17 +306,23 @@ v-for="(d, idx) in devices" :key="idx"
               #{{ idx + 1 }}
             </span>
           </div>
-          <div class="col-span-12 md:col-span-5">
+          <div class="col-span-12 md:col-span-4">
             <p class="text-[10px] text-slate-500 mb-1">Model thiết bị *</p>
             <SmartSelect v-model="d.device_model" doctype="IMM Device Model" placeholder="Chọn model..." />
           </div>
-          <div class="col-span-6 md:col-span-2">
-            <label :for="`dev-cost-${idx}`" class="text-[10px] text-slate-500 mb-1 block">Đơn giá</label>
+          <div class="col-span-4 md:col-span-2">
+            <label :for="`dev-qty-${idx}`" class="text-[10px] text-slate-500 mb-1 block">Số lượng</label>
+            <input
+:id="`dev-qty-${idx}`" v-model.number="d.qty" type="number" min="1" step="1"
+                   class="form-input w-full text-sm" />
+          </div>
+          <div class="col-span-4 md:col-span-2">
+            <label :for="`dev-cost-${idx}`" class="text-[10px] text-slate-500 mb-1 block">Đơn giá / máy</label>
             <input
 :id="`dev-cost-${idx}`" v-model.number="d.unit_cost" type="number" min="0" step="1000"
                    class="form-input w-full text-sm" />
           </div>
-          <div class="col-span-5 md:col-span-3">
+          <div class="col-span-3 md:col-span-3">
             <label :for="`dev-wm-${idx}`" class="text-[10px] text-slate-500 mb-1 block">BH (tháng)</label>
             <input
 :id="`dev-wm-${idx}`" v-model.number="d.warranty_months" type="number" min="0" step="1"
@@ -311,16 +337,23 @@ class="p-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded transition-co
 </button>
           </div>
           <div class="col-span-12">
-            <label :for="`dev-sn-${idx}`" class="text-[10px] text-slate-500 mb-1 block">Serial Number Hãng (máy #{{ idx + 1 }})</label>
+            <label :for="`dev-sn-${idx}`" class="text-[10px] text-slate-500 mb-1 block">
+              Serial Number Hãng<span v-if="(d.qty || 1) === 1"> (máy #{{ idx + 1 }})</span>
+            </label>
             <input
 :id="`dev-sn-${idx}`" v-model="d.vendor_serial_no" type="text"
-                   class="form-input w-full text-sm font-mono" placeholder="Có thể bỏ trống, điền khi tiếp nhận" />
+                   :disabled="(d.qty || 1) > 1"
+                   class="form-input w-full text-sm font-mono disabled:bg-slate-50 disabled:cursor-not-allowed"
+                   placeholder="Có thể bỏ trống, điền khi tiếp nhận" />
+            <p v-if="(d.qty || 1) > 1" class="text-[10px] text-amber-600 mt-1 italic">
+              Dòng gộp {{ d.qty }} máy — serial từng máy nhập ở bước tiếp nhận.
+            </p>
           </div>
         </div>
 
         <div class="flex justify-between items-center text-sm pt-2 border-t border-slate-100">
           <span class="text-xs text-slate-500">
-            Tổng: <b class="text-slate-800">{{ devices.length }}</b> máy
+            Tổng: <b class="text-slate-800">{{ deviceUnitTotal }}</b> máy ({{ devices.length }} dòng)
           </span>
           <span>
             <span class="text-slate-500 mr-2">Tổng giá trị:</span>

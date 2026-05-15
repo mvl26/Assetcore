@@ -2,9 +2,10 @@
 // Copyright (c) 2026, AssetCore Team — IMM-16
 // Soát xét quản lý (Management Review) — list / create / finalize.
 import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { useImm16Store } from '@/stores/imm16'
 import { useApi } from '@/composables/useApi'
-import type { ManagementReview, MROutputAction } from '@/api/imm16'
+import type { ManagementReview } from '@/api/imm16'
 import { formatDate } from '@/utils/formatters'
 import PageHeader from '@/components/common/PageHeader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
@@ -14,8 +15,20 @@ import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import BaseModal from '@/components/common/BaseModal.vue'
 
+const router = useRouter()
 const store = useImm16Store()
 const api = useApi()
+
+function goDetail(r: ManagementReview) {
+  router.push(`/compliance/mr/${r.name}`)
+}
+function scorecardDisplay(r: ManagementReview): string {
+  const x = r as ManagementReview & { scorecard_score_pct?: number; scorecard_period?: string }
+  if (x.scorecard_score_pct != null) {
+    return `${x.scorecard_score_pct.toFixed(1)}%${x.scorecard_period ? ' · ' + x.scorecard_period : ''}`
+  }
+  return r.scorecard_ref || '—'
+}
 
 const items = computed(() => store.reviews)
 const pagination = computed(() => store.reviewsPagination)
@@ -74,34 +87,6 @@ async function submitCreate() {
   if (res) { showCreate.value = false; load(1) }
 }
 
-// ── Finalize modal ──
-const showFinalize = ref(false)
-const finalizing = ref<ManagementReview | null>(null)
-const minutesDoc = ref('')
-const outputActions = ref<MROutputAction[]>([{ action: '', owner: '', due_date: '' }])
-
-function openFinalize(r: ManagementReview) {
-  finalizing.value = r
-  minutesDoc.value = r.minutes_doc || ''
-  outputActions.value = [{ action: '', owner: '', due_date: '' }]
-  showFinalize.value = true
-}
-function addAction() { outputActions.value.push({ action: '', owner: '', due_date: '' }) }
-function removeAction(i: number) {
-  outputActions.value.splice(i, 1)
-  if (outputActions.value.length === 0) addAction()
-}
-
-async function submitFinalize() {
-  if (!finalizing.value) return
-  const actions = outputActions.value.filter(a => a.action.trim() && a.owner.trim())
-  const res = await api.run(
-    () => store.actionFinalizeReview(finalizing.value!.name, minutesDoc.value, actions),
-    { successMessage: 'Đã đóng soát xét quản lý' },
-  )
-  if (res) { showFinalize.value = false; load(pagination.value.page) }
-}
-
 onMounted(() => load(1))
 </script>
 
@@ -151,7 +136,30 @@ onMounted(() => load(1))
         </button>
         <button v-else class="btn-primary mt-3" @click="openCreate">Tạo cuộc soát xét đầu tiên</button>
       </div>
-      <div v-else class="overflow-x-auto">
+      <template v-else>
+        <!-- Mobile cards -->
+        <div class="mobile-card-list sm:hidden">
+          <div
+            v-for="r in items"
+            :key="r.name"
+            class="mobile-card cursor-pointer"
+            @click="goDetail(r)"
+          >
+            <div class="flex items-center justify-between mb-2">
+              <span class="font-mono text-sm font-semibold text-brand-700">{{ r.name }}</span>
+              <StatusBadge :state="r.status" />
+            </div>
+            <p class="text-sm font-medium text-slate-900 truncate">{{ r.quarter }}</p>
+            <div class="flex flex-wrap gap-x-2 gap-y-1 mt-1.5 text-xs text-slate-500">
+              <span>{{ formatDate(r.review_date) }}</span>
+              <span>· {{ chairDisplay(r) }}</span>
+              <span>· {{ scorecardDisplay(r) }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Desktop table -->
+        <div class="hidden sm:block overflow-x-auto">
         <table class="min-w-full divide-y divide-slate-100">
           <thead>
             <tr>
@@ -165,7 +173,7 @@ onMounted(() => load(1))
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-100">
-            <tr v-for="r in items" :key="r.name" class="hover:bg-slate-50">
+            <tr v-for="r in items" :key="r.name" class="hover:bg-slate-50 cursor-pointer" @click="goDetail(r)">
               <td class="table-cell">
                 <div class="font-medium text-slate-900">{{ r.quarter }}</div>
                 <div class="font-mono text-xs text-brand-700 mt-0.5">{{ r.name }}</div>
@@ -173,33 +181,28 @@ onMounted(() => load(1))
               <td class="table-cell text-slate-600">{{ formatDate(r.review_date) }}</td>
               <td class="table-cell text-slate-800">{{ chairDisplay(r) }}</td>
               <td class="table-cell">
-                <span v-if="r.scorecard_ref" class="font-mono text-xs text-brand-700 font-semibold">{{ r.scorecard_ref }}</span>
-                <span v-else class="text-slate-300">—</span>
+                <span class="text-xs text-slate-700">{{ scorecardDisplay(r) }}</span>
               </td>
               <td class="table-cell"><StatusBadge :state="r.status" /></td>
               <td class="table-cell text-slate-600">{{ formatDate(r.next_review_date) }}</td>
               <td class="table-cell text-right">
-                <button
-                  v-if="r.status !== 'Closed'"
-                  class="text-xs text-emerald-700 hover:text-emerald-800 font-medium"
-                  @click="openFinalize(r)"
-                >Đóng và xuất biên bản</button>
-                <span v-else class="text-xs text-slate-400">—</span>
+                <button class="text-xs text-brand-600 hover:text-brand-700 font-medium" @click.stop="goDetail(r)">Xem / Xử lý</button>
               </td>
             </tr>
           </tbody>
         </table>
-      </div>
+        </div>
+      </template>
     </div>
 
     <BasePagination :pagination="pagination" @page-change="load" />
 
     <!-- Create Modal -->
     <BaseModal v-if="showCreate" title="Tạo soát xét quản lý" size="lg" @close="showCreate = false">
-      <div class="space-y-3 grid grid-cols-2 gap-3">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div class="form-group">
-          <label class="form-label">Quý (VD: 2026-Q1) *</label>
-          <input v-model="form.quarter" class="form-input" placeholder="2026-Q2" />
+          <label class="form-label">Quý (VD: Q2-2026) *</label>
+          <input v-model="form.quarter" class="form-input" placeholder="Q2-2026" />
         </div>
         <div class="form-group">
           <label class="form-label">Ngày soát xét *</label>
@@ -222,51 +225,5 @@ onMounted(() => load(1))
       </template>
     </BaseModal>
 
-    <!-- Finalize Modal -->
-    <BaseModal v-if="showFinalize" title="Đóng cuộc soát xét quản lý" size="xl" @close="showFinalize = false">
-      <div class="space-y-4">
-        <p v-if="finalizing" class="text-sm text-slate-500">
-          {{ finalizing.quarter }} — {{ formatDate(finalizing.review_date) }}
-        </p>
-        <div class="form-group">
-          <label class="form-label">URL biên bản (minutes) *</label>
-          <input v-model="minutesDoc" class="form-input" placeholder="https://..." />
-        </div>
-        <div>
-          <div class="flex items-center justify-between mb-2">
-            <label class="form-label !mb-0">Hành động đầu ra</label>
-            <button class="text-xs text-brand-600 hover:text-brand-700 font-medium hover:underline" @click="addAction">Thêm hành động</button>
-          </div>
-          <table class="min-w-full divide-y divide-slate-100">
-            <thead>
-              <tr>
-                <th class="table-header">Mô tả</th>
-                <th class="table-header w-48">Người phụ trách</th>
-                <th class="table-header w-40">Hạn</th>
-                <th class="table-header w-12"></th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-slate-100">
-              <tr v-for="(a, i) in outputActions" :key="i">
-                <td class="table-cell"><input v-model="a.action" class="form-input text-sm" /></td>
-                <td class="table-cell"><input v-model="a.owner" class="form-input text-sm" placeholder="user@hospital.vn" /></td>
-                <td class="table-cell"><input v-model="a.due_date" type="date" class="form-input text-sm" /></td>
-                <td class="table-cell text-right">
-                  <button class="text-xs text-red-600 hover:text-red-700 font-medium" aria-label="Xoá hành động" @click="removeAction(i)">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
-                  </button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-      <template #footer>
-        <button class="btn-ghost" @click="showFinalize = false">Huỷ</button>
-        <button class="btn-primary" :disabled="api.loading.value" @click="submitFinalize">
-          {{ api.loading.value ? 'Đang đóng…' : 'Đóng soát xét' }}
-        </button>
-      </template>
-    </BaseModal>
   </div>
 </template>

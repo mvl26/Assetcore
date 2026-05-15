@@ -258,6 +258,7 @@ doc_events = {
         "on_submit": "assetcore.services.imm16.eval_imm08_09_realtime",
     },
     "AC Asset": {
+        "after_insert": "assetcore.services.imm08.create_pm_schedule_from_asset",
         "on_update": "assetcore.services.imm15.flag_obsolete_on_decommission",
     },
     # ─── IMM-16 Compliance real-time evaluation ───
@@ -283,6 +284,7 @@ scheduler_events = {
         # IMM-05 document expiry alerts
         "assetcore.services.imm05.check_document_expiry",
         # IMM-08 PM auto work order generation
+        "assetcore.services.imm08.backfill_pm_schedules_for_due_assets",
         "assetcore.services.imm08.generate_pm_work_orders_from_schedule",
         # IMM-11 Calibration auto WO + expiry check
         "assetcore.services.imm11.create_due_calibration_wos",

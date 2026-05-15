@@ -311,8 +311,12 @@ function goToCreate() {
 }
 
 async function handleApprove(name: string) {
-  if (!confirm(`Xác nhận DUYỆT tài liệu ${name}?`)) return
-  await store.approveDocument(name)
+  if (!confirm(`Phê duyệt tài liệu ${name} sẽ tự động lưu trữ phiên bản cũ. Tiếp tục?`)) return
+  const ok = await store.approveDocument(name)
+  if (ok) {
+    // BR-05-01: phiên bản cũ bị auto-archive ở BE → reload để list phản ánh đúng
+    await store.fetchDocuments(store.currentFilters, store.pagination.page)
+  }
 }
 
 function openRejectDialog(name: string) {
@@ -324,7 +328,10 @@ function openRejectDialog(name: string) {
 async function handleReject() {
   if (!rejectDialog.reason) return
   const ok = await store.rejectDocument(rejectDialog.targetName, rejectDialog.reason)
-  if (ok) rejectDialog.open = false
+  if (ok) {
+    rejectDialog.open = false
+    await store.fetchDocuments(store.currentFilters, store.pagination.page)
+  }
 }
 
 function openRequestModal(doc: AssetDocumentItem) {
@@ -365,7 +372,7 @@ async function openHistoryDialog(name: string) {
 
 function onRequestCreated(name: string) {
   requestModal.open = false
-  toast.error(`Yêu cầu tài liệu ${name} đã được tạo.`)
+  toast.success(`Yêu cầu tài liệu ${name} đã được tạo.`)
 }
 
 function onExempted(docName: string) {

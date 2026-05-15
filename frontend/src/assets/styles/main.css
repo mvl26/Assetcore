@@ -133,6 +133,8 @@
   /* Table */
   .table-wrapper {
     @apply overflow-x-auto rounded-lg border border-slate-200 bg-white;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
   }
   .table-header {
     @apply px-5 py-3.5 text-left text-sm font-semibold text-slate-600 uppercase tracking-wide
@@ -141,6 +143,15 @@
   .table-cell {
     @apply px-5 py-4 whitespace-nowrap text-base text-slate-800;
   }
+
+  /* Mobile card list — alternative to tables on narrow screens */
+  .mobile-card-list { @apply space-y-3; }
+  .mobile-card {
+    @apply bg-white rounded-xl border border-slate-200 p-4 cursor-pointer
+           transition-colors active:bg-slate-50;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .mobile-card:hover { @apply bg-slate-50/70; }
   .table-row {
     @apply transition-colors duration-100 hover:bg-slate-50/70 cursor-pointer;
   }
@@ -178,10 +189,24 @@
     background: var(--kpi-color, var(--color-primary));
   }
 
-  /* Page container */
+  /* Page container — min-w-0 cho phép co lại khi parent là flex; max-w-full
+     đảm bảo không vượt khỏi viewport khi inner content có whitespace-nowrap. */
   .page-container {
-    @apply w-full px-4 sm:px-6 lg:px-8 py-6 md:py-7;
+    @apply w-full min-w-0 max-w-full px-4 sm:px-6 lg:px-8 py-6 md:py-7;
   }
+
+  /* Modal shell — wrapper cố định toàn màn hình, nội dung co theo viewport.
+     Dùng trong các modal mới để tránh overflow trên màn nhỏ. */
+  .modal-overlay {
+    @apply fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-3 sm:p-4;
+  }
+  .modal-panel {
+    @apply bg-white rounded-xl w-full max-h-[92vh] overflow-y-auto;
+  }
+  .modal-panel-sm  { @apply modal-panel max-w-md;  }
+  .modal-panel-md  { @apply modal-panel max-w-xl;  }
+  .modal-panel-lg  { @apply modal-panel max-w-2xl; }
+  .modal-panel-xl  { @apply modal-panel max-w-4xl; }
 
   /* Skeleton shimmer */
   .skeleton {
@@ -226,11 +251,14 @@
 
   /* Tab bar — underline tabs (design system WO detail) */
   .tab-bar {
-    @apply flex border-b border-slate-200 px-6 gap-6 -mb-px;
+    @apply flex border-b border-slate-200 px-3 sm:px-6 gap-4 sm:gap-6 -mb-px overflow-x-auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
   }
+  .tab-bar::-webkit-scrollbar { display: none; }
   .tab-item {
     @apply pt-3 pb-3 -mb-px text-sm font-medium text-slate-500 border-b-2 border-transparent
-           hover:text-slate-700 transition-colors cursor-pointer;
+           hover:text-slate-700 transition-colors cursor-pointer whitespace-nowrap shrink-0;
   }
   .tab-item-active {
     @apply tab-item text-brand-700 border-brand-600;
@@ -271,4 +299,20 @@
     @apply h-1.5 rounded-full transition-all duration-700 ease-out;
     transform-origin: left;
   }
+}
+
+/* ─── Mobile responsive overrides (< 640px) ────────────────────────────── */
+@media (max-width: 639px) {
+  /* Tighter table density on small screens */
+  .table-header { padding: 0.6rem 0.75rem; font-size: 0.6875rem; }
+  .table-cell   { padding: 0.7rem 0.75rem; font-size: 0.8125rem; }
+
+  /* Less horizontal padding on page containers */
+  .page-container { padding-left: 0.875rem; padding-right: 0.875rem; }
+
+  /* Wider tap targets for buttons */
+  .btn { min-height: 44px; }
+
+  /* Prevent page title overflow in topbar */
+  .page-title-truncate { max-width: calc(100vw - 180px); }
 }

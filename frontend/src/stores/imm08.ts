@@ -25,9 +25,18 @@ export const useImm08Store = defineStore('imm08', () => {
   // --- Getters ---
   const overdueWOs = computed(() => workOrders.value.filter(w => w.status === 'Overdue'))
   const openWOs = computed(() => workOrders.value.filter(w => w.status === 'Open'))
+  // Một mục được coi là "đã chấm" khi có kết quả hợp lệ (Đạt/Không đạt/N/A),
+  // KHÔNG tính chuỗi rỗng/null/undefined (BR-08-08).
+  const RATED_RESULTS = ['Pass', 'Fail–Minor', 'Fail–Major', 'N/A']
+  const isRated = (r: { result: string | null }) =>
+    r.result != null && RATED_RESULTS.includes(r.result)
+  const ratedCount = computed(() =>
+    currentWO.value?.checklist_results.filter(isRated).length ?? 0
+  )
   const checklistComplete = computed(() => {
     if (!currentWO.value) return false
-    return currentWO.value.checklist_results.every(r => r.result !== null)
+    const items = currentWO.value.checklist_results
+    return items.length > 0 && items.every(isRated)
   })
   const hasMinorFailure = computed(() =>
     currentWO.value?.checklist_results.some(r => r.result === 'Fail–Minor') ?? false
@@ -158,7 +167,7 @@ export const useImm08Store = defineStore('imm08', () => {
   return {
     workOrders, currentWO, calendarEvents, calendarSummary, dashboardStats,
     pmHistory, loading, error, pagination,
-    overdueWOs, openWOs, checklistComplete, hasMinorFailure, hasMajorFailure,
+    overdueWOs, openWOs, checklistComplete, ratedCount, hasMinorFailure, hasMajorFailure,
     fetchWorkOrders, fetchWorkOrder, updateChecklistResult,
     doAssignTechnician, doSubmitResult, doReportMajorFailure,
     fetchCalendar, fetchDashboardStats, doReschedule, fetchPMHistory,

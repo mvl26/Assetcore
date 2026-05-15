@@ -120,6 +120,17 @@ v-if="idx < workflowSteps.length - 1"
       <div class="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
         <h2 class="text-sm font-semibold text-gray-700 uppercase tracking-wide">Thông tin chi tiết</h2>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+          <!-- Linked asset -->
+          <div class="sm:col-span-2">
+            <p class="text-xs text-gray-400 mb-0.5">Thiết bị</p>
+            <button
+              v-if="fcr.asset_ref"
+              class="font-medium text-blue-600 hover:text-blue-800 hover:underline underline-offset-2 text-left"
+              @click="router.push(`/assets/${fcr.asset_ref}`)"
+            >{{ fcr.asset_name || fcr.asset_ref }}</button>
+            <span v-else class="text-gray-500">—</span>
+            <span v-if="fcr.asset_name && fcr.asset_ref" class="ml-2 text-xs font-mono text-gray-400">{{ fcr.asset_ref }}</span>
+          </div>
           <div>
             <p class="text-xs text-gray-400 mb-0.5">Phiên bản trước</p>
             <p class="font-mono font-medium text-gray-800">{{ fcr.version_before || '—' }}</p>
@@ -137,8 +148,11 @@ v-if="idx < workflowSteps.length - 1"
             <p class="text-gray-700 whitespace-pre-wrap">{{ fcr.change_notes || '—' }}</p>
           </div>
           <div v-if="fcr.asset_repair_wo">
-            <p class="text-xs text-gray-400 mb-0.5">Phiếu sửa chữa liên kết</p>
-            <p class="font-mono text-blue-600 text-xs">{{ fcr.asset_repair_wo }}</p>
+            <p class="text-xs text-gray-400 mb-0.5">Lệnh sửa chữa liên kết</p>
+            <button
+              class="font-mono text-blue-600 text-xs hover:text-blue-800 hover:underline underline-offset-2"
+              @click="router.push(`/cm/work-orders/${fcr.asset_repair_wo}`)"
+            >{{ fcr.asset_repair_wo }}</button>
           </div>
         </div>
       </div>
@@ -149,7 +163,7 @@ v-if="idx < workflowSteps.length - 1"
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
           <div>
             <p class="text-xs text-gray-400 mb-0.5">Người phê duyệt</p>
-            <p class="text-gray-800">{{ fcr.approved_by || '—' }}</p>
+            <p class="text-gray-800">{{ fcr.approved_by_name || fcr.approved_by || '—' }}</p>
           </div>
           <div>
             <p class="text-xs text-gray-400 mb-0.5">Ngày phê duyệt</p>

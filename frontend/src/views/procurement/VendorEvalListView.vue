@@ -4,6 +4,9 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useImm03Store } from '@/stores/imm03'
 import type { EvalState } from '@/types/imm03'
+import { createEvaluation } from '@/api/imm03'
+import { listTechSpecs } from '@/api/imm02'
+import type { TechSpecListItem } from '@/types/imm02'
 import { stateLabel, formatVnDate } from '@/utils/wave2Labels'
 import PageHeader from '@/components/common/PageHeader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
@@ -65,6 +68,40 @@ function quickFilter(key: keyof typeof filters, value: string) {
 
 function goDetail(n: string) { router.push({ name: 'VendorEvaluationDetail', params: { id: n } }) }
 
+// ─── Tạo phiếu đánh giá từ Hồ sơ kỹ thuật (Locked) — VR create_evaluation ────
+const showCreate = ref(false)
+const lockedSpecs = ref<TechSpecListItem[]>([])
+const selectedSpec = ref('')
+const creating = ref(false)
+const createError = ref<string | null>(null)
+
+async function openCreate() {
+  showCreate.value = true
+  createError.value = null
+  selectedSpec.value = ''
+  try {
+    const res = await listTechSpecs({ workflow_state: 'Locked' }, 1, 100)
+    lockedSpecs.value = res.items
+  } catch (e) {
+    createError.value = e instanceof Error ? e.message : String(e)
+  }
+}
+
+async function submitCreate() {
+  if (!selectedSpec.value) { createError.value = 'Vui lòng chọn hồ sơ kỹ thuật.'; return }
+  creating.value = true
+  createError.value = null
+  try {
+    const r = await createEvaluation(selectedSpec.value)
+    showCreate.value = false
+    router.push({ name: 'VendorEvaluationDetail', params: { id: r.name } })
+  } catch (e) {
+    createError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    creating.value = false
+  }
+}
+
 onMounted(() => store.fetchEvaluations())
 </script>
 
@@ -76,6 +113,9 @@ onMounted(() => store.fetchEvaluations())
     >
       <template #actions>
         <FilterToggleButton v-model="showFilters" :count="activeChips.length" />
+        <button type="button" class="btn-primary" @click="openCreate">
+          + Tạo phiếu đánh giá
+        </button>
       </template>
     </PageHeader>
 
@@ -111,57 +151,111 @@ onMounted(() => store.fetchEvaluations())
       </div>
 
       <div v-if="store.loading" class="p-6 text-sm text-slate-500">Đang tải...</div>
-      <div v-else-if="store.evaluations.length" class="overflow-x-auto">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Mã phiếu đánh giá</th>
-              <th>Hồ sơ kỹ thuật</th>
-              <th>Ngày khởi tạo</th>
-              <th>Nhà cung cấp đề xuất</th>
-              <th>Trạng thái</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              v-for="(ev, idx) in store.evaluations" :key="ev.name"
-              class="clickable animate-fade-in"
-              :class="[`stagger-${Math.min(idx + 1, 8)}`]"
-              @click="goDetail(ev.name)"
-            >
-              <td><span class="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded text-slate-700">{{ ev.name }}</span></td>
-              <td>
-                <button class="link-cell" :title="`Lọc: ${ev.spec_ref}`" @click.stop="quickFilter('spec_ref', ev.spec_ref)">
-                  {{ ev.spec_ref }}
-                </button>
-              </td>
-              <td>{{ formatVnDate(ev.draft_date) }}</td>
-              <td>
-                <button
-v-if="ev.recommended_candidate" class="link-cell"
-                        :title="`Lọc: ${ev.recommended_candidate}`"
-                        @click.stop="quickFilter('recommended_candidate', ev.recommended_candidate)">
-                  {{ ev.recommended_candidate }}
-                </button>
-                <span v-else class="text-slate-400">—</span>
-              </td>
-              <td>
-                <button
-type="button" class="pill-btn"
-                        :title="`Lọc trạng thái: ${stateLabel(ev.workflow_state)}`"
-                        @click.stop="quickFilter('workflow_state', ev.workflow_state)">
-                  <StatusBadge :state="ev.workflow_state" />
-                </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <template v-else-if="store.evaluations.length">
+        <!-- Mobile cards -->
+        <div class="mobile-card-list sm:hidden">
+          <div
+            v-for="ev in store.evaluations"
+            :key="ev.name"
+            class="mobile-card"
+            @click="goDetail(ev.name)"
+          >
+            <div class="flex items-center justify-between mb-2">
+              <span class="font-mono text-sm font-semibold text-brand-700">{{ ev.name }}</span>
+              <StatusBadge :state="ev.workflow_state" />
+            </div>
+            <p class="text-sm font-medium text-slate-900 truncate">{{ ev.spec_ref }}</p>
+            <div class="flex flex-wrap gap-x-2 gap-y-1 mt-1.5 text-xs text-slate-500">
+              <span v-if="ev.draft_date">{{ formatVnDate(ev.draft_date) }}</span>
+              <span v-if="ev.recommended_candidate">· {{ ev.vendor_name || ev.recommended_candidate }}</span>
+            </div>
+          </div>
+          <div v-if="store.evaluations.length === 0" class="py-12 text-center text-slate-400">
+            <p class="text-sm">Không có dữ liệu</p>
+          </div>
+        </div>
+
+        <!-- Desktop table -->
+        <div class="hidden sm:block overflow-x-auto">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Mã phiếu đánh giá</th>
+                <th>Hồ sơ kỹ thuật</th>
+                <th>Ngày khởi tạo</th>
+                <th>Nhà cung cấp đề xuất</th>
+                <th>Trạng thái</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="(ev, idx) in store.evaluations" :key="ev.name"
+                class="clickable animate-fade-in"
+                :class="[`stagger-${Math.min(idx + 1, 8)}`]"
+                @click="goDetail(ev.name)"
+              >
+                <td><span class="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded text-slate-700">{{ ev.name }}</span></td>
+                <td>
+                  <button class="link-cell" :title="`Lọc: ${ev.spec_ref}`" @click.stop="quickFilter('spec_ref', ev.spec_ref)">
+                    {{ ev.spec_ref }}
+                  </button>
+                </td>
+                <td>{{ formatVnDate(ev.draft_date) }}</td>
+                <td>
+                  <button
+  v-if="ev.recommended_candidate" class="link-cell"
+                          :title="`Lọc: ${ev.vendor_name || ev.recommended_candidate}`"
+                          @click.stop="quickFilter('recommended_candidate', ev.recommended_candidate)">
+                    {{ ev.vendor_name || ev.recommended_candidate }}
+                  </button>
+                  <span v-else class="text-slate-400">—</span>
+                </td>
+                <td>
+                  <button
+  type="button" class="pill-btn"
+                          :title="`Lọc trạng thái: ${stateLabel(ev.workflow_state)}`"
+                          @click.stop="quickFilter('workflow_state', ev.workflow_state)">
+                    <StatusBadge :state="ev.workflow_state" />
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </template>
       <div v-else class="flex flex-col items-center justify-center py-16 text-slate-400">
         <p class="text-sm">Không có phiếu đánh giá nào phù hợp</p>
         <button v-if="activeChips.length > 0" class="mt-3 text-xs text-blue-500 hover:text-blue-700 underline" @click="resetFilters">
           Xóa bộ lọc để xem tất cả
         </button>
+      </div>
+    </div>
+
+    <!-- Modal: tạo phiếu đánh giá từ Hồ sơ kỹ thuật (Locked) -->
+    <div v-if="showCreate" class="modal-overlay" @click.self="showCreate = false">
+      <div class="modal-panel max-w-md">
+        <h3 class="text-base font-semibold mb-1">Tạo phiếu đánh giá nhà cung cấp</h3>
+        <p class="text-xs text-slate-500 mb-4">Chọn hồ sơ kỹ thuật đã chốt (Locked) để khởi tạo phiếu đánh giá.</p>
+
+        <div v-if="createError" class="alert-error mb-3 text-sm">{{ createError }}</div>
+
+        <label class="block text-sm font-medium text-slate-700 mb-1">Hồ sơ kỹ thuật</label>
+        <select v-model="selectedSpec" class="form-select w-full text-sm mb-4">
+          <option value="">— Chọn hồ sơ —</option>
+          <option v-for="s in lockedSpecs" :key="s.name" :value="s.name">
+            {{ s.name }} · {{ (s as any).device_model_name || s.device_model_ref }}
+          </option>
+        </select>
+        <p v-if="lockedSpecs.length === 0 && !createError" class="text-xs text-amber-600 mb-4">
+          Chưa có hồ sơ kỹ thuật nào ở trạng thái Locked.
+        </p>
+
+        <div class="flex justify-end gap-2">
+          <button type="button" class="btn-secondary" @click="showCreate = false">Hủy</button>
+          <button type="button" class="btn-primary" :disabled="creating || !selectedSpec" @click="submitCreate">
+            {{ creating ? 'Đang tạo...' : 'Tạo phiếu' }}
+          </button>
+        </div>
       </div>
     </div>
   </div>

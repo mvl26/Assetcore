@@ -97,10 +97,30 @@ def list_training_sessions(filters: dict, *, page: int = 1,
     rows, pg = TrainingSessionRepo.list(
         filters=normalize_filters(filters),
         fields=["name", "training_program", "session_date", "session_type",
-                "instructor", "location", "workflow_state", "duration_planned_hours"],
+                "instructor", "instructor_external_name", "location",
+                "workflow_state", "duration_planned_hours"],
         order_by="session_date desc",
         page=page, page_size=page_size,
     )
+    # Enrich human-readable names so the list never shows raw email / code.
+    prog_ids = {r["training_program"] for r in rows if r.get("training_program")}
+    user_ids = {r["instructor"] for r in rows if r.get("instructor")}
+    prog_names = {
+        p.name: p.program_name
+        for p in frappe.get_all("IMM Training Program",
+                                 filters={"name": ("in", list(prog_ids))},
+                                 fields=["name", "program_name"])
+    } if prog_ids else {}
+    user_names = {
+        u.name: u.full_name
+        for u in frappe.get_all("User",
+                                filters={"name": ("in", list(user_ids))},
+                                fields=["name", "full_name"])
+    } if user_ids else {}
+    for r in rows:
+        r["program_name"] = prog_names.get(r.get("training_program")) or r.get("training_program")
+        r["instructor_full_name"] = user_names.get(r.get("instructor")) or ""
+        r["trainer_name"] = r["instructor_full_name"] or r.get("instructor_external_name") or ""
     return {"data": rows, "pagination": pg}
 
 
@@ -495,6 +515,46 @@ def validate_passing_score_range(doc: "frappe.Document") -> None:
         frappe.throw(_("Điểm đạt (passing_score_pct) phải từ 1 đến 100."))
 
 
+def validate_score_bounds_config(doc: "frappe.Document") -> None:
+    """Slide 21: cấu hình điểm của chương trình phải hợp lệ — max_score > min_score."""
+    mn = float(getattr(doc, "min_score", 0) or 0)
+    mx = float(getattr(doc, "max_score", 100) or 100)
+    if mx <= mn:
+        frappe.throw(_("Điểm tối đa (max_score) phải lớn hơn điểm tối thiểu (min_score)."))
+
+
+def get_program_score_bounds(program_doc) -> tuple[float, float]:
+    """Trả (min_score, max_score) của chương trình, mặc định [0, 100]."""
+    mn = float(getattr(program_doc, "min_score", 0) or 0)
+    mx = float(getattr(program_doc, "max_score", 0) or 0) or 100.0
+    if mx <= mn:
+        frappe.throw(_("Cấu hình điểm chương trình không hợp lệ: max_score phải > min_score."))
+    return mn, mx
+
+
+def validate_participant_scores(doc: "frappe.Document") -> None:
+    """Slide 21: theory_score/practical_score mỗi học viên phải nằm trong
+    [min_score, max_score] do chương trình định nghĩa."""
+    if not doc.training_program:
+        return
+    try:
+        program_doc = frappe.get_doc("IMM Training Program", doc.training_program)
+    except Exception:
+        return
+    mn, mx = get_program_score_bounds(program_doc)
+    for p in (doc.participants or []):
+        for fld, lbl in (("theory_score", "Điểm lý thuyết"),
+                         ("practical_score", "Điểm thực hành")):
+            val = getattr(p, fld, None)
+            if val in (None, ""):
+                continue
+            v = float(val)
+            if v < mn or v > mx:
+                frappe.throw(
+                    _("{0} của học viên {1} ({2}) ngoài khoảng cho phép [{3}, {4}].").format(
+                        lbl, p.user or "?", v, mn, mx))
+
+
 def validate_validity_range(doc: "frappe.Document") -> None:
     """BR-06-03: Thời hạn hiệu lực phải > 0."""
     if doc.validity_period_months is not None and doc.validity_period_months <= 0:
@@ -549,6 +609,7 @@ def compute_overall_results(doc: "frappe.Document") -> None:
         program_doc = frappe.get_doc("IMM Training Program", doc.training_program)
     except Exception:
         return
+    validate_participant_scores(doc)
     pass_score = float(program_doc.passing_score_pct or 70.0)
     assessment_method = program_doc.assessment_method or "Both"
 
@@ -569,6 +630,7 @@ def compute_overall_results(doc: "frappe.Document") -> None:
             p.overall_result = "Pass" if avg >= pass_score else "Fail"
 
         p.retake_required = 1 if p.overall_result == "Fail" else 0
+        p.result = "Đạt" if p.overall_result == "Pass" else "Không đạt"
 
 
 def create_competency_from_session(session_name: str) -> list:
@@ -859,6 +921,154 @@ def confirm_session(name: str) -> dict:
     frappe.db.commit()
     _log_competency_audit(name, "", "SESSION_CONFIRMED", "Planned → Confirmed")
     return {"name": name, "workflow_state": SessionStatus.CONFIRMED}
+
+
+_ENROLL_BLOCKED_STATES = (
+    SessionStatus.COMPLETED,
+    SessionStatus.VERIFIED,
+    SessionStatus.CLOSED,
+    SessionStatus.CANCELLED,
+)
+
+
+def enroll_participants(session: str, participants: list[dict]) -> dict:
+    """Thêm học viên vào child table `participants` của Training Session.
+
+    Slide 19: FE cần khả năng enroll/tạo trainee trước/đang buổi học, thay vì
+    participants chỉ read-only và chỉ nhập kết quả khi complete_session.
+
+    Mỗi phần tử `participants`:
+        - user: Link User của học viên (bắt buộc nếu không có external_name).
+        - external_name: tên học viên ngoài hệ thống (không có tài khoản User).
+          Lưu vào `remarks`, đánh dấu role_at_session="External".
+        - department: Link AC Department (tùy chọn).
+        - role_at_session: vai trò trong buổi học (tùy chọn).
+
+    BR: Không thể enroll khi session đã Completed/Verified/Closed/Cancelled.
+    Permission: chỉ Training Officer / Ops Manager / System Admin.
+
+    Args:
+        session: tên buổi học.
+        participants: danh sách dict học viên cần thêm.
+
+    Returns:
+        dict gồm name, workflow_state, added (số dòng thêm),
+        participant_count (tổng sau khi thêm).
+    """
+    _require_training_officer()
+    if not participants:
+        raise ServiceError(ErrorCode.VALIDATION, "Danh sách học viên trống")
+    doc = _get_session_or_raise(session)
+    if doc.workflow_state in _ENROLL_BLOCKED_STATES:
+        raise ServiceError(
+            ErrorCode.BAD_STATE,
+            f"Không thể thêm học viên khi buổi học ở trạng thái {doc.workflow_state}",
+        )
+
+    existing_users = {
+        (p.user or "").strip() for p in (doc.participants or []) if p.user
+    }
+    added = 0
+    has_external = False
+    for raw in participants:
+        if not isinstance(raw, dict):
+            raise ServiceError(ErrorCode.INVALID_PARAMS,
+                               "Mỗi học viên phải là object")
+        user = (raw.get("user") or "").strip()
+        external_name = (raw.get("external_name") or "").strip()
+        if not user and not external_name:
+            raise ServiceError(
+                ErrorCode.VALIDATION,
+                "Mỗi học viên cần `user` hoặc `external_name`",
+            )
+        if user:
+            if user in existing_users:
+                continue
+            if not frappe.db.exists("User", user):
+                raise ServiceError(ErrorCode.NOT_FOUND,
+                                   f"Không tìm thấy User: {user}")
+            existing_users.add(user)
+        row = {
+            "user": user or None,
+            "department": (raw.get("department") or None),
+            "role_at_session": (raw.get("role_at_session")
+                                or ("External" if external_name else None)),
+        }
+        if external_name:
+            row["remarks"] = f"External: {external_name}"
+            has_external = True
+        doc.append("participants", row)
+        added += 1
+
+    if added == 0:
+        return {
+            "name": session,
+            "workflow_state": doc.workflow_state,
+            "added": 0,
+            "participant_count": len(doc.participants or []),
+        }
+
+    doc.flags.ignore_links = True
+    if has_external:
+        # IMM Training Participant.user is reqd:1 nhưng học viên ngoài hệ thống
+        # không có tài khoản User — tên lưu ở remarks, role_at_session=External.
+        doc.flags.ignore_mandatory = True
+    TrainingSessionRepo.save(doc)
+    frappe.db.commit()
+    _log_competency_audit(
+        session, frappe.session.user, "PARTICIPANTS_ENROLLED",
+        f"Thêm {added} học viên",
+    )
+    return {
+        "name": session,
+        "workflow_state": doc.workflow_state,
+        "added": added,
+        "participant_count": len(doc.participants or []),
+    }
+
+
+def remove_participant(session: str, row_name: str) -> dict:
+    """Xóa 1 dòng học viên khỏi child table `participants`.
+
+    BR: Không thể xóa khi session đã Completed/Verified/Closed/Cancelled.
+    Permission: chỉ Training Officer / Ops Manager / System Admin.
+
+    Args:
+        session: tên buổi học.
+        row_name: name của dòng IMM Training Participant cần xóa.
+
+    Returns:
+        dict gồm name, workflow_state, removed (bool),
+        participant_count (tổng sau khi xóa).
+    """
+    _require_training_officer()
+    doc = _get_session_or_raise(session)
+    if doc.workflow_state in _ENROLL_BLOCKED_STATES:
+        raise ServiceError(
+            ErrorCode.BAD_STATE,
+            f"Không thể xóa học viên khi buổi học ở trạng thái {doc.workflow_state}",
+        )
+    target = next(
+        (p for p in (doc.participants or []) if p.name == row_name), None
+    )
+    if target is None:
+        raise ServiceError(ErrorCode.NOT_FOUND,
+                           f"Không tìm thấy học viên: {row_name}")
+    removed_user = target.user or target.remarks or row_name
+    doc.participants.remove(target)
+    doc.flags.ignore_links = True
+    TrainingSessionRepo.save(doc)
+    frappe.db.commit()
+    _log_competency_audit(
+        session, frappe.session.user, "PARTICIPANT_REMOVED",
+        f"Xóa học viên {removed_user}",
+    )
+    return {
+        "name": session,
+        "workflow_state": doc.workflow_state,
+        "removed": True,
+        "participant_count": len(doc.participants or []),
+    }
 
 
 def complete_session(name: str, participants_results: list) -> dict:

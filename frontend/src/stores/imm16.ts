@@ -10,13 +10,17 @@ import {
   getDashboardStats, getComplianceHeatmap, getCapaAging, getOverdueActions,
   confirmFinding, markFalsePositive, waiveFinding, linkToCapa,
   createCapaFromFinding, advanceCapaState, performEffectivenessCheck, reopenCapa,
+  getCapaDetail, updateCapaFields,
   startAudit, completeAuditChecklist, closeAudit,
   publishScorecard, createManagementReview, finalizeManagementReview,
+  updateManagementReview, advanceMrState,
+  deactivateRule, reactivateRule, updateRule, getRule,
 } from '@/api/imm16'
 import type {
   ComplianceRule, ComplianceFinding, InternalAudit, ComplianceScorecard,
   ManagementReview, DashboardStats, ComplianceHeatmap,
   CapaWorkflowState, ChecklistItemPayload, MROutputAction,
+  MRStatus, MRAttendee, MROutputActionRow,
 } from '@/api/imm16'
 
 const DEFAULT_PAGINATION = { total: 0, page: 1, page_size: 20, total_pages: 1 }
@@ -138,6 +142,12 @@ export const useImm16Store = defineStore('imm16', () => {
   async function actionReopenCapa(name: string, reason = '') {
     return await reopenCapa(name, reason)
   }
+  async function fetchCapaDetail(name: string) {
+    return await getCapaDetail(name)
+  }
+  async function actionUpdateCapaFields(name: string, data: Record<string, unknown>) {
+    return await updateCapaFields(name, data)
+  }
 
   // ── Scorecard actions ───────────────────────────────────────────────────
   async function fetchScorecards(filters = {}, page = 1, pageSize = 20) {
@@ -171,6 +181,31 @@ export const useImm16Store = defineStore('imm16', () => {
   async function actionFinalizeReview(name: string, minutes_doc: string, actions: MROutputAction[] = []) {
     return await finalizeManagementReview(name, minutes_doc, actions)
   }
+  async function actionUpdateReview(
+    name: string,
+    data: Partial<ManagementReview> & { attendees?: MRAttendee[]; output_actions?: MROutputActionRow[] },
+  ) {
+    return await updateManagementReview(name, data)
+  }
+  async function actionAdvanceMr(name: string, target: MRStatus) {
+    return await advanceMrState(name, target)
+  }
+
+  // ── Rule actions ────────────────────────────────────────────────────────
+  async function fetchRule(name: string) {
+    return await getRule(name)
+  }
+  async function actionUpdateRule(
+    name: string, rule_data: Partial<ComplianceRule>, change_summary = '',
+  ) {
+    return await updateRule(name, rule_data, change_summary)
+  }
+  async function actionDeactivateRule(name: string) {
+    return await deactivateRule(name)
+  }
+  async function actionReactivateRule(name: string) {
+    return await reactivateRule(name)
+  }
 
   // ── Dashboard actions ───────────────────────────────────────────────────
   async function fetchDashboard() {
@@ -199,14 +234,16 @@ export const useImm16Store = defineStore('imm16', () => {
     dashboard, heatmap, capaAging,
     error,
     // actions
-    fetchRules,
+    fetchRules, fetchRule, actionUpdateRule, actionDeactivateRule, actionReactivateRule,
     fetchFindings, actionConfirmFinding, actionMarkFalsePositive,
     actionWaiveFinding, actionLinkToCapa,
     fetchAudits, actionStartAudit, actionCompleteChecklist, actionCloseAudit,
     actionCreateCapaFromFinding, actionAdvanceCapa,
     actionEffectivenessCheck, actionReopenCapa,
+    fetchCapaDetail, actionUpdateCapaFields,
     fetchScorecards, actionPublishScorecard,
     fetchManagementReviews, actionCreateReview, actionFinalizeReview,
+    actionUpdateReview, actionAdvanceMr,
     fetchDashboard, fetchHeatmap, fetchCapaAging, fetchOverdueActions,
   }
 })

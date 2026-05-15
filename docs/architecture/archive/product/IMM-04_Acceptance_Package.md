@@ -6,7 +6,7 @@
 
 **Mã hồ sơ:** ASSETCORE-IMM04-ACCEPT-v1.0
 **Ngày ban hành:** 2026-04-15
-**Phiên bản hệ thống:** AssetCore v1.0
+**Phiên bản hệ thống:** AssetCore v0.0.1
 **Trạng thái:** ☐ Dự thảo &nbsp;&nbsp; ☐ Đang xem xét &nbsp;&nbsp; ☐ **Đã phê duyệt**
 
 ---

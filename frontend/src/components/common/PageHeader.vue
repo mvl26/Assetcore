@@ -39,20 +39,20 @@ function go(to: RouteLocationRaw) { router.push(to) }
     </nav>
 
     <!-- Title row -->
-    <div class="flex items-start justify-between gap-4 flex-wrap">
-      <div class="flex items-start gap-3 min-w-0">
+    <div class="flex items-start justify-between gap-3 flex-wrap">
+      <div class="flex items-start gap-3 min-w-0 flex-1">
         <button
           v-if="backTo"
-          class="text-slate-500 hover:text-slate-800 text-sm whitespace-nowrap shrink-0 mt-1 transition-colors"
+          class="text-slate-500 hover:text-slate-800 text-sm whitespace-nowrap shrink-0 mt-1 transition-colors min-h-[36px] flex items-center"
           @click="go(backTo)"
         >{{ backLabelComputed }}</button>
         <div class="min-w-0">
-          <h1 class="text-xl font-semibold text-slate-900 truncate">{{ title }}</h1>
-          <p v-if="subtitle" class="text-sm text-slate-500 mt-0.5">{{ subtitle }}</p>
+          <h1 class="text-lg sm:text-xl font-semibold text-slate-900 truncate leading-snug">{{ title }}</h1>
+          <p v-if="subtitle" class="text-xs sm:text-sm text-slate-500 mt-0.5 line-clamp-2">{{ subtitle }}</p>
         </div>
       </div>
 
-      <div class="flex items-center gap-2 shrink-0">
+      <div class="flex items-center gap-2 shrink-0 flex-wrap justify-end">
         <slot name="actions" />
       </div>
     </div>

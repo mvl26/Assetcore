@@ -1,15 +1,15 @@
 <script setup lang="ts">
-import { ref, onMounted, computed, watch } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import SmartSelect from '@/components/common/SmartSelect.vue'
 import {
   getUserInfo, updateUserInfo, createSystemUser, approveRegistration,
-  getAvailableImmRoles, listFrappeUsers,
+  getAvailableImmRoles,
   listRoleProfiles, assignRoleProfile,
 } from '@/api/user'
 import type {
-  IMMUser, CreateUserPayload, FrappeUserItem, ImmRoleOption, RoleProfileOption,
+  IMMUser, CreateUserPayload, ImmRoleOption, RoleProfileOption,
 } from '@/api/user'
 import { ROLE_GROUP_LABEL, type RoleGroup } from '@/constants/roles'
 import { useFormDraft } from '@/composables/useFormDraft'
@@ -45,7 +45,7 @@ async function applyRoleProfile() {
       ? `Đã áp dụng Role Profile "${selectedRoleProfile.value}"`
       : 'Đã bỏ Role Profile'
   } catch (e: unknown) {
-    error.value = (e as Error).message || 'Lỗi áp dụng Role Profile'
+    error.value = e instanceof Error ? e.message : 'Lỗi áp dụng Role Profile'
   } finally {
     applyingProfile.value = false
   }
@@ -84,32 +84,6 @@ const groupedRoles = computed<Array<{ group: RoleGroup; label: string; items: Im
   }
   return result
 })
-
-// ── Create mode toggle ─────────────────────────────────────────────────────
-const createMode = ref<'new' | 'pick'>('new')
-
-// ── Frappe User autocomplete (pick mode) ───────────────────────────────────
-const userSearch = ref('')
-const userSearchResults = ref<FrappeUserItem[]>([])
-const userSearchLoading = ref(false)
-const pickedUser = ref<FrappeUserItem | null>(null)
-let searchTimer: ReturnType<typeof setTimeout> | null = null
-
-watch(userSearch, (val) => {
-  if (createMode.value !== 'pick') return
-  if (searchTimer) clearTimeout(searchTimer)
-  searchTimer = setTimeout(async () => {
-    userSearchLoading.value = true
-    userSearchResults.value = (await listFrappeUsers(val, 20)) ?? []
-    userSearchLoading.value = false
-  }, 300)
-})
-
-function pickUser(u: FrappeUserItem) {
-  pickedUser.value = u
-  userSearch.value = u.full_name || u.name
-  userSearchResults.value = []
-}
 
 // ── New user form ──────────────────────────────────────────────────────────
 const newUser = ref<CreateUserPayload>({
@@ -175,7 +149,7 @@ async function doApprove() {
     success.value = 'Đã duyệt tài khoản.'
     await load()
   } catch (e: unknown) {
-    error.value = (e as Error).message || 'Lỗi khi duyệt'
+    error.value = e instanceof Error ? e.message : 'Lỗi khi duyệt'
   } finally { saving.value = false }
 }
 
@@ -189,7 +163,7 @@ async function doReject() {
     success.value = 'Đã từ chối tài khoản.'
     await load()
   } catch (e: unknown) {
-    error.value = (e as Error).message || 'Lỗi khi từ chối'
+    error.value = e instanceof Error ? e.message : 'Lỗi khi từ chối'
   } finally { saving.value = false }
 }
 
@@ -206,26 +180,9 @@ async function saveEdit() {
     success.value = 'Lưu thành công!'
     await load()
   } catch (e: unknown) {
-    error.value = (e as Error).message || 'Lỗi khi lưu'
+    error.value = e instanceof Error ? e.message : 'Lỗi khi lưu'
   } finally { saving.value = false }
 }
-
-async function savePick() {
-  if (!pickedUser.value) { error.value = 'Vui lòng chọn user'; return }
-  saving.value = true; error.value = ''; success.value = ''
-  try {
-    await updateUserInfo(pickedUser.value.name, {
-      ac_department: editFields.value.ac_department,
-      imm_roles: editRoles.value,
-    })
-    router.push(`/user-profiles/${encodeURIComponent(pickedUser.value.name)}`)
-  } catch (e: unknown) {
-    error.value = (e as Error).message || 'Lỗi khi lưu'
-  } finally { saving.value = false }
-}
-
-/** Khi BE trả 409 với existing_user → cho phép FE hiển thị link "Xem user hiện có". */
-const existingUserConflict = ref<string | null>(null)
 
 async function saveNew() {
   // Chuẩn hóa email: trim + lowercase trước khi gửi để khớp BE normalization.
@@ -235,35 +192,20 @@ async function saveNew() {
   if (!newUser.value.first_name?.trim()) { error.value = 'Vui lòng nhập họ tên'; return }
   newUser.value.email = normalizedEmail
 
-  saving.value = true; error.value = ''; success.value = ''; existingUserConflict.value = null
-  // Diagnostic: log payload thực tế gửi đi (xóa khi đã ổn định)
-  console.log('[create-user] sending payload:', { ...newUser.value, password: '***' })
+  saving.value = true; error.value = ''; success.value = ''
   try {
     const res = await createSystemUser(newUser.value)
-    console.log('[create-user] response:', res)
     if (res) {
       clearNewUserDraft()
       router.push(`/user-profiles/${encodeURIComponent(res.user)}`)
     }
   } catch (e: unknown) {
-    console.error('[create-user] error:', e)
-    const err = e as { message?: string; extra?: Record<string, unknown>; httpStatus?: number; code?: string }
-    error.value = err.message || 'Lỗi khi tạo user'
-    if (err.extra?.existing_user) {
-      existingUserConflict.value = String(err.extra.existing_user)
-    }
+    error.value = e instanceof Error ? e.message : String(e)
   } finally { saving.value = false }
-}
-
-function viewExistingUser() {
-  if (existingUserConflict.value) {
-    router.push(`/user-profiles/${encodeURIComponent(existingUserConflict.value)}`)
-  }
 }
 
 function handleSubmit() {
   if (isEdit.value) return saveEdit()
-  if (createMode.value === 'pick') return savePick()
   return saveNew()
 }
 
@@ -279,10 +221,11 @@ async function load() {
       phone: d.phone || '',
       ac_department: d.ac_department || '',
     }
-    editRoles.value = (d.imm_roles ?? []).map((r: any) => ({ role: typeof r === 'object' ? r.role : r }));
+    editRoles.value = (d.imm_roles ?? []).map((r: unknown) =>
+      ({ role: typeof r === 'object' && r !== null ? (r as { role: string }).role : (r as string) }))
     selectedRoleProfile.value = d.role_profile_name ?? ''
   } catch (e: unknown) {
-    error.value = (e as Error).message || 'Không tải được hồ sơ'
+    error.value = e instanceof Error ? e.message : 'Không tải được hồ sơ'
   } finally {
     loading.value = false
   }
@@ -319,39 +262,17 @@ onMounted(async () => {
       Bạn đang xem hồ sơ của người khác — chỉ <b>IMM System Admin</b> được phép sửa.
     </div>
 
-    <!-- CREATE MODE TOGGLE -->
-    <div v-if="!isEdit" class="flex rounded-lg border overflow-hidden text-sm font-medium w-fit">
-      <button
-        :class="['px-4 py-2 transition-colors', createMode === 'new' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50']"
-        @click="createMode = 'new'"
-      >
-Tạo tài khoản mới
-</button>
-      <button
-        :class="['px-4 py-2 transition-colors', createMode === 'pick' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50']"
-        @click="createMode = 'pick'"
-      >
-Gán IMM cho user sẵn có
-</button>
-    </div>
-
-    <div v-if="error" class="bg-red-50 text-red-700 text-sm p-3 rounded-lg border border-red-200 flex items-start justify-between gap-3">
-      <span class="flex-1">{{ error }}</span>
-      <button
-        v-if="existingUserConflict"
-        type="button"
-        class="shrink-0 text-xs font-medium text-blue-600 hover:text-blue-800 underline"
-        @click="viewExistingUser"
-      >Xem user hiện có →</button>
+    <div v-if="error" class="bg-red-50 text-red-700 text-sm p-3 rounded-lg border border-red-200">
+      {{ error }}
     </div>
     <div v-if="success" class="bg-green-50 text-green-700 text-sm p-3 rounded-lg border border-green-200">{{ success }}</div>
 
     <!-- ─── FORM: TẠO USER MỚI ─────────────────────────────────────────── -->
-    <form v-if="!isEdit && createMode === 'new'" class="space-y-6" @submit.prevent="handleSubmit">
+    <form v-if="!isEdit" class="space-y-6" @submit.prevent="handleSubmit">
       <div class="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
         <h2 class="text-sm font-semibold text-gray-700 uppercase tracking-wide">Tài khoản người dùng</h2>
-        <div class="grid grid-cols-2 gap-4">
-          <div class="col-span-2">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div class="sm:col-span-2">
             <label for="new-email" class="block text-xs font-medium text-gray-600 mb-1">Email <span class="text-red-500">*</span></label>
             <input
 id="new-email" v-model="newUser.email" type="email" placeholder="ktv@hospital.vn"
@@ -372,8 +293,19 @@ id="new-last-name" v-model="newUser.last_name" type="text" placeholder="A"
           <div>
             <label for="new-password" class="block text-xs font-medium text-gray-600 mb-1">Mật khẩu ban đầu</label>
             <input
-id="new-password" v-model="newUser.password" type="password" placeholder="(để trống = auto-generate)"
-              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" autocomplete="new-password" />
+id="new-password" v-model="newUser.password" type="password" placeholder="Tối thiểu 8 ký tự (để trống = auto-generate)"
+              minlength="8" autocomplete="new-password"
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+            <div class="mt-1.5 text-[11px] text-gray-500 leading-snug space-y-0.5">
+              <p class="font-medium text-gray-600">Hướng dẫn tạo mật khẩu an toàn:</p>
+              <ul class="list-disc list-inside space-y-0.5 pl-1">
+                <li>Tối thiểu <b>8 ký tự</b> (khuyến nghị ≥ 12)</li>
+                <li>Kết hợp <b>chữ hoa, chữ thường, số</b> và <b>ký tự đặc biệt</b> (@, #, !, %, …)</li>
+                <li>Không dùng email, họ tên, ngày sinh hoặc mật khẩu phổ biến (<i>123456</i>, <i>password</i>…)</li>
+                <li>Người dùng sẽ được yêu cầu đổi lại trong lần đăng nhập đầu tiên</li>
+              </ul>
+              <p class="text-gray-400 italic">Để trống → hệ thống tự sinh và gửi qua email chào mừng.</p>
+            </div>
           </div>
           <div>
             <label for="new-phone" class="block text-xs font-medium text-gray-600 mb-1">Điện thoại</label>
@@ -394,7 +326,7 @@ id="new-phone" v-model="newUser.phone" type="text" placeholder="0901234567"
 
       <div class="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
         <div class="flex items-baseline justify-between">
-          <h2 class="text-sm font-semibold text-gray-700 uppercase tracking-wide">Phân quyền IMM</h2>
+          <h2 class="text-sm font-semibold text-gray-700 uppercase tracking-wide">Phân quyền</h2>
           <p class="text-xs text-gray-400">Tick vào vai trò để gán quyền truy cập</p>
         </div>
         <div v-for="bucket in groupedRoles" :key="bucket.group" class="space-y-2">
@@ -427,78 +359,12 @@ type="submit" :disabled="saving"
       </div>
     </form>
 
-    <!-- ─── FORM: GÁN ROLE CHO USER SẴN CÓ ────────────────────────────── -->
-    <form v-else-if="!isEdit && createMode === 'pick'" class="space-y-6" @submit.prevent="handleSubmit">
-      <div class="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
-        <h2 class="text-sm font-semibold text-gray-700 uppercase tracking-wide">Chọn Frappe User</h2>
-        <div class="relative">
-          <input
-            v-model="userSearch" type="text" placeholder="Tìm email hoặc tên..."
-            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-          />
-          <div v-if="userSearchLoading" class="absolute right-3 top-2.5 text-gray-400 text-xs">Đang tìm...</div>
-          <div v-if="userSearchResults.length" class="absolute z-10 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-52 overflow-y-auto">
-            <button
-              v-for="u in userSearchResults" :key="u.name"
-              type="button"
-              class="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2"
-              @click="pickUser(u)"
-            >
-              <span class="font-medium text-gray-800">{{ u.full_name || u.name }}</span>
-              <span class="text-gray-400 text-xs">{{ u.name }}</span>
-            </button>
-          </div>
-        </div>
-        <div v-if="pickedUser" class="text-sm text-blue-700 bg-blue-50 px-3 py-2 rounded-lg">
-          Đã chọn: <b>{{ pickedUser.full_name || pickedUser.name }}</b>
-        </div>
-        <div>
-          <label for="pick-dept" class="block text-xs font-medium text-gray-600 mb-1">Khoa / Phòng</label>
-          <SmartSelect id="pick-dept" v-model="editFields.ac_department" doctype="AC Department" placeholder="Chọn khoa/phòng..." />
-        </div>
-      </div>
-
-      <div class="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
-        <div class="flex items-baseline justify-between">
-          <h2 class="text-sm font-semibold text-gray-700 uppercase tracking-wide">Phân quyền IMM</h2>
-          <p class="text-xs text-gray-400">Tick vào vai trò để gán quyền truy cập</p>
-        </div>
-        <div v-for="bucket in groupedRoles" :key="bucket.group" class="space-y-2">
-          <h3 class="text-[11px] font-bold text-gray-400 uppercase tracking-widest">{{ bucket.label }}</h3>
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
-            <label
-              v-for="role in bucket.items" :key="role.name"
-              class="flex items-start gap-2.5 cursor-pointer rounded-lg border px-3 py-2.5 text-sm transition-colors"
-              :class="hasRole(role.name) ? 'border-blue-400 bg-blue-50' : 'border-gray-200 hover:bg-gray-50'"
-            >
-              <input type="checkbox" :checked="hasRole(role.name)" class="rounded mt-0.5 shrink-0" @change="toggleRole(role.name)" />
-              <div class="min-w-0 flex-1">
-                <div class="font-medium" :class="hasRole(role.name) ? 'text-blue-700' : 'text-gray-800'">
-                  {{ role.label }}
-                </div>
-                <p class="text-[11px] text-gray-500 mt-0.5 leading-tight">{{ role.description }}</p>
-              </div>
-            </label>
-          </div>
-        </div>
-      </div>
-
-      <div class="flex gap-3">
-        <button
-type="submit" :disabled="saving || !pickedUser"
-          class="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-6 py-2.5 rounded-lg text-sm font-medium">
-          {{ saving ? 'Đang lưu...' : 'Lưu' }}
-        </button>
-        <button type="button" class="px-4 py-2.5 rounded-lg border border-gray-300 text-sm text-gray-600 hover:bg-gray-50" @click="router.push('/user-profiles')">Hủy</button>
-      </div>
-    </form>
-
     <!-- ─── EDIT HỒ SƠ ────────────────────────────────────────────────── -->
     <template v-else-if="isEdit && !loading && detail">
       <!-- Thông tin đọc-only từ Employee -->
       <div class="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
         <h2 class="text-sm font-semibold text-gray-700 uppercase tracking-wide">Thông tin tài khoản</h2>
-        <div class="grid grid-cols-2 gap-3 text-sm">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
           <div><span class="text-gray-500">Email:</span> <b>{{ detail.email }}</b></div>
           <div>
             <span class="text-gray-500">Trạng thái:</span>
@@ -528,8 +394,8 @@ class="ml-1 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-mediu
       <form v-if="canEdit" class="space-y-6" @submit.prevent="handleSubmit">
         <div class="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
           <h2 class="text-sm font-semibold text-gray-700 uppercase tracking-wide">Thông tin cơ bản</h2>
-          <div class="grid grid-cols-2 gap-4">
-            <div class="col-span-2">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div class="sm:col-span-2">
               <label for="edit-fullname" class="block text-xs font-medium text-gray-600 mb-1">Họ và tên</label>
               <input
 id="edit-fullname" v-model="editFields.full_name" type="text"
@@ -588,7 +454,7 @@ id="edit-phone" v-model="editFields.phone" type="text" placeholder="0901234567"
         <!-- IMM Roles (admin only) — fallback thủ công -->
         <div v-if="auth.isSystemAdmin" class="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
           <div class="flex items-baseline justify-between">
-            <h2 class="text-sm font-semibold text-gray-700 uppercase tracking-wide">Phân quyền IMM (chi tiết)</h2>
+            <h2 class="text-sm font-semibold text-gray-700 uppercase tracking-wide">Phân quyền (chi tiết)</h2>
             <p class="text-xs text-gray-400">Chỉnh thủ công nếu không dùng Role Profile</p>
           </div>
           <div v-for="bucket in groupedRoles" :key="bucket.group" class="space-y-2">

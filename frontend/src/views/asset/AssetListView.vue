@@ -195,100 +195,138 @@ onMounted(async () => {
     <!-- Error -->
     <div v-if="store.error" class="alert-error mb-4">{{ store.error }}</div>
 
-    <!-- Table -->
-    <div class="table-wrapper">
-      <div class="flex items-center justify-between px-4 py-2.5 border-b border-slate-100 bg-slate-50/60 text-xs text-slate-500">
-        <span>Hiển thị <strong class="text-slate-700">{{ store.assets.length }}</strong> / {{ store.pagination.total }} thiết bị</span>
-        <button v-if="activeFilterCount > 0" class="text-red-500 hover:text-red-700 font-medium" @click="resetFilters">Xóa tất cả</button>
+    <!-- Loading -->
+    <div v-if="store.loading" class="table-wrapper">
+      <SkeletonLoader variant="table" :rows="6" />
+    </div>
+
+    <!-- Data -->
+    <template v-else>
+      <!-- Mobile cards (< sm) -->
+      <div class="mobile-card-list sm:hidden">
+        <div class="flex items-center justify-between text-xs text-slate-500 pb-1">
+          <span>Hiển thị <strong class="text-slate-700">{{ store.assets.length }}</strong> / {{ store.pagination.total }} thiết bị</span>
+          <button v-if="activeFilterCount > 0" class="text-red-500 font-medium" @click="resetFilters">Xóa tất cả</button>
+        </div>
+        <div
+          v-for="asset in store.assets"
+          :key="asset.name"
+          class="mobile-card"
+          @click="router.push(`/assets/${asset.name}`)"
+        >
+          <div class="flex items-center justify-between mb-2">
+            <span class="font-mono text-sm font-semibold text-brand-700">{{ asset.name }}</span>
+            <button @click.stop="quickFilter('lifecycle_status', asset.lifecycle_status)">
+              <StatusBadge :state="asset.lifecycle_status" />
+            </button>
+          </div>
+          <p class="text-sm font-medium text-slate-900 truncate">{{ asset.asset_name }}</p>
+          <div class="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1.5 text-xs text-slate-500">
+            <span v-if="asset.asset_category_name || asset.category_name || asset.asset_category">
+              {{ asset.asset_category_name || asset.category_name || asset.asset_category }}
+            </span>
+            <span v-if="asset.department_name || asset.department" class="text-slate-300">·</span>
+            <span>{{ asset.department_name || asset.department }}</span>
+            <span v-if="isPmOverdue(asset.next_pm_date)" class="text-red-600 font-semibold">PM quá hạn</span>
+          </div>
+        </div>
+        <div v-if="store.assets.length === 0" class="py-12 text-center text-slate-400">
+          <p class="text-sm font-medium">Không có thiết bị nào phù hợp</p>
+          <button v-if="activeFilterCount > 0" class="text-xs text-blue-500 underline mt-2" @click="resetFilters">Xóa bộ lọc để xem tất cả</button>
+        </div>
       </div>
 
-      <div v-if="store.loading" class="p-4">
-        <SkeletonLoader variant="table" :rows="6" />
+      <!-- Desktop table (sm+) -->
+      <div class="hidden sm:block table-wrapper">
+        <div class="flex items-center justify-between px-4 py-2.5 border-b border-slate-100 bg-slate-50/60 text-xs text-slate-500">
+          <span>Hiển thị <strong class="text-slate-700">{{ store.assets.length }}</strong> / {{ store.pagination.total }} thiết bị</span>
+          <button v-if="activeFilterCount > 0" class="text-red-500 hover:text-red-700 font-medium" @click="resetFilters">Xóa tất cả</button>
+        </div>
+        <div v-if="store.assets.length" class="overflow-x-auto">
+          <table class="min-w-full divide-y divide-slate-100">
+            <thead>
+              <tr>
+                <th class="table-header">Tên / Mã</th>
+                <th class="table-header">Danh mục</th>
+                <th class="table-header">Trạng thái</th>
+                <th class="table-header">GMDN</th>
+                <th class="table-header">Khoa/Phòng</th>
+                <th class="table-header text-right">Giá trị còn lại</th>
+                <th class="table-header">Bảo trì tiếp</th>
+                <th class="table-header">ĐK Bộ Y tế hết hạn</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+              <tr
+                v-for="asset in store.assets"
+                :key="asset.name"
+                class="hover:bg-slate-50 cursor-pointer transition-colors"
+                @click="router.push(`/assets/${asset.name}`)"
+              >
+                <td class="table-cell">
+                  <p class="font-medium text-slate-900">{{ asset.asset_name }}</p>
+                  <p class="text-xs text-slate-400 font-mono mt-0.5">{{ asset.name }}</p>
+                </td>
+                <td class="table-cell">
+                  <button
+                    v-if="asset.asset_category"
+                    class="text-left text-slate-700 hover:text-blue-600 hover:underline decoration-dotted underline-offset-2 transition-colors"
+                    @click.stop="quickFilter('asset_category', asset.asset_category!)"
+                  >{{ asset.asset_category_name || asset.category_name || asset.asset_category }}</button>
+                  <span v-else class="text-slate-400">—</span>
+                </td>
+                <td class="table-cell">
+                  <button @click.stop="quickFilter('lifecycle_status', asset.lifecycle_status)">
+                    <StatusBadge :state="asset.lifecycle_status" />
+                  </button>
+                </td>
+                <td class="table-cell">
+                  <button
+                    class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium transition-all"
+                    :class="(asset.gmdn_status || 'Not Use') === 'In Use' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'"
+                    @click.stop="quickFilter('gmdn_status', asset.gmdn_status || 'Not Use')"
+                  >{{ (asset.gmdn_status || 'Not Use') === 'In Use' ? 'Đang sử dụng' : 'Không sử dụng' }}</button>
+                </td>
+                <td class="table-cell">
+                  <button
+                    v-if="asset.department"
+                    class="text-left text-slate-700 hover:text-blue-600 hover:underline decoration-dotted underline-offset-2 transition-colors"
+                    @click.stop="quickFilter('department', asset.department)"
+                  >{{ asset.department_name || asset.department }}</button>
+                  <span v-else class="text-slate-400">—</span>
+                </td>
+                <td class="table-cell text-right tabular-nums font-mono text-sm">
+                  <div v-if="asset.current_book_value || asset.gross_purchase_amount">
+                    <p class="font-semibold text-emerald-700">
+                      {{ (asset.current_book_value ?? asset.gross_purchase_amount ?? 0).toLocaleString('vi-VN') }}
+                    </p>
+                    <p v-if="asset.accumulated_depreciation" class="text-xs text-slate-400">
+                      −{{ asset.accumulated_depreciation.toLocaleString('vi-VN') }} đã khấu hao
+                    </p>
+                  </div>
+                  <span v-else class="text-slate-400">—</span>
+                </td>
+                <td class="table-cell text-sm" :class="isPmOverdue(asset.next_pm_date) ? 'text-red-600 font-semibold' : 'text-slate-600'">
+                  {{ formatDate(asset.next_pm_date) }}
+                </td>
+                <td class="table-cell text-sm" :class="isPmOverdue(asset.byt_reg_expiry) ? 'text-red-600 font-semibold' : 'text-slate-600'">
+                  {{ formatDate(asset.byt_reg_expiry) }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div v-else class="flex flex-col items-center justify-center py-16 text-slate-400">
+          <svg class="w-12 h-12 mb-3 opacity-40" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M20 7H4a2 2 0 00-2 2v9a2 2 0 002 2h16a2 2 0 002-2V9a2 2 0 00-2-2z" />
+          </svg>
+          <p class="text-sm">Không có thiết bị nào phù hợp</p>
+          <button v-if="activeFilterCount > 0" class="mt-3 text-xs text-blue-500 hover:text-blue-700 underline" @click="resetFilters">
+            Xóa bộ lọc để xem tất cả
+          </button>
+        </div>
       </div>
-      <div v-else-if="store.assets.length" class="overflow-x-auto">
-        <table class="min-w-full divide-y divide-slate-100">
-          <thead>
-            <tr>
-              <th class="table-header">Tên / Mã</th>
-              <th class="table-header">Danh mục</th>
-              <th class="table-header">Trạng thái</th>
-              <th class="table-header">GMDN</th>
-              <th class="table-header">Khoa/Phòng</th>
-              <th class="table-header text-right">Giá trị còn lại</th>
-              <th class="table-header">Bảo trì tiếp</th>
-              <th class="table-header">ĐK Bộ Y tế hết hạn</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-slate-100">
-            <tr
-              v-for="asset in store.assets"
-              :key="asset.name"
-              class="hover:bg-slate-50 cursor-pointer transition-colors"
-              @click="router.push(`/assets/${asset.name}`)"
-            >
-              <td class="table-cell">
-                <p class="font-medium text-slate-900">{{ asset.asset_name }}</p>
-                <p class="text-xs text-slate-400 font-mono mt-0.5">{{ asset.name }}</p>
-              </td>
-              <td class="table-cell">
-                <button
-                  v-if="asset.asset_category"
-                  class="text-left text-slate-700 hover:text-blue-600 hover:underline decoration-dotted underline-offset-2 transition-colors"
-                  @click.stop="quickFilter('asset_category', asset.asset_category!)"
-                >{{ asset.asset_category_name || asset.category_name || asset.asset_category }}</button>
-                <span v-else class="text-slate-400">—</span>
-              </td>
-              <td class="table-cell">
-                <button @click.stop="quickFilter('lifecycle_status', asset.lifecycle_status)">
-                  <StatusBadge :state="asset.lifecycle_status" />
-                </button>
-              </td>
-              <td class="table-cell">
-                <button
-                  class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium transition-all"
-                  :class="(asset.gmdn_status || 'Not Use') === 'In Use' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'"
-                  @click.stop="quickFilter('gmdn_status', asset.gmdn_status || 'Not Use')"
-                >{{ (asset.gmdn_status || 'Not Use') === 'In Use' ? 'Đang sử dụng' : 'Không sử dụng' }}</button>
-              </td>
-              <td class="table-cell">
-                <button
-                  v-if="asset.department"
-                  class="text-left text-slate-700 hover:text-blue-600 hover:underline decoration-dotted underline-offset-2 transition-colors"
-                  @click.stop="quickFilter('department', asset.department)"
-                >{{ asset.department_name || asset.department }}</button>
-                <span v-else class="text-slate-400">—</span>
-              </td>
-              <td class="table-cell text-right tabular-nums font-mono text-sm">
-                <div v-if="asset.current_book_value || asset.gross_purchase_amount">
-                  <p class="font-semibold text-emerald-700">
-                    {{ (asset.current_book_value ?? asset.gross_purchase_amount ?? 0).toLocaleString('vi-VN') }}
-                  </p>
-                  <p v-if="asset.accumulated_depreciation" class="text-xs text-slate-400">
-                    −{{ asset.accumulated_depreciation.toLocaleString('vi-VN') }} đã khấu hao
-                  </p>
-                </div>
-                <span v-else class="text-slate-400">—</span>
-              </td>
-              <td class="table-cell text-sm" :class="isPmOverdue(asset.next_pm_date) ? 'text-red-600 font-semibold' : 'text-slate-600'">
-                {{ formatDate(asset.next_pm_date) }}
-              </td>
-              <td class="table-cell text-sm" :class="isPmOverdue(asset.byt_reg_expiry) ? 'text-red-600 font-semibold' : 'text-slate-600'">
-                {{ formatDate(asset.byt_reg_expiry) }}
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <div v-else class="flex flex-col items-center justify-center py-16 text-slate-400">
-        <svg class="w-12 h-12 mb-3 opacity-40" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M20 7H4a2 2 0 00-2 2v9a2 2 0 002 2h16a2 2 0 002-2V9a2 2 0 00-2-2z" />
-        </svg>
-        <p class="text-sm">Không có thiết bị nào phù hợp</p>
-        <button v-if="activeFilterCount > 0" class="mt-3 text-xs text-blue-500 hover:text-blue-700 underline" @click="resetFilters">
-          Xóa bộ lọc để xem tất cả
-        </button>
-      </div>
-    </div>
+    </template>
 
     <BasePagination :pagination="store.pagination" @page-change="goToPage" />
   </div>

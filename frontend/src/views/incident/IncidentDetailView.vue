@@ -9,6 +9,8 @@ import SmartSelect from '@/components/common/SmartSelect.vue'
 import { useToast } from '@/composables/useToast'
 import { useAuthStore } from '@/stores/auth'
 import { ROLES_INCIDENT_ACK, ROLES_RCA_OWNER, ROLES_CANCEL, ROLES_ADMIN_USER } from '@/constants/roles'
+import { sanitizeHtml } from '@/utils/sanitizeHtml'
+import { incidentStatusLabel, incidentStatusClass } from '@/constants/labels'
 
 const route = useRoute()
 const router = useRouter()
@@ -139,18 +141,29 @@ async function remove() {
   catch (e: unknown) { err.value = e instanceof Error ? e.message : 'Không thể xóa' }
 }
 
+// Ground truth = allowed_transitions từ BE (_VALID_TRANSITIONS trong imm12.py).
+// State machine BE: Open → In Progress → Resolved → Closed (+ Cancelled, RCA Required).
+const allowedTransitions = computed(() => form.value.allowed_transitions ?? [])
 const canAcknowledge = computed(() =>
-  canAck.value && form.value.status === 'Open' && (form.value.allowed_transitions ?? []).includes('In Progress'),
+  canAck.value && allowedTransitions.value.includes('In Progress'),
 )
 const canResolve = computed(() =>
-  canAck.value && form.value.status === 'Under Investigation' && (form.value.allowed_transitions ?? []).includes('Resolved'),
+  canAck.value
+  && form.value.status === 'In Progress'
+  && allowedTransitions.value.includes('Resolved'),
 )
 const canClose = computed(() =>
-  canCloseIncident.value && form.value.status === 'Resolved' && (form.value.allowed_transitions ?? []).includes('Closed'),
+  canCloseIncident.value
+  && form.value.status === 'Resolved'
+  && allowedTransitions.value.includes('Closed'),
 )
-const isClosed = computed(() => form.value.status === 'Closed' || form.value.status === ('Cancelled' as never))
 const canCancel = computed(() =>
-  canCancelIncident.value && (form.value.status === 'Open' || form.value.status === 'Under Investigation'),
+  canCancelIncident.value && allowedTransitions.value.includes('Cancelled'),
+)
+// IMM-12-C: chỉ cho Xóa khi sự cố CÒN ở "Mới mở" (Open). Đã rời Open
+// (đặc biệt Critical/đã báo BYT) thì giữ record cho audit trail (NĐ98).
+const canDelete = computed(() =>
+  canDeleteIncident.value && form.value.status === 'Open',
 )
 const needsRca = computed(() =>
   (form.value.rca_required === 1) && !form.value.rca_record,
@@ -166,26 +179,6 @@ function sevColor(s?: string) {
   return SEV_COLOR[s ?? ''] ?? 'bg-slate-100 text-slate-700'
 }
 
-const STATUS_COLOR: Record<string, string> = {
-  'Open': 'bg-blue-100 text-blue-700',
-  'Acknowledged': 'bg-blue-100 text-blue-800',
-  'In Progress': 'bg-yellow-100 text-yellow-800',
-  'RCA Required': 'bg-orange-100 text-orange-800',
-  'Resolved': 'bg-purple-100 text-purple-700',
-  'Closed': 'bg-green-100 text-green-700',
-  'Cancelled': 'bg-slate-100 text-slate-500',
-}
-
-const STATUS_LABEL: Record<string, string> = {
-  'Open': 'Mới mở',
-  'Acknowledged': 'Đã tiếp nhận',
-  'In Progress': 'Đang điều tra',
-  'RCA Required': 'Cần RCA',
-  'Resolved': 'Đã giải quyết',
-  'Closed': 'Đã đóng',
-  'Cancelled': 'Đã hủy',
-}
-
 onMounted(load)
 </script>
 
@@ -198,8 +191,8 @@ onMounted(load)
         <h1 class="text-xl font-semibold text-slate-800">{{ name }}</h1>
         <div class="flex items-center gap-2 mt-1 flex-wrap">
           <span :class="['px-2 py-0.5 rounded text-xs font-medium', sevColor(form.severity)]">{{ form.severity }}</span>
-          <span :class="['px-2 py-0.5 rounded text-xs font-medium', STATUS_COLOR[form.status ?? ''] || 'bg-slate-100']">
-            {{ STATUS_LABEL[form.status ?? ''] || form.status }}
+          <span :class="['px-2 py-0.5 rounded text-xs font-medium', incidentStatusClass(form.status ?? '')]">
+            {{ incidentStatusLabel(form.status ?? '') }}
           </span>
         </div>
       </div>
@@ -231,7 +224,7 @@ v-if="canCancel"
           Hủy (False alarm)
         </button>
         <button
-v-if="!isClosed && canDeleteIncident"
+v-if="canDelete"
           class="text-red-500 hover:text-red-700 text-sm font-medium px-3 py-2"
           @click="remove">
 Xóa
@@ -269,11 +262,12 @@ Xóa
       <div class="p-6 space-y-3">
         <div>
           <div class="text-xs text-slate-500 mb-1">Mô tả sự cố</div>
-          <div class="text-sm text-slate-700 whitespace-pre-line bg-slate-50 p-3 rounded-lg">{{ form.description || '—' }}</div>
+          <div v-if="form.description" class="rich-text text-sm text-slate-700 bg-slate-50 p-3 rounded-lg" v-html="sanitizeHtml(form.description)" />
+          <div v-else class="text-sm text-slate-700 bg-slate-50 p-3 rounded-lg">—</div>
         </div>
         <div v-if="form.immediate_action">
           <div class="text-xs text-slate-500 mb-1">Biện pháp tức thời</div>
-          <div class="text-sm text-slate-700 whitespace-pre-line">{{ form.immediate_action }}</div>
+          <div class="rich-text text-sm text-slate-700" v-html="sanitizeHtml(form.immediate_action)" />
         </div>
       </div>
 
@@ -291,11 +285,11 @@ Xóa
       <div v-if="form.resolution_notes || form.root_cause_summary" class="p-6 space-y-3">
         <div v-if="form.root_cause_summary">
           <div class="text-xs text-slate-500 mb-1">Nguyên nhân gốc rễ</div>
-          <div class="text-sm text-slate-700 whitespace-pre-line bg-slate-50 p-3 rounded-lg">{{ form.root_cause_summary }}</div>
+          <div class="rich-text text-sm text-slate-700 bg-slate-50 p-3 rounded-lg" v-html="sanitizeHtml(form.root_cause_summary)" />
         </div>
         <div v-if="form.resolution_notes">
           <div class="text-xs text-slate-500 mb-1">Ghi chú giải quyết</div>
-          <div class="text-sm text-slate-700 whitespace-pre-line bg-slate-50 p-3 rounded-lg">{{ form.resolution_notes }}</div>
+          <div class="rich-text text-sm text-slate-700 bg-slate-50 p-3 rounded-lg" v-html="sanitizeHtml(form.resolution_notes)" />
         </div>
         <div v-if="form.closed_date" class="text-xs text-slate-500">
           Ngày đóng: {{ new Date(form.closed_date).toLocaleDateString('vi-VN') }}
@@ -320,8 +314,9 @@ v-if="needsRca" :disabled="rcaCreating"
               <span class="ml-2 text-xs px-2 py-0.5 rounded bg-white border">{{ form.rca.status }}</span>
             </div>
           </div>
-          <div v-if="form.rca.root_cause" class="text-xs text-slate-700 mt-2 whitespace-pre-line">
-            <span class="text-slate-500">Root cause:</span> {{ form.rca.root_cause }}
+          <div v-if="form.rca.root_cause" class="text-xs text-slate-700 mt-2">
+            <span class="text-slate-500">Root cause:</span>
+            <span class="rich-text" v-html="sanitizeHtml(form.rca.root_cause)" />
           </div>
         </div>
         <div v-else-if="needsRca" class="text-xs text-amber-700 bg-amber-50 p-3 rounded">
@@ -335,7 +330,7 @@ v-if="needsRca" :disabled="rcaCreating"
 
       <div v-if="form.clinical_impact" class="p-6">
         <div class="text-xs text-slate-500 mb-1">Tác động lâm sàng</div>
-        <div class="text-sm text-slate-700 whitespace-pre-line bg-red-50 p-3 rounded-lg">{{ form.clinical_impact }}</div>
+        <div class="rich-text text-sm text-slate-700 bg-red-50 p-3 rounded-lg" v-html="sanitizeHtml(form.clinical_impact)" />
       </div>
 
       <!-- Links -->
@@ -436,3 +431,14 @@ v-if="needsRca" :disabled="rcaCreating"
     </div>
   </div>
 </template>
+
+<style scoped>
+.rich-text :deep(p) { margin: 0 0 0.5rem; }
+.rich-text :deep(p:last-child) { margin-bottom: 0; }
+.rich-text :deep(ul),
+.rich-text :deep(ol) { margin: 0 0 0.5rem 1.25rem; list-style: revert; }
+.rich-text :deep(li) { margin: 0.125rem 0; }
+.rich-text :deep(b),
+.rich-text :deep(strong) { font-weight: 600; }
+.rich-text :deep(a) { color: #2563eb; text-decoration: underline; }
+</style>

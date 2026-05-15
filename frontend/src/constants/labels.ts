@@ -266,6 +266,28 @@ export const INCIDENT_SEVERITY_CLASS: Record<string, string> = {
 export function incidentSeverityLabel(v: string) { return INCIDENT_SEVERITY_LABEL[v] ?? v }
 export function incidentSeverityClass(v: string) { return INCIDENT_SEVERITY_CLASS[v] ?? 'bg-gray-100 text-gray-600' }
 
+// ─── Incident status (khớp _STATUS_* trong services/imm12.py) ──────────────────
+export const INCIDENT_STATUS_LABEL: Record<string, string> = {
+  'Open':         'Mới mở',
+  'Acknowledged': 'Đã tiếp nhận',
+  'In Progress':  'Đang điều tra',
+  'RCA Required': 'Cần RCA',
+  'Resolved':     'Đã giải quyết',
+  'Closed':       'Đã đóng',
+  'Cancelled':    'Đã hủy',
+}
+export const INCIDENT_STATUS_CLASS: Record<string, string> = {
+  'Open':         'bg-blue-100 text-blue-700',
+  'Acknowledged': 'bg-blue-100 text-blue-800',
+  'In Progress':  'bg-yellow-100 text-yellow-800',
+  'RCA Required': 'bg-orange-100 text-orange-800',
+  'Resolved':     'bg-purple-100 text-purple-700',
+  'Closed':       'bg-green-100 text-green-700',
+  'Cancelled':    'bg-slate-100 text-slate-500',
+}
+export function incidentStatusLabel(v: string) { return INCIDENT_STATUS_LABEL[v] ?? v }
+export function incidentStatusClass(v: string) { return INCIDENT_STATUS_CLASS[v] ?? 'bg-slate-100 text-slate-600' }
+
 // ─── CAPA status ──────────────────────────────────────────────────────────────
 export const CAPA_STATUS_LABEL: Record<string, string> = {
   'Open':                'Đang mở',

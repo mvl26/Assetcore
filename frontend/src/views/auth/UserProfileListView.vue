@@ -3,11 +3,12 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
-import { listUsers, type IMMUserListItem } from '@/api/user'
+import { listUsers, getAvailableImmRoles, type IMMUserListItem, type ImmRoleOption } from '@/api/user'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar from '@/components/common/ListFilterBar.vue'
+import SmartSelect from '@/components/common/SmartSelect.vue'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -20,20 +21,25 @@ const PAGE_SIZE = 20
 
 // Filter state
 const showFilters = ref(false)
-const filters = ref({ search: '', approval_status: '' })
+const filters = ref({ search: '', approval_status: '', department: '', role: '' })
+const availableRoles = ref<ImmRoleOption[]>([])
 
-interface FilterChip { key: 'search' | 'approval_status'; label: string }
+interface FilterChip { key: 'search' | 'approval_status' | 'department' | 'role'; label: string }
 const activeChips = computed<FilterChip[]>(() => {
   const chips: FilterChip[] = []
   if (filters.value.approval_status) {
     chips.push({ key: 'approval_status', label: APPROVAL_LABELS[filters.value.approval_status] || filters.value.approval_status })
+  }
+  if (filters.value.department) chips.push({ key: 'department', label: filters.value.department })
+  if (filters.value.role) {
+    chips.push({ key: 'role', label: availableRoles.value.find(r => r.name === filters.value.role)?.label || filters.value.role })
   }
   if (filters.value.search.trim()) chips.push({ key: 'search', label: `"${filters.value.search.trim()}"` })
   return chips
 })
 const activeFilterCount = computed(() => activeChips.value.length)
 function clearChip(key: string) { (filters.value as Record<string, string>)[key] = ''; load() }
-function resetFilters() { filters.value = { search: '', approval_status: '' }; load() }
+function resetFilters() { filters.value = { search: '', approval_status: '', department: '', role: '' }; load() }
 function quickFilter(key: 'approval_status', value: string) {
   if (!value || filters.value[key] === value) return
   filters.value[key] = value
@@ -61,6 +67,8 @@ async function load() {
   const res = await listUsers({
     search: filters.value.search,
     approval_status: filters.value.approval_status,
+    department: filters.value.department || undefined,
+    role: filters.value.role || undefined,
     page: page.value,
     page_size: PAGE_SIZE,
   })
@@ -75,12 +83,15 @@ function applyFilters() { page.value = 1; load() }
 function prevPage() { if (page.value > 1) { page.value--; load() } }
 function nextPage() { if (page.value * PAGE_SIZE < total.value) { page.value++; load() } }
 
-onMounted(load)
+onMounted(async () => {
+  availableRoles.value = (await getAvailableImmRoles()) ?? []
+  await load()
+})
 </script>
 
 <template>
   <div class="page-container animate-fade-in">
-    <PageHeader title="Quản lý người dùng IMM" :subtitle="`Tổng ${total} người dùng`">
+    <PageHeader title="Quản lý người dùng" :subtitle="`Tổng ${total} người dùng`">
       <template #actions>
         <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
         <button
@@ -115,6 +126,23 @@ onMounted(load)
             <option value="Rejected">Từ chối</option>
           </select>
         </div>
+        <div class="form-group">
+          <label class="form-label">Khoa / Phòng</label>
+          <SmartSelect
+            v-model="filters.department"
+            doctype="AC Department"
+            placeholder="Tất cả khoa/phòng..."
+            @select="applyFilters"
+            @clear="applyFilters"
+          />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Vai trò</label>
+          <select v-model="filters.role" class="form-select text-sm" @change="applyFilters">
+            <option value="">Tất cả vai trò</option>
+            <option v-for="r in availableRoles" :key="r.name" :value="r.name">{{ r.label }}</option>
+          </select>
+        </div>
       </template>
     </ListFilterBar>
 
@@ -136,7 +164,32 @@ onMounted(load)
       <div v-else-if="users.length === 0" class="text-center text-slate-400 py-12 text-sm">
         {{ activeFilterCount > 0 ? 'Không có người dùng nào phù hợp.' : 'Không có dữ liệu.' }}
       </div>
-      <div v-else class="overflow-x-auto">
+      <template v-else>
+        <!-- Mobile cards -->
+        <div class="mobile-card-list sm:hidden">
+          <div
+            v-for="u in users"
+            :key="u.name"
+            class="mobile-card"
+            @click="router.push(`/user-profiles/${encodeURIComponent(u.name)}`)"
+          >
+            <div class="flex items-center justify-between mb-2">
+              <span class="font-mono text-sm font-semibold text-brand-700 truncate max-w-[60%]">{{ u.name }}</span>
+              <span
+                class="text-xs px-2 py-0.5 rounded-full font-medium"
+                :class="APPROVAL_COLORS[u.imm_approval_status ?? ''] ?? 'bg-gray-100 text-gray-600'"
+              >{{ APPROVAL_LABELS[u.imm_approval_status ?? ''] ?? u.imm_approval_status ?? '—' }}</span>
+            </div>
+            <p class="text-sm font-medium text-slate-900 truncate">{{ u.full_name || u.name }}</p>
+            <div class="flex flex-wrap gap-x-2 gap-y-1 mt-1.5 text-xs text-slate-500">
+              <span>{{ u.email || u.name }}</span>
+              <span v-if="u.department_name">· {{ u.department_name }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Desktop table -->
+        <div class="hidden sm:block overflow-x-auto">
         <table class="w-full text-sm">
           <thead class="bg-gray-50 border-b border-gray-200">
             <tr>
@@ -192,7 +245,8 @@ class="text-blue-600 hover:underline text-xs"
             </tr>
           </tbody>
         </table>
-      </div>
+        </div>
+      </template>
 
       <div v-if="total > PAGE_SIZE" class="flex items-center justify-between px-4 py-3 border-t border-gray-200 text-sm text-gray-600">
         <span>Trang {{ page }} · {{ total }} người dùng</span>

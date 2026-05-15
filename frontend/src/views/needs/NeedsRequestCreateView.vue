@@ -20,6 +20,7 @@ const form = reactive<Partial<NeedsRequestDoc>>({
   request_type: 'New' as RequestType,
   requesting_department: '',
   clinical_head: '',
+  device_category: '',
   device_model_ref: '',
   quantity: 1,
   target_year: currentYear + 1,
@@ -32,12 +33,17 @@ const form = reactive<Partial<NeedsRequestDoc>>({
 const canSubmit = computed(() =>
   form.request_type
   && form.requesting_department
-  && form.device_model_ref
+  && form.device_category
   && (form.quantity || 0) >= 1
   && (form.target_year || 0) >= currentYear
   && (form.clinical_justification || '').length > 0
   && (form.request_type !== 'Replacement' || !!form.replacement_for_asset),
 )
+
+// Cascade: đổi danh mục → reset model đã chọn
+function onCategoryChange() {
+  form.device_model_ref = ''
+}
 
 async function onDepartmentSelected(item: { id: string }) {
   if (!item?.id) { resetClinicalHead(); return }
@@ -145,10 +151,21 @@ async function onSubmit() {
           <div class="section-title">2 · Thiết bị muốn mua</div>
           <div class="space-y-4">
             <div class="form-group">
-              <label class="form-label">Model thiết bị <span class="text-red-500">*</span></label>
+              <label class="form-label">Danh mục thiết bị <span class="text-red-500">*</span></label>
+              <SmartSelect
+                v-model="form.device_category"
+                doctype="AC Asset Category"
+                placeholder="Tìm danh mục thiết bị..."
+                @select="onCategoryChange"
+                @clear="onCategoryChange"
+              />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Model thiết bị <span class="text-xs text-slate-400 normal-case">(tùy chọn)</span></label>
               <SmartSelect
                 v-model="form.device_model_ref"
                 doctype="IMM Device Model"
+                :filters="{ asset_category: form.device_category }"
                 placeholder="Tìm model thiết bị..."
               />
             </div>
