@@ -1,5 +1,10 @@
 # Patches for assetcore
 # Format: assetcore.patches.patch_module.execute
+
+[pre_model_sync]
+assetcore.patches.v3_1.006_dedupe_asset_category_gmdn_code
+
+[post_model_sync]
 assetcore.patches.v3_0.001_migrate_from_v2
 assetcore.patches.v3_0.002_migrate_uom_to_link
 assetcore.patches.v3_0.003_migrate_to_ac_uom
