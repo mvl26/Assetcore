@@ -310,6 +310,18 @@ export interface ImmCapaRecord {
   owner?: string
   creation?: string
   description?: string
+  source_type?: string
+  source_ref?: string
+  workflow_state?: string
+  root_cause?: string
+  corrective_action?: string
+  preventive_action?: string
+  effectiveness_check?: 'Effective' | 'Partially Effective' | 'Not Effective' | null
+  imm_root_cause_method?: string
+  imm_compliance_finding_ref?: string | null
+  imm_risk_level?: string
+  imm_reopen_count?: number
+  closed_date?: string
 }
 
 // ─── Asset Lifecycle Event ────────────────────────────────────────────────────
@@ -367,13 +379,16 @@ export interface ServiceContractAsset {
 
 export interface ServiceContract {
   name: string
+  contract_code?: string
   contract_title: string
   supplier: string
   supplier_name?: string
   contract_type: ServiceContractType
+  sign_date?: string
   contract_start: string
   contract_end: string
   contract_value?: number
+  amount_in_words?: string
   auto_renew?: 0 | 1
   sla_response_hours?: number
   coverage_description?: string

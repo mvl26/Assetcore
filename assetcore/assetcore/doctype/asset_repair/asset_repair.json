@@ -111,6 +111,25 @@
    "options": "PM Work Order"
   },
   {
+   "fieldname": "failure_description",
+   "fieldtype": "Text",
+   "label": "Mô tả lỗi",
+   "reqd": 1
+  },
+  {
+   "fieldname": "fault_image",
+   "fieldtype": "Attach Image",
+   "label": "Ảnh mô tả lỗi"
+  },
+  {
+   "fieldname": "requested_by",
+   "fieldtype": "Link",
+   "label": "Người đề nghị",
+   "options": "User",
+   "read_only": 1,
+   "no_copy": 1
+  },
+  {
    "fieldname": "repair_type",
    "fieldtype": "Select",
    "label": "Loại sửa chữa",

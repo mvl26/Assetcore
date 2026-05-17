@@ -174,6 +174,18 @@ def deactivate_rule(name: str) -> dict:
     return _handle(svc.deactivate_rule, name)
 
 
+@frappe.whitelist(methods=["POST"])
+def reactivate_rule(name: str) -> dict:
+    return _handle(svc.reactivate_rule, name)
+
+
+@frappe.whitelist()
+def get_record_history(ref_doctype: str, ref_name: str,
+                       limit: int = 50) -> dict:
+    return _handle(svc.get_record_history, ref_doctype, ref_name,
+                   int(limit))
+
+
 # ─── Finding ──────────────────────────────────────────────────────────────────
 
 @frappe.whitelist()
@@ -262,6 +274,20 @@ def create_capa_from_finding(finding_name: str,
                    responsible, due_date)
 
 
+@frappe.whitelist()
+def get_capa(name: str) -> dict:
+    return _handle(svc.get_capa, name)
+
+
+@frappe.whitelist(methods=["POST"])
+def update_capa_fields(name: str, data: str = "{}") -> dict:
+    try:
+        d = _parse_json(data, field_name="data")
+    except ServiceError as e:
+        return _err(e.message, e.code)
+    return _handle(svc.update_capa_fields, name, d)
+
+
 @frappe.whitelist(methods=["POST"])
 def advance_capa_state(name: str, target_state: str,
                        payload: str = "{}") -> dict:
@@ -338,6 +364,20 @@ def create_management_review(data: str = "{}") -> dict:
     except ServiceError as e:
         return _err(e.message, e.code)
     return _handle(svc.create_management_review, d)
+
+
+@frappe.whitelist(methods=["POST"])
+def update_management_review(name: str, data: str = "{}") -> dict:
+    try:
+        d = _parse_json(data, field_name="data")
+    except ServiceError as e:
+        return _err(e.message, e.code)
+    return _handle(svc.update_management_review, name, d)
+
+
+@frappe.whitelist(methods=["POST"])
+def advance_mr_state(name: str, target_state: str) -> dict:
+    return _handle(svc.advance_mr_state, name, target_state)
 
 
 @frappe.whitelist(methods=["POST"])

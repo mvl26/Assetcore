@@ -151,63 +151,89 @@ onMounted(() => store.fetchPlans())
       </div>
 
       <div v-if="store.loading" class="p-6 text-sm text-slate-500">Đang tải...</div>
-      <div v-else-if="store.plans.length" class="overflow-x-auto">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Mã kế hoạch</th>
-              <th>Kỳ kế hoạch</th>
-              <th class="num">Năm</th>
-              <th class="num">Tổng ngân sách</th>
-              <th class="num">Đã phân bổ</th>
-              <th class="num">Tỷ lệ sử dụng</th>
-              <th>Trạng thái</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="(p, idx) in store.plans" :key="p.name" class="animate-fade-in" :class="[`stagger-${Math.min(idx + 1, 8)}`]">
-              <td>
-                <router-link :to="`/procurement-plans/${p.name}`" class="link-cell">
-                  <span class="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded text-slate-700">{{ p.name }}</span>
-                </router-link>
-              </td>
-              <td>
-                <button
-class="link-cell" :title="`Lọc: ${planPeriodLabel(p.plan_period)}`"
-                        @click="quickFilter('plan_period', p.plan_period)">
-                  {{ planPeriodLabel(p.plan_period) }}
-                </button>
-              </td>
-              <td class="num">
-                <button
-class="link-cell" :title="`Lọc năm: ${p.plan_year}`"
-                        @click="quickFilter('plan_year', p.plan_year)">
-                  {{ p.plan_year }}
-                </button>
-              </td>
-              <td class="num">{{ formatVnd(p.budget_envelope) }}</td>
-              <td class="num">{{ formatVnd(p.allocated_capex || 0) }}</td>
-              <td class="num">
-                <span :class="utilClass(p.utilization_pct)">{{ (p.utilization_pct || 0).toFixed(1) }}%</span>
-              </td>
-              <td>
-                <button
-                  type="button"
-                  class="pill-btn"
-                  :title="`Lọc trạng thái: ${stateLabel(p.workflow_state)}`"
-                  @click="quickFilter('workflow_state', p.workflow_state)"
-                >
-                  <StatusBadge :state="p.workflow_state" />
-                </button>
-              </td>
-              <td>
-                <router-link :to="`/procurement-plans/${p.name}`" class="text-xs text-brand-600 hover:underline">Chi tiết →</router-link>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <template v-else-if="store.plans.length">
+        <!-- Mobile cards -->
+        <div class="mobile-card-list sm:hidden">
+          <div
+            v-for="p in store.plans"
+            :key="p.name"
+            class="mobile-card"
+            @click="$router.push(`/procurement-plans/${p.name}`)"
+          >
+            <div class="flex items-center justify-between mb-2">
+              <span class="font-mono text-sm font-semibold text-brand-700">{{ p.name }}</span>
+              <StatusBadge :state="p.workflow_state" />
+            </div>
+            <p class="text-sm font-medium text-slate-900 truncate">{{ planPeriodLabel(p.plan_period) }} · {{ p.plan_year }}</p>
+            <div class="flex flex-wrap gap-x-2 gap-y-1 mt-1.5 text-xs text-slate-500">
+              <span>Ngân sách: {{ formatVnd(p.budget_envelope) }}</span>
+              <span>· Sử dụng: <span :class="utilClass(p.utilization_pct)">{{ (p.utilization_pct || 0).toFixed(1) }}%</span></span>
+            </div>
+          </div>
+          <div v-if="store.plans.length === 0" class="py-12 text-center text-slate-400">
+            <p class="text-sm">Không có dữ liệu</p>
+          </div>
+        </div>
+
+        <!-- Desktop table -->
+        <div class="hidden sm:block overflow-x-auto">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Mã kế hoạch</th>
+                <th>Kỳ kế hoạch</th>
+                <th class="num">Năm</th>
+                <th class="num">Tổng ngân sách</th>
+                <th class="num">Đã phân bổ</th>
+                <th class="num">Tỷ lệ sử dụng</th>
+                <th>Trạng thái</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(p, idx) in store.plans" :key="p.name" class="animate-fade-in" :class="[`stagger-${Math.min(idx + 1, 8)}`]">
+                <td>
+                  <router-link :to="`/procurement-plans/${p.name}`" class="link-cell">
+                    <span class="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded text-slate-700">{{ p.name }}</span>
+                  </router-link>
+                </td>
+                <td>
+                  <button
+  class="link-cell" :title="`Lọc: ${planPeriodLabel(p.plan_period)}`"
+                          @click="quickFilter('plan_period', p.plan_period)">
+                    {{ planPeriodLabel(p.plan_period) }}
+                  </button>
+                </td>
+                <td class="num">
+                  <button
+  class="link-cell" :title="`Lọc năm: ${p.plan_year}`"
+                          @click="quickFilter('plan_year', p.plan_year)">
+                    {{ p.plan_year }}
+                  </button>
+                </td>
+                <td class="num">{{ formatVnd(p.budget_envelope) }}</td>
+                <td class="num">{{ formatVnd(p.allocated_capex || 0) }}</td>
+                <td class="num">
+                  <span :class="utilClass(p.utilization_pct)">{{ (p.utilization_pct || 0).toFixed(1) }}%</span>
+                </td>
+                <td>
+                  <button
+                    type="button"
+                    class="pill-btn"
+                    :title="`Lọc trạng thái: ${stateLabel(p.workflow_state)}`"
+                    @click="quickFilter('workflow_state', p.workflow_state)"
+                  >
+                    <StatusBadge :state="p.workflow_state" />
+                  </button>
+                </td>
+                <td>
+                  <router-link :to="`/procurement-plans/${p.name}`" class="text-xs text-brand-600 hover:underline">Chi tiết →</router-link>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </template>
       <div v-else-if="!store.plans.length" class="flex flex-col items-center justify-center py-16 text-slate-400">
         <p class="text-sm">Không có kế hoạch nào phù hợp</p>
         <button v-if="activeChips.length > 0" class="mt-3 text-xs text-blue-500 hover:text-blue-700 underline" @click="resetFilters">

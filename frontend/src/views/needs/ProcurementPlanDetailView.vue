@@ -271,12 +271,14 @@ onMounted(loadPlan)
 
 <style scoped>
 .page-container { padding: 1.5rem; }
-.page-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1rem; }
-.header-actions { display: flex; gap: 0.5rem; }
+.page-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem; }
+.header-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
 .meta { color: #6b7280; font-size: 0.85rem; }
 .muted { color: #6b7280; }
 .text-center { text-align: center; }
-.grid-3col { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; margin-bottom: 1rem; }
+.grid-3col { display: grid; grid-template-columns: 1fr; gap: 1rem; margin-bottom: 1rem; }
+@media (min-width: 640px) { .grid-3col { grid-template-columns: 1fr 1fr; } }
+@media (min-width: 768px) { .grid-3col { grid-template-columns: 1fr 1fr 1fr; } }
 .card { background: white; border: 1px solid #e5e7eb; border-radius: 8px; padding: 1rem; }
 .card h3 { margin: 0 0 0.75rem; font-size: 1rem; color: #111827; }
 .kpi { font-size: 1.5rem; font-weight: 700; color: #111827; }
@@ -296,7 +298,7 @@ onMounted(loadPlan)
 .loading { padding: 3rem; text-align: center; color: #6b7280; }
 .alert-error { background: #fef2f2; border: 1px solid #fca5a5; padding: 0.75rem 1rem; border-radius: 6px; }
 .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; z-index: 50; }
-.modal { background: white; border-radius: 12px; padding: 1.25rem; min-width: 600px; max-width: 90vw; max-height: 85vh; display: flex; flex-direction: column; }
+.modal { background: white; border-radius: 12px; padding: 1.25rem; width: min(600px, 92vw); max-height: 85vh; display: flex; flex-direction: column; overflow-y: auto; }
 .modal-body { overflow-y: auto; max-height: 60vh; margin: 0.75rem 0; }
 .modal-actions { display: flex; gap: 0.5rem; justify-content: flex-end; }
 </style>

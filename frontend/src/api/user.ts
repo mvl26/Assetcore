@@ -81,6 +81,7 @@ interface Paginated<T> {
 export const listUsers = (params: {
   search?: string
   department?: string
+  role?: string
   is_active?: number
   approval_status?: string
   page?: number

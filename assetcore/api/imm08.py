@@ -211,3 +211,9 @@ def version_pm_template(source_name: str, new_version: str) -> dict:
 @frappe.whitelist(methods=["POST"])
 def delete_pm_template(name: str) -> dict:
     return _handle(svc.delete_template, name)
+
+
+@frappe.whitelist(methods=["POST"])
+def apply_pm_template_to_category(template_name: str) -> dict:
+    """Bulk-tạo PM Schedule cho mọi asset cùng danh mục với template."""
+    return _handle(svc.apply_template_to_category_assets, template_name)

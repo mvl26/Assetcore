@@ -161,69 +161,109 @@ onMounted(load)
         <button v-else class="btn-primary mt-3" @click="router.push('/stock-movements/new')">Tạo phiếu kho đầu tiên</button>
       </div>
 
-      <div v-else class="overflow-x-auto">
-        <table class="w-full text-sm">
-          <thead class="bg-slate-50 border-b border-slate-100">
-            <tr>
-              <th class="table-header">Mã phiếu</th>
-              <th class="table-header">Loại</th>
-              <th class="table-header hidden md:table-cell">Ngày</th>
-              <th class="table-header">Kho</th>
-              <th class="table-header text-right hidden md:table-cell">Giá trị</th>
-              <th class="table-header hidden lg:table-cell">Chứng từ</th>
-              <th class="table-header text-center">Trạng thái</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-slate-50">
-            <tr
-v-for="m in rows" :key="m.name"
-              class="hover:bg-slate-50/70 cursor-pointer transition-all hover:translate-x-0.5"
-              @click="router.push(`/stock-movements/${m.name}`)"
-            >
-              <td class="px-4 py-3 font-mono text-xs text-brand-700 font-semibold">{{ m.name }}</td>
-              <td class="px-4 py-3">
-                <button
-                  class="text-xs px-2 py-0.5 rounded-full font-medium transition-all hover:ring-2 hover:ring-offset-1 hover:ring-current/50"
-                  :class="TYPE_COLORS[m.movement_type] || 'bg-slate-100 text-slate-600'"
-                  :title="`Lọc: ${TYPE_LABELS[m.movement_type] || m.movement_type}`"
-                  @click.stop="quickFilter('type', m.movement_type)"
-                >
-{{ TYPE_LABELS[m.movement_type] || m.movement_type }}
-</button>
-              </td>
-              <td class="px-4 py-3 text-xs text-slate-500 hidden md:table-cell">{{ formatDt(m.movement_date) }}</td>
-              <td class="px-4 py-3 text-xs text-slate-600">
-                <template v-if="m.from_warehouse || m.to_warehouse">
-                  <span v-if="m.from_warehouse" :title="m.from_warehouse" class="font-medium">
-                    {{ m.from_warehouse_code || m.from_warehouse_name || m.from_warehouse }}
-                  </span>
-                  <span v-if="m.from_warehouse && m.to_warehouse" class="text-slate-400 mx-1">→</span>
-                  <span v-if="m.to_warehouse" :title="m.to_warehouse" class="font-medium">
-                    {{ m.to_warehouse_code || m.to_warehouse_name || m.to_warehouse }}
-                  </span>
-                </template>
-                <span v-else class="text-slate-400">—</span>
-              </td>
-              <td class="px-4 py-3 text-right text-sm text-slate-700 hidden md:table-cell">{{ vnd(m.total_value) }}</td>
-              <td class="px-4 py-3 text-xs text-slate-500 hidden lg:table-cell">
-                <span v-if="m.reference_type">{{ m.reference_type }}</span>
-                <span v-if="m.reference_name" class="text-slate-400">· {{ m.reference_name }}</span>
-                <span v-if="!m.reference_type" class="text-slate-300">—</span>
-              </td>
-              <td class="px-4 py-3 text-center">
-                <button
-                  class="text-xs px-2 py-0.5 rounded-full font-medium transition-all hover:ring-2 hover:ring-offset-1 hover:ring-current/50"
-                  :class="STATUS_COLORS[m.status] || 'bg-slate-100 text-slate-600'"
-                  :title="`Lọc: ${STATUS_LABELS[m.status] || m.status}`"
-                  @click.stop="quickFilter('status', m.status)"
-                >
-{{ STATUS_LABELS[m.status] || m.status }}
-</button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <template v-else>
+        <!-- Mobile cards (< sm) -->
+        <div class="mobile-card-list sm:hidden">
+          <div
+            v-for="m in rows"
+            :key="m.name"
+            class="mobile-card"
+            @click="router.push(`/stock-movements/${m.name}`)"
+          >
+            <div class="flex items-center justify-between mb-2">
+              <span class="font-mono text-sm font-semibold text-brand-700">{{ m.name }}</span>
+              <button
+                class="px-2.5 py-0.5 rounded-full text-xs font-medium"
+                :class="STATUS_COLORS[m.status] || 'bg-slate-100 text-slate-600'"
+                @click.stop="quickFilter('status', m.status)"
+              >{{ STATUS_LABELS[m.status] || m.status }}</button>
+            </div>
+            <p class="text-sm font-medium text-slate-900 truncate">
+              <template v-if="m.from_warehouse || m.to_warehouse">
+                {{ m.from_warehouse_name || m.from_warehouse_code || m.from_warehouse || '' }}
+                <span v-if="m.from_warehouse && m.to_warehouse"> → </span>
+                {{ m.to_warehouse_name || m.to_warehouse_code || m.to_warehouse || '' }}
+              </template>
+              <span v-else>—</span>
+            </p>
+            <div class="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1.5 text-xs text-slate-500">
+              <button
+                class="px-1.5 py-0.5 rounded-full text-[11px] font-medium"
+                :class="TYPE_COLORS[m.movement_type] || 'bg-slate-100 text-slate-600'"
+                @click.stop="quickFilter('type', m.movement_type)"
+              >{{ TYPE_LABELS[m.movement_type] || m.movement_type }}</button>
+              <span class="text-slate-300">·</span>
+              <span>{{ formatDt(m.movement_date) }}</span>
+              <span v-if="m.total_value" class="text-slate-300">·</span>
+              <span v-if="m.total_value">{{ vnd(m.total_value) }}</span>
+            </div>
+          </div>
+          <div v-if="rows.length === 0" class="py-12 text-center text-slate-400">
+            <p class="text-sm font-medium">Không có dữ liệu</p>
+          </div>
+        </div>
+
+        <!-- Desktop table (sm+) -->
+        <div class="hidden sm:block overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead class="bg-slate-50 border-b border-slate-100">
+              <tr>
+                <th class="table-header">Mã phiếu</th>
+                <th class="table-header">Loại</th>
+                <th class="table-header hidden md:table-cell">Ngày</th>
+                <th class="table-header">Kho</th>
+                <th class="table-header text-right hidden md:table-cell">Giá trị</th>
+                <th class="table-header hidden lg:table-cell">Chứng từ</th>
+                <th class="table-header text-center">Trạng thái</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-50">
+              <tr
+                v-for="m in rows" :key="m.name"
+                class="hover:bg-slate-50/70 cursor-pointer transition-all hover:translate-x-0.5"
+                @click="router.push(`/stock-movements/${m.name}`)"
+              >
+                <td class="px-4 py-3 font-mono text-xs text-brand-700 font-semibold">{{ m.name }}</td>
+                <td class="px-4 py-3">
+                  <button
+                    class="text-xs px-2 py-0.5 rounded-full font-medium transition-all hover:ring-2 hover:ring-offset-1 hover:ring-current/50"
+                    :class="TYPE_COLORS[m.movement_type] || 'bg-slate-100 text-slate-600'"
+                    :title="`Lọc: ${TYPE_LABELS[m.movement_type] || m.movement_type}`"
+                    @click.stop="quickFilter('type', m.movement_type)"
+                  >{{ TYPE_LABELS[m.movement_type] || m.movement_type }}</button>
+                </td>
+                <td class="px-4 py-3 text-xs text-slate-500 hidden md:table-cell">{{ formatDt(m.movement_date) }}</td>
+                <td class="px-4 py-3 text-xs text-slate-600">
+                  <template v-if="m.from_warehouse || m.to_warehouse">
+                    <span v-if="m.from_warehouse" :title="m.from_warehouse_code || m.from_warehouse" class="font-medium">
+                      {{ m.from_warehouse_name || m.from_warehouse_code || m.from_warehouse }}
+                    </span>
+                    <span v-if="m.from_warehouse && m.to_warehouse" class="text-slate-400 mx-1">→</span>
+                    <span v-if="m.to_warehouse" :title="m.to_warehouse_code || m.to_warehouse" class="font-medium">
+                      {{ m.to_warehouse_name || m.to_warehouse_code || m.to_warehouse }}
+                    </span>
+                  </template>
+                  <span v-else class="text-slate-400">—</span>
+                </td>
+                <td class="px-4 py-3 text-right text-sm text-slate-700 hidden md:table-cell">{{ vnd(m.total_value) }}</td>
+                <td class="px-4 py-3 text-xs text-slate-500 hidden lg:table-cell">
+                  <span v-if="m.reference_type">{{ m.reference_type }}</span>
+                  <span v-if="m.reference_name" class="text-slate-400">· {{ m.reference_name }}</span>
+                  <span v-if="!m.reference_type" class="text-slate-300">—</span>
+                </td>
+                <td class="px-4 py-3 text-center">
+                  <button
+                    class="text-xs px-2 py-0.5 rounded-full font-medium transition-all hover:ring-2 hover:ring-offset-1 hover:ring-current/50"
+                    :class="STATUS_COLORS[m.status] || 'bg-slate-100 text-slate-600'"
+                    :title="`Lọc: ${STATUS_LABELS[m.status] || m.status}`"
+                    @click.stop="quickFilter('status', m.status)"
+                  >{{ STATUS_LABELS[m.status] || m.status }}</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </template>
 
       <div v-if="total > PAGE_SIZE" class="flex items-center justify-between px-4 py-3 border-t border-slate-100 text-sm text-slate-500">
         <span>{{ (page - 1) * PAGE_SIZE + 1 }}–{{ Math.min(page * PAGE_SIZE, total) }} / {{ total }}</span>

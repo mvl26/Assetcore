@@ -197,7 +197,10 @@ v-if="toast" class="mb-4 px-4 py-3 rounded-lg text-sm transition-all"
 
       <!-- Info -->
       <div class="card p-5 mb-4">
-        <h2 class="text-sm font-semibold text-slate-700 mb-4 pb-2 border-b border-slate-100">Thông tin đơn hàng</h2>
+        <div class="flex items-center justify-between mb-4 pb-2 border-b border-slate-100">
+          <h2 class="text-sm font-semibold text-slate-700">Thông tin đơn hàng</h2>
+          <span v-if="doc.po_code" class="font-mono text-sm font-semibold text-blue-700">{{ doc.po_code }}</span>
+        </div>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
           <div>
             <p class="text-xs text-slate-500 mb-0.5">Nhà cung cấp</p>
@@ -212,12 +215,16 @@ class="font-medium text-blue-600 hover:underline text-left"
             <p class="font-medium text-slate-800">{{ formatDt(doc.purchase_date) }}</p>
           </div>
           <div v-if="doc.invoice_no">
-            <p class="text-xs text-slate-500 mb-0.5">Số hóa đơn / Mã PO</p>
+            <p class="text-xs text-slate-500 mb-0.5">Số hóa đơn</p>
             <p class="font-mono font-medium text-slate-800">{{ doc.invoice_no }}</p>
           </div>
           <div v-if="doc.expected_delivery">
-            <p class="text-xs text-slate-500 mb-0.5">Ngày giao hàng dự kiến</p>
+            <p class="text-xs text-slate-500 mb-0.5">Thời hạn giao hàng (muộn nhất)</p>
             <p class="font-medium text-slate-800">{{ formatDate(doc.expected_delivery) }}</p>
+          </div>
+          <div v-if="doc.actual_delivery_date">
+            <p class="text-xs text-slate-500 mb-0.5">Ngày giao hàng thực tế</p>
+            <p class="font-medium text-slate-800">{{ formatDate(doc.actual_delivery_date) }}</p>
           </div>
         </div>
         <div v-if="doc.notes" class="mt-4 pt-3 border-t border-slate-100">

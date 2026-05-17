@@ -12,6 +12,7 @@ import PageHeader from '@/components/common/PageHeader.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import BaseModal from '@/components/common/BaseModal.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
+import RecordHistory from '@/components/common/RecordHistory.vue'
 
 const props = defineProps<{ id: string }>()
 const router = useRouter()
@@ -125,7 +126,7 @@ onMounted(load)
       <PageHeader
         :back-to="'/compliance/findings'"
         :title="finding.name"
-        :subtitle="`IMM-16 · Theo dõi tuân thủ — Quy tắc ${finding.rule}`"
+        :subtitle="`IMM-16 · Theo dõi tuân thủ — Quy tắc ${finding.rule_name || finding.rule}`"
         :breadcrumb="[
           { label: 'IMM-16 · Theo dõi tuân thủ', to: '/compliance/scorecard' },
           { label: 'Phát hiện', to: '/compliance/findings' },
@@ -162,7 +163,7 @@ onMounted(load)
           </div>
         </div>
 
-        <div class="grid grid-cols-2 gap-4 pt-4 border-t border-slate-100">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4 border-t border-slate-100">
           <div>
             <p class="t-eyebrow mb-1.5">Thiết bị</p>
             <button
@@ -181,7 +182,8 @@ onMounted(load)
           </div>
           <div>
             <p class="t-eyebrow mb-1.5">Khoa / phòng chịu trách nhiệm</p>
-            <p class="text-sm text-slate-700">{{ finding.responsible_dept || '—' }}</p>
+            <p class="text-sm text-slate-700">{{ finding.responsible_dept_name || finding.responsible_dept || '—' }}</p>
+            <p v-if="finding.responsible_dept_name && finding.responsible_dept !== finding.responsible_dept_name" class="text-xs text-slate-400 font-mono">{{ finding.responsible_dept }}</p>
           </div>
           <div>
             <p class="t-eyebrow mb-1.5">Giá trị hiện tại</p>
@@ -193,16 +195,28 @@ onMounted(load)
           </div>
         </div>
 
-        <div v-if="finding.capa_ref" class="pt-4 border-t border-slate-100">
+        <div class="pt-4 border-t border-slate-100">
           <p class="t-eyebrow mb-1.5">CAPA liên kết</p>
           <button
+            v-if="finding.capa_ref"
             class="font-mono text-sm text-brand-700 font-semibold hover:underline"
             @click="router.push(`/capas/${finding.capa_ref}`)"
           >
             {{ finding.capa_ref }}
           </button>
+          <div v-else class="flex items-center gap-3">
+            <span class="text-sm text-slate-400">Chưa có CAPA</span>
+            <button
+              v-if="canCreateCapa"
+              class="btn-secondary text-xs"
+              @click="showCreateCapa = true"
+            >Tạo CAPA</button>
+          </div>
         </div>
       </div>
+
+      <!-- BUG-16-05: audit trail / history -->
+      <RecordHistory ref-doctype="IMM Compliance Finding" :ref-name="finding.name" />
     </template>
 
     <!-- Confirm Modal -->

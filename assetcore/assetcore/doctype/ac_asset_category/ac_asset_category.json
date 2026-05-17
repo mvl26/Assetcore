@@ -119,6 +119,7 @@
    "fieldname": "gmdn_code",
    "fieldtype": "Data",
    "label": "GMDN Code",
+   "unique": 1,
    "description": "Mã GMDN của danh mục thiết bị — kế thừa xuống Model và Asset"
   },
   {

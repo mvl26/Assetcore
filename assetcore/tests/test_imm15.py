@@ -251,5 +251,89 @@ class TestDashboardStats(TestImm15Base):
             self.assertIn(key, stats)
 
 
+class TestDashboardLowStockPerBin(unittest.TestCase):
+    """BUG-15-03 regression: the /inventory dashboard low-stock KPI
+    (assetcore.services.inventory.get_stock_overview) MUST be computed
+    per-warehouse-bin, consistent with the /stock page
+    (assetcore.api.inventory.list_stock_levels with low_only=1).
+
+    Old defect: SUM(qty_on_hand) across all warehouses was compared to the
+    part min, so a part with two bins (2 and 4, min 5) summed to 6 ≥ 5 and
+    was reported as NOT low — while the stock page correctly flagged both
+    bins. This test sets up exactly that masking scenario.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        any_uom = frappe.db.get_value("AC UOM", {}, "name") or None
+        cls.wh_a = _ensure_doc("AC Warehouse", "AC-WH-LOW-A",
+                                {"warehouse_name": "Low WH A", "is_active": 1})
+        cls.wh_b = _ensure_doc("AC Warehouse", "AC-WH-LOW-B",
+                                {"warehouse_name": "Low WH B", "is_active": 1})
+        part_data = {"part_name": "Low Stock Part", "unit_cost": 50000,
+                     "is_active": 1, "min_stock_level": 5}
+        if any_uom:
+            part_data["stock_uom"] = any_uom
+        cls.part = _ensure_doc("AC Spare Part", "AC-SP-LOW15", part_data)
+        # Bin A qty 2 (< 5), Bin B qty 4 (< 5). SUM = 6 ≥ 5 (would mask under
+        # the old aggregate logic) but each bin is individually below min.
+        for wh, qty in ((cls.wh_a, 2), (cls.wh_b, 4)):
+            if not frappe.db.exists("AC Spare Part Stock",
+                                    {"spare_part": cls.part, "warehouse": wh}):
+                frappe.get_doc({
+                    "doctype": "AC Spare Part Stock", "spare_part": cls.part,
+                    "warehouse": wh, "qty_on_hand": qty, "available_qty": qty,
+                }).insert(ignore_permissions=True)
+            else:
+                frappe.db.set_value(
+                    "AC Spare Part Stock",
+                    {"spare_part": cls.part, "warehouse": wh},
+                    {"qty_on_hand": qty, "available_qty": qty})
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        with suppress(Exception):
+            for wh in (cls.wh_a, cls.wh_b):
+                frappe.db.delete("AC Spare Part Stock",
+                                 {"spare_part": cls.part, "warehouse": wh})
+            frappe.delete_doc("AC Spare Part", cls.part,
+                              ignore_permissions=True, force=True)
+            for wh in (cls.wh_a, cls.wh_b):
+                frappe.delete_doc("AC Warehouse", wh,
+                                  ignore_permissions=True, force=True)
+        frappe.db.commit()
+
+    def _stock_page_low_bins(self) -> set:
+        """Ground truth: bins the /stock page flags as low for our part."""
+        from assetcore.api import inventory as inv_api
+        res = inv_api.list_stock_levels(page=1, page_size=200, low_only=1,
+                                        spare_part=self.part)
+        return {(r["warehouse"], r["spare_part"]) for r in res["data"]["items"]}
+
+    def test_overview_low_stock_is_per_bin(self):
+        from assetcore.services.inventory import get_stock_overview
+        ov = get_stock_overview()
+        ours = [i for i in ov["low_stock_items"] if i["spare_part"] == self.part]
+        # Both bins must surface (old SUM logic would surface neither).
+        bins = {(i["warehouse"], i["spare_part"]) for i in ours}
+        self.assertEqual(bins, {(self.wh_a, self.part), (self.wh_b, self.part)})
+        for i in ours:
+            self.assertEqual(i["min_stock_level"], 5)
+            self.assertLess(i["total_qty"], i["min_stock_level"])
+
+    def test_overview_count_matches_stock_page(self):
+        from assetcore.services.inventory import get_stock_overview
+        ov = get_stock_overview()
+        ov_bins = {(i["warehouse"], i["spare_part"])
+                   for i in ov["low_stock_items"]
+                   if i["spare_part"] == self.part}
+        self.assertEqual(ov_bins, self._stock_page_low_bins())
+        # The KPI count is the full per-bin count, not capped at the 10-row
+        # display list; it must be ≥ the 2 bins we created.
+        self.assertGreaterEqual(ov["low_stock_count"], 2)
+
+
 if __name__ == "__main__":
     unittest.main()

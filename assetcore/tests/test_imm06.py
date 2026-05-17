@@ -16,8 +16,12 @@ from assetcore.services.imm06 import (
     SessionStatus,
     archive_old_competency,
     compute_overall_results,
+    enroll_participants,
+    remove_participant,
     signoff_competency,
+    get_program_score_bounds,
     validate_passing_score_range,
+    validate_score_bounds_config,
     validate_validity_range,
 )
 from assetcore.services.shared import ServiceError
@@ -160,6 +164,35 @@ class TestValidatePassingScoreRange(unittest.TestCase):
 
     def test_none_skipped(self):
         validate_passing_score_range(frappe._dict(passing_score_pct=None))
+
+
+# ─── Slide 21: score bounds config + helper ──────────────────────────────────
+
+class TestScoreBoundsConfig(unittest.TestCase):
+    """Slide 21: max_score must be > min_score."""
+
+    def test_valid_bounds_pass(self):
+        validate_score_bounds_config(frappe._dict(min_score=0, max_score=100))
+
+    def test_max_equals_min_raises(self):
+        with self.assertRaises(frappe.ValidationError):
+            validate_score_bounds_config(frappe._dict(min_score=50, max_score=50))
+
+    def test_max_below_min_raises(self):
+        with self.assertRaises(frappe.ValidationError):
+            validate_score_bounds_config(frappe._dict(min_score=80, max_score=20))
+
+    def test_defaults_when_unset(self):
+        # missing attrs → min 0 / max 100 → valid
+        validate_score_bounds_config(frappe._dict())
+
+    def test_get_bounds_returns_tuple(self):
+        mn, mx = get_program_score_bounds(frappe._dict(min_score=10, max_score=90))
+        self.assertEqual((mn, mx), (10.0, 90.0))
+
+    def test_get_bounds_invalid_raises(self):
+        with self.assertRaises(frappe.ValidationError):
+            get_program_score_bounds(frappe._dict(min_score=90, max_score=10))
 
 
 # ─── validate_validity_range ─────────────────────────────────────────────────
@@ -308,6 +341,162 @@ class TestArchiveOldCompetency(unittest.TestCase):
         count = archive_old_competency("Administrator", model, exclude=comp)
         self.assertEqual(count, 0)
         frappe.db.delete("IMM User Competency", {"name": comp})
+
+
+# ─── Slide 20: IMM Trainer ───────────────────────────────────────────────────
+
+class TestIMMTrainer(unittest.TestCase):
+    """Slide 20: create IMM Trainer + assign to a training session."""
+
+    def test_create_trainer_and_assign_to_session(self):
+        trainer = frappe.get_doc({
+            "doctype": "IMM Trainer",
+            "trainer_name": "_Test Trainer Slide20",
+            "organization": "_Test Org",
+            "is_internal": 1,
+        })
+        trainer.insert(ignore_permissions=True)
+        self.assertTrue(trainer.name.startswith("TRN-"))
+
+        prog = _make_program()
+        sess = frappe.get_doc({
+            "doctype": "IMM Training Session",
+            "training_program": prog,
+            "session_date": nowdate(),
+            "session_type": "Onsite",
+            "duration_planned_hours": 4,
+            "evaluation_method": "Cả hai",
+            "trainer_ref": trainer.name,
+        })
+        sess.flags.ignore_links = True
+        sess.insert(ignore_permissions=True)
+        self.assertEqual(sess.trainer_ref, trainer.name)
+
+        frappe.delete_doc("IMM Training Session", sess.name, force=True, ignore_permissions=True)
+        frappe.delete_doc("IMM Training Program", prog, force=True, ignore_permissions=True)
+        frappe.delete_doc("IMM Trainer", trainer.name, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+
+# ─── Slide 21: participant score range enforcement ───────────────────────────
+
+class TestParticipantScoreRange(unittest.TestCase):
+    """Slide 21: theory/practical score outside [min,max] → reject on session save."""
+
+    def _program(self, *, min_score, max_score) -> str:
+        doc = frappe.get_doc({
+            "doctype": "IMM Training Program",
+            "program_code": f"_TEST-SC-{frappe.generate_hash(length=6)}",
+            "program_name": "_Test Score Program",
+            "target_device_category": "_Test Category",
+            "passing_score_pct": 70,
+            "assessment_method": "Both",
+            "validity_period_months": 12,
+            "min_score": min_score,
+            "max_score": max_score,
+            "workflow_state": ProgramStatus.ACTIVE,
+        })
+        doc.flags.ignore_mandatory = True
+        doc.flags.ignore_links = True
+        doc.insert(ignore_permissions=True)
+        return doc.name
+
+    def test_score_above_max_rejected(self):
+        prog = self._program(min_score=0, max_score=100)
+        sess = frappe.get_doc({
+            "doctype": "IMM Training Session",
+            "training_program": prog,
+            "session_date": nowdate(),
+            "session_type": "Onsite",
+            "duration_planned_hours": 4,
+            "instructor": "Administrator",
+            "participants": [{
+                "user": "Administrator",
+                "theory_score": 150,
+                "practical_score": 50,
+            }],
+        })
+        sess.flags.ignore_links = True
+        with self.assertRaises(frappe.ValidationError):
+            sess.insert(ignore_permissions=True)
+        frappe.delete_doc("IMM Training Program", prog, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def test_program_max_le_min_rejected(self):
+        with self.assertRaises(frappe.ValidationError):
+            self._program(min_score=80, max_score=20)
+        frappe.db.rollback()
+
+
+# ─── Slide 19: enroll / remove participants ──────────────────────────────────
+
+class TestEnrollParticipants(unittest.TestCase):
+    """Slide 19: BE enroll/remove trainees on a Training Session."""
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        for r in ("IMM System Admin", "IMM Training Officer"):
+            if not frappe.db.exists("Role", r):
+                frappe.get_doc({"doctype": "Role", "role_name": r}
+                               ).insert(ignore_permissions=True)
+        frappe.get_doc("User", "Administrator").add_roles(
+            "IMM System Admin", "IMM Training Officer")
+        cls.prog = _make_program()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.delete_doc("IMM Training Program", cls.prog,
+                          force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def _session(self) -> str:
+        sess = frappe.get_doc({
+            "doctype": "IMM Training Session",
+            "training_program": self.prog,
+            "session_date": nowdate(),
+            "session_type": "Onsite",
+            "duration_planned_hours": 4,
+            "instructor": "Administrator",
+        })
+        sess.flags.ignore_links = True
+        sess.insert(ignore_permissions=True)
+        frappe.db.commit()
+        return sess.name
+
+    def test_enroll_adds_rows(self):
+        name = self._session()
+        res = enroll_participants(name, [
+            {"user": "Administrator", "role_at_session": "Operator"},
+            {"external_name": "Nguyen Van Ngoai"},
+        ])
+        self.assertEqual(res["added"], 2)
+        self.assertEqual(res["participant_count"], 2)
+        doc = frappe.get_doc("IMM Training Session", name)
+        self.assertEqual(len(doc.participants), 2)
+        ext = [p for p in doc.participants if p.role_at_session == "External"]
+        self.assertEqual(len(ext), 1)
+        self.assertIn("Nguyen Van Ngoai", ext[0].remarks)
+
+    def test_enroll_on_completed_rejected(self):
+        name = self._session()
+        frappe.db.set_value("IMM Training Session", name,
+                            "workflow_state", SessionStatus.COMPLETED)
+        frappe.db.commit()
+        with self.assertRaises(ServiceError) as ctx:
+            enroll_participants(name, [{"user": "Administrator"}])
+        self.assertIn("Completed", str(ctx.exception.message))
+
+    def test_remove_participant_works(self):
+        name = self._session()
+        enroll_participants(name, [{"user": "Administrator"}])
+        doc = frappe.get_doc("IMM Training Session", name)
+        row = doc.participants[0].name
+        res = remove_participant(name, row)
+        self.assertTrue(res["removed"])
+        self.assertEqual(res["participant_count"], 0)
+        doc2 = frappe.get_doc("IMM Training Session", name)
+        self.assertEqual(len(doc2.participants), 0)
 
 
 if __name__ == "__main__":

@@ -167,7 +167,30 @@ onMounted(() => { store.fetchList(); store.fetchKpis() })
       </div>
 
       <div v-if="store.loading" class="p-6 text-sm text-slate-500">Đang tải...</div>
-      <div v-else-if="filteredSpecs.length" class="overflow-x-auto">
+      <template v-else-if="filteredSpecs.length">
+        <!-- Mobile cards -->
+        <div class="mobile-card-list sm:hidden">
+          <div
+            v-for="s in filteredSpecs"
+            :key="s.name"
+            class="mobile-card"
+            @click="goDetail(s.name)"
+          >
+            <div class="flex items-center justify-between mb-2">
+              <span class="font-mono text-sm font-semibold text-brand-700">{{ s.name }}</span>
+              <StatusBadge :state="s.workflow_state" />
+            </div>
+            <p class="text-sm font-medium text-slate-900 truncate">{{ (s as any).device_model_name || s.device_model_ref }}</p>
+            <div class="flex flex-wrap gap-x-2 gap-y-1 mt-1.5 text-xs text-slate-500">
+              <span>v{{ s.version }}</span>
+              <span>· Bắt buộc: {{ s.total_mandatory ?? 0 }}</span>
+              <span :class="lockInClass(s.lock_in_score)">· Phụ thuộc: {{ s.lock_in_score != null ? s.lock_in_score.toFixed(2) : '—' }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Desktop table -->
+        <div class="hidden sm:block overflow-x-auto">
         <table class="data-table">
           <thead>
             <tr>
@@ -217,7 +240,8 @@ v-if="s.device_model_ref" class="link-cell" :title="`Lọc: ${s.device_model_ref
             </tr>
           </tbody>
         </table>
-      </div>
+        </div>
+      </template>
       <div v-else class="flex flex-col items-center justify-center py-16 text-slate-400">
         <p class="text-sm">Không có hồ sơ kỹ thuật phù hợp</p>
         <button v-if="activeChips.length > 0" class="mt-3 text-xs text-blue-500 hover:text-blue-700 underline" @click="resetFilters">

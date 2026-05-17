@@ -155,7 +155,44 @@ stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
 
     <!-- Table -->
     <template v-else>
-      <div class="table-wrapper animate-slide-up" style="animation-delay: 80ms">
+      <!-- Mobile cards (< sm) -->
+      <div class="mobile-card-list sm:hidden">
+        <div class="flex items-center justify-between text-xs text-slate-500 pb-1">
+          <span>Hiển thị <strong class="text-slate-700">{{ store.list.length }}</strong> / {{ store.pagination.total }} phiếu</span>
+          <button v-if="activeFilterCount > 0" class="text-red-500 font-medium" @click="resetFilters">Xóa tất cả</button>
+        </div>
+        <div
+          v-for="item in store.list"
+          :key="item.name"
+          class="mobile-card"
+          @click="router.push(`/commissioning/${item.name}`)"
+        >
+          <div class="flex items-center justify-between mb-2">
+            <span class="font-mono text-sm font-semibold text-brand-700">{{ item.name }}</span>
+            <button
+              class="transition-all rounded"
+              @click.stop="quickFilter('workflow_state', item.workflow_state || '')"
+            >
+              <StatusBadge :state="item.workflow_state" />
+            </button>
+          </div>
+          <p class="text-sm font-medium text-slate-900 truncate">{{ item.master_item_name || item.master_item || '—' }}</p>
+          <div class="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1.5 text-xs text-slate-500">
+            <span>{{ item.vendor_name || item.vendor || '—' }}</span>
+            <span class="text-slate-300">·</span>
+            <span>{{ item.clinical_dept_name || item.clinical_dept || '—' }}</span>
+            <span v-if="item.vendor_serial_no" class="text-slate-300">·</span>
+            <span v-if="item.vendor_serial_no" class="font-mono">{{ item.vendor_serial_no }}</span>
+          </div>
+        </div>
+        <div v-if="!store.list.length" class="py-12 text-center text-slate-400">
+          <p class="text-sm font-medium">Không tìm thấy phiếu nào phù hợp.</p>
+          <button v-if="activeFilterCount > 0" class="text-xs text-blue-500 underline mt-2" @click="resetFilters">Xóa bộ lọc để xem tất cả</button>
+        </div>
+      </div>
+
+      <!-- Desktop table (sm+) -->
+      <div class="hidden sm:block table-wrapper animate-slide-up" style="animation-delay: 80ms">
         <!-- Info row -->
         <div class="flex items-center justify-between px-4 py-2.5 border-b border-slate-100 bg-slate-50/60 text-xs text-slate-500">
           <span>Hiển thị <strong class="text-slate-700">{{ store.list.length }}</strong> / {{ store.pagination.total }} phiếu</span>
@@ -198,9 +235,7 @@ stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                   class="text-slate-700 hover:underline decoration-dotted underline-offset-2 text-left"
                   :title="`Lọc: ${item.clinical_dept_name || item.clinical_dept}`"
                   @click.stop="quickFilter('clinical_dept', item.clinical_dept || '')"
-                >
-{{ item.clinical_dept_name || item.clinical_dept || '—' }}
-</button>
+                >{{ item.clinical_dept_name || item.clinical_dept || '—' }}</button>
                 <div v-if="item.clinical_dept && item.clinical_dept_name" class="text-xs text-slate-400">{{ item.clinical_dept }}</div>
               </td>
               <td class="table-cell">
@@ -224,9 +259,7 @@ stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                   :to="`/assets/${item.final_asset}`"
                   class="font-mono text-[11px] text-blue-600 hover:underline"
                   @click.stop
-                >
-{{ item.final_asset }}
-</router-link>
+                >{{ item.final_asset }}</router-link>
                 <span v-else class="text-slate-300 text-xs">—</span>
               </td>
               <td class="table-cell text-slate-400 text-xs">{{ formatDate(item.modified) }}</td>
@@ -235,8 +268,7 @@ stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
               <td colspan="9" class="px-5 py-16 text-center">
                 <div class="flex flex-col items-center gap-3 text-slate-400">
                   <svg class="w-10 h-10 opacity-25" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path
-stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                           d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                   </svg>
                   <p class="text-sm">Không tìm thấy phiếu nào phù hợp.</p>
@@ -249,7 +281,6 @@ stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
           </tbody>
         </table>
       </div>
-
     </template>
 
     <BasePagination :pagination="store.pagination" @page-change="goToPage" />

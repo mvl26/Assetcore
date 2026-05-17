@@ -1,7 +1,7 @@
 # Kiến trúc UI theo Hướng Trạng thái & Actor (IMM-04)
 # Thiết kế Giao diện Tập trung vào Trải nghiệm Người dùng (UX-Driven Architecture)
 
-**Dự án:** AssetCore v1.0
+**Dự án:** AssetCore v0.0.1
 **Nguyên tắc cốt lõi:** Thay vì sử dụng menu phân mảnh truyền thống, hệ thống UI của IMM-04 được thiết kế tập trung xoay quanh **Actor (Người dùng)**, **State (Trạng thái Workflow)** và **Task (Tiến trình Công việc)**. Khi một Actor đăng nhập, hệ thống TỰ ĐỘNG mang những công việc thuộc đúng state của họ lên màn hình chính.
 
 ---

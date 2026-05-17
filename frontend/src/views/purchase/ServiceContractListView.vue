@@ -175,7 +175,31 @@ onMounted(load)
           Xóa bộ lọc để xem tất cả
         </button>
       </div>
-      <div v-else class="overflow-x-auto">
+      <template v-else>
+        <!-- Mobile cards -->
+        <div class="mobile-card-list sm:hidden">
+          <div
+            v-for="c in contracts"
+            :key="c.name"
+            class="mobile-card"
+            @click="router.push(`/service-contracts/${c.name}`)"
+          >
+            <div class="flex items-center justify-between mb-2">
+              <span class="font-mono text-sm font-semibold text-brand-700">{{ c.name }}</span>
+              <span
+                :class="['text-xs px-2 py-0.5 rounded-full font-medium', TYPE_COLORS[c.contract_type] || 'bg-gray-100 text-gray-600']"
+              >{{ CONTRACT_TYPE_LABEL[c.contract_type] || c.contract_type }}</span>
+            </div>
+            <p class="text-sm font-medium text-slate-900 truncate">{{ c.contract_title }}</p>
+            <div class="flex flex-wrap gap-x-2 gap-y-1 mt-1.5 text-xs text-slate-500">
+              <span>{{ c.supplier_name || c.supplier || '—' }}</span>
+              <span>· Hết hạn: <span :class="expiryClass(c.contract_end)">{{ formatDate(c.contract_end) }}</span></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Desktop table -->
+        <div class="hidden sm:block overflow-x-auto">
         <table class="w-full text-sm">
           <thead class="bg-slate-50 border-b border-slate-200">
             <tr>
@@ -215,7 +239,8 @@ v-for="c in contracts" :key="c.name"
             </tr>
           </tbody>
         </table>
-      </div>
+        </div>
+      </template>
 
       <div v-if="totalCount > PAGE_SIZE" class="flex items-center justify-between px-4 py-3 border-t border-slate-100 text-sm text-slate-500">
         <span>{{ (page - 1) * PAGE_SIZE + 1 }}–{{ Math.min(page * PAGE_SIZE, totalCount) }} / {{ totalCount }}</span>

@@ -81,6 +81,11 @@ def reject_document(name: str, rejection_reason: str = "") -> dict:
     return _handle(svc.reject_document, name, rejection_reason)
 
 
+@frappe.whitelist()
+def archive_document(name: str, reason: str = "") -> dict:
+    return _handle(svc.archive_document, name, reason)
+
+
 # ─── Asset-centric ────────────────────────────────────────────────────────────
 
 @frappe.whitelist()

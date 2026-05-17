@@ -4,7 +4,7 @@ import DateInput from '@/components/common/DateInput.vue'
 import { ref, computed, onMounted, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { useImm05Store } from '@/stores/imm05'
-import { submitForReview as apiSubmitForReview } from '@/api/imm05'
+import { submitForReview as apiSubmitForReview, archiveDocument as apiArchiveDocument } from '@/api/imm05'
 import type { AssetDocumentDetail } from '@/api/imm05'
 import { formatDate } from '@/utils/docUtils'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
@@ -38,6 +38,11 @@ const saveError = ref<string | null>(null)
 const showUploadNewVersion = ref(false)
 
 const canEdit = computed(() => ['Draft', 'Rejected'].includes(doc.value?.workflow_state ?? ''))
+
+// BR-05-02: tài liệu không được xóa — chỉ lưu trữ. Trạng thái cuối → read-only.
+const isTerminalState = computed(() =>
+  ['Archived', 'Expired'].includes(doc.value?.workflow_state ?? ''),
+)
 
 async function load(): Promise<void> {
   error.value = null
@@ -159,9 +164,34 @@ const expiryDisplay = computed<ExpiryDisplay>(() => {
 // Keep backward compat alias used by template
 const expiryDateClass = computed(() => expiryDisplay.value.cssClass)
 
+// "Lưu trữ" (Active) / "Hủy bỏ" (Draft) → Archived. NĐ98: chỉ lưu trữ, không xóa.
+const canArchive = computed(() =>
+  ['Active', 'Draft'].includes(doc.value?.workflow_state ?? ''),
+)
+
+async function handleArchive(): Promise<void> {
+  if (!doc.value) return
+  if (
+    !confirm(
+      'Lưu trữ tài liệu này theo NĐ98 (lưu trữ 10 năm, không thể xóa). Tiếp tục?',
+    )
+  )
+    return
+  actionLoading.value = true
+  try {
+    await apiArchiveDocument(doc.value.name)
+    await loadDocument()
+    toast.success('Đã lưu trữ tài liệu.')
+  } catch (e: unknown) {
+    toast.error(e instanceof Error ? e.message : 'Lưu trữ thất bại.')
+  } finally {
+    actionLoading.value = false
+  }
+}
+
 async function handleApprove(): Promise<void> {
   if (!doc.value) return
-  if (!confirm(`Xác nhận DUYỆT tài liệu ${doc.value.name}?`)) return
+  if (!confirm('Phê duyệt tài liệu này sẽ tự động lưu trữ phiên bản cũ. Tiếp tục?')) return
   actionLoading.value = true
   await store.approveDocument(doc.value.name)
   actionLoading.value = false
@@ -265,13 +295,23 @@ async function handleReject(): Promise<void> {
             Gửi duyệt
           </button>
 
-          <!-- Chỉnh sửa và gửi lại (Rejected) -->
+          <!-- Sửa lại (Rejected) -->
           <button
             v-if="doc.workflow_state === 'Rejected' && !isEditing"
             class="px-4 py-2 border border-orange-300 text-orange-600 text-sm rounded-lg hover:bg-orange-50 transition-colors"
             @click="resubmit"
           >
-            Chỉnh sửa và gửi lại
+            Chỉnh sửa
+          </button>
+
+          <!-- Gửi lại (Rejected → Pending Review) -->
+          <button
+            v-if="doc.workflow_state === 'Rejected' && !isEditing"
+            class="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+            :disabled="actionLoading"
+            @click="submitForReview"
+          >
+            Gửi lại
           </button>
 
           <!-- Upload phiên bản mới (Active or Expired) -->
@@ -282,6 +322,23 @@ async function handleReject(): Promise<void> {
           >
             Upload phiên bản mới
           </button>
+          <!-- Lưu trữ (Active "Lưu trữ" / Draft "Hủy bỏ" → Archived) — NĐ98 -->
+          <button
+            v-if="canArchive && !isEditing"
+            class="px-4 py-2 border border-gray-300 text-gray-600 text-sm rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
+            :disabled="actionLoading"
+            @click="handleArchive"
+          >
+            {{ doc.workflow_state === 'Draft' ? 'Hủy bỏ' : 'Lưu trữ' }}
+          </button>
+
+          <!-- BR-05-02: terminal state — read-only, không cho xóa -->
+          <p
+            v-if="isTerminalState"
+            class="text-sm text-gray-500 italic"
+          >
+            Tài liệu ở trạng thái cuối ({{ doc.workflow_state === 'Expired' ? 'Đã hết hạn' : 'Đã lưu trữ' }}) — chỉ xem. Theo NĐ98 (lưu trữ 10 năm) tài liệu không được phép xóa, chỉ lưu trữ.
+          </p>
         </div>
 
         <!-- Reject reason input -->

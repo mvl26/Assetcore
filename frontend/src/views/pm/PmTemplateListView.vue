@@ -4,12 +4,14 @@ import DateInput from '@/components/common/DateInput.vue'
 import { ref, computed, onMounted } from 'vue'
 import {
   listPmTemplates, getPmTemplate, createPmTemplate, updatePmTemplate, deletePmTemplate,
+  applyPmTemplateToCategory,
   type PmTemplate, type PmChecklistItem,
 } from '@/api/imm00'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar from '@/components/common/ListFilterBar.vue'
+import SmartSelect from '@/components/common/SmartSelect.vue'
 const toast = useToast()
 
 const items = ref<PmTemplate[]>([])
@@ -148,6 +150,28 @@ async function remove(name: string) {
   catch (e: unknown) { toast.error((e as Error).message || 'Không thể xóa') }
 }
 
+const applying = ref(false)
+async function applyToCategoryAssets() {
+  if (!editingName.value) return
+  const cat = form.value.asset_category
+  if (!cat) { toast.error('Danh mục tài sản chưa chọn'); return }
+  const msg = `Tạo PM Schedule cho mọi thiết bị thuộc danh mục "${cat}" theo template "${editingName.value}"?\n\n`
+    + 'Thiết bị đã có lịch cùng loại PM sẽ được giữ nguyên.'
+  if (!confirm(msg)) return
+  applying.value = true
+  try {
+    const r = await applyPmTemplateToCategory(editingName.value)
+    toast.success(
+      `Đã tạo ${r.created} lịch trên ${r.total_assets} thiết bị. `
+      + `Bỏ qua ${r.skipped_existing} (đã có lịch). Lỗi: ${r.errors}.`,
+    )
+  } catch (e: unknown) {
+    toast.error((e as Error).message || 'Không thể áp dụng template')
+  } finally {
+    applying.value = false
+  }
+}
+
 onMounted(load)
 </script>
 
@@ -187,7 +211,7 @@ onMounted(load)
         </div>
         <div class="form-group">
           <label class="form-label">Danh mục tài sản</label>
-          <input v-model="filters.asset_category" placeholder="Danh mục tài sản..." class="form-input" />
+          <SmartSelect v-model="filters.asset_category" doctype="AC Asset Category" placeholder="Chọn danh mục..." />
         </div>
       </template>
     </ListFilterBar>
@@ -210,7 +234,36 @@ onMounted(load)
       <div v-else-if="filteredItems.length === 0" class="text-center text-slate-400 py-12 text-sm">
         {{ activeFilterCount > 0 ? 'Không có template nào phù hợp.' : 'Chưa có template.' }}
       </div>
-      <table v-else class="w-full text-sm">
+      <template v-else>
+        <!-- Mobile cards -->
+        <div class="mobile-card-list sm:hidden">
+          <div
+            v-for="t in filteredItems"
+            :key="t.name"
+            class="mobile-card cursor-pointer"
+            @click="openEdit(t.name)"
+          >
+            <div class="flex items-center justify-between mb-2">
+              <span class="font-mono text-sm font-semibold text-brand-700">{{ t.name }}</span>
+              <span
+                v-if="t.pm_type"
+                class="text-xs px-2 py-0.5 rounded-full font-medium bg-slate-100 text-slate-700"
+              >{{ PM_TYPE_LABEL[t.pm_type] || t.pm_type }}</span>
+            </div>
+            <p class="text-sm font-medium text-slate-900 truncate">{{ t.template_name }}</p>
+            <div class="flex flex-wrap gap-x-2 gap-y-1 mt-1.5 text-xs text-slate-500">
+              <span v-if="t.asset_category">{{ t.asset_category }}</span>
+              <span>· v{{ t.version || '—' }}</span>
+            </div>
+            <div class="mt-2 flex gap-2">
+              <button class="text-blue-600 hover:text-blue-800 text-xs font-medium" @click.stop="openEdit(t.name)">Sửa</button>
+              <button class="text-red-600 hover:text-red-800 text-xs font-medium" @click.stop="remove(t.name)">Xóa</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Desktop table -->
+        <table class="hidden sm:table w-full text-sm">
         <thead class="bg-slate-50 border-b border-slate-200">
           <tr>
             <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Mã</th>
@@ -224,8 +277,14 @@ onMounted(load)
         </thead>
         <tbody class="divide-y divide-slate-100">
           <tr v-for="t in filteredItems" :key="t.name" class="hover:bg-slate-50">
-            <td class="px-4 py-3 font-mono text-xs text-slate-500">{{ t.name }}</td>
-            <td class="px-4 py-3 font-medium text-slate-800">{{ t.template_name }}</td>
+            <td class="px-4 py-3 font-mono text-xs text-slate-500">
+              <button class="hover:text-blue-600 hover:underline" @click="openEdit(t.name)">{{ t.name }}</button>
+            </td>
+            <td class="px-4 py-3 font-medium text-slate-800">
+              <button class="text-left hover:text-blue-600 hover:underline decoration-dotted underline-offset-2" @click="openEdit(t.name)">
+                {{ t.template_name }}
+              </button>
+            </td>
             <td class="px-4 py-3">
               <button
                 v-if="t.asset_category"
@@ -252,20 +311,24 @@ onMounted(load)
           </tr>
         </tbody>
       </table>
+      </template>
     </div>
 
     <div v-if="showForm" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 overflow-y-auto py-6" @click.self="showForm = false">
       <div class="bg-white rounded-xl p-6 w-[860px] max-w-full space-y-4 my-auto">
         <h2 class="text-lg font-semibold">{{ editingName ? 'Sửa' : 'Thêm' }} Template Checklist PM</h2>
         <div v-if="err" class="bg-red-50 text-red-700 text-sm p-3 rounded">{{ err }}</div>
-        <div class="grid grid-cols-2 gap-3">
-          <label class="col-span-2 block">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <label class="sm:col-span-2 block">
             <span class="block text-sm font-medium text-slate-700 mb-1">Tên template *</span>
             <input v-model="form.template_name" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
           </label>
           <label class="block">
             <span class="block text-sm font-medium text-slate-700 mb-1">Danh mục tài sản *</span>
-            <input v-model="form.asset_category" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
+            <SmartSelect v-model="(form.asset_category as string)" doctype="AC Asset Category" placeholder="Chọn danh mục..." />
+            <span class="block text-[11px] text-slate-400 mt-1">
+              Mọi tài sản thuộc danh mục này sẽ áp dụng template khi tạo PM Schedule.
+            </span>
           </label>
           <label class="block">
             <span class="block text-sm font-medium text-slate-700 mb-1">Loại bảo trì *</span>
@@ -308,6 +371,19 @@ onMounted(load)
               </button>
             </div>
           </div>
+        </div>
+
+        <div v-if="editingName" class="pt-2 border-t">
+          <button
+            :disabled="applying || !form.asset_category"
+            class="w-full text-xs px-3 py-2 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 disabled:opacity-50 transition-colors"
+            @click="applyToCategoryAssets"
+          >
+            {{ applying ? 'Đang áp dụng...' : '🔄 Tạo PM Schedule cho mọi thiết bị thuộc danh mục này' }}
+          </button>
+          <p class="text-[10px] text-slate-500 mt-1 text-center">
+            Thiết bị đã có lịch cùng loại PM sẽ được giữ nguyên (bảo vệ lịch hiện hữu).
+          </p>
         </div>
 
         <div class="flex justify-end gap-2 pt-2">

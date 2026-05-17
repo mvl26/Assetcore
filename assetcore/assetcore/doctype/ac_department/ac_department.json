@@ -2,7 +2,7 @@
  "actions": [],
  "allow_import": 1,
  "allow_rename": 0,
- "autoname": "field:department_name",
+ "autoname": "autoname",
  "creation": "2026-04-18 00:00:00.000000",
  "doctype": "DocType",
  "engine": "InnoDB",

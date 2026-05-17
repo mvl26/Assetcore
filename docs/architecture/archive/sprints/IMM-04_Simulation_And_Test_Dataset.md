@@ -2,7 +2,7 @@
 # Yêu cầu: Xác nhận chạy Simulation 5 Vòng đời Thực tế của Thiết bị
 
 **Phiên bản:** 1.0 | **Ngày cập nhật:** 2026-04-15
-**Hệ thống:** AssetCore v1.0
+**Hệ thống:** AssetCore v0.0.1
 **Mục tiêu:** Data mẫu chuẩn hóa dùng tạo Simulation timeline, giám sát State Transitions, Event rẽ nhánh và lập bảng Log Expected vs Actual khi UAT.
 
 ---

@@ -147,6 +147,13 @@ def _get_needs_request(name: str) -> dict:
         data["device_category_name"] = frappe.db.get_value(
             "AC Asset Category", doc.get("device_category"), "category_name"
         ) or doc.get("device_category")
+    # Enrich device model display name (BE-DC-01-01) — tránh leak mã IMM-MDL ở FE detail
+    if doc.get("device_model_ref"):
+        data["device_model_name"] = frappe.db.get_value(
+            "IMM Device Model", doc.get("device_model_ref"), "model_name"
+        ) or doc.get("device_model_ref")
+    else:
+        data["device_model_name"] = ""
     return data
 
 

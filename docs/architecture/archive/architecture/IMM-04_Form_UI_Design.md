@@ -1,7 +1,7 @@
 # Chi tiết Thiết kế Giao diện Form (Form Layout & UI Behavior)
 # Phân hệ IMM-04 - Nhóm DocType Lắp đặt & Bàn giao
 
-**Dự án:** AssetCore v1.0
+**Dự án:** AssetCore v0.0.1
 **Nguyên tắc Thiết kế:** ERPNext Client UI tuân thủ triệt để tính năng `Depends On` (Hiển thị/Ẩn động theo Trạng thái) và `Read Only Depends On` (Khóa Edit động) để điều phối luồng thao tác của User đúng theo Flowchart của IMM-04.
 
 ---

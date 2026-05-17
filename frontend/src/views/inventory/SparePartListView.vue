@@ -174,63 +174,97 @@ onMounted(load)
         <button v-else class="btn-primary mt-3" @click="openCreate">Thêm phụ tùng đầu tiên</button>
       </div>
 
-      <div v-else class="overflow-x-auto">
-        <table class="w-full text-sm">
-          <thead class="bg-slate-50 border-b border-slate-100">
-            <tr>
-              <th class="table-header">Phụ tùng</th>
-              <th class="table-header hidden md:table-cell">NSX / Mã NSX</th>
-              <th class="table-header">Loại</th>
-              <th class="table-header text-right">Đơn giá</th>
-              <th class="table-header text-right">Tồn</th>
-              <th class="table-header text-right hidden lg:table-cell">Min</th>
-              <th class="table-header text-center">Cờ</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-slate-50">
-            <tr
-v-for="p in rows" :key="p.name"
-              class="hover:bg-slate-50/70 cursor-pointer transition-all hover:translate-x-0.5"
-              @click="router.push(`/spare-parts/${p.name}`)"
-            >
-              <td class="px-4 py-3">
-                <p class="font-medium text-slate-900">{{ p.part_name }}</p>
-                <p class="font-mono text-xs text-brand-700 mt-0.5">{{ p.part_code || p.name }}</p>
-              </td>
-              <td class="px-4 py-3 text-xs text-slate-500 hidden md:table-cell">
-                {{ p.manufacturer || '—' }}<span v-if="p.manufacturer_part_no" class="ml-1 font-mono">· {{ p.manufacturer_part_no }}</span>
-              </td>
-              <td class="px-4 py-3">
-                <button
-v-if="p.part_category"
-                  class="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 transition-all hover:ring-2 hover:ring-offset-1 hover:ring-slate-300"
-                  :title="`Lọc: ${CATEGORIES.find(c => c.v === p.part_category)?.l ?? p.part_category}`"
-                  @click.stop="quickFilter('category', p.part_category!)"
-                >
-{{ CATEGORIES.find(c => c.v === p.part_category)?.l ?? p.part_category }}
-</button>
-              </td>
-              <td class="px-4 py-3 text-right text-sm">{{ vnd(p.unit_cost) }}</td>
-              <td
-class="px-4 py-3 text-right font-medium tabular-nums"
+      <template v-else>
+        <!-- Mobile cards (< sm) -->
+        <div class="mobile-card-list sm:hidden">
+          <div
+            v-for="p in rows"
+            :key="p.name"
+            class="mobile-card"
+            @click="router.push(`/spare-parts/${p.name}`)"
+          >
+            <div class="flex items-center justify-between mb-2">
+              <span class="font-mono text-sm font-semibold text-brand-700">{{ p.part_code || p.name }}</span>
+              <span
+                v-if="p.is_low_stock"
+                class="text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 font-semibold border border-amber-100"
+              >Tồn thấp</span>
+            </div>
+            <p class="text-sm font-medium text-slate-900 truncate">{{ p.part_name }}</p>
+            <div class="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1.5 text-xs text-slate-500">
+              <button
+                v-if="p.part_category"
+                class="text-xs px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600"
+                @click.stop="quickFilter('category', p.part_category!)"
+              >{{ CATEGORIES.find(c => c.v === p.part_category)?.l ?? p.part_category }}</button>
+              <span class="text-slate-300">·</span>
+              <span :class="p.is_low_stock ? 'text-red-600 font-medium' : ''">{{ p.total_stock || 0 }} {{ p.stock_uom }}</span>
+              <span class="text-slate-300">·</span>
+              <span>{{ vnd(p.unit_cost) }}</span>
+            </div>
+          </div>
+          <div v-if="rows.length === 0" class="py-12 text-center text-slate-400">
+            <p class="text-sm font-medium">Không có dữ liệu</p>
+          </div>
+        </div>
+
+        <!-- Desktop table (sm+) -->
+        <div class="hidden sm:block overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead class="bg-slate-50 border-b border-slate-100">
+              <tr>
+                <th class="table-header">Phụ tùng</th>
+                <th class="table-header hidden md:table-cell">NSX / Mã NSX</th>
+                <th class="table-header">Loại</th>
+                <th class="table-header text-right">Đơn giá</th>
+                <th class="table-header text-right">Tồn</th>
+                <th class="table-header text-right hidden lg:table-cell">Min</th>
+                <th class="table-header text-center">Cờ</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-50">
+              <tr
+                v-for="p in rows" :key="p.name"
+                class="hover:bg-slate-50/70 cursor-pointer transition-all hover:translate-x-0.5"
+                @click="router.push(`/spare-parts/${p.name}`)"
+              >
+                <td class="px-4 py-3">
+                  <p class="font-medium text-slate-900">{{ p.part_name }}</p>
+                  <p class="font-mono text-xs text-brand-700 mt-0.5">{{ p.part_code || p.name }}</p>
+                </td>
+                <td class="px-4 py-3 text-xs text-slate-500 hidden md:table-cell">
+                  {{ p.manufacturer || '—' }}<span v-if="p.manufacturer_part_no" class="ml-1 font-mono">· {{ p.manufacturer_part_no }}</span>
+                </td>
+                <td class="px-4 py-3">
+                  <button
+                    v-if="p.part_category"
+                    class="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 transition-all hover:ring-2 hover:ring-offset-1 hover:ring-slate-300"
+                    :title="`Lọc: ${CATEGORIES.find(c => c.v === p.part_category)?.l ?? p.part_category}`"
+                    @click.stop="quickFilter('category', p.part_category!)"
+                  >{{ CATEGORIES.find(c => c.v === p.part_category)?.l ?? p.part_category }}</button>
+                </td>
+                <td class="px-4 py-3 text-right text-sm">{{ vnd(p.unit_cost) }}</td>
+                <td
+                  class="px-4 py-3 text-right font-medium tabular-nums"
                   :class="p.is_low_stock ? 'text-red-600' : 'text-slate-700'">
-                {{ p.total_stock || 0 }} <span class="text-xs text-slate-400">{{ p.stock_uom }}</span>
-              </td>
-              <td class="px-4 py-3 text-right text-xs text-slate-500 tabular-nums hidden lg:table-cell">
-                {{ p.min_stock_level || '—' }}
-              </td>
-              <td class="px-4 py-3 text-center">
-                <span
-v-if="p.is_critical" class="inline-block text-[10px] px-1.5 py-0.5 rounded bg-red-50 text-red-700 font-semibold border border-red-100"
-                      title="Phụ tùng quan trọng">Quan trọng</span>
-                <span
-v-if="p.is_low_stock" class="inline-block ml-1 text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 font-semibold border border-amber-100"
-                      title="Tồn dưới mức min">Tồn thấp</span>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+                  {{ p.total_stock || 0 }} <span class="text-xs text-slate-400">{{ p.stock_uom }}</span>
+                </td>
+                <td class="px-4 py-3 text-right text-xs text-slate-500 tabular-nums hidden lg:table-cell">
+                  {{ p.min_stock_level || '—' }}
+                </td>
+                <td class="px-4 py-3 text-center">
+                  <span
+                    v-if="p.is_critical" class="inline-block text-[10px] px-1.5 py-0.5 rounded bg-red-50 text-red-700 font-semibold border border-red-100"
+                    title="Phụ tùng quan trọng">Quan trọng</span>
+                  <span
+                    v-if="p.is_low_stock" class="inline-block ml-1 text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 font-semibold border border-amber-100"
+                    title="Tồn dưới mức min">Tồn thấp</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </template>
 
       <div v-if="total > PAGE_SIZE" class="flex items-center justify-between px-4 py-3 border-t border-slate-100 text-sm text-slate-500">
         <span>{{ (page - 1) * PAGE_SIZE + 1 }}–{{ Math.min(page * PAGE_SIZE, total) }} / {{ total }}</span>

@@ -2,9 +2,10 @@
 // Copyright (c) 2026, AssetCore Team — IMM-16
 // Quy tắc tuân thủ (Compliance Rules) — list / create / deactivate.
 import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { useImm16Store } from '@/stores/imm16'
 import { useApi } from '@/composables/useApi'
-import { createRule, updateRule, deactivateRule } from '@/api/imm16'
+import { createRule } from '@/api/imm16'
 import type { ComplianceRule, FindingSeverity } from '@/api/imm16'
 import PageHeader from '@/components/common/PageHeader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
@@ -14,8 +15,13 @@ import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import BaseModal from '@/components/common/BaseModal.vue'
 
+const router = useRouter()
 const store = useImm16Store()
 const api = useApi()
+
+function goDetail(rule: ComplianceRule) {
+  router.push(`/compliance/rules/${rule.name}`)
+}
 
 const items = computed(() => store.rules)
 const pagination = computed(() => store.rulesPagination)
@@ -99,14 +105,14 @@ async function submitCreate() {
 
 async function onDeactivate(rule: ComplianceRule) {
   if (!confirm(`Ngừng áp dụng quy tắc "${rule.rule_name}"?`)) return
-  const res = await api.run(() => deactivateRule(rule.name), {
+  const res = await api.run(() => store.actionDeactivateRule(rule.name), {
     successMessage: 'Đã ngừng áp dụng',
   })
   if (res) load(pagination.value.page)
 }
 
 async function onReactivate(rule: ComplianceRule) {
-  const res = await api.run(() => updateRule(rule.name, { is_active: 1 }, 'Re-activate via UI'), {
+  const res = await api.run(() => store.actionReactivateRule(rule.name), {
     successMessage: 'Đã kích hoạt lại',
   })
   if (res) load(pagination.value.page)
@@ -179,7 +185,36 @@ onMounted(() => load(1))
         </button>
         <button v-else class="btn-primary mt-3" @click="openCreate">Tạo quy tắc đầu tiên</button>
       </div>
-      <div v-else class="overflow-x-auto">
+      <template v-else>
+        <!-- Mobile cards -->
+        <div class="mobile-card-list sm:hidden">
+          <div
+            v-for="r in items"
+            :key="r.name"
+            class="mobile-card cursor-pointer"
+            @click="goDetail(r)"
+          >
+            <div class="flex items-center justify-between mb-2">
+              <span class="font-mono text-sm font-semibold text-brand-700">{{ r.rule_code }}</span>
+              <StatusBadge :state="r.severity" />
+            </div>
+            <p class="text-sm font-medium text-slate-900 truncate">{{ r.rule_name }}</p>
+            <div class="flex flex-wrap gap-x-2 gap-y-1 mt-1.5 text-xs text-slate-500">
+              <span v-if="r.category">{{ r.category }}</span>
+              <span v-if="r.source_module">· {{ r.source_module }}</span>
+              <span
+                :class="r.is_active ? 'text-emerald-700' : 'text-slate-400'"
+              >· {{ r.is_active ? 'Đang áp dụng' : 'Ngừng' }}</span>
+            </div>
+            <div class="mt-2 flex gap-2">
+              <button v-if="r.is_active" class="text-xs text-red-600 hover:text-red-700 font-medium" @click.stop="onDeactivate(r)">Ngừng áp dụng</button>
+              <button v-else class="text-xs text-emerald-600 hover:text-emerald-700 font-medium" @click.stop="onReactivate(r)">Kích hoạt lại</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Desktop table -->
+        <div class="hidden sm:block overflow-x-auto">
         <table class="min-w-full divide-y divide-slate-100">
           <thead>
             <tr>
@@ -194,7 +229,7 @@ onMounted(() => load(1))
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-100">
-            <tr v-for="r in items" :key="r.name" class="hover:bg-slate-50">
+            <tr v-for="r in items" :key="r.name" class="hover:bg-slate-50 cursor-pointer" @click="goDetail(r)">
               <td class="table-cell">
                 <div class="font-medium text-slate-900">{{ r.rule_name }}</div>
                 <div class="font-mono text-xs text-brand-700 mt-0.5">{{ r.rule_code }}</div>
@@ -214,14 +249,16 @@ onMounted(() => load(1))
                   {{ r.is_active ? 'Đang áp dụng' : 'Ngừng áp dụng' }}
                 </span>
               </td>
-              <td class="table-cell text-right">
-                <button v-if="r.is_active" class="text-xs text-red-600 hover:text-red-700 font-medium" @click="onDeactivate(r)">Ngừng áp dụng</button>
-                <button v-else class="text-xs text-emerald-600 hover:text-emerald-700 font-medium" @click="onReactivate(r)">Kích hoạt lại</button>
+              <td class="table-cell text-right space-x-3">
+                <button class="text-xs text-brand-600 hover:text-brand-700 font-medium" @click.stop="goDetail(r)">Chi tiết</button>
+                <button v-if="r.is_active" class="text-xs text-red-600 hover:text-red-700 font-medium" @click.stop="onDeactivate(r)">Ngừng áp dụng</button>
+                <button v-else class="text-xs text-emerald-600 hover:text-emerald-700 font-medium" @click.stop="onReactivate(r)">Kích hoạt lại</button>
               </td>
             </tr>
           </tbody>
         </table>
-      </div>
+        </div>
+      </template>
     </div>
 
     <BasePagination :pagination="pagination" @page-change="load" />
@@ -229,7 +266,7 @@ onMounted(() => load(1))
     <!-- Create Modal -->
     <BaseModal v-if="showCreate" title="Tạo quy tắc tuân thủ" size="lg" @close="showCreate = false">
       <div class="space-y-3">
-        <div class="grid grid-cols-2 gap-3">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div class="form-group">
             <label class="form-label">Mã quy tắc *</label>
             <input v-model="form.rule_code" class="form-input" placeholder="R-IMM08-PM-COMP-90" />

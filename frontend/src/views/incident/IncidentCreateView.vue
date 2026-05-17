@@ -1,14 +1,15 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { reportIncident } from '@/api/imm12'
 import SmartSelect from '@/components/common/SmartSelect.vue'
 import { useFormDraft } from '@/composables/useFormDraft'
 
 const router = useRouter()
+const route = useRoute()
 
 const form = ref({
-  asset: '',
+  asset: (route.query.asset as string) || '',
   incident_type: '',
   severity: '',
   description: '',
@@ -21,6 +22,11 @@ const form = ref({
 })
 
 const { clear: clearDraft } = useFormDraft('incident-create', form)
+
+// Khi điều hướng từ /assets/:id (?asset=...) — luôn lấy asset từ query, kể cả khi
+// có draft cũ trong localStorage (user vừa click "Báo sự cố" trên trang chi tiết).
+const queryAsset = (route.query.asset as string) || ''
+if (queryAsset) form.value.asset = queryAsset
 
 const saving = ref(false)
 const error = ref('')

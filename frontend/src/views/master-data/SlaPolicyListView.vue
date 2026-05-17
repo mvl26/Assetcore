@@ -239,7 +239,34 @@ onMounted(load)
           Xóa bộ lọc để xem tất cả
         </button>
       </div>
-      <div v-else class="overflow-x-auto">
+      <template v-else>
+        <!-- Mobile cards -->
+        <div class="mobile-card-list sm:hidden">
+          <div
+            v-for="p in filteredPolicies"
+            :key="p.name"
+            class="mobile-card"
+            @click="openDetail(p.name)"
+          >
+            <div class="flex items-center justify-between mb-2">
+              <span class="font-mono text-sm font-semibold text-brand-700">{{ p.name }}</span>
+              <span :class="['text-xs px-2 py-0.5 rounded-full font-medium', PRIORITY_BADGE[p.priority || ''] || 'bg-slate-100 text-slate-600']">
+                {{ p.priority }}
+              </span>
+            </div>
+            <p class="text-sm font-medium text-slate-900 truncate">{{ p.policy_name }}</p>
+            <div class="flex flex-wrap gap-x-2 gap-y-1 mt-1.5 text-xs text-slate-500">
+              <span>{{ RISK_LABEL[p.risk_class || ''] || p.risk_class || '—' }}</span>
+              <span
+                class="px-1.5 py-0.5 rounded font-medium"
+                :class="isCheckOn(p.is_active) ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'"
+              >· {{ isCheckOn(p.is_active) ? 'Đang hoạt động' : 'Ngừng' }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Desktop table -->
+        <div class="hidden sm:block overflow-x-auto">
         <table class="w-full text-sm">
           <thead class="bg-slate-50 border-b border-slate-200">
             <tr>
@@ -287,7 +314,8 @@ onMounted(load)
             </tr>
           </tbody>
         </table>
-      </div>
+        </div>
+      </template>
     </div>
 
     <!-- Detail modal (xem) -->
@@ -301,7 +329,7 @@ onMounted(load)
           <button class="text-slate-400 hover:text-slate-600" @click="showDetail = false">✕</button>
         </div>
 
-        <div class="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-sm">
           <div><span class="text-slate-500">Mức ưu tiên:</span>
             <span class="ml-2 inline-block text-xs px-2 py-0.5 rounded-full font-medium" :class="PRIORITY_BADGE[detail.priority || ''] || 'bg-slate-100 text-slate-600'">
               {{ detail.priority }}
@@ -357,8 +385,8 @@ onMounted(load)
         <h2 class="text-lg font-semibold">{{ editingName ? 'Sửa' : 'Thêm' }} chính sách SLA</h2>
         <div v-if="err" class="bg-red-50 text-red-700 text-sm p-3 rounded">{{ err }}</div>
 
-        <div class="grid grid-cols-2 gap-3">
-          <div class="col-span-2">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div class="sm:col-span-2">
             <label class="block text-sm font-medium text-gray-700 mb-1">Tên chính sách <span class="text-red-500">*</span></label>
             <input v-model="form.policy_name" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
           </div>
@@ -395,7 +423,7 @@ onMounted(load)
 
         <div class="border-t pt-3 space-y-3">
           <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Người leo thang xử lý</p>
-          <div class="grid grid-cols-2 gap-3">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label class="block text-sm font-medium text-gray-700 mb-1">Người xử lý L1</label>
               <SmartSelect

@@ -203,7 +203,35 @@ onMounted(load)
           Xóa bộ lọc để xem tất cả
         </button>
       </div>
-      <div v-else class="overflow-x-auto">
+      <template v-else>
+        <!-- Mobile cards -->
+        <div class="mobile-card-list sm:hidden">
+          <div
+            v-for="s in suppliers"
+            :key="s.name"
+            class="mobile-card"
+            @click="router.push(`/suppliers/${s.name}`)"
+          >
+            <div class="flex items-center justify-between mb-2">
+              <span class="font-mono text-sm font-semibold text-brand-700">{{ s.name }}</span>
+              <span
+                class="text-xs px-2 py-0.5 rounded-full font-medium"
+                :class="s.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'"
+              >{{ s.is_active ? 'Hoạt động' : 'Ngừng' }}</span>
+            </div>
+            <p class="text-sm font-medium text-slate-900 truncate">{{ s.supplier_name }}</p>
+            <div class="flex flex-wrap gap-x-2 gap-y-1 mt-1.5 text-xs text-slate-500">
+              <span v-if="s.vendor_type">
+                <span :class="['px-1.5 py-0.5 rounded font-medium', VENDOR_TYPE_COLORS[s.vendor_type] || 'bg-gray-100 text-gray-600']">{{ VENDOR_TYPE_LABEL[s.vendor_type] || s.vendor_type }}</span>
+              </span>
+              <span v-if="s.country">· {{ s.country }}</span>
+              <span :class="expiryClass(s.contract_end)">· {{ formatDate(s.contract_end) }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Desktop table -->
+        <div class="hidden sm:block overflow-x-auto">
         <table class="w-full text-sm">
           <thead class="bg-slate-50 border-b border-slate-200">
             <tr>
@@ -265,7 +293,8 @@ onMounted(load)
             </tr>
           </tbody>
         </table>
-      </div>
+        </div>
+      </template>
 
       <div v-if="totalCount > PAGE_SIZE" class="flex items-center justify-between px-4 py-3 border-t border-slate-100 text-sm text-slate-500">
         <span>{{ (filters.page - 1) * PAGE_SIZE + 1 }}–{{ Math.min(filters.page * PAGE_SIZE, totalCount) }} / {{ totalCount }}</span>

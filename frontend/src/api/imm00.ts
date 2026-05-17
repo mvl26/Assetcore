@@ -366,7 +366,12 @@ export interface PmSchedule {
   notes?: string
 }
 
-export function listPmSchedules(params: { page?: number; page_size?: number; asset?: string; status?: string } = {}): Promise<{ items: PmSchedule[]; total: number }> {
+export interface PmScheduleListResponse {
+  data: PmSchedule[]
+  pagination: { page: number; page_size: number; total: number; total_pages: number }
+}
+
+export function listPmSchedules(params: { page?: number; page_size?: number; asset_ref?: string; status?: string } = {}): Promise<PmScheduleListResponse> {
   return frappeGet(`${BASE}.list_pm_schedules`, params as Record<string, unknown>)
 }
 
@@ -432,6 +437,19 @@ export function deletePmTemplate(name: string): Promise<{ name: string; deleted:
   return frappePost(`${_PM_TPL_BASE}.delete_pm_template`, { name })
 }
 
+export interface ApplyPmTemplateResult {
+  template: string
+  asset_category: string
+  total_assets: number
+  created: number
+  skipped_existing: number
+  errors: number
+}
+
+export function applyPmTemplateToCategory(templateName: string): Promise<ApplyPmTemplateResult> {
+  return frappePost(`${_PM_TPL_BASE}.apply_pm_template_to_category`, { template_name: templateName })
+}
+
 // ─── Firmware Change Request CRUD ────────────────────────────────────────────
 
 export interface FirmwareCR {
@@ -445,6 +463,7 @@ export interface FirmwareCR {
   source_reference?: string
   status?: string
   approved_by?: string
+  approved_by_name?: string
   approved_datetime?: string
   applied_datetime?: string
   rollback_reason?: string

@@ -175,7 +175,32 @@ onMounted(load)
           Xóa bộ lọc để xem tất cả
         </button>
       </div>
-      <div v-else class="overflow-x-auto">
+      <template v-else>
+        <!-- Mobile cards -->
+        <div class="mobile-card-list sm:hidden">
+          <div
+            v-for="m in models"
+            :key="m.name"
+            class="mobile-card"
+            @click="router.push(`/device-models/${m.name}`)"
+          >
+            <div class="flex items-center justify-between mb-2">
+              <span class="font-mono text-sm font-semibold text-brand-700">{{ m.name }}</span>
+              <span
+                v-if="m.medical_device_class"
+                :class="['text-xs px-2 py-0.5 rounded-full font-medium', CLASS_COLOR[m.medical_device_class] || 'bg-gray-100 text-gray-600']"
+              >{{ m.medical_device_class }}</span>
+            </div>
+            <p class="text-sm font-medium text-slate-900 truncate">{{ m.model_name }}</p>
+            <div class="flex flex-wrap gap-x-2 gap-y-1 mt-1.5 text-xs text-slate-500">
+              <span v-if="m.manufacturer">{{ m.manufacturer }}</span>
+              <span v-if="m.gmdn_code">· {{ m.gmdn_code }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Desktop table -->
+        <div class="hidden sm:block overflow-x-auto">
         <table class="w-full text-sm">
           <thead class="bg-slate-50 border-b border-slate-200">
             <tr>
@@ -237,7 +262,8 @@ onMounted(load)
             </tr>
           </tbody>
         </table>
-      </div>
+        </div>
+      </template>
 
       <div v-if="totalCount > PAGE_SIZE" class="flex items-center justify-between px-4 py-3 border-t border-slate-100 text-sm text-slate-500">
         <span>{{ (filters.page - 1) * PAGE_SIZE + 1 }}–{{ Math.min(filters.page * PAGE_SIZE, totalCount) }} / {{ totalCount }}</span>

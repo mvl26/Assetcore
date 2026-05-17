@@ -231,67 +231,96 @@ onMounted(load)
       <div v-else-if="filteredItems.length === 0" class="text-center text-slate-400 py-12 text-sm">
         {{ activeFilterCount > 0 ? 'Không có yêu cầu nào phù hợp.' : 'Chưa có yêu cầu hồ sơ.' }}
       </div>
-      <table v-else class="w-full text-sm">
-        <thead class="bg-gray-50 border-b border-gray-200">
-          <tr>
-            <th class="table-header">Mã</th>
-            <th class="table-header">Thiết bị</th>
-            <th class="table-header">Loại tài liệu</th>
-            <th class="table-header">Nhóm</th>
-            <th class="table-header">Ưu tiên</th>
-            <th class="table-header">Giao cho</th>
-            <th class="table-header">Hạn</th>
-            <th class="table-header">Trạng thái</th>
-            <th class="px-4 py-3 text-right"></th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-slate-100">
-          <tr v-for="d in filteredItems" :key="d.name" class="hover:bg-slate-50">
-            <td class="px-4 py-3 font-mono text-xs text-slate-500">{{ d.name }}</td>
-            <td class="px-4 py-3">
-              <button
-                v-if="d.asset_ref"
-                class="font-medium text-slate-800 text-left hover:text-blue-600 hover:underline decoration-dotted underline-offset-2"
-                @click="quickFilter('asset', d.asset_ref!)"
-              >{{ d.asset_name || d.asset_ref }}</button>
-              <div v-if="d.asset_name && d.asset_ref && d.asset_name !== d.asset_ref" class="text-xs text-slate-400 font-mono mt-0.5">{{ d.asset_ref }}</div>
-            </td>
-            <td class="px-4 py-3 font-medium">{{ d.doc_type_required }}</td>
-            <td class="px-4 py-3 text-xs">{{ d.doc_category ? (CATEGORY_LABEL[d.doc_category] ?? d.doc_category) : '—' }}</td>
-            <td class="px-4 py-3 text-xs">
-              <button
-                v-if="d.priority"
-                :class="['hover:underline', prioColor(d.priority)]"
-                :title="`Lọc: ${PRIORITY_LABEL[d.priority] || d.priority}`"
-                @click="quickFilter('priority', d.priority!)"
-              >{{ PRIORITY_LABEL[d.priority] || d.priority }}</button>
-              <span v-else class="text-slate-400">—</span>
-            </td>
-            <td class="px-4 py-3 text-xs">{{ (d as any).assigned_to_name || d.assigned_to || '—' }}</td>
-            <td class="px-4 py-3 text-xs">{{ d.due_date || '—' }}</td>
-            <td class="px-4 py-3">
-              <button
-                v-if="d.status"
-                :class="['text-xs px-2 py-0.5 rounded font-medium hover:ring-2 hover:ring-current/50', statusColor(d.status)]"
-                :title="`Lọc: ${STATUS_LABEL[d.status] || d.status}`"
-                @click="quickFilter('status', d.status!)"
-              >{{ STATUS_LABEL[d.status] || d.status }}</button>
-            </td>
-            <td class="px-4 py-3 text-right space-x-2 whitespace-nowrap">
-              <button class="text-blue-600 hover:text-blue-800 text-xs font-medium" @click="openEdit(d.name)">Sửa</button>
-              <button class="text-red-600 hover:text-red-800 text-xs font-medium" @click="remove(d.name)">Xóa</button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+      <template v-else>
+        <!-- Mobile cards -->
+        <div class="mobile-card-list sm:hidden">
+          <div
+            v-for="d in filteredItems"
+            :key="d.name"
+            class="mobile-card"
+          >
+            <div class="flex items-center justify-between mb-2">
+              <span class="font-mono text-sm font-semibold text-brand-700">{{ d.name }}</span>
+              <span v-if="d.status" :class="['px-2.5 py-0.5 rounded-full text-xs font-medium', statusColor(d.status)]">
+                {{ STATUS_LABEL[d.status] || d.status }}
+              </span>
+            </div>
+            <p class="text-sm font-medium text-slate-900 truncate">{{ d.doc_type_required }}</p>
+            <div class="flex flex-wrap gap-x-2 gap-y-1 mt-1.5 text-xs text-slate-500">
+              <span v-if="d.asset_name || d.asset_ref">{{ d.asset_name || d.asset_ref }}</span>
+              <span v-if="d.priority">· <span :class="prioColor(d.priority)">{{ PRIORITY_LABEL[d.priority] || d.priority }}</span></span>
+              <span v-if="d.due_date">· Hạn: {{ d.due_date }}</span>
+            </div>
+            <div class="flex gap-2 mt-2">
+              <button class="text-blue-600 hover:text-blue-800 text-xs font-medium" @click.stop="openEdit(d.name)">Sửa</button>
+              <button class="text-red-600 hover:text-red-800 text-xs font-medium" @click.stop="remove(d.name)">Xóa</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Desktop table -->
+        <table class="hidden sm:table w-full text-sm">
+          <thead class="bg-gray-50 border-b border-gray-200">
+            <tr>
+              <th class="table-header">Mã</th>
+              <th class="table-header">Thiết bị</th>
+              <th class="table-header">Loại tài liệu</th>
+              <th class="table-header">Nhóm</th>
+              <th class="table-header">Ưu tiên</th>
+              <th class="table-header">Giao cho</th>
+              <th class="table-header">Hạn</th>
+              <th class="table-header">Trạng thái</th>
+              <th class="px-4 py-3 text-right"></th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100">
+            <tr v-for="d in filteredItems" :key="d.name" class="hover:bg-slate-50">
+              <td class="px-4 py-3 font-mono text-xs text-slate-500">{{ d.name }}</td>
+              <td class="px-4 py-3">
+                <button
+                  v-if="d.asset_ref"
+                  class="font-medium text-slate-800 text-left hover:text-blue-600 hover:underline decoration-dotted underline-offset-2"
+                  @click="quickFilter('asset', d.asset_ref!)"
+                >{{ d.asset_name || d.asset_ref }}</button>
+                <div v-if="d.asset_name && d.asset_ref && d.asset_name !== d.asset_ref" class="text-xs text-slate-400 font-mono mt-0.5">{{ d.asset_ref }}</div>
+              </td>
+              <td class="px-4 py-3 font-medium">{{ d.doc_type_required }}</td>
+              <td class="px-4 py-3 text-xs">{{ d.doc_category ? (CATEGORY_LABEL[d.doc_category] ?? d.doc_category) : '—' }}</td>
+              <td class="px-4 py-3 text-xs">
+                <button
+                  v-if="d.priority"
+                  :class="['hover:underline', prioColor(d.priority)]"
+                  :title="`Lọc: ${PRIORITY_LABEL[d.priority] || d.priority}`"
+                  @click="quickFilter('priority', d.priority!)"
+                >{{ PRIORITY_LABEL[d.priority] || d.priority }}</button>
+                <span v-else class="text-slate-400">—</span>
+              </td>
+              <td class="px-4 py-3 text-xs">{{ (d as any).assigned_to_name || d.assigned_to || '—' }}</td>
+              <td class="px-4 py-3 text-xs">{{ d.due_date || '—' }}</td>
+              <td class="px-4 py-3">
+                <button
+                  v-if="d.status"
+                  :class="['text-xs px-2 py-0.5 rounded font-medium hover:ring-2 hover:ring-current/50', statusColor(d.status)]"
+                  :title="`Lọc: ${STATUS_LABEL[d.status] || d.status}`"
+                  @click="quickFilter('status', d.status!)"
+                >{{ STATUS_LABEL[d.status] || d.status }}</button>
+              </td>
+              <td class="px-4 py-3 text-right space-x-2 whitespace-nowrap">
+                <button class="text-blue-600 hover:text-blue-800 text-xs font-medium" @click="openEdit(d.name)">Sửa</button>
+                <button class="text-red-600 hover:text-red-800 text-xs font-medium" @click="remove(d.name)">Xóa</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </template>
     </div>
 
     <div v-if="showForm" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50" @click.self="showForm = false">
       <div class="bg-white rounded-xl p-6 w-[560px] max-w-full space-y-4">
         <h2 class="text-lg font-semibold">{{ editingName ? 'Sửa' : 'Thêm' }} Yêu cầu Hồ sơ</h2>
         <div v-if="err" class="bg-red-50 text-red-700 text-sm p-3 rounded">{{ err }}</div>
-        <div class="grid grid-cols-2 gap-3">
-          <div class="col-span-2">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div class="sm:col-span-2">
             <label class="block text-sm font-medium text-gray-700 mb-1">Thiết bị (AC Asset) <span class="text-red-500">*</span></label>
             <SmartSelect v-model="form.asset_ref as string" doctype="AC Asset" placeholder="Chọn thiết bị..." />
           </div>

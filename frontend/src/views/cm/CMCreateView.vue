@@ -6,7 +6,9 @@ import { useFormDraft } from '@/composables/useFormDraft'
 import { useApi } from '@/composables/useApi'
 import { getIncident } from '@/api/imm12'
 import { searchSpareParts } from '@/api/imm09'
+import { uploadDocumentFile } from '@/api/imm05'
 import { frappeGet } from '@/api/helpers'
+import SmartSelect from '@/components/common/SmartSelect.vue'
 
 interface AssetMeta {
   device_model?: string
@@ -38,7 +40,35 @@ const form = ref({
   repair_type: 'Corrective',
   priority: 'Normal',
   failure_description: '',
+  fault_image: '',
 })
+
+// Item 6: chọn thiết bị theo Asset trực tiếp hoặc theo Model
+const selectMode = ref<'asset' | 'model'>('asset')
+const selectedModel = ref('')
+const uploadingImage = ref(false)
+const uploadImageError = ref('')
+
+function onModelChange() {
+  // Đổi model → reset asset đã chọn (asset phụ thuộc model)
+  form.value.asset_ref = ''
+}
+
+async function onFaultImageChange(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  uploadingImage.value = true
+  uploadImageError.value = ''
+  try {
+    const res = await uploadDocumentFile(file)
+    form.value.fault_image = res.file_url
+  } catch (err: unknown) {
+    uploadImageError.value = err instanceof Error ? err.message : 'Upload ảnh thất bại'
+  } finally {
+    uploadingImage.value = false
+  }
+}
 
 const preRequestParts = ref<PartRow[]>([])
 const partSearch = ref('')
@@ -46,15 +76,17 @@ const partResults = ref<Array<{ name: string; part_name: string; stock_qty?: num
 
 const { clear: clearDraft } = useFormDraft('cm-create', form)
 
-const sourceError = computed(() =>
-  !form.value.incident_report && !form.value.source_pm_wo
-    ? 'Phải có nguồn sửa chữa: Báo cáo sự cố hoặc Phiếu bảo trì gốc'
-    : ''
-)
+// Luôn ưu tiên asset từ query khi điều hướng từ AssetDetail — tránh draft cũ
+// che mất thiết bị user vừa chọn.
+const _queryAsset = (route.query.asset as string) || ''
+if (_queryAsset) form.value.asset_ref = _queryAsset
+const _queryIncident = (route.query.incident as string) || ''
+if (_queryIncident) form.value.incident_report = _queryIncident
 
+// BR-09-01 đã được nới ở BE: Incident/PM giờ là tùy chọn (standalone repair).
+// Không còn gating canSubmit theo nguồn.
 const canSubmit = computed(() =>
-  form.value.asset_ref
-  && !sourceError.value
+  !!form.value.asset_ref
   && form.value.failure_description.trim().length >= 10
   && assetMeta.value?.lifecycle_status !== 'Decommissioned'
 )
@@ -89,13 +121,9 @@ async function loadAssetMeta() {
   }
 }
 
-// Debounce asset lookup — each keystroke would fire a separate API call causing race conditions
-let _assetDebounce: ReturnType<typeof setTimeout> | null = null
-watch(() => form.value.asset_ref, (val) => {
-  if (_assetDebounce) clearTimeout(_assetDebounce)
-  if (!val || val.length < 10) { assetMeta.value = null; return }
-  _assetDebounce = setTimeout(() => loadAssetMeta(), 400)
-})
+// SmartSelect emits asset name on explicit selection (không phải per keystroke) →
+// gọi loadAssetMeta() trực tiếp, không cần debounce.
+watch(() => form.value.asset_ref, () => { loadAssetMeta() })
 
 // ── Incident pre-fill ──
 async function loadIncidentMeta() {
@@ -139,6 +167,9 @@ watch(partSearch, (q) => {
   }
   searchTimer = setTimeout(async () => {
     try {
+      // justified cast: BE search_spare_parts trả {name, part_name, stock_qty}
+      // nhưng api/imm09.ts khai báo SparePartRow[] (mismatch sẵn có ở API layer,
+      // ngoài scope của cleanup này — không sửa endpoint).
       const rows = await searchSpareParts(q) as unknown as Array<{ name: string; part_name: string; stock_qty?: number }>
       partResults.value = rows
     } catch { partResults.value = [] }
@@ -201,10 +232,10 @@ onMounted(() => {
     </div>
 
     <div class="bg-white rounded-xl shadow-sm border p-6 space-y-5">
-      <!-- Source -->
+      <!-- Source (tùy chọn — BR-09-01 đã nới) -->
       <div>
-        <h2 class="font-semibold text-slate-700 mb-1">Nguồn sửa chữa <span class="text-red-500">*</span></h2>
-        <p class="text-xs text-slate-500 mb-3">Điền ít nhất một nguồn — sẽ tự pre-fill asset, severity, mô tả</p>
+        <h2 class="font-semibold text-slate-700 mb-1">Nguồn sửa chữa <span class="text-xs text-slate-400 font-normal">(tùy chọn)</span></h2>
+        <p class="text-xs text-slate-500 mb-3">Nếu có Incident/PM, điền để tự pre-fill asset, severity, mô tả. Có thể bỏ trống (sửa chữa độc lập).</p>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label class="block text-sm text-slate-600 mb-1">Báo cáo sự cố</label>
@@ -218,15 +249,45 @@ onMounted(() => {
         <div v-if="incidentMeta" class="mt-2 alert-info text-xs">
           Đã đọc sự cố: mức độ <b>{{ incidentMeta.severity }}</b> — ưu tiên đặt tự động.
         </div>
-        <p v-if="sourceError && (form.incident_report || form.source_pm_wo || form.asset_ref)" class="text-xs text-red-600 mt-1">
-          {{ sourceError }}
-        </p>
       </div>
 
       <!-- Asset -->
       <div>
-        <h2 class="font-semibold text-slate-700 mb-3">Thiết bị</h2>
-        <input v-model="form.asset_ref" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" placeholder="ACC-ASS-2026-XXXXX *" />
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="font-semibold text-slate-700">Thiết bị <span class="text-red-500">*</span></h2>
+          <div class="inline-flex rounded-lg border border-slate-200 overflow-hidden text-xs font-medium">
+            <button
+              type="button"
+              :class="['px-3 py-1.5', selectMode === 'asset' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600']"
+              @click="selectMode = 'asset'"
+            >Chọn theo Asset</button>
+            <button
+              type="button"
+              :class="['px-3 py-1.5', selectMode === 'model' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600']"
+              @click="selectMode = 'model'"
+            >Chọn theo Model</button>
+          </div>
+        </div>
+
+        <div v-if="selectMode === 'model'" class="mb-3">
+          <label class="block text-sm text-slate-600 mb-1">Model thiết bị</label>
+          <SmartSelect
+            v-model="selectedModel"
+            doctype="IMM Device Model"
+            placeholder="Chọn model..."
+            @select="onModelChange"
+            @clear="onModelChange"
+          />
+          <label v-if="selectedModel" class="block text-sm text-slate-600 mb-1 mt-3">Chọn thiết bị thuộc model này</label>
+          <SmartSelect
+            v-if="selectedModel"
+            v-model="form.asset_ref"
+            doctype="AC Asset"
+            :filters="{ device_model: selectedModel }"
+            placeholder="Tìm thiết bị thuộc model..."
+          />
+        </div>
+        <SmartSelect v-else v-model="form.asset_ref" doctype="AC Asset" placeholder="Tìm thiết bị theo tên / mã / serial..." />
         <div v-if="assetMeta" class="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
           <div class="bg-slate-50 rounded px-2 py-1.5"><span class="text-slate-500">Tên:</span> <b>{{ assetMeta.asset_name || '—' }}</b></div>
           <div class="bg-slate-50 rounded px-2 py-1.5"><span class="text-slate-500">Model:</span> {{ assetMeta.device_model || '—' }}</div>
@@ -277,8 +338,19 @@ onMounted(() => {
 
       <!-- Description -->
       <div>
-        <label class="block text-sm text-slate-600 mb-1">Mô tả sự cố * <span class="text-xs text-slate-400">(tối thiểu 10 ký tự)</span></label>
+        <label class="block text-sm text-slate-600 mb-1">Mô tả lỗi * <span class="text-xs text-slate-400">(tối thiểu 10 ký tự)</span></label>
         <textarea v-model="form.failure_description" rows="4" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" placeholder="Mô tả triệu chứng hỏng hóc, bộ phận bị ảnh hưởng..." />
+      </div>
+
+      <!-- Fault image -->
+      <div>
+        <label class="block text-sm text-slate-600 mb-1">Ảnh mô tả lỗi <span class="text-xs text-slate-400">(tùy chọn)</span></label>
+        <input type="file" accept="image/*" :disabled="uploadingImage" class="block w-full text-sm" @change="onFaultImageChange" />
+        <p v-if="uploadingImage" class="text-xs text-slate-500 mt-1">Đang tải ảnh lên...</p>
+        <p v-if="uploadImageError" class="text-xs text-red-600 mt-1">{{ uploadImageError }}</p>
+        <div v-if="form.fault_image" class="mt-2">
+          <img :src="form.fault_image" alt="Ảnh lỗi" class="max-h-40 rounded-lg border border-slate-200" />
+        </div>
       </div>
 
       <!-- Pre-request parts -->

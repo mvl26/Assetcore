@@ -11,7 +11,8 @@ export interface IncidentDetail {
   asset_name?: string
   incident_type: string
   severity: 'Low' | 'Medium' | 'High' | 'Critical'
-  status: 'Open' | 'Under Investigation' | 'Resolved' | 'Closed' | 'Cancelled'
+  // Khớp _STATUS_* trong services/imm12.py (ground truth).
+  status: 'Open' | 'Acknowledged' | 'In Progress' | 'RCA Required' | 'Resolved' | 'Closed' | 'Cancelled'
   description: string
   immediate_action?: string
   resolution_notes?: string

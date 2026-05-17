@@ -2,6 +2,7 @@
 import { ref, computed } from 'vue'
 import { useWorkflow } from '@/composables/useWorkflow'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
+import { translateStatus } from '@/utils/formatters'
 import type { WorkflowState, WorkflowTransition } from '@/types/imm04'
 
 const props = defineProps<{
@@ -98,7 +99,7 @@ const gw2Block = computed(() =>
           @click="handleActionClick(transition.action)"
         >
           {{ getActionConfig(transition.action).label }}
-          <span class="text-xs opacity-70">(→ {{ transition.next_state }})</span>
+          <span class="text-xs opacity-70">(→ {{ translateStatus(transition.next_state) }})</span>
         </button>
 
         <!-- GW-2 warning banner (trước nút Submit khi chưa compliant) -->

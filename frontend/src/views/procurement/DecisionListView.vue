@@ -164,63 +164,90 @@ onMounted(() => { store.fetchDecisions(); store.fetchKpis() })
       </div>
 
       <div v-if="store.loading" class="p-6 text-sm text-slate-500">Đang tải...</div>
-      <div v-else-if="filteredDecisions.length" class="overflow-x-auto">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Mã quyết định</th>
-              <th>Hồ sơ kỹ thuật</th>
-              <th>Nhà cung cấp trúng thầu</th>
-              <th class="num">Giá trúng thầu</th>
-              <th class="num">So với ngân sách</th>
-              <th>Đơn hàng đã mint</th>
-              <th>Trạng thái</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              v-for="(d, idx) in filteredDecisions" :key="d.name"
-              class="clickable animate-fade-in"
-              :class="[`stagger-${Math.min(idx + 1, 8)}`]"
-              @click="goDetail(d.name)"
-            >
-              <td><span class="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded text-slate-700">{{ d.name }}</span></td>
-              <td>
-                <button class="link-cell" :title="`Lọc: ${d.spec_ref}`" @click.stop="quickFilter('spec_ref', d.spec_ref)">
-                  {{ d.spec_ref }}
-                </button>
-              </td>
-              <td>
-                <button
-v-if="d.winner_supplier" class="link-cell"
-                        :title="`Lọc: ${d.winner_supplier}`"
-                        @click.stop="quickFilter('winner_supplier', d.winner_supplier)">
-                  {{ d.vendor_name || d.winner_supplier }}
-                </button>
-                <span v-else class="text-slate-400">—</span>
-              </td>
-              <td class="num">{{ formatVnd(d.awarded_price) }}</td>
-              <td class="num">
-                <span :class="envClass(d.envelope_check_pct)">
-                  {{ d.envelope_check_pct ? d.envelope_check_pct.toFixed(1) + '%' : '—' }}
-                </span>
-              </td>
-              <td>
-                <span v-if="d.ac_purchase_ref">{{ d.ac_purchase_ref }}</span>
-                <span v-else class="text-slate-400">—</span>
-              </td>
-              <td>
-                <button
-type="button" class="pill-btn"
-                        :title="`Lọc trạng thái: ${stateLabel(d.workflow_state)}`"
-                        @click.stop="quickFilter('workflow_state', d.workflow_state)">
-                  <StatusBadge :state="d.workflow_state" />
-                </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <template v-else-if="filteredDecisions.length">
+        <!-- Mobile cards -->
+        <div class="mobile-card-list sm:hidden">
+          <div
+            v-for="d in filteredDecisions"
+            :key="d.name"
+            class="mobile-card"
+            @click="goDetail(d.name)"
+          >
+            <div class="flex items-center justify-between mb-2">
+              <span class="font-mono text-sm font-semibold text-brand-700">{{ d.name }}</span>
+              <StatusBadge :state="d.workflow_state" />
+            </div>
+            <p class="text-sm font-medium text-slate-900 truncate">{{ d.vendor_name || d.winner_supplier || d.spec_ref }}</p>
+            <div class="flex flex-wrap gap-x-2 gap-y-1 mt-1.5 text-xs text-slate-500">
+              <span>{{ d.spec_ref }}</span>
+              <span>· {{ formatVnd(d.awarded_price) }}</span>
+              <span v-if="d.envelope_check_pct">· <span :class="envClass(d.envelope_check_pct)">{{ d.envelope_check_pct.toFixed(1) }}%</span></span>
+            </div>
+          </div>
+          <div v-if="filteredDecisions.length === 0" class="py-12 text-center text-slate-400">
+            <p class="text-sm">Không có dữ liệu</p>
+          </div>
+        </div>
+
+        <!-- Desktop table -->
+        <div class="hidden sm:block overflow-x-auto">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Mã quyết định</th>
+                <th>Hồ sơ kỹ thuật</th>
+                <th>Nhà cung cấp trúng thầu</th>
+                <th class="num">Giá trúng thầu</th>
+                <th class="num">So với ngân sách</th>
+                <th>Đơn hàng đã mint</th>
+                <th>Trạng thái</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="(d, idx) in filteredDecisions" :key="d.name"
+                class="clickable animate-fade-in"
+                :class="[`stagger-${Math.min(idx + 1, 8)}`]"
+                @click="goDetail(d.name)"
+              >
+                <td><span class="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded text-slate-700">{{ d.name }}</span></td>
+                <td>
+                  <button class="link-cell" :title="`Lọc: ${d.spec_ref}`" @click.stop="quickFilter('spec_ref', d.spec_ref)">
+                    {{ d.spec_ref }}
+                  </button>
+                </td>
+                <td>
+                  <button
+  v-if="d.winner_supplier" class="link-cell"
+                          :title="`Lọc: ${d.winner_supplier}`"
+                          @click.stop="quickFilter('winner_supplier', d.winner_supplier)">
+                    {{ d.vendor_name || d.winner_supplier }}
+                  </button>
+                  <span v-else class="text-slate-400">—</span>
+                </td>
+                <td class="num">{{ formatVnd(d.awarded_price) }}</td>
+                <td class="num">
+                  <span :class="envClass(d.envelope_check_pct)">
+                    {{ d.envelope_check_pct ? d.envelope_check_pct.toFixed(1) + '%' : '—' }}
+                  </span>
+                </td>
+                <td>
+                  <span v-if="d.ac_purchase_ref">{{ d.ac_purchase_ref }}</span>
+                  <span v-else class="text-slate-400">—</span>
+                </td>
+                <td>
+                  <button
+  type="button" class="pill-btn"
+                          :title="`Lọc trạng thái: ${stateLabel(d.workflow_state)}`"
+                          @click.stop="quickFilter('workflow_state', d.workflow_state)">
+                    <StatusBadge :state="d.workflow_state" />
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </template>
       <div v-else class="flex flex-col items-center justify-center py-16 text-slate-400">
         <p class="text-sm">Không có quyết định mua sắm phù hợp</p>
         <button v-if="activeChips.length > 0" class="mt-3 text-xs text-blue-500 hover:text-blue-700 underline" @click="resetFilters">

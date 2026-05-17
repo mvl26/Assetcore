@@ -17,3 +17,6 @@ class IMMTrainingProgram(Document):
             frappe.throw(_("Điểm đạt phải từ 0 đến 100%"))
         if int(self.validity_period_months or 0) < 1:
             frappe.throw(_("Hiệu lực phải ít nhất 1 tháng"))
+        from assetcore.services.imm06 import validate_score_bounds_config
+
+        validate_score_bounds_config(self)

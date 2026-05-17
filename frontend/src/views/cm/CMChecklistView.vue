@@ -195,7 +195,7 @@ async function handleComplete() {
         <p class="text-sm font-semibold text-slate-700 mb-3">
           Xác nhận trưởng khoa phòng <span class="text-red-500">*</span>
         </p>
-        <div class="grid grid-cols-2 gap-3">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label class="block text-xs text-slate-500 mb-1">Họ tên *</label>
             <input

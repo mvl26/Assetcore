@@ -3,11 +3,15 @@ from __future__ import annotations
 import unittest
 from types import SimpleNamespace
 
+import frappe
+
 from assetcore.services.imm03 import (
     _parse_weighting,
     _parse_json_field,
     _compute_eval_scores,
     _validate_gate_g04_method,
+    set_actual_delivery_on_received,
+    validate_receipt_against_po,
     ENVELOPE_HARD_LIMIT_PCT,
     _METHOD_RULES,
 )
@@ -180,3 +184,86 @@ class TestMethodRules(unittest.TestCase):
         max_val, min_q = _METHOD_RULES["Đấu thầu rộng rãi"]
         self.assertIsNone(max_val)
         self.assertEqual(min_q, 3)
+
+
+class TestActualDeliveryDefault(unittest.TestCase):
+    """Slide 14b — actual_delivery_date mặc định = hôm nay khi Received."""
+
+    def test_received_empty_defaults_today(self):
+        from frappe.utils import today
+        doc = SimpleNamespace(status="Received", actual_delivery_date=None)
+        set_actual_delivery_on_received(doc)
+        self.assertEqual(doc.actual_delivery_date, today())
+
+    def test_received_with_value_unchanged(self):
+        doc = SimpleNamespace(status="Received", actual_delivery_date="2026-01-01")
+        set_actual_delivery_on_received(doc)
+        self.assertEqual(doc.actual_delivery_date, "2026-01-01")
+
+    def test_non_received_skipped(self):
+        doc = SimpleNamespace(status="Submitted", actual_delivery_date=None)
+        set_actual_delivery_on_received(doc)
+        self.assertIsNone(doc.actual_delivery_date)
+
+
+class TestReceiptAgainstPO(unittest.TestCase):
+    """Slide 18 — hàng nhận phải khớp PO line; + Slide 09 PO→Decision→Plan."""
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        existing = frappe.get_all("AC Supplier", limit=1, pluck="name")
+        if existing:
+            sup = existing[0]
+        else:
+            d = frappe.get_doc({
+                "doctype": "AC Supplier", "supplier_name": "_T-IMM03-SUP",
+            })
+            d.insert(ignore_permissions=True)
+            sup = d.name
+        cls.supplier = sup
+        model = frappe.get_all("IMM Device Model", limit=1, pluck="name")
+        cls.model = model[0] if model else None
+        po = frappe.new_doc("AC Purchase")
+        po.supplier = sup
+        if cls.model:
+            po.append("devices", {"device_model": cls.model, "qty": 1, "unit_price": 1000})
+        else:
+            spares = frappe.get_all("AC Spare Part", limit=1, pluck="name")
+            cls.spare = spares[0] if spares else None
+            if cls.spare:
+                po.append("items", {"spare_part": cls.spare, "qty": 1, "unit_cost": 100})
+        po.insert(ignore_permissions=True)
+        cls.po = po.name
+
+    def test_po_code_set_after_insert(self):
+        po_code = frappe.db.get_value("AC Purchase", self.po, "po_code")
+        self.assertEqual(po_code, self.po)
+
+    def test_match_passes(self):
+        if self.model:
+            validate_receipt_against_po(self.po, [{"device_model": self.model}])
+        elif getattr(self, "spare", None):
+            validate_receipt_against_po(self.po, [{"spare_part": self.spare}])
+        else:
+            self.skipTest("no model/spare master to test match")
+
+    def test_mismatch_raises(self):
+        with self.assertRaises(ServiceError) as ctx:
+            validate_receipt_against_po(self.po, [{"device_model": "_NONEXISTENT"}])
+        self.assertEqual(ctx.exception.code, ErrorCode.BUSINESS_RULE)
+
+    def test_unknown_po_raises(self):
+        with self.assertRaises(ServiceError) as ctx:
+            validate_receipt_against_po("_NOPE", [{"device_model": "X"}])
+        self.assertEqual(ctx.exception.code, ErrorCode.NOT_FOUND)
+
+    def test_traceability_po_to_decision_to_plan(self):
+        """PO → Decision → Plan chain navigable khi qua mint flow."""
+        # Verify field tồn tại để traverse: po.procurement_decision_ref
+        meta = frappe.get_meta("AC Purchase")
+        self.assertIsNotNone(meta.get_field("procurement_decision_ref"))
+        pd_meta = frappe.get_meta("IMM Procurement Decision")
+        self.assertIsNotNone(pd_meta.get_field("plan_ref"))
+        ve_meta = frappe.get_meta("IMM Vendor Evaluation")
+        self.assertIsNotNone(ve_meta.get_field("plan_ref"))

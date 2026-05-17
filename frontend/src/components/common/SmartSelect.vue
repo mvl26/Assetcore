@@ -21,7 +21,7 @@ type DocType =
   | 'AC Asset Category' | 'IMM Device Model' | 'IMM Calibration Schedule'
   | 'Purchase Order' | 'User' | 'AC Warehouse'
   | 'AC Spare Part Category' | 'AC Spare Part' | 'AC Vendor' | 'AC Purchase' | 'UOM' | 'AC UOM'
-  | 'PM Checklist Template'
+  | 'PM Checklist Template' | 'IMM Trainer'
 
 const props = defineProps<{
   modelValue: string | undefined | null
@@ -33,12 +33,19 @@ const props = defineProps<{
   id?: string
   /** Chiều cao tối đa dropdown (px). Mặc định 320 */
   maxHeight?: number
+  /** Bộ lọc server-side cho link-search (vd: { asset_category: 'X' }) — cascade dropdown */
+  filters?: Record<string, unknown>
+  /** Hiện dòng "+ Tạo mới" ở cuối dropdown */
+  allowCreate?: boolean
+  /** Nhãn cho dòng tạo mới (mặc định "Tạo mới") */
+  createLabel?: string
 }>()
 
 const emit = defineEmits<{
   'update:modelValue': [value: string]
   'select': [item: MasterItem]
   'clear': []
+  'create': [searchText: string]
 }>()
 
 const store = useMasterDataStore()
@@ -56,7 +63,19 @@ const selectedItem = computed<MasterItem | null>(() => {
 })
 
 
-const allItems = computed<MasterItem[]>(() => store.getItems(props.doctype))
+const useFilter = computed(() => props.filters !== undefined && props.filters !== null)
+
+const allItems = computed<MasterItem[]>(() =>
+  useFilter.value
+    ? store.getFilteredItems(props.doctype, props.filters as Record<string, unknown>)
+    : store.getItems(props.doctype),
+)
+
+const loadingItems = computed<boolean>(() =>
+  useFilter.value
+    ? store.isLoadingFiltered(props.doctype, props.filters as Record<string, unknown>)
+    : store.isLoading(props.doctype),
+)
 
 const filteredItems = computed<MasterItem[]>(() => {
   const q = searchQuery.value.trim().toLowerCase()
@@ -73,6 +92,12 @@ const dropdownStyle = computed(() => ({
 }))
 
 async function ensureLoaded() {
+  if (useFilter.value) {
+    if (allItems.value.length === 0) {
+      await store.fetchFiltered(props.doctype, props.filters as Record<string, unknown>)
+    }
+    return
+  }
   if (allItems.value.length === 0) {
     await store.fetchDoctype(props.doctype)
   }
@@ -100,6 +125,11 @@ function close() {
 function selectItem(item: MasterItem) {
   emit('update:modelValue', item.id)
   emit('select', item)
+  close()
+}
+
+function onCreate() {
+  emit('create', searchQuery.value.trim())
   close()
 }
 
@@ -149,6 +179,12 @@ function onClickOutside(e: MouseEvent) {
 watch(() => props.modelValue, async (val) => {
   if (val && allItems.value.length === 0) await ensureLoaded()
 }, { immediate: true })
+
+// Cascade: khi filters đổi → reload tập kết quả (nếu dropdown đang mở)
+watch(() => props.filters, async () => {
+  if (!useFilter.value) return
+  if (open.value || allItems.value.length === 0) await ensureLoaded()
+}, { deep: true })
 
 // Reset search khi filter mới → focus item đầu
 watch(searchQuery, () => { activeIndex.value = filteredItems.value.length > 0 ? 0 : -1 })
@@ -232,7 +268,7 @@ class="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400"
 
       <!-- Loading indicator -->
       <div
-v-if="store.isLoading(doctype) && !allItems.length"
+v-if="loadingItems && !allItems.length"
            class="px-3 py-4 text-center text-sm text-slate-400">
         <svg class="w-4 h-4 inline-block animate-spin mr-2" fill="none" viewBox="0 0 24 24">
           <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
@@ -247,6 +283,14 @@ v-else-if="!filteredItems.length"
            class="px-3 py-6 text-center text-sm text-slate-400">
         <span v-if="searchQuery">Không tìm thấy "{{ searchQuery }}"</span>
         <span v-else>Chưa có dữ liệu {{ doctype }}</span>
+        <button
+          v-if="allowCreate"
+          type="button"
+          class="mt-3 block w-full text-left px-3 py-2 text-sm text-brand-600 hover:bg-brand-50 rounded-md font-medium"
+          @mousedown.prevent="onCreate"
+        >
+          + {{ createLabel || 'Tạo mới' }}<span v-if="searchQuery"> "{{ searchQuery }}"</span>
+        </button>
       </div>
 
       <!-- Item list -->
@@ -283,6 +327,16 @@ v-if="selectedItem?.id === item.id"
           </span>
         </li>
       </ul>
+
+      <!-- Create row (khi có items) -->
+      <button
+        v-if="allowCreate && filteredItems.length > 0"
+        type="button"
+        class="block w-full text-left px-3 py-2 border-t border-slate-100 text-sm text-brand-600 hover:bg-brand-50 font-medium"
+        @mousedown.prevent="onCreate"
+      >
+        + {{ createLabel || 'Tạo mới' }}<span v-if="searchQuery"> "{{ searchQuery }}"</span>
+      </button>
 
       <!-- Footer: count -->
       <div

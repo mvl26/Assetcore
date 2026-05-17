@@ -10,7 +10,7 @@ import ApprovalPanel from '@/components/commissioning/ApprovalPanel.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
-import { getGateStatus, approveClinicalRelease } from '@/api/imm04'
+import { getGateStatus } from '@/api/imm04'
 import type { GateStatus } from '@/api/imm04'
 
 const props  = defineProps<{ id: string }>()
@@ -148,19 +148,6 @@ async function handleTransitionFromPanel(action: string) {
     await Promise.all([store.fetchDetail(props.id), loadGateStatus()])
   } else {
     toast.error(store.error ?? 'Không thể thực hiện hành động.')
-  }
-}
-
-async function handleApprove(boardApprover: string, remarks: string) {
-  panelSaving.value = true
-  try {
-    await approveClinicalRelease(props.id, boardApprover, remarks)
-    toast.success('Đã phê duyệt phát hành lâm sàng thành công.')
-    await Promise.all([store.fetchDetail(props.id), loadGateStatus()])
-  } catch (err: unknown) {
-    toast.error(err instanceof Error ? err.message : 'Không thể phê duyệt. Vui lòng thử lại.')
-  } finally {
-    panelSaving.value = false
   }
 }
 
@@ -519,7 +506,6 @@ v-if="store.loading"
             :gate-status="gateStatus"
             :saving="panelSaving"
             @transition="handleTransitionFromPanel"
-            @approve="handleApprove"
             @update-field="handleFieldUpdate"
             @refresh="load"
           />

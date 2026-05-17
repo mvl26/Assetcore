@@ -207,56 +207,94 @@ onMounted(load)
       <div v-else-if="filteredItems.length === 0" class="p-8 text-center text-slate-400 text-sm">
         {{ activeFilterCount > 0 ? 'Không có lịch phù hợp.' : 'Chưa có lịch hiệu chuẩn.' }}
       </div>
-      <div v-else class="overflow-x-auto">
-<table class="w-full text-sm">
-        <thead class="bg-slate-50 border-b">
-          <tr>
-            <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Mã</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Thiết bị</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Loại</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Chu kỳ</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Ngày đến hạn</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Trạng thái</th>
-            <th class="px-4 py-3 text-right"></th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-slate-100">
-          <tr v-for="s in filteredItems" :key="s.name" class="hover:bg-slate-50">
-            <td class="px-4 py-3 font-mono text-xs text-slate-400">{{ s.name }}</td>
-            <td class="px-4 py-3">
-              <div class="font-medium text-slate-900 truncate max-w-[240px]">
-                {{ formatAssetDisplay(s.asset_name, s.asset).main }}
-              </div>
-              <div v-if="formatAssetDisplay(s.asset_name, s.asset).hasBoth" class="text-xs text-slate-400 font-mono">
-                {{ formatAssetDisplay(s.asset_name, s.asset).sub }}
-              </div>
-            </td>
-            <td class="px-4 py-3">
-              <button
-                v-if="s.calibration_type"
-                class="text-xs px-2 py-0.5 rounded-full font-medium bg-purple-100 text-purple-700 hover:ring-2 hover:ring-purple-400"
-                :title="`Lọc: ${TYPE_LABEL[s.calibration_type] || s.calibration_type}`"
-                @click="quickFilter('calibration_type', s.calibration_type!)"
-              >{{ TYPE_LABEL[s.calibration_type] || s.calibration_type }}</button>
-              <span v-else class="text-slate-400">—</span>
-            </td>
-            <td class="px-4 py-3">{{ s.interval_days }} ngày</td>
-            <td class="px-4 py-3 text-xs" :class="isOverdue(s.next_due_date) ? 'text-red-600 font-semibold' : ''">
-              {{ formatDate(s.next_due_date) }}
-            </td>
-            <td class="px-4 py-3">
+      <template v-else>
+        <!-- Mobile cards (< sm) -->
+        <div class="mobile-card-list sm:hidden">
+          <div
+            v-for="s in filteredItems"
+            :key="s.name"
+            class="mobile-card"
+          >
+            <div class="flex items-center justify-between mb-2">
+              <span class="font-mono text-sm font-semibold text-brand-700">{{ s.name }}</span>
               <span class="text-xs px-2 py-0.5 rounded-full font-medium" :class="s.is_active ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'">
                 {{ s.is_active ? 'Hoạt động' : 'Tạm dừng' }}
               </span>
-            </td>
-            <td class="px-4 py-3 text-right space-x-2 whitespace-nowrap">
-              <button class="text-blue-600 hover:text-blue-800 text-xs font-medium" @click="openEdit(s.name)">Sửa</button>
-              <button class="text-red-600 hover:text-red-800 text-xs font-medium" @click="remove(s.name)">Xóa</button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-      </div>
+            </div>
+            <p class="text-sm font-medium text-slate-900 truncate">{{ formatAssetDisplay(s.asset_name, s.asset).main }}</p>
+            <div class="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1.5 text-xs text-slate-500">
+              <button
+                v-if="s.calibration_type"
+                class="text-xs px-1.5 py-0.5 rounded-full font-medium bg-purple-100 text-purple-700"
+                @click="quickFilter('calibration_type', s.calibration_type!)"
+              >{{ TYPE_LABEL[s.calibration_type] || s.calibration_type }}</button>
+              <span class="text-slate-300">·</span>
+              <span>{{ s.interval_days }} ngày</span>
+              <span class="text-slate-300">·</span>
+              <span :class="isOverdue(s.next_due_date) ? 'text-red-600 font-semibold' : ''">{{ formatDate(s.next_due_date) }}</span>
+            </div>
+            <div class="flex justify-end gap-3 mt-2 pt-2 border-t border-slate-100" @click.stop>
+              <button class="text-blue-600 text-xs font-medium" @click="openEdit(s.name)">Sửa</button>
+              <button class="text-red-600 text-xs font-medium" @click="remove(s.name)">Xóa</button>
+            </div>
+          </div>
+          <div v-if="filteredItems.length === 0" class="py-12 text-center text-slate-400">
+            <p class="text-sm font-medium">Không có dữ liệu</p>
+          </div>
+        </div>
+
+        <!-- Desktop table (sm+) -->
+        <div class="hidden sm:block overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead class="bg-slate-50 border-b">
+              <tr>
+                <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Mã</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Thiết bị</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Loại</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Chu kỳ</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Ngày đến hạn</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-slate-500">Trạng thái</th>
+                <th class="px-4 py-3 text-right"></th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+              <tr v-for="s in filteredItems" :key="s.name" class="hover:bg-slate-50">
+                <td class="px-4 py-3 font-mono text-xs text-slate-400">{{ s.name }}</td>
+                <td class="px-4 py-3">
+                  <div class="font-medium text-slate-900 truncate max-w-[240px]">
+                    {{ formatAssetDisplay(s.asset_name, s.asset).main }}
+                  </div>
+                  <div v-if="formatAssetDisplay(s.asset_name, s.asset).hasBoth" class="text-xs text-slate-400 font-mono">
+                    {{ formatAssetDisplay(s.asset_name, s.asset).sub }}
+                  </div>
+                </td>
+                <td class="px-4 py-3">
+                  <button
+                    v-if="s.calibration_type"
+                    class="text-xs px-2 py-0.5 rounded-full font-medium bg-purple-100 text-purple-700 hover:ring-2 hover:ring-purple-400"
+                    :title="`Lọc: ${TYPE_LABEL[s.calibration_type] || s.calibration_type}`"
+                    @click="quickFilter('calibration_type', s.calibration_type!)"
+                  >{{ TYPE_LABEL[s.calibration_type] || s.calibration_type }}</button>
+                  <span v-else class="text-slate-400">—</span>
+                </td>
+                <td class="px-4 py-3">{{ s.interval_days }} ngày</td>
+                <td class="px-4 py-3 text-xs" :class="isOverdue(s.next_due_date) ? 'text-red-600 font-semibold' : ''">
+                  {{ formatDate(s.next_due_date) }}
+                </td>
+                <td class="px-4 py-3">
+                  <span class="text-xs px-2 py-0.5 rounded-full font-medium" :class="s.is_active ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'">
+                    {{ s.is_active ? 'Hoạt động' : 'Tạm dừng' }}
+                  </span>
+                </td>
+                <td class="px-4 py-3 text-right space-x-2 whitespace-nowrap">
+                  <button class="text-blue-600 hover:text-blue-800 text-xs font-medium" @click="openEdit(s.name)">Sửa</button>
+                  <button class="text-red-600 hover:text-red-800 text-xs font-medium" @click="remove(s.name)">Xóa</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </template>
     </div>
 
     <!-- Form Modal -->

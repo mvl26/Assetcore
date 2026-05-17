@@ -294,7 +294,13 @@ def _mint_ac_purchase(doc: Document) -> str:
     po = frappe.new_doc(_DT_PURCHASE)
     po.supplier = doc.winner_supplier
     po.purchase_date = now_datetime()
-    po.imm_procurement_decision = doc.name
+    po.procurement_decision_ref = doc.name  # native back-ref (Slide 09 traceability)
+    if frappe.db.has_column(_DT_PURCHASE, "imm_procurement_decision"):
+        po.imm_procurement_decision = doc.name  # legacy custom field (BR-03-08)
+    if getattr(doc, "plan_ref", None) and frappe.db.has_column(
+        _DT_PURCHASE, "imm_procurement_plan"
+    ):
+        po.imm_procurement_plan = doc.plan_ref
     po.imm_tech_spec = doc.spec_ref
     po.imm_funding_source = doc.funding_source
     spec = frappe.get_doc(_DT_TS, doc.spec_ref)
@@ -381,6 +387,62 @@ def on_submit_audit(doc: Document) -> None:
                 update_modified=False,
             )
         _sync_supplier_avl_status(doc.supplier)
+
+
+# ─── AC Purchase delivery (Slide 14b) ─────────────────────────────────────────
+
+def set_actual_delivery_on_received(doc: Document, method: str | None = None) -> None:
+    """Khi AC Purchase chuyển sang Received mà chưa nhập ngày giao thực tế,
+    mặc định = hôm nay (Slide 14b — phân biệt deadline vs ngày giao thực tế).
+
+    Idempotent: chỉ set khi status == 'Received' và actual_delivery_date trống.
+    """
+    if doc.status == "Received" and not doc.actual_delivery_date:
+        doc.actual_delivery_date = today()
+
+
+# ─── AC Purchase ↔ PO model match (Slide 18) ──────────────────────────────────
+
+def validate_receipt_against_po(po_name: str, received_items: list) -> None:
+    """Slide 18 — phiếu nhập kho/tiếp nhận tham chiếu PO phải khớp model/phụ tùng.
+
+    Stock agent gọi hàm này trước khi ghi nhận receipt. `received_items` là list
+    dict, mỗi item tối thiểu có:
+      - {"device_model": "<IMM Device Model>"}  cho thiết bị, HOẶC
+      - {"spare_part": "<AC Spare Part>"}       cho phụ tùng
+
+    Raise ServiceError(BUSINESS_RULE) nếu có item không nằm trong PO lines.
+    """
+    if not po_name:
+        raise ServiceError(ErrorCode.VALIDATION, _("Thiếu tham chiếu PO."))
+    if not frappe.db.exists(_DT_PURCHASE, po_name):
+        raise ServiceError(
+            ErrorCode.NOT_FOUND, _("PO {0} không tồn tại.").format(po_name)
+        )
+    po = frappe.get_doc(_DT_PURCHASE, po_name)
+    po_models = {r.device_model for r in (po.get("devices") or []) if r.device_model}
+    po_spares = {r.spare_part for r in (po.get("items") or []) if r.spare_part}
+
+    mismatches: list[str] = []
+    for it in received_items or []:
+        dm = it.get("device_model")
+        sp = it.get("spare_part")
+        if dm:
+            if dm not in po_models:
+                mismatches.append(_("Model {0} không có trong PO").format(dm))
+        elif sp:
+            if sp not in po_spares:
+                mismatches.append(_("Phụ tùng {0} không có trong PO").format(sp))
+        else:
+            mismatches.append(_("Item nhận không xác định model/phụ tùng"))
+
+    if mismatches:
+        raise ServiceError(
+            ErrorCode.BUSINESS_RULE,
+            _("Slide-18: Hàng nhận không khớp PO {0}: {1}").format(
+                po_name, "; ".join(mismatches)
+            ),
+        )
 
 
 # ─── AC Purchase validate hook (BR-03-08) ─────────────────────────────────────

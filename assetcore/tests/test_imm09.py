@@ -112,15 +112,45 @@ class TestRepairWOCreation(unittest.TestCase):
             frappe.db.set_value("Asset Repair", wo.name, "status", "Completed")
             frappe.db.set_value("Asset Repair", wo.name, "docstatus", 1)
 
-    def test_no_source_raises_service_error(self):
-        with self.assertRaises(ServiceError) as cm:
-            create_work_order(
-                asset_ref=self.asset.name,
-                repair_type="Corrective",
-                priority="Normal",
-                failure_description="Test failure — no source",
-            )
-        self.assertIn("CM_NO_SOURCE", cm.exception.code or cm.exception.args[0])
+    def test_standalone_create_succeeds(self):
+        """Slide 24b: standalone repair WO (no incident/PM) is allowed."""
+        result = create_work_order(
+            asset_ref=self.asset.name,
+            repair_type="Corrective",
+            priority="Normal",
+            failure_description="Standalone repair — no linked source",
+        )
+        self.assertIn("name", result)
+        doc = frappe.get_doc("Asset Repair", result["name"])
+        self.assertFalse(doc.incident_report)
+        self.assertFalse(doc.source_pm_wo)
+        frappe.db.commit()
+
+    def test_requested_by_is_session_user(self):
+        """Slide 24a/26: requested_by auto = session user."""
+        frappe.set_user("Administrator")
+        result = create_work_order(
+            asset_ref=self.asset.name,
+            repair_type="Corrective",
+            priority="Normal",
+            failure_description="Check requested_by auto-set",
+        )
+        doc = frappe.get_doc("Asset Repair", result["name"])
+        self.assertEqual(doc.requested_by, "Administrator")
+        frappe.db.commit()
+
+    def test_failure_description_persisted(self):
+        """Slide 24a: failure_description persisted on the doc."""
+        desc = "Persisted failure description for assertion"
+        result = create_work_order(
+            asset_ref=self.asset.name,
+            repair_type="Corrective",
+            priority="Normal",
+            failure_description=desc,
+        )
+        doc = frappe.get_doc("Asset Repair", result["name"])
+        self.assertEqual(doc.failure_description, desc)
+        frappe.db.commit()
 
     def test_nonexistent_asset_raises_not_found(self):
         with self.assertRaises(ServiceError) as cm:

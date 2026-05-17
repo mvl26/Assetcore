@@ -17,6 +17,8 @@ export interface PMWorkOrder {
   completion_date: string | null
   assigned_to: string | null
   assigned_to_name?: string | null
+  supervisor?: string | null
+  supervisor_name?: string | null
   overall_result: 'Pass' | 'Pass with Minor Issues' | 'Fail' | null
   technician_notes: string
   pm_sticker_attached: boolean
@@ -169,6 +171,7 @@ export async function createAdhocPMWorkOrder(data: {
   pm_schedule: string
   due_date: string
   assigned_to?: string
+  supervisor?: string
   technician_notes?: string
 }): Promise<{ name: string }> {
   return frappePost<{ name: string }>(`${BASE}.create_pm_work_order`, data as Record<string, unknown>)

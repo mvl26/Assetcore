@@ -18,8 +18,8 @@
   "workflow_state",
   "priority_class",
   "section_target",
-  "device_model_ref",
   "device_category",
+  "device_model_ref",
   "quantity",
   "column_break_t1",
   "target_year",
@@ -69,10 +69,12 @@
    "options": "\nP1\nP2\nP3\nP4", "read_only": 1, "in_list_view": 1},
 
   {"fieldname": "section_target", "fieldtype": "Section Break", "label": "Mục tiêu mua"},
-  {"fieldname": "device_model_ref", "fieldtype": "Link", "options": "IMM Device Model",
-   "label": "Model thiết bị", "reqd": 1},
   {"fieldname": "device_category", "fieldtype": "Link", "options": "AC Asset Category",
-   "label": "Nhóm thiết bị", "fetch_from": "device_model_ref.asset_category", "read_only": 1},
+   "label": "Nhóm thiết bị", "reqd": 1, "in_list_view": 1,
+   "description": "Bắt buộc. Chọn nhóm thiết bị; Model là tùy chọn (xác định sau ở IMM-02)."},
+  {"fieldname": "device_model_ref", "fieldtype": "Link", "options": "IMM Device Model",
+   "label": "Model thiết bị (tùy chọn)",
+   "description": "Tùy chọn — nếu chọn Model, Nhóm thiết bị sẽ tự điền theo Model."},
   {"fieldname": "quantity", "fieldtype": "Int", "label": "Số lượng", "default": "1", "reqd": 1},
   {"fieldname": "column_break_t1", "fieldtype": "Column Break"},
   {"fieldname": "target_year", "fieldtype": "Int", "label": "Năm mục tiêu", "reqd": 1},
@@ -141,6 +143,6 @@
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": [],
- "title_field": "device_model_ref",
+ "title_field": "device_category",
  "track_changes": 1
 }

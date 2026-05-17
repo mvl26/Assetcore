@@ -1,7 +1,7 @@
 # UI Prototype Wireframe (IMM-04)
 # Thiết kế Layout Dạng Text / Pseudo-HTML
 
-**Phân hệ:** AssetCore v1.0
+**Phân hệ:** AssetCore v0.0.1
 **Mục tiêu:** Thể hiện rõ khối Logic (Khối ẩn/hiện, Vị trí nút, Nơi hiện Cảnh báo đỏ/vàng) theo từng Màn hình của Hệ thống. Không chú trọng CSS, chú trọng cấu trúc Khung Xương (Wireframe).
 
 ---

@@ -239,3 +239,207 @@ class TestPMWorkOrder(unittest.TestCase):
             self.assertEqual(cm.exception.code, ErrorCode.BAD_STATE)
         finally:
             set_schedule_status(self.schedule_name, "Active")
+
+
+class TestPMBackfillAndSupervisor(unittest.TestCase):
+    """Slide 08c — backfill PM Schedule cho asset có next_pm_date; slide 22 — supervisor."""
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.cat = _ensure_cat()
+        cls.asset = _make_asset("-bf")
+        # checklist template khớp category để create_pm_schedule_from_asset thành công
+        tmpl = _make_template(cls.cat)
+        cls.template_name = tmpl["name"]
+
+    @classmethod
+    def tearDownClass(cls):
+        for sc in frappe.get_all(
+            "PM Schedule", filters={"asset_ref": cls.asset.name}, fields=["name"]
+        ):
+            frappe.delete_doc("PM Schedule", sc.name, force=True, ignore_permissions=True)
+        frappe.delete_doc(
+            "PM Checklist Template", cls.template_name, force=True, ignore_permissions=True
+        )
+        frappe.delete_doc("AC Asset", cls.asset.name, force=True, ignore_permissions=True)
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        for sc in frappe.get_all(
+            "PM Schedule", filters={"asset_ref": self.asset.name}, fields=["name"]
+        ):
+            frappe.delete_doc("PM Schedule", sc.name, force=True, ignore_permissions=True)
+
+    def test_backfill_creates_schedule_for_due_asset(self):
+        from assetcore.services.imm08 import backfill_pm_schedules_for_due_assets
+
+        frappe.db.set_value(
+            "AC Asset", self.asset.name, "next_pm_date", add_days(nowdate(), -1)
+        )
+        frappe.db.commit()
+
+        result = backfill_pm_schedules_for_due_assets()
+        self.assertGreaterEqual(result["created"], 1)
+        self.assertTrue(
+            frappe.db.exists(
+                "PM Schedule", {"asset_ref": self.asset.name, "status": "Active"}
+            )
+        )
+
+    def test_backfill_skips_asset_with_active_schedule(self):
+        from assetcore.services.imm08 import (
+            backfill_pm_schedules_for_due_assets,
+            create_pm_schedule_from_asset,
+        )
+
+        frappe.db.set_value(
+            "AC Asset", self.asset.name, "next_pm_date", add_days(nowdate(), -1)
+        )
+        frappe.db.commit()
+        asset_doc = frappe.get_doc("AC Asset", self.asset.name)
+        create_pm_schedule_from_asset(asset_doc)
+        frappe.db.commit()
+
+        before = frappe.db.count("PM Schedule", {"asset_ref": self.asset.name})
+        backfill_pm_schedules_for_due_assets()
+        after = frappe.db.count("PM Schedule", {"asset_ref": self.asset.name})
+        self.assertEqual(before, after)
+
+    def test_list_and_detail_expose_supervisor(self):
+        from assetcore.services.imm08 import get_work_order, list_work_orders
+
+        wo = frappe.get_doc({
+            "doctype": "PM Work Order",
+            "asset_ref": self.asset.name,
+            "pm_schedule": None,
+            "pm_type": "Quarterly",
+            "wo_type": "Preventive",
+            "status": "Open",
+            "due_date": add_days(nowdate(), 7),
+            "assigned_to": "Administrator",
+            "supervisor": "Administrator",
+        })
+        # pm_schedule reqd — tạo lịch tạm
+        from assetcore.services.imm08 import create_pm_schedule_from_asset
+        frappe.db.set_value(
+            "AC Asset", self.asset.name, "next_pm_date", add_days(nowdate(), -1)
+        )
+        sched_name = create_pm_schedule_from_asset(
+            frappe.get_doc("AC Asset", self.asset.name)
+        )
+        wo.pm_schedule = sched_name
+        wo.insert(ignore_permissions=True)
+        frappe.db.commit()
+        try:
+            detail = get_work_order(wo.name)
+            self.assertEqual(detail["supervisor"], "Administrator")
+            self.assertIn("supervisor_name", detail)
+            self.assertIn("completion_date", detail)
+            self.assertIn("assigned_to", detail)
+
+            listed = list_work_orders({"asset_ref": self.asset.name})
+            match = next(r for r in listed["data"] if r["name"] == wo.name)
+            self.assertEqual(match["supervisor"], "Administrator")
+            self.assertIn("supervisor_name", match)
+            self.assertIn("completion_date", match)
+        finally:
+            frappe.delete_doc(
+                "PM Work Order", wo.name, force=True, ignore_permissions=True
+            )
+
+
+class TestPMCompletionGate(unittest.TestCase):
+    """BR-08-08/09/10 — gate hoàn thành PM (checklist rated + labor>0 + tem)."""
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.cat = _ensure_cat("_TestCatIMM08Gate")
+        cls.asset = _make_asset("-gate")
+        cls.asset.asset_category = cls.cat
+        cls.asset.save(ignore_permissions=True)
+        tmpl = _make_template(cls.cat)
+        cls.template_name = tmpl["name"]
+        sched = _make_schedule(cls.asset.name, cls.template_name)
+        cls.schedule_name = sched["name"]
+
+    @classmethod
+    def tearDownClass(cls):
+        for wo in frappe.get_all(
+            "PM Work Order", filters={"asset_ref": cls.asset.name}, fields=["name"]
+        ):
+            d = frappe.get_doc("PM Work Order", wo.name)
+            if d.docstatus == 1:
+                d.cancel()
+            frappe.delete_doc("PM Work Order", wo.name, force=True, ignore_permissions=True)
+        frappe.delete_doc("PM Schedule", cls.schedule_name, force=True, ignore_permissions=True)
+        frappe.delete_doc(
+            "PM Checklist Template", cls.template_name, force=True, ignore_permissions=True
+        )
+        frappe.delete_doc("AC Asset", cls.asset.name, force=True, ignore_permissions=True)
+        if frappe.db.exists("AC Asset Category", "_TestCatIMM08Gate"):
+            frappe.delete_doc(
+                "AC Asset Category", "_TestCatIMM08Gate", force=True,
+                ignore_permissions=True,
+            )
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+
+    def _make_wo(self):
+        res = create_adhoc_work_order({
+            "asset_ref": self.asset.name,
+            "pm_schedule": self.schedule_name,
+            "due_date": add_days(nowdate(), 7),
+            "assigned_to": "Administrator",
+        })
+        frappe.db.commit()
+        return res["name"]
+
+    def _rated_results(self, wo_name):
+        wo = frappe.get_doc("PM Work Order", wo_name)
+        return [
+            {"idx": r.idx, "result": "Pass", "measured_value": None, "notes": ""}
+            for r in (wo.checklist_results or [])
+        ]
+
+    def test_complete_blocked_when_checklist_unrated(self):
+        from assetcore.services.imm08 import submit_result
+        wo_name = self._make_wo()
+        wo = frappe.get_doc("PM Work Order", wo_name)
+        if not wo.checklist_results:
+            self.skipTest("template không có checklist item")
+        with self.assertRaises(ServiceError):
+            submit_result(
+                wo_name, checklist_results=[], overall_result="Pass",
+                pm_sticker_attached=1, duration_minutes=30,
+            )
+
+    def test_complete_blocked_when_labor_zero(self):
+        from assetcore.services.imm08 import submit_result
+        wo_name = self._make_wo()
+        with self.assertRaises(ServiceError):
+            submit_result(
+                wo_name, checklist_results=self._rated_results(wo_name),
+                overall_result="Pass", pm_sticker_attached=1, duration_minutes=0,
+            )
+
+    def test_complete_blocked_when_sticker_missing(self):
+        from assetcore.services.imm08 import submit_result
+        wo_name = self._make_wo()
+        with self.assertRaises(ServiceError):
+            submit_result(
+                wo_name, checklist_results=self._rated_results(wo_name),
+                overall_result="Pass", pm_sticker_attached=0, duration_minutes=30,
+            )
+
+    def test_complete_succeeds_when_all_satisfied(self):
+        from assetcore.services.imm08 import submit_result
+        wo_name = self._make_wo()
+        res = submit_result(
+            wo_name, checklist_results=self._rated_results(wo_name),
+            overall_result="Pass", pm_sticker_attached=1, duration_minutes=45,
+        )
+        frappe.db.commit()
+        self.assertEqual(res["new_status"], "Completed")

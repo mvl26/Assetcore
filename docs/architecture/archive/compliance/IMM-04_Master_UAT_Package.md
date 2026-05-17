@@ -1,5 +1,5 @@
 # MASTER UAT PACKAGE & GO/NO-GO DECISION
-# Phân hệ IMM-04 (Lắp đặt & Bàn giao TBYT) - Hệ thống AssetCore v1.0
+# Phân hệ IMM-04 (Lắp đặt & Bàn giao TBYT) - Hệ thống AssetCore v0.0.1
 
 **Mã tài liệu:** ASSETCORE-IMM04-UAT-PKG-v1.0
 **Ngày ban hành:** 2026-04-15
