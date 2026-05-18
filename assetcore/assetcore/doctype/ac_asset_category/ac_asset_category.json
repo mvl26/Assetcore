@@ -1,12 +1,13 @@
 {
  "actions": [],
  "allow_import": 1,
- "autoname": "field:category_name",
+ "autoname": "autoname",
  "creation": "2026-04-18 00:00:00",
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
   "category_name",
+  "category_code",
   "description",
   "section_pm",
   "default_pm_required",
@@ -35,6 +36,15 @@
    "label": "Category Name",
    "reqd": 1,
    "unique": 1
+  },
+  {
+   "fieldname": "category_code",
+   "fieldtype": "Data",
+   "label": "Category Code",
+   "unique": 1,
+   "set_only_once": 1,
+   "in_list_view": 1,
+   "description": "Mã danh mục. Nếu nhập tay → dùng làm mã định danh. Nếu để trống → hệ thống tự sinh CAT-.####. Sau khi tạo không thể thay đổi."
   },
   {
    "fieldname": "description",
@@ -146,11 +156,10 @@
   }
  ],
  "links": [],
- "modified": "2026-04-23 11:34:25.645443",
+ "modified": "2026-05-18 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "AssetCore",
  "name": "AC Asset Category",
- "naming_rule": "By fieldname",
  "owner": "Administrator",
  "permissions": [
   {

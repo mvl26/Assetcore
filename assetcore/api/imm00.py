@@ -513,7 +513,7 @@ def list_asset_categories():
     """GET /api/method/assetcore.api.imm00.list_asset_categories"""
     items = frappe.get_list(
         _DT_ASSET_CATEGORY,
-        fields=["name", "category_name", "description",
+        fields=["name", "category_name", "category_code", "description",
                 "gmdn_code", "gmdn_term",
                 "default_pm_required", "default_pm_interval_days",
                 "default_calibration_required", "default_calibration_interval_days",

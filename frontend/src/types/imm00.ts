@@ -201,6 +201,7 @@ export interface AcDepartment {
 export interface AcAssetCategory {
   name: string
   category_name: string
+  category_code?: string
   description?: string
   // GMDN — canonical code at category level, inherited down to Model → Asset
   gmdn_code?: string
