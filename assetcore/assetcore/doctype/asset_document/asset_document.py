@@ -91,8 +91,8 @@ class AssetDocument(Document):
 	# ── VR-03: file bắt buộc trước khi Submit_Review ─────────────────────────
 
 	def vr_03_file_required_for_review(self):
-		"""VR-03: Phải có file trước khi chuyển sang Pending_Review."""
-		if self.workflow_state == "Pending_Review" and not self.file_attachment:
+		"""VR-03: Phải có file trước khi chuyển sang Pending Review."""
+		if self.workflow_state == "Pending Review" and not self.file_attachment:
 			frappe.throw(_("VR-03: Vui lòng upload file tài liệu trước khi gửi duyệt."),
 						 title=_("Thiếu file"))
 
