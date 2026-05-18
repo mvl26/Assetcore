@@ -565,9 +565,9 @@ def create_system_user() -> dict:
     if not first_name:
         return _err("Thiếu họ tên", 400)
     password = (data.get("password") or "").strip()
-    if password and len(password) < 8:
+    if password and len(password) < 10:
         return _err(
-            "Mật khẩu phải có tối thiểu 8 ký tự. Khuyến nghị kết hợp chữ hoa, "
+            "Mật khẩu phải có tối thiểu 10 ký tự. Khuyến nghị kết hợp chữ hoa, "
             "chữ thường, số và ký tự đặc biệt.",
             400,
         )
@@ -612,8 +612,8 @@ def reset_user_password(user: str, new_password: str) -> dict:
         return _err(err_msg, 403)
     if not frappe.db.exists("User", user):
         return _err(f"User không tồn tại: {user}", 404)
-    if len(new_password) < 8:
-        return _err("Mật khẩu phải tối thiểu 8 ký tự", 400)
+    if len(new_password) < 10:
+        return _err("Mật khẩu phải tối thiểu 10 ký tự", 400)
 
     from frappe.utils.password import update_password
     update_password(user, new_password)
