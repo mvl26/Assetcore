@@ -7,7 +7,13 @@ import {
   listAssetCategories, getAssetCategory, createAssetCategory, updateAssetCategory, deleteAssetCategory,
   bulkRegenerateScheduleByCategory,
 } from '@/api/imm00'
+import {
+  previewRefImport, importRefData, buildErrorReport,
+  getExportUrl, getTemplateUrl, initImportFolders,
+} from '@/api/importData'
 import type { AcLocation, AcDepartment, AcAssetCategory } from '@/types/imm00'
+import type { ImportPreviewResult, ImportResult, ImportStep, RefDataDoctype } from '@/types/import'
+import api from '@/api/axios'
 import SmartSelect from '@/components/common/SmartSelect.vue'
 const toast = useToast()
 
@@ -59,7 +65,7 @@ function openCreate() {
     : tab.value === 'department'
     ? { department_name: '', department_code: '', parent_department: '', is_group: 0,
         dept_head: '', phone: '', email: '', is_active: 1 }
-    : { category_name: '', description: '',
+    : { category_name: '', category_code: '', description: '',
         gmdn_code: '', gmdn_term: '',
         default_pm_required: 1, default_pm_interval_days: 180,
         default_calibration_required: 0, default_calibration_interval_days: 365,
@@ -157,15 +163,153 @@ const tabLabel = computed(() =>
 
 function switchTab(t: Tab) { tab.value = t; showForm.value = false; load() }
 onMounted(load)
+
+// ── Import / Export ──────────────────────────────────────────────────────────
+
+const showImport = ref(false)
+const importStep = ref<ImportStep>('upload')
+const uploading = ref(false)
+const importLoading = ref(false)
+const uploadedFileUrl = ref('')
+const uploadedFileName = ref('')
+const importFolder = ref('Home/Attachments')
+const previewData = ref<ImportPreviewResult | null>(null)
+const importResult = ref<ImportResult | null>(null)
+const importErr = ref('')
+const isDragOver = ref(false)
+
+function currentDoctype(): RefDataDoctype {
+  if (tab.value === 'location') return 'AC Location'
+  if (tab.value === 'department') return 'AC Department'
+  return 'AC Asset Category'
+}
+
+async function openImport() {
+  showImport.value = true
+  importStep.value = 'upload'
+  uploadedFileUrl.value = ''
+  uploadedFileName.value = ''
+  previewData.value = null
+  importResult.value = null
+  importErr.value = ''
+  try {
+    importFolder.value = await initImportFolders(currentDoctype())
+  } catch {
+    importFolder.value = 'Home/Attachments'
+  }
+}
+
+function closeImport() {
+  showImport.value = false
+  if (importStep.value === 'result' && (importResult.value?.success ?? 0) > 0) load()
+}
+
+async function handleFileChange(event: Event) {
+  const file = (event.target as HTMLInputElement).files?.[0]
+  if (file) await _uploadAndPreview(file)
+}
+
+async function handleDrop(event: DragEvent) {
+  isDragOver.value = false
+  const file = event.dataTransfer?.files?.[0]
+  if (file) await _uploadAndPreview(file)
+}
+
+async function _uploadAndPreview(file: File) {
+  uploading.value = true
+  importErr.value = ''
+  try {
+    const fd = new FormData()
+    fd.append('file', file)
+    fd.append('is_private', '1')
+    fd.append('folder', importFolder.value)
+    const res = await api.post<{ message: { file_url: string } }>(
+      '/api/method/upload_file', fd,
+      { headers: { 'Content-Type': undefined as unknown as string } },
+    )
+    uploadedFileUrl.value = res.data.message.file_url
+    uploadedFileName.value = file.name
+    await runPreview()
+  } catch (e: unknown) {
+    importErr.value = e instanceof Error ? e.message : 'Lỗi upload file'
+  } finally {
+    uploading.value = false
+  }
+}
+
+async function runPreview() {
+  importLoading.value = true
+  importErr.value = ''
+  try {
+    previewData.value = await previewRefImport(currentDoctype(), uploadedFileUrl.value)
+    importStep.value = 'preview'
+  } catch (e: unknown) {
+    importErr.value = e instanceof Error ? e.message : 'Lỗi đọc file'
+  } finally {
+    importLoading.value = false
+  }
+}
+
+async function runImport() {
+  importLoading.value = true
+  importErr.value = ''
+  try {
+    importResult.value = await importRefData(currentDoctype(), uploadedFileUrl.value)
+    importStep.value = 'result'
+  } catch (e: unknown) {
+    importErr.value = e instanceof Error ? e.message : 'Lỗi import'
+  } finally {
+    importLoading.value = false
+  }
+}
+
+async function downloadErrorReport() {
+  try {
+    const r = await buildErrorReport(currentDoctype(), uploadedFileUrl.value)
+    globalThis.open(r.fileUrl, '_blank')
+  } catch {
+    toast.error('Không tạo được báo cáo lỗi')
+  }
+}
+
+function doExport() { globalThis.location.href = getExportUrl(currentDoctype()) }
+function doDownloadTemplate() { globalThis.location.href = getTemplateUrl(currentDoctype()) }
+
+const hasBlockingErrors = computed(
+  () => (previewData.value?.errors ?? []).some(e => e.severity === 'error'),
+)
 </script>
 
 <template>
   <div class="page-container animate-fade-in space-y-5">
     <div class="flex items-center justify-between">
       <h1 class="text-xl font-semibold text-gray-800">Dữ liệu tham chiếu</h1>
-      <button class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium" @click="openCreate">
-        + Thêm {{ tabLabel }}
-      </button>
+      <div class="flex items-center gap-2">
+        <button
+          class="px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-600 flex items-center gap-1.5"
+          title="Tải dữ liệu hiện tại về Excel"
+          @click="doExport"
+        >
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+          </svg>
+          Xuất Excel
+        </button>
+        <button
+          class="px-3 py-2 text-sm border border-emerald-300 rounded-lg hover:bg-emerald-50 text-emerald-700 flex items-center gap-1.5"
+          @click="openImport"
+        >
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+          </svg>
+          Import
+        </button>
+        <button class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium" @click="openCreate">
+          + Thêm {{ tabLabel }}
+        </button>
+      </div>
     </div>
 
     <div class="border-b border-gray-200 flex gap-1">
@@ -200,7 +344,7 @@ v-for="t in (['location','department','category'] as Tab[])" :key="t"
             <th class="px-4 py-3 text-right"></th>
           </tr>
           <tr v-else>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Mã</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Mã danh mục</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Tên danh mục</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">GMDN Code</th>
             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500">Phương pháp KH</th>
@@ -211,7 +355,9 @@ v-for="t in (['location','department','category'] as Tab[])" :key="t"
         </thead>
         <tbody class="divide-y divide-gray-100">
           <tr v-for="r in (currentRows as Record<string, unknown>[])" :key="r.name as string" class="hover:bg-gray-50">
-            <td class="px-4 py-3 font-mono text-xs text-gray-500">{{ r.name }}</td>
+            <td class="px-4 py-3 font-mono text-xs text-gray-500">
+              {{ tab === 'category' ? (r.category_code || r.name) : r.name }}
+            </td>
             <template v-if="tab === 'location'">
               <td class="px-4 py-3 font-medium text-gray-800">{{ r.location_name }}</td>
               <td class="px-4 py-3 text-gray-500">{{ r.clinical_area_type || '—' }}</td>
@@ -380,6 +526,20 @@ v-for="t in (['location','department','category'] as Tab[])" :key="t"
               <label class="block text-sm font-medium text-gray-700 mb-1">Tên danh mục <span class="text-red-500">*</span></label>
               <input v-model="form.category_name" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
             </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">
+                Mã danh mục
+                <span v-if="!editingName" class="text-xs text-gray-400 font-normal">(để trống → tự sinh)</span>
+                <span v-else class="text-xs text-gray-400 font-normal">(không đổi sau khi tạo)</span>
+              </label>
+              <input
+                v-model="form.category_code"
+                :disabled="!!editingName"
+                :placeholder="editingName ? '' : 'VD: Thiet-bi-Chuyen-dung (tùy chọn)'"
+                class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed"
+              />
+              <p v-if="!editingName" class="text-[10px] text-gray-400 mt-1">Chỉ dùng chữ cái, số, dấu . _ -</p>
+            </div>
             <div class="col-span-2">
               <label class="block text-sm font-medium text-gray-700 mb-1">Mô tả</label>
               <textarea v-model="form.description" rows="2" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"></textarea>
@@ -515,6 +675,216 @@ v-for="t in (['location','department','category'] as Tab[])" :key="t"
         <div class="flex justify-end gap-2 pt-2">
           <button class="px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50" @click="showForm = false">Hủy</button>
           <button class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700" @click="save">Lưu</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Import Modal ──────────────────────────────────────────────────── -->
+    <div
+      v-if="showImport"
+      class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
+      @click.self="closeImport"
+    >
+      <div class="bg-white rounded-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+        <!-- Header -->
+        <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+          <div>
+            <h2 class="text-base font-semibold text-gray-800">Import {{ tabLabel }}</h2>
+            <p class="text-xs text-gray-500 mt-0.5">
+              {{ importStep === 'upload' ? 'Tải file Excel / CSV lên' : importStep === 'preview' ? 'Kiểm tra dữ liệu trước khi import' : 'Kết quả import' }}
+            </p>
+          </div>
+          <button class="text-gray-400 hover:text-gray-600 p-1" @click="closeImport">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <!-- Step indicator -->
+        <div class="flex gap-0 border-b border-gray-100">
+          <div v-for="(label, idx) in ['1. Upload', '2. Kiểm tra', '3. Kết quả']" :key="idx"
+            :class="['flex-1 text-center py-2 text-xs font-medium',
+              (importStep === 'upload' && idx === 0) || (importStep === 'preview' && idx === 1) || (importStep === 'result' && idx === 2)
+                ? 'text-blue-600 border-b-2 border-blue-600 -mb-px'
+                : 'text-gray-400']">
+            {{ label }}
+          </div>
+        </div>
+
+        <div class="p-6 space-y-4">
+          <!-- Error banner -->
+          <div v-if="importErr" class="bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3 rounded-lg">
+            {{ importErr }}
+          </div>
+
+          <!-- STEP 1: UPLOAD ─────────────────────────────────────────────── -->
+          <template v-if="importStep === 'upload'">
+            <div class="flex items-center justify-between">
+              <p class="text-sm text-gray-600">
+                Tải template, điền dữ liệu rồi upload lại:
+              </p>
+              <button class="text-xs text-blue-600 hover:underline flex items-center gap-1" @click="doDownloadTemplate">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+                Tải template Excel
+              </button>
+            </div>
+
+            <!-- Drop zone -->
+            <label
+              :class="['block border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-colors',
+                isDragOver ? 'border-blue-400 bg-blue-50' : 'border-gray-300 hover:border-gray-400 hover:bg-gray-50']"
+              @dragover.prevent="isDragOver = true"
+              @dragleave.prevent="isDragOver = false"
+              @drop.prevent="handleDrop"
+            >
+              <input type="file" class="hidden" accept=".xlsx,.xls,.csv" @change="handleFileChange" />
+              <div v-if="uploading || importLoading" class="text-gray-500 text-sm">
+                <div class="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-2" />
+                {{ uploading ? 'Đang tải file...' : 'Đang đọc dữ liệu...' }}
+              </div>
+              <div v-else>
+                <svg class="w-10 h-10 text-gray-300 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                    d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                </svg>
+                <p class="text-sm text-gray-600 font-medium">Kéo thả file vào đây hoặc click để chọn</p>
+                <p class="text-xs text-gray-400 mt-1">Chấp nhận .xlsx, .xls, .csv</p>
+              </div>
+            </label>
+          </template>
+
+          <!-- STEP 2: PREVIEW ────────────────────────────────────────────── -->
+          <template v-else-if="importStep === 'preview' && previewData">
+            <!-- Summary bar -->
+            <div class="flex items-center gap-4 text-sm">
+              <span class="text-gray-600">Tổng: <strong>{{ previewData.totalRows }}</strong> dòng</span>
+              <span class="text-green-700">Hợp lệ: <strong>{{ previewData.validRows }}</strong></span>
+              <span v-if="previewData.errors.length" class="text-red-600">
+                Lỗi: <strong>{{ previewData.errors.length }}</strong>
+              </span>
+              <span v-if="previewData.warnings.length" class="text-amber-600">
+                Cảnh báo: <strong>{{ previewData.warnings.length }}</strong>
+              </span>
+              <span class="text-xs text-gray-400">{{ uploadedFileName }}</span>
+            </div>
+
+            <!-- Error list -->
+            <div v-if="previewData.errors.length || previewData.warnings.length" class="space-y-1 max-h-48 overflow-y-auto">
+              <div
+                v-for="(issue, i) in [...previewData.errors, ...previewData.warnings].slice(0, 50)"
+                :key="i"
+                :class="['flex gap-3 text-xs px-3 py-2 rounded-lg',
+                  issue.severity === 'error' ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-700']"
+              >
+                <span class="font-bold shrink-0">Dòng {{ issue.row }}</span>
+                <span class="font-medium shrink-0">{{ issue.field || '—' }}</span>
+                <span>{{ issue.message }}</span>
+              </div>
+              <p v-if="previewData.errors.length + previewData.warnings.length > 50"
+                class="text-xs text-gray-400 text-center pt-1">
+                Chỉ hiển thị 50 vấn đề đầu tiên — tải báo cáo để xem đầy đủ.
+              </p>
+            </div>
+            <div v-else class="bg-green-50 text-green-700 text-sm px-4 py-3 rounded-lg flex items-center gap-2">
+              <svg class="w-4 h-4 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+              </svg>
+              Dữ liệu hợp lệ, sẵn sàng import.
+            </div>
+
+            <!-- Preview table -->
+            <div v-if="previewData.preview.length" class="border border-gray-200 rounded-lg overflow-x-auto">
+              <p class="text-xs text-gray-500 px-3 pt-2 pb-1 font-medium">Xem trước 10 dòng đầu:</p>
+              <table class="w-full text-xs">
+                <thead class="bg-gray-50 border-b border-gray-200">
+                  <tr>
+                    <th v-for="fn in previewData.fieldnames.slice(0, 6)" :key="fn"
+                      class="px-3 py-2 text-left font-medium text-gray-500 whitespace-nowrap">
+                      {{ fn }}
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(row, ri) in previewData.preview" :key="ri"
+                    class="border-t border-gray-100 hover:bg-gray-50">
+                    <td v-for="fn in previewData.fieldnames.slice(0, 6)" :key="fn"
+                      class="px-3 py-1.5 text-gray-700 max-w-[120px] truncate" :title="String(row[fn] ?? '')">
+                      {{ row[fn] ?? '—' }}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <!-- Actions -->
+            <div class="flex items-center justify-between pt-2">
+              <div class="flex gap-2">
+                <button class="text-xs text-gray-500 hover:text-gray-700 underline" @click="importStep = 'upload'">
+                  ← Đổi file
+                </button>
+                <button
+                  v-if="previewData.errors.length"
+                  class="text-xs text-red-600 hover:text-red-800 underline"
+                  @click="downloadErrorReport"
+                >
+                  Tải báo cáo lỗi (.xlsx)
+                </button>
+              </div>
+              <button
+                :disabled="hasBlockingErrors || importLoading"
+                :class="['px-4 py-2 text-sm rounded-lg font-medium transition-colors flex items-center gap-2',
+                  hasBlockingErrors || importLoading
+                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                    : 'bg-emerald-600 hover:bg-emerald-700 text-white']"
+                @click="runImport"
+              >
+                <div v-if="importLoading" class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                {{ importLoading ? 'Đang import...' : 'Bắt đầu Import ▶' }}
+              </button>
+            </div>
+          </template>
+
+          <!-- STEP 3: RESULT ──────────────────────────────────────────────── -->
+          <template v-else-if="importStep === 'result' && importResult">
+            <div :class="['p-5 rounded-xl text-center',
+              importResult.failed === 0 ? 'bg-green-50' : importResult.success === 0 ? 'bg-red-50' : 'bg-amber-50']">
+              <p class="text-3xl font-bold mb-1"
+                :class="importResult.failed === 0 ? 'text-green-700' : importResult.success === 0 ? 'text-red-700' : 'text-amber-700'">
+                {{ importResult.success }} / {{ importResult.total }}
+              </p>
+              <p class="text-sm text-gray-600">
+                dòng import thành công
+                <span v-if="importResult.failed"> — <span class="text-red-600 font-medium">{{ importResult.failed }} lỗi</span></span>
+              </p>
+            </div>
+
+            <!-- Failed rows -->
+            <div v-if="importResult.errors.length" class="space-y-1 max-h-40 overflow-y-auto">
+              <p class="text-xs font-medium text-gray-500">Chi tiết lỗi:</p>
+              <div v-for="(e, i) in importResult.errors" :key="i"
+                class="flex gap-3 text-xs px-3 py-2 bg-red-50 text-red-700 rounded-lg">
+                <span class="font-bold shrink-0">Dòng {{ e.row }}</span>
+                <span>{{ e.message }}</span>
+              </div>
+            </div>
+
+            <div class="flex justify-between pt-2">
+              <button
+                v-if="importResult.failed > 0"
+                class="text-xs text-gray-500 hover:text-gray-700 underline"
+                @click="importStep = 'upload'"
+              >
+                ← Import lô khác
+              </button>
+              <button class="ml-auto px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700" @click="closeImport">
+                Đóng
+              </button>
+            </div>
+          </template>
         </div>
       </div>
     </div>
