@@ -283,10 +283,11 @@ Function `validate_lock_in_assessment(doc)`:
 | `IMM Market Benchmark` | `assetcore/assetcore/doctype/imm_market_benchmark/imm_market_benchmark.py` |
 | `IMM Lock-in Risk Assessment` | `assetcore/assetcore/doctype/imm_lock_in_risk_assessment/imm_lock_in_risk_assessment.py` |
 
-Child table DocTypes (folder names):
+Child table DocTypes (folder names — xác nhận từ `assetcore/assetcore/doctype/`):
 - `tech_spec_requirement/`
 - `tech_spec_document/`
 - `benchmark_candidate/`
+- `infra_compatibility_item/`
 - `lock_in_risk_item/`
 
 ## IV.2. Hooks pattern

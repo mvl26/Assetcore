@@ -5,9 +5,9 @@
 | Thuộc tính | Giá trị |
 |---|---|
 | Module | IMM-03 — Vendor Evaluation & Procurement Decision |
-| Phiên bản | 0.1.0 |
-| Ngày | 2026-05-14 |
-| Trạng thái | LIVE — Wave 2 |
+| Phiên bản | 0.1.1 |
+| Ngày | 2026-05-18 |
+| Trạng thái | LIVE — Wave 2 (updated: set_actual_delivery, validate_receipt_against_po, _mint_ac_purchase) |
 
 ---
 
@@ -39,12 +39,12 @@
 |---|---|---|---|---|---|
 | `name` | Mã đánh giá | Data (auto) | Y | 0 | Naming: `VE-.YY.-.#####` |
 | `spec_ref` | Tech Spec | Link → IMM Tech Spec | Y | 0 | Từ IMM-02 |
-| `plan_line` | Dòng kế hoạch | Data | N | 0 | Mirror từ spec |
+| `plan_line` | Dòng kế hoạch | Data | N | 0 | read_only=1 — chỉ hiển thị; mirror từ spec |
 | `draft_date` | Ngày lập | Date | Y | 0 | Auto today |
-| `weighting_scheme` | Trọng số nhóm | JSON | Y | 0 | Default: {Tech:35, Comm:25, Fin:10, Sup:15, Comp:15} |
-| `criteria` | Tiêu chí | Table → Vendor Eval Criterion | Y | 0 | Seed từ default |
-| `candidates` | Nhà cung cấp | Table → Vendor Eval Candidate | Y | 0 | ≥ 1 |
-| `quotations` | Báo giá | Table → Vendor Quotation Line | C | 0 | Bắt buộc sau Open RFQ |
+| `weighting_scheme` | Trọng số nhóm | JSON | N | 0 | Optional; default {Tech:35, Comm:25, Fin:10, Sup:15, Comp:15} trong service |
+| `criteria` | Tiêu chí | Table → Vendor Eval Criterion | N | 0 | Optional ở DocType; service tính score từ criteria.weight_pct |
+| `candidates` | Nhà cung cấp | Table → Vendor Eval Candidate | N | 0 | ≥ 1; không reqd ở DocType level |
+| `quotations` | Báo giá | Table → Vendor Quotation Line | N | 0 | Optional; VR-03-03 chỉ chạy khi có rows |
 | `recommended_candidate` | Đề xuất | Data | N | 0 | **Supplier name** top weighted (auto, set bởi `_compute_eval_scores`) |
 | `workflow_state` | Trạng thái | Workflow State | Y | 0 | 5 states |
 | `docstatus` | Doc Status | Int | Y | 0 | 0/1/2 |
@@ -57,12 +57,12 @@
 | `name` | Mã quyết định | Data (auto) | Y | 0 | Naming: `PD-.YY.-.#####` |
 | `spec_ref` | Tech Spec | Link → IMM Tech Spec | Y | 0 | — |
 | `evaluation_ref` | Phiếu đánh giá | Link → IMM Vendor Evaluation | Y | 0 | — |
-| `plan_ref` | Kế hoạch | Link → IMM Procurement Plan | Y | 0 | — |
-| `plan_line` | Dòng kế hoạch | Data | N | 0 | Mirror |
+| `plan_ref` | Kế hoạch | Link → IMM Procurement Plan | N | 0 | Auto-set từ spec.source_plan trong `create_decision` |
+| `plan_line` | Dòng kế hoạch | Data | N | 0 | Mirror từ spec.source_plan_line |
 | `procurement_method` | Phương án | Select | Y | 0 | Chỉ định/Chào hàng/Đấu thầu rộng rãi/Mua sắm trực tiếp/Mua sắm tập trung |
 | `method_legal_basis` | Cơ sở pháp lý | Long Text | C | 0 | Bắt buộc với Chỉ định thầu |
-| `winner_supplier` | NCC trúng thầu | Link → AC Supplier | Y | 0 | Từ evaluation.recommended_candidate |
-| `awarded_price` | Giá trúng thầu | Currency | Y | **1** | Chỉ KH-TC/TCKT/PTP Khối 1/VP Block1 |
+| `winner_supplier` | NCC trúng thầu | Link → AC Supplier | N | 0 | Từ evaluation.recommended_candidate; bắt buộc tại `award_decision` (VR-03-05) |
+| `awarded_price` | Giá trúng thầu | Currency | N | **1** | Bắt buộc tại Award; Chỉ KH-TC/TCKT/PTP Khối 1/VP Block1 xem được |
 | `envelope_check_pct` | % envelope | Percent | N | **1** | Auto = awarded/allocated*100 |
 | `funding_source` | Nguồn vốn | Select | Y | **1** | NSNN/Tài trợ/Xã hội hóa/BHYT/Khác |
 | `funding_evidence` | Chứng từ nguồn vốn | Attach | C | **1** | Bắt buộc khi Tài trợ/XHH |
@@ -322,7 +322,15 @@ def _validate_gate_g05(doc: Document) -> None:
     """G05: contract_doc + funding_source + board_approver đều phải có."""
 
 def _mint_ac_purchase(doc: Document) -> str:
-    """Tạo AC Purchase từ Decision; link imm_procurement_decision, imm_tech_spec, imm_funding_source."""
+    """Tạo AC Purchase từ Decision.
+    Wave 2 (2026-05-16): set `procurement_decision_ref` (native back-ref) ĐẦU TIÊN;
+    nếu legacy field `imm_procurement_decision` tồn tại → cũng set (backward compat).
+    Nếu `doc.plan_ref` có và `imm_procurement_plan` tồn tại → cũng set."""
+
+def _update_plan_line_status(plan_name: str, plan_line: str, status: str) -> None:
+    """Cập nhật status của 1 row trong IMM Procurement Plan.plan_items.
+    Gọi bởi on_submit_decision (→ 'Awarded') và on_cancel_decision (→ 'In Procurement').
+    Wrap trong try/except — failure không block submit."""
 
 
 # ─── AVL ─────────────────────────────────────────────────────────────────────
@@ -341,9 +349,18 @@ def on_submit_audit(doc: Document) -> None:
     """on_submit: update imm_last_audit_date/imm_next_audit_date; suspend AVL nếu Critical finding."""
 
 
-# ─── AC Purchase hook (BR-03-08) ──────────────────────────────────────────────
+# ─── AC Purchase hooks ────────────────────────────────────────────────────────
 def validate_ac_purchase_imm_link(doc: Document, method: str | None = None) -> None:
     """Soft warning (V1) nếu AC Purchase có device rows nhưng thiếu imm_procurement_decision."""
+
+def set_actual_delivery_on_received(doc: Document, method: str | None = None) -> None:
+    """Wave 2 (2026-05-16): khi AC Purchase chuyển sang status='Received' mà chưa có
+    actual_delivery_date → tự set = today(). Idempotent. Wired vào hooks.py::doc_events."""
+
+def validate_receipt_against_po(po_name: str, received_items: list) -> None:
+    """Wave 2 (2026-05-16): kiểm tra hàng nhận vs PO — từng item (device_model / spare_part)
+    phải có trong PO lines. Raise ServiceError(BUSINESS_RULE) nếu có mismatch.
+    Gọi bởi stock agent trước khi ghi nhận receipt. Không idempotent — chỉ validate."""
 
 
 # ─── Schedulers ───────────────────────────────────────────────────────────────

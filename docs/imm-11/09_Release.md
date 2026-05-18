@@ -4,7 +4,7 @@
 |---|---|
 | Module | **IMM-11 — Hiệu chuẩn (Calibration)** |
 | Phiên bản | 1.1.0 |
-| Ngày cập nhật | 2026-05-14 |
+| Ngày cập nhật | 2026-05-18 |
 | Owner | PM + BA + Tech Writer |
 | Trạng thái | ✅ Live — User Guide đối ứng đúng UI hiện tại; screenshot UI sẽ bổ sung sau UAT |
 | Liên kết | [07 Testing QA](./07_Testing_QA.md) · [08 Deployment](./08_Deployment.md) · [Functional Specs](./IMM-11_Functional_Specs.md) |

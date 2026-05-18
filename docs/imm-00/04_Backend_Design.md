@@ -6,8 +6,8 @@
 | Phạm vi | Foundation — cross-cutting |
 | Owner | Tech Lead / BE Lead |
 | Liên kết | [03 Diagrams](./03_Diagrams.md) · [05 API Specification](./05_API_Specification.md) |
-| Phiên bản | 4.1.0 |
-| Trạng thái | **Live ✅** — đã implement, synced vs codebase 2026-05-14 |
+| Phiên bản | 4.1.1 |
+| Trạng thái | **Live ✅** — đã implement, synced vs codebase 2026-05-18 |
 
 ---
 
@@ -19,7 +19,7 @@ DocType folder path: `assetcore/assetcore/doctype/` (78 folders tổng — bản
 
 | # | DocType (snake_case folder) | Tên hiển thị | Submittable | Tree | Ghi chú |
 |---|---|---|---|---|---|
-| 1 | `ac_asset` | AC Asset | — | — | Core asset registry |
+| 1 | `ac_asset` | AC Asset | ✅ | — | Core asset registry |
 | 2 | `ac_asset_category` | AC Asset Category | — | — | Danh mục thiết bị |
 | 3 | `ac_asset_depreciation_schedule` | AC Asset Depreciation Schedule | — | — | Child table khấu hao |
 | 4 | `ac_asset_downtime_log` | AC Asset Downtime Log | — | — | Log dừng máy |
@@ -30,7 +30,7 @@ DocType folder path: `assetcore/assetcore/doctype/` (78 folders tổng — bản
 | 9 | `ac_spare_part_stock` | AC Spare Part Stock | — | — | Tồn kho phụ tùng |
 | 10 | `ac_stock_movement` | AC Stock Movement | ✅ | — | Phiếu nhập/xuất kho |
 | 11 | `ac_stock_movement_item` | AC Stock Movement Item | — | — | Child table stock movement |
-| 12 | `ac_supplier` | AC Supplier | — | — | Nhà cung cấp / vendor |
+| 12 | `ac_supplier` | AC Supplier | ✅ | — | Nhà cung cấp / vendor |
 | 13 | `ac_warehouse` | AC Warehouse | — | — | Kho vật tư |
 | 14 | `asset_lifecycle_event` | Asset Lifecycle Event | — | — | Append-only lifecycle log |
 | 15 | `asset_transfer` | Asset Transfer | — | — | Phiếu luân chuyển |
@@ -44,7 +44,7 @@ DocType folder path: `assetcore/assetcore/doctype/` (78 folders tổng — bản
 | 23 | `incident_report` | Incident Report | ✅ | — | Báo cáo sự cố |
 | 24 | `pm_checklist_template` | PM Checklist Template | — | — | Template checklist PM |
 | 25 | `pm_schedule` | PM Schedule | — | — | Lịch PM định kỳ |
-| 26 | `service_contract` | Service Contract | ✅ | — | Hợp đồng dịch vụ |
+| 26 | `service_contract` | Service Contract | — | — | Hợp đồng dịch vụ |
 | 27 | `service_contract_asset` | Service Contract Asset | — | — | Child: assets trong HĐ |
 
 > Các DocType khác (imm_needs_request, imm_procurement_plan, asset_commissioning, v.v.) thuộc phạm vi các module IMM-01→IMM-17.
@@ -59,13 +59,13 @@ DocType folder path: `assetcore/assetcore/doctype/` (78 folders tổng — bản
 **File:** `assetcore/assetcore/doctype/ac_asset/ac_asset.json`  
 **Controller:** `assetcore/assetcore/doctype/ac_asset/ac_asset.py`  
 **Module:** AssetCore  
-**is_submittable:** — (không submit) · **track_changes:** 1 · **allow_import:** 1
+**is_submittable:** 1 · **track_changes:** 1 · **allow_import:** 1
 
 ### II.1.1 Fields — Thông tin cơ bản
 
 | Field | DB Type | Required | Description | BR/Note |
 |---|---|---|---|---|
-| `name` | varchar(140) PK | YES | Autoname AC-ASSET-2026-00001 | Unique, immutable |
+| `name` | varchar(140) PK | YES | Autoname `AC-ASSET-.YYYY.-.#####` (vd: AC-ASSET-2026-00001) | Unique, immutable |
 | `asset_name` | varchar(140) | YES | Tên thiết bị | in_list_view, reqd |
 | `asset_code` | varchar(140) | NO | Mã tài sản nội bộ | UNIQUE nếu có; IDX; dùng QR/barcode |
 | `asset_category` | varchar(140) | YES | Link → AC Asset Category | IDX |
@@ -122,17 +122,35 @@ DocType folder path: `assetcore/assetcore/doctype/` (78 folders tổng — bản
 
 ### II.1.7 State machine — lifecycle_status
 
-| Từ | Sang | Trigger | Service |
+State machine được định nghĩa tại `_VALID_ASSET_TRANSITIONS` trong `services/imm00.py`. Trạng thái đầu (khi insert mới, chưa qua lifecycle) = `Draft`; không validate transition nếu `prev_status` rỗng.
+
+| Từ | Sang (allowed) | Trigger | Service |
 |---|---|---|---|
-| (new) | Commissioned | IMM-04 Complete | `create_lifecycle_event("commissioned")` |
-| Commissioned | Active | Confirm operational | `transition_asset_status()` |
-| Active | Under Repair | Tạo Repair WO (IMM-09) | `transition_asset_status()` |
-| Active | Calibrating | Tạo Calibration WO (IMM-11) | `transition_asset_status()` |
-| Active | Out of Service | Manual + lý do | `transition_asset_status()` |
-| Under Repair | Active | WO sửa chữa hoàn thành | `transition_asset_status()` |
-| Calibrating | Active | WO hiệu chuẩn hoàn thành | `transition_asset_status()` |
-| Out of Service | Active | Phê duyệt khôi phục | `transition_asset_status()` |
-| * | Decommissioned | IMM-13 End of Life | `transition_asset_status()` — không hoàn tác |
+| Draft | Commissioned, Decommissioned | IMM-04 Complete / direct | `transition_asset_status()` |
+| Commissioned | Active, Out of Service, Decommissioned | Confirm operational | `transition_asset_status()` |
+| Active | Under Maintenance, Under Repair, Calibrating, Out of Service, Decommissioned | WO created / manual | `transition_asset_status()` |
+| Under Maintenance | Active, Under Repair, Out of Service, Decommissioned | PM completed / manual | `transition_asset_status()` |
+| Under Repair | Active, Out of Service, Decommissioned | Repair WO completed | `transition_asset_status()` |
+| Calibrating | Active, Out of Service, Decommissioned | Calibration WO completed | `transition_asset_status()` |
+| Out of Service | Active, Under Repair, Decommissioned | Phê duyệt khôi phục | `transition_asset_status()` |
+| Decommissioned | (terminal) | — | — |
+
+Hàm `_lifecycle_event_for(to_status)` map status → event type:
+
+| to_status | event_type |
+|---|---|
+| Active | `activated` |
+| Commissioned | `commissioned` |
+| Under Maintenance | `pm_started` |
+| Under Repair | `repair_opened` |
+| Calibrating | `calibration_started` |
+| Out of Service | `out_of_service` |
+| Decommissioned | `decommissioned` |
+| (default) | `restored` |
+
+Khi `to_status = Decommissioned`, hàm `_suspend_all_schedules(asset_name)` tự động set `is_pm_required=0`, `is_calibration_required=0`, `next_pm_date=None`, `next_calibration_date=None`.
+
+Downtime log (AC Asset Downtime Log) tự động open/close qua `_sync_downtime_log()`: các status `Under Maintenance, Under Repair, Calibrating, Out of Service` là downtime states; chuyển vào → open log, chuyển ra → close log.
 
 ## II.2. AC Supplier
 
@@ -161,7 +179,8 @@ DocType folder path: `assetcore/assetcore/doctype/` (78 folders tổng — bản
 | Field | DB Type | Required | Description | BR/Note |
 |---|---|---|---|---|
 | `category_name` | varchar(140) | YES | Tên danh mục | Unique; autoname source |
-| `gmdn_code` | varchar(20) | NO | **Mã GMDN (5–6 chữ số)** | **Nguồn kế thừa** — Device Model sẽ copy khi tạo mới nếu để trống |
+| `gmdn_code` | varchar(20) | NO | **Mã GMDN (5–6 chữ số)** | **Nguồn kế thừa** — Device Model sẽ copy khi tạo mới nếu để trống; **UNIQUE constraint** (patch 006, 2026-05-16) — NULL được phép, non-NULL phải unique |
+| `gmdn_term` | varchar(140) | NO | Tên thuật ngữ GMDN | Mô tả text tương ứng với `gmdn_code` |
 | `description` | text | NO | Mô tả danh mục | — |
 | `default_pm_required` | tinyint(1) | NO | PM là bắt buộc theo mặc định? | Check; kế thừa xuống Device Model |
 | `default_pm_interval_days` | int(11) | COND | Chu kỳ PM mặc định (ngày) | > 0 nếu default_pm_required=1 |
@@ -329,6 +348,30 @@ Open/In Progress → Overdue (scheduler daily)
 | `resolution_notes` | text | COND | reqd khi close incident | — |
 | `closed_date` | date | NO | auto khi close | — |
 
+## II.8. Service Contract
+
+**Autoname:** naming_series · **is_submittable:** 0 (không submit — quản lý qua workflow_state trực tiếp) · **track_changes:** 1
+
+| Field | DB Type | Required | Description | BR/Note |
+|---|---|---|---|---|
+| `contract_code` | varchar(140) | YES | Mã hợp đồng | Unique key hiển thị |
+| `contract_title` | varchar(140) | YES | Tiêu đề hợp đồng | — |
+| `supplier` | varchar(140) | YES | Link → AC Supplier | NCC cung cấp dịch vụ |
+| `contract_type` | varchar(50) | YES | Loại: Bảo hành/Bảo trì/Hiệu chuẩn/Dịch vụ khác | — |
+| `contract_start` | date | YES | Ngày bắt đầu | — |
+| `contract_end` | date | YES | Ngày kết thúc | IDX; scheduler `check_service_contract_expiry` cảnh báo 90/60/30 ngày |
+| `sign_date` | date | NO | Ngày ký | — |
+| `contract_value` | decimal | NO | Giá trị HĐ (VND) | Currency |
+| `amount_in_words` | Small Text | NO | Số tiền bằng chữ (VN) | Auto-gen bởi `num_to_words_vi()` trong Wave 2 |
+| `auto_renew` | tinyint(1) | NO | Tự gia hạn? | Check |
+| `sla_response_hours` | int | NO | Cam kết phản hồi SLA (giờ) | Bổ sung Wave 2 |
+| `coverage_description` | text | NO | Phạm vi dịch vụ | — |
+| `covered_assets` | Table | NO | Child → Service Contract Asset | Danh sách thiết bị được bao phủ |
+| `notes` | Text Editor | NO | Ghi chú | — |
+
+> `amount_in_words` và `sla_response_hours` được bổ sung trong Wave 2 (commit `41fabd8`, 2026-05-16).  
+> Controller: `service_contract.py` — tự điền `amount_in_words` qua `num_to_words_vi(contract_value)` trước khi lưu.
+
 ---
 
 # Phần III — Service Layer
@@ -441,7 +484,7 @@ def paginate(
 # assetcore/services/shared/constants.py
 from assetcore.services.shared.constants import Roles, AssetStatus, ErrorCode
 
-class Roles:        # 19 roles — Wave 1 + Wave 2
+class Roles:        # 20 roles — Wave 1 (13) + Wave 2 (7 incl. TRAINING_OFFICER)
 class AssetStatus:  # lifecycle_status constants (DRAFT, COMMISSIONED, ACTIVE, …)
 class ErrorCode:    # string codes: NOT_FOUND, FORBIDDEN, VALIDATION, CONFLICT, …
 
@@ -554,7 +597,7 @@ Fixtures shipped (verified vs `assetcore/fixtures/` 2026-05-14):
 
 ```
 assetcore/fixtures/
-├── role.json                          # 19 IMM roles (Wave 1 + Wave 2) — commit 5b4158e
+├── role.json                          # 20 IMM roles (Wave 1 + Wave 2) — commit 5b4158e
 ├── has_role.json                      # IMM↔User pre-seed (commit 5b4158e)
 ├── role_profile.json                  # Role bundling per persona
 ├── module_profile.json                # Workspaces/sidebar grouping
@@ -637,7 +680,7 @@ Fixtures hiện đăng ký qua file JSON trong `assetcore/fixtures/` (bench tự
 
 | Fixture | Doctype gốc | Mục đích |
 |---|---|---|
-| `role.json` | Role | 19 IMM roles |
+| `role.json` | Role | 20 IMM roles |
 | `has_role.json` | Has Role | Default role assignments |
 | `role_profile.json` | Role Profile | Persona bundling |
 | `module_profile.json` | Module Profile | Workspace grouping |
@@ -685,7 +728,7 @@ Fixtures hiện đăng ký qua file JSON trong `assetcore/fixtures/` (bench tự
 - [x] Incident Report (NĐ98 fields)
 
 ### III. Service layer
-- [x] imm00.py: 23+ public functions (verified vs code: lifecycle re-exports, `transition_asset_status`, GMDN update/toggle, validate_asset_for_operations, get_sla_policy, CAPA open/close, transfer CRUD + workflow + `transfer_asset`, 5 daily scheduler + monthly KPI rollup)
+- [x] imm00.py: 22 public functions (verified vs code: lifecycle re-exports ×3, `transition_asset_status`, GMDN update/toggle, `validate_asset_for_operations`, `get_sla_policy`, CAPA open/close, 5 scheduler jobs, transfer CRUD ×5 + `transfer_asset`, monthly `rollup_asset_kpi`)
 - [x] services/shared/: constants.py, errors.py, permissions.py (verified)
 - [x] utils/: response, lifecycle, email, pagination (verified import paths)
 - [x] ErrorCode string constants (verified vs constants.py)

@@ -447,7 +447,7 @@ Trace: `Asset Document DOC-ACC-...-2026-00005 → approved_by = biomed.nguyen �
 | DocType (chính) | 3 | `Asset Document`, `Document Request`, `Required Document Type` |
 | DocType (phụ) | 1 | `Expiry Alert Log` |
 | Workflow JSON | 1 | `IMM-05 Document Workflow` — 6 states, 8 transitions |
-| API endpoint | 15 | `list_documents, get_document, create_document, update_document, submit_for_review, approve_document, reject_document, get_asset_documents, get_dashboard_stats, get_expiring_documents, get_compliance_by_dept, get_document_history, create_document_request, get_document_requests, mark_exempt` |
+| API endpoint | 16 | `list_documents, get_document, create_document, update_document, submit_for_review, approve_document, reject_document, archive_document, get_asset_documents, get_dashboard_stats, get_expiring_documents, get_compliance_by_dept, get_document_history, create_document_request, get_document_requests, mark_exempt` |
 | FE view / page | 5 | DocumentList, DocumentDetail, DocumentCreate, AssetDocumentsTab, Dashboard |
 | Scheduler job | 3 | Daily: expiry check (00:30), completeness update (01:00), overdue requests |
 | Business Rule | 10 | BR-05-01 → BR-05-10 |
@@ -456,8 +456,8 @@ Trace: `Asset Document DOC-ACC-...-2026-00005 → approved_by = biomed.nguyen �
 | Test case unit | ~35 | 11 test class × ~3 case avg |
 | UAT scenario | 10 | UAT-IMM05-01 → 10 |
 | LOC Controller (`asset_document.py`) | ~400 | Validation/compute_status hooks |
-| LOC Service (`services/imm05.py`) | 561 | Đã refactor ra service layer (Wave-2) |
-| LOC API (`api/imm05.py`) | 151 | 15 endpoints (whitelist count, 2026-05-14) |
+| LOC Service (`services/imm05.py`) | 587 | Đã refactor ra service layer (Wave-2) |
+| LOC API (`api/imm05.py`) | 156 | 16 endpoints (whitelist count, 2026-05-18) |
 | Scheduler thực tế | 1 | `check_document_expiry` daily (2 job khác trong spec chưa implement) |
 | Sprint hoàn thành (Wave 1) | 4 | Sprint 1-4, mỗi sprint 2 tuần |
 | User Story | 9 | US-05-01 → 05-09 |

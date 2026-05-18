@@ -5,13 +5,13 @@
 | Module | **IMM-15 — Spare Parts Inventory Tracking (Theo dõi tồn kho phụ tùng y tế)** |
 | Wave | 2 — IMPLEMENTED (feature/hieuc/wave-2) |
 | Trạng thái | ✅ Stable — BE + FE đã merge; chờ UAT |
-| Số file | 8 (template chuẩn; nguồn gốc đã archive) |
-| Cập nhật cuối | 2026-05-14 |
+| Số file | 9 (README + 02-09; nguồn gốc đã archive) |
+| Cập nhật cuối | 2026-05-18 |
 | Khối kiến trúc | C. KHỐI 3 |
 | Đợt triển khai | 2 |
 | Owner | Kho trung tâm & Kho vận |
 
-> ✅ Module đã triển khai trên branch `feature/hieuc/wave-2`. AC Inventory Backbone (Wave 1) LIVE. Banner "PLANNED" trong các file 02–09 đã lỗi thời — sẽ được gỡ trong các sprint sync tiếp theo (light-touch).
+> ✅ Module đã triển khai trên branch `feature/hieuc/wave-2`. AC Inventory Backbone (Wave 1) LIVE. Banners PLANNED trong file 02–09 đã được gỡ (Wave-2 Sync Pass 2026-05-14).
 
 ## Map cũ → Template chuẩn
 
@@ -72,4 +72,4 @@ IMM-15 xây trên **AC Inventory Backbone** (Wave 1 LIVE):
 
 ---
 
-*Module IMM-15 — Wave 2 Implemented. Cập nhật 2026-05-14.*
+*Module IMM-15 — Wave 2 Implemented. Cập nhật 2026-05-18.*

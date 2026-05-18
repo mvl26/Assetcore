@@ -196,11 +196,11 @@ def execute():
 
 ## III.4.1. Fixture Inventory (sync tự động qua `bench migrate`)
 
-> **Cập nhật 2026-05-14:** Fixture roles trước đây là `imm_roles.json` (8 roles) đã được thay bằng `role.json` (19 IMM roles Wave 1 + Wave 2) + `has_role.json` (commit `5b4158e` "install assetcore with fixtures/has_role"). `bench migrate` tự sync tất cả fixtures dưới đây.
+> **Cập nhật 2026-05-14:** Fixture roles trước đây là `imm_roles.json` (8 roles) đã được thay bằng `role.json` (20 IMM roles Wave 1 + Wave 2) + `has_role.json` (commit `5b4158e` "install assetcore with fixtures/has_role"). `bench migrate` tự sync tất cả fixtures dưới đây.
 
 | Fixture file | DocType target | Mục đích |
 |---|---|---|
-| `fixtures/role.json` | Role | 19 IMM roles (System Admin, Dept Head, Deputy Dept Head, Ops Manager, Workshop Lead, QA Officer, Biomed Technician, Technician, Document Officer, Storekeeper, Clinical User, Auditor, Vendor Engineer, Planning, Finance, HTM Engineer, Procurement, Risk, Board Approver, Training Officer) |
+| `fixtures/role.json` | Role | 20 IMM roles (System Admin, Dept Head, Deputy Dept Head, Ops Manager, Workshop Lead, QA Officer, Biomed Technician, Technician, Document Officer, Storekeeper, Clinical User, Auditor, Vendor Engineer, Planning Officer, Finance Officer, HTM Engineer, Procurement Officer, Risk Officer, Board Approver, Training Officer) |
 | `fixtures/has_role.json` | Has Role | Default role→user assignments |
 | `fixtures/role_profile.json` | Role Profile | Bundling theo persona |
 | `fixtures/module_profile.json` | Module Profile | Workspace grouping |

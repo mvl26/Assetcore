@@ -6,7 +6,7 @@
 | Wave | 2 |
 | Trạng thái | Wave 2 — Live ✅ |
 | Số file hiện có | 8 file template chuẩn (README + 02–09) + 1 file `_REPORT.md` audit log = 9 file tổng cộng |
-| Cập nhật cuối | 2026-05-14 |
+| Cập nhật cuối | 2026-05-18 (no code delta — Wave 2 không chạm IMM-02 service/api) |
 | Khối kiến trúc | A. KHỐI 1 |
 | Đợt triển khai | 2 |
 | Owner | PTP Khối 1 · Nhóm KH-TC |

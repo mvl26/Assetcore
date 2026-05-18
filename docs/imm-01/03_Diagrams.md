@@ -308,8 +308,8 @@ sequenceDiagram
     SVC->>SVC: weights = DEFAULT_PRIORITY_WEIGHTS (hardcoded, master config = placeholder)
     SVC->>SVC: weighted_score = Σ score_i × weight_i (precision=4)
     SVC->>SVC: priority_class via _classify_priority (P1 ≥ 4.0)
-    API-->>FE: {success: true, data: {weighted_score: 4.30, priority_class: "P1"}}
-    FE-->>HTM: Dial hiển thị 4.30/5.0, badge P1 đỏ
+    API-->>FE: {success: true, data: {weighted_score: 4.35, priority_class: "P1"}}
+    FE-->>HTM: Dial hiển thị 4.35/5.0, badge P1 đỏ
 
     HTM->>FE: Nhấn "Hoàn tất chấm điểm"
     FE->>API: POST transition_workflow(name, action="Hoàn tất chấm điểm")

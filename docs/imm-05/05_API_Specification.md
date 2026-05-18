@@ -21,14 +21,15 @@
 | 5 | `submit_for_review` | POST | Workflow | Draft/Rejected → Pending Review |
 | 6 | `approve_document` | POST | Workflow | Phê duyệt → Active |
 | 7 | `reject_document` | POST | Workflow | Từ chối + lý do |
-| 8 | `get_asset_documents` | GET | Asset-centric | Tài liệu theo Asset |
-| 9 | `get_dashboard_stats` | GET | Dashboard | KPI + expiry timeline + compliance |
-| 10 | `get_expiring_documents` | GET | Dashboard | Tài liệu sắp hết hạn |
-| 11 | `get_compliance_by_dept` | GET | Dashboard | Compliance theo khoa |
-| 12 | `get_document_history` | GET | Audit | Lịch sử thay đổi (Frappe Version) |
-| 13 | `create_document_request` | POST | Request | Tạo yêu cầu bổ sung tài liệu |
-| 14 | `get_document_requests` | GET | Request | Liệt kê Document Request |
-| 15 | `mark_exempt` | POST | Exempt | Đánh dấu Miễn đăng ký NĐ98 |
+| 8 | `archive_document` | POST | Workflow | Lưu trữ tài liệu (Active → Archived) |
+| 9 | `get_asset_documents` | GET | Asset-centric | Tài liệu theo Asset |
+| 10 | `get_dashboard_stats` | GET | Dashboard | KPI + expiry timeline + compliance |
+| 11 | `get_expiring_documents` | GET | Dashboard | Tài liệu sắp hết hạn |
+| 12 | `get_compliance_by_dept` | GET | Dashboard | Compliance theo khoa |
+| 13 | `get_document_history` | GET | Audit | Lịch sử thay đổi (Frappe Version) |
+| 14 | `create_document_request` | POST | Request | Tạo yêu cầu bổ sung tài liệu |
+| 15 | `get_document_requests` | GET | Request | Liệt kê Document Request |
+| 16 | `mark_exempt` | POST | Exempt | Đánh dấu Miễn đăng ký NĐ98 |
 
 ---
 
@@ -754,13 +755,13 @@ Expected: `{"success": true, "data": {...}}` cho tất cả. Không có `{"messa
 
 ## DoD Checklist
 
-- [x] API Catalog 15 endpoints đầy đủ (incl. `submit_for_review`)
+- [x] API Catalog 16 endpoints đầy đủ (incl. `submit_for_review`, `archive_document`)
 - [x] Envelope chuẩn `{"success": true, "data": ...}` (KHÔNG Frappe message wrapper)
 - [x] Error envelope `{"success": false, "error": ..., "code": ...}`
 - [x] Error code catalog đầy đủ
 - [x] Visibility filter documented
 - [x] TypeScript types cho FE reference
-- [x] 15 endpoint specs với request/response examples
+- [x] 16 endpoint specs với request/response examples
 - [x] Webhook/realtime events table
 - [x] Rate limits
 - [x] Smoke test playbook

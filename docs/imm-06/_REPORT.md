@@ -107,3 +107,32 @@ Gaps flagged (chưa fix tự động — cần BA quyết hoặc deeper audit):
 - `08_Deployment.md`: 2 row table chuyển `tasks.py` → `services/imm06.py`; rename `auto_expire_competency` → `auto_expire_competencies`.
 - `09_Release.md`: row endpoint 19 → 23 (full tên 23 hàm); row Scheduler đổi tên hàm theo ground truth.
 - `03_Diagrams.md`: untouched (không phát hiện state name drift).
+
+## Pass 3 — Sync 2026-05-18
+
+Đếm lại ground truth: service=1533 LOC (+210 so với 1323), api=263 LOC (+23), endpoints=25 (+2).
+
+Endpoints mới phát hiện: `enroll_participants`, `remove_participant` — có trong `api/imm06.py` nhưng thiếu trong API catalog. (Hai cross-module gates `check_user_authorization`, `get_asset_operator_coverage` đã có trong spec body từ Pass 2 nhưng chưa cộng vào count.)
+
+- `README.md`: `Cập nhật cuối` → 2026-05-18; trạng thái "Implemented" → "Stable (Wave 2)"; LOC 1323/240 → 1533/263; "23 endpoints" → "25 endpoints".
+- `05_API_Specification.md`: header count "23" → "25"; thêm spec B.4c `enroll_participants` + B.4d `remove_participant` với request/response/errors.
+- `07_Testing_QA.md`: pyramid + callout "23 endpoints" → "25 endpoints"; DoD coverage target "23" → "25".
+- `09_Release.md`: endpoint count 23→25 (thêm `enroll_participants`, `remove_participant` vào danh sách).
+- Không đụng 02/03/04/06/08 (không phát hiện drift).
+
+## Pass 4 — Deep reconciliation 2026-05-18
+
+Phân tích sâu toàn bộ code BE/FE.
+
+- `04_Backend_Design.md` §II.2 (Session): thêm field `trainer_ref` (row 6); renumber rows 6→16; thêm note về min-instructor VR.
+- `04_Backend_Design.md` §II.3 (Participant): thêm `result`, `competency_record`, `remarks` fields (rows 10–12).
+- `04_Backend_Design.md` §IV: header cập nhật LOC 1.3k → 1533; thêm function catalog table tóm tắt 40+ public functions theo 9 nhóm.
+- `06_Frontend_Design.md` §I: thêm cột Status (✅/⬜) vào route table; cập nhật route 7 (`/sessions/:name`) bổ sung `enroll_participants`, `remove_participant`; note SessionCreateView không tách riêng.
+
+**Gaps cần xử lý ngoài docs (engineering):**
+1. ⚠️ `IMM Gap Detail Row` child table được reference trong docs nhưng cần verify tồn tại trong codebase (có thể inline trong gap report JSON field).
+2. ⚠️ `revoke_capa_ref` trỏ đến "IMM CAPA Record" — verify DocType name đúng (có thể khác với "CAPA" trong docs).
+3. ⬜ Frontend còn 6 components chưa implement: `CompetencyDashboard.vue`, `SessionRunView.vue`, `MyCompetenciesView.vue`, `GapReportView.vue`, `RevokeCompetencyModal.vue`, `SignoffModal.vue` — planned Wave 3.
+4. ⬜ Pinia store thiếu actions: enroll, remove, recertify, gap report, dashboard stats.
+5. ⬜ VR-08 (revoke cần CAPA keyword check) ghi trong docs nhưng không enforce trong code — quyết định: implement hoặc remove khỏi docs.
+6. ⬜ BR-06 count discrepancy: docs nói 12 nhưng chỉ enumerate rõ 10 — cần BA xác nhận 2 BR còn lại.

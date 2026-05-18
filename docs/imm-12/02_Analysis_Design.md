@@ -6,7 +6,7 @@
 | Phạm vi | Per-module |
 | Owner | BA + System Analyst |
 | Liên kết | 03 Diagrams · 04 Backend · 05 API · 06 Frontend |
-| Cập nhật | 2026-05-14 |
+| Cập nhật | 2026-05-18 |
 | Trạng thái | ✅ Live — `services/imm12.py` + `api/imm12.py` (14 endpoint) + DocType `Incident Report` / `IMM RCA Record` + Workflow JSON + FE views/store đã deploy |
 
 ---

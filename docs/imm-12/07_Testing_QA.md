@@ -4,7 +4,7 @@
 |---|---|
 | Module | **IMM-12 — Sự cố & CAPA (Incident & Corrective Action)** |
 | Phiên bản | 1.2.0 |
-| Ngày cập nhật | 2026-05-14 |
+| Ngày cập nhật | 2026-05-18 |
 | Owner | QA Lead + Tech Lead |
 | Trạng thái | 🟡 BE/FE LIVE — `services/imm12.py`, `api/imm12.py` (14 endpoint), DocType `IMM RCA Record` đã có. Test cốt lõi tại `assetcore/tests/test_imm12.py` ✅. UAT/E2E/Pentest pending. |
 | Liên kết | [Module Overview](./IMM-12_Module_Overview.md) · [Functional Specs](./IMM-12_Functional_Specs.md) · [UAT Script](./IMM-12_UAT_Script.md) |
@@ -30,13 +30,11 @@
      ─┴────────────────────────────────────────────┴─
 ```
 
-⚠️ **Pending implementation** — Mọi test class phải được viết trước khi implement service (TDD). `Incident Report` và `IMM CAPA Record` đã có DocType (IMM-00 LIVE) — test cần cover các **custom fields** và **workflow extensions** mà IMM-12 thêm vào.
-
 ## I.2. Unit Test — Service Layer
 
-**File (cần tạo):** `assetcore/tests/test_imm12_service.py`
+> **Trạng thái thực tế:** test code đã có tại `assetcore/tests/test_imm12.py` ✅. Classes thực tế: `TestIncidentCreation` (4 tests), `TestIncidentWorkflow`, `TestIncidentCancellation`. Service `services/imm12.py` đã implement (700 dòng). Các test class bên dưới phản ánh coverage mong muốn đầy đủ.
 
-⚠️ Pending — viết trước khi `services/imm12.py` implement (TDD).
+**File:** `assetcore/tests/test_imm12.py`
 
 | Test class | Hàm cover | Cases dự kiến |
 |---|---|---|
@@ -86,9 +84,7 @@ class TestReportIncident(FrappeTestCase):
 
 ## I.3. Unit Test — Validators & Repository
 
-**File (cần tạo):** `assetcore/tests/test_imm12_validators.py`
-
-⚠️ Pending — viết sau khi custom fields trên `Incident Report` và `RCA Record` DocType tạo xong.
+**File:** `assetcore/tests/test_imm12.py` (coverage mở rộng — một số validator chưa có test case riêng)
 
 | Validator | Happy | Fail |
 |---|---|---|
@@ -104,9 +100,7 @@ class TestReportIncident(FrappeTestCase):
 
 ## I.4. Integration Test — DocType Lifecycle
 
-**File (cần tạo):** `assetcore/tests/test_incident_report_doctype.py`
-
-⚠️ Pending — `Incident Report` DocType đã LIVE (IMM-00) nhưng custom fields IMM-12 chưa có. Test sau khi custom fields được thêm.
+**File:** `assetcore/tests/test_imm12.py` (core tests đã có trong `TestIncidentCreation`, `TestIncidentWorkflow`, `TestIncidentCancellation`. Các test case chi tiết dưới đây là coverage mục tiêu đầy đủ.)
 
 | Test | Setup | Action | Assert |
 |---|---|---|---|
@@ -119,9 +113,7 @@ class TestReportIncident(FrappeTestCase):
 | `test_audit_trail_on_acknowledge` | IR Open | `acknowledge_incident(ir.name, ...)` | `IMM Audit Trail` record with event_type `incident_acknowledged` |
 | `test_chronic_detection_idempotent` | 3 IDs same fault_code/90d, RCA already Open | `detect_chronic_failures()` | No duplicate RCA created |
 
-**File (cần tạo):** `assetcore/tests/test_rca_record_doctype.py`
-
-⚠️ Pending — `RCA Record` DocType chưa tồn tại.
+**File:** `assetcore/tests/test_imm12.py` (RCA Record tests — mở rộng từ existing test classes)
 
 | Test | Setup | Action | Assert |
 |---|---|---|---|
@@ -131,9 +123,7 @@ class TestReportIncident(FrappeTestCase):
 
 ## I.5. Integration Test — Workflow Transitions
 
-**File (cần tạo):** `assetcore/tests/test_imm12_workflow.py`
-
-⚠️ Pending — viết sau khi Workflow JSON cho `Incident Report` extension tạo xong.
+**File:** `assetcore/tests/test_imm12.py` (workflow transition tests trong `TestIncidentWorkflow`)
 
 Workflow `Incident Report` có 6 main states + RCA branch. Test mỗi transition:
 
@@ -149,9 +139,7 @@ Workflow `Incident Report` có 6 main states + RCA branch. Test mỗi transition
 
 ## I.6. Integration Test — Audit Chain Integrity
 
-**File (cần tạo):** `assetcore/tests/test_imm12_audit.py`
-
-⚠️ Pending. Reuse pattern từ IMM-09 `test_imm09_audit.py`.
+**File:** `assetcore/tests/test_imm12.py` (audit integrity — coverage mục tiêu, reuse pattern từ IMM-09)
 
 ```python
 def test_audit_chain_intact_after_incident_lifecycle():
@@ -169,9 +157,7 @@ def test_audit_chain_breaks_on_tamper():
 
 ## I.7. API Test
 
-**File (cần tạo):** `assetcore/tests/test_imm12_api.py`
-
-⚠️ Pending — viết sau khi `api/imm12.py` tạo xong.
+**File:** `assetcore/tests/test_imm12.py` (API layer — `api/imm12.py` đã LIVE với 14 endpoints. Test coverage mục tiêu:)
 
 | Test | Endpoint | Verify |
 |---|---|---|
@@ -229,12 +215,9 @@ Reset: `bench --site assetcore.local execute assetcore.scripts.uat.uat_imm12.see
 
 ## I.11. Run Commands & Coverage Gate
 
-⚠️ Pending — commands hoạt động sau khi test files được tạo.
-
 ```bash
-# Unit + integration (khi implement)
-bench --site assetcore.local run-tests --app assetcore --module assetcore.tests.test_imm12_service
-bench --site assetcore.local run-tests --app assetcore --module assetcore.tests.test_incident_report_doctype
+# Unit + integration (file đã tồn tại ✅)
+bench --site assetcore.local run-tests --app assetcore --module assetcore.tests.test_imm12
 
 # Full suite (CI)
 bench --site assetcore.local run-tests --app assetcore --coverage
@@ -252,7 +235,7 @@ bench --site uat.assetcore.local execute assetcore.scripts.uat.uat_imm12.run
 
 ## I.12. Đo Chất Lượng Mã Nguồn
 
-⚠️ Pending — áp dụng khi code implement.
+> Code đã LIVE. Áp dụng tiêu chuẩn sau cho mỗi PR.
 
 | Tool | Mục tiêu | Target | Cadence |
 |---|---|---|---|

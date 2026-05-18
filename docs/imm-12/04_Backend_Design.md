@@ -229,7 +229,7 @@ Imports from `assetcore.utils.response` (`_ok`, `_err`). Role check via `_has_ro
 | IR Acknowledged | `acknowledge_incident()` | `incident_acknowledged` | Workshop Lead |
 | IR Resolved | `resolve_incident()` | `incident_resolved` | Workshop Lead / KTV |
 | IR Closed | `close_incident()` | `incident_closed` | Workshop Lead |
-| RCA Completed + CAPA created | `submit_rca_and_create_capa()` | `rca_completed` | QA Officer |
+| RCA Completed + CAPA created | `submit_rca()` | `rca_completed` | QA Officer |
 | Chronic failure detected | `detect_chronic_failures()` | `chronic_failure_detected` | Administrator (scheduler) |
 
 Tất cả gọi `imm00.log_audit_event()` → SHA-256 hash chain (NĐ98/ISO 13485).

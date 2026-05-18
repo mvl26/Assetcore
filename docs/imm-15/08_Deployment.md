@@ -15,17 +15,19 @@
 
 ## §0 — Wired Artefacts (CURRENT, 2026-05-14)
 
-### Hooks (verified `assetcore/hooks.py`)
+### Hooks (verified `assetcore/hooks.py` — 2026-05-18)
 
 `doc_events`:
-- `IMM PM Work Order` → `before_submit`: `assetcore.services.imm15.reserve_for_pm`
-- `IMM Repair Work Order` → `before_submit`: `assetcore.services.imm15.reserve_for_repair`
+- `PM Work Order` → `before_submit`: `assetcore.services.imm15.reserve_for_pm`
+- `Asset Repair` → `before_submit`: `assetcore.services.imm15.reserve_for_repair`
 - `AC Asset` → `on_update`: `assetcore.services.imm15.flag_obsolete_on_decommission`
 
+> Lưu ý: DocType key thực tế là `"PM Work Order"` và `"Asset Repair"` — không phải `"IMM PM Work Order"` / `"IMM Repair Work Order"` / `"IMM CM Work Order"` như các draft trước ghi.
+
 `scheduler_events`:
-- hourly: `check_low_stock_and_alert`, `check_critical_spare_breach`, `check_expiring_batches`, `compute_inventory_kpis`
-- daily: `generate_spare_demand_forecast`
-- weekly: `reclassify_abc`
+- daily: `check_low_stock_and_alert`, `check_critical_spare_breach`, `check_expiring_batches`, `compute_inventory_kpis`
+- monthly: `generate_spare_demand_forecast`
+- cron `0 3 1 1,4,7,10 *` (quarterly): `reclassify_abc`
 
 ### Fixtures (verified `assetcore/fixtures/`)
 

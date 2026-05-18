@@ -163,11 +163,15 @@ def test_create_capa_sets_status_open():
 
 ```python
 def test_close_capa_blocks_without_root_cause():
-    """close_capa block nếu root_cause trống (BR-00-08)."""
+    """close_capa block nếu root_cause trống (BR-00-08).
+    
+    NOTE: close_capa() gọi doc.submit() → capa_record_before_submit() → frappe.throw()
+    → exception type là frappe.exceptions.ValidationError (không phải ServiceError).
+    Message chứa "Root Cause".
+    """
     capa = make_test_capa(status="Open")
-    with pytest.raises(ServiceError) as exc:
+    with pytest.raises(frappe.exceptions.ValidationError, match="Root Cause"):
         close_capa(capa.name, root_cause="", corrective_action="fix", preventive_action="prevent", effectiveness_check="ok", actor="qa@test.vn")
-    assert "AC-E005" in str(exc.value)
 ```
 
 #### TC-S-011: `check_capa_overdue` — Auto-mark Overdue

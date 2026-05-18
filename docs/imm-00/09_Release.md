@@ -353,7 +353,7 @@ Vào **AssetCore → Dashboard** để xem tổng quan toàn hệ thống:
 
 | Phiên bản | Ngày | Thay đổi | Owner |
 |---|---|---|---|
-| 4.2.0 | 2026-05-14 | Wave 2 GA — 19 IMM roles, Asset Finance Hub, fixture sync hardening; doc deep-sync vs codebase | BA Lead |
+| 4.2.0 | 2026-05-14 | Wave 2 GA — 20 IMM roles, Asset Finance Hub, fixture sync hardening; doc deep-sync vs codebase | BA Lead |
 | 4.0.0 | 2026-05-08 | Phát hành lần đầu tài liệu template-chuẩn IMM-00 v4 — thêm Inventory sub-domain | BA Lead |
 | 3.2.0 | 2026-03-01 | Bổ sung GMDN Status Management (FR-00-38→42), Inventory DocTypes v3.2 | BA Lead |
 | 3.0.0 | 2025-12-01 | Tái cấu trúc — tách AssetCore khỏi ERPNext, toàn bộ DocType prefix AC/IMM | Tech Lead |
@@ -405,7 +405,7 @@ Quản lý trạng thái GMDN (Global Medical Device Nomenclature) trên thiết
 
 | Version | Ngày | Nội dung tóm tắt |
 |---|---|---|
-| 4.2.0 | 2026-05-14 | **Wave 2 GA** — IMM-01/02/03 (Needs/Spec/Procurement), IMM-06 (Training), IMM-15 (Spare Parts), IMM-16 (Compliance); 19 IMM roles + has_role fixtures; Asset Finance Hub (Depreciation list/stats); FE restructure FE/BE folders |
+| 4.2.0 | 2026-05-14 | **Wave 2 GA** — IMM-01/02/03 (Needs/Spec/Procurement), IMM-06 (Training), IMM-15 (Spare Parts), IMM-16 (Compliance); 20 IMM roles + has_role fixtures; Asset Finance Hub (Depreciation list/stats); FE restructure FE/BE folders |
 | 4.1.0 | 2026-05-11 | Sprint 6 DoD — 3-tier BE compliance, FE store + views wired, scheduler insurance + service contract |
 | 4.0.0 | 2026-05-08 | Inventory sub-domain, GMDN QR scan, tài liệu template-chuẩn đầy đủ |
 | 3.2.0 | 2026-03-01 | GMDN status field, Inventory DocTypes stub |
@@ -420,7 +420,7 @@ Quản lý trạng thái GMDN (Global Medical Device Nomenclature) trên thiết
 
 | Hạng mục | Commit(s) | Mô tả |
 |---|---|---|
-| Role expansion 8 → 19 | `5b4158e` `820e3fe` | Bổ sung Wave 2 roles (Planning, Finance, HTM Engineer, Procurement, Risk, Board Approver, Training Officer, Deputy Dept Head, Biomed Technician, Clinical User, Auditor, Vendor Engineer). Fixture chuyển từ `imm_roles.json` → `role.json` + `has_role.json` |
+| Role expansion 8 → 20 | `5b4158e` `820e3fe` | Bổ sung Wave 2 roles (Planning Officer, Finance Officer, HTM Engineer, Procurement Officer, Risk Officer, Board Approver, Training Officer, Deputy Dept Head, Biomed Technician, Clinical User, Auditor, Vendor Engineer). Fixture chuyển từ `imm_roles.json` → `role.json` + `has_role.json` |
 | Fixture sync hardening | `227e786` | Sửa warning "Skipping fixture syncing" lúc `bench migrate` |
 | FE/BE folder restructure | `33a9668` | Refactor `frontend/src/api/`, `stores/`, `views/`; tách module IMM-XX rõ ràng |
 | Launcher + UI optimization | `820e3fe` | Sidebar role-aware; launcher cards theo module |

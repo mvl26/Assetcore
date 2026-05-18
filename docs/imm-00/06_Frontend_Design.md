@@ -33,7 +33,9 @@
 
 ### Semantic colors — `AC Asset.lifecycle_status`
 
-> **Verified từ `types/imm00.ts`:** LifecycleStatus = `'Commissioned' | 'Active' | 'Under Repair' | 'Calibrating' | 'Out of Service' | 'Decommissioned'`. (Không có 'Planned', 'Commissioning', 'Under Maintenance' trong type — 'Under Maintenance' tồn tại trong state machine nhưng không trong TS type.)
+> **Verified từ `types/imm00.ts` (2026-05-18):** LifecycleStatus = `'Commissioned' | 'Active' | 'Under Repair' | 'Calibrating' | 'Out of Service' | 'Decommissioned'`.
+>
+> **Gap đã biết:** `'Draft'` và `'Under Maintenance'` tồn tại trong `_VALID_ASSET_TRANSITIONS` (service state machine) nhưng KHÔNG có trong type `LifecycleStatus` ở FE. Asset mới insert có `lifecycle_status = 'Draft'` (blank hoặc default từ DocType) trước khi đi qua IMM-04 commissioning. `'Under Maintenance'` dùng khi PM WO mở. FE hiện dùng fallback để render chip màu cho 2 giá trị này — không gây runtime error, nhưng type safety bị bỏ qua.
 
 | lifecycle_status | Màu chip | Style |
 |---|---|---|
@@ -150,34 +152,53 @@ Sidebar ẩn item không có quyền (không grey-out). Collapse/expand lưu và
 
 ## II.3. Sitemap — Built vs Spec
 
-> **Verified từ code:** Chỉ 2 Vue views đã build trong `frontend/src/views/master-data/`:
-> - `ReferenceDataView.vue` — Dữ liệu tham chiếu (Locations, Departments, Categories, Device Models)
-> - `SlaPolicyListView.vue` — Danh sách và quản lý SLA Policies
+> **Verified từ code 2026-05-18:** Views đã build:
+>
+> `frontend/src/views/asset/`:
+> - `AssetListView.vue`, `AssetCreateView.vue`, `AssetDetailView.vue`, `AssetEditView.vue`
+> - `AssetTransferListView.vue`, `AssetTransferCreateView.vue`, `AssetTransferDetailView.vue`
+> - `DepreciationView.vue`
+> - `DeviceModelListView.vue`, `DeviceModelFormView.vue`
+>
+> `frontend/src/views/master-data/`:
+> - `ReferenceDataView.vue` — Locations, Departments, Categories, Device Models
+> - `SlaPolicyListView.vue`
+>
+> `frontend/src/views/audit/`:
+> - `AuditTrailListView.vue`
+> - `PendingApprovalsView.vue`
 
 Các routes dưới đây đánh dấu `[BUILT]` nếu có Vue component, `[SPEC]` nếu chỉ là spec chưa build.
 
 ```
 /                           → Dashboard (IMM-00 overview KPIs)              [SPEC]
-/assets                     → AC Asset List                                  [BUILT — xem module khác]
-/assets/new                 → AC Asset Form (Create)                         [SPEC]
-/assets/:name               → AC Asset Detail (6 tabs)                       [SPEC]
-/assets/:name/edit          → AC Asset Form (Edit)                           [SPEC]
-/assets/:name/lifecycle     → Asset Lifecycle Event Timeline                  [SPEC]
-/suppliers                  → AC Supplier List                               [SPEC]
-/suppliers/:name            → AC Supplier Detail + authorized_technicians    [SPEC]
+/assets                     → AC Asset List                                  [BUILT — AssetListView.vue]
+/assets/new                 → AC Asset Form (Create)                        [BUILT — AssetCreateView.vue]
+/assets/:name               → AC Asset Detail                               [BUILT — AssetDetailView.vue]
+/assets/:name/edit          → AC Asset Form (Edit)                          [BUILT — AssetEditView.vue]
+/assets/:name/lifecycle     → Asset Lifecycle Event Timeline                [SPEC]
+/assets/depreciation        → Depreciation hub                              [BUILT — DepreciationView.vue]
+/assets/transfers           → Asset Transfer List                           [BUILT — AssetTransferListView.vue]
+/assets/transfers/new       → Asset Transfer Form (Create)                  [BUILT — AssetTransferCreateView.vue]
+/assets/transfers/:name     → Asset Transfer Detail                         [BUILT — AssetTransferDetailView.vue]
+/assets/device-models       → Device Model List                             [BUILT — DeviceModelListView.vue]
+/assets/device-models/new   → Device Model Form                             [BUILT — DeviceModelFormView.vue]
+/suppliers                  → AC Supplier List                              [SPEC]
+/suppliers/:name            → AC Supplier Detail + authorized_technicians   [SPEC]
 /master-data                → ReferenceDataView.vue (Locations/Depts/Cats/Models) [BUILT]
-/master-data/sla            → SlaPolicyListView.vue                          [BUILT]
-/incidents                  → Incident Report List                           [SPEC]
-/incidents/new              → Incident Wizard (3 steps)                      [SPEC]
-/incidents/:name            → Incident Report Detail                         [SPEC]
-/capa                       → IMM CAPA Record List                           [SPEC]
-/capa/new                   → CAPA Form (Create)                             [SPEC]
-/capa/:name                 → CAPA Detail + workflow bar                     [SPEC]
-/audit-trail                → IMM Audit Trail Log (read-only)                [SPEC]
-/inventory                  → Inventory Dashboard                            [SPEC]
-/print/:doctype/:name       → Print-friendly view                            [SPEC]
-/login                      → Frappe login (redirect)                        [BUILT — Frappe native]
-/403                        → Forbidden403View                               [SPEC]
+/master-data/sla            → SlaPolicyListView.vue                         [BUILT]
+/incidents                  → Incident Report List                          [SPEC]
+/incidents/new              → Incident Wizard (3 steps)                     [SPEC]
+/incidents/:name            → Incident Report Detail                        [SPEC]
+/capa                       → IMM CAPA Record List                          [SPEC]
+/capa/new                   → CAPA Form (Create)                            [SPEC]
+/capa/:name                 → CAPA Detail + workflow bar                    [SPEC]
+/audit-trail                → AuditTrailListView.vue                        [BUILT — views/audit/]
+/pending-approvals          → PendingApprovalsView.vue                      [BUILT — views/audit/]
+/inventory                  → Inventory Dashboard                           [SPEC]
+/print/:doctype/:name       → Print-friendly view                           [SPEC]
+/login                      → Frappe login (redirect)                       [BUILT — Frappe native]
+/403                        → Forbidden403View                              [SPEC]
 ```
 
 ## II.4. Auth Guard

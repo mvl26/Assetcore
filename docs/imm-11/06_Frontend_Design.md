@@ -6,7 +6,7 @@
 | Phạm vi | Per-module |
 | Owner | FE Lead + Designer |
 | Module accent | `cyan-600` |
-| Cập nhật | 2026-05-14 |
+| Cập nhật | 2026-05-18 |
 | Trạng thái | ✅ Live — Vue components đã build |
 
 ---

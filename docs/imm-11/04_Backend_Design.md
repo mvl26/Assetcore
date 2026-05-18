@@ -257,6 +257,9 @@ doc_events = {
             "assetcore.services.imm16.eval_imm04_realtime",
         ],
     },
+    "IMM Asset Calibration": {
+        "on_submit": "assetcore.services.imm16.eval_imm11_realtime",
+    },
     # Note: `create_post_repair_calibration` KHÔNG dùng doc_events.
     # IMM-09 service tự gọi nó qua Pattern B (direct service-to-service lazy import)
     # trong `services/imm09.py`.
@@ -282,6 +285,7 @@ scheduler_events = {
 | IMM-09 Repair | IN | `services/imm09.py` gọi trực tiếp (Pattern B lazy import, không qua hooks.py) | `create_post_repair_calibration(asset_name)` |
 | IMM-00 Foundation | OUT | Mọi action nghiệp vụ | `transition_asset_status`, `create_capa`, `log_audit_event`, `create_lifecycle_event` |
 | IMM-12 Incident | OUT | Cal Fail → auto-create Incident | `imm12.report_incident(fault_code="CAL_FAIL")` — non-blocking |
+| IMM-16 Compliance | OUT | `IMM Asset Calibration.on_submit` (hooks.py doc_events) | `imm16.eval_imm11_realtime` — cập nhật compliance scorecard sau mỗi submit |
 
 ---
 

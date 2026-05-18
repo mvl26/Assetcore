@@ -4,7 +4,7 @@
 |---|---|
 | Module | **IMM-08 — Bảo trì Định kỳ (Preventive Maintenance)** |
 | Phiên bản | 1.0.0 |
-| Ngày cập nhật | 2026-05-14 |
+| Ngày cập nhật | 2026-05-18 |
 | Owner | DevOps + Tech Lead + QMS Officer |
 | Liên kết | [07 Testing QA](./07_Testing_QA.md) · [Module Overview](./IMM-08_Module_Overview.md) |
 

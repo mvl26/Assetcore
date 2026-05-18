@@ -15,7 +15,7 @@
 HTTP Request / Workflow Action / Frappe Scheduler
         │
         ▼
-API Layer  ─ assetcore/api/imm05.py  (@frappe.whitelist, 14 endpoints)
+API Layer  ─ assetcore/api/imm05.py  (@frappe.whitelist, 16 endpoints)
         │
         ▼
 Controller ─ doctype/asset_document/asset_document.py
@@ -45,7 +45,8 @@ Side effects:
 | Comment code | Tiếng Việt |
 | Log message | English |
 
-> **Tech-debt:** Service layer `services/imm05.py` chưa tồn tại. Logic nằm trong controller + `tasks.py`. Khi refactor Sprint 7, di chuyển: `archive_old_versions`, `update_asset_completeness`, `_compute_document_status`.
+> **Trạng thái thực tế:** `services/imm05.py` **ĐÃ TỒN TẠI** (587 LOC). Service layer chứa 17 public functions (list, get, create, update, approve, reject, archive, get_asset_documents, dashboard, expiring, compliance_by_dept, history, create_request, get_requests, mark_exempt, check_expiry).
+> Business methods vẫn còn trong controller (`asset_document.py`): `archive_old_versions` (on_update), `update_asset_completeness` (placeholder no-op v3), `_compute_document_status`. Compliance tính on-the-fly qua SQL trong `get_dashboard_stats()`. Refactor hoàn toàn sang service layer vẫn là backlog Sprint 10.
 
 ---
 
@@ -198,7 +199,7 @@ class AssetDocument(Document):
 | `auto_fetch_model_and_dept()` | `validate` | Đọc `Asset.item_code` → `model_ref`; `Asset.location` → `clinical_dept` |
 | `set_computed_fields()` | `before_save` | `days_until_expiry = expiry_date - today`; `is_expired = (days < 0)`; `file_name_display` |
 | `archive_old_versions()` | `on_update` + `approve_document` API | Query Active docs cùng (asset_ref + doc_type_detail) ≠ self → set Archived + superseded_by, archived_by_version, archive_date |
-| `update_asset_completeness()` | `on_update` | Tính completeness_pct; build document_status qua `_compute_document_status()` |
+| `update_asset_completeness()` | `on_update` | **⚠️ NO-OP (v3)** — placeholder, returns immediately. Compliance tính on-the-fly qua SQL trong `get_dashboard_stats()`. |
 
 ### §4.2 Validation Rules (11 VR)
 
@@ -223,6 +224,8 @@ def vr_07_legal_requires_expiry(self):
 ```
 
 > **Ghi chú:** IMM-05 chưa dùng `ServiceError(ErrorCode.X, msg)` pattern — logic nằm trong controller dùng `frappe.throw()`. Khi refactor sang service layer, áp dụng pattern chuẩn AssetCore.
+>
+> **⚠️ Bug VR-03:** `vr_03_file_required_for_review()` trong controller kiểm tra `workflow_state == "Pending_Review"` (underscore) thay vì `"Pending Review"` (space) — VR-03 không được kích hoạt khi nào cả. Cần sửa: `"Pending_Review"` → `"Pending Review"` trước khi deploy.
 
 ### §4.3 `_compute_document_status` logic
 

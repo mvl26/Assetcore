@@ -246,31 +246,17 @@ Tạo Tech Spec draft từ Procurement Plan Lines.
 }
 ```
 
-**Response (success):**
+**Response (thực tế — chỉ `created` array; lines đã có spec bị skip silently):**
 ```json
 {
   "success": true,
   "data": {
-    "created": ["TS-26-00045", "TS-26-00046", "TS-26-00047"],
-    "skipped": [],
-    "errors": []
+    "created": ["TS-26-00045", "TS-26-00046", "TS-26-00047"]
   }
 }
 ```
 
-**Response (partial — some lines already have spec):**
-```json
-{
-  "success": true,
-  "data": {
-    "created": ["TS-26-00047"],
-    "skipped": [
-      {"plan_line": "PP-26-001#L1", "existing_spec": "TS-26-00045", "reason": "VR-02-01: plan_line đã có Tech Spec active"}
-    ],
-    "errors": []
-  }
-}
-```
+> Note: Không có `"skipped"` hay `"errors"` key trong response thực tế. Lines đã có spec active bị bỏ qua thầm lặng (check `frappe.db.exists` trước khi tạo). FE cần so sánh `created.length` với số line_names được yêu cầu để biết có skip không.
 
 ## 3.5 `update_tech_spec` — POST
 
@@ -280,20 +266,22 @@ Cập nhật header fields (chỉ khi Draft hoặc Reviewing).
 ```json
 {
   "name": "TS-26-00045",
-  "data": {
+  "payload": {
     "quantity": 3,
     "spec_template_ref": "TMPL-Life-Support-01"
   }
 }
 ```
 
-**Response:**
+> Note: param tên là `payload` (KHÔNG phải `data`) — khớp với `_update_tech_spec(name, payload)`. Child tables `requirements`, `documents`, `infra_compat` trong payload sẽ được replace hoàn toàn (set rỗng rồi append).
+
+**Response (thực tế — không có `updated_fields`):**
 ```json
 {
   "success": true,
   "data": {
     "name": "TS-26-00045",
-    "updated_fields": ["quantity", "spec_template_ref"]
+    "workflow_state": "Draft"
   }
 }
 ```
@@ -656,8 +644,14 @@ GET /api/method/assetcore.api.imm02.dashboard_kpis
 
 File: `frontend/src/types/imm02.ts` — **Đã implement. Xem file thực tế để biết full schema.**
 
+> **Lưu ý về type names thực tế:** `frontend/src/types/imm02.ts` dùng tên:
+> - `TechSpecListItem` (list row), `TechSpecDoc` (detail document)
+> - `DashboardKpis` (dashboard KPIs — KHÔNG phải `Imm02KPIs`)
+> - `SpecState` (workflow state union — KHÔNG phải `TechSpecState`)
+> Các types dưới đây là design spec — ground truth xem file thực tế.
+
 ```typescript
-// Actual types — frontend/src/types/imm02.ts
+// Design spec types — ground truth: frontend/src/types/imm02.ts
 
 export interface TechSpec {
   name: string;

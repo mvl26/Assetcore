@@ -45,7 +45,7 @@ erDiagram
         varchar department FK
         varchar supplier FK
         varchar responsible_technician FK
-        varchar lifecycle_status "6 states"
+        varchar lifecycle_status "8 states"
         varchar risk_classification "Low/Medium/High/Critical"
         varchar udi_code
         varchar gmdn_code "inherit từ device_model.gmdn_code"
@@ -675,7 +675,7 @@ flowchart TB
 
 ```mermaid
 flowchart LR
-    IMM00["IMM-00\nFoundation Layer\n(18 DocTypes + shared services)"]
+    IMM00["IMM-00\nFoundation Layer\n(27 DocTypes + shared services)"]
 
     IMM04["IMM-04\nInstallation"]
     IMM05["IMM-05\nRegistration"]

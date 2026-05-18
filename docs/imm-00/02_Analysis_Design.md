@@ -49,11 +49,11 @@ Nguyên tắc kiến trúc bắt buộc: AssetCore **chỉ phụ thuộc Frappe 
 | 5 Core DocTypes (AC prefix) | **Live ✅** | AC Asset, AC Supplier, AC Location, AC Department, AC Asset Category đã có trong `assetcore/assetcore/doctype/` |
 | 6 Governance DocTypes (IMM prefix) | **Live ✅** | IMM Audit Trail, IMM CAPA Record, Asset Lifecycle Event, Incident Report, IMM Device Model, IMM SLA Policy |
 | 5 Inventory DocTypes (v4) | **Live ✅** | AC Warehouse, AC Spare Part, AC Spare Part Stock, AC Stock Movement (+ Item child), AC Stock Movement Item |
-| Services (imm00.py) | **Live ✅** | 23+ functions implement (transfer, GMDN, scheduler, KPI rollup) |
-| Role fixtures | **Live ✅** | 19 IMM roles seed qua `fixtures/role.json` (commit `5b4158e`) |
+| Services (imm00.py) | **Live ✅** | 22 public functions implement (transfer, GMDN, scheduler, KPI rollup) |
+| Role fixtures | **Live ✅** | 20 IMM roles seed qua `fixtures/role.json` (commit `5b4158e`) |
 | Permission query | **Live ✅** | `permission.py` cho AC Asset (scoped theo `responsible_technician`) |
 | Scheduler | **Live ✅** | 5 daily IMM-00 jobs + weekly + monthly (xem §III.7) |
-| FE shell + views | **Partial** | 2 views built (ReferenceData, SlaPolicyList); phần còn lại cuốn chiếu |
+| FE shell + views | **Partial** | 12+ views built (asset/ ×10, audit/ ×2, master-data/ ×2); phần còn lại cuốn chiếu |
 
 > Wave 1 (IMM-04/08/09/11/12) đã refactor sang AC Asset registry; không còn phụ thuộc ERPNext Asset.
 
@@ -84,14 +84,14 @@ Nguyên tắc kiến trúc bắt buộc: AssetCore **chỉ phụ thuộc Frappe 
 ## I.5. Scope
 
 **In-scope:**
-- 18 DocTypes tổng (5 core + 6 governance + 5 inventory + 2 child + 1 inventory child)
-- Lifecycle state machine cho AC Asset.lifecycle_status (6 states)
+- 27 DocTypes foundation IMM-00 (5 core + 6 governance + 5 inventory + 11 child/support) — verified vs `assetcore/assetcore/doctype/`
+- Lifecycle state machine cho AC Asset.lifecycle_status (8 states: Draft, Commissioned, Active, Under Maintenance, Under Repair, Calibrating, Out of Service, Decommissioned)
 - Audit Trail bất biến với SHA-256 chain
 - CAPA workflow (Open → In Progress → Pending Verification → Closed / Overdue)
 - SLA lookup engine theo priority × risk_class
 - Incident Report → trigger Repair WO + CAPA
 - 5 daily scheduler jobs + 1 monthly (`rollup_asset_kpi`)
-- 19 role fixtures (Wave 1 + Wave 2) + permission query
+- 20 role fixtures (Wave 1 + Wave 2) + permission query
 - 107 whitelisted REST endpoints trong `api/imm00.py`
 
 **Out-of-scope (defer sang giai đoạn sau):**
@@ -174,10 +174,10 @@ Roadmap IMM-00 gắn với 3 đợt triển khai và lớp QMS theo `Ho_so_kien_
 │  [Asset Lifecycle Event]  [Incident Report]                 │
 │  [Inventory: AC Warehouse, AC Spare Part, ...]              │
 │                                                             │
-│  services/imm00.py: 23+ shared functions                    │
+│  services/imm00.py: 22 public functions                     │
 │  utils/: response.py, lifecycle.py, email.py, pagination.py │
 │  5 daily + 1 monthly scheduler jobs                         │
-│  19 role fixtures + permission.py                           │
+│  20 role fixtures + permission.py                           │
 └────┬────────┬──────┬──────┬──────┬──────┬──────┬──────┬────┘
      │        │      │      │      │      │      │      │
   IMM-04   IMM-05 IMM-08 IMM-09 IMM-11 IMM-12 IMM-13 IMM-15/16
@@ -272,9 +272,9 @@ HTTP Request / Frappe Scheduler
 | `utils/email.py` | `get_role_emails(roles)`, `safe_sendmail()` | Scheduler jobs |
 | `utils/pagination.py` | `paginate(query, page, page_size)` | List APIs |
 
-## III.6. Role fixtures (19 IMM roles)
+## III.6. Role fixtures (20 IMM roles)
 
-> Wave 1 (13 role) + Wave 2 (6 role) — danh sách đầy đủ trong `assetcore/services/shared/constants.py::Roles`.
+> Wave 1 (13 role) + Wave 2 (7 role, incl. IMM Training Officer) — danh sách đầy đủ trong `assetcore/services/shared/constants.py::Roles`.
 
 | Role | Quyền hạn chính |
 |---|---|

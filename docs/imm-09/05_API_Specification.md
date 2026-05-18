@@ -68,11 +68,12 @@ User không có Role hợp lệ → HTTP 403 + `CM-010`.
 | 3.5 | `submit_diagnosis` | POST | KTV HTM | Nộp chẩn đoán |
 | 3.6 | `request_spare_parts` | POST | KTV HTM / Kho | Cập nhật stock_entry_ref |
 | 3.7 | `start_repair` | POST | KTV HTM | Bắt đầu sửa chữa |
-| 3.8 | `close_work_order` | POST | KTV HTM / Workshop Manager | Đóng WO (Completed hoặc Cannot Repair) |
-| 3.9 | `get_repair_kpis` | GET | PTP / Manager | KPI tháng hiện tại |
-| 3.10 | `get_mttr_report` | GET | PTP / Manager | MTTR trend + breakdown 6 tháng |
-| 3.11 | `search_spare_parts` | GET | KTV HTM | Tìm kiếm vật tư (Item) |
-| 3.12 | `get_asset_repair_history` | GET | Tất cả có đăng nhập | Lịch sử sửa chữa 1 thiết bị |
+| 3.8 | `close_work_order` | POST | KTV HTM / Workshop Manager | Đóng WO → Pending Inspection (Completed) hoặc Cannot Repair |
+| 3.9 | `confirm_inspection` | POST | Dept Head / QA Officer | Nghiệm thu: Pending Inspection → Completed (submit docstatus=1) |
+| 3.10 | `get_repair_kpis` | GET | PTP / Manager | KPI tháng hiện tại |
+| 3.11 | `get_mttr_report` | GET | PTP / Manager | MTTR trend + breakdown 6 tháng |
+| 3.12 | `search_spare_parts` | GET | KTV HTM | Tìm kiếm vật tư (Item) |
+| 3.13 | `get_asset_repair_history` | GET | Tất cả có đăng nhập | Lịch sử sửa chữa 1 thiết bị |
 
 ---
 
@@ -453,7 +454,7 @@ curl -G "https://acme.local/api/method/assetcore.api.imm09.list_repair_work_orde
 
 ### 3.8 `close_work_order`
 
-**Mô tả:** Đóng WO theo 2 mode: `Completed` (sửa thành công) hoặc `Cannot Repair` (không thể sửa).
+**Mô tả:** KTV hoàn thành sửa chữa → WO chuyển sang `Pending Inspection` (chờ nghiệm thu cấp khoa). Sau đó cần `confirm_inspection` để chốt "Completed". Mode thứ hai là `Cannot Repair`.
 
 | Method | Path |
 |---|---|
@@ -494,22 +495,21 @@ curl -G "https://acme.local/api/method/assetcore.api.imm09.list_repair_work_orde
 }
 ```
 
-**Side-effects (Completed mode):**
-1. Set các trường từ body.
-2. `status = "Pending Inspection"`.
-3. `doc.submit()` → kích hoạt `before_submit` (validate BR-09-02/03/04) và `on_submit` (`complete_repair()`).
-4. `complete_repair()`: tính `mttr_hours` (calendar time), set `completion_datetime`, `sla_breached`, `Asset.status = "Active"`, ALE `repair_completed`, update `custom_last_repair_date`, `custom_mttr_avg_hours`.
+**Side-effects (mode `cannot_repair=0`):**
+1. Set các trường từ body (`repair_summary`, `root_cause_category`, `dept_head_name`, `checklist_results`, `spare_parts`, `firmware_*`).
+2. `status = "Pending Inspection"` — **WO chưa submit ở bước này**.
+3. ALE `event_type = "repair_pending_inspection"`.
 
-**Response 200 (Completed):**
+> Nghiệm thu thực sự xảy ra ở `confirm_inspection` (endpoint 3.9).
+
+**Response 200 (mode Pending Inspection):**
 
 ```json
 {
   "success": true,
   "data": {
     "name": "WO-CM-2026-00042",
-    "status": "Completed",
-    "mttr_hours": 18.5,
-    "sla_breached": 0
+    "status": "Pending Inspection"
   }
 }
 ```
@@ -546,7 +546,54 @@ curl -G "https://acme.local/api/method/assetcore.api.imm09.list_repair_work_orde
 
 ---
 
-### 3.9 `get_repair_kpis`
+### 3.9 `confirm_inspection`
+
+**Mô tả:** Nghiệm thu sau sửa chữa — bước kiểm soát chất lượng cuối. Chuyển WO từ `Pending Inspection` → `Completed` (submit docstatus=1), kích hoạt `complete_repair()` để tính MTTR, SLA, đưa Asset về Active.
+
+| Method | Path |
+|---|---|
+| POST | `/api/method/assetcore.api.imm09.confirm_inspection` |
+
+**Role:** `CAN_APPROVE_DEP` (Dept Head / QA Officer / Workshop Manager)
+
+**Request body:**
+
+```json
+{ "name": "WO-CM-2026-00042" }
+```
+
+**Side-effects:**
+1. Kiểm tra status = "Pending Inspection", role `CAN_APPROVE_DEP`.
+2. Set `dept_head_confirmation_datetime = now()`.
+3. `doc.submit()` → `before_submit` (validate BR-09-02/03/04) → `on_submit` → `complete_repair()`.
+4. `complete_repair()`: tính `mttr_hours` (calendar time), set `completion_datetime`, `sla_breached`, Asset→Active, ALE `repair_completed`.
+5. Nếu `root_cause_category` chứa từ khóa lặp lại ("lặp lại", "recurring", "chronic"...) → tự động gọi `imm12.detect_chronic_failures()` (non-blocking).
+
+**Response 200:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "name": "WO-CM-2026-00042",
+    "status": "Completed",
+    "mttr_hours": 18.5,
+    "sla_breached": 0
+  }
+}
+```
+
+**Errors:**
+
+| Code | Mô tả |
+|---|---|
+| `NOT_FOUND` | WO không tồn tại |
+| `BAD_STATE` | WO không ở trạng thái "Pending Inspection" |
+| `FORBIDDEN` | Không có quyền `CAN_APPROVE_DEP` |
+
+---
+
+### 3.11 `get_repair_kpis`
 
 **Mô tả:** KPI bảo trì sửa chữa trong tháng: MTTR, SLA compliance, repeat failure, backlog.
 
@@ -581,7 +628,7 @@ curl -G "https://acme.local/api/method/assetcore.api.imm09.list_repair_work_orde
 
 ---
 
-### 3.10 `get_mttr_report`
+### 3.12 `get_mttr_report`
 
 **Mô tả:** MTTR trend 6 tháng, First-Time Fix Rate, backlog phân theo khoa phòng.
 
@@ -624,7 +671,7 @@ curl -G "https://acme.local/api/method/assetcore.api.imm09.list_repair_work_orde
 
 ---
 
-### 3.11 `search_spare_parts`
+### 3.13 `search_spare_parts`
 
 **Mô tả:** Tìm kiếm vật tư (từ DocType `IMM Device Spare Part`) để thêm vào WO.
 
@@ -660,7 +707,7 @@ curl -G "https://acme.local/api/method/assetcore.api.imm09.list_repair_work_orde
 
 ---
 
-### 3.12 `get_asset_repair_history`
+### 3.14 `get_asset_repair_history`
 
 **Mô tả:** Lịch sử tất cả WO sửa chữa đã hoàn thành của một thiết bị, dùng cho traceability và phát hiện tái hỏng.
 
@@ -853,7 +900,8 @@ Phát qua `frappe.publish_realtime(channel, payload, user=assigned_to)`. FE subs
 | `submit_diagnosis` | State machine: Assigned/Diagnosing → Pending Parts/In Repair |
 | `request_spare_parts` | BR-09-02 (gắn stock_entry_ref) |
 | `start_repair` | State machine |
-| `close_work_order` (Completed) | BR-09-02 (stock entry), BR-09-03 (FCR), BR-09-04 (checklist), BR-09-07 (KPI MTTR) |
+| `close_work_order` (Completed) | BR-09-02 (stock entry), BR-09-03 (FCR), BR-09-04 (checklist) — chuyển sang Pending Inspection |
+| `confirm_inspection` | Nghiệm thu: role CAN_APPROVE_DEP → submit doc → complete_repair() → MTTR/SLA/ALE |
 | `close_work_order` (Cannot Repair) | BR-09-05 (Asset → Out of Service) |
 | `get_repair_kpis` / `get_mttr_report` | BR-09-07 (theo dõi KPI MTTR) |
 | `get_asset_repair_history` | Audit trail + BR-09-06 (detect repeat failure) |
@@ -885,13 +933,20 @@ curl -s -X POST "$BASE.submit_diagnosis" -H "$AUTH" -H "Content-Type: applicatio
   -d "{\"name\":\"$WO\",\"diagnosis_notes\":\"Hỏng cầu chì\",\"needs_parts\":0}" | python3 -c \
   "import sys,json; print(json.load(sys.stdin)['message']['data']['status'])"
 
-# 4. Đóng WO
+# 4. Đóng WO → Pending Inspection
 curl -s -X POST "$BASE.close_work_order" -H "$AUTH" -H "Content-Type: application/json" \
   -d "{\"name\":\"$WO\",\"repair_summary\":\"Đã thay cầu chì\",\"root_cause_category\":\"Electrical\",
        \"dept_head_name\":\"BS Hùng\",\"checklist_results\":\"[]\",\"cannot_repair\":0}" | python3 -c \
-  "import sys,json; d=json.load(sys.stdin)['message']['data']; print(d['status'], d['mttr_hours'])"
+  "import sys,json; print(json.load(sys.stdin)['message']['data']['status'])"
+# expect: Pending Inspection
 
-# 5. Kiểm tra KPI
+# 5. Nghiệm thu → Completed
+curl -s -X POST "$BASE.confirm_inspection" -H "$AUTH" -H "Content-Type: application/json" \
+  -d "{\"name\":\"$WO\"}" | python3 -c \
+  "import sys,json; d=json.load(sys.stdin)['message']['data']; print(d['status'], d['mttr_hours'])"
+# expect: Completed <float>
+
+# 6. Kiểm tra KPI
 curl -s -G "$BASE.get_repair_kpis" -H "$AUTH" \
   --data-urlencode "year=2026" --data-urlencode "month=4" | python3 -c \
   "import sys,json; print(json.load(sys.stdin)['message']['data']['kpis'])"
@@ -907,7 +962,7 @@ curl -s -G "$BASE.get_repair_kpis" -H "$AUTH" \
 |---|---|
 | `create_repair_wo` | `create_repair_work_order` |
 | `submit_repair_result` | Gộp vào `close_work_order` |
-| `complete_repair` | `close_work_order(cannot_repair=0)` |
+| `complete_repair` | Tách 2 bước: `close_work_order(cannot_repair=0)` → Pending Inspection, rồi `confirm_inspection` → Completed |
 | `mark_cannot_repair` | `close_work_order(cannot_repair=1)` |
 | `get_repair_wo` | `get_repair_work_order` |
 | `get_repair_list` | `list_repair_work_orders` |

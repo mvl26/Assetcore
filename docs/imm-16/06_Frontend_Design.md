@@ -3,33 +3,37 @@
 | Mục | Giá trị |
 |---|---|
 | Module | IMM-16 — Compliance Monitoring & CAPA |
-| Phiên bản | 0.4.0 |
-| Ngày cập nhật | 2026-05-14 |
+| Phiên bản | 0.5.0 |
+| Ngày cập nhật | 2026-05-18 |
 | Owner | FE Lead |
 | Liên kết | [05 API](./05_API_Specification.md) · [04 Backend](./04_Backend_Design.md) |
 | Stack | Vue 3 + TypeScript + Pinia + Vue Router + TailwindCSS + TanStack Query |
 
-> ✅ Implemented — Wave 2. 8 view dưới `frontend/src/views/compliance/` đã LIVE. Bảng route ở §I đã sync với `frontend/src/router/index.ts` — path domain (`/compliance/*`, `/capas`, `/audit-trail`), không phải prefix `/imm16/*`.
+> ✅ Implemented — Wave 2. 9 view dưới `frontend/src/views/compliance/` đã LIVE (confirmed 2026-05-18). Bảng route ở §I đã sync với `frontend/src/router/index.ts` — path domain (`/compliance/*`, `/capas`, `/audit-trail`), không phải prefix `/imm16/*`.
 
 ---
 
 # Phần I — Sitemap & Routes
 
-Route catalog đã sync với `frontend/src/router/index.ts` (verified 2026-05-14):
+Route catalog đã sync với `frontend/src/router/index.ts` (verified 2026-05-18):
 
 | # | View | Route | meta.requiredRoles |
 |---|---|---|---|
 | 1 | `ComplianceHeatmapView.vue` | `/compliance/heatmap` | `ROLES_COMPLIANCE_VIEW` |
 | 2 | `ComplianceRuleListView.vue` | `/compliance/rules` | `ROLES_COMPLIANCE_MANAGE` |
-| 3 | `FindingListView.vue` | `/compliance/findings` | `ROLES_COMPLIANCE_VIEW` |
-| 4 | `FindingDetailView.vue` | `/compliance/findings/:id` | `ROLES_COMPLIANCE_VIEW` |
-| 5 | `InternalAuditListView.vue` | `/compliance/audits` | `ROLES_COMPLIANCE_VIEW` |
-| 6 | `InternalAuditDetailView.vue` | `/compliance/audits/:id` | `ROLES_COMPLIANCE_VIEW` |
-| 7 | `ScorecardView.vue` | `/compliance/scorecard` | `ROLES_COMPLIANCE_VIEW` |
-| 8 | `ManagementReviewListView.vue` | `/compliance/mr` | `ROLES_COMPLIANCE_MANAGE` |
-| 9 | `CapaListView.vue` (audit folder) | `/capas` | `ROLES_COMPLIANCE_VIEW` |
-| 10 | `CapaDetailView.vue` (audit folder) | `/capas/:id` | `ROLES_CAPA_CLOSE` |
-| 11 | `AuditTrailListView.vue` (audit folder) | `/audit-trail` | `ROLES_AUDIT_READ` |
+| 3 | `ComplianceRuleDetailView.vue` | `/compliance/rules/:id` | `ROLES_COMPLIANCE_MANAGE` |
+| 4 | `FindingListView.vue` | `/compliance/findings` | `ROLES_COMPLIANCE_VIEW` |
+| 5 | `FindingDetailView.vue` | `/compliance/findings/:id` | `ROLES_COMPLIANCE_VIEW` |
+| 6 | `InternalAuditListView.vue` | `/compliance/audits` | `ROLES_COMPLIANCE_VIEW` |
+| 7 | `InternalAuditDetailView.vue` | `/compliance/audits/:id` | `ROLES_COMPLIANCE_VIEW` |
+| 8 | `ScorecardView.vue` | `/compliance/scorecard` | `ROLES_COMPLIANCE_VIEW` |
+| 9 | `ManagementReviewListView.vue` | `/compliance/mr` | `ROLES_COMPLIANCE_MANAGE` |
+| 10 | `ManagementReviewDetailView.vue` | `/compliance/mr/:id` | `ROLES_COMPLIANCE_MANAGE` |
+| 11 | `CapaListView.vue` (incident folder) | `/capas` | `ROLES_COMPLIANCE_VIEW` |
+| 12 | `CapaDetailView.vue` (incident folder) | `/capas/:id` | `ROLES_CAPA_CLOSE` |
+| 13 | `AuditTrailListView.vue` | `/audit-trail` | `ROLES_AUDIT_READ` |
+
+> Confirmed 2026-05-18: Views thực tế trong `frontend/src/views/compliance/`: `ComplianceHeatmapView.vue`, `ComplianceRuleDetailView.vue`, `ComplianceRuleListView.vue`, `FindingDetailView.vue`, `FindingListView.vue`, `InternalAuditDetailView.vue`, `InternalAuditListView.vue`, `ManagementReviewDetailView.vue`, `ManagementReviewListView.vue`, `ScorecardView.vue` (9 views). CAPA views tại `frontend/src/views/incident/CAPADetailView.vue` + `CAPAListView.vue` (không phải `audit` folder như spec cũ).
 
 > Tất cả 11 route đặt `meta.moduleId: 'imm16'`. Sidebar mapping: regex `[/^\/capas/, 'imm16']`, `[/^\/audit-trail/, 'imm16']`, `[/^\/compliance/, 'imm16']` trong `router/index.ts`.
 >

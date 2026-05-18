@@ -100,16 +100,17 @@
 | 3 | session_date | Date | Ngày tổ chức | — | * | — |
 | 4 | session_type | Select | Hình thức | Onsite / Online / Hybrid | * | — |
 | 5 | location | Data | Địa điểm | — | — | — |
-| 6 | instructor | Link | Giảng viên nội bộ | User | — | — |
-| 7 | instructor_external_name | Data | Tên giảng viên bên ngoài | — | — | — |
-| 8 | instructor_external_org | Data | Tổ chức | — | — | — |
-| 9 | duration_planned_hours | Float | Thời lượng dự kiến (giờ) | — | * | — |
-| 10 | duration_actual_hours | Float | Thời lượng thực tế (giờ) | — | — | — |
-| 11 | training_materials | Attach | Tài liệu đào tạo | — | — | — |
-| 12 | qms_session_record | Attach | Biên bản buổi học | — | — | — |
-| 13 | evaluation_method | Small Text | Phương pháp đánh giá | — | — | — |
-| 14 | status_remarks | Small Text | Ghi chú | — | — | — |
-| 15 | participants | Table | Học viên | IMM Training Participant | — | — |
+| 6 | trainer_ref | Link | Giảng viên (registry) | IMM Trainer | — | — |
+| 7 | instructor | Link | Giảng viên nội bộ (User) | User | — | — |
+| 8 | instructor_external_name | Data | Tên giảng viên bên ngoài | — | — | — |
+| 9 | instructor_external_org | Data | Tổ chức | — | — | — |
+| 10 | duration_planned_hours | Float | Thời lượng dự kiến (giờ) | — | * | — |
+| 11 | duration_actual_hours | Float | Thời lượng thực tế (giờ) | — | — | — |
+| 12 | training_materials | Attach | Tài liệu đào tạo | — | — | — |
+| 13 | qms_session_record | Attach | Biên bản buổi học | — | — | — |
+| 14 | evaluation_method | Small Text | Phương pháp đánh giá | — | — | — |
+| 15 | status_remarks | Small Text | Ghi chú | — | — | — |
+| 16 | participants | Table | Học viên | IMM Training Participant | — | — |
 
 > Tối thiểu 1 trong (`instructor`, `instructor_external_name`) reqd — VR enforce.
 
@@ -147,6 +148,9 @@
 | 7 | overall_result | Select | Kết quả | Pass / Fail / Conditional | — | 1 |
 | 8 | certificate_issued | Check | Đã cấp chứng nhận | — | — | — |
 | 9 | retake_required | Check | Cần học lại | — | — | — |
+| 10 | result | Select | Kết quả (display) | Đạt / Không đạt | — | 1 |
+| 11 | competency_record | Link | Competency Record | IMM User Competency | — | — |
+| 12 | remarks | Small Text | Ghi chú | — | — | — |
 | 10 | competency_record | Link | Hồ sơ năng lực | IMM User Competency | — | — |
 | 11 | remarks | Small Text | Ghi chú | — | — | — |
 
@@ -272,7 +276,21 @@
 
 ## §IV Service Layer (`assetcore/services/imm06.py`)
 
-> ✅ Implemented — file đã có (~1.3k LOC). Snippets dưới đây thể hiện contract chính.
+> ✅ Implemented — `assetcore/services/imm06.py` (1533 LOC, 2026-05-18). Snippets bên dưới thể hiện contract key.
+
+**Catalog đầy đủ public functions (tóm tắt):**
+
+| Group | Function | Mô tả |
+|---|---|---|
+| Program | `list_training_programs`, `get_training_program`, `create_training_program`, `update_training_program`, `list_programs`, `get_program`, `create_program`, `update_program` | CRUD chương trình đào tạo |
+| Session | `list_training_sessions`, `create_training_session`, `start_training_session`, `complete_training_session` | Core session lifecycle |
+| Session API | `list_sessions`, `get_session`, `create_session`, `confirm_session`, `enroll_participants`, `remove_participant`, `complete_session`, `cancel_session`, `verify_session`, `close_session` | API wrappers + participant management |
+| Competency | `list_user_competencies`, `get_user_competencies`, `signoff_competency_by_name`, `revoke_competency_with_capa`, `recertify_competency`, `create_competency_from_session`, `archive_old_competency` | Competency lifecycle |
+| Gates | `validate_user_authorized_for_asset`, `get_asset_operator_coverage` | Cross-module gates (IMM-04, IMM-08/09/11/12) |
+| Analytics | `get_dashboard_stats`, `get_competency_gaps_by_dept`, `get_expiring_competencies`, `generate_gap_report` | Dashboard + reports |
+| Validators | `validate_target_device_set`, `validate_passing_score_range`, `validate_validity_range`, `validate_instructor_present`, `validate_min_participants_for_confirm`, `compute_overall_results`, `set_computed_competency_fields` | VR enforcement |
+| Scheduler | `check_expiring_competencies`, `auto_expire_competencies`, `check_recertification_due`, `generate_weekly_gap_report`, `handle_user_dept_change` | Auto-jobs |
+| Utilities | `invalidate_authorization_cache`, `_create_competency_record` (private) | Helpers |
 
 ```python
 # assetcore/services/imm06.py

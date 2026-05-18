@@ -31,23 +31,25 @@
 
 ```typescript
 // frontend/src/router/sidebar.ts — entry cho IMM-05
+// ⚠️ Routes thực tế dùng /documents (không có prefix /imm05)
+// Dashboard Compliance (/imm05/dashboard) chưa có route — planned Wave 3
 
 {
   label: "Hồ sơ Tài liệu",
   icon: "folder",
-  to: "/imm05/documents",
+  to: "/documents",
   roles: ["HTM Technician", "Biomed Engineer", "Tổ HC-QLCL",
           "Workshop Head", "VP Block2", "CMMS Admin", "Clinical Head"],
   children: [
     {
       label: "Danh sách Tài liệu",
-      to: "/imm05/documents",
+      to: "/documents",
     },
     {
-      label: "Dashboard Compliance",
-      to: "/imm05/dashboard",
-      roles: ["Workshop Head", "VP Block2", "CMMS Admin", "Tổ HC-QLCL"],
+      label: "Yêu cầu Hồ sơ",
+      to: "/documents/requests",
     },
+    // Dashboard Compliance planned Wave 3 — route chưa implement
   ],
 }
 ```

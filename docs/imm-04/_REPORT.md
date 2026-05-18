@@ -55,3 +55,24 @@ Endpoint count actual = **33** (whitelist trong `assetcore/api/imm04.py`). LOC s
 - `07_Testing_QA.md`: thêm callout trạng thái thực tế — test scaffold gộp 1 file `test_imm04.py` (246 LOC), file con là kế hoạch chia; pyramid "17 endpoints" → "33 endpoints".
 - `08_Deployment.md`: untouched (bench commands hợp lệ).
 - `09_Release.md`: thay row "17 endpoints" và LOC ước tính bằng số thực (33 endpoints, 1692/309 LOC).
+
+## Pass 3 — Sync 2026-05-18
+
+Đếm lại ground truth: service=1697 LOC (+5 so với 1692 lần trước), api=309 LOC (không đổi), 33 endpoints (không đổi).
+
+- `README.md`: `Cập nhật cuối` → 2026-05-18; bổ sung LOC thực vào dòng codebase ground truth (BE).
+- Không đụng file 02–09 (không phát hiện drift nội dung).
+
+## Pass 4 — Deep reconciliation 2026-05-18
+
+Phân tích sâu toàn bộ code BE/FE. Phát hiện và cập nhật:
+
+- `04_Backend_Design.md`: Architecture diagram "17 endpoints" → "33 endpoints"; thêm ghi chú bug `lifecycle_events` field thiếu trong JSON; bổ sung 13 hàm service thiếu vào bảng §4 (approval flow: `submit_for_approval`, `approve_pending`, `list_my_pending_approvals`; utility: `search_link`, `get_users_by_role`, `get_gate_status`, `retry_mint_asset`, `get_lifecycle_timeline`; integration: `create_commissioning_from_purchase`, `get_commissioning_origin`; view: `get_form_context`).
+
+**Gaps cần xử lý ngoài docs (engineering):**
+1. ⚠️ `lifecycle_events` field trong `asset_commissioning.json`: có trong field_order nhưng thiếu khỏi `fields` array — cần bổ sung JSON definition.
+2. ⚠️ `check_commissioning_overdue` scheduler job chưa đăng ký trong `hooks.py`.
+3. ⚠️ BR-04-08 (GW-2 compliance gate) — implementation status không rõ, cần verify.
+4. ⚠️ `before_save_commissioning()` được reference trong docs nhưng không có trong service code hiện tại — verify hoặc cập nhật reference.
+
+Không đụng `02/03/05/06/07/08/09` (không phát hiện drift nội dung).

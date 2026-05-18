@@ -19,7 +19,7 @@
                   │  E2E / UAT │  ← Playwright; Golden Scenario upload → approve → expire
                  ─┴────────────┴─
               ┌──────────────────────┐
-              │   API Integration    │  ← pytest + Frappe whitelist (15 endpoints)
+              │   API Integration    │  ← pytest + Frappe whitelist (16 endpoints)
              ─┴──────────────────────┴─
           ┌────────────────────────────────┐
           │  Workflow + DocType lifecycle  │  ← pytest FrappeTestCase (6 states)
@@ -30,9 +30,9 @@
 ```
 
 **Trạng thái thực tế (2026-05-14):**
-- ✅ `assetcore/services/imm05.py` (527 LOC) **đã có** — business logic đã refactor ra service layer.
+- ✅ `assetcore/services/imm05.py` (587 LOC) **đã có** — business logic đã refactor ra service layer.
 - ✅ Test scaffold thực tế: **một file duy nhất** `assetcore/tests/test_imm05.py` (237 LOC). Các tệp con `test_imm05_controller.py` / `test_imm05_tasks.py` / `test_imm05_validators.py` / `test_imm05_workflow.py` / `test_imm05_audit.py` / `test_imm05_api.py` mô tả phía dưới **chưa được tách** — coi là **kế hoạch chia file**, hiện đang gộp trong `test_imm05.py`.
-- API Integration count theo whitelist mới = **15 endpoints** (đã thêm `submit_for_review`).
+- API Integration count theo whitelist mới = **16 endpoints** (đã thêm `submit_for_review`, `archive_document`).
 
 Mỗi business rule (BR-05-01 → BR-05-10) có ≥ 1 happy + 1 negative test.
 

@@ -63,21 +63,28 @@ _FORECAST_APPROVE_ROLES   = {ROLE_WORKSHOP_LEAD, ROLE_OPS_MANAGER, ROLE_IMM_ADMI
 | Endpoint | Storekeeper | Workshop Lead | Biomed Tech | Technician | QA Officer | Ops Manager | Admin |
 |---|---|---|---|---|---|---|---|
 | `list_allocations` | R | R | R | R | R | R | R |
-| `create_allocation` | — | — | W | W | — | W | W |
+| `get_allocation` | R | R | R | R | R | R | R |
+| `create_allocation` | W | — | W | W | — | W | W |
 | `approve_allocation` | — | W | — | — | — | W | W |
 | `issue_allocation` | W | — | — | — | — | W | W |
 | `return_items` | W | — | — | — | — | W | W |
-| `cancel_allocation` | — | W | — | — | — | W | W |
+| `return_allocation` | W | — | — | — | — | W | W |
 | `list_cycle_counts` | R | R | — | R | R | R | R |
 | `create_cycle_count` | W | W | — | — | — | W | W |
+| `submit_cycle_count` | W | W | — | — | — | W | W |
 | `post_cycle_count` | — | W | — | — | — | W | W |
 | `list_spare_forecasts` | R | R | — | — | R | R | R |
-| `generate_spare_forecast` | — | W | — | — | — | W | W |
+| `generate_spare_forecast` | W | W | — | — | — | W | W |
 | `approve_forecast` | — | W | — | — | — | W | W |
 | `list_watchlist` | R | R | R | R | R | R | R |
 | `add_to_watchlist` | — | W | — | — | — | W | W |
-| `get_dashboard_stats` | R | R | — | — | R | R | R |
 | `check_part_availability` | R | R | R | R | R | R | R |
+| `get_stock_snapshot` | R | R | R | R | R | R | R |
+| `get_critical_watchlist` | R | R | R | R | R | R | R |
+| `get_dashboard_stats` | R | R | — | — | R | R | R |
+| `get_low_stock_alerts` | R | R | — | — | R | R | R |
+
+> Lưu ý so với draft: `create_allocation` cho phép `Storekeeper` (code: `_require_storekeeper_or_tech` bao gồm `Roles.STOREKEEPER`); `generate_spare_forecast` cho phép Storekeeper (code: `_require_any_role` bao gồm `Roles.STOREKEEPER`). `return_allocation` là alias backward-compat của `return_items`.
 
 ---
 
@@ -96,23 +103,24 @@ GET /api/method/assetcore.api.imm15.list_allocations
 {
   "success": true,
   "data": {
-    "items": [
+    "data": [
       {
         "name": "SAL-2026-00045",
         "work_order_ref": "WO-2026-00234",
         "asset": "AC-ASSET-00045",
         "urgency": "Routine",
-        "workflow_state": "Issued",
+        "allocation_status": "Issued",
         "stock_movement_ref": "AC-SM-2026-00234",
         "total_value": 1500000,
         "requested_date": "2026-05-08"
       }
     ],
-    "total": 48,
-    "page": 1,
-    "page_size": 20
+    "pagination": {"total": 48, "page": 1, "page_size": 20, "total_pages": 3}
   }
 }
+```
+
+> Lưu ý: key là `data` (không phải `items`), kèm object `pagination` — khớp với `BaseRepository.list()` contract và TypeScript type `ListEnvelope<T>` trong `api/imm15.ts`.
 ```
 
 ---
@@ -427,6 +435,142 @@ POST /api/method/assetcore.api.imm15.add_to_watchlist
 **Errors:**
 ```json
 {"success": false, "error": "VR-15-09: Chỉ phụ tùng Critical mới được thêm vào Watchlist", "code": "VALIDATION"}
+```
+
+---
+
+### 3.5b `return_allocation` (backward-compat alias)
+
+```
+POST /api/method/assetcore.api.imm15.return_allocation
+```
+
+**Deprecated**: Giữ để backward compat — gọi `svc.return_items` nội bộ. Prefer `return_items` (§3.5).
+
+**Request body:**
+```json
+{"allocation_name": "SAL-2026-00045", "return_items": [{"spare_part": "...", "qty_returned": 1}]}
+```
+
+---
+
+### 3.6b `list_cycle_counts`
+
+```
+GET /api/method/assetcore.api.imm15.list_cycle_counts
+```
+
+**Query params:** `status`, `warehouse`, `page`, `page_size`
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "data": [{"name": "CYC-2026-00012", "warehouse": "WH-01", "count_date": "2026-05-10", "status": "Posted", "variance_count": 1}],
+    "pagination": {"total": 48, "page": 1, "page_size": 20, "total_pages": 3}
+  }
+}
+```
+
+---
+
+### 3.7b `submit_cycle_count` (internal review step)
+
+```
+POST /api/method/assetcore.api.imm15.submit_cycle_count
+```
+
+Chuyển trạng thái Planned/Counting → Reviewed, tính variance. Thường được gọi nội bộ trước `post_cycle_count`.
+
+**Request body:**
+```json
+{"count_name": "CYC-2026-00012", "counted_items": [{"spare_part": "AC-SP-001", "counted_qty": 4}]}
+```
+
+**Response:**
+```json
+{"success": true, "data": {"name": "CYC-2026-00012", "workflow_state": "Reviewed", "variance_count": 1}}
+```
+
+---
+
+### 3.8b `list_spare_forecasts`
+
+```
+GET /api/method/assetcore.api.imm15.list_spare_forecasts
+```
+
+**Query params:** `filters` (JSON), `page`, `page_size`
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "data": [{"name": "SFC-2026-00008", "forecast_period": "2026-Q3", "method": "Moving_Avg", "workflow_state": "Draft"}],
+    "pagination": {"total": 8, "page": 1, "page_size": 20, "total_pages": 1}
+  }
+}
+```
+
+---
+
+### 3.10b `list_watchlist`
+
+```
+GET /api/method/assetcore.api.imm15.list_watchlist
+```
+
+**Query params:** `active_only` (default 1), `page`, `page_size`
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "data": [{"name": "ICU-Ventilator-Circuit", "spare_part": "AC-SP-0099", "min_required_on_hand": 2, "active": 1}],
+    "pagination": {"total": 47, "page": 1, "page_size": 50, "total_pages": 1}
+  }
+}
+```
+
+---
+
+### 3.11b `get_stock_snapshot`
+
+```
+GET /api/method/assetcore.api.imm15.get_stock_snapshot?warehouse=WH-01
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": [
+    {"spare_part": "AC-SP-001", "part_name": "X-ray Tube", "qty_on_hand": 1, "reserved_qty": 0, "available_qty": 1, "last_movement_date": "2026-05-08"}
+  ]
+}
+```
+
+---
+
+### 3.11c `get_critical_watchlist`
+
+```
+GET /api/method/assetcore.api.imm15.get_critical_watchlist
+```
+
+**Mô tả**: Legacy endpoint — trả danh sách watchlist entries đang vi phạm mức tối thiểu (`below_minimum=true`). Khác với `list_watchlist` (trả toàn bộ).
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": [
+    {"name": "ICU-Ventilator-Circuit", "spare_part": "AC-SP-0099", "available_qty": 0, "min_required": 2, "below_minimum": true}
+  ]
+}
 ```
 
 ---

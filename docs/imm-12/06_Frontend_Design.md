@@ -5,7 +5,7 @@
 | Module | IMM-12 — Incident & CAPA Management |
 | Phạm vi | Per-module |
 | Owner | FE Lead |
-| Cập nhật | 2026-05-14 |
+| Cập nhật | 2026-05-18 |
 | Trạng thái | ✅ Live — Vue components + store + 14 endpoint API đã build |
 
 ---

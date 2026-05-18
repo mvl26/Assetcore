@@ -55,6 +55,7 @@
 | 21 | `assetcore.api.imm08.approve_pm_template` | POST | Phê duyệt template | Workshop Head, CMMS Admin | ✗ |
 | 22 | `assetcore.api.imm08.version_pm_template` | POST | Tạo phiên bản mới từ template cũ | Workshop Head, CMMS Admin | ✗ |
 | 23 | `assetcore.api.imm08.delete_pm_template` | POST | Xóa template | CMMS Admin | ✗ |
+| 24 | `assetcore.api.imm08.apply_pm_template_to_category` | POST | Bulk-tạo PM Schedule cho mọi asset cùng danh mục với template | Workshop Head, CMMS Admin | ✗ |
 
 ---
 
@@ -554,6 +555,46 @@ export interface PMDashboardStats {
 
 ---
 
+### 10. apply_pm_template_to_category — Bulk tạo PM Schedule theo danh mục
+
+| Mục | Giá trị |
+|---|---|
+| Method | POST |
+| Path | `/api/method/assetcore.api.imm08.apply_pm_template_to_category` |
+| Role | Workshop Head, CMMS Admin |
+| Idempotent | Yes (bỏ qua asset đã có PM Schedule cùng pm_type) |
+
+**Request:**
+
+```jsonc
+{
+  "template_name": "PMCT-Ventilator-Quarterly"
+}
+```
+
+**Response success:**
+
+```jsonc
+{
+  "success": true,
+  "data": {
+    "template": "PMCT-Ventilator-Quarterly",
+    "asset_category": "Mechanical Ventilator",
+    "created": ["PMS-AC-ASSET-0001-Quarterly", "PMS-AC-ASSET-0003-Quarterly"],
+    "skipped": ["PMS-AC-ASSET-0002-Quarterly"],
+    "errors": []
+  }
+}
+```
+
+**Errors:** `NOT_FOUND` (template không tồn tại) · `VALIDATION` (template chưa gán danh mục).
+
+**Side effects:**
+- Tạo `PM Schedule` mới cho mọi AC Asset thuộc `template.asset_category`, trừ: asset đã có lịch cùng `pm_type` (bỏ qua), asset Decommissioned/Disposed (bỏ qua).
+- `pm_interval_days` lấy từ `AC Asset Category.default_pm_interval_days` (fallback 180 ngày).
+
+---
+
 ## 7. Smoke test playbook
 
 ```bash
@@ -576,7 +617,7 @@ curl -X POST -H "$AUTH" -H "Content-Type: application/json" \
 
 ## DoD — File 05 hoàn chỉnh
 
-- [x] API Catalog liệt kê 100% 23 endpoint (7 WO + 3 Calendar/Dashboard + 6 Schedule + 7 Template)
+- [x] API Catalog liệt kê 100% 24 endpoint (7 WO + 3 Calendar/Dashboard + 6 Schedule + 7 Template + 1 Bulk)
 - [x] Response format `{"success": true, "data": {...}}` chuẩn AssetCore
 - [x] Error format `{"success": false, "error": "...", "code": "..."}` chuẩn
 - [x] Error code catalog đầy đủ + FE mapping

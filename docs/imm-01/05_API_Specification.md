@@ -8,7 +8,7 @@
 | Base path | `assetcore.api.imm01` |
 | URL pattern | `/api/method/assetcore.api.imm01.<function>` |
 | Phiên bản | 0.1.0 — Wave 2 Live |
-| Cập nhật | 2026-05-14 |
+| Cập nhật | 2026-05-18 |
 
 ---
 

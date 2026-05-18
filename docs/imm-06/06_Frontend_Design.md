@@ -34,22 +34,24 @@
 
 ## §I Sitemap & Routes
 
-| # | Route | Component | API calls | Permission |
-|---|---|---|---|---|
-| 1 | `/imm06/dashboard` | `CompetencyDashboard.vue` | `get_dashboard_stats`, `get_competency_gaps_by_dept`, `get_expiring_competencies` | IMM Workshop Lead, IMM Training Officer, IMM System Admin, VP Block2 |
-| 2 | `/imm06/programs` | `ProgramListView.vue` | `list_programs` | All authenticated |
-| 3 | `/imm06/programs/new` | `ProgramDetailView.vue` (create mode) | `create_program` | IMM Training Officer, IMM System Admin |
-| 4 | `/imm06/programs/:code` | `ProgramDetailView.vue` | `get_program`, `update_program` | All authenticated (write: IMM Training Officer) |
-| 5 | `/imm06/sessions` | `SessionListView.vue` | `list_sessions` | All authenticated |
-| 6 | `/imm06/sessions/new` | `SessionCreateView.vue` | `create_session` | `_SESSION_WRITE_ROLES` |
-| 7 | `/imm06/sessions/:name` | `SessionDetailView.vue` | `get_session`, `confirm_session`, `cancel_session` | All authenticated |
-| 8 | `/imm06/sessions/:name/run` | `SessionRunView.vue` | `complete_session` | IMM Training Officer, IMM Biomed Technician |
-| 9 | `/imm06/competencies` | `CompetencyListView.vue` | `list_competencies` | All authenticated (role-scoped) |
-| 10 | `/imm06/competencies/:name` | `CompetencyDetailView.vue` | `get_user_competencies`, `revoke_competency`, `recertify_competency`, `signoff_competency` | All authenticated |
-| 11 | `/me/competencies` | `MyCompetenciesView.vue` | `get_user_competencies` (self) | All authenticated |
-| 12 | `/imm06/gap-reports/:name` | `GapReportView.vue` | `get_competency_gaps_by_dept` | `_DASHBOARD_ROLES` |
-| 13 | (modal) | `RevokeCompetencyModal.vue` | `revoke_competency` | `_REVOKE_ROLES` |
-| 14 | (modal) | `SignoffModal.vue` | `signoff_competency` | `_SIGNOFF_ROLES` |
+| # | Status | Route | Component | API calls | Permission |
+|---|:---:|---|---|---|---|
+| 1 | ⬜ | `/imm06/dashboard` | `CompetencyDashboard.vue` | `get_dashboard_stats`, `get_competency_gaps_by_dept`, `get_expiring_competencies` | IMM Workshop Lead, IMM Training Officer, IMM System Admin, VP Block2 |
+| 2 | ✅ | `/imm06/programs` | `ProgramListView.vue` | `list_programs` | All authenticated |
+| 3 | ✅ | `/imm06/programs/new` | `ProgramDetailView.vue` (create mode — reuse) | `create_program` | IMM Training Officer, IMM System Admin |
+| 4 | ✅ | `/imm06/programs/:name` | `ProgramDetailView.vue` | `get_program`, `update_program` | All authenticated (write: IMM Training Officer) |
+| 5 | ✅ | `/imm06/sessions` | `SessionListView.vue` | `list_sessions` | All authenticated |
+| 6 | ✅ | `/imm06/sessions/new` | `SessionDetailView.vue` (create mode — reuse, no separate SessionCreateView) | `create_session` | `_SESSION_WRITE_ROLES` |
+| 7 | ✅ | `/imm06/sessions/:name` | `SessionDetailView.vue` | `get_session`, `confirm_session`, `cancel_session`, `enroll_participants`, `remove_participant` | All authenticated |
+| 8 | ⬜ | `/imm06/sessions/:name/run` | `SessionRunView.vue` | `complete_session` | IMM Training Officer, IMM Biomed Technician |
+| 9 | ✅ | `/imm06/competencies` | `CompetencyListView.vue` | `list_competencies` | All authenticated (role-scoped) |
+| 10 | ✅ | `/imm06/competencies/:name` | `CompetencyDetailView.vue` | `get_user_competencies`, `revoke_competency`, `recertify_competency`, `signoff_competency` | All authenticated |
+| 11 | ⬜ | `/me/competencies` | `MyCompetenciesView.vue` | `get_user_competencies` (self) | All authenticated |
+| 12 | ⬜ | `/imm06/gap-reports/:name` | `GapReportView.vue` | `get_competency_gaps_by_dept` | `_DASHBOARD_ROLES` |
+| 13 | ⬜ | (modal) | `RevokeCompetencyModal.vue` | `revoke_competency` | `_REVOKE_ROLES` |
+| 14 | ⬜ | (modal) | `SignoffModal.vue` | `signoff_competency` | `_SIGNOFF_ROLES` |
+
+**Chú thích:** ✅ Đã ship (router/index.ts) · ⬜ Backlog Wave 3
 
 ---
 

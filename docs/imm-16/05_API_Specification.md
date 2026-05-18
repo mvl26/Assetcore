@@ -3,13 +3,13 @@
 | Mục | Giá trị |
 |---|---|
 | Module | IMM-16 — Compliance Monitoring & CAPA |
-| Phiên bản tài liệu | 1.1 |
-| Ngày cập nhật | 2026-05-14 |
+| Phiên bản tài liệu | 1.2 |
+| Ngày cập nhật | 2026-05-18 |
 | Trạng thái | IMPLEMENTED — Wave 2 (feature/hieuc/wave-2) |
 | Base path | `assetcore.api.imm16` |
 | URL pattern | `/api/method/assetcore.api.imm16.<function>` |
 
-> ✅ Implemented — Wave 2. Toàn bộ ~30 endpoint trong §3 đã được whitelist trong `assetcore/api/imm16.py`. FE consume qua `frontend/src/api/imm16.ts` + `frontend/src/stores/imm16.ts`. Một số endpoint có alias do migration: `list_compliance_rules` ≡ `list_rules`, `list_compliance_findings` ≡ `list_findings`, `list_internal_audits` ≡ `list_audits`, `create_finding` ≡ legacy entry — xem `assetcore/api/imm16.py` (đầu file `_handle()` wrapper) cho danh sách chính xác.
+> ✅ Implemented — Wave 2. `assetcore/api/imm16.py` có **42 whitelist functions** (đếm chính xác 2026-05-18): 31 canonical endpoints trong §3.x catalog + 11 legacy aliases/helpers. FE consume qua `frontend/src/api/imm16.ts` + `frontend/src/stores/imm16.ts`. §1.4 dưới đây là danh sách đầy đủ.
 
 ---
 
@@ -79,6 +79,8 @@ User không có Role hợp lệ → `{"success": false, "error": "...", "code": 
 
 ### §1.4 API Catalog
 
+**Canonical endpoints** (31):
+
 | # | Function | Method | Roles | Mô tả |
 |---|---|---|---|---|
 | 3.1.1 | `list_rules` | GET | All authenticated | Danh sách Compliance Rule |
@@ -86,33 +88,58 @@ User không có Role hợp lệ → `{"success": false, "error": "...", "code": 
 | 3.1.3 | `create_rule` | POST | Tổ HC-QLCL, CMMS Admin | Tạo Rule mới |
 | 3.1.4 | `update_rule` | POST | Tổ HC-QLCL, CMMS Admin | Cập nhật Rule (versioned) |
 | 3.1.5 | `deactivate_rule` | POST | Tổ HC-QLCL, CMMS Admin | Deactivate Rule |
+| 3.1.6 | `reactivate_rule` | POST | Tổ HC-QLCL, CMMS Admin | Reactivate Rule (BUG-16-02) |
+| 3.1.7 | `get_record_history` | GET | All authenticated | Audit trail history cho Finding/CAPA/MR/Rule |
 | 3.2.1 | `list_findings` | GET | All authenticated | Danh sách Finding |
-| 3.2.2 | `get_finding` | GET | All authenticated | Chi tiết Finding |
+| 3.2.2 | `get_finding` | GET | All authenticated | Chi tiết Finding (enrich asset_name, dept_name, rule_name) |
 | 3.2.3 | `confirm_finding` | POST | Tổ HC-QLCL, Internal Auditor, CMMS Admin | Confirm NC |
 | 3.2.4 | `mark_false_positive` | POST | Tổ HC-QLCL, Internal Auditor, CMMS Admin | Mark False Positive |
 | 3.2.5 | `waive_finding` | POST | VP Block2, CMMS Admin | Waive Finding (BR-16-06) |
 | 3.2.6 | `link_to_capa` | POST | Tổ HC-QLCL, Workshop Head, CMMS Admin | Link Finding → CAPA |
 | 3.3.1 | `list_audits` | GET | All authenticated | Danh sách Internal Audit |
-| 3.3.2 | `create_audit` | POST | Tổ HC-QLCL, CMMS Admin | Tạo Audit |
-| 3.3.3 | `start_audit` | POST | Lead Auditor, Tổ HC-QLCL, CMMS Admin | Bắt đầu Audit |
-| 3.3.4 | `complete_audit_checklist` | POST | Lead Auditor, Internal Auditor, CMMS Admin | Hoàn thành checklist |
-| 3.3.5 | `close_audit` | POST | Tổ HC-QLCL, VP Block2, CMMS Admin | Đóng Audit (VR-08) |
-| 3.4.1 | `create_capa_from_finding` | POST | Tổ HC-QLCL, Workshop Head, CMMS Admin | Tạo CAPA từ Finding |
-| 3.4.2 | `advance_capa_state` | POST | Tổ HC-QLCL, Workshop Head, CMMS Admin | Advance CAPA state |
-| 3.4.3 | `perform_effectiveness_check` | POST | Tổ HC-QLCL, CMMS Admin | Effectiveness check |
-| 3.4.4 | `reopen_capa` | POST | Tổ HC-QLCL, CMMS Admin | Force reopen CAPA |
+| 3.3.2 | `get_audit` | GET | All authenticated | Chi tiết Internal Audit |
+| 3.3.3 | `create_audit` | POST | Tổ HC-QLCL, CMMS Admin | Tạo Audit |
+| 3.3.4 | `start_audit` | POST | Tổ HC-QLCL, CMMS Admin | Bắt đầu Audit (Planned → In Progress) |
+| 3.3.5 | `complete_audit_checklist` | POST | Tổ HC-QLCL, CMMS Admin | Hoàn thành checklist + auto-Finding |
+| 3.3.6 | `close_audit` | POST | Tổ HC-QLCL, VP Block2, CMMS Admin | Đóng Audit (VR-08) |
+| 3.4.1 | `create_capa_from_finding` | POST | Tổ HC-QLCL, CMMS Admin | Tạo CAPA từ Finding |
+| 3.4.2 | `get_capa` | GET | All authenticated | Chi tiết CAPA (enrich + finding link) |
+| 3.4.3 | `update_capa_fields` | POST | Tổ HC-QLCL, CMMS Admin | Cập nhật nội dung CAPA (narrative fields) |
+| 3.4.4 | `advance_capa_state` | POST | Tổ HC-QLCL, CMMS Admin | Advance CAPA state machine |
+| 3.4.5 | `perform_effectiveness_check` | POST | Tổ HC-QLCL, CMMS Admin | Effectiveness check |
+| 3.4.6 | `reopen_capa` | POST | Tổ HC-QLCL, CMMS Admin | Force reopen CAPA |
 | 3.5.1 | `list_scorecards` | GET | All authenticated | Danh sách Scorecard |
 | 3.5.2 | `get_current_scorecard` | GET | All authenticated | Scorecard tháng hiện tại |
-| 3.5.3 | `get_scorecard_by_period` | GET | All authenticated | Scorecard theo period |
+| 3.5.3 | `get_scorecard_by_period` | GET | All authenticated | Scorecard theo year+month+scope |
 | 3.5.4 | `publish_scorecard` | POST | Tổ HC-QLCL, VP Block2, CMMS Admin | Publish Scorecard |
 | 3.6.1 | `list_management_reviews` | GET | All authenticated | Danh sách MR |
-| 3.6.2 | `create_management_review` | POST | Tổ HC-QLCL, VP Block2, CMMS Admin | Tạo Management Review |
-| 3.6.3 | `finalize_management_review` | POST | VP Block2, CMMS Admin | Finalize MR |
+| 3.6.2 | `get_management_review` | GET | All authenticated | Chi tiết MR |
+| 3.6.3 | `create_management_review` | POST | VP Block2, CMMS Admin | Tạo Management Review |
+| 3.6.4 | `update_management_review` | POST | VP Block2, CMMS Admin | Cập nhật MR (attendees + output_actions) |
+| 3.6.5 | `advance_mr_state` | POST | VP Block2, CMMS Admin | Advance MR state (Draft→Held→Minutes Approved) |
+| 3.6.6 | `finalize_management_review` | POST | VP Block2, CMMS Admin | Finalize MR → Closed |
 | 3.7.1 | `get_dashboard_stats` | GET | All authenticated | KPI dashboard |
 | 3.7.2 | `get_compliance_heatmap` | GET | All authenticated | Heatmap module×dept |
 | 3.7.3 | `get_capa_aging` | GET | All authenticated | CAPA aging buckets |
 | 3.7.4 | `get_overdue_actions` | GET | All authenticated | Overdue actions |
 | 3.8.1 | `check_asset_compliance_status` | GET | All authenticated | Cross-module gate BR-16-09 |
+
+**Legacy/alias endpoints** (11 — backward compat):
+
+| Function | Alias của |
+|---|---|
+| `list_compliance_rules` | `list_rules` |
+| `create_compliance_rule` | `create_rule` |
+| `list_compliance_findings` | `list_findings` |
+| `create_finding` | standalone (không có canonical wrapper riêng) |
+| `close_finding` | standalone |
+| `list_internal_audits` | `list_audits` |
+| `create_internal_audit` | `create_audit` |
+| `submit_audit_findings` | standalone |
+| `close_internal_audit` | `close_audit` |
+| `generate_scorecard` | standalone (POST) |
+| `check_asset_compliance` | `check_asset_compliance_status` (GET alias) |
+| `run_compliance_evaluation` | standalone (POST trigger) |
 
 ---
 
@@ -457,18 +484,20 @@ _AUDIT_LEAD_ROLES         = {"Tổ HC-QLCL", "Internal Auditor", "CMMS Admin"}
 }
 ```
 
-**Khi Not Effective:**
+**Khi Not Effective (hoặc Partially Effective):**
 
 ```json
 {
   "success": true,
   "data": {
     "name": "CAPA-2026-00007",
-    "new_state": "Investigating",
+    "new_state": "Re-opened",
     "imm_reopen_count": 1
   }
 }
 ```
+
+> `new_state` là `"Re-opened"` (không phải `"Investigating"`). Bước tiếp theo FE phải gọi `advance_capa_state` → `"Investigating"` manually.
 
 ---
 
@@ -702,7 +731,7 @@ _AUDIT_LEAD_ROLES         = {"Tổ HC-QLCL", "Internal Auditor", "CMMS Admin"}
 
 ## §5 TypeScript Types
 
-> ✅ IMPLEMENTED — Wave 2. Types đã có ở `frontend/src/types/imm16.ts` (xem §06).
+> ✅ IMPLEMENTED — Wave 2. Types được định nghĩa **inline** trong `frontend/src/api/imm16.ts` (không có file `frontend/src/types/imm16.ts` riêng — confirmed 2026-05-18). Danh sách interface thực tế: `ComplianceRule`, `ComplianceFinding`, `InternalAudit`, `CapaRecord`, `CapaDetail`, `ComplianceScorecard`, `MRAttendee`, `MROutputActionRow`, `ManagementReview`, `DashboardStats`, `DashboardKpis`, `ComplianceHeatmap`, `HeatmapCell`, `GateReason`, `ComplianceGateResult`, `RecordHistoryEntry`, `ChecklistItemPayload`.
 
 ```typescript
 // frontend/src/types/imm16.ts

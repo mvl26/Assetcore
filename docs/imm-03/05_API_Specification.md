@@ -6,9 +6,9 @@
 |---|---|
 | Module | IMM-03 — Vendor Evaluation & Procurement Decision |
 | Phiên bản | 0.1.0 |
-| Ngày | 2026-05-14 |
+| Ngày | 2026-05-18 |
 | Base path | `/api/method/assetcore.api.imm03.<endpoint>` |
-| Trạng thái | LIVE — Wave 2 |
+| Trạng thái | LIVE — Wave 2 (cập nhật response shapes thực tế) |
 
 ---
 
@@ -95,7 +95,7 @@ ROLE_ADMIN        = "IMM System Admin"           # CMMS Admin
 
 ## 3. Endpoint Specifications
 
-> **Catalog endpoint thực tế** (`api/imm03.py`, 22 endpoints):
+> **Catalog endpoint thực tế** (`api/imm03.py`, 24 endpoints):
 >
 > **Vendor Profile (BE-03-01):** `list_vendor_profiles`, `get_vendor_profile`, `create_vendor_profile`, `add_vendor_cert` — ✅ LIVE; thao tác qua `AC Supplier` + custom fields IMM (`imm_avl_status`, `imm_avl_categories`, `imm_overall_score`, `imm_last_audit_date`, `imm_next_audit_date`, `imm_certifications` table → Vendor Cert).
 >
@@ -259,15 +259,14 @@ POST /api/method/assetcore.api.imm03.create_avl_entry
 }
 ```
 
-**Response:**
+**Response (thực tế — không có `"status"` key):**
 ```json
-{"success": true, "data": {"name": "AVL-2026-00045", "valid_to": "2028-04-30", "status": "Draft"}}
+{"success": true, "data": {"name": "AVL-2026-00045", "valid_to": "2028-04-30"}}
 ```
 
-**Errors:**
-```json
-{"success": false, "error": "validity_years phải từ 1 đến 3", "code": "VALIDATION"}
-```
+> Note: `_create_avl_entry` trả về `{"name": avl.name, "valid_to": avl.valid_to}`. Không có `"status"` key — state mặc định là "Draft" nhưng không được include trong response. FE dùng `workflow_state` khi cần hiển thị trạng thái (qua `get_avl`).
+
+**Errors:** Không có validation về `validity_years` range trong code thực tế — BE nhận bất kỳ int nào. Validation là trách nhiệm FE.
 
 ---
 
@@ -287,20 +286,19 @@ POST /api/method/assetcore.api.imm03.approve_avl
 ```
 
 **Side effects:**
-- `avl.status = "Approved"`
-- `avl.valid_to = valid_from + relativedelta(years=validity_years)`
-- `AC Supplier.imm_avl_status = "Approved"`
-- `AC Supplier.imm_avl_categories` thêm device_category
+- `avl.workflow_state = "Approved"` (KHÔNG phải `avl.status` — AVL không có field `status` riêng)
+- `avl.approver = approver`, `avl.approval_doc = approval_doc`
+- Nếu state là Draft → `avl.submit()` (docstatus → 1). Nếu Conditional/Suspended → `avl.save()` + `_sync_supplier_avl_status`
+- `AC Supplier.imm_avl_status` và `imm_avl_categories` được sync qua `_sync_supplier_avl_status`
 
-**Response:**
+**Response (thực tế — không có `"valid_to"`):**
 ```json
-{"success": true, "data": {"name": "AVL-2026-00045", "status": "Approved", "valid_to": "2028-04-30"}}
+{"success": true, "data": {"name": "AVL-2026-00045", "workflow_state": "Approved"}}
 ```
 
 **Errors:**
 ```json
-{"success": false, "error": "Chỉ IMM Board Approver mới có thể phê duyệt AVL", "code": "FORBIDDEN"}
-{"success": false, "error": "AVL-2026-00045 đã ở trạng thái Approved", "code": "BAD_STATE"}
+{"success": false, "error": "AVL ở state Approved không thể Approve", "code": "BAD_STATE"}
 ```
 
 ---
@@ -319,9 +317,9 @@ POST /api/method/assetcore.api.imm03.suspend_avl
 }
 ```
 
-**Response:**
+**Response (thực tế — `workflow_state` thay vì `status`):**
 ```json
-{"success": true, "data": {"name": "AVL-2026-00045", "status": "Suspended"}}
+{"success": true, "data": {"name": "AVL-2026-00045", "workflow_state": "Suspended"}}
 ```
 
 ---
@@ -340,23 +338,23 @@ POST /api/method/assetcore.api.imm03.add_candidate
 }
 ```
 
-**Response:**
+**Response (thực tế — `row_count` thay vì `row`; `in_avl` là 0/1 int):**
 ```json
 {
   "success": true,
   "data": {
-    "row": "abc123",
-    "supplier": "Hamilton Vietnam",
-    "in_avl": false,
-    "warning": "Vendor non-AVL cho danh mục Imaging — cần sign-off IMM Board Approver trước khi submit"
+    "row_count": 2,
+    "in_avl": 0,
+    "warning": "Vendor non-AVL — cần sign-off IMM Board Approver"
   }
 }
 ```
 
+> Note: Response thực tế từ `_add_candidate`: `{"row_count": len(ve.candidates), "in_avl": in_avl, "warning": warn}`. Không có `"row"` (row name) hay `"supplier"` key. `in_avl` là `int` (0 hoặc 1), không phải `bool`. `warning` là `null` nếu vendor đã có AVL.
+
 **Errors:**
 ```json
-{"success": false, "error": "IMM Vendor Evaluation VE-26-00120 không ở trạng thái Draft/Open RFQ", "code": "BAD_STATE"}
-{"success": false, "error": "Hamilton Vietnam đã là candidate trong VE-26-00120", "code": "DUPLICATE"}
+{"success": false, "error": "Eval đã submit", "code": "BAD_STATE"}
 ```
 
 ---
@@ -388,15 +386,17 @@ POST /api/method/assetcore.api.imm03.submit_quotations
 }
 ```
 
-**Response:**
+**Response (thực tế — chỉ `quotations_count`; không có `quotations_added` hay `state`):**
 ```json
-{"success": true, "data": {"quotations_added": 3, "state": "Quotation Received"}}
+{"success": true, "data": {"quotations_count": 3}}
 ```
+
+> Note: `_submit_quotations` chỉ append rows và save, trả về `{"quotations_count": len(ve.quotations)}`. Validation `VR-03-03` (quotation_validity) chạy qua `validate_evaluation` hook khi save.
 
 **Errors:**
 ```json
-{"success": false, "error": "VR-03-03: Quotation QT-2026-001 hết hiệu lực ngày 2026-05-09", "code": "VALIDATION"}
-{"success": false, "error": "G02: Chưa đủ ≥ 1 báo giá hợp lệ", "code": "BUSINESS_RULE"}
+{"success": false, "error": "Eval đã submit", "code": "BAD_STATE"}
+{"success": false, "error": "VR-03-03: Quotation đã hết hạn: QT-2026-001", "code": "VALIDATION"}
 ```
 
 ---
@@ -422,30 +422,26 @@ POST /api/method/assetcore.api.imm03.score_evaluation
 
 > **Lưu ý thực tế:** Param là `scores_by_supplier` (key = supplier name, khớp `cand.supplier`), không phải `scores_by_candidate` (row name) như spec ban đầu.
 
-```json
-```
-
-**Response:**
+**Response (thực tế — key là supplier name; không có `all_groups_complete`/`missing_groups`):**
 ```json
 {
   "success": true,
   "data": {
     "weighted_scores": {
-      "abc123": 4.32,
-      "def456": 4.18,
-      "ghi789": 3.45
+      "Vinamed JSC": 4.32,
+      "Hamilton VN": 4.18,
+      "Mindray VN": 3.45
     },
-    "recommended": "abc123",
-    "all_groups_complete": false,
-    "missing_groups": ["Financial", "Support", "Compliance"]
+    "recommended": "Vinamed JSC"
   }
 }
 ```
 
+> Note: `weighted_scores` key là supplier name (`cand.supplier`), KHÔNG phải row name. `recommended` là supplier name của top scorer. Không có `"all_groups_complete"` hay `"missing_groups"` — đây là design spec chưa implement. Thực tế `_score_evaluation` chỉ merge scores rồi lưu, không validate nhóm nào đã đủ.
+
 **Errors:**
 ```json
-{"success": false, "error": "Vai trò HTM không được chấm nhóm Commercial", "code": "FORBIDDEN"}
-{"success": false, "error": "IMM Vendor Evaluation phải ở trạng thái Quotation Received để chấm điểm", "code": "BAD_STATE"}
+{"success": false, "error": "Eval đã submit", "code": "BAD_STATE"}
 ```
 
 ---
@@ -536,7 +532,7 @@ POST /api/method/assetcore.api.imm03.award_decision
 - Cập nhật `IMM Procurement Plan Line.status = "Awarded"`
 - Publish `frappe.publish_realtime("imm03_decision_awarded", {...})`
 
-**Response:**
+**Response (thực tế — không có `"awarded_date"`):**
 ```json
 {
   "success": true,
@@ -544,11 +540,12 @@ POST /api/method/assetcore.api.imm03.award_decision
     "name": "PD-26-00045",
     "workflow_state": "Awarded",
     "ac_purchase_ref": "AC-PUR-2026-00112",
-    "envelope_check_pct": 80.0,
-    "awarded_date": "2026-06-01"
+    "envelope_check_pct": 80.0
   }
 }
 ```
+
+> Note: `awarded_date` được set trên doc (`doc.awarded_date = today()` trong `before_submit_decision`) nhưng KHÔNG được trả về trong response. FE cần gọi `get_decision` để lấy `awarded_date` sau khi Award.
 
 **Errors:**
 ```json
@@ -723,6 +720,68 @@ POST /api/method/assetcore.api.imm03.add_vendor_cert
 ```json
 {"success": true, "data": {"cert_row": "xyz789", "cert_type": "ISO 13485", "status": "Active"}}
 ```
+
+---
+
+### 3.19 `get_evaluation` ✅ LIVE
+
+```
+GET /api/method/assetcore.api.imm03.get_evaluation?name=VE-26-00120
+```
+
+**Response:** `IMM Vendor Evaluation.as_dict()` với enrich: `supplier_name` per candidate + `candidate_supplier_name` per quotation. Gọi `_enrich_decision_chain` để add `plan_ref_name`.
+
+---
+
+### 3.20 `get_decision` ✅ LIVE
+
+```
+GET /api/method/assetcore.api.imm03.get_decision?name=PD-26-00045
+```
+
+**Response:** `IMM Procurement Decision.as_dict()` với enrich: `supplier_name` per candidate + `winner_supplier_name` (display name). Gọi `_enrich_decision_chain` để add `plan_ref_name` + `ac_purchase_ref_name`.
+
+---
+
+### 3.21 `get_avl` ✅ LIVE
+
+```
+GET /api/method/assetcore.api.imm03.get_avl?name=AVL-2026-00045
+```
+
+**Response:** `IMM AVL Entry.as_dict()`.
+
+---
+
+### 3.22 `list_decisions` ✅ LIVE
+
+```
+GET /api/method/assetcore.api.imm03.list_decisions?filters={}&page=1&page_size=20
+```
+
+**Response:** fields = `name`, `spec_ref`, `winner_supplier`, `awarded_price`, `envelope_check_pct`, `workflow_state`, `ac_purchase_ref`, `creation` + enrich `vendor_name` (AC Supplier.supplier_name) + `tech_spec_ref_name` (IMM Tech Spec.device_model_ref).
+
+---
+
+### 3.23 `create_evaluation` ✅ LIVE
+
+```
+POST /api/method/assetcore.api.imm03.create_evaluation
+```
+
+**Request:** `spec_ref` (bắt buộc), `weighting_scheme` (JSON object, optional).
+**Response:** `{"name": "VE-26-00120", "workflow_state": "Draft"}`
+
+---
+
+### 3.24 `transition_decision_workflow` ✅ LIVE
+
+```
+POST /api/method/assetcore.api.imm03.transition_decision_workflow
+```
+
+**Request:** `name`, `action` (workflow action string).
+**Response:** `{"name": "PD-26-00045", "workflow_state": "...", "docstatus": 0}` — tương tự `transition_eval_workflow` nhưng cho IMM Procurement Decision. Ghi audit log `imm03_decision_workflow_transition`.
 
 ---
 

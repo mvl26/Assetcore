@@ -1,6 +1,6 @@
 # 07 — Kiểm thử & An ninh — IMM-01 Đánh giá Nhu cầu & Dự toán
 
-> **Wave 2 — Live.** Test suite hiện tại: `assetcore/tests/test_imm01.py` (123 LOC) — cover scoring formula & priority classification thuần. Các test class còn lại trong tài liệu này (lifecycle, gates, workflow, API, security) là **roadmap** chưa implement.
+> **Wave 2 — Live.** Test suite hiện tại: `assetcore/tests/test_imm01.py` (142 LOC) — cover scoring formula, priority classification, và device target validation. Các test class còn lại trong tài liệu này (lifecycle, gates, workflow, API, security) là **roadmap** chưa implement.
 
 | Mục | Giá trị |
 |---|---|
@@ -35,12 +35,13 @@ Mọi service function phải có test trước khi code (TDD — CLAUDE.md §17
 
 ## I.2. Unit Test — Service Layer
 
-**File hiện có:** `assetcore/tests/test_imm01.py` (123 LOC).
+**File hiện có:** `assetcore/tests/test_imm01.py` (142 LOC).
 
 | Test class | Status | Function cover | Cases hiện có |
 |---|---|---|---|
 | `TestPriorityClassification` | ✅ Live | `_classify_priority()` | P1/P2/P3/P4 thresholds + zero/negative |
-| `TestComputePriorityScore` | ✅ Live | `_compute_priority_score()` | all-max → 5.0/P1; all-zero → 0.0/None |
+| `TestComputePriorityScore` | ✅ Live | `_compute_priority_score()` | all-max → 5.0/P1; all-zero → 0.0/None; BRD example → 4.35/P1; weights sum=1.0 |
+| `TestValidateDeviceTarget` | ✅ Live | `_validate_device_target()` | category-only OK; no category + no model → ServiceError "Nhóm thiết bị" |
 | `TestTargetYear` | ⬜ Planned | `_vr04_target_year()` | happy(current+1), fail(current-1) |
 | `TestUniqueActiveRequest` | ⬜ Planned | `_vr01_unique_active_request_per_asset()` | happy/fail duplicate |
 | `TestReplacementDecomPlan` | ⬜ Planned | `_vr02_replacement_requires_decom_plan()` | hiện soft warn — test msgprint emit |
@@ -121,7 +122,7 @@ class TestComputePriorityScore(unittest.TestCase):
 | `test_create_happy` | `create_needs_request` | `success=true`, name format `NR-…` |
 | `test_create_vr03_fail` | short justification | `success=false`, `code=VALIDATION` |
 | `test_create_no_permission` | non-clinical role | `success=false`, `code=FORBIDDEN` |
-| `test_score_compute` | `score_needs_request` 6 rows | `weighted_score=4.30`, `priority_class=P1` |
+| `test_score_compute` | `score_needs_request` 6 rows | `weighted_score=4.35`, `priority_class=P1` |
 | `test_approve_g05_fail` | missing funding_source | `success=false`, `code=BUSINESS_RULE` |
 | `test_dashboard_kpis_format` | `dashboard_kpis?period=2026-Q2` | 6 KPI keys present |
 
@@ -164,7 +165,7 @@ class TestComputePriorityScore(unittest.TestCase):
 | UAT-IMM01-01 | Clinical Head | IMM Device Model tồn tại | Tạo NR type=New, fill đủ (justification ≥ 200 chars), Submit | NR ở Submitted; ALE "Submitted" ghi; email gửi PTP + KH-TC | BR-01-01 |
 | UAT-IMM01-02 | Clinical Head | Không có Decommission Plan | Tạo NR type=Replacement, replacement_for_asset không có plan, Submit | VR-01-02 throw; không tạo NR | BR-01-08 |
 | UAT-IMM01-03 | Clinical Head | Asset có Decommission Plan Pending | Tạo NR type=Replacement, gắn asset, Submit | NR tạo thành công, utilization auto-fetch từ IMM-07 | BR-01-08, BR-01-02 |
-| UAT-IMM01-04 | HTM Reviewer | NR ở Reviewing | Chấm 6 tiêu chí, submit score | weighted_score=4.30, P1 hiển thị; ALE ghi | BR-01-04 |
+| UAT-IMM01-04 | HTM Reviewer | NR ở Reviewing | Chấm 6 tiêu chí, submit score | weighted_score=4.35, P1 hiển thị; ALE ghi | BR-01-04 |
 | UAT-IMM01-05 | HTM Reviewer | NR ở Reviewing | Chấm chỉ 5/6 tiêu chí, click "Hoàn tất chấm điểm" | G02 fail "Cần đủ 6/6 tiêu chí" | BR-01-04 |
 | UAT-IMM01-06 | TCKT Officer | NR ở Prioritized | Nhập 5 CAPEX + 5×OPEX lines, set funding_source=NSNN | total_capex, total_opex_5y, tco_5y compute đúng; state Budgeted | BR-01-05 |
 | UAT-IMM01-07 | TCKT Officer | NR ở Prioritized | Nhập CAPEX nhưng bỏ OPEX Year 4 | G03 fail "Budget Estimate phải có CAPEX + OPEX 5 năm" | BR-01-05 |

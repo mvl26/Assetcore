@@ -3,12 +3,12 @@
 | Mục | Giá trị |
 |---|---|
 | Module | IMM-16 — Compliance Monitoring & CAPA |
-| Phiên bản | 0.4.0 |
-| Ngày cập nhật | 2026-05-14 |
+| Phiên bản | 0.5.0 |
+| Ngày cập nhật | 2026-05-18 |
 | Owner | Tech Lead + BE Developer |
 | Liên kết | [03 Diagrams](./03_Diagrams.md) · [05 API](./05_API_Specification.md) · [07 Testing](./07_Testing_QA.md) |
 
-> ✅ Implemented — Wave 2 (feature/hieuc/wave-2). 11 DocType IMM-16 đã có JSON + controller trong `assetcore/assetcore/doctype/imm_compliance_*`, `imm_internal_audit`, `imm_management_review`, `imm_capa_*`, `imm_audit_*`. Service `assetcore/services/imm16.py` (~1705 dòng) + `assetcore/api/imm16.py` (~383 dòng) LIVE.
+> ✅ Implemented — Wave 2 (feature/hieuc/wave-2). 11 DocType IMM-16 đã có JSON + controller trong `assetcore/assetcore/doctype/imm_compliance_*`, `imm_internal_audit`, `imm_management_review`, `imm_capa_*`, `imm_audit_*`. Service `assetcore/services/imm16.py` (2076 dòng) + `assetcore/api/imm16.py` (424 dòng / 42 whitelist functions) LIVE.
 
 ---
 
@@ -26,11 +26,11 @@
 | `IMM Internal Audit` | **LIVE** | `format:AUD-INT-.YYYY.-.#####` | 0 | 1 | Internal audit cycle |
 | `IMM Audit Checklist Item` | **LIVE** | child | 0 | 0 | Audit checklist row |
 | `IMM Compliance Scorecard` | **LIVE** | `format:SCR-.YYYY.-.MM.-.#####` | 0 | 1 | Monthly scorecard |
-| `IMM Management Review` | **LIVE** | `format:MR-.YYYY.-.#####` | 0 | 1 | Quarterly MR |
-| `IMM Scorecard Module Row` | **PLANNED** (rollup) | child | 0 | 0 | Score by module — hiện aggregate runtime |
-| `IMM Scorecard Department Row` | **PLANNED** (rollup) | child | 0 | 0 | Score by dept — hiện aggregate runtime |
-| `IMM MR Attendee` | **PLANNED** (subset của `IMM Management Review.attendees`) | child | 0 | 0 | MR attendee |
-| `IMM MR Output Action` | **PLANNED** (subset của `IMM Management Review.output_actions`) | child | 0 | 0 | MR output action |
+| `IMM Management Review` | **LIVE** | `MR-.YYYY.-.#####` (Naming Series) | 0 | 0 | Quarterly MR — `is_submittable=0` (confirmed from JSON) |
+| `IMM Scorecard Module Row` | **LIVE** (child Table field trong `IMM Compliance Scorecard`) | child | 0 | 0 | Score by module — `generate_scorecard()` aggregate runtime; child rows KHÔNG được populate tự động bởi service hiện tại (field tồn tại trong JSON nhưng không có data writes) |
+| `IMM Scorecard Department Row` | **LIVE** (child Table field trong `IMM Compliance Scorecard`) | child | 0 | 0 | Score by dept — tương tự, field tồn tại nhưng service không ghi rows |
+| `IMM MR Attendee` | **LIVE** (DocType folder `imm_mr_attendee/` tồn tại; Table field `attendees` trong MR) | child | 0 | 0 | MR attendee list — được ghi bởi `update_management_review()` |
+| `IMM MR Output Action` | **LIVE** (DocType folder `imm_mr_output_action/` tồn tại; Table field `output_actions` trong MR) | child | 0 | 0 | MR output actions — được ghi bởi `update_management_review()` + `finalize_management_review()` |
 
 ---
 
@@ -46,23 +46,21 @@
 
 Existing fields: `naming_series`, `asset` (Link AC Asset), `severity` (Minor/Major/Critical), `status` (Open/In Progress/Pending Verification/Closed/Overdue), `workflow_state`, `source_type`, `source_ref`, `linked_incident`, `description`, `root_cause`, `corrective_action`, `preventive_action`, `responsible`, `opened_date`, `due_date`, `closed_date`, `effectiveness_check` (Effective/Partially Effective/Not Effective), `notes`, `amended_from`.
 
-**Custom Fields IMM-16 (PLANNED — fixture `imm16_custom_field_capa_record.json`):**
+**Custom Fields IMM-16 (LIVE — đã trong core `imm_capa_record.json` tại `section_imm16`):**
 
-| # | fieldname | fieldtype | options / default | reqd |
-|---|---|---|---|---|
-| 1 | `imm_root_cause_method` | Select | `\n5-Why\nFishbone\nFMEA\nFTA\nOther` | — |
-| 2 | `imm_correction_immediate` | Text | — | — |
-| 3 | `imm_action_plan` | Table | `IMM CAPA Action Step` | — |
-| 4 | `imm_effectiveness_check_date` | Date | — | — |
-| 5 | `imm_effectiveness_evidence` | Attach | — | — |
-| 6 | `imm_change_control_ref` | Data | — | — |
-| 7 | `imm_risk_level` | Select | `Low\nMedium\nHigh\nCritical` | * |
-| 8 | `imm_compliance_finding_ref` | Link | `IMM Compliance Finding` | — |
-| 9 | `imm_audit_finding_ref` | Data | — | — |
-| 10 | `imm_rca_ref` | Link | `IMM RCA Record` | — |
-| 11 | `imm_reopen_count` | Int | default 0 | — |
+> Xác nhận từ `imm_capa_record.json` (2026-05-18): các fields dưới đây đã là core JSON fields, KHÔNG còn là custom fields fixture riêng. Fixture `imm16_custom_field_capa_record.json` có thể tồn tại như backup nhưng data thực tế từ core JSON.
 
-**Extension Select option `source_type`** (qua Property Setter): thêm `Audit Finding`, `Compliance Finding`, `Management Review`.
+| # | fieldname | fieldtype | options / default | reqd | Ghi chú |
+|---|---|---|---|---|---|
+| 1 | `imm_root_cause_method` | Select | `\n5-Why\nFishbone\nFault Tree\nPareto\nOther` | — | LIVE trong JSON |
+| 2 | `imm_effectiveness_evidence` | Data | — | — | LIVE (Data, không phải Attach) |
+| 3 | `imm_risk_level` | Select | `\nLow\nMedium\nHigh\nCritical` | — | LIVE trong JSON |
+| 4 | `imm_compliance_finding_ref` | Link | `IMM Compliance Finding` | — | LIVE trong JSON |
+| 5 | `imm_reopen_count` | Int | default 0, read_only | — | LIVE trong JSON |
+
+> **NOT in JSON**: `imm_correction_immediate`, `imm_action_plan` (Table), `imm_effectiveness_check_date`, `imm_change_control_ref`, `imm_audit_finding_ref`, `imm_rca_ref` — các fields này trong spec BA nhưng chưa được code hoá vào JSON. `advance_capa_state()` tham chiếu `doc.imm_action_plan` tại bước Implementation/Verification nhưng nếu field không có trong schema thì `getattr(doc, "imm_action_plan", None)` trả `None` và validation bị bypass.
+
+**`source_type` options (từ JSON thực tế):** `Incident Report`, `Non-Conformance`, `Complaint`, `PM Work Order`, `IMM Asset Calibration`, `Asset Repair`, `IMM Compliance Finding`, `Cycle Count Variance`, `Critical Stock Breach`.
 
 **Permissions** (giữ nguyên 12 role đã định nghĩa trong JSON LIVE):
 
@@ -214,182 +212,119 @@ Existing fields: `naming_series`, `asset` (Link AC Asset), `severity` (Minor/Maj
 
 # Phần III — Service Layer
 
-> ✅ Implemented — Wave 2. Spec dưới đây đã được code hoá trong `assetcore/services/imm16.py`.
+> ✅ Implemented — Wave 2. File: `assetcore/services/imm16.py` (2076 dòng).
+>
+> **Lưu ý**: Spec pseudocode BA (III.1–III.6 cũ) là design target. Implementation thực tế dùng flat functions thay vì class. Xem §III.A–III.G dưới đây cho danh sách function thực tế.
 
-File: `assetcore/services/imm16.py`
+## III.A. Compliance Rule
 
-## III.1. Rule Evaluator
+| Function | Signature | Ghi chú |
+|---|---|---|
+| `list_compliance_rules(filters, *, page, page_size)` | `→ dict` | list + normalize_filters |
+| `create_compliance_rule(data)` | `→ dict` | VR-01 threshold JSON validate |
+| `get_rule(name)` | `→ dict` | chi tiết rule |
+| `update_rule(name, rule_data, change_summary)` | `→ dict` | VR-11 version bump |
+| `deactivate_rule(name)` | `→ dict` | set is_active=0 |
+| `reactivate_rule(name)` | `→ dict` | set is_active=1 (BUG-16-02 fix) |
 
-```python
-class RuleEvaluator:
-    def evaluate(self, rule: dict, context: dict) -> EvalResult:
-        """
-        Returns: EvalResult(violated: bool, current_value, threshold_value, source_record)
-        Raises: ServiceError(ErrorCode.VALIDATION, "VR-01: ...") nếu threshold JSON invalid
-        """
-        metric = rule["threshold_definition"]["metric"]
-        op = rule["threshold_definition"]["op"]
-        threshold = rule["threshold_definition"]["value"]
-        current = self._fetch_metric(rule, context)
-        violated = self._compare(current, op, threshold)
-        return EvalResult(violated, current, threshold, context["source_record"])
+## III.B. Compliance Finding
 
-    METRIC_MAP = {
-        "IMM-04": ["commissioning_doc_completeness"],
-        "IMM-05": ["doc_expired_count", "doc_expiring_30d"],
-        "IMM-06": ["training_overdue_count"],
-        "IMM-08": ["pm_compliance_pct"],
-        "IMM-09": ["repair_sla_breach_count"],
-        "IMM-11": ["calibration_overdue_count", "oot_count"],
-        "IMM-12": ["corrective_sla_breach_count"],
-        "IMM-15": ["critical_spare_breach_count"],
-    }
+| Function | Signature | Ghi chú |
+|---|---|---|
+| `list_compliance_findings(filters, *, page, page_size)` | `→ dict` | enrich asset_name |
+| `create_finding(rule_ref, asset_ref, work_order_ref, severity, description, evaluation_date, actual_value, threshold_value)` | `→ dict` | idempotent; auto-CAPA nếu Critical |
+| `get_finding(name)` | `→ dict` | enrich asset_name, responsible_dept_name, rule_name |
+| `confirm_finding(name, reviewer_note)` | `→ dict` | → Confirmed NC + audit trail |
+| `mark_false_positive(name, reason)` | `→ dict` | reason required |
+| `waive_finding(name, waiver_reason, waiver_evidence, waiver_expiry)` | `→ dict` | VR-04: reason ≥ 50 chars, evidence, expiry > today |
+| `link_finding_to_capa(name, capa_ref)` | `→ dict` | set finding.capa_ref |
+| `close_finding(finding_name, capa_ref, resolution_note)` | `→ dict` | → Resolved |
+
+## III.C. Internal Audit
+
+| Function | Signature | Ghi chú |
+|---|---|---|
+| `list_internal_audits(filters, *, page, page_size)` | `→ dict` | enrich lead_auditor_name |
+| `create_internal_audit(data)` | `→ dict` | alias: `create_audit` |
+| `get_audit(name)` | `→ dict` | enrich lead_auditor_name |
+| `start_audit(name)` | `→ dict` | Planned → In Progress |
+| `submit_audit_findings(audit_name, findings)` | `→ dict` | batch create findings + → Reporting |
+| `complete_audit_checklist(audit_name, items)` | `→ dict` | auto-Finding cho Major/Minor NC |
+| `close_audit(name, audit_report)` | `→ dict` | VR-08: block nếu Major NC chưa CAPA |
+| `close_internal_audit(audit_name)` | `→ dict` | legacy alias |
+
+## III.D. CAPA
+
+`_CAPA_TRANSITIONS` (code thực tế):
+```
+Open → Investigating
+Investigating → Action Plan
+Action Plan → Implementation
+Implementation → Verification
+Verification → {Closed, Re-opened}
+Re-opened → Investigating
 ```
 
-## III.2. Finding Upsertor (idempotent)
+| Function | Signature | Ghi chú |
+|---|---|---|
+| `create_capa_from_finding(finding_name, imm_risk_level, imm_root_cause_method, responsible, due_date)` | `→ dict` | gọi `imm00.create_capa` + set IMM-16 custom fields |
+| `get_capa(name)` | `→ dict` | enrich asset_name, responsible_name, finding_ref (BUG-16-08) |
+| `update_capa_fields(name, data)` | `→ dict` | editable fields khi chưa Closed |
+| `advance_capa_state(name, target_state, payload)` | `→ dict` | VR-05/06/07/12 enforcement |
+| `perform_effectiveness_check(name, result, effectiveness_evidence)` | `→ dict` | Effective→Closed; Not Effective→Re-opened + reopen_count++ |
+| `reopen_capa(name, reason)` | `→ dict` | force → Re-opened |
 
-```python
-def upsert_finding(
-    rule: str,
-    source_record: str,
-    eval_date: str,
-    current_value: Any,
-) -> str:
-    """
-    Idempotent: UNIQUE INDEX (rule, source_record, evaluation_date) bảo đảm
-    chạy nhiều lần cùng ngày không tạo bản ghi mới.
-    Raises: ServiceError(ErrorCode.CREATE_ERROR, "Không thể tạo Finding") nếu insert fail
-    """
-    existing = frappe.db.exists("IMM Compliance Finding", {
-        "rule": rule,
-        "source_record": source_record,
-        "evaluation_date": eval_date,
-    })
-    if existing:
-        return existing  # idempotent
+## III.E. Compliance Scorecard
 
-    doc = frappe.new_doc("IMM Compliance Finding")
-    doc.update({...})
-    doc.insert(ignore_permissions=True)
-    frappe.publish_realtime("imm16:finding_created", doc.as_dict())
-    imm00.log_audit_event(doc.doctype, doc.name, "created", frappe.session.user)
-    return doc.name
+`generate_scorecard()` **không ghi child rows** `score_by_module`/`score_by_department` vào DB — các field này là Table nhưng service chỉ tính runtime và không append rows. `score_pct` được tính từ `Confirmed NC` counts (không phải Resolved/Closed).
+
+| Function | Signature | Ghi chú |
+|---|---|---|
+| `generate_scorecard(module_ref, period)` | `→ dict` | tạo Scorecard record; runtime aggregate |
+| `list_scorecards(filters, *, page, page_size)` | `→ dict` | |
+| `get_current_scorecard(scope)` | `→ dict` | delegate → get_scorecard_by_period(today) |
+| `get_scorecard_by_period(year, month, scope)` | `→ dict` | |
+| `publish_scorecard(name)` | `→ dict` | VR-09 immutable; VR-10 gate quý trước MR |
+| `validate_scorecard_immutability(doc)` | controller hook | score_pct + non_compliant_count immutable sau publish |
+
+## III.F. Management Review
+
+`_MR_TRANSITIONS`:
+```
+Draft → Held
+Held → Minutes Approved
+Minutes Approved → Closed  (nhưng close phải đi qua finalize_management_review)
 ```
 
-## III.3. Link Finding → CAPA Record
+| Function | Signature | Ghi chú |
+|---|---|---|
+| `list_management_reviews(filters, *, page, page_size)` | `→ dict` | enrich chair_name, scorecard_score_pct |
+| `get_management_review(name)` | `→ dict` | enrich chair_name + scorecard (BUG-16-10) |
+| `create_management_review(data)` | `→ dict` | unique per quarter |
+| `update_management_review(name, data)` | `→ dict` | scalar fields + attendees + output_actions child |
+| `advance_mr_state(name, target_state)` | `→ dict` | Draft→Held→Minutes Approved; không cho→Closed (dùng finalize) |
+| `finalize_management_review(name, minutes_doc, output_actions)` | `→ dict` | Closed + attach minutes + VR: ≥1 output action |
 
-```python
-def link_finding_to_capa(finding_name: str, capa_data: dict) -> str:
-    """
-    Reuse imm00.create_capa để tạo IMM CAPA Record.
-    Set Custom Fields IMM-16 trên CAPA Record.
-    Raises: ServiceError(ErrorCode.NOT_FOUND, "Finding không tồn tại")
-    """
-    from assetcore.services import imm00 as svc00
-    finding = frappe.get_doc("IMM Compliance Finding", finding_name)
-    capa_name = svc00.create_capa(
-        asset=finding.asset,
-        source_type="Compliance Finding",
-        source_ref=finding.name,
-        severity=_map_severity_to_capa(finding.severity),
-        description=f"Compliance Finding {finding.name}",
-    )
-    frappe.db.set_value("IMM CAPA Record", capa_name, {
-        "imm_compliance_finding_ref": finding.name,
-        "imm_risk_level": finding.severity,
-        "workflow_state": "Open",
-    })
-    frappe.db.set_value("IMM Compliance Finding", finding_name, "capa_ref", capa_name)
-    return capa_name
-```
+## III.G. Dashboard / Reports / Cross-module
 
-## III.4. Scorecard Aggregator
+| Function | Signature | Ghi chú |
+|---|---|---|
+| `get_dashboard_stats()` | `→ dict` | KPIs + trend_12m + recent_findings |
+| `get_compliance_heatmap(period_year, period_month)` | `→ dict` | Module×Dept matrix (BUG-16-11: source_module từ Rule, BUG-16-04: dept label) |
+| `get_capa_aging()` | `→ dict` | buckets: 0-7d/8-30d/31-60d/60+ |
+| `get_overdue_actions()` | `→ dict` | overdue findings (>30d) + overdue CAPAs |
+| `check_asset_compliance_status(asset)` | `→ dict` | BR-16-09 gate; blocked=True nếu Critical CAPA open |
+| `get_record_history(ref_doctype, ref_name, limit)` | `→ dict` | audit trail cho Finding/CAPA/MR/Rule |
 
-```python
-def build_scorecard(period_year: int, period_month: int, scope: str = "Hospital") -> str:
-    """
-    Aggregate findings tháng → sinh IMM Compliance Scorecard Draft.
-    Formula: score_pct = (total - non_compliant) / total × 100
-    Raises: ServiceError(ErrorCode.CREATE_ERROR, "Không thể tạo Scorecard")
-    """
-    findings = frappe.get_all("IMM Compliance Finding", filters={
-        "evaluation_date": ["between", (start_of_month, end_of_month)],
-        "status": ["!=", "False Positive"],
-    }, fields=["rule", "responsible_dept", "status", "severity"])
+## III.H. Doc-event Real-time Evaluators
 
-    total = len(findings)
-    nc = sum(1 for f in findings if f.status in ("Confirmed NC", "Resolved", "Closed"))
-    score = round((total - nc) / total * 100, 2) if total else 100.0
-
-    sc = frappe.new_doc("IMM Compliance Scorecard")
-    sc.update({
-        "period_year": period_year,
-        "period_month": period_month,
-        "scope": scope,
-        "total_rules_evaluated": total,
-        "non_compliant_count": nc,
-        "compliant_count": total - nc,
-        "score_pct": score,
-        "score_by_module": _aggregate_by_module(findings),
-        "score_by_department": _aggregate_by_dept(findings),
-        "trend_vs_prev_month": _compute_trend(period_year, period_month, score),
-        "generated_at": now(),
-        "is_published": 0,
-    })
-    sc.insert(ignore_permissions=True)
-    return sc.name
-```
-
-## III.5. Escalation Matrix
-
-```python
-ESCALATION = {
-    "High":     {"L1": 3,  "L2": 7,  "L3": 14},  # overdue days → level
-    "Critical": {"L1": 1,  "L2": 3,  "L3": 7},
-}
-RECIPIENTS = {
-    "L1": ["responsible"],
-    "L2": ["workshop_head", "responsible"],
-    "L3": ["vp_block2", "truong_phong", "workshop_head"],
-}
-
-def escalate(capa_record: dict) -> None:
-    """
-    Gửi email escalation theo level dựa trên imm_risk_level + overdue_days.
-    Idempotent: ghi log IMM Audit Trail để tránh gửi trùng cùng ngày.
-    Raises: ServiceError(ErrorCode.VALIDATION, "CAPA không có risk_level")
-    """
-    overdue_days = (getdate(today()) - getdate(capa_record.due_date)).days
-    level = _compute_level(capa_record.get("imm_risk_level"), overdue_days)
-    if not _already_escalated_today(capa_record.name, level):
-        _send_email(RECIPIENTS[level], capa_record)
-        imm00.log_audit_event("IMM CAPA Record", capa_record.name,
-                              f"escalated_L{level}", "system")
-```
-
-## III.6. Compliance Gate (BR-16-09)
-
-```python
-def check_asset_compliance_status(asset: str) -> dict:
-    """
-    Gọi bởi services/imm08.py + services/imm09.py validate_* trước WO Submit.
-    Cũng gọi bởi IMM-13/14 trước decommission.
-    Returns: {blocked: bool, reasons: list, active_capas_count: int}
-    Raises: ServiceError(ErrorCode.NOT_FOUND, "Asset không tồn tại")
-    """
-    crit_open = frappe.get_all("IMM CAPA Record", filters={
-        "asset": asset,
-        "imm_risk_level": "Critical",
-        "status": ["in", ["Open", "In Progress", "Pending Verification"]],
-    }, pluck="name")
-    if crit_open:
-        return {
-            "blocked": True,
-            "reasons": [{"type": "CAPA_CRITICAL_OPEN", "ref": n} for n in crit_open],
-            "active_capas_count": len(crit_open),
-        }
-    return {"blocked": False, "active_capas_count": 0}
-```
+| Function | Trigger DocType |
+|---|---|
+| `eval_imm04_realtime(doc, method)` | `Asset Commissioning.on_submit` |
+| `eval_imm05_realtime(doc, method)` | `AC Asset Document.on_update` (khi workflow_state=Expired) |
+| `eval_imm08_09_realtime(doc, method)` | `IMM PM Work Order.on_submit`, `IMM CM Work Order.on_submit` |
+| `eval_imm11_realtime(doc, method)` | `IMM Calibration Record.on_submit` |
+| `gate_wo_submit(doc, method)` | `IMM PM Work Order.validate`, `IMM CM Work Order.validate` |
 
 ---
 
@@ -579,50 +514,27 @@ class IMMComplianceScorecard(Document):
 
 > ✅ Implemented — Wave 2. Spec dưới đây đã được code hoá trong `assetcore/services/imm16.py`.
 
-File: `assetcore/tasks.py` (EXTEND — không tạo file mới)
+File: `assetcore/services/imm16.py` (không phải `tasks.py` — tất cả scheduler functions trong service file)
 
-## VI.1. `run_compliance_evaluation_hourly()` + `run_compliance_evaluation_daily()`
+## VI.1. Scheduler jobs thực tế (verified từ hooks.py 2026-05-18)
 
-```python
-def run_compliance_evaluation_daily():
-    """
-    Đánh giá toàn bộ active rules theo evaluation_frequency.
-    Chạy: Daily 00:15 UTC+7
-    Pattern: for each rule → for each context → RuleEvaluator.evaluate() → upsert_finding()
-    """
-    rules = frappe.get_all("IMM Compliance Rule",
-        filters={"is_active": 1, "evaluation_frequency": ["in", ["Daily", "Weekly", "Monthly"]]},
-        fields=["*"])
-    for rule in rules:
-        if _is_due(rule):
-            _run_rule(rule)
-```
+| Job | hooks.py entry | Cadence | Rules filter |
+|---|---|---|---|
+| `run_compliance_evaluation_hourly` | `hourly` | Hourly | evaluation_frequency IN (Hourly, Realtime) |
+| `evaluate_all_compliance_rules` | `daily` | Daily | evaluation_frequency IN (Daily, Realtime, Hourly) |
+| `check_capa_due` | `daily` | Daily | overdue CAPA escalation (tiered: Critical ≥1d, High ≥3d) |
+| `check_audit_milestones` | `daily` | Daily | Planned audit bắt đầu trong 7 ngày → email Lead Auditor |
+| `run_compliance_evaluation_weekly` | `weekly` | Weekly Monday | evaluation_frequency = Weekly |
+| `check_management_review_due` | `weekly` | Weekly Monday | Quý hiện tại chưa có MR Closed → alert |
+| `update_compliance_scorecard` | `monthly` | Monthly 1st | Tổng hợp Scorecard tháng trước; skip nếu đã tồn tại |
 
-| Job | Lịch | Cadence |
-|---|---|---|
-| `run_compliance_evaluation_hourly` | Hourly | Stock breach IMM-15 |
-| `run_compliance_evaluation_daily` | Daily 00:15 | Doc expiry, training, calibration |
-| `run_compliance_evaluation_weekly` | Weekly Mon | SLA review IMM-09/12 |
-| `update_compliance_scorecard` | Monthly 1st 03:00 | Tổng hợp Scorecard tháng trước |
-| `check_capa_due_imm16` | Daily 02:00 | CAPA overdue + escalation |
-| `check_audit_milestones` | Daily 02:30 | Cảnh báo Lead Auditor 7d trước |
-| `check_management_review_due` | Weekly Monday 08:00 | Cảnh báo quý thiếu MR |
+> **Khác biệt vs spec cũ**: `run_compliance_evaluation_daily` KHÔNG tồn tại — thay bằng `evaluate_all_compliance_rules` (daily). `check_capa_due_imm16` → đổi tên thành `check_capa_due`. Không có `EscalationMatrix` class — escalation logic inline trong `_escalate_capa()` / `_send_capa_escalation()`.
 
-## VI.2. `check_capa_due_imm16()` — Daily 02:00
+## VI.2. Escalation thực tế
 
-```python
-def check_capa_due_imm16():
-    """
-    Reuse imm00.check_capa_overdue; IMM-16 thêm tiered escalation matrix.
-    """
-    from assetcore.services.imm16 import EscalationMatrix
-    esc = EscalationMatrix()
-    overdue_capas = frappe.get_all("IMM CAPA Record",
-        filters={"status": ["not in", ["Closed", "Cancelled"]], "due_date": ["<", today()]},
-        fields=["*"])
-    for capa in overdue_capas:
-        esc.escalate(capa)
-```
+Trong `_escalate_capa(capa)`:
+- `imm_risk_level = Critical` + overdue ≥ 1 ngày → Level 1 (email `responsible`)
+- `imm_risk_level IN (High, Critical)` + overdue ≥ 3 ngày → Level 2 (email `responsible` + tất cả `IMM Workshop Lead`)
 
 ---
 
