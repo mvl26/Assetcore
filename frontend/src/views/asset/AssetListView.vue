@@ -22,10 +22,18 @@ const filters = ref<AssetListParams>({
   department: '',
   location: '',
   asset_category: '',
-  gmdn_status: '',
+  gmdn_code: '',
   search: '',
   page: 1,
   page_size: 20,
+})
+
+// Danh sách mã GMDN distinct từ Asset Category (source of truth)
+const gmdnOptions = computed(() => {
+  const seen = new Set<string>()
+  return refData.categories
+    .filter(c => c.gmdn_code && !seen.has(c.gmdn_code) && (seen.add(c.gmdn_code), true))
+    .map(c => ({ value: c.gmdn_code as string, label: `${c.gmdn_code} — ${c.gmdn_term || c.category_name}` }))
 })
 
 const LIFECYCLE_STATUSES: { value: LifecycleStatus | ''; label: string }[] = [
@@ -45,7 +53,7 @@ const cleanParams = computed<AssetListParams>(() => {
   if (filters.value.department) p.department = filters.value.department
   if (filters.value.location) p.location = filters.value.location
   if (filters.value.asset_category) p.asset_category = filters.value.asset_category
-  if (filters.value.gmdn_status) p.gmdn_status = filters.value.gmdn_status
+  if (filters.value.gmdn_code) p.gmdn_code = filters.value.gmdn_code
   if (filters.value.search?.trim()) p.search = filters.value.search.trim()
   return p
 })
@@ -70,8 +78,8 @@ const activeChips = computed<FilterChip[]>(() => {
     const l = refData.locations.find(x => x.name === filters.value.location)
     chips.push({ key: 'location', label: l?.location_name ?? String(filters.value.location) })
   }
-  if (filters.value.gmdn_status) {
-    chips.push({ key: 'gmdn_status', label: filters.value.gmdn_status === 'In Use' ? 'GMDN: Đang dùng' : 'GMDN: Không dùng' })
+  if (filters.value.gmdn_code) {
+    chips.push({ key: 'gmdn_code', label: `GMDN: ${filters.value.gmdn_code}` })
   }
   if (filters.value.search?.trim()) {
     chips.push({ key: 'search', label: `"${filters.value.search.trim()}"` })
@@ -103,7 +111,7 @@ function clearChip(key: string) {
 }
 
 function resetFilters() {
-  filters.value = { lifecycle_status: '', department: '', location: '', asset_category: '', gmdn_status: '', search: '', page: 1, page_size: 20 }
+  filters.value = { lifecycle_status: '', department: '', location: '', asset_category: '', gmdn_code: '', search: '', page: 1, page_size: 20 }
   store.fetchList({})
 }
 
@@ -182,11 +190,10 @@ onMounted(async () => {
           </select>
         </div>
         <div class="form-group">
-          <label class="form-label">GMDN</label>
-          <select v-model="filters.gmdn_status" class="form-select" @change="applyFilters">
-            <option value="">Trạng thái GMDN</option>
-            <option value="In Use">Đang sử dụng</option>
-            <option value="Not Use">Không sử dụng</option>
+          <label class="form-label">GMDN Code</label>
+          <select v-model="filters.gmdn_code" class="form-select" @change="applyFilters">
+            <option value="">Tất cả mã GMDN</option>
+            <option v-for="g in gmdnOptions" :key="g.value" :value="g.value">{{ g.label }}</option>
           </select>
         </div>
       </template>
@@ -282,10 +289,12 @@ onMounted(async () => {
                 </td>
                 <td class="table-cell">
                   <button
-                    class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium transition-all"
-                    :class="(asset.gmdn_status || 'Not Use') === 'In Use' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'"
-                    @click.stop="quickFilter('gmdn_status', asset.gmdn_status || 'Not Use')"
-                  >{{ (asset.gmdn_status || 'Not Use') === 'In Use' ? 'Đang sử dụng' : 'Không sử dụng' }}</button>
+                    v-if="asset.gmdn_code"
+                    class="font-mono text-sm text-slate-700 hover:text-blue-600 hover:underline decoration-dotted underline-offset-2"
+                    :title="asset.gmdn_term || ''"
+                    @click.stop="quickFilter('gmdn_code', asset.gmdn_code!)"
+                  >{{ asset.gmdn_code }}</button>
+                  <span v-else class="text-slate-400">—</span>
                 </td>
                 <td class="table-cell">
                   <button
