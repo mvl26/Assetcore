@@ -30,9 +30,8 @@
   "risk_classification",
   "gmdn_code",
   "gmdn_term",
-  "emdn_code",
+  "gmdn_inherited",
   "column_break_class",
-  "hsn_code",
   "registration_required",
   "is_radiation_device",
   "section_pm",
@@ -180,18 +179,16 @@
    "description": "Tên thuật ngữ GMDN — kế thừa từ Danh mục tài sản"
   },
   {
-   "fieldname": "emdn_code",
-   "fieldtype": "Data",
-   "label": "EMDN Code"
+   "fieldname": "gmdn_inherited",
+   "fieldtype": "Check",
+   "label": "GMDN kế thừa từ Danh mục",
+   "default": "1",
+   "read_only": 1,
+   "description": "1 = gmdn_code kế thừa từ Danh mục tài sản (sẽ tự đồng bộ khi Danh mục đổi). 0 = override thủ công (KHÔNG cascade). Hệ thống tự đặt cờ này."
   },
   {
    "fieldname": "column_break_class",
    "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "hsn_code",
-   "fieldtype": "Data",
-   "label": "HSN Code"
   },
   {
    "fieldname": "registration_required",
