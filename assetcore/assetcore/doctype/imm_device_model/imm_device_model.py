@@ -23,9 +23,30 @@ class IMMDeviceModel(Document):
         self._inherit_pm_calibration_defaults()
 
     def validate(self) -> None:
-        """Enforce BR-00-01 class -> risk mapping."""
+        """Enforce BR-00-01 class -> risk mapping + GMDN P3 inherited flag."""
         self._auto_map_risk_classification()
         self._validate_unique_model_manufacturer()
+        self._set_gmdn_inherited_flag()
+
+    def _set_gmdn_inherited_flag(self) -> None:
+        """C2 (P3 Hybrid): xác định gmdn_inherited.
+
+        - gmdn_code rỗng (kế thừa lười / chưa có) → inherited = 1.
+        - gmdn_code == Category.gmdn_code → kế thừa → inherited = 1.
+        - gmdn_code khác Category.gmdn_code → override cố ý → inherited = 0.
+
+        Ref: docs/res/plans/2026-05-19-gmdn-code-sync-strategy.md §5.1 P3.
+        """
+        cat_code = None
+        if self.asset_category:
+            cat_code = frappe.db.get_value(
+                "AC Asset Category", self.asset_category, "gmdn_code"
+            )
+        my_code = (self.gmdn_code or "").strip()
+        if not my_code or my_code == (cat_code or ""):
+            self.gmdn_inherited = 1
+        else:
+            self.gmdn_inherited = 0
 
     def _inherit_pm_calibration_defaults(self) -> None:
         """Copy PM / Calibration defaults from Asset Category if user hasn't set them.

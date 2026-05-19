@@ -44,6 +44,24 @@ class ACAssetCategory(Document):
         self._validate_calibration_interval()
         self._validate_gmdn_unique()
 
+    def on_update(self) -> None:
+        """C4 (P3 Hybrid): cascade gmdn_code xuống Model kế thừa + Asset.
+
+        Chỉ cascade khi gmdn_code THỰC SỰ đổi (has_value_changed). Service
+        layer chỉ set_value trên Model/Asset — KHÔNG save lại Category nên
+        không gây đệ quy on_update. Bỏ qua khi đang trong luồng install/insert
+        (chưa có dữ liệu cũ để so).
+
+        Ref: docs/res/plans/2026-05-19-gmdn-code-sync-strategy.md §6 C4.
+        """
+        if self.is_new() or not self.has_value_changed("gmdn_code"):
+            return
+        old_code = self.get_doc_before_save()
+        old_code = old_code.gmdn_code if old_code else None
+        from assetcore.services.imm00 import cascade_category_gmdn
+
+        cascade_category_gmdn(self.name, old_code, self.gmdn_code)
+
     def _validate_gmdn_unique(self) -> None:
         if not self.gmdn_code:
             return
