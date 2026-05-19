@@ -47,7 +47,6 @@
   "manufacturer_sn",
   "udi_code",
   "gmdn_code",
-  "gmdn_status",
   "section_byt",
   "byt_reg_no",
   "column_break_byt",
@@ -309,16 +308,6 @@
    "fieldname": "gmdn_code",
    "fieldtype": "Data",
    "label": "GMDN Code"
-  },
-  {
-   "default": "Not Use",
-   "fieldname": "gmdn_status",
-   "fieldtype": "Select",
-   "label": "GMDN Status",
-   "no_copy": 1,
-   "options": "In Use\nNot Use",
-   "read_only": 1,
-   "search_index": 1
   },
   {
    "fieldname": "section_byt",
