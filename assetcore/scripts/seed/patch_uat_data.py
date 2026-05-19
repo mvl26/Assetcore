@@ -94,35 +94,35 @@ SUPPLIERS = [
 
 # Device models — gắn với manufacturer thật, có thông số đầy đủ
 DEVICE_MODELS = [
-    # (keyword_match, model, mfg, cat, class, risk, gmdn, emdn, is_rad, pm_days, cal_days, power, country, lifespan)
-    ("mri",        "Siemens MAGNETOM Sola 1.5T",       "Siemens Healthineers", "Chẩn đoán hình ảnh",   "Class III", "High",     "42518", "Z110201", 0, 365, 365, "380VAC 3-phase, 50Hz", "Đức",        12),
-    ("ct",         "GE Revolution CT 128 lát",          "GE Healthcare",        "Chẩn đoán hình ảnh",   "Class III", "High",     "40890", "Z110401", 1, 365, 365, "380VAC 3-phase, 50Hz", "Hoa Kỳ",     12),
-    ("x-quang",    "Philips DigitalDiagnost C90 DR",    "Philips",              "Chẩn đoán hình ảnh",   "Class III", "High",     "35910", "Z110301", 1, 180, 365, "220VAC, 50Hz, 80kW",  "Hà Lan",    10),
-    ("xr",         "Philips DigitalDiagnost C90 DR",    "Philips",              "Chẩn đoán hình ảnh",   "Class III", "High",     "35910", "Z110301", 1, 180, 365, "220VAC, 50Hz, 80kW",  "Hà Lan",    10),
-    ("siêu âm",    "Mindray DC-70 X-Insight Doppler 4D","Mindray",              "Chẩn đoán hình ảnh",   "Class II",  "Low",      "40231", "Z110305", 0, 365, 365, "100-240VAC, 50-60Hz", "Trung Quốc", 8),
-    ("ultrasound", "Mindray DC-70 X-Insight Doppler 4D","Mindray",              "Chẩn đoán hình ảnh",   "Class II",  "Low",      "40231", "Z110305", 0, 365, 365, "100-240VAC, 50-60Hz", "Trung Quốc", 8),
+    # (keyword_match, model, mfg, cat, class, risk, gmdn, is_rad, pm_days, cal_days, power, country, lifespan)
+    ("mri",        "Siemens MAGNETOM Sola 1.5T",       "Siemens Healthineers", "Chẩn đoán hình ảnh",   "Class III", "High",     "42518", 0, 365, 365, "380VAC 3-phase, 50Hz", "Đức",        12),
+    ("ct",         "GE Revolution CT 128 lát",          "GE Healthcare",        "Chẩn đoán hình ảnh",   "Class III", "High",     "40890", 1, 365, 365, "380VAC 3-phase, 50Hz", "Hoa Kỳ",     12),
+    ("x-quang",    "Philips DigitalDiagnost C90 DR",    "Philips",              "Chẩn đoán hình ảnh",   "Class III", "High",     "35910", 1, 180, 365, "220VAC, 50Hz, 80kW",  "Hà Lan",    10),
+    ("xr",         "Philips DigitalDiagnost C90 DR",    "Philips",              "Chẩn đoán hình ảnh",   "Class III", "High",     "35910", 1, 180, 365, "220VAC, 50Hz, 80kW",  "Hà Lan",    10),
+    ("siêu âm",    "Mindray DC-70 X-Insight Doppler 4D","Mindray",              "Chẩn đoán hình ảnh",   "Class II",  "Low",      "40231", 0, 365, 365, "100-240VAC, 50-60Hz", "Trung Quốc", 8),
+    ("ultrasound", "Mindray DC-70 X-Insight Doppler 4D","Mindray",              "Chẩn đoán hình ảnh",   "Class II",  "Low",      "40231", 0, 365, 365, "100-240VAC, 50-60Hz", "Trung Quốc", 8),
 
-    ("máy thở",    "Dräger Evita V800 High-end",        "Philips",              "Hồi sức - Cấp cứu",    "Class II",  "Critical", "36263", "R0301010101", 0, 90, 180, "100-240VAC + Pin 4h", "Đức",        8),
-    ("ventilator", "Dräger Evita V800 High-end",        "Philips",              "Hồi sức - Cấp cứu",    "Class II",  "Critical", "36263", "R0301010101", 0, 90, 180, "100-240VAC + Pin 4h", "Đức",        8),
-    ("vent",       "Dräger Evita V800 High-end",        "Philips",              "Hồi sức - Cấp cứu",    "Class II",  "Critical", "36263", "R0301010101", 0, 90, 180, "100-240VAC + Pin 4h", "Đức",        8),
+    ("máy thở",    "Dräger Evita V800 High-end",        "Philips",              "Hồi sức - Cấp cứu",    "Class II",  "Critical", "36263", 0, 90, 180, "100-240VAC + Pin 4h", "Đức",        8),
+    ("ventilator", "Dräger Evita V800 High-end",        "Philips",              "Hồi sức - Cấp cứu",    "Class II",  "Critical", "36263", 0, 90, 180, "100-240VAC + Pin 4h", "Đức",        8),
+    ("vent",       "Dräger Evita V800 High-end",        "Philips",              "Hồi sức - Cấp cứu",    "Class II",  "Critical", "36263", 0, 90, 180, "100-240VAC + Pin 4h", "Đức",        8),
 
-    ("sốc tim",    "Philips HeartStart MRx Defibrillator","Philips",            "Hồi sức - Cấp cứu",    "Class II",  "Critical", "35022", "Z12060201", 0, 180, 180, "100-240VAC + Pin Li-Ion", "Hà Lan",  7),
-    ("defib",      "Philips HeartStart MRx Defibrillator","Philips",            "Hồi sức - Cấp cứu",    "Class II",  "Critical", "35022", "Z12060201", 0, 180, 180, "100-240VAC + Pin Li-Ion", "Hà Lan",  7),
+    ("sốc tim",    "Philips HeartStart MRx Defibrillator","Philips",            "Hồi sức - Cấp cứu",    "Class II",  "Critical", "35022", 0, 180, 180, "100-240VAC + Pin Li-Ion", "Hà Lan",  7),
+    ("defib",      "Philips HeartStart MRx Defibrillator","Philips",            "Hồi sức - Cấp cứu",    "Class II",  "Critical", "35022", 0, 180, 180, "100-240VAC + Pin Li-Ion", "Hà Lan",  7),
 
-    ("monitor",    "Philips IntelliVue MX550 5-thông số","Philips",             "Theo dõi bệnh nhân",   "Class II",  "Medium",   "37825", "Z12030101", 0, 180, 365, "100-240VAC, 50-60Hz",   "Đức",       8),
-    ("patient",    "Philips IntelliVue MX550 5-thông số","Philips",             "Theo dõi bệnh nhân",   "Class II",  "Medium",   "37825", "Z12030101", 0, 180, 365, "100-240VAC, 50-60Hz",   "Đức",       8),
+    ("monitor",    "Philips IntelliVue MX550 5-thông số","Philips",             "Theo dõi bệnh nhân",   "Class II",  "Medium",   "37825", 0, 180, 365, "100-240VAC, 50-60Hz",   "Đức",       8),
+    ("patient",    "Philips IntelliVue MX550 5-thông số","Philips",             "Theo dõi bệnh nhân",   "Class II",  "Medium",   "37825", 0, 180, 365, "100-240VAC, 50-60Hz",   "Đức",       8),
 
-    ("bơm tiêm",   "B.Braun Perfusor Space Syringe Pump","Medtronic",           "Bơm tiêm - Truyền dịch","Class II", "Medium",   "13287", "Z120601",   0, 365, 365, "100-240VAC + Pin Li-Ion","Đức",       7),
-    ("bơm truyền", "B.Braun Infusomat Space Volumetric", "Medtronic",           "Bơm tiêm - Truyền dịch","Class II", "Medium",   "13288", "Z120602",   0, 365, 365, "100-240VAC + Pin Li-Ion","Đức",       7),
-    ("infusion",   "B.Braun Infusomat Space Volumetric", "Medtronic",           "Bơm tiêm - Truyền dịch","Class II", "Medium",   "13288", "Z120602",   0, 365, 365, "100-240VAC + Pin Li-Ion","Đức",       7),
-    ("syringe",    "B.Braun Perfusor Space Syringe Pump","Medtronic",           "Bơm tiêm - Truyền dịch","Class II", "Medium",   "13287", "Z120601",   0, 365, 365, "100-240VAC + Pin Li-Ion","Đức",       7),
+    ("bơm tiêm",   "B.Braun Perfusor Space Syringe Pump","Medtronic",           "Bơm tiêm - Truyền dịch","Class II", "Medium",   "13287", 0, 365, 365, "100-240VAC + Pin Li-Ion","Đức",       7),
+    ("bơm truyền", "B.Braun Infusomat Space Volumetric", "Medtronic",           "Bơm tiêm - Truyền dịch","Class II", "Medium",   "13288", 0, 365, 365, "100-240VAC + Pin Li-Ion","Đức",       7),
+    ("infusion",   "B.Braun Infusomat Space Volumetric", "Medtronic",           "Bơm tiêm - Truyền dịch","Class II", "Medium",   "13288", 0, 365, 365, "100-240VAC + Pin Li-Ion","Đức",       7),
+    ("syringe",    "B.Braun Perfusor Space Syringe Pump","Medtronic",           "Bơm tiêm - Truyền dịch","Class II", "Medium",   "13287", 0, 365, 365, "100-240VAC + Pin Li-Ion","Đức",       7),
 
-    ("gây mê",     "GE Aisys CS2 Anesthesia",          "GE Healthcare",         "Phẫu thuật - Gây mê",  "Class II",  "High",     "35048", "R0303010101", 0, 180, 180, "220VAC, 50Hz",         "Hoa Kỳ",     10),
-    ("anesthesia", "GE Aisys CS2 Anesthesia",          "GE Healthcare",         "Phẫu thuật - Gây mê",  "Class II",  "High",     "35048", "R0303010101", 0, 180, 180, "220VAC, 50Hz",         "Hoa Kỳ",     10),
+    ("gây mê",     "GE Aisys CS2 Anesthesia",          "GE Healthcare",         "Phẫu thuật - Gây mê",  "Class II",  "High",     "35048", 0, 180, 180, "220VAC, 50Hz",         "Hoa Kỳ",     10),
+    ("anesthesia", "GE Aisys CS2 Anesthesia",          "GE Healthcare",         "Phẫu thuật - Gây mê",  "Class II",  "High",     "35048", 0, 180, 180, "220VAC, 50Hz",         "Hoa Kỳ",     10),
 
-    ("xét nghiệm", "Roche Cobas c311 Biochemistry",    "Siemens Healthineers",  "Xét nghiệm",           "Class I",   "Low",      "40568", "W0105",     0, 180, 365, "220VAC, 50Hz",         "Thuỵ Sĩ",    8),
-    ("sinh hóa",   "Roche Cobas c311 Biochemistry",    "Siemens Healthineers",  "Xét nghiệm",           "Class I",   "Low",      "40568", "W0105",     0, 180, 365, "220VAC, 50Hz",         "Thuỵ Sĩ",    8),
-    ("huyết học",  "Sysmex XN-1000 Hematology",         "Siemens Healthineers",  "Xét nghiệm",           "Class I",   "Low",      "40570", "W0103",     0, 180, 365, "220VAC, 50Hz",         "Nhật Bản",   8),
+    ("xét nghiệm", "Roche Cobas c311 Biochemistry",    "Siemens Healthineers",  "Xét nghiệm",           "Class I",   "Low",      "40568", 0, 180, 365, "220VAC, 50Hz",         "Thuỵ Sĩ",    8),
+    ("sinh hóa",   "Roche Cobas c311 Biochemistry",    "Siemens Healthineers",  "Xét nghiệm",           "Class I",   "Low",      "40568", 0, 180, 365, "220VAC, 50Hz",         "Thuỵ Sĩ",    8),
+    ("huyết học",  "Sysmex XN-1000 Hematology",         "Siemens Healthineers",  "Xét nghiệm",           "Class I",   "Low",      "40570", 0, 180, 365, "220VAC, 50Hz",         "Nhật Bản",   8),
 ]
 
 # Fallback model (khi không match keyword nào)
@@ -236,7 +236,7 @@ def _ensure_locations() -> dict:
         doc = frappe.get_doc({
             "doctype": "AC Location", "location_name": lname, "location_code": code,
             "clinical_area_type": area, "infection_control_level": lvl,
-            "power_backup_available": backup, "emergency_contact": contact,
+            "power_backup_available": backup, "contact_phone": contact,
             "notes": notes, "is_group": 0,
         }).insert(ignore_permissions=True)
         result[lname] = doc.name
@@ -293,7 +293,7 @@ def _ensure_device_models(categories: dict) -> dict:
     result = {}
     seen = set()
     for row in DEVICE_MODELS:
-        (_kw, model, mfg, cat, cls, risk, gmdn, emdn, is_rad, pm_d, cal_d, power, country, lifespan) = row
+        (_kw, model, mfg, cat, cls, risk, gmdn, is_rad, pm_d, cal_d, power, country, lifespan) = row
         if model in seen:
             continue
         seen.add(model)
@@ -305,7 +305,7 @@ def _ensure_device_models(categories: dict) -> dict:
             "doctype": "IMM Device Model", "model_name": model, "manufacturer": mfg,
             "model_version": "v1.0", "country_of_origin": country, "power_supply": power,
             "expected_lifespan_years": lifespan, "medical_device_class": cls,
-            "risk_classification": risk, "gmdn_code": gmdn, "emdn_code": emdn,
+            "risk_classification": risk, "gmdn_code": gmdn,
             "registration_required": 1, "is_radiation_device": is_rad,
             "asset_category": categories.get(cat),
             "is_pm_required": 1, "pm_interval_days": pm_d, "pm_alert_days": 14,
@@ -351,10 +351,9 @@ def patch_uat_assets_data():
             match = next((r for r in DEVICE_MODELS if r[2] == m.manufacturer), None)
         if not match:
             match = DEVICE_MODELS[DEFAULT_MODEL_IDX]
-        (_kw, _mdl, _mfg, _cat, cls, risk, gmdn, emdn, is_rad, pm_d, cal_d, power, country, lifespan) = match
+        (_kw, _mdl, _mfg, _cat, cls, risk, gmdn, is_rad, pm_d, cal_d, power, country, lifespan) = match
         mdoc = frappe.get_doc("IMM Device Model", m.name)
         if not mdoc.gmdn_code: mdoc.gmdn_code = gmdn
-        if not mdoc.emdn_code: mdoc.emdn_code = emdn
         if not mdoc.medical_device_class: mdoc.medical_device_class = cls
         if not mdoc.risk_classification: mdoc.risk_classification = risk
         if not mdoc.country_of_origin: mdoc.country_of_origin = country
@@ -412,7 +411,7 @@ def patch_uat_assets_data():
 
         # Detect model theo tên
         model_row = _pick_model_for_asset(doc.asset_name or "", doc.device_model)
-        (kw, mdl, mfg, cat_name, cls, risk, gmdn, emdn, is_rad,
+        (kw, mdl, mfg, cat_name, cls, risk, gmdn, is_rad,
          pm_d, cal_d, power, country, lifespan) = model_row
 
         # ── Fill các field bắt buộc / core ──

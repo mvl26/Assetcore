@@ -65,11 +65,9 @@ def run():
             frappe.db.set_value("AC Supplier", name, "supplier_name", label)
             print(f"Supplier {name} -> {label}")
 
-    # AC Asset: fix gmdn_status from 'Not Use' to 'Active' and add depreciation_method
-    for asset in frappe.get_all("AC Asset", fields=["name", "gmdn_status", "depreciation_method"]):
+    # AC Asset: ensure depreciation_method defaulted
+    for asset in frappe.get_all("AC Asset", fields=["name", "depreciation_method"]):
         updates = {}
-        if asset.gmdn_status == "Not Use":
-            updates["gmdn_status"] = "Active"
         if not asset.depreciation_method:
             updates["depreciation_method"] = "Straight Line"
         if updates:

@@ -45,19 +45,19 @@ def run():
     loc_data = [
         {"location_name": "Phong-ICU-T3-NhaA", "is_group": 0,
          "clinical_area_type": "ICU", "infection_control_level": "Isolation",
-         "power_backup_available": 1, "emergency_contact": "0909 123 456"},
+         "power_backup_available": 1, "contact_phone": "0909 123 456"},
         {"location_name": "Phong-Mo-2-T5-NhaB", "is_group": 0,
          "clinical_area_type": "OR", "infection_control_level": "Isolation",
-         "power_backup_available": 1, "emergency_contact": "0909 234 567"},
+         "power_backup_available": 1, "contact_phone": "0909 234 567"},
         {"location_name": "Phong-Xquang-Sieuu-am-T1-NhaC", "is_group": 0,
          "clinical_area_type": "Imaging", "infection_control_level": "Standard",
-         "power_backup_available": 1, "emergency_contact": "0909 345 678"},
+         "power_backup_available": 1, "contact_phone": "0909 345 678"},
         {"location_name": "Phong-Tim-mach-T6-NhaA", "is_group": 0,
          "clinical_area_type": "OR", "infection_control_level": "Enhanced",
-         "power_backup_available": 1, "emergency_contact": "0909 456 789"},
+         "power_backup_available": 1, "contact_phone": "0909 456 789"},
         {"location_name": "Kho-Vat-tu-TTYT-Tang-B1", "is_group": 0,
          "clinical_area_type": "Storage", "infection_control_level": "Standard",
-         "power_backup_available": 0, "emergency_contact": "0909 567 890"},
+         "power_backup_available": 0, "contact_phone": "0909 567 890"},
     ]
     loc_names = []
     for data in loc_data:

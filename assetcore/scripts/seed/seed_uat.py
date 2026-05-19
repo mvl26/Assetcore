@@ -72,7 +72,7 @@ def _seed_locations() -> list[str]:
             "clinical_area_type": ctype,
             "infection_control_level": lvl,
             "power_backup_available": backup,
-            "emergency_contact": contact,
+            "contact_phone": contact,
             "notes": notes,
             "is_group": 0,
         })
@@ -236,27 +236,27 @@ def _seed_suppliers() -> list[str]:
 def _seed_device_models(categories: list[str]) -> list[str]:
     # categories: 0=Monitor, 1=Imaging, 2=LifeSupport, 3=Anesthesia, 4=Pump, 5=Lab, 6=Ultrasound
     rows = [
-        # (name, mfg, version, country, power, lifespan, class, risk, gmdn, emdn,
+        # (name, mfg, version, country, power, lifespan, class, risk, gmdn,
         #  is_rad, pm_days, pm_alert, is_cal, cal_days, cal_alert, cat_idx)
         ("Philips IntelliVue MX550", "Philips Healthcare", "MX550 Rev.B", "Đức", "100-240VAC, 50-60Hz", 8,
-         _CLASS_II, "Medium", "37825", "Z12030101", 0, 180, 14, 1, 365, 30, 0),
+         _CLASS_II, "Medium", "37825", 0, 180, 14, 1, 365, 30, 0),
         ("GE Optima XR220amx",       "GE HealthCare",       "XR220amx v3.2", "Hoa Kỳ", "220VAC, 50Hz", 10,
-         _CLASS_III, "High", "40890", "Z11040801", 1, 180, 14, 1, 365, 30, 1),
+         _CLASS_III, "High", "40890", 1, 180, 14, 1, 365, 30, 1),
         ("Mindray SV300 Ventilator", "Mindray",             "SV300 v2.1", "Trung Quốc", "100-240VAC", 7,
-         _CLASS_II, "Critical", "36263", "R0301010101", 0, 90, 7, 1, 180, 15, 2),
+         _CLASS_II, "Critical", "36263", 0, 90, 7, 1, 180, 15, 2),
         ("Dräger Perseus A500",      "Dräger Medical",      "A500 SW 1.5", "Đức", "100-240VAC", 10,
-         _CLASS_II, "High", "35048", "R0303010101", 0, 180, 14, 1, 180, 15, 3),
+         _CLASS_II, "High", "35048", 0, 180, 14, 1, 180, 15, 3),
         ("B.Braun Infusomat Space",  "B.Braun",             "Space P 1.3", "Đức", "100-240VAC / Pin Li-Ion", 7,
-         _CLASS_II, "Medium", "13287", "Z120601", 0, 365, 30, 1, 365, 30, 4),
+         _CLASS_II, "Medium", "13287", 0, 365, 30, 1, 365, 30, 4),
         ("Roche Cobas c311",         "Roche Diagnostics",   "c311 sys 2024", "Thụy Sĩ", "220VAC, 50Hz", 8,
-         _CLASS_I, "Low", "40568", "W0105", 0, 180, 14, 1, 365, 30, 5),
+         _CLASS_I, "Low", "40568", 0, 180, 14, 1, 365, 30, 5),
         ("Mindray DC-70 Ultrasound", "Mindray",             "DC-70 X-Insight", "Trung Quốc", "100-240VAC", 8,
-         _CLASS_II, "Low", "40231", "Z110305", 0, 365, 30, 1, 365, 30, 6),
+         _CLASS_II, "Low", "40231", 0, 365, 30, 1, 365, 30, 6),
         ("GE LOGIQ P9 Ultrasound",   "GE HealthCare",       "LOGIQ P9 R3", "Hoa Kỳ", "220VAC", 10,
-         _CLASS_II, "Low", "41211", "Z110305", 0, 365, 30, 1, 365, 30, 6),
+         _CLASS_II, "Low", "41211", 0, 365, 30, 1, 365, 30, 6),
     ]
     names = []
-    for (mname, mfg, ver, country, power, lifespan, cls, risk, gmdn, emdn,
+    for (mname, mfg, ver, country, power, lifespan, cls, risk, gmdn,
          is_rad, pm_d, pm_alt, is_cal, cal_d, cal_alt, cat_i) in rows:
         n = _upsert(_DT_MODEL, {"model_name": mname, "manufacturer": mfg}, {
             "model_name": mname,
@@ -268,7 +268,6 @@ def _seed_device_models(categories: list[str]) -> list[str]:
             "medical_device_class": cls,
             "risk_classification": risk,
             "gmdn_code": gmdn,
-            "emdn_code": emdn,
             "registration_required": 1,
             "is_radiation_device": is_rad,
             "asset_category": categories[cat_i],

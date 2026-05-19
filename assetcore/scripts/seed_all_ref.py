@@ -38,19 +38,19 @@ def run():
     loc_data = [
         {"location_name": "Phòng ICU — Tầng 3, Nhà A", "is_group": 0,
          "clinical_area_type": "ICU", "infection_control_level": "Isolation",
-         "power_backup_available": 1, "emergency_contact": "0909 123 456"},
+         "power_backup_available": 1, "contact_phone": "0909 123 456"},
         {"location_name": "Phòng Mổ số 2 — Tầng 5, Nhà B", "is_group": 0,
          "clinical_area_type": "Operating Room", "infection_control_level": "Isolation",
-         "power_backup_available": 1, "emergency_contact": "0909 234 567"},
+         "power_backup_available": 1, "contact_phone": "0909 234 567"},
         {"location_name": "Phòng X-quang & Siêu âm — Tầng 1, Nhà C", "is_group": 0,
          "clinical_area_type": "Radiology", "infection_control_level": "Standard",
-         "power_backup_available": 1, "emergency_contact": "0909 345 678"},
+         "power_backup_available": 1, "contact_phone": "0909 345 678"},
         {"location_name": "Phòng Tim mạch can thiệp — Tầng 6, Nhà A", "is_group": 0,
          "clinical_area_type": "Catheterization Lab", "infection_control_level": "Enhanced",
-         "power_backup_available": 1, "emergency_contact": "0909 456 789"},
+         "power_backup_available": 1, "contact_phone": "0909 456 789"},
         {"location_name": "Kho Vật tư Thiết bị Y tế — Tầng B1", "is_group": 0,
          "clinical_area_type": "Utility", "infection_control_level": "Standard",
-         "power_backup_available": 0, "emergency_contact": "0909 567 890"},
+         "power_backup_available": 0, "contact_phone": "0909 567 890"},
     ]
     loc_names = []
     for data in loc_data:
