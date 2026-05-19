@@ -249,6 +249,7 @@ def _build_user_detail(user_name: str) -> dict:
 def list_users(
     search: str = "",
     department: str = "",
+    role: str = "",
     is_active: int = None,
     approval_status: str = "",
     page: int = 1,
@@ -265,6 +266,21 @@ def list_users(
         filters["ac_department"] = department
     if approval_status and _safe_field("imm_approval_status"):
         filters["imm_approval_status"] = approval_status
+
+    # Lọc theo IMM role — role nằm ở child table Has Role (parent = User).
+    # Phải resolve sang danh sách User trước, vì frappe.db.count/get_all
+    # không filter xuyên child table được.
+    if role and role in _IMM_ROLES:
+        role_parents = [
+            r["parent"]
+            for r in frappe.get_all(
+                "Has Role",
+                filters={"parenttype": "User", "role": role},
+                fields=["parent"],
+            )
+        ]
+        # Không user nào giữ role → ép kết quả rỗng (tránh trả toàn bộ).
+        filters["name"] = ["in", role_parents or [""]]
 
     or_filters = None
     if search:

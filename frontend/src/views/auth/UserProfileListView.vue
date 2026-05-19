@@ -325,7 +325,7 @@ function doDownloadTemplate() { globalThis.location.href = getTemplateUrl('User'
               <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Họ và tên</th>
               <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Email</th>
               <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase hidden md:table-cell">Khoa/Phòng</th>
-              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Vai trò IMM</th>
+              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Vai trò</th>
               <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Trạng thái</th>
               <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Thao tác</th>
             </tr>

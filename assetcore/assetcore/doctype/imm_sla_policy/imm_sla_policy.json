@@ -46,7 +46,7 @@
    "fieldname": "priority",
    "fieldtype": "Select",
    "label": "Priority",
-   "options": "P1 Critical\nP1 High\nP2\nP3\nP4",
+   "options": "P1\nP2\nP3\nP4",
    "reqd": 1,
    "search_index": 1,
    "in_list_view": 1

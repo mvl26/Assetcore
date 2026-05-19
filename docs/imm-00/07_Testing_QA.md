@@ -121,8 +121,8 @@ def test_validate_asset_for_operations_blocks_oos():
 ```python
 def test_get_sla_policy_exact_match():
     """P1 × Critical → trả policy exact match."""
-    make_sla_policy(priority="P1 Critical", risk_class="Critical", response=15, resolution=4)
-    policy = get_sla_policy("P1 Critical", "Critical")
+    make_sla_policy(priority="P1", risk_class="Critical", response=15, resolution=4)
+    policy = get_sla_policy("P1", "Critical")
     assert policy["response_time_minutes"] == 15
     assert policy["resolution_time_hours"] == 4
 ```

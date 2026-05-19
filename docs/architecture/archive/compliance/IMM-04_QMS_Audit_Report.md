@@ -128,7 +128,7 @@
 | `Biomed Engineer` | Write Baseline Tests, chuyển node Inspect | ✅ Đã thiết kế | Sửa Master Data Item → GAP (xem dưới) | ⚠️ Partial |
 | `VP_Block2` | Submit/Approve Release | ✅ Đã thiết kế | — | ✅ Pass |
 | `QA_Risk_Team` | Upload License, gỡ Hold | ✅ Đã thiết kế | — | ✅ Pass |
-| Master Data Item | Chỉ Admin/Board được Edit | ⚠️ **Chưa xác nhận được set Read-Only với HTM Tech** — Gap từ Hardening #02 | Thay đổi `is_radiation` → máy X-quang lọt lưới Hold → nguy hiểm tính mạng | ❌ **FAIL** |
+| Master Data Item | Chỉ Admin/Board được Edit | ⚠️ **Chưa xác nhận được set Read-Only với HTM Tech** — Gap từ Hardening #02 | Thay đổi `is_radiation` → máy X-quang lọt lưới Hold → nguy hiểm cao | ❌ **FAIL** |
 | `Vendor Technician` | Chỉ Access node `Installing` | ⚠️ Portal access chưa được implement và test | — | ⚠️ Partial |
 
 **Kết luận mục 6:** ❌ **FAIL**

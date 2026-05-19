@@ -288,8 +288,8 @@ def _seed_device_models(categories: list[str]) -> list[str]:
 
 def _seed_sla_policies() -> list[str]:
     rows = [
-        ("SLA P1 Critical — ICU/Life-support", "P1 Critical", "Critical", 30, 4, 1),
-        ("SLA P1 High — Emergency diagnostics", "P1 High", "High", 60, 8, 1),
+        ("SLA P1 — ICU/Life-support",          "P1", "Critical", 30, 4, 1),
+        ("SLA P1 — Emergency diagnostics",      "P1", "High", 60, 8, 0),
         ("SLA P2 — Routine repair",             "P2", "Medium", 240, 48, 0),
         ("SLA P3 — Non-critical",               "P3", "Low", 480, 120, 0),
         ("SLA Default — Fallback",              "P2", None, 360, 72, 0),

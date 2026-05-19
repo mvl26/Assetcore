@@ -165,11 +165,11 @@ class TestIMSLAPolicy(unittest.TestCase):
     def test_sla_policies_loaded(self):
         """Fixture SLA policies must exist after bench migrate."""
         count = frappe.db.count("IMM SLA Policy", {"is_active": 1})
-        self.assertGreaterEqual(count, 6, "Expected at least 6 active SLA policies from fixtures")
+        self.assertGreaterEqual(count, 5, "Expected at least 5 active SLA policies from fixtures")
 
     def test_resolve_default_policy(self):
         from assetcore.services.imm00 import get_sla_policy
-        policy = get_sla_policy("P1 Critical", "Critical")
+        policy = get_sla_policy("P1", "Critical")
         self.assertIsNotNone(policy)
         self.assertEqual(policy.get("response_time_minutes"), 15)
 

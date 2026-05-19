@@ -655,19 +655,17 @@ assetcore/fixtures/
 
 ## IV.5. SLA Policy defaults
 
-9 policies theo ma trận `{P1,P2,P3} × {Low,Medium,High,Critical}` + 1 default cho mỗi priority:
+Priority chỉ còn **4 mức `P1..P4`** (P1 = khẩn cấp nhất). Bỏ tách `P1 Critical / P1 High` (dư thừa) — phân biệt mức độ đã do `risk_class` đảm nhận. Fixtures ship 5 policy active, mỗi priority có 1 `is_default=1`:
 
-| Priority    | Risk Class | Response (min) | Resolution (h) | is_default |
-| ----------- | ---------- | -------------- | -------------- | ---------- |
-| P1 Critical | Critical   | 5              | 0.5            | 0          |
-| P1 Critical | High       | 10             | 1              | 0          |
-| P1 Critical | (fallback) | 30             | 4              | 1          |
-| P2 Urgent   | Critical   | 30             | 4              | 0          |
-| P2 Urgent   | High       | 60             | 8              | 0          |
-| P2 Urgent   | (fallback) | 120            | 24             | 1          |
-| P3 Normal   | Critical   | 60             | 8              | 0          |
-| P3 Normal   | (fallback) | 240            | 48             | 1          |
-| P4 Low      | (fallback) | 480            | 72             | 1          |
+| Priority | Risk Class | Response (min) | Resolution (h) | is_default |
+| -------- | ---------- | -------------- | -------------- | ---------- |
+| P1       | Critical   | 15             | 4              | 1          |
+| P1       | High       | 30             | 8              | 0          |
+| P2       | Medium     | 240            | 48             | 1          |
+| P3       | Low        | 480            | 120            | 1          |
+| P4       | Low        | 1440           | 240            | 1          |
+
+`get_sla_policy(priority, risk_class)` khớp chính xác `(priority, risk_class)` trước, fallback về policy `is_default=1` của priority đó (BR-00-05: mỗi `(priority, risk_class)` chỉ 1 policy active).
 
 ---
 

@@ -6,6 +6,8 @@ Convention:
   POST → frappe.whitelist(methods=["POST"])
   Response: _ok(data) | _err(message, code)
 """
+import json
+
 import frappe
 from frappe import _
 
@@ -1222,6 +1224,37 @@ def get_service_contract(name: str):
     return _ok(doc)
 
 
+def _normalize_covered_assets(raw):
+    """Chuẩn hóa payload child-table `covered_assets`.
+
+    FE gửi list[dict] (hoặc JSON string khi qua form-encoded). Chỉ giữ
+    `asset` + `coverage_note`, bỏ dòng trống và khử trùng lặp theo asset.
+    `asset_name` do DocType tự fetch_from nên không nhận từ client.
+    """
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        raw = raw.strip()
+        if not raw:
+            return []
+        try:
+            raw = json.loads(raw)
+        except (ValueError, TypeError):
+            frappe.throw(_("Danh sách thiết bị không hợp lệ"), frappe.exceptions.ValidationError)
+    if not isinstance(raw, (list, tuple)):
+        frappe.throw(_("Danh sách thiết bị không hợp lệ"), frappe.exceptions.ValidationError)
+    rows, seen = [], set()
+    for r in raw:
+        if not isinstance(r, dict):
+            continue
+        asset = (r.get("asset") or "").strip()
+        if not asset or asset in seen:
+            continue
+        seen.add(asset)
+        rows.append({"asset": asset, "coverage_note": (r.get("coverage_note") or "").strip()})
+    return rows
+
+
 @frappe.whitelist(methods=["POST"])
 def create_service_contract():
     """POST /api/method/assetcore.api.imm00.create_service_contract"""
@@ -1231,8 +1264,12 @@ def create_service_contract():
     if missing:
         return _err(_("Thiếu trường bắt buộc: {0}").format(", ".join(missing)), ErrorCode.VALIDATION)
     try:
+        covered_assets = _normalize_covered_assets(data.get("covered_assets"))
         doc = frappe.new_doc(_DT_SERVICE_CONTRACT)
-        doc.update({k: v for k, v in data.items() if k not in ("cmd", "doctype")})
+        doc.update({k: v for k, v in data.items()
+                    if k not in ("cmd", "doctype", "covered_assets")})
+        for row in (covered_assets or []):
+            doc.append("covered_assets", row)
         doc.insert()
         frappe.db.commit()
         return _ok({"name": doc.name})
@@ -1250,7 +1287,11 @@ def update_service_contract(name: str):
         doc = frappe.get_doc(_DT_SERVICE_CONTRACT, name)
         if doc.docstatus == 1:
             return _err(_("Hợp đồng đã submit, không thể sửa"), 422)
-        doc.update({k: v for k, v in data.items() if k not in ("cmd", "name", "doctype")})
+        doc.update({k: v for k, v in data.items()
+                    if k not in ("cmd", "name", "doctype", "covered_assets")})
+        # covered_assets chỉ thay thế khi client gửi field này (None = giữ nguyên)
+        if "covered_assets" in data:
+            doc.set("covered_assets", _normalize_covered_assets(data.get("covered_assets")) or [])
         doc.save()
         frappe.db.commit()
         return _ok({"name": doc.name})
