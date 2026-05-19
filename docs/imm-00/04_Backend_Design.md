@@ -200,7 +200,7 @@ Downtime log (AC Asset Downtime Log) tự động open/close qua `_sync_downtime
 
 **Autoname:** `IMM-MDL-.YYYY.-.####` · **track_changes:** 1
 
-> Kế thừa `gmdn_code` + PM/Calibration defaults từ `AC Asset Category` khi tạo mới (`before_insert → _inherit_pm_calibration_defaults()`). Người dùng có thể override thủ công sau khi lưu.
+> Kế thừa `gmdn_code` + PM/Calibration defaults từ `AC Asset Category` khi tạo mới (`before_insert → _inherit_pm_calibration_defaults()`). Người dùng có thể override `gmdn_code` thủ công — khi đó cờ `gmdn_inherited` tự chuyển 0 và Model được bảo vệ khỏi cascade (P3 Hybrid, xem dưới).
 
 | Field                         | DB Type      | Required | Description                    | BR/Note                                                                                           |
 | ----------------------------- | ------------ | -------- | ------------------------------ | ------------------------------------------------------------------------------------------------- |
@@ -210,6 +210,7 @@ Downtime log (AC Asset Downtime Log) tự động open/close qua `_sync_downtime
 | `medical_device_class`      | varchar(20)  | YES      | Class I/II/III                 | BR-00-01 mapping                                                                                  |
 | `risk_classification`       | varchar(20)  | YES      | Low/Medium/High/Critical       | auto-set theo class + is_radiation_device                                                         |
 | `gmdn_code`                 | varchar(20)  | NO       | **Mã GMDN 5–6 số**    | **Kế thừa từ `asset_category.gmdn_code`** khi tạo nếu để trống; có thể override |
+| `gmdn_inherited`            | tinyint(1)   | NO       | Cờ kế thừa GMDN (P3)         | read_only, default 1; hệ thống tự đặt trong `validate()`. 1 = kế thừa (cascade khi Category đổi); 0 = override cố ý (KHÔNG cascade) |
 | `emdn_code`                 | varchar(20)  | NO       | Mã EMDN (European)            | —                                                                                                |
 | `hsn_code`                  | varchar(20)  | NO       | Mã HSN (hải quan)            | —                                                                                                |
 | `is_pm_required`            | tinyint(1)   | NO       | Cần PM                        | inherit từ category.default_pm_required                                                          |
@@ -250,6 +251,21 @@ def _inherit_pm_calibration_defaults(self) -> None:
         if not self.calibration_interval_days and cat.get("default_calibration_interval_days"):
             self.calibration_interval_days = cat["default_calibration_interval_days"]
 ```
+
+**P3 Hybrid — GMDN cascade Category → Model → Asset (2026-05-19):**
+
+`AC Asset Category.gmdn_code` là single source of truth. Cơ chế chống drift:
+
+| Thành phần | File | Vai trò |
+| --- | --- | --- |
+| `gmdn_inherited` (Check, default 1, read_only) | `imm_device_model.json` | Phân biệt Model kế thừa vs override |
+| `IMMDeviceModel._set_gmdn_inherited_flag()` (`validate`) | `imm_device_model.py` | Đặt cờ: rỗng/`==Category` → 1; khác → 0 |
+| `ACAssetCategory.on_update()` + `has_value_changed("gmdn_code")` | `ac_asset_category.py` | Trigger cascade CHỈ khi gmdn_code thực sự đổi (idempotent, không đệ quy) |
+| `cascade_category_gmdn(category, old, new)` | `services/imm00.py` | Cascade tới Model `gmdn_inherited=1`; bỏ qua Model override (log danh sách) |
+| `resync_assets_gmdn_from_model(model, code)` | `services/imm00.py` | Re-sync `AC Asset.gmdn_code` + `log_audit_event(event_type="System")` mỗi Asset đổi |
+| Patch `v3_1/009_set_gmdn_inherited_flag` (post_model_sync) | `patches/v3_1/` | Backfill cờ cho Model cũ; CHỈ set cờ, KHÔNG đụng gmdn_code |
+
+Quy tắc: Model `gmdn_inherited=0` (override cố ý) **không bao giờ bị cascade đè**. Audit trail: mỗi Asset thực sự đổi giá trị → 1 dòng `IMM Audit Trail` (`change_summary` mô tả from→to, ref = Device Model). Idempotent: chạy lại với cùng giá trị không sinh audit thừa. Ref: [docs/res/plans/2026-05-19-gmdn-code-sync-strategy.md](../res/plans/2026-05-19-gmdn-code-sync-strategy.md) §5/§6, [gmdn-asset-category-analysis.md §2.2](../res/gmdn-asset-category-analysis.md).
 
 **Business Rule BR-00-01:**
 
