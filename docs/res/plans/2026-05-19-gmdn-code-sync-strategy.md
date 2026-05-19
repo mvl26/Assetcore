@@ -279,3 +279,29 @@ Các mã "ứng viên" tra được đều **sai ngữ cảnh**:
 ### 8.7 Phần KHÔNG bị chặn — Chính sách P3 Hybrid (§5/§6)
 
 Quyết định Q2 = **P3 Hybrid**. Phần này **độc lập với độ đúng của data** — chỉ là cơ chế chống drift tương lai, không sửa giá trị hiện tại, chỉ kích hoạt khi có người sửa `Category.gmdn_code` về sau. CÓ THỂ triển khai ngay theo §6 (C1–C7) mà không cần chờ P0.
+
+### 8.8 ✅ ĐÃ THỰC THI — Căn 3 tầng cho NHẤT QUÁN (2026-05-19)
+
+P3 Hybrid đã triển khai xong (§6 C1–C7, commits `2deffd4`/`c43e6d5`/`3ae7543`/`0f2eaad`, test 8/8 PASS).
+
+Tiếp theo, theo chỉ đạo "sửa nốt", đã chạy **fix tính nhất quán nội bộ** (KHÔNG phải fix mã BYT đúng — P0 vẫn chặn):
+
+- Script: `assetcore/scripts/fix_gmdn_align_tiers.py` (one-off, Model là nguồn).
+- Backup: `sites/miyano/private/backups/20260519_143326-miyano-database.sql.gz`.
+- Kết quả:
+
+| Bản ghi | Trước | Sau | Ghi chú |
+|---|---|---|---|
+| Cat Hỗ trợ sự sống | NULL | 36931 | từ Model Dräger Evita V500 |
+| Cat Theo dõi bệnh nhân | NULL | 37529 | từ Model Mindray BeneView T9 |
+| Cat Chẩn đoán hình ảnh | 35943 | 13421 | **xung đột — Model thắng** (35943 là mã nha khoa, sai rõ) |
+| Cat Phẫu thuật & can thiệp | NULL | NULL | orphan (không có Model) — giữ nguyên |
+| 3 Model `gmdn_inherited` | 0 | 1 | đã khớp Category → P3 cascade sẽ hoạt động |
+| 4 Asset gmdn_code | (đã khớp Model) | không đổi | resync no-op |
+
+- Verify: 4/4 Asset đạt `a == m == c`, mismatch = **0**, mọi Model `gmdn_inherited = 1`.
+- `gmdn_term`: vẫn NULL toàn bộ — **không backfill** (không có nguồn BYT, §8.5).
+
+**Ý nghĩa & giới hạn**: data nay **nhất quán 3 tầng** và P3 sẽ tự duy trì. NHƯNG các mã (36931/37529/13421) **vẫn CHƯA phải mã BYT đúng** cho loại thiết bị thực. Khi BA cung cấp QĐ 3107 (P0): chỉ cần sửa `gmdn_code` ở **Category** một lần → P3 cascade tự lan xuống Model+Asset (vì `gmdn_inherited=1`) + audit. Đây chính là lợi ích của việc làm nhất quán + P3 trước.
+
+**Còn nợ (chờ P0/BA)**: gán mã BYT đúng theo loại thiết bị + backfill `gmdn_term`.
