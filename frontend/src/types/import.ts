@@ -4,6 +4,10 @@ export type RefDataDoctype =
   | 'AC Asset Category'
   | 'AC Department'
   | 'AC Location'
+  | 'AC Supplier'
+  | 'IMM Device Model'
+  | 'Service Contract'
+  | 'User'
 
 export interface ImportIssue {
   row: number

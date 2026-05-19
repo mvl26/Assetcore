@@ -24,6 +24,7 @@ Doc → BE → FE → Test → Deploy → Audit (sửa lỗi / tái cấu trúc)
 | **assetcore-test** | Viết/chạy tests: backend unit test, workflow smoke test, Playwright UI test | "viết test", "TDD", "bench run-tests", "test UI", "DoD", "playwright", "UI xong chưa" |
 | **assetcore-deploy** | Vận hành hàng ngày (bench, migrate, fixtures) + triển khai production | "bench", "migrate", "deploy", "lên prod", "release", "site lỗi", "clear cache" |
 | **assetcore-audit** | Kiểm tra production-readiness (8-pillar) + security review | "audit module", "IMM-XX sẵn sàng chưa", "tái cấu trúc", "phân quyền", "security review", "gap analysis" |
+| **assetcore-commit** | Tạo git commit theo chuẩn dự án (1 commit/tất cả file, subject EN, no Co-Authored-By) | "commit", "commit tiếp", "commit cho tôi", "lưu thay đổi", "git commit" |
 
 ---
 

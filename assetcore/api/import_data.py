@@ -75,7 +75,7 @@ def _do_preview(doctype: str, file_url: str) -> dict:
             f"DocType '{doctype}' chưa hỗ trợ import — hỗ trợ: {', '.join(SUPPORTED_REF_DOCTYPES)}",
         )
 
-    fieldnames, rows = parse_upload_file(file_url)
+    fieldnames, rows = parse_upload_file(file_url, doctype)
 
     if not rows:
         raise ServiceError(ErrorCode.VALIDATION, "File không có dòng dữ liệu (từ hàng 6 trở xuống).")
@@ -124,7 +124,7 @@ def _do_import(doctype: str, file_url: str) -> dict:
             f"DocType '{doctype}' chưa hỗ trợ import",
         )
 
-    _, rows = parse_upload_file(file_url)
+    _, rows = parse_upload_file(file_url, doctype)
     if not rows:
         raise ServiceError(ErrorCode.VALIDATION, "File không có dòng dữ liệu.")
 
@@ -138,10 +138,19 @@ def _do_import(doctype: str, file_url: str) -> dict:
             f"File có {len(blocking)} lỗi bắt buộc phải sửa trước khi import. Dùng Preview để xem chi tiết.",
         )
 
+    if doctype == "User":
+        return _do_import_users(rows)
+
     results: dict = {"total": len(rows), "success": 0, "failed": 0, "errors": []}
     _BOOL_FIELDS = {
-        "is_active", "is_group", "default_pm_required", "default_calibration_required",
+        "is_active", "is_group", "is_transporter",
+        "default_pm_required", "default_calibration_required",
         "has_radiation", "power_backup_available",
+        # IMM Device Model
+        "is_pm_required", "is_calibration_required",
+        "is_radiation_device", "registration_required",
+        # Service Contract
+        "auto_renew",
     }
 
     for i, row in enumerate(rows, start=1):
@@ -186,6 +195,60 @@ def _friendly_frappe_error(msg: str) -> str:
     if "cannot be null" in msg.lower() or "mandatory" in msg.lower():
         return "Thiếu trường bắt buộc."
     return msg[:200]
+
+
+def _do_import_users(rows: list[dict]) -> dict:
+    """Upsert Frappe Users — insert new, update existing; assign roles additively."""
+    results: dict = {"total": len(rows), "success": 0, "failed": 0, "errors": []}
+    _USER_FIELDS = ("first_name", "last_name", "mobile_no", "ac_department", "imm_approval_status")
+
+    for i, row in enumerate(rows, start=1):
+        try:
+            email = str(row.get("email", "")).strip()
+            if not email:
+                raise ValueError("Email là bắt buộc")
+
+            is_new = not frappe.db.exists("User", email)
+            user = frappe.new_doc("User") if is_new else frappe.get_doc("User", email)
+
+            if is_new:
+                user.email = email
+                user.send_welcome_email = 0
+
+            for field in _USER_FIELDS:
+                val = str(row.get(field, "")).strip()
+                if val:
+                    setattr(user, field, val)
+
+            if is_new:
+                user.insert(ignore_permissions=True)
+            else:
+                user.save(ignore_permissions=True)
+
+            # Add roles listed in file (additive — never removes existing roles)
+            roles_raw = str(row.get("roles", "")).strip()
+            if roles_raw:
+                user_doc = frappe.get_doc("User", email)
+                existing = {hr.role for hr in user_doc.get("roles", [])}
+                new_roles = [
+                    r.strip() for r in roles_raw.split(",")
+                    if r.strip() and r.strip() not in existing and frappe.db.exists("Role", r.strip())
+                ]
+                if new_roles:
+                    user_doc.add_roles(*new_roles)
+
+            results["success"] += 1
+        except Exception as e:
+            frappe.log_error(f"Import User row {i} failed: {e}", "Import User Data")
+            results["failed"] += 1
+            results["errors"].append({
+                "row": i, "field": "",
+                "message": _friendly_frappe_error(str(e)),
+                "severity": "error",
+            })
+
+    frappe.db.commit()
+    return results
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -264,7 +327,7 @@ def _do_build_error_report(doctype: str, file_url: str) -> dict:
         parse_upload_file,
     )
 
-    fieldnames, rows = parse_upload_file(file_url)
+    fieldnames, rows = parse_upload_file(file_url, doctype)
     validator = get_validator(doctype)
     errors = validator.validate_all(rows)
 

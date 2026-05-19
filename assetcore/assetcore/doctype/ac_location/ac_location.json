@@ -22,10 +22,9 @@
   "infection_control_level",
   "column_break_clinical",
   "power_backup_available",
-  "emergency_contact",
   "section_contact",
   "dept_head",
-  "technical_contact",
+  "contact_phone",
   "section_notes",
   "notes"
  ],
@@ -124,11 +123,6 @@
    "label": "Power Backup Available"
   },
   {
-   "fieldname": "emergency_contact",
-   "fieldtype": "Data",
-   "label": "Emergency Contact"
-  },
-  {
    "fieldname": "section_contact",
    "fieldtype": "Section Break",
    "label": "Người phụ trách"
@@ -136,14 +130,15 @@
   {
    "fieldname": "dept_head",
    "fieldtype": "Link",
-   "label": "Department Head",
+   "label": "Người phụ trách",
    "options": "User"
   },
   {
-   "fieldname": "technical_contact",
-   "fieldtype": "Link",
-   "label": "Technical Contact",
-   "options": "User"
+   "fieldname": "contact_phone",
+   "fieldtype": "Data",
+   "label": "Số liên hệ",
+   "fetch_from": "dept_head.phone",
+   "description": "Tự điền từ số điện thoại của người phụ trách. Có thể sửa nếu cần dùng số khác."
   },
   {
    "fieldname": "section_notes",

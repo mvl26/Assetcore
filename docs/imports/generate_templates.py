@@ -282,10 +282,12 @@ def make_location():
         {"name": "power_backup_available", "label": "Có UPS/máy phát?", "required": False, "width": 20,
          "desc": "1 = có nguồn dự phòng; 0 = không.",
          "example": "1", "dv": '"1,0"'},
-        {"name": "emergency_contact", "label": "Liên hệ khẩn cấp", "required": False, "width": 25,
-         "desc": "Số DT hoặc email liên hệ khẩn cấp.", "example": "0901234567"},
-        {"name": "dept_head", "label": "Trưởng khu vực (email)", "required": False, "width": 30,
+        {"name": "dept_head", "label": "Người phụ trách (email)", "required": False, "width": 30,
          "desc": "Email User phụ trách vị trí.", "example": "nguyen.van.a@hospital.vn"},
+        {"name": "contact_phone", "label": "Số liên hệ", "required": False, "width": 22,
+         "desc": "Số liên hệ. Khi để trống, hệ thống sẽ tự lấy theo số di động "
+                 "của người phụ trách (mobile_no).",
+         "example": "0901234567"},
         {"name": "is_group", "label": "Là nhóm cha?", "required": False, "width": 16,
          "desc": "1 = node cha; 0 = vị trí thực.", "example": "0", "dv": '"1,0"'},
     ], [{}])
@@ -371,8 +373,6 @@ def make_imm00():
          "desc": "Mã định danh GMDN quốc tế.", "example": "57947"},
         {"name": "gmdn_term", "label": "Tên GMDN", "required": False, "width": 35,
          "desc": "Tên GMDN tiếng Anh.", "example": "Diagnostic ultrasound scanner"},
-        {"name": "emdn_code", "label": "Mã EMDN", "required": False, "width": 14,
-         "desc": "Mã EMDN (châu Âu, nếu có).", "example": "Z12.060.030"},
         {"name": "registration_required", "label": "Cần số đăng ký BYT?", "required": False, "width": 24,
          "desc": "1 = bắt buộc có số ĐKLH Bộ Y tế; 0 = không.", "example": "1", "dv": '"1,0"'},
         {"name": "is_radiation_device", "label": "Thiết bị bức xạ?", "required": False, "width": 20,
@@ -653,41 +653,30 @@ def make_users():
     wb.remove(wb.active)
 
     build_sheet(wb, "Danh sách người dùng", [
-        {"name": "email", "label": "Email (đăng nhập)", "required": True, "width": 32,
+        {"name": "email", "label": "Email (Mã người dùng)", "required": True, "width": 32,
          "desc": "Email là username đăng nhập hệ thống. Phải là email hợp lệ, duy nhất.",
          "example": "nguyen.van.a@hospital.vn"},
         {"name": "first_name", "label": "Tên", "required": True, "width": 18,
          "desc": "Tên (không bao gồm họ).", "example": "Văn A"},
         {"name": "last_name", "label": "Họ", "required": False, "width": 18,
          "desc": "Họ của người dùng.", "example": "Nguyễn"},
-        {"name": "full_name", "label": "Họ và tên đầy đủ", "required": False, "width": 28,
-         "desc": "Họ và tên đầy đủ. Nếu để trống sẽ tự ghép họ + tên.",
-         "example": "Nguyễn Văn A"},
-        {"name": "mobile_no", "label": "Số điện thoại", "required": False, "width": 18,
+        {"name": "mobile_no", "label": "Điện thoại", "required": False, "width": 18,
          "desc": "Số di động. VD: 0912345678.", "example": "0912345678"},
-        {"name": "department", "label": "Khoa phòng", "required": False, "width": 28,
-         "desc": "Tên khoa phòng (khớp file 01 / sheet 'Khoa phòng').",
-         "example": "Phòng Vật tư thiết bị"},
-        {"name": "role_profile_name", "label": "Role Profile", "required": False, "width": 28,
-         "desc": "Tên Role Profile trong hệ thống. Xem danh sách roles với admin.\n"
-                 "VD: HTM Technician, HTM Manager, Department Head, Viewer.",
-         "example": "HTM Technician"},
-        {"name": "send_welcome_email", "label": "Gửi email chào mừng?", "required": False, "width": 26,
-         "desc": "1 = gửi email mật khẩu tạm cho user; 0 = không gửi.",
-         "example": "1", "dv": '"1,0"'},
-        {"name": "enabled", "label": "Tài khoản hoạt động", "required": False, "width": 22,
-         "desc": "1 = active (mặc định); 0 = disable ngay khi import.",
-         "example": "1", "dv": '"1,0"'},
-        {"name": "language", "label": "Ngôn ngữ giao diện", "required": False, "width": 22,
-         "desc": "Mã ngôn ngữ. VD: vi (Tiếng Việt), en (English).",
-         "example": "vi"},
-        {"name": "time_zone", "label": "Múi giờ", "required": False, "width": 26,
-         "desc": "Múi giờ. Mặc định: Asia/Ho_Chi_Minh.",
-         "example": "Asia/Ho_Chi_Minh"},
+        {"name": "ac_department", "label": "Khoa/Phòng", "required": False, "width": 28,
+         "desc": "Mã khoa/phòng (AC Department name). VD: Khoa-HSTC.",
+         "example": "Khoa-HSTC"},
+        {"name": "imm_approval_status", "label": "Trạng thái duyệt", "required": False, "width": 22,
+         "desc": "Trạng thái duyệt IMM. Chọn: Pending / Approved / Rejected.",
+         "example": "Approved", "dv": '"Pending,Approved,Rejected"'},
+        {"name": "roles", "label": "Vai trò (phân cách bằng dấu phẩy)", "required": False, "width": 40,
+         "desc": "Danh sách vai trò Frappe, phân cách bằng dấu phẩy. "
+                 "Chỉ thêm, không xóa vai trò hiện có. "
+                 "VD: HTM Technician, HTM Manager.",
+         "example": "HTM Technician, HTM Manager"},
     ], [{}],
     instructions="Mỗi hàng = 1 người dùng. "
-                 "Email là định danh duy nhất — không trùng. "
-                 "Role Profile phải tồn tại trong hệ thống trước khi import.")
+                 "Email là định danh duy nhất. Nếu đã tồn tại sẽ cập nhật thông tin. "
+                 "Vai trò chỉ được thêm, không bao giờ xóa vai trò hiện có.")
 
     wb.save(os.path.join(OUT_DIR, "06_danh_sach_nguoi_dung.xlsx"))
     print("✓ 06_danh_sach_nguoi_dung.xlsx")

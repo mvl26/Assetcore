@@ -11,7 +11,7 @@
 | Đợt triển khai | 2 |
 | Owner | Tổ HC-QLCL & Risk |
 
-> ✅ Module đã triển khai trên branch `feature/hieuc/wave-2` — `assetcore/services/imm16.py` (~1705 dòng), `assetcore/api/imm16.py` (~424 dòng / ~52 whitelist functions), 11 DocType (`imm_compliance_rule`, `imm_compliance_finding`, `imm_internal_audit`, `imm_compliance_scorecard`, `imm_management_review`, `imm_capa_record`, `imm_capa_action_step`, `imm_audit_checklist_item`, …) + 8 view tại `frontend/src/views/compliance/`. Banners PLANNED trong file 02–09 đã được gỡ (Wave-2 Sync Pass 2026-05-14).
+> ✅ Module đã triển khai trên branch `feature/hieuc/wave-2` — `assetcore/services/imm16.py` (~2076 dòng), `assetcore/api/imm16.py` (~423 dòng / 52 whitelist functions), 11 DocType (`imm_compliance_rule`, `imm_compliance_finding`, `imm_internal_audit`, `imm_compliance_scorecard`, `imm_management_review`, `imm_capa_record`, `imm_capa_action_step`, `imm_audit_checklist_item`, …) + 10 view tại `frontend/src/views/compliance/`. Banners PLANNED trong file 02–09 đã được gỡ (Wave-2 Sync Pass 2026-05-14).
 
 ---
 

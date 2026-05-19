@@ -33,7 +33,7 @@ Route catalog đã sync với `frontend/src/router/index.ts` (verified 2026-05-1
 | 12 | `CapaDetailView.vue` (incident folder) | `/capas/:id` | `ROLES_CAPA_CLOSE` |
 | 13 | `AuditTrailListView.vue` | `/audit-trail` | `ROLES_AUDIT_READ` |
 
-> Confirmed 2026-05-18: Views thực tế trong `frontend/src/views/compliance/`: `ComplianceHeatmapView.vue`, `ComplianceRuleDetailView.vue`, `ComplianceRuleListView.vue`, `FindingDetailView.vue`, `FindingListView.vue`, `InternalAuditDetailView.vue`, `InternalAuditListView.vue`, `ManagementReviewDetailView.vue`, `ManagementReviewListView.vue`, `ScorecardView.vue` (9 views). CAPA views tại `frontend/src/views/incident/CAPADetailView.vue` + `CAPAListView.vue` (không phải `audit` folder như spec cũ).
+> Confirmed 2026-05-18: Views thực tế trong `frontend/src/views/compliance/`: `ComplianceHeatmapView.vue`, `ComplianceRuleDetailView.vue`, `ComplianceRuleListView.vue`, `FindingDetailView.vue`, `FindingListView.vue`, `InternalAuditDetailView.vue`, `InternalAuditListView.vue`, `ManagementReviewDetailView.vue`, `ManagementReviewListView.vue`, `ScorecardView.vue` (10 views). CAPA views tại `frontend/src/views/incident/CAPADetailView.vue` + `CAPAListView.vue` (không phải `audit` folder như spec cũ).
 
 > Tất cả 11 route đặt `meta.moduleId: 'imm16'`. Sidebar mapping: regex `[/^\/capas/, 'imm16']`, `[/^\/audit-trail/, 'imm16']`, `[/^\/compliance/, 'imm16']` trong `router/index.ts`.
 >

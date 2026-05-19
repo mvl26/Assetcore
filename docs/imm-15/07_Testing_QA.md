@@ -736,4 +736,4 @@ pylint assetcore/services/imm15.py assetcore/api/imm15.py
 
 ---
 
-*IMM-15 Module — Wave 3 PLANNED. Testing & QA v1.0.0-draft. Cập nhật 2026-05-08.*
+*IMM-15 Module — Wave 2 IMPLEMENTED. Testing & QA v1.0.0-rc.2. Cập nhật 2026-05-18.*

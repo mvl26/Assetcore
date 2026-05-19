@@ -144,7 +144,7 @@
 ### III.1 Patch Order (patches.txt)
 
 ```
-# IMM-15 Wave 3
+# IMM-15 Wave 2
 assetcore.patches.v3_201.add_imm15_custom_fields_to_ac_spare_part
 assetcore.patches.v3_202.create_imm_spare_allocation_doctype
 assetcore.patches.v3_203.create_imm_stock_cycle_count_doctype
@@ -665,4 +665,4 @@ curl -s "https://[site]/api/method/assetcore.api.inventory.list_spare_parts" \
 
 ---
 
-*IMM-15 Module — Wave 3 PLANNED. Deployment v1.0.0-draft. Cập nhật 2026-05-08.*
+*IMM-15 Module — Wave 2 IMPLEMENTED. Deployment v1.0.0-rc.2. Cập nhật 2026-05-18.*

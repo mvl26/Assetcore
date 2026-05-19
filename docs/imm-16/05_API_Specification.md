@@ -9,7 +9,7 @@
 | Base path | `assetcore.api.imm16` |
 | URL pattern | `/api/method/assetcore.api.imm16.<function>` |
 
-> ✅ Implemented — Wave 2. `assetcore/api/imm16.py` có **42 whitelist functions** (đếm chính xác 2026-05-18): 31 canonical endpoints trong §3.x catalog + 11 legacy aliases/helpers. FE consume qua `frontend/src/api/imm16.ts` + `frontend/src/stores/imm16.ts`. §1.4 dưới đây là danh sách đầy đủ.
+> ✅ Implemented — Wave 2. `assetcore/api/imm16.py` có **52 whitelist functions** (đếm 2026-05-18): canonical endpoints trong §3.x catalog + legacy aliases/helpers. FE consume qua `frontend/src/api/imm16.ts` + `frontend/src/stores/imm16.ts`. §1.4 dưới đây là danh sách đầy đủ.
 
 ---
 

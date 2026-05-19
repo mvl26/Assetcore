@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useToast } from '@/composables/useToast'
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import {
   listLocations, getLocation, createLocation, updateLocation, deleteLocation,
   listDepartments, getDepartment, createDepartment, updateDepartment, deleteDepartment,
@@ -57,11 +57,13 @@ async function load() {
 
 function openCreate() {
   editingName.value = null
+  phoneFetchState.value = 'idle'
+  skipPhoneFetch = true
   form.value = tab.value === 'location'
     ? { location_name: '', location_code: '', parent_location: '', is_group: 0,
         clinical_area_type: '', infection_control_level: '',
-        power_backup_available: 0, emergency_contact: '',
-        dept_head: '', technical_contact: '', notes: '' }
+        power_backup_available: 0,
+        dept_head: '', contact_phone: '', notes: '' }
     : tab.value === 'department'
     ? { department_name: '', department_code: '', parent_department: '', is_group: 0,
         dept_head: '', phone: '', email: '', is_active: 1 }
@@ -75,6 +77,8 @@ function openCreate() {
         default_residual_value_pct: 0,
         has_radiation: 0, is_active: 1 }
   err.value = ''; showForm.value = true
+  // Mở khoá auto-fetch sau khi form đã set xong
+  setTimeout(() => { skipPhoneFetch = false }, 0)
 }
 
 function normChecks(doc: Record<string, unknown>, fields: string[]): FormData {
@@ -83,10 +87,58 @@ function normChecks(doc: Record<string, unknown>, fields: string[]): FormData {
   return d
 }
 
+// Trạng thái fetch mobile_no → hiển thị hint trong modal
+const phoneFetchState = ref<'idle' | 'loading' | 'found' | 'empty'>('idle')
+// Flag chặn auto-fetch khi đang load dữ liệu edit (tránh ghi đè contact_phone đã lưu trong DB)
+let skipPhoneFetch = false
+
+async function fetchUserMobile(userEmail: string): Promise<string> {
+  const res = await api.get<{ message: { phone?: string; mobile_no?: string } | null }>(
+    '/api/method/frappe.client.get_value',
+    {
+      params: {
+        doctype: 'User',
+        filters: JSON.stringify({ name: userEmail }),
+        fieldname: JSON.stringify(['phone', 'mobile_no']),
+      },
+    },
+  )
+  // Ưu tiên phone, fallback mobile_no nếu phone trống
+  const m = res.data?.message
+  return m?.phone || m?.mobile_no || ''
+}
+
+// Khi đổi người phụ trách → tự fetch mobile_no, ghi đè contact_phone.
+// Chỉ chạy ở tab location, khi modal mở, không phải đang load edit data.
+watch(() => form.value.dept_head, async (newUser) => {
+  if (tab.value !== 'location' || !showForm.value) return
+  if (skipPhoneFetch) return
+  if (!newUser) {
+    phoneFetchState.value = 'idle'
+    form.value.contact_phone = ''
+    return
+  }
+  phoneFetchState.value = 'loading'
+  try {
+    const mobile = await fetchUserMobile(newUser as string)
+    if (mobile) {
+      form.value.contact_phone = mobile
+      phoneFetchState.value = 'found'
+    } else {
+      form.value.contact_phone = ''
+      phoneFetchState.value = 'empty'
+    }
+  } catch {
+    phoneFetchState.value = 'empty'
+  }
+})
+
 async function openEdit(row: Record<string, unknown>) {
   const name = row.name as string
   editingName.value = name
   err.value = ''
+  phoneFetchState.value = 'idle'
+  skipPhoneFetch = true
   try {
     let doc: Record<string, unknown>
     if (tab.value === 'location') {
@@ -103,6 +155,9 @@ async function openEdit(row: Record<string, unknown>) {
     form.value = { ...row } as FormData
   }
   showForm.value = true
+  // Mở khoá auto-fetch sau khi modal hiển thị + form đã sync vào DOM
+  await new Promise(r => setTimeout(r, 0))
+  skipPhoneFetch = false
 }
 
 async function save() {
@@ -451,16 +506,25 @@ v-for="t in (['location','department','category'] as Tab[])" :key="t"
               </select>
             </div>
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Liên hệ khẩn cấp</label>
-              <input v-model="form.emergency_contact" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+              <label class="block text-sm font-medium text-gray-700 mb-1">Người phụ trách</label>
+              <SmartSelect
+                v-model="form.dept_head as string"
+                doctype="User"
+                placeholder="Chọn người dùng..."
+              />
             </div>
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Phụ trách kỹ thuật</label>
-              <SmartSelect v-model="form.dept_head as string" doctype="User" placeholder="Chọn người dùng..." />
-            </div>
-            <div class="col-span-2">
-              <label class="block text-sm font-medium text-gray-700 mb-1">Liên hệ kỹ thuật</label>
-              <SmartSelect v-model="form.technical_contact as string" doctype="User" placeholder="Chọn người dùng..." />
+              <label class="block text-sm font-medium text-gray-700 mb-1">
+                Số liên hệ
+                <span v-if="phoneFetchState === 'loading'" class="ml-1 text-[10px] font-normal text-blue-500">(đang lấy số...)</span>
+                <span v-else-if="phoneFetchState === 'found'" class="ml-1 text-[10px] font-normal text-green-600">(đã lấy từ người phụ trách)</span>
+                <span v-else-if="phoneFetchState === 'empty'" class="ml-1 text-[10px] font-normal text-amber-600">(người phụ trách chưa có số — nhập tay)</span>
+              </label>
+              <input
+                v-model="form.contact_phone"
+                placeholder="Tự điền từ mobile_no, có thể sửa"
+                class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+              />
             </div>
             <div class="col-span-2">
               <label class="block text-sm font-medium text-gray-700 mb-1">Ghi chú</label>

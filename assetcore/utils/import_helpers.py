@@ -63,8 +63,7 @@ _REF_DATA_CONFIG: dict[str, dict] = {
         "export_fields": [
             "name", "location_name", "location_code", "parent_location",
             "is_group", "clinical_area_type", "infection_control_level",
-            "power_backup_available", "emergency_contact", "dept_head",
-            "technical_contact", "notes",
+            "power_backup_available", "dept_head", "contact_phone", "notes",
         ],
         "export_labels": {
             "name": _LABEL_SYSTEM_CODE,
@@ -75,21 +74,144 @@ _REF_DATA_CONFIG: dict[str, dict] = {
             "clinical_area_type": "Khu vực lâm sàng",
             "infection_control_level": "Kiểm soát nhiễm khuẩn",
             "power_backup_available": "Có UPS/máy phát",
-            "emergency_contact": "Liên hệ khẩn cấp",
-            "dept_head": "Phụ trách",
-            "technical_contact": "KTV phụ trách",
+            "dept_head": "Người phụ trách",
+            "contact_phone": "Số liên hệ",
             "notes": "Ghi chú",
+        },
+    },
+    "IMM Device Model": {
+        "name_field": "model_name",
+        "export_fields": [
+            "name", "model_name", "manufacturer", "asset_category",
+            "medical_device_class", "model_version", "country_of_origin",
+            "expected_lifespan_years",
+            "gmdn_code", "gmdn_term",
+            "registration_required", "is_radiation_device",
+            "is_pm_required", "pm_interval_days", "pm_alert_days",
+            "is_calibration_required", "calibration_interval_days",
+            "default_calibration_type",
+            "power_supply", "dimensions", "weight_kg",
+        ],
+        "export_labels": {
+            "name": _LABEL_SYSTEM_CODE,
+            "model_name": "Tên model",
+            "manufacturer": "Nhà sản xuất",
+            "asset_category": "Danh mục tài sản",
+            "medical_device_class": "Phân loại thiết bị",
+            "model_version": "Phiên bản",
+            "country_of_origin": "Xuất xứ",
+            "expected_lifespan_years": "Tuổi thọ kỳ vọng (năm)",
+            "gmdn_code": "Mã GMDN",
+            "gmdn_term": "Tên GMDN",
+            "registration_required": "Cần số đăng ký BYT",
+            "is_radiation_device": "Thiết bị bức xạ",
+            "is_pm_required": "Cần bảo trì ĐK",
+            "pm_interval_days": "Chu kỳ PM (ngày)",
+            "pm_alert_days": "Cảnh báo PM (ngày)",
+            "is_calibration_required": "Cần hiệu chuẩn",
+            "calibration_interval_days": "Chu kỳ HC (ngày)",
+            "default_calibration_type": "Loại hiệu chuẩn",
+            "power_supply": "Nguồn điện",
+            "dimensions": "Kích thước",
+            "weight_kg": "Trọng lượng (kg)",
+        },
+    },
+    "Service Contract": {
+        "name_field": "contract_code",
+        "export_fields": [
+            "name", "contract_code", "contract_title", "supplier",
+            "contract_type", "contract_start", "contract_end", "sign_date",
+            "contract_value", "auto_renew", "sla_response_hours", "coverage_description",
+        ],
+        "export_labels": {
+            "name": _LABEL_SYSTEM_CODE,
+            "contract_code": "Mã hợp đồng",
+            "contract_title": "Tên hợp đồng",
+            "supplier": "Nhà cung cấp",
+            "contract_type": "Loại hợp đồng",
+            "contract_start": "Ngày bắt đầu",
+            "contract_end": "Ngày kết thúc",
+            "sign_date": "Ngày ký",
+            "contract_value": "Giá trị (VND)",
+            "auto_renew": "Tự động gia hạn",
+            "sla_response_hours": "SLA phản hồi (giờ)",
+            "coverage_description": "Phạm vi dịch vụ",
+        },
+    },
+    "User": {
+        "name_field": "email",
+        "export_fields": [
+            "email", "full_name", "first_name", "last_name",
+            "mobile_no", "ac_department", "imm_approval_status", "roles",
+        ],
+        "export_labels": {
+            "email": "Email (Mã người dùng)",
+            "full_name": "Họ và tên",
+            "first_name": "Tên",
+            "last_name": "Họ",
+            "mobile_no": "Điện thoại",
+            "ac_department": "Khoa/Phòng",
+            "imm_approval_status": "Trạng thái duyệt",
+            "roles": "Vai trò (phân cách bằng dấu phẩy)",
+        },
+    },
+    "AC Supplier": {
+        "name_field": "supplier_name",
+        "export_fields": [
+            "name", "supplier_name", "supplier_code", "vendor_type",
+            "country", "tax_id", "email_id", "phone", "mobile_no",
+            "support_hotline", "technical_email", "local_representative",
+            "website", "address",
+            "contract_start", "contract_end", "contract_value",
+            "iso_17025_cert", "iso_17025_expiry",
+            "iso_13485_cert", "iso_13485_expiry",
+            "is_active",
+        ],
+        "export_labels": {
+            "name": _LABEL_SYSTEM_CODE,
+            "supplier_name": "Tên nhà cung cấp",
+            "supplier_code": "Mã nhà cung cấp",
+            "vendor_type": "Loại nhà cung cấp",
+            "country": "Quốc gia",
+            "tax_id": "Mã số thuế",
+            "email_id": "Email liên hệ",
+            "phone": "Điện thoại",
+            "mobile_no": "Di động",
+            "support_hotline": "Hotline hỗ trợ",
+            "technical_email": "Email kỹ thuật",
+            "local_representative": "Đại diện tại VN",
+            "website": "Website",
+            "address": "Địa chỉ",
+            "contract_start": "Ngày bắt đầu HĐ",
+            "contract_end": "Ngày kết thúc HĐ",
+            "contract_value": "Giá trị HĐ (VND)",
+            "iso_17025_cert": "Chứng chỉ ISO 17025",
+            "iso_17025_expiry": "Hạn ISO 17025",
+            "iso_13485_cert": "Chứng chỉ ISO 13485",
+            "iso_13485_expiry": "Hạn ISO 13485",
+            "is_active": "Đang hoạt động",
         },
     },
 }
 
 SUPPORTED_REF_DOCTYPES = list(_REF_DATA_CONFIG.keys())
 
+# For multi-sheet templates, map each DocType to its sheet name.
+# When a user uploads the combined template file, this ensures the correct
+# sheet is parsed regardless of which sheet was active when saved.
+_SHEET_NAME_MAP: dict[str, str] = {
+    "AC Supplier":      "Nhà cung cấp (Supplier)",
+    "IMM Device Model": "Mô hình thiết bị (Device Model)",
+    "Service Contract": "Hợp đồng (Service Contract)",
+    "IMM SLA Policy":   "Chính sách SLA",
+}
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # PARSE UPLOADED FILE
 # ─────────────────────────────────────────────────────────────────────────────
 
-def parse_upload_file(file_url: str) -> tuple[list[str], list[dict]]:
+def parse_upload_file(file_url: str, doctype: str = "") -> tuple[list[str], list[dict]]:
     """
     Parse AssetCore import template (Excel/CSV).
 
@@ -101,6 +223,9 @@ def parse_upload_file(file_url: str) -> tuple[list[str], list[dict]]:
         Row 5 — example     (skip)
         Row 6+ — data
 
+    For multi-sheet templates the correct sheet is resolved via _SHEET_NAME_MAP.
+    Falls back to the active sheet when no mapping is found.
+
     Returns (fieldnames, rows) where rows is list[dict] keyed by fieldname.
     """
     file_doc = frappe.db.get_value("File", {"file_url": file_url}, "name")
@@ -110,18 +235,24 @@ def parse_upload_file(file_url: str) -> tuple[list[str], list[dict]]:
     file_path = fdoc.get_full_path()
 
     if file_url.lower().endswith((".xlsx", ".xls")):
-        return _parse_excel(file_path)
+        return _parse_excel(file_path, doctype)
     return _parse_csv(file_path)
 
 
-def _parse_excel(file_path: str) -> tuple[list[str], list[dict]]:
+def _parse_excel(file_path: str, doctype: str = "") -> tuple[list[str], list[dict]]:
     try:
         from openpyxl import load_workbook
     except ImportError as e:
         raise RuntimeError("openpyxl chưa được cài đặt trong bench env") from e
 
     wb = load_workbook(file_path, data_only=True)
-    ws = wb.active
+
+    # Resolve target sheet: prefer mapped name, fall back to active sheet
+    target_sheet_name = _SHEET_NAME_MAP.get(doctype, "")
+    if target_sheet_name and target_sheet_name in wb.sheetnames:
+        ws = wb[target_sheet_name]
+    else:
+        ws = wb.active
 
     rows_raw = list(ws.iter_rows(values_only=True))
     if len(rows_raw) < 2:
@@ -215,6 +346,46 @@ def build_error_report(fieldnames: list[str], rows: list[dict], errors: list[dic
 # EXPORT CURRENT DATA
 # ─────────────────────────────────────────────────────────────────────────────
 
+_SKIP_USER_ROLES = frozenset({"All", "Guest", "System Manager", "Administrator"})
+
+
+def _export_users(cfg: dict) -> list[dict]:
+    """Fetch User rows including IMM roles from Has Role child table."""
+    fields = cfg["export_fields"]
+    std_fields = [f for f in fields if f not in ("email", "roles")]
+    # Frappe User: name = email; fetch name + standard fields
+    frappe_fields = ["name"] + std_fields
+
+    users = frappe.get_all(
+        "User",
+        filters=[["User", "name", "not in", ["Administrator", "Guest"]]],
+        fields=frappe_fields,
+        order_by="creation asc",
+    )
+    if not users:
+        return []
+
+    user_names = [u.name for u in users]
+    has_roles = frappe.get_all(
+        "Has Role",
+        filters={"parent": ["in", user_names], "parenttype": "User"},
+        fields=["parent", "role"],
+    )
+    roles_map: dict[str, list[str]] = {}
+    for hr in has_roles:
+        if hr["role"] not in _SKIP_USER_ROLES:
+            roles_map.setdefault(hr["parent"], []).append(hr["role"])
+
+    result: list[dict] = []
+    for u in users:
+        row: dict = {"email": u.name}
+        for f in std_fields:
+            row[f] = u.get(f)
+        row["roles"] = ", ".join(sorted(roles_map.get(u.name, [])))
+        result.append(row)
+    return result
+
+
 def export_ref_data(doctype: str) -> bytes:
     """Export all records of a ref-data DocType to xlsx bytes."""
     if doctype not in _REF_DATA_CONFIG:
@@ -230,7 +401,10 @@ def export_ref_data(doctype: str) -> bytes:
     fields = cfg["export_fields"]
     labels = cfg["export_labels"]
 
-    rows = frappe.get_all(doctype, fields=fields, order_by="creation asc")
+    if doctype == "User":
+        rows = _export_users(cfg)
+    else:
+        rows = frappe.get_all(doctype, fields=fields, order_by="creation asc")
 
     wb = Workbook()
     ws = wb.active

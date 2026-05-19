@@ -8,7 +8,7 @@
 | Owner | Tech Lead + BE Developer |
 | Liên kết | [03 Diagrams](./03_Diagrams.md) · [05 API](./05_API_Specification.md) · [07 Testing](./07_Testing_QA.md) |
 
-> ✅ Implemented — Wave 2 (feature/hieuc/wave-2). 11 DocType IMM-16 đã có JSON + controller trong `assetcore/assetcore/doctype/imm_compliance_*`, `imm_internal_audit`, `imm_management_review`, `imm_capa_*`, `imm_audit_*`. Service `assetcore/services/imm16.py` (2076 dòng) + `assetcore/api/imm16.py` (424 dòng / 42 whitelist functions) LIVE.
+> ✅ Implemented — Wave 2 (feature/hieuc/wave-2). 11 DocType IMM-16 đã có JSON + controller trong `assetcore/assetcore/doctype/imm_compliance_*`, `imm_internal_audit`, `imm_management_review`, `imm_capa_*`, `imm_audit_*`. Service `assetcore/services/imm16.py` (2076 dòng) + `assetcore/api/imm16.py` (423 dòng / 52 whitelist functions) LIVE.
 
 ---
 
@@ -74,7 +74,7 @@ Existing fields: `naming_series`, `asset` (Link AC Asset), `severity` (Minor/Maj
 | VP Block2 | ✅ | ✅ | — | ✅ | ✅ |
 | CMMS Admin | ✅ | ✅ | ✅ | ✅ | ✅ |
 
-## II.2. IMM Compliance Rule (PLANNED)
+## II.2. IMM Compliance Rule (LIVE)
 
 **Config:** `autoname: field:rule_code`, `is_submittable: 0`, `track_changes: 1`
 
@@ -106,7 +106,7 @@ Existing fields: `naming_series`, `asset` (Link AC Asset), `severity` (Minor/Maj
 | All authenticated | ✅ | — | — |
 | CMMS Admin | ✅ | ✅ | ✅ |
 
-## II.3. IMM Compliance Finding (PLANNED)
+## II.3. IMM Compliance Finding (LIVE)
 
 **Config:** `autoname: format:FND-.YYYY.-.#####`, `is_submittable: 0`, `track_changes: 1`
 
@@ -133,7 +133,7 @@ Existing fields: `naming_series`, `asset` (Link AC Asset), `severity` (Minor/Maj
 | 19 | notes | Text Editor | — | — | — | — |
 | 20 | workflow_state | Link → Workflow State | — | — | 1 | 1 |
 
-## II.4. IMM Internal Audit (PLANNED)
+## II.4. IMM Internal Audit (LIVE)
 
 **Config:** `autoname: format:AUD-INT-.YYYY.-.#####`, `is_submittable: 0`, `track_changes: 1`
 
@@ -160,7 +160,7 @@ Existing fields: `naming_series`, `asset` (Link AC Asset), `severity` (Minor/Maj
 | 19 | management_review_ref | Link → IMM Management Review | — |
 | 20 | workflow_state | Link → Workflow State | — |
 
-## II.5. IMM Compliance Scorecard (PLANNED)
+## II.5. IMM Compliance Scorecard (LIVE)
 
 **Config:** `autoname: format:SCR-.YYYY.-.MM.-.#####`, `track_changes: 1`
 
@@ -185,7 +185,7 @@ Existing fields: `naming_series`, `asset` (Link AC Asset), `severity` (Minor/Maj
 | 17 | published_at | Datetime | read_only |
 | 18 | restate_of | Link → IMM Compliance Scorecard | — |
 
-## II.6. IMM Management Review (PLANNED)
+## II.6. IMM Management Review (LIVE)
 
 **Config:** `autoname: format:MR-.YYYY.-.#####`
 
