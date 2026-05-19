@@ -441,7 +441,7 @@ Quản lý trạng thái GMDN (Global Medical Device Nomenclature) trên thiết
 ### Khả năng tương thích
 
 | Wave 1 module (IMM-04/05/08/09/11/12) | Tương thích ngược | Không cần thay đổi code |
-| AC Asset registry | Không đổi schema breaking | Field thêm: `gmdn_status` (đã có từ v3.2), depreciation fields (v4.0) |
+| AC Asset registry | Schema breaking ở v3.1/008: DROP field trạng thái GMDN cũ (lọc theo `gmdn_code`) | depreciation fields (v4.0); ref [analysis §6](../res/gmdn-asset-category-analysis.md) |
 | API envelope `_ok/_err` | Không đổi | Wave 2 modules tuân thủ |
 
 ### Known issues v4.2.0
@@ -542,7 +542,7 @@ Quản lý trạng thái GMDN (Global Medical Device Nomenclature) trên thiết
 | BR-00-09 | Rule | Asset Lifecycle Event — append-only | Module Overview §7 | `Asset Lifecycle Event` controller `before_save` raise if not new | `TC-S-009: test_lifecycle_event_immutable` | S-05 | #imm00-core | v3.0.0 | ✅ |
 | BR-00-10 | Rule | Incident report — phải linked asset | Module Overview §7 | `Incident Report.asset` mandatory field validation | `TC-S-010: test_incident_requires_asset` | S-11 | #imm00-core | v3.0.0 | ✅ |
 | BR-00-11 | Rule | Asset Active phải có GMDN code | Module Overview §7 | `services/imm00.py: validate_gmdn_before_active()` | `TC-S-011: test_gmdn_required_for_active` | S-06 | #imm00-core | v3.2.0 | ✅ |
-| BR-00-12 | Rule | GMDN disable qua QR — phải có lý do | Module Overview §7 | `api/imm00.py: toggle_gmdn_status()` reason validation | `TC-S-012: test_gmdn_disable_requires_reason` | S-06 | #imm00-core | v3.2.0 | ✅ |
+| ~~BR-00-12~~ | Rule | *(Đã loại bỏ 2026-05-19 — trạng thái sử dụng GMDN bỏ; lọc theo `gmdn_code`. Ref [analysis §6](../res/gmdn-asset-category-analysis.md))* | — | — | — | — | #imm00-core | v3.1.0 | ⛔ removed |
 
 ---
 
@@ -585,7 +585,7 @@ Quản lý trạng thái GMDN (Global Medical Device Nomenclature) trên thiết
 | SEC-00-03 | Security | Hash chain phá vỡ khi tamper | 07 §III.2 | `verify_audit_chain()` — SHA-256 recompute | `SEC-03: test_audit_chain_breaks_on_tamper` | v3.0.0 | ✅ |
 | SEC-00-04 | Security | API rate limit 300 req/min | 07 §III.2 | Frappe rate limiting middleware | `SEC-04: test_rate_limit_exceeded` | v3.0.0 | ✅ |
 | SEC-00-05 | Security | CSRF protection trên mọi POST/PUT/DELETE | 07 §III.2 | Frappe CSRF middleware + axios interceptor | `SEC-05: test_csrf_rejected` | v3.0.0 | ✅ |
-| SEC-00-06 | Security | GMDN toggle chỉ IMM System Admin + Workshop Lead | 07 §III.2 | `api/imm00.py: toggle_gmdn_status()` role check | `SEC-06: test_gmdn_toggle_unauthorized` | v3.2.0 | ✅ |
+| ~~SEC-00-06~~ | Security | *(Đã loại bỏ 2026-05-19 — endpoint trạng thái sử dụng GMDN đã gỡ. Ref [analysis §6](../res/gmdn-asset-category-analysis.md))* | — | — | — | v3.1.0 | ⛔ removed |
 | SEC-00-07 | Security | Stock Movement Adjustment phải có approver | 07 §III.2 | `BR-INV-03` enforcement | `SEC-07: test_adjustment_role_check` | v4.0.0 | ✅ |
 | SEC-00-08 | Security | Không có SQL injection qua filter params | 07 §III.2 | Frappe ORM parameterized queries | `SEC-08: test_sql_injection_prevention` | v3.0.0 | ✅ |
 
@@ -602,7 +602,7 @@ Quản lý trạng thái GMDN (Global Medical Device Nomenclature) trên thiết
 | US-00-05 | Story | QA mở CAPA từ sự kiện repeat failure | Functional Specs §3 | `api/imm00.py: create_capa()` | `TC-S-006` | v3.0.0 | ✅ |
 | US-00-06 | Story | Ops Manager xem SLA compliance report | Functional Specs §3 | `api/imm00.py: get_sla_compliance_report()` | `TC-S-007` | v3.0.0 | ✅ |
 | US-00-07 | Story | Scheduler cảnh báo hợp đồng sắp hết hạn | Functional Specs §3 | `services/imm00.py: check_vendor_contract_expiry()` | `TC-S-008` | v3.0.0 | ✅ |
-| US-00-08 | Story | Technician quét QR toggle GMDN status | Functional Specs §3 | `api/imm00.py: toggle_gmdn_status()` + QR scanner FE | `TC-S-012` | v3.2.0 | ✅ |
+| US-00-08 | Story | Technician quét QR → mở hồ sơ thiết bị (repurposed 2026-05-19, không còn toggle) | Functional Specs §3 | `views/system/QRScanView.vue` → `/assets/:id` | — | v3.1.0 | ✅ |
 | US-00-09 | Story | Storekeeper nhập xuất tồn kho phụ tùng | Functional Specs §3 | `services/inventory.py: process_stock_movement()` | `TC-INV-001`, `TC-INV-002` | v4.0.0 | ✅ |
 | US-00-10 | Story | Hệ thống cảnh báo khi tồn kho dưới min | Functional Specs §3 | `services/inventory.py: _check_low_stock_alert()` | `TC-INV-003` | v4.0.0 | ✅ |
 
@@ -668,7 +668,7 @@ Sau rà soát matrix, không có req Must/Should còn ⬜ trước v4.0.0. Gaps 
 | Tổng DocType | 18 + 3 child | Foundation layer — dùng bởi tất cả 17 module IMM |
 | API endpoint (imm00.py) | 42 | 11 nhóm: Asset, Supplier, Location/Dept/Cat, Device Model, SLA, Audit, CAPA, ALE, Incident, GMDN, Scheduler |
 | API endpoint (inventory.py) | 14 | 4 nhóm: Warehouse, Spare Part, Stock, Movement |
-| Service function (imm00.py) | 10 | `log_audit_event`, `transition_asset_status`, `get_applicable_sla`, `check_capa_overdue`, `check_vendor_contract_expiry`, `check_registration_expiry`, `rollup_asset_kpi`, `verify_audit_chain`, `validate_gmdn_before_active`, `toggle_gmdn_status` |
+| Service function (imm00.py) | 9 | `log_audit_event`, `transition_asset_status`, `get_applicable_sla`, `check_capa_overdue`, `check_vendor_contract_expiry`, `check_registration_expiry`, `rollup_asset_kpi`, `verify_audit_chain`, `validate_gmdn_before_active` *(2 hàm trạng thái GMDN cũ đã gỡ 2026-05-19)* |
 | Service function (inventory.py) | 7 | `process_stock_movement`, `get_stock_by_spare_part`, `get_stock_by_warehouse`, `validate_movement`, `_update_stock_balance`, `_check_stock_availability`, `_check_low_stock_alert` |
 | Scheduler job | 4 | `check_capa_overdue` (daily), `check_vendor_contract_expiry` (daily), `check_registration_expiry` (daily), `rollup_asset_kpi` (daily) |
 | IMM Role | 8 | System Admin, Dept Head, Ops Manager, Workshop Lead, Technician, Document Officer, Storekeeper, QA Officer |

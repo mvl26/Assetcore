@@ -7,8 +7,8 @@
 | Owner | BE Lead |
 | Liên kết | [04 Backend Design](./04_Backend_Design.md) · [06 Frontend Design](./06_Frontend_Design.md) |
 | Base URL | `/api/method/assetcore.api.imm00` |
-| Phiên bản API | 3.1.0 |
-| Trạng thái | **Live ✅** — synced vs `api/imm00.py` 2026-05-14 (107 whitelisted endpoints) |
+| Phiên bản API | 3.1.1 |
+| Trạng thái | **Live ✅** — synced vs `api/imm00.py` 2026-05-19 (`list_locations` đổi fields: gộp contact, patch v3_1.007) |
 
 ---
 
@@ -225,6 +225,17 @@ URL pattern: `POST|GET /api/method/assetcore.api.imm00.<function>`
 }
 ```
 
+**Query params bổ sung:**
+
+| Param | Kiểu | Mô tả |
+|---|---|---|
+| `lifecycle_status` | str | Lọc theo trạng thái vòng đời |
+| `department` / `location` / `asset_category` | str | Lọc theo Link field |
+| `gmdn_code` | str | **Lọc thiết bị theo mã GMDN** (kế thừa từ Asset Category). Dùng cho recall/FSCA, KPI per-GMDN |
+| `search` | str | Tìm theo `asset_name`, `asset_code`, `manufacturer_sn`, **`gmdn_code`** (LIKE substring) |
+
+> **Note (2026-05-19):** Tham số lọc theo trạng thái sử dụng GMDN (cũ) đã bị loại bỏ cùng field tương ứng. Trục lọc/quản lý thiết bị nay là `gmdn_code`. Tham chiếu: [docs/res/gmdn-asset-category-analysis.md](../res/gmdn-asset-category-analysis.md) §6.
+
 ---
 
 ### `get_asset` — Chi tiết Asset
@@ -235,7 +246,7 @@ URL pattern: `POST|GET /api/method/assetcore.api.imm00.<function>`
 
 **Request:** `?name=AC-ASSET-2026-00001`
 
-**Response 200** — đầy đủ HTM fields (asset_name, udi_code, gmdn_code, byt_reg_no, byt_reg_expiry, lifecycle_status, risk_classification, next_pm_date, next_calibration_date, commissioning_date, gmdn_status, …).
+**Response 200** — đầy đủ HTM fields (asset_name, udi_code, gmdn_code, byt_reg_no, byt_reg_expiry, lifecycle_status, risk_classification, next_pm_date, next_calibration_date, commissioning_date, …).
 
 **Errors:** 404 (`AC-E001`), 401, 403.
 
@@ -402,7 +413,9 @@ POST `assetcore.api.imm00.update_supplier`. Body: `name` (param) + fields cần 
 
 ### `list_locations`
 
-GET `assetcore.api.imm00.list_locations` — Params: `parent` (optional). Trả flat list với fields: `name, location_name, location_code, parent_location, is_group, clinical_area_type, infection_control_level, power_backup_available, emergency_contact, dept_head, technical_contact, notes`.
+GET `assetcore.api.imm00.list_locations` — Params: `parent` (optional). Trả flat list với fields: `name, location_name, location_code, parent_location, is_group, clinical_area_type, infection_control_level, power_backup_available, dept_head, contact_phone, notes` (+ enrich `dept_head_name` từ User.full_name).
+
+> **Đổi schema (2026-05-19):** 3 trường liên hệ cũ (`emergency_contact`, `dept_head`, `technical_contact`) được gộp còn 2: `dept_head` (Link → User, label "Người phụ trách") + `contact_phone` (Data, `fetch_from: dept_head.phone`, label "Số liên hệ"). Migrate qua patch `v3_1.007_ac_location_simplify_contacts`. Xem README §Changelog.
 
 ### `get_location`
 
@@ -650,24 +663,9 @@ POST `assetcore.api.imm00.delete_incident`. Body: `{ "name": "IR-..." }`.
 
 ---
 
-## III.10. GMDN Status (2 endpoints)
+## III.10. (Đã loại bỏ — GMDN Status)
 
-### `update_gmdn_status`
-
-POST `assetcore.api.imm00.update_gmdn_status`. Body: `{ "name": "AC-ASSET-...", "gmdn_status": "In Use", "reason": "Bắt đầu ca phẫu thuật" }`
-
-- `gmdn_status` nhận đúng 2 giá trị enum: `"In Use"` hoặc `"Not Use"` (khớp với DocType `ac_asset.gmdn_status` options)
-- `reason` bắt buộc ≥ 5 ký tự (BR-00-12)
-- Block nếu `lifecycle_status ∈ {Decommissioned, Out of Service}` (BR-00-11)
-- Ghi IMM Audit Trail "State Change" với change_summary
-
-**Response 200:** `{ "name": "AC-ASSET-...", "gmdn_status": "In Use", "previous": "Not Use" }`
-
-### `toggle_gmdn_status`
-
-POST `assetcore.api.imm00.toggle_gmdn_status`. Body: `{ "name": "AC-ASSET-..." }`
-
-Tự động đảo `In Use ↔ Not Use`. Reason auto: `"Quét QR lúc <timestamp>"`. Dùng cho QR scanner tại hiện trường.
+> **Note (2026-05-19):** Nhóm endpoint quản lý trạng thái sử dụng GMDN (cũ) đã bị loại bỏ cùng field tương ứng trên `AC Asset`. Quản lý thiết bị nay theo `gmdn_code`. Lọc thiết bị qua `list_assets?gmdn_code=...`. Tham chiếu: [docs/res/gmdn-asset-category-analysis.md](../res/gmdn-asset-category-analysis.md) §6.
 
 ---
 
@@ -870,7 +868,6 @@ Tất cả trả về `_ok(data)` / `_err(msg, code)` envelope chuẩn.
 | `close_capa_record` | BR-00-08 |
 | Scheduler `trigger_capa_overdue_check` | BR-00-09 |
 | `create_incident`, `update_incident`, `submit_incident` | VR-00-04, AC-E008, AC-E009 |
-| `update_gmdn_status`, `toggle_gmdn_status` | BR-00-11, BR-00-12 |
 | Inventory submit/cancel | BR-INV-01 → BR-INV-08 |
 
 ---
@@ -890,7 +887,7 @@ Tất cả trả về `_ok(data)` / `_err(msg, code)` envelope chuẩn.
 - [x] 8 roles × tất cả endpoint nhóm
 
 ### III. Endpoints (verified vs `api/imm00.py`)
-- [x] AC Asset (11 endpoints — list, get, create, update, delete, transition_status, get_asset_timeline, validate_for_operations, get_asset_kpi, update_gmdn_status, toggle_gmdn_status)
+- [x] AC Asset (9 endpoints — list [filter gmdn_code], get, create, update, delete, transition_status, get_asset_timeline, validate_for_operations, get_asset_kpi)
 - [x] AC Supplier (5 endpoints — list, get, create, update, delete)
 - [x] Location/Dept/Category (9+ endpoints — full CRUD per entity)
 - [x] IMM Device Model (5 endpoints — list, get, create, update, delete + upload_device_model_file)
@@ -899,7 +896,7 @@ Tất cả trả về `_ok(data)` / `_err(msg, code)` envelope chuẩn.
 - [x] IMM CAPA Record (5 endpoints — list, get, open_capa, close_capa_record, list_overdue_capas)
 - [x] Asset Lifecycle Event (2 endpoints — list_lifecycle_events, get_lifecycle_event)
 - [x] Incident Report (6 endpoints — list, get, create, update, submit, delete)
-- [x] GMDN Status (2 endpoints — update_gmdn_status, toggle_gmdn_status)
+- [x] GMDN Status — đã loại bỏ (lọc thiết bị nay qua `list_assets?gmdn_code=`)
 - [x] Scheduler Trigger (3 endpoints — GET, Admin only: trigger_capa_overdue_check, trigger_contract_expiry_check, trigger_registration_expiry_check)
 - [x] Asset Transfer (7 endpoints — CRUD + workflow: approve, reject, receive)
 - [x] Service Contract (6 endpoints — CRUD + list_asset_contracts)
