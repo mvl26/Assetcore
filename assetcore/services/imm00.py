@@ -220,61 +220,6 @@ def _suspend_all_schedules(asset_name: str) -> None:
     })
 
 
-_GMDN_STATUS_ACTIVE = "In Use"
-_GMDN_STATUS_INACTIVE = "Not Use"
-_GMDN_BLOCKED_LIFECYCLE = (_STATUS_OUT_OF_SERVICE, _STATUS_DECOMMISSIONED)
-
-
-def update_gmdn_status(asset_name: str, gmdn_status: str, reason: str) -> dict:
-    """Cập nhật GMDN Status cho AC Asset. BR-00-11, BR-00-12."""
-    if gmdn_status not in (_GMDN_STATUS_ACTIVE, _GMDN_STATUS_INACTIVE):
-        frappe.throw(_("GMDN Status không hợp lệ"))
-    if not reason or len(reason.strip()) < 5:
-        frappe.throw(_("Lý do thay đổi tối thiểu 5 ký tự"))
-
-    if not frappe.db.exists(_DOCTYPE_ASSET, asset_name):
-        frappe.throw(_("Không tìm thấy thiết bị"))
-
-    data = frappe.db.get_value(
-        _DOCTYPE_ASSET, asset_name,
-        ["gmdn_status", "lifecycle_status"], as_dict=True,
-    )
-    old_status = data.gmdn_status or _GMDN_STATUS_ACTIVE
-    lifecycle = data.lifecycle_status or ""
-
-    if gmdn_status == _GMDN_STATUS_ACTIVE and lifecycle in _GMDN_BLOCKED_LIFECYCLE:
-        frappe.throw(_("Không thể kích hoạt GMDN khi thiết bị ở trạng thái '{0}'").format(lifecycle))
-
-    if old_status == gmdn_status:
-        frappe.throw(_("GMDN Status đã là '{0}'").format(gmdn_status))
-
-    frappe.db.set_value(_DOCTYPE_ASSET, asset_name, "gmdn_status", gmdn_status)
-
-    log_audit_event(
-        asset=asset_name,
-        event_type="State Change",
-        actor=frappe.session.user,
-        ref_doctype=_DOCTYPE_ASSET,
-        ref_name=asset_name,
-        change_summary=f"GMDN: {old_status} → {gmdn_status}. Lý do: {reason}",
-        from_status=old_status,
-        to_status=gmdn_status,
-    )
-
-    return {"name": asset_name, "gmdn_status": gmdn_status, "previous": old_status}
-
-
-def toggle_gmdn_status_via_qr(asset_name: str) -> dict:
-    """Toggle GMDN Status qua QR scan. Default reason = 'Quét QR @ <timestamp>'."""
-    if not frappe.db.exists(_DOCTYPE_ASSET, asset_name):
-        frappe.throw(_("Không tìm thấy thiết bị"))
-    current = frappe.db.get_value(_DOCTYPE_ASSET, asset_name, "gmdn_status") or _GMDN_STATUS_INACTIVE
-    target = _GMDN_STATUS_ACTIVE if current == _GMDN_STATUS_INACTIVE else _GMDN_STATUS_INACTIVE
-    from frappe.utils import now
-    reason = f"Quét QR lúc {now()}"
-    return update_gmdn_status(asset_name, target, reason)
-
-
 def validate_asset_for_operations(asset_name: str) -> None:
     """BR-00-05: Out of Service / Decommissioned -> block tao Work Order."""
     status = frappe.db.get_value(_DOCTYPE_ASSET, asset_name, "lifecycle_status")
