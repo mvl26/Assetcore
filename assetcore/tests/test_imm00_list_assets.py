@@ -26,16 +26,19 @@ class TestListAssetsGmdnFilter(FrappeTestCase):
             }).insert(ignore_permissions=True)
 
     def test_filter_by_gmdn_code_returns_only_matching_assets(self):
+        # list_assets bọc kết quả trong envelope _ok → {success, data}
         result = list_assets(gmdn_code="35304")
-        assert "items" in result
-        for item in result["items"]:
+        data = result["data"]
+        assert "items" in data
+        for item in data["items"]:
             assert item["gmdn_code"] == "35304"
 
     def test_search_by_gmdn_code_substring(self):
         result = list_assets(search="35304")
+        data = result["data"]
         # Không raise; items có thể rỗng nếu chưa có asset thật
-        assert "items" in result
-        assert "pagination" in result
+        assert "items" in data
+        assert "pagination" in data
 
     def test_gmdn_status_param_removed(self):
         import inspect

@@ -14,8 +14,6 @@ from assetcore.services.shared import ErrorCode
 from assetcore.utils.pagination import paginate
 from assetcore.services.imm00 import (
     transition_asset_status,
-    update_gmdn_status as svc_update_gmdn_status,
-    toggle_gmdn_status_via_qr as svc_toggle_gmdn_via_qr,
     validate_asset_for_operations,
     get_sla_policy,
     create_capa,
@@ -90,7 +88,7 @@ def list_assets(
     location: str = None,
     asset_category: str = None,
     search: str = None,
-    gmdn_status: str = None,
+    gmdn_code: str = None,
 ):
     """GET /api/method/assetcore.api.imm00.list_assets"""
     page, page_size = int(page), int(page_size)
@@ -103,8 +101,8 @@ def list_assets(
         filters["location"] = location
     if asset_category:
         filters["asset_category"] = asset_category
-    if gmdn_status:
-        filters["gmdn_status"] = gmdn_status
+    if gmdn_code:
+        filters["gmdn_code"] = gmdn_code
 
     or_filters = None
     if search:
@@ -113,11 +111,13 @@ def list_assets(
             [_DT_ASSET, "asset_name",      "like", like],
             [_DT_ASSET, "asset_code",      "like", like],
             [_DT_ASSET, "manufacturer_sn", "like", like],
+            [_DT_ASSET, "gmdn_code",       "like", like],
         ]
         total = frappe.db.sql(
             f"SELECT COUNT(*) FROM `tab{_DT_ASSET}`"
-            f" WHERE asset_name LIKE %s OR asset_code LIKE %s OR manufacturer_sn LIKE %s",
-            [like, like, like],
+            f" WHERE asset_name LIKE %s OR asset_code LIKE %s"
+            f" OR manufacturer_sn LIKE %s OR gmdn_code LIKE %s",
+            [like, like, like, like],
         )[0][0]
     else:
         total = frappe.db.count(_DT_ASSET, filters=filters)
@@ -129,7 +129,7 @@ def list_assets(
         "asset_category", "location", "department", "responsible_technician",
         "supplier", "device_model",
         "next_pm_date", "next_calibration_date", "byt_reg_expiry",
-        "gmdn_code", "gmdn_status",
+        "gmdn_code",
         "gross_purchase_amount", "accumulated_depreciation", "current_book_value",
     ]
     items = frappe.get_list(
@@ -232,32 +232,6 @@ def transition_status(name: str, to_status: str, reason: str = ""):
         return _err(str(e), ErrorCode.BAD_STATE)
     except frappe.exceptions.ValidationError as e:
         return _err(str(e), ErrorCode.VALIDATION)
-
-
-@frappe.whitelist(methods=["POST"])
-def update_gmdn_status(name: str, gmdn_status: str, reason: str = ""):
-    """POST /api/method/assetcore.api.imm00.update_gmdn_status"""
-    if not frappe.db.exists(_DT_ASSET, name):
-        return _err(_(_ERR_ASSET_NOT_FOUND), 404)
-    try:
-        result = svc_update_gmdn_status(name, gmdn_status, reason)
-        frappe.db.commit()
-        return _ok(result)
-    except frappe.exceptions.ValidationError as e:
-        return _err(str(e), 422)
-
-
-@frappe.whitelist(methods=["POST"])
-def toggle_gmdn_status(name: str):
-    """POST /api/method/assetcore.api.imm00.toggle_gmdn_status — toggle qua QR scan."""
-    if not frappe.db.exists(_DT_ASSET, name):
-        return _err(_(_ERR_ASSET_NOT_FOUND), 404)
-    try:
-        result = svc_toggle_gmdn_via_qr(name)
-        frappe.db.commit()
-        return _ok(result)
-    except frappe.exceptions.ValidationError as e:
-        return _err(str(e), 422)
 
 
 @frappe.whitelist()
@@ -481,12 +455,11 @@ def list_locations(parent: str = None):
         filters=filters,
         fields=["name", "location_name", "location_code", "parent_location", "is_group",
                 "clinical_area_type", "infection_control_level", "power_backup_available",
-                "emergency_contact", "dept_head", "technical_contact", "notes"],
+                "dept_head", "contact_phone", "notes"],
         order_by="lft asc",
     )
     _enrich(items, "parent_location", _DT_LOCATION, "location_name")
     _enrich(items, "dept_head", "User", "full_name", out_field="dept_head_name")
-    _enrich(items, "technical_contact", "User", "full_name", out_field="technical_contact_name")
     return _ok(items)
 
 
