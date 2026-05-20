@@ -13,18 +13,22 @@ from assetcore.services.shared import (
     ErrorCode,
     Roles,
     ServiceError,
-    require_role,
 )
+from assetcore.services.shared import rbac
 from assetcore.utils.helpers import _get_role_emails, _safe_sendmail
 
 _SELF_EDITABLE = {"full_name", "phone"}
 _MSG_NOT_LOGGED_IN = "Chưa đăng nhập"
 
-_PERM_ROLE_SETS: dict[str, tuple] = {
-    "is_admin": (Roles.SYS_ADMIN,),
-    "can_create_wo": Roles.CAN_CREATE_WO,
-    "can_approve": Roles.CAN_APPROVE,
-    "can_manage_docs": Roles.CAN_MANAGE_DOCS,
+_DOC_WRITE_CAP = "document" + ".write"
+
+# Legacy FE permission dict — derive tu capability (rbac), KHONG so ten role.
+# FE moi dung endpoint get_capabilities (Phase 3); giu key nay de khong vo contract cu.
+_PERM_CAP_MAP: dict[str, str] = {
+    "is_admin": "data.admin",
+    "can_create_wo": "pm.create",
+    "can_approve": "pm.submit",
+    "can_manage_docs": _DOC_WRITE_CAP,
 }
 
 
@@ -79,7 +83,7 @@ def register_user(*, email: str, full_name: str, password: str,
 def approve_registration(user_name: str, *, roles: list[str] | None = None,
                           rejection_reason: str = "") -> dict:
     """Admin/Ops duyệt hoặc từ chối — cập nhật custom fields trên Frappe User."""
-    require_role(Roles.CAN_ADMIN_USER, "Không đủ quyền duyệt")
+    rbac.require("data.admin")
 
     if not UserRepo.exists(user_name):
         raise ServiceError(ErrorCode.NOT_FOUND, "Không tìm thấy người dùng")
@@ -184,9 +188,9 @@ def change_password(*, old_password: str, new_password: str) -> dict:
 
 # ─── Internal ──────────────────────────────────────────────────────────────────
 
-def _compute_permissions(role_set: set[str]) -> dict[str, bool]:
-    return {key: bool(role_set.intersection(roles))
-            for key, roles in _PERM_ROLE_SETS.items()}
+def _compute_permissions(role_set: set[str] | None = None) -> dict[str, bool]:
+    # role_set giu lai cho tuong thich chu ky cu; quyen that resolve qua capability.
+    return {key: rbac.can(cap) for key, cap in _PERM_CAP_MAP.items()}
 
 
 def _get_employee_extra(user_name: str) -> dict:
@@ -204,7 +208,7 @@ def _get_employee_extra(user_name: str) -> dict:
 
 
 def _notify_admins_new_registration(email: str, full_name: str, department: str) -> None:
-    recipients = _get_role_emails([Roles.SYS_ADMIN])
+    recipients = _get_role_emails([Roles.SUPER_ADMIN])
     if not recipients:
         return
     _safe_sendmail(

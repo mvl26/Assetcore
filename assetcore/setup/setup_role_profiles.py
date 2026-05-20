@@ -1,67 +1,32 @@
 # Copyright (c) 2026, AssetCore Team
 """
-Seed Role Profile (Frappe core DocType) — AssetCore-branded persona catalog.
+Legacy Role Profile cleanup — mô hình RBAC mới KHÔNG dùng Role Profile.
 
-Tên profile dùng prefix "AssetCore — " (em-dash U+2014). Legacy "IMM - *" profile
-đã được loại bỏ (xem patches/v3_1/005_remove_legacy_imm_role_profiles.py).
+Sau khi chuyển sang RBAC module-based (4 System + 26 Domain roles, xem
+`assetcore.services.shared.constants.Roles` + `services.shared.rbac`):
 
-Idempotent: chạy lại sẽ update bundle role; xóa profile legacy (Vietnamese cũ
-hoặc obsolete) và disable role legacy.
+  - **Không tạo** Role Profile / Module Profile.
+  - Gán role trực tiếp qua `Has Role` (Frappe User form HOẶC trang FE
+    `/admin/roles`).
+
+File này chỉ giữ logic dọn legacy Role Profile (Vietnamese & "IMM - *" English),
+**xóa hẳn** persona Role + AssetCore-branded Role Profile cũ. Idempotent.
+
+Hooks: chạy ở after_install / after_migrate để dọn sạch site cũ.
 
 Chạy thủ công:
     bench --site <site> execute assetcore.setup.setup_role_profiles.run
-Tự chạy: hooks.after_install / hooks.after_migrate
 """
 from __future__ import annotations
 
 import frappe
-from assetcore.services.shared.constants import Roles
 
-# ── AssetCore-branded persona catalog (job-function oriented) ─────────────────
-# Naming: "AssetCore — <Persona>" (em-dash U+2014). Đây là profile bundle dành
-# cho việc gán nhanh persona cho user mới — kèm các role bổ trợ phù hợp job.
-# Idempotent qua _upsert_role_profile.
-_ASSETCORE_PROFILES: list[tuple[str, list[str]]] = [
-    ("AssetCore — System Admin",
-        [Roles.SYS_ADMIN, Roles.OPS_MANAGER, Roles.AUDITOR]),
-    ("AssetCore — Operations Manager",
-        [Roles.OPS_MANAGER, Roles.QA]),
-    ("AssetCore — Department Head",
-        [Roles.DEPT_HEAD]),
-    ("AssetCore — Department Deputy",
-        [Roles.DEPT_DEPUTY]),
-    ("AssetCore — Workshop Lead",
-        [Roles.WORKSHOP, Roles.BIOMED]),
-    ("AssetCore — Biomed Technician",
-        [Roles.BIOMED, Roles.TECHNICIAN]),
-    ("AssetCore — Technician",
-        [Roles.TECHNICIAN]),
-    ("AssetCore — Clinical User",
-        [Roles.CLINICAL]),
-    ("AssetCore — QA Officer",
-        [Roles.QA]),
-    ("AssetCore — Auditor",
-        [Roles.AUDITOR]),
-    ("AssetCore — Storekeeper",
-        [Roles.STOREKEEPER]),
-    ("AssetCore — Document Officer",
-        [Roles.DOC_OFFICER]),
-    ("AssetCore — Planning Officer",
-        [Roles.PLANNING]),
-    ("AssetCore — Procurement Officer",
-        [Roles.PROCUREMENT]),
-    ("AssetCore — Vendor Engineer",
-        [Roles.VENDOR_ENGINEER]),
-    ("AssetCore — Training Officer",
-        [Roles.TRAINING_OFFICER]),
-]
-
-# Profile cũ (Vietnamese & English "IMM - *") — sẽ xóa nếu còn sót lại.
-# Bulk delete handled by patches/v3_1/005_remove_legacy_imm_role_profiles.py;
-# the entries below tồn tại để re-seed safe trên môi trường fresh hoặc khi user
-# accidentally tạo lại bằng tên cũ.
+# Mọi Role Profile cần xóa nếu còn sót — gồm:
+#  (a) legacy Vietnamese & "IMM - *" English (đã có patch v3_1/005 nhưng đảm
+#      bảo nếu admin tạo lại bằng tên cũ vẫn được dọn);
+#  (b) AssetCore-branded persona catalog cũ (mô hình mới bỏ Role Profile).
 _LEGACY_PROFILES: list[str] = [
-    # Vietnamese (rất cũ)
+    # ── (a) Vietnamese (rất cũ) ─────────────────────────────────────────
     "IMM - Quản trị hệ thống",
     "IMM - Trưởng phòng TBYT",
     "IMM - Trưởng khoa",
@@ -73,7 +38,7 @@ _LEGACY_PROFILES: list[str] = [
     "IMM - Thủ kho",
     "IMM - Bác sĩ / Điều dưỡng",
     "IMM - Kiểm toán viên",
-    # English "IMM - *" — replaced by AssetCore — *
+    # ── (a) English "IMM - *" — thay thế bởi AssetCore — *, giờ cũng bỏ ──
     "IMM - Biomed Technician",
     "IMM - Board Approver",
     "IMM - Clinical User",
@@ -94,50 +59,46 @@ _LEGACY_PROFILES: list[str] = [
     "IMM - Training Officer",
     "IMM - Vendor Engineer",
     "IMM - Workshop Lead",
+    # ── (b) AssetCore-branded persona catalog cũ ────────────────────────
+    "AssetCore — System Admin",
+    "AssetCore — Operations Manager",
+    "AssetCore — Department Head",
+    "AssetCore — Department Deputy",
+    "AssetCore — Workshop Lead",
+    "AssetCore — Biomed Technician",
+    "AssetCore — Technician",
+    "AssetCore — Clinical User",
+    "AssetCore — QA Officer",
+    "AssetCore — Auditor",
+    "AssetCore — Storekeeper",
+    "AssetCore — Document Officer",
+    "AssetCore — Planning Officer",
+    "AssetCore — Procurement Officer",
+    "AssetCore — Vendor Engineer",
+    "AssetCore — Training Officer",
 ]
 
-# Role legacy (sẽ disabled — không xóa để khỏi vỡ Has Role rows lịch sử)
-_LEGACY_ROLES: list[str] = [
+# Role legacy (xóa hẳn — phần lớn đã được patch v3_2/001 detach + delete; ở đây
+# chỉ dọn vớt nếu sót, idempotent). Mở rộng theo plan §4.1 Step 3c (19 persona
+# + 11 legacy).
+_LEGACY_ROLES: tuple[str, ...] = (
+    # ── (a) 11 legacy cũ (đã được disable trước đó) ─────────────────────
     "IMM Manager", "Kho vật tư", "Workshop Manager", "Clinical Head",
     "CMMS Admin", "Tổ HC-QLCL", "QA Risk Team", "HTM Technician",
     "VP Block2", "Workshop Head", "Biomed Engineer",
-]
-
-
-def _upsert_role_profile(profile_name: str, role_names: list[str]) -> str:
-    """Tạo/cập nhật Role Profile. Returns: inserted | updated | skipped."""
-    valid_roles = [r for r in role_names if frappe.db.exists("Role", r)]
-    if not valid_roles:
-        return "skipped"
-
-    if frappe.db.exists("Role Profile", profile_name):
-        doc = frappe.get_doc("Role Profile", profile_name)
-        current = {r.role for r in doc.roles}
-        if current == set(valid_roles):
-            return "skipped"
-        # Delete child rows from DB first to avoid Has Role duplicate check on re-insert
-        frappe.db.delete("Has Role", {"parenttype": "Role Profile", "parent": profile_name})
-        doc.roles = []
-        for role in valid_roles:
-            doc.append("roles", {"role": role})
-        doc.flags.ignore_permissions = True
-        doc.flags.ignore_update_check = True
-        doc.save()
-        return "updated"
-
-    doc = frappe.new_doc("Role Profile")
-    doc.role_profile = profile_name
-    for role in valid_roles:
-        doc.append("roles", {"role": role})
-    doc.flags.ignore_permissions = True
-    doc.flags.ignore_update_check = True  # prevents queue_action → DocumentLockedError
-    doc.insert()
-    return "inserted"
+    # ── (b) 19 persona "IMM *" cũ ───────────────────────────────────────
+    "IMM System Admin", "IMM Operations Manager", "IMM Department Head",
+    "IMM Deputy Department Head", "IMM Workshop Lead", "IMM QA Officer",
+    "IMM Biomed Technician", "IMM Technician", "IMM Document Officer",
+    "IMM Storekeeper", "IMM Clinical User", "IMM Auditor",
+    "IMM Planning Officer", "IMM Finance Officer", "IMM HTM Engineer",
+    "IMM Procurement Officer", "IMM Risk Officer", "IMM Board Approver",
+    "IMM Training Officer",
+)
 
 
 def _delete_legacy_profiles() -> int:
-    """Xóa Role Profile cũ (Vietnamese + "IMM - *" English).
-    Trước khi xóa, bỏ tham chiếu `User.role_profile_name` để tránh FK error."""
+    """Xóa Role Profile cũ + bỏ tham chiếu User.role_profile_name."""
     deleted = 0
     for name in _LEGACY_PROFILES:
         if not frappe.db.exists("Role Profile", name):
@@ -155,7 +116,10 @@ def _delete_legacy_profiles() -> int:
             {"parenttype": "Role Profile", "parent": name},
         )
         try:
-            frappe.delete_doc("Role Profile", name, ignore_permissions=True, force=True)
+            frappe.delete_doc(
+                "Role Profile", name,
+                ignore_permissions=True, force=True,
+            )
             deleted += 1
         except Exception:
             frappe.log_error(
@@ -165,42 +129,40 @@ def _delete_legacy_profiles() -> int:
     return deleted
 
 
-def _disable_legacy_roles() -> int:
-    """Disable role legacy — không delete để giữ Has Role rows lịch sử,
-    nhưng đảm bảo role không còn tác dụng + ẩn khỏi UI gán role."""
-    disabled = 0
+def _delete_legacy_roles() -> int:
+    """Xóa hẳn role legacy + persona "IMM *" cũ. KHÔNG đụng tới role do app
+    khác / Frappe core sở hữu (`System Manager`, `Internal Auditor`,
+    `Norm Manager` ...). Idempotent."""
+    deleted = 0
     for name in _LEGACY_ROLES:
         if not frappe.db.exists("Role", name):
             continue
-        if frappe.db.get_value("Role", name, "disabled"):
-            continue
-        frappe.db.set_value("Role", name, "disabled", 1)
-        disabled += 1
-    return disabled
+        # Detach khỏi mọi user trước khi xóa
+        frappe.db.delete("Has Role", {"role": name})
+        # Dọn DocPerm / Custom DocPerm còn sót
+        frappe.db.delete("DocPerm", {"role": name})
+        frappe.db.delete("Custom DocPerm", {"role": name})
+        try:
+            frappe.delete_doc(
+                "Role", name,
+                ignore_permissions=True, force=True,
+            )
+            deleted += 1
+        except Exception:
+            frappe.log_error(
+                frappe.get_traceback(),
+                f"Delete legacy Role {name} failed",
+            )
+    return deleted
 
 
 def run() -> None:
-    """Seed/update Role Profile + cleanup legacy. Idempotent."""
-    # AssetCore-branded persona catalog
-    ac_stats = {"inserted": 0, "updated": 0, "skipped": 0}
-    for profile_name, role_names in _ASSETCORE_PROFILES:
-        ac_stats[_upsert_role_profile(profile_name, role_names)] += 1
-
-    legacy_deleted = _delete_legacy_profiles()
-    roles_disabled = _disable_legacy_roles()
+    """Cleanup legacy Role Profile + persona Role. Idempotent."""
+    legacy_profiles_deleted = _delete_legacy_profiles()
+    legacy_roles_deleted = _delete_legacy_roles()
     frappe.db.commit()
-
     print(
-        f"[AssetCore] Role Profiles (AssetCore): {ac_stats['inserted']} tạo mới, "
-        f"{ac_stats['updated']} cập nhật, {ac_stats['skipped']} bỏ qua."
+        f"[AssetCore] Legacy cleanup: "
+        f"{legacy_profiles_deleted} Role Profile xóa, "
+        f"{legacy_roles_deleted} Role legacy xóa."
     )
-    print(
-        f"[AssetCore] Legacy cleanup: {legacy_deleted} profile xóa, "
-        f"{roles_disabled} role disabled."
-    )
-
-
-# Public catalog accessor (for tests / introspection)
-def get_assetcore_profiles() -> list[tuple[str, list[str]]]:
-    """Return canonical AssetCore-branded Role Profile catalog (read-only copy)."""
-    return [(name, list(roles)) for name, roles in _ASSETCORE_PROFILES]

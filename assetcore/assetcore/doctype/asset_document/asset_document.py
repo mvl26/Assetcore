@@ -9,7 +9,10 @@ from frappe.utils import nowdate, date_diff, getdate
 
 ALLOWED_FILE_EXTENSIONS = {".pdf", ".jpg", ".jpeg", ".png", ".docx"}
 EXEMPT_DOC_TYPES = {"Chứng nhận đăng ký lưu hành", "Giấy phép nhập khẩu"}
-INTERNAL_ONLY_ROLES = {"IMM Technician", "IMM QA Officer", "IMM Biomed Technician", "IMM Workshop Lead", "IMM System Admin"}
+INTERNAL_ONLY_ROLES = {
+    "PM User", "PM Manager", "Repair User", "Repair Manager",
+    "Compliance Manager", "AssetCore Super Admin",
+}
 
 
 class AssetDocument(Document):

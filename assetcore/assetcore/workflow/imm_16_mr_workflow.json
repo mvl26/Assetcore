@@ -12,25 +12,25 @@
  "workflow_state_field": "workflow_state",
  "states": [
   {
-   "allow_edit": "Tổ HC-QLCL",
+   "allow_edit": "Compliance Manager",
    "doc_status": "0",
    "state": "Draft",
    "type": "Default"
   },
   {
-   "allow_edit": "Tổ HC-QLCL",
+   "allow_edit": "Compliance Manager",
    "doc_status": "0",
    "state": "Held",
    "type": "Warning"
   },
   {
-   "allow_edit": "IMM System Admin",
+   "allow_edit": "AssetCore Super Admin",
    "doc_status": "1",
    "state": "Minutes Approved",
    "type": "Success"
   },
   {
-   "allow_edit": "IMM System Admin",
+   "allow_edit": "AssetCore Super Admin",
    "doc_status": "1",
    "state": "Closed",
    "type": "Success"
@@ -39,21 +39,21 @@
  "transitions": [
   {
    "action": "Đánh dấu Đã họp",
-   "allowed": "Tổ HC-QLCL",
+   "allowed": "Compliance Manager",
    "next_state": "Held",
    "state": "Draft",
    "allow_self_approval": 1
   },
   {
    "action": "Phê duyệt Biên bản",
-   "allowed": "Tổ HC-QLCL",
+   "allowed": "Compliance Manager",
    "next_state": "Minutes Approved",
    "state": "Held",
    "allow_self_approval": 1
   },
   {
    "action": "Đóng",
-   "allowed": "IMM System Admin",
+   "allowed": "AssetCore Super Admin",
    "next_state": "Closed",
    "state": "Minutes Approved",
    "allow_self_approval": 1

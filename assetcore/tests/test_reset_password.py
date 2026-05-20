@@ -48,7 +48,7 @@ def _delete_user(email: str) -> None:
 # ── test class ───────────────────────────────────────────────────────────────
 
 class TestResetUserPassword(unittest.TestCase):
-    """BR: IMM System Admin được reset mật khẩu user khác; non-admin thì không."""
+    """BR: AssetCore Super Admin được reset mật khẩu user khác; non-admin thì không."""
 
     @classmethod
     def setUpClass(cls):
@@ -56,7 +56,7 @@ class TestResetUserPassword(unittest.TestCase):
         ts = int(time.time()) % 100000
         cls.target   = _make_test_user(f"target-{ts}")
         cls.admin    = _make_test_user(f"admin-{ts}")
-        _ensure_role(cls.admin, "IMM System Admin")
+        _ensure_role(cls.admin, "AssetCore Super Admin")
         cls.nonadmin = _make_test_user(f"nonadmin-{ts}")
 
     @classmethod

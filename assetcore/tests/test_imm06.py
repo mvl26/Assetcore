@@ -436,12 +436,13 @@ class TestEnrollParticipants(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         frappe.set_user("Administrator")
-        for r in ("IMM System Admin", "IMM Training Officer"):
+        # RBAC module-based: AssetCore Super Admin + Training Manager
+        for r in ("AssetCore Super Admin", "Training Manager"):
             if not frappe.db.exists("Role", r):
                 frappe.get_doc({"doctype": "Role", "role_name": r}
                                ).insert(ignore_permissions=True)
         frappe.get_doc("User", "Administrator").add_roles(
-            "IMM System Admin", "IMM Training Officer")
+            "AssetCore Super Admin", "Training Manager")
         cls.prog = _make_program()
 
     @classmethod

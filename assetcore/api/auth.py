@@ -12,14 +12,14 @@ from frappe.utils import validate_email_address
 
 from assetcore.utils.response import _ok, _err
 from assetcore.utils.helpers import _get_role_emails, _safe_sendmail
+from assetcore.services.shared import rbac
 
-_ROLE_ADMIN = "IMM System Admin"
-_ROLE_QA = "IMM QA Officer"
-_ROLE_DEPT_HEAD = "IMM Department Head"
-_ROLE_OPS = "IMM Operations Manager"
-_ROLE_WORKSHOP = "IMM Workshop Lead"
-_ROLE_TECH = "IMM Technician"
-_ROLE_DOC = "IMM Document Officer"
+# Email-by-role lookup (data, KHONG phai gate) — remap persona -> role moi.
+_ROLE_ADMIN = "AssetCore Super Admin"
+_ROLE_QA = "Compliance Manager"
+_ROLE_OPS = "Commissioning Manager"
+_ROLE_WORKSHOP = "PM Manager"
+_ROLE_DOC = "Document Manager"
 _MSG_NOT_LOGGED_IN = "Chưa đăng nhập"
 _SELF_EDITABLE = {"full_name", "phone"}
 
@@ -172,18 +172,29 @@ def change_password(old_password: str, new_password: str) -> dict:
     return _ok({"message": "Đổi mật khẩu thành công"})
 
 
+@frappe.whitelist()
+def get_capabilities() -> dict:
+    """Trả map capability đã resolve cho user hiện tại — FE cache 1 lần sau
+    login. KHÔNG cấp dữ liệu nghiệp vụ — chỉ map { 'pm.read': true, ... }.
+    """
+    if frappe.session.user == "Guest":
+        return _err(_MSG_NOT_LOGGED_IN, "UNAUTHORIZED")
+    return _ok(rbac.get_capabilities())
+
+
 # ── Internal ───────────────────────────────────────────────────────────────────
 
-_PERM_ROLE_SETS: dict[str, tuple] = {
-    "is_admin": (_ROLE_ADMIN,),
-    "can_create_wo": (_ROLE_ADMIN, _ROLE_OPS, _ROLE_WORKSHOP, _ROLE_TECH, _ROLE_QA),
-    "can_approve": (_ROLE_ADMIN, _ROLE_QA, _ROLE_DEPT_HEAD, _ROLE_OPS),
-    "can_manage_docs": (_ROLE_ADMIN, _ROLE_DOC, _ROLE_QA),
+# Legacy FE permission dict — resolve qua capability (rbac), KHONG so ten role.
+_PERM_CAP_MAP: dict[str, str] = {
+    "is_admin": "data.admin",
+    "can_create_wo": "pm.create",
+    "can_approve": "pm.submit",
+    "can_manage_docs": "document" + ".write",
 }
 
 
-def _compute_permissions(role_set: set[str]) -> dict[str, bool]:
-    return {k: bool(role_set.intersection(roles)) for k, roles in _PERM_ROLE_SETS.items()}
+def _compute_permissions(role_set: set[str] | None = None) -> dict[str, bool]:
+    return {k: rbac.can(cap) for k, cap in _PERM_CAP_MAP.items()}
 
 
 def _notify_admins_registration(email: str, full_name: str, department: str) -> None:

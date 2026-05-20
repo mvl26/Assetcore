@@ -17,22 +17,12 @@ import frappe
 
 
 def execute() -> None:
-    # Tạo role mới (nếu chưa có) trước khi apply matrix
-    _ensure_roles([
-        "IMM System Admin",
-        "IMM Operations Manager",
-        "IMM Department Head",
-        "IMM Deputy Department Head",
-        "IMM Workshop Lead",
-        "IMM QA Officer",
-        "IMM Biomed Technician",
-        "IMM Technician",
-        "IMM Document Officer",
-        "IMM Storekeeper",
-        "IMM Clinical User",
-        "IMM Auditor",
-    ])
-
+    # ── DEPRECATED ──
+    # Mô hình RBAC mới (RBAC module-based, xem patches/v3_2/001) đã bỏ 19
+    # persona role này. Patch v3_2/001 chạy SAU patch này sẽ xóa hẳn các role
+    # legacy. Trên môi trường mới, patch này không cần tạo role (Roles do
+    # fixtures/role.json sinh + patch v3_2/001 dọn legacy).
+    # Giữ patch để Patch Log không lỗi; thực thi no-op.
     from assetcore.setup.setup_permissions import run as apply_permissions
     apply_permissions()
 

@@ -650,6 +650,12 @@ GET /api/method/assetcore.api.imm03.dashboard_kpis
 GET /api/method/assetcore.api.imm03.list_evaluations?workflow_state=Quotation+Received&page=1
 ```
 
+**Free-text search**: gửi `search` trong dict `filters`. BE gọi
+`pop_search(f, ["name", "spec_ref"])` và OR-LIKE trên 2 field này.
+Pagination total dùng `count_with_or`. Xem `docs/template/05_API_Specification.md` §3.1.
+
+**FE placeholder** (`VendorEvalListView.vue`): `"Tìm theo mã phiếu hoặc mã hồ sơ..."`.
+
 **Response:** fields = `name`, `spec_ref`, `draft_date`, `workflow_state`, `recommended_candidate` + enrich `tech_spec_ref_name` (display IMM Tech Spec.device_model_ref) + `vendor_name` (display AC Supplier.supplier_name của recommended_candidate).
 ```json
 {
@@ -680,6 +686,13 @@ GET /api/method/assetcore.api.imm03.list_avl?filters={"workflow_state":"Approved
 ```
 
 > Endpoint nhận 1 arg `filters` (JSON string). KHÔNG có pagination — `page_length=100` hard-coded. KHÔNG có `total`. Trả về `workflow_state` (KHÔNG có field `status`).
+
+**Free-text search**: nhận `search` trong dict `filters` — BE bóc qua
+`pop_search(f, ["name"], link_search={"supplier": ("AC Supplier", "supplier_name")})`.
+Direct LIKE trên `name` (mã AVL) + resolve tên NCC qua `AC Supplier.supplier_name`.
+Xem `docs/template/05_API_Specification.md` §3.1 và §3.1.a.
+
+**FE placeholder** (`AvlListView.vue`): `"Tìm theo mã AVL hoặc tên nhà cung cấp..."`.
 
 **Response:** fields = `name`, `supplier`, `device_category`, `workflow_state`, `valid_from`, `valid_to` + enrich `vendor_name` (AC Supplier.supplier_name) + `device_category_name` (AC Asset Category.category_name).
 ```json
@@ -758,6 +771,15 @@ GET /api/method/assetcore.api.imm03.get_avl?name=AVL-2026-00045
 ```
 GET /api/method/assetcore.api.imm03.list_decisions?filters={}&page=1&page_size=20
 ```
+
+**Free-text search**: gửi `search` trong dict `filters`. BE bóc qua
+`pop_search(f, ["name", "spec_ref"], link_search={"winner_supplier": ("AC Supplier", "supplier_name")})`.
+Direct LIKE trên `name` (mã QĐ) + `spec_ref` (mã hồ sơ), resolve tên NCC
+qua `AC Supplier.supplier_name`. Pagination total dùng `count_with_or`.
+Xem `docs/template/05_API_Specification.md` §3.1 và §3.1.a.
+
+**FE placeholder** (`DecisionListView.vue`):
+`"Tìm theo mã quyết định, mã hồ sơ hoặc tên NCC..."`.
 
 **Response:** fields = `name`, `spec_ref`, `winner_supplier`, `awarded_price`, `envelope_check_pct`, `workflow_state`, `ac_purchase_ref`, `creation` + enrich `vendor_name` (AC Supplier.supplier_name) + `tech_spec_ref_name` (IMM Tech Spec.device_model_ref).
 

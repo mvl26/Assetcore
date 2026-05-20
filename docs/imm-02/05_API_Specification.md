@@ -120,6 +120,23 @@ List Tech Spec với filter.
 GET ?workflow_state=Draft&device_category=Imaging&page=1&page_size=20&overdue_only=false
 ```
 
+**Free-text search** (convention chung — xem `docs/template/05_API_Specification.md`
+§3.1): FE đính kèm `search` vào dict `filters`, ví dụ
+`?filters={"workflow_state":"Draft","search":"Hamilton"}`. BE bóc qua
+`pop_search(f, ["name", "version"], link_search={"device_model_ref": ("IMM Device Model", "model_name")})`
+— direct LIKE trên `name` + `version`, và resolve `model_name` qua
+`IMM Device Model`. Pagination total dùng `count_with_or` để khớp
+OR-clause.
+
+> CẤM pass dict `filters` thô (có key `search`) vào `frappe.get_list` —
+> sẽ raise `(1054, "Unknown column 'tabIMM Tech Spec.search' in 'WHERE'")`.
+
+**FE placeholder** (`TechSpecListView.vue`):
+`"Tìm theo mã hồ sơ, tên model hoặc phiên bản..."` — "tên model" map
+sang link_search, "mã hồ sơ" map sang `name`, "phiên bản" map sang
+`version`. Sửa cùng PR khi `searchable_fields` / `link_search` thay đổi
+(xem `docs/template/06_Frontend_Design.md` §3.c.i).
+
 **Response:**
 ```json
 {

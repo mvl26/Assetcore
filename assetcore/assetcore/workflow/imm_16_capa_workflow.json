@@ -12,31 +12,31 @@
  "workflow_state_field": "workflow_state",
  "states": [
   {
-   "allow_edit": "IMM QA Officer",
+   "allow_edit": "Compliance Manager",
    "doc_status": "0",
    "state": "Open",
    "type": "Warning"
   },
   {
-   "allow_edit": "IMM QA Officer",
+   "allow_edit": "Compliance Manager",
    "doc_status": "0",
    "state": "Investigating",
    "type": "Success"
   },
   {
-   "allow_edit": "IMM QA Officer",
+   "allow_edit": "Compliance Manager",
    "doc_status": "0",
    "state": "Action Plan",
    "type": "Primary"
   },
   {
-   "allow_edit": "IMM Workshop Lead",
+   "allow_edit": "PM Manager",
    "doc_status": "0",
    "state": "Implementation",
    "type": "Success"
   },
   {
-   "allow_edit": "IMM QA Officer",
+   "allow_edit": "Compliance Manager",
    "doc_status": "0",
    "state": "Verification",
    "type": "Warning"
@@ -48,7 +48,7 @@
    "type": "Success"
   },
   {
-   "allow_edit": "IMM QA Officer",
+   "allow_edit": "Compliance Manager",
    "doc_status": "0",
    "state": "Re-opened",
    "type": "Danger"
@@ -57,14 +57,14 @@
  "transitions": [
   {
    "action": "Bắt đầu điều tra",
-   "allowed": "IMM QA Officer",
+   "allowed": "Compliance Manager",
    "next_state": "Investigating",
    "state": "Open",
    "allow_self_approval": 1
   },
   {
    "action": "Lập kế hoạch hành động",
-   "allowed": "IMM QA Officer",
+   "allowed": "Compliance Manager",
    "condition": "doc.imm_root_cause_method",
    "next_state": "Action Plan",
    "state": "Investigating",
@@ -72,21 +72,21 @@
   },
   {
    "action": "Bắt đầu thực thi",
-   "allowed": "IMM Workshop Lead",
+   "allowed": "PM Manager",
    "next_state": "Implementation",
    "state": "Action Plan",
    "allow_self_approval": 1
   },
   {
    "action": "Chuyển sang xác minh",
-   "allowed": "IMM QA Officer",
+   "allowed": "Compliance Manager",
    "next_state": "Verification",
    "state": "Implementation",
    "allow_self_approval": 1
   },
   {
    "action": "Đóng CAPA",
-   "allowed": "IMM QA Officer",
+   "allowed": "Compliance Manager",
    "condition": "doc.effectiveness_check == \"Effective\"",
    "next_state": "Closed",
    "state": "Verification",
@@ -94,7 +94,7 @@
   },
   {
    "action": "Mở lại do chưa hiệu quả",
-   "allowed": "IMM QA Officer",
+   "allowed": "Compliance Manager",
    "condition": "doc.effectiveness_check == \"Not Effective\"",
    "next_state": "Re-opened",
    "state": "Verification",
@@ -102,7 +102,7 @@
   },
   {
    "action": "Bắt đầu điều tra lại",
-   "allowed": "IMM QA Officer",
+   "allowed": "Compliance Manager",
    "next_state": "Investigating",
    "state": "Re-opened",
    "allow_self_approval": 1

@@ -14,25 +14,25 @@
   {
    "state": "Draft",
    "doc_status": "0",
-   "allow_edit": "IMM Planning Officer",
+   "allow_edit": "Needs Manager",
    "type": "Success"
   },
   {
    "state": "Approved",
    "doc_status": "1",
-   "allow_edit": "IMM System Admin",
+   "allow_edit": "AssetCore Super Admin",
    "type": "Success"
   },
   {
    "state": "Active",
    "doc_status": "1",
-   "allow_edit": "IMM System Admin",
+   "allow_edit": "AssetCore Super Admin",
    "type": "Success"
   },
   {
    "state": "Closed",
    "doc_status": "1",
-   "allow_edit": "IMM System Admin",
+   "allow_edit": "AssetCore Super Admin",
    "type": "Default"
   }
  ],
@@ -41,28 +41,28 @@
    "state": "Draft",
    "next_state": "Approved",
    "action": "Phê duyệt kế hoạch",
-   "allowed": "IMM Board Approver",
+   "allowed": "Procurement Manager",
    "allow_self_approval": 1
   },
   {
    "state": "Draft",
    "next_state": "Approved",
    "action": "Phê duyệt kế hoạch",
-   "allowed": "IMM Department Head",
+   "allowed": "Commissioning Manager",
    "allow_self_approval": 1
   },
   {
    "state": "Approved",
    "next_state": "Active",
    "action": "Kích hoạt",
-   "allowed": "IMM Planning Officer",
+   "allowed": "Needs Manager",
    "allow_self_approval": 1
   },
   {
    "state": "Active",
    "next_state": "Closed",
    "action": "Đóng kỳ kế hoạch",
-   "allowed": "IMM Department Head",
+   "allowed": "Commissioning Manager",
    "allow_self_approval": 1
   }
  ]

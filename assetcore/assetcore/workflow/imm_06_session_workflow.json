@@ -12,31 +12,31 @@
  "workflow_state_field": "workflow_state",
  "states": [
   {
-   "allow_edit": "IMM Training Officer",
+   "allow_edit": "Training Manager",
    "doc_status": "0",
    "state": "Planned",
    "type": "Default"
   },
   {
-   "allow_edit": "IMM Training Officer",
+   "allow_edit": "Training Manager",
    "doc_status": "0",
    "state": "Confirmed",
    "type": "Warning"
   },
   {
-   "allow_edit": "IMM Training Officer",
+   "allow_edit": "Training Manager",
    "doc_status": "0",
    "state": "In Progress",
    "type": "Warning"
   },
   {
-   "allow_edit": "IMM Training Officer",
+   "allow_edit": "Training Manager",
    "doc_status": "0",
    "state": "Completed",
    "type": "Success"
   },
   {
-   "allow_edit": "IMM Workshop Lead",
+   "allow_edit": "PM Manager",
    "doc_status": "0",
    "state": "Verified",
    "type": "Success"
@@ -57,98 +57,98 @@
  "transitions": [
   {
    "action": "Xác nhận",
-   "allowed": "IMM Training Officer",
+   "allowed": "Training Manager",
    "next_state": "Confirmed",
    "state": "Planned",
    "allow_self_approval": 1
   },
   {
    "action": "Xác nhận",
-   "allowed": "IMM System Admin",
+   "allowed": "AssetCore Super Admin",
    "next_state": "Confirmed",
    "state": "Planned",
    "allow_self_approval": 1
   },
   {
    "action": "Bắt đầu",
-   "allowed": "IMM Training Officer",
+   "allowed": "Training Manager",
    "next_state": "In Progress",
    "state": "Confirmed",
    "allow_self_approval": 1
   },
   {
    "action": "Bắt đầu",
-   "allowed": "IMM Biomed Technician",
+   "allowed": "PM User",
    "next_state": "In Progress",
    "state": "Confirmed",
    "allow_self_approval": 1
   },
   {
    "action": "Hoàn thành",
-   "allowed": "IMM Training Officer",
+   "allowed": "Training Manager",
    "next_state": "Completed",
    "state": "In Progress",
    "allow_self_approval": 1
   },
   {
    "action": "Hoàn thành",
-   "allowed": "IMM Biomed Technician",
+   "allowed": "PM User",
    "next_state": "Completed",
    "state": "In Progress",
    "allow_self_approval": 1
   },
   {
    "action": "Verify",
-   "allowed": "IMM Workshop Lead",
+   "allowed": "PM Manager",
    "next_state": "Verified",
    "state": "Completed",
    "allow_self_approval": 1
   },
   {
    "action": "Verify",
-   "allowed": "IMM System Admin",
+   "allowed": "AssetCore Super Admin",
    "next_state": "Verified",
    "state": "Completed",
    "allow_self_approval": 1
   },
   {
    "action": "Đóng",
-   "allowed": "IMM Workshop Lead",
+   "allowed": "PM Manager",
    "next_state": "Closed",
    "state": "Verified",
    "allow_self_approval": 1
   },
   {
    "action": "Đóng",
-   "allowed": "IMM System Admin",
+   "allowed": "AssetCore Super Admin",
    "next_state": "Closed",
    "state": "Verified",
    "allow_self_approval": 1
   },
   {
    "action": "Hủy",
-   "allowed": "IMM Training Officer",
+   "allowed": "Training Manager",
    "next_state": "Cancelled",
    "state": "Planned",
    "allow_self_approval": 1
   },
   {
    "action": "Hủy",
-   "allowed": "IMM System Admin",
+   "allowed": "AssetCore Super Admin",
    "next_state": "Cancelled",
    "state": "Planned",
    "allow_self_approval": 1
   },
   {
    "action": "Hủy",
-   "allowed": "IMM Training Officer",
+   "allowed": "Training Manager",
    "next_state": "Cancelled",
    "state": "Confirmed",
    "allow_self_approval": 1
   },
   {
    "action": "Hủy",
-   "allowed": "IMM System Admin",
+   "allowed": "AssetCore Super Admin",
    "next_state": "Cancelled",
    "state": "Confirmed",
    "allow_self_approval": 1

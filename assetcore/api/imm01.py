@@ -18,6 +18,7 @@ from frappe import _
 
 from assetcore.services import imm01 as svc
 from assetcore.services.shared import ErrorCode, ServiceError
+from assetcore.services.shared.filters import count_with_or, pop_search
 from assetcore.utils.helpers import _ok, _err
 
 _DT_NR = "IMM Needs Request"
@@ -73,6 +74,12 @@ def _list_needs_requests(filters: str, page: int, page_size: int, order_by: str)
     - `owner` (User) → `requester_name`
     """
     f = _parse_json(filters)
+    # FE search: "mã phiếu hoặc tên model". `device_model_ref` chỉ chứa mã
+    # link → muốn match `model_name` phải resolve qua link_search.
+    f, or_filters = pop_search(
+        f, ["name"],
+        link_search={"device_model_ref": ("IMM Device Model", "model_name")},
+    )
     fields = [
         "name", "request_type", "device_model_ref", "requesting_department",
         "replacement_for_asset", "owner",
@@ -82,11 +89,11 @@ def _list_needs_requests(filters: str, page: int, page_size: int, order_by: str)
     page_size = max(1, min(int(page_size), 100))
     start = (max(1, int(page)) - 1) * page_size
     items = frappe.get_list(
-        _DT_NR, filters=f or None, fields=fields,
+        _DT_NR, filters=f or None, or_filters=or_filters, fields=fields,
         order_by=order_by, start=start, page_length=page_size,
     )
     _enrich_needs_display_names(items)
-    total = frappe.db.count(_DT_NR, filters=f or None)
+    total = count_with_or(_DT_NR, f or None, or_filters)
     return {"items": items, "total": total, "page": page, "page_size": page_size}
 
 
@@ -348,15 +355,16 @@ def list_procurement_plans(filters: str = "{}", page: int = 1, page_size: int = 
 
 def _list_procurement_plans(filters: str, page: int, page_size: int) -> dict:
     f = _parse_json(filters)
+    f, or_filters = pop_search(f, ["name", "plan_period"])
     fields = ["name", "plan_period", "plan_year", "budget_envelope",
               "allocated_capex", "utilization_pct", "workflow_state"]
     page_size = max(1, min(int(page_size), 100))
     start = (max(1, int(page)) - 1) * page_size
     items = frappe.get_list(
-        _DT_PP, filters=f or None, fields=fields,
+        _DT_PP, filters=f or None, or_filters=or_filters, fields=fields,
         order_by="plan_year desc, plan_period asc", start=start, page_length=page_size,
     )
-    return {"items": items, "total": frappe.db.count(_DT_PP, filters=f or None),
+    return {"items": items, "total": count_with_or(_DT_PP, f or None, or_filters),
             "page": page, "page_size": page_size}
 
 

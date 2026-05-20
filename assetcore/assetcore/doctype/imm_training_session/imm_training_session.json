@@ -1,196 +1,230 @@
 {
-  "actions": [],
-  "name": "IMM Training Session",
-  "doctype": "DocType",
-  "module": "AssetCore",
-  "engine": "InnoDB",
-  "document_type": "Document",
-  "is_submittable": 0,
-  "track_changes": 1,
-  "autoname": "TRN-.YYYY.-.#####",
-  "naming_rule": "Expression (old style)",
-  "title_field": "training_program",
-  "search_fields": "training_program,instructor,location",
-  "sort_field": "session_date",
-  "sort_order": "DESC",
-  "creation": "2026-05-08 00:00:00.000000",
-  "modified": "2026-05-08 00:00:00.000000",
-  "modified_by": "Administrator",
-  "owner": "Administrator",
-  "field_order": [
-    "workflow_state",
-    "training_program",
-    "session_date",
-    "session_type",
-    "location",
-    "section_instructor",
-    "trainer_ref",
-    "instructor",
-    "instructor_external_name",
-    "instructor_external_org",
-    "section_duration",
-    "duration_planned_hours",
-    "duration_actual_hours",
-    "training_materials",
-    "qms_session_record",
-    "evaluation_method",
-    "status_remarks",
-    "section_participants",
-    "participants"
-  ],
-  "fields": [
-    {
-      "fieldname": "workflow_state",
-      "fieldtype": "Link",
-      "label": "Trạng thái",
-      "options": "Workflow State",
-      "read_only": 1,
-      "in_list_view": 1
-    },
-    {
-      "fieldname": "training_program",
-      "fieldtype": "Link",
-      "label": "Chương trình",
-      "options": "IMM Training Program",
-      "reqd": 1,
-      "in_list_view": 1
-    },
-    {
-      "fieldname": "session_date",
-      "fieldtype": "Date",
-      "label": "Ngày tổ chức",
-      "reqd": 1,
-      "in_list_view": 1
-    },
-    {
-      "fieldname": "session_type",
-      "fieldtype": "Select",
-      "label": "Hình thức",
-      "options": "Onsite\nOnline\nHybrid",
-      "reqd": 1
-    },
-    {
-      "fieldname": "location",
-      "fieldtype": "Data",
-      "label": "Địa điểm"
-    },
-    {
-      "fieldtype": "Section Break",
-      "fieldname": "section_instructor",
-      "label": "Giảng viên"
-    },
-    {
-      "fieldname": "trainer_ref",
-      "fieldtype": "Link",
-      "label": "Giảng viên (hồ sơ)",
-      "options": "IMM Trainer"
-    },
-    {
-      "fieldname": "instructor",
-      "fieldtype": "Link",
-      "label": "Giảng viên nội bộ",
-      "options": "User"
-    },
-    {
-      "fieldname": "instructor_external_name",
-      "fieldtype": "Data",
-      "label": "Tên giảng viên bên ngoài"
-    },
-    {
-      "fieldname": "instructor_external_org",
-      "fieldtype": "Data",
-      "label": "Tổ chức"
-    },
-    {
-      "fieldtype": "Section Break",
-      "fieldname": "section_duration",
-      "label": "Thời lượng & Tài liệu"
-    },
-    {
-      "fieldname": "duration_planned_hours",
-      "fieldtype": "Float",
-      "label": "Thời lượng dự kiến (giờ)",
-      "reqd": 1
-    },
-    {
-      "fieldname": "duration_actual_hours",
-      "fieldtype": "Float",
-      "label": "Thời lượng thực tế (giờ)"
-    },
-    {
-      "fieldname": "training_materials",
-      "fieldtype": "Attach",
-      "label": "Tài liệu đào tạo"
-    },
-    {
-      "fieldname": "qms_session_record",
-      "fieldtype": "Attach",
-      "label": "Biên bản buổi học"
-    },
-    {
-      "fieldname": "evaluation_method",
-      "fieldtype": "Select",
-      "label": "Phương pháp đánh giá",
-      "options": "Lý thuyết\nThực hành\nCả hai"
-    },
-    {
-      "fieldname": "status_remarks",
-      "fieldtype": "Small Text",
-      "label": "Ghi chú"
-    },
-    {
-      "fieldtype": "Section Break",
-      "fieldname": "section_participants",
-      "label": "Học viên"
-    },
-    {
-      "fieldname": "participants",
-      "fieldtype": "Table",
-      "label": "Học viên",
-      "options": "IMM Training Participant"
-    }
-  ],
-  "permissions": [
-    {
-      "role": "IMM System Admin",
-      "read": 1,
-      "write": 1,
-      "create": 1,
-      "delete": 1,
-      "submit": 1,
-      "cancel": 1,
-      "report": 1,
-      "export": 1,
-      "print": 1
-    },
-    {
-      "role": "IMM Training Officer",
-      "read": 1,
-      "write": 1,
-      "create": 1,
-      "submit": 1,
-      "cancel": 1,
-      "report": 1,
-      "print": 1
-    },
-    {
-      "role": "IMM Workshop Lead",
-      "read": 1,
-      "write": 1,
-      "submit": 1,
-      "report": 1
-    },
-    {
-      "role": "IMM Biomed Technician",
-      "read": 1,
-      "write": 1,
-      "create": 1,
-      "report": 1
-    },
-    {
-      "role": "HTM Technician",
-      "read": 1,
-      "write": 1
-    }
-  ]
+ "actions": [],
+ "name": "IMM Training Session",
+ "doctype": "DocType",
+ "module": "AssetCore",
+ "engine": "InnoDB",
+ "document_type": "Document",
+ "is_submittable": 0,
+ "track_changes": 1,
+ "autoname": "TRN-.YYYY.-.#####",
+ "naming_rule": "Expression (old style)",
+ "title_field": "training_program",
+ "search_fields": "training_program,instructor,location",
+ "sort_field": "session_date",
+ "sort_order": "DESC",
+ "creation": "2026-05-08 00:00:00.000000",
+ "modified": "2026-05-08 00:00:00.000000",
+ "modified_by": "Administrator",
+ "owner": "Administrator",
+ "field_order": [
+  "workflow_state",
+  "training_program",
+  "session_date",
+  "session_type",
+  "location",
+  "section_instructor",
+  "trainer_ref",
+  "instructor",
+  "instructor_external_name",
+  "instructor_external_org",
+  "section_duration",
+  "duration_planned_hours",
+  "duration_actual_hours",
+  "training_materials",
+  "qms_session_record",
+  "evaluation_method",
+  "status_remarks",
+  "section_participants",
+  "participants"
+ ],
+ "fields": [
+  {
+   "fieldname": "workflow_state",
+   "fieldtype": "Link",
+   "label": "Trạng thái",
+   "options": "Workflow State",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "training_program",
+   "fieldtype": "Link",
+   "label": "Chương trình",
+   "options": "IMM Training Program",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "session_date",
+   "fieldtype": "Date",
+   "label": "Ngày tổ chức",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "session_type",
+   "fieldtype": "Select",
+   "label": "Hình thức",
+   "options": "Onsite\nOnline\nHybrid",
+   "reqd": 1
+  },
+  {
+   "fieldname": "location",
+   "fieldtype": "Data",
+   "label": "Địa điểm"
+  },
+  {
+   "fieldtype": "Section Break",
+   "fieldname": "section_instructor",
+   "label": "Giảng viên"
+  },
+  {
+   "fieldname": "trainer_ref",
+   "fieldtype": "Link",
+   "label": "Giảng viên (hồ sơ)",
+   "options": "IMM Trainer"
+  },
+  {
+   "fieldname": "instructor",
+   "fieldtype": "Link",
+   "label": "Giảng viên nội bộ",
+   "options": "User"
+  },
+  {
+   "fieldname": "instructor_external_name",
+   "fieldtype": "Data",
+   "label": "Tên giảng viên bên ngoài"
+  },
+  {
+   "fieldname": "instructor_external_org",
+   "fieldtype": "Data",
+   "label": "Tổ chức"
+  },
+  {
+   "fieldtype": "Section Break",
+   "fieldname": "section_duration",
+   "label": "Thời lượng & Tài liệu"
+  },
+  {
+   "fieldname": "duration_planned_hours",
+   "fieldtype": "Float",
+   "label": "Thời lượng dự kiến (giờ)",
+   "reqd": 1
+  },
+  {
+   "fieldname": "duration_actual_hours",
+   "fieldtype": "Float",
+   "label": "Thời lượng thực tế (giờ)"
+  },
+  {
+   "fieldname": "training_materials",
+   "fieldtype": "Attach",
+   "label": "Tài liệu đào tạo"
+  },
+  {
+   "fieldname": "qms_session_record",
+   "fieldtype": "Attach",
+   "label": "Biên bản buổi học"
+  },
+  {
+   "fieldname": "evaluation_method",
+   "fieldtype": "Select",
+   "label": "Phương pháp đánh giá",
+   "options": "Lý thuyết\nThực hành\nCả hai"
+  },
+  {
+   "fieldname": "status_remarks",
+   "fieldtype": "Small Text",
+   "label": "Ghi chú"
+  },
+  {
+   "fieldtype": "Section Break",
+   "fieldname": "section_participants",
+   "label": "Học viên"
+  },
+  {
+   "fieldname": "participants",
+   "fieldtype": "Table",
+   "label": "Học viên",
+   "options": "IMM Training Participant"
+  }
+ ],
+ "permissions": [
+  {
+   "role": "AssetCore Super Admin",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "submit": 1,
+   "cancel": 1,
+   "delete": 1,
+   "amend": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "Training Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "submit": 1,
+   "cancel": 1,
+   "delete": 1,
+   "amend": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "Training User",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "submit": 0,
+   "cancel": 0,
+   "delete": 0,
+   "amend": 0,
+   "report": 1,
+   "export": 0,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "AssetCore Auditor",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "submit": 0,
+   "cancel": 0,
+   "delete": 0,
+   "amend": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 0,
+   "share": 0
+  },
+  {
+   "role": "AssetCore System User",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "submit": 0,
+   "cancel": 0,
+   "delete": 0,
+   "amend": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 0,
+   "share": 0
+  }
+ ]
 }

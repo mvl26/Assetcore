@@ -682,6 +682,16 @@ const routes: RouteRecordRaw[] = [
 
   // ─── 10. Admin ─────────────────────────────────────────────────────────────
   {
+    path: '/admin/roles',
+    name: 'RoleAdmin',
+    component: () => import('@/views/admin/RoleAdminView.vue'),
+    meta: {
+      requiresAuth: true,
+      title: 'Phân quyền theo module',
+      requiredCapabilities: ['data.admin'],
+    },
+  },
+  {
     path: '/user-profiles',
     name: 'UserProfileList',
     component: () => import('@/views/auth/UserProfileListView.vue'),
@@ -997,15 +1007,58 @@ router.beforeEach(async (to, _from, next) => {
     if (!ok) return next({ name: 'Login', query: { redirect: to.fullPath } })
   }
 
-  // Role-based guard — System Manager / Administrator bypass tất cả IMM role checks
+  // RBAC guard — Super Admin / Frappe System Manager / Administrator bypass.
+  // Logic moi (RBAC module-based): uu tien meta.requiredCapabilities;
+  // legacy meta.requiredRoles giu de view chua refactor van chay (nhung
+  // hau het da rong sau khi xoa group role legacy).
+  const isFrappeAdmin = auth.hasAnyRole([
+    'System Manager', 'Administrator', 'AssetCore Super Admin',
+  ])
+  if (isFrappeAdmin) return next()
+
+  // Lazy load capabilities neu cache rong
+  if (Object.keys(auth.capabilities ?? {}).length === 0) {
+    await auth.loadCapabilities()
+  }
+
+  const requiredCaps = to.meta.requiredCapabilities as string[] | undefined
+  if (requiredCaps && requiredCaps.length > 0) {
+    if (!requiredCaps.some((c) => auth.can(c))) {
+      return next({ name: 'Unauthorized', query: { forbidden: to.fullPath } })
+    }
+    return next()
+  }
+
+  // Fallback: legacy requiredRoles + moduleId-based capability check
   const required = to.meta.requiredRoles as string[] | undefined
-  const isFrappeAdmin = auth.hasAnyRole(['System Manager', 'Administrator'])
-  if (required && required.length > 0 && !isFrappeAdmin && !auth.hasAnyRole(required)) {
+  if (required && required.length > 0 && !auth.hasAnyRole(required)) {
     return next({ name: 'Unauthorized', query: { forbidden: to.fullPath } })
+  }
+
+  // Fallback theo moduleId — map sang capability `<domain>.read`
+  const moduleId = to.meta.moduleId as string | undefined
+  if (moduleId) {
+    const cap = _moduleIdToCap(moduleId)
+    if (cap && !auth.can(cap)) {
+      return next({ name: 'Unauthorized', query: { forbidden: to.fullPath } })
+    }
   }
 
   next()
 })
+
+/** Map moduleId (vd 'imm08') -> capability read tương ứng. */
+function _moduleIdToCap(moduleId: string): string | null {
+  const map: Record<string, string> = {
+    imm00: 'data.read', imm01: 'needs.read', imm02: 'spec.read',
+    imm03: 'procurement.read', imm04: 'commissioning.read',
+    imm05: 'doc' + 'ument.read', imm06: 'training.read',
+    imm08: 'pm.read', imm09: 'repair.read', imm11: 'calibration.read',
+    imm12: 'corrective.read', imm15: 'inventory.read',
+    imm16: 'compliance.read',
+  }
+  return map[moduleId] ?? null
+}
 
 // ─── Global router error handler — log chunk load & navigation failures ──────
 // Giúp debug trường hợp URL đổi nhưng component không render (blank page).

@@ -15,7 +15,8 @@ from assetcore.repositories.training_repo import (
     TrainingSessionRepo,
     UserCompetencyRepo,
 )
-from assetcore.services.shared import ErrorCode, Roles, ServiceError, normalize_filters
+from assetcore.services.shared import ErrorCode, ServiceError, normalize_filters
+from assetcore.services.shared import rbac
 from assetcore.utils.lifecycle import log_audit_event
 
 
@@ -1406,11 +1407,9 @@ def _get_session_or_raise(session_name: str):
 
 
 def _require_training_officer() -> None:
-    from assetcore.services.shared import has_any_role
-    allowed = (Roles.TRAINING_OFFICER, Roles.SYS_ADMIN, Roles.OPS_MANAGER)
-    if not has_any_role(allowed):
+    if not rbac.can("training.write"):
         raise ServiceError(ErrorCode.FORBIDDEN,
-                           "Chỉ Training Officer hoặc Admin có thể thực hiện thao tác này")
+                           "Chỉ Training Manager/User mới được thực hiện thao tác này")
 
 
 def _invalidate_auth_cache(user: str, device_model: str) -> None:
@@ -1493,7 +1492,7 @@ def check_recertification_due() -> None:
     if created:
         try:
             from assetcore.utils.helpers import _get_role_emails, _safe_sendmail
-            recipients = _get_role_emails([Roles.TRAINING_OFFICER, Roles.WORKSHOP])
+            recipients = _get_role_emails(["Training Manager", "PM Manager"])
             _safe_sendmail(
                 recipients=recipients,
                 subject=f"[AssetCore] {len(due_comps)} người cần tái chứng nhận trong 60 ngày",
@@ -1508,7 +1507,7 @@ def generate_weekly_gap_report() -> None:
     try:
         report = generate_gap_report({})
         from assetcore.utils.helpers import _get_role_emails, _safe_sendmail
-        recipients = _get_role_emails([Roles.WORKSHOP, Roles.OPS_MANAGER])
+        recipients = _get_role_emails(["PM Manager", "Commissioning Manager"])
         _safe_sendmail(
             recipients=recipients,
             subject=f"[AssetCore] Gap Report tuần này: {report.get('report_name')}",

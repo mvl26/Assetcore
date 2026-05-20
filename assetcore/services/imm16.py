@@ -17,7 +17,8 @@ from assetcore.repositories.compliance_repo import (
     InternalAuditRepo,
     ManagementReviewRepo,
 )
-from assetcore.services.shared import ErrorCode, Roles, ServiceError, normalize_filters
+from assetcore.services.shared import ErrorCode, ServiceError, normalize_filters
+from assetcore.services.shared import rbac
 from assetcore.utils.lifecycle import log_audit_event
 
 
@@ -696,7 +697,7 @@ def _send_capa_escalation(capa: dict, level: int) -> None:
                 """SELECT DISTINCT u.email FROM `tabHas Role` hr
                    JOIN `tabUser` u ON u.name = hr.parent
                    WHERE hr.role = %s AND u.enabled = 1""",
-                (Roles.WORKSHOP,), as_dict=True,
+                ("Compliance Manager",), as_dict=True,
             )
             recipients += [r.email for r in wl_emails if r.email]
         if recipients:
@@ -710,11 +711,9 @@ def _send_capa_escalation(capa: dict, level: int) -> None:
 
 
 def _require_qa_or_admin() -> None:
-    from assetcore.services.shared import has_any_role
-    allowed = (Roles.QA, Roles.SYS_ADMIN, Roles.OPS_MANAGER, Roles.AUDITOR)
-    if not has_any_role(allowed):
+    if not rbac.can(_CAP_COMPLIANCE_WRITE):
         raise ServiceError(ErrorCode.FORBIDDEN,
-                           "Chỉ QA Officer hoặc Admin có thể thực hiện thao tác này")
+                           "Chỉ Compliance Manager/User mới được thực hiện thao tác này")
 
 
 
@@ -791,8 +790,7 @@ def check_management_review_due() -> None:
         return
     try:
         from assetcore.utils.helpers import _get_role_emails, _safe_sendmail
-        from assetcore.services.shared import Roles
-        recipients = _get_role_emails([Roles.QA, Roles.OPS_MANAGER])
+        recipients = _get_role_emails(["Compliance Manager"])
         _safe_sendmail(
             recipients=recipients,
             subject=f"[AssetCore] Nhắc nhở: Chưa có Management Review cho {current_quarter}",
@@ -816,8 +814,7 @@ def update_compliance_scorecard() -> None:
     try:
         result = generate_scorecard("", f"{year}-{month:02d}")
         from assetcore.utils.helpers import _get_role_emails, _safe_sendmail
-        from assetcore.services.shared import Roles
-        recipients = _get_role_emails([Roles.QA, Roles.WORKSHOP, Roles.OPS_MANAGER])
+        recipients = _get_role_emails(["Compliance Manager", "PM Manager"])
         _safe_sendmail(
             recipients=recipients,
             subject=f"[AssetCore] Compliance Scorecard {year}-{month:02d} đã được tạo",
@@ -930,11 +927,9 @@ def _evaluate_single_rule_for_asset(rule: dict, asset: str,
 # Canonical IMM-16 service surface (per docs/imm-16/05_API_Specification.md)
 # ════════════════════════════════════════════════════════════════════════════
 
-_WAIVE_ROLES = (Roles.OPS_MANAGER, Roles.SYS_ADMIN)
-_PUBLISH_SCORECARD_ROLES = (Roles.QA, Roles.OPS_MANAGER, Roles.SYS_ADMIN)
-_FINALIZE_MR_ROLES = (Roles.OPS_MANAGER, Roles.SYS_ADMIN)
-_CLOSE_AUDIT_ROLES = (Roles.QA, Roles.OPS_MANAGER, Roles.SYS_ADMIN)
-_CREATE_RULE_ROLES = (Roles.QA, Roles.SYS_ADMIN)
+# Capability gates (Compliance domain) — quyen that do DocPerm quyet dinh.
+_CAP_COMPLIANCE_APPROVE = "compliance.submit"  # waive/publish/finalize/close (Manager)
+_CAP_COMPLIANCE_WRITE = "compliance.write"     # cap nhat Rule (User+)
 
 
 # ─── Audit-trail helper (CLAUDE.md §5/§19 — mọi action sinh record) ───────────
@@ -1001,8 +996,8 @@ def get_rule(name: str) -> dict:
 
 def update_rule(name: str, rule_data: dict, change_summary: str = "") -> dict:
     """VR-11: enforce change_summary nếu threshold/severity đổi; bump version."""
-    from assetcore.services.shared import require_role
-    require_role(_CREATE_RULE_ROLES, "Không có quyền cập nhật Rule")
+    if not rbac.can(_CAP_COMPLIANCE_WRITE):
+        raise ServiceError(ErrorCode.FORBIDDEN, "Không có quyền cập nhật Rule")
 
     doc = ComplianceRuleRepo.get(name)
     if not doc:
@@ -1045,8 +1040,8 @@ def update_rule(name: str, rule_data: dict, change_summary: str = "") -> dict:
 
 def deactivate_rule(name: str) -> dict:
     """Deactivate Rule (set is_active=0)."""
-    from assetcore.services.shared import require_role
-    require_role(_CREATE_RULE_ROLES, "Không có quyền deactivate Rule")
+    if not rbac.can(_CAP_COMPLIANCE_WRITE):
+        raise ServiceError(ErrorCode.FORBIDDEN, "Không có quyền deactivate Rule")
     if not ComplianceRuleRepo.exists(name):
         raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy Rule: {name}")
     frappe.db.set_value(ComplianceRuleRepo.DOCTYPE, name, "is_active", 0)
@@ -1061,8 +1056,8 @@ def deactivate_rule(name: str) -> dict:
 
 def reactivate_rule(name: str) -> dict:
     """Kích hoạt lại Rule đã deactivate (set is_active=1). BUG-16-02."""
-    from assetcore.services.shared import require_role
-    require_role(_CREATE_RULE_ROLES, "Không có quyền kích hoạt Rule")
+    if not rbac.can(_CAP_COMPLIANCE_WRITE):
+        raise ServiceError(ErrorCode.FORBIDDEN, "Không có quyền kích hoạt Rule")
     if not ComplianceRuleRepo.exists(name):
         raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy Rule: {name}")
     frappe.db.set_value(ComplianceRuleRepo.DOCTYPE, name, "is_active", 1)
@@ -1149,10 +1144,9 @@ def waive_finding(name: str, waiver_reason: str,
                   waiver_evidence: str = "",
                   waiver_expiry: str = "") -> dict:
     """BR-16-06 + VR-04."""
-    from assetcore.services.shared import has_any_role
-    if not has_any_role(_WAIVE_ROLES):
+    if not rbac.can(_CAP_COMPLIANCE_APPROVE):
         raise ServiceError("FIN-006",
-                           "Chỉ VP Block2 hoặc CMMS Admin được phép waive")
+                           "Chỉ Compliance Manager mới được phép waive")
     if not waiver_reason or len(waiver_reason.strip()) < 50:
         raise ServiceError("FIN-004",
                            "VR-04: waiver_reason phải >= 50 ký tự")
@@ -1292,8 +1286,8 @@ def complete_audit_checklist(audit_name: str, items: list[dict]) -> dict:
 
 def close_audit(name: str, audit_report: str = "") -> dict:
     """§3.3.5: VR-08 enforce — block nếu còn Major NC chưa CAPA."""
-    from assetcore.services.shared import require_role
-    require_role(_CLOSE_AUDIT_ROLES, "Không có quyền đóng Audit")
+    if not rbac.can(_CAP_COMPLIANCE_APPROVE):
+        raise ServiceError(ErrorCode.FORBIDDEN, "Không có quyền đóng Audit")
 
     doc = InternalAuditRepo.get(name)
     if not doc:
@@ -1624,8 +1618,8 @@ def get_scorecard_by_period(year: int, month: int, scope: str = "Hospital") -> d
 
 def publish_scorecard(name: str) -> dict:
     """§3.5.4: VR-09 immutable; VR-10 gate quý trước phải có MR Closed."""
-    from assetcore.services.shared import require_role
-    require_role(_PUBLISH_SCORECARD_ROLES, "Không có quyền publish Scorecard")
+    if not rbac.can(_CAP_COMPLIANCE_APPROVE):
+        raise ServiceError(ErrorCode.FORBIDDEN, "Không có quyền publish Scorecard")
     doc = ComplianceScorecardRepo.get(name)
     if not doc:
         raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy Scorecard: {name}")
@@ -1719,8 +1713,8 @@ def get_management_review(name: str) -> dict:
 
 
 def create_management_review(data: dict) -> dict:
-    from assetcore.services.shared import require_role
-    require_role(_FINALIZE_MR_ROLES, "Không có quyền tạo Management Review")
+    if not rbac.can(_CAP_COMPLIANCE_APPROVE):
+        raise ServiceError(ErrorCode.FORBIDDEN, "Không có quyền tạo Management Review")
     if not data.get("quarter"):
         raise ServiceError(ErrorCode.VALIDATION, "quarter là bắt buộc (vd: Q2-2026)")
     if ManagementReviewRepo.find_by_quarter(data["quarter"]):
@@ -1737,8 +1731,8 @@ def finalize_management_review(name: str,
                                 minutes_doc: str = "",
                                 output_actions: list[dict] | None = None) -> dict:
     """§3.6.3: Closed + attach minutes_doc + output_actions."""
-    from assetcore.services.shared import require_role
-    require_role(_FINALIZE_MR_ROLES, "Không có quyền finalize MR")
+    if not rbac.can(_CAP_COMPLIANCE_APPROVE):
+        raise ServiceError(ErrorCode.FORBIDDEN, "Không có quyền finalize MR")
     doc = ManagementReviewRepo.get(name)
     if not doc:
         raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy MR: {name}")
@@ -1792,8 +1786,8 @@ def update_management_review(name: str, data: dict | None = None) -> dict:
     Chỉ cho phép khi MR chưa Closed. ``data`` là dict các field MR + 2 child
     list tuỳ chọn ``attendees`` / ``output_actions``.
     """
-    from assetcore.services.shared import require_role
-    require_role(_FINALIZE_MR_ROLES, "Không có quyền cập nhật MR")
+    if not rbac.can(_CAP_COMPLIANCE_APPROVE):
+        raise ServiceError(ErrorCode.FORBIDDEN, "Không có quyền cập nhật MR")
     data = data or {}
     doc = ManagementReviewRepo.get(name)
     if not doc:
@@ -1845,8 +1839,8 @@ def advance_mr_state(name: str, target_state: str) -> dict:
     Action labels FE phải khớp workflow ``IMM-16 Management Review Workflow``.
     Bước cuối ``Closed`` đi qua :func:`finalize_management_review`.
     """
-    from assetcore.services.shared import require_role
-    require_role(_FINALIZE_MR_ROLES, "Không có quyền chuyển trạng thái MR")
+    if not rbac.can(_CAP_COMPLIANCE_APPROVE):
+        raise ServiceError(ErrorCode.FORBIDDEN, "Không có quyền chuyển trạng thái MR")
     doc = ManagementReviewRepo.get(name)
     if not doc:
         raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy MR: {name}")

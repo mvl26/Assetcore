@@ -12,37 +12,37 @@
  "workflow_state_field": "workflow_state",
  "states": [
   {
-   "allow_edit": "IMM Biomed Technician",
+   "allow_edit": "Inventory User",
    "doc_status": "0",
    "state": "Requested",
    "type": "Warning"
   },
   {
-   "allow_edit": "IMM Workshop Lead",
+   "allow_edit": "Inventory Manager",
    "doc_status": "0",
    "state": "Approved",
    "type": "Success"
   },
   {
-   "allow_edit": "IMM Storekeeper",
+   "allow_edit": "Inventory Manager",
    "doc_status": "0",
    "state": "Picked",
    "type": "Warning"
   },
   {
-   "allow_edit": "IMM Storekeeper",
+   "allow_edit": "Inventory Manager",
    "doc_status": "1",
    "state": "Issued",
    "type": "Success"
   },
   {
-   "allow_edit": "IMM Storekeeper",
+   "allow_edit": "Inventory Manager",
    "doc_status": "1",
    "state": "Returned",
    "type": "Default"
   },
   {
-   "allow_edit": "IMM System Admin",
+   "allow_edit": "AssetCore Super Admin",
    "doc_status": "0",
    "state": "Cancelled",
    "type": "Danger"
@@ -51,84 +51,84 @@
  "transitions": [
   {
    "action": "Phê duyệt",
-   "allowed": "IMM Workshop Lead",
+   "allowed": "Inventory Manager",
    "next_state": "Approved",
    "state": "Requested",
    "allow_self_approval": 1
   },
   {
    "action": "Issue (Emergency)",
-   "allowed": "IMM Workshop Lead",
+   "allowed": "Inventory Manager",
    "next_state": "Issued",
    "state": "Requested",
    "allow_self_approval": 1
   },
   {
    "action": "Hủy",
-   "allowed": "IMM Workshop Lead",
+   "allowed": "Inventory Manager",
    "next_state": "Cancelled",
    "state": "Requested",
    "allow_self_approval": 1
   },
   {
    "action": "Hủy",
-   "allowed": "IMM System Admin",
+   "allowed": "AssetCore Super Admin",
    "next_state": "Cancelled",
    "state": "Requested",
    "allow_self_approval": 1
   },
   {
    "action": "Pick",
-   "allowed": "IMM Storekeeper",
+   "allowed": "Inventory Manager",
    "next_state": "Picked",
    "state": "Approved",
    "allow_self_approval": 1
   },
   {
    "action": "Hủy",
-   "allowed": "IMM Workshop Lead",
+   "allowed": "Inventory Manager",
    "next_state": "Cancelled",
    "state": "Approved",
    "allow_self_approval": 1
   },
   {
    "action": "Hủy",
-   "allowed": "IMM System Admin",
+   "allowed": "AssetCore Super Admin",
    "next_state": "Cancelled",
    "state": "Approved",
    "allow_self_approval": 1
   },
   {
    "action": "Issue",
-   "allowed": "IMM Storekeeper",
+   "allowed": "Inventory Manager",
    "next_state": "Issued",
    "state": "Picked",
    "allow_self_approval": 1
   },
   {
    "action": "Hủy",
-   "allowed": "IMM Workshop Lead",
+   "allowed": "Inventory Manager",
    "next_state": "Cancelled",
    "state": "Picked",
    "allow_self_approval": 1
   },
   {
    "action": "Hủy",
-   "allowed": "IMM System Admin",
+   "allowed": "AssetCore Super Admin",
    "next_state": "Cancelled",
    "state": "Picked",
    "allow_self_approval": 1
   },
   {
    "action": "Trả phụ tùng",
-   "allowed": "IMM Storekeeper",
+   "allowed": "Inventory Manager",
    "next_state": "Returned",
    "state": "Issued",
    "allow_self_approval": 1
   },
   {
    "action": "Đóng phiếu",
-   "allowed": "IMM Storekeeper",
+   "allowed": "Inventory Manager",
    "next_state": "Issued",
    "state": "Returned",
    "allow_self_approval": 1

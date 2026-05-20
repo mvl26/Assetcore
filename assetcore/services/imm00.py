@@ -13,7 +13,8 @@ from assetcore.utils.lifecycle import (
     verify_audit_chain as _verify_audit_chain,
 )
 from assetcore.utils.email import get_role_emails, safe_sendmail
-from assetcore.services.shared import AssetStatus, Roles
+from assetcore.services.shared import AssetStatus
+from assetcore.services.shared import rbac
 
 
 _DOCTYPE_ASSET = "AC Asset"
@@ -37,8 +38,8 @@ _DOWNTIME_REASON_MAP = {
 }
 _DT_DOWNTIME_LOG = "AC Asset Downtime Log"
 
-_ROLE_DEPT_HEAD  = Roles.DEPT_HEAD
-_ROLE_OPS_MANAGER = Roles.OPS_MANAGER
+_ROLE_DEPT_HEAD  = "Commissioning Manager"
+_ROLE_OPS_MANAGER = "Commissioning Manager"
 
 # ────────────────────────────────────────────
 # Asset Lifecycle State Machine (BR-00-02)
@@ -327,7 +328,7 @@ def check_capa_overdue() -> None:
         f"UPDATE `tabIMM CAPA Record` SET status = 'Overdue' WHERE name IN ({', '.join(['%s'] * len(names))})",
         names,
     )
-    recipients = set(get_role_emails([Roles.QA]))
+    recipients = set(get_role_emails(["Compliance Manager"]))
     recipients.update([r.responsible for r in rows if r.responsible])
     recipients.discard("")
     if recipients:
@@ -378,7 +379,7 @@ def check_registration_expiry() -> None:
 
 
 _DT_TRANSFER = "Asset Transfer"
-_TRANSFER_ROLES_APPROVE = {Roles.DEPT_HEAD, Roles.OPS_MANAGER, Roles.SYS_ADMIN}
+_TRANSFER_APPROVE_CAP = "commissioning.submit"
 _ERR_TRANSFER_NOT_FOUND = "Phiếu luân chuyển '{0}' không tồn tại"
 _TRANSFER_STATUS_PENDING   = "Pending Approval"
 _TRANSFER_STATUS_APPROVED  = "Approved"
@@ -439,9 +440,7 @@ def approve_transfer_request(name: str) -> dict:
     if not frappe.db.exists(_DT_TRANSFER, name):
         frappe.throw(_(_ERR_TRANSFER_NOT_FOUND).format(name))
 
-    roles = set(frappe.get_roles(frappe.session.user))
-    if not _TRANSFER_ROLES_APPROVE.intersection(roles):
-        frappe.throw(_("Chỉ Trưởng khoa / Quản lý vận hành mới được phê duyệt luân chuyển"))
+    rbac.require(_TRANSFER_APPROVE_CAP)
 
     doc = frappe.get_doc(_DT_TRANSFER, name)
     if doc.status != _TRANSFER_STATUS_PENDING:
@@ -472,9 +471,7 @@ def reject_transfer_request(name: str, rejection_reason: str) -> dict:
     if not frappe.db.exists(_DT_TRANSFER, name):
         frappe.throw(_(_ERR_TRANSFER_NOT_FOUND).format(name))
 
-    roles = set(frappe.get_roles(frappe.session.user))
-    if not _TRANSFER_ROLES_APPROVE.intersection(roles):
-        frappe.throw(_("Chỉ Trưởng khoa / Quản lý vận hành mới được từ chối luân chuyển"))
+    rbac.require(_TRANSFER_APPROVE_CAP)
 
     if not rejection_reason or len(rejection_reason.strip()) < 5:
         frappe.throw(_("Lý do từ chối là bắt buộc (tối thiểu 5 ký tự)"))
@@ -550,7 +547,7 @@ def cancel_transfer_request(name: str) -> dict:
 
 def _notify_transfer_approvers(doc: "frappe.model.document.Document") -> None:
     """Email các approver (Department Head / Ops Manager / System Admin) khi có yêu cầu luân chuyển mới."""
-    recipients = get_role_emails(list(_TRANSFER_ROLES_APPROVE))
+    recipients = get_role_emails(["Commissioning Manager"])
     if not recipients:
         return
     asset_name = frappe.db.get_value(_DOCTYPE_ASSET, doc.asset, "asset_name") or doc.asset

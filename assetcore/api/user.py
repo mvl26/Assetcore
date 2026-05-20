@@ -25,8 +25,8 @@ from assetcore.utils.response import _ok, _err
 from assetcore.services.shared.constants import Roles, ROLE_METADATA
 
 # Single source of truth — đồng bộ với fixtures/role.json
-_IMM_ROLES: list[str] = list(Roles.ALL_IMM)
-_ROLE_ADMIN = Roles.SYS_ADMIN
+_IMM_ROLES: list[str] = list(Roles.ALL)
+_ROLE_ADMIN = Roles.SUPER_ADMIN
 _DT_ROLE_PROFILE = "Role Profile"
 _MSG_NOT_LOGGED_IN = "Chưa đăng nhập"
 
@@ -111,13 +111,14 @@ def _get_dept_name(dept_id: str | None) -> str | None:
 
 
 def _assert_admin() -> str | None:
-    """Trả None nếu caller là IMM Admin / System Manager. Trả chuỗi lỗi nếu không."""
+    """Trả None nếu caller có capability `data.admin` (Super Admin hoặc
+    System Manager qua umbrella). Trả chuỗi lỗi nếu không."""
     actor = frappe.session.user
     if actor == "Guest":
         return _MSG_NOT_LOGGED_IN
-    actor_roles = {r.role for r in frappe.get_doc("User", actor).roles}
-    if _ROLE_ADMIN not in actor_roles and "System Manager" not in actor_roles:
-        return f"Chỉ {_ROLE_ADMIN} được thực hiện thao tác này"
+    from assetcore.services.shared import rbac
+    if not rbac.can("data.admin"):
+        return "Chỉ quản trị hệ thống được thực hiện thao tác này"
     return None
 
 
@@ -723,8 +724,9 @@ def assign_role_profile(user: str, role_profile: str = "") -> dict:
     if role_profile and not frappe.db.exists(_DT_ROLE_PROFILE, role_profile):
         return _err(f"Role Profile '{role_profile}' không tồn tại", 404)
 
-    # Chỉ admin hoặc chính user mới được đổi
-    if frappe.session.user != user and _ROLE_ADMIN not in frappe.get_roles():
+    # Chỉ admin (cap data.admin) hoặc chính user mới được đổi
+    from assetcore.services.shared import rbac
+    if frappe.session.user != user and not rbac.can("data.admin"):
         return _err("Bạn không có quyền đổi Role Profile của user này", 403)
 
     user_doc = frappe.get_doc("User", user)
@@ -738,6 +740,61 @@ def assign_role_profile(user: str, role_profile: str = "") -> dict:
         "role_profile": role_profile or None,
         "imm_roles": _get_imm_roles(user),
     })
+
+
+# ─── RBAC admin endpoints (trang /admin/roles) ──────────────────────────────
+
+
+@frappe.whitelist()
+def list_assignable_roles() -> dict:
+    """Catalog 30 role (RBAC module-based) + metadata cho FE grid.
+
+    Gate: capability `data.admin` — chỉ Super Admin (+ Frappe System Manager
+    qua umbrella) gọi được.
+    """
+    from assetcore.services.shared import rbac
+    rbac.require("data.admin")
+    catalog = [
+        {"name": n, **ROLE_METADATA.get(n, {})}
+        for n in _IMM_ROLES
+    ]
+    return _ok(catalog)
+
+
+@frappe.whitelist(methods=["POST"])
+def set_user_roles(user: str, roles=None) -> dict:
+    """Thay toàn bộ AssetCore role của 1 user (giữ role app khác như Frappe
+    `System Manager`, `Norm Manager`, `Internal Auditor` ...).
+
+    Args:
+        user: User name (email).
+        roles: list role-name (chỉ role nằm trong Roles.ALL được áp).
+
+    Gate: capability `data.admin`.
+    """
+    from assetcore.services.shared import rbac
+    rbac.require("data.admin")
+
+    if not frappe.db.exists("User", user):
+        return _err(f"User '{user}' không tồn tại", 404)
+
+    raw = _parse_json(roles) if isinstance(roles, str) else (roles or [])
+    target = _extract_imm_role_names(raw)
+    allowed = set(_IMM_ROLES)
+
+    doc = frappe.get_doc("User", user)
+    # Giữ mọi role không thuộc AssetCore (Frappe core, app khác)
+    keep = [r.role for r in doc.roles if r.role not in allowed]
+    final = sorted(set(keep + target))
+
+    doc.set("roles", [])
+    for r in final:
+        doc.append("roles", {"role": r})
+    doc.flags.ignore_permissions = True
+    doc.save()
+    frappe.db.commit()
+
+    return _ok({"user": user, "roles": final})
 
 
 @frappe.whitelist()

@@ -14,31 +14,31 @@
   {
    "state": "Draft",
    "doc_status": "0",
-   "allow_edit": "IMM Procurement Officer",
+   "allow_edit": "Procurement Manager",
    "type": "Success"
   },
   {
    "state": "Approved",
    "doc_status": "1",
-   "allow_edit": "IMM System Admin",
+   "allow_edit": "AssetCore Super Admin",
    "type": "Success"
   },
   {
    "state": "Conditional",
    "doc_status": "1",
-   "allow_edit": "IMM Risk Officer",
+   "allow_edit": "Spec Manager",
    "type": "Warning"
   },
   {
    "state": "Suspended",
    "doc_status": "1",
-   "allow_edit": "IMM System Admin",
+   "allow_edit": "AssetCore Super Admin",
    "type": "Danger"
   },
   {
    "state": "Expired",
    "doc_status": "1",
-   "allow_edit": "IMM System Admin",
+   "allow_edit": "AssetCore Super Admin",
    "type": "Default"
   }
  ],
@@ -47,49 +47,49 @@
    "state": "Draft",
    "next_state": "Approved",
    "action": "Phê duyệt AVL",
-   "allowed": "IMM Board Approver",
+   "allowed": "Procurement Manager",
    "allow_self_approval": 1
   },
   {
    "state": "Draft",
    "next_state": "Conditional",
    "action": "Cấp Conditional",
-   "allowed": "IMM Risk Officer",
+   "allowed": "Spec Manager",
    "allow_self_approval": 1
   },
   {
    "state": "Approved",
    "next_state": "Conditional",
    "action": "Hạ xuống Conditional",
-   "allowed": "IMM Risk Officer",
+   "allowed": "Spec Manager",
    "allow_self_approval": 1
   },
   {
    "state": "Approved",
    "next_state": "Suspended",
    "action": "Đình chỉ",
-   "allowed": "IMM Risk Officer",
+   "allowed": "Spec Manager",
    "allow_self_approval": 1
   },
   {
    "state": "Conditional",
    "next_state": "Approved",
    "action": "Phục hồi Approved",
-   "allowed": "IMM Board Approver",
+   "allowed": "Procurement Manager",
    "allow_self_approval": 1
   },
   {
    "state": "Conditional",
    "next_state": "Suspended",
    "action": "Đình chỉ",
-   "allowed": "IMM Risk Officer",
+   "allowed": "Spec Manager",
    "allow_self_approval": 1
   },
   {
    "state": "Suspended",
    "next_state": "Approved",
    "action": "Phục hồi Approved",
-   "allowed": "IMM Board Approver",
+   "allowed": "Procurement Manager",
    "allow_self_approval": 1
   }
  ]

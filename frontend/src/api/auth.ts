@@ -67,6 +67,15 @@ export function changePassword(oldPassword: string, newPassword: string): Promis
   return frappePost(`${BASE}.change_password`, { old_password: oldPassword, new_password: newPassword })
 }
 
+/**
+ * Resolve toàn bộ capability cho user hiện tại — FE cache 1 lần sau login.
+ * Trả map { 'pm.read': true, 'incident.acknowledge': false, ... }.
+ * BE chốt chặn (rbac.require) — FE chỉ ẩn/hiện cho UX.
+ */
+export function fetchCapabilities(): Promise<Record<string, boolean>> {
+  return frappeGet<Record<string, boolean>>(`${BASE}.get_capabilities`)
+}
+
 export function approveRegistration(
   profileName: string,
   roles?: string[],

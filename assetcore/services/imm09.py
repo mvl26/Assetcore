@@ -23,10 +23,9 @@ from assetcore.utils.lifecycle import create_lifecycle_event as _create_lifecycl
 from assetcore.services.shared import (
     AssetStatus,
     ErrorCode,
-    Roles,
     ServiceError,
-    require_role,
 )
+from assetcore.services.shared import rbac
 
 
 # ─── Constants riêng cho IMM-09 ───────────────────────────────────────────────
@@ -406,7 +405,7 @@ def create_work_order(*, asset_ref: str, repair_type: str, priority: str,
     incident_report/source_pm_wo. Hai trường vẫn là optional Link.
     Slide 24a/26: `requested_by` luôn = session user (không user-editable).
     """
-    require_role(Roles.CAN_CREATE_WO, "Không đủ quyền tạo phiếu sửa chữa")
+    rbac.require("repair.create")
     asset_data = AssetRepo.get_value(
         asset_ref, ["asset_name", "risk_classification"], as_dict=True)
     if not asset_data:
@@ -457,7 +456,7 @@ def create_work_order(*, asset_ref: str, repair_type: str, priority: str,
 
 
 def assign_technician(name: str, *, technician: str, priority: str = "") -> dict:
-    require_role(Roles.CAN_CREATE_WO, "Không đủ quyền phân công kỹ thuật viên")
+    rbac.require("repair.create")
     doc = RepairRepo.get(name)
     if not doc:
         raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy WO: {name}")
@@ -476,7 +475,7 @@ def assign_technician(name: str, *, technician: str, priority: str = "") -> dict
 
 
 def submit_diagnosis(name: str, *, diagnosis_notes: str, needs_parts: int = 0) -> dict:
-    require_role(Roles.CAN_CREATE_WO, "Không đủ quyền nộp chẩn đoán")
+    rbac.require("repair.create")
     doc = RepairRepo.get(name)
     if not doc:
         raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy WO: {name}")
@@ -496,7 +495,7 @@ def submit_diagnosis(name: str, *, diagnosis_notes: str, needs_parts: int = 0) -
 
 
 def start_repair(name: str) -> dict:
-    require_role(Roles.CAN_CREATE_WO, "Không đủ quyền bắt đầu sửa chữa")
+    rbac.require("repair.create")
     doc = RepairRepo.get(name)
     if not doc:
         raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy WO: {name}")
@@ -510,7 +509,7 @@ def start_repair(name: str) -> dict:
 
 
 def request_spare_parts(name: str, parts: list[dict]) -> dict:
-    require_role(Roles.CAN_CREATE_WO, "Không đủ quyền yêu cầu vật tư")
+    rbac.require("repair.create")
     doc = RepairRepo.get(name)
     if not doc:
         raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy WO: {name}")
@@ -568,7 +567,7 @@ def close_work_order(name: str, *, repair_summary: str, root_cause_category: str
     nhảy thẳng 'Completed', khiến state 'Pending Inspection' trong workflow + FE
     không bao giờ tới được.
     """
-    require_role(Roles.CAN_CREATE_WO, "Không đủ quyền hoàn thành sửa chữa")
+    rbac.require("repair.create")
     doc = RepairRepo.get(name)
     if not doc:
         raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy WO: {name}")
@@ -628,7 +627,7 @@ def confirm_inspection(name: str) -> dict:
     đưa Asset về Active, hook recalibration IMM-11). Yêu cầu quyền phê duyệt
     cấp khoa/QA — đây là bước kiểm soát chất lượng cuối.
     """
-    require_role(Roles.CAN_APPROVE_DEP, "Không đủ quyền nghiệm thu phiếu sửa chữa")
+    rbac.require("repair.submit")
     doc = RepairRepo.get(name)
     if not doc:
         raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy WO: {name}")

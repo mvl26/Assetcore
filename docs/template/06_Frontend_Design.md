@@ -66,6 +66,9 @@ Pattern: lưu ảnh `docs/imm-XX/screenshots/<feature>.png` + caption "Hình N.X
 |---|---|---|
 | ... | ... | ... |
 
+**Search placeholder**: <copy chính xác — xem §3.c.i>
+**Searchable fields**: <`name`, `<biz_field_1>`, …> (khớp `pop_search()` BE — file 05 §3.1)
+
 **Action buttons**: <action chính theo workflow state>
 
 **API gọi**: <endpoint + cache TTL>
@@ -75,6 +78,90 @@ Pattern: lưu ảnh `docs/imm-XX/screenshots/<feature>.png` + caption "Hình N.X
 - Empty: <copy + CTA>
 - Error: <pattern>
 ```
+
+### 3.c.i. Search placeholder — TRUTH-IN-UI (BẮT BUỘC)
+
+**Sự cố tham chiếu (2026-05-20)**: `/needs-requests` ô tìm kiếm ghi
+"Tìm theo mã, model, khoa..." nhưng BE chỉ search trên `name` +
+`device_model_ref` — user gõ tên khoa thì không ra kết quả → mất niềm tin.
+
+**Hợp đồng**:
+
+- Placeholder phải **liệt kê đúng** các field mà BE (hoặc client-side
+  filter) thực sự tìm. CẤM ghi field không tìm được, CẤM bỏ sót field
+  tìm được.
+- Khi mở rộng / thu hẹp `searchable_fields` BE → **đồng thời** cập nhật
+  placeholder. Hai nguồn này là **mirror**, không phải copy độc lập.
+- Diễn đạt theo nghiệp vụ, không theo schema: dùng "mã phiếu" thay vì
+  `name`, "mã model" thay vì `device_model_ref`. Nhưng phải phân biệt
+  "mã model" (search trên link ID) vs "tên model" (search trên model_name)
+  — tránh hứa hẹn sai.
+- **"Tên ..." = phải dùng `link_search`** (file 05 §3.1.a): nếu placeholder
+  hứa "tên model / tên NCC / tên thiết bị" thì BE phải khai báo
+  `link_search={"<link_field>": ("<Linked DocType>", "<display_field>")}`
+  để resolve display name → link ID. Direct LIKE trên link ID (vd
+  `device_model_ref`) CHỈ tìm theo mã, không theo tên.
+- Pattern copy: `"Tìm theo <A>, <B> hoặc <C>..."` (≤ 3 nhãn). Nếu list
+  dài hơn 3 → rút gọn nhưng KHÔNG bịa thêm.
+
+**Ví dụ đúng (Wave 2 sau fix 2026-05-20)**:
+
+| View | BE `searchable_fields` + `link_search` | Placeholder |
+|---|---|---|
+| `NeedsRequestListView` | `["name"]` + link_search `device_model_ref → IMM Device Model.model_name` | "Tìm theo mã phiếu hoặc tên model..." |
+| `ProcurementPlanListView` | `["name", "plan_period"]` | "Tìm theo mã kế hoạch hoặc kỳ kế hoạch..." |
+| `TechSpecListView` | `["name", "version"]` + link_search `device_model_ref → IMM Device Model.model_name` | "Tìm theo mã hồ sơ, tên model hoặc phiên bản..." |
+| `AvlListView` | `["name"]` + link_search `supplier → AC Supplier.supplier_name` | "Tìm theo mã AVL hoặc tên nhà cung cấp..." |
+| `DecisionListView` | `["name", "spec_ref"]` + link_search `winner_supplier → AC Supplier.supplier_name` | "Tìm theo mã quyết định, mã hồ sơ hoặc tên NCC..." |
+
+**Reminder hệ quả**: khi placeholder dùng từ "**tên**" cho 1 entity nào đó
+mà entity đó ở doctype khác (vd "tên model" — model_name sống trên
+`IMM Device Model`, không trên parent) → BE **bắt buộc** dùng
+`link_search` (file 05 §3.1.a). Direct LIKE trên link ID chỉ match mã,
+không match tên — sẽ giống sự cố "khoa" trên `/needs-requests` 2026-05-20.
+
+**Review checklist** (PR review BẮT BUỘC tick):
+- [ ] Mở BE list endpoint, đối chiếu `pop_search(_, [...])` hoặc
+      `or_filters=[...]` với placeholder.
+- [ ] Mọi label trong placeholder có ≥ 1 field BE tương ứng.
+- [ ] Mọi field BE searchable đáng kể được phản ánh trong placeholder.
+
+### 3.c.ii. Auto-search debounce — KHÔNG bắt user bấm nút
+
+Mọi list view dùng `ListFilterBar` đều **tự động** apply search sau khi user
+ngừng gõ. Đây là hành vi mặc định của component (`searchDebounceMs: 350`
+trong `components/common/ListFilterBar.vue`) — view tiêu thụ KHÔNG cần wire
+debounce riêng.
+
+**Hợp đồng**:
+
+- Khi user gõ vào ô search và dừng `searchDebounceMs` ms → component emit
+  `apply` (cùng event với nhấn nút Tìm). View phải gắn `@apply="<handler
+  reload list>"`.
+- Nhấn nút "Tìm" hoặc Enter → flush debounce + emit `apply` ngay lập tức.
+- Khi parent set `search=''` programmatically (reset filter) → debounce
+  KHÔNG fire (vì bind `:value` + `@input`, không phải `v-model`). Parent
+  tự gọi handler reload trong `resetFilters()`.
+- Filter SELECT (workflow_state, category, …) phát `@change="applyFilters"`
+  → instant apply, không cần debounce (event rời rạc).
+
+**CẤM**:
+
+- Tự viết `useDebounceFn` / `setTimeout` cho ô search trong list view
+  (đã có sẵn — sẽ double-fire). Tham chiếu: `SparePartListView` cũ đã
+  bị remove `watch(q, debouncedSearch)` trong cleanup 2026-05-20.
+- Đặt `searchDebounceMs={0}` trừ khi list quá nặng (>2s/lần load) và
+  cần đợi user xác nhận.
+- Thêm nút "Tìm" thứ 2 ngoài bar — luôn dùng nút sẵn trong `ListFilterBar`.
+
+**Mức delay đề xuất**:
+
+| Tình huống | `searchDebounceMs` |
+|---|---|
+| Mặc định (mọi list ≤ 100k rows) | `350` (không cần truyền — đã là default) |
+| List rất nhẹ (cached / dưới 1k row) | `200` (nhanh hơn 1 chút) |
+| List rất nặng / endpoint > 1s | `600`–`800` (giảm số lần fire) |
+| Tắt auto-search (button-only) | `0` |
 
 ## 4. Component custom của module
 **Viết gì**: Bảng `Component · Mục đích · Props`. Đặt trong `frontend/src/components/<module>/`. Component dùng ≥ 2 module → promote ra `components/common/`.
@@ -276,6 +363,8 @@ Domain hữu hạn → KHÔNG cho free-text:
 - [ ] Copy tiếng Việt chốt cho state + action chính (bảng từ ngữ §7.c)
 - [ ] **Linked / Cascade fields (§7d)**: mọi field phụ thuộc đều cascade reset + reload
 - [ ] **Input tight (§7e)**: picker thay free-text + validation realtime + button disabled khi invalid + confirm modal cho action không undo
+- [ ] **Search placeholder (§3.c.i)**: list view có search box phải khớp 1-1 với `searchable_fields` BE (file 05 §3.1) — không hứa field không tìm được, không bỏ sót field tìm được
+- [ ] **Auto-search debounce (§3.c.ii)**: list view dùng `ListFilterBar` mặc định (350ms debounce) — KHÔNG tự viết `useDebounceFn` / `setTimeout` cho ô search; mọi consumer phải có `@apply="<reload handler>"`
 - [ ] Empty / Error / Loading copy đủ
 - [ ] Error response từ BE map đúng tier (toast / modal / inline) — bám 05 §1.3
 - [ ] Accessibility checklist module

@@ -9,65 +9,15 @@ app_email = ""
 app_license = "MIT"
 
 # ──────────────────────────────────────────────
-# Fixtures — IMM-00 v3 foundation
+# Fixtures — RBAC module-based (4 System + 26 Domain = 30 role)
 # ──────────────────────────────────────────────
-_IMM_ROLES = [
-    # Wave 1 — core HTM operations
-    "IMM System Admin",
-    "IMM Operations Manager",
-    "IMM Department Head",
-    "IMM Deputy Department Head",
-    "IMM Workshop Lead",
-    "IMM QA Officer",
-    "IMM Biomed Technician",
-    "IMM Technician",
-    "IMM Document Officer",
-    "IMM Storekeeper",
-    "IMM Clinical User",
-    "IMM Auditor",
-    "Vendor Engineer",
-    # Wave 2 — planning & procurement (IMM-01→03)
-    "IMM Planning Officer",
-    "IMM Finance Officer",
-    "IMM HTM Engineer",
-    "IMM Procurement Officer",
-    "IMM Risk Officer",
-    "IMM Board Approver",
-    # Wave 2 — training & competency (IMM-06)
-    "IMM Training Officer",
-]
-_IMM_ROLE_PROFILES = [
-    # AssetCore-branded persona bundles (em-dash U+2014) — only catalog.
-    # Legacy "IMM - *" Role Profiles removed by patch
-    # assetcore.patches.v3_1.005_remove_legacy_imm_role_profiles.
-    "AssetCore — System Admin",
-    "AssetCore — Operations Manager",
-    "AssetCore — Department Head",
-    "AssetCore — Department Deputy",
-    "AssetCore — Workshop Lead",
-    "AssetCore — Biomed Technician",
-    "AssetCore — Technician",
-    "AssetCore — Clinical User",
-    "AssetCore — QA Officer",
-    "AssetCore — Auditor",
-    "AssetCore — Storekeeper",
-    "AssetCore — Document Officer",
-    "AssetCore — Planning Officer",
-    "AssetCore — Procurement Officer",
-    "AssetCore — Vendor Engineer",
-    "AssetCore — Training Officer",
-]
-_IMM_MODULE_PROFILES = [
-    "IMM - Standard",
-    "IMM - Admin",
-    "IMM - Vendor",
-]
+from assetcore.services.shared.constants import Roles as _Roles
+
+_IMM_ROLES = list(_Roles.ALL)
 fixtures = [
     {"dt": "Role", "filters": [["name", "in", _IMM_ROLES]]},
-    # Role Profile fixture đã embed sẵn Has Role child rows — KHÔNG thêm "Has Role"
-    # thành fixture riêng, vì after_install cũng gọi setup_role_profiles.py → duplicate.
-    {"dt": "Role Profile", "filters": [["name", "in", _IMM_ROLE_PROFILES]]},
-    {"dt": "Module Profile", "filters": [["name", "in", _IMM_MODULE_PROFILES]]},
+    # Role Profile + Module Profile bị bỏ trong mô hình mới — gán role trực
+    # tiếp qua Has Role (User form HOẶC trang FE /admin/roles).
     {"dt": "IMM SLA Policy"},
     {"dt": "Workspace", "filters": [["name", "in", ["IMM Operations"]]]},
     {"dt": "Workflow", "filters": [["name", "in", [
@@ -244,7 +194,25 @@ doc_events = {
     # (removed duplicate doc_events wiring — controller delegates to service layer)
     # ─── IMM-06 Training & Competency ───────────────────────────────────────
     "User": {
-        "on_update": "assetcore.services.imm06.handle_user_dept_change",
+        "on_update": [
+            "assetcore.services.imm06.handle_user_dept_change",
+            "assetcore.services.shared.role_hooks.invalidate_caps",
+        ],
+    },
+    # ─── RBAC umbrella + capability cache invalidation ──────────────────────
+    "Has Role": {
+        "after_insert": [
+            "assetcore.services.shared.role_hooks.sync_umbrella",
+            "assetcore.services.shared.role_hooks.invalidate_caps",
+        ],
+        "on_trash": [
+            "assetcore.services.shared.role_hooks.sync_umbrella",
+            "assetcore.services.shared.role_hooks.invalidate_caps",
+        ],
+    },
+    "Custom DocPerm": {
+        "on_update": "assetcore.services.shared.role_hooks.invalidate_caps",
+        "on_trash": "assetcore.services.shared.role_hooks.invalidate_caps",
     },
     # ─── IMM-15 Spare Parts Inventory ───────────────────────────────────────
     "PM Work Order": {

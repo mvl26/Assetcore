@@ -24,19 +24,19 @@
    "type": "Warning"
   },
   {
-   "allow_edit": "IMM Biomed Technician",
+   "allow_edit": "Repair User",
    "doc_status": "0",
    "state": "Diagnosing",
    "type": "Success"
   },
   {
-   "allow_edit": "IMM Biomed Technician",
+   "allow_edit": "Repair User",
    "doc_status": "0",
    "state": "Pending Parts",
    "type": "Warning"
   },
   {
-   "allow_edit": "IMM Biomed Technician",
+   "allow_edit": "Repair User",
    "doc_status": "0",
    "state": "In Repair",
    "type": "Success"
@@ -83,35 +83,35 @@
   },
   {
    "action": "Bắt đầu chẩn đoán",
-   "allowed": "IMM Biomed Technician",
+   "allowed": "Repair User",
    "next_state": "Diagnosing",
    "state": "Assigned",
    "allow_self_approval": 1
   },
   {
    "action": "Yêu cầu linh kiện",
-   "allowed": "IMM Biomed Technician",
+   "allowed": "Repair User",
    "next_state": "Pending Parts",
    "state": "Diagnosing",
    "allow_self_approval": 1
   },
   {
    "action": "Bắt đầu sửa chữa",
-   "allowed": "IMM Biomed Technician",
+   "allowed": "Repair User",
    "next_state": "In Repair",
    "state": "Diagnosing",
    "allow_self_approval": 1
   },
   {
    "action": "Linh kiện đã nhận - bắt đầu sửa",
-   "allowed": "IMM Biomed Technician",
+   "allowed": "Repair User",
    "next_state": "In Repair",
    "state": "Pending Parts",
    "allow_self_approval": 1
   },
   {
    "action": "Hoàn thành sửa chữa - chờ kiểm tra",
-   "allowed": "IMM Biomed Technician",
+   "allowed": "Repair User",
    "next_state": "Pending Inspection",
    "state": "In Repair",
    "allow_self_approval": 1
@@ -132,7 +132,7 @@
   },
   {
    "action": "Kiểm tra thất bại - sửa lại",
-   "allowed": "IMM Biomed Technician",
+   "allowed": "Repair User",
    "next_state": "In Repair",
    "state": "Pending Inspection",
    "allow_self_approval": 1

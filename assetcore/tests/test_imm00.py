@@ -568,7 +568,7 @@ class TestUserRoleManagement(unittest.TestCase):
             u.user_type = "System User"
             u.enabled = 1
             u.send_welcome_email = 0
-            u.append("roles", {"role": "IMM Technician"})
+            u.append("roles", {"role": "PM User"})
             u.flags.ignore_permissions = True
             u.insert()
         # Đảm bảo session là admin để qua _assert_admin
@@ -581,12 +581,14 @@ class TestUserRoleManagement(unittest.TestCase):
         frappe.db.commit()
 
     def _db_roles(self) -> list[str]:
-        return sorted(
-            r.role for r in frappe.db.sql(
-                "SELECT role FROM `tabHas Role` WHERE parent=%s AND role LIKE 'IMM%%'",
-                (self.TEST_EMAIL,), as_dict=True
-            )
+        """Trả về các AssetCore role gán cho user (lọc theo Roles.ALL)."""
+        from assetcore.services.shared.constants import Roles
+        rows = frappe.db.sql(
+            "SELECT role FROM `tabHas Role` WHERE parent=%s",
+            (self.TEST_EMAIL,), as_dict=True,
         )
+        allowed = set(Roles.ALL)
+        return sorted(r.role for r in rows if r.role in allowed)
 
     def test_update_user_roles_persists_to_has_role_table(self):
         """Gán roles mới qua update_user_info → DB phải có đúng các role đó."""
@@ -596,15 +598,15 @@ class TestUserRoleManagement(unittest.TestCase):
         frappe.local.form_dict = frappe._dict({
             "user": self.TEST_EMAIL,
             "imm_roles": json.dumps([
-                {"role": "IMM Workshop Lead"},
-                {"role": "IMM QA Officer"},
+                {"role": "PM Manager"},
+                {"role": "Compliance Manager"},
             ]),
         })
         result = update_user_info()
         frappe.db.commit()
 
         self.assertTrue(result.get("success"), f"update_user_info failed: {result}")
-        self.assertEqual(self._db_roles(), ["IMM QA Officer", "IMM Workshop Lead"])
+        self.assertEqual(self._db_roles(), ["Compliance Manager", "PM Manager"])
 
     def test_update_user_roles_clears_old_roles(self):
         """Gán roles mới phải XÓA các IMM role cũ không nằm trong payload."""
@@ -615,26 +617,26 @@ class TestUserRoleManagement(unittest.TestCase):
         frappe.local.form_dict = frappe._dict({
             "user": self.TEST_EMAIL,
             "imm_roles": json.dumps([
-                {"role": "IMM Technician"},
-                {"role": "IMM Storekeeper"},
-                {"role": "IMM Document Officer"},
+                {"role": "PM User"},
+                {"role": "Inventory Manager"},
+                {"role": "Document Manager"},
             ]),
         })
         update_user_info()
         frappe.db.commit()
         self.assertEqual(
             self._db_roles(),
-            ["IMM Document Officer", "IMM Storekeeper", "IMM Technician"],
+            ["Document Manager", "Inventory Manager", "PM User"],
         )
 
         # Replace: chỉ giữ 1
         frappe.local.form_dict = frappe._dict({
             "user": self.TEST_EMAIL,
-            "imm_roles": json.dumps([{"role": "IMM Clinical User"}]),
+            "imm_roles": json.dumps([{"role": "Corrective User"}]),
         })
         update_user_info()
         frappe.db.commit()
-        self.assertEqual(self._db_roles(), ["IMM Clinical User"])
+        self.assertEqual(self._db_roles(), ["Corrective User"])
 
     def test_non_admin_cannot_set_roles(self):
         """Non-admin user phải bị reject 403 khi gọi update_user_info."""
@@ -650,7 +652,7 @@ class TestUserRoleManagement(unittest.TestCase):
             u.user_type = "System User"
             u.enabled = 1
             u.send_welcome_email = 0
-            u.append("roles", {"role": "IMM Clinical User"})  # non-admin role
+            u.append("roles", {"role": "Corrective User"})  # non-admin role
             u.flags.ignore_permissions = True
             u.insert()
             frappe.db.commit()
@@ -659,7 +661,7 @@ class TestUserRoleManagement(unittest.TestCase):
             frappe.set_user(guest_email)
             frappe.local.form_dict = frappe._dict({
                 "user": self.TEST_EMAIL,
-                "imm_roles": json.dumps([{"role": "IMM System Admin"}]),
+                "imm_roles": json.dumps([{"role": "AssetCore Super Admin"}]),
             })
             result = update_user_info()
             self.assertFalse(result.get("success"))

@@ -10,7 +10,7 @@
   "send_email_alert": 0,
   "states": [
    {
-    "allow_edit": "IMM Biomed Technician",
+    "allow_edit": "PM User",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -26,7 +26,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM Biomed Technician",
+    "allow_edit": "PM User",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -42,7 +42,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM System Admin",
+    "allow_edit": "AssetCore Super Admin",
     "avoid_status_override": 0,
     "doc_status": "1",
     "is_optional_state": 0,
@@ -58,7 +58,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM Biomed Technician",
+    "allow_edit": "PM User",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -74,7 +74,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM System Admin",
+    "allow_edit": "AssetCore Super Admin",
     "avoid_status_override": 0,
     "doc_status": "1",
     "is_optional_state": 0,
@@ -90,7 +90,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM System Admin",
+    "allow_edit": "AssetCore Super Admin",
     "avoid_status_override": 0,
     "doc_status": "1",
     "is_optional_state": 0,
@@ -110,7 +110,7 @@
    {
     "action": "Gửi duyệt",
     "allow_self_approval": 1,
-    "allowed": "IMM Biomed Technician",
+    "allowed": "PM User",
     "condition": null,
     "next_state": "Pending Review",
     "parent": "IMM-05 Document Workflow",
@@ -123,7 +123,7 @@
    {
     "action": "Gửi duyệt",
     "allow_self_approval": 1,
-    "allowed": "IMM System Admin",
+    "allowed": "AssetCore Super Admin",
     "condition": null,
     "next_state": "Pending Review",
     "parent": "IMM-05 Document Workflow",
@@ -136,7 +136,7 @@
    {
     "action": "Phê duyệt",
     "allow_self_approval": 1,
-    "allowed": "IMM QA Officer",
+    "allowed": "Compliance Manager",
     "condition": null,
     "next_state": "Active",
     "parent": "IMM-05 Document Workflow",
@@ -149,7 +149,7 @@
    {
     "action": "Phê duyệt",
     "allow_self_approval": 1,
-    "allowed": "IMM System Admin",
+    "allowed": "AssetCore Super Admin",
     "condition": null,
     "next_state": "Active",
     "parent": "IMM-05 Document Workflow",
@@ -162,7 +162,7 @@
    {
     "action": "Từ chối",
     "allow_self_approval": 1,
-    "allowed": "IMM QA Officer",
+    "allowed": "Compliance Manager",
     "condition": null,
     "next_state": "Rejected",
     "parent": "IMM-05 Document Workflow",
@@ -175,7 +175,7 @@
    {
     "action": "Từ chối",
     "allow_self_approval": 1,
-    "allowed": "IMM System Admin",
+    "allowed": "AssetCore Super Admin",
     "condition": null,
     "next_state": "Rejected",
     "parent": "IMM-05 Document Workflow",
@@ -188,7 +188,7 @@
    {
     "action": "Gửi lại",
     "allow_self_approval": 1,
-    "allowed": "IMM Biomed Technician",
+    "allowed": "PM User",
     "condition": null,
     "next_state": "Pending Review",
     "parent": "IMM-05 Document Workflow",
@@ -201,7 +201,7 @@
    {
     "action": "Gửi lại",
     "allow_self_approval": 1,
-    "allowed": "IMM System Admin",
+    "allowed": "AssetCore Super Admin",
     "condition": null,
     "next_state": "Pending Review",
     "parent": "IMM-05 Document Workflow",
@@ -214,7 +214,7 @@
    {
     "action": "Lưu trữ",
     "allow_self_approval": 1,
-    "allowed": "IMM System Admin",
+    "allowed": "AssetCore Super Admin",
     "condition": null,
     "next_state": "Archived",
     "parent": "IMM-05 Document Workflow",
@@ -256,7 +256,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM Biomed Technician",
+    "allow_edit": "PM User",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -272,7 +272,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM Biomed Technician",
+    "allow_edit": "PM User",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -288,7 +288,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM Biomed Technician",
+    "allow_edit": "PM User",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -304,7 +304,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM Biomed Technician",
+    "allow_edit": "PM User",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -320,7 +320,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM Biomed Technician",
+    "allow_edit": "PM User",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -336,7 +336,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM Biomed Technician",
+    "allow_edit": "PM User",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -352,7 +352,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM QA Officer",
+    "allow_edit": "Compliance Manager",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -368,7 +368,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM Biomed Technician",
+    "allow_edit": "PM User",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -420,7 +420,7 @@
    {
     "action": "Gửi kiểm tra tài liệu",
     "allow_self_approval": 1,
-    "allowed": "IMM Biomed Technician",
+    "allowed": "PM User",
     "condition": null,
     "next_state": "Pending Doc Verify",
     "parent": "IMM-04 Workflow",
@@ -433,7 +433,7 @@
    {
     "action": "Gửi kiểm tra tài liệu",
     "allow_self_approval": 1,
-    "allowed": "IMM System Admin",
+    "allowed": "AssetCore Super Admin",
     "condition": null,
     "next_state": "Pending Doc Verify",
     "parent": "IMM-04 Workflow",
@@ -446,7 +446,7 @@
    {
     "action": "Xác nhận đủ tài liệu",
     "allow_self_approval": 1,
-    "allowed": "IMM Biomed Technician",
+    "allowed": "PM User",
     "condition": null,
     "next_state": "To Be Installed",
     "parent": "IMM-04 Workflow",
@@ -459,7 +459,7 @@
    {
     "action": "Yêu cầu bổ sung tài liệu",
     "allow_self_approval": 1,
-    "allowed": "IMM Biomed Technician",
+    "allowed": "PM User",
     "condition": null,
     "next_state": "Draft",
     "parent": "IMM-04 Workflow",
@@ -472,7 +472,7 @@
    {
     "action": "Bắt đầu lắp đặt",
     "allow_self_approval": 1,
-    "allowed": "IMM Biomed Technician",
+    "allowed": "PM User",
     "condition": null,
     "next_state": "Installing",
     "parent": "IMM-04 Workflow",
@@ -485,7 +485,7 @@
    {
     "action": "Báo cáo sự cố",
     "allow_self_approval": 1,
-    "allowed": "IMM Biomed Technician",
+    "allowed": "PM User",
     "condition": null,
     "next_state": "Non Conformance",
     "parent": "IMM-04 Workflow",
@@ -511,7 +511,7 @@
    {
     "action": "Lắp đặt hoàn thành",
     "allow_self_approval": 1,
-    "allowed": "IMM Biomed Technician",
+    "allowed": "PM User",
     "condition": null,
     "next_state": "Identification",
     "parent": "IMM-04 Workflow",
@@ -537,7 +537,7 @@
    {
     "action": "Báo cáo DOA",
     "allow_self_approval": 1,
-    "allowed": "IMM Biomed Technician",
+    "allowed": "PM User",
     "condition": null,
     "next_state": "Non Conformance",
     "parent": "IMM-04 Workflow",
@@ -563,7 +563,7 @@
    {
     "action": "Bắt đầu kiểm tra",
     "allow_self_approval": 1,
-    "allowed": "IMM Biomed Technician",
+    "allowed": "PM User",
     "condition": null,
     "next_state": "Initial Inspection",
     "parent": "IMM-04 Workflow",
@@ -589,7 +589,7 @@
    {
     "action": "Phê duyệt phát hành",
     "allow_self_approval": 1,
-    "allowed": "IMM System Admin",
+    "allowed": "AssetCore Super Admin",
     "condition": null,
     "next_state": "Clinical Release",
     "parent": "IMM-04 Workflow",
@@ -602,7 +602,7 @@
    {
     "action": "Giữ lâm sàng",
     "allow_self_approval": 1,
-    "allowed": "IMM QA Officer",
+    "allowed": "Compliance Manager",
     "condition": null,
     "next_state": "Clinical Hold",
     "parent": "IMM-04 Workflow",
@@ -615,7 +615,7 @@
    {
     "action": "Giữ lâm sàng",
     "allow_self_approval": 1,
-    "allowed": "IMM System Admin",
+    "allowed": "AssetCore Super Admin",
     "condition": null,
     "next_state": "Clinical Hold",
     "parent": "IMM-04 Workflow",
@@ -628,7 +628,7 @@
    {
     "action": "Báo cáo lỗi baseline",
     "allow_self_approval": 1,
-    "allowed": "IMM Biomed Technician",
+    "allowed": "PM User",
     "condition": null,
     "next_state": "Re Inspection",
     "parent": "IMM-04 Workflow",
@@ -641,7 +641,7 @@
    {
     "action": "Gỡ giữ lâm sàng",
     "allow_self_approval": 1,
-    "allowed": "IMM QA Officer",
+    "allowed": "Compliance Manager",
     "condition": null,
     "next_state": "Clinical Release",
     "parent": "IMM-04 Workflow",
@@ -654,7 +654,7 @@
    {
     "action": "Gỡ giữ lâm sàng",
     "allow_self_approval": 1,
-    "allowed": "IMM System Admin",
+    "allowed": "AssetCore Super Admin",
     "condition": null,
     "next_state": "Clinical Release",
     "parent": "IMM-04 Workflow",
@@ -680,7 +680,7 @@
    {
     "action": "Phê duyệt sau tái kiểm",
     "allow_self_approval": 1,
-    "allowed": "IMM System Admin",
+    "allowed": "AssetCore Super Admin",
     "condition": null,
     "next_state": "Clinical Release",
     "parent": "IMM-04 Workflow",
@@ -693,7 +693,7 @@
    {
     "action": "Khắc phục xong",
     "allow_self_approval": 1,
-    "allowed": "IMM Biomed Technician",
+    "allowed": "PM User",
     "condition": null,
     "next_state": "To Be Installed",
     "parent": "IMM-04 Workflow",
@@ -748,7 +748,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM Biomed Technician",
+    "allow_edit": "PM User",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -764,7 +764,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM Biomed Technician",
+    "allow_edit": "PM User",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -780,7 +780,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM Technician",
+    "allow_edit": "PM User",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -796,7 +796,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM Technician",
+    "allow_edit": "PM User",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -812,7 +812,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM Technician",
+    "allow_edit": "PM User",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -828,7 +828,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM Workshop Lead",
+    "allow_edit": "PM Manager",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -864,7 +864,7 @@
    {
     "action": "Commission",
     "allow_self_approval": 1,
-    "allowed": "IMM Biomed Technician",
+    "allowed": "PM User",
     "condition": null,
     "next_state": "Commissioned",
     "parent": "AC Asset Lifecycle",
@@ -877,7 +877,7 @@
    {
     "action": "Activate",
     "allow_self_approval": 1,
-    "allowed": "IMM Biomed Technician",
+    "allowed": "PM User",
     "condition": null,
     "next_state": "Active",
     "parent": "AC Asset Lifecycle",
@@ -890,7 +890,7 @@
    {
     "action": "Bắt đầu bảo trì",
     "allow_self_approval": 1,
-    "allowed": "IMM Technician",
+    "allowed": "PM User",
     "condition": null,
     "next_state": "Under Maintenance",
     "parent": "AC Asset Lifecycle",
@@ -903,7 +903,7 @@
    {
     "action": "Hoàn thành bảo trì",
     "allow_self_approval": 1,
-    "allowed": "IMM Technician",
+    "allowed": "PM User",
     "condition": null,
     "next_state": "Active",
     "parent": "AC Asset Lifecycle",
@@ -916,7 +916,7 @@
    {
     "action": "Bắt đầu sửa chữa",
     "allow_self_approval": 1,
-    "allowed": "IMM Technician",
+    "allowed": "PM User",
     "condition": null,
     "next_state": "Under Repair",
     "parent": "AC Asset Lifecycle",
@@ -929,7 +929,7 @@
    {
     "action": "Bắt đầu sửa chữa",
     "allow_self_approval": 1,
-    "allowed": "IMM Technician",
+    "allowed": "PM User",
     "condition": null,
     "next_state": "Under Repair",
     "parent": "AC Asset Lifecycle",
@@ -942,7 +942,7 @@
    {
     "action": "Bắt đầu hiệu chuẩn",
     "allow_self_approval": 1,
-    "allowed": "IMM Technician",
+    "allowed": "PM User",
     "condition": null,
     "next_state": "Calibrating",
     "parent": "AC Asset Lifecycle",
@@ -955,7 +955,7 @@
    {
     "action": "Đưa ra khỏi sử dụng",
     "allow_self_approval": 1,
-    "allowed": "IMM Workshop Lead",
+    "allowed": "PM Manager",
     "condition": null,
     "next_state": "Out of Service",
     "parent": "AC Asset Lifecycle",
@@ -968,7 +968,7 @@
    {
     "action": "Hoàn thành sửa chữa",
     "allow_self_approval": 1,
-    "allowed": "IMM Technician",
+    "allowed": "PM User",
     "condition": null,
     "next_state": "Active",
     "parent": "AC Asset Lifecycle",
@@ -981,7 +981,7 @@
    {
     "action": "Không thể sửa chữa",
     "allow_self_approval": 1,
-    "allowed": "IMM Workshop Lead",
+    "allowed": "PM Manager",
     "condition": null,
     "next_state": "Out of Service",
     "parent": "AC Asset Lifecycle",
@@ -994,7 +994,7 @@
    {
     "action": "Hiệu chuẩn đạt",
     "allow_self_approval": 1,
-    "allowed": "IMM Technician",
+    "allowed": "PM User",
     "condition": null,
     "next_state": "Active",
     "parent": "AC Asset Lifecycle",
@@ -1007,7 +1007,7 @@
    {
     "action": "Hiệu chuẩn không đạt",
     "allow_self_approval": 1,
-    "allowed": "IMM Workshop Lead",
+    "allowed": "PM Manager",
     "condition": null,
     "next_state": "Out of Service",
     "parent": "AC Asset Lifecycle",
@@ -1020,7 +1020,7 @@
    {
     "action": "Khôi phục hoạt động",
     "allow_self_approval": 1,
-    "allowed": "IMM Workshop Lead",
+    "allowed": "PM Manager",
     "condition": null,
     "next_state": "Active",
     "parent": "AC Asset Lifecycle",
@@ -1033,7 +1033,7 @@
    {
     "action": "Sửa chữa lại",
     "allow_self_approval": 1,
-    "allowed": "IMM Technician",
+    "allowed": "PM User",
     "condition": null,
     "next_state": "Under Repair",
     "parent": "AC Asset Lifecycle",
@@ -1085,7 +1085,7 @@
   "send_email_alert": 0,
   "states": [
    {
-    "allow_edit": "IMM Biomed Technician",
+    "allow_edit": "PM User",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -1101,7 +1101,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM Biomed Technician",
+    "allow_edit": "PM User",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -1153,7 +1153,7 @@
    {
     "action": "Bắt đầu phân tích RCA",
     "allow_self_approval": 1,
-    "allowed": "IMM Biomed Technician",
+    "allowed": "PM User",
     "condition": null,
     "next_state": "RCA In Progress",
     "parent": "IMM-12 RCA Workflow",
@@ -1179,7 +1179,7 @@
    {
     "action": "Hoàn thành RCA",
     "allow_self_approval": 1,
-    "allowed": "IMM Biomed Technician",
+    "allowed": "PM User",
     "condition": null,
     "next_state": "Completed",
     "parent": "IMM-12 RCA Workflow",
@@ -1218,7 +1218,7 @@
   "send_email_alert": 0,
   "states": [
    {
-    "allow_edit": "IMM Biomed Technician",
+    "allow_edit": "PM User",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -1234,7 +1234,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM Workshop Lead",
+    "allow_edit": "PM Manager",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -1250,7 +1250,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM Biomed Technician",
+    "allow_edit": "PM User",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -1266,7 +1266,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM Biomed Technician",
+    "allow_edit": "PM User",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -1282,7 +1282,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM QA Officer",
+    "allow_edit": "Compliance Manager",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -1334,7 +1334,7 @@
    {
     "action": "Tiếp nhận sự cố",
     "allow_self_approval": 1,
-    "allowed": "IMM Workshop Lead",
+    "allowed": "PM Manager",
     "condition": null,
     "next_state": "Acknowledged",
     "parent": "IMM-12 Incident Workflow",
@@ -1360,7 +1360,7 @@
    {
     "action": "Bắt đầu xử lý",
     "allow_self_approval": 1,
-    "allowed": "IMM Biomed Technician",
+    "allowed": "PM User",
     "condition": null,
     "next_state": "In Progress",
     "parent": "IMM-12 Incident Workflow",
@@ -1386,7 +1386,7 @@
    {
     "action": "Đánh dấu đã giải quyết",
     "allow_self_approval": 1,
-    "allowed": "IMM Biomed Technician",
+    "allowed": "PM User",
     "condition": null,
     "next_state": "Resolved",
     "parent": "IMM-12 Incident Workflow",
@@ -1412,7 +1412,7 @@
    {
     "action": "Yêu cầu RCA",
     "allow_self_approval": 1,
-    "allowed": "IMM QA Officer",
+    "allowed": "Compliance Manager",
     "condition": "doc.severity in ('High', 'Critical') or doc.requires_rca == 1",
     "next_state": "RCA Required",
     "parent": "IMM-12 Incident Workflow",
@@ -1477,7 +1477,7 @@
   "send_email_alert": 0,
   "states": [
    {
-    "allow_edit": "IMM Biomed Technician",
+    "allow_edit": "PM User",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -1493,7 +1493,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM Biomed Technician",
+    "allow_edit": "PM User",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -1509,7 +1509,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM Biomed Technician",
+    "allow_edit": "PM User",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -1609,7 +1609,7 @@
    {
     "action": "Bắt đầu hiệu chuẩn",
     "allow_self_approval": 1,
-    "allowed": "IMM Biomed Technician",
+    "allowed": "PM User",
     "condition": null,
     "next_state": "In Progress",
     "parent": "IMM-11 Calibration Workflow",
@@ -1622,7 +1622,7 @@
    {
     "action": "Gửi phòng hiệu chuẩn",
     "allow_self_approval": 1,
-    "allowed": "IMM Biomed Technician",
+    "allowed": "PM User",
     "condition": null,
     "next_state": "Sent to Lab",
     "parent": "IMM-11 Calibration Workflow",
@@ -1648,7 +1648,7 @@
    {
     "action": "Đạt hiệu chuẩn",
     "allow_self_approval": 1,
-    "allowed": "IMM Biomed Technician",
+    "allowed": "PM User",
     "condition": null,
     "next_state": "Passed",
     "parent": "IMM-11 Calibration Workflow",
@@ -1661,7 +1661,7 @@
    {
     "action": "Không đạt hiệu chuẩn",
     "allow_self_approval": 1,
-    "allowed": "IMM Biomed Technician",
+    "allowed": "PM User",
     "condition": null,
     "next_state": "Failed",
     "parent": "IMM-11 Calibration Workflow",
@@ -1674,7 +1674,7 @@
    {
     "action": "Đạt có điều kiện",
     "allow_self_approval": 1,
-    "allowed": "IMM Biomed Technician",
+    "allowed": "PM User",
     "condition": null,
     "next_state": "Conditionally Passed",
     "parent": "IMM-11 Calibration Workflow",
@@ -1700,7 +1700,7 @@
    {
     "action": "Nhận chứng chỉ",
     "allow_self_approval": 1,
-    "allowed": "IMM Biomed Technician",
+    "allowed": "PM User",
     "condition": null,
     "next_state": "Certificate Received",
     "parent": "IMM-11 Calibration Workflow",
@@ -1752,7 +1752,7 @@
    {
     "action": "CAPA hoàn tất - chuyển có điều kiện",
     "allow_self_approval": 1,
-    "allowed": "IMM QA Officer",
+    "allowed": "Compliance Manager",
     "condition": "doc.capa_closed == 1",
     "next_state": "Conditionally Passed",
     "parent": "IMM-11 Calibration Workflow",
@@ -1823,7 +1823,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM Biomed Technician",
+    "allow_edit": "PM User",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -1839,7 +1839,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM Biomed Technician",
+    "allow_edit": "PM User",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -1855,7 +1855,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM Biomed Technician",
+    "allow_edit": "PM User",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -1965,7 +1965,7 @@
    {
     "action": "Bắt đầu chẩn đoán",
     "allow_self_approval": 1,
-    "allowed": "IMM Biomed Technician",
+    "allowed": "PM User",
     "condition": null,
     "next_state": "Diagnosing",
     "parent": "IMM-09 Repair Workflow",
@@ -1978,7 +1978,7 @@
    {
     "action": "Yêu cầu linh kiện",
     "allow_self_approval": 1,
-    "allowed": "IMM Biomed Technician",
+    "allowed": "PM User",
     "condition": null,
     "next_state": "Pending Parts",
     "parent": "IMM-09 Repair Workflow",
@@ -1991,7 +1991,7 @@
    {
     "action": "Bắt đầu sửa chữa",
     "allow_self_approval": 1,
-    "allowed": "IMM Biomed Technician",
+    "allowed": "PM User",
     "condition": null,
     "next_state": "In Repair",
     "parent": "IMM-09 Repair Workflow",
@@ -2004,7 +2004,7 @@
    {
     "action": "Linh kiện đã nhận - bắt đầu sửa",
     "allow_self_approval": 1,
-    "allowed": "IMM Biomed Technician",
+    "allowed": "PM User",
     "condition": null,
     "next_state": "In Repair",
     "parent": "IMM-09 Repair Workflow",
@@ -2017,7 +2017,7 @@
    {
     "action": "Hoàn thành sửa chữa - chờ kiểm tra",
     "allow_self_approval": 1,
-    "allowed": "IMM Biomed Technician",
+    "allowed": "PM User",
     "condition": null,
     "next_state": "Pending Inspection",
     "parent": "IMM-09 Repair Workflow",
@@ -2056,7 +2056,7 @@
    {
     "action": "Kiểm tra thất bại - sửa lại",
     "allow_self_approval": 1,
-    "allowed": "IMM Biomed Technician",
+    "allowed": "PM User",
     "condition": null,
     "next_state": "In Repair",
     "parent": "IMM-09 Repair Workflow",
@@ -2147,7 +2147,7 @@
   "send_email_alert": 0,
   "states": [
    {
-    "allow_edit": "IMM Biomed Technician",
+    "allow_edit": "PM User",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -2163,7 +2163,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM Biomed Technician",
+    "allow_edit": "PM User",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -2179,7 +2179,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM Biomed Technician",
+    "allow_edit": "PM User",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -2263,7 +2263,7 @@
    {
     "action": "Bắt đầu thực hiện",
     "allow_self_approval": 1,
-    "allowed": "IMM Biomed Technician",
+    "allowed": "PM User",
     "condition": null,
     "next_state": "In Progress",
     "parent": "IMM-08 PM Workflow",
@@ -2302,7 +2302,7 @@
    {
     "action": "Hoàn thành PM",
     "allow_self_approval": 1,
-    "allowed": "IMM Biomed Technician",
+    "allowed": "PM User",
     "condition": null,
     "next_state": "Completed",
     "parent": "IMM-08 PM Workflow",
@@ -2315,7 +2315,7 @@
    {
     "action": "Báo lỗi nghiêm trọng",
     "allow_self_approval": 1,
-    "allowed": "IMM Biomed Technician",
+    "allowed": "PM User",
     "condition": null,
     "next_state": "Halted–Major Failure",
     "parent": "IMM-08 PM Workflow",
@@ -2328,7 +2328,7 @@
    {
     "action": "Thiết bị bận - hoãn",
     "allow_self_approval": 1,
-    "allowed": "IMM Biomed Technician",
+    "allowed": "PM User",
     "condition": null,
     "next_state": "Pending–Device Busy",
     "parent": "IMM-08 PM Workflow",
@@ -2341,7 +2341,7 @@
    {
     "action": "Tiếp tục thực hiện",
     "allow_self_approval": 1,
-    "allowed": "IMM Biomed Technician",
+    "allowed": "PM User",
     "condition": null,
     "next_state": "In Progress",
     "parent": "IMM-08 PM Workflow",
@@ -2354,7 +2354,7 @@
    {
     "action": "Bắt đầu muộn",
     "allow_self_approval": 1,
-    "allowed": "IMM Biomed Technician",
+    "allowed": "PM User",
     "condition": null,
     "next_state": "In Progress",
     "parent": "IMM-08 PM Workflow",
@@ -2445,7 +2445,7 @@
   "send_email_alert": 0,
   "states": [
    {
-    "allow_edit": "IMM Procurement Officer",
+    "allow_edit": "Procurement Manager",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -2461,7 +2461,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM Procurement Officer",
+    "allow_edit": "Procurement Manager",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -2477,7 +2477,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM Procurement Officer",
+    "allow_edit": "Procurement Manager",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -2493,7 +2493,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM System Admin",
+    "allow_edit": "AssetCore Super Admin",
     "avoid_status_override": 0,
     "doc_status": "1",
     "is_optional_state": 0,
@@ -2509,7 +2509,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM System Admin",
+    "allow_edit": "AssetCore Super Admin",
     "avoid_status_override": 0,
     "doc_status": "1",
     "is_optional_state": 0,
@@ -2529,7 +2529,7 @@
    {
     "action": "Mở RFQ",
     "allow_self_approval": 1,
-    "allowed": "IMM Procurement Officer",
+    "allowed": "Procurement Manager",
     "condition": null,
     "next_state": "Open RFQ",
     "parent": "IMM-03 Vendor Eval Workflow",
@@ -2542,7 +2542,7 @@
    {
     "action": "Nhận báo giá xong",
     "allow_self_approval": 1,
-    "allowed": "IMM Procurement Officer",
+    "allowed": "Procurement Manager",
     "condition": null,
     "next_state": "Quotation Received",
     "parent": "IMM-03 Vendor Eval Workflow",
@@ -2555,7 +2555,7 @@
    {
     "action": "Hoàn tất chấm điểm",
     "allow_self_approval": 1,
-    "allowed": "IMM Procurement Officer",
+    "allowed": "Procurement Manager",
     "condition": null,
     "next_state": "Evaluated",
     "parent": "IMM-03 Vendor Eval Workflow",
@@ -2568,7 +2568,7 @@
    {
     "action": "Hoàn tất chấm điểm",
     "allow_self_approval": 1,
-    "allowed": "IMM Department Head",
+    "allowed": "Commissioning Manager",
     "condition": null,
     "next_state": "Evaluated",
     "parent": "IMM-03 Vendor Eval Workflow",
@@ -2581,7 +2581,7 @@
    {
     "action": "Huỷ Eval",
     "allow_self_approval": 1,
-    "allowed": "IMM Department Head",
+    "allowed": "Commissioning Manager",
     "condition": null,
     "next_state": "Cancelled",
     "parent": "IMM-03 Vendor Eval Workflow",
@@ -2594,7 +2594,7 @@
    {
     "action": "Huỷ Eval",
     "allow_self_approval": 1,
-    "allowed": "IMM Department Head",
+    "allowed": "Commissioning Manager",
     "condition": null,
     "next_state": "Cancelled",
     "parent": "IMM-03 Vendor Eval Workflow",
@@ -2620,7 +2620,7 @@
   "send_email_alert": 0,
   "states": [
    {
-    "allow_edit": "IMM Clinical User",
+    "allow_edit": "Corrective User",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -2636,7 +2636,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM HTM Engineer",
+    "allow_edit": "Spec Manager",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -2652,7 +2652,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM HTM Engineer",
+    "allow_edit": "Spec Manager",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -2668,7 +2668,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM Planning Officer",
+    "allow_edit": "Needs Manager",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -2684,7 +2684,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM Finance Officer",
+    "allow_edit": "Needs Manager",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -2700,7 +2700,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM Department Head",
+    "allow_edit": "Commissioning Manager",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -2716,7 +2716,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM System Admin",
+    "allow_edit": "AssetCore Super Admin",
     "avoid_status_override": 0,
     "doc_status": "1",
     "is_optional_state": 0,
@@ -2732,7 +2732,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM System Admin",
+    "allow_edit": "AssetCore Super Admin",
     "avoid_status_override": 0,
     "doc_status": "1",
     "is_optional_state": 0,
@@ -2752,7 +2752,7 @@
    {
     "action": "Gửi đề xuất",
     "allow_self_approval": 1,
-    "allowed": "IMM Clinical User",
+    "allowed": "Corrective User",
     "condition": null,
     "next_state": "Submitted",
     "parent": "IMM-01 Needs Workflow",
@@ -2765,7 +2765,7 @@
    {
     "action": "Gửi đề xuất",
     "allow_self_approval": 1,
-    "allowed": "IMM Department Head",
+    "allowed": "Commissioning Manager",
     "condition": null,
     "next_state": "Submitted",
     "parent": "IMM-01 Needs Workflow",
@@ -2778,7 +2778,7 @@
    {
     "action": "Gửi đề xuất",
     "allow_self_approval": 1,
-    "allowed": "IMM System Admin",
+    "allowed": "AssetCore Super Admin",
     "condition": null,
     "next_state": "Submitted",
     "parent": "IMM-01 Needs Workflow",
@@ -2791,7 +2791,7 @@
    {
     "action": "Tiếp nhận rà soát",
     "allow_self_approval": 1,
-    "allowed": "IMM HTM Engineer",
+    "allowed": "Spec Manager",
     "condition": null,
     "next_state": "Reviewing",
     "parent": "IMM-01 Needs Workflow",
@@ -2804,7 +2804,7 @@
    {
     "action": "Tiếp nhận rà soát",
     "allow_self_approval": 1,
-    "allowed": "IMM Planning Officer",
+    "allowed": "Needs Manager",
     "condition": null,
     "next_state": "Reviewing",
     "parent": "IMM-01 Needs Workflow",
@@ -2817,7 +2817,7 @@
    {
     "action": "Tiếp nhận rà soát",
     "allow_self_approval": 1,
-    "allowed": "IMM System Admin",
+    "allowed": "AssetCore Super Admin",
     "condition": null,
     "next_state": "Reviewing",
     "parent": "IMM-01 Needs Workflow",
@@ -2830,7 +2830,7 @@
    {
     "action": "Yêu cầu bổ sung",
     "allow_self_approval": 1,
-    "allowed": "IMM HTM Engineer",
+    "allowed": "Spec Manager",
     "condition": null,
     "next_state": "Draft",
     "parent": "IMM-01 Needs Workflow",
@@ -2843,7 +2843,7 @@
    {
     "action": "Yêu cầu bổ sung",
     "allow_self_approval": 1,
-    "allowed": "IMM Planning Officer",
+    "allowed": "Needs Manager",
     "condition": null,
     "next_state": "Draft",
     "parent": "IMM-01 Needs Workflow",
@@ -2856,7 +2856,7 @@
    {
     "action": "Yêu cầu bổ sung",
     "allow_self_approval": 1,
-    "allowed": "IMM System Admin",
+    "allowed": "AssetCore Super Admin",
     "condition": null,
     "next_state": "Draft",
     "parent": "IMM-01 Needs Workflow",
@@ -2869,7 +2869,7 @@
    {
     "action": "Hoàn tất chấm điểm",
     "allow_self_approval": 1,
-    "allowed": "IMM Planning Officer",
+    "allowed": "Needs Manager",
     "condition": null,
     "next_state": "Prioritized",
     "parent": "IMM-01 Needs Workflow",
@@ -2882,7 +2882,7 @@
    {
     "action": "Hoàn tất chấm điểm",
     "allow_self_approval": 1,
-    "allowed": "IMM HTM Engineer",
+    "allowed": "Spec Manager",
     "condition": null,
     "next_state": "Prioritized",
     "parent": "IMM-01 Needs Workflow",
@@ -2895,7 +2895,7 @@
    {
     "action": "Hoàn tất chấm điểm",
     "allow_self_approval": 1,
-    "allowed": "IMM System Admin",
+    "allowed": "AssetCore Super Admin",
     "condition": null,
     "next_state": "Prioritized",
     "parent": "IMM-01 Needs Workflow",
@@ -2908,7 +2908,7 @@
    {
     "action": "Bác đề xuất sớm",
     "allow_self_approval": 1,
-    "allowed": "IMM Department Head",
+    "allowed": "Commissioning Manager",
     "condition": null,
     "next_state": "Rejected",
     "parent": "IMM-01 Needs Workflow",
@@ -2921,7 +2921,7 @@
    {
     "action": "Bác đề xuất sớm",
     "allow_self_approval": 1,
-    "allowed": "IMM System Admin",
+    "allowed": "AssetCore Super Admin",
     "condition": null,
     "next_state": "Rejected",
     "parent": "IMM-01 Needs Workflow",
@@ -2934,7 +2934,7 @@
    {
     "action": "Hoàn tất dự toán",
     "allow_self_approval": 1,
-    "allowed": "IMM Finance Officer",
+    "allowed": "Needs Manager",
     "condition": null,
     "next_state": "Budgeted",
     "parent": "IMM-01 Needs Workflow",
@@ -2947,7 +2947,7 @@
    {
     "action": "Hoàn tất dự toán",
     "allow_self_approval": 1,
-    "allowed": "IMM System Admin",
+    "allowed": "AssetCore Super Admin",
     "condition": null,
     "next_state": "Budgeted",
     "parent": "IMM-01 Needs Workflow",
@@ -2960,7 +2960,7 @@
    {
     "action": "Trình BGĐ",
     "allow_self_approval": 1,
-    "allowed": "IMM Department Head",
+    "allowed": "Commissioning Manager",
     "condition": null,
     "next_state": "Pending Approval",
     "parent": "IMM-01 Needs Workflow",
@@ -2973,7 +2973,7 @@
    {
     "action": "Trình BGĐ",
     "allow_self_approval": 1,
-    "allowed": "IMM System Admin",
+    "allowed": "AssetCore Super Admin",
     "condition": null,
     "next_state": "Pending Approval",
     "parent": "IMM-01 Needs Workflow",
@@ -2986,7 +2986,7 @@
    {
     "action": "Phê duyệt",
     "allow_self_approval": 1,
-    "allowed": "IMM Board Approver",
+    "allowed": "Procurement Manager",
     "condition": null,
     "next_state": "Approved",
     "parent": "IMM-01 Needs Workflow",
@@ -2999,7 +2999,7 @@
    {
     "action": "Phê duyệt",
     "allow_self_approval": 1,
-    "allowed": "IMM System Admin",
+    "allowed": "AssetCore Super Admin",
     "condition": null,
     "next_state": "Approved",
     "parent": "IMM-01 Needs Workflow",
@@ -3012,7 +3012,7 @@
    {
     "action": "Bác đề xuất",
     "allow_self_approval": 1,
-    "allowed": "IMM Board Approver",
+    "allowed": "Procurement Manager",
     "condition": null,
     "next_state": "Rejected",
     "parent": "IMM-01 Needs Workflow",
@@ -3025,7 +3025,7 @@
    {
     "action": "Bác đề xuất",
     "allow_self_approval": 1,
-    "allowed": "IMM System Admin",
+    "allowed": "AssetCore Super Admin",
     "condition": null,
     "next_state": "Rejected",
     "parent": "IMM-01 Needs Workflow",
@@ -3038,7 +3038,7 @@
    {
     "action": "Yêu cầu chỉnh dự toán",
     "allow_self_approval": 1,
-    "allowed": "IMM Board Approver",
+    "allowed": "Procurement Manager",
     "condition": null,
     "next_state": "Budgeted",
     "parent": "IMM-01 Needs Workflow",
@@ -3051,7 +3051,7 @@
    {
     "action": "Yêu cầu chỉnh dự toán",
     "allow_self_approval": 1,
-    "allowed": "IMM System Admin",
+    "allowed": "AssetCore Super Admin",
     "condition": null,
     "next_state": "Budgeted",
     "parent": "IMM-01 Needs Workflow",
@@ -3077,7 +3077,7 @@
   "send_email_alert": 0,
   "states": [
    {
-    "allow_edit": "IMM Planning Officer",
+    "allow_edit": "Needs Manager",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -3093,7 +3093,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM System Admin",
+    "allow_edit": "AssetCore Super Admin",
     "avoid_status_override": 0,
     "doc_status": "1",
     "is_optional_state": 0,
@@ -3109,7 +3109,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM System Admin",
+    "allow_edit": "AssetCore Super Admin",
     "avoid_status_override": 0,
     "doc_status": "1",
     "is_optional_state": 0,
@@ -3125,7 +3125,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM System Admin",
+    "allow_edit": "AssetCore Super Admin",
     "avoid_status_override": 0,
     "doc_status": "1",
     "is_optional_state": 0,
@@ -3145,7 +3145,7 @@
    {
     "action": "Phê duyệt kế hoạch",
     "allow_self_approval": 1,
-    "allowed": "IMM Board Approver",
+    "allowed": "Procurement Manager",
     "condition": null,
     "next_state": "Approved",
     "parent": "IMM-01 Plan Workflow",
@@ -3158,7 +3158,7 @@
    {
     "action": "Phê duyệt kế hoạch",
     "allow_self_approval": 1,
-    "allowed": "IMM Department Head",
+    "allowed": "Commissioning Manager",
     "condition": null,
     "next_state": "Approved",
     "parent": "IMM-01 Plan Workflow",
@@ -3171,7 +3171,7 @@
    {
     "action": "Kích hoạt",
     "allow_self_approval": 1,
-    "allowed": "IMM Planning Officer",
+    "allowed": "Needs Manager",
     "condition": null,
     "next_state": "Active",
     "parent": "IMM-01 Plan Workflow",
@@ -3184,7 +3184,7 @@
    {
     "action": "Đóng kỳ kế hoạch",
     "allow_self_approval": 1,
-    "allowed": "IMM Department Head",
+    "allowed": "Commissioning Manager",
     "condition": null,
     "next_state": "Closed",
     "parent": "IMM-01 Plan Workflow",
@@ -3210,7 +3210,7 @@
   "send_email_alert": 0,
   "states": [
    {
-    "allow_edit": "IMM HTM Engineer",
+    "allow_edit": "Spec Manager",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -3226,7 +3226,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM HTM Engineer",
+    "allow_edit": "Spec Manager",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -3242,7 +3242,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM Planning Officer",
+    "allow_edit": "Needs Manager",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -3258,7 +3258,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM Risk Officer",
+    "allow_edit": "Spec Manager",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -3274,7 +3274,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM Department Head",
+    "allow_edit": "Commissioning Manager",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -3290,7 +3290,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM System Admin",
+    "allow_edit": "AssetCore Super Admin",
     "avoid_status_override": 0,
     "doc_status": "1",
     "is_optional_state": 0,
@@ -3306,7 +3306,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM System Admin",
+    "allow_edit": "AssetCore Super Admin",
     "avoid_status_override": 0,
     "doc_status": "1",
     "is_optional_state": 0,
@@ -3326,7 +3326,7 @@
    {
     "action": "Gửi rà soát",
     "allow_self_approval": 1,
-    "allowed": "IMM HTM Engineer",
+    "allowed": "Spec Manager",
     "condition": null,
     "next_state": "Reviewing",
     "parent": "IMM-02 Spec Workflow",
@@ -3339,7 +3339,7 @@
    {
     "action": "Yêu cầu chỉnh spec",
     "allow_self_approval": 1,
-    "allowed": "IMM HTM Engineer",
+    "allowed": "Spec Manager",
     "condition": null,
     "next_state": "Draft",
     "parent": "IMM-02 Spec Workflow",
@@ -3352,7 +3352,7 @@
    {
     "action": "Yêu cầu chỉnh spec",
     "allow_self_approval": 1,
-    "allowed": "IMM Planning Officer",
+    "allowed": "Needs Manager",
     "condition": null,
     "next_state": "Draft",
     "parent": "IMM-02 Spec Workflow",
@@ -3365,7 +3365,7 @@
    {
     "action": "Hoàn tất benchmark",
     "allow_self_approval": 1,
-    "allowed": "IMM Planning Officer",
+    "allowed": "Needs Manager",
     "condition": null,
     "next_state": "Benchmarked",
     "parent": "IMM-02 Spec Workflow",
@@ -3378,7 +3378,7 @@
    {
     "action": "Đánh giá rủi ro xong",
     "allow_self_approval": 1,
-    "allowed": "IMM Risk Officer",
+    "allowed": "Spec Manager",
     "condition": null,
     "next_state": "Risk Assessed",
     "parent": "IMM-02 Spec Workflow",
@@ -3391,7 +3391,7 @@
    {
     "action": "Trình duyệt spec",
     "allow_self_approval": 1,
-    "allowed": "IMM Department Head",
+    "allowed": "Commissioning Manager",
     "condition": null,
     "next_state": "Pending Approval",
     "parent": "IMM-02 Spec Workflow",
@@ -3404,7 +3404,7 @@
    {
     "action": "Phê duyệt spec",
     "allow_self_approval": 1,
-    "allowed": "IMM Board Approver",
+    "allowed": "Procurement Manager",
     "condition": null,
     "next_state": "Locked",
     "parent": "IMM-02 Spec Workflow",
@@ -3417,7 +3417,7 @@
    {
     "action": "Rút spec",
     "allow_self_approval": 1,
-    "allowed": "IMM Board Approver",
+    "allowed": "Procurement Manager",
     "condition": null,
     "next_state": "Withdrawn",
     "parent": "IMM-02 Spec Workflow",
@@ -3430,7 +3430,7 @@
    {
     "action": "Yêu cầu chỉnh risk",
     "allow_self_approval": 1,
-    "allowed": "IMM Board Approver",
+    "allowed": "Procurement Manager",
     "condition": null,
     "next_state": "Risk Assessed",
     "parent": "IMM-02 Spec Workflow",
@@ -3456,7 +3456,7 @@
   "send_email_alert": 0,
   "states": [
    {
-    "allow_edit": "IMM Procurement Officer",
+    "allow_edit": "Procurement Manager",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -3472,7 +3472,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM System Admin",
+    "allow_edit": "AssetCore Super Admin",
     "avoid_status_override": 0,
     "doc_status": "1",
     "is_optional_state": 0,
@@ -3488,7 +3488,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM Risk Officer",
+    "allow_edit": "Spec Manager",
     "avoid_status_override": 0,
     "doc_status": "1",
     "is_optional_state": 0,
@@ -3504,7 +3504,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM System Admin",
+    "allow_edit": "AssetCore Super Admin",
     "avoid_status_override": 0,
     "doc_status": "1",
     "is_optional_state": 0,
@@ -3520,7 +3520,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM System Admin",
+    "allow_edit": "AssetCore Super Admin",
     "avoid_status_override": 0,
     "doc_status": "1",
     "is_optional_state": 0,
@@ -3540,7 +3540,7 @@
    {
     "action": "Phê duyệt AVL",
     "allow_self_approval": 1,
-    "allowed": "IMM Board Approver",
+    "allowed": "Procurement Manager",
     "condition": null,
     "next_state": "Approved",
     "parent": "IMM-03 AVL Workflow",
@@ -3553,7 +3553,7 @@
    {
     "action": "Cấp Conditional",
     "allow_self_approval": 1,
-    "allowed": "IMM Risk Officer",
+    "allowed": "Spec Manager",
     "condition": null,
     "next_state": "Conditional",
     "parent": "IMM-03 AVL Workflow",
@@ -3566,7 +3566,7 @@
    {
     "action": "Hạ xuống Conditional",
     "allow_self_approval": 1,
-    "allowed": "IMM Risk Officer",
+    "allowed": "Spec Manager",
     "condition": null,
     "next_state": "Conditional",
     "parent": "IMM-03 AVL Workflow",
@@ -3579,7 +3579,7 @@
    {
     "action": "Đình chỉ",
     "allow_self_approval": 1,
-    "allowed": "IMM Risk Officer",
+    "allowed": "Spec Manager",
     "condition": null,
     "next_state": "Suspended",
     "parent": "IMM-03 AVL Workflow",
@@ -3592,7 +3592,7 @@
    {
     "action": "Phục hồi Approved",
     "allow_self_approval": 1,
-    "allowed": "IMM Board Approver",
+    "allowed": "Procurement Manager",
     "condition": null,
     "next_state": "Approved",
     "parent": "IMM-03 AVL Workflow",
@@ -3605,7 +3605,7 @@
    {
     "action": "Đình chỉ",
     "allow_self_approval": 1,
-    "allowed": "IMM Risk Officer",
+    "allowed": "Spec Manager",
     "condition": null,
     "next_state": "Suspended",
     "parent": "IMM-03 AVL Workflow",
@@ -3618,7 +3618,7 @@
    {
     "action": "Phục hồi Approved",
     "allow_self_approval": 1,
-    "allowed": "IMM Board Approver",
+    "allowed": "Procurement Manager",
     "condition": null,
     "next_state": "Approved",
     "parent": "IMM-03 AVL Workflow",
@@ -3644,7 +3644,7 @@
   "send_email_alert": 0,
   "states": [
    {
-    "allow_edit": "IMM Procurement Officer",
+    "allow_edit": "Procurement Manager",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -3660,7 +3660,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM Procurement Officer",
+    "allow_edit": "Procurement Manager",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -3676,7 +3676,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM Procurement Officer",
+    "allow_edit": "Procurement Manager",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -3692,7 +3692,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM Department Head",
+    "allow_edit": "Commissioning Manager",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -3708,7 +3708,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM Department Head",
+    "allow_edit": "Commissioning Manager",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -3724,7 +3724,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM System Admin",
+    "allow_edit": "AssetCore Super Admin",
     "avoid_status_override": 0,
     "doc_status": "1",
     "is_optional_state": 0,
@@ -3740,7 +3740,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM Finance Officer",
+    "allow_edit": "Needs Manager",
     "avoid_status_override": 0,
     "doc_status": "1",
     "is_optional_state": 0,
@@ -3756,7 +3756,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM Procurement Officer",
+    "allow_edit": "Procurement Manager",
     "avoid_status_override": 0,
     "doc_status": "1",
     "is_optional_state": 0,
@@ -3772,7 +3772,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM System Admin",
+    "allow_edit": "AssetCore Super Admin",
     "avoid_status_override": 0,
     "doc_status": "1",
     "is_optional_state": 0,
@@ -3792,7 +3792,7 @@
    {
     "action": "Chọn phương án",
     "allow_self_approval": 1,
-    "allowed": "IMM Procurement Officer",
+    "allowed": "Procurement Manager",
     "condition": null,
     "next_state": "Method Selected",
     "parent": "IMM-03 Decision Workflow",
@@ -3805,7 +3805,7 @@
    {
     "action": "Bắt đầu thương thảo",
     "allow_self_approval": 1,
-    "allowed": "IMM Procurement Officer",
+    "allowed": "Procurement Manager",
     "condition": null,
     "next_state": "Negotiation",
     "parent": "IMM-03 Decision Workflow",
@@ -3818,7 +3818,7 @@
    {
     "action": "Đề xuất trúng thầu",
     "allow_self_approval": 1,
-    "allowed": "IMM Procurement Officer",
+    "allowed": "Procurement Manager",
     "condition": null,
     "next_state": "Award Recommended",
     "parent": "IMM-03 Decision Workflow",
@@ -3831,7 +3831,7 @@
    {
     "action": "Trình BGĐ",
     "allow_self_approval": 1,
-    "allowed": "IMM Department Head",
+    "allowed": "Commissioning Manager",
     "condition": null,
     "next_state": "Pending Approval",
     "parent": "IMM-03 Decision Workflow",
@@ -3844,7 +3844,7 @@
    {
     "action": "Phê duyệt trúng thầu",
     "allow_self_approval": 1,
-    "allowed": "IMM Board Approver",
+    "allowed": "Procurement Manager",
     "condition": null,
     "next_state": "Awarded",
     "parent": "IMM-03 Decision Workflow",
@@ -3857,7 +3857,7 @@
    {
     "action": "Huỷ Decision",
     "allow_self_approval": 1,
-    "allowed": "IMM Board Approver",
+    "allowed": "Procurement Manager",
     "condition": null,
     "next_state": "Cancelled",
     "parent": "IMM-03 Decision Workflow",
@@ -3870,7 +3870,7 @@
    {
     "action": "Ký HĐ",
     "allow_self_approval": 1,
-    "allowed": "IMM Finance Officer",
+    "allowed": "Needs Manager",
     "condition": null,
     "next_state": "Contract Signed",
     "parent": "IMM-03 Decision Workflow",
@@ -3883,7 +3883,7 @@
    {
     "action": "Phát hành PO",
     "allow_self_approval": 1,
-    "allowed": "IMM Procurement Officer",
+    "allowed": "Procurement Manager",
     "condition": null,
     "next_state": "PO Issued",
     "parent": "IMM-03 Decision Workflow",
@@ -3909,7 +3909,7 @@
   "send_email_alert": 0,
   "states": [
    {
-    "allow_edit": "IMM Training Officer",
+    "allow_edit": "Training Manager",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -3925,7 +3925,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM Training Officer",
+    "allow_edit": "Training Manager",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -3941,7 +3941,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM Training Officer",
+    "allow_edit": "Training Manager",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -3957,7 +3957,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM Training Officer",
+    "allow_edit": "Training Manager",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -3973,7 +3973,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM Workshop Lead",
+    "allow_edit": "PM Manager",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -4025,7 +4025,7 @@
    {
     "action": "Xác nhận",
     "allow_self_approval": 1,
-    "allowed": "IMM Training Officer",
+    "allowed": "Training Manager",
     "condition": null,
     "next_state": "Confirmed",
     "parent": "IMM-06 Session Workflow",
@@ -4038,7 +4038,7 @@
    {
     "action": "Xác nhận",
     "allow_self_approval": 1,
-    "allowed": "IMM System Admin",
+    "allowed": "AssetCore Super Admin",
     "condition": null,
     "next_state": "Confirmed",
     "parent": "IMM-06 Session Workflow",
@@ -4051,7 +4051,7 @@
    {
     "action": "Bắt đầu",
     "allow_self_approval": 1,
-    "allowed": "IMM Training Officer",
+    "allowed": "Training Manager",
     "condition": null,
     "next_state": "In Progress",
     "parent": "IMM-06 Session Workflow",
@@ -4064,7 +4064,7 @@
    {
     "action": "Bắt đầu",
     "allow_self_approval": 1,
-    "allowed": "IMM Biomed Technician",
+    "allowed": "PM User",
     "condition": null,
     "next_state": "In Progress",
     "parent": "IMM-06 Session Workflow",
@@ -4077,7 +4077,7 @@
    {
     "action": "Hoàn thành",
     "allow_self_approval": 1,
-    "allowed": "IMM Training Officer",
+    "allowed": "Training Manager",
     "condition": null,
     "next_state": "Completed",
     "parent": "IMM-06 Session Workflow",
@@ -4090,7 +4090,7 @@
    {
     "action": "Hoàn thành",
     "allow_self_approval": 1,
-    "allowed": "IMM Biomed Technician",
+    "allowed": "PM User",
     "condition": null,
     "next_state": "Completed",
     "parent": "IMM-06 Session Workflow",
@@ -4103,7 +4103,7 @@
    {
     "action": "Verify",
     "allow_self_approval": 1,
-    "allowed": "IMM Workshop Lead",
+    "allowed": "PM Manager",
     "condition": null,
     "next_state": "Verified",
     "parent": "IMM-06 Session Workflow",
@@ -4116,7 +4116,7 @@
    {
     "action": "Verify",
     "allow_self_approval": 1,
-    "allowed": "IMM System Admin",
+    "allowed": "AssetCore Super Admin",
     "condition": null,
     "next_state": "Verified",
     "parent": "IMM-06 Session Workflow",
@@ -4129,7 +4129,7 @@
    {
     "action": "Đóng",
     "allow_self_approval": 1,
-    "allowed": "IMM Workshop Lead",
+    "allowed": "PM Manager",
     "condition": null,
     "next_state": "Closed",
     "parent": "IMM-06 Session Workflow",
@@ -4142,7 +4142,7 @@
    {
     "action": "Đóng",
     "allow_self_approval": 1,
-    "allowed": "IMM System Admin",
+    "allowed": "AssetCore Super Admin",
     "condition": null,
     "next_state": "Closed",
     "parent": "IMM-06 Session Workflow",
@@ -4155,7 +4155,7 @@
    {
     "action": "Hủy",
     "allow_self_approval": 1,
-    "allowed": "IMM Training Officer",
+    "allowed": "Training Manager",
     "condition": null,
     "next_state": "Cancelled",
     "parent": "IMM-06 Session Workflow",
@@ -4168,7 +4168,7 @@
    {
     "action": "Hủy",
     "allow_self_approval": 1,
-    "allowed": "IMM System Admin",
+    "allowed": "AssetCore Super Admin",
     "condition": null,
     "next_state": "Cancelled",
     "parent": "IMM-06 Session Workflow",
@@ -4181,7 +4181,7 @@
    {
     "action": "Hủy",
     "allow_self_approval": 1,
-    "allowed": "IMM Training Officer",
+    "allowed": "Training Manager",
     "condition": null,
     "next_state": "Cancelled",
     "parent": "IMM-06 Session Workflow",
@@ -4194,7 +4194,7 @@
    {
     "action": "Hủy",
     "allow_self_approval": 1,
-    "allowed": "IMM System Admin",
+    "allowed": "AssetCore Super Admin",
     "condition": null,
     "next_state": "Cancelled",
     "parent": "IMM-06 Session Workflow",
@@ -4220,7 +4220,7 @@
   "send_email_alert": 0,
   "states": [
    {
-    "allow_edit": "IMM Training Officer",
+    "allow_edit": "Training Manager",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -4236,7 +4236,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM Training Officer",
+    "allow_edit": "Training Manager",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -4284,7 +4284,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM Workshop Lead",
+    "allow_edit": "PM Manager",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -4320,7 +4320,7 @@
    {
     "action": "Sign-off",
     "allow_self_approval": 1,
-    "allowed": "IMM Department Head",
+    "allowed": "Commissioning Manager",
     "condition": null,
     "next_state": "Active",
     "parent": "IMM-06 Competency Workflow",
@@ -4333,7 +4333,7 @@
    {
     "action": "Sign-off",
     "allow_self_approval": 1,
-    "allowed": "IMM Workshop Lead",
+    "allowed": "PM Manager",
     "condition": null,
     "next_state": "Active",
     "parent": "IMM-06 Competency Workflow",
@@ -4346,7 +4346,7 @@
    {
     "action": "Sign-off",
     "allow_self_approval": 1,
-    "allowed": "IMM Training Officer",
+    "allowed": "Training Manager",
     "condition": null,
     "next_state": "Active",
     "parent": "IMM-06 Competency Workflow",
@@ -4359,7 +4359,7 @@
    {
     "action": "Đánh dấu sắp hết hạn",
     "allow_self_approval": 1,
-    "allowed": "IMM System Admin",
+    "allowed": "AssetCore Super Admin",
     "condition": null,
     "next_state": "Expiring",
     "parent": "IMM-06 Competency Workflow",
@@ -4372,7 +4372,7 @@
    {
     "action": "Hết hạn",
     "allow_self_approval": 1,
-    "allowed": "IMM System Admin",
+    "allowed": "AssetCore Super Admin",
     "condition": null,
     "next_state": "Expired",
     "parent": "IMM-06 Competency Workflow",
@@ -4385,7 +4385,7 @@
    {
     "action": "Hết hạn",
     "allow_self_approval": 1,
-    "allowed": "IMM System Admin",
+    "allowed": "AssetCore Super Admin",
     "condition": null,
     "next_state": "Expired",
     "parent": "IMM-06 Competency Workflow",
@@ -4398,7 +4398,7 @@
    {
     "action": "Tạm ngưng",
     "allow_self_approval": 1,
-    "allowed": "IMM Workshop Lead",
+    "allowed": "PM Manager",
     "condition": null,
     "next_state": "Suspended",
     "parent": "IMM-06 Competency Workflow",
@@ -4411,7 +4411,7 @@
    {
     "action": "Tạm ngưng",
     "allow_self_approval": 1,
-    "allowed": "IMM Training Officer",
+    "allowed": "Training Manager",
     "condition": null,
     "next_state": "Suspended",
     "parent": "IMM-06 Competency Workflow",
@@ -4424,7 +4424,7 @@
    {
     "action": "Khôi phục",
     "allow_self_approval": 1,
-    "allowed": "IMM Workshop Lead",
+    "allowed": "PM Manager",
     "condition": null,
     "next_state": "Active",
     "parent": "IMM-06 Competency Workflow",
@@ -4437,7 +4437,7 @@
    {
     "action": "Khôi phục",
     "allow_self_approval": 1,
-    "allowed": "IMM Training Officer",
+    "allowed": "Training Manager",
     "condition": null,
     "next_state": "Active",
     "parent": "IMM-06 Competency Workflow",
@@ -4450,7 +4450,7 @@
    {
     "action": "Thu hồi",
     "allow_self_approval": 1,
-    "allowed": "IMM Training Officer",
+    "allowed": "Training Manager",
     "condition": null,
     "next_state": "Revoked",
     "parent": "IMM-06 Competency Workflow",
@@ -4463,7 +4463,7 @@
    {
     "action": "Thu hồi",
     "allow_self_approval": 1,
-    "allowed": "IMM System Admin",
+    "allowed": "AssetCore Super Admin",
     "condition": null,
     "next_state": "Revoked",
     "parent": "IMM-06 Competency Workflow",
@@ -4476,7 +4476,7 @@
    {
     "action": "Thu hồi",
     "allow_self_approval": 1,
-    "allowed": "IMM Training Officer",
+    "allowed": "Training Manager",
     "condition": null,
     "next_state": "Revoked",
     "parent": "IMM-06 Competency Workflow",
@@ -4489,7 +4489,7 @@
    {
     "action": "Thu hồi",
     "allow_self_approval": 1,
-    "allowed": "IMM System Admin",
+    "allowed": "AssetCore Super Admin",
     "condition": null,
     "next_state": "Revoked",
     "parent": "IMM-06 Competency Workflow",
@@ -4502,7 +4502,7 @@
    {
     "action": "Thu hồi",
     "allow_self_approval": 1,
-    "allowed": "IMM Training Officer",
+    "allowed": "Training Manager",
     "condition": null,
     "next_state": "Revoked",
     "parent": "IMM-06 Competency Workflow",
@@ -4515,7 +4515,7 @@
    {
     "action": "Thu hồi",
     "allow_self_approval": 1,
-    "allowed": "IMM System Admin",
+    "allowed": "AssetCore Super Admin",
     "condition": null,
     "next_state": "Revoked",
     "parent": "IMM-06 Competency Workflow",
@@ -4528,7 +4528,7 @@
    {
     "action": "Thu hồi",
     "allow_self_approval": 1,
-    "allowed": "IMM Training Officer",
+    "allowed": "Training Manager",
     "condition": null,
     "next_state": "Revoked",
     "parent": "IMM-06 Competency Workflow",
@@ -4541,7 +4541,7 @@
    {
     "action": "Thu hồi",
     "allow_self_approval": 1,
-    "allowed": "IMM System Admin",
+    "allowed": "AssetCore Super Admin",
     "condition": null,
     "next_state": "Revoked",
     "parent": "IMM-06 Competency Workflow",
@@ -4554,7 +4554,7 @@
    {
     "action": "Tái chứng nhận",
     "allow_self_approval": 1,
-    "allowed": "IMM System Admin",
+    "allowed": "AssetCore Super Admin",
     "condition": null,
     "next_state": "Active",
     "parent": "IMM-06 Competency Workflow",
@@ -4580,7 +4580,7 @@
   "send_email_alert": 0,
   "states": [
    {
-    "allow_edit": "IMM Storekeeper",
+    "allow_edit": "Inventory Manager",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -4596,7 +4596,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM Storekeeper",
+    "allow_edit": "Inventory Manager",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -4612,7 +4612,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM Workshop Lead",
+    "allow_edit": "PM Manager",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -4628,7 +4628,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM System Admin",
+    "allow_edit": "AssetCore Super Admin",
     "avoid_status_override": 0,
     "doc_status": "1",
     "is_optional_state": 0,
@@ -4648,7 +4648,7 @@
    {
     "action": "Bắt đầu đếm",
     "allow_self_approval": 1,
-    "allowed": "IMM Storekeeper",
+    "allowed": "Inventory Manager",
     "condition": null,
     "next_state": "Counting",
     "parent": "IMM-15 Cycle Count Workflow",
@@ -4661,7 +4661,7 @@
    {
     "action": "Hoàn tất đếm",
     "allow_self_approval": 1,
-    "allowed": "IMM Workshop Lead",
+    "allowed": "PM Manager",
     "condition": null,
     "next_state": "Reviewed",
     "parent": "IMM-15 Cycle Count Workflow",
@@ -4674,7 +4674,7 @@
    {
     "action": "Sửa đếm lại",
     "allow_self_approval": 1,
-    "allowed": "IMM Storekeeper",
+    "allowed": "Inventory Manager",
     "condition": null,
     "next_state": "Counting",
     "parent": "IMM-15 Cycle Count Workflow",
@@ -4687,7 +4687,7 @@
    {
     "action": "Post",
     "allow_self_approval": 1,
-    "allowed": "IMM Workshop Lead",
+    "allowed": "PM Manager",
     "condition": null,
     "next_state": "Posted",
     "parent": "IMM-15 Cycle Count Workflow",
@@ -4713,7 +4713,7 @@
   "send_email_alert": 0,
   "states": [
    {
-    "allow_edit": "IMM Biomed Technician",
+    "allow_edit": "PM User",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -4729,7 +4729,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM Workshop Lead",
+    "allow_edit": "PM Manager",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -4745,7 +4745,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM Storekeeper",
+    "allow_edit": "Inventory Manager",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -4761,7 +4761,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM Storekeeper",
+    "allow_edit": "Inventory Manager",
     "avoid_status_override": 0,
     "doc_status": "1",
     "is_optional_state": 0,
@@ -4777,7 +4777,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM Storekeeper",
+    "allow_edit": "Inventory Manager",
     "avoid_status_override": 0,
     "doc_status": "1",
     "is_optional_state": 0,
@@ -4793,7 +4793,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM System Admin",
+    "allow_edit": "AssetCore Super Admin",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -4813,7 +4813,7 @@
    {
     "action": "Phê duyệt",
     "allow_self_approval": 1,
-    "allowed": "IMM Workshop Lead",
+    "allowed": "PM Manager",
     "condition": null,
     "next_state": "Approved",
     "parent": "IMM-15 Spare Allocation Workflow",
@@ -4826,7 +4826,7 @@
    {
     "action": "Issue (Emergency)",
     "allow_self_approval": 1,
-    "allowed": "IMM Workshop Lead",
+    "allowed": "PM Manager",
     "condition": null,
     "next_state": "Issued",
     "parent": "IMM-15 Spare Allocation Workflow",
@@ -4839,7 +4839,7 @@
    {
     "action": "Hủy",
     "allow_self_approval": 1,
-    "allowed": "IMM Workshop Lead",
+    "allowed": "PM Manager",
     "condition": null,
     "next_state": "Cancelled",
     "parent": "IMM-15 Spare Allocation Workflow",
@@ -4852,7 +4852,7 @@
    {
     "action": "Hủy",
     "allow_self_approval": 1,
-    "allowed": "IMM System Admin",
+    "allowed": "AssetCore Super Admin",
     "condition": null,
     "next_state": "Cancelled",
     "parent": "IMM-15 Spare Allocation Workflow",
@@ -4865,7 +4865,7 @@
    {
     "action": "Pick",
     "allow_self_approval": 1,
-    "allowed": "IMM Storekeeper",
+    "allowed": "Inventory Manager",
     "condition": null,
     "next_state": "Picked",
     "parent": "IMM-15 Spare Allocation Workflow",
@@ -4878,7 +4878,7 @@
    {
     "action": "Hủy",
     "allow_self_approval": 1,
-    "allowed": "IMM Workshop Lead",
+    "allowed": "PM Manager",
     "condition": null,
     "next_state": "Cancelled",
     "parent": "IMM-15 Spare Allocation Workflow",
@@ -4891,7 +4891,7 @@
    {
     "action": "Hủy",
     "allow_self_approval": 1,
-    "allowed": "IMM System Admin",
+    "allowed": "AssetCore Super Admin",
     "condition": null,
     "next_state": "Cancelled",
     "parent": "IMM-15 Spare Allocation Workflow",
@@ -4904,7 +4904,7 @@
    {
     "action": "Issue",
     "allow_self_approval": 1,
-    "allowed": "IMM Storekeeper",
+    "allowed": "Inventory Manager",
     "condition": null,
     "next_state": "Issued",
     "parent": "IMM-15 Spare Allocation Workflow",
@@ -4917,7 +4917,7 @@
    {
     "action": "Hủy",
     "allow_self_approval": 1,
-    "allowed": "IMM Workshop Lead",
+    "allowed": "PM Manager",
     "condition": null,
     "next_state": "Cancelled",
     "parent": "IMM-15 Spare Allocation Workflow",
@@ -4930,7 +4930,7 @@
    {
     "action": "Hủy",
     "allow_self_approval": 1,
-    "allowed": "IMM System Admin",
+    "allowed": "AssetCore Super Admin",
     "condition": null,
     "next_state": "Cancelled",
     "parent": "IMM-15 Spare Allocation Workflow",
@@ -4943,7 +4943,7 @@
    {
     "action": "Trả phụ tùng",
     "allow_self_approval": 1,
-    "allowed": "IMM Storekeeper",
+    "allowed": "Inventory Manager",
     "condition": null,
     "next_state": "Returned",
     "parent": "IMM-15 Spare Allocation Workflow",
@@ -4956,7 +4956,7 @@
    {
     "action": "Đóng phiếu",
     "allow_self_approval": 1,
-    "allowed": "IMM Storekeeper",
+    "allowed": "Inventory Manager",
     "condition": null,
     "next_state": "Issued",
     "parent": "IMM-15 Spare Allocation Workflow",
@@ -4982,7 +4982,7 @@
   "send_email_alert": 0,
   "states": [
    {
-    "allow_edit": "IMM QA Officer",
+    "allow_edit": "Compliance Manager",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -4998,7 +4998,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM QA Officer",
+    "allow_edit": "Compliance Manager",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -5014,7 +5014,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM QA Officer",
+    "allow_edit": "Compliance Manager",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -5030,7 +5030,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM Workshop Lead",
+    "allow_edit": "PM Manager",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -5046,7 +5046,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM QA Officer",
+    "allow_edit": "Compliance Manager",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -5078,7 +5078,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM QA Officer",
+    "allow_edit": "Compliance Manager",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -5098,7 +5098,7 @@
    {
     "action": "Bắt đầu điều tra",
     "allow_self_approval": 1,
-    "allowed": "IMM QA Officer",
+    "allowed": "Compliance Manager",
     "condition": null,
     "next_state": "Investigating",
     "parent": "IMM-16 CAPA Workflow",
@@ -5111,7 +5111,7 @@
    {
     "action": "Lập kế hoạch hành động",
     "allow_self_approval": 1,
-    "allowed": "IMM QA Officer",
+    "allowed": "Compliance Manager",
     "condition": "doc.imm_root_cause_method",
     "next_state": "Action Plan",
     "parent": "IMM-16 CAPA Workflow",
@@ -5124,7 +5124,7 @@
    {
     "action": "Bắt đầu thực thi",
     "allow_self_approval": 1,
-    "allowed": "IMM Workshop Lead",
+    "allowed": "PM Manager",
     "condition": null,
     "next_state": "Implementation",
     "parent": "IMM-16 CAPA Workflow",
@@ -5137,7 +5137,7 @@
    {
     "action": "Chuyển sang xác minh",
     "allow_self_approval": 1,
-    "allowed": "IMM QA Officer",
+    "allowed": "Compliance Manager",
     "condition": null,
     "next_state": "Verification",
     "parent": "IMM-16 CAPA Workflow",
@@ -5150,7 +5150,7 @@
    {
     "action": "Đóng CAPA",
     "allow_self_approval": 1,
-    "allowed": "IMM QA Officer",
+    "allowed": "Compliance Manager",
     "condition": "doc.effectiveness_check == \"Effective\"",
     "next_state": "Closed",
     "parent": "IMM-16 CAPA Workflow",
@@ -5163,7 +5163,7 @@
    {
     "action": "Mở lại do chưa hiệu quả",
     "allow_self_approval": 1,
-    "allowed": "IMM QA Officer",
+    "allowed": "Compliance Manager",
     "condition": "doc.effectiveness_check == \"Not Effective\"",
     "next_state": "Re-opened",
     "parent": "IMM-16 CAPA Workflow",
@@ -5176,7 +5176,7 @@
    {
     "action": "Bắt đầu điều tra lại",
     "allow_self_approval": 1,
-    "allowed": "IMM QA Officer",
+    "allowed": "Compliance Manager",
     "condition": null,
     "next_state": "Investigating",
     "parent": "IMM-16 CAPA Workflow",
@@ -5202,7 +5202,7 @@
   "send_email_alert": 0,
   "states": [
    {
-    "allow_edit": "IMM QA Officer",
+    "allow_edit": "Compliance Manager",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -5218,7 +5218,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM QA Officer",
+    "allow_edit": "Compliance Manager",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -5234,7 +5234,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM QA Officer",
+    "allow_edit": "Compliance Manager",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -5318,7 +5318,7 @@
    {
     "action": "Bắt đầu xem xét",
     "allow_self_approval": 1,
-    "allowed": "IMM QA Officer",
+    "allowed": "Compliance Manager",
     "condition": null,
     "next_state": "Under Review",
     "parent": "IMM-16 Compliance Finding Workflow",
@@ -5331,7 +5331,7 @@
    {
     "action": "Xác nhận vi phạm",
     "allow_self_approval": 1,
-    "allowed": "IMM QA Officer",
+    "allowed": "Compliance Manager",
     "condition": null,
     "next_state": "Confirmed NC",
     "parent": "IMM-16 Compliance Finding Workflow",
@@ -5344,7 +5344,7 @@
    {
     "action": "Xác nhận không vi phạm",
     "allow_self_approval": 1,
-    "allowed": "IMM QA Officer",
+    "allowed": "Compliance Manager",
     "condition": null,
     "next_state": "False Positive",
     "parent": "IMM-16 Compliance Finding Workflow",
@@ -5357,7 +5357,7 @@
    {
     "action": "Miễn trừ",
     "allow_self_approval": 1,
-    "allowed": "IMM Operations Manager",
+    "allowed": "Commissioning Manager",
     "condition": "doc.waiver_reason and doc.expiry_date",
     "next_state": "Waived",
     "parent": "IMM-16 Compliance Finding Workflow",
@@ -5370,7 +5370,7 @@
    {
     "action": "Đánh dấu đã giải quyết",
     "allow_self_approval": 1,
-    "allowed": "IMM QA Officer",
+    "allowed": "Compliance Manager",
     "condition": "doc.capa_ref",
     "next_state": "Resolved",
     "parent": "IMM-16 Compliance Finding Workflow",
@@ -5383,7 +5383,7 @@
    {
     "action": "Đóng finding",
     "allow_self_approval": 1,
-    "allowed": "IMM QA Officer",
+    "allowed": "Compliance Manager",
     "condition": null,
     "next_state": "Closed",
     "parent": "IMM-16 Compliance Finding Workflow",
@@ -5396,7 +5396,7 @@
    {
     "action": "Đóng finding",
     "allow_self_approval": 1,
-    "allowed": "IMM QA Officer",
+    "allowed": "Compliance Manager",
     "condition": null,
     "next_state": "Closed",
     "parent": "IMM-16 Compliance Finding Workflow",
@@ -5409,7 +5409,7 @@
    {
     "action": "Đóng finding",
     "allow_self_approval": 1,
-    "allowed": "IMM QA Officer",
+    "allowed": "Compliance Manager",
     "condition": null,
     "next_state": "Closed",
     "parent": "IMM-16 Compliance Finding Workflow",
@@ -5435,7 +5435,7 @@
   "send_email_alert": 0,
   "states": [
    {
-    "allow_edit": "Tổ HC-QLCL",
+    "allow_edit": "Compliance Manager",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -5451,7 +5451,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "Internal Auditor",
+    "allow_edit": "Compliance Manager",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -5467,7 +5467,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "Tổ HC-QLCL",
+    "allow_edit": "Compliance Manager",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -5483,7 +5483,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM System Admin",
+    "allow_edit": "AssetCore Super Admin",
     "avoid_status_override": 0,
     "doc_status": "1",
     "is_optional_state": 0,
@@ -5503,7 +5503,7 @@
    {
     "action": "Bắt đầu Audit",
     "allow_self_approval": 1,
-    "allowed": "Internal Auditor",
+    "allowed": "Compliance Manager",
     "condition": null,
     "next_state": "In Progress",
     "parent": "IMM-16 Internal Audit Workflow",
@@ -5516,7 +5516,7 @@
    {
     "action": "Chuyển sang Báo cáo",
     "allow_self_approval": 1,
-    "allowed": "Tổ HC-QLCL",
+    "allowed": "Compliance Manager",
     "condition": null,
     "next_state": "Reporting",
     "parent": "IMM-16 Internal Audit Workflow",
@@ -5529,7 +5529,7 @@
    {
     "action": "Đóng Audit",
     "allow_self_approval": 1,
-    "allowed": "Tổ HC-QLCL",
+    "allowed": "Compliance Manager",
     "condition": null,
     "next_state": "Closed",
     "parent": "IMM-16 Internal Audit Workflow",
@@ -5555,7 +5555,7 @@
   "send_email_alert": 0,
   "states": [
    {
-    "allow_edit": "Tổ HC-QLCL",
+    "allow_edit": "Compliance Manager",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -5571,7 +5571,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "Tổ HC-QLCL",
+    "allow_edit": "Compliance Manager",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -5587,7 +5587,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM System Admin",
+    "allow_edit": "AssetCore Super Admin",
     "avoid_status_override": 0,
     "doc_status": "1",
     "is_optional_state": 0,
@@ -5603,7 +5603,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "IMM System Admin",
+    "allow_edit": "AssetCore Super Admin",
     "avoid_status_override": 0,
     "doc_status": "1",
     "is_optional_state": 0,
@@ -5623,7 +5623,7 @@
    {
     "action": "Đánh dấu Đã họp",
     "allow_self_approval": 1,
-    "allowed": "Tổ HC-QLCL",
+    "allowed": "Compliance Manager",
     "condition": null,
     "next_state": "Held",
     "parent": "IMM-16 Management Review Workflow",
@@ -5636,7 +5636,7 @@
    {
     "action": "Phê duyệt Biên bản",
     "allow_self_approval": 1,
-    "allowed": "Tổ HC-QLCL",
+    "allowed": "Compliance Manager",
     "condition": null,
     "next_state": "Minutes Approved",
     "parent": "IMM-16 Management Review Workflow",
@@ -5649,7 +5649,7 @@
    {
     "action": "Đóng",
     "allow_self_approval": 1,
-    "allowed": "IMM System Admin",
+    "allowed": "AssetCore Super Admin",
     "condition": null,
     "next_state": "Closed",
     "parent": "IMM-16 Management Review Workflow",

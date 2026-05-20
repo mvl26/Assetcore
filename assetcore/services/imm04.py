@@ -1386,7 +1386,8 @@ def submit_for_approval(commissioning: str, approver: str, stage: str = "",
     required_role = _STAGE_ROLE.get(stage)
     if required_role:
         user_roles = frappe.get_roles(approver)
-        if required_role not in user_roles and "IMM System Admin" not in user_roles:
+        # Allow either the specific stage role OR Super Admin umbrella
+        if required_role not in user_roles and "AssetCore Super Admin" not in user_roles:
             raise ServiceError(
                 ErrorCode.FORBIDDEN,
                 f"Người duyệt '{approver}' không có vai trò '{required_role}'",
@@ -1445,7 +1446,7 @@ def approve_pending(commissioning: str, decision: str, remarks: str = "") -> dic
         raise ServiceError(ErrorCode.INVALID_PARAMS, "Phiếu không có yêu cầu duyệt đang chờ")
 
     current_user = frappe.session.user
-    if doc.pending_approver != current_user and "IMM System Admin" not in frappe.get_roles(current_user):
+    if doc.pending_approver != current_user and "AssetCore Super Admin" not in frappe.get_roles(current_user):
         raise ServiceError(ErrorCode.FORBIDDEN, "Bạn không phải người được phân công duyệt phiếu này")
 
     stage = doc.approval_stage or ""

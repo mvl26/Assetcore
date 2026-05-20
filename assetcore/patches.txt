@@ -23,3 +23,5 @@ assetcore.patches.v3_1.005_remove_legacy_imm_role_profiles
 assetcore.patches.v3_1.007_ac_location_simplify_contacts
 assetcore.patches.v3_1.009_set_gmdn_inherited_flag
 assetcore.patches.v3_1.010_consolidate_sla_priority_p1
+# ── Wave 2 ── RBAC module-based redesign ─────────────────────────────────────
+assetcore.patches.v3_2.001_module_role_redesign

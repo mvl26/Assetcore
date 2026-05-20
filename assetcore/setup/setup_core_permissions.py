@@ -1,12 +1,17 @@
 # Copyright (c) 2026, AssetCore Team
 """
-Custom DocPerm cho Frappe core DocType — đảm bảo IMM-only user dùng được desk
-mà không cần thêm role System Manager hay role Frappe gốc khác.
+Custom DocPerm cho Frappe core DocType — đảm bảo các role mới (RBAC
+module-based) dùng được desk mà không cần System Manager.
 
-Không modify core JSON. Dùng `Custom DocPerm` (override layer native của Frappe).
+`AssetCore Super Admin` đã được umbrella hook (role_hooks.sync_umbrella) tự gán
+kèm `System Manager` → bỏ qua Super Admin trong matrix này (System Manager đã
+đủ).
 
-Idempotent: chạy lại không duplicate row. Wire vào hooks.after_install /
-hooks.after_migrate.
+Mục tiêu: cấp permission tối thiểu cho `AssetCore System User` (baseline) +
+`AssetCore Auditor` + `Vendor Engineer` để dùng desk (File, ToDo, Notification,
+Workflow Action, Workspace, Report ...).
+
+Không modify core JSON. Dùng `Custom DocPerm` (override layer). Idempotent.
 
 Chạy thủ công:
     bench --site <site> execute assetcore.setup.setup_core_permissions.run
@@ -14,12 +19,12 @@ Chạy thủ công:
 from __future__ import annotations
 
 import frappe
+
 from assetcore.services.shared.constants import Roles
 
 # ─── Permission profiles ──────────────────────────────────────────────────────
 def _p(*flags: str) -> dict:
-    """Build permission dict. Flags: R W C D S M A (submit/cancel/amend ignored
-    nếu DocType không submittable)."""
+    """Build permission dict. Flags: R W C D S M A."""
     s = set(flags)
     return {
         "permlevel": 0,
@@ -39,84 +44,82 @@ def _p(*flags: str) -> dict:
     }
 
 
-# ─── Role groups ──────────────────────────────────────────────────────────────
-_ALL_DESK_ROLES = list(Roles.ALL_IMM)        # 19 roles incl. Vendor Engineer + Wave 2
-_ALL_INTERNAL = [r for r in Roles.ALL_IMM if r != Roles.VENDOR_ENGINEER]
-_GOVERNANCE = [
-    Roles.SYS_ADMIN, Roles.OPS_MANAGER, Roles.QA, Roles.AUDITOR,
-    Roles.BOARD_APPROVER, Roles.RISK,  # Wave 2 governance
-]
-_ADMIN_OPS = [Roles.SYS_ADMIN, Roles.OPS_MANAGER]
-_VENDOR_MGMT = [Roles.SYS_ADMIN, Roles.OPS_MANAGER, Roles.STOREKEEPER, Roles.PROCUREMENT]
+# ─── Role groups (RBAC module-based) ──────────────────────────────────────────
+# Baseline role nền — mọi user nội bộ phải có
+_BASELINE = Roles.SYSTEM_USER
+# Vendor — cô lập
+_VENDOR = Roles.VENDOR
+# Auditor — chỉ đọc
+_AUDITOR = Roles.AUDITOR
+# Mọi domain user (manager + user) — cũng cần desk
+_DOMAIN_ROLES: list[str] = list(Roles.DOMAIN_ROLES)
+# Mọi role nội bộ (system_user + domain) — không gồm vendor để giữ isolation
+_ALL_INTERNAL = [_BASELINE, _AUDITOR] + _DOMAIN_ROLES
+# Mọi role có thể vào desk (gồm vendor để vendor xem File trên WO)
+_ALL_DESK = _ALL_INTERNAL + [_VENDOR]
 
 
 # ─── Matrix: (DocType, [(role, perm_dict), ...]) ──────────────────────────────
-# Logic theo tier (xem docstring cho chi tiết)
+# Logic: capability layer (rbac.py) là chốt chặn cho nghiệp vụ; matrix này chỉ
+# cấp quyền Frappe-core để desk render được + workflow chạy được.
 _CORE_MATRIX: list[tuple[str, list[tuple[str, dict]]]] = [
-    # ── Tier 1: Desk essentials — mọi IMM role (kể cả Vendor) đều cần ─────────
-    ("File",              [(r, _p("R", "W", "C", "D")) for r in _ALL_DESK_ROLES]),
-    ("ToDo",              [(r, _p("R", "W", "C", "D")) for r in _ALL_DESK_ROLES]),
-    ("Comment",           [(r, _p("R", "W", "C", "D")) for r in _ALL_DESK_ROLES]),
-    ("Tag",               [(r, _p("R", "W", "C")) for r in _ALL_DESK_ROLES]),
-    ("Tag Link",          [(r, _p("R", "W", "C", "D")) for r in _ALL_DESK_ROLES]),
-    ("Communication",     [(r, _p("R", "W", "C")) for r in _ALL_DESK_ROLES]),
-    ("Notification Log",  [(r, _p("R", "W")) for r in _ALL_DESK_ROLES]),
-    ("Workflow Action",   [(r, _p("R", "W")) for r in _ALL_DESK_ROLES]),
-    ("Workspace",         [(r, _p("R")) for r in _ALL_DESK_ROLES]),
-    ("Page",              [(r, _p("R")) for r in _ALL_DESK_ROLES]),
-    ("Module Def",        [(r, _p("R")) for r in _ALL_DESK_ROLES]),
-    ("Print Format",      [(r, _p("R")) for r in _ALL_DESK_ROLES]),
-    ("Letter Head",       [(r, _p("R")) for r in _ALL_DESK_ROLES]),
-    ("Currency",          [(r, _p("R")) for r in _ALL_DESK_ROLES]),
-    ("Country",           [(r, _p("R")) for r in _ALL_DESK_ROLES]),
-    ("Web Form",          [(r, _p("R")) for r in _ALL_DESK_ROLES]),
-    ("Web Page",          [(r, _p("R")) for r in _ALL_DESK_ROLES]),
-    ("Dashboard",         [(r, _p("R")) for r in _ALL_DESK_ROLES]),
-    ("Dashboard Chart",   [(r, _p("R")) for r in _ALL_DESK_ROLES]),
-    ("Number Card",       [(r, _p("R")) for r in _ALL_DESK_ROLES]),
-    ("Report",            [(r, _p("R")) for r in _ALL_DESK_ROLES]),
-    ("Notification Settings", [(r, _p("R", "W")) for r in _ALL_DESK_ROLES]),
+    # ── Tier 1: Desk essentials — mọi role dùng desk đều cần ─────────────────
+    ("File",              [(r, _p("R", "W", "C", "D")) for r in _ALL_DESK]),
+    ("ToDo",              [(r, _p("R", "W", "C", "D")) for r in _ALL_DESK]),
+    ("Comment",           [(r, _p("R", "W", "C", "D")) for r in _ALL_DESK]),
+    ("Tag",               [(r, _p("R", "W", "C")) for r in _ALL_DESK]),
+    ("Tag Link",          [(r, _p("R", "W", "C", "D")) for r in _ALL_DESK]),
+    ("Communication",     [(r, _p("R", "W", "C")) for r in _ALL_DESK]),
+    ("Notification Log",  [(r, _p("R", "W")) for r in _ALL_DESK]),
+    ("Workflow Action",   [(r, _p("R", "W")) for r in _ALL_DESK]),
+    ("Workspace",         [(r, _p("R")) for r in _ALL_DESK]),
+    ("Page",              [(r, _p("R")) for r in _ALL_DESK]),
+    ("Module Def",        [(r, _p("R")) for r in _ALL_DESK]),
+    ("Print Format",      [(r, _p("R")) for r in _ALL_DESK]),
+    ("Letter Head",       [(r, _p("R")) for r in _ALL_DESK]),
+    ("Currency",          [(r, _p("R")) for r in _ALL_DESK]),
+    ("Country",           [(r, _p("R")) for r in _ALL_DESK]),
+    ("Web Form",          [(r, _p("R")) for r in _ALL_DESK]),
+    ("Web Page",          [(r, _p("R")) for r in _ALL_DESK]),
+    ("Dashboard",         [(r, _p("R")) for r in _ALL_DESK]),
+    ("Dashboard Chart",   [(r, _p("R")) for r in _ALL_DESK]),
+    ("Number Card",       [(r, _p("R")) for r in _ALL_DESK]),
+    ("Report",            [(r, _p("R")) for r in _ALL_DESK]),
+    ("Notification Settings", [(r, _p("R", "W")) for r in _ALL_DESK]),
     ("DocShare",          [(r, _p("R", "W", "C", "D")) for r in _ALL_INTERNAL]),
 
-    # ── Tier 2: Audit visibility (Admin + QA + Auditor) ───────────────────────
-    ("Version",       [(r, _p("R")) for r in _GOVERNANCE]),
-    ("Activity Log",  [(r, _p("R")) for r in _GOVERNANCE]),
-    ("View Log",      [(r, _p("R")) for r in _GOVERNANCE]),
-    ("Error Log",     [(r, _p("R", "D")) for r in _ADMIN_OPS]),
-    ("Access Log",    [(r, _p("R")) for r in _ADMIN_OPS]),
-    ("Scheduled Job Log", [(r, _p("R")) for r in _ADMIN_OPS]),
+    # ── Tier 2: Audit visibility (Auditor read everything) ────────────────────
+    ("Version",       [(_AUDITOR, _p("R"))]),
+    ("Activity Log",  [(_AUDITOR, _p("R"))]),
+    ("View Log",      [(_AUDITOR, _p("R"))]),
 
-    # ── Tier 3: User & role management (Admin + Ops Manager) ──────────────────
-    # User: read cho tất cả internal role (mention, assignment, autocomplete);
-    # Admin + Ops thêm W+C để tạo/sửa user qua trang user-profiles.
-    ("User",            [(r, _p("R")) for r in _ALL_INTERNAL if r not in _ADMIN_OPS]),
-    ("User",            [(r, _p("R", "W", "C")) for r in _ADMIN_OPS]),
-    ("Role",            [(r, _p("R")) for r in _ALL_INTERNAL]),  # mọi role nội bộ đọc được danh sách role
-    ("Has Role",        [(r, _p("R", "W", "C", "D")) for r in _ADMIN_OPS]),
-    ("Role Profile",    [(r, _p("R")) for r in _ALL_INTERNAL]),  # mọi role đọc được profile để tham chiếu
-    ("Role Profile",    [(r, _p("W", "C", "D")) for r in _ADMIN_OPS]),  # admin+ops tạo/sửa profile
-    ("Module Profile",  [(r, _p("R")) for r in _ALL_INTERNAL]),  # mọi role xem được module profile
-    ("Module Profile",  [(r, _p("W", "C", "D")) for r in _ADMIN_OPS]),  # admin tạo/sửa module profile
-    ("DocType",         [(r, _p("R")) for r in _ALL_INTERNAL]),  # read meta để render form
-    ("Custom Field",    [(r, _p("R", "W", "C", "D")) for r in [Roles.SYS_ADMIN]]),
-    ("Custom DocPerm",  [(r, _p("R", "W", "C", "D")) for r in [Roles.SYS_ADMIN]]),
-    ("Property Setter", [(r, _p("R", "W", "C", "D")) for r in [Roles.SYS_ADMIN]]),
+    # ── Tier 3: Workflow meta — mọi role cần đọc để render ────────────────────
+    ("DocType",         [(r, _p("R")) for r in _ALL_INTERNAL]),
     ("Workflow",        [(r, _p("R")) for r in _ALL_INTERNAL]),
     ("Workflow State",  [(r, _p("R")) for r in _ALL_INTERNAL]),
     ("Workflow Action Master", [(r, _p("R")) for r in _ALL_INTERNAL]),
+    ("Role",            [(r, _p("R")) for r in _ALL_INTERNAL]),
+    ("User",            [(r, _p("R")) for r in _ALL_INTERNAL]),
 
-    # ── Tier 4: Notification & email config (Admin + Ops + QA) ────────────────
-    ("Notification",    [(r, _p("R", "W", "C", "D")) for r in [Roles.SYS_ADMIN, Roles.OPS_MANAGER, Roles.QA]]),
-    ("Email Template",  [(r, _p("R", "W", "C", "D")) for r in [Roles.SYS_ADMIN, Roles.OPS_MANAGER, Roles.QA, Roles.DOC_OFFICER]]),
+    # ── Tier 4: Email queue (mọi role thấy notification của mình) ─────────────
     ("Email Queue",     [(r, _p("R")) for r in _ALL_INTERNAL]),
 
     # ── Tier 5: Address / Contact (vendor management) ─────────────────────────
-    ("Address",         [(r, _p("R", "W", "C", "D")) for r in _VENDOR_MGMT]),
-    ("Contact",         [(r, _p("R", "W", "C", "D")) for r in _VENDOR_MGMT]),
-    ("Dynamic Link",    [(r, _p("R", "W", "C", "D")) for r in _VENDOR_MGMT]),
-    # Read-only Address/Contact cho roles còn lại (vendor info trên Asset/Service Contract)
-    ("Address",         [(r, _p("R")) for r in _ALL_DESK_ROLES if r not in _VENDOR_MGMT]),
-    ("Contact",         [(r, _p("R")) for r in _ALL_DESK_ROLES if r not in _VENDOR_MGMT]),
+    # Domain Manager của Procurement / Data / Inventory được quản
+    ("Address",  [(r, _p("R", "W", "C", "D")) for r in [
+        "Procurement Manager", "Data Manager", "Inventory Manager",
+    ]]),
+    ("Contact",  [(r, _p("R", "W", "C", "D")) for r in [
+        "Procurement Manager", "Data Manager", "Inventory Manager",
+    ]]),
+    ("Dynamic Link", [(r, _p("R", "W", "C", "D")) for r in [
+        "Procurement Manager", "Data Manager", "Inventory Manager",
+    ]]),
+    # Mọi role còn lại đọc-only
+    ("Address",  [(r, _p("R")) for r in _ALL_DESK
+        if r not in ("Procurement Manager", "Data Manager", "Inventory Manager")]),
+    ("Contact",  [(r, _p("R")) for r in _ALL_DESK
+        if r not in ("Procurement Manager", "Data Manager", "Inventory Manager")]),
 ]
 
 
@@ -130,15 +133,31 @@ def _role_exists(role: str) -> bool:
     return bool(frappe.db.exists("Role", role))
 
 
+def _ensure_standard_cloned(parent: str, _cache: set[str] = set()) -> None:
+    """Đảm bảo standard DocPerm đã được clone sang Custom DocPerm cho `parent`.
+
+    Frappe quy tắc: khi `tabCustom DocPerm` có BẤT KỲ row nào cho 1 DocType,
+    Frappe IGNORE toàn bộ standard DocPerm. → Phải clone trước, không thì
+    System Manager permlevel=1 (và các permission gốc khác) bị shadow.
+
+    Idempotent: `setup_custom_perms` chỉ copy khi Custom DocPerm chưa có row.
+    """
+    if parent in _cache:
+        return
+    from frappe.permissions import setup_custom_perms
+    setup_custom_perms(parent)
+    _cache.add(parent)
+
+
 def _upsert_custom_docperm(parent: str, role: str, perm: dict) -> str:
     """Tạo/cập nhật Custom DocPerm row. Returns: inserted | updated | skipped."""
+    _ensure_standard_cloned(parent)
     existing_name = frappe.db.get_value(
         "Custom DocPerm",
         {"parent": parent, "role": role, "permlevel": perm["permlevel"]},
         "name",
     )
     if existing_name:
-        # Compare và update nếu khác
         existing = frappe.db.get_value(
             "Custom DocPerm", existing_name,
             list(perm.keys()),
@@ -169,8 +188,7 @@ _PERM_FLAGS = (
 
 
 def _merge_matrix() -> dict[tuple[str, str, int], dict]:
-    """Coalesce nhiều entry cùng (parent, role, permlevel) bằng OR-merge các flag.
-    Tránh trường hợp dòng sau ghi đè (mất read) dòng trước cho cùng role."""
+    """Coalesce nhiều entry cùng (parent, role, permlevel) bằng OR-merge."""
     merged: dict[tuple[str, str, int], dict] = {}
     for parent, role_perms in _CORE_MATRIX:
         for role, perm in role_perms:
@@ -205,7 +223,6 @@ def run() -> None:
             )
 
     frappe.db.commit()
-    # Clear cache để Frappe reload permissions
     frappe.clear_cache()
     print(
         f"[AssetCore] Core DocPerm: {stats['inserted']} insert, "

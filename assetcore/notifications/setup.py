@@ -18,7 +18,7 @@ import frappe
 # Mỗi rule được apply qua _upsert_notification(); nếu đã tồn tại thì update.
 
 NOTIFICATIONS: list[dict] = [
-    # ── IMM-12: Critical / High Incident → Workshop Lead + QA + Dept Head ──
+    # ── IMM-12: Critical / High Incident → Corrective Mgr + Compliance Mgr ──
     {
         "name": "IMM-12 Incident Critical High",
         "document_type": "Incident Report",
@@ -44,12 +44,12 @@ NOTIFICATIONS: list[dict] = [
 <p><a href="/app/incident-report/{{ doc.name }}">Mở phiếu sự cố</a> · <a href="/incidents/{{ doc.name }}">Xem trên FE</a></p>
 """,
         "recipients": [
-            {"receiver_by_role": "IMM Workshop Lead"},
-            {"receiver_by_role": "IMM QA Officer"},
-            {"receiver_by_role": "IMM Department Head"},
+            {"receiver_by_role": "Corrective Manager"},
+            {"receiver_by_role": "Compliance Manager"},
+            {"receiver_by_role": "Commissioning Manager"},
         ],
     },
-    # ── IMM-08: PM Major Failure → Workshop Lead + Ops Manager ──
+    # ── IMM-08: PM Major Failure → PM Manager + Commissioning Manager ──
     {
         "name": "IMM-08 PM Major Failure",
         "document_type": "PM Work Order",
@@ -69,11 +69,11 @@ NOTIFICATIONS: list[dict] = [
 <p><a href="/app/pm-work-order/{{ doc.name }}">Mở phiếu PM</a></p>
 """,
         "recipients": [
-            {"receiver_by_role": "IMM Workshop Lead"},
-            {"receiver_by_role": "IMM Operations Manager"},
+            {"receiver_by_role": "PM Manager"},
+            {"receiver_by_role": "Commissioning Manager"},
         ],
     },
-    # ── IMM-09: Repair priority Critical → Workshop Lead ──
+    # ── IMM-09: Repair priority Critical → Repair Manager + Repair User ──
     {
         "name": "IMM-09 Repair Critical Priority",
         "document_type": "Asset Repair",
@@ -92,11 +92,11 @@ NOTIFICATIONS: list[dict] = [
 <p><a href="/app/asset-repair/{{ doc.name }}">Mở phiếu</a> · <a href="/cm/work-orders/{{ doc.name }}">FE</a></p>
 """,
         "recipients": [
-            {"receiver_by_role": "IMM Workshop Lead"},
-            {"receiver_by_role": "IMM Biomed Technician"},
+            {"receiver_by_role": "Repair Manager"},
+            {"receiver_by_role": "Repair User"},
         ],
     },
-    # ── IMM-11: Calibration Failed → QA Officer + Workshop Lead ──
+    # ── IMM-11: Calibration Failed → Compliance Manager + Calibration Manager ──
     {
         "name": "IMM-11 Calibration Failed",
         "document_type": "IMM Asset Calibration",
@@ -121,11 +121,11 @@ NOTIFICATIONS: list[dict] = [
 <p><a href="/app/imm-asset-calibration/{{ doc.name }}">Mở phiếu hiệu chuẩn</a></p>
 """,
         "recipients": [
-            {"receiver_by_role": "IMM QA Officer"},
-            {"receiver_by_role": "IMM Workshop Lead"},
+            {"receiver_by_role": "Compliance Manager"},
+            {"receiver_by_role": "Calibration Manager"},
         ],
     },
-    # ── IMM-04: Clinical Release approval ready → Ops Manager ──
+    # ── IMM-04: Clinical Release approval ready → Commissioning Manager ──
     {
         "name": "IMM-04 Pending Clinical Release",
         "document_type": "Asset Commissioning",
@@ -144,10 +144,10 @@ NOTIFICATIONS: list[dict] = [
 <p><a href="/app/asset-commissioning/{{ doc.name }}">Mở phiếu</a></p>
 """,
         "recipients": [
-            {"receiver_by_role": "IMM Operations Manager"},
+            {"receiver_by_role": "Commissioning Manager"},
         ],
     },
-    # ── IMM-05: Document Pending Review → QA Officer ──
+    # ── IMM-05: Document Pending Review → Document Manager ──
     {
         "name": "IMM-05 Document Pending Review",
         "document_type": "Asset Document",
@@ -166,10 +166,10 @@ NOTIFICATIONS: list[dict] = [
 <p><a href="/app/asset-document/{{ doc.name }}">Review</a></p>
 """,
         "recipients": [
-            {"receiver_by_role": "IMM QA Officer"},
+            {"receiver_by_role": "Document Manager"},
         ],
     },
-    # ── IMM-12: RCA Required → QA Officer + Workshop Lead ──
+    # ── IMM-12: RCA Required → Corrective Manager + Compliance Manager ──
     {
         "name": "IMM-12 RCA Required",
         "document_type": "IMM RCA Record",
@@ -187,8 +187,8 @@ NOTIFICATIONS: list[dict] = [
 <p><a href="/app/imm-rca-record/{{ doc.name }}">Bắt đầu RCA</a></p>
 """,
         "recipients": [
-            {"receiver_by_role": "IMM QA Officer"},
-            {"receiver_by_role": "IMM Workshop Lead"},
+            {"receiver_by_role": "Corrective Manager"},
+            {"receiver_by_role": "Compliance Manager"},
         ],
     },
 ]

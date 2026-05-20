@@ -2,7 +2,7 @@
 // Copyright (c) 2026, AssetCore Team
 // Chips bar + panel bộ lọc full-width, đặt ngay dưới header trang.
 // Toggle button đặt riêng trong header bằng <FilterToggleButton />.
-import { computed } from 'vue'
+import { onBeforeUnmount } from 'vue'
 
 export interface FilterChip { key: string; label: string }
 
@@ -12,10 +12,16 @@ const props = withDefaults(defineProps<{
   search?: string
   searchPlaceholder?: string
   showSearch?: boolean
+  // Auto-apply `searchDebounceMs` after the user stops typing. Set to 0 to
+  // disable (back to button-only). 350ms is the chosen UX sweet spot —
+  // small enough to feel instant, large enough to avoid firing on every
+  // keystroke during typing.
+  searchDebounceMs?: number
 }>(), {
   search: '',
   searchPlaceholder: 'Tìm kiếm...',
   showSearch: true,
+  searchDebounceMs: 350,
 })
 
 const emit = defineEmits<{
@@ -25,10 +31,35 @@ const emit = defineEmits<{
   'clear-chip': [key: string]
 }>()
 
-const searchModel = computed({
-  get: () => props.search,
-  set: (v) => emit('update:search', v),
-})
+let debounceTimer: ReturnType<typeof setTimeout> | null = null
+
+function cancelPending() {
+  if (debounceTimer) {
+    clearTimeout(debounceTimer)
+    debounceTimer = null
+  }
+}
+
+// Bind value via :value + @input (not v-model) so programmatic resets
+// from the parent (e.g. resetFilters() setting search='') do NOT
+// trigger debounced auto-apply — only direct user input does.
+function onSearchInput(v: string) {
+  emit('update:search', v)
+  cancelPending()
+  if (props.searchDebounceMs > 0) {
+    debounceTimer = setTimeout(() => {
+      debounceTimer = null
+      emit('apply')
+    }, props.searchDebounceMs)
+  }
+}
+
+function applyNow() {
+  cancelPending()
+  emit('apply')
+}
+
+onBeforeUnmount(cancelPending)
 </script>
 
 <template>
@@ -76,16 +107,17 @@ const searchModel = computed({
         </div>
         <div v-if="showSearch" class="flex gap-2">
           <input
-            v-model="searchModel"
+            :value="search"
             :placeholder="searchPlaceholder"
             class="form-input flex-1 text-sm"
-            @keyup.enter="emit('apply')"
+            @input="onSearchInput(($event.target as HTMLInputElement).value)"
+            @keyup.enter="applyNow"
           />
-          <button class="btn-primary text-sm" @click="emit('apply')">Tìm</button>
+          <button class="btn-primary text-sm" @click="applyNow">Tìm</button>
           <button class="btn-ghost text-sm" @click="emit('reset')">Đặt lại</button>
         </div>
         <div v-else class="flex gap-2 justify-end">
-          <button class="btn-primary text-sm" @click="emit('apply')">Áp dụng</button>
+          <button class="btn-primary text-sm" @click="applyNow">Áp dụng</button>
           <button class="btn-ghost text-sm" @click="emit('reset')">Đặt lại</button>
         </div>
 

@@ -1919,7 +1919,9 @@ def get_asset_downtime_metrics(asset_name: str, year: str = ""):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _assert_system_admin():
-    if "System Manager" not in frappe.get_roles() and "IMM System Admin" not in frappe.get_roles():
+    """Gate System Admin via capability `data.admin` (RBAC module-based)."""
+    from assetcore.services.shared import rbac
+    if not rbac.can("data.admin"):
         frappe.throw(_("Không có quyền thực hiện thao tác này"), frappe.PermissionError)
 
 

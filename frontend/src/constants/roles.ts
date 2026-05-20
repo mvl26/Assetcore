@@ -1,206 +1,144 @@
 // Copyright (c) 2026, AssetCore Team
-// Role constants — đồng bộ với assetcore/services/shared/constants.py::Roles
-// và assetcore/fixtures/role.json. Dùng cho router guards, v-permission, auth.
+// Catalog 30 role (RBAC module-based) — CHỈ để hiển thị/gán ở trang admin.
+// KHÔNG dùng cho logic gate (logic dùng useCapabilities().can(...)).
+//
+// Mọi `ROLES_*` legacy group được ánh xạ sang capability tương đương trong
+// `composables/useCapabilities.ts`. Các const dưới giữ lại làm tham chiếu
+// catalog + để các view chưa refactor xong vẫn import không vỡ build.
+//
+// Đồng bộ: assetcore/services/shared/constants.py::Roles, fixtures/role.json.
 
+export interface RoleInfo {
+  name: string
+  label: string
+  description: string
+  group: string  // 'System' | one of DOMAINS
+  rank: number
+}
+
+export const SYSTEM_ROLES = [
+  'AssetCore Super Admin',
+  'AssetCore System User',
+  'AssetCore Auditor',
+  'Vendor Engineer',
+] as const
+
+export const DOMAINS = [
+  'Data', 'Needs', 'Spec', 'Procurement', 'Commissioning',
+  'Document', 'Training', 'PM', 'Repair', 'Calibration',
+  'Corrective', 'Inventory', 'Compliance',
+] as const
+
+const DOMAIN_LABEL: Record<string, string> = {
+  Data: 'Dữ liệu nền',
+  Needs: 'Nhu cầu & Dự toán',
+  Spec: 'Thông số kỹ thuật',
+  Procurement: 'NCC & Mua sắm',
+  Commissioning: 'Lắp đặt & Nghiệm thu',
+  Document: 'Hồ sơ',
+  Training: 'Đào tạo',
+  PM: 'Bảo trì định kỳ',
+  Repair: 'Sửa chữa',
+  Calibration: 'Hiệu chuẩn',
+  Corrective: 'Bảo trì khắc phục',
+  Inventory: 'Tồn kho phụ tùng',
+  Compliance: 'Tuân thủ / QMS',
+}
+
+const SYSTEM_INFO: RoleInfo[] = [
+  { name: 'AssetCore Super Admin', label: 'Quản trị hệ thống', group: 'System', rank: 100,
+    description: 'Toàn quyền + bao trùm Frappe System Manager' },
+  { name: 'AssetCore System User', label: 'Người dùng hệ thống', group: 'System', rank: 0,
+    description: 'Role nền: đăng nhập, dashboard, đọc shared-core' },
+  { name: 'AssetCore Auditor', label: 'Kiểm toán viên', group: 'System', rank: 5,
+    description: 'Chỉ đọc toàn bộ + audit trail' },
+  { name: 'Vendor Engineer', label: 'KTV nhà cung cấp', group: 'System', rank: 5,
+    description: 'Bên thứ ba, cô lập theo WO/Asset' },
+]
+
+const DOMAIN_INFO: RoleInfo[] = DOMAINS.flatMap((d) => ([
+  { name: `${d} Manager`, label: `${DOMAIN_LABEL[d]} — Quản lý`, group: d, rank: 50,
+    description: 'Full CRUD + duyệt/hủy workflow' },
+  { name: `${d} User`, label: `${DOMAIN_LABEL[d]} — Người dùng`, group: d, rank: 10,
+    description: 'read/write/create, thao tác thường' },
+]))
+
+export const ROLE_CATALOG: RoleInfo[] = [...SYSTEM_INFO, ...DOMAIN_INFO]
+
+// ─── Legacy compatibility (deprecated) ──────────────────────────────────────
+// Các name dưới ánh xạ persona cũ sang role mới gần nhất. Mục đích: các view
+// chưa refactor xong vẫn build được. KHÔNG dùng cho logic mới — dùng
+// `useCapabilities().can('<cap>')` thay vì so role name.
 export const Roles = {
-  SYS_ADMIN:   'IMM System Admin',
-  OPS_MANAGER: 'IMM Operations Manager',
-  DEPT_HEAD:   'IMM Department Head',
-  DEPT_DEPUTY: 'IMM Deputy Department Head',
-  WORKSHOP:    'IMM Workshop Lead',
-  QA:          'IMM QA Officer',
-  BIOMED:      'IMM Biomed Technician',
-  TECHNICIAN:  'IMM Technician',
-  DOC_OFFICER: 'IMM Document Officer',
-  STOREKEEPER: 'IMM Storekeeper',
-  CLINICAL:    'IMM Clinical User',
-  AUDITOR:     'IMM Auditor',
-  VENDOR_ENGINEER: 'Vendor Engineer',
-  // Wave 2 — planning
-  PLANNING:        'IMM Planning Officer',
-  FINANCE:         'IMM Finance Officer',
-  HTM_ENGINEER:    'IMM HTM Engineer',
-  PROCUREMENT:     'IMM Procurement Officer',
-  RISK:            'IMM Risk Officer',
-  BOARD_APPROVER:  'IMM Board Approver',
-  // Wave 2 — training (IMM-06)
-  TRAINING_OFFICER: 'IMM Training Officer',
+  SYS_ADMIN:        'AssetCore Super Admin',
+  OPS_MANAGER:      'Commissioning Manager',
+  DEPT_HEAD:        'Commissioning Manager',
+  DEPT_DEPUTY:      'Commissioning Manager',
+  WORKSHOP:         'PM Manager',
+  QA:               'Compliance Manager',
+  BIOMED:           'PM User',
+  TECHNICIAN:       'PM User',
+  DOC_OFFICER:      'Document Manager',
+  STOREKEEPER:      'Inventory Manager',
+  CLINICAL:         'Corrective User',
+  AUDITOR:          'AssetCore Auditor',
+  VENDOR_ENGINEER:  'Vendor Engineer',
+  PLANNING:         'Needs Manager',
+  FINANCE:          'Needs Manager',
+  HTM_ENGINEER:     'Spec Manager',
+  PROCUREMENT:      'Procurement Manager',
+  RISK:             'Spec Manager',
+  BOARD_APPROVER:   'Procurement Manager',
+  TRAINING_OFFICER: 'Training Manager',
 } as const
 
-export type RoleName = (typeof Roles)[keyof typeof Roles]
+// RoleName chap nhan moi role-name dang string (legacy + new module roles).
+// Khong narrow lai persona — code nen gate bang capability (useCapabilities).
+export type RoleName = string
 
-export const ALL_IMM_ROLES: readonly RoleName[] = [
-  Roles.SYS_ADMIN, Roles.OPS_MANAGER, Roles.DEPT_HEAD, Roles.DEPT_DEPUTY,
-  Roles.WORKSHOP, Roles.QA, Roles.BIOMED, Roles.TECHNICIAN,
-  Roles.DOC_OFFICER, Roles.STOREKEEPER, Roles.CLINICAL, Roles.AUDITOR,
-  Roles.VENDOR_ENGINEER,
-  // Wave 2
-  Roles.PLANNING, Roles.FINANCE, Roles.HTM_ENGINEER, Roles.PROCUREMENT,
-  Roles.RISK, Roles.BOARD_APPROVER, Roles.TRAINING_OFFICER,
-] as const
+export const ALL_IMM_ROLES: readonly string[] = ROLE_CATALOG.map((r) => r.name)
 
-// Role-group policies (đồng bộ với BE Roles.CAN_*)
-export const ROLES_CREATE_WO: readonly RoleName[] = [
-  Roles.SYS_ADMIN, Roles.OPS_MANAGER, Roles.WORKSHOP, Roles.BIOMED, Roles.TECHNICIAN,
-] as const
+// Deprecated ROLES_* groups — empty arrays, mọi view nên chuyển sang capability.
+// Giữ export để không vỡ import; các template dùng `hasAnyRole(ROLES_X)` sẽ tự
+// về false (đúng nghĩa: không gate theo role-name — gate theo capability).
+const _empty: readonly string[] = []
+export const ROLES_CREATE_WO = _empty
+export const ROLES_APPROVE = _empty
+export const ROLES_APPROVE_DEP = _empty
+export const ROLES_CANCEL = _empty
+export const ROLES_MANAGE_DOCS = _empty
+export const ROLES_MANAGE_STOCK = _empty
+export const ROLES_ADMIN_USER = _empty
+export const ROLES_ADMIN_ONLY = _empty
+export const ROLES_PM_MANAGE = _empty
+export const ROLES_PM_EXECUTE = _empty
+export const ROLES_CM_MANAGE = _empty
+export const ROLES_CM_EXECUTE = _empty
+export const ROLES_CAL_MANAGE = _empty
+export const ROLES_CAL_EXECUTE = _empty
+export const ROLES_INCIDENT_REPORT = _empty
+export const ROLES_INCIDENT_ACK = _empty
+export const ROLES_RCA_OWNER = _empty
+export const ROLES_CAPA_CLOSE = _empty
+export const ROLES_DOC_APPROVE = _empty
+export const ROLES_AUDIT_READ = _empty
+export const ROLES_COMPLIANCE_MANAGE = _empty
+export const ROLES_STOCK_MANAGE = _empty
+export const ROLES_PLANNING = _empty
+export const ROLES_PROCUREMENT = _empty
+export const ROLES_TRAINING_MANAGE = _empty
+export const ROLES_TRAINING_CONDUCT = _empty
+export const ROLES_TRAINING_SIGNOFF = _empty
+export const ROLES_PM_VIEW = _empty
+export const ROLES_CM_VIEW = _empty
+export const ROLES_CAL_VIEW = _empty
+export const ROLES_INCIDENT_VIEW = _empty
+export const ROLES_SPARE_VIEW = _empty
+export const ROLES_TRAINING_VIEW = _empty
+export const ROLES_COMPLIANCE_VIEW = _empty
+export const ROLES_CREATE = _empty
 
-export const ROLES_APPROVE: readonly RoleName[] = [
-  Roles.SYS_ADMIN, Roles.OPS_MANAGER, Roles.DEPT_HEAD, Roles.QA,
-] as const
-
-export const ROLES_APPROVE_DEP: readonly RoleName[] = [
-  Roles.SYS_ADMIN, Roles.OPS_MANAGER, Roles.DEPT_HEAD, Roles.DEPT_DEPUTY, Roles.QA,
-] as const
-
-export const ROLES_CANCEL: readonly RoleName[] = [
-  Roles.SYS_ADMIN, Roles.OPS_MANAGER, Roles.DEPT_HEAD,
-] as const
-
-export const ROLES_MANAGE_DOCS: readonly RoleName[] = [
-  Roles.SYS_ADMIN, Roles.DOC_OFFICER, Roles.QA,
-] as const
-
-export const ROLES_MANAGE_STOCK: readonly RoleName[] = [
-  Roles.SYS_ADMIN, Roles.STOREKEEPER, Roles.OPS_MANAGER,
-] as const
-
-export const ROLES_ADMIN_USER: readonly RoleName[] = [
-  Roles.SYS_ADMIN, Roles.OPS_MANAGER,
-] as const
-
-export const ROLES_ADMIN_ONLY: readonly RoleName[] = [Roles.SYS_ADMIN] as const
-
-// ─── Module-specific role groups (per docs/imm-xx audit) ─────────────────
-// IMM-08 PM: Workshop Lead schedules + assigns; tech submits result
-export const ROLES_PM_MANAGE: readonly RoleName[] = [
-  Roles.SYS_ADMIN, Roles.WORKSHOP,
-] as const
-export const ROLES_PM_EXECUTE: readonly RoleName[] = [
-  Roles.SYS_ADMIN, Roles.WORKSHOP, Roles.BIOMED, Roles.TECHNICIAN,
-] as const
-
-// IMM-09 CM: Workshop Lead creates WO; SysAdmin auto-creates from PM
-export const ROLES_CM_MANAGE: readonly RoleName[] = [
-  Roles.SYS_ADMIN, Roles.WORKSHOP,
-] as const
-export const ROLES_CM_EXECUTE: readonly RoleName[] = [
-  Roles.SYS_ADMIN, Roles.WORKSHOP, Roles.BIOMED, Roles.TECHNICIAN,
-] as const
-
-// IMM-11 Calibration: Workshop Lead schedules; tech executes; QA reviews CAPA
-export const ROLES_CAL_MANAGE: readonly RoleName[] = [
-  Roles.SYS_ADMIN, Roles.WORKSHOP,
-] as const
-export const ROLES_CAL_EXECUTE: readonly RoleName[] = [
-  Roles.SYS_ADMIN, Roles.WORKSHOP, Roles.TECHNICIAN, Roles.BIOMED,
-] as const
-
-// IMM-12 Incident: Clinical user reports; Workshop Lead/Dept Head acknowledge
-export const ROLES_INCIDENT_REPORT: readonly RoleName[] = [
-  Roles.SYS_ADMIN, Roles.OPS_MANAGER, Roles.WORKSHOP,
-  Roles.BIOMED, Roles.TECHNICIAN, Roles.CLINICAL,
-] as const
-export const ROLES_INCIDENT_ACK: readonly RoleName[] = [
-  Roles.SYS_ADMIN, Roles.WORKSHOP, Roles.DEPT_HEAD,
-] as const
-
-// RCA + CAPA: Workshop Lead + QA Officer drive
-export const ROLES_RCA_OWNER: readonly RoleName[] = [
-  Roles.SYS_ADMIN, Roles.WORKSHOP, Roles.QA,
-] as const
-export const ROLES_CAPA_CLOSE: readonly RoleName[] = [
-  Roles.SYS_ADMIN, Roles.QA,
-] as const
-
-// IMM-05 Doc approve gate
-export const ROLES_DOC_APPROVE: readonly RoleName[] = [
-  Roles.SYS_ADMIN, Roles.QA,
-] as const
-
-// IMM-16 — Audit trail read access (ISO 13485): SYS_ADMIN + AUDITOR + QA
-export const ROLES_AUDIT_READ: readonly RoleName[] = [
-  Roles.SYS_ADMIN, Roles.AUDITOR, Roles.QA,
-] as const
-
-// IMM-16 — Compliance management (rules + MR + scorecard write): QA + SYS_ADMIN
-export const ROLES_COMPLIANCE_MANAGE: readonly RoleName[] = [
-  Roles.SYS_ADMIN, Roles.QA,
-] as const
-
-// IMM-15 — Stock-keeping management (forecast, watchlist, UOM)
-export const ROLES_STOCK_MANAGE: readonly RoleName[] = [
-  Roles.SYS_ADMIN, Roles.OPS_MANAGER, Roles.STOREKEEPER,
-] as const
-
-// IMM-01..03 — Planning & procurement access
-export const ROLES_PLANNING: readonly RoleName[] = [
-  Roles.SYS_ADMIN, Roles.OPS_MANAGER, Roles.PLANNING, Roles.DEPT_HEAD, Roles.PROCUREMENT, Roles.FINANCE, Roles.BOARD_APPROVER,
-] as const
-export const ROLES_PROCUREMENT: readonly RoleName[] = [
-  Roles.SYS_ADMIN, Roles.OPS_MANAGER, Roles.PROCUREMENT, Roles.PLANNING, Roles.BOARD_APPROVER,
-] as const
-
-// IMM-06 Training & Competency
-export const ROLES_TRAINING_MANAGE: readonly RoleName[] = [
-  Roles.SYS_ADMIN, Roles.TRAINING_OFFICER,
-] as const
-export const ROLES_TRAINING_CONDUCT: readonly RoleName[] = [
-  Roles.SYS_ADMIN, Roles.TRAINING_OFFICER, Roles.WORKSHOP, Roles.BIOMED,
-] as const
-export const ROLES_TRAINING_SIGNOFF: readonly RoleName[] = [
-  Roles.SYS_ADMIN, Roles.TRAINING_OFFICER, Roles.WORKSHOP, Roles.DEPT_HEAD,
-] as const
-
-// ─── Module read-access groups (router guards for list/detail views) ──────────
-// PM (IMM-08): Tech thực hiện + quản lý + QA + Auditor xem
-export const ROLES_PM_VIEW: readonly RoleName[] = [
-  Roles.SYS_ADMIN, Roles.OPS_MANAGER, Roles.DEPT_HEAD, Roles.WORKSHOP,
-  Roles.BIOMED, Roles.TECHNICIAN, Roles.QA, Roles.AUDITOR,
-] as const
-
-// CM/Repair (IMM-09): tương tự PM
-export const ROLES_CM_VIEW: readonly RoleName[] = [
-  Roles.SYS_ADMIN, Roles.OPS_MANAGER, Roles.DEPT_HEAD, Roles.WORKSHOP,
-  Roles.BIOMED, Roles.TECHNICIAN, Roles.QA, Roles.AUDITOR,
-] as const
-
-// Calibration (IMM-11)
-export const ROLES_CAL_VIEW: readonly RoleName[] = [
-  Roles.SYS_ADMIN, Roles.OPS_MANAGER, Roles.WORKSHOP, Roles.BIOMED,
-  Roles.TECHNICIAN, Roles.QA, Roles.AUDITOR,
-] as const
-
-// Incident (IMM-12)
-export const ROLES_INCIDENT_VIEW: readonly RoleName[] = [
-  Roles.SYS_ADMIN, Roles.OPS_MANAGER, Roles.DEPT_HEAD, Roles.DEPT_DEPUTY,
-  Roles.WORKSHOP, Roles.BIOMED, Roles.TECHNICIAN, Roles.CLINICAL,
-  Roles.QA, Roles.AUDITOR,
-] as const
-
-// Spare Parts / Inventory (IMM-15)
-export const ROLES_SPARE_VIEW: readonly RoleName[] = [
-  Roles.SYS_ADMIN, Roles.OPS_MANAGER, Roles.WORKSHOP, Roles.BIOMED,
-  Roles.STOREKEEPER,
-] as const
-
-// Training (IMM-06)
-export const ROLES_TRAINING_VIEW: readonly RoleName[] = [
-  Roles.SYS_ADMIN, Roles.OPS_MANAGER, Roles.TRAINING_OFFICER, Roles.WORKSHOP,
-  Roles.BIOMED, Roles.TECHNICIAN,
-] as const
-
-// CAPA / Compliance / Audit (IMM-16)
-export const ROLES_COMPLIANCE_VIEW: readonly RoleName[] = [
-  Roles.SYS_ADMIN, Roles.OPS_MANAGER, Roles.QA, Roles.AUDITOR, Roles.RISK,
-] as const
-
-// Legacy alias — giữ để không break các view hiện có
-export const ROLES_CREATE = [
-  Roles.SYS_ADMIN, Roles.OPS_MANAGER, Roles.DEPT_HEAD, Roles.DEPT_DEPUTY,
-  Roles.WORKSHOP, Roles.QA, Roles.BIOMED, Roles.TECHNICIAN,
-] as const
-
-// Role metadata types
+// Role metadata types (legacy)
 export interface RoleMeta {
   name: string
   label: string
@@ -208,12 +146,19 @@ export interface RoleMeta {
   group: string
 }
 
-export const ROLE_GROUPS = ['Governance', 'Department', 'Engineering', 'Support'] as const
-export type RoleGroup = (typeof ROLE_GROUPS)[number]
+// Legacy + new groups — RoleGroup la string thuoc tinh, khong narrow.
+export const ROLE_GROUPS = [
+  'System', ...DOMAINS,
+  // Legacy aliases for UI/forms still in use:
+  'Governance', 'Department', 'Engineering', 'Support',
+] as const
+export type RoleGroup = string
 
-export const ROLE_GROUP_LABEL: Record<RoleGroup, string> = {
-  Governance:  'Quản trị & Duyệt',
-  Department:  'Khoa / Phòng',
+export const ROLE_GROUP_LABEL: Record<string, string> = {
+  System: 'Hệ thống',
+  ...DOMAIN_LABEL,
+  Governance: 'Quản trị & Duyệt',
+  Department: 'Khoa / Phòng',
   Engineering: 'Kỹ thuật',
-  Support:     'Hỗ trợ / Hậu cần',
+  Support: 'Hỗ trợ / Hậu cần',
 }
