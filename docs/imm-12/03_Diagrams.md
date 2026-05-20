@@ -5,7 +5,7 @@
 | Module | IMM-12 — Incident & CAPA Management |
 | Phạm vi | Per-module |
 | Owner | BA + Architect |
-| Cập nhật | 2026-05-14 |
+| Cập nhật | 2026-05-18 |
 | Trạng thái | ✅ Live — ERD / class / sequence diagrams khớp DocType + `services/imm12.py` hiện hành |
 
 ---

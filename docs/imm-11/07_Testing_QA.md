@@ -4,7 +4,7 @@
 |---|---|
 | Module | **IMM-11 — Hiệu chuẩn (Calibration)** |
 | Phiên bản | 1.1.0 |
-| Ngày cập nhật | 2026-05-14 |
+| Ngày cập nhật | 2026-05-18 |
 | Owner | QA Lead + Tech Lead |
 | Trạng thái | 🟡 Tests cốt lõi đã có (`assetcore/tests/test_imm11.py`); UAT/E2E/Pentest pending |
 | Liên kết | [Module Overview](./IMM-11_Module_Overview.md) · [Functional Specs](./IMM-11_Functional_Specs.md) · [UAT Script](./IMM-11_UAT_Script.md) |

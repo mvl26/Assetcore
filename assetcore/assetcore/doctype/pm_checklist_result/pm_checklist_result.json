@@ -1,28 +1,155 @@
 {
-  "actions": [],
-  "creation": "2026-04-17 09:00:00.000000",
-  "doctype": "DocType",
-  "document_type": "Document",
-  "engine": "InnoDB",
-  "istable": 1,
-  "module": "AssetCore",
-  "name": "PM Checklist Result",
-  "field_order": [
-    "checklist_item_idx", "description", "measurement_type", "result",
-    "measured_value", "unit", "notes", "photo"
-  ],
-  "fields": [
-    {"fieldname": "checklist_item_idx", "fieldtype": "Int", "label": "STT m\u1ee5c", "read_only": 1, "in_list_view": 1},
-    {"fieldname": "description", "fieldtype": "Data", "label": "M\u00f4 t\u1ea3", "read_only": 1, "in_list_view": 1, "columns": 4},
-    {"fieldname": "measurement_type", "fieldtype": "Select", "label": "Lo\u1ea1i", "options": "Pass/Fail\nNumeric\nText", "read_only": 1},
-    {"fieldname": "result", "fieldtype": "Select", "label": "K\u1ebft qu\u1ea3", "options": "\nPass\nFail\u2013Minor\nFail\u2013Major\nN/A", "in_list_view": 1, "columns": 2},
-    {"fieldname": "measured_value", "fieldtype": "Float", "label": "Gi\u00e1 tr\u1ecb \u0111o", "depends_on": "eval:doc.measurement_type==='Numeric'"},
-    {"fieldname": "unit", "fieldtype": "Data", "label": "\u0110\u01a1n v\u1ecb", "read_only": 1},
-    {"fieldname": "notes", "fieldtype": "Text", "label": "Ghi ch\u00fa / M\u00f4 t\u1ea3 l\u1ed7i", "mandatory_depends_on": "eval:doc.result==='Fail\u2013Minor' || doc.result==='Fail\u2013Major'"},
-    {"fieldname": "photo", "fieldtype": "Attach", "label": "\u1ea2nh"}
-  ],
-  "modified": "2026-04-17 09:00:00.000000",
-  "modified_by": "Administrator",
-  "owner": "Administrator",
-  "permissions": []
+ "actions": [],
+ "creation": "2026-04-17 09:00:00.000000",
+ "doctype": "DocType",
+ "document_type": "Document",
+ "engine": "InnoDB",
+ "istable": 1,
+ "module": "AssetCore",
+ "name": "PM Checklist Result",
+ "field_order": [
+  "checklist_item_idx",
+  "description",
+  "measurement_type",
+  "result",
+  "measured_value",
+  "unit",
+  "notes",
+  "photo"
+ ],
+ "fields": [
+  {
+   "fieldname": "checklist_item_idx",
+   "fieldtype": "Int",
+   "label": "STT mục",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Data",
+   "label": "Mô tả",
+   "read_only": 1,
+   "in_list_view": 1,
+   "columns": 4
+  },
+  {
+   "fieldname": "measurement_type",
+   "fieldtype": "Select",
+   "label": "Loại",
+   "options": "Pass/Fail\nNumeric\nText",
+   "read_only": 1
+  },
+  {
+   "fieldname": "result",
+   "fieldtype": "Select",
+   "label": "Kết quả",
+   "options": "\nPass\nFail–Minor\nFail–Major\nN/A",
+   "in_list_view": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "measured_value",
+   "fieldtype": "Float",
+   "label": "Giá trị đo",
+   "depends_on": "eval:doc.measurement_type==='Numeric'"
+  },
+  {
+   "fieldname": "unit",
+   "fieldtype": "Data",
+   "label": "Đơn vị",
+   "read_only": 1
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Text",
+   "label": "Ghi chú / Mô tả lỗi",
+   "mandatory_depends_on": "eval:doc.result==='Fail–Minor' || doc.result==='Fail–Major'"
+  },
+  {
+   "fieldname": "photo",
+   "fieldtype": "Attach",
+   "label": "Ảnh"
+  }
+ ],
+ "modified": "2026-04-17 09:00:00.000000",
+ "modified_by": "Administrator",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "AssetCore Super Admin",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "submit": 1,
+   "cancel": 1,
+   "delete": 1,
+   "amend": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "PM Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "submit": 1,
+   "cancel": 1,
+   "delete": 1,
+   "amend": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "PM User",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "submit": 0,
+   "cancel": 0,
+   "delete": 0,
+   "amend": 0,
+   "report": 1,
+   "export": 0,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "AssetCore Auditor",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "submit": 0,
+   "cancel": 0,
+   "delete": 0,
+   "amend": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 0,
+   "share": 0
+  },
+  {
+   "role": "AssetCore System User",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "submit": 0,
+   "cancel": 0,
+   "delete": 0,
+   "amend": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 0,
+   "share": 0
+  }
+ ]
 }

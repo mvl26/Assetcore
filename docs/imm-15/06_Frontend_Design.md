@@ -538,13 +538,15 @@ Realtime subscribe `imm15:Workshop Head` → KPI tile update khi có `critical_b
 
 ### III.1 useImm15Store
 
-**File**: `frontend/src/stores/imm15.ts` (đã đổi tên — bỏ suffix `Store` cho thống nhất với các module khác). API client: `frontend/src/api/imm15.ts` + `frontend/src/api/inventory.ts`.
+**File**: `frontend/src/stores/imm15.ts`. API client: `frontend/src/api/imm15.ts` + `frontend/src/api/inventory.ts`.
+
+> **Note (2026-05-18)**: Store thực tế dùng **Composition API (setup syntax)** — không phải Options API như pseudocode bên dưới. Pseudocode bên dưới là spec kiến trúc ban đầu; implementation thực tế xem `frontend/src/stores/imm15.ts`. State chunks: `allocations`, `cycleCounts`, `forecasts`, `watchlist`, `dashboard`, `lowStockAlerts`. Actions: `fetchAllocations`, `fetchAllocationDetail`, `submitNewAllocation`, `approveAllocationAction`, `issueAllocationAction`, `returnItemsAction`, `fetchCycleCounts`, `createCycleCountAction`, `submitCycleCountAction`, `postCycleCountAction`, `fetchForecasts`, `generateForecastAction`, `approveForecastAction`, `fetchWatchlist`, `addWatchlistAction`, `fetchDashboard`, `fetchLowStockAlerts`.
 
 ```typescript
 import { defineStore } from 'pinia'
 import { useApi } from '@/composables/useApi'
 
-// ─── State Interfaces ─────────────────────────────────────────────────────────
+// ─── State Interfaces (architecture spec — actual impl uses Composition API) ──
 
 interface SpareItemsState {
   items: SparePartWithIMM[]

@@ -9,6 +9,7 @@ from frappe import _
 
 from assetcore.services import imm03 as svc
 from assetcore.services.shared import ErrorCode, ServiceError
+from assetcore.services.shared.filters import count_with_or, pop_search
 from assetcore.utils.helpers import _ok, _err
 from assetcore.utils.lifecycle import log_audit_event as _audit
 
@@ -265,13 +266,14 @@ def list_evaluations(filters: str = "{}", page: int = 1, page_size: int = 20) ->
 def _list_evaluations(filters, page, page_size):
     """List Vendor Evaluation kèm display names (BE-DC-03-01)."""
     f = _parse_json(filters)
+    f, or_filters = pop_search(f, ["name", "spec_ref"])
     page_size = max(1, min(page_size, 100))
     start = (max(1, page) - 1) * page_size
     fields = ["name", "spec_ref", "draft_date", "workflow_state", "recommended_candidate"]
-    items = frappe.get_list(_DT_VE, filters=f or None, fields=fields,
+    items = frappe.get_list(_DT_VE, filters=f or None, or_filters=or_filters, fields=fields,
                              order_by="draft_date desc", start=start, page_length=page_size)
     _enrich_eval_display_names(items)
-    return {"items": items, "total": frappe.db.count(_DT_VE, filters=f or None)}
+    return {"items": items, "total": count_with_or(_DT_VE, f or None, or_filters)}
 
 
 def _enrich_eval_display_names(items: list[dict]) -> None:
@@ -385,7 +387,13 @@ def list_avl(filters: str = "{}") -> dict:
 
 def _list_avl(filters):
     f = _parse_json(filters)
-    items = frappe.get_list(_DT_AVL, filters=f or None,
+    # FE search: "mã AVL hoặc tên nhà cung cấp". `supplier` lưu mã link →
+    # resolve qua AC Supplier.supplier_name.
+    f, or_filters = pop_search(
+        f, ["name"],
+        link_search={"supplier": (_DT_SUPPLIER, "supplier_name")},
+    )
+    items = frappe.get_list(_DT_AVL, filters=f or None, or_filters=or_filters,
                             fields=["name", "supplier", "device_category", "workflow_state",
                                     "valid_from", "valid_to"],
                             order_by="valid_to asc", page_length=100)
@@ -528,9 +536,15 @@ def list_decisions(filters: str = "{}", page: int = 1, page_size: int = 20) -> d
 
 def _list_decisions(filters, page, page_size):
     f = _parse_json(filters)
+    # FE search: "mã quyết định, mã hồ sơ hoặc tên NCC". `winner_supplier`
+    # lưu mã link → resolve qua AC Supplier.supplier_name.
+    f, or_filters = pop_search(
+        f, ["name", "spec_ref"],
+        link_search={"winner_supplier": (_DT_SUPPLIER, "supplier_name")},
+    )
     page_size = max(1, min(page_size, 100))
     start = (max(1, page) - 1) * page_size
-    items = frappe.get_list(_DT_PD, filters=f or None, fields=[
+    items = frappe.get_list(_DT_PD, filters=f or None, or_filters=or_filters, fields=[
         "name", "spec_ref", "winner_supplier", "awarded_price",
         "envelope_check_pct", "workflow_state", "ac_purchase_ref", "creation",
     ], order_by="creation desc", start=start, page_length=page_size)
@@ -542,7 +556,7 @@ def _list_decisions(filters, page, page_size):
     for it in items:
         it["vendor_name"]        = sup_map.get(it.get("winner_supplier"))
         it["tech_spec_ref_name"] = spec_map.get(it.get("spec_ref"))
-    return {"items": items, "total": frappe.db.count(_DT_PD, filters=f or None)}
+    return {"items": items, "total": count_with_or(_DT_PD, f or None, or_filters)}
 
 
 @frappe.whitelist(methods=["POST"])

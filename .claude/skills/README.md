@@ -7,10 +7,12 @@ Claude Code tự discover các skill này khi chạy trong workspace.
 
 ---
 
-## 6 skills theo chu trình phát triển
+## 7 skills theo chu trình phát triển
 
 ```
 Doc → BE → FE → Test → Deploy → Audit (sửa lỗi / tái cấu trúc)
+                  ↑
+              Import (cross-cutting — BE + FE + validation pipeline)
 ```
 
 | Skill | Khi nào dùng | Trigger phrases |
@@ -18,9 +20,11 @@ Doc → BE → FE → Test → Deploy → Audit (sửa lỗi / tái cấu trúc)
 | **assetcore-doc** | Viết/chuẩn hóa tài liệu BA, domain knowledge WHO HTM/GMDN/NĐ98, integration patterns | "viết tài liệu", "docs IMM-XX", "HTM lifecycle", "GMDN", "NĐ98", "integration giữa module" |
 | **assetcore-be** | Phát triển backend: API, service, repository, DocType schema, workflow state machine | "viết BE", "thêm endpoint", "service IMM-XX", "DocType mới", "workflow", "transition", "approval flow" |
 | **assetcore-fe** | Phát triển frontend: Vue views, Pinia store, API client, router, components | "tạo view", "trang IMM-XX", "Pinia store", "form WO", "list table", "thêm UI" |
+| **assetcore-import** | Tính năng import hàng loạt: BE validation layer, post-processing, FE Import Wizard 4-bước | "import dữ liệu", "bulk import", "upload excel", "import tài sản", "wizard import", "template import", "ImportWizardView", "useImport", "import_validators" |
 | **assetcore-test** | Viết/chạy tests: backend unit test, workflow smoke test, Playwright UI test | "viết test", "TDD", "bench run-tests", "test UI", "DoD", "playwright", "UI xong chưa" |
 | **assetcore-deploy** | Vận hành hàng ngày (bench, migrate, fixtures) + triển khai production | "bench", "migrate", "deploy", "lên prod", "release", "site lỗi", "clear cache" |
 | **assetcore-audit** | Kiểm tra production-readiness (8-pillar) + security review | "audit module", "IMM-XX sẵn sàng chưa", "tái cấu trúc", "phân quyền", "security review", "gap analysis" |
+| **assetcore-commit** | Tạo git commit theo chuẩn dự án (1 commit/tất cả file, subject EN, no Co-Authored-By) | "commit", "commit tiếp", "commit cho tôi", "lưu thay đổi", "git commit" |
 
 ---
 

@@ -4,7 +4,7 @@
 |---|---|
 | Module | **IMM-09 — Sửa chữa (Corrective Maintenance)** |
 | Phiên bản | 1.0.0 |
-| Ngày cập nhật | 2026-05-14 |
+| Ngày cập nhật | 2026-05-18 |
 | Owner | DevOps + Tech Lead + QMS Officer |
 | Liên kết | [07 Testing QA](./07_Testing_QA.md) · [Module Overview](./IMM-09_Module_Overview.md) |
 

@@ -4,7 +4,7 @@
 |---|---|
 | Module | **IMM-12 — Sự cố & CAPA (Incident & Corrective Action)** |
 | Phiên bản | 1.2.0 |
-| Ngày cập nhật | 2026-05-14 |
+| Ngày cập nhật | 2026-05-18 |
 | Owner | PM + BA + Tech Writer |
 | Trạng thái | ✅ Live — Incident + RCA + CAPA flow đã deploy. User Guide tham chiếu UI thực tế; screenshot bổ sung sau UAT. |
 | Liên kết | [07 Testing QA](./07_Testing_QA.md) · [08 Deployment](./08_Deployment.md) · [Functional Specs](./IMM-12_Functional_Specs.md) |

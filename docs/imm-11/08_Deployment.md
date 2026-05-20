@@ -4,7 +4,7 @@
 |---|---|
 | Module | **IMM-11 — Hiệu chuẩn (Calibration)** |
 | Phiên bản | 1.1.0 |
-| Ngày cập nhật | 2026-05-14 |
+| Ngày cập nhật | 2026-05-18 |
 | Owner | DevOps + Tech Lead + QMS Officer |
 | Trạng thái | ✅ Live — code đã deploy. Checklist + rollback giữ ở mức playbook chuẩn cho release tiếp theo. |
 | Liên kết | [07 Testing QA](./07_Testing_QA.md) · [Module Overview](./IMM-11_Module_Overview.md) |
@@ -15,20 +15,20 @@
 
 ## I.1. Pre-deployment Checklist
 
-⚠️ Checklist này sẽ áp dụng khi code implement xong (Sprint 11.1 → 11.6). Hiện tại tất cả items ở trạng thái Pending.
+> Module IMM-11 đã LIVE (code deploy Wave 1). Checklist dưới đây là playbook chuẩn cho các release tiếp theo (patch, minor upgrade).
 
 | Hạng mục | Deadline | Responsible | Status |
 |---|---|---|---|
-| DocType JSON + controller code merged, CI green | T-48h | Dev | ☐ ⚠️ Pending |
-| Service layer (`services/imm11.py`) unit tests pass ≥ 85% | T-48h | Dev | ☐ ⚠️ Pending |
-| UAT pass (10 scenario, 0 Blocker) | T-48h | QA Lead | ☐ ⚠️ Pending |
-| Security sign-off (§III trong 07_Testing_QA) | T-48h | QA/Security | ☐ ⚠️ Pending |
-| QMS review pass (§II file này) | T-24h | QMS Officer | ☐ ⚠️ Pending |
-| User Guide + Release Notes viết xong | T-24h | BA/Tech Writer | ☐ ⚠️ Pending |
+| DocType JSON + controller code merged, CI green | T-48h | Dev | ☐ |
+| Service layer (`services/imm11.py`) unit tests pass ≥ 85% | T-48h | Dev | ☐ |
+| UAT pass (10 scenario, 0 Blocker) | T-48h | QA Lead | ☐ |
+| Security sign-off (§III trong 07_Testing_QA) | T-48h | QA/Security | ☐ |
+| QMS review pass (§II file này) | T-24h | QMS Officer | ☐ |
+| User Guide + Release Notes viết xong | T-24h | BA/Tech Writer | ☐ |
 | Backup production DB < 24h | T-2h | DevOps | ☐ |
 | Communication email T-48h gửi users | T-48h | PM | ☐ |
 | Rollback tested trên staging | T-24h | DevOps | ☐ |
-| Staging deploy thành công + smoke test pass | T-24h | Dev + QA | ☐ ⚠️ Pending |
+| Staging deploy thành công + smoke test pass | T-24h | Dev + QA | ☐ |
 | On-call engineer confirmed | T-1h | Dev Lead | ☐ |
 
 ## I.2. Stack & Versioning
@@ -40,11 +40,11 @@
 | Node.js | 20 LTS | Không thay đổi |
 | MariaDB | 10.6+ | Không thay đổi |
 | Redis | 7.x | Không thay đổi |
-| App `assetcore` | v1.1.0 (IMM-11 GA) ⚠️ Pending | Upgrade từ v1.0.0 (IMM-09) |
+| App `assetcore` | v1.1.0 (IMM-11 GA) ✅ Live | Upgrade từ v1.0.0 (IMM-09) |
 
-Cập nhật `assetcore/__init__.py` khi release:
+Cập nhật `assetcore/__init__.py` khi patch release tiếp theo:
 ```python
-__version__ = "1.1.0"  # IMM-11 General Availability (khi implement xong)
+__version__ = "1.1.0"  # IMM-11 General Availability
 ```
 
 ## I.2b. Cấu Hình Môi Trường Thực Nghiệm
@@ -72,7 +72,7 @@ __version__ = "1.1.0"  # IMM-11 General Availability (khi implement xong)
 
 ## I.3. Deployment Artefacts
 
-⚠️ Tất cả artefacts bên dưới chưa tồn tại — cần tạo trong Sprint 11.1 → 11.4.
+> Artefacts đã deploy trong Wave 1. Section này là reference cho rollback/upgrade patch tiếp theo.
 
 ### Patch files (cần tạo)
 
@@ -407,7 +407,7 @@ Khi đã có user mutation (CAL records tạo trong cửa sổ giữa deploy và
 | KPI-IMM11-004 | Certificate Coverage | `Assets với cert valid / Total calibratable assets × 100%` | Tuần | IMM Workshop Lead |
 | KPI-IMM11-005 | Avg Lead Time (Sent → Cert Received) | `AVG(certificate_date − sent_date)` | Tháng | IMM Workshop Lead |
 
-API: `get_calibration_compliance_report` + `get_due_calibrations` trong `api/imm11.py` ⚠️ Pending.
+API: `get_calibration_compliance_report` + `get_due_calibrations` trong `api/imm11.py` ✅ (đã deploy — xem `05_API_Specification.md`).
 
 ## II.4. Document Control
 

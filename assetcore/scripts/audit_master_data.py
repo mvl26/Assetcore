@@ -17,7 +17,7 @@ def run():
         print(d)
     print("\n=== AC Asset (sample) ===")
     for d in frappe.get_all("AC Asset",
-                            fields=["name", "asset_name", "department", "location", "asset_category", "supplier", "gmdn_status", "depreciation_method"],
+                            fields=["name", "asset_name", "department", "location", "asset_category", "supplier", "depreciation_method"],
                             limit=3):
         print(d)
     print("\n=== IMM Device Model ===")

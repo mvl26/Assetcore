@@ -4,7 +4,7 @@
 |---|---|
 | Module | **IMM-08 — Bảo trì Định kỳ (Preventive Maintenance)** |
 | Phiên bản | 1.0.0 |
-| Ngày cập nhật | 2026-05-14 |
+| Ngày cập nhật | 2026-05-18 |
 | Owner | QA Lead + Tech Lead |
 | Liên kết | [Module Overview](./IMM-08_Module_Overview.md) · [Functional Specs](./IMM-08_Functional_Specs.md) · [API Interface](./IMM-08_API_Interface.md) |
 
@@ -85,7 +85,7 @@ class TestGeneratePMWorkOrders(FrappeTestCase):
 
 ## I.3. Unit Test — Validators & Repository
 
-**File:** `assetcore/tests/test_imm08_validators.py`
+**File:** `assetcore/tests/test_imm08.py` (hợp nhất — xem ghi chú §I.2)
 
 | Validator | Happy | Fail |
 |---|---|---|
@@ -97,7 +97,7 @@ class TestGeneratePMWorkOrders(FrappeTestCase):
 
 ## I.4. Integration Test — DocType Lifecycle
 
-**File:** `assetcore/tests/test_pm_work_order_doctype.py`
+**File:** `assetcore/tests/test_imm08.py` (hợp nhất — xem ghi chú §I.2)
 
 | Test | Setup | Action | Assert |
 |---|---|---|---|
@@ -112,7 +112,7 @@ class TestGeneratePMWorkOrders(FrappeTestCase):
 
 ## I.5. Integration Test — Workflow Transitions
 
-**File:** `assetcore/tests/test_imm08_workflow.py`
+**File:** `assetcore/tests/test_imm08.py` (hợp nhất — xem ghi chú §I.2)
 
 PM Work Order có 7 states:
 
@@ -128,7 +128,7 @@ PM Work Order có 7 states:
 
 ## I.6. Integration Test — Audit Chain Integrity
 
-**File:** `assetcore/tests/test_imm08_audit.py`
+**File:** `assetcore/tests/test_imm08.py` (hợp nhất — xem ghi chú §I.2)
 
 ```python
 def test_pm_task_log_immutable_after_create():
@@ -149,7 +149,7 @@ def test_audit_chain_breaks_on_tamper():
 
 ## I.7. API Test
 
-**File:** `assetcore/tests/test_imm08_api.py`
+**File:** `assetcore/tests/test_imm08.py` (hợp nhất — xem ghi chú §I.2)
 
 | Test | Endpoint | Verify |
 |---|---|---|
@@ -203,9 +203,8 @@ Reset script: `bench --site assetcore.local execute assetcore.scripts.uat.uat_im
 ## I.11. Run Commands & Coverage Gate
 
 ```bash
-# Unit + integration
-bench --site assetcore.local run-tests --app assetcore --module assetcore.tests.test_imm08_service
-bench --site assetcore.local run-tests --app assetcore --module assetcore.tests.test_pm_work_order_doctype
+# Unit + integration (tất cả trong một file)
+bench --site assetcore.local run-tests --app assetcore --module assetcore.tests.test_imm08
 
 # Full suite (CI)
 bench --site assetcore.local run-tests --app assetcore --coverage

@@ -72,7 +72,7 @@ Thêm vào section break `imm_section_strategic` sau section `section_flags`:
 
 ---
 
-## III. Field Tables — PLANNED DocTypes
+## III. Field Tables — IMM-15 Layer DocTypes
 
 ### III.1 IMM Spare Allocation
 
@@ -434,16 +434,18 @@ def check_part_availability_bulk(parts: list[dict]) -> dict:
 Hooks thực tế đang dùng trong `assetcore/hooks.py` (Wave 2 — flat namespace `assetcore.services.imm15.<fn>`):
 
 ```python
-# hooks.py — IMM-15 wiring (verified 2026-05-14)
+# hooks.py — IMM-15 wiring (verified 2026-05-18)
 
 doc_events = {
-    "IMM PM Work Order": {
+    # "PM Work Order" là tên DocType thực tế trong hooks.py (không phải "IMM PM Work Order")
+    "PM Work Order": {
         "before_submit": "assetcore.services.imm15.reserve_for_pm",
-        # gate + realtime eval do IMM-16 owns:
+        # IMM-16 owns gate + realtime eval:
         # "validate":  "assetcore.services.imm16.gate_wo_submit",
         # "on_submit": "assetcore.services.imm16.eval_imm08_09_realtime",
     },
-    "IMM CM Work Order": {
+    # "Asset Repair" là tên DocType thực tế (không phải "IMM CM Work Order")
+    "Asset Repair": {
         "before_submit": "assetcore.services.imm15.reserve_for_repair",
     },
     "AC Asset": {
@@ -505,12 +507,12 @@ scheduler_events = {
 
 | Job | File | Lịch | Mô tả |
 |---|---|---|---|
-| `check_low_stock_alerts` | `tasks.py` | daily 02:00 | Extend LIVE `services.inventory.check_low_stock`; thêm watchlist escalation email |
-| `check_critical_spare_breach` | `tasks.py` | daily 02:30 | Quét Watchlist; breach → CAPA seed + email khẩn |
-| `check_expiring_batches` | `tasks.py` | daily 03:00 | Gated: chỉ chạy nếu IMM Spare Batch đã build |
-| `generate_spare_demand_forecast` | `tasks.py` | monthly 1st 02:00 | Tạo IMM Spare Part Forecast Draft (Moving_Avg default) |
-| `compute_inventory_kpis` | `tasks.py` | daily 04:00 | Snapshot KPI: turnover, days-on-hand, stockout, breach, accuracy, MAPE |
-| `reclassify_abc` | `services/imm15.py` | cron `0 3 1 1,4,7,10 *` | ABC/XYZ quarterly reclassification |
+| `check_low_stock_and_alert` | `services/imm15.py` | daily | Legacy alias → gọi `check_critical_spare_breach`; mục đích: extend LIVE `services.inventory.check_low_stock` |
+| `check_critical_spare_breach` | `services/imm15.py` | daily | Quét Watchlist; breach → CAPA seed + email khẩn |
+| `check_expiring_batches` | `services/imm15.py` | daily | Gated: no-op nếu `tabIMM Spare Batch` chưa tồn tại |
+| `generate_spare_demand_forecast` | `services/imm15.py` | monthly | Tạo IMM Spare Part Forecast Draft (Moving_Avg default) |
+| `compute_inventory_kpis` | `services/imm15.py` | daily | Snapshot KPI: turnover, days-on-hand, stockout, breach, accuracy, MAPE |
+| `reclassify_abc` | `services/imm15.py` | cron `0 3 1 1,4,7,10 *` | ABC quarterly reclassification (XYZ reclassification chưa implemented) |
 
 ---
 
@@ -538,10 +540,10 @@ CREATE INDEX idx_sfc_period ON `tabIMM Spare Part Forecast` (forecast_period, do
 
 ## IX. Migration Patches
 
-Thứ tự bắt buộc (Wave 3):
+Thứ tự bắt buộc (Wave 2 — deployed):
 
 ```
-# patches.txt (Wave 3 section)
+# patches.txt (Wave 2 section)
 assetcore.patches.v3_2_001.apply_imm15_custom_fields
 assetcore.patches.v3_2_002.deploy_imm15_doctypes
 assetcore.patches.v3_2_003.install_imm15_workflows
@@ -556,7 +558,7 @@ assetcore.patches.v3_2_007.seed_watchlist_top50
 | Patch | Mục đích | Risk | Rollback |
 |---|---|---|---|
 | `apply_imm15_custom_fields` | 7 CF + IMM Spare Alternative + Property Setter trên AC Spare Part | Medium (alter table) | Remove custom fields |
-| `deploy_imm15_doctypes` | 5 DocType + 4 child (PLANNED) | Low (new tables) | Drop new tables |
+| `deploy_imm15_doctypes` | 5 DocType + 4 child (LIVE) | Low (new tables) | Drop new tables |
 | `install_imm15_workflows` | 2 Workflow JSON | Low | Delete workflow records |
 | `extend_ac_stock_movement_reference_type` | Mở rộng reference_type options: thêm IMM Spare Allocation, IMM Stock Cycle Count | Low (Property Setter, không sửa core JSON) | Remove Property Setter |
 | `backfill_imm_part_class` | Set imm_part_class: Critical nếu is_critical=1, còn lại Major | Low (UPDATE, no nulls) | Reset to NULL |

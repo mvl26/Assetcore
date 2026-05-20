@@ -25,7 +25,8 @@ from assetcore.repositories.allocation_repo import (
     SparePartRepo,
     StockMovementRepo,
 )
-from assetcore.services.shared import ErrorCode, Roles, ServiceError, normalize_filters
+from assetcore.services.shared import ErrorCode, ServiceError, normalize_filters
+from assetcore.services.shared import rbac
 from assetcore.utils.lifecycle import log_audit_event
 
 
@@ -89,12 +90,9 @@ class ForecastState:
     APPROVED = "Approved"
 
 
-# Role groups (mirror docs §2)
-_APPROVE_ALLOCATION_ROLES = (Roles.WORKSHOP, Roles.OPS_MANAGER, Roles.SYS_ADMIN)
-_ISSUE_ROLES = (Roles.STOREKEEPER, Roles.OPS_MANAGER, Roles.SYS_ADMIN)
-_FORECAST_APPROVE_ROLES = (Roles.WORKSHOP, Roles.OPS_MANAGER, Roles.SYS_ADMIN)
-_WATCHLIST_MANAGE_ROLES = (Roles.WORKSHOP, Roles.OPS_MANAGER, Roles.SYS_ADMIN)
-_CYCLE_POST_ROLES = (Roles.WORKSHOP, Roles.OPS_MANAGER, Roles.SYS_ADMIN)
+# Capability gates (Inventory domain) — quyen that do DocPerm quyet dinh.
+_CAP_APPROVE = "inventory.submit"   # duyet/post (Manager-level)
+_CAP_OPERATE = "inventory.write"    # thao tac thuong (User+)
 
 
 # ─── Display name helpers (Data Contract BE-DC-15-01) ────────────────────────
@@ -217,7 +215,7 @@ def create_allocation(work_order_ref: str, items: list[dict],
 
 def approve_allocation(allocation: str) -> dict:
     """Duyệt allocation: Requested → Approved (§3.3)."""
-    _require_any_role(_APPROVE_ALLOCATION_ROLES,
+    _require_any_role(_CAP_APPROVE,
                       "Chỉ IMM Workshop Lead / Operations Manager mới được duyệt allocation")
     doc = AllocationRepo.get(allocation)
     if not doc:
@@ -238,7 +236,7 @@ def approve_allocation(allocation: str) -> dict:
 
 def issue_allocation(allocation_name: str) -> dict:
     """Xuất kho — tạo AC Stock Movement (Issue) (§3.4)."""
-    _require_any_role(_ISSUE_ROLES,
+    _require_any_role(_CAP_OPERATE,
                       "Chỉ Thủ kho / Operations Manager mới được xuất kho")
     doc = AllocationRepo.get(allocation_name)
     if not doc:
@@ -303,7 +301,7 @@ def issue_allocation(allocation_name: str) -> dict:
 
 def return_items(allocation: str, items: list[dict]) -> dict:
     """Trả phụ tùng (§3.5). Damaged → QC Hold warehouse (nếu cấu hình)."""
-    _require_any_role(_ISSUE_ROLES,
+    _require_any_role(_CAP_OPERATE,
                       "Chỉ Thủ kho / Operations Manager mới được nhận trả phụ tùng")
     doc = AllocationRepo.get(allocation)
     if not doc:
@@ -366,7 +364,7 @@ def create_cycle_count(warehouse: str, items: list[dict],
                        count_type: str = "Cycle",
                        count_date: str = "") -> dict:
     """Tạo phiên kiểm kê (§3.6) — snapshot system_qty."""
-    _require_any_role((Roles.STOREKEEPER, Roles.WORKSHOP, Roles.OPS_MANAGER, Roles.SYS_ADMIN),
+    _require_any_role(_CAP_OPERATE,
                       "Không có quyền tạo phiên kiểm kê")
     if not warehouse:
         raise ServiceError(ErrorCode.VALIDATION, "Phải chọn kho kiểm kê")
@@ -437,7 +435,7 @@ def submit_cycle_count(count_name: str, counted_items: list[dict]) -> dict:
 def post_cycle_count(cycle_count: str, verified_by: str = "",
                      notes: str = "") -> dict:
     """Post cycle count: Reviewed → Posted, tạo AC Stock Movement Adjustment (§3.7)."""
-    _require_any_role(_CYCLE_POST_ROLES,
+    _require_any_role(_CAP_APPROVE,
                       "Chỉ Workshop Lead / Operations Manager mới được post cycle count")
     doc = CycleCountRepo.get(cycle_count)
     if not doc:
@@ -512,7 +510,7 @@ def generate_spare_forecast(horizon_months: int = 3,
       - reorder_point = safety_stock + (avg_monthly × lead_time_days / 30)
       - recommended_action: Reorder / Hold / Obsolete
     """
-    _require_any_role((Roles.WORKSHOP, Roles.OPS_MANAGER, Roles.SYS_ADMIN, Roles.STOREKEEPER),
+    _require_any_role(_CAP_OPERATE,
                       "Không có quyền tạo forecast")
     horizon_months = max(1, int(horizon_months or 3))
     lookback_months = max(horizon_months * 4, 12)
@@ -587,7 +585,7 @@ def generate_spare_forecast(horizon_months: int = 3,
 
 def approve_forecast(forecast: str) -> dict:
     """Duyệt forecast: Draft → Approved (§3.9)."""
-    _require_any_role(_FORECAST_APPROVE_ROLES,
+    _require_any_role(_CAP_APPROVE,
                       "Chỉ Workshop Lead / Operations Manager mới được duyệt forecast")
     doc = SparePartForecastRepo.get(forecast)
     if not doc:
@@ -642,7 +640,7 @@ def add_to_watchlist(watchlist_name: str, critical_asset: str,
 
     VR-15-09: chỉ phụ tùng Critical mới được thêm.
     """
-    _require_any_role(_WATCHLIST_MANAGE_ROLES,
+    _require_any_role(_CAP_OPERATE,
                       "Chỉ Workshop Lead / Operations Manager mới được quản lý watchlist")
     if not (watchlist_name and spare_part and warehouse):
         raise ServiceError(ErrorCode.VALIDATION,
@@ -1005,18 +1003,14 @@ def _write_allocation_audit(allocation_name: str, action: str, payload: dict) ->
         pass
 
 
-def _require_any_role(roles, message: str) -> None:
-    from assetcore.services.shared import has_any_role
-    if not has_any_role(roles):
+def _require_any_role(cap: str, message: str) -> None:
+    # `cap` la capability key (inventory.*) — KHONG so ten role.
+    if not rbac.can(cap):
         raise ServiceError(ErrorCode.FORBIDDEN, message)
 
 
 def _require_storekeeper_or_tech() -> None:
-    _require_any_role(
-        (Roles.STOREKEEPER, Roles.SYS_ADMIN, Roles.OPS_MANAGER,
-         Roles.WORKSHOP, Roles.BIOMED, Roles.TECHNICIAN),
-        "Không có quyền tạo phiếu cấp phát",
-    )
+    _require_any_role(_CAP_OPERATE, "Không có quyền tạo phiếu cấp phát")
 
 
 def _vr_05_urgency_valid(urgency: str) -> None:
@@ -1091,7 +1085,7 @@ def check_critical_spare_breach() -> None:
     if breach_entries:
         try:
             from assetcore.utils.helpers import _get_role_emails, _safe_sendmail
-            recipients = _get_role_emails([Roles.WORKSHOP, Roles.STOREKEEPER])
+            recipients = _get_role_emails(["Inventory Manager"])
             parts = ", ".join(e["spare_part"] for e in breach_entries)
             _safe_sendmail(
                 recipients=recipients,
@@ -1116,7 +1110,7 @@ def check_expiring_batches() -> None:
         return
     try:
         from assetcore.utils.helpers import _get_role_emails, _safe_sendmail
-        recipients = _get_role_emails([Roles.STOREKEEPER, Roles.WORKSHOP])
+        recipients = _get_role_emails(["Inventory Manager"])
         items_html = "".join(
             f"<li>{b['spare_part']} — Batch {b['batch_code']} — Hết hạn: {b['expiry_date']}</li>"
             for b in expiring

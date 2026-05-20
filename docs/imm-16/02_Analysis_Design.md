@@ -632,7 +632,7 @@ Acceptance:
 
 ### I. Module Overview
 - [x] Pitch ≤ 6 câu, WHO HTM position rõ
-- [x] Wave 3 PLANNED
+- [x] Wave 2 IMPLEMENTED
 - [x] ≥ 6 KPI có số target
 - [x] Compliance NĐ98 + WHO HTM + ISO 13485
 

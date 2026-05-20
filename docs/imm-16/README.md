@@ -5,13 +5,13 @@
 | Module | **IMM-16 — Giám sát Tuân thủ & CAPA** |
 | Wave | 2 — IMPLEMENTED (feature/hieuc/wave-2) |
 | Trạng thái | ✅ Stable — BE + FE đã merge; chờ UAT |
-| Số file | 8 (template chuẩn; nguồn gốc đã archive) |
-| Cập nhật cuối | 2026-05-14 |
+| Số file | 9 (README + 02-09; nguồn gốc đã archive) |
+| Cập nhật cuối | 2026-05-18 |
 | Khối kiến trúc | C. KHỐI 3 |
 | Đợt triển khai | 2 |
 | Owner | Tổ HC-QLCL & Risk |
 
-> ✅ Module đã triển khai trên branch `feature/hieuc/wave-2` — `assetcore/services/imm16.py` (~1705 dòng), `assetcore/api/imm16.py` (~383 dòng), 11 DocType (`imm_compliance_rule`, `imm_compliance_finding`, `imm_internal_audit`, `imm_compliance_scorecard`, `imm_management_review`, `imm_capa_record`, `imm_capa_action_step`, `imm_audit_checklist_item`, …) + 8 view tại `frontend/src/views/compliance/`. Banner "PLANNED" trong file 02–09 dưới đây đã lỗi thời — sync light-touch trong sprint sau.
+> ✅ Module đã triển khai trên branch `feature/hieuc/wave-2` — `assetcore/services/imm16.py` (~2076 dòng), `assetcore/api/imm16.py` (~423 dòng / 52 whitelist functions), 11 DocType (`imm_compliance_rule`, `imm_compliance_finding`, `imm_internal_audit`, `imm_compliance_scorecard`, `imm_management_review`, `imm_capa_record`, `imm_capa_action_step`, `imm_audit_checklist_item`, …) + 10 view tại `frontend/src/views/compliance/`. Banners PLANNED trong file 02–09 đã được gỡ (Wave-2 Sync Pass 2026-05-14).
 
 ---
 
@@ -109,9 +109,9 @@
 - Pattern reference (API): `docs/imm-09/05_API_Specification.md`
 - Pattern reference (Test): `docs/imm-09/07_Testing_QA.md`
 - Codebase LIVE (BE): `assetcore/services/imm00.py` · `assetcore/doctype/imm_capa_record/`
-- Codebase PLANNED (BE): `assetcore/services/imm16_*.py` · `assetcore/api/imm16.py`
-- Codebase PLANNED (FE): `frontend/src/types/imm16.ts` · `frontend/src/stores/imm16.ts`
+- Codebase LIVE (BE): `assetcore/services/imm16.py` · `assetcore/api/imm16.py`
+- Codebase LIVE (FE): `frontend/src/views/compliance/` · `frontend/src/api/imm16.ts` · `frontend/src/stores/imm16.ts`
 
 ---
 
-*Cập nhật: 2026-05-14. Module IMM-16 đã triển khai Wave 2 (`feature/hieuc/wave-2`); docs sync light-touch — banner PLANNED trong file 02–09 sẽ được gỡ trong sprint sau.*
+*Cập nhật: 2026-05-18. Module IMM-16 — Wave 2 LIVE. Tất cả banners PLANNED đã gỡ (Pass 2026-05-14). Codebase refs đã đồng bộ với `services/imm16.py` và `api/imm16.py` thực tế.*

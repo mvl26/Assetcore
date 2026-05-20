@@ -4,7 +4,7 @@
 |---|---|
 | Module | **IMM-09 — Sửa chữa (Corrective Maintenance)** |
 | Phiên bản | 1.0.0 |
-| Ngày cập nhật | 2026-05-14 |
+| Ngày cập nhật | 2026-05-18 |
 | Owner | QA Lead + Tech Lead |
 | Liên kết | [Module Overview](./IMM-09_Module_Overview.md) · [Functional Specs](./IMM-09_Functional_Specs.md) · [API Interface](./IMM-09_API_Interface.md) |
 
@@ -33,7 +33,9 @@ Mọi service function phải có test trước khi code (TDD — CLAUDE.md §17
 
 ## I.2. Unit Test — Service Layer
 
-**File:** `assetcore/tests/test_imm09_service.py`
+> **Trạng thái thực tế:** test code hợp nhất trong **một file duy nhất** `assetcore/tests/test_imm09.py`. Classes thực tế: `TestSlaMatrix` (4 tests), `TestRepairWOCreation` (7 tests, bao gồm `test_standalone_create_succeeds`). Các phần dưới đây mô tả coverage mong muốn — split sang nhiều file là mục tiêu refactor tương lai.
+
+**File:** `assetcore/tests/test_imm09.py`
 
 | Test class | Hàm cover | Cases dự kiến |
 |---|---|---|
@@ -68,7 +70,7 @@ class TestRepairSource(FrappeTestCase):
 
 ## I.3. Unit Test — Validators & Repository
 
-**File:** `assetcore/tests/test_imm09_validators.py`
+**File:** `assetcore/tests/test_imm09.py` (hợp nhất — xem ghi chú §I.2)
 
 | Validator | Happy | Fail |
 |---|---|---|
@@ -79,7 +81,7 @@ class TestRepairSource(FrappeTestCase):
 
 ## I.4. Integration Test — DocType Lifecycle
 
-**File:** `assetcore/tests/test_asset_repair_doctype.py`
+**File:** `assetcore/tests/test_imm09.py` (hợp nhất — xem ghi chú §I.2)
 
 | Test | Setup | Action | Assert |
 |---|---|---|---|
@@ -93,7 +95,7 @@ class TestRepairSource(FrappeTestCase):
 
 ## I.5. Integration Test — Workflow Transitions
 
-**File:** `assetcore/tests/test_imm09_workflow.py`
+**File:** `assetcore/tests/test_imm09.py` (hợp nhất — xem ghi chú §I.2)
 
 Workflow `IMM-09 Repair Workflow` có 9 state, 15 transition. Test mỗi transition:
 
@@ -111,7 +113,7 @@ Workflow `IMM-09 Repair Workflow` có 9 state, 15 transition. Test mỗi transit
 
 ## I.6. Integration Test — Audit Chain Integrity
 
-**File:** `assetcore/tests/test_imm09_audit.py`
+**File:** `assetcore/tests/test_imm09.py` (hợp nhất — xem ghi chú §I.2)
 
 ```python
 def test_audit_chain_intact_after_repair_lifecycle():
@@ -126,7 +128,7 @@ def test_audit_chain_breaks_on_tamper():
 
 ## I.7. API Test
 
-**File:** `assetcore/tests/test_imm09_api.py`
+**File:** `assetcore/tests/test_imm09.py` (hợp nhất — xem ghi chú §I.2)
 
 | Test | Endpoint | Verify |
 |---|---|---|
@@ -175,9 +177,8 @@ Reset script: `bench --site assetcore.local execute assetcore.scripts.uat.uat_im
 ## I.11. Run Commands & Coverage Gate
 
 ```bash
-# Unit + integration
-bench --site assetcore.local run-tests --app assetcore --module assetcore.tests.test_imm09_service
-bench --site assetcore.local run-tests --app assetcore --module assetcore.tests.test_asset_repair_doctype
+# Unit + integration (tất cả trong một file)
+bench --site assetcore.local run-tests --app assetcore --module assetcore.tests.test_imm09
 
 # Full suite (CI)
 bench --site assetcore.local run-tests --app assetcore --coverage
@@ -212,7 +213,7 @@ CI fail nếu coverage < target hoặc bất kỳ test nào fail.
 ## II.1. Phạm vi UAT
 
 **In-scope:**
-- Tạo CM WO từ IR và từ PM WO (BR-09-01)
+- Tạo CM WO standalone hoặc từ IR / PM WO (BR-09-01 — relaxed per Wave 2: standalone WO được phép, link là optional)
 - Phân công KTV, chẩn đoán, yêu cầu vật tư (BR-09-02)
 - Sửa chữa, điền checklist nghiệm thu (BR-09-04)
 - Firmware change control (BR-09-03)
@@ -276,19 +277,21 @@ Mật khẩu UAT: `Assetcore@2026` (reset sau UAT).
 
 ---
 
-### UAT-IMM09-02 — Validation nguồn bắt buộc (BR-09-01 Negative)
+### UAT-IMM09-02 — Tạo CM WO standalone (BR-09-01 Wave 2 — Relaxed)
 
-**Liên kết:** US-09-01, BR-09-01  
+**Liên kết:** US-09-01, BR-09-01 (relaxed per Slide 24b DECISION CONFIRMED)
 **Role tester:** IMM Workshop Lead  
-**Mục tiêu:** Hệ thống block tạo WO khi thiếu cả IR lẫn PM WO.
+**Mục tiêu:** Tạo WO không cần IR hoặc PM WO — standalone WO được phép; link là optional.
 
 | Step | Hành động | Kết quả mong đợi | Pass/Fail |
 |---|---|---|---|
 | 1 | Tạo WO không điền IR và PM WO | — | ☐ |
-| 2 | Bấm "Tạo" | Lỗi "Phải có nguồn sửa chữa", WO không được tạo | ☐ |
-| 3 | Form giữ nguyên dữ liệu đã nhập | Không mất dữ liệu | ☐ |
+| 2 | Bấm "Tạo" | WO được tạo thành công (không block) | ☐ |
+| 3 | WO detail hiển thị đúng asset, status = Open | Source fields trống là hợp lệ | ☐ |
 
 **Acceptance:** Tất cả 3 step Pass.
+
+> **Ghi chú:** BR-09-01 đã được nới lỏng trong Wave 2. Hệ thống không còn bắt buộc IR hoặc PM WO link khi tạo CM WO. Test cần verify `test_standalone_create_succeeds` pass trong `test_imm09.py`.
 
 ---
 
@@ -337,8 +340,8 @@ Mật khẩu UAT: `Assetcore@2026` (reset sau UAT).
 |---|---|---|---|
 | 1 | KTV mở tab Checklist, điền tất cả result = Pass | — | ☐ |
 | 2 | Thử submit khi có 1 row result = Fail | Lỗi "Checklist chưa hoàn tất", block submit | ☐ |
-| 3 | Sửa lại tất cả Pass, bấm Submit | WO status = Pending Inspection | ☐ |
-| 4 | Trưởng khoa đăng nhập, xác nhận nghiệm thu | `dept_head_name` được ghi, WO = Completed | ☐ |
+| 3 | Sửa lại tất cả Pass, bấm Submit (close_work_order) | WO status = Pending Inspection (Wave 2: close_work_order chỉ đưa về Pending Inspection, chưa Completed) | ☐ |
+| 4 | Trưởng khoa đăng nhập, gọi confirm_inspection | `dept_head_name` được ghi, WO = Completed | ☐ |
 | 5 | Kiểm tra Asset | `status = Active` | ☐ |
 | 6 | Kiểm tra WO field `mttr_hours` | Giá trị > 0, tính đúng calendar time | ☐ |
 | 7 | Kiểm tra ALE | event `repair_completed` tạo | ☐ |

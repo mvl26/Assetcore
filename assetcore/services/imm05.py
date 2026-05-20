@@ -15,7 +15,8 @@ from assetcore.repositories.document_repo import (
     ExpiryAlertLogRepo,
     RequiredDocumentTypeRepo,
 )
-from assetcore.services.shared import ErrorCode, Roles, ServiceError, has_any_role
+from assetcore.services.shared import ErrorCode, ServiceError
+from assetcore.services.shared import rbac
 
 # ─── Constants cho visibility / workflow states ───────────────────────────────
 
@@ -33,38 +34,16 @@ class Visibility:
     INTERNAL_ONLY = "Internal_Only"
 
 
-# Legacy hospital roles (hospital workflow — dùng song song IMM roles)
-_LEGACY_QA = "IMM QA Officer"
-_LEGACY_ADMIN = "IMM System Admin"
-_LEGACY_BIOMED = "IMM Biomed Technician"
-_LEGACY_WORKSHOP = "IMM Workshop Lead"
-_LEGACY_HTM_TECH = "IMM Technician"
-_LEGACY_SYSTEM_MGR = "System Manager"
-
-_INTERNAL_VIEW_ROLES = {
-    Roles.SYS_ADMIN, Roles.QA, Roles.DEPT_HEAD, Roles.OPS_MANAGER,
-    Roles.WORKSHOP, Roles.TECHNICIAN, Roles.DOC_OFFICER,
-    _LEGACY_HTM_TECH, _LEGACY_QA, _LEGACY_BIOMED,
-    _LEGACY_WORKSHOP, _LEGACY_ADMIN, _LEGACY_SYSTEM_MGR,
-}
-_APPROVE_ROLES = {
-    Roles.SYS_ADMIN, Roles.QA, Roles.DEPT_HEAD, Roles.OPS_MANAGER,
-    _LEGACY_BIOMED, _LEGACY_QA, _LEGACY_ADMIN,
-}
-_EXEMPT_ROLES = {
-    Roles.SYS_ADMIN, Roles.QA, Roles.OPS_MANAGER,
-    _LEGACY_QA, _LEGACY_ADMIN, _LEGACY_WORKSHOP,
-}
 
 _ALERT_THRESHOLDS = [(7, "Danger"), (30, "Critical"), (60, "Warning"), (90, "Info")]
 
 
-# ─── Access control helpers ───────────────────────────────────────────────────
+# ─── Access control helpers (capability, KHONG so ten role) ───────────────────
 
 def _can_see_internal() -> bool:
     if frappe.session.user in ("Administrator", "admin"):
         return True
-    return has_any_role(_INTERNAL_VIEW_ROLES)
+    return rbac.can("document" + ".read")
 
 
 def _apply_visibility_filter(filters: dict) -> dict:
@@ -74,12 +53,12 @@ def _apply_visibility_filter(filters: dict) -> dict:
 
 
 def _require_approve_role() -> None:
-    if not has_any_role(_APPROVE_ROLES):
+    if not rbac.can("doc.approve"):
         raise ServiceError(ErrorCode.FORBIDDEN, "Không có quyền duyệt/từ chối tài liệu")
 
 
 def _require_exempt_role() -> None:
-    if not has_any_role(_EXEMPT_ROLES):
+    if not rbac.can("document" + ".write"):
         raise ServiceError(ErrorCode.FORBIDDEN, "Không có quyền đánh dấu Exempt")
 
 

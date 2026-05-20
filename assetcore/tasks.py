@@ -437,7 +437,7 @@ def _update_asset_pm_status():
 
 
 def _send_no_template_alert(sched):
-	recipients = _get_role_emails(["IMM System Admin", "IMM Workshop Lead"])
+	recipients = _get_role_emails(["AssetCore Super Admin", "PM Manager"])
 	if recipients:
 		_safe_sendmail(
 			recipients=recipients,

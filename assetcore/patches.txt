@@ -3,6 +3,7 @@
 
 [pre_model_sync]
 assetcore.patches.v3_1.006_dedupe_asset_category_gmdn_code
+assetcore.patches.v3_1.008_drop_gmdn_status
 
 [post_model_sync]
 assetcore.patches.v3_0.001_migrate_from_v2
@@ -19,3 +20,8 @@ assetcore.patches.v3_1.002_install_imm02
 assetcore.patches.v3_1.003_install_imm03
 assetcore.patches.v3_1.004_seed_assetcore_role_profiles
 assetcore.patches.v3_1.005_remove_legacy_imm_role_profiles
+assetcore.patches.v3_1.007_ac_location_simplify_contacts
+assetcore.patches.v3_1.009_set_gmdn_inherited_flag
+assetcore.patches.v3_1.010_consolidate_sla_priority_p1
+# ── Wave 2 ── RBAC module-based redesign ─────────────────────────────────────
+assetcore.patches.v3_2.001_module_role_redesign

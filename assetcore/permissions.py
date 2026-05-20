@@ -6,10 +6,10 @@ IMM Technician has a restricted view — senior roles see everything.
 import frappe
 
 _SENIOR_ROLES = frozenset({
-    "IMM System Admin", "IMM Department Head",
-    "IMM Operations Manager", "IMM QA Officer", "IMM Workshop Lead",
+    "AssetCore Super Admin", "Commissioning Manager",
+    "Compliance Manager", "PM Manager", "Repair Manager",
 })
-_TECHNICIAN_ROLE = "IMM Technician"
+_TECHNICIAN_ROLE = "PM User"
 
 
 def _is_senior(roles: set) -> bool:

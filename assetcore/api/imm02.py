@@ -12,6 +12,7 @@ from frappe import _
 
 from assetcore.services import imm02 as svc
 from assetcore.services.shared import ErrorCode, ServiceError
+from assetcore.services.shared.filters import count_with_or, pop_search
 from assetcore.utils.helpers import _ok, _err
 from assetcore.utils.lifecycle import log_audit_event as _audit
 
@@ -57,15 +58,21 @@ def _list_tech_specs(filters: str, page: int, page_size: int) -> dict:
     Data contract: gắn `plan_ref_name`, `device_model_name`, `created_by_name`.
     """
     f = _parse_json(filters)
+    # FE search: "mã hồ sơ, tên model hoặc phiên bản". `device_model_ref` lưu
+    # mã link → resolve qua link_search để tìm theo model_name.
+    f, or_filters = pop_search(
+        f, ["name", "version"],
+        link_search={"device_model_ref": ("IMM Device Model", "model_name")},
+    )
     fields = ["name", "device_model_ref", "version", "candidate_count",
               "lock_in_score", "workflow_state", "source_plan", "source_needs_request",
               "owner", "draft_date", "total_mandatory"]
     page_size = max(1, min(page_size, 100))
     start = (max(1, page) - 1) * page_size
-    items = frappe.get_list(_DT_TS, filters=f or None, fields=fields,
+    items = frappe.get_list(_DT_TS, filters=f or None, or_filters=or_filters, fields=fields,
                              order_by="draft_date desc", start=start, page_length=page_size)
     _enrich_tech_spec_display_names(items)
-    return {"items": items, "total": frappe.db.count(_DT_TS, filters=f or None),
+    return {"items": items, "total": count_with_or(_DT_TS, f or None, or_filters),
             "page": page, "page_size": page_size}
 
 

@@ -139,9 +139,12 @@ VITE_SENTRY_DSN=<sentry-dsn>
 
 ```
 assetcore.patches.v3_0.001_migrate_from_v2
-assetcore.patches.v3_2.001_add_gmdn_status_field
 assetcore.patches.v3_2.002_add_inventory_doctypes
 assetcore.patches.v4_0.001_add_inventory_tables
+
+[pre_model_sync]
+assetcore.patches.v3_1.006_dedupe_asset_category_gmdn_code
+assetcore.patches.v3_1.008_drop_*   # drop field trạng thái GMDN (cũ) — xem analysis §6
 ```
 
 ## III.2. Patch: `v3_0/001_migrate_from_v2`
@@ -160,22 +163,21 @@ assetcore.patches.v4_0.001_add_inventory_tables
 
 **Estimated time:** 5–30 phút tùy số lượng record.
 
-## III.3. Patch: `v3_2/001_add_gmdn_status_field`
+## III.3. Patch: `v3_1/008_drop_*` (pre_model_sync — drop field trạng thái GMDN cũ)
 
-**Mục đích:** Thêm field `gmdn_status` và `gmdn_status_reason` vào `tabAC Asset`.
+**Mục đích:** DROP COLUMN field trạng thái sử dụng GMDN (cũ) khỏi `tabAC Asset` **trước** schema sync. Field này trùng ngữ nghĩa với `lifecycle_status` — quyết định chốt 2026-05-19, ref [analysis §6](../res/gmdn-asset-category-analysis.md).
 
 ```python
-# assetcore/patches/v3_2/001_add_gmdn_status_field.py
+# pre_model_sync — idempotent: chỉ drop nếu column tồn tại
 def execute():
-    if not frappe.db.has_column("AC Asset", "gmdn_status"):
-        frappe.db.sql("""
-            ALTER TABLE `tabAC Asset`
-            ADD COLUMN `gmdn_status` varchar(50) DEFAULT 'Không sử dụng'
-        """)
+    if not frappe.db.table_exists("AC Asset"):
+        return
+    # check information_schema rồi ALTER TABLE ... DROP COLUMN
+    # (xem source patch thực tế trong assetcore/patches/v3_1/)
     frappe.db.commit()
 ```
 
-**Default:** `Không sử dụng` cho tất cả existing records.
+> **Không reversible** trong cùng release — bắt buộc `bench --site <site> backup --with-files` trước khi migrate. Lọc/quản lý thiết bị sau patch dùng `gmdn_code`.
 
 ## III.4. Patch: `v4_0/001_add_inventory_tables`
 
@@ -196,11 +198,11 @@ def execute():
 
 ## III.4.1. Fixture Inventory (sync tự động qua `bench migrate`)
 
-> **Cập nhật 2026-05-14:** Fixture roles trước đây là `imm_roles.json` (8 roles) đã được thay bằng `role.json` (19 IMM roles Wave 1 + Wave 2) + `has_role.json` (commit `5b4158e` "install assetcore with fixtures/has_role"). `bench migrate` tự sync tất cả fixtures dưới đây.
+> **Cập nhật 2026-05-14:** Fixture roles trước đây là `imm_roles.json` (8 roles) đã được thay bằng `role.json` (20 IMM roles Wave 1 + Wave 2) + `has_role.json` (commit `5b4158e` "install assetcore with fixtures/has_role"). `bench migrate` tự sync tất cả fixtures dưới đây.
 
 | Fixture file | DocType target | Mục đích |
 |---|---|---|
-| `fixtures/role.json` | Role | 19 IMM roles (System Admin, Dept Head, Deputy Dept Head, Ops Manager, Workshop Lead, QA Officer, Biomed Technician, Technician, Document Officer, Storekeeper, Clinical User, Auditor, Vendor Engineer, Planning, Finance, HTM Engineer, Procurement, Risk, Board Approver, Training Officer) |
+| `fixtures/role.json` | Role | 20 IMM roles (System Admin, Dept Head, Deputy Dept Head, Ops Manager, Workshop Lead, QA Officer, Biomed Technician, Technician, Document Officer, Storekeeper, Clinical User, Auditor, Vendor Engineer, Planning Officer, Finance Officer, HTM Engineer, Procurement Officer, Risk Officer, Board Approver, Training Officer) |
 | `fixtures/has_role.json` | Has Role | Default role→user assignments |
 | `fixtures/role_profile.json` | Role Profile | Bundling theo persona |
 | `fixtures/module_profile.json` | Module Profile | Workspace grouping |
@@ -274,7 +276,7 @@ PY
 | Permission Query (Technician scoped) | §6.2.1 — Competence, awareness | — | §4.3 — Role-based access |
 | IMM SLA Policy | — | — | §5.4.2 — Response time standards |
 | Incident Report + BYT reporting | — | Điều 27 — Báo cáo sự cố | §7.3 — Incident reporting |
-| GMDN Status tracking | — | Điều 4 — Quản lý GMDN | — |
+| GMDN code tracking (lọc/quản lý theo `gmdn_code`) | — | Điều 4 — Quản lý GMDN | — |
 
 ## IV.2. Audit Trail Retention Policy
 
@@ -386,7 +388,7 @@ bench restart
 ### III. Migration patches
 - [x] Patch registry (patches.txt)
 - [x] v3_0: migrate from v2 sidecar
-- [x] v3_2: add gmdn_status field
+- [x] v3_1/008: drop field trạng thái GMDN cũ (pre_model_sync) — lọc theo `gmdn_code`
 - [x] v4_0: add inventory tables
 - [x] Verify commands
 

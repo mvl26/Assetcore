@@ -7,7 +7,7 @@
 | Owner | BA + System Analyst |
 | Liên kết | [03 Diagrams](./03_Diagrams.md) · [04 Backend](./04_Backend_Design.md) · [05 API](./05_API_Specification.md) · [06 Frontend](./06_Frontend_Design.md) |
 | Chuẩn tham chiếu | WHO HTM 2025 §5.3, ISO 13485:2016 §7.5, ISO 9001:2015 §8.5.1, NĐ 98/2021 |
-| Cập nhật | 2026-05-14 |
+| Cập nhật | 2026-05-18 |
 
 ---
 

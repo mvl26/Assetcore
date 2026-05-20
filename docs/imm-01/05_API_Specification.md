@@ -8,7 +8,7 @@
 | Base path | `assetcore.api.imm01` |
 | URL pattern | `/api/method/assetcore.api.imm01.<function>` |
 | Phiên bản | 0.1.0 — Wave 2 Live |
-| Cập nhật | 2026-05-14 |
+| Cập nhật | 2026-05-18 |
 
 ---
 
@@ -128,9 +128,31 @@ const ROLES = {
 | `requesting_department` | string | Filter theo khoa |
 | `request_type` | string | New / Replacement / Upgrade / Add-on |
 | `priority_class` | string | P1 / P2 / P3 / P4 |
+| `search` | string | (optional) Free-text — OR LIKE trên `name` và `device_model_ref`. Gửi cùng các filter khác trong dict `filters` (xem §3.1.1). |
 | `page` | int | Trang hiện tại (mặc định 1) |
 | `page_size` | int | Kích thước trang (mặc định 20) |
 | `order_by` | string | `request_date_desc` (mặc định) |
+
+#### 3.1.1 Free-text `search` — convention (tránh SQL 1054)
+
+FE gửi `filters` dưới dạng JSON-string GET param, ví dụ
+`filters={"workflow_state":"Submitted","search":"NR-26"}`. BE **bắt buộc**
+gọi `pop_search(f, ["name", "device_model_ref"])` (helper trong
+`assetcore.services.shared.filters`) để bóc key `search` ra khỏi dict
+trước khi pass vào `frappe.get_list`. Nếu không, MariaDB sẽ trả
+`(1054, "Unknown column 'tabIMM Needs Request.search' in 'WHERE'")`
+vì doctype không có cột `search` (sự cố 2026-05-20). Tổng số rows phải
+được đếm bằng `count_with_or(_DT_NR, f, or_filters)` để pagination khớp
+với OR-clause. Pattern chi tiết: `docs/template/05_API_Specification.md` §3.1.
+
+**Searchable fields**: `name` (direct LIKE) + `link_search`
+`{"device_model_ref": ("IMM Device Model", "model_name")}` (resolve qua
+display name — xem template `docs/template/05_API_Specification.md` §3.1.a).
+
+**FE placeholder** (`NeedsRequestListView.vue`): `"Tìm theo mã phiếu hoặc tên model..."`
+— "tên model" tương ứng với link_search trên `IMM Device Model.model_name`.
+KHÔNG dùng "mã model" trong placeholder vì `device_model_ref` chỉ được
+resolve qua tên, không LIKE trực tiếp trên ID.
 
 **Response 200:**
 
@@ -516,6 +538,12 @@ const ROLES = {
 | Method | Path |
 |---|---|
 | GET | `/api/method/assetcore.api.imm01.list_procurement_plans?plan_year=2027&plan_period=Annual` |
+
+**Free-text search**: gửi key `search` trong dict `filters` — BE bóc qua
+`pop_search(f, ["name", "plan_period"])` và OR-LIKE trên 2 field này.
+Xem §3.1.1 (cùng pattern với `list_needs_requests`).
+
+**FE placeholder** (`ProcurementPlanListView.vue`): `"Tìm theo mã kế hoạch hoặc kỳ kế hoạch..."`.
 
 **Response 200:**
 

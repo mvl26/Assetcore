@@ -233,7 +233,7 @@ def seed_or_update_assets() -> list[str]:
 
         # Apply ALL fields from spec (skip lifecycle/status — guarded)
         for k, v in spec.items():
-            if k in ("lifecycle_status", "status", "gmdn_status", "calibration_status"):
+            if k in ("lifecycle_status", "status", "calibration_status"):
                 continue
             setattr(doc, k, v)
 
@@ -259,14 +259,13 @@ def seed_or_update_assets() -> list[str]:
         frappe.db.set_value("AC Asset", doc.name, {
             "status": "Active",
             "lifecycle_status": "Active",
-            "gmdn_status": "In Use",
             "calibration_status": "Not Required",
         }, update_modified=False)
 
         # Re-load and save remaining changes (now guard sees lifecycle_status==Active stable)
         doc = frappe.get_doc("AC Asset", doc.name)
         for k, v in spec.items():
-            if k in ("lifecycle_status", "status", "gmdn_status", "calibration_status"):
+            if k in ("lifecycle_status", "status", "calibration_status"):
                 continue
             setattr(doc, k, v)
         doc.total_depreciation_months = total_months

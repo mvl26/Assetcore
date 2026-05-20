@@ -19,7 +19,7 @@ Bám 3-tier strict: **API → Service → DocType → ORM**.
 HTTP Request
       │
       ▼
-API Layer  (assetcore/api/imm04.py — 17 endpoints)
+API Layer  (assetcore/api/imm04.py — 33 endpoints)
       │   _ok / _err envelope; permission check; payload parse
       ▼
 Service Layer  (assetcore/services/imm04.py)
@@ -76,7 +76,7 @@ Side Effects:
 | `final_asset` | Link AC Asset | — | — | set by create_ac_asset() on submit |
 | `baseline_tests` | Table Commissioning Checklist | YES | — | G03: 100% Pass/N/A |
 | `commissioning_documents` | Table Commissioning Document Record | — | — | G01: mandatory Received/Waived |
-| `lifecycle_events` | Table Asset Lifecycle Event | — | — | VR-06: immutable |
+| `lifecycle_events` | Table Asset Lifecycle Event | — | — | VR-06: immutable ⚠️ field in field_order but missing from JSON fields array — add definition manually |
 | `docstatus` | Int | — | 0 | 0=Draft, 1=Submitted, 2=Cancelled |
 
 **Naming series:** `ACC-.YY.-.MM.-.#####` (YY=năm 2 số, MM=tháng 2 số)
@@ -191,7 +191,18 @@ class AssetCommissioning(Document):
 | `check_auto_clinical_hold(doc)` | Document | bool | Trả True nếu risk_class ∈ {C,D,Radiation} |
 | `log_lifecycle_event(doc, event_type, from_s, to_s, remarks)` | Document + strings | None | Append lifecycle event row |
 | `handle_commissioning_cancel(doc)` | Document | None | Block cancel nếu final_asset tồn tại |
-| `check_commissioning_overdue()` | — | None | Email Workshop Head phiếu >30 ngày |
+| `check_commissioning_overdue()` | — | None | Email Workshop Head phiếu >30 ngày (scheduler daily — ⚠️ CHƯA đăng ký trong hooks.py) |
+| `submit_for_approval(commissioning, approver, stage, remarks)` | string + params | dict | Gửi phê duyệt nội bộ (Wave-2 approval flow) |
+| `approve_pending(commissioning, decision, remarks)` | string + params | dict | Duyệt/từ chối phiếu đang chờ |
+| `list_my_pending_approvals()` | — | list | Danh sách phiếu chờ duyệt của user hiện tại |
+| `create_commissioning_from_purchase(purchase_name, device_idx)` | string + int | dict | Tạo phiếu từ PO |
+| `get_commissioning_origin(asset_name)` | string | dict | Truy ngược asset → commissioning |
+| `get_form_context(name)` | string | dict | Full context cho form view (FE) |
+| `search_link(doctype, query, page_length)` | string | list | Frappe link search helper |
+| `get_users_by_role(role, search, limit)` | string | list | Danh sách user theo Role |
+| `get_gate_status(name)` | string | dict | Trạng thái G01–G06 cho 1 phiếu |
+| `retry_mint_asset(name)` | string | dict | Tạo lại AC Asset nếu on_submit bị lỗi |
+| `get_lifecycle_timeline(name)` | string | list | Timeline lifecycle events (FE) |
 
 **Validators (private):**
 - `_vr01_unique_serial_number(doc)` — UNIQUE check cross-table

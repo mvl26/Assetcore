@@ -117,6 +117,21 @@ State machine enforce **qua controller + API guard** — không dùng Frappe Wor
 | Cannot Repair | Danger | 0 | Workshop Manager |
 | Cancelled | Secondary | 2 | — (cancelled) |
 
+**Key transitions (API-driven):**
+
+| From | To | Trigger | Actor | Validation |
+|---|---|---|---|---|
+| (insert) | Open | `create_work_order` | Workshop Manager | BR-09-01 (source) + BR-09-05 (no active WO) |
+| Open | Assigned | `assign_technician` | Workshop Manager | — |
+| Assigned | Diagnosing | `submit_diagnosis` | KTV HTM | — |
+| Diagnosing | Pending Parts | `submit_diagnosis(needs_parts=1)` | KTV HTM | — |
+| Diagnosing | In Repair | `submit_diagnosis(needs_parts=0)` | KTV HTM | — |
+| Pending Parts | In Repair | `request_spare_parts` hoặc `start_repair` | KTV HTM / Kho | — |
+| Any active | In Repair | `start_repair` | KTV HTM | allowed from Assigned/Diagnosing/Pending Parts |
+| In Repair | Pending Inspection | `close_work_order(cannot_repair=0)` | KTV HTM | Điền repair_summary + dept_head_name |
+| **Pending Inspection** | **Completed** | **`confirm_inspection`** | **Dept Head / QA Officer** | `CAN_APPROVE_DEP` role; WO submit → `complete_repair()` |
+| Any active | Cannot Repair | `close_work_order(cannot_repair=1)` | KTV / Workshop Manager | cannot_repair_reason required |
+
 **Controller hooks:**
 
 ```python
@@ -168,6 +183,7 @@ File: `assetcore/services/imm09.py`
 | `validate_firmware_change_request(doc)` | Document | None | raise ServiceError BR-09-03 |
 | `validate_repair_checklist_complete(doc)` | Document | None | raise ServiceError BR-09-04 |
 | `get_sla_target(risk_class, priority)` | str, str | float | — |
+| `confirm_inspection(name)` | str | dict `{name, status, mttr_hours, sla_breached}` | Pending Inspection → Completed; submit doc → `complete_repair()`; requires `CAN_APPROVE_DEP` role; auto-trigger IMM-12 chronic detect nếu root_cause chứa từ khóa lặp lại |
 | `complete_repair(doc)` | Document | None | mttr, sla_breached, Asset→Active, ALE |
 | `check_repair_sla_breach()` | — | None | set sla_breached; publish realtime |
 | `check_repair_overdue()` | — | None | email Workshop Manager |

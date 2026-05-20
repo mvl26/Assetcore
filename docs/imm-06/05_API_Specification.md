@@ -9,7 +9,7 @@
 | URL pattern | `/api/method/assetcore.api.imm06.<function>` |
 | Liên kết | [02 Analysis](./02_Analysis_Design.md) · [04 Backend](./04_Backend_Design.md) · [06 Frontend](./06_Frontend_Design.md) |
 
-> ✅ Implemented (Wave 2) — endpoints đã whitelist trong `assetcore/api/imm06.py` (**23** `@frappe.whitelist()` functions, đếm ngày 2026-05-14 trên branch `feature/hieuc/wave-2`). Khi có drift, code wins; cập nhật doc.
+> ✅ Implemented (Wave 2) — endpoints đã whitelist trong `assetcore/api/imm06.py` (**25** `@frappe.whitelist()` functions, đếm ngày 2026-05-18 trên branch `feature/hieuc/wave-2`). Khi có drift, code wins; cập nhật doc.
 
 ---
 
@@ -413,6 +413,40 @@ _DASHBOARD_ROLES = {
 **Response 200:** `{ "success": true, "data": { "name": "...", "new_state": "In Progress" } }`
 
 **Errors:** `FORBIDDEN`, `NOT_FOUND`, `BUSINESS_RULE` (sai state), `VALIDATION`
+
+---
+
+#### B.4c `enroll_participants`
+
+| Method | POST |
+|---|---|
+| Roles | `_SESSION_WRITE_ROLES` |
+| Service | `services/imm06.py::enroll_participants` |
+
+**Request body:** `{"name": "TRN-2026-00042", "participants": [{"user": "ktv1@hosp.vn", "department": "ICU", "role_at_session": "Operator"}, ...]}`
+
+**Behavior:** Thêm participants vào child table `participants`. Validate không trùng user trong cùng session.
+
+**Response 200:** `{ "success": true, "data": { "name": "...", "enrolled": 3 } }`
+
+**Errors:** `FORBIDDEN`, `NOT_FOUND`, `VALIDATION` (duplicate user)
+
+---
+
+#### B.4d `remove_participant`
+
+| Method | POST |
+|---|---|
+| Roles | `_SESSION_WRITE_ROLES` |
+| Service | `services/imm06.py::remove_participant` |
+
+**Request body:** `{"name": "TRN-2026-00042", "row_name": "<child_row_name>"}`
+
+**Behavior:** Xóa 1 participant row khỏi session. Chỉ cho phép khi session ở trạng thái Planned/Confirmed.
+
+**Response 200:** `{ "success": true, "data": { "removed": true } }`
+
+**Errors:** `FORBIDDEN`, `NOT_FOUND`, `BUSINESS_RULE` (session đã bắt đầu)
 
 ---
 

@@ -1,6 +1,6 @@
 # IMM-15 — Testing & QA
 
-> ✅ Wave 2 IMPLEMENTED. Test thực tế: `assetcore/tests/test_imm15.py` (7 TestCase, 11 test method). Coverage formal report chưa chạy — xem §I.1.
+> ✅ Wave 2 IMPLEMENTED. Test thực tế: `assetcore/tests/test_imm15.py` (9 TestCase, 13 test method). Coverage formal report chưa chạy — xem §I.1.
 
 | Thuộc tính | Giá trị |
 |---|---|
@@ -12,23 +12,25 @@
 
 ---
 
-## §0 — Test Suite Inventory (CURRENT, 2026-05-14)
+## §0 — Test Suite Inventory (CURRENT, 2026-05-18)
 
 File: `assetcore/tests/test_imm15.py`
 
 | Class | Test method | Covers |
 |---|---|---|
-| `TestAllocationLifecycle` | `test_create_requires_work_order_for_non_emergency` | VR-15-08 / BR-15-01 (non-emergency requires WO) |
-| `TestAllocationLifecycle` | `test_create_emergency_without_wo_succeeds` | BR-15-01 Emergency override |
-| `TestAllocationLifecycle` | `test_approve_requires_correct_role` | Workflow Requested→Approved |
-| `TestAllocationLifecycle` | `test_approve_bad_state` | ErrorCode.BAD_STATE re-approve |
+| `TestAllocationLifecycle` | `test_create_requires_work_order_for_non_emergency` | BR-15-01 (non-emergency requires WO) |
+| `TestAllocationLifecycle` | `test_create_emergency_without_wo_succeeds` | BR-15-01 Emergency bypass |
+| `TestAllocationLifecycle` | `test_approve_requires_correct_role` | Workflow Requested→Approved; FORBIDDEN |
+| `TestAllocationLifecycle` | `test_approve_bad_state` | `ErrorCode.BAD_STATE` re-approve |
 | `TestUrgencyValidation` | `test_invalid_urgency_rejected` | VR-15-05 urgency enum |
 | `TestWarehouseValidation` | `test_inactive_warehouse_rejected` | VR-15-13 inactive warehouse |
 | `TestReturnValidation` | `test_return_qty_exceeds_issued` | VR-15-08 return qty cap |
 | `TestForecastGeneration` | `test_generate_forecast` | `generate_spare_forecast` Moving_Avg |
 | `TestWatchlist` | `test_add_critical_part_ok` | Watchlist Critical-only happy path |
 | `TestWatchlist` | `test_add_non_critical_rejected` | VR-15-09 Critical-only enforcement |
-| `TestDashboardStats` | `test_dashboard_keys` | `get_dashboard_stats` schema |
+| `TestDashboardStats` | `test_dashboard_keys` | `get_dashboard_stats` schema keys |
+| `TestDashboardLowStockPerBin` | `test_overview_low_stock_is_per_bin` | Low-stock alert counted per-Bin (not per-part) |
+| `TestDashboardLowStockPerBin` | `test_overview_count_matches_stock_page` | Dashboard count matches stock page total |
 
 Run:
 
@@ -734,4 +736,4 @@ pylint assetcore/services/imm15.py assetcore/api/imm15.py
 
 ---
 
-*IMM-15 Module — Wave 3 PLANNED. Testing & QA v1.0.0-draft. Cập nhật 2026-05-08.*
+*IMM-15 Module — Wave 2 IMPLEMENTED. Testing & QA v1.0.0-rc.2. Cập nhật 2026-05-18.*

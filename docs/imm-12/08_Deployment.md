@@ -4,7 +4,7 @@
 |---|---|
 | Module | **IMM-12 — Sự cố & CAPA (Incident & Corrective Action)** |
 | Phiên bản | 1.2.0 |
-| Ngày cập nhật | 2026-05-14 |
+| Ngày cập nhật | 2026-05-18 |
 | Owner | DevOps + Tech Lead + QMS Officer |
 | Trạng thái | ✅ Live — code IMM-12 (BE 3-tier + FE views + scheduler chronic detection) đã deploy. Checklist + rollback giữ ở mức playbook chuẩn cho release tiếp theo. |
 | Liên kết | [07 Testing QA](./07_Testing_QA.md) · [Module Overview](./IMM-12_Module_Overview.md) |

@@ -41,17 +41,15 @@ const filters = ref<{ priority: string; risk_class: string; is_active: '' | '1' 
 
 // OPTIONS arrays gắn type union để giữ autocomplete khi sửa.
 // Maps để Record<string, string> vì priority/risk_class từ API là string lỏng.
-const PRIORITY_OPTIONS: Priority[] = ['P1 Critical', 'P1 High', 'P2', 'P3', 'P4']
+const PRIORITY_OPTIONS: Priority[] = ['P1', 'P2', 'P3', 'P4']
 const PRIORITY_LABEL: Record<string, string> = {
-  'P1 Critical': 'P1 Critical — Nguy hiểm tính mạng',
-  'P1 High': 'P1 High — Khẩn cấp',
+  P1: 'P1 — Khẩn cấp',
   P2: 'P2 — Cao',
   P3: 'P3 — Trung bình',
   P4: 'P4 — Thấp',
 }
 const PRIORITY_BADGE: Record<string, string> = {
-  'P1 Critical': 'bg-red-100 text-red-700',
-  'P1 High': 'bg-orange-100 text-orange-700',
+  P1: 'bg-red-100 text-red-700',
   P2: 'bg-yellow-100 text-yellow-700',
   P3: 'bg-blue-100 text-blue-700',
   P4: 'bg-slate-100 text-slate-600',

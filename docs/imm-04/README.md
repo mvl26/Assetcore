@@ -6,7 +6,7 @@
 | Wave | 1 |
 | Trạng thái | Mature — có v2 UAT |
 | Số file hiện có | 8 |
-| Cập nhật cuối | 2026-05-10 |
+| Cập nhật cuối | 2026-05-18 |
 | Khối kiến trúc | B. KHỐI 2 |
 | Đợt triển khai | 1 |
 | Owner | PTP Khối 2 · Workshop / Nhóm TBYT · Mạng lưới TBYT nội viện |
@@ -72,7 +72,7 @@ Source docs (cũ) đã archive tại `docs/architecture/archive/imm-04/`:
 
 - Template chuẩn: [`../template/`](../template/)
 - Migration guide: [`../template/MIGRATION_GUIDE.md`](../template/MIGRATION_GUIDE.md)
-- Codebase ground truth (BE): `assetcore/services/imm04.py` · `assetcore/api/imm04.py`
+- Codebase ground truth (BE): `assetcore/services/imm04.py` (1697 LOC) · `assetcore/api/imm04.py` (309 LOC, **33** `@frappe.whitelist()` endpoints)
 - Codebase ground truth (FE): `frontend/src/types/imm04.ts` · `frontend/src/api/imm04.ts`
 
 ---

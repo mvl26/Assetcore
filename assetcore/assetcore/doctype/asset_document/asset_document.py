@@ -9,7 +9,10 @@ from frappe.utils import nowdate, date_diff, getdate
 
 ALLOWED_FILE_EXTENSIONS = {".pdf", ".jpg", ".jpeg", ".png", ".docx"}
 EXEMPT_DOC_TYPES = {"Chứng nhận đăng ký lưu hành", "Giấy phép nhập khẩu"}
-INTERNAL_ONLY_ROLES = {"IMM Technician", "IMM QA Officer", "IMM Biomed Technician", "IMM Workshop Lead", "IMM System Admin"}
+INTERNAL_ONLY_ROLES = {
+    "PM User", "PM Manager", "Repair User", "Repair Manager",
+    "Compliance Manager", "AssetCore Super Admin",
+}
 
 
 class AssetDocument(Document):
@@ -91,8 +94,8 @@ class AssetDocument(Document):
 	# ── VR-03: file bắt buộc trước khi Submit_Review ─────────────────────────
 
 	def vr_03_file_required_for_review(self):
-		"""VR-03: Phải có file trước khi chuyển sang Pending_Review."""
-		if self.workflow_state == "Pending_Review" and not self.file_attachment:
+		"""VR-03: Phải có file trước khi chuyển sang Pending Review."""
+		if self.workflow_state == "Pending Review" and not self.file_attachment:
 			frappe.throw(_("VR-03: Vui lòng upload file tài liệu trước khi gửi duyệt."),
 						 title=_("Thiếu file"))
 

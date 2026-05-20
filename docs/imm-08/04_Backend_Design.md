@@ -177,7 +177,10 @@ File: `assetcore/services/imm08.py`
 | `report_major_failure(pm_wo_name, *, failure_description)` | str + str | dict | set `Halted–Major Failure`, gọi `_create_cm_wo_from_failure` |
 | `reschedule(name, *, new_date, reason)` | str + str + str | dict | chuyển `Pending–Device Busy`, lưu reason |
 | `generate_pm_work_orders_from_schedule()` | — | dict | scheduler daily: tạo WO mới + đánh `Overdue` |
+| `backfill_pm_schedules_for_due_assets()` | — | dict | scheduler daily: tạo PM Schedule cho Asset đến hạn chưa có lịch |
 | `create_pm_schedule_from_commissioning(doc)` | Asset Commissioning doc | str / None | tạo PM Schedule khi commissioning submit |
+| `create_pm_schedule_from_asset(asset_doc, method)` | AC Asset doc | str / None | hook AC Asset.after_insert → tạo PM Schedule nếu `is_pm_required=1` |
+| `apply_template_to_category_assets(template_name)` | str | dict `{template, asset_category, created, skipped, errors}` | bulk-tạo PM Schedule cho mọi asset cùng danh mục; bỏ qua asset đã có lịch cùng `pm_type` |
 | `get_dashboard_stats(*, year, month)` | int, int | dict | — |
 | `get_calendar(*, year, month, ...)` | int, int, ... | dict | — |
 
@@ -310,6 +313,7 @@ Hash chain: sử dụng Frappe native `track_changes` trên PM Work Order. PM Ta
 ```python
 scheduler_events = {
     "daily": [
+        "assetcore.services.imm08.backfill_pm_schedules_for_due_assets",
         "assetcore.services.imm08.generate_pm_work_orders_from_schedule",
     ],
 }
@@ -321,6 +325,9 @@ doc_events = {
             # ...
         ],
     },
+    "AC Asset": {
+        "after_insert": "assetcore.services.imm08.create_pm_schedule_from_asset",
+    },
     "PM Work Order": {
         "validate": "assetcore.services.imm16.gate_wo_submit",
         "on_submit": "assetcore.services.imm16.eval_imm08_09_realtime",
@@ -330,6 +337,7 @@ doc_events = {
 
 | Job | Tần suất | Hook | Mục đích |
 |---|---|---|---|
+| `backfill_pm_schedules_for_due_assets` | Daily | `services.imm08` | Tạo PM Schedule cho Asset đến hạn nhưng chưa có lịch (safety net) |
 | `generate_pm_work_orders_from_schedule` | Daily | `services.imm08` | Sinh PM WO mới từ PM Schedule đến hạn + đánh `Overdue` cho WO quá ngày |
 
 **Idempotency key:** trong service đã check `(pm_schedule, status NOT IN [Completed, Cancelled])` → skip nếu đã tồn tại.
@@ -340,7 +348,9 @@ doc_events = {
 
 **Module nội bộ:**
 - IMM-04 → IMM-08 (Pattern A): `Asset Commissioning.on_submit` → `assetcore.services.imm08.create_pm_schedule_from_commissioning` tạo PM Schedule đầu tiên (xem `hooks.py` §doc_events).
-- IMM-08 → IMM-09: Halted–Major Failure hoặc Fail-Major → `_create_cm_wo_from_failure(doc, priority)` insert một `Asset Repair` (doctype CM, không phải PM Work Order) với `source_pm_wo` liên kết. Function nằm trong `services/imm08.py:154`.
+- AC Asset → IMM-08 (Pattern A): `AC Asset.after_insert` → `assetcore.services.imm08.create_pm_schedule_from_asset` tạo PM Schedule ngay khi Asset được tạo nếu `is_pm_required=1`.
+- IMM-08 (backfill scheduler): `backfill_pm_schedules_for_due_assets` daily — safety net tạo PM Schedule cho Asset chưa có lịch.
+- IMM-08 → IMM-09: Halted–Major Failure hoặc Fail-Major → `_create_cm_wo_from_failure(doc, priority)` insert một `Asset Repair` (doctype CM, không phải PM Work Order) với `source_pm_wo` liên kết. Function nằm trong `services/imm08.py`.
 - IMM-08 ↔ IMM-16 (Pattern C compliance gate): `PM Work Order.validate` gọi `imm16.gate_wo_submit(doc, method=None)` — gate raise ServiceError nếu CAPA Critical chặn. `on_submit` gọi `imm16.eval_imm08_09_realtime` để cập nhật scorecard.
 
 **Bên ngoài:**

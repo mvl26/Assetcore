@@ -2,7 +2,6 @@
 // Copyright (c) 2026, AssetCore Team
 import { ref, onMounted, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { useDebounceFn } from '@vueuse/core'
 import { listSpareParts, createSparePart } from '@/api/inventory'
 import type { SparePart } from '@/types/inventory'
 import SmartSelect from '@/components/common/SmartSelect.vue'
@@ -80,8 +79,7 @@ async function load() {
   } finally { loading.value = false }
 }
 
-const debouncedSearch = useDebounceFn(() => { page.value = 1; load() }, 300)
-watch(q, debouncedSearch)
+// Search debounce is handled by ListFilterBar.vue (@apply fires after pause).
 watch(categoryFilter, () => { page.value = 1; load() })
 
 function openCreate() {

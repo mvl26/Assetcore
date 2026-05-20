@@ -121,8 +121,8 @@ def test_validate_asset_for_operations_blocks_oos():
 ```python
 def test_get_sla_policy_exact_match():
     """P1 × Critical → trả policy exact match."""
-    make_sla_policy(priority="P1 Critical", risk_class="Critical", response=15, resolution=4)
-    policy = get_sla_policy("P1 Critical", "Critical")
+    make_sla_policy(priority="P1", risk_class="Critical", response=15, resolution=4)
+    policy = get_sla_policy("P1", "Critical")
     assert policy["response_time_minutes"] == 15
     assert policy["resolution_time_hours"] == 4
 ```
@@ -163,11 +163,15 @@ def test_create_capa_sets_status_open():
 
 ```python
 def test_close_capa_blocks_without_root_cause():
-    """close_capa block nếu root_cause trống (BR-00-08)."""
+    """close_capa block nếu root_cause trống (BR-00-08).
+    
+    NOTE: close_capa() gọi doc.submit() → capa_record_before_submit() → frappe.throw()
+    → exception type là frappe.exceptions.ValidationError (không phải ServiceError).
+    Message chứa "Root Cause".
+    """
     capa = make_test_capa(status="Open")
-    with pytest.raises(ServiceError) as exc:
+    with pytest.raises(frappe.exceptions.ValidationError, match="Root Cause"):
         close_capa(capa.name, root_cause="", corrective_action="fix", preventive_action="prevent", effectiveness_check="ok", actor="qa@test.vn")
-    assert "AC-E005" in str(exc.value)
 ```
 
 #### TC-S-011: `check_capa_overdue` — Auto-mark Overdue

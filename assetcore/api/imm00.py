@@ -6,6 +6,8 @@ Convention:
   POST → frappe.whitelist(methods=["POST"])
   Response: _ok(data) | _err(message, code)
 """
+import json
+
 import frappe
 from frappe import _
 
@@ -14,8 +16,6 @@ from assetcore.services.shared import ErrorCode
 from assetcore.utils.pagination import paginate
 from assetcore.services.imm00 import (
     transition_asset_status,
-    update_gmdn_status as svc_update_gmdn_status,
-    toggle_gmdn_status_via_qr as svc_toggle_gmdn_via_qr,
     validate_asset_for_operations,
     get_sla_policy,
     create_capa,
@@ -90,7 +90,7 @@ def list_assets(
     location: str = None,
     asset_category: str = None,
     search: str = None,
-    gmdn_status: str = None,
+    gmdn_code: str = None,
 ):
     """GET /api/method/assetcore.api.imm00.list_assets"""
     page, page_size = int(page), int(page_size)
@@ -103,8 +103,8 @@ def list_assets(
         filters["location"] = location
     if asset_category:
         filters["asset_category"] = asset_category
-    if gmdn_status:
-        filters["gmdn_status"] = gmdn_status
+    if gmdn_code:
+        filters["gmdn_code"] = gmdn_code
 
     or_filters = None
     if search:
@@ -113,11 +113,13 @@ def list_assets(
             [_DT_ASSET, "asset_name",      "like", like],
             [_DT_ASSET, "asset_code",      "like", like],
             [_DT_ASSET, "manufacturer_sn", "like", like],
+            [_DT_ASSET, "gmdn_code",       "like", like],
         ]
         total = frappe.db.sql(
             f"SELECT COUNT(*) FROM `tab{_DT_ASSET}`"
-            f" WHERE asset_name LIKE %s OR asset_code LIKE %s OR manufacturer_sn LIKE %s",
-            [like, like, like],
+            f" WHERE asset_name LIKE %s OR asset_code LIKE %s"
+            f" OR manufacturer_sn LIKE %s OR gmdn_code LIKE %s",
+            [like, like, like, like],
         )[0][0]
     else:
         total = frappe.db.count(_DT_ASSET, filters=filters)
@@ -129,7 +131,7 @@ def list_assets(
         "asset_category", "location", "department", "responsible_technician",
         "supplier", "device_model",
         "next_pm_date", "next_calibration_date", "byt_reg_expiry",
-        "gmdn_code", "gmdn_status",
+        "gmdn_code",
         "gross_purchase_amount", "accumulated_depreciation", "current_book_value",
     ]
     items = frappe.get_list(
@@ -232,32 +234,6 @@ def transition_status(name: str, to_status: str, reason: str = ""):
         return _err(str(e), ErrorCode.BAD_STATE)
     except frappe.exceptions.ValidationError as e:
         return _err(str(e), ErrorCode.VALIDATION)
-
-
-@frappe.whitelist(methods=["POST"])
-def update_gmdn_status(name: str, gmdn_status: str, reason: str = ""):
-    """POST /api/method/assetcore.api.imm00.update_gmdn_status"""
-    if not frappe.db.exists(_DT_ASSET, name):
-        return _err(_(_ERR_ASSET_NOT_FOUND), 404)
-    try:
-        result = svc_update_gmdn_status(name, gmdn_status, reason)
-        frappe.db.commit()
-        return _ok(result)
-    except frappe.exceptions.ValidationError as e:
-        return _err(str(e), 422)
-
-
-@frappe.whitelist(methods=["POST"])
-def toggle_gmdn_status(name: str):
-    """POST /api/method/assetcore.api.imm00.toggle_gmdn_status — toggle qua QR scan."""
-    if not frappe.db.exists(_DT_ASSET, name):
-        return _err(_(_ERR_ASSET_NOT_FOUND), 404)
-    try:
-        result = svc_toggle_gmdn_via_qr(name)
-        frappe.db.commit()
-        return _ok(result)
-    except frappe.exceptions.ValidationError as e:
-        return _err(str(e), 422)
 
 
 @frappe.whitelist()
@@ -481,12 +457,11 @@ def list_locations(parent: str = None):
         filters=filters,
         fields=["name", "location_name", "location_code", "parent_location", "is_group",
                 "clinical_area_type", "infection_control_level", "power_backup_available",
-                "emergency_contact", "dept_head", "technical_contact", "notes"],
+                "dept_head", "contact_phone", "notes"],
         order_by="lft asc",
     )
     _enrich(items, "parent_location", _DT_LOCATION, "location_name")
     _enrich(items, "dept_head", "User", "full_name", out_field="dept_head_name")
-    _enrich(items, "technical_contact", "User", "full_name", out_field="technical_contact_name")
     return _ok(items)
 
 
@@ -513,7 +488,7 @@ def list_asset_categories():
     """GET /api/method/assetcore.api.imm00.list_asset_categories"""
     items = frappe.get_list(
         _DT_ASSET_CATEGORY,
-        fields=["name", "category_name", "description",
+        fields=["name", "category_name", "category_code", "description",
                 "gmdn_code", "gmdn_term",
                 "default_pm_required", "default_pm_interval_days",
                 "default_calibration_required", "default_calibration_interval_days",
@@ -1249,6 +1224,37 @@ def get_service_contract(name: str):
     return _ok(doc)
 
 
+def _normalize_covered_assets(raw):
+    """Chuẩn hóa payload child-table `covered_assets`.
+
+    FE gửi list[dict] (hoặc JSON string khi qua form-encoded). Chỉ giữ
+    `asset` + `coverage_note`, bỏ dòng trống và khử trùng lặp theo asset.
+    `asset_name` do DocType tự fetch_from nên không nhận từ client.
+    """
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        raw = raw.strip()
+        if not raw:
+            return []
+        try:
+            raw = json.loads(raw)
+        except (ValueError, TypeError):
+            frappe.throw(_("Danh sách thiết bị không hợp lệ"), frappe.exceptions.ValidationError)
+    if not isinstance(raw, (list, tuple)):
+        frappe.throw(_("Danh sách thiết bị không hợp lệ"), frappe.exceptions.ValidationError)
+    rows, seen = [], set()
+    for r in raw:
+        if not isinstance(r, dict):
+            continue
+        asset = (r.get("asset") or "").strip()
+        if not asset or asset in seen:
+            continue
+        seen.add(asset)
+        rows.append({"asset": asset, "coverage_note": (r.get("coverage_note") or "").strip()})
+    return rows
+
+
 @frappe.whitelist(methods=["POST"])
 def create_service_contract():
     """POST /api/method/assetcore.api.imm00.create_service_contract"""
@@ -1258,8 +1264,12 @@ def create_service_contract():
     if missing:
         return _err(_("Thiếu trường bắt buộc: {0}").format(", ".join(missing)), ErrorCode.VALIDATION)
     try:
+        covered_assets = _normalize_covered_assets(data.get("covered_assets"))
         doc = frappe.new_doc(_DT_SERVICE_CONTRACT)
-        doc.update({k: v for k, v in data.items() if k not in ("cmd", "doctype")})
+        doc.update({k: v for k, v in data.items()
+                    if k not in ("cmd", "doctype", "covered_assets")})
+        for row in (covered_assets or []):
+            doc.append("covered_assets", row)
         doc.insert()
         frappe.db.commit()
         return _ok({"name": doc.name})
@@ -1277,7 +1287,11 @@ def update_service_contract(name: str):
         doc = frappe.get_doc(_DT_SERVICE_CONTRACT, name)
         if doc.docstatus == 1:
             return _err(_("Hợp đồng đã submit, không thể sửa"), 422)
-        doc.update({k: v for k, v in data.items() if k not in ("cmd", "name", "doctype")})
+        doc.update({k: v for k, v in data.items()
+                    if k not in ("cmd", "name", "doctype", "covered_assets")})
+        # covered_assets chỉ thay thế khi client gửi field này (None = giữ nguyên)
+        if "covered_assets" in data:
+            doc.set("covered_assets", _normalize_covered_assets(data.get("covered_assets")) or [])
         doc.save()
         frappe.db.commit()
         return _ok({"name": doc.name})
@@ -1905,7 +1919,9 @@ def get_asset_downtime_metrics(asset_name: str, year: str = ""):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _assert_system_admin():
-    if "System Manager" not in frappe.get_roles() and "IMM System Admin" not in frappe.get_roles():
+    """Gate System Admin via capability `data.admin` (RBAC module-based)."""
+    from assetcore.services.shared import rbac
+    if not rbac.can("data.admin"):
         frappe.throw(_("Không có quyền thực hiện thao tác này"), frappe.PermissionError)
 
 

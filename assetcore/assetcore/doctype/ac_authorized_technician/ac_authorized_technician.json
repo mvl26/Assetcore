@@ -15,12 +15,48 @@
   "authorized_for_models"
  ],
  "fields": [
-  {"fieldname": "tech_name", "fieldtype": "Data", "label": "Technician Name", "reqd": 1, "in_list_view": 1, "columns": 2},
-  {"fieldname": "certification_no", "fieldtype": "Data", "label": "Certification No", "in_list_view": 1, "columns": 2},
-  {"fieldname": "valid_until", "fieldtype": "Date", "label": "Valid Until", "in_list_view": 1, "columns": 1, "search_index": 1},
-  {"fieldname": "phone", "fieldtype": "Data", "label": "Phone", "columns": 1},
-  {"fieldname": "email", "fieldtype": "Data", "label": "Email", "columns": 2, "options": "Email"},
-  {"fieldname": "authorized_for_models", "fieldtype": "Small Text", "label": "Authorized For Models", "columns": 2}
+  {
+   "fieldname": "tech_name",
+   "fieldtype": "Data",
+   "label": "Technician Name",
+   "reqd": 1,
+   "in_list_view": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "certification_no",
+   "fieldtype": "Data",
+   "label": "Certification No",
+   "in_list_view": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "valid_until",
+   "fieldtype": "Date",
+   "label": "Valid Until",
+   "in_list_view": 1,
+   "columns": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "phone",
+   "fieldtype": "Data",
+   "label": "Phone",
+   "columns": 1
+  },
+  {
+   "fieldname": "email",
+   "fieldtype": "Data",
+   "label": "Email",
+   "columns": 2,
+   "options": "Email"
+  },
+  {
+   "fieldname": "authorized_for_models",
+   "fieldtype": "Small Text",
+   "label": "Authorized For Models",
+   "columns": 2
+  }
  ],
  "links": [],
  "modified": "2026-04-18 00:00:00.000000",
@@ -28,7 +64,83 @@
  "module": "AssetCore",
  "name": "AC Authorized Technician",
  "owner": "Administrator",
- "permissions": [],
+ "permissions": [
+  {
+   "role": "AssetCore Super Admin",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "submit": 1,
+   "cancel": 1,
+   "delete": 1,
+   "amend": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "Data Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "submit": 1,
+   "cancel": 1,
+   "delete": 1,
+   "amend": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "Data User",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "submit": 0,
+   "cancel": 0,
+   "delete": 0,
+   "amend": 0,
+   "report": 1,
+   "export": 0,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "AssetCore Auditor",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "submit": 0,
+   "cancel": 0,
+   "delete": 0,
+   "amend": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 0,
+   "share": 0
+  },
+  {
+   "role": "AssetCore System User",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "submit": 0,
+   "cancel": 0,
+   "delete": 0,
+   "amend": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 0,
+   "share": 0
+  }
+ ],
  "sort_field": "idx",
  "sort_order": "ASC",
  "track_changes": 0,

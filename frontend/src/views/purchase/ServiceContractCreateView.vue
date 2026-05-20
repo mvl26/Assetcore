@@ -6,6 +6,7 @@ import { frappePost } from '@/api/helpers'
 import SmartSelect from '@/components/common/SmartSelect.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import { useFormDraft } from '@/composables/useFormDraft'
+import { numToWordsVi } from '@/utils/numToWordsVi'
 
 const router = useRouter()
 
@@ -18,11 +19,20 @@ const form = ref({
   contract_start: '',
   contract_end: '',
   contract_value: 0,
+  amount_in_words: '',
   auto_renew: false,
   sla_response_hours: 0,
   coverage_description: '',
   notes: '',
+  covered_assets: [] as { asset: string; coverage_note: string }[],
 })
+
+function addAssetRow() {
+  form.value.covered_assets.push({ asset: '', coverage_note: '' })
+}
+function removeAssetRow(idx: number) {
+  form.value.covered_assets.splice(idx, 1)
+}
 
 // Hiển thị contract_value với dấu phân cách hàng nghìn, lưu giá trị số.
 const contractValueDisplay = computed<string>({
@@ -34,6 +44,9 @@ const contractValueDisplay = computed<string>({
     form.value.contract_value = Number.isFinite(n) ? n : 0
   },
 })
+
+// "Số tiền bằng chữ" — tự suy ra từ giá trị HĐ (preview); BE tính lại khi lưu.
+const amountInWords = computed<string>(() => numToWordsVi(form.value.contract_value))
 
 const { clear: clearDraft } = useFormDraft('service-contract-create', form)
 
@@ -64,7 +77,11 @@ async function submit() {
   try {
     await frappePost<void>(`${BASE}.create_service_contract`, {
       ...form.value,
+      amount_in_words: amountInWords.value,
       auto_renew: form.value.auto_renew ? 1 : 0,
+      covered_assets: JSON.stringify(
+        form.value.covered_assets.filter(r => r.asset),
+      ),
     })
     clearDraft()
     router.push('/service-contracts')
@@ -135,6 +152,7 @@ async function submit() {
         <div>
           <label for="sc-value" class="block text-sm font-medium text-gray-700 mb-1">Giá trị HĐ (VND)</label>
           <input id="sc-value" v-model="contractValueDisplay" type="text" inputmode="numeric" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-right focus:outline-none focus:ring-2 focus:ring-blue-400" placeholder="0" />
+          <p v-if="amountInWords" class="mt-1 text-xs text-gray-500 italic">Bằng chữ: {{ amountInWords }}</p>
         </div>
         <div>
           <label for="sc-sla" class="block text-sm font-medium text-gray-700 mb-1">SLA phản hồi (giờ)</label>
@@ -150,6 +168,47 @@ async function submit() {
       <div>
         <label for="sc-coverage" class="block text-sm font-medium text-gray-700 mb-1">Phạm vi dịch vụ</label>
         <textarea id="sc-coverage" v-model="form.coverage_description" rows="3" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"></textarea>
+      </div>
+
+      <div class="border-t border-gray-100 pt-5">
+        <div class="flex items-center justify-between mb-2">
+          <label class="block text-sm font-medium text-gray-700">Thiết bị thuộc hợp đồng</label>
+          <button
+            type="button"
+            class="text-sm px-3 py-1.5 border border-blue-300 text-blue-700 rounded-lg hover:bg-blue-50 font-medium"
+            @click="addAssetRow"
+          >+ Thêm thiết bị</button>
+        </div>
+
+        <p v-if="form.covered_assets.length === 0" class="text-sm text-gray-400 italic py-3">
+          Chưa có thiết bị nào — nhấn "Thêm thiết bị" để gắn thiết bị vào hợp đồng.
+        </p>
+
+        <div v-else class="space-y-2">
+          <div
+            v-for="(row, idx) in form.covered_assets"
+            :key="idx"
+            class="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-2 items-start"
+          >
+            <SmartSelect
+              v-model="row.asset"
+              doctype="AC Asset"
+              placeholder="Chọn thiết bị..."
+            />
+            <input
+              v-model="row.coverage_note"
+              type="text"
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+              placeholder="Ghi chú phạm vi (tùy chọn)"
+            />
+            <button
+              type="button"
+              class="px-3 py-2 text-sm border border-red-300 text-red-600 rounded-lg hover:bg-red-50"
+              title="Xóa dòng"
+              @click="removeAssetRow(idx)"
+            >Xóa</button>
+          </div>
+        </div>
       </div>
 
       <div>

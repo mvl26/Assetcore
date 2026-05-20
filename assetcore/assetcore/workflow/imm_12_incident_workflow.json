@@ -12,31 +12,31 @@
  "workflow_state_field": "workflow_state",
  "states": [
   {
-   "allow_edit": "IMM Biomed Technician",
+   "allow_edit": "Corrective User",
    "doc_status": "0",
    "state": "Open",
    "type": "Warning"
   },
   {
-   "allow_edit": "IMM Workshop Lead",
+   "allow_edit": "Corrective Manager",
    "doc_status": "0",
    "state": "Acknowledged",
    "type": "Warning"
   },
   {
-   "allow_edit": "IMM Biomed Technician",
+   "allow_edit": "Corrective User",
    "doc_status": "0",
    "state": "In Progress",
    "type": "Success"
   },
   {
-   "allow_edit": "IMM Biomed Technician",
+   "allow_edit": "Corrective User",
    "doc_status": "0",
    "state": "Resolved",
    "type": "Success"
   },
   {
-   "allow_edit": "IMM QA Officer",
+   "allow_edit": "Compliance Manager",
    "doc_status": "0",
    "state": "RCA Required",
    "type": "Warning"
@@ -57,7 +57,7 @@
  "transitions": [
   {
    "action": "Tiếp nhận sự cố",
-   "allowed": "IMM Workshop Lead",
+   "allowed": "Corrective Manager",
    "next_state": "Acknowledged",
    "state": "Open",
    "allow_self_approval": 1
@@ -71,7 +71,7 @@
   },
   {
    "action": "Bắt đầu xử lý",
-   "allowed": "IMM Biomed Technician",
+   "allowed": "Corrective User",
    "next_state": "In Progress",
    "state": "Acknowledged",
    "allow_self_approval": 1
@@ -85,7 +85,7 @@
   },
   {
    "action": "Đánh dấu đã giải quyết",
-   "allowed": "IMM Biomed Technician",
+   "allowed": "Corrective User",
    "next_state": "Resolved",
    "state": "In Progress",
    "allow_self_approval": 1
@@ -99,7 +99,7 @@
   },
   {
    "action": "Yêu cầu RCA",
-   "allowed": "IMM QA Officer",
+   "allowed": "Compliance Manager",
    "condition": "doc.severity in ('High', 'Critical') or doc.requires_rca == 1",
    "next_state": "RCA Required",
    "state": "Resolved",

@@ -2,12 +2,12 @@
 
 **Module:** IMM-16 — Compliance Monitoring & CAPA
 **Wave:** 2 — IMPLEMENTED
-**Ngày:** 2026-05-14
-**Status:** IMPLEMENTED — `assetcore/tests/test_imm16.py` (9 TestCase, 13 test method)
+**Ngày cập nhật:** 2026-05-18
+**Status:** IMPLEMENTED — `assetcore/tests/test_imm16.py` (11 TestCase, 25 test method)
 
 ---
 
-## §0 — Test Suite Inventory (CURRENT, 2026-05-14)
+## §0 — Test Suite Inventory (CURRENT, 2026-05-18)
 
 File: `assetcore/tests/test_imm16.py`
 
@@ -22,11 +22,22 @@ File: `assetcore/tests/test_imm16.py`
 | `TestAuditClose` | `test_close_audit_missing_planned_audit` | NOT_FOUND on missing audit |
 | `TestCapaWorkflow` | `test_advance_to_action_plan_requires_root_cause_method` | FIN-005 root cause method |
 | `TestCapaWorkflow` | `test_advance_to_action_plan_requires_future_due_date` | FIN-012 due-date future |
-| `TestEffectivenessCheck` | `test_not_effective_reopens_capa` | BR-16-06 Not Effective → Re-opened |
+| `TestEffectivenessCheck` | `test_not_effective_reopens_capa` | BR-16-06 Not Effective → Re-opened + reopen_count++ |
 | `TestScorecardPublish` | `test_publish_scorecard_without_prev_mr_fails` | FIN-010 prev quarter MR gate |
-| `TestCrossModuleGate` | `test_check_asset_compliance_returns_unblocked_for_empty` | BR-16-09 schema |
-| `TestCrossModuleGate` | `test_check_asset_compliance_returns_unblocked_for_clean_asset` | BR-16-09 keys |
+| `TestCrossModuleGate` | `test_check_asset_compliance_returns_unblocked_for_empty` | BR-16-09 empty asset |
+| `TestCrossModuleGate` | `test_check_asset_compliance_returns_unblocked_for_clean_asset` | BR-16-09 clean asset |
 | `TestDashboard` | `test_dashboard_stats_shape` | dashboard kpis/trend/recent schema |
+| `TestRecordHistory` | `test_history_validation` | ref_doctype + ref_name required |
+| `TestRecordHistory` | `test_history_shape` | items list + total |
+| `TestRecordHistory` | `test_confirm_finding_writes_audit_trail` | audit trail sau confirm_finding |
+| `TestRuleReactivate` | `test_deactivate_then_reactivate` | deactivate + reactivate round-trip |
+| `TestCapaFieldsAndGet` | `test_advance_to_action_plan_requires_root_cause_method` | (duplicate, xem note) |
+| `TestCapaFieldsAndGet` | `test_update_capa_fields_persists` | `update_capa_fields` EDITABLE fields |
+| `TestCapaFieldsAndGet` | `test_get_capa_not_found` | NOT_FOUND on missing CAPA |
+| `TestMRLifecycle` | `test_advance_draft_to_held` | Draft → Held transition |
+| `TestMRLifecycle` | `test_advance_invalid_transition_rejected` | INVALID_STATE on bad transition |
+| `TestMRLifecycle` | `test_update_management_review_content` | scalar fields + attendees update |
+| `TestMRLifecycle` | `test_finalize_requires_output_action` | VR: ≥1 output action required |
 
 Run:
 

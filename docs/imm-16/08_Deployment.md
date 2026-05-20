@@ -24,10 +24,11 @@
 - WO submit gate: `validate`: `gate_wo_submit` (IMM PM Work Order, IMM Repair Work Order)
 - Real-time eval: `eval_imm04_realtime`, `eval_imm05_realtime`, `eval_imm08_09_realtime`, `eval_imm11_realtime`
 
-`scheduler_events`:
-- hourly: `evaluate_all_compliance_rules`, `check_capa_due`, `check_audit_milestones`, `run_compliance_evaluation_hourly`
-- daily: `update_compliance_scorecard`
+`scheduler_events` (verified `assetcore/hooks.py` 2026-05-18):
+- hourly: `run_compliance_evaluation_hourly`
+- daily: `evaluate_all_compliance_rules`, `check_capa_due`, `check_audit_milestones`
 - weekly: `run_compliance_evaluation_weekly`, `check_management_review_due`
+- monthly: `update_compliance_scorecard`
 
 ### Fixtures (verified `assetcore/fixtures/`)
 
@@ -35,9 +36,11 @@
 - `workflow.json`, `workflow_state.json`, `workflow_action_master.json` — state machines Rule, Finding, CAPA, Internal Audit, Management Review, Scorecard
 - `role.json` — IMM QA Officer, IMM Auditor, IMM Management Reviewer
 
-### DocType folders (verified `assetcore/assetcore/doctype/`)
+### DocType folders (verified `assetcore/assetcore/doctype/` 2026-05-18)
 
-`imm_compliance_rule`, `imm_compliance_finding`, `imm_compliance_scorecard`, `imm_capa_record`, `imm_capa_action_step`, `imm_internal_audit`, `imm_supplier_audit`, `imm_audit_checklist_item`, `imm_management_review`, `imm_scorecard_module_row`, `imm_scorecard_department_row`, `imm_vendor_scorecard`, `audit_finding`, `scorecard_kpi_row`.
+`imm_compliance_rule`, `imm_compliance_finding`, `imm_compliance_scorecard`, `imm_capa_record`, `imm_capa_action_step`, `imm_internal_audit`, `imm_audit_checklist_item`, `imm_management_review`, `imm_audit_trail`.
+
+> Child DocTypes referenced trong JSON nhưng folder có thể nằm riêng: `IMM MR Attendee` (options trong `imm_management_review.attendees`), `IMM MR Output Action` (options trong `imm_management_review.output_actions`), `IMM Scorecard Module Row` (options trong `imm_compliance_scorecard.score_by_module`), `IMM Scorecard Department Row` (options trong `imm_compliance_scorecard.score_by_department`).
 
 ### Patches
 

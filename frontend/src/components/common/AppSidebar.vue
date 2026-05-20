@@ -387,7 +387,7 @@ function goLauncher() { router.push('/launcher') }
         </Transition>
       </button>
       <Transition name="fade-x">
-        <p v-if="!collapsed" class="text-[10.5px] text-slate-500 font-medium text-center mt-2">AssetCore v0.0.1</p>
+        <p v-if="!collapsed" class="text-[10.5px] text-slate-500 font-medium text-center mt-2">AssetCore v0.0.2</p>
       </Transition>
     </div>
   </aside>

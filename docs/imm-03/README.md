@@ -6,12 +6,12 @@
 | Wave | 2 — Live ✅ |
 | Trạng thái | ✅ Đã triển khai — BE + FE LIVE |
 | Số file | 8 template chuẩn (nguồn gốc đã archive) |
-| Cập nhật cuối | 2026-05-14 |
+| Cập nhật cuối | 2026-05-18 |
 | Khối kiến trúc | A. KHỐI 1 — Planning & Procurement |
 | Đợt triển khai | 2 |
 | Owner | PTP Khối 1 · Nhóm ĐT-HĐ-NCC |
 
-> ✅ Module LIVE — Wave 2. Backend (`assetcore/services/imm03.py` 496 LOC, `assetcore/api/imm03.py` 710 LOC) và Frontend (`frontend/src/views/procurement/{VendorProfile,VendorEval,Avl,Decision}*View.vue` + `stores/imm03.ts`, `api/imm03.ts`, `types/imm03.ts`) đã implement. Source docs cũ đã archive vào `docs/architecture/archive/imm-03/`.
+> ✅ Module LIVE — Wave 2. Backend (`assetcore/services/imm03.py` 559 LOC, `assetcore/api/imm03.py` 730 LOC) và Frontend (`frontend/src/views/procurement/{VendorProfile,VendorEval,Avl,Decision}*View.vue` + `stores/imm03.ts`, `api/imm03.ts`, `types/imm03.ts`) đã implement. Source docs cũ đã archive vào `docs/architecture/archive/imm-03/`.
 
 ## Map cũ → Template chuẩn
 
@@ -57,4 +57,4 @@ Files nguồn gốc đã được move sang `docs/architecture/archive/imm-03/`:
 
 ---
 
-*Module IMM-03 — Wave 2 LIVE. Cập nhật 2026-05-14.*
+*Module IMM-03 — Wave 2 LIVE. Cập nhật 2026-05-18.*

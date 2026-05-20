@@ -13,7 +13,8 @@ from assetcore.utils.lifecycle import (
     verify_audit_chain as _verify_audit_chain,
 )
 from assetcore.utils.email import get_role_emails, safe_sendmail
-from assetcore.services.shared import AssetStatus, Roles
+from assetcore.services.shared import AssetStatus
+from assetcore.services.shared import rbac
 
 
 _DOCTYPE_ASSET = "AC Asset"
@@ -37,8 +38,8 @@ _DOWNTIME_REASON_MAP = {
 }
 _DT_DOWNTIME_LOG = "AC Asset Downtime Log"
 
-_ROLE_DEPT_HEAD  = Roles.DEPT_HEAD
-_ROLE_OPS_MANAGER = Roles.OPS_MANAGER
+_ROLE_DEPT_HEAD  = "Commissioning Manager"
+_ROLE_OPS_MANAGER = "Commissioning Manager"
 
 # ────────────────────────────────────────────
 # Asset Lifecycle State Machine (BR-00-02)
@@ -220,61 +221,6 @@ def _suspend_all_schedules(asset_name: str) -> None:
     })
 
 
-_GMDN_STATUS_ACTIVE = "In Use"
-_GMDN_STATUS_INACTIVE = "Not Use"
-_GMDN_BLOCKED_LIFECYCLE = (_STATUS_OUT_OF_SERVICE, _STATUS_DECOMMISSIONED)
-
-
-def update_gmdn_status(asset_name: str, gmdn_status: str, reason: str) -> dict:
-    """Cập nhật GMDN Status cho AC Asset. BR-00-11, BR-00-12."""
-    if gmdn_status not in (_GMDN_STATUS_ACTIVE, _GMDN_STATUS_INACTIVE):
-        frappe.throw(_("GMDN Status không hợp lệ"))
-    if not reason or len(reason.strip()) < 5:
-        frappe.throw(_("Lý do thay đổi tối thiểu 5 ký tự"))
-
-    if not frappe.db.exists(_DOCTYPE_ASSET, asset_name):
-        frappe.throw(_("Không tìm thấy thiết bị"))
-
-    data = frappe.db.get_value(
-        _DOCTYPE_ASSET, asset_name,
-        ["gmdn_status", "lifecycle_status"], as_dict=True,
-    )
-    old_status = data.gmdn_status or _GMDN_STATUS_ACTIVE
-    lifecycle = data.lifecycle_status or ""
-
-    if gmdn_status == _GMDN_STATUS_ACTIVE and lifecycle in _GMDN_BLOCKED_LIFECYCLE:
-        frappe.throw(_("Không thể kích hoạt GMDN khi thiết bị ở trạng thái '{0}'").format(lifecycle))
-
-    if old_status == gmdn_status:
-        frappe.throw(_("GMDN Status đã là '{0}'").format(gmdn_status))
-
-    frappe.db.set_value(_DOCTYPE_ASSET, asset_name, "gmdn_status", gmdn_status)
-
-    log_audit_event(
-        asset=asset_name,
-        event_type="State Change",
-        actor=frappe.session.user,
-        ref_doctype=_DOCTYPE_ASSET,
-        ref_name=asset_name,
-        change_summary=f"GMDN: {old_status} → {gmdn_status}. Lý do: {reason}",
-        from_status=old_status,
-        to_status=gmdn_status,
-    )
-
-    return {"name": asset_name, "gmdn_status": gmdn_status, "previous": old_status}
-
-
-def toggle_gmdn_status_via_qr(asset_name: str) -> dict:
-    """Toggle GMDN Status qua QR scan. Default reason = 'Quét QR @ <timestamp>'."""
-    if not frappe.db.exists(_DOCTYPE_ASSET, asset_name):
-        frappe.throw(_("Không tìm thấy thiết bị"))
-    current = frappe.db.get_value(_DOCTYPE_ASSET, asset_name, "gmdn_status") or _GMDN_STATUS_INACTIVE
-    target = _GMDN_STATUS_ACTIVE if current == _GMDN_STATUS_INACTIVE else _GMDN_STATUS_INACTIVE
-    from frappe.utils import now
-    reason = f"Quét QR lúc {now()}"
-    return update_gmdn_status(asset_name, target, reason)
-
-
 def validate_asset_for_operations(asset_name: str) -> None:
     """BR-00-05: Out of Service / Decommissioned -> block tao Work Order."""
     status = frappe.db.get_value(_DOCTYPE_ASSET, asset_name, "lifecycle_status")
@@ -382,7 +328,7 @@ def check_capa_overdue() -> None:
         f"UPDATE `tabIMM CAPA Record` SET status = 'Overdue' WHERE name IN ({', '.join(['%s'] * len(names))})",
         names,
     )
-    recipients = set(get_role_emails([Roles.QA]))
+    recipients = set(get_role_emails(["Compliance Manager"]))
     recipients.update([r.responsible for r in rows if r.responsible])
     recipients.discard("")
     if recipients:
@@ -433,7 +379,7 @@ def check_registration_expiry() -> None:
 
 
 _DT_TRANSFER = "Asset Transfer"
-_TRANSFER_ROLES_APPROVE = {Roles.DEPT_HEAD, Roles.OPS_MANAGER, Roles.SYS_ADMIN}
+_TRANSFER_APPROVE_CAP = "commissioning.submit"
 _ERR_TRANSFER_NOT_FOUND = "Phiếu luân chuyển '{0}' không tồn tại"
 _TRANSFER_STATUS_PENDING   = "Pending Approval"
 _TRANSFER_STATUS_APPROVED  = "Approved"
@@ -494,9 +440,7 @@ def approve_transfer_request(name: str) -> dict:
     if not frappe.db.exists(_DT_TRANSFER, name):
         frappe.throw(_(_ERR_TRANSFER_NOT_FOUND).format(name))
 
-    roles = set(frappe.get_roles(frappe.session.user))
-    if not _TRANSFER_ROLES_APPROVE.intersection(roles):
-        frappe.throw(_("Chỉ Trưởng khoa / Quản lý vận hành mới được phê duyệt luân chuyển"))
+    rbac.require(_TRANSFER_APPROVE_CAP)
 
     doc = frappe.get_doc(_DT_TRANSFER, name)
     if doc.status != _TRANSFER_STATUS_PENDING:
@@ -527,9 +471,7 @@ def reject_transfer_request(name: str, rejection_reason: str) -> dict:
     if not frappe.db.exists(_DT_TRANSFER, name):
         frappe.throw(_(_ERR_TRANSFER_NOT_FOUND).format(name))
 
-    roles = set(frappe.get_roles(frappe.session.user))
-    if not _TRANSFER_ROLES_APPROVE.intersection(roles):
-        frappe.throw(_("Chỉ Trưởng khoa / Quản lý vận hành mới được từ chối luân chuyển"))
+    rbac.require(_TRANSFER_APPROVE_CAP)
 
     if not rejection_reason or len(rejection_reason.strip()) < 5:
         frappe.throw(_("Lý do từ chối là bắt buộc (tối thiểu 5 ký tự)"))
@@ -605,7 +547,7 @@ def cancel_transfer_request(name: str) -> dict:
 
 def _notify_transfer_approvers(doc: "frappe.model.document.Document") -> None:
     """Email các approver (Department Head / Ops Manager / System Admin) khi có yêu cầu luân chuyển mới."""
-    recipients = get_role_emails(list(_TRANSFER_ROLES_APPROVE))
+    recipients = get_role_emails(["Commissioning Manager"])
     if not recipients:
         return
     asset_name = frappe.db.get_value(_DOCTYPE_ASSET, doc.asset, "asset_name") or doc.asset
@@ -787,3 +729,87 @@ def rollup_asset_kpi() -> None:
         downtime_days = (r.total_downtime_h or 0) / 24.0
         uptime_pct = round(max(0, (days_in_month - downtime_days) / days_in_month * 100), 2)
         frappe.db.set_value(_DOCTYPE_ASSET, r.asset_ref, "uptime_pct", uptime_pct)
+
+
+# ──────────────────────────────────────────────
+# GMDN P3 Hybrid — Category → Model → Asset cascade
+# Ref: docs/res/plans/2026-05-19-gmdn-code-sync-strategy.md §5/§6 (C4/C5)
+# ──────────────────────────────────────────────
+_DOCTYPE_DEVICE_MODEL = "IMM Device Model"
+
+
+def resync_assets_gmdn_from_model(model_name: str, new_code: str) -> int:
+    """C5 — Re-sync gmdn_code của mọi AC Asset thuộc `model_name` về `new_code`.
+
+    Tái dùng cho cả manual realign lẫn cascade. Mỗi Asset thực sự đổi giá trị
+    được ghi 1 dòng IMM Audit Trail (asset = chính nó), KHÔNG đổi
+    lifecycle_status (gmdn_code là data field thường — KHÔNG dùng
+    transition_asset_status). Idempotent: Asset đã đúng giá trị → bỏ qua.
+
+    Returns: số Asset thực sự được cập nhật.
+    """
+    assets = frappe.get_all(
+        _DOCTYPE_ASSET,
+        filters={"device_model": model_name},
+        fields=["name", "gmdn_code"],
+    )
+    changed = 0
+    for a in assets:
+        old = a.get("gmdn_code") or ""
+        if old == (new_code or ""):
+            continue
+        frappe.db.set_value(_DOCTYPE_ASSET, a["name"], "gmdn_code", new_code)
+        _log_audit_event(
+            asset=a["name"],
+            event_type="System",
+            ref_doctype=_DOCTYPE_DEVICE_MODEL,
+            ref_name=model_name,
+            change_summary=f"GMDN cascade: gmdn_code {old or '(rỗng)'} → {new_code or '(rỗng)'} (đồng bộ từ Danh mục qua Model)",
+        )
+        changed += 1
+    return changed
+
+
+def cascade_category_gmdn(category_name: str, old_code: str, new_code: str) -> dict:
+    """C4 — Lan truyền gmdn_code của AC Asset Category xuống Model + Asset.
+
+    Chính sách P3 Hybrid:
+      - CHỈ cascade tới Model có gmdn_inherited = 1 (kế thừa).
+      - Model gmdn_inherited = 0 (override cố ý) → BỎ QUA (giữ nguyên).
+      - Mỗi Model được cascade → re-sync Asset của Model đó + audit.
+
+    Idempotent: chỉ ghi audit khi giá trị thực sự đổi. Listener gọi hàm này
+    KHÔNG save lại Category (tránh đệ quy vô hạn).
+
+    Returns: {"models": [...], "assets_changed": int, "skipped_overrides": [...]}
+    """
+    inherited = frappe.get_all(
+        _DOCTYPE_DEVICE_MODEL,
+        filters={"asset_category": category_name, "gmdn_inherited": 1},
+        fields=["name", "gmdn_code"],
+    )
+    skipped = frappe.get_all(
+        _DOCTYPE_DEVICE_MODEL,
+        filters={"asset_category": category_name, "gmdn_inherited": 0},
+        pluck="name",
+    )
+    cascaded_models: list[str] = []
+    assets_changed = 0
+    for m in inherited:
+        m_old = m.get("gmdn_code") or ""
+        if m_old != (new_code or ""):
+            frappe.db.set_value(_DOCTYPE_DEVICE_MODEL, m["name"], "gmdn_code", new_code)
+            cascaded_models.append(m["name"])
+        assets_changed += resync_assets_gmdn_from_model(m["name"], new_code)
+
+    if skipped:
+        frappe.logger("assetcore").info(
+            "GMDN cascade %s (%s→%s): bỏ qua %d Model override: %s",
+            category_name, old_code or "(rỗng)", new_code or "(rỗng)",
+            len(skipped), ", ".join(skipped),
+        )
+    return {
+        "models": cascaded_models,
+        "assets_changed": assets_changed,
+        "skipped_overrides": skipped,
+    }

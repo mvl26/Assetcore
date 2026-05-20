@@ -41,16 +41,16 @@ REAL_MEDICAL_ASSETS = [
 
 # Metadata bổ sung cho từng mục catalog — map theo asset_name
 REAL_ASSET_META = {
-    "Máy X-Quang kỹ thuật số (DR)":          {"category": "Chẩn đoán hình ảnh",   "class": "Class III", "risk": "High",     "gmdn": "35910", "emdn": "Z110301", "is_rad": 1, "pm_days": 180, "cal_days": 365, "power": "220VAC, 50Hz, 80kW",   "country": "Hoa Kỳ",   "lifespan": 10, "price":  2_850_000_000, "code_prefix": "XR"},
-    "Máy CT Scanner 128 lát cắt":             {"category": "Chẩn đoán hình ảnh",   "class": "Class III", "risk": "High",     "gmdn": "40890", "emdn": "Z110401", "is_rad": 1, "pm_days": 365, "cal_days": 365, "power": "380VAC 3-phase, 50Hz", "country": "Đức",      "lifespan": 12, "price": 12_500_000_000, "code_prefix": "CT"},
-    "Máy siêu âm Doppler màu 4D":             {"category": "Chẩn đoán hình ảnh",   "class": "Class II",  "risk": "Low",      "gmdn": "40231", "emdn": "Z110305", "is_rad": 0, "pm_days": 365, "cal_days": 365, "power": "100-240VAC, 50-60Hz",  "country": "Hoa Kỳ",   "lifespan": 10, "price":    580_000_000, "code_prefix": "US"},
-    "Máy thở chức năng cao":                  {"category": "Hồi sức - Cấp cứu",    "class": "Class II",  "risk": "Critical", "gmdn": "36263", "emdn": "R0301010101", "is_rad": 0, "pm_days": 90, "cal_days": 180, "power": "100-240VAC + Pin 4h", "country": "Hoa Kỳ", "lifespan":  8, "price":    425_000_000, "code_prefix": "VNT"},
-    "Monitor theo dõi bệnh nhân 5 thông số":  {"category": "Theo dõi bệnh nhân",   "class": "Class II",  "risk": "Medium",   "gmdn": "37825", "emdn": "Z12030101", "is_rad": 0, "pm_days": 180, "cal_days": 365, "power": "100-240VAC, 50-60Hz", "country": "Trung Quốc","lifespan":  8, "price":    185_000_000, "code_prefix": "MON"},
-    "Hệ thống phẫu thuật nội soi":            {"category": "Phẫu thuật - Gây mê", "class": "Class II",  "risk": "High",     "gmdn": "38120", "emdn": "R0302010101", "is_rad": 0, "pm_days": 180, "cal_days": 365, "power": "220VAC, 50Hz",        "country": "Nhật Bản",  "lifespan": 10, "price":  1_850_000_000, "code_prefix": "ENDO"},
-    "Máy xét nghiệm sinh hóa tự động":        {"category": "Xét nghiệm",           "class": "Class I",   "risk": "Low",      "gmdn": "40568", "emdn": "W0105",    "is_rad": 0, "pm_days": 180, "cal_days": 365, "power": "220VAC, 50Hz",         "country": "Thụy Sĩ",  "lifespan":  8, "price":  3_200_000_000, "code_prefix": "LAB"},
-    "Máy điện tim 12 chuyển đạo":             {"category": "Theo dõi bệnh nhân",   "class": "Class II",  "risk": "Medium",   "gmdn": "17882", "emdn": "Z12030201", "is_rad": 0, "pm_days": 365, "cal_days": 365, "power": "100-240VAC + Pin",    "country": "Hoa Kỳ",   "lifespan":  8, "price":     95_000_000, "code_prefix": "ECG"},
-    "Bơm tiêm điện":                          {"category": "Bơm tiêm - Truyền dịch","class": "Class II","risk": "Medium",   "gmdn": "13287", "emdn": "Z120601",  "is_rad": 0, "pm_days": 365, "cal_days": 365, "power": "100-240VAC + Pin Li-Ion","country": "Đức",   "lifespan":  7, "price":     38_000_000, "code_prefix": "PUMP"},
-    "Máy lọc máu liên tục (CRRT)":            {"category": "Hồi sức - Cấp cứu",    "class": "Class III", "risk": "Critical", "gmdn": "35260", "emdn": "R0303020101","is_rad": 0, "pm_days": 180, "cal_days": 180, "power": "220VAC + Pin dự phòng","country": "Hoa Kỳ",  "lifespan":  8, "price":  1_450_000_000, "code_prefix": "CRRT"},
+    "Máy X-Quang kỹ thuật số (DR)":          {"category": "Chẩn đoán hình ảnh",   "class": "Class III", "risk": "High",     "gmdn": "35910", "is_rad": 1, "pm_days": 180, "cal_days": 365, "power": "220VAC, 50Hz, 80kW",   "country": "Hoa Kỳ",   "lifespan": 10, "price":  2_850_000_000, "code_prefix": "XR"},
+    "Máy CT Scanner 128 lát cắt":             {"category": "Chẩn đoán hình ảnh",   "class": "Class III", "risk": "High",     "gmdn": "40890", "is_rad": 1, "pm_days": 365, "cal_days": 365, "power": "380VAC 3-phase, 50Hz", "country": "Đức",      "lifespan": 12, "price": 12_500_000_000, "code_prefix": "CT"},
+    "Máy siêu âm Doppler màu 4D":             {"category": "Chẩn đoán hình ảnh",   "class": "Class II",  "risk": "Low",      "gmdn": "40231", "is_rad": 0, "pm_days": 365, "cal_days": 365, "power": "100-240VAC, 50-60Hz",  "country": "Hoa Kỳ",   "lifespan": 10, "price":    580_000_000, "code_prefix": "US"},
+    "Máy thở chức năng cao":                  {"category": "Hồi sức - Cấp cứu",    "class": "Class II",  "risk": "Critical", "gmdn": "36263", "is_rad": 0, "pm_days": 90, "cal_days": 180, "power": "100-240VAC + Pin 4h", "country": "Hoa Kỳ", "lifespan":  8, "price":    425_000_000, "code_prefix": "VNT"},
+    "Monitor theo dõi bệnh nhân 5 thông số":  {"category": "Theo dõi bệnh nhân",   "class": "Class II",  "risk": "Medium",   "gmdn": "37825", "is_rad": 0, "pm_days": 180, "cal_days": 365, "power": "100-240VAC, 50-60Hz", "country": "Trung Quốc","lifespan":  8, "price":    185_000_000, "code_prefix": "MON"},
+    "Hệ thống phẫu thuật nội soi":            {"category": "Phẫu thuật - Gây mê", "class": "Class II",  "risk": "High",     "gmdn": "38120", "is_rad": 0, "pm_days": 180, "cal_days": 365, "power": "220VAC, 50Hz",        "country": "Nhật Bản",  "lifespan": 10, "price":  1_850_000_000, "code_prefix": "ENDO"},
+    "Máy xét nghiệm sinh hóa tự động":        {"category": "Xét nghiệm",           "class": "Class I",   "risk": "Low",      "gmdn": "40568", "is_rad": 0, "pm_days": 180, "cal_days": 365, "power": "220VAC, 50Hz",         "country": "Thụy Sĩ",  "lifespan":  8, "price":  3_200_000_000, "code_prefix": "LAB"},
+    "Máy điện tim 12 chuyển đạo":             {"category": "Theo dõi bệnh nhân",   "class": "Class II",  "risk": "Medium",   "gmdn": "17882", "is_rad": 0, "pm_days": 365, "cal_days": 365, "power": "100-240VAC + Pin",    "country": "Hoa Kỳ",   "lifespan":  8, "price":     95_000_000, "code_prefix": "ECG"},
+    "Bơm tiêm điện":                          {"category": "Bơm tiêm - Truyền dịch","class": "Class II","risk": "Medium",   "gmdn": "13287", "is_rad": 0, "pm_days": 365, "cal_days": 365, "power": "100-240VAC + Pin Li-Ion","country": "Đức",   "lifespan":  7, "price":     38_000_000, "code_prefix": "PUMP"},
+    "Máy lọc máu liên tục (CRRT)":            {"category": "Hồi sức - Cấp cứu",    "class": "Class III", "risk": "Critical", "gmdn": "35260", "is_rad": 0, "pm_days": 180, "cal_days": 180, "power": "220VAC + Pin dự phòng","country": "Hoa Kỳ",  "lifespan":  8, "price":  1_450_000_000, "code_prefix": "CRRT"},
 }
 
 # Manufacturer → full supplier info (đã tạo ở seed_uat.py/patch_uat_data.py)
@@ -166,7 +166,7 @@ def _ensure_device_model(catalog_entry: dict, meta: dict, category: str | None) 
         name = existing if isinstance(existing, str) else existing[0]
         # Đảm bảo metadata đầy đủ
         updates = {
-            "gmdn_code": meta["gmdn"], "emdn_code": meta["emdn"],
+            "gmdn_code": meta["gmdn"],
             "medical_device_class": meta["class"], "risk_classification": meta["risk"],
             "country_of_origin": meta["country"], "power_supply": meta["power"],
             "expected_lifespan_years": meta["lifespan"], "pm_interval_days": meta["pm_days"],
@@ -182,7 +182,7 @@ def _ensure_device_model(catalog_entry: dict, meta: dict, category: str | None) 
         "doctype": "IMM Device Model", "model_name": model_name, "manufacturer": mfg,
         "model_version": "v1.0", "country_of_origin": meta["country"], "power_supply": meta["power"],
         "expected_lifespan_years": meta["lifespan"], "medical_device_class": meta["class"],
-        "risk_classification": meta["risk"], "gmdn_code": meta["gmdn"], "emdn_code": meta["emdn"],
+        "risk_classification": meta["risk"], "gmdn_code": meta["gmdn"],
         "registration_required": 1, "is_radiation_device": meta["is_rad"],
         "is_pm_required": 1, "pm_interval_days": meta["pm_days"], "pm_alert_days": 14,
         "is_calibration_required": 1, "calibration_interval_days": meta["cal_days"],

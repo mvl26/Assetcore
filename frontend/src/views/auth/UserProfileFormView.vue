@@ -5,7 +5,7 @@ import { useAuthStore } from '@/stores/auth'
 import SmartSelect from '@/components/common/SmartSelect.vue'
 import {
   getUserInfo, updateUserInfo, createSystemUser, approveRegistration,
-  getAvailableImmRoles,
+  getAvailableImmRoles, resetUserPassword,
   listRoleProfiles, assignRoleProfile,
 } from '@/api/user'
 import type {
@@ -23,6 +23,28 @@ const saving = ref(false)
 const loading = ref(false)
 const error = ref('')
 const success = ref('')
+
+// ── Reset password (admin only) ────────────────────────────────────────────
+const resetPwd = ref('')
+const resettingPwd = ref(false)
+const resetError = ref('')
+const resetSuccess = ref('')
+
+async function doResetPassword() {
+  if (!props.user) return
+  if (resetPwd.value.length < 10) {
+    resetError.value = 'Mật khẩu phải tối thiểu 10 ký tự'
+    return
+  }
+  resettingPwd.value = true; resetError.value = ''; resetSuccess.value = ''
+  try {
+    await resetUserPassword(props.user, resetPwd.value)
+    resetSuccess.value = 'Đặt lại mật khẩu thành công.'
+    resetPwd.value = ''
+  } catch (e: unknown) {
+    resetError.value = e instanceof Error ? e.message : 'Lỗi đặt lại mật khẩu'
+  } finally { resettingPwd.value = false }
+}
 const detail = ref<IMMUser | null>(null)
 const availableRoles = ref<ImmRoleOption[]>([])
 const roleProfiles = ref<RoleProfileOption[]>([])
@@ -293,13 +315,13 @@ id="new-last-name" v-model="newUser.last_name" type="text" placeholder="A"
           <div>
             <label for="new-password" class="block text-xs font-medium text-gray-600 mb-1">Mật khẩu ban đầu</label>
             <input
-id="new-password" v-model="newUser.password" type="password" placeholder="Tối thiểu 8 ký tự (để trống = auto-generate)"
-              minlength="8" autocomplete="new-password"
+id="new-password" v-model="newUser.password" type="password" placeholder="Tối thiểu 10 ký tự (để trống = auto-generate)"
+              minlength="10" autocomplete="new-password"
               class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
             <div class="mt-1.5 text-[11px] text-gray-500 leading-snug space-y-0.5">
               <p class="font-medium text-gray-600">Hướng dẫn tạo mật khẩu an toàn:</p>
               <ul class="list-disc list-inside space-y-0.5 pl-1">
-                <li>Tối thiểu <b>8 ký tự</b> (khuyến nghị ≥ 12)</li>
+                <li>Tối thiểu <b>10 ký tự</b> (khuyến nghị ≥ 12)</li>
                 <li>Kết hợp <b>chữ hoa, chữ thường, số</b> và <b>ký tự đặc biệt</b> (@, #, !, %, …)</li>
                 <li>Không dùng email, họ tên, ngày sinh hoặc mật khẩu phổ biến (<i>123456</i>, <i>password</i>…)</li>
                 <li>Người dùng sẽ được yêu cầu đổi lại trong lần đăng nhập đầu tiên</li>
@@ -475,6 +497,31 @@ id="edit-phone" v-model="editFields.phone" type="text" placeholder="0901234567"
               </label>
             </div>
           </div>
+        </div>
+
+        <!-- Đặt lại mật khẩu — admin only, không áp dụng cho chính mình -->
+        <div v-if="auth.isSystemAdmin && !isSelf" class="bg-white rounded-xl border border-orange-200 p-5 space-y-3">
+          <h2 class="text-sm font-semibold text-orange-800 uppercase tracking-wide">Đặt lại mật khẩu</h2>
+          <div class="flex items-stretch gap-2">
+            <input
+              v-model="resetPwd"
+              type="password"
+              placeholder="Mật khẩu mới (tối thiểu 10 ký tự)"
+              minlength="10"
+              autocomplete="new-password"
+              class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+            />
+            <button
+              type="button"
+              :disabled="resettingPwd || resetPwd.length < 10"
+              class="bg-orange-500 hover:bg-orange-600 disabled:opacity-40 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap"
+              @click="doResetPassword"
+            >
+              {{ resettingPwd ? 'Đang lưu...' : 'Đặt lại' }}
+            </button>
+          </div>
+          <p v-if="resetError" class="text-xs text-red-600">{{ resetError }}</p>
+          <p v-if="resetSuccess" class="text-xs text-green-600">{{ resetSuccess }}</p>
         </div>
 
         <div class="flex gap-3">

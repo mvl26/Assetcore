@@ -18,37 +18,37 @@
    "type": "Warning"
   },
   {
-   "allow_edit": "IMM Biomed Technician",
+   "allow_edit": "PM User",
    "doc_status": "0",
    "state": "Commissioned",
    "type": "Primary"
   },
   {
-   "allow_edit": "IMM Biomed Technician",
+   "allow_edit": "PM User",
    "doc_status": "0",
    "state": "Active",
    "type": "Success"
   },
   {
-   "allow_edit": "IMM Technician",
+   "allow_edit": "PM User",
    "doc_status": "0",
    "state": "Under Maintenance",
    "type": "Warning"
   },
   {
-   "allow_edit": "IMM Technician",
+   "allow_edit": "PM User",
    "doc_status": "0",
    "state": "Under Repair",
    "type": "Warning"
   },
   {
-   "allow_edit": "IMM Technician",
+   "allow_edit": "PM User",
    "doc_status": "0",
    "state": "Calibrating",
    "type": "Warning"
   },
   {
-   "allow_edit": "IMM Workshop Lead",
+   "allow_edit": "PM Manager",
    "doc_status": "0",
    "state": "Out of Service",
    "type": "Danger"
@@ -63,98 +63,98 @@
  "transitions": [
   {
    "action": "Commission",
-   "allowed": "IMM Biomed Technician",
+   "allowed": "PM User",
    "next_state": "Commissioned",
    "state": "Draft",
    "allow_self_approval": 1
   },
   {
    "action": "Activate",
-   "allowed": "IMM Biomed Technician",
+   "allowed": "PM User",
    "next_state": "Active",
    "state": "Commissioned",
    "allow_self_approval": 1
   },
   {
    "action": "Bắt đầu bảo trì",
-   "allowed": "IMM Technician",
+   "allowed": "PM User",
    "next_state": "Under Maintenance",
    "state": "Active",
    "allow_self_approval": 1
   },
   {
    "action": "Hoàn thành bảo trì",
-   "allowed": "IMM Technician",
+   "allowed": "PM User",
    "next_state": "Active",
    "state": "Under Maintenance",
    "allow_self_approval": 1
   },
   {
    "action": "Bắt đầu sửa chữa",
-   "allowed": "IMM Technician",
+   "allowed": "PM User",
    "next_state": "Under Repair",
    "state": "Active",
    "allow_self_approval": 1
   },
   {
    "action": "Bắt đầu sửa chữa",
-   "allowed": "IMM Technician",
+   "allowed": "PM User",
    "next_state": "Under Repair",
    "state": "Under Maintenance",
    "allow_self_approval": 1
   },
   {
    "action": "Bắt đầu hiệu chuẩn",
-   "allowed": "IMM Technician",
+   "allowed": "PM User",
    "next_state": "Calibrating",
    "state": "Active",
    "allow_self_approval": 1
   },
   {
    "action": "Đưa ra khỏi sử dụng",
-   "allowed": "IMM Workshop Lead",
+   "allowed": "PM Manager",
    "next_state": "Out of Service",
    "state": "Active",
    "allow_self_approval": 1
   },
   {
    "action": "Hoàn thành sửa chữa",
-   "allowed": "IMM Technician",
+   "allowed": "PM User",
    "next_state": "Active",
    "state": "Under Repair",
    "allow_self_approval": 1
   },
   {
    "action": "Không thể sửa chữa",
-   "allowed": "IMM Workshop Lead",
+   "allowed": "PM Manager",
    "next_state": "Out of Service",
    "state": "Under Repair",
    "allow_self_approval": 1
   },
   {
    "action": "Hiệu chuẩn đạt",
-   "allowed": "IMM Technician",
+   "allowed": "PM User",
    "next_state": "Active",
    "state": "Calibrating",
    "allow_self_approval": 1
   },
   {
    "action": "Hiệu chuẩn không đạt",
-   "allowed": "IMM Workshop Lead",
+   "allowed": "PM Manager",
    "next_state": "Out of Service",
    "state": "Calibrating",
    "allow_self_approval": 1
   },
   {
    "action": "Khôi phục hoạt động",
-   "allowed": "IMM Workshop Lead",
+   "allowed": "PM Manager",
    "next_state": "Active",
    "state": "Out of Service",
    "allow_self_approval": 1
   },
   {
    "action": "Sửa chữa lại",
-   "allowed": "IMM Technician",
+   "allowed": "PM User",
    "next_state": "Under Repair",
    "state": "Out of Service",
    "allow_self_approval": 1

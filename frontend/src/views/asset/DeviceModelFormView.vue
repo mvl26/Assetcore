@@ -25,8 +25,6 @@ const form = ref<Partial<ImmDeviceModel> & Record<string, unknown>>({
   medical_device_class: 'Class II',
   risk_classification: 'Medium',
   gmdn_code: '',
-  emdn_code: '',
-  hsn_code: '',
   registration_required: 1,
   is_radiation_device: 0,
   is_pm_required: 1,
@@ -270,14 +268,6 @@ onMounted(load)
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">GMDN Code</label>
           <input v-model="form.gmdn_code" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
-        </div>
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">EMDN Code</label>
-          <input v-model="form.emdn_code" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
-        </div>
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">HSN Code</label>
-          <input v-model="form.hsn_code" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
         </div>
       </div>
 
