@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="module-id" content="cm">
+<title>Tạo lệnh sửa chữa — AssetCore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+<script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <a class="brand" style="color:inherit;text-decoration:none" href="#">
+      <span class="logo">A</span>
+      <div>AssetCore <small>IMMIS · BV Nhi Đồng 1</small></div>
+    </a>
+    <div class="spacer"></div>
+    <button class="iconbtn" title="Thông báo"><iconify-icon icon="heroicons:bell" style="font-size:18px;vertical-align:-3px;color:#fff"></iconify-icon></button>
+    <div class="persona-pill" title="Chọn vai trò"></div>
+    <div id="personaMenu" class="persona-menu"></div>
+  </div>
+  <div class="body-wrap">
+    <aside class="sidebar">
+      <div class="side-head"><span></span></div>
+      <nav></nav>
+      <div class="side-foot">AssetCore v0.0.2 · Wave 1+2</div>
+    </aside>
+    <main class="main">
+      <div class="breadcrumb"><a href="../index.html">Trang chủ</a> <span class="sep">›</span><a href="repair-list.html">Sửa chữa (CM)</a> <span class="sep">›</span><span>Tạo mới</span></div>
+      <div class="page">
+        <div class="page-head">
+  <div class="titles">
+    <a href="repair-list.html" class="btn btn-ghost btn-sm" style="margin-bottom:8px">← Quay lại</a>
+    <h1>Tạo lệnh sửa chữa mới</h1>
+    <div class="sub">Bước 1 / 3 · Chọn nguồn yêu cầu và thiết bị</div>
+  </div>
+
+</div><div class="card">
+  <div class="card-pad">
+    <div style="margin-bottom:20px">
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+        <span style="width:28px;height:28px;border-radius:50%;background:var(--color-primary-500);color:#fff;display:grid;place-items:center;font-weight:700">1</span>
+        <b>Nguồn yêu cầu sửa chữa</b>
+        <span class="text-xs muted">(bắt buộc — không tạo CM WO trực tiếp, phải có nguồn)</span>
+      </div>
+      </div></div></div><div class="grid g3" style="gap:10px;margin-top:12px">
+        <label style="padding:14px;border:2px solid var(--color-primary-500);background:var(--color-primary-50);border-radius:8px;cursor:pointer;display:block">
+          <input type="radio" name="src" checked> <b>Từ sự cố thiết bị</b>
+          <div class="text-xs muted" style="margin-left:22px">Liên kết Incident Report (IMM-12). Yêu cầu mặc định cho mọi CM.</div>
+        </label>
+        <label style="padding:14px;border:1px solid var(--color-neutral-300);border-radius:8px;cursor:pointer;display:block">
+          <input type="radio" name="src"> <b>Từ PM dừng giữa chừng</b>
+          <div class="text-xs muted" style="margin-left:22px">PM phát hiện hỏng nặng → halt + tạo CM.</div>
+        </label>
+        <label style="padding:14px;border:1px solid var(--color-neutral-300);border-radius:8px;cursor:pointer;display:block">
+          <input type="radio" name="src"> <b>Dự đoán (Predictive)</b>
+          <div class="text-xs muted" style="margin-left:22px">Dựa trên cảnh báo chronic failure.</div>
+        </label>
+      </div>
+    </div>
+
+    <div class="form-grid g2-form">
+      <div class="field">
+        <label class="fld">Sự cố nguồn <span class="req">*</span></label>
+        <select class="select">
+          <option>— Chọn sự cố mở —</option>
+          <option selected>INC-2026-00077 — Lồng ấp sơ sinh Atom (Critical)</option>
+          <option>INC-2026-00075 — Bơm tiêm điện Terumo (Major)</option>
+          <option>INC-2026-00078 — Máy điện tim Nihon Kohden (Medium)</option>
+        </select>
+        <div class="help">Sự cố chưa có CM WO + đang ở trạng thái Acknowledged/In Progress</div>
+      </div>
+      <div class="field">
+        <label class="fld">Thiết bị (tự điền từ sự cố)</label>
+        <input class="input" value="Lồng ấp sơ sinh Atom Incu i — Sơ sinh P.1" disabled>
+        <div class="help">Chỉ đọc · Risk class: <span class="badge b-critical">Class C</span></div>
+      </div>
+    </div>
+
+    <div class="form-grid g2-form" style="margin-top:14px">
+      <div class="field">
+        <label class="fld">Loại sửa chữa <span class="req">*</span></label>
+        <select class="select">
+          <option>Sửa chữa lỗi điện tử</option>
+          <option>Sửa chữa cơ khí</option>
+          <option>Thay phụ tùng định kỳ</option>
+          <option>Sửa lỗi firmware (cần Firmware Change Request riêng)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label class="fld">Mức ưu tiên <span class="req">*</span></label>
+        <select class="select">
+          <option>P1 - Critical (thiết bị Class C-D, ảnh hưởng BN)</option>
+          <option>P2 - High</option>
+          <option>P3 - Medium</option>
+          <option>P4 - Low</option>
+        </select>
+        <div class="help">Mức ưu tiên + Risk Class lookup SLA target tự động</div>
+      </div>
+    </div>
+
+    <div class="field">
+      <label class="fld">Mô tả triệu chứng / lý do sửa chữa <span class="req">*</span></label>
+      <textarea class="input" rows="3" placeholder="Mô tả chi tiết hiện tượng, lúc xảy ra, tần suất…">Báo động nhiệt độ thấp liên tục dù setpoint 36°C. Không giữ được nhiệt độ ổn định. Bệnh nhân đã chuyển lồng ấp khác.</textarea>
+    </div>
+
+    <div class="form-grid g2-form">
+      <div class="field">
+        <label class="fld">KTV phụ trách</label>
+        <select class="select">
+          <option>— Phân công sau —</option>
+          <option selected>Phạm Văn Đức (đã chứng nhận Lồng ấp Atom)</option>
+          <option>Nguyễn Hữu Phúc</option>
+          <option>Trần Đại Nghĩa</option>
+        </select>
+        <div class="help">Chỉ hiện KTV có competency phù hợp dòng máy</div>
+      </div>
+      <div class="field">
+        <label class="fld">Mục tiêu hoàn thành</label>
+        <input class="input" type="datetime-local" value="2026-05-24T12:15">
+        <div class="help">Mặc định = thời điểm hiện tại + SLA target (4 giờ với P1-Critical)</div>
+      </div>
+    </div>
+  </div>
+
+  <div style="padding:16px 20px;border-top:1px solid var(--color-neutral-300);display:flex;justify-content:space-between">
+    <a href="repair-list.html" class="btn btn-secondary">Hủy</a>
+    <div style="display:flex;gap:10px">
+      <button class="btn btn-secondary">Lưu nháp</button>
+      <button class="btn btn-primary">Tiếp theo → Phụ tùng dự kiến</button>
+    
+  
+
+      
+      </div>
+    </main>
+  </div>
+</div>
+<script src="../assets/shell.js"></script>
+</body>
+</html>

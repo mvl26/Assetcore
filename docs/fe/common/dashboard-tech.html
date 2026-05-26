@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="module-id" content="dashboard">
+<title>Bảng điều khiển — AssetCore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+<script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <a class="brand" style="color:inherit;text-decoration:none" href="#">
+      <span class="logo">A</span>
+      <div>AssetCore <small>IMMIS · BV Nhi Đồng 1</small></div>
+    </a>
+    <div class="spacer"></div>
+    <button class="iconbtn" title="Thông báo"><iconify-icon icon="heroicons:bell" style="font-size:18px;vertical-align:-3px;color:#fff"></iconify-icon></button>
+    <div class="persona-pill" title="Chọn vai trò"></div>
+    <div id="personaMenu" class="persona-menu"></div>
+  </div>
+  <div class="body-wrap">
+    <aside class="sidebar">
+      <div class="side-head"><span></span></div>
+      <nav></nav>
+      <div class="side-foot">AssetCore v0.0.2 · Wave 1+2</div>
+    </aside>
+    <main class="main">
+      <div class="breadcrumb"><span>Bảng điều khiển</span></div>
+      <div class="page">
+        
+<div class="page-head">
+  <div class="titles">
+    <h1>Bảng điều khiển — Kỹ thuật viên</h1>
+    <div class="sub">Lệnh công việc của tôi · Hôm nay 25/05/2026</div>
+  </div>
+  <div class="toolbar">
+    <a class="btn btn-primary" href="../common/qr-scan.html"><iconify-icon icon="heroicons:qr-code" style="font-size:16px;vertical-align:-3px;color:#fff"></iconify-icon> Quét QR thiết bị</a>
+  </div>
+</div>
+
+<div class="grid g4" style="margin-bottom:20px">
+  <div class="kpi info"><div class="kbar"></div><div class="klabel">Việc hôm nay</div><div class="kval">5</div><div class="kfoot">2 đang thực hiện</div></div>
+  <div class="kpi warn"><div class="kbar"></div><div class="klabel">PM trong tuần</div><div class="kval">8</div><div class="kfoot">3 quá hạn</div></div>
+  <div class="kpi danger"><div class="kbar"></div><div class="klabel">CM khẩn cấp</div><div class="kval">2</div><div class="kfoot">P1 - Critical</div></div>
+  <div class="kpi ok"><div class="kbar"></div><div class="klabel">Hoàn tất tháng</div><div class="kval">28</div><div class="kfoot">MTTR 2,8h</div></div>
+</div>
+
+<div class="card" style="margin-bottom:20px">
+  <div class="card-head"><h3>Lệnh công việc hôm nay</h3></div>
+  <div class="card-pad">
+    <table class="tbl">
+      <thead><tr><th>Mã WO</th><th>Loại</th><th>Thiết bị</th><th>Vị trí</th><th>Giờ dự kiến</th><th></th></tr></thead>
+      <tbody>
+        <tr><td class="mono"><a class="link" href="../09-repair/repair-detail.html">WO-RP-2026-00309</a></td><td><span class="badge b-danger">CM P1</span></td><td>Lồng ấp Atom</td><td>Sơ sinh P.1</td><td>09:00</td><td><span class="badge b-inprogress">Đang xử lý</span></td></tr>
+        <tr><td class="mono"><a class="link" href="../08-pm/pm-detail.html">WO-PM-2026-00195</a></td><td><span class="badge b-submitted">PM 3T</span></td><td>Lồng ấp Atom</td><td>Sơ sinh P.1</td><td>14:30</td><td><span class="badge b-inprogress">Đang thực hiện</span></td></tr>
+        <tr><td class="mono"><a class="link" href="../08-pm/pm-detail.html">WO-PM-2026-00188</a></td><td><span class="badge b-submitted">PM 3T</span></td><td>Máy thở Bennett</td><td>ICU G.03</td><td>16:00</td><td><span class="badge b-open">Chưa bắt đầu</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="grid g2">
+  <div class="card">
+    <div class="card-head"><h3>Lịch tuần này</h3></div>
+    <div class="card-pad">
+      <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px;font-size:12px;text-align:center">
+        <div style="font-weight:600">T2</div><div style="font-weight:600">T3</div><div style="font-weight:600">T4</div><div style="font-weight:600">T5</div><div style="font-weight:600">T6</div><div style="font-weight:600">T7</div><div style="font-weight:600">CN</div>
+        <div style="background:var(--color-neutral-100);padding:12px 4px;border-radius:6px">26<br><span style="color:#F59E0B;font-weight:700">2 PM</span></div>
+        <div style="background:var(--color-primary-50);padding:12px 4px;border-radius:6px;border:2px solid var(--color-primary-500)"><b>25</b><br><span style="color:#DC2626;font-weight:700">3 WO</span></div>
+        <div style="background:var(--color-neutral-100);padding:12px 4px;border-radius:6px">27<br><span style="color:#F59E0B;font-weight:700">1 PM</span></div>
+        <div style="background:var(--color-neutral-100);padding:12px 4px;border-radius:6px">28<br><span style="color:#F59E0B;font-weight:700">2 CM</span></div>
+        <div style="background:var(--color-neutral-100);padding:12px 4px;border-radius:6px">29<br><span style="color:#F59E0B;font-weight:700">1 Cal</span></div>
+        <div style="background:var(--color-neutral-100);padding:12px 4px;border-radius:6px;opacity:.5">30</div>
+        <div style="background:var(--color-neutral-100);padding:12px 4px;border-radius:6px;opacity:.5">31</div>
+      </div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-head"><h3>Phụ tùng đã yêu cầu</h3></div>
+    <div class="card-pad">
+      <ul style="list-style:none;font-size:13px">
+        <li style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--color-neutral-100)"><span>SA-2026-0042 (WO-RP-309)</span><span class="badge b-submitted">Chờ duyệt</span></li>
+        <li style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--color-neutral-100)"><span>SA-2026-0041 (Khẩn cấp)</span><span class="badge b-warn">Chờ duyệt kép</span></li>
+        <li style="display:flex;justify-content:space-between;padding:8px 0"><span>SA-2026-0040 (PM-188)</span><span class="badge b-closed">Đã xuất kho</span></li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+      </div>
+    </main>
+  </div>
+</div>
+<script src="../assets/shell.js"></script>
+</body>
+</html>

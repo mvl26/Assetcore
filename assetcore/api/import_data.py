@@ -152,12 +152,32 @@ def _do_import(doctype: str, file_url: str) -> dict:
         # Service Contract
         "auto_renew",
     }
+    # Fields that reference doctypes but are not strict — drop value if not found
+    _OPTIONAL_LINKS_BY_DOCTYPE = {
+        "AC Asset": {
+            "device_model": "IMM Device Model",
+            "location": "AC Location",
+            "department": "AC Department",
+            "supplier": "AC Supplier",
+            "custodian": "User",
+            "responsible_technician": "User",
+        },
+    }
+    optional_links = _OPTIONAL_LINKS_BY_DOCTYPE.get(doctype, {})
 
     for i, row in enumerate(rows, start=1):
         try:
             doc = frappe.new_doc(doctype)
             # Normalise types before assigning
             clean = _normalise_row(row, _BOOL_FIELDS)
+            # Drop optional Link values that don't resolve so insert won't fail
+            for fld, link_dt in optional_links.items():
+                val = clean.get(fld)
+                if val and not frappe.db.exists(link_dt, val):
+                    clean.pop(fld, None)
+            # AC Asset: lifecycle_status defaults to Draft so the workflow guard passes
+            if doctype == "AC Asset" and not clean.get("lifecycle_status"):
+                clean["lifecycle_status"] = "Draft"
             doc.update(clean)
             doc.insert(ignore_permissions=True)
             results["success"] += 1

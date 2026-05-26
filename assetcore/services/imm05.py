@@ -334,7 +334,11 @@ def get_asset_documents(asset: str) -> dict:
 
 def get_dashboard_stats() -> dict:
     total_active = DocumentRepo.count({"workflow_state": DocState.ACTIVE})
-    expired_not_renewed = DocumentRepo.count({"workflow_state": DocState.EXPIRED})
+    # RC-08 (NextRound): KPI "Đã hết hạn" phải đếm theo expiry_date < today
+    # **bất kể** workflow_state — bao gồm cả Draft / Pending Review / Active
+    # nếu chúng đã quá ngày hết hạn (không chỉ những doc đã được cron đẩy
+    # sang state EXPIRED). Bỏ điều kiện AND workflow_state = 'Active'.
+    expired_not_renewed = DocumentRepo.count({"expiry_date": ["<", nowdate()]})
 
     ninety_days = add_days(nowdate(), 90)
     # Dùng SQL 1 lần cho câu hỏi "sắp hết hạn trong 90 ngày" + "số assets missing docs"

@@ -4,11 +4,12 @@ import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import AppLayout from '@/components/common/AppLayout.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
+import NotificationModal from '@/components/common/NotificationModal.vue'
 import RouteErrorBoundary from '@/components/common/RouteErrorBoundary.vue'
 import ToastContainer from '@/components/common/ToastContainer.vue'
-import { useToast } from '@/composables/useToast'
+import { useNotify } from '@/composables/useNotify'
 
-const toast = useToast()
+const notify = useNotify()
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -23,10 +24,11 @@ onMounted(async () => {
 
 // Bắt lỗi top-level để không bị blank page khi component con throw.
 // RouteErrorBoundary đã render fallback UI trong route view; ở đây chỉ log + toast.
+// Phase 1 notification framework: dùng notify.fromError → hydrate registry +
+// route critical sang modal.
 onErrorCaptured((err, _inst, info) => {
-  const msg = (err as Error)?.message ?? 'Lỗi không xác định'
-  console.error('[App.vue] top-level error:', { message: msg, info, err })
-  toast.error(msg)
+  console.error('[App.vue] top-level error:', { info, err })
+  notify.fromError(err)
   return true
 })
 
@@ -38,7 +40,7 @@ window.addEventListener('unhandledrejection', (ev) => {
   // Không spam toast cho lỗi hệ thống đã được axios xử lý qua redirect (401/403)
   if (msg.includes('Đang chuyển hướng')) return
   console.error('[unhandledrejection]', reason)
-  toast.error(msg)
+  notify.fromError(reason)
 })
 </script>
 
@@ -62,5 +64,6 @@ window.addEventListener('unhandledrejection', (ev) => {
       <RouterView v-else />
     </template>
     <ToastContainer />
+    <NotificationModal />
   </div>
 </template>

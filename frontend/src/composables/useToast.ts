@@ -1,5 +1,15 @@
+// Copyright (c) 2026, AssetCore Team
+// Toast container — non-blocking, auto-dismiss.
+//
+// Phase 1 notification framework: ToastType ≡ Severity (sans 'critical' — critical
+// được route sang modal). Composable `useNotify` wrap useToast và bổ sung lookup
+// MSG.XXX → render template → show(...).
 import { ref } from 'vue'
 
+/**
+ * ToastType khớp với `Severity` ngoại trừ `'critical'` (critical → modal).
+ * Đồng bộ với `frontend/src/i18n/messages.types.ts:Severity`.
+ */
 export type ToastType = 'success' | 'error' | 'warning' | 'info'
 
 export interface Toast {
@@ -7,15 +17,31 @@ export interface Toast {
   type: ToastType
   message: string
   duration: number
+  /** Tiêu đề ngắn — optional, render nổi bật phía trên message khi có. */
+  title?: string
+  /** Gợi ý hành động — optional, render nhỏ phía dưới message. */
+  actionHint?: string
 }
 
 const toasts = ref<Toast[]>([])
 let _id = 0
 
 export function useToast() {
-  function show(message: string, type: ToastType = 'info', duration = 4000) {
+  function show(
+    message: string,
+    type: ToastType = 'info',
+    duration = 4000,
+    opts: { title?: string; actionHint?: string } = {},
+  ) {
     const id = ++_id
-    toasts.value.push({ id, type, message, duration })
+    toasts.value.push({
+      id,
+      type,
+      message,
+      duration,
+      title: opts.title,
+      actionHint: opts.actionHint,
+    })
     setTimeout(() => { toasts.value = toasts.value.filter(t => t.id !== id) }, duration)
   }
 
@@ -24,5 +50,9 @@ export function useToast() {
   const warning = (msg: string) => show(msg, 'warning')
   const info = (msg: string) => show(msg, 'info')
 
-  return { toasts, show, success, error, warning, info }
+  function dismiss(id: number) {
+    toasts.value = toasts.value.filter(t => t.id !== id)
+  }
+
+  return { toasts, show, success, error, warning, info, dismiss }
 }

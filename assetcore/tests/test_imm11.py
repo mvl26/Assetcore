@@ -35,11 +35,37 @@ def _make_asset(suffix: str = "") -> object:
 
 def _ensure_cat() -> str:
     name = "_TestCatIMM11"
-    if not frappe.db.exists("AC Asset Category", name):
-        frappe.get_doc({"doctype": "AC Asset Category", "category_name": name}).insert(
-            ignore_permissions=True
-        )
-    return name
+    existing = frappe.db.get_value(
+        "AC Asset Category", {"category_name": name}, "name"
+    )
+    if existing:
+        return existing
+    doc = frappe.get_doc({"doctype": "AC Asset Category", "category_name": name}).insert(
+        ignore_permissions=True
+    )
+    return doc.name
+
+
+def _purge_asset_with_deps(asset_name: str) -> None:
+    """Cascade-clean records that WR-03 on_trash protects against, then delete asset.
+
+    Production asset removal must use the Decommission workflow; tests need a
+    direct path to drop fixtures created during setUpClass without triggering
+    the WR-03 LinkExistsError guard.
+    """
+    for dt, field in (
+        ("IMM Audit Trail",       "asset"),
+        ("Asset Lifecycle Event", "asset"),
+        ("AC Asset Downtime Log", "asset"),
+        ("Asset Document",        "asset_ref"),
+    ):
+        if not frappe.db.table_exists(dt):
+            continue
+        try:
+            frappe.db.delete(dt, {field: asset_name})
+        except Exception:
+            continue
+    frappe.delete_doc("AC Asset", asset_name, force=True, ignore_permissions=True)
 
 
 # ─── Tests ────────────────────────────────────────────────────────────────────
@@ -60,11 +86,16 @@ class TestCalibrationCreation(unittest.TestCase):
             frappe.delete_doc(
                 "IMM Asset Calibration", cal.name, force=True, ignore_permissions=True
             )
-        frappe.delete_doc("AC Asset", cls.asset.name, force=True, ignore_permissions=True)
-        if frappe.db.exists("AC Asset Category", "_TestCatIMM11"):
-            frappe.delete_doc(
-                "AC Asset Category", "_TestCatIMM11", force=True, ignore_permissions=True
-            )
+        _purge_asset_with_deps(cls.asset.name)
+        cat_name = frappe.db.get_value(
+            "AC Asset Category", {"category_name": "_TestCatIMM11"}, "name"
+        )
+        if cat_name:
+            try:
+                frappe.delete_doc("AC Asset Category", cat_name, force=True,
+                                  ignore_permissions=True)
+            except Exception:
+                pass
 
     def setUp(self):
         frappe.set_user("Administrator")
@@ -143,7 +174,7 @@ class TestCalibrationCancellation(unittest.TestCase):
             frappe.delete_doc(
                 "IMM Asset Calibration", cls.cal_name, force=True, ignore_permissions=True
             )
-        frappe.delete_doc("AC Asset", cls.asset.name, force=True, ignore_permissions=True)
+        _purge_asset_with_deps(cls.asset.name)
 
     def setUp(self):
         frappe.set_user("Administrator")
@@ -172,7 +203,7 @@ class TestCalibrationSubmitGate(unittest.TestCase):
             # Submitted calibrations cannot be cancelled (BR-11-05) — purge rows directly.
             frappe.db.delete("IMM Calibration Measurement", {"parent": cal.name})
             frappe.db.delete("IMM Asset Calibration", {"name": cal.name})
-        frappe.delete_doc("AC Asset", cls.asset.name, force=True, ignore_permissions=True)
+        _purge_asset_with_deps(cls.asset.name)
 
     def setUp(self):
         frappe.set_user("Administrator")

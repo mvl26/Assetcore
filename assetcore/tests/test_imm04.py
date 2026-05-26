@@ -213,9 +213,9 @@ class TestVR07ClinicalHold(unittest.TestCase):
 class _FakeDoc:
     """Minimal stand-in with a real append() method for lifecycle_event tests."""
     def __init__(self, **kwargs):
-        self.__dict__.update(kwargs)
         self.lifecycle_events = []
-        self.name = "_TEST-FAKE"
+        self.name = kwargs.pop("name", "_TEST-FAKE")
+        self.__dict__.update(kwargs)
 
     def append(self, field, row):
         getattr(self, field).append(frappe._dict(row))
@@ -240,6 +240,151 @@ class TestLogLifecycleEvent(unittest.TestCase):
         doc = _FakeDoc()
         del doc.lifecycle_events  # remove the attribute
         log_lifecycle_event(doc, "status_changed", "Draft", "To Be Installed")  # no crash
+
+
+# ─── RC-05: log_lifecycle_event must persist to canonical IMM Audit Trail ─────
+
+class TestRC05AuditTrailNotEmpty(unittest.TestCase):
+    """RC-05: mọi state transition của Asset Commissioning phải để lại 1 row
+    trong `IMM Audit Trail` (SHA-256 chained). Trước fix, child table
+    `lifecycle_events` không tồn tại trong DocType JSON → no-op silently.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        # Real commissioning row so the FK on IMM Audit Trail.ref_name is valid
+        if not frappe.db.exists("Asset Commissioning", "_TEST-RC05-AUDIT"):
+            frappe.db.sql(
+                "INSERT INTO `tabAsset Commissioning` "
+                "(name, docstatus, workflow_state) "
+                "VALUES ('_TEST-RC05-AUDIT', 0, 'To Be Installed')"
+            )
+            frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.db.delete("IMM Audit Trail", {"ref_name": "_TEST-RC05-AUDIT"})
+        frappe.db.delete("Asset Commissioning", {"name": "_TEST-RC05-AUDIT"})
+        frappe.db.commit()
+
+    def test_log_lifecycle_event_writes_audit_trail_row(self):
+        doc = _FakeDoc(name="_TEST-RC05-AUDIT")
+        doc.workflow_state = "Pending Doc Verify"
+        before = frappe.db.count(
+            "IMM Audit Trail", {"ref_name": "_TEST-RC05-AUDIT"}
+        )
+        log_lifecycle_event(
+            doc, "Xác nhận đủ tài liệu",
+            "Pending Doc Verify", "To Be Installed",
+            remarks="_TEST-RC05",
+        )
+        after = frappe.db.count(
+            "IMM Audit Trail", {"ref_name": "_TEST-RC05-AUDIT"}
+        )
+        self.assertGreater(
+            after, before,
+            "RC-05: log_lifecycle_event phải tạo row mới trong IMM Audit Trail "
+            "(canonical SHA-256 chained audit log) — không chỉ append vào "
+            "child table không tồn tại.",
+        )
+
+
+# ─── AUTH-05: 4-eyes / Separation-of-Duties ──────────────────────────────────
+
+class TestAUTH05FourEyes(unittest.TestCase):
+    """AUTH-05: 1 user không được vừa tạo phiếu vừa duyệt phiếu.
+
+    Cụ thể: `assert_distinct_signers` raises ServiceError(FORBIDDEN) khi
+    candidate_user đã đảm nhiệm 1 vai khác trên cùng phiếu (clinical_head,
+    qa_officer, board_approver, owner...).
+    """
+
+    def test_same_user_cannot_be_clinical_head_and_qa_officer(self):
+        from assetcore.services.shared import assert_distinct_signers
+        doc = _make_doc(
+            clinical_head="reviewer@test.local",
+            qa_officer="",
+            board_approver="",
+            owner="other@test.local",
+        )
+        with self.assertRaises(ServiceError) as ctx:
+            assert_distinct_signers(
+                doc, "clinical_head", "qa_officer", "board_approver", "owner",
+                candidate_user="reviewer@test.local",
+                candidate_field="qa_officer",
+            )
+        self.assertIn("4-eyes", str(ctx.exception))
+
+    def test_distinct_signers_passes_for_different_users(self):
+        from assetcore.services.shared import assert_distinct_signers
+        doc = _make_doc(
+            clinical_head="alice@test.local",
+            qa_officer="",
+            board_approver="charlie@test.local",
+            owner="dave@test.local",
+        )
+        # bob is fresh — should not raise
+        assert_distinct_signers(
+            doc, "clinical_head", "qa_officer", "board_approver", "owner",
+            candidate_user="bob@test.local",
+            candidate_field="qa_officer",
+        )
+
+    def test_self_submitter_cannot_approve_own_phieu(self):
+        from assetcore.services.shared import assert_not_self_submitter
+        doc = _make_doc(owner="alice@test.local")
+        with self.assertRaises(ServiceError) as ctx:
+            assert_not_self_submitter(
+                doc, submitter_field="owner",
+                candidate_user="alice@test.local",
+            )
+        self.assertIn("4-eyes", str(ctx.exception))
+
+    def test_self_submitter_allows_other_user_approve(self):
+        from assetcore.services.shared import assert_not_self_submitter
+        doc = _make_doc(owner="alice@test.local")
+        # No raise — different user is fine.
+        assert_not_self_submitter(
+            doc, submitter_field="owner",
+            candidate_user="bob@test.local",
+        )
+
+
+# ─── RC-06: Auto-mint AC Asset on Clinical Release ───────────────────────────
+
+class TestRC06AssetAutoMint(unittest.TestCase):
+    """RC-06: phiếu nghiệm thu IMM-04 đạt 'Clinical Release' → tự sinh AC Asset.
+
+    Test cấp service: `create_ac_asset(doc)` được gọi → idempotent (gọi 2 lần
+    không tạo asset thứ hai). Test cấp transition (qua `transition_state`)
+    được cover bởi integration tests khác — ở đây ta verify đơn vị mạch chuyển
+    qua công thức quan trọng.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls._created_assets: list[str] = []
+
+    @classmethod
+    def tearDownClass(cls):
+        for name in cls._created_assets:
+            try:
+                frappe.delete_doc("AC Asset", name, force=True,
+                                  ignore_permissions=True)
+            except Exception:
+                pass
+
+    def test_create_ac_asset_returns_existing_when_already_set(self):
+        from assetcore.services.imm04 import create_ac_asset
+        doc = _make_doc(final_asset="_PRE_EXISTING_ASSET_NAME")
+        result = create_ac_asset(doc)
+        self.assertEqual(
+            result, "_PRE_EXISTING_ASSET_NAME",
+            "RC-06: nếu phiếu đã có final_asset, create_ac_asset trả về luôn — "
+            "không tạo asset thứ 2 (idempotent).",
+        )
 
 
 if __name__ == "__main__":

@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="module-id" content="dashboard">
+<title>Bảng điều khiển — AssetCore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+<script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <a class="brand" style="color:inherit;text-decoration:none" href="#">
+      <span class="logo">A</span>
+      <div>AssetCore <small>IMMIS · BV Nhi Đồng 1</small></div>
+    </a>
+    <div class="spacer"></div>
+    <button class="iconbtn" title="Thông báo"><iconify-icon icon="heroicons:bell" style="font-size:18px;vertical-align:-3px;color:#fff"></iconify-icon></button>
+    <div class="persona-pill" title="Chọn vai trò"></div>
+    <div id="personaMenu" class="persona-menu"></div>
+  </div>
+  <div class="body-wrap">
+    <aside class="sidebar">
+      <div class="side-head"><span></span></div>
+      <nav></nav>
+      <div class="side-foot">AssetCore v0.0.2 · Wave 1+2</div>
+    </aside>
+    <main class="main">
+      <div class="breadcrumb"><span>Bảng điều khiển</span></div>
+      <div class="page">
+        
+<div class="page-head">
+  <div class="titles">
+    <h1>Bảng điều khiển — Quản trị viên IT</h1>
+    <div class="sub">Người dùng · Phân quyền · Master data · Audit chain</div>
+  </div>
+</div>
+
+<div class="grid g4" style="margin-bottom:20px">
+  <div class="kpi primary"><div class="kbar"></div><div class="klabel">Tổng người dùng</div><div class="kval">87</div><div class="kfoot">75 active · 8 disabled · 4 pending</div></div>
+  <div class="kpi warn"><div class="kbar"></div><div class="klabel">Chờ phê duyệt user</div><div class="kval">4</div><div class="kfoot">Đăng ký mới</div></div>
+  <div class="kpi ok"><div class="kbar"></div><div class="klabel">Audit chain</div><div class="kval" style="font-size:18px;line-height:36px">PASS</div><div class="kfoot">Last verify: 09:14 hôm nay</div></div>
+  <div class="kpi info"><div class="kbar"></div><div class="klabel">Vendor Engineer</div><div class="kval">9</div><div class="kfoot">Bên thứ ba, cô lập</div></div>
+</div>
+
+<div class="grid g2">
+  <div class="card">
+    <div class="card-head"><h3>User chờ phê duyệt</h3></div>
+    <div class="card-pad">
+      <table class="tbl">
+        <thead><tr><th>User</th><th>Khoa</th><th></th></tr></thead>
+        <tbody>
+          <tr><td><b>Nguyễn Văn An</b><br><span class="text-xs muted">an.nv@bnd1.vn</span></td><td>Hô hấp</td><td><a class="btn btn-primary btn-sm" href="../common/users-list.html">Phê duyệt</a></td></tr>
+          <tr><td><b>Lê Thị Bình</b><br><span class="text-xs muted">binh.lt@bnd1.vn</span></td><td>Cấp cứu</td><td><a class="btn btn-primary btn-sm" href="../common/users-list.html">Phê duyệt</a></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-head"><h3>Audit trail — Hoạt động gần đây</h3></div>
+    <div class="card-pad">
+      <div class="timeline">
+        <div class="tl-item"><div class="tdot"></div><div class="tt">transition_status — Bơm tiêm Terumo</div><div class="tm">09:14 · opsmgr@bnd1</div></div>
+        <div class="tl-item"><div class="tdot"></div><div class="tt">workorder.checkin — WO-RP-302</div><div class="tm">08:55 · tech@bnd1</div></div>
+        <div class="tl-item"><div class="tdot"></div><div class="tt">capa.create — CAPA-0021</div><div class="tm">16:30 hôm qua · qa@bnd1</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+      </div>
+    </main>
+  </div>
+</div>
+<script src="../assets/shell.js"></script>
+</body>
+</html>

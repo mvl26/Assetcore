@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="module-id" content="tech-specs">
+<title>TS-2026-0042 — AssetCore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+<script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <a class="brand" style="color:inherit;text-decoration:none" href="#">
+      <span class="logo">A</span>
+      <div>AssetCore <small>IMMIS · BV Nhi Đồng 1</small></div>
+    </a>
+    <div class="spacer"></div>
+    <button class="iconbtn" title="Thông báo"><iconify-icon icon="heroicons:bell" style="font-size:18px;vertical-align:-3px;color:#fff"></iconify-icon></button>
+    <div class="persona-pill" title="Chọn vai trò"></div>
+    <div id="personaMenu" class="persona-menu"></div>
+  </div>
+  <div class="body-wrap">
+    <aside class="sidebar">
+      <div class="side-head"><span></span></div>
+      <nav></nav>
+      <div class="side-foot">AssetCore v0.0.2 · Wave 1+2</div>
+    </aside>
+    <main class="main">
+      <div class="breadcrumb"><a href="../index.html">Trang chủ</a> <span class="sep">›</span><a href="tech-specs-list.html">Thông số kỹ thuật</a> <span class="sep">›</span><span>TS-2026-0042</span></div>
+      <div class="page">
+        <div class="page-head">
+  <div class="titles">
+    <a href="tech-specs-list.html" class="btn btn-ghost btn-sm" style="margin-bottom:8px">← Quay lại</a>
+    <h1>TS-2026-0042 — Máy siêu âm 4D class C</h1>
+    <div class="sub"><span class="badge b-inprogress">Benchmark · 4 candidate</span> <span class="muted" style="margin-left:8px">· Lock-in risk 38/100 (Medium) · Plan PP-2026-Q3-001</span></div>
+  </div>
+</div>
+
+<div class="workflow">
+  <div class="wf-step"><div class="wf-node done"><span class="num"><iconify-icon icon="heroicons:check" style="font-size:16px;vertical-align:-3px"></iconify-icon></span>Draft</div></div><span class="wf-arrow">→</span>
+  <div class="wf-step"><div class="wf-node done"><span class="num"><iconify-icon icon="heroicons:check" style="font-size:16px;vertical-align:-3px"></iconify-icon></span>Requirements</div></div><span class="wf-arrow">→</span>
+  <div class="wf-step"><div class="wf-node current"><span class="num">3</span>Benchmark</div></div><span class="wf-arrow">→</span>
+  <div class="wf-step"><div class="wf-node"><span class="num">4</span>Infra Check</div></div><span class="wf-arrow">→</span>
+  <div class="wf-step"><div class="wf-node"><span class="num">5</span>Lock Spec</div></div><span class="wf-arrow">→</span>
+  <div class="wf-step"><div class="wf-node"><span class="num">6</span>Awarded</div></div>
+</div>
+
+<div class="tabs">
+  <div class="tab active">Yêu cầu kỹ thuật (12)</div>
+  <div class="tab">Benchmark thị trường (4)</div>
+  <div class="tab">Tương thích hạ tầng (6)</div>
+  <div class="tab">Lock-in Risk (5)</div>
+  <div class="tab">Tài liệu</div>
+
+</div><div class="grid g2">
+  <div class="card">
+    <div class="card-head"><h3>So sánh 4 candidate</h3></div>
+    <div class="card-pad">
+      <table style="width:100%;font-size:13px">
+        <thead><tr style="border-bottom:1px solid var(--color-neutral-300);text-align:left"><th style="padding:8px 0">NCC</th><th>Model</th><th>Spec match</th><th>Giá ước tính</th></tr></thead>
+        <tbody>
+          <tr style="border-bottom:1px solid var(--color-neutral-100)"><td style="padding:8px 0">Philips</td><td>EPIQ Elite</td><td><b style="color:#16A34A">92%</b></td><td>1,95 tỷ</td></tr>
+          <tr style="border-bottom:1px solid var(--color-neutral-100)"><td style="padding:8px 0">GE Healthcare</td><td>Voluson E10</td><td><b style="color:#16A34A">90%</b></td><td>1,8 tỷ</td></tr>
+          <tr style="border-bottom:1px solid var(--color-neutral-100)"><td style="padding:8px 0">Mindray</td><td>Resona R9</td><td><b>82%</b></td><td>1,4 tỷ</td></tr>
+          <tr><td style="padding:8px 0">Samsung</td><td>HERA W10</td><td><b>78%</b></td><td>1,5 tỷ</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div><div class="card">
+    <div class="card-head"><h3>Lock-in Risk Score: 38/100 — Medium</h3></div>
+    <div class="card-pad">
+      <ul style="list-style:none;font-size:14px">
+        <li style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--color-neutral-100)"><span>Protocol độc quyền</span><b style="color:#F59E0B">Medium (10)</b></li>
+        <li style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--color-neutral-100)"><span>Consumable proprietary</span><b style="color:#16A34A">Low (5)</b></li>
+        <li style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--color-neutral-100)"><span>Software locked</span><b style="color:#F59E0B">Medium (8)</b></li>
+        <li style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--color-neutral-100)"><span>Spare parts độc quyền</span><b style="color:#F59E0B">Medium (10)</b></li>
+        <li style="display:flex;justify-content:space-between;padding:8px 0"><span>Service exclusivity</span><b>Low (5)</b></li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<div style="display:flex;gap:10px;margin-top:24px">
+  <button class="btn btn-primary">→ Chuyển sang Infra Compatibility Check</button>
+  <button class="btn btn-secondary">+ Thêm candidate</button>
+  <button class="btn btn-danger"><iconify-icon icon="heroicons:x-mark" style="font-size:16px;vertical-align:-3px"></iconify-icon> Rút lại spec</button>
+
+      
+    
+      </div>
+    </div>
+</main>
+  </div>
+</div>
+<script src="../assets/shell.js"></script>
+</body>
+</html>

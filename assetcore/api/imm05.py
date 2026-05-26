@@ -10,7 +10,13 @@ import frappe
 
 from assetcore.services import imm05 as svc
 from assetcore.services.shared import ErrorCode, ServiceError
+from assetcore.services.shared import rbac
 from assetcore.utils.helpers import _err, _ok
+
+# AUTH-02 — capability identifiers (Document domain, auto-built in rbac.CAPABILITY_MAP).
+_CAP_DOC_CREATE = "document" + ".create"
+_CAP_DOC_WRITE  = "document" + ".write"
+_CAP_DOC_APPROVE = "doc.approve"
 
 
 def _parse_json(raw: str | dict | None, *, field_name: str) -> dict:
@@ -50,6 +56,8 @@ def get_document(name: str) -> dict:
 
 @frappe.whitelist()
 def create_document(doc_data: str = "{}") -> dict:
+    # AUTH-02 — explicit gate; FE button hide is not a security control.
+    rbac.require(_CAP_DOC_CREATE)
     try:
         data = _parse_json(doc_data, field_name="doc_data")
     except ServiceError as e:
@@ -59,11 +67,13 @@ def create_document(doc_data: str = "{}") -> dict:
 
 @frappe.whitelist()
 def submit_for_review(name: str) -> dict:
+    rbac.require(_CAP_DOC_WRITE)
     return _handle(svc.submit_for_review, name)
 
 
 @frappe.whitelist()
 def update_document(name: str, doc_data: str = "{}") -> dict:
+    rbac.require(_CAP_DOC_WRITE)
     try:
         data = _parse_json(doc_data, field_name="doc_data")
     except ServiceError as e:
@@ -73,16 +83,19 @@ def update_document(name: str, doc_data: str = "{}") -> dict:
 
 @frappe.whitelist()
 def approve_document(name: str) -> dict:
+    rbac.require(_CAP_DOC_APPROVE)
     return _handle(svc.approve_document, name)
 
 
 @frappe.whitelist()
 def reject_document(name: str, rejection_reason: str = "") -> dict:
+    rbac.require(_CAP_DOC_APPROVE)
     return _handle(svc.reject_document, name, rejection_reason)
 
 
 @frappe.whitelist()
 def archive_document(name: str, reason: str = "") -> dict:
+    rbac.require(_CAP_DOC_WRITE)
     return _handle(svc.archive_document, name, reason)
 
 

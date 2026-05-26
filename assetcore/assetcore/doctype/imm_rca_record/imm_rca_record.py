@@ -32,6 +32,20 @@ class IMMRCARecord(Document):
             )
         self._mark_incident_rca_done()
         self._log_lifecycle_event()
+        self._trigger_capa_and_incident_chain()
+
+    def _trigger_capa_and_incident_chain(self) -> None:
+        """RC-03 + RC-04: tạo CAPA + đẩy Incident workflow → Closed."""
+        if not self.incident_report:
+            return
+        try:
+            from assetcore.services.imm12 import on_rca_completed
+            on_rca_completed(self.incident_report, self.name)
+        except Exception as e:
+            frappe.log_error(
+                f"on_rca_completed chain failed for RCA {self.name}: {e}",
+                "IMM-12 RCA chain"
+            )
 
     # ───────── validations ─────────
 

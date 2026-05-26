@@ -266,3 +266,98 @@ class TestUmbrellaRole(unittest.TestCase):
         finally:
             frappe.delete_doc("User", u, force=True, ignore_permissions=True)
             frappe.db.commit()
+
+
+class TestVendorScopeIsolation(unittest.TestCase):
+    """AUTH-01 / AUTH-10: Vendor Engineer sees only assigned scope."""
+
+    def test_apply_vendor_scope_non_vendor_passthrough_dict(self):
+        from assetcore.services.shared.scope import apply_vendor_scope
+        f = {"workflow_state": "Open"}
+        result = apply_vendor_scope(f, "PM Work Order", user="Administrator")
+        self.assertEqual(result, f)
+
+    def test_apply_vendor_scope_unknown_doctype_passthrough(self):
+        from assetcore.services.shared.scope import apply_vendor_scope
+        f = {"x": "y"}
+        result = apply_vendor_scope(f, "Some Random Doctype")
+        self.assertEqual(result, f)
+
+    def test_apply_vendor_scope_guest_passthrough(self):
+        from assetcore.services.shared.scope import apply_vendor_scope
+        f = {"a": "b"}
+        result = apply_vendor_scope(f, "AC Asset", user="Guest")
+        self.assertEqual(result, f)
+
+    def test_apply_vendor_scope_empty_assignment_filters_to_sentinel(self):
+        from assetcore.services.shared.scope import apply_vendor_scope
+        u = "rbac_vendor_empty@example.com"
+        if frappe.db.exists("User", u):
+            frappe.delete_doc("User", u, force=True, ignore_permissions=True)
+        frappe.get_doc({
+            "doctype": "User", "email": u,
+            "first_name": "Vendor", "send_welcome_email": 0,
+        }).insert(ignore_permissions=True)
+        try:
+            user = frappe.get_doc("User", u)
+            user.append("roles", {"role": "Vendor Engineer"})
+            user.flags.ignore_permissions = True
+            user.save()
+            frappe.db.commit()
+            f = {"workflow_state": "Open"}
+            scoped = apply_vendor_scope(f, "PM Work Order", user=u)
+            self.assertIn("asset", scoped)
+            self.assertEqual(scoped["asset"][0], "in")
+            self.assertEqual(scoped["asset"][1], ["__none__"])
+        finally:
+            frappe.delete_doc("User", u, force=True, ignore_permissions=True)
+            frappe.db.commit()
+
+    def test_assert_vendor_can_access_admin_bypasses(self):
+        from assetcore.services.shared.scope import assert_vendor_can_access
+        try:
+            assert_vendor_can_access("PM Work Order", "FAKE-NAME", user="Administrator")
+        except Exception as e:
+            self.fail(f"Admin must bypass vendor scope, got: {e!r}")
+
+    def test_assert_vendor_can_access_non_vendor_passthrough(self):
+        from assetcore.services.shared.scope import assert_vendor_can_access
+        u = "rbac_pm_user@example.com"
+        if frappe.db.exists("User", u):
+            frappe.delete_doc("User", u, force=True, ignore_permissions=True)
+        frappe.get_doc({
+            "doctype": "User", "email": u,
+            "first_name": "PM", "send_welcome_email": 0,
+        }).insert(ignore_permissions=True)
+        try:
+            user = frappe.get_doc("User", u)
+            user.append("roles", {"role": "PM User"})
+            user.flags.ignore_permissions = True
+            user.save()
+            frappe.db.commit()
+            assert_vendor_can_access("PM Work Order", "FAKE-NAME", user=u)
+        finally:
+            frappe.delete_doc("User", u, force=True, ignore_permissions=True)
+            frappe.db.commit()
+
+    def test_assert_vendor_can_access_blocks_unassigned_vendor(self):
+        from assetcore.services.shared.scope import assert_vendor_can_access
+        from assetcore.services.shared.errors import ServiceError
+        u = "rbac_vendor_idor@example.com"
+        if frappe.db.exists("User", u):
+            frappe.delete_doc("User", u, force=True, ignore_permissions=True)
+        frappe.get_doc({
+            "doctype": "User", "email": u,
+            "first_name": "VendorIDOR", "send_welcome_email": 0,
+        }).insert(ignore_permissions=True)
+        try:
+            user = frappe.get_doc("User", u)
+            user.append("roles", {"role": "Vendor Engineer"})
+            user.flags.ignore_permissions = True
+            user.save()
+            frappe.db.commit()
+            with self.assertRaises(ServiceError):
+                assert_vendor_can_access("AC Asset", "DEFINITELY-NOT-ASSIGNED-XYZ", user=u)
+        finally:
+            frappe.delete_doc("User", u, force=True, ignore_permissions=True)
+            frappe.db.commit()

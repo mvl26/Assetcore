@@ -83,6 +83,90 @@ def create_calibration_schedule_from_commissioning(commissioning_doc) -> Optiona
     return sched.name
 
 
+def create_calibration_schedule_from_asset(asset_doc, method: str | None = None) -> Optional[str]:
+    """Hook: AC Asset after_insert → tạo Calibration Schedule nếu user tick
+    `is_calibration_required` (RC-07).
+
+    Tham số ``method`` để tương thích chữ ký doc-event của Frappe
+    (``after_insert`` truyền ``(doc, method)``); không dùng trong logic.
+
+    Cho phép tạo lịch hiệu chuẩn NGAY khi tạo tài sản trực tiếp (không bắt buộc
+    qua luồng Commissioning). Điều kiện:
+        - asset_doc.is_calibration_required = 1
+        - Chưa tồn tại Schedule active cho asset (idempotent).
+        - Có interval (asset.calibration_interval_days hoặc fallback từ device_model,
+          cuối cùng mặc định 365 ngày).
+
+    KHÔNG fail asset creation nếu schedule fail — log P0 và tiếp tục.
+    """
+    if not getattr(asset_doc, "is_calibration_required", 0):
+        return None
+
+    asset_name = asset_doc.name
+
+    # Idempotent guard
+    if CalibrationScheduleRepo.exists({"asset": asset_name, "is_active": 1}):
+        return None
+
+    # Resolve interval: asset → device_model → default
+    interval = int(asset_doc.get("calibration_interval_days") or 0)
+    device_model = asset_doc.get("device_model") or ""
+    cal_type = "External"
+    if device_model:
+        model_data = DeviceModelRepo.get_value(
+            device_model,
+            ["calibration_interval_days", "calibration_type_default"],
+            as_dict=True,
+        ) or {}
+        if interval <= 0:
+            interval = int(model_data.get("calibration_interval_days") or 0)
+        cal_type = model_data.get("calibration_type_default") or cal_type
+    if interval <= 0:
+        interval = _DEFAULT_INTERVAL_DAYS
+
+    base_date = (
+        asset_doc.get("last_calibration_date")
+        or asset_doc.get("commissioning_date")
+        or asset_doc.get("purchase_date")
+        or nowdate()
+    )
+
+    try:
+        sched = CalibrationScheduleRepo.create({
+            "asset": asset_name,
+            "device_model": device_model or None,
+            "calibration_type": cal_type,
+            "interval_days": interval,
+            "last_calibration_date": base_date,
+            "next_due_date": add_days(base_date, interval),
+            "is_active": 1,
+        })
+    except Exception:
+        # P0 alert — KHÔNG vỡ asset creation
+        frappe.log_error(
+            frappe.get_traceback(),
+            f"IMM-11 create_calibration_schedule_from_asset failed: {asset_name}",
+        )
+        return None
+
+    try:
+        log_audit_event(
+            asset=asset_name, event_type="Calibration Schedule Created",
+            actor=frappe.session.user,
+            ref_doctype=CalibrationScheduleRepo.DOCTYPE,
+            ref_name=sched.name,
+            change_summary=(
+                f"Calibration Schedule {sched.name} auto từ tạo tài sản "
+                f"(is_calibration_required) — {cal_type}, mỗi {interval} ngày"
+            ),
+        )
+    except Exception:
+        frappe.log_error(frappe.get_traceback(),
+                         "IMM-11 create_calibration_schedule_from_asset audit")
+
+    return sched.name
+
+
 def create_post_repair_calibration(asset_name: str) -> Optional[str]:
     """Hook: IMM-09 Repair completed → tái cal nếu thiết bị có Schedule."""
     sched = CalibrationScheduleRepo.find_one(

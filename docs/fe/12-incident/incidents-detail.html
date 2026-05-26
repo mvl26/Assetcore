@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="module-id" content="incidents">
+<title>INC-2026-00077 — AssetCore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+<script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <a class="brand" style="color:inherit;text-decoration:none" href="#">
+      <span class="logo">A</span>
+      <div>AssetCore <small>IMMIS · BV Nhi Đồng 1</small></div>
+    </a>
+    <div class="spacer"></div>
+    <button class="iconbtn" title="Thông báo"><iconify-icon icon="heroicons:bell" style="font-size:18px;vertical-align:-3px;color:#fff"></iconify-icon></button>
+    <div class="persona-pill" title="Chọn vai trò"></div>
+    <div id="personaMenu" class="persona-menu"></div>
+  </div>
+  <div class="body-wrap">
+    <aside class="sidebar">
+      <div class="side-head"><span></span></div>
+      <nav></nav>
+      <div class="side-foot">AssetCore v0.0.2 · Wave 1+2</div>
+    </aside>
+    <main class="main">
+      <div class="breadcrumb"><a href="../index.html">Trang chủ</a> <span class="sep">›</span><a href="incidents-list.html">Sự cố thiết bị</a> <span class="sep">›</span><span>INC-2026-00077</span></div>
+      <div class="page">
+        <div class="page-head">
+  <div class="titles">
+    <a href="incidents-list.html" class="btn btn-ghost btn-sm" style="margin-bottom:8px">← Quay lại</a>
+    <h1>INC-2026-00077 — Lồng ấp Atom báo nhiệt độ thấp</h1>
+    <div class="sub">
+      <span class="badge b-critical">Critical</span>
+      <span class="badge b-danger" style="margin-left:6px">Ảnh hưởng bệnh nhân</span>
+      <span class="muted" style="margin-left:8px">· Báo lúc 08:12 hôm nay · Acknowledged 08:20</span>
+    </div>
+  </div>
+</div>
+
+<div class="banner banner-danger">
+  <span class="bic"><iconify-icon icon="heroicons:exclamation-circle" style="font-size:16px;vertical-align:-3px"></iconify-icon></span>
+  <div>
+    <b>SLA Critical:</b> Còn <b>1h 12 phút</b> để resolve. Đã tự sinh CM Work Order <a href="../09-repair/repair-detail.html">WO-RP-2026-00309</a>. Thiết bị tự chuyển sang Out of Service.<br>
+    <b style="font-size:13px"><iconify-icon icon="heroicons:exclamation-triangle" style="font-size:16px;vertical-align:-3px"></iconify-icon> Cảnh báo NĐ98:</b> Sự cố ảnh hưởng BN → cần báo cáo Bộ Y tế trong 48h nếu xác định lỗi sản phẩm.
+  </div>
+</div>
+
+<div class="workflow">
+  <div class="wf-step"><div class="wf-node done"><span class="num"><iconify-icon icon="heroicons:check" style="font-size:16px;vertical-align:-3px"></iconify-icon></span>Reported</div></div><span class="wf-arrow">→</span>
+  <div class="wf-step"><div class="wf-node done"><span class="num"><iconify-icon icon="heroicons:check" style="font-size:16px;vertical-align:-3px"></iconify-icon></span>Acknowledged</div></div><span class="wf-arrow">→</span>
+  <div class="wf-step"><div class="wf-node current"><span class="num">3</span>In Progress</div></div><span class="wf-arrow">→</span>
+  <div class="wf-step"><div class="wf-node"><span class="num">4</span>Resolved</div></div><span class="wf-arrow">→</span>
+  <div class="wf-step"><div class="wf-node"><span class="num">5</span>Closed</div></div>
+</div>
+
+<div class="tabs">
+  <div class="tab active">Mô tả</div>
+  <div class="tab">RCA</div>
+  <div class="tab">CAPA</div>
+  <div class="tab">Liên quan</div>
+
+</div><div class="grid g2">
+  <div class="card">
+    <div class="card-head"><h3>Thông tin sự cố</h3></div>
+    <div class="card-pad">
+      <dl class="kv">
+        <dt>Thiết bị</dt><dd><a href="../00-master-data/assets-detail.html" class="link">Lồng ấp sơ sinh Atom Incu i</a> — Sơ sinh P.1</dd>
+        <dt>Fault code</dt><dd class="mono">TEMP-LOW-001</dd>
+        <dt>Severity</dt><dd><span class="badge b-critical">Critical</span></dd>
+        <dt>Ảnh hưởng BN</dt><dd><b style="color:#DC2626">Có — Bé sơ sinh 1,8kg đã chuyển lồng khác lúc 08:25</b></dd>
+        <dt>Mô tả</dt><dd>Báo động nhiệt độ thấp liên tục dù setpoint 36°C. Không giữ nhiệt độ ổn định. Cảnh báo kéo dài >5 phút.</dd>
+        <dt>Người báo</dt><dd>BS. Nguyễn Thị Lan — 08:12 hôm nay</dd>
+        <dt>Tiếp nhận</dt><dd>Lê Quốc Hùng — 08:20 (SLA: 30')</dd>
+        <dt>Phân công xử lý</dt><dd>Phạm Văn Đức (CM WO-RP-2026-00309)</dd>
+      </dl>
+    </div>
+  </div><div class="card">
+    <div class="card-head"><h3>Lịch sử hư hỏng thiết bị</h3></div>
+    <div class="card-pad">
+      </div></div><div class="banner banner-warn" style="margin-bottom:14px">
+        <span class="bic"><iconify-icon icon="heroicons:exclamation-triangle" style="font-size:16px;vertical-align:-3px"></iconify-icon></span>
+        <div><b>Watch List:</b> Đây là lần thứ 2 hỏng trong 30 ngày. Thêm 1 lần nữa → Chronic Failure → bắt buộc RCA.</div>
+      </div>
+      <div class="timeline">
+        <div class="tl-item danger"><div class="tdot"></div><div class="tt">Hôm nay - Báo nhiệt độ thấp (Critical)</div><div class="tm">INC-2026-00077</div></div>
+        <div class="tl-item warn"><div class="tdot"></div><div class="tt">02/05 - Báo cảm biến độ ẩm sai (Major)</div><div class="tm">INC-2026-00062 — Đã đóng</div></div>
+        <div class="tl-item ok"><div class="tdot"></div><div class="tt">15/03 - Hiệu chuẩn định kỳ - Pass</div><div class="tm">CAL-2026-00045</div></div>
+      </div>
+    </div>
+  
+
+
+<div style="display:flex;gap:10px;margin-top:24px;padding-top:20px;border-top:1px solid var(--color-neutral-300);flex-wrap:wrap">
+  <button class="btn btn-success"><iconify-icon icon="heroicons:check" style="font-size:16px;vertical-align:-3px"></iconify-icon> Resolve sự cố</button>
+  <button class="btn btn-primary">📝 Tạo RCA (bắt buộc cho Critical)</button>
+  <button class="btn btn-secondary"><iconify-icon icon="heroicons:paper-clip" style="font-size:16px;vertical-align:-3px"></iconify-icon> Đính kèm ảnh / báo cáo</button>
+
+      
+    
+      </div>
+    </div>
+</main>
+  </div>
+</div>
+<script src="../assets/shell.js"></script>
+</body>
+</html>

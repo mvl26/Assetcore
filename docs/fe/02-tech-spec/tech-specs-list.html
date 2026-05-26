@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="module-id" content="tech-specs">
+<title>Tech Spec — AssetCore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+<script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <a class="brand" style="color:inherit;text-decoration:none" href="#">
+      <span class="logo">A</span>
+      <div>AssetCore <small>IMMIS · BV Nhi Đồng 1</small></div>
+    </a>
+    <div class="spacer"></div>
+    <button class="iconbtn" title="Thông báo"><iconify-icon icon="heroicons:bell" style="font-size:18px;vertical-align:-3px;color:#fff"></iconify-icon></button>
+    <div class="persona-pill" title="Chọn vai trò"></div>
+    <div id="personaMenu" class="persona-menu"></div>
+  </div>
+  <div class="body-wrap">
+    <aside class="sidebar">
+      <div class="side-head"><span></span></div>
+      <nav></nav>
+      <div class="side-foot">AssetCore v0.0.2 · Wave 1+2</div>
+    </aside>
+    <main class="main">
+      <div class="breadcrumb"><a href="../index.html">Trang chủ</a> <span class="sep">›</span><span>Thông số kỹ thuật</span></div>
+      <div class="page">
+        <div class="page-head">
+  <div class="titles"><h1>Thông số kỹ thuật</h1>
+    <div class="sub">35 spec · 12 đang soạn · 8 locked · 15 awarded</div></div>
+  <div class="toolbar"><a class="btn btn-primary" href="tech-specs-form.html">+ Tạo Tech Spec</a></div>
+</div>
+
+<div class="filterbar">
+  <div class="filter-group"><label>Tìm kiếm</label>
+    <input class="input" type="text" placeholder="Mã / dòng máy" style="width:100%"></div>
+  <div class="filter-group"><label>Trạng thái</label>
+    <select class="select"><option>Mọi trạng thái</option><option>Draft</option><option>Under Review</option><option>Benchmark</option><option>Locked</option><option>Withdrawn</option><option>Awarded</option></select></div>
+  <div class="filter-actions">
+    <button class="btn btn-secondary btn-sm">Đặt lại</button>
+    <button class="btn btn-primary btn-sm">Áp dụng</button></div>
+</div>
+
+<div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>Mã Spec</th><th>Tên dòng máy</th><th>Plan link</th><th>Lock-in risk</th><th>Candidate</th><th>Người soạn</th><th>Trạng thái</th></tr></thead>
+    <tbody>
+      <tr><td class="mono"><a class="link" href="tech-specs-detail.html">TS-2026-0042</a></td><td><b>Máy siêu âm 4D class C</b></td><td>PP-2026-Q3-001</td><td><span class="badge b-medium">Medium (38)</span></td><td>4 NCC</td><td>Lê Quốc Hùng</td><td><span class="badge b-inprogress">Benchmark</span></td></tr>
+      <tr><td class="mono"><a class="link" href="tech-specs-detail.html">TS-2026-0040</a></td><td><b>Máy thở cao tần HFOV</b></td><td>PP-2026-Q3-001</td><td><span class="badge b-low">Low (22)</span></td><td>5 NCC</td><td>Lê Quốc Hùng</td><td><span class="badge b-active">Locked</span></td></tr>
+      <tr><td class="mono"><a class="link" href="tech-specs-detail.html">TS-2026-0035</a></td><td><b>Lồng ấp sơ sinh thế hệ mới</b></td><td>PP-2026-H1-001</td><td><span class="badge b-high">High (68)</span></td><td>3 NCC</td><td>Lê Quốc Hùng</td><td><span class="badge b-closed">Awarded</span></td></tr>
+    </tbody>
+  </table>
+</div>
+      </div>
+    </main>
+  </div>
+</div>
+<script src="../assets/shell.js"></script>
+</body>
+</html>

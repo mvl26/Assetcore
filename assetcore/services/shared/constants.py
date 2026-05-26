@@ -127,21 +127,10 @@ class CalibrationResult:
     ACTIVE_STATUSES = (SCHEDULED, SENT_TO_LAB, IN_PROGRESS, CERT_RECEIVED)
 
 
-class ErrorCode:
-    """Error codes cho `_err(msg, code)` envelope + ServiceError."""
-
-    NOT_FOUND = "NOT_FOUND"
-    FORBIDDEN = "FORBIDDEN"
-    UNAUTHORIZED = "UNAUTHORIZED"
-    VALIDATION = "VALIDATION"
-    BUSINESS_RULE = "BUSINESS_RULE"  # Gate / VR nghiệp vụ (HTTP 422 gợi ý) — Wave 2
-    CONFLICT = "CONFLICT"
-    BAD_STATE = "BAD_STATE"
-    DUPLICATE = "DUPLICATE"
-    INVALID_PARAMS = "INVALID_PARAMS"
-    RATE_LIMITED = "RATE_LIMITED"
-    INTERNAL = "INTERNAL"
-    COMPLIANCE_BLOCKED = "COMPLIANCE_BLOCKED"  # IMM-16 gate: asset có Critical CAPA/finding mở
+# ErrorCode đã được hợp nhất về `assetcore.utils.response` (Phase 0 of notification
+# framework rollout). File này chỉ re-export để mọi `from
+# assetcore.services.shared.constants import ErrorCode` vẫn hoạt động.
+from assetcore.utils.response import ErrorCode  # noqa: F401, E402 (re-export)
 
 
 class ApprovalStatus:

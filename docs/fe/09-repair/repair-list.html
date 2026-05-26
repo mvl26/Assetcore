@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="module-id" content="cm">
+<title>Lệnh sửa chữa — AssetCore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+<script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <a class="brand" style="color:inherit;text-decoration:none" href="#">
+      <span class="logo">A</span>
+      <div>AssetCore <small>IMMIS · BV Nhi Đồng 1</small></div>
+    </a>
+    <div class="spacer"></div>
+    <button class="iconbtn" title="Thông báo"><iconify-icon icon="heroicons:bell" style="font-size:18px;vertical-align:-3px;color:#fff"></iconify-icon></button>
+    <div class="persona-pill" title="Chọn vai trò"></div>
+    <div id="personaMenu" class="persona-menu"></div>
+  </div>
+  <div class="body-wrap">
+    <aside class="sidebar">
+      <div class="side-head"><span></span></div>
+      <nav></nav>
+      <div class="side-foot">AssetCore v0.0.2 · Wave 1+2</div>
+    </aside>
+    <main class="main">
+      <div class="breadcrumb"><a href="../index.html">Trang chủ</a> <span class="sep">›</span><span>Sửa chữa (CM)</span></div>
+      <div class="page">
+        <div class="page-head">
+  <div class="titles">
+    <h1>Lệnh sửa chữa (CM)</h1>
+    <div class="sub">42 lệnh đang xử lý · 5 quá SLA · MTTR tháng này: 3,2 giờ</div>
+  </div>
+  <div class="toolbar">
+    <a class="btn btn-secondary" href="repair-dashboard.html"><iconify-icon icon="heroicons:chart-bar" style="font-size:16px;vertical-align:-3px"></iconify-icon> Dashboard / MTTR</a>
+    <a class="btn btn-primary" href="repair-form.html">+ Tạo lệnh sửa chữa</a>
+  </div>
+
+</div><div class="grid g4" style="margin-bottom:20px">
+  <div class="kpi info"><div class="kbar"></div><div class="klabel">Mở</div><div class="kval">14</div><div class="kfoot">Chờ phân công</div></div>
+  <div class="kpi warn"><div class="kbar"></div><div class="klabel">Đang xử lý</div><div class="kval">23</div><div class="kfoot">Đã phân công KTV</div></div>
+  <div class="kpi danger"><div class="kbar"></div><div class="klabel">Quá SLA</div><div class="kval">5</div><div class="kfoot">Cần escalate</div></div>
+  <div class="kpi ok"><div class="kbar"></div><div class="klabel">Hoàn tất tháng này</div><div class="kval">128</div><div class="kfoot">MTTR 3,2h · ↓ 0,4h</div></div>
+</div>
+
+<div class="filterbar">
+  <div class="filter-group"><label>Tìm kiếm</label>
+    <input class="input" type="text" placeholder="Mã WO / tên thiết bị / KTV" style="width:100%"></div>
+  <div class="filter-group"><label>Trạng thái</label>
+    <select class="select"><option>Mọi trạng thái</option><option>Reported</option><option>Acknowledged</option><option>Diagnosed</option><option>Waiting Parts</option><option>In Progress</option><option>Pending Inspection</option><option>Closed - Completed</option><option>Closed - Cannot Repair</option></select></div>
+  <div class="filter-group"><label>Ưu tiên</label>
+    <select class="select"><option>Mọi mức ưu tiên</option><option>P1 - Critical</option><option>P2 - High</option><option>P3 - Medium</option><option>P4 - Low</option></select></div>
+  <div class="filter-group"><label>Loại</label>
+    <select class="select"><option>Mọi loại</option><option>From Incident</option><option>From PM Halted</option><option>Predictive</option></select></div>
+  <div class="filter-group"><label>KTV</label>
+    <select class="select"><option>Mọi KTV</option><option>Phạm Văn Đức</option><option>Nguyễn Hữu Phúc</option><option>Trần Đại Nghĩa</option></select></div>
+  <div class="filter-actions">
+    <button class="btn btn-secondary btn-sm">Đặt lại</button>
+    <button class="btn btn-primary btn-sm">Áp dụng</button></div>
+</div>
+
+<div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr>
+      <th>Mã lệnh</th><th>Thiết bị</th><th>Loại</th><th>Ưu tiên</th><th>Nguồn</th><th>KTV phụ trách</th><th>SLA còn</th><th>Trạng thái</th>
+    </tr></thead>
+    <tbody>
+      <tr class="row-danger">
+        <td><a class="link" href="repair-detail.html">WO-RP-2026-00310</a></td>
+        <td><b>Máy siêu âm Philips</b><br><span class="text-xs muted">Affiniti 70 · CĐHA - P.SA2</span></td>
+        <td>Sửa chữa</td>
+        <td><span class="prio p1">P1</span></td>
+        <td>Sự cố INC-2026-00075</td>
+        <td>Nguyễn Hữu Phúc</td>
+        <td><span class="badge b-overdue">Trễ 2h 14'</span></td>
+        <td><span class="badge b-inprogress">Đang xử lý</span></td>
+      </tr>
+      <tr>
+        <td><a class="link" href="repair-detail.html">WO-RP-2026-00309</a></td>
+        <td><b>Lồng ấp sơ sinh Atom</b><br><span class="text-xs muted">Atom Incu i · Sơ sinh - P.1</span></td>
+        <td>Sửa chữa</td>
+        <td><span class="prio p1">P1</span></td>
+        <td>Sự cố INC-2026-00077</td>
+        <td>Phạm Văn Đức</td>
+        <td><span class="badge b-warn">1h 12'</span></td>
+        <td><span class="badge b-inprogress">Đang xử lý</span></td>
+      </tr>
+      <tr>
+        <td><a class="link" href="repair-detail.html">WO-RP-2026-00307</a></td>
+        <td><b>Bơm tiêm điện Terumo</b><br><span class="text-xs muted">TE-SS830 · Sơ sinh</span></td>
+        <td>Sửa chữa</td>
+        <td><span class="prio p2">P2</span></td>
+        <td>Sự cố INC-2026-00075</td>
+        <td>Phạm Văn Đức</td>
+        <td><span class="badge b-info">3h 45'</span></td>
+        <td><span class="badge b-warn">Chờ phụ tùng</span></td>
+      </tr>
+      <tr>
+        <td><a class="link" href="repair-detail.html">WO-RP-2026-00305</a></td>
+        <td><b>Máy điện tim Nihon Kohden</b><br><span class="text-xs muted">ECG-2550 · Tim mạch</span></td>
+        <td>Sửa chữa</td>
+        <td><span class="prio p3">P3</span></td>
+        <td>PM Halted (WO-PM-00301)</td>
+        <td>Trần Đại Nghĩa</td>
+        <td><span class="badge b-info">14h 02'</span></td>
+        <td><span class="badge b-submitted">Đã chẩn đoán</span></td>
+      </tr>
+      <tr>
+        <td><a class="link" href="repair-detail.html">WO-RP-2026-00301</a></td>
+        <td><b>Monitor Mindray uMEC12</b><br><span class="text-xs muted">Cấp cứu - Sảnh</span></td>
+        <td>Sửa chữa</td>
+        <td><span class="prio p2">P2</span></td>
+        <td>Sự cố INC-2026-00070</td>
+        <td>—</td>
+        <td><span class="badge b-info">22h 30'</span></td>
+        <td><span class="badge b-open">Mở · Chờ phân công</span></td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="pagination">
+    <span class="muted text-sm" style="margin-right:auto">Hiển thị 5 / 42</span>
+    <button>‹</button><button class="active">1</button><button>2</button><button>3</button><button>›</button>
+  </div>
+</div>
+      
+      </div>
+    </main>
+  </div>
+</div>
+<script src="../assets/shell.js"></script>
+</body>
+</html>

@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="module-id" content="audits">
+<title>Audit nội bộ — AssetCore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+<script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <a class="brand" style="color:inherit;text-decoration:none" href="#">
+      <span class="logo">A</span>
+      <div>AssetCore <small>IMMIS · BV Nhi Đồng 1</small></div>
+    </a>
+    <div class="spacer"></div>
+    <button class="iconbtn" title="Thông báo"><iconify-icon icon="heroicons:bell" style="font-size:18px;vertical-align:-3px;color:#fff"></iconify-icon></button>
+    <div class="persona-pill" title="Chọn vai trò"></div>
+    <div id="personaMenu" class="persona-menu"></div>
+  </div>
+  <div class="body-wrap">
+    <aside class="sidebar">
+      <div class="side-head"><span></span></div>
+      <nav></nav>
+      <div class="side-foot">AssetCore v0.0.2 · Wave 1+2</div>
+    </aside>
+    <main class="main">
+      <div class="breadcrumb"><a href="../index.html">Trang chủ</a> <span class="sep">›</span><span>Audit nội bộ</span></div>
+      <div class="page">
+        <div class="page-head">
+  <div class="titles"><h1>Audit nội bộ</h1>
+    <div class="sub">4 audit Q2/2026 · 1 đang chạy · 2 hoàn tất · 1 lập kế hoạch</div></div>
+  <div class="toolbar"><a class="btn btn-primary" href="#">+ Lập kế hoạch audit</a></div>
+
+</div><div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>Mã audit</th><th>Scope</th><th>Auditor lead</th><th>Ngày dự kiến</th><th>Findings</th><th>Trạng thái</th></tr></thead>
+    <tbody>
+      <tr><td class="mono"><a class="link" href="#">AUD-2026-Q2-002</a></td><td>Module: IMM-08 PM (toàn bộ khoa)</td><td>Hoàng Minh Châu</td><td>15/05-20/05</td><td>5 (2 High, 3 Low)</td><td><span class="badge b-warn">Đang viết báo cáo</span></td></tr>
+      <tr><td class="mono"><a class="link" href="#">AUD-2026-Q2-001</a></td><td>Asset: 12 Máy thở Bennett</td><td>Hoàng Minh Châu</td><td>01/05-08/05</td><td>3 (1 Medium, 2 Low)</td><td><span class="badge b-closed">Đã đóng</span></td></tr>
+      <tr><td class="mono"><a class="link" href="#">AUD-2026-Q2-003</a></td><td>Khoa: Sơ sinh (98 thiết bị)</td><td>Hoàng Minh Châu</td><td>10/06-20/06</td><td>—</td><td><span class="badge b-draft">Đang lập kế hoạch</span></td></tr>
+    </tbody>
+  </table>
+</div>
+      
+      </div>
+    </main>
+  </div>
+</div>
+<script src="../assets/shell.js"></script>
+</body>
+</html>

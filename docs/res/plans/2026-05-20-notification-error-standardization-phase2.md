@@ -1,5 +1,7 @@
 # Notification & Error Framework — Giai đoạn 2 (Hoàn thiện)
 
+> **Status (2026-05-25):** NOT STARTED. Giai đoạn 1 mới hoàn thành Phase 0–2 (BE foundation + FE composable + demo IMM-04). Phase 3–6 của giai đoạn 1 (seed catalog, migrate-all-modules, cleanup) chưa làm — phải làm trước khi mở giai đoạn 2.
+>
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Prerequisite:** Giai đoạn 1 đã merge — code-first registry `assetcore/utils/messages.py` + `frontend/src/i18n/messages.ts` đang chạy production, mọi `frappe.throw` / `toast.error` hardcode đã được migrate. Tham chiếu: [2026-05-20-notification-error-standardization.md](./2026-05-20-notification-error-standardization.md).

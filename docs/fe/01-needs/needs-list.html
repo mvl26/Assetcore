@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="module-id" content="needs">
+<title>Đề xuất nhu cầu — AssetCore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+<script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <a class="brand" style="color:inherit;text-decoration:none" href="#">
+      <span class="logo">A</span>
+      <div>AssetCore <small>IMMIS · BV Nhi Đồng 1</small></div>
+    </a>
+    <div class="spacer"></div>
+    <button class="iconbtn" title="Thông báo"><iconify-icon icon="heroicons:bell" style="font-size:18px;vertical-align:-3px;color:#fff"></iconify-icon></button>
+    <div class="persona-pill" title="Chọn vai trò"></div>
+    <div id="personaMenu" class="persona-menu"></div>
+  </div>
+  <div class="body-wrap">
+    <aside class="sidebar">
+      <div class="side-head"><span></span></div>
+      <nav></nav>
+      <div class="side-foot">AssetCore v0.0.2 · Wave 1+2</div>
+    </aside>
+    <main class="main">
+      <div class="breadcrumb"><a href="../index.html">Trang chủ</a> <span class="sep">›</span><span>Đề xuất nhu cầu</span></div>
+      <div class="page">
+        <div class="page-head">
+  <div class="titles"><h1>Đề xuất nhu cầu thiết bị</h1>
+    <div class="sub">23 đề xuất 2026 · 3 chờ chấm điểm · 5 đang lập kế hoạch · 15 đã duyệt</div></div>
+  <div class="toolbar"><a class="btn btn-primary" href="needs-form.html">+ Tạo đề xuất</a></div>
+
+</div><div class="grid g4" style="margin-bottom:20px">
+  <div class="kpi primary"><div class="kbar"></div><div class="klabel">Submitted</div><div class="kval">3</div><div class="kfoot">Chờ chấm điểm</div></div>
+  <div class="kpi info"><div class="kbar"></div><div class="klabel">Đang chấm điểm</div><div class="kval">2</div><div class="kfoot">6 tiêu chí P1-P4</div></div>
+  <div class="kpi warn"><div class="kbar"></div><div class="klabel">Đang dự toán</div><div class="kval">5</div><div class="kfoot">Budget CAPEX/OPEX 5 năm</div></div>
+  <div class="kpi ok"><div class="kbar"></div><div class="klabel">Đã phê duyệt</div><div class="kval">15</div><div class="kfoot">Trị giá 12,8 tỷ ₫</div></div>
+</div>
+
+<div class="filterbar">
+  <div class="filter-group"><label>Tìm kiếm</label>
+    <input class="input" type="text" placeholder="Mã / thiết bị / khoa" style="width:100%"></div>
+  <div class="filter-group"><label>Trạng thái</label>
+    <select class="select"><option>Mọi trạng thái</option><option>Draft</option><option>Submitted</option><option>Under Review</option><option>Scored</option><option>Budget Estimated</option><option>Approved</option><option>Rejected</option></select></div>
+  <div class="filter-group"><label>Loại</label>
+    <select class="select"><option>Mọi loại</option><option>Mới</option><option>Thay thế</option><option>Nâng cấp</option></select></div>
+  <div class="filter-group"><label>Mức urgency</label>
+    <select class="select"><option>Mọi mức urgency</option><option>P1</option><option>P2</option><option>P3</option><option>P4</option></select></div>
+  <div class="filter-actions">
+    <button class="btn btn-secondary btn-sm">Đặt lại</button>
+    <button class="btn btn-primary btn-sm">Áp dụng</button></div>
+</div>
+
+<div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>Mã NR</th><th>Loại</th><th>Thiết bị đề xuất</th><th>Khoa</th><th>Urgency</th><th>Người tạo</th><th>Score</th><th>Trạng thái</th></tr></thead>
+    <tbody>
+      <tr><td class="mono"><a class="link" href="needs-detail.html">NR-2026-000128</a></td><td>Thay thế</td><td><b>Máy siêu âm thay thế Philips hỏng</b></td><td>CĐHA</td><td><span class="prio p1">P1</span></td><td>BS. Nguyễn Thị Lan</td><td>—</td><td><span class="badge b-submitted">Đã nộp</span></td></tr>
+      <tr><td class="mono"><a class="link" href="needs-detail.html">NR-2026-000124</a></td><td>Mới</td><td><b>Máy thở cao tần HFOV</b></td><td>ICU</td><td><span class="prio p2">P2</span></td><td>BS. Trần Hoàng</td><td>—</td><td><span class="badge b-inprogress">Đang chấm điểm</span></td></tr>
+      <tr><td class="mono"><a class="link" href="needs-detail.html">NR-2026-000118</a></td><td>Nâng cấp</td><td><b>Nâng cấp phần mềm monitor</b></td><td>Cấp cứu</td><td><span class="prio p3">P3</span></td><td>BS. Nguyễn Thị Lan</td><td><b style="color:#16A34A">84</b></td><td><span class="badge b-closed">Đã duyệt</span></td></tr>
+    </tbody>
+  </table>
+</div>
+      
+      </div>
+    </main>
+  </div>
+</div>
+<script src="../assets/shell.js"></script>
+</body>
+</html>

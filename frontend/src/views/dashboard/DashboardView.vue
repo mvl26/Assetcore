@@ -70,13 +70,18 @@ const kpiCards = computed<KpiCard[]>(() => {
       to: '/pm/work-orders',
     },
     {
-      label: 'Phiếu chờ duyệt',
+      // RC-09 (NextRound): "pending_commissioning" giờ là scope="mine" (phiếu
+      // mà current_user là pending_approver), khớp với /approvals/pending
+      // (list_my_pending_approvals). Click → đến /approvals/pending trực tiếp.
+      // Trường `pending_commissioning_all` (global) chỉ phục vụ admin overview;
+      // dashboard tile dùng "mine" để hai trang không lệch.
+      label: 'Phiếu chờ tôi duyệt',
       value: m.pending_commissioning,
       accent: 'text-purple-700',
       bg: 'bg-purple-50',
       color: '#7c3aed',
       icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z',
-      to: '/commissioning',
+      to: '/approvals/pending',
     },
   ]
 })

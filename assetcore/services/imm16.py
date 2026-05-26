@@ -1324,6 +1324,95 @@ def close_audit(name: str, audit_report: str = "") -> dict:
 
 # ─── CAPA (canonical) ─────────────────────────────────────────────────────────
 
+def create_capa_from_incident(incident_name: str,
+                               rca_name: str = "",
+                               severity_override: str = "",
+                               responsible: str = "",
+                               due_days: int = 30) -> dict:
+    """Tạo CAPA từ Incident Report (idempotent — re-use linked_capa nếu đã có).
+
+    Wired từ:
+      - IMM-12 RCA on_submit (RC-03 fix) → mọi RCA completed sinh CAPA.
+      - imm12.submit_rca() service path (đã có sẵn).
+
+    2-way link:
+      - CAPA.linked_incident = incident_name
+      - CAPA.source_type/source_ref = (Incident Report / incident_name)
+      - Incident.linked_capa = capa_name
+      - RCA.linked_capa = capa_name (nếu rca_name truyền vào)
+
+    Trả về: {"capa_name", "incident_name", "rca_name", "reused": bool}
+    """
+    incident = frappe.db.get_value(
+        "Incident Report", incident_name,
+        ["name", "asset", "severity", "description", "linked_capa", "fault_code"],
+        as_dict=True,
+    )
+    if not incident:
+        raise ServiceError(ErrorCode.NOT_FOUND,
+                           f"Không tìm thấy Incident: {incident_name}")
+
+    # Idempotent: nếu Incident đã có CAPA hợp lệ → reuse
+    if incident.linked_capa and frappe.db.exists("IMM CAPA Record", incident.linked_capa):
+        # Bảo đảm 2-way link RCA → CAPA nếu có rca_name
+        if rca_name and frappe.db.exists("IMM RCA Record", rca_name):
+            cur = frappe.db.get_value("IMM RCA Record", rca_name, "linked_capa")
+            if not cur:
+                frappe.db.set_value("IMM RCA Record", rca_name,
+                                    "linked_capa", incident.linked_capa)
+        # Bảo đảm linked_incident chỉ ra incident
+        cur_inc = frappe.db.get_value("IMM CAPA Record", incident.linked_capa,
+                                       "linked_incident")
+        if not cur_inc:
+            frappe.db.set_value("IMM CAPA Record", incident.linked_capa,
+                                "linked_incident", incident_name)
+        return {"capa_name": incident.linked_capa, "incident_name": incident_name,
+                "rca_name": rca_name, "reused": True}
+
+    # Map severity: Incident (Low/Medium/High/Critical) → CAPA (Minor/Major/Critical)
+    sev = severity_override or incident.severity or "High"
+    capa_severity = _map_severity(sev) if sev != "Critical" else "Critical"
+
+    description_parts = [f"[IMM-12 RCA→CAPA] Incident {incident_name}"]
+    if rca_name:
+        description_parts.append(f"RCA: {rca_name}")
+    if incident.fault_code:
+        description_parts.append(f"Fault code: {incident.fault_code}")
+    if incident.description:
+        description_parts.append((incident.description or "")[:300])
+    capa_description = " | ".join(description_parts)
+
+    from assetcore.services.imm00 import create_capa
+    capa_name = create_capa(
+        asset=incident.asset or "",
+        source_type="Incident Report",
+        source_ref=incident_name,
+        severity=capa_severity,
+        description=capa_description,
+        responsible=responsible or frappe.session.user,
+        due_days=due_days,
+    )
+
+    # 2-way link
+    frappe.db.set_value("IMM CAPA Record", capa_name,
+                        "linked_incident", incident_name)
+    frappe.db.set_value("Incident Report", incident_name,
+                        "linked_capa", capa_name)
+    if rca_name and frappe.db.exists("IMM RCA Record", rca_name):
+        frappe.db.set_value("IMM RCA Record", rca_name,
+                            "linked_capa", capa_name)
+
+    _log_record_event(
+        "IMM CAPA Record", capa_name, "CAPA",
+        f"CAPA {capa_name} tạo từ Incident {incident_name}"
+        + (f" (RCA {rca_name})" if rca_name else ""),
+        asset=incident.asset or "", to_status="Open",
+    )
+    frappe.db.commit()
+    return {"capa_name": capa_name, "incident_name": incident_name,
+            "rca_name": rca_name, "reused": False}
+
+
 def create_capa_from_finding(finding_name: str,
                               imm_risk_level: str = "Medium",
                               imm_root_cause_method: str = "",

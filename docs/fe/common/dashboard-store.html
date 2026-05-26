@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="module-id" content="dashboard">
+<title>Bảng điều khiển — AssetCore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+<script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <a class="brand" style="color:inherit;text-decoration:none" href="#">
+      <span class="logo">A</span>
+      <div>AssetCore <small>IMMIS · BV Nhi Đồng 1</small></div>
+    </a>
+    <div class="spacer"></div>
+    <button class="iconbtn" title="Thông báo"><iconify-icon icon="heroicons:bell" style="font-size:18px;vertical-align:-3px;color:#fff"></iconify-icon></button>
+    <div class="persona-pill" title="Chọn vai trò"></div>
+    <div id="personaMenu" class="persona-menu"></div>
+  </div>
+  <div class="body-wrap">
+    <aside class="sidebar">
+      <div class="side-head"><span></span></div>
+      <nav></nav>
+      <div class="side-foot">AssetCore v0.0.2 · Wave 1+2</div>
+    </aside>
+    <main class="main">
+      <div class="breadcrumb"><span>Bảng điều khiển</span></div>
+      <div class="page">
+        
+<div class="page-head">
+  <div class="titles">
+    <h1>Bảng điều khiển — Thủ kho phụ tùng</h1>
+    <div class="sub">Cấp phát phụ tùng · Tồn kho · Kiểm kê chu kỳ</div>
+  </div>
+</div>
+
+<div class="grid g4" style="margin-bottom:20px">
+  <div class="kpi primary"><div class="kbar"></div><div class="klabel">Tổng giá trị tồn</div><div class="kval">234M ₫</div><div class="kfoot">1.247 mã PT</div></div>
+  <div class="kpi danger"><div class="kbar"></div><div class="klabel">Dưới định mức</div><div class="kval">3</div><div class="kfoot">Cần đặt hàng gấp</div></div>
+  <div class="kpi warn"><div class="kbar"></div><div class="klabel">Cấp phát đang xử lý</div><div class="kval">8</div><div class="kfoot">3 chờ duyệt · 5 chờ xuất</div></div>
+  <div class="kpi info"><div class="kbar"></div><div class="klabel">Kiểm kê đang đếm</div><div class="kval">2</div><div class="kfoot">Kho A1 + B2</div></div>
+</div>
+
+<div class="grid g2">
+  <div class="card">
+    <div class="card-head"><h3>Phụ tùng dưới định mức</h3></div>
+    <div class="card-pad">
+      <table class="tbl">
+        <thead><tr><th>Mã PT</th><th>Tên</th><th>Tồn / Min</th><th></th></tr></thead>
+        <tbody>
+          <tr><td class="mono">SP-FILT-001</td><td>Màng lọc HEPA máy thở</td><td><b style="color:#DC2626">4 / 10</b></td><td><a class="btn btn-primary btn-sm" href="../15-inventory/spare-parts-list.html">Đặt hàng</a></td></tr>
+          <tr><td class="mono">SP-SENS-540</td><td>Cảm biến SpO2 sơ sinh</td><td><b style="color:#DC2626">6 / 12</b></td><td><a class="btn btn-primary btn-sm" href="../15-inventory/spare-parts-list.html">Đặt hàng</a></td></tr>
+          <tr><td class="mono">SP-PROBE-12</td><td>Đầu dò siêu âm convex</td><td><b style="color:#DC2626">1 / 2</b></td><td><a class="btn btn-primary btn-sm" href="../15-inventory/spare-parts-list.html">Đặt hàng</a></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-head"><h3>Phiếu cấp phát chờ xử lý</h3></div>
+    <div class="card-pad">
+      <table class="tbl">
+        <thead><tr><th>Mã phiếu</th><th>WO</th><th>KTV</th><th>Trạng thái</th></tr></thead>
+        <tbody>
+          <tr><td class="mono"><a class="link" href="../15-inventory/allocations-list.html">SA-2026-0042</a></td><td>WO-RP-309</td><td>Phạm Văn Đức</td><td><span class="badge b-submitted">Chờ duyệt</span></td></tr>
+          <tr><td class="mono"><a class="link" href="../15-inventory/allocations-list.html">SA-2026-0041</a></td><td>WO-RP-307</td><td>Phạm Văn Đức</td><td><span class="badge b-warn">Khẩn cấp · Phê duyệt kép</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+      </div>
+    </main>
+  </div>
+</div>
+<script src="../assets/shell.js"></script>
+</body>
+</html>

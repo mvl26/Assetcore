@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="module-id" content="decisions">
+<title>Quyết định mua sắm — AssetCore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+<script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <a class="brand" style="color:inherit;text-decoration:none" href="#">
+      <span class="logo">A</span>
+      <div>AssetCore <small>IMMIS · BV Nhi Đồng 1</small></div>
+    </a>
+    <div class="spacer"></div>
+    <button class="iconbtn" title="Thông báo"><iconify-icon icon="heroicons:bell" style="font-size:18px;vertical-align:-3px;color:#fff"></iconify-icon></button>
+    <div class="persona-pill" title="Chọn vai trò"></div>
+    <div id="personaMenu" class="persona-menu"></div>
+  </div>
+  <div class="body-wrap">
+    <aside class="sidebar">
+      <div class="side-head"><span></span></div>
+      <nav></nav>
+      <div class="side-foot">AssetCore v0.0.2 · Wave 1+2</div>
+    </aside>
+    <main class="main">
+      <div class="breadcrumb"><a href="../index.html">Trang chủ</a> <span class="sep">›</span><span>Quyết định mua sắm</span></div>
+      <div class="page">
+        <div class="page-head">
+  <div class="titles"><h1>Quyết định mua sắm & trao thầu</h1>
+    <div class="sub">15 quyết định 2026 · 3 chờ BGĐ duyệt · 2 đã trao thầu chưa ký PO</div></div>
+  <div class="toolbar"><a class="btn btn-primary" href="#">+ Tạo quyết định</a></div>
+
+</div><div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>Mã PD</th><th>Spec link</th><th>NCC trúng thầu</th><th>Giá trị</th><th>Owner</th><th>Trạng thái</th></tr></thead>
+    <tbody>
+      <tr><td class="mono"><a class="link" href="#">PD-2026-0008</a></td><td>TS-2026-0040 (Máy thở HFOV)</td><td><b>Medtronic VN</b></td><td>2,4 tỷ ₫</td><td>Trần Thị Mai</td><td><span class="badge b-submitted">Chờ BGĐ duyệt</span></td></tr>
+      <tr><td class="mono"><a class="link" href="#">PD-2026-0007</a></td><td>TS-2026-0035 (Lồng ấp)</td><td><b>Atom Medical</b></td><td>980M ₫</td><td>Trần Thị Mai</td><td><span class="badge b-warn">Đã duyệt · Chờ ký PO</span></td></tr>
+      <tr><td class="mono"><a class="link" href="#">PD-2026-0005</a></td><td>TS-2025-0098 (Monitor)</td><td><b>Mindray VN</b></td><td>1,2 tỷ ₫</td><td>Trần Thị Mai</td><td><span class="badge b-closed">PO đã phát hành</span></td></tr>
+    </tbody>
+  </table>
+</div>
+      
+      </div>
+    </main>
+  </div>
+</div>
+<script src="../assets/shell.js"></script>
+</body>
+</html>

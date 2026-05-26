@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="module-id" content="suppliers">
+<title>Nhà cung cấp — AssetCore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+<script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <a class="brand" style="color:inherit;text-decoration:none" href="#">
+      <span class="logo">A</span>
+      <div>AssetCore <small>IMMIS · BV Nhi Đồng 1</small></div>
+    </a>
+    <div class="spacer"></div>
+    <button class="iconbtn" title="Thông báo"><iconify-icon icon="heroicons:bell" style="font-size:18px;vertical-align:-3px;color:#fff"></iconify-icon></button>
+    <div class="persona-pill" title="Chọn vai trò"></div>
+    <div id="personaMenu" class="persona-menu"></div>
+  </div>
+  <div class="body-wrap">
+    <aside class="sidebar">
+      <div class="side-head"><span></span></div>
+      <nav></nav>
+      <div class="side-foot">AssetCore v0.0.2 · Wave 1+2</div>
+    </aside>
+    <main class="main">
+      <div class="breadcrumb"><a href="../index.html">Trang chủ</a> <span class="sep">›</span><span>Nhà cung cấp</span></div>
+      <div class="page">
+        <div class="page-head">
+  <div class="titles">
+    <h1>Nhà cung cấp</h1>
+    <div class="sub">47 NCC · 38 đang hoạt động · 4 sắp hết hạn AVL · 2 đã suspend</div>
+  </div>
+  <div class="toolbar">
+    <a class="btn btn-primary" href="suppliers-form.html">+ Tạo nhà cung cấp</a>
+  </div>
+</div>
+
+<div class="filterbar">
+  <div class="filter-group"><label>Tìm kiếm</label>
+    <input class="input" type="text" placeholder="Mã / tên / mã số thuế" style="width:100%"></div>
+  <div class="filter-group"><label>Loại</label>
+    <select class="select"><option>Mọi loại</option><option>Sản xuất</option><option>Phân phối</option><option>Dịch vụ</option><option>Hiệu chuẩn</option></select></div>
+  <div class="filter-group"><label>AVL</label>
+    <select class="select"><option>Mọi AVL</option><option>Approved</option><option>Conditional</option><option>Suspended</option><option>Expired</option></select></div>
+  <div class="filter-group"><label>Quốc gia</label>
+    <select class="select"><option>Mọi quốc gia</option><option>Việt Nam</option><option>Mỹ</option><option>Đức</option><option>Nhật</option></select></div>
+  <div class="filter-actions">
+    <button class="btn btn-secondary btn-sm">Đặt lại</button>
+    <button class="btn btn-primary btn-sm">Áp dụng</button></div>
+</div>
+
+<div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>Tên nhà cung cấp</th><th>Loại</th><th>Quốc gia</th><th>Chuyên môn</th><th>AVL</th><th>Scorecard Q1/26</th><th>Hợp đồng hiện hành</th></tr></thead>
+    <tbody>
+      <tr><td><b>Công ty TNHH Medtronic VN</b><br><span class="text-xs muted">MST: 0301234567</span></td><td>Phân phối</td><td>Mỹ / VN</td><td>Thiết bị hô hấp, tim mạch</td><td><span class="badge b-active"><span class="dot"></span>Approved</span></td><td><b style="color:#16A34A">92/100</b></td><td>3 hợp đồng đang hiệu lực</td></tr>
+      <tr><td><b>Siemens Healthineers VN</b><br><span class="text-xs muted">MST: 0301234890</span></td><td>Phân phối + Dịch vụ</td><td>Đức / VN</td><td>Chẩn đoán hình ảnh</td><td><span class="badge b-active"><span class="dot"></span>Approved</span></td><td><b style="color:#16A34A">88/100</b></td><td>2 hợp đồng</td></tr>
+      <tr><td><b>Terumo Việt Nam</b><br><span class="text-xs muted">MST: 0312890345</span></td><td>Phân phối</td><td>Nhật / VN</td><td>Bơm tiêm, truyền dịch</td><td><span class="badge b-warn">Sắp hết hạn 30/06</span></td><td><b style="color:#F59E0B">76/100</b></td><td>1 hợp đồng</td></tr>
+      <tr><td><b>Mindray Medical VN</b><br><span class="text-xs muted">MST: 0321456789</span></td><td>Sản xuất + Phân phối</td><td>TQ / VN</td><td>Monitor, ICU</td><td><span class="badge b-active"><span class="dot"></span>Approved</span></td><td><b style="color:#16A34A">85/100</b></td><td>2 hợp đồng</td></tr>
+      <tr><td><b>Bureau Veritas Việt Nam</b><br><span class="text-xs muted">MST: 0312345678</span></td><td>Dịch vụ - Hiệu chuẩn ISO 17025</td><td>Pháp / VN</td><td>Phòng hiệu chuẩn ngoài</td><td><span class="badge b-active"><span class="dot"></span>Approved</span></td><td><b style="color:#16A34A">95/100</b></td><td>1 hợp đồng khung</td></tr>
+      <tr><td><b>Atom Medical Corp</b><br><span class="text-xs muted">MST: 0399123456</span></td><td>Phân phối</td><td>Nhật / VN</td><td>Lồng ấp sơ sinh</td><td><span class="badge b-submitted">Conditional</span></td><td><b style="color:#F59E0B">71/100</b></td><td>1 hợp đồng</td></tr>
+    </tbody>
+  </table>
+</div>
+      </div>
+    </main>
+  </div>
+</div>
+<script src="../assets/shell.js"></script>
+</body>
+</html>

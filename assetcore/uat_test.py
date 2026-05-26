@@ -261,7 +261,7 @@ def run_all():
         frappe.db.commit()
         print(f"  [3] ❌ FAIL — Hệ thống KHÔNG chặn serial trùng lặp!")
         results["KB03-3"] = "FAIL"
-        frappe.db.sql(f"DELETE FROM `tabAsset Commissioning` WHERE name = %s", dup.name)
+        frappe.db.sql("DELETE FROM `tabAsset Commissioning` WHERE name = %s", dup.name)
         frappe.db.commit()
     except frappe.ValidationError as ve:
         if "VR-01" in str(ve) or "Serial" in str(ve):

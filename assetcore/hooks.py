@@ -226,8 +226,16 @@ doc_events = {
         "on_submit": "assetcore.services.imm16.eval_imm08_09_realtime",
     },
     "AC Asset": {
-        "after_insert": "assetcore.services.imm08.create_pm_schedule_from_asset",
+        "after_insert": [
+            "assetcore.services.imm08.create_pm_schedule_from_asset",
+            # RC-07: auto Calibration Schedule khi tạo asset với is_calibration_required=1
+            "assetcore.services.imm11.create_calibration_schedule_from_asset",
+        ],
         "on_update": "assetcore.services.imm15.flag_obsolete_on_decommission",
+    },
+    # ─── IMM-12 NEG-11: chặn đóng Incident High/Critical chưa có RCA Completed ───
+    "Incident Report": {
+        "validate": "assetcore.services.imm12.validate_incident_close_gate",
     },
     # ─── IMM-16 Compliance real-time evaluation ───
     "Asset Document": {
@@ -326,13 +334,24 @@ scheduler_events = {
 }
 
 # ──────────────────────────────────────────────
-# Permission Query Conditions
+# Permission Query Conditions (list/search) + has_permission (detail/IDOR gate)
 # ──────────────────────────────────────────────
+# AUTH-01: Vendor Engineer (KTV NCC) scope at BE detail/API.
+# AUTH-10: IDOR — direct URL access to specific record enforces same scope as list.
+# See `assetcore/permissions.py` docstring + `docs/res/user-scope-filter-analysis.md` §3.
 permission_query_conditions = {
     "AC Asset": "assetcore.permissions.ac_asset_query",
     "Incident Report": "assetcore.permissions.incident_report_query",
     "Asset Repair": "assetcore.permissions.asset_repair_query",
     "PM Work Order": "assetcore.permissions.pm_work_order_query",
+    "Asset Commissioning": "assetcore.permissions.asset_commissioning_query",
+}
+has_permission = {
+    "AC Asset": "assetcore.permissions.ac_asset_has_permission",
+    "Incident Report": "assetcore.permissions.incident_report_has_permission",
+    "Asset Repair": "assetcore.permissions.asset_repair_has_permission",
+    "PM Work Order": "assetcore.permissions.pm_work_order_has_permission",
+    "Asset Commissioning": "assetcore.permissions.asset_commissioning_has_permission",
 }
 
 # Not overriding any Frappe/ERPNext DocType — AssetCore is Frappe-only (no ERPNext dep)

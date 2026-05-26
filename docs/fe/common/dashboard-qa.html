@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="module-id" content="dashboard">
+<title>Bảng điều khiển — AssetCore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+<script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <a class="brand" style="color:inherit;text-decoration:none" href="#">
+      <span class="logo">A</span>
+      <div>AssetCore <small>IMMIS · BV Nhi Đồng 1</small></div>
+    </a>
+    <div class="spacer"></div>
+    <button class="iconbtn" title="Thông báo"><iconify-icon icon="heroicons:bell" style="font-size:18px;vertical-align:-3px;color:#fff"></iconify-icon></button>
+    <div class="persona-pill" title="Chọn vai trò"></div>
+    <div id="personaMenu" class="persona-menu"></div>
+  </div>
+  <div class="body-wrap">
+    <aside class="sidebar">
+      <div class="side-head"><span></span></div>
+      <nav></nav>
+      <div class="side-foot">AssetCore v0.0.2 · Wave 1+2</div>
+    </aside>
+    <main class="main">
+      <div class="breadcrumb"><span>Bảng điều khiển</span></div>
+      <div class="page">
+        
+<div class="page-head">
+  <div class="titles">
+    <h1>Bảng điều khiển — Cán bộ QA / Kiểm soát chất lượng</h1>
+    <div class="sub">Sự cố · RCA · CAPA · Audit · Tuân thủ tổng quan</div>
+  </div>
+</div>
+
+<div class="grid g4" style="margin-bottom:20px">
+  <div class="kpi danger"><div class="kbar"></div><div class="klabel">CAPA Overdue</div><div class="kval">1</div><div class="kfoot">CAPA-2026-0021</div></div>
+  <div class="kpi warn"><div class="kbar"></div><div class="klabel">CAPA In Progress</div><div class="kval">12</div><div class="kfoot">4 cần đẩy nhanh</div></div>
+  <div class="kpi info"><div class="kbar"></div><div class="klabel">RCA chưa hoàn tất</div><div class="kval">5</div><div class="kfoot">Critical/Chronic</div></div>
+  <div class="kpi ok"><div class="kbar"></div><div class="klabel">Compliance Score T5</div><div class="kval">92,4</div><div class="kfoot">Mục tiêu ≥ 85</div></div>
+</div>
+
+<div class="grid g2">
+  <div class="card">
+    <div class="card-head"><h3>CAPA cần xử lý</h3></div>
+    <div class="card-pad">
+      <table class="tbl">
+        <thead><tr><th>Mã CAPA</th><th>Nguồn</th><th>Severity</th><th>Deadline</th></tr></thead>
+        <tbody>
+          <tr class="row-danger"><td class="mono"><a class="link" href="../16-compliance/capa-list.html">CAPA-2026-0021</a></td><td>INC-2026-00077</td><td><span class="badge b-critical">Critical</span></td><td><b style="color:#DC2626">22/05 (Overdue)</b></td></tr>
+          <tr><td class="mono"><a class="link" href="../16-compliance/capa-list.html">CAPA-2026-0019</a></td><td>CF-2026-0040</td><td><span class="badge b-high">High</span></td><td>05/06/2026</td></tr>
+          <tr><td class="mono"><a class="link" href="../16-compliance/capa-list.html">CAPA-2026-0015</a></td><td>INC-2026-00070</td><td><span class="badge b-medium">Medium</span></td><td>10/06/2026</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-head"><h3>Vi phạm tuân thủ tháng này</h3></div>
+    <div class="card-pad">
+      <table class="tbl">
+        <thead><tr><th>Mã</th><th>Quy tắc</th><th>Severity</th></tr></thead>
+        <tbody>
+          <tr class="row-danger"><td class="mono"><a class="link" href="../16-compliance/findings-list.html">CF-2026-0042</a></td><td>CR-002 Thiếu CN ĐK BYT</td><td><span class="badge b-critical">Critical</span></td></tr>
+          <tr><td class="mono"><a class="link" href="../16-compliance/findings-list.html">CF-2026-0040</a></td><td>CR-005 PM Compliance &lt; 90%</td><td><span class="badge b-high">High</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="grid g2" style="margin-top:20px">
+  <div class="card">
+    <div class="card-head"><h3>Hiệu chuẩn — Kết quả Fail cần CAPA</h3></div>
+    <div class="card-pad">
+      <table class="tbl">
+        <thead><tr><th>Mã</th><th>Thiết bị</th><th>CAPA</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">CAL-2026-00074</td><td>Máy đo huyết áp Welch</td><td><a class="btn btn-warning btn-sm" href="../11-calibration/calibration-detail.html">Tạo CAPA</a></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-head"><h3>Audit nội bộ Q2/2026</h3></div>
+    <div class="card-pad">
+      <ul style="list-style:none;font-size:14px">
+        <li style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--color-neutral-100)"><span><b>AUD-2026-Q2-002</b> · Module PM</span><span class="badge b-warn">Đang viết báo cáo</span></li>
+        <li style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--color-neutral-100)"><span><b>AUD-2026-Q2-001</b> · 12 Máy thở Bennett</span><span class="badge b-closed">Đã đóng</span></li>
+        <li style="display:flex;justify-content:space-between;padding:10px 0"><span><b>AUD-2026-Q2-003</b> · Khoa Sơ sinh</span><span class="badge b-draft">Đang lập KH</span></li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+      </div>
+    </main>
+  </div>
+</div>
+<script src="../assets/shell.js"></script>
+</body>
+</html>

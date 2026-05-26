@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="module-id" content="pm">
+<title>WO-PM-2026-00195 — AssetCore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+<script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <a class="brand" style="color:inherit;text-decoration:none" href="#">
+      <span class="logo">A</span>
+      <div>AssetCore <small>IMMIS · BV Nhi Đồng 1</small></div>
+    </a>
+    <div class="spacer"></div>
+    <button class="iconbtn" title="Thông báo"><iconify-icon icon="heroicons:bell" style="font-size:18px;vertical-align:-3px;color:#fff"></iconify-icon></button>
+    <div class="persona-pill" title="Chọn vai trò"></div>
+    <div id="personaMenu" class="persona-menu"></div>
+  </div>
+  <div class="body-wrap">
+    <aside class="sidebar">
+      <div class="side-head"><span></span></div>
+      <nav></nav>
+      <div class="side-foot">AssetCore v0.0.2 · Wave 1+2</div>
+    </aside>
+    <main class="main">
+      <div class="breadcrumb"><a href="../index.html">Trang chủ</a> <span class="sep">›</span><a href="pm-list.html">Bảo trì định kỳ</a> <span class="sep">›</span><span>WO-PM-2026-00195</span></div>
+      <div class="page">
+        <div class="page-head">
+  <div class="titles">
+    <a href="pm-list.html" class="btn btn-ghost btn-sm" style="margin-bottom:8px">← Quay lại</a>
+    <h1>WO-PM-2026-00195 — Bảo trì 3 tháng Lồng ấp Atom</h1>
+    <div class="sub">
+      <span class="badge b-inprogress">Đang thực hiện</span>
+      <span class="muted" style="margin-left:8px">· Phạm Văn Đức · Check-in 14:30 hôm nay</span>
+    </div>
+  </div>
+</div>
+
+<div class="workflow">
+  <div class="wf-step"><div class="wf-node done"><span class="num"><iconify-icon icon="heroicons:check" style="font-size:16px;vertical-align:-3px"></iconify-icon></span>Scheduled</div></div><span class="wf-arrow">→</span>
+  <div class="wf-step"><div class="wf-node done"><span class="num"><iconify-icon icon="heroicons:check" style="font-size:16px;vertical-align:-3px"></iconify-icon></span>Assigned</div></div><span class="wf-arrow">→</span>
+  <div class="wf-step"><div class="wf-node current"><span class="num">3</span>In Progress</div></div><span class="wf-arrow">→</span>
+  <div class="wf-step"><div class="wf-node"><span class="num">4</span>Completed</div></div>
+
+</div><div class="grid g2">
+  <div class="card">
+    <div class="card-head"><h3>Thông tin</h3></div>
+    <div class="card-pad">
+      <dl class="kv">
+        <dt>Thiết bị</dt><dd><a href="../00-master-data/assets-detail.html" class="link">Lồng ấp sơ sinh Atom Incu i</a></dd>
+        <dt>PM Type</dt><dd>3 tháng (mỗi quý)</dd>
+        <dt>PM trước đó</dt><dd>20/02/2026 — Pass (Phạm Văn Đức)</dd>
+        <dt>PM kế tiếp dự kiến</dt><dd>24/08/2026</dd>
+        <dt>KTV</dt><dd>Phạm Văn Đức — Đã chứng nhận đào tạo Atom</dd>
+        <dt>Thời gian dự kiến</dt><dd>90 phút</dd>
+      </dl>
+    </div>
+
+  </div><div class="card">
+    <div class="card-head"><h3>Checklist (8 mục)</h3></div>
+    <div class="card-pad">
+      <ul class="checklist">
+        <li><input type="checkbox" checked> <div><b>Kiểm tra hệ thống sưởi</b><div class="text-xs" style="color:#16A34A"><iconify-icon icon="heroicons:check" style="font-size:16px;vertical-align:-3px"></iconify-icon> Pass · Đo 36,2°C/36°C</div></div></li>
+        <li><input type="checkbox" checked> <div><b>Kiểm tra cảm biến nhiệt độ</b><div class="text-xs" style="color:#16A34A"><iconify-icon icon="heroicons:check" style="font-size:16px;vertical-align:-3px"></iconify-icon> Pass</div></div></li>
+        <li><input type="checkbox" checked> <div><b>Kiểm tra cảnh báo</b><div class="text-xs" style="color:#16A34A"><iconify-icon icon="heroicons:check" style="font-size:16px;vertical-align:-3px"></iconify-icon> Pass · Cảnh báo hoạt động</div></div></li>
+        <li><input type="checkbox"> <div><b>Vệ sinh filter</b><div class="text-xs muted">Chưa thực hiện</div></div></li>
+        <li><input type="checkbox"> <div><b>Hiệu chuẩn cảm biến độ ẩm</b><div class="text-xs muted">Chưa thực hiện</div></div></li>
+        <li><input type="checkbox"> <div><b>Test pin dự phòng</b><div class="text-xs muted">Chưa thực hiện</div></div></li>
+        <li><input type="checkbox"> <div><b>Kiểm tra dây tiếp đất</b><div class="text-xs muted">Chưa thực hiện</div></div></li>
+        <li><input type="checkbox"> <div><b>Vệ sinh tổng thể</b><div class="text-xs muted">Chưa thực hiện</div></div></li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<div style="display:flex;gap:10px;margin-top:24px;padding-top:20px;border-top:1px solid var(--color-neutral-300);flex-wrap:wrap">
+  <button class="btn btn-success"><iconify-icon icon="heroicons:check" style="font-size:16px;vertical-align:-3px"></iconify-icon> Hoàn tất PM</button>
+  <button class="btn btn-danger"><iconify-icon icon="heroicons:exclamation-triangle" style="font-size:16px;vertical-align:-3px"></iconify-icon> Phát hiện Major Failure → CM</button>
+  <button class="btn btn-warning"><iconify-icon icon="heroicons:pause" style="font-size:16px;vertical-align:-3px"></iconify-icon> Tạm dừng (thiết bị bận)</button>
+  <button class="btn btn-secondary"><iconify-icon icon="heroicons:server-stack" style="font-size:16px;vertical-align:-3px"></iconify-icon> Lưu tiến độ</button>
+
+      
+    
+      </div>
+    </div>
+</main>
+  </div>
+</div>
+<script src="../assets/shell.js"></script>
+</body>
+</html>

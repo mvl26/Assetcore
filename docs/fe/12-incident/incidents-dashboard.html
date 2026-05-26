@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="module-id" content="incidents">
+<title>Dashboard sự cố — AssetCore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+<script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <a class="brand" style="color:inherit;text-decoration:none" href="#">
+      <span class="logo">A</span>
+      <div>AssetCore <small>IMMIS · BV Nhi Đồng 1</small></div>
+    </a>
+    <div class="spacer"></div>
+    <button class="iconbtn" title="Thông báo"><iconify-icon icon="heroicons:bell" style="font-size:18px;vertical-align:-3px;color:#fff"></iconify-icon></button>
+    <div class="persona-pill" title="Chọn vai trò"></div>
+    <div id="personaMenu" class="persona-menu"></div>
+  </div>
+  <div class="body-wrap">
+    <aside class="sidebar">
+      <div class="side-head"><span></span></div>
+      <nav></nav>
+      <div class="side-foot">AssetCore v0.0.2 · Wave 1+2</div>
+    </aside>
+    <main class="main">
+      <div class="breadcrumb"><a href="../index.html">Trang chủ</a> <span class="sep">›</span><a href="incidents-list.html">Sự cố thiết bị</a> <span class="sep">›</span><span>Dashboard</span></div>
+      <div class="page">
+        <div class="page-head"><div class="titles"><h1>Dashboard sự cố</h1>
+  <div class="sub">Tháng 5/2026 · Tổng 50 sự cố · 42 đã đóng · MTTR 4,2h</div></div>
+
+</div><div class="grid g4" style="margin-bottom:20px">
+  <div class="kpi danger"><div class="kbar"></div><div class="klabel">Critical tháng</div><div class="kval">6</div><div class="kfoot">2 ảnh hưởng BN</div></div>
+  <div class="kpi warn"><div class="kbar"></div><div class="klabel">Major tháng</div><div class="kval">18</div><div class="kfoot">15 đã đóng</div></div>
+  <div class="kpi ok"><div class="kbar"></div><div class="klabel">MTTR</div><div class="kval">4,2h</div><div class="kfoot">Mục tiêu ≤ 6h</div></div>
+  <div class="kpi info"><div class="kbar"></div><div class="klabel">RCA Compliance</div><div class="kval">100%</div><div class="kfoot">6/6 Critical có RCA</div></div>
+
+</div><div class="card">
+  <div class="card-head"><h3>Chronic Failure Watch — Thiết bị hỏng ≥3 lần / 90 ngày</h3></div>
+  <div class="card-pad">
+    <table class="tbl">
+      <thead><tr><th>Thiết bị</th><th>Sự cố 90 ngày</th><th>Fault codes phổ biến</th><th>Trạng thái</th><th></th></tr></thead>
+      <tbody>
+        <tr><td><b>Bơm tiêm Terumo TE-SS830</b><br><span class="text-xs muted">Sơ sinh P.2 · SN: TE830-1192</span></td><td><b style="color:#DC2626">5 lần</b></td><td>POWER-FAIL-002 (3) · SENSOR-DRIFT-003 (2)</td><td><span class="badge b-warn">RCA bắt buộc</span></td><td><a class="btn btn-primary btn-sm" href="#">Tạo RCA</a></td></tr>
+        <tr><td><b>Lồng ấp Atom Incu i</b><br><span class="text-xs muted">Sơ sinh P.1 · SN: AI-NB1124</span></td><td><b style="color:#F59E0B">3 lần</b></td><td>TEMP-LOW-001 (2) · CALIB-001 (1)</td><td><span class="badge b-warn">Watch list</span></td><td><a class="btn btn-secondary btn-sm" href="#">Xem</a></td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+      
+    
+      </div>
+    </main>
+  </div>
+</div>
+<script src="../assets/shell.js"></script>
+</body>
+</html>

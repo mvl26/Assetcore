@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="module-id" content="device-models">
+<title>Tạo dòng máy — AssetCore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+<script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <a class="brand" style="color:inherit;text-decoration:none" href="#">
+      <span class="logo">A</span>
+      <div>AssetCore <small>IMMIS · BV Nhi Đồng 1</small></div>
+    </a>
+    <div class="spacer"></div>
+    <button class="iconbtn" title="Thông báo"><iconify-icon icon="heroicons:bell" style="font-size:18px;vertical-align:-3px;color:#fff"></iconify-icon></button>
+    <div class="persona-pill" title="Chọn vai trò"></div>
+    <div id="personaMenu" class="persona-menu"></div>
+  </div>
+  <div class="body-wrap">
+    <aside class="sidebar">
+      <div class="side-head"><span></span></div>
+      <nav></nav>
+      <div class="side-foot">AssetCore v0.0.2 · Wave 1+2</div>
+    </aside>
+    <main class="main">
+      <div class="breadcrumb"><a href="../index.html">Trang chủ</a> <span class="sep">›</span><a href="device-models-list.html">Dòng máy / Model</a> <span class="sep">›</span><span>Tạo mới</span></div>
+      <div class="page">
+        <div class="page-head">
+  <div class="titles">
+    <a href="device-models-list.html" class="btn btn-ghost btn-sm" style="margin-bottom:8px">← Quay lại</a>
+    <h1>Tạo dòng máy mới</h1>
+  </div>
+
+</div><div class="card">
+  <div class="card-pad">
+    <div class="form-grid g2-form">
+      <div class="field"><label class="fld">Tên model <span class="req">*</span></label><input class="input" placeholder="VD: Puritan Bennett 980"></div>
+      <div class="field"><label class="fld">Nhà sản xuất <span class="req">*</span></label><input class="input" placeholder="VD: Medtronic"></div>
+      <div class="field"><label class="fld">GMDN code <span class="req">*</span></label><input class="input" placeholder="VD: 12907"><div class="help">Tham chiếu Global Medical Device Nomenclature</div></div>
+      <div class="field"><label class="fld">Risk Class <span class="req">*</span></label><select class="select"><option>Low</option><option>Medium</option><option>High</option><option>Critical (Class C-D)</option></select></div>
+      <div class="field"><label class="fld">Vòng đời dự kiến (năm)</label><input class="input" placeholder="VD: 10"></div>
+      <div class="field"><label class="fld">Yêu cầu hiệu chuẩn</label><select class="select"><option>Không</option><option>Internal (in-house)</option><option>External (ISO 17025 lab)</option></select></div>
+      <div class="field" style="grid-column:span 2"><label class="fld">Mô tả ngắn</label><textarea class="input" rows="2"></textarea></div>
+    </div>
+  </div>
+  <div style="padding:16px 20px;border-top:1px solid var(--color-neutral-300);display:flex;justify-content:space-between">
+    <a href="device-models-list.html" class="btn btn-secondary">Hủy</a>
+    <div style="display:flex;gap:10px">
+      <button class="btn btn-secondary">Lưu nháp</button>
+      <button class="btn btn-primary">Tạo + cấu hình PM template</button>
+    </div>
+  </div>
+</div>
+      
+      </div>
+    </main>
+  </div>
+</div>
+<script src="../assets/shell.js"></script>
+</body>
+</html>

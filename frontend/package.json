@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "typecheck": "vue-tsc --noEmit",
     "lint": "eslint .",
-    "lint:fix": "eslint . --fix"
+    "lint:fix": "eslint . --fix",
+    "gen:messages": "python3 ../scripts/gen_fe_messages.py"
   },
   "dependencies": {
     "@tanstack/vue-query": "^5.99.2",
