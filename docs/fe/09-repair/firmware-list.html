@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="module-id" content="firmware">
+<title>Firmware Change Request — AssetCore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+<script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <a class="brand" style="color:inherit;text-decoration:none" href="#">
+      <span class="logo">A</span>
+      <div>AssetCore <small>IMMIS · BV Nhi Đồng 1</small></div>
+    </a>
+    <div class="spacer"></div>
+    <button class="iconbtn" title="Thông báo"><iconify-icon icon="heroicons:bell" style="font-size:18px;vertical-align:-3px;color:#fff"></iconify-icon></button>
+    <div class="persona-pill" title="Chọn vai trò"></div>
+    <div id="personaMenu" class="persona-menu"></div>
+  </div>
+  <div class="body-wrap">
+    <aside class="sidebar">
+      <div class="side-head"><span></span></div>
+      <nav></nav>
+      <div class="side-foot">AssetCore v0.0.2 · Wave 1+2</div>
+    </aside>
+    <main class="main">
+      <div class="breadcrumb"><a href="../index.html">Trang chủ</a> <span class="sep">›</span><span>Firmware Change Request</span></div>
+      <div class="page">
+        <div class="page-head">
+  <div class="titles">
+    <h1>Yêu cầu thay đổi firmware</h1>
+    <div class="sub">Quản lý thay đổi firmware có kiểm soát — bắt buộc phê duyệt + ghi nhận trước/sau</div>
+  </div>
+  <div class="toolbar">
+    <a class="btn btn-primary" href="#">+ Tạo yêu cầu</a>
+  </div>
+</div>
+
+<div class="filterbar">
+  <div class="filter-group"><label>Tìm kiếm</label>
+    <input class="input" type="text" placeholder="Mã FCR / thiết bị / version" style="width:100%"></div>
+  <div class="filter-group"><label>Trạng thái</label>
+    <select class="select"><option>Mọi trạng thái</option><option>Draft</option><option>Pending Approval</option><option>Approved</option><option>In Progress</option><option>Completed</option><option>Rejected</option></select></div>
+  <div class="filter-group"><label>NCC</label>
+    <select class="select"><option>Mọi NCC</option><option>Medtronic</option><option>Siemens</option><option>Philips</option></select></div>
+  <div class="filter-actions">
+    <button class="btn btn-secondary btn-sm">Đặt lại</button>
+    <button class="btn btn-primary btn-sm">Áp dụng</button></div>
+</div>
+
+<div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>Mã FCR</th><th>Thiết bị</th><th>Version cũ → mới</th><th>Lý do</th><th>Người yêu cầu</th><th>Phê duyệt</th><th>Trạng thái</th></tr></thead>
+    <tbody>
+      <tr>
+        <td class="mono"><a class="link" href="#">FCR-2026-0008</a></td>
+        <td><b>Máy thở Bennett 980</b><br><span class="text-xs muted">ICU</span></td>
+        <td>v2.4.1 → <b>v2.5.0</b></td>
+        <td>Patch lỗi bảo mật CVE-2025-1234 (NCC bắt buộc)</td>
+        <td>Phạm Văn Đức</td>
+        <td>Lê Quốc Hùng</td>
+        <td><span class="badge b-warn">Đang triển khai</span></td>
+      </tr>
+      <tr>
+        <td class="mono"><a class="link" href="#">FCR-2026-0007</a></td>
+        <td><b>Monitor Mindray uMEC12</b><br><span class="text-xs muted">Cấp cứu</span></td>
+        <td>v3.1.2 → <b>v3.2.0</b></td>
+        <td>Nâng cấp tính năng cảnh báo SpO2</td>
+        <td>Trần Đại Nghĩa</td>
+        <td>—</td>
+        <td><span class="badge b-submitted">Chờ phê duyệt</span></td>
+      </tr>
+      <tr>
+        <td class="mono"><a class="link" href="#">FCR-2026-0006</a></td>
+        <td><b>Máy X-quang GE Optima</b><br><span class="text-xs muted">CĐHA</span></td>
+        <td>v4.0.1 → <b>v4.1.0</b></td>
+        <td>Sửa lỗi hiển thị metadata DICOM</td>
+        <td>Nguyễn Hữu Phúc</td>
+        <td>Lê Quốc Hùng</td>
+        <td><span class="badge b-closed">Hoàn tất</span></td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+      </div>
+    </main>
+  </div>
+</div>
+<script src="../assets/shell.js"></script>
+</body>
+</html>

@@ -8,6 +8,8 @@ import frappe
 from frappe.utils import today, add_days, now_datetime
 
 from assetcore.utils.response import _ok, _err
+from assetcore.services.imm00 import count_pending_approvals
+from assetcore.services.imm08 import count_overdue_pm
 
 # ─── Shared constants ────────────────────────────────────────────────────────
 _DT_ASSET = "AC Asset"
@@ -65,12 +67,19 @@ def get_overview() -> dict:
         # ── IMM-05: Hồ sơ ────────────────────────────────────────────────────
         doc_total = _count("Asset Document")
         doc_expiring = _count("Asset Document", {"expiry_date": ["between", [today_str, next30]]})
+        # RC-08 (NextRound): KPI "Đã hết hạn" KHÔNG được filter theo workflow_state.
+        # Phải đếm mọi doc có expiry_date < today **bất kể** Draft/Active/Expired —
+        # vì doc Draft đã quá hạn vẫn là rủi ro pháp lý cần hiển thị lên KPI.
         doc_expired = _count("Asset Document", {"expiry_date": ["<", today_str]})
         doc_requests_open = _count("Document Request", {"status": [_OP_NOT_IN, ["Closed", "Fulfilled"]]})
 
         # ── IMM-08: PM ────────────────────────────────────────────────────────
         pm_open = _count("PM Work Order", {"status": [_OP_NOT_IN, ["Completed", "Cancelled"]]})
-        pm_overdue = _count("PM Work Order", {"status": [_OP_NOT_IN, ["Completed", "Cancelled"]], "due_date": ["<", today_str]})
+        # RC-10 (NextRound): "PM quá hạn" gọi single source of truth =
+        # imm08.count_overdue_pm() để launcher widget, /pm/dashboard và endpoint
+        # này không lệch nhau. WO status == "Overdue" được scheduler cron
+        # `check_pm_overdue` set theo CLAUDE.md §11 (WO là operational record duy nhất).
+        pm_overdue = count_overdue_pm()
         pm_due_next7 = _count("PM Work Order", {"status": [_OP_NOT_IN, ["Completed", "Cancelled"]], "due_date": ["between", [today_str, next7]]})
         pm_completed_30d = _count("PM Work Order", {"status": "Completed", "completion_date": [">=", add_days(today_str, -30)]})
 
@@ -218,17 +227,17 @@ def get_dashboard_data() -> dict:
         next30 = add_days(today_str, 30)
 
         # ── 1. KPI Metrics ────────────────────────────────────────────────────
+        # RC-09 (NextRound): "Phiếu chờ duyệt" trên dashboard và /approvals/pending
+        # phải đồng bộ. Dashboard widget mặc định scope="mine" (phiếu của tôi)
+        # để khớp với list_my_pending_approvals. Trường `pending_commissioning_all`
+        # giữ lại số global cho admin overview, FE quyết hiển thị field nào.
         kpi_metrics = {
             "total_assets":        _count(_DT_ASSET, {"docstatus": ["!=", 2]}),
             "under_repair":        _count(_DT_ASSET, {"lifecycle_status": _STATUS_UNDER_REPAIR}),
             "under_maintenance":   _count(_DT_ASSET, {"lifecycle_status": "Under Maintenance"}),
-            "pending_commissioning": _count(
-                _DT_COMM,
-                {
-                    "workflow_state": [_OP_NOT_IN, ["Clinical Release", "Return To Vendor", "Clinical_Release", "Return_To_Vendor"]],
-                    "docstatus": ["!=", 2],
-                },
-            ),
+            "pending_commissioning": count_pending_approvals(scope="mine"),
+            "pending_commissioning_all": count_pending_approvals(scope="all"),
+            "overdue_pm":          count_overdue_pm(),
         }
 
         # ── 2. Donut chart: phân bổ trạng thái ───────────────────────────────

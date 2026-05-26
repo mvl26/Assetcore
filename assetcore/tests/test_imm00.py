@@ -672,6 +672,136 @@ class TestUserRoleManagement(unittest.TestCase):
             frappe.db.commit()
 
 
+class TestFKDeleteIntegrity(unittest.TestCase):
+    """NEG-12 / NEG-13: chặn xóa Model / Location đang được Asset tham chiếu.
+
+    Ref: docs/res/AssetCore_Test_Plan_NextRound_1_Analysis.md §5
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        # Cleanup leftovers
+        for nm in frappe.get_all(
+            "AC Asset",
+            filters={"asset_name": ["like", "FK-INTEG-%"]},
+            fields=["name"],
+        ):
+            frappe.delete_doc("AC Asset", nm.name, force=True, ignore_permissions=True)
+        if frappe.db.exists("AC Asset Category", "FK-Integrity-Cat"):
+            frappe.delete_doc(
+                "AC Asset Category", "FK-Integrity-Cat", force=True, ignore_permissions=True
+            )
+        frappe.db.commit()
+
+        cls.cat = frappe.get_doc({
+            "doctype": "AC Asset Category",
+            "category_name": "FK-Integrity-Cat",
+        }).insert(ignore_permissions=True)
+
+    @classmethod
+    def tearDownClass(cls):
+        # Force cleanup any stray asset/model/location created in tests
+        for nm in frappe.get_all(
+            "AC Asset",
+            filters={"asset_name": ["like", "FK-INTEG-%"]},
+            fields=["name"],
+        ):
+            frappe.delete_doc("AC Asset", nm.name, force=True, ignore_permissions=True)
+        frappe.delete_doc(
+            "AC Asset Category", cls.cat.name, force=True, ignore_permissions=True
+        )
+        frappe.db.commit()
+
+    def _make_model(self, suffix: str):
+        return frappe.get_doc({
+            "doctype": "IMM Device Model",
+            "model_name": f"FK-Integ Model {suffix}",
+            "manufacturer": "FK Integ Mfg",
+            "medical_device_class": "Class II",
+            "asset_category": self.cat.name,
+        }).insert(ignore_permissions=True)
+
+    def _make_location(self, suffix: str):
+        return frappe.get_doc({
+            "doctype": "AC Location",
+            "location_name": f"FK-Integ Loc {suffix}",
+            "location_type": "Room",
+        }).insert(ignore_permissions=True)
+
+    def _make_asset_with(self, *, suffix: str, model: str | None = None,
+                         location: str | None = None):
+        data = {
+            "doctype": "AC Asset",
+            "asset_name": f"FK-INTEG-{suffix}",
+            "asset_category": self.cat.name,
+            "manufacturer_sn": f"FK-INTEG-SN-{suffix}",
+            "medical_device_class": "Class II",
+            "risk_classification": "Medium",
+            "purchase_date": "2024-01-01",
+            "gross_purchase_amount": 100_000_000,
+            "warranty_expiry_date": "2027-01-01",
+            "in_service_date": "2024-01-05",
+            "byt_reg_no": "BYT-FK-2024-0001",
+            "lifecycle_status": "Active",
+        }
+        if model:
+            data["device_model"] = model
+        if location:
+            data["location"] = location
+        return _insert_asset_bypass_workflow(data)
+
+    # NEG-12 — Device Model
+
+    def test_delete_model_blocked_when_asset_references_it(self):
+        model = self._make_model("DEL-BLOCK")
+        asset = self._make_asset_with(suffix="MODEL-DEL", model=model.name)
+        try:
+            with self.assertRaises(frappe.LinkExistsError) as ctx:
+                frappe.delete_doc(
+                    "IMM Device Model", model.name, ignore_permissions=True
+                )
+            msg = str(ctx.exception)
+            self.assertIn("FK-INTEG-MODEL-DEL", msg)
+            self.assertIn("Không thể xóa", msg)
+        finally:
+            frappe.delete_doc("AC Asset", asset.name, force=True, ignore_permissions=True)
+            frappe.delete_doc(
+                "IMM Device Model", model.name, force=True, ignore_permissions=True
+            )
+
+    def test_delete_model_allowed_when_no_dependent_assets(self):
+        model = self._make_model("DEL-OK")
+        # No asset references → delete should succeed.
+        frappe.delete_doc(
+            "IMM Device Model", model.name, ignore_permissions=True
+        )
+        self.assertFalse(frappe.db.exists("IMM Device Model", model.name))
+
+    # NEG-13 — Location
+
+    def test_delete_location_blocked_when_asset_assigned(self):
+        loc = self._make_location("DEL-BLOCK")
+        asset = self._make_asset_with(suffix="LOC-DEL", location=loc.name)
+        try:
+            with self.assertRaises(frappe.LinkExistsError) as ctx:
+                frappe.delete_doc(
+                    "AC Location", loc.name, ignore_permissions=True
+                )
+            msg = str(ctx.exception)
+            self.assertIn("FK-INTEG-LOC-DEL", msg)
+            self.assertIn("Không thể xóa", msg)
+        finally:
+            frappe.delete_doc("AC Asset", asset.name, force=True, ignore_permissions=True)
+            frappe.delete_doc(
+                "AC Location", loc.name, force=True, ignore_permissions=True
+            )
+
+    def test_delete_location_allowed_when_no_assets(self):
+        loc = self._make_location("DEL-OK")
+        frappe.delete_doc("AC Location", loc.name, ignore_permissions=True)
+        self.assertFalse(frappe.db.exists("AC Location", loc.name))
+
+
 def run_all():
     """Convenience runner for bench console."""
     suite = unittest.TestLoader().loadTestsFromModule(__import__(__name__))

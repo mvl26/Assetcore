@@ -112,3 +112,37 @@ class IMMDeviceModel(Document):
                     self.model_name, self.manufacturer, existing
                 )
             )
+
+    def on_trash(self) -> None:
+        """NEG-12 (FK delete-integrity): chặn xóa Model đang được Asset tham chiếu.
+
+        Dùng `on_trash` (chạy TRƯỚC `check_if_doc_is_linked` của Frappe — xem
+        `frappe/model/delete_doc.py`) để raise message tiếng Việt thân thiện
+        kèm danh sách tài sản phụ thuộc, thay vì message English generic.
+
+        Bypass dùng cho test fixture cleanup / migration: `flags.ignore_link_validation`
+        hoặc `flags.in_install` (theo convention Frappe).
+        """
+        if getattr(self.flags, "ignore_link_validation", False) or frappe.flags.in_install:
+            return
+        dependents = frappe.get_all(
+            "AC Asset",
+            filters={"device_model": self.name},
+            fields=["name", "asset_name"],
+            order_by="creation desc",
+            limit=6,
+        )
+        if not dependents:
+            return
+        total = frappe.db.count("AC Asset", {"device_model": self.name})
+        names = [(d.asset_name or d.name) for d in dependents[:5]]
+        suffix = ""
+        if total > 5:
+            suffix = _(" và {0} tài sản khác").format(total - 5)
+        frappe.throw(
+            _(
+                "Không thể xóa Model thiết bị {0}: đang được {1} tài sản tham chiếu ({2}{3}). "
+                "Vui lòng gỡ liên kết hoặc thanh lý các tài sản trước."
+            ).format(self.name, total, ", ".join(names), suffix),
+            exc=frappe.LinkExistsError,
+        )

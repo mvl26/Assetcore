@@ -499,5 +499,131 @@ class TestMRLifecycle(TestImm16Base):
                                            output_actions=[])
 
 
+# ── RC-03: CAPA tạo từ Incident + 2-way link (Incident ↔ CAPA ↔ RCA) ────────
+
+class TestCAPAFromIncidentChain(unittest.TestCase):
+    """RC-03: create_capa_from_incident() đảm bảo CAPA được tạo
+    với 2-way link Incident.linked_capa + CAPA.linked_incident, idempotent.
+
+    Service path: assetcore.services.imm16.create_capa_from_incident.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        # Resolve an existing asset for FK; nếu chưa có thì test skip.
+        assets = frappe.get_all("AC Asset", limit=1, fields=["name"])
+        cls.asset_name = assets[0].name if assets else None
+
+    def setUp(self):
+        if not self.asset_name:
+            self.skipTest("Không có AC Asset trên site — RC-03 chain test cần asset")
+        # Tạo incident High (severity High → severity_map → Major)
+        from assetcore.services.imm12 import report_incident
+        result = report_incident(
+            asset=self.asset_name,
+            incident_type="Malfunction",
+            severity="High",
+            description="_Test RC-03 CAPA chain — incident description",
+            clinical_impact="Test clinical impact RC-03",
+        )
+        frappe.db.commit()
+        self.incident_name = result["name"]
+
+    def tearDown(self):
+        # Cleanup theo thứ tự link: CAPA → RCA → Incident
+        capa = frappe.db.get_value(
+            "Incident Report", self.incident_name, "linked_capa"
+        )
+        if capa:
+            with suppress(Exception):
+                frappe.delete_doc(
+                    "IMM CAPA Record", capa, force=True, ignore_permissions=True,
+                )
+        for rca in frappe.get_all(
+            "IMM RCA Record",
+            filters={"incident_report": self.incident_name},
+            pluck="name",
+        ):
+            with suppress(Exception):
+                frappe.delete_doc(
+                    "IMM RCA Record", rca, force=True, ignore_permissions=True,
+                )
+        with suppress(Exception):
+            frappe.delete_doc(
+                "Incident Report", self.incident_name,
+                force=True, ignore_permissions=True,
+            )
+        frappe.db.commit()
+
+    def test_create_capa_from_incident_basic_link(self):
+        """RC-03: gọi create_capa_from_incident → CAPA tồn tại + linked_incident set."""
+        result = svc.create_capa_from_incident(
+            incident_name=self.incident_name,
+            rca_name="",
+            responsible="Administrator",
+        )
+        frappe.db.commit()
+        capa_name = result.get("capa_name")
+        self.assertTrue(capa_name, "RC-03: phải trả về capa_name")
+        self.assertTrue(frappe.db.exists("IMM CAPA Record", capa_name))
+        # 2-way link
+        self.assertEqual(
+            frappe.db.get_value("IMM CAPA Record", capa_name, "linked_incident"),
+            self.incident_name,
+            "RC-03: CAPA.linked_incident phải trỏ về incident",
+        )
+        self.assertEqual(
+            frappe.db.get_value("Incident Report", self.incident_name, "linked_capa"),
+            capa_name,
+            "RC-03: Incident.linked_capa phải trỏ về CAPA",
+        )
+
+    def test_create_capa_from_incident_idempotent(self):
+        """RC-03: gọi 2 lần → reuse CAPA cũ (không tạo bản trùng)."""
+        r1 = svc.create_capa_from_incident(
+            incident_name=self.incident_name, responsible="Administrator",
+        )
+        frappe.db.commit()
+        r2 = svc.create_capa_from_incident(
+            incident_name=self.incident_name, responsible="Administrator",
+        )
+        frappe.db.commit()
+        self.assertEqual(
+            r1.get("capa_name"), r2.get("capa_name"),
+            "RC-03: gọi lần 2 phải reuse CAPA (idempotent)",
+        )
+        self.assertTrue(r2.get("reused"), "RC-03: lần 2 phải có reused=True")
+
+    def test_create_capa_links_back_to_rca(self):
+        """RC-03: nếu truyền rca_name → CAPA cũng link với RCA."""
+        # Tạo RCA gắn với incident
+        from assetcore.services.imm12 import create_rca
+        rca_info = create_rca(self.incident_name)
+        frappe.db.commit()
+        rca_name = rca_info["name"]
+
+        result = svc.create_capa_from_incident(
+            incident_name=self.incident_name,
+            rca_name=rca_name,
+            responsible="Administrator",
+        )
+        frappe.db.commit()
+        capa_name = result["capa_name"]
+        self.assertEqual(
+            frappe.db.get_value("IMM RCA Record", rca_name, "linked_capa"),
+            capa_name,
+            "RC-03: RCA.linked_capa phải được set khi truyền rca_name",
+        )
+
+    def test_create_capa_from_invalid_incident_raises(self):
+        """RC-03: incident không tồn tại → ServiceError NOT_FOUND."""
+        with self.assertRaises(ServiceError):
+            svc.create_capa_from_incident(
+                incident_name="INVALID-IR-XXX",
+                responsible="Administrator",
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

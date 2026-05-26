@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="module-id" content="assets">
+<title>Thiết bị y tế — AssetCore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+<script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <a class="brand" style="color:inherit;text-decoration:none" href="#">
+      <span class="logo">A</span>
+      <div>AssetCore <small>IMMIS · BV Nhi Đồng 1</small></div>
+    </a>
+    <div class="spacer"></div>
+    <button class="iconbtn" title="Thông báo"><iconify-icon icon="heroicons:bell" style="font-size:18px;vertical-align:-3px;color:#fff"></iconify-icon></button>
+    <div class="persona-pill" title="Chọn vai trò"></div>
+    <div id="personaMenu" class="persona-menu"></div>
+  </div>
+  <div class="body-wrap">
+    <aside class="sidebar">
+      <div class="side-head"><span></span></div>
+      <nav></nav>
+      <div class="side-foot">AssetCore v0.0.2 · Wave 1+2</div>
+    </aside>
+    <main class="main">
+      <div class="breadcrumb"><a href="../index.html">Trang chủ</a> <span class="sep">›</span><span>Thiết bị y tế</span></div>
+      <div class="page">
+        <div class="page-head">
+  <div class="titles">
+    <h1>Thiết bị y tế</h1>
+    <div class="sub">1.412 thiết bị · 88% đang hoạt động · 165 sắp đến hạn PM/Hiệu chuẩn</div>
+  </div>
+  <div class="toolbar">
+    <button class="btn btn-secondary"><iconify-icon icon="heroicons:arrow-down-tray" style="font-size:16px;vertical-align:-3px"></iconify-icon> Import Excel</button>
+    <a class="btn btn-primary" href="assets-form.html">+ Tạo thiết bị</a>
+  </div>
+</div>
+
+<div class="filterbar">
+  <div class="filter-group"><label>Tìm kiếm</label>
+    <input class="input" type="text" placeholder="Mã / Serial / UDI / tên thiết bị" style="width:100%"></div>
+  <div class="filter-group"><label>Nhóm</label>
+    <select class="select"><option>Mọi nhóm</option><option>Hô hấp</option><option>Tim mạch</option><option>Chẩn đoán hình ảnh</option><option>Sơ sinh</option><option>ICU</option></select></div>
+  <div class="filter-group"><label>Khoa</label>
+    <select class="select"><option>Mọi khoa</option><option>ICU</option><option>Sơ sinh</option><option>Cấp cứu</option><option>Tim mạch</option><option>CĐHA</option></select></div>
+  <div class="filter-group"><label>Trạng thái</label>
+    <select class="select"><option>Mọi trạng thái</option><option>Active</option><option>Under Maintenance</option><option>Under Repair</option><option>Calibrating</option><option>Out of Service</option><option>Decommissioned</option></select></div>
+  <div class="filter-group"><label>Risk Class</label>
+    <select class="select"><option>Mọi Risk Class</option><option>Critical (C-D)</option><option>High</option><option>Medium</option><option>Low</option></select></div>
+  <div class="filter-actions">
+    <button class="btn btn-secondary btn-sm">Đặt lại</button>
+    <button class="btn btn-primary btn-sm">Áp dụng</button></div>
+</div>
+
+<div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr>
+      <th>Mã thiết bị</th><th>Tên thiết bị</th><th>Dòng máy</th><th>Khoa / Vị trí</th><th>Risk Class</th><th>Trạng thái</th><th>PM kế tiếp</th><th>Hiệu chuẩn</th>
+    </tr></thead>
+    <tbody>
+      <tr><td class="mono"><a class="link" href="assets-detail.html">ACC-ASS-2026-00042</a></td><td><b>Máy thở Bennett 980</b><br><span class="text-xs muted">SN: B98042291</span></td><td>Puritan Bennett 980</td><td>ICU - Giường 03</td><td><span class="badge b-critical">Class C</span></td><td><span class="badge b-active"><span class="dot"></span>Active</span></td><td>02/06/2026</td><td>15/09/2026</td></tr>
+      <tr><td class="mono"><a class="link" href="assets-detail.html">ACC-ASS-2026-00043</a></td><td><b>Bơm tiêm điện Terumo</b><br><span class="text-xs muted">SN: TE830-1192</span></td><td>Terumo TE-SS830</td><td>Sơ sinh - P.2</td><td><span class="badge b-high">High</span></td><td><span class="badge b-repair">Đang sửa chữa</span></td><td>20/05/2026 <iconify-icon icon="heroicons:exclamation-triangle" style="font-size:16px;vertical-align:-3px"></iconify-icon></td><td>01/08/2026</td></tr>
+      <tr><td class="mono"><a class="link" href="assets-detail.html">ACC-ASS-2026-00051</a></td><td><b>Monitor Mindray uMEC12</b><br><span class="text-xs muted">SN: UM12-A220</span></td><td>Mindray uMEC12</td><td>Cấp cứu - Sảnh</td><td><span class="badge b-high">High</span></td><td><span class="badge b-active"><span class="dot"></span>Active</span></td><td>23/05/2026 <iconify-icon icon="heroicons:exclamation-triangle" style="font-size:16px;vertical-align:-3px"></iconify-icon></td><td>10/10/2026</td></tr>
+      <tr><td class="mono"><a class="link" href="assets-detail.html">ACC-ASS-2026-00078</a></td><td><b>Máy X-quang di động GE</b><br><span class="text-xs muted">SN: OX240-6712</span></td><td>GE Optima XR240</td><td>CĐHA - P.X1</td><td><span class="badge b-high">High</span></td><td><span class="badge b-calibrating">Đang hiệu chuẩn</span></td><td>01/07/2026</td><td>26/05/2026 <iconify-icon icon="heroicons:exclamation-triangle" style="font-size:16px;vertical-align:-3px"></iconify-icon></td></tr>
+      <tr><td class="mono"><a class="link" href="assets-detail.html">ACC-ASS-2026-00090</a></td><td><b>Lồng ấp sơ sinh Atom</b><br><span class="text-xs muted">SN: AI-NB1124</span></td><td>Atom Incu i</td><td>Sơ sinh - P.1</td><td><span class="badge b-critical">Class C</span></td><td><span class="badge b-maintenance">Đang bảo trì</span></td><td>24/05/2026 <iconify-icon icon="heroicons:exclamation-triangle" style="font-size:16px;vertical-align:-3px"></iconify-icon></td><td>01/12/2026</td></tr>
+      <tr><td class="mono"><a class="link" href="assets-detail.html">ACC-ASS-2025-00890</a></td><td><b>Máy siêu âm Philips</b><br><span class="text-xs muted">SN: AF70-4502</span></td><td>Philips Affiniti 70</td><td>CĐHA - P.SA2</td><td><span class="badge b-high">High</span></td><td><span class="badge b-oos">Out of Service</span></td><td>—</td><td>01/04/2026 <iconify-icon icon="heroicons:x-circle" style="font-size:16px;vertical-align:-3px"></iconify-icon></td></tr>
+      <tr><td class="mono"><a class="link" href="assets-detail.html">ACC-ASS-2025-00455</a></td><td><b>Dao mổ điện Covidien</b><br><span class="text-xs muted">SN: FT10-0011</span></td><td>Covidien Valleylab FT10</td><td>Phòng mổ 2</td><td><span class="badge b-high">High</span></td><td><span class="badge b-decommissioned">Đã thanh lý</span></td><td>—</td><td>—</td></tr>
+    </tbody>
+  </table>
+  <div class="pagination">
+    <span class="muted text-sm" style="margin-right:auto">Hiển thị 7 / 1.412</span>
+    <button>‹</button><button class="active">1</button><button>2</button><button>3</button><button>…</button><button>202</button><button>›</button>
+  </div>
+</div>
+      </div>
+    </main>
+  </div>
+</div>
+<script src="../assets/shell.js"></script>
+</body>
+</html>

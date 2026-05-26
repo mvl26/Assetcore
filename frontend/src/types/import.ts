@@ -8,6 +8,7 @@ export type RefDataDoctype =
   | 'IMM Device Model'
   | 'Service Contract'
   | 'User'
+  | 'AC Asset'
 
 export interface ImportIssue {
   row: number

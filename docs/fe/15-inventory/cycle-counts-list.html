@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="module-id" content="cycle-counts">
+<title>Kiểm kê chu kỳ — AssetCore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+<script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <a class="brand" style="color:inherit;text-decoration:none" href="#">
+      <span class="logo">A</span>
+      <div>AssetCore <small>IMMIS · BV Nhi Đồng 1</small></div>
+    </a>
+    <div class="spacer"></div>
+    <button class="iconbtn" title="Thông báo"><iconify-icon icon="heroicons:bell" style="font-size:18px;vertical-align:-3px;color:#fff"></iconify-icon></button>
+    <div class="persona-pill" title="Chọn vai trò"></div>
+    <div id="personaMenu" class="persona-menu"></div>
+  </div>
+  <div class="body-wrap">
+    <aside class="sidebar">
+      <div class="side-head"><span></span></div>
+      <nav></nav>
+      <div class="side-foot">AssetCore v0.0.2 · Wave 1+2</div>
+    </aside>
+    <main class="main">
+      <div class="breadcrumb"><a href="../index.html">Trang chủ</a> <span class="sep">›</span><span>Kiểm kê chu kỳ</span></div>
+      <div class="page">
+        <div class="page-head">
+  <div class="titles"><h1>Kiểm kê chu kỳ phụ tùng</h1>
+    <div class="sub">2 phiếu đang đếm · 1 chờ post · Q1/26: Variance 2,3% (đạt < 5%)</div></div>
+  <div class="toolbar"><a class="btn btn-primary" href="#">+ Lập kiểm kê</a></div>
+
+</div><div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>Mã kiểm kê</th><th>Kho</th><th>Số mã PT</th><th>Variance</th><th>Owner</th><th>Trạng thái</th></tr></thead>
+    <tbody>
+      <tr><td class="mono"><a class="link" href="#">CC-2026-Q2-001</a></td><td>Kho A1</td><td>425 mã</td><td>—</td><td>Đỗ Văn Tâm</td><td><span class="badge b-inprogress">Đang đếm</span></td></tr>
+      <tr><td class="mono"><a class="link" href="#">CC-2026-Q2-002</a></td><td>Kho B2</td><td>198 mã</td><td>—</td><td>Đỗ Văn Tâm</td><td><span class="badge b-inprogress">Đang đếm</span></td></tr>
+      <tr><td class="mono"><a class="link" href="#">CC-2026-Q1-002</a></td><td>Kho A1</td><td>412 mã</td><td><b>2,3%</b> (3,2M ₫)</td><td>Đỗ Văn Tâm</td><td><span class="badge b-warn">Chờ Workshop Lead post</span></td></tr>
+      <tr><td class="mono"><a class="link" href="#">CC-2026-Q1-001</a></td><td>Kho A1+B2</td><td>610 mã</td><td><b style="color:#16A34A">1,8%</b></td><td>Đỗ Văn Tâm</td><td><span class="badge b-closed">Đã đóng</span></td></tr>
+    </tbody>
+  </table>
+</div>
+      
+      </div>
+    </main>
+  </div>
+</div>
+<script src="../assets/shell.js"></script>
+</body>
+</html>

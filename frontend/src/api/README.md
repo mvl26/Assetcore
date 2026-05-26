@@ -31,7 +31,7 @@ def update_pm_schedule(name: str):
 
 // error
 {"success": false, "error": "<message tiếng Việt>",
- "code": "BUSINESS_RULE_VIOLATION", "http_status": 422,
+ "code": "BUSINESS_RULE", "http_status": 422,
  "fields": {"asset_ref": "Bắt buộc"}}
 ```
 
@@ -44,7 +44,7 @@ def update_pm_schedule(name: str):
 | `FORBIDDEN` | 403 | Thiếu role | toast warning, không redirect |
 | `NOT_FOUND` | 404 | Bản ghi không tồn tại | toast error, route 404 page nếu là detail view |
 | `CONFLICT` | 409 | Trùng lặp / state conflict | toast warning |
-| `BUSINESS_RULE_VIOLATION` | 422 | Vi phạm nghiệp vụ (workflow, locked, ...) | toast warning, giữ form |
+| `BUSINESS_RULE` | 422 | Vi phạm nghiệp vụ (workflow, locked, ...) | toast warning, giữ form |
 | `INTERNAL_ERROR` | 500 | Lỗi server | toast error, có thể "Tải lại" |
 | `NETWORK_ERROR` | 0 | Mất kết nối | toast error |
 

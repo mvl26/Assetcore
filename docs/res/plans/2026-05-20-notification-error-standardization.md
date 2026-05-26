@@ -1,5 +1,7 @@
 # Chuẩn hoá Notification & Error Framework (AssetCore)
 
+> **Status (2026-05-25):** Phase 0–2 hoàn thành. Phase 3–6 còn lại. Xem block "Implementation status (2026-05-25)" ở cuối file.
+>
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Thống nhất toàn bộ thông báo (lỗi nghiệp vụ, lỗi hệ thống, thành công, warning, info) trên BE + FE qua **một nguồn chân lý duy nhất** — code-first registry với typed `NotificationCode` (giai đoạn 1), sẵn sàng migrate sang doctype-driven (giai đoạn 2 — không nằm trong plan này). Loại bỏ 197+ `frappe.throw()` bare, 14+ `frappe.msgprint()`, và hàng trăm chuỗi toast hardcode rải khắp FE.
@@ -85,9 +87,9 @@
 
 ---
 
-## Phase 0 — Hợp nhất duplicate (prerequisite)
+## Phase 0 — Hợp nhất duplicate (prerequisite) [DONE 2026-05-25]
 
-### Task 0.1: Hợp nhất `_err/_ok` helpers
+### Task 0.1: Hợp nhất `_err/_ok` helpers  [DONE]
 
 **Files:**
 - Modify: `assetcore/utils/helpers.py`
@@ -98,7 +100,7 @@
 - [ ] **Step 3**: Chạy `grep -rn "from assetcore.utils.helpers import.*_err" assetcore/` → confirm tất cả import vẫn resolved.
 - [ ] **Step 4**: `bench --site assetcore.local migrate && bench --site assetcore.local run-tests --app assetcore` → green.
 
-### Task 0.2: Hợp nhất `ErrorCode` enum
+### Task 0.2: Hợp nhất `ErrorCode` enum  [DONE]
 
 **Files:**
 - Modify: `assetcore/services/shared/constants.py`
@@ -112,9 +114,9 @@
 
 ---
 
-## Phase 1 — Central Message Registry (BE)
+## Phase 1 — Central Message Registry (BE) [DONE 2026-05-25]
 
-### Task 1.1: Tạo `utils/messages.py`
+### Task 1.1: Tạo `utils/messages.py`  [DONE]
 
 **Files:**
 - Create: `assetcore/utils/messages.py`
@@ -192,7 +194,7 @@ def format_message(code: str, context: dict | None = None) -> tuple[str, str, Me
 
 - [ ] **Step 3**: Run test → green.
 
-### Task 1.2: Mở rộng `ServiceError` + tạo `nthrow()`
+### Task 1.2: Mở rộng `ServiceError` + tạo `nthrow()`  [DONE]
 
 **Files:**
 - Modify: `assetcore/services/shared/errors.py`
@@ -252,7 +254,7 @@ def nthrow(message_code: str, **context) -> None:
 
 - [ ] **Step 4**: Run test → green.
 
-### Task 1.3: Mở rộng `_err()` envelope
+### Task 1.3: Mở rộng `_err()` envelope  [DONE]
 
 **Files:**
 - Modify: `assetcore/utils/response.py`
@@ -313,7 +315,7 @@ except ServiceError as e:
 - [ ] **Step 4**: Refactor `_handle()` thành shared helper `assetcore/utils/api_handler.py:handle()` (hiện đang duplicate ở mọi `api/immXX.py`).
 - [ ] **Step 5**: Run test → green.
 
-### Task 1.4: FE message generator
+### Task 1.4: FE message generator  [DONE]
 
 **Files:**
 - Create: `scripts/gen_fe_messages.py`
@@ -345,9 +347,9 @@ export const MESSAGES: Record<MessageCode, MessageEntry> = {
 
 ---
 
-## Phase 2 — Frontend Notification System
+## Phase 2 — Frontend Notification System [DONE 2026-05-25]
 
-### Task 2.1: Mở rộng `ApiError`
+### Task 2.1: Mở rộng `ApiError`  [DONE]
 
 **Files:**
 - Modify: `frontend/src/api/errors.ts`
@@ -390,7 +392,7 @@ export class ApiError extends Error {
 - [ ] **Step 3**: Backwards-compat: giữ alternate constructor `new ApiError(msg, code, status, fields, extra)` qua overload.
 - [ ] **Step 4**: Run test → green.
 
-### Task 2.2: Axios interceptor — hydrate ApiError từ registry
+### Task 2.2: Axios interceptor — hydrate ApiError từ registry  [DONE]
 
 **Files:**
 - Modify: `frontend/src/api/axios.ts`
@@ -424,7 +426,7 @@ function hydrateFromRegistry(data: any, fallbackMsg: string, fallbackCode: Error
 - [ ] **Step 3**: Thay tất cả `throw new ApiError(msg, code, status, ...)` trong interceptor bằng `throw hydrateFromRegistry(data, msg, code, status)`.
 - [ ] **Step 4**: Run test → green.
 
-### Task 2.3: Tạo `useNotify` composable
+### Task 2.3: Tạo `useNotify` composable  [DONE]
 
 **Files:**
 - Create: `frontend/src/composables/useNotify.ts`
@@ -476,7 +478,7 @@ export function useNotify() {
 - [ ] **Step 3**: Cập nhật `useToast.Toast` type: thêm `severity` để match.
 - [ ] **Step 4**: Run test → green.
 
-### Task 2.4: Wire global handlers
+### Task 2.4: Wire global handlers  [DONE]
 
 **Files:**
 - Modify: `frontend/src/App.vue`
@@ -486,7 +488,7 @@ export function useNotify() {
 - [ ] **Step 2**: Cùng pattern cho `main.ts:app.config.errorHandler`.
 - [ ] **Step 3**: Test smoke: throw `ApiError` trong component → toast hiển thị đúng template + action_hint.
 
-### Task 2.5: Modal cho critical severity
+### Task 2.5: Modal cho critical severity  [DONE]
 
 **Files:**
 - Create: `frontend/src/components/common/NotificationModal.vue`
@@ -682,3 +684,56 @@ def nthrow_in_hook(message_code, **ctx):
 | 5 | 5-7 ngày | 2 FE parallel |
 | 6 | 1 ngày | 1 BE + 1 FE |
 | **Tổng** | **~18-23 ngày** | 2-3 dev |
+
+---
+
+## Implementation status (2026-05-25)
+
+### ✅ Done — Phase 0–2 (foundation + FE wiring + demo)
+
+| Phase | File(s) | Note |
+|---|---|---|
+| 0.1 | `assetcore/utils/helpers.py` | `_err/_ok` re-export from `response.py`. `_parse_json` + email helpers giữ tại helpers.py |
+| 0.2 | `assetcore/utils/response.py`, `assetcore/services/shared/constants.py`, `frontend/src/api/errors.ts`, `frontend/src/api/README.md` | `ErrorCode` hợp nhất vào `response.py`, BUSINESS_RULE đổi value `"BUSINESS_RULE_VIOLATION"` → `"BUSINESS_RULE"`, FE sync |
+| 1.1 | `assetcore/utils/messages.py` | 32 entries seed (SYS / AUTH / VAL / BIZ / UI / IMM04 / IMM09). MSG class + MESSAGES dict + lookup_message + format_message |
+| 1.2 | `assetcore/services/shared/errors.py`, `assetcore/utils/notify.py` | ServiceError thêm `context`+`message_code` (backwards-compat); `nthrow(MSG.XXX, **ctx)`, `nthrow_in_hook(MSG.XXX, **ctx)` cho DocType hook, `render()` cho composer |
+| 1.3 | `assetcore/utils/response.py` | `_err()` thêm kwargs `message_code`, `context`, `action_hint`, `severity`, `title` |
+| 1.3b | `assetcore/utils/api_handler.py` | NEW shared `handle()` + `parse_json()`. Existing per-api `_handle()` chưa migrate (incremental Phase 4). IMM-04 `_handle` đã hydrate message_code làm reference impl |
+| 1.4 | `scripts/gen_fe_messages.py`, `frontend/src/i18n/messages.ts`, `frontend/src/i18n/messages.types.ts`, `frontend/package.json` | AST-parse generator (không cần Frappe runtime). `npm run gen:messages` |
+| 2.1 | `frontend/src/api/errors.ts` | ApiError thêm `messageCode/context/actionHint/severity/title`. Backwards-compat constructor overload |
+| 2.2 | `frontend/src/api/helpers.ts`, `frontend/src/api/axios.ts` | unwrap() trong helpers hydrate ApiError từ MESSAGES; axios interceptor 417/422 `makeBusinessRuleError()` resolve registry |
+| 2.3 | `frontend/src/composables/useNotify.ts`, `frontend/src/composables/useToast.ts`, `frontend/src/components/common/ToastContainer.vue` | useNotify.show/fromError/fromOk/confirm; toast type thêm title+actionHint render |
+| 2.4 | `frontend/src/App.vue` | onErrorCaptured + unhandledrejection → notify.fromError |
+| 2.5 | `frontend/src/composables/useModal.ts`, `frontend/src/components/common/NotificationModal.vue` | Singleton modal queue, alert/confirm. Mount trong App.vue. Critical severity tự route sang modal |
+| 1-demo | `assetcore/services/imm04.py`, `assetcore/api/imm04.py` | `get_form_context()` migrate sang `nthrow(MSG.IMM04_NOT_FOUND, name=...)`. `_handle()` IMM-04 hydrate envelope đầy đủ |
+
+### Test evidence
+
+```
+bench --site miyano run-tests --module assetcore.tests.test_notification_framework
+→ Ran 14 tests in 0.158s. OK (0 fail).
+
+bench --site miyano run-tests --module assetcore.tests.test_imm04
+→ Ran 31 tests in 0.175s. OK (0 fail) — no regression sau khi migrate get_form_context.
+
+cd frontend && npm run typecheck
+→ 0 errors.
+
+cd frontend && npm run lint
+→ 0 errors (lint warnings là pre-existing cosmetic).
+```
+
+### 🚧 Còn lại
+
+| Phase | Task | Hiện trạng |
+|---|---|---|
+| 3 | Seed full message catalog từ 197+ `frappe.throw` + 150+ `toast.*` literals | Pending — cần BA review nội dung |
+| 4 | Migrate per-module BE bare calls (`services/imm04..imm16.py` + doctypes) | Chỉ IMM-04 `get_form_context` đã migrate làm reference |
+| 5 | Migrate FE hardcoded toast → notify.show | Pending — cần đi từng view |
+| 6 | Deprecation cleanup + CLAUDE.md guard + ESLint lint rule | Pending |
+
+### Notes for next pickup
+
+- `nthrow_in_hook` đã sẵn sàng cho DocType validate/on_submit migration — set `frappe.local.response["message_code"]` để axios `makeBusinessRuleError()` hydrate envelope khi 417 throw.
+- `frontend/src/i18n/messages.ts` là GENERATED. Mọi thay đổi message bắt buộc đi qua `assetcore/utils/messages.py` + `npm run gen:messages`. Add CI check `git diff --exit-code` để chống drift.
+- Phase 4-5 hoàn toàn incremental — mỗi module migrate trong PR riêng, không cần coordinate.

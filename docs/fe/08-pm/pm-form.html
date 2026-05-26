@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="module-id" content="pm">
+<title>Tạo PM — AssetCore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+<script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <a class="brand" style="color:inherit;text-decoration:none" href="#">
+      <span class="logo">A</span>
+      <div>AssetCore <small>IMMIS · BV Nhi Đồng 1</small></div>
+    </a>
+    <div class="spacer"></div>
+    <button class="iconbtn" title="Thông báo"><iconify-icon icon="heroicons:bell" style="font-size:18px;vertical-align:-3px;color:#fff"></iconify-icon></button>
+    <div class="persona-pill" title="Chọn vai trò"></div>
+    <div id="personaMenu" class="persona-menu"></div>
+  </div>
+  <div class="body-wrap">
+    <aside class="sidebar">
+      <div class="side-head"><span></span></div>
+      <nav></nav>
+      <div class="side-foot">AssetCore v0.0.2 · Wave 1+2</div>
+    </aside>
+    <main class="main">
+      <div class="breadcrumb"><a href="../index.html">Trang chủ</a> <span class="sep">›</span><a href="pm-list.html">Bảo trì định kỳ</a> <span class="sep">›</span><span>Tạo mới</span></div>
+      <div class="page">
+        <div class="page-head">
+  <div class="titles">
+    <a href="pm-list.html" class="btn btn-ghost btn-sm" style="margin-bottom:8px">← Quay lại</a>
+    <h1>Tạo lệnh PM thủ công</h1>
+    <div class="sub">Thông thường PM WO được tự sinh từ PM Schedule. Phiếu này dùng cho trường hợp đặc biệt (PM bổ sung, kiểm tra ngoài lịch).</div>
+  </div>
+
+</div><div class="card">
+  <div class="card-pad">
+    <div class="form-grid g2-form">
+      <div class="field"><label class="fld">Thiết bị <span class="req">*</span></label><select class="select"><option>— Tìm thiết bị —</option><option>Máy thở Bennett 980 — ICU G.03</option><option>Monitor Mindray — Cấp cứu</option></select></div>
+      <div class="field"><label class="fld">PM Type <span class="req">*</span></label><select class="select"><option>3 tháng (Quarterly)</option><option>6 tháng (Semi-annual)</option><option>12 tháng (Annual)</option><option>Bổ sung (Adhoc)</option></select></div>
+      <div class="field"><label class="fld">Checklist Template <span class="req">*</span></label><select class="select"><option>Tự chọn theo Device Model</option></select><div class="help">Auto-load PM Checklist Template gắn với dòng máy</div></div>
+      <div class="field"><label class="fld">KTV phụ trách</label><select class="select"><option>— Phân công sau —</option><option>Phạm Văn Đức</option><option>Nguyễn Hữu Phúc</option></select><div class="help">Chỉ hiện KTV có competency phù hợp</div></div>
+      <div class="field"><label class="fld">Ngày dự kiến</label><input class="input" type="date"></div>
+      <div class="field"><label class="fld">Thời gian dự kiến (phút)</label><input class="input" placeholder="90"></div>
+      <div class="field" style="grid-column:span 2"><label class="fld">Ghi chú</label><textarea class="input" rows="2" placeholder="Lý do tạo PM ngoài lịch..."></textarea></div>
+    </div>
+  </div>
+  <div style="padding:16px 20px;border-top:1px solid var(--color-neutral-300);display:flex;justify-content:space-between">
+    <a href="pm-list.html" class="btn btn-secondary">Hủy</a>
+    <button class="btn btn-primary">Tạo lệnh PM</button>
+  </div>
+</div>
+      
+      </div>
+    </main>
+  </div>
+</div>
+<script src="../assets/shell.js"></script>
+</body>
+</html>

@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="module-id" content="pm">
+<title>PM WO — AssetCore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+<script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <a class="brand" style="color:inherit;text-decoration:none" href="#">
+      <span class="logo">A</span>
+      <div>AssetCore <small>IMMIS · BV Nhi Đồng 1</small></div>
+    </a>
+    <div class="spacer"></div>
+    <button class="iconbtn" title="Thông báo"><iconify-icon icon="heroicons:bell" style="font-size:18px;vertical-align:-3px;color:#fff"></iconify-icon></button>
+    <div class="persona-pill" title="Chọn vai trò"></div>
+    <div id="personaMenu" class="persona-menu"></div>
+  </div>
+  <div class="body-wrap">
+    <aside class="sidebar">
+      <div class="side-head"><span></span></div>
+      <nav></nav>
+      <div class="side-foot">AssetCore v0.0.2 · Wave 1+2</div>
+    </aside>
+    <main class="main">
+      <div class="breadcrumb"><a href="../index.html">Trang chủ</a> <span class="sep">›</span><span>Bảo trì định kỳ</span></div>
+      <div class="page">
+        <div class="page-head">
+  <div class="titles"><h1>Bảo trì định kỳ (PM)</h1>
+    <div class="sub">68 lệnh PM tháng này · 12 quá hạn · Compliance 94,2%</div></div>
+  <div class="toolbar">
+    <a class="btn btn-secondary" href="pm-dashboard.html"><iconify-icon icon="heroicons:chart-bar" style="font-size:16px;vertical-align:-3px"></iconify-icon> Dashboard</a>
+    <a class="btn btn-secondary" href="#"><iconify-icon icon="heroicons:calendar-days" style="font-size:16px;vertical-align:-3px"></iconify-icon> Lịch tháng</a>
+    <a class="btn btn-primary" href="pm-form.html">+ Tạo lệnh PM</a>
+  </div>
+
+</div><div class="grid g4" style="margin-bottom:20px">
+  <div class="kpi primary"><div class="kbar"></div><div class="klabel">Trong tuần</div><div class="kval">14</div><div class="kfoot">7 đã phân công</div></div>
+  <div class="kpi warn"><div class="kbar"></div><div class="klabel">Quá hạn</div><div class="kval">12</div><div class="kfoot">Cần escalate</div></div>
+  <div class="kpi ok"><div class="kbar"></div><div class="klabel">Hoàn tất tháng</div><div class="kval">38</div><div class="kfoot">94,2% compliance</div></div>
+  <div class="kpi danger"><div class="kbar"></div><div class="klabel">Major Failure</div><div class="kval">3</div><div class="kfoot">Đã chuyển CM</div></div>
+</div>
+
+<div class="filterbar">
+  <div class="filter-group"><label>Tìm kiếm</label>
+    <input class="input" type="text" placeholder="Mã / thiết bị / KTV" style="width:100%"></div>
+  <div class="filter-group"><label>Trạng thái</label>
+    <select class="select"><option>Mọi trạng thái</option><option>Scheduled</option><option>Assigned</option><option>In Progress</option><option>Completed</option><option>Pending Device Busy</option><option>Halted</option></select></div>
+  <div class="filter-group"><label>PM Type</label>
+    <select class="select"><option>Mọi PM type</option><option>3 tháng</option><option>6 tháng</option><option>12 tháng</option></select></div>
+  <div class="filter-group"><label>KTV</label>
+    <select class="select"><option>Mọi KTV</option></select></div>
+  <div class="filter-actions">
+    <button class="btn btn-secondary btn-sm">Đặt lại</button>
+    <button class="btn btn-primary btn-sm">Áp dụng</button></div>
+</div>
+
+<div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>Mã lệnh PM</th><th>Thiết bị</th><th>PM Type</th><th>KTV</th><th>Ngày dự kiến</th><th>Trạng thái</th></tr></thead>
+    <tbody>
+      <tr><td class="mono"><a class="link" href="pm-detail.html">WO-PM-2026-00188</a></td><td><b>Máy thở Bennett 980</b><br><span class="text-xs muted">ICU - Giường 03</span></td><td>3 tháng</td><td>Phạm Văn Đức</td><td>02/06/2026</td><td><span class="badge b-submitted">Đã phân công</span></td></tr>
+      <tr><td class="mono"><a class="link" href="pm-detail.html">WO-PM-2026-00192</a></td><td><b>Monitor Mindray uMEC12</b><br><span class="text-xs muted">Cấp cứu</span></td><td>6 tháng</td><td>Trần Đại Nghĩa</td><td>23/05/2026 <iconify-icon icon="heroicons:exclamation-triangle" style="font-size:16px;vertical-align:-3px"></iconify-icon></td><td><span class="badge b-overdue">Quá hạn 2 ngày</span></td></tr>
+      <tr><td class="mono"><a class="link" href="pm-detail.html">WO-PM-2026-00195</a></td><td><b>Lồng ấp sơ sinh Atom</b><br><span class="text-xs muted">Sơ sinh - P.1</span></td><td>3 tháng</td><td>Phạm Văn Đức</td><td>24/05/2026</td><td><span class="badge b-inprogress">Đang thực hiện</span></td></tr>
+      <tr><td class="mono"><a class="link" href="pm-detail.html">WO-PM-2026-00181</a></td><td><b>Máy X-quang GE Optima</b><br><span class="text-xs muted">CĐHA</span></td><td>12 tháng</td><td>Nguyễn Hữu Phúc</td><td>15/05/2026</td><td><span class="badge b-closed">Hoàn tất</span></td></tr>
+    </tbody>
+  </table>
+</div>
+      
+      </div>
+    </main>
+  </div>
+</div>
+<script src="../assets/shell.js"></script>
+</body>
+</html>

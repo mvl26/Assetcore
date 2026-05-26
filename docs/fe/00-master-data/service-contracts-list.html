@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="module-id" content="service-contracts">
+<title>Hợp đồng dịch vụ — AssetCore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+<script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <a class="brand" style="color:inherit;text-decoration:none" href="#">
+      <span class="logo">A</span>
+      <div>AssetCore <small>IMMIS · BV Nhi Đồng 1</small></div>
+    </a>
+    <div class="spacer"></div>
+    <button class="iconbtn" title="Thông báo"><iconify-icon icon="heroicons:bell" style="font-size:18px;vertical-align:-3px;color:#fff"></iconify-icon></button>
+    <div class="persona-pill" title="Chọn vai trò"></div>
+    <div id="personaMenu" class="persona-menu"></div>
+  </div>
+  <div class="body-wrap">
+    <aside class="sidebar">
+      <div class="side-head"><span></span></div>
+      <nav></nav>
+      <div class="side-foot">AssetCore v0.0.2 · Wave 1+2</div>
+    </aside>
+    <main class="main">
+      <div class="breadcrumb"><a href="../index.html">Trang chủ</a> <span class="sep">›</span><span>Hợp đồng dịch vụ</span></div>
+      <div class="page">
+        <div class="page-head">
+  <div class="titles">
+    <h1>Hợp đồng dịch vụ & bảo hành</h1>
+    <div class="sub">23 hợp đồng đang hiệu lực · 4 sắp hết hạn 90 ngày · 2 đã hết hạn cần renew</div>
+  </div>
+  <div class="toolbar">
+    <a class="btn btn-primary" href="#">+ Tạo hợp đồng</a>
+  </div>
+
+</div><div class="grid g4" style="margin-bottom:20px">
+  <div class="kpi primary"><div class="kbar"></div><div class="klabel">Tổng hợp đồng</div><div class="kval">23</div><div class="kfoot">Đang hiệu lực</div></div>
+  <div class="kpi warn"><div class="kbar"></div><div class="klabel">Sắp hết hạn</div><div class="kval">4</div><div class="kfoot">Trong 90 ngày</div></div>
+  <div class="kpi danger"><div class="kbar"></div><div class="klabel">Đã hết hạn</div><div class="kval">2</div><div class="kfoot">Cần renew gấp</div></div>
+  <div class="kpi ok"><div class="kbar"></div><div class="klabel">Tổng giá trị</div><div class="kval">2,8 tỷ</div><div class="kfoot">Hợp đồng đang hoạt động</div></div>
+</div>
+
+<div class="filterbar">
+  <div class="filter-group"><label>Tìm kiếm</label>
+    <input class="input" type="text" placeholder="Mã / NCC / thiết bị" style="width:100%"></div>
+  <div class="filter-group"><label>Loại</label>
+    <select class="select"><option>Mọi loại</option><option>Bảo hành</option><option>Bảo trì định kỳ</option><option>Hiệu chuẩn</option><option>Sửa chữa</option></select></div>
+  <div class="filter-group"><label>Trạng thái</label>
+    <select class="select"><option>Mọi trạng thái</option><option>Active</option><option>Expiring Soon</option><option>Expired</option></select></div>
+  <div class="filter-actions">
+    <button class="btn btn-secondary btn-sm">Đặt lại</button>
+    <button class="btn btn-primary btn-sm">Áp dụng</button></div>
+</div>
+
+<div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>Mã hợp đồng</th><th>Tên hợp đồng</th><th>Nhà cung cấp</th><th>Số thiết bị</th><th>Loại</th><th>Hiệu lực</th><th>Giá trị</th><th>Trạng thái</th></tr></thead>
+    <tbody>
+      <tr><td class="mono"><a href="#" class="link">SC-2024-007</a></td><td><b>Bảo trì 12 máy thở Bennett</b></td><td>Medtronic VN</td><td>12</td><td>Bảo trì + PT</td><td>01/01/2024 - 31/12/2026</td><td>485M ₫/năm</td><td><span class="badge b-active"><span class="dot"></span>Active</span></td></tr>
+      <tr><td class="mono"><a href="#" class="link">SC-2024-012</a></td><td><b>Hiệu chuẩn 8 thiết bị X-quang</b></td><td>Bureau Veritas VN</td><td>8</td><td>Hiệu chuẩn ISO 17025</td><td>15/03/2024 - 15/03/2027</td><td>120M ₫/năm</td><td><span class="badge b-active"><span class="dot"></span>Active</span></td></tr>
+      <tr><td class="mono"><a href="#" class="link">SC-2023-021</a></td><td><b>Bảo hành 5 monitor Mindray</b></td><td>Mindray Medical VN</td><td>5</td><td>Bảo hành mở rộng</td><td>01/07/2023 - 30/06/2026</td><td>180M ₫/năm</td><td><span class="badge b-warn">Sắp hết hạn 30/06</span></td></tr>
+      <tr><td class="mono"><a href="#" class="link">SC-2022-008</a></td><td><b>Bảo trì 4 lồng ấp Atom</b></td><td>Atom Medical Corp</td><td>4</td><td>Bảo trì</td><td>01/01/2022 - 31/12/2025</td><td>96M ₫/năm</td><td><span class="badge b-overdue">Đã hết hạn 31/12/2025</span></td></tr>
+    </tbody>
+  </table>
+</div>
+      
+      </div>
+    </main>
+  </div>
+</div>
+<script src="../assets/shell.js"></script>
+</body>
+</html>

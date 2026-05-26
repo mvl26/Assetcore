@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="module-id" content="assets">
+<title>Tạo thiết bị mới — AssetCore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+<script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <a class="brand" style="color:inherit;text-decoration:none" href="#">
+      <span class="logo">A</span>
+      <div>AssetCore <small>IMMIS · BV Nhi Đồng 1</small></div>
+    </a>
+    <div class="spacer"></div>
+    <button class="iconbtn" title="Thông báo"><iconify-icon icon="heroicons:bell" style="font-size:18px;vertical-align:-3px;color:#fff"></iconify-icon></button>
+    <div class="persona-pill" title="Chọn vai trò"></div>
+    <div id="personaMenu" class="persona-menu"></div>
+  </div>
+  <div class="body-wrap">
+    <aside class="sidebar">
+      <div class="side-head"><span></span></div>
+      <nav></nav>
+      <div class="side-foot">AssetCore v0.0.2 · Wave 1+2</div>
+    </aside>
+    <main class="main">
+      <div class="breadcrumb"><a href="../index.html">Trang chủ</a> <span class="sep">›</span><a href="assets-list.html">Thiết bị y tế</a> <span class="sep">›</span><span>Tạo mới</span></div>
+      <div class="page">
+        <div class="page-head">
+  <div class="titles">
+    <a href="assets-list.html" class="btn btn-ghost btn-sm" style="margin-bottom:8px">← Quay lại</a>
+    <h1>Tạo thiết bị mới</h1>
+    <div class="sub">Khuyến nghị: tạo tự động từ phiếu Nghiệm thu (Commissioning) — phiếu này dành cho thiết bị nhập tay (di chuyển từ hệ cũ).</div>
+  </div>
+
+</div><div class="card">
+  <div class="card-pad">
+    </div></div><div class="section-title">A. Định danh & UDI</div>
+    <div class="form-grid g2-form">
+      <div class="field"><label class="fld">Tên thiết bị <span class="req">*</span></label><input class="input" placeholder="VD: Máy thở Bennett 980"></div>
+      <div class="field"><label class="fld">Dòng máy <span class="req">*</span></label><select class="select"><option>— Chọn dòng máy —</option><option>Puritan Bennett 980</option><option>Terumo TE-SS830</option><option>Atom Incu i</option></select><div class="help">Auto-fill GMDN, Risk Class, PM template từ dòng máy</div></div>
+      <div class="field"><label class="fld">Serial Number <span class="req">*</span></label><input class="input" placeholder="Tự sinh nếu để trống"></div>
+      <div class="field"><label class="fld">UDI</label><input class="input" placeholder="(01)08712345600...">    </div>
+      <div class="field"><label class="fld">Đăng ký lưu hành BYT</label><input class="input" placeholder="BYT-YYYY-NNNNN"></div>
+      <div class="field"><label class="fld">Ngày hết hạn ĐK BYT</label><input class="input" type="date"></div>
+    </div>
+
+    <div class="section-title">B. Vị trí & Phân loại</div>
+    <div class="form-grid g3-form">
+      <div class="field"><label class="fld">Khoa / phòng ban <span class="req">*</span></label><select class="select"><option>— Chọn khoa —</option><option>ICU</option><option>Sơ sinh</option><option>Cấp cứu</option></select></div>
+      <div class="field"><label class="fld">Vị trí lắp đặt <span class="req">*</span></label><select class="select"><option>— Chọn vị trí —</option><option>ICU - Giường 01</option><option>ICU - Giường 02</option><option>ICU - Giường 03</option></select></div>
+      <div class="field"><label class="fld">Nhóm thiết bị</label><select class="select"><option>Hô hấp</option><option>Tim mạch</option><option>Chẩn đoán hình ảnh</option></select></div>
+      <div class="field"><label class="fld">Risk Class</label><select class="select"><option>Low</option><option>Medium</option><option>High</option><option selected>Critical</option></select></div>
+      <div class="field"><label class="fld">KTV phụ trách</label><select class="select"><option>— Phân công sau —</option><option>Phạm Văn Đức</option><option>Nguyễn Hữu Phúc</option></select></div>
+      <div class="field"><label class="fld">Trạng thái ban đầu</label><select class="select"><option>Draft</option><option>Commissioned</option><option>Active</option></select></div>
+    </div>
+
+    <div class="section-title">C. Tài chính</div>
+    <div class="form-grid g3-form">
+      <div class="field"><label class="fld">Ngày mua</label><input class="input" type="date"></div>
+      <div class="field"><label class="fld">Nguyên giá (₫)</label><input class="input" placeholder="0"></div>
+      <div class="field"><label class="fld">Nhà cung cấp</label><select class="select"><option>— Chọn NCC —</option><option>Medtronic VN</option><option>Siemens Healthineers VN</option></select></div>
+      <div class="field"><label class="fld">Vòng đời dự kiến (năm)</label><input class="input" placeholder="VD: 10"></div>
+      <div class="field"><label class="fld">Phương pháp khấu hao</label><select class="select"><option>Đường thẳng</option><option>Số dư giảm dần kép</option></select></div>
+      <div class="field"><label class="fld">Hợp đồng bảo trì</label><select class="select"><option>— Không có —</option><option>SC-2024-007</option></select></div>
+    </div>
+  </div>
+
+  <div style="padding:16px 20px;border-top:1px solid var(--color-neutral-300);display:flex;justify-content:space-between">
+    <a href="assets-list.html" class="btn btn-secondary">Hủy</a>
+    <div style="display:flex;gap:10px">
+      <button class="btn btn-secondary">Lưu nháp</button>
+      <button class="btn btn-primary">Tạo thiết bị</button>
+    </div>
+  
+
+      
+      </div>
+    </main>
+  </div>
+</div>
+<script src="../assets/shell.js"></script>
+</body>
+</html>

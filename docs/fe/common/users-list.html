@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="module-id" content="users">
+<title>Quản lý người dùng — AssetCore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+<script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <a class="brand" style="color:inherit;text-decoration:none" href="#">
+      <span class="logo">A</span>
+      <div>AssetCore <small>IMMIS · BV Nhi Đồng 1</small></div>
+    </a>
+    <div class="spacer"></div>
+    <button class="iconbtn" title="Thông báo"><iconify-icon icon="heroicons:bell" style="font-size:18px;vertical-align:-3px;color:#fff"></iconify-icon></button>
+    <div class="persona-pill" title="Chọn vai trò"></div>
+    <div id="personaMenu" class="persona-menu"></div>
+  </div>
+  <div class="body-wrap">
+    <aside class="sidebar">
+      <div class="side-head"><span></span></div>
+      <nav></nav>
+      <div class="side-foot">AssetCore v0.0.2 · Wave 1+2</div>
+    </aside>
+    <main class="main">
+      <div class="breadcrumb"><a href="../index.html">Trang chủ</a> <span class="sep">›</span><span>Quản trị hệ thống</span> <span class="sep">›</span><span>Người dùng</span></div>
+      <div class="page">
+        <div class="page-head">
+  <div class="titles">
+    <h1>Quản lý người dùng</h1>
+    <div class="sub">Danh sách tài khoản + role + trạng thái phê duyệt</div>
+  </div>
+  <div class="toolbar">
+    <button class="btn btn-secondary"><iconify-icon icon="heroicons:arrow-down-tray" style="font-size:16px;vertical-align:-3px"></iconify-icon> Import CSV</button>
+    <a class="btn btn-primary" href="#">+ Tạo người dùng</a>
+  </div>
+
+</div><div class="grid g4" style="margin-bottom:20px">
+  <div class="kpi primary"><div class="kbar"></div><div class="klabel">Tổng người dùng</div><div class="kval">87</div><div class="kfoot">75 active · 8 disabled</div></div>
+  <div class="kpi warn"><div class="kbar"></div><div class="klabel">Chờ phê duyệt</div><div class="kval">4</div><div class="kfoot">Đăng ký mới</div></div>
+  <div class="kpi ok"><div class="kbar"></div><div class="klabel">Active 30 ngày</div><div class="kval">72</div><div class="kfoot">Đăng nhập gần đây</div></div>
+  <div class="kpi info"><div class="kbar"></div><div class="klabel">Vendor Engineer</div><div class="kval">9</div><div class="kfoot">Bên thứ ba, cô lập</div></div>
+</div>
+
+<div class="filterbar">
+  <div class="filter-group"><label>Tìm kiếm</label>
+    <input class="input" type="text" placeholder="Tên / email / khoa" style="width:100%"></div>
+  <div class="filter-group"><label>Role</label>
+    <select class="select"><option>Mọi role</option><option>Domain Manager</option><option>Domain User</option><option>System Admin</option><option>Auditor</option><option>Vendor</option></select></div>
+  <div class="filter-group"><label>Khoa</label>
+    <select class="select"><option>Mọi khoa</option><option>VT-TTBYT</option><option>ICU</option><option>Sơ sinh</option><option>Tim mạch</option></select></div>
+  <div class="filter-group"><label>Trạng thái</label>
+    <select class="select"><option>Mọi trạng thái</option><option>Approved</option><option>Pending</option><option>Rejected</option></select></div>
+  <div class="filter-actions">
+    <button class="btn btn-secondary btn-sm">Đặt lại</button>
+    <button class="btn btn-primary btn-sm">Áp dụng</button></div>
+</div>
+
+<div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr>
+      <th>Người dùng</th><th>Email</th><th>Khoa / Phòng</th><th>Role chính</th><th>Trạng thái</th><th>Lần đăng nhập cuối</th><th></th>
+    </tr></thead>
+    <tbody>
+      <tr><td><b>Trần Thị Mai</b></td><td>mai.tt@bnd1.vn</td><td>VT-TTBYT</td><td><span class="pill-tag">PM Manager + 6 roles</span></td><td><span class="badge b-active"><span class="dot"></span>Active</span></td><td>Hôm nay 09:12</td><td><a href="#" class="btn btn-ghost btn-sm">Sửa</a></td></tr>
+      <tr><td><b>Lê Quốc Hùng</b></td><td>hung.lq@bnd1.vn</td><td>VT-TTBYT — Xưởng</td><td><span class="pill-tag">Repair Manager + 3</span></td><td><span class="badge b-active"><span class="dot"></span>Active</span></td><td>Hôm nay 08:45</td><td><a href="#" class="btn btn-ghost btn-sm">Sửa</a></td></tr>
+      <tr><td><b>Phạm Văn Đức</b></td><td>duc.pv@bnd1.vn</td><td>VT-TTBYT — Xưởng</td><td><span class="pill-tag">PM User + Repair User</span></td><td><span class="badge b-active"><span class="dot"></span>Active</span></td><td>Hôm nay 07:30</td><td><a href="#" class="btn btn-ghost btn-sm">Sửa</a></td></tr>
+      <tr><td><b>BS. Nguyễn Thị Lan</b></td><td>lan.nt@bnd1.vn</td><td>Hồi sức tích cực (ICU)</td><td><span class="pill-tag">Corrective User</span></td><td><span class="badge b-active"><span class="dot"></span>Active</span></td><td>Hôm qua 16:20</td><td><a href="#" class="btn btn-ghost btn-sm">Sửa</a></td></tr>
+      <tr><td><b>Đỗ Văn Tâm</b></td><td>tam.dv@bnd1.vn</td><td>VT-TTBYT — Kho</td><td><span class="pill-tag">Inventory Manager</span></td><td><span class="badge b-active"><span class="dot"></span>Active</span></td><td>Hôm qua 17:05</td><td><a href="#" class="btn btn-ghost btn-sm">Sửa</a></td></tr>
+      <tr><td><b>Hoàng Minh Châu</b></td><td>chau.hm@bnd1.vn</td><td>Tổ HC-QLCL</td><td><span class="pill-tag">Compliance Manager</span></td><td><span class="badge b-active"><span class="dot"></span>Active</span></td><td>Hôm qua 14:38</td><td><a href="#" class="btn btn-ghost btn-sm">Sửa</a></td></tr>
+      <tr><td><b>Nguyễn Văn An</b><br><span class="text-xs muted">Mới đăng ký</span></td><td>an.nv@bnd1.vn</td><td>Hô hấp</td><td><span class="muted">Chưa gán</span></td><td><span class="badge b-warn">Pending Approval</span></td><td>—</td><td><a href="#" class="btn btn-primary btn-sm">Phê duyệt</a></td></tr>
+    </tbody>
+  </table>
+  <div class="pagination">
+    <span class="muted text-sm" style="margin-right:auto">Hiển thị 7 / 87 dòng</span>
+    <button>‹</button><button class="active">1</button><button>2</button><button>3</button><button>4</button><button>5</button><button>›</button>
+  </div>
+</div>
+      
+      </div>
+    </main>
+  </div>
+</div>
+<script src="../assets/shell.js"></script>
+</body>
+</html>

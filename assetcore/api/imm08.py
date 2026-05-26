@@ -11,6 +11,8 @@ from frappe.utils import getdate, nowdate
 
 from assetcore.services import imm08 as svc
 from assetcore.services.shared import ErrorCode, ServiceError
+from assetcore.services.shared import rbac
+from assetcore.services.shared.scope import apply_vendor_scope, assert_vendor_can_access
 from assetcore.utils.helpers import _err, _ok
 
 
@@ -49,16 +51,23 @@ def list_pm_work_orders(filters: str = "{}", page: int = 1, page_size: int = 20)
         f = _parse_json(filters, field_name="filters")
     except ServiceError as e:
         return _err(e.message, e.code)
+    f = apply_vendor_scope(f, "PM Work Order")
     return _handle(svc.list_work_orders, f, page=int(page), page_size=int(page_size))
 
 
 @frappe.whitelist()
 def get_pm_work_order(name: str) -> dict:
+    try:
+        assert_vendor_can_access("PM Work Order", name)
+    except ServiceError as e:
+        return _err(e.message, e.code)
     return _handle(svc.get_work_order, name)
 
 
 @frappe.whitelist()
 def assign_technician(name: str, technician: str, scheduled_date: str = None) -> dict:
+    # AUTH-02 — block FE-bypass: only PM writers can re-assign.
+    rbac.require("pm.write")
     return _handle(svc.assign_technician, name,
                    technician=technician, scheduled_date=scheduled_date)
 
@@ -67,6 +76,7 @@ def assign_technician(name: str, technician: str, scheduled_date: str = None) ->
 def submit_pm_result(name: str, checklist_results: str = "[]",
                       overall_result: str = "Pass", technician_notes: str = "",
                       pm_sticker_attached: int = 0, duration_minutes: int = 0) -> dict:
+    rbac.require("pm.submit")
     try:
         results = _parse_json(checklist_results, field_name="checklist_results", default=[])
     except ServiceError as e:
@@ -83,6 +93,7 @@ def submit_pm_result(name: str, checklist_results: str = "[]",
 @frappe.whitelist()
 def report_major_failure(pm_wo_name: str, failure_description: str,
                           failed_item_indexes: str = "[]") -> dict:
+    rbac.require("pm.write")
     try:
         failed = _parse_json(failed_item_indexes, field_name="failed_item_indexes", default=[])
     except ServiceError as e:
@@ -93,11 +104,13 @@ def report_major_failure(pm_wo_name: str, failure_description: str,
 
 @frappe.whitelist(methods=["POST"])
 def reschedule_pm(name: str, new_date: str, reason: str) -> dict:
+    rbac.require("pm.reschedule")
     return _handle(svc.reschedule, name, new_date=new_date, reason=reason)
 
 
 @frappe.whitelist(methods=["POST"])
 def create_pm_work_order() -> dict:
+    rbac.require("pm.create")
     return _handle(svc.create_adhoc_work_order, _form_dict())
 
 
@@ -141,21 +154,25 @@ def get_pm_schedule(name: str) -> dict:
 
 @frappe.whitelist(methods=["POST"])
 def create_pm_schedule() -> dict:
+    rbac.require("pm.create")
     return _handle(svc.create_schedule, _form_dict())
 
 
 @frappe.whitelist(methods=["POST"])
 def update_pm_schedule(name: str) -> dict:
+    rbac.require("pm.write")
     return _handle(svc.update_schedule, name, _form_dict("name"))
 
 
 @frappe.whitelist(methods=["POST"])
 def set_pm_schedule_status(name: str, status: str) -> dict:
+    rbac.require("pm.write")
     return _handle(svc.set_schedule_status, name, status)
 
 
 @frappe.whitelist(methods=["POST"])
 def delete_pm_schedule(name: str) -> dict:
+    rbac.require("pm.delete")
     return _handle(svc.delete_schedule, name)
 
 
@@ -176,6 +193,7 @@ def get_pm_template(name: str) -> dict:
 
 @frappe.whitelist(methods=["POST"])
 def create_pm_template() -> dict:
+    rbac.require("pm.create")
     data = _form_dict()
     items_raw = data.get("checklist_items")
     if items_raw is not None:
@@ -188,6 +206,7 @@ def create_pm_template() -> dict:
 
 @frappe.whitelist(methods=["POST"])
 def update_pm_template(name: str) -> dict:
+    rbac.require("pm.write")
     data = _form_dict("name")
     if "checklist_items" in data:
         try:
@@ -200,20 +219,24 @@ def update_pm_template(name: str) -> dict:
 
 @frappe.whitelist(methods=["POST"])
 def approve_pm_template(name: str) -> dict:
+    rbac.require("pm.submit")
     return _handle(svc.approve_template, name)
 
 
 @frappe.whitelist(methods=["POST"])
 def version_pm_template(source_name: str, new_version: str) -> dict:
+    rbac.require("pm.write")
     return _handle(svc.version_template, source_name, new_version)
 
 
 @frappe.whitelist(methods=["POST"])
 def delete_pm_template(name: str) -> dict:
+    rbac.require("pm.delete")
     return _handle(svc.delete_template, name)
 
 
 @frappe.whitelist(methods=["POST"])
 def apply_pm_template_to_category(template_name: str) -> dict:
     """Bulk-tạo PM Schedule cho mọi asset cùng danh mục với template."""
+    rbac.require("pm.create")
     return _handle(svc.apply_template_to_category_assets, template_name)

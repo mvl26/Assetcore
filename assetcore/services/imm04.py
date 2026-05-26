@@ -9,8 +9,24 @@ from frappe.model.document import Document
 from frappe.utils import add_days, date_diff, get_first_day, getdate, nowdate
 
 from assetcore.repositories.commissioning_repo import CommissioningRepo, NonConformanceRepo
-from assetcore.services.shared import ErrorCode, ServiceError
+from assetcore.services.shared import (
+    ErrorCode,
+    ServiceError,
+    assert_distinct_signers,
+    assert_not_self_submitter,
+)
+from assetcore.utils.notify import MSG, nthrow
 from assetcore.utils.pagination import paginate
+
+# AUTH-05 — 4-eyes / Separation-of-Duties signer fields on Asset Commissioning.
+# A single user cannot occupy more than one of these roles on the same phiếu.
+_SIGNER_FIELDS = (
+    "clinical_head",     # Trưởng khoa lâm sàng
+    "qa_officer",        # QA/QC officer
+    "board_approver",    # Ban Giám đốc
+    "pending_approver",  # current approver in pipeline
+    "owner",             # phiếu submitter
+)
 
 # ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -362,19 +378,46 @@ def check_auto_clinical_hold(doc: Document) -> bool:
 
 
 def log_lifecycle_event(doc: Document, event_type: str, from_status: str, to_status: str, remarks: str = "") -> None:
-    """Append immutable lifecycle event to commissioning record."""
+    """Persist a lifecycle/audit event for the commissioning record.
+
+    RC-05 fix: the Asset Commissioning DocType does NOT declare a `lifecycle_events`
+    child table (only a Section Break exists in JSON), so any `doc.append(...)`
+    silently no-ops and the "Lịch sử phiếu" tab stays empty. Persist to the canonical
+    `IMM Audit Trail` (SHA-256 chained) so the timeline can read it back. The asset
+    field is left blank pre-release and populated post-release via `final_asset`.
+    Best-effort: never block a state transition because audit logging failed.
+    """
+    from assetcore.utils.lifecycle import log_audit_event as _log_audit
+    try:
+        _log_audit(
+            asset=doc.get("final_asset") or "",
+            event_type="State Change",
+            actor=frappe.session.user,
+            ref_doctype=_DT,
+            ref_name=doc.name,
+            change_summary=(remarks or event_type),
+            from_status=from_status or "",
+            to_status=to_status or "",
+        )
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), f"IMM-04 audit log failed: {doc.name}")
+
+    # Best-effort append to child table (works only if DocType ever declares it)
     if not hasattr(doc, "lifecycle_events"):
         return
-    doc.append("lifecycle_events", {
-        "event_type": event_type,
-        "from_status": from_status or "",
-        "to_status": to_status or "",
-        "actor": frappe.session.user,
-        "event_timestamp": frappe.utils.now_datetime(),
-        "ip_address": getattr(getattr(frappe.local, "request", None), "remote_addr", ""),
-        "remarks": remarks,
-        "root_record": doc.name,
-    })
+    try:
+        doc.append("lifecycle_events", {
+            "event_type": event_type,
+            "from_status": from_status or "",
+            "to_status": to_status or "",
+            "actor": frappe.session.user,
+            "event_timestamp": frappe.utils.now_datetime(),
+            "ip_address": getattr(getattr(frappe.local, "request", None), "remote_addr", ""),
+            "remarks": remarks,
+            "root_record": doc.name,
+        })
+    except Exception:
+        pass
 
 
 def handle_commissioning_cancel(doc: Document) -> None:
@@ -689,7 +732,9 @@ def _serialize_commissioning(doc) -> dict:
 def get_form_context(name: str) -> dict:
     doc = CommissioningRepo.get(name)
     if not doc:
-        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy phiếu '{name}'")
+        # Phase 1 notification framework — message_code + context tự render
+        # vào envelope qua handle() trong api/imm04.py.
+        nthrow(MSG.IMM04_NOT_FOUND, name=name)
     try:
         frappe.has_permission(_DT, ptype="read", doc=name, throw=True)
     except frappe.PermissionError:
@@ -942,7 +987,33 @@ def transition_state(name: str, action: str) -> dict:
     frappe.model.workflow.apply_workflow(doc, action)
     log_lifecycle_event(doc, action, prev_state, doc.workflow_state)
     doc.save(ignore_permissions=False)
-    return {"name": name, "action_applied": action, "new_state": doc.workflow_state, "docstatus": doc.docstatus}
+
+    # RC-06 fix: once we reach Clinical Release (acceptance "Hoàn tất"), auto-mint
+    # the AC Asset even if the user hasn't clicked Submit yet. Idempotent — guarded
+    # by `doc.final_asset` inside `create_ac_asset`. Best-effort: don't block the
+    # workflow if asset creation fails — surface as a log entry the user can chase.
+    if doc.workflow_state == _STATE_CLINICAL_RELEASE and not doc.final_asset:
+        try:
+            asset_name = create_ac_asset(doc)
+            if asset_name:
+                frappe.db.set_value(_DT, doc.name, "final_asset", asset_name)
+                doc.reload()
+        except Exception as e:
+            frappe.log_error(
+                frappe.get_traceback(),
+                f"IMM-04 auto-mint asset failed on transition: {doc.name}",
+            )
+            frappe.msgprint(
+                _("⚠ Phiếu đã chuyển sang '{0}' nhưng không tạo được Tài sản tự động: {1}. "
+                  "Vui lòng bấm Submit để thử lại.").format(_STATE_CLINICAL_RELEASE, str(e)),
+                alert=True, indicator="orange",
+            )
+
+    return {
+        "name": name, "action_applied": action,
+        "new_state": doc.workflow_state, "docstatus": doc.docstatus,
+        "final_asset": doc.final_asset,
+    }
 
 
 def submit_commissioning(name: str) -> dict:
@@ -1246,6 +1317,13 @@ def approve_clinical_release(commissioning: str, board_approver: str, approval_r
     open_nc = frappe.db.count(_DT_NC, {"ref_commissioning": commissioning, "resolution_status": "Open"})
     if open_nc > 0:
         raise ServiceError(ErrorCode.INVALID_PARAMS, f"VR-04: Còn {open_nc} NC chưa đóng")
+    # AUTH-05 — 4-eyes: board_approver must not also be the submitter or
+    # already wear another signer hat (clinical_head, qa_officer) on this phiếu.
+    assert_distinct_signers(
+        doc, "clinical_head", "qa_officer", "owner", "pending_approver",
+        candidate_user=board_approver,
+        candidate_field="board_approver",
+    )
     doc.board_approver = board_approver
     if approval_remarks:
         doc.notes = (doc.notes or "") + f"\n[Board Approval] {approval_remarks}"
@@ -1393,6 +1471,22 @@ def submit_for_approval(commissioning: str, approver: str, stage: str = "",
                 f"Người duyệt '{approver}' không có vai trò '{required_role}'",
             )
 
+    # AUTH-05 — 4-eyes (Separation of Duties):
+    #   (a) submitter cannot route the phiếu to themselves.
+    #   (b) chosen approver must not already wear another signer hat on this
+    #       phiếu (clinical_head, qa_officer, board_approver, owner).
+    if approver == frappe.session.user:
+        raise ServiceError(
+            ErrorCode.FORBIDDEN,
+            "4-eyes: bạn không thể gửi phiếu này cho chính mình duyệt — "
+            "phải chọn một người duyệt khác.",
+        )
+    assert_distinct_signers(
+        doc, *_SIGNER_FIELDS,
+        candidate_user=approver,
+        candidate_field="pending_approver",
+    )
+
     now = frappe.utils.now_datetime()
     doc.db_set("pending_approver",      approver, update_modified=False)
     doc.db_set("approval_stage",        stage,    update_modified=False)
@@ -1448,6 +1542,16 @@ def approve_pending(commissioning: str, decision: str, remarks: str = "") -> dic
     current_user = frappe.session.user
     if doc.pending_approver != current_user and "AssetCore Super Admin" not in frappe.get_roles(current_user):
         raise ServiceError(ErrorCode.FORBIDDEN, "Bạn không phải người được phân công duyệt phiếu này")
+
+    # AUTH-05 — 4-eyes: approver must not also be the original submitter.
+    # Also block sliding into a second signer slot if they already filled one.
+    assert_not_self_submitter(doc, submitter_field="owner",
+                              candidate_user=current_user)
+    assert_distinct_signers(
+        doc, "clinical_head", "qa_officer", "board_approver", "owner",
+        candidate_user=current_user,
+        candidate_field="pending_approver",
+    )
 
     stage = doc.approval_stage or ""
     submitter_user = _find_last_approval_submitter(doc)

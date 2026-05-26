@@ -419,30 +419,30 @@ def submit_rca(
     rca.flags.ignore_permissions = True
     rca.save()
 
-    # BR-12-06: auto CAPA via IMM-00
+    # BR-12-06: auto CAPA via IMM-16 canonical helper (RC-03 fix)
     capa_name: str | None = None
-    try:
-        incident = IncidentRepo.get(rca.incident_report) if rca.incident_report else None
-        asset = rca.asset or (incident.asset if incident else None)
-        severity = _map_severity(incident.severity if incident else "High")
-        capa_name = svc00.create_capa(
-            asset=asset,
-            source_type=_DT_RCA,
-            source_ref=rca.name,
-            severity=severity,
-            description=f"Auto-CAPA từ RCA {rca.name}: {root_cause[:200]}",
-            responsible=actor,
-        )
-        rca.linked_capa = capa_name
-        rca.flags.ignore_permissions = True
-        rca.save()
-        if incident and not incident.linked_capa:
-            frappe.db.set_value(_DT_INCIDENT, rca.incident_report, "linked_capa", capa_name)
-    except Exception:
-        frappe.log_error(frappe.get_traceback(), "IMM-12 submit_rca auto_capa")
+    if rca.incident_report:
+        try:
+            from assetcore.services.imm16 import create_capa_from_incident
+            result = create_capa_from_incident(
+                incident_name=rca.incident_report,
+                rca_name=rca.name,
+                responsible=actor,
+            )
+            capa_name = result.get("capa_name")
+            # Refresh in-memory rca.linked_capa nếu vừa set qua db
+            if capa_name and not rca.linked_capa:
+                rca.linked_capa = capa_name
+        except Exception:
+            frappe.log_error(frappe.get_traceback(), "IMM-12 submit_rca auto_capa")
 
     frappe.db.commit()
     _log(name, rca.asset or "", f"RCA Completed — {root_cause[:80]}", _RCA_IN_PROGRESS, _RCA_COMPLETED)
+
+    # RC-04: push incident workflow forward sau khi RCA hoàn tất
+    if rca.incident_report:
+        _advance_incident_after_rca(rca.incident_report)
+
     return {"name": rca.name, "status": rca.status, "linked_capa": capa_name}
 
 
@@ -680,6 +680,145 @@ def _auto_create_capa(doc: "frappe.Document") -> None:
         frappe.db.commit()
     except Exception:
         frappe.log_error(frappe.get_traceback(), "IMM-12 _auto_create_capa")
+
+
+# ─── RCA → Incident chain (RC-03 + RC-04) ─────────────────────────────────────
+
+_WORKFLOW_NAME_INCIDENT = "IMM-12 Incident Workflow"
+_ACTION_RCA_DONE_CLOSE = "RCA hoàn tất - đóng sự cố"
+
+
+def on_rca_completed(incident_name: str, rca_name: str) -> dict:
+    """Hook RCA Record on_submit → ensure CAPA + advance Incident workflow.
+
+    Idempotent — re-uses existing linked_capa, skips workflow apply nếu state đã Closed.
+    Wrap mọi side-effect trong try/except — KHÔNG fail RCA submit nếu chain lỗi.
+    """
+    out: dict = {"incident": incident_name, "rca": rca_name,
+                 "capa_name": None, "workflow_advanced": False}
+    if not incident_name or not frappe.db.exists(_DT_INCIDENT, incident_name):
+        return out
+
+    # 1. CAPA chain (RC-03)
+    try:
+        from assetcore.services.imm16 import create_capa_from_incident
+        result = create_capa_from_incident(
+            incident_name=incident_name,
+            rca_name=rca_name or "",
+            responsible=frappe.session.user,
+        )
+        out["capa_name"] = result.get("capa_name")
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "IMM-12 on_rca_completed CAPA chain")
+
+    # 2. Incident workflow auto-advance (RC-04)
+    try:
+        out["workflow_advanced"] = _advance_incident_after_rca(incident_name)
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "IMM-12 on_rca_completed workflow")
+
+    return out
+
+
+def _advance_incident_after_rca(incident_name: str) -> bool:
+    """Đẩy Incident từ 'RCA Required' → 'Closed' qua action workflow chuẩn.
+
+    Frappe Workflow KHÔNG cho phép gán workflow_state tùy ý — phải đi qua
+    apply_workflow(action). Nếu incident không ở 'RCA Required' (đã closed
+    rồi, hoặc workflow chưa tới đó), no-op an toàn.
+    """
+    from frappe.model.workflow import apply_workflow
+
+    inc = frappe.get_doc(_DT_INCIDENT, incident_name)
+    current_state = inc.get("workflow_state") or inc.get("status") or ""
+    if current_state == _STATUS_CLOSED:
+        return False  # đã đóng — không làm gì
+    if current_state != "RCA Required":
+        # Workflow chưa tới RCA Required (vd RCA tạo từ chronic, incident vẫn ở Resolved)
+        # KHÔNG ép — log để observability.
+        frappe.logger().info(
+            f"IMM-12 _advance_incident_after_rca: incident {incident_name} "
+            f"đang ở '{current_state}', skip apply_workflow"
+        )
+        return False
+
+    try:
+        apply_workflow(inc, _ACTION_RCA_DONE_CLOSE)
+        # Workflow chỉ flip workflow_state field — sync status (Select) +
+        # closed_by/closed_date để truy vấn list filter status="Closed" còn đúng.
+        frappe.db.set_value(
+            _DT_INCIDENT, incident_name,
+            {
+                "status": _STATUS_CLOSED,
+                "closed_by": frappe.session.user,
+                "closed_date": today(),
+            },
+            update_modified=False,
+        )
+        frappe.db.commit()
+        _log(incident_name, inc.asset or "",
+             "Auto-closed sau khi RCA hoàn tất",
+             "RCA Required", _STATUS_CLOSED)
+        return True
+    except Exception as e:
+        # Có thể fail vì permission (RCA submitter không có System Manager).
+        # Thử fallback bằng cách close trực tiếp qua service close_incident()
+        # với ignore_permissions — vì RCA đã đảm bảo gate BR-12-02 đạt.
+        frappe.log_error(
+            f"apply_workflow failed for {incident_name}: {e}",
+            "IMM-12 _advance_incident_after_rca"
+        )
+        try:
+            # Bypass workflow engine — direct field set + audit
+            prev = inc.workflow_state or inc.status
+            frappe.db.set_value(
+                _DT_INCIDENT, incident_name,
+                {
+                    "workflow_state": _STATUS_CLOSED,
+                    "status": _STATUS_CLOSED,
+                    "closed_by": frappe.session.user,
+                    "closed_date": today(),
+                },
+            )
+            frappe.db.commit()
+            _log(incident_name, inc.asset or "",
+                 "Auto-closed (fallback direct) sau RCA hoàn tất",
+                 prev, _STATUS_CLOSED)
+            return True
+        except Exception:
+            frappe.log_error(frappe.get_traceback(),
+                             "IMM-12 _advance_incident_after_rca fallback")
+            return False
+
+
+def validate_incident_close_gate(doc, method: str | None = None) -> None:
+    """NEG-11: Hook 'Incident Report.validate' — chặn đóng High/Critical
+    khi chưa có RCA Completed.
+
+    Áp dụng khi workflow_state hoặc status đang chuyển sang Closed.
+    """
+    target_state = (doc.get("workflow_state") or "") or (doc.get("status") or "")
+    if target_state != _STATUS_CLOSED:
+        return
+    severity = doc.get("severity") or ""
+    if severity not in _HIGH_SEVERITY:
+        return
+    if not doc.get("requires_rca") and not doc.get("rca_required"):
+        return  # User đã thủ công gỡ requires_rca (admin override) — không chặn
+    rca_name = doc.get("rca_record")
+    if not rca_name:
+        frappe.throw(
+            _("Sự cố mức {0} bắt buộc phải có RCA hoàn tất trước khi đóng "
+              "(NEG-11). Vui lòng tạo và hoàn thành RCA Record."
+             ).format(severity)
+        )
+    rca_status = frappe.db.get_value(_DT_RCA, rca_name, "status")
+    if rca_status != _RCA_COMPLETED:
+        frappe.throw(
+            _("Không thể đóng sự cố {0} (severity={1}): RCA {2} đang ở "
+              "trạng thái '{3}', yêu cầu 'Completed' (NEG-11)."
+             ).format(doc.name, severity, rca_name, rca_status or "—")
+        )
 
 
 def _try_transition_asset(

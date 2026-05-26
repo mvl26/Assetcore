@@ -116,6 +116,22 @@ def transition_asset_status(
                 f"Trạng thái cho phép từ '{prev_status}': {allowed_str}"
             )
 
+    # NEG-09: chặn "Thanh lý" (Decommission) khi thiết bị đang trong dây chuyền
+    # bảo trì/hiệu chuẩn/sửa chữa. Bắt buộc đóng phiếu PM/CM/Cal hoặc đưa về
+    # Active trước khi thanh lý — tránh treo Work Order mồ côi.
+    _BLOCK_DECOM_FROM = {
+        _STATUS_UNDER_MAINTENANCE: "Bảo trì",
+        _STATUS_UNDER_REPAIR:      "Sửa chữa",
+        _STATUS_CALIBRATING:       "Hiệu chuẩn",
+    }
+    if to_status == _STATUS_DECOMMISSIONED and prev_status in _BLOCK_DECOM_FROM:
+        flow = _BLOCK_DECOM_FROM[prev_status]
+        raise InvalidAssetTransition(
+            f"NEG-09: Không thể thanh lý '{asset_name}' khi đang ở trạng thái "
+            f"'{prev_status}' ({flow}). Vui lòng đóng/hoàn tất phiếu {flow} hoặc "
+            f"đưa thiết bị về 'Active' trước khi thanh lý."
+        )
+
     frappe.db.set_value(_DOCTYPE_ASSET, asset_name, "lifecycle_status", to_status)
 
     create_lifecycle_event(
@@ -683,6 +699,57 @@ def check_service_contract_expiry() -> None:
                 f"[AssetCore] Hợp đồng dịch vụ còn {d} ngày",
                 f"{len(rows)} hợp đồng dịch vụ sắp hết hạn trong {d} ngày:\n\n{body}",
             )
+
+
+# ─── KPI helpers — single source of truth (RC-09 NextRound) ────────────────
+# Cả Dashboard widget (DashboardView/Launcher) VÀ /approvals/pending phải gọi
+# cùng 1 function này để tránh KPI mismatch giữa 2 trang. Mỗi caller pick
+# scope đúng theo ngữ cảnh: "mine" cho cá nhân, "all" cho admin overview.
+_DT_COMMISSIONING = "Asset Commissioning"
+
+
+def count_pending_approvals(user: str | None = None, scope: str = "mine") -> int:
+    """Đếm số Asset Commissioning đang chờ duyệt.
+
+    Args:
+        user: user để filter (default = ``frappe.session.user``).
+        scope:
+            ``"mine"`` (default) — chỉ phiếu mà ``pending_approver == user``
+            (khớp với danh sách /approvals/pending — list_my_pending_approvals).
+            ``"all"`` — toàn hệ thống (admin overview); yêu cầu role
+            ``System Manager`` / ``Commissioning Manager`` / ``IMM Auditor``.
+
+    Returns:
+        int — số phiếu chờ duyệt theo scope đã chọn.
+    """
+    if scope == "all":
+        # Admin/auditor mới được dùng scope all
+        allowed = {"System Manager", "Administrator", "Commissioning Manager", "IMM Auditor"}
+        roles = set(frappe.get_roles(user or frappe.session.user))
+        if not (allowed & roles):
+            # Fallback an toàn: nếu thiếu quyền vẫn trả "mine" — UI không vỡ.
+            scope = "mine"
+
+    if scope == "all":
+        # Cùng định nghĩa "đang chờ" như list_my_pending_approvals: docstatus != 2
+        # và pending_approver != NULL (đã ở vòng duyệt nào đó).
+        return frappe.db.count(
+            _DT_COMMISSIONING,
+            filters={
+                "pending_approver": ["is", "set"],
+                "docstatus": ["!=", 2],
+            },
+        )
+
+    # scope == "mine"
+    target_user = user or frappe.session.user
+    return frappe.db.count(
+        _DT_COMMISSIONING,
+        filters={
+            "pending_approver": target_user,
+            "docstatus": ["!=", 2],
+        },
+    )
 
 
 def rollup_asset_kpi() -> None:

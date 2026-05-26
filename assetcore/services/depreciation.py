@@ -84,6 +84,12 @@ def _double_declining_amounts(
 
 # ─── Schedule Generator ──────────────────────────────────────────────────────
 
+# RC-01: số dòng schedule tối đa cho phép sinh trong 1 lượt (240 = 20 năm * 12 tháng).
+# Vượt ngưỡng này coi như input bất thường — raise sớm để FE bắt được, tránh
+# giả tình huống "UI treo" do BE đang ghi hàng nghìn child rows.
+_MAX_SCHEDULE_PERIODS = 240
+
+
 def generate_schedule(asset_name: str, *, force: bool = False) -> dict:
     """Sinh bảng lịch khấu hao cho 1 Asset.
 
@@ -93,6 +99,10 @@ def generate_schedule(asset_name: str, *, force: bool = False) -> dict:
                nếu đã có schedule.
 
     Returns: {"asset": name, "periods": n, "total_depreciable": amount}
+
+    Raises:
+        frappe.ValidationError: khi `gross_purchase_amount <= 0` (RC-01),
+            hoặc khi số periods sinh ra > _MAX_SCHEDULE_PERIODS.
     """
     asset = frappe.get_doc(_DT_ASSET, asset_name)
 
@@ -108,9 +118,27 @@ def generate_schedule(asset_name: str, *, force: bool = False) -> dict:
     residual     = flt(asset.residual_value or 0)
     start_date   = asset.depreciation_start_date or asset.in_service_date or asset.commissioning_date
 
-    if not method or total_months <= 0 or gross <= 0 or not start_date:
+    # RC-01: nguyên giá = 0 ⇒ raise rõ ràng (không return skipped) để API bubble
+    # 422 lên FE thay vì silent skip → "UI treo".
+    if gross <= 0:
+        raise frappe.ValidationError(
+            "Không thể sinh lịch khấu hao: nguyên giá = 0. "
+            "Vui lòng cập nhật trường 'Nguyên giá (gross_purchase_amount)' "
+            "trước khi sinh lịch.",
+        )
+
+    # RC-01: method rỗng + gross > 0 ⇒ tự fallback Straight Line và log info.
+    # Chỉ skip nếu user chủ động set method = 'None' (đã có trong options).
+    if not method:
+        method = "Straight Line"
+        frappe.logger().info(
+            "RC-01: auto-assigned depreciation_method='Straight Line' "
+            f"for asset {asset_name} (was empty, gross={gross})",
+        )
+
+    if total_months <= 0 or not start_date:
         return {"asset": asset_name, "periods": 0, "skipped": True,
-                "reason": "Thiếu method / total_months / gross / start_date"}
+                "reason": "Thiếu total_months / start_date"}
     if residual >= gross:
         return {"asset": asset_name, "periods": 0, "skipped": True,
                 "reason": "Residual >= gross, không cần khấu hao"}
@@ -119,6 +147,14 @@ def generate_schedule(asset_name: str, *, force: bool = False) -> dict:
     if periods <= 0:
         return {"asset": asset_name, "periods": 0, "skipped": True,
                 "reason": "total_months < frequency, không sinh được kỳ nào"}
+
+    # RC-01: cảnh báo periods quá lớn ⇒ raise sớm để tránh request giả treo.
+    if periods > _MAX_SCHEDULE_PERIODS:
+        raise frappe.ValidationError(
+            f"Số kỳ khấu hao quá lớn ({periods} > {_MAX_SCHEDULE_PERIODS}). "
+            f"Vui lòng giảm 'total_depreciation_months' (hiện tại={total_months}) "
+            f"hoặc đổi 'depreciation_frequency' (hiện tại={frequency}).",
+        )
 
     depreciable_base = gross - residual
 
@@ -144,6 +180,13 @@ def generate_schedule(asset_name: str, *, force: bool = False) -> dict:
             "remaining_value": remaining,
             "status": "Pending",
         })
+    # RC-01: ignore_links + ignore_mandatory so stale upstream Link values
+    # (device_model, location) or unrelated mandatory gaps don't cause
+    # LinkValidationError / MandatoryError that surfaces as a FE "hang".
+    # Depreciation persistence MUST NOT be blocked by unrelated upstream data
+    # quality issues — generate_schedule chỉ chịu trách nhiệm về schedule rows.
+    asset.flags.ignore_links = True
+    asset.flags.ignore_mandatory = True
     asset.save(ignore_permissions=True)
 
     return {

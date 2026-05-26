@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="module-id" content="compliance-rules">
+<title>Quy tắc tuân thủ — AssetCore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+<script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <a class="brand" style="color:inherit;text-decoration:none" href="#">
+      <span class="logo">A</span>
+      <div>AssetCore <small>IMMIS · BV Nhi Đồng 1</small></div>
+    </a>
+    <div class="spacer"></div>
+    <button class="iconbtn" title="Thông báo"><iconify-icon icon="heroicons:bell" style="font-size:18px;vertical-align:-3px;color:#fff"></iconify-icon></button>
+    <div class="persona-pill" title="Chọn vai trò"></div>
+    <div id="personaMenu" class="persona-menu"></div>
+  </div>
+  <div class="body-wrap">
+    <aside class="sidebar">
+      <div class="side-head"><span></span></div>
+      <nav></nav>
+      <div class="side-foot">AssetCore v0.0.2 · Wave 1+2</div>
+    </aside>
+    <main class="main">
+      <div class="breadcrumb"><a href="../index.html">Trang chủ</a> <span class="sep">›</span><span>Quy tắc tuân thủ</span></div>
+      <div class="page">
+        <div class="page-head">
+  <div class="titles"><h1>Quy tắc tuân thủ</h1>
+    <div class="sub">28 quy tắc active · 5 versioned · Tự động phát hiện vi phạm hàng tháng</div></div>
+  <div class="toolbar"><a class="btn btn-primary" href="#">+ Tạo quy tắc</a></div>
+
+</div><div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>Mã rule</th><th>Tên quy tắc</th><th>Module áp dụng</th><th>Mức nghiêm trọng</th><th>Tần suất check</th><th>Trạng thái</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">CR-002</td><td><b>Mọi thiết bị Class C-D phải có CN ĐK BYT còn hiệu lực</b></td><td>IMM-00, IMM-05</td><td><span class="badge b-critical">Critical</span></td><td>Hàng ngày</td><td><span class="badge b-active"><span class="dot"></span>Active</span></td></tr>
+      <tr><td class="mono">CR-005</td><td><b>PM Compliance ≥ 90% mỗi tháng</b></td><td>IMM-08</td><td><span class="badge b-high">High</span></td><td>Hàng tháng</td><td><span class="badge b-active"><span class="dot"></span>Active</span></td></tr>
+      <tr><td class="mono">CR-008</td><td><b>Mọi sự cố Critical phải có RCA trong 7 ngày</b></td><td>IMM-12</td><td><span class="badge b-critical">Critical</span></td><td>Hàng ngày</td><td><span class="badge b-active"><span class="dot"></span>Active</span></td></tr>
+      <tr><td class="mono">CR-012</td><td><b>Thiết bị hiệu chuẩn quá hạn phải Out of Service</b></td><td>IMM-11</td><td><span class="badge b-high">High</span></td><td>Hàng ngày</td><td><span class="badge b-active"><span class="dot"></span>Active</span></td></tr>
+    </tbody>
+  </table>
+</div>
+      
+      </div>
+    </main>
+  </div>
+</div>
+<script src="../assets/shell.js"></script>
+</body>
+</html>

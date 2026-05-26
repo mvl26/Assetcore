@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="module-id" content="dashboard">
+<title>Bảng điều khiển — AssetCore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+<script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <a class="brand" style="color:inherit;text-decoration:none" href="#">
+      <span class="logo">A</span>
+      <div>AssetCore <small>IMMIS · BV Nhi Đồng 1</small></div>
+    </a>
+    <div class="spacer"></div>
+    <button class="iconbtn" title="Thông báo"><iconify-icon icon="heroicons:bell" style="font-size:18px;vertical-align:-3px;color:#fff"></iconify-icon></button>
+    <div class="persona-pill" title="Chọn vai trò"></div>
+    <div id="personaMenu" class="persona-menu"></div>
+  </div>
+  <div class="body-wrap">
+    <aside class="sidebar">
+      <div class="side-head"><span></span></div>
+      <nav></nav>
+      <div class="side-foot">AssetCore v0.0.2 · Wave 1+2</div>
+    </aside>
+    <main class="main">
+      <div class="breadcrumb"><span>Bảng điều khiển</span></div>
+      <div class="page">
+        
+<div class="page-head">
+  <div class="titles">
+    <h1>Bảng điều khiển — Cán bộ hồ sơ</h1>
+    <div class="sub">Tài liệu thiết bị · Lắp đặt & nghiệm thu · Đăng ký BYT</div>
+  </div>
+</div>
+
+<div class="grid g4" style="margin-bottom:20px">
+  <div class="kpi info"><div class="kbar"></div><div class="klabel">Tài liệu chờ duyệt</div><div class="kval">7</div><div class="kfoot">Upload trong tuần</div></div>
+  <div class="kpi warn"><div class="kbar"></div><div class="klabel">Sắp hết hạn (90 ngày)</div><div class="kval">23</div><div class="kfoot">5 đã expired</div></div>
+  <div class="kpi primary"><div class="kbar"></div><div class="klabel">Nghiệm thu đang xử lý</div><div class="kval">5</div><div class="kfoot">3 chờ phê duyệt G06</div></div>
+  <div class="kpi danger"><div class="kbar"></div><div class="klabel">NC mở</div><div class="kval">3</div><div class="kfoot">Cần xử lý trước nghiệm thu</div></div>
+</div>
+
+<div class="grid g2">
+  <div class="card">
+    <div class="card-head"><h3>Tài liệu sắp hết hạn</h3></div>
+    <div class="card-pad">
+      <table class="tbl">
+        <thead><tr><th>Tài liệu</th><th>Thiết bị</th><th>Hết hạn</th></tr></thead>
+        <tbody>
+          <tr><td>CO Bơm tiêm Terumo</td><td>28 máy Terumo TE-SS830</td><td><b style="color:#DC2626">30/06/2026</b></td></tr>
+          <tr><td>CN ĐK BYT Monitor Mindray</td><td>5 monitor Mindray</td><td><b style="color:#F59E0B">15/07/2026</b></td></tr>
+          <tr><td>User Manual Lồng ấp Atom</td><td>8 lồng ấp Atom</td><td><b style="color:#F59E0B">20/07/2026</b></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-head"><h3>Nghiệm thu chờ xử lý</h3></div>
+    <div class="card-pad">
+      <ul style="list-style:none;font-size:14px">
+        <li style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--color-neutral-100)">
+          <div><b>COM-2026-00012</b> · Monitor Mindray × 3<br><span class="text-xs muted">Gate G05 · 1 NC mở</span></div>
+          <a class="btn btn-warning btn-sm" href="../04-commissioning/commissioning-detail.html">Xem</a>
+        </li>
+        <li style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--color-neutral-100)">
+          <div><b>COM-2026-00011</b> · Máy thở Bennett × 1<br><span class="text-xs muted">Gate G06 · Chờ VP Block2 duyệt</span></div>
+          <a class="btn btn-secondary btn-sm" href="../04-commissioning/commissioning-detail.html">Xem</a>
+        </li>
+        <li style="display:flex;justify-content:space-between;padding:10px 0">
+          <div><b>COM-2026-00010</b> · Bơm tiêm Terumo × 5<br><span class="text-xs muted">Gate G03 · Đang đo baseline</span></div>
+          <a class="btn btn-secondary btn-sm" href="../04-commissioning/commissioning-detail.html">Xem</a>
+        </li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+      </div>
+    </main>
+  </div>
+</div>
+<script src="../assets/shell.js"></script>
+</body>
+</html>

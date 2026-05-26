@@ -10,6 +10,7 @@ import frappe
 
 from assetcore.services import imm04 as svc
 from assetcore.services.shared import ErrorCode, ServiceError
+from assetcore.services.shared import rbac
 from assetcore.utils.helpers import _err, _ok
 
 
@@ -29,7 +30,21 @@ def _handle(fn, *args, **kwargs) -> dict:
     try:
         return _ok(fn(*args, **kwargs))
     except ServiceError as e:
-        return _err(e.message, e.code)
+        # Phase 1 notification framework: hydrate envelope từ MSG registry khi
+        # ServiceError carry message_code (raised qua nthrow).
+        if e.message_code:
+            from assetcore.utils.messages import lookup_message
+            entry = lookup_message(e.message_code)
+            return _err(
+                e.message, e.code,
+                http_status=e.http_status,
+                message_code=e.message_code,
+                context=e.context if e.context else None,
+                action_hint=entry.get("action_hint") or None,
+                severity=entry.get("severity"),
+                title=entry.get("title"),
+            )
+        return _err(e.message, e.code, http_status=e.http_status)
     except frappe.ValidationError as e:
         return _err(str(e), "VALIDATION_ERROR")
     except Exception as e:
@@ -97,16 +112,20 @@ def generate_handover_pdf(name: str) -> dict:
 
 @frappe.whitelist(methods=["POST"])
 def transition_state(name: str, action: str) -> dict:
+    # AUTH-02 — workflow transition needs write capability on commissioning.
+    rbac.require("commissioning.write")
     return _handle(svc.transition_state, name, action)
 
 
 @frappe.whitelist(methods=["POST"])
 def submit_commissioning(name: str) -> dict:
+    rbac.require("commissioning.submit")
     return _handle(svc.submit_commissioning, name)
 
 
 @frappe.whitelist(methods=["POST"])
 def save_commissioning(name: str, fields: str | dict | None = None) -> dict:
+    rbac.require("commissioning.write")
     try:
         parsed = _parse_json(fields, field_name="fields")
     except ServiceError as e:
@@ -116,6 +135,7 @@ def save_commissioning(name: str, fields: str | dict | None = None) -> dict:
 
 @frappe.whitelist(methods=["POST"])
 def create_commissioning(data: str | dict | None = None) -> dict:
+    rbac.require("commissioning.create")
     try:
         parsed = _parse_json(data, field_name="data")
     except ServiceError as e:
@@ -125,6 +145,7 @@ def create_commissioning(data: str | dict | None = None) -> dict:
 
 @frappe.whitelist(methods=["POST"])
 def report_nonconformance(commissioning_name: str, nc_data: str | dict | None = None) -> dict:
+    rbac.require("commissioning.write")
     try:
         parsed = _parse_json(nc_data, field_name="nc_data")
     except ServiceError as e:
@@ -134,17 +155,20 @@ def report_nonconformance(commissioning_name: str, nc_data: str | dict | None = 
 
 @frappe.whitelist(methods=["POST"])
 def close_nonconformance(nc_name: str, root_cause: str = "", corrective_action: str = "") -> dict:
+    rbac.require("commissioning.write")
     return _handle(svc.close_nonconformance, nc_name, root_cause, corrective_action)
 
 
 @frappe.whitelist(methods=["POST"])
 def assign_identification(name: str, vendor_serial_no: str = "",
                           internal_tag_qr: str = "", custom_moh_code: str = "") -> dict:
+    rbac.require("commissioning.write")
     return _handle(svc.assign_identification, name, vendor_serial_no, internal_tag_qr, custom_moh_code)
 
 
 @frappe.whitelist(methods=["POST"])
 def submit_baseline_checklist(name: str, results: str | list | None = None) -> dict:
+    rbac.require("commissioning.write")
     try:
         parsed = _parse_json(results, field_name="results", default=[])
     except ServiceError as e:
@@ -154,12 +178,14 @@ def submit_baseline_checklist(name: str, results: str | list | None = None) -> d
 
 @frappe.whitelist(methods=["POST"])
 def clear_clinical_hold(name: str, license_no: str = "") -> dict:
+    rbac.require("commissioning.write")
     return _handle(svc.clear_clinical_hold, name, license_no)
 
 
 @frappe.whitelist(methods=["POST"])
 def retry_mint_asset(name: str) -> dict:
     """Retry minting AC Asset for a Clinical Release commissioning where minting failed."""
+    rbac.require("commissioning.submit")
     return _handle(_retry_mint_asset, name)
 
 
@@ -177,27 +203,35 @@ def _retry_mint_asset(name: str) -> dict:
 @frappe.whitelist(methods=["POST"])
 def upload_document(commissioning: str, doc_index: int, doc_type: str = "",
                     file_url: str = "", expiry_date: str = "", doc_number: str = "") -> dict:
+    rbac.require("commissioning.write")
     return _handle(svc.upload_document, commissioning, doc_index, file_url, expiry_date, doc_number)
 
 
 @frappe.whitelist(methods=["POST"])
 def approve_clinical_release(commissioning: str, board_approver: str,
                               approval_remarks: str = "") -> dict:
+    # AUTH-02 + AUTH-05 — board approval is the final 4-eyes gate before
+    # AC Asset is minted. Must be Commissioning Manager (cannot be done by
+    # any role with FE button hidden).
+    rbac.require("commissioning.submit")
     return _handle(svc.approve_clinical_release, commissioning, board_approver, approval_remarks)
 
 
 @frappe.whitelist(methods=["POST"])
 def report_doa(commissioning: str, description: str) -> dict:
+    rbac.require("commissioning.write")
     return _handle(svc.report_doa, commissioning, description)
 
 
 @frappe.whitelist(methods=["POST"])
 def delete_commissioning(name: str) -> dict:
+    rbac.require("commissioning.delete")
     return _handle(svc.delete_commissioning, name)
 
 
 @frappe.whitelist(methods=["POST"])
 def cancel_commissioning(name: str) -> dict:
+    rbac.require("commissioning.cancel")
     return _handle(svc.cancel_commissioning, name)
 
 
@@ -266,11 +300,16 @@ def get_gate_status(name: str) -> dict:
 @frappe.whitelist(methods=["POST"])
 def submit_for_approval(commissioning: str, approver: str, stage: str = "",
                          remarks: str = "") -> dict:
+    # AUTH-02 — submitter must have write permission; 4-eyes enforced in service.
+    rbac.require("commissioning.write")
     return _handle(svc.submit_for_approval, commissioning, approver, stage, remarks)
 
 
 @frappe.whitelist(methods=["POST"])
 def approve_pending(commissioning: str, decision: str, remarks: str = "") -> dict:
+    # AUTH-02 + AUTH-05 — approval is submit-tier; 4-eyes (self-submit + dup
+    # signer) enforced in service.
+    rbac.require("commissioning.submit")
     return _handle(svc.approve_pending, commissioning, decision, remarks)
 
 
@@ -293,9 +332,42 @@ def get_commissioning_origin(asset_name: str) -> dict:
 
 @frappe.whitelist()
 def get_lifecycle_timeline(name: str) -> dict:
+    """Return audit/lifecycle events for an Asset Commissioning record.
+
+    RC-05 fix: source-of-truth is `IMM Audit Trail` filtered by
+    (ref_doctype = "Asset Commissioning", ref_name = <commissioning>). The legacy
+    child table `lifecycle_events` is also merged for backward compatibility, but
+    is empty for records created after the DocType refactor (the Table field no
+    longer exists in the DocType JSON).
+    """
     doc = frappe.get_doc("Asset Commissioning", name)
+
+    # Primary: IMM Audit Trail
+    audit_rows = frappe.get_all(
+        "IMM Audit Trail",
+        filters={"ref_doctype": "Asset Commissioning", "ref_name": name},
+        fields=["name", "event_type", "from_status", "to_status", "actor",
+                "timestamp", "change_summary", "ip_address"],
+        order_by="timestamp asc, creation asc",
+        limit_page_length=500,
+    )
     events = [
         {
+            "idx": idx + 1,
+            "event_type": r.get("event_type") or "",
+            "from_status": r.get("from_status") or "",
+            "to_status": r.get("to_status") or "",
+            "actor": r.get("actor") or "",
+            "event_timestamp": str(r.get("timestamp") or ""),
+            "remarks": r.get("change_summary") or "",
+            "ip_address": r.get("ip_address") or "",
+        }
+        for idx, r in enumerate(audit_rows)
+    ]
+
+    # Legacy fallback: any child rows that may still exist on older records
+    for row in (doc.get("lifecycle_events") or []):
+        events.append({
             "idx": row.idx,
             "event_type": row.get("event_type") or "",
             "from_status": row.get("from_status") or "",
@@ -303,7 +375,7 @@ def get_lifecycle_timeline(name: str) -> dict:
             "actor": row.get("actor") or "",
             "event_timestamp": str(row.get("event_timestamp") or ""),
             "remarks": row.get("remarks") or "",
-        }
-        for row in (doc.get("lifecycle_events") or [])
-    ]
+            "ip_address": row.get("ip_address") or "",
+        })
+
     return _ok({"events": events})

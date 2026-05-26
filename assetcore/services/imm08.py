@@ -59,6 +59,25 @@ class PMScheduleStatus:
 _LEGACY_ROLE_WORKSHOP = "PM Manager"
 _LEGACY_ROLE_PTP = "Commissioning Manager"
 
+
+# ─── KPI helper (RC-10 NextRound — single source of truth) ───────────────────
+# Cả launcher widget VÀ /pm/dashboard VÀ /api/method/...dashboard.get_overview
+# đều phải gọi hàm này để tránh dual-source (trước đây launcher đếm global,
+# /pm/dashboard đếm theo month window → 1 vs 0).
+def count_overdue_pm(user: str | None = None) -> int:
+    """Đếm số PM Work Order đang ở trạng thái Overdue.
+
+    Args:
+        user: nếu set, chỉ đếm các WO assigned cho user đó. None = global.
+
+    Returns:
+        int — count toàn hệ thống (hoặc theo user nếu cung cấp).
+    """
+    filters: dict = {"status": PMStatus.OVERDUE}
+    if user:
+        filters["assigned_to"] = user
+    return PMWorkOrderRepo.count(filters)
+
 _MEASUREMENT_PASS_FAIL = "Pass/Fail"
 
 _OP_TOKENS = ("in", "not in", "between", "like", "=", "!=", "<", ">", "<=", ">=")
@@ -699,6 +718,12 @@ def get_dashboard_stats(*, year: int, month: int) -> dict:
     total = len(wos)
     completed = [w for w in wos if w["status"] == PMStatus.COMPLETED]
     on_time = [w for w in completed if not w["is_late"]]
+    # RC-10 (NextRound): KPI "Quá hạn" trên /pm/dashboard phải là count global
+    # (status == "Overdue") khớp với launcher widget — tránh dual-source.
+    # Trước đây chỉ đếm trong window tháng đang xem nên launcher (global) báo 1,
+    # /pm/dashboard (month-bound) báo 0 cho WO quá hạn từ tháng trước.
+    # Single source of truth: count_overdue_pm() (cùng hàm launcher gọi).
+    overdue_count = count_overdue_pm()
     overdue = [w for w in wos if w["status"] == PMStatus.OVERDUE]
     late_days = [
         date_diff(str(w["completion_date"]), str(w["due_date"]))
@@ -731,7 +756,9 @@ def get_dashboard_stats(*, year: int, month: int) -> dict:
             "compliance_rate_pct": compliance_rate,
             "total_scheduled": total,
             "completed_on_time": len(on_time),
-            "overdue": len(overdue),
+            # RC-10: dùng count global (status == Overdue) thay vì len(overdue)
+            # bị bó trong window tháng đang xem.
+            "overdue": overdue_count,
             "avg_days_late": avg_days_late,
         },
         "trend_6months": trend,
@@ -785,6 +812,19 @@ def create_schedule(data: dict) -> dict:
     if missing:
         raise ServiceError(ErrorCode.VALIDATION,
                            f"Thiếu trường bắt buộc: {', '.join(missing)}")
+
+    # NEG-10: chặn tạo PM Schedule cho thiết bị đã thanh lý / ngừng sử dụng.
+    # `validate_asset_for_operations` raise frappe.ValidationError nếu asset ở
+    # `Decommissioned` hoặc `Out of Service` (BR-00-05).
+    from assetcore.services.imm00 import validate_asset_for_operations
+    try:
+        validate_asset_for_operations(data["asset_ref"])
+    except frappe.exceptions.ValidationError as e:
+        raise ServiceError(
+            ErrorCode.BAD_STATE,
+            f"NEG-10: Không thể tạo lịch bảo trì cho thiết bị '{data['asset_ref']}': {e}",
+        ) from e
+
     payload = {k: v for k, v in data.items() if k not in ("cmd", "doctype")}
     if "status" not in payload:
         payload["status"] = PMScheduleStatus.ACTIVE

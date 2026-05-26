@@ -14,6 +14,7 @@ from assetcore.services.imm05 import (
     DocState,
     _resolve_alert_level,
     approve_document,
+    get_dashboard_stats,
     list_documents,
     reject_document,
     update_document,
@@ -231,6 +232,220 @@ class TestListDocuments(unittest.TestCase):
     def test_page_size_respected(self):
         result = list_documents({}, page=1, page_size=5)
         self.assertLessEqual(len(result["items"]), 5)
+
+
+# ─── RC-08 (NextRound): KPI "Đã hết hạn" phải đếm theo expiry_date < today
+#     bất kể workflow_state (bao gồm Draft / Pending Review / Active đã quá hạn).
+class TestKpiExpiredDocs(unittest.TestCase):
+    """Regression test cho RC-08 — đảm bảo expired-but-Draft cũng được đếm."""
+
+    asset: str
+    draft_expired_doc: str
+    active_expired_doc: str
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.asset = _make_asset()
+        # Doc Draft đã quá hạn 10 ngày — TRƯỚC FIX: bị bỏ qua vì state != Active
+        cls.draft_expired_doc = _make_doc(cls.asset, state=DocState.DRAFT)
+        frappe.db.set_value("Asset Document", cls.draft_expired_doc,
+                            "expiry_date", add_days(nowdate(), -10))
+        # Doc Pending Review đã quá hạn 5 ngày — TRƯỚC FIX cũng bị bỏ qua
+        cls.active_expired_doc = _make_doc(cls.asset, state=DocState.DRAFT)
+        # Bypass workflow guard: set trực tiếp state + expiry qua db.set_value
+        frappe.db.set_value("Asset Document", cls.active_expired_doc, {
+            "workflow_state": DocState.PENDING_REVIEW,
+            "expiry_date": add_days(nowdate(), -5),
+        })
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        for n in (cls.draft_expired_doc, cls.active_expired_doc):
+            try:
+                frappe.delete_doc("Asset Document", n, force=1, ignore_permissions=True)
+            except Exception:
+                pass
+        try:
+            frappe.delete_doc("AC Asset", cls.asset, force=1, ignore_permissions=True)
+        except Exception:
+            pass
+
+    def test_expired_kpi_counts_draft_doc(self):
+        """expired_not_renewed phải bao gồm cả Draft expired (RC-08)."""
+        stats = get_dashboard_stats()
+        expired = stats["kpis"]["expired_not_renewed"]
+        # Ít nhất phải đếm 2 doc test (Draft + Active) đã quá hạn
+        self.assertGreaterEqual(expired, 2,
+            "RC-08: KPI 'Đã hết hạn' phải đếm cả Draft/Pending Review đã quá expiry_date")
+
+    def test_expired_kpi_filter_is_by_expiry_date_only(self):
+        """KPI count phải khớp với SQL filter `expiry_date < today` thuần."""
+        stats = get_dashboard_stats()
+        kpi_count = stats["kpis"]["expired_not_renewed"]
+        truth = frappe.db.count("Asset Document", {"expiry_date": ["<", nowdate()]})
+        self.assertEqual(kpi_count, truth,
+            "RC-08: KPI phải bằng count theo expiry_date<today, không AND status")
+
+
+# ─── Depreciation (RC-01 / RC-02) ────────────────────────────────────────────
+
+class TestDepreciationDefaults(unittest.TestCase):
+    """RC-02: default depreciation_method auto-assignment on AC Asset."""
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls._cleanup_assets: list[str] = []
+        cls._cleanup_categories: list[str] = []
+
+    @classmethod
+    def tearDownClass(cls):
+        for name in cls._cleanup_assets:
+            try:
+                frappe.delete_doc("AC Asset", name, force=1, ignore_permissions=True)
+            except Exception:
+                pass
+        for name in cls._cleanup_categories:
+            try:
+                frappe.delete_doc(
+                    "AC Asset Category", name, force=1, ignore_permissions=True,
+                )
+            except Exception:
+                pass
+
+    def _new_asset(self, **overrides) -> "frappe.model.document.Document":
+        payload = {
+            "doctype": "AC Asset",
+            "asset_name": f"_Test Depr Asset {frappe.generate_hash(length=6)}",
+        }
+        payload.update(overrides)
+        doc = frappe.get_doc(payload)
+        doc.flags.ignore_mandatory = True
+        doc.insert(ignore_permissions=True)
+        self._cleanup_assets.append(doc.name)
+        return doc
+
+    def _new_category(self, default_method: str | None = None) -> str:
+        cat = frappe.get_doc({
+            "doctype": "AC Asset Category",
+            "category_name": f"_TestCat-{frappe.generate_hash(length=6)}",
+            "category_code": f"TC{frappe.generate_hash(length=4)}",
+            "default_depreciation_method": default_method or "",
+        })
+        cat.flags.ignore_mandatory = True
+        cat.insert(ignore_permissions=True)
+        self._cleanup_categories.append(cat.name)
+        return cat.name
+
+    def test_depreciation_default_method_auto_assigned(self):
+        """RC-02: Asset có gross_purchase_amount > 0 → method = 'Straight Line'."""
+        doc = self._new_asset(gross_purchase_amount=10_000_000)
+        self.assertEqual(
+            doc.depreciation_method, "Straight Line",
+            "RC-02: phải auto-gán 'Straight Line' khi gross > 0 và method rỗng",
+        )
+
+    def test_depreciation_default_from_category(self):
+        """RC-02: nếu Category có default_depreciation_method → asset dùng method
+        của Category thay vì fallback Straight Line."""
+        cat_name = self._new_category(default_method="Double Declining")
+        doc = self._new_asset(
+            gross_purchase_amount=20_000_000,
+            asset_category=cat_name,
+        )
+        self.assertEqual(
+            doc.depreciation_method, "Double Declining",
+            "RC-02: phải inherit method từ Category khi Category có default_depreciation_method",
+        )
+
+    def test_depreciation_no_default_when_zero_price(self):
+        """RC-02: gross_purchase_amount = 0 → KHÔNG auto-gán method (để user/cron biết)."""
+        doc = self._new_asset(gross_purchase_amount=0)
+        self.assertFalse(
+            (doc.depreciation_method or "").strip(),
+            "RC-02: không gán method khi gross = 0",
+        )
+
+
+class TestGenerateScheduleZeroPrice(unittest.TestCase):
+    """RC-01: generate_schedule phải raise rõ ràng khi nguyên giá = 0."""
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls._cleanup_assets: list[str] = []
+
+    @classmethod
+    def tearDownClass(cls):
+        for name in cls._cleanup_assets:
+            try:
+                frappe.delete_doc("AC Asset", name, force=1, ignore_permissions=True)
+            except Exception:
+                pass
+
+    def _new_asset(self, **overrides) -> str:
+        payload = {
+            "doctype": "AC Asset",
+            "asset_name": f"_Test Schedule Asset {frappe.generate_hash(length=6)}",
+        }
+        payload.update(overrides)
+        doc = frappe.get_doc(payload)
+        doc.flags.ignore_mandatory = True
+        doc.insert(ignore_permissions=True)
+        self._cleanup_assets.append(doc.name)
+        return doc.name
+
+    def test_generate_schedule_zero_price_raises(self):
+        """RC-01: gross = 0 → ValidationError với thông báo tiếng Việt rõ ràng."""
+        from assetcore.services import depreciation as depr_svc
+        asset_name = self._new_asset(
+            gross_purchase_amount=0,
+            depreciation_method="Straight Line",
+            total_depreciation_months=60,
+            depreciation_frequency="Monthly",
+            depreciation_start_date=nowdate(),
+        )
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            depr_svc.generate_schedule(asset_name, force=True)
+        self.assertIn(
+            "nguyên giá", str(ctx.exception).lower(),
+            "RC-01: thông báo lỗi phải nói rõ 'nguyên giá'",
+        )
+
+    def test_generate_schedule_auto_assigns_method_when_missing(self):
+        """RC-01: method rỗng + gross > 0 → service tự gán Straight Line + tiếp tục."""
+        from assetcore.services import depreciation as depr_svc
+        asset_name = self._new_asset(
+            gross_purchase_amount=12_000_000,
+            depreciation_method="",
+            total_depreciation_months=12,
+            depreciation_frequency="Monthly",
+            depreciation_start_date=nowdate(),
+        )
+        # Force method back to empty bypassing before_save autoset
+        frappe.db.set_value("AC Asset", asset_name, "depreciation_method", "")
+        frappe.db.commit()
+
+        result = depr_svc.generate_schedule(asset_name, force=True)
+        self.assertEqual(result.get("method"), "Straight Line",
+            "RC-01: phải fallback 'Straight Line' khi method rỗng + gross > 0")
+        self.assertGreater(result.get("periods", 0), 0)
+
+    def test_generate_schedule_excessive_periods_raises(self):
+        """RC-01: tổng periods > 240 → raise ValidationError để FE bắt được."""
+        from assetcore.services import depreciation as depr_svc
+        asset_name = self._new_asset(
+            gross_purchase_amount=10_000_000,
+            depreciation_method="Straight Line",
+            total_depreciation_months=300,  # 25 năm * 12 = 300 > 240
+            depreciation_frequency="Monthly",
+            depreciation_start_date=nowdate(),
+        )
+        with self.assertRaises(frappe.ValidationError):
+            depr_svc.generate_schedule(asset_name, force=True)
 
 
 if __name__ == "__main__":

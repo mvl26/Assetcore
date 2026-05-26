@@ -12,6 +12,8 @@ import frappe
 from frappe import _
 
 from assetcore.utils.response import _ok, _err
+from assetcore.services.shared import ServiceError
+from assetcore.services.shared.scope import assert_vendor_can_access
 from assetcore.services.imm12 import (
     IncidentError,
     report_incident as svc_report,
@@ -223,7 +225,11 @@ def get_incident(name: str):
     if frappe.session.user == "Guest":
         return _err(_(_MSG_UNAUTHENTICATED), 401)
     try:
+        # AUTH-10: IDOR guard — vendor user can't read incident outside scope.
+        assert_vendor_can_access("Incident Report", name)
         return _ok(svc_get(name))
+    except ServiceError as e:
+        return _err(e.message, e.code)
     except IncidentError as e:
         return _err(_(e.message), e.code)
     except Exception:

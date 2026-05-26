@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="module-id" content="incidents">
+<title>Sự cố thiết bị — AssetCore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+<script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <a class="brand" style="color:inherit;text-decoration:none" href="#">
+      <span class="logo">A</span>
+      <div>AssetCore <small>IMMIS · BV Nhi Đồng 1</small></div>
+    </a>
+    <div class="spacer"></div>
+    <button class="iconbtn" title="Thông báo"><iconify-icon icon="heroicons:bell" style="font-size:18px;vertical-align:-3px;color:#fff"></iconify-icon></button>
+    <div class="persona-pill" title="Chọn vai trò"></div>
+    <div id="personaMenu" class="persona-menu"></div>
+  </div>
+  <div class="body-wrap">
+    <aside class="sidebar">
+      <div class="side-head"><span></span></div>
+      <nav></nav>
+      <div class="side-foot">AssetCore v0.0.2 · Wave 1+2</div>
+    </aside>
+    <main class="main">
+      <div class="breadcrumb"><a href="../index.html">Trang chủ</a> <span class="sep">›</span><span>Sự cố thiết bị</span></div>
+      <div class="page">
+        <div class="page-head">
+  <div class="titles"><h1>Sự cố thiết bị</h1>
+    <div class="sub">8 sự cố đang xử lý · 1 quá SLA · 3 Critical · MTTR 4,2h</div></div>
+  <div class="toolbar">
+    <a class="btn btn-secondary" href="incidents-dashboard.html"><iconify-icon icon="heroicons:chart-bar" style="font-size:16px;vertical-align:-3px"></iconify-icon> Dashboard</a>
+    <a class="btn btn-danger" href="incidents-form.html"><iconify-icon icon="heroicons:exclamation-circle" style="font-size:16px;vertical-align:-3px"></iconify-icon> Báo cáo sự cố</a>
+  </div>
+
+</div><div class="grid g4" style="margin-bottom:20px">
+  <div class="kpi danger"><div class="kbar"></div><div class="klabel">Mở (Critical)</div><div class="kval">3</div><div class="kfoot">Ảnh hưởng BN: 1</div></div>
+  <div class="kpi warn"><div class="kbar"></div><div class="klabel">Mở (Major)</div><div class="kval">5</div><div class="kfoot">SLA còn 4-12h</div></div>
+  <div class="kpi info"><div class="kbar"></div><div class="klabel">Chronic Watch</div><div class="kval">2</div><div class="kfoot">≥3 lần/90 ngày</div></div>
+  <div class="kpi ok"><div class="kbar"></div><div class="klabel">Đóng tháng</div><div class="kval">42</div><div class="kfoot">MTTR 4,2h</div></div>
+</div>
+
+<div class="filterbar">
+  <div class="filter-group"><label>Tìm kiếm</label>
+    <input class="input" type="text" placeholder="Mã / thiết bị / fault code" style="width:100%"></div>
+  <div class="filter-group"><label>Mức độ</label>
+    <select class="select"><option>Mọi severity</option><option>Critical</option><option>Major</option><option>Medium</option><option>Low</option></select></div>
+  <div class="filter-group"><label>Trạng thái</label>
+    <select class="select"><option>Mọi trạng thái</option><option>Reported</option><option>Acknowledged</option><option>In Progress</option><option>Resolved</option><option>Closed</option></select></div>
+  <div class="filter-group"><label>Khoa</label>
+    <select class="select"><option>Mọi khoa</option></select></div>
+  <div class="filter-actions">
+    <button class="btn btn-secondary btn-sm">Đặt lại</button>
+    <button class="btn btn-primary btn-sm">Áp dụng</button></div>
+</div>
+
+<div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>Mã sự cố</th><th>Thiết bị</th><th>Severity</th><th>Ảnh hưởng BN</th><th>Khoa</th><th>Người báo</th><th>SLA</th><th>Trạng thái</th></tr></thead>
+    <tbody>
+      <tr class="row-danger">
+        <td class="mono"><a class="link" href="incidents-detail.html">INC-2026-00077</a></td>
+        <td><b>Lồng ấp Atom Incu i</b></td>
+        <td><span class="badge b-critical">Critical</span></td>
+        <td><span class="badge b-danger">Có</span></td>
+        <td>Sơ sinh</td>
+        <td>BS. Nguyễn Thị Lan</td>
+        <td><span class="badge b-warn">1h 12'</span></td>
+        <td><span class="badge b-inprogress">Đang xử lý</span></td>
+      </tr>
+      <tr>
+        <td class="mono"><a class="link" href="incidents-detail.html">INC-2026-00075</a></td>
+        <td><b>Bơm tiêm Terumo</b><br><span class="text-xs muted"><iconify-icon icon="heroicons:exclamation-triangle" style="font-size:16px;vertical-align:-3px"></iconify-icon> 5 sự cố/30 ngày — Chronic</span></td>
+        <td><span class="badge b-high">Major</span></td>
+        <td>Không</td>
+        <td>Sơ sinh</td>
+        <td>ĐD. Trần Bích</td>
+        <td><span class="badge b-info">4h 30'</span></td>
+        <td><span class="badge b-inprogress">Đang xử lý</span></td>
+      </tr>
+      <tr>
+        <td class="mono"><a class="link" href="incidents-detail.html">INC-2026-00070</a></td>
+        <td><b>Máy siêu âm Philips</b></td>
+        <td><span class="badge b-medium">Medium</span></td>
+        <td>Không</td>
+        <td>CĐHA</td>
+        <td>Nguyễn Hữu Phúc</td>
+        <td>—</td>
+        <td><span class="badge b-closed">Đã đóng</span></td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+      
+      </div>
+    </main>
+  </div>
+</div>
+<script src="../assets/shell.js"></script>
+</body>
+</html>

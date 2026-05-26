@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="module-id" content="needs">
+<title>Tạo đề xuất — AssetCore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+<script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <a class="brand" style="color:inherit;text-decoration:none" href="#">
+      <span class="logo">A</span>
+      <div>AssetCore <small>IMMIS · BV Nhi Đồng 1</small></div>
+    </a>
+    <div class="spacer"></div>
+    <button class="iconbtn" title="Thông báo"><iconify-icon icon="heroicons:bell" style="font-size:18px;vertical-align:-3px;color:#fff"></iconify-icon></button>
+    <div class="persona-pill" title="Chọn vai trò"></div>
+    <div id="personaMenu" class="persona-menu"></div>
+  </div>
+  <div class="body-wrap">
+    <aside class="sidebar">
+      <div class="side-head"><span></span></div>
+      <nav></nav>
+      <div class="side-foot">AssetCore v0.0.2 · Wave 1+2</div>
+    </aside>
+    <main class="main">
+      <div class="breadcrumb"><a href="../index.html">Trang chủ</a> <span class="sep">›</span><a href="needs-list.html">Đề xuất nhu cầu</a> <span class="sep">›</span><span>Tạo mới</span></div>
+      <div class="page">
+        <div class="page-head">
+  <div class="titles">
+    <a href="needs-list.html" class="btn btn-ghost btn-sm" style="margin-bottom:8px">← Quay lại</a>
+    <h1>Tạo đề xuất nhu cầu thiết bị</h1>
+  </div>
+
+</div><div class="card">
+  <div class="card-pad">
+    <div class="form-grid g2-form">
+      <div class="field"><label class="fld">Loại đề xuất <span class="req">*</span></label><select class="select"><option>Mới</option><option>Thay thế (cần link Decommission Plan)</option><option>Nâng cấp</option></select></div>
+      <div class="field"><label class="fld">Mức urgency <span class="req">*</span></label><select class="select"><option>P1 - Khẩn cấp (ngừng dịch vụ)</option><option>P2 - Cao</option><option>P3 - Trung bình</option><option>P4 - Thấp</option></select></div>
+      <div class="field" style="grid-column:span 2"><label class="fld">Thiết bị / Dòng máy đề xuất <span class="req">*</span></label><input class="input" placeholder="Tên cụ thể hoặc dòng máy chung chung"></div>
+      <div class="field"><label class="fld">Số lượng <span class="req">*</span></label><input class="input" type="number" min="1" placeholder="1"></div>
+      <div class="field"><label class="fld">Khoa sử dụng <span class="req">*</span></label><select class="select"><option>— Chọn khoa —</option><option>ICU</option><option>Sơ sinh</option><option>CĐHA</option></select></div>
+      <div class="field"><label class="fld">Thiết bị muốn thay thế (nếu loại Thay thế)</label><select class="select"><option>— Chọn thiết bị hỏng cần thay —</option></select><div class="help">Bắt buộc link Decommission Plan cho thiết bị này</div></div>
+      <div class="field"><label class="fld">Ngân sách dự kiến (₫)</label><input class="input" placeholder="Ước tính"></div>
+      <div class="field" style="grid-column:span 2"><label class="fld">Lý do lâm sàng <span class="req">*</span></label><textarea class="input" rows="5" placeholder="Mô tả chi tiết... (tối thiểu 200 ký tự)"></textarea><div class="help">VR-01-03: tối thiểu 200 ký tự; nêu rõ ảnh hưởng nếu không có thiết bị</div></div>
+      <div class="field" style="grid-column:span 2"><label class="fld">Tài liệu đính kèm (evidence)</label><input class="input" type="file" multiple></div>
+    </div>
+  </div>
+  <div style="padding:16px 20px;border-top:1px solid var(--color-neutral-300);display:flex;justify-content:space-between">
+    <a href="needs-list.html" class="btn btn-secondary">Hủy</a>
+    <div style="display:flex;gap:10px">
+      <button class="btn btn-secondary">Lưu nháp</button>
+      <button class="btn btn-primary">Nộp đề xuất</button>
+    </div>
+  </div>
+</div>
+      
+      </div>
+    </main>
+  </div>
+</div>
+<script src="../assets/shell.js"></script>
+</body>
+</html>

@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="module-id" content="sla">
+<title>Chính sách SLA — AssetCore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+<script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <a class="brand" style="color:inherit;text-decoration:none" href="#">
+      <span class="logo">A</span>
+      <div>AssetCore <small>IMMIS · BV Nhi Đồng 1</small></div>
+    </a>
+    <div class="spacer"></div>
+    <button class="iconbtn" title="Thông báo"><iconify-icon icon="heroicons:bell" style="font-size:18px;vertical-align:-3px;color:#fff"></iconify-icon></button>
+    <div class="persona-pill" title="Chọn vai trò"></div>
+    <div id="personaMenu" class="persona-menu"></div>
+  </div>
+  <div class="body-wrap">
+    <aside class="sidebar">
+      <div class="side-head"><span></span></div>
+      <nav></nav>
+      <div class="side-foot">AssetCore v0.0.2 · Wave 1+2</div>
+    </aside>
+    <main class="main">
+      <div class="breadcrumb"><a href="../index.html">Trang chủ</a> <span class="sep">›</span><span>Quản trị hệ thống</span> <span class="sep">›</span><span>SLA</span></div>
+      <div class="page">
+        <div class="page-head">
+  <div class="titles">
+    <h1>Chính sách SLA</h1>
+    <div class="sub">Lookup theo Priority × Risk Class → response/resolve target. Áp dụng cho PM, Repair, Calibration, Incident.</div>
+  </div>
+  <div class="toolbar">
+    <a class="btn btn-primary" href="#">+ Tạo chính sách</a>
+  </div>
+</div>
+
+<div class="banner banner-warn">
+  <span class="bic"><iconify-icon icon="heroicons:exclamation-triangle" style="font-size:16px;vertical-align:-3px"></iconify-icon></span>
+  <div><b>Lưu ý:</b> Phải có ít nhất 1 chính sách <b>default fallback</b> (Risk Class = Any) cho từng Priority — BR-008. Hệ thống sẽ block save nếu thiếu fallback.</div>
+
+</div><div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr>
+      <th>Mã chính sách</th><th>Priority</th><th>Risk Class</th><th>Response (ack)</th><th>Resolve target</th><th>Escalation</th><th>Trạng thái</th><th></th>
+    </tr></thead>
+    <tbody>
+      <tr><td class="mono">SLA-P1-CRITICAL</td><td><span class="prio p1">P1</span></td><td><span class="badge b-critical">Critical (Class C-D)</span></td><td>≤ 15 phút</td><td>≤ 4 giờ</td><td>Tier 2 sau 1h · Tier 3 sau 3h</td><td><span class="badge b-active"><span class="dot"></span>Active</span></td><td><a href="#" class="btn btn-ghost btn-sm">Sửa</a></td></tr>
+      <tr><td class="mono">SLA-P1-HIGH</td><td><span class="prio p1">P1</span></td><td><span class="badge b-high">High</span></td><td>≤ 30 phút</td><td>≤ 6 giờ</td><td>Tier 2 sau 2h</td><td><span class="badge b-active"><span class="dot"></span>Active</span></td><td><a href="#" class="btn btn-ghost btn-sm">Sửa</a></td></tr>
+      <tr><td class="mono">SLA-P2-CRITICAL</td><td><span class="prio p2">P2</span></td><td><span class="badge b-critical">Critical</span></td><td>≤ 2 giờ</td><td>≤ 24 giờ</td><td>Tier 2 sau 12h</td><td><span class="badge b-active"><span class="dot"></span>Active</span></td><td><a href="#" class="btn btn-ghost btn-sm">Sửa</a></td></tr>
+      <tr><td class="mono">SLA-P2-DEFAULT</td><td><span class="prio p2">P2</span></td><td><span class="pill-tag">Any (fallback)</span></td><td>≤ 4 giờ</td><td>≤ 48 giờ</td><td>—</td><td><span class="badge b-active"><span class="dot"></span>Active</span></td><td><a href="#" class="btn btn-ghost btn-sm">Sửa</a></td></tr>
+      <tr><td class="mono">SLA-P3-DEFAULT</td><td><span class="prio p3">P3</span></td><td><span class="pill-tag">Any (fallback)</span></td><td>≤ 24 giờ</td><td>≤ 7 ngày</td><td>—</td><td><span class="badge b-active"><span class="dot"></span>Active</span></td><td><a href="#" class="btn btn-ghost btn-sm">Sửa</a></td></tr>
+      <tr><td class="mono">SLA-P4-DEFAULT</td><td><span class="prio p4">P4</span></td><td><span class="pill-tag">Any (fallback)</span></td><td>≤ 3 ngày</td><td>≤ 30 ngày</td><td>—</td><td><span class="badge b-active"><span class="dot"></span>Active</span></td><td><a href="#" class="btn btn-ghost btn-sm">Sửa</a></td></tr>
+    </tbody>
+  </table>
+</div>
+      
+      </div>
+    </main>
+  </div>
+</div>
+<script src="../assets/shell.js"></script>
+</body>
+</html>

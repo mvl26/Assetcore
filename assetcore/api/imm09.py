@@ -11,6 +11,8 @@ from frappe.utils import getdate, nowdate
 
 from assetcore.services import imm09 as svc
 from assetcore.services.shared import ErrorCode, ServiceError
+from assetcore.services.shared import rbac
+from assetcore.services.shared.scope import apply_vendor_scope, assert_vendor_can_access
 from assetcore.utils.helpers import _err, _ok
 
 
@@ -39,11 +41,16 @@ def list_repair_work_orders(filters: str = "{}", page: int = 1, page_size: int =
         f = _parse_json(filters, field_name="filters")
     except ServiceError as e:
         return _err(e.message, e.code)
+    f = apply_vendor_scope(f, "Asset Repair")
     return _handle(svc.list_work_orders, f, page=int(page), page_size=int(page_size))
 
 
 @frappe.whitelist()
 def get_repair_work_order(name: str):
+    try:
+        assert_vendor_can_access("Asset Repair", name)
+    except ServiceError as e:
+        return _err(e.message, e.code)
     return _handle(svc.get_work_order, name)
 
 
@@ -51,6 +58,8 @@ def get_repair_work_order(name: str):
 def create_repair_work_order(asset_ref: str, repair_type: str, priority: str,
                               failure_description: str, incident_report: str = "",
                               source_pm_wo: str = "", fault_image: str = "") -> dict:
+    # AUTH-02 — explicit server-side gate (don't trust FE button hiding).
+    rbac.require("repair.create")
     return _handle(
         svc.create_work_order,
         asset_ref=asset_ref, repair_type=repair_type, priority=priority,
@@ -62,11 +71,13 @@ def create_repair_work_order(asset_ref: str, repair_type: str, priority: str,
 
 @frappe.whitelist(methods=["POST"])
 def assign_technician(name: str, technician: str, priority: str = ""):
+    rbac.require("repair.write")
     return _handle(svc.assign_technician, name, technician=technician, priority=priority)
 
 
 @frappe.whitelist(methods=["POST"])
 def submit_diagnosis(name: str, diagnosis_notes: str, needs_parts: int = 0):
+    rbac.require("repair.write")
     return _handle(svc.submit_diagnosis, name,
                    diagnosis_notes=diagnosis_notes,
                    needs_parts=int(needs_parts))
@@ -74,11 +85,13 @@ def submit_diagnosis(name: str, diagnosis_notes: str, needs_parts: int = 0):
 
 @frappe.whitelist(methods=["POST"])
 def start_repair(name: str) -> dict:
+    rbac.require("repair.write")
     return _handle(svc.start_repair, name)
 
 
 @frappe.whitelist(methods=["POST"])
 def request_spare_parts(name: str, parts: str = "[]"):
+    rbac.require("repair.write")
     try:
         parts_list = _parse_json(parts, field_name="parts", default=[])
     except ServiceError as e:
@@ -92,6 +105,7 @@ def close_work_order(name: str, repair_summary: str, root_cause_category: str,
                      spare_parts: str = "[]", firmware_updated: int = 0,
                      firmware_change_request: str = "", cannot_repair: int = 0,
                      cannot_repair_reason: str = ""):
+    rbac.require("repair.submit")
     try:
         checklist = _parse_json(checklist_results, field_name="checklist_results", default=[])
         parts = _parse_json(spare_parts, field_name="spare_parts", default=[])
@@ -110,6 +124,7 @@ def close_work_order(name: str, repair_summary: str, root_cause_category: str,
 @frappe.whitelist(methods=["POST"])
 def confirm_inspection(name: str) -> dict:
     """Nghiệm thu sau sửa chữa: Pending Inspection → Completed."""
+    rbac.require("repair.submit")
     return _handle(svc.confirm_inspection, name)
 
 

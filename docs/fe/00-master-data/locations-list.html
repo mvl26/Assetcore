@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="module-id" content="locations">
+<title>Vị trí & Phòng ban — AssetCore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+<script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <a class="brand" style="color:inherit;text-decoration:none" href="#">
+      <span class="logo">A</span>
+      <div>AssetCore <small>IMMIS · BV Nhi Đồng 1</small></div>
+    </a>
+    <div class="spacer"></div>
+    <button class="iconbtn" title="Thông báo"><iconify-icon icon="heroicons:bell" style="font-size:18px;vertical-align:-3px;color:#fff"></iconify-icon></button>
+    <div class="persona-pill" title="Chọn vai trò"></div>
+    <div id="personaMenu" class="persona-menu"></div>
+  </div>
+  <div class="body-wrap">
+    <aside class="sidebar">
+      <div class="side-head"><span></span></div>
+      <nav></nav>
+      <div class="side-foot">AssetCore v0.0.2 · Wave 1+2</div>
+    </aside>
+    <main class="main">
+      <div class="breadcrumb"><a href="../index.html">Trang chủ</a> <span class="sep">›</span><span>Vị trí & Phòng ban</span></div>
+      <div class="page">
+        
+<div class="page-head">
+  <div class="titles">
+    <h1>Vị trí & Phòng ban</h1>
+    <div class="sub">Quản lý cây phòng ban + vị trí lắp đặt thiết bị</div>
+  </div>
+  <div class="toolbar">
+    <a class="btn btn-secondary" href="#">+ Thêm khoa</a>
+    <a class="btn btn-primary" href="#">+ Thêm vị trí</a>
+  </div>
+</div>
+
+<div class="grid g2">
+
+  <div class="card">
+    <div class="card-head"><h3>Cây phòng ban (12)</h3></div>
+    <div class="card-pad">
+      <div style="font-size:14px;line-height:1.9">
+        <div><b><iconify-icon icon="heroicons:folder" style="font-size:16px;vertical-align:-3px"></iconify-icon> Khối Lâm sàng</b></div>
+        <div style="padding-left:20px">
+          <div>├ Hồi sức tích cực (ICU) — <span class="text-xs muted">156 thiết bị</span></div>
+          <div>├ Sơ sinh — <span class="text-xs muted">98 thiết bị</span></div>
+          <div>├ Cấp cứu — <span class="text-xs muted">88 thiết bị</span></div>
+          <div>├ Tim mạch — <span class="text-xs muted">124 thiết bị</span></div>
+          <div>├ Hô hấp — <span class="text-xs muted">76 thiết bị</span></div>
+          <div>├ Tiêu hóa — <span class="text-xs muted">52 thiết bị</span></div>
+          <div>└ Phẫu thuật - GMHS — <span class="text-xs muted">187 thiết bị</span></div>
+        </div>
+        <div style="margin-top:8px"><b><iconify-icon icon="heroicons:folder" style="font-size:16px;vertical-align:-3px"></iconify-icon> Khối Cận lâm sàng</b></div>
+        <div style="padding-left:20px">
+          <div>├ Chẩn đoán hình ảnh — <span class="text-xs muted">42 thiết bị</span></div>
+          <div>├ Xét nghiệm — <span class="text-xs muted">68 thiết bị</span></div>
+          <div>└ Dược — <span class="text-xs muted">23 thiết bị</span></div>
+        </div>
+        <div style="margin-top:8px"><b><iconify-icon icon="heroicons:folder" style="font-size:16px;vertical-align:-3px"></iconify-icon> Khối Quản lý</b></div>
+        <div style="padding-left:20px">
+          <div>└ VT-TTBYT — <span class="text-xs muted">12 thiết bị nội bộ</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><h3>Vị trí lắp đặt (487)</h3></div>
+    <div class="card-pad">
+      <input class="input" placeholder="Lọc theo khoa…" style="margin-bottom:12px">
+      <table class="tbl" style="font-size:13px;border:1px solid var(--color-neutral-300);border-radius:8px;overflow:hidden">
+        <thead><tr><th>Vị trí</th><th>Khoa</th><th>Số TB</th></tr></thead>
+        <tbody>
+          <tr><td>ICU - Giường 01</td><td>ICU</td><td>4</td></tr>
+          <tr><td>ICU - Giường 02</td><td>ICU</td><td>5</td></tr>
+          <tr><td>ICU - Giường 03</td><td>ICU</td><td>3</td></tr>
+          <tr><td>Sơ sinh - Phòng 1</td><td>Sơ sinh</td><td>8</td></tr>
+          <tr><td>Sơ sinh - Phòng 2</td><td>Sơ sinh</td><td>6</td></tr>
+          <tr><td>Cấp cứu - Sảnh</td><td>Cấp cứu</td><td>12</td></tr>
+          <tr><td>Cấp cứu - Phòng chăm sóc</td><td>Cấp cứu</td><td>8</td></tr>
+          <tr><td>CĐHA - P.X1</td><td>CĐHA</td><td>3</td></tr>
+          <tr><td>CĐHA - P.SA2</td><td>CĐHA</td><td>2</td></tr>
+          <tr><td>Phòng mổ 1</td><td>Phẫu thuật</td><td>24</td></tr>
+          <tr><td>Phòng mổ 2</td><td>Phẫu thuật</td><td>22</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+      </div>
+    </main>
+  </div>
+</div>
+<script src="../assets/shell.js"></script>
+</body>
+</html>

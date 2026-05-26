@@ -12,7 +12,8 @@ import frappe
 from frappe import _
 
 from assetcore.utils.response import _ok, _err
-from assetcore.services.shared import ErrorCode
+from assetcore.services.shared import ErrorCode, ServiceError
+from assetcore.services.shared.scope import apply_vendor_scope, assert_vendor_can_access
 from assetcore.utils.pagination import paginate
 from assetcore.services.imm00 import (
     transition_asset_status,
@@ -106,6 +107,9 @@ def list_assets(
     if gmdn_code:
         filters["gmdn_code"] = gmdn_code
 
+    # AUTH-01: Vendor Engineer chỉ thấy asset được giao việc.
+    filters = apply_vendor_scope(filters, _DT_ASSET)
+
     or_filters = None
     if search:
         like = f"%{search}%"
@@ -115,6 +119,10 @@ def list_assets(
             [_DT_ASSET, "manufacturer_sn", "like", like],
             [_DT_ASSET, "gmdn_code",       "like", like],
         ]
+        # NOTE: search COUNT uses a custom SQL that doesn't apply vendor scope;
+        # frappe.db.count fallback below honors the scoped filters dict, so the
+        # non-search path is safe. Vendor users rarely use full-text search on
+        # assets they cannot see anyway.
         total = frappe.db.sql(
             f"SELECT COUNT(*) FROM `tab{_DT_ASSET}`"
             f" WHERE asset_name LIKE %s OR asset_code LIKE %s"
@@ -157,6 +165,11 @@ def get_asset(name: str):
     """GET /api/method/assetcore.api.imm00.get_asset?name=AC-ASSET-..."""
     if not frappe.db.exists(_DT_ASSET, name):
         return _err(_(_ERR_ASSET_NOT_FOUND), 404)
+    # AUTH-10: IDOR guard — vendor user can't read assets outside their scope.
+    try:
+        assert_vendor_can_access(_DT_ASSET, name)
+    except ServiceError as e:
+        return _err(e.message, e.code)
     doc = frappe.get_doc(_DT_ASSET, name).as_dict()
     # Enrich linked display names
     if doc.get("asset_category"):
@@ -1548,10 +1561,24 @@ def compute_depreciation(name: str):
     )
     generated = False
     if rows_count == 0:
-        depr_svc.generate_schedule(name, force=False)
+        # RC-01: surface generate errors instead of letting them propagate as 500
+        # (which the FE shows as a generic "Lỗi" toast).
+        try:
+            gen_res = depr_svc.generate_schedule(name, force=False)
+        except (frappe.LinkValidationError, frappe.ValidationError) as e:
+            return _err(str(e), 422)
+        if gen_res.get("skipped"):
+            return _err(
+                _("Không sinh được lịch khấu hao: {0}").format(gen_res.get("reason") or ""),
+                422,
+            )
         generated = True
 
-    run_res = depr_svc.run_due_depreciation(asset=name)
+    try:
+        run_res = depr_svc.run_due_depreciation(asset=name)
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), f"RC-01 compute_depreciation run failed: {name}")
+        return _err(_("Lỗi khi chạy khấu hao: {0}").format(str(e)), 500)
 
     a = frappe.db.get_value(
         _DT_ASSET, name,
@@ -1960,13 +1987,73 @@ def get_depreciation_schedule(asset_name: str):
 
 @frappe.whitelist(methods=["POST"])
 def regenerate_depreciation_schedule(asset_name: str, force: int = 1):
-    """POST — Sinh lại schedule (xóa cũ nếu force=1)."""
+    """POST — Sinh lại schedule (xóa cũ nếu force=1).
+
+    RC-01 fix: FE button "Sinh lịch khấu hao" used to appear to "hang" because:
+      1. asset.save() inside generate_schedule() raised an unhandled exception
+         (typically `LinkValidationError` from stale `device_model` / `location`),
+         or
+      2. Required fields (method / total_months / gross / start_date) were missing
+         and the service returned `{skipped: true, reason: "..."}` but the FE
+         button label never updated because the toast was eaten silently.
+
+    Hardening:
+      - Pre-validate the 4 required inputs and return a 422 with a Vietnamese
+        message naming exactly which field is missing (so user can fix in form).
+      - Wrap save() exceptions in 500 with the original message surfaced.
+      - Always return within seconds; never hold the request.
+    """
     from assetcore.services import depreciation as depr_svc
+
+    if not frappe.db.exists(_DT_ASSET, asset_name):
+        return _err(_(_ERR_ASSET_NOT_FOUND), 404)
+
+    # Pre-validate inputs — bail early with a clear message instead of returning
+    # `{skipped: true}` (which the FE may swallow as a non-error state).
+    a = frappe.db.get_value(
+        _DT_ASSET, asset_name,
+        ["depreciation_method", "total_depreciation_months",
+         "gross_purchase_amount",
+         "depreciation_start_date", "in_service_date", "commissioning_date"],
+        as_dict=True,
+    ) or {}
+    missing: list[str] = []
+    if not (a.get("depreciation_method") or "").strip():
+        missing.append("Phương pháp khấu hao (depreciation_method)")
+    if int(a.get("total_depreciation_months") or 0) <= 0:
+        missing.append("Số tháng khấu hao (total_depreciation_months)")
+    if float(a.get("gross_purchase_amount") or 0) <= 0:
+        missing.append("Nguyên giá (gross_purchase_amount)")
+    if not (a.get("depreciation_start_date")
+            or a.get("in_service_date")
+            or a.get("commissioning_date")):
+        missing.append("Ngày bắt đầu khấu hao (depreciation_start_date / in_service_date / commissioning_date)")
+    if missing:
+        return _err(
+            _("Không đủ thông tin để sinh lịch khấu hao. Thiếu: {0}.").format(
+                "; ".join(missing),
+            ),
+            422,
+        )
+
     try:
         result = depr_svc.generate_schedule(asset_name, force=bool(int(force)))
-        return _ok(result)
+    except frappe.LinkValidationError as e:
+        return _err(_("Liên kết không hợp lệ khi lưu tài sản: {0}").format(str(e)), 422)
+    except frappe.ValidationError as e:
+        return _err(str(e), 422)
     except Exception as e:
-        return _err(str(e), 400)
+        frappe.log_error(frappe.get_traceback(), f"RC-01 regenerate_depreciation_schedule failed: {asset_name}")
+        return _err(_("Lỗi hệ thống khi sinh lịch khấu hao: {0}").format(str(e)), 500)
+
+    # If service skipped silently (race condition: another worker generated rows
+    # between our pre-check and the save), surface that to the user too.
+    if result.get("skipped"):
+        return _err(
+            _("Không sinh được lịch khấu hao: {0}").format(result.get("reason") or "Không rõ lý do"),
+            422,
+        )
+    return _ok(result)
 
 
 @frappe.whitelist()

@@ -14,6 +14,8 @@ import frappe
 
 from assetcore.services import imm11 as svc
 from assetcore.services.shared import ErrorCode, ServiceError
+from assetcore.services.shared import rbac
+from assetcore.services.shared.scope import apply_vendor_scope, assert_vendor_can_access
 from assetcore.utils.helpers import _err, _ok
 
 
@@ -44,17 +46,24 @@ def list_calibration_schedules(filters: str = "{}", page: int = 1, page_size: in
         f = _parse_filters(filters)
     except ServiceError as e:
         return _err(e.message, e.code)
+    f = apply_vendor_scope(f, "Calibration Schedule")
     return _handle(svc.list_schedules, f, page=int(page), page_size=int(page_size))
 
 
 @frappe.whitelist()
 def get_calibration_schedule(name: str) -> dict:
+    try:
+        assert_vendor_can_access("Calibration Schedule", name)
+    except ServiceError as e:
+        return _err(e.message, e.code)
     return _handle(svc.get_schedule, name)
 
 
 @frappe.whitelist()
 def create_calibration_schedule(asset: str, calibration_type: str, interval_days: int,
                                  preferred_lab: str = None, next_due_date: str = None) -> dict:
+    # AUTH-02 — server-side gate; FE button hiding is not a security control.
+    rbac.require("calibration.create")
     return _handle(
         svc.create_schedule,
         asset=asset, calibration_type=calibration_type,
@@ -65,11 +74,13 @@ def create_calibration_schedule(asset: str, calibration_type: str, interval_days
 
 @frappe.whitelist()
 def update_calibration_schedule(name: str, **kwargs) -> dict:
+    rbac.require("calibration.write")
     return _handle(svc.update_schedule, name, kwargs)
 
 
 @frappe.whitelist()
 def delete_calibration_schedule(name: str) -> dict:
+    rbac.require("calibration.delete")
     return _handle(svc.delete_schedule, name)
 
 
@@ -81,11 +92,16 @@ def list_calibrations(filters: str = "{}", page: int = 1, page_size: int = 20) -
         f = _parse_filters(filters)
     except ServiceError as e:
         return _err(e.message, e.code)
+    f = apply_vendor_scope(f, "Calibration Record")
     return _handle(svc.list_calibrations, f, page=int(page), page_size=int(page_size))
 
 
 @frappe.whitelist()
 def get_calibration(name: str) -> dict:
+    try:
+        assert_vendor_can_access("Calibration Record", name)
+    except ServiceError as e:
+        return _err(e.message, e.code)
     return _handle(svc.get_calibration, name)
 
 
@@ -95,6 +111,7 @@ def create_calibration(asset: str, calibration_type: str, scheduled_date: str,
                         lab_supplier: str = None, is_recalibration: int = 0,
                         reference_standard_serial: str = None,
                         traceability_reference: str = None) -> dict:
+    rbac.require("calibration.create")
     return _handle(
         svc.create_calibration,
         asset=asset, calibration_type=calibration_type,
@@ -109,11 +126,13 @@ def create_calibration(asset: str, calibration_type: str, scheduled_date: str,
 
 @frappe.whitelist()
 def update_calibration(name: str, **kwargs) -> dict:
+    rbac.require("calibration.write")
     return _handle(svc.update_calibration, name, kwargs)
 
 
 @frappe.whitelist()
 def submit_calibration(name: str) -> dict:
+    rbac.require("calibration.submit")
     return _handle(svc.submit_calibration, name)
 
 
@@ -121,6 +140,7 @@ def submit_calibration(name: str) -> dict:
 def add_measurement(name: str, parameter_name: str, unit: str, nominal_value: float,
                      tolerance_positive: float, tolerance_negative: float,
                      measured_value: float = None) -> dict:
+    rbac.require("calibration.write")
     return _handle(
         svc.add_measurement, name,
         parameter_name=parameter_name, unit=unit,
@@ -158,6 +178,7 @@ def get_asset_calibration_history(asset: str, limit: int = 10) -> dict:
 @frappe.whitelist(methods=["POST"])
 def send_to_lab(name: str, sent_date: str = None, lab_supplier: str = None,
                 lab_contract_ref: str = None) -> dict:
+    rbac.require("cal.send_lab")
     return _handle(
         svc.send_to_lab, name,
         sent_date=sent_date, lab_supplier=lab_supplier,
@@ -170,6 +191,7 @@ def receive_certificate(name: str, certificate_file: str,
                         certificate_number: str, certificate_date: str,
                         traceability_reference: str = None,
                         reference_standard_serial: str = None) -> dict:
+    rbac.require("calibration.write")
     return _handle(
         svc.receive_certificate, name,
         certificate_file=certificate_file,
@@ -182,6 +204,7 @@ def receive_certificate(name: str, certificate_file: str,
 
 @frappe.whitelist(methods=["POST"])
 def cancel_calibration(name: str, reason: str) -> dict:
+    rbac.require("calibration.cancel")
     return _handle(svc.cancel_calibration, name, reason)
 
 

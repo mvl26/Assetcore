@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="module-id" content="cm">
+<title>Dashboard MTTR — AssetCore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+<script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <a class="brand" style="color:inherit;text-decoration:none" href="#">
+      <span class="logo">A</span>
+      <div>AssetCore <small>IMMIS · BV Nhi Đồng 1</small></div>
+    </a>
+    <div class="spacer"></div>
+    <button class="iconbtn" title="Thông báo"><iconify-icon icon="heroicons:bell" style="font-size:18px;vertical-align:-3px;color:#fff"></iconify-icon></button>
+    <div class="persona-pill" title="Chọn vai trò"></div>
+    <div id="personaMenu" class="persona-menu"></div>
+  </div>
+  <div class="body-wrap">
+    <aside class="sidebar">
+      <div class="side-head"><span></span></div>
+      <nav></nav>
+      <div class="side-foot">AssetCore v0.0.2 · Wave 1+2</div>
+    </aside>
+    <main class="main">
+      <div class="breadcrumb"><a href="../index.html">Trang chủ</a> <span class="sep">›</span><a href="repair-list.html">Sửa chữa (CM)</a> <span class="sep">›</span><span>Dashboard</span></div>
+      <div class="page">
+        <div class="page-head">
+  <div class="titles">
+    <h1>Dashboard sửa chữa & MTTR</h1>
+    <div class="sub">Tháng 5/2026 · So với tháng trước</div>
+  </div>
+  <div class="toolbar">
+    <select class="select"><option>Tháng này</option><option>Quý này</option><option>Năm</option></select>
+    <a class="btn btn-secondary" href="repair-list.html"><iconify-icon icon="heroicons:clipboard-document-list" style="font-size:16px;vertical-align:-3px"></iconify-icon> Danh sách lệnh</a>
+  </div>
+
+</div><div class="grid g4" style="margin-bottom:20px">
+  <div class="kpi ok"><div class="kbar"></div><div class="klabel">MTTR trung bình</div><div class="kval">3,2h</div><div class="kfoot">↓ 0,4h so với T4 · Mục tiêu ≤ 4h</div></div>
+  <div class="kpi primary"><div class="kbar"></div><div class="klabel">Hoàn tất tháng này</div><div class="kval">128</div><div class="kfoot">Tỉ lệ Pass first time: 89%</div></div>
+  <div class="kpi warn"><div class="kbar"></div><div class="klabel">First Time Fix</div><div class="kval">87,5%</div><div class="kfoot">Mục tiêu 90% · ↓ 1,2%</div></div>
+  <div class="kpi danger"><div class="kbar"></div><div class="klabel">Vi phạm SLA</div><div class="kval">5</div><div class="kfoot">P1: 2 · P2: 3 · 0 lỗi BN</div></div>
+
+</div><div class="grid g2" style="margin-bottom:20px">
+  <div class="card">
+    <div class="card-head"><h3>MTTR theo loại sửa chữa</h3></div>
+    <div class="card-pad">
+      <table style="width:100%;font-size:14px">
+        <tbody>
+          <tr style="border-bottom:1px solid var(--color-neutral-100)"><td style="padding:8px 0">Lỗi điện tử</td><td><div style="background:var(--color-neutral-100);height:10px;border-radius:5px;position:relative"><div style="width:60%;height:100%;background:var(--color-primary-500);border-radius:5px"></div></div></td><td style="padding:8px 0;text-align:right"><b>2,8h</b></td></tr>
+          <tr style="border-bottom:1px solid var(--color-neutral-100)"><td style="padding:8px 0">Lỗi cơ khí</td><td><div style="background:var(--color-neutral-100);height:10px;border-radius:5px"><div style="width:78%;height:100%;background:var(--color-warning-500);border-radius:5px"></div></div></td><td style="padding:8px 0;text-align:right"><b>3,9h</b></td></tr>
+          <tr style="border-bottom:1px solid var(--color-neutral-100)"><td style="padding:8px 0">Lỗi firmware</td><td><div style="background:var(--color-neutral-100);height:10px;border-radius:5px"><div style="width:45%;height:100%;background:var(--color-info-500);border-radius:5px"></div></div></td><td style="padding:8px 0;text-align:right"><b>2,1h</b></td></tr>
+          <tr><td style="padding:8px 0">Thay phụ tùng</td><td><div style="background:var(--color-neutral-100);height:10px;border-radius:5px"><div style="width:88%;height:100%;background:var(--color-danger-500);border-radius:5px"></div></div></td><td style="padding:8px 0;text-align:right"><b>4,4h</b></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+  </div><div class="card">
+    <div class="card-head"><h3>Top thiết bị hỏng nhiều nhất</h3></div>
+    <div class="card-pad">
+      <table style="width:100%;font-size:14px">
+        <tbody>
+          <tr style="border-bottom:1px solid var(--color-neutral-100)"><td style="padding:8px 0"><b>Bơm tiêm điện Terumo</b><br><span class="text-xs muted">Sơ sinh - P.2</span></td><td style="text-align:right"><b style="color:#DC2626">5 lần / 30 ngày</b><br><span class="text-xs muted"><iconify-icon icon="heroicons:exclamation-triangle" style="font-size:16px;vertical-align:-3px"></iconify-icon> Chronic failure</span></td></tr>
+          <tr style="border-bottom:1px solid var(--color-neutral-100)"><td style="padding:8px 0"><b>Lồng ấp sơ sinh Atom</b><br><span class="text-xs muted">Sơ sinh - P.1</span></td><td style="text-align:right"><b style="color:#F59E0B">2 lần / 30 ngày</b><br><span class="text-xs muted"><iconify-icon icon="heroicons:exclamation-triangle" style="font-size:16px;vertical-align:-3px"></iconify-icon> Watch list</span></td></tr>
+          <tr style="border-bottom:1px solid var(--color-neutral-100)"><td style="padding:8px 0"><b>Monitor Mindray uMEC12</b><br><span class="text-xs muted">Cấp cứu</span></td><td style="text-align:right"><b>1 lần / 30 ngày</b></td></tr>
+          <tr><td style="padding:8px 0"><b>Máy thở Bennett 980</b><br><span class="text-xs muted">ICU</span></td><td style="text-align:right"><b>1 lần / 30 ngày</b></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+<div class="card">
+  <div class="card-head"><h3>MTTR theo tháng (6 tháng gần nhất)</h3></div>
+  <div class="card-pad">
+    <div class="bars" style="height:200px">
+      <div class="bar" style="height:80%"><span>T12<br>4,2h</span></div>
+      <div class="bar" style="height:72%"><span>T1<br>3,8h</span></div>
+      <div class="bar" style="height:88%"><span>T2<br>4,6h</span></div>
+      <div class="bar" style="height:68%"><span>T3<br>3,6h</span></div>
+      <div class="bar" style="height:64%"><span>T4<br>3,4h</span></div>
+      <div class="bar" style="height:58%;background:linear-gradient(#16A34A,#15803d)"><span>T5<br>3,2h</span></div>
+    </div>
+  </div>
+</div>
+      
+    
+      </div>
+    </div>
+</main>
+  </div>
+</div>
+<script src="../assets/shell.js"></script>
+</body>
+</html>

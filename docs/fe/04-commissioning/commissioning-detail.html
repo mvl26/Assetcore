@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="module-id" content="commissioning">
+<title>COM-2026-00012 — AssetCore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+<script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <a class="brand" style="color:inherit;text-decoration:none" href="#">
+      <span class="logo">A</span>
+      <div>AssetCore <small>IMMIS · BV Nhi Đồng 1</small></div>
+    </a>
+    <div class="spacer"></div>
+    <button class="iconbtn" title="Thông báo"><iconify-icon icon="heroicons:bell" style="font-size:18px;vertical-align:-3px;color:#fff"></iconify-icon></button>
+    <div class="persona-pill" title="Chọn vai trò"></div>
+    <div id="personaMenu" class="persona-menu"></div>
+  </div>
+  <div class="body-wrap">
+    <aside class="sidebar">
+      <div class="side-head"><span></span></div>
+      <nav></nav>
+      <div class="side-foot">AssetCore v0.0.2 · Wave 1+2</div>
+    </aside>
+    <main class="main">
+      <div class="breadcrumb"><a href="../index.html">Trang chủ</a> <span class="sep">›</span><a href="commissioning-list.html">Lắp đặt & Nghiệm thu</a> <span class="sep">›</span><span>COM-2026-00012</span></div>
+      <div class="page">
+        <div class="page-head">
+  <div class="titles">
+    <a href="commissioning-list.html" class="btn btn-ghost btn-sm" style="margin-bottom:8px">← Quay lại</a>
+    <h1>COM-2026-00012 — Nghiệm thu 3 Monitor Mindray uMEC12</h1>
+    <div class="sub"><span class="badge b-warn">G05 - Clinical Release · 1 NC mở</span> <span class="muted" style="margin-left:8px">· PO-2026-0034 · Mindray VN · Mở 20/05/2026</span></div>
+  </div>
+</div>
+
+<div class="banner banner-warn">
+  <span class="bic"><iconify-icon icon="heroicons:exclamation-triangle" style="font-size:16px;vertical-align:-3px"></iconify-icon></span>
+  <div><b>1 Non-Conformance mở:</b> Thiếu giấy chứng nhận hợp quy 1 trong 3 thiết bị (Cái thứ 3 — SN UM12-A222). Cần QA xác minh trước khi qua G06.</div>
+</div>
+
+<div class="workflow">
+  <div class="wf-step"><div class="wf-node done"><span class="num"><iconify-icon icon="heroicons:check" style="font-size:16px;vertical-align:-3px"></iconify-icon></span>Draft</div></div><span class="wf-arrow">→</span>
+  <div class="wf-step"><div class="wf-node done"><span class="num"><iconify-icon icon="heroicons:check" style="font-size:16px;vertical-align:-3px"></iconify-icon></span>G01 Document</div></div><span class="wf-arrow">→</span>
+  <div class="wf-step"><div class="wf-node done"><span class="num"><iconify-icon icon="heroicons:check" style="font-size:16px;vertical-align:-3px"></iconify-icon></span>G02 Installation</div></div><span class="wf-arrow">→</span>
+  <div class="wf-step"><div class="wf-node done"><span class="num"><iconify-icon icon="heroicons:check" style="font-size:16px;vertical-align:-3px"></iconify-icon></span>G03 Baseline</div></div><span class="wf-arrow">→</span>
+  <div class="wf-step"><div class="wf-node done"><span class="num"><iconify-icon icon="heroicons:check" style="font-size:16px;vertical-align:-3px"></iconify-icon></span>G04 Hold</div></div><span class="wf-arrow">→</span>
+  <div class="wf-step"><div class="wf-node current"><span class="num">6</span>G05 Release</div></div><span class="wf-arrow">→</span>
+  <div class="wf-step"><div class="wf-node"><span class="num">7</span>G06 Final</div></div>
+</div>
+
+<div class="tabs">
+  <div class="tab active">Thông tin</div>
+  <div class="tab">Checklist (4 mục)</div>
+  <div class="tab">Tài liệu pháp lý (6 file)</div>
+  <div class="tab">Non-Conformance (1 mở)</div>
+  <div class="tab">Đo kiểm baseline</div>
+
+</div><div class="grid g3">
+  <div class="card" style="grid-column:span 2">
+    <div class="card-head"><h3>Danh sách thiết bị nghiệm thu</h3></div>
+    <div class="card-pad">
+      <table class="tbl">
+        <thead><tr><th>Cái</th><th>Serial Number</th><th>QR đã sinh</th><th>Khoa đích</th><th>Vị trí lắp</th><th>Trạng thái</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td class="mono">UM12-A220</td><td><iconify-icon icon="heroicons:check" style="font-size:16px;vertical-align:-3px"></iconify-icon></td><td>Cấp cứu</td><td>Sảnh - Giường 01</td><td><span class="badge b-active">OK</span></td></tr>
+          <tr><td>2</td><td class="mono">UM12-A221</td><td><iconify-icon icon="heroicons:check" style="font-size:16px;vertical-align:-3px"></iconify-icon></td><td>Cấp cứu</td><td>Sảnh - Giường 02</td><td><span class="badge b-active">OK</span></td></tr>
+          <tr><td>3</td><td class="mono">UM12-A222</td><td><iconify-icon icon="heroicons:check" style="font-size:16px;vertical-align:-3px"></iconify-icon></td><td>Cấp cứu</td><td>Sảnh - Giường 03</td><td><span class="badge b-warn">NC mở</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+  </div><div class="card">
+    <div class="card-head"><h3>NCC & Hợp đồng</h3></div>
+    <div class="card-pad">
+      <dl class="kv" style="grid-template-columns:1fr 1fr">
+        <dt>NCC</dt><dd>Mindray VN</dd>
+        <dt>PO</dt><dd>PO-2026-0034</dd>
+        <dt>Ngày giao</dt><dd>15/05/2026</dd>
+        <dt>Bảo hành</dt><dd>3 năm (đến 15/05/2029)</dd>
+        <dt>Hợp đồng dịch vụ</dt><dd>SC-2026-008</dd>
+      </dl>
+    </div>
+  </div>
+</div>
+
+<div style="display:flex;gap:10px;margin-top:24px;padding-top:20px;border-top:1px solid var(--color-neutral-300)">
+  <button class="btn btn-warning" disabled>→ Chuyển G06 (Cần đóng NC trước)</button>
+  <button class="btn btn-secondary">✎ Sửa thông tin</button>
+  <button class="btn btn-danger"><iconify-icon icon="heroicons:x-mark" style="font-size:16px;vertical-align:-3px"></iconify-icon> Từ chối → Trả lại NCC</button>
+
+      
+    
+      </div>
+    </div>
+</main>
+  </div>
+</div>
+<script src="../assets/shell.js"></script>
+</body>
+</html>

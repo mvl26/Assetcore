@@ -9,6 +9,7 @@ import {
   getUserContext, logoutUser, resolveNotificationRoute,
   type NotificationItem, type UserContext,
 } from '@/api/layout'
+import { sanitizeHtml } from '@/utils/sanitizeHtml'
 
 const route = useRoute()
 const router = useRouter()
@@ -305,7 +306,7 @@ class="mt-1.5 shrink-0 w-2 h-2 rounded-full"
                   <p
 v-if="item.content"
                      class="text-xs text-slate-500 mt-0.5 line-clamp-2"
-                     v-html="item.content"
+                     v-html="sanitizeHtml(item.content)"
                   />
                   <div class="flex items-center gap-2 mt-1.5">
                     <span

@@ -544,6 +544,203 @@ class UserImportValidator(BaseImportValidator):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# AC ASSET
+# ─────────────────────────────────────────────────────────────────────────────
+
+class AssetImportValidator(BaseImportValidator):
+    doctype = "AC Asset"
+
+    _VALID_LIFECYCLE = frozenset({
+        "", "Draft", "Commissioned", "Active",
+        "Under Maintenance", "Under Repair", "Calibrating",
+        "Out of Service", "Decommissioned",
+    })
+    _VALID_DEPRECIATION_METHODS = frozenset({
+        "", "Straight Line", "Double Declining", "Units of Production",
+    })
+
+    def validate_all(self, rows: list[dict]) -> list[ImportError]:
+        # Cache Link target sets to avoid N+1 queries
+        categories = {r.name for r in frappe.get_all("AC Asset Category", fields=["name"])}
+        # AC Asset Category also accessible by category_name → allow either
+        categories |= {
+            r.category_name for r in frappe.get_all("AC Asset Category", fields=["category_name"])
+        }
+        models = {r.name for r in frappe.get_all("IMM Device Model", fields=["name"])}
+        models |= {
+            r.model_name for r in frappe.get_all("IMM Device Model", fields=["model_name"])
+        }
+        locations = {r.name for r in frappe.get_all("AC Location", fields=["name"])}
+        locations |= {
+            r.location_name for r in frappe.get_all("AC Location", fields=["location_name"])
+        }
+        departments = {r.name for r in frappe.get_all("AC Department", fields=["name"])}
+        departments |= {
+            r.department_name for r in frappe.get_all("AC Department", fields=["department_name"])
+        }
+        suppliers = {r.name for r in frappe.get_all("AC Supplier", fields=["name"])}
+        users = {r.name for r in frappe.get_all("User", fields=["name"])}
+
+        existing_codes = {
+            r.asset_code for r in frappe.get_all(
+                "AC Asset", filters={"asset_code": ["!=", ""]}, fields=["asset_code"],
+            ) if r.asset_code
+        }
+        seen_codes: set[str] = set()
+
+        errors: list[ImportError] = []
+        for i, row in enumerate(rows, start=1):
+            errors.extend(self._validate_asset_row(
+                row, i,
+                categories, models, locations, departments, suppliers, users,
+                existing_codes, seen_codes,
+            ))
+        return errors
+
+    def _validate_asset_row(
+        self, row: dict, row_idx: int,
+        categories: set, models: set, locations: set, departments: set,
+        suppliers: set, users: set,
+        existing_codes: set, seen_codes: set,
+    ) -> list[ImportError]:
+        errors: list[ImportError] = []
+
+        for field, label in [("asset_name", "Tên tài sản"), ("asset_category", "Danh mục tài sản")]:
+            e = self._req(row, row_idx, field, label)
+            if e:
+                errors.append(e)
+
+        # Duplicate asset_code (in DB and within batch)
+        code = str(row.get("asset_code", "")).strip()
+        if code:
+            if code in existing_codes:
+                errors.append(self._err(
+                    row_idx, "asset_code",
+                    f"Mã tài sản '{code}' đã tồn tại trong hệ thống",
+                ))
+            elif code in seen_codes:
+                errors.append(self._err(
+                    row_idx, "asset_code",
+                    f"Mã tài sản '{code}' bị trùng lặp trong file",
+                ))
+            seen_codes.add(code)
+
+        # Link validations
+        cat = str(row.get("asset_category", "")).strip()
+        if cat and cat not in categories:
+            errors.append(self._err(
+                row_idx, "asset_category",
+                f"Danh mục '{cat}' không tồn tại — kiểm tra hoặc import danh mục trước",
+            ))
+
+        model = str(row.get("device_model", "")).strip()
+        if model and model not in models:
+            errors.append(self._warn(
+                row_idx, "device_model",
+                f"Model '{model}' không tồn tại — sẽ để trống",
+            ))
+
+        loc = str(row.get("location", "")).strip()
+        if loc and loc not in locations:
+            errors.append(self._warn(
+                row_idx, "location",
+                f"Vị trí '{loc}' không tồn tại — sẽ để trống",
+            ))
+
+        dept = str(row.get("department", "")).strip()
+        if dept and dept not in departments:
+            errors.append(self._warn(
+                row_idx, "department",
+                f"Khoa/phòng '{dept}' không tồn tại — sẽ để trống",
+            ))
+
+        sup = str(row.get("supplier", "")).strip()
+        if sup and sup not in suppliers:
+            errors.append(self._warn(
+                row_idx, "supplier",
+                f"Nhà cung cấp '{sup}' không tồn tại — sẽ để trống",
+            ))
+
+        for ufield, ulabel in [
+            ("custodian", "Người phụ trách"),
+            ("responsible_technician", "KTV phụ trách"),
+        ]:
+            uv = str(row.get(ufield, "")).strip()
+            if uv:
+                if not is_valid_email(uv):
+                    errors.append(self._err(
+                        row_idx, ufield,
+                        f"{ulabel} '{uv}' không đúng định dạng email",
+                    ))
+                elif uv not in users:
+                    errors.append(self._warn(
+                        row_idx, ufield,
+                        f"{ulabel} '{uv}' chưa có tài khoản — sẽ để trống",
+                    ))
+
+        # lifecycle_status valid values
+        ls = str(row.get("lifecycle_status", "")).strip()
+        if ls and ls not in self._VALID_LIFECYCLE:
+            errors.append(self._err(
+                row_idx, "lifecycle_status",
+                f"Trạng thái vòng đời '{ls}' không hợp lệ — chọn: "
+                + " / ".join(s for s in self._VALID_LIFECYCLE if s),
+            ))
+
+        # depreciation_method valid values
+        dm = str(row.get("depreciation_method", "")).strip()
+        if dm and dm not in self._VALID_DEPRECIATION_METHODS:
+            errors.append(self._err(
+                row_idx, "depreciation_method",
+                f"Phương pháp khấu hao '{dm}' không hợp lệ — chọn: Straight Line / Double Declining / Units of Production",
+            ))
+
+        # purchase_date <= warranty_expiry_date
+        from datetime import date as _date
+        pd_s = str(row.get("purchase_date", "")).strip()
+        we_s = str(row.get("warranty_expiry_date", "")).strip()
+        if pd_s and we_s:
+            try:
+                if _date.fromisoformat(we_s) < _date.fromisoformat(pd_s):
+                    errors.append(self._err(
+                        row_idx, "warranty_expiry_date",
+                        f"Hết hạn bảo hành ({we_s}) phải >= ngày mua ({pd_s})",
+                    ))
+            except ValueError:
+                pass
+
+        # insurance_end_date >= insurance_start_date
+        is_s = str(row.get("insurance_start_date", "")).strip()
+        ie_s = str(row.get("insurance_end_date", "")).strip()
+        if is_s and ie_s:
+            try:
+                if _date.fromisoformat(ie_s) < _date.fromisoformat(is_s):
+                    errors.append(self._err(
+                        row_idx, "insurance_end_date",
+                        f"Hết hạn BH ({ie_s}) phải >= ngày bắt đầu BH ({is_s})",
+                    ))
+            except ValueError:
+                pass
+
+        # Numeric fields must be parseable
+        for field, label in [
+            ("gross_purchase_amount", "Giá mua"),
+            ("residual_value", "Giá trị thu hồi"),
+            ("insured_value", "Giá trị bảo hiểm"),
+            ("useful_life_years", "Tuổi thọ hữu ích"),
+        ]:
+            val = row.get(field)
+            if val not in ("", None):
+                try:
+                    if float(str(val)) < 0:
+                        errors.append(self._err(row_idx, field, f"'{label}' không thể âm"))
+                except ValueError:
+                    errors.append(self._err(row_idx, field, f"'{label}' phải là số"))
+
+        return errors
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # REGISTRY
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -554,6 +751,7 @@ VALIDATOR_REGISTRY: dict[str, type[BaseImportValidator]] = {
     "IMM Device Model":  DeviceModelImportValidator,
     "Service Contract":  ContractImportValidator,
     "User":              UserImportValidator,
+    "AC Asset":          AssetImportValidator,
 }
 
 
