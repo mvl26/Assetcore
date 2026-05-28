@@ -12,7 +12,7 @@ import {
   getExportUrl, getTemplateUrl, initImportFolders,
 } from '@/api/importData'
 import type { AcLocation, AcDepartment, AcAssetCategory } from '@/types/imm00'
-import type { ImportPreviewResult, ImportResult, ImportStep, RefDataDoctype } from '@/types/import'
+import type { ImportPreviewResult, ImportResult, ImportStep, ImportMode, RefDataDoctype } from '@/types/import'
 import api from '@/api/axios'
 import SmartSelect from '@/components/common/SmartSelect.vue'
 const toast = useToast()
@@ -232,6 +232,7 @@ const previewData = ref<ImportPreviewResult | null>(null)
 const importResult = ref<ImportResult | null>(null)
 const importErr = ref('')
 const isDragOver = ref(false)
+const importMode = ref<ImportMode>('strict')
 
 function currentDoctype(): RefDataDoctype {
   if (tab.value === 'location') return 'AC Location'
@@ -247,6 +248,7 @@ async function openImport() {
   previewData.value = null
   importResult.value = null
   importErr.value = ''
+  importMode.value = 'strict'
   try {
     importFolder.value = await initImportFolders(currentDoctype())
   } catch {
@@ -309,7 +311,9 @@ async function runImport() {
   importLoading.value = true
   importErr.value = ''
   try {
-    importResult.value = await importRefData(currentDoctype(), uploadedFileUrl.value)
+    importResult.value = await importRefData(
+      currentDoctype(), uploadedFileUrl.value, importMode.value,
+    )
     importStep.value = 'result'
   } catch (e: unknown) {
     importErr.value = e instanceof Error ? e.message : 'Lỗi import'
@@ -333,6 +337,29 @@ function doDownloadTemplate() { globalThis.location.href = getTemplateUrl(curren
 const hasBlockingErrors = computed(
   () => (previewData.value?.errors ?? []).some(e => e.severity === 'error'),
 )
+
+const totalSkip = computed(() => {
+  const p = previewData.value
+  if (!p) return 0
+  return p.errors.length + (p.cascadeCount ?? 0)
+})
+
+const skipRatio = computed(() => {
+  const p = previewData.value
+  if (!p || p.totalRows === 0) return 0
+  return totalSkip.value / p.totalRows
+})
+
+const allRowsInvalid = computed(
+  () => previewData.value !== null && totalSkip.value >= previewData.value.totalRows,
+)
+
+const canImport = computed(() => {
+  if (!previewData.value || importLoading.value) return false
+  if (allRowsInvalid.value) return false
+  if (!hasBlockingErrors.value) return true
+  return importMode.value === 'skip_invalid'
+})
 </script>
 
 <template>
@@ -481,7 +508,12 @@ v-for="t in (['location','department','category'] as Tab[])" :key="t"
             </div>
             <div>
               <label class="block text-sm font-medium text-gray-700 mb-1">Vị trí cha</label>
-              <SmartSelect v-model="form.parent_location as string" doctype="AC Location" placeholder="Chọn vị trí cha..." />
+              <SmartSelect
+                v-model="form.parent_location as string"
+                doctype="AC Location"
+                :filters="{ is_group: 1 }"
+                placeholder="Chọn vị trí cha (chỉ nhóm)..."
+              />
             </div>
             <div>
               <label class="block text-sm font-medium text-gray-700 mb-1">Khu vực lâm sàng</label>
@@ -560,7 +592,12 @@ v-for="t in (['location','department','category'] as Tab[])" :key="t"
             </div>
             <div>
               <label class="block text-sm font-medium text-gray-700 mb-1">Khoa cha</label>
-              <SmartSelect v-model="form.parent_department as string" doctype="AC Department" placeholder="Chọn khoa cha..." />
+              <SmartSelect
+                v-model="form.parent_department as string"
+                doctype="AC Department"
+                :filters="{ is_group: 1 }"
+                placeholder="Chọn khoa cha (chỉ nhóm)..."
+              />
             </div>
             <div>
               <label class="block text-sm font-medium text-gray-700 mb-1">Trưởng khoa</label>
@@ -884,6 +921,55 @@ v-for="t in (['location','department','category'] as Tab[])" :key="t"
               </table>
             </div>
 
+            <!-- Skip-Invalid mode picker (only when there are blocking errors) -->
+            <div
+              v-if="hasBlockingErrors && !allRowsInvalid"
+              class="rounded-lg border border-amber-200 bg-amber-50 p-4 space-y-3"
+            >
+              <p class="text-sm font-medium text-amber-900">
+                File có {{ previewData.errors.length }} dòng lỗi
+                <span v-if="previewData.cascadeCount">
+                  + {{ previewData.cascadeCount }} dòng phụ thuộc (cha bị bỏ qua)
+                </span>
+                — chọn cách xử lý:
+              </p>
+              <fieldset class="space-y-2">
+                <label class="flex items-start gap-2 cursor-pointer">
+                  <input type="radio" v-model="importMode" value="strict" class="mt-1" />
+                  <div>
+                    <p class="text-sm font-medium text-gray-800">Huỷ import, sửa file trước (mặc định)</p>
+                    <p class="text-xs text-gray-600">An toàn — đảm bảo file sạch trước khi import.</p>
+                  </div>
+                </label>
+                <label class="flex items-start gap-2 cursor-pointer">
+                  <input type="radio" v-model="importMode" value="skip_invalid" class="mt-1" />
+                  <div>
+                    <p class="text-sm font-medium text-gray-800">
+                      Bỏ qua {{ totalSkip }} dòng lỗi, import
+                      {{ previewData.totalRows - totalSkip }} dòng hợp lệ
+                    </p>
+                    <p class="text-xs text-gray-600">
+                      Tải báo cáo lỗi sau khi import xong để sửa &amp; import lại các dòng đã bỏ qua.
+                    </p>
+                  </div>
+                </label>
+              </fieldset>
+              <div
+                v-if="importMode === 'skip_invalid' && skipRatio > 0.3"
+                class="text-xs text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2"
+              >
+                ⚠ Cảnh báo: hơn {{ Math.round(skipRatio * 100) }}% dòng sẽ bị bỏ qua —
+                kiểm tra lại file gốc trước khi tiếp tục.
+              </div>
+            </div>
+
+            <div
+              v-if="allRowsInvalid"
+              class="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700"
+            >
+              Không có dòng hợp lệ nào — toàn bộ file bị lỗi. Hãy sửa file và thử lại.
+            </div>
+
             <!-- Actions -->
             <div class="flex items-center justify-between pt-2">
               <div class="flex gap-2">
@@ -899,15 +985,19 @@ v-for="t in (['location','department','category'] as Tab[])" :key="t"
                 </button>
               </div>
               <button
-                :disabled="hasBlockingErrors || importLoading"
+                :disabled="!canImport"
                 :class="['px-4 py-2 text-sm rounded-lg font-medium transition-colors flex items-center gap-2',
-                  hasBlockingErrors || importLoading
+                  !canImport
                     ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
                     : 'bg-emerald-600 hover:bg-emerald-700 text-white']"
                 @click="runImport"
               >
                 <div v-if="importLoading" class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                {{ importLoading ? 'Đang import...' : 'Bắt đầu Import ▶' }}
+                {{ importLoading
+                    ? 'Đang import...'
+                    : importMode === 'skip_invalid'
+                      ? `Import ${previewData.totalRows - totalSkip} dòng (bỏ qua ${totalSkip}) ▶`
+                      : 'Bắt đầu Import ▶' }}
               </button>
             </div>
           </template>
@@ -915,14 +1005,15 @@ v-for="t in (['location','department','category'] as Tab[])" :key="t"
           <!-- STEP 3: RESULT ──────────────────────────────────────────────── -->
           <template v-else-if="importStep === 'result' && importResult">
             <div :class="['p-5 rounded-xl text-center',
-              importResult.failed === 0 ? 'bg-green-50' : importResult.success === 0 ? 'bg-red-50' : 'bg-amber-50']">
+              importResult.failed === 0 && importResult.skipped === 0 ? 'bg-green-50' : importResult.success === 0 ? 'bg-red-50' : 'bg-amber-50']">
               <p class="text-3xl font-bold mb-1"
-                :class="importResult.failed === 0 ? 'text-green-700' : importResult.success === 0 ? 'text-red-700' : 'text-amber-700'">
+                :class="importResult.failed === 0 && importResult.skipped === 0 ? 'text-green-700' : importResult.success === 0 ? 'text-red-700' : 'text-amber-700'">
                 {{ importResult.success }} / {{ importResult.total }}
               </p>
               <p class="text-sm text-gray-600">
                 dòng import thành công
                 <span v-if="importResult.failed"> — <span class="text-red-600 font-medium">{{ importResult.failed }} lỗi</span></span>
+                <span v-if="importResult.skipped"> — <span class="text-amber-700 font-medium">{{ importResult.skipped }} bỏ qua</span></span>
               </p>
             </div>
 
@@ -933,6 +1024,33 @@ v-for="t in (['location','department','category'] as Tab[])" :key="t"
                 class="flex gap-3 text-xs px-3 py-2 bg-red-50 text-red-700 rounded-lg">
                 <span class="font-bold shrink-0">Dòng {{ e.row }}</span>
                 <span>{{ e.message }}</span>
+              </div>
+            </div>
+
+            <!-- Skipped rows (skip_invalid mode) -->
+            <div v-if="importResult.skippedRows.length" class="space-y-2">
+              <div class="flex items-center justify-between">
+                <p class="text-xs font-medium text-gray-500">
+                  Đã bỏ qua {{ importResult.skipped }} dòng:
+                </p>
+                <button
+                  class="text-xs text-amber-700 hover:text-amber-900 underline"
+                  @click="downloadErrorReport"
+                >
+                  Tải file dòng bị bỏ qua (.xlsx)
+                </button>
+              </div>
+              <div class="space-y-1 max-h-40 overflow-y-auto">
+                <div v-for="(s, i) in importResult.skippedRows" :key="i"
+                  class="flex gap-3 text-xs px-3 py-2 bg-amber-50 text-amber-800 rounded-lg">
+                  <span class="font-bold shrink-0">Dòng {{ s.row }}</span>
+                  <span class="font-medium shrink-0">{{ s.field || '—' }}</span>
+                  <span class="flex-1">{{ s.message }}</span>
+                  <span
+                    v-if="s.reason === 'cascade_parent_skipped'"
+                    class="shrink-0 px-1.5 py-0.5 rounded bg-amber-200 text-amber-900 text-[10px] font-medium"
+                  >phụ thuộc</span>
+                </div>
               </div>
             </div>
 

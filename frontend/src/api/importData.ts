@@ -4,6 +4,8 @@ import type {
   RefDataDoctype,
   ImportPreviewResult,
   ImportResult,
+  ImportMode,
+  ImportSkippedRow,
   ErrorReportResult,
 } from '@/types/import'
 
@@ -21,6 +23,7 @@ export async function previewRefImport(
     fieldnames: string[]
     errors: { row: number; field: string; message: string; severity: string }[]
     warnings: { row: number; field: string; message: string; severity: string }[]
+    cascade_count?: number
   }>(`${BASE}.preview_ref_data`, { doctype, file_url: fileUrl })
 
   return {
@@ -31,25 +34,40 @@ export async function previewRefImport(
     fieldnames: raw.fieldnames,
     errors: raw.errors as ImportPreviewResult['errors'],
     warnings: raw.warnings as ImportPreviewResult['warnings'],
+    cascadeCount: raw.cascade_count ?? 0,
   }
 }
 
 export async function importRefData(
   doctype: RefDataDoctype,
   fileUrl: string,
+  mode: ImportMode = 'strict',
 ): Promise<ImportResult> {
   const raw = await frappePost<{
     total: number
     success: number
     failed: number
+    skipped?: number
     errors: { row: number; field: string; message: string; severity: string }[]
-  }>(`${BASE}.import_ref_data`, { doctype, file_url: fileUrl })
+    skipped_rows?: { row: number; reason: string; field: string; message: string }[]
+  }>(`${BASE}.import_ref_data`, {
+    doctype,
+    file_url: fileUrl,
+    skip_invalid: mode === 'skip_invalid',
+  })
 
   return {
     total: raw.total,
     success: raw.success,
     failed: raw.failed,
+    skipped: raw.skipped ?? 0,
     errors: raw.errors as ImportResult['errors'],
+    skippedRows: (raw.skipped_rows ?? []).map((r): ImportSkippedRow => ({
+      row: r.row,
+      reason: r.reason as ImportSkippedRow['reason'],
+      field: r.field,
+      message: r.message,
+    })),
   }
 }
 
