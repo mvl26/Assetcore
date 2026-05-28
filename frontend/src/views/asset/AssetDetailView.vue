@@ -25,6 +25,7 @@ const transitionReason = ref('')
 const activeTab = ref<'info' | 'depreciation' | 'timeline' | 'kpi' | 'audit'>('info')
 
 const TRANSITIONS: Record<string, LifecycleStatus[]> = {
+  'Draft': ['Commissioned', 'Decommissioned'],
   'Commissioned': ['Active', 'Out of Service', 'Decommissioned'],
   'Active': ['Under Maintenance', 'Under Repair', 'Calibrating', 'Out of Service', 'Decommissioned'] as LifecycleStatus[],
   'Under Maintenance': ['Active', 'Under Repair', 'Out of Service', 'Decommissioned'] as LifecycleStatus[],
@@ -35,6 +36,7 @@ const TRANSITIONS: Record<string, LifecycleStatus[]> = {
 }
 
 const statusColor: Record<string, string> = {
+  'Draft': 'bg-slate-100 text-slate-700',
   'Active': 'bg-green-100 text-green-800',
   'Commissioned': 'bg-blue-100 text-blue-800',
   'Under Maintenance': 'bg-amber-100 text-amber-800',
@@ -45,6 +47,7 @@ const statusColor: Record<string, string> = {
 }
 
 const lifecycleLabel: Record<string, string> = {
+  'Draft': 'Nháp',
   'Active': 'Đang hoạt động',
   'Commissioned': 'Đã tiếp nhận',
   'Under Maintenance': 'Đang bảo trì',

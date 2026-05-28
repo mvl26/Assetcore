@@ -1,11 +1,16 @@
 # Copyright (c) 2026, AssetCore Team
+import re
+
 import frappe
 from frappe import _
 from frappe.model.document import Document
+from frappe.model.naming import make_autoname
 from frappe.utils import add_days, getdate, nowdate
 
 
 _DOCTYPE = "AC Asset"
+_ASSET_CODE_PATTERN = re.compile(r"^[A-Za-z0-9._\-/]+$")
+_DEFAULT_NAMING_SERIES = "AC-ASSET-.YYYY.-.#####"
 
 
 def _is_workflow_apply() -> bool:
@@ -18,7 +23,29 @@ def _is_workflow_apply() -> bool:
 
 
 class ACAsset(Document):
-    """AC Asset - Native medical device asset record with first-class HTM fields."""
+    """AC Asset - Native medical device asset record with first-class HTM fields.
+
+    Naming rule (unified — same pattern as AC Department):
+        - Nếu user nhập ``asset_code`` → dùng làm ``name`` (PK).
+        - Nếu để trống → tự sinh từ ``naming_series`` (mặc định AC-ASSET-.YYYY.-.#####)
+          và đồng bộ ``asset_code = name`` để field không bị rỗng.
+    """
+
+    def autoname(self) -> None:
+        code = (self.asset_code or "").strip()
+        if code:
+            if not _ASSET_CODE_PATTERN.match(code):
+                frappe.throw(_(
+                    "Mã tài sản chỉ được chứa chữ cái, số và các ký tự . _ - /"
+                ))
+            self.asset_code = code
+            self.name = code
+            return
+
+        series = (self.naming_series or "").strip() or _DEFAULT_NAMING_SERIES
+        self.naming_series = series
+        self.name = make_autoname(series, doc=self)
+        self.asset_code = self.name
 
     def before_insert(self) -> None:
         """Kế thừa gmdn_code từ Device Model nếu asset chưa có."""
@@ -116,6 +143,14 @@ class ACAsset(Document):
         )
         if existing:
             frappe.throw(_("Mã tài sản {0} đã tồn tại trên {1}").format(self.asset_code, existing))
+        # Immutable sau khi tạo — asset_code đã unify với name (PK).
+        if not self.is_new():
+            old = frappe.db.get_value(_DOCTYPE, self.name, "asset_code")
+            if old and old != self.asset_code:
+                frappe.throw(_(
+                    "Mã tài sản không thể thay đổi sau khi tạo "
+                    "(hiện tại: {0}, cố đổi sang: {1})."
+                ).format(old, self.asset_code))
 
     def _validate_unique_manufacturer_sn(self) -> None:
         if not self.manufacturer_sn:
@@ -248,7 +283,7 @@ class ACAsset(Document):
             frappe.throw(
                 _("WR-03: Không thể xóa tài sản '{0}' vì còn ràng buộc dữ liệu: {1}.\n"
                   "Vui lòng dùng chức năng 'Thanh lý' (Decommission) để ngừng sử dụng "
-                  "thay vì xóa cứng — audit trail phải được bảo toàn theo CLAUDE.md §10/§12.")
+                  "thay vì xóa cứng — audit trail phải được bảo toàn nguyên tắc.")
                 .format(self.name, "; ".join(blockers)),
                 frappe.LinkExistsError,
             )
