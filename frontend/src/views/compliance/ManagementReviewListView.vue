@@ -27,7 +27,7 @@ function scorecardDisplay(r: ManagementReview): string {
   if (x.scorecard_score_pct != null) {
     return `${x.scorecard_score_pct.toFixed(1)}%${x.scorecard_period ? ' · ' + x.scorecard_period : ''}`
   }
-  return r.scorecard_ref || '—'
+  return r.scorecard_ref || 'Chưa liên kết'
 }
 
 const items = computed(() => store.reviews)

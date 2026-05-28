@@ -36,6 +36,15 @@ const SEVERITY_LABELS: Record<string, string> = {
   Low: 'Thấp', Medium: 'Trung bình', High: 'Cao', Critical: 'Nghiêm trọng',
 }
 
+const FREQUENCY_LABELS: Record<string, string> = {
+  Daily: 'Hàng ngày', Weekly: 'Hàng tuần', Monthly: 'Hàng tháng',
+  Quarterly: 'Hàng quý', Yearly: 'Hàng năm', 'Ad-hoc': 'Theo yêu cầu',
+}
+function frequencyLabel(v?: string | null): string {
+  if (!v) return '—'
+  return FREQUENCY_LABELS[v] ?? v
+}
+
 const chips = computed(() => {
   const c: { key: string; label: string }[] = []
   if (filterActive.value !== '') c.push({ key: 'active', label: filterActive.value === '1' ? 'Đang áp dụng' : 'Ngừng áp dụng' })
@@ -239,7 +248,7 @@ onMounted(() => load(1))
               <td class="table-cell">
                 <StatusBadge :state="r.severity" />
               </td>
-              <td class="table-cell text-slate-600">{{ r.evaluation_frequency || '—' }}</td>
+              <td class="table-cell text-slate-600">{{ frequencyLabel(r.evaluation_frequency) }}</td>
               <td class="table-cell font-mono text-xs text-slate-500">{{ r.version || '1.0' }}</td>
               <td class="table-cell">
                 <span

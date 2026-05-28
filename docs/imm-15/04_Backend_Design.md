@@ -5,8 +5,8 @@
 | Thuộc tính | Giá trị |
 |---|---|
 | Module | IMM-15 — Spare Parts Inventory Tracking |
-| Phiên bản | 0.2.0 |
-| Ngày | 2026-05-14 |
+| Phiên bản | 0.0.2 |
+| Ngày | 2026-05-27 |
 | Trạng thái | IMPLEMENTED (Wave 2) |
 
 ---
@@ -480,26 +480,26 @@ scheduler_events = {
 
 | From | Action (tiếng Việt) | To | Role |
 |---|---|---|---|
-| — | (create) | `Requested` | IMM Biomed Technician / IMM Technician |
-| `Requested` | Phê duyệt | `Approved` | IMM Workshop Lead / IMM Operations Manager |
-| `Approved` | Pick | `Picked` | IMM Storekeeper |
-| `Picked` | Issue | `Issued` | IMM Storekeeper (sinh AC Stock Movement) |
-| `Requested` | Issue (Emergency) | `Issued` | IMM Workshop Lead + IMM Operations Manager (double) |
-| `Issued` | Trả phụ tùng | `Returned` | IMM Storekeeper |
-| `Returned` | Đóng phiếu | `Issued` | IMM Storekeeper (nếu còn dùng) |
-| `Requested` | Hủy | `Cancelled` | IMM Workshop Lead / IMM System Admin |
-| `Approved` | Hủy | `Cancelled` | IMM Workshop Lead / IMM System Admin |
-| `Picked` | Hủy | `Cancelled` | IMM Workshop Lead / IMM System Admin |
+| — | (create) | `Requested` | Repair User / Repair User |
+| `Requested` | Phê duyệt | `Approved` | Inventory Manager / Inventory Manager |
+| `Approved` | Pick | `Picked` | Inventory User |
+| `Picked` | Issue | `Issued` | Inventory User (sinh AC Stock Movement) |
+| `Requested` | Issue (Emergency) | `Issued` | Inventory Manager + Inventory Manager (double) |
+| `Issued` | Trả phụ tùng | `Returned` | Inventory User |
+| `Returned` | Đóng phiếu | `Issued` | Inventory User (nếu còn dùng) |
+| `Requested` | Hủy | `Cancelled` | Inventory Manager / AssetCore Super Admin |
+| `Approved` | Hủy | `Cancelled` | Inventory Manager / AssetCore Super Admin |
+| `Picked` | Hủy | `Cancelled` | Inventory Manager / AssetCore Super Admin |
 
 ### VI.2 IMM Stock Cycle Count (4 states / 5 transitions)
 
 | From | Action (tiếng Việt) | To | Role |
 |---|---|---|---|
-| — | (create) | `Planned` | IMM Storekeeper / IMM System Admin |
-| `Planned` | Bắt đầu đếm | `Counting` | IMM Storekeeper |
-| `Counting` | Hoàn tất đếm | `Reviewed` | IMM Workshop Lead / IMM QA Officer |
-| `Reviewed` | Sửa đếm lại | `Counting` | IMM Storekeeper |
-| `Reviewed` | Post | `Posted` | IMM Workshop Lead / IMM Operations Manager (sinh AC Stock Movement Adjustment) |
+| — | (create) | `Planned` | Inventory User / AssetCore Super Admin |
+| `Planned` | Bắt đầu đếm | `Counting` | Inventory User |
+| `Counting` | Hoàn tất đếm | `Reviewed` | Inventory Manager / Compliance Manager |
+| `Reviewed` | Sửa đếm lại | `Counting` | Inventory User |
+| `Reviewed` | Post | `Posted` | Inventory Manager / Inventory Manager (sinh AC Stock Movement Adjustment) |
 
 ---
 

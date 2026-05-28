@@ -6,7 +6,7 @@
 | Wave | 2 — IMPLEMENTED (feature/hieuc/wave-2) |
 | Trạng thái | ✅ Stable — BE + FE đã merge; chờ UAT |
 | Số file | 9 (README + 02-09; nguồn gốc đã archive) |
-| Cập nhật cuối | 2026-05-18 |
+| Cập nhật cuối | 2026-05-27 |
 | Khối kiến trúc | C. KHỐI 3 |
 | Đợt triển khai | 2 |
 | Owner | Kho trung tâm & Kho vận |
@@ -72,4 +72,4 @@ IMM-15 xây trên **AC Inventory Backbone** (Wave 1 LIVE):
 
 ---
 
-*Module IMM-15 — Wave 2 Implemented. Cập nhật 2026-05-18.*
+*Module IMM-15 — Wave 2 Implemented. Cập nhật 2026-05-27.*
