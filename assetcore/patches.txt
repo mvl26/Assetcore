@@ -33,3 +33,5 @@ assetcore.patches.v3_2.003_fix_pm_template_name_slug
 assetcore.patches.v3_2.004_link_mr_to_scorecard
 # ── Wave 2 ── Sync AC Asset.asset_code with name (unify with Department pattern)
 assetcore.patches.v3_2.005_sync_asset_code_with_name
+# ── Wave 2 ── Sync Service Contract.contract_code with name (same unify pattern)
+assetcore.patches.v3_2.006_sync_contract_code_with_name
