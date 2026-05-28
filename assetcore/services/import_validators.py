@@ -579,9 +579,18 @@ class AssetImportValidator(BaseImportValidator):
             r.department_name for r in frappe.get_all("AC Department", fields=["department_name"])
         }
         suppliers = {r.name for r in frappe.get_all("AC Supplier", fields=["name"])}
+        suppliers |= {
+            r.supplier_name for r in frappe.get_all("AC Supplier", fields=["supplier_name"])
+            if r.supplier_name
+        }
         users = {r.name for r in frappe.get_all("User", fields=["name"])}
 
+        # asset_code đã được unify với name (PK) — kiểm tra trùng cả 2 cột để
+        # bắt sớm trường hợp user nhập code trùng với name của asset cũ.
         existing_codes = {
+            r.name for r in frappe.get_all("AC Asset", fields=["name"])
+        }
+        existing_codes |= {
             r.asset_code for r in frappe.get_all(
                 "AC Asset", filters={"asset_code": ["!=", ""]}, fields=["asset_code"],
             ) if r.asset_code

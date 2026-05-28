@@ -165,21 +165,50 @@ def _do_import(doctype: str, file_url: str) -> dict:
     }
     optional_links = _OPTIONAL_LINKS_BY_DOCTYPE.get(doctype, {})
 
+    # Fields that accept either the system code (Link target name) OR a display
+    # name — we resolve display name → code before insert so users can fill the
+    # import template with human-readable values (BR: "Danh mục tài sản" column
+    # accepts the category name, not the auto-generated CAT-#### code).
+    _RESOLVABLE_LINKS_BY_DOCTYPE = {
+        "AC Asset": {
+            "asset_category": ("AC Asset Category", "category_name"),
+            "device_model": ("IMM Device Model", "model_name"),
+            "location": ("AC Location", "location_name"),
+            "department": ("AC Department", "department_name"),
+            "supplier": ("AC Supplier", "supplier_name"),
+        },
+    }
+    resolvable_links = _RESOLVABLE_LINKS_BY_DOCTYPE.get(doctype, {})
+
     for i, row in enumerate(rows, start=1):
         try:
             doc = frappe.new_doc(doctype)
             # Normalise types before assigning
             clean = _normalise_row(row, _BOOL_FIELDS)
+            # Resolve display-name → Link target name (system code) when needed
+            for fld, (link_dt, display_field) in resolvable_links.items():
+                val = clean.get(fld)
+                if not val or frappe.db.exists(link_dt, val):
+                    continue
+                resolved = frappe.db.get_value(link_dt, {display_field: val}, "name")
+                if resolved:
+                    clean[fld] = resolved
             # Drop optional Link values that don't resolve so insert won't fail
             for fld, link_dt in optional_links.items():
                 val = clean.get(fld)
                 if val and not frappe.db.exists(link_dt, val):
                     clean.pop(fld, None)
-            # AC Asset: lifecycle_status defaults to Draft so the workflow guard passes
-            if doctype == "AC Asset" and not clean.get("lifecycle_status"):
+            # AC Asset: workflow only allows new docs at "Draft". Capture the
+            # desired status so we can transition AFTER insert (mirrors the
+            # logic in api.imm00.create_asset for non-procurement assets).
+            desired_status = ""
+            if doctype == "AC Asset":
+                desired_status = (clean.get("lifecycle_status") or "").strip()
                 clean["lifecycle_status"] = "Draft"
             doc.update(clean)
             doc.insert(ignore_permissions=True)
+            if doctype == "AC Asset" and desired_status and desired_status != "Draft":
+                _transition_asset_lifecycle(doc.name, desired_status)
             results["success"] += 1
         except Exception as e:
             frappe.log_error(f"Import row {i} failed: {e}", "Import Ref Data")
@@ -193,6 +222,26 @@ def _do_import(doctype: str, file_url: str) -> dict:
 
     frappe.db.commit()
     return results
+
+
+def _transition_asset_lifecycle(asset_name: str, desired_status: str) -> None:
+    """Walk the AC Asset workflow from Draft to desired_status.
+
+    Workflow path: Draft → Commissioned → Active. Other terminal/branch states
+    (Out of Service, Decommissioned, ...) are not reachable in bulk import and
+    silently ignored so a bad CSV row doesn't trap the asset mid-flight.
+    """
+    from assetcore.services.imm00 import transition_asset_status
+
+    chain: list[str] = []
+    if desired_status == "Commissioned":
+        chain = ["Commissioned"]
+    elif desired_status == "Active":
+        chain = ["Commissioned", "Active"]
+    else:
+        return
+    for step in chain:
+        transition_asset_status(asset_name, to_status=step, reason="Bulk import")
 
 
 def _normalise_row(row: dict, bool_fields: set[str]) -> dict:
