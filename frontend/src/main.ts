@@ -66,4 +66,10 @@ try {
   // not logged in yet — login flow will set the token
 }
 
+// Chờ router resolve initial navigation TRƯỚC khi mount — đảm bảo
+// route.meta.moduleId (do tagWorkspace gán) đã hydrate khi AppSidebar
+// render lần đầu. Tránh flash "Trang này không thuộc module nào" khi
+// user mở deep-link như /pm/schedules, /calibration/:id (BUG-003).
+await router.isReady()
+
 app.mount('#app')

@@ -679,6 +679,17 @@ const routes: RouteRecordRaw[] = [
     props: true,
     meta: { requiresAuth: true, title: 'Chi tiết đơn hàng' },
   },
+  // BUG-015: alias `/purchase-orders` → `/purchases` (English URL parity)
+  { path: '/purchase-orders', redirect: '/purchases' },
+  { path: '/purchase-orders/new', redirect: '/purchases/new' },
+  {
+    path: '/purchase-orders/:name',
+    redirect: (to) => `/purchases/${to.params.name}`,
+  },
+  {
+    path: '/purchase-orders/:name/edit',
+    redirect: (to) => `/purchases/${to.params.name}/edit`,
+  },
 
   // ─── 10. Admin ─────────────────────────────────────────────────────────────
   {
@@ -918,6 +929,7 @@ const MODULE_RULES: Array<[RegExp, string]> = [
   [/^\/procurement-decisions/, 'imm03'],
   [/^\/vendor-profiles/,       'imm03'],
   [/^\/purchases/,             'imm03'],
+  [/^\/purchase-orders/,       'imm03'],
   // Khối 2 — Triển khai & Lắp đặt
   [/^\/commissioning/,         'imm04'],
   [/^\/documents/,             'imm05'],
@@ -953,6 +965,25 @@ const MODULE_RULES: Array<[RegExp, string]> = [
   [/^\/approvals/,             'system'],
 ]
 
+/**
+ * Resolve moduleId từ pathname dùng MODULE_RULES.
+ *
+ * Source-of-truth cho sidebar khi `route.meta.moduleId` chưa được hydrate.
+ * Cảnh báo deep-link: trên initial paint của một deep URL (vd `/pm/schedules`),
+ * Vue Router có thể đang ở START_LOCATION khi component đầu tiên mount —
+ * `route.meta.moduleId` rỗng. AppSidebar fallback về hàm này dựa thuần URL,
+ * không phụ thuộc trạng thái nav guard.
+ *
+ * Return `null` nếu không có rule nào khớp (route ngoài map module).
+ */
+export function resolveModuleId(pathname: string): string | null {
+  if (!pathname) return null
+  for (const [re, mod] of MODULE_RULES) {
+    if (re.test(pathname)) return mod
+  }
+  return null
+}
+
 function tagWorkspace(rs: RouteRecordRaw[]): RouteRecordRaw[] {
   for (const r of rs) {
     if (typeof r.path !== 'string') continue
@@ -960,12 +991,8 @@ function tagWorkspace(rs: RouteRecordRaw[]): RouteRecordRaw[] {
     // Regex chỉ áp dụng cho route chưa có moduleId, tránh bug shared-path
     // (vd /capas thuộc IMM-16 nhưng regex từng gán nhầm sang IMM-12).
     if (r.meta?.moduleId) continue
-    for (const [re, mod] of MODULE_RULES) {
-      if (re.test(r.path)) {
-        r.meta = { ...r.meta, moduleId: mod }
-        break
-      }
-    }
+    const mod = resolveModuleId(r.path)
+    if (mod) r.meta = { ...r.meta, moduleId: mod }
   }
   return rs
 }
