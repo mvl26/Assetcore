@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 import frappe
@@ -1491,6 +1492,17 @@ def get_capa(name: str) -> dict:
         data["finding_ref"] = finding_ref
         data["finding_rule"] = frappe.db.get_value(
             ComplianceFindingRepo.DOCTYPE, finding_ref, "rule") or ""
+
+    # B-IMM16-2 (2026-05-26): enrich linked_incident / source_ref khi nguồn là Incident
+    incident_ref = data.get("linked_incident")
+    if not incident_ref and data.get("source_type") == "Incident Report":
+        incident_ref = data.get("source_ref")
+    if incident_ref and frappe.db.exists("Incident Report", incident_ref):
+        data["incident_ref"] = incident_ref
+        desc = frappe.db.get_value(
+            "Incident Report", incident_ref, "description") or ""
+        # truncate dài mô tả cho UI hiển thị inline
+        data["incident_subject"] = (desc[:120] + "…") if len(desc) > 120 else desc
     return data
 
 
@@ -1801,16 +1813,87 @@ def get_management_review(name: str) -> dict:
     return data
 
 
+_QUARTER_RE = re.compile(r"^Q[1-4]-\d{4}$")
+
+
+def _compute_quarter_from_date(d: Any) -> str:
+    """Derive ``Q[1-4]-YYYY`` from a date-like value."""
+    gd = getdate(d)
+    q = (gd.month - 1) // 3 + 1
+    return f"Q{q}-{gd.year}"
+
+
+def _find_scorecard_for_quarter(quarter: str, scope: str = "Hospital") -> str | None:
+    """BUG-017: tìm Compliance Scorecard mới nhất khớp quý MR.
+
+    Quarter format ``Q[1-4]-YYYY``. Scorecard có period_month/year nên ta map:
+    Q1 → tháng 1..3, Q2 → 4..6, Q3 → 7..9, Q4 → 10..12. Ưu tiên scorecard
+    đã publish, sau đó tới tháng cao nhất trong quý.
+    """
+    if not quarter or not _QUARTER_RE.match(str(quarter)):
+        return None
+    try:
+        q_idx = int(quarter[1])
+        year = int(quarter.split("-", 1)[1])
+    except (ValueError, IndexError):
+        return None
+    months = list(range((q_idx - 1) * 3 + 1, q_idx * 3 + 1))
+    rows = frappe.get_all(
+        ComplianceScorecardRepo.DOCTYPE,
+        filters={
+            "period_year": year,
+            "period_month": ("in", months),
+            "scope": scope,
+        },
+        fields=["name", "period_month", "is_published"],
+        order_by="is_published desc, period_month desc",
+        limit=1,
+    )
+    return rows[0]["name"] if rows else None
+
+
 def create_management_review(data: dict) -> dict:
     if not rbac.can(_CAP_COMPLIANCE_APPROVE):
         raise ServiceError(ErrorCode.FORBIDDEN, "Không có quyền tạo Management Review")
-    if not data.get("quarter"):
-        raise ServiceError(ErrorCode.VALIDATION, "quarter là bắt buộc (vd: Q2-2026)")
+    data.setdefault("status", "Draft")
+    data.setdefault("review_date", nowdate())
+
+    # Always re-compute quarter from review_date (override user input).
+    # If user supplied quarter, validate format + plausible year window
+    # before discarding it, so callers learn about bad input.
+    review_date = data["review_date"]
+    computed_quarter = _compute_quarter_from_date(review_date)
+    user_quarter = data.get("quarter")
+    if user_quarter:
+        if not _QUARTER_RE.match(str(user_quarter)):
+            raise ServiceError(
+                ErrorCode.VALIDATION,
+                "quarter sai định dạng (yêu cầu Q[1-4]-YYYY, vd: Q2-2026)",
+            )
+        try:
+            user_year = int(str(user_quarter).split("-", 1)[1])
+        except (IndexError, ValueError):
+            raise ServiceError(
+                ErrorCode.VALIDATION,
+                "quarter sai định dạng năm (yêu cầu Q[1-4]-YYYY)",
+            )
+        current_year = getdate(nowdate()).year
+        if not (current_year - 3 <= user_year <= current_year + 1):
+            raise ServiceError(
+                ErrorCode.VALIDATION,
+                f"quarter năm {user_year} ngoài khoảng cho phép "
+                f"[{current_year - 3}, {current_year + 1}]",
+            )
+    data["quarter"] = computed_quarter
+
     if ManagementReviewRepo.find_by_quarter(data["quarter"]):
         raise ServiceError(ErrorCode.DUPLICATE,
                            f"MR cho quý {data['quarter']} đã tồn tại")
-    data.setdefault("status", "Draft")
-    data.setdefault("review_date", nowdate())
+    # BUG-017: auto-link scorecard cùng quý nếu caller chưa truyền.
+    if not data.get("scorecard_ref"):
+        auto_sc = _find_scorecard_for_quarter(data["quarter"])
+        if auto_sc:
+            data["scorecard_ref"] = auto_sc
     doc = ManagementReviewRepo.create(data)
     frappe.db.commit()
     return {"name": doc.name, "quarter": doc.quarter, "status": doc.status}
@@ -1840,6 +1923,11 @@ def finalize_management_review(name: str,
     doc.minutes_doc = minutes_doc
     doc.status = "Closed"
     doc.workflow_state = "Closed"
+    # BUG-017: nếu MR chưa có scorecard_ref, thử auto-link trước khi đóng.
+    if not getattr(doc, "scorecard_ref", None):
+        auto_sc = _find_scorecard_for_quarter(doc.quarter)
+        if auto_sc:
+            doc.scorecard_ref = auto_sc
     if output_actions and hasattr(doc, "output_actions"):
         # Replace output_actions child rows. NB: child field is
         # ``responsible`` (``owner`` is a reserved Frappe column).

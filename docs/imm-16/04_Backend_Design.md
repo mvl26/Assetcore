@@ -3,8 +3,8 @@
 | Mục | Giá trị |
 |---|---|
 | Module | IMM-16 — Compliance Monitoring & CAPA |
-| Phiên bản | 0.5.0 |
-| Ngày cập nhật | 2026-05-18 |
+| Phiên bản | 0.0.2 (đồng bộ `assetcore/__init__.py`) |
+| Ngày cập nhật | 2026-05-27 |
 | Owner | Tech Lead + BE Developer |
 | Liên kết | [03 Diagrams](./03_Diagrams.md) · [05 API](./05_API_Specification.md) · [07 Testing](./07_Testing_QA.md) |
 
@@ -16,7 +16,7 @@
 
 | DocType | Trạng thái | Naming | Submittable | Track Changes | Vai trò |
 |---|---|---|---|---|---|
-| `IMM CAPA Record` | **LIVE** | `CAPA-.YYYY.-.#####` | 1 | 1 | CAPA backbone (extended với CF IMM-16) |
+| `IMM CAPA Record` | **LIVE** (shared owner với IMM-12) | `CAPA-.YYYY.-.#####` | 1 | 1 | CAPA backbone — DocType **shared cross-module**: IMM-12 sở hữu CAPA từ Incident/RCA; IMM-16 extend lifecycle (6 sub-states) + Compliance Finding source. Cùng 1 DocType, hai entrypoint. |
 | `IMM CAPA Action Step` | **LIVE** | child | 0 | 0 | Action plan step (Wave 2) |
 | `Audit Finding` | **LIVE — REUSE** | child | 0 | 0 | Audit Finding child |
 | `IMM Audit Trail` | **LIVE** | `IMM-AUD-.YYYY.-.#######` | 0 | 0 | Hash chain |
@@ -62,17 +62,16 @@ Existing fields: `naming_series`, `asset` (Link AC Asset), `severity` (Minor/Maj
 
 **`source_type` options (từ JSON thực tế):** `Incident Report`, `Non-Conformance`, `Complaint`, `PM Work Order`, `IMM Asset Calibration`, `Asset Repair`, `IMM Compliance Finding`, `Cycle Count Variance`, `Critical Stock Breach`.
 
-**Permissions** (giữ nguyên 12 role đã định nghĩa trong JSON LIVE):
+**Permissions** (mapping vào 30-role catalog — `assetcore/fixtures/role.json`):
 
-| Role | R | W | C | Submit | Cancel |
+| Role hệ thống | R | W | C | Submit | Cancel |
 |---|---|---|---|---|---|
-| Tổ HC-QLCL | ✅ | ✅ | ✅ | ✅ | — |
-| Internal Auditor | ✅ | ✅ | ✅ | — | — |
-| Workshop Head | ✅ | ✅ | ✅ | — | — |
-| Biomed Engineer | ✅ | ✅ | — | — | — |
-| HTM Technician | ✅ | ✅ (action step) | — | — | — |
-| VP Block2 | ✅ | ✅ | — | ✅ | ✅ |
-| CMMS Admin | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Compliance Manager | ✅ | ✅ | ✅ | ✅ | — |
+| Compliance User | ✅ | ✅ | ✅ | — | — |
+| Corrective Manager (IMM-09) | ✅ | ✅ | ✅ | — | — |
+| Corrective User / PM User | ✅ | ✅ (action step) | — | — | — |
+| AssetCore Auditor | ✅ | — | — | — | — |
+| AssetCore Super Admin | ✅ | ✅ | ✅ | ✅ | ✅ |
 
 ## II.2. IMM Compliance Rule (LIVE)
 
@@ -100,11 +99,11 @@ Existing fields: `naming_series`, `asset` (Link AC Asset), `severity` (Minor/Maj
 
 **Permissions:**
 
-| Role | R | W | C |
+| Role hệ thống | R | W | C |
 |---|---|---|---|
-| Tổ HC-QLCL | ✅ | ✅ | ✅ |
-| All authenticated | ✅ | — | — |
-| CMMS Admin | ✅ | ✅ | ✅ |
+| Compliance Manager | ✅ | ✅ | ✅ |
+| AssetCore System User (all authenticated) | ✅ | — | — |
+| AssetCore Super Admin | ✅ | ✅ | ✅ |
 
 ## II.3. IMM Compliance Finding (LIVE)
 
@@ -462,12 +461,12 @@ class IMMComplianceScorecard(Document):
 
 | State | doc_status | Type | Transitions |
 |---|---|---|---|
-| Open | 0 | Warning | → Under Review (Tổ HC-QLCL / Internal Auditor) |
-| Under Review | 0 | Warning | → Confirmed NC / False Positive (QLCL) ; → Waived (VP Block2 only) |
+| Open | 0 | Warning | → Under Review (Compliance Manager / Compliance User) |
+| Under Review | 0 | Warning | → Confirmed NC / False Positive (Compliance Manager) ; → Waived (Compliance Manager only) |
 | Confirmed NC | 0 | Danger | → Resolved (auto khi CAPA Closed) |
 | False Positive | 0 | Default | terminal |
 | Waived | 1 | Default | terminal (auto re-open sau expiry) |
-| Resolved | 1 | Success | → Closed (Tổ HC-QLCL) |
+| Resolved | 1 | Success | → Closed (Compliance Manager) |
 | Closed | 2 | Success | terminal |
 
 **Workflow actions (Vietnamese):** "Chuyển sang Xem xét", "Xác nhận NC", "Đánh dấu Sai", "Miễn áp dụng", "Đánh dấu Đã giải quyết", "Đóng"
@@ -476,10 +475,10 @@ class IMMComplianceScorecard(Document):
 
 | State | doc_status | Type | Allowed roles |
 |---|---|---|---|
-| Planned | 0 | Default | Tổ HC-QLCL, CMMS Admin |
-| In Progress | 0 | Warning | Tổ HC-QLCL, Internal Auditor, CMMS Admin |
-| Reporting | 0 | Warning | Tổ HC-QLCL, CMMS Admin |
-| Closed | 1 | Success | Tổ HC-QLCL, VP Block2, CMMS Admin |
+| Planned | 0 | Default | Compliance Manager, AssetCore Super Admin |
+| In Progress | 0 | Warning | Compliance Manager, Compliance User, AssetCore Super Admin |
+| Reporting | 0 | Warning | Compliance Manager, AssetCore Super Admin |
+| Closed | 1 | Success | Compliance Manager, AssetCore Super Admin |
 
 **Workflow actions:** "Bắt đầu Audit", "Chuyển sang Báo cáo", "Đóng Audit"
 

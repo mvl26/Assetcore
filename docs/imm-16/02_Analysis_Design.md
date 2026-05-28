@@ -47,19 +47,19 @@ Output: Compliance Finding, CAPA Record lifecycle, Scorecard tháng, Management 
 
 ## I.3. Stakeholders & Actors
 
-| Vai trò | Người dùng thực | Quan tâm chính | Tần suất | Loại |
+> **Roles ánh xạ vào 30-role catalog** (post-patch `v3_2.001_module_role_redesign`). Persona nghiệp vụ (Tổ HC-QLCL, VP Block2, Workshop Head, Internal Auditor) được giữ ở cột "Persona thực địa" để BA dễ đối chiếu, role hệ thống cấp quyền lấy từ `assetcore/fixtures/role.json`.
+
+| Role hệ thống (30-role catalog) | Persona thực địa | Quan tâm chính | Tần suất | Loại |
 |---|---|---|---|---|
-| Tổ HC-QLCL / IMM QA Officer | Tổ HC-QLCL (primary owner) | Rule config, CAPA lifecycle, Scorecard, Audit lead | Daily | Primary |
-| Internal Auditor | Thành viên audit team | Checklist, Audit Finding, raise NC | Per audit | Primary |
-| Workshop Head | Trưởng phân xưởng | Action owner, theo dõi CAPA mức xưởng | Daily | Secondary |
-| Biomed Engineer | Kỹ sư Biomedical | CAPA action step kỹ thuật | Per CAPA | Secondary |
-| HTM Technician | Kỹ thuật viên HTM | Thực hiện action step | Per step | Secondary |
-| VP Block2 | Phó Khối 2 (Operations) | Waive Finding, approve CAPA Close, sign Scorecard, chair MR | Weekly | Approver |
-| VP Block1 | Phó Khối 1 (Planning) | Xem báo cáo Audit/CAPA/Scorecard | Monthly | Stakeholder |
-| Trưởng phòng | Department Head | Action owner cấp khoa | Per CAPA | Secondary |
-| CMMS Admin | IT/CMMS | Full admin, override | Ad-hoc | Secondary |
+| **Compliance Manager** | Tổ HC-QLCL / QA Lead | Rule config, Finding triage, CAPA oversight, Scorecard publish, Audit lead, MR finalize, Waive Finding | Daily | Primary |
+| **Compliance User** | Internal Auditor / khoa phòng | Checklist audit, raise NC, tạo CAPA cấp khoa, action owner | Per audit / Daily | Primary |
+| **Corrective Manager** (IMM-09) | Workshop Head / Trưởng phân xưởng | Action owner xưởng, theo dõi CAPA mức xưởng, escalation Level 2 | Daily | Secondary |
+| **Corrective User** (IMM-09) | Biomed Engineer / HTM Technician | Thực hiện CAPA action step kỹ thuật | Per step | Secondary |
+| **PM User** (IMM-08) | KTV PM | Bị block WO khi asset có CAPA Critical (BR-16-09) | Daily | Consumer |
+| **AssetCore Auditor** | Auditor QMS | Read-only audit trail, immutability, traceability NĐ98 | Monthly | Auditor |
+| **AssetCore Super Admin** | CMMS Admin / IT | Full admin, override, scheduler giám sát | Ad-hoc | System Admin |
+| **AssetCore System User** | Mọi nhân viên đăng nhập | Xem Dashboard, Heatmap (read-only) | Weekly | Stakeholder |
 | System (Scheduler) | Frappe Scheduler | Auto-eval rule, scorecard, escalation | Auto | System |
-| Auditor QMS | QMS Officer | Traceability, audit trail, CAPA immutability | Monthly | Auditor |
 
 ## I.4. Scope
 

@@ -6,7 +6,7 @@
 | Wave | 2 — IMPLEMENTED (feature/hieuc/wave-2) |
 | Trạng thái | ✅ Stable — BE + FE đã merge; chờ UAT |
 | Số file | 9 (README + 02-09; nguồn gốc đã archive) |
-| Cập nhật cuối | 2026-05-18 |
+| Cập nhật cuối | 2026-05-27 |
 | Khối kiến trúc | C. KHỐI 3 |
 | Đợt triển khai | 2 |
 | Owner | Tổ HC-QLCL & Risk |
@@ -62,8 +62,8 @@
 
 | DocType | Status | Naming |
 |---|:---:|---|
-| IMM CAPA Record | LIVE | CAPA-.YYYY.-.##### |
-| IMM CAPA Action Step | LIVE | child |
+| IMM CAPA Record | LIVE (shared với **IMM-12**) | CAPA-.YYYY.-.##### |
+| IMM CAPA Action Step | LIVE (shared với **IMM-12**) | child |
 | Audit Finding | LIVE (reuse) | — |
 | IMM Audit Trail | LIVE | IMM-AUD-.YYYY.-.####### |
 | IMM RCA Record | LIVE (reuse) | IMM-RCA-.YYYY.-.##### |
@@ -74,17 +74,19 @@
 | IMM Compliance Scorecard | LIVE | SCR-.YYYY.-.MM.-.##### |
 | IMM Management Review | LIVE | MR-.YYYY.-.##### |
 
-### Roles
+### Roles (30-role catalog — `assetcore/fixtures/role.json`)
 
-| Role | Quyền chính |
-|---|---|
-| Tổ HC-QLCL | Quản lý Rule, xem xét Finding, CAPA oversight, Scorecard publish |
-| Internal Auditor | Internal Audit, Finding review |
-| Workshop Head | CAPA action owner |
-| Biomed Engineer | Xem CAPA; biết gate block |
-| VP Block2 | Waive Finding, Close Audit, Finalize MR, Dashboard |
-| Trưởng phòng | Tạo CAPA cho khoa |
-| CMMS Admin | Full access |
+| Role hệ thống | Persona thực địa | Quyền chính |
+|---|---|---|
+| Compliance Manager | Tổ HC-QLCL / VP Block2 / QA Lead | Quản lý Rule, Finding triage, CAPA oversight, Scorecard publish, Waive, Close Audit, Finalize MR |
+| Compliance User | Internal Auditor / khoa phòng | Internal Audit, Finding review, tạo CAPA cấp khoa |
+| Corrective Manager (IMM-09) | Workshop Head | CAPA action owner cấp xưởng |
+| Corrective User / PM User | Biomed Engineer / KTV PM | Thực hiện action step; biết gate block (BR-16-09) |
+| AssetCore Auditor | Auditor QMS | Read-only audit trail + immutability |
+| AssetCore Super Admin | CMMS Admin | Full access, override |
+| AssetCore System User | All authenticated | Read Dashboard / Heatmap |
+
+> Persona cũ (Tổ HC-QLCL, VP Block2, Workshop Head, Internal Auditor, CMMS Admin) đã được ánh xạ vào 30-role catalog post-patch `v3_2.001_module_role_redesign`.
 
 ---
 
@@ -97,7 +99,7 @@
 - [x] Bổ sung **`06_Frontend_Design.md`** — Sitemap, components + wireframes, Pinia store, i18n
 - [x] Bổ sung **`07_Testing_QA.md`** — Test pyramid, unit stubs, workflow transitions, UAT-IMM16-01..12, STRIDE, DocPerm, code quality
 - [x] Bổ sung **`08_Deployment.md`** — Pre-deploy checklist, patches, deploy sequence, smoke test, rollback, QMS mapping
-- [x] Bổ sung **`09_Release.md`** — User guide tiếng Việt, FAQ, Release Notes v1.0.0, Traceability matrix
+- [x] Bổ sung **`09_Release.md`** — User guide tiếng Việt, FAQ, Release Notes v0.0.2 (đồng bộ app), Traceability matrix
 
 ---
 
@@ -114,4 +116,4 @@
 
 ---
 
-*Cập nhật: 2026-05-18. Module IMM-16 — Wave 2 LIVE. Tất cả banners PLANNED đã gỡ (Pass 2026-05-14). Codebase refs đã đồng bộ với `services/imm16.py` và `api/imm16.py` thực tế.*
+*Cập nhật: 2026-05-27. Module IMM-16 — Wave 2 LIVE. Audit pass 2026-05-27: version → `0.0.2`, persona roles → 30-role catalog, cross-module note: `IMM CAPA Record` + `IMM CAPA Action Step` shared với IMM-12.*
