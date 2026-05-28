@@ -7,8 +7,9 @@
 | Owner | BA + System Architect |
 | Liên kết | [03 Diagrams](./03_Diagrams.md) · [04 Backend](./04_Backend_Design.md) · [05 API](./05_API_Specification.md) · [06 Frontend](./06_Frontend_Design.md) |
 | Chuẩn tham chiếu | WHO HTM 2025, NĐ 98/2021/NĐ-CP, ISO 13485:2016, ISO/IEC 17025 |
-| Phiên bản | 4.1.0 |
-| Trạng thái | **Live ✅** — BE foundation + scheduler + service layer đã implement; FE đang cuốn chiếu (synced 2026-05-14) |
+| Phiên bản | 0.0.2 |
+| Cập nhật | 2026-05-27 |
+| Trạng thái | **Live ✅** — BE foundation + scheduler + service layer đã implement; FE đang cuốn chiếu (synced 2026-05-27) |
 
 ---
 
@@ -20,7 +21,7 @@ IMM-00 là **foundation layer** — không có quy trình "as-is" tương ứng 
 
 | Lớp kiến trúc hiện trạng | Tình trạng phổ biến tại đơn vị y tế VN | Khoảng trống IMM-00 phải lấp |
 |---|---|---|
-| Lớp người dùng | Excel/giấy phân tán theo khoa; quyền hạn không bám actor thật | Cần portal nội bộ + RBAC theo 8 vai trò IMM |
+| Lớp người dùng | Excel/giấy phân tán theo khoa; quyền hạn không bám actor thật | Cần portal nội bộ + RBAC theo 30 roles (4 System + 26 Domain = 13 module × Manager/User) |
 | Lớp workflow & dịch vụ | Workflow ngầm, không có engine; không SLA, không audit | Workflow + SLA + audit trail bắt buộc cho mọi state mutation |
 | Lớp nghiệp vụ | Module rời rạc, không liên kết lifecycle | 17 module IMM-01→17 chia 4 khối, đều phụ thuộc IMM-00 |
 | Lớp dữ liệu | Item/Asset/Vendor/Document gộp lẫn lộn | Tách đúng AC Asset / IMM Device Model / AC Supplier / Document repo |
@@ -38,7 +39,7 @@ IMM-00 **không phải** module nghiệp vụ thông thường theo Wave 1/2/3. 
 - Định nghĩa domain catalog (IMM Device Model, IMM SLA Policy)
 - Cung cấp governance records (IMM Audit Trail, IMM CAPA Record, Asset Lifecycle Event, Incident Report)
 - Xuất shared service functions được gọi bởi IMM-04, IMM-08, IMM-09, IMM-11, IMM-12, IMM-13
-- Thiết lập vai trò (8 roles), scheduler jobs (4 daily), và permission query
+- Thiết lập vai trò (30 roles = 4 System + 26 Domain), scheduler jobs (4 daily), và permission query
 
 Nguyên tắc kiến trúc bắt buộc: AssetCore **chỉ phụ thuộc Frappe Framework v15** — không cần ERPNext. Các DocType core được thiết kế theo mẫu schema của ERPNext nhưng **tái tạo native** với prefix `AC` / `IMM`, không extend hay link sang DocType của ERPNext.
 
@@ -50,7 +51,7 @@ Nguyên tắc kiến trúc bắt buộc: AssetCore **chỉ phụ thuộc Frappe 
 | 6 Governance DocTypes (IMM prefix) | **Live ✅** | IMM Audit Trail, IMM CAPA Record, Asset Lifecycle Event, Incident Report, IMM Device Model, IMM SLA Policy |
 | 5 Inventory DocTypes (v4) | **Live ✅** | AC Warehouse, AC Spare Part, AC Spare Part Stock, AC Stock Movement (+ Item child), AC Stock Movement Item |
 | Services (imm00.py) | **Live ✅** | 22 public functions implement (transfer, GMDN, scheduler, KPI rollup) |
-| Role fixtures | **Live ✅** | 20 IMM roles seed qua `fixtures/role.json` (commit `5b4158e`) |
+| Role fixtures | **Live ✅** | 30 roles (4 System + 26 Domain = 13 module × Manager/User) seed qua `fixtures/role.json`; nguồn canonical: `services/shared/constants.py::Roles` |
 | Permission query | **Live ✅** | `permission.py` cho AC Asset (scoped theo `responsible_technician`) |
 | Scheduler | **Live ✅** | 5 daily IMM-00 jobs + weekly + monthly (xem §III.7) |
 | FE shell + views | **Partial** | 12+ views built (asset/ ×10, audit/ ×2, master-data/ ×2); phần còn lại cuốn chiếu |
@@ -70,16 +71,34 @@ Nguyên tắc kiến trúc bắt buộc: AssetCore **chỉ phụ thuộc Frappe 
 
 ## I.4. Stakeholders & Actors
 
-| Vai trò | Người dùng thực | Quan tâm chính | Loại |
-|---|---|---|---|
-| IMM System Admin | Quản trị viên CNTT | Cấu hình SLA, Device Model, seed fixtures, phân quyền | Primary |
-| IMM Department Head | Trưởng phòng HTM / BGĐ kỹ thuật | Nhận cảnh báo HĐ NCC, BYT expiry; xem dashboard KPI | Primary |
-| IMM Operations Manager | Quản lý vận hành | CRUD AC Asset, AC Supplier; quản lý dữ liệu vận hành | Primary |
-| IMM Workshop Lead | Trưởng xưởng kỹ thuật | Cập nhật Device Model; tạo CAPA; đóng Incident | Secondary |
-| IMM Technician | Kỹ thuật viên | Xem AC Asset được gán; cập nhật PM/cal date | Secondary |
-| IMM Document Officer | Nhân viên tài liệu | Xem Audit Trail; xuất báo cáo traceability | Auditor |
-| IMM Storekeeper | Thủ kho | Cập nhật AC Supplier, spare parts catalog, tồn kho | Secondary |
-| IMM QA Officer | Nhân viên QA/QC | Tạo/đóng CAPA; verify hash chain; audit review | Approver |
+> Canonical role catalog: **30 roles** = 4 System + 26 Domain (13 module × Manager/User). Nguồn: `assetcore/fixtures/role.json` + `assetcore/services/shared/constants.py::Roles`. Các persona role cũ (IMM System Admin, IMM Department Head, IMM Workshop Lead, Trưởng khoa, KTV HTM, v.v.) đã bị thay thế qua patch `v3_2.001_module_role_redesign`.
+
+### System roles (4)
+
+| Role | Mục đích |
+|---|---|
+| `AssetCore Super Admin` | Toàn quyền, bao trùm Frappe System Manager |
+| `AssetCore System User` | Role nền: đăng nhập, dashboard, đọc shared-core |
+| `AssetCore Auditor` | Chỉ đọc toàn bộ + audit trail |
+| `Vendor Engineer` | Bên thứ ba, cô lập theo WO/Asset được phân công |
+
+### Domain roles (26 = 13 module × Manager/User)
+
+| Module | Manager role | User role |
+|---|---|---|
+| IMM-00 (Dữ liệu nền) | `Data Manager` | `Data User` |
+| IMM-01 (Nhu cầu) | `Needs Manager` | `Needs User` |
+| IMM-02 (Tech Spec) | `Spec Manager` | `Spec User` |
+| IMM-03 (NCC & Mua sắm) | `Procurement Manager` | `Procurement User` |
+| IMM-04 (Lắp đặt) | `Commissioning Manager` | `Commissioning User` |
+| IMM-05 (Hồ sơ) | `Document Manager` | `Document User` |
+| IMM-06 (Đào tạo) | `Training Manager` | `Training User` |
+| IMM-08 (PM) | `PM Manager` | `PM User` |
+| IMM-09 (Sửa chữa) | `Repair Manager` | `Repair User` |
+| IMM-11 (Hiệu chuẩn) | `Calibration Manager` | `Calibration User` |
+| IMM-12 (BT khắc phục / Incident) | `Corrective Manager` | `Corrective User` |
+| IMM-15 (Tồn kho) | `Inventory Manager` | `Inventory User` |
+| IMM-16 (Compliance) | `Compliance Manager` | `Compliance User` |
 
 ## I.5. Scope
 
@@ -91,7 +110,7 @@ Nguyên tắc kiến trúc bắt buộc: AssetCore **chỉ phụ thuộc Frappe 
 - SLA lookup engine theo priority × risk_class
 - Incident Report → trigger Repair WO + CAPA
 - 5 daily scheduler jobs + 1 monthly (`rollup_asset_kpi`)
-- 20 role fixtures (Wave 1 + Wave 2) + permission query
+- 30 role fixtures (4 System + 26 Domain = 13 module × Manager/User) + permission query
 - 107 whitelisted REST endpoints trong `api/imm00.py`
 
 **Out-of-scope (defer sang giai đoạn sau):**
@@ -144,7 +163,7 @@ Roadmap IMM-00 gắn với 3 đợt triển khai và lớp QMS theo `Ho_so_kien_
 
 | Giai đoạn | Phạm vi IMM-00 | Đầu ra QMS | Mốc Đợt |
 |---|---|---|---|
-| Giai đoạn 1 — Foundation core | 5 Core DocType (AC prefix) + 6 Governance DocType + service `imm00.py` cốt lõi + 8 role + permission query | QC-IMMIS nền + audit trail kích hoạt | Trước/Đồng thời Đợt 1 |
+| Giai đoạn 1 — Foundation core | 5 Core DocType (AC prefix) + 6 Governance DocType + service `imm00.py` cốt lõi + 30 roles (4 System + 26 Domain) + permission query | QC-IMMIS nền + audit trail kích hoạt | Trước/Đồng thời Đợt 1 |
 | Giai đoạn 2 — Inventory + Catalog | 5 Inventory DocType v4 + IMM Device Model BOM + GMDN hierarchy | PR/WI/BM cho master data | Cùng Đợt 2 |
 | Giai đoạn 3 — Analytics hooks | KPI rollup scheduler, drill-down API cho IMM-07/10/17 | KPI-DASH-IMMIS + change control | Cùng Đợt 3 |
 | Hậu Đợt 3 — Continuous improvement | Pentest, FHIR/HIS adapter, predictive cockpit hooks | Management review + CAPA loop | Sau Đợt 3 |
@@ -177,7 +196,7 @@ Roadmap IMM-00 gắn với 3 đợt triển khai và lớp QMS theo `Ho_so_kien_
 │  services/imm00.py: 22 public functions                     │
 │  utils/: response.py, lifecycle.py, email.py, pagination.py │
 │  5 daily + 1 monthly scheduler jobs                         │
-│  20 role fixtures + permission.py                           │
+│  30 role fixtures (4 System + 26 Domain) + permission.py    │
 └────┬────────┬──────┬──────┬──────┬──────┬──────┬──────┬────┘
      │        │      │      │      │      │      │      │
   IMM-04   IMM-05 IMM-08 IMM-09 IMM-11 IMM-12 IMM-13 IMM-15/16
@@ -272,27 +291,36 @@ HTTP Request / Frappe Scheduler
 | `utils/email.py` | `get_role_emails(roles)`, `safe_sendmail()` | Scheduler jobs |
 | `utils/pagination.py` | `paginate(query, page, page_size)` | List APIs |
 
-## III.6. Role fixtures (20 IMM roles)
+## III.6. Role fixtures (30 roles — 4 System + 26 Domain)
 
-> Wave 1 (13 role) + Wave 2 (7 role, incl. IMM Training Officer) — danh sách đầy đủ trong `assetcore/services/shared/constants.py::Roles`.
+> Canonical source: `assetcore/fixtures/role.json` + `assetcore/services/shared/constants.py::Roles`. Patch áp dụng: `v3_2.001_module_role_redesign`. Các persona role cũ (IMM System Admin, IMM Department Head, IMM Workshop Lead, KTV HTM, Workshop Manager, Trưởng khoa, PTP Khối 2, v.v.) đã bị thay thế — không còn tồn tại trong fixtures.
+
+**System roles (4):**
 
 | Role | Quyền hạn chính |
 |---|---|
-| IMM System Admin | Create/Write/Delete mọi DocType AssetCore |
-| IMM Operations Manager | Duyệt cuối phiếu lớn; CRUD AC Asset, AC Supplier |
-| IMM Department Head | Duyệt cấp khoa + hủy phiếu; nhận cảnh báo scheduler |
-| IMM Deputy Department Head | Hỗ trợ trưởng khoa (không được hủy) |
-| IMM Workshop Lead | Phân công + duyệt Work Order; Create CAPA |
-| IMM QA Officer | QMS, CAPA, RCA, verify hash chain |
-| IMM Biomed Technician | Thực hiện WO, nhập checklist, báo sự cố |
-| IMM Technician | Legacy alias; Read AC Asset scoped |
-| IMM Document Officer | Quản lý hồ sơ IMM-05 |
-| IMM Storekeeper | Quản lý kho, phụ tùng, stock movement |
-| IMM Clinical User | Xem thiết bị khoa mình, báo sự cố |
-| IMM Auditor | Read-only — truy vết audit trail |
-| Vendor Engineer | Bên thứ ba (KTV nhà cung cấp) |
-| IMM Planning / Finance / HTM Engineer / Procurement / Risk / Board Approver | Wave 2 (IMM-01→03) |
-| IMM Training Officer | Wave 2 (IMM-06) |
+| `AssetCore Super Admin` | Toàn quyền, bao trùm Frappe System Manager |
+| `AssetCore System User` | Role nền: đăng nhập, dashboard, đọc shared-core |
+| `AssetCore Auditor` | Read-only toàn bộ + audit trail |
+| `Vendor Engineer` | Bên thứ ba, cô lập theo WO/Asset được phân công |
+
+**Domain roles (26 = 13 module × Manager/User):**
+
+| Module | Manager role | User role |
+|---|---|---|
+| IMM-00 | `Data Manager` | `Data User` |
+| IMM-01 | `Needs Manager` | `Needs User` |
+| IMM-02 | `Spec Manager` | `Spec User` |
+| IMM-03 | `Procurement Manager` | `Procurement User` |
+| IMM-04 | `Commissioning Manager` | `Commissioning User` |
+| IMM-05 | `Document Manager` | `Document User` |
+| IMM-06 | `Training Manager` | `Training User` |
+| IMM-08 | `PM Manager` | `PM User` |
+| IMM-09 | `Repair Manager` | `Repair User` |
+| IMM-11 | `Calibration Manager` | `Calibration User` |
+| IMM-12 | `Corrective Manager` | `Corrective User` |
+| IMM-15 | `Inventory Manager` | `Inventory User` |
+| IMM-16 | `Compliance Manager` | `Compliance User` |
 
 ## III.7. Scheduler jobs
 
@@ -436,7 +464,7 @@ HTTP Request / Frappe Scheduler
 - [x] Đặc điểm đặc biệt IMM-00 (foundation, không phải per-module)
 - [x] Trạng thái Live vs Planned
 - [x] WHO HTM lifecycle position
-- [x] Stakeholders + Actors (8 roles)
+- [x] Stakeholders + Actors (30 roles = 4 System + 26 Domain)
 - [x] Scope In + Out + Assumptions
 - [x] I.8 Risk & giảm thiểu
 - [x] I.9 Roadmap (đồng bộ QMS + Đợt triển khai)
@@ -452,7 +480,7 @@ HTTP Request / Frappe Scheduler
 - [x] Governance DocTypes
 - [x] Inventory DocTypes (v4)
 - [x] Shared utilities
-- [x] Role fixtures (8 roles)
+- [x] Role fixtures (30 roles — 4 System + 26 Domain)
 - [x] Scheduler jobs (4 daily)
 
 ### IV. Functional Requirements

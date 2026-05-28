@@ -399,6 +399,10 @@ export interface PmTemplate {
   name: string
   template_name: string
   asset_category?: string
+  /** Display name của asset_category (do BE enrich từ AC Asset Category.category_name). */
+  category_name?: string
+  /** Display name của template (BE thay slug trailing trong template_name bằng category_name). */
+  display_template_name?: string
   pm_type?: string
   version?: string
   effective_date?: string

@@ -6,8 +6,9 @@
 | Phạm vi     | Foundation — cross-cutting                                                                             |
 | Owner        | Tech Lead / BE Lead                                                                                     |
 | Liên kết   | [03 Diagrams](./03_Diagrams.md) · [05 API Specification](./05_API_Specification.md)                          |
-| Phiên bản  | 4.2.0                                                                                                   |
-| Trạng thái | **Live ✅** — synced vs codebase 2026-05-19; thêm schema AC Location (II.9) + gộp contact fields (patch v3_1.007) |
+| Phiên bản  | 0.0.2                                                                                                   |
+| Cập nhật   | 2026-05-27                                                                                              |
+| Trạng thái | **Live ✅** — synced vs codebase 2026-05-27; RBAC 30 roles (patch v3_2.001), SLA P1-P4 (patch v3_1.010), AC Location schema gộp contact fields (patch v3_1.007) |
 
 ---
 
@@ -523,7 +524,7 @@ def paginate(
 # assetcore/services/shared/constants.py
 from assetcore.services.shared.constants import Roles, AssetStatus, ErrorCode
 
-class Roles:        # 20 roles — Wave 1 (13) + Wave 2 (7 incl. TRAINING_OFFICER)
+class Roles:        # 30 roles — 4 System + 26 Domain (13 module × Manager/User); see services/shared/constants.py::Roles
 class AssetStatus:  # lifecycle_status constants (DRAFT, COMMISSIONED, ACTIVE, …)
 class ErrorCode:    # string codes: NOT_FOUND, FORBIDDEN, VALIDATION, CONFLICT, …
 
@@ -623,23 +624,30 @@ assetcore.patches.v3_0.001_migrate_from_v2
 # Fixtures được apply tự động qua migrate
 bench --site <site> migrate
 
-# Manual verify roles
+# Manual verify roles — canonical 30 roles (post patch v3_2.001_module_role_redesign)
 bench --site <site> console <<'PY'
 import frappe
-roles = ["IMM System Admin", "IMM Department Head", "IMM Operations Manager",
-         "IMM Workshop Lead", "IMM Technician", "IMM Document Officer",
-         "IMM Storekeeper", "IMM QA Officer"]
-for r in roles:
+system_roles = ["AssetCore Super Admin", "AssetCore System User",
+                "AssetCore Auditor", "Vendor Engineer"]
+domain_managers = ["Data Manager", "Needs Manager", "Spec Manager", "Procurement Manager",
+                   "Commissioning Manager", "Document Manager", "Training Manager",
+                   "PM Manager", "Repair Manager", "Calibration Manager",
+                   "Corrective Manager", "Inventory Manager", "Compliance Manager"]
+domain_users = ["Data User", "Needs User", "Spec User", "Procurement User",
+                "Commissioning User", "Document User", "Training User",
+                "PM User", "Repair User", "Calibration User",
+                "Corrective User", "Inventory User", "Compliance User"]
+for r in system_roles + domain_managers + domain_users:
     print(r, "→", "OK" if frappe.db.exists("Role", r) else "MISSING")
 PY
 ```
 
-Fixtures shipped (verified vs `assetcore/fixtures/` 2026-05-14):
+Fixtures shipped (verified vs `assetcore/fixtures/` 2026-05-27):
 
 ```
 assetcore/fixtures/
-├── role.json                          # 20 IMM roles (Wave 1 + Wave 2) — commit 5b4158e
-├── has_role.json                      # IMM↔User pre-seed (commit 5b4158e)
+├── role.json                          # 30 roles (4 System + 26 Domain) — patch v3_2.001
+├── has_role.json                      # Role↔User pre-seed
 ├── role_profile.json                  # Role bundling per persona
 ├── module_profile.json                # Workspaces/sidebar grouping
 ├── workflow.json                      # Tất cả workflows AssetCore module
@@ -706,9 +714,14 @@ permission_query_conditions = {
 import frappe
 
 def get_ac_asset_permission_query(user: str) -> str:
-    """IMM Technician chỉ thấy AC Asset được gán cho mình."""
+    """Domain User (PM User / Repair User / Calibration User) chỉ thấy AC Asset được gán cho mình.
+    Vendor Engineer chỉ thấy Asset thuộc WO/PM/Repair/Cal được phân công.
+    Nguồn: assetcore/permissions.py (post patch v3_2.001)."""
     roles = frappe.get_roles(user)
-    if "IMM Technician" in roles and "IMM System Admin" not in roles:
+    technician_roles = {"PM User", "Repair User", "Calibration User"}
+    if "AssetCore Super Admin" in roles:
+        return ""
+    if technician_roles & set(roles):
         return f"(`tabAC Asset`.responsible_technician = '{user}')"
     return ""
 ```
@@ -719,7 +732,7 @@ Fixtures hiện đăng ký qua file JSON trong `assetcore/fixtures/` (bench tự
 
 | Fixture                                 | Doctype gốc           | Mục đích                  |
 | --------------------------------------- | ---------------------- | ---------------------------- |
-| `role.json`                           | Role                   | 20 IMM roles                 |
+| `role.json`                           | Role                   | 30 roles (4 System + 26 Domain) |
 | `has_role.json`                       | Has Role               | Default role assignments     |
 | `role_profile.json`                   | Role Profile           | Persona bundling             |
 | `module_profile.json`                 | Module Profile         | Workspace grouping           |

@@ -3,10 +3,12 @@
 | Mục | Giá trị |
 |---|---|
 | Module | **IMM-00 — Master / Cross-cutting Foundation** |
-| Phiên bản | 4.2.0 |
-| Ngày phát hành | 2026-05-14 |
+| Phiên bản | 0.0.2 |
+| Ngày phát hành | 2026-05-27 |
 | Owner | PM + BA + Tech Writer |
 | Liên kết | [07 Testing QA](./07_Testing_QA.md) · [08 Deployment](./08_Deployment.md) · [Module Overview](./IMM-00_Module_Overview.md) |
+
+> **Chính sách phiên bản:** Tuân theo `assetcore/__init__.py = 0.0.2`. Module docs đồng bộ phiên bản app — không dùng module-version riêng. Mọi `09_Release.md` của IMM-XX đều ghi `Phiên bản 0.0.2` cho đến khi app bump.
 
 > **Vai trò đặc biệt:** IMM-00 là module nền tảng — không phải module nghiệp vụ độc lập. User Guide tập trung vào **System Admin** (thiết lập hệ thống) và **Module Owner** (quản trị dữ liệu master). Người dùng cuối tham khảo hướng dẫn của module cụ thể (IMM-01 → IMM-17).
 
@@ -22,13 +24,13 @@ Module **Nền tảng (IMM-00)** là lớp hạ tầng của toàn hệ thống 
 
 - **Dữ liệu gốc (Master Data):** Thiết bị, Nhà cung cấp, Địa điểm, Khoa phòng, Danh mục thiết bị
 - **Hạ tầng quản trị:** Chính sách SLA, Vết kiểm toán (Audit Trail), Hồ sơ CAPA, Sự kiện vòng đời thiết bị
-- **Phân quyền hệ thống:** 8 vai trò xuyên suốt tất cả module
+- **Phân quyền hệ thống:** 30 vai trò (4 System + 26 Domain = 13 module × Manager/User) xuyên suốt tất cả module
 - **Kho vật tư (v4):** Kho hàng, Phụ tùng, Tồn kho, Phiếu xuất nhập
 
 **System Admin cần thiết lập IMM-00 trước khi bàn giao cho bất kỳ module nào.**
 
 **Trước khi bắt đầu, bạn cần:**
-- Tài khoản AssetCore với vai trò **IMM System Admin**
+- Tài khoản AssetCore với vai trò **AssetCore Super Admin**
 - Trình duyệt Chrome hoặc Edge phiên bản mới nhất
 - Quyền truy cập SSH vào máy chủ (cho cài đặt ban đầu)
 - Đã hoàn thành cài đặt theo `08_Deployment.md`

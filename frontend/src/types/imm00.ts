@@ -2,8 +2,8 @@
 // TypeScript types cho IMM-00 foundation module
 
 export type LifecycleStatus =
-  | 'Commissioned' | 'Active' | 'Under Repair' | 'Calibrating'
-  | 'Out of Service' | 'Decommissioned'
+  | 'Draft' | 'Commissioned' | 'Active' | 'Under Maintenance'
+  | 'Under Repair' | 'Calibrating' | 'Out of Service' | 'Decommissioned'
 
 export type RiskClass = 'Low' | 'Medium' | 'High' | 'Critical'
 export type Priority = 'P1' | 'P2' | 'P3' | 'P4'
