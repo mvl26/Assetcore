@@ -120,12 +120,14 @@ _ALLOWED_SEARCH_DOCTYPES: dict[str, dict] = {
         "search_fields": ["name", "department_name", "department_code"],
         "filters": {},
         "extra_fields": ["department_name", "department_code"],
+        "dynamic_filter_fields": {"is_group", "parent_department"},
     },
     "AC Location": {
         "label_field": "location_name",
         "search_fields": ["name", "location_name", "location_code"],
         "filters": {},
         "extra_fields": ["location_name", "location_code", "clinical_area_type"],
+        "dynamic_filter_fields": {"is_group", "parent_location", "clinical_area_type"},
     },
     "IMM Device Model": {
         "label_field": "model_name",
@@ -932,13 +934,24 @@ def generate_qr_label(name: str) -> dict:
     }
 
 
-def search_link(doctype: str, query: str = "", page_length: int = 10) -> list:
+def search_link(
+    doctype: str,
+    query: str = "",
+    page_length: int = 10,
+    extra_filters: dict | None = None,
+) -> list:
     if doctype not in _ALLOWED_SEARCH_DOCTYPES:
         raise ServiceError(ErrorCode.FORBIDDEN, f"DocType '{doctype}' không được phép tìm kiếm")
     config = _ALLOWED_SEARCH_DOCTYPES[doctype]
     if config.get("optional") and not frappe.db.exists("DocType", doctype):
         return []
     filters = dict(config["filters"])
+    # Merge whitelisted dynamic filters from caller (e.g. {is_group: 1} for tree parents)
+    allowed_dynamic = config.get("dynamic_filter_fields") or set()
+    if extra_filters and allowed_dynamic:
+        for k, v in extra_filters.items():
+            if k in allowed_dynamic:
+                filters[k] = v
     or_filters = []
     if query:
         q = f"%{query}%"
