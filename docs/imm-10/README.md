@@ -6,7 +6,8 @@
 | Đợt triển khai | 3 |
 | Owner | Tổ HC-QLCL & Risk + PTP Khối 2 |
 | Trạng thái docs | In Progress (from-scratch — BE chưa scaffold) |
-| Cập nhật | 2026-05-10 |
+| Blocked by | IMM-16 (Compliance Rule Engine) GA — sprint Wave 3 |
+| Cập nhật | 2026-05-27 |
 
 > ⚠️ **Module thuộc Đợt 3** — BE chưa được scaffold. Toàn bộ tài liệu là design artifact. DocType, endpoint, ErrorCode, KPI baseline đều ở dạng *placeholder* và sẽ được fill khi sprint Wave 3 mở.
 

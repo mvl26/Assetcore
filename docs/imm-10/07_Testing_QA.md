@@ -1,3 +1,7 @@
+> ⚠ **[ROADMAP — Wave 3 / Chưa scaffold]**
+> Module IMM-10 (Post-Market Surveillance / Hậu kiểm) chưa có code: không có `assetcore/services/imm10.py`, không có `assetcore/api/imm10.py`.
+> Nội dung file này là **dự kiến**, sẽ chốt khi sprint Wave 3 mở và phụ thuộc IMM-16 (Compliance Rule Engine) GA trước.
+
 # IMM-10 — Testing & QA
 
 | Mục | Giá trị |
