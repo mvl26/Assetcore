@@ -1,11 +1,13 @@
 ---
 name: assetcore-commit
 description: >
-  Tạo git commit cho AssetCore theo chuẩn dự án. Dùng khi user nói
-  "commit", "commit code", "commit tiếp", "commit cho tôi", "lưu thay đổi",
-  "git commit", "tạo commit", "đẩy code", "commit lại". LUÔN dùng skill này
-  khi task là tạo bất kỳ git commit nào trong repo AssetCore — kể cả khi
-  user chỉ nói "commit" một từ.
+  Tạo git commit cho AssetCore theo chuẩn dự án — chia working tree thành
+  nhiều commit logic nhỏ (mỗi commit một vấn đề), rồi push tất cả lên
+  GitHub. Dùng khi user nói "commit", "commit code", "commit tiếp",
+  "commit cho tôi", "lưu thay đổi", "git commit", "tạo commit", "đẩy code",
+  "commit lại", "push code". LUÔN dùng skill này khi task là tạo bất kỳ
+  git commit nào trong repo AssetCore — kể cả khi user chỉ nói "commit"
+  một từ.
 ---
 
 # AssetCore Commit — Quy tắc viết commit
@@ -16,19 +18,26 @@ description: >
 
 ## Quy tắc CỨNG (không vi phạm)
 
-1. **Một commit cho tất cả file đã sửa** — KHÔNG chia nhỏ thành nhiều commit logic.
-   `git add -A` (toàn bộ working tree) rồi commit một lần duy nhất.
+1. **Chia thành nhiều commit logic nhỏ** — mỗi commit giải quyết MỘT vấn đề
+   (1 bug fix / 1 feature / 1 refactor / 1 nhóm docs). KHÔNG gộp các thay đổi
+   không liên quan vào cùng commit. Working tree có nhiều vấn đề khác nhau
+   → tạo nhiều commit khác nhau.
 
-2. **Subject line bằng tiếng Anh** — tuân thủ Conventional Commits + GitHub style.
+2. **Push toàn bộ commit lên GitHub** — sau khi tạo xong tất cả commit,
+   chạy `git push` (hoặc `git push -u origin <branch>` nếu branch mới).
+   Đây là phần BẮT BUỘC của flow commit, không cần user nhắc lại.
 
-3. **Body viết đầy đủ, chi tiết** — tiếng Việt được phép trong body, liệt kê
-   đủ thay đổi theo nhóm.
+3. **Subject line bằng tiếng Anh** — tuân thủ Conventional Commits + GitHub style.
 
-4. **TUYỆT ĐỐI KHÔNG thêm trailer `Co-Authored-By:`** — không thêm bất kỳ
+4. **Body có thể tiếng Việt** — giải thích chi tiết được phép viết tiếng Việt,
+   nhưng bullet list nên ngắn gọn rõ ràng.
+
+5. **TUYỆT ĐỐI KHÔNG thêm trailer `Co-Authored-By:`** — không thêm bất kỳ
    dòng `Co-Authored-By: Claude ...` nào. Không thêm
    `🤖 Generated with Claude Code`.
 
-5. **Chỉ commit khi user yêu cầu** — không tự commit sau khi sửa code.
+6. **Chỉ commit khi user yêu cầu** — không tự commit sau khi sửa code.
+   Khi user đã yêu cầu commit → tự động chia nhỏ + push, không hỏi lại.
 
 ---
 
@@ -39,15 +48,42 @@ description: >
 git status
 git diff --stat
 
-# 2. Stage TẤT CẢ (bao gồm file mới untracked)
-git add -A
+# 2. Phân nhóm file theo vấn đề logic (xem bảng dưới)
+#    Mỗi nhóm = 1 commit
 
-# 3. Commit một lần với subject EN + body chi tiết
+# 3. Lặp cho mỗi nhóm:
+git add <file1> <file2> ...        # stage đúng nhóm
 git commit -m "<subject>" -m "<body>"
+
+# 4. Push toàn bộ commit lên GitHub
+git push        # hoặc: git push -u origin <branch>
+
+# 5. Báo lại hash + subject của các commit + xác nhận push thành công
+git log --oneline -<N>
 ```
 
-> KHÔNG chạy `git add <từng-file>` rồi commit nhiều lần. Một lần `git add -A`,
-> một commit duy nhất, dù working tree có 5 hay 90 file.
+> KHÔNG dùng `git add -A` rồi gộp hết vào một commit. KHÔNG quên `git push`
+> ở cuối flow.
+
+---
+
+## Cách phân nhóm commit (chia commit thế nào)
+
+Đọc `git status` + `git diff` rồi nhóm file theo **chủ đề logic**:
+
+| Tín hiệu | Tách commit |
+|----------|-------------|
+| Nhiều bug fix khác module | 1 commit / bug |
+| Feature mới + docs đi kèm | Gộp được (cùng chủ đề) |
+| Refactor + bug fix | Tách (2 commit) |
+| BE change + FE change cùng feature | Có thể gộp (cùng feature) |
+| Nhiều module IMM khác nhau | 1 commit / module (trừ khi cross-cutting) |
+| Fixture/migration + code dùng nó | Gộp được (cùng release unit) |
+| Docs-only thay đổi nhiều nơi | 1 commit `docs:` gộp |
+| File cấu hình (.claude/, settings) | Tách riêng commit `chore:` |
+
+**Nguyên tắc vàng:** nếu một commit cần subject dạng "feat(X): add A and fix B
+and update C" → tách thành 3 commit.
 
 ---
 
@@ -58,26 +94,28 @@ git commit -m "<subject>" -m "<body>"
 ```
 
 - **type**: `feat` | `fix` | `docs` | `refactor` | `test` | `chore` | `perf` | `style` | `build`
-- **scope** (tùy chọn): module/area, vd `imm00`, `import`, `user`, `auth`, `fe`, `be`
+- **scope** (tùy chọn): module/area, vd `imm00`, `imm04`, `import`, `user`, `auth`, `fe`, `be`
 - **summary**:
   - Tiếng Anh, **imperative mood** ("add", "fix", "update" — KHÔNG "added"/"fixes")
   - Bắt đầu chữ thường, KHÔNG kết thúc bằng dấu chấm
-  - ≤ 72 ký tự (mục tiêu ≤ 50), đủ để hiểu thay đổi cốt lõi
-- Khi commit gộp nhiều mảng → chọn `type` của thay đổi quan trọng nhất,
-  scope để rộng hoặc bỏ scope.
+  - ≤ 72 ký tự (mục tiêu ≤ 50), mô tả MỘT thay đổi duy nhất
+- Một commit = một `type` chính + một chủ đề. Subject không chứa "and".
 
 **Đúng:**
 ```
 feat(import): add bulk import/export for reference data
 fix(imm03): align asset_document VR-03 with workflow state name
 refactor(user): raise minimum password length to 10
+docs(imm08): fill missing 05_API_Specification sections
+chore(skills): tighten assetcore-commit rulebook
 ```
 
 **Sai:**
 ```
-feat: Added import feature.          ← quá khứ + dấu chấm + hoa
-update code                          ← thiếu type, không imperative
-feat(import): tính năng import       ← subject phải tiếng Anh
+feat: Added import feature.                       ← quá khứ + dấu chấm + hoa
+update code                                       ← thiếu type, không imperative
+feat(import): tính năng import                    ← subject phải tiếng Anh
+fix: fix imm03 and update imm04 and add docs      ← gộp nhiều việc — TÁCH
 ```
 
 ---
@@ -85,13 +123,21 @@ feat(import): tính năng import       ← subject phải tiếng Anh
 ## Body — chi tiết, theo nhóm
 
 - Cách subject một dòng trống.
-- Mỗi nhóm thay đổi là một bullet `- `. Gom theo layer/area khi commit lớn.
+- Bullet `- ` cho từng file/đoạn thay đổi trong commit đó.
 - Giải thích **cái gì** thay đổi và **tại sao** nếu không hiển nhiên.
 - Tiếng Việt được phép trong body (đồng bộ với codebase/docs dự án).
 - Wrap ~72 cột cho dễ đọc trên GitHub.
 - KHÔNG có bất kỳ trailer attribution nào ở cuối.
 
-**Mẫu body:**
+**Mẫu body cho commit fix nhỏ:**
+
+```
+- imm03.py: chuyển VR-03 check sang dùng workflow_state thay vì
+  status string (fix mismatch sau khi rename state)
+- test_imm03.py: cập nhật fixture workflow_state tương ứng
+```
+
+**Mẫu body cho commit feat lớn hơn (cùng chủ đề):**
 
 ```
 - BE: import_data.py — 6 endpoints (init folders, preview, import,
@@ -100,52 +146,78 @@ feat(import): tính năng import       ← subject phải tiếng Anh
 - FE: importData.ts + ReferenceDataView.vue — upload wizard tích hợp
   vào tab ref-data
 - Assets: 9 Excel template trong public/import_templates/
-- Docs: import-strategy.md, generate_templates.py
 ```
 
 ---
 
-## Lệnh chuẩn (multi-line body an toàn)
+## Lệnh chuẩn (multi-commit + push)
 
 Dùng nhiều cờ `-m`: `-m` đầu = subject, các `-m` sau = đoạn body.
 Tránh heredoc với `Co-Authored-By` — không bao giờ thêm dòng đó.
 
 ```bash
-git add -A
+# Commit 1 — bug fix nhỏ
+git add assetcore/api/imm03.py assetcore/tests/test_imm03.py
+git commit \
+  -m "fix(imm03): align VR-03 check with renamed workflow state" \
+  -m "- imm03.py: dùng workflow_state thay vì status string
+- test_imm03.py: cập nhật fixture theo state mới"
+
+# Commit 2 — feature lớn (gộp BE+FE+docs cùng feature)
+git add assetcore/api/import_data.py assetcore/api/import_helpers.py \
+        frontend/src/api/importData.ts frontend/src/views/ReferenceDataView.vue \
+        public/import_templates/ docs/import-strategy.md
 git commit \
   -m "feat(import): add bulk import/export for reference data" \
-  -m "- BE: import_data.py — 6 endpoints (preview/import/export/template)
-- BE: import_helpers.py — parse xlsx, folder mgmt, template map
-- FE: ReferenceDataView.vue — upload wizard trong tab ref-data
+  -m "- BE: 6 endpoints (preview/import/export/template)
+- FE: ReferenceDataView wizard
 - Docs + 9 Excel templates"
+
+# Commit 3 — chore cấu hình
+git add .claude/skills/assetcore-commit/SKILL.md
+git commit \
+  -m "chore(skills): rewrite assetcore-commit for multi-commit + push flow" \
+  -m "- chuyển policy từ 1 commit gộp sang nhiều commit logic
+- bổ sung git push là bước bắt buộc cuối flow"
+
+# Push tất cả lên GitHub (BẮT BUỘC)
+git push
+# Nếu branch chưa track remote:
+# git push -u origin <branch-name>
 ```
 
-Sau commit: `git log --oneline -3` để xác nhận, báo lại hash + subject.
-KHÔNG `git push` trừ khi user yêu cầu rõ.
+Sau push: `git log --oneline -<N>` để liệt kê các commit vừa đẩy, báo lại
+hash + subject từng commit + xác nhận `git push` thành công.
 
 ---
 
 ## Checklist trước khi commit
 
 ```
-[ ] git add -A — đã stage TẤT CẢ file (kể cả untracked)
-[ ] 1 commit duy nhất — không chia nhỏ
+[ ] Đã đọc git status + git diff để phân nhóm theo chủ đề logic
+[ ] Mỗi commit = 1 vấn đề duy nhất (không "and" trong subject)
+[ ] git add <files> đúng nhóm (không add -A bừa)
 [ ] Subject: <type>(<scope>): English, imperative, lowercase, no period, ≤72
-[ ] Body: bullet theo nhóm, chi tiết, giải thích cái gì + tại sao
+[ ] Body: bullet theo file/đoạn, giải thích cái gì + tại sao
 [ ] KHÔNG có Co-Authored-By / Generated with Claude
-[ ] Không tự push (chỉ push khi user yêu cầu)
+[ ] Lặp cho tất cả nhóm cho đến khi git status sạch
+[ ] git push — đã đẩy toàn bộ commit lên GitHub
+[ ] Báo lại danh sách hash + subject + xác nhận push OK
 ```
 
 ---
 
 ## Anti-patterns (KHÔNG làm)
 
-1. **Chia commit theo logic** — user yêu cầu gộp tất cả vào 1 commit. Không
-   tách "feature A", "fix B", "docs C" thành 3 commit.
-2. **Subject tiếng Việt** — subject phải English. Body mới được tiếng Việt.
-3. **Thêm `Co-Authored-By: Claude ...`** — vi phạm rule cứng số 4.
-4. **`git add <file>` từng phần** — luôn `git add -A`.
+1. **Gộp tất cả thay đổi vào 1 commit** — phải tách theo chủ đề logic.
+   `git add -A && git commit` một phát cho 90 file → SAI.
+2. **Subject chứa "and" / nhiều mệnh đề** — dấu hiệu cần tách commit.
+3. **Subject tiếng Việt** — subject phải English. Body mới được tiếng Việt.
+4. **Thêm `Co-Authored-By: Claude ...`** — vi phạm rule cứng số 5.
 5. **Quá khứ / thiếu type** — "added X", "fixed Y", "update stuff" đều sai.
-6. **Body một dòng cụt** — commit lớn phải có body liệt kê đủ nhóm thay đổi.
+6. **Body một dòng cụt cho commit lớn** — phải liệt kê file/nhóm thay đổi.
 7. **Tự commit khi chưa được yêu cầu** — chỉ commit khi user nói.
-8. **Tự push sau commit** — chỉ push khi user yêu cầu rõ.
+8. **Quên `git push` ở cuối flow** — vi phạm rule cứng số 2. Khi user
+   đã yêu cầu commit là ngầm yêu cầu push, KHÔNG hỏi lại.
+9. **Tách commit theo từng file lẻ** — không đi đến cực đoan ngược lại;
+   file cùng chủ đề logic vẫn gộp chung một commit.

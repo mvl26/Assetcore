@@ -702,3 +702,14 @@ Wave 4 (cuối — phụ thuộc tất cả):
 - Frappe folder API: `frappe.core.api.file.create_new_folder`
 - BE conventions: `.claude/skills/assetcore-be/SKILL.md`
 - FE conventions: `.claude/skills/assetcore-fe/SKILL.md`
+
+---
+
+## Cross-skill BE rules áp dụng (2026-05-27)
+
+Khi build import endpoint cho DocType có workflow + Link fields, BẮT BUỘC tuân thủ:
+
+- **LL-BE-7** (workflow state via Draft + transition): insert luôn ở INITIAL state, transition sau insert. Xem `assetcore-be/SKILL.md`.
+- **LL-BE-8** (resolve display→code): user fill template với category_name/model_name/etc. → resolver lookup → set PK code trước insert. Xem `assetcore-be/SKILL.md`.
+
+Pattern reference đầy đủ: `api/import_data.py:_do_import` (164-211) + `_transition_asset_lifecycle` (228-247).

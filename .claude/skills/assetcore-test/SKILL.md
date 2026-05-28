@@ -204,6 +204,65 @@ Data tạo trong session này:
 
 ---
 
+### R-9: Backend test fixture PHẢI tự dọn — không rely on `frappe.db.rollback`
+
+**Bug đã gặp 2026-05-27:** sau nhiều lần `bench --site miyano run-tests --app assetcore`, DB tích luỹ 776+ records test (`Test Asset IMM-15`, `_Diag Asset`, `_TEST-PROG-*`, `Test Part IMM-15`, `Test WH IMM-15`, `Dräger Evita V500 — ICU-decom/-pm/-event/-trans`, etc.).
+
+Lý do leak:
+- `FrappeTestCase` rollback PER-test, không per-class. Test tạo doc trong `setUpClass` → commit → KHÔNG rollback.
+- Test gọi service function `frappe.db.commit()` bên trong (lifecycle event, audit trail) → savepoint rollback không tới được.
+- Test pass `delete=False` hoặc dùng `frappe.db.set_value` trực tiếp bypass ORM.
+
+**Quy tắc:**
+
+1. Mọi fixture tạo trong `setUpClass` PHẢI xoá trong `tearDownClass`:
+   ```python
+   @classmethod
+   def tearDownClass(cls):
+       for name in reversed(cls._created):  # reversed: children trước parents
+           try:
+               doc = frappe.get_doc(cls._dt_map[name], name)
+               if doc.docstatus == 1:
+                   doc.cancel()
+               frappe.delete_doc(cls._dt_map[name], name, force=True,
+                                 ignore_permissions=True, delete_permanently=True)
+           except Exception:
+               pass
+       frappe.db.commit()
+       super().tearDownClass()
+   ```
+
+2. Đặt prefix dễ grep, KHÔNG dùng pattern mơ hồ:
+   - `_Test{Module}{Purpose}-{uniq}` — VD `_TestIMM15Asset-abc123`
+   - **KHÔNG** dùng `_%` placeholder (`_` là SQL wildcard → match toàn bảng khi cleanup)
+   - **KHÔNG** dùng tên giống real data (`Dräger Evita V500 — ICU-decom`) — sẽ confuse cleanup
+
+3. **Pre-release verify** (mỗi sprint):
+   ```bash
+   bench --site miyano mariadb -e "
+     SELECT 'AC Asset' AS dt, COUNT(*) FROM \`tabAC Asset\`
+     WHERE LOWER(name) LIKE '%test%' OR LOWER(asset_name) LIKE '%test%'
+     UNION ALL SELECT 'IMM Audit Trail', COUNT(*) FROM \`tabIMM Audit Trail\`
+     WHERE LOWER(change_summary) LIKE '%_test%';"
+   ```
+   Tất cả phải = 0.
+
+Reference: `CONVENTIONS.md §23 + §33`, `assetcore-deploy` Phần 3.
+
+---
+
+### R-10: KHÔNG chạy `bench run-tests` song song với destructive DB op
+
+Bug 2026-05-27: trong lúc cleanup 13:55, test chạy parallel tạo data mới timestamps 14:31 → phải cleanup vòng 2.
+
+**Trước khi cleanup hoặc destructive op:**
+- [ ] `bench --site <site> set-maintenance-mode on`
+- [ ] Confirm không có terminal khác chạy `bench run-tests`
+- [ ] Scheduler tạm pause: `bench --site <site> disable-scheduler`
+- [ ] Sau cleanup: `enable-scheduler` + `set-maintenance-mode off`
+
+---
+
 ## Phần 1 — Backend Tests (Python/Frappe)
 
 ### Project layout
@@ -446,6 +505,31 @@ browser_snapshot    → verify URL đã rời khỏi /login
 | Console errors | `browser_console_messages` |
 | Resize responsive | `browser_resize` |
 
+### 🛑 Playwright MCP Recovery Recipe (recurring blocker — 3 phiên: 2026-05-15, 16, 16)
+
+Chrome MCP **chết sau 1-2 calls** trên môi trường này (software GL + ~1.8GB free RAM hoặc OOM khi RAM dùng ~12GB). Sau crash, lock file `Singleton*` còn lại → error `"Browser is already in use"` cho mọi call kế tiếp.
+
+**Recovery (đã verify thành công ở 3 phiên):**
+
+```bash
+# B1 — kill toàn bộ chrome process từ MCP server
+pkill -9 -f mcp-chrome-9a5b890 2>/dev/null
+pkill -9 chrome 2>/dev/null
+
+# B2 — xoá lock file (path có thể là ~/.cache/.../chrome-mcp/* tùy MCP setup)
+find /tmp /home/miyano/.cache 2>/dev/null -name "Singleton*" -delete
+
+# B3 — gọi browser_close trước khi browser_navigate lại
+#       (nếu vẫn lỗi "in use" → cần USER restart MCP server, không tự fix được)
+```
+
+**Quy tắc khi MCP unstable:**
+
+1. **Đừng burn turns trên kill-loop**. Sau 2 lần recovery fail → switch sang **static code audit** (3 parallel `assetcore-fe-cleaner` agents per module, có docs/imm-XX làm source-of-truth) như phiên 2026-05-15 IMM-04/05/06 đã làm.
+2. **Tiết kiệm browser call**: `browser_navigate` tự snapshot pre-hydration (shell-only, vô dụng) → dùng `browser_snapshot`/`browser_evaluate` để lấy nội dung sau khi hydrate. 1 navigate = 1 snapshot/eval = 1 call ngân sách cho mỗi page.
+3. **Không snapshot trang đã biết healthy** — chỉ snapshot trang đang test bug.
+4. **Báo cho user sớm**: nếu phải fallback code-audit, nói rõ "Playwright MCP locked, switching to code audit" thay vì im lặng cố thêm.
+
 ### Full User Journey — mỗi module PHẢI test đủ các bước này
 
 #### Bước 0: Pre-check master data
@@ -542,20 +626,35 @@ Việc cần làm: [action items cụ thể]
 **Chỉ DONE khi 0 FAIL và dữ liệu test là thực tế.**
 
 ### Module → URL mapping
+
+> ⚠️ **TRUST `frontend/src/router/index.ts`, NOT this table** — routes change. Trước mọi session, chạy:
+> ```bash
+> grep -nE "path: '/" frontend/src/router/index.ts | head -80
+> ```
+> Table dưới đây là snapshot 2026-05-26.
+
 | Module | List URL | Detail URL |
 |---|---|---|
-| IMM-01 Needs | `/imm01/needs-requests` | `/imm01/needs-requests/:id` |
+| IMM-01 Needs | `/needs-requests` | `/needs-requests/:id` |
 | IMM-01 Plans | `/procurement-plans` | `/procurement-plans/:id` |
-| IMM-06 | `/imm06/programs` | `/imm06/programs/:id` |
+| IMM-02 TechSpec | `/tech-specs` | `/tech-specs/:id` |
+| IMM-02 VendorEval | `/vendor-evaluations` | `/vendor-evaluations/:id` |
+| IMM-03 Decisions | `/procurement-decisions` | `/procurement-decisions/:id` |
+| IMM-03 Purchases | `/purchases` | `/purchases/:name` |
+| IMM-06 Programs | `/imm06/programs` | `/imm06/programs/:name` |
+| IMM-06 Sessions | `/imm06/sessions` | `/imm06/sessions/:name` |
 | IMM-08 | `/pm/work-orders` | `/pm/work-orders/:id` |
 | IMM-09 | `/cm/work-orders` | `/cm/work-orders/:id` |
 | IMM-11 | `/calibration` | `/calibration/:id` |
-| IMM-12 | `/incidents` | `/incidents/:id` |
-| IMM-15 | `/inventory` | (dashboard) |
-| IMM-16 Rules | `/compliance/rules` | (list actions) |
+| IMM-12 | `/incidents/list` | `/incidents/:id` |
+| IMM-15 Dashboard | `/inventory` | (dashboard) |
+| IMM-15 Movements | `/stock-movements` | `/stock-movements/:name` |
+| IMM-15 Spare Parts | `/spare-parts` | `/spare-parts/:name` |
+| IMM-16 Rules | `/compliance/rules` | `/compliance/rules/:id` |
 | IMM-16 Findings | `/compliance/findings` | `/compliance/findings/:id` |
 | IMM-16 CAPA | `/capas` | `/capas/:id` |
 | Assets | `/assets` | `/assets/:id` |
+| Suppliers | `/suppliers` | `/suppliers/:id` |
 
 ---
 
@@ -648,6 +747,153 @@ python3 -c "import json; d=json.load(open('<doctype>.json')); \
 ### LL-TEST-8: Form Link field phải dropdown
 Field DocType Link → phải là `<select>` hoặc autocomplete, không phải `<input type="text">`.
 
+### LL-TEST-9: Fixture cho DocType autonamed PHẢI lookup theo business field, không phải `name`
+
+Bug 2026-05-26: `test_imm08._ensure_cat("_TestCatIMM08")` dùng `frappe.db.exists("AC Asset Category", "_TestCatIMM08")` — nhưng DocType autoname là `CAT-####`, nên `name` không bao giờ bằng `_TestCatIMM08`. Lần chạy đầu insert thành công (autoname `CAT-0598`); lần thứ 2 lại insert tiếp → `UniqueValidationError` trên `category_name`.
+
+```python
+# ❌ SAI — name field là CAT-####, không phải category_name
+if not frappe.db.exists("AC Asset Category", name):
+    frappe.get_doc({"doctype": "AC Asset Category", "category_name": name}).insert(...)
+    return name  # caller dùng làm FK → LinkValidationError
+
+# ✅ ĐÚNG — lookup bằng field unique của business
+def _ensure_cat(name: str) -> str:
+    existing = frappe.db.get_value("AC Asset Category", {"category_name": name}, "name")
+    if existing: return existing
+    doc = frappe.get_doc({"doctype": "AC Asset Category", "category_name": name}).insert(...)
+    return doc.name  # autoname (CAT-####)
+```
+
+**Quy tắc**: trước khi viết fixture, đọc `autoname` trong DocType JSON. Nếu autonamed → lookup qua `frappe.db.get_value({...filter...}, "name")` và trả về autoname thực tế.
+
+### LL-TEST-10: Mass deletion test residue cần user approval — đừng tự chạy
+
+Auto mode classifier chặn bulk DELETE/cancel trên DocTypes shared (Incident Report, AC Asset, Work Order, Audit Trail). Khi script cleanup cần xóa > vài chục records → STOP, báo user. Kể cả khi `_Test*` rõ ràng là rác.
+
+**Quy tắc bulk-delete script**:
+1. In TOÀN BỘ records sẽ xóa (name + tóm tắt) TRƯỚC khi xóa
+2. Ask user confirm
+3. Khi bị classifier block → KHÔNG tự lách — báo user
+
+### LL-TEST-11: `frappe.get_all(..., limit_page_length=0)` vẫn bị permission-filter
+
+Bug 2026-05-26: `frappe.get_all("Incident Report", limit_page_length=0)` chỉ trả 9 records dù DB có 188. Frappe áp permissions theo `frappe.session.user` ngay cả khi `limit_page_length=0`.
+
+```python
+# ❌ SAI — bị permission-filter
+rows = frappe.get_all("Incident Report", limit_page_length=0)
+
+# ✅ ĐÚNG — raw SQL cho cleanup/diagnostic
+frappe.set_user("Administrator")
+rows = [r[0] for r in frappe.db.sql("SELECT name FROM `tabIncident Report`")]
+```
+
+### LL-TEST-12: MySQL LIKE — `_` là wildcard, KHÔNG phải literal underscore
+
+Bug 2026-05-26: filter `description LIKE '%_Test%'` không match `"_Test description"` đúng — `_` match 1 ký tự bất kỳ → false negative trong cleanup.
+
+```python
+# ❌ SAI
+frappe.db.sql("SELECT name FROM tab WHERE x LIKE '%_Test%'")
+
+# ✅ ĐÚNG (1) — ESCAPE
+frappe.db.sql(r"SELECT name FROM tab WHERE x LIKE %s ESCAPE '\\'", (r"%\_Test%",))
+
+# ✅ ĐÚNG (2) — Python substring filter (rõ nhất)
+rows = frappe.db.sql("SELECT name, x FROM tab", as_dict=True)
+test = [r for r in rows if "_Test" in (r.x or "")]
+```
+
+### LL-TEST-13: DOM probe regex KHÔNG đủ để khẳng định "code leak" — đọc parent context
+
+Bug 2026-05-26 (false positive): `browser_evaluate` quét leaf-text `/AC-(SUP|LOC)-\d+/` thấy code → kết luận FE thiếu enrich. Sự thật: FE template hiển thị `name` (primary) + `code` (text-xs subtitle) trong 2 div riêng.
+
+```javascript
+// ❌ SAI — leaf text only, miss sibling chứa tên
+[...document.querySelectorAll('*')]
+  .filter(el => el.children.length === 0 && /AC-SUP-\d+/.test(el.textContent))
+
+// ✅ ĐÚNG — đọc cả label + value group
+[...document.querySelectorAll('dt, label')].map(lbl => ({
+  label: lbl.textContent.trim(),
+  valueGroup: lbl.nextElementSibling?.textContent?.trim() || '',
+})).filter(f =>
+  /AC-(SUP|LOC|DEPT)-\d+/.test(f.valueGroup) &&
+  !/[A-ZĐ][a-zđ]/.test(f.valueGroup.replace(/AC-\w+-\d+/g, ''))  // value chỉ có code
+)
+```
+
+**Quy tắc**: trước khi report code leak — verify KHÔNG có tên human-readable ở sibling div của value group.
+
+### LL-TEST-14: "Detail thiếu workflow buttons" có thể là role-gating, KHÔNG phải bug
+
+Bug 2026-05-26 (false positive): Calibration detail ở Scheduled không hiện nút "Bắt đầu hiệu chuẩn" → kết luận stuck. Sự thật: user Chu Hiếu thiếu role CAL_EXECUTE; FE `v-if="canExecuteCal"` ẩn đúng theo permission.
+
+**Quy tắc kiểm chứng TRƯỚC khi report**:
+1. Check user role (đọc Pinia auth store hoặc User doc)
+2. Đọc `v-if` của button trong view file — nếu gate role thì expected
+3. Real bug = state có valid transition trong workflow JSON, role check pass, mà vẫn không có button. UX gap (P3) = role hợp lệ nhưng thiếu empty-state "Không có hành động khả dụng".
+
+### LL-TEST-15: `bench --site execute` cần callable trong app path, không phải `/tmp/`
+
+Bug 2026-05-26: `/tmp/diag.py` + `bench execute assetcore.diag.run` → `ModuleNotFoundError`. Bench resolve qua Python import — phải nằm trong `apps/<app>/<app>/`.
+
+```bash
+# ❌ SAI
+cp script.py /tmp/diag.py && bench --site miyano execute assetcore.diag.run
+
+# ✅ ĐÚNG
+cp script.py /home/miyano/frappe-bench/apps/assetcore/assetcore/diag.py
+bench --site miyano execute assetcore.diag.run
+rm /home/miyano/frappe-bench/apps/assetcore/assetcore/diag.py
+```
+
+### LL-TEST-16: `bench console` ăn stdin không in output — dùng `bench execute`
+
+Bug 2026-05-26: `bench console <<'PYEOF' ... PYEOF` cho output rỗng. Console là IPython interactive, không phải REPL non-interactive — heredoc bị nuốt. Cho diagnostic/cleanup chạy 1 lần — luôn `bench execute <module.function>` với script file (xem LL-TEST-15).
+
+### LL-TEST-17: tearDown vs `on_trash` audit guard — cancel-children procedure
+
+Bug pattern recurring (2026-05-26 → fix 2026-05-27): `test_imm00/08/09` báo `errors=N` ở tearDownClass vì `AC Asset.on_trash` chặn delete khi còn Audit Trail / Lifecycle Event / Downtime Log. `force=True` KHÔNG bypass custom `on_trash`. Đặc biệt:
+- `IMM Audit Trail.on_trash` throw `"Audit Trail records cannot be deleted (ISO 13485:7.5.9)"` — `delete_doc` LUÔN fail dù force=True. Phải dùng **raw SQL** cho audit (chỉ vì là fixture rác).
+- `AC Asset.on_trash` (`ac_asset.py:225-256`) check 5 tables → còn 1 row là `LinkExistsError WR-03`.
+
+```python
+@classmethod
+def tearDownClass(cls):
+    asset_name = cls.asset.name
+    # 1) Purge IMM Audit Trail TRƯỚC bằng RAW SQL (bypass ISO guard cho fixture rác)
+    # ORM `delete_doc` luôn throw "ISO 13485:7.5.9" — except: pass sẽ swallow → asset không xoá được.
+    frappe.db.sql(
+        "DELETE FROM `tabIMM Audit Trail` "
+        "WHERE asset=%s OR (ref_doctype='AC Asset' AND ref_name=%s)",
+        (asset_name, asset_name),
+    )
+    # 2) Purge operational dependents (ORM được, vì các DocType này không có on_trash guard)
+    for dt, fld in [
+        ("PM Work Order", "asset_ref"), ("PM Schedule", "asset_ref"),
+        ("Asset Repair", "asset_ref"), ("IMM Calibration Order", "asset_ref"),
+        ("Incident Report", "asset"), ("Asset Lifecycle Event", "asset"),
+        ("AC Asset Downtime Log", "asset"), ("Asset Document", "asset_ref"),
+        ("Asset Transfer", "asset"),
+    ]:
+        if not frappe.db.table_exists(dt): continue
+        for c in frappe.get_all(dt, filters={fld: asset_name}, pluck="name"):
+            cd = frappe.get_doc(dt, c)
+            if cd.docstatus == 1: cd.cancel()
+            frappe.delete_doc(dt, c, force=True, ignore_permissions=True, delete_permanently=True)
+    frappe.db.commit()
+    # 3) AC Asset bây giờ delete được
+    frappe.delete_doc("AC Asset", asset_name, force=True, ignore_permissions=True)
+```
+
+**KHÔNG dùng `try/except: pass`** quanh delete chain — exception bị nuốt = leak silently. Để exception propagate (test sẽ fail → bạn fix tearDown ngay, thay vì leak vào prod DB).
+
+**Local-var fixtures** trong test method (`other = _make_asset("-other")`) PHẢI dùng `self.addCleanup(...)` ngay sau tạo — `tearDownClass` chỉ thấy `cls.*` → local var leak. Recurring incident: `test_imm08.py` test method tạo `other_asset = _make_asset("-other")` không cleanup → leak 6 `_Test Asset IMM08-other` qua nhiều run.
+
+Reference: CONVENTIONS §23 + §39.
+
 ### Bug patterns table
 
 | Pattern | Symptom | Fix |
@@ -662,3 +908,264 @@ Field DocType Link → phải là `<select>` hoặc autocomplete, không phải 
 | Status badge sai | Submitted hiển thị "Đã duyệt" | FE: sync `STATUS_LABEL`/`STATUS_COLOR` với BE state |
 | Link field free text | Save fail "Could not find Row" | FE: đổi `<input>` → `<select>` load từ API |
 | Select option mismatch | Save fail "Invalid Value" | FE: options khớp DocType JSON `options` |
+| English status leak | Cell hiển thị "Locked", "Evaluated", "Contract Signed" | FE: bổ sung key vào `STATUS_MAP` + `STATUS_COLOR` ở `utils/formatters.ts` |
+| Frequency/enum English | "Weekly" thay vì "Hàng tuần" | FE: dùng local label map (vd `FREQUENCY_LABELS`) hoặc thêm key vào `STATUS_MAP` |
+| Audit message English | "CAPA opened: severity=Minor" | BE: localize `change_summary` trong `log_audit_event(...)`; tránh f-string với enum English |
+| Test data leak in prod | `_TEST-*`, `_Test *` xuất hiện trên UI | BE list service filter `name not like '\_Test%'`; cleanup orphan via bench console |
+| HTTP 200 + envelope success=false | Page show "Lỗi server" nhưng network 200 | BE: check `frappe.log_error`; thường do null-deref trong service. Test phải đọc response body, không chỉ HTTP code |
+| Orphan FK ref 500 | `AttributeError 'NoneType' has no attribute 'name'` | BE: every `Repo.get(fk)` PHẢI `if obj:` guard (xem LL-BE-X) |
+| tearDown FAILED nhưng tests OK | `errors=N` không phải `failures=N` | Cancel-children procedure (xem LL-TEST-17), KHÔNG phải bug logic |
+| Fixture unique-constraint sau re-run | `UniqueValidationError` ở insert thứ 2 | Autoname DocType → lookup by business field (xem LL-TEST-9) |
+| Bulk delete bị classifier chặn | "denied by Claude Code auto mode classifier" | KHÔNG tự lách — báo user (xem LL-TEST-10) |
+| `get_all(limit_page_length=0)` miss records | Cleanup script thấy ít rows hơn DB thực | Permission-filter ẩn; dùng raw SQL (xem LL-TEST-11) |
+| LIKE `_X` match nhầm | Filter `%_Test%` không match `_Test...` | `_` là wildcard MySQL — dùng `ESCAPE '\\'` hoặc Python (xem LL-TEST-12) |
+| False positive "code leak" | Leaf text bắt code nhưng sibling có name | Probe theo label+valueGroup, không leaf-text (xem LL-TEST-13) |
+| False positive "stuck workflow" | Button thiếu vì role-gate | Check user role trước khi report (xem LL-TEST-14) |
+
+### LL-TEST-9: Discover URLs from `router/index.ts` — KHÔNG trust skill mapping
+
+Bug session 2026-05-26: skill mapping ghi `/imm01/needs-requests` nhưng route thực là `/needs-requests` → 404. Wasted 1 chu kỳ tool call.
+
+**Quy tắc:**
+```bash
+# Đầu session, dump tất cả routes:
+grep -nE "path: '/" frontend/src/router/index.ts > /tmp/routes.txt
+# Khi 404, grep ngay route đúng:
+grep -i "<module-keyword>" /tmp/routes.txt
+```
+Khi bị 404 → ĐỪNG đoán biến thể; mở `router/index.ts` và xác minh path chính xác.
+
+### LL-TEST-10: Playwright MCP browser lock — cleanup procedure
+
+Bug session 2026-05-26: nhiều lần `Error: Browser is already in use for /home/miyano/.cache/ms-playwright/mcp-chrome-XXXXX` → tool calls failed liên tiếp.
+
+**Quy tắc khi gặp lock:**
+```bash
+rm -rf /home/miyano/.cache/ms-playwright/mcp-chrome-*/SingletonLock \
+       /home/miyano/.cache/ms-playwright/mcp-chrome-*/SingletonCookie \
+       /home/miyano/.cache/ms-playwright/mcp-chrome-*/SingletonSocket 2>/dev/null
+pkill -9 -f "ms-playwright/chromium\|mcp-chrome" 2>/dev/null
+sleep 2
+```
+Sau đó retry `browser_navigate`. Đừng spawn nhiều shell `browser_*` parallel trên cùng session — chỉ 1 browser context.
+
+### LL-TEST-11: Role-gated buttons KHÔNG phải bug — verify quyền user test trước
+
+Bug session 2026-05-26: tester `chuvanhieu357@gmail.com` không có `ROLES_TRAINING_MANAGE` → IMM-06 detail không hiển thị "Chỉnh sửa", "Lưu trữ" → tưởng B-IMM06-2/4. Thực ra RBAC đúng — nút role-gated.
+
+**Quy tắc:**
+1. Đầu session, dump roles của tester:
+   ```bash
+   bench --site miyano console <<< "import frappe; print(frappe.get_roles('chuvanhieu357@gmail.com'))"
+   ```
+2. Khi thấy "list/detail thiếu nút" → grep FE component xem có `v-if="canManage"` / `useCapabilities()` / `hasAnyRole(...)` không. Nếu có → KHÔNG report là bug; ghi rõ "role-gated, needs <role> to test".
+3. Để test full coverage, cần 4 user accounts (Admin / User / Auditor / Vendor-tech) — single-account session chỉ cover được subset.
+
+### LL-TEST-12: Sau fix BE Python — verify dev server đã reload trước khi test FE
+
+Bug session 2026-05-26: sửa `services/imm16.py:get_capa` nhưng werkzeug auto-reload đôi khi không pick up → FE vẫn 500. Mất thời gian debug.
+
+**Quy tắc post-fix BE:**
+```bash
+# 1. Trigger reload bằng cách hit endpoint qua bench (ngoài HTTP layer):
+bench --site miyano execute assetcore.services.<module>.<func> --args '[...]'
+# Nếu raise lỗi → fix code (không phải reload issue)
+# Nếu OK → kiểm tra HTTP qua Playwright fetch
+```
+Nếu BE OK qua bench nhưng HTTP vẫn lỗi → restart bench: `pkill -f "honcho start" && bench start &`.
+
+### LL-TEST-13: Khi fix có dùng `frappe.db.get_value(doctype, name, "fieldX")` — verify fieldX tồn tại TRƯỚC
+
+Bug session 2026-05-26: thêm enrich `subject = frappe.db.get_value("Incident Report", x, "subject")` → 500 `(1054, "Unknown column 'subject'")` vì IR field là `description`, không phải `subject`.
+
+**Quy tắc:**
+```bash
+# Trước khi viết get_value với field mới, grep DocType JSON:
+grep -E "\"fieldname\":" assetcore/assetcore/doctype/<doctype_snake>/<doctype_snake>.json
+```
+Hoặc Python:
+```python
+fields = [f.fieldname for f in frappe.get_meta("Incident Report").fields]
+assert "subject" in fields, f"Field 'subject' không tồn tại; có sẵn: {fields}"
+```
+
+### LL-TEST-18: Test hook chain cross-module — bắt buộc cho mọi service `complete_*` / `submit_*` (2026-05-27)
+
+**Bug pattern G2:** 5/11 bug là hook chain không wire (RC-03/04/06/07/11). Tests đã PASS vì test chỉ check transition state, không check downstream record có được tạo.
+
+**Quy tắc test cho mọi terminal transition cross-module:**
+
+1. **Test xác minh chain wire** (assert B exists sau A complete):
+   ```python
+   def test_complete_acceptance_creates_asset(self):
+       """RC-06: phiếu nghiệm thu Hoàn tất → AC Asset tự sinh"""
+       acc = self._create_acceptance_to_completion_stage()
+       imm04_api.complete_acceptance(acc.name)
+       asset_name = frappe.db.exists("AC Asset", {"source_acceptance": acc.name})
+       self.assertTrue(asset_name, "Hook chain ACC→Asset failed silently")
+       # Cross-check: asset link back đúng
+       asset = frappe.get_doc("AC Asset", asset_name)
+       self.assertEqual(asset.source_acceptance, acc.name)
+   ```
+
+2. **Test idempotency** (gọi 2 lần không duplicate):
+   ```python
+   def test_complete_acceptance_idempotent(self):
+       acc = self._create_acceptance_to_completion_stage()
+       imm04_api.complete_acceptance(acc.name)
+       count_1 = frappe.db.count("AC Asset", {"source_acceptance": acc.name})
+       # Re-trigger (simulate retry / scheduler re-run)
+       imm04_api.complete_acceptance(acc.name)  # phải no-op hoặc raise BAD_STATE
+       count_2 = frappe.db.count("AC Asset", {"source_acceptance": acc.name})
+       self.assertEqual(count_1, count_2, "Idempotency broken — created duplicate B")
+   ```
+
+3. **Test audit trail có triggered_record**:
+   ```python
+   def test_complete_audit_links_triggered_record(self):
+       acc = self._create_acceptance_to_completion_stage()
+       imm04_api.complete_acceptance(acc.name)
+       asset_name = frappe.db.exists("AC Asset", {"source_acceptance": acc.name})
+       audit = frappe.db.exists("IMM Audit Trail", {
+           "doc_name": acc.name,
+           "action": ["like", "%completed%"],
+           "triggered_record": asset_name,
+       })
+       self.assertTrue(audit, "Audit log thiếu triggered_record cho chain")
+   ```
+
+4. **Test chain failure bubbles up** (không silent):
+   ```python
+   def test_complete_chain_failure_raises(self):
+       """Nếu service B raise, complete_A phải raise (không try/except: pass)"""
+       acc = self._create_acceptance_to_completion_stage()
+       with patch("assetcore.services.imm05.create_asset_from_acceptance",
+                  side_effect=ServiceError(ErrorCode.VALIDATION, "test")):
+           with self.assertRaises(ServiceError):
+               imm04_api.complete_acceptance(acc.name)
+       # Acceptance state phải rollback (transaction)
+       acc.reload()
+       self.assertNotEqual(acc.workflow_state, "Completed")
+   ```
+
+Reference: `CONVENTIONS.md §40`, `assetcore-be` LL-BE-23, `assetcore-audit` Pillar 9, `docs/res/AssetCore_Test_Plan_NextRound_1_Analysis.md` §3.
+
+### LL-TEST-19: Test permission gate cho mọi mutating endpoint (2026-05-27)
+
+**Bug pattern P1 chưa cover (AUTH-02):** test suite hiện chỉ chạy bằng Admin user → không bắt được BE whitelist thiếu `rbac.require()`.
+
+**Quy tắc:**
+
+1. **Mỗi mutating `@frappe.whitelist()` endpoint PHẢI có test reject low-role**:
+   ```python
+   class TestImm12Permissions(unittest.TestCase):
+       @classmethod
+       def setUpClass(cls):
+           # Tạo user role thấp (vd: chỉ Người dùng hệ thống, không phải QA Manager)
+           cls.low_user = make_test_user(roles=["Người dùng hệ thống"])
+           cls.doc_name = create_test_incident()
+
+       def test_close_rejects_low_role(self):
+           frappe.set_user(self.low_user)
+           with self.assertRaises(ServiceError) as ctx:
+               imm12_api.close_incident(self.doc_name)
+           self.assertEqual(ctx.exception.code, ErrorCode.FORBIDDEN)
+   ```
+
+2. **Test cover toàn bộ matrix** (mỗi mutating endpoint × mỗi role không hợp lệ):
+   ```python
+   def test_permission_matrix(self):
+       """Reject nếu user thiếu role; allow nếu có"""
+       cases = [
+           ("low_user",  imm12_api.close_incident, "FORBIDDEN"),
+           ("qa_user",   imm12_api.close_incident, "ok"),
+           ("admin",     imm12_api.close_incident, "ok"),
+           ("vendor_tech", imm12_api.close_incident, "FORBIDDEN"),  # vendor isolation
+       ]
+       for user, fn, expected in cases:
+           frappe.set_user(getattr(self, user))
+           if expected == "FORBIDDEN":
+               with self.assertRaises(ServiceError) as ctx:
+                   fn(self.doc_name)
+               self.assertEqual(ctx.exception.code, ErrorCode.FORBIDDEN)
+           else:
+               fn(self.doc_name)
+   ```
+
+3. **Test direct API call bypass FE** (simulate AUTH-02):
+   ```python
+   def test_admin_endpoint_via_session_low_role(self):
+       """User quyền thấp gọi trực tiếp endpoint admin — phải bị chặn"""
+       frappe.set_user(self.low_user)
+       with self.assertRaises(ServiceError):
+           # Gọi endpoint mà FE đã ẩn nút — verify BE không tin FE
+           imm00_api.delete_asset(self.asset_name)
+   ```
+
+4. **Test row-level filter** (vendor isolation):
+   ```python
+   def test_vendor_cannot_see_other_assets(self):
+       frappe.set_user(self.vendor_user)
+       assets = imm00_api.list_assets({})
+       # Phải chỉ thấy asset assigned to vendor — không thấy asset khác
+       self.assertTrue(all(a["assigned_vendor"] == self.vendor_id for a in assets["data"]))
+   ```
+
+5. **Helper `make_test_user`** chuẩn:
+   ```python
+   def make_test_user(roles, email=None):
+       email = email or f"_test_{frappe.generate_hash()[:8]}@test.local"
+       user = frappe.get_doc({
+           "doctype": "User",
+           "email": email,
+           "first_name": "Test",
+           "enabled": 1,
+           "roles": [{"role": r} for r in roles],
+       }).insert(ignore_permissions=True)
+       return email
+   ```
+
+Reference: `CONVENTIONS.md §41`, `assetcore-be` LL-BE-24, `assetcore-audit` Phần 5 Check S-9/S-10/S-11.
+
+### LL-TEST-20: Test KPI scope consistency — count khớp giữa tile và list filter (2026-05-27)
+
+**Bug pattern RC-09, RC-10:** Dashboard tile và /pending list cho count khác nhau.
+
+**Quy tắc:**
+
+1. **Mỗi KPI tile clickable PHẢI có test xác minh count = list filter count**:
+   ```python
+   def test_kpi_pending_approvals_matches_list(self):
+       """RC-09: /dashboard count = /approvals/pending count với cùng scope"""
+       frappe.set_user(self.qa_user)
+       seed_pending_approvals(count=3, assigned_to=self.qa_user)
+       seed_pending_approvals(count=2, assigned_to="other@test")  # không thuộc qa_user
+
+       # KPI "Của tôi"
+       kpi_mine = approvals_api.count_pending(scope="mine")
+       list_mine = approvals_api.list_pending(scope="mine")
+       self.assertEqual(kpi_mine, len(list_mine["data"]))
+       self.assertEqual(kpi_mine, 3)
+
+       # KPI "Toàn hệ thống"
+       frappe.set_user(self.admin_user)
+       kpi_all = approvals_api.count_pending(scope="all")
+       list_all = approvals_api.list_pending(scope="all")
+       self.assertEqual(kpi_all, len(list_all["data"]))
+       self.assertEqual(kpi_all, 5)
+   ```
+
+2. **Test phân biệt scope rõ ràng**:
+   ```python
+   def test_kpi_scopes_are_distinct(self):
+       seed_pending_approvals(count=3, assigned_to=self.qa_user)
+       seed_pending_approvals(count=2, assigned_to="other@test")
+       frappe.set_user(self.qa_user)
+       self.assertNotEqual(
+           approvals_api.count_pending(scope="all"),  # = 5
+           approvals_api.count_pending(scope="mine"), # = 3
+           "KPI scope phải cho 2 số khác nhau khi data thực khác"
+       )
+   ```
+
+Reference: `CONVENTIONS.md §43`, `assetcore-fe` LL-FE-29.
