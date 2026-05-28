@@ -7,7 +7,7 @@
 | Owner | BE Lead |
 | Base URL | `/api/method/assetcore.api.imm11.<function>` |
 | Auth | Frappe session HOẶC `Authorization: token <key>:<secret>` |
-| Cập nhật | 2026-05-14 |
+| Cập nhật | 2026-05-27 |
 | Trạng thái | ✅ Live — `assetcore/api/imm11.py` deployed (18 endpoint) |
 
 ---

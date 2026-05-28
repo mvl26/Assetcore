@@ -56,13 +56,13 @@ def create_calibration_schedule_from_commissioning(commissioning_doc) -> Optiona
         return None
     model = DeviceModelRepo.get_value(
         device_model,
-        ["calibration_required", "calibration_interval_days", "calibration_type_default"],
+        ["is_calibration_required", "calibration_interval_days", "default_calibration_type"],
         as_dict=True,
     ) or {}
-    if not model.get("calibration_required"):
+    if not model.get("is_calibration_required"):
         return None
     interval = model.get("calibration_interval_days") or _DEFAULT_INTERVAL_DAYS
-    cal_type = model.get("calibration_type_default") or "External"
+    cal_type = model.get("default_calibration_type") or "External"
     base_date = commissioning_doc.commissioning_date or nowdate()
 
     sched = CalibrationScheduleRepo.create({
@@ -115,12 +115,12 @@ def create_calibration_schedule_from_asset(asset_doc, method: str | None = None)
     if device_model:
         model_data = DeviceModelRepo.get_value(
             device_model,
-            ["calibration_interval_days", "calibration_type_default"],
+            ["calibration_interval_days", "default_calibration_type"],
             as_dict=True,
         ) or {}
         if interval <= 0:
             interval = int(model_data.get("calibration_interval_days") or 0)
-        cal_type = model_data.get("calibration_type_default") or cal_type
+        cal_type = model_data.get("default_calibration_type") or cal_type
     if interval <= 0:
         interval = _DEFAULT_INTERVAL_DAYS
 
