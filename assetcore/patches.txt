@@ -25,3 +25,11 @@ assetcore.patches.v3_1.009_set_gmdn_inherited_flag
 assetcore.patches.v3_1.010_consolidate_sla_priority_p1
 # ── Wave 2 ── RBAC module-based redesign ─────────────────────────────────────
 assetcore.patches.v3_2.001_module_role_redesign
+# ── Wave 2 ── BUG-002 fix: backfill MR.quarter from review_date ──────────────
+assetcore.patches.v3_2.002_fix_mr_quarter_q1_2099
+# ── Wave 2 ── BUG-014 fix: replace slug in PM Checklist Template.template_name
+assetcore.patches.v3_2.003_fix_pm_template_name_slug
+# ── Wave 2 ── BUG-017 fix: backfill IMM Management Review.scorecard_ref
+assetcore.patches.v3_2.004_link_mr_to_scorecard
+# ── Wave 2 ── Sync AC Asset.asset_code with name (unify with Department pattern)
+assetcore.patches.v3_2.005_sync_asset_code_with_name
