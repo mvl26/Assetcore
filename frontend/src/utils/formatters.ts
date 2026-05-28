@@ -167,6 +167,31 @@ const STATUS_MAP: Record<string, string> = {
   Expiring:             'Sắp hết hạn',
   Revoked:              'Đã thu hồi',
   Suspended:            'Tạm ngưng',
+
+  // ── IMM-02 Tech Spec / Vendor Evaluation (Wave 2) ────────────────────
+  Benchmarked:          'Đã so sánh thị trường',
+  'Risk Assessed':      'Đã đánh giá rủi ro',
+  Risk_Assessed:        'Đã đánh giá rủi ro',
+  Locked:               'Đã chốt',
+  Withdrawn:            'Đã rút',
+  'Open RFQ':           'Đang yêu cầu báo giá',
+  Open_RFQ:             'Đang yêu cầu báo giá',
+  'Quotation Received': 'Đã nhận báo giá',
+  Quotation_Received:   'Đã nhận báo giá',
+  Evaluated:            'Đã đánh giá',
+
+  // ── IMM-03 Procurement Decision (Wave 2) ─────────────────────────────
+  'Method Selected':    'Đã chọn phương án',
+  Method_Selected:      'Đã chọn phương án',
+  Negotiation:          'Đang thương thảo',
+  'Award Recommended':  'Đề xuất trúng thầu',
+  Award_Recommended:    'Đề xuất trúng thầu',
+  Awarded:              'Đã trao thầu',
+  'Contract Signed':    'Đã ký hợp đồng',
+  Contract_Signed:      'Đã ký hợp đồng',
+  'PO Issued':          'Đã phát hành đơn hàng',
+  PO_Issued:            'Đã phát hành đơn hàng',
+  Conditional:          'Có điều kiện',
 }
 
 /** Trả nhãn Tiếng Việt cho 1 status. Fallback: bỏ dấu gạch dưới. */
@@ -270,6 +295,31 @@ const STATUS_COLOR: Record<string, string> = {
   Expiring:           COLOR_ORANGE,
   Revoked:            COLOR_RED,
   Suspended:          COLOR_ORANGE,
+
+  // ── IMM-02 Tech Spec / Vendor Evaluation (Wave 2) ─────────────────────
+  Benchmarked:         COLOR_BLUE,
+  'Risk Assessed':     COLOR_BLUE,
+  Risk_Assessed:       COLOR_BLUE,
+  Locked:              COLOR_GREEN,
+  Withdrawn:           COLOR_GRAY,
+  'Open RFQ':          COLOR_BLUE,
+  Open_RFQ:            COLOR_BLUE,
+  'Quotation Received':COLOR_BLUE,
+  Quotation_Received:  COLOR_BLUE,
+  Evaluated:           COLOR_GREEN,
+
+  // ── IMM-03 Procurement Decision (Wave 2) ──────────────────────────────
+  'Method Selected':   COLOR_BLUE,
+  Method_Selected:     COLOR_BLUE,
+  Negotiation:         COLOR_BLUE,
+  'Award Recommended': COLOR_BLUE,
+  Award_Recommended:   COLOR_BLUE,
+  Awarded:             COLOR_GREEN,
+  'Contract Signed':   COLOR_GREEN,
+  Contract_Signed:     COLOR_GREEN,
+  'PO Issued':         COLOR_GREEN,
+  PO_Issued:           COLOR_GREEN,
+  Conditional:         COLOR_YELLOW,
 }
 
 // ─── Relative time (Vietnamese) ─────────────────────────────────────────────
