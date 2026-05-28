@@ -177,12 +177,21 @@ onMounted(load)
             <p class="font-medium">{{ capa.imm_risk_level || '—' }} · {{ capa.imm_reopen_count ?? 0 }} lần</p>
           </div>
         </div>
-        <div v-if="capa.finding_ref" class="pt-3 border-t border-slate-100">
-          <p class="t-eyebrow mb-1">Phát hiện nguồn</p>
-          <button class="font-mono text-sm text-brand-700 font-semibold hover:underline" @click="router.push(`/compliance/findings/${capa.finding_ref}`)">
-            {{ capa.finding_ref }}
-          </button>
-          <span v-if="capa.finding_rule" class="text-xs text-slate-400 ml-2">({{ capa.finding_rule }})</span>
+        <div v-if="capa.finding_ref || capa.incident_ref" class="pt-3 border-t border-slate-100 space-y-1.5">
+          <div v-if="capa.finding_ref">
+            <p class="t-eyebrow mb-1">Phát hiện tuân thủ nguồn</p>
+            <button class="font-mono text-sm text-brand-700 font-semibold hover:underline" @click="router.push(`/compliance/findings/${capa.finding_ref}`)">
+              {{ capa.finding_ref }}
+            </button>
+            <span v-if="capa.finding_rule" class="text-xs text-slate-400 ml-2">({{ capa.finding_rule }})</span>
+          </div>
+          <div v-if="capa.incident_ref">
+            <p class="t-eyebrow mb-1">Sự cố nguồn (Incident Report)</p>
+            <button class="font-mono text-sm text-brand-700 font-semibold hover:underline" @click="router.push(`/incidents/${capa.incident_ref}`)">
+              {{ capa.incident_ref }}
+            </button>
+            <span v-if="capa.incident_subject" class="text-xs text-slate-500 ml-2">— {{ capa.incident_subject }}</span>
+          </div>
         </div>
       </div>
 

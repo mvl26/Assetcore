@@ -6,7 +6,7 @@
 | Phạm vi | Per-module |
 | Owner | BA + System Analyst |
 | Liên kết | 03 Diagrams · 04 Backend · 05 API · 06 Frontend |
-| Cập nhật | 2026-05-18 |
+| Cập nhật | 2026-05-27 |
 | Trạng thái | ✅ Live — `services/imm12.py` + `api/imm12.py` (14 endpoint) + DocType `Incident Report` / `IMM RCA Record` + Workflow JSON + FE views/store đã deploy |
 
 ---
@@ -48,11 +48,11 @@ IMM-12 giải quyết vấn đề sự cố thiết bị y tế không được 
 | Vai trò | Người dùng thực | Quan tâm chính | Tần suất | Loại |
 |---|---|---|---|---|
 | Reporting User | Điều dưỡng / KTV khoa phòng | Báo cáo sự cố nhanh, dễ dùng trên mobile | Khi có sự cố | Primary |
-| IMM Workshop Lead | Trưởng xưởng kỹ thuật | Tiếp nhận, phân công, tạo RCA, monitor CAPA | Hàng ngày | Primary |
-| IMM QA Officer | Nhân viên QA | Submit/Close CAPA; verify audit trail | Hàng tuần | Approver |
-| IMM Department Head | Trưởng phòng HTM | Nhận escalation Critical; phê duyệt CAPA cấp cao | Khi cần | Secondary |
-| IMM Operations Manager | Quản lý vận hành | Dashboard KPI, export compliance report | Hàng tuần | Auditor |
-| IMM System Admin | Quản trị viên | Cấu hình fault_code dictionary; seed data | Khi cần | Auditor |
+| Corrective Manager | Trưởng xưởng kỹ thuật | Tiếp nhận, phân công, tạo RCA, monitor CAPA | Hàng ngày | Primary |
+| Compliance Manager | Nhân viên QA | Submit/Close CAPA; verify audit trail | Hàng tuần | Approver |
+| Corrective Manager | Trưởng phòng HTM | Nhận escalation Critical; phê duyệt CAPA cấp cao | Khi cần | Secondary |
+| Corrective Manager | Quản lý vận hành | Dashboard KPI, export compliance report | Hàng tuần | Auditor |
+| AssetCore Super Admin | Quản trị viên | Cấu hình fault_code dictionary; seed data | Khi cần | Auditor |
 
 ## I.4. Scope
 
@@ -168,7 +168,7 @@ flowchart TD
         D3 --> D4[Submit RCA\n→ auto create_capa]
         D1 -->|Không| D5[Close incident trực tiếp]
     end
-    subgraph QA["IMM QA Officer"]
+    subgraph QA["Compliance Manager"]
         D4 --> E1[Xử lý CAPA\nIn Progress → Pending Verification]
         E1 --> E2[close_capa\nroot_cause + corrective + preventive]
         E2 --> E3[Close incident]
@@ -287,11 +287,11 @@ flowchart TD
 
 | Actor | Loại | Vai trò Frappe (dự kiến) | UC chính |
 |---|---|---|---|
-| Reporting User | Primary (human) | `IMM Reporting User` (clinician/KTV) | UC-01 |
-| Workshop Lead | Primary (human) | `IMM Workshop Lead` | UC-02, 03, 04, 05, 07 |
-| IMM QA Officer | Approver (human) | `IMM QA Officer` | UC-05 (co-execute), 06, 07 |
-| IMM Department Head | Secondary (human) | `IMM Department Head` | UC-02 (escalation) |
-| Operations Manager | Auditor (human) | `IMM Operations Manager` | Dashboard / Reports |
+| Reporting User | Primary (human) | `AssetCore Auditor` (clinician/KTV) | UC-01 |
+| Corrective Manager | Primary (human) | `Corrective Manager` | UC-02, 03, 04, 05, 07 |
+| Compliance Manager | Approver (human) | `Compliance Manager` | UC-05 (co-execute), 06, 07 |
+| Corrective Manager | Secondary (human) | `Corrective Manager` | UC-02 (escalation) |
+| Operations Manager | Auditor (human) | `Corrective Manager` | Dashboard / Reports |
 | Scheduler | System | `Frappe Scheduler` | UC-08 |
 | System | System | Service layer (`imm12.py`) | UC-09 |
 
@@ -327,7 +327,7 @@ flowchart TD
 |---|---|
 | ID | UC-IMM12-05 |
 | Brief | Workshop Lead/QA Submit RCA với root cause → hệ thống auto tạo CAPA |
-| Primary actor | Workshop Lead, IMM QA Officer |
+| Primary actor | Corrective Manager, Compliance Manager |
 | Pre-condition | RCA Record ở trạng thái RCA In Progress; `root_cause` và `rca_method` đã điền |
 | Post-condition | RCA status = Completed; CAPA tạo tự động; IR.linked_capa cập nhật |
 | Trigger | Click "Submit RCA" |

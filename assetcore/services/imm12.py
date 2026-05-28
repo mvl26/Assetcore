@@ -487,13 +487,14 @@ def get_incident_detail(name: str) -> dict:
     data["allowed_transitions"] = _VALID_TRANSITIONS.get(doc.status, [])
     if doc.rca_record:
         rca = RCARepo.get(doc.rca_record)
-        data["rca"] = {
-            "name": rca.name,
-            "status": rca.status,
-            "root_cause": rca.root_cause,
-            "due_date": str(rca.due_date) if rca.due_date else None,
-            "trigger_type": rca.trigger_type,
-        }
+        if rca:
+            data["rca"] = {
+                "name": rca.name,
+                "status": rca.status,
+                "root_cause": rca.root_cause,
+                "due_date": str(rca.due_date) if rca.due_date else None,
+                "trigger_type": rca.trigger_type,
+            }
     return data
 
 
