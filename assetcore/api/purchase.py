@@ -17,8 +17,12 @@ def _enrich_purchase(doc: dict) -> dict:
     sup = doc.get("supplier")
     if sup:
         row = frappe.db.get_value("AC Supplier", sup, ["supplier_name"], as_dict=True)
-        if row:
+        if row and row.supplier_name:
             doc["supplier_name"] = row.supplier_name
+        else:
+            # Dangling reference — supplier record was deleted or never created.
+            doc["supplier_name"] = f"[Đã xoá] {sup}"
+            doc["supplier_missing"] = True
 
     devices = doc.get("devices") or []
     if devices:
@@ -101,7 +105,14 @@ def list_purchases(page: int = 1, page_size: int = 30, status: str = "",
             device_counts[x.parent] = device_counts.get(x.parent, 0) + 1
 
     for r in rows:
-        r["supplier_name"] = sup_map.get(r.supplier, r.supplier)
+        sname = sup_map.get(r.supplier) if r.supplier else None
+        if sname:
+            r["supplier_name"] = sname
+        else:
+            # Dangling supplier reference — record deleted or missing. Mark
+            # explicitly so the UI does not show a bare ID like "AC-SUP-…".
+            r["supplier_name"] = f"[Đã xoá] {r.supplier}" if r.supplier else ""
+            r["supplier_missing"] = True
         r["part_count"] = part_counts.get(r.name, 0)
         r["device_count"] = device_counts.get(r.name, 0)
     return _ok({"data": rows, "total": total})
