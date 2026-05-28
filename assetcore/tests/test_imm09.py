@@ -35,11 +35,13 @@ def _make_asset(suffix: str = "") -> object:
 
 def _ensure_cat() -> str:
     name = "_TestCatIMM09"
-    if not frappe.db.exists("AC Asset Category", name):
-        frappe.get_doc({"doctype": "AC Asset Category", "category_name": name}).insert(
-            ignore_permissions=True
-        )
-    return name
+    existing = frappe.db.get_value("AC Asset Category", {"category_name": name}, "name")
+    if existing:
+        return existing
+    doc = frappe.get_doc({"doctype": "AC Asset Category", "category_name": name}).insert(
+        ignore_permissions=True
+    )
+    return doc.name
 
 
 def _make_incident(asset: str) -> str:
@@ -96,10 +98,9 @@ class TestRepairWOCreation(unittest.TestCase):
         if frappe.db.exists("Incident Report", cls.ir):
             frappe.delete_doc("Incident Report", cls.ir, force=True, ignore_permissions=True)
         frappe.delete_doc("AC Asset", cls.asset.name, force=True, ignore_permissions=True)
-        if frappe.db.exists("AC Asset Category", "_TestCatIMM09"):
-            frappe.delete_doc(
-                "AC Asset Category", "_TestCatIMM09", force=True, ignore_permissions=True
-            )
+        cat_name = frappe.db.get_value("AC Asset Category", {"category_name": "_TestCatIMM09"}, "name")
+        if cat_name:
+            frappe.delete_doc("AC Asset Category", cat_name, force=True, ignore_permissions=True)
 
     def setUp(self):
         frappe.set_user("Administrator")
