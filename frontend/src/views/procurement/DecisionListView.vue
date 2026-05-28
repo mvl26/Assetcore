@@ -232,7 +232,7 @@ onMounted(() => { store.fetchDecisions(); store.fetchKpis() })
                   </span>
                 </td>
                 <td>
-                  <span v-if="d.ac_purchase_ref">{{ d.ac_purchase_ref }}</span>
+                  <span v-if="d.ac_purchase_ref">{{ (d as any).ac_purchase_ref_name || d.ac_purchase_ref }}</span>
                   <span v-else class="text-slate-400">—</span>
                 </td>
                 <td>

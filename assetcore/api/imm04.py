@@ -89,8 +89,25 @@ def get_po_details(po_name: str) -> dict:
 
 
 @frappe.whitelist()
-def search_link(doctype: str, query: str = "", page_length: int = 10) -> dict:
-    return _handle(svc.search_link, doctype, query, int(page_length))
+def search_link(
+    doctype: str,
+    query: str = "",
+    page_length: int = 10,
+    filters: str = "",
+) -> dict:
+    """Whitelisted Link-search. `filters` is a JSON string of dynamic filters
+    (only fields in config.dynamic_filter_fields are honored — others ignored).
+    """
+    import json
+    extra: dict = {}
+    if filters:
+        try:
+            parsed = json.loads(filters)
+            if isinstance(parsed, dict):
+                extra = parsed
+        except (ValueError, TypeError):
+            pass
+    return _handle(svc.search_link, doctype, query, int(page_length), extra)
 
 
 @frappe.whitelist()
@@ -164,6 +181,13 @@ def assign_identification(name: str, vendor_serial_no: str = "",
                           internal_tag_qr: str = "", custom_moh_code: str = "") -> dict:
     rbac.require("commissioning.write")
     return _handle(svc.assign_identification, name, vendor_serial_no, internal_tag_qr, custom_moh_code)
+
+
+@frappe.whitelist(methods=["POST"])
+def generate_internal_qr(name: str) -> dict:
+    """BUG-009: Manual QR generation endpoint. Idempotent — chỉ sinh nếu chưa có."""
+    rbac.require("commissioning.write")
+    return _handle(svc.generate_internal_qr, name)
 
 
 @frappe.whitelist(methods=["POST"])

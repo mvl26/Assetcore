@@ -6,14 +6,13 @@ import { getCalibration, updateCalibration, submitCalibration, sendToLab, receiv
 import type { AssetCalibration, CalibrationMeasurement } from '@/api/imm11'
 import { uploadDocumentFile } from '@/api/imm05'
 import { useToast } from '@/composables/useToast'
-import { useAuthStore } from '@/stores/auth'
-import { ROLES_CAL_EXECUTE, ROLES_CAL_MANAGE } from '@/constants/roles'
+import { useCapabilities } from '@/composables/useCapabilities'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 
 const props = defineProps<{ id: string }>()
 const router = useRouter()
 const toast = useToast()
-const auth = useAuthStore()
+const { can } = useCapabilities()
 
 const form = ref<Partial<AssetCalibration> & { measurements?: CalibrationMeasurement[] }>({})
 const loading = ref(false)
@@ -22,8 +21,12 @@ const submitting = ref(false)
 const err = ref('')
 const uploadingCert = ref(false)
 
-const canExecuteCal = computed(() => auth.hasAnyRole(ROLES_CAL_EXECUTE))
-const canManageCal = computed(() => auth.hasAnyRole(ROLES_CAL_MANAGE))
+// BUG-007: Gate UI bằng capability (đồng bộ BE rbac.require ở api/imm11.py).
+// `calibration.write` cấp cho KTV Hiệu chuẩn (Calibration User/Manager) — bao
+// cả thao tác Start / Send Lab / Receive Cert / Save / Submit.
+// `calibration.cancel` (write của Calibration Manager) gate riêng hành động hủy.
+const canExecuteCal = computed(() => can('calibration.write'))
+const canManageCal = computed(() => can('calibration.cancel') || can('calibration.submit'))
 
 const isSubmitted = computed(() => form.value.docstatus === 1)
 const isFailed = computed(() => form.value.overall_result === 'Failed')
@@ -38,6 +41,25 @@ const canReceiveCert = computed(() =>
 const canCancel = computed(() =>
   canManageCal.value && !isSubmitted.value && form.value.status !== 'Cancelled',
 )
+// BUG-007: Phiếu "Đã lên lịch" cần nút "Bắt đầu hiệu chuẩn" để chuyển sang
+// In Progress (đặc biệt cho In-House không có Send To Lab). External cũng dùng
+// được khi không gửi lab (cal tại chỗ với reference standard).
+const canStartCal = computed(() =>
+  canExecuteCal.value && !isSubmitted.value && form.value.status === 'Scheduled',
+)
+const startingCal = ref(false)
+async function doStartCal() {
+  startingCal.value = true; err.value = ''
+  try {
+    await updateCalibration(props.id, { status: 'In Progress' } as Partial<AssetCalibration>)
+    toast.success('Đã bắt đầu hiệu chuẩn')
+    await load()
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : 'Lỗi khi bắt đầu hiệu chuẩn'
+    err.value = msg
+    toast.error(msg)
+  } finally { startingCal.value = false }
+}
 
 const showSendModal = ref(false)
 const showReceiveModal = ref(false)
@@ -159,6 +181,15 @@ const submitBlockReason = computed(() => {
   return ''
 })
 const canSubmitCal = computed(() => submitBlockReason.value === '')
+
+// BUG-007: Khi user không có quyền nào — show hint để hiểu vì sao panel trống.
+const hasAnyAction = computed(() =>
+  canCancel.value || canStartCal.value || canSendToLab.value ||
+  canReceiveCert.value || (canExecuteCal.value && !isSubmitted.value),
+)
+const showPermissionHint = computed(() =>
+  !loading.value && !isSubmitted.value && !hasAnyAction.value,
+)
 
 async function load() {
   loading.value = true
@@ -400,6 +431,17 @@ v-else-if="m.measured_value !== null && m.measured_value !== undefined" class="t
         <button class="ml-auto text-xs text-red-700 font-medium underline" @click="router.push(`/capas/${form.capa_record}`)">Xem CAPA</button>
       </div>
 
+      <!-- BUG-007: Permission hint khi user không có quyền hành động -->
+      <div v-if="showPermissionHint" class="card p-4 bg-amber-50 border-amber-200 text-sm text-amber-800 flex items-start gap-3">
+        <svg class="w-5 h-5 shrink-0 text-amber-500 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M12 2a10 10 0 100 20 10 10 0 000-20z" />
+        </svg>
+        <div>
+          <p class="font-medium">Bạn không có quyền thực hiện hành động trên phiếu này.</p>
+          <p class="text-xs mt-0.5">Liên hệ quản trị để cấp role Kỹ thuật viên Hiệu chuẩn (Calibration User/Manager).</p>
+        </div>
+      </div>
+
       <!-- Actions -->
       <div class="flex gap-2 justify-end pt-2 flex-wrap">
         <button class="btn-ghost text-sm" @click="router.push('/calibration')">Quay lại</button>
@@ -407,6 +449,12 @@ v-else-if="m.measured_value !== null && m.measured_value !== undefined" class="t
 v-if="canCancel" class="bg-slate-500 hover:bg-slate-600 text-white px-4 py-2 rounded-lg text-sm"
           @click="showCancelModal = true">
 Hủy phiếu
+</button>
+        <button
+v-if="canStartCal" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm disabled:opacity-50"
+          :disabled="startingCal"
+          @click="doStartCal">
+{{ startingCal ? 'Đang bắt đầu...' : 'Bắt đầu hiệu chuẩn' }}
 </button>
         <button
 v-if="canSendToLab" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm"

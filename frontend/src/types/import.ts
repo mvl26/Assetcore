@@ -17,6 +17,8 @@ export interface ImportIssue {
   severity: 'error' | 'warning'
 }
 
+export type ImportMode = 'strict' | 'skip_invalid'
+
 export interface ImportPreviewResult {
   doctype: RefDataDoctype
   totalRows: number
@@ -25,13 +27,23 @@ export interface ImportPreviewResult {
   fieldnames: string[]
   errors: ImportIssue[]
   warnings: ImportIssue[]
+  cascadeCount: number   // Tree DocType: rows skipped because parent is invalid
+}
+
+export interface ImportSkippedRow {
+  row: number
+  reason: 'pre_validate' | 'cascade_parent_skipped'
+  field: string
+  message: string
 }
 
 export interface ImportResult {
   total: number
   success: number
   failed: number
+  skipped: number
   errors: ImportIssue[]
+  skippedRows: ImportSkippedRow[]
 }
 
 export interface ErrorReportResult {

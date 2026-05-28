@@ -46,6 +46,7 @@ const filteredItems = computed(() => {
     arr = arr.filter(t =>
       (t.name || '').toLowerCase().includes(q)
       || (t.template_name || '').toLowerCase().includes(q)
+      || (t.display_template_name || '').toLowerCase().includes(q)
       || (t.version || '').toLowerCase().includes(q),
     )
   }
@@ -250,9 +251,9 @@ onMounted(load)
                 class="text-xs px-2 py-0.5 rounded-full font-medium bg-slate-100 text-slate-700"
               >{{ PM_TYPE_LABEL[t.pm_type] || t.pm_type }}</span>
             </div>
-            <p class="text-sm font-medium text-slate-900 truncate">{{ t.template_name }}</p>
+            <p class="text-sm font-medium text-slate-900 truncate">{{ t.display_template_name || t.template_name }}</p>
             <div class="flex flex-wrap gap-x-2 gap-y-1 mt-1.5 text-xs text-slate-500">
-              <span v-if="t.asset_category">{{ t.asset_category }}</span>
+              <span v-if="t.asset_category">{{ t.category_name || t.asset_category }}</span>
               <span>· v{{ t.version || '—' }}</span>
             </div>
             <div class="mt-2 flex gap-2">
@@ -282,15 +283,16 @@ onMounted(load)
             </td>
             <td class="px-4 py-3 font-medium text-slate-800">
               <button class="text-left hover:text-blue-600 hover:underline decoration-dotted underline-offset-2" @click="openEdit(t.name)">
-                {{ t.template_name }}
+                {{ t.display_template_name || t.template_name }}
               </button>
             </td>
             <td class="px-4 py-3">
               <button
                 v-if="t.asset_category"
                 class="text-left text-slate-700 hover:text-blue-600 hover:underline decoration-dotted underline-offset-2"
+                :title="t.asset_category"
                 @click="quickFilter('asset_category', t.asset_category!)"
-              >{{ t.asset_category }}</button>
+              >{{ t.category_name || t.asset_category }}</button>
               <span v-else class="text-slate-400">—</span>
             </td>
             <td class="px-4 py-3">

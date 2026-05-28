@@ -53,9 +53,16 @@ class CompetencyStatus:
 
 def list_training_programs(filters: dict, *, page: int = 1,
                             page_size: int = 20) -> dict:
-    """Liệt kê chương trình đào tạo với phân trang."""
+    """Liệt kê chương trình đào tạo với phân trang.
+
+    Loại trừ các bản ghi test fixture (`program_code` bắt đầu bằng `_Test`)
+    khỏi danh sách hiển thị cho người dùng cuối — defense-in-depth khi
+    fixture của bench run-tests bị leak sang DB live (xem `tests/test_imm06.py`).
+    """
+    nf = normalize_filters(filters)
+    nf.setdefault("program_code", ["not like", "\\_Test%"])
     rows, pg = TrainingProgramRepo.list(
-        filters=normalize_filters(filters),
+        filters=nf,
         fields=["name", "program_code", "program_name", "training_type",
                 "target_device_model", "target_device_category", "is_active",
                 "passing_score_pct", "validity_period_months", "duration_hours"],
@@ -247,6 +254,18 @@ def list_user_competencies(filters: dict, *, page: int = 1,
         order_by="expiry_date asc",
         page=page, page_size=page_size,
     )
+    # Enrich device_model với model_name để FE hiển thị tên thay vì ID
+    model_ids = list({r["device_model"] for r in rows if r.get("device_model")})
+    if model_ids:
+        model_names = dict(frappe.get_all(
+            "IMM Device Model",
+            filters={"name": ("in", model_ids)},
+            fields=["name", "model_name"], as_list=True,
+        ))
+        for r in rows:
+            mid = r.get("device_model")
+            if mid:
+                r["device_model_name"] = model_names.get(mid) or mid
     return {"data": rows, "pagination": pg}
 
 
@@ -869,6 +888,12 @@ def get_session(name: str) -> dict:
         result["instructor_full_name"] = (
             frappe.db.get_value("User", result["instructor"], "full_name")
             or result["instructor"]
+        )
+    # BUG-006: Enrich IMM Trainer name (trainer_ref → trainer_ref_name)
+    if result.get("trainer_ref"):
+        result["trainer_ref_name"] = (
+            frappe.db.get_value("IMM Trainer", result["trainer_ref"], "trainer_name")
+            or result["trainer_ref"]
         )
 
     enriched_participants = []

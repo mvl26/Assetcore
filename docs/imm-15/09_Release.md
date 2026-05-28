@@ -5,10 +5,12 @@
 | Thuộc tính | Giá trị |
 |---|---|
 | Module | IMM-15 — Spare Parts Inventory Tracking |
-| Phiên bản | 1.0.0-rc.2 |
+| Phiên bản | 0.0.2 |
 | Template | 09 Release |
-| Ngày cập nhật | 2026-05-14 |
+| Ngày cập nhật | 2026-05-27 |
 | Trạng thái | IMPLEMENTED — Wave 2 (chờ UAT) |
+
+> **Versioning policy:** Module docs đồng bộ phiên bản app — `assetcore/__init__.py = 0.0.2`. Mọi bump module version phải đi kèm bump app version trong cùng PR.
 
 ---
 
@@ -16,20 +18,19 @@
 
 ### Phân quyền theo vai trò
 
-| Vai trò | Quyền chính | Màn hình chính |
-|---|---|---|
-| Thủ kho (IMM Storekeeper) | Tạo allocation, Pick & Issue, Kiểm kê, Trả phụ tùng | SpareItemsList, AllocationList, CycleCountList |
-| Trưởng Phân xưởng (Workshop Head) | Duyệt allocation, Duyệt kiểm kê, Override Emergency, Duyệt forecast, Quản lý Watchlist | AllocationDetail, CycleCountDetail, ForecastView, WatchlistView, Dashboard |
-| Kỹ sư Biomedical (Biomed Tech) | Tạo allocation request | AllocationCreate, AllocationList |
-| Kỹ thuật viên HTM (HTM Technician) | Tạo allocation request, Hỗ trợ kiểm kê | AllocationCreate, CycleCountDetail |
-| QA Officer (Tổ HC-QLCL) | Xác minh kiểm kê, Theo dõi audit | CycleCountDetail, Dashboard |
-| Phó Trưởng Khối (VP Block 1 / Operations Manager) | Approve override Emergency, Approve forecast, Quản lý Watchlist | Dashboard, WatchlistView, ForecastView |
-| Kế toán (Accountant) | Đọc Dashboard KPI, Báo cáo giá trị | Dashboard |
-| CMMS Admin | Toàn quyền | Tất cả |
+| Vai trò (30-role catalog) | Persona thực tế | Quyền chính | Màn hình chính |
+|---|---|---|---|
+| `Inventory User` | Inventory User | Tạo allocation, Pick & Issue, Kiểm kê, Trả phụ tùng | SpareItemsList, AllocationList, CycleCountList |
+| `Inventory Manager` | Inventory Manager / Phó Trưởng Khối | Duyệt allocation, Post kiểm kê, Override Emergency, Duyệt forecast, Quản lý Watchlist | AllocationDetail, CycleCountDetail, ForecastView, WatchlistView, Dashboard |
+| `Repair User` / `PM User` / `Corrective User` / `Calibration User` | Kỹ sư Biomedical / KTV HTM (tuỳ loại WO) | Tạo allocation request từ Work Order | AllocationCreate, AllocationList |
+| `Compliance Manager` | Compliance Manager (Tổ HC-QLCL) | Xác minh kiểm kê, Theo dõi audit, CAPA | CycleCountDetail, Dashboard |
+| `AssetCore Auditor` | Kiểm toán nội bộ | Read-only toàn module + audit trail | Tất cả (read-only) |
+| `AssetCore System User` | Kế toán / Trưởng khoa | Đọc Dashboard KPI | Dashboard |
+| `AssetCore Super Admin` | Quản trị hệ thống | Toàn quyền | Tất cả |
 
 ---
 
-### Vai trò: Thủ kho (IMM Storekeeper)
+### Vai trò: Inventory User (`Inventory User`)
 
 #### Xem danh sách phụ tùng
 
@@ -70,26 +71,26 @@
    - Hỗ trợ quét QR code để tự chuyển đến đúng dòng phụ tùng
    - Chênh lệch tự tính sau 0.8 giây
    - Dòng chênh lệch > 5%: highlight đỏ → **bắt buộc nhập Nguyên nhân** và đánh dấu **CAPA**
-6. Click **[Hoàn tất đếm]** → chuyển sang Đã review (Trưởng Phân xưởng sẽ post kết quả)
+6. Click **[Hoàn tất đếm]** → chuyển sang Đã review (Inventory Manager sẽ post kết quả)
 
 ---
 
-### Vai trò: Trưởng Phân xưởng (Workshop Head)
+### Vai trò: Inventory Manager (`Inventory Manager`)
 
 #### Duyệt phiếu cấp phát
 
 1. Vào **Phiếu cấp phát phụ tùng** → lọc **Trạng thái: Yêu cầu**
 2. Mở phiếu → xem chi tiết phụ tùng, Work Order liên kết, tồn kho hiện tại
-3. Click **[Approve]** → phiếu chuyển sang **Đã duyệt**, Thủ kho nhận thông báo
+3. Click **[Approve]** → phiếu chuyển sang **Đã duyệt**, Inventory User nhận thông báo
 4. Hoặc click **[Hủy]** kèm lý do nếu yêu cầu không hợp lệ
 
 #### Duyệt Emergency Override
 
-Khi Thủ kho gặp tình huống tồn kho = 0 nhưng cần cấp khẩn cho thiết bị Critical:
+Khi Inventory User gặp tình huống tồn kho = 0 nhưng cần cấp khẩn cho thiết bị Critical:
 
 1. Hệ thống hiện modal **Emergency Override — Cấp phát khẩn**
-2. Bạn (Workshop Head) là **Approver 1** (tự động)
-3. Chọn **Approver 2** — phải là người khác, thuộc nhóm `_OVERRIDE_ROLES` (VP Block 1 hoặc CMMS Admin)
+2. Bạn (Inventory Manager) là **Approver 1** (tự động)
+3. Chọn **Approver 2** — phải là người khác, thuộc nhóm `_OVERRIDE_ROLES` (Inventory Manager (override 2) hoặc AssetCore Super Admin)
 4. Nhập **Lý do khẩn cấp** (tối thiểu 30 ký tự)
 5. Đính kèm văn bản nếu có
 6. Click **[Xác nhận Override & Issue]**
@@ -115,7 +116,7 @@ Khi Thủ kho gặp tình huống tồn kho = 0 nhưng cần cấp khẩn cho th
 
 ---
 
-### Vai trò: Kỹ sư Biomedical / HTM Technician
+### Vai trò: Kỹ sư Biomedical / HTM Technician (`Repair User` / `PM User`)
 
 #### Tạo phiếu cấp phát phụ tùng
 
@@ -126,21 +127,21 @@ Khi Thủ kho gặp tình huống tồn kho = 0 nhưng cần cấp khẩn cho th
    - **Khẩn** — ưu tiên xử lý nhanh
    - **Khẩn cấp** — khi thiết bị Critical đang hỏng
 4. Thêm phụ tùng cần dùng → hệ thống kiểm tra tồn kho ngay (cột OK? / ⚠ MR)
-5. Click **[Tạo & Gửi duyệt]** → gửi cho Trưởng Phân xưởng xét duyệt
+5. Click **[Tạo & Gửi duyệt]** → gửi cho Inventory Manager xét duyệt
 6. Theo dõi trạng thái trong danh sách phiếu
 
 > Lưu ý: Kỹ sư KHÔNG thể tự Approve hoặc Issue phiếu của mình.
 
 ---
 
-### Vai trò: QA Officer (Tổ HC-QLCL)
+### Vai trò: Compliance Manager / Compliance Manager (`Compliance Manager`)
 
 #### Xác minh kiểm kê
 
 1. Vào **Kiểm kê chu kỳ** → lọc trạng thái **Đang đếm** hoặc **Đã review**
 2. Mở phiếu → kiểm tra các dòng chênh lệch
 3. Xem **Nguyên nhân** và **CAPA** đã được ghi chú chưa
-4. Nếu phát hiện thiếu sót → thông báo Trưởng Phân xưởng trước khi Post
+4. Nếu phát hiện thiếu sót → thông báo Inventory Manager trước khi Post
 
 #### Theo dõi Dashboard KPI
 
@@ -154,7 +155,7 @@ Khi Thủ kho gặp tình huống tồn kho = 0 nhưng cần cấp khẩn cho th
 
 1. Truy cập **Dashboard Tồn kho** (read-only)
 2. Xem KPI: Turnover/năm, Days-on-Hand, Giá trị tồn kho
-3. Xuất báo cáo nếu cần — liên hệ CMMS Admin
+3. Xuất báo cáo nếu cần — liên hệ AssetCore Super Admin
 
 ---
 
@@ -164,9 +165,9 @@ Khi Thủ kho gặp tình huống tồn kho = 0 nhưng cần cấp khẩn cho th
 
 | Trạng thái | Ý nghĩa | Người xử lý tiếp theo |
 |---|---|---|
-| Yêu cầu | Đã tạo, chờ duyệt | Trưởng Phân xưởng |
-| Đã duyệt | Đã phê duyệt, Thủ kho pick hàng | Thủ kho |
-| Đã pick | Hàng đã sẵn sàng tại kệ | Thủ kho (Issue) |
+| Yêu cầu | Đã tạo, chờ duyệt | Inventory Manager |
+| Đã duyệt | Đã phê duyệt, Inventory User pick hàng | Inventory User |
+| Đã pick | Hàng đã sẵn sàng tại kệ | Inventory User (Issue) |
 | Đã cấp | Đã xuất kho, AC Stock Movement tạo | (Kỹ sư sử dụng) |
 | Đã trả | Phụ tùng đã trả về kho | — |
 | Đã hủy | Phiếu bị hủy | — |
@@ -175,9 +176,9 @@ Khi Thủ kho gặp tình huống tồn kho = 0 nhưng cần cấp khẩn cho th
 
 | Trạng thái | Ý nghĩa | Người xử lý tiếp theo |
 |---|---|---|
-| Lên kế hoạch | Đã tạo phiên, chưa bắt đầu đếm | Thủ kho |
-| Đang đếm | Đang nhập số lượng đếm thực tế | Thủ kho |
-| Đã review | Hoàn tất đếm, chờ Trưởng Phân xưởng xác nhận | Trưởng Phân xưởng |
+| Lên kế hoạch | Đã tạo phiên, chưa bắt đầu đếm | Inventory User |
+| Đang đếm | Đang nhập số lượng đếm thực tế | Inventory User |
+| Đã review | Hoàn tất đếm, chờ Inventory Manager xác nhận | Inventory Manager |
 | Đã post | Kết quả đã xác nhận, tồn kho đã điều chỉnh | — |
 
 ### Dự báo nhu cầu phụ tùng (IMM Spare Part Forecast)
@@ -195,7 +196,7 @@ Khi Thủ kho gặp tình huống tồn kho = 0 nhưng cần cấp khẩn cho th
 
 **Trả lời:** Có một số nguyên nhân:
 - Phiếu chưa ở trạng thái **Đã pick** (phải qua Approve → Pick trước)
-- Bạn chưa có quyền Issue (chỉ Thủ kho và Operations Manager được Issue)
+- Bạn chưa có quyền Issue (chỉ Inventory User và Inventory Manager được Issue)
 - Phụ tùng có bật **Traceability** → phải nhập `batch_no` hoặc `serial_no` trước khi Issue
 - Tồn kho không đủ và chưa kích hoạt Emergency Override
 
@@ -210,7 +211,7 @@ Kiểm tra thông báo lỗi hiển thị bên dưới nút Issue — lỗi sẽ
 Quy trình:
 1. Phiếu phải có **Urgency = Khẩn cấp** (Emergency)
 2. Phụ tùng phải thuộc loại **Critical**
-3. Cần **2 người phê duyệt khác nhau** từ nhóm cho phép (Trưởng Phân xưởng + VP Block 1)
+3. Cần **2 người phê duyệt khác nhau** từ nhóm cho phép (Inventory Manager + Inventory Manager (override 2))
 4. Phải nhập lý do cụ thể (tối thiểu 30 ký tự)
 5. Hành động ghi vĩnh viễn vào Audit Trail với nhãn `EMERGENCY_OVERRIDE`
 
@@ -235,12 +236,12 @@ Sau khi Post kiểm kê, hệ thống tự tạo phiếu CAPA trong IMM-16 cho t
 
 | Tình huống | Người nhận | Thời điểm |
 |---|---|---|
-| Tồn kho dưới mức tối thiểu | Thủ kho + Trưởng Phân xưởng | Hàng ngày 02:00 |
-| Critical Spare Watchlist bị vi phạm (breach) | Trưởng Phân xưởng + VP Block 1 + CMMS Admin | Hàng ngày 02:30 (tức thì nếu breach) |
-| Phụ tùng sắp hết hạn (nếu bật Batch tracking) | Thủ kho | Hàng ngày 03:00 |
-| Emergency Override được thực hiện | Trưởng Phân xưởng + VP Block 1 | Tức thì sau Override |
+| Tồn kho dưới mức tối thiểu | Inventory User + Inventory Manager | Hàng ngày 02:00 |
+| Critical Spare Watchlist bị vi phạm (breach) | Inventory Manager + Inventory Manager (override 2) + AssetCore Super Admin | Hàng ngày 02:30 (tức thì nếu breach) |
+| Phụ tùng sắp hết hạn (nếu bật Batch tracking) | Inventory User | Hàng ngày 03:00 |
+| Emergency Override được thực hiện | Inventory Manager + Inventory Manager (override 2) | Tức thì sau Override |
 
-Nếu không nhận được email, kiểm tra với CMMS Admin về cấu hình email của tài khoản.
+Nếu không nhận được email, kiểm tra với AssetCore Super Admin về cấu hình email của tài khoản.
 
 ---
 
@@ -256,7 +257,7 @@ Một phụ tùng Critical có thể có nhiều Watchlist entries cho nhiều t
 
 ### Q6: Tại sao người Verify kiểm kê phải khác người Đếm?
 
-**Trả lời:** Đây là yêu cầu phân quyền (VR-15-11) theo nguyên tắc **Segregation of Duties** của ISO 13485. Người đếm không được tự xác minh kết quả của mình để đảm bảo tính khách quan và tránh gian lận. Trưởng Phân xưởng hoặc QA Officer sẽ đóng vai trò người xác minh.
+**Trả lời:** Đây là yêu cầu phân quyền (VR-15-11) theo nguyên tắc **Segregation of Duties** của ISO 13485. Người đếm không được tự xác minh kết quả của mình để đảm bảo tính khách quan và tránh gian lận. Inventory Manager hoặc Compliance Manager sẽ đóng vai trò người xác minh.
 
 ---
 
@@ -320,7 +321,7 @@ IMM-15 v1.0.0 là lần phát hành đầu tiên của module **Theo dõi tồn 
 | # | Thay đổi | Ảnh hưởng | Mitigation |
 |---|---|---|---|
 | BC-01 | AC Stock Movement.reference_type mở rộng (Property Setter) | LIVE AC Stock Movement KHÔNG thay đổi data; chỉ thêm option mới | Patch v3_208 additive — backward compat |
-| BC-02 | Patch v3_209 backfill `imm_part_class` từ `is_critical` | Spare part cũ có `is_critical=0` sẽ bị gán `Consumable` | Workshop Head review sau deploy; manual reclassify Major/Tool |
+| BC-02 | Patch v3_209 backfill `imm_part_class` từ `is_critical` | Spare part cũ có `is_critical=0` sẽ bị gán `Consumable` | Inventory Manager review sau deploy; manual reclassify Major/Tool |
 
 ### Known Issues (v1.0.0)
 
@@ -435,11 +436,11 @@ NFR coverage (33%) tăng lên khi có k6 load test chạy đủ trong CI/CD pipe
 
 | Kênh | Liên hệ | Giờ hỗ trợ |
 |---|---|---|
-| Slack `#assetcore-support` | CMMS Admin | 07:00-18:00 |
+| Slack `#assetcore-support` | AssetCore Super Admin | 07:00-18:00 |
 | Email | cmms-admin@hospital.vn | Trong ngày |
-| Điện thoại khẩn | Workshop Head on-call | 24/7 (Emergency override) |
+| Điện thoại khẩn | Inventory Manager on-call | 24/7 (Emergency override) |
 | Bug report | GitHub Issues / Jira | Bất kỳ lúc nào |
 
 ---
 
-*IMM-15 Module — Wave 2 IMPLEMENTED. Release & User Guide v1.0.0-rc.2. Cập nhật 2026-05-14.*
+*IMM-15 Module — Wave 2 IMPLEMENTED. Release & User Guide v0.0.2. Cập nhật 2026-05-27.*

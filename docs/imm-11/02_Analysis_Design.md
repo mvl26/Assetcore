@@ -6,7 +6,7 @@
 | Phạm vi | Per-module |
 | Owner | BA + System Analyst |
 | Liên kết | 03 Diagrams · 04 Backend · 05 API · 06 Frontend |
-| Cập nhật | 2026-05-18 |
+| Cập nhật | 2026-05-27 |
 | Trạng thái | ✅ Live — service `assetcore/services/imm11.py` + API `assetcore/api/imm11.py` (18 endpoint) + DocType + Workflow + FE views đã deploy |
 
 ---
@@ -40,12 +40,12 @@ IMM-11 giải quyết vấn đề bệnh viện không theo dõi được trạn
 
 | Vai trò | Người dùng thực | Quan tâm chính | Tần suất | Loại |
 |---|---|---|---|---|
-| IMM Workshop Lead | Trưởng xưởng kỹ thuật | Lập lịch, chọn lab, monitor compliance | Hằng ngày | Primary |
-| IMM Technician | KTV hiệu chuẩn | Bàn giao thiết bị, nhập measurement, upload cert | Hằng ngày | Primary |
-| IMM QA Officer | Nhân viên QA | Review CAPA, Lookback findings, RCA | Hằng tuần | Approver |
-| IMM Operations Manager | Quản lý vận hành | Dashboard, KPI, compliance report | Hằng tuần | Secondary |
-| IMM Department Head | Trưởng phòng HTM | Nhận escalation overdue > 30 ngày | Khi cần | Auditor |
-| IMM Document Officer | Nhân viên lưu trữ | Read-only audit trail, chứng chỉ archive | Theo yêu cầu | Auditor |
+| Calibration Manager | Trưởng xưởng kỹ thuật | Lập lịch, chọn lab, monitor compliance | Hằng ngày | Primary |
+| Calibration User | KTV hiệu chuẩn | Bàn giao thiết bị, nhập measurement, upload cert | Hằng ngày | Primary |
+| Compliance Manager | Nhân viên QA | Review CAPA, Lookback findings, RCA | Hằng tuần | Approver |
+| Calibration Manager | Quản lý vận hành | Dashboard, KPI, compliance report | Hằng tuần | Secondary |
+| Calibration Manager | Trưởng phòng HTM | Nhận escalation overdue > 30 ngày | Khi cần | Auditor |
+| Document Manager | Nhân viên lưu trữ | Read-only audit trail, chứng chỉ archive | Theo yêu cầu | Auditor |
 
 ## I.4. Scope
 
@@ -149,7 +149,7 @@ flowchart TD
     subgraph WL["Workshop Lead"]
         B2 --> C1[Chọn lab + phân công KTV]
     end
-    subgraph KTV["IMM Technician"]
+    subgraph KTV["Calibration User"]
         C1 --> D1{Loại hiệu chuẩn?}
         D1 -->|External| D2[Bàn giao → Sent to Lab]
         D2 --> D3[Nhận cert → Certificate Received]
@@ -165,7 +165,7 @@ flowchart TD
         E1 -->|Fail| E4[handle_calibration_fail]
         E4 --> E5[Out of Service + CAPA + Lookback]
     end
-    subgraph QA["IMM QA Officer"]
+    subgraph QA["Compliance Manager"]
         E5 --> F1[resolve_capa_lookback]
         F1 --> F2[close_capa]
         F2 --> F3[Recalibration Pass → Active]
@@ -254,7 +254,7 @@ Module có 12 UC chính → tách thành 3 nhóm phân rã, mỗi nhóm ≤ 6 UC
 
 **Nhóm 1 — Planning & Assignment (Workshop Lead)**: UC-01 Lập lịch, UC-02 Phân công KTV, UC-11 Scheduler tự động tạo WO, UC-12 Cập nhật calibration_status.
 
-**Nhóm 2 — Execution (KTV — IMM Technician)**: UC-03 Bàn giao thiết bị External, UC-04 Nhận certificate, UC-05 Nhập kết quả đo, UC-06 Submit kết quả.
+**Nhóm 2 — Execution (Calibration User)**: UC-03 Bàn giao thiết bị External, UC-04 Nhận certificate, UC-05 Nhập kết quả đo, UC-06 Submit kết quả.
 
 **Nhóm 3 — Post-result Automation & QA**: UC-07 Auto Pass handling (System), UC-08 Auto Fail handling — CAPA + OOS + Lookback (System), UC-09 Resolve lookback (QA Officer), UC-10 Close CAPA (QA Officer).
 
@@ -264,12 +264,12 @@ Module có 12 UC chính → tách thành 3 nhóm phân rã, mỗi nhóm ≤ 6 UC
 
 | Actor | Loại | Mô tả | Goal chính |
 |---|---|---|---|
-| IMM Workshop Lead | Primary | Trưởng xưởng kỹ thuật, owner lịch hiệu chuẩn | Đảm bảo 100% thiết bị có lịch + cert hợp lệ |
-| IMM Technician (KTV) | Primary | Kỹ thuật viên hiệu chuẩn nội bộ / handler external | Hoàn thành WO đúng hạn, nhập số liệu đúng |
-| IMM QA Officer | Approver | Nhân viên QA phụ trách CAPA + Lookback | Đảm bảo Fail không lan rộng, đóng CAPA đúng quy trình |
-| IMM Operations Manager | Secondary | Quản lý vận hành — đọc dashboard, KPI | Theo dõi compliance rate + OOT rate |
-| IMM Department Head | Auditor | Trưởng phòng HTM — nhận escalation > 30 ngày overdue | Pass audit NĐ98 + ISO 13485 |
-| IMM Document Officer | Auditor | Read-only audit trail, archive chứng chỉ | Truy xuất hồ sơ ≥ 7 năm |
+| Calibration Manager | Primary | Trưởng xưởng kỹ thuật, owner lịch hiệu chuẩn | Đảm bảo 100% thiết bị có lịch + cert hợp lệ |
+| Calibration User | Primary | Kỹ thuật viên hiệu chuẩn nội bộ / handler external | Hoàn thành WO đúng hạn, nhập số liệu đúng |
+| Compliance Manager | Approver | Nhân viên QA phụ trách CAPA + Lookback | Đảm bảo Fail không lan rộng, đóng CAPA đúng quy trình |
+| Calibration Manager | Secondary | Quản lý vận hành — đọc dashboard, KPI | Theo dõi compliance rate + OOT rate |
+| Calibration Manager | Auditor | Trưởng phòng HTM — nhận escalation > 30 ngày overdue | Pass audit NĐ98 + ISO 13485 |
+| Document Manager | Auditor | Read-only audit trail, archive chứng chỉ | Truy xuất hồ sơ ≥ 7 năm |
 | Calibration Lab (External) | External | Lab ISO/IEC 17025 nhận thiết bị, trả cert | (Out-of-system) Cấp cert đúng định dạng |
 | Scheduler | System | Frappe scheduler chạy hằng ngày | Tự động tạo CAL WO 30 ngày trước hạn |
 | AssetCore System | System | Engine xử lý on_submit Pass/Fail | Auto trigger CAPA + Lookback + Lifecycle Event |
@@ -282,7 +282,7 @@ Module có 12 UC chính → tách thành 3 nhóm phân rã, mỗi nhóm ≤ 6 UC
 |---|---|
 | ID | UC-IMM11-05 |
 | Brief | KTV nhập giá trị đo từng tham số; hệ thống tự tính Pass/Fail |
-| Primary actor | IMM Technician |
+| Primary actor | Calibration User |
 | Pre-condition | `IMM Asset Calibration` ở trạng thái `Certificate Received` hoặc `In Progress` |
 | Post-condition | `measurements` đầy đủ; `overall_result` được tính |
 | Trigger | KTV nhận chứng chỉ hoặc hoàn thành đo nội bộ |
@@ -304,7 +304,7 @@ Module có 12 UC chính → tách thành 3 nhóm phân rã, mỗi nhóm ≤ 6 UC
 |---|---|
 | ID | UC-IMM11-06 |
 | Brief | KTV submit phiếu hiệu chuẩn, kích hoạt automation Pass/Fail |
-| Primary actor | IMM Technician |
+| Primary actor | Calibration User |
 | Pre-condition | Mọi `measured_value` đã nhập; External: có `certificate_file` và `lab_accreditation_number` |
 | Post-condition | DocType submittable (docstatus=1); asset cập nhật; CAPA tạo nếu Fail |
 | Trigger | KTV click "Submit" |
@@ -366,7 +366,7 @@ Module có 12 UC chính → tách thành 3 nhóm phân rã, mỗi nhóm ≤ 6 UC
 
 ### US-11-02: Auto Pass/Fail khi nhập measurement
 
-**Là** KTV HTM, **tôi muốn** nhập tham số đo và hệ thống auto tính Pass/Fail, **để** loại bỏ tính toán thủ công.
+**Là** Calibration User, **tôi muốn** nhập tham số đo và hệ thống auto tính Pass/Fail, **để** loại bỏ tính toán thủ công.
 
 | Priority | Must |
 |---|---|
@@ -407,9 +407,9 @@ stateDiagram-v2
 | State | docstatus | Mô tả | Role có quyền chuyển |
 |---|---|---|---|
 | Scheduled | 0 | Lịch đã tạo, chờ thực hiện | Scheduler / Workshop Lead |
-| Sent to Lab | 0 | Đã bàn giao cho lab | IMM Technician |
-| In Progress | 0 | Đang đo nội bộ | IMM Technician |
-| Certificate Received | 0 | Nhận chứng chỉ, chờ nhập số liệu | IMM Technician |
+| Sent to Lab | 0 | Đã bàn giao cho lab | Calibration User |
+| In Progress | 0 | Đang đo nội bộ | Calibration User |
+| Certificate Received | 0 | Nhận chứng chỉ, chờ nhập số liệu | Calibration User |
 | Passed | 1 | Tất cả tham số Pass | System (on_submit) |
 | Failed | 1 | ≥1 tham số Fail | System (on_submit) |
 | Conditionally Passed | 1 | CAPA Closed + recal Pass | System |
@@ -474,7 +474,7 @@ stateDiagram-v2
 ## V.2. Bảo mật
 
 - Authentication: Frappe session + API key
-- Authorization: RBAC — IMM Technician chỉ xem CAL mình được giao (`technician = session.user`)
+- Authorization: RBAC — Calibration User chỉ xem CAL mình được giao (`technician = session.user`)
 - Audit trail: SHA-256 hash chain mọi mutation qua `log_audit_event()`
 - Compliance: NĐ98 + ISO 13485 + ISO/IEC 17025
 - KHÔNG lưu patient data

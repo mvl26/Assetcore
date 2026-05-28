@@ -6,7 +6,7 @@
 | Phạm vi | Per-module |
 | Owner | Tech Lead / BE Lead |
 | Liên kết | [02 Analysis & Design](./02_Analysis_Design.md) · [03 Diagrams](./03_Diagrams.md) · [05 API](./05_API_Specification.md) |
-| Cập nhật | 2026-05-14 |
+| Cập nhật | 2026-05-27 |
 
 ---
 
@@ -18,7 +18,7 @@ IMM-08 bám kiến trúc **3-tier strict**: API (`api/imm08.py`) → Service (`s
 Browser/Client
     │ HTTP (token/sid)
     ▼
-api/imm08.py            ← 23 endpoints, thin wrapper (_handle/_ok/_err)
+api/imm08.py            ← 24 endpoints, thin wrapper (_handle/_ok/_err)
     │
     ▼
 services/imm08.py       ← business logic (PMStatus / PMScheduleStatus enums)
@@ -55,7 +55,7 @@ Frappe ORM + MariaDB    ← 8 DocTypes (xem §2)
 | `next_due_date` | Date | — | — | list_view, controller compute |
 | `created_from_commissioning` | Link → Asset Commissioning | — | — | read_only, IMM-04 fill |
 
-**Permissions sơ bộ:** Workshop Head / CMMS Admin / System Manager = full · HTM Technician / Biomed Engineer / VP Block2 = R
+**Permissions sơ bộ:** PM Manager / AssetCore System User / System Manager = full · PM User / Corrective Manager / AssetCore Auditor = R
 
 ### 2.2 PM Checklist Template
 
@@ -96,17 +96,17 @@ Frappe ORM + MariaDB    ← 8 DocTypes (xem §2)
 
 | Role | R | W | Create | Submit | Cancel | Delete |
 |---|---|---|---|---|---|---|
-| Workshop Head | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ |
-| CMMS Admin | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| HTM Technician | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ |
-| Biomed Engineer | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ |
-| VP Block2 | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| PM Manager | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ |
+| AssetCore System User | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| PM User | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ |
+| Corrective Manager | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ |
+| AssetCore Auditor | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
 
 ### 2.4 PM Task Log
 
 - **Naming:** autoname hash
 - **`in_create: 1`** — chặn update sau insert (BR-08-10)
-- **Permissions:** all roles Read · Workshop Head / CMMS Admin có Create · **KHÔNG có Write / Delete**
+- **Permissions:** all roles Read · PM Manager / AssetCore System User có Create · **KHÔNG có Write / Delete**
 
 | Trường | Type | Required | Notes |
 |---|---|---|---|
@@ -128,12 +128,12 @@ File fixture: `assetcore/workflow/imm_08_pm_work_order_workflow.json` (optional 
 
 | State | Style | docstatus | allow_edit role |
 |---|---|---|---|
-| Open | Warning | 0 | Workshop Head, CMMS Admin |
-| In Progress | Primary | 0 | Workshop Head, HTM Technician |
-| Pending–Device Busy | Warning | 0 | Workshop Head |
-| Overdue | Danger | 0 | Workshop Head, HTM Technician |
+| Open | Warning | 0 | PM Manager, AssetCore System User |
+| In Progress | Primary | 0 | PM Manager, PM User |
+| Pending–Device Busy | Warning | 0 | PM Manager |
+| Overdue | Danger | 0 | PM Manager, PM User |
 | Completed | Success | 1 | — (submitted) |
-| Halted–Major Failure | Danger | 0 | Workshop Head |
+| Halted–Major Failure | Danger | 0 | PM Manager |
 | Cancelled | Secondary | 2 | — (cancelled) |
 
 **Transitions:**
@@ -141,11 +141,11 @@ File fixture: `assetcore/workflow/imm_08_pm_work_order_workflow.json` (optional 
 | From | To | Action label | Allowed role | Trigger |
 |---|---|---|---|---|
 | (insert) | Open | — | Scheduler | `tasks.generate_pm_work_orders` |
-| Open / Overdue | In Progress | Phân công KTV | Workshop Head | `assign_technician` |
-| In Progress | Completed | Hoàn thành PM | KTV HTM | `submit_pm_result` → `wo.submit()` |
-| In Progress | Halted–Major Failure | Báo lỗi Major | KTV HTM | `report_major_failure` |
-| In Progress / Overdue | Pending–Device Busy | Hoãn lịch | Workshop Head | `reschedule_pm` |
-| Any (Open/In Progress) | Cancelled | Hủy | Workshop Head | `on_cancel` |
+| Open / Overdue | In Progress | Phân công KTV | PM Manager | `assign_technician` |
+| In Progress | Completed | Hoàn thành PM | PM User | `submit_pm_result` → `wo.submit()` |
+| In Progress | Halted–Major Failure | Báo lỗi Major | PM User | `report_major_failure` |
+| In Progress / Overdue | Pending–Device Busy | Hoãn lịch | PM Manager | `reschedule_pm` |
+| Any (Open/In Progress) | Cancelled | Hủy | PM Manager | `on_cancel` |
 
 **Controller hooks:**
 

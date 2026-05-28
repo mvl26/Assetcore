@@ -13,6 +13,7 @@ import {
   checkSnUnique as apiCheckSn,
   reportNonConformance as apiReportNC,
   assignIdentification as apiAssignId,
+  generateInternalQr as apiGenerateQr,
   submitBaselineChecklist as apiSubmitChecklist,
   clearClinicalHold as apiClearHold,
   approveClinicalRelease as apiApproveRelease,
@@ -382,6 +383,26 @@ export const useCommissioningStore = defineStore('commissioning', () => {
     }
   }
 
+  /** BUG-009: Sinh QR nội bộ thủ công (idempotent). */
+  async function generateInternalQr(name: string): Promise<string | null> {
+    loading.value = true
+    error.value = null
+    try {
+      const res = await apiGenerateQr(name)
+      if (res && res.internal_tag_qr) {
+        await fetchDetail(name)
+        return res.internal_tag_qr
+      }
+      error.value = 'Không thể sinh mã QR'
+      return null
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : 'Lỗi không xác định'
+      return null
+    } finally {
+      loading.value = false
+    }
+  }
+
   /** Nộp kết quả baseline */
   async function submitBaselineChecklist(
     name: string,
@@ -559,6 +580,7 @@ export const useCommissioningStore = defineStore('commissioning', () => {
     reset,
     reportNonConformance,
     assignIdentification,
+    generateInternalQr,
     submitBaselineChecklist,
     clearClinicalHold,
     approveClinicalRelease,

@@ -367,6 +367,9 @@ export interface CapaDetail extends CapaRecord {
   verification_notes?: string
   finding_ref?: string
   finding_rule?: string
+  incident_ref?: string
+  incident_subject?: string
+  linked_incident?: string | null
   opened_date?: string
   creation?: string
 }

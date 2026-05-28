@@ -3,10 +3,12 @@
 | Mục | Giá trị |
 |---|---|
 | Module | **IMM-05 — Asset Document Repository** |
-| Phiên bản | 2.0.0 |
-| Ngày phát hành | 2026-05-08 |
+| Phiên bản | 0.0.2 |
+| Ngày phát hành | 2026-05-27 |
 | Owner | PM + BA + Tech Writer |
 | Liên kết | [07 Testing QA](./07_Testing_QA.md) · [08 Deployment](./08_Deployment.md) · [Module Overview](./IMM-05_Module_Overview.md) |
+
+> **Chính sách versioning:** Tuân theo `assetcore/__init__.py = 0.0.2`; module docs đồng bộ phiên bản app (release cùng nhịp app, không tách module-version).
 
 ---
 

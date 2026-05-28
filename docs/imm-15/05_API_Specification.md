@@ -5,8 +5,8 @@
 | Thuộc tính | Giá trị |
 |---|---|
 | Module | IMM-15 — Spare Parts Inventory Tracking |
-| Phiên bản | 0.2.0 |
-| Ngày | 2026-05-14 |
+| Phiên bản | 0.0.2 |
+| Ngày | 2026-05-27 |
 | Base path (AC backbone) | `/api/method/assetcore.api.inventory.<endpoint>` |
 | Base path (IMM-15) | `/api/method/assetcore.api.imm15.<endpoint>` |
 | Trạng thái | IMPLEMENTED |
@@ -36,7 +36,7 @@ Frappe session / API Key. Mọi endpoint yêu cầu login.
 | File | Status | Mô tả |
 |---|---|---|
 | `api/inventory.py` | **LIVE** | ~30 endpoints master + movement (AC backbone) — IMM-15 FE tái sử dụng |
-| `api/imm15.py` | **LIVE** | Transaction endpoints (Allocation / Cycle Count / Forecast / Watchlist / Dashboard / Low-Stock alerts) — 21 whitelist methods. Xem `assetcore/api/imm15.py` để biết signature chính xác |
+| `api/imm15.py` | **LIVE** | Transaction endpoints (Allocation / Cycle Count / Forecast / Watchlist / Dashboard / Low-Stock alerts) — **21 whitelist methods** (verified `grep -c "^@frappe.whitelist" assetcore/api/imm15.py` = 21 on 2026-05-27). Xem `assetcore/api/imm15.py` để biết signature chính xác |
 
 > Endpoint bổ sung so với draft 0.1.0 (đã có trong code 0.2.0): `submit_cycle_count` (đếm xong → Reviewed), `return_allocation` (alias path), `get_stock_snapshot`, `get_critical_watchlist`. Mọi endpoint giữ envelope `{success, data}` qua `_handle()` wrapper (xem `api/imm15.py:29`).
 
@@ -45,46 +45,45 @@ Frappe session / API Key. Mọi endpoint yêu cầu login.
 ## 2. Role Constants & Permission Matrix
 
 ```python
-# assetcore/constants.py (IMM-15 additions)
-ROLE_STOREKEEPER       = "IMM Storekeeper"
-ROLE_WORKSHOP_LEAD     = "IMM Workshop Lead"
-ROLE_BIOMED_TECH       = "IMM Biomed Technician"
-ROLE_TECHNICIAN        = "IMM Technician"
-ROLE_QA_OFFICER        = "IMM QA Officer"
-ROLE_OPS_MANAGER       = "IMM Operations Manager"
-ROLE_IMM_ADMIN         = "IMM System Admin"
+# assetcore/constants.py (IMM-15 — aligned with 30-role catalog in fixtures/role.json)
+ROLE_INVENTORY_USER     = "Inventory User"
+ROLE_INVENTORY_MANAGER  = "Inventory Manager"
+ROLE_REPAIR_USER        = "Repair User"          # CM/repair requesters
+ROLE_PM_USER            = "PM User"              # PM requesters
+ROLE_COMPLIANCE_MANAGER = "Compliance Manager"   # QA / CAPA
+ROLE_SUPER_ADMIN        = "AssetCore Super Admin"
 
-_APPROVE_ALLOCATION_ROLES = {ROLE_WORKSHOP_LEAD, ROLE_OPS_MANAGER, ROLE_IMM_ADMIN}
-_ISSUE_ROLES              = {ROLE_STOREKEEPER, ROLE_OPS_MANAGER, ROLE_IMM_ADMIN}
-_OVERRIDE_ROLES           = {ROLE_WORKSHOP_LEAD, ROLE_OPS_MANAGER, ROLE_IMM_ADMIN}
-_FORECAST_APPROVE_ROLES   = {ROLE_WORKSHOP_LEAD, ROLE_OPS_MANAGER, ROLE_IMM_ADMIN}
+_APPROVE_ALLOCATION_ROLES = {ROLE_INVENTORY_MANAGER, ROLE_SUPER_ADMIN}
+_ISSUE_ROLES              = {ROLE_INVENTORY_USER, ROLE_INVENTORY_MANAGER, ROLE_SUPER_ADMIN}
+_OVERRIDE_ROLES           = {ROLE_INVENTORY_MANAGER, ROLE_SUPER_ADMIN}
+_FORECAST_APPROVE_ROLES   = {ROLE_INVENTORY_MANAGER, ROLE_SUPER_ADMIN}
 ```
 
-| Endpoint | Storekeeper | Workshop Lead | Biomed Tech | Technician | QA Officer | Ops Manager | Admin |
-|---|---|---|---|---|---|---|---|
-| `list_allocations` | R | R | R | R | R | R | R |
-| `get_allocation` | R | R | R | R | R | R | R |
-| `create_allocation` | W | — | W | W | — | W | W |
-| `approve_allocation` | — | W | — | — | — | W | W |
-| `issue_allocation` | W | — | — | — | — | W | W |
-| `return_items` | W | — | — | — | — | W | W |
-| `return_allocation` | W | — | — | — | — | W | W |
-| `list_cycle_counts` | R | R | — | R | R | R | R |
-| `create_cycle_count` | W | W | — | — | — | W | W |
-| `submit_cycle_count` | W | W | — | — | — | W | W |
-| `post_cycle_count` | — | W | — | — | — | W | W |
-| `list_spare_forecasts` | R | R | — | — | R | R | R |
-| `generate_spare_forecast` | W | W | — | — | — | W | W |
-| `approve_forecast` | — | W | — | — | — | W | W |
-| `list_watchlist` | R | R | R | R | R | R | R |
-| `add_to_watchlist` | — | W | — | — | — | W | W |
-| `check_part_availability` | R | R | R | R | R | R | R |
-| `get_stock_snapshot` | R | R | R | R | R | R | R |
-| `get_critical_watchlist` | R | R | R | R | R | R | R |
-| `get_dashboard_stats` | R | R | — | — | R | R | R |
-| `get_low_stock_alerts` | R | R | — | — | R | R | R |
+| Endpoint | Inventory User | Inventory Manager | Repair User | PM User | Compliance Manager | Super Admin |
+|---|---|---|---|---|---|---|
+| `list_allocations` | R | R | R | R | R | R |
+| `get_allocation` | R | R | R | R | R | R |
+| `create_allocation` | W | W | W | W | — | W |
+| `approve_allocation` | — | W | — | — | — | W |
+| `issue_allocation` | W | W | — | — | — | W |
+| `return_items` | W | W | — | — | — | W |
+| `return_allocation` | W | W | — | — | — | W |
+| `list_cycle_counts` | R | R | — | R | R | R |
+| `create_cycle_count` | W | W | — | — | — | W |
+| `submit_cycle_count` | W | W | — | — | — | W |
+| `post_cycle_count` | — | W | — | — | — | W |
+| `list_spare_forecasts` | R | R | — | — | R | R |
+| `generate_spare_forecast` | W | W | — | — | — | W |
+| `approve_forecast` | — | W | — | — | — | W |
+| `list_watchlist` | R | R | R | R | R | R |
+| `add_to_watchlist` | — | W | — | — | — | W |
+| `check_part_availability` | R | R | R | R | R | R |
+| `get_stock_snapshot` | R | R | R | R | R | R |
+| `get_critical_watchlist` | R | R | R | R | R | R |
+| `get_dashboard_stats` | R | R | — | — | R | R |
+| `get_low_stock_alerts` | R | R | — | — | R | R |
 
-> Lưu ý so với draft: `create_allocation` cho phép `Storekeeper` (code: `_require_storekeeper_or_tech` bao gồm `Roles.STOREKEEPER`); `generate_spare_forecast` cho phép Storekeeper (code: `_require_any_role` bao gồm `Roles.STOREKEEPER`). `return_allocation` là alias backward-compat của `return_items`.
+> Lưu ý so với draft cũ: `create_allocation` cho phép `Inventory User` (code: `_require_storekeeper_or_tech`); `generate_spare_forecast` cho phép `Inventory User` (code: `_require_any_role`). `return_allocation` là alias backward-compat của `return_items`. Các role legacy (`IMM Storekeeper`, `IMM Workshop Lead`, …) đã ngừng dùng từ 2026-05-27 sau RBAC consolidation — xem `assetcore/fixtures/role.json` (30-role catalog).
 
 ---
 
@@ -181,7 +180,7 @@ POST /api/method/assetcore.api.imm15.approve_allocation
 
 **Errors:**
 ```json
-{"success": false, "error": "Chỉ IMM Workshop Lead / Operations Manager mới được duyệt allocation", "code": "FORBIDDEN"}
+{"success": false, "error": "Chỉ Inventory Manager mới được duyệt allocation", "code": "FORBIDDEN"}
 {"success": false, "error": "SAL-2026-00045 không ở trạng thái Requested", "code": "BAD_STATE"}
 ```
 
@@ -723,7 +722,7 @@ IMM-15 FE tái sử dụng các endpoint LIVE sau từ `api/inventory.py`:
 | Kho không hoạt động | `VALIDATION` | "VR-15-13: Kho WH-01 không còn hoạt động" |
 | AC Stock Movement fail | `INTERNAL` | "Tạo AC Stock Movement thất bại" |
 | Sai state | `BAD_STATE` | "SAL-2026-00045 không ở trạng thái Requested" |
-| Không đủ quyền | `FORBIDDEN` | "Chỉ IMM Workshop Lead mới được duyệt" |
+| Không đủ quyền | `FORBIDDEN` | "Chỉ Inventory Manager mới được duyệt" |
 | Không tìm thấy | `NOT_FOUND` | "IMM Spare Allocation SAL-2026-99999 không tồn tại" |
 
 ---
@@ -890,9 +889,9 @@ export interface ApiResponse<T> {
 | Event | Payload | Phát bởi | Subscriber |
 |---|---|---|---|
 | `imm15_allocation_issued` | `{"name": "SAL-2026-00045", "asset": "...", "stock_movement_ref": "..."}` | `issue_allocation()` | WO dashboard (update spare status) |
-| `imm15_low_stock_alert` | `{"spare_part": "...", "warehouse": "...", "qty_on_hand": 0.5}` | Scheduler | Storekeeper dashboard |
-| `imm15_critical_breach` | `{"watchlist": "...", "asset": "...", "spare_part": "...", "qty": 1}` | `check_critical_spare_breach()` | Workshop Lead + Ops Manager urgent inbox |
-| `imm15_cycle_count_posted` | `{"name": "CYC-2026-00012", "adjustment_ref": "...", "capa_count": 1}` | `post_cycle_count()` | QA Officer dashboard |
+| `imm15_low_stock_alert` | `{"spare_part": "...", "warehouse": "...", "qty_on_hand": 0.5}` | Scheduler | Inventory User / Inventory Manager dashboard |
+| `imm15_critical_breach` | `{"watchlist": "...", "asset": "...", "spare_part": "...", "qty": 1}` | `check_critical_spare_breach()` | Inventory Manager + Compliance Manager urgent inbox |
+| `imm15_cycle_count_posted` | `{"name": "CYC-2026-00012", "adjustment_ref": "...", "capa_count": 1}` | `post_cycle_count()` | Compliance Manager dashboard |
 | `imm15_forecast_approved` | `{"name": "SFC-2026-00008", "reorder_count": 12}` | `approve_forecast()` | Procurement dashboard (IMM-03 trigger) |
 
 ---

@@ -1,9 +1,49 @@
 # Phân tích — Lọc User chỉ thuộc AssetCore tại `/user-profiles`
 
-**Ngày**: 2026-05-22
+**Ngày**: 2026-05-22 (cập nhật 2026-05-28: §0 resolved decisions + §11 final plan)
 **Module**: IMM-00 (Data / User Management)
 **Trang ảnh hưởng**: `frontend/src/views/auth/UserProfileListView.vue` → endpoint `assetcore.api.user.list_users`
 **Vấn đề báo cáo**: Trang `http://localhost:3000/user-profiles` đang liệt kê toàn bộ Frappe System User, gồm cả những user không thuộc app AssetCore (ví dụ `buihoangviet` — user của ERPNext HR/Accounting).
+
+---
+
+## 0. Resolved decisions & verified facts (2026-05-28)
+
+### 0.1 BA decisions (12 câu hỏi §7 + §9.8 + §10.10 — proposed defaults, BA confirm trước khi code)
+
+| # | Câu hỏi | Quyết định | Source |
+|---|---|---|---|
+| 1 | Pending user có hiện trong picker (assignee, approver) không? | **Không** — chỉ hiện ở `/user-profiles` để admin duyệt | §7.1 |
+| 2 | Administrator dùng whitelist cứng hay migration tự gán role? | **Migration tự gán** `AssetCore Super Admin`. Resolver chỉ kiểm tra qua rule A — KHÔNG còn `name='Administrator'` clause | §7.2 — resolves mâu thuẫn với §3 |
+| 3 | Tạo user không tick IMM role → tự gán `AssetCore System User`? | **Có** (UX tránh user mồ côi) | §7.3 |
+| 4 | User rời tổ chức (gỡ role, disable) — show hay ẩn? | **Ẩn khỏi list**; vẫn xem được qua URL trực tiếp `/user-profiles/:name` | §7.4 |
+| 5 | Toggle "show all Frappe user" cho Super Admin debug? | **Không** ở v1 (dùng `/app/user` của Frappe Desk nếu cần) | §7.5 |
+| 6 | Vendor Engineer mở picker User được không? | **Không** — picker bị disable cho vendor | §9.8.6 |
+| 7 | Record cũ có `assigned_to = <user non-AC legacy>` — label hay "(deleted)"? | **Show label + badge "(Đã rời AssetCore)"**; không hỏi quyền | §9.8.7 |
+| 8 | Có endpoint `get_ac_user_brief` riêng cho read-by-id không? | **Có** — bỏ raw `frappe.client.get_value doctype=User` ở FE → resolves §9.5 S5 vs §10.9 inconsistency | §9.8.8 |
+| 9 | Tách `search_link` ra `services/shared/link_search.py`? | **Có nhưng PR riêng** (technical debt, không block bug này) | §9.8.9 |
+| 10 | Migrate ~12 view 1 release hay tách wave? | **3 wave PR** theo module group (04/05/06, 08/09/11/12, 15/16+admin) | §10.10.10 |
+| 11 | ESLint custom rule + CI grep? | **Cả hai** — TS bắt 95%, ESLint+CI bắt 5% còn lại | §10.10.11 |
+| 12 | Storybook cho `<UserPicker>`? | **Không bắt buộc** v1; viết unit test composable thay thế | §10.10.12 |
+
+### 0.2 Verified technical facts (đã grep code, không còn TBD)
+
+| # | Câu hỏi cũ trong doc | Kết quả verify | Source |
+|---|---|---|---|
+| F1 | `imm_approval_status` migration có vỡ query không? | **An toàn** — `_safe_field("imm_approval_status")` guard đã có sẵn (`api/user.py:268, 296, 449, 559`). OR-clause B phải gate bằng `_safe_field`. | §2 phương án B note |
+| F2 | `Roles.ALL` có `AssetCore Super Admin` không? | **Có** (`services/shared/constants.py:17, 22, 35`). Migration §4.3 + decision #2 khả thi: gán role này cho mọi `System Manager` hiện hữu → Administrator pass rule A tự nhiên. | §4.3 |
+| F3 | `_ALLOWED_SEARCH_DOCTYPES` có entry `"User"` không? | **Có** (`services/imm04.py:150`). Plan §9.5 S3 bỏ entry này hợp lệ. | §9.1 |
+| F4 | `list_users` có gate RBAC không? | **Không** — `@frappe.whitelist()` trần (`api/user.py:249`). Lỗ hổng security: vendor enumerate được mọi user. **Đưa vào scope hot-fix**, không defer như §4.4 cũ. | §4.4 |
+| F5 | `roleAdmin.ts::listUsers` filter gì? | `enabled=1`, `user_type!='Website User'` (`frontend/src/api/roleAdmin.ts:38-39`). Đúng như doc mô tả. | §9.1 S4 |
+
+### 0.3 Inconsistency đã resolve
+
+| Mâu thuẫn cũ | Resolution |
+|---|---|
+| §3 "whitelist `name='Administrator'`" vs §7.2 "migration tự gán role" | **Theo §7.2** — bỏ whitelist hardcode khỏi resolver. Patch §4.3 stamp `AssetCore Super Admin` cho System Manager + Administrator → rule A tự cover. |
+| §9.5 S5 "không bắt buộc đổi v1" vs §10.9 "liệt kê `fetchUserMobile` để migrate" | **Theo §10.9** + §0.1.8 — có endpoint `get_ac_user_brief` riêng; FE bỏ raw `frappe.client.get_value doctype=User`. |
+| §6 plan (9 bước) vs §10.8 plan (9 bước khác) | **Cả hai supersede bởi §11** (final consolidated plan ở cuối doc). |
+| §4.4 RBAC gate "out of scope" | **In scope** theo F4 — gắn `rbac.require("data.admin")` (hoặc tier tương đương) vào `list_users` + `search_ac_users` cùng PR hot-fix. |
 
 ---
 
@@ -85,21 +125,24 @@ Tạo DocType `AC App Member { user, status, joined_at, ... }` làm whitelist t�
 
 ---
 
-## 3. Khuyến nghị: **A ∪ B ∪ whitelist (Administrator)**
+## 3. Khuyến nghị: **A ∪ B** (Administrator được cover qua migration, không whitelist hardcode)
 
 ```
 user thuộc AssetCore  ⇔
-    name = 'Administrator'                          # Frappe siêu admin, luôn show
-  ∨ EXISTS(Has Role WHERE parent=u.name
-           AND role IN <Roles.ALL>)                  # A — có IMM role
+    EXISTS(Has Role WHERE parent=u.name
+           AND role IN <Roles.ALL>)                  # A — có ≥1 IMM role
   ∨ imm_approval_status IN ('Pending','Approved','Rejected')   # B — đã đi qua AssetCore signup
 ```
 
-Lý do chọn A+B:
+Lý do chọn A∪B:
 - **A một mình** ẩn user Pending → chặn admin duyệt đăng ký (regression nghiêm trọng).
 - **B một mình** không bắt được user được tạo trực tiếp qua Frappe Admin UI rồi gán IMM role thủ công (custom field NULL).
 - **Hợp A∪B** đảm bảo: vào bằng cửa nào cũng được nhận diện.
-- **`Administrator`** đặc biệt vì xài chung với Frappe — nếu admin gỡ hết IMM role của Administrator để dọn cho chuẩn thì vẫn nên xuất hiện ở trang /user-profiles để khôi phục.
+
+**Về `Administrator` / `System Manager`** (UPDATED 2026-05-28 per §0.1.2):
+- **KHÔNG** dùng `name='Administrator'` whitelist trong resolver — bẩn, hardcode, không tổng quát.
+- Thay vào đó: **patch one-shot** stamp role `AssetCore Super Admin` cho `Administrator` + mọi user có role `System Manager` (verified F2 — role tồn tại trong `Roles.ALL`).
+- Sau patch: Administrator pass rule A tự nhiên, không cần special case ở SQL.
 
 Không khuyến nghị C (quá yếu), D (false negative), E (overkill cho v1).
 
@@ -114,29 +157,31 @@ Cần thêm bước resolve danh sách user-name "thuộc AssetCore" trước, r
 
 ```python
 def _resolve_ac_user_names() -> list[str]:
-    """User được coi là thuộc AssetCore."""
-    sql = """
+    """User được coi là thuộc AssetCore (rule A∪B — Administrator cover qua patch §4.3)."""
+    has_approval = _safe_field("imm_approval_status")  # F1 verified
+
+    or_clauses = ["""EXISTS (
+        SELECT 1 FROM `tabHas Role` r
+        WHERE r.parent = u.name AND r.parenttype = 'User'
+        AND r.role IN %(roles)s
+    )"""]
+    if has_approval:
+        or_clauses.append("u.imm_approval_status IN ('Pending','Approved','Rejected')")
+
+    sql = f"""
         SELECT u.name FROM `tabUser` u
         WHERE u.user_type = 'System User' AND u.name != 'Guest'
-        AND (
-            u.name = 'Administrator'
-            OR EXISTS (
-                SELECT 1 FROM `tabHas Role` r
-                WHERE r.parent = u.name
-                  AND r.parenttype = 'User'
-                  AND r.role IN %(roles)s
-            )
-            OR u.imm_approval_status IN ('Pending','Approved','Rejected')
-        )
+        AND ({' OR '.join(or_clauses)})
     """
     rows = frappe.db.sql(sql, {"roles": tuple(_IMM_ROLES)}, as_dict=True)
     return [r["name"] for r in rows]
 ```
 
 Lưu ý:
-- `_safe_field("imm_approval_status")` — nếu custom field chưa migrate, query sẽ vỡ. Phải kiểm tra trước khi dùng OR clause B.
+- `_safe_field("imm_approval_status")` — **đã verify (F1)**: guard đã có sẵn ở api/user.py:268, an toàn dùng tiếp. Nếu cột chưa migrate, fallback chỉ rule A.
 - Conflict với filter `role=` hiện hữu: cả hai cùng set `filters["name"]` ⇒ phải **intersect**, không overwrite. Cách an toàn: resolve cả hai rồi `set & set`.
 - Pagination: `total = frappe.db.count(...)` vẫn đúng vì `filters["name"] = ["in", list]` áp dụng cho cả count lẫn get_all.
+- **RBAC gate (F4)**: thêm `rbac.require("data.admin")` ở đầu hàm — endpoint hiện trần `@frappe.whitelist()`, vendor enumerate được toàn site.
 
 #### 4.1.2 `list_frappe_users` (dòng 801)
 Endpoint autocomplete — cùng vấn đề. Phải áp **cùng** rule resolve, nếu không SmartSelect User-link sẽ vẫn xổ ra `buihoangviet`.
@@ -159,13 +204,18 @@ Endpoint autocomplete — cùng vấn đề. Phải áp **cùng** rule resolve, 
 - SmartSelect dùng `doctype="User"` ở các form khác: phải đổi sang dùng `list_frappe_users` (đã filter) thay vì query Frappe core trực tiếp. Đây là **work item phụ**, scope rộng — cần audit toàn bộ FE.
 
 ### 4.3 Migration / Data
-- Site hiện tại có thể có user đã được tạo nhưng chưa stamp `imm_approval_status` và cũng chưa có IMM role (legacy). Sau khi áp filter mới, các user này biến mất. Cần **patch one-shot**:
+- Site hiện tại có thể có user đã được tạo nhưng chưa stamp `imm_approval_status` và cũng chưa có IMM role (legacy). Sau khi áp filter mới, các user này biến mất. Cần **patch one-shot** (verified F2 — `Roles.SUPER_ADMIN` tồn tại):
   - Với mỗi user có ≥1 IMM role nhưng `imm_approval_status` NULL → set Approved.
-  - Với `Administrator` → đảm bảo có role `AssetCore Super Admin` để khỏi rơi vào nhánh whitelist.
-- Patch nên đặt ở `assetcore/patches/v0_0_X_backfill_ac_membership.py` và thêm vào `patches.txt`.
+  - Với `Administrator` + mọi user có role `System Manager` → gán thêm `AssetCore Super Admin` (thay thế cho whitelist hardcode — quyết định §0.1.2).
+  - Với user có `imm_approval_status` set nhưng không có IMM role nào → gán default `AssetCore System User` (theo §0.1.3).
+- Patch đặt ở `assetcore/patches/v0_0_X_backfill_ac_membership.py` và thêm vào `patches.txt`.
 
-### 4.4 RBAC / quyền truy cập
-- `list_users` hiện không gate (`@frappe.whitelist()` không yêu cầu role). Phải kiểm tra: vendor/non-admin có gọi được không? — Nếu có, phải gate `rbac.require("data.admin")` hoặc role tier tương ứng. **Out of scope** task này nhưng nên flag.
+### 4.4 RBAC / quyền truy cập (UPDATED — in scope)
+- **Verified F4**: `list_users` hiện trần `@frappe.whitelist()` (api/user.py:249), không gate. Vendor/Website User authenticated có thể enumerate toàn bộ System User của site.
+- **Hành động** (gộp vào PR hot-fix, không defer):
+  - `list_users`: gắn `rbac.require("data.admin")` (chỉ Data Manager + Super Admin gọi được).
+  - `list_frappe_users` / `search_ac_users`: gắn `rbac.require("data.read")` tối thiểu, hoặc check `_is_senior(roles) or has_any_picker_role` — picker chỉ dùng cho user có quyền tạo record có User-link.
+  - `get_ac_user_brief` (read-by-id mới): không gate (chỉ trả label, không enumerate).
 
 ### 4.5 Test impact
 - Unit test `tests/api/test_user.py` (nếu có) — phải cập nhật fixture: tạo user Frappe trần (không IMM role) để verify bị filter ra.
@@ -354,7 +404,7 @@ Phải gộp **tất cả surface về một endpoint AssetCore**, gọi là can
 | **S2 list_frappe_users** | Alias sang `search_ac_users(exclude_pending=True)`. Đánh dấu `@deprecated` trong docstring; kế hoạch xóa ở v0.0.X+2 sau khi audit FE. | Giữ vì có thể có code/integration ngoài đang gọi. |
 | **S3 SmartSelect User** | (a) Bỏ entry "User" khỏi `_ALLOWED_SEARCH_DOCTYPES` ở `services/imm04.py:132`. <br/>(b) Trong `stores/masterData.ts::fetchDoctype`, route nhánh `doctype==='User'` sang gọi `search_ac_users` thay vì `imm04.search_link`. <br/>(c) Map schema `{name, full_name, email}` → `MasterItem {id, name, description}`. | Đây là surface lớn nhất — sửa 1 chỗ ở store, 12+ view không cần đổi. |
 | **S4 roleAdmin.listUsers** | Đổi gọi sang `search_ac_users(exclude_pending=True, page_length=0)`. Có thể giữ schema `SimpleUser` qua adapter. | Đảm bảo /admin/roles chỉ gán role được cho user AC. |
-| **S5 frappe.client.get_value** | Thay bằng endpoint `get_ac_user_brief(name)` mới (label + status), không bypass filter ở read-by-id để vẫn fail-safe nếu name không thuộc AC. | Hoặc giữ — read-by-id ít tệ vì cần `name` rõ ràng. Không bắt buộc đổi v1. |
+| **S5 frappe.client.get_value** | Thay bằng endpoint `get_ac_user_brief(name)` mới (label + status + is_legacy flag), không bypass filter ở read-by-id để vẫn fail-safe nếu name không thuộc AC. | **Bắt buộc đổi v1** (per §0.1.8) — bỏ raw `frappe.client.get_value doctype=User` ở FE để tránh tương lai drift. |
 
 ### 9.6 Edge case bổ sung (phát sinh từ §9.4)
 
@@ -672,3 +722,85 @@ Bổ sung vào §6:
 ### 10.11 Tóm lược một dòng
 
 > Fix bug "/user-profiles leak Frappe user" mà không kèm tầng FE `useAcUsers + <UserPicker>` thì 6 tháng sau dev mới sẽ tái phát bug ở 1 trong 12 view. Tầng FE là **rào chắn cấu trúc**, không phải lớp UX trang trí.
+
+---
+
+## 11. FINAL CONSOLIDATED PLAN (2026-05-28) — supersedes §6 + §10.8
+
+Plan này hợp nhất §6 + §10.8 thành một roadmap duy nhất, đã apply quyết định §0.1 và verified facts §0.2. **Chia 2 phase**: Phase A = hot-fix bắt buộc (đóng bug + lỗ hổng security), Phase B = refactor kiến trúc (tránh tái phát).
+
+### 11.A — Phase A: Hot-fix (~3–5 ngày, 1 PR)
+
+**Mục tiêu**: Đóng bug `/user-profiles` leak + lỗ hổng RBAC + 4 surface leak khác (S2/S3/S4/S5). Không touch UI/composable.
+
+| # | Bước | File | Test | Source |
+|---|---|---|---|---|
+| A1 | Viết resolver canonical `search_ac_users()` (rule A∪B, không whitelist Administrator) | `assetcore/services/users/resolver.py` (mới)<br/>`assetcore/api/user.py` (export `search_ac_users`) | unit: rule A, B, intersect, edge `imm_approval_status` chưa migrate (F1) | §4.1, §9.4 |
+| A2 | Patch one-shot: stamp `imm_approval_status=Approved` cho user có IMM role nhưng NULL; gán `AssetCore Super Admin` cho `Administrator` + mọi `System Manager`; gán `AssetCore System User` default cho user có status nhưng không role | `assetcore/patches/v0_0_X_backfill_ac_membership.py` (mới)<br/>`assetcore/patches.txt` | integration: chạy patch trên fixture site có user mồ côi → verify post-state | §4.3 (F2) |
+| A3 | S1 — refactor `list_users` dùng resolver + **gắn `rbac.require("data.admin")`** | `assetcore/api/user.py:250` | unit: vendor gọi → 403; admin gọi → chỉ thấy AC user | §4.1.1, F4 |
+| A4 | S2 — `list_frappe_users` alias sang `search_ac_users(exclude_pending=True)` + `rbac.require("data.read")` | `assetcore/api/user.py:801` | unit: Pending user không có trong picker | §4.1.2, §9.5 |
+| A5 | S3 — bỏ entry `"User"` khỏi `_ALLOWED_SEARCH_DOCTYPES`. FE store route `doctype='User'` sang `search_ac_users` (tạm thời, trước khi có composable) | `assetcore/services/imm04.py:150` (xóa)<br/>`frontend/src/stores/masterData.ts` (route nhánh User) | smoke: SmartSelect `doctype="User"` trong PMWorkOrderCreate không xổ `buihoangviet` | §9.5 S3 (F3) |
+| A6 | S4 — `roleAdmin.ts::listUsers` đổi sang `search_ac_users(exclude_pending=True)` | `frontend/src/api/roleAdmin.ts:31` | smoke: /admin/roles không liệt kê user non-AC | §9.5 S4 |
+| A7 | S5 — thêm endpoint `get_ac_user_brief(name)`; FE đổi `frappe.client.get_value doctype=User` (NeedsRequestCreate, ReferenceData fetchUserMobile) | `assetcore/api/user.py` (mới)<br/>`frontend/src/views/needs/NeedsRequestCreateView.vue`<br/>`frontend/src/views/master-data/ReferenceDataView.vue` | smoke: label user non-AC legacy render kèm badge "(Đã rời AssetCore)" | §0.1.8 |
+| A8 | `create_system_user`: ép default role `AssetCore System User` nếu `imm_roles` rỗng | `assetcore/api/user.py:569` | unit: tạo user không tick role → có role `AssetCore System User` | §4.1.3, §0.1.3 |
+| A9 | Import postprocess: auto-stamp `imm_approval_status=Approved` + default role | `assetcore/services/users/import_postprocess.py` (mới hoặc sửa)<br/>`assetcore/api/import_data.py` (wire) | integration: import 1 row user không status → post-state có Approved + System User | §4.1.4 |
+| A10 | FE — UserProfileListView subtitle "Tổng X người dùng AssetCore" + empty state | `frontend/src/views/auth/UserProfileListView.vue` | Playwright: site có ERPNext user → /user-profiles không hiện `buihoangviet` | §4.2 |
+
+**DoD Phase A**:
+- `buihoangviet` (hoặc bất kỳ Frappe user non-AC) **không xuất hiện** ở: /user-profiles, /admin/roles, SmartSelect User trong mọi form, autocomplete assignee.
+- Vendor Engineer gọi `list_users` → 403.
+- Test mới pass: `tests/api/test_search_ac_users.py`.
+- Patch one-shot chạy idempotent (re-run không vỡ).
+
+### 11.B — Phase B: Refactor kiến trúc FE (~10–15 ngày, 4 PR theo wave)
+
+**Mục tiêu**: Tầng `useAcUsers` + `<UserPicker>` + 4 lớp enforce — đảm bảo dev sau không tái phát bug.
+
+**Pre-requisite**: Phase A đã merge. TanStack Query version verified (check `package.json`).
+
+| Wave | PR | Hành động | File chính |
+|---|---|---|---|
+| **B0** | PR-1 (Foundation) | (a) Viết `useAcUsers.ts` composable + TanStack Query wiring<br/>(b) Viết `<UserPicker>` component (gọi composable)<br/>(c) Viết `useAcUserMutation.ts` wrapper (auto-invalidate)<br/>(d) Bỏ `'User'` khỏi `DocType` union của `SmartSelect.vue` + `masterData.ts` → TS errors tự liệt kê 12+ view cần migrate (bản đồ refactor tự sinh)<br/>(e) Viết ESLint rule `no-raw-user-link` + CI grep action<br/>(f) Cache invalidation hooks vào mọi user mutation (create/update/role/approve) | `frontend/src/composables/useAcUsers.ts`<br/>`frontend/src/composables/useAcUserMutation.ts`<br/>`frontend/src/components/common/UserPicker.vue`<br/>`frontend/eslint-rules/no-raw-user-link.js`<br/>`frontend/src/stores/masterData.ts`<br/>`frontend/src/components/common/SmartSelect.vue` |
+| **B1** | PR-2 (Wave A) | Migrate IMM-04/05/06 views sang `<UserPicker>` | CommissioningCreate, ReferenceData (2 chỗ), NeedsRequestCreate, SessionDetail |
+| **B2** | PR-3 (Wave B) | Migrate IMM-08/09/11/12 views | PMWorkOrderCreate, PmScheduleList, CalibrationCreate, IncidentDetail |
+| **B3** | PR-4 (Wave C) | Migrate IMM-15/16 + admin pages | WarehouseDetail, WarehouseList, StockMovementCreate (2 chỗ), DocumentRequestList, SlaPolicyList (2 chỗ), roleAdmin |
+| **B4** | (sau Wave C) | UserProfileListView dùng `useAcUsers` ở admin-mode (không exclude Pending, không exclude Administrator) | `frontend/src/views/auth/UserProfileListView.vue` |
+
+**DoD Phase B**:
+- ESLint + CI grep block PR mới chứa `doctype: "User"` hoặc `frappe.client.*User`.
+- TS compile error nếu dev cố dùng `SmartSelect doctype="User"`.
+- Đổi rule "không lấy Administrator ở picker" chỉ cần sửa 1 default trong `useAcUsers.ts` (hoặc 1 arg ở resolver BE) — không touch view nào (kiểm chứng §10.4).
+- Sau `createSystemUser` thành công, picker ở mọi form cập nhật ≤1s (không đợi 5 phút cache TTL).
+
+### 11.C — Out of scope (defer, ghi backlog)
+
+- Tách `search_link` ra `services/shared/link_search.py` (§0.1.9) — technical debt PR riêng.
+- Multi-tenant filter giữa các tenant AssetCore (§5 edge #7) — đợi requirement multi-tenant rõ.
+- Frappe Desk forms (`/app/...`) vẫn xổ ra mọi User (§10.7 risk #5) — document rõ "AssetCore FE ≠ Frappe Desk" trong user manual, không fix.
+- Storybook cho `<UserPicker>` (§0.1.12) — không bắt buộc v1.
+
+### 11.D — Effort & ownership matrix
+
+| Phase | Effort | Risk nếu skip | Owner suggest |
+|---|---|---|---|
+| 11.A (hot-fix) | 3–5 ngày | Bug + security hole còn nguyên | BE+FE 1 dev |
+| 11.B0 (foundation) | 3–4 ngày | Phase B không thể bắt đầu | FE senior |
+| 11.B1–B3 (migrate 3 wave) | 5–9 ngày | Drift sau 6 tháng | FE 1 dev/wave |
+| 11.B4 (admin variant) | 1 ngày | UserProfileListView không đồng bộ với picker | FE |
+| 11.C (defer) | N/A | Đụng lại khi multi-tenant thật | — |
+
+### 11.E — Test plan tổng
+
+| Layer | Test | Location |
+|---|---|---|
+| Unit BE | resolver rule A/B/intersect/role-filter; `_safe_field` fallback (F1) | `tests/api/test_search_ac_users.py` |
+| Unit BE | RBAC gate `list_users` vendor 403 | `tests/api/test_user_list_filter.py` |
+| Unit BE | patch one-shot idempotent | `tests/patches/test_backfill_ac_membership.py` |
+| Unit FE | `useAcUsers` composable cache + invalidate | `tests/frontend/useAcUsers.spec.ts` |
+| Component FE | `<UserPicker>` exclude flags, legacy badge | `tests/frontend/UserPicker.spec.ts` |
+| Integration | tạo user qua Frappe core → invisible; qua AC → visible | `tests/integration/test_user_visibility.py` |
+| E2E Playwright | /user-profiles, /admin/roles, PMWorkOrderCreate SmartSelect — không hiện `buihoangviet` | `tests/e2e/user_scope_filter.spec.ts` |
+
+### 11.F — Tóm lược một dòng (final)
+
+> **Phase A** đóng bug + lỗ hổng security ngay (1 PR). **Phase B** xây tầng FE single-source-of-truth (4 PR theo wave) — không có B thì 6 tháng sau tái phát.

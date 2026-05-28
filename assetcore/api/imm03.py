@@ -548,14 +548,17 @@ def _list_decisions(filters, page, page_size):
         "name", "spec_ref", "winner_supplier", "awarded_price",
         "envelope_check_pct", "workflow_state", "ac_purchase_ref", "creation",
     ], order_by="creation desc", start=start, page_length=page_size)
-    # BE-DC-03-01: kèm vendor_name + tech_spec_ref_name
+    # BE-DC-03-01: kèm vendor_name + tech_spec_ref_name + ac_purchase_ref_name
     sup_ids  = {it.get("winner_supplier") for it in items if it.get("winner_supplier")}
     spec_ids = {it.get("spec_ref")        for it in items if it.get("spec_ref")}
+    po_ids   = {it.get("ac_purchase_ref") for it in items if it.get("ac_purchase_ref")}
     sup_map  = _fetch_display(_DT_SUPPLIER,    sup_ids,  "supplier_name")
     spec_map = _fetch_display("IMM Tech Spec", spec_ids, "device_model_ref")
+    po_map   = _fetch_display(_DT_PURCHASE,    po_ids,   "po_code")
     for it in items:
-        it["vendor_name"]        = sup_map.get(it.get("winner_supplier"))
-        it["tech_spec_ref_name"] = spec_map.get(it.get("spec_ref"))
+        it["vendor_name"]            = sup_map.get(it.get("winner_supplier"))
+        it["tech_spec_ref_name"]     = spec_map.get(it.get("spec_ref"))
+        it["ac_purchase_ref_name"]   = po_map.get(it.get("ac_purchase_ref"))
     return {"items": items, "total": count_with_or(_DT_PD, f or None, or_filters)}
 
 

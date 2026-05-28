@@ -3,13 +3,13 @@
 | Mục | Giá trị |
 |---|---|
 | Module | IMM-16 — Compliance Monitoring & CAPA |
-| Phiên bản tài liệu | 1.2 |
-| Ngày cập nhật | 2026-05-18 |
+| Phiên bản tài liệu | 1.3 (sync app v0.0.2) |
+| Ngày cập nhật | 2026-05-27 |
 | Trạng thái | IMPLEMENTED — Wave 2 (feature/hieuc/wave-2) |
 | Base path | `assetcore.api.imm16` |
 | URL pattern | `/api/method/assetcore.api.imm16.<function>` |
 
-> ✅ Implemented — Wave 2. `assetcore/api/imm16.py` có **52 whitelist functions** (đếm 2026-05-18): canonical endpoints trong §3.x catalog + legacy aliases/helpers. FE consume qua `frontend/src/api/imm16.ts` + `frontend/src/stores/imm16.ts`. §1.4 dưới đây là danh sách đầy đủ.
+> ✅ Implemented — Wave 2. `assetcore/api/imm16.py` có **52 whitelist functions** (verified `grep -c "^@frappe.whitelist" assetcore/api/imm16.py` = 52, 2026-05-27): 31 canonical endpoints trong §3.x catalog + 12 legacy aliases (§1.4 cuối) + 9 helpers/scheduler triggers chưa enumerate trong §3.x (cụ thể: `run_compliance_evaluation`, `generate_scorecard`, `submit_audit_findings`, `close_finding`, `close_internal_audit`, `create_finding`, `create_compliance_rule`, `create_internal_audit`, `check_asset_compliance` — đều có whitelist nhưng là wrapper/POST-trigger không phải REST CRUD chính). FE consume qua `frontend/src/api/imm16.ts` + `frontend/src/stores/imm16.ts`. §1.4 dưới đây là danh sách canonical + alias.
 
 ---
 
@@ -156,13 +156,15 @@ _DOCTYPE_SCORECARD = "IMM Compliance Scorecard"
 _DOCTYPE_MR       = "IMM Management Review"
 _DOCTYPE_RCA      = "IMM RCA Record"           # LIVE — REUSE
 
-_WAIVE_ROLES              = {"VP Block2", "CMMS Admin"}
-_PUBLISH_SCORECARD_ROLES  = {"Tổ HC-QLCL", "VP Block2", "CMMS Admin"}
-_FINALIZE_MR_ROLES        = {"VP Block2", "CMMS Admin"}
-_CLOSE_AUDIT_ROLES        = {"Tổ HC-QLCL", "VP Block2", "CMMS Admin"}
-_CREATE_RULE_ROLES        = {"Tổ HC-QLCL", "CMMS Admin"}
-_AUDIT_LEAD_ROLES         = {"Tổ HC-QLCL", "Internal Auditor", "CMMS Admin"}
+_WAIVE_ROLES              = {"Compliance Manager", "AssetCore Super Admin"}
+_PUBLISH_SCORECARD_ROLES  = {"Compliance Manager", "AssetCore Super Admin"}
+_FINALIZE_MR_ROLES        = {"Compliance Manager", "AssetCore Super Admin"}
+_CLOSE_AUDIT_ROLES        = {"Compliance Manager", "AssetCore Super Admin"}
+_CREATE_RULE_ROLES        = {"Compliance Manager", "AssetCore Super Admin"}
+_AUDIT_LEAD_ROLES         = {"Compliance Manager", "Compliance User", "AssetCore Super Admin"}
 ```
+
+> Persona cũ (`Tổ HC-QLCL`, `VP Block2`, `Internal Auditor`, `CMMS Admin`) đã được map vào 30-role catalog (post-patch `v3_2.001_module_role_redesign`). Nếu code thực tế còn chứa string persona cũ → cần đồng bộ trong sprint follow-up; tham chiếu `assetcore/fixtures/role.json` cho canonical names.
 
 ---
 

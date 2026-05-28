@@ -52,6 +52,53 @@
 
 ---
 
+## 0b. Catalog đầy đủ (34 endpoints)
+
+> Ground truth refreshed 2026-05-27: `grep -c "^@frappe.whitelist" assetcore/api/imm04.py` = **34**.
+> So với §0 cũ (snapshot 2026-05-14, 33 endpoint), bổ sung `generate_internal_qr`.
+> Categorization: **Primary** = thuộc happy path 11-state workflow, **Support** = utility/helper UI/dashboard, **Internal** = admin/diagnostic/retry/cancel.
+
+| # | Method | Path | Mô tả ngắn | Use case |
+|---|---|---|---|---|
+| 01 | POST | /api/method/assetcore.api.imm04.create_commissioning | Tạo phiếu nghiệm thu mới | Primary |
+| 02 | POST | /api/method/assetcore.api.imm04.create_from_purchase | Tạo phiếu từ AC Purchase (link) | Primary |
+| 03 | POST | /api/method/assetcore.api.imm04.save_commissioning | Lưu inline field (Draft/edit) | Primary |
+| 04 | POST | /api/method/assetcore.api.imm04.transition_state | Workflow transition (G01–G06) | Primary |
+| 05 | POST | /api/method/assetcore.api.imm04.submit_commissioning | Submit phiếu (docstatus 0→1, mint Asset) | Primary |
+| 06 | POST | /api/method/assetcore.api.imm04.assign_identification | Gán SN + sinh QR | Primary |
+| 07 | POST | /api/method/assetcore.api.imm04.submit_baseline_checklist | Nộp kết quả đo kiểm IQ/OQ/PQ | Primary |
+| 08 | POST | /api/method/assetcore.api.imm04.clear_clinical_hold | Gỡ Clinical Hold (có license) | Primary |
+| 09 | POST | /api/method/assetcore.api.imm04.approve_clinical_release | Set board_approver + duyệt release | Primary |
+| 10 | POST | /api/method/assetcore.api.imm04.submit_for_approval | Gửi phiếu cho người duyệt | Primary |
+| 11 | POST | /api/method/assetcore.api.imm04.approve_pending | Duyệt / Từ chối phiếu chờ | Primary |
+| 12 | POST | /api/method/assetcore.api.imm04.report_nonconformance | Tạo NC trên phiếu | Primary |
+| 13 | POST | /api/method/assetcore.api.imm04.close_nonconformance | Đóng NC (root cause + action) | Primary |
+| 14 | POST | /api/method/assetcore.api.imm04.report_doa | Báo DOA (Dead on Arrival) | Primary |
+| 15 | POST | /api/method/assetcore.api.imm04.upload_document | Upload CO/CQ/Manual/License | Primary |
+| 16 | GET  | /api/method/assetcore.api.imm04.get_form_context | Chi tiết phiếu + allowed transitions | Support |
+| 17 | GET  | /api/method/assetcore.api.imm04.list_commissioning | Danh sách phiếu + pagination/filter | Support |
+| 18 | GET  | /api/method/assetcore.api.imm04.list_non_conformances | NC theo phiếu | Support |
+| 19 | GET  | /api/method/assetcore.api.imm04.list_my_pending_approvals | Phiếu tôi cần duyệt | Support |
+| 20 | GET  | /api/method/assetcore.api.imm04.get_dashboard_stats | KPI dashboard | Support |
+| 21 | GET  | /api/method/assetcore.api.imm04.get_gate_status | Trạng thái G01–G06 cho phiếu | Support |
+| 22 | GET  | /api/method/assetcore.api.imm04.get_lifecycle_timeline | Timeline `Asset Lifecycle Event` | Support |
+| 23 | GET  | /api/method/assetcore.api.imm04.get_commissioning_origin | Truy xuất phiếu nguồn của Asset | Support |
+| 24 | GET  | /api/method/assetcore.api.imm04.get_po_details | Auto-fill từ AC Purchase | Support |
+| 25 | GET  | /api/method/assetcore.api.imm04.get_barcode_lookup | Tra cứu barcode/QR | Support |
+| 26 | GET  | /api/method/assetcore.api.imm04.check_sn_unique | Kiểm tra serial unique (on-blur) | Support |
+| 27 | GET  | /api/method/assetcore.api.imm04.search_link | Autocomplete Link fields | Support |
+| 28 | GET  | /api/method/assetcore.api.imm04.get_users_by_role | Danh sách user theo Frappe role | Support |
+| 29 | GET  | /api/method/assetcore.api.imm04.generate_qr_label | Sinh dữ liệu QR label (in tem) | Support |
+| 30 | POST | /api/method/assetcore.api.imm04.generate_internal_qr | (Re)generate internal QR cho phiếu | Support |
+| 31 | GET  | /api/method/assetcore.api.imm04.generate_handover_pdf | Sinh URL PDF biên bản bàn giao | Support |
+| 32 | POST | /api/method/assetcore.api.imm04.retry_mint_asset | Retry tạo AC Asset sau lỗi mint | Internal |
+| 33 | POST | /api/method/assetcore.api.imm04.cancel_commissioning | Hủy phiếu (Submitted) | Internal |
+| 34 | POST | /api/method/assetcore.api.imm04.delete_commissioning | Xóa phiếu (Draft only) | Internal |
+
+> Schema chi tiết (request/response/errors/side effects) chỉ document cho 6 endpoint Primary trọng yếu ở §2 bên dưới (`get_form_context`, `create_commissioning`, `submit_commissioning`, `assign_identification`, `submit_baseline_checklist`, `generate_qr_label`, `get_dashboard_stats`). Các endpoint còn lại tuân thủ envelope chuẩn AssetCore (§1.1–1.4) và mapping role/permission ở §2 / `04_Backend_Design.md`.
+
+---
+
 ## 1. Quy ước chung
 
 ### 1.1. Response success — format chuẩn AssetCore

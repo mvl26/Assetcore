@@ -4,6 +4,7 @@
 // hiện tại và chỉ hiện nav-items thuộc module đó. Click logo → /launcher (home).
 import { computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
+import { resolveModuleId } from '@/router'
 import { useSidebar } from '@/composables/useSidebar'
 import { useAuthStore } from '@/stores/auth'
 import {
@@ -210,9 +211,16 @@ const MODULE_NAV: Record<string, ModuleNav> = {
 }
 
 // ─── Resolve current module from route meta ───────────────────────────────────
-const currentModuleId = computed<string | null>(() =>
-  (route.meta.moduleId as string | undefined) ?? null,
-)
+// Ưu tiên route.meta.moduleId (đã được tagWorkspace gán). Fallback dùng
+// resolveModuleId(route.path) để xử lý deep-link: trên initial paint của một
+// URL được mở trực tiếp, Vue Router có thể vẫn ở START_LOCATION khi sidebar
+// mount lần đầu nên meta rỗng — fallback URL-based khôi phục context ngay
+// lập tức, tránh flash "Trang này không thuộc module nào" (BUG-003).
+const currentModuleId = computed<string | null>(() => {
+  const fromMeta = (route.meta.moduleId as string | undefined) ?? null
+  if (fromMeta) return fromMeta
+  return resolveModuleId(route.path)
+})
 const currentModule = computed<ModuleNav | null>(() => {
   const id = currentModuleId.value
   return id ? (MODULE_NAV[id] ?? null) : null

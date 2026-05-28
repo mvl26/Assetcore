@@ -2,7 +2,7 @@
  "actions": [],
  "allow_import": 1,
  "allow_rename": 0,
- "autoname": "naming_series:",
+ "autoname": "autoname",
  "creation": "2026-04-18 00:00:00.000000",
  "doctype": "DocType",
  "engine": "InnoDB",
@@ -45,9 +45,10 @@
    "fieldname": "contract_code",
    "fieldtype": "Data",
    "label": "Mã hợp đồng",
-   "reqd": 1,
    "unique": 1,
-   "in_list_view": 1
+   "set_only_once": 1,
+   "in_list_view": 1,
+   "description": "Mã hợp đồng. Nếu nhập tay → ghi đè naming series và dùng làm định danh (PK). Nếu để trống → hệ thống tự sinh theo Series. Sau khi tạo không thể thay đổi."
   },
   {
    "fieldname": "contract_title",

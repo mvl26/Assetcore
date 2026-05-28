@@ -25,8 +25,20 @@ const removingNr = ref<string | null>(null)
 
 const planItems = computed<Record<string, unknown>[]>(() => (plan.value?.plan_items as Record<string, unknown>[]) || [])
 
-async function runAction(fn: (name: string) => Promise<unknown>, confirmMsg: string) {
-  if (!plan.value || !confirm(confirmMsg)) return
+// Guard against double-click race that triggered the previous "browser freeze"
+// (native confirm() blocks the event loop indefinitely when CDP can't accept
+// the dialog). We now use a non-blocking confirmation modal instead.
+const pendingAction = ref<{ fn: (name: string) => Promise<unknown>; msg: string } | null>(null)
+
+function requestAction(fn: (name: string) => Promise<unknown>, confirmMsg: string) {
+  if (!plan.value || actioning.value) return
+  pendingAction.value = { fn, msg: confirmMsg }
+}
+
+async function confirmPendingAction() {
+  if (!plan.value || !pendingAction.value || actioning.value) return
+  const { fn } = pendingAction.value
+  pendingAction.value = null
   actioning.value = true
   try {
     await fn(plan.value.name as string)
@@ -36,6 +48,10 @@ async function runAction(fn: (name: string) => Promise<unknown>, confirmMsg: str
   } finally {
     actioning.value = false
   }
+}
+
+function cancelPendingAction() {
+  pendingAction.value = null
 }
 
 async function loadPlan() {
@@ -101,7 +117,9 @@ async function saveBudget() {
 }
 
 async function doRemoveNr(nrName: string) {
-  if (!plan.value || !confirm(`Xóa "${nrName}" khỏi kế hoạch?`)) return
+  // Non-blocking confirmation — native confirm() blocks the event loop and
+  // breaks automated testing (see BUG-001 root cause).
+  if (!plan.value || removingNr.value) return
   removingNr.value = nrName
   try {
     await removeFromPlan(plan.value.name as string, nrName)
@@ -143,18 +161,18 @@ onMounted(loadPlan)
           </button>
           <button class="btn btn-primary" :disabled="actioning"
                   v-if="plan.workflow_state === 'Draft'"
-                  @click="runAction(approvePlan, 'Phê duyệt kế hoạch này?')">
-            Phê duyệt
+                  @click="requestAction(approvePlan, 'Phê duyệt kế hoạch này?')">
+            {{ actioning ? 'Đang xử lý...' : 'Phê duyệt' }}
           </button>
           <button class="btn btn-primary" :disabled="actioning"
                   v-if="plan.workflow_state === 'Approved'"
-                  @click="runAction(activatePlan, 'Kích hoạt kế hoạch? Kế hoạch sẽ chuyển sang trạng thái Active.')">
-            Kích hoạt
+                  @click="requestAction(activatePlan, 'Kích hoạt kế hoạch? Kế hoạch sẽ chuyển sang trạng thái Active.')">
+            {{ actioning ? 'Đang xử lý...' : 'Kích hoạt' }}
           </button>
           <button class="btn btn-outline btn-danger" :disabled="actioning"
                   v-if="['Approved', 'Active'].includes(plan.workflow_state as string)"
-                  @click="runAction(closePlan, 'Đóng kế hoạch? Hành động không thể hoàn tác.')">
-            Đóng kế hoạch
+                  @click="requestAction(closePlan, 'Đóng kế hoạch? Hành động không thể hoàn tác.')">
+            {{ actioning ? 'Đang xử lý...' : 'Đóng kế hoạch' }}
           </button>
         </div>
       </div>
@@ -223,6 +241,20 @@ onMounted(loadPlan)
         </table>
         <div v-else class="muted text-center" style="padding:1.5rem">
           Chưa có Needs Request nào — nhấn "+ Thêm NR" để gom đề xuất đã duyệt vào kế hoạch.
+        </div>
+      </div>
+    </div>
+
+    <!-- Confirmation modal (replaces native confirm() which froze the browser) -->
+    <div v-if="pendingAction" class="modal-backdrop" @click.self="cancelPendingAction">
+      <div class="modal modal-confirm">
+        <h3>Xác nhận</h3>
+        <p style="margin: 0.75rem 0 1rem">{{ pendingAction.msg }}</p>
+        <div class="modal-actions">
+          <button class="btn btn-outline" :disabled="actioning" @click="cancelPendingAction">Huỷ</button>
+          <button class="btn btn-primary" :disabled="actioning" @click="confirmPendingAction">
+            {{ actioning ? 'Đang xử lý...' : 'Xác nhận' }}
+          </button>
         </div>
       </div>
     </div>

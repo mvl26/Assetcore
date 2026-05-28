@@ -885,6 +885,30 @@ def list_templates(*, asset_category: str | None = None, pm_type: str | None = N
         order_by="template_name asc",
         page=page, page_size=page_size,
     )
+    # Enrich: map asset_category (slug = AC Asset Category.name) → category_name (display).
+    # Tránh FE hiển thị slug "Thiet-bi-Chan-doan-Hinh-anh" thay vì "Thiết bị chẩn đoán hình ảnh".
+    cat_slugs = {r.get("asset_category") for r in rows if r.get("asset_category")}
+    if cat_slugs:
+        cat_map = dict(frappe.get_all(
+            "AC Asset Category",
+            filters={"name": ["in", list(cat_slugs)]},
+            fields=["name", "category_name"],
+            as_list=True,
+        ))
+        for r in rows:
+            slug = r.get("asset_category")
+            r["category_name"] = cat_map.get(slug) or slug or ""
+    # BUG-014 fix: if stored template_name still contains the slug (e.g. seed data
+    # "Checklist PM Quý — Thiet-bi-Chan-doan-Hinh-anh"), substitute the trailing
+    # slug segment with the category display name for presentation purposes.
+    for r in rows:
+        tn = r.get("template_name") or ""
+        slug = r.get("asset_category") or ""
+        cat_display = r.get("category_name") or slug
+        if slug and cat_display and slug != cat_display and tn.endswith(slug):
+            r["display_template_name"] = tn[: -len(slug)] + cat_display
+        else:
+            r["display_template_name"] = tn
     return {"data": rows, "pagination": pg}
 
 

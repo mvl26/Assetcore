@@ -396,6 +396,51 @@ Auto-default: `workflow_state = "Draft"`, `version = "1.0"`.
 
 ---
 
+### §2.6b `archive_document` — Lưu trữ tài liệu (Active → Archived)
+
+| Thuộc tính | Giá trị |
+|---|---|
+| Method | POST |
+| Path | `assetcore.api.imm05.archive_document` |
+| Service | `services/imm05.py::archive_document` |
+| Roles | `_APPROVE_ROLES` (Biomed Engineer, Tổ HC-QLCL, CMMS Admin) |
+
+**Request body:**
+
+```jsonc
+{
+  "name": "DOC-AC-ASSET-2026-0001-2026-00001",
+  "reason": "Thiết bị đã decommission ngày 2026-05-20 — không còn áp dụng."
+}
+```
+
+**Constraint:** `workflow_state = "Active"` — ngược lại trả `INVALID_STATE`. `reason` tùy chọn nhưng khuyến nghị để audit trail (lưu vào `change_summary`).
+
+**Hành vi:**
+1. Validate user IN `_APPROVE_ROLES` → else `FORBIDDEN`
+2. Validate `workflow_state = "Active"` → else `INVALID_STATE`
+3. Set `workflow_state = "Archived"`, `archive_date = today`, `archived_by_version = session.user`, append `change_summary`
+4. Save với `flags.ignore_links = True`
+
+**Response data:**
+
+```jsonc
+{
+  "success": true,
+  "data": {
+    "name": "DOC-AC-ASSET-2026-0001-2026-00001",
+    "new_state": "Archived",
+    "archive_date": "2026-05-27"
+  }
+}
+```
+
+**Errors:** `NOT_FOUND`, `INVALID_STATE`, `FORBIDDEN`, `INTERNAL_ERROR`.
+
+> **Phân biệt với auto-archive:** `archive_old_versions` (gọi nội bộ trong `approve_document`) tự lưu trữ các Active doc cùng `(asset_ref, doc_type_detail)` khi version mới được duyệt. `archive_document` (endpoint này) là manual trigger cho admin/QA khi doc không còn áp dụng nhưng chưa có version thay thế (vd. decommission, đổi quy trình).
+
+---
+
 ### §2.7 `get_asset_documents` — Tài liệu theo Asset
 
 | Thuộc tính | Giá trị |
@@ -761,7 +806,7 @@ Expected: `{"success": true, "data": {...}}` cho tất cả. Không có `{"messa
 - [x] Error code catalog đầy đủ
 - [x] Visibility filter documented
 - [x] TypeScript types cho FE reference
-- [x] 16 endpoint specs với request/response examples
+- [x] 16 endpoint specs với request/response examples (incl. `archive_document` §2.6b — bổ sung 2026-05-27)
 - [x] Webhook/realtime events table
 - [x] Rate limits
 - [x] Smoke test playbook

@@ -3,9 +3,8 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useImm06Store } from '@/stores/imm06'
-import { useAuthStore } from '@/stores/auth'
 import { useApi } from '@/composables/useApi'
-import { ROLES_TRAINING_CONDUCT } from '@/constants/roles'
+import { useCapabilities } from '@/composables/useCapabilities'
 import PageHeader from '@/components/common/PageHeader.vue'
 import BasePagination from '@/components/common/BasePagination.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
@@ -15,8 +14,8 @@ import StatusBadge from '@/components/common/StatusBadge.vue'
 
 const router = useRouter()
 const store = useImm06Store()
-const authStore = useAuthStore()
 const api = useApi()
+const { can } = useCapabilities()
 
 const { sessions, sessionPagination, loading, error } = storeToRefs(store)
 
@@ -24,7 +23,7 @@ const filterState = ref('')
 const filterType = ref('')
 const showFilters = ref(false)
 
-const canCreate = computed(() => authStore.hasAnyRole(ROLES_TRAINING_CONDUCT))
+const canCreate = computed(() => can('training.write'))
 
 const WORKFLOW_STATES = [
   { value: 'Planned',     label: 'Đã lên kế hoạch' },

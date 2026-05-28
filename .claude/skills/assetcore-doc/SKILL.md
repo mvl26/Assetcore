@@ -435,3 +435,71 @@ Bất cứ khi nào chạm `hooks.py`:
 - `references/integration-patterns.md` — integration patterns chi tiết
 
 Đọc files gốc trong `docs/` khi cần data thực tế — skill này cung cấp quy trình và framework.
+
+---
+
+## Phần 4 — Customer-Facing Docs (sales, proposal, escrow, technical reply)
+
+Tài liệu cho khách hàng (`docs/res/*.docx`, proposal, response cho phòng CNTT, escrow agreement) có ràng buộc CHẶT HƠN docs nội bộ — sai claim có thể vi phạm hợp đồng.
+
+### R-CD-1: Verify-Before-Claim (BẮT BUỘC trước khi viết bất kỳ claim kỹ thuật nào)
+
+Tuân thủ `CONVENTIONS.md §34` — mọi claim phải có `file:line` evidence hoặc đánh dấu `[ROADMAP]`. Cross-check claim với **evidence table §34** trước khi giữ/sửa/xóa trong customer doc.
+
+**Common false-positive cần check khi review docs/res/:**
+
+- "HL7 / FHIR integration" → chưa code → mark `[ROADMAP]`
+- "OpenAPI spec" → chưa có → mark `[ROADMAP]`
+- "Rate limit toàn API" → chỉ login → sửa thành "rate limit ở endpoint nhạy cảm"
+- "FastAPI" → KHÔNG dùng → xóa, ghi "Frappe v15 / WSGI / Werkzeug"
+- "Frappe UI" → KHÔNG dùng → xóa, ghi "Vue 3 SPA decoupled"
+- "Test coverage > 80%" → chưa có CI report → mark `[NEEDS VERIFICATION]`
+
+**Common false-negative cần đề phòng (claim đã CÓ nhưng review nói KHÔNG):**
+
+- "SHA-256 hash chain audit trail" — **CÓ THẬT** ở `utils/lifecycle.py:9-115`. Đừng nói chưa có.
+- "Capability-based RBAC" — **CÓ THẬT** ở `services/shared/rbac.py` post patch v3_2.
+- "Vendor isolation row-level" — **CÓ THẬT** ở `permissions.py::_VENDOR_ROLE`.
+
+### R-CD-2: Naming consistency
+
+Codebase = **AssetCore**. Customer doc thường vẫn dùng tên cũ "IMMIS"/"IMMIS.CH1"/"IMESOM" — đây là stale, phải remap:
+
+| Trong customer doc | Đổi thành |
+|---|---|
+| IMMIS / IMMIS.CH1 / IMMIS Core | AssetCore |
+| IMESOM | AssetCore (hoặc MEDIS tùy ngữ cảnh — không tự ý) |
+| SCM.CH1 | SupplyCore |
+| 8+ vai trò persona (Trưởng phòng, PTP Khối 1...) | 30 role module-based (4 System + 26 Domain × 13 module) |
+
+### R-CD-3: Counting numbers
+
+Số liệu hay sai/lệch:
+
+- **DocType nghiệp vụ**: `ls assetcore/assetcore/doctype/ \| wc -l` — đếm thật, không nói "100+".
+- **Whitelist endpoint**: `grep -c "^@frappe.whitelist" assetcore/api/*.py` rồi sum — hiện = 467.
+- **Module AssetCore**: 18 (IMM-00..17), không phải 17 (IMM-00 hay bị quên).
+- **Role**: 30 (4 System + 26 Domain), không phải "8+".
+
+### R-CD-4: Cam kết Roadmap (không cam kết hiện trạng)
+
+Khi feature CHƯA hiện thực nhưng cần đề cập, format chuẩn:
+
+```text
+[Định hướng / Roadmap] <Feature> — sẽ triển khai trong giai đoạn <X>:
+  - Phạm vi: <bounded>
+  - Phụ thuộc: <deps>
+  - Trạng thái hiện tại: chưa có code trong repo
+```
+
+KHÔNG viết: "Hệ thống hỗ trợ X" hoặc "X được tích hợp sẵn" nếu chỉ là kế hoạch.
+
+### R-CD-5: Audit checklist trước khi gửi customer doc
+
+- [ ] Mọi claim kỹ thuật có evidence path hoặc nhãn `[ROADMAP]`
+- [ ] Đã grep stale name (IMMIS, IMESOM, SCM.CH1) = 0
+- [ ] Số liệu đếm thật (DocType, endpoint, role, module) — không dùng "100+", "44+", "8+"
+- [ ] Bảng tech stack đầy đủ (Frontend: Vue+Vite+Pinia+TanStack+Tailwind, KHÔNG "Frappe UI", KHÔNG "FastAPI")
+- [ ] RBAC mô tả 30 role module-based, KHÔNG persona cũ
+- [ ] Cam kết SLA / coverage / CI khả thi — verify trước khi ký
+- [ ] Cross-check với `CONVENTIONS.md §34` evidence table

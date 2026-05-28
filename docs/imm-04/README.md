@@ -6,7 +6,7 @@
 | Wave | 1 |
 | Trạng thái | Mature — có v2 UAT |
 | Số file hiện có | 8 |
-| Cập nhật cuối | 2026-05-18 |
+| Cập nhật cuối | 2026-05-27 |
 | Khối kiến trúc | B. KHỐI 2 |
 | Đợt triển khai | 1 |
 | Owner | PTP Khối 2 · Workshop / Nhóm TBYT · Mạng lưới TBYT nội viện |
@@ -34,7 +34,7 @@
 - [`02_Analysis_Design.md`](./02_Analysis_Design.md) — Phân tích nghiệp vụ + Use Case + Functional Specs + NFR
 - [`03_Diagrams.md`](./03_Diagrams.md) — ERD + Class Diagram + Sequence Diagram + Package Diagram
 - [`04_Backend_Design.md`](./04_Backend_Design.md) — DocType + Workflow + Service + API + Scheduler
-- [`05_API_Specification.md`](./05_API_Specification.md) — API Catalog + 33 endpoints + Envelope chuẩn
+- [`05_API_Specification.md`](./05_API_Specification.md) — API Catalog + 34 endpoints + Envelope chuẩn
 - [`06_Frontend_Design.md`](./06_Frontend_Design.md) — Sitemap + Mockup + Components + Pinia + UX rules
 
 ### Files tham chiếu (giữ trong module)
@@ -72,7 +72,7 @@ Source docs (cũ) đã archive tại `docs/architecture/archive/imm-04/`:
 
 - Template chuẩn: [`../template/`](../template/)
 - Migration guide: [`../template/MIGRATION_GUIDE.md`](../template/MIGRATION_GUIDE.md)
-- Codebase ground truth (BE): `assetcore/services/imm04.py` (1697 LOC) · `assetcore/api/imm04.py` (309 LOC, **33** `@frappe.whitelist()` endpoints)
+- Codebase ground truth (BE): `assetcore/services/imm04.py` (1697 LOC) · `assetcore/api/imm04.py` (**34** `@frappe.whitelist()` endpoints)
 - Codebase ground truth (FE): `frontend/src/types/imm04.ts` · `frontend/src/api/imm04.ts`
 
 ---

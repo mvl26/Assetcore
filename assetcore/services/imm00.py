@@ -292,10 +292,17 @@ def create_capa(asset: str, source_type: str, source_ref: str, severity: str,
         "due_date": add_days(nowdate(), due_days),
         "status": "Open",
     }).insert(ignore_permissions=True)
+    # B-IMM16-3 (2026-05-26): Vietnamese severity label trong audit summary
+    _SEVERITY_VI = {
+        "Minor": "Nhỏ", "Major": "Nghiêm trọng",
+        "Critical": "Khẩn cấp", "Catastrophic": "Thảm khốc",
+        "Low": "Thấp", "Medium": "Trung bình", "High": "Cao",
+    }
+    severity_vi = _SEVERITY_VI.get(severity, severity)
     log_audit_event(
         asset=asset, event_type="CAPA", actor=frappe.session.user,
         ref_doctype=_DOCTYPE_CAPA, ref_name=doc.name,
-        change_summary=f"CAPA opened: severity={severity}",
+        change_summary=_("Đã mở CAPA: mức {0}").format(severity_vi),
     )
     return doc.name
 

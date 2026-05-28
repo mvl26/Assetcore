@@ -24,6 +24,30 @@ class ImportError(TypedDict):
     severity: str  # "error" | "warning"
 
 
+def _link_lookup_set(doctype: str, display_field: str) -> set[str]:
+    """Return union(doc names + display_field values) for a Link target DocType.
+
+    Rule LL-IMP-1: import templates ask users for display names (e.g.
+    "Máy chẩn đoán hình ảnh" for asset_category), but Frappe Link fields
+    store doc names (system codes like "AC-CAT-2026-0001"). The
+    `_RESOLVABLE_LINKS_BY_DOCTYPE` resolver in api.import_data accepts EITHER
+    form before insert — so validators MUST accept either too, otherwise
+    they reject valid display-name input and crash the wizard.
+
+    Use this helper anywhere you build a "valid Link values" set and compare
+    user input against it. Never collect just `r.name` and reject the rest.
+    """
+    names = {r.name for r in frappe.get_all(doctype, fields=["name"])}
+    if not display_field:
+        return names
+    displays = {
+        str(r.get(display_field) or "")
+        for r in frappe.get_all(doctype, fields=[display_field])
+    }
+    displays.discard("")
+    return names | displays
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # BASE
 # ─────────────────────────────────────────────────────────────────────────────
@@ -152,22 +176,27 @@ class DepartmentImportValidator(BaseImportValidator):
             r.department_name
             for r in frappe.get_all("AC Department", fields=["department_name"])
         }
-        # Also collect names from this batch (for parent_department validation)
-        batch_names: set[str] = {
-            str(r.get("department_name", "")).strip()
-            for r in rows if r.get("department_name")
-        }
+        first_seen_at: dict[str, int] = {}
+        for i, r in enumerate(rows, start=1):
+            name = str(r.get("department_name", "")).strip()
+            if name and name not in first_seen_at:
+                first_seen_at[name] = i
+
+        batch_names: set[str] = set(first_seen_at.keys())
         seen: set[str] = set()
         errors: list[ImportError] = []
 
         for i, row in enumerate(rows, start=1):
-            errors.extend(self._validate_dept_row(row, i, existing, seen, batch_names))
+            errors.extend(self._validate_dept_row(
+                row, i, existing, seen, batch_names, first_seen_at,
+            ))
         return errors
 
     def _validate_dept_row(
         self, row: dict, row_idx: int,
         existing: set[str], seen: set[str],
         batch_names: set[str],
+        first_seen_at: dict[str, int],
     ) -> list[ImportError]:
         errors: list[ImportError] = []
 
@@ -198,6 +227,14 @@ class DepartmentImportValidator(BaseImportValidator):
                     row_idx, "parent_department",
                     f"Khoa cha '{parent}' chưa tồn tại — sẽ để trống",
                 ))
+            elif not parent_in_db:
+                parent_row_idx = first_seen_at.get(parent, 0)
+                if parent_row_idx > row_idx:
+                    errors.append(self._warn(
+                        row_idx, "parent_department",
+                        f"Khoa cha '{parent}' được khai ở dòng {parent_row_idx} "
+                        f"(sau dòng này) — sắp xếp lại để parent đứng trước con",
+                    ))
 
         # email format
         email = str(row.get("email", "")).strip()
@@ -225,21 +262,28 @@ class LocationImportValidator(BaseImportValidator):
             r.location_name
             for r in frappe.get_all("AC Location", fields=["location_name"])
         }
-        batch_names: set[str] = {
-            str(r.get("location_name", "")).strip()
-            for r in rows if r.get("location_name")
-        }
+        # Map display_name → first row index it appears in (for order warning)
+        first_seen_at: dict[str, int] = {}
+        for i, r in enumerate(rows, start=1):
+            name = str(r.get("location_name", "")).strip()
+            if name and name not in first_seen_at:
+                first_seen_at[name] = i
+
+        batch_names: set[str] = set(first_seen_at.keys())
         seen: set[str] = set()
         errors: list[ImportError] = []
 
         for i, row in enumerate(rows, start=1):
-            errors.extend(self._validate_loc_row(row, i, existing, seen, batch_names))
+            errors.extend(self._validate_loc_row(
+                row, i, existing, seen, batch_names, first_seen_at,
+            ))
         return errors
 
     def _validate_loc_row(
         self, row: dict, row_idx: int,
         existing: set[str], seen: set[str],
         batch_names: set[str],
+        first_seen_at: dict[str, int],
     ) -> list[ImportError]:
         errors: list[ImportError] = []
 
@@ -270,6 +314,15 @@ class LocationImportValidator(BaseImportValidator):
                     row_idx, "parent_location",
                     f"Vị trí cha '{parent}' chưa tồn tại — sẽ để trống",
                 ))
+            elif not parent_in_db:
+                # Parent in batch — verify order so cross-row resolve works at insert time
+                parent_row_idx = first_seen_at.get(parent, 0)
+                if parent_row_idx > row_idx:
+                    errors.append(self._warn(
+                        row_idx, "parent_location",
+                        f"Vị trí cha '{parent}' được khai ở dòng {parent_row_idx} "
+                        f"(sau dòng này) — sắp xếp lại để parent đứng trước con",
+                    ))
 
         # clinical_area_type
         area = str(row.get("clinical_area_type", "")).strip()
@@ -311,9 +364,8 @@ class DeviceModelImportValidator(BaseImportValidator):
             r.model_name
             for r in frappe.get_all("IMM Device Model", fields=["model_name"])
         }
-        valid_categories: set[str] = {
-            r.name for r in frappe.get_all("AC Asset Category", fields=["name"])
-        }
+        # LL-IMP-1: accept either system code or display name (category_name)
+        valid_categories = _link_lookup_set("AC Asset Category", "category_name")
         seen: set[str] = set()
         errors: list[ImportError] = []
         for i, row in enumerate(rows, start=1):
@@ -402,26 +454,33 @@ class ContractImportValidator(BaseImportValidator):
     })
 
     def validate_all(self, rows: list[dict]) -> list[ImportError]:
+        # contract_code đã unify với name (PK) — kiểm tra trùng cả 2 cột.
         existing: set[str] = {
+            r.name for r in frappe.get_all("Service Contract", fields=["name"])
+        }
+        existing |= {
             r.contract_code
             for r in frappe.get_all("Service Contract", fields=["contract_code"])
+            if r.contract_code
         }
+        # LL-IMP-1: supplier accepts either system code or supplier_name
+        valid_suppliers = _link_lookup_set("AC Supplier", "supplier_name")
         seen: set[str] = set()
         errors: list[ImportError] = []
 
         for i, row in enumerate(rows, start=1):
-            errors.extend(self._validate_contract_row(row, i, existing, seen))
+            errors.extend(self._validate_contract_row(row, i, existing, seen, valid_suppliers))
         return errors
 
     def _validate_contract_row(
         self, row: dict, row_idx: int,
         existing: set[str], seen: set[str],
+        valid_suppliers: set[str],
     ) -> list[ImportError]:
         errors: list[ImportError] = []
 
-        # Required fields
+        # Required fields — `contract_code` để trống được (autogen từ naming_series).
         for field, label in [
-            ("contract_code", "Mã hợp đồng"),
             ("contract_title", "Tên hợp đồng"),
             ("supplier", "Nhà cung cấp"),
             ("contract_type", "Loại hợp đồng"),
@@ -443,9 +502,9 @@ class ContractImportValidator(BaseImportValidator):
                     f"Mã hợp đồng '{code}' bị trùng lặp trong file"))
             seen.add(code)
 
-        # Supplier must exist
+        # Supplier must exist (accepts either system code or supplier_name)
         supplier = str(row.get("supplier", "")).strip()
-        if supplier and not frappe.db.exists("AC Supplier", supplier):
+        if supplier and supplier not in valid_suppliers:
             errors.append(self._err(row_idx, "supplier",
                 f"Nhà cung cấp '{supplier}' không tồn tại — tạo NCC trước khi import hợp đồng"))
 
@@ -485,16 +544,21 @@ class UserImportValidator(BaseImportValidator):
         existing_roles: set[str] = {
             r.name for r in frappe.get_all("Role", fields=["name"])
         }
+        # LL-IMP-1: ac_department accepts either system code or department_name
+        valid_depts = _link_lookup_set("AC Department", "department_name")
         seen: set[str] = set()
         errors: list[ImportError] = []
         for i, row in enumerate(rows, start=1):
-            errors.extend(self._validate_user_row(row, i, existing_emails, seen, existing_roles))
+            errors.extend(self._validate_user_row(
+                row, i, existing_emails, seen, existing_roles, valid_depts,
+            ))
         return errors
 
     def _validate_user_row(
         self, row: dict, row_idx: int,
         existing_emails: set[str], seen: set[str],
         existing_roles: set[str],
+        valid_depts: set[str],
     ) -> list[ImportError]:
         errors: list[ImportError] = []
 
@@ -518,7 +582,7 @@ class UserImportValidator(BaseImportValidator):
             errors.append(self._err(row_idx, "first_name", "'Tên' là bắt buộc"))
 
         dept = str(row.get("ac_department", "")).strip()
-        if dept and not frappe.db.exists("AC Department", dept):
+        if dept and dept not in valid_depts:
             errors.append(self._warn(
                 row_idx, "ac_department",
                 f"Khoa/phòng '{dept}' không tìm thấy trong hệ thống — sẽ để trống",
@@ -560,28 +624,20 @@ class AssetImportValidator(BaseImportValidator):
     })
 
     def validate_all(self, rows: list[dict]) -> list[ImportError]:
-        # Cache Link target sets to avoid N+1 queries
-        categories = {r.name for r in frappe.get_all("AC Asset Category", fields=["name"])}
-        # AC Asset Category also accessible by category_name → allow either
-        categories |= {
-            r.category_name for r in frappe.get_all("AC Asset Category", fields=["category_name"])
-        }
-        models = {r.name for r in frappe.get_all("IMM Device Model", fields=["name"])}
-        models |= {
-            r.model_name for r in frappe.get_all("IMM Device Model", fields=["model_name"])
-        }
-        locations = {r.name for r in frappe.get_all("AC Location", fields=["name"])}
-        locations |= {
-            r.location_name for r in frappe.get_all("AC Location", fields=["location_name"])
-        }
-        departments = {r.name for r in frappe.get_all("AC Department", fields=["name"])}
-        departments |= {
-            r.department_name for r in frappe.get_all("AC Department", fields=["department_name"])
-        }
-        suppliers = {r.name for r in frappe.get_all("AC Supplier", fields=["name"])}
-        users = {r.name for r in frappe.get_all("User", fields=["name"])}
+        # LL-IMP-1: Link fields accept either system code OR display name
+        categories = _link_lookup_set("AC Asset Category", "category_name")
+        models     = _link_lookup_set("IMM Device Model", "model_name")
+        locations  = _link_lookup_set("AC Location", "location_name")
+        departments = _link_lookup_set("AC Department", "department_name")
+        suppliers  = _link_lookup_set("AC Supplier", "supplier_name")
+        users      = _link_lookup_set("User", "")  # User PK = email = display
 
+        # asset_code đã được unify với name (PK) — kiểm tra trùng cả 2 cột để
+        # bắt sớm trường hợp user nhập code trùng với name của asset cũ.
         existing_codes = {
+            r.name for r in frappe.get_all("AC Asset", fields=["name"])
+        }
+        existing_codes |= {
             r.asset_code for r in frappe.get_all(
                 "AC Asset", filters={"asset_code": ["!=", ""]}, fields=["asset_code"],
             ) if r.asset_code
