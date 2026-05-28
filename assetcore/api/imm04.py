@@ -167,6 +167,13 @@ def assign_identification(name: str, vendor_serial_no: str = "",
 
 
 @frappe.whitelist(methods=["POST"])
+def generate_internal_qr(name: str) -> dict:
+    """BUG-009: Manual QR generation endpoint. Idempotent — chỉ sinh nếu chưa có."""
+    rbac.require("commissioning.write")
+    return _handle(svc.generate_internal_qr, name)
+
+
+@frappe.whitelist(methods=["POST"])
 def submit_baseline_checklist(name: str, results: str | list | None = None) -> dict:
     rbac.require("commissioning.write")
     try:

@@ -489,6 +489,19 @@ def create_ac_asset(doc: Document) -> str:
         return doc.final_asset
     from assetcore.utils.lifecycle import create_lifecycle_event
 
+    # BUG-009 fallback: nếu QR vẫn trống tại thời điểm mint, sinh ngay tại đây.
+    # Đảm bảo AC Asset luôn có udi_code khi commissioning hoàn thành.
+    if not doc.internal_tag_qr:
+        try:
+            result = generate_internal_qr(doc.name)
+            doc.internal_tag_qr = result.get("internal_tag_qr") or doc.internal_tag_qr
+        except ServiceError:
+            # Không block mint nếu sinh QR thất bại — log và tiếp tục.
+            frappe.log_error(
+                f"QR fallback generation failed for {doc.name}",
+                "IMM-04 QR Fallback",
+            )
+
     model_data = _load_model_data(doc.master_item)
     med_class, risk_clf = _resolve_risk_class(doc, model_data)
 
@@ -1234,6 +1247,48 @@ def assign_identification(name: str, vendor_serial_no: str = "", internal_tag_qr
     doc.custom_moh_code = custom_moh_code or doc.custom_moh_code
     doc.save(ignore_permissions=True)
     return {"name": doc.name, "vendor_serial_no": doc.vendor_serial_no, "internal_tag_qr": doc.internal_tag_qr}
+
+
+def generate_internal_qr(name: str) -> dict:
+    """BUG-009: Manual / fallback QR generator.
+
+    Idempotent: nếu phiếu đã có QR thì trả lại giá trị hiện tại, không ghi đè.
+    Có thể gọi ở bất kỳ workflow_state nào miễn là docstatus != 2 (Cancelled).
+    Dùng cùng format `BV-{DEPT}-{YYYY}-{SEQ}` như controller `_generate_internal_qr`.
+    """
+    import datetime
+
+    doc = CommissioningRepo.get(name)
+    if not doc:
+        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy: {name}")
+    if doc.docstatus == 2:
+        raise ServiceError(ErrorCode.INVALID_PARAMS, "Phiếu đã hủy, không thể sinh QR")
+    try:
+        frappe.has_permission(_DT, ptype="write", doc=name, throw=True)
+    except frappe.PermissionError as exc:
+        raise ServiceError(ErrorCode.FORBIDDEN, "Bạn không có quyền sinh QR cho phiếu này") from exc
+
+    if doc.internal_tag_qr:
+        return {
+            "name": doc.name,
+            "internal_tag_qr": doc.internal_tag_qr,
+            "generated": False,
+        }
+
+    dept_code = (doc.clinical_dept or "GEN").replace(" ", "").upper()[:6]
+    year = datetime.datetime.now().year
+    count = frappe.db.count(
+        _DT,
+        {
+            "internal_tag_qr": ("like", f"BV-%-{year}-%"),
+            "name": ("!=", doc.name),
+        },
+    )
+    seq = str(count + 1).zfill(4)
+    qr = f"BV-{dept_code}-{year}-{seq}"
+
+    frappe.db.set_value(_DT, doc.name, "internal_tag_qr", qr)
+    return {"name": doc.name, "internal_tag_qr": qr, "generated": True}
 
 
 def check_sn_unique(vendor_sn: str, exclude_name: str = "") -> dict:
