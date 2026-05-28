@@ -5,9 +5,10 @@
 | Mục | Giá trị |
 |---|---|
 | Module | **IMM-01 — Đánh giá Nhu cầu & Dự toán (Needs Assessment & Budget Estimation)** |
-| Phiên bản | 1.0.0 (Wave 2 GA) |
-| Ngày phát hành | 2026-05 (Wave 2) |
-| Cập nhật | 2026-05-14 |
+| Phiên bản | 0.0.2 |
+| Ngày phát hành | 2026-05-27 (đồng bộ với app 0.0.2) |
+| Cập nhật | 2026-05-27 |
+| Chính sách versioning | Tuân theo `assetcore/__init__.py = 0.0.2`; module docs đồng bộ phiên bản app. |
 | Owner | PM + BA + Tech Writer |
 | Liên kết | [02 Analysis](./02_Analysis_Design.md) · [07 Testing QA](./07_Testing_QA.md) · [08 Deployment](./08_Deployment.md) |
 

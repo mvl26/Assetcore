@@ -376,7 +376,38 @@ def get_procurement_plan(name: str) -> dict:
 
 def _get_procurement_plan(name: str) -> dict:
     doc = frappe.get_doc(_DT_PP, name)
-    return doc.as_dict()
+    payload = doc.as_dict()
+    # BUG-004: plan_items chỉ chứa link tới NR — FE cần department_name + tco_5y
+    # để hiển thị bảng "Danh sách Needs Request đã gom". Bulk-fetch để tránh N+1.
+    items = payload.get("plan_items") or []
+    nr_names = [it.get("needs_request") for it in items if it.get("needs_request")]
+    if nr_names:
+        nr_rows = frappe.get_all(
+            _DT_NR,
+            filters={"name": ["in", nr_names]},
+            fields=["name", "requesting_department", "tco_5y", "weighted_score"],
+        )
+        nr_map = {r["name"]: r for r in nr_rows}
+        dept_names = {r["requesting_department"] for r in nr_rows if r.get("requesting_department")}
+        dept_map: dict[str, str] = {}
+        if dept_names:
+            dept_rows = frappe.get_all(
+                "AC Department",
+                filters={"name": ["in", list(dept_names)]},
+                fields=["name", "department_name"],
+            )
+            dept_map = {r["name"]: r.get("department_name") or r["name"] for r in dept_rows}
+        for it in items:
+            nr = nr_map.get(it.get("needs_request"))
+            if not nr:
+                continue
+            it["requesting_department"] = nr.get("requesting_department")
+            it["department_name"] = dept_map.get(nr.get("requesting_department") or "", "")
+            it["tco_5y"] = nr.get("tco_5y") or 0
+            # Backfill weighted_score nếu line chưa snapshot (line lưu lúc roll-in)
+            if not it.get("weighted_score") and nr.get("weighted_score"):
+                it["weighted_score"] = nr["weighted_score"]
+    return payload
 
 
 @frappe.whitelist(methods=["POST"])
