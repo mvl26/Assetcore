@@ -6,7 +6,7 @@
 | Wave | 2 — Live ✅ |
 | Trạng thái | ✅ Đã triển khai — BE + FE LIVE |
 | Số file | 8 template chuẩn (nguồn gốc đã archive) |
-| Cập nhật cuối | 2026-05-18 |
+| Cập nhật cuối | 2026-05-27 |
 | Khối kiến trúc | A. KHỐI 1 — Planning & Procurement |
 | Đợt triển khai | 2 |
 | Owner | PTP Khối 1 · Nhóm ĐT-HĐ-NCC |
@@ -57,4 +57,4 @@ Files nguồn gốc đã được move sang `docs/architecture/archive/imm-03/`:
 
 ---
 
-*Module IMM-03 — Wave 2 LIVE. Cập nhật 2026-05-18.*
+*Module IMM-03 — Wave 2 LIVE. Cập nhật 2026-05-27.*
