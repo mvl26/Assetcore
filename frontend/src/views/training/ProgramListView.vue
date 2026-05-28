@@ -3,9 +3,8 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useImm06Store } from '@/stores/imm06'
-import { useAuthStore } from '@/stores/auth'
 import { useApi } from '@/composables/useApi'
-import { ROLES_TRAINING_MANAGE } from '@/constants/roles'
+import { useCapabilities } from '@/composables/useCapabilities'
 import PageHeader from '@/components/common/PageHeader.vue'
 import BasePagination from '@/components/common/BasePagination.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
@@ -15,8 +14,8 @@ import ListFilterBar from '@/components/common/ListFilterBar.vue'
 
 const router = useRouter()
 const store = useImm06Store()
-const authStore = useAuthStore()
 const api = useApi()
+const { can } = useCapabilities()
 
 const { programs, programPagination, loading, error } = storeToRefs(store)
 
@@ -24,7 +23,7 @@ const filterType = ref('')
 const filterActive = ref('')
 const showFilters = ref(false)
 
-const canManage = computed(() => authStore.hasAnyRole(ROLES_TRAINING_MANAGE))
+const canManage = computed(() => can('training.write'))
 
 const TRAINING_TYPES = [
   { value: 'Initial',       label: 'Đào tạo ban đầu' },
@@ -205,7 +204,7 @@ onMounted(() => load())
                       : 'Chứng nhận' }}
                   </span>
                 </td>
-                <td class="table-cell text-slate-600 text-sm">{{ p.target_device_model ?? p.target_device_category ?? '—' }}</td>
+                <td class="table-cell text-slate-600 text-sm">{{ (p as any).target_device_model_name || p.target_device_model || p.target_device_category || '—' }}</td>
                 <td class="table-cell text-slate-600 text-sm">{{ p.duration_hours != null ? p.duration_hours + 'h' : '—' }}</td>
                 <td class="table-cell text-slate-600 text-sm">{{ p.passing_score_pct }}%</td>
                 <td class="table-cell">

@@ -74,6 +74,7 @@ export interface UserCompetency {
   user: string
   user_full_name?: string
   device_model: string
+  device_model_name?: string
   training_program: string
   competency_level: 'Trainee' | 'Operator' | 'Senior Operator' | 'Trainer'
   achieved_date: string
