@@ -7,7 +7,7 @@
 | Owner | BA + System Analyst |
 | Liên kết | [03 Diagrams](./03_Diagrams.md) · [04 Backend](./04_Backend_Design.md) · [05 API](./05_API_Specification.md) · [06 Frontend](./06_Frontend_Design.md) |
 | Chuẩn tham chiếu | WHO HTM 2025 §5.3, ISO 13485:2016 §7.5, ISO 9001:2015 §8.5.1, NĐ 98/2021 |
-| Cập nhật | 2026-05-18 |
+| Cập nhật | 2026-05-27 |
 
 ---
 
@@ -35,13 +35,13 @@ Output: `PM Task Log` (immutable), cập nhật `Asset.custom_last_pm_date / nex
 
 | Vai trò | Người dùng thực | Quan tâm chính | Tần suất | Loại |
 |---|---|---|---|---|
-| Workshop Manager | Workshop Head | Compliance rate, calendar overview, phân công | Daily | Primary |
-| KTV HTM | HTM Technician | WO được phân công, checklist, submit | Daily | Primary |
-| Kỹ sư y sinh | Biomed Engineer | Hỗ trợ Major Failure, tư vấn template | Weekly | Secondary |
-| PTP Khối 2 | VP Block2 | KPI compliance, nhận escalation | Weekly | Approver |
-| CMMS Admin | IT/QMS Admin | Cấu hình template, fixtures, phân quyền | Ad-hoc | Secondary |
+| PM Manager | Trưởng nhóm PM | Compliance rate, calendar overview, phân công | Daily | Primary |
+| PM User | Kỹ thuật viên PM | WO được phân công, checklist, submit | Daily | Primary |
+| Corrective Manager | Trưởng nhóm sửa chữa | Hỗ trợ Major Failure, nhận CM từ PM Halted | Weekly | Secondary |
+| PM Manager (KPI tier) | PTP Khối 2 (cũ) | KPI compliance, nhận escalation cấp cao | Weekly | Approver |
+| AssetCore System User | IT/QMS Admin | Cấu hình template, fixtures, phân quyền | Ad-hoc | Secondary |
 | Scheduler hệ thống | System Scheduler | Tạo WO, mark Overdue, gửi email | Daily automatic | Secondary (system) |
-| Auditor QMS | QMS Officer | PM Task Log immutability, compliance report | Monthly | Auditor |
+| AssetCore Auditor | QMS Officer | PM Task Log immutability, compliance report | Monthly | Auditor |
 
 ## I.4. Scope
 
@@ -110,7 +110,7 @@ Output: `PM Task Log` (immutable), cập nhật `Asset.custom_last_pm_date / nex
 | Sprint 1 | DocType schema 6 DocTypes | BE Lead | ✅ Done |
 | Sprint 2 | Scheduler generate + check_overdue | BE Lead | ✅ Done |
 | Sprint 3 | Controller validate + on_submit hooks | BE Lead | ✅ Done |
-| Sprint 4 | API 9 endpoints + tests | BE Lead | ✅ Done |
+| Sprint 4 | API 24 endpoints + tests | BE Lead | ✅ Done |
 | Sprint 5 | FE 4 views + Pinia store + Calendar | FE Lead | ✅ Done |
 | Sprint 6 | UAT 10 scenarios + bug fix | QA Lead | ✅ Done |
 | Sprint 7 | Docs chuẩn hóa template 02–06 | BA | 🔄 In Progress |
@@ -182,14 +182,14 @@ Tham chiếu WHO HTM — *Medical equipment maintenance programme overview* (ch�
 
 | Metric | Đơn vị | Công thức | Tần suất đo | Owner | Threshold cảnh báo |
 |---|---|---|---|---|---|
-| PM completion rate | % | `wo_completed_on_time / wo_scheduled` | Tuần | Workshop Manager | < 90% → review |
-| Schedule adherence | % | `actual_pm_date - due_date` trong cửa sổ ±2 ngày | Tuần | Workshop Manager | > 5% trễ → escalate PTP |
-| Mean time to PM (MTTPM) | giờ | `Σ duration_minutes / N WO Completed` | Tháng | Biomed Engineer | > +20% baseline → review template |
-| First-time-pass rate | % | `wo_completed_no_failure / wo_completed` | Tháng | Workshop Manager | < 85% → review checklist |
-| Major failure rate during PM | % | `wo_halted_major / wo_completed` | Tháng | PTP Khối 2 | > 5% → review training |
-| Checklist coverage | % | `items_with_result / items_total` | Per WO | KTV HTM | < 100% → block submit (BR-08-08) |
-| Reschedule ratio | % | `wo_rescheduled / wo_total` | Tháng | Workshop Manager | > 15% → review capacity |
-| Audit trail completeness | % | `wo_with_task_log / wo_completed` | Quý | Auditor QMS | < 100% → fix-it sprint |
+| PM completion rate | % | `wo_completed_on_time / wo_scheduled` | Tuần | PM Manager | < 90% → review |
+| Schedule adherence | % | `actual_pm_date - due_date` trong cửa sổ ±2 ngày | Tuần | PM Manager | > 5% trễ → escalate cấp cao |
+| Mean time to PM (MTTPM) | giờ | `Σ duration_minutes / N WO Completed` | Tháng | Corrective Manager | > +20% baseline → review template |
+| First-time-pass rate | % | `wo_completed_no_failure / wo_completed` | Tháng | PM Manager | < 85% → review checklist |
+| Major failure rate during PM | % | `wo_halted_major / wo_completed` | Tháng | PM Manager | > 5% → review training |
+| Checklist coverage | % | `items_with_result / items_total` | Per WO | PM User | < 100% → block submit (BR-08-08) |
+| Reschedule ratio | % | `wo_rescheduled / wo_total` | Tháng | PM Manager | > 15% → review capacity |
+| Audit trail completeness | % | `wo_with_task_log / wo_completed` | Quý | AssetCore Auditor | < 100% → fix-it sprint |
 
 **Đo ở đâu (technical mapping):**
 - `assetcore/services/imm08.py::get_pm_dashboard_stats` — completion rate, overdue, avg days late
@@ -201,7 +201,7 @@ Tham chiếu WHO HTM — *Medical equipment maintenance programme overview* (ch�
 
 ## II.7. RACI matrix
 
-| Hoạt động | Workshop Manager | KTV HTM | Biomed Eng. | PTP Khối 2 | System |
+| Hoạt động | PM Manager | PM User | Corrective Manager | PM Manager (KPI tier) | System |
 |---|---|---|---|---|---|
 | Tạo PM Schedule | R/A | — | C | I | — |
 | Soạn Checklist Template | R/A | C | C | — | — |
@@ -216,10 +216,10 @@ Tham chiếu WHO HTM — *Medical equipment maintenance programme overview* (ch�
 ## II.8. Exception flow
 
 **E1 — Thiết bị bận trong khi đến hạn PM:**
-Workshop Manager dùng `reschedule_pm` với lý do bắt buộc. WO chuyển sang `Pending–Device Busy`. KTV resume thủ công khi thiết bị rảnh.
+PM Manager dùng `reschedule_pm` với lý do bắt buộc. WO chuyển sang `Pending–Device Busy`. PM User resume thủ công khi thiết bị rảnh.
 
 **E2 — Fail-Minor trong checklist:**
-KTV submit với `overall_result = Pass with Minor Issues`. Hệ thống tự tạo CM WO với priority Medium và `source_pm_wo` liên kết. PM vẫn được tính là hoàn thành.
+PM User submit với `overall_result = Pass with Minor Issues`. Hệ thống tự tạo CM WO với priority Medium và `source_pm_wo` liên kết. PM vẫn được tính là hoàn thành.
 
 ## II.9. So sánh As-Is vs To-Be
 
@@ -227,13 +227,13 @@ Tham chiếu WHO HTM — *Medical equipment maintenance programme overview* (ch�
 
 | Trục so sánh | As-Is (Excel + sổ giấy) | To-Be (IMM-08 trên AssetCore) | Lợi ích chính |
 |---|---|---|---|
-| Lịch PM | Excel theo tuần/tháng, Workshop Manager nhìn bằng mắt | PM Schedule per asset × pm_type, scheduler tự sinh WO khi đến hạn | Không bỏ sót, idempotent (BR-08-07, AC-2) |
+| Lịch PM | Excel theo tuần/tháng, PM Manager nhìn bằng mắt | PM Schedule per asset × pm_type, scheduler tự sinh WO khi đến hạn | Không bỏ sót, idempotent (BR-08-07, AC-2) |
 | Phân công | Gọi điện thoại / báo miệng | `assign_technician` API + email tự động | Có audit, không cãi nhau ai làm |
-| Checklist | Mỗi KTV viết khác, không chuẩn | PM Checklist Template clone vào WO, có result/measured_value/photo | Chuẩn hoá, audit-ready (BR-08-06, BR-08-10) |
+| Checklist | Mỗi PM User viết khác, không chuẩn | PM Checklist Template clone vào WO, có result/measured_value/photo | Chuẩn hoá, audit-ready (BR-08-06, BR-08-10) |
 | Hồ sơ PM | Sổ giấy, có thể thất lạc/sửa | PM Task Log immutable (`in_create=1`, no write/delete) | Tuân thủ NĐ98 Điều 28 (lưu ≥ 5 năm) |
-| Báo cáo KPI | Workshop Manager tổng hợp 1–2h/tuần | `get_pm_dashboard_stats` real-time | Giảm 100% công tổng hợp thủ công |
+| Báo cáo KPI | PM Manager tổng hợp 1–2h/tuần | `get_pm_dashboard_stats` real-time | Giảm 100% công tổng hợp thủ công |
 | Major Failure | Báo miệng, Asset vẫn dùng cho tới khi có CM thủ công | `report_major_failure` → Asset Out of Service tức thì + auto CM WO (IMM-09) | An toàn người bệnh, traceable |
-| Escalation | Không có cơ chế chính thức | Scheduler daily 08:00 leo thang ≤7d / 8–30d / >30d theo cấp | Workshop Head → PTP → BGĐ minh bạch |
+| Escalation | Không có cơ chế chính thức | Scheduler daily 08:00 leo thang ≤7d / 8–30d / >30d theo cấp | PM Manager → PM Manager (KPI tier) → BGĐ minh bạch |
 | Compliance audit | Không sẵn sàng, mất ngày để chuẩn bị | Audit query 1 SQL (PM Task Log), KPI dashboard luôn live | Đáp ứng audit NĐ98/WHO HTM trong giờ |
 
 **Trục đo ROI (theo WHO HTM "Programme overview"):**
@@ -241,7 +241,7 @@ Tham chiếu WHO HTM — *Medical equipment maintenance programme overview* (ch�
 | Chỉ số ROI | As-Is (ước tính) | To-Be (target) | Ghi chú |
 |---|---|---|---|
 | PM compliance rate | ~60% | ≥ 90% | KPI I.5 |
-| Workshop Manager admin time | 1–2h / tuần | < 15 phút / tuần | Còn lại review escalation |
+| PM Manager admin time | 1–2h / tuần | < 15 phút / tuần | Còn lại review escalation |
 | Audit prep time | 1–2 ngày / kỳ audit | < 1 giờ | Live dashboard + Task Log |
 | Bỏ sót thiết bị PM | có (Excel quên cập nhật) | 0 (idempotent scheduler) | BR-08-07 + AC-2 |
 | Major failure phát hiện trong PM dẫn tới Out of Service tức thì | thủ công, có thể trễ | < 5 phút | UC-04 + auto CM |
@@ -289,12 +289,12 @@ flowchart TD
 ```plantuml
 @startuml
 left to right direction
-actor "Workshop Manager" as WM
-actor "KTV HTM" as KTV
-actor "PTP Khối 2" as PTP
+actor "PM Manager" as WM
+actor "PM User" as KTV
+actor "PM Manager (KPI tier)" as PTP
 actor "IMM-04 Hook" as IMM04 <<system>>
 actor "Scheduler" as SCH <<system>>
-actor "Auditor QMS" as AUD
+actor "AssetCore Auditor" as AUD
 
 rectangle "IMM-08 PM" {
     usecase "UC-01 Tạo PM Schedule" as UC01
@@ -330,12 +330,12 @@ UC09 ..> UC02 : <<include>>
 
 | Actor | Loại | Mô tả | Goal chính |
 |---|---|---|---|
-| Workshop Manager | Primary | Quản lý xưởng kỹ thuật | Đảm bảo compliance rate ≥ 90% |
-| KTV HTM | Primary | Kỹ thuật viên thực hiện PM | Hoàn thành checklist đúng hạn |
-| PTP Khối 2 | Secondary | Phó Trưởng phòng | Giám sát KPI, nhận escalation |
+| PM Manager | Primary | Quản lý nhóm PM | Đảm bảo compliance rate ≥ 90% |
+| PM User | Primary | Kỹ thuật viên thực hiện PM | Hoàn thành checklist đúng hạn |
+| PM Manager (KPI tier) | Secondary | Cấp phê duyệt KPI/escalation | Giám sát KPI, nhận escalation |
 | Scheduler | System | Frappe scheduler job | Tự động tạo WO + check Overdue |
 | IMM-04 Hook | System | on_submit Asset Commissioning | Tạo PM Schedule đầu tiên |
-| Auditor QMS | Auditor | QMS Officer | Kiểm tra PM Task Log immutability |
+| AssetCore Auditor | Auditor | QMS Officer | Kiểm tra PM Task Log immutability |
 
 ## III.3. Use Case Specifications
 
@@ -344,21 +344,21 @@ UC09 ..> UC02 : <<include>>
 | Mục | Giá trị |
 |---|---|
 | ID | UC-IMM08-03 |
-| Brief | KTV điền checklist và submit kết quả PM Work Order |
-| Primary actor | KTV HTM |
-| Pre-condition | WO ở trạng thái In Progress; KTV là assigned_to |
+| Brief | PM User điền checklist và submit kết quả PM Work Order |
+| Primary actor | PM User |
+| Pre-condition | WO ở trạng thái In Progress; PM User là assigned_to |
 | Post-condition | WO Completed; PM Task Log tạo; PM Schedule advance; Asset dates sync |
-| Trigger | KTV hoàn thành thực hiện PM |
+| Trigger | PM User hoàn thành thực hiện PM |
 
 #### Main flow
 
 | Bước | Actor | System |
 |---|---|---|
-| 1 | KTV mở WO Detail | Load checklist items |
-| 2 | KTV điền result + measured_value từng item | Validate notes bắt buộc khi Fail-* |
-| 3 | KTV điền overall_result + technician_notes + duration_minutes | — |
-| 4 | KTV upload ảnh (bắt buộc nếu Class III) | Validate BR-08-06 |
-| 5 | KTV click "Hoàn thành" | Gọi POST submit_pm_result |
+| 1 | PM User mở WO Detail | Load checklist items |
+| 2 | PM User điền result + measured_value từng item | Validate notes bắt buộc khi Fail-* |
+| 3 | PM User điền overall_result + technician_notes + duration_minutes | — |
+| 4 | PM User upload ảnh (bắt buộc nếu Class III) | Validate BR-08-06 |
+| 5 | PM User click "Hoàn thành" | Gọi POST submit_pm_result |
 | 6 | — | Validate BR-08-08 (checklist 100%), BR-08-06 (ảnh) |
 | 7 | — | wo.submit() → on_submit controller |
 | 8 | — | Tạo PM Task Log immutable |
@@ -372,7 +372,7 @@ UC09 ..> UC02 : <<include>>
 
 #### Exception E1 — Checklist chưa đủ
 - 6a. Return error BR-08-08 "Tất cả mục checklist phải có kết quả"
-- 6b. KTV bổ sung còn thiếu rồi thử lại
+- 6b. PM User bổ sung còn thiếu rồi thử lại
 
 #### Special requirements
 - PM Task Log PHẢI immutable sau insert (in_create=1)
@@ -384,7 +384,7 @@ Mô tả quan hệ giữa các Use Case của IMM-08 (extend / include / general
 
 | From UC | Quan hệ | To UC | Điều kiện | Lý do thiết kế |
 |---|---|---|---|---|
-| UC-09 Auto-create PM WO | `<<include>>` | UC-02 Phân công KTV | Mỗi WO mới sinh từ scheduler đều cần phân công | Scheduler không tự gán KTV cụ thể — Workshop Manager assign sau bằng `assign_technician`. |
+| UC-09 Auto-create PM WO | `<<include>>` | UC-02 Phân công KTV | Mỗi WO mới sinh từ scheduler đều cần phân công | Scheduler không tự gán KTV cụ thể — PM Manager assign sau bằng `assign_technician`. |
 | UC-03 Submit PM Result | `<<extend>>` | UC-04 Report Major Failure | `overall_result = Pass with Major Failure` hoặc có item `result = Fail-Major + is_critical` | Tách flow Major khỏi happy path để giữ UC-03 gọn (BR-08-09). |
 | UC-03 Submit PM Result | `<<include>>` | (system) Tạo PM Task Log | Mọi lần Submit thành công | Task Log immutable là post-condition bắt buộc (BR-08-10). |
 | UC-03 Submit PM Result | `<<include>>` | (system) Advance PM Schedule | Mọi lần Submit thành công | `next_pm_date = completion_date + interval` (BR-08-03). |
@@ -392,10 +392,10 @@ Mô tả quan hệ giữa các Use Case của IMM-08 (extend / include / general
 | UC-04 Report Major Failure | `<<include>>` | (system) Set Asset Out of Service | Mọi lần report Major | An toàn (BR-08-04). |
 | UC-09 Auto-create PM WO | `<<extend>>` | (system) Skip + Email Admin | Checklist Template không tồn tại | Branch BR-08-01. |
 | UC-09 Auto-create PM WO | `<<extend>>` | (system) Skip WO | Asset.status = Out of Service | Branch BR-08-04. |
-| UC-10 Check Overdue | `<<extend>>` | (system) Email leo thang PTP | days_overdue 8–30 | Escalation tier 2. |
+| UC-10 Check Overdue | `<<extend>>` | (system) Email leo thang PM Manager (KPI tier) | days_overdue 8–30 | Escalation tier 2. |
 | UC-10 Check Overdue | `<<extend>>` | (system) Email leo thang BGĐ | days_overdue > 30 | Escalation tier 3. |
-| UC-05 Reschedule PM | `<<extend>>` | UC-02 Phân công KTV | Sau khi resume từ Pending–Device Busy | Có thể assign lại KTV khác. |
-| UC-01 Tạo PM Schedule | (none) | — | Trigger 1: IMM-04 commissioning hook · Trigger 2: CMMS Admin tạo manual | Một UC, hai actor (system + human). |
+| UC-05 Reschedule PM | `<<extend>>` | UC-02 Phân công KTV | Sau khi resume từ Pending–Device Busy | Có thể assign lại PM User khác. |
+| UC-01 Tạo PM Schedule | (none) | — | Trigger 1: IMM-04 commissioning hook · Trigger 2: AssetCore System User tạo manual | Một UC, hai actor (system + human). |
 
 **Quan hệ generalize:**
 - *PM Work Order* (chung) ← chuyên hoá theo `pm_type` (Daily / Weekly / Monthly / Quarterly / Annual). Hiện tại các pm_type chỉ khác `interval` và `Checklist Template`, KHÔNG cần UC riêng — generalize ở mức data (BR-08-07: mỗi pm_type là 1 PM Schedule riêng), không ở mức UC.
@@ -435,7 +435,7 @@ Priority: Must | Estimate: 8SP
 **AC-1 — Happy path:**
 - Given Asset Active có PM Schedule với next_due_date ≤ today+alert_days_before và Checklist Template tồn tại
 - When scheduler.generate_pm_work_orders chạy
-- Then 1 PM WO được tạo, status=Open, checklist clone từ template, email gửi Workshop Head
+- Then 1 PM WO được tạo, status=Open, checklist clone từ template, email gửi PM Manager
 
 **AC-2 — Idempotent:**
 - Given PM WO đã tồn tại cho cùng schedule và status IN (Open, In Progress, Pending–Device Busy)
@@ -444,17 +444,17 @@ Priority: Must | Estimate: 8SP
 
 ### US-08-03 — Major Failure → Asset Out of Service
 
-Là **KTV HTM**, tôi muốn **báo lỗi nghiêm trọng trong quá trình PM**, để **Asset được đưa ra khỏi sử dụng và tạo CM ngay**.
+Là **PM User**, tôi muốn **báo lỗi nghiêm trọng trong quá trình PM**, để **Asset được đưa ra khỏi sử dụng và tạo CM ngay**.
 
 Priority: Must | Estimate: 5SP
 
 **AC-1 — Happy path:**
 - Given PM WO đang In Progress
-- When KTV gọi report_major_failure với description
+- When PM User gọi report_major_failure với description
 - Then WO status=Halted–Major Failure, Asset.status=Out of Service, CM WO tạo với source_pm_wo
 
 **AC-2 — Email khẩn:**
-- Then email HTML khẩn gửi Workshop Head + VP Block2 trong 5 phút
+- Then email HTML khẩn gửi PM Manager + PM Manager (KPI tier) trong 5 phút
 
 ## IV.2. Business Rules
 
@@ -494,12 +494,12 @@ stateDiagram-v2
 | State | Mô tả | docstatus | Role có quyền chuyển |
 |---|---|---|---|
 | Open | WO mới tạo, chưa phân công | 0 | Scheduler (auto) |
-| In Progress | Đã phân công KTV | 0 | Workshop Manager |
-| Pending–Device Busy | Thiết bị bận, hoãn lịch | 0 | Workshop Manager |
+| In Progress | Đã phân công PM User | 0 | PM Manager |
+| Pending–Device Busy | Thiết bị bận, hoãn lịch | 0 | PM Manager |
 | Overdue | Quá due_date chưa hoàn thành | 0 | Scheduler (auto) |
-| Completed | PM hoàn thành, Task Log tạo | 1 | KTV HTM → Workshop Manager submit |
-| Halted–Major Failure | Phát hiện lỗi nghiêm trọng | 0 | KTV HTM |
-| Cancelled | Hủy WO có lý do | 2 | Workshop Manager |
+| Completed | PM hoàn thành, Task Log tạo | 1 | PM User → PM Manager submit |
+| Halted–Major Failure | Phát hiện lỗi nghiêm trọng | 0 | PM User |
+| Cancelled | Hủy WO có lý do | 2 | PM Manager |
 
 ## IV.4. Input — Output
 
@@ -518,9 +518,9 @@ stateDiagram-v2
 - CM Work Order (nếu Fail-Minor/Major)
 
 **Notifications:**
-- Email Workshop Head: daily WO summary
+- Email PM Manager: daily WO summary
 - Email leo thang: Overdue ≤7d / 8–30d / >30d
-- Email khẩn: Major Failure → Workshop Head + PTP
+- Email khẩn: Major Failure → PM Manager + PM Manager (KPI tier)
 
 ## IV.5. Edge cases & Errors
 
@@ -549,7 +549,7 @@ stateDiagram-v2
 ## V.2. Bảo mật
 
 - Authentication: Frappe session + API token
-- RBAC: Workshop Head / CMMS Admin / HTM Technician / Biomed Engineer / VP Block2
+- RBAC: PM Manager / PM User / Corrective Manager / AssetCore System User / AssetCore Auditor (30-role module-based RBAC, post patch `v3_2.001`)
 - PM Task Log immutable: `in_create=1` + no write/delete perm
 - Audit trail: Frappe `track_changes: 1` trên PM Work Order
 - Compliance: NĐ98/2021 + WHO HTM + ISO 13485
@@ -584,7 +584,7 @@ stateDiagram-v2
 
 - PM Task Log lưu ≥ 5 năm (NĐ98 Điều 28)
 - Immutability enforce ở DB level (`in_create=1`)
-- Phân tách trách nhiệm: KTV (thực hiện) ≠ Workshop Manager (approve) ≠ Auditor (read-only)
+- Phân tách trách nhiệm: PM User (thực hiện) ≠ PM Manager (approve) ≠ AssetCore Auditor (read-only)
 - Mọi mutation có record audit (PM Task Log)
 
 ---

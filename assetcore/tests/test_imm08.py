@@ -22,11 +22,13 @@ from assetcore.services.imm08 import PMScheduleStatus
 # ─── Fixture helpers ──────────────────────────────────────────────────────────
 
 def _ensure_cat(name: str = "_TestCatIMM08") -> str:
-    if not frappe.db.exists("AC Asset Category", name):
-        frappe.get_doc({"doctype": "AC Asset Category", "category_name": name}).insert(
-            ignore_permissions=True
-        )
-    return name
+    existing = frappe.db.get_value("AC Asset Category", {"category_name": name}, "name")
+    if existing:
+        return existing
+    doc = frappe.get_doc({"doctype": "AC Asset Category", "category_name": name}).insert(
+        ignore_permissions=True
+    )
+    return doc.name
 
 
 def _make_asset(suffix: str = "") -> object:
@@ -89,10 +91,9 @@ class TestPMChecklistTemplate(unittest.TestCase):
             fields=["name"],
         ):
             frappe.delete_doc("PM Checklist Template", t.name, force=True, ignore_permissions=True)
-        if frappe.db.exists("AC Asset Category", "_TestCatIMM08"):
-            frappe.delete_doc(
-                "AC Asset Category", "_TestCatIMM08", force=True, ignore_permissions=True
-            )
+        cat_name = frappe.db.get_value("AC Asset Category", {"category_name": "_TestCatIMM08"}, "name")
+        if cat_name:
+            frappe.delete_doc("AC Asset Category", cat_name, force=True, ignore_permissions=True)
 
     def setUp(self):
         frappe.set_user("Administrator")
@@ -378,11 +379,9 @@ class TestPMCompletionGate(unittest.TestCase):
             "PM Checklist Template", cls.template_name, force=True, ignore_permissions=True
         )
         frappe.delete_doc("AC Asset", cls.asset.name, force=True, ignore_permissions=True)
-        if frappe.db.exists("AC Asset Category", "_TestCatIMM08Gate"):
-            frappe.delete_doc(
-                "AC Asset Category", "_TestCatIMM08Gate", force=True,
-                ignore_permissions=True,
-            )
+        cat_name = frappe.db.get_value("AC Asset Category", {"category_name": "_TestCatIMM08Gate"}, "name")
+        if cat_name:
+            frappe.delete_doc("AC Asset Category", cat_name, force=True, ignore_permissions=True)
 
     def setUp(self):
         frappe.set_user("Administrator")

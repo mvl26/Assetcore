@@ -86,6 +86,8 @@ class="text-4xl font-bold leading-none"
 class="h-full rounded-full animate-bar-fill"
                :style="`width:${kpis.compliance_rate_pct}%; background:${complianceColor(kpis.compliance_rate_pct)}`" />
         </div>
+        <!-- Scope label — BE tính tỷ lệ tuân thủ trong phạm vi tháng/năm hiện tại -->
+        <p class="text-xs text-slate-500 mt-1">Phạm vi: tháng {{ month }}/{{ year }}</p>
       </div>
       <div class="kpi-card p-5" style="--kpi-color: #334155">
         <p class="text-xs font-medium text-slate-500 mb-2">Tổng lên lịch</p>

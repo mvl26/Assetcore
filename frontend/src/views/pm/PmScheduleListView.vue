@@ -13,9 +13,13 @@ import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar from '@/components/common/ListFilterBar.vue'
 import { useMasterDataStore } from '@/stores/masterData'
 import { useApi } from '@/composables/useApi'
+import { useAuthStore } from '@/stores/auth'
 
 const masterStore = useMasterDataStore()
 const apiCall = useApi()
+const auth = useAuthStore()
+// Quyền tạo lịch PM — chỉ phụ thuộc capability từ auth store, KHÔNG phụ thuộc sidebar/module-context hydration.
+const canCreatePm = computed(() => auth.can('pm.create'))
 const showFilters = ref(false)
 const filters = ref({ pm_type: '', status: '', search: '' })
 
@@ -192,7 +196,12 @@ onMounted(load)
     >
       <template #actions>
         <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
-        <button class="btn-primary" @click="openCreate">
+        <button
+          class="btn-primary"
+          :disabled="!canCreatePm"
+          :title="canCreatePm ? 'Tạo lịch PM mới' : 'Bạn không có quyền tạo lịch PM'"
+          @click="openCreate"
+        >
           <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
           </svg>
@@ -253,7 +262,7 @@ onMounted(load)
           {{ activeFilterCount > 0 ? 'Không có lịch PM nào phù hợp với bộ lọc.' : 'Chưa có lịch PM nào.' }}
         </p>
         <button v-if="activeFilterCount > 0" class="btn-ghost" @click="resetFilters">Xóa bộ lọc</button>
-        <button v-else class="btn-primary" @click="openCreate">+ Thêm lịch PM</button>
+        <button v-else class="btn-primary" :disabled="!canCreatePm" @click="openCreate">+ Thêm lịch PM</button>
       </div>
       <template v-else>
         <!-- Mobile cards -->
