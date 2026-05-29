@@ -92,7 +92,7 @@ DocType folder path: `assetcore/assetcore/doctype/` (78 folders tổng — bản
 | `udi_code`             | varchar(140) | NO       | Mã UDI (GS1/HIBC)                                | IDX                                                                                                   |
 | `gmdn_code`            | varchar(20)  | NO       | Mã GMDN (5–6 số)                               | fetch_from device_model — dùng làm trục lọc/quản lý thiết bị                                       |
 
-> **Note (2026-05-19):** Field trạng thái sử dụng GMDN (cũ) đã được loại bỏ (patch `v3_1/008_drop_...`). Lọc và quản lý thiết bị theo `gmdn_code` (kế thừa từ Asset Category → Device Model → Asset). Tham chiếu: [docs/res/gmdn-asset-category-analysis.md](../res/gmdn-asset-category-analysis.md) §6.
+> **Note (2026-05-19):** Field trạng thái sử dụng GMDN (cũ) đã được loại bỏ (patch `v3_1/008_drop_...`). Lọc và quản lý thiết bị theo `gmdn_code` (kế thừa từ Asset Category → Device Model → Asset). Tham chiếu: [docs/res/analysis/gmdn-asset-category-analysis.md](../res/analysis/gmdn-asset-category-analysis.md) §6.
 
 ### II.1.4 Fields — Đăng ký BYT
 
@@ -266,7 +266,7 @@ def _inherit_pm_calibration_defaults(self) -> None:
 | `resync_assets_gmdn_from_model(model, code)` | `services/imm00.py` | Re-sync `AC Asset.gmdn_code` + `log_audit_event(event_type="System")` mỗi Asset đổi |
 | Patch `v3_1/009_set_gmdn_inherited_flag` (post_model_sync) | `patches/v3_1/` | Backfill cờ cho Model cũ; CHỈ set cờ, KHÔNG đụng gmdn_code |
 
-Quy tắc: Model `gmdn_inherited=0` (override cố ý) **không bao giờ bị cascade đè**. Audit trail: mỗi Asset thực sự đổi giá trị → 1 dòng `IMM Audit Trail` (`change_summary` mô tả from→to, ref = Device Model). Idempotent: chạy lại với cùng giá trị không sinh audit thừa. Ref: [docs/res/plans/2026-05-19-gmdn-code-sync-strategy.md](../res/plans/2026-05-19-gmdn-code-sync-strategy.md) §5/§6, [gmdn-asset-category-analysis.md §2.2](../res/gmdn-asset-category-analysis.md).
+Quy tắc: Model `gmdn_inherited=0` (override cố ý) **không bao giờ bị cascade đè**. Audit trail: mỗi Asset thực sự đổi giá trị → 1 dòng `IMM Audit Trail` (`change_summary` mô tả from→to, ref = Device Model). Idempotent: chạy lại với cùng giá trị không sinh audit thừa. Ref: [docs/res/plans/2026-05-19-gmdn-code-sync-strategy.md](../res/plans/2026-05-19-gmdn-code-sync-strategy.md) §5/§6, [gmdn-asset-category-analysis.md §2.2](../res/analysis/gmdn-asset-category-analysis.md).
 
 **Business Rule BR-00-01:**
 

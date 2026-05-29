@@ -4,7 +4,7 @@
 Pre-model-sync: xoá column gmdn_status khỏi tabAC Asset trước khi schema sync.
 
 Lý do: gmdn_status (In Use / Not Use) trộn ngữ nghĩa với lifecycle_status —
-ref docs/res/gmdn-asset-category-analysis.md §6. Lọc thiết bị chuyển sang
+ref docs/res/analysis/gmdn-asset-category-analysis.md §6. Lọc thiết bị chuyển sang
 dùng gmdn_code (kế thừa từ Asset Category).
 """
 from __future__ import annotations

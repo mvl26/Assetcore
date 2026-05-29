@@ -16,7 +16,7 @@ Naming convention `<MODULE>-<KIND>[-<SUBKIND>]`:
 - `UI-*` thông báo thuần FE (form draft, navigation).
 - `IMPORT-*` / `INVENTORY-*` / `PURCHASE-*` cross-module domain.
 
-Quy chuẩn nội dung (xem §5 docs/res/miyano_error_framework.md):
+Quy chuẩn nội dung (xem §5 docs/res/frameworks/miyano-error-framework.md):
 - Chủ thể + Hậu quả + Hành động (qua `action_hint`).
 - Không từ kỹ thuật ('ValidationError', 'Failed', stack trace).
 - Không đổ lỗi user. Dùng giọng văn thân thiện.
@@ -98,7 +98,7 @@ class MSG:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# REGISTRY — câu chữ tiếng Việt, biên tập theo §5 miyano_error_framework.md
+# REGISTRY — câu chữ tiếng Việt, biên tập theo §5 miyano-error-framework.md
 # ─────────────────────────────────────────────────────────────────────────────
 
 MESSAGES: dict[str, MessageEntry] = {

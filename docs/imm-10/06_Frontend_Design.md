@@ -151,7 +151,7 @@ KPI cards (refer §I.5 của `02_Analysis_Design.md`):
 
 ## VII. Design system
 
-Tuân thủ `docs/res/design-frontend.md` — typography / spacing / color token dùng chung. KHÔNG đặt color hex cứng trong component IMM-10.
+Tuân thủ `docs/res/design/design-frontend.md` — typography / spacing / color token dùng chung. KHÔNG đặt color hex cứng trong component IMM-10.
 
 Severity color mapping (đề xuất):
 - Low: gray-500

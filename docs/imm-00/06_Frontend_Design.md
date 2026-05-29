@@ -541,7 +541,7 @@ async function fetchList(params: { page?, page_size?, status?, severity?, asset?
 
 ## IV.5. Helper constants export
 
-> **Note (2026-05-19):** Các hằng số liên quan trạng thái sử dụng GMDN (cũ) đã bị loại bỏ. Bộ lọc GMDN trên AssetListView nay dựng động từ `refData.categories` (distinct `gmdn_code` + `gmdn_term`). Xem [analysis §6](../res/gmdn-asset-category-analysis.md).
+> **Note (2026-05-19):** Các hằng số liên quan trạng thái sử dụng GMDN (cũ) đã bị loại bỏ. Bộ lọc GMDN trên AssetListView nay dựng động từ `refData.categories` (distinct `gmdn_code` + `gmdn_term`). Xem [analysis §6](../res/analysis/gmdn-asset-category-analysis.md).
 
 ---
 

@@ -76,7 +76,7 @@ Theo cảnh báo gap-audit iter-1 và quy tắc skill §3 ("Không đụng" — 
 ## 2026-05-11 Alignment Pass (Sprint 6 DoD)
 - BE: 3-tier compliance verified; endpoints align with docs/05_API_Specification.md
 - FE: store + views + routes + sidebar entry wired
-- Tests: see docs/res/dod-verification-report.md §1 for per-module results
+- Tests: see docs/res/reports/dod-verification-report.md §1 for per-module results
 - Status: READY
 
 ## 2026-05-14 Deep Sync Pass (resolve all flagged items)

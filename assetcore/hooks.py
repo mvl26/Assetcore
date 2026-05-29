@@ -338,7 +338,7 @@ scheduler_events = {
 # ──────────────────────────────────────────────
 # AUTH-01: Vendor Engineer (KTV NCC) scope at BE detail/API.
 # AUTH-10: IDOR — direct URL access to specific record enforces same scope as list.
-# See `assetcore/permissions.py` docstring + `docs/res/user-scope-filter-analysis.md` §3.
+# See `assetcore/permissions.py` docstring + `docs/res/rbac/user-scope-filter-analysis.md` §3.
 permission_query_conditions = {
     "AC Asset": "assetcore.permissions.ac_asset_query",
     "Incident Report": "assetcore.permissions.incident_report_query",

@@ -132,7 +132,7 @@ Lưu ảnh tại `docs/imm-04/screenshots/`:
 
 #### 3.1. Dashboard (`/imm-04/dashboard`)
 
-> Bám `docs/res/design-frontend.md §3.1`.
+> Bám `docs/res/design/design-frontend.md §3.1`.
 
 **KPI cards:**
 | KPI | API field | Click action |

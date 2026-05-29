@@ -10,7 +10,7 @@ from __future__ import annotations
 import frappe
 
 # Map DocType -> domain word (hoac _shared / _audit)
-# Nguon: docs/res/role-redesign-module-based.md §5
+# Nguon: docs/res/rbac/role-redesign-module-based.md §5
 _DOMAIN_DOCTYPES: dict[str, list[str]] = {
     "Data": ["AC Asset Category", "AC Department", "AC Location", "AC Supplier",
         "AC UOM", "AC UOM Conversion", "IMM Device Model", "IMM Device Spare Part",

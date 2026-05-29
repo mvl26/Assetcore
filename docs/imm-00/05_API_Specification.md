@@ -234,7 +234,7 @@ URL pattern: `POST|GET /api/method/assetcore.api.imm00.<function>`
 | `gmdn_code` | str | **Lọc thiết bị theo mã GMDN** (kế thừa từ Asset Category). Dùng cho recall/FSCA, KPI per-GMDN |
 | `search` | str | Tìm theo `asset_name`, `asset_code`, `manufacturer_sn`, **`gmdn_code`** (LIKE substring) |
 
-> **Note (2026-05-19):** Tham số lọc theo trạng thái sử dụng GMDN (cũ) đã bị loại bỏ cùng field tương ứng. Trục lọc/quản lý thiết bị nay là `gmdn_code`. Tham chiếu: [docs/res/gmdn-asset-category-analysis.md](../res/gmdn-asset-category-analysis.md) §6.
+> **Note (2026-05-19):** Tham số lọc theo trạng thái sử dụng GMDN (cũ) đã bị loại bỏ cùng field tương ứng. Trục lọc/quản lý thiết bị nay là `gmdn_code`. Tham chiếu: [docs/res/analysis/gmdn-asset-category-analysis.md](../res/analysis/gmdn-asset-category-analysis.md) §6.
 
 ---
 
@@ -665,7 +665,7 @@ POST `assetcore.api.imm00.delete_incident`. Body: `{ "name": "IR-..." }`.
 
 ## III.10. (Đã loại bỏ — GMDN Status)
 
-> **Note (2026-05-19):** Nhóm endpoint quản lý trạng thái sử dụng GMDN (cũ) đã bị loại bỏ cùng field tương ứng trên `AC Asset`. Quản lý thiết bị nay theo `gmdn_code`. Lọc thiết bị qua `list_assets?gmdn_code=...`. Tham chiếu: [docs/res/gmdn-asset-category-analysis.md](../res/gmdn-asset-category-analysis.md) §6.
+> **Note (2026-05-19):** Nhóm endpoint quản lý trạng thái sử dụng GMDN (cũ) đã bị loại bỏ cùng field tương ứng trên `AC Asset`. Quản lý thiết bị nay theo `gmdn_code`. Lọc thiết bị qua `list_assets?gmdn_code=...`. Tham chiếu: [docs/res/analysis/gmdn-asset-category-analysis.md](../res/analysis/gmdn-asset-category-analysis.md) §6.
 
 ---
 

@@ -497,7 +497,7 @@ stateDiagram-v2
 | Auto-fill | Khi chọn asset, hệ thống điền sẵn department, location |
 | Cảnh báo trực quan | Banner đỏ khi severity = Critical; tooltip giải thích chronic_failure_flag |
 | Ngôn ngữ | Tiếng Việt cho user nghiệp vụ; tiếng Anh cho field kỹ thuật (fault_code) |
-| Tham chiếu design | `docs/res/design-frontend.md` |
+| Tham chiếu design | `docs/res/design/design-frontend.md` |
 
 ## V.6. Bảo trì (Maintainability)
 

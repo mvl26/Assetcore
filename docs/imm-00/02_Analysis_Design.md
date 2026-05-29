@@ -387,7 +387,7 @@ HTTP Request / Frappe Scheduler
 
 ## IV.6. (Đã loại bỏ — Nhóm quản lý trạng thái sử dụng GMDN)
 
-> **Note (2026-05-19):** Nhóm FR-00-38 → FR-00-42 (quản lý trạng thái sử dụng GMDN trên từng Asset) đã bị loại bỏ. Trạng thái sử dụng thiết bị đã được bao trùm bởi `lifecycle_status`; trục lọc/quản lý nhóm thiết bị nay là `gmdn_code` (kế thừa từ Asset Category). Field tương ứng trên `AC Asset` đã drop qua patch `v3_1/008`. Tham chiếu: [docs/res/gmdn-asset-category-analysis.md](../res/gmdn-asset-category-analysis.md) §6.
+> **Note (2026-05-19):** Nhóm FR-00-38 → FR-00-42 (quản lý trạng thái sử dụng GMDN trên từng Asset) đã bị loại bỏ. Trạng thái sử dụng thiết bị đã được bao trùm bởi `lifecycle_status`; trục lọc/quản lý nhóm thiết bị nay là `gmdn_code` (kế thừa từ Asset Category). Field tương ứng trên `AC Asset` đã drop qua patch `v3_1/008`. Tham chiếu: [docs/res/analysis/gmdn-asset-category-analysis.md](../res/analysis/gmdn-asset-category-analysis.md) §6.
 
 ## IV.7. Nhóm GMDN Code Hierarchy (FR-00-43 → FR-00-46)
 
@@ -450,7 +450,7 @@ HTTP Request / Frappe Scheduler
 | BR-00-09 | CAPA quá due_date → auto Overdue qua daily scheduler | `check_capa_overdue()` | Internal |
 | BR-00-10 | Mọi thay đổi lifecycle_status → sinh 1 Asset Lifecycle Event | `transition_asset_status()` | Audit trail |
 | ~~BR-00-11~~ | *(Đã loại bỏ 2026-05-19 — trạng thái sử dụng GMDN bỏ; bao trùm bởi `lifecycle_status`)* | — | — |
-| ~~BR-00-12~~ | *(Đã loại bỏ 2026-05-19 — xem [analysis §6](../res/gmdn-asset-category-analysis.md))* | — | — |
+| ~~BR-00-12~~ | *(Đã loại bỏ 2026-05-19 — xem [analysis §6](../res/analysis/gmdn-asset-category-analysis.md))* | — | — |
 | BR-00-13 | `gmdn_code` + `gmdn_term` là thuộc tính cấp danh mục. `AC Asset Category` là nguồn kế thừa cấp 1. `IMM Device Model` kế thừa tự động khi tạo mới nếu trống. `AC Asset` kế thừa từ `device_model` tại `before_insert`. Kế thừa một chiều: **Category → Model → Asset**. | `IMMDeviceModel.before_insert()` → `_inherit_pm_calibration_defaults()`; `ACAsset.before_insert()` → `_inherit_gmdn_from_device_model()` | Internal |
 | BR-00-14 | Override GMDN được phép tại **cả 3 cấp** (Category, Device Model, Asset) — kế thừa chỉ xảy ra một lần tại `before_insert` nếu field đang trống; nhập tay sau đó không bị ghi đè. | `before_insert` chỉ điền khi trống | Internal |
 | BR-INV-01→08 | Inventory rules: stock không âm, audit trail per movement, etc. | `services/inventory.py` | Internal |

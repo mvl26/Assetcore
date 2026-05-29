@@ -56,7 +56,7 @@
 
 **Reference:**
 - Giai đoạn 1: [plans/2026-05-20-notification-error-standardization.md](./2026-05-20-notification-error-standardization.md)
-- Framework gốc Miyano: [docs/res/miyano_error_framework.md](../miyano_error_framework.md) §2.1–2.3
+- Framework gốc Miyano: [docs/res/frameworks/miyano-error-framework.md](../frameworks/miyano-error-framework.md) §2.1–2.3
 - Frappe v15 DocType patterns: `assetcore/assetcore/doctype/ac_user_profile/` (audit trail pattern); `assetcore/services/imm00.py` (Redis cache pattern).
 
 ---
@@ -120,7 +120,7 @@
 ### Docs (sync)
 
 - `docs/imm-00/04_Backend_Design.md` — section "Notification Registry" với CRUD pattern.
-- `docs/res/usage-guide.md` — guide cho BA: cách edit message qua admin UI, preview, rollback.
+- `docs/res/guides/usage-guide.md` — guide cho BA: cách edit message qua admin UI, preview, rollback.
 - `CLAUDE.md` §15 — update note: messages giờ live trong DocType, code-first chỉ là fallback.
 
 ---
@@ -218,7 +218,7 @@
 
 **Files:**
 - Modify: `assetcore/fixtures/role.json` (hoặc nơi định nghĩa roles)
-- Modify: `docs/res/role-redesign-module-based.md` — note role mới
+- Modify: `docs/res/rbac/role-redesign-module-based.md` — note role mới
 
 - [ ] **Step 1**: Tạo role `IMM Content Manager` (chỉ edit content, không sửa logic/schema).
 - [ ] **Step 2**: Gán DocPerm tới `Notification Template` (xem Task 1.1 step 5).

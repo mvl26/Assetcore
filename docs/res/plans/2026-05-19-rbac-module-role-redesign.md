@@ -8,7 +8,7 @@
 
 **Tech Stack:** Frappe v15 (Python), MariaDB, Vue 3 + TS + Pinia + Vue Router, pytest (`bench run-tests`).
 
-**Spec nguồn:** `docs/res/role-redesign-module-based.md`
+**Spec nguồn:** `docs/res/rbac/role-redesign-module-based.md`
 
 ---
 
@@ -253,7 +253,7 @@ from __future__ import annotations
 import frappe
 
 # Map DocType -> domain word (hoac _shared / _audit)
-# Nguon: docs/res/role-redesign-module-based.md §5
+# Nguon: docs/res/rbac/role-redesign-module-based.md §5
 _DOMAIN_DOCTYPES: dict[str, list[str]] = {
     "Data": ["AC Asset Category", "AC Department", "AC Location", "AC Supplier",
         "AC UOM", "AC UOM Conversion", "IMM Device Model", "IMM Device Spare Part",

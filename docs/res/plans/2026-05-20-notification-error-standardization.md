@@ -37,7 +37,7 @@
 **Tech Stack:** Frappe v15 (Python 3.11), MariaDB, Vue 3 + TypeScript + Pinia, axios, TailwindCSS.
 
 **Reference:**
-- Framework gốc (Miyano): [docs/res/miyano_error_framework.md](../miyano_error_framework.md)
+- Framework gốc (Miyano): [docs/res/frameworks/miyano-error-framework.md](../frameworks/miyano-error-framework.md)
 - Phân tích gap: phiên hội thoại 2026-05-20 (lưu trong memory `notification_framework_analysis`).
 - BE hiện tại: `assetcore/utils/response.py`, `assetcore/utils/helpers.py`, `assetcore/services/shared/errors.py`, `assetcore/services/shared/constants.py`.
 - FE hiện tại: `frontend/src/api/errors.ts`, `frontend/src/api/axios.ts`, `frontend/src/composables/useToast.ts`, `frontend/src/App.vue`.
@@ -81,7 +81,7 @@
 
 ### Docs (sync)
 
-- `docs/res/miyano_error_framework.md` — thêm note "AssetCore adaptation — see plans/2026-05-20".
+- `docs/res/frameworks/miyano-error-framework.md` — thêm note "AssetCore adaptation — see plans/2026-05-20".
 - `CLAUDE.md` §15 (Code Style) — thêm rule: "Không gọi `frappe.throw` / `frappe.msgprint` / `toast.error('literal')` — dùng `nthrow(MSG.XXX)` hoặc `notify.show({code})`".
 - `docs/imm-00/04_Backend_Design.md` (và tương đương các module) — sync code pattern mới.
 
@@ -616,7 +616,7 @@ def nthrow_in_hook(message_code, **ctx):
 - **Bắt buộc**: BE dùng `nthrow(MSG.XXX, **ctx)`; KHÔNG dùng `frappe.throw()` bare.
 - **Bắt buộc**: FE dùng `notify.show({code: MSG.XXX, ctx})` hoặc `notify.fromError(e)`; KHÔNG dùng `toast.error('literal string')`.
 - Thêm mã mới: sửa `utils/messages.py` → `npm run gen:messages` → commit cả 2 file.
-- Quy chuẩn ngôn ngữ: §5 docs/res/miyano_error_framework.md.
+- Quy chuẩn ngôn ngữ: §5 docs/res/frameworks/miyano-error-framework.md.
 ```
 
 - [ ] **Step 2**: Update sample pattern trong mỗi `docs/imm-XX/04_Backend_Design.md`.
