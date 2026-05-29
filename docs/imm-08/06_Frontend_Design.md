@@ -316,6 +316,31 @@ async function onSubmitResult() {
 | result: Fail–Major | Lỗi nghiêm trọng | "Fail-Major" |
 | Submit PM | Hoàn thành / Nộp kết quả | "Submit" |
 
+### 7.c.bis Reconcile với mockup `docs/fe/08-pm/` (BE = source of truth)
+
+> Mockup HTML trong `docs/fe/08-pm/` dùng nhãn marketing (**Scheduled, Assigned**)
+> KHÔNG khớp `PMStatus` enum thật trong `services/imm08.py`. **BE thắng.**
+> FE PHẢI map theo BE enum, KHÔNG copy nhãn mockup làm `value`.
+
+| Mockup label | PMStatus thật (BE) | Nhãn VI render |
+|---|---|---|
+| "Scheduled" / "Đã phân công" | `Open` (+ `assigned_to` != null) | Chờ thực hiện / Đã phân công |
+| "Assigned" | KHÔNG tồn tại state riêng → vẫn `Open` | — |
+| "In Progress" / "Đang thực hiện" | `In Progress` | Đang thực hiện |
+| "Overdue" | `Overdue` (hoặc `is_late=true`) | Quá hạn |
+| "Completed" / "Hoàn tất" | `Completed` | Hoàn thành |
+| "Pending Device Busy" | `Pending–Device Busy` | Chờ — Thiết bị bận |
+| "Halted" / "Major Failure → CM" | `Halted–Major Failure` | Dừng — Lỗi nghiêm trọng |
+
+**Workflow button → state matrix (PM Detail):** nút chỉ hiện khi state khớp.
+
+| State hiện tại | Nút khả dụng | API |
+|---|---|---|
+| `Open` (chưa assign) | Phân công KTV | `assignTechnician` |
+| `Open` (đã assign) / `In Progress` | Lưu tiến độ · Hoàn tất PM · Báo lỗi nghiêm trọng → CM · Tạm dừng (thiết bị bận) | `submitPMResult` / `reportMajorFailure` / `reschedulePM` |
+| `Overdue` | giống `Open` + cảnh báo escalate | — |
+| `Completed` / `Halted–Major Failure` / `Cancelled` | (terminal — không nút action) | — |
+
 ### 7d. Linked / Cascade fields
 
 **Cascade PM Work Order Detail:**
