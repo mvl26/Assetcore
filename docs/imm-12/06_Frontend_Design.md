@@ -23,6 +23,7 @@ Routes and component names are based on **actual Vue files** in `frontend/src/vi
 | `/incidents/list` | `views/incident/IncidentListView.vue` | Any | ✅ Live |
 | `/incidents/new` | `views/incident/IncidentCreateView.vue` | Reporting User, Workshop Lead | ✅ Live |
 | `/incidents/:id` | `views/incident/IncidentDetailView.vue` | Any (actions per role) | ✅ Live |
+| `/rca` | `views/incident/RCAListView.vue` | Workshop Lead, QA Officer, Compliance Manager | 🆕 3b (mockup `docs/fe/12-incident/rca-list.html`) |
 | `/rca/:id` | `views/incident/RCADetailView.vue` | Workshop Lead, QA Officer | ✅ Live |
 | `/capa` | `views/incident/CAPAListView.vue` | Any | ✅ Live |
 | `/capa/:id` | `views/incident/CAPADetailView.vue` | Any (close: QA Officer only) | ✅ Live |
@@ -54,14 +55,35 @@ Routes and component names are based on **actual Vue files** in `frontend/src/vi
 │  IR Code         Asset               Severity   Status   Aged   │
 │  ─────────────────────────────────────────────────────────────  │
 │  IR-2026-0042   Máy thở Drager E.  🔴 Critical  In Prog  3h    │
-│  IR-2026-0041   Siêu âm GE Vivid   🟠 Major     Open     1h    │
-│  IR-2026-0040   ECG cấp cứu        🟡 Minor     Resolved  1d   │
+│  IR-2026-0041   Siêu âm GE Vivid   🟠 High      Open     1h    │
+│  IR-2026-0040   ECG cấp cứu        🟡 Medium    Resolved  1d   │
 │  ─────────────────────────────────────────────────────────────  │
 │  67 records                                  [← 1 2 3 4 →]     │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 **API:** `list_incidents` · **State:** `useImm12Store.incidents` · **Filter defaults:** `status in [Open, Acknowledged, In Progress]` (actual states từ `services/imm12.py`: Open / Acknowledged / In Progress / Resolved / RCA Required / Closed / Cancelled)
+
+#### 2.1.a Workflow stepper + action buttons (D3 — SINGLE SOURCE cho FE)
+
+State machine BE thật (khớp `imm_12_incident_workflow.json` + `_VALID_TRANSITIONS`). Stepper detail render 6 node tuyến chính; `RCA Required` là nhánh; `Cancelled` là terminal phụ.
+
+`Open → Acknowledged → In Progress → Resolved → Closed` (+ `Resolved → RCA Required → Closed`)
+
+| Status hiện tại | Nút hiển thị (label VN) | Action API | Transition | Role allowed |
+|---|---|---|---|---|
+| Open | "Tiếp nhận" | `acknowledge_incident` | Open → **Acknowledged** | Corrective Manager |
+| Open | "Hủy sự cố" | `cancel_incident` | Open → Cancelled | System Manager |
+| Acknowledged | "Bắt đầu xử lý" | `start_work` | Acknowledged → **In Progress** | Corrective User |
+| Acknowledged | "Hủy sự cố" | `cancel_incident` | Acknowledged → Cancelled | System Manager |
+| In Progress | "Đánh dấu đã giải quyết" | `resolve_incident` | In Progress → Resolved | Corrective User |
+| In Progress | "Hủy sự cố" | `cancel_incident` | In Progress → Cancelled | System Manager |
+| Resolved | "Yêu cầu RCA" | `create_rca` | Resolved → RCA Required | Compliance Manager |
+| Resolved | "Đóng sự cố" | `close_incident` | Resolved → Closed | System Manager / Workshop Lead / QA Officer |
+| RCA Required | "Mở RCA" (link) → đóng sau khi RCA Completed | `close_incident` (gated BR-12-02) | RCA Required → Closed | System Manager |
+
+> **D3 chốt (Self-Correction BE):** `acknowledge_incident()` PHẢI set `Open → Acknowledged` (KHÔNG nhảy thẳng In Progress). Thêm action `start_work()` cho `Acknowledged → In Progress`. FE stepper align mô hình 2 bước này. Đây là root-cause fix, KHÔNG vá ở FE.
+> BR-12-02: High/Critical hoặc Chronic → nút "Đóng sự cố" ở RCA Required bị block đến khi RCA `Completed`.
 
 ### 2.2 New Incident Form (`/incidents/list/new`)
 
@@ -75,7 +97,8 @@ Routes and component names are based on **actual Vue files** in `frontend/src/vi
 │                                                                  │
 │  Section 2: Mô tả sự cố                                         │
 │  Mã lỗi *            [Select fault_code ▼]                      │
-│  Mức độ *            ◉ Minor   ○ Major   ○ Critical             │
+│  Mức độ *            ◉ Thấp  ○ TB  ○ Cao  ○ Nghiêm trọng        │
+│  (value enum BE: Low / Medium / High / Critical — KHÔNG Minor/Major) │
 │  Mô tả sự cố *       [Textarea 5 rows]                          │
 │  Workaround?         ☑ Đã chuyển bệnh nhân sang thiết bị khác  │
 │  Ảnh đính kèm        [Upload — drag & drop]                     │

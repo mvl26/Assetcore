@@ -167,6 +167,28 @@ Routes and component names are based on **actual Vue files** in `frontend/src/vi
 
 **Columns:** Mã phiếu · Thiết bị (tên + mã) · Loại · Trạng thái badge · KTV · Hạn · Kết quả
 
+#### 3.3. Detail (`/calibration/:id`) — Workflow stepper + action buttons (SINGLE SOURCE cho FE)
+
+State machine BE thật (khớp `imm_11_calibration_workflow.json`). 8 state:
+`Scheduled / In Progress / Sent to Lab / Certificate Received / Passed / Failed / Conditionally Passed / Cancelled`. KHÔNG có state "Submitted" (mockup HTML cũ sai — bỏ).
+
+Hai luồng: **In-House** (`Scheduled → In Progress → Passed/Failed/Conditionally Passed`) và **External/Lab** (`Scheduled → Sent to Lab → Certificate Received → Passed/Failed/Conditionally Passed` qua phê duyệt).
+
+| Status hiện tại | Nút hiển thị (label VN) | Action API | Transition | Role allowed |
+|---|---|---|---|---|
+| Scheduled | "Bắt đầu hiệu chuẩn" | `submit_calibration`/update | Scheduled → In Progress | Calibration User |
+| Scheduled | "Gửi phòng hiệu chuẩn" | `send_to_lab` | Scheduled → Sent to Lab | Calibration User |
+| Scheduled | "Hủy lịch" | `cancel_calibration` | Scheduled → Cancelled | System Manager |
+| In Progress | "Đạt" | `submit_calibration(result=Passed)` | In Progress → Passed | Calibration User |
+| In Progress | "Không đạt → sinh CAPA" | `submit_calibration(result=Failed)` | In Progress → Failed | Calibration User |
+| In Progress | "Đạt có điều kiện" | `submit_calibration(result=Conditionally Passed)` | In Progress → Conditionally Passed | Calibration User |
+| In Progress | "Hủy hiệu chuẩn" | `cancel_calibration` | In Progress → Cancelled | System Manager |
+| Sent to Lab | "Nhận chứng chỉ" | `receive_certificate` | Sent to Lab → Certificate Received | Calibration User |
+| Certificate Received | "Phê duyệt đạt / không đạt / có điều kiện" | (workflow approve) | Certificate Received → Passed/Failed/Conditionally Passed | System Manager |
+| Failed | "CAPA hoàn tất → chuyển có điều kiện" | (workflow) | Failed → Conditionally Passed | Compliance Manager / System Manager |
+
+> BR-11-02: `Failed` → tự sinh CM Work Order (IMM-09) + lookback. Nút "Không đạt" phải cảnh báo trước khi commit.
+
 ---
 
 ## 4. Component custom của module

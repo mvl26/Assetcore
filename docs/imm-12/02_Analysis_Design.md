@@ -58,9 +58,11 @@ IMM-12 giải quyết vấn đề sự cố thiết bị y tế không được 
 
 **In-scope:**
 - Tiếp nhận Incident Report từ user / tự động từ IMM-08/09/11
-- Phân loại severity Minor / Major / Critical
-- Workflow Incident: Draft → Open → Acknowledged → In Progress → Resolved → Closed (+ nhánh RCA Required)
-- RCA Record (5-Why / Fishbone) bắt buộc với Major/Critical/Chronic
+- Phân loại severity Low / Medium / High / Critical (theo enum BE `Incident Report.severity`; KHÔNG dùng "Minor/Major")
+- Workflow Incident (state machine BE — 7 state, khớp `imm_12_incident_workflow.json` + `_VALID_TRANSITIONS`):
+  `Open → Acknowledged → In Progress → Resolved → Closed` (+ nhánh `Resolved → RCA Required → Closed`, + `Cancelled` từ Open/Acknowledged/In Progress)
+  - **D3 chốt:** `Acknowledged` là state có thật & reachable. `Open → Acknowledged` ("Tiếp nhận" — Corrective Manager) tách khỏi `Acknowledged → In Progress` ("Bắt đầu xử lý" — Corrective User). Triage/phân công ≠ bắt đầu xử lý (đúng WHO CMMS work-request intake).
+- RCA Record (5-Why / Fishbone) bắt buộc với High/Critical/Chronic
 - CAPA tự động từ RCA Completed (gọi `imm00.create_capa()`)
 - Phát hiện chronic failure (≥3 incidents cùng fault_code/90 ngày) — Scheduler daily
 - Audit trail mọi state transition qua `imm00.log_audit_event()`
@@ -183,7 +185,7 @@ flowchart TD
 | Điểm | Câu hỏi | Quy tắc |
 |---|---|---|
 | Severity = Critical? | Có tự động OOS không? | BR-12-04: Critical → `transition_asset_status("Out of Service")` |
-| RCA cần không? | Severity Major/Critical hoặc chronic? | BR-12-02: Major/Critical → RCA bắt buộc trước Close |
+| RCA cần không? | Severity High/Critical hoặc chronic? | BR-12-02: High/Critical → RCA bắt buộc trước Close |
 | Chronic failure? | ≥3 incidents cùng fault_code/asset/90 ngày? | BR-12-03: auto RCA + flag |
 | Close CAPA? | root_cause + corrective + preventive đủ? | BR-00-08 (IMM-00): block nếu thiếu |
 
@@ -194,7 +196,7 @@ Tham chiếu: WHO CMMS §"Performance indicators" (chương Reporting/RCA).
 | Metric | Định nghĩa | Đo ở bước | Target |
 |---|---|---|---|
 | Lead time tiếp nhận | report → Acknowledged | UC-02 Acknowledge | < 30 phút (giờ làm việc) |
-| Lead time xử lý | Acknowledged → Resolved | UC-03 Resolve | Tuỳ severity (Critical < 4h, Major < 24h) |
+| Lead time xử lý | In Progress → Resolved | UC-03 Resolve | Tuỳ severity (Critical < 4h, High < 24h) |
 | Lead time RCA | RCA Required → Completed | UC-05 Submit RCA | ≤ 14 ngày (Major), ≤ 7 ngày (Critical) |
 | CAPA cycle time | CAPA Open → Closed | UC-06 Close CAPA | ≤ 30 ngày (target ISO 13485) |
 | % chronic detection chính xác | Alert đúng / tổng alert scheduler | Scheduler daily | ≥ 80% (review feedback) |
