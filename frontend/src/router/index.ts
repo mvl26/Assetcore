@@ -68,23 +68,22 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true, title: 'Hồ sơ của tôi — AssetCore' },
   },
   {
+    path: '/settings/notifications',
+    name: 'NotificationSettings',
+    component: () => import('@/views/settings/NotificationSettingsView.vue'),
+    meta: { requiresAuth: true, title: 'Cài đặt thông báo — AssetCore' },
+  },
+  {
     path: '/unauthorized',
     name: 'Unauthorized',
     component: () => import('@/views/auth/UnauthorizedView.vue'),
     meta: { requiresAuth: false, title: 'Không đủ quyền — AssetCore' },
   },
-  { path: '/', redirect: '/launcher' },
-  {
-    path: '/launcher',
-    name: 'Launcher',
-    component: () => import('@/views/modules/LauncherView.vue'),
-    meta: { requiresAuth: true, title: 'AssetCore', fullscreen: true },
-  },
-  {
-    // Back-compat — trang module cũ giờ chuyển hướng tới launcher
-    path: '/modules',
-    redirect: '/launcher',
-  },
+  // Điều hướng chính = sidebar persona-scoped. `/` và `/modules` (back-compat
+  // cho launcher cũ đã gỡ) đều về dashboard persona.
+  { path: '/', redirect: '/dashboard' },
+  { path: '/launcher', redirect: '/dashboard' },
+  { path: '/modules', redirect: '/dashboard' },
   {
     path: '/dashboard',
     name: 'Dashboard',
