@@ -310,6 +310,41 @@ class TestPersonaDashboard(unittest.TestCase):
             self.assertIn("tone", k)
             self.assertIn(k["tone"], valid_tones)
 
+    def test_d_be_7_none_persona_no_type_error(self):
+        """LL-BE-1: persona=None (param vắng/null từ query) KHÔNG được raise
+        FrappeTypeError → HTTP 417. Phải trả payload rỗng an toàn như Core Doc
+        FE_Persona_Dashboards.md §3 ('KHÔNG raise — FE shell tối thiểu').
+
+        Gọi QUA wrapper validate_argument_types(apply_condition=True) để mô phỏng
+        đúng request-context — đây chính là layer raise 417 mà gọi Python trực
+        tiếp KHÔNG chạm tới.
+        """
+        from frappe.utils.typing_validations import validate_argument_types
+        from assetcore.api.dashboard import get_persona_dashboard
+
+        wrapped = validate_argument_types(
+            get_persona_dashboard, apply_condition=lambda: True
+        )
+        # persona=None: trước fix → FrappeTypeError (HTTP 417). Sau fix → safe empty.
+        resp = wrapped(persona=None)
+        self.assertTrue(resp.get("success"), f"endpoint failed: {resp}")
+        self.assertEqual(resp["data"]["kpis"], [])
+        self.assertEqual(resp["data"]["sections"], {})
+
+    def test_d_be_8_missing_persona_arg_no_type_error(self):
+        """LL-BE-1 (biến thể): gọi KHÔNG truyền persona qua request-wrapper →
+        default kick-in, không raise."""
+        from frappe.utils.typing_validations import validate_argument_types
+        from assetcore.api.dashboard import get_persona_dashboard
+
+        wrapped = validate_argument_types(
+            get_persona_dashboard, apply_condition=lambda: True
+        )
+        resp = wrapped()
+        self.assertTrue(resp.get("success"), f"endpoint failed: {resp}")
+        self.assertEqual(resp["data"]["kpis"], [])
+        self.assertEqual(resp["data"]["sections"], {})
+
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

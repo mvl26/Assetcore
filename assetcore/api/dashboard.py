@@ -642,11 +642,15 @@ _PERSONA_BUILDERS = {
 
 
 @frappe.whitelist()
-def get_persona_dashboard(persona: str = "") -> dict:
+def get_persona_dashboard(persona: str | None = None) -> dict:
     """GET /api/method/assetcore.api.dashboard.get_persona_dashboard?persona=<code>
 
     Trả layout + data theo persona (Core Doc FE_Persona_Dashboards.md §3-§5).
     Persona không hợp lệ → payload rỗng an toàn (KHÔNG raise).
+
+    LL-BE-1: type-hint là `str | None` (không `str = ""`) để Frappe v15
+    `validate_argument_types` KHÔNG raise FrappeTypeError → HTTP 417 khi
+    query param vắng/null (`persona=None`). Body normalize None → "" an toàn.
     """
     try:
         persona = (persona or "").strip().lower()
