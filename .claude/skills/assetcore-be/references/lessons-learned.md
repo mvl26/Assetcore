@@ -1,4 +1,4 @@
-# assetcore-be — Lessons Learned (LL-BE-1..18)
+# assetcore-be — Lessons Learned (LL-BE-1..27)
 
 > Bug patterns production đã gặp — **always-apply rules**, KHÔNG phải tham khảo tùy chọn.
 > `SKILL.md` trỏ tới file này; ĐỌC TRƯỚC khi viết/sửa service · API · DocType · workflow.
@@ -341,7 +341,7 @@ Root cause: `log_audit_event()` / `log_lifecycle_event()` nhận message dạng 
    # mỗi match là 1 bug tiềm năng — phải localize qua *_VI dict
    ```
 
-5. Cross-reference: §27, FE LL-FE-21.
+5. Cross-reference: §27, FE LL-FE-30.
 
 ### LL-BE-15: Test fixture "shared reuse" pattern KHÔNG bypass Frappe rollback — sẽ leak
 
@@ -763,3 +763,62 @@ Reference: `CONVENTIONS.md §41`, `assetcore-audit` Pillar 8 Security.
 5. **Trace check**: với mọi field downstream service đọc (vd `services/imm05.py:generate_depreciation_schedule` đọc `asset.depreciation_method`), trace ngược nơi field được set. Nếu không có default + không required → bug tái xuất.
 
 Reference: `CONVENTIONS.md §44`, `docs/res/reports/AssetCore_Test_Plan_NextRound_1_Analysis.md` §3 RC-02.
+
+### LL-BE-26: State machine — MỌI state khai báo phải REACHABLE (2026-05-29)
+
+**Bug đã gặp 2026-05-29 (IMM-12):** `acknowledge_incident()` transition thẳng `Open → In Progress`, nhưng workflow JSON có khai báo state `Acknowledged` ở giữa. Hệ quả: state `Acknowledged` **không bao giờ tới được** → FE stepper có node chết, nút "Bắt đầu xử lý" không có chỗ render. Khác LL-FE-1/5/10 (FE map thiếu state) — đây là **bug ở chính đồ thị transition BE**: một transition nhảy qua state đã khai báo.
+
+**Quy tắc:**
+
+1. Khi định nghĩa `_VALID_TRANSITIONS` / workflow JSON, mỗi state (trừ initial) PHẢI có ít nhất 1 transition TỚI nó, và mỗi state (trừ terminal) PHẢI có ít nhất 1 transition RỜI nó. Không "đảo state" bằng cách nhảy qua.
+
+2. Nếu nghiệp vụ thực sự cần 2 bước (vd Open → Acknowledged → In Progress), tách thành 2 service function riêng (`acknowledge` rồi `start_work`), KHÔNG gộp 1 hàm nhảy 2 cấp.
+
+3. **Self-check reachability** (chạy sau khi sửa transition graph):
+   ```python
+   # bench execute hoặc test: BFS từ initial state qua _VALID_TRANSITIONS
+   declared = set(STATES)                      # mọi state khai báo
+   reachable = set()
+   frontier = {INITIAL_STATE}
+   while frontier:
+       reachable |= frontier
+       frontier = {t for s in frontier for t in _VALID_TRANSITIONS.get(s, [])} - reachable
+   orphan = declared - reachable - {INITIAL_STATE}
+   assert not orphan, f"State không reachable: {orphan}"
+   ```
+
+4. **Test bắt buộc**: traverse full lifecycle qua service layer — assert vào được mọi non-terminal state. Cross-ref: `assetcore-fe` LL-FE-1/5/10 (FE map phải khớp graph này).
+
+Reference: `services/imm12.py:_VALID_TRANSITIONS` (acknowledge + start_work), `assetcore-fe` LL-FE-1.
+
+### LL-BE-27: Maintenance/cleanup script — execution & immutable-audit (2026-05-29)
+
+**2 bug đã gặp 2026-05-29 khi dọn dữ liệu eval:**
+
+#### Bug 1: `bench --site console < file.py` KHÔNG chạy reliably
+
+Pipe file Python vào `bench console` chỉ echo source theo dòng ipython, KHÔNG đảm bảo gọi hàm/`run()` ở cuối, output không capture sạch để parse.
+
+```bash
+# ❌ KHÔNG tin được cho script mutation / cần đọc kết quả
+bench --site miyano console < cleanup.py
+
+# ✅ ĐÚNG — đặt function trong module thật rồi execute
+#   tạo tạm assetcore/scripts/_tmp_cleanup.py với def run(): ...
+bench --site miyano execute assetcore.scripts._tmp_cleanup.run
+#   rm file tạm sau khi xong — KHÔNG commit script _tmp_*
+```
+Cross-ref LL-BE-16 (verify code active bằng `bench execute`).
+
+#### Bug 2: Audit/lifecycle docs KHÔNG xoá được kể cả `force=True`
+
+`Asset Lifecycle Event` (và các audit doc) có `on_trash` guard raise "cannot be deleted" — đúng thiết kế chống tamper audit trail (CLAUDE.md §10/§12, LL-BE-14/19). `frappe.delete_doc(..., force=True)` VẪN chạy `on_trash` → ValidationError, và nếu nằm giữa loop sẽ rollback cả batch.
+
+**Quy tắc cho cleanup script:**
+
+1. KHÔNG cố xoá audit/lifecycle event để "khôi phục trạng thái". Audit là bất biến — giữ nguyên làm lịch sử.
+2. "Restore" trạng thái asset bằng `frappe.db.set_value(...)` (vd `lifecycle_status` về giá trị trước), GIỮ event audit.
+3. Xoá record giao dịch (Incident/RCA/WO eval) trước; nếu loop có cả audit doc → tách riêng, đừng để 1 ValidationError rollback toàn bộ.
+4. Mọi cleanup chạm dữ liệu thật = HARD-STOP xin phép user trước (xem `assetcore-test` R-8, `assetcore-deploy`).
+
+Reference: LL-BE-14, LL-BE-19, `assetcore-test` R-8/R-9.

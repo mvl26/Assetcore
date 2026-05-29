@@ -261,6 +261,29 @@ Bug 2026-05-27: trong lúc cleanup 13:55, test chạy parallel tạo data mới 
 - [ ] Scheduler tạm pause: `bench --site <site> disable-scheduler`
 - [ ] Sau cleanup: `enable-scheduler` + `set-maintenance-mode off`
 
+### R-11: Screenshot/artifact Playwright PHẢI vào `.playwright-mcp/` — KHÔNG để gốc repo
+
+**Bug đã gặp 2026-05-29:** bước [User] eval lưu screenshot ra **gốc repo** với tên tuỳ ý (`3a-imm08-pm-dashboard.png`, `dashboard-admin.png`, ...) → 21 file PNG rải khắp root, lẫn vào `git status`, suýt commit nhầm.
+
+**Quy tắc:**
+
+1. **Mọi** `browser_take_screenshot` (và artifact eval khác) PHẢI ghi vào `.playwright-mcp/` — thư mục này **đã gitignore** (`.gitignore` có dòng `.playwright-mcp/`). Dùng subfolder theo phiên/phase cho gọn:
+   ```
+   .playwright-mcp/eval/<phase>-<module>-<screen>.png
+   # vd: .playwright-mcp/eval/3a-imm08-pm-dashboard.png
+   ```
+   Khi gọi tool, set `filename` = đường dẫn tuyệt đối dưới `.playwright-mcp/eval/`. KHÔNG để mặc định rơi ra cwd (gốc repo).
+
+2. **TUYỆT ĐỐI KHÔNG** lưu `.png`/`.jpg`/artifact eval ra gốc repo hay trong `frontend/`, `assetcore/`. Screenshot là bằng chứng tạm, không phải source → không bao giờ commit.
+
+3. **Self-check cuối mỗi session eval** (phải rỗng):
+   ```bash
+   git status --porcelain --untracked-files=all | grep -iE '\.(png|jpg|jpeg|webp)$'
+   # Có output → đã rơi artifact ra ngoài .playwright-mcp/ → mv vào .playwright-mcp/eval/
+   ```
+
+4. Báo cáo eval **tham chiếu đường dẫn** screenshot dưới `.playwright-mcp/eval/`, không attach/đính kèm ra ngoài.
+
 ---
 
 ## Phần 1 — Backend Tests (Python/Frappe)
@@ -408,6 +431,35 @@ def run() -> None:
 ### Coverage targets
 Priority: Validators → Service entrypoints → Permission gates → Status transitions.
 Skip: trivial getters, Frappe internals, DocType property accessors.
+
+---
+
+## Phần 1.5 — Frontend Unit Tests (vitest)
+
+> Harness FE thêm 2026-05-29 (phase persona-redesign). Trước đó dự án CHƯA có FE test runner — nay TDD cho logic FE thuần (constants, mapping, composable, component nhỏ) chạy được không cần browser.
+
+### Chạy
+```bash
+cd frontend
+npm run test          # chạy 1 lần (vitest run)
+npm run test:watch    # watch mode khi dev
+npm run typecheck     # vue-tsc --noEmit — bắt type drift
+```
+Config: `frontend/vitest.config.ts` (env jsdom, `@vitejs/plugin-vue` để mount SFC).
+
+### Quy tắc
+1. **Test colocate** cạnh file: `personas.ts` → `personas.test.ts`, `WorkflowStepper.vue` → `WorkflowStepper.test.ts`.
+2. **TDD cho logic FE thuần** — viết test TRƯỚC khi code:
+   - mapping/label dict (status/enum/persona) → test khớp với constant BE (chống LL-FE-3/8/21/30 enum-sync, EN-leak).
+   - regression guard cho bug enum đã fix (vd `repairPriority.test.ts` chốt `Normal|Urgent|Emergency`, chống tái xuất Critical/High/Medium/Low).
+   - composable/derive function (vd `derivePersonas`, `resolveCurrentPersona`).
+   - component nhỏ render theo props (KpiCard, WorkflowStepper) — mount + assert text.
+3. **vitest KHÔNG thay Playwright** — full user journey + workflow buttons + permission gate vẫn test ở Phần 2.
+4. **DoD FE**: `npm run test` + `npm run typecheck` + `npm run build` đều exit 0 TRƯỚC khi mark Done (cùng với Playwright eval). Lint: 0 lỗi MỚI (lỗi pre-existing repo-wide không tính).
+
+### Anti-pattern
+- Mark FE Done chỉ vì build pass mà bỏ vitest cho logic mới → bug enum/mapping lọt (đã gặp nhiều lần — xem LL-FE-3/8/30).
+- Test mapping bằng cách hardcode lại dict trong test (tautology) → phải assert giá trị khớp **nguồn BE thật** (enum DocType / `rbac.CAPABILITY_MAP`).
 
 ---
 

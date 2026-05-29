@@ -413,7 +413,9 @@ Bug: 2026-05-16 IMM-15 stock-movement detail line "Thành tiền" hiển thị "
 
 3. Self-check: footer total ≠ 0 nhưng row "—" → bug (data có nhưng FE không render)
 
-### LL-FE-21: `STATUS_MAP` + `STATUS_COLOR` ở `utils/formatters.ts` là single source of truth
+### LL-FE-30: `STATUS_MAP` + `STATUS_COLOR` ở `utils/formatters.ts` là single source of truth
+
+> (Trước đây đánh số trùng LL-FE-21 — đổi thành LL-FE-30 để hết va số; entry LL-FE-21 chính thức là "Sidebar/module-context detection" bên dưới.)
 
 Bug session 2026-05-26: FE hiển thị "Locked", "Evaluated", "Contract Signed" English vì 11 workflow states Wave-2 KHÔNG có entry trong `STATUS_MAP`. `StatusBadge.vue` fallback `STATUS_MAP[status] ?? status` → English literal.
 
@@ -440,7 +442,7 @@ Bug session 2026-05-26: FE hiển thị "Locked", "Evaluated", "Contract Signed"
 
 4. Cross-reference: `wave2Labels.ts:stateLabel()` ĐÃ có labels nhưng `StatusBadge.vue` dùng `formatters.ts:translateStatus()` → CHỌN MỘT map. Hiện `formatters.ts` là canonical.
 
-### LL-FE-22: BE thêm Link field mới → FE detail/list PHẢI render `_name` companion
+### LL-FE-31: BE thêm Link field mới → FE detail/list PHẢI render `_name` companion
 
 Bug session 2026-05-26: BE commit 83884c8 wire `linked_incident` / `source_type` / `source_ref` cho `IMM CAPA Record`, nhưng FE `CAPADetailView.vue` chỉ render `finding_ref` cũ → linked incident invisible.
 
@@ -465,7 +467,7 @@ Bug session 2026-05-26: BE commit 83884c8 wire `linked_incident` / `source_type`
    ```
 3. Cross-check: sau BE merge, grep FE detail view có reference đến field mới không. Nếu không → gap, mở FE follow-up.
 
-### LL-FE-23: Cell `'—'` khi data có nghĩa null vs khi data CÓ nhưng FE không render
+### LL-FE-32: Cell `'—'` khi data có nghĩa null vs khi data CÓ nhưng FE không render
 
 Bug session 2026-05-26: IMM-03 Decisions list cột "Đơn hàng đã mint" hiển thị `AC-PUR-2026-00011` (raw code). BE enrich `ac_purchase_ref_name` nhưng FE template không dùng → user thấy code, không thấy tên.
 
@@ -481,7 +483,7 @@ Bug session 2026-05-26: IMM-03 Decisions list cột "Đơn hàng đã mint" hi�
 
 Khi `_name` là `null` (field display ở DB chưa populate), fallback về `d.ac_purchase_ref` (doc name) là ACCEPTABLE — user vẫn thấy identifier. Backfill data quality là backlog, không phải FE bug.
 
-### LL-FE-24: Vue `(x as any)` cast pattern khi BE enrich field chưa có trong TS type
+### LL-FE-33: Vue `(x as any)` cast pattern khi BE enrich field chưa có trong TS type
 
 Tạm thời (trước khi update type): dùng `(x as any).foo_name || x.foo`. Đừng cast cả `(x as any)` cho thân lớn — chỉ inline để type-check không fail.
 
