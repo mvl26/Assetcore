@@ -39,6 +39,16 @@ description: >
 6. **Chỉ commit khi user yêu cầu** — không tự commit sau khi sửa code.
    Khi user đã yêu cầu commit → tự động chia nhỏ + push, không hỏi lại.
 
+7. **Isolation khi working tree có WIP của effort/session KHÁC** — chỉ stage
+   ĐÚNG file của việc mình đang commit bằng đường dẫn TƯỜNG MINH; TUYỆT ĐỐI
+   không `git add -A`/`git add .`/`git add -u`. Sau khi commit, VERIFY commit
+   không lẫn file lạ:
+   ```bash
+   git show --stat --oneline HEAD | grep -iE '<từ khoá vùng cấm>' && echo LEAK || echo clean
+   ```
+   (Bài học 2026-05-29: một session "notification framework" chạy song song ghi
+   ~50 file vào cùng working tree; commit lẫn file của nó = phá việc người khác.)
+
 ---
 
 ## Quy trình bắt buộc

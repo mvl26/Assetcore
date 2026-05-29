@@ -758,3 +758,33 @@ Reference: `CONVENTIONS.md §42`, `assetcore-be` LL-BE-23 (hook chain), `assetco
 6. **Document scope trong page header**: list page có filter scope → render `<PageHeader subtitle="Hiển thị: Của tôi" />` để user thấy ngay phạm vi đang xem.
 
 Reference: `CONVENTIONS.md §43`, `assetcore-fe` LL-FE-17 (KPI consistency — bổ trợ).
+
+### LL-FE-34: KPI/tile clickable PHẢI có đích lọc THẬT — nếu không thì render TĨNH (2026-05-29)
+
+**Bug đã gặp 2026-05-29 (IMM-05 document KPI):** tile "Thiết bị thiếu hồ sơ" được làm clickable → `router.push('/assets?filter=missing-docs')`, nhưng `/assets` **KHÔNG handle** query `filter=missing-docs` → điều hướng tới list hiển thị **toàn bộ asset** (không lọc) → user tưởng đang xem "thiếu hồ sơ" nhưng thấy tất cả. **Đổi một dead-end ("đang phát triển" toast) lấy một điều hướng SAI LỆCH — còn tệ hơn** (LL-FE-17/29: KPI count ≠ list count).
+
+**Quy tắc:**
+
+1. Một KPI/tile chỉ được clickable khi có **đích lọc THẬT đã verify**: route + filter mà list đích thực sự áp dụng, count khớp KPI. Verify bằng grep route đích có đọc `route.query.<param>` không:
+   ```bash
+   grep -rn "route.query.<param>\|<param>=" frontend/src/views/<đích>/*ListView.vue
+   # rỗng = đích CHƯA lọc → KHÔNG được làm clickable
+   ```
+2. **Không có đích lọc thật → render TĨNH** (informational): cờ `clickable: false` + `hint` mô tả "chỉ tiêu thống kê", KHÔNG `@click`, KHÔNG cursor pointer. Tách data-driven:
+   ```ts
+   // KPI_FILTERS: mỗi tile có clickable + hint; tile không có buildFilter thật → clickable:false
+   { kind: 'missing', label: 'Thiết bị thiếu hồ sơ', clickable: false,
+     hint: 'Số thiết bị chưa có hồ sơ — chỉ tiêu thống kê (lọc chi tiết bổ sung sau)' }
+   ```
+   ```vue
+   <template v-for="t in tiles" :key="t.kind">
+     <button v-if="t.clickable" @click="filterByKpi(t.kind)"><KpiCard .../></button>
+     <div v-else class="kpi-static" :title="t.hint"><KpiCard .../></div>
+   </template>
+   ```
+3. **Guard hàm filter**: `if (buildKpiFilter(kind) === null) return` — không điều hướng khi không có filter thật.
+4. Self-check: mỗi tile/widget clickable → click thử, list đích PHẢI đổi đúng + count khớp. Không khớp/không đổi = bug → chuyển tĩnh hoặc làm đích lọc thật.
+
+**Verify-before-fix (cross-ref LL-BE-29):** đừng "fix" dead-end bằng cách điều hướng đại tới route chưa lọc — verify đích có lọc thật trước.
+
+Reference: `views/document/{DocumentManagement.vue,documentFilters.ts}`, LL-FE-13 (no dead-end), LL-FE-17/29 (KPI consistency/scope).
