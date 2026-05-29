@@ -1,501 +1,433 @@
-# IMM-12 — Kiểm thử & An ninh (Testing, QA & Security)
+# 07 — Kiểm thử & An ninh (Testing & QA & Security)
 
 | Mục | Giá trị |
 |---|---|
-| Module | **IMM-12 — Sự cố & CAPA (Incident & Corrective Action)** |
-| Phiên bản | 1.2.0 |
-| Ngày cập nhật | 2026-05-18 |
-| Owner | QA Lead + Tech Lead |
-| Trạng thái | 🟡 BE/FE LIVE — `services/imm12.py`, `api/imm12.py` (14 endpoint), DocType `IMM RCA Record` đã có. Test cốt lõi tại `assetcore/tests/test_imm12.py` ✅. UAT/E2E/Pentest pending. |
-| Liên kết | [Module Overview](./IMM-12_Module_Overview.md) · [Functional Specs](./IMM-12_Functional_Specs.md) · [UAT Script](./IMM-12_UAT_Script.md) |
+| Module | IMM-12 — Sự cố (Incident / RCA / CAPA) |
+| Phạm vi | Per-module |
+| Owner | QA Lead + Security Officer |
+| Liên kết | 02 Analysis (US, BR, Activity, BPMN) · 03 Diagrams · 04 Backend · 05 API · 06 Frontend |
+
+> **Mục đích**: Suy ra test case **có hệ thống** từ phân tích (file 02) bằng kỹ thuật black-box + white-box, không liệt kê tự phát. Bao gồm: phân tích đối tượng test → chọn kỹ thuật → viết test → traceability → UAT → security → code quality. Phần này là gate go-live.
+
+> **Trạng thái module**: BE/FE LIVE. `services/imm12.py` (12 public functions), `api/imm12.py` (14 endpoint), DocType `Incident Report` + `IMM RCA Record` + `IMM CAPA Record` + child `IMM RCA Five Why Step` / `IMM RCA Related Incident` / `IMM CAPA Action Step` đã có. Test cốt lõi tại `assetcore/tests/test_imm12.py` (4 test class ✅ Live). UAT/E2E/Pentest còn pending.
 
 ---
 
-# Phần I — Test Plan
+# Phần I — Test Analysis (Phân tích đối tượng test)
 
-## I.1. Test Pyramid
+> Mục tiêu Phần I: trả lời 4 câu hỏi trước khi viết test case: **(1) test cái gì** (component inventory) **(2) suy ra từ đâu** (US/BR/Activity) **(3) ưu tiên cái nào** (risk) **(4) loại trừ cái nào** (out-of-scope).
+
+## I.1. Component Inventory — Liệt kê phần mềm cần test
+
+Toàn bộ artefact test được của IMM-12. Mỗi dòng → ≥ 1 test class ở Phần III.
+
+| # | Component | Loại | File / Tên | Test layer áp dụng |
+|---|---|---|---|---|
+| 1 | `Incident Report` | DocType (submittable) | `incident_report/incident_report.json` | Integration (lifecycle) |
+| 2 | `IMM RCA Record` | DocType (submittable) | `imm_rca_record/imm_rca_record.json` | Integration (lifecycle) |
+| 3 | `IMM CAPA Record` | DocType (submittable, IMM-00) | `imm_capa_record/imm_capa_record.json` | Integration (lifecycle) |
+| 4 | Incident workflow | Workflow | `workflow/imm_12_incident_workflow.json` (10 transition) | Integration (state transition) |
+| 5 | RCA workflow | Workflow | `workflow/imm_12_rca_workflow.json` (4 transition) | Integration (state transition) |
+| 6 | `report_incident()` | Service function | `services/imm12.py::report_incident` | Unit + API |
+| 7 | `acknowledge_incident()` | Service function | `services/imm12.py::acknowledge_incident` | Unit + API |
+| 8 | `resolve_incident()` | Service function | `services/imm12.py::resolve_incident` | Unit + API |
+| 9 | `close_incident()` | Service function | `services/imm12.py::close_incident` | Unit + API |
+| 10 | `cancel_incident()` | Service function | `services/imm12.py::cancel_incident` | Unit + API |
+| 11 | `create_rca()` | Service function | `services/imm12.py::create_rca` | Unit + API |
+| 12 | `submit_rca()` | Service function | `services/imm12.py::submit_rca` | Unit + API |
+| 13 | `on_rca_completed()` / `_advance_incident_after_rca()` | Service (RCA→CAPA chain) | `services/imm12.py::on_rca_completed` | Integration (audit chain) |
+| 14 | `detect_chronic_failures()` / `_process_chronic_group()` | Scheduler job | `services/imm12.py::detect_chronic_failures` | Unit + Cron simulation |
+| 15 | `validate_incident_close_gate()` | Validator (hook `validate`) | `services/imm12.py::validate_incident_close_gate` | Unit (Decision Table) |
+| 16 | `_map_severity()` / `_needs_rca()` | Pure helper | `services/imm12.py` | Unit (EP) |
+| 17 | `list_incidents` / `get_incident` / `get_incident_stats` / `get_dashboard` | Read service | `services/imm12.py` | API integration |
+| 18 | Lifecycle event qua `_log()` → `log_audit_event()` | Lifecycle event | `services/imm12.py::_log` | Integration (audit chain) |
+| 19 | Incident FE views | FE view | `frontend/src/views/incident/IncidentList/Create/Detail/RCADetail/CAPAList/CAPADetail/IMM12Dashboard.vue` | E2E (Playwright) |
+| 20 | Pinia store IMM-12 | Pinia store | `frontend/src/stores/imm12.ts` | Unit (vitest) |
+| 21 | API client | FE API | `frontend/src/api/imm12.ts` | E2E |
+
+> Severity canonical (DocType `Incident Report.severity`) = **Low / Medium / High / Critical**. Khi docs gọi "Major" hãy hiểu là "High" theo schema thực — service map qua `_map_severity()`.
+
+## I.2. Trace nguồn test — User Stories, Activity Flows, Business Rules
+
+Dẫn từ artefact phân tích (file 02) sang test layer. Mọi US/BR/Activity phải có ≥ 1 test ở Phần III và xuất hiện trong matrix Phần IV.
+
+### I.2.a. Từ User Story (→ 02 §IV.1)
+| US ID | Tiêu đề ngắn | Acceptance Criteria # | Test layer dự kiến |
+|---|---|---|---|
+| US-12-01 | Reporting User báo cáo sự cố Critical | AC-01 (Critical→OOS), AC-02 (thiếu clinical_impact→block) | Unit + API + UAT |
+| US-12-02 | Phát hiện sự cố mãn tính (chronic) | AC-01 (≥3/90d→auto RCA), AC-02 (idempotent) | Unit + Cron + UAT |
+
+### I.2.b. Từ Business Rule (→ 02 §IV.2)
+| BR ID | Phát biểu | Component liên quan (I.1) | Kỹ thuật test phù hợp |
+|---|---|---|---|
+| BR-12-01 | Critical → bắt buộc `clinical_impact` | `report_incident()` | EP + Error guessing |
+| BR-12-02 | High/Critical → RCA `Completed` trước Close | `close_incident()` / `validate_incident_close_gate()` | Decision Table |
+| BR-12-03 | ≥3 incident cùng `fault_code`/asset/90d → auto RCA + flag | `detect_chronic_failures()` | BVA (ngưỡng 3) + Use Case |
+| BR-12-04 | Critical → auto OOS (report); High → auto OOS (acknowledge) | `report_incident()` / `acknowledge_incident()` | Decision Table |
+| BR-12-05 | Mọi transition → `log_audit_event()` (SHA-256 chain) | `_log()` | Use Case (audit chain) |
+| BR-12-06 | Submit RCA → auto `create_capa()` + ghi `linked_capa` | `submit_rca()` | Use Case |
+| BR-12-07 | RCA `root_cause` + `rca_method` ∈ {5-Why, Fishbone, Both} bắt buộc | `submit_rca()` | EP + Error guessing |
+| BR-00-08 | CAPA root_cause + corrective + preventive bắt buộc trước Submit | `IMM CAPA Record.before_submit()` (IMM-00) | Decision Table |
+| BR-00-09 | CAPA quá `due_date` → auto Overdue | `check_capa_overdue()` (IMM-00) | Use Case (cron) |
+
+### I.2.c. Từ Activity Flow / Exception (→ 02 §II.8, §IV.5)
+| Exception/Edge ID | Use Case | Branch chính | Branch ngoại lệ |
+|---|---|---|---|
+| EX-12-01 | UC-01 Submit Critical | Submit có clinical_impact | Thiếu clinical_impact → VALIDATION |
+| EX-12-03 | UC-04/05 RCA | High/Critical close sau RCA Completed | Close trực tiếp không RCA → BUSINESS_RULE |
+| EX-12-04 | UC-08 Scheduler | Tạo RCA chronic mới | Đã có RCA mở → skip (idempotent) |
+| EX-12-05 | UC-09 Auto OOS | Asset Active → OOS | Asset đã OOS/Decommissioned → skip, vẫn audit |
+| EX-12-06 | UC-06 Close CAPA | Đủ 3 field → close | Thiếu field → VALIDATION (BR-00-08) |
+
+## I.3. Risk-based Priority
+
+| Component (I.1) | Likelihood (1-5) | Impact (1-5) | Risk = L×I | Priority |
+|---|---|---|---|---|
+| `validate_incident_close_gate()` (BR-12-02 RCA gate) | 3 | 5 | 15 | **Critical** |
+| `report_incident()` Critical → OOS (BR-12-04) | 3 | 5 | 15 | **Critical** |
+| `_log()` audit chain integrity (BR-12-05) | 2 | 5 | 10 | **High** |
+| `submit_rca()` → CAPA chain (BR-12-06) | 3 | 4 | 12 | **High** |
+| `detect_chronic_failures()` idempotency (BR-12-03) | 3 | 4 | 12 | **High** |
+| Incident workflow transitions (10) | 3 | 4 | 12 | **High** |
+| `report_incident()` clinical_impact (BR-12-01) | 4 | 3 | 12 | **High** |
+| DocPerm matrix Incident/RCA/CAPA | 2 | 5 | 10 | **High** |
+| `_map_severity()` / `_needs_rca()` | 2 | 3 | 6 | Medium |
+| Read endpoints (`list_incidents`, `get_dashboard`) | 3 | 2 | 6 | Medium |
+| FE dashboard render | 2 | 2 | 4 | Low |
+
+**Quy ước priority**: Critical (R ≥ 15) test trước, fail = block release · High (10 ≤ R < 15) bắt buộc trước go-live · Medium (5 ≤ R < 10) trong sprint · Low (R < 5) chỉ khi báo bug.
+
+## I.4. Scope
+
+**In-scope:**
+- Service layer (`services/imm12.py`): report/acknowledge/resolve/close/cancel + create/submit RCA + detect chronic + close gate.
+- Workflow state machine (14 transition: 10 Incident + 4 RCA).
+- Audit chain integrity (BR-12-05) + RCA→CAPA chain (BR-12-06).
+- API envelope + permission (14 endpoint).
+- DocPerm matrix + vendor/role isolation (Phần VI).
+
+**Out-of-scope:**
+- Performance/load test → giao Phần III.8 (target xác định, chưa chạy thực).
+- E2E browser → Phần III.7, chạy sau khi FE views ổn định trên staging.
+- Cross-module IMM-15 (Vigilance reporting BYT) → chỉ smoke; thuộc module khác.
+- SMS/email notification delivery → integration test riêng.
+
+**Assumptions:** Master data (`AC Asset`, fault code) đã seed; tester accounts đã tạo trên UAT site; IMM-00 (`log_audit_event`, `create_capa`, CAPA gate) đã LIVE; browser Chrome/Edge ≥ 120.
+
+---
+
+# Phần II — Test Design Techniques (Kỹ thuật thiết kế test case)
+
+> Mỗi test phải truy được về 1 kỹ thuật ở dưới.
+
+## II.1. Black-box techniques
+
+| Kỹ thuật | Khi nào dùng | Áp dụng vào IMM-12 | Số test sinh ra |
+|---|---|---|---|
+| **Equivalence Partitioning (EP)** | Input có miền chia nhóm tương đương | `severity` (Low/Medium/High/Critical), `incident_type`, `rca_method`, `status` enum | 1 test/partition |
+| **Boundary Value Analysis (BVA)** | Numeric / date / length có biên | Ngưỡng chronic = 3 incident / 90 ngày (2 vs 3 vs 4); `clinical_impact` length | 2-3 test/biên |
+| **Decision Table** | Multi-condition gate | `validate_incident_close_gate()` (severity × RCA status × CAPA status); BR-12-04 (severity × asset status) | 2^N rút gọn |
+| **State Transition Testing** | Workflow finite state machine | `imm_12_incident_workflow.json` + `imm_12_rca_workflow.json` | Mỗi transition + invalid |
+| **Use Case Testing** | End-to-end actor flow | UAT scenarios, RCA→CAPA chain, chronic detection | 1/main + 1/alt + 1/exception |
+| **Error Guessing** | Lỗi kinh nghiệm: null, asset Decommissioned, double-acknowledge | `report_incident`, `acknowledge_incident` idempotency (EC-12-03) | Bổ sung |
+
+## II.2. White-box techniques
+
+| Kỹ thuật | Áp dụng vào | Tiêu chí đạt | Công cụ |
+|---|---|---|---|
+| **Statement coverage** | Service functions I.1 (#6-16) | ≥ 85% line | `coverage report` |
+| **Branch / Decision coverage** | `resolve_incident` (Minor vs High/Critical branch), `_needs_rca`, `_process_chronic_group` | ≥ 80% branch | `coverage --branch` |
+| **Condition / MC/DC** | `validate_incident_close_gate()` (RCA gate multi-AND) | Mỗi sub-condition kiểm soát outcome độc lập | Manual + coverage |
+| **Path coverage** | `_advance_incident_after_rca()` (guard chuỗi RCA→CAPA→advance) | Toàn bộ path (RCA chưa Completed / đã Completed / CAPA tồn tại) | Manual |
+
+## II.3. Mapping Component → Kỹ thuật
+
+| Loại component | Kỹ thuật chính | Kỹ thuật phụ |
+|---|---|---|
+| `validate_incident_close_gate()` (gate) | Decision Table | MC/DC |
+| `_map_severity()` / `_needs_rca()` | EP | BVA |
+| Workflow transition (Incident + RCA) | State Transition | Use Case |
+| `report_incident` / `resolve_incident` / `submit_rca` | EP + Branch coverage | BVA, Error guessing |
+| `detect_chronic_failures()` (scheduler) | Use Case (setup → run → assert) | BVA (ngưỡng 3), Error guessing (idempotent) |
+| API endpoint (14) | Use Case + EP | Pairwise (form input) |
+| FE view (Playwright) | Use Case end-to-end | Error guessing (network 4xx/5xx, role gate) |
+
+---
+
+# Phần III — Test Plan (Kế hoạch thực thi)
+
+## III.1. Test Pyramid
 
 ```
                   ┌────────────┐
-                  │  E2E / UAT │  ← Playwright; bắt buộc 2 Golden Scenarios
+                  │  E2E / UAT │   ~5%  (Playwright; 2 Golden Scenarios)
                  ─┴────────────┴─
               ┌──────────────────────┐
-              │   API Integration    │  ← pytest + Frappe whitelist
+              │   API Integration    │   ~15% (14 endpoint)
              ─┴──────────────────────┴─
           ┌────────────────────────────────┐
-          │  Workflow + DocType lifecycle  │  ← pytest FrappeTestCase
+          │  Workflow + DocType lifecycle  │   ~25% (14 transition)
          ─┴────────────────────────────────┴─
       ┌────────────────────────────────────────────┐
-      │         Unit — Service Layer               │  ← TDD; bulk ở đây
+      │         Unit — Service Layer               │   ~55%
      ─┴────────────────────────────────────────────┴─
 ```
 
-## I.2. Unit Test — Service Layer
+CLAUDE.md §17 (TDD mandatory).
 
-> **Trạng thái thực tế:** test code đã có tại `assetcore/tests/test_imm12.py` ✅. Classes thực tế: `TestIncidentCreation` (4 tests), `TestIncidentWorkflow`, `TestIncidentCancellation`. Service `services/imm12.py` đã implement (700 dòng). Các test class bên dưới phản ánh coverage mong muốn đầy đủ.
+## III.2. Unit test — Service Layer
 
-**File:** `assetcore/tests/test_imm12.py`
+**File:** `assetcore/tests/test_imm12.py`. Test class đã tồn tại được đánh dấu ✅ Live; coverage mở rộng = ⬜ Planned.
 
-| Test class | Hàm cover | Cases dự kiến |
-|---|---|---|
-| `TestReportIncident` | `report_incident()` | happy(Minor), happy(Critical → OOS + audit), fail(no asset), fail(Decommissioned asset) |
-| `TestClinicalImpact` | `report_incident()` + `VR-12-02` | Critical no clinical_impact → raise; Critical with impact → pass |
-| `TestAcknowledge` | `acknowledge_incident()` | happy, fail(not Open/New status), fail(wrong role) |
-| `TestResolve` | `resolve_incident()` | happy(Minor → no RCA), happy(Major → RCA triggered), happy(Critical → RCA triggered) |
-| `TestTriggerRCA` | `trigger_rca_if_required()` | Major → RCA created, Minor → no RCA, Chronic flag → RCA created |
-| `TestRCAGate` | close incident (VR-12-03) | Major with RCA Completed → pass; Major with RCA In Progress → raise |
-| `TestCAPAGate` | close incident (VR-12-04) | Critical with CAPA Closed → pass; Critical with CAPA Open → raise |
-| `TestChronicDetect` | `detect_chronic_failures()` | 3 incidents same fault_code / 90d → RCA + chronic flag; 2 incidents → no RCA; idempotent (existing RCA open → no duplicate) |
-| `TestSubmitRCA` | `submit_rca_and_create_capa()` | happy path, fail(root_cause empty), fail(rca_method invalid) |
-| `TestAuditEveryTransition` | All `imm12.*` | Every state change calls `log_audit_event()` |
-| `TestCriticalOOS` | `report_incident()` BR-12-04 | Critical submit → `transition_asset_status(→ Out of Service)` called |
+| Test class | Function cover | Kỹ thuật | Cases (happy/negative) | Trạng thái |
+|---|---|---|---|---|
+| `TestIncidentCreation` | `report_incident()` | EP + Error guessing | 4 (test_create_medium_severity_incident, test_create_critical_with_clinical_impact_succeeds / test_nonexistent_asset_raises_error, test_critical_without_clinical_impact_raises_error) | ✅ Live |
+| `TestIncidentWorkflow` | report→acknowledge→resolve→close (`test_full_workflow_open_to_closed`) | State Transition | 1 happy end-to-end | ✅ Live |
+| `TestIncidentCancellation` | `cancel_incident()` (`test_cancel_from_open`) | State Transition | 1 happy | ✅ Live |
+| `TestRCAToCAPAAndIncidentChain` | `on_rca_completed()` / `_advance_incident_after_rca()` / `submit_rca()` | Use Case + Path coverage | 5 (test_rca_completed_creates_capa_and_advances_incident, test_capa_chain_idempotent_when_capa_exists / test_rca_no_incident_link_skips_silently, test_rca_invalid_incident_skips_silently, test_advance_skipped_when_not_in_rca_required) | ✅ Live |
+| `TestCloseGate` (đề xuất) | `validate_incident_close_gate()` BR-12-02 | Decision Table | High + RCA Completed→pass / High + RCA In Progress→raise | ⬜ Planned |
+| `TestChronicDetect` (đề xuất) | `detect_chronic_failures()` BR-12-03 | BVA + idempotency | 3 IR/90d→RCA / 2 IR→no RCA / RCA mở sẵn→no dup | ⬜ Planned |
+| `TestCriticalOOS` (đề xuất) | `report_incident()` BR-12-04 | Decision Table | Critical→asset OOS / asset đã OOS→skip+audit | ⬜ Planned |
+| `TestMapSeverity` (đề xuất) | `_map_severity()` / `_needs_rca()` | EP | Low/Medium→no RCA, High/Critical→RCA | ⬜ Planned |
 
-**Pattern seed (khi implement):**
-```python
-class TestReportIncident(FrappeTestCase):
-    def setUp(self):
-        self.asset = make_asset("ACC-ASSET-TEST-012-001",
-                                status="Active", risk_class="Class III")
+## III.3. Integration — DocType lifecycle
 
-    def test_critical_incident_sets_asset_oos(self):
-        # ⚠️ Pending — implement after services/imm12.py created
-        ir = report_incident(
-            asset=self.asset.name,
-            severity="Critical",
-            fault_code="VENT_ALARM_HIGH",
-            fault_description="Test",
-            clinical_impact="Test patient impact"
-        )
-        self.asset.reload()
-        self.assertEqual(self.asset.lifecycle_status, "Out of Service")
+**File:** `assetcore/tests/test_imm12.py` (`TestIncidentCreation`, `TestIncidentWorkflow` đã cover validate/submit lifecycle). Cover hook `validate` (`validate_incident_close_gate`).
 
-    def test_critical_no_clinical_impact_raises(self):
-        # ⚠️ Pending
-        with self.assertRaises(ServiceError) as ctx:
-            report_incident(
-                asset=self.asset.name,
-                severity="Critical",
-                fault_code="VENT_ALARM_HIGH",
-                fault_description="Test"
-                # no clinical_impact
-            )
-        self.assertEqual(ctx.exception.code, ErrorCode.VALIDATION)
-```
+| Test | Setup | Action | Assert | Kỹ thuật | Trạng thái |
+|---|---|---|---|---|---|
+| `test_critical_without_clinical_impact_raises_error` | Asset Active, severity=Critical, clinical_impact rỗng | `report_incident()` | raise (VALIDATION, BR-12-01) | EP | ✅ Live |
+| `test_create_critical_with_clinical_impact_succeeds` | Asset Active, Critical + clinical_impact | `report_incident()` | IR tạo OK | EP | ✅ Live |
+| `test_nonexistent_asset_raises_error` | Asset không tồn tại | `report_incident()` | raise | Error guessing | ✅ Live |
+| `test_critical_submit_sets_asset_oos` (đề xuất) | Asset Active, Critical | submit | `AC Asset.lifecycle_status = Out of Service` (BR-12-04) | Decision Table | ⬜ Planned |
+| `test_submit_rca_needs_root_cause` (đề xuất) | RCA In Progress, root_cause rỗng | `submit_rca()` | raise (BR-12-07) | Error guessing | ⬜ Planned |
 
-## I.3. Unit Test — Validators & Repository
+Fixture trong `setUp` phải có cleanup — xem `assetcore-test` LL-TEST-17.
 
-**File:** `assetcore/tests/test_imm12.py` (coverage mở rộng — một số validator chưa có test case riêng)
+## III.4. Integration — Workflow transitions
 
-| Validator | Happy | Fail |
-|---|---|---|
-| `VR-12-01: asset tồn tại và không Decommissioned` | Active asset → pass | Decommissioned asset → raise |
-| `VR-12-02: Critical bắt buộc clinical_impact` | Critical + clinical_impact filled → pass | Critical + empty → raise |
-| `VR-12-03: Block Close nếu RCA chưa Completed` | Major + RCA Completed → pass | Major + RCA In Progress → raise |
-| `VR-12-04: Block Close Critical nếu CAPA chưa Closed` | Critical + CAPA Closed → pass | Critical + CAPA Open → raise |
-| `VR-12-05: Thứ tự timestamp hợp lệ` | acknowledged_at < resolved_at → pass | resolved_at < acknowledged_at → raise |
-| `VR-12-06: RCA root_cause + rca_method bắt buộc` | Both filled + valid method → pass | Empty root_cause → raise; invalid method → raise |
-| `VR-12-07: CAPA fields bắt buộc` | All 3 filled → pass | Any empty → raise (BR-00-08, IMM-00) |
-| `IncidentRepo.list(filters)` | Trả list đúng phân trang | Filter invalid → empty |
-| `IncidentRepo.get(name)` | Trả doc đầy đủ + asset_info + linked RCA/CAPA | Không tồn tại → raise NOT_FOUND |
+**File:** `assetcore/tests/test_imm12.py`. **Bắt buộc** cover 14 transition (10 Incident + 4 RCA). Số liệu xác minh: `python3 -c "import json;print(len(json.load(open('assetcore/assetcore/workflow/imm_12_incident_workflow.json'))['transitions']))"` → 10; RCA → 4.
 
-## I.4. Integration Test — DocType Lifecycle
+### Incident workflow (`imm_12_incident_workflow.json`)
+| Transition (action) | From → To | Role required | Test pass | Test fail | Trạng thái |
+|---|---|---|---|---|---|
+| Tiếp nhận sự cố | Open → Acknowledged | Corrective Manager | ☑ | wrong role | ✅ (`test_full_workflow_open_to_closed`) |
+| Hủy sự cố | Open → Cancelled | System Manager | ☑ | — | ✅ (`test_cancel_from_open`) |
+| Bắt đầu xử lý | Acknowledged → In Progress | Corrective User | ☑ | — | ✅ |
+| Hủy sự cố | Acknowledged → Cancelled | System Manager | ☐ | — | ⬜ Planned |
+| Đánh dấu đã giải quyết | In Progress → Resolved | Corrective User | ☑ | — | ✅ |
+| Hủy sự cố | In Progress → Cancelled | System Manager | ☐ | — | ⬜ Planned |
+| Yêu cầu RCA | Resolved → RCA Required | Compliance Manager | ☐ | — | ⬜ Planned |
+| Đóng sự cố | Resolved → Closed | System Manager | ☑ | — | ✅ |
+| RCA hoàn tất - đóng sự cố | RCA Required → Closed | System Manager | ☐ | RCA In Progress → gate fail | ⬜ Planned |
+| Mở lại điều tra | Resolved → In Progress | System Manager | ☐ | — | ⬜ Planned |
 
-**File:** `assetcore/tests/test_imm12.py` (core tests đã có trong `TestIncidentCreation`, `TestIncidentWorkflow`, `TestIncidentCancellation`. Các test case chi tiết dưới đây là coverage mục tiêu đầy đủ.)
+### RCA workflow (`imm_12_rca_workflow.json`)
+| Transition (action) | From → To | Role required | Test pass | Trạng thái |
+|---|---|---|---|---|
+| Bắt đầu phân tích RCA | RCA Required → RCA In Progress | Corrective User | ☐ | ⬜ Planned |
+| Hủy RCA | RCA Required → Cancelled | System Manager | ☐ | ⬜ Planned |
+| Hoàn thành RCA | RCA In Progress → Completed | Corrective User | ☑ | ✅ (`test_rca_completed_creates_capa_and_advances_incident`) |
+| Hủy RCA | RCA In Progress → Cancelled | System Manager | ☐ | ⬜ Planned |
 
-| Test | Setup | Action | Assert |
-|---|---|---|---|
-| `test_critical_before_submit_needs_clinical_impact` | Asset Active, severity=Critical, clinical_impact=NULL | `doc.save()` | `ValidationError` VR-12-02 |
-| `test_critical_submit_sets_asset_oos` | Asset Active, severity=Critical, clinical_impact filled | `doc.save()` | `Asset.lifecycle_status = Out of Service` (BR-12-04) |
-| `test_major_resolve_triggers_rca` | IR Major status=In Progress | `resolve_incident(ir.name, ...)` | `RCA Record` created, `IR.status = RCA Required` |
-| `test_minor_resolve_no_rca` | IR Minor status=In Progress | `resolve_incident(ir.name, ...)` | No `RCA Record` created, `IR.status = Resolved` |
-| `test_close_major_blocked_rca_incomplete` | IR Major, RCA In Progress | `frappe.set_value(IR, status, Closed)` | `ValidationError` VR-12-03 |
-| `test_close_major_allowed_rca_completed` | IR Major, RCA Completed | Set status Closed | `IR.status = Closed` |
-| `test_audit_trail_on_acknowledge` | IR Open | `acknowledge_incident(ir.name, ...)` | `IMM Audit Trail` record with event_type `incident_acknowledged` |
-| `test_chronic_detection_idempotent` | 3 IDs same fault_code/90d, RCA already Open | `detect_chronic_failures()` | No duplicate RCA created |
+State Transition Testing — mỗi edge = 1 test pass + 1 test fail (sai role / gate fail).
 
-**File:** `assetcore/tests/test_imm12.py` (RCA Record tests — mở rộng từ existing test classes)
+## III.5. Integration — Audit chain integrity
 
-| Test | Setup | Action | Assert |
-|---|---|---|---|
-| `test_submit_rca_needs_root_cause` | RCA In Progress, root_cause=NULL | `doc.submit()` | `ValidationError` VR-12-06 |
-| `test_submit_rca_creates_capa` | RCA with all fields filled | `submit_rca_and_create_capa()` | `IMM CAPA Record` created |
-| `test_rca_method_must_be_valid` | rca_method = "RandomMethod" | `doc.submit()` | `ValidationError` VR-12-06 |
+2 test chính (BR-12-05):
+- (a) Sau N mutation (report → acknowledge → resolve → close), chain hash SHA-256 hợp lệ end-to-end — `verify_audit_chain(asset) == True`. ⬜ Planned.
+- (b) Khi 1 entry bị tamper (sửa `change_summary` / `hash_sha256` trực tiếp DB), verify endpoint trả `chain_broken=true`. ⬜ Planned.
 
-## I.5. Integration Test — Workflow Transitions
+→ 04 Backend §Audit Trail · DocType `IMM Audit Trail` (kế thừa IMM-00). Hook qua `_log()` → `imm00.log_audit_event()`; không bypass.
 
-**File:** `assetcore/tests/test_imm12.py` (workflow transition tests trong `TestIncidentWorkflow`)
+## III.6. API test
 
-Workflow `Incident Report` có 6 main states + RCA branch. Test mỗi transition:
+**File:** `assetcore/tests/test_imm12.py` (API layer — 14 endpoint LIVE). Cover: happy + envelope `success=true`, invalid params → `VALIDATION`, no permission → 403/`FORBIDDEN`, pagination, idempotent retry.
 
-| Transition | From → To | Role required | Test |
-|---|---|---|---|
-| Gửi báo cáo | Draft → Open | Reporting User | pass + fail(Decommissioned asset) |
-| Tiếp nhận | Open → Acknowledged | IMM Workshop Lead | pass + fail(wrong role) |
-| Phân công WO | Acknowledged → In Progress | IMM Workshop Lead | pass |
-| Resolve (Minor) | In Progress → Resolved | IMM Workshop Lead | pass + assert no RCA |
-| Resolve (Major/Critical) | In Progress → RCA Required | IMM Workshop Lead | pass + assert RCA created |
-| RCA Completed → Close | RCA Required → Closed | IMM Workshop Lead + QA | pass + fail(RCA still In Progress) |
-| Hủy (False Alarm) | New/Open → Cancelled | IMM Workshop Lead | pass + require cancel_reason |
+| Test | Endpoint | Verify | Kỹ thuật | Trạng thái |
+|---|---|---|---|---|
+| `test_list_default` | `api/imm12.list_incidents` | page=1, total ≥ 0, success=true | Use Case | ⬜ Planned |
+| `test_list_filter_severity` | `list_incidents?severity=Critical` | mọi row severity==Critical | EP | ⬜ Planned |
+| `test_get_existing` | `get_incident?name=IR-…` | success=true, fields + linked RCA/CAPA | Use Case | ⬜ Planned |
+| `test_get_not_found` | `get_incident?name=FAKE` | success=false / NOT_FOUND | Error guessing | ⬜ Planned |
+| `test_report_incident_happy` | `report_incident` (Medium) | success=true, IR name | Use Case | ⬜ Planned |
+| `test_report_critical_no_clinical_impact` | `report_incident` (Critical, no impact) | VALIDATION | EP | ⬜ Planned |
+| `test_report_no_permission` | `report_incident` (AssetCore System User) | FORBIDDEN / 403 | EP (permission partition) | ⬜ Planned |
+| `test_acknowledge_incident` | `acknowledge_incident` | status=Acknowledged, acknowledged_at set | Use Case | ⬜ Planned |
+| `test_resolve_high_triggers_rca` | `resolve_incident` (High) | RCA Required + RCA created | Use Case | ⬜ Planned |
+| `test_close_high_rca_incomplete` | `close_incident` (High, RCA In Progress) | BUSINESS_RULE (BR-12-02) | Decision Table | ⬜ Planned |
+| `test_submit_rca` | `submit_rca` (full fields) | success=true, CAPA created | Use Case | ⬜ Planned |
+| `test_get_chronic_failures` | `get_chronic_failures` | list chronic | Use Case | ⬜ Planned |
+| `test_get_dashboard` | `get_dashboard` | MTTA/MTTR/open/critical fields | Use Case | ⬜ Planned |
+| `test_get_incident_stats` | `get_incident_stats` | count theo status | Use Case | ⬜ Planned |
 
-## I.6. Integration Test — Audit Chain Integrity
+Toàn bộ 14 endpoint: `report_incident`, `cancel_incident`, `create_rca`, `get_rca`, `submit_rca`, `get_asset_incident_history`, `get_chronic_failures`, `get_dashboard`, `list_incidents`, `get_incident`, `acknowledge_incident`, `resolve_incident`, `close_incident`, `get_incident_stats`.
 
-**File:** `assetcore/tests/test_imm12.py` (audit integrity — coverage mục tiêu, reuse pattern từ IMM-09)
+## III.7. E2E browser (Playwright)
 
-```python
-def test_audit_chain_intact_after_incident_lifecycle():
-    # Tạo IR → Acknowledge → Assign WO → Resolve → RCA → CAPA → Close
-    # Sau mỗi bước, assert verify_audit_chain(asset) == True
+Dùng cho flow UI khó cover bằng API: dropdown asset cascade, severity → hiện `clinical_impact`, workflow button visibility theo role, RCA 5-Why table.
 
-def test_every_imm12_transition_creates_audit_entry():
-    # Mỗi lần gọi service imm12.*, assert có IMM Audit Trail entry mới
+**File (cần tạo):** `assetcore/tests/e2e/test_imm12_golden.py` — ⬜ Planned (sau khi FE views ổn định).
+- **Golden 1 — Minor lifecycle:** Reporting User báo IR Medium → Corrective Manager Acknowledge → link Repair WO → Resolve → Close trực tiếp (no RCA) → verify audit + ALE.
+- **Golden 2 — Critical + RCA + CAPA:** IR Critical → asset OOS auto → Acknowledge + phân công → Resolve → auto RCA → điền 5-Why → Submit RCA → CAPA auto-create → Compliance close CAPA → IR Closed.
 
-def test_audit_chain_breaks_on_tamper():
-    # Submit IR → Insert Audit Trail
-    # Sửa thẳng DB hash_sha256
-    # Assert verify_audit_chain() == False
-```
+→ `assetcore-test` skill Phần 2 (Playwright MCP recipes + R-1..R-9 data rules).
 
-## I.7. API Test
+## III.8. Performance test
 
-**File:** `assetcore/tests/test_imm12.py` (API layer — `api/imm12.py` đã LIVE với 14 endpoints. Test coverage mục tiêu:)
+⬜ Planned (target xác định, chưa chạy thực). Tool **k6** / `pytest-benchmark`.
 
-| Test | Endpoint | Verify |
-|---|---|---|
-| `test_list_default` | `list_incidents` | page=1, total ≥ 0, success=true |
-| `test_list_filter_severity` | `list_incidents?filters={"severity":"Critical"}` | Mọi row severity == Critical |
-| `test_get_existing` | `get_incident?name=IR-...` | `success=true`, fields đầy đủ kể cả linked RCA/CAPA |
-| `test_get_not_found` | `get_incident?name=FAKE` | `success=false`, `code=NOT_FOUND` |
-| `test_report_incident_happy` | `report_incident` (Minor) | `success=true`, IR name trả về |
-| `test_report_critical_no_clinical_impact` | Critical, no clinical_impact | `success=false`, `code=VALIDATION` |
-| `test_report_no_permission` | role=IMM QA Officer (no create) | HTTP 403 |
-| `test_acknowledge_incident` | `acknowledge_incident` | IR.status=Acknowledged, response_at set |
-| `test_resolve_major_triggers_rca` | `resolve_incident` (Major) | RCA Record created in response data |
-| `test_close_major_rca_incomplete` | `close_incident` (Major, RCA In Progress) | `code=VALIDATION` VR-12-03 |
-| `test_submit_rca` | `submit_rca` with full fields | `success=true`, CAPA created |
-| `test_detect_chronic` | `detect_chronic_failures` (manual trigger) | idempotent; RCA created when threshold met |
-| `test_get_incident_dashboard` | `get_incident_dashboard_kpis` | MTTA, MTTR, open count, critical count fields |
-
-## I.8. E2E Browser (Playwright)
-
-**File (cần tạo):** `assetcore/tests/e2e/test_imm12_golden.py`
-
-⚠️ Pending — viết sau khi Frontend views hoàn chỉnh.
-
-**Golden scenario 1 — Minor Incident Full Lifecycle:** Điều dưỡng báo cáo IR Minor → Workshop Lead Acknowledge → Link Repair WO → Resolve → Close trực tiếp (không cần RCA) → Verify audit trail + ALE.
-
-**Golden scenario 2 — Critical Incident + RCA + CAPA:** Báo cáo IR Critical → Verify Asset → OOS auto → Acknowledge + phân công KTV → Resolve → Auto RCA trigger → Workshop Lead điền RCA 5-Why → Submit RCA → CAPA auto create → QA Officer Close CAPA → Verify IR Closed.
-
-Chạy: `pytest assetcore/tests/e2e/ -m imm12 --headed` (staging only).
-
-## I.9. Performance Test
-
-⚠️ Pending — thiết lập sau khi API layer hoàn chỉnh.
-
-| Metric | Target | Phương pháp |
+| Metric | Target | Method |
 |---|---|---|
 | `list_incidents` p95 (500 IR) | ≤ 800 ms | k6 ramping 20 VU |
-| `report_incident` p95 | ≤ 1.5 s | k6 |
-| `get_incident_dashboard_kpis` p95 | ≤ 2 s | k6 |
-| Scheduler `detect_chronic_failures` (10k IR) | ≤ 60 s | bench execute + timer |
+| `report_incident` p95 | ≤ 1.5 s | k6 POST batch |
+| `get_dashboard` p95 | ≤ 2 s | k6 GET |
+| Scheduler `detect_chronic_failures` (10k IR) | ≤ 60 s | `time bench execute …` |
 | List view FE render (100 rows) | ≤ 1 s DOMContentLoaded | Lighthouse / Playwright |
 
-## I.10. Test Data
+## III.9. Test data & Fixtures
 
-⚠️ Pending — seed scripts cần viết trước UAT execution.
-
-| Loại | Cách seed | File (cần tạo) |
+| Loại | Cách seed | File |
 |---|---|---|
-| AC Asset (test) | `tests/fixtures/test_assets_imm12.json` | 4 assets (xem seed data §3.1 UAT Script) |
-| Fault Code dictionary | `tests/fixtures/test_fault_codes.json` | 8 fault codes (xem §3.2 UAT Script) |
-| IMM CAPA Record (pre-existing) | Script | 3 CAPA records ở trạng thái khác nhau |
-| Chronic history IDs | `tests/fixtures/test_chronic_ir_history.json` | 2 IR cho TC-12-11 (xem §3.5 UAT Script) |
-| UAT full seed | `scripts/uat/uat_imm12.py` | 4 assets + 6 users + fault codes |
+| Master data (Asset Category, Vendor, Department) | `fixtures/*.json` (qua `bench migrate`) | `assetcore/fixtures/` |
+| AC Asset test (4) | `test_records.json` / setup script | *(Cần khảo sát — seed script chưa tạo)* |
+| Fault code dictionary | seed script | *(Cần khảo sát)* |
+| Chronic history IR (≥3 same fault) | seed script | *(Cần khảo sát)* |
+| UAT full seed | Python script | `assetcore/scripts/uat/uat_imm12.py` — ⬜ Planned |
 
-Reset: `bench --site assetcore.local execute assetcore.scripts.uat.uat_imm12.seed_data`
+UAT data phải thực tế (tên bệnh viện VN, mã NCC chuẩn). Backend fixture mới dùng prefix `_Test` — `assetcore-test` R-0/R-1.
 
-## I.11. Run Commands & Coverage Gate
+## III.10. Run commands & Coverage gate
 
 ```bash
-# Unit + integration (file đã tồn tại ✅)
+# Module test (file đã tồn tại ✅)
 bench --site assetcore.local run-tests --app assetcore --module assetcore.tests.test_imm12
-
+# Coverage
+coverage run -m unittest assetcore.tests.test_imm12 && coverage report
 # Full suite (CI)
 bench --site assetcore.local run-tests --app assetcore --coverage
-
-# UAT golden scenario (khi FE hoàn chỉnh)
-bench --site uat.assetcore.local execute assetcore.scripts.uat.uat_imm12.run
 ```
 
-| Layer | Coverage target | Đo |
+| Layer | Target coverage | Đo |
 |---|---|---|
-| Service (`services/imm12.py`) | ≥ 85% | `coverage report` |
+| Service (`services/imm12.py`) | ≥ 85% line + ≥ 80% branch | `coverage --branch` |
 | DocType lifecycle (Incident + RCA) | ≥ 70% | `coverage report` |
 | API (`api/imm12.py`) | ≥ 60% | `coverage report` |
-| Frontend (vue-tsc) | Không crash build | CI `npm run build` |
+| Frontend (vue-tsc) | 0 error | `npm run build` |
 
-## I.12. Đo Chất Lượng Mã Nguồn
-
-> Code đã LIVE. Áp dụng tiêu chuẩn sau cho mỗi PR.
-
-| Tool | Mục tiêu | Target | Cadence |
-|---|---|---|---|
-| **SonarQube** (BE Python) | Bug 0 Critical, code smell ≤ 5, duplication ≤ 3%, coverage ≥ 70% | Quality Gate pass | Mỗi PR (CI gate) |
-| **Lighthouse** (FE — IncidentDashboard) | Performance ≥ 90, Accessibility ≥ 95 | ≥ target | Mỗi release |
-| **ESLint + vue-tsc** | 0 error prod build | pass | Mỗi PR FE |
-| **ruff / black** (BE) | 0 error, PEP8 | pass | Mỗi PR |
-| **Bundle size** (FE chunk imm12) | ≤ 250 KB gzip | ≤ budget | Mỗi PR FE |
+> Coverage % thực tế: *(Cần khảo sát — chạy `coverage report` trên test hiện hữu).*
 
 ---
 
-# Phần II — UAT Script
+# Phần IV — Traceability Matrices
 
-## II.1. Phạm vi UAT
+> Mọi test ở Phần III phải xuất hiện ở cả 3 bảng.
 
-**In-scope:**
-- Tạo Incident Report (Minor/Major/Critical) với validation BR-12-01
-- Acknowledge + phân công → In Progress
-- Critical → Auto Asset OOS (BR-12-04)
-- Resolve Minor → Close trực tiếp (no RCA)
-- Resolve Major/Critical → Auto RCA trigger (BR-12-02)
-- RCA 5-Why form → Submit → CAPA auto-create (BR-12-06)
-- Close CAPA (BR-00-08) → Close Incident
-- Chronic detection (BR-12-03): ≥3 incidents same fault_code/90 ngày
-- Audit Trail immutability + chain integrity
-- Permission: Reporting User không Acknowledge/Close; QA Officer chỉ Close CAPA
+## IV.1. US → Test mapping
 
-**Out-of-scope (UAT):** Load testing, SMS notification, Vigilance reporting BYT (IMM-15).
+| US ID | AC | Test ID (III.x) | Layer | Status |
+|---|---|---|---|---|
+| US-12-01 | AC-01 (Critical→OOS) | `TestCriticalOOS::test_critical_submit_sets_asset_oos` | Unit/Integration | ⬜ Planned |
+| US-12-01 | AC-02 (thiếu clinical_impact) | `TestIncidentCreation::test_critical_without_clinical_impact_raises_error` | Unit | ✅ Live |
+| US-12-02 | AC-01 (≥3/90d→RCA) | `TestChronicDetect` | Unit/Cron | ⬜ Planned |
+| US-12-02 | AC-02 (idempotent) | `TestRCAToCAPAAndIncidentChain::test_capa_chain_idempotent_when_capa_exists` (idempotency pattern) + `TestChronicDetect` | Unit | ✅ Live (partial) / ⬜ Planned |
 
-**Pre-conditions:**
-- ⚠️ UAT chưa thể thực hiện — `services/imm12.py`, `api/imm12.py`, `RCA Record` DocType chưa implement
-- Khi ready: UAT site `uat.assetcore.vn` đã deploy; seed data từ `uat_imm12.py` chạy thành công
-- Tester accounts tạo (xem §II.2)
-- Browser: Chrome ≥ 120 hoặc Edge ≥ 120
+Mọi US trong 02 §IV.1 có ≥ 1 dòng. Cột Status không trống.
 
-## II.2. Tester Accounts
+## IV.2. BR → Test mapping
 
-⚠️ Tạo khi UAT chuẩn bị thực hiện. Tham chiếu đầy đủ: `IMM-12_UAT_Script.md §Section 3.3`.
+| BR ID | Phát biểu (rút gọn) | Test ID | Kỹ thuật | Happy / Negative |
+|---|---|---|---|---|
+| BR-12-01 | Critical → clinical_impact bắt buộc | `test_critical_without_clinical_impact_raises_error` + `test_create_critical_with_clinical_impact_succeeds` | EP | 1 / 1 ✅ |
+| BR-12-02 | High/Critical → RCA Completed trước Close | `TestCloseGate` | Decision Table | ⬜ 1 / 1 Planned |
+| BR-12-03 | ≥3/90d → auto RCA + flag | `TestChronicDetect` | BVA | ⬜ 1 / 2 Planned |
+| BR-12-04 | Critical→OOS report; High→OOS acknowledge | `TestCriticalOOS` | Decision Table | ⬜ 1 / 1 Planned |
+| BR-12-05 | Mọi transition → audit (SHA-256) | `test_audit_chain_intact` / `test_audit_chain_breaks_on_tamper` | Use Case | ⬜ 1 / 1 Planned |
+| BR-12-06 | Submit RCA → auto CAPA + linked_capa | `test_rca_completed_creates_capa_and_advances_incident` | Use Case | 1 ✅ / ⬜ negative |
+| BR-12-07 | RCA root_cause + rca_method bắt buộc | `test_submit_rca_needs_root_cause` | Error guessing | ⬜ 1 / 1 Planned |
 
-| Username | Email | Role | Vai trò UAT |
-|---|---|---|---|
-| `nurse.uat` | nurse.uat@hospital.vn | Reporting User | Báo cáo sự cố, test permission |
-| `manager.ws` | manager.uat@hospital.vn | IMM Workshop Lead | Acknowledge, phân công, RCA |
-| `ktv.nguyen` | ktv.nguyen.uat@hospital.vn | IMM Biomed Technician | Resolve, gắn WO |
-| `qa.uat` | qa.uat@hospital.vn (qa.uat) | IMM QA Officer | Close CAPA, verify audit |
-| `ptp.uat` | ptp.uat@hospital.vn | IMM Operations Manager | Dashboard, export |
+Mọi BR có ≥ 1 happy + ≥ 1 negative. BR Critical (BR-12-02, BR-12-04) cần Decision Table đầy đủ.
 
-Mật khẩu UAT: `Assetcore@2026` (reset sau UAT).
+## IV.3. Component → Test mapping
 
-## II.3. Test Data Đã Seed
+| Component (I.1) | Test ID | Test layer | Coverage % | Risk priority (I.3) |
+|---|---|---|---|---|
+| `services/imm12::report_incident` | `TestIncidentCreation` (4) | Unit | *(Cần khảo sát)* | Critical |
+| `services/imm12::validate_incident_close_gate` | `TestCloseGate` ⬜ | Unit | *(Cần khảo sát)* | Critical |
+| `services/imm12::on_rca_completed` / `_advance_incident_after_rca` | `TestRCAToCAPAAndIncidentChain` (5) | Integration | *(Cần khảo sát)* | High |
+| Incident workflow (10) | `TestIncidentWorkflow`, `TestIncidentCancellation` | Integration | 4/10 transition cover | High |
+| RCA workflow (4) | `TestRCAToCAPAAndIncidentChain` | Integration | 1/4 transition cover | High |
+| `services/imm12::detect_chronic_failures` | `TestChronicDetect` ⬜ | Unit/Cron | *(Cần khảo sát)* | High |
+| `api/imm12::*` (14) | `test_imm12_api` ⬜ | API | *(Cần khảo sát)* | High/Medium |
 
-⚠️ Seed khi implement. Tham chiếu chi tiết: `IMM-12_UAT_Script.md §Section 3`.
+Component Critical/High phải đạt coverage target III.10 trước go-live.
+
+---
+
+# Phần V — UAT Script
+
+## V.1. Phạm vi UAT
+
+- **In-scope:** tạo IR (Medium/High/Critical) + BR-12-01 validation; Acknowledge + phân công; Critical → auto OOS; Resolve Minor → Close trực tiếp; Resolve High/Critical → auto RCA; RCA 5-Why → Submit → CAPA auto-create; Close CAPA (BR-00-08) → Close Incident; chronic detection (BR-12-03); audit immutability; permission scope.
+- **Out-of-scope:** load testing (III.8), security pentest (Phần VI), SMS notification, Vigilance BYT (IMM-15).
+- **Pre-condition:** UAT site deploy version hiện hành, fixture loaded (`uat_imm12.py` ⬜ Planned), tester accounts active, Chrome/Edge ≥ 120.
+
+## V.2. Tester accounts
+
+⬜ Tạo khi UAT chuẩn bị. Roles khớp DocPerm thực tế của module.
+
+| Username | Role | Vai trò UAT |
+|---|---|---|
+| `reporter.uat` | AssetCore System User | Báo cáo sự cố (read-only nâng cao); test permission FORBIDDEN |
+| `tech.uat` | Corrective User | Resolve, bắt đầu RCA, hoàn thành RCA |
+| `manager.uat` | Corrective Manager | Acknowledge, submit Incident, cancel |
+| `qa.uat` | Compliance Manager | Yêu cầu RCA, xử lý + close CAPA |
+| `auditor.uat` | AssetCore Auditor | Read-only, verify audit trail |
+| `admin.uat` | AssetCore Super Admin | Full — setup/reset |
+
+> Phải có account role thấp (`AssetCore System User`) để cover FORBIDDEN case, không chỉ Admin.
+
+## V.3. Test data đã seed
+
+⬜ Seed khi implement; reset script `uat_imm12.py` đi kèm.
 
 | DocType | Số lượng | Ghi chú |
 |---|---|---|
-| AC Asset | 4 | UAT-001 (Class III life-support), UAT-002/003 (Class II), UAT-004 (Class II) |
-| Fault Code dictionary | 8 | VENT_ALARM_HIGH/LOW, PROBE_DISCONNECT/FAIL, DISPLAY_LED_FAIL, v.v. |
-| Incident Report (pre-seeded) | 3 | IR-UAT-002 (backdated 35 phút), IR-UAT-009/010 (chronic history) |
-| Asset Repair WO | 1 | AR-UAT-001 để test TC-12-07 |
+| AC Asset | 4 | 1 Class III life-support, 2 Class II, 1 thường — đủ cover Critical/High/Minor |
+| Fault code dictionary | ≥ 8 | cho test chronic + cascade gợi ý |
+| Incident Report (pre-seeded) | 3 | 2 IR cùng fault_code/asset/90d (cho TC chronic) + 1 backdated cho MTTA |
+| Asset Repair WO | 1 | để test link Repair WO khi Resolve |
 
-## II.4. Test Scenarios
+## V.4. UAT Scenarios — Suy ra từ US + Activity
 
-Tham chiếu chi tiết từng step: `IMM-12_UAT_Script.md TC-12-01 → TC-12-17`.
+ID `UAT-IMM-12-NN`. Mỗi US → ≥ 1 happy; mỗi exception branch → ≥ 1; mỗi role mutate → ≥ 1 permission verify; mỗi terminal transition → ≥ 1 audit verify.
 
-### UAT-IMM12-01 — Tạo IR cơ bản + Critical validation (TC-12-01, TC-12-02)
+| ID | Actor | Pre-condition | US/BR cover | Kỹ thuật | Kết quả mong đợi |
+|---|---|---|---|---|---|
+| UAT-IMM-12-01 | AssetCore System User | Asset Active | US-12-01 AC-01/02, BR-12-01, BR-12-04 | Use Case happy + EX-12-01 | IR Medium OK; Critical thiếu clinical_impact → block; Critical đủ → asset OOS auto + ALE |
+| UAT-IMM-12-02 | Corrective Manager | IR Open | US-12-01 | Use Case + EP permission | Acknowledge OK, acknowledged_at set; System User Acknowledge → 403 |
+| UAT-IMM-12-03 | Corrective User | IR Medium In Progress | BR-12-02 negative (Minor không RCA) | Use Case happy | Resolve → Resolved, không RCA; Manager Close → Closed |
+| UAT-IMM-12-04 | Corrective User → Compliance Manager | IR High In Progress | US-12-01, BR-12-02, BR-12-06 | State Transition + EX-12-03 | Resolve High → RCA Required + RCA tạo; Close khi RCA In Progress → block (BR-12-02); Submit RCA → CAPA auto; Close OK |
+| UAT-IMM-12-05 | Corrective User | RCA In Progress | BR-12-07 | EP + Error guessing | Submit RCA thiếu root_cause/rca_method → block; đủ → OK |
+| UAT-IMM-12-06 | Compliance Manager | CAPA Open, đủ field | US-12-01, BR-00-08 | Use Case + permission | Compliance close CAPA OK; Corrective Manager close CAPA → 403 |
+| UAT-IMM-12-07 | System (scheduler) + Corrective User | 2 IR cùng fault_code/asset/90d | US-12-02, BR-12-03 | BVA ngưỡng + idempotency | Tạo IR thứ 3 → run `detect_chronic_failures` → RCA chronic + flag; chạy lần 2 → không tạo trùng (EX-12-04) |
+| UAT-IMM-12-08 | AssetCore Super Admin / Auditor | Có audit entries | BR-12-05, BR-00-03 | State Transition (tamper) | IMM Audit Trail read-only; DELETE/EDIT → block; `verify_audit_chain` = True |
+| UAT-IMM-12-09 | Compliance Manager | Có IR/RCA dữ liệu | KPI §02 §II.6 | Use Case | Dashboard hiển thị MTTA/MTTR/open/critical; drill-down OK |
+| UAT-IMM-12-10 | AssetCore System User | — | RBAC §VI.1 | EP permission | Không Acknowledge/Resolve/Close; chỉ Read theo scope |
 
-**Liên kết:** US-12-01, BR-12-01, VR-12-02  
-**Role tester:** Reporting User  
-**Mục tiêu:** Tạo IR thành công; Critical thiếu clinical_impact → bị block.  
-**⚠️ Pending execution.**
+## V.5. Tổng hợp kết quả & Bug found
 
-| Step | Hành động | Kết quả mong đợi | Pass/Fail |
-|---|---|---|---|
-| 1 | Điều dưỡng tạo IR Minor cho ACC-ASS-UAT-004 | IR tạo OK, status = New | ☐ |
-| 2 | Tạo IR Critical cho ACC-ASS-UAT-001, để trống clinical_impact | Block: VR-12-02 | ☐ |
-| 3 | Điền clinical_impact, Submit | IR tạo OK + Asset → OOS auto | ☐ |
-| 4 | Kiểm tra ALE | event `incident_reported` + `asset_out_of_service` | ☐ |
-
-**Acceptance:** Tất cả 4 step Pass.
-
----
-
-### UAT-IMM12-02 — Acknowledge + In Progress (TC-12-03)
-
-**Liên kết:** US-12-02  
-**Role tester:** IMM Workshop Lead  
-**Mục tiêu:** Acknowledge trong đúng thời gian; Reporting User không Acknowledge được.  
-**⚠️ Pending execution.**
-
-| Step | Hành động | Kết quả mong đợi | Pass/Fail |
-|---|---|---|---|
-| 1 | Workshop Lead Acknowledge IR-UAT-001, chọn Priority, phân công KTV | IR → Acknowledged, `response_at` set | ☐ |
-| 2 | Điều dưỡng thử Acknowledge IR khác | 403: không có quyền | ☐ |
-| 3 | Kiểm tra ALE | event `incident_acknowledged` | ☐ |
-
-**Acceptance:** Tất cả 3 step Pass.
-
----
-
-### UAT-IMM12-03 — Resolve Minor → Close trực tiếp (TC-12-08)
-
-**Liên kết:** BR-12-02 (negative — Minor không cần RCA)  
-**Role tester:** IMM Biomed Technician  
-**Mục tiêu:** Minor incident close không cần RCA.  
-**⚠️ Pending execution.**
-
-| Step | Hành động | Kết quả mong đợi | Pass/Fail |
-|---|---|---|---|
-| 1 | KTV Resolve IR Minor với resolution_notes | status = Resolved, `rca_required = False` | ☐ |
-| 2 | Kiểm tra không có RCA Record tạo | — | ☐ |
-| 3 | Workshop Lead Close IR | status = Closed | ☐ |
-
-**Acceptance:** Tất cả 3 step Pass.
-
----
-
-### UAT-IMM12-04 — Resolve Major/Critical → Auto RCA (TC-12-09)
-
-**Liên kết:** US-12-03, BR-12-02, BR-12-06  
-**Role tester:** IMM Biomed Technician → IMM Workshop Lead  
-**Mục tiêu:** Major Resolved → RCA auto-created → block Close cho đến khi RCA Completed.  
-**⚠️ Pending execution.**
-
-| Step | Hành động | Kết quả mong đợi | Pass/Fail |
-|---|---|---|---|
-| 1 | Resolve IR Major | status = RCA Required, RCA-YYYY-xxxx tạo | ☐ |
-| 2 | Thử Close IR khi RCA In Progress | Block: VR-12-03 | ☐ |
-| 3 | Workshop Lead điền RCA 5-Why đầy đủ, Submit | RCA status = Completed, CAPA auto-created | ☐ |
-| 4 | Close IR | Thành công, status = Closed | ☐ |
-| 5 | Kiểm tra ALE + Audit Trail | Đầy đủ | ☐ |
-
-**Acceptance:** Tất cả 5 step Pass.
-
----
-
-### UAT-IMM12-05 — RCA Form 5-Why validation (TC-12-14)
-
-**Liên kết:** BR-12-07, VR-12-06  
-**Role tester:** IMM Biomed Technician / Workshop Lead  
-**Mục tiêu:** RCA không submit được khi thiếu root_cause hoặc corrective_action.  
-**⚠️ Pending execution.**
-
-| Step | Hành động | Kết quả mong đợi | Pass/Fail |
-|---|---|---|---|
-| 1 | Thử Submit RCA khi root_cause_summary trống | Block: VR-12-06 | ☐ |
-| 2 | Điền root_cause nhưng để trống corrective_action | Block | ☐ |
-| 3 | Điền đầy đủ why_1→5, root_cause, corrective, preventive | Submit OK | ☐ |
-
-**Acceptance:** Tất cả 3 step Pass.
-
----
-
-### UAT-IMM12-06 — QA Officer Close CAPA (TC từ IMM-09 pattern)
-
-**Liên kết:** US-12-04, BR-00-08  
-**Role tester:** IMM QA Officer  
-**Mục tiêu:** CAPA Close hợp lệ; Workshop Lead không Close CAPA được.  
-**⚠️ Pending execution.**
-
-| Step | Hành động | Kết quả mong đợi | Pass/Fail |
-|---|---|---|---|
-| 1 | Workshop Lead thử Close CAPA | 403: chỉ QA Officer được close | ☐ |
-| 2 | QA Officer Close CAPA với đầy đủ corrective + preventive | CAPA status = Closed | ☐ |
-| 3 | Kiểm tra ALE | event CAPA closed | ☐ |
-
-**Acceptance:** Tất cả 3 step Pass.
-
----
-
-### UAT-IMM12-07 — Chronic Failure Detection (TC-12-11)
-
-**Liên kết:** US-12-05, BR-12-03  
-**Role tester:** System (manual trigger) + Workshop Lead  
-**Mục tiêu:** ≥3 incidents cùng fault_code/90 ngày → RCA auto + chronic flag; idempotent.  
-**⚠️ Pending execution.**
-
-| Step | Hành động | Kết quả mong đợi | Pass/Fail |
-|---|---|---|---|
-| 1 | Tạo IR-UAT-011 (incident thứ 3 cùng PROBE_DISCONNECT trên UAT-003) | IR tạo OK | ☐ |
-| 2 | Chạy `bench execute assetcore.services.imm12.detect_chronic_failures` | RCA tạo với trigger_type="Chronic Failure" | ☐ |
-| 3 | Kiểm tra chronic_failure_flag = True trên 3 IR | — | ☐ |
-| 4 | Chạy detect lần 2 | Không tạo RCA thứ 2 (idempotent) | ☐ |
-
-**Acceptance:** Tất cả 4 step Pass.
-
----
-
-### UAT-IMM12-08 — Audit Trail Immutability (TC-12-12)
-
-**Liên kết:** BR-12-05, BR-00-03  
-**Role tester:** IMM System Admin  
-**Mục tiêu:** Không ai xóa hoặc sửa được `IMM Audit Trail`.  
-**⚠️ Pending execution.**
-
-| Step | Hành động | Kết quả mong đợi | Pass/Fail |
-|---|---|---|---|
-| 1 | Mở IMM Audit Trail list | Read-only | ☐ |
-| 2 | Thử DELETE qua API | 403 Forbidden | ☐ |
-| 3 | Thử EDIT bất kỳ field | Block | ☐ |
-| 4 | `verify_audit_chain(asset)` | True | ☐ |
-
-**Acceptance:** Tất cả 4 step Pass.
-
----
-
-### UAT-IMM12-09 — Dashboard KPI (TC-12-15)
-
-**Liên kết:** KPI definitions §11 Module Overview  
-**Role tester:** IMM Operations Manager  
-**Mục tiêu:** Dashboard hiển thị MTTA, MTTR, open count, critical count; drill-down hoạt động.  
-**⚠️ Pending execution.**
-
-| Step | Hành động | Kết quả mong đợi | Pass/Fail |
-|---|---|---|---|
-| 1 | PTP mở `/imm-12/dashboard` | Dashboard load | ☐ |
-| 2 | Kiểm tra MTTA = avg(response_at − created_at) | Tính đúng | ☐ |
-| 3 | Kiểm tra MTTR = avg(resolved_at − created_at) | Tính đúng | ☐ |
-| 4 | Click vào IR trong open list | Redirect đến detail | ☐ |
-
-**Acceptance:** Tất cả 4 step Pass.
-
----
-
-### UAT-IMM12-10 — Permission: Reporting User scope
-
-**Liên kết:** Security §III.1  
-**Role tester:** Reporting User  
-**Mục tiêu:** Điều dưỡng chỉ thấy IR của khoa mình; không Acknowledge/Close được.  
-**⚠️ Pending execution.**
-
-| Step | Hành động | Kết quả mong đợi | Pass/Fail |
-|---|---|---|---|
-| 1 | Điều dưỡng vào `/imm-12/dashboard` | 403 hoặc redirect | ☐ |
-| 2 | Thử API `acknowledge_incident` | 403 | ☐ |
-| 3 | Xem IR list | Chỉ thấy IR của own department | ☐ |
-
-**Acceptance:** Tất cả 3 step Pass.
-
----
-
-## II.5. Tổng Hợp Kết Quả & Bug Found
-
-⚠️ Điền khi UAT thực hiện.
+⬜ Điền khi UAT thực hiện.
 
 | Scenario | Status | Tester | Ngày | Ghi chú |
 |---|---|---|---|---|
-| UAT-IMM12-01 | ⚠️ Pending | | | |
-| UAT-IMM12-02 | ⚠️ Pending | | | |
-| UAT-IMM12-03 | ⚠️ Pending | | | |
-| UAT-IMM12-04 | ⚠️ Pending | | | |
-| UAT-IMM12-05 | ⚠️ Pending | | | |
-| UAT-IMM12-06 | ⚠️ Pending | | | |
-| UAT-IMM12-07 | ⚠️ Pending | | | |
-| UAT-IMM12-08 | ⚠️ Pending | | | |
-| UAT-IMM12-09 | ⚠️ Pending | | | |
-| UAT-IMM12-10 | ⚠️ Pending | | | |
+| UAT-IMM-12-01 … 10 | ⬜ Pending | | | |
 
-### Sign-off UAT
+**Bug log:** `Issue ID · Severity (Blocker/Major/Minor/Trivial) · Mô tả · Fix status` — điền khi phát sinh.
 
-⚠️ Điền khi UAT hoàn tất.
+**Acceptance:** ≥ 95% PASS, Blocker = 0, Major ≤ 2 (có workaround). Critical TC bắt buộc 100% Pass: UAT-IMM-12-04, UAT-IMM-12-07, UAT-IMM-12-08.
+
+**Sign-off:**
 
 | Vai trò | Người | Ngày | Chữ ký |
 |---|---|---|---|
@@ -504,177 +436,135 @@ Tham chiếu chi tiết từng step: `IMM-12_UAT_Script.md TC-12-01 → TC-12-17
 | Module Owner (IMM-12) | | | |
 | Đại diện end-user (Workshop Manager) | | | |
 
-**Quy ước go-live:** Blocker = 0, Major ≤ 2 (với workaround documented). Critical TC: UAT-IMM12-04, UAT-IMM12-07, UAT-IMM12-08 phải 100% Pass.
-
-### Bug Log
-
-| Issue ID | Severity | Mô tả | Fix status |
-|---|---|---|---|
-| (điền khi phát sinh) | | | |
-
 ---
 
-# Phần III — Security Review
+# Phần VI — Security Review (gate)
 
-## III.1. RBAC
+## VI.1. RBAC
 
-### Role definitions
+**Role definitions** (`fixtures/role.json` + `role_profile.json`):
 
-| Role | Quyền hạn trên Incident Report |
+| Role | Quyền hạn trên IMM-12 |
 |---|---|
-| Reporting User | Create (own dept), Read (own dept) |
-| IMM Workshop Lead | Read all, Acknowledge, Resolve, Create RCA, Close Incident |
-| IMM Biomed Technician | Read (assigned), Resolve (assigned) |
-| IMM QA Officer | Read all; Close CAPA; verify Audit Trail |
-| IMM Department Head | Read all; nhận escalation |
-| IMM Operations Manager | Read all; dashboard; export |
-| IMM System Admin | Full |
+| AssetCore Super Admin | Full (Incident + RCA + CAPA) |
+| Corrective Manager | Incident: Read/Write/Create/Submit/Cancel/Delete |
+| Corrective User | Incident + RCA: Read/Write/Create (no Submit) |
+| Compliance Manager | CAPA: Read/Write/Create/Submit/Close; yêu cầu RCA |
+| Compliance User | CAPA: Read/Write/Create (no Submit) |
+| AssetCore Auditor | Read-only toàn bộ; verify audit trail |
+| AssetCore System User | Read-only (scope) |
 
-### DocPerm Matrix — `Incident Report`
-
-⚠️ Pending implementation. Matrix đề xuất:
+**DocPerm matrix — `Incident Report`** (xác minh từ `incident_report.json`):
 
 | Role | Read | Write | Create | Submit | Cancel | Delete |
 |---|---|---|---|---|---|---|
-| Reporting User | ✅ (own dept) | ✅ (own, draft only) | ✅ | ✅ | ❌ | ❌ |
-| IMM Workshop Lead | ✅ | ✅ | ❌ | ✅ | ✅ | ❌ |
-| IMM Biomed Technician | ✅ (assigned) | ✅ (assigned) | ❌ | ❌ | ❌ | ❌ |
-| IMM QA Officer | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| IMM Department Head | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| IMM Operations Manager | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| IMM System Admin | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| AssetCore Super Admin | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Corrective Manager | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Corrective User | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
+| AssetCore Auditor | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| AssetCore System User | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 
-### DocPerm Matrix — `RCA Record`
-
-⚠️ Pending implementation.
+**DocPerm matrix — `IMM RCA Record`** (xác minh từ `imm_rca_record.json`):
 
 | Role | Read | Write | Create | Submit |
 |---|---|---|---|---|
-| IMM Workshop Lead | ✅ | ✅ | ✅ | ✅ |
-| IMM QA Officer | ✅ | ✅ | ✅ | ✅ |
-| IMM Biomed Technician | ✅ | ✅ (assigned) | ❌ | ❌ |
-| IMM Operations Manager | ✅ | ❌ | ❌ | ❌ |
-| IMM System Admin | ✅ | ✅ | ✅ | ✅ |
+| AssetCore Super Admin | ✅ | ✅ | ✅ | ✅ |
+| Corrective Manager | ✅ | ✅ | ✅ | ✅ |
+| Corrective User | ✅ | ✅ | ✅ | ❌ |
+| AssetCore Auditor | ✅ | ❌ | ❌ | ❌ |
+| AssetCore System User | ✅ | ❌ | ❌ | ❌ |
 
-### DocPerm Matrix — `IMM CAPA Record`
+**DocPerm matrix — `IMM CAPA Record`** (xác minh từ `imm_capa_record.json`, kế thừa IMM-00):
 
-Kế thừa từ IMM-00 (đã LIVE). Chỉ QA Officer có quyền Submit/Close.
+| Role | Read | Write | Create | Submit |
+|---|---|---|---|---|
+| AssetCore Super Admin | ✅ | ✅ | ✅ | ✅ |
+| Compliance Manager | ✅ | ✅ | ✅ | ✅ |
+| Compliance User | ✅ | ✅ | ✅ | ❌ |
+| AssetCore Auditor | ✅ | ❌ | ❌ | ❌ |
+| AssetCore System User | ✅ | ❌ | ❌ | ❌ |
 
-### Field-level permission (permlevel)
+**Field-level permission (permlevel):** hiện DocType IMM-12 chưa khai báo field permlevel ≠ 0. *(Cần khảo sát — đề xuất nâng permlevel cho `clinical_impact`, `root_cause`, CAPA `corrective_action`/`preventive_action`; chưa có trong JSON thực tế.)*
 
-⚠️ Pending — xác định sau khi custom fields IMM-12 được thiết kế.
+**User Permission (row-level):** `permission_query_conditions` cho scope theo department/asset — *(Cần khảo sát — chưa thấy hook query cho Incident Report trong codebase).*
 
-| Field | permlevel | Mô tả |
-|---|---|---|
-| `clinical_impact` | 0 — all authenticated | Cần để audit |
-| `rca_record` | 1 — IMM Workshop Lead+ | Link nhạy cảm |
-| `linked_capa` | 1 — IMM QA Officer+ | CAPA content |
-| `chronic_failure_flag` | 1 — IMM Workshop Lead+ | Internal flag |
+**Kỹ thuật:** Decision Table — mỗi (role × action × state) = 1 row, expected Allow/Deny.
 
-### User Permission (Row-level)
-
-⚠️ Pending — `permission_query_conditions` cho Reporting User:
-```python
-def incident_report_query(user):
-    if frappe.has_role("IMM Workshop Lead", user) or frappe.has_role("IMM System Admin", user):
-        return ""
-    # Reporting User chỉ thấy IR của khoa mình
-    user_dept = frappe.db.get_value("Employee", {"user_id": user}, "department")
-    if user_dept:
-        return f"(`tabIncident Report`.department = '{user_dept}')"
-    return f"(`tabIncident Report`.reported_by = '{user}')"
-```
-
-## III.2. API Security
-
-⚠️ Pending implementation.
+## VI.2. API security
 
 | Mục | Trạng thái | Ghi chú |
 |---|---|---|
-| Whitelist hygiene | ⚠️ Pending | Mọi `@frappe.whitelist()` phải có docstring + required role check |
-| CSRF | ✅ (Frappe default) | X-Frappe-CSRF-Token |
-| Input validation | ⚠️ Pending | `fault_description` sanitize XSS; `name` field validate trước dùng |
-| SQL injection | ⚠️ Pending | Frappe ORM parameterized; không raw SQL trong `imm12.py` |
-| Rate limit | ⚠️ Roadmap | `report_incident` endpoint — clinical user có thể spam |
-| Mobile API security | ⚠️ Pending | Reporting User từ mobile → validate session |
+| Whitelist hygiene | ⬜ Cần rà | 14 `@frappe.whitelist`; có `_has_role()` helper trong `api/imm12.py`; verify mỗi mutating endpoint gọi check role + docstring |
+| CSRF | ✅ Frappe default | `X-Frappe-CSRF-Token` |
+| Input validation | ⬜ Cần rà | `asset` Link validate trước dùng; `description` Text Editor sanitize XSS |
+| SQL injection | ✅ ORM | dùng `frappe.get_all` / param query; không raw f-string SQL trong `imm12.py` (cần re-confirm `_build_incident_filters`) |
+| Rate limit | ⬜ Roadmap | `report_incident` (clinical user có thể spam) |
 
-## III.3. Audit Trail Integrity
+## VI.3. Audit trail integrity
 
-- Mọi state change (Open/Acknowledged/In Progress/Resolved/Closed/RCA Required) sinh `IMM Audit Trail` qua `services/imm00.py: log_audit_event()` — không gọi trực tiếp, không bypass.
-- Hash chain SHA-256 kế thừa từ IMM-00.
-- API verify: `assetcore.utils.lifecycle.verify_audit_chain(asset)`.
-- ⚠️ Test tamper: `test_audit_chain_breaks_on_tamper()` — Pending.
-- `IMM Audit Trail` đã có DocPerm no-delete từ IMM-00.
-- Retention: ≥ 5 năm theo NĐ98/2021/NĐ-CP Điều 7; CAPA records ≥ 7 năm (ISO 13485).
+- Mọi state change sinh `IMM Audit Trail` qua `_log()` → `imm00.log_audit_event()` (SHA-256 chain). Không gọi trực tiếp, không bypass.
+- Verify endpoint: `assetcore.utils.lifecycle.verify_audit_chain(asset)`.
+- `IMM Audit Trail` DocPerm no-delete kế thừa IMM-00 (ISO 13485:7.5.9).
+- Test tamper `test_audit_chain_breaks_on_tamper()` → III.5, ⬜ Planned.
+- Retention ≥ 5 năm (NĐ98/2021/NĐ-CP Điều 7); CAPA ≥ 7 năm (ISO 13485).
 
-## III.4. Authentication & Session
+## VI.4. Authentication & session
 
-Kế thừa config từ IMM-09 `08_Deployment.md §III.4`. Lưu ý thêm:
+Login Frappe default; session timeout + lockout (3 fail → lock 15 phút) + password policy kế thừa cấu hình chung (08_Deployment §III.4). Reporting/System User từ mobile: validate session token, không cấp API key dài hạn. 2FA roadmap.
 
-| Hạng mục | Config |
-|---|---|
-| Reporting User từ mobile | Session token validate; không cho API key dài hạn cho Reporting User role |
-| Lockout policy | 3 lần fail → lock 15 phút |
-
-## III.5. Data Sensitivity
+## VI.5. Data sensitivity
 
 | Loại | Trường | Sensitivity | Bảo vệ |
 |---|---|---|---|
-| Mô tả sự cố lâm sàng | `clinical_impact`, `fault_description` | Internal | Role permission |
-| Thông tin bệnh nhân | **Không lưu** | N/A | Policy: chỉ mô tả thiết bị, không gắn patient ID |
-| RCA root cause analysis | `root_cause`, `rca_five_why_steps` | Confidential | permlevel 1 |
-| CAPA corrective action | `corrective_action`, `preventive_action` | Internal | IMM QA Officer+ only |
-| Chronic failure flag | `chronic_failure_flag` trên asset | Internal | permlevel 1 |
+| Mô tả sự cố lâm sàng | `clinical_impact`, `description` | Internal | Role permission |
+| Thông tin bệnh nhân | `patient_impact_description` (Check `patient_affected`) | Restricted | Policy: KHÔNG lưu patient ID, chỉ mô tả tác động thiết bị |
+| RCA root cause | `root_cause`, `five_why_steps` | Confidential | đề xuất permlevel 1 *(Cần khảo sát)* |
+| CAPA action | `corrective_action`, `preventive_action` | Internal | Compliance role only |
+| Chronic flag | `chronic_failure_flag` | Internal | đề xuất permlevel 1 *(Cần khảo sát)* |
 
-## III.6. Vendor Isolation
+Khẳng định: hệ thống KHÔNG lưu patient identifier — chỉ mô tả thiết bị.
 
-Vendor không có quyền trên `Incident Report` hoặc `IMM CAPA Record` mặc định. Nếu mở rộng cho vendor contractor trong tương lai:
-- Chỉ thấy IR liên quan đến asset trong contract của họ.
-- Không thấy: RCA content, CAPA corrective action, audit trail của incident khác.
+## VI.6. Vendor isolation
 
-## III.7. Secrets Management
+Vendor External KHÔNG có quyền trên `Incident Report` / `IMM RCA Record` / `IMM CAPA Record` (không có trong DocPerm). Nếu mở rộng cho vendor contractor: chỉ thấy IR của asset trong contract của họ (qua `permission_query_conditions`); KHÔNG thấy RCA content, CAPA action, audit trail incident khác; KHÔNG export. → test ở III.6 (low-role API call).
 
-Kế thừa policy từ IMM-09. Không có secrets mới trong IMM-12.
+## VI.7. Secrets management
 
-## III.8. Logging & Monitoring
+Không có secrets mới trong IMM-12. Cấm commit `.env`/credential; `site_config.json` không lên git; external token lưu `frappe.conf`; backup encrypt at-rest off-site.
 
-⚠️ Pending — cấu hình khi service layer implement.
+## VI.8. Logging & monitoring
+
+⬜ Cấu hình khi vận hành. PII/token KHÔNG vào log.
 
 | Sự kiện | Log level | Where | Alert? |
 |---|---|---|---|
-| Critical Incident tạo | WARNING | `IMM Audit Trail` + email | ✅ Email Workshop Lead + Dept Head ngay lập tức |
-| Chronic Failure phát hiện | WARNING | `frappe.log_error` + email | ✅ Email Workshop Lead + QA Officer |
-| CAPA overdue > 30 ngày | WARNING | Scheduler log + email | ✅ Email QA Officer (daily) |
-| RCA overdue | WARNING | Scheduler log + email | ✅ Email Workshop Lead |
-| Audit chain tamper | ERROR | `frappe.log_error` | ✅ Email System Admin |
-| Mass incident creation (> 10 IR/phút) | WARNING | Nginx log | ✅ Alert DevOps |
+| Critical Incident tạo | WARNING | `IMM Audit Trail` + email | ✅ Workshop Lead + Dept Head |
+| Chronic Failure phát hiện | WARNING | `frappe.log_error` + email | ✅ Workshop Lead + QA |
+| CAPA overdue > due_date | WARNING | Scheduler log + email | ✅ Compliance (daily) |
+| Audit chain tamper | ERROR | `frappe.log_error` | ✅ System Admin |
+| Mass incident creation (>10 IR/phút) | WARNING | Nginx log | ✅ DevOps |
 
-## III.9. Threat Model (STRIDE-lite)
+## VI.9. Threat model (STRIDE-lite)
 
 | Threat | Vector | Likelihood | Impact | Mitigation |
 |---|---|---|---|---|
-| Spoofing | Điều dưỡng báo cáo sự cố giả lập để chiếm WO | Low | Medium | IR `reported_by` gắn session user; audit trail actor |
-| Tampering — IR severity | Hạ severity từ Critical → Minor để tránh RCA | Low | High | `severity` field: sau Acknowledge chỉ Workshop Lead+ sửa được |
-| Tampering — Audit | Sửa `IMM Audit Trail` DB | Low | Critical | DocPerm no-delete (IMM-00); verify chain endpoint |
-| Repudiation | Phủ nhận đã Resolve IR | Low | High | `resolved_at` + actor + `IMM Audit Trail` hash |
-| Info Disclosure | Điều dưỡng xem IR của khoa khác | Low | Medium | `permission_query_conditions` by department |
-| DoS — Chronic detection | Scheduler quét 100k+ IR/run | Medium | Medium | Index `fault_code + asset + created_at`; batch 500/run |
-| Elevation of Privilege | Reporting User tự Close CAPA | Low | High | DocPerm: CAPA Submit/Close chỉ IMM QA Officer |
+| **S**poofing | Báo cáo sự cố giả để chiếm WO | Low | Medium | `reported_by` gắn session user; audit actor |
+| **T**ampering (severity) | Hạ Critical → Medium tránh RCA | Low | High | sau Submit chỉ Corrective Manager+ sửa được; audit |
+| **T**ampering (audit) | Sửa `IMM Audit Trail` DB | Low | Critical | DocPerm no-delete (IMM-00); verify chain |
+| **R**epudiation | Phủ nhận đã Resolve | Low | High | `resolved_at` + actor + audit hash |
+| **I**nfo disclosure | Xem IR ngoài scope | Low | Medium | DocPerm read scope; `permission_query_conditions` (⬜ cần implement) |
+| **D**oS | Scheduler quét 100k+ IR | Medium | Medium | index `fault_code + asset + reported_at`; batch chronic |
+| **E**levation of privilege | System User tự Submit/Close CAPA | Low | High | DocPerm: CAPA Submit chỉ Compliance Manager+; Incident Submit chỉ Corrective Manager+ |
 
-## III.10. Penetration Test
+## VI.10. Penetration test
 
-⚠️ Pending — thực hiện trước release đầu tiên.
-- Burp Suite scan trên `uat.assetcore.vn`.
-- Role escalation: thử `report_incident` (Major, no clinical impact) → verify block.
-- Chronic detection idempotent: thử kích hoạt lặp lại.
-- CAPA close by Reporting User → 403.
-- Report: `docs/security/pentest_imm12_v1.md`.
+⬜ Trước release đầu tiên: Burp/ZAP scan trên UAT site, sqlmap (an toàn), CSRF test, role escalation (`report_incident` no clinical_impact → block; CAPA close by System User → 403; chronic detect idempotent). Report lưu `docs/security/pentest_imm12_v1.md`.
 
-## III.11. Sign-off Security
+## VI.11. Sign-off
 
-⚠️ Điền khi security review hoàn tất.
+⬜ Điền khi security review hoàn tất.
 
-| Vai trò | Người | Ngày | Quyết định |
+| Role | Người | Ngày | Quyết định |
 |---|---|---|---|
 | QA Lead | | | ☐ Pass / ☐ Pass with conditions / ☐ Fail |
 | Tech Lead | | | ☐ Pass / ☐ Pass with conditions / ☐ Fail |
@@ -682,34 +572,139 @@ Kế thừa policy từ IMM-09. Không có secrets mới trong IMM-12.
 
 ---
 
-## DoD — Hoàn chỉnh
+# Phần VII — Code Quality
 
-### I. Test Plan
-- [x] Test class structure cho 11 service functions (defined)
-- [x] ≥ 1 happy + 1 negative test mỗi function (specified)
-- [x] 7 workflow transitions đều có test (specified)
-- [x] Audit chain test (intact + tampered) (specified)
-- [x] API test ≥ 60% coverage target (specified — 13 test cases)
-- [x] Performance target xác định (k6)
-- [x] CI command xác định
-- [x] SonarQube + Lighthouse target xác định
-- [ ] Test files thực sự được tạo ⚠️ Pending implementation
+## VII.1. Tool matrix
 
-### II. UAT
-- [x] 10 UAT scenario, cover BR-12-01→07 + permission + audit + dashboard
-- [x] Mọi User Story (US-12-01 → 06) có ≥ 1 UAT scenario
-- [ ] Test data seed script: `uat_imm12.py` ⚠️ Pending
-- [x] 5 Tester accounts + password documented
+> Code đã LIVE — áp dụng tiêu chuẩn sau cho mỗi PR.
+
+| Tool | Mục tiêu | Target | Cadence |
+|---|---|---|---|
+| **SonarQube** (BE Python) | bug 0 critical, code smell ≤ 5, duplication ≤ 3%, coverage ≥ 70%, security hotspot review 100% | Quality Gate pass | Mỗi PR (CI gate) |
+| **Lighthouse** (FE — IMM12Dashboard) | Performance ≥ 90, Accessibility ≥ 95, Best Practices ≥ 90, SEO ≥ 80 | ≥ target | Mỗi release lớn + monthly |
+| **ESLint + vue-tsc** (FE) | 0 error, 0 warning prod build | pass | Mỗi PR FE |
+| **ruff / black** (BE) | 0 error, PEP8 | pass | Mỗi PR |
+| **Bundle size** (FE chunk imm12) | main ≤ 250KB gzip, async ≤ 80KB gzip | ≤ budget | Mỗi PR FE |
+
+## VII.2. Cadence
+
+- SonarQube: mỗi PR (CI gate, fail nếu Quality Gate fail).
+- Lighthouse: mỗi release lớn + monthly audit.
+- ESLint / ruff: mỗi PR (CI gate).
+- Bundle size: mỗi PR FE (CI report, fail nếu vượt budget).
+
+Gắn screenshot SonarQube + Lighthouse vào file 09 §Release Notes khi báo cáo final.
+
+---
+
+# Phụ lục A — Template per UAT scenario
+
+```markdown
+### UAT-IMM-12-<NN> — <Tên>
+
+**Liên kết**: US-<NN>, AC<N>, BR-<NN>, ACT-<NN>
+**Role tester**: <…>
+**Kỹ thuật áp dụng**: Use Case happy / Use Case alt / EP permission / State Transition
+**Mục tiêu**: <1 câu>
+**Pre-condition**: <data state cần có>
+
+| Step | Hành động | Kết quả mong đợi | Pass/Fail |
+|---|---|---|---|
+| 1 | <…> | <…> | ☐ |
+| 2 | <…> | <…> | ☐ |
+
+**Post-condition**: <data state sau khi pass>
+**Acceptance**: Tất cả step Pass + audit trail có entry tương ứng.
+```
+
+# Phụ lục B — Template per Test Case (unit/integration/API)
+
+```markdown
+### TC-IMM-12-<LAYER>-<NN> — <Tên>
+
+**Component (I.1)**: <…>
+**Liên kết**: US-<NN> | BR-<NN> | ACT-<NN>
+**Kỹ thuật (II.1/II.2)**: BVA boundary `<field>=<value>`
+**Priority (I.3)**: Critical / High / Medium / Low
+**Test type**: Unit / Integration / API / E2E
+**Pre-condition**: <fixture / state setup>
+
+**Input**:
+- <field>: <value>
+
+**Steps**:
+1. <…>
+2. <…>
+
+**Expected**:
+- ServiceError(code=VALIDATION, message contains "BR-12-…")
+- doc.workflow_state unchanged
+
+**Post-condition**: <DB rollback / fixture cleanup>
+```
+
+# Phụ lục C — Workflow State Transition Test template
+
+```markdown
+### TC-IMM-12-WF-<NN> — <action>: <from> → <to>
+
+**Workflow JSON**: `assetcore/assetcore/workflow/imm_12_incident_workflow.json` (hoặc `imm_12_rca_workflow.json`)
+**Role required**: <…>
+**Pre-condition**: doc.workflow_state = <from>, gate <Gx> đã pass
+**Action**: apply_workflow(doc, "<action>")
+**Expected (happy)**: doc.workflow_state = <to>, docstatus = <…>, audit entry created
+**Expected (negative role)**: PermissionError / FORBIDDEN
+**Expected (gate fail)**: ServiceError(code=BUSINESS_RULE, message contains "<Gx>")
+```
+
+---
+
+# DoD — File 07 hoàn chỉnh
+
+## I. Test Analysis
+- [x] I.1 Component Inventory liệt kê đủ artefact (so với 04/05/06)
+- [x] I.2 mỗi US / BR / Activity có ≥ 1 dòng map
+- [x] I.3 Risk priority gán cho mọi component (không trống)
+- [x] I.4 Scope ghi rõ out-of-scope kèm lý do
+
+## II. Test Design Techniques
+- [x] II.1 chọn ≥ 4 black-box techniques (EP + BVA + Decision Table + State Transition)
+- [x] II.2 white-box criteria xác định (statement + branch)
+- [x] II.3 mapping component → kỹ thuật điền đầy đủ
+
+## III. Test Plan
+- [x] Test class structure cho service public function (I.1)
+- [x] ≥ 1 happy + 1 negative test mỗi function (specified; một số ⬜ Planned)
+- [ ] Workflow transitions cover 100% — hiện 5/14 transition có test ✅, còn 9 ⬜ Planned
+- [ ] Audit chain test (intact + tampered) — ⬜ Planned
+- [ ] API test ≥ 60% coverage + permission matrix — ⬜ Planned (14 endpoint specified)
+- [x] Performance target xác định (chưa chạy)
+- [x] CI command chạy clean (`bench run-tests --module …`, file đã tồn tại)
+- [ ] SonarQube Quality Gate pass + Lighthouse ≥ target — chưa có evidence
+
+## IV. Traceability
+- [x] IV.1 US → Test: mọi US có ≥ 1 Test ID
+- [x] IV.2 BR → Test: mọi BR có dòng (một số negative ⬜ Planned)
+- [ ] IV.3 Component → Test: Critical/High đạt coverage target — coverage % *(Cần khảo sát)*
+
+## V. UAT
+- [x] Mỗi US có ≥ 1 UAT scenario
+- [x] ≥ 1 negative + permission + audit verify scenario
+- [ ] Test data seed script `uat_imm12.py` chạy được — ⬜ Planned
+- [ ] Tester accounts đã tạo ở UAT site — ⬜ Planned (đã liệt kê role)
 - [x] Sign-off section sẵn sàng
-- [ ] UAT execution thực sự ⚠️ Pending implementation
 
-### III. Security
-- [x] DocPerm matrix đề xuất đầy đủ (Incident Report + RCA Record + CAPA)
-- [x] Field-level permlevel xác định
-- [x] Threat model 7 threat với mitigation
-- [ ] Permission query code implement ⚠️ Pending
-- [ ] Pentest report ⚠️ Pending
-- [ ] Rate limit cấu hình (roadmap)
-- [x] Vendor isolation policy documented
-- [x] Audit trail immutability kế thừa IMM-00
-- [x] Sign-off section sẵn sàng
+## VI. Security
+- [x] DocPerm matrix đầy đủ (Incident + RCA + CAPA — xác minh từ JSON)
+- [ ] Mọi field nhạy cảm có permlevel ≠ 0 — chưa khai báo trong JSON *(Cần khảo sát)*
+- [ ] SQL injection + CSRF test pass — CSRF default ✅, SQL/inj test ⬜ Planned
+- [ ] Audit chain test pass (intact + tampered) — ⬜ Planned
+- [ ] Vendor isolation test pass — ⬜ Planned (policy documented)
+- [x] Threat model đủ 6 STRIDE với mitigation
+- [ ] Sign-off đầy đủ trước go-live — ⬜ Pending
+
+## VII. Code Quality
+- [ ] SonarQube Quality Gate pass — chưa có evidence
+- [ ] Lighthouse ≥ target — chưa có evidence
+- [ ] Bundle size ≤ budget — chưa đo
+- [ ] Screenshot báo cáo gắn vào file 09 — ⬜ Pending
