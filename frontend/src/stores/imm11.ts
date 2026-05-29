@@ -30,12 +30,19 @@ export const useImm11Store = defineStore('imm11', () => {
     page_size?: number
     status?: string
     asset?: string
+    calibration_type?: string
+    overall_result?: string
   } = {}) {
     loading.value = true
     error.value = null
     try {
+      const f: Record<string, unknown> = {}
+      if (params.status) f.status = params.status
+      if (params.asset) f.asset = params.asset
+      if (params.calibration_type) f.calibration_type = params.calibration_type
+      if (params.overall_result) f.overall_result = params.overall_result
       const res = await listCalibrations(
-        { status: params.status, asset: params.asset },
+        f,
         params.page ?? 1,
         params.page_size ?? 20,
       )

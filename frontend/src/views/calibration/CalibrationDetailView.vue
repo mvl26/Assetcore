@@ -8,6 +8,8 @@ import { uploadDocumentFile } from '@/api/imm05'
 import { useToast } from '@/composables/useToast'
 import { useCapabilities } from '@/composables/useCapabilities'
 import StatusBadge from '@/components/common/StatusBadge.vue'
+import WorkflowStepper from '@/components/common/WorkflowStepper.vue'
+import { calibrationStatusLabel } from '@/constants/labels'
 
 const props = defineProps<{ id: string }>()
 const router = useRouter()
@@ -31,6 +33,21 @@ const canManageCal = computed(() => can('calibration.cancel') || can('calibratio
 const isSubmitted = computed(() => form.value.docstatus === 1)
 const isFailed = computed(() => form.value.overall_result === 'Failed')
 const isExternal = computed(() => form.value.calibration_type === 'External')
+
+// Workflow stepper (mockup docs/fe/11-calibration/calibration-detail.html).
+// External đi qua lab; In-House đi thẳng. Terminal: Passed/Failed/Conditionally Passed.
+const calStepperSteps = computed(() => {
+  const terminal = form.value.status === 'Failed'
+    ? 'Failed'
+    : form.value.status === 'Conditionally Passed'
+      ? 'Conditionally Passed'
+      : 'Passed'
+  if (isExternal.value) {
+    return ['Scheduled', 'Sent to Lab', 'Certificate Received', terminal]
+  }
+  return ['Scheduled', 'In Progress', terminal]
+})
+
 const canSendToLab = computed(() =>
   canExecuteCal.value && isExternal.value && !isSubmitted.value &&
   (form.value.status === 'Scheduled' || form.value.status === 'In Progress'),
@@ -272,6 +289,11 @@ onMounted(load)
       </div>
     </div>
 
+    <!-- Workflow stepper -->
+    <div v-if="!loading && form.status && form.status !== 'Cancelled'" class="card p-4">
+      <WorkflowStepper :steps="calStepperSteps" :current="form.status" :label-for="calibrationStatusLabel" />
+    </div>
+
     <div v-if="err" class="alert-error">{{ err }}</div>
     <div v-if="loading" class="card p-8 text-center text-slate-400">Đang tải...</div>
 
@@ -287,7 +309,7 @@ onMounted(load)
           </div>
           <div>
             <p class="text-xs text-slate-400 mb-1">Loại hiệu chuẩn</p>
-            <p>{{ form.calibration_type }}</p>
+            <p>{{ form.calibration_type === 'External' ? 'Bên ngoài (ISO 17025)' : form.calibration_type === 'In-House' ? 'Nội bộ' : (form.calibration_type || '—') }}</p>
           </div>
           <div>
             <p class="text-xs text-slate-400 mb-1">Kỹ thuật viên</p>

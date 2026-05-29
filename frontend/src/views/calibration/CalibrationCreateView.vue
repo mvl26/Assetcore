@@ -233,8 +233,8 @@ onMounted(() => {
         <div>
           <label class="form-label">Loại hiệu chuẩn <span class="text-red-500">*</span></label>
           <select v-model="form.calibration_type" class="form-select w-full">
-            <option value="External">External (Bên ngoài)</option>
-            <option value="In-House">In-House (Nội bộ)</option>
+            <option value="External">Bên ngoài (ISO 17025)</option>
+            <option value="In-House">Nội bộ</option>
           </select>
         </div>
         <div>
