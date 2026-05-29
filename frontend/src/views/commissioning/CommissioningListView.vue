@@ -5,6 +5,8 @@ import { useCommissioningStore } from '@/stores/imm04'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
+import WorkOrderKpiStrip from '@/components/common/WorkOrderKpiStrip.vue'
+import { commissioningKpiItems, type CommissioningKpiItem } from './commissioningKpi'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar from '@/components/common/ListFilterBar.vue'
 import BasePagination from '@/components/common/BasePagination.vue'
@@ -83,7 +85,16 @@ function quickFilter(key: 'workflow_state' | 'clinical_dept', value: string) {
 
 function goToPage(page: number) { store.fetchList(cleanFilters(), page, store.pagination.page_size) }
 
-onMounted(() => store.fetchList(cleanFilters(), 1))
+// KPI strip (Core Doc docs/imm-04/06_Frontend_Design.md §3.1 · docs/fe/04-commissioning/commissioning-list.html)
+// Source: get_dashboard_stats (store.fetchDashboardStats). Display-only, reuses WorkOrderKpiStrip (IMM-08/09 pattern).
+const kpiItems = computed<CommissioningKpiItem[]>(() => commissioningKpiItems(store.dashboardStats?.kpis))
+
+onMounted(() => {
+  store.fetchList(cleanFilters(), 1)
+  // KPI fetch is non-blocking: store.fetchDashboardStats swallows its own errors
+  // (no shared error.value pollution) so a KPI failure can't hide/hijack the list.
+  store.fetchDashboardStats()
+})
 
 watch(() => route.query.workflow_state, (val) => {
   filters.value.workflow_state = (val as WorkflowState) || ''
@@ -108,6 +119,9 @@ watch(() => route.query.workflow_state, (val) => {
         </router-link>
       </template>
     </PageHeader>
+
+    <!-- KPI strip: docs/imm-04/06_Frontend_Design.md §3.1 — display summary, non-blocking fetch -->
+    <WorkOrderKpiStrip :items="kpiItems" />
 
     <ListFilterBar
       :show="showFilters"

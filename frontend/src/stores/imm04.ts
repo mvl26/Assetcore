@@ -478,18 +478,20 @@ export const useCommissioningStore = defineStore('commissioning', () => {
   // ─── Dashboard ──────────────────────────────────────────────────────────────
 
   const dashboardStats = ref<DashboardStats | null>(null)
+  const dashboardError = ref<string | null>(null)
 
+  // KPI strip lives on the list page (Core Doc docs/imm-04/06_Frontend_Design.md §3.1).
+  // It must be non-blocking: do NOT touch the shared `loading`/`error` refs, otherwise a
+  // KPI failure would hijack the list's loading skeleton / error banner. Uses its own
+  // dashboardError ref and swallows the failure (KPI strip simply renders nothing).
   async function fetchDashboardStats(): Promise<void> {
-    loading.value = true
-    error.value = null
+    dashboardError.value = null
     try {
       const res = await apiGetDashboardStats()
       if (res) dashboardStats.value = res
-      else error.value = 'Không tải được dashboard'
-    } catch (e) {
-      error.value = e instanceof Error ? e.message : 'Lỗi kết nối'
-    } finally {
-      loading.value = false
+      else dashboardError.value = 'Không tải được dashboard'
+    } catch (e: unknown) {
+      dashboardError.value = e instanceof Error ? e.message : String(e)
     }
   }
 
@@ -585,7 +587,7 @@ export const useCommissioningStore = defineStore('commissioning', () => {
     clearClinicalHold,
     approveClinicalRelease,
     setOpenNcCount,
-    dashboardStats, fetchDashboardStats,
+    dashboardStats, dashboardError, fetchDashboardStats,
     ncList, fetchNonConformances, doCloseNonConformance,
     timeline, fetchTimeline,
   }

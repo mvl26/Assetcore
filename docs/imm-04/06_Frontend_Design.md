@@ -23,6 +23,8 @@
 
 **Không có:** route riêng cho dashboard (`/imm-04/dashboard`), checklist, handover, hay documents tab — các chức năng này được tích hợp vào `CommissioningDetailView` hoặc chưa implement route riêng.
 
+> **Quyết định implement (2026-05-29):** KPI dashboard KHÔNG tách route riêng `/imm-04/dashboard`. 5 KPI (`get_dashboard_stats`) được render trực tiếp dưới dạng **KPI strip trên đầu list page `/commissioning`** (`CommissioningListView`), tái dùng `WorkOrderKpiStrip` + `KpiCard` — đồng pattern với IMM-08/09. Mỗi KPI clickable → quick-filter danh sách ngay tại chỗ. Chi tiết KPI→API field + click action xem §3.1.
+
 ---
 
 ## 2. Sidebar nav module
@@ -130,21 +132,25 @@ Lưu ảnh tại `docs/imm-04/screenshots/`:
 
 ### 3.c. Trang chi tiết theo archetype
 
-#### 3.1. Dashboard (`/imm-04/dashboard`)
+#### 3.1. KPI strip (trên đầu list page `/commissioning`)
 
-> Bám `docs/res/design/design-frontend.md §3.1`.
+> Bám `docs/res/design/design-frontend.md §3.1` và `docs/fe/04-commissioning/commissioning-list.html`. Render qua `WorkOrderKpiStrip` + `KpiCard` (pattern IMM-08/09), KHÔNG route riêng.
 
-**KPI cards:**
-| KPI | API field | Click action |
-|---|---|---|
-| Phiếu đang mở | `kpis.pending_count` | Filter list state=Open |
-| Clinical Hold | `kpis.hold_count` | Filter state=Clinical Hold |
-| NC mở | `kpis.open_nc_count` | Filter NC list |
-| Release tháng này | `kpis.released_this_month` | Filter state=Clinical Release |
-| Quá hạn SLA | `kpis.overdue_sla` | Filter overdue |
+**KPI cards (display summary — đồng pattern IMM-08/09, dùng chung `WorkOrderKpiStrip` không clickable):**
+| KPI | API field | Màu | Ghi chú |
+|---|---|---|---|
+| Phiếu đang mở | `kpis.pending_count` | primary | Tổng phiếu non-terminal |
+| Clinical Hold | `kpis.hold_count` | warning | |
+| NC mở | `kpis.open_nc_count` | danger | |
+| Release tháng này | `kpis.released_this_month` | success | |
+| Quá hạn SLA | `kpis.overdue_sla` | neutral | |
 
-**API gọi:** `get_dashboard_stats` — cache TTL 5 phút
-**State:** Loading skeleton 4 cards → hiện dữ liệu
+> Quyết định reuse: dùng `WorkOrderKpiStrip` (display-only, giống IMM-08/09) thay vì tự build card clickable — tránh sửa shared component đang dùng ở module khác. **Click-to-quick-filter là enhancement tương lai** (cần thêm param `overdue` ở list endpoint cho KPI "Quá hạn SLA" + thống nhất UX), ghi backlog, KHÔNG implement vòng này để giữ scope đóng kín.
+>
+> Mapping kpis→strip items: hàm thuần `commissioningKpiItems()` (`views/commissioning/commissioningKpi.ts`, có vitest `commissioningKpi.test.ts`).
+
+**API gọi:** `get_dashboard_stats` (store `fetchDashboardStats`) — fetch song song với `fetchList` trong `onMounted`.
+**State:** strip ẩn khi chưa có dữ liệu (`v-if="items.length"`). KPI fetch **non-blocking**: dùng `dashboardError` riêng, KHÔNG đụng `error`/`loading` của list (KPI lỗi không che list skeleton/banner).
 
 #### 3.2. List (`/imm-04`)
 
