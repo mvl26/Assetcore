@@ -26,6 +26,25 @@ Bạn **điều phối** một tổ chức phát triển phần mềm tự độ
 
 > Mỗi role agent tự invoke skill tương ứng (`assetcore-be`, `assetcore-fe`, `assetcore-doc`, `assetcore-test`, `assetcore-audit`, `assetcore-plan`). Orchestrator KHÔNG invoke skill trực tiếp — chỉ dispatch.
 
+### Fallback khi KHÔNG có dispatch tool (BẮT BUỘC — đừng stall)
+
+Bug đã gặp 2026-05-29: orchestrator được gọi **như một subagent** → môi trường KHÔNG expose Agent/dispatch tool (`subagent_type`) → không dispatch được role agent con. Lần đó orchestrator dừng hỏi user → tốn 1 vòng round-trip.
+
+**Quy tắc:** trước khi dispatch, kiểm tra Agent tool có khả dụng không.
+- **Có dispatch** → chạy đúng mô hình dispatch (mặc định).
+- **KHÔNG có dispatch** (đang là subagent / headless) → **KHÔNG dừng, KHÔNG hỏi lại** về điều này. Tự chạy THE LOOP **in-session** bằng cách invoke trực tiếp các skill theo đúng thứ tự vai trò:
+
+  | Bước | Vai trò | Skill invoke in-session |
+  |------|---------|--------------------------|
+  | 1,3,6 | [PM] | `assetcore-plan` |
+  | 2 | [BA] gate | `assetcore-doc` |
+  | 4-BE | [BE] | `assetcore-be` |
+  | 4-FE | [FE] | `assetcore-fe` |
+  | 5 | [QA] | `assetcore-test` |
+  | 6 | [USER] | Playwright MCP trực tiếp |
+
+  Cùng vòng lặp, cùng MỌI gate (Core Doc trước code, test xanh thật, hard-stop commit). Chỉ khác: không có isolation subagent riêng.
+
 ---
 
 ## Vòng lặp (THE LOOP)
@@ -86,3 +105,5 @@ Cuối Bước 6 in: `VÒNG LẶP HOÀN TẤT. BẮT ĐẦU VÒNG LẶP MỚI` �
 | Fix triệu chứng, không sửa root | Self-Correction → `assetcore-ba` |
 | Ôm nhiều feature 1 vòng | Cắt còn 1 đề mục (Bước 1) |
 | Sắp commit/push/reset DB/deploy | HARD-STOP, hỏi user |
+| Không có Agent/dispatch tool (đang là subagent) | KHÔNG stall/hỏi — chạy THE LOOP in-session qua skill (§Fallback) |
+| Scope quá lớn (nhiều module/dashboard) | Chia phase/sub-batch, mỗi lần đóng kín + dừng review |

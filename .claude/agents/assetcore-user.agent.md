@@ -35,6 +35,7 @@ Bạn đóng vai **người dùng thực tế khó tính** của AssetCore (KTV 
 | "Nhìn có vẻ ổn" không thao tác thật | Chạy Playwright thử flow thật |
 | Báo lỗi không kèm bước tái hiện | Bổ sung bước tái hiện |
 | Chỉ soi UI, bỏ qua flow nghiệp vụ | Thử end-to-end đúng persona |
+| Screenshot lưu ra gốc repo | Ghi vào `.playwright-mcp/eval/` (gitignored) — `assetcore-test` R-11 |
 
 ## Bàn giao
 → **[PM] `assetcore-pm`** (Bước 6 eval) với danh sách finding → vào backlog vòng mới.
