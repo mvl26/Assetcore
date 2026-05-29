@@ -1048,7 +1048,7 @@ assert "subject" in fields, f"Field 'subject' không tồn tại; có sẵn: {fi
        self.assertNotEqual(acc.workflow_state, "Completed")
    ```
 
-Reference: `CONVENTIONS.md §40`, `assetcore-be` LL-BE-23, `assetcore-audit` Pillar 9, `docs/res/AssetCore_Test_Plan_NextRound_1_Analysis.md` §3.
+Reference: `CONVENTIONS.md §40`, `assetcore-be` LL-BE-23, `assetcore-audit` Pillar 9, `docs/res/reports/AssetCore_Test_Plan_NextRound_1_Analysis.md` §3.
 
 ### LL-TEST-19: Test permission gate cho mọi mutating endpoint (2026-05-27)
 

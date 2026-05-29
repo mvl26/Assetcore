@@ -14,7 +14,7 @@ description: >
 
 # AssetCore Import Feature — Development Guide
 
-> Chiến lược đầy đủ tại `docs/res/import-strategy.md`.
+> Chiến lược đầy đủ tại `docs/res/guides/import-strategy.md`.
 > Skill này là rulebook khi implement — đọc strategy doc trước, áp dụng rules ở đây.
 
 ---
@@ -1076,7 +1076,7 @@ Wave 4 (cuối — phụ thuộc tất cả):
 
 ## Tham chiếu
 
-- Chiến lược đầy đủ: `docs/res/import-strategy.md`
+- Chiến lược đầy đủ: `docs/res/guides/import-strategy.md`
 - Template files: `assetcore/public/import_templates/`
 - Template generator: `docs/imports/generate_templates.py`
 - Frappe file_manager: `frappe.utils.file_manager.save_file`

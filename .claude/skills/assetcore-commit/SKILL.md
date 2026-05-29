@@ -166,7 +166,7 @@ git commit \
 # Commit 2 — feature lớn (gộp BE+FE+docs cùng feature)
 git add assetcore/api/import_data.py assetcore/api/import_helpers.py \
         frontend/src/api/importData.ts frontend/src/views/ReferenceDataView.vue \
-        public/import_templates/ docs/import-strategy.md
+        public/import_templates/ docs/res/guides/import-strategy.md
 git commit \
   -m "feat(import): add bulk import/export for reference data" \
   -m "- BE: 6 endpoints (preview/import/export/template)
