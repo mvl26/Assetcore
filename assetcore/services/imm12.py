@@ -26,11 +26,12 @@ Business Rules:
 from __future__ import annotations
 
 import frappe
-from frappe import _
 from frappe.utils import add_days, now_datetime, nowdate, today
 
 from assetcore.repositories.repair_repo import IncidentRepo, RCARepo
 from assetcore.services import imm00 as svc00
+from assetcore.utils.notify import nthrow, nthrow_in_hook
+from assetcore.utils.messages import MSG
 
 _DT_INCIDENT = "Incident Report"
 _DT_RCA = "IMM RCA Record"
@@ -73,35 +74,26 @@ _RCA_DUE_CHRONIC = 14
 _ORDER_REPORTED_AT = "reported_at desc"
 
 
-class IncidentError(Exception):
-    def __init__(self, message: str, code: int = 422) -> None:
-        super().__init__(message)
-        self.message = message
-        self.code = code
-
-
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
 def _get_incident(name: str) -> "frappe.Document":
     doc = IncidentRepo.get(name)
     if not doc:
-        raise IncidentError(_("Không tìm thấy Incident Report: {0}").format(name), 404)
+        nthrow(MSG.IMM12_INCIDENT_NOT_FOUND, name=name)
     return doc
 
 
 def _get_rca(name: str) -> "frappe.Document":
     doc = RCARepo.get(name)
     if not doc:
-        raise IncidentError(_("Không tìm thấy RCA Record: {0}").format(name), 404)
+        nthrow(MSG.IMM12_RCA_NOT_FOUND, name=name)
     return doc
 
 
 def _assert_transition(doc: "frappe.Document", to_status: str) -> None:
     allowed = _VALID_TRANSITIONS.get(doc.status, [])
     if to_status not in allowed:
-        raise IncidentError(
-            _("Không thể chuyển từ '{0}' sang '{1}'").format(doc.status, to_status), 409,
-        )
+        nthrow(MSG.IMM12_BAD_STATE, from_state=doc.status, to_state=to_status)
 
 
 def _log(name: str, asset: str, summary: str, from_status: str, to_status: str) -> None:
@@ -189,9 +181,9 @@ def report_incident(
 ) -> dict:
     """Tạo Incident Report. BR-12-01: Critical → clinical_impact bắt buộc."""
     if severity == _SEV_CRITICAL and not clinical_impact.strip():
-        raise IncidentError(_("Incident Critical bắt buộc nhập clinical_impact."), 422)
+        nthrow(MSG.IMM12_CLINICAL_IMPACT_REQUIRED)
     if not frappe.db.exists(_DT_ASSET, asset):
-        raise IncidentError(_("Asset không tồn tại: {0}").format(asset), 404)
+        nthrow(MSG.IMM12_ASSET_NOT_FOUND, asset=asset)
 
     actor = reported_by or frappe.session.user
     doc = frappe.new_doc(_DT_INCIDENT)
@@ -285,7 +277,7 @@ def resolve_incident(name: str, resolution_notes: str, root_cause: str = "") -> 
     _assert_transition(doc, _STATUS_RESOLVED)
 
     if not resolution_notes.strip():
-        raise IncidentError(_("Bắt buộc nhập ghi chú giải quyết (resolution_notes)."), 422)
+        nthrow(MSG.IMM12_RESOLUTION_NOTES_REQUIRED)
 
     actor = frappe.session.user
     prev = doc.status
@@ -328,17 +320,10 @@ def close_incident(name: str, verification_notes: str = "") -> dict:
         if rca_name:
             rca_status = frappe.db.get_value(_DT_RCA, rca_name, "status")
             if rca_status != _RCA_COMPLETED:
-                raise IncidentError(
-                    _("Không thể đóng sự cố {0} khi RCA ({1}) chưa hoàn thành.").format(
-                        doc.severity, rca_name,
-                    ), 422,
-                )
+                nthrow(MSG.IMM12_CLOSE_RCA_INCOMPLETE,
+                       severity=doc.severity, rca=rca_name)
         else:
-            raise IncidentError(
-                _("Sự cố {0} yêu cầu RCA trước khi đóng. Vui lòng tạo và hoàn thành RCA.").format(
-                    doc.severity,
-                ), 422,
-            )
+            nthrow(MSG.IMM12_CLOSE_RCA_REQUIRED, severity=doc.severity)
 
     actor = frappe.session.user
     prev = doc.status
@@ -366,7 +351,7 @@ def cancel_incident(name: str, reason: str) -> dict:
     doc = _get_incident(name)
     _assert_transition(doc, _STATUS_CANCELLED)
     if not reason.strip():
-        raise IncidentError(_("Bắt buộc nhập lý do hủy."), 422)
+        nthrow(MSG.IMM12_CANCEL_REASON_REQUIRED)
 
     prev = doc.status
     doc.status = _STATUS_CANCELLED
@@ -384,7 +369,7 @@ def create_rca(incident_name: str, rca_method: str = "5-Why") -> dict:
     """Tạo RCA Record liên kết Incident. Idempotent — raise 409 nếu đã có."""
     doc = _get_incident(incident_name)
     if doc.rca_record and frappe.db.exists(_DT_RCA, doc.rca_record):
-        raise IncidentError(_("Incident đã có RCA Record: {0}").format(doc.rca_record), 409)
+        nthrow(MSG.IMM12_RCA_ALREADY_EXISTS, rca=doc.rca_record)
 
     trigger = "Critical Incident" if doc.severity == _SEV_CRITICAL else "Major Incident"
     due_days = _RCA_DUE_MAJOR
@@ -475,11 +460,11 @@ def submit_rca(
     """Hoàn thành RCA → auto tạo CAPA. BR-12-07."""
     rca = _get_rca(name)
     if rca.status == _RCA_COMPLETED:
-        raise IncidentError(_("RCA đã hoàn thành."), 409)
+        nthrow(MSG.IMM12_RCA_ALREADY_COMPLETED)
     if not root_cause.strip():
-        raise IncidentError(_("Bắt buộc nhập nguyên nhân gốc rễ (root_cause)."), 422)
+        nthrow(MSG.IMM12_RCA_ROOT_CAUSE_REQUIRED)
     if not corrective_action.strip():
-        raise IncidentError(_("Bắt buộc nhập hành động khắc phục (corrective_action)."), 422)
+        nthrow(MSG.IMM12_RCA_CORRECTIVE_REQUIRED)
 
     actor = frappe.session.user
     rca.status = _RCA_COMPLETED
@@ -885,18 +870,11 @@ def validate_incident_close_gate(doc, method: str | None = None) -> None:
         return  # User đã thủ công gỡ requires_rca (admin override) — không chặn
     rca_name = doc.get("rca_record")
     if not rca_name:
-        frappe.throw(
-            _("Sự cố mức {0} bắt buộc phải có RCA hoàn tất trước khi đóng "
-              "(NEG-11). Vui lòng tạo và hoàn thành RCA Record."
-             ).format(severity)
-        )
+        nthrow_in_hook(MSG.IMM12_CLOSE_RCA_REQUIRED, severity=severity)
     rca_status = frappe.db.get_value(_DT_RCA, rca_name, "status")
     if rca_status != _RCA_COMPLETED:
-        frappe.throw(
-            _("Không thể đóng sự cố {0} (severity={1}): RCA {2} đang ở "
-              "trạng thái '{3}', yêu cầu 'Completed' (NEG-11)."
-             ).format(doc.name, severity, rca_name, rca_status or "—")
-        )
+        nthrow_in_hook(MSG.IMM12_CLOSE_RCA_INCOMPLETE,
+                       severity=severity, rca=rca_name)
 
 
 def _try_transition_asset(

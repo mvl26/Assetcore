@@ -203,6 +203,8 @@ class TestPMWorkOrder(unittest.TestCase):
                 "due_date": add_days(nowdate(), 7),
             })
         self.assertEqual(cm.exception.code, ErrorCode.NOT_FOUND)
+        # Notification contract — service raise qua nthrow → có message_code.
+        self.assertEqual(cm.exception.message_code, "IMM08-SCHEDULE-NOT-FOUND")
 
     def test_asset_mismatch_raises_validation(self):
         other_asset = _make_asset("-other")
@@ -474,3 +476,108 @@ class TestLLBE1PMStats417(unittest.TestCase):
         )
         resp = wrapped()
         self.assertIsInstance(resp, dict)
+
+
+class TestNotificationContract(unittest.TestCase):
+    """Sprint Notification vòng 3 — IMM-08 raise qua nthrow/nthrow_in_hook.
+
+    Bất biến (docs/imm-08 §11): mọi business error có message_code; API envelope
+    hydrate severity/title/action_hint qua api_handler.handle().
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.cat = _ensure_cat("_TestCatIMM08Notify")
+        cls.asset = _make_asset("-notify")
+        cls.asset.asset_category = cls.cat
+        cls.asset.save(ignore_permissions=True)
+        tmpl = _make_template(cls.cat)
+        cls.template_name = tmpl["name"]
+        sched = _make_schedule(cls.asset.name, cls.template_name)
+        cls.schedule_name = sched["name"]
+
+    @classmethod
+    def tearDownClass(cls):
+        for wo in frappe.get_all(
+            "PM Work Order", filters={"asset_ref": cls.asset.name}, fields=["name"]
+        ):
+            d = frappe.get_doc("PM Work Order", wo.name)
+            if d.docstatus == 1:
+                d.cancel()
+            frappe.delete_doc("PM Work Order", wo.name, force=True, ignore_permissions=True)
+        frappe.delete_doc("PM Schedule", cls.schedule_name, force=True, ignore_permissions=True)
+        frappe.delete_doc(
+            "PM Checklist Template", cls.template_name, force=True, ignore_permissions=True
+        )
+        purge_asset(cls.asset.name)
+        cat_name = frappe.db.get_value(
+            "AC Asset Category", {"category_name": "_TestCatIMM08Notify"}, "name"
+        )
+        if cat_name:
+            frappe.delete_doc("AC Asset Category", cat_name, force=True, ignore_permissions=True)
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+
+    def _make_wo(self):
+        res = create_adhoc_work_order({
+            "asset_ref": self.asset.name,
+            "pm_schedule": self.schedule_name,
+            "due_date": add_days(nowdate(), 7),
+            "assigned_to": "Administrator",
+        })
+        frappe.db.commit()
+        return res["name"]
+
+    # ── service-layer nthrow → message_code ───────────────────────────────────
+
+    def test_get_work_order_not_found_has_message_code(self):
+        from assetcore.services.imm08 import get_work_order
+        with self.assertRaises(ServiceError) as cm:
+            get_work_order("PM-WO-DOES-NOT-EXIST")
+        self.assertEqual(cm.exception.code, ErrorCode.NOT_FOUND)
+        self.assertEqual(cm.exception.message_code, "IMM08-WO-NOT-FOUND")
+
+    def test_template_not_found_has_message_code(self):
+        from assetcore.services.imm08 import get_template
+        with self.assertRaises(ServiceError) as cm:
+            get_template("TMPL-DOES-NOT-EXIST")
+        self.assertEqual(cm.exception.message_code, "IMM08-TEMPLATE-NOT-FOUND")
+
+    def test_assign_bad_state_has_message_code(self):
+        from assetcore.services.imm08 import assign_technician
+        wo_name = self._make_wo()
+        # assign lần 1: Open → In Progress; assign lần 2 → BAD_STATE (không OPEN/OVERDUE)
+        assign_technician(wo_name, technician="Administrator")
+        frappe.db.commit()
+        with self.assertRaises(ServiceError) as cm:
+            assign_technician(wo_name, technician="Administrator")
+        # bucket .code suy từ http_status 409 (CONFLICT); contract dựa message_code.
+        self.assertEqual(cm.exception.message_code, "IMM08-BAD-STATE")
+
+    def test_already_submitted_has_message_code(self):
+        from assetcore.services.imm08 import submit_result
+        wo_name = self._make_wo()
+        results = [
+            {"idx": r.idx, "result": "Pass"}
+            for r in frappe.get_doc("PM Work Order", wo_name).checklist_results or []
+        ]
+        submit_result(wo_name, checklist_results=results, overall_result="Pass",
+                      pm_sticker_attached=1, duration_minutes=30)
+        frappe.db.commit()
+        with self.assertRaises(ServiceError) as cm:
+            submit_result(wo_name, checklist_results=results, overall_result="Pass",
+                          pm_sticker_attached=1, duration_minutes=30)
+        self.assertEqual(cm.exception.message_code, "IMM08-ALREADY-SUBMITTED")
+
+    # ── API envelope hydration ─────────────────────────────────────────────────
+
+    def test_api_envelope_hydrates_notification_fields(self):
+        from assetcore.api.imm08 import get_pm_work_order
+        resp = get_pm_work_order("PM-WO-DOES-NOT-EXIST")
+        self.assertFalse(resp["success"])
+        self.assertEqual(resp["message_code"], "IMM08-WO-NOT-FOUND")
+        self.assertEqual(resp["severity"], "warning")
+        self.assertTrue(resp["title"])
+        self.assertTrue(resp["action_hint"])

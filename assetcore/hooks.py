@@ -218,12 +218,30 @@ doc_events = {
     "PM Work Order": {
         "validate": "assetcore.services.imm16.gate_wo_submit",
         "before_submit": "assetcore.services.imm15.reserve_for_pm",
-        "on_submit": "assetcore.services.imm16.eval_imm08_09_realtime",
+        "on_update": [
+            # Notification Framework (Wave N1): gán KTV + chuyển state cần duyệt
+            "assetcore.services.notifications.notify_assignment",
+            "assetcore.services.notifications.notify_approval_pending",
+            # Vòng 7 — E5: chuyển VÀO state nguy cấp (Halted–Major Failure) → báo
+            # supervisor + role quản trị can thiệp (§III.1b-5).
+            "assetcore.services.notifications.notify_escalation",
+        ],
+        "on_submit": [
+            "assetcore.services.imm16.eval_imm08_09_realtime",
+            "assetcore.services.notifications.notify_assignment",
+        ],
     },
     "Asset Repair": {
         "validate": "assetcore.services.imm16.gate_wo_submit",
         "before_submit": "assetcore.services.imm15.reserve_for_repair",
-        "on_submit": "assetcore.services.imm16.eval_imm08_09_realtime",
+        "on_update": [
+            "assetcore.services.notifications.notify_assignment",
+            "assetcore.services.notifications.notify_approval_pending",
+        ],
+        "on_submit": [
+            "assetcore.services.imm16.eval_imm08_09_realtime",
+            "assetcore.services.notifications.notify_assignment",
+        ],
     },
     "AC Asset": {
         "after_insert": [
@@ -236,6 +254,8 @@ doc_events = {
     # ─── IMM-12 NEG-11: chặn đóng Incident High/Critical chưa có RCA Completed ───
     "Incident Report": {
         "validate": "assetcore.services.imm12.validate_incident_close_gate",
+        # Notification Framework (vòng 3 — E3): Incident mới tạo → báo người phụ trách.
+        "after_insert": "assetcore.services.notifications.notify_incident_created",
     },
     # ─── IMM-16 Compliance real-time evaluation ───
     "Asset Document": {
@@ -319,6 +339,8 @@ scheduler_events = {
     "hourly": [
         # IMM-16 real-time stock breach evaluation
         "assetcore.services.imm16.run_compliance_evaluation_hourly",
+        # E6 — Notification SLA breach/warning scan (IMM-09 Asset Repair, vòng 8)
+        "assetcore.services.notifications.run_sla_breach_scan",
     ],
     # Frappe v15 không có "quarterly" → dùng cron expression
     "cron": {

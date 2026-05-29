@@ -7,7 +7,6 @@ import json
 from typing import Any
 
 import frappe
-from frappe import _
 from frappe.utils import (
     add_days,
     get_datetime,
@@ -20,12 +19,10 @@ from assetcore.repositories.asset_repo import AssetRepo
 from assetcore.repositories.repair_repo import FirmwareChangeRequestRepo, RepairRepo
 from assetcore.services.imm00 import transition_asset_status
 from assetcore.utils.lifecycle import create_lifecycle_event as _create_lifecycle_event
-from assetcore.services.shared import (
-    AssetStatus,
-    ErrorCode,
-    ServiceError,
-)
+from assetcore.services.shared import AssetStatus
 from assetcore.services.shared import rbac
+from assetcore.utils.notify import nthrow, nthrow_in_hook
+from assetcore.utils.messages import MSG
 
 
 # ─── Constants riêng cho IMM-09 ───────────────────────────────────────────────
@@ -86,9 +83,11 @@ def validate_repair_source(doc) -> None:
     """
     source_type = (getattr(doc, "source_type", "") or "").strip()
     if source_type == "Incident" and not doc.incident_report:
-        frappe.throw(_("source_type=Incident yêu cầu liên kết Incident Report"))
+        nthrow_in_hook(MSG.IMM09_SOURCE_REQUIRED,
+                       source_type="Incident", required_doc="Incident Report")
     if source_type == "PM" and not doc.source_pm_wo:
-        frappe.throw(_("source_type=PM yêu cầu liên kết PM Work Order gốc"))
+        nthrow_in_hook(MSG.IMM09_SOURCE_REQUIRED,
+                       source_type="PM", required_doc="PM Work Order gốc")
 
 
 def validate_asset_not_under_repair(asset_ref: str) -> None:
@@ -103,7 +102,7 @@ def validate_asset_not_under_repair(asset_ref: str) -> None:
              "docstatus": ("!=", 2)},
             fields=["name"],
         )
-        frappe.throw(_(f"Thiết bị đang có WO sửa chữa đang mở: {existing['name']}"))
+        nthrow_in_hook(MSG.IMM09_ASSET_HAS_OPEN_WO, existing=existing["name"])
 
 
 def check_repeat_failure(asset_ref: str) -> bool:
@@ -121,9 +120,11 @@ def validate_spare_parts_stock_entries(doc) -> None:
     """BR-09-02: Mỗi dòng Spare Parts phải có stock_entry_ref trỏ đến AC Stock Movement."""
     for row in (doc.spare_parts_used or []):
         if not row.stock_entry_ref:
-            frappe.throw(_(f"Vật tư '{row.item_name}' (dòng {row.idx}) thiếu phiếu xuất kho"))
+            nthrow_in_hook(MSG.IMM09_SPARE_NO_STOCK_ENTRY,
+                           item_name=row.item_name, idx=row.idx)
         if not frappe.db.exists("AC Stock Movement", row.stock_entry_ref):
-            frappe.throw(_(f"Phiếu xuất kho '{row.stock_entry_ref}' không tồn tại"))
+            nthrow_in_hook(MSG.IMM09_STOCK_ENTRY_NOT_FOUND,
+                           stock_entry_ref=row.stock_entry_ref)
 
 
 def validate_firmware_change_request(doc) -> None:
@@ -131,21 +132,25 @@ def validate_firmware_change_request(doc) -> None:
     if not doc.firmware_updated:
         return
     if not doc.firmware_change_request:
-        frappe.throw(_("Cập nhật firmware yêu cầu phải có Firmware Change Request được phê duyệt"))
+        nthrow_in_hook(MSG.IMM09_FCR_REQUIRED)
     fcr_status = FirmwareChangeRequestRepo.get_value(doc.firmware_change_request, "status")
     if fcr_status != "Approved":
-        frappe.throw(_(f"FCR '{doc.firmware_change_request}' chưa được phê duyệt (status: {fcr_status})"))
+        nthrow_in_hook(MSG.IMM09_FCR_NOT_APPROVED,
+                       fcr=doc.firmware_change_request, status=fcr_status)
 
 
 def validate_repair_checklist_complete(doc) -> None:
     """BR-09-04: Tất cả Repair Checklist phải Pass trước Submit."""
     if not doc.repair_checklist:
-        frappe.throw(_("Phải điền Repair Checklist trước khi hoàn thành sửa chữa"))
+        nthrow_in_hook(MSG.IMM09_CHECKLIST_INCOMPLETE,
+                       idx=0, test_description="Repair Checklist")
     for row in doc.repair_checklist:
         if not row.result:
-            frappe.throw(_(f"Mục kiểm tra #{row.idx} '{row.test_description}' chưa điền kết quả"))
+            nthrow_in_hook(MSG.IMM09_CHECKLIST_INCOMPLETE,
+                           idx=row.idx, test_description=row.test_description)
         if row.result == "Fail":
-            frappe.throw(_(f"Mục kiểm tra #{row.idx} '{row.test_description}' chưa Pass — không thể hoàn thành"))
+            nthrow_in_hook(MSG.IMM09_CHECKLIST_FAILED,
+                           idx=row.idx, test_description=row.test_description)
 
 
 # ─── Asset state transitions ─────────────────────────────────────────────────
@@ -366,7 +371,7 @@ def list_work_orders(filters: dict, *, page: int = 1, page_size: int = 20) -> di
 def get_work_order(name: str) -> dict:
     doc = RepairRepo.get(name)
     if not doc:
-        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy WO: {name}")
+        nthrow(MSG.IMM09_NOT_FOUND, name=name)
     data = doc.as_dict()
     asset_info = AssetRepo.get_value(
         doc.asset_ref,
@@ -409,17 +414,14 @@ def create_work_order(*, asset_ref: str, repair_type: str, priority: str,
     asset_data = AssetRepo.get_value(
         asset_ref, ["asset_name", "risk_classification"], as_dict=True)
     if not asset_data:
-        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy thiết bị: {asset_ref}")
+        nthrow(MSG.IMM09_ASSET_NOT_FOUND, asset=asset_ref)
 
     open_wo = RepairRepo.find_one(
         {"asset_ref": asset_ref, "status": ["not in", list(RepairStatus.CANNOT_START)]},
         fields=["name"],
     )
     if open_wo:
-        raise ServiceError(
-            ErrorCode.CONFLICT,
-            f"CM-002: Thiết bị đang có phiếu sửa chữa đang mở: {open_wo['name']}",
-        )
+        nthrow(MSG.IMM09_ASSET_HAS_OPEN_WO, existing=open_wo["name"])
 
     _risk_map = {"Low": RiskClass.I, "Medium": RiskClass.II, "High": RiskClass.III, "Critical": RiskClass.III}
     risk_class_raw = asset_data.get("risk_classification") or ""
@@ -459,10 +461,9 @@ def assign_technician(name: str, *, technician: str, priority: str = "") -> dict
     rbac.require("repair.create")
     doc = RepairRepo.get(name)
     if not doc:
-        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy WO: {name}")
+        nthrow(MSG.IMM09_NOT_FOUND, name=name)
     if doc.status != RepairStatus.OPEN:
-        raise ServiceError(ErrorCode.BAD_STATE,
-                           f"Không thể phân công ở trạng thái {doc.status}")
+        nthrow(MSG.IMM09_BAD_STATE, state=doc.status, expected=RepairStatus.OPEN)
     doc.assigned_to = technician
     doc.assigned_by = frappe.session.user
     doc.assigned_datetime = now_datetime()
@@ -478,10 +479,10 @@ def submit_diagnosis(name: str, *, diagnosis_notes: str, needs_parts: int = 0) -
     rbac.require("repair.create")
     doc = RepairRepo.get(name)
     if not doc:
-        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy WO: {name}")
+        nthrow(MSG.IMM09_NOT_FOUND, name=name)
     if doc.status not in (RepairStatus.ASSIGNED, RepairStatus.DIAGNOSING):
-        raise ServiceError(ErrorCode.BAD_STATE,
-                           f"Không thể nộp chẩn đoán ở trạng thái {doc.status}")
+        nthrow(MSG.IMM09_BAD_STATE, state=doc.status,
+               expected="Assigned/Diagnosing")
     doc.diagnosis_notes = diagnosis_notes
     doc.status = RepairStatus.PENDING_PARTS if int(needs_parts) else RepairStatus.IN_REPAIR
     doc.flags.ignore_links = True
@@ -498,10 +499,10 @@ def start_repair(name: str) -> dict:
     rbac.require("repair.create")
     doc = RepairRepo.get(name)
     if not doc:
-        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy WO: {name}")
+        nthrow(MSG.IMM09_NOT_FOUND, name=name)
     if doc.status not in (RepairStatus.ASSIGNED, RepairStatus.DIAGNOSING, RepairStatus.PENDING_PARTS):
-        raise ServiceError(ErrorCode.BAD_STATE,
-                           f"Không thể bắt đầu sửa chữa ở trạng thái {doc.status}")
+        nthrow(MSG.IMM09_BAD_STATE, state=doc.status,
+               expected="Assigned/Diagnosing/Pending Parts")
     doc.status = RepairStatus.IN_REPAIR
     doc.flags.ignore_links = True
     RepairRepo.save(doc)
@@ -512,7 +513,7 @@ def request_spare_parts(name: str, parts: list[dict]) -> dict:
     rbac.require("repair.create")
     doc = RepairRepo.get(name)
     if not doc:
-        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy WO: {name}")
+        nthrow(MSG.IMM09_NOT_FOUND, name=name)
     updated = 0
     for part in parts:
         for row in doc.spare_parts_used:
@@ -570,23 +571,22 @@ def close_work_order(name: str, *, repair_summary: str, root_cause_category: str
     rbac.require("repair.create")
     doc = RepairRepo.get(name)
     if not doc:
-        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy WO: {name}")
+        nthrow(MSG.IMM09_NOT_FOUND, name=name)
 
     if int(cannot_repair):
         if doc.status not in (RepairStatus.IN_REPAIR, RepairStatus.DIAGNOSING,
                               RepairStatus.PENDING_PARTS, RepairStatus.ASSIGNED):
-            raise ServiceError(
-                ErrorCode.BAD_STATE,
-                f"Không thể đánh dấu 'Không thể sửa' ở trạng thái '{doc.status}'",
-            )
+            nthrow(MSG.IMM09_BAD_STATE, state=doc.status,
+                   expected="In Repair/Diagnosing/Pending Parts/Assigned")
         return _mark_cannot_repair(doc, name, cannot_repair_reason)
 
     if doc.status != RepairStatus.IN_REPAIR:
-        raise ServiceError(
-            ErrorCode.BAD_STATE,
-            f"Chỉ hoàn thành sửa chữa được từ trạng thái 'In Repair'. "
-            f"Hiện tại: '{doc.status}'",
-        )
+        nthrow(MSG.IMM09_BAD_STATE, state=doc.status,
+               expected=RepairStatus.IN_REPAIR)
+
+    # CM-013: hoàn thành (không phải 'không thể sửa') bắt buộc người nghiệm thu
+    if not (dept_head_name or "").strip():
+        nthrow(MSG.IMM09_DEPT_HEAD_REQUIRED)
 
     doc.repair_summary = repair_summary
     doc.root_cause_category = root_cause_category
@@ -630,13 +630,10 @@ def confirm_inspection(name: str) -> dict:
     rbac.require("repair.submit")
     doc = RepairRepo.get(name)
     if not doc:
-        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy WO: {name}")
+        nthrow(MSG.IMM09_NOT_FOUND, name=name)
     if doc.status != RepairStatus.PENDING_INSPECTION:
-        raise ServiceError(
-            ErrorCode.BAD_STATE,
-            f"Chỉ nghiệm thu được từ trạng thái 'Pending Inspection'. "
-            f"Hiện tại: '{doc.status}'",
-        )
+        nthrow(MSG.IMM09_BAD_STATE, state=doc.status,
+               expected=RepairStatus.PENDING_INSPECTION)
 
     doc.dept_head_confirmation_datetime = now_datetime()
     doc.flags.ignore_links = True

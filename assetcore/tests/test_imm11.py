@@ -267,3 +267,79 @@ class TestLLBE1CalKpis417(unittest.TestCase):
         )
         resp = wrapped()
         self.assertIsInstance(resp, dict)
+
+
+class TestImm11NotificationContract(unittest.TestCase):
+    """Sprint Notification vòng 4 — service raise nthrow(MSG.IMM11_*) carry
+    message_code; api_handler.handle() hydrate severity/title/action_hint.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.asset = _make_asset("-notif")
+
+    @classmethod
+    def tearDownClass(cls):
+        for cal in frappe.get_all(
+            "IMM Asset Calibration", filters={"asset": cls.asset.name}, fields=["name"]
+        ):
+            frappe.db.delete("IMM Calibration Measurement", {"parent": cal.name})
+            frappe.db.delete("IMM Asset Calibration", {"name": cal.name})
+        _purge_asset_with_deps(cls.asset.name)
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+
+    def test_service_error_carries_message_code(self):
+        """create_calibration với asset không tồn tại → ServiceError có
+        message_code = IMM11-ASSET-NOT-FOUND."""
+        from assetcore.utils.messages import MSG
+        with self.assertRaises(ServiceError) as cm:
+            create_calibration(
+                asset="DOES-NOT-EXIST-NOTIF",
+                calibration_type="In-House",
+                scheduled_date=nowdate(),
+                technician="Administrator",
+            )
+        self.assertEqual(cm.exception.message_code, MSG.IMM11_ASSET_NOT_FOUND)
+        self.assertEqual(cm.exception.code, ErrorCode.NOT_FOUND)
+
+    def test_cancel_reason_required_message_code(self):
+        from assetcore.utils.messages import MSG
+        res = create_calibration(
+            asset=self.asset.name, calibration_type="In-House",
+            scheduled_date=add_days(nowdate(), 7), technician="Administrator",
+            reference_standard_serial="STD-TEST-001",
+        )
+        frappe.db.commit()
+        with self.assertRaises(ServiceError) as cm:
+            cancel_calibration(res["name"], reason="")
+        self.assertEqual(cm.exception.message_code, MSG.IMM11_CANCEL_REASON_REQUIRED)
+
+    def test_api_envelope_hydrates_notification_fields(self):
+        """api.imm11.get_calibration với mã không tồn tại → envelope đủ
+        message_code + severity + title (hydrate qua handle())."""
+        from assetcore.api.imm11 import get_calibration
+        resp = get_calibration("CAL-NO-SUCH-RECORD-99999")
+        self.assertFalse(resp["success"])
+        self.assertEqual(resp["message_code"], "IMM11-CAL-NOT-FOUND")
+        self.assertEqual(resp["severity"], "warning")
+        self.assertTrue(resp.get("title"))
+        self.assertTrue(resp.get("action_hint"))
+
+    def test_doctype_hook_uses_nthrow_in_hook(self):
+        """before_submit không có measurement → ValidationError (417) với
+        message_code đính kèm response (nthrow_in_hook)."""
+        from assetcore.services.imm11 import submit_calibration
+        res = create_calibration(
+            asset=self.asset.name, calibration_type="In-House",
+            scheduled_date=add_days(nowdate(), 9), technician="Administrator",
+            reference_standard_serial="STD-TEST-001",
+        )
+        frappe.db.commit()
+        with self.assertRaises(frappe.ValidationError):
+            submit_calibration(res["name"])
+        self.assertEqual(
+            frappe.local.response.get("message_code"), "IMM11-NO-MEASUREMENTS"
+        )

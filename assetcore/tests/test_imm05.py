@@ -238,7 +238,10 @@ class TestRejectDocument(unittest.TestCase):
         frappe.db.set_value("Asset Document", name, "workflow_state", DocState.PENDING_REVIEW)
         with self.assertRaises(ServiceError) as ctx:
             reject_document(name, "")
-        self.assertEqual(ctx.exception.code, "VALIDATION")
+        # Notification contract vòng 5: VR-06 raise qua nthrow(MSG.IMM05_REJECT_REASON_REQUIRED)
+        # http_status 422 → ErrorCode bucket BUSINESS_RULE (warning UX). message_code chốt contract.
+        self.assertEqual(ctx.exception.code, "BUSINESS_RULE")
+        self.assertEqual(ctx.exception.message_code, "IMM05-REJECT-REASON-REQUIRED")
 
     def test_reject_pending_review_succeeds(self):
         name = _make_doc(self.asset, DocState.DRAFT)

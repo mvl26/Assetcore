@@ -19,6 +19,8 @@ from assetcore.repositories.pm_repo import (
 from assetcore.repositories.repair_repo import RepairRepo
 from assetcore.services.shared import AssetStatus, ErrorCode, ServiceError
 from assetcore.utils.helpers import _get_role_emails, _safe_sendmail
+from assetcore.utils.messages import MSG
+from assetcore.utils.notify import nthrow, nthrow_in_hook
 
 _DT_PM_WO = "PM Work Order"
 _DT_AC_ASSET = "AC Asset"
@@ -110,31 +112,23 @@ def validate_work_order(doc) -> None:
     if doc.status in ("Completed", "Halted–Major Failure"):
         for item in (doc.checklist_results or []):
             if not item.result:
-                frappe.throw(_(
-                    "Tất cả mục checklist phải có kết quả trước khi Submit (BR-08-08). "
-                    "Mục '{0}' chưa điền."
-                ).format(item.description))
+                # BR-08-08
+                nthrow_in_hook(MSG.IMM08_CHECKLIST_INCOMPLETE, item=item.description)
         # BR-08-09: thời gian thực hiện phải > 0 phút khi hoàn thành PM.
         if not doc.duration_minutes or doc.duration_minutes <= 0:
-            frappe.throw(_(
-                "Thời gian thực hiện (phút) phải lớn hơn 0 trước khi hoàn thành PM "
-                "(BR-08-09)."
-            ))
+            nthrow_in_hook(MSG.IMM08_DURATION_REQUIRED)
         # BR-08-10: phải gắn tem bảo trì trước khi hoàn thành PM.
         if not doc.pm_sticker_attached:
-            frappe.throw(_(
-                "Phải xác nhận đã gắn tem bảo trì trước khi hoàn thành PM "
-                "(BR-08-10)."
-            ))
+            nthrow_in_hook(MSG.IMM08_STICKER_REQUIRED)
 
     risk_class = AssetRepo.get_value(doc.asset_ref, "risk_classification") if doc.asset_ref else None
     if risk_class in ("High", "Critical") and not doc.attachments:
-        frappe.throw(_(
-            "Thiết bị nguy cơ cao ({0}) bắt buộc upload ảnh trước/sau PM (BR-08-06)."
-        ).format(risk_class))
+        # BR-08-06
+        nthrow_in_hook(MSG.IMM08_PHOTO_REQUIRED, risk_class=risk_class)
 
     if doc.wo_type == "Corrective" and not doc.source_pm_wo:
-        frappe.throw(_("CM Work Order phải có tham chiếu PM WO gốc (BR-08-02)."))
+        # BR-08-02
+        nthrow_in_hook(MSG.IMM08_SOURCE_PM_REQUIRED)
 
 
 def handle_work_order_submit(doc) -> None:
@@ -404,7 +398,7 @@ def list_work_orders(filters: dict, *, page: int = 1, page_size: int = 20) -> di
 def get_work_order(name: str) -> dict:
     wo = PMWorkOrderRepo.get(name)
     if not wo:
-        raise ServiceError(ErrorCode.NOT_FOUND, f"PM Work Order '{name}' không tồn tại")
+        nthrow(MSG.IMM08_WO_NOT_FOUND, name=name)
 
     asset = AssetRepo.get_value(
         wo.asset_ref,
@@ -456,10 +450,9 @@ def get_work_order(name: str) -> dict:
 def assign_technician(name: str, *, technician: str, scheduled_date: str | None = None) -> dict:
     wo = PMWorkOrderRepo.get(name)
     if not wo:
-        raise ServiceError(ErrorCode.NOT_FOUND, f"PM Work Order '{name}' không tồn tại")
+        nthrow(MSG.IMM08_WO_NOT_FOUND, name=name)
     if wo.status not in (PMStatus.OPEN, PMStatus.OVERDUE):
-        raise ServiceError(ErrorCode.BAD_STATE,
-                           f"Không thể phân công khi WO ở trạng thái '{wo.status}'")
+        nthrow(MSG.IMM08_BAD_STATE, state=wo.status)
     if wo.asset_ref and not frappe.db.exists(_DT_AC_ASSET, wo.asset_ref):
         raise ServiceError(
             ErrorCode.VALIDATION,
@@ -485,9 +478,9 @@ def submit_result(name: str, *, checklist_results: list[dict], overall_result: s
                   duration_minutes: int = 0) -> dict:
     wo = PMWorkOrderRepo.get(name)
     if not wo:
-        raise ServiceError(ErrorCode.NOT_FOUND, f"PM Work Order '{name}' không tồn tại")
+        nthrow(MSG.IMM08_WO_NOT_FOUND, name=name)
     if wo.docstatus == 1:
-        raise ServiceError(ErrorCode.CONFLICT, "PM Work Order đã được Submit")
+        nthrow(MSG.IMM08_ALREADY_SUBMITTED)
 
     result_map = {r["idx"]: r for r in checklist_results if "idx" in r}
     for row in (wo.checklist_results or []):
@@ -540,7 +533,7 @@ def submit_result(name: str, *, checklist_results: list[dict], overall_result: s
 def report_major_failure(pm_wo_name: str, *, failure_description: str) -> dict:
     wo = PMWorkOrderRepo.get(pm_wo_name)
     if not wo:
-        raise ServiceError(ErrorCode.NOT_FOUND, f"PM Work Order '{pm_wo_name}' không tồn tại")
+        nthrow(MSG.IMM08_WO_NOT_FOUND, name=pm_wo_name)
 
     PMWorkOrderRepo.set_values(pm_wo_name, {"status": PMStatus.HALTED_MAJOR})
     _transition_asset(wo.asset_ref, AssetStatus.OUT_OF_SERVICE, pm_wo_name)
@@ -599,7 +592,7 @@ def reschedule(name: str, *, new_date: str, reason: str) -> dict:
                            "Lý do hoãn lịch là bắt buộc (tối thiểu 5 ký tự)")
     wo = PMWorkOrderRepo.get(name)
     if not wo:
-        raise ServiceError(ErrorCode.NOT_FOUND, f"PM Work Order '{name}' không tồn tại")
+        nthrow(MSG.IMM08_WO_NOT_FOUND, name=name)
     was_in_progress = wo.status == PMStatus.IN_PROGRESS
     old_date = str(wo.due_date)
     wo.due_date = new_date
@@ -625,8 +618,7 @@ def create_adhoc_work_order(data: dict) -> dict:
         as_dict=True,
     )
     if not sched:
-        raise ServiceError(ErrorCode.NOT_FOUND,
-                           f"PM Schedule '{data['pm_schedule']}' không tồn tại")
+        nthrow(MSG.IMM08_SCHEDULE_NOT_FOUND, name=data["pm_schedule"])
     if sched["asset_ref"] != data["asset_ref"]:
         raise ServiceError(
             ErrorCode.VALIDATION,
@@ -802,7 +794,7 @@ def list_schedules(*, asset_ref: str | None = None, status: str | None = None,
 def get_schedule(name: str) -> dict:
     doc = PMScheduleRepo.get(name)
     if not doc:
-        raise ServiceError(ErrorCode.NOT_FOUND, f"PM Schedule '{name}' không tồn tại")
+        nthrow(MSG.IMM08_SCHEDULE_NOT_FOUND, name=name)
     return doc.as_dict()
 
 
@@ -838,7 +830,7 @@ def create_schedule(data: dict) -> dict:
 
 def update_schedule(name: str, data: dict) -> dict:
     if not PMScheduleRepo.exists(name):
-        raise ServiceError(ErrorCode.NOT_FOUND, f"PM Schedule '{name}' không tồn tại")
+        nthrow(MSG.IMM08_SCHEDULE_NOT_FOUND, name=name)
     payload = {k: v for k, v in data.items() if k not in ("cmd", "name", "doctype")}
     try:
         doc = PMScheduleRepo.update_fields(name, payload, ignore_permissions=False)
@@ -852,7 +844,7 @@ def set_schedule_status(name: str, status: str) -> dict:
     if status not in PMScheduleStatus.ALLOWED:
         raise ServiceError(ErrorCode.VALIDATION, "status phải là Active | Paused | Suspended")
     if not PMScheduleRepo.exists(name):
-        raise ServiceError(ErrorCode.NOT_FOUND, f"PM Schedule '{name}' không tồn tại")
+        nthrow(MSG.IMM08_SCHEDULE_NOT_FOUND, name=name)
     PMScheduleRepo.set_values(name, {"status": status})
     frappe.db.commit()
     return {"name": name, "status": status}
@@ -860,7 +852,7 @@ def set_schedule_status(name: str, status: str) -> dict:
 
 def delete_schedule(name: str) -> dict:
     if not PMScheduleRepo.exists(name):
-        raise ServiceError(ErrorCode.NOT_FOUND, f"PM Schedule '{name}' không tồn tại")
+        nthrow(MSG.IMM08_SCHEDULE_NOT_FOUND, name=name)
     try:
         PMScheduleRepo.delete(name, ignore_permissions=False)
         frappe.db.commit()
@@ -915,8 +907,7 @@ def list_templates(*, asset_category: str | None = None, pm_type: str | None = N
 def get_template(name: str) -> dict:
     doc = PMChecklistTemplateRepo.get(name)
     if not doc:
-        raise ServiceError(ErrorCode.NOT_FOUND,
-                           f"PM Checklist Template '{name}' không tồn tại")
+        nthrow(MSG.IMM08_TEMPLATE_NOT_FOUND, name=name)
     return doc.as_dict()
 
 
@@ -954,8 +945,7 @@ def create_template(data: dict) -> dict:
 def update_template(name: str, data: dict) -> dict:
     doc = PMChecklistTemplateRepo.get(name)
     if not doc:
-        raise ServiceError(ErrorCode.NOT_FOUND,
-                           f"PM Checklist Template '{name}' không tồn tại")
+        nthrow(MSG.IMM08_TEMPLATE_NOT_FOUND, name=name)
     for k in ("template_name", "asset_category", "pm_type", "version",
               "effective_date", "approved_by"):
         if k in data:
@@ -983,8 +973,7 @@ def update_template(name: str, data: dict) -> dict:
 
 def approve_template(name: str) -> dict:
     if not PMChecklistTemplateRepo.exists(name):
-        raise ServiceError(ErrorCode.NOT_FOUND,
-                           f"PM Checklist Template '{name}' không tồn tại")
+        nthrow(MSG.IMM08_TEMPLATE_NOT_FOUND, name=name)
     PMChecklistTemplateRepo.set_values(name, {"approved_by": frappe.session.user})
     frappe.db.commit()
     return {"name": name, "approved_by": frappe.session.user}
@@ -993,8 +982,7 @@ def approve_template(name: str) -> dict:
 def version_template(source_name: str, new_version: str) -> dict:
     src = PMChecklistTemplateRepo.get(source_name)
     if not src:
-        raise ServiceError(ErrorCode.NOT_FOUND,
-                           f"PM Checklist Template '{source_name}' không tồn tại")
+        nthrow(MSG.IMM08_TEMPLATE_NOT_FOUND, name=source_name)
     try:
         new_doc = frappe.copy_doc(src)
         new_doc.version = new_version
@@ -1020,8 +1008,7 @@ def apply_template_to_category_assets(template_name: str) -> dict:
     """
     template = PMChecklistTemplateRepo.get(template_name)
     if not template:
-        raise ServiceError(ErrorCode.NOT_FOUND,
-                           f"PM Checklist Template '{template_name}' không tồn tại")
+        nthrow(MSG.IMM08_TEMPLATE_NOT_FOUND, name=template_name)
     if not template.asset_category:
         raise ServiceError(ErrorCode.VALIDATION,
                            "Template chưa gán Danh mục tài sản")
@@ -1077,8 +1064,7 @@ def apply_template_to_category_assets(template_name: str) -> dict:
 
 def delete_template(name: str) -> dict:
     if not PMChecklistTemplateRepo.exists(name):
-        raise ServiceError(ErrorCode.NOT_FOUND,
-                           f"PM Checklist Template '{name}' không tồn tại")
+        nthrow(MSG.IMM08_TEMPLATE_NOT_FOUND, name=name)
     try:
         PMChecklistTemplateRepo.delete(name, ignore_permissions=False)
         frappe.db.commit()

@@ -4,53 +4,15 @@
 
 from __future__ import annotations
 
-import json
-
 import frappe
+from frappe import _
 
 from assetcore.services import imm04 as svc
 from assetcore.services.shared import ErrorCode, ServiceError
 from assetcore.services.shared import rbac
+from assetcore.utils.api_handler import handle as _handle
+from assetcore.utils.api_handler import parse_json as _parse_json
 from assetcore.utils.helpers import _err, _ok
-
-
-def _parse_json(raw, *, field_name: str, default=None):
-    if not raw:
-        return default if default is not None else {}
-    if not isinstance(raw, str):
-        return raw
-    try:
-        return json.loads(raw)
-    except (ValueError, TypeError) as e:
-        raise ServiceError(ErrorCode.INVALID_PARAMS,
-                           f"{field_name} không phải JSON hợp lệ") from e
-
-
-def _handle(fn, *args, **kwargs) -> dict:
-    try:
-        return _ok(fn(*args, **kwargs))
-    except ServiceError as e:
-        # Phase 1 notification framework: hydrate envelope từ MSG registry khi
-        # ServiceError carry message_code (raised qua nthrow).
-        if e.message_code:
-            from assetcore.utils.messages import lookup_message
-            entry = lookup_message(e.message_code)
-            return _err(
-                e.message, e.code,
-                http_status=e.http_status,
-                message_code=e.message_code,
-                context=e.context if e.context else None,
-                action_hint=entry.get("action_hint") or None,
-                severity=entry.get("severity"),
-                title=entry.get("title"),
-            )
-        return _err(e.message, e.code, http_status=e.http_status)
-    except frappe.ValidationError as e:
-        return _err(str(e), "VALIDATION_ERROR")
-    except Exception as e:
-        frappe.log_error(frappe.get_traceback(), f"IMM-04 {fn.__name__}")
-        return _err(str(e), "SYSTEM_ERROR")
-
 
 # ─── Read Endpoints ───────────────────────────────────────────────────────────
 

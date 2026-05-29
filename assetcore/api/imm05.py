@@ -4,38 +4,19 @@
 
 from __future__ import annotations
 
-import json
-
 import frappe
 
 from assetcore.services import imm05 as svc
-from assetcore.services.shared import ErrorCode, ServiceError
+from assetcore.services.shared import ServiceError
 from assetcore.services.shared import rbac
-from assetcore.utils.helpers import _err, _ok
+from assetcore.utils.api_handler import handle as _handle
+from assetcore.utils.api_handler import parse_json as _parse_json
+from assetcore.utils.helpers import _err
 
 # AUTH-02 — capability identifiers (Document domain, auto-built in rbac.CAPABILITY_MAP).
 _CAP_DOC_CREATE = "document" + ".create"
 _CAP_DOC_WRITE  = "document" + ".write"
 _CAP_DOC_APPROVE = "doc.approve"
-
-
-def _parse_json(raw: str | dict | None, *, field_name: str) -> dict:
-    if not raw:
-        return {}
-    if isinstance(raw, dict):
-        return raw
-    try:
-        return json.loads(raw)
-    except (ValueError, TypeError) as e:
-        raise ServiceError(ErrorCode.INVALID_PARAMS,
-                           f"{field_name} không phải JSON hợp lệ") from e
-
-
-def _handle(fn, *args, **kwargs) -> dict:
-    try:
-        return _ok(fn(*args, **kwargs))
-    except ServiceError as e:
-        return _err(e.message, e.code)
 
 
 # ─── Documents ───────────────────────────────────────────────────────────────

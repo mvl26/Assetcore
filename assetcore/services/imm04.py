@@ -15,7 +15,7 @@ from assetcore.services.shared import (
     assert_distinct_signers,
     assert_not_self_submitter,
 )
-from assetcore.utils.notify import MSG, nthrow
+from assetcore.utils.notify import MSG, nthrow, nthrow_in_hook
 from assetcore.utils.pagination import paginate
 
 # AUTH-05 — 4-eyes / Separation-of-Duties signer fields on Asset Commissioning.
@@ -256,17 +256,19 @@ def _vr01_unique_serial_number(doc: Document) -> None:
         return
     existing_asset = frappe.db.get_value(_DT_ASSET, {"manufacturer_sn": doc.vendor_serial_no}, "name")
     if existing_asset and existing_asset != doc.get("final_asset"):
-        frappe.throw(
-            _("VR-01: Serial Number '{0}' đã được gán cho Tài Sản {1}.").format(doc.vendor_serial_no, existing_asset),
-            frappe.DuplicateEntryError,
+        nthrow_in_hook(
+            MSG.IMM04_DUP_SERIAL,
+            serial=doc.vendor_serial_no,
+            ref=_("Tài Sản {0}").format(existing_asset),
         )
     existing_comm = frappe.db.get_value(
         _DT, {"vendor_serial_no": doc.vendor_serial_no, "name": ("!=", doc.name or ""), "docstatus": ("!=", 2)}, "name",
     )
     if existing_comm:
-        frappe.throw(
-            _("VR-01: Serial Number '{0}' đã tồn tại trong Phiếu Nghiệm Thu {1}.").format(doc.vendor_serial_no, existing_comm),
-            frappe.DuplicateEntryError,
+        nthrow_in_hook(
+            MSG.IMM04_DUP_SERIAL,
+            serial=doc.vendor_serial_no,
+            ref=_("Phiếu Nghiệm Thu {0}").format(existing_comm),
         )
 
 
@@ -297,7 +299,7 @@ def _vr06_immutable_lifecycle_events(doc: Document) -> None:
         if row.name and row.name in existing:
             orig = existing[row.name]
             if row.actor != orig["actor"] or row.event_type != orig["event_type"]:
-                frappe.throw(_("VR-06: Nhật ký sự kiện vòng đời không được chỉnh sửa (ISO 13485 §4.2.5)."))
+                nthrow_in_hook(MSG.IMM04_LIFECYCLE_LOCKED)
 
 
 def _validate_document_expiry(doc: Document) -> None:
@@ -307,7 +309,7 @@ def _validate_document_expiry(doc: Document) -> None:
         if expiry and d.get("status") == "Received":
             days = date_diff(expiry, today)
             if days < 0:
-                frappe.throw(_("Tài liệu '{0}' đã hết hạn vào {1}.").format(d.doc_type, expiry))
+                nthrow_in_hook(MSG.IMM04_DOC_EXPIRED, doc_type=d.doc_type, expiry=expiry)
             elif days < 30:
                 frappe.msgprint(
                     _("Cảnh báo: '{0}' hết hạn sau {1} ngày.").format(d.doc_type, days),
@@ -345,10 +347,7 @@ def validate_gate_g01(doc: Document) -> None:
         )
         return
 
-    frappe.throw(_(
-        "VR-02 (Gate G01): Chưa đủ tài liệu bắt buộc. Còn thiếu: {0}.\n"
-        "Nếu cần duyệt sớm, đánh dấu '☑ Thiếu hồ sơ — vẫn cho phép duyệt' và ghi rõ kế hoạch bổ sung."
-    ).format(", ".join(missing)))
+    nthrow_in_hook(MSG.IMM04_DOCS_INCOMPLETE, missing=", ".join(missing))
 
 
 def validate_gate_g03(doc: Document) -> None:
@@ -357,7 +356,7 @@ def validate_gate_g03(doc: Document) -> None:
         return
     failed = [row.parameter for row in (doc.get("baseline_tests") or []) if row.test_result == "Fail"]
     if failed:
-        frappe.throw(_("VR-03 (Gate G03): Các thông số sau không đạt: {0}.").format(", ".join(failed)))
+        nthrow_in_hook(MSG.IMM04_BASELINE_FAILED, failed=", ".join(failed))
 
 
 def validate_gate_g05_g06(doc: Document) -> None:
@@ -366,9 +365,9 @@ def validate_gate_g05_g06(doc: Document) -> None:
         return
     open_nc = frappe.db.count(_DT_NC, {"ref_commissioning": doc.name, "resolution_status": "Open"})
     if open_nc > 0:
-        frappe.throw(_("VR-04 (Gate G05): Còn {0} NC chưa đóng.").format(open_nc))
+        nthrow_in_hook(MSG.IMM04_OPEN_NC, count=open_nc)
     if not doc.board_approver:
-        frappe.throw(_("Gate G06: Cần chọn Người Phê Duyệt Ban Giám Đốc."))
+        nthrow_in_hook(MSG.IMM04_BOARD_APPROVER_REQUIRED)
 
 
 def check_auto_clinical_hold(doc: Document) -> bool:
@@ -425,10 +424,12 @@ def log_lifecycle_event(doc: Document, event_type: str, from_status: str, to_sta
 def handle_commissioning_cancel(doc: Document) -> None:
     """on_cancel: block if Asset already created."""
     if doc.final_asset:
-        frappe.throw(_("Không thể hủy vì Tài Sản '{0}' đã được kích hoạt.").format(doc.final_asset))
+        nthrow_in_hook(MSG.IMM04_CANCEL_ASSET_ACTIVE, asset=doc.final_asset)
     if doc.workflow_state not in ("Draft", "Non Conformance", "Return To Vendor"):
-        frappe.throw(
-            _("Chỉ hủy khi ở Draft, Non Conformance hoặc Return To Vendor. Hiện tại: {0}").format(doc.workflow_state)
+        nthrow_in_hook(
+            MSG.IMM04_BAD_STATE,
+            state=doc.workflow_state,
+            expected="Draft, Non Conformance, Return To Vendor",
         )
 
 

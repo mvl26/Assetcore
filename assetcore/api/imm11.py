@@ -8,34 +8,15 @@
 from __future__ import annotations
 
 import datetime
-import json
 
 import frappe
 
 from assetcore.services import imm11 as svc
-from assetcore.services.shared import ErrorCode, ServiceError
+from assetcore.services.shared import ServiceError
 from assetcore.services.shared import rbac
 from assetcore.services.shared.scope import apply_vendor_scope, assert_vendor_can_access
-from assetcore.utils.helpers import _err, _ok
-
-
-def _parse_filters(raw: str | dict | None) -> dict:
-    if not raw:
-        return {}
-    if isinstance(raw, dict):
-        return raw
-    try:
-        return json.loads(raw)
-    except (ValueError, TypeError) as e:
-        raise ServiceError(ErrorCode.INVALID_PARAMS, "Tham số 'filters' không hợp lệ") from e
-
-
-def _handle(fn, *args, **kwargs) -> dict:
-    """Wrap service call → convert ServiceError → _err envelope."""
-    try:
-        return _ok(fn(*args, **kwargs))
-    except ServiceError as e:
-        return _err(e.message, e.code)
+from assetcore.utils.api_handler import handle, parse_json
+from assetcore.utils.response import _err
 
 
 # ─── 1. Calibration Schedules ────────────────────────────────────────────────
@@ -43,11 +24,11 @@ def _handle(fn, *args, **kwargs) -> dict:
 @frappe.whitelist()
 def list_calibration_schedules(filters: str = "{}", page: int = 1, page_size: int = 20) -> dict:
     try:
-        f = _parse_filters(filters)
+        f = parse_json(filters, default={}, field_name="filters")
     except ServiceError as e:
-        return _err(e.message, e.code)
+        return _err(e.message, e.code, http_status=e.http_status)
     f = apply_vendor_scope(f, "Calibration Schedule")
-    return _handle(svc.list_schedules, f, page=int(page), page_size=int(page_size))
+    return handle(svc.list_schedules, f, page=int(page), page_size=int(page_size))
 
 
 @frappe.whitelist()
@@ -55,8 +36,8 @@ def get_calibration_schedule(name: str) -> dict:
     try:
         assert_vendor_can_access("Calibration Schedule", name)
     except ServiceError as e:
-        return _err(e.message, e.code)
-    return _handle(svc.get_schedule, name)
+        return _err(e.message, e.code, http_status=e.http_status)
+    return handle(svc.get_schedule, name)
 
 
 @frappe.whitelist()
@@ -64,7 +45,7 @@ def create_calibration_schedule(asset: str, calibration_type: str, interval_days
                                  preferred_lab: str = None, next_due_date: str = None) -> dict:
     # AUTH-02 — server-side gate; FE button hiding is not a security control.
     rbac.require("calibration.create")
-    return _handle(
+    return handle(
         svc.create_schedule,
         asset=asset, calibration_type=calibration_type,
         interval_days=int(interval_days),
@@ -75,13 +56,13 @@ def create_calibration_schedule(asset: str, calibration_type: str, interval_days
 @frappe.whitelist()
 def update_calibration_schedule(name: str, **kwargs) -> dict:
     rbac.require("calibration.write")
-    return _handle(svc.update_schedule, name, kwargs)
+    return handle(svc.update_schedule, name, kwargs)
 
 
 @frappe.whitelist()
 def delete_calibration_schedule(name: str) -> dict:
     rbac.require("calibration.delete")
-    return _handle(svc.delete_schedule, name)
+    return handle(svc.delete_schedule, name)
 
 
 # ─── 2. Calibration Work Orders ───────────────────────────────────────────────
@@ -89,11 +70,11 @@ def delete_calibration_schedule(name: str) -> dict:
 @frappe.whitelist()
 def list_calibrations(filters: str = "{}", page: int = 1, page_size: int = 20) -> dict:
     try:
-        f = _parse_filters(filters)
+        f = parse_json(filters, default={}, field_name="filters")
     except ServiceError as e:
-        return _err(e.message, e.code)
+        return _err(e.message, e.code, http_status=e.http_status)
     f = apply_vendor_scope(f, "Calibration Record")
-    return _handle(svc.list_calibrations, f, page=int(page), page_size=int(page_size))
+    return handle(svc.list_calibrations, f, page=int(page), page_size=int(page_size))
 
 
 @frappe.whitelist()
@@ -101,8 +82,8 @@ def get_calibration(name: str) -> dict:
     try:
         assert_vendor_can_access("Calibration Record", name)
     except ServiceError as e:
-        return _err(e.message, e.code)
-    return _handle(svc.get_calibration, name)
+        return _err(e.message, e.code, http_status=e.http_status)
+    return handle(svc.get_calibration, name)
 
 
 @frappe.whitelist()
@@ -112,7 +93,7 @@ def create_calibration(asset: str, calibration_type: str, scheduled_date: str,
                         reference_standard_serial: str = None,
                         traceability_reference: str = None) -> dict:
     rbac.require("calibration.create")
-    return _handle(
+    return handle(
         svc.create_calibration,
         asset=asset, calibration_type=calibration_type,
         scheduled_date=scheduled_date, technician=technician,
@@ -127,13 +108,13 @@ def create_calibration(asset: str, calibration_type: str, scheduled_date: str,
 @frappe.whitelist()
 def update_calibration(name: str, **kwargs) -> dict:
     rbac.require("calibration.write")
-    return _handle(svc.update_calibration, name, kwargs)
+    return handle(svc.update_calibration, name, kwargs)
 
 
 @frappe.whitelist()
 def submit_calibration(name: str) -> dict:
     rbac.require("calibration.submit")
-    return _handle(svc.submit_calibration, name)
+    return handle(svc.submit_calibration, name)
 
 
 @frappe.whitelist()
@@ -141,7 +122,7 @@ def add_measurement(name: str, parameter_name: str, unit: str, nominal_value: fl
                      tolerance_positive: float, tolerance_negative: float,
                      measured_value: float = None) -> dict:
     rbac.require("calibration.write")
-    return _handle(
+    return handle(
         svc.add_measurement, name,
         parameter_name=parameter_name, unit=unit,
         nominal_value=float(nominal_value),
@@ -156,7 +137,7 @@ def add_measurement(name: str, parameter_name: str, unit: str, nominal_value: fl
 @frappe.whitelist()
 def get_calibration_kpis(year: int = None, month: int = None) -> dict:
     now = datetime.date.today()
-    return _handle(
+    return handle(
         svc.get_kpis,
         int(year) if year else now.year,
         int(month) if month else now.month,
@@ -165,12 +146,12 @@ def get_calibration_kpis(year: int = None, month: int = None) -> dict:
 
 @frappe.whitelist()
 def get_calibration_dashboard() -> dict:
-    return _handle(svc.get_dashboard)
+    return handle(svc.get_dashboard)
 
 
 @frappe.whitelist()
 def get_asset_calibration_history(asset: str, limit: int = 10) -> dict:
-    return _handle(svc.get_asset_history, asset, int(limit))
+    return handle(svc.get_asset_history, asset, int(limit))
 
 
 # ─── 4. Workflow actions ─────────────────────────────────────────────────────
@@ -179,7 +160,7 @@ def get_asset_calibration_history(asset: str, limit: int = 10) -> dict:
 def send_to_lab(name: str, sent_date: str = None, lab_supplier: str = None,
                 lab_contract_ref: str = None) -> dict:
     rbac.require("cal.send_lab")
-    return _handle(
+    return handle(
         svc.send_to_lab, name,
         sent_date=sent_date, lab_supplier=lab_supplier,
         lab_contract_ref=lab_contract_ref,
@@ -192,7 +173,7 @@ def receive_certificate(name: str, certificate_file: str,
                         traceability_reference: str = None,
                         reference_standard_serial: str = None) -> dict:
     rbac.require("calibration.write")
-    return _handle(
+    return handle(
         svc.receive_certificate, name,
         certificate_file=certificate_file,
         certificate_number=certificate_number,
@@ -205,9 +186,9 @@ def receive_certificate(name: str, certificate_file: str,
 @frappe.whitelist(methods=["POST"])
 def cancel_calibration(name: str, reason: str) -> dict:
     rbac.require("calibration.cancel")
-    return _handle(svc.cancel_calibration, name, reason)
+    return handle(svc.cancel_calibration, name, reason)
 
 
 @frappe.whitelist()
 def get_due_calibrations(days: int = 30, limit: int = 50) -> dict:
-    return _handle(svc.get_due_calibrations, int(days), int(limit))
+    return handle(svc.get_due_calibrations, int(days), int(limit))

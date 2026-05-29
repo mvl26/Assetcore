@@ -17,6 +17,7 @@ from assetcore.repositories.document_repo import (
 )
 from assetcore.services.shared import ErrorCode, ServiceError
 from assetcore.services.shared import rbac
+from assetcore.utils.notify import MSG, nthrow
 
 # ─── Constants cho visibility / workflow states ───────────────────────────────
 
@@ -54,12 +55,12 @@ def _apply_visibility_filter(filters: dict) -> dict:
 
 def _require_approve_role() -> None:
     if not rbac.can("doc.approve"):
-        raise ServiceError(ErrorCode.FORBIDDEN, "Không có quyền duyệt/từ chối tài liệu")
+        nthrow(MSG.IMM05_FORBIDDEN_APPROVE)
 
 
 def _require_exempt_role() -> None:
     if not rbac.can("document" + ".write"):
-        raise ServiceError(ErrorCode.FORBIDDEN, "Không có quyền đánh dấu Exempt")
+        nthrow(MSG.IMM05_FORBIDDEN_EXEMPT)
 
 
 # ─── Scheduler ────────────────────────────────────────────────────────────────
@@ -163,9 +164,9 @@ def list_documents(filters: dict, *, page: int = 1, page_size: int = 20) -> dict
 def get_document(name: str) -> dict:
     doc = DocumentRepo.get(name)
     if not doc:
-        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy tài liệu: {name}")
+        nthrow(MSG.IMM05_DOC_NOT_FOUND, name=name)
     if doc.visibility == Visibility.INTERNAL_ONLY and not _can_see_internal():
-        raise ServiceError(ErrorCode.FORBIDDEN, "Không có quyền xem tài liệu này")
+        nthrow(MSG.IMM05_FORBIDDEN_VIEW)
     data = doc.as_dict()
     if data.get("asset_ref"):
         data["asset_name"] = frappe.db.get_value("AC Asset", data["asset_ref"], "asset_name") or ""
@@ -178,7 +179,7 @@ def create_document(data: dict) -> dict:
     try:
         doc = DocumentRepo.create(data, ignore_permissions=False)
     except frappe.ValidationError as e:
-        raise ServiceError(ErrorCode.VALIDATION, str(e)) from e
+        nthrow(MSG.IMM05_VALIDATION, detail=str(e))
     return {"name": doc.name, "workflow_state": doc.workflow_state}
 
 
@@ -186,14 +187,14 @@ def submit_for_review(name: str) -> dict:
     """Transition từ Draft/Rejected → Pending Review (VR-03: file bắt buộc)."""
     doc = DocumentRepo.get(name)
     if not doc:
-        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy: {name}")
+        nthrow(MSG.IMM05_DOC_NOT_FOUND, name=name)
     if doc.workflow_state not in (DocState.DRAFT, DocState.REJECTED):
         raise ServiceError(
             ErrorCode.BAD_STATE,
             f"Chỉ gửi duyệt từ Draft hoặc Rejected. Hiện tại: {doc.workflow_state}",
         )
     if not doc.file_attachment:
-        raise ServiceError(ErrorCode.VALIDATION, "VR-03: Vui lòng upload file tài liệu trước khi gửi duyệt.")
+        nthrow(MSG.IMM05_FILE_REQUIRED)
     doc.workflow_state = DocState.PENDING_REVIEW
     doc.flags.ignore_links = True
     DocumentRepo.save(doc)
@@ -203,7 +204,7 @@ def submit_for_review(name: str) -> dict:
 def update_document(name: str, patch: dict) -> dict:
     doc = DocumentRepo.get(name)
     if not doc:
-        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy: {name}")
+        nthrow(MSG.IMM05_DOC_NOT_FOUND, name=name)
     if doc.workflow_state not in (DocState.DRAFT, DocState.REJECTED):
         raise ServiceError(
             ErrorCode.BAD_STATE,
@@ -217,7 +218,7 @@ def approve_document(name: str) -> dict:
     _require_approve_role()
     doc = DocumentRepo.get(name)
     if not doc:
-        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy: {name}")
+        nthrow(MSG.IMM05_DOC_NOT_FOUND, name=name)
     if doc.workflow_state != DocState.PENDING_REVIEW:
         raise ServiceError(
             ErrorCode.BAD_STATE,
@@ -248,11 +249,11 @@ def approve_document(name: str) -> dict:
 
 def reject_document(name: str, rejection_reason: str) -> dict:
     if not rejection_reason:
-        raise ServiceError(ErrorCode.VALIDATION, "Lý do từ chối là bắt buộc (VR-06)")
+        nthrow(MSG.IMM05_REJECT_REASON_REQUIRED)
     _require_approve_role()
     doc = DocumentRepo.get(name)
     if not doc:
-        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy: {name}")
+        nthrow(MSG.IMM05_DOC_NOT_FOUND, name=name)
     if doc.workflow_state != DocState.PENDING_REVIEW:
         raise ServiceError(
             ErrorCode.BAD_STATE,
@@ -275,7 +276,7 @@ def archive_document(name: str, reason: str = "") -> dict:
     _require_approve_role()
     doc = DocumentRepo.get(name)
     if not doc:
-        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy: {name}")
+        nthrow(MSG.IMM05_DOC_NOT_FOUND, name=name)
     if doc.workflow_state not in (DocState.ACTIVE, DocState.DRAFT):
         raise ServiceError(
             ErrorCode.BAD_STATE,
@@ -295,7 +296,7 @@ def archive_document(name: str, reason: str = "") -> dict:
 
 def get_asset_documents(asset: str) -> dict:
     if not AssetRepo.exists(asset):
-        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy Asset: {asset}")
+        nthrow(MSG.IMM05_ASSET_NOT_FOUND, asset=asset)
 
     filters = _apply_visibility_filter({"asset_ref": asset})
     docs, _pg = DocumentRepo.list(
@@ -461,7 +462,7 @@ def get_compliance_by_dept() -> list[dict]:
 
 def get_document_history(name: str) -> dict:
     if not DocumentRepo.exists(name):
-        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy: {name}")
+        nthrow(MSG.IMM05_DOC_NOT_FOUND, name=name)
 
     versions = frappe.get_all(
         "Version",
@@ -501,7 +502,7 @@ def create_document_request(*, asset_ref: str, doc_type_required: str,
                              request_note: str = "",
                              source_type: str = "Manual") -> dict:
     if not AssetRepo.exists(asset_ref):
-        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy Asset: {asset_ref}")
+        nthrow(MSG.IMM05_ASSET_NOT_FOUND, asset=asset_ref)
     assigned_to = assigned_to or frappe.session.user
     due_date = due_date or add_days(nowdate(), 30)
 
@@ -542,10 +543,9 @@ def mark_exempt(*, asset_ref: str, doc_type_detail: str,
                 exempt_reason: str, exempt_proof: str) -> dict:
     _require_exempt_role()
     if not AssetRepo.exists(asset_ref):
-        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy Asset: {asset_ref}")
+        nthrow(MSG.IMM05_ASSET_NOT_FOUND, asset=asset_ref)
     if not exempt_reason or not exempt_proof:
-        raise ServiceError(ErrorCode.VALIDATION,
-                           "exempt_reason và exempt_proof là bắt buộc")
+        nthrow(MSG.IMM05_VALIDATION, detail="exempt_reason và exempt_proof là bắt buộc")
     doc = DocumentRepo.create({
         "asset_ref": asset_ref,
         "doc_category": "Legal",

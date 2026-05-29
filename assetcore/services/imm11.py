@@ -2,7 +2,7 @@
 # IMM-11 Calibration — Tier 2 Business Service Layer.
 #
 # KHÔNG gọi frappe.db.* / frappe.get_doc trực tiếp — đi qua repository.
-# Raise ServiceError thay vì trả dict; API layer sẽ catch và format envelope.
+# Raise lỗi nghiệp vụ qua nthrow(MSG.IMM11_*); api_handler.handle() hydrate envelope.
 
 from __future__ import annotations
 
@@ -21,11 +21,10 @@ from assetcore.services.shared import (
     AssetStatus,
     CalibrationResult,
     CalibrationStatus,
-    ErrorCode,
-    ServiceError,
 )
 from assetcore.repositories.asset_repo import AssetRepo, DeviceModelRepo, CapaRepo
 from assetcore.repositories.calibration_repo import CalibrationRepo, CalibrationScheduleRepo
+from assetcore.utils.notify import nthrow, MSG
 
 _DEFAULT_INTERVAL_DAYS = 365
 _NOT_DECOMMISSIONED = ("not in", [AssetStatus.DECOMMISSIONED])
@@ -33,7 +32,6 @@ _CAPA_OPEN_STATUSES = ("in", ["Open", "In Progress", "In Review"])
 _LOOKBACK_IN_PROGRESS = "In Progress"
 _DT_CAL = "IMM Asset Calibration"
 _CALIBRATING_TRIGGER_STATUSES = {CalibrationResult.IN_PROGRESS, CalibrationResult.SENT_TO_LAB}
-_MSG_ALREADY_SUBMITTED = "Phiếu đã Submit"
 _ORDER_NEXT_CAL_ASC = "next_calibration_date asc"
 
 
@@ -223,14 +221,21 @@ def create_due_calibration_wos() -> int:
 
 
 def check_calibration_expiry() -> None:
-    """Scheduler daily — update calibration_status trên AC Asset."""
+    """Scheduler daily — update calibration_status trên AC Asset.
+
+    Vòng 3: sau khi đổi status, phát thông báo (E4) khi asset CHUYỂN VÀO
+    Due Soon/Overdue — báo responsible_technician/custodian (anti-spam: chỉ báo
+    khi status thực sự đổi). Xem docs/imm-00/04_Backend_Design.md §III.1b-2.
+    """
+    from assetcore.services import notifications  # lazy import — tránh circular
+
     today = getdate(nowdate())
     assets, _ = AssetRepo.list(
         filters={
             "lifecycle_status": _NOT_DECOMMISSIONED,
             "next_calibration_date": ("is", "set"),
         },
-        fields=["name", "next_calibration_date"],
+        fields=["name", "next_calibration_date", "calibration_status"],
         page_size=10_000,
     )
     for a in assets:
@@ -241,7 +246,14 @@ def check_calibration_expiry() -> None:
             status = CalibrationStatus.DUE_SOON
         else:
             status = CalibrationStatus.ON_SCHEDULE
+        old_status = a.get("calibration_status")
         AssetRepo.set_values(a["name"], {"calibration_status": status})
+        # E4 — báo người phụ trách khi vừa chuyển VÀO Due Soon/Overdue.
+        # Bọc per-asset: 1 asset lỗi không dừng cả batch.
+        try:
+            notifications.notify_calibration_due(a["name"], old_status, status)
+        except Exception:
+            frappe.log_error(frappe.get_traceback(), "imm11 notify_calibration_due")
 
 
 # ─── Submit handlers (gọi từ Controller on_submit) ────────────────────────────
@@ -374,7 +386,7 @@ def list_schedules(filters: dict | None = None, *, page: int = 1, page_size: int
 def get_schedule(name: str) -> dict:
     doc = CalibrationScheduleRepo.get(name)
     if not doc:
-        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy Schedule '{name}'")
+        nthrow(MSG.IMM11_SCHEDULE_NOT_FOUND, name=name)
     return doc.as_dict()
 
 
@@ -382,7 +394,7 @@ def create_schedule(*, asset: str, calibration_type: str, interval_days: int,
                     preferred_lab: str | None = None,
                     next_due_date: str | None = None) -> dict:
     if not AssetRepo.exists(asset):
-        raise ServiceError(ErrorCode.NOT_FOUND, "Thiết bị không tồn tại")
+        nthrow(MSG.IMM11_ASSET_NOT_FOUND)
     device_model = AssetRepo.get_value(asset, "device_model")
     doc = CalibrationScheduleRepo.create({
         "asset": asset,
@@ -399,20 +411,19 @@ def create_schedule(*, asset: str, calibration_type: str, interval_days: int,
 def update_schedule(name: str, patch: dict) -> dict:
     allowed = {"calibration_type", "interval_days", "preferred_lab", "next_due_date", "is_active"}
     if not CalibrationScheduleRepo.exists(name):
-        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy Schedule '{name}'")
+        nthrow(MSG.IMM11_SCHEDULE_NOT_FOUND, name=name)
     clean_patch = {k: v for k, v in patch.items() if k in allowed}
     if not clean_patch:
-        raise ServiceError(ErrorCode.VALIDATION, "Không có trường nào được cập nhật")
+        nthrow(MSG.IMM11_NO_FIELDS)
     doc = CalibrationScheduleRepo.update_fields(name, clean_patch)
     return {"name": doc.name}
 
 
 def delete_schedule(name: str) -> dict:
     if not CalibrationScheduleRepo.exists(name):
-        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy Schedule '{name}'")
+        nthrow(MSG.IMM11_SCHEDULE_NOT_FOUND, name=name)
     if CalibrationRepo.exists({"calibration_schedule": name, "docstatus": 1}):
-        raise ServiceError(ErrorCode.CONFLICT,
-                           "Không thể xóa Schedule đã có Phiếu đã Submit")
+        nthrow(MSG.IMM11_SCHEDULE_HAS_SUBMITTED)
     CalibrationScheduleRepo.delete(name)
     return {"name": name, "deleted": True}
 
@@ -461,7 +472,7 @@ def list_calibrations(filters: dict | None = None, *, page: int = 1, page_size: 
 def get_calibration(name: str) -> dict:
     doc = CalibrationRepo.get(name)
     if not doc:
-        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy '{name}'")
+        nthrow(MSG.IMM11_CAL_NOT_FOUND, name=name)
     data = doc.as_dict()
     if data.get("asset"):
         data["asset_name"] = frappe.db.get_value("AC Asset", data["asset"], "asset_name") or ""
@@ -479,11 +490,10 @@ def create_calibration(*, asset: str, calibration_type: str, scheduled_date: str
                         reference_standard_serial: str | None = None,
                         traceability_reference: str | None = None) -> dict:
     if not AssetRepo.exists(asset):
-        raise ServiceError(ErrorCode.NOT_FOUND, "Thiết bị không tồn tại")
+        nthrow(MSG.IMM11_ASSET_NOT_FOUND)
     asset_status = AssetRepo.get_value(asset, "lifecycle_status")
     if asset_status in AssetStatus.BLOCKED_FOR_WO and not int(is_recalibration):
-        raise ServiceError(ErrorCode.BAD_STATE,
-                           "Thiết bị không thể tạo Calibration WO (CAL-008)")
+        nthrow(MSG.IMM11_ASSET_BLOCKED)
     doc = CalibrationRepo.create({
         "asset": asset,
         "calibration_type": calibration_type,
@@ -511,13 +521,12 @@ _UPDATE_ALLOWED = {
 def update_calibration(name: str, patch: dict) -> dict:
     doc = CalibrationRepo.get(name)
     if not doc:
-        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy '{name}'")
+        nthrow(MSG.IMM11_CAL_NOT_FOUND, name=name)
     if doc.docstatus == 1:
-        raise ServiceError(ErrorCode.BAD_STATE,
-                           "Phiếu đã Submit — không thể chỉnh sửa (dùng Amend)")
+        nthrow(MSG.IMM11_ALREADY_SUBMITTED)
     clean_patch = {k: v for k, v in patch.items() if k in _UPDATE_ALLOWED}
     if not clean_patch:
-        raise ServiceError(ErrorCode.VALIDATION, "Không có trường nào được cập nhật")
+        nthrow(MSG.IMM11_NO_FIELDS)
     old_status = doc.status
     doc = CalibrationRepo.update_fields(name, clean_patch)
     new_status = clean_patch.get("status", old_status)
@@ -532,9 +541,9 @@ def update_calibration(name: str, patch: dict) -> dict:
 def submit_calibration(name: str) -> dict:
     doc = CalibrationRepo.get(name)
     if not doc:
-        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy '{name}'")
+        nthrow(MSG.IMM11_CAL_NOT_FOUND, name=name)
     if doc.docstatus == 1:
-        raise ServiceError(ErrorCode.CONFLICT, _MSG_ALREADY_SUBMITTED)
+        nthrow(MSG.IMM11_ALREADY_SUBMITTED)
     doc = CalibrationRepo.submit(name)
     return {
         "name": doc.name,
@@ -549,10 +558,9 @@ def add_measurement(name: str, *, parameter_name: str, unit: str, nominal_value:
                     measured_value: float | None = None) -> dict:
     doc = CalibrationRepo.get(name)
     if not doc:
-        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy '{name}'")
+        nthrow(MSG.IMM11_CAL_NOT_FOUND, name=name)
     if doc.docstatus == 1:
-        raise ServiceError(ErrorCode.BAD_STATE,
-                           "Không thể thêm tham số vào Phiếu đã Submit")
+        nthrow(MSG.IMM11_ALREADY_SUBMITTED)
     doc.append("measurements", {
         "parameter_name": parameter_name,
         "unit": unit,
@@ -695,14 +703,13 @@ def send_to_lab(name: str, *, sent_date: str | None = None,
     """External cal: In Progress/Scheduled → Sent To Lab."""
     doc = CalibrationRepo.get(name)
     if not doc:
-        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy '{name}'")
+        nthrow(MSG.IMM11_CAL_NOT_FOUND, name=name)
     if doc.docstatus == 1:
-        raise ServiceError(ErrorCode.BAD_STATE, _MSG_ALREADY_SUBMITTED)
+        nthrow(MSG.IMM11_ALREADY_SUBMITTED)
     if (doc.calibration_type or "") != "External":
-        raise ServiceError(ErrorCode.VALIDATION, "Chỉ áp dụng cho Calibration External")
+        nthrow(MSG.IMM11_NOT_EXTERNAL)
     if doc.status not in (CalibrationResult.SCHEDULED, CalibrationResult.IN_PROGRESS):
-        raise ServiceError(ErrorCode.BAD_STATE,
-                           f"Không thể Send To Lab từ '{doc.status}'")
+        nthrow(MSG.IMM11_SEND_LAB_BAD_STATE, state=doc.status)
 
     patch: dict = {
         "status": CalibrationResult.SENT_TO_LAB,
@@ -735,15 +742,13 @@ def receive_certificate(name: str, *, certificate_file: str,
     """External: Sent To Lab → In Progress (chờ kỹ thuật nhập measurement + submit)."""
     doc = CalibrationRepo.get(name)
     if not doc:
-        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy '{name}'")
+        nthrow(MSG.IMM11_CAL_NOT_FOUND, name=name)
     if doc.docstatus == 1:
-        raise ServiceError(ErrorCode.BAD_STATE, _MSG_ALREADY_SUBMITTED)
+        nthrow(MSG.IMM11_ALREADY_SUBMITTED)
     if doc.status != CalibrationResult.SENT_TO_LAB:
-        raise ServiceError(ErrorCode.BAD_STATE,
-                           "Chỉ nhận chứng chỉ khi trạng thái Sent To Lab")
+        nthrow(MSG.IMM11_RECEIVE_CERT_BAD_STATE)
     if not certificate_file or not certificate_number or not certificate_date:
-        raise ServiceError(ErrorCode.VALIDATION,
-                           "Bắt buộc certificate_file, certificate_number, certificate_date")
+        nthrow(MSG.IMM11_CERT_FIELDS_REQUIRED)
 
     patch: dict = {
         "certificate_file": certificate_file,
@@ -769,13 +774,13 @@ def cancel_calibration(name: str, reason: str) -> dict:
     """Hủy phiếu trước submit (BR-11-08 false-alarm / thiết bị decommissioned)."""
     doc = CalibrationRepo.get(name)
     if not doc:
-        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy '{name}'")
+        nthrow(MSG.IMM11_CAL_NOT_FOUND, name=name)
     if doc.docstatus == 1:
-        raise ServiceError(ErrorCode.BAD_STATE, "Phiếu đã Submit — không thể hủy")
+        nthrow(MSG.IMM11_CANCEL_SUBMITTED)
     if doc.status == CalibrationResult.CANCELLED:
-        raise ServiceError(ErrorCode.CONFLICT, "Phiếu đã Cancelled")
+        nthrow(MSG.IMM11_ALREADY_CANCELLED)
     if not reason or not reason.strip():
-        raise ServiceError(ErrorCode.VALIDATION, "Bắt buộc nhập lý do hủy")
+        nthrow(MSG.IMM11_CANCEL_REASON_REQUIRED)
 
     CalibrationRepo.update_fields(name, {
         "status": CalibrationResult.CANCELLED,
