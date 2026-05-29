@@ -1,11 +1,13 @@
 <script setup lang="ts">
-// AppSidebar — module-scoped navigation.
-// Mỗi route có meta.moduleId (IMM-XX | 'master' | 'system'). Sidebar đọc moduleId
-// hiện tại và chỉ hiện nav-items thuộc module đó. Click logo → /launcher (home).
+// AppSidebar — persona-scoped navigation.
+// Spec: docs/architecture/FE_Persona_Navigation.md
+// Sidebar đọc persona đang chọn (usePersona) → lấy persona.modules → tra
+// MODULE_NAV catalog → gộp items → vẫn lọc bằng capability (itemVisible).
+// Persona switcher ở AppTopBar. Click logo → /launcher (fallback route).
 import { computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { resolveModuleId } from '@/router'
 import { useSidebar } from '@/composables/useSidebar'
+import { usePersona } from '@/composables/usePersona'
 import { useAuthStore } from '@/stores/auth'
 import {
   Roles,
@@ -26,6 +28,7 @@ const router = useRouter()
 const route  = useRoute()
 const auth   = useAuthStore()
 const { collapsed, toggle, sidebarClass, mobileOpen, closeMobile } = useSidebar()
+const { currentPersona } = usePersona()
 
 // Superuser bypass — Frappe-level admin sees mọi nav item
 const isSuperuser = computed(() => auth.hasAnyRole(['System Manager', 'Administrator']))
@@ -210,31 +213,40 @@ const MODULE_NAV: Record<string, ModuleNav> = {
   },
 }
 
-// ─── Resolve current module from route meta ───────────────────────────────────
-// Ưu tiên route.meta.moduleId (đã được tagWorkspace gán). Fallback dùng
-// resolveModuleId(route.path) để xử lý deep-link: trên initial paint của một
-// URL được mở trực tiếp, Vue Router có thể vẫn ở START_LOCATION khi sidebar
-// mount lần đầu nên meta rỗng — fallback URL-based khôi phục context ngay
-// lập tức, tránh flash "Trang này không thuộc module nào" (BUG-003).
-const currentModuleId = computed<string | null>(() => {
-  const fromMeta = (route.meta.moduleId as string | undefined) ?? null
-  if (fromMeta) return fromMeta
-  return resolveModuleId(route.path)
-})
-const currentModule = computed<ModuleNav | null>(() => {
-  const id = currentModuleId.value
-  return id ? (MODULE_NAV[id] ?? null) : null
-})
+// ─── Persona → sidebar nav ─────────────────────────────────────────────────────
+// Header sidebar hiển thị theo persona (label + color) thay vì module code.
+const personaTitle = computed<string>(() => currentPersona.value?.label ?? 'AssetCore')
+const personaColor = computed<string>(() => currentPersona.value?.color ?? '#3b82f6')
+
 // Role-aware filter: superuser luôn thấy tất cả; ngược lại lọc theo item.roles.
 // Item không có roles (undefined hoặc []) = mở cho mọi user đã xác thực.
+// Đây là chốt anti-leak — persona chỉ chọn TẬP module, capability vẫn lọc item.
 function itemVisible(item: NavItem): boolean {
   if (isSuperuser.value) return true
   if (!item.roles || item.roles.length === 0) return true
   return auth.hasAnyRole(item.roles)
 }
-const navItems = computed<NavItem[]>(() =>
-  (currentModule.value?.items ?? []).filter(itemVisible),
-)
+
+// Gộp items của mọi module thuộc persona, theo đúng thứ tự persona.modules.
+// Dedupe theo path (master xuất hiện ở nhiều persona/module list).
+const navItems = computed<NavItem[]>(() => {
+  const persona = currentPersona.value
+  if (!persona) return []
+  const seen = new Set<string>()
+  const out: NavItem[] = []
+  for (const moduleId of persona.modules) {
+    const mod = MODULE_NAV[moduleId]
+    if (!mod) continue
+    for (const item of mod.items) {
+      if (seen.has(item.path)) continue
+      if (!itemVisible(item)) continue
+      seen.add(item.path)
+      out.push(item)
+    }
+  }
+  return out
+})
+const hasNav = computed<boolean>(() => navItems.value.length > 0)
 
 // ─── Active item (longest prefix match) ───────────────────────────────────────
 const NAME_TO_PATH: Record<string, string> = {
@@ -283,15 +295,17 @@ function goLauncher() { router.push('/launcher') }
         title="Về Trang chủ Launcher"
         @click="goLauncher"
       >
-        <div class="logo-badge shrink-0 w-9 h-9 rounded-xl flex items-center justify-center text-white">
+        <div
+          class="logo-badge shrink-0 w-9 h-9 rounded-xl flex items-center justify-center text-white"
+          :style="{ background: `linear-gradient(135deg, ${personaColor} 0%, ${personaColor} 100%)` }"
+        >
           <span v-html="ICONS.home" />
         </div>
         <Transition name="fade-x">
           <div v-if="!collapsed" class="min-w-0 text-left">
-            <p v-if="currentModule" class="font-bold text-[14px] text-white tracking-tight leading-none truncate">
-              <span v-if="currentModule.code" class="text-blue-400">{{ currentModule.code }} · </span>{{ currentModule.title }}
+            <p class="font-bold text-[14px] text-white tracking-tight leading-none truncate">
+              {{ personaTitle }}
             </p>
-            <p v-else class="font-bold text-[15px] text-white tracking-tight leading-none">AssetCore</p>
             <p class="text-[11px] mt-1 text-slate-400 font-medium">Về Trang chủ</p>
           </div>
         </Transition>
@@ -322,21 +336,21 @@ function goLauncher() { router.push('/launcher') }
       </button>
     </div>
 
-    <!-- ── Module section label ───────────────────────────────────────────── -->
+    <!-- ── Persona section label ──────────────────────────────────────────── -->
     <Transition name="fade-x">
-      <div v-if="!collapsed && currentModule" class="module-section px-4 pt-3 pb-1">
-        <span class="module-section-label">Chức năng module</span>
+      <div v-if="!collapsed && hasNav" class="module-section px-4 pt-3 pb-1">
+        <span class="module-section-label">Điều hướng</span>
       </div>
     </Transition>
 
     <!-- ── Navigation ──────────────────────────────────────────────────────── -->
     <nav class="flex-1 overflow-y-auto py-2 scrollbar-thin">
-      <!-- Empty state: route ngoài map module -->
+      <!-- Empty state: user không có persona / không có nav item -->
       <Transition name="fade-x">
-        <div v-if="!currentModule && !collapsed" class="empty-nav px-4 py-6 text-center">
+        <div v-if="!hasNav && !collapsed" class="empty-nav px-4 py-6 text-center">
           <p class="text-[12px] text-slate-500 leading-relaxed">
-            Trang này không thuộc module nào.<br>
-            Mở Launcher để chọn module.
+            Chưa có chức năng nào được phân quyền.<br>
+            Liên hệ quản trị viên nếu cần truy cập.
           </p>
           <button class="open-launcher-btn mt-3" @click="goLauncher">
             Mở Launcher
@@ -345,7 +359,7 @@ function goLauncher() { router.push('/launcher') }
       </Transition>
 
       <!-- Expanded -->
-      <template v-if="!collapsed && currentModule">
+      <template v-if="!collapsed && hasNav">
         <div class="px-3 space-y-0.5">
           <button
             v-for="(item, idx) in navItems"
@@ -363,7 +377,7 @@ function goLauncher() { router.push('/launcher') }
       </template>
 
       <!-- Collapsed: icon-only -->
-      <template v-if="collapsed && currentModule">
+      <template v-if="collapsed && hasNav">
         <div class="px-2 space-y-0.5">
           <button
             v-for="item in navItems"
