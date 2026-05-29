@@ -1,4 +1,4 @@
-# assetcore-be — Lessons Learned (LL-BE-1..27)
+# assetcore-be — Lessons Learned (LL-BE-1..33)
 
 > Bug patterns production đã gặp — **always-apply rules**, KHÔNG phải tham khảo tùy chọn.
 > `SKILL.md` trỏ tới file này; ĐỌC TRƯỚC khi viết/sửa service · API · DocType · workflow.
@@ -837,3 +837,127 @@ Cross-ref LL-BE-16 (verify code active bằng `bench execute`).
 4. Mọi cleanup chạm dữ liệu thật = HARD-STOP xin phép user trước (xem `assetcore-test` R-8, `assetcore-deploy`).
 
 Reference: LL-BE-14, LL-BE-19, `assetcore-test` R-8/R-9.
+
+### LL-BE-28: Data-scoping PHẢI fail-closed khi context phạm vi thiếu (2026-05-29)
+
+**Bug đã gặp 2026-05-29 (IMM-00 clinical dashboard):** `_build_clinical` lấy `dept = _current_dept()`; khi user clinical CHƯA gắn `Employee.department`/`User.ac_department` → `dept = None`. Code cũ: `if dept: filters["department"] = dept` → khi None thì **bỏ luôn filter** → query trả **toàn bộ sự cố/đề xuất/asset CẢ VIỆN** gắn nhãn "khoa mình" → rò rỉ data vượt ranh giới role (vi phạm RBAC data-isolation, CLAUDE.md §5/§19).
+
+Đây là **fail-OPEN**: thiếu điều kiện thu hẹp → trả nhiều hơn. Mọi scope theo dept/vendor/owner đều dễ dính.
+
+**Quy tắc (BẮT BUỘC mọi service đọc dữ liệu có scope theo dept/vendor/khoa/owner):**
+
+1. **Thiếu scope context → trả RỖNG (fail-closed), KHÔNG bỏ filter:**
+   ```python
+   # ❌ SAI — fail-open: dept None → bỏ filter → lộ toàn bộ
+   dept = _current_dept()
+   if dept:
+       filters["department"] = dept
+   rows = repo.list(filters)
+
+   # ✅ ĐÚNG — fail-closed: không có scope → rỗng + cờ báo cấu hình
+   dept = _current_dept()
+   if not dept:
+       return {"rows": [], "scope_configured": False}  # FE hiện banner "chưa gắn khoa"
+   filters["department"] = dept
+   rows = repo.list(filters)
+   ```
+2. **KHÔNG bao giờ** để một filter scope-bắt-buộc trở thành optional vì giá trị None. Scope thiếu = bug cấu hình, KHÔNG phải "xem tất cả".
+3. Ngoại lệ DUY NHẤT: role admin/superuser được phép "all" — phải kiểm tra role TƯỜNG MINH (`is_superuser`/`has_role`), không suy ra từ "dept rỗng".
+4. **Test bắt buộc**: case `scope context = None` → assert rỗng (không leak). RED phải chứng minh leak trước khi fix (session 2026-05-29: D-BE-9 RED trả `IR-2026-0130` của viện → GREEN rỗng).
+5. FE companion: cờ `scope_configured: False` → empty-state actionable "Liên hệ quản trị gắn khoa" (LL-FE-13), KHÔNG render data toàn cục.
+
+Reference: `services/imm00`/`api/dashboard.py:_build_clinical`, `assetcore-audit` Pillar 8 (vendor/dept isolation), CLAUDE.md §19.
+
+### LL-BE-29: Verify-before-fix — reproduce TRƯỚC khi sửa; pass-trước-fix = KHÔNG có bug (2026-05-29)
+
+**Pattern đã gặp 3 lần trong 1 session (2026-05-29):** nhận một "bug" từ backlog/báo cáo vòng trước rồi định sửa ngay → hoá ra **FALSE POSITIVE**, suýt churn code đang chạy đúng:
+- "imm16/08/11 sẽ HTTP 417" → SAI (các file có `from __future__ import annotations` → validator skip → không 417). Xem LL-BE-1 nuance.
+- "OpsmgrDashboard leak 'Critical'" → SAI (`translateStatus` đã map `Critical→Khẩn cấp`).
+- "Clinical empty-state thiếu" → SAI (đã handle) — NHƯNG khi verify lại lộ bug THẬT khác (LL-BE-28).
+
+**Quy tắc (BẮT BUỘC trước khi sửa BẤT KỲ bug nào được "báo" mà bạn chưa tự thấy):**
+
+1. **REPRODUCE trước, sửa sau.** Viết test/probe làm bug FAIL (TDD RED) HOẶC `bench execute`/đọc code chứng minh hành vi sai THẬT. Chưa reproduce được = chưa biết có bug.
+2. **Pass-trước-fix = KHÔNG có bug → KHÔNG sửa.** Nếu test viết ra PASS ngay khi chưa đụng source → đó là báo động giả, đóng backlog item là "false positive", KHÔNG churn code đang chạy đúng chỉ để "cho chắc".
+3. **KHÔNG tin báo cáo/backlog/intuition** (kể cả của chính mình vòng trước) làm bằng chứng. Mỗi claim "X bị lỗi" phải verify lại từ đầu (môi trường/Frappe có nuance — vd PEP 563, union types).
+4. Khi verify một FP lại lộ bug khác (như clinical) → fix bug THẬT đó (có RED), ghi rõ FP ban đầu đã bị bác.
+5. Ghi kết quả: "FALSE POSITIVE — lý do" vào báo cáo, để vòng sau không đuổi lại.
+
+Cross-ref: `assetcore-audit` "anti-false-positive checklist", LL-FE-27 (bench execute trước khi sửa FE), `assetcore-test` Phần 1.5 (RED phải fail trước).
+
+---
+
+## Lessons Learned 2026-05-29 — Event-driven / Notification feature (Notification Framework V1→V8)
+
+> Nguồn: 8 vòng factory xây Notification Framework (in-app + email). Mỗi rule dưới đây là **bug THẬT đã commit rồi self-correct trong session** (không phải giả định). Áp dụng cho MỌI feature cross-cutting event-driven: notification, escalation, SLA scan, audit hook, digest.
+
+### LL-BE-30: Event-driven feature — resolve recipient & trigger-state ĐỘNG từ Workflow metadata, KHÔNG hard-code (2026-05-29)
+
+**Bug (Notification V1→V2):** `notify_approval_pending` hard-code `_PENDING_APPROVAL_STATES = {...}` + đọc field `supervisor`. Cả 2 workflow Wave-1 **không có state nào trùng** tập hard-code; Asset Repair **không có field `supervisor`** → notification **chưa từng fire** — silent no-op, KHÔNG raise, và test ban đầu cũng PASS vì test data dựng theo đúng giả định sai. Chỉ lộ khi verify code ↔ workflow runtime thật.
+
+**Quy tắc:**
+
+1. Feature đụng nhiều DocType/workflow (notification, escalation, SLA, audit) **KHÔNG hard-code danh sách tên state** và **KHÔNG giả định một role-field tồn tại** trên doc. Resolve động từ `frappe.get_doc("Workflow", wf)` transitions + `transition.allowed` roles.
+2. "Cần duyệt / đặc biệt" phải **derive từ transition metadata** (vd: có transition rời state với role phê duyệt → `next_state` finalize `doc_status==1`), KHÔNG từ tên state literal.
+3. Recipient = `union(users có role trong transition.allowed)` + optional field **chỉ khi** `frappe.db.has_column(dt, "supervisor")`; rồi loại actor + Administrator + dedupe.
+4. **Test phải verify CẢ HAI trên workflow THẬT**: (a) trigger-state thực sự fire, (b) recipient resolve **non-empty**. Đừng chỉ test với data dựng theo giả định — sẽ pass dù feature chết.
+5. **Silent no-op nguy hiểm hơn crash**: ở path lẽ ra phải có người nhận mà recipient rỗng → `frappe.log_error` / assert, đừng nuốt lặng.
+
+Cross-ref: LL-BE-26 (state reachability), LL-BE-4 (action label khớp JSON).
+
+### LL-BE-31: Workflow State `style`/`type` (Danger/Success…) KHÔNG persist runtime DB — đừng branch logic trên nó (2026-05-29)
+
+**Bug (Notification V7 escalation):** Core Doc định nghĩa escalation = state có `Workflow State.type == "Danger"`. Field `style`/`type` **chỉ có trong fixture JSON**; runtime DB child `Workflow Document State` KHÔNG có field này, master `Workflow State.style` lưu `""`. Điều kiện luôn False → escalation câm. Self-correct: đổi sang đọc transitions metadata.
+
+**Quy tắc:**
+
+1. **KHÔNG branch business logic trên `Workflow State.style`/`type`/màu** — chúng là cosmetic fixture, không reliable runtime.
+2. Tín hiệu "state đặc biệt" phải derive từ STRUCTURE có thật runtime: role nào VÀO state, role nào RỜI, `next_state` có finalize (`doc_status==1`) không.
+3. Verify field workflow-meta bất kỳ TRƯỚC khi dùng — `bench execute` đọc giá trị THẬT từ DB, đừng tin JSON fixture:
+   ```python
+   frappe.get_all("Workflow Document State",
+       filters={"parent": wf}, fields=["state", "doc_status", "allowed", "allow_edit"])
+   # chỉ những field này tin được ở runtime
+   ```
+
+Cross-ref: LL-BE-30, LL-BE-3 (verify schema trước khi code).
+
+### LL-BE-32: Scheduler function KHÔNG chạy nếu thiếu `hooks.scheduler_events` — wire + verify đăng ký (2026-05-29)
+
+**Bug (Notification V8):** phát hiện `imm09.check_repair_sla_breach` viết sẵn nhưng **chưa từng đăng ký** trong `scheduler_events` → chưa bao giờ chạy (dead code; SLA breach không ai được báo). E6 phải wire `run_sla_breach_scan` vào `scheduler_events["hourly"]`.
+
+**Quy tắc:**
+
+1. Mọi function chạy nền (SLA scan, expiry/calibration-due check, digest) PHẢI có entry trong `hooks.py::scheduler_events` (`"hourly"`/`"daily"`/`"cron"`) trong **CÙNG commit** với code — y như doc_events (anti-pattern #7 trong SKILL.md).
+2. Verify đăng ký runtime, đừng tin "đã viết hàm là xong":
+   ```bash
+   bench --site miyano execute frappe.get_hooks --args '["scheduler_events"]' | grep <func>
+   ```
+3. Verify scheduler **enabled** trên site (`bench --site x doctor` / Scheduler không pause) — hàm đúng nhưng scheduler tắt = vẫn không chạy.
+4. **Test gọi trực tiếp function scan** với data dựng sẵn (đừng chờ cron), verify cả logic lẫn anti-spam state-change guard (chỉ bắn 1 lần khi cờ `0→1` / khi VÀO state, không spam mỗi lần quét).
+5. Khi thay scheduler cũ bằng mới: xác nhận hàm cũ thực sự dead (chưa đăng ký) rồi mới supersede; để lại dead code = nợ kỹ thuật, ghi backlog dọn.
+
+Cross-ref: SKILL.md anti-pattern #7 (doc_events wiring), LL-BE-23 (lifecycle hook chain).
+
+### LL-BE-33: Verify field TYPE (Date vs Datetime) + enum VALUE thật + email reference trước khi code (2026-05-29)
+
+**3 bug (Notification V5 + V8):**
+- **V8:** giả định PM Work Order có timestamp đủ tính SLA deadline; field thực `due_date`/`completion_date` là **`Date`** (không có giờ) → không tính live deadline theo giờ → phải defer. Asset Repair có `open_datetime` (`Datetime`) mới dùng được.
+- **V5:** giả định Email Queue email lỗi có `status == "Error"`; giá trị THẬT là `status == "Not Sent"` + `error` not null. Query lọc `"Error"` luôn rỗng → KPI sai 0.
+- **V5:** `frappe.sendmail` mặc định KHÔNG set `reference_doctype`/`reference_name` → Email Queue không truy nguyên về record → KPI delivery không link được (cả 33 email cũ `reference_doctype=NULL`).
+
+**Quy tắc:**
+
+1. Trước khi viết **arithmetic thời gian**, verify fieldtype `Date` (không giờ) vs `Datetime`. `Date + duration-giờ` = sai:
+   ```python
+   frappe.get_meta(dt).get_field(f).fieldtype  # "Date" | "Datetime"
+   ```
+2. Trước khi **filter theo Select/status**, verify giá trị enum THẬT — đừng đoán:
+   ```python
+   frappe.get_all(dt, pluck="status", distinct=True)   # hoặc đọc options trong DocType JSON
+   ```
+   Đã gặp: Email Queue OK = `status="Sent"`; lỗi = `status="Not Sent"` + `error` not null (KHÔNG có "Error").
+3. `frappe.sendmail` cho notification nghiệp vụ PHẢI truyền `reference_doctype=` / `reference_name=` để Email Queue truy nguyên + đo KPI delivery. Khi truyền `message` là HTML, Frappe core tự sinh phần `text/plain` (`set_html_as_text`) — KHÔNG cần `text_content` thủ công.
+4. **Doc ↔ workflow JSON drift**: bảng `allow_edit`/role trong `docs/imm-XX/04_Backend_Design.md` phải khớp source-of-truth `*_workflow.json`. Đã gặp imm-08 ghi "PM Manager" nhưng JSON/DB thật là "System Manager" — reconcile doc theo JSON, không ngược lại.
+
+Cross-ref: LL-BE-22 (verify column trước SQL), LL-BE-3 (verify schema), `assetcore-doc` (doc khớp source).
