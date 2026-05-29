@@ -1,37 +1,28 @@
 <script setup lang="ts">
-// AppSidebar — persona-scoped navigation.
+// AppSidebar — persona-scoped navigation (Core Doc §2.1 + §6).
 // Spec: docs/architecture/FE_Persona_Navigation.md
-// Sidebar đọc persona đang chọn (usePersona) → lấy persona.modules → tra
-// MODULE_NAV catalog → gộp items → vẫn lọc bằng capability (itemVisible).
-// Persona switcher ở AppTopBar. Click logo → /launcher (fallback route).
+// Sidebar đọc persona đang chọn (usePersona) → buildSidebarGroups() lấy
+// persona.modules → tra MODULE_NAV → lọc bằng CAPABILITY (useCapabilities) →
+// render theo group, ẩn group rỗng. Persona switcher ở AppTopBar.
+// Click logo/header → /dashboard (persona dashboard). KHÔNG còn /launcher.
 import { computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useSidebar } from '@/composables/useSidebar'
 import { usePersona } from '@/composables/usePersona'
+import { useCapabilities } from '@/composables/useCapabilities'
 import { useAuthStore } from '@/stores/auth'
-import {
-  Roles,
-  ROLES_ADMIN_ONLY,
-  ROLES_ADMIN_USER,
-  ROLES_PM_MANAGE,
-  ROLES_CAL_MANAGE,
-  ROLES_DOC_APPROVE,
-  ROLES_COMPLIANCE_MANAGE,
-  ROLES_AUDIT_READ,
-  ROLES_STOCK_MANAGE,
-  ROLES_PLANNING,
-  ROLES_PROCUREMENT,
-  type RoleName,
-} from '@/constants/roles'
+import { SUPERUSER_ROLES } from '@/constants/personas'
+import { buildSidebarGroups, type NavItem } from '@/constants/sidebarNav'
 
 const router = useRouter()
 const route  = useRoute()
 const auth   = useAuthStore()
+const { can } = useCapabilities()
 const { collapsed, toggle, sidebarClass, mobileOpen, closeMobile } = useSidebar()
 const { currentPersona } = usePersona()
 
-// Superuser bypass — Frappe-level admin sees mọi nav item
-const isSuperuser = computed(() => auth.hasAnyRole(['System Manager', 'Administrator']))
+// Superuser bypass — Frappe-level admin + AssetCore super admin see mọi nav item.
+const isSuperuser = computed(() => auth.hasAnyRole(SUPERUSER_ROLES))
 
 // ─── Icons ────────────────────────────────────────────────────────────────────
 const SZ = 'fill="none" stroke="currentColor" stroke-width="1.7" viewBox="0 0 24 24" class="w-[18px] h-[18px]"'
@@ -69,183 +60,19 @@ const ICONS: Record<string, string> = {
   home:      `<svg ${SZ}><path stroke-linecap="round" stroke-linejoin="round" d="M3 12l9-9 9 9M5 10v10a1 1 0 001 1h4v-6h4v6h4a1 1 0 001-1V10"/></svg>`,
 }
 
-// ─── Module catalog ───────────────────────────────────────────────────────────
-// Mỗi entry = một sidebar context. moduleId được set ở route.meta.moduleId.
-interface NavItem  { label: string; path: string; icon: string; roles?: readonly RoleName[] }
-interface ModuleNav { code: string; title: string; icon: string; items: NavItem[] }
-
-const MODULE_NAV: Record<string, ModuleNav> = {
-  imm01: {
-    code: 'IMM-01', title: 'Nhu cầu & Dự toán', icon: 'inbox',
-    items: [
-      { label: 'Đề xuất nhu cầu',  path: '/needs-requests',    icon: 'inbox', roles: ROLES_PLANNING },
-      { label: 'Kế hoạch mua sắm', path: '/procurement-plans', icon: 'list',  roles: ROLES_PLANNING },
-    ],
-  },
-  imm02: {
-    code: 'IMM-02', title: 'Thông số kỹ thuật', icon: 'template',
-    items: [
-      { label: 'Hồ sơ kỹ thuật', path: '/tech-specs', icon: 'template', roles: ROLES_PROCUREMENT },
-    ],
-  },
-  imm03: {
-    code: 'IMM-03', title: 'Đánh giá Nhà cung cấp & Mua sắm', icon: 'chart',
-    items: [
-      { label: 'Hồ sơ Nhà cung cấp',     path: '/vendor-profiles',       icon: 'user',     roles: ROLES_PROCUREMENT },
-      { label: 'Đánh giá Nhà cung cấp',  path: '/vendor-evaluations',    icon: 'chart',    roles: ROLES_PROCUREMENT },
-      { label: 'Danh mục NCC được duyệt',path: '/approved-vendors',      icon: 'shield',   roles: ROLES_PROCUREMENT },
-      { label: 'Quyết định mua sắm',    path: '/procurement-decisions', icon: 'contract', roles: ROLES_PROCUREMENT },
-      { label: 'Đơn hàng mua',          path: '/purchases',             icon: 'cart',     roles: ROLES_PROCUREMENT },
-    ],
-  },
-  imm04: {
-    code: 'IMM-04', title: 'Lắp đặt & Nghiệm thu', icon: 'clipboard',
-    items: [
-      { label: 'Tiếp nhận thiết bị', path: '/commissioning', icon: 'clipboard' },
-    ],
-  },
-  imm05: {
-    code: 'IMM-05', title: 'Đăng ký & Hồ sơ', icon: 'folder',
-    items: [
-      { label: 'Kho tài liệu',  path: '/documents',          icon: 'folder' },
-      { label: 'Yêu cầu hồ sơ', path: '/documents/requests', icon: 'inbox', roles: ROLES_DOC_APPROVE },
-    ],
-  },
-  imm06: {
-    code: 'IMM-06', title: 'Đào tạo người dùng', icon: 'users',
-    items: [
-      { label: 'Chương trình đào tạo', path: '/imm06/programs',     icon: 'list'     },
-      { label: 'Buổi đào tạo',         path: '/imm06/sessions',     icon: 'calendar' },
-      { label: 'Năng lực',             path: '/imm06/competencies', icon: 'shield'   },
-    ],
-  },
-  imm08: {
-    code: 'IMM-08', title: 'Bảo trì định kỳ (PM)', icon: 'wrench',
-    items: [
-      { label: 'Tổng quan bảo trì', path: '/pm/dashboard',   icon: 'chart'    },
-      { label: 'Lệnh bảo trì',      path: '/pm/work-orders', icon: 'wrench'   },
-      { label: 'Lịch bảo trì',      path: '/pm/calendar',    icon: 'calendar' },
-      { label: 'Kế hoạch bảo trì',  path: '/pm/schedules',   icon: 'list',     roles: ROLES_PM_MANAGE },
-      { label: 'Mẫu bảng kiểm',     path: '/pm/templates',   icon: 'template', roles: ROLES_PM_MANAGE },
-    ],
-  },
-  imm09: {
-    code: 'IMM-09', title: 'Sửa chữa (CM)', icon: 'tool',
-    items: [
-      { label: 'Tổng quan sửa chữa',     path: '/cm/dashboard',   icon: 'chart'    },
-      { label: 'Lệnh sửa chữa',          path: '/cm/work-orders', icon: 'tool'     },
-      { label: 'Yêu cầu cập nhật firmware', path: '/cm/firmware', icon: 'code',     roles: [Roles.SYS_ADMIN, Roles.WORKSHOP, Roles.DOC_OFFICER] as const },
-      { label: 'Thời gian sửa chữa trung bình', path: '/cm/mttr',  icon: 'trending' },
-    ],
-  },
-  imm11: {
-    code: 'IMM-11', title: 'Hiệu năng & Hiệu chuẩn', icon: 'gauge',
-    items: [
-      { label: 'Tổng quan hiệu chuẩn', path: '/calibration/dashboard', icon: 'chart'    },
-      { label: 'Phiếu hiệu chuẩn',     path: '/calibration',           icon: 'gauge'    },
-      { label: 'Lịch hiệu chuẩn',      path: '/calibration/schedules', icon: 'calendar', roles: ROLES_CAL_MANAGE },
-    ],
-  },
-  imm12: {
-    code: 'IMM-12', title: 'Sự cố & RCA', icon: 'alert',
-    items: [
-      { label: 'Tổng quan sự cố', path: '/incidents/dashboard', icon: 'chart'  },
-      { label: 'Danh sách sự cố', path: '/incidents/list',      icon: 'alert'  },
-    ],
-  },
-  imm13: {
-    code: 'IMM-13', title: 'Điều chuyển thiết bị', icon: 'transfer',
-    items: [
-      { label: 'Phiếu điều chuyển', path: '/asset-transfers', icon: 'transfer' },
-    ],
-  },
-  imm14: {
-    code: 'IMM-14', title: 'Giải nhiệm thiết bị', icon: 'trending',
-    items: [],
-  },
-  imm15: {
-    code: 'IMM-15', title: 'Tồn kho phụ tùng', icon: 'box',
-    items: [
-      { label: 'Tổng quan kho', path: '/inventory',           icon: 'chart'     },
-      { label: 'Tồn kho',       path: '/stock',               icon: 'box'       },
-      { label: 'Phụ tùng',      path: '/spare-parts',         icon: 'cog'       },
-      { label: 'Phiếu kho',     path: '/stock-movements',     icon: 'arrows'    },
-      { label: 'Kho hàng',      path: '/warehouses',          icon: 'warehouse' },
-      { label: 'Đơn vị tính',   path: '/inventory/uom',       icon: 'uom',      roles: ROLES_STOCK_MANAGE },
-      { label: 'Dự báo phụ tùng', path: '/inventory/forecasts', icon: 'chart',  roles: ROLES_STOCK_MANAGE },
-      { label: 'Watchlist',     path: '/inventory/watchlist', icon: 'shield',   roles: ROLES_STOCK_MANAGE },
-      { label: 'Điều chuyển thiết bị', path: '/asset-transfers', icon: 'transfer' },
-    ],
-  },
-  imm16: {
-    code: 'IMM-16', title: 'Theo dõi tuân thủ', icon: 'log',
-    items: [
-      { label: 'Quy tắc tuân thủ',   path: '/compliance/rules',     icon: 'shield',   roles: ROLES_COMPLIANCE_MANAGE },
-      { label: 'Phát hiện',          path: '/compliance/findings',  icon: 'alert'    },
-      { label: 'Kiểm toán nội bộ',   path: '/compliance/audits',    icon: 'clipboard' },
-      { label: 'Bảng điểm',          path: '/compliance/scorecard', icon: 'chart',    roles: ROLES_COMPLIANCE_MANAGE },
-      { label: 'Soát xét quản lý',   path: '/compliance/mr',        icon: 'log',      roles: ROLES_COMPLIANCE_MANAGE },
-      { label: 'Bản đồ nhiệt',       path: '/compliance/heatmap',   icon: 'grid'     },
-      { label: 'CAPA',               path: '/capas',                icon: 'shield',   roles: [Roles.SYS_ADMIN, Roles.QA, Roles.OPS_MANAGER] as const },
-      { label: 'Nhật ký kiểm toán',  path: '/audit-trail',          icon: 'database', roles: ROLES_AUDIT_READ },
-    ],
-  },
-  master: {
-    code: '', title: 'Tài sản & Đối tác', icon: 'device',
-    items: [
-      { label: 'Danh sách thiết bị', path: '/assets',          icon: 'device'   },
-      { label: 'Khấu hao tài sản',   path: '/depreciation',    icon: 'trending' },
-      { label: 'Quét mã QR',         path: '/qr-scan',         icon: 'qr'       },
-      { label: 'Model thiết bị',     path: '/device-models',   icon: 'template' },
-      { label: 'Nhà cung cấp',       path: '/suppliers',       icon: 'building' },
-      { label: 'Hợp đồng dịch vụ',   path: '/service-contracts', icon: 'contract', roles: [Roles.SYS_ADMIN, Roles.OPS_MANAGER, Roles.DOC_OFFICER, Roles.WORKSHOP, Roles.QA] as const },
-      { label: 'Chính sách SLA',     path: '/sla-policies',    icon: 'clock',    roles: ROLES_ADMIN_ONLY },
-    ],
-  },
-  system: {
-    code: '', title: 'Hệ thống', icon: 'cog',
-    items: [
-      { label: 'Dashboard tổng quan', path: '/dashboard',         icon: 'chart'    },
-      { label: 'Người dùng',          path: '/user-profiles',     icon: 'users',    roles: ROLES_ADMIN_USER },
-      { label: 'Dữ liệu tham chiếu',  path: '/reference-data',    icon: 'database', roles: ROLES_ADMIN_ONLY },
-      { label: 'Phê duyệt chờ',       path: '/approvals/pending', icon: 'inbox'    },
-    ],
-  },
-}
-
 // ─── Persona → sidebar nav ─────────────────────────────────────────────────────
 // Header sidebar hiển thị theo persona (label + color) thay vì module code.
 const personaTitle = computed<string>(() => currentPersona.value?.label ?? 'AssetCore')
-const personaColor = computed<string>(() => currentPersona.value?.color ?? '#3b82f6')
+const personaColor = computed<string>(() => currentPersona.value?.color ?? '#0E6FFF')
 
-// Role-aware filter: superuser luôn thấy tất cả; ngược lại lọc theo item.roles.
-// Item không có roles (undefined hoặc []) = mở cho mọi user đã xác thực.
-// Đây là chốt anti-leak — persona chỉ chọn TẬP module, capability vẫn lọc item.
-function itemVisible(item: NavItem): boolean {
-  if (isSuperuser.value) return true
-  if (!item.roles || item.roles.length === 0) return true
-  return auth.hasAnyRole(item.roles)
-}
-
-// Gộp items của mọi module thuộc persona, theo đúng thứ tự persona.modules.
-// Dedupe theo path (master xuất hiện ở nhiều persona/module list).
-const navItems = computed<NavItem[]>(() => {
+// Nav theo GROUP — buildSidebarGroups lọc capability + dedupe + bỏ group rỗng.
+const navGroups = computed(() => {
   const persona = currentPersona.value
   if (!persona) return []
-  const seen = new Set<string>()
-  const out: NavItem[] = []
-  for (const moduleId of persona.modules) {
-    const mod = MODULE_NAV[moduleId]
-    if (!mod) continue
-    for (const item of mod.items) {
-      if (seen.has(item.path)) continue
-      if (!itemVisible(item)) continue
-      seen.add(item.path)
-      out.push(item)
-    }
-  }
-  return out
+  return buildSidebarGroups(persona, can, isSuperuser.value)
 })
+// Flat list (collapsed mode + active-path matching).
+const navItems = computed<NavItem[]>(() => navGroups.value.flatMap((g) => g.items))
 const hasNav = computed<boolean>(() => navItems.value.length > 0)
 
 // ─── Active item (longest prefix match) ───────────────────────────────────────
@@ -274,8 +101,8 @@ const activeItemPath = computed<string>(() => {
 })
 function isActive(path: string): boolean { return activeItemPath.value === path }
 
-// ─── Logo → launcher (home) ───────────────────────────────────────────────────
-function goLauncher() { router.push('/launcher') }
+// ─── Logo → dashboard (persona home) ──────────────────────────────────────────
+function goHome() { router.push('/dashboard') }
 </script>
 
 <template>
@@ -288,25 +115,25 @@ function goLauncher() { router.push('/launcher') }
     class="sidebar-root"
   >
     <!-- ── Header ─────────────────────────────────────────────────────────── -->
-    <div class="sidebar-header flex items-center h-16 px-3 shrink-0">
+    <div class="sidebar-header flex items-center h-14 px-3 shrink-0">
       <button
         type="button"
         class="logo-button flex items-center gap-3 flex-1 min-w-0 rounded-lg p-1 -m-1 transition-colors"
-        title="Về Trang chủ Launcher"
-        @click="goLauncher"
+        title="Về Bảng điều khiển"
+        @click="goHome"
       >
         <div
-          class="logo-badge shrink-0 w-9 h-9 rounded-xl flex items-center justify-center text-white"
+          class="logo-badge shrink-0 w-8 h-8 rounded-lg flex items-center justify-center text-white"
           :style="{ background: `linear-gradient(135deg, ${personaColor} 0%, ${personaColor} 100%)` }"
         >
           <span v-html="ICONS.home" />
         </div>
         <Transition name="fade-x">
           <div v-if="!collapsed" class="min-w-0 text-left">
-            <p class="font-bold text-[14px] text-white tracking-tight leading-none truncate">
+            <p class="font-bold text-[13.5px] text-white tracking-tight leading-none truncate">
               {{ personaTitle }}
             </p>
-            <p class="text-[11px] mt-1 text-slate-400 font-medium">Về Trang chủ</p>
+            <p class="text-[10.5px] mt-1 side-foot-text font-medium">Bảng điều khiển</p>
           </div>
         </Transition>
       </button>
@@ -336,47 +163,35 @@ function goLauncher() { router.push('/launcher') }
       </button>
     </div>
 
-    <!-- ── Persona section label ──────────────────────────────────────────── -->
-    <Transition name="fade-x">
-      <div v-if="!collapsed && hasNav" class="module-section px-4 pt-3 pb-1">
-        <span class="module-section-label">Điều hướng</span>
-      </div>
-    </Transition>
-
     <!-- ── Navigation ──────────────────────────────────────────────────────── -->
     <nav class="flex-1 overflow-y-auto py-2 scrollbar-thin">
       <!-- Empty state: user không có persona / không có nav item -->
-      <Transition name="fade-x">
-        <div v-if="!hasNav && !collapsed" class="empty-nav px-4 py-6 text-center">
-          <p class="text-[12px] text-slate-500 leading-relaxed">
-            Chưa có chức năng nào được phân quyền.<br>
-            Liên hệ quản trị viên nếu cần truy cập.
-          </p>
-          <button class="open-launcher-btn mt-3" @click="goLauncher">
-            Mở Launcher
-          </button>
-        </div>
-      </Transition>
+      <div v-if="!hasNav && !collapsed" class="empty-nav px-4 py-6 text-center">
+        <p class="text-[12px] leading-relaxed">
+          Chưa có chức năng nào được phân quyền.<br>
+          Liên hệ quản trị viên nếu cần truy cập.
+        </p>
+      </div>
 
-      <!-- Expanded -->
+      <!-- Expanded: grouped -->
       <template v-if="!collapsed && hasNav">
-        <div class="px-3 space-y-0.5">
+        <div v-for="group in navGroups" :key="group.title + group.code" class="nav-group">
+          <p class="nav-group-label">{{ group.title }}</p>
           <button
-            v-for="(item, idx) in navItems"
+            v-for="item in group.items"
             :key="item.path"
-            class="nav-item w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all duration-150"
+            class="nav-item w-full flex items-center gap-3"
             :class="isActive(item.path) ? 'active' : ''"
-            :style="{ animationDelay: `${idx * 35}ms` }"
             @click="router.push(item.path)"
           >
-            <span class="nav-icon shrink-0 w-[18px] h-[18px] flex items-center justify-center"
+            <span class="nav-icon shrink-0 w-5 flex items-center justify-center"
                   v-html="ICONS[item.icon] || ICONS.grid" />
-            <span class="truncate text-left font-medium leading-snug">{{ item.label }}</span>
+            <span class="truncate text-left leading-snug">{{ item.label }}</span>
           </button>
         </div>
       </template>
 
-      <!-- Collapsed: icon-only -->
+      <!-- Collapsed: icon-only (flat, deduped) -->
       <template v-if="collapsed && hasNav">
         <div class="px-2 space-y-0.5">
           <button
@@ -395,32 +210,21 @@ function goLauncher() { router.push('/launcher') }
       </template>
     </nav>
 
-    <!-- ── Back-to-launcher button ─────────────────────────────────────────── -->
-    <div class="sidebar-footer px-3 py-3 shrink-0">
-      <button
-        class="back-launcher w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all"
-        :class="collapsed ? 'justify-center' : ''"
-        :title="collapsed ? 'Trang chủ Launcher' : ''"
-        @click="goLauncher"
-      >
-        <span class="w-[18px] h-[18px] flex items-center justify-center" v-html="ICONS.home" />
-        <Transition name="fade-x">
-          <span v-if="!collapsed" class="truncate text-left text-[13px] font-medium">Trang chủ Launcher</span>
-        </Transition>
-      </button>
-      <Transition name="fade-x">
-        <p v-if="!collapsed" class="text-[10.5px] text-slate-500 font-medium text-center mt-2">AssetCore v0.0.2</p>
-      </Transition>
+    <!-- ── Footer ──────────────────────────────────────────────────────────── -->
+    <div class="sidebar-footer px-3 py-2.5 shrink-0">
+      <p v-if="!collapsed" class="text-[10.5px] font-medium text-center side-foot-text">AssetCore v0.0.2</p>
     </div>
   </aside>
 </template>
 
 <style scoped>
-/* ── Shell ─────────────────────────────────────────────────────────────────── */
+/* ── Shell — design tokens từ docs/fe/assets/style.css (mục Sidebar) ─────────── */
+/* Navy sidebar #13314f, text #cdd9e8, header #1F4E79, active #0E6FFF. */
 .sidebar-root {
-  background: #0f1623;
-  border-right: 1px solid rgba(255,255,255,0.06);
-  box-shadow: 4px 0 24px rgba(0,0,0,0.4);
+  background: #13314f;
+  border-right: 1px solid rgba(0,0,0,0.18);
+  box-shadow: 2px 0 8px rgba(15,23,42,0.18);
+  color: #cdd9e8;
 }
 
 /* Mobile: sidebar is always full-width drawer (collapse state ignored) */
@@ -429,69 +233,70 @@ function goLauncher() { router.push('/launcher') }
   .sidebar-root:not(.translate-x-0) { pointer-events: none; }
 }
 .sidebar-header {
-  border-bottom: 1px solid rgba(255,255,255,0.07);
-  background: rgba(255,255,255,0.02);
+  border-bottom: 1px solid rgba(0,0,0,0.18);
+  background: #1F4E79; /* --color-navy-header */
 }
 .logo-badge {
-  background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
-  box-shadow: 0 0 16px rgba(59,130,246,0.35);
+  background: linear-gradient(135deg, #0E6FFF 0%, #16A34A 100%);
+  box-shadow: 0 1px 2px rgba(15,23,42,0.25);
 }
 .logo-button { background: transparent; border: none; cursor: pointer; }
-.logo-button:hover { background: rgba(255,255,255,0.05); }
-.logo-button:hover .logo-badge { box-shadow: 0 0 24px rgba(59,130,246,0.55); transform: scale(1.04); }
-.logo-button .logo-badge { transition: transform 0.2s ease, box-shadow 0.2s ease; }
+.logo-button:hover { background: rgba(255,255,255,0.08); }
+.logo-button:hover .logo-badge { transform: scale(1.04); }
+.logo-button .logo-badge { transition: transform 0.2s ease; }
 
 .toggle-btn {
-  color: rgba(255,255,255,0.6);
+  color: #9fc3e8;
   transition: color 0.15s, background 0.15s;
   background: transparent; border: none; cursor: pointer;
 }
 .toggle-btn:hover { color: #fff; background: rgba(255,255,255,0.12); }
 
-.sidebar-footer {
-  border-top: 1px solid rgba(255,255,255,0.06);
-}
+.sidebar-footer { border-top: 1px solid rgba(255,255,255,0.08); }
+.side-foot-text { color: #6f8aa8; }
 
-/* ── Module section ────────────────────────────────────────────────────────── */
-.module-section-label {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
+/* ── Group label ───────────────────────────────────────────────────────────── */
+.nav-group { padding-bottom: 2px; }
+.nav-group-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: rgba(148,163,184,0.7);
+  color: #6f8aa8;
+  padding: 12px 16px 4px;
 }
 
-/* ── Nav items ─────────────────────────────────────────────────────────────── */
+/* ── Nav items (token: padding 10px 16px, gap 12px, font 14px) ───────────────── */
 .nav-item {
-  color: rgba(255,255,255,0.78);
-  background: transparent; border: none; cursor: pointer;
-  animation: itemSlideIn 0.22s ease both;
+  padding: 10px 16px;
+  font-size: 14px;
+  color: #cdd9e8;
+  background: transparent;
+  border: none; border-left: 3px solid transparent;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
 }
-.nav-item:hover {
-  background: rgba(255,255,255,0.1);
-  color: #fff;
-  transform: translateX(2px);
-}
+.nav-item:hover { background: rgba(255,255,255,0.06); color: #fff; }
 .nav-item.active {
-  background: rgba(59,130,246,0.25);
-  color: #dbeafe;
-  box-shadow: inset 3px 0 0 #3b82f6;
+  background: rgba(14,111,255,0.22);
+  border-left-color: #0E6FFF;
+  color: #fff;
+  font-weight: 600;
 }
-.nav-item.active:hover { background: rgba(59,130,246,0.22); transform: none; }
-.nav-icon { opacity: 0.6; transition: opacity 0.15s, transform 0.15s; }
-.nav-item:hover .nav-icon { opacity: 1; transform: scale(1.1); }
+.nav-icon { font-size: 15px; opacity: 0.85; transition: opacity 0.15s; }
+.nav-item:hover .nav-icon,
 .nav-item.active .nav-icon { opacity: 1; }
 
 /* ── Collapsed items ───────────────────────────────────────────────────────── */
 .collapsed-item {
-  color: rgba(255,255,255,0.7);
+  color: #cdd9e8;
   background: transparent; border: none; cursor: pointer;
 }
-.collapsed-item:hover { background: rgba(255,255,255,0.12); color: #fff; }
+.collapsed-item:hover { background: rgba(255,255,255,0.06); color: #fff; }
 .collapsed-item.active {
-  background: rgba(59,130,246,0.28);
-  color: #dbeafe;
-  box-shadow: inset 3px 0 0 #3b82f6;
+  background: rgba(14,111,255,0.22);
+  color: #fff;
+  box-shadow: inset 3px 0 0 #0E6FFF;
 }
 
 /* ── Tooltip ───────────────────────────────────────────────────────────────── */
@@ -500,15 +305,15 @@ function goLauncher() { router.push('/launcher') }
   left: calc(100% + 10px); top: 50%;
   transform: translateY(-50%) translateX(-4px);
   padding: 5px 10px;
-  background: #1e2a3a;
+  background: #1F4E79;
   border: 1px solid rgba(255,255,255,0.12);
   border-radius: 8px;
   font-size: 12.5px; font-weight: 500;
-  color: rgba(255,255,255,0.88);
+  color: #fff;
   white-space: nowrap;
   pointer-events: none; opacity: 0;
   transition: opacity 0.15s ease, transform 0.15s ease;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+  box-shadow: 0 4px 16px rgba(15,23,42,0.4);
   z-index: 100;
 }
 .group\/tip:hover .tooltip {
@@ -517,33 +322,9 @@ function goLauncher() { router.push('/launcher') }
 }
 
 /* ── Empty state ───────────────────────────────────────────────────────────── */
-.empty-nav { color: rgba(148,163,184,0.7); }
-.open-launcher-btn {
-  font-size: 12px; font-weight: 600;
-  color: #dbeafe;
-  background: rgba(59,130,246,0.2);
-  border: 1px solid rgba(59,130,246,0.3);
-  padding: 5px 12px;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: background 0.15s;
-}
-.open-launcher-btn:hover { background: rgba(59,130,246,0.3); }
-
-/* ── Back-launcher button ──────────────────────────────────────────────────── */
-.back-launcher {
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.08);
-  color: rgba(255,255,255,0.85);
-  cursor: pointer;
-}
-.back-launcher:hover { background: rgba(59,130,246,0.18); border-color: rgba(59,130,246,0.4); color: #dbeafe; }
+.empty-nav { color: #6f8aa8; }
 
 /* ── Animations ────────────────────────────────────────────────────────────── */
-@keyframes itemSlideIn {
-  from { opacity: 0; transform: translateX(-8px); }
-  to   { opacity: 1; transform: translateX(0); }
-}
 .fade-x-enter-active { transition: opacity 0.2s ease, transform 0.2s ease; }
 .fade-x-leave-active { transition: opacity 0.12s ease, transform 0.12s ease; }
 .fade-x-enter-from   { opacity: 0; transform: translateX(-8px); }
