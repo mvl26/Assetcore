@@ -126,15 +126,17 @@ File fixture: `assetcore/workflow/imm_08_pm_work_order_workflow.json` (optional 
 
 **States:**
 
+<!-- allow_edit role đồng bộ source-of-truth `assetcore/assetcore/workflow/imm_08_pm_workflow.json` (reconcile vòng 8, 2026-05-29). -->
+
 | State | Style | docstatus | allow_edit role |
 |---|---|---|---|
-| Open | Warning | 0 | PM Manager, AssetCore System User |
-| In Progress | Primary | 0 | PM Manager, PM User |
-| Pending–Device Busy | Warning | 0 | PM Manager |
-| Overdue | Danger | 0 | PM Manager, PM User |
-| Completed | Success | 1 | — (submitted) |
-| Halted–Major Failure | Danger | 0 | PM Manager |
-| Cancelled | Secondary | 2 | — (cancelled) |
+| Open | Warning | 0 | PM User |
+| In Progress | Primary | 0 | PM User |
+| Pending–Device Busy | Warning | 0 | PM User |
+| Overdue | Danger | 0 | System Manager |
+| Completed | Success | 1 | System Manager |
+| Halted–Major Failure | Danger | 0 | System Manager |
+| Cancelled | Secondary | 2 | System Manager |
 
 **Transitions:**
 
@@ -352,6 +354,7 @@ doc_events = {
 - IMM-08 (backfill scheduler): `backfill_pm_schedules_for_due_assets` daily — safety net tạo PM Schedule cho Asset chưa có lịch.
 - IMM-08 → IMM-09: Halted–Major Failure hoặc Fail-Major → `_create_cm_wo_from_failure(doc, priority)` insert một `Asset Repair` (doctype CM, không phải PM Work Order) với `source_pm_wo` liên kết. Function nằm trong `services/imm08.py`.
 - IMM-08 ↔ IMM-16 (Pattern C compliance gate): `PM Work Order.validate` gọi `imm16.gate_wo_submit(doc, method=None)` — gate raise ServiceError nếu CAPA Critical chặn. `on_submit` gọi `imm16.eval_imm08_09_realtime` để cập nhật scorecard.
+- IMM-08 → Notification Framework (E5, Pattern A — vòng 7): `PM Work Order.on_update` → `assetcore.services.notifications.notify_escalation`. Khi WO chuyển VÀO state escalation (`Halted–Major Failure`: `doc_status=0`, VÀO bởi PM User, GỠ bởi System Manager) → báo supervisor + System Manager để can thiệp. Engine đọc Workflow metadata động (KHÔNG hard-code tên state). Spec: `docs/imm-00/04_Backend_Design.md §III.1b-5`.
 
 **Bên ngoài:**
 - Frappe Email Queue: daily summary + escalation email

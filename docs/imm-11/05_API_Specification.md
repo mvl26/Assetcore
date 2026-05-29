@@ -67,6 +67,10 @@ FE đọc `response.data.data` (axios + Frappe lớp ngoài đã wrap).
 }
 ```
 
+> Từ Sprint Notification 2026-05-29 vòng 4, error envelope IMM-11 hydrate thêm
+> `message_code`, `severity`, `title`, `action_hint`, `context` qua
+> `api_handler.handle()`. Xem **§11 — Notification Contract**.
+
 ### 1.3. Error code catalog
 
 | Code | Khi nào |
@@ -309,6 +313,121 @@ curl 'https://hospital.assetcore.vn/api/method/assetcore.api.imm11.get_calibrati
 curl 'https://hospital.assetcore.vn/api/method/assetcore.api.imm11.get_calibration_dashboard' \
   -H 'Authorization: token <key>:<secret>'
 ```
+
+---
+
+## 11. Notification Contract (Sprint Notification 2026-05-29 vòng 4) — SINGLE SOURCE OF TRUTH
+
+Mọi tương tác IMM-11 trả về **envelope chuẩn** đã chuẩn hoá BE → FE. FE KHÔNG
+hardcode câu chữ — chỉ đọc `message_code` rồi render qua `useNotify`. Contract đã
+chốt vòng 1 (IMM-09), vòng 2 (IMM-12), vòng 3 (IMM-08) — vòng 4 áp dụng cho IMM-11.
+
+### 11.1 Envelope shape
+
+Success (`_ok`):
+```json
+{ "success": true, "data": { ... } }
+```
+Lỗi (`_err`, hydrate từ registry qua `api_handler.handle()`):
+```json
+{
+  "success": false,
+  "error": "Phiếu hiệu chuẩn này đã được chốt — không thể thao tác lại.",
+  "code": "CONFLICT",
+  "message_code": "IMM11-ALREADY-SUBMITTED",
+  "severity": "warning",
+  "title": "Phiếu hiệu chuẩn đã chốt",
+  "action_hint": "Không cần thao tác lại — dùng Amend nếu cần điều chỉnh.",
+  "context": {},
+  "http_status": 409
+}
+```
+
+**Bất biến (contract):** mọi error envelope nghiệp vụ IMM-11 PHẢI có `message_code`,
+`severity`, `title`. Không còn `frappe.throw(_("..."))` leak message Frappe ra FE, và
+không còn `ServiceError(ErrorCode.*, "...")` thô (rớt message_code/severity). Service
+raise qua `nthrow(MSG.IMM11_*)`; DocType `validate`/`before_submit`/`on_cancel`/`on_trash`
+hook (BR-11-*/VR-11-*/CAL-*) raise qua `nthrow_in_hook(MSG.IMM11_*)`.
+
+### 11.2 Danh mục MSG cần bổ sung vào `utils/messages.py`
+
+Severity tuân quy tắc §11.5. Tái dùng mã hệ thống (`AUTH_FORBIDDEN`,
+`VAL_INVALID_PARAMS`, `SYS_500`) khi phù hợp.
+
+| MSG.* | code (kebab) | severity | http | title | template (VI) | action_hint |
+|---|---|---|---|---|---|---|
+| `IMM11_CAL_NOT_FOUND` | `IMM11-CAL-NOT-FOUND` | warning | 404 | Không tìm thấy phiếu hiệu chuẩn | Không tìm thấy phiếu hiệu chuẩn: {name}. | Kiểm tra lại mã phiếu trong danh sách hiệu chuẩn. |
+| `IMM11_SCHEDULE_NOT_FOUND` | `IMM11-SCHEDULE-NOT-FOUND` | warning | 404 | Không tìm thấy lịch hiệu chuẩn | Không tìm thấy lịch hiệu chuẩn: {name}. | Kiểm tra lại mã lịch trong danh sách. |
+| `IMM11_ASSET_NOT_FOUND` | `IMM11-ASSET-NOT-FOUND` | warning | 404 | Không tìm thấy thiết bị | Thiết bị không tồn tại trong danh mục tài sản. | Kiểm tra lại mã thiết bị. |
+| `IMM11_ASSET_BLOCKED` | `IMM11-ASSET-BLOCKED` | warning | 409 | Thiết bị không thể hiệu chuẩn | Thiết bị đang ở trạng thái không cho phép tạo phiếu hiệu chuẩn (CAL-008). | Chuyển thiết bị về trạng thái hoạt động hoặc dùng tái hiệu chuẩn. |
+| `IMM11_NO_FIELDS` | `IMM11-NO-FIELDS` | warning | 400 | Không có thay đổi | Không có trường hợp lệ nào để cập nhật. | Chọn ít nhất một trường để cập nhật rồi thử lại. |
+| `IMM11_ALREADY_SUBMITTED` | `IMM11-ALREADY-SUBMITTED` | warning | 409 | Phiếu hiệu chuẩn đã chốt | Phiếu hiệu chuẩn này đã được chốt — không thể thao tác lại. | Không cần thao tác lại — dùng Amend nếu cần điều chỉnh. |
+| `IMM11_SCHEDULE_HAS_SUBMITTED` | `IMM11-SCHEDULE-HAS-SUBMITTED` | warning | 409 | Lịch còn phiếu đã chốt | Không thể xoá lịch hiệu chuẩn đang có phiếu đã chốt. | Huỷ hoặc lưu trữ các phiếu liên quan trước khi xoá lịch. |
+| `IMM11_NOT_EXTERNAL` | `IMM11-NOT-EXTERNAL` | warning | 422 | Chỉ áp dụng cho hiệu chuẩn ngoài | Thao tác này chỉ áp dụng cho phiếu hiệu chuẩn External (gửi lab). | Chọn phiếu có loại hiệu chuẩn External rồi thử lại. |
+| `IMM11_SEND_LAB_BAD_STATE` | `IMM11-SEND-LAB-BAD-STATE` | warning | 409 | Không thể gửi lab | Không thể gửi lab khi phiếu đang ở trạng thái '{state}'. | Chỉ gửi lab khi phiếu ở trạng thái Đã lên lịch hoặc Đang xử lý. |
+| `IMM11_RECEIVE_CERT_BAD_STATE` | `IMM11-RECEIVE-CERT-BAD-STATE` | warning | 409 | Không thể nhận chứng chỉ | Chỉ nhận chứng chỉ khi phiếu ở trạng thái Đã gửi lab. | Gửi phiếu cho lab trước khi nhận chứng chỉ. |
+| `IMM11_CERT_FIELDS_REQUIRED` | `IMM11-CERT-FIELDS-REQUIRED` | warning | 422 | Thiếu thông tin chứng chỉ | Cần đủ tệp chứng chỉ, số chứng chỉ và ngày cấp. | Điền đủ ba thông tin chứng chỉ rồi thử lại. |
+| `IMM11_CANCEL_REASON_REQUIRED` | `IMM11-CANCEL-REASON-REQUIRED` | warning | 422 | Thiếu lý do huỷ | Bắt buộc nhập lý do khi huỷ phiếu hiệu chuẩn. | Nhập lý do huỷ rồi thử lại. |
+| `IMM11_CANCEL_SUBMITTED` | `IMM11-CANCEL-SUBMITTED` | warning | 409 | Không thể huỷ phiếu đã chốt | Phiếu hiệu chuẩn đã chốt — không thể huỷ (BR-11-05). | Dùng chức năng Amend để điều chỉnh phiếu đã chốt. |
+| `IMM11_ALREADY_CANCELLED` | `IMM11-ALREADY-CANCELLED` | warning | 409 | Phiếu đã huỷ | Phiếu hiệu chuẩn này đã được huỷ trước đó. | Không cần thao tác lại. |
+| `IMM11_NO_MEASUREMENTS` | `IMM11-NO-MEASUREMENTS` | warning | 422 | Thiếu tham số đo | Phải nhập ít nhất một tham số đo trước khi gửi duyệt (CAL-005). | Thêm tham số đo rồi gửi duyệt lại. |
+| `IMM11_MEASUREMENT_VALUE_REQUIRED` | `IMM11-MEASUREMENT-VALUE-REQUIRED` | warning | 422 | Thiếu giá trị đo | Tham số '{parameter}' chưa có giá trị đo (CAL-004). | Nhập giá trị đo cho mọi tham số rồi thử lại. |
+| `IMM11_RESULT_REQUIRED` | `IMM11-RESULT-REQUIRED` | warning | 422 | Thiếu kết quả tổng | Phiếu hiệu chuẩn phải có kết quả tổng trước khi gửi duyệt (CAL-006). | Hoàn tất nhập đo để hệ thống tính kết quả rồi thử lại. |
+| `IMM11_LAB_REQUIRED` | `IMM11-LAB-REQUIRED` | warning | 422 | Chưa chọn lab hiệu chuẩn | Hiệu chuẩn ngoài bắt buộc chọn lab hiệu chuẩn (VR-11-01). | Chọn lab hiệu chuẩn rồi thử lại. |
+| `IMM11_LAB_NOT_ACCREDITED` | `IMM11-LAB-NOT-ACCREDITED` | warning | 422 | Lab chưa đủ điều kiện | Lab phải có loại 'Calibration Lab' và chứng chỉ ISO/IEC 17025 còn hạn (VR-11-02). | Chọn lab khác hoặc cập nhật chứng chỉ ISO/IEC 17025. |
+| `IMM11_CERT_FILE_REQUIRED` | `IMM11-CERT-FILE-REQUIRED` | warning | 422 | Thiếu tệp chứng chỉ | Vui lòng tải lên chứng chỉ hiệu chuẩn (VR-11-03). | Đính kèm tệp chứng chỉ rồi thử lại. |
+| `IMM11_LAB_ACCRED_NUMBER_REQUIRED` | `IMM11-LAB-ACCRED-NUMBER-REQUIRED` | warning | 422 | Thiếu số công nhận | Vui lòng nhập số công nhận ISO/IEC 17025 (VR-11-04). | Nhập số công nhận của lab rồi thử lại. |
+| `IMM11_REF_STANDARD_REQUIRED` | `IMM11-REF-STANDARD-REQUIRED` | warning | 422 | Thiếu thiết bị chuẩn | Hiệu chuẩn nội bộ bắt buộc nhập serial thiết bị chuẩn (VR-11-06). | Nhập serial thiết bị chuẩn rồi thử lại. |
+| `IMM11_CERT_DATE_FUTURE` | `IMM11-CERT-DATE-FUTURE` | warning | 422 | Ngày chứng chỉ không hợp lệ | Ngày cấp chứng chỉ không thể nằm trong tương lai (VR-11-07). | Chọn lại ngày cấp chứng chỉ. |
+| _(success)_ `IMM11_CREATE_SUCCESS` | `IMM11-CREATE-SUCCESS` | success | 200 | Đã tạo phiếu hiệu chuẩn | Đã tạo phiếu hiệu chuẩn {name} cho thiết bị {asset}. | — |
+| _(success)_ `IMM11_SUBMIT_SUCCESS` | `IMM11-SUBMIT-SUCCESS` | success | 200 | Đã chốt phiếu hiệu chuẩn | Đã ghi nhận kết quả hiệu chuẩn {name}. | — |
+| _(success)_ `IMM11_SCHEDULE_CREATE_SUCCESS` | `IMM11-SCHEDULE-CREATE-SUCCESS` | success | 200 | Đã tạo lịch hiệu chuẩn | Đã tạo lịch hiệu chuẩn cho thiết bị, đến hạn {next_due_date}. | — |
+| _(success)_ `IMM11_SEND_LAB_SUCCESS` | `IMM11-SEND-LAB-SUCCESS` | success | 200 | Đã gửi lab | Đã gửi phiếu {name} tới lab hiệu chuẩn. | — |
+| _(success)_ `IMM11_CERT_RECEIVED_SUCCESS` | `IMM11-CERT-RECEIVED-SUCCESS` | success | 200 | Đã nhận chứng chỉ | Đã nhận chứng chỉ #{certificate_number} cho phiếu {name}. | — |
+| _(success)_ `IMM11_CANCEL_SUCCESS` | `IMM11-CANCEL-SUCCESS` | success | 200 | Đã huỷ phiếu | Đã huỷ phiếu hiệu chuẩn {name}. | — |
+
+> Content tuân `messages.py` §quy chuẩn — Chủ thể + Hậu quả + Hành động, không từ
+> kỹ thuật, không đổ lỗi user. Sau khi thêm vào `messages.py`, chạy
+> `python scripts/gen_fe_messages.py` để regen `frontend/src/i18n/messages.ts`.
+
+### 11.3 BE migration checklist (cho assetcore-be)
+
+- `services/imm11.py` service layer: thay TẤT CẢ `raise ServiceError(ErrorCode.*, "...")`
+  thô bằng `nthrow(MSG.IMM11_*)` tương ứng (xem bảng §11.2). `ServiceError` thô làm rớt
+  `message_code`/`severity` → envelope không hydrate được. Đây chính là backlog vòng 3.
+- `assetcore/doctype/imm_asset_calibration/imm_asset_calibration.py` hook
+  `validate`/`before_submit`/`on_cancel`/`on_trash`: 11 `frappe.throw(_(...))` (CAL-004/005/006,
+  VR-11-01/02/03/04/06/07, BR-11-05) → `nthrow_in_hook(MSG.IMM11_*)`. DocType hook BẮT BUỘC
+  dùng `nthrow_in_hook` (không phải `nthrow`).
+- `api/imm11.py`: bỏ `_parse_filters`/`_handle` cục bộ + `from utils.helpers import _err,_ok`
+  → dùng `from assetcore.utils.api_handler import handle, parse_json` +
+  `from assetcore.utils.response import _ok, _err`. Giữ guard rbac/vendor-scope trước `handle`.
+- Audit trail (`log_audit_event`, `create_lifecycle_event`), CAPA/lookback side-effect
+  (`handle_calibration_fail`), cross-module IMM-12 incident KHÔNG đổi — framework chỉ
+  chuẩn hoá phản hồi user.
+- KHÔNG chạm Wave N1 treo: `services/notifications.py`, `notify_calibration_due` call site
+  (chỉ giữ nguyên).
+
+### 11.4 FE migration checklist (cho assetcore-fe)
+
+- Store `stores/imm11.ts`: expose `lastApiError` (`ApiError | null`) + helper `_captureError`;
+  mọi action catch → `_captureError(e)` (giống `stores/imm08.ts`).
+- Views `calibration/*` (CalibrationDetailView, CalibrationCreateView, CalibrationListView,
+  CalibrationScheduleListView, CalibrationDashboard): success → `notify.show(MSG.IMM11_*)`;
+  fail → `notify.fromError(store.lastApiError)`. Bỏ try/catch tự build string từ `e.message` BE.
+- Thêm test store `stores/imm11.test.ts` nếu store có action mutate (capture error path).
+
+### 11.5 Quy tắc severity (chốt cho IMM-11)
+
+- `warning` = lỗi nghiệp vụ user tự sửa được (validation CAL-*/VR-11-*, bad-state, not-found,
+  conflict) → toast vàng, GIỮ form, không reload.
+- `error` = lỗi hệ thống (`SYS-*`) → toast đỏ.
+- `success` = thao tác thành công → toast xanh.
+
+> Lưu ý: VR-11-02 (lab ISO/IEC 17025) là validation nghiệp vụ user sửa được (chọn lab khác),
+> KHÔNG phải compliance-blocking như BR-12 clinical impact. Do đó severity = `warning`,
+> không `critical`. Calibration Fail → CAPA/lookback là side-effect tự động của `on_submit`
+> (submit vẫn THÀNH CÔNG, severity success), không phải lỗi chặn user.
 
 ---
 

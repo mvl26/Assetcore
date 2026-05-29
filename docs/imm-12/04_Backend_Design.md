@@ -255,6 +255,8 @@ scheduler_events = {
 }
 ```
 
+**Vòng 3 — Notification E3 (Incident created):** `hooks.py::doc_events["Incident Report"]["after_insert"] = "assetcore.services.notifications.notify_incident_created"` — khi Incident vừa tạo → báo người phụ trách (`assigned_to`, fallback `reported_by`) qua Notification Log + email (per-user toggle). Audit = Notification Log (core). Spec đầy đủ: `docs/imm-00/04_Backend_Design.md §III.1b-2`.
+
 > `check_capa_overdue` và `detect_chronic_failures` đăng ký trong `scheduler_events.daily` (không phải cron riêng) — Frappe sẽ chạy 1 lần/ngày tại khung scheduler tick mặc định.
 
 ---

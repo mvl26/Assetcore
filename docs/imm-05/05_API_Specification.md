@@ -798,6 +798,69 @@ Expected: `{"success": true, "data": {...}}` cho tất cả. Không có `{"messa
 
 ---
 
+## 11. Notification Contract (BE → FE)
+
+Chuẩn hóa thông báo end-to-end (vòng 5 — cụm Deployment). IMM-05 = quản trị hồ sơ/đăng ký
+tài liệu theo asset/model (NĐ98). Mọi lỗi nghiệp vụ raise qua `nthrow(MSG.IMM05_*)`; API wrap
+qua shared `handle`/`parse_json` (`assetcore/utils/api_handler.py`) để auto-hydrate envelope.
+
+### 11.1. Envelope
+
+```jsonc
+{
+  "severity": "warning",            // success | error | warning | info
+  "message_code": "IMM05-DOC-NOT-FOUND",
+  "title": "Không tìm thấy tài liệu",
+  "message": "Không tìm thấy tài liệu: {name}.",
+  "action_hint": "Tải lại danh sách hồ sơ để kiểm tra.",
+  "context": { "name": "..." }
+}
+```
+
+FE bắt tập trung ở `composables/useApi.ts` → `useNotify.fromError`.
+
+### 11.2. Severity rule
+
+| Tình huống | severity | http_status |
+|---|---|---|
+| Validation input (VR-03/VR-06, file thiếu) | `warning` | 422 |
+| Không tìm thấy tài liệu / Asset | `warning` | 404 |
+| Không có quyền duyệt / Exempt / xem | `error` | 403 |
+| Thao tác thành công | `success` | 200 |
+
+### 11.3. Bảng mã MSG.IMM05_*
+
+| message_code | severity | http | Khi nào | Nguồn (service) |
+|---|---|---|---|---|
+| `IMM05-DOC-NOT-FOUND` | warning | 404 | Tài liệu (AC Document) không tồn tại | `get/submit/approve/reject/archive` |
+| `IMM05-ASSET-NOT-FOUND` | warning | 404 | Asset tham chiếu không tồn tại | `get_asset_documents`, dashboard scope |
+| `IMM05-FORBIDDEN-APPROVE` | error | 403 | Không có quyền duyệt/từ chối tài liệu | `approve/reject_document` |
+| `IMM05-FORBIDDEN-EXEMPT` | error | 403 | Không có quyền đánh dấu Miễn NĐ98 | `mark_exempt` |
+| `IMM05-FORBIDDEN-VIEW` | error | 403 | Không có quyền xem tài liệu này | `get_document` |
+| `IMM05-FILE-REQUIRED` | warning | 422 | VR-03: phải upload file trước khi gửi duyệt | `submit_for_review` |
+| `IMM05-REJECT-REASON-REQUIRED` | warning | 422 | VR-06: lý do từ chối là bắt buộc | `reject_document` |
+| `IMM05-VALIDATION` | warning | 422 | Lỗi validation chung (DocType validate) | wrapper `except ValidationError` |
+| `IMM05-SUCCESS` | success | 200 | Thao tác hồ sơ thành công (gửi/duyệt/lưu trữ) | các action chính |
+
+> Cảnh báo mềm (hồ sơ sắp hết hạn <30 ngày) giữ `frappe.msgprint(alert=True)` — không raise.
+
+### 11.4. BE checklist
+
+- [ ] Import `from assetcore.utils.notify import MSG, nthrow`.
+- [ ] Mọi `raise ServiceError(ErrorCode.*, ...)` nghiệp vụ → `nthrow(MSG.IMM05_*)`.
+- [ ] Wrapper `except frappe.ValidationError` rồi bọc `ServiceError(VALIDATION, str(e))` làm rớt
+      `message_code`/`severity` → re-`nthrow(MSG.IMM05_VALIDATION, detail=str(e))` (bài học vòng 3).
+- [ ] `api/imm05.py` dùng shared `handle`/`parse_json`.
+- [ ] Regen FE i18n: `python scripts/gen_fe_messages.py`.
+
+### 11.5. FE checklist
+
+- [ ] Store `stores/imm05.ts` expose `lastApiError` + helper `_captureError`.
+- [ ] Action success → `notify.show(MSG.IMM05_*)`; fail → `notify.fromError(store.lastApiError)`.
+- [ ] Test store khi phù hợp (vitest).
+
+---
+
 ## DoD Checklist
 
 - [x] API Catalog 16 endpoints đầy đủ (incl. `submit_for_review`, `archive_document`)

@@ -89,16 +89,18 @@ CẤM trả raw traceback / SQL error.
 
 ### 1.3. Error code catalog
 
-| Code | Khi nào |
-|---|---|
-| `NOT_FOUND` | Record không tồn tại |
-| `FORBIDDEN` | Không có role phù hợp |
-| `VALIDATION` | Input validation fail |
-| `BAD_STATE` | State machine fail (vd WO đã submitted) |
-| `CONFLICT` | Concurrent modify |
-| `INVALID_PARAMS` | JSON parse fail |
-| `ALREADY_SUBMITTED` | WO đã docstatus=1 |
-| `INTERNAL` | Lỗi hệ thống |
+| Code | Khi nào | message_code (xem §11) |
+|---|---|---|
+| `NOT_FOUND` | Record không tồn tại | `IMM08-WO-NOT-FOUND` / `IMM08-SCHEDULE-NOT-FOUND` / `IMM08-TEMPLATE-NOT-FOUND` |
+| `FORBIDDEN` | Không có role phù hợp | `AUTH-403` |
+| `VALIDATION` | Input validation fail | `IMM08-CHECKLIST-INCOMPLETE` / `IMM08-DURATION-REQUIRED` / `IMM08-STICKER-REQUIRED` / `IMM08-PHOTO-REQUIRED` / `IMM08-SOURCE-PM-REQUIRED` |
+| `BAD_STATE` | State machine fail (vd WO đã submitted) | `IMM08-BAD-STATE` |
+| `CONFLICT` | Concurrent modify / đã submit | `IMM08-ALREADY-SUBMITTED` |
+| `INVALID_PARAMS` | JSON parse fail | `VAL-INVALID-PARAMS` |
+| `INTERNAL` | Lỗi hệ thống | `SYS-500` |
+
+> Từ Sprint Notification vòng 3, error envelope IMM-08 hydrate thêm `message_code`,
+> `severity`, `title`, `action_hint` qua `api_handler.handle()`. Xem **§11**.
 
 ### 1.4. Mapping FE ↔ BE error code
 
@@ -612,6 +614,103 @@ curl -X POST -H "$AUTH" -H "Content-Type: application/json" \
   -d '{"name":"PM-WO-2026-00001","checklist_results":"[{\"idx\":1,\"result\":\"Pass\"}]","overall_result":"Pass","pm_sticker_attached":1,"duration_minutes":45}' \
   "$BASE/assetcore.api.imm08.submit_pm_result"
 ```
+
+---
+
+## 11. Notification Contract (Sprint Notification 2026-05-29 vòng 3) — SINGLE SOURCE OF TRUTH
+
+Mọi tương tác IMM-08 trả về **envelope chuẩn** đã chuẩn hoá BE → FE. FE KHÔNG
+hardcode câu chữ — chỉ đọc `message_code` rồi render qua `useNotify`. Contract đã
+chốt vòng 1 (pilot IMM-09), vòng 2 (IMM-12) — vòng 3 áp dụng cho IMM-08.
+
+### 11.1 Envelope shape
+
+Success (`_ok`):
+```json
+{ "success": true, "data": { ... } }
+```
+Lỗi (`_err`, hydrate từ registry qua `api_handler.handle()`):
+```json
+{
+  "success": false,
+  "error": "Tất cả mục checklist phải có kết quả trước khi hoàn thành PM.",
+  "code": "VALIDATION",
+  "message_code": "IMM08-CHECKLIST-INCOMPLETE",
+  "severity": "warning",
+  "title": "Checklist chưa hoàn tất",
+  "action_hint": "Điền kết quả cho mọi mục checklist rồi thử lại.",
+  "context": { "item": "Kiểm tra nguồn điện" },
+  "http_status": 422
+}
+```
+
+**Bất biến (contract):** mọi error envelope IMM-08 PHẢI có `message_code`, `severity`,
+`title`. Không còn `frappe.throw(_("..."))` leak message Frappe ra FE. Service raise
+qua `nthrow(MSG.IMM08_*)`; DocType `validate` hook (BR-08-06/08/09/10/02) raise qua
+`nthrow_in_hook(MSG.IMM08_*)`.
+
+### 11.2 Danh mục MSG cần bổ sung vào `utils/messages.py`
+
+11 mã mới + tái dùng mã hệ thống (`AUTH_FORBIDDEN`, `VAL_INVALID_PARAMS`, `SYS_500`
+— đã có). Severity tuân quy tắc §11.5.
+
+| MSG.* | code (kebab) | severity | http | title | template (VI) | action_hint |
+|---|---|---|---|---|---|---|
+| `IMM08_WO_NOT_FOUND` | `IMM08-WO-NOT-FOUND` | warning | 404 | Không tìm thấy lệnh PM | Không tìm thấy lệnh bảo trì định kỳ: {name}. | Kiểm tra lại mã lệnh PM trong danh sách. |
+| `IMM08_SCHEDULE_NOT_FOUND` | `IMM08-SCHEDULE-NOT-FOUND` | warning | 404 | Không tìm thấy lịch PM | Không tìm thấy lịch bảo trì định kỳ: {name}. | Kiểm tra lại mã lịch PM trong danh sách. |
+| `IMM08_TEMPLATE_NOT_FOUND` | `IMM08-TEMPLATE-NOT-FOUND` | warning | 404 | Không tìm thấy mẫu checklist | Không tìm thấy mẫu checklist PM: {name}. | Kiểm tra lại mã mẫu trong danh sách. |
+| `IMM08_BAD_STATE` | `IMM08-BAD-STATE` | warning | 409 | Sai trạng thái lệnh PM | Không thể thực hiện hành động khi lệnh PM đang ở trạng thái '{state}'. | Chỉ thực hiện hành động hợp lệ với trạng thái hiện tại. |
+| `IMM08_ALREADY_SUBMITTED` | `IMM08-ALREADY-SUBMITTED` | warning | 409 | Lệnh PM đã chốt | Lệnh bảo trì định kỳ này đã được hoàn thành và chốt. | Không cần thao tác lại — lệnh PM đã chốt. |
+| `IMM08_CHECKLIST_INCOMPLETE` | `IMM08-CHECKLIST-INCOMPLETE` | warning | 422 | Checklist chưa hoàn tất | Tất cả mục checklist phải có kết quả trước khi hoàn thành PM. Mục '{item}' chưa điền. | Điền kết quả cho mọi mục checklist rồi thử lại. |
+| `IMM08_DURATION_REQUIRED` | `IMM08-DURATION-REQUIRED` | warning | 422 | Thiếu thời gian thực hiện | Thời gian thực hiện (phút) phải lớn hơn 0 trước khi hoàn thành PM. | Nhập thời gian thực hiện rồi thử lại. |
+| `IMM08_STICKER_REQUIRED` | `IMM08-STICKER-REQUIRED` | warning | 422 | Chưa gắn tem bảo trì | Phải xác nhận đã gắn tem bảo trì trước khi hoàn thành PM. | Gắn tem bảo trì và tích xác nhận rồi thử lại. |
+| `IMM08_PHOTO_REQUIRED` | `IMM08-PHOTO-REQUIRED` | warning | 422 | Thiếu ảnh bằng chứng | Thiết bị nguy cơ cao ({risk_class}) bắt buộc đính kèm ảnh trước/sau PM. | Đính kèm ảnh bằng chứng rồi thử lại. |
+| `IMM08_SOURCE_PM_REQUIRED` | `IMM08-SOURCE-PM-REQUIRED` | warning | 422 | Thiếu lệnh PM gốc | Lệnh khắc phục (CM) phải tham chiếu lệnh PM gốc. | Chọn lệnh PM gốc rồi thử lại. |
+| _(success)_ `IMM08_SUBMIT_SUCCESS` | `IMM08-SUBMIT-SUCCESS` | success | 200 | Đã hoàn thành PM | Đã ghi nhận kết quả bảo trì định kỳ {name}. | — |
+
+> Content tuân `messages.py` §quy chuẩn — Chủ thể + Hậu quả + Hành động, không từ
+> kỹ thuật, không đổ lỗi user. Sau khi thêm vào `messages.py`, chạy
+> `python scripts/gen_fe_messages.py` để regen `frontend/src/i18n/messages.ts`.
+
+### 11.3 BE migration checklist (cho assetcore-be)
+
+- `services/imm08.py` hook `validate_work_order`: 5 `frappe.throw(_(...))` (BR-08-08
+  checklist, BR-08-09 duration, BR-08-10 sticker, BR-08-06 photo, BR-08-02 source PM)
+  → `nthrow_in_hook(MSG.IMM08_*)` tương ứng. Đây là DocType `validate` hook → BẮT BUỘC
+  dùng `nthrow_in_hook` (không phải `nthrow`).
+- `services/imm08.py` service layer: các `raise ServiceError(ErrorCode.NOT_FOUND, ...)`
+  cho PM WO / Schedule / Template → `nthrow(MSG.IMM08_WO_NOT_FOUND / _SCHEDULE_NOT_FOUND
+  / _TEMPLATE_NOT_FOUND, name=...)`. `ErrorCode.CONFLICT` "đã Submit" →
+  `nthrow(MSG.IMM08_ALREADY_SUBMITTED)`. `ErrorCode.BAD_STATE` reschedule →
+  `nthrow(MSG.IMM08_BAD_STATE, state=...)`. Các wrap generic `str(e)` (VALIDATION/INTERNAL)
+  GIỮ NGUYÊN — handler hydrate fallback.
+- `api/imm08.py`: bỏ `_parse_json`/`_handle` cục bộ + `from utils.helpers import _err,_ok`
+  → dùng `from assetcore.utils.api_handler import handle, parse_json` +
+  `from assetcore.utils.response import _ok, _err`. Giữ guard rbac/vendor-scope trước `handle`.
+- Audit trail (`log_lifecycle_event`, PM Task Log) KHÔNG đổi. Auto-CM-WO side-effect
+  (`_create_cm_wo_from_failure`) KHÔNG đổi — message framework chỉ chuẩn hoá phản hồi user.
+
+### 11.4 FE migration checklist (cho assetcore-fe)
+
+- Store `stores/imm08.ts`: expose `lastApiError`; mọi action catch → set `lastApiError`
+  từ error envelope (giống `stores/imm09.ts`).
+- Views `pm/*` (PMWorkOrderDetailView, PMWorkOrderCreateView, PmScheduleListView,
+  PmTemplateListView, …): thay `toast.error(msg)` / hardcode success →
+  `notify.fromError(store.lastApiError)` trong catch; success →
+  `notify.show(MSG.IMM08_SUBMIT_SUCCESS, ctx)` hoặc `notify.fromOk(resp)`.
+- KHÔNG còn `try/catch` tự build string từ `e.message` BE.
+
+### 11.5 Quy tắc severity (chốt cho IMM-08)
+
+- `warning` = lỗi nghiệp vụ user tự sửa được (validation BR-08-*, bad-state, not-found,
+  conflict) → toast vàng, GIỮ form, không reload.
+- `error` = lỗi hệ thống (`SYS-*`) → toast đỏ.
+- `success` = thao tác thành công → toast xanh.
+
+> Lưu ý: BR-08-* của PM là validation nghiệp vụ user sửa được, KHÔNG phải compliance
+> blocking như BR-12 (clinical impact / RCA gate). Do đó severity = `warning`, không
+> `critical`. Photo evidence BR-08-06 dù bắt buộc theo ISO 13485 vẫn để `warning`
+> (user tự đính kèm ảnh, không cần modal blocking).
 
 ---
 

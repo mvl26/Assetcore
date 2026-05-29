@@ -63,17 +63,33 @@ FE đọc `response.data.data` (axios + Frappe lớp ngoài đã wrap).
 }
 ```
 
-### 1.3. Error code catalog
+### 1.3. Error code catalog (Notification Contract — Sprint 2026-05-29)
 
-| Code | Khi nào |
-|---|---|
-| `NOT_FOUND` | IR / RCA / CAPA không tồn tại |
-| `FORBIDDEN` | Không có quyền (role / Permission Query) |
-| `VALIDATION` | Input validation fail (field thiếu, format sai) |
-| `BUSINESS_RULE` | Vi phạm BR-12-xx (clinical_impact missing, RCA incomplete) |
-| `CONFLICT` | Đã có RCA open cho incident này; IR đã Acknowledged |
-| `BAD_STATE` | State machine fail (Close IR khi RCA chưa Completed) |
-| `INTERNAL` | Lỗi hệ thống unexpected |
+> **Cột `message_code`** trỏ vào registry `assetcore/utils/messages.py:MESSAGES`.
+> BE raise qua `nthrow(MSG.<code>, **ctx)` (service) / `nthrow_in_hook(MSG.<code>)`
+> (DocType hook); handler `api_handler.handle()` tự hydrate `title/severity/action_hint`
+> từ registry rồi đưa vào envelope `_err`. FE đọc `messageCode` → `useNotify().fromError()`.
+> Xem **§11 Notification Contract** (single source of truth).
+
+| BE bucket (`code`) | HTTP | Severity | `message_code` (MSG.*) | Business Rule | Khi nào |
+|---|---|---|---|---|---|
+| `NOT_FOUND` | 404 | warning | `IMM12_INCIDENT_NOT_FOUND` | — | Incident Report không tồn tại |
+| `NOT_FOUND` | 404 | warning | `IMM12_RCA_NOT_FOUND` | — | RCA Record không tồn tại |
+| `NOT_FOUND` | 404 | warning | `IMM12_ASSET_NOT_FOUND` | — | `asset` không tồn tại khi tạo incident |
+| `BUSINESS_RULE` | 422 | critical | `IMM12_CLINICAL_IMPACT_REQUIRED` | BR-12-01 | Incident Critical thiếu `clinical_impact` |
+| `BUSINESS_RULE` | 422 | warning | `IMM12_RESOLUTION_NOTES_REQUIRED` | — | Resolve thiếu `resolution_notes` |
+| `BUSINESS_RULE` | 422 | warning | `IMM12_CANCEL_REASON_REQUIRED` | — | Cancel thiếu lý do hủy |
+| `BUSINESS_RULE` | 422 | warning | `IMM12_RCA_ROOT_CAUSE_REQUIRED` | BR-12-07 | Submit RCA thiếu `root_cause` |
+| `BUSINESS_RULE` | 422 | warning | `IMM12_RCA_CORRECTIVE_REQUIRED` | BR-12-07 | Submit RCA thiếu `corrective_action` |
+| `CONFLICT` | 409 | warning | `IMM12_RCA_ALREADY_EXISTS` | — | Incident đã có RCA Record (create_rca idempotent) |
+| `CONFLICT` | 409 | warning | `IMM12_RCA_ALREADY_COMPLETED` | — | Submit RCA khi RCA đã Completed |
+| `BAD_STATE` | 409 | warning | `IMM12_BAD_STATE` | — | State machine transition không hợp lệ |
+| `BUSINESS_RULE` | 422 | critical | `IMM12_CLOSE_RCA_REQUIRED` | BR-12-02 / NEG-11 | Đóng IR Major/Critical khi chưa có RCA |
+| `BUSINESS_RULE` | 422 | critical | `IMM12_CLOSE_RCA_INCOMPLETE` | BR-12-02 / NEG-11 | Đóng IR Major/Critical khi RCA chưa Completed |
+| `FORBIDDEN` | 403 | warning | `AUTH_FORBIDDEN` | — | Không có quyền (role / Permission Query) |
+| `INVALID_PARAMS` | 400 | warning | `SYS_INVALID_PARAMS` | — | JSON param malformed (`parse_json`) |
+| `INTERNAL` | 500 | error | `SYS_INTERNAL` | — | Lỗi hệ thống unexpected |
+| _(success)_ | 200 | success | `IMM12_REPORT_SUCCESS` | — | Tạo incident thành công (envelope `_ok`) |
 
 ### 1.4. Mapping FE ↔ BE error code
 
@@ -369,6 +385,100 @@ curl -X POST 'https://hospital.assetcore.vn/api/method/assetcore.api.imm12.close
   -H 'Authorization: token <key>:<secret>' \
   -d '{"name":"IR-2026-0042","verification_notes":"Đã xác nhận"}'
 ```
+
+---
+
+## 11. Notification Contract (Sprint Notification 2026-05-29) — SINGLE SOURCE OF TRUTH
+
+Mọi tương tác IMM-12 trả về **envelope chuẩn** đã chuẩn hoá BE → FE. FE KHÔNG
+hardcode câu chữ — chỉ đọc `messageCode` rồi render qua `useNotify`. Contract đã
+chốt vòng 1 (pilot IMM-09) — vòng 2 áp dụng cho IMM-12.
+
+### 11.1 Envelope shape
+
+Success (`_ok`):
+```json
+{ "success": true, "data": { ... } }
+```
+Lỗi (`_err`, hydrate từ registry qua `api_handler.handle()`):
+```json
+{
+  "success": false,
+  "error": "Không thể đóng sự cố mức Critical khi RCA chưa hoàn thành.",
+  "code": "BUSINESS_RULE",
+  "message_code": "IMM12-CLOSE-RCA-INCOMPLETE",
+  "severity": "critical",
+  "title": "Chưa thể đóng sự cố",
+  "action_hint": "Hoàn thành RCA Record liên kết trước khi đóng sự cố.",
+  "context": { "severity": "Critical", "rca": "IMM-RCA-2026-0012" },
+  "http_status": 422
+}
+```
+
+**Bất biến (contract):** mọi error envelope IMM-12 PHẢI có `message_code`, `severity`,
+`title`. Không còn `IncidentError` thô và không còn `frappe.throw(_("..."))` leak
+message Frappe ra FE. Class `IncidentError` bị loại bỏ — service raise qua
+`nthrow(MSG.IMM12_*)`; DocType hook (NEG-11 close gate) raise qua
+`nthrow_in_hook(MSG.IMM12_*)`.
+
+### 11.2 Danh mục MSG cần bổ sung vào `utils/messages.py`
+
+13 mã mới + tái dùng 3 mã hệ thống (`AUTH_FORBIDDEN`, `SYS_INVALID_PARAMS`,
+`SYS_INTERNAL` — đã có). Severity tuân quy tắc §11.4.
+
+| MSG.* | code (kebab) | severity | http | title | template (VI) | action_hint |
+|---|---|---|---|---|---|---|
+| `IMM12_INCIDENT_NOT_FOUND` | `IMM12-INCIDENT-NOT-FOUND` | warning | 404 | Không tìm thấy sự cố | Không tìm thấy báo cáo sự cố: {name}. | Kiểm tra lại mã sự cố trong danh sách. |
+| `IMM12_RCA_NOT_FOUND` | `IMM12-RCA-NOT-FOUND` | warning | 404 | Không tìm thấy RCA | Không tìm thấy bản phân tích nguyên nhân gốc: {name}. | Kiểm tra lại mã RCA trong danh sách. |
+| `IMM12_ASSET_NOT_FOUND` | `IMM12-ASSET-NOT-FOUND` | warning | 404 | Không tìm thấy thiết bị | Không tìm thấy thiết bị: {asset}. | Kiểm tra lại mã thiết bị trong danh mục tài sản. |
+| `IMM12_CLINICAL_IMPACT_REQUIRED` | `IMM12-CLINICAL-IMPACT-REQUIRED` | critical | 422 | Thiếu mô tả tác động lâm sàng | Sự cố mức Critical bắt buộc mô tả tác động lâm sàng. | Nhập tác động lâm sàng trước khi báo cáo sự cố nghiêm trọng. |
+| `IMM12_RESOLUTION_NOTES_REQUIRED` | `IMM12-RESOLUTION-NOTES-REQUIRED` | warning | 422 | Thiếu ghi chú giải quyết | Cần nhập ghi chú giải quyết khi chuyển sự cố sang Đã xử lý. | Nhập ghi chú giải quyết rồi thử lại. |
+| `IMM12_CANCEL_REASON_REQUIRED` | `IMM12-CANCEL-REASON-REQUIRED` | warning | 422 | Thiếu lý do hủy | Cần nhập lý do khi hủy sự cố. | Nhập lý do hủy rồi thử lại. |
+| `IMM12_RCA_ROOT_CAUSE_REQUIRED` | `IMM12-RCA-ROOT-CAUSE-REQUIRED` | warning | 422 | Thiếu nguyên nhân gốc rễ | Cần nhập nguyên nhân gốc rễ để hoàn thành RCA. | Nhập nguyên nhân gốc rễ rồi gửi lại RCA. |
+| `IMM12_RCA_CORRECTIVE_REQUIRED` | `IMM12-RCA-CORRECTIVE-REQUIRED` | warning | 422 | Thiếu hành động khắc phục | Cần nhập hành động khắc phục để hoàn thành RCA. | Nhập hành động khắc phục rồi gửi lại RCA. |
+| `IMM12_RCA_ALREADY_EXISTS` | `IMM12-RCA-ALREADY-EXISTS` | warning | 409 | Sự cố đã có RCA | Sự cố này đã có bản phân tích nguyên nhân gốc: {rca}. | Mở RCA hiện có thay vì tạo mới. |
+| `IMM12_RCA_ALREADY_COMPLETED` | `IMM12-RCA-ALREADY-COMPLETED` | warning | 409 | RCA đã hoàn thành | Bản phân tích nguyên nhân gốc này đã hoàn thành. | Không cần gửi lại — RCA đã chốt. |
+| `IMM12_BAD_STATE` | `IMM12-BAD-STATE` | warning | 409 | Sai trạng thái sự cố | Không thể chuyển sự cố từ '{from_state}' sang '{to_state}'. | Chỉ thực hiện hành động hợp lệ với trạng thái hiện tại. |
+| `IMM12_CLOSE_RCA_REQUIRED` | `IMM12-CLOSE-RCA-REQUIRED` | critical | 422 | Chưa thể đóng sự cố | Sự cố mức {severity} bắt buộc có RCA hoàn tất trước khi đóng. | Tạo và hoàn thành RCA Record trước khi đóng sự cố. |
+| `IMM12_CLOSE_RCA_INCOMPLETE` | `IMM12-CLOSE-RCA-INCOMPLETE` | critical | 422 | Chưa thể đóng sự cố | Không thể đóng sự cố mức {severity} khi RCA ({rca}) chưa hoàn thành. | Hoàn thành RCA Record liên kết trước khi đóng sự cố. |
+| _(success)_ `IMM12_REPORT_SUCCESS` | `IMM12-REPORT-SUCCESS` | success | 200 | Đã ghi nhận sự cố | Đã ghi nhận báo cáo sự cố {name}. | — |
+
+> Lưu ý content: tuân `messages.py` §quy chuẩn — Chủ thể + Hậu quả + Hành động,
+> không từ kỹ thuật, không đổ lỗi user. Sau khi thêm vào `messages.py`, chạy
+> `python scripts/gen_fe_messages.py` để regen `frontend/src/i18n/messages.ts`.
+
+### 11.3 BE migration checklist (cho assetcore-be)
+
+- `services/imm12.py`: **xóa class `IncidentError`**; 15 `raise IncidentError(...)` →
+  `nthrow(MSG.IMM12_*, **ctx)`. Map theo bảng §11.2.
+- `services/imm12.py` hook `validate_incident_close_gate` (NEG-11, ~line 888/895):
+  2 `frappe.throw(_(...))` → `nthrow_in_hook(MSG.IMM12_CLOSE_RCA_REQUIRED)` /
+  `nthrow_in_hook(MSG.IMM12_CLOSE_RCA_INCOMPLETE)`. Đây là DocType `validate` hook
+  → BẮT BUỘC dùng `nthrow_in_hook` (không phải `nthrow`).
+- `api/imm12.py`: bỏ `IncidentError` import + try/except cục bộ + `_ok`/`_err` thủ công
+  → dùng `from assetcore.utils.api_handler import handle, parse_json`. Giữ guard
+  Guest→401 và role-check→403 (raise `nthrow(MSG.AUTH_FORBIDDEN)` hoặc giữ `_err` 403
+  trước khi gọi `handle`).
+- Audit trail (`_log` / `log_lifecycle_event`) KHÔNG đổi — message framework chỉ
+  chuẩn hoá phản hồi user. Auto-RCA / auto-CAPA side-effects KHÔNG đổi.
+
+### 11.4 FE migration checklist (cho assetcore-fe)
+
+- Store `stores/imm12.ts`: expose `lastApiError`; mọi action catch → set
+  `lastApiError` từ error envelope (giống `stores/imm09.ts`).
+- Views `incident/*` + `rca/*`: thay `toast.error(msg)` / hardcode success →
+  `notify.fromError(store.lastApiError)` trong catch, `notify.show({ code:
+  MSG.IMM12_REPORT_SUCCESS, ctx })` hoặc `notify.fromOk(resp)` khi thành công.
+- KHÔNG còn `try/catch` tự build string từ `e.message` BE.
+
+### 11.5 Quy tắc severity (chốt cho IMM-12)
+
+- `warning` = lỗi nghiệp vụ user tự sửa được (validation, bad-state, not-found,
+  conflict) → toast vàng, GIỮ form, không reload.
+- `critical` = chặn vì tuân thủ NĐ98 (BR-12-01 clinical impact, BR-12-02 / NEG-11
+  RCA gate trước khi đóng sự cố Major/Critical) → modal blocking.
+- `error` = lỗi hệ thống (`SYS-*`) → toast đỏ.
+- `success` = thao tác thành công → toast xanh.
 
 ---
 

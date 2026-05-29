@@ -855,6 +855,57 @@ Tất cả trả về `_ok(data)` / `_err(msg, code)` envelope chuẩn.
 
 ---
 
+## III.21. Notification Preferences (3 endpoints — Notification Framework Wave N1)
+
+Base path: `assetcore.api.notifications.<function>`. Envelope chuẩn `{success, data}`. Per-user — chỉ thao tác trên Notification Settings của chính user đang đăng nhập (System Manager có thể truyền `user`).
+
+### `get_notification_preferences` — Đọc tùy chọn nhận email
+
+`GET` · auth: session. Trả trạng thái toggle email của user hiện tại.
+
+```jsonc
+// Response
+{ "success": true, "data": { "email_enabled": true } }
+```
+
+### `set_email_enabled` — Bật/tắt nhận email
+
+`POST` · auth: session. Body: `{ "enabled": false }`. Set `Notification Settings.enable_email_notifications`.
+
+```jsonc
+// Request
+{ "enabled": false }
+// Response
+{ "success": true, "data": { "email_enabled": false } }
+```
+
+> In-app (chuông) dùng API Frappe core sẵn có (`frappe.desk.doctype.notification_log.notification_log.get_notification_logs`, mark-as-read) — KHÔNG cần endpoint AssetCore riêng. Badge chuông là component desk/SPA Frappe core.
+
+> **Vòng 3 — E3 (Incident created) & E4 (Calibration due): KHÔNG có API endpoint AssetCore mới.** E3 là hook `Incident Report.after_insert`; E4 chạy trong scheduler `imm11.check_calibration_expiry` (daily). Cả hai chỉ phát Notification Log + email — tiêu thụ qua đúng API chuông Frappe core ở trên. FE KHÔNG cần client mới cho 2 event này (badge chuông hiện hữu đã hiển thị).
+
+> **Vòng 4 — HTML email template + deep-link: KHÔNG có API endpoint mới, KHÔNG đổi shape endpoint nào.** Nâng cấp thuần server-side ở `_dispatch` (dựng HTML qua `_render_email`, gửi qua `_safe_sendmail`). 2 endpoint preference ở trên giữ nguyên contract. FE KHÔNG đổi (email render phía server; bell UI không đổi). Spec: `04_Backend_Design.md §III.1b-3`.
+
+### `get_delivery_kpi` — KPI Notification Delivery (vòng 5, System Manager only)
+
+`GET` · auth: session + **role System Manager** (raise `FORBIDDEN` nếu không). Query: `days` (int, mặc định 30, cửa sổ Email Queue). Đo độ phủ thông báo: tỷ lệ email gửi thành công (`delivery_rate`) và tỷ lệ user tắt email (`opt_out_rate`). Chỉ tính email AssetCore (lọc theo `reference_doctype ∈ {AC Asset, Incident Report, PM Work Order, Asset Repair}`). Công thức + ngưỡng màu: `04_Backend_Design.md §III.1b-4`.
+
+```jsonc
+// GET .../get_delivery_kpi?days=30  →  Response
+{ "success": true, "data": {
+    "delivery_rate": 97.5,        // null nếu mẫu rỗng (chia-0 guard)
+    "sent": 39, "failed": 1,
+    "opt_out_rate": 5.0,          // null nếu total_users=0
+    "total_users": 20, "opted_out": 1,
+    "window_days": 30,
+    "delivery_status": "good",    // good|warn|bad|na → màu KPI card FE
+    "opt_out_status": "good"
+} }
+```
+
+> **Vòng 5 — Audit linkage:** từ vòng 5, `_dispatch` truyền `reference_doctype`/`reference_name` của doc vào `_safe_sendmail` → email AssetCore trở nên truy nguyên trong Email Queue (core). Email gửi trước vòng 5 (ref NULL) bị loại khỏi mẫu KPI — giới hạn đã nêu trong docstring. KHÔNG DocType mới. FE: 1 KPI card tái dùng `KpiCard.vue` (chỉ hiển thị cho System Manager).
+
+---
+
 # Phần IV — Endpoint → Business Rule Mapping
 
 | Endpoint | Business Rule áp dụng |

@@ -455,6 +455,34 @@ Khi `severity = Critical AND patient_affected = true`:
 
 ---
 
+## III.9. Notification Settings — Toggle email (Notification Framework Wave N1)
+
+Route: `/settings/notifications` (folder `frontend/src/views/settings/`). Stack: Vue 3 + TS + Pinia + TanStack Query.
+
+**Chuông in-app:** badge chuông góc phải là component **Frappe core desk** (Notification Log) — KHÔNG build lại. FE chỉ cần xác nhận hiển thị/đếm unread hoạt động.
+
+**View `NotificationSettingsView.vue`:** một section gọn với 1 toggle:
+
+```
+┌──────────────────────────────────────────────┐
+│  Thông báo                                     │
+│                                                │
+│  Nhận thông báo qua email          [  ●—  ]    │
+│  Khi tắt, bạn vẫn nhận thông báo tại chuông.   │
+└──────────────────────────────────────────────┘
+```
+
+- TanStack Query: `useQuery(['notif-prefs'], getNotificationPreferences)` → init toggle.
+- `useMutation(setEmailEnabled)` → optimistic update + invalidate `['notif-prefs']`; toast lỗi nếu fail.
+- API client: `frontend/src/api/notifications.ts` → `getNotificationPreferences()`, `setEmailEnabled(enabled: boolean)`. Dùng `frappePost` wrapper hiện có, `catch (e: unknown)` + `instanceof` guard.
+- Store (nếu cần share): `frontend/src/stores/notifications.ts` (`defineStore('notif_prefs')`).
+
+**Entry point (vòng 2 — UX):** thêm mục **"Cài đặt thông báo"** vào **user menu dropdown** trong `frontend/src/components/common/AppTopBar.vue` (khối "Menu items", cạnh "Hồ sơ cá nhân" / "Đổi mật khẩu"), `@click` push `/settings/notifications` (qua handler `goNotificationSettings()` gọi `closeAll()` rồi `router.push`). Lý do: trước vòng 2 route chỉ truy cập được qua gõ URL → user thật không dùng được toggle.
+- **Ràng buộc cấm:** KHÔNG đụng sidebar nav / launcher / `sidebarNav.ts` / `AppSidebar.vue` / `FE_Persona_Navigation.md` (task FE-persona đang treo). Entry point đặt ở `AppTopBar.vue` (ngoài vùng treo).
+- Icon SVG inline cùng style các item hiện có; label tiếng Việt; không thêm i18n key vào file messages đang treo.
+
+---
+
 # Phần IV — Pinia Stores (từ `frontend/src/stores/imm00.ts`)
 
 > **Verified vs code 2026-05-14 (sau commits `33a9668` restructure + `820e3fe` role/launcher):** File `stores/imm00.ts` export 4 stores cho IMM-00 foundation. Các module IMM-01→16 có file store riêng (`stores/imm01.ts`, …, `stores/imm16.ts`); ngoài ra `stores/auth.ts`, `stores/dashboard.ts`, `stores/masterData.ts` là cross-cutting.

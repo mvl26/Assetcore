@@ -337,6 +337,46 @@ HTTP Request / Frappe Scheduler
 
 ---
 
+## III.8. Notification Framework (Foundation — Wave N1)
+
+> **Mục tiêu:** Khi một sự kiện vòng đời liên quan trực tiếp tới user xảy ra, user nhận thông báo qua **2 kênh**: (1) **In-app** tại chuông góc phải (Frappe Notification Log), (2) **Email** SMTP — user **tự bật/tắt** per-user.
+>
+> **Frappe-first — KHÔNG modify core, KHÔNG tạo DocType mới:**
+> - In-app: tái dùng DocType **Notification Log** (Frappe core) qua `frappe.desk.doctype.notification_log.notification_log.enqueue_create_notification(users, doc)`. Đây đã là record có audit trail (for_user, subject, type, document_type/name, creation).
+> - Toggle email per-user: tái dùng DocType **Notification Settings** (Frappe core), field `enable_email_notifications` + `enabled`. Service phải kiểm tra setting này **trước** khi gửi email.
+> - Email gửi qua `frappe.sendmail` (wrap bằng `utils/helpers.py::_safe_sendmail`). Cấu hình SMTP runtime (Email Account / site_config) — **không hardcode, không commit secret**.
+
+### Sự kiện vòng 1 (MVP — 2 events)
+
+| ID | Sự kiện | Trigger | Recipient resolution | Kênh |
+|---|---|---|---|---|
+| **E1** `notify_assignment` | Work Order được gán cho kỹ thuật viên | `PM Work Order` / `Asset Repair` `on_update` + `on_submit` khi `assigned_to` set/đổi | user ở field `assigned_to` (loại trừ self-assign: actor == assignee) | In-app + Email |
+| **E2** `notify_approval_pending` | Workflow doc chuyển sang state cần duyệt | doc có `workflow_state` đổi sang state pending-approval (`validate`/`on_update`) | approver: field `supervisor` nếu có, fallback users có allowed-role của transition kế tiếp | In-app + Email |
+
+> **OUT-of-scope vòng 1** (backlog): SLA sắp hết hạn (đã có scheduler riêng `tasks.py`/`imm00`), Incident mới, Calibration đến hạn, SMS/push, digest, notification preferences UI nâng cao. Thêm event sau = chỉ thêm mapping, dùng lại engine.
+
+### FR Notification (FR-00-NTF-01 → 06)
+
+| FR ID | Mô tả | Actor | Phương thức |
+|---|---|---|---|
+| FR-00-NTF-01 | Khi WO gán `assigned_to` → tạo Notification Log cho assignee | System (hook) | `notify_assignment` |
+| FR-00-NTF-02 | Khi workflow doc vào state **cần duyệt** → tạo Notification Log cho approver. "State cần duyệt" + approver xác định **động** từ Workflow metadata (transition rời state có `allowed` ∈ role phê duyệt, mặc định `System Manager`), **không hard-code tên state/field**; bổ sung `supervisor` nếu doc có. Xem 04 §III.1b-1. | System (hook) | `notify_approval_pending`, `resolve_approvers_by_workflow` |
+| FR-00-NTF-03 | Gửi email cho recipient **chỉ khi** `Notification Settings.enable_email_notifications=1 AND enabled=1` | System | `_user_wants_email` |
+| FR-00-NTF-04 | Không tự-notify (actor == recipient → skip) | System | `resolve_recipients` |
+| FR-00-NTF-05 | User đọc trạng thái toggle email của mình | End-user | API `get_notification_preferences` |
+| FR-00-NTF-06 | User bật/tắt nhận email | End-user | API `set_email_enabled` |
+
+### Audit trail
+- Mỗi notification = 1 record **Notification Log** (immutable, có `for_user`, `subject`, `creation`) → audit trail tự nhiên.
+- Listener idempotent + handle `docstatus`/cancel (Pattern A) → không tạo record trùng khi save lặp.
+
+### KPI (gợi ý — backlog đo lường)
+- Notification delivery rate (số gửi / số trigger).
+- Email opt-out rate (% user tắt email).
+- Median thời gian từ assignment → assignee xem (read) Notification Log.
+
+---
+
 # Phần IV — Functional Requirements
 
 ## IV.1. Nhóm AC Asset (FR-00-01 → FR-00-05)

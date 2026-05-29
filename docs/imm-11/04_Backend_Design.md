@@ -142,7 +142,7 @@ Actual transitions (from `imm_11_calibration_workflow.json`):
 | `create_calibration_schedule_from_commissioning(doc)` | Commissioning doc | `str` (sched_name) or None | Insert `IMM Calibration Schedule` + `log_audit_event` |
 | `create_post_repair_calibration(asset_name)` | str | `str` or None | Insert `IMM Asset Calibration` (`is_recalibration=1`) |
 | `create_due_calibration_wos()` | — | `int` (count created) | Scheduler: Insert draft `IMM Asset Calibration` per due Schedule (threshold 30 days) |
-| `check_calibration_expiry()` | — | None | Scheduler: Update `AC Asset.calibration_status` (Overdue/DueSoon/OnSchedule) |
+| `check_calibration_expiry()` | — | None | Scheduler: Update `AC Asset.calibration_status` (Overdue/DueSoon/OnSchedule). **Vòng 3:** sau khi đổi status, gọi `notifications.notify_calibration_due(asset, old_status, new_status)` (E4) — báo `responsible_technician`/`custodian` khi asset CHUYỂN VÀO DUE_SOON/OVERDUE. Spec: `docs/imm-00/04_Backend_Design.md §III.1b-2`. |
 | `handle_calibration_pass(cal_doc)` | `IMM Asset Calibration` doc | None | Update Asset dates + `CalibrationSchedule.next_due_date` + lifecycle event + transition back to Active |
 | `handle_calibration_fail(cal_doc)` | `IMM Asset Calibration` doc | None | OOS transition + `create_capa()` (severity Major) + lookback + auto-report IMM-12 incident |
 | `perform_lookback_assessment(device_model, exclude_asset)` | str, str | `list[str]` | Read-only: assets same device_model in Active status |
