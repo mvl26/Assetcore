@@ -23,6 +23,21 @@ def get_metrics(asset_name: str, year: str = ""):
 
 **Quy tắc**: optional numeric params đến từ GET PHẢI khai báo là `str = ""`. POST body params có thể dùng `int | None` vì Frappe parse JSON đúng kiểu.
 
+**⚠️ NUANCE QUAN TRỌNG (xác minh 2026-05-29 — chống false-positive):** 417 CHỈ xảy ra khi annotation là **real type object**. Nếu module có `from __future__ import annotations` (PEP 563), MỌI annotation thành **string** → `validate_argument_types` KHÔNG resolve được → **SKIP coercion** → KHÔNG 417, kể cả khi hint là `int | None` / `int = None`.
+
+- `api/dashboard.py` **KHÔNG** có future-import → `persona: str=""` + `persona=None` → 417 THẬT (đã fix `41a7048`).
+- `api/imm16.py` / `imm08.py` / `imm11.py` **CÓ** future-import → `get_compliance_heatmap(period_year: int|None)`, `get_pm_dashboard_stats(year: int=None)`, `get_calibration_kpis(year: int=None)` **KHÔNG 417** dù hint sai kiểu. Backlog "imm16 sẽ 417" hoá ra là **FALSE POSITIVE**.
+
+**Cách xác định 417 risk THẬT (chạy trước khi tin báo cáo "endpoint X sẽ 417"):**
+```bash
+# Nếu file CÓ dòng này → annotation=string → KHÔNG 417 (an toàn, đừng "fix")
+grep -L 'from __future__ import annotations' assetcore/api/*.py
+#   -L liệt kê file KHÔNG có → CHỈ những file này mới 417 với GET numeric hint sai
+```
+Hoặc verify bằng probe thật `validate_argument_types(fn, apply_condition=lambda: True)(year="")` — RAISE = bug, OK = an toàn. **TDD RED phải fail trước; pass-trước-fix = không có bug, đừng sửa source.**
+
+> Khuyến nghị defensive (không bắt buộc): file CÓ future-import vẫn nên dùng `str=""` cho GET numeric để khỏi 417 nếu sau này ai gỡ future-import. Nhưng KHÔNG churn file đang chạy đúng chỉ vì hint — ưu tiên không đổi code không hỏng.
+
 ### LL-BE-2: Response phải enrich tên display cho mọi Link field
 
 ```python
