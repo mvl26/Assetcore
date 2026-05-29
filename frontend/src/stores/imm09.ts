@@ -10,6 +10,7 @@ import {
   searchSpareParts,
   type AssetRepair, type RepairKPIs, type MttrReport, type SparePartRow,
 } from '@/api/imm09'
+import { ApiError, toApiError } from '@/api/errors'
 
 export const useImm09Store = defineStore('imm09', () => {
   const workOrders = ref<AssetRepair[]>([])
@@ -18,7 +19,18 @@ export const useImm09Store = defineStore('imm09', () => {
   const repairHistory = ref<AssetRepair[]>([])
   const loading = ref(false)
   const error = ref<string | null>(null)
+  // Notification framework (Sprint 2026-05-29): giữ nguyên ApiError đã hydrate
+  // (message_code/severity/title/action_hint) để view gọi notify.fromError().
+  // `error` string vẫn giữ cho backward-compat (inline banner cũ).
+  const lastApiError = ref<ApiError | null>(null)
   const pagination = ref({ page: 1, total: 0, total_pages: 0, page_size: 20 })
+
+  /** Ghi nhận lỗi: vừa set string (legacy) vừa giữ ApiError (notify). */
+  function _captureError(e: unknown): void {
+    const err = toApiError(e)
+    lastApiError.value = err
+    error.value = err.message
+  }
 
   const openWOs = computed(() => workOrders.value.filter(w => w.status === 'Open'))
   const breachedWOs = computed(() => workOrders.value.filter(w => w.sla_breached))
@@ -35,7 +47,7 @@ export const useImm09Store = defineStore('imm09', () => {
       workOrders.value = res.data
       pagination.value = res.pagination
     } catch (e: unknown) {
-      error.value = e instanceof Error ? e.message : String(e)
+      _captureError(e)
     } finally {
       loading.value = false
     }
@@ -47,7 +59,7 @@ export const useImm09Store = defineStore('imm09', () => {
     try {
       currentWO.value = await getRepairWorkOrder(name)
     } catch (e: unknown) {
-      error.value = e instanceof Error ? e.message : String(e)
+      _captureError(e)
     } finally {
       loading.value = false
     }
@@ -65,7 +77,7 @@ export const useImm09Store = defineStore('imm09', () => {
       await fetchWorkOrder(name)
       return true
     } catch (e: unknown) {
-      error.value = e instanceof Error ? e.message : String(e)
+      _captureError(e)
       return false
     }
   }
@@ -77,7 +89,7 @@ export const useImm09Store = defineStore('imm09', () => {
       await fetchWorkOrder(currentWO.value.name)
       return true
     } catch (e: unknown) {
-      error.value = e instanceof Error ? e.message : String(e)
+      _captureError(e)
       return false
     }
   }
@@ -88,7 +100,7 @@ export const useImm09Store = defineStore('imm09', () => {
       await fetchWorkOrder(payload.name)
       return true
     } catch (e: unknown) {
-      error.value = e instanceof Error ? e.message : String(e)
+      _captureError(e)
       return false
     }
   }
@@ -99,7 +111,7 @@ export const useImm09Store = defineStore('imm09', () => {
       await fetchWorkOrder(woName)
       return true
     } catch (e: unknown) {
-      error.value = e instanceof Error ? e.message : String(e)
+      _captureError(e)
       return false
     }
   }
@@ -108,7 +120,7 @@ export const useImm09Store = defineStore('imm09', () => {
     try {
       kpis.value = await getRepairKPIs(year, month)
     } catch (e: unknown) {
-      error.value = e instanceof Error ? e.message : String(e)
+      _captureError(e)
     }
   }
 
@@ -117,7 +129,7 @@ export const useImm09Store = defineStore('imm09', () => {
       const res = await getAssetRepairHistory(assetRef)
       repairHistory.value = res.history
     } catch (e: unknown) {
-      error.value = e instanceof Error ? e.message : String(e)
+      _captureError(e)
     }
   }
 
@@ -127,7 +139,7 @@ export const useImm09Store = defineStore('imm09', () => {
     try {
       mttrReport.value = await getMttrReport(year, month)
     } catch (e: unknown) {
-      error.value = e instanceof Error ? e.message : String(e)
+      _captureError(e)
     }
   }
 
@@ -137,7 +149,7 @@ export const useImm09Store = defineStore('imm09', () => {
       await fetchWorkOrder(woName)
       return true
     } catch (e: unknown) {
-      error.value = e instanceof Error ? e.message : String(e)
+      _captureError(e)
       return false
     }
   }
@@ -148,7 +160,7 @@ export const useImm09Store = defineStore('imm09', () => {
       await fetchWorkOrder(woName)
       return true
     } catch (e: unknown) {
-      error.value = e instanceof Error ? e.message : String(e)
+      _captureError(e)
       return false
     }
   }
@@ -158,7 +170,7 @@ export const useImm09Store = defineStore('imm09', () => {
       const res = await createRepairWorkOrder(payload)
       return res.name
     } catch (e: unknown) {
-      error.value = e instanceof Error ? e.message : String(e)
+      _captureError(e)
       return null
     }
   }
@@ -168,7 +180,7 @@ export const useImm09Store = defineStore('imm09', () => {
   }
 
   return {
-    workOrders, currentWO, kpis, repairHistory, mttrReport, loading, error, pagination,
+    workOrders, currentWO, kpis, repairHistory, mttrReport, loading, error, lastApiError, pagination,
     openWOs, breachedWOs, checklistComplete,
     fetchWorkOrders, fetchWorkOrder, updateChecklistResult,
     doAssignTechnician, doSubmitDiagnosis, doCloseWorkOrder, doConfirmInspection,

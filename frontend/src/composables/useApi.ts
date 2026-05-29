@@ -16,6 +16,7 @@
 
 import { ref } from 'vue'
 import { useToast } from './useToast'
+import { useNotify } from './useNotify'
 import { ApiError, ErrorCode, toApiError } from '@/api/errors'
 
 export interface RunOptions {
@@ -33,6 +34,7 @@ export interface RunOptions {
 
 export function useApi() {
   const toast = useToast()
+  const notify = useNotify()
   const loading = ref(false)
   const lastError = ref<ApiError | null>(null)
 
@@ -58,9 +60,15 @@ export function useApi() {
         if (err.code === ErrorCode.UNAUTHORIZED || err.code === ErrorCode.FORBIDDEN) {
           return null
         }
-        const msg = opts.errorMessage ?? err.message
-        if (err.isBusinessError) toast.warning(msg)
-        else toast.error(msg)
+        if (opts.errorMessage) {
+          // Caller ép message cụ thể → giữ hành vi cũ (severity theo loại lỗi).
+          if (err.isBusinessError) toast.warning(opts.errorMessage)
+          else toast.error(opts.errorMessage)
+        } else {
+          // Notification framework: render title + action_hint + severity chuẩn
+          // (critical → modal blocking) từ ApiError đã hydrate bởi axios/helpers.
+          notify.fromError(err)
+        }
       }
       return null
     } finally {

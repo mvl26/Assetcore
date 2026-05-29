@@ -13,7 +13,12 @@ import { formatAssetDisplay, formatDate } from '@/utils/formatters'
 import PageHeader from '@/components/common/PageHeader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar from '@/components/common/ListFilterBar.vue'
+import { useNotify } from '@/composables/useNotify'
+import { useImm11Store } from '@/stores/imm11'
+import { MSG } from '@/i18n/messages'
 const toast = useToast()
+const notify = useNotify()
+const store = useImm11Store()
 
 const items = ref<CalibrationSchedule[]>([])
 const total = ref(0)
@@ -114,22 +119,29 @@ async function save() {
   try {
     if (editingName.value) {
       await updateCalibrationSchedule(editingName.value, form.value)
+      notify.show({ code: MSG.UI_SAVE_SUCCESS, ctx: { entity: 'lịch hiệu chuẩn' } })
     } else {
-      await createCalibrationSchedule(form.value)
+      const r = await createCalibrationSchedule(form.value) as unknown as { next_due_date?: string }
+      notify.show({ code: MSG.IMM11_SCHEDULE_CREATE_SUCCESS, ctx: { next_due_date: r?.next_due_date ?? form.value.next_due_date ?? '' } })
     }
-    toast.success(editingName.value ? 'Đã cập nhật lịch hiệu chuẩn' : 'Đã tạo lịch hiệu chuẩn')
     showForm.value = false; await load()
   } catch (e: unknown) {
-    const msg = (e as Error).message || 'Lỗi lưu'
-    err.value = msg
-    toast.error(msg)
+    store._captureError(e)
+    err.value = store.error ?? ''
+    notify.fromError(store.lastApiError)
   }
 }
 
 async function remove(name: string) {
   if (!confirm(`Xóa lịch "${name}"?`)) return
-  try { await deleteCalibrationSchedule(name); await load() }
-  catch (e: unknown) { toast.error((e as Error).message || 'Không thể xóa') }
+  try {
+    await deleteCalibrationSchedule(name)
+    notify.show({ code: MSG.UI_DELETE_SUCCESS, ctx: { entity: 'lịch hiệu chuẩn' } })
+    await load()
+  } catch (e: unknown) {
+    store._captureError(e)
+    notify.fromError(store.lastApiError)
+  }
 }
 
 function isOverdue(date: string | null) {

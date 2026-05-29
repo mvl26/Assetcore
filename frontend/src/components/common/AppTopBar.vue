@@ -155,6 +155,10 @@ function goChangePassword(): void {
   closeAll()
   router.push('/account/change-password')
 }
+function goNotificationSettings(): void {
+  closeAll()
+  router.push('/settings/notifications')
+}
 
 async function handleLogout(): Promise<void> {
   closeAll()
@@ -528,6 +532,15 @@ fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"
                   <path stroke-linecap="round" stroke-linejoin="round" d="M12 11c0 1.5-1 2.5-2 2.5s-2-1-2-2.5 1-2.5 2-2.5 2 1 2 2.5zM12 11l6 6m-2-2l2 2-1 1-2-2 1-1zM7 11a5 5 0 1110 0" />
                 </svg>
                 Đổi mật khẩu
+              </button>
+              <button
+                class="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors flex items-center gap-2.5"
+                @click="goNotificationSettings"
+              >
+                <svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" class="w-4 h-4 text-slate-400">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                </svg>
+                Cài đặt thông báo
               </button>
               <div class="my-1 mx-3" style="border-top: 1px solid #f1f5f9" />
               <button

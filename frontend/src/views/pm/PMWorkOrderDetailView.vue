@@ -1,5 +1,7 @@
 <script setup lang="ts">
+import { useNotify } from '@/composables/useNotify'
 import { useToast } from '@/composables/useToast'
+import { MSG } from '@/i18n/messages'
 import DateInput from '@/components/common/DateInput.vue'
 import { onMounted, computed, ref } from 'vue'
 import { useImm08Store } from '@/stores/imm08'
@@ -7,6 +9,7 @@ import { useRouter } from 'vue-router'
 import { pmStatusLabel, pmStatusClass, resultLabel as _resultLabel } from '@/constants/labels'
 import { useAuthStore } from '@/stores/auth'
 import { ROLES_PM_EXECUTE, ROLES_PM_MANAGE } from '@/constants/roles'
+const notify = useNotify()
 const toast = useToast()
 
 const props = defineProps<{ id: string }>()
@@ -75,7 +78,7 @@ async function handleSubmit() {
   submitting.value = false
   showSubmitModal.value = false
   if (res.success) {
-    toast.success('Phiếu bảo trì đã hoàn thành')
+    notify.show({ code: MSG.IMM08_SUBMIT_SUCCESS, ctx: { name: wo.value?.name ?? props.id } })
     // Force re-fetch to ensure reactive update
     await store.fetchWorkOrder(props.id)
     if (res.cmWoCreated) {
@@ -83,7 +86,7 @@ async function handleSubmit() {
       if (go) router.push(`/cm/work-orders/${res.cmWoCreated}`)
     }
   } else {
-    toast.error(store.error || 'Không thể hoàn thành phiếu bảo trì')
+    notify.fromError(store.lastApiError)
   }
 }
 
@@ -97,6 +100,7 @@ async function handleMajorFailure() {
     toast.success(`Đã báo lỗi nghiêm trọng. Phiếu sửa chữa đã được tạo: ${cmWo}\nThiết bị đã được đặt trạng thái Ngừng hoạt động.`)
     router.push(`/cm/work-orders/${cmWo}`)
   } else {
+    notify.fromError(store.lastApiError)
     majorFailureError.value = store.error || 'Không thể báo lỗi. Vui lòng thử lại.'
   }
 }
@@ -113,7 +117,9 @@ async function handleReschedule() {
     showRescheduleModal.value = false
     rescheduleDate.value = ''
     rescheduleReason.value = ''
+    toast.success('Đã hoãn lịch bảo trì')
   } else {
+    notify.fromError(store.lastApiError)
     rescheduleError.value = store.error || 'Hoãn lịch thất bại'
   }
 }
@@ -141,6 +147,7 @@ async function handleStart() {
     toast.success('Đã bắt đầu thực hiện bảo trì')
     await store.fetchWorkOrder(props.id)
   } else {
+    notify.fromError(store.lastApiError)
     startError.value = store.error || 'Không thể bắt đầu PM'
   }
 }

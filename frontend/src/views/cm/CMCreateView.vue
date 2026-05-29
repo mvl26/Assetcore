@@ -4,6 +4,8 @@ import { useRouter, useRoute } from 'vue-router'
 import { useImm09Store } from '@/stores/imm09'
 import { useFormDraft } from '@/composables/useFormDraft'
 import { useApi } from '@/composables/useApi'
+import { useNotify } from '@/composables/useNotify'
+import { MSG } from '@/i18n/messages'
 import { getIncident } from '@/api/imm12'
 import { searchSpareParts } from '@/api/imm09'
 import { uploadDocumentFile } from '@/api/imm05'
@@ -28,6 +30,7 @@ const router = useRouter()
 const route = useRoute()
 const store = useImm09Store()
 const api = useApi()
+const notify = useNotify()
 const submitting = ref(false)
 const error = ref('')
 const assetMeta = ref<AssetMeta | null>(null)
@@ -198,9 +201,12 @@ async function handleSubmit() {
   } as Parameters<typeof store.doCreateRepairWorkOrder>[0])
   submitting.value = false
   if (!name) {
+    // Thông báo chuẩn hoá (title + action_hint + severity) từ ApiError BE đã hydrate.
+    notify.fromError(store.lastApiError)
     error.value = store.error ?? 'Không thể tạo phiếu sửa chữa'
     return
   }
+  notify.show({ code: MSG.IMM09_CREATE_SUCCESS, ctx: { name, asset: form.value.asset_ref } })
   // Pre-request parts (if any) — best-effort
   if (preRequestParts.value.length) {
     const { requestSpareParts } = await import('@/api/imm09')

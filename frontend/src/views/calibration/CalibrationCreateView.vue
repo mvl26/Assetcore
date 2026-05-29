@@ -9,6 +9,8 @@ import DateInput from '@/components/common/DateInput.vue'
 import { useFormDraft } from '@/composables/useFormDraft'
 import { useApi } from '@/composables/useApi'
 import { useToast } from '@/composables/useToast'
+import { useNotify } from '@/composables/useNotify'
+import { MSG } from '@/i18n/messages'
 
 interface AssetMeta {
   device_model?: string
@@ -29,6 +31,7 @@ const router = useRouter()
 const route = useRoute()
 const api = useApi()
 const toast = useToast()
+const notify = useNotify()
 const todayIso = new Date().toISOString().slice(0, 10)
 const assetSchedules = ref<CalibrationSchedule[]>([])
 const loadingSchedules = ref(false)
@@ -144,7 +147,7 @@ async function submit() {
       calibration_schedule: form.value.calibration_schedule || undefined,
     } as Parameters<typeof createCalibration>[0]),
     {
-      successMessage: 'Đã tạo phiếu hiệu chuẩn',
+      silentSuccess: true,
       onFieldError: (fields) => { err.value = Object.values(fields).join('; ') },
     },
   )
@@ -152,6 +155,7 @@ async function submit() {
   const r = res as unknown as { name?: string } | null
   if (r?.name) {
     clearDraft()
+    notify.show({ code: MSG.IMM11_CREATE_SUCCESS, ctx: { name: r.name, asset: form.value.asset } })
     router.push(`/calibration/${r.name}`)
   }
 }
