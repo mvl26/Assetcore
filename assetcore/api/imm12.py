@@ -1,7 +1,7 @@
 # Copyright (c) 2026, AssetCore Team
 """IMM-12 — Incident & CAPA API endpoints.
 
-Incident workflow: Open → Under Investigation → Resolved → Closed
+Incident workflow: Open → Acknowledged → In Progress → Resolved → Closed
 CAPA endpoints: delegate to imm00 (create_capa, list_capa, get_capa, close_capa).
 
 Base URL: /api/method/assetcore.api.imm12
@@ -19,7 +19,9 @@ from assetcore.services.imm12 import (
     report_incident as svc_report,
     cancel_incident as svc_cancel,
     acknowledge_incident as svc_acknowledge,
+    start_work as svc_start_work,
     resolve_incident as svc_resolve,
+    list_rcas as svc_list_rcas,
     close_incident as svc_close,
     create_rca as svc_create_rca,
     get_rca as svc_get_rca,
@@ -123,6 +125,22 @@ def get_rca(name: str):
         return _err(_(e.message), e.code)
     except Exception:
         frappe.log_error(frappe.get_traceback(), "IMM-12 get_rca")
+        return _err(_(_MSG_SERVER_ERROR), 500)
+
+
+@frappe.whitelist()
+def list_rcas(method: str = "", status: str = "", asset: str = "",
+              page: int = 1, page_size: int = 20):
+    """GET /api/method/assetcore.api.imm12.list_rcas — danh sách RCA cho /rca."""
+    if frappe.session.user == "Guest":
+        return _err(_(_MSG_UNAUTHENTICATED), 401)
+    try:
+        return _ok(svc_list_rcas(
+            method=method, status=status, asset=asset,
+            page=int(page), page_size=int(page_size),
+        ))
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "IMM-12 list_rcas")
         return _err(_(_MSG_SERVER_ERROR), 500)
 
 
@@ -240,7 +258,7 @@ def get_incident(name: str):
 @frappe.whitelist(methods=["POST"])
 def acknowledge_incident(name: str, notes: str = "", assigned_to: str = ""):
     """POST /api/method/assetcore.api.imm12.acknowledge_incident
-    Open → Under Investigation.
+    "Tiếp nhận": Open → Acknowledged.
     """
     if frappe.session.user == "Guest":
         return _err(_(_MSG_UNAUTHENTICATED), 401)
@@ -256,9 +274,27 @@ def acknowledge_incident(name: str, notes: str = "", assigned_to: str = ""):
 
 
 @frappe.whitelist(methods=["POST"])
+def start_work(name: str, notes: str = ""):
+    """POST /api/method/assetcore.api.imm12.start_work
+    "Bắt đầu xử lý": Acknowledged → In Progress.
+    """
+    if frappe.session.user == "Guest":
+        return _err(_(_MSG_UNAUTHENTICATED), 401)
+    if not _has_role(*_ROLES_INVESTIGATE):
+        return _err(_(_MSG_FORBIDDEN), 403)
+    try:
+        return _ok(svc_start_work(name, notes=notes))
+    except IncidentError as e:
+        return _err(_(e.message), e.code)
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "IMM-12 start_work")
+        return _err(_(_MSG_SERVER_ERROR), 500)
+
+
+@frappe.whitelist(methods=["POST"])
 def resolve_incident(name: str, resolution_notes: str, root_cause: str = ""):
     """POST /api/method/assetcore.api.imm12.resolve_incident
-    Under Investigation → Resolved. Auto-creates CAPA if High/Critical.
+    In Progress → Resolved. Auto-creates CAPA if High/Critical.
     """
     if frappe.session.user == "Guest":
         return _err(_(_MSG_UNAUTHENTICATED), 401)

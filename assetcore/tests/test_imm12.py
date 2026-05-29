@@ -12,9 +12,11 @@ import frappe
 from assetcore.services.imm12 import (
     report_incident,
     acknowledge_incident,
+    start_work,
     resolve_incident,
     close_incident,
     cancel_incident,
+    list_rcas,
 )
 from assetcore.services.shared import ServiceError, ErrorCode
 from assetcore.tests._asset_cleanup import purge_asset
@@ -164,6 +166,11 @@ class TestIncidentWorkflow(unittest.TestCase):
         acknowledge_incident(ir_name, notes="_Test acknowledge")
         frappe.db.commit()
         doc.reload()
+        self.assertEqual(doc.status, "Acknowledged")
+
+        start_work(ir_name, notes="_Test start work")
+        frappe.db.commit()
+        doc.reload()
         self.assertEqual(doc.status, "In Progress")
 
         resolve_incident(
@@ -179,6 +186,97 @@ class TestIncidentWorkflow(unittest.TestCase):
         frappe.db.commit()
         doc.reload()
         self.assertEqual(doc.status, "Closed")
+
+    def test_acknowledge_goes_to_acknowledged_not_in_progress(self):
+        """D3: acknowledge() chỉ đưa Open → Acknowledged (KHÔNG nhảy In Progress)."""
+        result = report_incident(
+            asset=self.asset.name,
+            incident_type="Malfunction",
+            severity="Low",
+            description="_Test D3 acknowledge stops at Acknowledged",
+        )
+        frappe.db.commit()
+        ir_name = result["name"]
+        out = acknowledge_incident(ir_name, notes="_Test triage only")
+        frappe.db.commit()
+        self.assertEqual(out["status"], "Acknowledged")
+        doc = frappe.get_doc("Incident Report", ir_name)
+        self.assertEqual(doc.status, "Acknowledged")
+        self.assertTrue(doc.acknowledged_at, "acknowledged_at phải được set")
+
+    def test_resolve_blocked_from_acknowledged_requires_start_work(self):
+        """D3: không thể resolve khi chưa start_work (Acknowledged → resolve illegal)."""
+        result = report_incident(
+            asset=self.asset.name,
+            incident_type="Malfunction",
+            severity="Low",
+            description="_Test D3 resolve blocked before start_work",
+        )
+        frappe.db.commit()
+        ir_name = result["name"]
+        acknowledge_incident(ir_name)
+        frappe.db.commit()
+        with self.assertRaises(Exception):
+            resolve_incident(ir_name, resolution_notes="_Test premature resolve")
+
+    def test_start_work_advances_acknowledged_to_in_progress(self):
+        """D3: start_work() đưa Acknowledged → In Progress."""
+        result = report_incident(
+            asset=self.asset.name,
+            incident_type="Malfunction",
+            severity="Low",
+            description="_Test D3 start_work transition",
+        )
+        frappe.db.commit()
+        ir_name = result["name"]
+        acknowledge_incident(ir_name)
+        frappe.db.commit()
+        out = start_work(ir_name, notes="_Test begin")
+        frappe.db.commit()
+        self.assertEqual(out["status"], "In Progress")
+
+
+class TestRCAListing(unittest.TestCase):
+    """Task 2 — list_rcas endpoint cho RCAListView (/rca)."""
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.asset = _make_asset("-rcalist")
+        # Tạo 1 incident High → resolve để auto-RCA
+        from assetcore.services.imm12 import resolve_incident as _resolve
+        result = report_incident(
+            asset=cls.asset.name,
+            incident_type="Malfunction",
+            severity="High",
+            description="_Test RCA list incident description",
+        )
+        frappe.db.commit()
+        cls.ir_name = result["name"]
+        acknowledge_incident(cls.ir_name)
+        start_work(cls.ir_name)
+        _resolve(cls.ir_name, resolution_notes="_Test resolve for RCA listing")
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        purge_asset(cls.asset.name)
+
+    def test_list_rcas_returns_items_and_pagination(self):
+        out = list_rcas(page=1, page_size=20)
+        self.assertIn("items", out)
+        self.assertIn("pagination", out)
+        self.assertIsInstance(out["items"], list)
+
+    def test_list_rcas_enriches_asset_name(self):
+        out = list_rcas(asset=self.asset.name, page=1, page_size=20)
+        for r in out["items"]:
+            self.assertIn("asset_name", r, "Mỗi RCA row phải có asset_name enrich")
+
+    def test_list_rcas_filter_by_method(self):
+        out = list_rcas(method="5-Why", page=1, page_size=20)
+        for r in out["items"]:
+            self.assertEqual(r["rca_method"], "5-Why")
 
 
 class TestIncidentCancellation(unittest.TestCase):
@@ -256,6 +354,8 @@ class TestRCAToCAPAAndIncidentChain(unittest.TestCase):
         ir_name = result["name"]
 
         acknowledge_incident(ir_name, notes="_Test ack for RCA chain")
+        frappe.db.commit()
+        start_work(ir_name, notes="_Test start for RCA chain")
         frappe.db.commit()
         resolve_incident(
             ir_name,

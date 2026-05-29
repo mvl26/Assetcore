@@ -153,7 +153,7 @@ class TestRC03_04_RcaCompletedChain(unittest.TestCase):
 
     def test_full_chain_incident_rca_capa_close(self):
         from assetcore.services.imm12 import (
-            report_incident, acknowledge_incident, resolve_incident,
+            report_incident, acknowledge_incident, start_work, resolve_incident,
             submit_rca, create_rca,
         )
         # 1. Report High incident — auto-creates RCA via resolve hook later
@@ -165,8 +165,9 @@ class TestRC03_04_RcaCompletedChain(unittest.TestCase):
         )
         ir_name = incident["name"]
 
-        # 2. Acknowledge + resolve (resolve auto-creates RCA cho High)
+        # 2. Acknowledge → start_work → resolve (resolve auto-creates RCA cho High)
         acknowledge_incident(ir_name)
+        start_work(ir_name)
         resolved = resolve_incident(
             ir_name,
             resolution_notes="Tạm thời thay phụ tùng A để mở chain",

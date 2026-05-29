@@ -1,11 +1,14 @@
 # Copyright (c) 2026, AssetCore Team
 """IMM-12 — Incident & CAPA orchestration service.
 
-State machine Incident:
-  Open → Under Investigation → Resolved → Closed
-                              ↘ (auto when High/Critical)
-                               RCA Required → [RCA flow] → Closed
-  Open / Under Investigation → Cancelled (false alarm)
+State machine Incident (khớp imm_12_incident_workflow.json + _VALID_TRANSITIONS):
+  Open → Acknowledged → In Progress → Resolved → Closed
+                                     ↘ (auto when High/Critical)
+                                      RCA Required → [RCA flow] → Closed
+  Open / Acknowledged / In Progress → Cancelled (false alarm)
+
+  D3: "Tiếp nhận" (acknowledge: Open→Acknowledged) tách khỏi "Bắt đầu xử lý"
+  (start_work: Acknowledged→In Progress). Triage/phân công ≠ bắt đầu xử lý.
 
 State machine RCA:
   RCA Required → RCA In Progress → Completed (→ auto CAPA)
@@ -53,11 +56,13 @@ _HIGH_SEVERITY = (_SEV_HIGH, _SEV_CRITICAL)
 _ASSET_OUT_OF_SERVICE = "Out of Service"
 _ASSET_ACTIVE = "Active"
 
+# D3: khớp imm_12_incident_workflow.json — Open chỉ đi Acknowledged/Cancelled
+# (KHÔNG nhảy thẳng In Progress). start_work() đưa Acknowledged → In Progress.
 _VALID_TRANSITIONS: dict[str, list[str]] = {
-    _STATUS_OPEN: [_STATUS_ACKNOWLEDGED, _STATUS_INVESTIGATING, _STATUS_CANCELLED],
+    _STATUS_OPEN: [_STATUS_ACKNOWLEDGED, _STATUS_CANCELLED],
     _STATUS_ACKNOWLEDGED: [_STATUS_INVESTIGATING, _STATUS_CANCELLED],
     _STATUS_INVESTIGATING: [_STATUS_RESOLVED, _STATUS_CANCELLED, _RCA_REQUIRED],
-    _STATUS_RESOLVED: [_STATUS_CLOSED],
+    _STATUS_RESOLVED: [_STATUS_CLOSED, _RCA_REQUIRED],
 }
 
 _CHRONIC_WINDOW_DAYS = 90
@@ -223,13 +228,18 @@ def report_incident(
 
 
 def acknowledge_incident(name: str, notes: str = "", assigned_to: str = "") -> dict:
-    """Open → Under Investigation. BR-12-04 extended: High → auto Out of Service."""
+    """"Tiếp nhận": Open → Acknowledged. Triage + phân công.
+
+    D3 fix: KHÔNG nhảy thẳng In Progress (đó là start_work()). BR-12-04 extended:
+    High/Critical → auto Out of Service ngay khi tiếp nhận (thiết bị nguy hiểm
+    không tiếp tục vận hành trong lúc chờ xử lý).
+    """
     doc = _get_incident(name)
-    _assert_transition(doc, _STATUS_INVESTIGATING)
+    _assert_transition(doc, _STATUS_ACKNOWLEDGED)
 
     actor = frappe.session.user
     prev = doc.status
-    doc.status = _STATUS_INVESTIGATING
+    doc.status = _STATUS_ACKNOWLEDGED
     doc.acknowledged_by = actor
     doc.acknowledged_at = now_datetime()
     if assigned_to:
@@ -239,7 +249,7 @@ def acknowledge_incident(name: str, notes: str = "", assigned_to: str = "") -> d
     doc.flags.ignore_permissions = True
     doc.save()
     frappe.db.commit()
-    _log(name, doc.asset, f"Acknowledged — {notes or 'đang điều tra'}", prev, _STATUS_INVESTIGATING)
+    _log(name, doc.asset, f"Tiếp nhận — {notes or 'đã phân công'}", prev, _STATUS_ACKNOWLEDGED)
 
     if doc.severity in _HIGH_SEVERITY:
         _try_transition_asset(doc.asset, _ASSET_OUT_OF_SERVICE, name, actor)
@@ -247,8 +257,30 @@ def acknowledge_incident(name: str, notes: str = "", assigned_to: str = "") -> d
     return {"name": name, "status": doc.status}
 
 
+def start_work(name: str, notes: str = "") -> dict:
+    """"Bắt đầu xử lý": Acknowledged → In Progress.
+
+    D3: KTV bắt đầu thực sự can thiệp thiết bị (tách khỏi triage ở acknowledge).
+    """
+    doc = _get_incident(name)
+    _assert_transition(doc, _STATUS_INVESTIGATING)
+
+    actor = frappe.session.user
+    prev = doc.status
+    doc.status = _STATUS_INVESTIGATING
+    if not doc.assigned_to:
+        doc.assigned_to = actor
+    if notes:
+        doc.immediate_action = ((doc.immediate_action or "") + f"\n[Start] {notes}").strip()
+    doc.flags.ignore_permissions = True
+    doc.save()
+    frappe.db.commit()
+    _log(name, doc.asset, f"Bắt đầu xử lý — {notes or 'đang xử lý'}", prev, _STATUS_INVESTIGATING)
+    return {"name": name, "status": doc.status}
+
+
 def resolve_incident(name: str, resolution_notes: str, root_cause: str = "") -> dict:
-    """Under Investigation → Resolved. Auto-tạo RCA nếu High/Critical (không block)."""
+    """In Progress → Resolved. Auto-tạo RCA nếu High/Critical (không block)."""
     doc = _get_incident(name)
     _assert_transition(doc, _STATUS_RESOLVED)
 
@@ -330,7 +362,7 @@ def close_incident(name: str, verification_notes: str = "") -> dict:
 
 
 def cancel_incident(name: str, reason: str) -> dict:
-    """Open / Under Investigation → Cancelled (false alarm)."""
+    """Open / Acknowledged / In Progress → Cancelled (false alarm)."""
     doc = _get_incident(name)
     _assert_transition(doc, _STATUS_CANCELLED)
     if not reason.strip():
@@ -385,6 +417,51 @@ def get_rca(name: str) -> dict:
         data["incident_severity"] = frappe.db.get_value(
             _DT_INCIDENT, doc.incident_report, "severity")
     return data
+
+
+def list_rcas(
+    method: str = "",
+    status: str = "",
+    asset: str = "",
+    page: int = 1,
+    page_size: int = 20,
+) -> dict:
+    """Danh sách RCA Record cho RCAListView (route /rca). Read-safe, enrich names."""
+    f: dict = {}
+    if method:
+        f["rca_method"] = method
+    if status:
+        f["status"] = status
+    if asset:
+        f["asset"] = asset
+    total = frappe.db.count(_DT_RCA, filters=f)
+    offset = (page - 1) * page_size
+    rows = frappe.get_all(
+        _DT_RCA,
+        filters=f,
+        fields=["name", "incident_report", "asset", "rca_method", "trigger_type",
+                "status", "assigned_to", "due_date", "linked_capa", "completed_date"],
+        order_by="creation desc",
+        limit_start=offset,
+        limit_page_length=page_size,
+    )
+    _enrich_asset_names(rows)
+    # Enrich owner (assigned_to) display name
+    user_ids = {r["assigned_to"] for r in rows if r.get("assigned_to")}
+    if user_ids:
+        user_map = {u.name: u.full_name for u in frappe.get_all(
+            "User", filters={"name": ["in", list(user_ids)]}, fields=["name", "full_name"],
+        )}
+        for r in rows:
+            if r.get("assigned_to"):
+                r["assigned_to_name"] = user_map.get(r["assigned_to"], r["assigned_to"])
+    return {
+        "pagination": {
+            "total": total, "page": page, "page_size": page_size,
+            "total_pages": max(1, -(-total // page_size)), "offset": offset,
+        },
+        "items": rows,
+    }
 
 
 def submit_rca(
