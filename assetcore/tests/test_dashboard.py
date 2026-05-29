@@ -235,5 +235,81 @@ class TestCountOverduePm(unittest.TestCase):
         )
 
 
+# ─── Persona dashboards (Core Doc FE_Persona_Dashboards.md §8.1) ──────────────
+
+
+class TestPersonaDashboard(unittest.TestCase):
+    """D-BE-1..6: get_persona_dashboard trả data thật, scoped, không hardcode."""
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+
+    def _payload(self, persona: str) -> dict:
+        from assetcore.api.dashboard import get_persona_dashboard
+        resp = get_persona_dashboard(persona=persona)
+        self.assertTrue(resp.get("success"), f"endpoint failed: {resp}")
+        return resp["data"]
+
+    def test_d_be_1_opsmgr_matches_overview(self):
+        """D-BE-1: KPI opsmgr (asset/pm/incident) khớp get_overview cùng thời điểm."""
+        from assetcore.api.dashboard import get_overview
+        ov = (get_overview().get("data") or {})
+        data = self._payload("opsmgr")
+        kpis = {k["key"]: k["value"] for k in data["kpis"]}
+        self.assertEqual(kpis["active_assets"], ov.get("assets", {}).get("active", 0))
+        self.assertEqual(kpis["pm_due_7d"], ov.get("pm", {}).get("due_next_7d", 0))
+        self.assertEqual(kpis["incidents_critical"], ov.get("incidents", {}).get("critical_open", 0))
+        self.assertIn("asset_status_breakdown", data["sections"])
+
+    def test_d_be_2_store_matches_imm15(self):
+        """D-BE-2: low_stock/pending khớp imm15.get_dashboard_stats."""
+        from assetcore.services.imm15 import get_dashboard_stats
+        stats = get_dashboard_stats()
+        data = self._payload("store")
+        kpis = {k["key"]: k["value"] for k in data["kpis"]}
+        self.assertEqual(kpis["low_stock"], stats.get("low_stock_alerts", 0))
+        self.assertEqual(kpis["pending_alloc"], stats.get("pending_allocations", 0))
+        self.assertEqual(kpis["pending_cycle"], stats.get("pending_cycle_counts", 0))
+
+    def test_d_be_3_qa_score_matches_scorecard(self):
+        """D-BE-3: compliance score khớp imm16.get_current_scorecard (hoặc None nếu chưa có)."""
+        from assetcore.services.imm16 import get_current_scorecard
+        sc = get_current_scorecard()
+        data = self._payload("qa")
+        kpis = {k["key"]: k["value"] for k in data["kpis"]}
+        if sc.get("exists") is False:
+            self.assertIsNone(kpis["compliance_score"])
+        else:
+            expected = sc.get("overall_score") or sc.get("score") or sc.get("total_score")
+            self.assertEqual(kpis["compliance_score"], expected)
+
+    def test_d_be_4_invalid_persona_safe_empty(self):
+        """D-BE-4: persona không hợp lệ → payload rỗng, không raise."""
+        data = self._payload("zzz")
+        self.assertEqual(data["kpis"], [])
+        self.assertEqual(data["sections"], {})
+
+    def test_d_be_5_all_personas_render(self):
+        """D-BE-5: cả 8 persona trả kpis list + sections dict, không raise."""
+        for p in ("admin", "opsmgr", "workshop", "tech", "clinical", "doc", "store", "qa"):
+            data = self._payload(p)
+            self.assertEqual(data["persona"], p)
+            self.assertIsInstance(data["kpis"], list)
+            self.assertIsInstance(data["sections"], dict)
+            self.assertGreaterEqual(len(data["kpis"]), 1, f"{p} thiếu KPI")
+
+    def test_d_be_6_kpi_shape_normalized(self):
+        """D-BE-6: mỗi KPI có đủ key/label_vi/value/foot_vi/tone hợp lệ."""
+        valid_tones = {"primary", "info", "ok", "warn", "danger"}
+        data = self._payload("workshop")
+        for k in data["kpis"]:
+            self.assertIn("key", k)
+            self.assertIn("label_vi", k)
+            self.assertIn("value", k)
+            self.assertIn("tone", k)
+            self.assertIn(k["tone"], valid_tones)
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
