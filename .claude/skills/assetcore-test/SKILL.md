@@ -432,6 +432,15 @@ def run() -> None:
 Priority: Validators → Service entrypoints → Permission gates → Status transitions.
 Skip: trivial getters, Frappe internals, DocType property accessors.
 
+### Event-driven / side-effect feature — assert SIDE-EFFECT, không chỉ return (chống false-green)
+> Học từ bug Notification V2 (2026-05-29): `notify_approval_pending` hard-code state/role không khớp workflow thật → feature **chết** nhưng test vẫn **PASS** vì test data dựng theo đúng giả định sai (dựng state nằm trong tập hard-code, gán field `supervisor`). Test xanh ≠ feature chạy.
+
+Với notification / escalation / hook chain / scheduler / SLA — test PHẢI:
+1. **Verify side-effect THẬT xảy ra**, không chỉ hàm return không lỗi: notification → assert có row `Notification Log` cho đúng recipient; hook chain A→B → assert doc B tồn tại (LL-BE-23); email → assert có Email Queue row.
+2. **Dùng workflow/data THẬT của module**, đừng dựng data khớp giả định của chính code đang test. Recipient resolve phải **non-empty** trên workflow production (LL-BE-30 rule #4).
+3. **Scheduler/background function**: gọi trực tiếp hàm scan với data dựng sẵn (đừng chờ cron), assert đúng số notification + anti-spam (chạy 2 lần không nhân đôi). Verify hàm thực sự đăng ký `scheduler_events` (LL-BE-32).
+4. **RED phải fail vì lý do đúng**: trước khi viết fix, confirm test fail vì side-effect KHÔNG xảy ra — không phải vì assertion gõ sai. Pass ngay từ đầu trên feature mới = nghi ngờ false-green, kiểm lại side-effect có thật được assert.
+
 ---
 
 ## Phần 1.5 — Frontend Unit Tests (vitest)

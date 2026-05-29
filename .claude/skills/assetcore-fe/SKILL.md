@@ -267,6 +267,40 @@ onMounted(() => load())
 - Tailwind classes inline. Avoid SCSS modules. Brand: `emerald-600` for primary, `neutral-*` for surfaces.
 - All UI strings in Vietnamese (project default). Use `vue-i18n` keys when adding new locales.
 
+## 🔔 Notification pipeline (BẮT BUỘC — mọi tương tác có phản hồi)
+
+> Contract đầy đủ BE↔FE: [`../assetcore-be/references/notification-contract.md`](../assetcore-be/references/notification-contract.md).
+> Quy tắc: success/error đều qua `useNotify` → 1 toast/modal duy nhất. KHÔNG `toast.error("literal")` cho nghiệp vụ, KHÔNG để action thành công mà user không nhận phản hồi.
+
+**Store** (`stores/immXX.ts`) — giữ ApiError đã hydrate:
+```ts
+import { ApiError, toApiError } from '@/api/errors'
+const lastApiError = ref<ApiError | null>(null)
+function _captureError(e: unknown): void {
+  const err = toApiError(e); lastApiError.value = err; error.value = err.message
+}
+async function submit(id: string) {
+  try { return await apiSubmit(id) }
+  catch (e: unknown) { _captureError(e); return null }   // mọi action: catch → _captureError → null
+}
+return { /* ... */ lastApiError, _captureError, submit }
+```
+
+**View** (`views/.../XDetailView.vue`):
+```ts
+import { useNotify } from '@/composables/useNotify'
+import { MSG } from '@/i18n/messages'
+const notify = useNotify()
+
+const ok = await store.submit(props.id)
+if (ok) notify.show({ code: MSG.IMM11_SUBMIT_SUCCESS, ctx: { name: props.id } })
+else    notify.fromError(store.lastApiError)
+```
+- Success → `notify.show({ code: MSG.*, ctx })` (CRUD generic: `MSG.UI_SAVE_SUCCESS` + `ctx.entity`).
+- Fail → `notify.fromError(store.lastApiError)` — render title + action_hint + severity từ registry; `critical` → modal.
+- FE-only pre-check (vd thiếu file) → cũng `notify.show({ code: MSG.* })`, KHÔNG `toast.warning("literal")`.
+- Thêm mã mới? BE sửa `messages.py` + chạy `scripts/gen_fe_messages.py` để regen `i18n/messages.ts`. FE KHÔNG tự sửa `messages.ts`.
+
 ## useApi pattern (memorize this)
 
 ```ts

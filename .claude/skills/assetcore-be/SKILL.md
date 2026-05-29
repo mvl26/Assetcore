@@ -51,35 +51,34 @@ Mọi module IMM mới đều cần cả 3.
 8. **API function name không khớp spec**: mở `docs/imm-XX/05_API_Specification.md` trước; copy tên chính xác.
 9. **DocType field dùng trong service nhưng không có trong JSON**: sau khi viết service, grep `doc\.<field>` và verify từng field trong DocType JSON.
 10. **`doc.save()` trên workflow-managed doc**: dùng `frappe.db.set_value(DOCTYPE, name, "workflow_state", state, update_modified=False)`.
-11. **`_parse_json` định nghĩa lại per-file với signature khác nhau**: Copy khối `_parse_json` + `_handle` từ `assetcore/api/imm09.py` (lines 17–33) vào file mới — đừng viết lại. Giữ signature `(raw, *, field_name: str, default=None)`.
+11. **`_parse_json`/`_handle` định nghĩa lại per-file**: ĐÃ DEPRECATED. Dùng SHARED `from assetcore.utils.api_handler import handle, parse_json` — KHÔNG copy/viết lại block cục bộ. Xem [`references/notification-contract.md`](references/notification-contract.md) §5.
 12. **Fixture wiring thiếu 1 trong 3 list**: mỗi workflow mới phải cập nhật CẢ 3 list trong `hooks.py` — Workflow + Workflow State + Workflow Action Master — trong cùng commit. Thiếu bất kỳ list nào → fresh-site fail. Xem `CONVENTIONS.md §1b`.
+13. **Event-driven feature hard-code state/role**: notification/escalation/SLA KHÔNG hard-code tập state hay giả định field role (`supervisor`…) tồn tại → silent no-op (feature chết, không lỗi, test giả định vẫn pass). Resolve động từ Workflow transitions + `has_column`. Xem LL-BE-30/31.
+14. **Scheduler/background function không wire `scheduler_events`**: viết hàm scan/expiry/digest mà quên entry trong `hooks.py::scheduler_events` = dead code, chưa bao giờ chạy. Wire + `bench execute frappe.get_hooks` verify trong cùng commit. Xem LL-BE-32.
 
 ---
 
 ## Tier 1 — API layer
 
-Hai pattern tương đương — chọn 1 per module:
+> 🔔 **Notification contract BẮT BUỘC** — đọc [`references/notification-contract.md`](references/notification-contract.md) TRƯỚC khi viết api/service/view. Mọi message qua `MSG.*` + envelope chuẩn (`message_code`+`severity`). KHÔNG raw `frappe.throw(_())` / `ServiceError(..., "literal")`.
 
-### Pattern A — `_handle` wrapper (khi service dùng `ServiceError`)
+### Pattern A (CANONICAL) — shared `handle` + `parse_json`
+Service raise qua `nthrow(MSG.*)`; api chỉ wrap:
 ```python
-from assetcore.utils.helpers import _err, _ok
-from assetcore.services.shared import ErrorCode, ServiceError
-
-def _handle(fn, *args, **kwargs) -> dict:
-    try:
-        return _ok(fn(*args, **kwargs))
-    except ServiceError as e:
-        return _err(e.message, e.code)
+from assetcore.utils.api_handler import handle, parse_json
 
 @frappe.whitelist()
-def list_things(filters: str = "{}", page: int = 1, page_size: int = 20):
-    f = _parse_json(filters, field_name="filters")
-    return _handle(svc.list_things, f, page=int(page), page_size=int(page_size))
+def list_things(filters: str = "", page: int = 1, page_size: int = 20):
+    return handle(svc.list_things, parse_json(filters, default={}),
+                  page=int(page), page_size=int(page_size))
 
 @frappe.whitelist(methods=["POST"])
-def do_action(name: str, payload: str = "{}"):
-    return _handle(svc.do_action, name, _parse_json(payload, field_name="payload"))
+def do_action(name: str, payload: str = ""):
+    return handle(svc.do_action, name, payload=parse_json(payload, default={}))
 ```
+- KHÔNG định nghĩa `_handle`/`_parse_json`/`_err` cục bộ (deprecated).
+- GET optional JSON param default `str = ""` (KHÔNG `"{}"`) → tránh HTTP 417 (LL-BE-1).
+- `handle` auto-hydrate `action_hint`/`severity`/`title` từ registry khi ServiceError mang `message_code`.
 
 ### Pattern B — `@api_endpoint` decorator (khi service dùng `frappe.throw`)
 ```python
@@ -96,8 +95,8 @@ def get_thing(name: str) -> dict:
 **Conventions:**
 - Mutating endpoints khai báo `methods=["POST"]`.
 - Cast scalar params: `int(page)`, `bool(flag)`.
-- JSON params dùng `_parse_json(raw, field_name="...")`.
-- Tất cả endpoints trả envelope `{success, data}` hoặc `{success: false, error, code, http_status}`.
+- JSON params dùng `parse_json(raw, default=...)` (shared, từ `utils/api_handler`).
+- Envelope chuẩn: `{success, data}` hoặc `{success:false, error, code, http_status, message_code, severity, title, action_hint, context}` — notification fields auto-hydrate khi raise qua `nthrow(MSG.*)`.
 
 ---
 
@@ -115,21 +114,23 @@ class XStatus:
     COMPLETED = "Completed"
 
 def validate_X_source(doc) -> None:
-    """BR-XX-01: business rule."""
+    """BR-XX-01: business rule. Gọi từ DocType hook → nthrow_in_hook."""
     if not doc.source_a and not doc.source_b:
-        frappe.throw(_("Phải có ít nhất một nguồn."))
+        nthrow_in_hook(MSG.IMMXX_SOURCE_REQUIRED)
 
 def create_thing(*, asset_ref: str, **kwargs) -> dict:
     require_role(Roles.CAN_CREATE_WO, "Không đủ quyền")
-    # business logic...
+    if not repo.exists(asset_ref):
+        nthrow(MSG.IMMXX_NOT_FOUND, asset=asset_ref)   # service entrypoint → nthrow
     doc = frappe.get_doc({"doctype": "<Name>", "asset_ref": asset_ref, **kwargs})
     doc.insert()
     return {"name": doc.name}
 ```
 
-**Conventions:**
-- Raise `ServiceError(ErrorCode.X, "tiếng Việt")` cho business errors.
-- `frappe.throw(_("... {}").format(value))` trong controller hooks — không dùng f-string trong `_()`.
+**Conventions (notification contract — xem [`references/notification-contract.md`](references/notification-contract.md)):**
+- Business error trong service entrypoint → `nthrow(MSG.IMMXX_*, **ctx)` (`from assetcore.utils.notify import nthrow`).
+- Raise trong DocType hook (validate/on_submit) → `nthrow_in_hook(MSG.IMMXX_*, **ctx)`.
+- TUYỆT ĐỐI KHÔNG `frappe.throw(_("literal"))` / `ServiceError(ErrorCode.X, "literal")` — message luôn qua `MSG.*` trong registry.
 - Không gọi `doc.save()` trên submitted doc — dùng `frappe.db.set_value`.
 - Permission check ở **đầu** mọi mutating function.
 - Status strings trong class cục bộ (`XStatus`) — không import cross-module.
@@ -316,7 +317,7 @@ transition_asset_status(asset_ref, AssetStatus.ACTIVE, root_record=wo_name)
    ```
    assetcore/api/immXX.py
    ```
-   Copy `_parse_json` + `_handle` block từ `api/imm09.py`. Tên function = spec.
+   `from assetcore.utils.api_handler import handle, parse_json` (shared — KHÔNG copy cục bộ). Tên function = spec. Service raise qua `nthrow(MSG.*)`; xem [`references/notification-contract.md`](references/notification-contract.md).
 
 7. **Tests**:
    ```
@@ -344,7 +345,8 @@ transition_asset_status(asset_ref, AssetStatus.ACTIVE, root_record=wo_name)
 
 ## Live examples
 
-- `assetcore/api/imm09.py` + `assetcore/services/imm09.py` — complete Pattern A reference
+- `assetcore/api/imm09.py` + `assetcore/services/imm09.py` — complete Pattern A reference (shared `handle` + `nthrow`)
+- `assetcore/utils/{notify,api_handler,messages}.py` — notification contract entrypoints
 - `assetcore/api/dashboard.py` — Pattern B (`@api_endpoint`)
 - `assetcore/services/shared/constants.py` — `Roles`, `ErrorCode`, `AssetStatus`
 - `assetcore/repositories/base.py` — `BaseRepository` contract
@@ -359,10 +361,13 @@ transition_asset_status(asset_ref, AssetStatus.ACTIVE, root_record=wo_name)
 
 ## Lessons Learned — bug patterns production (BẮT BUỘC ĐỌC)
 
-> ⚠️ 18 quy tắc **LL-BE-1..18** (always-apply, KHÔNG optional) đã chuyển sang
+> ⚠️ 33 quy tắc **LL-BE-1..33** (always-apply, KHÔNG optional) đã chuyển sang
 > [`references/lessons-learned.md`](references/lessons-learned.md) — whitelist GET param,
 > enrich Link field, DocType schema sync, workflow action labels, gate validators,
-> audit trail localize, fixture-leak, null-guard dangling FK, slug-in-display…
+> audit trail localize, fixture-leak, null-guard dangling FK, slug-in-display,
+> state reachability, event-driven resolve động (KHÔNG hard-code state/role),
+> Workflow State style/type không persist runtime, scheduler_events wiring,
+> verify field type/enum + sendmail reference…
 >
 > **BẮT BUỘC: `Read references/lessons-learned.md` TRƯỚC KHI viết/sửa service · API · DocType · workflow.**
 > Bỏ qua = tái phạm bug đã biết.
