@@ -9,6 +9,7 @@ import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar from '@/components/common/ListFilterBar.vue'
 import BasePagination from '@/components/common/BasePagination.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
+import WorkOrderKpiStrip, { type WoKpiItem } from '@/components/common/WorkOrderKpiStrip.vue'
 
 const store = useImm08Store()
 const router = useRouter()
@@ -39,7 +40,22 @@ function buildFilters() {
   return f
 }
 
-onMounted(() => store.fetchWorkOrders(buildFilters()))
+onMounted(() => {
+  store.fetchWorkOrders(buildFilters())
+  store.fetchDashboardStats()
+})
+
+// KPI strip (docs/fe/08-pm/pm-list.html) — nguồn: dashboard stats thật từ BE.
+const kpiItems = computed<WoKpiItem[]>(() => {
+  const s = store.dashboardStats?.kpis
+  if (!s) return []
+  return [
+    { label: 'Tổng lịch tháng', value: s.total_scheduled, color: 'primary' },
+    { label: 'Quá hạn', value: s.overdue, color: 'danger', trend: s.overdue > 0 ? 'Cần escalate' : 'Đúng tiến độ' },
+    { label: 'Hoàn tất đúng hạn', value: s.completed_on_time, color: 'success', trend: `Compliance ${s.compliance_rate_pct}%` },
+    { label: 'Trễ trung bình', value: `${s.avg_days_late} ngày`, color: 'warning' },
+  ]
+})
 
 watch([statusFilter, dateFrom, dateTo, assetFilter], () => {
   store.fetchWorkOrders(buildFilters())
@@ -120,6 +136,8 @@ function quickFilter(_key: 'status', value: string) {
         </button>
       </template>
     </PageHeader>
+
+    <WorkOrderKpiStrip :items="kpiItems" />
 
     <ListFilterBar
       :show="showFilters"

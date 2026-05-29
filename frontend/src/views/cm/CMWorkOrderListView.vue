@@ -2,13 +2,14 @@
 import { onMounted, ref, computed, watch } from 'vue'
 import { useImm09Store } from '@/stores/imm09'
 import { useRouter, useRoute } from 'vue-router'
-import { priorityLabel, priorityClass, repairTypeLabel } from '@/constants/labels'
+import { priorityLabel, priorityClass, repairTypeLabel, REPAIR_PRIORITY_OPTIONS } from '@/constants/labels'
 import { translateStatus, getStatusColor, formatDateTime } from '@/utils/formatters'
 import PageHeader from '@/components/common/PageHeader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar from '@/components/common/ListFilterBar.vue'
 import BasePagination from '@/components/common/BasePagination.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
+import WorkOrderKpiStrip, { type WoKpiItem } from '@/components/common/WorkOrderKpiStrip.vue'
 
 const store = useImm09Store()
 const router = useRouter()
@@ -31,12 +32,10 @@ const CM_STATUSES = [
   { value: 'Cancelled',          label: 'Đã hủy' },
 ]
 
-const PRIORITIES = [
-  { value: 'Critical', label: 'Khẩn cấp' },
-  { value: 'High',     label: 'Cao' },
-  { value: 'Medium',   label: 'Trung bình' },
-  { value: 'Low',      label: 'Thấp' },
-]
+// BE Asset Repair.priority enum = Normal | Urgent | Emergency (asset_repair.json).
+// Trước đây dropdown dùng Critical/High/Medium/Low → filter KHÔNG bao giờ khớp record.
+// Dùng single-source REPAIR_PRIORITY_OPTIONS (WAVE2: status/enum sync với BE).
+const PRIORITIES = REPAIR_PRIORITY_OPTIONS
 
 interface Chip { key: 'status' | 'priority' | 'asset' | 'search'; label: string }
 const activeChips = computed<Chip[]>(() => {
@@ -87,8 +86,23 @@ function applyFilters() {
   store.fetchWorkOrders(Object.keys(f).length ? f : {})
 }
 
-onMounted(() => applyFilters())
+onMounted(() => {
+  applyFilters()
+  store.fetchKPIs()
+})
 watch([statusFilter, priorityFilter, assetFilter], () => applyFilters())
+
+// KPI strip (docs/fe/09-repair/repair-list.html) — nguồn: get_repair_kpis thật từ BE.
+const kpiItems = computed<WoKpiItem[]>(() => {
+  const k = store.kpis?.kpis
+  if (!k) return []
+  return [
+    { label: 'Đang mở', value: k.open_wos, color: 'info', trend: 'Chờ xử lý' },
+    { label: 'Hoàn tất tháng', value: k.total_completed, color: 'success' },
+    { label: 'MTTR trung bình', value: `${k.mttr_avg_hours}h`, color: 'primary', trend: `SLA ${k.sla_compliance_pct}%` },
+    { label: 'Tái hỏng', value: k.repeat_failure_count, color: 'warning', trend: k.repeat_failure_count > 0 ? 'Cần theo dõi' : 'Ổn định' },
+  ]
+})
 
 // Sync khi điều hướng từ AssetDetail (?asset=...)
 watch(() => route.query.asset, (val) => {
@@ -121,6 +135,8 @@ const filteredWOs = computed(() => {
         </button>
       </template>
     </PageHeader>
+
+    <WorkOrderKpiStrip :items="kpiItems" />
 
     <ListFilterBar
       :show="showFilters"
