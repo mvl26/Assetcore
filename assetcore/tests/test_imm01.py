@@ -319,3 +319,49 @@ class TestGateG05(unittest.TestCase):
         msg = str(ctx.exception.message)
         self.assertIn("funding_source", msg)
         self.assertIn("board_approver", msg)
+
+
+class TestCreateProcurementPlanGate(unittest.TestCase):
+    """LL-BE-24: `create_procurement_plan` PHẢI gate `needs.create` ở BE,
+    không tin FE hide. Verify gate được gọi đúng capability + short-circuit
+    creation khi thiếu quyền (envelope FORBIDDEN), không tạo doc."""
+
+    def test_capability_maps_to_needs_create(self):
+        """Capability string FE/BE khớp + resolve đúng DocType+ptype."""
+        from assetcore.services.shared import rbac
+        self.assertIn("needs.create", rbac.CAPABILITY_MAP)
+        self.assertEqual(
+            rbac.CAPABILITY_MAP["needs.create"], ("IMM Needs Request", "create")
+        )
+
+    def test_create_calls_rbac_require_before_insert(self):
+        """Gate phải invoke rbac.require('needs.create') TRƯỚC khi tạo doc;
+        thiếu quyền → PermissionError (Frappe → HTTP 403), KHÔNG có doc nào
+        được tạo. Theo convention imm05 (AUTH-02): gate nằm ngoài _handle,
+        PermissionError propagate cho framework."""
+        import frappe
+        from assetcore.api import imm01 as api
+        from assetcore.services.shared import rbac
+
+        called: dict = {}
+        orig_require = rbac.require
+
+        def fake_require(cap, doc=None):
+            called["cap"] = cap
+            raise frappe.PermissionError("blocked for test")
+
+        before = frappe.db.count("IMM Procurement Plan")
+        rbac.require = fake_require
+        try:
+            with self.assertRaises(frappe.PermissionError):
+                api.create_procurement_plan(2098, "Q2", 0)
+        finally:
+            rbac.require = orig_require
+
+        # Gate invoked với đúng capability
+        self.assertEqual(called.get("cap"), "needs.create")
+        # Gate raise TRƯỚC insert → tổng số plan không đổi (không tạo doc rác)
+        self.assertEqual(
+            frappe.db.count("IMM Procurement Plan"), before,
+            "Gate phải short-circuit TRƯỚC khi insert — không được tạo doc",
+        )

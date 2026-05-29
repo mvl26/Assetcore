@@ -10,9 +10,19 @@ import ListFilterBar, { type FilterChip } from '@/components/common/ListFilterBa
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
+import KpiCard from '@/components/common/KpiCard.vue'
+import { useCapabilities } from '@/composables/useCapabilities'
+import { computeProcurementPlanKpis } from './procurementPlanKpis'
 
 const store = useImm01Store()
 const router = useRouter()
+const { can } = useCapabilities()
+
+// Gate nút tạo — khớp BE rbac.require('needs.create'). FE chỉ ẩn cho UX.
+const canCreatePlan = computed(() => can('needs.create'))
+
+// KPI strip — source-backed từ store.plans, không gọi endpoint KPI riêng.
+const planKpis = computed(() => computeProcurementPlanKpis(store.plans))
 
 const showCreateModal = ref(false)
 const creating = ref(false)
@@ -107,9 +117,25 @@ onMounted(() => store.fetchPlans())
     <PageHeader title="Kế hoạch mua sắm" :subtitle="`Tổng ${store.plans.length} kế hoạch — gom đề xuất đã duyệt theo quý/năm.`">
       <template #actions>
         <FilterToggleButton v-model="showFilters" :count="activeChips.length" />
-        <button class="btn-primary text-sm" @click="showCreateModal = true">+ Tạo kế hoạch</button>
+        <button v-if="canCreatePlan" class="btn-primary text-sm" @click="showCreateModal = true">+ Tạo kế hoạch</button>
       </template>
     </PageHeader>
+
+    <!-- KPI strip — tĩnh, tính client-side từ store.plans (Core Doc 06_FE) -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+      <KpiCard label="Tổng kế hoạch" :value="planKpis.total" color="primary" />
+      <KpiCard
+        label="Đang hoạt động"
+        :value="planKpis.active"
+        :color="planKpis.active > 0 ? 'success' : 'neutral'"
+      />
+      <KpiCard label="Tổng ngân sách" :value="formatVnd(planKpis.totalBudget)" color="info" />
+      <KpiCard
+        label="Tỷ lệ sử dụng TB"
+        :value="`${planKpis.avgUtilization.toFixed(1)}%`"
+        :color="planKpis.avgUtilization >= 80 ? 'warning' : 'primary'"
+      />
+    </div>
 
     <ListFilterBar
       v-model:search="filters.search"
@@ -238,6 +264,13 @@ onMounted(() => store.fetchPlans())
         <p class="text-sm">Không có kế hoạch nào phù hợp</p>
         <button v-if="activeChips.length > 0" class="mt-3 text-xs text-blue-500 hover:text-blue-700 underline" @click="resetFilters">
           Xóa bộ lọc để xem tất cả
+        </button>
+        <button
+          v-else-if="canCreatePlan"
+          class="btn-primary text-sm mt-3"
+          @click="showCreateModal = true"
+        >
+          + Tạo kế hoạch đầu tiên
         </button>
       </div>
     </div>

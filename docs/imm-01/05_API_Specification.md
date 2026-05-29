@@ -81,7 +81,7 @@ User không có Role hợp lệ → HTTP 200 + `{success: false, code: "FORBIDDE
 | 3.11 | `reject_needs_request` | POST | IMM Board Approver | Pending Approval → Rejected (rejection_reason bắt buộc) |
 | 3.12 | `list_procurement_plans` | GET | IMM Planning Officer, IMM Department Head, IMM Board Approver | List Procurement Plan |
 | 3.13 | `get_procurement_plan` | GET | IMM Planning Officer, IMM Department Head, IMM Board Approver | Chi tiết 1 Plan (kèm `plan_items`) |
-| 3.14 | `create_procurement_plan` | POST | IMM Planning Officer | Tạo Plan Draft (`plan_year`, `plan_period`, `budget_envelope`) |
+| 3.14 | `create_procurement_plan` | POST | IMM Planning Officer (`needs.create`) | Tạo Plan Draft (`plan_year`, `plan_period`, `budget_envelope`). Chốt chặn BE: `rbac.require("needs.create")` — thiếu quyền trả `FORBIDDEN`. FE chỉ ẩn nút "Tạo kế hoạch" cho UX (`useCapabilities().can('needs.create')`); quyền thật do BE enforce. |
 | 3.15 | `set_budget_envelope` | POST | IMM Planning Officer | Cập nhật `budget_envelope` khi Plan vẫn Draft |
 | 3.16 | `approve_plan` | POST | IMM Board Approver | Plan Draft → Approved |
 | 3.17 | `activate_plan` | POST | IMM Planning Officer | Plan Approved → Active |
