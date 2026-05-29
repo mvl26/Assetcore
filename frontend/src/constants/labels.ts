@@ -111,6 +111,15 @@ export const PRIORITY_LABELS: Record<string, string> = {
   Emergency: 'Cấp cứu',
 }
 
+// IMM-09 Asset Repair.priority — KHỚP DocType enum (asset_repair.json: Normal|Urgent|Emergency).
+// Single source of truth cho filter dropdown CM list. KHÔNG dùng Critical/High/Medium/Low
+// (giá trị cũ sai → filter không bao giờ khớp record). Thứ tự ưu tiên giảm dần.
+export const REPAIR_PRIORITY_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
+  { value: 'Emergency', label: 'Cấp cứu' },
+  { value: 'Urgent', label: 'Khẩn' },
+  { value: 'Normal', label: 'Bình thường' },
+]
+
 export const SEVERITY_LABELS: Record<string, string> = {
   Minor: 'Nhỏ',
   Major: 'Nghiêm trọng',
