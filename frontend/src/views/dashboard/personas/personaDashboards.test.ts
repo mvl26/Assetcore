@@ -12,12 +12,18 @@ import PersonaDashboardShell from '@/components/dashboard/PersonaDashboardShell.
 // Mock hoisted (top-level) — ổn định, không phụ thuộc import order.
 // usePersona: ref có thể thay đổi giữa các test. useDashboard: stub không gọi mạng.
 const personaRef = ref<{ code: string; label: string } | null>({ code: 'opsmgr', label: 'X' })
+// Mutable per-test payload override. Khi null → mock dựng payload rỗng mặc định.
+const dashboardSections = ref<Record<string, unknown> | null>(null)
 vi.mock('@/composables/usePersona', () => ({
   usePersona: () => ({ currentPersona: personaRef }),
 }))
 vi.mock('@/composables/useDashboard', () => ({
   usePersonaDashboard: () => ({
-    data: ref({ persona: personaRef.value?.code, kpis: [], sections: {} }),
+    data: ref({
+      persona: personaRef.value?.code,
+      kpis: [],
+      sections: dashboardSections.value ?? {},
+    }),
     isLoading: ref(false),
     error: ref(null),
     refetch: vi.fn(),
@@ -147,5 +153,46 @@ describe('usePersonaDashboard queryKey (D-FE-7)', () => {
     expect(code).toBe('qa')
     vi.doUnmock('@tanstack/vue-query')
     vi.doUnmock('@/api/dashboard')
+  })
+})
+
+// ─── D-FE-8: ClinicalDashboardView — fail-closed khi chưa gắn khoa ───────────
+// Đối ứng BE D-BE-9: khi sections.dept_configured === false, KHÔNG hiển thị
+// data toàn viện — phải có banner "chưa gắn khoa" và ẩn 2 ListCard của khoa.
+import ClinicalDashboardView from './ClinicalDashboardView.vue'
+
+describe('ClinicalDashboardView dept gating (D-FE-8)', () => {
+  const stubs = { PersonaDashboardShell: false, PageHeader: true }
+  const mountClinical = () =>
+    mount(ClinicalDashboardView, { global: { stubs } })
+
+  it('D-FE-8a: dept_configured=false → banner cảnh báo + ẩn ListCard khoa', async () => {
+    dashboardSections.value = { dept_configured: false, department: '', dept_incidents: [], dept_needs: [] }
+    const w = mountClinical()
+    await flushPromises()
+    expect(w.text()).toContain('chưa được gắn khoa')
+    // Không render tiêu đề ListCard của khoa.
+    expect(w.text()).not.toContain('Sự cố thiết bị khoa')
+    expect(w.text()).not.toContain('Đề xuất nhu cầu của khoa')
+    dashboardSections.value = null
+  })
+
+  it('D-FE-8b: dept_configured=true → ẩn banner, hiện ListCard khoa', async () => {
+    dashboardSections.value = { dept_configured: true, department: 'Khoa Tim mạch', dept_incidents: [], dept_needs: [] }
+    const w = mountClinical()
+    await flushPromises()
+    expect(w.text()).not.toContain('chưa được gắn khoa')
+    expect(w.text()).toContain('Sự cố thiết bị khoa')
+    expect(w.text()).toContain('Đề xuất nhu cầu của khoa')
+    dashboardSections.value = null
+  })
+
+  it('D-FE-8c: dept_configured undefined (back-compat) → hiện ListCard khoa', async () => {
+    dashboardSections.value = { department: 'Khoa Nội', dept_incidents: [], dept_needs: [] }
+    const w = mountClinical()
+    await flushPromises()
+    expect(w.text()).not.toContain('chưa được gắn khoa')
+    expect(w.text()).toContain('Sự cố thiết bị khoa')
+    dashboardSections.value = null
   })
 })

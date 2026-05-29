@@ -13,6 +13,9 @@ const department = computed(() => {
   const d = sec.value?.department
   return typeof d === 'string' ? d : ''
 })
+// BE D-BE-9: dept_configured=false → user chưa gắn khoa → fail-closed, không
+// hiển thị data toàn viện. undefined (payload cũ) coi như đã cấu hình (back-compat).
+const deptConfigured = computed(() => sec.value?.dept_configured !== false)
 const deptIncidents = computed(() => sectionRows(sec.value, 'dept_incidents'))
 const deptNeeds = computed(() => sectionRows(sec.value, 'dept_needs'))
 
@@ -39,7 +42,18 @@ const nrCols: ListColumn[] = [
     :error="error ? String(error.message ?? error) : null"
     @retry="refetch"
   >
-    <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
+    <div
+      v-if="!deptConfigured"
+      class="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800"
+    >
+      <p class="font-semibold">Tài khoản của bạn chưa được gắn khoa/phòng.</p>
+      <p class="mt-1 text-amber-700">
+        Bảng điều khiển lâm sàng hiển thị sự cố và đề xuất theo khoa. Vì tài khoản chưa
+        liên kết khoa/phòng, hệ thống không thể giới hạn dữ liệu theo khoa nên tạm ẩn các
+        danh sách này. Vui lòng liên hệ quản trị viên để cập nhật khoa/phòng cho tài khoản.
+      </p>
+    </div>
+    <div v-else class="grid grid-cols-1 gap-6 lg:grid-cols-2">
       <ListCard title="Sự cố thiết bị khoa" :columns="incCols" :rows="deptIncidents" />
       <ListCard title="Đề xuất nhu cầu của khoa" :columns="nrCols" :rows="deptNeeds" />
     </div>

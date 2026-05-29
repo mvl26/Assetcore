@@ -345,6 +345,55 @@ class TestPersonaDashboard(unittest.TestCase):
         self.assertEqual(resp["data"]["kpis"], [])
         self.assertEqual(resp["data"]["sections"], {})
 
+    def test_d_be_9_clinical_no_dept_fails_closed(self):
+        """D-BE-9: clinical persona của user CHƯA gắn khoa/phòng (_current_dept→None)
+        PHẢI fail-CLOSED — KHÔNG leak data toàn viện.
+
+        Bug gốc (fail-open): khi dept=None, filter incident/needs bị bỏ → user
+        thấy toàn bộ sự cố + đề xuất + tổng asset toàn viện gắn nhãn 'khoa mình'.
+        Đây là rò rỉ data vượt ranh giới role clinical (Core Doc §5.5 — clinical
+        scope theo khoa). Sau fix: mọi section rỗng + sections.dept_configured=False.
+        """
+        from assetcore.api import dashboard as dash
+
+        orig = dash._current_dept
+        dash._current_dept = staticmethod(lambda: None)
+        try:
+            data = self._payload("clinical")
+        finally:
+            dash._current_dept = orig
+
+        sec = data["sections"]
+        # Cờ mới: clinical user chưa gắn khoa.
+        self.assertIn("dept_configured", sec)
+        self.assertFalse(sec["dept_configured"])
+        self.assertEqual(sec.get("department"), "")
+        # Fail-closed: KHÔNG liệt kê data toàn viện.
+        self.assertEqual(sec.get("dept_incidents"), [])
+        self.assertEqual(sec.get("dept_needs"), [])
+        # KPI cũng phải scope rỗng — không leak tổng asset/sự cố toàn viện.
+        kpis = {k["key"]: k["value"] for k in data["kpis"]}
+        self.assertEqual(kpis["dept_assets"], 0)
+        self.assertEqual(kpis["inc_open"], 0)
+        self.assertEqual(kpis["nr_submitted"], 0)
+
+    def test_d_be_10_clinical_with_dept_sets_configured_flag(self):
+        """D-BE-10 (đối chứng D-BE-9): khi _current_dept trả 1 khoa thật,
+        dept_configured=True và department khớp giá trị resolve — đảm bảo path
+        cũ (đã scope) không bị regress."""
+        from assetcore.api import dashboard as dash
+
+        orig = dash._current_dept
+        dash._current_dept = staticmethod(lambda: "_TEST-DEPT-CLINICAL")
+        try:
+            data = self._payload("clinical")
+        finally:
+            dash._current_dept = orig
+
+        sec = data["sections"]
+        self.assertTrue(sec["dept_configured"])
+        self.assertEqual(sec.get("department"), "_TEST-DEPT-CLINICAL")
+
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

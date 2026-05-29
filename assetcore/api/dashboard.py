@@ -467,17 +467,36 @@ def _build_tech(ov: dict) -> dict:
 
 def _build_clinical(ov: dict) -> dict:
     dept = _current_dept()
+    dept_configured = bool(dept)
+    # Fail-CLOSED: clinical persona scope theo khoa. Nếu user chưa gắn khoa
+    # (_current_dept→None), KHÔNG được bỏ filter → sẽ leak data toàn viện gắn
+    # nhãn "khoa mình" (vượt ranh giới role, Core Doc §5.5). Khi không có khoa,
+    # mọi count/list scope rỗng và FE hiển thị trạng thái "chưa gắn khoa".
+    if not dept_configured:
+        kpis = [
+            _kpi("dept_assets", "Thiết bị khoa", 0, "", "primary"),
+            _kpi("inc_open", "Sự cố đang xử lý", 0, "", "danger"),
+            _kpi("nr_submitted", "Đề xuất đã nộp", 0, "", "info"),
+            _kpi("awaiting_release", "Chờ nghiệm thu", _count(_DT_COMM, {"workflow_state": "Clinical_Hold"}), "", "warn"),
+        ]
+        return {
+            "kpis": kpis,
+            "sections": {
+                "dept_incidents": [], "dept_needs": [],
+                "department": "", "dept_configured": False,
+            },
+        }
+
     # AC Asset có field department; Incident Report KHÔNG có department trực tiếp →
     # scope incident theo các asset thuộc khoa (lấy danh sách asset của khoa).
-    dept_assets_ids: list[str] = []
-    if dept:
-        dept_assets_ids = [r["name"] for r in frappe.get_all(
-            _DT_ASSET, filters={"department": dept}, fields=["name"])]
-    assets_dept = len(dept_assets_ids) if dept else ov.get("assets", {}).get("total", 0)
+    dept_assets_ids: list[str] = [r["name"] for r in frappe.get_all(
+        _DT_ASSET, filters={"department": dept}, fields=["name"])]
+    assets_dept = len(dept_assets_ids)
 
-    inc_asset_filter = {"asset": ["in", dept_assets_ids]} if dept_assets_ids else ({"asset": ["in", ["__none__"]]} if dept else {})
+    # Khoa có thể chưa có asset nào → match nothing (sentinel) thay vì bỏ filter.
+    inc_asset_filter = {"asset": ["in", dept_assets_ids or ["__none__"]]}
     inc_open = _count("Incident Report", {**inc_asset_filter, "status": [_OP_NOT_IN, ["Closed", "Resolved"]]})
-    nr_submitted = _count("IMM Needs Request", {**({"requesting_department": dept} if dept else {}), "docstatus": 1})
+    nr_submitted = _count("IMM Needs Request", {"requesting_department": dept, "docstatus": 1})
     awaiting = _count(_DT_COMM, {"workflow_state": "Clinical_Hold"})
 
     dept_incidents = _recent(
@@ -489,7 +508,7 @@ def _build_clinical(ov: dict) -> dict:
     dept_needs = _recent(
         "IMM Needs Request", ["name", "device_model_ref", "priority_class", "workflow_state"],
         limit=8, order_by="modified desc",
-        filters={**({"requesting_department": dept} if dept else {}), "docstatus": ["!=", 2]},
+        filters={"requesting_department": dept, "docstatus": ["!=", 2]},
     )
 
     kpis = [
@@ -500,7 +519,10 @@ def _build_clinical(ov: dict) -> dict:
     ]
     return {
         "kpis": kpis,
-        "sections": {"dept_incidents": dept_incidents, "dept_needs": dept_needs, "department": dept or ""},
+        "sections": {
+            "dept_incidents": dept_incidents, "dept_needs": dept_needs,
+            "department": dept, "dept_configured": True,
+        },
     }
 
 
