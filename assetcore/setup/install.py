@@ -89,6 +89,7 @@ def create_user_custom_fields() -> None:
 
 def after_install() -> None:
     _sync_workflows()
+    _seed_uoms()
     create_user_custom_fields()
     _apply_erpnext_asset_custom_fields()
     _apply_rbac_matrix()
@@ -106,6 +107,7 @@ def before_migrate() -> None:
 
 def after_migrate() -> None:
     _sync_workflows()
+    _seed_uoms()
     create_user_custom_fields()
     _apply_erpnext_asset_custom_fields()
     _apply_rbac_matrix()
@@ -114,6 +116,23 @@ def after_migrate() -> None:
     _apply_core_permissions()
     _install_notifications()
     _build_frontend(force=False)
+
+
+def _seed_uoms() -> None:
+    """Seed AC UOM master data (idempotent).
+
+    AC Asset.uom mặc định là "Cái"; nếu master UOM chưa tồn tại thì mọi insert
+    AC Asset sẽ throw LinkValidationError. Seed ở đây để fresh site / site drift
+    luôn có bộ UOM chuẩn — không phụ thuộc one-time patch v3_0.
+    """
+    try:
+        from assetcore.services.uom import seed_ac_uoms
+
+        created = seed_ac_uoms()
+        if created:
+            print(f"[AssetCore] AC UOM seeded: {created}")
+    except Exception as e:  # noqa: BLE001 — không chặn migrate vì UOM seed lỗi
+        print(f"[AssetCore] AC UOM seed error: {e}")
 
 
 def _import_workflow_file(fpath: str) -> set[str]:
