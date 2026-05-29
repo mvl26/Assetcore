@@ -17,6 +17,7 @@ from assetcore.services.imm12 import (
     cancel_incident,
 )
 from assetcore.services.shared import ServiceError, ErrorCode
+from assetcore.tests._asset_cleanup import purge_asset
 
 
 # Unique per-run suffix to avoid Serial unique constraint conflicts when
@@ -69,17 +70,9 @@ class TestIncidentCreation(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        for ir in frappe.get_all(
-            "Incident Report", filters={"asset": cls.asset.name}, fields=["name"]
-        ):
-            try:
-                frappe.delete_doc("Incident Report", ir.name, force=True, ignore_permissions=True)
-            except Exception:
-                pass  # Submitted docs cannot be deleted directly — leave behind
-        try:
-            frappe.delete_doc("AC Asset", cls.asset.name, force=True, ignore_permissions=True)
-        except Exception:
-            pass  # WR-03 audit guard preserves assets with audit trail (CLAUDE.md §10)
+        # purge_asset cancels submitted incidents/CAPA/RCA, purges audit trail
+        # (raw SQL bypass of the ISO append-only guard) then deletes the asset.
+        purge_asset(cls.asset.name)
         # Cleanup category by business key (autoname is CAT-####)
         cat_name = frappe.db.get_value(
             "AC Asset Category", {"category_name": "_TestCatIMM12"}, "name"
@@ -150,17 +143,7 @@ class TestIncidentWorkflow(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        for ir in frappe.get_all(
-            "Incident Report", filters={"asset": cls.asset.name}, fields=["name"]
-        ):
-            try:
-                frappe.delete_doc("Incident Report", ir.name, force=True, ignore_permissions=True)
-            except Exception:
-                pass
-        try:
-            frappe.delete_doc("AC Asset", cls.asset.name, force=True, ignore_permissions=True)
-        except Exception:
-            pass  # WR-03 audit guard
+        purge_asset(cls.asset.name)
 
     def setUp(self):
         frappe.set_user("Administrator")
@@ -216,17 +199,7 @@ class TestIncidentCancellation(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        if frappe.db.exists("Incident Report", cls.ir_name):
-            try:
-                frappe.delete_doc(
-                    "Incident Report", cls.ir_name, force=True, ignore_permissions=True
-                )
-            except Exception:
-                pass
-        try:
-            frappe.delete_doc("AC Asset", cls.asset.name, force=True, ignore_permissions=True)
-        except Exception:
-            pass  # WR-03 audit guard
+        purge_asset(cls.asset.name)
 
     def test_cancel_from_open(self):
         cancel_incident(self.ir_name, reason="_Test cancel reason")
@@ -254,48 +227,10 @@ class TestRCAToCAPAAndIncidentChain(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        # Best-effort cleanup — CAPA / RCA / Incident có thể commit qua service path.
-        for capa in frappe.get_all(
-            "IMM CAPA Record",
-            filters={"linked_incident": ("like", "%")},
-            fields=["name", "linked_incident"],
-        ):
-            # Chỉ dọn capa liên quan tới incident test
-            inc = capa.get("linked_incident") or ""
-            if inc and frappe.db.get_value(
-                "Incident Report", inc, "asset"
-            ) == cls.asset.name:
-                try:
-                    frappe.delete_doc(
-                        "IMM CAPA Record", capa.name,
-                        force=True, ignore_permissions=True,
-                    )
-                except Exception:
-                    pass
-        for rca in frappe.get_all(
-            "IMM RCA Record", filters={"asset": cls.asset.name}, fields=["name"]
-        ):
-            try:
-                frappe.delete_doc(
-                    "IMM RCA Record", rca.name,
-                    force=True, ignore_permissions=True,
-                )
-            except Exception:
-                pass
-        for ir in frappe.get_all(
-            "Incident Report", filters={"asset": cls.asset.name}, fields=["name"]
-        ):
-            try:
-                frappe.delete_doc(
-                    "Incident Report", ir.name,
-                    force=True, ignore_permissions=True,
-                )
-            except Exception:
-                pass
-        try:
-            frappe.delete_doc("AC Asset", cls.asset.name, force=True, ignore_permissions=True)
-        except Exception:
-            pass  # WR-03 audit guard — leave asset behind (CLAUDE.md §10)
+        # purge_asset cancels submitted CAPA/RCA/Incident (in dependency order) and
+        # raw-SQL purges the audit trail before deleting the asset. CAPA whose
+        # linked_incident points elsewhere are untouched (filtered by asset link).
+        purge_asset(cls.asset.name)
 
     def setUp(self):
         frappe.set_user("Administrator")

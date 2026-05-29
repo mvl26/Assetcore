@@ -11,6 +11,7 @@ from frappe.utils import nowdate
 
 from assetcore.services.imm09 import create_work_order, get_sla_target
 from assetcore.services.shared import ErrorCode, ServiceError
+from assetcore.tests._asset_cleanup import purge_asset
 
 
 # ─── Shared fixture helpers ───────────────────────────────────────────────────
@@ -97,7 +98,7 @@ class TestRepairWOCreation(unittest.TestCase):
             frappe.delete_doc("Asset Repair", wo.name, force=True, ignore_permissions=True)
         if frappe.db.exists("Incident Report", cls.ir):
             frappe.delete_doc("Incident Report", cls.ir, force=True, ignore_permissions=True)
-        frappe.delete_doc("AC Asset", cls.asset.name, force=True, ignore_permissions=True)
+        purge_asset(cls.asset.name)
         cat_name = frappe.db.get_value("AC Asset Category", {"category_name": "_TestCatIMM09"}, "name")
         if cat_name:
             frappe.delete_doc("AC Asset Category", cat_name, force=True, ignore_permissions=True)

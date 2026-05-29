@@ -17,6 +17,7 @@ from assetcore.services.imm08 import (
 )
 from assetcore.services.shared import ErrorCode, ServiceError
 from assetcore.services.imm08 import PMScheduleStatus
+from assetcore.tests._asset_cleanup import purge_asset
 
 
 # ─── Fixture helpers ──────────────────────────────────────────────────────────
@@ -136,7 +137,7 @@ class TestPMSchedule(unittest.TestCase):
         frappe.delete_doc(
             "PM Checklist Template", cls.template_name, force=True, ignore_permissions=True
         )
-        frappe.delete_doc("AC Asset", cls.asset.name, force=True, ignore_permissions=True)
+        purge_asset(cls.asset.name)
 
     def setUp(self):
         frappe.set_user("Administrator")
@@ -184,7 +185,7 @@ class TestPMWorkOrder(unittest.TestCase):
         frappe.delete_doc(
             "PM Checklist Template", cls.template_name, force=True, ignore_permissions=True
         )
-        frappe.delete_doc("AC Asset", cls.asset.name, force=True, ignore_permissions=True)
+        purge_asset(cls.asset.name)
 
     def setUp(self):
         frappe.set_user("Administrator")
@@ -214,7 +215,7 @@ class TestPMWorkOrder(unittest.TestCase):
                 })
             self.assertEqual(cm.exception.code, ErrorCode.VALIDATION)
         finally:
-            frappe.delete_doc("AC Asset", other_asset.name, force=True, ignore_permissions=True)
+            purge_asset(other_asset.name)
 
     def test_create_pm_work_order_succeeds(self):
         result = create_adhoc_work_order({
@@ -263,7 +264,7 @@ class TestPMBackfillAndSupervisor(unittest.TestCase):
         frappe.delete_doc(
             "PM Checklist Template", cls.template_name, force=True, ignore_permissions=True
         )
-        frappe.delete_doc("AC Asset", cls.asset.name, force=True, ignore_permissions=True)
+        purge_asset(cls.asset.name)
 
     def setUp(self):
         frappe.set_user("Administrator")
@@ -378,7 +379,7 @@ class TestPMCompletionGate(unittest.TestCase):
         frappe.delete_doc(
             "PM Checklist Template", cls.template_name, force=True, ignore_permissions=True
         )
-        frappe.delete_doc("AC Asset", cls.asset.name, force=True, ignore_permissions=True)
+        purge_asset(cls.asset.name)
         cat_name = frappe.db.get_value("AC Asset Category", {"category_name": "_TestCatIMM08Gate"}, "name")
         if cat_name:
             frappe.delete_doc("AC Asset Category", cat_name, force=True, ignore_permissions=True)

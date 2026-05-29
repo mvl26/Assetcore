@@ -24,7 +24,14 @@ from assetcore.services.shared import ServiceError
 
 # ─── Fixtures ────────────────────────────────────────────────────────────────
 
+def _ensure_uom() -> None:
+    """AC Asset.uom defaults to "Cái"; self-seed so the test runs on a fresh DB."""
+    if not frappe.db.exists("AC UOM", "Cái"):
+        frappe.get_doc({"doctype": "AC UOM", "uom_name": "Cái"}).insert(ignore_permissions=True)
+
+
 def _make_asset() -> str:
+    _ensure_uom()
     doc = frappe.get_doc({
         "doctype": "AC Asset",
         "asset_name": "_Test Asset IMM05",
@@ -49,6 +56,39 @@ def _make_doc(asset_ref: str, state: str = DocState.DRAFT) -> str:
     doc.flags.ignore_mandatory = True
     doc.insert(ignore_permissions=True)
     return doc.name
+
+
+def _purge_asset(name: str | None) -> None:
+    """Fully remove a test AC Asset and everything that blocks its on_trash guard.
+
+    ``force=True`` does NOT bypass ``AC Asset.on_trash`` (WR-03) nor
+    ``IMM Audit Trail.on_trash`` (ISO 13485:7.5.9). Audit rows must therefore be
+    purged with raw SQL, operational dependents via the ORM, before the asset
+    itself can be deleted. See LL-TEST-17.
+    """
+    if not name:
+        return
+    frappe.set_user("Administrator")
+    # 1) IMM Audit Trail — raw SQL (ORM delete always throws the ISO guard).
+    frappe.db.sql(
+        "DELETE FROM `tabIMM Audit Trail` "
+        "WHERE asset=%s OR (ref_doctype='AC Asset' AND ref_name=%s)",
+        (name, name),
+    )
+    # 2) Operational dependents — raw delete; several (Asset Document) carry their
+    #    own audit-protection on_trash guards that ``delete_doc`` cannot bypass.
+    for dt, fld in (
+        ("Asset Document", "asset_ref"),
+        ("Asset Lifecycle Event", "asset"),
+        ("AC Asset Downtime Log", "asset"),
+        ("Asset Transfer", "asset"),
+    ):
+        if frappe.db.table_exists(dt):
+            frappe.db.delete(dt, {fld: name})
+    frappe.db.commit()
+    # 3) The asset is now free of blockers.
+    frappe.delete_doc("AC Asset", name, force=True, ignore_permissions=True)
+    frappe.db.commit()
 
 
 # ─── _resolve_alert_level ─────────────────────────────────────────────────────
@@ -91,8 +131,7 @@ class TestCreateDocument(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        frappe.db.delete("Asset Document", {"asset_ref": cls.asset})
-        frappe.delete_doc("AC Asset", cls.asset, force=True, ignore_permissions=True)
+        _purge_asset(cls.asset)
 
     def test_create_returns_name_and_state(self):
         # _make_doc uses ignore_mandatory; verify state via direct fixture
@@ -117,8 +156,7 @@ class TestUpdateDocument(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        frappe.db.delete("Asset Document", {"asset_ref": cls.asset})
-        frappe.delete_doc("AC Asset", cls.asset, force=True, ignore_permissions=True)
+        _purge_asset(cls.asset)
 
     def test_update_draft_succeeds(self):
         name = _make_doc(self.asset, DocState.DRAFT)
@@ -149,8 +187,7 @@ class TestApproveDocument(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        frappe.db.delete("Asset Document", {"asset_ref": cls.asset})
-        frappe.delete_doc("AC Asset", cls.asset, force=True, ignore_permissions=True)
+        _purge_asset(cls.asset)
 
     def test_approve_pending_review_succeeds(self):
         name = _make_doc(self.asset, DocState.DRAFT)
@@ -194,8 +231,7 @@ class TestRejectDocument(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        frappe.db.delete("Asset Document", {"asset_ref": cls.asset})
-        frappe.delete_doc("AC Asset", cls.asset, force=True, ignore_permissions=True)
+        _purge_asset(cls.asset)
 
     def test_reject_without_reason_raises(self):
         name = _make_doc(self.asset, DocState.DRAFT)
@@ -262,16 +298,7 @@ class TestKpiExpiredDocs(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        frappe.set_user("Administrator")
-        for n in (cls.draft_expired_doc, cls.active_expired_doc):
-            try:
-                frappe.delete_doc("Asset Document", n, force=1, ignore_permissions=True)
-            except Exception:
-                pass
-        try:
-            frappe.delete_doc("AC Asset", cls.asset, force=1, ignore_permissions=True)
-        except Exception:
-            pass
+        _purge_asset(cls.asset)
 
     def test_expired_kpi_counts_draft_doc(self):
         """expired_not_renewed phải bao gồm cả Draft expired (RC-08)."""

@@ -444,9 +444,16 @@ class TestEnrollParticipants(unittest.TestCase):
         frappe.get_doc("User", "Administrator").add_roles(
             "AssetCore Super Admin", "Training Manager")
         cls.prog = _make_program()
+        cls._sessions: list[str] = []
 
     @classmethod
     def tearDownClass(cls):
+        # Sessions are committed in _session(); delete them first so the program
+        # teardown doesn't leave orphaned IMM Training Session rows behind.
+        for name in cls._sessions:
+            if frappe.db.exists("IMM Training Session", name):
+                frappe.delete_doc("IMM Training Session", name,
+                                  force=True, ignore_permissions=True)
         frappe.delete_doc("IMM Training Program", cls.prog,
                           force=True, ignore_permissions=True)
         frappe.db.commit()
@@ -463,6 +470,7 @@ class TestEnrollParticipants(unittest.TestCase):
         sess.flags.ignore_links = True
         sess.insert(ignore_permissions=True)
         frappe.db.commit()
+        type(self)._sessions.append(sess.name)
         return sess.name
 
     def test_enroll_adds_rows(self):

@@ -8,17 +8,24 @@ import frappe
 from frappe.utils import nowdate, add_days
 
 
+# Track whether this module created the "Cái" UOM so tearDownModule never
+# deletes a pre-existing (real, shared) UOM that other records depend on.
+_uom_created = False
+
+
 def setUpModule():
     """Seed master records required by AC Asset link validation."""
+    global _uom_created
     frappe.set_user("Administrator")
     if not frappe.db.exists("AC UOM", "Cái"):
         frappe.get_doc({"doctype": "AC UOM", "uom_name": "Cái"}).insert(ignore_permissions=True)
         frappe.db.commit()
+        _uom_created = True
 
 
 def tearDownModule():
-    """Remove UOM seed record created in setUpModule."""
-    if frappe.db.exists("AC UOM", "Cái"):
+    """Remove the UOM seed only if setUpModule created it (else it is shared real data)."""
+    if _uom_created and frappe.db.exists("AC UOM", "Cái"):
         frappe.delete_doc("AC UOM", "Cái", force=True, ignore_permissions=True)
         frappe.db.commit()
 
@@ -54,10 +61,13 @@ class TestACAssetCategory(unittest.TestCase):
 
 class TestACDepartment(unittest.TestCase):
     def setUp(self):
+        # Use a _Test-prefixed department_code so the fixture never collides
+        # with real seeded departments (e.g. the production "ICU" dept used by
+        # asset TS-2025-VEN-001). AC Department uses department_code as the PK.
         self.dept = frappe.get_doc({
             "doctype": "AC Department",
-            "department_name": "Khoa Hồi sức tích cực (ICU)",
-            "department_code": "ICU",
+            "department_name": "_Test Khoa Hồi sức tích cực (ICU)",
+            "department_code": "_TEST-ICU",
             "phone": "028-3855-4269",
             "email": "icu@nd1.hospital.vn",
             "is_active": 1,
@@ -70,8 +80,9 @@ class TestACDepartment(unittest.TestCase):
         self.assertTrue(frappe.db.exists("AC Department", self.dept.name))
 
     def test_naming_series(self):
-        # AC Department is a tree DocType — Frappe uses department_name as primary key
-        self.assertEqual(self.dept.name, self.dept.department_name)
+        # AC Department uses department_code as the primary key (name) when the
+        # user supplies one (see ACDepartment.autoname).
+        self.assertEqual(self.dept.name, self.dept.department_code)
 
 
 class TestACLocation(unittest.TestCase):
@@ -265,7 +276,7 @@ class TestACAsset(unittest.TestCase):
             self.assertTrue(asset.name.startswith("AC-ASSET-"))
             self.assertEqual(asset.lifecycle_status, "Commissioned")
         finally:
-            frappe.delete_doc("AC Asset", asset.name, force=True, ignore_permissions=True)
+            _purge_asset(asset.name)
 
     def test_transition_status_commissioned_to_active(self):
         from assetcore.services.imm00 import transition_asset_status
@@ -276,7 +287,7 @@ class TestACAsset(unittest.TestCase):
             asset.reload()
             self.assertEqual(asset.lifecycle_status, "Active")
         finally:
-            frappe.delete_doc("AC Asset", asset.name, force=True, ignore_permissions=True)
+            _purge_asset(asset.name)
 
     def test_transition_creates_lifecycle_event(self):
         from assetcore.services.imm00 import transition_asset_status
@@ -288,7 +299,7 @@ class TestACAsset(unittest.TestCase):
             after = frappe.db.count("Asset Lifecycle Event", {"asset": asset.name})
             self.assertGreater(after, before)
         finally:
-            frappe.delete_doc("AC Asset", asset.name, force=True, ignore_permissions=True)
+            _purge_asset(asset.name)
 
     def test_cannot_operate_decommissioned_asset(self):
         from assetcore.services.imm00 import transition_asset_status, validate_asset_for_operations
@@ -299,7 +310,7 @@ class TestACAsset(unittest.TestCase):
             with self.assertRaises(frappe.ValidationError):
                 validate_asset_for_operations(asset.name)
         finally:
-            frappe.delete_doc("AC Asset", asset.name, force=True, ignore_permissions=True)
+            _purge_asset(asset.name)
 
     def test_decommission_suspends_pm_schedule(self):
         from assetcore.services.imm00 import transition_asset_status
@@ -310,7 +321,7 @@ class TestACAsset(unittest.TestCase):
             asset.reload()
             self.assertEqual(asset.is_pm_required, 0)
         finally:
-            frappe.delete_doc("AC Asset", asset.name, force=True, ignore_permissions=True)
+            _purge_asset(asset.name)
 
 
 def _insert_asset_bypass_workflow(data: dict):
@@ -323,16 +334,69 @@ def _insert_asset_bypass_workflow(data: dict):
         frappe.flags.in_install = prev
 
 
+def _purge_asset(asset_name: str) -> None:
+    """Force-delete an AC Asset for fixture cleanup (LL-TEST-17).
+
+    ``AC Asset.on_trash`` (WR-03) blocks hard-delete while audit / lifecycle /
+    operational records exist, and ``force=True`` does NOT bypass a custom
+    ``on_trash``. ``IMM Audit Trail`` and ``Asset Lifecycle Event`` additionally
+    throw in their own ``on_trash`` (ISO 13485:7.5.9 / append-only), so they must
+    be purged via raw SQL. Operational dependents have no guard → ORM delete.
+    """
+    if not frappe.db.exists("AC Asset", asset_name):
+        return
+    # 1) Append-only records — raw SQL (ORM delete always throws, even force=True)
+    frappe.db.sql(
+        "DELETE FROM `tabIMM Audit Trail` "
+        "WHERE asset=%s OR (ref_doctype='AC Asset' AND ref_name=%s)",
+        (asset_name, asset_name),
+    )
+    frappe.db.sql("DELETE FROM `tabAsset Lifecycle Event` WHERE asset=%s", (asset_name,))
+    # 2) Operational dependents — ORM (cancel submitted docs first)
+    for dt, fld in [
+        ("PM Work Order", "asset_ref"),
+        ("CM Work Order", "asset_ref"),
+        ("IMM Calibration Schedule", "asset"),
+        ("IMM Calibration Order", "asset_ref"),
+        ("Incident Report", "asset"),
+        ("Asset Document", "asset_ref"),
+        ("Asset Transfer", "asset"),
+        ("AC Asset Downtime Log", "asset"),
+    ]:
+        if not frappe.db.table_exists(dt) or not frappe.db.has_column(dt, fld):
+            continue
+        for child in frappe.get_all(dt, filters={fld: asset_name}, pluck="name"):
+            doc = frappe.get_doc(dt, child)
+            if doc.docstatus == 1:
+                doc.cancel()
+            frappe.delete_doc(dt, child, force=True, ignore_permissions=True,
+                              delete_permanently=True)
+    frappe.db.commit()
+    # 3) Asset now deletes cleanly
+    frappe.delete_doc("AC Asset", asset_name, force=True, ignore_permissions=True)
+
+
+def _purge_category(category_name: str) -> None:
+    """Delete a leftover AC Asset Category by its business field (LL-TEST-9).
+
+    ``AC Asset Category`` is autonamed (``CAT-####``) so ``frappe.db.exists(dt,
+    category_name)`` never matches — the stale row survives and the unique
+    ``category_name`` index then blocks re-insert. Look up by the field instead.
+    """
+    name = frappe.db.get_value("AC Asset Category", {"category_name": category_name}, "name")
+    if name:
+        frappe.delete_doc("AC Asset Category", name, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+
 class TestIMMCAPARecord(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         # Clean up leftovers from prior failed runs.
         for a in frappe.get_all("AC Asset", filters={"asset_name": "Monitor Mindray BeneView T9 — ICU"},
                                 fields=["name"]):
-            frappe.delete_doc("AC Asset", a.name, force=True, ignore_permissions=True)
-        if frappe.db.exists("AC Asset Category", "Thiết bị Theo dõi Bệnh nhân"):
-            frappe.delete_doc("AC Asset Category", "Thiết bị Theo dõi Bệnh nhân",
-                              force=True, ignore_permissions=True)
+            _purge_asset(a.name)
+        _purge_category("Thiết bị Theo dõi Bệnh nhân")
         frappe.db.commit()
 
         cls.cat = frappe.get_doc({
@@ -358,7 +422,7 @@ class TestIMMCAPARecord(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        frappe.delete_doc("AC Asset", cls.asset.name, force=True, ignore_permissions=True)
+        _purge_asset(cls.asset.name)
         frappe.delete_doc("AC Asset Category", cls.cat.name, force=True, ignore_permissions=True)
 
     def test_create_capa(self):
@@ -410,10 +474,8 @@ class TestIMMauditTrail(unittest.TestCase):
         # Clean up leftovers from prior failed runs.
         for a in frappe.get_all("AC Asset", filters={"asset_name": "Máy siêu âm Philips EPIQ 7 — CĐHA"},
                                 fields=["name"]):
-            frappe.delete_doc("AC Asset", a.name, force=True, ignore_permissions=True)
-        if frappe.db.exists("AC Asset Category", "Thiết bị Phẫu thuật"):
-            frappe.delete_doc("AC Asset Category", "Thiết bị Phẫu thuật",
-                              force=True, ignore_permissions=True)
+            _purge_asset(a.name)
+        _purge_category("Thiết bị Phẫu thuật")
         frappe.db.commit()
 
         cls.cat = frappe.get_doc({
@@ -447,7 +509,7 @@ class TestIMMauditTrail(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        frappe.delete_doc("AC Asset", cls.asset.name, force=True, ignore_permissions=True)
+        _purge_asset(cls.asset.name)
         frappe.delete_doc("AC Asset Category", cls.cat.name, force=True, ignore_permissions=True)
 
     def test_audit_trail_created_on_transition(self):
@@ -459,11 +521,21 @@ class TestIMMauditTrail(unittest.TestCase):
         self.assertGreater(after, before)
 
     def test_audit_trail_cannot_be_deleted(self):
-        entries = frappe.get_list("IMM Audit Trail", filters={"asset": self.asset.name}, fields=["name"])
-        if not entries:
-            self.skipTest("No audit trail entries to test deletion block")
+        # SEC-02 / BR-00-03: seed a deterministic entry rather than relying on
+        # test-method ordering (this test sorts before any transition test, so
+        # the asset would otherwise have zero entries and the assertion skip).
+        from assetcore.services.imm00 import log_audit_event
+        entry = log_audit_event(
+            asset=self.asset.name,
+            event_type="State Change",
+            actor="Administrator",
+            from_status="Commissioned",
+            to_status="Active",
+            change_summary="Ghi nhận sự kiện kiểm thử tính bất biến của audit trail",
+        )
+        frappe.db.commit()
         with self.assertRaises(frappe.ValidationError):
-            frappe.delete_doc("IMM Audit Trail", entries[0]["name"], ignore_permissions=True)
+            frappe.delete_doc("IMM Audit Trail", entry, ignore_permissions=True)
 
     def test_verify_chain_valid(self):
         from assetcore.services.imm00 import verify_audit_chain
@@ -477,10 +549,8 @@ class TestIncidentReport(unittest.TestCase):
         # Clean up any leftover fixtures from a prior failed run.
         for asset in frappe.get_all("AC Asset", filters={"asset_name": "Máy X-quang Canon CXDI-Elite — Khoa CĐHA"},
                                     fields=["name"]):
-            frappe.delete_doc("AC Asset", asset.name, force=True, ignore_permissions=True)
-        if frappe.db.exists("AC Asset Category", "Thiết bị Cấp cứu & Tái hồi"):
-            frappe.delete_doc("AC Asset Category", "Thiết bị Cấp cứu & Tái hồi",
-                              force=True, ignore_permissions=True)
+            _purge_asset(asset.name)
+        _purge_category("Thiết bị Cấp cứu & Tái hồi")
         frappe.db.commit()
 
         cls.cat = frappe.get_doc({
@@ -514,7 +584,7 @@ class TestIncidentReport(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        frappe.delete_doc("AC Asset", cls.asset.name, force=True, ignore_permissions=True)
+        _purge_asset(cls.asset.name)
         frappe.delete_doc("AC Asset Category", cls.cat.name, force=True, ignore_permissions=True)
 
     def test_create_incident(self):
@@ -675,7 +745,7 @@ class TestUserRoleManagement(unittest.TestCase):
 class TestFKDeleteIntegrity(unittest.TestCase):
     """NEG-12 / NEG-13: chặn xóa Model / Location đang được Asset tham chiếu.
 
-    Ref: docs/res/AssetCore_Test_Plan_NextRound_1_Analysis.md §5
+    Ref: docs/res/reports/AssetCore_Test_Plan_NextRound_1_Analysis.md §5
     """
 
     @classmethod
@@ -686,11 +756,14 @@ class TestFKDeleteIntegrity(unittest.TestCase):
             filters={"asset_name": ["like", "FK-INTEG-%"]},
             fields=["name"],
         ):
-            frappe.delete_doc("AC Asset", nm.name, force=True, ignore_permissions=True)
-        if frappe.db.exists("AC Asset Category", "FK-Integrity-Cat"):
-            frappe.delete_doc(
-                "AC Asset Category", "FK-Integrity-Cat", force=True, ignore_permissions=True
-            )
+            _purge_asset(nm.name)
+        # IMM Device Model is autonamed (IMM-MDL-####) — look up leaked fixtures
+        # by model_name, not name (LL-TEST-9). Must run after assets are purged.
+        for m in frappe.get_all("IMM Device Model",
+                                filters={"model_name": ["like", "FK-Integ Model %"]},
+                                pluck="name"):
+            frappe.delete_doc("IMM Device Model", m, force=True, ignore_permissions=True)
+        _purge_category("FK-Integrity-Cat")
         frappe.db.commit()
 
         cls.cat = frappe.get_doc({
@@ -706,7 +779,7 @@ class TestFKDeleteIntegrity(unittest.TestCase):
             filters={"asset_name": ["like", "FK-INTEG-%"]},
             fields=["name"],
         ):
-            frappe.delete_doc("AC Asset", nm.name, force=True, ignore_permissions=True)
+            _purge_asset(nm.name)
         frappe.delete_doc(
             "AC Asset Category", cls.cat.name, force=True, ignore_permissions=True
         )
@@ -764,7 +837,7 @@ class TestFKDeleteIntegrity(unittest.TestCase):
             self.assertIn("FK-INTEG-MODEL-DEL", msg)
             self.assertIn("Không thể xóa", msg)
         finally:
-            frappe.delete_doc("AC Asset", asset.name, force=True, ignore_permissions=True)
+            _purge_asset(asset.name)
             frappe.delete_doc(
                 "IMM Device Model", model.name, force=True, ignore_permissions=True
             )
@@ -791,7 +864,7 @@ class TestFKDeleteIntegrity(unittest.TestCase):
             self.assertIn("FK-INTEG-LOC-DEL", msg)
             self.assertIn("Không thể xóa", msg)
         finally:
-            frappe.delete_doc("AC Asset", asset.name, force=True, ignore_permissions=True)
+            _purge_asset(asset.name)
             frappe.delete_doc(
                 "AC Location", loc.name, force=True, ignore_permissions=True
             )

@@ -16,8 +16,15 @@ from assetcore.services.imm01 import (
     _classify_priority,
     _compute_priority_score,
     _validate_device_target,
+    _validate_gate_g01,
+    _validate_gate_g02,
+    _validate_gate_g03,
+    _validate_gate_g05,
+    _vr04_target_year,
+    _vr05_score_consistency,
 )
-from assetcore.services.shared import ServiceError
+from assetcore.services.shared import ErrorCode, ServiceError
+from frappe.utils import getdate, today
 
 
 def _make_doc(scoring_rows: list[dict]) -> SimpleNamespace:
@@ -140,3 +147,175 @@ class TestValidateDeviceTarget(unittest.TestCase):
         with self.assertRaises(ServiceError) as ctx:
             _validate_device_target(doc)
         self.assertIn("Nhóm thiết bị", str(ctx.exception.message))
+
+
+class TestTargetYear(unittest.TestCase):
+    """`_vr04_target_year(doc)` — VR-01-04: target_year ≥ năm hiện tại."""
+
+    def setUp(self):
+        self.current_year = getdate(today()).year
+
+    def test_current_year_passes(self):
+        _vr04_target_year(SimpleNamespace(target_year=self.current_year))  # no raise
+
+    def test_future_year_passes(self):
+        _vr04_target_year(SimpleNamespace(target_year=self.current_year + 1))
+
+    def test_past_year_rejects(self):
+        with self.assertRaises(ServiceError) as ctx:
+            _vr04_target_year(SimpleNamespace(target_year=self.current_year - 1))
+        self.assertEqual(ctx.exception.code, ErrorCode.VALIDATION)
+        self.assertIn("VR-01-04", str(ctx.exception.message))
+
+    def test_none_rejects(self):
+        with self.assertRaises(ServiceError) as ctx:
+            _vr04_target_year(SimpleNamespace(target_year=None))
+        self.assertEqual(ctx.exception.code, ErrorCode.VALIDATION)
+
+
+class TestScoreConsistency(unittest.TestCase):
+    """`_vr05_score_consistency(doc)` — sai số > 0.01 → VALIDATION."""
+
+    def test_empty_rows_ok(self):
+        _vr05_score_consistency(SimpleNamespace(scoring_rows=[], weighted_score=None))
+
+    def test_within_tolerance_passes(self):
+        rows = [SimpleNamespace(weighted=1.0), SimpleNamespace(weighted=2.0)]
+        _vr05_score_consistency(SimpleNamespace(scoring_rows=rows, weighted_score=3.005))
+
+    def test_exceeds_tolerance_rejects(self):
+        rows = [SimpleNamespace(weighted=1.0), SimpleNamespace(weighted=2.0)]
+        with self.assertRaises(ServiceError) as ctx:
+            _vr05_score_consistency(SimpleNamespace(scoring_rows=rows, weighted_score=3.5))
+        self.assertEqual(ctx.exception.code, ErrorCode.VALIDATION)
+        self.assertIn("VR-01-05", str(ctx.exception.message))
+
+    def test_none_weighted_treated_as_zero(self):
+        rows = [SimpleNamespace(weighted=None), SimpleNamespace(weighted=None)]
+        _vr05_score_consistency(SimpleNamespace(scoring_rows=rows, weighted_score=None))
+
+
+_LONG_JUSTIFICATION = "a" * 250
+
+
+class TestGateG01(unittest.TestCase):
+    """`_validate_gate_g01(doc)` — clinical_justification ≥ 200 + utilization_pct_12m
+    bắt buộc khi Replacement/Upgrade."""
+
+    def test_new_with_long_justification_passes(self):
+        _validate_gate_g01(SimpleNamespace(
+            clinical_justification=_LONG_JUSTIFICATION,
+            request_type="New",
+            utilization_pct_12m=None,
+        ))
+
+    def test_short_justification_rejects(self):
+        with self.assertRaises(ServiceError) as ctx:
+            _validate_gate_g01(SimpleNamespace(
+                clinical_justification="quá ngắn",
+                request_type="New",
+                utilization_pct_12m=None,
+            ))
+        self.assertEqual(ctx.exception.code, ErrorCode.VALIDATION)
+        self.assertIn("VR-01-03", str(ctx.exception.message))
+
+    def test_replacement_without_utilization_rejects(self):
+        with self.assertRaises(ServiceError) as ctx:
+            _validate_gate_g01(SimpleNamespace(
+                clinical_justification=_LONG_JUSTIFICATION,
+                request_type="Replacement",
+                utilization_pct_12m=None,
+            ))
+        self.assertEqual(ctx.exception.code, ErrorCode.BUSINESS_RULE)
+        self.assertIn("utilization_pct_12m", str(ctx.exception.message))
+
+    def test_replacement_with_zero_utilization_passes(self):
+        """utilization_pct_12m=0 (đo được, value = 0) phải pass — chỉ None mới reject."""
+        _validate_gate_g01(SimpleNamespace(
+            clinical_justification=_LONG_JUSTIFICATION,
+            request_type="Replacement",
+            utilization_pct_12m=0,
+        ))
+
+    def test_upgrade_with_utilization_passes(self):
+        _validate_gate_g01(SimpleNamespace(
+            clinical_justification=_LONG_JUSTIFICATION,
+            request_type="Upgrade",
+            utilization_pct_12m=85.5,
+        ))
+
+
+class TestGateG02(unittest.TestCase):
+    """`_validate_gate_g02(doc)` — phải có đủ 6 tiêu chí scoring."""
+
+    def _doc(self, criteria: list[str]):
+        return SimpleNamespace(
+            scoring_rows=[SimpleNamespace(criterion=c) for c in criteria],
+        )
+
+    def test_all_six_passes(self):
+        _validate_gate_g02(self._doc(list(DEFAULT_PRIORITY_WEIGHTS.keys())))
+
+    def test_five_of_six_rejects(self):
+        partial = list(DEFAULT_PRIORITY_WEIGHTS.keys())[:5]
+        with self.assertRaises(ServiceError) as ctx:
+            _validate_gate_g02(self._doc(partial))
+        self.assertEqual(ctx.exception.code, ErrorCode.BUSINESS_RULE)
+        self.assertIn("G02", str(ctx.exception.message))
+
+    def test_empty_rejects(self):
+        with self.assertRaises(ServiceError):
+            _validate_gate_g02(self._doc([]))
+
+
+class TestGateG03(unittest.TestCase):
+    """`_validate_gate_g03(doc)` — total_capex > 0 + đủ OPEX 5 năm (year_offset 1..5)."""
+
+    def _doc(self, capex, opex_years):
+        lines = []
+        for y in opex_years:
+            lines.append(SimpleNamespace(budget_section="OPEX", year_offset=y))
+        return SimpleNamespace(total_capex=capex, budget_lines=lines)
+
+    def test_happy_full_opex_passes(self):
+        _validate_gate_g03(self._doc(100_000.0, [1, 2, 3, 4, 5]))
+
+    def test_zero_capex_rejects(self):
+        with self.assertRaises(ServiceError) as ctx:
+            _validate_gate_g03(self._doc(0, [1, 2, 3, 4, 5]))
+        self.assertIn("CAPEX", str(ctx.exception.message))
+
+    def test_missing_one_opex_year_rejects(self):
+        with self.assertRaises(ServiceError) as ctx:
+            _validate_gate_g03(self._doc(50_000.0, [1, 2, 3, 5]))  # thiếu year 4
+        self.assertIn("OPEX 5 năm", str(ctx.exception.message))
+        self.assertIn("4", str(ctx.exception.message))
+
+    def test_no_opex_rejects(self):
+        with self.assertRaises(ServiceError):
+            _validate_gate_g03(self._doc(50_000.0, []))
+
+
+class TestGateG05(unittest.TestCase):
+    """`_validate_gate_g05(doc)` — funding_source + board_approver bắt buộc trước Submit."""
+
+    def test_both_set_passes(self):
+        _validate_gate_g05(SimpleNamespace(funding_source="NSNN", board_approver="vp@hospital.vn"))
+
+    def test_missing_funding_rejects(self):
+        with self.assertRaises(ServiceError) as ctx:
+            _validate_gate_g05(SimpleNamespace(funding_source=None, board_approver="vp@hospital.vn"))
+        self.assertEqual(ctx.exception.code, ErrorCode.BUSINESS_RULE)
+        self.assertIn("funding_source", str(ctx.exception.message))
+
+    def test_missing_approver_rejects(self):
+        with self.assertRaises(ServiceError) as ctx:
+            _validate_gate_g05(SimpleNamespace(funding_source="NSNN", board_approver=None))
+        self.assertIn("board_approver", str(ctx.exception.message))
+
+    def test_both_missing_lists_both(self):
+        with self.assertRaises(ServiceError) as ctx:
+            _validate_gate_g05(SimpleNamespace(funding_source=None, board_approver=""))
+        msg = str(ctx.exception.message)
+        self.assertIn("funding_source", msg)
+        self.assertIn("board_approver", msg)

@@ -13,12 +13,21 @@ import frappe
 
 from assetcore.services import imm15 as svc
 from assetcore.services.shared import ErrorCode, ServiceError
+from assetcore.tests._asset_cleanup import purge_asset
 
 
-def _ensure_doc(doctype: str, name: str, data: dict) -> str:
-    if frappe.db.exists(doctype, name):
-        return name
-    doc = frappe.get_doc({"doctype": doctype, "name": name, **data})
+def _ensure_doc(doctype: str, lookup: dict, data: dict) -> str:
+    """Idempotent fixture create — look up by a unique business field.
+
+    AC Warehouse / AC Spare Part / AC Asset are autonamed, so an explicit
+    ``name`` is IGNORED on insert. Matching on ``name`` therefore never finds the
+    existing fixture → every test run leaks a fresh autonamed record (LL-TEST-9).
+    Always match on the business key carried in ``lookup``.
+    """
+    existing = frappe.db.get_value(doctype, lookup, "name")
+    if existing:
+        return existing
+    doc = frappe.get_doc({"doctype": doctype, **lookup, **data})
     doc.flags.ignore_links = True
     doc.flags.ignore_mandatory = True
     doc.insert(ignore_permissions=True)
@@ -38,15 +47,14 @@ class TestImm15Base(unittest.TestCase):
                     "doctype": "AC UOM", "uom_name": "Cái",
                     "is_active": 1,
                 }).insert(ignore_permissions=True)
-        # Warehouse
+        # Warehouse — match on business name (autonamed → explicit name ignored)
         cls.warehouse = _ensure_doc(
-            "AC Warehouse", "AC-WH-TEST15",
-            {"warehouse_name": "Test WH IMM-15", "is_active": 1},
+            "AC Warehouse", {"warehouse_name": "_Test WH IMM-15"},
+            {"is_active": 1},
         )
         # Spare part — pick an existing UOM (any) so we don't depend on seeds
         any_uom = frappe.db.get_value("AC UOM", {}, "name") or None
         spare_data = {
-            "part_name": "Test Part IMM-15",
             "unit_cost": 100000,
             "is_active": 1,
             "min_stock_level": 5,
@@ -57,7 +65,9 @@ class TestImm15Base(unittest.TestCase):
             spare_data["imm_part_class"] = "Critical"
         if any_uom:
             spare_data["stock_uom"] = any_uom
-        cls.part = _ensure_doc("AC Spare Part", "AC-SP-TEST15", spare_data)
+        cls.part = _ensure_doc(
+            "AC Spare Part", {"part_name": "_Test Part IMM-15"}, spare_data
+        )
         # Seed stock
         if not frappe.db.exists("AC Spare Part Stock",
                                 {"spare_part": cls.part, "warehouse": cls.warehouse}):
@@ -74,14 +84,28 @@ class TestImm15Base(unittest.TestCase):
                 {"spare_part": cls.part, "warehouse": cls.warehouse},
                 {"qty_on_hand": 20, "available_qty": 20},
             )
-        # Asset (optional)
+        # Department — receiver for Issue stock movements (Slide 27, VR via IMM-15)
+        cls.department = ""
+        if frappe.db.exists("DocType", "AC Department"):
+            with suppress(Exception):
+                cls.department = frappe.db.get_value(
+                    "AC Department", {"department_name": "_Test Dept IMM-15"}, "name"
+                )
+                if not cls.department:
+                    cls.department = frappe.get_doc({
+                        "doctype": "AC Department",
+                        "department_name": "_Test Dept IMM-15",
+                    }).insert(ignore_permissions=True).name
+        # Asset (optional) — must carry a department so issue movements validate
         cls.asset = ""
         if frappe.db.exists("DocType", "AC Asset"):
             with suppress(Exception):
                 cls.asset = _ensure_doc(
-                    "AC Asset", "AC-AS-TEST15",
-                    {"asset_name": "Test Asset IMM-15"},
+                    "AC Asset", {"asset_name": "_Test Asset IMM-15"},
+                    {"department": cls.department},
                 )
+                if cls.asset and cls.department:
+                    frappe.db.set_value("AC Asset", cls.asset, "department", cls.department)
         frappe.db.commit()
 
     def tearDown(self):
@@ -100,6 +124,33 @@ class TestImm15Base(unittest.TestCase):
                 for n in names:
                     with suppress(Exception):
                         frappe.delete_doc(dt, n.name, ignore_permissions=True, force=True)
+        # Cancel + remove stock movements tied to the test part (block part delete).
+        with suppress(Exception):
+            for sm in frappe.get_all(
+                "AC Stock Movement Item", filters={"spare_part": cls.part},
+                fields=["parent"], pluck="parent",
+            ):
+                with suppress(Exception):
+                    doc = frappe.get_doc("AC Stock Movement", sm)
+                    if doc.docstatus == 1:
+                        doc.cancel()
+                    frappe.delete_doc("AC Stock Movement", sm, force=True,
+                                      ignore_permissions=True)
+        # Remove the shared _Test master fixtures (FK-safe order, best-effort).
+        with suppress(Exception):
+            for st in frappe.get_all("AC Spare Part Stock",
+                                     filters={"spare_part": cls.part}, pluck="name"):
+                frappe.delete_doc("AC Spare Part Stock", st, force=True,
+                                  ignore_permissions=True)
+        if getattr(cls, "asset", ""):
+            with suppress(Exception):
+                purge_asset(cls.asset)
+        for dt, name in (("AC Spare Part", getattr(cls, "part", "")),
+                         ("AC Warehouse", getattr(cls, "warehouse", "")),
+                         ("AC Department", getattr(cls, "department", ""))):
+            if name:
+                with suppress(Exception):
+                    frappe.delete_doc(dt, name, force=True, ignore_permissions=True)
         frappe.db.commit()
 
 
@@ -267,15 +318,15 @@ class TestDashboardLowStockPerBin(unittest.TestCase):
     def setUpClass(cls):
         frappe.set_user("Administrator")
         any_uom = frappe.db.get_value("AC UOM", {}, "name") or None
-        cls.wh_a = _ensure_doc("AC Warehouse", "AC-WH-LOW-A",
-                                {"warehouse_name": "Low WH A", "is_active": 1})
-        cls.wh_b = _ensure_doc("AC Warehouse", "AC-WH-LOW-B",
-                                {"warehouse_name": "Low WH B", "is_active": 1})
-        part_data = {"part_name": "Low Stock Part", "unit_cost": 50000,
-                     "is_active": 1, "min_stock_level": 5}
+        cls.wh_a = _ensure_doc("AC Warehouse", {"warehouse_name": "_Test Low WH A"},
+                                {"is_active": 1})
+        cls.wh_b = _ensure_doc("AC Warehouse", {"warehouse_name": "_Test Low WH B"},
+                                {"is_active": 1})
+        part_data = {"unit_cost": 50000, "is_active": 1, "min_stock_level": 5}
         if any_uom:
             part_data["stock_uom"] = any_uom
-        cls.part = _ensure_doc("AC Spare Part", "AC-SP-LOW15", part_data)
+        cls.part = _ensure_doc("AC Spare Part", {"part_name": "_Test Low Stock Part"},
+                               part_data)
         # Bin A qty 2 (< 5), Bin B qty 4 (< 5). SUM = 6 ≥ 5 (would mask under
         # the old aggregate logic) but each bin is individually below min.
         for wh, qty in ((cls.wh_a, 2), (cls.wh_b, 4)):
