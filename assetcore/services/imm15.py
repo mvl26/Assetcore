@@ -859,10 +859,22 @@ def _create_stock_movement_for_issue(alloc_doc) -> object:
             "qty": float(item.qty_issued or item.qty_requested or 0),
             "warehouse": alloc_doc.warehouse_from,
         })
+    # Slide 27: phiếu Xuất kho bắt buộc có Khoa/Phòng nhận — lấy từ Khoa quản lý
+    # của tài sản được cấp phát phụ tùng.
+    receiver_department = None
+    if alloc_doc.get("asset"):
+        receiver_department = _safe_get_value("AC Asset", alloc_doc.asset, "department")
+    if not receiver_department:
+        raise ServiceError(
+            ErrorCode.VALIDATION,
+            "Không xác định được Khoa/Phòng nhận để xuất kho — "
+            f"tài sản {alloc_doc.get('asset') or '(trống)'} chưa gán Khoa quản lý",
+        )
     sm = frappe.get_doc({
         "doctype": "AC Stock Movement",
         "movement_type": "Issue",
         "from_warehouse": alloc_doc.warehouse_from,
+        "receiver_department": receiver_department,
         "reference_type": _ref_type_for_movement("IMM Spare Allocation"),
         "reference_name": alloc_doc.name,
         "movement_date": nowdate(),
