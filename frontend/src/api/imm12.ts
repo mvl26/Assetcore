@@ -68,13 +68,33 @@ export interface ChronicFailure {
   last_reported?: string
 }
 
+// Khớp services/imm12.py::get_incident_stats (ground truth).
 export interface IncidentStats {
+  total: number
   open: number
   investigating: number
   resolved: number
   closed: number
-  critical_open: number
-  high_open: number
+  cancelled: number
+  critical: number
+  high: number
+  rca_pending: number
+  chronic: number
+}
+
+export interface RcaListItem {
+  name: string
+  incident_report?: string
+  asset?: string
+  asset_name?: string
+  rca_method?: string
+  trigger_type?: string
+  status: string
+  assigned_to?: string
+  assigned_to_name?: string
+  due_date?: string
+  linked_capa?: string
+  completed_date?: string
 }
 
 export function listIncidents(params: {
@@ -96,6 +116,13 @@ export function getIncident(name: string) {
 export function acknowledgeIncident(name: string, notes = '', assigned_to = '') {
   return frappePost<{ name: string; status: string }>(
     `${BASE}.acknowledge_incident`, { name, notes, assigned_to },
+  )
+}
+
+// D3: Acknowledged → In Progress ("Bắt đầu xử lý")
+export function startWork(name: string, notes = '') {
+  return frappePost<{ name: string; status: string }>(
+    `${BASE}.start_work`, { name, notes },
   )
 }
 
@@ -149,6 +176,18 @@ export function createRca(incident_name: string, rca_method = '5-Why') {
 
 export function getRca(name: string) {
   return frappeGet<RCADetail>(`${BASE}.get_rca`, { name })
+}
+
+export function listRcas(params: {
+  method?: string
+  status?: string
+  asset?: string
+  page?: number
+  page_size?: number
+} = {}) {
+  return frappeGet<{ pagination: { total: number; page: number; page_size: number; total_pages: number }; items: RcaListItem[] }>(
+    `${BASE}.list_rcas`, params as Record<string, unknown>,
+  )
 }
 
 export interface SubmitRcaPayload {

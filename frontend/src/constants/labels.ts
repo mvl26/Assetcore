@@ -297,6 +297,31 @@ export const INCIDENT_STATUS_CLASS: Record<string, string> = {
 export function incidentStatusLabel(v: string) { return INCIDENT_STATUS_LABEL[v] ?? v }
 export function incidentStatusClass(v: string) { return INCIDENT_STATUS_CLASS[v] ?? 'bg-slate-100 text-slate-600' }
 
+// ─── RCA status (khớp _RCA_* trong services/imm12.py) ─────────────────────────
+export const RCA_STATUS_LABEL: Record<string, string> = {
+  'RCA Required':    'Cần phân tích',
+  'RCA In Progress': 'Đang phân tích',
+  'Completed':       'Đã hoàn tất',
+  'Cancelled':       'Đã hủy',
+}
+export const RCA_STATUS_CLASS: Record<string, string> = {
+  'RCA Required':    'bg-red-100 text-red-700',
+  'RCA In Progress': 'bg-yellow-100 text-yellow-800',
+  'Completed':       'bg-green-100 text-green-700',
+  'Cancelled':       'bg-slate-100 text-slate-500',
+}
+export function rcaStatusLabel(v: string) { return RCA_STATUS_LABEL[v] ?? v }
+export function rcaStatusClass(v: string) { return RCA_STATUS_CLASS[v] ?? 'bg-slate-100 text-slate-600' }
+
+// RCA trigger_type (BE: "Major Incident"/"Critical Incident"/"Chronic Failure"/"Manual")
+export const RCA_TRIGGER_LABEL: Record<string, string> = {
+  'Critical Incident': 'Sự cố nghiêm trọng',
+  'Major Incident':    'Sự cố mức cao',
+  'Chronic Failure':   'Lỗi lặp lại (mãn tính)',
+  'Manual':            'Thủ công',
+}
+export function rcaTriggerLabel(v: string) { return RCA_TRIGGER_LABEL[v] ?? v }
+
 // ─── CAPA status ──────────────────────────────────────────────────────────────
 export const CAPA_STATUS_LABEL: Record<string, string> = {
   'Open':                'Đang mở',

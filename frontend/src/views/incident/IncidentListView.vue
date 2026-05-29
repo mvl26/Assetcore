@@ -9,9 +9,27 @@ import ListFilterBar from '@/components/common/ListFilterBar.vue'
 import BasePagination from '@/components/common/BasePagination.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
+import WorkOrderKpiStrip, { type WoKpiItem } from '@/components/common/WorkOrderKpiStrip.vue'
+import { incidentSeverityLabel } from '@/constants/labels'
 
 const router = useRouter()
 const store = useImm12Store()
+
+// KPI strip (mockup docs/fe/12-incident/incidents-list.html — 4 ô trên filter bar).
+const kpiItems = computed<WoKpiItem[]>(() => {
+  const s = store.stats
+  if (!s) return []
+  const critical = 'critical' in s ? s.critical : 0
+  const high = 'high' in s ? s.high : 0
+  const chronic = 'chronic' in s ? s.chronic : 0
+  const closed = 'closed' in s ? s.closed : 0
+  return [
+    { label: 'Sự cố nghiêm trọng', value: critical, color: 'danger' },
+    { label: 'Sự cố mức cao', value: high, color: 'warning' },
+    { label: 'Lặp lại (Chronic)', value: chronic, color: 'info' },
+    { label: 'Đã đóng', value: closed, color: 'success' },
+  ]
+})
 
 const severityFilter = ref('')
 const statusFilter = ref('')
@@ -100,7 +118,7 @@ function goToPage(page: number) {
   })
 }
 
-onMounted(() => store.fetchList())
+onMounted(() => { store.fetchList(); store.fetchStats() })
 </script>
 
 <template>
@@ -120,6 +138,8 @@ onMounted(() => store.fetchList())
         </button>
       </template>
     </PageHeader>
+
+    <WorkOrderKpiStrip :items="kpiItems" />
 
     <ListFilterBar
       :show="showFilters"
@@ -179,10 +199,11 @@ onMounted(() => store.fetchList())
               class="px-1.5 py-0.5 rounded text-[11px] font-medium"
               :class="SEV_COLOR[ir.severity] || 'bg-slate-100 text-slate-600'"
               @click.stop="quickFilter('severity', ir.severity)"
-            >{{ ir.severity }}</button>
+            >{{ incidentSeverityLabel(ir.severity) }}</button>
             <span class="text-slate-300">·</span>
             <span>{{ formatDateTime(ir.reported_at) }}</span>
             <span v-if="ir.patient_affected" class="text-red-600 font-semibold">BN: Có</span>
+            <span v-if="ir.chronic_failure_flag" class="text-amber-600 font-semibold">Lặp lại</span>
           </div>
         </div>
         <div v-if="store.incidents.length === 0" class="py-12 text-center text-slate-400">
@@ -223,13 +244,14 @@ onMounted(() => store.fetchList())
                 <td class="table-cell">
                   <div class="text-slate-700">{{ ir.asset_name || ir.asset || '—' }}</div>
                   <div v-if="ir.asset && ir.asset_name" class="text-xs text-slate-400 font-mono mt-0.5">{{ ir.asset }}</div>
+                  <div v-if="ir.chronic_failure_flag" class="text-[11px] text-amber-600 font-semibold mt-0.5">⚠ Lặp lại (Chronic)</div>
                 </td>
                 <td class="table-cell">
                   <button
                     class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium transition-all hover:ring-2 hover:ring-offset-1 hover:ring-current/50"
                     :class="SEV_COLOR[ir.severity] || 'bg-slate-100 text-slate-600'"
                     @click.stop="quickFilter('severity', ir.severity)"
-                  >{{ ir.severity }}</button>
+                  >{{ incidentSeverityLabel(ir.severity) }}</button>
                 </td>
                 <td class="table-cell">
                   <button @click.stop="quickFilter('status', ir.status || '')">

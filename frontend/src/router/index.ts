@@ -426,11 +426,17 @@ const routes: RouteRecordRaw[] = [
   },
   { path: '/incidents', redirect: '/incidents/dashboard' },
   {
+    path: '/rca',
+    name: 'RCAList',
+    component: () => import('@/views/incident/RCAListView.vue'),
+    meta: { requiresAuth: true, title: 'Phân tích nguyên nhân (RCA)', moduleId: 'imm12', requiredRoles: ROLES_RCA_OWNER },
+  },
+  {
     path: '/rca/:id',
     name: 'RCADetail',
     component: () => import('@/views/incident/RCADetailView.vue'),
     props: true,
-    meta: { requiresAuth: true, title: 'Phân tích nguyên nhân (RCA)', requiredRoles: ROLES_RCA_OWNER },
+    meta: { requiresAuth: true, title: 'Phân tích nguyên nhân (RCA)', moduleId: 'imm12', requiredRoles: ROLES_RCA_OWNER },
   },
   {
     path: '/capas',

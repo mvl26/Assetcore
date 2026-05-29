@@ -4,7 +4,7 @@ import { computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useImm12Store } from '@/stores/imm12'
 import PageHeader from '@/components/common/PageHeader.vue'
-import { incidentStatusLabel, incidentStatusClass } from '@/constants/labels'
+import { incidentStatusLabel, incidentStatusClass, incidentSeverityLabel, rcaStatusLabel, rcaTriggerLabel } from '@/constants/labels'
 
 const router = useRouter()
 const store = useImm12Store()
@@ -55,6 +55,7 @@ onMounted(() => store.fetchDashboard())
     >
       <template #actions>
         <button class="btn-ghost" @click="router.push('/incidents/list')">Danh sách</button>
+        <button class="btn-ghost" @click="router.push('/rca')">Danh sách RCA</button>
         <button class="btn-primary" @click="router.push('/incidents/new')">+ Báo cáo sự cố</button>
       </template>
     </PageHeader>
@@ -87,7 +88,7 @@ onMounted(() => store.fetchDashboard())
         </div>
         <div class="kpi-card p-4 text-center" style="--kpi-color: #dc2626">
           <p class="text-3xl font-bold font-display tabular-nums text-red-600">{{ stats.critical ?? 0 }}</p>
-          <p class="text-xs text-slate-500 mt-1">Critical</p>
+          <p class="text-xs text-slate-500 mt-1">Nghiêm trọng</p>
         </div>
         <div class="kpi-card p-4 text-center" style="--kpi-color: #ea580c">
           <p class="text-3xl font-bold font-display tabular-nums text-orange-600">{{ stats.rca_pending ?? 0 }}</p>
@@ -117,7 +118,7 @@ onMounted(() => store.fetchDashboard())
                 <span
 class="mt-0.5 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium shrink-0"
                       :class="SEV_COLOR[ir.severity] || 'bg-slate-100 text-slate-600'">
-                  {{ ir.severity }}
+                  {{ incidentSeverityLabel(ir.severity) }}
                 </span>
                 <div class="flex-1 min-w-0">
                   <p class="text-sm font-medium text-slate-800 truncate">{{ ir.asset_name || ir.asset }}</p>
@@ -154,13 +155,13 @@ class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium"
                 <div class="flex-1 min-w-0">
                   <p class="text-sm font-medium text-slate-800 font-mono">{{ rca.name }}</p>
                   <p class="text-xs text-slate-500 truncate">{{ rca.asset || rca.incident_report || '—' }}</p>
-                  <p v-if="rca.trigger_type" class="text-xs text-slate-400 mt-0.5">{{ rca.trigger_type }}</p>
+                  <p v-if="rca.trigger_type" class="text-xs text-slate-400 mt-0.5">{{ rcaTriggerLabel(rca.trigger_type) }}</p>
                 </div>
                 <div class="text-right shrink-0">
                   <span
 class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium"
                         :class="RCA_STATUS_COLOR[rca.status] || 'bg-slate-100 text-slate-600'">
-                    {{ rca.status }}
+                    {{ rcaStatusLabel(rca.status) }}
                   </span>
                   <p
 class="text-xs mt-1"
