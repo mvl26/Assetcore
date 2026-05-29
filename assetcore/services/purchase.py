@@ -74,7 +74,7 @@ def auto_mark_purchase_received(movement_doc, method=None) -> None:
         frappe.db.set_value(_DT_PUR, ref, "status", "Received")
 
 
-def auto_unmark_purchase_received(movement_doc) -> None:
+def auto_unmark_purchase_received(movement_doc, method=None) -> None:
     """Hook called when a Receipt Stock Movement is cancelled."""
     if movement_doc.movement_type != "Receipt" or movement_doc.reference_type != _DT_PUR:
         return
