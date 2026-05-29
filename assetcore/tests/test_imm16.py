@@ -625,5 +625,40 @@ class TestCAPAFromIncidentChain(unittest.TestCase):
             )
 
 
+class TestLLBE1Heatmap417(unittest.TestCase):
+    """LL-BE-1 guard: GET endpoint phải tolerate query param numeric RỖNG
+    (`?period_year=`) mà KHÔNG raise FrappeTypeError → HTTP 417.
+
+    Hiện AN TOÀN vì `api/imm16.py` có `from __future__ import annotations`
+    (PEP 563 → annotation là string → Frappe `validate_argument_types` SKIP
+    coercion → không 417, dù hint là `int | None`). Test này GUARD chống
+    regression nếu future-import bị gỡ hoặc annotation chuyển sang real-type
+    (khi đó `int|None` + `""` sẽ 417 — xem dashboard.py không có future-import).
+
+    Gọi qua `validate_argument_types(apply_condition=True)` mô phỏng request-context.
+    """
+
+    def test_heatmap_empty_period_no_417(self):
+        from frappe.utils.typing_validations import validate_argument_types
+        from assetcore.api.imm16 import get_compliance_heatmap
+
+        wrapped = validate_argument_types(
+            get_compliance_heatmap, apply_condition=lambda: True
+        )
+        # FE gửi ?period_year=&period_month= → trước fix: FrappeTypeError (417)
+        resp = wrapped(period_year="", period_month="")
+        self.assertIsInstance(resp, dict)
+
+    def test_heatmap_missing_args_no_417(self):
+        from frappe.utils.typing_validations import validate_argument_types
+        from assetcore.api.imm16 import get_compliance_heatmap
+
+        wrapped = validate_argument_types(
+            get_compliance_heatmap, apply_condition=lambda: True
+        )
+        resp = wrapped()
+        self.assertIsInstance(resp, dict)
+
+
 if __name__ == "__main__":
     unittest.main()

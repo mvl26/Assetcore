@@ -236,3 +236,34 @@ class TestCalibrationSubmitGate(unittest.TestCase):
         res = submit_calibration(name)
         frappe.db.commit()
         self.assertIn(res["overall_result"], ("Passed", "Conditionally Passed"))
+
+
+class TestLLBE1CalKpis417(unittest.TestCase):
+    """LL-BE-1 guard: get_calibration_kpis (GET, year/month optional) phải
+    tolerate query rỗng (`?year=`) mà KHÔNG raise FrappeTypeError → HTTP 417.
+
+    Hiện AN TOÀN vì `api/imm11.py` có `from __future__ import annotations`
+    (annotation = string → validator SKIP coercion). Test GUARD chống regression
+    nếu future-import bị gỡ / annotation thành real-type (khi đó `int=None`+`""`
+    → 417). Cf. dashboard.py (không future-import) đã từng 417.
+    """
+
+    def test_cal_kpis_empty_year_no_417(self):
+        from frappe.utils.typing_validations import validate_argument_types
+        from assetcore.api.imm11 import get_calibration_kpis
+
+        wrapped = validate_argument_types(
+            get_calibration_kpis, apply_condition=lambda: True
+        )
+        resp = wrapped(year="", month="")
+        self.assertIsInstance(resp, dict)
+
+    def test_cal_kpis_missing_args_no_417(self):
+        from frappe.utils.typing_validations import validate_argument_types
+        from assetcore.api.imm11 import get_calibration_kpis
+
+        wrapped = validate_argument_types(
+            get_calibration_kpis, apply_condition=lambda: True
+        )
+        resp = wrapped()
+        self.assertIsInstance(resp, dict)

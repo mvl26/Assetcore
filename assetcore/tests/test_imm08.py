@@ -443,3 +443,34 @@ class TestPMCompletionGate(unittest.TestCase):
         )
         frappe.db.commit()
         self.assertEqual(res["new_status"], "Completed")
+
+
+class TestLLBE1PMStats417(unittest.TestCase):
+    """LL-BE-1 guard: get_pm_dashboard_stats (GET, year/month optional) phải
+    tolerate query rỗng (`?year=`) mà KHÔNG raise FrappeTypeError → HTTP 417.
+
+    Hiện AN TOÀN vì `api/imm08.py` có `from __future__ import annotations`
+    (annotation = string → validator SKIP coercion). Test GUARD chống regression
+    nếu future-import bị gỡ / annotation thành real-type (khi đó `int=None`+`""`
+    → 417). Cf. dashboard.py (không future-import) đã từng 417.
+    """
+
+    def test_pm_stats_empty_year_no_417(self):
+        from frappe.utils.typing_validations import validate_argument_types
+        from assetcore.api.imm08 import get_pm_dashboard_stats
+
+        wrapped = validate_argument_types(
+            get_pm_dashboard_stats, apply_condition=lambda: True
+        )
+        resp = wrapped(year="", month="")
+        self.assertIsInstance(resp, dict)
+
+    def test_pm_stats_missing_args_no_417(self):
+        from frappe.utils.typing_validations import validate_argument_types
+        from assetcore.api.imm08 import get_pm_dashboard_stats
+
+        wrapped = validate_argument_types(
+            get_pm_dashboard_stats, apply_condition=lambda: True
+        )
+        resp = wrapped()
+        self.assertIsInstance(resp, dict)
