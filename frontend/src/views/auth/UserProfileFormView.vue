@@ -3,6 +3,7 @@ import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import SmartSelect from '@/components/common/SmartSelect.vue'
+import BaseModal from '@/components/common/BaseModal.vue'
 import {
   getUserInfo, updateUserInfo, createSystemUser, approveRegistration,
   getAvailableImmRoles, resetUserPassword,
@@ -12,6 +13,7 @@ import type {
   IMMUser, CreateUserPayload, ImmRoleOption, RoleProfileOption,
 } from '@/api/user'
 import { ROLE_GROUP_LABEL, type RoleGroup } from '@/constants/roles'
+import { personaForRoleProfile } from '@/constants/personas'
 import { useFormDraft } from '@/composables/useFormDraft'
 
 const props = defineProps<{ user?: string }>()
@@ -54,6 +56,19 @@ const applyingProfile = ref(false)
 const currentRoleProfile = computed<RoleProfileOption | null>(
   () => roleProfiles.value.find(p => p.name === selectedRoleProfile.value) ?? null,
 )
+
+// Core Doc §7.quinquies: BE = Role Profile + Role Permission; "persona" là khái
+// niệm FE-only (mapping ở constants/personas.ts). Khi user ĐÃ gắn Role Profile,
+// role bị KHOÁ — Frappe core clear+replace roles theo profile mỗi lần save → sửa
+// thủ công vô nghĩa. Block "Phân quyền (chi tiết)" read-only; bỏ profile mới sửa.
+const roleProfileLocked = computed<boolean>(
+  () => !!(detail.value?.role_profile_name),
+)
+const lockedProfileLabel = computed<string>(
+  () => currentRoleProfile.value?.label || detail.value?.role_profile_name || '',
+)
+// Nhãn persona (FE-only) suy từ tên Role Profile — để gắn badge persona lên UI.
+const selectedPersona = computed(() => personaForRoleProfile(selectedRoleProfile.value))
 
 async function applyRoleProfile() {
   if (!props.user) return
@@ -175,14 +190,33 @@ async function doApprove() {
   } finally { saving.value = false }
 }
 
-async function doReject() {
+// ── Reject modal (G6 — thay window.prompt bằng BaseModal, LL-FE-14) ──────────
+const showRejectModal = ref(false)
+const rejectReason = ref('')
+const rejectReasonError = ref('')
+
+function openRejectModal() {
+  rejectReason.value = ''
+  rejectReasonError.value = ''
+  showRejectModal.value = true
+}
+
+function closeRejectModal() {
+  showRejectModal.value = false
+}
+
+async function confirmReject() {
   if (!props.user) return
-  const reason = prompt('Lý do từ chối:')
-  if (!reason) return
+  const reason = rejectReason.value.trim()
+  if (!reason) {
+    rejectReasonError.value = 'Vui lòng nhập lý do từ chối.'
+    return
+  }
   saving.value = true; error.value = ''
   try {
     await approveRegistration(props.user, 'reject', [], reason)
     success.value = 'Đã từ chối tài khoản.'
+    showRejectModal.value = false
     await load()
   } catch (e: unknown) {
     error.value = e instanceof Error ? e.message : 'Lỗi khi từ chối'
@@ -193,12 +227,17 @@ async function doReject() {
 async function saveEdit() {
   saving.value = true; error.value = ''; success.value = ''
   try {
-    await updateUserInfo(props.user!, {
+    // Khi user có Role Profile → KHÔNG gửi imm_roles (role do persona quản lý,
+    // BE sẽ từ chối sửa thủ công). Chỉ gửi role khi gán thủ công.
+    const payload: Partial<IMMUser> = {
       full_name: editFields.value.full_name,
       phone: editFields.value.phone,
       ac_department: editFields.value.ac_department,
-      imm_roles: editRoles.value,
-    })
+    }
+    if (!roleProfileLocked.value) {
+      payload.imm_roles = editRoles.value
+    }
+    await updateUserInfo(props.user!, payload)
     success.value = 'Lưu thành công!'
     await load()
   } catch (e: unknown) {
@@ -406,7 +445,7 @@ class="ml-1 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-mediu
         <!-- Approval actions -->
         <div v-if="auth.isSystemAdmin && detail.imm_approval_status === 'Pending'" class="flex gap-2 pt-2">
           <button :disabled="saving" class="bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white px-4 py-1.5 rounded-lg text-xs font-medium" @click="doApprove">Duyệt tài khoản</button>
-          <button :disabled="saving" class="bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white px-4 py-1.5 rounded-lg text-xs font-medium" @click="doReject">Từ chối</button>
+          <button :disabled="saving" class="bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white px-4 py-1.5 rounded-lg text-xs font-medium" @click="openRejectModal">Từ chối</button>
         </div>
         <div v-if="detail.imm_rejection_reason" class="text-xs text-red-600 bg-red-50 px-3 py-2 rounded">
           Lý do từ chối: {{ detail.imm_rejection_reason }}
@@ -440,7 +479,16 @@ id="edit-phone" v-model="editFields.phone" type="text" placeholder="0901234567"
         <div v-if="auth.isSystemAdmin" class="bg-white rounded-xl border border-blue-200 p-5 space-y-3">
           <div class="flex items-baseline justify-between">
             <h2 class="text-sm font-semibold text-blue-900 uppercase tracking-wide">Role Profile (persona)</h2>
-            <p class="text-xs text-gray-400">Chọn 1 persona — Frappe tự đồng bộ roles</p>
+            <p class="text-xs text-gray-400">Chọn theo persona — Frappe tự đồng bộ roles</p>
+          </div>
+          <div v-if="selectedPersona" class="flex items-center gap-2">
+            <span
+              class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium text-white"
+              :style="{ backgroundColor: selectedPersona.color }"
+            >
+              <span class="w-1.5 h-1.5 rounded-full bg-white/80"></span>
+              Persona: {{ selectedPersona.label }}
+            </span>
           </div>
           <div class="flex items-stretch gap-2">
             <select
@@ -473,21 +521,41 @@ id="edit-phone" v-model="editFields.phone" type="text" placeholder="0901234567"
           </div>
         </div>
 
-        <!-- IMM Roles (admin only) — fallback thủ công -->
+        <!-- IMM Roles (admin only) — fallback thủ công. KHOÁ khi có Role Profile. -->
         <div v-if="auth.isSystemAdmin" class="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
           <div class="flex items-baseline justify-between">
             <h2 class="text-sm font-semibold text-gray-700 uppercase tracking-wide">Phân quyền (chi tiết)</h2>
             <p class="text-xs text-gray-400">Chỉnh thủ công nếu không dùng Role Profile</p>
           </div>
-          <div v-for="bucket in groupedRoles" :key="bucket.group" class="space-y-2">
+          <!-- Ghi chú khoá: role do persona quản lý, không sửa thủ công được -->
+          <div
+            v-if="roleProfileLocked"
+            class="flex items-start gap-2 bg-amber-50 border border-amber-200 text-amber-800 text-xs p-3 rounded-lg"
+          >
+            <svg class="w-4 h-4 shrink-0 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+            </svg>
+            <span>
+              Role đang được quản lý bởi persona <b>"{{ lockedProfileLabel }}"</b> — không thể sửa thủ công.
+              Bỏ persona (chọn "— Không áp dụng persona —" ở trên rồi Áp dụng) để chỉnh role tự do.
+            </span>
+          </div>
+          <div v-for="bucket in groupedRoles" :key="bucket.group" class="space-y-2" :class="{ 'opacity-60': roleProfileLocked }">
             <h3 class="text-[11px] font-bold text-gray-400 uppercase tracking-widest">{{ bucket.label }}</h3>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
               <label
                 v-for="role in bucket.items" :key="role.name"
-                class="flex items-start gap-2.5 cursor-pointer rounded-lg border px-3 py-2.5 text-sm transition-colors"
-                :class="hasRole(role.name) ? 'border-blue-400 bg-blue-50' : 'border-gray-200 hover:bg-gray-50'"
+                class="flex items-start gap-2.5 rounded-lg border px-3 py-2.5 text-sm transition-colors"
+                :class="[
+                  hasRole(role.name) ? 'border-blue-400 bg-blue-50' : 'border-gray-200 hover:bg-gray-50',
+                  roleProfileLocked ? 'cursor-not-allowed' : 'cursor-pointer',
+                ]"
               >
-                <input type="checkbox" :checked="hasRole(role.name)" class="rounded mt-0.5 shrink-0" @change="toggleRole(role.name)" />
+                <input
+                  type="checkbox" :checked="hasRole(role.name)" :disabled="roleProfileLocked"
+                  class="rounded mt-0.5 shrink-0 disabled:cursor-not-allowed"
+                  @change="toggleRole(role.name)"
+                />
                 <div class="min-w-0 flex-1">
                   <div class="font-medium" :class="hasRole(role.name) ? 'text-blue-700' : 'text-gray-800'">
                     {{ role.label }}
@@ -534,5 +602,52 @@ type="submit" :disabled="saving"
         </div>
       </form>
     </template>
+
+    <!-- ─── MODAL: TỪ CHỐI TÀI KHOẢN (G6) ───────────────────────────────── -->
+    <BaseModal
+      v-if="showRejectModal"
+      title="Từ chối tài khoản"
+      size="md"
+      danger
+      @close="closeRejectModal"
+    >
+      <div class="space-y-3">
+        <p class="text-sm text-gray-600">
+          Nhập lý do từ chối tài khoản <b>{{ detail?.email }}</b>. Lý do sẽ được lưu lại
+          và hiển thị cho người dùng.
+        </p>
+        <div>
+          <label for="reject-reason" class="block text-xs font-medium text-gray-600 mb-1">
+            Lý do từ chối <span class="text-red-500">*</span>
+          </label>
+          <textarea
+            id="reject-reason"
+            v-model="rejectReason"
+            rows="3"
+            placeholder="VD: Thiếu giấy tờ xác minh, email không thuộc tổ chức…"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
+            @input="rejectReasonError = ''"
+          ></textarea>
+          <p v-if="rejectReasonError" class="text-xs text-red-600 mt-1">{{ rejectReasonError }}</p>
+        </div>
+      </div>
+      <template #footer>
+        <button
+          type="button"
+          class="px-4 py-2 rounded-lg border border-gray-300 text-sm text-gray-600 hover:bg-gray-50"
+          @click="closeRejectModal"
+        >
+          Hủy
+        </button>
+        <button
+          type="button"
+          :disabled="saving"
+          class="bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm font-medium"
+          @click="confirmReject"
+        >
+          {{ saving ? 'Đang xử lý...' : 'Xác nhận từ chối' }}
+        </button>
+      </template>
+    </BaseModal>
   </div>
 </template>

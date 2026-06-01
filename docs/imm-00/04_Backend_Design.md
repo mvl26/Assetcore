@@ -416,6 +416,73 @@ Open/In Progress → Overdue (scheduler daily)
 
 ---
 
+## II.10. User Account & Approval (Frappe User extension)
+
+IMM-00 KHÔNG tạo DocType riêng cho người dùng — mở rộng Frappe **User** bằng Custom Fields (`assetcore/setup/install.py::_USER_CUSTOM_FIELDS`). Quản lý qua API `assetcore/api/user.py` + view FE `/user-profiles`.
+
+| Field | DB Type | Description | BR/Note |
+|---|---|---|---|
+| `imm_approval_status` | Select | `''` / Pending / Approved / Rejected | **default `''`** (KHÔNG phải Pending — xem invariant) |
+| `imm_approved_by` | Link → User | Người duyệt | read_only, stamp khi approve |
+| `imm_approved_at` | Datetime | Thời điểm duyệt | read_only |
+| `imm_rejection_reason` | Small Text | Lý do từ chối | set khi reject |
+| `ac_department` | Link → AC Department | Khoa/phòng | — |
+
+**Invariant trạng thái duyệt (BR-00-USR-01):**
+`Pending ⟺ enabled=0` — chỉ user qua luồng **self-signup** (`auth_service.register_user` → tạo User `enabled=0` + `Pending`) mới mang trạng thái này; user `enabled=1` LUÔN đã có quyền truy cập ⇒ phải là `Approved` (hoặc `''` nếu nằm ngoài luồng IMM, vd Administrator).
+
+**Luồng:**
+1. **Self-signup** (`/register`, guest) → `register_user` → User `enabled=0`, `imm_approval_status=Pending` → notify admin.
+2. **Admin duyệt** (`/user-profiles/:user`, view `UserProfileFormView.vue`, nút Duyệt/Từ chối chỉ hiện khi `Pending`) → `approve_registration` → approve: `enabled=1` + `Approved` + stamp `approved_by/at`; reject: `enabled=0` + `Rejected` + reason.
+3. **Admin tạo trực tiếp** (`create_system_user`) → bỏ qua luồng duyệt → `enabled=1` + `Approved` ngay.
+
+> **Sửa thiết kế (2026-06-01, patch `v3_2.007_reconcile_user_approval_status`):** Custom Field cũ đặt `default='Pending'`. Hậu quả: mọi User tạo ngoài 3 luồng trên (test fixture, ERPNext desk, bench, import) inherit `Pending` dù `enabled=1` → badge "Chờ duyệt" giả trên `/user-profiles`, không có gate duyệt thật phía sau (root-cause user phản ánh "không thấy logic"). Fix: (a) `default` → `''`; (b) `_reconcile_approval_status_field()` ép default lệch về `''` trên Custom Field đã tồn tại (idempotent, chạy trong `after_migrate`); (c) patch backfill `enabled=1 AND Pending → Approved` (stamp `approved_by=Administrator`), Administrator → `''`. Self-signup `enabled=0 + Pending` giữ nguyên.
+
+---
+
+## II.x. Bảo mật endpoint tra trạng thái đăng nhập (BR-00-USR-02 — chống user enumeration)
+
+> **Sửa thiết kế bảo mật (2026-06-01, security finding MEDIUM — user enumeration / information disclosure).**
+
+**Vấn đề gốc (thiết kế cũ G5):** `auth.check_account_status(email)` là endpoint `allow_guest` trả nhãn **phân biệt** cho BẤT KỲ email nào mà **không cần chứng minh biết mật khẩu**:
+- `not_found` (email chưa đăng ký) **vs** `active`/`pending`/`rejected`/`disabled` (email đã đăng ký) → kẻ tấn công liệt kê được email nào tồn tại trong hệ thống.
+- `pending`/`rejected`/`disabled` → lộ trạng thái tài khoản của email bất kỳ.
+- Rate-limit chỉ theo IP (10/60s), không theo email.
+
+**Bằng chứng luồng login thật (frappe/auth.py `LoginManager.authenticate`, dòng 270-281):**
+- Frappe xác thực **mật khẩu TRƯỚC** (`find_by_credentials`). Sai mật khẩu → `fail("Invalid login credentials")`.
+- **Chỉ khi mật khẩu đúng** mà `enabled=0` (bao trùm MỌI Pending/Rejected/Disabled vì các trạng thái này luôn `enabled=0`) → `fail("User disabled or missing")` — nhãn KHÁC, nhưng **chỉ phát ra sau khi mật khẩu đúng**.
+- Kết luận: **đã có sẵn tín hiệu hậu-xác-thực**. Không cần (và không được) một endpoint guest để phân biệt trạng thái nhạy cảm trước khi user chứng minh biết mật khẩu.
+
+**Nguyên tắc thiết kế (MANDATORY):**
+- Endpoint guest **KHÔNG** được phân biệt "email tồn tại hay không" và **KHÔNG** lộ trạng thái nhạy cảm (pending/rejected/disabled) trước khi user chứng minh biết mật khẩu.
+- Trạng thái nhạy cảm chỉ được surface **SAU KHI mật khẩu đúng**.
+
+**Thiết kế mới (2 endpoint tách bạch):**
+
+1. **`check_account_status(email)`** — `allow_guest`, **non-enumerable**:
+   - Trả **một nhãn đồng nhất `unknown`** cho cả email không tồn tại VÀ email active/pending/rejected/disabled. Không bao giờ tiết lộ tồn tại hay trạng thái.
+   - Rate-limit kép: per-IP (10/60s) **và** per-email (5/60s) để chống dò hàng loạt.
+   - Giữ lại chỉ để FE có một probe "không cần phân biệt gì" — vì nó không còn lộ gì, không còn là vector enumeration.
+
+2. **`account_state(usr, pwd)`** — endpoint MỚI, `allow_guest` nhưng **password-gated**:
+   - Bước 1: xác thực mật khẩu qua `frappe.utils.password.check_password(usr, pwd)`. **Sai mật khẩu / email không tồn tại** → trả nhãn ĐỒNG NHẤT `invalid_credentials` (timing đồng nhất, không phân biệt email tồn tại hay không).
+   - Bước 2 (chỉ khi mật khẩu ĐÚNG): trả trạng thái chính xác `pending`/`rejected`/`disabled`/`active` để FE render thông báo đăng nhập đúng.
+   - Rate-limit kép per-IP (10/60s) + per-email (5/60s). Không trả role/profile/dữ liệu nghiệp vụ — chỉ 1 nhãn trạng thái.
+   - Lý do dùng `account_state` thay vì đọc message `"User disabled or missing"` từ `/api/method/login`: tránh phụ thuộc chuỗi message nội bộ của Frappe (dễ vỡ khi nâng cấp core) và Frappe login với `enabled=0` không tạo session — `account_state` là contract ổn định, không sửa core.
+
+**Luồng FE login mới (`LoginView.vue`):**
+1. Gọi `/api/method/login(usr, pwd)`.
+2. Thành công → vào app.
+3. Thất bại → gọi `account_state(usr, pwd)` (đưa CHÍNH mật khẩu user vừa nhập):
+   - `pending`/`rejected`/`disabled` → hiển thị thông báo trạng thái tương ứng (chỉ tới được đây khi mật khẩu đúng ⇒ thông báo chính xác, an toàn).
+   - `invalid_credentials` (sai mật khẩu HOẶC email không tồn tại) → thông báo trung lập "email/mật khẩu không đúng" — KHÔNG phân biệt được email tồn tại hay không.
+   - `active` → mật khẩu đúng + tài khoản bình thường nhưng login vẫn fail (vd 2FA / IP / giờ login) → thông báo chung.
+
+**Tradeoff UX:** không còn phân biệt "email chưa đăng ký" vs "sai mật khẩu" (cả hai → cùng thông báo trung lập) — đây là chuẩn an toàn (GitHub/Google đều làm vậy). Thông báo pending/rejected/disabled **vẫn hiện đúng** nhưng chỉ khi user nhập đúng mật khẩu, đó là hành vi mong muốn.
+
+---
+
 # Phần III — Service Layer
 
 ## III.1. File: `assetcore/services/imm00.py`
@@ -451,10 +518,10 @@ Open/In Progress → Overdue (scheduler daily)
 |---|---|---|---|---|
 | `notify_assignment` | `(doc, method=None) -> None` | None | hook `PM Work Order`/`Asset Repair` on_update+on_submit | Đọc `assigned_to`; nếu set & khác actor → `_dispatch` cho assignee. Idempotent: skip nếu assigned_to không đổi (so `doc.get_doc_before_save()`). |
 | `notify_approval_pending` | `(doc, method=None) -> None` | None | hook `PM Work Order`/`Asset Repair` on_update+on_submit | Detect `workflow_state` đổi VÀO một state "cần duyệt" (xác định **động** qua metadata Workflow — xem §III.1b-1). Resolve approver(s) theo allowed-role của transition rời state đó → `_dispatch`. Idempotent: skip nếu workflow_state không đổi. |
-| `resolve_recipients` | `(doc, role_or_field: str) -> list[str]` | list[user] | service | Lấy recipient từ **field user** trên doc (vd `supervisor`, `assigned_to`); **loại bỏ actor** (`frappe.session.user`) để tránh self-notify. Trả list duy nhất. |
+| `resolve_recipients` | `(doc, role_or_field: str, include_self: bool = False) -> list[str]` | list[user] | service | Lấy recipient từ **field user** trên doc (vd `supervisor`, `assigned_to`); **mặc định loại bỏ actor** (`frappe.session.user`) để tránh self-notify (FR-00-NTF-04). **MỞ RỘNG (self-confirm, §III.1b-2b):** param opt-in `include_self=True` GIỮ actor lại để gửi xác nhận cho chính người báo. Mặc định `False` → hành vi cũ KHÔNG đổi (mọi caller hiện tại an toàn). Trả list duy nhất. |
 | `resolve_approvers_by_workflow` | `(doc) -> list[str]` | list[user] | `notify_approval_pending` | **MỚI (vòng 2).** Đọc Workflow metadata của `doc.doctype`; với `doc.workflow_state` hiện tại, tìm các transition rời state này; lấy tập `allowed` role của các transition đó; resolve user enable đang giữ role (qua `frappe.get_users_with_role` hoặc tương đương). **Bổ sung** field `supervisor` nếu doc có & set. Loại actor + dedupe. |
 | `_state_needs_approval` | `(doctype: str, state: str) -> bool` | bool | `notify_approval_pending` | **MỚI (vòng 2).** True nếu `state` là "cần duyệt" theo §III.1b-1: tồn tại ≥1 transition rời `state` mà `allowed` role thuộc tập role quản trị (mặc định `{"System Manager"}`, mở rộng được per-doctype qua `_APPROVAL_ROLES`). |
-| `notify_incident_created` | `(doc, method=None) -> None` | None | hook `Incident Report` after_insert | **MỚI (vòng 3 — E3, IMM-12).** Khi Incident Report vừa tạo → `_dispatch` cho người phụ trách. Recipient resolve động: `assigned_to` nếu set, **fallback** `reported_by`. Tái dùng `resolve_recipients`. Loại self-notify + skip docstatus=2. Subject gồm `severity` + asset. Xem §III.1b-2. |
+| `notify_incident_created` | `(doc, method=None) -> None` | None | hook `Incident Report` after_insert | **MỚI (vòng 3 — E3, IMM-12); MỞ RỘNG (vòng 9 — self-confirm).** Khi Incident Report vừa tạo → `_dispatch` cho người phụ trách. Recipient resolve động: (1) `assigned_to` nếu set (cross-assign — loại self như cũ); (2) nếu chưa assign → `reported_by`, **GỌI với `include_self=True`** để chính người tự báo nhận xác nhận "Đã ghi nhận sự cố của bạn" (self-confirm, FR-00-NTF-07). Subject/message phân nhánh: cross-assign = "Sự cố mới cần xử lý" vs self-confirm = "Đã ghi nhận sự cố của bạn". Skip docstatus=2. Xem §III.1b-2 + §III.1b-2b. |
 | `notify_calibration_due` | `(asset_name, old_status, new_status) -> None` | None | service `imm11.check_calibration_expiry` (scheduler daily) | **MỚI (vòng 3 — E4, IMM-11).** Bắn 1 lần khi `calibration_status` của asset **chuyển VÀO** `DUE_SOON` hoặc `OVERDUE` (state-change guard: `old != new and new ∈ {DUE_SOON, OVERDUE}`) → chống spam mỗi ngày. Recipient: `responsible_technician` (primary), fallback `custodian` của AC Asset. Loại self-notify. Xem §III.1b-2. |
 | `notify_escalation` | `(doc, method=None) -> None` | None | hook `PM Work Order` on_update | **MỚI (vòng 7 — E5, IMM-08).** Khi `workflow_state` **chuyển VÀO** một state ESCALATION (nguy cấp do role vận hành báo, KHÔNG phải finalize) → `_dispatch` cho supervisor + role quản trị để can thiệp. "State escalation" xác định **động** qua metadata Workflow (xem §III.1b-5), KHÔNG hard-code: state nháp (`doc_status=0`) kiểu `Danger` mà role vận hành (không phải role quản trị) chuyển VÀO. Bù khoảng trống E2 (E2 chỉ bắt state finalize do role quản trị → bỏ sót halt nguy cấp do KTV báo). Idempotent: skip nếu workflow_state không đổi; skip docstatus=2. Xem §III.1b-5. |
 | `_state_is_escalation` | `(doctype: str, state: str) -> bool` | bool | `notify_escalation` | **MỚI (vòng 7).** True nếu `state`: (a) `doc_status=="0"` (chưa finalize, loại E2); (b) được **VÀO** bởi ≥1 transition do **role vận hành** (không thuộc `_approval_roles_for`); (c) có ≥1 transition **GỠ** rời state do **role quản trị** với `next_state` không thuộc `_NON_APPROVAL_NEXT_STATES`. KHÔNG dùng `State.type` "Danger" (không persist DB runtime — xem §III.1b-5). |
@@ -533,7 +600,7 @@ Open/In Progress → Overdue (scheduler daily)
 **E3 — `notify_incident_created` (IMM-12, hook `Incident Report` after_insert):**
 
 1. **Trigger:** `after_insert` — Incident vừa được tạo. Vì là after_insert nên KHÔNG cần idempotent-by-before-save (chỉ chạy đúng 1 lần/record); vẫn skip `docstatus==2` để an toàn.
-2. **Recipient resolution (động):** `assigned_to` (Link User) nếu set → đó là người phụ trách xử lý; **fallback** `reported_by` nếu chưa phân công (để sự cố không "rơi"). Dùng `resolve_recipients(doc, "assigned_to")`; nếu rỗng → `resolve_recipients(doc, "reported_by")`. Loại actor hiện tại (self-notify, FR-00-NTF-04) + dedupe.
+2. **Recipient resolution (động):** `assigned_to` (Link User) nếu set → đó là người phụ trách xử lý; **fallback** `reported_by` nếu chưa phân công (để sự cố không "rơi"). Dùng `resolve_recipients(doc, "assigned_to")` (mặc định loại actor — cross-assign noise); nếu rỗng → `resolve_recipients(doc, "reported_by", include_self=True)`. **Cập nhật vòng 9 (self-confirm):** nhánh fallback `reported_by` DÙNG `include_self=True` để chính người tự báo (`reported_by == actor`) vẫn nhận xác nhận. Phân biệt 2 nhánh để chọn subject/message — xem §III.1b-2b. Loại Administrator + dedupe.
 3. **Nội dung:** subject gồm `severity` + asset + incident number; message dẫn người nhận tới phiếu. `_dispatch` lo 2 kênh (bell luôn, email theo toggle).
 4. **Audit:** Notification Log (Frappe core) = record bất biến → audit trail tự nhiên (FR-00-NTF-03). KHÔNG tạo lifecycle event riêng (Incident đã có audit chuỗi riêng của IMM-12).
 5. **An toàn listener:** bọc `try/except` + `frappe.log_error`, KHÔNG làm vỡ luồng insert (LL-BE-20). Signature `(doc, method=None)` (LL-BE-6).
@@ -547,6 +614,44 @@ Open/In Progress → Overdue (scheduler daily)
 5. **Audit + an toàn:** Notification Log = audit. Bọc `try/except` per-asset trong scheduler để 1 asset lỗi KHÔNG dừng cả batch.
 
 **Data model (vòng 3):** KHÔNG DocType mới. Đọc field sẵn có: `Incident Report.assigned_to / reported_by / severity / asset`; `AC Asset.calibration_status / next_calibration_date / responsible_technician / custodian`. Audit = Notification Log (core).
+
+### III.1b-2b. Self-confirm — xác nhận cho người tự báo (vòng 9 — FR-00-NTF-07)
+
+> **Bối cảnh / lý do thay đổi (BA chốt).** FR-00-NTF-04 mặc định loại actor khỏi recipient để người gây action KHÔNG tự nhận noise (đúng cho assignment/approval/escalation/calibration/SLA — actor đã biết mình vừa làm gì). NHƯNG với **Incident Report tự báo** (`reported_by == actor`, chưa phân công người khác), `notify_incident_created` resolve `assigned_to` rỗng → fallback `reported_by` → `resolve_recipients` loại actor → **rỗng → không ai nhận**. Hệ quả thực tế: người vừa báo sự cố KHÔNG có bất kỳ phản hồi nào trên chuông, không rõ phiếu đã ghi nhận chưa (UX yếu, và với incident an toàn bệnh nhân — NĐ98 Art.67 — việc thiếu xác nhận đã-ghi-nhận là rủi ro). Đây là **lỗi thiết kế từ gốc của semantics recipient**, sửa root tại spec trước, không vá ở code.
+
+**Quy ước chính thức (BA chốt):**
+
+1. **Định nghĩa "self-confirm".** Là NGOẠI LỆ có kiểm soát của FR-00-NTF-04: với **event mà người báo chính là bên cần được xác nhận đã ghi nhận**, gửi 1 Notification Log cho chính actor dù actor == recipient. Đây KHÔNG phải "tự-notify mọi action": chỉ áp đúng các event được liệt kê (whitelist), KHÔNG mở cho action điều phối/phê duyệt.
+
+2. **Phạm vi áp dụng (whitelist — đóng kín).** Vòng 9 self-confirm chỉ áp cho **Incident Report tự báo**: `notify_incident_created` nhánh fallback `reported_by` khi KHÔNG có `assigned_to`. Tất cả event còn lại GIỮ NGUYÊN FR-00-NTF-04 (mặc định loại actor):
+   - `notify_assignment` — actor tự gán mình: KHÔNG self-notify (đã chủ động chọn, không cần xác nhận).
+   - `notify_approval_pending` / `notify_escalation` — actor là người đẩy phiếu/báo lỗi: approver/cấp trên nhận, KHÔNG phải actor.
+   - `notify_calibration_due` / `run_sla_breach_scan` — scheduler/Administrator: không có "self" thật, vẫn loại actor + Administrator.
+   - **Khi Incident CÓ `assigned_to` (bất kể bằng ai, kể cả tự gán mình):** đi nhánh cross-assign như cũ — assignee≠actor nhận; nếu assignee==actor (tự gán) thì KHÔNG ai nhận (self-assign noise bị chặn, TC-NTF-16). Self-confirm CHỈ kích hoạt khi **field `assigned_to` thực sự rỗng/None** (chưa phân công ai). Phân biệt "assigned_to rỗng" với "assigned_to set nhưng resolve rỗng do là actor" là BẮT BUỘC để TC-NTF-16 (self-assign) không lọt sang nhánh self-confirm.
+
+3. **Cơ chế (opt-in, KHÔNG đổi mặc định).** Thêm param `include_self: bool = False` cho `resolve_recipients`. Mặc định `False` ⇒ hành vi cũ giữ nguyên (mọi caller hiện hữu KHÔNG đổi). Chỉ nhánh self-confirm gọi `resolve_recipients(doc, "reported_by", include_self=True)`. KHÔNG thêm DocType/field; KHÔNG đổi `_dispatch`; KHÔNG modify core.
+
+4. **Phân nhánh nội dung (subject/message).** `notify_incident_created` phải phân biệt:
+   - **Cross-assign** (có `assigned_to` ≠ actor): subject "Sự cố mới [<severity>]: <name>", message "… Vui lòng kiểm tra và xử lý." (như cũ).
+   - **Self-confirm** (fallback `reported_by`, recipient gồm actor): subject "Đã ghi nhận sự cố: <name>", message "Sự cố <name> bạn vừa báo đã được ghi nhận (mức độ …). Bộ phận kỹ thuật sẽ tiếp nhận xử lý." → ngữ nghĩa **xác nhận**, không phải "cần xử lý".
+   - Lưu ý mixed-list: nếu fallback `reported_by` resolve ra **cả** reporter-là-actor **và** user khác (hiếm — `reported_by` là single Link, thực tế chỉ 1 user) → ưu tiên thông điệp self-confirm cho actor; giữ đơn giản: chọn template theo "recipient chứa actor".
+
+5. **Idempotent + an toàn (giữ contract).** `after_insert` chạy 1 lần/record → không spam. Bọc `try/except` + `frappe.log_error`. Self-confirm chỉ sinh **1** Notification Log cho actor; KHÔNG gửi email nếu actor tắt toggle (FR-00-NTF-03 vẫn áp). Audit = Notification Log (FR-00-NTF-03).
+
+**Test contract (BA chốt — KHÔNG phá test cũ):**
+
+| TC | Trạng thái | Ý nghĩa |
+|---|---|---|
+| **TC-NTF-16** | **GIỮ NGUYÊN ngữ nghĩa, làm rõ scope** | `actor == assigned_to` (cross-assign tự gán) → KHÔNG dispatch (self-notify noise vẫn bị chặn). Setup: doc CÓ `assigned_to == actor`. Đây là nhánh cross-assign, KHÔNG phải self-confirm → assertion cũ đúng nguyên. |
+| **TC-NTF-15** | GIỮ NGUYÊN | không `assigned_to`, `reported_by` ≠ actor → fallback reported_by nhận (cross-report). |
+| **TC-NTF-24** (MỚI) | THÊM | **Self-confirm:** `assigned_to=None`, `reported_by == actor` → tạo **đúng 1** Notification Log cho actor; `subject` chứa "Đã ghi nhận". Đây là case trước đây trả rỗng (bug). |
+| **TC-NTF-25** (MỚI) | THÊM | `resolve_recipients(doc, "reported_by", include_self=True)` trả list chứa actor; `include_self=False` (mặc định) loại actor → bảo vệ hành vi mặc định không đổi. |
+
+> **Lưu ý ID:** TC-NTF-17/18 ĐÃ thuộc test calibration E4 — KHÔNG tái dùng. ID mới = TC-NTF-24/25 (kế tiếp sau TC-NTF-23 hiện hữu).
+
+> **Phân biệt rạch ròi (chống hiểu nhầm khi code):** TC-NTF-16 (self-assign → chặn) và TC-NTF-17 (self-report → xác nhận) KHÔNG mâu thuẫn: khác nhau ở **field** (assigned_to vs reported_by) và **ngữ nghĩa nghiệp vụ** (điều phối vs ghi nhận). `include_self=True` CHỈ bật ở nhánh `reported_by`-fallback, nên self-assign vẫn bị `assigned_to`-resolve (mặc định) loại đúng.
+
+**Data model (vòng 9):** KHÔNG DocType mới, KHÔNG field mới, KHÔNG sửa workflow/JSON. Chỉ thêm param `include_self` (default False) cho `resolve_recipients` + phân nhánh nội dung trong `notify_incident_created`. Audit = Notification Log (core).
 
 ### III.1b-3. HTML email template + deep-link (vòng 4 — nâng chất 4 event đã có)
 
@@ -891,7 +996,7 @@ Fixtures shipped (verified vs `assetcore/fixtures/` 2026-05-27):
 assetcore/fixtures/
 ├── role.json                          # 30 roles (4 System + 26 Domain) — patch v3_2.001
 ├── has_role.json                      # Role↔User pre-seed
-├── role_profile.json                  # Role bundling per persona
+├── role_profile.json                  # Role Profile (Frappe core) — gom bộ role chọn sẵn; persona là khái niệm FE (xem FE_Persona_Navigation.md §7.quinquies)
 ├── module_profile.json                # Workspaces/sidebar grouping
 ├── workflow.json                      # Tất cả workflows AssetCore module
 ├── workflow_state.json                # State catalog (Open, In Progress, …)
@@ -977,7 +1082,7 @@ Fixtures hiện đăng ký qua file JSON trong `assetcore/fixtures/` (bench tự
 | --------------------------------------- | ---------------------- | ---------------------------- |
 | `role.json`                           | Role                   | 30 roles (4 System + 26 Domain) |
 | `has_role.json`                       | Has Role               | Default role assignments     |
-| `role_profile.json`                   | Role Profile           | Persona bundling             |
+| `role_profile.json`                   | Role Profile           | Gom bộ role chọn sẵn (Frappe core; persona = FE-only) |
 | `module_profile.json`                 | Module Profile         | Workspace grouping           |
 | `workflow.json`                       | Workflow               | Tất cả AssetCore workflows |
 | `workflow_state.json`                 | Workflow State         | State catalog                |

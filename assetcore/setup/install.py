@@ -21,9 +21,13 @@ _USER_CUSTOM_FIELDS: list[dict] = [
     {
         "fieldname": "imm_approval_status",
         "fieldtype": "Select",
-        "label": "Trạng thái duyệt IMM",
-        "options": "Pending\nApproved\nRejected",
-        "default": "Pending",
+        # Empty option đầu = "chưa thuộc luồng duyệt IMM" (vd: Administrator, user
+        # ERPNext gốc). KHÔNG để default "Pending": default cũ khiến MỌI user tạo
+        # ngoài luồng self-signup (test fixture, desk, bench, import) bị gán Pending
+        # dù enabled=1 → badge "Chờ duyệt" giả, không có gate thật phía sau.
+        # Invariant: Pending ⟺ enabled=0 (chờ admin). enabled=1 ⇒ Approved/empty.
+        "options": "\nPending\nApproved\nRejected",
+        "default": "",
         "insert_after": "imm_section",
         "in_list_view": 0,
     },
@@ -84,7 +88,27 @@ def create_user_custom_fields() -> None:
             if not frappe.db.has_column("User", fieldname):
                 _ensure_custom_field("User", fieldname, field_def)
 
+    _reconcile_approval_status_field()
     frappe.db.commit()
+
+
+def _reconcile_approval_status_field() -> None:
+    """Idempotent: gỡ default 'Pending' lệch trên Custom Field đã tồn tại.
+
+    Site cũ đã insert Custom Field với default='Pending'. Đổi định nghĩa trong
+    _USER_CUSTOM_FIELDS không tự cập nhật record đã có (ensure chỉ insert-if-missing).
+    Hàm này ép default về '' và options về '\\nPending\\nApproved\\nRejected' để mọi
+    user mới tạo ngoài luồng IMM không bị gán 'Pending' giả.
+    """
+    cf = frappe.db.exists("Custom Field", {"dt": "User", "fieldname": "imm_approval_status"})
+    if not cf:
+        return
+    current_default = frappe.db.get_value("Custom Field", cf, "default")
+    if current_default == "Pending":
+        frappe.db.set_value(
+            "Custom Field", cf,
+            {"default": "", "options": "\nPending\nApproved\nRejected"},
+        )
 
 
 def after_install() -> None:
@@ -233,7 +257,7 @@ def _apply_rbac_matrix() -> None:
 
 
 def _seed_role_profiles() -> None:
-    """Tạo Role Profile cho các persona AssetCore + cleanup legacy."""
+    """Tạo 8 Role Profile AssetCore (bộ role chọn sẵn) + cleanup legacy."""
     try:
         from assetcore.setup.setup_role_profiles import run as seed
         seed()
@@ -287,7 +311,17 @@ def _clear_role_profile_has_role_rows() -> None:
     làm sạch trước khi fixture sync bắt đầu.
     """
     try:
+        from assetcore.setup.role_profile_catalog import PROFILE_NAMES
+        # Dọn Has Role rows của 8 Role Profile hiện hành (tên VI) + legacy
+        # "AssetCore — %" còn sót, trước khi fixture sync re-insert.
         deleted = frappe.db.delete(
+            "Has Role",
+            {
+                "parenttype": "Role Profile",
+                "parent": ["in", PROFILE_NAMES],
+            },
+        )
+        deleted += frappe.db.delete(
             "Has Role",
             {"parenttype": "Role Profile", "parent": ["like", "AssetCore — %"]},
         )

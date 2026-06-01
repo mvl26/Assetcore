@@ -12,12 +12,15 @@ app_license = "MIT"
 # Fixtures — RBAC module-based (4 System + 26 Domain = 30 role)
 # ──────────────────────────────────────────────
 from assetcore.services.shared.constants import Roles as _Roles
+from assetcore.setup.role_profile_catalog import PROFILE_NAMES as _ROLE_PROFILE_NAMES
 
 _IMM_ROLES = list(_Roles.ALL)
 fixtures = [
     {"dt": "Role", "filters": [["name", "in", _IMM_ROLES]]},
-    # Role Profile + Module Profile bị bỏ trong mô hình mới — gán role trực
-    # tiếp qua Has Role (User form HOẶC trang FE /admin/roles).
+    # 8 Role Profile (tên VI thuần) — cơ chế gán bộ role chọn sẵn chuẩn Frappe.
+    # Core Doc FE_Persona_Navigation.md §7.quinquies. Seed/idempotent qua
+    # setup_role_profiles.run; fixture để fresh-site provisioning áp được.
+    {"dt": "Role Profile", "filters": [["name", "in", _ROLE_PROFILE_NAMES]]},
     {"dt": "IMM SLA Policy"},
     {"dt": "Workspace", "filters": [["name", "in", ["IMM Operations"]]]},
     {"dt": "Workflow", "filters": [["name", "in", [

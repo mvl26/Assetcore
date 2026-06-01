@@ -4,7 +4,7 @@
   "doctype": "Workflow",
   "document_type": "Asset Document",
   "is_active": 1,
-  "modified": "2026-05-12 16:42:33.346956",
+  "modified": "2026-06-01 10:51:10.296207",
   "name": "IMM-05 Document Workflow",
   "override_status": 0,
   "send_email_alert": 0,
@@ -234,7 +234,7 @@
   "doctype": "Workflow",
   "document_type": "Asset Commissioning",
   "is_active": 1,
-  "modified": "2026-05-12 16:42:33.296072",
+  "modified": "2026-06-01 10:51:10.235945",
   "name": "IMM-04 Workflow",
   "override_status": 0,
   "send_email_alert": 0,
@@ -726,7 +726,7 @@
   "doctype": "Workflow",
   "document_type": "AC Asset",
   "is_active": 1,
-  "modified": "2026-05-12 16:42:33.000571",
+  "modified": "2026-06-01 10:51:09.947260",
   "name": "AC Asset Lifecycle",
   "override_status": 0,
   "send_email_alert": 0,
@@ -1079,13 +1079,13 @@
   "doctype": "Workflow",
   "document_type": "IMM RCA Record",
   "is_active": 1,
-  "modified": "2026-05-12 16:42:33.691416",
+  "modified": "2026-06-01 10:51:10.558522",
   "name": "IMM-12 RCA Workflow",
   "override_status": 0,
   "send_email_alert": 0,
   "states": [
    {
-    "allow_edit": "PM User",
+    "allow_edit": "Corrective User",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -1101,7 +1101,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "PM User",
+    "allow_edit": "Corrective User",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -1153,7 +1153,7 @@
    {
     "action": "Bắt đầu phân tích RCA",
     "allow_self_approval": 1,
-    "allowed": "PM User",
+    "allowed": "Corrective User",
     "condition": null,
     "next_state": "RCA In Progress",
     "parent": "IMM-12 RCA Workflow",
@@ -1179,7 +1179,7 @@
    {
     "action": "Hoàn thành RCA",
     "allow_self_approval": 1,
-    "allowed": "PM User",
+    "allowed": "Corrective User",
     "condition": null,
     "next_state": "Completed",
     "parent": "IMM-12 RCA Workflow",
@@ -1212,13 +1212,13 @@
   "doctype": "Workflow",
   "document_type": "Incident Report",
   "is_active": 1,
-  "modified": "2026-05-12 16:42:33.655154",
+  "modified": "2026-06-01 10:51:10.532089",
   "name": "IMM-12 Incident Workflow",
   "override_status": 0,
   "send_email_alert": 0,
   "states": [
    {
-    "allow_edit": "PM User",
+    "allow_edit": "Corrective User",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -1234,7 +1234,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "PM Manager",
+    "allow_edit": "Corrective Manager",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -1250,7 +1250,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "PM User",
+    "allow_edit": "Corrective User",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -1266,7 +1266,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "PM User",
+    "allow_edit": "Corrective User",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -1334,7 +1334,7 @@
    {
     "action": "Tiếp nhận sự cố",
     "allow_self_approval": 1,
-    "allowed": "PM Manager",
+    "allowed": "Corrective Manager",
     "condition": null,
     "next_state": "Acknowledged",
     "parent": "IMM-12 Incident Workflow",
@@ -1360,7 +1360,7 @@
    {
     "action": "Bắt đầu xử lý",
     "allow_self_approval": 1,
-    "allowed": "PM User",
+    "allowed": "Corrective User",
     "condition": null,
     "next_state": "In Progress",
     "parent": "IMM-12 Incident Workflow",
@@ -1386,7 +1386,7 @@
    {
     "action": "Đánh dấu đã giải quyết",
     "allow_self_approval": 1,
-    "allowed": "PM User",
+    "allowed": "Corrective User",
     "condition": null,
     "next_state": "Resolved",
     "parent": "IMM-12 Incident Workflow",
@@ -1471,13 +1471,13 @@
   "doctype": "Workflow",
   "document_type": "IMM Asset Calibration",
   "is_active": 1,
-  "modified": "2026-05-12 16:42:33.613345",
+  "modified": "2026-06-01 10:51:10.495943",
   "name": "IMM-11 Calibration Workflow",
   "override_status": 0,
   "send_email_alert": 0,
   "states": [
    {
-    "allow_edit": "PM User",
+    "allow_edit": "Calibration User",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -1493,7 +1493,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "PM User",
+    "allow_edit": "Calibration User",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -1509,7 +1509,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "PM User",
+    "allow_edit": "Calibration User",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -1609,7 +1609,7 @@
    {
     "action": "Bắt đầu hiệu chuẩn",
     "allow_self_approval": 1,
-    "allowed": "PM User",
+    "allowed": "Calibration User",
     "condition": null,
     "next_state": "In Progress",
     "parent": "IMM-11 Calibration Workflow",
@@ -1622,7 +1622,7 @@
    {
     "action": "Gửi phòng hiệu chuẩn",
     "allow_self_approval": 1,
-    "allowed": "PM User",
+    "allowed": "Calibration User",
     "condition": null,
     "next_state": "Sent to Lab",
     "parent": "IMM-11 Calibration Workflow",
@@ -1648,7 +1648,7 @@
    {
     "action": "Đạt hiệu chuẩn",
     "allow_self_approval": 1,
-    "allowed": "PM User",
+    "allowed": "Calibration User",
     "condition": null,
     "next_state": "Passed",
     "parent": "IMM-11 Calibration Workflow",
@@ -1661,7 +1661,7 @@
    {
     "action": "Không đạt hiệu chuẩn",
     "allow_self_approval": 1,
-    "allowed": "PM User",
+    "allowed": "Calibration User",
     "condition": null,
     "next_state": "Failed",
     "parent": "IMM-11 Calibration Workflow",
@@ -1674,7 +1674,7 @@
    {
     "action": "Đạt có điều kiện",
     "allow_self_approval": 1,
-    "allowed": "PM User",
+    "allowed": "Calibration User",
     "condition": null,
     "next_state": "Conditionally Passed",
     "parent": "IMM-11 Calibration Workflow",
@@ -1700,7 +1700,7 @@
    {
     "action": "Nhận chứng chỉ",
     "allow_self_approval": 1,
-    "allowed": "PM User",
+    "allowed": "Calibration User",
     "condition": null,
     "next_state": "Certificate Received",
     "parent": "IMM-11 Calibration Workflow",
@@ -1785,7 +1785,7 @@
   "doctype": "Workflow",
   "document_type": "Asset Repair",
   "is_active": 1,
-  "modified": "2026-05-12 16:42:33.546416",
+  "modified": "2026-06-01 10:51:10.457942",
   "name": "IMM-09 Repair Workflow",
   "override_status": 0,
   "send_email_alert": 0,
@@ -1823,7 +1823,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "PM User",
+    "allow_edit": "Repair User",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -1839,7 +1839,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "PM User",
+    "allow_edit": "Repair User",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -1855,7 +1855,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "PM User",
+    "allow_edit": "Repair User",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -1965,7 +1965,7 @@
    {
     "action": "Bắt đầu chẩn đoán",
     "allow_self_approval": 1,
-    "allowed": "PM User",
+    "allowed": "Repair User",
     "condition": null,
     "next_state": "Diagnosing",
     "parent": "IMM-09 Repair Workflow",
@@ -1978,7 +1978,7 @@
    {
     "action": "Yêu cầu linh kiện",
     "allow_self_approval": 1,
-    "allowed": "PM User",
+    "allowed": "Repair User",
     "condition": null,
     "next_state": "Pending Parts",
     "parent": "IMM-09 Repair Workflow",
@@ -1991,7 +1991,7 @@
    {
     "action": "Bắt đầu sửa chữa",
     "allow_self_approval": 1,
-    "allowed": "PM User",
+    "allowed": "Repair User",
     "condition": null,
     "next_state": "In Repair",
     "parent": "IMM-09 Repair Workflow",
@@ -2004,7 +2004,7 @@
    {
     "action": "Linh kiện đã nhận - bắt đầu sửa",
     "allow_self_approval": 1,
-    "allowed": "PM User",
+    "allowed": "Repair User",
     "condition": null,
     "next_state": "In Repair",
     "parent": "IMM-09 Repair Workflow",
@@ -2017,7 +2017,7 @@
    {
     "action": "Hoàn thành sửa chữa - chờ kiểm tra",
     "allow_self_approval": 1,
-    "allowed": "PM User",
+    "allowed": "Repair User",
     "condition": null,
     "next_state": "Pending Inspection",
     "parent": "IMM-09 Repair Workflow",
@@ -2056,7 +2056,7 @@
    {
     "action": "Kiểm tra thất bại - sửa lại",
     "allow_self_approval": 1,
-    "allowed": "PM User",
+    "allowed": "Repair User",
     "condition": null,
     "next_state": "In Repair",
     "parent": "IMM-09 Repair Workflow",
@@ -2141,7 +2141,7 @@
   "doctype": "Workflow",
   "document_type": "PM Work Order",
   "is_active": 1,
-  "modified": "2026-05-12 16:42:33.493108",
+  "modified": "2026-06-01 10:51:10.421021",
   "name": "IMM-08 PM Workflow",
   "override_status": 0,
   "send_email_alert": 0,
@@ -2439,7 +2439,7 @@
   "doctype": "Workflow",
   "document_type": "IMM Vendor Evaluation",
   "is_active": 1,
-  "modified": "2026-05-12 16:42:33.227765",
+  "modified": "2026-06-01 10:51:10.184350",
   "name": "IMM-03 Vendor Eval Workflow",
   "override_status": 0,
   "send_email_alert": 0,
@@ -2614,7 +2614,7 @@
   "doctype": "Workflow",
   "document_type": "IMM Needs Request",
   "is_active": 1,
-  "modified": "2026-05-12 16:42:33.063908",
+  "modified": "2026-06-01 10:51:09.998485",
   "name": "IMM-01 Needs Workflow",
   "override_status": 0,
   "send_email_alert": 0,
@@ -2700,7 +2700,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "Commissioning Manager",
+    "allow_edit": "Needs Manager",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -2765,7 +2765,7 @@
    {
     "action": "Gửi đề xuất",
     "allow_self_approval": 1,
-    "allowed": "Commissioning Manager",
+    "allowed": "Needs Manager",
     "condition": null,
     "next_state": "Submitted",
     "parent": "IMM-01 Needs Workflow",
@@ -2908,7 +2908,7 @@
    {
     "action": "Bác đề xuất sớm",
     "allow_self_approval": 1,
-    "allowed": "Commissioning Manager",
+    "allowed": "Needs Manager",
     "condition": null,
     "next_state": "Rejected",
     "parent": "IMM-01 Needs Workflow",
@@ -2960,7 +2960,7 @@
    {
     "action": "Trình BGĐ",
     "allow_self_approval": 1,
-    "allowed": "Commissioning Manager",
+    "allowed": "Needs Manager",
     "condition": null,
     "next_state": "Pending Approval",
     "parent": "IMM-01 Needs Workflow",
@@ -3071,7 +3071,7 @@
   "doctype": "Workflow",
   "document_type": "IMM Procurement Plan",
   "is_active": 1,
-  "modified": "2026-05-12 16:42:33.100417",
+  "modified": "2026-06-01 10:51:10.026417",
   "name": "IMM-01 Plan Workflow",
   "override_status": 0,
   "send_email_alert": 0,
@@ -3204,13 +3204,13 @@
   "doctype": "Workflow",
   "document_type": "IMM Tech Spec",
   "is_active": 1,
-  "modified": "2026-05-12 16:42:33.129687",
+  "modified": "2026-06-01 10:51:10.070834",
   "name": "IMM-02 Spec Workflow",
   "override_status": 0,
   "send_email_alert": 0,
   "states": [
    {
-    "allow_edit": "Spec Manager",
+    "allow_edit": "Spec User",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -3226,7 +3226,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "Spec Manager",
+    "allow_edit": "Spec User",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -3326,7 +3326,7 @@
    {
     "action": "Gửi rà soát",
     "allow_self_approval": 1,
-    "allowed": "Spec Manager",
+    "allowed": "Spec User",
     "condition": null,
     "next_state": "Reviewing",
     "parent": "IMM-02 Spec Workflow",
@@ -3339,7 +3339,7 @@
    {
     "action": "Yêu cầu chỉnh spec",
     "allow_self_approval": 1,
-    "allowed": "Spec Manager",
+    "allowed": "Spec User",
     "condition": null,
     "next_state": "Draft",
     "parent": "IMM-02 Spec Workflow",
@@ -3450,7 +3450,7 @@
   "doctype": "Workflow",
   "document_type": "IMM AVL Entry",
   "is_active": 1,
-  "modified": "2026-05-12 16:42:33.167015",
+  "modified": "2026-06-01 10:51:10.110985",
   "name": "IMM-03 AVL Workflow",
   "override_status": 0,
   "send_email_alert": 0,
@@ -3638,7 +3638,7 @@
   "doctype": "Workflow",
   "document_type": "IMM Procurement Decision",
   "is_active": 1,
-  "modified": "2026-05-12 16:42:33.200072",
+  "modified": "2026-06-01 10:51:10.152049",
   "name": "IMM-03 Decision Workflow",
   "override_status": 0,
   "send_email_alert": 0,
@@ -3903,7 +3903,7 @@
   "doctype": "Workflow",
   "document_type": "IMM Training Session",
   "is_active": 1,
-  "modified": "2026-05-12 16:42:33.442220",
+  "modified": "2026-06-01 10:51:10.387514",
   "name": "IMM-06 Session Workflow",
   "override_status": 0,
   "send_email_alert": 0,
@@ -4214,7 +4214,7 @@
   "doctype": "Workflow",
   "document_type": "IMM User Competency",
   "is_active": 1,
-  "modified": "2026-05-12 16:42:33.394070",
+  "modified": "2026-06-01 10:51:10.339834",
   "name": "IMM-06 Competency Workflow",
   "override_status": 0,
   "send_email_alert": 0,
@@ -4574,7 +4574,7 @@
   "doctype": "Workflow",
   "document_type": "IMM Stock Cycle Count",
   "is_active": 1,
-  "modified": "2026-05-12 16:42:33.770936",
+  "modified": "2026-06-01 10:51:10.615920",
   "name": "IMM-15 Cycle Count Workflow",
   "override_status": 0,
   "send_email_alert": 0,
@@ -4612,7 +4612,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "PM Manager",
+    "allow_edit": "Inventory Manager",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -4661,7 +4661,7 @@
    {
     "action": "Hoàn tất đếm",
     "allow_self_approval": 1,
-    "allowed": "PM Manager",
+    "allowed": "Inventory Manager",
     "condition": null,
     "next_state": "Reviewed",
     "parent": "IMM-15 Cycle Count Workflow",
@@ -4687,7 +4687,7 @@
    {
     "action": "Post",
     "allow_self_approval": 1,
-    "allowed": "PM Manager",
+    "allowed": "Inventory Manager",
     "condition": null,
     "next_state": "Posted",
     "parent": "IMM-15 Cycle Count Workflow",
@@ -4707,13 +4707,13 @@
   "doctype": "Workflow",
   "document_type": "IMM Spare Allocation",
   "is_active": 1,
-  "modified": "2026-05-12 16:42:33.743376",
+  "modified": "2026-06-01 10:51:10.590711",
   "name": "IMM-15 Spare Allocation Workflow",
   "override_status": 0,
   "send_email_alert": 0,
   "states": [
    {
-    "allow_edit": "PM User",
+    "allow_edit": "Inventory User",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -4729,7 +4729,7 @@
     "workflow_builder_id": null
    },
    {
-    "allow_edit": "PM Manager",
+    "allow_edit": "Inventory Manager",
     "avoid_status_override": 0,
     "doc_status": "0",
     "is_optional_state": 0,
@@ -4813,7 +4813,7 @@
    {
     "action": "Phê duyệt",
     "allow_self_approval": 1,
-    "allowed": "PM Manager",
+    "allowed": "Inventory Manager",
     "condition": null,
     "next_state": "Approved",
     "parent": "IMM-15 Spare Allocation Workflow",
@@ -4826,7 +4826,7 @@
    {
     "action": "Issue (Emergency)",
     "allow_self_approval": 1,
-    "allowed": "PM Manager",
+    "allowed": "Inventory Manager",
     "condition": null,
     "next_state": "Issued",
     "parent": "IMM-15 Spare Allocation Workflow",
@@ -4839,7 +4839,7 @@
    {
     "action": "Hủy",
     "allow_self_approval": 1,
-    "allowed": "PM Manager",
+    "allowed": "Inventory Manager",
     "condition": null,
     "next_state": "Cancelled",
     "parent": "IMM-15 Spare Allocation Workflow",
@@ -4878,7 +4878,7 @@
    {
     "action": "Hủy",
     "allow_self_approval": 1,
-    "allowed": "PM Manager",
+    "allowed": "Inventory Manager",
     "condition": null,
     "next_state": "Cancelled",
     "parent": "IMM-15 Spare Allocation Workflow",
@@ -4917,7 +4917,7 @@
    {
     "action": "Hủy",
     "allow_self_approval": 1,
-    "allowed": "PM Manager",
+    "allowed": "Inventory Manager",
     "condition": null,
     "next_state": "Cancelled",
     "parent": "IMM-15 Spare Allocation Workflow",
@@ -4976,7 +4976,7 @@
   "doctype": "Workflow",
   "document_type": "IMM CAPA Record",
   "is_active": 1,
-  "modified": "2026-05-12 16:42:33.801837",
+  "modified": "2026-06-01 10:51:10.645196",
   "name": "IMM-16 CAPA Workflow",
   "override_status": 0,
   "send_email_alert": 0,
@@ -5196,7 +5196,7 @@
   "doctype": "Workflow",
   "document_type": "IMM Compliance Finding",
   "is_active": 1,
-  "modified": "2026-05-12 16:42:33.844651",
+  "modified": "2026-06-01 10:51:10.677853",
   "name": "IMM-16 Compliance Finding Workflow",
   "override_status": 0,
   "send_email_alert": 0,
@@ -5429,7 +5429,7 @@
   "doctype": "Workflow",
   "document_type": "IMM Internal Audit",
   "is_active": 1,
-  "modified": "2026-05-12 16:42:33.870137",
+  "modified": "2026-06-01 10:51:10.703999",
   "name": "IMM-16 Internal Audit Workflow",
   "override_status": 0,
   "send_email_alert": 0,
@@ -5549,7 +5549,7 @@
   "doctype": "Workflow",
   "document_type": "IMM Management Review",
   "is_active": 1,
-  "modified": "2026-05-12 16:42:33.892588",
+  "modified": "2026-06-01 10:51:10.726922",
   "name": "IMM-16 Management Review Workflow",
   "override_status": 0,
   "send_email_alert": 0,
