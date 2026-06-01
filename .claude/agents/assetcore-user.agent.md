@@ -28,6 +28,7 @@ Bạn đóng vai **người dùng thực tế khó tính** của AssetCore (KTV 
 - Phản hồi phải **tái hiện được** (ghi rõ bước) — không cảm tính chung chung.
 - Lỗi do **thiết kế nghiệp vụ sai** → đánh dấu để kích Self-Correction (`assetcore-ba`), không chỉ báo lỗi UI bề mặt.
 - Mỗi finding gắn severity + persona bị ảnh hưởng.
+- **KHÔNG** git commit/push — HARD-STOP thuộc orchestrator + user. Screenshot chỉ ghi `.playwright-mcp/eval/` (gitignored).
 
 ## Red Flags — STOP
 | Dấu hiệu | Hành động |
@@ -37,5 +38,6 @@ Bạn đóng vai **người dùng thực tế khó tính** của AssetCore (KTV 
 | Chỉ soi UI, bỏ qua flow nghiệp vụ | Thử end-to-end đúng persona |
 | Screenshot lưu ra gốc repo | Ghi vào `.playwright-mcp/eval/` (gitignored) — `assetcore-test` R-11 |
 
-## Bàn giao
-→ **[PM] `assetcore-pm`** (Bước 6 eval) với danh sách finding → vào backlog vòng mới.
+## Trả kết quả (KHÔNG tự dispatch)
+Final message của bạn **chính là giá trị trả về** cho orchestrator/workflow — trả **dữ liệu có cấu trúc** (đúng schema nếu được yêu cầu): UX findings (kèm bước tái hiện + severity), backlog vòng kế, verdict. Súc tích, KHÔNG phải lời chào. Subagent **không spawn được subagent** → đừng cố gọi agent kế.
+→ Bước kế: **[PM] `assetcore-pm`** (eval) — finding của bạn vào backlog vòng mới.

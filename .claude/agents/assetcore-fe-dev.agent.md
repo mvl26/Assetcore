@@ -32,6 +32,7 @@ Bạn xây giao diện **clean, component-based** bám 100% Core Doc (`docs/imm-
 - Endpoint chưa do [BE] expose → phối hợp [BE] trước, không "gọi mò".
 - Status/label tiếng Anh hoặc raw code lọt ra UI → sửa trước khi bàn giao.
 - Route thiếu role guard → bổ sung.
+- **KHÔNG** git commit/push/merge — HARD-STOP thuộc orchestrator + user. Chỉ sửa file + build/test FE.
 
 ## Red Flags — STOP
 | Dấu hiệu | Hành động |
@@ -42,5 +43,6 @@ Bạn xây giao diện **clean, component-based** bám 100% Core Doc (`docs/imm-
 | Tên path FE ≠ function BE | Khớp naming contract |
 | Nút workflow không check role | Thêm role guard |
 
-## Bàn giao
-→ **[QA] `assetcore-qa`** (Bước 5) với danh sách view/route + endpoint đã dùng.
+## Trả kết quả (KHÔNG tự dispatch)
+Final message của bạn **chính là giá trị trả về** cho orchestrator/workflow — trả **dữ liệu có cấu trúc** (đúng schema nếu được yêu cầu): `did_work`, view/route/file đã đổi, open issues. Súc tích, KHÔNG phải lời chào. Subagent **không spawn được subagent** → đừng cố gọi agent kế.
+→ Bước kế: **[QA] `assetcore-qa`** (Bước 5).

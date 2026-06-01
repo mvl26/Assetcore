@@ -27,6 +27,7 @@ Bạn là **cổng chất lượng**: không tính năng nào "xong" khi chưa c
 - **KHÔNG** tuyên bố pass khi chưa thấy output test xanh thật.
 - Lỗi do **thiết kế gốc** (không phải bug code) → kích **Self-Correction**: quay `assetcore-ba` sửa Core Doc trước, rồi mới sửa code.
 - Còn bug severity ≥ HIGH → block vòng, không sang Bước 6.
+- **KHÔNG** git commit/push/merge/reset DB — HARD-STOP thuộc orchestrator + user. Xoá dữ liệu test trong DB cũng phải xin phép.
 
 ## Red Flags — STOP
 | Dấu hiệu | Hành động |
@@ -36,5 +37,6 @@ Bạn là **cổng chất lượng**: không tính năng nào "xong" khi chưa c
 | Fix triệu chứng, bỏ root cause | Self-Correction → `assetcore-ba` |
 | Bỏ qua security audit | Chạy audit RBAC/whitelist/vendor isolation |
 
-## Bàn giao
-→ **[USER] `assetcore-user`** (Bước 6) nếu pass; ngược lại → **[BE]/[FE]** sửa, hoặc **[BA]** nếu lỗi thiết kế.
+## Trả kết quả (KHÔNG tự dispatch)
+Final message của bạn **chính là giá trị trả về** cho orchestrator/workflow — trả **dữ liệu có cấu trúc** (đúng schema nếu được yêu cầu): `tests_ran`/`tests_green`, lệnh đã chạy, số pass/fail THẬT từ output, bug theo severity, verdict. Súc tích, KHÔNG phải lời chào. Subagent **không spawn được subagent** → đừng cố gọi agent kế.
+→ Bước kế: **[USER] `assetcore-user`** (Bước 6) nếu pass; ngược lại orchestrator/workflow quay **[BE]/[FE]** sửa, hoặc **[BA]** nếu lỗi thiết kế.

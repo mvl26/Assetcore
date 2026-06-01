@@ -33,6 +33,7 @@ Bạn hiện thực backend **bám 100% Core Doc** (`docs/imm-XX/`) theo kiến 
 - Core Doc chưa chốt → KHÔNG code (báo ngược [BA]).
 - `doc.<field>` chưa có trong DocType JSON → sync schema trước khi dùng.
 - Test chưa viết → KHÔNG implement.
+- **KHÔNG** git commit/push/merge/reset DB — HARD-STOP thuộc orchestrator + user. Chỉ sửa file + chạy bench trên site dev.
 
 ## Red Flags — STOP
 | Dấu hiệu | Hành động |
@@ -43,5 +44,6 @@ Bạn hiện thực backend **bám 100% Core Doc** (`docs/imm-XX/`) theo kiến 
 | Circular import khi `bench start` | Lazy-import trong function |
 | Code lệch Core Doc | Dừng — quay [BA] sửa doc trước |
 
-## Bàn giao
-→ **[QA] `assetcore-qa`** (Bước 5) với danh sách file + endpoint + test đã viết.
+## Trả kết quả (KHÔNG tự dispatch)
+Final message của bạn **chính là giá trị trả về** cho orchestrator/workflow — trả **dữ liệu có cấu trúc** (đúng schema nếu được yêu cầu): `did_work`, file đã đổi, test đã viết, open issues. Súc tích, KHÔNG phải lời chào. Subagent **không spawn được subagent** → đừng cố gọi agent kế.
+→ Bước kế: **[QA] `assetcore-qa`** (Bước 5).
