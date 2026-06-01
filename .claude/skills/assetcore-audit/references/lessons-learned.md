@@ -433,3 +433,49 @@ grep -E "linked_incident|source_type|source_ref|<new_field>" frontend/src/views/
 
 ---
 
+## Lessons Learned 2026-06-01 — Audit subsystem AUTH (login/register security)
+
+### LL-AUDIT-10: Auth error phân biệt account-state TRƯỚC khi verify mật khẩu = user enumeration (2026-06-01)
+
+**Gap đã gặp 2026-06-01 (audit AUTH, G5):** yêu cầu UX phân biệt "tài khoản chưa duyệt / bị từ chối" vs "sai mật khẩu". Cách ngây thơ (endpoint trả `pending`/`rejected` CHỈ theo email) **lộ email nào tồn tại + trạng thái** cho kẻ tấn công chưa có mật khẩu → user enumeration + information disclosure.
+
+**Quy tắc (audit MỌI endpoint auth/login/reset/lookup):**
+
+1. **Password-gate disclosure**: chỉ tiết lộ account-state (`pending/rejected/disabled/active`) SAU KHI mật khẩu đúng. Sai mật khẩu HOẶC email không tồn tại → cùng nhãn `invalid_credentials`, response + timing đồng nhất (không phân biệt được "email sai" vs "mật khẩu sai").
+2. Endpoint lookup trạng thái public KHÔNG được trả khác nhau theo email tồn tại/không (vector enumeration). Nếu phải giữ endpoint cũ → cho trả `unknown` đồng nhất.
+3. `allow_guest` auth endpoint PHẢI `@rate_limit` per-(IP, email) chống brute-force / dò email.
+4. Audit check:
+   ```bash
+   grep -rnE "allow_guest=True" assetcore/api/    # mỗi hit verify: (a) có @rate_limit, (b) không trả message khác nhau khi email tồn tại vs không TRƯỚC khi auth
+   ```
+
+Cross-ref: LL-AUDIT-3 (envelope success:false), `assetcore-be` whitelist hygiene + [[LL-BE-35]] (verify live wired auth path), CLAUDE.md §19 (no leak, audit/security).
+
+### LL-AUDIT-11: RBAC end-to-end coherence — audit 4 tầng route↔sidebar↔capability↔DocPerm + base-role scope + escalation gate (2026-06-01)
+
+**5 lỗ phát hiện trong 1 đợt audit phân quyền (2026-06-01):** 2 P1 leo quyền (self-edit role bypass admin), ~38 DocType over-grant cho base role (leak BE dù FE ẩn), depreciation lộ cho persona doc (cap `data.read` quá rộng), route hở khi sidebar đã ẩn (gõ URL thẳng vào được). Bài học: phân quyền AssetCore có **4 tầng phải đồng pha** — lệch một tầng là lỗ.
+
+**4 tầng (phải nhất quán cho mỗi chức năng):**
+
+| Tầng | Nơi | Sai → hậu quả |
+|------|-----|---------------|
+| DocPerm (Frappe) | `doctype/*/*.json permissions` | over-grant base role → leak qua REST |
+| Capability | `services/shared/rbac.py` (resolve qua `has_permission`) | cap quá rộng (`data.read` cho mọi user) |
+| Sidebar/nav | `frontend/src/constants/sidebarNav.ts` | ẩn ở nav nhưng… |
+| Route guard | `frontend/src/router/index.ts` `resolveRouteAccess` | …route hở → URL bypass |
+
+**Checklist audit RBAC (chạy đủ, đừng dừng ở 1 tầng):**
+
+1. **FE ẩn ≠ BE bảo vệ**: với mỗi DocType nhạy cảm, verify DocPerm read CHỈ cấp owning role + Auditor, KHÔNG cấp base role `AssetCore System User` ([[LL-BE-38]]). `frappe.set_user("<tech>"); has_permission("<DT>","read")` phải False.
+2. **Capability granularity**: cap gate nav đặc thù persona KHÔNG resolve qua DocType dùng-chung (`data.read`→Device Model) → mọi user pass ([[LL-FE-37]]). Test ≥2 persona ngoài phạm vi → cap=false.
+3. **Route ⟺ sidebar khớp cap**: mọi mục sidebar có cap → route tương ứng có `requiredCapabilities` khớp; thiếu quyền = redirect, không render trang "không có quyền" ([[LL-FE-36]]).
+4. **Escalation gate**: mọi endpoint sửa role/role_profile/enabled gate admin tuyệt đối, không self-bypass ([[LL-BE-37]]). Test `TestRolePrivilegeEscalation`.
+5. **Picker vs list trước khi siết DocPerm**: phân biệt `ignore_permissions` (picker, an toàn) vs theo-quyền (list filter, gỡ sẽ vỡ) ([[LL-BE-40]]).
+6. **≥4 tài khoản đa-role** để audit thật (1 account không lộ ranh giới — [[LL-AUDIT-8]]): dùng `scripts/seed_test_users.py` (9 persona user, tên Việt). `set_user` từng user, eval `rbac.can`/`has_permission`.
+
+**Lưu ý deploy:** migrate KHÔNG tự xoá DocPerm row đã gỡ khỏi JSON trên site cũ → cần DocType reload/patch (`assetcore-deploy`). `get_capabilities` cache 1h/user → user đang online thấy đổi ở session sau (hoặc `rbac.invalidate_capabilities()`).
+
+**⚠️ STALE DOC:** `assetcore-be/references/permission-matrix.md` mô tả role cũ "IMM ..." — KHÔNG còn đúng. Source-of-truth hiện tại: `services/shared/constants.py:Roles` (AssetCore Super Admin / System User…), `setup/role_profile_catalog.py` (8 Role Profile), `docs/res/rbac/role-redesign-module-based.md`.
+
+Cross-ref: [[LL-BE-37]] [[LL-BE-38]] [[LL-BE-39]] [[LL-BE-40]], [[LL-FE-36]] [[LL-FE-37]] [[LL-FE-38]], LL-AUDIT-8 (≥4 accounts), Core Doc `FE_Persona_Navigation.md §7.bis–7.septies`.
+

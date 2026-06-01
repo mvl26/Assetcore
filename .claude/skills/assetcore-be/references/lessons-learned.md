@@ -1,4 +1,4 @@
-# assetcore-be — Lessons Learned (LL-BE-1..33)
+# assetcore-be — Lessons Learned (LL-BE-1..35)
 
 > Bug patterns production đã gặp — **always-apply rules**, KHÔNG phải tham khảo tùy chọn.
 > `SKILL.md` trỏ tới file này; ĐỌC TRƯỚC khi viết/sửa service · API · DocType · workflow.
@@ -961,3 +961,128 @@ Cross-ref: SKILL.md anti-pattern #7 (doc_events wiring), LL-BE-23 (lifecycle hoo
 4. **Doc ↔ workflow JSON drift**: bảng `allow_edit`/role trong `docs/imm-XX/04_Backend_Design.md` phải khớp source-of-truth `*_workflow.json`. Đã gặp imm-08 ghi "PM Manager" nhưng JSON/DB thật là "System Manager" — reconcile doc theo JSON, không ngược lại.
 
 Cross-ref: LL-BE-22 (verify column trước SQL), LL-BE-3 (verify schema), `assetcore-doc` (doc khớp source).
+
+---
+
+## Lessons Learned 2026-06-01 — Audit & refactor subsystem AUTH (đăng ký / đăng nhập / duyệt / mail)
+
+> Nguồn: session audit + fix subsystem AUTH (self-signup, login gate, approve/reject, mail kích hoạt, dead-code cleanup). Mỗi rule là **bug/gap THẬT đã quan sát trong session** (RED đã xảy ra ở production thật — không phải giả định).
+
+### LL-BE-34: Status field phản chiếu state machine — KHÔNG đặt DB `default` gây lệch; khoá invariant status ⟺ gate thật (2026-06-01)
+
+**Bug đã gặp 2026-06-01 (IMM-00 user approval):** Custom Field `User.imm_approval_status` đặt `default='Pending'` ở DB. Hậu quả: MỌI User tạo NGOÀI luồng self-signup (test fixture, ERPNext desk, bench, import) inherit `Pending` **dù `enabled=1`** → badge "Chờ duyệt" giả, không có gate duyệt thật phía sau. Status **decoupled khỏi thực tế truy cập**. Live data: 14–24 user `enabled=1` nhưng vẫn `Pending`.
+
+**Quy tắc:**
+
+1. Field status phản chiếu một state machine / gate nghiệp vụ (approval, active, locked…) **KHÔNG được mang DB-level `default`** trỏ vào một state "có ý nghĩa" (Pending/Active). Default = `''`/null; state chỉ được set **chủ đích** bởi đúng luồng tạo (self-signup → Pending+enabled=0; admin-create → Approved+enabled=1).
+2. Xác định **invariant** giữa status và gate thật rồi khoá bằng test — vd `Pending ⟺ enabled=0`. Test phải bắt record vi phạm (`enabled=1 AND status=Pending` PHẢI = 0).
+3. Khi sửa default trên field ĐÃ deploy: (a) reconcile Custom Field default lệch trên site cũ (idempotent, trong `after_migrate`); (b) patch backfill data mâu thuẫn (`enabled=1 AND Pending → Approved`, stamp approver giữ audit trail). Verify contradictions = 0 sau patch; patch idempotent (re-run = 0).
+4. Khác [[LL-BE-25]] (auto-default ON CREATE qua `before_save` controller — chủ đích, theo ngữ cảnh từng doc): LL-BE-34 cấm **DB static default** vì nó áp mù cho cả record tạo ngoài luồng → phá invariant.
+
+Cross-ref: LL-BE-25 (auto-default controller hook), LL-BE-27 (patch + immutable-audit), `assetcore-test` (test khoá invariant).
+
+### LL-BE-35: Trước khi GIẢI THÍCH hoặc SỬA "logic", xác minh code path LIVE thật sự được wire — dead parallel module đánh lừa (2026-06-01)
+
+**Bug đã gặp 2026-06-01 (audit AUTH):** tồn tại 2 bản song song cùng tên hàm — `services/auth_service.py` (raise `ServiceError`) và `api/auth.py`+`api/user.py` (raise `_err`). FE/runtime CHỈ gọi bản `api/*`; `auth_service.py` là **DEAD CODE** (chỉ 1 test cũ tham chiếu). Agent vòng trước **trích dẫn nhầm `auth_service.py` như "logic đang chạy"** khi giải thích cho user → mô tả sai file thật thi hành. Login lại đi qua Frappe core `/api/method/login` (KHÔNG có hook custom) → gate dựa 100% vào `enabled=0`.
+
+**Quy tắc:**
+
+1. Trước khi mô tả/sửa "logic của X", **xác minh path nào THẬT SỰ chạy** — ai gọi + có whitelist không, KHÔNG chọn file có tên hợp lý nhất:
+   ```bash
+   grep -rnE "assetcore\.(api|services)\.\w+\.\w+" frontend/src/api/   # FE thật gọi method nào
+   grep -rn "@frappe.whitelist" assetcore/api/<file>.py                # method có whitelist mới gọi được qua HTTP
+   ```
+2. **Hai implementation song song cùng tên hàm = trap.** Bản không có caller / không whitelist = dead code: nói rõ "DEAD CODE", đừng giải thích như đang chạy; backlog dọn (đừng để 2 đường lệch behavior).
+3. Login/auth: AssetCore KHÔNG hook `/api/method/login` → mọi gate đăng nhập dựa Frappe core đọc `enabled`. Đừng giả định có custom login logic.
+4. User hỏi "logic chỗ này là gì" → trả lời theo path ĐÃ verify chạy, KHÔNG theo file đọc đầu tiên. Sai file = sai câu trả lời (đã xảy ra session này — phải đính chính cho user).
+
+**Red flag (DỪNG, verify lại):** "file này tên đúng nên chắc là nó"; giải thích logic mà chưa grep caller; thấy 2 file cùng chức năng mà không kiểm bản nào wired.
+
+Cross-ref: LL-BE-16 (verify code active bằng bench execute), LL-BE-29 (reproduce trước khi sửa), [[LL-FE-35]] (FE api-client ↔ whitelisted method), [[LL-AUDIT-10]] (auth security).
+
+### LL-BE-36: "Chuông trống / không nhận thông báo" — chẩn đoán DATA trước, đừng vá CODE (2026-06-01)
+
+**Báo cáo user:** "nút chuông không thấy thông báo nào" → nghi engine hỏng. Điều tra: `tabNotification Log` = 0 record. **Engine + contract BE↔FE đúng 100%.** Nguyên nhân thật là **DATA**: mọi record nghiệp vụ đều do `Administrator` tạo + tự gán cho chính mình → `resolve_recipients` strip actor (FR-00-NTF-04, self-notify bị chặn **đúng thiết kế**) → recipients rỗng → không ghi gì. Đây KHÔNG phải bug. Tạo "fix" cho non-bug = vi phạm anti-symptom-patch.
+
+**Decision tree khi gặp "chuông trống / email không tới" — chạy THEO THỨ TỰ, đừng nhảy vào sửa engine:**
+
+1. **Có record không?** `frappe.db.count("Notification Log")`. Nếu 0 → KHÔNG phải lỗi render/FE, là lỗi sinh-record (xuống bước 2).
+2. **Actor có ≠ recipient không?** Self-notify bị chặn cố ý. Kiểm tra `owner`/`assigned_to`/`reported_by` của record nghiệp vụ — nếu trùng nhau hết (điển hình: toàn `Administrator` thao tác solo) → recipients rỗng là ĐÚNG. Cần data đa-user (actor ≠ assignee) để có thông báo. Không sửa code.
+3. **Engine có chạy không?** Test trực tiếp `_dispatch(["staff01"], ...)` → check `Notification Log` count tăng. Nếu tăng → engine OK, vấn đề ở recipient resolution/data, KHÔNG ở engine.
+4. **FE query đúng nguồn không (naming contract)?** Chuông gọi `assetcore.api.layout.get_unread_notifications` → query Frappe core `Notification Log {for_user: session.user, read:0}`. FE client = `frontend/src/api/layout.ts`, KHÔNG phải `api/notifications.ts` (file sau chỉ toggle email/KPI setting). Đừng nhầm 2 file.
+5. **Email không tới?** Xem LL-DEPLOY (SMTP site_config fallback + `_user_wants_email` gating) — phần lớn là gating/SMTP infra, không phải engine.
+
+**Quy tắc:**
+- `_user_wants_email(user)` chỉ True khi: user ≠ `Administrator` **VÀ** `Notification Settings.{enabled, enable_email_notifications} = 1`. Email câm cho 1 user → check 2 cờ này TRƯỚC khi nghi SMTP.
+- **`status="Sent"` ≠ đã vào inbox.** Sender thật = SMTP account của site (vd `miyanovietnam@gmail.com`), KHÁC địa chỉ assignee → Gmail có thể tống spam. Sau khi gửi phải nói rõ "kiểm tra inbox/spam", đừng tuyên bố "đã nhận".
+- **self-confirm là ngoại lệ CÓ KIỂM SOÁT** của FR-00-NTF-04 (FR-00-NTF-07): chỉ event tự-báo (Incident `assigned_to` rỗng) mới gọi `resolve_recipients(doc, "reported_by", include_self=True)`. Self-assign (`assigned_to == actor`) **vẫn bị chặn**. Mở rộng whitelist self-confirm = sửa Core Doc (`docs/imm-00/04 §III.1b-2b`) TRƯỚC, không tự nới trong code.
+
+Cross-ref: LL-BE-30 (silent no-op recipient rỗng), `assetcore-deploy` (SMTP site_config + flush queue), `references/notification-contract.md`, anti-symptom-patch (SKILL.md).
+
+### LL-BE-37: Đổi role / role_profile / enabled = CẤP QUYỀN → bắt buộc admin, TUYỆT ĐỐI không self-bypass (2026-06-01)
+
+**2 bug P1 leo quyền (SEC-RBAC-1/2, `api/user.py`):**
+- `update_user_roles`: nhánh `target == actor` (self-edit) **bỏ qua** `_assert_admin()` → user thường POST `user=<self>, roles=["AssetCore Super Admin"]` tự lên Super Admin. `_save_user` dùng `ignore_permissions=True` nên DocPerm KHÔNG chặn.
+- `assign_role_profile`: điều kiện `session.user != user` cho phép self-assign → user tự gán Role Profile "Quản trị viên IT" → Frappe core clear+replace roles thành bộ admin.
+
+**Root cause (sửa thiết kế, không vá triệu chứng):** coi "đổi role của chính mình" là self-service như đổi mật khẩu. SAI: đổi mật khẩu = self-service hợp lệ; **đổi role/role_profile/enabled = cấp quyền**.
+
+**Quy tắc:**
+
+1. MỌI endpoint sửa `roles`/`role_profile`/`enabled`/quyền của BẤT KỲ user nào (kể cả chính mình) PHẢI gate admin tuyệt đối — KHÔNG có nhánh `if target == session.user: skip_check`. Pattern: `err = _assert_admin(); if err: return err` (hoặc `rbac.require("data.admin")`) đặt **đầu hàm**, trước mọi nhánh.
+2. Đừng tin DocPerm bảo vệ khi code set `ignore_permissions=True` (mọi `_save_user`-style helper) → check quyền PHẢI ở tầng service/API, không dựa DocPerm.
+3. Phân biệt self-service hợp lệ (`change_password` cần mật khẩu cũ; sửa `full_name`/`phone` trong `_SELF_EDITABLE`) vs cấp quyền (role/profile/enabled) — không gộp chung "self-edit".
+4. Test bắt buộc: `TestRolePrivilegeEscalation` — user thường gọi self-`update_user_roles`/`assign_role_profile` với role admin → PHẢI bị từ chối.
+
+Cross-ref: [[LL-BE-24]] (whitelist gate, không tin FE hide), LL-AUDIT-10, `role_profile_catalog.py`, Core Doc `FE_Persona_Navigation.md §7.sexies`.
+
+### LL-BE-38: Base role `AssetCore System User` chỉ read shared-core — over-grant DocPerm = leak BE dù FE ẩn (2026-06-01)
+
+**Bug P1 (audit DocPerm):** role nền `AssetCore System User` (mọi user IMM bắt buộc có) được cấp **read trên ~38 DocType nghiệp vụ nhạy cảm** (Compliance Rule/CAPA/Internal Audit, Needs/Procurement/Vendor Eval, AC Supplier, Tech Spec, Training, Asset Document...) → mọi user (kể cả KTV) đọc được qua `/api/resource/<DocType>` **dù FE đã ẩn menu**. Một số còn bật `export:1`. `rbac.py` SẠCH (resolve qua `frappe.has_permission`); nguồn leak nằm 100% ở DocPerm trong doctype JSON.
+
+**Quy tắc:**
+
+1. **FE ẩn ≠ BE bảo vệ.** Ẩn menu/route ở FE chỉ là UX; data vẫn trả qua REST nếu DocPerm cho read. DocType nhạy cảm PHẢI chặn ở DocPerm/service, không chỉ ở nav.
+2. Role nền `AssetCore System User` chỉ read **shared-core** (AC Asset, Asset Lifecycle Event, Depreciation, Downtime — đủ để SPA login + hiển thị tên/enrich). DocType nghiệp vụ chỉ cấp cho **owning role** (Domain Manager/User) + Auditor (read-all hợp lệ).
+3. Audit nhanh role nền:
+   ```bash
+   grep -rl '"role": "AssetCore System User"' assetcore/assetcore/doctype/*/*.json
+   ```
+   Verify live: `frappe.set_user("<tech user>"); frappe.has_permission("Compliance Rule","read")` PHẢI = False.
+4. Khi gỡ read khỏi base role: kiểm chéo owning role nghiệp vụ vẫn còn read (đừng under-grant), child table khoá theo parent cho nhất quán.
+5. Migrate KHÔNG tự xoá DocPerm row đã gỡ khỏi JSON trên site cũ → cần DocType reload/patch khi deploy (xem `assetcore-deploy`).
+
+Cross-ref: LL-BE-38 dùng cặp với LL-BE-39 (picker vs list trước khi gỡ), LL-AUDIT-10, LL-FE-35/36 (cap nav khớp DocPerm).
+
+### LL-BE-39: Guest endpoint KHÔNG được tiết lộ tồn tại/trạng thái tài khoản — user enumeration (2026-06-01)
+
+**Bug MEDIUM (`api/auth.py::check_account_status`, allow_guest):** trả nhãn phân biệt `not_found` vs `active` vs `pending/rejected/disabled` cho email BẤT KỲ **không cần mật khẩu** → kẻ tấn công liệt kê email đã đăng ký + trạng thái. Docstring "biện minh UX" KHÔNG cứu được — phân biệt tồn tại/trạng thái = enumeration.
+
+**Quy tắc:**
+
+1. Endpoint `allow_guest` KHÔNG được phân biệt "email tồn tại hay không": not_found và active phải trả **y hệt** (1 nhãn trung lập, vd `unknown`). Tốt nhất không chạm DB theo tồn tại → timing đồng nhất.
+2. Trạng thái nhạy cảm (pending/rejected/disabled) chỉ surface **sau khi chứng minh biết mật khẩu** — endpoint password-gated (`account_state(usr, pwd)` xác thực `check_password` trước; sai mật khẩu / không tồn tại → đồng nhất `invalid_credentials`).
+3. Rate-limit kép per-IP **và** per-email cho mọi guest endpoint nhận identifier.
+4. Áp cho mọi guest endpoint nhận email/username: register, forgot-password, status-check. Chuẩn ngành (GitHub/Google): thông báo trung lập "sai thông tin đăng nhập".
+5. Test bắt buộc: `assertEqual(guest_call("active_email"), guest_call("nonexistent_email"))`.
+
+Cross-ref: Core Doc `04_Backend_Design.md` BR-00-USR-02, LL-AUDIT-10.
+
+### LL-BE-40: Trước khi GỠ DocPerm read — phân biệt picker (`ignore_permissions`) vs list (theo quyền) (2026-06-01)
+
+**Bối cảnh (audit DEFER):** định gỡ `AssetCore System User` read khỏi Data master (Department/Location/Category/Device Model...), nhưng phát hiện **2 đường tải tách biệt**:
+- **Picker/dropdown trên form** (`SmartSelect`/`LinkSearch`) → `search_link` → `frappe.db.get_all(..., ignore_permissions=True)` → **KHÔNG phụ thuộc DocPerm** → gỡ read an toàn, dropdown vẫn chạy.
+- **Filter của list view** (`AssetListView.refData.fetchAll` → `list_*`) → `frappe.get_list()` → **theo quyền user** → gỡ read = filter rỗng cho mọi user thường = regression nhìn thấy ngay.
+
+**Quy tắc:**
+
+1. Trước khi gỡ/siết DocPerm read một DocType "danh mục dùng chung", grep MỌI nơi FE tải nó và phân loại từng đường: `ignore_permissions` (an toàn gỡ) vs theo-quyền (gỡ sẽ vỡ).
+   ```bash
+   grep -rn 'doctype="<DT>"\|<DT>' frontend/src   # SmartSelect/LinkSearch vs refData/list_*
+   grep -n 'ignore_permissions' assetcore/services/imm04.py   # search_link path
+   ```
+2. Còn đường theo-quyền cần data này → KHÔNG gỡ liều; chuyển đường đó sang endpoint `ignore_permissions` chuyên dụng (kèm đủ field, vd GMDN cho filter category) RỒI mới gỡ.
+3. Test invariant chống regression: `search_link("<DT>")` trả options **bất kể** DocPerm read = False (`TestPickerPermissionDecoupling`).
+4. Anti-FP: "siết quyền" mà làm rỗng dropdown/filter của user hợp lệ = regression, không phải fix. Verify dropdown thật trước khi tuyên bố xong.
+
+Cross-ref: LL-BE-38 (over-grant base role), `services/imm04.py::search_link`, `_ALLOWED_SEARCH_DOCTYPES`.

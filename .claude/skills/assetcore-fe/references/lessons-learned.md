@@ -788,3 +788,71 @@ Reference: `CONVENTIONS.md §43`, `assetcore-fe` LL-FE-17 (KPI consistency — b
 **Verify-before-fix (cross-ref LL-BE-29):** đừng "fix" dead-end bằng cách điều hướng đại tới route chưa lọc — verify đích có lọc thật trước.
 
 Reference: `views/document/{DocumentManagement.vue,documentFilters.ts}`, LL-FE-13 (no dead-end), LL-FE-17/29 (KPI consistency/scope).
+
+### LL-FE-35: FE api-client function PHẢI trỏ method BE whitelisted có thật — dead endpoint 404 là trap (2026-06-01)
+
+**Bug đã gặp 2026-06-01 (audit AUTH):** `api/auth.ts` có `approveRegistration()` trỏ `assetcore.api.auth.approve_registration` — method **KHÔNG TỒN TẠI** (404). Không caller (view dùng bản đúng từ `api/user.ts`), nhưng là bẫy chờ nổ: ai gọi nhầm → 404 runtime, không bắt được lúc typecheck.
+
+**Quy tắc:**
+
+1. Mỗi hàm trong `frontend/src/api/*.ts` phải map tới một `@frappe.whitelist()` method có thật. Khi viết/sửa api-client, grep ngược BE xác nhận tồn tại:
+   ```bash
+   grep -rnE "method: *['\"]assetcore\.[\w.]+" frontend/src/api/   # method FE gọi
+   grep -rn "def approve_registration" assetcore/api/              # có whitelist tương ứng?
+   ```
+2. Hai api-client cùng chức năng (vd `auth.ts` vs `user.ts`) → kiểm bản nào có caller thật, xoá bản dead (đừng để 2 đường gọi lệch endpoint).
+3. Self-check trước commit: api-client method không có caller VÀ không có BE method tương ứng = dead → xoá ngay.
+
+Cross-ref: [[LL-BE-35]] (verify live wired path), LL-FE-24 (copy đúng string cross-reference).
+
+### LL-FE-36: Route cap-gate PHẢI mirror sidebar cap — thiếu quyền = ẩn + redirect, KHÔNG render trang "không có quyền" (2026-06-01)
+
+**Bug user báo:** vào `/suppliers` thấy trang + thông báo "Bạn không có quyền thực hiện hành động này." thay vì bị ẩn. **Root cause:** route master/system khai `moduleId='master'` → `moduleIdToCap('master')=null` → `resolveRouteAccess` rơi xuống default **allow**. Sidebar gate `data.read` (ẩn menu) NHƯNG route hở → user gõ URL thẳng vẫn vào, thấy list rỗng + câu "không có quyền". Lệch giữa nav-gate và route-gate.
+
+**Quy tắc:**
+
+1. MỌI route nghiệp vụ PHẢI có `meta.requiredCapabilities` (hoặc cap suy từ moduleId) **khớp đúng** cap mà sidebar dùng để ẩn/hiện cùng mục. Nav ẩn nhưng route hở = bug bảo mật/UX.
+2. Thiếu quyền là **ẩn + chặn sớm**: route guard `resolveRouteAccess` redirect `/unauthorized` (hoặc dashboard) TRƯỚC khi render. KHÔNG để vào trang rồi mới hiện "bạn không có quyền" như luồng chính (component guard chỉ là defense-in-depth tầng cuối).
+3. Audit drift định kỳ: với mỗi mục sidebar có cap, route tương ứng phải có đúng cap đó.
+   ```bash
+   grep -nE "requiredCapabilities|moduleId" frontend/src/router/index.ts
+   grep -nE "cap:" frontend/src/constants/sidebarNav.ts
+   # mọi path trong sidebarNav có cap → path đó trong router phải có cap khớp
+   ```
+4. Giữ mở có chủ đích (route không gate) chỉ khi sidebar cũng không gate (vd `/assets`, `/qr-scan`) — ghi rõ lý do, đừng siết nhầm.
+5. Test: `routeAccess.test.ts` — user thiếu cap navigate tới route → `next({name:'Unauthorized'})`; có cap → pass.
+
+Cross-ref: LL-FE-37 (cap granularity), [[LL-BE-38]] (FE ẩn ≠ BE bảo vệ), LL-AUDIT-10.
+
+### LL-FE-37: KHÔNG gate nav theo persona bằng capability chung quá rộng (vd `data.read`) (2026-06-01)
+
+**Bug user báo:** user persona Document/Training (vd `sohaidiuuu@gmail.com`) THẤY mục `/depreciation` (khấu hao — domain tài chính, không liên quan). **Root cause:** mục Khấu hao gate `data.read`; mà `data.read` resolve qua `frappe.has_permission("IMM Device Model","read")` — Device Model là danh mục dùng-chung → **mọi** user AssetCore có `data.read=True` → cap này KHÔNG phân biệt được persona → lộ cho doc/training.
+
+**Quy tắc:**
+
+1. Cap dùng để gate mục nav **đặc thù persona** KHÔNG được là cap chung mà gần như mọi user đều có (`data.read` cấp qua read danh mục dùng-chung). Chọn cap đúng phạm vi persona, hoặc OR nhiều cap đặc thù.
+   ```ts
+   // Khấu hao: gate bằng tổ hợp cap tài chính/vận hành, KHÔNG phải data.read
+   const FINANCE_READ_CAPS = ['data.write','needs.read','procurement.read','pm.read','calibration.read']
+   ```
+2. Khi thêm/sửa cap gate cho 1 mục: thử nghiệm với ≥2 persona KHÔNG nên thấy mục đó (vd doc, store) → xác nhận `rbac.can(cap)=false`. Đừng tin cap "nghe có vẻ đúng".
+3. Verify thật: `frappe.set_user("<persona user>")` rồi eval `rbac.can('<cap>')` cho từng persona trong/ngoài phạm vi.
+4. Mục nav + route phải gate **cùng** cap (xem LL-FE-36). Cap khai song song 2 file (sidebarNav + router) → comment ràng buộc "giá trị phải khớp".
+
+Cross-ref: LL-FE-36 (route↔nav gate), [[LL-BE-38]] (over-grant DocPerm là gốc của cap rộng), Core Doc `FE_Persona_Navigation.md §7.septies`.
+
+### LL-FE-38: KHÔNG có persona/role switcher client-side — nav derive từ ROLE THẬT; persona = nhãn FE, không render ở chrome (2026-06-01)
+
+**Bối cảnh (yêu cầu user, nhiều vòng):** FE từng có "persona switcher" góc phải (dropdown tự đổi persona) + render nhãn persona ("Cán bộ hồ sơ"...) ở header sidebar góc trái. User yêu cầu bỏ: quyền & giao diện phải theo ROLE THẬT của session, không phải lựa chọn client-side; và không hiển thị nhãn persona ở chrome chung.
+
+**Kiến trúc đã chốt (giữ nguyên, đừng đảo):**
+
+1. **BE = chuẩn Frappe**: Role Profile + DocPerm. BE KHÔNG biết khái niệm "persona".
+2. **Persona = lớp trình bày FE-only**: mapping persona ↔ Role Profile sống ở `frontend/src/constants/personas.ts` (`roleProfile`, `roleProfileForPersona()`/`personaForRoleProfile()`). Gán "theo persona" ở màn admin = FE dịch persona → Role Profile → gọi `assign_role_profile()` (API thuần Frappe).
+3. **Nav derive từ role THẬT** session: `buildSidebarGroupsForRoles(personas, can, isSuperuser)` union các persona mà role thật mở khoá, dedupe path, lọc theo capability. KHÔNG có dropdown cho user tự đổi persona.
+4. **`usePersona` là read-only** (`{ personas, primaryPersona }`) — KHÔNG có `setPersona`/`canSwitch`; KHÔNG persist `ac_persona` localStorage.
+5. **Chrome KHÔNG render nhãn persona**: header sidebar = hằng "AssetCore". Badge Role Profile ở màn quản trị user (`UserProfileFormView`) thì GIỮ (context admin hợp lệ — là nhãn Role Profile chứ không phải "persona nav").
+
+**Quy tắc:** thấy đề xuất thêm "đổi persona/role ở UI để xem giao diện khác" → TỪ CHỐI; phân quyền + nav phải theo role thật. Muốn test nhiều persona → tạo user test có role tương ứng (`scripts/seed_test_users.py`), đăng nhập từng user.
+
+Cross-ref: LL-FE-36/37 (gate theo role thật), [[LL-BE-37]] (gán role qua admin), Core Doc `FE_Persona_Navigation.md §7.bis–7.septies`.

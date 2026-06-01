@@ -1,6 +1,16 @@
 # Permission matrix & role groups
 
-Role names live in `assetcore/services/shared/constants.py:Roles`, re-exported via `assetcore.services.shared`. Wave 2 added 6 planning/procurement roles. **Never hardcode role strings.**
+> ⚠️ **STALE — catalog "IMM ..." bên dưới KHÔNG còn đúng (cập nhật 2026-06-01).**
+> Hệ thống đã chuyển sang **role redesign module-based**: role thật là `AssetCore Super Admin`, `AssetCore System User`, `AssetCore Auditor`, `Vendor Engineer` + các Domain Manager/User (PM/Repair/Calibration/Corrective/Compliance/Inventory/Document/Training/Needs/Procurement/Commissioning...). Persona gom thành **8 Role Profile** (tên tiếng Việt).
+> **Source-of-truth hiện tại** (đọc các file này, ĐỪNG tin catalog "IMM ..." dưới đây):
+> - `assetcore/services/shared/constants.py:Roles` — danh sách role thật
+> - `assetcore/setup/role_profile_catalog.py` — 8 Role Profile → roles
+> - `assetcore/services/shared/rbac.py` — capability resolve qua `frappe.has_permission`
+> - `docs/res/rbac/role-redesign-module-based.md` — thiết kế gốc
+> Quy tắc phân quyền end-to-end (4 tầng): xem `assetcore-audit/references/lessons-learned.md` **LL-AUDIT-11**.
+> Phần dưới giữ lại cho ngữ cảnh lịch sử Wave 1/2 — **không dùng tên role trong đó cho code mới**.
+
+Role names live in `assetcore/services/shared/constants.py:Roles`, re-exported via `assetcore.services.shared`. **Never hardcode role strings.**
 
 ## All IMM roles (19)
 
