@@ -456,6 +456,57 @@ class TestNotifyIncidentCreated(unittest.TestCase):
 
         self.assertEqual(called["n"], 0, "self-assign + self-report → không được dispatch")
 
+    def test_notify_incident_created_self_confirm(self):
+        """TC-NTF-24 (self-confirm vòng 9): assigned_to=None, reported_by == actor →
+        tạo đúng 1 Notification Log XÁC NHẬN cho chính actor; subject chứa
+        "Đã ghi nhận". Spec §III.1b-2b / FR-00-NTF-07."""
+        from assetcore.services.notifications import notify_incident_created
+
+        doc = _FakeDoc(
+            doctype="Incident Report", name="IR-2026-TEST-N24",
+            assigned_to=None, reported_by=_ACTOR,
+            severity="High", asset="AC-ASSET-TEST",
+        )
+        captured = {}
+
+        def fake_enqueue(users, payload):
+            captured.setdefault("calls", 0)
+            captured["calls"] += 1
+            captured["users"] = users
+            captured["payload"] = payload
+
+        frappe.set_user(_ACTOR)
+        with patch(
+            "assetcore.services.notifications.enqueue_create_notification",
+            side_effect=fake_enqueue,
+        ):
+            notify_incident_created(doc, method="after_insert")
+        frappe.set_user("Administrator")
+
+        self.assertEqual(captured.get("calls"), 1, "self-confirm phải tạo đúng 1 thông báo")
+        self.assertIn(_ACTOR, captured.get("users", []), "người tự báo phải nhận xác nhận")
+        self.assertIn("Đã ghi nhận", captured["payload"]["subject"],
+                      "subject self-confirm phải mang ngữ nghĩa xác nhận")
+
+    def test_resolve_recipients_include_self_flag(self):
+        """TC-NTF-25 (self-confirm vòng 9): include_self=True giữ actor;
+        include_self=False (mặc định) loại actor → hành vi mặc định KHÔNG đổi."""
+        from assetcore.services.notifications import resolve_recipients
+
+        doc = _FakeDoc(
+            doctype="Incident Report", name="IR-2026-TEST-N25",
+            assigned_to=None, reported_by=_ACTOR,
+        )
+        frappe.set_user(_ACTOR)
+        try:
+            with_self = resolve_recipients(doc, "reported_by", include_self=True)
+            default_excl = resolve_recipients(doc, "reported_by")
+        finally:
+            frappe.set_user("Administrator")
+
+        self.assertIn(_ACTOR, with_self, "include_self=True phải giữ actor")
+        self.assertNotIn(_ACTOR, default_excl, "mặc định (False) phải loại actor")
+
 
 # ─── Vòng 3 — E4: notify_calibration_due (IMM-11) ────────────────────────────────
 

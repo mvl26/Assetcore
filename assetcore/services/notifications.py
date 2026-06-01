@@ -196,18 +196,25 @@ def resolve_approvers_by_workflow(doc) -> list[str]:
 # ─── Recipient resolution ──────────────────────────────────────────────────────
 
 
-def resolve_recipients(doc, role_or_field: str) -> list[str]:
+def resolve_recipients(doc, role_or_field: str, include_self: bool = False) -> list[str]:
     """Phân giải danh sách user nhận thông báo từ một field user trên `doc`.
 
-    Loại bỏ actor hiện tại (`frappe.session.user`) để tránh tự-thông-báo, và
-    loại các giá trị rỗng/None. Trả về list email duy nhất.
+    Mặc định loại bỏ actor hiện tại (`frappe.session.user`) để tránh tự-thông-báo
+    (FR-00-NTF-04), và loại các giá trị rỗng/None. Trả về list email duy nhất.
+
+    Self-confirm (FR-00-NTF-07, §III.1b-2b): với event mà người báo chính là bên
+    cần được xác nhận đã ghi nhận (cụ thể: nhánh fallback `reported_by` của
+    `notify_incident_created` khi chưa phân công ai), caller truyền
+    `include_self=True` để GIỮ actor lại. Đây là opt-in có kiểm soát — mặc định
+    `False` ⇒ hành vi cũ KHÔNG đổi, mọi caller hiện hữu an toàn.
 
     Args:
         doc: Document (hoặc đối tượng có `.get(field)`).
         role_or_field: tên field chứa user (vd "assigned_to", "supervisor").
+        include_self: True → giữ actor trong kết quả (self-confirm). Mặc định False.
 
     Returns:
-        Danh sách user email (không trùng, không gồm actor).
+        Danh sách user email (không trùng; loại actor trừ khi include_self=True).
     """
     actor = frappe.session.user
     candidate = doc.get(role_or_field) if hasattr(doc, "get") else getattr(doc, role_or_field, None)
@@ -215,9 +222,12 @@ def resolve_recipients(doc, role_or_field: str) -> list[str]:
     seen: set[str] = set()
     out: list[str] = []
     for u in recipients:
-        if u and u != actor and u not in seen:
-            seen.add(u)
-            out.append(u)
+        if not u or u in seen:
+            continue
+        if u == actor and not include_self:
+            continue
+        seen.add(u)
+        out.append(u)
     return out
 
 
@@ -494,23 +504,44 @@ def notify_incident_created(doc, method: str | None = None) -> None:
         if getattr(doc, "docstatus", 0) == 2:
             return
 
+        # Nhánh cross-assign: có người phụ trách → họ nhận "cần xử lý"
+        # (loại actor như cũ — self-assign noise vẫn bị chặn, FR-00-NTF-04).
         recipients = resolve_recipients(doc, "assigned_to")
-        if not recipients:
-            recipients = resolve_recipients(doc, "reported_by")
+        self_confirm = False
+        assigned_to = doc.get("assigned_to") if hasattr(doc, "get") else getattr(doc, "assigned_to", None)
+        # Self-confirm CHỈ khi THỰC SỰ chưa phân công ai (assigned_to rỗng) — KHÔNG
+        # áp khi assigned_to đã set (kể cả tự gán mình: đó là cross-assign, vẫn
+        # bị chặn để tránh noise — TC-NTF-16). §III.1b-2b điểm 2.
+        if not recipients and not assigned_to:
+            # Fallback reported_by: chưa phân công ai → người TỰ báo nhận xác nhận
+            # (self-confirm, FR-00-NTF-07 / §III.1b-2b).
+            recipients = resolve_recipients(doc, "reported_by", include_self=True)
+            self_confirm = frappe.session.user in recipients
         if not recipients:
             return
 
         name = getattr(doc, "name", "")
         severity = doc.get("severity") if hasattr(doc, "get") else getattr(doc, "severity", None)
         asset = doc.get("asset") if hasattr(doc, "get") else getattr(doc, "asset", None)
-        severity_label = severity or "Chưa phân loại"
-        subject = f"Sự cố mới [{severity_label}]: {name}"
-        message = (
-            f"Sự cố <b>{name}</b> vừa được ghi nhận"
-            + (f" trên thiết bị <b>{asset}</b>" if asset else "")
-            + (f" (mức độ: {severity})" if severity else "")
-            + ". Vui lòng kiểm tra và xử lý."
-        )
+
+        if self_confirm:
+            # Ngữ nghĩa XÁC NHẬN cho chính người báo — không phải "cần xử lý".
+            subject = f"Đã ghi nhận sự cố: {name}"
+            message = (
+                f"Sự cố <b>{name}</b> bạn vừa báo đã được ghi nhận"
+                + (f" trên thiết bị <b>{asset}</b>" if asset else "")
+                + (f" (mức độ: {severity})" if severity else "")
+                + ". Bộ phận kỹ thuật sẽ tiếp nhận xử lý."
+            )
+        else:
+            severity_label = severity or "Chưa phân loại"
+            subject = f"Sự cố mới [{severity_label}]: {name}"
+            message = (
+                f"Sự cố <b>{name}</b> vừa được ghi nhận"
+                + (f" trên thiết bị <b>{asset}</b>" if asset else "")
+                + (f" (mức độ: {severity})" if severity else "")
+                + ". Vui lòng kiểm tra và xử lý."
+            )
         _dispatch(recipients, subject, message, doc)
     except Exception:
         # Listener KHÔNG được làm vỡ luồng insert; log full traceback (LL-BE-20).

@@ -355,14 +355,15 @@ HTTP Request / Frappe Scheduler
 
 > **OUT-of-scope vòng 1** (backlog): SLA sắp hết hạn (đã có scheduler riêng `tasks.py`/`imm00`), Incident mới, Calibration đến hạn, SMS/push, digest, notification preferences UI nâng cao. Thêm event sau = chỉ thêm mapping, dùng lại engine.
 
-### FR Notification (FR-00-NTF-01 → 06)
+### FR Notification (FR-00-NTF-01 → 07)
 
 | FR ID | Mô tả | Actor | Phương thức |
 |---|---|---|---|
 | FR-00-NTF-01 | Khi WO gán `assigned_to` → tạo Notification Log cho assignee | System (hook) | `notify_assignment` |
 | FR-00-NTF-02 | Khi workflow doc vào state **cần duyệt** → tạo Notification Log cho approver. "State cần duyệt" + approver xác định **động** từ Workflow metadata (transition rời state có `allowed` ∈ role phê duyệt, mặc định `System Manager`), **không hard-code tên state/field**; bổ sung `supervisor` nếu doc có. Xem 04 §III.1b-1. | System (hook) | `notify_approval_pending`, `resolve_approvers_by_workflow` |
 | FR-00-NTF-03 | Gửi email cho recipient **chỉ khi** `Notification Settings.enable_email_notifications=1 AND enabled=1` | System | `_user_wants_email` |
-| FR-00-NTF-04 | Không tự-notify (actor == recipient → skip) | System | `resolve_recipients` |
+| FR-00-NTF-04 | **Mặc định không tự-notify** (actor == recipient → skip) cho mọi event điều phối/phê duyệt/cảnh báo (assignment, approval, escalation, calibration, SLA) — người gây action KHÔNG tự nhận noise. | System | `resolve_recipients` (mặc định `include_self=False`) |
+| FR-00-NTF-07 | **Self-confirm (NGOẠI LỆ có kiểm soát của FR-00-NTF-04):** với event mà **người báo chính là bên cần được xác nhận đã ghi nhận**, gửi 1 Notification Log "xác nhận" cho chính người báo dù họ là actor. Phạm vi áp dụng = **chỉ Incident Report tự báo** (`reported_by == actor` và chưa phân công người khác) → "Đã ghi nhận sự cố của bạn". Opt-in per-event qua cờ `self_confirm`; KHÔNG đổi hành vi mặc định của `resolve_recipients`; KHÔNG áp cho assignment/approval/escalation/calibration/SLA. Xem 04 §III.1b-2b. | System (hook) | `notify_incident_created` (cờ `self_confirm`) |
 | FR-00-NTF-05 | User đọc trạng thái toggle email của mình | End-user | API `get_notification_preferences` |
 | FR-00-NTF-06 | User bật/tắt nhận email | End-user | API `set_email_enabled` |
 

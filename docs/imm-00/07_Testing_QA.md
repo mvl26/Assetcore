@@ -220,7 +220,7 @@ File: `assetcore/tests/test_notifications.py`. Chạy: `bench --site miyano run-
 | TC-NTF-09 | `test_listener_handles_cancelled_doc` | listener `docstatus=2` | cancel WO → không crash, không tạo log thừa | Error guessing |
 | TC-NTF-14 | `test_notify_incident_created_dispatches_to_assignee` | `notify_incident_created` (E3) | Incident có `assigned_to` set → Notification Log cho assignee, type=Alert, document_type=Incident Report, subject chứa severity | EP |
 | TC-NTF-15 | `test_notify_incident_created_fallback_reported_by` | `notify_incident_created` (E3) | Incident KHÔNG có `assigned_to` → fallback `reported_by` nhận thông báo | Decision Table |
-| TC-NTF-16 | `test_notify_incident_created_skips_self` | `notify_incident_created` (E3) | actor == assigned_to → KHÔNG dispatch (self-notify) | EP |
+| TC-NTF-16 | `test_notify_incident_created_skips_self` | `notify_incident_created` (E3) | actor == **assigned_to** (cross-assign tự gán) → KHÔNG dispatch (self-notify noise vẫn bị chặn). KHÁC self-confirm (xem TC-NTF-24). | EP |
 | TC-NTF-17 | `test_notify_calibration_due_dispatches_on_status_change` | `notify_calibration_due` (E4) | old=ON_SCHEDULE, new=DUE_SOON → dispatch cho `responsible_technician`; old=DUE_SOON, new=OVERDUE → dispatch lại (escalation) | Decision Table |
 | TC-NTF-18 | `test_notify_calibration_due_noop_when_status_unchanged` | `notify_calibration_due` (E4) anti-spam | old=DUE_SOON, new=DUE_SOON → KHÔNG dispatch; new=ON_SCHEDULE → KHÔNG dispatch | State Transition |
 | TC-NTF-19 | `test_notify_calibration_due_fallback_custodian` | `notify_calibration_due` (E4) | asset KHÔNG có `responsible_technician` → fallback `custodian` | Decision Table |
@@ -228,10 +228,16 @@ File: `assetcore/tests/test_notifications.py`. Chạy: `bench --site miyano run-
 | TC-NTF-21 | `test_render_email_omits_deeplink_when_no_doc_ref` | `_render_email` (vòng 4) | doc thiếu doctype/name → HTML vẫn dựng (subject+body+footer), KHÔNG có nút deep-link, không raise | Error guessing |
 | TC-NTF-22 | `test_dispatch_sends_html_email_with_deeplink` | `_dispatch`+`_render_email` (vòng 4) | user bật email → `_safe_sendmail` nhận `message` là HTML (chứa subject + deep-link), bell `email_content` vẫn là `message` ngắn | Decision Table |
 | TC-NTF-23 | `test_render_email_reused_across_events` | `_render_email` (vòng 4) | gọi với subject/body của E1..E4 (4 doctype khác nhau) → mỗi HTML chứa đúng subject + body tương ứng, cùng khung header/footer (1 template tái dùng) | EP |
+| TC-NTF-24 | `test_notify_incident_created_self_confirm` | `notify_incident_created` (E3, self-confirm vòng 9) | `assigned_to=None`, `reported_by == actor` → tạo **đúng 1** Notification Log cho actor; `subject` chứa "Đã ghi nhận". (Trước vòng 9: trả rỗng = bug.) Spec 04 §III.1b-2b, FR-00-NTF-07. | Decision Table |
+| TC-NTF-25 | `test_resolve_recipients_include_self_flag` | `resolve_recipients` (self-confirm vòng 9) | `include_self=True` → list chứa actor; `include_self=False` (mặc định) → loại actor. Bảo vệ hành vi mặc định KHÔNG đổi (mọi caller cũ an toàn). | Decision Table |
 
 ### III.2b-1. Vòng 4 — HTML email template (TDD)
 
 > Bổ sung TC-NTF-20..23 cho builder `_render_email` (spec §III.1b-3, file `04_Backend_Design.md`). Viết TRƯỚC implement. Email plain-text fallback do Frappe core sinh tự động (`set_html_as_text`) → không test thủ công phần text, chỉ assert `message` truyền vào sendmail là HTML. Regression: TC-NTF-01..19 (19 test) phải vẫn xanh — builder KHÔNG đổi recipient/guard logic.
+
+### III.2b-2. Vòng 9 — Self-confirm cho người tự báo (TDD)
+
+> Bổ sung TC-NTF-24/25 (spec §III.1b-2b, FR-00-NTF-07). Viết TRƯỚC implement. Thay đổi semantics recipient cho **đúng 1 nhánh** (Incident `reported_by`-fallback khi chưa assign) qua param opt-in `resolve_recipients(..., include_self=True)`. **Regression bắt buộc:** TC-NTF-15 (cross-report) và TC-NTF-16 (self-assign block) phải VẪN xanh — chứng minh self-confirm KHÔNG phá hành vi cũ. Default `include_self=False` ⇒ mọi caller hiện hữu không đổi.
 
 ## III.3. Integration — DocType lifecycle
 
