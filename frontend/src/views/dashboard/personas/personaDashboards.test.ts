@@ -14,8 +14,9 @@ import PersonaDashboardShell from '@/components/dashboard/PersonaDashboardShell.
 const personaRef = ref<{ code: string; label: string } | null>({ code: 'opsmgr', label: 'X' })
 // Mutable per-test payload override. Khi null → mock dựng payload rỗng mặc định.
 const dashboardSections = ref<Record<string, unknown> | null>(null)
+// Phase 1.2: usePersona trả primaryPersona (vai trò chính từ role thật).
 vi.mock('@/composables/usePersona', () => ({
-  usePersona: () => ({ currentPersona: personaRef }),
+  usePersona: () => ({ primaryPersona: personaRef, personas: ref([]) }),
 }))
 vi.mock('@/composables/useDashboard', () => ({
   usePersonaDashboard: () => ({

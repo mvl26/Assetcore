@@ -3,8 +3,11 @@ import { describe, it, expect } from 'vitest'
 import {
   PERSONAS,
   derivePersonas,
+  derivePrimaryPersona,
   resolveCurrentPersona,
   getPersona,
+  roleProfileForPersona,
+  personaForRoleProfile,
   type Persona,
 } from './personas'
 
@@ -87,6 +90,27 @@ describe('resolveCurrentPersona — persistence + fallback (Core Doc §4)', () =
   })
 })
 
+describe('derivePrimaryPersona — Phase 1.2 (Core Doc §7.ter)', () => {
+  it('T20: superuser → primary persona admin (rank 100)', () => {
+    expect(derivePrimaryPersona(derivePersonas(['AssetCore Super Admin']))?.code).toBe('admin')
+  })
+
+  it('T21: empty → null', () => {
+    expect(derivePrimaryPersona([])).toBeNull()
+    expect(derivePrimaryPersona(derivePersonas([]))).toBeNull()
+  })
+
+  it('T22: multi-role picks highest rank (tech 40 > store 35)', () => {
+    expect(derivePrimaryPersona(derivePersonas(['Inventory User', 'PM User']))?.code).toBe('tech')
+  })
+
+  it('order-independent: result is rank-max regardless of input order', () => {
+    const a = derivePrimaryPersona(derivePersonas(['PM User', 'Inventory User']))
+    const b = derivePrimaryPersona(derivePersonas(['Inventory User', 'PM User']))
+    expect(a?.code).toBe(b?.code)
+  })
+})
+
 describe('catalog integrity', () => {
   it('exactly 8 personas with unique codes', () => {
     expect(PERSONAS).toHaveLength(8)
@@ -106,5 +130,44 @@ describe('catalog integrity', () => {
     expect(getPersona('admin')?.code).toBe('admin')
     expect(getPersona('nope')).toBeNull()
     expect(getPersona(null)).toBeNull()
+  })
+})
+
+describe('persona ↔ Role Profile mapping — Phase 1.4 (Core Doc §7.quinquies)', () => {
+  // Tên 8 Role Profile BE seed (ROLE_PROFILE_CATALOG) — khớp CHÍNH XÁC.
+  const EXPECTED: Record<string, string> = {
+    admin: 'Quản trị viên IT',
+    opsmgr: 'Trưởng phòng VT-TTBYT',
+    workshop: 'Trưởng xưởng kỹ thuật',
+    tech: 'Kỹ thuật viên',
+    qa: 'Cán bộ QA / Kiểm toán',
+    doc: 'Cán bộ hồ sơ',
+    store: 'Thủ kho phụ tùng',
+    clinical: 'Trưởng khoa lâm sàng',
+  }
+
+  it('TRP15: every persona has a non-empty, unique roleProfile matching BE catalog', () => {
+    const profiles = PERSONAS.map((p) => p.roleProfile)
+    for (const p of profiles) expect(p.length).toBeGreaterThan(0)
+    expect(new Set(profiles).size).toBe(PERSONAS.length) // unique
+    for (const p of PERSONAS) expect(p.roleProfile).toBe(EXPECTED[p.code])
+  })
+
+  it('TRP16: roleProfileForPersona resolves code → profile name; unknown → null', () => {
+    expect(roleProfileForPersona('tech')).toBe('Kỹ thuật viên')
+    expect(roleProfileForPersona('store')).toBe('Thủ kho phụ tùng')
+    expect(roleProfileForPersona('khongton')).toBeNull()
+    expect(roleProfileForPersona(null)).toBeNull()
+  })
+
+  it('TRP16b: personaForRoleProfile is the inverse (round-trip)', () => {
+    expect(personaForRoleProfile('Kỹ thuật viên')?.code).toBe('tech')
+    expect(personaForRoleProfile('Quản trị viên IT')?.code).toBe('admin')
+    expect(personaForRoleProfile('Không tồn tại')).toBeNull()
+    expect(personaForRoleProfile(null)).toBeNull()
+    // round-trip cả 8
+    for (const p of PERSONAS) {
+      expect(personaForRoleProfile(roleProfileForPersona(p.code))?.code).toBe(p.code)
+    }
   })
 })

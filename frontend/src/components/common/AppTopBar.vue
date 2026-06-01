@@ -3,8 +3,6 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useSidebar } from '@/composables/useSidebar'
-import { usePersona } from '@/composables/usePersona'
-import type { PersonaCode } from '@/constants/personas'
 import {
   getUnreadNotifications, listNotifications,
   markNotificationAsRead, markAllAsRead,
@@ -17,24 +15,9 @@ const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 const { collapsed, openMobile } = useSidebar()
-const { availablePersonas, currentPersona, canSwitch, setPersona } = usePersona()
 
 const userMenuOpen = ref(false)
 const notifOpen = ref(false)
-const personaMenuOpen = ref(false)
-
-function togglePersonaMenu(): void {
-  if (!canSwitch.value) return
-  personaMenuOpen.value = !personaMenuOpen.value
-  if (personaMenuOpen.value) {
-    userMenuOpen.value = false
-    notifOpen.value = false
-  }
-}
-function choosePersona(code: PersonaCode): void {
-  setPersona(code)
-  personaMenuOpen.value = false
-}
 
 const userCtx = ref<UserContext | null>(null)
 const notifications = ref<NotificationItem[]>([])      // tab "Chưa đọc"
@@ -129,7 +112,6 @@ function toggleNotif(): void {
   notifOpen.value = !notifOpen.value
   if (notifOpen.value) {
     userMenuOpen.value = false
-    personaMenuOpen.value = false
     void loadNotifications()
     if (notifTab.value === 'read') void loadReadNotifications()
   }
@@ -138,13 +120,11 @@ function toggleUserMenu(): void {
   userMenuOpen.value = !userMenuOpen.value
   if (userMenuOpen.value) {
     notifOpen.value = false
-    personaMenuOpen.value = false
   }
 }
 function closeAll(): void {
   userMenuOpen.value = false
   notifOpen.value = false
-  personaMenuOpen.value = false
 }
 
 function goProfile(): void {
@@ -212,72 +192,7 @@ onUnmounted(() => {
 
     <!-- Actions + user -->
     <div class="flex items-center gap-2 shrink-0">
-      <!-- ─── Persona Switcher ─────────────────────────────────── -->
-      <div v-if="currentPersona" class="relative">
-        <button
-          class="persona-pill flex items-center gap-2 rounded-lg pl-1 pr-2 py-1 transition-colors duration-150"
-          :class="canSwitch ? 'hover:bg-slate-100 cursor-pointer' : 'cursor-default'"
-          :title="canSwitch ? 'Đổi vai trò hiển thị' : currentPersona.label"
-          @click="togglePersonaMenu"
-        >
-          <span
-            class="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white select-none shrink-0"
-            :style="{ background: currentPersona.color }"
-          >{{ currentPersona.label.split(' ').filter(Boolean).slice(0, 1).map(w => w[0]).join('') }}</span>
-          <span class="hidden md:block text-[13px] font-medium text-slate-700 truncate max-w-[160px]">
-            {{ currentPersona.label }}
-          </span>
-          <svg
-            v-if="canSwitch"
-            fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"
-            class="w-3 h-3 text-slate-400 transition-transform duration-150 shrink-0"
-            :class="personaMenuOpen ? 'rotate-180' : ''"
-          >
-            <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-          </svg>
-        </button>
-
-        <Transition
-          enter-active-class="transition duration-150 ease-out"
-          enter-from-class="opacity-0 scale-95 -translate-y-1"
-          enter-to-class="opacity-100 scale-100 translate-y-0"
-          leave-active-class="transition duration-100 ease-in"
-          leave-from-class="opacity-100"
-          leave-to-class="opacity-0 scale-95"
-        >
-          <div
-            v-if="personaMenuOpen && canSwitch"
-            class="persona-menu absolute left-0 top-full mt-2 w-64 bg-white rounded-xl py-1 z-50"
-            style="border: 1px solid #e2e8f0; box-shadow: 0 8px 24px -4px rgba(0,0,0,.18)"
-          >
-            <p class="px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-              Vai trò hiển thị
-            </p>
-            <button
-              v-for="p in availablePersonas"
-              :key="p.code"
-              class="w-full text-left px-4 py-2 text-sm transition-colors hover:bg-slate-50 flex items-center gap-2.5"
-              :class="p.code === currentPersona.code ? 'bg-blue-50/50' : ''"
-              @click="choosePersona(p.code)"
-            >
-              <span
-                class="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0"
-                :style="{ background: p.color }"
-              >{{ p.label.split(' ').filter(Boolean).slice(0, 1).map(w => w[0]).join('') }}</span>
-              <span class="flex-1 text-slate-700 truncate">{{ p.label }}</span>
-              <svg
-                v-if="p.code === currentPersona.code"
-                fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"
-                class="w-4 h-4 text-blue-600 shrink-0"
-              >
-                <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
-              </svg>
-            </button>
-          </div>
-        </Transition>
-      </div>
-
-      <div v-if="currentPersona" class="h-5 w-px bg-slate-200 mx-1" />
+      <!-- Persona switcher GỠ (Phase 1.2): nav/quyền derive từ ROLE THẬT. -->
 
       <!-- ─── Notification Bell ────────────────────────────────── -->
       <div class="relative">
@@ -560,7 +475,7 @@ stroke-linecap="round" stroke-linejoin="round"
       </div>
 
       <!-- Click-outside overlay -->
-      <div v-if="userMenuOpen || notifOpen || personaMenuOpen" class="fixed inset-0 z-40" @click="closeAll" />
+      <div v-if="userMenuOpen || notifOpen" class="fixed inset-0 z-40" @click="closeAll" />
     </div>
   </header>
 </template>

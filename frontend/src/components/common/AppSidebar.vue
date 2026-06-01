@@ -1,25 +1,31 @@
 <script setup lang="ts">
-// AppSidebar — persona-scoped navigation (Core Doc §2.1 + §6).
+// AppSidebar — nav derive TRỰC TIẾP từ ROLE THẬT (Core Doc §2.1 + §7.ter).
 // Spec: docs/architecture/FE_Persona_Navigation.md
-// Sidebar đọc persona đang chọn (usePersona) → buildSidebarGroups() lấy
-// persona.modules → tra MODULE_NAV → lọc bằng CAPABILITY (useCapabilities) →
-// render theo group, ẩn group rỗng. Persona switcher ở AppTopBar.
-// Click logo/header → /dashboard (persona dashboard). KHÔNG còn /launcher.
-import { computed } from 'vue'
+// Phase 1.2: KHÔNG còn persona switcher. usePersona trả tập persona role thật
+// mở khoá → buildSidebarGroupsForRoles() UNION module mọi persona → tra
+// MODULE_NAV → lọc CAPABILITY (useCapabilities) → render theo group, ẩn group
+// rỗng. Header dùng primaryPersona (rank cao nhất) chỉ để HIỂN THỊ, không đổi được.
+// Click logo/header → /dashboard. KHÔNG còn /launcher.
+import { computed, ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useSidebar } from '@/composables/useSidebar'
 import { usePersona } from '@/composables/usePersona'
 import { useCapabilities } from '@/composables/useCapabilities'
 import { useAuthStore } from '@/stores/auth'
 import { SUPERUSER_ROLES } from '@/constants/personas'
-import { buildSidebarGroups, type NavItem } from '@/constants/sidebarNav'
+import { buildSidebarGroupsForRoles, type NavItem, type SidebarGroup } from '@/constants/sidebarNav'
+import {
+  readClosedGroups,
+  toggleClosedGroup,
+  isGroupOpen,
+} from '@/constants/sidebarGroups'
 
 const router = useRouter()
 const route  = useRoute()
 const auth   = useAuthStore()
 const { can } = useCapabilities()
 const { collapsed, toggle, sidebarClass, mobileOpen, closeMobile } = useSidebar()
-const { currentPersona } = usePersona()
+const { personas, primaryPersona } = usePersona()
 
 // Superuser bypass — Frappe-level admin + AssetCore super admin see mọi nav item.
 const isSuperuser = computed(() => auth.hasAnyRole(SUPERUSER_ROLES))
@@ -60,17 +66,19 @@ const ICONS: Record<string, string> = {
   home:      `<svg ${SZ}><path stroke-linecap="round" stroke-linejoin="round" d="M3 12l9-9 9 9M5 10v10a1 1 0 001 1h4v-6h4v6h4a1 1 0 001-1V10"/></svg>`,
 }
 
-// ─── Persona → sidebar nav ─────────────────────────────────────────────────────
-// Header sidebar hiển thị theo persona (label + color) thay vì module code.
-const personaTitle = computed<string>(() => currentPersona.value?.label ?? 'AssetCore')
-const personaColor = computed<string>(() => currentPersona.value?.color ?? '#0E6FFF')
+// ─── Role thật → sidebar nav (Phase 1.2) ───────────────────────────────────────
+// Phase 1.6 (Core Doc §7.sexies.1): header sidebar KHÔNG còn hiển thị NHÃN persona
+// (vd nhãn vai trò tiếng Việt). Brand tĩnh "AssetCore" — quản trị bằng ROLE, không
+// nhãn persona ở chrome. `primaryPersona` GIỮ để tô màu logo (cosmetic) +
+// DashboardView route dashboard mặc định — KHÔNG render label text.
+const BRAND_TITLE = 'AssetCore'
+const personaColor = computed<string>(() => primaryPersona.value?.color ?? '#0E6FFF')
 
-// Nav theo GROUP — buildSidebarGroups lọc capability + dedupe + bỏ group rỗng.
-const navGroups = computed(() => {
-  const persona = currentPersona.value
-  if (!persona) return []
-  return buildSidebarGroups(persona, can, isSuperuser.value)
-})
+// Nav theo GROUP — buildSidebarGroupsForRoles UNION module mọi persona role thật,
+// lọc capability + dedupe path toàn cục + bỏ group rỗng.
+const navGroups = computed(() =>
+  buildSidebarGroupsForRoles(personas.value, can, isSuperuser.value),
+)
 // Flat list (collapsed mode + active-path matching).
 const navItems = computed<NavItem[]>(() => navGroups.value.flatMap((g) => g.items))
 const hasNav = computed<boolean>(() => navItems.value.length > 0)
@@ -100,6 +108,26 @@ const activeItemPath = computed<string>(() => {
   return best
 })
 function isActive(path: string): boolean { return activeItemPath.value === path }
+
+// ─── Collapsible groups (Core Doc §7.bis) ─────────────────────────────────────
+// Persist danh sách group ĐANG ĐÓNG; default mở; group active luôn mở.
+const closedGroups = ref<string[]>(readClosedGroups())
+
+// Group chứa item đang active → để auto-open (không giấu chức năng đang dùng).
+const activeGroupTitle = computed<string | null>(() => {
+  const p = activeItemPath.value
+  if (!p) return null
+  const g = navGroups.value.find((grp) => grp.items.some((it) => it.path === p))
+  return g ? g.title : null
+})
+
+function groupOpen(group: SidebarGroup): boolean {
+  return isGroupOpen(group, closedGroups.value, activeGroupTitle.value)
+}
+
+function toggleGroup(group: SidebarGroup): void {
+  closedGroups.value = toggleClosedGroup(group.title)
+}
 
 // ─── Logo → dashboard (persona home) ──────────────────────────────────────────
 function goHome() { router.push('/dashboard') }
@@ -131,7 +159,7 @@ function goHome() { router.push('/dashboard') }
         <Transition name="fade-x">
           <div v-if="!collapsed" class="min-w-0 text-left">
             <p class="font-bold text-[13.5px] text-white tracking-tight leading-none truncate">
-              {{ personaTitle }}
+              {{ BRAND_TITLE }}
             </p>
             <p class="text-[10.5px] mt-1 side-foot-text font-medium">Bảng điều khiển</p>
           </div>
@@ -173,21 +201,38 @@ function goHome() { router.push('/dashboard') }
         </p>
       </div>
 
-      <!-- Expanded: grouped -->
+      <!-- Expanded: grouped + collapsible (Core Doc §7.bis) -->
       <template v-if="!collapsed && hasNav">
         <div v-for="group in navGroups" :key="group.title + group.code" class="nav-group">
-          <p class="nav-group-label">{{ group.title }}</p>
           <button
-            v-for="item in group.items"
-            :key="item.path"
-            class="nav-item w-full flex items-center gap-3"
-            :class="isActive(item.path) ? 'active' : ''"
-            @click="router.push(item.path)"
+            type="button"
+            class="nav-group-header w-full flex items-center justify-between"
+            :aria-expanded="groupOpen(group)"
+            :title="groupOpen(group) ? 'Thu gọn nhóm' : 'Mở rộng nhóm'"
+            @click="toggleGroup(group)"
           >
-            <span class="nav-icon shrink-0 w-5 flex items-center justify-center"
-                  v-html="ICONS[item.icon] || ICONS.grid" />
-            <span class="truncate text-left leading-snug">{{ item.label }}</span>
+            <span class="nav-group-label">{{ group.title }}</span>
+            <svg
+              class="nav-group-chevron w-3.5 h-3.5 shrink-0 transition-transform duration-200"
+              :class="groupOpen(group) ? '' : '-rotate-90'"
+              fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"
+            >
+              <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+            </svg>
           </button>
+          <div v-show="groupOpen(group)">
+            <button
+              v-for="item in group.items"
+              :key="item.path"
+              class="nav-item w-full flex items-center gap-3"
+              :class="isActive(item.path) ? 'active' : ''"
+              @click="router.push(item.path)"
+            >
+              <span class="nav-icon shrink-0 w-5 flex items-center justify-center"
+                    v-html="ICONS[item.icon] || ICONS.grid" />
+              <span class="truncate text-left leading-snug">{{ item.label }}</span>
+            </button>
+          </div>
         </div>
       </template>
 
@@ -255,16 +300,24 @@ function goHome() { router.push('/dashboard') }
 .sidebar-footer { border-top: 1px solid rgba(255,255,255,0.08); }
 .side-foot-text { color: #6f8aa8; }
 
-/* ── Group label ───────────────────────────────────────────────────────────── */
+/* ── Group label + collapsible header ──────────────────────────────────────── */
 .nav-group { padding-bottom: 2px; }
+.nav-group-header {
+  padding: 12px 16px 4px;
+  background: transparent; border: none; cursor: pointer;
+  color: #6f8aa8;
+  transition: color 0.15s;
+}
+.nav-group-header:hover { color: #9fc3e8; }
+.nav-group-header:hover .nav-group-chevron { color: #9fc3e8; }
 .nav-group-label {
   font-size: 10.5px;
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: #6f8aa8;
-  padding: 12px 16px 4px;
+  color: inherit;
 }
+.nav-group-chevron { color: #5b7491; }
 
 /* ── Nav items (token: padding 10px 16px, gap 12px, font 14px) ───────────────── */
 .nav-item {

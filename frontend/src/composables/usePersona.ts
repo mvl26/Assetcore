@@ -1,73 +1,33 @@
 // Copyright (c) 2026, AssetCore Team
 //
-// usePersona — persona-scoped navigation state (shared singleton).
-// Spec: docs/architecture/FE_Persona_Navigation.md
+// usePersona — nav derive TRỰC TIẾP từ ROLE THẬT (Phase 1.2).
+// Spec: docs/architecture/FE_Persona_Navigation.md §7.ter
 //
-// - availablePersonas: derive từ auth store roles (RBAC THẬT).
-// - currentPersona: persisted 'ac_persona' nếu hợp lệ, else fallback rank cao nhất.
-// - canSwitch: >1 persona → topbar hiện dropdown; =1 → label tĩnh; =0 → ẩn.
-// - setPersona: chỉ chấp nhận persona đủ quyền (production-safe anti-leak).
+// Phase 1.2 (2026-06-01): GỠ persona switcher. KHÔNG còn "persona đang chọn"
+// do user tự đổi — không setPersona/canSwitch/currentPersona/localStorage.
 //
-// Persona KHÔNG cấp quyền — chỉ lọc nav. Mọi action vẫn gate ở BE + capability.
+// - personas: tập persona role THẬT (frappe.get_roles) mở khoá (union, sort rank desc).
+// - primaryPersona: persona rank cao nhất — chỉ để hiển thị header + default dashboard.
+//
+// Persona KHÔNG cấp quyền — chỉ là cách dịch role thật → tập module hiển thị.
+// Mọi action vẫn gate ở BE DocPerm + route-guard capability + useCapabilities.
 
-import { computed, ref, watch } from 'vue'
+import { computed } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useAuthStore } from '@/stores/auth'
 import {
   derivePersonas,
-  resolveCurrentPersona,
+  derivePrimaryPersona,
   type Persona,
-  type PersonaCode,
 } from '@/constants/personas'
-
-const STORAGE_KEY = 'ac_persona'
-
-function readPersisted(): string | null {
-  try { return localStorage.getItem(STORAGE_KEY) }
-  catch { return null }
-}
-function writePersisted(code: string): void {
-  try { localStorage.setItem(STORAGE_KEY, code) }
-  catch { /* private mode / quota — bỏ qua, state vẫn chạy in-memory */ }
-}
-
-// Singleton state — chia sẻ giữa AppSidebar + AppTopBar (giống useSidebar.ts).
-const persistedCode = ref<string | null>(readPersisted())
 
 export function usePersona() {
   const auth = useAuthStore()
   const { roles } = storeToRefs(auth)
 
-  // imm_roles legacy (prefix "IMM ") — nguồn chính là roles. Truyền để khớp spec.
-  const availablePersonas = computed<Persona[]>(() => derivePersonas(roles.value, []))
+  // imm_roles legacy (prefix "IMM ") rỗng — nguồn chính là roles thật.
+  const personas = computed<Persona[]>(() => derivePersonas(roles.value, []))
+  const primaryPersona = computed<Persona | null>(() => derivePrimaryPersona(personas.value))
 
-  const currentPersona = computed<Persona | null>(() =>
-    resolveCurrentPersona(persistedCode.value, availablePersonas.value),
-  )
-
-  const canSwitch = computed<boolean>(() => availablePersonas.value.length > 1)
-
-  // Nếu persona persisted không hợp lệ → tự ghi lại giá trị fallback hợp lệ,
-  // để lần load sau ổn định và localStorage không giữ rác/giá trị mất quyền.
-  watch(
-    [currentPersona, availablePersonas],
-    ([cur]) => {
-      if (cur && cur.code !== persistedCode.value) {
-        persistedCode.value = cur.code
-        writePersisted(cur.code)
-      }
-    },
-    { immediate: true },
-  )
-
-  /** Đổi persona — chỉ chấp nhận persona user đủ quyền. */
-  function setPersona(code: PersonaCode | string): boolean {
-    const allowed = availablePersonas.value.some((p) => p.code === code)
-    if (!allowed) return false
-    persistedCode.value = code
-    writePersisted(code)
-    return true
-  }
-
-  return { availablePersonas, currentPersona, canSwitch, setPersona }
+  return { personas, primaryPersona }
 }

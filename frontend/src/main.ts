@@ -43,6 +43,11 @@ if (globalThis.window !== undefined) {
   })
 }
 
+// Phase 1.2: persona switcher đã gỡ — dọn key persisted cũ (no-op nếu không có).
+if (globalThis.window !== undefined) {
+  try { localStorage.removeItem('ac_persona') } catch { /* private mode — bỏ qua */ }
+}
+
 const pinia = createPinia()
 pinia.use(piniaPersistedState)
 app.use(pinia)

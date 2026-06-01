@@ -25,6 +25,17 @@ import { resolveRouteAccess, type RouteAccessMeta } from './routeAccess'
 // + moduleId fallback. Không còn import `ROLES_*` empty-stub (no-op) từ
 // constants/roles.ts — đồng bộ với sidebar (sidebarNav.ts) dùng useCapabilities.
 
+// §7.septies.3 — OR-cap "finance" cho Khấu hao (Asset Finance Hub).
+// `data.read` KHÔNG phân biệt persona (mọi AssetCore System User True) → lộ cho
+// doc/training. Gate bằng OR-cap mà chỉ chủ sở hữu tài sản/tài chính có:
+//   admin (SU bypass) · opsmgr (needs/procurement.read) · workshop+tech (pm/calibration.read).
+// doc/store/clinical KHÔNG có cap nào trong tập này → ẩn + chặn route.
+// (qa=Auditor đọc mọi DocType → vẫn match, chấp nhận có chủ đích — §7.septies.3.)
+// PHẢI khớp `cap` của item Khấu hao trong constants/sidebarNav.ts.
+const FINANCE_READ_CAPS = [
+  'data.write', 'needs.read', 'procurement.read', 'pm.read', 'calibration.read',
+] as const
+
 const routes: RouteRecordRaw[] = [
   // ─── 1. Auth & Root ────────────────────────────────────────────────────────
   {
@@ -106,7 +117,10 @@ const routes: RouteRecordRaw[] = [
     path: '/suppliers',
     name: 'SupplierList',
     component: () => import('@/views/purchase/SupplierListView.vue'),
-    meta: { requiresAuth: true, title: 'Nhà cung cấp' },
+    // §7.septies.2 — gate route khớp sidebar (cap 'data.read'). Trước đây route
+    // không khai cap → moduleId='master' → moduleIdToCap=null → allow → non-data
+    // user gõ URL thẳng vẫn vào (thấy list rỗng + "Bạn không có quyền").
+    meta: { requiresAuth: true, title: 'Nhà cung cấp', requiredCapabilities: ['data.read'] },
   },
   {
     path: '/suppliers/new',
@@ -132,7 +146,8 @@ const routes: RouteRecordRaw[] = [
     path: '/device-models',
     name: 'DeviceModelList',
     component: () => import('@/views/asset/DeviceModelListView.vue'),
-    meta: { requiresAuth: true, title: 'Model thiết bị' },
+    // §7.septies.2 — gate khớp sidebar (cap 'data.read').
+    meta: { requiresAuth: true, title: 'Model thiết bị', requiredCapabilities: ['data.read'] },
   },
   {
     path: '/device-models/new',
@@ -225,7 +240,8 @@ const routes: RouteRecordRaw[] = [
     path: '/documents/requests',
     name: 'DocumentRequestList',
     component: () => import('@/views/document/DocumentRequestListView.vue'),
-    meta: { requiresAuth: true, title: 'Yêu cầu Hồ sơ' },
+    // §7.septies.2 — sidebar gate 'doc.approve'; siết route khớp (chỉ người duyệt hồ sơ).
+    meta: { requiresAuth: true, title: 'Yêu cầu Hồ sơ', requiredCapabilities: ['doc.approve'] },
   },
 
   // ─── 5. IMM-08 — Preventive Maintenance ───────────────────────────────────
@@ -525,7 +541,8 @@ const routes: RouteRecordRaw[] = [
     path: '/service-contracts',
     name: 'ServiceContractList',
     component: () => import('@/views/purchase/ServiceContractListView.vue'),
-    meta: { requiresAuth: true, title: 'Hợp đồng dịch vụ' },
+    // §7.septies.2 — gate khớp sidebar (cap 'data.read').
+    meta: { requiresAuth: true, title: 'Hợp đồng dịch vụ', requiredCapabilities: ['data.read'] },
   },
   {
     path: '/service-contracts/new',
@@ -544,7 +561,8 @@ const routes: RouteRecordRaw[] = [
     path: '/depreciation',
     name: 'Depreciation',
     component: () => import('@/views/asset/DepreciationView.vue'),
-    meta: { requiresAuth: true, title: 'Khấu hao tài sản' },
+    // §7.septies.3 — finance OR-gate (KHÔNG 'data.read'): chặn doc/store/clinical.
+    meta: { requiresAuth: true, title: 'Khấu hao tài sản', requiredCapabilities: [...FINANCE_READ_CAPS] },
   },
 
   // ─── 9b. Inventory (IMM-00 Inventory sub-domain) ────────────────────────────
@@ -640,7 +658,8 @@ const routes: RouteRecordRaw[] = [
     path: '/purchases',
     name: 'PurchaseList',
     component: () => import('@/views/purchase/PurchaseListView.vue'),
-    meta: { requiresAuth: true, title: 'Đơn mua hàng' },
+    // §7.septies.2 — sidebar gate 'procurement.read' (group IMM-03); siết route khớp.
+    meta: { requiresAuth: true, title: 'Đơn mua hàng', requiredCapabilities: ['procurement.read'] },
   },
   {
     path: '/purchases/new',

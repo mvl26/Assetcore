@@ -92,3 +92,58 @@ describe('resolveRouteAccess — requiredCapabilities ưu tiên hơn moduleId', 
     ).toBe('allow')
   })
 })
+
+// ─── §7.septies — route master-group gate khớp sidebar + depreciation finance-gate
+describe('§7.septies.2 — master-group list route gate data.read (VĐ1)', () => {
+  // RT-CAP-1: route /suppliers,/device-models,/service-contracts khai
+  // requiredCapabilities:['data.read']. Non-data user (can=false) bị chặn —
+  // KHÔNG còn rơi xuống default allow như khi route chỉ có moduleId='master'.
+  it('RT-CAP-1: requiredCapabilities data.read + không có cap → unauthorized', () => {
+    expect(
+      resolveRouteAccess(
+        { requiredCapabilities: ['data.read'], moduleId: 'master' },
+        ctx(),
+      ),
+    ).toBe('unauthorized')
+  })
+  it('data user (data.read) → allow vào /suppliers', () => {
+    expect(
+      resolveRouteAccess(
+        { requiredCapabilities: ['data.read'], moduleId: 'master' },
+        ctx({ can: canOnly('data.read') }),
+      ),
+    ).toBe('allow')
+  })
+})
+
+describe('§7.septies.3 — /depreciation finance OR-gate (VĐ2)', () => {
+  // PHẢI khớp FINANCE_READ_CAPS = data.write|needs.read|procurement.read|pm.read|calibration.read
+  const DEP_META = {
+    requiredCapabilities: [
+      'data.write', 'needs.read', 'procurement.read', 'pm.read', 'calibration.read',
+    ],
+    moduleId: 'master',
+  }
+  it('RT-DEP-1: persona doc/training (document.read+training.read) → unauthorized', () => {
+    expect(
+      resolveRouteAccess(DEP_META, ctx({ can: canOnly('document.read', 'training.read', 'data.read') })),
+    ).toBe('unauthorized')
+  })
+  it('RT-DEP-2: opsmgr (needs.read/procurement.read) → allow', () => {
+    expect(resolveRouteAccess(DEP_META, ctx({ can: canOnly('needs.read') }))).toBe('allow')
+    expect(resolveRouteAccess(DEP_META, ctx({ can: canOnly('procurement.read') }))).toBe('allow')
+  })
+  it('RT-DEP-3: workshop/tech (pm.read/calibration.read) → allow', () => {
+    expect(resolveRouteAccess(DEP_META, ctx({ can: canOnly('pm.read') }))).toBe('allow')
+    expect(resolveRouteAccess(DEP_META, ctx({ can: canOnly('calibration.read') }))).toBe('allow')
+  })
+  it('store (chỉ inventory.read) → unauthorized', () => {
+    expect(resolveRouteAccess(DEP_META, ctx({ can: canOnly('inventory.read', 'data.read') }))).toBe('unauthorized')
+  })
+  it('clinical (chỉ corrective.read) → unauthorized', () => {
+    expect(resolveRouteAccess(DEP_META, ctx({ can: canOnly('corrective.read', 'data.read') }))).toBe('unauthorized')
+  })
+  it('admin bypass → allow', () => {
+    expect(resolveRouteAccess(DEP_META, ctx({ isFrappeAdmin: true }))).toBe('allow')
+  })
+})

@@ -20,6 +20,14 @@ import type { Persona } from './personas'
 /** Capability predicate — `useCapabilities().can`. */
 export type CanFn = (cap: string | readonly string[]) => boolean
 
+// §7.septies.3 — OR-cap "finance" cho mục Khấu hao (Asset Finance Hub).
+// PHẢI khớp `FINANCE_READ_CAPS` trong router/index.ts (sidebar-ẩn = route-chặn).
+// `data.read` lộ cho mọi user (AssetCore System User read IMM Device Model) → doc/
+// training thấy khấu hao. Gate bằng OR-cap chỉ chủ sở hữu tài sản/tài chính có.
+export const FINANCE_READ_CAPS = [
+  'data.write', 'needs.read', 'procurement.read', 'pm.read', 'calibration.read',
+] as const
+
 export interface NavItem {
   label: string
   path: string
@@ -168,7 +176,7 @@ export const MODULE_NAV: Record<string, ModuleNav> = {
     code: '', title: 'Tài sản & Đối tác', icon: 'device',
     items: [
       { label: 'Danh sách thiết bị', path: '/assets',            icon: 'device'   },
-      { label: 'Khấu hao tài sản',   path: '/depreciation',      icon: 'trending', cap: 'data.read' },
+      { label: 'Khấu hao tài sản',   path: '/depreciation',      icon: 'trending', cap: FINANCE_READ_CAPS },
       { label: 'Quét mã QR',         path: '/qr-scan',           icon: 'qr'       },
       { label: 'Model thiết bị',     path: '/device-models',     icon: 'template', cap: 'data.read' },
       { label: 'Nhà cung cấp',       path: '/suppliers',         icon: 'building', cap: 'data.read' },
@@ -224,6 +232,47 @@ export function buildSidebarGroups(
     }
     if (items.length === 0) continue // ẩn group rỗng
     out.push({ code: mod.code, title: mod.title, icon: mod.icon, items })
+  }
+  return out
+}
+
+/**
+ * buildSidebarGroupsForRoles — Core Doc §7.ter (Phase 1.2).
+ * Nav derive từ ROLE THẬT: UNION module của MỌI persona role mở khoá.
+ *
+ * - `personas` = derivePersonas(roles) (đã sort rank desc). Duyệt theo thứ tự đó
+ *   → persona quyền cao xuất hiện trước, module/group sắp theo rank.
+ * - Dedupe path TOÀN CỤC: một path chỉ render 1 lần dù nhiều persona/module chứa.
+ *   Group cũng dedupe theo code/title — module xuất hiện ở nhiều persona gộp làm 1.
+ * - Lọc capability qua itemVisible (anti-leak giữ nguyên). Group rỗng → ẩn.
+ * - personas rỗng → [] (không nav). KHÔNG còn khái niệm "persona đang chọn".
+ */
+export function buildSidebarGroupsForRoles(
+  personas: readonly Persona[],
+  can: CanFn,
+  isSuperuser: boolean,
+): SidebarGroup[] {
+  const seenPath = new Set<string>()
+  const seenGroup = new Set<string>()
+  const out: SidebarGroup[] = []
+
+  for (const persona of personas) {
+    for (const moduleId of persona.modules) {
+      const groupKey = `${moduleId}::${MODULE_NAV[moduleId]?.title ?? ''}`
+      if (seenGroup.has(groupKey)) continue
+      const mod = MODULE_NAV[moduleId]
+      if (!mod) continue
+      const items: NavItem[] = []
+      for (const item of mod.items) {
+        if (seenPath.has(item.path)) continue
+        if (!itemVisible(item, can, isSuperuser)) continue
+        seenPath.add(item.path)
+        items.push(item)
+      }
+      if (items.length === 0) continue // ẩn group rỗng
+      seenGroup.add(groupKey)
+      out.push({ code: mod.code, title: mod.title, icon: mod.icon, items })
+    }
   }
   return out
 }
