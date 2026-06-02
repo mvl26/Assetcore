@@ -5,7 +5,9 @@ import { usePersonaDashboard } from '@/composables/useDashboard'
 import { sectionRows } from '@/api/dashboard'
 import PersonaDashboardShell from '@/components/dashboard/PersonaDashboardShell.vue'
 import ListCard, { type ListColumn } from '@/components/dashboard/ListCard.vue'
+import { useSectionDrill } from '@/composables/useSectionDrill'
 
+const drill = useSectionDrill()
 const { data, isLoading, error, refetch } = usePersonaDashboard('clinical')
 const kpis = computed(() => data.value?.kpis ?? [])
 const sec = computed(() => data.value?.sections)
@@ -54,8 +56,8 @@ const nrCols: ListColumn[] = [
       </p>
     </div>
     <div v-else class="grid grid-cols-1 gap-6 lg:grid-cols-2">
-      <ListCard title="Sự cố thiết bị khoa" :columns="incCols" :rows="deptIncidents" />
-      <ListCard title="Đề xuất nhu cầu của khoa" :columns="nrCols" :rows="deptNeeds" />
+      <ListCard title="Sự cố thiết bị khoa" :columns="incCols" :rows="deptIncidents" :row-to="drill.incident" />
+      <ListCard title="Đề xuất nhu cầu của khoa" :columns="nrCols" :rows="deptNeeds" :row-to="drill.needs" />
     </div>
   </PersonaDashboardShell>
 </template>

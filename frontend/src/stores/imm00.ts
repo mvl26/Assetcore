@@ -75,7 +75,10 @@ export const useRefDataStore = defineStore('imm00_refdata', () => {
   async function fetchAll() {
     loading.value = true
     try {
-      const [locs, depts, cats, models, slas, sups] = await Promise.all([
+      // allSettled (KHÔNG all): các bảng tham chiếu này chỉ phục vụ filter/dropdown.
+      // Một persona có thể bị DocPerm chặn đọc 1 bảng (vd AC Supplier sau khi siết
+      // RBAC) — khi đó CHỈ bảng đó rỗng, KHÔNG được làm hỏng toàn trang registry.
+      const [locs, depts, cats, models, slas, sups] = await Promise.allSettled([
         api.listLocations(),
         api.listDepartments(),
         api.listAssetCategories(),
@@ -83,12 +86,12 @@ export const useRefDataStore = defineStore('imm00_refdata', () => {
         api.listSlaPolicies(),
         api.listSuppliers(),
       ])
-      locations.value = locs
-      departments.value = depts
-      categories.value = cats
-      deviceModels.value = models.items ?? []
-      slaPolicies.value = slas
-      suppliers.value = sups.items ?? []
+      if (locs.status === 'fulfilled') locations.value = locs.value
+      if (depts.status === 'fulfilled') departments.value = depts.value
+      if (cats.status === 'fulfilled') categories.value = cats.value
+      if (models.status === 'fulfilled') deviceModels.value = models.value.items ?? []
+      if (slas.status === 'fulfilled') slaPolicies.value = slas.value
+      if (sups.status === 'fulfilled') suppliers.value = sups.value.items ?? []
     } finally {
       loading.value = false
     }
@@ -107,7 +110,8 @@ export const useCapaStore = defineStore('imm00_capa', () => {
   const loading = ref(false)
   const error = ref<string | null>(null)
 
-  async function fetchList(params: { page?: number; page_size?: number; status?: string; asset?: string } = {}) {
+  // R10 §9.4.8 — thêm virtual filter not_closed/overdue cho drill-down từ KPI qa.
+  async function fetchList(params: { page?: number; page_size?: number; status?: string; asset?: string; not_closed?: number; overdue?: number } = {}) {
     loading.value = true
     error.value = null
     try {

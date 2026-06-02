@@ -156,21 +156,45 @@ def _enrich_stock_totals(rows: list) -> None:
             GROUP BY spare_part
         """, {"ids": part_ids})
     }
+    # R7 §9.4.5 — is_low_stock dùng predicate per-warehouse-row (BẤT KỲ row nào
+    # qty_on_hand < min_stock_level) để KHỚP KPI store 'low_stock' (_count_low_stock)
+    # và filter low_stock=1. Trước đây dùng tổng-qty-toàn-kho → lệch nhãn vs KPI
+    # (part low ở 1 kho nhưng tổng ≥ min sẽ bị bỏ sót). Một nguồn sự thật duy nhất.
+    low_set = set(_low_stock_part_ids())
     for r in rows:
         ts = totals.get(r["name"], 0.0)
         r["total_stock"] = ts
-        r["is_low_stock"] = ts < (r["min_stock_level"] or 0) if r.get("min_stock_level") else False
+        r["is_low_stock"] = r["name"] in low_set
+
+
+def _low_stock_part_ids() -> list[str]:
+    """R7 §9.4.5 — parts có ≥1 stock row dưới định mức (predicate KPI _count_low_stock,
+    distinct theo part). Drill-down từ KPI store 'low_stock'."""
+    rows = frappe.db.sql(
+        """SELECT DISTINCT s.spare_part
+           FROM `tabAC Spare Part Stock` s
+           JOIN `tabAC Spare Part` p ON p.name = s.spare_part
+           WHERE p.is_active=1 AND COALESCE(p.min_stock_level,0) > 0
+             AND s.qty_on_hand < p.min_stock_level""")
+    return [r[0] for r in rows]
 
 
 @frappe.whitelist()
 def list_spare_parts(page: int = 1, page_size: int = 30, q: str = "",
-                     category: str = "", active_only: int = 1) -> dict:
+                     category: str = "", active_only: int = 1,
+                     low_stock: int = 0) -> dict:
     page, pg_size, active = int(page), int(page_size), int(active_only)
     filters: dict = {}
     if active:
         filters["is_active"] = 1
     if category:
         filters["part_category"] = category
+    # R7 §9.4.5 — drill low_stock=1: chỉ parts dưới định mức (subset part-distinct
+    # của KPI store 'low_stock'). Rỗng → sentinel '__none__' (match nothing) thay vì
+    # bỏ filter (tránh leak toàn bộ part khi không có part nào low — fail-closed).
+    if int(low_stock):
+        low_ids = _low_stock_part_ids()
+        filters["name"] = ["in", low_ids or ["__none__"]]
 
     or_filters = [
         ["part_name", "like", f"%{q}%"],
@@ -178,7 +202,11 @@ def list_spare_parts(page: int = 1, page_size: int = 30, q: str = "",
         ["manufacturer_part_no", "like", f"%{q}%"],
     ] if q else []
 
-    total = _count_spare_parts(q, active, category) if or_filters else frappe.db.count(_DT_PART, filters)
+    total = (
+        _count_spare_parts(q, active, category)
+        if (or_filters and not int(low_stock))
+        else frappe.db.count(_DT_PART, filters)
+    )
 
     rows = frappe.get_all(
         _DT_PART, filters=filters, or_filters=or_filters,

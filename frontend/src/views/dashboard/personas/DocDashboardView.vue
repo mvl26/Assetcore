@@ -5,7 +5,9 @@ import { usePersonaDashboard } from '@/composables/useDashboard'
 import { sectionRows } from '@/api/dashboard'
 import PersonaDashboardShell from '@/components/dashboard/PersonaDashboardShell.vue'
 import ListCard, { type ListColumn } from '@/components/dashboard/ListCard.vue'
+import { useSectionDrill } from '@/composables/useSectionDrill'
 
+const drill = useSectionDrill()
 const { data, isLoading, error, refetch } = usePersonaDashboard('doc')
 const kpis = computed(() => data.value?.kpis ?? [])
 const sec = computed(() => data.value?.sections)
@@ -35,8 +37,8 @@ const commCols: ListColumn[] = [
     @retry="refetch"
   >
     <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
-      <ListCard title="Tài liệu sắp hết hạn (90 ngày)" :columns="docCols" :rows="docsExpiring" />
-      <ListCard title="Nghiệm thu chờ xử lý" :columns="commCols" :rows="commissioningQueue" />
+      <ListCard title="Tài liệu sắp hết hạn (90 ngày)" :columns="docCols" :rows="docsExpiring" :row-to="drill.document" />
+      <ListCard title="Nghiệm thu chờ xử lý" :columns="commCols" :rows="commissioningQueue" :row-to="drill.commissioning" />
     </div>
   </PersonaDashboardShell>
 </template>

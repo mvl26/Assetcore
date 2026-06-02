@@ -18,11 +18,12 @@ const items = computed(() => store.calibrations)
 const pagination = computed(() => store.pagination)
 const kpis = computed(() => store.kpis?.kpis ?? null)
 const loading = computed(() => store.loading)
-const filterStatus = ref('')
+// Core Doc §9.3 — pre-apply filter từ route.query (drill-down từ dashboard).
+const filterStatus = ref<string>((route.query.status as string) || '')
 const filterType = ref('')
-const filterResult = ref('')
+const filterResult = ref<string>((route.query.result as string) || '')
 const assetFilter = ref<string>((route.query.asset as string) || '')
-const showFilters = ref(false)
+const showFilters = ref<boolean>(!!(route.query.status || route.query.result || route.query.asset))
 
 const CAL_TYPES = [
   { value: 'External', label: 'Bên ngoài (ISO 17025)' },
@@ -112,6 +113,9 @@ watch(() => route.query.asset, (val) => {
   assetFilter.value = (val as string) || ''
   load(1)
 })
+// §9.3 — drill-down lần 2 từ dashboard (status/result) → re-apply.
+watch(() => route.query.status, (val) => { filterStatus.value = (val as string) || ''; load(1) })
+watch(() => route.query.result, (val) => { filterResult.value = (val as string) || ''; load(1) })
 
 onMounted(() => { load(); loadKpis() })
 </script>

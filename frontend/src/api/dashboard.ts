@@ -8,6 +8,13 @@ import type { PersonaCode } from '@/constants/personas'
 
 const BASE = '/api/method/assetcore.api.dashboard'
 
+/** Drill-down descriptor (Core Doc §9.1) — route + query để click-through tới
+ * list view đã pre-apply filter. null/undefined = card tĩnh (không drill được). */
+export interface DrillTarget {
+  route: string
+  query: Record<string, string>
+}
+
 /** KPI card chuẩn hoá — khớp BE _kpi(). tone drive màu nền card. */
 export interface PersonaKpi {
   key: string
@@ -15,6 +22,8 @@ export interface PersonaKpi {
   value: number | string | null
   foot_vi: string
   tone: 'primary' | 'info' | 'ok' | 'warn' | 'danger'
+  /** Core Doc §9.1 — optional drill-down target. */
+  drill?: DrillTarget | null
 }
 
 /** Payload mỗi persona — sections shape khác nhau theo persona (Core Doc §5). */

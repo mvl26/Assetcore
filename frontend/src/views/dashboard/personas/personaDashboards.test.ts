@@ -1,9 +1,17 @@
 // TDD — Core Doc §8.2 (docs/architecture/FE_Persona_Dashboards.md)
 // D-FE-1..7: shell render đúng persona, KPI VI, no raw-code leak, loading
 // skeleton, error state, queryKey reactivity.
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { ref } from 'vue'
+import { createRouter, createMemoryHistory } from 'vue-router'
+import { setActivePinia, createPinia } from 'pinia'
+
+// KpiCard/BarsCard/StatusDonutChart nay gate drill theo capability
+// (useCapabilities → Pinia auth store). Cần Pinia active cho mọi mount.
+beforeEach(() => {
+  setActivePinia(createPinia())
+})
 
 import KpiCard from '@/components/dashboard/KpiCard.vue'
 import ListCard from '@/components/dashboard/ListCard.vue'
@@ -35,18 +43,25 @@ vi.mock('@/composables/useDashboard', () => ({
 import DashboardView from './../DashboardView.vue'
 
 describe('DashboardView shell-router (D-FE-1, D-FE-2)', () => {
+  // Real memory router — persona views nay dùng useRouter() cho drill-down
+  // (Core Doc §9.4); cài plugin thật để tránh inject warning + test push thật.
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [{ path: '/:pathMatch(.*)*', component: { template: '<div/>' } }],
+  })
   const stubs = { PageHeader: true, StatusDonutChart: true }
+  const mountOpts = { global: { stubs, plugins: [router] } }
 
   it('D-FE-1: current=opsmgr → render OpsmgrDashboardView', async () => {
     personaRef.value = { code: 'opsmgr', label: 'X' }
-    const w = mount(DashboardView, { global: { stubs } })
+    const w = mount(DashboardView, mountOpts)
     await flushPromises()
     expect(w.html()).toContain('Trưởng phòng VT-TTBYT')
   })
 
   it('D-FE-2: current=store → render StoreDashboardView', async () => {
     personaRef.value = { code: 'store', label: 'X' }
-    const w = mount(DashboardView, { global: { stubs } })
+    const w = mount(DashboardView, mountOpts)
     await flushPromises()
     expect(w.html()).toContain('Thủ kho phụ tùng')
   })
@@ -57,6 +72,7 @@ describe('KpiCard (D-FE-3, D-FE-5)', () => {
   it('D-FE-3: render label_vi + value VI', () => {
     const w = mount(KpiCard, {
       props: { kpi: { key: 'k', label_vi: 'Thiết bị đang hoạt động', value: 1247, foot_vi: 'Tổng 1412', tone: 'primary' } },
+      global: { stubs: { RouterLink: true } },
     })
     expect(w.text()).toContain('Thiết bị đang hoạt động')
     expect(w.text()).toContain('1.247') // vi-VN nhóm hàng nghìn
@@ -65,6 +81,7 @@ describe('KpiCard (D-FE-3, D-FE-5)', () => {
   it('D-FE-5: value null → "—" (không hiển thị 0 giả)', () => {
     const w = mount(KpiCard, {
       props: { kpi: { key: 'k', label_vi: 'Điểm tuân thủ', value: null, foot_vi: '', tone: 'ok' } },
+      global: { stubs: { RouterLink: true } },
     })
     expect(w.text()).toContain('—')
     expect(w.text()).not.toContain('0')

@@ -2,6 +2,7 @@
 import { useToast } from '@/composables/useToast'
 import DateInput from '@/components/common/DateInput.vue'
 import { ref, computed, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
 import {
   listCalibrationSchedules, createCalibrationSchedule,
   updateCalibrationSchedule, deleteCalibrationSchedule,
@@ -28,18 +29,27 @@ const editingName = ref<string | null>(null)
 const err = ref('')
 
 // Filters
+const route = useRoute()
 const showFilters = ref(false)
-const filters = ref({ calibration_type: '', is_active: '' as '' | '1' | '0', overdue_only: false, search: '' })
+// R6 §9.4.3 — pre-apply từ KPI drill: ?overdue=1 → overdue_only; ?due_before=X →
+// due_before (next_due_date <= X). Khớp đúng predicate BE đếm KPI calib_due/overdue.
+const filters = ref({
+  calibration_type: '', is_active: '' as '' | '1' | '0',
+  overdue_only: route.query.overdue === '1',
+  due_before: (route.query.due_before as string) || '',
+  search: '',
+})
 
 const TYPE_LABEL: Record<string, string> = { External: 'Bên ngoài', 'In-House': 'Nội bộ' }
 
-interface FilterChip { key: 'calibration_type' | 'is_active' | 'overdue_only' | 'search'; label: string }
+interface FilterChip { key: 'calibration_type' | 'is_active' | 'overdue_only' | 'due_before' | 'search'; label: string }
 const filteredItems = computed(() => {
   let arr = items.value
   if (filters.value.calibration_type) arr = arr.filter(s => s.calibration_type === filters.value.calibration_type)
   if (filters.value.is_active === '1') arr = arr.filter(s => s.is_active === 1)
   if (filters.value.is_active === '0') arr = arr.filter(s => s.is_active === 0)
   if (filters.value.overdue_only) arr = arr.filter(s => s.next_due_date && new Date(s.next_due_date) < new Date())
+  else if (filters.value.due_before) arr = arr.filter(s => s.next_due_date && s.next_due_date <= filters.value.due_before)
   if (filters.value.search.trim()) {
     const q = filters.value.search.trim().toLowerCase()
     arr = arr.filter(s =>
@@ -56,6 +66,7 @@ const activeChips = computed<FilterChip[]>(() => {
   if (filters.value.is_active === '1') chips.push({ key: 'is_active', label: 'Đang hoạt động' })
   if (filters.value.is_active === '0') chips.push({ key: 'is_active', label: 'Tạm dừng' })
   if (filters.value.overdue_only) chips.push({ key: 'overdue_only', label: 'Quá hạn' })
+  else if (filters.value.due_before) chips.push({ key: 'due_before', label: `Đến hạn trước ${formatDate(filters.value.due_before)}` })
   if (filters.value.search.trim()) chips.push({ key: 'search', label: `"${filters.value.search.trim()}"` })
   return chips
 })
@@ -68,10 +79,11 @@ function quickFilter(key: 'calibration_type', value: string) {
 function clearChip(key: string) {
   if (key === 'is_active') filters.value.is_active = ''
   else if (key === 'overdue_only') filters.value.overdue_only = false
+  else if (key === 'due_before') filters.value.due_before = ''
   else (filters.value as Record<string, unknown>)[key] = ''
 }
 function resetFilters() {
-  filters.value = { calibration_type: '', is_active: '', overdue_only: false, search: '' }
+  filters.value = { calibration_type: '', is_active: '', overdue_only: false, due_before: '', search: '' }
 }
 
 const form = ref<Partial<CalibrationSchedule>>({
@@ -148,7 +160,11 @@ function isOverdue(date: string | null) {
   return date && new Date(date) < new Date()
 }
 
-onMounted(load)
+onMounted(() => {
+  // R6 §9.3 — drill-down từ dashboard: mở panel filter để user thấy + xoá được.
+  if (filters.value.overdue_only || filters.value.due_before) showFilters.value = true
+  load()
+})
 </script>
 
 <template>

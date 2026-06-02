@@ -2,6 +2,9 @@
 // Generic list/table card cho persona dashboards.
 // Cột kiểu 'status'/'severity' render qua StatusBadge → KHÔNG leak raw code
 // (WAVE2-RECURRING-BUGS anti-leak). Cột 'link' hiển thị mã + tooltip.
+// Core Doc §9.7: row-drill — rowTo(row) trả RouterLocation | null → dòng click
+// mở detail record nguồn (RouterLink ở cột đầu + cả <tr> điều hướng programmatic).
+import { useRouter, type RouteLocationRaw } from 'vue-router'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 
 export interface ListColumn {
@@ -15,15 +18,26 @@ export interface ListColumn {
   nameKey?: string
 }
 
-defineProps<{
+const props = defineProps<{
   title: string
   columns: ListColumn[]
   rows: Record<string, unknown>[]
   emptyText?: string
+  /** §9.7 — mỗi dòng → route detail record (hoặc null = tĩnh). */
+  rowTo?: (row: Record<string, unknown>) => RouteLocationRaw | null
 }>()
+
+const router = useRouter()
 
 function asStr(v: unknown): string {
   return v === null || v === undefined ? '' : String(v)
+}
+function target(r: Record<string, unknown>): RouteLocationRaw | null {
+  return props.rowTo ? props.rowTo(r) : null
+}
+function goRow(r: Record<string, unknown>): void {
+  const to = target(r)
+  if (to) router.push(to)
 }
 </script>
 
@@ -41,8 +55,14 @@ function asStr(v: unknown): string {
           </tr>
         </thead>
         <tbody>
-          <tr v-for="(row, i) in rows" :key="i" class="border-t border-neutral-50">
-            <td v-for="c in columns" :key="c.key" class="px-2 py-2 align-middle">
+          <tr
+            v-for="(row, i) in rows"
+            :key="i"
+            class="border-t border-neutral-50 transition"
+            :class="target(row) ? 'cursor-pointer hover:bg-blue-50/50' : ''"
+            @click="goRow(row)"
+          >
+            <td v-for="(c, ci) in columns" :key="c.key" class="px-2 py-2 align-middle">
               <!-- status / severity → StatusBadge (single source of truth) -->
               <StatusBadge
                 v-if="(c.type === 'status' || c.type === 'severity') && asStr(row[c.key])"
@@ -55,6 +75,13 @@ function asStr(v: unknown): string {
                 class="font-mono text-xs text-neutral-700"
                 :title="asStr(row[c.key])"
               >{{ (c.nameKey && row[c.nameKey]) ? asStr(row[c.nameKey]) : asStr(row[c.key]) || '—' }}</span>
+              <!-- §9.7: cột ĐẦU + có rowTo → RouterLink (affordance + accessibility) -->
+              <RouterLink
+                v-else-if="ci === 0 && target(row)"
+                :to="target(row)!"
+                class="font-medium text-blue-700 hover:underline"
+                @click.stop
+              >{{ (c.nameKey && row[c.nameKey]) ? asStr(row[c.nameKey]) : asStr(row[c.key]) || '—' }}</RouterLink>
               <!-- text/date -->
               <span v-else class="text-neutral-700">
                 {{ (c.nameKey && row[c.nameKey]) ? asStr(row[c.nameKey]) : asStr(row[c.key]) || '—' }}

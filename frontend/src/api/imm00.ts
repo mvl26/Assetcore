@@ -89,7 +89,7 @@ export function verifyChain(asset: string): Promise<ChainVerifyResult> {
 
 // ─── IMM CAPA Record ──────────────────────────────────────────────────────────
 
-export function listCapas(params: { page?: number; page_size?: number; status?: string; asset?: string } = {}): Promise<PaginatedResponse<ImmCapaRecord>> {
+export function listCapas(params: { page?: number; page_size?: number; status?: string; asset?: string; not_closed?: number; overdue?: number } = {}): Promise<PaginatedResponse<ImmCapaRecord>> {
   return frappeGet(`${BASE}.list_capas`, params as Record<string, unknown>)
 }
 

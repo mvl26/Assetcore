@@ -244,6 +244,52 @@ class TestPMWorkOrder(unittest.TestCase):
         finally:
             set_schedule_status(self.schedule_name, "Active")
 
+    def test_br0806_high_risk_wo_no_attribute_error(self):
+        """BR-08-06 regression: PM WO cho thiết bị Critical KHÔNG được raise
+        AttributeError trên `doc.attachments` (Attach Multiple chưa init).
+
+        Phải raise ValidationError có ý nghĩa (yêu cầu photo evidence) — KHÔNG
+        phải AttributeError. Bug gốc: `if ... and not doc.attachments` crash khi
+        attachments chưa từng set; fix dùng `doc.get("attachments")`.
+        """
+        from frappe.exceptions import ValidationError
+
+        crit_asset = _make_asset("-crit")
+        frappe.db.set_value(
+            "AC Asset", crit_asset.name, "risk_classification", "Critical"
+        )
+        # PM Schedule có naming deterministic PMS-{asset}-Quarterly. Nếu một
+        # lần chạy trước để sót (asset name có thể tái dùng) → xoá trước khi tạo.
+        det_name = f"PMS-{crit_asset.name}-Quarterly"
+        if frappe.db.exists("PM Schedule", det_name):
+            for wo in frappe.get_all(
+                "PM Work Order", filters={"pm_schedule": det_name}, pluck="name"
+            ):
+                frappe.delete_doc("PM Work Order", wo, force=True, ignore_permissions=True)
+            frappe.delete_doc("PM Schedule", det_name, force=True, ignore_permissions=True)
+        crit_sched = _make_schedule(crit_asset.name, self.template_name)
+        try:
+            # Không gắn attachments → BR-08-06 phải chặn bằng ValidationError,
+            # KHÔNG phải AttributeError. assertRaises(ValidationError) sẽ FAIL
+            # nếu raise AttributeError (loại exception khác) → bắt đúng regression.
+            try:
+                create_adhoc_work_order({
+                    "asset_ref": crit_asset.name,
+                    "pm_schedule": crit_sched["name"],
+                    "due_date": add_days(nowdate(), 7),
+                })
+            except AttributeError as e:  # noqa: F841
+                self.fail(f"BR-08-06 regression: raised AttributeError {e}")
+            except (ValidationError, ServiceError):
+                pass  # đúng kỳ vọng — gate photo evidence hoạt động
+        finally:
+            for wo in frappe.get_all(
+                "PM Work Order", filters={"asset_ref": crit_asset.name}, pluck="name"
+            ):
+                frappe.delete_doc("PM Work Order", wo, force=True, ignore_permissions=True)
+            frappe.delete_doc("PM Schedule", crit_sched["name"], force=True, ignore_permissions=True)
+            purge_asset(crit_asset.name)
+
 
 class TestPMBackfillAndSupervisor(unittest.TestCase):
     """Slide 08c — backfill PM Schedule cho asset có next_pm_date; slide 22 — supervisor."""

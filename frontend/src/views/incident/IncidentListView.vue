@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // Copyright (c) 2026, AssetCore Team Incident List
-import { ref, onMounted, computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, onMounted, computed, watch } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { useImm12Store } from '@/stores/imm12'
 import PageHeader from '@/components/common/PageHeader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
@@ -11,9 +11,29 @@ import StatusBadge from '@/components/common/StatusBadge.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import WorkOrderKpiStrip, { type WoKpiItem } from '@/components/common/WorkOrderKpiStrip.vue'
 import { incidentSeverityLabel } from '@/constants/labels'
+import { useCapabilities } from '@/composables/useCapabilities'
 
 const router = useRouter()
+const route = useRoute()
 const store = useImm12Store()
+// Read-only oversight (opsmgr): chỉ user có corrective.create mới thấy nút Báo cáo sự cố.
+const { can } = useCapabilities()
+
+/**
+ * Core Doc §9.3 — đọc route.query (drill-down từ dashboard) → áp vào filter.
+ * Keys hỗ trợ: severity, status. Trả true nếu có filter set từ query.
+ */
+function applyQueryToFilters(): boolean {
+  let touched = false
+  const sev = route.query.severity
+  const st = route.query.status
+  const sevVal = Array.isArray(sev) ? sev[0] : sev
+  const stVal = Array.isArray(st) ? st[0] : st
+  if (typeof sevVal === 'string' && sevVal) { severityFilter.value = sevVal; touched = true }
+  if (typeof stVal === 'string' && stVal) { statusFilter.value = stVal; touched = true }
+  if (touched) showFilters.value = true
+  return touched
+}
 
 // KPI strip (mockup docs/fe/12-incident/incidents-list.html — 4 ô trên filter bar).
 const kpiItems = computed<WoKpiItem[]>(() => {
@@ -118,7 +138,18 @@ function goToPage(page: number) {
   })
 }
 
-onMounted(() => { store.fetchList(); store.fetchStats() })
+onMounted(() => {
+  // Core Doc §9.3 — pre-apply filter từ route.query (drill-down) trước khi fetch.
+  if (applyQueryToFilters()) applyFilter()
+  else store.fetchList()
+  store.fetchStats()
+})
+
+// §9.3 — drill-down lần 2 (cùng route, query khác) → re-apply.
+watch(
+  () => route.query,
+  () => { if (applyQueryToFilters()) applyFilter() },
+)
 </script>
 
 <template>
@@ -130,7 +161,7 @@ onMounted(() => { store.fetchList(); store.fetchStats() })
     >
       <template #actions>
         <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
-        <button class="btn-primary" @click="router.push('/incidents/new')">
+        <button v-if="can('corrective.create')" class="btn-primary" @click="router.push('/incidents/new')">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
           </svg>
@@ -275,7 +306,7 @@ onMounted(() => { store.fetchList(); store.fetchStats() })
           <button v-if="activeFilterCount > 0" class="text-xs text-blue-500 hover:text-blue-700 underline mt-2" @click="resetFilters">
             Xóa bộ lọc để xem tất cả
           </button>
-          <button v-else class="btn-ghost text-xs mt-3" @click="router.push('/incidents/new')">
+          <button v-else-if="can('corrective.create')" class="btn-ghost text-xs mt-3" @click="router.push('/incidents/new')">
             + Báo cáo sự cố đầu tiên
           </button>
         </div>

@@ -5,7 +5,9 @@ import { usePersonaDashboard } from '@/composables/useDashboard'
 import { sectionRows } from '@/api/dashboard'
 import PersonaDashboardShell from '@/components/dashboard/PersonaDashboardShell.vue'
 import ListCard, { type ListColumn } from '@/components/dashboard/ListCard.vue'
+import { useSectionDrill } from '@/composables/useSectionDrill'
 
+const drill = useSectionDrill()
 const { data, isLoading, error, refetch } = usePersonaDashboard('tech')
 const kpis = computed(() => data.value?.kpis ?? [])
 const sec = computed(() => data.value?.sections)
@@ -41,10 +43,16 @@ const reqCols: ListColumn[] = [
     :error="error ? String(error.message ?? error) : null"
     @retry="refetch"
   >
-    <ListCard title="PM của tôi hôm nay" :columns="pmCols" :rows="myWoToday" />
+    <ListCard title="PM của tôi hôm nay" :columns="pmCols" :rows="myWoToday" :row-to="drill.pmWo" />
     <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
-      <ListCard title="CM của tôi" :columns="cmCols" :rows="myCm" />
-      <ListCard title="Phụ tùng đã yêu cầu" :columns="reqCols" :rows="mySpareRequests" />
+      <ListCard title="CM của tôi" :columns="cmCols" :rows="myCm" :row-to="drill.cmWo" />
+      <!-- Phiếu cấp phát PT: drill về CM WO nguồn (work_order_ref) thay vì phiếu (không có detail view riêng). -->
+      <ListCard
+        title="Phụ tùng đã yêu cầu"
+        :columns="reqCols"
+        :rows="mySpareRequests"
+        :row-to="(r) => drill.cmWo({ name: r.work_order_ref })"
+      />
     </div>
   </PersonaDashboardShell>
 </template>

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { useCapaStore } from '@/stores/imm00'
 import type { CapaStatus } from '@/types/imm00'
 import PageHeader from '@/components/common/PageHeader.vue'
@@ -10,10 +10,14 @@ import BasePagination from '@/components/common/BasePagination.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 
 const router = useRouter()
+const route = useRoute()
 const store = useCapaStore()
 
-const statusFilter = ref<CapaStatus | ''>('')
-const showFilters = ref(false)
+const statusFilter = ref<CapaStatus | ''>((route.query.status as CapaStatus) || '')
+// R10 §9.4.8 — drill từ KPI qa: ?not_closed=1 (capa_open) / ?overdue=1 (capa_overdue).
+const notClosed = ref<boolean>(route.query.not_closed === '1')
+const overdueOnly = ref<boolean>(route.query.overdue === '1')
+const showFilters = ref<boolean>(!!(route.query.status || route.query.not_closed || route.query.overdue))
 
 const STATUSES: { value: CapaStatus | ''; label: string }[] = [
   { value: '', label: 'Tất cả' },
@@ -46,9 +50,11 @@ const SEV_LABEL: Record<string, string> = {
   'Minor': 'Nhỏ',
 }
 
-interface Chip { key: 'status'; label: string }
+interface Chip { key: 'status' | 'notClosed' | 'overdue'; label: string }
 const activeChips = computed<Chip[]>(() => {
   const chips: Chip[] = []
+  if (overdueOnly.value) chips.push({ key: 'overdue', label: 'Quá hạn' })
+  else if (notClosed.value) chips.push({ key: 'notClosed', label: 'Chưa đóng' })
   if (statusFilter.value) {
     const s = STATUSES.find(x => x.value === statusFilter.value)
     chips.push({ key: 'status', label: s?.label ?? statusFilter.value })
@@ -59,11 +65,15 @@ const activeFilterCount = computed(() => activeChips.value.length)
 
 function clearChip(key: string) {
   if (key === 'status') statusFilter.value = ''
+  else if (key === 'notClosed') notClosed.value = false
+  else if (key === 'overdue') overdueOnly.value = false
   applyFilter()
 }
 
 function resetFilters() {
   statusFilter.value = ''
+  notClosed.value = false
+  overdueOnly.value = false
   store.fetchList()
 }
 
@@ -74,12 +84,21 @@ function quickFilter(_key: 'status', value: string) {
   applyFilter()
 }
 
+function buildParams(extra: Record<string, unknown> = {}) {
+  return {
+    status: statusFilter.value || undefined,
+    not_closed: notClosed.value ? 1 : undefined,
+    overdue: overdueOnly.value ? 1 : undefined,
+    ...extra,
+  }
+}
+
 function applyFilter() {
-  store.fetchList({ status: statusFilter.value || undefined })
+  store.fetchList(buildParams())
 }
 
 function goToPage(page: number) {
-  store.fetchList({ status: statusFilter.value || undefined, page })
+  store.fetchList(buildParams({ page }))
 }
 
 function formatDate(d?: string) {
@@ -92,7 +111,7 @@ function isOverdue(date?: string) {
   return new Date(date) < new Date()
 }
 
-onMounted(() => store.fetchList())
+onMounted(() => applyFilter())
 </script>
 
 <template>

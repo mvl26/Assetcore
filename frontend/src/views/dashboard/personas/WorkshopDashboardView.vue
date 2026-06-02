@@ -5,7 +5,9 @@ import { usePersonaDashboard } from '@/composables/useDashboard'
 import { sectionRows } from '@/api/dashboard'
 import PersonaDashboardShell from '@/components/dashboard/PersonaDashboardShell.vue'
 import ListCard, { type ListColumn } from '@/components/dashboard/ListCard.vue'
+import { useSectionDrill } from '@/composables/useSectionDrill'
 
+const drill = useSectionDrill()
 const { data, isLoading, error, refetch } = usePersonaDashboard('workshop')
 const kpis = computed(() => data.value?.kpis ?? [])
 const sec = computed(() => data.value?.sections)
@@ -36,7 +38,9 @@ const compCols: ListColumn[] = [
     @retry="refetch"
   >
     <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
-      <ListCard title="Lệnh công việc cần phân công" :columns="woCols" :rows="woToAssign" />
+      <!-- Section wo_to_assign là PM WO (BE _recent 'PM Work Order') → drill PM detail. -->
+      <ListCard title="Lệnh công việc cần phân công" :columns="woCols" :rows="woToAssign" :row-to="drill.pmWo" />
+      <!-- Năng lực KTV: không có detail view 1-1 cho competency record → giữ tĩnh (non-drill có lý do §9.9). -->
       <ListCard title="Năng lực kỹ thuật viên" :columns="compCols" :rows="techCompetency" />
     </div>
   </PersonaDashboardShell>

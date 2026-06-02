@@ -90,23 +90,44 @@ def get_overview() -> dict:
         cm_completed_30d = _count("Asset Repair", {"status": "Completed", "completion_datetime": [">=", add_days(today_str, -30)]})
 
         # ── IMM-11: Hiệu chuẩn ───────────────────────────────────────────────
-        calib_due = _count("IMM Calibration Schedule", {"next_calibration_date": ["between", [today_str, next30]]})
-        calib_overdue = _count("IMM Calibration Schedule", {"next_calibration_date": ["<", today_str]})
+        # RC-R6 (root-cause): field đúng là `next_due_date`. Trước đây dùng
+        # `next_calibration_date` (column KHÔNG tồn tại trên IMM Calibration
+        # Schedule) → OperationalError bị try/except của get_overview nuốt im →
+        # KPI calib_due/overdue âm thầm sai. SSOT cho drill-down date-window.
+        calib_due = _count("IMM Calibration Schedule", {"next_due_date": ["between", [today_str, next30]]})
+        calib_overdue = _count("IMM Calibration Schedule", {"next_due_date": ["<", today_str]})
 
         # ── Incident / CAPA ──────────────────────────────────────────────────
         incidents_open = _count("Incident Report", {"status": [_OP_NOT_IN, ["Closed", "Resolved"]]})
         incidents_critical = _count("Incident Report", {"severity": "Critical", "status": [_OP_NOT_IN, ["Closed", "Resolved"]]})
+        # R8 §9.4.6 — phân bổ severity của incident MỞ cho donut click-through.
+        # code = severity canonical (Critical/High/Medium/Low) → drill
+        # /incidents/list?severity=<code>. Chỉ các mức canonical (loại null/khác).
+        incident_severity_breakdown = [
+            {"severity": sev, "code": sev, "label_vi": _SEVERITY_LABELS_VI[sev],
+             "count": _count("Incident Report",
+                             {"severity": sev, "status": [_OP_NOT_IN, ["Closed", "Resolved"]]})}
+            for sev in ("Critical", "High", "Medium", "Low")
+        ]
         capa_open = _count("IMM CAPA Record", {"status": [_OP_NOT_IN, ["Closed"]]})
         capa_overdue = _count("IMM CAPA Record", {"status": [_OP_NOT_IN, ["Closed"]], "due_date": ["<", today_str]})
 
         # ── Phân bổ lifecycle cho biểu đồ ──────────────────────────────────
+        # Core Doc §9.1: mỗi entry mang 'code' = canonical lifecycle_status (English)
+        # để FE donut segment-click drill tới /assets?lifecycle_status=<code>.
+        # 'state' ở đây vốn đã English canonical → code = state. label_vi cho hiển thị.
+        _lc_raw = [
+            ("Commissioned", _count(_DT_ASSET, {"lifecycle_status": "Commissioned"})),
+            ("Active", assets_active),
+            (_STATUS_UNDER_REPAIR, assets_repair),
+            ("Calibrating", assets_calibrating),
+            (_STATUS_OUT_OF_SERVICE, assets_out),
+            ("Decommissioned", assets_decommissioned),
+        ]
         lifecycle_breakdown = [
-            {"state": "Commissioned", "count": _count(_DT_ASSET, {"lifecycle_status": "Commissioned"})},
-            {"state": "Active", "count": assets_active},
-            {"state": _STATUS_UNDER_REPAIR, "count": assets_repair},
-            {"state": "Calibrating", "count": assets_calibrating},
-            {"state": _STATUS_OUT_OF_SERVICE, "count": assets_out},
-            {"state": "Decommissioned", "count": assets_decommissioned},
+            {"state": code, "code": code, "label_vi": _STATUS_LABELS_VI.get(code, code),
+             "count": cnt}
+            for code, cnt in _lc_raw
         ]
 
         # ── Các danh sách gần đây ────────────────────────────────────────────
@@ -182,6 +203,7 @@ def get_overview() -> dict:
                 "overdue": capa_overdue,
             },
             "lifecycle_breakdown": lifecycle_breakdown,
+            "incident_severity_breakdown": incident_severity_breakdown,
             "recent_incidents": recent_incidents,
             "recent_pm": recent_pm,
         })
@@ -200,19 +222,55 @@ _STATUS_LABELS_VI = {
     "Under Maintenance": "Đang bảo trì",
     "Calibrating": "Đang hiệu chuẩn",
     _STATUS_OUT_OF_SERVICE: "Ngừng hoạt động",
-    "Commissioned": "Mới tiếp nhận",
+    # Đồng bộ với FE constants/labels.ts + formatters.ts (chống drift donut↔list).
+    "Commissioned": "Đã đưa vào sử dụng",
     "Decommissioned": "Đã thanh lý",
 }
 
-_STATUS_COLORS = {
-    "Đang hoạt động":    "#10b981",
-    "Đang sửa chữa":     "#ef4444",
-    "Đang bảo trì":      "#f59e0b",
-    "Đang hiệu chuẩn":   "#8b5cf6",
-    "Ngừng hoạt động":   "#64748b",
-    "Mới tiếp nhận":     "#3b82f6",
-    "Đã thanh lý":       "#94a3b8",
+# R8 §9.4.6 — nhãn VI cho severity (đồng bộ SEVERITIES trong IncidentListView.vue,
+# chống drift donut↔list). code canonical English giữ nguyên cho drill query.
+_SEVERITY_LABELS_VI = {
+    "Critical": "Nghiêm trọng",
+    "High":     "Cao",
+    "Medium":   "Trung bình",
+    "Low":      "Thấp",
 }
+
+_STATUS_COLORS = {
+    "Đang hoạt động":     "#10b981",
+    "Đang sửa chữa":      "#ef4444",
+    "Đang bảo trì":       "#f59e0b",
+    "Đang hiệu chuẩn":    "#8b5cf6",
+    "Ngừng hoạt động":    "#64748b",
+    "Đã đưa vào sử dụng": "#3b82f6",
+    "Đã thanh lý":        "#94a3b8",
+}
+
+# Core Doc §9.2 — đảo ngược _STATUS_LABELS_VI: nhãn VI → canonical lifecycle_status
+# (English) mà AssetListView filter mong đợi. Một nguồn sự thật duy nhất, không
+# hardcode chuỗi VI rời rạc. Dùng cho drill-down query (donut/KPI → /assets).
+_VI_TO_CANONICAL = {vi: en for en, vi in _STATUS_LABELS_VI.items()}
+
+
+def _canonical_status(label: str) -> str:
+    """Map nhãn (VI hoặc đã canonical) → canonical lifecycle_status English.
+
+    Nhãn VI → tra ngược; nhãn đã English (state canonical) → giữ nguyên;
+    sentinel 'Chưa xác định'/unknown → giữ nguyên (FE hiện chip, list rỗng an toàn).
+    """
+    if label in _STATUS_LABELS_VI:        # đã là canonical English
+        return label
+    return _VI_TO_CANONICAL.get(label, label)
+
+
+def _asset_drill(status_code: str) -> dict:
+    """Core Doc §9.1 — drill descriptor tới AssetListView filtered theo lifecycle_status."""
+    return {"route": "/assets", "query": {"lifecycle_status": status_code}}
+
+
+def _drill(route: str, **query) -> dict:
+    """Core Doc §9.1 — drill descriptor tổng quát (route + query canonical)."""
+    return {"route": route, "query": {k: str(v) for k, v in query.items() if v}}
 
 
 @frappe.whitelist()
@@ -251,13 +309,18 @@ def get_dashboard_data() -> dict:
             """,
             as_dict=True,
         ) or []
-        labels, series, colors = [], [], []
+        labels, series, colors, codes = [], [], [], []
         for row in status_rows:
-            label = _STATUS_LABELS_VI.get(row["status"], row["status"])
+            raw = row["status"]                       # canonical English (hoặc 'Chưa xác định')
+            label = _STATUS_LABELS_VI.get(raw, raw)   # nhãn VI hiển thị
             labels.append(label)
             series.append(int(row["cnt"] or 0))
             colors.append(_STATUS_COLORS.get(label, "#94a3b8"))
-        asset_status_chart = {"labels": labels, "series": series, "colors": colors}
+            # Core Doc §9.2: 'codes' canonical song song labels → FE emit code khi
+            # click segment, route /assets?lifecycle_status=<code> (không nhãn VI).
+            codes.append(_canonical_status(raw))
+        asset_status_chart = {"labels": labels, "series": series, "colors": colors,
+                              "codes": codes}
 
         # ── 3. Upcoming maintenance (PM + Calibration, ≤30 ngày) ────────────
         upcoming_rows = frappe.db.sql(
@@ -336,9 +399,15 @@ _VALID_PERSONAS = {
 }
 
 
-def _kpi(key: str, label_vi: str, value, foot_vi: str = "", tone: str = "info") -> dict:
-    """Chuẩn hoá 1 KPI card (Core Doc §3). tone ∈ {primary,info,ok,warn,danger}."""
-    return {"key": key, "label_vi": label_vi, "value": value, "foot_vi": foot_vi, "tone": tone}
+def _kpi(key: str, label_vi: str, value, foot_vi: str = "", tone: str = "info",
+         drill: dict | None = None) -> dict:
+    """Chuẩn hoá 1 KPI card (Core Doc §3 + §9.1). tone ∈ {primary,info,ok,warn,danger}.
+
+    drill (optional, Core Doc §9.1): {route, query} → FE render RouterLink click-through
+    tới list view đã pre-apply filter. None = card tĩnh (không drill được).
+    """
+    return {"key": key, "label_vi": label_vi, "value": value, "foot_vi": foot_vi,
+            "tone": tone, "drill": drill}
 
 
 def _overview_payload() -> dict:
@@ -371,23 +440,38 @@ def _build_opsmgr(ov: dict) -> dict:
     mk = cm_kpis(dt.year, dt.month).get("kpis", {})
 
     kpis = [
+        # §9.4: click → /assets?lifecycle_status=Active (canonical code, không VI).
         _kpi("active_assets", "Thiết bị đang hoạt động", a.get("active", 0),
-             f"Tổng {a.get('total', 0)}", "primary"),
+             f"Tổng {a.get('total', 0)}", "primary", drill=_asset_drill("Active")),
+        # §9.4.3 (R6): date-window drill → /pm/work-orders?due_before=today+7.
         _kpi("pm_due_7d", "PM đến hạn 7 ngày", pm.get("due_next_7d", 0),
-             f"{pm.get('overdue', 0)} quá hạn", "warn"),
+             f"{pm.get('overdue', 0)} quá hạn", "warn",
+             drill=_drill("/pm/work-orders", due_before=add_days(today(), 7))),
+        # §9.4.1: click → /incidents/list?severity=Critical (list tập bao KPI compound).
         _kpi("incidents_critical", "Sự cố mở (Critical)", inc.get("critical_open", 0),
-             f"{inc.get('open', 0)} sự cố mở", "danger"),
+             f"{inc.get('open', 0)} sự cố mở", "danger",
+             drill={"route": "/incidents/list", "query": {"severity": "Critical"}}),
         _kpi("needs_pending", "Đề xuất chờ duyệt", needs_pending, "Chưa phê duyệt", "info"),
     ]
     return {
         "kpis": kpis,
         "sections": {
             "asset_status_breakdown": ov.get("lifecycle_breakdown", []),
+            # R8 §9.4.6 — severity donut click-through tới /incidents/list?severity=<code>.
+            "incident_severity_breakdown": ov.get("incident_severity_breakdown", []),
             "maintenance_kpi": {
                 "mttr_avg_hours": mk.get("mttr_avg_hours", 0),
                 "sla_compliance_pct": mk.get("sla_compliance_pct", 0),
                 "open_wos": mk.get("open_wos", 0),
                 "repeat_failure_count": mk.get("repeat_failure_count", 0),
+                # R8 §9.4.6 — bar-card drill: SLA → CM list vi phạm SLA;
+                # open_wos / repeat → CM list filtered. MTTR là metric thời lượng
+                # (không có list 1-1) → KHÔNG drill (canonical-value rule §9.5 #10).
+                "drills": {
+                    "sla_compliance_pct": _drill("/cm/work-orders", sla_breached="1"),
+                    "open_wos": _drill("/cm/work-orders", status="Open"),
+                    "repeat_failure_count": _drill("/cm/work-orders", is_repeat_failure="1"),
+                },
             },
             "recent_events": ov.get("recent_incidents", []),
             "recent_pm": ov.get("recent_pm", []),
@@ -412,14 +496,25 @@ def _build_workshop(ov: dict) -> dict:
     _enrich_asset_name(wo_to_assign, "asset_ref")
 
     kpis = [
+        # §9.4.7 (R9): COMPOUND (PM open + CM open, 2 doctype) → KHÔNG drill 1-list
+        # (sẽ lệch count, vi phạm §9.5 #10). Section table 'wo_to_assign' bên dưới
+        # liệt kê chi tiết PM WO. drill=None (card tĩnh, canonical-value rule).
         _kpi("wo_to_assign", "WO chờ phân công", pm.get("open", 0) + cm.get("open", 0),
              f"{pm.get('open', 0)} PM · {cm.get('open', 0)} CM", "info"),
+        # §9.4.7 (R9): click → /cm/work-orders?sla_breached=1 (list tập bao KPI).
         _kpi("cm_sla_breached", "SLA vi phạm", cm.get("sla_breached", 0),
-             f"SLA tuân thủ {sla_pct}%", "danger"),
+             f"SLA tuân thủ {sla_pct}%", "danger",
+             drill=_drill("/cm/work-orders", sla_breached="1")),
+        # §9.4.2: click → /pm/work-orders?status=Overdue (status canonical khớp WO).
         _kpi("pm_overdue", "PM quá hạn", pm.get("overdue", 0),
-             f"{pm.get('due_next_7d', 0)} đến hạn 7 ngày", "warn"),
+             f"{pm.get('due_next_7d', 0)} đến hạn 7 ngày", "warn",
+             drill=_drill("/pm/work-orders", status="Overdue")),
+        # §9.4.3 (R6): date-window drill. calib_due/overdue đếm theo
+        # next_due_date (KHÔNG có status để ép) → drill bằng cửa sổ ngày để
+        # list khớp KPI (tránh 'lệch count'). due_before=today+30; overdue=1.
         _kpi("calib_due", "Hiệu chuẩn đến hạn", calib.get("due_30d", 0),
-             f"{calib.get('overdue', 0)} quá hạn", "ok"),
+             f"{calib.get('overdue', 0)} quá hạn", "ok",
+             drill=_drill("/calibration/schedules", due_before=add_days(today(), 30))),
     ]
     return {
         "kpis": kpis,
@@ -558,7 +653,9 @@ def _build_store(ov: dict) -> dict:
     pending = list_allocations({"allocation_status": ["in", ["Requested", "Approved"]]}, page=1, page_size=10).get("data", [])
 
     kpis = [
-        _kpi("low_stock", "Dưới định mức", stats.get("low_stock_alerts", 0), "Cần đặt hàng", "danger"),
+        # §9.4.5 (R7): click → /spare-parts?low_stock=1 (parts dưới định mức).
+        _kpi("low_stock", "Dưới định mức", stats.get("low_stock_alerts", 0), "Cần đặt hàng", "danger",
+             drill=_drill("/spare-parts", low_stock="1")),
         _kpi("pending_alloc", "Cấp phát đang xử lý", stats.get("pending_allocations", 0), "", "warn"),
         _kpi("pending_cycle", "Kiểm kê đang đếm", stats.get("pending_cycle_counts", 0), "", "info"),
         _kpi("stockout_30d", "Hết hàng 30 ngày",
@@ -592,8 +689,15 @@ def _build_qa(ov: dict) -> dict:
     )
 
     kpis = [
-        _kpi("capa_overdue", "CAPA quá hạn", capa.get("overdue", 0), "", "danger"),
-        _kpi("capa_open", "CAPA đang xử lý", capa.get("open", 0), "", "warn"),
+        # §9.4.8 (R10): date-window drill (overdue=1) → /capas?overdue=1 (khớp KPI).
+        _kpi("capa_overdue", "CAPA quá hạn", capa.get("overdue", 0), "", "danger",
+             drill=_drill("/capas", overdue="1")),
+        # §9.4.8 (R10): not_closed=1 → /capas?not_closed=1 (status NOT IN Closed, khớp KPI).
+        _kpi("capa_open", "CAPA đang xử lý", capa.get("open", 0), "", "warn",
+             drill=_drill("/capas", not_closed="1")),
+        # §9.4.8 (R10): predicate compound chuyên biệt (mở AND rca_required AND
+        # root_cause_summary trống) — không có list filter 1-1 chung → KHÔNG drill
+        # (canonical-value rule §9.5 #10). Section 'capa_todo'/findings backing.
         _kpi("rca_incomplete", "RCA chưa hoàn tất", rca_incomplete, "Critical/Chronic", "info"),
         _kpi("compliance_score", "Điểm tuân thủ", score,
              "Chưa có scorecard kỳ này" if score is None else "Mục tiêu ≥ 85", "ok"),
@@ -629,13 +733,19 @@ def _build_admin(ov: dict) -> dict:
     )
     audit_recent = ov.get("recent_incidents", [])
 
+    # R1 §9.4.9 — admin (data.admin) drill: KPI người-dùng → /user-profiles filtered;
+    # audit_chain (status PASS/FAIL, không phải tập record) → mở /audit-trail viewer.
+    # query canonical (approval_status=Pending, role=Vendor Engineer) khớp filter list.
     kpis = [
         _kpi("total_users", "Tổng người dùng", total_users,
-             f"{disabled_users} vô hiệu · {pending_users} chờ duyệt", "primary"),
-        _kpi("pending_users", "Chờ phê duyệt", pending_users, "Đăng ký mới", "warn"),
+             f"{disabled_users} vô hiệu · {pending_users} chờ duyệt", "primary",
+             drill=_drill("/user-profiles")),
+        _kpi("pending_users", "Chờ phê duyệt", pending_users, "Đăng ký mới", "warn",
+             drill=_drill("/user-profiles", approval_status="Pending")),
         _kpi("audit_chain", "Chuỗi audit", audit_status if audit_status is not None else "—",
-             "Kiểm tra tính toàn vẹn", "ok"),
-        _kpi("vendor_engineers", "Vendor Engineer", vendor_engineers, "Bên thứ ba, cô lập", "info"),
+             "Kiểm tra tính toàn vẹn", "ok", drill=_drill("/audit-trail")),
+        _kpi("vendor_engineers", "Vendor Engineer", vendor_engineers, "Bên thứ ba, cô lập", "info",
+             drill=_drill("/user-profiles", role="Vendor Engineer")),
     ]
     return {"kpis": kpis, "sections": {"users_pending": users_pending, "audit_recent": audit_recent}}
 

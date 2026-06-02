@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // Copyright (c) 2026, AssetCore Team
-import { ref, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, computed, onMounted, watch } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { listUsers, getAvailableImmRoles, type IMMUserListItem, type ImmRoleOption } from '@/api/user'
 import { useImportWizard } from '@/composables/useImportWizard'
@@ -13,7 +13,32 @@ import ListFilterBar from '@/components/common/ListFilterBar.vue'
 import SmartSelect from '@/components/common/SmartSelect.vue'
 
 const router = useRouter()
+const route = useRoute()
 const auth = useAuthStore()
+
+/**
+ * Core Doc §9.3 — đọc route.query (drill-down từ dashboard admin §9.4.9) → áp vào
+ * filter trước khi load. Keys: approval_status, role, department, search.
+ * Canonical code (Pending / Vendor Engineer) khớp filter list (KHÔNG nhãn VI).
+ */
+function applyQueryToFilters(): boolean {
+  const q = route.query
+  let touched = false
+  const pick = (v: unknown): string => {
+    const s = Array.isArray(v) ? v[0] : v
+    return typeof s === 'string' ? s : ''
+  }
+  const ap = pick(q.approval_status)
+  const rl = pick(q.role)
+  const dp = pick(q.department)
+  const se = pick(q.search)
+  if (ap) { filters.value.approval_status = ap; touched = true }
+  if (rl) { filters.value.role = rl; touched = true }
+  if (dp) { filters.value.department = dp; touched = true }
+  if (se) { filters.value.search = se; touched = true }
+  if (touched) showFilters.value = true
+  return touched
+}
 
 const users = ref<IMMUserListItem[]>([])
 const loading = ref(false)
@@ -87,7 +112,13 @@ function nextPage() { if (page.value * PAGE_SIZE < total.value) { page.value++; 
 
 onMounted(async () => {
   availableRoles.value = (await getAvailableImmRoles()) ?? []
+  applyQueryToFilters() // §9.3 pre-apply drill query trước load
   await load()
+})
+
+// Drill-down lần 2 (cùng route, query khác) → re-apply + reload (§9.3).
+watch(() => route.query, () => {
+  if (applyQueryToFilters()) { page.value = 1; load() }
 })
 
 // ── Import / Export ──────────────────────────────────────────────────────────

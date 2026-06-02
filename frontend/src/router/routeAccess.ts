@@ -82,3 +82,71 @@ export function resolveRouteAccess(
   // 5. Mặc định allow.
   return 'allow'
 }
+
+// ─── Drill-down access (Core Doc §9.5 #9) ───────────────────────────────────
+// Một KPI/segment chỉ được render CLICKABLE khi user thật sự vào được route đích.
+// Nếu thiếu capability → render card TĨNH (không link), KHÔNG đẩy user về
+// /unauthorized (bug opsmgr 2026-06-02: drill PM/CM/Sự cố rớt /unauthorized vì
+// persona oversight không có quyền đọc doctype vận hành).
+//
+// Map prefix → moduleId: tập con CHỈ gồm route mà dashboard drill tới. SSOT đầy
+// đủ là MODULE_RULES (router/index.ts); giữ tách ở đây để tránh circular-import
+// (index.ts import mọi view). Khi thêm drill route mới phải đồng bộ cả 2 nơi.
+const DRILL_MODULE_RULES: ReadonlyArray<[RegExp, string]> = [
+  [/^\/pm/, 'imm08'],
+  [/^\/cm/, 'imm09'],
+  [/^\/calibration/, 'imm11'],
+  [/^\/incidents/, 'imm12'],
+  [/^\/rca/, 'imm12'],
+  [/^\/capas/, 'imm16'],
+  [/^\/compliance/, 'imm16'],
+  [/^\/spare-parts/, 'imm15'],
+  [/^\/inventory/, 'imm15'],
+  [/^\/stock/, 'imm15'],
+  [/^\/warehouses/, 'imm15'],
+  [/^\/documents/, 'imm05'],
+  [/^\/commissioning/, 'imm04'],
+  // Master/system route (assets, depreciation, device-model…) → moduleId
+  // không cần cap đặc thù (moduleIdToCap trả null) → luôn cho phép.
+  [/^\/assets/, 'master'],
+  [/^\/depreciation/, 'master'],
+  [/^\/device-models/, 'master'],
+  [/^\/suppliers/, 'master'],
+  [/^\/service-contracts/, 'master'],
+]
+
+// Drill route gate bằng capability TRỰC TIẾP (không qua moduleId) — cho route mà
+// cap đích KHÔNG khớp `<module>.read` (sửa drift §9.4.9). SSOT là route.meta
+// trong router/index.ts; giữ tách ở đây tránh circular-import. Khi đổi
+// requiredCapabilities của các route này phải đồng bộ cả hai nơi.
+//   /audit-trail → audit.read (route.meta dùng audit.read, KHÔNG phải compliance.read)
+//   /user-profiles, /admin/roles → data.admin (quản trị user/phân quyền)
+const DRILL_CAP_RULES: ReadonlyArray<[RegExp, string]> = [
+  [/^\/audit-trail/, 'audit.read'],
+  [/^\/user-profiles/, 'data.admin'],
+  [/^\/admin\/roles/, 'data.admin'],
+]
+
+/**
+ * Quyết định một drill-target (route đích của KPI/segment) có click được không.
+ *
+ * Mirror chính xác bước 4 của resolveRouteAccess: moduleId → `<domain>.read`.
+ * Route ngoài map (master/system/null cap, hoặc không khớp) → cho phép — KHÔNG
+ * chặn nhầm; route-guard vẫn là chốt chặn cuối nếu đoán sai.
+ *
+ * @param path  drill.route (pathname, không kèm query)
+ * @param can   ctx.can — kiểm tra capability (từ useCapabilities)
+ */
+export function canAccessDrill(path: string, can: (cap: string) => boolean): boolean {
+  if (!path) return true
+  // 1. Route có cap đích trực tiếp (audit-trail, user-profiles, admin/roles) —
+  //    ưu tiên trước module-rule để dùng đúng capability (sửa drift §9.4.9).
+  const capRule = DRILL_CAP_RULES.find(([re]) => re.test(path))
+  if (capRule) return can(capRule[1])
+  // 2. Route module → `<domain>.read`.
+  const rule = DRILL_MODULE_RULES.find(([re]) => re.test(path))
+  if (!rule) return true
+  const cap = moduleIdToCap(rule[1])
+  if (!cap) return true // master/system → không gate bằng cap đặc thù
+  return can(cap)
+}

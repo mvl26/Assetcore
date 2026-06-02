@@ -38,6 +38,12 @@ ROLE_PROFILE_CATALOG: dict[str, list[str]] = {
     "Quản trị viên IT": [
         Roles.SUPER_ADMIN,
     ],
+    # NB (2026-06-02): vai trò giám sát — ngoài 4 role planning/deployment dưới,
+    # role "Commissioning Manager" (độc quyền profile này) còn được cấp DocPerm
+    # READ-ONLY trên PM Work Order / Asset Repair / Incident Report (+RCA/QA NC) để
+    # KPI dashboard opsmgr drill-down xem được (pm.read/repair.read/corrective.read).
+    # Read-only thuần — KHÔNG write/create/delete/workflow. Xem DocPerm read trong
+    # các *.json doctype tương ứng + docs/architecture/FE_Persona_Dashboards.md §9.5.
     "Trưởng phòng VT-TTBYT": [
         "Commissioning Manager", "Needs Manager",
         "Procurement Manager", "Spec Manager",

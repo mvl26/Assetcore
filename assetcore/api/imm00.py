@@ -888,8 +888,16 @@ def list_capas(
     status: str = None,
     capa_type: str = None,
     asset: str = None,
+    not_closed: int = 0,
+    overdue: int = 0,
 ):
-    """GET /api/method/assetcore.api.imm00.list_capas"""
+    """GET /api/method/assetcore.api.imm00.list_capas
+
+    R10 §9.4.8 — virtual filters cho drill-down từ KPI qa:
+      not_closed=1 → status NOT IN [Closed] (khớp KPI 'capa_open').
+      overdue=1    → status NOT IN [Closed] AND due_date < today (khớp KPI 'capa_overdue').
+    SSOT: cùng predicate đếm KPI ở get_overview → list khớp KPI.
+    """
     page, page_size = int(page), int(page_size)
     filters = {}
     if status:
@@ -898,6 +906,12 @@ def list_capas(
         filters["capa_type"] = capa_type
     if asset:
         filters["asset"] = asset
+    # overdue thắng not_closed (overdue đã bao hàm not-closed + date-window).
+    if int(overdue):
+        filters["status"] = ["not in", ["Closed"]]
+        filters["due_date"] = ["<", frappe.utils.today()]
+    elif int(not_closed):
+        filters["status"] = ["not in", ["Closed"]]
     total = frappe.db.count(_DT_CAPA, filters=filters)
     pag = paginate(total, page, page_size)
     items = frappe.get_list(

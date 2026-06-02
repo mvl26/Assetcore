@@ -361,9 +361,35 @@ def perform_lookback_assessment(device_model: str, exclude_asset: str) -> list[s
 
 # ─── Business operations gọi từ API (Tier 1) ─────────────────────────────────
 
+def _normalize_schedule_filters(f: dict | None) -> dict:
+    """R6 §9.4.3 — dịch virtual filter date-window sang điều kiện next_due_date.
+
+    Hỗ trợ drill-down từ KPI calib_due/overdue (đếm theo next_due_date, KHÔNG có
+    status để ép): `due_before` → next_due_date <= X; `overdue` (truthy) →
+    next_due_date < today. Một nguồn sự thật duy nhất, list khớp KPI.
+    """
+    if not f:
+        return {}
+    out: dict = {}
+    due_before = None
+    overdue = False
+    for k, v in f.items():
+        if k == "due_before":
+            due_before = v
+        elif k == "overdue":
+            overdue = str(v) in ("1", "true", "True", "yes")
+        else:
+            out[k] = v
+    if overdue:
+        out["next_due_date"] = ["<", nowdate()]
+    elif due_before:
+        out["next_due_date"] = ["<=", due_before]
+    return _normalize_list_filters(out)
+
+
 def list_schedules(filters: dict | None = None, *, page: int = 1, page_size: int = 20) -> dict:
     rows, pg = CalibrationScheduleRepo.list(
-        filters=filters,
+        filters=_normalize_schedule_filters(filters),
         fields=["name", "asset", "device_model", "calibration_type",
                 "interval_days", "last_calibration_date", "next_due_date",
                 "preferred_lab", "is_active"],

@@ -10,15 +10,22 @@ import ListFilterBar from '@/components/common/ListFilterBar.vue'
 import BasePagination from '@/components/common/BasePagination.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import WorkOrderKpiStrip, { type WoKpiItem } from '@/components/common/WorkOrderKpiStrip.vue'
+import { useCapabilities } from '@/composables/useCapabilities'
 
 const store = useImm09Store()
 const router = useRouter()
 const route = useRoute()
-const statusFilter = ref('')
-const priorityFilter = ref('')
+// Read-only oversight (opsmgr): chỉ user có repair.create mới thấy nút Tạo lệnh.
+const { can } = useCapabilities()
+// Core Doc §9.3 — pre-apply filter từ route.query (drill-down từ dashboard).
+const statusFilter = ref<string>((route.query.status as string) || '')
+const priorityFilter = ref<string>((route.query.priority as string) || '')
 const assetFilter = ref<string>((route.query.asset as string) || '')
+// R8 §9.4.6 — drill từ bar-card MTTR/SLA opsmgr: ?sla_breached=1 / ?is_repeat_failure=1.
+const slaBreached = ref<boolean>(route.query.sla_breached === '1')
+const repeatFailure = ref<boolean>(route.query.is_repeat_failure === '1')
 const search = ref('')
-const showFilters = ref(false)
+const showFilters = ref<boolean>(!!(route.query.status || route.query.priority || route.query.asset || route.query.sla_breached || route.query.is_repeat_failure))
 
 const CM_STATUSES = [
   { value: 'Open',               label: 'Tiếp nhận' },
@@ -37,9 +44,11 @@ const CM_STATUSES = [
 // Dùng single-source REPAIR_PRIORITY_OPTIONS (WAVE2: status/enum sync với BE).
 const PRIORITIES = REPAIR_PRIORITY_OPTIONS
 
-interface Chip { key: 'status' | 'priority' | 'asset' | 'search'; label: string }
+interface Chip { key: 'status' | 'priority' | 'asset' | 'search' | 'slaBreached' | 'repeatFailure'; label: string }
 const activeChips = computed<Chip[]>(() => {
   const chips: Chip[] = []
+  if (slaBreached.value) chips.push({ key: 'slaBreached', label: 'Vi phạm SLA' })
+  if (repeatFailure.value) chips.push({ key: 'repeatFailure', label: 'Lỗi lặp lại' })
   if (statusFilter.value) {
     const s = CM_STATUSES.find(x => x.value === statusFilter.value)
     chips.push({ key: 'status', label: s?.label ?? statusFilter.value })
@@ -59,6 +68,8 @@ function clearChip(key: string) {
   if (key === 'status') statusFilter.value = ''
   else if (key === 'priority') priorityFilter.value = ''
   else if (key === 'asset') assetFilter.value = ''
+  else if (key === 'slaBreached') slaBreached.value = false
+  else if (key === 'repeatFailure') repeatFailure.value = false
   else search.value = ''
 }
 
@@ -66,6 +77,8 @@ function resetFilters() {
   statusFilter.value = ''
   priorityFilter.value = ''
   assetFilter.value = ''
+  slaBreached.value = false
+  repeatFailure.value = false
   search.value = ''
   store.fetchWorkOrders({})
 }
@@ -83,6 +96,8 @@ function applyFilters() {
   if (statusFilter.value) f.status = statusFilter.value
   if (priorityFilter.value) f.priority = priorityFilter.value
   if (assetFilter.value) f.asset_ref = assetFilter.value
+  if (slaBreached.value) f.sla_breached = '1'
+  if (repeatFailure.value) f.is_repeat_failure = '1'
   store.fetchWorkOrders(Object.keys(f).length ? f : {})
 }
 
@@ -90,7 +105,12 @@ onMounted(() => {
   applyFilters()
   store.fetchKPIs()
 })
-watch([statusFilter, priorityFilter, assetFilter], () => applyFilters())
+watch([statusFilter, priorityFilter, assetFilter, slaBreached, repeatFailure], () => applyFilters())
+// §9.3 — drill-down lần 2 từ dashboard (cùng route, query khác) → sync filter.
+watch(() => route.query.status, (val) => { statusFilter.value = (val as string) || '' })
+watch(() => route.query.priority, (val) => { priorityFilter.value = (val as string) || '' })
+watch(() => route.query.sla_breached, (val) => { slaBreached.value = val === '1' })
+watch(() => route.query.is_repeat_failure, (val) => { repeatFailure.value = val === '1' })
 
 // KPI strip (docs/fe/09-repair/repair-list.html) — nguồn: get_repair_kpis thật từ BE.
 const kpiItems = computed<WoKpiItem[]>(() => {
@@ -127,7 +147,7 @@ const filteredWOs = computed(() => {
     >
       <template #actions>
         <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
-        <button class="btn-primary" @click="router.push(assetFilter ? `/cm/create?asset=${encodeURIComponent(assetFilter)}` : '/cm/create')">
+        <button v-if="can('repair.create')" class="btn-primary" @click="router.push(assetFilter ? `/cm/create?asset=${encodeURIComponent(assetFilter)}` : '/cm/create')">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
           </svg>

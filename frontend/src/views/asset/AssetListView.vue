@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // Copyright (c) 2026, AssetCore Team
-import { ref, onMounted, computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, onMounted, computed, watch } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { useAssetStore, useRefDataStore } from '@/stores/imm00'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
@@ -14,10 +14,36 @@ import { useImportWizard } from '@/composables/useImportWizard'
 import ImportWizardModal from '@/components/import/ImportWizardModal.vue'
 
 const router = useRouter()
+const route = useRoute()
 const store = useAssetStore()
 const refData = useRefDataStore()
 
 const showFilters = ref(false)
+
+// Core Doc §9.3 — keys cho phép pre-apply từ route.query (drill-down từ dashboard).
+const QUERY_FILTER_KEYS = ['lifecycle_status', 'department', 'asset_category', 'gmdn_code', 'search'] as const
+
+/**
+ * Đọc route.query → áp vào filters (Core Doc §9.3). Trả true nếu có filter nào
+ * được set từ query (để quyết định mở panel + dùng cleanParams khi fetch).
+ */
+function applyQueryToFilters(): boolean {
+  let touched = false
+  const f = filters.value as Record<string, unknown>
+  for (const key of QUERY_FILTER_KEYS) {
+    const raw = route.query[key]
+    const val = Array.isArray(raw) ? raw[0] : raw
+    if (typeof val === 'string' && val) {
+      f[key] = val
+      touched = true
+    }
+  }
+  if (touched) {
+    filters.value.page = 1
+    showFilters.value = true // hiện chip filter để user thấy + xoá được
+  }
+  return touched
+}
 
 const filters = ref<AssetListParams>({
   lifecycle_status: '',
@@ -133,8 +159,23 @@ function isPmOverdue(date?: string) {
 }
 
 onMounted(async () => {
-  await Promise.all([store.fetchList(), refData.fetchAll()])
+  // Core Doc §9.3 — pre-apply filter từ route.query (drill-down) TRƯỚC khi fetch.
+  const hasQueryFilter = applyQueryToFilters()
+  await Promise.all([
+    store.fetchList(hasQueryFilter ? cleanParams.value : undefined),
+    refData.fetchAll(),
+  ])
 })
+
+// Core Doc §9.3 — điều hướng drill-down lần 2 (cùng route, query khác) → re-apply.
+watch(
+  () => route.query,
+  () => {
+    if (applyQueryToFilters()) {
+      store.fetchList(cleanParams.value)
+    }
+  },
+)
 
 // ── Import / Export ──────────────────────────────────────────────────────────
 const importWizard = useImportWizard('AC Asset', () => store.fetchList(cleanParams.value))

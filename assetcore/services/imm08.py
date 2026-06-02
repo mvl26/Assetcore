@@ -87,11 +87,29 @@ _OP_TOKENS = ("in", "not in", "between", "like", "=", "!=", "<", ">", "<=", ">="
 
 def _normalize_filters(f: dict | None) -> dict:
     out: dict = {}
+    due_before = None
+    overdue = False
     for k, v in (f or {}).items():
+        # R6 §9.4.3 — virtual date-window keys cho drill-down từ KPI pm_due_7d
+        # (đếm theo due_date, không ép status). due_before → due_date <= X;
+        # overdue → status == Overdue (SSOT: cron check_pm_overdue set status,
+        # WO là operational record duy nhất — CLAUDE.md §11, dashboard.py §RC-10).
+        if k == "due_before":
+            due_before = v
+            continue
+        if k == "overdue":
+            overdue = str(v) in ("1", "true", "True", "yes")
+            continue
         if isinstance(v, list) and v and not (len(v) == 2 and v[0] in _OP_TOKENS):
             out[k] = ["in", v]
         else:
             out[k] = v
+    if overdue:
+        out["status"] = PMStatus.OVERDUE
+    elif due_before:
+        out["due_date"] = ["<=", due_before]
+        # đến hạn = chưa hoàn tất; loại Completed/Cancelled khỏi cửa sổ.
+        out.setdefault("status", ["not in", [PMStatus.COMPLETED, PMStatus.CANCELLED]])
     return out
 
 
@@ -122,7 +140,9 @@ def validate_work_order(doc) -> None:
             nthrow_in_hook(MSG.IMM08_STICKER_REQUIRED)
 
     risk_class = AssetRepo.get_value(doc.asset_ref, "risk_classification") if doc.asset_ref else None
-    if risk_class in ("High", "Critical") and not doc.attachments:
+    # BR-08-06: dùng doc.get() — `attachments` (Attach Multiple) không được
+    # new_doc khởi tạo như attribute, truy cập trực tiếp gây AttributeError.
+    if risk_class in ("High", "Critical") and not doc.get("attachments"):
         # BR-08-06
         nthrow_in_hook(MSG.IMM08_PHOTO_REQUIRED, risk_class=risk_class)
 
