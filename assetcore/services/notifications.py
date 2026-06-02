@@ -29,6 +29,23 @@ from assetcore.services.shared import ErrorCode, ServiceError
 from assetcore.services.shared.permissions import is_admin
 from assetcore.utils.helpers import _safe_sendmail
 
+# Nhãn tiếng Việt cho severity sự cố — tránh rò chuỗi English ("Medium", …) vào
+# nội dung thông báo VI (FE đã có INCIDENT_SEVERITY_LABEL; BE giữ map riêng vì BE
+# là nguồn sinh nội dung notification). Giá trị lạ → trả nguyên văn (an toàn).
+_SEVERITY_VI: dict[str, str] = {
+    "Critical": "Nghiêm trọng",
+    "High": "Cao",
+    "Medium": "Trung bình",
+    "Low": "Thấp",
+}
+
+
+def _severity_vi(value: str | None) -> str:
+    """Dịch severity sang nhãn VI; None/giá trị lạ → nguyên văn."""
+    if not value:
+        return ""
+    return _SEVERITY_VI.get(value, value)
+
 # ─── Approval-pending resolution (vòng 2 — sửa root-cause) ──────────────────────
 #
 # Trước đây E2 hard-code tập tên state ("Pending Approval", "Chờ duyệt", …) +
@@ -530,16 +547,16 @@ def notify_incident_created(doc, method: str | None = None) -> None:
             message = (
                 f"Sự cố <b>{name}</b> bạn vừa báo đã được ghi nhận"
                 + (f" trên thiết bị <b>{asset}</b>" if asset else "")
-                + (f" (mức độ: {severity})" if severity else "")
+                + (f" (mức độ: {_severity_vi(severity)})" if severity else "")
                 + ". Bộ phận kỹ thuật sẽ tiếp nhận xử lý."
             )
         else:
-            severity_label = severity or "Chưa phân loại"
+            severity_label = _severity_vi(severity) or "Chưa phân loại"
             subject = f"Sự cố mới [{severity_label}]: {name}"
             message = (
                 f"Sự cố <b>{name}</b> vừa được ghi nhận"
                 + (f" trên thiết bị <b>{asset}</b>" if asset else "")
-                + (f" (mức độ: {severity})" if severity else "")
+                + (f" (mức độ: {_severity_vi(severity)})" if severity else "")
                 + ". Vui lòng kiểm tra và xử lý."
             )
         _dispatch(recipients, subject, message, doc)

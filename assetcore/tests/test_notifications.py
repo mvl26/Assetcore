@@ -386,7 +386,8 @@ class TestNotifyIncidentCreated(unittest.TestCase):
         frappe.set_user("Administrator")
 
     def test_notify_incident_created_dispatches_to_assignee(self):
-        """TC-NTF-14: assigned_to set → Notification Log cho assignee, subject chứa severity."""
+        """TC-NTF-14: assigned_to set → Notification Log cho assignee, subject chứa
+        nhãn severity TIẾNG VIỆT (không rò "Critical" English — vòng audit 2026-06-02)."""
         from assetcore.services.notifications import notify_incident_created
 
         doc = _FakeDoc(
@@ -412,7 +413,22 @@ class TestNotifyIncidentCreated(unittest.TestCase):
         self.assertEqual(captured["payload"]["type"], "Alert")
         self.assertEqual(captured["payload"]["document_type"], "Incident Report")
         self.assertEqual(captured["payload"]["document_name"], "IR-2026-TEST-N14")
-        self.assertIn("Critical", captured["payload"]["subject"])
+        # Nhãn VI trong subject + body; English KHÔNG được rò.
+        subject = captured["payload"]["subject"]
+        body = captured["payload"]["email_content"] if "email_content" in captured["payload"] else ""
+        self.assertIn("Nghiêm trọng", subject)
+        self.assertNotIn("Critical", subject)
+
+    def test_severity_vi_label_mapping(self):
+        """TC-NTF-14b: _severity_vi dịch đủ 4 mức + giá trị lạ/None trả nguyên văn."""
+        from assetcore.services.notifications import _severity_vi
+
+        self.assertEqual(_severity_vi("Critical"), "Nghiêm trọng")
+        self.assertEqual(_severity_vi("High"), "Cao")
+        self.assertEqual(_severity_vi("Medium"), "Trung bình")
+        self.assertEqual(_severity_vi("Low"), "Thấp")
+        self.assertEqual(_severity_vi(None), "")
+        self.assertEqual(_severity_vi("Weird"), "Weird")
 
     def test_notify_incident_created_fallback_reported_by(self):
         """TC-NTF-15: không có assigned_to → fallback reported_by nhận thông báo."""
