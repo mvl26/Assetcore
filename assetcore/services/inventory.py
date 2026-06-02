@@ -281,8 +281,13 @@ def search_parts(
 # ─── Scheduler: low-stock alert ──────────────────────────────────────────────
 
 def check_low_stock() -> None:
-    """Daily scheduler: email IMM Storekeeper about parts below min_stock_level."""
+    """Daily scheduler: email kho phụ tùng (Inventory Manager) về phụ tùng dưới min_stock_level.
+
+    R21: trước đây gửi tới persona-role Storekeeper KHÔNG tồn tại -> email im
+    lặng không tới ai. Dùng SSoT notify_roles.STOREKEEPER (role THẬT).
+    """
     from assetcore.utils.email import get_role_emails, safe_sendmail
+    from assetcore.services.shared import notify_roles
     low = frappe.db.sql("""
         SELECT p.name, p.part_code, p.part_name, p.min_stock_level,
                COALESCE(SUM(s.qty_on_hand), 0) AS total_qty
@@ -296,7 +301,7 @@ def check_low_stock() -> None:
     if not low:
         return
 
-    emails = get_role_emails(["IMM Storekeeper"])
+    emails = get_role_emails(list(notify_roles.STOREKEEPER))
     if not emails:
         return
 

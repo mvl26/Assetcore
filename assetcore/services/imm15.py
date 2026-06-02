@@ -216,7 +216,7 @@ def create_allocation(work_order_ref: str, items: list[dict],
 def approve_allocation(allocation: str) -> dict:
     """Duyệt allocation: Requested → Approved (§3.3)."""
     _require_any_role(_CAP_APPROVE,
-                      "Chỉ IMM Workshop Lead / Operations Manager mới được duyệt allocation")
+                      "Chỉ cấp quản lý (Inventory/Store Manager) mới được duyệt allocation")
     doc = AllocationRepo.get(allocation)
     if not doc:
         raise ServiceError(ErrorCode.NOT_FOUND,

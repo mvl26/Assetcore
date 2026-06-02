@@ -15,6 +15,7 @@ from assetcore.services.shared import (
     assert_distinct_signers,
     assert_not_self_submitter,
 )
+from assetcore.services.shared import rbac
 from assetcore.utils.notify import MSG, nthrow, nthrow_in_hook
 from assetcore.utils.pagination import paginate
 
@@ -42,7 +43,6 @@ _STATE_CLINICAL_RELEASE = "Clinical Release"
 _STATE_INITIAL_INSPECTION = "Initial Inspection"
 _STATE_RE_INSPECTION = "Re Inspection"
 _TERMINAL_STATES = frozenset({_STATE_CLINICAL_RELEASE, "Return To Vendor"})
-_SUBMIT_ROLES = frozenset({"IMM Operations Manager", "IMM Workshop Lead"})
 
 _CLASS_I = "Class I"
 _CLASS_II = "Class II"
@@ -602,7 +602,9 @@ def check_commissioning_overdue() -> None:
 
 
 def _send_overdue_alert(comm: dict, days_open: int) -> None:
-    users = frappe.db.get_all("Has Role", filters={"role": "IMM Workshop Lead", "parenttype": "User"}, fields=["parent"])
+    # R22: "IMM Workshop Lead" không tồn tại -> email im lặng. Dùng role THẬT.
+    from assetcore.services.shared import notify_roles
+    users = frappe.db.get_all("Has Role", filters={"role": notify_roles.WORKSHOP_HEAD[0], "parenttype": "User"}, fields=["parent"])
     emails = [frappe.db.get_value("User", u.parent, "email") for u in users]
     emails = [e for e in emails if e]
     if not emails:
@@ -1046,8 +1048,13 @@ def transition_state(name: str, action: str) -> dict:
 def submit_commissioning(name: str) -> dict:
     if not frappe.db.exists(_DT, name):
         raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy phiếu '{name}'")
-    if not _SUBMIT_ROLES.intersection(set(frappe.get_roles(frappe.session.user))):
-        raise ServiceError(ErrorCode.FORBIDDEN, "Chỉ IMM Operations Manager hoặc IMM Workshop Lead mới được Submit")
+    # R20 FIX: gate qua capability THẬT (commissioning.submit → DocPerm submit
+    # trên Asset Commissioning: Commissioning Manager=1, User=0). Trước fix dùng
+    # _SUBMIT_ROLES role-name bịa ("IMM Operations Manager"/"IMM Workshop Lead")
+    # → KHÔNG user nào pass → submit commissioning chết (bug IMM-12 lặp lại).
+    if not rbac.can("commissioning.submit"):
+        raise ServiceError(ErrorCode.FORBIDDEN,
+                           "Chỉ Commissioning Manager mới được Submit phiếu nghiệm thu")
     doc = frappe.get_doc(_DT, name)
     if doc.docstatus == 1:
         raise ServiceError(ErrorCode.INVALID_PARAMS, "Phiếu đã được Submit trước đó")
@@ -1430,9 +1437,11 @@ def cancel_commissioning(name: str) -> dict:
             ErrorCode.FORBIDDEN,
             f"Không thể hủy vì Tài sản '{doc.final_asset}' đã được kích hoạt trong hệ thống",
         )
-    _allowed = _SUBMIT_ROLES | {"System Manager", "Administrator"}
-    if not any(r in _allowed for r in frappe.get_roles()):
-        raise ServiceError(ErrorCode.FORBIDDEN, "Chỉ IMM Operations Manager hoặc IMM Workshop Lead mới được phép hủy phiếu")
+    # R20 FIX: gate qua capability THẬT (commissioning.cancel → DocPerm cancel:
+    # Commissioning Manager=1, User=0). Bỏ _SUBMIT_ROLES role-name bịa.
+    if not rbac.can("commissioning.cancel"):
+        raise ServiceError(ErrorCode.FORBIDDEN,
+                           "Chỉ Commissioning Manager mới được phép hủy phiếu nghiệm thu")
     doc.cancel()
     frappe.db.commit()
     log_lifecycle_event(doc, "Cancelled", doc.workflow_state, "Cancelled",
@@ -1455,11 +1464,15 @@ def generate_handover_pdf(name: str) -> dict:
 
 # ─── Submit-for-approval workflow ─────────────────────────────────────────────
 
+# R22: trỏ role THẬT (trước đây "IMM Biomed Technician"/"IMM Operations Manager"
+# KHÔNG tồn tại -> mọi approver không-super-admin bị FORBIDDEN -> flow gửi-duyệt
+# commissioning chết). Stage kỹ thuật -> Maintenance User; phát hành lâm sàng ->
+# Commissioning Manager (chủ sở hữu nghiệp vụ commissioning).
 _STAGE_ROLE: dict[str, str] = {
-    "Doc Verify":       "IMM Biomed Technician",
-    "Facility Check":   "IMM Biomed Technician",
-    "Baseline Review":  "IMM Biomed Technician",
-    "Clinical Release": "IMM Operations Manager",
+    "Doc Verify":       "Maintenance User",
+    "Facility Check":   "Maintenance User",
+    "Baseline Review":  "Maintenance User",
+    "Clinical Release": "Commissioning Manager",
 }
 
 _STATE_TO_STAGE: dict[str, str] = {

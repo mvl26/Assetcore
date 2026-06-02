@@ -13,6 +13,7 @@ from frappe import _
 
 from assetcore.utils.response import _ok, _err
 from assetcore.utils.api_handler import handle, parse_json
+from assetcore.services.shared import rbac
 from assetcore.services.shared.scope import assert_vendor_can_access
 from assetcore.services.imm12 import (
     report_incident as svc_report,
@@ -32,17 +33,26 @@ from assetcore.services.imm12 import (
     get_dashboard as svc_dashboard,
 )
 
-_ROLES_INVESTIGATE = {"IMM Workshop Lead", "IMM Technician", "IMM QA Officer", "System Manager"}
-_ROLES_CLOSE = {"IMM Workshop Lead", "IMM QA Officer", "System Manager"}
-
 _MSG_UNAUTHENTICATED = "Chưa đăng nhập"
 _MSG_SERVER_ERROR = "Lỗi server"
 _MSG_FORBIDDEN = "Không có quyền thực hiện hành động này"
 
+# R16 FIX: gate IMM-12 theo CAPABILITY THẬT (DocPerm trên Incident Report) —
+# KHÔNG hardcode role-name không tồn tại trong fixtures/role.json. Trước fix,
+# _ROLES_INVESTIGATE/_ROLES_CLOSE dùng tên bịa ("IMM Workshop Lead"...) nên mọi
+# Corrective Manager/User bị 403 → toàn bộ workflow incident chết. Capability
+# resolve qua frappe.has_permission → tôn trọng Role Profile thật + granular
+# (write = triage/work/resolve/RCA; submit = close). Cùng pattern IMM-09.
+_CAP_INVESTIGATE = "incident.acknowledge"  # → ("Incident Report", "write")
+_CAP_CLOSE = "incident.close"              # → ("Incident Report", "submit")
 
-def _has_role(*roles: str) -> bool:
-    user_roles = set(frappe.get_roles())
-    return bool(user_roles & set(roles))
+
+def _can_investigate() -> bool:
+    return rbac.can(_CAP_INVESTIGATE)
+
+
+def _can_close() -> bool:
+    return rbac.can(_CAP_CLOSE)
 
 
 @frappe.whitelist(methods=["POST"])
@@ -78,7 +88,7 @@ def cancel_incident(name: str, reason: str):
     """POST /api/method/assetcore.api.imm12.cancel_incident"""
     if frappe.session.user == "Guest":
         return _err(_(_MSG_UNAUTHENTICATED), 401)
-    if not _has_role(*_ROLES_INVESTIGATE):
+    if not _can_investigate():
         return _err(_(_MSG_FORBIDDEN), 403)
     return handle(svc_cancel, name, reason=reason)
 
@@ -88,7 +98,7 @@ def create_rca(incident_name: str, rca_method: str = "5-Why"):
     """POST /api/method/assetcore.api.imm12.create_rca"""
     if frappe.session.user == "Guest":
         return _err(_(_MSG_UNAUTHENTICATED), 401)
-    if not _has_role(*_ROLES_INVESTIGATE):
+    if not _can_investigate():
         return _err(_("Không có quyền tạo RCA"), 403)
     return handle(svc_create_rca, incident_name, rca_method=rca_method)
 
@@ -126,7 +136,7 @@ def submit_rca(
     """POST /api/method/assetcore.api.imm12.submit_rca"""
     if frappe.session.user == "Guest":
         return _err(_(_MSG_UNAUTHENTICATED), 401)
-    if not _has_role(*_ROLES_INVESTIGATE):
+    if not _can_investigate():
         return _err(_("Không có quyền submit RCA"), 403)
     steps = parse_json(five_why_steps, field_name="five_why_steps", default=[])
     return handle(
@@ -199,7 +209,7 @@ def acknowledge_incident(name: str, notes: str = "", assigned_to: str = ""):
     """
     if frappe.session.user == "Guest":
         return _err(_(_MSG_UNAUTHENTICATED), 401)
-    if not _has_role(*_ROLES_INVESTIGATE):
+    if not _can_investigate():
         return _err(_(_MSG_FORBIDDEN), 403)
     return handle(svc_acknowledge, name, notes=notes, assigned_to=assigned_to)
 
@@ -211,7 +221,7 @@ def start_work(name: str, notes: str = ""):
     """
     if frappe.session.user == "Guest":
         return _err(_(_MSG_UNAUTHENTICATED), 401)
-    if not _has_role(*_ROLES_INVESTIGATE):
+    if not _can_investigate():
         return _err(_(_MSG_FORBIDDEN), 403)
     return handle(svc_start_work, name, notes=notes)
 
@@ -223,7 +233,7 @@ def resolve_incident(name: str, resolution_notes: str, root_cause: str = ""):
     """
     if frappe.session.user == "Guest":
         return _err(_(_MSG_UNAUTHENTICATED), 401)
-    if not _has_role(*_ROLES_INVESTIGATE):
+    if not _can_investigate():
         return _err(_(_MSG_FORBIDDEN), 403)
     return handle(svc_resolve, name, resolution_notes=resolution_notes,
                   root_cause=root_cause)
@@ -236,7 +246,7 @@ def close_incident(name: str, verification_notes: str = ""):
     """
     if frappe.session.user == "Guest":
         return _err(_(_MSG_UNAUTHENTICATED), 401)
-    if not _has_role(*_ROLES_CLOSE):
+    if not _can_close():
         return _err(_("Không có quyền đóng Incident (cần Workshop Lead hoặc QA Officer)"), 403)
     return handle(svc_close, name, verification_notes=verification_notes)
 

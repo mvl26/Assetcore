@@ -90,6 +90,13 @@ CAPABILITY_MAP.update({
     "capa.close":           ("IMM CAPA Record", "submit"),
     "data.admin":           ("IMM Device Model", "delete"),
     "audit.read":           ("IMM Audit Trail", "read"),
+    # R18 FIX: auto-gen trỏ training.submit -> (IMM Training Program,"submit"),
+    # nhưng Program/Session đều is_submittable=0 → "submit" permtype không bao giờ
+    # resolve True → toàn bộ manager-action IMM-06 (confirm/verify/close session +
+    # competency sign-off) chết trên UI cho MỌI user. Phân biệt Manager/User intended
+    # nằm ở DocPerm "delete" trên IMM Training Session (Manager delete=1, User=0),
+    # và "delete" resolve được trên doctype non-submittable.
+    "training.submit":      ("IMM Training Session", "delete"),
 })
 
 

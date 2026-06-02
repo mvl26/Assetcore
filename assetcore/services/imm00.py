@@ -724,14 +724,16 @@ def count_pending_approvals(user: str | None = None, scope: str = "mine") -> int
             ``"mine"`` (default) — chỉ phiếu mà ``pending_approver == user``
             (khớp với danh sách /approvals/pending — list_my_pending_approvals).
             ``"all"`` — toàn hệ thống (admin overview); yêu cầu role
-            ``System Manager`` / ``Commissioning Manager`` / ``IMM Auditor``.
+            ``System Manager`` / ``Commissioning Manager`` / ``AssetCore Auditor``.
 
     Returns:
         int — số phiếu chờ duyệt theo scope đã chọn.
     """
     if scope == "all":
         # Admin/auditor mới được dùng scope all
-        allowed = {"System Manager", "Administrator", "Commissioning Manager", "IMM Auditor"}
+        # R21: "IMM Auditor" KHÔNG tồn tại -> auditor bị loại sai khỏi scope=all.
+        # Dùng role THẬT "AssetCore Auditor".
+        allowed = {"System Manager", "Administrator", "Commissioning Manager", "AssetCore Auditor"}
         roles = set(frappe.get_roles(user or frappe.session.user))
         if not (allowed & roles):
             # Fallback an toàn: nếu thiếu quyền vẫn trả "mine" — UI không vỡ.

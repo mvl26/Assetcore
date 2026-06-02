@@ -4,6 +4,28 @@ import unittest
 from assetcore.services.shared.constants import Roles
 
 
+def _ensure_role_user(email: str, roles: list[str]) -> str:
+    """Tạo (idempotent) user mang đúng role THẬT để test capability resolution."""
+    if not frappe.db.exists("User", email):
+        doc = frappe.get_doc({
+            "doctype": "User", "email": email,
+            "first_name": email.split("@")[0],
+            "send_welcome_email": 0, "enabled": 1,
+        }).insert(ignore_permissions=True)
+    else:
+        doc = frappe.get_doc("User", email)
+    existing = {r.role for r in doc.get("roles", [])}
+    for r in roles:
+        if r not in existing:
+            doc.append("roles", {"role": r})
+    doc.save(ignore_permissions=True)
+    frappe.db.commit()
+    # capability cache theo user — clear để đọc quyền mới
+    from assetcore.services.shared import rbac as _rbac
+    _rbac.invalidate_capabilities(email)
+    return email
+
+
 class TestRolesCatalog(unittest.TestCase):
     def test_30_roles_total(self):
         self.assertEqual(len(Roles.ALL), 30)
@@ -44,6 +66,45 @@ class TestCapabilityMap(unittest.TestCase):
     def test_capability_map_crud(self):
         self.assertEqual(rbac.CAPABILITY_MAP["pm.write"], ("PM Work Order", "write"))
         self.assertEqual(rbac.CAPABILITY_MAP["pm.delete"], ("PM Work Order", "delete"))
+
+    def test_training_submit_targets_resolvable_permtype(self):
+        """R18: `training.submit` PHẢI trỏ vào (doctype, permtype) mà
+        frappe.has_permission resolve được. Bug gốc: trỏ ('IMM Training
+        Program','submit') nhưng Program is_submittable=0 → submit permtype
+        không tồn tại → MỌI user (kể cả Super Admin) đều False → toàn bộ
+        manager-action IMM-06 (confirm/verify/close + competency sign-off)
+        chết trên UI. Nếu dùng permtype docstatus ('submit'/'cancel'/'amend')
+        thì doctype đích phải submittable; ngược lại dùng permtype non-docstatus
+        (vd 'delete') phân biệt Manager/User."""
+        dt, ptype = rbac.CAPABILITY_MAP["training.submit"]
+        if ptype in ("submit", "cancel", "amend"):
+            is_sub = frappe.db.get_value("DocType", dt, "is_submittable")
+            self.assertTrue(
+                is_sub,
+                f"training.submit -> ({dt},{ptype}) nhưng {dt}.is_submittable=0 "
+                f"→ permtype docstatus không bao giờ resolve True",
+            )
+
+    def test_training_manager_passes_training_submit(self):
+        """R18: Training Manager (delete=1 trên IMM Training Session) PHẢI pass
+        training.submit; Training User (delete=0) KHÔNG được — giữ split
+        Manager/User intended. Trước fix cả hai đều False (gate chết)."""
+        mgr = _ensure_role_user("_test_train_mgr@assetcore.test", ["Training Manager"])
+        usr = _ensure_role_user("_test_train_usr@assetcore.test", ["Training User"])
+        try:
+            frappe.set_user(mgr)
+            self.assertTrue(rbac.can("training.submit"),
+                            "Training Manager phải pass training.submit")
+            frappe.set_user(usr)
+            self.assertFalse(rbac.can("training.submit"),
+                             "Training User KHÔNG được pass training.submit")
+        finally:
+            frappe.set_user("Administrator")
+            for u in (mgr, usr):
+                try:
+                    frappe.delete_doc("User", u, force=True, ignore_permissions=True)
+                except Exception:
+                    pass
 
     def test_can_unknown_capability_raises(self):
         with self.assertRaises(KeyError):
@@ -649,3 +710,113 @@ class TestPickerPermissionDecoupling(unittest.TestCase):
             frappe.set_user("Administrator")
             frappe.delete_doc("User", u, force=True, ignore_permissions=True)
             frappe.db.commit()
+
+
+class TestDualStateFieldContract(unittest.TestCase):
+    """R19 ADR guard: mọi doctype mang ĐỒNG THỜI `status` + `workflow_state`
+    phải được liệt kê trong ADR (docs/architecture/ADR_status_vs_workflow_state.md)
+    với field source-of-truth rõ ràng. Thêm doctype dual-state mới mà quên cập
+    nhật ADR → test fail (chống tái phát mơ hồ status/workflow_state)."""
+
+    # get_app_path("assetcore") → .../apps/assetcore/assetcore (module dir).
+    # App root = parent; docs/ nằm ở app root.
+    ADR_PATH = os.path.join(
+        os.path.dirname(frappe.get_app_path("assetcore")),
+        "docs", "architecture", "ADR_status_vs_workflow_state.md",
+    )
+    DT_DIR = frappe.get_app_path("assetcore", "assetcore", "doctype")
+
+    def _dual_state_doctypes(self):
+        out = []
+        for jf in glob.glob(os.path.join(self.DT_DIR, "*", "*.json")):
+            with open(jf) as f:
+                data = json.load(f)
+            if data.get("doctype") and data.get("doctype") != "DocType":
+                continue
+            fns = {fld.get("fieldname") for fld in data.get("fields", [])}
+            if "status" in fns and "workflow_state" in fns:
+                out.append(data.get("name"))
+        return sorted(out)
+
+    def test_adr_file_exists(self):
+        self.assertTrue(os.path.exists(self.ADR_PATH),
+                        "ADR status_vs_workflow_state phải tồn tại")
+
+    def test_every_dual_state_doctype_documented_in_adr(self):
+        with open(self.ADR_PATH) as f:
+            adr = f.read()
+        missing = [dt for dt in self._dual_state_doctypes() if dt not in adr]
+        self.assertEqual(
+            missing, [],
+            f"Doctype dual-state CHƯA ghi trong ADR: {missing} — "
+            f"thêm vào docs/architecture/ADR_status_vs_workflow_state.md "
+            f"với field source-of-truth.",
+        )
+
+
+class TestOpsmgrReadOnlyOversight(unittest.TestCase):
+    """opsmgr (Role Profile 'Trưởng phòng VT-TTBYT') = vai trò giám sát → cấp
+    READ-ONLY trên PM Work Order / Asset Repair / Incident Report để KPI dashboard
+    drill-down xem được. Anchor role = 'Commissioning Manager' (độc quyền profile
+    này). Read-only thuần: read=1, mọi cờ ghi=0. Core Doc:
+    docs/architecture/FE_Persona_Dashboards.md §5.2 + §9.5 #12.
+    """
+
+    DT_DIR = frappe.get_app_path("assetcore", "assetcore", "doctype")
+    ANCHOR = "Commissioning Manager"
+    # (folder, doctype name) cho 3 doctype chính của drill imm08/09/12
+    TARGETS = [
+        ("pm_work_order", "PM Work Order"),
+        ("asset_repair", "Asset Repair"),
+        ("incident_report", "Incident Report"),
+    ]
+
+    def _perms(self, dt_folder):
+        with open(os.path.join(self.DT_DIR, dt_folder, dt_folder + ".json")) as f:
+            return json.load(f).get("permissions", [])
+
+    def test_anchor_role_exclusive_to_opsmgr_profile(self):
+        """Cấp DocPerm cho ANCHOR không rò sang persona khác → ANCHOR chỉ thuộc
+        đúng 1 Role Profile ('Trưởng phòng VT-TTBYT')."""
+        from assetcore.setup.role_profile_catalog import ROLE_PROFILE_CATALOG
+        owners = [p for p, rs in ROLE_PROFILE_CATALOG.items() if self.ANCHOR in rs]
+        self.assertEqual(
+            owners, ["Trưởng phòng VT-TTBYT"],
+            f"{self.ANCHOR} phải độc quyền profile opsmgr, đang ở: {owners}",
+        )
+
+    def test_docperm_readonly_on_operational_doctypes(self):
+        """JSON invariant: ANCHOR có read=1 + mọi cờ ghi=0 trên 3 doctype drill."""
+        write_flags = ("write", "create", "delete", "submit", "cancel", "amend")
+        for folder, dt in self.TARGETS:
+            perms = {p["role"]: p for p in self._perms(folder)}
+            self.assertIn(self.ANCHOR, perms,
+                          f"{dt}: thiếu DocPerm cho {self.ANCHOR}")
+            row = perms[self.ANCHOR]
+            self.assertEqual(row.get("read"), 1, f"{dt}: {self.ANCHOR} phải read=1")
+            for wf in write_flags:
+                self.assertEqual(
+                    row.get(wf, 0), 0,
+                    f"{dt}: {self.ANCHOR}.{wf} PHẢI =0 (read-only oversight)",
+                )
+
+    def test_opsmgr_caps_read_true_write_false_runtime(self):
+        """Runtime: user mang bộ role profile opsmgr resolve pm/repair/corrective
+        .read = True, .write/.create = False."""
+        from assetcore.setup.role_profile_catalog import roles_for_profile
+        roles = roles_for_profile("Trưởng phòng VT-TTBYT")
+        u = _ensure_role_user("_test_opsmgr@assetcore.test", roles)
+        try:
+            frappe.set_user(u)
+            for cap in ("pm.read", "repair.read", "corrective.read"):
+                self.assertTrue(rbac.can(cap), f"opsmgr phải có {cap}")
+            for cap in ("pm.write", "pm.create", "repair.write", "repair.create",
+                        "corrective.write", "corrective.create", "corrective.delete"):
+                self.assertFalse(rbac.can(cap),
+                                 f"opsmgr KHÔNG được có {cap} (read-only oversight)")
+        finally:
+            frappe.set_user("Administrator")
+            try:
+                frappe.delete_doc("User", u, force=True, ignore_permissions=True)
+            except Exception:
+                pass

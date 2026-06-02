@@ -265,10 +265,14 @@ def check_repair_overdue() -> None:
     if not overdue:
         return
     try:
-        wm = frappe.db.get_value("User", {"role_profile_name": "IMM Workshop Lead"}, "name")
-        if wm:
+        # R20 FIX: trước đây lookup role_profile_name="IMM Workshop Lead" (KHÔNG
+        # tồn tại trong DB) → luôn None → email quá hạn KHÔNG bao giờ gửi. Dùng
+        # role THẬT "Repair Manager" (fixtures/role.json) qua Has Role.
+        from assetcore.utils.email import get_role_emails
+        recipients = get_role_emails(["Repair Manager"])
+        if recipients:
             frappe.sendmail(
-                recipients=[wm],
+                recipients=recipients,
                 subject=f"[AssetCore] {len(overdue)} WO sửa chữa quá 7 ngày",
                 message=f"Có {len(overdue)} phiếu sửa chữa quá 7 ngày chưa hoàn thành.",
             )

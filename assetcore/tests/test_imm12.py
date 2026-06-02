@@ -492,3 +492,105 @@ class TestRCAToCAPAAndIncidentChain(unittest.TestCase):
             first_capa, second_capa,
             "RC-03: gọi 2 lần phải reuse cùng CAPA (idempotent)",
         )
+
+
+# ── R16: API-layer RBAC — phải dùng capability THẬT (Corrective Manager/User),
+#    KHÔNG dùng role-name set bịa ("IMM Workshop Lead"...). Trước fix: mọi
+#    corrective user bị 403 → cả workflow chết. Test gọi qua API wrapper (không
+#    phải service) để bắt đúng tầng gate. ─────────────────────────────────────
+
+class TestIncidentApiRbac(unittest.TestCase):
+    """R16 regression: API whitelist của IMM-12 phải cho Corrective Manager/User
+    thao tác incident (acknowledge/close) theo DocPerm thật, không hardcode role
+    name không tồn tại trong fixtures/role.json."""
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.asset = _make_asset("-rbac")
+        # Ephemeral users mang role THẬT (khớp fixtures/role.json + persona).
+        cls.mgr = cls._ensure_user("_test_corr_mgr@assetcore.test", ["Corrective Manager"])
+        cls.usr = cls._ensure_user("_test_corr_usr@assetcore.test", ["Corrective User"])
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        purge_asset(cls.asset.name)
+        for u in (cls.mgr, cls.usr):
+            try:
+                frappe.delete_doc("User", u, force=True, ignore_permissions=True)
+            except Exception:
+                pass
+
+    @staticmethod
+    def _ensure_user(email: str, roles: list[str]) -> str:
+        if not frappe.db.exists("User", email):
+            doc = frappe.get_doc({
+                "doctype": "User", "email": email, "first_name": email.split("@")[0],
+                "send_welcome_email": 0, "enabled": 1,
+            }).insert(ignore_permissions=True)
+        else:
+            doc = frappe.get_doc("User", email)
+        existing = {r.role for r in doc.get("roles", [])}
+        for r in roles:
+            if r not in existing:
+                doc.append("roles", {"role": r})
+        doc.save(ignore_permissions=True)
+        frappe.db.commit()
+        return email
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+
+    def _open_incident(self) -> str:
+        out = report_incident(
+            asset=self.asset.name, incident_type="Malfunction", severity="Medium",
+            description="_Test R16 API RBAC incident description here",
+        )
+        frappe.db.commit()
+        return out["name"]
+
+    def test_corrective_manager_can_acknowledge_via_api(self):
+        from assetcore.api.imm12 import acknowledge_incident as api_ack
+        ir = self._open_incident()
+        frappe.set_user(self.mgr)
+        try:
+            res = api_ack(ir, notes="_Test API ack by Corrective Manager")
+        finally:
+            frappe.set_user("Administrator")
+        frappe.db.commit()
+        self.assertTrue(
+            res.get("success"),
+            f"Corrective Manager phải acknowledge được qua API, nhận: {res}",
+        )
+        self.assertEqual(frappe.db.get_value("Incident Report", ir, "status"),
+                         "Acknowledged")
+
+    def test_corrective_user_can_acknowledge_via_api(self):
+        from assetcore.api.imm12 import acknowledge_incident as api_ack
+        ir = self._open_incident()
+        frappe.set_user(self.usr)
+        try:
+            res = api_ack(ir, notes="_Test API ack by Corrective User")
+        finally:
+            frappe.set_user("Administrator")
+        frappe.db.commit()
+        self.assertTrue(
+            res.get("success"),
+            f"Corrective User phải acknowledge được qua API, nhận: {res}",
+        )
+
+    def test_corrective_user_cannot_close_via_api(self):
+        """Corrective User KHÔNG có submit perm → không được đóng incident.
+        RBAC granular: chỉ Manager (submit) mới đóng."""
+        from assetcore.api.imm12 import close_incident as api_close
+        ir = self._open_incident()
+        frappe.set_user(self.usr)
+        try:
+            res = api_close(ir, verification_notes="_Test should be forbidden")
+        finally:
+            frappe.set_user("Administrator")
+        self.assertFalse(
+            res.get("success"),
+            "Corrective User KHÔNG được phép đóng incident (thiếu submit perm)",
+        )

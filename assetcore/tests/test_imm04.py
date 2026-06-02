@@ -387,5 +387,139 @@ class TestRC06AssetAutoMint(unittest.TestCase):
         )
 
 
+# ─── R20: submit/cancel RBAC must use REAL roles (capability), not dead names ──
+# Bug gốc (giống IMM-12 P1): _SUBMIT_ROLES = {"IMM Operations Manager",
+# "IMM Workshop Lead"} — KHÔNG tồn tại trong fixtures/role.json → mọi
+# Commissioning Manager (kể cả Super Admin) bị FORBIDDEN → submit/cancel
+# commissioning chết. Fix: gate qua rbac capability commissioning.submit/cancel.
+
+class TestCommissioningSubmitRbac(unittest.TestCase):
+    """R20 regression: Commissioning Manager PHẢI qua được role-gate của
+    submit_commissioning (không bị FORBIDDEN bởi role-name bịa)."""
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.mgr = "_test_comm_mgr@assetcore.test"
+        if not frappe.db.exists("User", cls.mgr):
+            u = frappe.get_doc({
+                "doctype": "User", "email": cls.mgr,
+                "first_name": "comm_mgr", "send_welcome_email": 0, "enabled": 1,
+            }).insert(ignore_permissions=True)
+        else:
+            u = frappe.get_doc("User", cls.mgr)
+        if "Commissioning Manager" not in {r.role for r in u.get("roles", [])}:
+            u.append("roles", {"role": "Commissioning Manager"})
+            u.save(ignore_permissions=True)
+        # Phiếu commissioning thật ở state KHÔNG phải Clinical Release (Draft).
+        doc = frappe.get_doc({
+            "doctype": "Asset Commissioning",
+            "workflow_state": "Draft",  # Draft skip Gate G01 (đang soạn)
+        }).insert(ignore_permissions=True, ignore_mandatory=True, ignore_links=True)
+        cls.comm = doc.name
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        try:
+            frappe.delete_doc("Asset Commissioning", cls.comm, force=True,
+                              ignore_permissions=True)
+        except Exception:
+            pass
+        try:
+            frappe.delete_doc("User", cls.mgr, force=True, ignore_permissions=True)
+        except Exception:
+            pass
+        frappe.db.commit()
+
+    def test_commissioning_manager_passes_submit_role_gate(self):
+        """Commissioning Manager KHÔNG được bị FORBIDDEN ở role-gate. Phiếu ở
+        state Draft → kỳ vọng lỗi STATE (INVALID_PARAMS), KHÔNG phải FORBIDDEN."""
+        from assetcore.services.imm04 import submit_commissioning
+        from assetcore.services.shared import ErrorCode
+        frappe.set_user(self.mgr)
+        try:
+            with self.assertRaises(ServiceError) as ctx:
+                submit_commissioning(self.comm)
+            self.assertNotEqual(
+                ctx.exception.code, ErrorCode.FORBIDDEN,
+                "Commissioning Manager bị chặn FORBIDDEN ở submit — role-gate "
+                "đang dùng role-name không tồn tại (bug IMM-12 lặp lại ở IMM-04)",
+            )
+        finally:
+            frappe.set_user("Administrator")
+
+
+# ─── R22: submit_for_approval _STAGE_ROLE must use REAL roles ─────────────────
+# Bug (cùng họ R20/IMM-12): _STAGE_ROLE map stage -> "IMM Biomed Technician" /
+# "IMM Operations Manager" — KHÔNG tồn tại → required_role không bao giờ nằm
+# trong frappe.get_roles(approver) → MỌI approver không-super-admin bị FORBIDDEN
+# "không có vai trò 'IMM Biomed Technician'" → flow gửi-duyệt commissioning chết.
+# Fix: map sang role THẬT (Maintenance User cho stage kỹ thuật, Commissioning
+# Manager cho Clinical Release).
+
+class TestSubmitForApprovalStageRole(unittest.TestCase):
+    """R22 regression: approver mang role THẬT của stage PHẢI qua được gate
+    _STAGE_ROLE (không bị FORBIDDEN bởi role-name bịa)."""
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.tech = "_test_r22_tech@assetcore.test"
+        cls.submitter = "_test_r22_sub@assetcore.test"
+        for email, role, fn in (
+            (cls.tech, "Maintenance User", "r22tech"),
+            (cls.submitter, "Maintenance User", "r22sub"),
+        ):
+            if not frappe.db.exists("User", email):
+                u = frappe.get_doc({
+                    "doctype": "User", "email": email, "first_name": fn,
+                    "send_welcome_email": 0, "enabled": 1,
+                }).insert(ignore_permissions=True)
+            else:
+                u = frappe.get_doc("User", email)
+            if role not in {r.role for r in u.get("roles", [])}:
+                u.append("roles", {"role": role})
+                u.save(ignore_permissions=True)
+        doc = frappe.get_doc({
+            "doctype": "Asset Commissioning",
+            "workflow_state": "Draft",
+        }).insert(ignore_permissions=True, ignore_mandatory=True, ignore_links=True)
+        # Đặt state qua db_set để né workflow transition validation.
+        doc.db_set("workflow_state", "Pending Doc Verify", update_modified=False)  # -> stage "Doc Verify"
+        cls.comm = doc.name
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        for ref, dt in ((cls.comm, "Asset Commissioning"),
+                        (cls.tech, "User"), (cls.submitter, "User")):
+            try:
+                frappe.delete_doc(dt, ref, force=True, ignore_permissions=True)
+            except Exception:
+                pass
+        frappe.db.commit()
+
+    def test_real_role_approver_passes_stage_gate(self):
+        """Maintenance User (role THẬT của stage Doc Verify) KHÔNG được bị
+        FORBIDDEN bởi _STAGE_ROLE. Submitter khác approver để qua 4-eyes."""
+        from assetcore.services.imm04 import submit_for_approval
+        from assetcore.services.shared import ErrorCode
+        frappe.set_user(self.submitter)
+        try:
+            try:
+                submit_for_approval(self.comm, approver=self.tech, stage="Doc Verify")
+            except ServiceError as e:
+                self.assertNotEqual(
+                    e.code, ErrorCode.FORBIDDEN,
+                    "Approver mang role THẬT của stage bị FORBIDDEN — _STAGE_ROLE "
+                    "đang trỏ role-name không tồn tại (dead-gate R22)",
+                )
+        finally:
+            frappe.set_user("Administrator")
+
+
 if __name__ == "__main__":
     unittest.main()
