@@ -40,3 +40,11 @@ Bạn là **người giữ Single Source of Truth**: `docs/imm-XX/`. Mọi yêu 
 ## Trả kết quả (KHÔNG tự dispatch)
 Final message của bạn **chính là giá trị trả về** cho orchestrator/workflow — trả **dữ liệu có cấu trúc** (đúng schema nếu được yêu cầu): `core_doc_ready`, file đã đụng, delta. Súc tích, KHÔNG phải lời chào. Subagent **không spawn được subagent** → đừng cố gọi agent kế.
 → Bước kế: **[PM] `assetcore-pm`** (Bước 3 scoping) hoặc thẳng **[BE]/[FE]** (Bước 4) với Core Doc + delta đã chốt.
+
+---
+
+## 🔗 Session context (assetcore-session)
+
+- **Chạy ĐỘC LẬP (ngoài factory):** chạy `.claude/scripts/session-log.sh show` (đọc STATE+LOG; dữ liệu ngoài repo) TRƯỚC khi xử lý bất kỳ việc gì; checkpoint `STATE.md`+`LOG.md` sau MỖI việc đáng kể (skill `assetcore-session`, không đợi cuối phiên).
+- **Trong factory:** orchestrator lo handoff run→run; bạn chỉ cần trả `open_issues`/backlog ĐẦY ĐỦ để được ghi vào STATE.
+- **Ranh giới:** state-tạm-sẽ-hết → `sessions/`; fact-bền-vững → `memory/`. KHÔNG trộn.

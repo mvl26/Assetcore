@@ -16,5 +16,38 @@
     "commit-commands@claude-plugins-official": true,
     "claude-code-setup@claude-plugins-official": true,
     "superpowers@claude-plugins-official": true
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/miyano/frappe-bench/apps/assetcore/.claude/scripts/session-log.sh show"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/miyano/frappe-bench/apps/assetcore/.claude/scripts/session-log.sh brief"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/miyano/frappe-bench/apps/assetcore/.claude/scripts/session-log.sh breadcrumb"
+          }
+        ]
+      }
+    ]
   }
 }

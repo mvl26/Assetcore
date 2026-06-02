@@ -31,10 +31,11 @@ Skill cho 2 vai trò đầu nguồn của vòng đời phát triển:
 
 ## [PM] Ideation — chọn việc gì (làm ĐÚNG THỨ TỰ)
 
-### Bước 1 — Quét backlog từ 5 nguồn, theo ĐÚNG thứ tự ưu tiên
+### Bước 1 — Quét backlog từ 6 nguồn, theo ĐÚNG thứ tự ưu tiên
 
 | # | Nguồn | Cách lấy |
 |---|-------|----------|
+| 0 | **Session STATE (đang dở ở đâu)** | `.claude/scripts/session-log.sh show` (skill `assetcore-session`; dữ liệu ngoài repo) — 🔴 blocker + ▶️ next-step phiên/run trước. ĐỌC TRƯỚC để nối tiếp, không khởi động lại từ 0 |
 | 1 | **Bug vỡ-prod / fix chưa commit** | `git status` — fix treo trong working tree (install/migrate/hook breakers) phải ship TRƯỚC |
 | 2 | **Bug list đang mở** | Memory `imm*_ui_bugs.md`, `wave*_ui_bugs*.md` |
 | 3 | **Gap production-readiness** | `assetcore-audit` 8-pillar (module "Live" nhưng thiếu pillar) |
@@ -113,3 +114,11 @@ Trước khi khẳng định bất cứ điều gì về module:
 - **Bành trướng khi nền chưa vững** — ưu tiên đóng nợ trước feature mới.
 - **Chép build sequence vào plan** — chỉ trỏ tới `assetcore-be`/`assetcore-fe`.
 - **Quên OUT-of-scope** — không khoanh vùng → scope creep.
+
+---
+
+## 🔗 Session context — bàn giao phiên (assetcore-session)
+
+- **Trước khi xử lý/sửa BẤT KỲ việc gì:** chạy `.claude/scripts/session-log.sh show` (đọc STATE+LOG mới nhất — "đang dở ở đâu"; dữ liệu NGOÀI repo, đừng tìm `sessions/` trong repo). Main session hook tự nạp mỗi prompt; subagent phải chạy lệnh này.
+- **Sau MỖI việc đáng kể (đụng file/quyết định):** invoke **`assetcore-session`** checkpoint NGAY `STATE.md`(ghi đè)+`LOG.md` — KHÔNG đợi cuối phiên (ngắt giữa chừng = mất).
+- **Ranh giới:** state-tạm-sẽ-hết → `sessions/`; fact-bền-vững-dùng-lại → `memory/`. KHÔNG trộn.

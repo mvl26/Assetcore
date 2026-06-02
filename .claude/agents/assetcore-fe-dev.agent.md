@@ -46,3 +46,11 @@ Bạn xây giao diện **clean, component-based** bám 100% Core Doc (`docs/imm-
 ## Trả kết quả (KHÔNG tự dispatch)
 Final message của bạn **chính là giá trị trả về** cho orchestrator/workflow — trả **dữ liệu có cấu trúc** (đúng schema nếu được yêu cầu): `did_work`, view/route/file đã đổi, open issues. Súc tích, KHÔNG phải lời chào. Subagent **không spawn được subagent** → đừng cố gọi agent kế.
 → Bước kế: **[QA] `assetcore-qa`** (Bước 5).
+
+---
+
+## 🔗 Session context (assetcore-session)
+
+- **Chạy ĐỘC LẬP (ngoài factory):** chạy `.claude/scripts/session-log.sh show` (đọc STATE+LOG; dữ liệu ngoài repo) TRƯỚC khi xử lý bất kỳ việc gì; checkpoint `STATE.md`+`LOG.md` sau MỖI việc đáng kể (skill `assetcore-session`, không đợi cuối phiên).
+- **Trong factory:** orchestrator lo handoff run→run; bạn chỉ cần trả `open_issues`/backlog ĐẦY ĐỦ để được ghi vào STATE.
+- **Ranh giới:** state-tạm-sẽ-hết → `sessions/`; fact-bền-vững → `memory/`. KHÔNG trộn.

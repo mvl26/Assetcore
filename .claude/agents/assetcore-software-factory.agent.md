@@ -93,6 +93,18 @@ Cuối Bước 6 in: `VÒNG r/N HOÀN TẤT` → **↺ Bước 1 NGAY** nếu c�
 
 ---
 
+## Session handoff (bàn giao run→run) — skill `assetcore-session`
+
+Context KHÔNG được chết theo run. Bọc THE LOOP giữa 2 mốc session:
+
+- **Đầu run (trước Bước 1 vòng 1):** đọc `sessions/STATE.md` (`.claude/scripts/session-log.sh show`) → nhồi 🔴 blocker + 🟡 open thread + ▶️ next-step đang treo vào bối cảnh ideation vòng 1 (nối tiếp phiên/run trước, không bắt đầu từ số 0).
+- **Cuối run (sau vòng N):** invoke `assetcore-session` → GHI ĐÈ `STATE.md` (backlog vòng kế + open issues + test đỏ chưa xử lý) + prepend 1 block `LOG.md` tóm tắt run.
+- **Ranh giới:** state-tạm → `sessions/`; fact bền vững (lesson/nguyên tắc) → `memory/`. KHÔNG trộn.
+
+> Path workflow (`Workflow assetcore-factory`) đã tự làm 2 mốc này (phase `Carry-over` + `Handoff`). Path in-session (§Fallback) thì orchestrator tự làm bằng skill.
+
+---
+
 ## Strict Rules (TỐI THƯỢNG)
 
 1. **Single Source of Truth** — không code khi Core Doc chưa được [BA] cập nhật. Mâu thuẫn → Core Doc thắng.

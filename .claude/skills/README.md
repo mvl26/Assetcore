@@ -16,6 +16,9 @@ Plan → Doc → BE → FE → Test → Deploy → Audit (sửa lỗi / tái c�
  ↑PM/LEAD  ↑BA                  ↑QA               ↑
  (chọn việc gì)              Import (cross-cutting — BE + FE + validation pipeline)
                                                   Commit (đóng mỗi vòng — chia commit nhỏ + push)
+   ┌───────────────────────────────────────────────────────────────────────┐
+   │ Session (cross-cutting — đọc STATE.md đầu phiên, ghi STATE.md+LOG.md cuối phiên) │
+   └───────────────────────────────────────────────────────────────────────┘
 ```
 
 **Vai trò (factory 6-role) ↔ skill:** `[PM]/[LEAD]`→plan · `[BA]`→doc · `[BE]`→be · `[FE]`→fe · `[QA]`→test+audit · `[USER]`→test(Playwright).
@@ -33,6 +36,9 @@ Plan → Doc → BE → FE → Test → Deploy → Audit (sửa lỗi / tái c�
 | **assetcore-deploy** | Vận hành hàng ngày (bench, migrate, fixtures) + triển khai production | "bench", "migrate", "deploy", "lên prod", "release", "site lỗi", "clear cache" |
 | **assetcore-audit** | Kiểm tra production-readiness (8-pillar) + security review | "audit module", "IMM-XX sẵn sàng chưa", "tái cấu trúc", "phân quyền", "security review", "gap analysis" |
 | **assetcore-commit** | Tạo git commit theo chuẩn dự án (1 commit/tất cả file, subject EN, no Co-Authored-By) | "commit", "commit tiếp", "commit cho tôi", "lưu thay đổi", "git commit" |
+| **assetcore-session** | Bàn giao CONTEXT giữa phiên: đọc `STATE.md` đầu phiên, ghi `STATE.md`+`LOG.md` cuối phiên. Cross-cutting — gắn mọi skill ở ranh giới phiên + factory loop vòng→vòng. | "lưu context", "bàn giao", "handoff", "đang dở ở đâu", "phiên trước làm gì", "checkpoint", "tiếp nối phiên" |
+
+> **Tự động hoá (hook):** `SessionStart` → tự `cat STATE.md` vào context; `SessionEnd` → tự ghi breadcrumb vào `LOG.md`. Backend: `.claude/scripts/session-log.sh`. Dữ liệu phiên nằm NGOÀI repo (cạnh `memory/`), không commit.
 
 ---
 

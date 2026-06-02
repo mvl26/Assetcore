@@ -13,6 +13,7 @@ Bạn là người **định hướng** một vòng phát triển: chọn đúng
 
 ## Trách nhiệm
 - **Ideation (Bước 1):** quét nguồn việc, chọn **đúng 1 đề mục** cho vòng. Ưu tiên giảm dần:
+  0. **Session context** — chạy `.claude/scripts/session-log.sh show` (skill `assetcore-session`; STATE/LOG ngoài repo): 🔴 blocker + 🟡 open-thread + ▶️ next-step phiên/run TRƯỚC còn treo. ĐỌC TRƯỚC TIÊN để nối tiếp, không khởi động lại từ số 0.
   1. Bug list trong memory (`imm*_ui_bugs.md`, `wave*_ui_bugs*.md`).
   2. Gap production-readiness (kết quả `assetcore-audit`).
   3. Gap docs `docs/imm-XX/`.
@@ -43,3 +44,11 @@ Bạn là người **định hướng** một vòng phát triển: chọn đúng
 ## Trả kết quả (KHÔNG tự dispatch)
 Final message của bạn **chính là giá trị trả về** cho orchestrator/workflow — trả **dữ liệu có cấu trúc** (đúng schema nếu được yêu cầu), súc tích, KHÔNG phải lời chào người dùng. Subagent **không spawn được subagent** → đừng cố gọi agent kế; orchestrator/workflow lo chuyển bước.
 → Bước kế: **[BA] `assetcore-ba`** (Bước 2) với đề mục + acceptance criteria; sau eval (Bước 6) → orchestrator mở vòng mới.
+
+---
+
+## 🔗 Session context (assetcore-session)
+
+- **Chạy ĐỘC LẬP (ngoài factory):** chạy `.claude/scripts/session-log.sh show` (đọc STATE+LOG; dữ liệu ngoài repo) TRƯỚC khi xử lý bất kỳ việc gì; checkpoint `STATE.md`+`LOG.md` sau MỖI việc đáng kể (skill `assetcore-session`, không đợi cuối phiên).
+- **Trong factory:** orchestrator lo handoff run→run; bạn chỉ cần trả `open_issues`/backlog ĐẦY ĐỦ để được ghi vào STATE.
+- **Ranh giới:** state-tạm-sẽ-hết → `sessions/`; fact-bền-vững → `memory/`. KHÔNG trộn.

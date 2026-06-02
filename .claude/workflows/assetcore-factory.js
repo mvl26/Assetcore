@@ -2,11 +2,13 @@ export const meta = {
   name: 'assetcore-factory',
   description: 'Autonomous Software Factory cho AssetCore — master loop chạy N vòng liên tục PM→BA→BE‖FE→QA→USER để cải tiến/soát lỗi phần mềm. Mỗi vòng dispatch agent con đúng role (tự gọi skill project). KHÔNG dừng giữa vòng, KHÔNG commit; báo cáo tổng ở cuối.',
   phases: [
+    { title: 'Carry-over', detail: 'Đọc sessions/STATE.md — nối tiếp backlog phiên trước' },
     { title: 'Ideation', detail: '[PM] chọn đúng 1 đề mục/vòng' },
     { title: 'Core Doc', detail: '[BA] cập nhật docs/imm-XX (gate trước code)' },
     { title: 'Dev', detail: '[BE] ‖ [FE] theo Core Doc, TDD' },
     { title: 'QA', detail: '[QA] chạy bench run-tests THẬT' },
     { title: 'Eval', detail: '[USER] soi UX + backlog vòng kế' },
+    { title: 'Handoff', detail: 'Ghi sessions/STATE.md + LOG.md cho phiên/run sau' },
   ],
 }
 
@@ -77,12 +79,26 @@ const EVAL_SCHEMA = {
   },
 }
 
+const CARRY_SCHEMA = {
+  type: 'object', additionalProperties: false, required: ['carryover'],
+  properties: { carryover: { type: 'string', description: 'Tóm tắt blocker + open thread + backlog treo từ STATE.md, hoặc "(STATE trống)"' } },
+}
+
+// ── Carry-over: đọc session STATE.md (ngoài repo) để nối tiếp phiên/run trước ──
+const carry = await agent(
+  `Đọc session STATE của AssetCore: chạy \`/home/miyano/frappe-bench/apps/assetcore/.claude/scripts/session-log.sh show\` ` +
+  `(hoặc đọc sessions/STATE.md). Trả về tóm tắt NGẮN các 🔴 blocker + 🟡 open thread + ▶️ next-step đang treo để factory nối tiếp. Trống → "(STATE trống)".`,
+  { phase: 'Carry-over', label: 'carry-over', schema: CARRY_SCHEMA }
+)
+const CARRY = (carry && carry.carryover) || '(không đọc được STATE)'
+log(`Carry-over từ phiên trước: ${CARRY.slice(0, 200)}`)
+
 // ── Master loop — N vòng tuần tự, KHÔNG dừng giữa vòng ────────────────────────
 const history = []
 
 for (let r = 1; r <= ROUNDS; r++) {
   log(`════ VÒNG ${r}/${ROUNDS} (${MODE}) ════`)
-  const prev = history.length ? `Tóm tắt vòng trước: ${JSON.stringify(history[history.length - 1]).slice(0, 1200)}` : '(vòng đầu — chưa có lịch sử)'
+  const prev = history.length ? `Tóm tắt vòng trước: ${JSON.stringify(history[history.length - 1]).slice(0, 1200)}` : `(vòng đầu — chưa có lịch sử) Carry-over từ phiên/run TRƯỚC (sessions/STATE.md): ${CARRY}`
 
   // Bước 1 — [PM] Ideation: chọn ĐÚNG 1 đề mục
   const item = await agent(
@@ -167,11 +183,28 @@ for (let r = 1; r <= ROUNDS; r++) {
   log(`✓ Vòng ${r} xong — verdict: ${ev ? ev.verdict : 'n/a'} | test: ${qa ? (qa.tests_green ? 'XANH' : 'ĐỎ/—') : 'n/a'}`)
 }
 
+const nextBacklog = history.flatMap(h => (h.eval && h.eval.backlog_next) || [])
+const openIssues = history.flatMap(h => [...((h.be && h.be.open) || []), ...((h.fe && h.fe.open) || [])])
+const redFails = history.flatMap(h => (h.qa && !h.qa.green && h.qa.failures) || [])
+
+// ── Handoff: ghi STATE.md (ghi đè) + LOG.md (prepend) cho phiên/run SAU ───────
+// Workflow không có filesystem → dispatch 1 agent invoke skill assetcore-session.
+await agent(
+  `Invoke skill **assetcore-session**, cập nhật bàn giao phiên từ kết quả factory run (${history.length} vòng, mode ${MODE}):\n` +
+  `- Backlog vòng kế (▶️/🟡): ${JSON.stringify(nextBacklog).slice(0, 1500)}\n` +
+  `- Open issues còn lại: ${JSON.stringify(openIssues).slice(0, 1000)}\n` +
+  `- Test ĐỎ chưa xử lý (🔴 nếu có): ${JSON.stringify(redFails).slice(0, 600)}\n` +
+  `GHI ĐÈ sessions/STATE.md thành current truth (blocker/open-thread/next-step) + prepend 1 block LOG.md tóm tắt run. ` +
+  `Ranh giới: CHỈ state-tạm vào sessions; fact bền vững → memory/. Đừng commit (sessions nằm ngoài repo).`,
+  { phase: 'Handoff', label: 'session-handoff' }
+)
+
 // ── Báo cáo tổng (chờ user duyệt commit — workflow KHÔNG commit) ──────────────
 return {
   rounds_run: history.length,
   mode: MODE,
   history,
   commit_status: 'KHÔNG commit — toàn bộ thay đổi để user review & tự quyết (feedback_no_auto_commit).',
-  next_backlog: history.flatMap(h => (h.eval && h.eval.backlog_next) || []),
+  next_backlog: nextBacklog,
+  session_handoff: 'Đã ghi sessions/STATE.md + LOG.md cho phiên/run sau.',
 }

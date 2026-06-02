@@ -1096,3 +1096,11 @@ Khi build import endpoint cho DocType có workflow + Link fields, BẮT BUỘC t
 - **LL-IMP-1** (Validator accept-both, 2026-05-28): mọi validator check Link field PHẢI dùng `_link_lookup_set(doctype, display_field)` — chứa cả `name` và `display_field`. KHÔNG bao giờ check `value in {r.name for r in frappe.get_all(...)}` riêng lẻ, KHÔNG bao giờ `frappe.db.exists("AC Supplier", supplier)` mà không union display field. Lý do: template hướng dẫn user nhập display name, resolver accept cả 2, validator phải nhất quán nếu không sẽ reject input hợp lệ.
 
 Pattern reference đầy đủ: `api/import_data.py:_do_import` (164-211) + `_transition_asset_lifecycle` (228-247) + `_cascade_skip_for_tree` (§1.8 spec).
+
+---
+
+## 🔗 Session context — bàn giao phiên (assetcore-session)
+
+- **Trước khi xử lý/sửa BẤT KỲ việc gì:** chạy `.claude/scripts/session-log.sh show` (đọc STATE+LOG mới nhất — "đang dở ở đâu"; dữ liệu NGOÀI repo, đừng tìm `sessions/` trong repo). Main session hook tự nạp mỗi prompt; subagent phải chạy lệnh này.
+- **Sau MỖI việc đáng kể (đụng file/quyết định):** invoke **`assetcore-session`** checkpoint NGAY `STATE.md`(ghi đè)+`LOG.md` — KHÔNG đợi cuối phiên (ngắt giữa chừng = mất).
+- **Ranh giới:** state-tạm-sẽ-hết → `sessions/`; fact-bền-vững-dùng-lại → `memory/`. KHÔNG trộn.
