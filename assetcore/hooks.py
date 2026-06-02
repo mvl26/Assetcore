@@ -344,6 +344,8 @@ scheduler_events = {
         "assetcore.services.imm16.run_compliance_evaluation_hourly",
         # E6 — Notification SLA breach/warning scan (IMM-09 Asset Repair, vòng 8)
         "assetcore.services.notifications.run_sla_breach_scan",
+        # BR-12-08 — IMM-12 Incident SLA breach detection (R23)
+        "assetcore.services.imm12.check_incident_sla_breach",
     ],
     # Frappe v15 không có "quarterly" → dùng cron expression
     "cron": {

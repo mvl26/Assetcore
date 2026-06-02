@@ -54,6 +54,13 @@
   "resolved_at",
   "closed_by",
   "closed_date",
+  "section_sla",
+  "sla_policy",
+  "response_due_at",
+  "resolution_due_at",
+  "col_break_sla",
+  "response_breached",
+  "resolution_breached",
   "amended_from"
  ],
  "fields": [
@@ -354,6 +361,48 @@
    "allow_on_submit": 1
   },
   {
+   "fieldname": "section_sla",
+   "fieldtype": "Section Break",
+   "label": "SLA"
+  },
+  {
+   "fieldname": "sla_policy",
+   "fieldtype": "Link",
+   "label": "SLA Policy",
+   "options": "IMM SLA Policy",
+   "read_only": 1
+  },
+  {
+   "fieldname": "response_due_at",
+   "fieldtype": "Datetime",
+   "label": "Response Due At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "resolution_due_at",
+   "fieldtype": "Datetime",
+   "label": "Resolution Due At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_break_sla",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "response_breached",
+   "fieldtype": "Check",
+   "label": "Response SLA Breached",
+   "read_only": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "resolution_breached",
+   "fieldtype": "Check",
+   "label": "Resolution SLA Breached",
+   "read_only": 1,
+   "default": "0"
+  },
+  {
    "fieldname": "amended_from",
    "fieldtype": "Link",
    "label": "Amended From",
@@ -426,6 +475,21 @@
    "amend": 0,
    "report": 1,
    "export": 1,
+   "print": 1,
+   "email": 0,
+   "share": 0
+  },
+  {
+   "role": "Commissioning Manager",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "submit": 0,
+   "cancel": 0,
+   "delete": 0,
+   "amend": 0,
+   "report": 1,
+   "export": 0,
    "print": 1,
    "email": 0,
    "share": 0

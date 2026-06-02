@@ -119,6 +119,38 @@ def _map_severity(severity: str) -> str:
     }.get(severity, "Minor")
 
 
+# BR-12-08: IMM SLA Policy.priority dùng thang P1–P4; Incident dùng severity.
+_SEVERITY_TO_SLA_PRIORITY = {
+    "Critical": "P1", "High": "P2", "Medium": "P3", "Low": "P4",
+}
+
+
+def _severity_to_sla_priority(severity: str) -> str:
+    return _SEVERITY_TO_SLA_PRIORITY.get(severity, "P4")
+
+
+def _apply_sla_policy(doc) -> None:
+    """BR-12-08: resolve IMM SLA Policy theo severity và set due-time trên doc.
+
+    Đọc response/resolution time TỪ policy (không hardcode). Không có policy khớp
+    → bỏ qua (không chặn report). Gọi TRƯỚC insert/save để due-time được lưu.
+    """
+    from frappe.utils import add_to_date
+
+    priority = _severity_to_sla_priority(doc.severity)
+    policy = svc00.get_sla_policy(priority)
+    if not policy:
+        return
+    base = doc.reported_at or now_datetime()
+    doc.sla_policy = policy.get("name")
+    resp_min = policy.get("response_time_minutes")
+    res_hr = policy.get("resolution_time_hours")
+    if resp_min:
+        doc.response_due_at = add_to_date(base, minutes=int(resp_min))
+    if res_hr:
+        doc.resolution_due_at = add_to_date(base, hours=int(res_hr))
+
+
 def _needs_rca(severity: str) -> bool:
     return severity in _HIGH_SEVERITY
 
@@ -207,6 +239,8 @@ def report_incident(
     if linked_repair_wo:
         doc.linked_repair_wo = linked_repair_wo
     doc.rca_required = 1 if _needs_rca(severity) else 0
+    # BR-12-08: SLA due-times từ IMM SLA Policy (sau khi reported_at đã set).
+    _apply_sla_policy(doc)
     doc.flags.ignore_permissions = True
     doc.insert()
 
@@ -234,6 +268,9 @@ def acknowledge_incident(name: str, notes: str = "", assigned_to: str = "") -> d
     doc.status = _STATUS_ACKNOWLEDGED
     doc.acknowledged_by = actor
     doc.acknowledged_at = now_datetime()
+    # BR-12-08: response SLA breach nếu tiếp nhận sau response_due_at.
+    if doc.response_due_at and doc.acknowledged_at > frappe.utils.get_datetime(doc.response_due_at):
+        doc.response_breached = 1
     if assigned_to:
         doc.assigned_to = assigned_to
     if notes:
@@ -284,6 +321,9 @@ def resolve_incident(name: str, resolution_notes: str, root_cause: str = "") -> 
     doc.status = _STATUS_RESOLVED
     doc.resolved_by = actor
     doc.resolved_at = now_datetime()
+    # BR-12-08: resolution SLA breach nếu xử lý xong sau resolution_due_at.
+    if doc.resolution_due_at and doc.resolved_at > frappe.utils.get_datetime(doc.resolution_due_at):
+        doc.resolution_breached = 1
     doc.resolution_notes = resolution_notes
     if root_cause:
         doc.root_cause_summary = root_cause
@@ -651,6 +691,48 @@ def detect_chronic_failures() -> dict:
         f"IMM-12 detect_chronic_failures: {flagged} flagged, {rca_created} RCA created"
     )
     return {"flagged": flagged, "rca_created": rca_created, "groups": len(chronic_groups)}
+
+
+def check_incident_sla_breach() -> dict:
+    """Hourly scheduler — BR-12-08: đánh dấu SLA breach cho incident CHƯA đóng
+    đã quá hạn (response/resolution) + ghi audit-trail (BR-12-05).
+
+    Idempotent: chỉ set breach=1 cho incident chưa breach (tránh log trùng).
+    """
+    now = now_datetime()
+    open_states = (_STATUS_OPEN, _STATUS_ACKNOWLEDGED, _STATUS_INVESTIGATING, _RCA_REQUIRED)
+    candidates = frappe.get_all(
+        _DT_INCIDENT,
+        filters={"status": ["in", open_states]},
+        fields=["name", "asset", "status", "response_due_at", "resolution_due_at",
+                "response_breached", "resolution_breached", "acknowledged_at"],
+    )
+    resp_flagged = 0
+    res_flagged = 0
+    for row in candidates:
+        updates: dict = {}
+        # Response breach: chưa tiếp nhận và đã quá response_due_at.
+        if (not row.get("response_breached") and not row.get("acknowledged_at")
+                and row.get("response_due_at")
+                and now > frappe.utils.get_datetime(row["response_due_at"])):
+            updates["response_breached"] = 1
+            resp_flagged += 1
+        # Resolution breach: chưa đóng và đã quá resolution_due_at.
+        if (not row.get("resolution_breached") and row.get("resolution_due_at")
+                and now > frappe.utils.get_datetime(row["resolution_due_at"])):
+            updates["resolution_breached"] = 1
+            res_flagged += 1
+        if updates:
+            frappe.db.set_value(_DT_INCIDENT, row["name"], updates, update_modified=False)
+            kinds = "+".join(k.replace("_breached", "") for k in updates)
+            _log(row["name"], row.get("asset"), f"SLA breach ({kinds}) phát hiện bởi scheduler",
+                 row["status"], row["status"])
+    if resp_flagged or res_flagged:
+        frappe.db.commit()
+    frappe.logger().info(
+        f"IMM-12 check_incident_sla_breach: response={resp_flagged}, resolution={res_flagged}"
+    )
+    return {"response_breached": resp_flagged, "resolution_breached": res_flagged}
 
 
 # ─── Internal helpers ─────────────────────────────────────────────────────────
