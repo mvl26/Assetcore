@@ -17,12 +17,18 @@ def _ensure_test_asset() -> str:
     if existing:
         return existing
 
-    # Category (name = category_name nếu autoname=field)
-    if not frappe.db.exists("AC Asset Category", "_Test RCA Cat"):
-        frappe.get_doc({
+    # AC Asset Category autoname là series CAT-#### → name ≠ category_name.
+    # PHẢI lookup qua field category_name (idempotent), nếu không sẽ collide
+    # trên unique index category_name khi có row leak từ lần chạy trước.
+    cat_name = frappe.db.get_value(
+        "AC Asset Category", {"category_name": "_Test RCA Cat"}, "name"
+    )
+    if not cat_name:
+        cat_doc = frappe.get_doc({
             "doctype": "AC Asset Category",
             "category_name": "_Test RCA Cat",
         }).insert(ignore_permissions=True)
+        cat_name = cat_doc.name
 
     # Device Model — name auto-generated, lookup by model_name+manufacturer
     model = frappe.db.get_value(
@@ -35,7 +41,7 @@ def _ensure_test_asset() -> str:
             "doctype": "IMM Device Model",
             "model_name": "_Test RCA Model",
             "manufacturer": "_Test Mfg",
-            "asset_category": "_Test RCA Cat",
+            "asset_category": cat_name,
         }).insert(ignore_permissions=True)
         model = model_doc.name
 
@@ -43,7 +49,7 @@ def _ensure_test_asset() -> str:
         "doctype": "AC Asset",
         "asset_name": asset_label,
         "device_model": model,
-        "asset_category": "_Test RCA Cat",
+        "asset_category": cat_name,
     }).insert(ignore_permissions=True)
     return doc.name
 

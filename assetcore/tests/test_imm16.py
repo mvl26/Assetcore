@@ -531,11 +531,21 @@ class TestCAPAFromIncidentChain(unittest.TestCase):
         self.incident_name = result["name"]
 
     def tearDown(self):
-        # Cleanup theo thứ tự link: CAPA → RCA → Incident
-        capa = frappe.db.get_value(
+        # Cleanup theo thứ tự link: CAPA → RCA → Incident.
+        # Phải xoá MỌI CAPA trỏ về incident (linked_incident), không chỉ CAPA
+        # mà Incident.linked_capa trỏ tới — nếu back-link một chiều, CAPA mồ côi
+        # vẫn giữ FK linked_incident và gây LinkExistsError khi xoá Incident.
+        capa_names = set(frappe.get_all(
+            "IMM CAPA Record",
+            filters={"linked_incident": self.incident_name},
+            pluck="name",
+        ))
+        back_link = frappe.db.get_value(
             "Incident Report", self.incident_name, "linked_capa"
         )
-        if capa:
+        if back_link:
+            capa_names.add(back_link)
+        for capa in capa_names:
             with suppress(Exception):
                 frappe.delete_doc(
                     "IMM CAPA Record", capa, force=True, ignore_permissions=True,
