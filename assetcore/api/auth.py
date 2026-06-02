@@ -28,6 +28,27 @@ def _safe_field(fieldname: str) -> bool:
     return frappe.db.has_column("User", fieldname)
 
 
+_dummy_pwhash_cache: str | None = None
+
+
+def _constant_time_dummy_verify(pwd: str) -> None:
+    """Verify `pwd` against a fixed dummy hash (cùng CryptContext của Frappe).
+
+    Dùng cho nhánh user-không-tồn-tại để chi phí ~bằng một `check_password`
+    thật → đóng timing-based user enumeration (security review #2). Hash dummy
+    tính một lần rồi cache; verify luôn trả False nhưng vẫn tốn cost bcrypt.
+    """
+    global _dummy_pwhash_cache
+    from frappe.utils.password import passlibctx
+
+    try:
+        if _dummy_pwhash_cache is None:
+            _dummy_pwhash_cache = passlibctx.hash("ac-constant-time-dummy")
+        passlibctx.verify(pwd or "", _dummy_pwhash_cache)
+    except Exception:
+        pass
+
+
 def _get_employee_extra(user_name: str) -> dict:
     if not frappe.db.table_exists("Employee"):
         return {}
@@ -101,6 +122,10 @@ def _reapply_if_rejected(email: str, full_name: str, password: str,
     khoá: Rejected ⟹ chưa active). Mọi trạng thái khác (Pending đang chờ,
     Approved/enabled=1) → giữ nguyên hành vi 'đã tồn tại' để chống chiếm tài
     khoản đang hoạt động.
+
+    Người đăng ký lại PHẢI nhập đúng mật khẩu gốc (tham số `password`) để chứng
+    minh quyền sở hữu — mật khẩu KHÔNG bị đổi ở đây (security review #3). Sai
+    mật khẩu → trả nhãn 'đã tồn tại' (không lộ trạng thái Rejected).
     """
     status = (
         frappe.db.get_value("User", email, "imm_approval_status")
@@ -111,12 +136,23 @@ def _reapply_if_rejected(email: str, full_name: str, password: str,
     if status != "Rejected" or enabled == 1:
         return _err("Email đã tồn tại trong hệ thống", 400)
 
-    # Reset hồ sơ: cập nhật danh tính + mật khẩu mới, đưa về Pending, clear lý do từ chối.
+    # Bảo mật (security review #3): chỉ cho phép ghi đè hồ sơ Rejected khi người
+    # gọi CHỨNG MINH biết mật khẩu gốc của tài khoản → chống chiếm danh tính qua
+    # đường guest. Sai/thiếu mật khẩu → trả CÙNG nhãn 'email đã tồn tại' như mọi
+    # trường hợp khác (không lộ ra đây là tài khoản Rejected).
+    from frappe.utils.password import check_password
+
+    try:
+        check_password(email, password, delete_tracker_cache=False)
+    except frappe.AuthenticationError:
+        return _err("Email đã tồn tại trong hệ thống", 400)
+
+    # Mật khẩu gốc đúng — KHÔNG đổi mật khẩu (giữ nguyên), chỉ cập nhật danh
+    # tính + đưa về Pending + clear lý do từ chối.
     user_doc = frappe.get_doc("User", email)
     user_doc.first_name = full_name
     user_doc.phone = phone or ""
     user_doc.enabled = 0
-    user_doc.new_password = password
     if _safe_field("imm_approval_status"):
         user_doc.imm_approval_status = "Pending"
     if _safe_field("imm_rejection_reason"):
@@ -166,7 +202,7 @@ def check_account_status(email: str) -> dict:
 
 
 @frappe.whitelist(allow_guest=True, methods=["POST"])
-@rate_limit(key="usr", limit=5, seconds=60, ip_based=True)
+@rate_limit(key="usr", limit=5, seconds=300, ip_based=True)
 def account_state(usr: str, pwd: str) -> dict:
     """BR-00-USR-02: tra trạng thái tài khoản — PASSWORD-GATED.
 
@@ -194,12 +230,15 @@ def account_state(usr: str, pwd: str) -> dict:
     if not usr or not pwd:
         return _err("Thiếu thông tin đăng nhập", 400)
 
-    # Email không tồn tại và sai mật khẩu PHẢI không phân biệt được.
+    # Email không tồn tại và sai mật khẩu PHẢI không phân biệt được — kể cả timing.
     if not frappe.db.exists("User", usr):
+        _constant_time_dummy_verify(pwd)  # equalize cost với check_password thật
         return _ok({"status": "invalid_credentials"})
 
     try:
-        check_password(usr, pwd)
+        # delete_tracker_cache=False: oracle này KHÔNG được xoá bộ đếm
+        # login-fail thật của Frappe (LoginAttemptTracker) — tránh bypass lockout.
+        check_password(usr, pwd, delete_tracker_cache=False)
     except frappe.AuthenticationError:
         return _ok({"status": "invalid_credentials"})
 

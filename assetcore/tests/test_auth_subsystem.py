@@ -83,7 +83,8 @@ class TestSignupGate(_AuthBase):
     def test_reregister_after_reject_resets_to_pending(self):
         """G4: Email đã Rejected → CHO PHÉP đăng ký lại (reset về Pending).
 
-        Không tạo record trùng; cập nhật full_name/phone/dept/password mới;
+        Security review #3: đăng ký lại PHẢI nhập đúng mật khẩu gốc để chứng
+        minh quyền sở hữu (mật khẩu KHÔNG đổi). Cập nhật full_name/phone/dept;
         clear imm_rejection_reason; enabled vẫn 0 (chờ duyệt lại).
         """
         from assetcore.api.auth import register_user
@@ -97,10 +98,23 @@ class TestSignupGate(_AuthBase):
         self.assertEqual(
             frappe.db.get_value("User", email, "imm_approval_status"), "Rejected")
 
+        # Sai mật khẩu gốc → KHÔNG cho ghi đè, trả nhãn 'đã tồn tại' (không lộ Rejected).
+        res_wrong = register_user(email=email, full_name="Hijacker",
+                                  password="WrongOld@999", phone="0900000000")
+        self.assertFalse(res_wrong.get("success"),
+                         "Đăng ký lại với mật khẩu gốc SAI phải bị từ chối (review #3)")
+        self.assertEqual(
+            frappe.db.get_value("User", email, "imm_approval_status"), "Rejected",
+            "Sai mật khẩu gốc → KHÔNG được reset Rejected→Pending")
+        self.assertEqual(
+            frappe.db.get_value("User", email, "first_name"), "Re Reg",
+            "Sai mật khẩu gốc → danh tính KHÔNG bị ghi đè")
+
+        # Đúng mật khẩu gốc → cho đăng ký lại (mật khẩu giữ nguyên).
         res = register_user(email=email, full_name="Re Reg V2",
-                            password="NewPass@456", phone="0911222333")
+                            password="Test@12345", phone="0911222333")
         self.assertTrue(res.get("success"),
-                        "Email Rejected PHẢI được đăng ký lại (G4)")
+                        "Email Rejected + đúng mật khẩu gốc PHẢI được đăng ký lại (G4)")
         self.assertEqual(
             frappe.db.get_value("User", email, "imm_approval_status"), "Pending",
             "Re-register Rejected → status reset về Pending")
