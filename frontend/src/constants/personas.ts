@@ -198,12 +198,28 @@ export function derivePersonas(
 
 /**
  * derivePrimaryPersona — Core Doc §7.ter.
- * Persona rank cao nhất trong tập user mở khoá (đã sort desc bởi derivePersonas).
- * Dùng cho header sidebar (label/color) + default dashboard. KHÔNG cho user đổi.
- * available rỗng → null (shell tối thiểu).
+ * Persona dùng cho header sidebar (label/color) + default dashboard. KHÔNG cho
+ * user đổi. available rỗng → null (shell tối thiểu).
+ *
+ * Thứ tự ưu tiên chọn primary:
+ *   1. Role Profile khớp CHÍNH XÁC — nếu user có `role_profile_name` (Frappe core)
+ *      và nó map sang 1 persona đang nằm trong `available`, dùng persona đó.
+ *      Lý do: nhiều persona có thể share cùng inferenceRole (vd Corrective Manager
+ *      thuộc cả `workshop` rank 60 lẫn `clinical` rank 30) → rank thuần sẽ gắn nhãn
+ *      SAI persona. Role Profile là nguồn định danh chính xác của user.
+ *   2. Fallback rank cao nhất — khi không có role profile / không khớp.
  */
-export function derivePrimaryPersona(available: readonly Persona[]): Persona | null {
+export function derivePrimaryPersona(
+  available: readonly Persona[],
+  roleProfileName?: string | null,
+): Persona | null {
   if (available.length === 0) return null
+  if (roleProfileName) {
+    const byProfile = PERSONA_BY_ROLE_PROFILE[roleProfileName]
+    if (byProfile && available.some((p) => p.code === byProfile.code)) {
+      return byProfile
+    }
+  }
   return [...available].sort((a, b) => b.rank - a.rank)[0] ?? null
 }
 

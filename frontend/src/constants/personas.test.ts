@@ -109,6 +109,30 @@ describe('derivePrimaryPersona — Phase 1.2 (Core Doc §7.ter)', () => {
     const b = derivePrimaryPersona(derivePersonas(['Inventory User', 'PM User']))
     expect(a?.code).toBe(b?.code)
   })
+
+  // ── Role Profile precedence — regression 2026-06-02 ────────────────────────
+  // Bug: Corrective Manager ∈ inferenceRoles của CẢ workshop (rank 60) lẫn
+  // clinical (rank 30). User "Trưởng khoa lâm sàng" (role profile = clinical)
+  // bị gắn nhãn SAI "Trưởng xưởng kỹ thuật" vì rank thuần thắng.
+  it('T23: role profile khớp chính xác thắng rank (clinical, không phải workshop)', () => {
+    const avail = derivePersonas(['Corrective Manager', 'Corrective User'])
+    // không có role profile → rank-winner = workshop (bug cũ)
+    expect(derivePrimaryPersona(avail)?.code).toBe('workshop')
+    // có role profile clinical → đúng persona clinical
+    expect(derivePrimaryPersona(avail, 'Trưởng khoa lâm sàng')?.code).toBe('clinical')
+  })
+
+  it('T24: role profile không khớp / null → fallback rank cao nhất', () => {
+    const avail = derivePersonas(['Corrective Manager'])
+    expect(derivePrimaryPersona(avail, null)?.code).toBe('workshop')
+    expect(derivePrimaryPersona(avail, 'Profile Không Tồn Tại')?.code).toBe('workshop')
+  })
+
+  it('T25: role profile khớp nhưng persona KHÔNG trong available → fallback (không leak)', () => {
+    // user chỉ có role tech, nhưng profile name trỏ admin → KHÔNG được nhảy lên admin
+    const techOnly = derivePersonas(['PM User'])
+    expect(derivePrimaryPersona(techOnly, 'Quản trị viên IT')?.code).toBe('tech')
+  })
 })
 
 describe('catalog integrity', () => {

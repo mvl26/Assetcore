@@ -45,6 +45,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   const isAuthenticated = computed(() => user.value !== null)
   const roles = computed<string[]>(() => user.value?.roles ?? [])
+  const roleProfileName = computed<string | null>(() => user.value?.role_profile_name ?? null)
   const roleSet = computed(() => new Set(roles.value))
 
   const hasRole = (role: string) => roleSet.value.has(role)
@@ -115,6 +116,7 @@ export const useAuthStore = defineStore('auth', () => {
         email: ctx.user,
         user_image: ctx.user_image,
         roles: ctx.roles,
+        role_profile_name: ctx.role_profile_name ?? null,
       }
       persistUser(user.value)
       if (Object.keys(capabilities.value).length === 0) {
@@ -131,6 +133,20 @@ export const useAuthStore = defineStore('auth', () => {
     } finally {
       loading.value = false
     }
+  }
+
+  /**
+   * Re-hydrate roles / role_profile / capabilities từ BE cho phiên đã được
+   * khôi phục từ localStorage. Chống persona "thiu" (stale) khi admin đổi
+   * role-profile server-side trong khi cache FE (TTL 10') còn hiệu lực.
+   *
+   * KHÔNG block render: gọi không-await ở App mount. fetchSession sẽ tự null
+   * user + bounce về login nếu phiên đã bị huỷ server-side.
+   */
+  async function ensureFresh(): Promise<void> {
+    if (!isAuthenticated.value) return
+    await fetchSession()
+    await loadCapabilities()
   }
 
   async function logout(): Promise<void> {
@@ -151,12 +167,12 @@ export const useAuthStore = defineStore('auth', () => {
 
   return {
     user, loading, error,
-    isAuthenticated, roles, capabilities,
+    isAuthenticated, roles, roleProfileName, capabilities,
     isSystemAdmin, isQAOfficer, isDeptHead, isOpsManager,
     isWorkshopLead, isTechnician, isDocOfficer, hasAnyImmRole,
     canCreate, canSubmit, canApprove, canViewDashboard, canManageDocs,
     can,
-    login, fetchSession, logout, loadCapabilities,
+    login, fetchSession, ensureFresh, logout, loadCapabilities,
     hasRole, hasAnyRole, rememberedUsername,
   }
 })

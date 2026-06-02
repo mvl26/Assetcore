@@ -345,6 +345,8 @@ export interface FrappeUser {
   email: string
   user_image: string | null
   roles: string[]
+  /** Frappe Role Profile name — nguồn chính xác để chọn primary persona. */
+  role_profile_name?: string | null
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

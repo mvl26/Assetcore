@@ -16,10 +16,18 @@ const router = useRouter()
 
 onMounted(async () => {
   const currentRoute = router.currentRoute.value
-  if (currentRoute.meta.requiresAuth !== false && !auth.isAuthenticated) {
+  if (currentRoute.meta.requiresAuth === false) return
+  if (!auth.isAuthenticated) {
     const ok = await auth.fetchSession()
     if (!ok) { router.push({ name: 'Login' }) }
+    return
   }
+  // Phiên khôi phục từ localStorage (TTL 10') → re-hydrate role/persona/caps từ
+  // BE ở nền, không block render. Chống persona stale khi admin đổi role-profile
+  // server-side. fetchSession tự bounce về Login nếu phiên đã bị huỷ.
+  void auth.ensureFresh().then(() => {
+    if (!auth.isAuthenticated) router.push({ name: 'Login' })
+  })
 })
 
 // Bắt lỗi top-level để không bị blank page khi component con throw.

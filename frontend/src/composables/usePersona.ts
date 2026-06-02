@@ -23,11 +23,15 @@ import {
 
 export function usePersona() {
   const auth = useAuthStore()
-  const { roles } = storeToRefs(auth)
+  const { roles, roleProfileName } = storeToRefs(auth)
 
   // imm_roles legacy (prefix "IMM ") rỗng — nguồn chính là roles thật.
   const personas = computed<Persona[]>(() => derivePersonas(roles.value, []))
-  const primaryPersona = computed<Persona | null>(() => derivePrimaryPersona(personas.value))
+  // Role Profile khớp chính xác > rank — tránh gắn nhãn persona SAI khi nhiều
+  // persona share cùng inferenceRole (vd Corrective Manager → workshop ∩ clinical).
+  const primaryPersona = computed<Persona | null>(
+    () => derivePrimaryPersona(personas.value, roleProfileName.value),
+  )
 
   return { personas, primaryPersona }
 }
