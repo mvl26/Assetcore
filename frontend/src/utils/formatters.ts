@@ -81,7 +81,8 @@ const STATUS_MAP: Record<string, string> = {
   'Under Maintenance':'Đang bảo trì',
   Calibrating:        'Đang hiệu chuẩn',
   'Out of Service':   'Ngừng hoạt động',
-  Commissioned:       'Mới tiếp nhận',
+  // Đồng bộ với constants/labels.ts + AssetListView (chống drift nhãn donut↔list, LL-FE-3).
+  Commissioned:       'Đã đưa vào sử dụng',
   Decommissioned:     'Đã thanh lý',
 
   // ── Commissioning (IMM-04) ────────────────────────────────────────

@@ -11,7 +11,7 @@ import { useToast } from '@/composables/useToast'
 import { useAuthStore } from '@/stores/auth'
 import { useCapabilities } from '@/composables/useCapabilities'
 import { sanitizeHtml } from '@/utils/sanitizeHtml'
-import { incidentStatusLabel, incidentStatusClass, incidentSeverityLabel, incidentSeverityClass } from '@/constants/labels'
+import { incidentStatusLabel, incidentStatusClass, incidentSeverityLabel, incidentSeverityClass, incidentTypeLabel } from '@/constants/labels'
 
 // Stepper tuyến chính (D3): 6 node — RCA Required là nhánh, render khi đang ở đó.
 const INCIDENT_STEPS = ['Open', 'Acknowledged', 'In Progress', 'Resolved', 'Closed']
@@ -210,7 +210,7 @@ onMounted(load)
     <!-- Header -->
     <div class="flex items-start justify-between flex-wrap gap-3">
       <div>
-        <button class="text-sm text-slate-500 hover:text-slate-700 mb-1" @click="router.push('/incidents/list')">← Danh sách Incident</button>
+        <button class="text-sm text-slate-500 hover:text-slate-700 mb-1" @click="router.push('/incidents/list')">← Danh sách Sự cố</button>
         <h1 class="text-xl font-semibold text-slate-800">{{ name }}</h1>
         <div class="flex items-center gap-2 mt-1 flex-wrap">
           <span :class="['px-2 py-0.5 rounded text-xs font-medium', incidentSeverityClass(form.severity ?? '')]">{{ incidentSeverityLabel(form.severity ?? '') }}</span>
@@ -288,7 +288,7 @@ Xóa
         </div>
         <div>
           <div class="text-xs text-slate-500 mb-0.5">Loại sự cố</div>
-          <div class="text-sm">{{ form.incident_type || '—' }}</div>
+          <div class="text-sm">{{ form.incident_type ? incidentTypeLabel(form.incident_type) : '—' }}</div>
         </div>
         <div>
           <div class="text-xs text-slate-500 mb-0.5">Người báo cáo</div>

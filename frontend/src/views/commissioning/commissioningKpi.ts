@@ -18,10 +18,12 @@ export interface CommissioningKpiItem extends WoKpiItem {
 export function commissioningKpiItems(kpis: KpiStats | null | undefined): CommissioningKpiItem[] {
   if (!kpis) return []
   return [
+    // Nhãn hiển thị tiếng Việt (Core Doc §3.1 + bảng i18n). filterState giữ
+    // workflow_state gốc tiếng Anh làm khoá lọc — KHÔNG để raw English ra UI.
     { label: 'Phiếu đang mở', value: kpis.pending_count, color: 'primary', filterState: '' },
-    { label: 'Clinical Hold', value: kpis.hold_count, color: 'warning', filterState: 'Clinical Hold' },
+    { label: 'Tạm giữ lâm sàng', value: kpis.hold_count, color: 'warning', filterState: 'Clinical Hold' },
     { label: 'NC mở', value: kpis.open_nc_count, color: 'danger', filterState: 'Non Conformance' },
-    { label: 'Release tháng này', value: kpis.released_this_month, color: 'success', filterState: 'Clinical Release' },
+    { label: 'Bàn giao tháng này', value: kpis.released_this_month, color: 'success', filterState: 'Clinical Release' },
     { label: 'Quá hạn SLA', value: kpis.overdue_sla, color: 'neutral' },
   ]
 }

@@ -6,6 +6,7 @@
 import { ref, onMounted, watch } from 'vue'
 import { getRecordHistory } from '@/api/imm16'
 import type { RecordHistoryEntry } from '@/api/imm16'
+import { historyStateLabel } from '@/constants/labels'
 
 const props = defineProps<{
   refDoctype: string
@@ -56,7 +57,7 @@ watch(() => props.refName, load)
             v-if="e.from_status || e.to_status"
             class="text-[11px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-600"
           >
-            {{ e.from_status || '—' }} → {{ e.to_status || '—' }}
+            {{ historyStateLabel(refDoctype, e.from_status) }} → {{ historyStateLabel(refDoctype, e.to_status) }}
           </span>
         </div>
         <p class="text-xs text-slate-400 mt-0.5">

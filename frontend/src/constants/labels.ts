@@ -213,7 +213,8 @@ export function docStatusClass(v: number) { return DOC_STATUS_CLASS[v] ?? 'bg-gr
 
 // ─── AC Asset lifecycle ───────────────────────────────────────────────────────
 export const LIFECYCLE_STATUS_LABEL: Record<string, string> = {
-  'Commissioned':    'Đã tiếp nhận',
+  // Đồng bộ wording với formatters.translateStatus + AssetListView (chống drift).
+  'Commissioned':    'Đã đưa vào sử dụng',
   'Active':          'Đang hoạt động',
   'Under Repair':    'Đang sửa chữa',
   'Calibrating':     'Đang hiệu chuẩn',
@@ -248,7 +249,12 @@ export const CALIBRATION_STATUS_CLASS: Record<string, string> = {
   'In Progress':     'bg-blue-100 text-blue-800',
   'Failed':          'bg-red-200 text-red-900 font-semibold',
 }
-export function calibrationStatusLabel(v: string) { return CALIBRATION_STATUS_LABEL[v] ?? v }
+export function calibrationStatusLabel(v: string) {
+  // Ưu tiên workflow-state của phiếu hiệu chuẩn (Scheduled/Sent to Lab/Passed/...)
+  // — đây là tập state mà WorkflowStepper truyền vào. Fallback sang map sức khoẻ
+  // hiệu chuẩn của tài sản (Calibrated/Due Soon/Overdue/...) rồi mới về nguyên văn.
+  return CALIBRATION_STATUS_LABELS[v] ?? CALIBRATION_STATUS_LABEL[v] ?? v
+}
 export function calibrationStatusClass(v: string) { return CALIBRATION_STATUS_CLASS[v] ?? 'bg-gray-100 text-gray-600' }
 
 // ─── Medical device class ─────────────────────────────────────────────────────
@@ -274,6 +280,15 @@ export const INCIDENT_SEVERITY_CLASS: Record<string, string> = {
 }
 export function incidentSeverityLabel(v: string) { return INCIDENT_SEVERITY_LABEL[v] ?? v }
 export function incidentSeverityClass(v: string) { return INCIDENT_SEVERITY_CLASS[v] ?? 'bg-gray-100 text-gray-600' }
+
+// ─── Incident type (khớp INCIDENT_TYPES trong IncidentCreateView + BE) ─────────
+export const INCIDENT_TYPE_LABEL: Record<string, string> = {
+  'Failure':      'Hỏng hóc',
+  'Safety Event': 'Sự kiện an toàn',
+  'Near Miss':    'Suýt xảy ra',
+  'Malfunction':  'Hoạt động sai',
+}
+export function incidentTypeLabel(v: string) { return INCIDENT_TYPE_LABEL[v] ?? v }
 
 // ─── Incident status (khớp _STATUS_* trong services/imm12.py) ──────────────────
 export const INCIDENT_STATUS_LABEL: Record<string, string> = {
@@ -339,6 +354,20 @@ export const CAPA_STATUS_CLASS: Record<string, string> = {
 }
 export function capaStatusLabel(v: string) { return CAPA_STATUS_LABEL[v] ?? v }
 export function capaStatusClass(v: string) { return CAPA_STATUS_CLASS[v] ?? 'bg-gray-100 text-gray-600' }
+
+// ─── CAPA workflow_state (máy trạng thái — khớp CapaWorkflowState api/imm16.ts +
+//     _CAPA_TRANSITIONS services/imm16.py). Khác CAPA_STATUS_LABEL (chỉ phủ
+//     status tổng hợp). Dùng cho confirm-modal + stepper trên CAPADetailView. ──
+export const CAPA_WORKFLOW_LABEL: Record<string, string> = {
+  'Open':           'Đang mở',
+  'Investigating':  'Đang điều tra',
+  'Action Plan':    'Lập kế hoạch hành động',
+  'Implementation': 'Đang thực thi',
+  'Verification':   'Đang xác minh',
+  'Closed':         'Đã đóng',
+  'Re-opened':      'Mở lại',
+}
+export function capaWorkflowLabel(v: string) { return CAPA_WORKFLOW_LABEL[v] ?? v }
 
 // ─── Transfer type ────────────────────────────────────────────────────────────
 export const TRANSFER_TYPE_LABEL: Record<string, string> = {
@@ -484,11 +513,36 @@ export function formatStatus(v: string | undefined | null): string {
     LIFECYCLE_STATUS_LABEL, CALIBRATION_STATUS_LABEL,
     INCIDENT_SEVERITY_LABEL, CAPA_STATUS_LABEL,
     TRANSFER_TYPE_LABEL, CONTRACT_TYPE_LABEL, MEDICAL_DEVICE_CLASS_LABEL,
+    // R24: phủ thêm các state máy chưa có trong formatStatus (chống raw "Open"
+    // leak ở RecordHistory dùng chung).
+    INCIDENT_STATUS_LABEL, RCA_STATUS_LABEL, CAPA_WORKFLOW_LABEL,
+    COMMISSIONING_STATE_LABELS, DOC_STATUS_LABELS, WO_STATUS_LABELS,
   ]
   for (const map of maps) {
     if (v in map) return map[v]
   }
-  return v
+  // Fallback: bỏ gạch dưới (Pending_Doc_Verify -> Pending Doc Verify) thay vì
+  // trả nguyên văn raw code.
+  return v.replaceAll('_', ' ')
+}
+
+// ─── R24: doctype-aware label resolver cho audit-trail/history dùng chung ─────
+// RecordHistory hiển thị from_status → to_status cho NHIỀU doctype. Map theo
+// ref_doctype để chọn đúng từ điển; fallback formatStatus() rồi raw-debar.
+const _HISTORY_STATE_MAP: Record<string, Record<string, string>> = {
+  'Incident Report':       INCIDENT_STATUS_LABEL,
+  'IMM RCA Record':        RCA_STATUS_LABEL,
+  'IMM CAPA Record':       CAPA_WORKFLOW_LABEL,
+  'Asset Commissioning':   COMMISSIONING_STATE_LABELS,
+  'PM Work Order':         PM_STATUS_LABEL,
+  'Asset Repair':          CM_STATUS_LABEL,
+  'IMM Asset Calibration': CALIBRATION_STATUS_LABELS,
+}
+export function historyStateLabel(refDoctype: string | undefined | null, v?: string | null): string {
+  if (!v) return '—'
+  const map = refDoctype ? _HISTORY_STATE_MAP[refDoctype] : undefined
+  if (map && v in map) return map[v]
+  return formatStatus(v)
 }
 
 export function formatStatusClass(v: string | undefined | null): string {

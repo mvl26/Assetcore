@@ -570,7 +570,7 @@ const routes: RouteRecordRaw[] = [
     path: '/inventory',
     name: 'InventoryDashboard',
     component: () => import('@/views/inventory/InventoryDashboardView.vue'),
-    meta: { requiresAuth: true, title: 'IMM Storekeeper — Tổng quan', moduleId: 'imm15', requiredCapabilities: ['inventory.read'] },
+    meta: { requiresAuth: true, title: 'Thủ kho phụ tùng — Tổng quan', moduleId: 'imm15', requiredCapabilities: ['inventory.read'] },
   },
   {
     path: '/warehouses',
@@ -646,7 +646,7 @@ const routes: RouteRecordRaw[] = [
     path: '/inventory/watchlist',
     name: 'CriticalSpareWatchlist',
     component: () => import('@/views/inventory/WatchlistView.vue'),
-    meta: { requiresAuth: true, title: 'Critical Spare Watchlist', moduleId: 'imm15', requiredCapabilities: ['inventory.write'] },
+    meta: { requiresAuth: true, title: 'Danh sách phụ tùng trọng yếu', moduleId: 'imm15', requiredCapabilities: ['inventory.write'] },
   },
   {
     path: '/approvals/pending',

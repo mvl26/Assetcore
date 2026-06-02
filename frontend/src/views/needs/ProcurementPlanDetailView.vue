@@ -206,7 +206,7 @@ onMounted(loadPlan)
 
       <div class="card">
         <div class="flex items-center justify-between mb-2">
-          <h3 style="margin:0">Danh sách Needs Request đã gom</h3>
+          <h3 style="margin:0">Danh sách Đề nghị nhu cầu đã gom</h3>
           <button v-if="plan.workflow_state === 'Draft'" class="btn btn-outline text-sm" @click="openRollModal">
             + Thêm NR
           </button>

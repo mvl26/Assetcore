@@ -14,6 +14,7 @@ import BaseModal from '@/components/common/BaseModal.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import RecordHistory from '@/components/common/RecordHistory.vue'
 import { sanitizeHtml } from '@/utils/sanitizeHtml'
+import { capaWorkflowLabel } from '@/constants/labels'
 
 const route = useRoute()
 const router = useRouter()
@@ -186,7 +187,7 @@ onMounted(load)
             <span v-if="capa.finding_rule" class="text-xs text-slate-400 ml-2">({{ capa.finding_rule }})</span>
           </div>
           <div v-if="capa.incident_ref">
-            <p class="t-eyebrow mb-1">Sự cố nguồn (Incident Report)</p>
+            <p class="t-eyebrow mb-1">Sự cố nguồn</p>
             <button class="font-mono text-sm text-brand-700 font-semibold hover:underline" @click="router.push(`/incidents/${capa.incident_ref}`)">
               {{ capa.incident_ref }}
             </button>
@@ -285,7 +286,7 @@ onMounted(load)
     <!-- Transition modal -->
     <BaseModal v-if="showTransition && pendingTransition" :title="pendingTransition.label" size="md" @close="showTransition = false">
       <div class="space-y-3">
-        <p class="text-sm text-slate-600">Chuyển CAPA sang trạng thái <strong>{{ pendingTransition.target }}</strong>.</p>
+        <p class="text-sm text-slate-600">Chuyển CAPA sang trạng thái <strong>{{ capaWorkflowLabel(pendingTransition.target) }}</strong>.</p>
         <template v-if="pendingTransition.target === 'Action Plan'">
           <div class="form-group">
             <label class="form-label">Phương pháp phân tích gốc (VR-05) *</label>

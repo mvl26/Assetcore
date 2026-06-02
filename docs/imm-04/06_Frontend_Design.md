@@ -137,13 +137,15 @@ Lưu ảnh tại `docs/imm-04/screenshots/`:
 > Bám `docs/res/design/design-frontend.md §3.1` và `docs/fe/04-commissioning/commissioning-list.html`. Render qua `WorkOrderKpiStrip` + `KpiCard` (pattern IMM-08/09), KHÔNG route riêng.
 
 **KPI cards (display summary — đồng pattern IMM-08/09, dùng chung `WorkOrderKpiStrip` không clickable):**
-| KPI | API field | Màu | Ghi chú |
+| KPI (nhãn hiển thị VI) | API field | Màu | Ghi chú |
 |---|---|---|---|
 | Phiếu đang mở | `kpis.pending_count` | primary | Tổng phiếu non-terminal |
-| Clinical Hold | `kpis.hold_count` | warning | |
+| Tạm giữ lâm sàng | `kpis.hold_count` | warning | Trạng thái `Clinical Hold` — hiển thị qua i18n (§ bảng map), KHÔNG để raw English |
 | NC mở | `kpis.open_nc_count` | danger | |
-| Release tháng này | `kpis.released_this_month` | success | |
+| Bàn giao tháng này | `kpis.released_this_month` | success | Trạng thái `Clinical Release` — hiển thị tiếng Việt theo § i18n |
 | Quá hạn SLA | `kpis.overdue_sla` | neutral | |
+
+> **Đính chính i18n (2026-06-02, factory vòng 9):** nhãn KPI strip PHẢI tiếng Việt theo quy tắc i18n ở § "State value tiếng Anh map qua i18n → tiếng Việt trên UI" và wireframe ("Tạm giữ LS"). Bản trước để raw `Clinical Hold` / `Release tháng này` là rò rỉ tiếng Anh, mâu thuẫn chính bảng i18n của module → đã thống nhất về VI. `filterState` vẫn dùng workflow_state gốc tiếng Anh (`Clinical Hold` / `Clinical Release`) làm khoá lọc.
 
 > Quyết định reuse: dùng `WorkOrderKpiStrip` (display-only, giống IMM-08/09) thay vì tự build card clickable — tránh sửa shared component đang dùng ở module khác. **Click-to-quick-filter là enhancement tương lai** (cần thêm param `overdue` ở list endpoint cho KPI "Quá hạn SLA" + thống nhất UX), ghi backlog, KHÔNG implement vòng này để giữ scope đóng kín.
 >

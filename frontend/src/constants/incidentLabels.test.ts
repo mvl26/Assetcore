@@ -4,9 +4,11 @@ import { describe, it, expect } from 'vitest'
 import {
   incidentSeverityLabel,
   incidentStatusLabel,
+  incidentTypeLabel,
   rcaStatusLabel,
   INCIDENT_STATUS_LABEL,
   INCIDENT_SEVERITY_LABEL,
+  INCIDENT_TYPE_LABEL,
   RCA_STATUS_LABEL,
 } from './labels'
 
@@ -40,6 +42,24 @@ describe('IMM-12 incident status labels (D2 + D3)', () => {
   it('has no legacy Reported/Submitted keys', () => {
     expect(INCIDENT_STATUS_LABEL).not.toHaveProperty('Reported')
     expect(INCIDENT_STATUS_LABEL).not.toHaveProperty('Submitted')
+  })
+})
+
+describe('IMM-12 incident TYPE labels (R16: detail view leaked raw "Failure")', () => {
+  it('maps the 4 BE incident types to VI, no raw English token', () => {
+    // BE canonical values from services/imm12 + IncidentCreateView INCIDENT_TYPES
+    for (const t of ['Failure', 'Safety Event', 'Near Miss', 'Malfunction']) {
+      expect(INCIDENT_TYPE_LABEL).toHaveProperty(t)
+      const label = incidentTypeLabel(t)
+      expect(label).toBeTruthy()
+      expect(label).not.toMatch(/\b(Failure|Safety Event|Near Miss|Malfunction)\b/)
+    }
+  })
+  it('Failure → Hỏng hóc (matches create-form contract)', () => {
+    expect(incidentTypeLabel('Failure')).toBe('Hỏng hóc')
+  })
+  it('unknown value falls back to itself (no crash)', () => {
+    expect(incidentTypeLabel('Weird')).toBe('Weird')
   })
 })
 

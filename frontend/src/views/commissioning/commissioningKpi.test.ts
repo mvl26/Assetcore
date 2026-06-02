@@ -26,12 +26,15 @@ describe('commissioningKpiItems', () => {
   })
 
   it('K3: VI labels only — no raw English workflow-state token in labels', () => {
+    // Core Doc §3.1 đính chính 2026-06-02: nhãn KPI phải tiếng Việt theo bảng
+    // i18n; workflow_state gốc tiếng Anh chỉ dùng làm filterState, không ra label.
     const labels = commissioningKpiItems(kpis).map(i => i.label).join(' ')
     expect(labels).toContain('Phiếu đang mở')
-    expect(labels).toContain('Clinical Hold') // proper noun kept per Core Doc UX
+    expect(labels).toContain('Tạm giữ lâm sàng') // Clinical Hold → VI
     expect(labels).toContain('NC mở')
+    expect(labels).toContain('Bàn giao tháng này') // Clinical Release → VI
     expect(labels).toContain('Quá hạn SLA')
-    expect(labels).not.toMatch(/\b(Open|In Progress|Completed|Pending|Released)\b/)
+    expect(labels).not.toMatch(/\b(Open|In Progress|Completed|Pending|Released|Clinical Hold|Clinical Release|Release)\b/)
   })
 
   it('K4: clickable KPIs carry correct filterState; overdue is display-only', () => {

@@ -4,15 +4,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { reportIncident } from '@/api/imm12'
 import SmartSelect from '@/components/common/SmartSelect.vue'
 import { useFormDraft } from '@/composables/useFormDraft'
-import { incidentSeverityLabel } from '@/constants/labels'
-
-// Loại sự cố — value = enum BE, label = tiếng Việt (no EN leak).
-const INCIDENT_TYPE_LABEL: Record<string, string> = {
-  Failure: 'Hỏng hóc',
-  'Safety Event': 'Sự kiện an toàn',
-  'Near Miss': 'Suýt xảy ra',
-  Malfunction: 'Hoạt động sai',
-}
+import { incidentSeverityLabel, INCIDENT_TYPE_LABEL } from '@/constants/labels'
 
 const router = useRouter()
 const route = useRoute()
@@ -113,7 +105,7 @@ async function submit() {
             <option value="">-- Chọn --</option>
             <option v-for="s in SEVERITIES" :key="s" :value="s">{{ incidentSeverityLabel(s) }}</option>
           </select>
-          <p v-if="form.severity === 'Critical'" class="text-xs text-red-600 mt-1">Mức Khẩn cấp sẽ tự động tạo CAPA khi gửi.</p>
+          <p v-if="form.severity === 'Critical'" class="text-xs text-red-600 mt-1">Mức Nghiêm trọng sẽ tự động đưa thiết bị về Ngừng sử dụng và bắt buộc lập RCA trước khi đóng.</p>
         </div>
       </div>
 
