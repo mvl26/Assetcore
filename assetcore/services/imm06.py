@@ -49,6 +49,43 @@ class CompetencyStatus:
     AUTHORIZED = (ACTIVE, EXPIRING)
 
 
+# ─── BR-06-13 SoT — recertification_due_date (Vòng 22) ────────────────────────
+
+RECERT_LEAD_DAYS = 60  # INVARIANT — lead time tái chứng nhận, đo bằng NGÀY (không phải tháng)
+
+
+def compute_competency_dates(achieved_date, validity_months: int) -> dict:
+    """SoT DUY NHẤT cho expiry_date + recertification_due_date (BR-06-13).
+
+    INVARIANT (quy ước duy nhất, không đổi):
+        expiry_date              = achieved_date + validity_months tháng
+        recertification_due_date = expiry_date − RECERT_LEAD_DAYS (60 ngày)
+
+    Anchor = expiry_date (KHÔNG anchor achieved_date + (validity − 2) tháng — công thức
+    đó trôi 0–2 ngày theo độ dài tháng 28/30/31 → nguồn gốc divergence). "60 ngày" khớp
+    filter scheduler `check_recertification_due` (`add_days(nowdate(), 60)`) và mốc
+    reminder T−90/−60/−30 đo bằng ngày.
+
+    Mọi write-site (creation, signoff recompute, controller before_save,
+    recertify_competency, set_computed_competency_fields, compute_expiry_dates) PHẢI gọi
+    hàm này — CẤM inline `add_days(expiry, -60)` hay `add_months(achieved, validity-2)`.
+
+    Thuần tính (không đọc DB). Cùng input → cùng output (idempotent).
+
+    Args:
+        achieved_date: ngày đạt năng lực (str ISO hoặc date).
+        validity_months: số tháng hiệu lực.
+
+    Returns:
+        dict: {"expiry_date": <date>, "recertification_due_date": <date>}.
+    """
+    expiry = add_months(achieved_date, int(validity_months))
+    return {
+        "expiry_date": expiry,
+        "recertification_due_date": add_days(expiry, -RECERT_LEAD_DAYS),
+    }
+
+
 # ─── Training Program ─────────────────────────────────────────────────────────
 
 def list_training_programs(filters: dict, *, page: int = 1,
@@ -213,8 +250,9 @@ def _create_competency_record(participant, session_doc, program_doc) -> str | No
     try:
         achieved_date = session_doc.session_date
         validity_months = int(program_doc.validity_period_months or 24)
-        expiry_date = add_months(achieved_date, validity_months)
-        recert_due = add_days(expiry_date, -60)
+        dates = compute_competency_dates(achieved_date, validity_months)  # SoT §V.1 — INVARIANT expiry−60d
+        expiry_date = dates["expiry_date"]
+        recert_due = dates["recertification_due_date"]
 
         doc = frappe.get_doc({
             "doctype": "IMM User Competency",
@@ -248,9 +286,15 @@ def list_user_competencies(filters: dict, *, page: int = 1,
     """Liệt kê hồ sơ năng lực."""
     rows, pg = UserCompetencyRepo.list(
         filters=normalize_filters(filters),
+        # Vòng-22 recert SoT: recertification_due_date + is_expired +
+        # department_at_assessment PHẢI nằm trong read-path để detail view
+        # (training/CompetencyDetailView.vue) render "Hạn tái chứng nhận" thật,
+        # và để superset-parity với get_expiring_competencies (không drift 2 đường đọc).
         fields=["name", "user", "device_model", "training_program",
                 "competency_level", "achieved_date", "expiry_date",
-                "workflow_state", "days_until_expiry"],
+                "workflow_state", "days_until_expiry",
+                "recertification_due_date", "is_expired",
+                "department_at_assessment"],
         order_by="expiry_date asc",
         page=page, page_size=page_size,
     )
@@ -308,11 +352,12 @@ def signoff_competency(competency_name: str, supervisor_user: str) -> dict:
     doc.signoff_date = nowdate()
     doc.workflow_state = CompetencyStatus.ACTIVE
 
-    # Recompute dates if missing
+    # Recompute dates if missing — qua SoT §V.1 (INVARIANT expiry−60d)
     if doc.achieved_date and not doc.expiry_date:
         validity = int(doc.validity_months or 24)
-        doc.expiry_date = add_months(doc.achieved_date, validity)
-        doc.recertification_due_date = add_days(doc.expiry_date, -60)
+        dates = compute_competency_dates(doc.achieved_date, validity)
+        doc.expiry_date = dates["expiry_date"]
+        doc.recertification_due_date = dates["recertification_due_date"]
 
     doc.flags.ignore_workflow_status_check = True
     UserCompetencyRepo.save(doc)
@@ -704,27 +749,29 @@ def validate_signoff_required_for_active(doc: "frappe.Document") -> None:
 
 
 def set_computed_competency_fields(doc: "frappe.Document") -> None:
-    """Tính expiry_date, days_until_expiry và is_expired nếu chưa được set."""
-    from frappe.utils import add_months as _add_months, date_diff as _date_diff, getdate, nowdate as _nowdate
+    """SoT owner cho compute hook: tính expiry_date + recertification_due_date (qua §V.1),
+    cùng days_until_expiry và is_expired. Idempotent — chỉ set expiry/recert khi còn thiếu.
+
+    `compute_expiry_dates` delegate vào hàm này (1 owner duy nhất — không 2 hàm ghi
+    recert date song song)."""
     if doc.achieved_date and doc.validity_months and not doc.expiry_date:
-        doc.expiry_date = _add_months(doc.achieved_date, int(doc.validity_months))
-        recert_months = max(0, int(doc.validity_months) - 2)
-        doc.recertification_due_date = _add_months(doc.achieved_date, recert_months)
+        dates = compute_competency_dates(doc.achieved_date, int(doc.validity_months))  # SoT §V.1
+        doc.expiry_date = dates["expiry_date"]
+        doc.recertification_due_date = dates["recertification_due_date"]
 
     if doc.expiry_date:
-        today_dt = getdate(_nowdate())
-        diff = _date_diff(getdate(doc.expiry_date), today_dt)
+        today_dt = getdate(nowdate())
+        diff = date_diff(getdate(doc.expiry_date), today_dt)
         doc.days_until_expiry = diff
         doc.is_expired = 1 if diff < 0 else 0
 
 
 def compute_expiry_dates(doc: "frappe.Document") -> None:
-    """Tính expiry_date từ achieved_date + validity_months (gọi từ before_save)."""
-    from frappe.utils import add_months as _add_months
-    if doc.achieved_date and doc.validity_months:
-        months = int(doc.validity_months)
-        doc.expiry_date = _add_months(doc.achieved_date, months)
-        doc.recertification_due_date = _add_months(doc.achieved_date, max(0, months - 2))
+    """Tính expiry_date + recertification_due_date từ achieved_date + validity_months.
+
+    Delegate 100% vào `set_computed_competency_fields` (SoT §V.1) — KHÔNG còn logic
+    formula trùng lặp. Giữ public để tương thích call-site cũ (gọi từ before_save nếu wire)."""
+    set_computed_competency_fields(doc)
 
 
 def invalidate_authorization_cache(user: str, device_model: str) -> None:
@@ -1305,8 +1352,9 @@ def recertify_competency(name: str, new_session: str) -> dict:
     program_doc = frappe.get_doc("IMM Training Program", session.training_program)
     achieved_today = nowdate()
     validity_months = int(program_doc.validity_period_months or 24)
-    expiry_date = add_months(achieved_today, validity_months)
-    recert_due = add_months(achieved_today, max(0, validity_months - 2))
+    dates = compute_competency_dates(achieved_today, validity_months)  # SoT §V.1 — INVARIANT expiry−60d
+    expiry_date = dates["expiry_date"]
+    recert_due = dates["recertification_due_date"]
 
     new_comp_doc = frappe.new_doc("IMM User Competency")
     new_comp_doc.user = old.user
