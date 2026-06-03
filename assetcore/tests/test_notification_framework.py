@@ -213,3 +213,95 @@ class TestApiHandler(unittest.TestCase):
         self.assertEqual(payload["http_status"], 404)
         self.assertEqual(payload["error"], "Không tìm thấy")
         self.assertNotIn("message_code", payload)
+
+
+# ─── Tier 6: IMM-09 notification adoption (Sprint 2026-05-29) ──────────────────
+
+
+class TestImm09Messages(unittest.TestCase):
+    """IMM-09 phải có đủ 10 MSG mới theo Core Doc docs/imm-09/05_API_Specification.md §11.2,
+    mỗi mã có severity/http_status/title/template/action_hint hợp lệ."""
+
+    _NEW_CODES = [
+        "IMM09_SOURCE_REQUIRED",
+        "IMM09_ASSET_HAS_OPEN_WO",
+        "IMM09_SPARE_NO_STOCK_ENTRY",
+        "IMM09_STOCK_ENTRY_NOT_FOUND",
+        "IMM09_FCR_REQUIRED",
+        "IMM09_FCR_NOT_APPROVED",
+        "IMM09_CHECKLIST_INCOMPLETE",
+        "IMM09_CHECKLIST_FAILED",
+        "IMM09_ASSET_NOT_FOUND",
+        "IMM09_DEPT_HEAD_REQUIRED",
+    ]
+
+    def test_all_new_imm09_codes_exist_in_registry(self):
+        from assetcore.utils.messages import MESSAGES, MSG
+        for attr in self._NEW_CODES:
+            self.assertTrue(hasattr(MSG, attr), f"MSG.{attr} chưa được định nghĩa")
+            code = getattr(MSG, attr)
+            self.assertIn(code, MESSAGES, f"{code} chưa có entry trong MESSAGES")
+
+    def test_new_imm09_entries_well_formed(self):
+        from assetcore.utils.messages import MESSAGES, MSG
+        valid_sev = {"error", "warning", "info", "success", "critical"}
+        for attr in self._NEW_CODES:
+            entry = MESSAGES[getattr(MSG, attr)]
+            with self.subTest(code=attr):
+                self.assertTrue(entry["title"])
+                self.assertTrue(entry["template"])
+                self.assertIn(entry["severity"], valid_sev)
+                # Core Doc §4: business throws đều warning
+                self.assertEqual(entry["severity"], "warning")
+                self.assertIn(entry["http_status"], {400, 404, 409, 422})
+
+    def test_template_placeholders_render(self):
+        """Mỗi template render được với context mẫu (placeholder khớp doc §11.2)."""
+        from assetcore.utils.messages import MSG, format_message
+        samples = {
+            MSG.IMM09_SOURCE_REQUIRED: {"source_type": "Incident", "required_doc": "Incident Report"},
+            MSG.IMM09_ASSET_HAS_OPEN_WO: {"existing": "WO-CM-2026-00001"},
+            MSG.IMM09_SPARE_NO_STOCK_ENTRY: {"item_name": "Cầu chì", "idx": 1},
+            MSG.IMM09_STOCK_ENTRY_NOT_FOUND: {"stock_entry_ref": "SM-0001"},
+            MSG.IMM09_FCR_NOT_APPROVED: {"fcr": "FCR-0001", "status": "Draft"},
+            MSG.IMM09_CHECKLIST_INCOMPLETE: {"idx": 2, "test_description": "Kiểm tra điện"},
+            MSG.IMM09_CHECKLIST_FAILED: {"idx": 3, "test_description": "Đo dòng rò"},
+            MSG.IMM09_ASSET_NOT_FOUND: {"asset": "AC-ASSET-0001"},
+        }
+        for code, ctx in samples.items():
+            _t, msg, _e = format_message(code, ctx)
+            for v in ctx.values():
+                self.assertIn(str(v), msg, f"{code}: thiếu giá trị {v!r} trong message render")
+
+
+class TestImm09NthrowAndEnvelope(unittest.TestCase):
+    """Service entrypoints IMM-09 raise nthrow với message_code → handle() hydrate
+    envelope đầy đủ (severity/title/action_hint/context)."""
+
+    def test_get_work_order_not_found_full_envelope(self):
+        from assetcore.api.imm09 import get_repair_work_order
+        from assetcore.utils.messages import MSG, lookup_message
+        resp = get_repair_work_order("WO-CM-NONEXISTENT-XYZ-999")
+        self.assertFalse(resp["success"])
+        self.assertEqual(resp["message_code"], MSG.IMM09_NOT_FOUND)
+        entry = lookup_message(MSG.IMM09_NOT_FOUND)
+        self.assertEqual(resp["severity"], entry["severity"])
+        self.assertEqual(resp["title"], entry["title"])
+        self.assertEqual(resp["http_status"], 404)
+        self.assertIn("WO-CM-NONEXISTENT-XYZ-999", resp["error"])
+
+    def test_create_work_order_asset_not_found_full_envelope(self):
+        from assetcore.api.imm09 import create_repair_work_order
+        from assetcore.utils.messages import MSG, lookup_message
+        resp = create_repair_work_order(
+            asset_ref="AC-ASSET-NONEXISTENT-XYZ-999",
+            repair_type="Corrective",
+            priority="Normal",
+            failure_description="test",
+        )
+        self.assertFalse(resp["success"])
+        self.assertEqual(resp["message_code"], MSG.IMM09_ASSET_NOT_FOUND)
+        entry = lookup_message(MSG.IMM09_ASSET_NOT_FOUND)
+        self.assertEqual(resp["severity"], entry["severity"])
+        self.assertEqual(resp["http_status"], 404)
+        self.assertEqual(resp["context"], {"asset": "AC-ASSET-NONEXISTENT-XYZ-999"})

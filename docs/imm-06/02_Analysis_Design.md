@@ -492,6 +492,9 @@ Acceptance:
 | BR-06-10 | Khi user thay đổi khoa (department) → competency vẫn giữ nguyên nhưng `department_at_assessment` lưu lại; gap report tính lại | Hook trên User update (`handle_user_dept_change`) | Internal |
 | BR-06-11 | Một user có thể nhiều competency cho cùng device_model — chỉ giữ 1 Active (mới active → archive cũ) | `archive_old_competency()` trong `signoff_competency` | Internal |
 | BR-06-12 | Session đã Verified không thể Cancel — chỉ Closed | Workflow constraint + API `cancel_session` check | Internal |
+| BR-06-13 | `recertification_due_date` tính từ **DUY NHẤT 1 SoT** `compute_competency_dates(achieved_date, validity_months)` — INVARIANT `= expiry_date − 60 ngày`. Mọi write-site (creation / signoff / before_save / recertify / compute hooks) gọi chung SoT; cùng input → cùng recert date bất kể code path (idempotent). Cấm inline `add_days(expiry,-60)` hay `add_months(achieved, validity-2)` ngoài SoT. | `compute_competency_dates()` trong `services/imm06.py`; grep guard 0 literal; scheduler `check_recertification_due` lọc theo recert date này | WHO HTM (lead-time tái chứng nhận) |
+
+> **Self-Correction 2026-06-03 (Vòng 22):** lỗi gốc — 2 công thức recert song song (A: expiry−60d; B: achieved+(validity−2)tháng) lệch 1–2 ngày → scheduler eligibility lệch theo code path. Chốt SoT "expiry − 60 ngày" (khớp filter `add_days(nowdate(),60)`). Chi tiết 6 write-site: `04_Backend_Design.md §V.1`.
 
 ## IV.2. Validation Rules
 

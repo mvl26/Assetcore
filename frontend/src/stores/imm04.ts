@@ -24,6 +24,7 @@ import {
   getPoDetails as apiGetPoDetails,
 } from '@/api/imm04'
 import { frappeGet } from '@/api/helpers'
+import { ApiError, toApiError } from '@/api/errors'
 import { useAuthStore } from './auth'
 import type {
   CommissioningDoc,
@@ -69,6 +70,9 @@ export const useCommissioningStore = defineStore('commissioning', () => {
   const loading = ref(false)
   const listLoading = ref(false)
   const error = ref<string | null>(null)
+  // Notification framework (Sprint 2026-05-29 vòng 5): giữ ApiError đã hydrate
+  // (message_code/severity/title/action_hint) để view gọi notify.fromError().
+  const lastApiError = ref<ApiError | null>(null)
   const pagination = ref<Pagination>({
     page: 1,
     page_size: 20,
@@ -146,6 +150,13 @@ export const useCommissioningStore = defineStore('commissioning', () => {
 
   // ─── Actions ────────────────────────────────────────────────────────────────
 
+  /** Ghi nhận lỗi: vừa set string (legacy banner) vừa giữ ApiError (notify). */
+  function _captureError(e: unknown): void {
+    const err = toApiError(e)
+    lastApiError.value = err
+    error.value = err.message
+  }
+
   /** Tải danh sách phiếu với filter và phân trang */
   async function fetchList(
     filters: CommissioningFilters = {},
@@ -166,7 +177,7 @@ export const useCommissioningStore = defineStore('commissioning', () => {
         list.value = []
       }
     } catch (e) {
-      error.value = e instanceof Error ? e.message : 'Lỗi không xác định'
+      _captureError(e)
       list.value = []
     } finally {
       listLoading.value = false
@@ -187,7 +198,7 @@ export const useCommissioningStore = defineStore('commissioning', () => {
         error.value = `Không tìm thấy phiếu ${name}`
       }
     } catch (e) {
-      error.value = e instanceof Error ? e.message : 'Lỗi không xác định'
+      _captureError(e)
     } finally {
       loading.value = false
     }
@@ -209,7 +220,7 @@ export const useCommissioningStore = defineStore('commissioning', () => {
         return false
       }
     } catch (e) {
-      error.value = e instanceof Error ? e.message : 'Lỗi không xác định'
+      _captureError(e)
       return false
     } finally {
       loading.value = false
@@ -232,7 +243,7 @@ export const useCommissioningStore = defineStore('commissioning', () => {
         return false
       }
     } catch (e) {
-      error.value = e instanceof Error ? e.message : 'Lỗi không xác định'
+      _captureError(e)
       return false
     } finally {
       loading.value = false
@@ -254,7 +265,7 @@ export const useCommissioningStore = defineStore('commissioning', () => {
         return false
       }
     } catch (e) {
-      error.value = e instanceof Error ? e.message : 'Lỗi không xác định'
+      _captureError(e)
       return false
     } finally {
       loading.value = false
@@ -275,7 +286,7 @@ export const useCommissioningStore = defineStore('commissioning', () => {
         return null
       }
     } catch (e) {
-      error.value = e instanceof Error ? e.message : 'Lỗi không xác định'
+      _captureError(e)
       return null
     } finally {
       loading.value = false
@@ -290,7 +301,7 @@ export const useCommissioningStore = defineStore('commissioning', () => {
       await apiDelete(name)
       return true
     } catch (e) {
-      error.value = e instanceof Error ? e.message : 'Không thể xóa phiếu'
+      _captureError(e)
       return false
     } finally {
       loading.value = false
@@ -306,7 +317,7 @@ export const useCommissioningStore = defineStore('commissioning', () => {
       await fetchDetail(name)
       return true
     } catch (e) {
-      error.value = e instanceof Error ? e.message : 'Không thể hủy phiếu'
+      _captureError(e)
       return false
     } finally {
       loading.value = false
@@ -321,6 +332,7 @@ export const useCommissioningStore = defineStore('commissioning', () => {
   /** Xóa error */
   function clearError(): void {
     error.value = null
+    lastApiError.value = null
   }
 
   /** Reset store về trạng thái ban đầu */
@@ -330,6 +342,7 @@ export const useCommissioningStore = defineStore('commissioning', () => {
     loading.value = false
     listLoading.value = false
     error.value = null
+    lastApiError.value = null
     pagination.value = { page: 1, page_size: 20, total: 0, total_pages: 0 }
     currentFilters.value = {}
     _openNcCount.value = 0
@@ -351,7 +364,7 @@ export const useCommissioningStore = defineStore('commissioning', () => {
       error.value = 'Không thể tạo NC'
       return false
     } catch (e) {
-      error.value = e instanceof Error ? e.message : 'Lỗi không xác định'
+      _captureError(e)
       return false
     } finally {
       loading.value = false
@@ -376,7 +389,7 @@ export const useCommissioningStore = defineStore('commissioning', () => {
       error.value = 'Không thể gán định danh'
       return false
     } catch (e) {
-      error.value = e instanceof Error ? e.message : 'Lỗi không xác định'
+      _captureError(e)
       return false
     } finally {
       loading.value = false
@@ -396,7 +409,7 @@ export const useCommissioningStore = defineStore('commissioning', () => {
       error.value = 'Không thể sinh mã QR'
       return null
     } catch (e) {
-      error.value = e instanceof Error ? e.message : 'Lỗi không xác định'
+      _captureError(e)
       return null
     } finally {
       loading.value = false
@@ -419,7 +432,7 @@ export const useCommissioningStore = defineStore('commissioning', () => {
       error.value = 'Không thể nộp kết quả'
       return { ok: false }
     } catch (e) {
-      error.value = e instanceof Error ? e.message : 'Lỗi không xác định'
+      _captureError(e)
       return { ok: false }
     } finally {
       loading.value = false
@@ -439,7 +452,7 @@ export const useCommissioningStore = defineStore('commissioning', () => {
       error.value = 'Không thể gỡ Clinical Hold'
       return false
     } catch (e) {
-      error.value = e instanceof Error ? e.message : 'Lỗi không xác định'
+      _captureError(e)
       return false
     } finally {
       loading.value = false
@@ -463,7 +476,7 @@ export const useCommissioningStore = defineStore('commissioning', () => {
       error.value = 'Không thể phê duyệt Release'
       return false
     } catch (e) {
-      error.value = e instanceof Error ? e.message : 'Lỗi không xác định'
+      _captureError(e)
       return false
     } finally {
       loading.value = false
@@ -478,18 +491,20 @@ export const useCommissioningStore = defineStore('commissioning', () => {
   // ─── Dashboard ──────────────────────────────────────────────────────────────
 
   const dashboardStats = ref<DashboardStats | null>(null)
+  const dashboardError = ref<string | null>(null)
 
+  // KPI strip lives on the list page (Core Doc docs/imm-04/06_Frontend_Design.md §3.1).
+  // It must be non-blocking: do NOT touch the shared `loading`/`error` refs, otherwise a
+  // KPI failure would hijack the list's loading skeleton / error banner. Uses its own
+  // dashboardError ref and swallows the failure (KPI strip simply renders nothing).
   async function fetchDashboardStats(): Promise<void> {
-    loading.value = true
-    error.value = null
+    dashboardError.value = null
     try {
       const res = await apiGetDashboardStats()
       if (res) dashboardStats.value = res
-      else error.value = 'Không tải được dashboard'
-    } catch (e) {
-      error.value = e instanceof Error ? e.message : 'Lỗi kết nối'
-    } finally {
-      loading.value = false
+      else dashboardError.value = 'Không tải được dashboard'
+    } catch (e: unknown) {
+      dashboardError.value = e instanceof Error ? e.message : String(e)
     }
   }
 
@@ -508,7 +523,7 @@ export const useCommissioningStore = defineStore('commissioning', () => {
       ncList.value = res ?? []
       _openNcCount.value = ncList.value.filter(n => n.resolution_status === 'Open').length
     } catch (e) {
-      error.value = e instanceof Error ? e.message : 'Lỗi kết nối'
+      _captureError(e)
     } finally {
       loading.value = false
     }
@@ -519,7 +534,7 @@ export const useCommissioningStore = defineStore('commissioning', () => {
       await apiCloseNC(ncName, rootCause, correctiveAction)
       return true
     } catch (e) {
-      error.value = e instanceof Error ? e.message : 'Lỗi kết nối'
+      _captureError(e)
       return false
     }
   }
@@ -538,7 +553,7 @@ export const useCommissioningStore = defineStore('commissioning', () => {
       )
       timeline.value = res?.events ?? []
     } catch (e) {
-      error.value = e instanceof Error ? e.message : 'Lỗi kết nối'
+      _captureError(e)
     } finally {
       loading.value = false
     }
@@ -551,6 +566,7 @@ export const useCommissioningStore = defineStore('commissioning', () => {
     loading,
     listLoading,
     error,
+    lastApiError,
     pagination,
     currentFilters,
     // Getters
@@ -585,7 +601,7 @@ export const useCommissioningStore = defineStore('commissioning', () => {
     clearClinicalHold,
     approveClinicalRelease,
     setOpenNcCount,
-    dashboardStats, fetchDashboardStats,
+    dashboardStats, dashboardError, fetchDashboardStats,
     ncList, fetchNonConformances, doCloseNonConformance,
     timeline, fetchTimeline,
   }

@@ -18,9 +18,24 @@ const items = computed(() => store.calibrations)
 const pagination = computed(() => store.pagination)
 const kpis = computed(() => store.kpis?.kpis ?? null)
 const loading = computed(() => store.loading)
-const filterStatus = ref('')
+// Core Doc §9.3 — pre-apply filter từ route.query (drill-down từ dashboard).
+const filterStatus = ref<string>((route.query.status as string) || '')
+const filterType = ref('')
+const filterResult = ref<string>((route.query.result as string) || '')
 const assetFilter = ref<string>((route.query.asset as string) || '')
-const showFilters = ref(false)
+const showFilters = ref<boolean>(!!(route.query.status || route.query.result || route.query.asset))
+
+const CAL_TYPES = [
+  { value: 'External', label: 'Bên ngoài (ISO 17025)' },
+  { value: 'In-House', label: 'Nội bộ' },
+]
+const CAL_TYPE_LABEL: Record<string, string> = { External: 'Bên ngoài', 'In-House': 'Nội bộ' }
+function calTypeLabel(t?: string) { return CAL_TYPE_LABEL[t ?? ''] ?? (t || '—') }
+const CAL_RESULTS = [
+  { value: 'Passed', label: 'Đạt' },
+  { value: 'Conditionally Passed', label: 'Đạt có điều kiện' },
+  { value: 'Failed', label: 'Không đạt' },
+]
 
 const CAL_STATUSES = [
   { value: 'Scheduled',            label: 'Đã lên lịch' },
@@ -33,12 +48,20 @@ const CAL_STATUSES = [
   { value: 'Cancelled',            label: 'Đã hủy' },
 ]
 
-interface Chip { key: 'status' | 'asset'; label: string }
+interface Chip { key: 'status' | 'asset' | 'type' | 'result'; label: string }
 const activeChips = computed<Chip[]>(() => {
   const chips: Chip[] = []
   if (filterStatus.value) {
     const s = CAL_STATUSES.find(x => x.value === filterStatus.value)
     chips.push({ key: 'status', label: s?.label ?? filterStatus.value })
+  }
+  if (filterType.value) {
+    const t = CAL_TYPES.find(x => x.value === filterType.value)
+    chips.push({ key: 'type', label: t?.label ?? filterType.value })
+  }
+  if (filterResult.value) {
+    const r = CAL_RESULTS.find(x => x.value === filterResult.value)
+    chips.push({ key: 'result', label: r?.label ?? filterResult.value })
   }
   if (assetFilter.value) chips.push({ key: 'asset', label: `TB: ${assetFilter.value}` })
   return chips
@@ -47,12 +70,16 @@ const activeFilterCount = computed(() => activeChips.value.length)
 
 function clearChip(key: string) {
   if (key === 'status') filterStatus.value = ''
+  else if (key === 'type') filterType.value = ''
+  else if (key === 'result') filterResult.value = ''
   else assetFilter.value = ''
   load(1)
 }
 
 function resetFilters() {
   filterStatus.value = ''
+  filterType.value = ''
+  filterResult.value = ''
   assetFilter.value = ''
   load(1)
 }
@@ -69,6 +96,8 @@ async function load(page = 1) {
     page, page_size: 20,
     status: filterStatus.value || undefined,
     asset: assetFilter.value || undefined,
+    calibration_type: filterType.value || undefined,
+    overall_result: filterResult.value || undefined,
   })
 }
 
@@ -84,6 +113,9 @@ watch(() => route.query.asset, (val) => {
   assetFilter.value = (val as string) || ''
   load(1)
 })
+// §9.3 — drill-down lần 2 từ dashboard (status/result) → re-apply.
+watch(() => route.query.status, (val) => { filterStatus.value = (val as string) || ''; load(1) })
+watch(() => route.query.result, (val) => { filterResult.value = (val as string) || ''; load(1) })
 
 onMounted(() => { load(); loadKpis() })
 </script>
@@ -121,6 +153,20 @@ onMounted(() => { load(); loadKpis() })
           <select v-model="filterStatus" class="form-select" @change="load(1)">
             <option value="">Tất cả trạng thái</option>
             <option v-for="s in CAL_STATUSES" :key="s.value" :value="s.value">{{ s.label }}</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Loại</label>
+          <select v-model="filterType" class="form-select" @change="load(1)">
+            <option value="">Mọi loại</option>
+            <option v-for="t in CAL_TYPES" :key="t.value" :value="t.value">{{ t.label }}</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Kết quả</label>
+          <select v-model="filterResult" class="form-select" @change="load(1)">
+            <option value="">Mọi kết quả</option>
+            <option v-for="r in CAL_RESULTS" :key="r.value" :value="r.value">{{ r.label }}</option>
           </select>
         </div>
         <div class="form-group">
@@ -191,7 +237,7 @@ onMounted(() => { load(); loadKpis() })
             </div>
             <p class="text-sm font-medium text-slate-900 truncate">{{ formatAssetDisplay(c.asset_name, c.asset).main }}</p>
             <div class="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1.5 text-xs text-slate-500">
-              <span>{{ c.calibration_type }}</span>
+              <span>{{ calTypeLabel(c.calibration_type) }}</span>
               <span class="text-slate-300">·</span>
               <span>{{ formatDate(c.scheduled_date) }}</span>
               <span v-if="c.overall_result" class="text-slate-300">·</span>
@@ -232,7 +278,7 @@ onMounted(() => { load(); loadKpis() })
                     {{ formatAssetDisplay(c.asset_name, c.asset).sub }}
                   </div>
                 </td>
-                <td class="table-cell text-slate-600">{{ c.calibration_type }}</td>
+                <td class="table-cell text-slate-600">{{ calTypeLabel(c.calibration_type) }}</td>
                 <td class="table-cell">
                   <button @click.stop="quickFilter('status', c.status)">
                     <StatusBadge :state="c.status" />

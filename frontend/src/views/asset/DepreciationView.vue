@@ -8,7 +8,15 @@ import {
   listAssetsDepreciation, getDepreciationStats,
   computeDepreciation, computeAllDepreciation,
   type AssetDepreciationRow, type DepreciationStats,
+  type ListAssetsDepreciationParams,
 } from '@/api/imm00'
+import { translateFrequency, translateDepreciationMethod } from '@/utils/formatters'
+
+// Virtual filter token cho "Hết khấu hao" — KHÔNG phải lifecycle_status. Route
+// sang `depreciation_filter` (BE áp SoT is_fully_depreciated). Nhãn VI hiển thị
+// qua DEPR_FILTER_LABEL — KHÔNG leak raw token 'fully_depreciated' lên UI.
+const FULLY_DEPRECIATED = 'fully_depreciated'
+const DEPR_FILTER_LABEL = 'Hết khấu hao'
 
 // ─── State ────────────────────────────────────────────────────────────────────
 const stats        = ref<DepreciationStats | null>(null)
@@ -20,6 +28,9 @@ const PAGE_SIZE    = 30
 const methodFilter   = ref('')
 const statusFilter   = ref('')
 const categoryFilter = ref('')
+// Drill "Hết khấu hao" — tách riêng khỏi statusFilter (lifecycle). Khi active,
+// build params gửi depreciation_filter='fully_depreciated' (KHÔNG qua status_filter).
+const deprFilter     = ref('')
 
 const statsLoading  = ref(false)
 const listLoading   = ref(false)
@@ -39,16 +50,26 @@ async function loadStats() {
   } finally { statsLoading.value = false }
 }
 
+// Build params: nếu lựa chọn dropdown là 'fully_depreciated' HOẶC drill KPI đang
+// active → route sang depreciation_filter (SoT BE), KHÔNG gửi qua status_filter.
+// Các value lifecycle thật vẫn đi status_filter như cũ.
+function buildListParams(): ListAssetsDepreciationParams {
+  const wantsFullyDepr =
+    statusFilter.value === FULLY_DEPRECIATED || deprFilter.value === FULLY_DEPRECIATED
+  return {
+    page: page.value,
+    page_size: PAGE_SIZE,
+    method_filter:   methodFilter.value,
+    status_filter:   wantsFullyDepr ? '' : statusFilter.value,
+    category_filter: categoryFilter.value,
+    depreciation_filter: wantsFullyDepr ? FULLY_DEPRECIATED : '',
+  }
+}
+
 async function loadList() {
   listLoading.value = true
   try {
-    const res = await listAssetsDepreciation({
-      page: page.value,
-      page_size: PAGE_SIZE,
-      method_filter:   methodFilter.value,
-      status_filter:   statusFilter.value,
-      category_filter: categoryFilter.value,
-    })
+    const res = await listAssetsDepreciation(buildListParams())
     rows.value  = res?.items || []
     total.value = res?.pagination?.total || 0
   } finally { listLoading.value = false }
@@ -58,6 +79,31 @@ async function applyFilters() {
   page.value = 1
   await loadList()
 }
+
+// Click ô KPI "N hết KH" → drill tập hết khấu hao. Đồng bộ dropdown để UI nhất
+// quán (option 'Hết khấu hao' được chọn), reset page rồi load.
+async function drillFullyDepreciated() {
+  deprFilter.value   = FULLY_DEPRECIATED
+  statusFilter.value = FULLY_DEPRECIATED
+  await applyFilters()
+}
+
+// Bỏ drill (xoá chip) → về toàn bộ danh sách.
+async function clearDeprFilter() {
+  deprFilter.value   = ''
+  statusFilter.value = ''
+  await applyFilters()
+}
+
+// Đồng bộ deprFilter theo dropdown: chọn option khác → tự thoát drill.
+function onStatusFilterChange() {
+  deprFilter.value = statusFilter.value === FULLY_DEPRECIATED ? FULLY_DEPRECIATED : ''
+  applyFilters()
+}
+
+const deprFilterActive = computed(
+  () => statusFilter.value === FULLY_DEPRECIATED || deprFilter.value === FULLY_DEPRECIATED,
+)
 
 function prevPage() { if (page.value > 1) { page.value--; loadList() } }
 function nextPage() { if (page.value * PAGE_SIZE < total.value) { page.value++; loadList() } }
@@ -95,6 +141,11 @@ function openSchedule(row: AssetDepreciationRow) {
   scheduleOpen.value  = true
 }
 
+// Khấu hao đổi trong modal → đồng bộ lại KPI + bảng danh sách (book value/lũy kế).
+async function onScheduleUpdated() {
+  await Promise.all([loadStats(), loadList()])
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function showToast(msg: string, ok: boolean) {
   toast.value = msg; toastOk.value = ok
@@ -120,18 +171,9 @@ function pctColor(pct?: number) {
   return '#10b981'
 }
 
-function methodLabel(m?: string) {
-  const map: Record<string, string> = {
-    'Straight Line':       'Đường thẳng',
-    'Double Declining':    'Số dư giảm dần',
-    'Units of Production': 'Theo sản lượng',
-  }
-  return m ? (map[m] || m) : '—'
-}
-function freqLabel(f?: string) {
-  const map: Record<string, string> = { Monthly: 'Tháng', Quarterly: 'Quý', Yearly: 'Năm' }
-  return f ? (map[f] || f) : '—'
-}
+// Nhãn phương pháp khấu hao: dùng SSoT translateDepreciationMethod (@/utils/formatters)
+// — đã xoá hàm methodLabel cục bộ (drift risk), gọi thẳng helper trong template.
+// Nhãn tần suất khấu hao: dùng SSoT translateFrequency (@/utils/formatters).
 
 const maxCategoryValue = computed(() =>
   Math.max(...(stats.value?.by_category?.map(c => c.book_value) || [1]), 1),
@@ -189,7 +231,17 @@ onMounted(() => Promise.all([loadStats(), loadList()]))
       <div class="card p-5">
         <p class="text-xs font-medium text-slate-500 mb-1">Trạng thái cấu hình</p>
         <p class="text-2xl font-bold text-slate-900">{{ stats.configured_count }}<span class="text-base font-normal text-slate-400">/{{ stats.total_assets }}</span></p>
-        <p class="text-xs text-slate-400 mt-1">{{ stats.unconfigured_count }} chưa cấu hình · {{ stats.fully_depreciated }} hết KH</p>
+        <p class="text-xs text-slate-400 mt-1">
+          {{ stats.unconfigured_count }} chưa cấu hình ·
+          <button
+            type="button"
+            class="font-medium text-blue-600 hover:text-blue-800 hover:underline transition-colors"
+            :class="{ 'underline text-blue-800': deprFilterActive }"
+            :title="`Xem ${stats.fully_depreciated} thiết bị ${DEPR_FILTER_LABEL.toLowerCase()}`"
+            @click="drillFullyDepreciated">
+            {{ stats.fully_depreciated }} hết KH
+          </button>
+        </p>
       </div>
     </div>
 
@@ -226,7 +278,7 @@ onMounted(() => Promise.all([loadStats(), loadList()]))
           <div v-for="m in stats.by_method" :key="m.method" class="flex items-center gap-3">
             <div class="flex-1">
               <div class="flex justify-between mb-1">
-                <span class="text-xs text-slate-600">{{ methodLabel(m.method) }}</span>
+                <span class="text-xs text-slate-600">{{ translateDepreciationMethod(m.method) }}</span>
                 <span class="text-xs font-medium">{{ m.count }} TS</span>
               </div>
               <div class="h-2 bg-slate-100 rounded-full">
@@ -271,13 +323,15 @@ onMounted(() => Promise.all([loadStats(), loadList()]))
         </div>
         <div>
           <label for="depr-status-filter" class="form-label">Trạng thái thiết bị</label>
-          <select id="depr-status-filter" v-model="statusFilter" class="form-select w-full" @change="applyFilters">
+          <select id="depr-status-filter" v-model="statusFilter" class="form-select w-full" @change="onStatusFilterChange">
             <option value="">Tất cả</option>
             <option value="Active">Đang hoạt động</option>
             <option value="Commissioned">Đã tiếp nhận</option>
             <option value="Under Repair">Đang sửa chữa</option>
             <option value="Out of Service">Ngưng sử dụng</option>
             <option value="Decommissioned">Đã thanh lý</option>
+            <!-- Virtual filter — route sang depreciation_filter, KHÔNG phải lifecycle_status. -->
+            <option :value="FULLY_DEPRECIATED">{{ DEPR_FILTER_LABEL }}</option>
           </select>
         </div>
         <div>
@@ -294,10 +348,23 @@ onMounted(() => Promise.all([loadStats(), loadList()]))
           Danh sách thiết bị
           <span class="text-slate-400 font-normal ml-1">({{ total }} thiết bị)</span>
         </p>
+        <button
+          v-if="deprFilterActive"
+          type="button"
+          class="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors"
+          @click="clearDeprFilter">
+          {{ DEPR_FILTER_LABEL }}
+          <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
       </div>
 
       <div v-if="listLoading && !rows.length" class="text-center text-slate-400 py-12">Đang tải...</div>
-      <div v-else-if="rows.length === 0" class="text-center text-slate-400 py-12 text-sm">Không có dữ liệu.</div>
+      <div v-else-if="rows.length === 0" class="text-center text-slate-400 py-12 text-sm">
+        <template v-if="deprFilterActive">Không có thiết bị nào {{ DEPR_FILTER_LABEL.toLowerCase() }}.</template>
+        <template v-else>Không có dữ liệu.</template>
+      </div>
 
       <div v-else class="overflow-x-auto">
         <table class="w-full text-sm">
@@ -322,7 +389,7 @@ onMounted(() => Promise.all([loadStats(), loadList()]))
               </td>
               <td class="px-4 py-3">
                 <span v-if="a.configured" class="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-700">
-                  {{ methodLabel(a.depreciation_method) }}
+                  {{ translateDepreciationMethod(a.depreciation_method) }}
                 </span>
                 <span v-else class="text-xs text-slate-400">Chưa cấu hình</span>
               </td>
@@ -331,7 +398,7 @@ onMounted(() => Promise.all([loadStats(), loadList()]))
               </td>
               <td class="px-4 py-3 text-xs text-slate-500 hidden lg:table-cell">
                 <template v-if="a.total_depreciation_months">
-                  {{ a.total_depreciation_months }} tháng · {{ freqLabel(a.depreciation_frequency) }}
+                  {{ a.total_depreciation_months }} tháng · {{ translateFrequency(a.depreciation_frequency) }}
                 </template>
                 <template v-else>—</template>
               </td>
@@ -412,7 +479,13 @@ onMounted(() => Promise.all([loadStats(), loadList()]))
             </button>
           </div>
           <div class="overflow-y-auto flex-1 px-6 py-4">
-            <AssetDepreciationSchedule v-if="scheduleAsset" :asset-name="scheduleAsset.name" />
+            <!-- @updated: chạy/sinh lại khấu hao trong modal → refresh stats + list
+                 để cột "Còn lại"/"Lũy kế KH"/tiến độ khớp giá trị mới (INV-DEP-3). -->
+            <AssetDepreciationSchedule
+              v-if="scheduleAsset"
+              :asset-name="scheduleAsset.name"
+              @updated="onScheduleUpdated"
+            />
           </div>
         </div>
       </div>

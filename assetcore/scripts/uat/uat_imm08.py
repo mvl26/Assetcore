@@ -140,7 +140,9 @@ def tc_pm_01(results: dict):
         _create_pm_template()
         _create_pm_schedule(SEED_ASSET_01, days_offset=0)
 
-        from assetcore.tasks import generate_pm_work_orders
+        from assetcore.services.imm08 import (
+            generate_pm_work_orders_from_schedule as generate_pm_work_orders,
+        )
         generate_pm_work_orders()
         frappe.db.commit()
 
@@ -154,7 +156,9 @@ def tc_pm_01(results: dict):
             results["TC-PM-01-2"] = _p(wo["status"] == "Open", f"Status = {wo['status']}")
             results["TC-PM-01-3"] = _p(wo["due_date"] == getdate(nowdate()), f"due_date = {wo['due_date']}")
 
-            from assetcore.tasks import generate_pm_work_orders as gen2
+            from assetcore.services.imm08 import (
+                generate_pm_work_orders_from_schedule as gen2,
+            )
             gen2()
             frappe.db.commit()
             wos2 = frappe.db.get_all(DOCTYPE_WO, filters={"asset_ref": SEED_ASSET_01})
@@ -241,7 +245,10 @@ def tc_pm_03(results: dict):
         _create_test_asset(SEED_ASSET_02)
         _create_pm_schedule(SEED_ASSET_02, days_offset=-10)
 
-        from assetcore.tasks import generate_pm_work_orders, check_pm_overdue
+        from assetcore.services.imm08 import (
+            generate_pm_work_orders_from_schedule as generate_pm_work_orders,
+        )
+        from assetcore.tasks import check_pm_overdue
         generate_pm_work_orders()
         frappe.db.commit()
 
@@ -275,7 +282,9 @@ def tc_pm_04(results: dict):
         _create_test_asset(SEED_ASSET_03)
         _create_pm_schedule(SEED_ASSET_03, days_offset=0)
 
-        from assetcore.tasks import generate_pm_work_orders
+        from assetcore.services.imm08 import (
+            generate_pm_work_orders_from_schedule as generate_pm_work_orders,
+        )
         generate_pm_work_orders()
         frappe.db.commit()
 
@@ -341,7 +350,9 @@ def tc_pm_05(results: dict):
         _create_test_asset(SEED_ASSET_04)
         _create_pm_schedule(SEED_ASSET_04, days_offset=0)
 
-        from assetcore.tasks import generate_pm_work_orders
+        from assetcore.services.imm08 import (
+            generate_pm_work_orders_from_schedule as generate_pm_work_orders,
+        )
         generate_pm_work_orders()
         frappe.db.commit()
 
@@ -387,7 +398,9 @@ def tc_pm_06(results: dict):
         frappe.db.delete(DOCTYPE_WO, {"asset_ref": SEED_ASSET_04, "status": "Open"})
         frappe.db.commit()
 
-        from assetcore.tasks import generate_pm_work_orders
+        from assetcore.services.imm08 import (
+            generate_pm_work_orders_from_schedule as generate_pm_work_orders,
+        )
         generate_pm_work_orders()
         frappe.db.commit()
 

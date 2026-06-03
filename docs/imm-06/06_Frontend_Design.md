@@ -23,7 +23,7 @@
 **Lý do:**
 - Tránh xung đột với routes legacy đã có trong production (`/training` đã được dùng cho mục đích khác trong dashboard).
 - Convention `views/training/*.vue` cho code organization, `/imm06/*` cho URL — hai layer độc lập, không cần align 1-1.
-- IMM-06 là module có route IMM-coded duy nhất (exception so với convention domain-based) — đã document tại `docs/res/code-alignment-plan.md` §4.6.
+- IMM-06 là module có route IMM-coded duy nhất (exception so với convention domain-based) — đã document tại `docs/res/frameworks/code-alignment-plan.md` §4.6.
 
 **Áp dụng:**
 - Sidebar `MODULE_NAV.imm06` trỏ vào `/imm06/programs`, `/imm06/sessions`, `/imm06/competencies`.

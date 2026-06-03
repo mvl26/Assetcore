@@ -85,7 +85,7 @@ Mỗi module có `README.md` index map cũ ↔ template chuẩn.
 
 - **Template chuẩn**: [`template/00_README.md`](template/00_README.md)
 - **Migration guide**: [`template/MIGRATION_GUIDE.md`](template/MIGRATION_GUIDE.md)
-- **Design system FE**: [`res/design-frontend.md`](res/design-frontend.md)
+- **Design system FE**: [`res/design/design-frontend.md`](res/design/design-frontend.md)
 - **Architecture refactor 3-tier**: [`res/Architecture_3Tier_Refactor_2026-04-20.md`](res/Architecture_3Tier_Refactor_2026-04-20.md)
 - **Codebase ground truth**:
   - BE ErrorCode: `assetcore/services/shared/constants.py:ErrorCode`

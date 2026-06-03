@@ -410,7 +410,7 @@
    "share": 0
   },
   {
-   "role": "AssetCore System User",
+   "role": "Commissioning Manager",
    "read": 1,
    "write": 0,
    "create": 0,
@@ -419,7 +419,7 @@
    "delete": 0,
    "amend": 0,
    "report": 1,
-   "export": 1,
+   "export": 0,
    "print": 1,
    "email": 0,
    "share": 0

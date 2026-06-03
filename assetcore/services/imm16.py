@@ -36,6 +36,15 @@ class FindingStatus:
 
     ACTIVE = (OPEN, UNDER_REVIEW, CONFIRMED_NC)
 
+    # BR-16-11 — phân nhóm cho compliance-rate (SoT compute_compliance_rate):
+    #   non_compliant         = chỉ Confirmed NC
+    #   compliant_adjudicated = đã phân định-tuân-thủ (Resolved/Waived/Closed)
+    #   pending               = chưa phân định (Open/Under Review) → ngoài mẫu số
+    #   excluded              = False Positive (loại từ query filter)
+    NON_COMPLIANT = (CONFIRMED_NC,)
+    COMPLIANT_ADJUDICATED = (RESOLVED, WAIVED, CLOSED)
+    PENDING = (OPEN, UNDER_REVIEW)
+
 
 class AuditStatus:
     PLANNED = "Planned"
@@ -306,6 +315,83 @@ def close_internal_audit(audit_name: str) -> dict:
 
 # ─── Compliance Scorecard ─────────────────────────────────────────────────────
 
+# BR-16-12 — period-anchor canonical: field DUY NHẤT xác định "finding thuộc kỳ
+# nào". MỌI view lọc finding theo kỳ (YYYY-MM) PHẢI dùng hằng này, KHÔNG dùng
+# ``detected_date`` (Datetime event-timestamp có thể lệch kỳ do lag adjudication).
+# Lý do: ``evaluation_date`` (Date) là ngày assessment khớp chu kỳ review tháng
+# của Scorecard VÀ là thành phần khóa idempotency
+# ``(rule, source_record, evaluation_date)`` = định nghĩa hệ thống. reqd=1 trên
+# DocType nên mọi finding luôn có anchor (không cần null-fallback). COALESCE với
+# detected_date là OUT-OF-SCOPE (chỉ mở nếu xuất hiện finding evaluation_date NULL).
+PERIOD_ANCHOR_FIELD = "evaluation_date"
+
+
+def _period_bounds(year: int, month: int) -> tuple[str, str]:
+    """SoT cho biên kỳ (YYYY-MM) — dùng CHUNG bởi ``generate_scorecard`` VÀ
+    ``get_compliance_heatmap`` để 2 view KHÔNG drift lại (chống tái phát
+    divergence — gốc bug: bounds duplicate inline ở 2 nơi).
+
+    Trả ``(start, end_inclusive)`` cho filter ``{PERIOD_ANCHOR_FIELD:
+    ("between", [start, end_inclusive])}``. Semantics half-open ``[start,
+    next_month_start)`` (doc 02:526): ngày đầu kỳ THUỘC, ngày đầu kỳ KẾ KHÔNG
+    thuộc. Vì Frappe ``between`` inclusive CẢ 2 đầu, ``end_inclusive`` = NGÀY
+    CUỐI tháng (không phải first-of-next-month) → tránh off-by-one cho finding
+    rơi đúng ngày 01 của kỳ kế (BR-16-12 / TDD-4).
+
+    - ``start`` = ngày đầu kỳ (``YYYY-MM-01``).
+    - ``end_inclusive`` = ngày cuối kỳ (last day of month).
+    """
+    start = f"{year}-{month:02d}-01"
+    # Ngày đầu kỳ kế − 1 ngày = ngày cuối kỳ hiện tại (xử lý tháng 28/29/30/31).
+    next_month_start = (f"{year + 1}-01-01" if month == 12
+                        else f"{year}-{month + 1:02d}-01")
+    end_inclusive = add_days(next_month_start, -1)
+    return start, end_inclusive
+
+
+def compute_compliance_rate(findings: list) -> dict:
+    """SoT BR-16-11 cho compliance-rate — dùng CHUNG bởi ``generate_scorecard``
+    (scorecard immutable) VÀ ``get_compliance_heatmap`` (matrix Module×Dept) để
+    CÙNG dataset cho CÙNG 1 score (không divergence). KHÔNG nhân bản công thức
+    ``(total - nc) / total`` inline.
+
+    ``findings`` là list các finding-like (có thuộc tính ``.status``), đã loại
+    False Positive từ filter query. Phân loại theo 3 nhóm:
+
+    - ``non_compliant`` = chỉ Confirmed NC.
+    - ``compliant``     = đã phân định-tuân-thủ: Resolved | Waived | Closed.
+    - ``pending``       = Open | Under Review (chưa phân định) → KHÔNG vào mẫu số.
+
+    Mẫu số ``total_adjudicated = compliant + non_compliant``. ``pending`` báo
+    riêng để UX không mất dấu. ``score_pct = round(compliant /
+    total_adjudicated * 100, 2)``; nếu ``total_adjudicated == 0`` → ``100.0``
+    (giữ semantics 'không có NC xác nhận').
+
+    Trả: ``{total_adjudicated, compliant, non_compliant, pending, score_pct}``.
+    """
+    compliant = non_compliant = pending = 0
+    for f in findings:
+        status = f.get("status") if isinstance(f, dict) else getattr(f, "status", None)
+        if status in FindingStatus.NON_COMPLIANT:
+            non_compliant += 1
+        elif status in FindingStatus.COMPLIANT_ADJUDICATED:
+            compliant += 1
+        elif status in FindingStatus.PENDING:
+            pending += 1
+        # False Positive (hoặc status lạ) → loại khỏi cả tử lẫn mẫu.
+
+    total_adjudicated = compliant + non_compliant
+    score_pct = (round(compliant / total_adjudicated * 100, 2)
+                 if total_adjudicated else 100.0)
+    return {
+        "total_adjudicated": total_adjudicated,
+        "compliant": compliant,
+        "non_compliant": non_compliant,
+        "pending": pending,
+        "score_pct": score_pct,
+    }
+
+
 def generate_scorecard(module_ref: str, period: str) -> dict:
     """Tính scorecard tuân thủ theo module và kỳ (YYYY-MM)."""
     try:
@@ -314,14 +400,11 @@ def generate_scorecard(module_ref: str, period: str) -> dict:
         raise ServiceError(ErrorCode.VALIDATION,
                            "Kỳ phải có định dạng YYYY-MM")
 
-    start = f"{year}-{month:02d}-01"
-    if month == 12:
-        end = f"{year + 1}-01-01"
-    else:
-        end = f"{year}-{month + 1:02d}-01"
-
+    # BR-16-12: dùng CHUNG hằng + helper với get_compliance_heatmap → 2 view
+    # KHÔNG drift lại (chống tái phát divergence).
+    start, end = _period_bounds(year, month)
     filters: dict = {
-        "evaluation_date": ("between", [start, end]),
+        PERIOD_ANCHOR_FIELD: ("between", [start, end]),
         "status": ("!=", FindingStatus.FALSE_POSITIVE),
     }
     if module_ref:
@@ -334,10 +417,12 @@ def generate_scorecard(module_ref: str, period: str) -> dict:
     )
 
     total = len(findings)
-    non_compliant = sum(1 for f in findings if f.status in
-                        (FindingStatus.CONFIRMED_NC,))
-    compliant = total - non_compliant
-    score_pct = round(compliant / total * 100, 2) if total else 100.0
+    # BR-16-11: gọi SoT — pending (Open/Under Review) KHÔNG vào mẫu số.
+    rate = compute_compliance_rate(findings)
+    non_compliant = rate["non_compliant"]      # chỉ Confirmed NC
+    compliant = rate["compliant"]              # adjudicated-compliant
+    pending = rate["pending"]
+    score_pct = rate["score_pct"]
 
     # Module breakdown
     by_module: dict[str, dict] = {}
@@ -358,12 +443,13 @@ def generate_scorecard(module_ref: str, period: str) -> dict:
             entry["nc"] += 1
 
     # CAPA counts
-    open_capas = frappe.db.count("IMM CAPA Record",
-                                   {"status": ("in", ["Open", "In Progress",
-                                                       "Pending Verification"])})
-    overdue_capas = frappe.db.count("IMM CAPA Record",
-                                     {"status": ("not in", ["Closed"]),
-                                      "due_date": ("<", nowdate())})
+    from assetcore.services.imm00 import _open_capa_filter, _overdue_capa_filter
+    # SoT: _open_capa_filter() — scorecard capa_open_count == KPI dashboard.capa_open
+    # == quality-dash == aging.total_open, byte-for-byte (status NOT IN Closed; 'Overdue'
+    # vẫn đếm vì là open). KHÔNG inline status IN [Open, In Progress, ...] (bỏ sót Overdue).
+    open_capas = frappe.db.count("IMM CAPA Record", _open_capa_filter())
+    # SoT: _overdue_capa_filter() — scorecard capa_overdue_count khớp KPI/drill byte-for-byte.
+    overdue_capas = frappe.db.count("IMM CAPA Record", _overdue_capa_filter())
 
     sc_doc = frappe.get_doc({
         "doctype": "IMM Compliance Scorecard",
@@ -389,6 +475,9 @@ def generate_scorecard(module_ref: str, period: str) -> dict:
         "score_pct": score_pct,
         "total_findings": total,
         "non_compliant": non_compliant,
+        # BR-16-11: pending báo riêng (runtime only — không có field DocType).
+        "pending_count": pending,
+        "compliant_count": compliant,
     }
 
 
@@ -438,11 +527,14 @@ def evaluate_all_compliance_rules() -> None:
 
 
 def check_capa_due() -> None:
-    """Scheduler daily: kiểm tra CAPA quá hạn và escalate."""
+    """Scheduler daily: kiểm tra CAPA quá hạn và escalate.
+
+    SoT: dùng _overdue_capa_filter() (services/imm00) — cùng INVARIANT với KPI/drill/setter.
+    """
+    from assetcore.services.imm00 import _overdue_capa_filter
     overdue = frappe.get_all(
         "IMM CAPA Record",
-        filters={"status": ("not in", ["Closed"]),
-                 "due_date": ("<", nowdate())},
+        filters=_overdue_capa_filter(),
         fields=["name", "responsible", "severity", "due_date",
                 "asset", "description"],
     )
@@ -568,11 +660,17 @@ def check_asset_compliance_status(asset: str) -> dict:
                 "active_findings_count": 0, "active_capas_count": 0,
                 "blocking_findings": [], "reasons": []}
 
+    # BR-16-09 ENFORCEMENT consumer của SoT capa_open (BR-00-15): membership
+    # 'Critical CAPA mở' = is_capa_open ⟺ status NOT IN ('Closed'). 'Overdue' NẰM
+    # TRONG tập block → INVARIANT dưới cron check_capa_overdue() flip Open→'Overdue'
+    # (gate.blocked bất biến). KHÔNG inline literal IN [Open, In Progress, Pending
+    # Verification] (bỏ sót 'Overdue' = lỗ cũ). Lazy import tránh circular (Vòng 10/11).
+    from assetcore.services.imm00 import _open_capa_filter
     crit_capas = frappe.get_all(
         "IMM CAPA Record",
         filters={"asset": asset,
                  "imm_risk_level": "Critical",
-                 "status": ("in", ["Open", "In Progress", "Pending Verification"])},
+                 **_open_capa_filter()},
         fields=["name", "status", "workflow_state"],
     )
 
@@ -691,19 +789,19 @@ def _escalate_capa(capa: dict) -> None:
 
 
 def _send_capa_escalation(capa: dict, level: int) -> None:
+    # R21 dead-role fix: nhánh Level-2 lấy người nhận qua SSoT
+    # (notify_roles.CAPA_ESCALATION_MANAGER) thay vì raw SQL `tabHas Role` với
+    # role-literal hardcode. Mọi truy vấn role->email đi qua helpers._get_role_emails.
+    from assetcore.utils.helpers import _get_role_emails, _safe_sendmail
+    from assetcore.services.shared import notify_roles
     try:
         recipients = [capa.get("responsible")] if capa.get("responsible") else []
         if level >= 2:
-            wl_emails = frappe.db.sql(
-                """SELECT DISTINCT u.email FROM `tabHas Role` hr
-                   JOIN `tabUser` u ON u.name = hr.parent
-                   WHERE hr.role = %s AND u.enabled = 1""",
-                ("Compliance Manager",), as_dict=True,
-            )
-            recipients += [r.email for r in wl_emails if r.email]
+            recipients += _get_role_emails(notify_roles.CAPA_ESCALATION_MANAGER)
+        recipients = list(set(filter(None, recipients)))
         if recipients:
-            frappe.sendmail(
-                recipients=list(set(filter(None, recipients))),
+            _safe_sendmail(
+                recipients=recipients,
                 subject=f"[AssetCore] CAPA {capa['name']} quá hạn — Level {level}",
                 message=f"CAPA {capa['name']} đã quá hạn. Vui lòng xử lý ngay.",
             )
@@ -1623,7 +1721,14 @@ def advance_capa_state(name: str, target_state: str,
 
 def perform_effectiveness_check(name: str, result: str,
                                  effectiveness_evidence: str = "") -> dict:
-    """§3.4.3: Effective → Close; Not Effective → Re-open + counter++."""
+    """§3.4.3: Effective → Close; Not Effective → Re-open + counter++.
+
+    Effectiveness evidence is persisted on BOTH outcomes — the Effective
+    (Close) branch and the Not/Partially Effective (Re-open) branch — so the
+    effectiveness check always retains its supporting evidence for the audit
+    trail (NĐ98/ISO 13485 §8.5.2). Empty evidence is never written (the field
+    is left untouched), matching the historical Re-open guard.
+    """
     _require_qa_or_admin()
     if result not in ("Effective", "Partially Effective", "Not Effective"):
         raise ServiceError(ErrorCode.VALIDATION,
@@ -1649,9 +1754,11 @@ def perform_effectiveness_check(name: str, result: str,
             "status": "In Progress",
             "imm_reopen_count": reopen_count,
         }
-        if effectiveness_evidence:
-            patch["imm_effectiveness_evidence"] = effectiveness_evidence
         new_state = "Re-opened"
+    # Persist evidence for EVERY outcome (single source of truth) — only when
+    # supplied, so an empty value never clobbers an existing reference.
+    if effectiveness_evidence:
+        patch["imm_effectiveness_evidence"] = effectiveness_evidence
     # Use set_value to bypass Frappe's workflow transition guard — the service
     # is the authoritative state machine; workflow state is set programmatically.
     frappe.db.set_value("IMM CAPA Record", name, patch, update_modified=True)
@@ -2050,11 +2157,13 @@ def get_dashboard_stats() -> dict:
         {"status": ("in", list(FindingStatus.ACTIVE))})
     findings_critical = ComplianceFindingRepo.count(
         {"status": ("in", list(FindingStatus.ACTIVE)), "severity": "Critical"})
-    capa_open = frappe.db.count("IMM CAPA Record",
-                                  {"status": ("in", ["Open", "In Progress"])})
-    capa_overdue = frappe.db.count("IMM CAPA Record",
-                                     {"status": ("not in", ["Closed"]),
-                                      "due_date": ("<", nowdate())})
+    from assetcore.services.imm00 import _open_capa_filter, _overdue_capa_filter
+    # SoT: _open_capa_filter() — quality-dash capa_open == KPI/scorecard/aging byte-for-byte
+    # (status NOT IN Closed). KHÔNG inline status IN [Open, In Progress] (bỏ sót Overdue +
+    # Pending Verification → đếm thiếu so với dashboard KPI).
+    capa_open = frappe.db.count("IMM CAPA Record", _open_capa_filter())
+    # SoT: _overdue_capa_filter() — quality-dash capa_overdue khớp KPI/drill byte-for-byte.
+    capa_overdue = frappe.db.count("IMM CAPA Record", _overdue_capa_filter())
     audits_in_progress = InternalAuditRepo.count(
         {"status": AuditStatus.IN_PROGRESS})
 
@@ -2122,19 +2231,18 @@ def get_compliance_heatmap(period_year: int | None = None,
     thay vì cắt cụt docname (``CR-PM-``). BUG-16-04: trả kèm nhãn Khoa/phòng
     đọc được (``departments_labels``) thay vì hiển thị mã thô.
     """
-    from frappe.utils import getdate
     today = getdate(nowdate())
     py = int(period_year) if period_year else today.year
     pm = int(period_month) if period_month else today.month
 
-    start = f"{py}-{pm:02d}-01"
-    end_y, end_m = (py + 1, 1) if pm == 12 else (py, pm + 1)
-    end = f"{end_y}-{end_m:02d}-01"
-
+    # BR-16-12: CÙNG hằng + helper với generate_scorecard → CÙNG TẬP finding cho
+    # cùng module/kỳ (period-anchor canonical = evaluation_date, KHÔNG còn
+    # detected_date — Datetime event-timestamp có thể lệch kỳ do lag adjudication).
+    start, end = _period_bounds(py, pm)
     findings = frappe.get_all(
         ComplianceFindingRepo.DOCTYPE,
         filters={
-            "detected_date": ("between", [start, end]),
+            PERIOD_ANCHOR_FIELD: ("between", [start, end]),
             "status": ("!=", FindingStatus.FALSE_POSITIVE),
         },
         fields=["rule", "responsible_dept", "status", "severity"],
@@ -2151,8 +2259,8 @@ def get_compliance_heatmap(period_year: int | None = None,
         ):
             rule_module[r.name] = r.source_module or (r.name or "")[:6] or "Khác"
 
-    # Group by (module, dept)
-    by_cell: dict[tuple, dict] = {}
+    # Group by (module, dept) — gom status finding để dùng CHUNG SoT BR-16-11.
+    by_cell: dict[tuple, list] = {}
     modules_set: set[str] = set()
     depts_set: set[str] = set()
     for f in findings:
@@ -2160,10 +2268,7 @@ def get_compliance_heatmap(period_year: int | None = None,
         dept = f.responsible_dept or "__none__"
         modules_set.add(module)
         depts_set.add(dept)
-        cell = by_cell.setdefault((module, dept), {"total": 0, "nc": 0})
-        cell["total"] += 1
-        if f.status == FindingStatus.CONFIRMED_NC:
-            cell["nc"] += 1
+        by_cell.setdefault((module, dept), []).append(f)
 
     # BUG-16-04: dept code -> human readable department name.
     dept_codes = [d for d in depts_set if d != "__none__"]
@@ -2179,14 +2284,18 @@ def get_compliance_heatmap(period_year: int | None = None,
         dept_label.setdefault(d, d)
 
     matrix = []
-    for (module, dept), c in by_cell.items():
-        score = 100.0 if c["total"] == 0 else round(
-            (c["total"] - c["nc"]) / c["total"] * 100, 1)
+    for (module, dept), cell_findings in by_cell.items():
+        # BR-16-11: per-cell dùng CÙNG SoT — mẫu số = adjudicated của cell;
+        # cell không có adjudicated → 100.0. findings_count vẫn báo TỔNG (gồm
+        # pending) để UX không mất dấu.
+        rate = compute_compliance_rate(cell_findings)
         matrix.append({
             "module": module, "dept": dept,
             "module_label": module,
             "dept_label": dept_label.get(dept, dept),
-            "score": score, "findings_count": c["total"],
+            "score": rate["score_pct"],
+            "findings_count": len(cell_findings),
+            "pending_count": rate["pending"],
         })
     return {
         "modules": sorted(modules_set),
@@ -2198,17 +2307,25 @@ def get_compliance_heatmap(period_year: int | None = None,
 
 
 def get_capa_aging() -> dict:
-    """§3.7.3: CAPA aging buckets."""
+    """§3.7.3: CAPA aging buckets.
+
+    SoT: tập CAPA mở dùng _open_capa_filter() (status NOT IN Closed) — KHÔNG inline
+    status IN [Open, In Progress] (bỏ sót Overdue/Pending Verification). INVARIANT:
+    total_open == sum(buckets.values()) — record opened_date NULL bị loại khỏi CẢ HAI
+    cách đếm (không để total_open != sum(buckets) do null-skip ở vòng bucket).
+    """
+    from assetcore.services.imm00 import _open_capa_filter
     open_capas = frappe.get_all(
         "IMM CAPA Record",
-        filters={"status": ("in", ["Open", "In Progress"])},
+        filters=_open_capa_filter(),
         fields=["name", "due_date", "opened_date", "imm_risk_level"],
     )
+    # Loại record opened_date NULL khỏi mẫu số (không thể tính tuổi) → total_open
+    # đếm trên CÙNG tập đưa vào buckets ⟹ total_open == sum(buckets).
+    ageable = [c for c in open_capas if c.opened_date]
     buckets = {"0-7": 0, "8-30": 0, "31-60": 0, "60+": 0}
     today = getdate(nowdate())
-    for c in open_capas:
-        if not c.opened_date:
-            continue
+    for c in ageable:
         age = (today - getdate(c.opened_date)).days
         if age <= 7:
             buckets["0-7"] += 1
@@ -2218,7 +2335,7 @@ def get_capa_aging() -> dict:
             buckets["31-60"] += 1
         else:
             buckets["60+"] += 1
-    return {"buckets": buckets, "total_open": len(open_capas)}
+    return {"buckets": buckets, "total_open": len(ageable)}
 
 
 def get_overdue_actions() -> dict:
@@ -2232,10 +2349,11 @@ def get_overdue_actions() -> dict:
         fields=["name", "rule", "severity", "detected_date", "asset"],
         limit_page_length=50,
     )
+    from assetcore.services.imm00 import _overdue_capa_filter
+    # SoT: _overdue_capa_filter() — get_overdue_actions overdue_capas khớp KPI/drill byte-for-byte.
     overdue_capas = frappe.get_all(
         "IMM CAPA Record",
-        filters={"status": ("not in", ["Closed"]),
-                 "due_date": ("<", nowdate())},
+        filters=_overdue_capa_filter(),
         fields=["name", "asset", "due_date", "responsible", "imm_risk_level"],
         limit_page_length=50,
     )

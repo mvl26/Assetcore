@@ -8,7 +8,7 @@
 
 **Tech Stack:** Frappe v15 (Python), MariaDB, Vue 3 + TypeScript + Pinia, TailwindCSS.
 
-**Reference:** Background phân tích — [docs/res/gmdn-asset-category-analysis.md](../../res/gmdn-asset-category-analysis.md) §6.
+**Reference:** Background phân tích — [docs/res/analysis/gmdn-asset-category-analysis.md](../../res/analysis/gmdn-asset-category-analysis.md) §6.
 
 ---
 
@@ -279,7 +279,7 @@ git commit -m "feat(imm00): replace gmdn_status filter with gmdn_code on list_as
 Pre-model-sync: xoá column gmdn_status khỏi tabAC Asset trước khi schema sync.
 
 Lý do: gmdn_status (In Use / Not Use) trộn ngữ nghĩa với lifecycle_status —
-ref docs/res/gmdn-asset-category-analysis.md §6. Lọc thiết bị chuyển sang
+ref docs/res/analysis/gmdn-asset-category-analysis.md §6. Lọc thiết bị chuyển sang
 dùng gmdn_code (kế thừa từ Asset Category).
 """
 from __future__ import annotations
@@ -777,14 +777,14 @@ Mỗi đoạn nói về `gmdn_status` field, modal, QR toggle → thay bằng no
 ```markdown
 **Note (2026-05-19):** Field `gmdn_status` đã được loại bỏ. Lọc và quản lý thiết bị theo
 `gmdn_code` (kế thừa từ Asset Category). Tham chiếu:
-[docs/res/gmdn-asset-category-analysis.md](../res/gmdn-asset-category-analysis.md) §6.
+[docs/res/analysis/gmdn-asset-category-analysis.md](../analysis/gmdn-asset-category-analysis.md) §6.
 ```
 
 Bổ sung mô tả filter `gmdn_code` mới trong section "API List Assets".
 
 - [ ] **Step 3: Final repo-wide audit**
 
-Run: `grep -rn "gmdn_status\|GmdnStatus\|update_gmdn_status\|toggle_gmdn_status\|updateGmdnStatus\|toggleGmdnStatus\|GMDN_OPTIONS\|GMDN_STATUS_LABEL" /home/miyano/frappe-bench/apps/assetcore/ --include="*.py" --include="*.json" --include="*.ts" --include="*.vue" --include="*.js" --include="*.md" 2>&1 | grep -v __pycache__ | grep -v "node_modules" | grep -v "public/frontend/assets/" | grep -v "docs/res/gmdn-asset-category-analysis.md"`
+Run: `grep -rn "gmdn_status\|GmdnStatus\|update_gmdn_status\|toggle_gmdn_status\|updateGmdnStatus\|toggleGmdnStatus\|GMDN_OPTIONS\|GMDN_STATUS_LABEL" /home/miyano/frappe-bench/apps/assetcore/ --include="*.py" --include="*.json" --include="*.ts" --include="*.vue" --include="*.js" --include="*.md" 2>&1 | grep -v __pycache__ | grep -v "node_modules" | grep -v "public/frontend/assets/" | grep -v "docs/res/analysis/gmdn-asset-category-analysis.md"`
 
 Expected: không kết quả (file analysis được phép giữ vì là tài liệu lịch sử).
 

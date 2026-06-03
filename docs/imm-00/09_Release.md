@@ -443,7 +443,7 @@ Quản lý trạng thái GMDN (Global Medical Device Nomenclature) trên thiết
 ### Khả năng tương thích
 
 | Wave 1 module (IMM-04/05/08/09/11/12) | Tương thích ngược | Không cần thay đổi code |
-| AC Asset registry | Schema breaking ở v3.1/008: DROP field trạng thái GMDN cũ (lọc theo `gmdn_code`) | depreciation fields (v4.0); ref [analysis §6](../res/gmdn-asset-category-analysis.md) |
+| AC Asset registry | Schema breaking ở v3.1/008: DROP field trạng thái GMDN cũ (lọc theo `gmdn_code`) | depreciation fields (v4.0); ref [analysis §6](../res/analysis/gmdn-asset-category-analysis.md) |
 | API envelope `_ok/_err` | Không đổi | Wave 2 modules tuân thủ |
 
 ### Known issues v4.2.0
@@ -544,7 +544,7 @@ Quản lý trạng thái GMDN (Global Medical Device Nomenclature) trên thiết
 | BR-00-09 | Rule | Asset Lifecycle Event — append-only | Module Overview §7 | `Asset Lifecycle Event` controller `before_save` raise if not new | `TC-S-009: test_lifecycle_event_immutable` | S-05 | #imm00-core | v3.0.0 | ✅ |
 | BR-00-10 | Rule | Incident report — phải linked asset | Module Overview §7 | `Incident Report.asset` mandatory field validation | `TC-S-010: test_incident_requires_asset` | S-11 | #imm00-core | v3.0.0 | ✅ |
 | BR-00-11 | Rule | Asset Active phải có GMDN code | Module Overview §7 | `services/imm00.py: validate_gmdn_before_active()` | `TC-S-011: test_gmdn_required_for_active` | S-06 | #imm00-core | v3.2.0 | ✅ |
-| ~~BR-00-12~~ | Rule | *(Đã loại bỏ 2026-05-19 — trạng thái sử dụng GMDN bỏ; lọc theo `gmdn_code`. Ref [analysis §6](../res/gmdn-asset-category-analysis.md))* | — | — | — | — | #imm00-core | v3.1.0 | ⛔ removed |
+| ~~BR-00-12~~ | Rule | *(Đã loại bỏ 2026-05-19 — trạng thái sử dụng GMDN bỏ; lọc theo `gmdn_code`. Ref [analysis §6](../res/analysis/gmdn-asset-category-analysis.md))* | — | — | — | — | #imm00-core | v3.1.0 | ⛔ removed |
 
 ---
 
@@ -587,7 +587,7 @@ Quản lý trạng thái GMDN (Global Medical Device Nomenclature) trên thiết
 | SEC-00-03 | Security | Hash chain phá vỡ khi tamper | 07 §III.2 | `verify_audit_chain()` — SHA-256 recompute | `SEC-03: test_audit_chain_breaks_on_tamper` | v3.0.0 | ✅ |
 | SEC-00-04 | Security | API rate limit 300 req/min | 07 §III.2 | Frappe rate limiting middleware | `SEC-04: test_rate_limit_exceeded` | v3.0.0 | ✅ |
 | SEC-00-05 | Security | CSRF protection trên mọi POST/PUT/DELETE | 07 §III.2 | Frappe CSRF middleware + axios interceptor | `SEC-05: test_csrf_rejected` | v3.0.0 | ✅ |
-| ~~SEC-00-06~~ | Security | *(Đã loại bỏ 2026-05-19 — endpoint trạng thái sử dụng GMDN đã gỡ. Ref [analysis §6](../res/gmdn-asset-category-analysis.md))* | — | — | — | v3.1.0 | ⛔ removed |
+| ~~SEC-00-06~~ | Security | *(Đã loại bỏ 2026-05-19 — endpoint trạng thái sử dụng GMDN đã gỡ. Ref [analysis §6](../res/analysis/gmdn-asset-category-analysis.md))* | — | — | — | v3.1.0 | ⛔ removed |
 | SEC-00-07 | Security | Stock Movement Adjustment phải có approver | 07 §III.2 | `BR-INV-03` enforcement | `SEC-07: test_adjustment_role_check` | v4.0.0 | ✅ |
 | SEC-00-08 | Security | Không có SQL injection qua filter params | 07 §III.2 | Frappe ORM parameterized queries | `SEC-08: test_sql_injection_prevention` | v3.0.0 | ✅ |
 

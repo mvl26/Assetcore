@@ -165,7 +165,7 @@ assetcore.patches.v3_1.008_drop_*   # drop field trạng thái GMDN (cũ) — xe
 
 ## III.3. Patch: `v3_1/008_drop_*` (pre_model_sync — drop field trạng thái GMDN cũ)
 
-**Mục đích:** DROP COLUMN field trạng thái sử dụng GMDN (cũ) khỏi `tabAC Asset` **trước** schema sync. Field này trùng ngữ nghĩa với `lifecycle_status` — quyết định chốt 2026-05-19, ref [analysis §6](../res/gmdn-asset-category-analysis.md).
+**Mục đích:** DROP COLUMN field trạng thái sử dụng GMDN (cũ) khỏi `tabAC Asset` **trước** schema sync. Field này trùng ngữ nghĩa với `lifecycle_status` — quyết định chốt 2026-05-19, ref [analysis §6](../res/analysis/gmdn-asset-category-analysis.md).
 
 ```python
 # pre_model_sync — idempotent: chỉ drop nếu column tồn tại

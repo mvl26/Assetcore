@@ -747,21 +747,35 @@ curl -G "https://acme.local/api/method/assetcore.api.imm09.list_repair_work_orde
 
 ## §4 Error Code Catalog
 
-| Code | HTTP | Business Rule | Mô tả |
-|---|---|---|---|
-| `CM-001` | 400 | BR-09-01 | WO thiếu cả `incident_report` và `source_pm_wo` |
-| `CM-002` | 409 | BR-09-05 | Asset đã có WO active (status ≠ Completed / Cannot Repair / Cancelled) |
-| `CM-003` | 422 | BR-09-02 | Spare parts row thiếu `stock_entry_ref` |
-| `CM-004` | 422 | BR-09-02 | `stock_entry_ref` không tồn tại trong DB |
-| `CM-005` | 422 | BR-09-03 | `firmware_updated=1` nhưng không có FCR linked |
-| `CM-006` | 422 | BR-09-03 | FCR linked status ≠ `"Approved"` |
-| `CM-007` | 422 | BR-09-04 | Checklist row chưa điền `result` |
-| `CM-008` | 422 | BR-09-04 | Checklist có row `result = "Fail"` |
-| `CM-009` | 404 | — | `asset_ref` không tồn tại |
-| `CM-010` | 403 | — | User không có quyền (role mismatch) |
-| `CM-011` | 404 | — | WO `name` không tồn tại |
-| `CM-012` | 422 | — | Transition status không hợp lệ |
-| `CM-013` | 400 | — | Thiếu `dept_head_name` khi close mode Completed |
+> **Cột `message_code`** (Sprint Notification 2026-05-29) trỏ vào registry
+> `assetcore/utils/messages.py:MESSAGES`. BE raise qua `nthrow(MSG.<code>, **ctx)`;
+> handler `api_handler.handle()` tự hydrate `title/severity/action_hint` từ registry
+> rồi đưa vào envelope `_err`. FE đọc `messageCode` → `useNotify().fromError()`.
+> Xem §11 Notification Contract.
+
+| Code | HTTP | Severity | `message_code` (MSG.*) | Business Rule | Mô tả |
+|---|---|---|---|---|---|
+| `CM-001` | 400 | warning | `IMM09_SOURCE_REQUIRED` | BR-09-01 | WO thiếu cả `incident_report` và `source_pm_wo` |
+| `CM-002` | 409 | warning | `IMM09_ASSET_HAS_OPEN_WO` | BR-09-05 | Asset đã có WO active (status ≠ Completed / Cannot Repair / Cancelled) |
+| `CM-003` | 422 | warning | `IMM09_SPARE_NO_STOCK_ENTRY` | BR-09-02 | Spare parts row thiếu `stock_entry_ref` |
+| `CM-004` | 422 | warning | `IMM09_STOCK_ENTRY_NOT_FOUND` | BR-09-02 | `stock_entry_ref` không tồn tại trong DB |
+| `CM-005` | 422 | warning | `IMM09_FCR_REQUIRED` | BR-09-03 | `firmware_updated=1` nhưng không có FCR linked |
+| `CM-006` | 422 | warning | `IMM09_FCR_NOT_APPROVED` | BR-09-03 | FCR linked status ≠ `"Approved"` |
+| `CM-007` | 422 | warning | `IMM09_CHECKLIST_INCOMPLETE` | BR-09-04 | Checklist row chưa điền `result` |
+| `CM-008` | 422 | warning | `IMM09_CHECKLIST_FAILED` | BR-09-04 | Checklist có row `result = "Fail"` |
+| `CM-009` | 404 | warning | `IMM09_ASSET_NOT_FOUND` | — | `asset_ref` không tồn tại |
+| `CM-010` | 403 | warning | `AUTH_FORBIDDEN` | — | User không có quyền (role mismatch) |
+| `CM-011` | 404 | warning | `IMM09_NOT_FOUND` | — | WO `name` không tồn tại |
+| `CM-012` | 422 | warning | `IMM09_BAD_STATE` | — | Transition status không hợp lệ |
+| `CM-013` | 400 | warning | `IMM09_DEPT_HEAD_REQUIRED` | — | Thiếu `dept_head_name` khi close mode Completed |
+| _(success)_ | 200 | success | `IMM09_CREATE_SUCCESS` | — | Tạo WO thành công (envelope `_ok`, không phải lỗi) |
+
+**Quy tắc severity (chốt cho sprint này):**
+- `warning` = lỗi nghiệp vụ user tự sửa được (validation, bad-state, not-found) → toast vàng, GIỮ form, không reload.
+- `error` = lỗi hệ thống (`SYS-*`) → toast đỏ.
+- `critical` = chặn vì tuân thủ NĐ98 / SLA breach (`IMM09_SLA_EXPIRED`, compliance gate) → modal blocking.
+- `success` = thao tác thành công → toast xanh, có thể đóng form.
+- `info` = thông tin trung tính (vd tái hỏng cảnh báo non-blocking).
 
 ---
 
@@ -889,6 +903,30 @@ export interface MttrReport {
 
 Phát qua `frappe.publish_realtime(channel, payload, user=assigned_to)`. FE subscribe trong `stores/imm09.ts` qua socket event `cm_sla_breached`.
 
+### §7.1 Dashboard KPI `cm_sla_breached` ↔ drill list — canonical-value rule (BR-09-07)
+
+KPI thẻ `cm_sla_breached` (`api/dashboard.py`) và list drill khi click thẻ (`/cm/work-orders?sla_breached=1`) PHẢI đếm **cùng một tập WO** — vi phạm sẽ làm số trên thẻ ≠ số dòng list (canonical-value rule, lệch niềm tin người dùng).
+
+**Định nghĩa tập canonical:** mọi WO có `sla_breached = 1`, **không** lọc theo `status`. WO đã Completed/Closed mà vi phạm SLA vẫn là "đã vi phạm" — cờ là sự thật lịch sử (monotonic), không phải trạng thái "đang mở".
+
+- KPI count: `_count("Asset Repair", {"sla_breached": 1})` — **BỎ** mệnh đề `status NOT IN [Completed, Closed]` (trước đây loại WO đã đóng → lệch với drill).
+- Drill: `_drill("/cm/work-orders", sla_breached="1")` → `list_work_orders({"sla_breached": 1})` — không status filter.
+
+> Nếu nghiệp vụ cần thẻ "SLA breach **đang mở**" riêng, đó là KPI KHÁC (`cm_sla_breached_open`) với drill `sla_breached=1&status=...` riêng — KHÔNG dùng chung label/count.
+
+### §7.2 Dashboard KPI `cm_open` ↔ drill list — canonical-value rule (BR-09-08)
+
+KPI thẻ "CM đang mở" (`cm_open`, `get_overview` → `cm.open`) và drill-down list "đang sửa chữa" (`get_dashboard_data` → `active_repairs`) PHẢI đếm **cùng một tập WO**. Số trên thẻ == số dòng list khi user click — nếu lệch, mất niềm tin dashboard.
+
+**Định nghĩa tập canonical (SoT):** "Asset Repair đang mở" ⟺ `status NOT IN REPAIR_TERMINAL_STATES` với `REPAIR_TERMINAL_STATES = {Completed, Cannot Repair, Cancelled}` (định nghĩa DUY NHẤT tại `services/imm09.py`). `Cannot Repair` là **TERMINAL** (thiết bị không cứu được → Out of Service, đồng hồ SLA dừng) — KHÔNG phải đang mở. KHÔNG có literal ma `'Closed'` (DocType enum chỉ có `Open|Assigned|Diagnosing|Pending Parts|In Repair|Pending Inspection|Completed|Cannot Repair|Cancelled`).
+
+- KPI count: `_count("Asset Repair", open_repair_filter())` — dùng filter builder SoT.
+- Drill SQL: `WHERE r.status NOT IN (...)` build từ `sorted(REPAIR_TERMINAL_STATES)` (parametrized, byte-for-byte khớp `open_repair_filter()`).
+- Persona KTV: `my_cm` = `open_repair_filter({assigned_to})`; `cm_urgent` = `open_repair_filter({assigned_to, priority:'P1'})`.
+- SLA engine (`services/notifications.py`): `_REPAIR_TERMINAL_STATUS` là **alias-import** của `imm09.REPAIR_TERMINAL_STATES` (1 SoT, không 2 frozenset song song).
+
+> Acceptance đo được: 1 Asset Repair ở `Cannot Repair` KHÔNG tính vào `cm_open` VÀ KHÔNG xuất hiện trong `active_repairs` → card == drill (cùng tập).
+
 ---
 
 ## §8 Endpoint ↔ Business Rule Mapping
@@ -982,4 +1020,76 @@ Production cần review: `doc.flags.ignore_links = True` và `save(ignore_permis
 
 ---
 
+## §11 Notification Contract (Sprint Notification 2026-05-29) — SINGLE SOURCE OF TRUTH
+
+Mọi tương tác IMM-09 trả về **envelope chuẩn** đã chuẩn hoá BE → FE. FE KHÔNG
+hardcode câu chữ — chỉ đọc `messageCode` rồi render qua `useNotify`.
+
+### §11.1 Envelope shape
+
+Success (`_ok`):
+```json
+{ "ok": true, "data": { ... } }
+```
+Lỗi (`_err`, hydrate từ registry qua `api_handler.handle()`):
+```json
+{
+  "ok": false,
+  "error": {
+    "code": "BAD_STATE",                 // ErrorCode bucket (coarse)
+    "message": "Không thể thực hiện khi lệnh sửa chữa đang ở trạng thái 'Completed'.",
+    "message_code": "IMM09-BAD-STATE",   // MSG.* key → FE tra registry
+    "severity": "warning",                // success|info|warning|error|critical
+    "title": "Sai trạng thái lệnh sửa chữa",
+    "action_hint": "Chỉ áp dụng khi lệnh đang ở trạng thái Open.",
+    "context": { "state": "Completed", "expected": "Open" },
+    "http_status": 409
+  }
+}
+```
+
+**Bất biến (contract):** mọi error envelope IMM-09 PHẢI có `message_code`, `severity`,
+`title`. Không còn `frappe.throw(_("..."))` thô leak message Frappe ra FE.
+
+### §11.2 Danh mục MSG cần bổ sung vào `utils/messages.py`
+
+5 mã IMM09 đã có (`IMM09_NOT_FOUND`, `IMM09_BAD_STATE`, `IMM09_ASSET_LOCKED`,
+`IMM09_SLA_EXPIRED`, `IMM09_CREATE_SUCCESS`). Sprint này thêm **9 mã mới**:
+
+| MSG.* | code (kebab) | severity | http | title | template (VI) | action_hint |
+|---|---|---|---|---|---|---|
+| `IMM09_SOURCE_REQUIRED` | `IMM09-SOURCE-REQUIRED` | warning | 400 | Thiếu nguồn lệnh sửa chữa | Lệnh sửa chữa nguồn `{source_type}` yêu cầu liên kết {required_doc}. | Chọn bản ghi nguồn tương ứng trước khi tạo lệnh. |
+| `IMM09_ASSET_HAS_OPEN_WO` | `IMM09-ASSET-HAS-OPEN-WO` | warning | 409 | Thiết bị đang có lệnh mở | Thiết bị đang có lệnh sửa chữa đang mở: {existing}. | Đóng lệnh sửa chữa hiện tại trước khi tạo lệnh mới. |
+| `IMM09_SPARE_NO_STOCK_ENTRY` | `IMM09-SPARE-NO-STOCK-ENTRY` | warning | 422 | Vật tư thiếu phiếu xuất kho | Vật tư '{item_name}' (dòng {idx}) chưa có phiếu xuất kho. | Tạo phiếu xuất kho cho vật tư này rồi thử lại. |
+| `IMM09_STOCK_ENTRY_NOT_FOUND` | `IMM09-STOCK-ENTRY-NOT-FOUND` | warning | 422 | Phiếu xuất kho không tồn tại | Phiếu xuất kho '{stock_entry_ref}' không tồn tại. | Kiểm tra lại mã phiếu xuất kho. |
+| `IMM09_FCR_REQUIRED` | `IMM09-FCR-REQUIRED` | warning | 422 | Cần yêu cầu đổi firmware | Cập nhật firmware yêu cầu phải có Yêu cầu đổi Firmware (FCR) được phê duyệt. | Tạo và phê duyệt FCR trước khi hoàn thành lệnh. |
+| `IMM09_FCR_NOT_APPROVED` | `IMM09-FCR-NOT-APPROVED` | warning | 422 | FCR chưa được phê duyệt | FCR '{fcr}' chưa được phê duyệt (trạng thái: {status}). | Chờ FCR được phê duyệt rồi thử lại. |
+| `IMM09_CHECKLIST_INCOMPLETE` | `IMM09-CHECKLIST-INCOMPLETE` | warning | 422 | Checklist chưa hoàn tất | Mục kiểm tra #{idx} '{test_description}' chưa điền kết quả. | Điền đầy đủ kết quả các mục kiểm tra trước khi hoàn thành. |
+| `IMM09_CHECKLIST_FAILED` | `IMM09-CHECKLIST-FAILED` | warning | 422 | Có mục kiểm tra chưa đạt | Mục kiểm tra #{idx} '{test_description}' chưa Pass — không thể hoàn thành. | Khắc phục và đánh giá lại mục kiểm tra này trước khi hoàn thành. |
+| `IMM09_ASSET_NOT_FOUND` | `IMM09-ASSET-NOT-FOUND` | warning | 404 | Không tìm thấy thiết bị | Không tìm thấy thiết bị: {asset}. | Kiểm tra lại mã thiết bị trong danh mục tài sản. |
+| `IMM09_DEPT_HEAD_REQUIRED` | `IMM09-DEPT-HEAD-REQUIRED` | warning | 400 | Thiếu người nghiệm thu | Cần nhập tên trưởng khoa/phòng nghiệm thu khi đóng lệnh hoàn thành. | Nhập tên người nghiệm thu rồi thử lại. |
+
+> Lưu ý content: tuân `messages.py` §quy chuẩn — Chủ thể + Hậu quả + Hành động,
+> không từ kỹ thuật, không đổ lỗi user. Sau khi thêm vào `messages.py`, chạy
+> `python scripts/gen_fe_messages.py` để regen `frontend/src/i18n/messages.ts`.
+
+### §11.3 BE migration checklist (cho assetcore-be)
+
+- `services/imm09.py`: thay 11 `frappe.throw(_(...))` → `nthrow(MSG.IMM09_*, **ctx)`;
+  các `raise ServiceError(...)` NOT_FOUND/BAD_STATE hiện có → bổ sung `message_code=MSG.*`.
+- `api/imm09.py`: bỏ `_handle`/`_err`/`_parse_json` cục bộ → dùng
+  `from assetcore.utils.api_handler import handle, parse_json`.
+- Giữ nguyên `frappe.publish_realtime` cho SLA breach (§7) — không thay đổi.
+- Audit trail (`log_lifecycle_event`) KHÔNG đổi — message framework chỉ chuẩn hoá phản hồi user.
+
+### §11.4 FE migration checklist (cho assetcore-fe)
+
+- Views `repair/*` + `incident/*` (nếu chạm IMM-09): thay `toast.error(msg)` / hardcode
+  success → `notify.fromError(e)` trong catch, `notify.fromOk(resp)` hoặc
+  `notify.show({ code: MSG.IMM09_CREATE_SUCCESS, ctx })` khi thành công.
+- KHÔNG còn `try/catch` tự build string từ `e.message` BE.
+
+---
+
 *End of IMM-09 API Specification v1.0 — Corrective Maintenance.*
+*Notification Contract §11 added 2026-05-29 (Sprint chuẩn hoá thông báo).*

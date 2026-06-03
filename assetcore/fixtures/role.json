@@ -6,11 +6,11 @@
   "doctype": "Role",
   "home_page": null,
   "is_custom": 1,
+  "modified": "2026-06-01 10:51:07.882286",
   "name": "AssetCore Super Admin",
   "restrict_to_domain": null,
   "role_name": "AssetCore Super Admin",
-  "two_factor_auth": 0,
-  "description": "Toàn quyền + bao trùm Frappe System Manager"
+  "two_factor_auth": 0
  },
  {
   "desk_access": 1,
@@ -19,11 +19,11 @@
   "doctype": "Role",
   "home_page": null,
   "is_custom": 1,
+  "modified": "2026-06-01 10:51:07.915349",
   "name": "AssetCore System User",
   "restrict_to_domain": null,
   "role_name": "AssetCore System User",
-  "two_factor_auth": 0,
-  "description": "Role nền: đăng nhập, dashboard, đọc shared-core"
+  "two_factor_auth": 0
  },
  {
   "desk_access": 1,
@@ -32,11 +32,11 @@
   "doctype": "Role",
   "home_page": null,
   "is_custom": 1,
+  "modified": "2026-06-01 10:51:07.921002",
   "name": "AssetCore Auditor",
   "restrict_to_domain": null,
   "role_name": "AssetCore Auditor",
-  "two_factor_auth": 0,
-  "description": "Chỉ đọc toàn bộ + audit trail"
+  "two_factor_auth": 0
  },
  {
   "desk_access": 1,
@@ -45,11 +45,11 @@
   "doctype": "Role",
   "home_page": null,
   "is_custom": 1,
+  "modified": "2026-06-01 10:51:07.926090",
   "name": "Vendor Engineer",
   "restrict_to_domain": null,
   "role_name": "Vendor Engineer",
-  "two_factor_auth": 0,
-  "description": "Bên thứ ba, cô lập theo WO/Asset được phân công"
+  "two_factor_auth": 0
  },
  {
   "desk_access": 1,
@@ -58,11 +58,11 @@
   "doctype": "Role",
   "home_page": null,
   "is_custom": 1,
+  "modified": "2026-06-01 10:51:07.930665",
   "name": "Data Manager",
   "restrict_to_domain": null,
   "role_name": "Data Manager",
-  "two_factor_auth": 0,
-  "description": "IMM-00: full CRUD + duyệt/hủy workflow"
+  "two_factor_auth": 0
  },
  {
   "desk_access": 1,
@@ -71,11 +71,11 @@
   "doctype": "Role",
   "home_page": null,
   "is_custom": 1,
+  "modified": "2026-06-01 10:51:07.935147",
   "name": "Data User",
   "restrict_to_domain": null,
   "role_name": "Data User",
-  "two_factor_auth": 0,
-  "description": "IMM-00: read/write/create, thao tác thường"
+  "two_factor_auth": 0
  },
  {
   "desk_access": 1,
@@ -84,11 +84,11 @@
   "doctype": "Role",
   "home_page": null,
   "is_custom": 1,
+  "modified": "2026-06-01 10:51:07.939961",
   "name": "Needs Manager",
   "restrict_to_domain": null,
   "role_name": "Needs Manager",
-  "two_factor_auth": 0,
-  "description": "IMM-01: full CRUD + duyệt/hủy workflow"
+  "two_factor_auth": 0
  },
  {
   "desk_access": 1,
@@ -97,11 +97,11 @@
   "doctype": "Role",
   "home_page": null,
   "is_custom": 1,
+  "modified": "2026-06-01 10:51:07.944628",
   "name": "Needs User",
   "restrict_to_domain": null,
   "role_name": "Needs User",
-  "two_factor_auth": 0,
-  "description": "IMM-01: read/write/create, thao tác thường"
+  "two_factor_auth": 0
  },
  {
   "desk_access": 1,
@@ -110,11 +110,11 @@
   "doctype": "Role",
   "home_page": null,
   "is_custom": 1,
+  "modified": "2026-06-01 10:51:07.949123",
   "name": "Spec Manager",
   "restrict_to_domain": null,
   "role_name": "Spec Manager",
-  "two_factor_auth": 0,
-  "description": "IMM-02: full CRUD + duyệt/hủy workflow"
+  "two_factor_auth": 0
  },
  {
   "desk_access": 1,
@@ -123,11 +123,11 @@
   "doctype": "Role",
   "home_page": null,
   "is_custom": 1,
+  "modified": "2026-06-01 10:51:07.953752",
   "name": "Spec User",
   "restrict_to_domain": null,
   "role_name": "Spec User",
-  "two_factor_auth": 0,
-  "description": "IMM-02: read/write/create, thao tác thường"
+  "two_factor_auth": 0
  },
  {
   "desk_access": 1,
@@ -136,11 +136,11 @@
   "doctype": "Role",
   "home_page": null,
   "is_custom": 1,
+  "modified": "2026-06-01 10:51:07.958355",
   "name": "Procurement Manager",
   "restrict_to_domain": null,
   "role_name": "Procurement Manager",
-  "two_factor_auth": 0,
-  "description": "IMM-03: full CRUD + duyệt/hủy workflow"
+  "two_factor_auth": 0
  },
  {
   "desk_access": 1,
@@ -149,11 +149,11 @@
   "doctype": "Role",
   "home_page": null,
   "is_custom": 1,
+  "modified": "2026-06-01 10:51:07.963078",
   "name": "Procurement User",
   "restrict_to_domain": null,
   "role_name": "Procurement User",
-  "two_factor_auth": 0,
-  "description": "IMM-03: read/write/create, thao tác thường"
+  "two_factor_auth": 0
  },
  {
   "desk_access": 1,
@@ -162,11 +162,11 @@
   "doctype": "Role",
   "home_page": null,
   "is_custom": 1,
+  "modified": "2026-06-01 10:51:07.968100",
   "name": "Commissioning Manager",
   "restrict_to_domain": null,
   "role_name": "Commissioning Manager",
-  "two_factor_auth": 0,
-  "description": "IMM-04: full CRUD + duyệt/hủy workflow"
+  "two_factor_auth": 0
  },
  {
   "desk_access": 1,
@@ -175,11 +175,11 @@
   "doctype": "Role",
   "home_page": null,
   "is_custom": 1,
+  "modified": "2026-06-01 10:51:07.973631",
   "name": "Commissioning User",
   "restrict_to_domain": null,
   "role_name": "Commissioning User",
-  "two_factor_auth": 0,
-  "description": "IMM-04: read/write/create, thao tác thường"
+  "two_factor_auth": 0
  },
  {
   "desk_access": 1,
@@ -188,11 +188,11 @@
   "doctype": "Role",
   "home_page": null,
   "is_custom": 1,
+  "modified": "2026-06-01 10:51:07.981545",
   "name": "Document Manager",
   "restrict_to_domain": null,
   "role_name": "Document Manager",
-  "two_factor_auth": 0,
-  "description": "IMM-05: full CRUD + duyệt/hủy workflow"
+  "two_factor_auth": 0
  },
  {
   "desk_access": 1,
@@ -201,11 +201,11 @@
   "doctype": "Role",
   "home_page": null,
   "is_custom": 1,
+  "modified": "2026-06-01 10:51:07.991162",
   "name": "Document User",
   "restrict_to_domain": null,
   "role_name": "Document User",
-  "two_factor_auth": 0,
-  "description": "IMM-05: read/write/create, thao tác thường"
+  "two_factor_auth": 0
  },
  {
   "desk_access": 1,
@@ -214,11 +214,11 @@
   "doctype": "Role",
   "home_page": null,
   "is_custom": 1,
+  "modified": "2026-06-01 10:51:07.995926",
   "name": "Training Manager",
   "restrict_to_domain": null,
   "role_name": "Training Manager",
-  "two_factor_auth": 0,
-  "description": "IMM-06: full CRUD + duyệt/hủy workflow"
+  "two_factor_auth": 0
  },
  {
   "desk_access": 1,
@@ -227,11 +227,11 @@
   "doctype": "Role",
   "home_page": null,
   "is_custom": 1,
+  "modified": "2026-06-01 10:51:08.000441",
   "name": "Training User",
   "restrict_to_domain": null,
   "role_name": "Training User",
-  "two_factor_auth": 0,
-  "description": "IMM-06: read/write/create, thao tác thường"
+  "two_factor_auth": 0
  },
  {
   "desk_access": 1,
@@ -240,11 +240,11 @@
   "doctype": "Role",
   "home_page": null,
   "is_custom": 1,
+  "modified": "2026-06-01 10:51:08.005173",
   "name": "PM Manager",
   "restrict_to_domain": null,
   "role_name": "PM Manager",
-  "two_factor_auth": 0,
-  "description": "IMM-08: full CRUD + duyệt/hủy workflow"
+  "two_factor_auth": 0
  },
  {
   "desk_access": 1,
@@ -253,11 +253,11 @@
   "doctype": "Role",
   "home_page": null,
   "is_custom": 1,
+  "modified": "2026-06-01 10:51:08.009864",
   "name": "PM User",
   "restrict_to_domain": null,
   "role_name": "PM User",
-  "two_factor_auth": 0,
-  "description": "IMM-08: read/write/create, thao tác thường"
+  "two_factor_auth": 0
  },
  {
   "desk_access": 1,
@@ -266,11 +266,11 @@
   "doctype": "Role",
   "home_page": null,
   "is_custom": 1,
+  "modified": "2026-06-01 10:51:08.014206",
   "name": "Repair Manager",
   "restrict_to_domain": null,
   "role_name": "Repair Manager",
-  "two_factor_auth": 0,
-  "description": "IMM-09: full CRUD + duyệt/hủy workflow"
+  "two_factor_auth": 0
  },
  {
   "desk_access": 1,
@@ -279,11 +279,11 @@
   "doctype": "Role",
   "home_page": null,
   "is_custom": 1,
+  "modified": "2026-06-01 10:51:08.018612",
   "name": "Repair User",
   "restrict_to_domain": null,
   "role_name": "Repair User",
-  "two_factor_auth": 0,
-  "description": "IMM-09: read/write/create, thao tác thường"
+  "two_factor_auth": 0
  },
  {
   "desk_access": 1,
@@ -292,11 +292,11 @@
   "doctype": "Role",
   "home_page": null,
   "is_custom": 1,
+  "modified": "2026-06-01 10:51:08.023503",
   "name": "Calibration Manager",
   "restrict_to_domain": null,
   "role_name": "Calibration Manager",
-  "two_factor_auth": 0,
-  "description": "IMM-11: full CRUD + duyệt/hủy workflow"
+  "two_factor_auth": 0
  },
  {
   "desk_access": 1,
@@ -305,11 +305,11 @@
   "doctype": "Role",
   "home_page": null,
   "is_custom": 1,
+  "modified": "2026-06-01 10:51:08.028074",
   "name": "Calibration User",
   "restrict_to_domain": null,
   "role_name": "Calibration User",
-  "two_factor_auth": 0,
-  "description": "IMM-11: read/write/create, thao tác thường"
+  "two_factor_auth": 0
  },
  {
   "desk_access": 1,
@@ -318,11 +318,11 @@
   "doctype": "Role",
   "home_page": null,
   "is_custom": 1,
+  "modified": "2026-06-01 10:51:08.032470",
   "name": "Corrective Manager",
   "restrict_to_domain": null,
   "role_name": "Corrective Manager",
-  "two_factor_auth": 0,
-  "description": "IMM-12: full CRUD + duyệt/hủy workflow"
+  "two_factor_auth": 0
  },
  {
   "desk_access": 1,
@@ -331,11 +331,11 @@
   "doctype": "Role",
   "home_page": null,
   "is_custom": 1,
+  "modified": "2026-06-01 10:51:08.036848",
   "name": "Corrective User",
   "restrict_to_domain": null,
   "role_name": "Corrective User",
-  "two_factor_auth": 0,
-  "description": "IMM-12: read/write/create, thao tác thường"
+  "two_factor_auth": 0
  },
  {
   "desk_access": 1,
@@ -344,11 +344,11 @@
   "doctype": "Role",
   "home_page": null,
   "is_custom": 1,
+  "modified": "2026-06-01 10:51:08.041283",
   "name": "Inventory Manager",
   "restrict_to_domain": null,
   "role_name": "Inventory Manager",
-  "two_factor_auth": 0,
-  "description": "IMM-15: full CRUD + duyệt/hủy workflow"
+  "two_factor_auth": 0
  },
  {
   "desk_access": 1,
@@ -357,11 +357,11 @@
   "doctype": "Role",
   "home_page": null,
   "is_custom": 1,
+  "modified": "2026-06-01 10:51:08.045682",
   "name": "Inventory User",
   "restrict_to_domain": null,
   "role_name": "Inventory User",
-  "two_factor_auth": 0,
-  "description": "IMM-15: read/write/create, thao tác thường"
+  "two_factor_auth": 0
  },
  {
   "desk_access": 1,
@@ -370,11 +370,11 @@
   "doctype": "Role",
   "home_page": null,
   "is_custom": 1,
+  "modified": "2026-06-01 10:51:08.050183",
   "name": "Compliance Manager",
   "restrict_to_domain": null,
   "role_name": "Compliance Manager",
-  "two_factor_auth": 0,
-  "description": "IMM-16: full CRUD + duyệt/hủy workflow"
+  "two_factor_auth": 0
  },
  {
   "desk_access": 1,
@@ -383,10 +383,10 @@
   "doctype": "Role",
   "home_page": null,
   "is_custom": 1,
+  "modified": "2026-06-01 10:51:08.054780",
   "name": "Compliance User",
   "restrict_to_domain": null,
   "role_name": "Compliance User",
-  "two_factor_auth": 0,
-  "description": "IMM-16: read/write/create, thao tác thường"
+  "two_factor_auth": 0
  }
 ]

@@ -210,6 +210,8 @@ erDiagram
 │  class ComplianceGate:                                          │
 │    + check_asset(asset: str) → GateResult                       │
 │    - _has_critical_open_capa(asset) → list[str]                 │
+│      # "open" ← SoT imm00._open_capa_filter (status NOT IN       │
+│      #  Closed; gồm 'Overdue') — invariant dưới cron flip        │
 │                                                                 │
 │  # doc_events hooks (không modify core controller)              │
 │  def capa_record_validate(doc, method=None) → None              │

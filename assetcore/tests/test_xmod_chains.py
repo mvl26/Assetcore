@@ -9,6 +9,7 @@ NEG-11: Cannot close High-severity Incident without RCA Completed.
 from __future__ import annotations
 
 import unittest
+from contextlib import suppress
 
 import frappe
 from frappe.utils import nowdate, add_days
@@ -51,28 +52,51 @@ def _make_asset(suffix: str, *, is_cal_required: int = 0,
 
 
 def _cleanup_asset(asset_name: str) -> None:
-    """Remove asset and all dependent rows (cal schedules, incidents, capa, rca)."""
-    for dt, fld in [
-        ("IMM Calibration Schedule", "asset"),
-        ("IMM RCA Record", "asset"),
-        ("Incident Report", "asset"),
-    ]:
-        for row in frappe.get_all(dt, filters={fld: asset_name}, fields=["name"]):
-            try:
-                frappe.delete_doc(dt, row.name, force=True, ignore_permissions=True)
-            except Exception:
-                pass
-    for cap in frappe.get_all("IMM CAPA Record",
-                               filters={"asset": asset_name}, fields=["name"]):
-        try:
-            frappe.delete_doc("IMM CAPA Record", cap.name, force=True,
-                              ignore_permissions=True)
-        except Exception:
-            pass
+    """Remove asset and all dependent rows (cal schedules, incidents, capa, rca).
+
+    Delegates to the shared ``purge_asset`` (raw-SQL audit/lifecycle purge +
+    cancel-children) — a plain delete_doc silently fails under the WR-03 / audit
+    on_trash guards and leaks the asset.
+    """
+    from assetcore.tests._asset_cleanup import purge_asset
     try:
-        frappe.delete_doc("AC Asset", asset_name, force=True, ignore_permissions=True)
+        purge_asset(asset_name)
     except Exception:
         pass
+
+
+def tearDownModule():  # noqa: N802
+    """Safety net: purge any cross-module chain fixtures that survived a class's
+    teardown gap (the recurring _Test chain incident / _Test RCA Model leak)."""
+    from assetcore.tests._asset_cleanup import (
+        purge_assets_by_name_prefix,
+        purge_category_by_name,
+    )
+    frappe.set_user("Administrator")
+    # Standalone incidents not bound to a purged asset.
+    for inc in frappe.db.sql_list(
+        "SELECT name FROM `tabIncident Report` WHERE description LIKE %s",
+        ("\\_Test%",),
+    ):
+        with suppress(Exception):
+            # Cancel + delete any linked CAPA/RCA first, then the incident.
+            for dt, fld in (("IMM CAPA Record", "linked_incident"),
+                            ("IMM RCA Record", "incident")):
+                if frappe.db.has_column(dt, fld):
+                    for ch in frappe.db.sql_list(
+                        f"SELECT name FROM `tab{dt}` WHERE `{fld}`=%s", (inc,)
+                    ):
+                        with suppress(Exception):
+                            frappe.delete_doc(dt, ch, force=True, ignore_permissions=True)
+            frappe.delete_doc("Incident Report", inc, force=True, ignore_permissions=True)
+    purge_assets_by_name_prefix("_Test Asset Xmod")
+    purge_category_by_name(_CAT_NAME, "_Test RCA Cat")
+    for mdl in frappe.db.sql_list(
+        "SELECT name FROM `tabIMM Device Model` WHERE model_name=%s", ("_Test RCA Model",)
+    ):
+        with suppress(Exception):
+            frappe.delete_doc("IMM Device Model", mdl, force=True, ignore_permissions=True)
+    frappe.db.commit()
 
 
 class TestRC07_AutoCalibrationSchedule(unittest.TestCase):
@@ -153,7 +177,7 @@ class TestRC03_04_RcaCompletedChain(unittest.TestCase):
 
     def test_full_chain_incident_rca_capa_close(self):
         from assetcore.services.imm12 import (
-            report_incident, acknowledge_incident, resolve_incident,
+            report_incident, acknowledge_incident, start_work, resolve_incident,
             submit_rca, create_rca,
         )
         # 1. Report High incident — auto-creates RCA via resolve hook later
@@ -165,8 +189,9 @@ class TestRC03_04_RcaCompletedChain(unittest.TestCase):
         )
         ir_name = incident["name"]
 
-        # 2. Acknowledge + resolve (resolve auto-creates RCA cho High)
+        # 2. Acknowledge → start_work → resolve (resolve auto-creates RCA cho High)
         acknowledge_incident(ir_name)
+        start_work(ir_name)
         resolved = resolve_incident(
             ir_name,
             resolution_notes="Tạm thời thay phụ tùng A để mở chain",

@@ -103,7 +103,7 @@ Dùng cho:
 - `design-frontend.md` — design system FE (typography, spacing, color, component pattern)
 
 Dùng cho:
-- 06 §"Design system" — bắt buộc cross-link tới `docs/res/design-frontend.md` cho mọi module có UI.
+- 06 §"Design system" — bắt buộc cross-link tới `docs/res/design/design-frontend.md` cho mọi module có UI.
 
 ## Source 7 — Skill khác (tham chiếu chéo)
 

@@ -135,6 +135,9 @@ export interface AssetListParams {
   asset_category?: string
   search?: string
   gmdn_code?: string
+  /** NĐ98 drill (BR-00-17): 'expiring' | 'expired' — số ĐK lưu hành BYT sắp/đã
+   *  hết hạn. KHỚP signature BE list_assets(byt_status). Giá trị khác → BE no-op. */
+  byt_status?: 'expiring' | 'expired'
 }
 
 // ─── AC Supplier ──────────────────────────────────────────────────────────────

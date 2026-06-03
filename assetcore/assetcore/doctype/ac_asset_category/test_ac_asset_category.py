@@ -3,11 +3,42 @@ import unittest
 
 import frappe
 
+# AC Asset Category autonames to a CAT-#### series, so the document name is NOT
+# the category_name value. Existence / cleanup must resolve through the
+# category_name field, otherwise leaked rows collide on the unique index.
+_TEST_CATEGORY_NAMES = (
+    "_TestCatGMDN A", "_TestCatGMDN B", "_TestCatGMDN C",
+    "_TestCatGMDN D", "_TestCatGMDN E", "_TestCatGMDN F",
+)
+_TEST_GMDN_CODES = ("GMDN-DUP-001", "GMDN-UNQ-100", "GMDN-UNQ-200")
+
+
+def _purge_test_categories():
+    """Delete every test category by resolving the real CAT-#### doc name from
+    its category_name / gmdn_code. Idempotent; safe to call repeatedly."""
+    names = set()
+    for value in _TEST_CATEGORY_NAMES:
+        names.update(frappe.get_all(
+            "AC Asset Category", filters={"category_name": value}, pluck="name"
+        ))
+    for value in _TEST_GMDN_CODES:
+        names.update(frappe.get_all(
+            "AC Asset Category", filters={"gmdn_code": value}, pluck="name"
+        ))
+    for doc_name in names:
+        frappe.delete_doc("AC Asset Category", doc_name, force=True, ignore_permissions=True)
+
 
 class TestACAssetCategory(unittest.TestCase):
+    def setUp(self):
+        _purge_test_categories()
+
     def _make_cat(self, name: str, gmdn: str | None = None):
-        if frappe.db.exists("AC Asset Category", name):
-            frappe.delete_doc("AC Asset Category", name, force=True)
+        existing = frappe.get_all(
+            "AC Asset Category", filters={"category_name": name}, pluck="name"
+        )
+        for doc_name in existing:
+            frappe.delete_doc("AC Asset Category", doc_name, force=True, ignore_permissions=True)
         doc = frappe.get_doc({
             "doctype": "AC Asset Category",
             "category_name": name,
@@ -33,9 +64,4 @@ class TestACAssetCategory(unittest.TestCase):
         self.assertTrue(a.name and b.name)
 
     def tearDown(self):
-        for n in (
-            "_TestCatGMDN A", "_TestCatGMDN B", "_TestCatGMDN C",
-            "_TestCatGMDN D", "_TestCatGMDN E", "_TestCatGMDN F",
-        ):
-            if frappe.db.exists("AC Asset Category", n):
-                frappe.delete_doc("AC Asset Category", n, force=True)
+        _purge_test_categories()

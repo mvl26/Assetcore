@@ -286,6 +286,7 @@ classDiagram
     }
 
     class InventoryQueryService {
+        +recompute_reserved(warehouse, spare_part) float
         +get_available_qty(spare_part, warehouse) float
         +check_part_availability_bulk(parts) dict
     }

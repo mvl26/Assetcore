@@ -19,6 +19,8 @@ from assetcore.repositories.pm_repo import (
 from assetcore.repositories.repair_repo import RepairRepo
 from assetcore.services.shared import AssetStatus, ErrorCode, ServiceError
 from assetcore.utils.helpers import _get_role_emails, _safe_sendmail
+from assetcore.utils.messages import MSG
+from assetcore.utils.notify import nthrow, nthrow_in_hook
 
 _DT_PM_WO = "PM Work Order"
 _DT_AC_ASSET = "AC Asset"
@@ -48,6 +50,83 @@ class PMStatus:
     PENDING_BUSY = "Pending–Device Busy"
 
 
+# SoT (BR-08-11): tập status nguồn mà cron được phép flip → Overdue. Các status
+# còn lại (Completed, Cancelled, Halted–Major Failure, Overdue) là TERMINAL/đã-set,
+# KHÔNG flip lại. Pending–Device Busy PHẢI nằm trong tập (WO bị hoãn vẫn quá hạn).
+# is_pm_overdue ↔ cron (tasks.check_pm_overdue) ↔ counter (count_overdue_pm) đều
+# suy từ hằng này — KHÔNG 3 nơi tự định nghĩa lại điều kiện quá hạn.
+OVERDUE_SOURCE_STATES = frozenset({
+    PMStatus.OPEN,
+    PMStatus.IN_PROGRESS,
+    PMStatus.PENDING_BUSY,
+})
+# Backward-compat alias (tên cũ dạng tuple — giữ cho callers hiện hữu).
+OVERDUE_SOURCE_STATUSES = tuple(OVERDUE_SOURCE_STATES)
+
+
+def is_pm_overdue(status: str, due_date, ref_date=None) -> bool:
+    """SoT predicate (BR-08-11): 1 PM WO là 'quá hạn' khi NÀO?
+
+    Định nghĩa duy nhất dùng chung cho: cron setter (``tasks.check_pm_overdue``),
+    counter KPI/dashboard (``count_overdue_pm``) và drill-down list
+    (``_normalize_filters(overdue=1)``) — KHÔNG 3 nơi tự định nghĩa lại.
+
+    Boundary CHỐT: ``due_date < ref_date`` là quá hạn; ``due_date == ref_date``
+    CHƯA quá hạn (đồng nhất giữa cron ``<`` và mọi consumer).
+
+    Args:
+        status: trạng thái PM Work Order hiện tại.
+        due_date: ngày đến hạn (str/date) — None ⇒ không quá hạn.
+        ref_date: mốc so sánh (mặc định hôm nay).
+
+    Returns:
+        True nếu WO ở status thuộc OVERDUE_SOURCE_STATES và due_date < ref_date.
+    """
+    if not due_date:
+        return False
+    if status not in OVERDUE_SOURCE_STATES:
+        return False
+    ref = getdate(ref_date) if ref_date else getdate(nowdate())
+    return getdate(due_date) < ref
+
+
+# SoT (BR-08-12): cửa-sổ "PM đến hạn (due-soon)". 1 hằng (KHÔNG hardcode "7"
+# rải rác) + 1 helper filter dùng CHUNG bởi KPI count (dashboard.pm_due_next7)
+# và drill list (_normalize_filters(due_before)). Đặt ngay cạnh OVERDUE SoT để
+# 2 predicate (overdue/due-soon) ở cùng SoT block.
+PM_DUE_SOON_WINDOW_DAYS = 7
+
+
+def due_soon_filter(window_end, ref_date=None) -> dict:
+    """SoT (BR-08-12): filter dict cho 'PM đến hạn (due-soon)'.
+
+    Cửa sổ = ``[ref_date, window_end]`` (cả 2 biên inclusive). status NOT IN
+    [Completed, Cancelled] (đến hạn ⇒ chưa hoàn tất). WO quá hạn
+    (``due_date < ref_date``) NẰM NGOÀI — thuộc tập overdue (BR-08-11,
+    ``is_pm_overdue``) → due-soon ∩ overdue = ∅ (disjoint by construction).
+
+    INVARIANT: KPI ``dashboard.pm_due_next7`` (count) và drill
+    ``_normalize_filters(due_before)`` (list) gọi CÙNG helper này → card ==
+    drill byte-for-byte. Cận dưới = ref_date (mặc định hôm nay) — KHÔNG còn
+    ``due_date <= window_end`` thiếu cận dưới (cũ làm WO quá hạn leak vào drill).
+
+    Args:
+        window_end: cận trên cửa sổ (str/date) — KPI truyền
+            ``today + PM_DUE_SOON_WINDOW_DAYS``; drill truyền ``due_before``
+            verbatim từ query.
+        ref_date: cận dưới = mốc hôm nay (mặc định ``nowdate()``).
+
+    Returns:
+        dict: ``{"due_date": ["between", [ref, window_end]],
+        "status": ["not in", [PMStatus.COMPLETED, PMStatus.CANCELLED]]}``
+    """
+    ref = ref_date or nowdate()
+    return {
+        "due_date": ["between", [ref, window_end]],
+        "status": ["not in", [PMStatus.COMPLETED, PMStatus.CANCELLED]],
+    }
+
+
 class PMScheduleStatus:
     ACTIVE = "Active"
     PAUSED = "Paused"
@@ -67,6 +146,10 @@ _LEGACY_ROLE_PTP = "Commissioning Manager"
 def count_overdue_pm(user: str | None = None) -> int:
     """Đếm số PM Work Order đang ở trạng thái Overdue.
 
+    SoT (BR-08-11): status Overdue do cron ``check_pm_overdue`` set qua predicate
+    ``is_pm_overdue``. Counter này đếm đúng tập đó (status == Overdue) → KPI ==
+    drill-down ``_normalize_filters(overdue=1)``, KHÔNG divergence.
+
     Args:
         user: nếu set, chỉ đếm các WO assigned cho user đó. None = global.
 
@@ -85,11 +168,33 @@ _OP_TOKENS = ("in", "not in", "between", "like", "=", "!=", "<", ">", "<=", ">="
 
 def _normalize_filters(f: dict | None) -> dict:
     out: dict = {}
+    due_before = None
+    overdue = False
     for k, v in (f or {}).items():
+        # R6 §9.4.3 — virtual date-window keys cho drill-down từ KPI pm_due_7d.
+        # due_before → cửa-sổ due-soon [today, X] (SoT due_soon_filter, BR-08-12 —
+        # KHÔNG còn `<= X` thiếu cận dưới); overdue → status == Overdue (SSOT:
+        # cron check_pm_overdue set status, WO là operational record duy nhất —
+        # CLAUDE.md §11, dashboard.py §RC-10).
+        if k == "due_before":
+            due_before = v
+            continue
+        if k == "overdue":
+            overdue = str(v) in ("1", "true", "True", "yes")
+            continue
         if isinstance(v, list) and v and not (len(v) == 2 and v[0] in _OP_TOKENS):
             out[k] = ["in", v]
         else:
             out[k] = v
+    if overdue:
+        out["status"] = PMStatus.OVERDUE
+    elif due_before:
+        # BR-08-12: cửa-sổ due-soon [today, due_before] dùng CHUNG SoT helper với
+        # KPI pm_due_next7 → card == drill (cận dưới = today, KHÔNG `<=`). Explicit
+        # status từ query (nếu có) THẮNG status từ helper (setdefault).
+        window = due_soon_filter(due_before)
+        out["due_date"] = window["due_date"]
+        out.setdefault("status", window["status"])
     return out
 
 
@@ -110,31 +215,25 @@ def validate_work_order(doc) -> None:
     if doc.status in ("Completed", "Halted–Major Failure"):
         for item in (doc.checklist_results or []):
             if not item.result:
-                frappe.throw(_(
-                    "Tất cả mục checklist phải có kết quả trước khi Submit (BR-08-08). "
-                    "Mục '{0}' chưa điền."
-                ).format(item.description))
+                # BR-08-08
+                nthrow_in_hook(MSG.IMM08_CHECKLIST_INCOMPLETE, item=item.description)
         # BR-08-09: thời gian thực hiện phải > 0 phút khi hoàn thành PM.
         if not doc.duration_minutes or doc.duration_minutes <= 0:
-            frappe.throw(_(
-                "Thời gian thực hiện (phút) phải lớn hơn 0 trước khi hoàn thành PM "
-                "(BR-08-09)."
-            ))
+            nthrow_in_hook(MSG.IMM08_DURATION_REQUIRED)
         # BR-08-10: phải gắn tem bảo trì trước khi hoàn thành PM.
         if not doc.pm_sticker_attached:
-            frappe.throw(_(
-                "Phải xác nhận đã gắn tem bảo trì trước khi hoàn thành PM "
-                "(BR-08-10)."
-            ))
+            nthrow_in_hook(MSG.IMM08_STICKER_REQUIRED)
 
     risk_class = AssetRepo.get_value(doc.asset_ref, "risk_classification") if doc.asset_ref else None
-    if risk_class in ("High", "Critical") and not doc.attachments:
-        frappe.throw(_(
-            "Thiết bị nguy cơ cao ({0}) bắt buộc upload ảnh trước/sau PM (BR-08-06)."
-        ).format(risk_class))
+    # BR-08-06: dùng doc.get() — `attachments` (Attach Multiple) không được
+    # new_doc khởi tạo như attribute, truy cập trực tiếp gây AttributeError.
+    if risk_class in ("High", "Critical") and not doc.get("attachments"):
+        # BR-08-06
+        nthrow_in_hook(MSG.IMM08_PHOTO_REQUIRED, risk_class=risk_class)
 
     if doc.wo_type == "Corrective" and not doc.source_pm_wo:
-        frappe.throw(_("CM Work Order phải có tham chiếu PM WO gốc (BR-08-02)."))
+        # BR-08-02
+        nthrow_in_hook(MSG.IMM08_SOURCE_PM_REQUIRED)
 
 
 def handle_work_order_submit(doc) -> None:
@@ -404,7 +503,7 @@ def list_work_orders(filters: dict, *, page: int = 1, page_size: int = 20) -> di
 def get_work_order(name: str) -> dict:
     wo = PMWorkOrderRepo.get(name)
     if not wo:
-        raise ServiceError(ErrorCode.NOT_FOUND, f"PM Work Order '{name}' không tồn tại")
+        nthrow(MSG.IMM08_WO_NOT_FOUND, name=name)
 
     asset = AssetRepo.get_value(
         wo.asset_ref,
@@ -456,10 +555,9 @@ def get_work_order(name: str) -> dict:
 def assign_technician(name: str, *, technician: str, scheduled_date: str | None = None) -> dict:
     wo = PMWorkOrderRepo.get(name)
     if not wo:
-        raise ServiceError(ErrorCode.NOT_FOUND, f"PM Work Order '{name}' không tồn tại")
+        nthrow(MSG.IMM08_WO_NOT_FOUND, name=name)
     if wo.status not in (PMStatus.OPEN, PMStatus.OVERDUE):
-        raise ServiceError(ErrorCode.BAD_STATE,
-                           f"Không thể phân công khi WO ở trạng thái '{wo.status}'")
+        nthrow(MSG.IMM08_BAD_STATE, state=wo.status)
     if wo.asset_ref and not frappe.db.exists(_DT_AC_ASSET, wo.asset_ref):
         raise ServiceError(
             ErrorCode.VALIDATION,
@@ -485,9 +583,9 @@ def submit_result(name: str, *, checklist_results: list[dict], overall_result: s
                   duration_minutes: int = 0) -> dict:
     wo = PMWorkOrderRepo.get(name)
     if not wo:
-        raise ServiceError(ErrorCode.NOT_FOUND, f"PM Work Order '{name}' không tồn tại")
+        nthrow(MSG.IMM08_WO_NOT_FOUND, name=name)
     if wo.docstatus == 1:
-        raise ServiceError(ErrorCode.CONFLICT, "PM Work Order đã được Submit")
+        nthrow(MSG.IMM08_ALREADY_SUBMITTED)
 
     result_map = {r["idx"]: r for r in checklist_results if "idx" in r}
     for row in (wo.checklist_results or []):
@@ -540,7 +638,7 @@ def submit_result(name: str, *, checklist_results: list[dict], overall_result: s
 def report_major_failure(pm_wo_name: str, *, failure_description: str) -> dict:
     wo = PMWorkOrderRepo.get(pm_wo_name)
     if not wo:
-        raise ServiceError(ErrorCode.NOT_FOUND, f"PM Work Order '{pm_wo_name}' không tồn tại")
+        nthrow(MSG.IMM08_WO_NOT_FOUND, name=pm_wo_name)
 
     PMWorkOrderRepo.set_values(pm_wo_name, {"status": PMStatus.HALTED_MAJOR})
     _transition_asset(wo.asset_ref, AssetStatus.OUT_OF_SERVICE, pm_wo_name)
@@ -599,7 +697,7 @@ def reschedule(name: str, *, new_date: str, reason: str) -> dict:
                            "Lý do hoãn lịch là bắt buộc (tối thiểu 5 ký tự)")
     wo = PMWorkOrderRepo.get(name)
     if not wo:
-        raise ServiceError(ErrorCode.NOT_FOUND, f"PM Work Order '{name}' không tồn tại")
+        nthrow(MSG.IMM08_WO_NOT_FOUND, name=name)
     was_in_progress = wo.status == PMStatus.IN_PROGRESS
     old_date = str(wo.due_date)
     wo.due_date = new_date
@@ -625,8 +723,7 @@ def create_adhoc_work_order(data: dict) -> dict:
         as_dict=True,
     )
     if not sched:
-        raise ServiceError(ErrorCode.NOT_FOUND,
-                           f"PM Schedule '{data['pm_schedule']}' không tồn tại")
+        nthrow(MSG.IMM08_SCHEDULE_NOT_FOUND, name=data["pm_schedule"])
     if sched["asset_ref"] != data["asset_ref"]:
         raise ServiceError(
             ErrorCode.VALIDATION,
@@ -654,6 +751,8 @@ def create_adhoc_work_order(data: dict) -> dict:
     if data.get("assigned_to"):
         doc.assigned_to = data["assigned_to"]
         doc.assigned_by = frappe.session.user
+    if data.get("supervisor"):
+        doc.supervisor = data["supervisor"]
     if data.get("technician_notes"):
         doc.technician_notes = data["technician_notes"]
 
@@ -802,7 +901,7 @@ def list_schedules(*, asset_ref: str | None = None, status: str | None = None,
 def get_schedule(name: str) -> dict:
     doc = PMScheduleRepo.get(name)
     if not doc:
-        raise ServiceError(ErrorCode.NOT_FOUND, f"PM Schedule '{name}' không tồn tại")
+        nthrow(MSG.IMM08_SCHEDULE_NOT_FOUND, name=name)
     return doc.as_dict()
 
 
@@ -838,7 +937,7 @@ def create_schedule(data: dict) -> dict:
 
 def update_schedule(name: str, data: dict) -> dict:
     if not PMScheduleRepo.exists(name):
-        raise ServiceError(ErrorCode.NOT_FOUND, f"PM Schedule '{name}' không tồn tại")
+        nthrow(MSG.IMM08_SCHEDULE_NOT_FOUND, name=name)
     payload = {k: v for k, v in data.items() if k not in ("cmd", "name", "doctype")}
     try:
         doc = PMScheduleRepo.update_fields(name, payload, ignore_permissions=False)
@@ -852,7 +951,7 @@ def set_schedule_status(name: str, status: str) -> dict:
     if status not in PMScheduleStatus.ALLOWED:
         raise ServiceError(ErrorCode.VALIDATION, "status phải là Active | Paused | Suspended")
     if not PMScheduleRepo.exists(name):
-        raise ServiceError(ErrorCode.NOT_FOUND, f"PM Schedule '{name}' không tồn tại")
+        nthrow(MSG.IMM08_SCHEDULE_NOT_FOUND, name=name)
     PMScheduleRepo.set_values(name, {"status": status})
     frappe.db.commit()
     return {"name": name, "status": status}
@@ -860,7 +959,7 @@ def set_schedule_status(name: str, status: str) -> dict:
 
 def delete_schedule(name: str) -> dict:
     if not PMScheduleRepo.exists(name):
-        raise ServiceError(ErrorCode.NOT_FOUND, f"PM Schedule '{name}' không tồn tại")
+        nthrow(MSG.IMM08_SCHEDULE_NOT_FOUND, name=name)
     try:
         PMScheduleRepo.delete(name, ignore_permissions=False)
         frappe.db.commit()
@@ -915,8 +1014,7 @@ def list_templates(*, asset_category: str | None = None, pm_type: str | None = N
 def get_template(name: str) -> dict:
     doc = PMChecklistTemplateRepo.get(name)
     if not doc:
-        raise ServiceError(ErrorCode.NOT_FOUND,
-                           f"PM Checklist Template '{name}' không tồn tại")
+        nthrow(MSG.IMM08_TEMPLATE_NOT_FOUND, name=name)
     return doc.as_dict()
 
 
@@ -954,8 +1052,7 @@ def create_template(data: dict) -> dict:
 def update_template(name: str, data: dict) -> dict:
     doc = PMChecklistTemplateRepo.get(name)
     if not doc:
-        raise ServiceError(ErrorCode.NOT_FOUND,
-                           f"PM Checklist Template '{name}' không tồn tại")
+        nthrow(MSG.IMM08_TEMPLATE_NOT_FOUND, name=name)
     for k in ("template_name", "asset_category", "pm_type", "version",
               "effective_date", "approved_by"):
         if k in data:
@@ -983,8 +1080,7 @@ def update_template(name: str, data: dict) -> dict:
 
 def approve_template(name: str) -> dict:
     if not PMChecklistTemplateRepo.exists(name):
-        raise ServiceError(ErrorCode.NOT_FOUND,
-                           f"PM Checklist Template '{name}' không tồn tại")
+        nthrow(MSG.IMM08_TEMPLATE_NOT_FOUND, name=name)
     PMChecklistTemplateRepo.set_values(name, {"approved_by": frappe.session.user})
     frappe.db.commit()
     return {"name": name, "approved_by": frappe.session.user}
@@ -993,8 +1089,7 @@ def approve_template(name: str) -> dict:
 def version_template(source_name: str, new_version: str) -> dict:
     src = PMChecklistTemplateRepo.get(source_name)
     if not src:
-        raise ServiceError(ErrorCode.NOT_FOUND,
-                           f"PM Checklist Template '{source_name}' không tồn tại")
+        nthrow(MSG.IMM08_TEMPLATE_NOT_FOUND, name=source_name)
     try:
         new_doc = frappe.copy_doc(src)
         new_doc.version = new_version
@@ -1020,8 +1115,7 @@ def apply_template_to_category_assets(template_name: str) -> dict:
     """
     template = PMChecklistTemplateRepo.get(template_name)
     if not template:
-        raise ServiceError(ErrorCode.NOT_FOUND,
-                           f"PM Checklist Template '{template_name}' không tồn tại")
+        nthrow(MSG.IMM08_TEMPLATE_NOT_FOUND, name=template_name)
     if not template.asset_category:
         raise ServiceError(ErrorCode.VALIDATION,
                            "Template chưa gán Danh mục tài sản")
@@ -1077,8 +1171,7 @@ def apply_template_to_category_assets(template_name: str) -> dict:
 
 def delete_template(name: str) -> dict:
     if not PMChecklistTemplateRepo.exists(name):
-        raise ServiceError(ErrorCode.NOT_FOUND,
-                           f"PM Checklist Template '{name}' không tồn tại")
+        nthrow(MSG.IMM08_TEMPLATE_NOT_FOUND, name=name)
     try:
         PMChecklistTemplateRepo.delete(name, ignore_permissions=False)
         frappe.db.commit()

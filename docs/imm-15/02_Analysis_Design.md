@@ -421,6 +421,8 @@ Then Forecast ở trạng thái Approved
 | BR-15-08 | Returned items → QC check; Damaged → kho QC Hold | Workflow Return |
 | BR-15-09 | Asset decommissioned → flag imm_obsolete_review_required trên spare | IMM-13 hook |
 | BR-15-10 | Mọi allocation, count, override, exception ghi IMM Audit Trail | Service layer |
+| BR-15-15 | **Số đã xuất == số đã giữ chỗ** = `COALESCE(NULLIF(qty_approved,0), qty_requested)`. Issue dispense theo số ĐÃ DUYỆT (không phải qty_requested thuần) — điều chỉnh phê duyệt KHÔNG bị bỏ qua; reserved-vs-issued KHÔNG lệch. Helper SoT `effective_alloc_qty(item)` dùng chung cho qty_issued + VR-15-03 gate. Backward-compat: qty_approved chưa set → = qty_requested. | issue_allocation() — xem 04 §III-bis.7 |
+| BR-15-16 | **line_value = value_qty × unit_value; total_value = Σ line_value** (lifecycle-aware value_qty = qty_issued nếu đã xuất, ngược lại effective_alloc_qty). MỘT writer duy nhất ở controller validate() — service KHÔNG tự set total_value (tránh clobber requested-based). line_value KHÔNG còn dead column. Sau Issue với approver cắt số → total_value theo số đã xuất (khớp BR-15-15). | controller validate() — xem 04 §III-bis.8 |
 
 ### IV.3. Validation Rules
 
@@ -428,7 +430,7 @@ Then Forecast ở trạng thái Approved
 |---|---|---|---|
 | VR-15-01 | work_order_ref bắt buộc trừ Emergency + audit-flagged | BUSINESS_RULE | "VR-15-01: Cấp phát phụ tùng phải liên kết Work Order" |
 | VR-15-02 | imm_traceability_required=1 → batch_no/serial_no reqd | VALIDATION | "VR-15-02: Phụ tùng {part} yêu cầu số lô/serial" |
-| VR-15-03 | qty_issued ≤ available_qty (trừ Emergency override) | BUSINESS_RULE | "VR-15-03: Tồn kho không đủ — available: {n}" |
+| VR-15-03 | qty_issued ≤ available_qty (= qty_on_hand − reserved_qty THẬT, trừ Emergency+Critical override) — allocation OPEN khác đã giữ chỗ làm available giảm → chống double-issue. Xem **VR-15-14** invariant. | BUSINESS_RULE | "VR-15-03: Tồn kho không đủ — available: {n}" |
 | VR-15-04 | variance_pct > 5% / variance_value > 5M → root_cause reqd | VALIDATION | "VR-15-04: Chênh lệch {pct}% — cần nhập nguyên nhân" |
 | VR-15-05 | urgency IN {Routine/Urgent/Emergency} | VALIDATION | "VR-15-05: Mức độ khẩn cấp không hợp lệ" |
 | VR-15-07 | reorder_point ≥ safety_stock | VALIDATION | "VR-15-07: Điểm đặt hàng phải ≥ safety stock" |
@@ -438,6 +440,7 @@ Then Forecast ở trạng thái Approved
 | VR-15-11 | Cycle count: verified_by ≠ counted_by | BUSINESS_RULE | "VR-15-11: Người kiểm tra phải khác người kiểm kê" |
 | VR-15-12 | Forecast method IN {Moving_Avg/PM_Driven/Failure_Rate/Manual} | VALIDATION | "VR-15-12: Phương pháp dự báo không hợp lệ" |
 | VR-15-13 | AC Warehouse.is_active=1 | VALIDATION | "VR-15-13: Kho {wh} không còn hoạt động" |
+| VR-15-14 | **INVARIANT reservation (SoT):** ∀ bin (warehouse × spare_part): `reserved_qty == Σ qty giữ-chỗ allocation HOLDING {Requested, Approved, Picked}`; `available_qty == MAX(0, qty_on_hand − reserved_qty)`. Issue/Cancel/Return giải phóng reserved (RELEASE on terminal). Một hàm `recompute_reserved` SoT — KHÔNG inline. | — | (invariant, không phải lỗi runtime đơn lẻ — xem 04 §III-bis) |
 
 ### IV.4. Architecture Rules (CRITICAL)
 
@@ -448,6 +451,7 @@ Then Forecast ở trạng thái Approved
 | RULE-F03 | Mọi movement (Issue/Return/Adjustment) phải sinh AC Stock Movement submitted |
 | RULE-F04 | IMM-15 transaction DocType chỉ LINK vào AC Stock Movement qua stock_movement_ref |
 | RULE-S01 | Logic nghiệp vụ ở services/imm15.py, KHÔNG ở controller |
+| RULE-R01 | `reserved_qty` CHỈ được ghi qua `services.inventory.recompute_reserved` (SoT, tuyệt đối/idempotent). CẤM `reserved_qty +=/-=` rải rác trong imm15.py. Low-stock predicate GIỮ `qty_on_hand` (tồn vật lý), KHÔNG đổi sang available. |
 
 ### IV.5. Edge Cases
 
@@ -455,6 +459,9 @@ Then Forecast ở trạng thái Approved
 |---|---|
 | WO bị cancel sau khi Allocation Issued | Allocation ở trạng thái Issued không tự cancel; Inventory User Return thủ công |
 | available_qty = 0 + Emergency + non-Critical | Throw VR-15-03 — không bypass |
+| reserved_qty > qty_on_hand (điều chỉnh kho giảm tồn khi còn phiếu giữ) | `available_qty` kẹp 0 (before_save MAX(0,…)), KHÔNG âm; reserved giữ nguyên đến khi phiếu Issue/Cancel |
+| 2 allocation OPEN cùng bin, on_hand chỉ đủ 1 | #1 giữ chỗ → available=0 → #2 issue FAIL VR-15-03 (anti-oversell). Emergency+Critical vẫn bypass |
+| Approve cắt qty_approved (10→4) rồi Issue | Issue dispense **4** (= effective_alloc_qty), KHÔNG phải 10; qty_issued==reserved==4 (BR-15-15). Trước fix: xuất 10 (over-issue) |
 | Trả toàn bộ qty về kho | Allocation về Returned; AC Stock Movement (Receipt) |
 | Cycle Count snapshot bị stale (> 24h) | Warning banner; Inventory Manager có thể refresh snapshot |
 | Forecast với < 6 tháng data | Method fallback → Manual; cảnh báo trong email |

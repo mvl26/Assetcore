@@ -12,18 +12,36 @@ from assetcore.api.imm00 import list_assets
 class TestListAssetsGmdnFilter(FrappeTestCase):
     """BR-00-XX: lọc Asset theo gmdn_code kế thừa từ Asset Category."""
 
+    _cat_name: str | None = None
+
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        # Category với gmdn_code cố định
-        if not frappe.db.exists("AC Asset Category", "TEST-CAT-USG"):
-            frappe.get_doc({
+        # AC Asset Category autoname=CAT-#### → lookup by category_code field, NOT
+        # by name (LL-TEST-9). Track the real doc-name so tearDownClass can purge it.
+        existing = frappe.db.get_value(
+            "AC Asset Category", {"category_code": "TEST-CAT-USG"}, "name"
+        )
+        if existing:
+            cls._cat_name = existing
+        else:
+            doc = frappe.get_doc({
                 "doctype": "AC Asset Category",
                 "category_name": "Test Ultrasound",
                 "category_code": "TEST-CAT-USG",
                 "gmdn_code": "35304",
                 "gmdn_term": "Ultrasound imaging system, general purpose",
             }).insert(ignore_permissions=True)
+            cls._cat_name = doc.name
+
+    @classmethod
+    def tearDownClass(cls):
+        # Purge the self-seeded category so it never leaks into prod-like lists.
+        if cls._cat_name and frappe.db.exists("AC Asset Category", cls._cat_name):
+            frappe.delete_doc("AC Asset Category", cls._cat_name,
+                              force=True, ignore_permissions=True)
+            frappe.db.commit()
+        super().tearDownClass()
 
     def test_filter_by_gmdn_code_returns_only_matching_assets(self):
         # list_assets bọc kết quả trong envelope _ok → {success, data}

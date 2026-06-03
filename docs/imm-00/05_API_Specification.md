@@ -232,9 +232,12 @@ URL pattern: `POST|GET /api/method/assetcore.api.imm00.<function>`
 | `lifecycle_status` | str | Lọc theo trạng thái vòng đời |
 | `department` / `location` / `asset_category` | str | Lọc theo Link field |
 | `gmdn_code` | str | **Lọc thiết bị theo mã GMDN** (kế thừa từ Asset Category). Dùng cho recall/FSCA, KPI per-GMDN |
+| `byt_status` | str | **Drill số ĐKLH BYT (BR-00-17 — SoT `byt_expiry_filter`).** `'expiring'` → `byt_reg_expiry ∈ [today, today+30]`; `'expired'` → `byt_reg_expiry < today`. CẢ HAI loại bản ghi `byt_reg_expiry` rỗng/NULL. Khi set → **conjoin (AND)** với mọi filter hiện có (lifecycle_status/department/…) KHÔNG clobber; `apply_vendor_scope` áp SAU. Giá trị khác → **no-op** (bỏ qua, KHÔNG throw). |
 | `search` | str | Tìm theo `asset_name`, `asset_code`, `manufacturer_sn`, **`gmdn_code`** (LIKE substring) |
 
-> **Note (2026-05-19):** Tham số lọc theo trạng thái sử dụng GMDN (cũ) đã bị loại bỏ cùng field tương ứng. Trục lọc/quản lý thiết bị nay là `gmdn_code`. Tham chiếu: [docs/res/gmdn-asset-category-analysis.md](../res/gmdn-asset-category-analysis.md) §6.
+> **Note (2026-05-19):** Tham số lọc theo trạng thái sử dụng GMDN (cũ) đã bị loại bỏ cùng field tương ứng. Trục lọc/quản lý thiết bị nay là `gmdn_code`. Tham chiếu: [docs/res/analysis/gmdn-asset-category-analysis.md](../res/analysis/gmdn-asset-category-analysis.md) §6.
+
+> **INVARIANT count==drill (BR-00-17 — Vòng 31):** `list_assets(byt_status='expiring')` `pagination.total` == KPI `get_overview().assets.byt_expiring_30d`; `list_assets(byt_status='expired')` `pagination.total` == `get_overview().assets.byt_expired`, byte-for-byte trên CÙNG dataset + CÙNG vendor scope (cả 2 read-path gọi SoT `byt_expiry_filter`). FE tile NĐ98 click → `/assets?byt_status=expiring\|expired`; header "Tổng N" của list == giá trị tile vừa click. KHÔNG inline literal window — xem [04 Backend §III.1a](../imm-00/04_Backend_Design.md).
 
 ---
 
@@ -580,6 +583,22 @@ Kể cả tampered vẫn trả HTTP 200 — frontend xử lý alert. Service t�
 
 GET `assetcore.api.imm00.list_capas`. Filters: `status, capa_type, asset`. Paginated.
 
+**Virtual drill filters (SoT — KHÔNG inline literal):**
+- `not_closed=1` → **conjoin (AND) SoT `_open_capa_filter()`** (services/imm00): `status NOT IN ('Closed')`. Drill total BẰNG KPI `capa_open` (dashboard.py) == scorecard `capa_open_count` == quality-dash `capa_open` == `get_capa_aging.total_open`, byte-for-byte trên cùng dataset (khi KHÔNG có explicit status). CAPA `Overdue` VẪN nằm trong tập (open ⊇ overdue) → count bất biến sau cron flip Open→Overdue.
+- `overdue=1` → **conjoin (AND) SoT `_overdue_capa_filter()`**: `status NOT IN ('Closed') AND due_date IS NOT NULL AND due_date < today` (strict `<`). Khi cả hai cờ cùng gửi, `overdue` thắng `not_closed` (overdue ⊂ open) — chỉ áp `_overdue_capa_filter()`.
+
+**BR-00-16 — Filter composition (conjoin, KHÔNG clobber):** explicit `status` (giá trị enum, vd `Overdue`/`Open`/`Closed`) và virtual filter `not_closed`/`overdue` đặt điều kiện trên CÙNG field `status`. Một Frappe **dict-filter KHÔNG biểu diễn được 2 điều kiện trên cùng 1 field** (key trùng → ghi đè). Do đó endpoint PHẢI build filter dạng **list-of-conditions** `[[doctype, field, op, value], ...]` để cả `["status", "=", status]` (explicit) VÀ `["status", "not in", ["Closed"]]` (virtual) cùng tồn tại = **AND thật**. TUYỆT ĐỐI KHÔNG `dict.update(_open_capa_filter())` đè lên `filters["status"]` (= clobber → đổi AND thành either-or, trả nhầm full open-set).
+
+| Request | Tập kết quả (AND đúng) | Lý do |
+|---|---|---|
+| `?not_closed=1&status=Overdue` | `(status NOT IN [Closed]) ∧ (status == 'Overdue')` = các CAPA `Overdue` | giao 2 điều kiện; KHÔNG ra full open-set |
+| `?not_closed=1&status=Closed` | `(status NOT IN [Closed]) ∧ (status == 'Closed')` = **0 rows** | tập rỗng — minh chứng AND thật, không bị clobber thành either-or |
+| `?overdue=1&status=Open` | `(due_date<today flip→'Overdue') ∧ (status == 'Open')` = **0 rows** | `Open` không nằm trong tập đã flip `Overdue` → AND không giao |
+| `?not_closed=1` (không status) | `_open_capa_filter()` byte-for-byte | no-regression — khớp KPI `capa_open` |
+| `?overdue=1` (không status) | `_overdue_capa_filter()` byte-for-byte | no-regression — khớp KPI `capa_overdue` (round 10/11) |
+
+**INVARIANT count==drill:** `pagination.total` (qua `frappe.db.count`) và `items` (qua `frappe.get_list`) PHẢI dùng CÙNG bộ filter đã conjoin cho MỌI tổ hợp `{status} × {not_closed | overdue | none}` → `pagination.total == len(items)` (trên cùng trang khi đủ chứa). FE `CAPAListView` gửi `status=CODE` + `not_closed/overdue` đồng thời → số "Tổng N hồ sơ" == số dòng render (không còn "chọn status=Quá hạn mà vẫn 117").
+
 ### `get_capa`
 
 GET `assetcore.api.imm00.get_capa?name=CAPA-...` → full CAPA fields.
@@ -609,7 +628,7 @@ POST `assetcore.api.imm00.close_capa_record`. Body: `name` (param) + `root_cause
 
 ### `list_overdue_capas`
 
-GET `assetcore.api.imm00.list_overdue_capas`. Paginated. Filter: `status IN (Open, In Progress)` AND `due_date < today`.
+GET `assetcore.api.imm00.list_overdue_capas`. Paginated. **Filter = SoT `_overdue_capa_filter()`** (services/imm00): `status NOT IN ('Closed') AND due_date IS NOT NULL AND due_date < today` (strict `<`; `due_date == today` CHƯA quá hạn). KHÔNG inline predicate. Drill rows BẰNG KPI `capa_overdue` (dashboard.py) và `imm16.get_overdue_actions().overdue_capas` trên cùng dataset. CAPA status `Overdue` VẪN xuất hiện (NOT IN Closed) → count bất biến sau cron flip.
 
 ---
 
@@ -665,7 +684,7 @@ POST `assetcore.api.imm00.delete_incident`. Body: `{ "name": "IR-..." }`.
 
 ## III.10. (Đã loại bỏ — GMDN Status)
 
-> **Note (2026-05-19):** Nhóm endpoint quản lý trạng thái sử dụng GMDN (cũ) đã bị loại bỏ cùng field tương ứng trên `AC Asset`. Quản lý thiết bị nay theo `gmdn_code`. Lọc thiết bị qua `list_assets?gmdn_code=...`. Tham chiếu: [docs/res/gmdn-asset-category-analysis.md](../res/gmdn-asset-category-analysis.md) §6.
+> **Note (2026-05-19):** Nhóm endpoint quản lý trạng thái sử dụng GMDN (cũ) đã bị loại bỏ cùng field tương ứng trên `AC Asset`. Quản lý thiết bị nay theo `gmdn_code`. Lọc thiết bị qua `list_assets?gmdn_code=...`. Tham chiếu: [docs/res/analysis/gmdn-asset-category-analysis.md](../res/analysis/gmdn-asset-category-analysis.md) §6.
 
 ---
 
@@ -801,11 +820,21 @@ Params: `category_name`. Re-apply rule khấu hao của Category cho tất cả 
 
 ### `list_assets_depreciation` (GET) — Asset Finance Hub
 
-Params: `page=1, page_size=50, method_filter?, status_filter?, category_filter?`. Trả paginated list assets kèm: `gross_purchase_amount, residual_value, accumulated_depreciation, current_book_value, depreciation_method, total_depreciation_months, depreciation_frequency, configured, pct_depreciated, executed_periods, total_periods`.
+Params: `page=1, page_size=50, method_filter?, status_filter?, category_filter?, depreciation_filter?`. Trả paginated list assets kèm: `gross_purchase_amount, residual_value, accumulated_depreciation, current_book_value, depreciation_method, total_depreciation_months, depreciation_frequency, configured, pct_depreciated, executed_periods, total_periods`.
+
+**`depreciation_filter`** (mới — drill cho ô KPI "Hết khấu hao", BR-05-15):
+- `'fully_depreciated'` → danh sách CHỈ chứa asset thỏa SoT `is_fully_depreciated` (`configured ∧ current_book_value ≤ residual_value + 1`). Áp **post-enrich**, AND với `method/status/category` filter sẵn có (không clobber).
+- Khi set, `pagination.total` == số phần tử thỏa SoT (đếm trên tập đã lọc, KHÔNG `frappe.db.count` thô) → `items` không lệch `total`.
+- Để rỗng → hành vi cũ (không lọc theo trạng thái khấu hao).
+- Predicate là SoT DUY NHẤT ở `services/depreciation.py::is_fully_depreciated` — KHÔNG inline lại. Chi tiết: [imm-05/04 §2.5.1](../imm-05/04_Backend_Design.md).
+
+> **INV-DEP-5 (đo trên data-live):** `len(list_assets_depreciation(depreciation_filter='fully_depreciated', page_size=lớn).items)` (de-dup theo `name`) == `get_depreciation_stats().fully_depreciated` — card count == drill rows.
 
 ### `get_depreciation_stats` (GET)
 
 Trả tổng hợp tài chính toàn danh mục: `{ total_assets, configured_count, unconfigured_count, fully_depreciated, total_gross, total_accumulated, total_book_value, overall_pct, by_method[], by_category[] }`.
+
+`fully_depreciated` đếm bằng SoT `is_fully_depreciated` (thay biểu thức inline cũ `book <= residual + 1`) — **backward-compat: cùng tập, cùng số**. Các key khác KHÔNG đổi.
 
 ### `compute_all_depreciation` (POST) — Admin only
 
@@ -852,6 +881,57 @@ GET `assetcore.api.imm00.trigger_registration_expiry_check`. Permission: IMM Sys
 Base path đề xuất: `assetcore.api.inventory.<function>`
 
 Tất cả trả về `_ok(data)` / `_err(msg, code)` envelope chuẩn.
+
+---
+
+## III.21. Notification Preferences (3 endpoints — Notification Framework Wave N1)
+
+Base path: `assetcore.api.notifications.<function>`. Envelope chuẩn `{success, data}`. Per-user — chỉ thao tác trên Notification Settings của chính user đang đăng nhập (System Manager có thể truyền `user`).
+
+### `get_notification_preferences` — Đọc tùy chọn nhận email
+
+`GET` · auth: session. Trả trạng thái toggle email của user hiện tại.
+
+```jsonc
+// Response
+{ "success": true, "data": { "email_enabled": true } }
+```
+
+### `set_email_enabled` — Bật/tắt nhận email
+
+`POST` · auth: session. Body: `{ "enabled": false }`. Set `Notification Settings.enable_email_notifications`.
+
+```jsonc
+// Request
+{ "enabled": false }
+// Response
+{ "success": true, "data": { "email_enabled": false } }
+```
+
+> In-app (chuông) dùng API Frappe core sẵn có (`frappe.desk.doctype.notification_log.notification_log.get_notification_logs`, mark-as-read) — KHÔNG cần endpoint AssetCore riêng. Badge chuông là component desk/SPA Frappe core.
+
+> **Vòng 3 — E3 (Incident created) & E4 (Calibration due): KHÔNG có API endpoint AssetCore mới.** E3 là hook `Incident Report.after_insert`; E4 chạy trong scheduler `imm11.check_calibration_expiry` (daily). Cả hai chỉ phát Notification Log + email — tiêu thụ qua đúng API chuông Frappe core ở trên. FE KHÔNG cần client mới cho 2 event này (badge chuông hiện hữu đã hiển thị).
+
+> **Vòng 4 — HTML email template + deep-link: KHÔNG có API endpoint mới, KHÔNG đổi shape endpoint nào.** Nâng cấp thuần server-side ở `_dispatch` (dựng HTML qua `_render_email`, gửi qua `_safe_sendmail`). 2 endpoint preference ở trên giữ nguyên contract. FE KHÔNG đổi (email render phía server; bell UI không đổi). Spec: `04_Backend_Design.md §III.1b-3`.
+
+### `get_delivery_kpi` — KPI Notification Delivery (vòng 5, System Manager only)
+
+`GET` · auth: session + **role System Manager** (raise `FORBIDDEN` nếu không). Query: `days` (int, mặc định 30, cửa sổ Email Queue). Đo độ phủ thông báo: tỷ lệ email gửi thành công (`delivery_rate`) và tỷ lệ user tắt email (`opt_out_rate`). Chỉ tính email AssetCore (lọc theo `reference_doctype ∈ {AC Asset, Incident Report, PM Work Order, Asset Repair}`). Công thức + ngưỡng màu: `04_Backend_Design.md §III.1b-4`.
+
+```jsonc
+// GET .../get_delivery_kpi?days=30  →  Response
+{ "success": true, "data": {
+    "delivery_rate": 97.5,        // null nếu mẫu rỗng (chia-0 guard)
+    "sent": 39, "failed": 1,
+    "opt_out_rate": 5.0,          // null nếu total_users=0
+    "total_users": 20, "opted_out": 1,
+    "window_days": 30,
+    "delivery_status": "good",    // good|warn|bad|na → màu KPI card FE
+    "opt_out_status": "good"
+} }
+```
+
+> **Vòng 5 — Audit linkage:** từ vòng 5, `_dispatch` truyền `reference_doctype`/`reference_name` của doc vào `_safe_sendmail` → email AssetCore trở nên truy nguyên trong Email Queue (core). Email gửi trước vòng 5 (ref NULL) bị loại khỏi mẫu KPI — giới hạn đã nêu trong docstring. KHÔNG DocType mới. FE: 1 KPI card tái dùng `KpiCard.vue` (chỉ hiển thị cho System Manager).
 
 ---
 
@@ -904,7 +984,7 @@ Tất cả trả về `_ok(data)` / `_err(msg, code)` envelope chuẩn.
 - [x] PM Checklist Template (5 endpoints)
 - [x] Firmware Change Request (5 endpoints)
 - [x] Document Request (5 endpoints)
-- [x] Depreciation (9 endpoints — compute, get_schedule, regenerate, preview, run_due_now, bulk_regenerate, list_assets_depreciation, get_depreciation_stats, compute_all_depreciation)
+- [x] Depreciation (9 endpoints — compute, get_schedule, regenerate, preview, run_due_now, bulk_regenerate, list_assets_depreciation [+ `depreciation_filter` BR-05-15], get_depreciation_stats, compute_all_depreciation)
 - [x] Asset Downtime Metrics (1 endpoint)
 
 ### IV. Business Rule mapping

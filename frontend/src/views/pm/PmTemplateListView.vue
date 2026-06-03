@@ -12,6 +12,7 @@ import PageHeader from '@/components/common/PageHeader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar from '@/components/common/ListFilterBar.vue'
 import SmartSelect from '@/components/common/SmartSelect.vue'
+import { translatePmType } from '@/utils/formatters'
 const toast = useToast()
 
 const items = ref<PmTemplate[]>([])
@@ -29,9 +30,7 @@ const showFilters = ref(false)
 const filters = ref({ pm_type: '', asset_category: '', search: '' })
 
 const PM_TYPES = ['Quarterly', 'Semi-Annual', 'Annual', 'Ad-hoc']
-const PM_TYPE_LABEL: Record<string, string> = {
-  Quarterly: 'Hàng quý', 'Semi-Annual': 'Nửa năm', Annual: 'Hàng năm', 'Ad-hoc': 'Đột xuất',
-}
+// Nhãn pm_type: dùng SSoT translatePmType (@/utils/formatters) — không map cục bộ.
 
 interface FilterChip { key: 'pm_type' | 'asset_category' | 'search'; label: string }
 const filteredItems = computed(() => {
@@ -54,7 +53,7 @@ const filteredItems = computed(() => {
 })
 const activeChips = computed<FilterChip[]>(() => {
   const chips: FilterChip[] = []
-  if (filters.value.pm_type) chips.push({ key: 'pm_type', label: PM_TYPE_LABEL[filters.value.pm_type] || filters.value.pm_type })
+  if (filters.value.pm_type) chips.push({ key: 'pm_type', label: translatePmType(filters.value.pm_type) })
   if (filters.value.asset_category) chips.push({ key: 'asset_category', label: `Danh mục: ${filters.value.asset_category}` })
   if (filters.value.search.trim()) chips.push({ key: 'search', label: `"${filters.value.search.trim()}"` })
   return chips
@@ -207,7 +206,7 @@ onMounted(load)
           <label class="form-label">Loại PM</label>
           <select v-model="filters.pm_type" class="form-select">
             <option value="">Tất cả loại PM</option>
-            <option v-for="t in PM_TYPES" :key="t" :value="t">{{ PM_TYPE_LABEL[t] || t }}</option>
+            <option v-for="t in PM_TYPES" :key="t" :value="t">{{ translatePmType(t) }}</option>
           </select>
         </div>
         <div class="form-group">
@@ -249,7 +248,7 @@ onMounted(load)
               <span
                 v-if="t.pm_type"
                 class="text-xs px-2 py-0.5 rounded-full font-medium bg-slate-100 text-slate-700"
-              >{{ PM_TYPE_LABEL[t.pm_type] || t.pm_type }}</span>
+              >{{ translatePmType(t.pm_type) }}</span>
             </div>
             <p class="text-sm font-medium text-slate-900 truncate">{{ t.display_template_name || t.template_name }}</p>
             <div class="flex flex-wrap gap-x-2 gap-y-1 mt-1.5 text-xs text-slate-500">
@@ -299,9 +298,9 @@ onMounted(load)
               <button
                 v-if="t.pm_type"
                 class="text-xs px-2 py-0.5 rounded-full font-medium bg-slate-100 text-slate-700 hover:ring-2 hover:ring-slate-400"
-                :title="`Lọc: ${PM_TYPE_LABEL[t.pm_type] || t.pm_type}`"
+                :title="`Lọc: ${translatePmType(t.pm_type)}`"
                 @click="quickFilter('pm_type', t.pm_type!)"
-              >{{ PM_TYPE_LABEL[t.pm_type] || t.pm_type }}</button>
+              >{{ translatePmType(t.pm_type) }}</button>
               <span v-else class="text-slate-400">—</span>
             </td>
             <td class="px-4 py-3 text-slate-600">{{ t.version || '—' }}</td>

@@ -114,7 +114,7 @@ cp template/10_Project_Management.md docs/agile/sprints/Sprint_<N>.md
 
 ## 7. Tham chiếu
 
-- Design system FE: `docs/res/design-frontend.md`
+- Design system FE: `docs/res/design/design-frontend.md`
 - Architecture refactor 3-tier: `docs/res/Architecture_3Tier_Refactor_2026-04-20.md`
 - Existing module docs (pattern reference): `docs/imm-04/`, `docs/imm-09/`
 - **Codebase ground truth**:

@@ -8,12 +8,13 @@ import { useSidebar } from '@/composables/useSidebar'
 const route = useRoute()
 const { mainClass, mobileOpen, closeMobile } = useSidebar()
 
-// Fullscreen routes (e.g., Launcher) ẩn sidebar + topbar để chiếm toàn viewport
+// Fullscreen routes (meta.fullscreen) ẩn sidebar + topbar để chiếm toàn viewport.
+// Hiện không route nào dùng (Launcher đã gỡ); giữ làm cơ chế chung cho tương lai.
 const fullscreen = computed(() => Boolean(route.meta.fullscreen))
 </script>
 
 <template>
-  <!-- Fullscreen mode: render slot only (Launcher quản lý layout của riêng nó) -->
+  <!-- Fullscreen mode: render slot only (trang tự quản lý layout) -->
   <template v-if="fullscreen">
     <slot />
   </template>

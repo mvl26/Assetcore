@@ -161,7 +161,7 @@ AC Asset                   (nhận gmdn_code từ device_model — trục lọc/
 ```
 
 - **`gmdn_code`**: mã phân loại thiết bị y tế toàn cầu (5–6 chữ số). Sống ở `AC Asset Category` vì một GMDN code tương ứng với một *loại* thiết bị (không phải từng model cụ thể). Model kế thừa để có thể tra nhanh mà không cần join qua category.
-> **Note (2026-05-19):** Field trạng thái sử dụng GMDN (cũ) trên Asset đã bị loại bỏ — trùng ngữ nghĩa với `lifecycle_status`. Lọc/quản lý nhóm thiết bị nay dùng `gmdn_code`. Xem [analysis §6](../res/gmdn-asset-category-analysis.md).
+> **Note (2026-05-19):** Field trạng thái sử dụng GMDN (cũ) trên Asset đã bị loại bỏ — trùng ngữ nghĩa với `lifecycle_status`. Lọc/quản lý nhóm thiết bị nay dùng `gmdn_code`. Xem [analysis §6](../res/analysis/gmdn-asset-category-analysis.md).
 
 ---
 

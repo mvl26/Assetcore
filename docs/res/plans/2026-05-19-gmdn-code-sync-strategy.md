@@ -4,7 +4,7 @@
 |---|---|
 | Phạm vi | Sửa data lệch hiện tại + quyết định hành vi khi `AC Asset Category.gmdn_code` thay đổi |
 | Liên quan | IMM-00 Master Data (Asset Category, Device Model, AC Asset) |
-| Tiền đề | [docs/res/gmdn-asset-category-analysis.md](../gmdn-asset-category-analysis.md) §2 (mô hình kế thừa 3 tầng) |
+| Tiền đề | [docs/res/analysis/gmdn-asset-category-analysis.md](../analysis/gmdn-asset-category-analysis.md) §2 (mô hình kế thừa 3 tầng) |
 | Trạng thái | Phân tích — chờ quyết định BA, CHƯA chạy data fix |
 | Ngày | 2026-05-19 |
 
@@ -76,7 +76,7 @@ Hai vấn đề tách biệt:
 
 ### 4.1 Nguyên tắc chọn nguồn chân lý
 
-Theo thiết kế ([gmdn-asset-category-analysis.md §2.3](../gmdn-asset-category-analysis.md)) Category **là** source of truth. NHƯNG hiện trạng Category gần như **rỗng**, còn data thật nằm ở Model (nhập từ import). Vì vậy hướng sửa thực dụng:
+Theo thiết kế ([gmdn-asset-category-analysis.md §2.3](../analysis/gmdn-asset-category-analysis.md)) Category **là** source of truth. NHƯNG hiện trạng Category gần như **rỗng**, còn data thật nằm ở Model (nhập từ import). Vì vậy hướng sửa thực dụng:
 
 - **Bottom-up backfill** (Category ← Model) cho case Category rỗng: Model giữ data thật, đổ ngược lên Category.
 - **KHÔNG top-down** (Category → Model) lúc này: sẽ xóa sạch gmdn_code hợp lệ của Model vì Category rỗng.
@@ -167,7 +167,7 @@ Thêm cờ `gmdn_inherited` (Check, default 1) trên Device Model. Khi user nh�
 
 ### 5.2 Khuyến nghị
 
-**Chọn Phương án 3 (Hybrid)** cho production, vì AssetCore yêu cầu **truy vết recall theo GMDN** ([gmdn-asset-category-analysis.md §6.1.2](../gmdn-asset-category-analysis.md)) — single source of truth + cascade có audit là đúng nghiệp vụ. Phương án 1 (Khóa) chấp nhận được như MVP nếu chưa đủ nguồn lực làm cascade, nhưng để lại nợ kỹ thuật và không giải quyết reclassification.
+**Chọn Phương án 3 (Hybrid)** cho production, vì AssetCore yêu cầu **truy vết recall theo GMDN** ([gmdn-asset-category-analysis.md §6.1.2](../analysis/gmdn-asset-category-analysis.md)) — single source of truth + cascade có audit là đúng nghiệp vụ. Phương án 1 (Khóa) chấp nhận được như MVP nếu chưa đủ nguồn lực làm cascade, nhưng để lại nợ kỹ thuật và không giải quyết reclassification.
 
 Lưu ý: **Phần A (fix data) phải chạy TRƯỚC, độc lập** với việc chọn P1/P2/P3.
 
@@ -185,7 +185,7 @@ Chưa phải plan TDD chi tiết — chỉ khung. Plan đầy đủ sẽ viết 
 | C4 | Hook `on_update` Category: cascade gmdn_code → Model (`gmdn_inherited=1`) + Asset, audit từng bước | `ac_asset_category.py` + `hooks.py` |
 | C5 | Helper re-sync Asset từ Model (tái dùng cho cả manual + cascade) | `services/imm00.py` |
 | C6 | Test: cascade chỉ chạm inherited; override được giữ; audit row sinh ra; idempotent | `tests/test_gmdn_cascade.py` |
-| C7 | Đồng bộ docs imm-00 + cập nhật [gmdn-asset-category-analysis.md](../gmdn-asset-category-analysis.md) §2.2 (bỏ "override không re-sync" → mô tả hành vi mới) | `docs/imm-00/`, `docs/res/` |
+| C7 | Đồng bộ docs imm-00 + cập nhật [gmdn-asset-category-analysis.md](../analysis/gmdn-asset-category-analysis.md) §2.2 (bỏ "override không re-sync" → mô tả hành vi mới) | `docs/imm-00/`, `docs/res/` |
 
 ---
 

@@ -2,16 +2,23 @@
 import DateInput from '@/components/common/DateInput.vue'
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { getCalibration, updateCalibration, submitCalibration, sendToLab, receiveCertificate, cancelCalibration } from '@/api/imm11'
+import { getCalibration, updateCalibration } from '@/api/imm11'
 import type { AssetCalibration, CalibrationMeasurement } from '@/api/imm11'
 import { uploadDocumentFile } from '@/api/imm05'
 import { useToast } from '@/composables/useToast'
+import { useNotify } from '@/composables/useNotify'
+import { useImm11Store } from '@/stores/imm11'
+import { MSG } from '@/i18n/messages'
 import { useCapabilities } from '@/composables/useCapabilities'
 import StatusBadge from '@/components/common/StatusBadge.vue'
+import WorkflowStepper from '@/components/common/WorkflowStepper.vue'
+import { calibrationStatusLabel } from '@/constants/labels'
 
 const props = defineProps<{ id: string }>()
 const router = useRouter()
 const toast = useToast()
+const notify = useNotify()
+const store = useImm11Store()
 const { can } = useCapabilities()
 
 const form = ref<Partial<AssetCalibration> & { measurements?: CalibrationMeasurement[] }>({})
@@ -31,6 +38,21 @@ const canManageCal = computed(() => can('calibration.cancel') || can('calibratio
 const isSubmitted = computed(() => form.value.docstatus === 1)
 const isFailed = computed(() => form.value.overall_result === 'Failed')
 const isExternal = computed(() => form.value.calibration_type === 'External')
+
+// Workflow stepper (mockup docs/fe/11-calibration/calibration-detail.html).
+// External đi qua lab; In-House đi thẳng. Terminal: Passed/Failed/Conditionally Passed.
+const calStepperSteps = computed(() => {
+  const terminal = form.value.status === 'Failed'
+    ? 'Failed'
+    : form.value.status === 'Conditionally Passed'
+      ? 'Conditionally Passed'
+      : 'Passed'
+  if (isExternal.value) {
+    return ['Scheduled', 'Sent to Lab', 'Certificate Received', terminal]
+  }
+  return ['Scheduled', 'In Progress', terminal]
+})
+
 const canSendToLab = computed(() =>
   canExecuteCal.value && isExternal.value && !isSubmitted.value &&
   (form.value.status === 'Scheduled' || form.value.status === 'In Progress'),
@@ -52,12 +74,12 @@ async function doStartCal() {
   startingCal.value = true; err.value = ''
   try {
     await updateCalibration(props.id, { status: 'In Progress' } as Partial<AssetCalibration>)
-    toast.success('Đã bắt đầu hiệu chuẩn')
+    notify.show({ code: MSG.UI_SAVE_SUCCESS, ctx: { entity: 'phiếu hiệu chuẩn' } })
     await load()
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : 'Lỗi khi bắt đầu hiệu chuẩn'
-    err.value = msg
-    toast.error(msg)
+    store._captureError(e)
+    err.value = store.error ?? ''
+    notify.fromError(store.lastApiError)
   } finally { startingCal.value = false }
 }
 
@@ -74,21 +96,21 @@ const actionLoading = ref(false)
 
 async function doSendToLab() {
   actionLoading.value = true; err.value = ''
-  try {
-    await sendToLab(props.id, {
-      sent_date: sendData.value.sent_date || undefined,
-      lab_supplier: sendData.value.lab_supplier || undefined,
-      lab_contract_ref: sendData.value.lab_contract_ref || undefined,
-    })
+  const res = await store.doSendToLab(props.id, {
+    sent_date: sendData.value.sent_date || undefined,
+    lab_supplier: sendData.value.lab_supplier || undefined,
+    lab_contract_ref: sendData.value.lab_contract_ref || undefined,
+  })
+  actionLoading.value = false
+  if (res) {
     showSendModal.value = false
     sendData.value = { sent_date: '', lab_supplier: '', lab_contract_ref: '' }
-    toast.success('Đã gửi phòng hiệu chuẩn')
+    notify.show({ code: MSG.IMM11_SEND_LAB_SUCCESS, ctx: { name: props.id } })
     await load()
-  } catch (e: unknown) {
-    const msg = (e as Error).message || 'Lỗi khi gửi phòng hiệu chuẩn'
-    err.value = msg
-    toast.error(msg)
-  } finally { actionLoading.value = false }
+  } else {
+    err.value = store.error ?? ''
+    notify.fromError(store.lastApiError)
+  }
 }
 
 async function uploadCertificateFile(event: Event) {
@@ -102,9 +124,9 @@ async function uploadCertificateFile(event: Event) {
     recvData.value.certificate_file = result.file_url
     toast.success(`Đã upload "${file.name}"`)
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : 'Lỗi upload file chứng chỉ'
-    err.value = msg
-    toast.error(msg)
+    store._captureError(e)
+    err.value = store.error ?? ''
+    notify.fromError(store.lastApiError)
   } finally {
     uploadingCert.value = false
     if (input) input.value = ''
@@ -113,48 +135,50 @@ async function uploadCertificateFile(event: Event) {
 
 async function doReceiveCert() {
   if (!recvData.value.certificate_file || !recvData.value.certificate_number || !recvData.value.certificate_date) {
-    const msg = 'Bắt buộc: file chứng chỉ, số chứng chỉ, ngày cấp'
-    err.value = msg
-    toast.warning(msg)
+    notify.show({ code: MSG.IMM11_CERT_FIELDS_REQUIRED })
+    err.value = 'Bắt buộc: file chứng chỉ, số chứng chỉ, ngày cấp'
     return
   }
   actionLoading.value = true; err.value = ''
-  try {
-    await receiveCertificate(props.id, {
-      certificate_file: recvData.value.certificate_file,
-      certificate_number: recvData.value.certificate_number,
-      certificate_date: recvData.value.certificate_date,
-      traceability_reference: recvData.value.traceability_reference || undefined,
-      reference_standard_serial: recvData.value.reference_standard_serial || undefined,
-    })
+  const res = await store.doReceiveCertificate(props.id, {
+    certificate_file: recvData.value.certificate_file,
+    certificate_number: recvData.value.certificate_number,
+    certificate_date: recvData.value.certificate_date,
+    traceability_reference: recvData.value.traceability_reference || undefined,
+    reference_standard_serial: recvData.value.reference_standard_serial || undefined,
+  })
+  actionLoading.value = false
+  if (res) {
     showReceiveModal.value = false
-    toast.success('Đã ghi nhận chứng chỉ hiệu chuẩn')
+    notify.show({
+      code: MSG.IMM11_CERT_RECEIVED_SUCCESS,
+      ctx: { name: props.id, certificate_number: recvData.value.certificate_number },
+    })
     await load()
-  } catch (e: unknown) {
-    const msg = (e as Error).message || 'Lỗi khi nhận chứng chỉ'
-    err.value = msg
-    toast.error(msg)
-  } finally { actionLoading.value = false }
+  } else {
+    err.value = store.error ?? ''
+    notify.fromError(store.lastApiError)
+  }
 }
 
 async function doCancel() {
   if (!cancelReason.value.trim()) {
+    notify.show({ code: MSG.IMM11_CANCEL_REASON_REQUIRED })
     err.value = 'Bắt buộc nhập lý do hủy'
-    toast.warning('Bắt buộc nhập lý do hủy')
     return
   }
   actionLoading.value = true; err.value = ''
-  try {
-    await cancelCalibration(props.id, cancelReason.value)
+  const res = await store.doCancel(props.id, cancelReason.value)
+  actionLoading.value = false
+  if (res) {
     showCancelModal.value = false
     cancelReason.value = ''
-    toast.success('Đã hủy phiếu hiệu chuẩn')
+    notify.show({ code: MSG.IMM11_CANCEL_SUCCESS, ctx: { name: props.id } })
     await load()
-  } catch (e: unknown) {
-    const msg = (e as Error).message || 'Lỗi khi hủy'
-    err.value = msg
-    toast.error(msg)
-  } finally { actionLoading.value = false }
+  } else {
+    err.value = store.error ?? ''
+    notify.fromError(store.lastApiError)
+  }
 }
 
 const showSubmitModal = ref(false)
@@ -203,9 +227,13 @@ async function save() {
   saving.value = true; err.value = ''
   try {
     await updateCalibration(props.id, form.value as AssetCalibration)
+    notify.show({ code: MSG.UI_SAVE_SUCCESS, ctx: { entity: 'phiếu hiệu chuẩn' } })
     await load()
-  } catch (e: unknown) { err.value = (e as Error).message || 'Lỗi lưu' }
-  finally { saving.value = false }
+  } catch (e: unknown) {
+    store._captureError(e)
+    err.value = store.error ?? ''
+    notify.fromError(store.lastApiError)
+  } finally { saving.value = false }
 }
 
 function openSubmitModal() {
@@ -220,16 +248,16 @@ function openSubmitModal() {
 
 async function submit() {
   submitting.value = true; err.value = ''
-  try {
-    await submitCalibration(props.id)
+  const res = await store.doSubmit(props.id)
+  submitting.value = false
+  if (res) {
     showSubmitModal.value = false
-    toast.success('Đã gửi duyệt phiếu hiệu chuẩn')
+    notify.show({ code: MSG.IMM11_SUBMIT_SUCCESS, ctx: { name: props.id } })
     await load()
-  } catch (e: unknown) {
-    const msg = (e as Error).message || 'Lỗi gửi duyệt'
-    err.value = msg
-    toast.error(msg)
-  } finally { submitting.value = false }
+  } else {
+    err.value = store.error ?? ''
+    notify.fromError(store.lastApiError)
+  }
 }
 
 function addMeasurement() {
@@ -272,6 +300,11 @@ onMounted(load)
       </div>
     </div>
 
+    <!-- Workflow stepper -->
+    <div v-if="!loading && form.status && form.status !== 'Cancelled'" class="card p-4">
+      <WorkflowStepper :steps="calStepperSteps" :current="form.status" :label-for="calibrationStatusLabel" />
+    </div>
+
     <div v-if="err" class="alert-error">{{ err }}</div>
     <div v-if="loading" class="card p-8 text-center text-slate-400">Đang tải...</div>
 
@@ -287,7 +320,7 @@ onMounted(load)
           </div>
           <div>
             <p class="text-xs text-slate-400 mb-1">Loại hiệu chuẩn</p>
-            <p>{{ form.calibration_type }}</p>
+            <p>{{ form.calibration_type === 'External' ? 'Bên ngoài (ISO 17025)' : form.calibration_type === 'In-House' ? 'Nội bộ' : (form.calibration_type || '—') }}</p>
           </div>
           <div>
             <p class="text-xs text-slate-400 mb-1">Kỹ thuật viên</p>

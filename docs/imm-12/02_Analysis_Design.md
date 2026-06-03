@@ -58,16 +58,18 @@ IMM-12 giải quyết vấn đề sự cố thiết bị y tế không được 
 
 **In-scope:**
 - Tiếp nhận Incident Report từ user / tự động từ IMM-08/09/11
-- Phân loại severity Minor / Major / Critical
-- Workflow Incident: Draft → Open → Acknowledged → In Progress → Resolved → Closed (+ nhánh RCA Required)
-- RCA Record (5-Why / Fishbone) bắt buộc với Major/Critical/Chronic
+- Phân loại severity Low / Medium / High / Critical (theo enum BE `Incident Report.severity`; KHÔNG dùng "Minor/Major")
+- Workflow Incident (state machine BE — 7 state, khớp `imm_12_incident_workflow.json` + `_VALID_TRANSITIONS`):
+  `Open → Acknowledged → In Progress → Resolved → Closed` (+ nhánh `Resolved → RCA Required → Closed`, + `Cancelled` từ Open/Acknowledged/In Progress)
+  - **D3 chốt:** `Acknowledged` là state có thật & reachable. `Open → Acknowledged` ("Tiếp nhận" — Corrective Manager) tách khỏi `Acknowledged → In Progress` ("Bắt đầu xử lý" — Corrective User). Triage/phân công ≠ bắt đầu xử lý (đúng WHO CMMS work-request intake).
+- RCA Record (5-Why / Fishbone) bắt buộc với High/Critical/Chronic
 - CAPA tự động từ RCA Completed (gọi `imm00.create_capa()`)
 - Phát hiện chronic failure (≥3 incidents cùng fault_code/90 ngày) — Scheduler daily
 - Audit trail mọi state transition qua `imm00.log_audit_event()`
 
 **Out-of-scope:**
 - Thực hiện sửa chữa (thuộc IMM-09)
-- SLA Engine (reuse `imm00.get_sla_policy()`; SLA breach tracking để IMM-12 v2)
+- SLA Engine (reuse `imm00.get_sla_policy()`); **SLA breach tracking — đã hiện thực ở BR-12-08 (R23)**. `IMM SLA Policy.priority` dùng thang P1–P4; Incident dùng `severity` Low/Medium/High/Critical → map `Critical→P1, High→P2, Medium→P3, Low→P4` (`_severity_to_sla_priority()` trong `services/imm12.py`). Nếu không có policy khớp → bỏ qua set due-time (không chặn report).
 - Vigilance reporting tự động lên BYT (thuộc IMM-15)
 - Risk Register integration (thuộc IMM-13)
 - SMS notification (Sprint sau — chỉ email v1)
@@ -183,7 +185,7 @@ flowchart TD
 | Điểm | Câu hỏi | Quy tắc |
 |---|---|---|
 | Severity = Critical? | Có tự động OOS không? | BR-12-04: Critical → `transition_asset_status("Out of Service")` |
-| RCA cần không? | Severity Major/Critical hoặc chronic? | BR-12-02: Major/Critical → RCA bắt buộc trước Close |
+| RCA cần không? | Severity High/Critical hoặc chronic? | BR-12-02: High/Critical → RCA bắt buộc trước Close |
 | Chronic failure? | ≥3 incidents cùng fault_code/asset/90 ngày? | BR-12-03: auto RCA + flag |
 | Close CAPA? | root_cause + corrective + preventive đủ? | BR-00-08 (IMM-00): block nếu thiếu |
 
@@ -194,7 +196,7 @@ Tham chiếu: WHO CMMS §"Performance indicators" (chương Reporting/RCA).
 | Metric | Định nghĩa | Đo ở bước | Target |
 |---|---|---|---|
 | Lead time tiếp nhận | report → Acknowledged | UC-02 Acknowledge | < 30 phút (giờ làm việc) |
-| Lead time xử lý | Acknowledged → Resolved | UC-03 Resolve | Tuỳ severity (Critical < 4h, Major < 24h) |
+| Lead time xử lý | In Progress → Resolved | UC-03 Resolve | Tuỳ severity (Critical < 4h, High < 24h) |
 | Lead time RCA | RCA Required → Completed | UC-05 Submit RCA | ≤ 14 ngày (Major), ≤ 7 ngày (Critical) |
 | CAPA cycle time | CAPA Open → Closed | UC-06 Close CAPA | ≤ 30 ngày (target ISO 13485) |
 | % chronic detection chính xác | Alert đúng / tổng alert scheduler | Scheduler daily | ≥ 80% (review feedback) |
@@ -389,6 +391,11 @@ flowchart TD
 | BR-12-05 | Mọi transition → `log_audit_event()` (SHA-256 chain) | Helper `_log()` trong service | — |
 | BR-12-06 | Submit RCA → auto `imm00.create_capa()` + ghi `linked_capa` lên RCA và Incident | `services/imm12.py: submit_rca()` | — |
 | BR-12-07 | RCA `root_cause` + `rca_method` ∈ {5-Why, Fishbone, Other} bắt buộc trước Submit | `services/imm12.py: submit_rca()` | — |
+| BR-12-08 | **SLA breach tracking** — `report_incident()` resolve `IMM SLA Policy` theo `severity` → set `sla_policy`, `response_due_at = reported_at + response_time_minutes`, `resolution_due_at = reported_at + resolution_time_hours`. `acknowledge_incident()` set `response_breached` nếu `acknowledged_at > response_due_at`. `resolve_incident()` set `resolution_breached` nếu `resolved_at > resolution_due_at`. Scheduler hourly `check_incident_sla_breach()` đánh dấu breach cho incident chưa đóng đã quá hạn + `_log()` audit-trail (BR-12-05). KHÔNG hardcode giờ — đọc từ `IMM SLA Policy`. | `services/imm12.py: report_incident()/acknowledge_incident()/resolve_incident()/check_incident_sla_breach()` | TC-12-SLA-* |
+| BR-12-09 | **SLA breach escalation (notification)** — khi `check_incident_sla_breach()` set một cờ breach từ `0→1` cho 1 incident, hệ thống bắn **ĐÚNG 1 notification** (in-app + email qua `notifications._dispatch`) cho recipient của incident đó. Phân biệt 2 loại trong nội dung: **response-breach** (chưa tiếp nhận quá `response_due_at`) vs **resolution-breach** (chưa đóng quá `resolution_due_at`). Recipient route qua SSoT `services/shared/notify_roles.py` (block escalation incident) hợp với `assigned_to`/`reported_by` của incident VÀ `escalation_l1_user`+`escalation_l2_user` đọc từ `IMM SLA Policy` (`get_sla_policy` đã trả 2 field này). **KHÔNG hardcode role-name** (anti RBAC-dead-gate). **Idempotent**: dùng chính cờ `response_breached`/`resolution_breached` làm khoá — lần quét sau cờ đã =1 ⇒ KHÔNG bắn lại (sweep 2 lần liên tiếp ⇒ tổng notification không đổi). Mỗi lần escalate ghi thêm **1 audit entry** `'SLA breach escalated → <recipients>'` (giữ entry phát-hiện cũ, KHÔNG thay thế — BR-12-05). Per-incident try/except: 1 incident lỗi KHÔNG dừng batch; incident không có recipient nào → set cờ + audit như cũ, KHÔNG bắn rỗng, KHÔNG crash. | `services/imm12.py: check_incident_sla_breach()` + `services/notifications.py` | TC-12-SLA-ESC-* |
+| BR-12-10 | **NĐ98 escalation gate** — incident `severity ∈ {Critical, High}` khi breach PHẢI thêm **QA Officer** (`notify_roles.QA_OFFICER`) + **Ops Manager** (`notify_roles.OPS_MANAGER`) vào recipient, **kể cả khi** `IMM SLA Policy` không set `escalation_l1_user`/`escalation_l2_user`. Đây là compliance gate (báo cáo sự cố nghiêm trọng đúng cửa sổ luật định). | `services/imm12.py: check_incident_sla_breach()` (qua `notify_roles`) | TC-12-SLA-ESC-NĐ98 |
+| BR-12-11 | **SoT "incident đang mở"** — mọi consumer (dashboard KPI card/donut/persona, SLA engine, list drill-down) đếm open-set qua **1 helper** `open_incident_filter()` = `{status ∈ {Open, Acknowledged, In Progress, RCA Required}}` (POSITIVE list — Cancelled/Resolved/Closed KHÔNG mở). `get_incident_stats()` THÊM `open_total = count(open_incident_filter())`; `get_dashboard().active_incidents` dùng cùng filter ⇒ **invariant: card count == số dòng list sau drill `?open=1`**. Backward-compat: GIỮ `open`/`investigating` per-state. | `services/imm12.py: open_incident_filter()/get_incident_stats()/get_dashboard()` | TC-12-OPEN-SOT-* |
+| BR-12-11b | **KPI strip severity = open-set** — tile *"Sự cố nghiêm trọng / mức cao"* trên trang danh sách đếm theo open-set SoT, KHÔNG global all-status. `get_incident_stats()` THÊM `critical_open = count(open_incident_filter()∧severity=Critical)` + `high_open = count(open_incident_filter()∧severity=High)` (DÙNG LẠI `open_incident_filter()`, KHÔNG inline negative-list mới; loại Closed/Cancelled/Resolved). FE `IncidentListView.vue` strip bind `critical_open ?? 0` / `high_open ?? 0` + nhãn 'đang mở' → trên `?open=1` strip == số dòng severity trong bảng, KHÔNG còn mâu thuẫn thị giác. Backward-compat: GIỮ `critical`/`high` global cho donut. Bất biến: `critical_open <= critical`, `high_open <= high`. | `services/imm12.py: get_incident_stats()` + `frontend IncidentListView.vue::kpiItems` | TC-12-STRIP-OPEN-* |
 | BR-00-08 | CAPA `root_cause + corrective + preventive` bắt buộc trước Submit CAPA | `IMMCAPARecord.before_submit()` (IMM-00 LIVE) | — |
 | BR-00-09 | CAPA quá due_date → auto Overdue via scheduler | `check_capa_overdue()` (IMM-00 LIVE) | — |
 
@@ -497,7 +504,7 @@ stateDiagram-v2
 | Auto-fill | Khi chọn asset, hệ thống điền sẵn department, location |
 | Cảnh báo trực quan | Banner đỏ khi severity = Critical; tooltip giải thích chronic_failure_flag |
 | Ngôn ngữ | Tiếng Việt cho user nghiệp vụ; tiếng Anh cho field kỹ thuật (fault_code) |
-| Tham chiếu design | `docs/res/design-frontend.md` |
+| Tham chiếu design | `docs/res/design/design-frontend.md` |
 
 ## V.6. Bảo trì (Maintainability)
 
@@ -516,6 +523,7 @@ stateDiagram-v2
 - Audit trail immutable (BR-00-03)
 - Phân tách: Reporting User tạo ≠ Workshop Lead Acknowledge ≠ QA Close CAPA
 - RCA bắt buộc Major/Critical (NĐ98 Điều 38 + ISO 13485:8.5.2)
+- **SLA breach của sự cố Critical/High phải ESCALATE tới QA Officer + Ops Manager (BR-12-10)** — bảo đảm báo cáo sự cố nghiêm trọng trong cửa sổ luật định (NĐ98 Điều 67); breach câm (chỉ set cờ, không báo ai) là vi phạm compliance + rủi ro an toàn người bệnh.
 
 ---
 

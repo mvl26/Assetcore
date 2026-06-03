@@ -7,7 +7,7 @@
 | Owner | FE Lead + UX Designer |
 | Liên kết | [04 Backend](./04_Backend_Design.md) · [05 API](./05_API_Specification.md) |
 
-> Stack chuẩn AssetCore: **Vue 3 + TypeScript + Pinia + Vue Router + TailwindCSS + TanStack Query** (refer `.claude/skills/assetcore-fe-module/SKILL.md`). Design system tham chiếu `docs/res/design-frontend.md`.
+> Stack chuẩn AssetCore: **Vue 3 + TypeScript + Pinia + Vue Router + TailwindCSS + TanStack Query** (refer `.claude/skills/assetcore-fe-module/SKILL.md`). Design system tham chiếu `docs/res/design/design-frontend.md`.
 
 ---
 

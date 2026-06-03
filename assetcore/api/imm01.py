@@ -18,8 +18,12 @@ from frappe import _
 
 from assetcore.services import imm01 as svc
 from assetcore.services.shared import ErrorCode, ServiceError
+from assetcore.services.shared import rbac
 from assetcore.services.shared.filters import count_with_or, pop_search
 from assetcore.utils.helpers import _ok, _err
+
+# Capability gate (LL-BE-24) — IMM Procurement Plan thuộc domain Needs.
+_CAP_PLAN_CREATE = "needs.create"
 
 _DT_NR = "IMM Needs Request"
 _DT_PP = "IMM Procurement Plan"
@@ -412,6 +416,7 @@ def _get_procurement_plan(name: str) -> dict:
 
 @frappe.whitelist(methods=["POST"])
 def create_procurement_plan(plan_year: int, plan_period: str, budget_envelope: float = 0) -> dict:
+    rbac.require(_CAP_PLAN_CREATE)  # LL-BE-24: chốt chặn BE, không tin FE hide
     return _handle(_create_procurement_plan, int(plan_year), plan_period, float(budget_envelope))
 
 

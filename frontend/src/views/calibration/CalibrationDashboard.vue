@@ -5,6 +5,7 @@ import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { frappeGet } from '@/api/helpers'
 import { useImm11Store } from '@/stores/imm11'
+import { translateStatus } from '@/utils/formatters'
 import PageHeader from '@/components/common/PageHeader.vue'
 
 const store = useImm11Store()
@@ -167,7 +168,7 @@ onMounted(load)
             <div class="flex items-center gap-2 mb-3">
               <span class="inline-block w-2 h-2 rounded-full bg-red-500"></span>
               <span class="text-sm font-semibold text-red-700">
-                Overdue ({{ data.kpis.overdue_count }})
+                Quá hạn ({{ data.kpis.overdue_count }})
               </span>
             </div>
             <div v-if="!data.overdue_assets.length" class="text-sm text-slate-400 italic ml-4">
@@ -209,7 +210,7 @@ class="btn-primary text-xs py-1 px-2.5"
             <div class="flex items-center gap-2 mb-3">
               <span class="inline-block w-2 h-2 rounded-full bg-yellow-500"></span>
               <span class="text-sm font-semibold text-yellow-700">
-                Due Soon ({{ data.kpis.due_soon_count }})
+                Sắp đến hạn ({{ data.kpis.due_soon_count }})
               </span>
             </div>
             <div v-if="!data.due_soon_assets.length" class="text-sm text-slate-400 italic ml-4">
@@ -276,12 +277,12 @@ v-for="c in data.capa_open_list" :key="c.name"
 class="text-xs px-1.5 py-0.5 rounded"
                       :class="c.severity === 'Major' || c.severity === 'Critical'
                               ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'">
-                      {{ c.severity }}
+                      {{ translateStatus(c.severity) }}
                     </span>
                     <span
 v-if="c.lookback_status === 'In Progress' || c.lookback_status === 'Pending'"
                       class="text-xs px-1.5 py-0.5 rounded bg-orange-100 text-orange-700 font-medium">
-                      Lookback {{ c.lookback_status }}
+                      Rà soát lại: {{ translateStatus(c.lookback_status) }}
                     </span>
                     <span class="text-xs text-slate-500">
                       Due {{ formatDate(c.due_date) }}

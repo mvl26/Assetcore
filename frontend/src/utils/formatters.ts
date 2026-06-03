@@ -50,6 +50,21 @@ const STATUS_MAP: Record<string, string> = {
   Rejected:  'Bị từ chối',
   Closed:    'Đã đóng',
   Open:      'Đang mở',
+  // IMM-16 CAPA lifecycle status (SoT cho CAPAListView + CAPADetailView badge
+  // 'Trạng thái'). 'Pending Verification' THIẾU trước đây → consolidation về SSoT
+  // sẽ leak raw EN nếu không thêm. Cả 2 biến thể space/underscore (Frappe trả raw).
+  'Pending Verification': 'Chờ xác minh',
+  Pending_Verification:   'Chờ xác minh',
+
+  // ── IMM-12 Incident status backstop (R20) ─────────────────────────
+  // StatusBadge-path (translateStatus → STATUS_MAP) THIẾU 2 mã này → raw-EN leak
+  // ở IncidentListView (2/4 OPEN-state của open_incident_filter). Backstop khớp
+  // INCIDENT_STATUS_LABEL (constants/labels.ts = SSoT IMM-12) để dù đi path nào
+  // nhãn cũng đúng. KHÔNG thêm 'Open'/'In Progress' ở đây (domain CAPA/priority
+  // dùng 'Đang mở'/'Đang thực hiện') → list incident render qua incidentStatusLabel.
+  Acknowledged:   'Đã tiếp nhận',
+  'RCA Required': 'Cần RCA',
+  RCA_Required:   'Cần RCA',
 
   // ── IMM-01 Needs Request workflow states ──────────────────────────
   Reviewing:   'Đang rà soát',
@@ -81,7 +96,8 @@ const STATUS_MAP: Record<string, string> = {
   'Under Maintenance':'Đang bảo trì',
   Calibrating:        'Đang hiệu chuẩn',
   'Out of Service':   'Ngừng hoạt động',
-  Commissioned:       'Mới tiếp nhận',
+  // Đồng bộ với constants/labels.ts + AssetListView (chống drift nhãn donut↔list, LL-FE-3).
+  Commissioned:       'Đã đưa vào sử dụng',
   Decommissioned:     'Đã thanh lý',
 
   // ── Commissioning (IMM-04) ────────────────────────────────────────
@@ -140,6 +156,20 @@ const STATUS_MAP: Record<string, string> = {
   're-opened':       'Đã mở lại',
   'Re-opened':       'Đã mở lại',
   'Re Opened':       'Đã mở lại',
+  // IMM-16 CAPA effectiveness_check (xác minh hiệu quả NĐ98/QMS) — SSoT nhãn VI
+  Effective:             'Hiệu quả',
+  'Partially Effective': 'Hiệu quả một phần',
+  Partially_Effective:   'Hiệu quả một phần',
+  'Not Effective':       'Không hiệu quả',
+  Not_Effective:         'Không hiệu quả',
+  // IMM-16 CAPA workflow_state (máy trạng thái, stage) — khớp CAPA_WORKFLOW_LABEL
+  // constants/labels.ts. Cần ở đây để StatusBadge (qua translateStatus) render
+  // nhãn VI cho badge "Tiến trình" trên CAPADetailView, không leak raw EN
+  // ('Investigating'/'Action Plan'/...). 'Open'/'Closed' đã có ở map docstatus.
+  Investigating:  'Đang điều tra',
+  'Action Plan':  'Lập kế hoạch hành động',
+  Implementation: 'Đang thực thi',
+  Verification:   'Đang xác minh',
 
   // ── Priority / Severity ───────────────────────────────────────────
   Low:       'Thấp',
@@ -205,6 +235,86 @@ export function translateDocstatus(docstatus: 0 | 1 | 2): string {
   return docstatus === 1 ? 'Đã duyệt' : docstatus === 2 ? 'Đã hủy' : 'Bản nháp'
 }
 
+// ─── Frequency translation (SSoT) ───────────────────────────────────────────
+// Nhãn tần suất đánh giá / khấu hao — DUY NHẤT 1 map cho toàn FE (chống drift &
+// English-enum leak, anti-pattern A). Phủ ĐỦ option BE ground truth:
+//   • Compliance Rule.evaluation_frequency: Realtime/Hourly/Daily/Weekly/Monthly/Quarterly
+//   • AC Asset.depreciation_frequency:      Monthly/Quarterly/Yearly
+// LƯU Ý: pm_type (Quarterly/Semi-Annual/Annual/Ad-hoc) là LOẠI PM — domain
+// khác, có SSoT riêng translatePmType / PM_TYPE_MAP bên dưới (KHÔNG gộp vào
+// đây). Các key Semi-Annual/Annual/Ad-hoc trong FREQUENCY_MAP chỉ phục vụ field
+// *frequency* dùng chung, không phải pm_type.
+const FREQUENCY_MAP: Record<string, string> = {
+  Realtime:      'Thời gian thực',
+  Hourly:        'Hàng giờ',
+  Daily:         'Hàng ngày',
+  Weekly:        'Hàng tuần',
+  Monthly:       'Hàng tháng',
+  Quarterly:     'Hàng quý',
+  Yearly:        'Hàng năm',
+  'Semi-Annual': 'Nửa năm',
+  Annual:        'Hàng năm',
+  'Ad-hoc':      'Theo yêu cầu',
+}
+
+/**
+ * Trả nhãn Tiếng Việt cho 1 giá trị tần suất.
+ * - null / '' → '—'
+ * - key lạ → trả nguyên `v` (không crash, không bịa nhãn).
+ */
+export function translateFrequency(v?: string | null): string {
+  if (!v) return '—'
+  return FREQUENCY_MAP[v] ?? v
+}
+
+// ─── PM type translation (SSoT) ─────────────────────────────────────────────
+// pm_type là LOẠI bảo trì định kỳ (domain RIÊNG với frequency — xem ghi chú
+// FREQUENCY_MAP). Trước đây 2 view (PmScheduleListView + PmTemplateListView) tự
+// khai map cục bộ GIỐNG HỆT nhau → drift risk. Gom về DUY NHẤT 1 map ở đây.
+// BE ground truth: PM Schedule / PM Checklist Template.pm_type
+//   = Quarterly\nSemi-Annual\nAnnual\nAd-hoc
+// Nhãn canonical PM domain: 'Ad-hoc' → 'Đột xuất' (KHÁC field frequency dùng
+// 'Theo yêu cầu' — domain khác, giữ nguyên khác biệt có chủ đích).
+const PM_TYPE_MAP: Record<string, string> = {
+  Quarterly:     'Hàng quý',
+  'Semi-Annual': 'Nửa năm',
+  Annual:        'Hàng năm',
+  'Ad-hoc':      'Đột xuất',
+}
+
+/**
+ * Trả nhãn Tiếng Việt cho 1 loại PM (pm_type).
+ * - null / '' → '—'
+ * - key lạ → trả nguyên `v` (không crash, không bịa nhãn).
+ */
+export function translatePmType(v?: string | null): string {
+  if (!v) return '—'
+  return PM_TYPE_MAP[v] ?? v
+}
+
+// ─── Depreciation method translation (SSoT) ─────────────────────────────────
+// Phương pháp khấu hao tài sản (IMM-00 master data → AC Asset / Device Model /
+// Asset Category). DUY NHẤT 1 map cho toàn FE — chống English-enum leak
+// (anti-pattern A) và drift nhãn giữa các view (DepreciationView, AssetDetail,
+// AssetDepreciationSchedule, DeviceModelForm, ReferenceData).
+// BE ground truth: AC Asset.depreciation_method / Asset Category.default_depreciation_method
+//   = Straight Line / Double Declining / Units of Production (+ 'None'/null = chưa đặt).
+const DEPRECIATION_METHOD_MAP: Record<string, string> = {
+  'Straight Line':       'Đường thẳng',
+  'Double Declining':    'Số dư giảm dần',
+  'Units of Production': 'Theo sản lượng',
+}
+
+/**
+ * Trả nhãn Tiếng Việt cho 1 phương pháp khấu hao.
+ * - null / '' / undefined / 'None' → '—' (chưa đặt / không khấu hao).
+ * - key lạ → trả nguyên `v` (không crash, không bịa nhãn).
+ */
+export function translateDepreciationMethod(v?: string | null): string {
+  if (!v || v === 'None') return '—'
+  return DEPRECIATION_METHOD_MAP[v] ?? v
+}
+
 // ─── Status color (Tailwind classes) ────────────────────────────────────────
 // Key rule:
 //   🟢 xanh lá  — ổn / hoàn thành / đạt
@@ -227,6 +337,9 @@ const STATUS_COLOR: Record<string, string> = {
   Submitted: COLOR_BLUE,   Approved: COLOR_GREEN,     Completed: COLOR_GREEN,
   Active: COLOR_GREEN,     Passed: COLOR_GREEN,       'Clinical Release': COLOR_GREEN,
   Received: COLOR_GREEN,   'Certificate Received': COLOR_GREEN,
+  // IMM-12 incident status backstop (R20) — màu khớp INCIDENT_STATUS_CLASS.
+  Acknowledged: COLOR_BLUE,
+  'RCA Required': COLOR_ORANGE, RCA_Required: COLOR_ORANGE,
   // xanh dương — đang xử lý
   'In Progress': COLOR_BLUE, In_Progress: COLOR_BLUE, Diagnosing: COLOR_BLUE,
   'In Repair': COLOR_BLUE,  In_Repair: COLOR_BLUE,    Installing: COLOR_BLUE,
@@ -267,6 +380,10 @@ const STATUS_COLOR: Record<string, string> = {
   Posted:     COLOR_GREEN,
 
   // ── IMM-16 Compliance ──────────────────────────────────────────────
+  // CAPA lifecycle status 'Pending Verification' — tím (chờ xác minh hiệu quả),
+  // khớp màu local cũ ở CAPAListView trước khi gỡ về SSoT.
+  'Pending Verification': COLOR_PURPLE,
+  Pending_Verification:   COLOR_PURPLE,
   'Under Review':   COLOR_BLUE,
   Under_Review:     COLOR_BLUE,
   'Confirmed NC':   COLOR_RED,
@@ -279,6 +396,17 @@ const STATUS_COLOR: Record<string, string> = {
   're-opened':      COLOR_ORANGE,
   'Re-opened':      COLOR_ORANGE,
   'Re Opened':      COLOR_ORANGE,
+  // IMM-16 CAPA effectiveness_check — màu compliance pin: Effective=xanh, Partial=vàng, NotEff=đỏ
+  Effective:             COLOR_GREEN,
+  'Partially Effective': COLOR_YELLOW,
+  Partially_Effective:   COLOR_YELLOW,
+  'Not Effective':       COLOR_RED,
+  Not_Effective:         COLOR_RED,
+  // IMM-16 CAPA workflow_state (stage) — màu cho badge "Tiến trình" CAPADetailView.
+  Investigating:  COLOR_BLUE,
+  'Action Plan':  COLOR_BLUE,
+  Implementation: COLOR_BLUE,
+  Verification:   COLOR_PURPLE,
 
   // ── IMM-06 Training & Competency ─────────────────────────────────────
   Transferred:        COLOR_GRAY,

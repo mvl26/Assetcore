@@ -1,7 +1,7 @@
 import frappe
-from frappe import _
 from frappe.model.document import Document
 from assetcore.services.imm11 import handle_calibration_pass, handle_calibration_fail
+from assetcore.utils.notify import nthrow_in_hook, MSG
 
 
 class IMMAssetCalibration(Document):
@@ -17,21 +17,16 @@ class IMMAssetCalibration(Document):
             self.actual_date = frappe.utils.nowdate()
         # BR-11-08: phải có ≥1 tham số đo trước khi Submit phiếu hiệu chuẩn.
         if not self.measurements:
-            frappe.throw(_(
-                "Phải nhập ít nhất 1 tham số đo trước khi gửi duyệt phiếu "
-                "hiệu chuẩn (CAL-005)."
-            ))
+            nthrow_in_hook(MSG.IMM11_NO_MEASUREMENTS)
         for m in self.measurements or []:
             if m.measured_value is None:
-                frappe.throw(_(f"Tham số '{m.parameter_name}' chưa có giá trị đo (CAL-004)"))
+                nthrow_in_hook(MSG.IMM11_MEASUREMENT_VALUE_REQUIRED,
+                               parameter=m.parameter_name)
         # Đảm bảo overall_result đã được tính từ measurements.
         self._compute_measurement_results()
         # BR-11-09: phải có kết quả tổng (Passed/Failed/Conditionally Passed).
         if self.overall_result not in ("Passed", "Failed", "Conditionally Passed"):
-            frappe.throw(_(
-                "Phiếu hiệu chuẩn phải có kết quả tổng (Đạt/Không đạt/Đạt có "
-                "điều kiện) trước khi gửi duyệt (CAL-006)."
-            ))
+            nthrow_in_hook(MSG.IMM11_RESULT_REQUIRED)
 
     def on_submit(self):
         if self.overall_result == "Failed":
@@ -40,11 +35,11 @@ class IMMAssetCalibration(Document):
             handle_calibration_pass(self)
 
     def on_cancel(self):
-        frappe.throw(_("Không thể hủy Phiếu Hiệu chuẩn đã Submit. Vui lòng dùng Amend (BR-11-05)"))
+        nthrow_in_hook(MSG.IMM11_CANCEL_SUBMITTED)
 
     def on_trash(self):
         if self.docstatus == 1:
-            frappe.throw(_("Không thể xóa Phiếu Hiệu chuẩn đã Submit (BR-11-05)"))
+            nthrow_in_hook(MSG.IMM11_CANCEL_SUBMITTED)
 
     def _auto_populate(self):
         if self.asset and not self.device_model:
@@ -54,13 +49,13 @@ class IMMAssetCalibration(Document):
         if self.calibration_type != "External":
             return
         if not self.lab_supplier:
-            frappe.throw(_("Vui lòng chọn lab hiệu chuẩn (VR-11-01)"))
+            nthrow_in_hook(MSG.IMM11_LAB_REQUIRED)
         self._validate_lab_iso_17025(self.lab_supplier)
         if self.status == "Certificate Received":
             if not self.certificate_file:
-                frappe.throw(_("Vui lòng upload Calibration Certificate (VR-11-03)"))
+                nthrow_in_hook(MSG.IMM11_CERT_FILE_REQUIRED)
             if not self.lab_accreditation_number:
-                frappe.throw(_("Vui lòng nhập Số công nhận ISO/IEC 17025 (VR-11-04)"))
+                nthrow_in_hook(MSG.IMM11_LAB_ACCRED_NUMBER_REQUIRED)
 
     @staticmethod
     def _validate_lab_iso_17025(supplier: str) -> None:
@@ -71,20 +66,20 @@ class IMMAssetCalibration(Document):
             as_dict=True,
         ) or {}
         if lab.get("vendor_type") != "Calibration Lab":
-            frappe.throw(_("NCC phải có vendor_type = 'Calibration Lab' (VR-11-02)"))
+            nthrow_in_hook(MSG.IMM11_LAB_NOT_ACCREDITED)
         if not lab.get("iso_17025_cert"):
-            frappe.throw(_("Lab chưa có số chứng chỉ ISO/IEC 17025 (VR-11-02)"))
+            nthrow_in_hook(MSG.IMM11_LAB_NOT_ACCREDITED)
         expiry = lab.get("iso_17025_expiry")
         if expiry and str(expiry) < frappe.utils.nowdate():
-            frappe.throw(_("Chứng chỉ ISO/IEC 17025 của lab đã hết hạn (VR-11-02)"))
+            nthrow_in_hook(MSG.IMM11_LAB_NOT_ACCREDITED)
 
     def _validate_inhouse_requirements(self):
         if self.calibration_type == "In-House" and not self.reference_standard_serial:
-            frappe.throw(_("Vui lòng nhập serial thiết bị chuẩn (VR-11-06)"))
+            nthrow_in_hook(MSG.IMM11_REF_STANDARD_REQUIRED)
 
     def _validate_certificate_date(self):
         if self.certificate_date and self.certificate_date > frappe.utils.nowdate():
-            frappe.throw(_("Ngày cấp chứng chỉ không thể trong tương lai (VR-11-07)"))
+            nthrow_in_hook(MSG.IMM11_CERT_DATE_FUTURE)
 
     def _compute_measurement_results(self):
         if not self.measurements:

@@ -17,6 +17,7 @@ import {
   createDocument as apiCreateDocument,
   getDocumentHistory as apiGetDocumentHistory,
 } from '@/api/imm05'
+import { ApiError, toApiError } from '@/api/errors'
 import type {
   AssetDocumentItem,
   AssetDocumentDetail,
@@ -33,6 +34,9 @@ export const useImm05Store = defineStore('imm05', () => {
   const documents = ref<AssetDocumentItem[]>([])
   const loading = ref(false)
   const error = ref<string | null>(null)
+  // Notification framework (Sprint 2026-05-29 vòng 5): giữ ApiError đã hydrate
+  // (message_code/severity/title/action_hint) để view gọi notify.fromError().
+  const lastApiError = ref<ApiError | null>(null)
 
   const pagination = ref<Pagination>({
     page: 1,
@@ -79,6 +83,13 @@ export const useImm05Store = defineStore('imm05', () => {
 
   // ─── Actions ────────────────────────────────────────────────────────────────
 
+  /** Ghi nhận lỗi: vừa set string (legacy banner) vừa giữ ApiError (notify). */
+  function _captureError(e: unknown): void {
+    const err = toApiError(e)
+    lastApiError.value = err
+    error.value = err.message
+  }
+
   async function fetchDocuments(filters: DocumentFilters = {}, page = 1) {
     loading.value = true
     error.value = null
@@ -90,7 +101,7 @@ export const useImm05Store = defineStore('imm05', () => {
         if (res.pagination) pagination.value = res.pagination
       }
     } catch (e: unknown) {
-      error.value = e instanceof Error ? e.message : 'Lỗi kết nối'
+      _captureError(e)
     } finally {
       loading.value = false
     }
@@ -108,7 +119,7 @@ export const useImm05Store = defineStore('imm05', () => {
         if (res.missing_required) missingRequired.value = res.missing_required
       }
     } catch (e: unknown) {
-      error.value = e instanceof Error ? e.message : 'Lỗi kết nối'
+      _captureError(e)
     } finally {
       loading.value = false
     }
@@ -120,7 +131,7 @@ export const useImm05Store = defineStore('imm05', () => {
     try {
       dashboardStats.value = await getDashboardStats()
     } catch (e: unknown) {
-      error.value = e instanceof Error ? e.message : 'Lỗi kết nối'
+      _captureError(e)
     } finally {
       dashboardLoading.value = false
     }
@@ -133,7 +144,7 @@ export const useImm05Store = defineStore('imm05', () => {
       if (doc) doc.workflow_state = 'Active'
       return true
     } catch (e: unknown) {
-      error.value = e instanceof Error ? e.message : 'Approve thất bại'
+      _captureError(e)
       return false
     }
   }
@@ -145,7 +156,7 @@ export const useImm05Store = defineStore('imm05', () => {
       if (doc) doc.workflow_state = 'Rejected'
       return true
     } catch (e: unknown) {
-      error.value = e instanceof Error ? e.message : 'Reject thất bại'
+      _captureError(e)
       return false
     }
   }
@@ -155,7 +166,7 @@ export const useImm05Store = defineStore('imm05', () => {
       const res = await apiCreateRequest(payload)
       return res?.name || null
     } catch (e: unknown) {
-      error.value = e instanceof Error ? e.message : 'Tạo yêu cầu thất bại'
+      _captureError(e)
       return null
     }
   }
@@ -165,7 +176,7 @@ export const useImm05Store = defineStore('imm05', () => {
       const res = await getDocumentRequests(assetRef, status)
       if (res?.items) documentRequests.value = res.items
     } catch (e: unknown) {
-      error.value = e instanceof Error ? e.message : 'Lỗi kết nối'
+      _captureError(e)
     }
   }
 
@@ -174,7 +185,7 @@ export const useImm05Store = defineStore('imm05', () => {
       const res = await getExpiringDocuments(days)
       if (res?.items) expiringDocs.value = res.items
     } catch (e: unknown) {
-      error.value = e instanceof Error ? e.message : 'Lỗi kết nối'
+      _captureError(e)
     }
   }
 
@@ -188,7 +199,7 @@ export const useImm05Store = defineStore('imm05', () => {
       const res = await apiGetDocument(name)
       if (res) currentDocument.value = res
     } catch (e: unknown) {
-      error.value = e instanceof Error ? e.message : 'Không tải được tài liệu'
+      _captureError(e)
     } finally {
       loading.value = false
     }
@@ -204,7 +215,7 @@ export const useImm05Store = defineStore('imm05', () => {
       }
       return { success: true, data: res }
     } catch (e: unknown) {
-      error.value = e instanceof Error ? e.message : 'Lỗi kết nối'
+      _captureError(e)
       return null
     } finally {
       loading.value = false
@@ -217,7 +228,7 @@ export const useImm05Store = defineStore('imm05', () => {
     try {
       return await apiCreateDocument(data)
     } catch (e: unknown) {
-      error.value = e instanceof Error ? e.message : 'Lỗi kết nối'
+      _captureError(e)
       return null
     } finally {
       loading.value = false
@@ -230,6 +241,7 @@ export const useImm05Store = defineStore('imm05', () => {
 
   function clearError() {
     error.value = null
+    lastApiError.value = null
   }
 
   function fetchDocumentHistory(name: string) {
@@ -240,7 +252,7 @@ export const useImm05Store = defineStore('imm05', () => {
 
   return {
     // state
-    documents, loading, error, pagination, currentFilters,
+    documents, loading, error, lastApiError, pagination, currentFilters,
     assetDocuments, assetCompletenessPct, assetDocumentStatus, missingRequired,
     dashboardStats, dashboardLoading, documentRequests, expiringDocs,
     currentDocument,

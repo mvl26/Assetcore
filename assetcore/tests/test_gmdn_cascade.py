@@ -76,6 +76,29 @@ class TestGmdnCascade(unittest.TestCase):
         frappe.db.commit()
 
     def tearDown(self):
+        # AC Asset.on_trash blocks delete while Audit Trail / Lifecycle Events
+        # exist, and force=True does NOT bypass a custom on_trash (LL-TEST-17).
+        # The cascade tests create those rows, so purge them first or the
+        # Category leaks and its gmdn_code collides on the next run.
+        for asset in (self.asset_inh.name, self.asset_ovr.name):
+            frappe.db.sql(
+                "DELETE FROM `tabIMM Audit Trail` "
+                "WHERE asset=%s OR (ref_doctype='AC Asset' AND ref_name=%s)",
+                (asset, asset),
+            )
+            for dt, fld in (
+                ("Asset Lifecycle Event", "asset"),
+                ("AC Asset Downtime Log", "asset"),
+                ("Asset Transfer", "asset"),
+            ):
+                if not frappe.db.table_exists(dt):
+                    continue
+                for c in frappe.get_all(dt, filters={fld: asset}, pluck="name"):
+                    cd = frappe.get_doc(dt, c)
+                    if cd.docstatus == 1:
+                        cd.cancel()
+                    frappe.delete_doc(dt, c, force=True, ignore_permissions=True,
+                                      delete_permanently=True)
         for dt, nm in (
             ("AC Asset", self.asset_inh.name),
             ("AC Asset", self.asset_ovr.name),
@@ -84,7 +107,8 @@ class TestGmdnCascade(unittest.TestCase):
             ("AC Asset Category", self.cat.name),
         ):
             if frappe.db.exists(dt, nm):
-                frappe.delete_doc(dt, nm, force=True, ignore_permissions=True)
+                frappe.delete_doc(dt, nm, force=True, ignore_permissions=True,
+                                  delete_permanently=True)
         frappe.db.commit()
 
     # ── C2 — controller flag logic ──────────────────────────────────────
@@ -104,6 +128,26 @@ class TestGmdnCascade(unittest.TestCase):
         m.save(ignore_permissions=True)
         m.reload()
         self.assertEqual(m.gmdn_inherited, 1)
+
+    def test_c2_numeric_gmdn_code_does_not_crash(self):
+        """Regression: bulk import (openpyxl) yields gmdn_code as int for a
+        numeric cell -> controller must not crash on `(int).strip()`."""
+        suffix = frappe.generate_hash(length=6)
+        m = frappe.get_doc({
+            "doctype": "IMM Device Model",
+            "naming_series": "IMM-MDL-.YYYY.-.####",
+            "model_name": f"NumGmdnModel {suffix}",
+            "manufacturer": f"Mfr {suffix}",
+            "asset_category": self.cat.name,
+            "medical_device_class": "Class II",
+            "gmdn_code": 99999,  # int, as Excel import supplies it
+        }).insert(ignore_permissions=True)
+        self.addCleanup(
+            frappe.delete_doc, "IMM Device Model", m.name, force=True, ignore_permissions=True
+        )
+        m.reload()
+        self.assertEqual(m.gmdn_code, "99999")   # coerced to str
+        self.assertEqual(m.gmdn_inherited, 0)    # differs from Category 47821
 
     # ── C4 — cascade behaviour ──────────────────────────────────────────
     def test_c4_cascade_updates_inherited_model_and_asset(self):

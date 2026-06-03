@@ -167,6 +167,28 @@ Routes and component names are based on **actual Vue files** in `frontend/src/vi
 
 **Columns:** Mã phiếu · Thiết bị (tên + mã) · Loại · Trạng thái badge · KTV · Hạn · Kết quả
 
+#### 3.3. Detail (`/calibration/:id`) — Workflow stepper + action buttons (SINGLE SOURCE cho FE)
+
+State machine BE thật (khớp `imm_11_calibration_workflow.json`). 8 state:
+`Scheduled / In Progress / Sent to Lab / Certificate Received / Passed / Failed / Conditionally Passed / Cancelled`. KHÔNG có state "Submitted" (mockup HTML cũ sai — bỏ).
+
+Hai luồng: **In-House** (`Scheduled → In Progress → Passed/Failed/Conditionally Passed`) và **External/Lab** (`Scheduled → Sent to Lab → Certificate Received → Passed/Failed/Conditionally Passed` qua phê duyệt).
+
+| Status hiện tại | Nút hiển thị (label VN) | Action API | Transition | Role allowed |
+|---|---|---|---|---|
+| Scheduled | "Bắt đầu hiệu chuẩn" | `submit_calibration`/update | Scheduled → In Progress | Calibration User |
+| Scheduled | "Gửi phòng hiệu chuẩn" | `send_to_lab` | Scheduled → Sent to Lab | Calibration User |
+| Scheduled | "Hủy lịch" | `cancel_calibration` | Scheduled → Cancelled | System Manager |
+| In Progress | "Đạt" | `submit_calibration(result=Passed)` | In Progress → Passed | Calibration User |
+| In Progress | "Không đạt → sinh CAPA" | `submit_calibration(result=Failed)` | In Progress → Failed | Calibration User |
+| In Progress | "Đạt có điều kiện" | `submit_calibration(result=Conditionally Passed)` | In Progress → Conditionally Passed | Calibration User |
+| In Progress | "Hủy hiệu chuẩn" | `cancel_calibration` | In Progress → Cancelled | System Manager |
+| Sent to Lab | "Nhận chứng chỉ" | `receive_certificate` | Sent to Lab → Certificate Received | Calibration User |
+| Certificate Received | "Phê duyệt đạt / không đạt / có điều kiện" | (workflow approve) | Certificate Received → Passed/Failed/Conditionally Passed | System Manager |
+| Failed | "CAPA hoàn tất → chuyển có điều kiện" | (workflow) | Failed → Conditionally Passed | Compliance Manager / System Manager |
+
+> BR-11-02: `Failed` → tự sinh CM Work Order (IMM-09) + lookback. Nút "Không đạt" phải cảnh báo trước khi commit.
+
 ---
 
 ## 4. Component custom của module
@@ -270,6 +292,25 @@ AC-ASSET-2026-00101 · S/N: SYSMEX-XN-001      ← text-xs text-slate-500 font-m
 | Certificate Received | Đã nhận chứng chỉ | Cert arrived |
 | Out of Tolerance | Ngoài dung sai | OOT, Lỗi |
 | Lookback Assessment | Đánh giá hồi cứu | Lookback |
+
+### 7c-bis. Badge `AC Asset.calibration_status` — contract BE→FE (5 literal)
+
+`AssetDetailView` + `AssetListView` render badge sức-khoẻ-hiệu-chuẩn của THIẾT BỊ qua SSoT `calibrationStatusLabel()` / `calibrationStatusClass()` (`frontend/src/constants/labels.ts`). BE ghi đúng **5 giá trị literal** (English, `CalibrationStatus` constants) — FE map ĐỦ 5 → nhãn VI, KHÔNG để rò EN:
+
+| BE literal (`calibration_status`) | Nhãn VI (badge) | Class | Khi nào |
+|---|---|---|---|
+| `On Schedule` | **Đúng lịch** | xanh lá | còn active schedule, `next_due > today+30` |
+| `Due Soon` | **Sắp đến hạn** | vàng | `today ≤ next_due ≤ today+30` |
+| `Overdue` | **Quá hạn** | đỏ | `next_due < today` |
+| `Calibration Failed` | **Không đạt hiệu chuẩn** | đỏ đậm + semibold | terminal sau `handle_calibration_fail` (Out of Service) |
+| `Not Required` | **Không yêu cầu** | xám | KHÔNG cần hiệu chuẩn HOẶC stale-clear (BR-11-10, hết active schedule) |
+| `''` (rỗng) | `—` (em-dash) | — | chưa có dữ liệu hiệu chuẩn |
+
+> **Self-Correction (vòng 33) — drift cần fix:** map cũ `CALIBRATION_STATUS_LABEL` dùng key `Calibrated`/`Failed` KHÔNG khớp literal BE thực ghi (`On Schedule`, `Calibration Failed`) → 2 giá trị này rò EN trên badge. FE phải bổ sung/sửa key cho khớp ĐÚNG literal BE: thêm `'On Schedule': 'Đúng lịch'`, `'Calibration Failed': 'Không đạt hiệu chuẩn'` (render verbatim, KHÔNG nhầm với `Failed: 'Không đạt'` của workflow-state phiếu). Giữ `Overdue`/`Due Soon`/`Not Required` như cũ. Stale-clear KHÔNG được hiển thị `Quá hạn`/`Overdue` trên thiết bị không-còn-active-schedule (đã reset `Not Required` từ BE).
+>
+> Lưu ý không trộn 2 không-gian: `CALIBRATION_STATUS_LABELS` (workflow-state phiếu: Scheduled/Sent to Lab/Passed/Failed…) ưu tiên trước `CALIBRATION_STATUS_LABEL` (sức-khoẻ thiết bị) trong `calibrationStatusLabel()`. `Calibration Failed` (thiết bị) chỉ tồn tại ở map sau → an toàn, không đụng `Failed` (phiếu).
+
+GATE-1 (vue-tsc 0) + test `labels.test.ts` mở rộng: assert `calibrationStatusLabel('On Schedule') === 'Đúng lịch'`, `calibrationStatusLabel('Calibration Failed') === 'Không đạt hiệu chuẩn'`, `calibrationStatusLabel('Not Required') === 'Không yêu cầu'`.
 
 ### 7d. Cascade fields
 

@@ -1,0 +1,260 @@
+[
+ {
+  "docstatus": 0,
+  "doctype": "Role Profile",
+  "modified": "2026-06-01 10:51:10.798848",
+  "name": "Quản trị viên IT",
+  "role_profile": "Quản trị viên IT",
+  "roles": [
+   {
+    "parent": "Quản trị viên IT",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "AssetCore System User"
+   },
+   {
+    "parent": "Quản trị viên IT",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "AssetCore Super Admin"
+   }
+  ]
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Role Profile",
+  "modified": "2026-06-01 10:51:10.820815",
+  "name": "Trưởng phòng VT-TTBYT",
+  "role_profile": "Trưởng phòng VT-TTBYT",
+  "roles": [
+   {
+    "parent": "Trưởng phòng VT-TTBYT",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "AssetCore System User"
+   },
+   {
+    "parent": "Trưởng phòng VT-TTBYT",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "Commissioning Manager"
+   },
+   {
+    "parent": "Trưởng phòng VT-TTBYT",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "Needs Manager"
+   },
+   {
+    "parent": "Trưởng phòng VT-TTBYT",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "Procurement Manager"
+   },
+   {
+    "parent": "Trưởng phòng VT-TTBYT",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "Spec Manager"
+   }
+  ]
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Role Profile",
+  "modified": "2026-06-01 10:51:10.829295",
+  "name": "Trưởng xưởng kỹ thuật",
+  "role_profile": "Trưởng xưởng kỹ thuật",
+  "roles": [
+   {
+    "parent": "Trưởng xưởng kỹ thuật",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "AssetCore System User"
+   },
+   {
+    "parent": "Trưởng xưởng kỹ thuật",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "PM Manager"
+   },
+   {
+    "parent": "Trưởng xưởng kỹ thuật",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "Repair Manager"
+   },
+   {
+    "parent": "Trưởng xưởng kỹ thuật",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "Calibration Manager"
+   },
+   {
+    "parent": "Trưởng xưởng kỹ thuật",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "Corrective Manager"
+   }
+  ]
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Role Profile",
+  "modified": "2026-06-01 10:51:10.837383",
+  "name": "Kỹ thuật viên",
+  "role_profile": "Kỹ thuật viên",
+  "roles": [
+   {
+    "parent": "Kỹ thuật viên",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "AssetCore System User"
+   },
+   {
+    "parent": "Kỹ thuật viên",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "PM User"
+   },
+   {
+    "parent": "Kỹ thuật viên",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "Repair User"
+   },
+   {
+    "parent": "Kỹ thuật viên",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "Calibration User"
+   },
+   {
+    "parent": "Kỹ thuật viên",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "Corrective User"
+   }
+  ]
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Role Profile",
+  "modified": "2026-06-01 10:51:10.844681",
+  "name": "Cán bộ QA / Kiểm toán",
+  "role_profile": "Cán bộ QA / Kiểm toán",
+  "roles": [
+   {
+    "parent": "Cán bộ QA / Kiểm toán",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "AssetCore System User"
+   },
+   {
+    "parent": "Cán bộ QA / Kiểm toán",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "Compliance Manager"
+   },
+   {
+    "parent": "Cán bộ QA / Kiểm toán",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "Compliance User"
+   },
+   {
+    "parent": "Cán bộ QA / Kiểm toán",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "AssetCore Auditor"
+   }
+  ]
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Role Profile",
+  "modified": "2026-06-01 10:51:10.851110",
+  "name": "Cán bộ hồ sơ",
+  "role_profile": "Cán bộ hồ sơ",
+  "roles": [
+   {
+    "parent": "Cán bộ hồ sơ",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "AssetCore System User"
+   },
+   {
+    "parent": "Cán bộ hồ sơ",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "Document Manager"
+   },
+   {
+    "parent": "Cán bộ hồ sơ",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "Document User"
+   },
+   {
+    "parent": "Cán bộ hồ sơ",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "Training Manager"
+   }
+  ]
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Role Profile",
+  "modified": "2026-06-01 10:51:10.857226",
+  "name": "Thủ kho phụ tùng",
+  "role_profile": "Thủ kho phụ tùng",
+  "roles": [
+   {
+    "parent": "Thủ kho phụ tùng",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "AssetCore System User"
+   },
+   {
+    "parent": "Thủ kho phụ tùng",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "Inventory Manager"
+   },
+   {
+    "parent": "Thủ kho phụ tùng",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "Inventory User"
+   }
+  ]
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Role Profile",
+  "modified": "2026-06-01 10:51:10.863007",
+  "name": "Trưởng khoa lâm sàng",
+  "role_profile": "Trưởng khoa lâm sàng",
+  "roles": [
+   {
+    "parent": "Trưởng khoa lâm sàng",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "AssetCore System User"
+   },
+   {
+    "parent": "Trưởng khoa lâm sàng",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "Corrective Manager"
+   },
+   {
+    "parent": "Trưởng khoa lâm sàng",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "Corrective User"
+   }
+  ]
+ }
+]

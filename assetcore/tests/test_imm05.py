@@ -20,11 +20,19 @@ from assetcore.services.imm05 import (
     update_document,
 )
 from assetcore.services.shared import ServiceError
+from assetcore.tests._asset_cleanup import purge_asset
 
 
 # ─── Fixtures ────────────────────────────────────────────────────────────────
 
+def _ensure_uom() -> None:
+    """AC Asset.uom defaults to "Cái"; self-seed so the test runs on a fresh DB."""
+    if not frappe.db.exists("AC UOM", "Cái"):
+        frappe.get_doc({"doctype": "AC UOM", "uom_name": "Cái"}).insert(ignore_permissions=True)
+
+
 def _make_asset() -> str:
+    _ensure_uom()
     doc = frappe.get_doc({
         "doctype": "AC Asset",
         "asset_name": "_Test Asset IMM05",
@@ -49,6 +57,39 @@ def _make_doc(asset_ref: str, state: str = DocState.DRAFT) -> str:
     doc.flags.ignore_mandatory = True
     doc.insert(ignore_permissions=True)
     return doc.name
+
+
+def _purge_asset(name: str | None) -> None:
+    """Fully remove a test AC Asset and everything that blocks its on_trash guard.
+
+    ``force=True`` does NOT bypass ``AC Asset.on_trash`` (WR-03) nor
+    ``IMM Audit Trail.on_trash`` (ISO 13485:7.5.9). Audit rows must therefore be
+    purged with raw SQL, operational dependents via the ORM, before the asset
+    itself can be deleted. See LL-TEST-17.
+    """
+    if not name:
+        return
+    frappe.set_user("Administrator")
+    # 1) IMM Audit Trail — raw SQL (ORM delete always throws the ISO guard).
+    frappe.db.sql(
+        "DELETE FROM `tabIMM Audit Trail` "
+        "WHERE asset=%s OR (ref_doctype='AC Asset' AND ref_name=%s)",
+        (name, name),
+    )
+    # 2) Operational dependents — raw delete; several (Asset Document) carry their
+    #    own audit-protection on_trash guards that ``delete_doc`` cannot bypass.
+    for dt, fld in (
+        ("Asset Document", "asset_ref"),
+        ("Asset Lifecycle Event", "asset"),
+        ("AC Asset Downtime Log", "asset"),
+        ("Asset Transfer", "asset"),
+    ):
+        if frappe.db.table_exists(dt):
+            frappe.db.delete(dt, {fld: name})
+    frappe.db.commit()
+    # 3) The asset is now free of blockers.
+    frappe.delete_doc("AC Asset", name, force=True, ignore_permissions=True)
+    frappe.db.commit()
 
 
 # ─── _resolve_alert_level ─────────────────────────────────────────────────────
@@ -91,8 +132,7 @@ class TestCreateDocument(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        frappe.db.delete("Asset Document", {"asset_ref": cls.asset})
-        frappe.delete_doc("AC Asset", cls.asset, force=True, ignore_permissions=True)
+        _purge_asset(cls.asset)
 
     def test_create_returns_name_and_state(self):
         # _make_doc uses ignore_mandatory; verify state via direct fixture
@@ -117,8 +157,7 @@ class TestUpdateDocument(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        frappe.db.delete("Asset Document", {"asset_ref": cls.asset})
-        frappe.delete_doc("AC Asset", cls.asset, force=True, ignore_permissions=True)
+        _purge_asset(cls.asset)
 
     def test_update_draft_succeeds(self):
         name = _make_doc(self.asset, DocState.DRAFT)
@@ -149,8 +188,7 @@ class TestApproveDocument(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        frappe.db.delete("Asset Document", {"asset_ref": cls.asset})
-        frappe.delete_doc("AC Asset", cls.asset, force=True, ignore_permissions=True)
+        _purge_asset(cls.asset)
 
     def test_approve_pending_review_succeeds(self):
         name = _make_doc(self.asset, DocState.DRAFT)
@@ -194,15 +232,17 @@ class TestRejectDocument(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        frappe.db.delete("Asset Document", {"asset_ref": cls.asset})
-        frappe.delete_doc("AC Asset", cls.asset, force=True, ignore_permissions=True)
+        _purge_asset(cls.asset)
 
     def test_reject_without_reason_raises(self):
         name = _make_doc(self.asset, DocState.DRAFT)
         frappe.db.set_value("Asset Document", name, "workflow_state", DocState.PENDING_REVIEW)
         with self.assertRaises(ServiceError) as ctx:
             reject_document(name, "")
-        self.assertEqual(ctx.exception.code, "VALIDATION")
+        # Notification contract vòng 5: VR-06 raise qua nthrow(MSG.IMM05_REJECT_REASON_REQUIRED)
+        # http_status 422 → ErrorCode bucket BUSINESS_RULE (warning UX). message_code chốt contract.
+        self.assertEqual(ctx.exception.code, "BUSINESS_RULE")
+        self.assertEqual(ctx.exception.message_code, "IMM05-REJECT-REASON-REQUIRED")
 
     def test_reject_pending_review_succeeds(self):
         name = _make_doc(self.asset, DocState.DRAFT)
@@ -262,16 +302,7 @@ class TestKpiExpiredDocs(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        frappe.set_user("Administrator")
-        for n in (cls.draft_expired_doc, cls.active_expired_doc):
-            try:
-                frappe.delete_doc("Asset Document", n, force=1, ignore_permissions=True)
-            except Exception:
-                pass
-        try:
-            frappe.delete_doc("AC Asset", cls.asset, force=1, ignore_permissions=True)
-        except Exception:
-            pass
+        _purge_asset(cls.asset)
 
     def test_expired_kpi_counts_draft_doc(self):
         """expired_not_renewed phải bao gồm cả Draft expired (RC-08)."""
@@ -446,6 +477,388 @@ class TestGenerateScheduleZeroPrice(unittest.TestCase):
         )
         with self.assertRaises(frappe.ValidationError):
             depr_svc.generate_schedule(asset_name, force=True)
+
+
+# ─── Executor invariants (BR-05-11..14 / INV-DEP-1..4) ────────────────────────
+
+class TestRunDueDepreciationInvariants(unittest.TestCase):
+    """Vòng 2 — Executor `run_due_depreciation` PHẢI sàn book value tại
+    residual_value (KHÔNG sàn 0) và chặn trần lũy kế tại depreciable_base.
+
+    INV-DEP-1: current_book_value >= residual_value (mọi thời điểm).
+    INV-DEP-2: accumulated_depreciation <= gross - residual.
+    INV-DEP-3: book value header == remaining_value dòng schedule cuối (chênh ≤ 0.01).
+    INV-DEP-4: chạy lần 2 (hết Pending tới hạn) → header không đổi, executed_rows=0.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls._cleanup_assets: list[str] = []
+
+    @classmethod
+    def tearDownClass(cls):
+        # purge_asset clears audit/lifecycle/dependents that WR-03 on_trash would
+        # otherwise block — a plain delete_doc silently fails and leaks the asset.
+        for name in cls._cleanup_assets:
+            try:
+                purge_asset(name)
+            except Exception:
+                pass
+        frappe.db.commit()
+
+    def _new_asset(self, **overrides) -> str:
+        payload = {
+            "doctype": "AC Asset",
+            "asset_name": f"_Test ExecDepr {frappe.generate_hash(length=6)}",
+        }
+        payload.update(overrides)
+        doc = frappe.get_doc(payload)
+        doc.flags.ignore_mandatory = True
+        doc.insert(ignore_permissions=True)
+        self._cleanup_assets.append(doc.name)
+        return doc.name
+
+    def _full_run_asset(self, gross: float, residual: float, months: int = 12) -> str:
+        """Asset với start_date đủ xa trong quá khứ → mọi kỳ đến hạn, chạy 1 lần
+        Executor sẽ thực thi toàn bộ lịch (kỳ cuối Pending → Executed)."""
+        from assetcore.services import depreciation as depr_svc
+        # start cách đây nhiều năm để mọi scheduled_date <= today
+        start = add_days(nowdate(), -(months + 2) * 31)
+        asset_name = self._new_asset(
+            gross_purchase_amount=gross,
+            residual_value=residual,
+            depreciation_method="Straight Line",
+            total_depreciation_months=months,
+            depreciation_frequency="Monthly",
+            depreciation_start_date=start,
+        )
+        # Đảm bảo method không bị before_save reset về rỗng
+        frappe.db.set_value("AC Asset", asset_name, {
+            "depreciation_method": "Straight Line",
+            "residual_value": residual,
+        })
+        frappe.db.commit()
+        depr_svc.generate_schedule(asset_name, force=True)
+        return asset_name
+
+    def _asset_vals(self, name: str) -> dict:
+        return frappe.db.get_value(
+            "AC Asset", name,
+            ["gross_purchase_amount", "residual_value",
+             "accumulated_depreciation", "current_book_value"],
+            as_dict=True,
+        )
+
+    def test_book_value_floors_at_residual_not_zero(self):
+        """INV-DEP-1: sau khi thực thi kỳ cuối, book == residual (≠ 0 khi residual>0)."""
+        from assetcore.services import depreciation as depr_svc
+        gross, residual = 12_000_000.0, 2_000_000.0
+        name = self._full_run_asset(gross, residual, months=12)
+        depr_svc.run_due_depreciation(asset=name)
+        v = self._asset_vals(name)
+        self.assertAlmostEqual(
+            float(v.current_book_value), residual, delta=0.01,
+            msg="INV-DEP-1: book value kỳ cuối phải == residual, KHÔNG xuống 0",
+        )
+        self.assertGreaterEqual(
+            float(v.current_book_value), residual - 0.01,
+            "INV-DEP-1: book value không bao giờ < residual_value",
+        )
+
+    def test_accumulated_never_exceeds_depreciable_base(self):
+        """INV-DEP-2: lũy kế <= gross - residual kể cả khi chạy gộp nhiều kỳ."""
+        from assetcore.services import depreciation as depr_svc
+        gross, residual = 10_000_000.0, 1_500_000.0
+        name = self._full_run_asset(gross, residual, months=7)  # 7 kỳ → rounding kỳ cuối
+        depr_svc.run_due_depreciation(asset=name)
+        v = self._asset_vals(name)
+        base = gross - residual
+        self.assertLessEqual(
+            float(v.accumulated_depreciation), base + 0.01,
+            "INV-DEP-2: accumulated_depreciation không được vượt depreciable_base",
+        )
+
+    def test_header_matches_last_schedule_row(self):
+        """INV-DEP-3: book value header == remaining_value dòng schedule cuối."""
+        from assetcore.services import depreciation as depr_svc
+        gross, residual = 9_000_000.0, 1_000_000.0
+        name = self._full_run_asset(gross, residual, months=10)
+        depr_svc.run_due_depreciation(asset=name)
+        v = self._asset_vals(name)
+        last_remaining = frappe.db.sql(
+            """SELECT remaining_value FROM `tabAC Asset Depreciation Schedule`
+               WHERE parent=%s ORDER BY period_number DESC LIMIT 1""",
+            name,
+        )[0][0]
+        self.assertAlmostEqual(
+            float(v.current_book_value), float(last_remaining), delta=0.01,
+            msg="INV-DEP-3: header book value phải khớp dòng schedule cuối (Planner)",
+        )
+
+    def test_idempotent_second_run_no_change(self):
+        """INV-DEP-4: chạy lần 2 (hết Pending tới hạn) → header không đổi, rows=0."""
+        from assetcore.services import depreciation as depr_svc
+        gross, residual = 8_000_000.0, 800_000.0
+        name = self._full_run_asset(gross, residual, months=6)
+        depr_svc.run_due_depreciation(asset=name)
+        before = self._asset_vals(name)
+        res2 = depr_svc.run_due_depreciation(asset=name)
+        after = self._asset_vals(name)
+        self.assertEqual(res2.get("executed_rows"), 0,
+            "INV-DEP-4: lần 2 không còn dòng Pending tới hạn → executed_rows=0")
+        self.assertAlmostEqual(float(before.accumulated_depreciation),
+                               float(after.accumulated_depreciation), delta=0.01,
+                               msg="INV-DEP-4: accumulated không đổi khi chạy lại")
+        self.assertAlmostEqual(float(before.current_book_value),
+                               float(after.current_book_value), delta=0.01,
+                               msg="INV-DEP-4: book value không đổi khi chạy lại")
+
+    def test_zero_residual_still_floors_at_zero(self):
+        """Regression: residual=0 → book value vẫn về 0 đúng như cũ (không hồi quy)."""
+        from assetcore.services import depreciation as depr_svc
+        gross, residual = 6_000_000.0, 0.0
+        name = self._full_run_asset(gross, residual, months=6)
+        depr_svc.run_due_depreciation(asset=name)
+        v = self._asset_vals(name)
+        self.assertAlmostEqual(float(v.current_book_value), 0.0, delta=0.01,
+            msg="residual=0 → book value cuối == 0 (giữ hành vi cũ)")
+
+    def test_lifecycle_event_notes_uses_capped_delta(self):
+        """Kỳ cuối bị cap (book về residual) → lifecycle event 'depreciated' notes
+        ghi delta THỰC-TRỪ (capped), KHÔNG ghi inc thô vượt trần.
+
+        Lũy kế tổng phải == gross - residual; tổng các delta ghi trong notes phải
+        khớp tổng đó (không double-count phần đã chặn ở kỳ cuối)."""
+        from assetcore.services import depreciation as depr_svc
+        # residual lớn để kỳ cuối chắc chắn bị cap (straight-line chia đều sẽ vượt
+        # depreciable_base ở kỳ cuối nếu không sàn tại residual).
+        gross, residual = 10_000_000.0, 2_500_000.0
+        name = self._full_run_asset(gross, residual, months=4)
+        depr_svc.run_due_depreciation(asset=name)
+
+        events = frappe.get_all(
+            "Asset Lifecycle Event",
+            filters={"asset": name, "event_type": "depreciated"},
+            fields=["notes"],
+        )
+        # Lifecycle event 'depreciated' được ghi best-effort trong executor
+        # (bọc try/except — không chặn cập nhật asset nếu audit chain lỗi).
+        # Khi CÓ event, notes PHẢI ghi delta capped; nếu vắng (best-effort skip)
+        # thì invariant này không áp dụng — book value/lũy kế đã được các test
+        # INV-DEP-1/2/3 ở trên kiểm độc lập.
+        if not events:
+            self.skipTest("không có lifecycle event 'depreciated' (best-effort) — bỏ qua")
+        import re
+        total_booked = 0.0
+        for ev in events:
+            notes = ev.get("notes") or ""
+            m = re.search(r"Depreciated\s+([\d,]+)", notes)
+            self.assertIsNotNone(m, f"notes phải có 'Depreciated <số>': {notes!r}")
+            total_booked += float(m.group(1).replace(",", ""))
+        base = gross - residual
+        # Tổng delta ghi trong notes == depreciable_base (capped) — KHÔNG vượt.
+        self.assertLessEqual(
+            total_booked, base + 1.0,
+            "notes tổng delta không được vượt depreciable_base (kỳ cuối phải capped)",
+        )
+        self.assertAlmostEqual(
+            total_booked, base, delta=1.0,
+            msg="tổng delta ghi trong notes phải == gross - residual (đầy đủ, không thiếu)",
+        )
+
+
+class TestFullyDepreciatedReadPath(unittest.TestCase):
+    """BR-05-15 / INV-DEP-5: card count == drill rows for "Hết khấu hao".
+
+    `get_depreciation_stats().fully_depreciated` (the KPI count) and
+    `list_assets_depreciation(depreciation_filter='fully_depreciated')` (the
+    drill list) MUST resolve to the same set via the single SoT predicate
+    `is_fully_depreciated`. These integration tests seed a mix of assets —
+    some fully-depreciated, some still depreciating, some unconfigured — and
+    assert the two read-paths agree, the filter is exact, it ANDs with other
+    filters, and the unfiltered stats keys are unchanged.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        _ensure_uom()
+        cls._assets: list[str] = []
+        cls._cat: str = cls._make_category()
+        # gross=100tr, residual=10tr; fully-dep ⇔ book<=10tr+1.
+        # 3 fully-depreciated (book at/just-above/within tolerance of residual)
+        cls.full_1 = cls._make("FULL1", book=10_000_000.0)
+        cls.full_2 = cls._make("FULL2", book=10_000_001.0)   # boundary +1
+        cls.full_3 = cls._make("FULL3", book=9_500_000.0, category=cls._cat)
+        # 2 still depreciating (book well above residual)
+        cls.part_1 = cls._make("PART1", book=60_000_000.0)
+        cls.part_2 = cls._make("PART2", book=10_000_002.0, category=cls._cat)  # +2 ⇒ NOT
+        # 1 unconfigured (no method) but book<=residual — must NOT count
+        cls.unconf = cls._make("UNCONF", book=0.0, method="", months=0)
+
+    @classmethod
+    def tearDownClass(cls):
+        for a in cls._assets:
+            try:
+                purge_asset(a)
+            except Exception:
+                pass
+        if cls._cat:
+            try:
+                frappe.delete_doc("AC Asset Category", cls._cat,
+                                  force=1, ignore_permissions=True)
+            except Exception:
+                pass
+        frappe.db.commit()
+
+    @classmethod
+    def _make_category(cls) -> str:
+        cat = frappe.get_doc({
+            "doctype": "AC Asset Category",
+            "category_name": f"_TestDeprCat-{frappe.generate_hash(length=6)}",
+            "category_code": f"TD{frappe.generate_hash(length=4)}",
+        })
+        cat.flags.ignore_mandatory = True
+        cat.insert(ignore_permissions=True)
+        return cat.name
+
+    @classmethod
+    def _make(cls, suffix: str, *, book: float, gross: float = 100_000_000.0,
+              residual: float = 10_000_000.0, method: str = "Straight Line",
+              months: int = 12, category: str | None = None) -> str:
+        accumulated = max(gross - book, 0.0)
+        payload = {
+            "doctype": "AC Asset",
+            "asset_name": f"_Test DeprRead {suffix} {frappe.generate_hash(length=4)}",
+            "gross_purchase_amount": gross,
+            "residual_value": residual,
+            "depreciation_method": method,
+            "total_depreciation_months": months,
+            "depreciation_frequency": "Monthly",
+            "accumulated_depreciation": accumulated,
+            "current_book_value": book,
+            "lifecycle_status": "Active",
+        }
+        if category:
+            payload["asset_category"] = category
+        doc = frappe.get_doc(payload)
+        doc.flags.ignore_mandatory = True
+        doc.flags.ignore_links = True
+        prev = frappe.flags.in_install
+        frappe.flags.in_install = "frappe"
+        try:
+            doc.insert(ignore_permissions=True)
+        finally:
+            frappe.flags.in_install = prev
+        # Asset.before_save may re-derive method/book — force our test values back.
+        frappe.db.set_value("AC Asset", doc.name, {
+            "depreciation_method": method,
+            "total_depreciation_months": months,
+            "accumulated_depreciation": accumulated,
+            "current_book_value": book,
+        }, update_modified=False)
+        frappe.db.commit()
+        cls._assets.append(doc.name)
+        return doc.name
+
+    def _drill_names(self, **extra) -> set[str]:
+        from assetcore.api.imm00 import list_assets_depreciation
+        res = list_assets_depreciation(
+            page=1, page_size=10000,
+            depreciation_filter="fully_depreciated", **extra,
+        )
+        items = res["data"]["items"]
+        return {a["name"] for a in items}, res["data"]["pagination"]
+
+    # ── INVARIANT: card count == drill rows ─────────────────────────────────────
+
+    def test_count_equals_drill_rows(self):
+        """INV-DEP-5: stats.fully_depreciated == len(drill items) (de-dup name)."""
+        from assetcore.api.imm00 import get_depreciation_stats
+        stats = get_depreciation_stats()["data"]
+        names, pagination = self._drill_names()
+        # Our 3 seeded fully-dep assets are a SUBSET of the live total; both
+        # read-paths see the same predicate so they must agree on the live set.
+        self.assertEqual(
+            stats["fully_depreciated"], len(names),
+            "card count must equal de-duped drill rows (INV-DEP-5)",
+        )
+        # Our 3 seeded full assets present; the 3 non-full ones absent.
+        self.assertIn(self.full_1, names)
+        self.assertIn(self.full_2, names)
+        self.assertIn(self.full_3, names)
+        self.assertNotIn(self.part_1, names)
+        self.assertNotIn(self.part_2, names)
+        self.assertNotIn(self.unconf, names)
+
+    def test_drill_pagination_total_reflects_filtered_set(self):
+        """pagination.total == number of SoT-passing rows, NOT raw db.count."""
+        from assetcore.api.imm00 import get_depreciation_stats
+        names, pagination = self._drill_names()
+        self.assertEqual(
+            pagination["total"], len(names),
+            "pagination.total must equal filtered item count, not raw table count",
+        )
+        stats = get_depreciation_stats()["data"]
+        self.assertEqual(pagination["total"], stats["fully_depreciated"])
+
+    def test_drill_items_all_satisfy_predicate(self):
+        """Every drill item passes is_fully_depreciated; no in-progress leaks."""
+        from assetcore.api.imm00 import list_assets_depreciation
+        from assetcore.services import depreciation as depr_svc
+        res = list_assets_depreciation(
+            page=1, page_size=10000, depreciation_filter="fully_depreciated",
+        )
+        for a in res["data"]["items"]:
+            self.assertTrue(
+                depr_svc.is_fully_depreciated(a),
+                f"drill leaked non-fully-depreciated asset {a['name']}",
+            )
+
+    # ── AND with other filters (no clobber) ─────────────────────────────────────
+
+    def test_depreciation_filter_ands_with_category(self):
+        """depreciation_filter ∩ category_filter — intersection, not clobber."""
+        names, _ = self._drill_names(category_filter=self._cat)
+        # Only full_3 is BOTH fully-depreciated AND in cls._cat.
+        # (part_2 is in the category but NOT fully-depreciated.)
+        self.assertIn(self.full_3, names)
+        self.assertNotIn(self.full_1, names)   # full but different category
+        self.assertNotIn(self.part_2, names)   # in category but not full
+
+    def test_depreciation_filter_ands_with_method(self):
+        """depreciation_filter ∩ method_filter."""
+        names, _ = self._drill_names(method_filter="Straight Line")
+        # All seeded full assets use Straight Line → present.
+        self.assertIn(self.full_1, names)
+        self.assertIn(self.full_3, names)
+        # Sanity: a non-matching method yields none of our SL fulls.
+        names_dd, _ = self._drill_names(method_filter="Double Declining")
+        self.assertNotIn(self.full_1, names_dd)
+
+    # ── REGRESSION: other stats keys unchanged ──────────────────────────────────
+
+    def test_other_stats_keys_present_and_typed(self):
+        """The refactor must not alter unrelated stats keys (BR regression)."""
+        from assetcore.api.imm00 import get_depreciation_stats
+        stats = get_depreciation_stats()["data"]
+        for key in ("total_gross", "total_accumulated", "total_book_value",
+                    "configured_count", "unconfigured_count", "overall_pct",
+                    "by_method", "by_category", "total_assets"):
+            self.assertIn(key, stats, f"stats key '{key}' missing after refactor")
+        self.assertIsInstance(stats["by_method"], list)
+        self.assertIsInstance(stats["by_category"], list)
+
+    def test_unfiltered_list_unchanged_backward_compat(self):
+        """No depreciation_filter ⇒ list still paginates the full table
+        (param is optional; old callers unaffected)."""
+        from assetcore.api.imm00 import list_assets_depreciation
+        res = list_assets_depreciation(page=1, page_size=5)
+        self.assertIn("items", res["data"])
+        self.assertIn("pagination", res["data"])
+        # Unfiltered total >= our 6 seeded assets.
+        self.assertGreaterEqual(res["data"]["pagination"]["total"], 6)
 
 
 if __name__ == "__main__":

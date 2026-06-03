@@ -261,6 +261,29 @@ Bug 2026-05-27: trong lúc cleanup 13:55, test chạy parallel tạo data mới 
 - [ ] Scheduler tạm pause: `bench --site <site> disable-scheduler`
 - [ ] Sau cleanup: `enable-scheduler` + `set-maintenance-mode off`
 
+### R-11: Screenshot/artifact Playwright PHẢI vào `.playwright-mcp/` — KHÔNG để gốc repo
+
+**Bug đã gặp 2026-05-29:** bước [User] eval lưu screenshot ra **gốc repo** với tên tuỳ ý (`3a-imm08-pm-dashboard.png`, `dashboard-admin.png`, ...) → 21 file PNG rải khắp root, lẫn vào `git status`, suýt commit nhầm.
+
+**Quy tắc:**
+
+1. **Mọi** `browser_take_screenshot` (và artifact eval khác) PHẢI ghi vào `.playwright-mcp/` — thư mục này **đã gitignore** (`.gitignore` có dòng `.playwright-mcp/`). Dùng subfolder theo phiên/phase cho gọn:
+   ```
+   .playwright-mcp/eval/<phase>-<module>-<screen>.png
+   # vd: .playwright-mcp/eval/3a-imm08-pm-dashboard.png
+   ```
+   Khi gọi tool, set `filename` = đường dẫn tuyệt đối dưới `.playwright-mcp/eval/`. KHÔNG để mặc định rơi ra cwd (gốc repo).
+
+2. **TUYỆT ĐỐI KHÔNG** lưu `.png`/`.jpg`/artifact eval ra gốc repo hay trong `frontend/`, `assetcore/`. Screenshot là bằng chứng tạm, không phải source → không bao giờ commit.
+
+3. **Self-check cuối mỗi session eval** (phải rỗng):
+   ```bash
+   git status --porcelain --untracked-files=all | grep -iE '\.(png|jpg|jpeg|webp)$'
+   # Có output → đã rơi artifact ra ngoài .playwright-mcp/ → mv vào .playwright-mcp/eval/
+   ```
+
+4. Báo cáo eval **tham chiếu đường dẫn** screenshot dưới `.playwright-mcp/eval/`, không attach/đính kèm ra ngoài.
+
 ---
 
 ## Phần 1 — Backend Tests (Python/Frappe)
@@ -408,6 +431,44 @@ def run() -> None:
 ### Coverage targets
 Priority: Validators → Service entrypoints → Permission gates → Status transitions.
 Skip: trivial getters, Frappe internals, DocType property accessors.
+
+### Event-driven / side-effect feature — assert SIDE-EFFECT, không chỉ return (chống false-green)
+> Học từ bug Notification V2 (2026-05-29): `notify_approval_pending` hard-code state/role không khớp workflow thật → feature **chết** nhưng test vẫn **PASS** vì test data dựng theo đúng giả định sai (dựng state nằm trong tập hard-code, gán field `supervisor`). Test xanh ≠ feature chạy.
+
+Với notification / escalation / hook chain / scheduler / SLA — test PHẢI:
+1. **Verify side-effect THẬT xảy ra**, không chỉ hàm return không lỗi: notification → assert có row `Notification Log` cho đúng recipient; hook chain A→B → assert doc B tồn tại (LL-BE-23); email → assert có Email Queue row.
+2. **Dùng workflow/data THẬT của module**, đừng dựng data khớp giả định của chính code đang test. Recipient resolve phải **non-empty** trên workflow production (LL-BE-30 rule #4).
+3. **Scheduler/background function**: gọi trực tiếp hàm scan với data dựng sẵn (đừng chờ cron), assert đúng số notification + anti-spam (chạy 2 lần không nhân đôi). Verify hàm thực sự đăng ký `scheduler_events` (LL-BE-32).
+4. **RED phải fail vì lý do đúng**: trước khi viết fix, confirm test fail vì side-effect KHÔNG xảy ra — không phải vì assertion gõ sai. Pass ngay từ đầu trên feature mới = nghi ngờ false-green, kiểm lại side-effect có thật được assert.
+
+---
+
+## Phần 1.5 — Frontend Unit Tests (vitest)
+
+> Harness FE thêm 2026-05-29 (phase persona-redesign). Trước đó dự án CHƯA có FE test runner — nay TDD cho logic FE thuần (constants, mapping, composable, component nhỏ) chạy được không cần browser.
+
+### Chạy
+```bash
+cd frontend
+npm run test          # chạy 1 lần (vitest run)
+npm run test:watch    # watch mode khi dev
+npm run typecheck     # vue-tsc --noEmit — bắt type drift
+```
+Config: `frontend/vitest.config.ts` (env jsdom, `@vitejs/plugin-vue` để mount SFC).
+
+### Quy tắc
+1. **Test colocate** cạnh file: `personas.ts` → `personas.test.ts`, `WorkflowStepper.vue` → `WorkflowStepper.test.ts`.
+2. **TDD cho logic FE thuần** — viết test TRƯỚC khi code:
+   - mapping/label dict (status/enum/persona) → test khớp với constant BE (chống LL-FE-3/8/21/30 enum-sync, EN-leak).
+   - regression guard cho bug enum đã fix (vd `repairPriority.test.ts` chốt `Normal|Urgent|Emergency`, chống tái xuất Critical/High/Medium/Low).
+   - composable/derive function (vd `derivePersonas`, `resolveCurrentPersona`).
+   - component nhỏ render theo props (KpiCard, WorkflowStepper) — mount + assert text.
+3. **vitest KHÔNG thay Playwright** — full user journey + workflow buttons + permission gate vẫn test ở Phần 2.
+4. **DoD FE**: `npm run test` + `npm run typecheck` + `npm run build` đều exit 0 TRƯỚC khi mark Done (cùng với Playwright eval). Lint: 0 lỗi MỚI (lỗi pre-existing repo-wide không tính).
+
+### Anti-pattern
+- Mark FE Done chỉ vì build pass mà bỏ vitest cho logic mới → bug enum/mapping lọt (đã gặp nhiều lần — xem LL-FE-3/8/30).
+- Test mapping bằng cách hardcode lại dict trong test (tautology) → phải assert giá trị khớp **nguồn BE thật** (enum DocType / `rbac.CAPABILITY_MAP`).
 
 ---
 
@@ -1048,7 +1109,7 @@ assert "subject" in fields, f"Field 'subject' không tồn tại; có sẵn: {fi
        self.assertNotEqual(acc.workflow_state, "Completed")
    ```
 
-Reference: `CONVENTIONS.md §40`, `assetcore-be` LL-BE-23, `assetcore-audit` Pillar 9, `docs/res/AssetCore_Test_Plan_NextRound_1_Analysis.md` §3.
+Reference: `CONVENTIONS.md §40`, `assetcore-be` LL-BE-23, `assetcore-audit` Pillar 9, `docs/res/reports/AssetCore_Test_Plan_NextRound_1_Analysis.md` §3.
 
 ### LL-TEST-19: Test permission gate cho mọi mutating endpoint (2026-05-27)
 
@@ -1169,3 +1230,11 @@ Reference: `CONVENTIONS.md §41`, `assetcore-be` LL-BE-24, `assetcore-audit` Ph�
    ```
 
 Reference: `CONVENTIONS.md §43`, `assetcore-fe` LL-FE-29.
+
+---
+
+## 🔗 Session context — bàn giao phiên (assetcore-session)
+
+- **Trước khi xử lý/sửa BẤT KỲ việc gì:** chạy `.claude/scripts/session-log.sh show` (đọc STATE+LOG mới nhất — "đang dở ở đâu"; dữ liệu NGOÀI repo, đừng tìm `sessions/` trong repo). Main session hook tự nạp mỗi prompt; subagent phải chạy lệnh này.
+- **Sau MỖI việc đáng kể (đụng file/quyết định):** invoke **`assetcore-session`** checkpoint NGAY `STATE.md`(ghi đè)+`LOG.md` — KHÔNG đợi cuối phiên (ngắt giữa chừng = mất).
+- **Ranh giới:** state-tạm-sẽ-hết → `sessions/`; fact-bền-vững-dùng-lại → `memory/`. KHÔNG trộn.

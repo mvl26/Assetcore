@@ -138,13 +138,14 @@ def _safe_get_user_basic(user: str) -> dict:
     """Lấy thông tin cơ bản từ Frappe User — luôn an toàn (db.get_value, không throw)."""
     data = frappe.db.get_value(
         "User", user,
-        ["full_name", "user_image", "phone"],
+        ["full_name", "user_image", "phone", "role_profile_name"],
         as_dict=True,
     ) or {}
     return {
         "full_name": data.get("full_name") or user,
         "user_image": data.get("user_image"),
         "phone": data.get("phone"),
+        "role_profile_name": data.get("role_profile_name"),
         "roles": frappe.get_roles(user) or [],
     }
 
@@ -221,6 +222,7 @@ def get_user_context():
         "full_name": basic["full_name"],
         "user_image": basic["user_image"],
         "phone": basic["phone"],
+        "role_profile_name": basic.get("role_profile_name"),
         "roles": roles,
         "imm_roles": [r for r in roles if r.startswith("IMM ")],
         "designation": designation,

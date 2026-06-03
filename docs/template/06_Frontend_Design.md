@@ -5,9 +5,9 @@
 | Module | IMM-`<XX>` |
 | Phạm vi | Per-module |
 | Owner | FE Lead + Designer |
-| Module accent | `<orange-600 / emerald-600 / cyan-600 …>` (xem `docs/res/design-frontend.md §7`) |
+| Module accent | `<orange-600 / emerald-600 / cyan-600 …>` (xem `docs/res/design/design-frontend.md §7`) |
 
-> **Mục đích**: Mô tả màn hình module — sitemap, archetype, components dùng, state, copy tiếng Việt. KHÔNG re-define design system — bám `docs/res/design-frontend.md`. Chỉ ghi đặc trưng module.
+> **Mục đích**: Mô tả màn hình module — sitemap, archetype, components dùng, state, copy tiếng Việt. KHÔNG re-define design system — bám `docs/res/design/design-frontend.md`. Chỉ ghi đặc trưng module.
 
 ---
 
@@ -59,7 +59,7 @@ Pattern: lưu ảnh `docs/imm-XX/screenshots/<feature>.png` + caption "Hình N.X
 ```markdown
 ### 3.X. <Archetype> (`<route>`)
 
-> Bám `docs/res/design-frontend.md §3.X`.
+> Bám `docs/res/design/design-frontend.md §3.X`.
 
 **Filter bar / Tabs / KPI / Form section**:
 | Filter / Cột / Field | Type | Default / Render |

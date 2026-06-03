@@ -42,8 +42,10 @@ class IMMDeviceModel(Document):
             cat_code = frappe.db.get_value(
                 "AC Asset Category", self.asset_category, "gmdn_code"
             )
-        my_code = (self.gmdn_code or "").strip()
-        if not my_code or my_code == (cat_code or ""):
+        # gmdn_code may arrive as int from bulk import (openpyxl yields a
+        # numeric cell as int) — coerce before string ops.
+        my_code = str(self.gmdn_code or "").strip()
+        if not my_code or my_code == str(cat_code or "").strip():
             self.gmdn_inherited = 1
         else:
             self.gmdn_inherited = 0

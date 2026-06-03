@@ -8,7 +8,7 @@
       <template #actions>
         <button v-if="assetFilter" class="btn-ghost text-xs" @click="clearAssetFilter">Bỏ lọc theo thiết bị</button>
         <button class="btn-ghost text-sm" @click="showFilters = !showFilters">Bộ lọc</button>
-        <button class="btn-primary text-sm" @click="goToCreate">
+        <button v-if="canUpload" class="btn-primary text-sm" @click="goToCreate">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
           </svg>
@@ -17,24 +17,22 @@
       </template>
     </PageHeader>
 
-    <!-- KPI Banner — clickable filters -->
-    <div v-if="store.kpis" class="kpi-grid">
-      <button class="kpi-card kpi-clickable" @click="filterByKpi('active')">
-        <span class="kpi-value">{{ store.kpis.total_active }}</span>
-        <span class="kpi-label">Tài liệu Active</span>
-      </button>
-      <button class="kpi-card warn kpi-clickable" @click="filterByKpi('expiring')">
-        <span class="kpi-value">{{ store.kpis.expiring_90d }}</span>
-        <span class="kpi-label">Sắp hết hạn (90 ngày)</span>
-      </button>
-      <button class="kpi-card danger kpi-clickable" @click="filterByKpi('expired')">
-        <span class="kpi-value">{{ store.kpis.expired_not_renewed }}</span>
-        <span class="kpi-label">Đã hết hạn</span>
-      </button>
-      <button class="kpi-card info kpi-clickable" @click="filterByKpi('missing')">
-        <span class="kpi-value">{{ store.kpis.assets_missing_docs }}</span>
-        <span class="kpi-label">Thiết bị thiếu hồ sơ</span>
-      </button>
+    <!-- KPI Banner — clickable tiles mở filter; tile thống kê (missing) render tĩnh -->
+    <div v-if="kpiTiles.length" class="kpi-grid">
+      <template v-for="tile in kpiTiles" :key="tile.kind">
+        <button
+          v-if="tile.clickable"
+          type="button"
+          class="kpi-clickable"
+          :aria-label="`Lọc theo: ${tile.label}`"
+          @click="filterByKpi(tile.kind)"
+        >
+          <KpiCard :label="tile.label" :value="tile.value" :color="tile.color" />
+        </button>
+        <div v-else class="kpi-static" :title="tile.hint || ''">
+          <KpiCard :label="tile.label" :value="tile.value" :color="tile.color" />
+        </div>
+      </template>
     </div>
 
     <!-- Filters -->
@@ -55,6 +53,9 @@
         <option value="Expired">Hết hạn</option>
         <option value="Archived">Lưu trữ</option>
         <option value="Rejected">Từ chối</option>
+      </select>
+      <select v-model="filterExpiry" aria-label="Lọc theo hết hạn" @change="applyFilters">
+        <option v-for="o in EXPIRY_OPTIONS" :key="o.value" :value="o.value">{{ o.label }}</option>
       </select>
       <input
         v-model="filters.asset_ref"
@@ -96,7 +97,18 @@
         </thead>
         <TransitionGroup name="list" tag="tbody">
           <tr v-if="store.documents.length === 0" key="empty">
-            <td colspan="8" class="text-center text-muted">Không có tài liệu nào.</td>
+            <td colspan="8" class="empty-cell">
+              <div class="empty-state">
+                <svg class="empty-icon" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                </svg>
+                <p class="empty-title">Chưa có tài liệu nào.</p>
+                <button v-if="canUpload" class="btn-primary text-sm mt-3" @click="goToCreate">
+                  + Tạo Tài liệu mới
+                </button>
+                <p v-else class="empty-hint">Nhấn [+ Tạo Tài liệu mới] để bắt đầu.</p>
+              </div>
+            </td>
           </tr>
           <DocumentRow
             v-for="doc in store.documents"
@@ -192,40 +204,58 @@ import { useToast } from '@/composables/useToast'
 import { ref, reactive, onMounted, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useImm05Store } from '@/stores/imm05'
-import { useAuthStore } from '@/stores/auth'
+import { useCapabilities } from '@/composables/useCapabilities'
 import type { AssetDocumentItem, DocumentFilters } from '@/api/imm05'
 import { formatDatetime } from '@/utils/docUtils'
+import {
+  EXPIRY_OPTIONS,
+  KPI_FILTERS,
+  buildExpiryFilter,
+  buildKpiFilter,
+  composeFilters,
+  type KpiKind,
+} from './documentFilters'
 import DocumentRow from '@/components/document/DocumentRow.vue'
 import DocumentRequestModal from '@/components/document/DocumentRequestModal.vue'
 import ExemptModal from '@/components/document/ExemptModal.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
+import KpiCard from '@/components/common/KpiCard.vue'
 const toast = useToast()
 
 const router = useRouter()
 const route = useRoute()
 const store = useImm05Store()
-const auth = useAuthStore()
+const { can } = useCapabilities()
 
-// ── Role-based visibility filter (Task 1c) ───────────────────────────────────
-function buildRoleVisibilityFilter(base: DocumentFilters): DocumentFilters {
-  const isClinicalHead = auth.roles.includes('IMM Department Head')
-  const isPrivileged = auth.roles.includes('IMM System Admin') || auth.roles.includes('IMM QA Officer')
-  if (isClinicalHead && !isPrivileged) {
-    return { ...base, visibility: 'Public' }
-  }
-  return base
+// Capability gate (LL-FE): UI hide is UX-only — BE rbac.require is the chokepoint.
+// `document.write` = can upload/manage; `document.read` = may view Internal_Only.
+const canUpload = computed(() => can('document.write'))
+
+// BE enforces visibility server-side (_apply_visibility_filter via document.read);
+// FE no longer guesses by role-name. We only narrow the query for non-privileged
+// users to avoid a needless round-trip, mirroring the BE rule.
+function visibilityNarrow(): DocumentFilters {
+  return can('document.read') ? {} : { visibility: 'Public' }
 }
 
 const showFilters = ref(false)
 const filters = reactive<DocumentFilters>({ doc_category: '', workflow_state: '', asset_ref: '' })
+const filterExpiry = ref('')
+
+const kpiTiles = computed(() =>
+  store.kpis
+    ? KPI_FILTERS.map((k) => ({ ...k, value: store.kpis![k.field] ?? 0 }))
+    : [],
+)
 
 // ── QR deep-link: ?asset=AST-xxx ────────────────────────────────────────────
 const assetFilter = computed(() => route.query.asset as string | undefined)
 
 function clearAssetFilter() {
   router.replace({ query: {} })
-  store.fetchDocuments({}, 1)
+  filters.asset_ref = ''
+  store.fetchDocuments(buildActiveFilters(), 1)
 }
 
 // ── Reject dialog ────────────────────────────────────────────────────────────
@@ -251,59 +281,54 @@ const exemptModal = reactive<{ open: boolean; doc: AssetDocumentItem | null }>({
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
 onMounted(async () => {
-  const initialFilters: DocumentFilters = {}
   if (assetFilter.value) {
-    initialFilters.asset_ref = assetFilter.value
     filters.asset_ref = assetFilter.value
   }
   await Promise.all([
-    store.fetchDocuments(buildRoleVisibilityFilter(initialFilters)),
+    store.fetchDocuments(buildActiveFilters()),
     store.fetchDashboardStats(),
   ])
 })
 
 // ── Methods ───────────────────────────────────────────────────────────────────
 
+/** Compose the current UI filter state into a BE-ready DocumentFilters payload. */
+function buildActiveFilters(): DocumentFilters {
+  return composeFilters(
+    visibilityNarrow(),
+    {
+      doc_category: filters.doc_category ?? '',
+      workflow_state: filters.workflow_state ?? '',
+      asset_ref: filters.asset_ref ?? '',
+    },
+    buildExpiryFilter(filterExpiry.value),
+  )
+}
+
 function applyFilters() {
-  const active: DocumentFilters = {}
-  if (filters.doc_category) active.doc_category = filters.doc_category
-  if (filters.workflow_state) active.workflow_state = filters.workflow_state
-  if (filters.asset_ref) active.asset_ref = filters.asset_ref
-  store.fetchDocuments(buildRoleVisibilityFilter(active), 1)
+  store.fetchDocuments(buildActiveFilters(), 1)
 }
 
 function resetFilters() {
   filters.doc_category = ''
   filters.workflow_state = ''
   filters.asset_ref = ''
-  store.fetchDocuments(buildRoleVisibilityFilter({}), 1)
+  filterExpiry.value = ''
+  store.fetchDocuments(composeFilters(visibilityNarrow()), 1)
 }
 
-function filterByKpi(kind: 'active' | 'expiring' | 'expired' | 'missing') {
+function filterByKpi(kind: KpiKind) {
+  // Tile non-clickable (vd 'missing') render tĩnh, không gọi vào đây. Guard an toàn:
+  // KHÔNG điều hướng nếu không có filter document-list thật (tránh điều hướng sai lệch).
+  if (buildKpiFilter(kind) === null) return
   showFilters.value = true
   filters.doc_category = ''
   filters.asset_ref = ''
-  if (kind === 'active') {
-    filters.workflow_state = 'Active'
-  } else if (kind === 'expired') {
-    filters.workflow_state = 'Expired'
-  } else if (kind === 'expiring') {
-    filters.workflow_state = 'Active'
-    // BE-side filter for expiring needs an additional param;
-    // for now we trigger an API helper that already exists.
-    fetchExpiringOnly()
-    return
-  } else if (kind === 'missing') {
-    toast.error('Tính năng "Thiết bị thiếu hồ sơ" — xem dashboard riêng (đang phát triển).')
-    return
-  }
-  applyFilters()
-}
-
-async function fetchExpiringOnly() {
-  await store.fetchExpiringDocuments(90)
-  const n = store.expiringDocs?.length ?? 0
-  toast.success(`Có ${n} tài liệu sẽ hết hạn trong 90 ngày.`)
+  const kpiFilter = buildKpiFilter(kind) ?? {}
+  // Reflect the KPI choice in the visible filter controls.
+  filters.workflow_state = (kpiFilter.workflow_state as string) ?? ''
+  filterExpiry.value = kind === 'expiring' ? '90' : ''
+  store.fetchDocuments(composeFilters(visibilityNarrow(), kpiFilter), 1)
 }
 
 function goToCreate() {
@@ -399,14 +424,14 @@ function onExempted(docName: string) {
 .clear-filter:hover { color: #ef4444; }
 .header-actions { display: flex; gap: 0.75rem; }
 
-/* KPI */
+/* KPI — tiles render via shared KpiCard; wrapper button makes them clickable */
 .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1.5rem; }
-.kpi-card { background: white; border-radius: 8px; padding: 1rem; border-left: 4px solid #4f8ef7; box-shadow: 0 1px 4px rgba(0,0,0,.08); display: flex; flex-direction: column; }
-.kpi-card.warn { border-color: #f59e0b; }
-.kpi-card.danger { border-color: #ef4444; }
-.kpi-card.info { border-color: #6366f1; }
-.kpi-value { font-size: 2rem; font-weight: 700; }
-.kpi-label { font-size: 0.8rem; color: #6b7280; }
+.kpi-clickable { all: unset; cursor: pointer; display: block; border-radius: 10px; transition: transform .12s ease, box-shadow .12s ease; }
+.kpi-clickable:hover { transform: translateY(-2px); }
+.kpi-clickable:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+/* Tile thống kê (không điều hướng) — không cursor/hover, phân biệt với clickable */
+.kpi-static { display: block; border-radius: 10px; cursor: default; }
+@media (max-width: 900px) { .kpi-grid { grid-template-columns: repeat(2, 1fr); } }
 
 /* Filters */
 .filter-bar { display: flex; gap: 0.75rem; align-items: center; background: #f9fafb; padding: 0.75rem 1rem; border-radius: 8px; margin-bottom: 1rem; flex-wrap: wrap; }
@@ -463,6 +488,13 @@ function onExempted(docName: string) {
 .field-changes { display: flex; flex-wrap: wrap; gap: 0.5rem; }
 .field-change { font-size: 0.75rem; color: #374151; background: white; border: 1px solid #e5e7eb; padding: 2px 6px; border-radius: 4px; }
 .field-change code { font-weight: 600; color: #5b21b6; }
+
+/* Empty state (Core Doc §8 — actionable) */
+.empty-cell { padding: 0 !important; }
+.empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 3rem 1rem; color: #94a3b8; }
+.empty-icon { width: 2.5rem; height: 2.5rem; margin-bottom: 0.75rem; color: #cbd5e1; }
+.empty-title { font-size: 0.9rem; font-weight: 500; color: #475569; }
+.empty-hint { font-size: 0.8rem; margin-top: 0.5rem; }
 
 /* Utils */
 .text-center { text-align: center; }

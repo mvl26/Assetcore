@@ -28,6 +28,80 @@ _FREQ_MONTHS: dict[str, int] = {
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
 
+def _clamp_book_value(gross: float, residual: float, accumulated: float) -> float:
+    """Điểm sàn DUY NHẤT cho book value — dùng chung bởi executor + planner + preview.
+
+    INVARIANT-1 (BR-05-11 / INV-DEP-1): book value KHÔNG BAO GIỜ < residual.
+    Sàn tại `residual`, KHÔNG tại 0.0 → tài sản không khấu hao xuyên qua giá trị
+    thu hồi (đúng NĐ98 / chuẩn kế toán VN). Khi residual=0 ⇒ hành vi cũ (sàn tại 0).
+
+    Gom logic floor về một chỗ (DRY) để executor và schedule rows luôn nhất quán.
+    """
+    return max(flt(gross) - flt(accumulated), flt(residual))
+
+
+def _clamp_accumulated(gross: float, residual: float, accumulated: float) -> float:
+    """Chặn trần lũy kế — dùng chung bởi executor.
+
+    INVARIANT-2 (BR-05-12 / INV-DEP-2): accumulated_depreciation KHÔNG BAO GIỜ
+    vượt depreciable_base = gross - residual. Xử lý cron trễ gộp nhiều kỳ +
+    rounding kỳ cuối khiến lũy kế vọt qua trần.
+    """
+    depreciable_base = max(flt(gross) - flt(residual), 0.0)
+    return min(flt(accumulated), depreciable_base)
+
+
+# ─── "Hết khấu hao" (fully depreciated) predicate — SoT DUY NHẤT ───────────────
+#
+# Một asset được coi là "hết khấu hao" khi:
+#   1. configured: đã cấu hình quy tắc khấu hao (method != None/rỗng ∧ gross>0 ∧ months>0)
+#   2. current_book_value <= residual_value + 1 (book đã chạm sàn residual,
+#      tolerance 1đ cho rounding kỳ cuối).
+# KHI residual=0 ⇒ asset chỉ "hết KH" khi book<=1 (≈0) — backward-compat với
+# asset khấu hao về 0, KHÔNG kéo asset đang khấu hao dở vào tập.
+#
+# SoT DUY NHẤT: get_depreciation_stats (KPI count) + list_assets_depreciation
+# (drill rows) PHẢI gọi chung hàm này — KHÔNG inline lại biểu thức `book<=residual+1`
+# ở 2 nơi (drift risk → KPI count != drill rows).
+
+_FULLY_DEPRECIATED_TOLERANCE = 1.0
+
+
+def is_configured_for_depreciation(asset_row: dict) -> bool:
+    """True khi asset đã cấu hình quy tắc khấu hao đủ để chạy schedule.
+
+    configured = method ∧ method != 'None' ∧ gross > 0 ∧ months > 0.
+    Mirror nguyên văn điều kiện `configured` trong _depr_enrich_row /
+    get_depreciation_stats (api/imm00.py) — gom về 1 nơi để tránh drift.
+    """
+    method = (asset_row.get("depreciation_method") or "").strip()
+    gross = flt(asset_row.get("gross_purchase_amount") or 0)
+    months = int(asset_row.get("total_depreciation_months") or 0)
+    return bool(method and method != "None" and gross > 0 and months > 0)
+
+
+def is_fully_depreciated(asset_row: dict) -> bool:
+    """SoT DUY NHẤT — asset đã "hết khấu hao" hay chưa.
+
+    True ⟺ configured ∧ current_book_value <= residual_value + tolerance(1đ).
+    - configured = is_configured_for_depreciation(asset_row) — chưa cấu hình
+      KHÔNG bao giờ tính hết KH (dù book<=residual).
+    - tolerance 1đ hấp thụ rounding kỳ cuối; book==residual+2 ⇒ False (ngoài tolerance).
+    - residual=0 ⇒ chỉ True khi book<=1 (≈0) — backward-compat.
+
+    `asset_row` là dict đã có/có thể suy ra current_book_value & residual_value
+    (fallback book = gross khi thiếu, mirror enrich). KHÔNG đụng DB ở đây
+    (pure predicate) — caller phải enrich trước.
+    """
+    if not is_configured_for_depreciation(asset_row):
+        return False
+    gross = flt(asset_row.get("gross_purchase_amount") or 0)
+    residual = flt(asset_row.get("residual_value") or 0)
+    raw_book = asset_row.get("current_book_value")
+    book = flt(raw_book) if raw_book is not None else gross
+    return book <= residual + _FULLY_DEPRECIATED_TOLERANCE
+
+
 def _period_end_date(start_date, period_idx: int, months_per_period: int):
     """Tính end date của kỳ thứ period_idx (0-based).
 
@@ -171,7 +245,7 @@ def generate_schedule(asset_name: str, *, force: bool = False) -> dict:
     accumulated = 0.0
     for i, amt in enumerate(amounts):
         accumulated += amt
-        remaining = max(gross - accumulated, residual)
+        remaining = _clamp_book_value(gross, residual, accumulated)
         asset.append("depreciation_schedule", {
             "period_number": i + 1,
             "scheduled_date": _period_end_date(start_date, i, months_per_period),
@@ -244,12 +318,23 @@ def run_due_depreciation(as_of: str | None = None, asset: str | None = None) -> 
 
     # Update parent assets
     for asset_name, inc in asset_amounts.items():
-        acc, gross = frappe.db.get_value(
+        acc, gross, residual = frappe.db.get_value(
             _DT_ASSET, asset_name,
-            ["accumulated_depreciation", "gross_purchase_amount"],
+            ["accumulated_depreciation", "gross_purchase_amount", "residual_value"],
         )
-        new_acc = flt(acc or 0) + inc
-        new_book = max(flt(gross or 0) - new_acc, 0.0)
+        gross = flt(gross or 0)
+        residual = flt(residual or 0)
+        # BR-05-11..12 (INV-DEP-1/2): khấu hao thực thi PHẢI sàn book value tại
+        # giá trị thu hồi (residual), KHÔNG sàn tại 0 — và chặn trần lũy kế ở
+        # depreciable_base (gross - residual). Dùng helper chung với Planner
+        # (generate_schedule / preview_schedule) để công thức floor luôn đồng nhất
+        # và đúng NĐ98 / chuẩn kế toán VN: tài sản không khấu hao xuống dưới residual.
+        # _clamp_accumulated xử lý cron trễ gộp nhiều kỳ + rounding kỳ cuối khiến
+        # prev_acc + inc vượt depreciable_base.
+        prev_acc = flt(acc or 0)
+        new_acc = _clamp_accumulated(gross, residual, prev_acc + inc)
+        new_book = _clamp_book_value(gross, residual, new_acc)
+        booked = new_acc - prev_acc  # phần thực ghi (sau khi chặn trần)
         frappe.db.set_value(_DT_ASSET, asset_name, {
             "accumulated_depreciation": new_acc,
             "current_book_value": new_book,
@@ -262,7 +347,7 @@ def run_due_depreciation(as_of: str | None = None, asset: str | None = None) -> 
                 actor="Administrator",
                 from_status="", to_status="",
                 root_doctype=_DT_ASSET, root_record=asset_name,
-                notes=f"Depreciated {inc:,.0f} VND, book value = {new_book:,.0f}",
+                notes=f"Depreciated {booked:,.0f} VND, book value = {new_book:,.0f}",
             )
         except Exception:
             pass
@@ -363,7 +448,7 @@ def preview_schedule(
     accumulated = 0.0
     for i, amt in enumerate(amounts):
         accumulated += amt
-        remaining = max(float(gross) - accumulated, float(residual or 0))
+        remaining = _clamp_book_value(gross, residual or 0, accumulated)
         rows.append({
             "period_number": i + 1,
             "scheduled_date": str(_period_end_date(start_date, i, months_per_period)),

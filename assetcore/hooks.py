@@ -12,12 +12,15 @@ app_license = "MIT"
 # Fixtures — RBAC module-based (4 System + 26 Domain = 30 role)
 # ──────────────────────────────────────────────
 from assetcore.services.shared.constants import Roles as _Roles
+from assetcore.setup.role_profile_catalog import PROFILE_NAMES as _ROLE_PROFILE_NAMES
 
 _IMM_ROLES = list(_Roles.ALL)
 fixtures = [
     {"dt": "Role", "filters": [["name", "in", _IMM_ROLES]]},
-    # Role Profile + Module Profile bị bỏ trong mô hình mới — gán role trực
-    # tiếp qua Has Role (User form HOẶC trang FE /admin/roles).
+    # 8 Role Profile (tên VI thuần) — cơ chế gán bộ role chọn sẵn chuẩn Frappe.
+    # Core Doc FE_Persona_Navigation.md §7.quinquies. Seed/idempotent qua
+    # setup_role_profiles.run; fixture để fresh-site provisioning áp được.
+    {"dt": "Role Profile", "filters": [["name", "in", _ROLE_PROFILE_NAMES]]},
     {"dt": "IMM SLA Policy"},
     {"dt": "Workspace", "filters": [["name", "in", ["IMM Operations"]]]},
     {"dt": "Workflow", "filters": [["name", "in", [
@@ -218,12 +221,30 @@ doc_events = {
     "PM Work Order": {
         "validate": "assetcore.services.imm16.gate_wo_submit",
         "before_submit": "assetcore.services.imm15.reserve_for_pm",
-        "on_submit": "assetcore.services.imm16.eval_imm08_09_realtime",
+        "on_update": [
+            # Notification Framework (Wave N1): gán KTV + chuyển state cần duyệt
+            "assetcore.services.notifications.notify_assignment",
+            "assetcore.services.notifications.notify_approval_pending",
+            # Vòng 7 — E5: chuyển VÀO state nguy cấp (Halted–Major Failure) → báo
+            # supervisor + role quản trị can thiệp (§III.1b-5).
+            "assetcore.services.notifications.notify_escalation",
+        ],
+        "on_submit": [
+            "assetcore.services.imm16.eval_imm08_09_realtime",
+            "assetcore.services.notifications.notify_assignment",
+        ],
     },
     "Asset Repair": {
         "validate": "assetcore.services.imm16.gate_wo_submit",
         "before_submit": "assetcore.services.imm15.reserve_for_repair",
-        "on_submit": "assetcore.services.imm16.eval_imm08_09_realtime",
+        "on_update": [
+            "assetcore.services.notifications.notify_assignment",
+            "assetcore.services.notifications.notify_approval_pending",
+        ],
+        "on_submit": [
+            "assetcore.services.imm16.eval_imm08_09_realtime",
+            "assetcore.services.notifications.notify_assignment",
+        ],
     },
     "AC Asset": {
         "after_insert": [
@@ -236,6 +257,8 @@ doc_events = {
     # ─── IMM-12 NEG-11: chặn đóng Incident High/Critical chưa có RCA Completed ───
     "Incident Report": {
         "validate": "assetcore.services.imm12.validate_incident_close_gate",
+        # Notification Framework (vòng 3 — E3): Incident mới tạo → báo người phụ trách.
+        "after_insert": "assetcore.services.notifications.notify_incident_created",
     },
     # ─── IMM-16 Compliance real-time evaluation ───
     "Asset Document": {
@@ -259,6 +282,11 @@ scheduler_events = {
         "assetcore.services.imm00.check_service_contract_expiry",
         # IMM-05 document expiry alerts
         "assetcore.services.imm05.check_document_expiry",
+        # IMM-08 PM overdue flip — BR-08-11 root-cause: trước đây cron này KHÔNG
+        # được đăng ký nên status Overdue không bao giờ set ở prod (KPI luôn 0).
+        # PHẢI chạy TRƯỚC generate để count_overdue_pm() == drill-down (?overdue=1)
+        # phản ánh đúng trong ngày (SoT is_pm_overdue/OVERDUE_SOURCE_STATES).
+        "assetcore.tasks.check_pm_overdue",
         # IMM-08 PM auto work order generation
         "assetcore.services.imm08.backfill_pm_schedules_for_due_assets",
         "assetcore.services.imm08.generate_pm_work_orders_from_schedule",
@@ -288,6 +316,11 @@ scheduler_events = {
         "assetcore.services.imm15.check_critical_spare_breach",
         "assetcore.services.imm15.check_expiring_batches",
         "assetcore.services.imm15.compute_inventory_kpis",
+        # IMM-04 — overdue commissioning SLA alert (BR-04-10). Email Workshop Head
+        # phiếu quá hạn > OVERDUE_DAYS từ reception_date. Dùng CHUNG SoT
+        # overdue_commissioning_filter() với dashboard KPI + list drill (?overdue=1)
+        # → tập nhận mail == tập KPI == tập drill rows (cùng anchor reception_date).
+        "assetcore.services.imm04.check_commissioning_overdue",
         # IMM-16 Compliance Monitoring
         "assetcore.services.imm16.evaluate_all_compliance_rules",
         "assetcore.services.imm16.check_capa_due",
@@ -319,6 +352,10 @@ scheduler_events = {
     "hourly": [
         # IMM-16 real-time stock breach evaluation
         "assetcore.services.imm16.run_compliance_evaluation_hourly",
+        # E6 — Notification SLA breach/warning scan (IMM-09 Asset Repair, vòng 8)
+        "assetcore.services.notifications.run_sla_breach_scan",
+        # BR-12-08 — IMM-12 Incident SLA breach detection (R23)
+        "assetcore.services.imm12.check_incident_sla_breach",
     ],
     # Frappe v15 không có "quarterly" → dùng cron expression
     "cron": {
@@ -338,7 +375,7 @@ scheduler_events = {
 # ──────────────────────────────────────────────
 # AUTH-01: Vendor Engineer (KTV NCC) scope at BE detail/API.
 # AUTH-10: IDOR — direct URL access to specific record enforces same scope as list.
-# See `assetcore/permissions.py` docstring + `docs/res/user-scope-filter-analysis.md` §3.
+# See `assetcore/permissions.py` docstring + `docs/res/rbac/user-scope-filter-analysis.md` §3.
 permission_query_conditions = {
     "AC Asset": "assetcore.permissions.ac_asset_query",
     "Incident Report": "assetcore.permissions.incident_report_query",

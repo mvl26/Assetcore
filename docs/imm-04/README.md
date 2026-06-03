@@ -6,7 +6,7 @@
 | Wave | 1 |
 | Trạng thái | Mature — có v2 UAT |
 | Số file hiện có | 8 |
-| Cập nhật cuối | 2026-05-27 |
+| Cập nhật cuối | 2026-06-03 |
 | Khối kiến trúc | B. KHỐI 2 |
 | Đợt triển khai | 1 |
 | Owner | PTP Khối 2 · Workshop / Nhóm TBYT · Mạng lưới TBYT nội viện |

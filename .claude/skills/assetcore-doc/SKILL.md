@@ -503,3 +503,11 @@ KHÔNG viết: "Hệ thống hỗ trợ X" hoặc "X được tích hợp sẵn"
 - [ ] RBAC mô tả 30 role module-based, KHÔNG persona cũ
 - [ ] Cam kết SLA / coverage / CI khả thi — verify trước khi ký
 - [ ] Cross-check với `CONVENTIONS.md §34` evidence table
+
+---
+
+## 🔗 Session context — bàn giao phiên (assetcore-session)
+
+- **Trước khi xử lý/sửa BẤT KỲ việc gì:** chạy `.claude/scripts/session-log.sh show` (đọc STATE+LOG mới nhất — "đang dở ở đâu"; dữ liệu NGOÀI repo, đừng tìm `sessions/` trong repo). Main session hook tự nạp mỗi prompt; subagent phải chạy lệnh này.
+- **Sau MỖI việc đáng kể (đụng file/quyết định):** invoke **`assetcore-session`** checkpoint NGAY `STATE.md`(ghi đè)+`LOG.md` — KHÔNG đợi cuối phiên (ngắt giữa chừng = mất).
+- **Ranh giới:** state-tạm-sẽ-hết → `sessions/`; fact-bền-vững-dùng-lại → `memory/`. KHÔNG trộn.

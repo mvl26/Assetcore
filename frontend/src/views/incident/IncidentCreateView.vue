@@ -4,6 +4,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { reportIncident } from '@/api/imm12'
 import SmartSelect from '@/components/common/SmartSelect.vue'
 import { useFormDraft } from '@/composables/useFormDraft'
+import { incidentSeverityLabel, INCIDENT_TYPE_LABEL } from '@/constants/labels'
 
 const router = useRouter()
 const route = useRoute()
@@ -95,16 +96,16 @@ async function submit() {
           <label for="inc-type" class="block text-sm font-medium text-slate-700 mb-1">Loại sự cố <span class="text-red-500">*</span></label>
           <select id="inc-type" v-model="form.incident_type" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
             <option value="">-- Chọn --</option>
-            <option v-for="t in INCIDENT_TYPES" :key="t" :value="t">{{ t }}</option>
+            <option v-for="t in INCIDENT_TYPES" :key="t" :value="t">{{ INCIDENT_TYPE_LABEL[t] ?? t }}</option>
           </select>
         </div>
         <div>
-          <label for="inc-severity" class="block text-sm font-medium text-slate-700 mb-1">Severity <span class="text-red-500">*</span></label>
+          <label for="inc-severity" class="block text-sm font-medium text-slate-700 mb-1">Mức độ <span class="text-red-500">*</span></label>
           <select id="inc-severity" v-model="form.severity" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
             <option value="">-- Chọn --</option>
-            <option v-for="s in SEVERITIES" :key="s" :value="s">{{ s }}</option>
+            <option v-for="s in SEVERITIES" :key="s" :value="s">{{ incidentSeverityLabel(s) }}</option>
           </select>
-          <p v-if="form.severity === 'Critical'" class="text-xs text-red-600 mt-1">Mức Khẩn cấp sẽ tự động tạo CAPA khi gửi.</p>
+          <p v-if="form.severity === 'Critical'" class="text-xs text-red-600 mt-1">Mức Nghiêm trọng sẽ tự động đưa thiết bị về Ngừng sử dụng và bắt buộc lập RCA trước khi đóng.</p>
         </div>
       </div>
 

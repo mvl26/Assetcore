@@ -14,6 +14,8 @@ import BaseModal from '@/components/common/BaseModal.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import RecordHistory from '@/components/common/RecordHistory.vue'
 import { sanitizeHtml } from '@/utils/sanitizeHtml'
+import { translateStatus } from '@/utils/formatters'
+import { capaWorkflowLabel } from '@/constants/labels'
 
 const route = useRoute()
 const router = useRouter()
@@ -43,6 +45,12 @@ const transitions = computed<Transition[]>(() => TRANSITIONS[wfState.value] ?? [
 const isVerification = computed(() => wfState.value === 'Verification')
 const isClosed = computed(() => wfState.value === 'Closed')
 const isEditable = computed(() => !isClosed.value)
+
+// Lifecycle status (SoT) — KHÁC workflow_state (stage). Cron check_capa_overdue
+// flip `status`='Overdue' mà KHÔNG đổi workflow_state, nên header phải surface
+// CẢ HAI để khớp CAPAListView (render capa.status) + DB + get_capa API.
+// Fallback về wfState nếu BE chưa trả status (an toàn, không vỡ layout cũ).
+const lifecycleStatus = computed<string>(() => capa.value?.status || wfState.value)
 
 const loadError = ref('')
 async function load() {
@@ -154,9 +162,21 @@ onMounted(load)
             <p class="text-xs text-slate-400 font-mono">{{ capa.name }}</p>
             <p class="text-base font-medium text-slate-800 mt-1">{{ capa.description || '(Chưa có mô tả)' }}</p>
           </div>
-          <div class="flex gap-2 flex-shrink-0">
-            <StatusBadge :state="capa.severity" />
-            <StatusBadge :state="wfState" />
+          <div class="flex flex-wrap items-end gap-3 flex-shrink-0">
+            <div class="flex flex-col items-center gap-1">
+              <span class="t-eyebrow">Mức độ</span>
+              <StatusBadge :state="capa.severity" />
+            </div>
+            <!-- Lifecycle status (SoT) — khớp CAPAListView/DB, invariant dưới cron flip -->
+            <div class="flex flex-col items-center gap-1">
+              <span class="t-eyebrow">Trạng thái</span>
+              <StatusBadge :state="lifecycleStatus" />
+            </div>
+            <!-- Workflow stage (giai đoạn máy trạng thái) — drive nút transition -->
+            <div class="flex flex-col items-center gap-1">
+              <span class="t-eyebrow">Tiến trình</span>
+              <StatusBadge :state="wfState" />
+            </div>
           </div>
         </div>
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-sm pt-3 border-t border-slate-100">
@@ -174,7 +194,7 @@ onMounted(load)
           </div>
           <div>
             <p class="t-eyebrow mb-1">Mức rủi ro / Reopen</p>
-            <p class="font-medium">{{ capa.imm_risk_level || '—' }} · {{ capa.imm_reopen_count ?? 0 }} lần</p>
+            <p class="font-medium">{{ capa.imm_risk_level ? translateStatus(capa.imm_risk_level) : '—' }} · {{ capa.imm_reopen_count ?? 0 }} lần</p>
           </div>
         </div>
         <div v-if="capa.finding_ref || capa.incident_ref" class="pt-3 border-t border-slate-100 space-y-1.5">
@@ -186,7 +206,7 @@ onMounted(load)
             <span v-if="capa.finding_rule" class="text-xs text-slate-400 ml-2">({{ capa.finding_rule }})</span>
           </div>
           <div v-if="capa.incident_ref">
-            <p class="t-eyebrow mb-1">Sự cố nguồn (Incident Report)</p>
+            <p class="t-eyebrow mb-1">Sự cố nguồn</p>
             <button class="font-mono text-sm text-brand-700 font-semibold hover:underline" @click="router.push(`/incidents/${capa.incident_ref}`)">
               {{ capa.incident_ref }}
             </button>
@@ -232,7 +252,7 @@ onMounted(load)
         <div>
           <p class="t-eyebrow mb-1.5">Xác minh hiệu quả</p>
           <p class="text-sm text-slate-700">
-            {{ capa.effectiveness_check || '— (chưa xác minh)' }}
+            {{ capa.effectiveness_check ? translateStatus(capa.effectiveness_check) : '— (chưa xác minh)' }}
           </p>
         </div>
         <div>
@@ -285,7 +305,7 @@ onMounted(load)
     <!-- Transition modal -->
     <BaseModal v-if="showTransition && pendingTransition" :title="pendingTransition.label" size="md" @close="showTransition = false">
       <div class="space-y-3">
-        <p class="text-sm text-slate-600">Chuyển CAPA sang trạng thái <strong>{{ pendingTransition.target }}</strong>.</p>
+        <p class="text-sm text-slate-600">Chuyển CAPA sang trạng thái <strong>{{ capaWorkflowLabel(pendingTransition.target) }}</strong>.</p>
         <template v-if="pendingTransition.target === 'Action Plan'">
           <div class="form-group">
             <label class="form-label">Phương pháp phân tích gốc (VR-05) *</label>

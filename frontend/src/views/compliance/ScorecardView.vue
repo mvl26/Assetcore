@@ -79,6 +79,14 @@ async function runEvaluation() {
   if (res) { await loadCurrent(); await loadHistory() }
 }
 
+// Show the adjudication breakdown row only when BE provides the counts.
+// These are read-only BE-provided values — the FE never computes score_pct
+// from them (score_pct comes straight from compute_compliance_rate on BE).
+const hasAdjudicationBreakdown = computed(() =>
+  !!current.value &&
+  (current.value.compliant_count != null || current.value.non_compliant_count != null),
+)
+
 const trendClass = computed(() => {
   if (!current.value) return ''
   const t = current.value.trend_vs_prev_month
@@ -183,6 +191,30 @@ onMounted(() => { loadLatest(); loadHistory() })
             <p class="t-eyebrow mb-2">Người duyệt</p>
             <p class="text-sm font-semibold text-slate-900 truncate mt-1">{{ current.approved_by_for_review || '—' }}</p>
           </div>
+        </div>
+
+        <!-- Adjudication breakdown (read-only, BE-provided). Renders only when BE -->
+        <!-- ships the counts. Makes explicit that 100 − score ≠ "tuân thủ": findings -->
+        <!-- chưa phân định (Đang xét) KHÔNG nằm trong mẫu số điểm tuân thủ. -->
+        <div
+          v-if="hasAdjudicationBreakdown"
+          class="mt-4 flex flex-wrap items-center gap-2 text-[11px]"
+          data-testid="adjudication-breakdown"
+        >
+          <span class="inline-flex items-center px-2.5 py-0.5 rounded-full font-medium bg-emerald-50 text-emerald-700 border border-emerald-100">
+            Tuân thủ: {{ current.compliant_count }}
+          </span>
+          <span class="inline-flex items-center px-2.5 py-0.5 rounded-full font-medium bg-red-50 text-red-700 border border-red-100">
+            Không tuân thủ: {{ current.non_compliant_count }}
+          </span>
+          <span
+            v-if="current.pending_count != null"
+            class="inline-flex items-center px-2.5 py-0.5 rounded-full font-medium bg-amber-50 text-amber-700 border border-amber-100"
+            data-testid="pending-badge"
+            title="Finding chưa phân định (Mở + Đang xem xét) — KHÔNG tính vào điểm tuân thủ"
+          >
+            Đang xét: {{ current.pending_count }}
+          </span>
         </div>
       </template>
     </div>

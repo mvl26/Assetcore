@@ -132,9 +132,14 @@ onMounted(load)
             <thead>
               <tr class="text-xs text-slate-400 border-b border-slate-100">
                 <th class="py-2 text-left font-medium">Phụ tùng</th>
-                <th class="py-2 text-right font-medium">Tồn</th>
-                <th class="py-2 text-right font-medium">Giữ chỗ</th>
-                <th class="py-2 text-right font-medium">Còn lại</th>
+                <th class="py-2 text-right font-medium" title="Tồn vật lý thực có trong kho">Tồn</th>
+                <th
+                  class="py-2 text-right font-medium cursor-help"
+                  title="Đã giữ = phiếu cấp phát chưa xuất đang giữ chỗ. Khả dụng = Tồn − Đã giữ."
+                >
+                  <span class="border-b border-dotted border-slate-300">Đã giữ</span>
+                </th>
+                <th class="py-2 text-right font-medium" title="Khả dụng = Tồn − Đã giữ (phần có thể xuất)">Khả dụng</th>
                 <th class="py-2 text-right font-medium">Đơn giá</th>
                 <th class="py-2 text-right font-medium">Giá trị</th>
                 <th class="py-2 text-left font-medium hidden md:table-cell">Giao dịch cuối</th>
@@ -152,8 +157,12 @@ v-for="s in wh.stock_items" :key="s.spare_part"
                 <td class="py-2.5 text-right font-semibold text-slate-800">
                   {{ s.qty_on_hand }}
                 </td>
-                <td class="py-2.5 text-right text-slate-500">{{ s.reserved_qty || 0 }}</td>
-                <td class="py-2.5 text-right text-emerald-600 font-medium">{{ s.available_qty ?? s.qty_on_hand }}</td>
+                <td
+                  class="py-2.5 text-right"
+                  :class="s.reserved_qty > 0 ? 'text-amber-600 font-medium' : 'text-slate-400'"
+                  :title="s.reserved_qty > 0 ? 'Đang được phiếu cấp phát chưa xuất giữ chỗ' : undefined"
+                >{{ s.reserved_qty ?? 0 }}</td>
+                <td class="py-2.5 text-right text-emerald-600 font-medium">{{ s.available_qty ?? 0 }}</td>
                 <td class="py-2.5 text-right text-xs text-slate-500">{{ vnd(s.unit_cost) }}</td>
                 <td class="py-2.5 text-right font-medium text-slate-700">{{ vnd(s.stock_value) }}</td>
                 <td class="py-2.5 text-xs text-slate-400 hidden md:table-cell">{{ formatDt(s.last_movement_date) }}</td>

@@ -121,6 +121,12 @@ def return_allocation(allocation_name: str = "",
     return _handle(svc.return_items, allocation_name, items_list)
 
 
+@frappe.whitelist(methods=["POST"])
+def cancel_allocation(allocation: str = "", name: str = "") -> dict:
+    """§III-bis.3 POST cancel_allocation — hủy phiếu (release reserved)."""
+    return _handle(svc.cancel_allocation, allocation or name)
+
+
 # ─── Cycle Counts ─────────────────────────────────────────────────────────────
 
 @frappe.whitelist()

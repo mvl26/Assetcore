@@ -1,7 +1,7 @@
 # Copyright (c) 2026, AssetCore Team
 """IMM-12 — Incident & CAPA API endpoints.
 
-Incident workflow: Open → Under Investigation → Resolved → Closed
+Incident workflow: Open → Acknowledged → In Progress → Resolved → Closed
 CAPA endpoints: delegate to imm00 (create_capa, list_capa, get_capa, close_capa).
 
 Base URL: /api/method/assetcore.api.imm12
@@ -11,38 +11,49 @@ from __future__ import annotations
 import frappe
 from frappe import _
 
-from assetcore.utils.response import _ok, _err
-from assetcore.services.shared import ServiceError
+from assetcore.utils.response import _err
+from assetcore.utils.api_handler import handle, parse_json
+from assetcore.services.shared import rbac
 from assetcore.services.shared.scope import assert_vendor_can_access
 from assetcore.services.imm12 import (
-    IncidentError,
     report_incident as svc_report,
     cancel_incident as svc_cancel,
     acknowledge_incident as svc_acknowledge,
+    start_work as svc_start_work,
     resolve_incident as svc_resolve,
+    list_rcas as svc_list_rcas,
     close_incident as svc_close,
     create_rca as svc_create_rca,
     get_rca as svc_get_rca,
     submit_rca as svc_submit_rca,
     list_incidents as svc_list,
     get_incident_detail as svc_get,
-    get_incident_stats as svc_stats,
     get_asset_incident_history as svc_asset_history,
     get_chronic_failures as svc_chronic,
     get_dashboard as svc_dashboard,
+    get_incident_stats as svc_stats,
 )
-
-_ROLES_INVESTIGATE = {"IMM Workshop Lead", "IMM Technician", "IMM QA Officer", "System Manager"}
-_ROLES_CLOSE = {"IMM Workshop Lead", "IMM QA Officer", "System Manager"}
 
 _MSG_UNAUTHENTICATED = "Chưa đăng nhập"
 _MSG_SERVER_ERROR = "Lỗi server"
 _MSG_FORBIDDEN = "Không có quyền thực hiện hành động này"
 
+# R16 FIX: gate IMM-12 theo CAPABILITY THẬT (DocPerm trên Incident Report) —
+# KHÔNG hardcode role-name không tồn tại trong fixtures/role.json. Trước fix,
+# _ROLES_INVESTIGATE/_ROLES_CLOSE dùng tên bịa ("IMM Workshop Lead"...) nên mọi
+# Corrective Manager/User bị 403 → toàn bộ workflow incident chết. Capability
+# resolve qua frappe.has_permission → tôn trọng Role Profile thật + granular
+# (write = triage/work/resolve/RCA; submit = close). Cùng pattern IMM-09.
+_CAP_INVESTIGATE = "incident.acknowledge"  # → ("Incident Report", "write")
+_CAP_CLOSE = "incident.close"              # → ("Incident Report", "submit")
 
-def _has_role(*roles: str) -> bool:
-    user_roles = set(frappe.get_roles())
-    return bool(user_roles & set(roles))
+
+def _can_investigate() -> bool:
+    return rbac.can(_CAP_INVESTIGATE)
+
+
+def _can_close() -> bool:
+    return rbac.can(_CAP_CLOSE)
 
 
 @frappe.whitelist(methods=["POST"])
@@ -62,20 +73,15 @@ def report_incident(
     """POST /api/method/assetcore.api.imm12.report_incident"""
     if frappe.session.user == "Guest":
         return _err(_(_MSG_UNAUTHENTICATED), 401)
-    try:
-        return _ok(svc_report(
-            asset=asset, incident_type=incident_type, severity=severity,
-            description=description, fault_code=fault_code,
-            workaround_applied=int(workaround_applied), clinical_impact=clinical_impact,
-            patient_affected=int(patient_affected),
-            patient_impact_description=patient_impact_description,
-            immediate_action=immediate_action, linked_repair_wo=linked_repair_wo,
-        ))
-    except IncidentError as e:
-        return _err(_(e.message), e.code)
-    except Exception:
-        frappe.log_error(frappe.get_traceback(), "IMM-12 report_incident")
-        return _err(_(_MSG_SERVER_ERROR), 500)
+    return handle(
+        svc_report,
+        asset=asset, incident_type=incident_type, severity=severity,
+        description=description, fault_code=fault_code,
+        workaround_applied=int(workaround_applied), clinical_impact=clinical_impact,
+        patient_affected=int(patient_affected),
+        patient_impact_description=patient_impact_description,
+        immediate_action=immediate_action, linked_repair_wo=linked_repair_wo,
+    )
 
 
 @frappe.whitelist(methods=["POST"])
@@ -83,17 +89,9 @@ def cancel_incident(name: str, reason: str):
     """POST /api/method/assetcore.api.imm12.cancel_incident"""
     if frappe.session.user == "Guest":
         return _err(_(_MSG_UNAUTHENTICATED), 401)
-    if not _has_role(*_ROLES_INVESTIGATE):
+    if not _can_investigate():
         return _err(_(_MSG_FORBIDDEN), 403)
-    if not reason or not reason.strip():
-        return _err(_("Bắt buộc nhập lý do hủy"), 422)
-    try:
-        return _ok(svc_cancel(name, reason=reason))
-    except IncidentError as e:
-        return _err(_(e.message), e.code)
-    except Exception:
-        frappe.log_error(frappe.get_traceback(), "IMM-12 cancel_incident")
-        return _err(_(_MSG_SERVER_ERROR), 500)
+    return handle(svc_cancel, name, reason=reason)
 
 
 @frappe.whitelist(methods=["POST"])
@@ -101,15 +99,9 @@ def create_rca(incident_name: str, rca_method: str = "5-Why"):
     """POST /api/method/assetcore.api.imm12.create_rca"""
     if frappe.session.user == "Guest":
         return _err(_(_MSG_UNAUTHENTICATED), 401)
-    if not _has_role(*_ROLES_INVESTIGATE):
+    if not _can_investigate():
         return _err(_("Không có quyền tạo RCA"), 403)
-    try:
-        return _ok(svc_create_rca(incident_name, rca_method=rca_method))
-    except IncidentError as e:
-        return _err(_(e.message), e.code)
-    except Exception:
-        frappe.log_error(frappe.get_traceback(), "IMM-12 create_rca")
-        return _err(_(_MSG_SERVER_ERROR), 500)
+    return handle(svc_create_rca, incident_name, rca_method=rca_method)
 
 
 @frappe.whitelist()
@@ -117,13 +109,20 @@ def get_rca(name: str):
     """GET /api/method/assetcore.api.imm12.get_rca"""
     if frappe.session.user == "Guest":
         return _err(_(_MSG_UNAUTHENTICATED), 401)
-    try:
-        return _ok(svc_get_rca(name))
-    except IncidentError as e:
-        return _err(_(e.message), e.code)
-    except Exception:
-        frappe.log_error(frappe.get_traceback(), "IMM-12 get_rca")
-        return _err(_(_MSG_SERVER_ERROR), 500)
+    return handle(svc_get_rca, name)
+
+
+@frappe.whitelist()
+def list_rcas(method: str = "", status: str = "", asset: str = "",
+              page: int = 1, page_size: int = 20):
+    """GET /api/method/assetcore.api.imm12.list_rcas — danh sách RCA cho /rca."""
+    if frappe.session.user == "Guest":
+        return _err(_(_MSG_UNAUTHENTICATED), 401)
+    return handle(
+        svc_list_rcas,
+        method=method, status=status, asset=asset,
+        page=int(page), page_size=int(page_size),
+    )
 
 
 @frappe.whitelist(methods=["POST"])
@@ -138,27 +137,14 @@ def submit_rca(
     """POST /api/method/assetcore.api.imm12.submit_rca"""
     if frappe.session.user == "Guest":
         return _err(_(_MSG_UNAUTHENTICATED), 401)
-    if not _has_role(*_ROLES_INVESTIGATE):
+    if not _can_investigate():
         return _err(_("Không có quyền submit RCA"), 403)
-    if not root_cause or not root_cause.strip():
-        return _err(_("Bắt buộc nhập root_cause"), 422)
-    if not corrective_action or not corrective_action.strip():
-        return _err(_("Bắt buộc nhập corrective_action"), 422)
-    try:
-        import json
-        steps = json.loads(five_why_steps) if isinstance(five_why_steps, str) else five_why_steps
-    except Exception:
-        steps = []
-    try:
-        return _ok(svc_submit_rca(
-            name, root_cause=root_cause, corrective_action=corrective_action,
-            preventive_action=preventive_action, five_why_steps=steps, rca_notes=rca_notes,
-        ))
-    except IncidentError as e:
-        return _err(_(e.message), e.code)
-    except Exception:
-        frappe.log_error(frappe.get_traceback(), "IMM-12 submit_rca")
-        return _err(_(_MSG_SERVER_ERROR), 500)
+    steps = parse_json(five_why_steps, field_name="five_why_steps", default=[])
+    return handle(
+        svc_submit_rca,
+        name, root_cause=root_cause, corrective_action=corrective_action,
+        preventive_action=preventive_action, five_why_steps=steps, rca_notes=rca_notes,
+    )
 
 
 @frappe.whitelist()
@@ -166,11 +152,7 @@ def get_asset_incident_history(asset: str, limit: int = 10):
     """GET /api/method/assetcore.api.imm12.get_asset_incident_history"""
     if frappe.session.user == "Guest":
         return _err(_(_MSG_UNAUTHENTICATED), 401)
-    try:
-        return _ok(svc_asset_history(asset, limit=int(limit)))
-    except Exception:
-        frappe.log_error(frappe.get_traceback(), "IMM-12 get_asset_incident_history")
-        return _err(_(_MSG_SERVER_ERROR), 500)
+    return handle(svc_asset_history, asset, limit=int(limit))
 
 
 @frappe.whitelist()
@@ -178,11 +160,7 @@ def get_chronic_failures():
     """GET /api/method/assetcore.api.imm12.get_chronic_failures"""
     if frappe.session.user == "Guest":
         return _err(_(_MSG_UNAUTHENTICATED), 401)
-    try:
-        return _ok(svc_chronic())
-    except Exception:
-        frappe.log_error(frappe.get_traceback(), "IMM-12 get_chronic_failures")
-        return _err(_(_MSG_SERVER_ERROR), 500)
+    return handle(svc_chronic)
 
 
 @frappe.whitelist()
@@ -190,11 +168,7 @@ def get_dashboard():
     """GET /api/method/assetcore.api.imm12.get_dashboard"""
     if frappe.session.user == "Guest":
         return _err(_(_MSG_UNAUTHENTICATED), 401)
-    try:
-        return _ok(svc_dashboard())
-    except Exception:
-        frappe.log_error(frappe.get_traceback(), "IMM-12 get_dashboard")
-        return _err(_(_MSG_SERVER_ERROR), 500)
+    return handle(svc_dashboard)
 
 
 @frappe.whitelist()
@@ -202,21 +176,22 @@ def list_incidents(
     status: str = "",
     severity: str = "",
     asset: str = "",
+    open: int = 0,
     page: int = 1,
     page_size: int = 20,
 ):
-    """GET /api/method/assetcore.api.imm12.list_incidents"""
+    """GET /api/method/assetcore.api.imm12.list_incidents
+
+    `open=1` áp SoT open_incident_filter() (incident đang mở) cho drill-down từ
+    dashboard donut/card → count == số dòng list. `status` đơn lẻ ưu tiên hơn open.
+    """
     if frappe.session.user == "Guest":
         return _err(_(_MSG_UNAUTHENTICATED), 401)
-    try:
-        result = svc_list(
-            status=status, severity=severity, asset=asset,
-            page=int(page), page_size=int(page_size),
-        )
-        return _ok(result)
-    except Exception:
-        frappe.log_error(frappe.get_traceback(), "IMM-12 list_incidents")
-        return _err(_("Lỗi khi lấy danh sách incident"), 500)
+    return handle(
+        svc_list,
+        status=status, severity=severity, asset=asset, open=int(open or 0),
+        page=int(page), page_size=int(page_size),
+    )
 
 
 @frappe.whitelist()
@@ -224,55 +199,50 @@ def get_incident(name: str):
     """GET /api/method/assetcore.api.imm12.get_incident"""
     if frappe.session.user == "Guest":
         return _err(_(_MSG_UNAUTHENTICATED), 401)
-    try:
+
+    def _run():
         # AUTH-10: IDOR guard — vendor user can't read incident outside scope.
         assert_vendor_can_access("Incident Report", name)
-        return _ok(svc_get(name))
-    except ServiceError as e:
-        return _err(e.message, e.code)
-    except IncidentError as e:
-        return _err(_(e.message), e.code)
-    except Exception:
-        frappe.log_error(frappe.get_traceback(), "IMM-12 get_incident")
-        return _err(_(_MSG_SERVER_ERROR), 500)
+        return svc_get(name)
+
+    return handle(_run)
 
 
 @frappe.whitelist(methods=["POST"])
 def acknowledge_incident(name: str, notes: str = "", assigned_to: str = ""):
     """POST /api/method/assetcore.api.imm12.acknowledge_incident
-    Open → Under Investigation.
+    "Tiếp nhận": Open → Acknowledged.
     """
     if frappe.session.user == "Guest":
         return _err(_(_MSG_UNAUTHENTICATED), 401)
-    if not _has_role(*_ROLES_INVESTIGATE):
+    if not _can_investigate():
         return _err(_(_MSG_FORBIDDEN), 403)
-    try:
-        return _ok(svc_acknowledge(name, notes=notes, assigned_to=assigned_to))
-    except IncidentError as e:
-        return _err(_(e.message), e.code)
-    except Exception:
-        frappe.log_error(frappe.get_traceback(), "IMM-12 acknowledge_incident")
-        return _err(_(_MSG_SERVER_ERROR), 500)
+    return handle(svc_acknowledge, name, notes=notes, assigned_to=assigned_to)
+
+
+@frappe.whitelist(methods=["POST"])
+def start_work(name: str, notes: str = ""):
+    """POST /api/method/assetcore.api.imm12.start_work
+    "Bắt đầu xử lý": Acknowledged → In Progress.
+    """
+    if frappe.session.user == "Guest":
+        return _err(_(_MSG_UNAUTHENTICATED), 401)
+    if not _can_investigate():
+        return _err(_(_MSG_FORBIDDEN), 403)
+    return handle(svc_start_work, name, notes=notes)
 
 
 @frappe.whitelist(methods=["POST"])
 def resolve_incident(name: str, resolution_notes: str, root_cause: str = ""):
     """POST /api/method/assetcore.api.imm12.resolve_incident
-    Under Investigation → Resolved. Auto-creates CAPA if High/Critical.
+    In Progress → Resolved. Auto-creates CAPA if High/Critical.
     """
     if frappe.session.user == "Guest":
         return _err(_(_MSG_UNAUTHENTICATED), 401)
-    if not _has_role(*_ROLES_INVESTIGATE):
+    if not _can_investigate():
         return _err(_(_MSG_FORBIDDEN), 403)
-    if not resolution_notes or not resolution_notes.strip():
-        return _err(_("Bắt buộc nhập ghi chú giải quyết"), 422)
-    try:
-        return _ok(svc_resolve(name, resolution_notes=resolution_notes, root_cause=root_cause))
-    except IncidentError as e:
-        return _err(_(e.message), e.code)
-    except Exception:
-        frappe.log_error(frappe.get_traceback(), "IMM-12 resolve_incident")
-        return _err(_(_MSG_SERVER_ERROR), 500)
+    return handle(svc_resolve, name, resolution_notes=resolution_notes,
+                  root_cause=root_cause)
 
 
 @frappe.whitelist(methods=["POST"])
@@ -282,37 +252,20 @@ def close_incident(name: str, verification_notes: str = ""):
     """
     if frappe.session.user == "Guest":
         return _err(_(_MSG_UNAUTHENTICATED), 401)
-    if not _has_role(*_ROLES_CLOSE):
+    if not _can_close():
         return _err(_("Không có quyền đóng Incident (cần Workshop Lead hoặc QA Officer)"), 403)
-    try:
-        return _ok(svc_close(name, verification_notes=verification_notes))
-    except IncidentError as e:
-        return _err(_(e.message), e.code)
-    except Exception:
-        frappe.log_error(frappe.get_traceback(), "IMM-12 close_incident")
-        return _err(_(_MSG_SERVER_ERROR), 500)
+    return handle(svc_close, name, verification_notes=verification_notes)
 
 
 @frappe.whitelist()
 def get_incident_stats():
-    """GET /api/method/assetcore.api.imm12.get_incident_stats — KPI tổng quan."""
+    """GET /api/method/assetcore.api.imm12.get_incident_stats — KPI tổng quan.
+
+    Forward verbatim svc_stats (services/imm12.get_incident_stats) — SoT DUY NHẤT
+    cho mọi count. KHÔNG re-compute ở API (trước fix dùng status 'Under Investigation'
+    KHÔNG tồn tại → open/investigating sai; thiếu open_total). Service đã chuẩn hoá
+    open_total = count(open_incident_filter()) + per-state breakdown.
+    """
     if frappe.session.user == "Guest":
         return _err(_(_MSG_UNAUTHENTICATED), 401)
-    try:
-        def _count(filters: dict) -> int:
-            try:
-                return frappe.db.count("Incident Report", filters=filters)
-            except Exception:
-                return 0
-
-        return _ok({
-            "open": _count({"status": "Open"}),
-            "investigating": _count({"status": "Under Investigation"}),
-            "resolved": _count({"status": "Resolved"}),
-            "closed": _count({"status": "Closed"}),
-            "critical_open": _count({"status": ["in", ["Open", "Under Investigation"]], "severity": "Critical"}),
-            "high_open": _count({"status": ["in", ["Open", "Under Investigation"]], "severity": "High"}),
-        })
-    except Exception:
-        frappe.log_error(frappe.get_traceback(), "IMM-12 get_incident_stats")
-        return _err(_(_MSG_SERVER_ERROR), 500)
+    return handle(svc_stats)

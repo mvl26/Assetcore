@@ -2,11 +2,14 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useImm09Store } from '@/stores/imm09'
+import { useNotify } from '@/composables/useNotify'
+import { MSG } from '@/i18n/messages'
 import type { SparePartRow } from '@/api/imm09'
 
 const props = defineProps<{ id: string }>()
 const store = useImm09Store()
 const router = useRouter()
+const notify = useNotify()
 
 // Local editable copy of parts
 const parts = ref<SparePartRow[]>([])
@@ -95,7 +98,12 @@ async function handleSaveParts() {
   error.value = null
   const ok = await store.doSaveParts(props.id, parts.value)
   submitting.value = false
-  if (!ok) error.value = store.error ?? 'Không thể lưu vật tư'
+  if (ok) {
+    notify.show({ code: MSG.UI_SAVE_SUCCESS, ctx: { entity: 'vật tư sử dụng' } })
+  } else {
+    notify.fromError(store.lastApiError)
+    error.value = store.error ?? 'Không thể lưu vật tư'
+  }
 }
 
 async function handleStartRepair() {
@@ -104,8 +112,10 @@ async function handleStartRepair() {
   const ok = await store.doStartRepair(props.id)
   startingRepair.value = false
   if (ok) {
+    notify.show({ code: MSG.UI_SAVE_SUCCESS, ctx: { entity: 'bắt đầu sửa chữa' } })
     router.push(`/cm/work-orders/${props.id}`)
   } else {
+    notify.fromError(store.lastApiError)
     error.value = store.error ?? 'Không thể bắt đầu sửa chữa'
   }
 }

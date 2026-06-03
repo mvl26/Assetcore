@@ -3,22 +3,51 @@ import DateInput from '@/components/common/DateInput.vue'
 import { onMounted, ref, computed, watch } from 'vue'
 import { useImm08Store } from '@/stores/imm08'
 import { useRouter, useRoute } from 'vue-router'
-import { formatAssetDisplay, translateStatus, getStatusColor } from '@/utils/formatters'
+import { formatAssetDisplay, translateStatus, getStatusColor, formatDate } from '@/utils/formatters'
 import PageHeader from '@/components/common/PageHeader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar from '@/components/common/ListFilterBar.vue'
 import BasePagination from '@/components/common/BasePagination.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
+import WorkOrderKpiStrip, { type WoKpiItem } from '@/components/common/WorkOrderKpiStrip.vue'
+import { useCapabilities } from '@/composables/useCapabilities'
 
 const store = useImm08Store()
 const router = useRouter()
 const route = useRoute()
-const statusFilter = ref('')
+// Read-only oversight (opsmgr): chỉ user có pm.create mới thấy nút Tạo phiếu.
+const { can } = useCapabilities()
+// Core Doc §9.3 — pre-apply filter từ route.query (drill-down từ dashboard).
+const statusFilter = ref<string>((route.query.status as string) || '')
 const search = ref('')
 const dateFrom = ref('')
 const dateTo = ref('')
 const assetFilter = ref<string>((route.query.asset as string) || '')
-const showFilters = ref(false)
+// R6 §9.4.3 — date-window drill từ KPI pm_due_7d (?due_before) / overdue (?overdue=1).
+const dueBefore = ref<string>((route.query.due_before as string) || '')
+const overdueOnly = ref<boolean>(route.query.overdue === '1')
+const showFilters = ref<boolean>(!!(route.query.status || route.query.asset || route.query.due_before || route.query.overdue))
+
+// Nhãn cửa-sổ due-soon (IMM-08 SoT round): KPI pm_due_7d == drill ?due_before=today+7,
+// cận dưới = HÔM NAY do BE (_normalize_filters → due_date BETWEEN [today, X]). Chip chỉ
+// đổi NHÃN cho khớp ngữ nghĩa cửa-sổ — KHÔNG inline-compute membership (vẫn forward
+// due_before verbatim). PM quá hạn (due_date < today) thuộc thẻ "PM quá hạn", disjoint.
+function _today(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+function _addDays(iso: string, days: number): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  d.setDate(d.getDate() + days)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+// dueBefore == today+7 → nhãn ngắn "Đến hạn trong 7 ngày"; ngược lại nêu rõ cận dưới.
+const dueSoonLabel = computed<string>(() =>
+  dueBefore.value === _addDays(_today(), 7)
+    ? 'Đến hạn trong 7 ngày'
+    : `Đến hạn ≤ ${formatDate(dueBefore.value)}, từ hôm nay`
+)
 
 const PM_STATUSES = [
   { value: 'Open',                label: 'Mở' },
@@ -32,22 +61,52 @@ const PM_STATUSES = [
 
 function buildFilters() {
   const f: Record<string, string | string[]> = {}
-  if (statusFilter.value) f.status = [statusFilter.value]
+  // R6: overdue/due_before là virtual key — BE imm08._normalize_filters dịch sang
+  // status=Overdue / due_date BETWEEN [today, X] (due_soon_filter, cận dưới = hôm
+  // nay để WO quá hạn KHÔNG leak vào drill — SSOT, list khớp KPI). overdue thắng
+  // due_before.
+  if (overdueOnly.value) f.overdue = '1'
+  else if (dueBefore.value) f.due_before = dueBefore.value
+  if (statusFilter.value && !overdueOnly.value) f.status = [statusFilter.value]
   if (dateFrom.value) f.due_date_from = [dateFrom.value]
   if (dateTo.value) f.due_date_to = [dateTo.value]
   if (assetFilter.value) f.asset_ref = assetFilter.value
   return f
 }
 
-onMounted(() => store.fetchWorkOrders(buildFilters()))
+onMounted(() => {
+  store.fetchWorkOrders(buildFilters())
+  store.fetchDashboardStats()
+})
 
-watch([statusFilter, dateFrom, dateTo, assetFilter], () => {
+// KPI strip (docs/fe/08-pm/pm-list.html) — nguồn: dashboard stats thật từ BE.
+const kpiItems = computed<WoKpiItem[]>(() => {
+  const s = store.dashboardStats?.kpis
+  if (!s) return []
+  return [
+    { label: 'Tổng lịch tháng', value: s.total_scheduled, color: 'primary' },
+    { label: 'Quá hạn', value: s.overdue, color: 'danger', trend: s.overdue > 0 ? 'Cần escalate' : 'Đúng tiến độ' },
+    { label: 'Hoàn tất đúng hạn', value: s.completed_on_time, color: 'success', trend: `Compliance ${s.compliance_rate_pct}%` },
+    { label: 'Trễ trung bình', value: `${s.avg_days_late} ngày`, color: 'warning' },
+  ]
+})
+
+watch([statusFilter, dateFrom, dateTo, assetFilter, dueBefore, overdueOnly], () => {
   store.fetchWorkOrders(buildFilters())
 })
 
-// Sync when navigating from AssetDetail
+// Sync when navigating from AssetDetail / dashboard drill-down (§9.3)
 watch(() => route.query.asset, (val) => {
   assetFilter.value = (val as string) || ''
+})
+watch(() => route.query.status, (val) => {
+  statusFilter.value = (val as string) || ''
+})
+watch(() => route.query.due_before, (val) => {
+  dueBefore.value = (val as string) || ''
+})
+watch(() => route.query.overdue, (val) => {
+  overdueOnly.value = val === '1'
 })
 
 const filteredWOs = computed(() => {
@@ -60,10 +119,12 @@ const filteredWOs = computed(() => {
   )
 })
 
-interface PMChip { key: 'status' | 'dateFrom' | 'dateTo' | 'asset' | 'search'; label: string }
+interface PMChip { key: 'status' | 'dateFrom' | 'dateTo' | 'asset' | 'search' | 'overdue' | 'dueBefore'; label: string }
 const activeChips = computed<PMChip[]>(() => {
   const chips: PMChip[] = []
-  if (statusFilter.value) {
+  if (overdueOnly.value) chips.push({ key: 'overdue', label: 'Quá hạn' })
+  else if (dueBefore.value) chips.push({ key: 'dueBefore', label: dueSoonLabel.value })
+  if (statusFilter.value && !overdueOnly.value) {
     const s = PM_STATUSES.find(x => x.value === statusFilter.value)
     chips.push({ key: 'status', label: s?.label ?? statusFilter.value })
   }
@@ -80,6 +141,8 @@ function clearChip(key: string) {
   else if (key === 'dateFrom') dateFrom.value = ''
   else if (key === 'dateTo') dateTo.value = ''
   else if (key === 'asset') assetFilter.value = ''
+  else if (key === 'overdue') overdueOnly.value = false
+  else if (key === 'dueBefore') dueBefore.value = ''
   else search.value = ''
 }
 
@@ -88,6 +151,8 @@ function resetFilters() {
   dateFrom.value = ''
   dateTo.value = ''
   assetFilter.value = ''
+  dueBefore.value = ''
+  overdueOnly.value = false
   search.value = ''
   store.fetchWorkOrders({})
 }
@@ -112,7 +177,7 @@ function quickFilter(_key: 'status', value: string) {
     >
       <template #actions>
         <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
-        <button class="btn-primary" @click="router.push('/pm/work-orders/new')">
+        <button v-if="can('pm.create')" class="btn-primary" @click="router.push('/pm/work-orders/new')">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
           </svg>
@@ -120,6 +185,20 @@ function quickFilter(_key: 'status', value: string) {
         </button>
       </template>
     </PageHeader>
+
+    <WorkOrderKpiStrip :items="kpiItems" />
+
+    <!-- Hint cửa-sổ due-soon: khớp invariant disjoint (drill == KPI pm_due_7d).
+         PM quá hạn KHÔNG nằm trong danh sách này — xem thẻ "PM quá hạn". -->
+    <div
+      v-if="dueBefore && !overdueOnly"
+      class="flex items-start gap-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800"
+    >
+      <svg class="w-4 h-4 shrink-0 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+      <span>Danh sách phiếu đến hạn trong 7 ngày tới (tính từ hôm nay) — không gồm PM quá hạn (xem thẻ "PM quá hạn").</span>
+    </div>
 
     <ListFilterBar
       :show="showFilters"

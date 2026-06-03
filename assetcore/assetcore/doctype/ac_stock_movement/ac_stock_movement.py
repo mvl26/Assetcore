@@ -39,13 +39,19 @@ class ACStockMovement(Document):
 
     def before_submit(self):
         if self.movement_type in ("Issue", "Transfer"):
-            # BR-INV-02: validate available_qty >= qty
+            # BR-INV-02: a physical movement can only ship goods that physically EXIST.
+            # Compare against qty_on_hand, NOT available_qty: the soft-reservation ledger
+            # (reserved_qty) is an allocation-layer earmark (IMM-15 §III-bis). The
+            # anti-oversell gate that subtracts OTHER allocations' holds is VR-15-03 in
+            # services.imm15.issue_allocation; checking available_qty here would
+            # double-count an allocation's own reservation and block its legitimate issue.
             for row in self.items:
-                avail = inv_svc.get_available_qty(self.from_warehouse, row.spare_part)
-                if avail < (row.qty or 0):
+                bin_row = inv_svc.get_stock_row(self.from_warehouse, row.spare_part)
+                on_hand = float((bin_row or {}).get("qty_on_hand") or 0)
+                if on_hand < (row.qty or 0):
                     frappe.throw(_(
                         "Tồn kho không đủ cho {0} tại {1}: có {2}, cần {3}"
-                    ).format(row.part_name or row.spare_part, self.from_warehouse, avail, row.qty))
+                    ).format(row.part_name or row.spare_part, self.from_warehouse, on_hand, row.qty))
         self.status = "Submitted"
 
     def on_submit(self):

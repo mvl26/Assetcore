@@ -5,8 +5,16 @@ import {
   getDepreciationSchedule, regenerateDepreciationSchedule, runDueDepreciationNow,
   type DepreciationScheduleResponse, type DepreciationScheduleRow,
 } from '@/api/imm00'
+// Nhãn tần suất khấu hao: dùng SSoT translateFrequency (@/utils/formatters) —
+// KHÔNG render raw English (chống i18n leak 'Monthly' ra UI, anti-pattern A).
+import { translateFrequency, translateDepreciationMethod } from '@/utils/formatters'
 
 const props = defineProps<{ assetName: string }>()
+// INV-DEP-3 (FE): sau khi thực thi/sinh lại khấu hao, header asset cha
+// (current_book_value) sẽ stale vì nó đọc từ store.currentAsset, không phải
+// data.asset_info ở đây. Emit 'updated' để view cha refetch asset → header
+// (Giá trị còn lại) khớp ngay dòng schedule cuối, không cần reload trang.
+const emit = defineEmits<{ (e: 'updated'): void }>()
 
 const data    = ref<DepreciationScheduleResponse | null>(null)
 const loading = ref(false)
@@ -30,6 +38,7 @@ async function regenerate() {
     const res = await regenerateDepreciationSchedule(props.assetName, 1)
     showToast(res.skipped ? (res.reason || 'Bị bỏ qua') : `Đã sinh ${res.periods} kỳ`, !!res.skipped)
     await load()
+    if (!res.skipped) emit('updated')
   } catch (e) {
     showToast((e as Error).message || 'Lỗi', true)
   } finally { acting.value = false }
@@ -42,6 +51,8 @@ async function runNow() {
     const res = await runDueDepreciationNow()
     showToast(`Đã thực thi ${res.executed_rows} dòng, cập nhật ${res.updated_assets} tài sản`)
     await load()
+    // Refetch header asset cha — book value vừa đổi (INV-DEP-1: sàn tại residual).
+    if (res.executed_rows > 0) emit('updated')
   } catch (e) {
     showToast((e as Error).message || 'Lỗi', true)
   } finally { acting.value = false }
@@ -112,10 +123,10 @@ v-if="toast"
         <div class="grid grid-cols-1 md:grid-cols-4 gap-4 text-sm">
           <div>
             <p class="text-xs text-slate-500 mb-1">Phương pháp</p>
-            <p class="font-semibold text-slate-800">{{ data.asset_info.depreciation_method || '—' }}</p>
+            <p class="font-semibold text-slate-800">{{ translateDepreciationMethod(data.asset_info.depreciation_method) }}</p>
             <p class="text-xs text-slate-500 mt-0.5">
               {{ data.asset_info.total_depreciation_months || 0 }} tháng ·
-              {{ data.asset_info.depreciation_frequency || 'Monthly' }}
+              {{ translateFrequency(data.asset_info.depreciation_frequency) }}
             </p>
           </div>
           <div>

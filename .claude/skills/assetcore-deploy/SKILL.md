@@ -7,7 +7,9 @@ description: >
   Dùng khi user nói "bench", "migrate", "deploy", "lên prod", "release", "rollback",
   "go-live", "site bị lỗi", "rebuild assets", "clear cache", "reset DB", "scheduler",
   "log không thấy", "install-app", "fixture export", "patch", "supervisor", "nginx",
-  "config server", "khi triển khai cho khách hàng", "site mới cho bệnh viện X".
+  "config server", "khi triển khai cho khách hàng", "site mới cho bệnh viện X",
+  "email không gửi", "SMTP", "Email Queue", "flush email", "chuông không có thông báo",
+  "không nhận thông báo", "set password user".
   Ưu tiên skill này trước bất kỳ lệnh destructive nào.
 ---
 
@@ -91,8 +93,31 @@ Thiếu bất kỳ list nào → `bench --site <new-site> migrate` sẽ fail khi
 | FE không load sau code change | Vite cache stale | `npm run dev --force` hoặc clear `.vite/` |
 | Scheduler job không chạy | `bench start` không có worker | Check `bench start` output có `worker` process |
 | Import error sau deploy | Missing `__init__.py` hoặc syntax error | `python -c "import assetcore.api.immXX"` để verify |
+| `AttributeError: ... no attribute '<method>'` sau khi thêm `@frappe.whitelist()` | gunicorn `--preload` workers cũ chưa nạp code Python mới (2026-06-01 audit AUTH) | `bench restart` (prod) / HUP reload gunicorn; verify `bench execute assetcore.api.X.method` chạy được TRƯỚC khi test qua HTTP/Playwright |
 | `bench migrate` fail | Patch không idempotent | Read patch file; add guards (`has_column`, `exists`) |
 | Permission denied sau install | `after_install` không chạy | `bench --site <site> execute assetcore.setup.install.after_install` |
+| Chuông trống / không có thông báo | DATA: record toàn do `Administrator` tự tạo+tự gán → self-notify chặn đúng (KHÔNG phải bug) | Cần data đa-user (actor ≠ assignee). Xem LL-BE-34 decision tree TRƯỚC khi sửa code |
+| Email enqueue nhưng không gửi | Queue `status="Not Sent"` chờ scheduler flush | `Email Queue.send()` trực tiếp (xem dưới) — `bench flush-email-queue` KHÔNG tồn tại trong build này |
+| 1 user không nhận email | `Notification Settings.enable_email_notifications=0` hoặc user là `Administrator` | Bật cờ trong Notification Settings của user; `_user_wants_email` luôn chặn Administrator |
+
+### Email / Notification — SMTP infra & flush (gặp 2026-06-01)
+
+**Site này KHÔNG có `Email Account` DocType** (cả outgoing lẫn default). SMTP chạy qua **fallback ở `site_config.json`** và hoạt động thật:
+```
+mail_server=smtp.gmail.com  mail_port=587  use_tls=1
+mail_login=<app-account>@gmail.com  auto_email_id=<app-account>@gmail.com
+```
+Frappe core dùng config này khi không tìm thấy `Email Account`. → Đừng giả định "user đã set Email Account DocType"; verify `site_config` trước. Muốn quản lý qua UI / đổi sender → tạo `Email Account` outgoing (quyết định của user, đừng tự thêm).
+
+**Gửi/flush email THẬT (verify, không chỉ enqueue):**
+```bash
+# bench flush-email-queue KHÔNG tồn tại trong build này — gửi trực tiếp:
+bench --site <site> execute frappe.email.queue.flush          # nếu có
+# hoặc loop Email Queue.send() qua _<task>.py rồi execute (xem maintenance scripts)
+```
+Sau khi gửi: verify `Email Queue` entry → `status="Sent"`. **`Sent` ≠ đã vào inbox** — sender = SMTP account của site, khác địa chỉ người nhận → có thể vào spam. Báo user "kiểm tra inbox/spam", đừng tuyên bố "đã nhận".
+
+**Set password cho user test** (để login kiểm chứng chuông): dùng `update_password` / `bench --site <site> set-user-password <user> <pwd>`, **KHÔNG** save full User doc — save full doc có thể fail trên orphan link cũ (đã gặp `LinkExistsError` với `Khoa-NGTH`).
 
 ### Maintenance scripts — dọn data / fix ad-hoc / migrate one-shot
 
@@ -413,3 +438,11 @@ KHÔNG commit script tạm. Prefix `_` đảm bảo `git status` thấy ngay.
 5. **Xoá vòng 1 khi tests đang chạy** → maintenance-mode trước.
 
 Reference: `CONVENTIONS.md §32`, `§33`; `assetcore-be` LL-BE-21, LL-BE-22.
+
+---
+
+## 🔗 Session context — bàn giao phiên (assetcore-session)
+
+- **Trước khi xử lý/sửa BẤT KỲ việc gì:** chạy `.claude/scripts/session-log.sh show` (đọc STATE+LOG mới nhất — "đang dở ở đâu"; dữ liệu NGOÀI repo, đừng tìm `sessions/` trong repo). Main session hook tự nạp mỗi prompt; subagent phải chạy lệnh này.
+- **Sau MỖI việc đáng kể (đụng file/quyết định):** invoke **`assetcore-session`** checkpoint NGAY `STATE.md`(ghi đè)+`LOG.md` — KHÔNG đợi cuối phiên (ngắt giữa chừng = mất).
+- **Ranh giới:** state-tạm-sẽ-hết → `sessions/`; fact-bền-vững-dùng-lại → `memory/`. KHÔNG trộn.

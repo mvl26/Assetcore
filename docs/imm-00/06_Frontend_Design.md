@@ -232,7 +232,8 @@ KPI cards hàng đầu:
 | CAPA Overdue | `list_capas?status=Overdue` count | `/capa?status=Overdue` |
 | Incident Open | `list_incidents?status=Open` count | `/incidents?status=Open` |
 | HĐ NCC sắp hết (90d) | `list_suppliers?contract_end_within=90` | `/suppliers?expiring=90d` |
-| Đăng ký BYT sắp hết | `list_assets?byt_expiry_within=90` | `/assets?byt_expiry=90d` |
+| ĐK Bộ Y tế sắp hết hạn (30 ngày) | `get_overview().assets.byt_expiring_30d` | `/assets?byt_status=expiring` |
+| ĐK Bộ Y tế đã hết hạn | `get_overview().assets.byt_expired` | `/assets?byt_status=expired` |
 
 Charts:
 - Donut: Asset theo lifecycle_status
@@ -455,6 +456,84 @@ Khi `severity = Critical AND patient_affected = true`:
 
 ---
 
+## III.9. Notification Settings — Toggle email (Notification Framework Wave N1)
+
+Route: `/settings/notifications` (folder `frontend/src/views/settings/`). Stack: Vue 3 + TS + Pinia + TanStack Query.
+
+**Chuông in-app:** badge chuông góc phải là component **Frappe core desk** (Notification Log) — KHÔNG build lại. FE chỉ cần xác nhận hiển thị/đếm unread hoạt động.
+
+**View `NotificationSettingsView.vue`:** một section gọn với 1 toggle:
+
+```
+┌──────────────────────────────────────────────┐
+│  Thông báo                                     │
+│                                                │
+│  Nhận thông báo qua email          [  ●—  ]    │
+│  Khi tắt, bạn vẫn nhận thông báo tại chuông.   │
+└──────────────────────────────────────────────┘
+```
+
+- TanStack Query: `useQuery(['notif-prefs'], getNotificationPreferences)` → init toggle.
+- `useMutation(setEmailEnabled)` → optimistic update + invalidate `['notif-prefs']`; toast lỗi nếu fail.
+- API client: `frontend/src/api/notifications.ts` → `getNotificationPreferences()`, `setEmailEnabled(enabled: boolean)`. Dùng `frappePost` wrapper hiện có, `catch (e: unknown)` + `instanceof` guard.
+- Store (nếu cần share): `frontend/src/stores/notifications.ts` (`defineStore('notif_prefs')`).
+
+**Entry point (vòng 2 — UX):** thêm mục **"Cài đặt thông báo"** vào **user menu dropdown** trong `frontend/src/components/common/AppTopBar.vue` (khối "Menu items", cạnh "Hồ sơ cá nhân" / "Đổi mật khẩu"), `@click` push `/settings/notifications` (qua handler `goNotificationSettings()` gọi `closeAll()` rồi `router.push`). Lý do: trước vòng 2 route chỉ truy cập được qua gõ URL → user thật không dùng được toggle.
+- **Ràng buộc cấm:** KHÔNG đụng sidebar nav / launcher / `sidebarNav.ts` / `AppSidebar.vue` / `FE_Persona_Navigation.md` (task FE-persona đang treo). Entry point đặt ở `AppTopBar.vue` (ngoài vùng treo).
+- Icon SVG inline cùng style các item hiện có; label tiếng Việt; không thêm i18n key vào file messages đang treo.
+
+---
+
+## III.10b. Depreciation Hub — ô "Hết khấu hao" DRILLABLE (BR-05-15 / Vòng 30)
+
+View `frontend/src/views/asset/DepreciationView.vue` (route `/assets/depreciation`).
+
+**Bug thiết kế gốc:** card "Trạng thái cấu hình" hiển thị text câm `{{ stats.fully_depreciated }} hết KH` (`:189`) — không click được; status-filter dropdown (`:271`) không có lựa chọn "Hết khấu hao". KPI count tồn tại nhưng **không drill** về danh sách asset.
+
+**Fix — ô "Hết khấu hao" trở thành DRILLABLE:**
+
+| Yêu cầu | Quy tắc |
+|---|---|
+| State mới | Thêm `depreciationFilter = ref('')` (tách khỏi `statusFilter` — KHÔNG nhồi value `'fully_depreciated'` vào `statusFilter`/`lifecycle_status` để tránh leak sai field BE). |
+| `loadList()` | Truyền `depreciation_filter: depreciationFilter.value` xuống `listAssetsDepreciation(...)`. |
+| Drill từ card | Phần `… N hết KH` thành phần tử click được (button/link). Click → `depreciationFilter.value = 'fully_depreciated'` → `applyFilters()` (reset `page=1` + `loadList`). Bảng chỉ hiện asset hết KH; nhãn vẫn `'N hết KH'`. KHÔNG còn text câm. |
+| Status-filter dropdown | Thêm `<option value="fully_depreciated">Hết khấu hao</option>` (nhãn VI). `@change` map value `'fully_depreciated'` → set `depreciationFilter` + clear `statusFilter`; các value lifecycle khác → set `statusFilter` + clear `depreciationFilter`. KHÔNG gửi `'fully_depreciated'` vào param `status_filter`. |
+| Đồng bộ | Khi drill từ card, dropdown phản ánh lựa chọn `'fully_depreciated'` (1 nguồn UI-state). |
+| Clear | Chọn "Tất cả" → clear cả `depreciationFilter` lẫn `statusFilter` → list về full. |
+
+> **API client:** `listAssetsDepreciation` thêm optional `depreciation_filter?` (xem §V.1). BE: [imm-00/05 §III.18](./05_API_Specification.md); SoT + invariant: [imm-05/04 §2.5.1](../imm-05/04_Backend_Design.md).
+> **DoD FE:** vue-tsc 0 lỗi; vitest cho DepreciationView GREEN (card count == drill rows; option "Hết khấu hao" lọc đúng; không leak `'fully_depreciated'` vào `status_filter`).
+
+---
+
+## III.10c. NĐ98 ĐKLH BYT — 2 tile dashboard DRILLABLE + chip AssetListView (BR-00-17 / Vòng 31)
+
+**Bug thiết kế gốc:** `get_overview().assets.byt_expiring_30d` / `byt_expired` được BE trả về nhưng **không tile nào tiêu thụ** trên dashboard quản trị thiết bị; `AssetListView.vue` không có chip lọc theo ĐKLH BYT (chỉ có cột `byt_reg_expiry` tô đỏ ở `:396-397`, không drill được). → ô KPI compliance NĐ98 không hiển thị & không kiểm chứng được bằng danh sách.
+
+**Fix A — 2 tile NĐ98 trên dashboard (Admin persona / IMM-00 overview view đang dùng):**
+
+| Yêu cầu | Quy tắc |
+|---|---|
+| Tile 1 | `'ĐK Bộ Y tế sắp hết hạn (30 ngày)'`, value = `overview.assets.byt_expiring_30d`, tone **warn** (value>0) / **neutral** (value==0). Click → `router.push('/assets?byt_status=expiring')`. |
+| Tile 2 | `'ĐK Bộ Y tế đã hết hạn'`, value = `overview.assets.byt_expired`, tone **danger** (value>0) / **neutral** (value==0). Click → `router.push('/assets?byt_status=expired')`. |
+| value==0 | tone neutral nhưng **vẫn drill được** (list rỗng — không disable tile). |
+| Nhãn | qua SSoT label (labels.ts) — KHÔNG hardcode rải rác; KHÔNG raw-EN leak. |
+
+**Fix B — `AssetListView.vue` đọc `byt_status` + chip filter:**
+
+| Yêu cầu | Quy tắc |
+|---|---|
+| Đọc route | `route.query.byt_status` ('expiring'\|'expired') → set vào filter state `f.byt_status` lúc mount; forward `byt_status` xuống `list_assets` (param mới). |
+| Chip filter | Hiện chip VI `'ĐK BYT sắp hết hạn'` (expiring) / `'ĐK BYT đã hết hạn'` (expired) — nhãn qua **SSoT** (labels.ts), KHÔNG hardcode rải rác. Clear chip → bỏ param `byt_status` (router.replace) → list về full. |
+| Header "Tổng N" | == `pagination.total` của `list_assets(byt_status=…)` == giá trị tile vừa click (INVARIANT BR-00-17). |
+| Cột giữ nguyên | Cột `'ĐK Bộ Y tế hết hạn'` (`:396-397`) GIỮ; `byt_reg_expiry` tô đỏ khi quá hạn qua helper `isPmOverdue` hiện có; ngày render `formatDate`. KHÔNG đổi hành vi cột. |
+| Conjoin | `byt_status` AND với mọi filter đang chọn (lifecycle_status/department/search…) — KHÔNG clobber; client chỉ forward param, BE merge (BR-00-17). |
+
+> **API client:** `listAssets` thêm optional `byt_status?: 'expiring' \| 'expired'` (xem §V.1). BE: [imm-00/05 `list_assets`](./05_API_Specification.md) + INVARIANT count==drill; SoT predicate: [imm-00/04 §III.1a](./04_Backend_Design.md); compliance NĐ98: [imm-05/02 KPI-05](../imm-05/02_Analysis_Design.md).
+> **DoD FE:** vue-tsc 0 lỗi; vitest GREEN (tile click → route `byt_status`; chip render VI từ SSoT; header "Tổng N" == tile value; clear chip bỏ param; tone neutral khi value==0 vẫn drill). KHÔNG raw-EN leak.
+
+---
+
 # Phần IV — Pinia Stores (từ `frontend/src/stores/imm00.ts`)
 
 > **Verified vs code 2026-05-14 (sau commits `33a9668` restructure + `820e3fe` role/launcher):** File `stores/imm00.ts` export 4 stores cho IMM-00 foundation. Các module IMM-01→16 có file store riêng (`stores/imm01.ts`, …, `stores/imm16.ts`); ngoài ra `stores/auth.ts`, `stores/dashboard.ts`, `stores/masterData.ts` là cross-cutting.
@@ -541,7 +620,7 @@ async function fetchList(params: { page?, page_size?, status?, severity?, asset?
 
 ## IV.5. Helper constants export
 
-> **Note (2026-05-19):** Các hằng số liên quan trạng thái sử dụng GMDN (cũ) đã bị loại bỏ. Bộ lọc GMDN trên AssetListView nay dựng động từ `refData.categories` (distinct `gmdn_code` + `gmdn_term`). Xem [analysis §6](../res/gmdn-asset-category-analysis.md).
+> **Note (2026-05-19):** Các hằng số liên quan trạng thái sử dụng GMDN (cũ) đã bị loại bỏ. Bộ lọc GMDN trên AssetListView nay dựng động từ `refData.categories` (distinct `gmdn_code` + `gmdn_term`). Xem [analysis §6](../res/analysis/gmdn-asset-category-analysis.md).
 
 ---
 
@@ -586,7 +665,7 @@ export async function updateTransfer(name: string, data): Promise<...>
 
 // Depreciation (Asset Finance Hub — full coverage)
 export function computeDepreciation(name: string): Promise<DepreciationComputeResult>
-export function listAssetsDepreciation(params: { page?, page_size?, method_filter?, status_filter?, category_filter? }): Promise<{ items: AssetDepreciationRow[]; pagination }>
+export function listAssetsDepreciation(params: { page?, page_size?, method_filter?, status_filter?, category_filter?, depreciation_filter? }): Promise<{ items: AssetDepreciationRow[]; pagination }>
 export function getDepreciationStats(): Promise<DepreciationStats>
 export function computeAllDepreciation(): Promise<{ generated_schedules, skipped, executed_rows, updated_assets }>
 export async function getDepreciationSchedule(asset_name: string): Promise<DepreciationScheduleResponse>

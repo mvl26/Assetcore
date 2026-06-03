@@ -5,7 +5,7 @@
 | Module | IMM-13 — Ngừng sử dụng và điều chuyển |
 | Stack | Vue 3 + TypeScript + Pinia + Vue Router + TailwindCSS + TanStack Query |
 | Trạng thái | Skeleton — sẽ implement Sprint Wave 3 — Sprint 4 |
-| Liên kết | [04 Backend](./04_Backend_Design.md) · [05 API](./05_API_Specification.md) · [`docs/res/design-frontend.md`](../res/design-frontend.md) |
+| Liên kết | [04 Backend](./04_Backend_Design.md) · [05 API](./05_API_Specification.md) · [`docs/res/design/design-frontend.md`](../res/design/design-frontend.md) |
 
 ---
 
@@ -112,7 +112,7 @@ Mọi fetch dùng **TanStack Query** (`useQuery` + `useMutation`) — Pinia ch�
 
 ## VII. Empty / Loading / Error states
 
-Theo `docs/res/design-frontend.md`:
+Theo `docs/res/design/design-frontend.md`:
 - Loading: skeleton bar.
 - Empty list: illustration + CTA "Tạo đề xuất mới" (chỉ KTV thấy).
 - Error: banner đỏ với mã lỗi (vd `IMM13_COMPETENCY_GAP`) + tiếng Việt thân thiện.

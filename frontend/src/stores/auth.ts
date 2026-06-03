@@ -39,12 +39,21 @@ interface PersistedSession {
 
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<FrappeUser | null>(loadPersistedUser())
+  // `loading` = CHỈ phục vụ login-submit (spinner nút "Đăng nhập" + disable input
+  // trong LoginView). KHÔNG dùng cho bootstrap/session-restore — nếu gộp chung,
+  // full-screen overlay App.vue sẽ đè /login khi đang submit → LoginView remount
+  // → mất field + banner (regression APP-AUTH-01).
   const loading = ref(false)
+  // `bootstrapping` = CHỈ phục vụ phiên khôi phục lần đầu (App.vue onMounted →
+  // fetchSession/ensureFresh). App.vue full-screen spinner "Đang khởi tạo..." chỉ
+  // bật theo cờ này, KHÔNG theo `loading`. Tách 2 lifecycle khác nhau ra 2 cờ.
+  const bootstrapping = ref(false)
   const error = ref<string | null>(null)
   const capabilities = ref<Record<string, boolean>>(loadPersistedCaps())
 
   const isAuthenticated = computed(() => user.value !== null)
   const roles = computed<string[]>(() => user.value?.roles ?? [])
+  const roleProfileName = computed<string | null>(() => user.value?.role_profile_name ?? null)
   const roleSet = computed(() => new Set(roles.value))
 
   const hasRole = (role: string) => roleSet.value.has(role)
@@ -115,6 +124,7 @@ export const useAuthStore = defineStore('auth', () => {
         email: ctx.user,
         user_image: ctx.user_image,
         roles: ctx.roles,
+        role_profile_name: ctx.role_profile_name ?? null,
       }
       persistUser(user.value)
       if (Object.keys(capabilities.value).length === 0) {
@@ -130,6 +140,43 @@ export const useAuthStore = defineStore('auth', () => {
       return false
     } finally {
       loading.value = false
+    }
+  }
+
+  /**
+   * Re-hydrate roles / role_profile / capabilities từ BE cho phiên đã được
+   * khôi phục từ localStorage. Chống persona "thiu" (stale) khi admin đổi
+   * role-profile server-side trong khi cache FE (TTL 10') còn hiệu lực.
+   *
+   * KHÔNG block render: gọi không-await ở App mount. fetchSession sẽ tự null
+   * user + bounce về login nếu phiên đã bị huỷ server-side.
+   */
+  async function ensureFresh(): Promise<void> {
+    if (!isAuthenticated.value) return
+    await fetchSession()
+    await loadCapabilities()
+  }
+
+  /**
+   * Bootstrap phiên lúc App mount (App.vue onMounted). Bật cờ `bootstrapping`
+   * (KHÔNG phải `loading`) để full-screen spinner "Đang khởi tạo..." chỉ hiển thị
+   * trong giai đoạn này — KHÔNG đè màn /login khi user đang submit form login.
+   *
+   * - Chưa auth → cố khôi phục phiên server-side (cookie) qua fetchSession().
+   * - Đã có phiên cache (localStorage) → re-hydrate role/persona/caps ở nền.
+   *
+   * Trả về true nếu kết thúc ở trạng thái đã xác thực, false nếu cần về Login.
+   */
+  async function bootstrap(): Promise<boolean> {
+    bootstrapping.value = true
+    try {
+      if (!isAuthenticated.value) {
+        return await fetchSession()
+      }
+      await ensureFresh()
+      return isAuthenticated.value
+    } finally {
+      bootstrapping.value = false
     }
   }
 
@@ -150,13 +197,13 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   return {
-    user, loading, error,
-    isAuthenticated, roles, capabilities,
+    user, loading, bootstrapping, error,
+    isAuthenticated, roles, roleProfileName, capabilities,
     isSystemAdmin, isQAOfficer, isDeptHead, isOpsManager,
     isWorkshopLead, isTechnician, isDocOfficer, hasAnyImmRole,
     canCreate, canSubmit, canApprove, canViewDashboard, canManageDocs,
     can,
-    login, fetchSession, logout, loadCapabilities,
+    login, fetchSession, ensureFresh, bootstrap, logout, loadCapabilities,
     hasRole, hasAnyRole, rememberedUsername,
   }
 })

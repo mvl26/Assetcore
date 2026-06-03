@@ -12,7 +12,7 @@ Two-layer scope enforcement (closes AUTH-01 + AUTH-10):
    doc=...)` which is what `frappe.get_doc()` invokes internally, AND on direct
    URL access to a specific record. This is the IDOR (AUTH-10) gate.
 
-Scope strategy chosen (matches `docs/res/user-scope-filter-analysis.md` §3,
+Scope strategy chosen (matches `docs/res/rbac/user-scope-filter-analysis.md` §3,
 option closest to "scope by role assignment + record link"):
 
 - Senior roles (Super Admin + module Managers) → unrestricted.
@@ -44,8 +44,10 @@ _SENIOR_ROLES = frozenset({
 # Auditor is read-only — unrestricted READ, blocked at DocPerm for write.
 _AUDITOR_ROLE = "AssetCore Auditor"
 _VENDOR_ROLE = "Vendor Engineer"
-# Legacy technician role names still in use by older fixtures.
-_TECHNICIAN_ROLES = frozenset({"PM User", "Repair User", "Calibration User"})
+# Domain technician role names — scoped to their own assigned/reported records.
+# Corrective User added 2026-05-28: was reading Incident Report unrestricted because
+# missing from this set (smoke S-13 found the dead permission_query).
+_TECHNICIAN_ROLES = frozenset({"PM User", "Repair User", "Calibration User", "Corrective User"})
 
 
 def _user_roles(user: str | None) -> set[str]:
@@ -86,8 +88,10 @@ def incident_report_query(user: str | None = None) -> str:
     safe = _esc(user)
     if _VENDOR_ROLE in roles:
         # Vendor sees only incidents on assets they are responsible for.
+        # 2026-05-28 fix: field is `asset`, not `asset_ref` (Incident Report
+        # DocType has no `asset_ref` column → filter was a no-op).
         return (
-            "(`tabIncident Report`.asset_ref IN "
+            "(`tabIncident Report`.asset IN "
             f"(SELECT name FROM `tabAC Asset` WHERE responsible_technician = '{safe}'))"
         )
     if roles & _TECHNICIAN_ROLES:
@@ -179,10 +183,11 @@ def incident_report_has_permission(doc, ptype: str = "read", user: str | None = 
         return True
     if _VENDOR_ROLE in roles:
         # Vendor sees only incidents on assets they are responsible for.
-        asset_ref = doc.get("asset_ref")
-        if not asset_ref:
+        # 2026-05-28 fix: field is `asset`, not `asset_ref`.
+        asset_name = doc.get("asset")
+        if not asset_name:
             return False
-        tech = frappe.db.get_value("AC Asset", asset_ref, "responsible_technician")
+        tech = frappe.db.get_value("AC Asset", asset_name, "responsible_technician")
         return tech == user
     if roles & _TECHNICIAN_ROLES:
         return _scope_check_assigned(doc, user, "reported_by", "assigned_to")

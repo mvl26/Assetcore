@@ -121,6 +121,17 @@ class TestGate4RcaSubmitCAPA(CrossModuleGatesBase):
 class TestGate5CommissioningComplianceBlock(CrossModuleGatesBase):
     """TC-INT-05: submit_commissioning blocked by check_asset_compliance_status."""
 
+    @classmethod
+    def tearDownClass(cls):
+        # test_compliance_gate_blocks_when_critical_capa_open seeds an asset via
+        # _ensure("AC Asset", "AC-AS-INT05", {"asset_name": "Gate5 Test Asset"}).
+        # AC Asset is autonamed (AC-ASSET-#####) so the requested name is IGNORED
+        # (LL-TEST-9) → must purge by asset_name, not by "AC-AS-INT05".
+        from assetcore.tests._asset_cleanup import purge_assets_by_name_prefix
+        purge_assets_by_name_prefix("Gate5 Test Asset")
+        frappe.db.commit()
+        super().tearDownClass()
+
     def test_submit_commissioning_calls_compliance_gate(self) -> None:
         from assetcore.services import imm04
         import inspect

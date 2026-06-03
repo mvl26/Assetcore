@@ -5,7 +5,7 @@ from __future__ import annotations
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import add_days, add_months, date_diff, nowdate
+from frappe.utils import date_diff, nowdate
 
 
 class IMMUserCompetency(Document):
@@ -17,11 +17,16 @@ class IMMUserCompetency(Document):
         self._set_computed_fields()
 
     def before_save(self) -> None:
-        """Compute expiry_date if Active and not yet set."""
+        """Compute expiry_date + recertification_due_date if Active and not yet set.
+
+        Gọi SoT `compute_competency_dates` (services/imm06.py §V.1, BR-06-13) —
+        INVARIANT recert = expiry − 60 ngày. KHÔNG inline formula (lazy-import tránh
+        circular import controller ↔ service). Idempotent: chỉ set khi expiry còn trống."""
         if self.workflow_state == "Active" and self.achieved_date and not self.expiry_date:
-            validity = int(self.validity_months or 24)
-            self.expiry_date = add_months(self.achieved_date, validity)
-            self.recertification_due_date = add_days(self.expiry_date, -60)
+            from assetcore.services.imm06 import compute_competency_dates
+            dates = compute_competency_dates(self.achieved_date, int(self.validity_months or 24))
+            self.expiry_date = dates["expiry_date"]
+            self.recertification_due_date = dates["recertification_due_date"]
 
     def on_update(self) -> None:
         """Archive old competencies and invalidate cache on state change."""

@@ -28,6 +28,27 @@ def _safe_field(fieldname: str) -> bool:
     return frappe.db.has_column("User", fieldname)
 
 
+_dummy_pwhash_cache: str | None = None
+
+
+def _constant_time_dummy_verify(pwd: str) -> None:
+    """Verify `pwd` against a fixed dummy hash (cùng CryptContext của Frappe).
+
+    Dùng cho nhánh user-không-tồn-tại để chi phí ~bằng một `check_password`
+    thật → đóng timing-based user enumeration (security review #2). Hash dummy
+    tính một lần rồi cache; verify luôn trả False nhưng vẫn tốn cost bcrypt.
+    """
+    global _dummy_pwhash_cache
+    from frappe.utils.password import passlibctx
+
+    try:
+        if _dummy_pwhash_cache is None:
+            _dummy_pwhash_cache = passlibctx.hash("ac-constant-time-dummy")
+        passlibctx.verify(pwd or "", _dummy_pwhash_cache)
+    except Exception:
+        pass
+
+
 def _get_employee_extra(user_name: str) -> dict:
     if not frappe.db.table_exists("Employee"):
         return {}
@@ -56,11 +77,13 @@ def register_user(email: str, full_name: str, password: str,
     except frappe.InvalidEmailAddressError:
         return _err("Email không hợp lệ", 400)
 
-    if frappe.db.exists("User", email):
-        return _err("Email đã tồn tại trong hệ thống", 400)
-
     if department and not frappe.db.exists("AC Department", department):
         return _err(f"Khoa/phòng '{department}' không tồn tại", 400)
+
+    if frappe.db.exists("User", email):
+        # G4: user đã bị TỪ CHỐI (Rejected + enabled=0) được phép đăng ký lại —
+        # reset record về Pending thay vì tạo bản trùng. Pending/Approved vẫn chặn.
+        return _reapply_if_rejected(email, full_name, password, phone, department)
 
     user_doc = frappe.new_doc("User")
     user_doc.email = email
@@ -89,6 +112,152 @@ def register_user(email: str, full_name: str, password: str,
         "pending_approval": True,
         "message": "Đăng ký thành công — vui lòng chờ quản trị viên duyệt tài khoản.",
     })
+
+
+def _reapply_if_rejected(email: str, full_name: str, password: str,
+                         phone: str, department: str) -> dict:
+    """G4: cho phép user Rejected đăng ký lại — reset về Pending.
+
+    Chỉ áp dụng khi record hiện tại là Rejected (và enabled=0 — invariant đã
+    khoá: Rejected ⟹ chưa active). Mọi trạng thái khác (Pending đang chờ,
+    Approved/enabled=1) → giữ nguyên hành vi 'đã tồn tại' để chống chiếm tài
+    khoản đang hoạt động.
+
+    Người đăng ký lại PHẢI nhập đúng mật khẩu gốc (tham số `password`) để chứng
+    minh quyền sở hữu — mật khẩu KHÔNG bị đổi ở đây (security review #3). Sai
+    mật khẩu → trả nhãn 'đã tồn tại' (không lộ trạng thái Rejected).
+    """
+    status = (
+        frappe.db.get_value("User", email, "imm_approval_status")
+        if _safe_field("imm_approval_status") else None
+    )
+    enabled = int(frappe.db.get_value("User", email, "enabled") or 0)
+
+    if status != "Rejected" or enabled == 1:
+        return _err("Email đã tồn tại trong hệ thống", 400)
+
+    # Bảo mật (security review #3): chỉ cho phép ghi đè hồ sơ Rejected khi người
+    # gọi CHỨNG MINH biết mật khẩu gốc của tài khoản → chống chiếm danh tính qua
+    # đường guest. Sai/thiếu mật khẩu → trả CÙNG nhãn 'email đã tồn tại' như mọi
+    # trường hợp khác (không lộ ra đây là tài khoản Rejected).
+    from frappe.utils.password import check_password
+
+    try:
+        check_password(email, password, delete_tracker_cache=False)
+    except frappe.AuthenticationError:
+        return _err("Email đã tồn tại trong hệ thống", 400)
+
+    # Mật khẩu gốc đúng — KHÔNG đổi mật khẩu (giữ nguyên), chỉ cập nhật danh
+    # tính + đưa về Pending + clear lý do từ chối.
+    user_doc = frappe.get_doc("User", email)
+    user_doc.first_name = full_name
+    user_doc.phone = phone or ""
+    user_doc.enabled = 0
+    if _safe_field("imm_approval_status"):
+        user_doc.imm_approval_status = "Pending"
+    if _safe_field("imm_rejection_reason"):
+        user_doc.imm_rejection_reason = ""
+    if department and _safe_field("ac_department"):
+        user_doc.ac_department = department
+    user_doc.flags.ignore_permissions = True
+    user_doc.save()
+    frappe.db.commit()
+
+    _notify_admins_registration(email, full_name, department)
+    return _ok({
+        "user": email,
+        "pending_approval": True,
+        "reapplied": True,
+        "message": "Đăng ký lại thành công — vui lòng chờ quản trị viên duyệt tài khoản.",
+    })
+
+
+@frappe.whitelist(allow_guest=True, methods=["POST"])
+@rate_limit(key="email", limit=5, seconds=60, ip_based=True)
+def check_account_status(email: str) -> dict:
+    """BR-00-USR-02 (security 2026-06-01): probe trạng thái cho FE — NON-ENUMERABLE.
+
+    Thiết kế cũ (G5) phân biệt not_found/active/pending/rejected/disabled cho
+    BẤT KỲ email nào mà không cần mật khẩu → kẻ tấn công liệt kê được email đã
+    đăng ký + trạng thái tài khoản (user enumeration / information disclosure).
+
+    Thiết kế mới: endpoint guest này KHÔNG bao giờ phân biệt tồn tại hay trạng
+    thái — LUÔN trả nhãn đồng nhất `unknown`. Trạng thái nhạy cảm
+    (pending/rejected/disabled) chỉ được surface qua `account_state(usr, pwd)`
+    SAU KHI mật khẩu đúng.
+
+    Bảo mật:
+      - allow_guest nhưng response độc lập với email → không leak gì.
+      - Rate-limit kép: per-(IP, email) (key='email', 5/60s) chống dò hàng loạt.
+
+    Giữ endpoint (thay vì xoá) để FE/clients cũ không gãy; vì nó không còn lộ
+    thông tin, không còn là vector enumeration.
+    """
+    email = (email or "").strip().lower()
+    if not email:
+        return _err("Thiếu email", 400)
+    # Cố ý KHÔNG truy vấn DB theo tồn tại → response đồng nhất, không enumeration,
+    # không lệch timing giữa email tồn tại và không tồn tại.
+    return _ok({"status": "unknown"})
+
+
+@frappe.whitelist(allow_guest=True, methods=["POST"])
+@rate_limit(key="usr", limit=5, seconds=300, ip_based=True)
+def account_state(usr: str, pwd: str) -> dict:
+    """BR-00-USR-02: tra trạng thái tài khoản — PASSWORD-GATED.
+
+    Chỉ lộ pending/rejected/disabled/active SAU KHI người gọi chứng minh biết
+    mật khẩu. Dùng cho FE login UX: khi `/api/method/login` fail, FE gọi endpoint
+    này với CHÍNH mật khẩu user vừa nhập để biết có nên báo "chờ duyệt / bị từ
+    chối / vô hiệu hoá" hay "sai thông tin".
+
+    Bằng chứng cần endpoint riêng (frappe/auth.py LoginManager.authenticate):
+      - Frappe xác thực mật khẩu TRƯỚC; user enabled=0 (mọi Pending/Rejected/
+        Disabled) bị `fail("User disabled or missing")` nhưng KHÔNG tạo session
+        và message này không phải contract ổn định để FE đọc. Endpoint này tái
+        xác thực mật khẩu qua check_password rồi trả nhãn ổn định.
+
+    Bảo mật:
+      - Sai mật khẩu HOẶC email không tồn tại → CÙNG nhãn `invalid_credentials`
+        (không phân biệt được email tồn tại hay không → đóng enumeration).
+      - Chỉ khi mật khẩu ĐÚNG mới trả pending/rejected/disabled/active.
+      - allow_guest nhưng KHÔNG trả role/profile/dữ liệu nghiệp vụ — 1 nhãn.
+      - Rate-limit kép per-(IP, usr) (key='usr', 5/60s).
+    """
+    from frappe.utils.password import check_password
+
+    usr = (usr or "").strip().lower()
+    if not usr or not pwd:
+        return _err("Thiếu thông tin đăng nhập", 400)
+
+    # Email không tồn tại và sai mật khẩu PHẢI không phân biệt được — kể cả timing.
+    if not frappe.db.exists("User", usr):
+        _constant_time_dummy_verify(pwd)  # equalize cost với check_password thật
+        return _ok({"status": "invalid_credentials"})
+
+    try:
+        # delete_tracker_cache=False: oracle này KHÔNG được xoá bộ đếm
+        # login-fail thật của Frappe (LoginAttemptTracker) — tránh bypass lockout.
+        check_password(usr, pwd, delete_tracker_cache=False)
+    except frappe.AuthenticationError:
+        return _ok({"status": "invalid_credentials"})
+
+    # Mật khẩu ĐÚNG — giờ mới an toàn để tiết lộ trạng thái tài khoản.
+    enabled = int(frappe.db.get_value("User", usr, "enabled") or 0)
+    approval = (
+        frappe.db.get_value("User", usr, "imm_approval_status")
+        if _safe_field("imm_approval_status") else None
+    )
+
+    if approval == "Pending":
+        status = "pending"
+    elif approval == "Rejected":
+        status = "rejected"
+    elif enabled == 0:
+        status = "disabled"
+    else:
+        status = "active"
+    return _ok({"status": status})
 
 
 @frappe.whitelist()

@@ -39,6 +39,16 @@ description: >
 6. **Chỉ commit khi user yêu cầu** — không tự commit sau khi sửa code.
    Khi user đã yêu cầu commit → tự động chia nhỏ + push, không hỏi lại.
 
+7. **Isolation khi working tree có WIP của effort/session KHÁC** — chỉ stage
+   ĐÚNG file của việc mình đang commit bằng đường dẫn TƯỜNG MINH; TUYỆT ĐỐI
+   không `git add -A`/`git add .`/`git add -u`. Sau khi commit, VERIFY commit
+   không lẫn file lạ:
+   ```bash
+   git show --stat --oneline HEAD | grep -iE '<từ khoá vùng cấm>' && echo LEAK || echo clean
+   ```
+   (Bài học 2026-05-29: một session "notification framework" chạy song song ghi
+   ~50 file vào cùng working tree; commit lẫn file của nó = phá việc người khác.)
+
 ---
 
 ## Quy trình bắt buộc
@@ -166,7 +176,7 @@ git commit \
 # Commit 2 — feature lớn (gộp BE+FE+docs cùng feature)
 git add assetcore/api/import_data.py assetcore/api/import_helpers.py \
         frontend/src/api/importData.ts frontend/src/views/ReferenceDataView.vue \
-        public/import_templates/ docs/import-strategy.md
+        public/import_templates/ docs/res/guides/import-strategy.md
 git commit \
   -m "feat(import): add bulk import/export for reference data" \
   -m "- BE: 6 endpoints (preview/import/export/template)
@@ -221,3 +231,11 @@ hash + subject từng commit + xác nhận `git push` thành công.
    đã yêu cầu commit là ngầm yêu cầu push, KHÔNG hỏi lại.
 9. **Tách commit theo từng file lẻ** — không đi đến cực đoan ngược lại;
    file cùng chủ đề logic vẫn gộp chung một commit.
+
+---
+
+## 🔗 Session context — bàn giao phiên (assetcore-session)
+
+- **Trước khi xử lý/sửa BẤT KỲ việc gì:** chạy `.claude/scripts/session-log.sh show` (đọc STATE+LOG mới nhất — "đang dở ở đâu"; dữ liệu NGOÀI repo, đừng tìm `sessions/` trong repo). Main session hook tự nạp mỗi prompt; subagent phải chạy lệnh này.
+- **Sau MỖI việc đáng kể (đụng file/quyết định):** invoke **`assetcore-session`** checkpoint NGAY `STATE.md`(ghi đè)+`LOG.md` — KHÔNG đợi cuối phiên (ngắt giữa chừng = mất).
+- **Ranh giới:** state-tạm-sẽ-hết → `sessions/`; fact-bền-vững-dùng-lại → `memory/`. KHÔNG trộn.

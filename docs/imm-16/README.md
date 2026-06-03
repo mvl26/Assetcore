@@ -6,7 +6,7 @@
 | Wave | 2 — IMPLEMENTED (feature/hieuc/wave-2) |
 | Trạng thái | ✅ Stable — BE + FE đã merge; chờ UAT |
 | Số file | 9 (README + 02-09; nguồn gốc đã archive) |
-| Cập nhật cuối | 2026-05-27 |
+| Cập nhật cuối | 2026-06-02 |
 | Khối kiến trúc | C. KHỐI 3 |
 | Đợt triển khai | 2 |
 | Owner | Tổ HC-QLCL & Risk |

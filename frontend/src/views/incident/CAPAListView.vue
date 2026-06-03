@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { useCapaStore } from '@/stores/imm00'
 import type { CapaStatus } from '@/types/imm00'
 import PageHeader from '@/components/common/PageHeader.vue'
@@ -8,50 +8,33 @@ import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar from '@/components/common/ListFilterBar.vue'
 import BasePagination from '@/components/common/BasePagination.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
+import StatusBadge from '@/components/common/StatusBadge.vue'
+import { translateStatus } from '@/utils/formatters'
 
 const router = useRouter()
+const route = useRoute()
 const store = useCapaStore()
 
-const statusFilter = ref<CapaStatus | ''>('')
-const showFilters = ref(false)
+const statusFilter = ref<CapaStatus | ''>((route.query.status as CapaStatus) || '')
+// R10 §9.4.8 — drill từ KPI qa: ?not_closed=1 (capa_open) / ?overdue=1 (capa_overdue).
+const notClosed = ref<boolean>(route.query.not_closed === '1')
+const overdueOnly = ref<boolean>(route.query.overdue === '1')
+const showFilters = ref<boolean>(!!(route.query.status || route.query.not_closed || route.query.overdue))
 
-const STATUSES: { value: CapaStatus | ''; label: string }[] = [
-  { value: '', label: 'Tất cả' },
-  { value: 'Open', label: 'Mở' },
-  { value: 'In Progress', label: 'Đang xử lý' },
-  { value: 'Pending Verification', label: 'Chờ xác minh' },
-  { value: 'Closed', label: 'Đã đóng' },
-  { value: 'Overdue', label: 'Quá hạn' },
-]
+// Dropdown options cho <select> lọc trạng thái. Nhãn derive qua translateStatus
+// SSoT (formatters.ts) — KHỚP badge StatusBadge trên list/detail, KHÔNG drift.
+// Giá trị (value) giữ CODE English để gửi cho BE; chỉ nhãn hiển thị là VI.
+const STATUS_CODES: (CapaStatus | '')[] = ['', 'Open', 'In Progress', 'Pending Verification', 'Closed', 'Overdue']
+const STATUSES = computed<{ value: CapaStatus | ''; label: string }[]>(() =>
+  STATUS_CODES.map(v => ({ value: v, label: v === '' ? 'Tất cả' : translateStatus(v) })))
 
-const STATUS_COLOR: Record<string, string> = {
-  'Open': 'bg-blue-100 text-blue-700',
-  'In Progress': 'bg-yellow-100 text-yellow-700',
-  'Pending Verification': 'bg-purple-100 text-purple-700',
-  'Closed': 'bg-green-100 text-green-700',
-  'Overdue': 'bg-red-100 text-red-700',
-}
-
-const STATUS_LABEL: Record<string, string> = {
-  'Open': 'Mới mở',
-  'In Progress': 'Đang xử lý',
-  'Pending Verification': 'Chờ xác nhận',
-  'Closed': 'Đã đóng',
-  'Overdue': 'Quá hạn',
-}
-
-const SEV_LABEL: Record<string, string> = {
-  'Critical': 'Nghiêm trọng',
-  'Major': 'Quan trọng',
-  'Minor': 'Nhỏ',
-}
-
-interface Chip { key: 'status'; label: string }
+interface Chip { key: 'status' | 'notClosed' | 'overdue'; label: string }
 const activeChips = computed<Chip[]>(() => {
   const chips: Chip[] = []
+  if (overdueOnly.value) chips.push({ key: 'overdue', label: 'Quá hạn' })
+  else if (notClosed.value) chips.push({ key: 'notClosed', label: 'Chưa đóng' })
   if (statusFilter.value) {
-    const s = STATUSES.find(x => x.value === statusFilter.value)
-    chips.push({ key: 'status', label: s?.label ?? statusFilter.value })
+    chips.push({ key: 'status', label: translateStatus(statusFilter.value) })
   }
   return chips
 })
@@ -59,11 +42,15 @@ const activeFilterCount = computed(() => activeChips.value.length)
 
 function clearChip(key: string) {
   if (key === 'status') statusFilter.value = ''
+  else if (key === 'notClosed') notClosed.value = false
+  else if (key === 'overdue') overdueOnly.value = false
   applyFilter()
 }
 
 function resetFilters() {
   statusFilter.value = ''
+  notClosed.value = false
+  overdueOnly.value = false
   store.fetchList()
 }
 
@@ -74,12 +61,21 @@ function quickFilter(_key: 'status', value: string) {
   applyFilter()
 }
 
+function buildParams(extra: Record<string, unknown> = {}) {
+  return {
+    status: statusFilter.value || undefined,
+    not_closed: notClosed.value ? 1 : undefined,
+    overdue: overdueOnly.value ? 1 : undefined,
+    ...extra,
+  }
+}
+
 function applyFilter() {
-  store.fetchList({ status: statusFilter.value || undefined })
+  store.fetchList(buildParams())
 }
 
 function goToPage(page: number) {
-  store.fetchList({ status: statusFilter.value || undefined, page })
+  store.fetchList(buildParams({ page }))
 }
 
 function formatDate(d?: string) {
@@ -92,7 +88,7 @@ function isOverdue(date?: string) {
   return new Date(date) < new Date()
 }
 
-onMounted(() => store.fetchList())
+onMounted(() => applyFilter())
 </script>
 
 <template>
@@ -160,16 +156,13 @@ onMounted(() => store.fetchList())
             <div class="flex items-center justify-between mb-2">
               <span class="font-mono text-sm font-semibold text-brand-700">{{ capa.name }}</span>
               <button
-                class="px-2.5 py-0.5 rounded-full text-xs font-medium"
-                :class="STATUS_COLOR[capa.status] || 'bg-slate-100 text-slate-600'"
+                :title="`Lọc: ${translateStatus(capa.status)}`"
                 @click.stop="quickFilter('status', capa.status)"
-              >{{ STATUS_LABEL[capa.status] || capa.status }}</button>
+              ><StatusBadge :state="capa.status" /></button>
             </div>
             <p class="text-sm font-medium text-slate-900 truncate">{{ capa.asset_name || capa.asset || '—' }}</p>
             <div class="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1.5 text-xs text-slate-500">
-              <span :class="{ 'text-red-600': capa.severity === 'Critical', 'text-yellow-600': capa.severity === 'Major', 'text-slate-600': capa.severity === 'Minor' }">
-                {{ SEV_LABEL[capa.severity] || capa.severity }}
-              </span>
+              <StatusBadge :state="capa.severity" size="xs" />
               <span class="text-slate-300">·</span>
               <span :class="isOverdue(capa.due_date) && capa.status !== 'Closed' ? 'text-red-600 font-semibold' : ''">
                 {{ formatDate(capa.due_date) }}
@@ -208,19 +201,14 @@ onMounted(() => store.fetchList())
                   <div v-if="capa.asset && capa.asset_name" class="text-xs text-slate-400 font-mono">{{ capa.asset }}</div>
                 </td>
                 <td class="px-4 py-3">
-                  <span
-                    class="text-xs font-medium"
-                    :class="{ 'text-red-600': capa.severity === 'Critical', 'text-yellow-600': capa.severity === 'Major', 'text-slate-600': capa.severity === 'Minor' }">
-                    {{ SEV_LABEL[capa.severity] || capa.severity }}
-                  </span>
+                  <StatusBadge :state="capa.severity" />
                 </td>
                 <td class="px-4 py-3">
                   <button
-                    class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium transition-all hover:ring-2 hover:ring-offset-1 hover:ring-current/50"
-                    :class="STATUS_COLOR[capa.status] || 'bg-slate-100 text-slate-600'"
-                    :title="`Lọc: ${STATUS_LABEL[capa.status] || capa.status}`"
+                    class="transition-all hover:ring-2 hover:ring-offset-1 hover:ring-brand-300 rounded-full"
+                    :title="`Lọc: ${translateStatus(capa.status)}`"
                     @click.stop="quickFilter('status', capa.status)"
-                  >{{ STATUS_LABEL[capa.status] || capa.status }}</button>
+                  ><StatusBadge :state="capa.status" /></button>
                 </td>
                 <td class="px-4 py-3">
                   <span :class="isOverdue(capa.due_date) && capa.status !== 'Closed' ? 'text-red-600 font-semibold' : 'text-slate-600'" class="text-xs">

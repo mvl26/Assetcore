@@ -92,6 +92,11 @@ IMM-05 là module **cross-cutting xuyên suốt từ Procurement → Decommissio
 | KPI-05-03: Thời gian upload → Active | Trung bình ngày từ Draft → Active | N/A | ≤ 3 ngày làm việc | Frappe Version timestamp delta |
 | KPI-05-04: Tỷ lệ GW-2 block tháo gỡ trong SLA | % GW-2 block được giải quyết (upload/exempt) trong 5 ngày | N/A | ≥ 85% | Document Request tracking |
 | KPI-05-05: % alert idempotent | Không có Expiry Alert Log trùng per (asset_document, alert_date) | — | 100% | Scheduler log |
+| KPI-05-06: Số ĐKLH BYT sắp/đã hết hạn | # thiết bị có `AC Asset.byt_reg_expiry ∈ [today, today+30]` (sắp) và `< today` (đã hết). Loại bản ghi chưa khai ĐKLH (NULL/''). DRILLABLE: tile → `/assets?byt_status=expiring\|expired` | *(Cần khảo sát baseline)* | → 0 thiết bị đang khai thác lâm sàng có ĐKLH hết hạn | `dashboard.get_overview().assets.byt_expiring_30d/byt_expired` (count) + `list_assets(byt_status=…)` (drill) — SoT `byt_expiry_filter` (BR-00-17) |
+
+> **Quan hệ IMM-05 ↔ IMM-00 (NĐ98/2021):** Số ĐKLH lưu hành (`AC Asset.byt_reg_no` + `byt_reg_expiry`) là **điều kiện pháp lý lưu hành** của thiết bị y tế theo NĐ98/2021 — khác với hồ sơ tài liệu (Asset Document) do IMM-05 quản lý nội dung. Predicate "sắp/đã hết hạn ĐKLH" là SoT DUY NHẤT `byt_expiry_filter(bucket)` tại IMM-00 (field + endpoint `list_assets`/`get_overview` cư trú ở IMM-00), tiêu thụ bởi 2 tile compliance NĐ98 trên dashboard quản trị thiết bị. KPI-05-06 đo cùng SoT đó. Chi tiết: BR-00-17 + [imm-00/04 §III.1a](../imm-00/04_Backend_Design.md); FE: [imm-00/06 §III.10c](../imm-00/06_Frontend_Design.md).
+>
+> **Self-Correction (Vòng 31):** Thiết kế gốc đếm ĐKLH bằng **literal inline** (`api/dashboard.py:62-63`) + `list_assets` thiếu param `byt_status` → ô KPI NĐ98 không drill & không có tile/chip tiêu thụ. Fix giống BR-05-15: rút về **một** SoT `byt_expiry_filter`, gọi từ cả count + drill → tile == danh sách byte-for-byte.
 
 ## I.6. Ràng buộc Compliance
 
@@ -490,6 +495,15 @@ UC03 ..> UC02 : <<extend>> [state=Pending]
 | BR-05-08 | Exempt → `document_status = "Compliant (Exempt)"` | `_compute_document_status()` | NĐ98 |
 | BR-05-09 | `change_summary` bắt buộc khi version ≠ "1.0" | VR-09 trong `validate()` | ISO 13485 |
 | BR-05-10 | `Internal_Only` ẩn với non-internal roles | `_apply_visibility_filter()` | Internal |
+| BR-05-11 | Khấu hao thực thi KHÔNG sàn book value tại 0 — sàn tại `residual_value` (INV-DEP-1) | `run_due_depreciation()` `new_book = max(gross − new_acc, residual)` | NĐ98 / Kế toán VN |
+| BR-05-12 | Lũy kế khấu hao KHÔNG vượt `depreciable_base = gross − residual` (INV-DEP-2) | `run_due_depreciation()` `new_acc = min(prev + inc, base)` | Kế toán VN |
+| BR-05-13 | Book value header (Executor) == `remaining_value` dòng cuối (Planner) sau kỳ cuối, chênh ≤ 0.01 (INV-DEP-3) | `run_due_depreciation()` ↔ `generate_schedule()` đồng công thức sàn | Internal |
+| BR-05-14 | Idempotent: chạy lại Executor khi hết Pending tới hạn → header không đổi, `executed_rows=0` (INV-DEP-4) | `run_due_depreciation()` chỉ cộng dòng Pending | Internal |
+| BR-05-15 | "Hết khấu hao" (`fully_depreciated`) có **một** predicate SoT: `is_fully_depreciated(row)` = `configured ∧ current_book_value ≤ residual_value + 1`, với `configured = method ∧ method≠'None' ∧ gross>0 ∧ months>0`. KPI count == drill rows (INV-DEP-5) | `services/depreciation.py::is_fully_depreciated`; gọi bởi `get_depreciation_stats` (count) **và** `list_assets_depreciation(depreciation_filter='fully_depreciated')` (drill) | Internal |
+
+> **Self-Correction (Vòng 2):** BR-05-11..14 vá lỗi thiết kế gốc — Executor cũ sàn tại `0.0` (`depreciation.py:252`) và không chặn trần lũy kế (`:251`), lệch với Planner (sàn tại residual, `:174`). Chi tiết invariant + công thức: [04 Backend §2.5](./04_Backend_Design.md).
+>
+> **Self-Correction (Vòng 30):** BR-05-15 vá lỗi thiết kế gốc của read-path "Hết khấu hao" — biểu thức `book ≤ residual + 1` được **inline** trong `get_depreciation_stats` (`api/imm00.py:2242`) cho card count, nhưng `list_assets_depreciation` **không có** predicate này nên ô KPI không drill được (FE `DepreciationView.vue:189` là text câm; status-filter `:271` thiếu lựa chọn "Hết khấu hao"). Fix: rút predicate về **một** hàm SoT module-level `is_fully_depreciated(row)`, gọi từ cả 2 read-path → card count == drill rows (đo bằng INV-DEP-5). Chi tiết: [04 Backend §2.5](./04_Backend_Design.md); API: [imm-00/05 §III.18](../imm-00/05_API_Specification.md); FE: [imm-00/06 §III.10b](../imm-00/06_Frontend_Design.md).
 
 ## IV.3. State Machine
 

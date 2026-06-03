@@ -12,6 +12,7 @@ import StatusBadge from '@/components/common/StatusBadge.vue'
 import BaseModal from '@/components/common/BaseModal.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import RecordHistory from '@/components/common/RecordHistory.vue'
+import { translateFrequency } from '@/utils/formatters'
 
 const route = useRoute()
 const store = useImm16Store()
@@ -23,7 +24,8 @@ const loading = ref(true)
 const historyRef = ref<InstanceType<typeof RecordHistory> | null>(null)
 
 const CATEGORIES = ['Document', 'PM', 'Calibration', 'Training', 'Stock', 'SLA', 'Safety']
-const FREQS = ['Daily', 'Weekly', 'Monthly', 'Quarterly']
+// Khớp BE ground truth (imm_compliance_rule.evaluation_frequency).
+const FREQS = ['Realtime', 'Hourly', 'Daily', 'Weekly', 'Monthly', 'Quarterly']
 
 async function load() {
   loading.value = true
@@ -115,7 +117,7 @@ const fields = computed(() => {
     ['Mã quy tắc', r.rule_code],
     ['Module nguồn', r.source_module],
     ['Nhóm', r.category],
-    ['Tần suất đánh giá', r.evaluation_frequency],
+    ['Tần suất đánh giá', translateFrequency(r.evaluation_frequency)],
     ['Nguồn dữ liệu', `${r.data_source_doctype || '—'}${r.data_source_field ? ' · ' + r.data_source_field : ''}`],
     ['Vai trò sở hữu', r.owner_role || '—'],
     ['Tham chiếu QMS', r.qms_doc_ref || '—'],
@@ -205,7 +207,7 @@ onMounted(load)
         <div class="form-group">
           <label class="form-label">Tần suất đánh giá</label>
           <select v-model="editForm.evaluation_frequency" class="form-select">
-            <option v-for="f in FREQS" :key="f" :value="f">{{ f }}</option>
+            <option v-for="f in FREQS" :key="f" :value="f">{{ translateFrequency(f) }}</option>
           </select>
         </div>
         <div class="form-group">
