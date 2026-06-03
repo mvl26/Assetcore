@@ -13,6 +13,7 @@ import {
 } from '@/api/importData'
 import type { AcLocation, AcDepartment, AcAssetCategory } from '@/types/imm00'
 import type { ImportPreviewResult, ImportResult, ImportStep, ImportMode, RefDataDoctype } from '@/types/import'
+import { translateDepreciationMethod } from '@/utils/formatters'
 import api from '@/api/axios'
 import SmartSelect from '@/components/common/SmartSelect.vue'
 const toast = useToast()
@@ -462,7 +463,7 @@ v-for="t in (['location','department','category'] as Tab[])" :key="t"
                 </span>
                 <span v-else class="text-gray-400">—</span>
               </td>
-              <td class="px-4 py-3 text-gray-600 text-xs">{{ r.default_depreciation_method || '—' }}</td>
+              <td class="px-4 py-3 text-gray-600 text-xs">{{ translateDepreciationMethod(r.default_depreciation_method as string) }}</td>
               <td class="px-4 py-3 text-gray-500">
                 <span v-if="r.total_depreciation_months">
                   {{ r.total_depreciation_months }} tháng
@@ -712,6 +713,9 @@ v-for="t in (['location','department','category'] as Tab[])" :key="t"
             <div class="grid grid-cols-2 gap-3">
               <div>
                 <label class="block text-xs text-gray-600 mb-1">Phương pháp khấu hao</label>
+                <!-- GIỮ NGUYÊN value=EN: đây là form input ghi DB, value PHẢI khớp option BE
+                     (Straight Line / Double Declining / Units of Production). Nhãn hiển thị đã
+                     song ngữ. Chỉ phần read-only (cột bảng dòng ~465) mới qua translateDepreciationMethod. -->
                 <select v-model="form.default_depreciation_method" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
                   <option value="">—</option>
                   <option value="Straight Line">Đường thẳng (Straight Line)</option>

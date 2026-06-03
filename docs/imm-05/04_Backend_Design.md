@@ -126,6 +126,106 @@ Side effects:
 
 **Config:** autoname=`field:type_name`. **Fields:** type_name, doc_category, has_expiry, is_mandatory, applies_to_asset_category, applies_when_radiation.
 
+### §2.4 AC Asset Depreciation Schedule (child table)
+
+Bảng con của `AC Asset` (field `depreciation_schedule`, fieldtype Table). 1 dòng = 1 kỳ khấu hao.
+
+| Field | Type | Options | Mô tả |
+|---|---|---|---|
+| `period_number` | Int | — | Số thứ tự kỳ (1-based) |
+| `scheduled_date` | Date | — | Ngày cuối kỳ (cron quét `<= today`) |
+| `depreciation_amount` | Currency | VND | Khấu hao kỳ này |
+| `accumulated_amount` | Currency | VND | Lũy kế tới cuối kỳ này (đã sàn) |
+| `remaining_value` | Currency | VND | Book value cuối kỳ = `max(gross − accumulated, residual)` |
+| `status` | Select | Pending / Executed / Cancelled | Trạng thái thực thi kỳ |
+| `executed_on` | Date | — | Ngày cron đánh dấu Executed |
+| `journal_entry` | Data | — | (Roadmap) link bút toán kế toán |
+
+**Trường khấu hao trên `AC Asset` (parent):** `gross_purchase_amount` (nguyên giá), `residual_value` (giá trị thu hồi), `accumulated_depreciation` (lũy kế header), `current_book_value` (giá trị còn lại header), `depreciation_method` (Straight Line / Double Declining / Units of Production / None), `total_depreciation_months`, `depreciation_frequency` (Monthly / Quarterly / Yearly), `depreciation_start_date`.
+
+**Định nghĩa nền tảng (dùng nhất quán toàn module):**
+
+- `depreciable_base = gross_purchase_amount − residual_value` (phần được phép khấu hao).
+- `residual_value` = giá trị thu hồi (salvage). NĐ98 / chuẩn kế toán VN: tài sản **không được khấu hao xuống dưới giá trị thu hồi**.
+
+### §2.5 Khấu hao — Planner vs Executor (NĐ98 / chuẩn kế toán)
+
+Service `assetcore/services/depreciation.py` tách 2 trách nhiệm:
+
+| Vai trò | Hàm | Ghi DB | Nhiệm vụ |
+|---|---|---|---|
+| **Planner** | `generate_schedule(asset)` / `preview_schedule(...)` | child rows (Pending) / không ghi | Sinh các dòng lịch; `remaining_value` đã sàn tại `residual_value` (dòng 174). |
+| **Executor** | `run_due_depreciation(as_of, asset)` (cron daily + nút Cập nhật) | parent header `accumulated_depreciation` + `current_book_value`, đánh dấu rows Executed | Quét dòng Pending tới hạn, cộng dồn lên header. |
+
+**Bug thiết kế gốc (Vòng 2 — Self-Correction):** Executor sàn book value tại `0.0` và **không** chặn trần lũy kế, trong khi Planner sàn tại `residual_value`. Hai con số lệch nhau → header asset khấu hao xuyên qua giá trị thu hồi xuống 0, sai NĐ98 + sai chuẩn kế toán. (Trước fix: `depreciation.py:251-252`.)
+
+**5 INVARIANT bắt buộc** (4 cho Executor header + 1 cho read-path "Hết khấu hao"):
+
+| ID | Invariant | Công thức |
+|---|---|---|
+| **INV-DEP-1** | Book value KHÔNG BAO GIỜ < residual | `current_book_value >= residual_value` (mọi thời điểm) |
+| **INV-DEP-2** | Lũy kế KHÔNG BAO GIỜ vượt depreciable_base | `accumulated_depreciation <= gross − residual` |
+| **INV-DEP-3** | Khớp Planner ↔ Executor | Sau kỳ cuối: `current_book_value (header) == remaining_value (dòng schedule cuối)`, chênh ≤ 0.01 |
+| **INV-DEP-4** | Idempotent / no-over | Chạy lần 2 (không còn Pending tới hạn) → `accumulated` + `book_value` không đổi, `executed_rows = 0` |
+| **INV-DEP-5** | Card count == drill rows | `len(list_assets_depreciation(depreciation_filter='fully_depreciated', page_size=lớn).items)` (de-dup theo `name`) `== get_depreciation_stats().fully_depreciated`. Đo trên data-live; cả 2 dùng chung SoT `is_fully_depreciated`. |
+
+**Công thức chuẩn của Executor (thay cho `max(gross − new_acc, 0.0)`):**
+
+```text
+depreciable_base = max(gross − residual, 0)
+new_acc          = min(prev_acc + inc, depreciable_base)   # INV-DEP-2: chặn trần
+new_book         = max(gross − new_acc, residual)          # INV-DEP-1: sàn tại residual
+```
+
+> `min(..., depreciable_base)` xử lý trường hợp cron trễ → gộp nhiều kỳ + rounding kỳ cuối khiến `prev_acc + inc` > depreciable_base. `max(..., residual)` đảm bảo book value không xuống dưới giá trị thu hồi (≠ 0 khi residual > 0).
+
+**Hệ quả accounting:** với tài sản đang ở kỳ cuối Pending, sau Executed `current_book_value == residual_value` (chênh ≤ 0.01 rounding), **không** = 0 khi residual > 0. Khớp với `remaining_value` dòng cuối của Planner (đã sàn tại residual).
+
+### §2.5.1 SoT predicate "Hết khấu hao" + `depreciation_filter` (BR-05-15 / INV-DEP-5)
+
+**Vấn đề (Self-Correction Vòng 30):** read-path "Hết khấu hao" có **2 chỗ** nhưng lệch nhau:
+- `get_depreciation_stats` (`api/imm00.py:2242`) **inline** `book <= residual + 1` → đếm cho card KPI.
+- `list_assets_depreciation` (`:2168`) **không có** predicate → ô KPI không drill được; FE chỉ hiển thị text câm (`DepreciationView.vue:189`) và status-filter thiếu lựa chọn (`:271`).
+
+**Fix — predicate DUY NHẤT, module-level:**
+
+```python
+# assetcore/services/depreciation.py  (cạnh _clamp_book_value — gom logic floor/predicate về 1 chỗ)
+
+def is_fully_depreciated(row: dict) -> bool:
+    """SoT predicate "Hết khấu hao" — dùng CHUNG bởi stats (count) + list (drill).
+
+    BR-05-15: fully_depreciated ⇔ configured ∧ current_book_value <= residual_value + 1.
+    `+ 1` (1 VND) hấp thụ rounding kỳ cuối — KHÔNG inline lại biểu thức này ở nơi khác.
+    Khi residual=0 ⇒ chỉ true khi book <= 1 (≈0), không kéo asset đang khấu hao dở vào tập.
+    """
+    gross    = flt(row.get("gross_purchase_amount") or 0)
+    residual = flt(row.get("residual_value") or 0)
+    book     = flt(row.get("current_book_value") if row.get("current_book_value") is not None else gross)
+    method   = (row.get("depreciation_method") or "").strip()
+    months   = int(row.get("total_depreciation_months") or 0)
+    configured = bool(method and method != "None" and gross > 0 and months > 0)
+    return configured and book <= residual + 1
+```
+
+> **Vị trí:** `services/depreciation.py` (cạnh `_clamp_book_value`) — KHÔNG để trong `api/imm00.py` để service-layer khác (report/IMM-17) tái dùng mà không import từ API. Public (no leading underscore) vì là contract liên-module.
+> **Cấm:** KHÔNG inline lại `book <= residual + 1` ở `get_depreciation_stats` hay bất kỳ đâu khác — cả 2 read-path PHẢI gọi `is_fully_depreciated`.
+
+**`get_depreciation_stats`** (`:2242`): thay biểu thức inline bằng `if is_fully_depreciated(a): totals["fully_depreciated"] += 1`. Giá trị `totals['fully_depreciated']` **KHÔNG đổi** (backward-compat: cùng tập, cùng số). Các key khác (`total_gross/accumulated/book/by_method/by_category/configured_count`) **KHÔNG đổi**.
+
+**`list_assets_depreciation`** nhận tham số mới `depreciation_filter: str = ""`:
+
+| Bước | Quy tắc |
+|---|---|
+| 1. DB filter | `method_filter / status_filter / category_filter` áp ở tầng `frappe.get_all` như cũ — KHÔNG clobber. |
+| 2. Enrich | `_depr_enrich_row` set `configured`, `current_book_value` (cần cho predicate). |
+| 3. Post-enrich filter | Nếu `depreciation_filter == 'fully_depreciated'` → giữ lại `[a for a in assets if is_fully_depreciated(a)]`. Áp **SAU** enrich (predicate cần `current_book_value/residual/configured`), AND với các filter DB sẵn có. |
+| 4. Pagination total | Khi `depreciation_filter` set, `total` PHẢI == số phần tử thỏa SoT (đếm trên tập đã lọc), **KHÔNG** `frappe.db.count` thô bỏ qua predicate → items không lệch total. |
+
+> **Lưu ý paging:** predicate phụ thuộc giá trị post-enrich (không có cột DB), nên để `total` chính xác và items không lệch khi `depreciation_filter` set, **lọc toàn tập rồi mới slice trang** (fetch all theo các DB-filter sẵn có → enrich → filter SoT → `total = len(filtered)` → slice `[offset:offset+pg_size]`). Khi `depreciation_filter` **rỗng**, giữ nguyên đường paging cũ (`frappe.db.count` + `limit_start/limit_page_length`) để không hồi quy hiệu năng.
+
+**Không hồi quy:** INV-DEP-1 (book ≥ residual) + executor floor giữ nguyên; predicate chỉ **đọc**, không ghi DB.
+
 ---
 
 ## §3 — Workflow

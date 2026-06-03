@@ -8,6 +8,7 @@ import {
 import PageHeader from '@/components/common/PageHeader.vue'
 import type { ImmDeviceModel, AcAssetCategory } from '@/types/imm00'
 import { useFormDraft } from '@/composables/useFormDraft'
+import { translateDepreciationMethod } from '@/utils/formatters'
 
 const route = useRoute()
 const router = useRouter()
@@ -219,7 +220,7 @@ onMounted(load)
             </div>
             <div class="flex flex-wrap gap-x-3 gap-y-0.5">
               <span v-if="selectedCategory.default_depreciation_method">
-                Khấu hao: <b>{{ selectedCategory.default_depreciation_method }}</b>
+                Khấu hao: <b>{{ translateDepreciationMethod(selectedCategory.default_depreciation_method) }}</b>
               </span>
               <span v-if="selectedCategory.total_depreciation_months">
                 <b>{{ selectedCategory.total_depreciation_months }}</b> tháng

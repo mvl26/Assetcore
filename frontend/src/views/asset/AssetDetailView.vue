@@ -9,6 +9,7 @@ import AssetDowntimeWidget from '@/components/asset/AssetDowntimeWidget.vue'
 import AssetDepreciationSchedule from '@/components/asset/AssetDepreciationSchedule.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import type { AssetLifecycleEvent, AssetKpi, ChainVerifyResult, LifecycleStatus } from '@/types/imm00'
+import { translateFrequency, translateDepreciationMethod } from '@/utils/formatters'
 
 const props = defineProps<{ id: string }>()
 const router = useRouter()
@@ -105,6 +106,13 @@ async function confirmTransition() {
   } finally {
     transitioning.value = false
   }
+}
+
+async function onDepreciationUpdated() {
+  // Khấu hao vừa thực thi/sinh lại → current_book_value + accumulated_depreciation
+  // trên asset đã đổi (BE ghi read-only). Refetch để header (tab Thông tin +
+  // tab Khấu hao summary) hiển thị giá trị mới, không stale.
+  await store.fetchOne(props.id)
 }
 
 async function remove() {
@@ -390,9 +398,9 @@ onMounted(async () => {
           <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 text-sm">
             <div>
               <p class="text-xs text-slate-400 mb-0.5">Phương pháp</p>
-              <p class="font-medium text-slate-800">{{ store.currentAsset.depreciation_method || '—' }}</p>
+              <p class="font-medium text-slate-800">{{ translateDepreciationMethod(store.currentAsset.depreciation_method) }}</p>
               <p v-if="store.currentAsset.total_depreciation_months" class="text-xs text-slate-400 mt-0.5">
-                {{ store.currentAsset.total_depreciation_months }} tháng · {{ store.currentAsset.depreciation_frequency || 'Monthly' }}
+                {{ store.currentAsset.total_depreciation_months }} tháng · {{ translateFrequency(store.currentAsset.depreciation_frequency) }}
               </p>
             </div>
             <div>
@@ -424,7 +432,13 @@ onMounted(async () => {
 
       <!-- Tab: Depreciation -->
       <div v-if="activeTab === 'depreciation'">
-        <AssetDepreciationSchedule :asset-name="store.currentAsset.name" />
+        <!-- @updated: sau khi chạy/sinh lại khấu hao, refetch asset để header
+             "Giá trị còn lại" (current_book_value) khớp ngay dòng schedule cuối
+             (INV-DEP-3) — không hiển thị giá trị cũ stale. -->
+        <AssetDepreciationSchedule
+          :asset-name="store.currentAsset.name"
+          @updated="onDepreciationUpdated"
+        />
       </div>
 
       <!-- Tab: Timeline -->

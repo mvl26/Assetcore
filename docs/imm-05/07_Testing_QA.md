@@ -218,6 +218,8 @@ Toàn bộ artefact test được của IMM-05 (đối chiếu 04 §DocType/Serv
 | `TestKpiExpiredDocs` | `get_dashboard_stats` (#20) | EP | 2 / 0 (expiry-only filter) | ✅ Live |
 | `TestDepreciationDefaults` | (chia sẻ helper depreciation) | EP | 3 / 0 | ✅ Live |
 | `TestGenerateScheduleZeroPrice` | (chia sẻ helper depreciation) | BVA / Error guessing | 1 / 2 | ✅ Live |
+| `TestFullyDepreciatedSoT` (`test_depreciation.py`) | `is_fully_depreciated` / `is_configured_for_depreciation` SoT (BR-05-15) | BVA (book==residual, +1, +2; residual=0→book≤1) + Decision Table (configured) | 4 / 5 (NOT configured, +2, book=2, book=None→gross) | ✅ Live |
+| `TestFullyDepreciatedReadPath` (`test_imm05.py`) | `get_depreciation_stats` count ↔ `list_assets_depreciation(depreciation_filter)` drill (INV-DEP-5) | Invariant (count==drill) + EP (AND method/category) + Regression (other keys) | 6 / 0 | ✅ Live |
 | `TestVisibilityFilter` | `_apply_visibility_filter` (#8) | Decision Table | — | ⬜ Planned |
 | `TestSubmitForReview` | `submit_for_review` (#12) | EP + Error guessing (no file) | — | ⬜ Planned |
 | `TestArchiveDocument` | `archive_document` (#16) | EP | — | ⬜ Planned |
