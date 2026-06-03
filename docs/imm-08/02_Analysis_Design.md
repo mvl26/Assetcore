@@ -470,6 +470,8 @@ Priority: Must | Estimate: 5SP
 | BR-08-08 | Checklist 100% có result trước Submit | `_validate_checklist_complete()` | TC-PM-02 |
 | BR-08-09 | Fail-Minor → CM Medium; Fail-Major → CM Critical + Out of Service | `_handle_failures()` | TC-PM-05 |
 | BR-08-10 | PM Task Log immutable | `in_create=1`, perms không có write/delete | TC-PM-02 |
+| BR-08-11 | **PM quá hạn (overdue) = SoT predicate `is_pm_overdue`** — `due_date < today` (strict) AND status ∈ {Open, In Progress, Pending–Device Busy}. 1 định nghĩa dùng chung cho cron `check_pm_overdue` (set status=Overdue), counter `count_overdue_pm`, và drill `?overdue=1`. | `is_pm_overdue()` / `count_overdue_pm()` / `_normalize_filters(overdue=1)` | TC-PM-OV-01, test_d_be_18 |
+| BR-08-12 | **PM đến hạn (due-soon) = SoT window predicate `due_soon_filter`** — `due_date ∈ [today, today+PM_DUE_SOON_WINDOW_DAYS]` (cả 2 biên inclusive) AND status NOT IN {Completed, Cancelled}. KPI `pm_due_7d` count == số dòng drill `?due_before=today+7` (card == drill, byte-for-byte). WO quá hạn (`due_date<today`) KHÔNG lọt vào due-soon → thuộc BR-08-11 (overdue). Hai tập **disjoint** (như IMM-11 round 9). | `due_soon_filter()` dùng chung bởi `_normalize_filters(due_before)` + `dashboard.pm_due_next7` | TC-PM-DS-01, test_d_be_18b |
 
 ## IV.3. State Machine
 

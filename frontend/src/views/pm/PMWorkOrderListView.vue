@@ -3,7 +3,7 @@ import DateInput from '@/components/common/DateInput.vue'
 import { onMounted, ref, computed, watch } from 'vue'
 import { useImm08Store } from '@/stores/imm08'
 import { useRouter, useRoute } from 'vue-router'
-import { formatAssetDisplay, translateStatus, getStatusColor } from '@/utils/formatters'
+import { formatAssetDisplay, translateStatus, getStatusColor, formatDate } from '@/utils/formatters'
 import PageHeader from '@/components/common/PageHeader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar from '@/components/common/ListFilterBar.vue'
@@ -28,6 +28,27 @@ const dueBefore = ref<string>((route.query.due_before as string) || '')
 const overdueOnly = ref<boolean>(route.query.overdue === '1')
 const showFilters = ref<boolean>(!!(route.query.status || route.query.asset || route.query.due_before || route.query.overdue))
 
+// Nhãn cửa-sổ due-soon (IMM-08 SoT round): KPI pm_due_7d == drill ?due_before=today+7,
+// cận dưới = HÔM NAY do BE (_normalize_filters → due_date BETWEEN [today, X]). Chip chỉ
+// đổi NHÃN cho khớp ngữ nghĩa cửa-sổ — KHÔNG inline-compute membership (vẫn forward
+// due_before verbatim). PM quá hạn (due_date < today) thuộc thẻ "PM quá hạn", disjoint.
+function _today(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+function _addDays(iso: string, days: number): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  d.setDate(d.getDate() + days)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+// dueBefore == today+7 → nhãn ngắn "Đến hạn trong 7 ngày"; ngược lại nêu rõ cận dưới.
+const dueSoonLabel = computed<string>(() =>
+  dueBefore.value === _addDays(_today(), 7)
+    ? 'Đến hạn trong 7 ngày'
+    : `Đến hạn ≤ ${formatDate(dueBefore.value)}, từ hôm nay`
+)
+
 const PM_STATUSES = [
   { value: 'Open',                label: 'Mở' },
   { value: 'In Progress',         label: 'Đang thực hiện' },
@@ -41,7 +62,9 @@ const PM_STATUSES = [
 function buildFilters() {
   const f: Record<string, string | string[]> = {}
   // R6: overdue/due_before là virtual key — BE imm08._normalize_filters dịch sang
-  // status=Overdue / due_date<=X (SSOT, list khớp KPI). overdue thắng due_before.
+  // status=Overdue / due_date BETWEEN [today, X] (due_soon_filter, cận dưới = hôm
+  // nay để WO quá hạn KHÔNG leak vào drill — SSOT, list khớp KPI). overdue thắng
+  // due_before.
   if (overdueOnly.value) f.overdue = '1'
   else if (dueBefore.value) f.due_before = dueBefore.value
   if (statusFilter.value && !overdueOnly.value) f.status = [statusFilter.value]
@@ -100,7 +123,7 @@ interface PMChip { key: 'status' | 'dateFrom' | 'dateTo' | 'asset' | 'search' | 
 const activeChips = computed<PMChip[]>(() => {
   const chips: PMChip[] = []
   if (overdueOnly.value) chips.push({ key: 'overdue', label: 'Quá hạn' })
-  else if (dueBefore.value) chips.push({ key: 'dueBefore', label: `Đến hạn trước ${dueBefore.value}` })
+  else if (dueBefore.value) chips.push({ key: 'dueBefore', label: dueSoonLabel.value })
   if (statusFilter.value && !overdueOnly.value) {
     const s = PM_STATUSES.find(x => x.value === statusFilter.value)
     chips.push({ key: 'status', label: s?.label ?? statusFilter.value })
@@ -164,6 +187,18 @@ function quickFilter(_key: 'status', value: string) {
     </PageHeader>
 
     <WorkOrderKpiStrip :items="kpiItems" />
+
+    <!-- Hint cửa-sổ due-soon: khớp invariant disjoint (drill == KPI pm_due_7d).
+         PM quá hạn KHÔNG nằm trong danh sách này — xem thẻ "PM quá hạn". -->
+    <div
+      v-if="dueBefore && !overdueOnly"
+      class="flex items-start gap-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800"
+    >
+      <svg class="w-4 h-4 shrink-0 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+      <span>Danh sách phiếu đến hạn trong 7 ngày tới (tính từ hôm nay) — không gồm PM quá hạn (xem thẻ "PM quá hạn").</span>
+    </div>
 
     <ListFilterBar
       :show="showFilters"

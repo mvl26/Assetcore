@@ -173,6 +173,15 @@ Screenshots thực tế lưu tại: `docs/imm-08/screenshots/` (thêm sau khi bu
 
 **Filter bar:** Trạng thái · Kỹ thuật viên · Asset (free text) · Từ ngày – Đến ngày.
 
+**Drill-down chips (từ KPI dashboard):**
+
+| Chip key | Nguồn KPI | Nhãn (label) | Forward tới BE |
+|---|---|---|---|
+| `overdue` | `pm_overdue` (BR-08-11) | `Quá hạn` | `?overdue=1` |
+| `dueBefore` | `pm_due_7d` (BR-08-12) | **`Đến hạn trong 7 ngày`** / `Đến hạn ≤ {date}, từ hôm nay` | `?due_before={date}` verbatim |
+
+> 🆕 Vòng 23 (Self-Correction). Chip `dueBefore` đổi nhãn từ `Đến hạn trước {due_before}` → **`Đến hạn ≤ {date}, từ hôm nay`** (hoặc `Đến hạn trong 7 ngày` khi date == today+7). Lý do: nhãn cũ "trước {date}" khiến user hiểu nhầm danh sách GỒM cả WO quá hạn. Ngữ nghĩa thật là **cửa sổ due-soon `[hôm nay, {date}]`** — WO quá hạn nằm ở chip `Quá hạn` riêng (disjoint). FE **KHÔNG inline-compute membership** — vẫn forward `due_before` verbatim, BE `_normalize_filters` lo cận dưới `today` (gọi `due_soon_filter`). **Zero contract change ngoài label.** File: `frontend/src/views/pm/PMWorkOrderListView.vue` (`activeChips` computed, chip `dueBefore`).
+
 #### 3.4. Detail — PM Work Order (`:id`)
 
 **Left panel (60%):** Thông tin WO + Checklist items (one per row, radio Pass/Fail/N/A).
@@ -189,8 +198,21 @@ Screenshots thực tế lưu tại: `docs/imm-08/screenshots/` (thêm sau khi bu
 | `PMTimeline` | Timeline trạng thái WO | `history: TimelineEntry[]` |
 | `SLACountdown` | Hiển thị ngày còn lại đến due_date | `dueDate: string, status: PMStatus` |
 | `OverdueAlert` | Banner đỏ khi WO Overdue + ngày trễ | `daysOverdue: number` |
+| Compliance pre-flight gate banner (inline trong `PMWorkOrderCreateView.vue`) | Cảnh báo SỚM khi asset có Critical CAPA mở (BR-16-09) — không đợi submit | reads `ComplianceGateResult` từ IMM-16 |
 
 Đặt tại `frontend/src/components/pm/`.
+
+### 4.bis Compliance pre-flight gate banner (cross-module IMM-16 → IMM-08)
+
+> 🆕 Vòng 16. Wire dead FE client `imm16.ts::checkAssetComplianceStatus` vào `PMWorkOrderCreateView.vue` làm pre-flight gate banner. **Contract đầy đủ ở `docs/imm-16/06_Frontend_Design.md §II.8`** — phần này chỉ ghi placement IMM-08-specific.
+
+- **Vị trí:** banner render NGAY SAU panel `assetMeta` (sau block `<div v-if="assetMeta" …grid…>`, line ~172-179 hiện tại), TRƯỚC các field PM Schedule.
+- **Trigger fetch:** reuse `watch(() => form.value.asset_ref, loadAssetMeta)` — gọi `checkAssetComplianceStatus(form.value.asset_ref)` bên trong `loadAssetMeta` (cùng nhịp với `frappe.client.get_value`), bọc try-catch (lỗi/403 → `gateResult.value = null`, banner ẩn, KHÔNG blank trang).
+- **State mới:** `gateResult = ref<ComplianceGateResult|null>(null)`; reset về `null` khi `asset_ref` rỗng.
+- **Disable nút:** AND `gateResult.value?.blocked !== true` vào `canSubmit` computed (line 59-64 hiện tại) HOẶC giữ reactive-throw lúc submit nhưng banner đã cảnh báo trước.
+- **i18n:** dịch `reason.status` qua `formatters.translateStatus` (SSoT). KHÔNG hardcode `'Overdue'`/`'Critical'` literal — `'Overdue'→'Quá hạn'`.
+- **a11y:** `role="alert"` + `aria-live="assertive"` + severity `warning` (amber, KHÔNG đỏ — đây là cảnh báo gate, server vẫn là enforcer cuối qua `gate_wo_submit`).
+- **Parity:** chỉ render `result.blocked`/`result.reasons[]` — KHÔNG inline-compute membership; cùng SoT với `gate_wo_submit`.
 
 ---
 

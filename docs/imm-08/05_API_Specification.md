@@ -194,6 +194,15 @@ export interface PMDashboardStats {
 | `page` | int | ✗ | ≥ 1, default 1 |
 | `page_size` | int | ✗ | 1–100, default 20 |
 
+**Virtual filter keys (drill-down từ KPI — `_normalize_filters`):**
+
+| Key | Ngữ nghĩa BE | Predicate sinh ra |
+|---|---|---|
+| `due_before` | **PM đến hạn (due-soon window)** — drill từ KPI `pm_due_7d` (BR-08-12) | `due_date BETWEEN [today, due_before]` (cận dưới = today, inclusive 2 biên) AND `status NOT IN [Completed, Cancelled]` → gọi SoT `due_soon_filter(due_before)`. **KHÔNG** còn dịch `due_date <= due_before` (cũ thiếu cận dưới → WO quá hạn leak vào danh sách). |
+| `overdue=1` | **PM quá hạn** — drill từ KPI `pm_overdue` (BR-08-11) | `status == Overdue`. Disjoint với `due_before` (overdue có `due_date < today`; due-soon có `due_date >= today`). |
+
+> **INVARIANT (BR-08-12):** `count(KPI pm_due_7d) == pagination.total` khi drill `?filters={"due_before":"<today+7>"}` — card == drill byte-for-byte. KPI `pm_due_next7` (`dashboard.py`) và filter này dùng CHUNG `due_soon_filter` (1 SoT). FE forward `due_before` verbatim — BE lo cận dưới, FE KHÔNG inline-compute membership. Zero contract change ngoài label chip (xem 06_Frontend_Design §3.3).
+
 **Response success:**
 
 ```jsonc

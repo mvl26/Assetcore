@@ -34,6 +34,8 @@ Toàn bộ artefact test được của module IMM-08. Mỗi dòng → ≥ 1 tes
 | 11 | `generate_pm_work_orders_from_schedule` | Scheduler job | `services/imm08.py::generate_pm_work_orders_from_schedule` | Unit + Cron simulation |
 | 12 | `backfill_pm_schedules_for_due_assets` | Scheduler job | `services/imm08.py::backfill_pm_schedules_for_due_assets` | Unit + Cron simulation |
 | 13 | `count_overdue_pm` | Service function | `services/imm08.py::count_overdue_pm` | Unit |
+| 13a | `is_pm_overdue` (overdue SoT, BR-08-11) | Pure predicate | `services/imm08.py::is_pm_overdue` | Unit (BVA boundary) |
+| 13b | `due_soon_filter` (due-soon window SoT, BR-08-12) | Pure filter builder | `services/imm08.py::due_soon_filter` | Unit + convergence (KPI==drill) |
 | 14 | `update_pm_schedule_after_completion` | Service function | `services/imm08.py::update_pm_schedule_after_completion` (BR-08-03) | Unit (BVA date) |
 | 15 | `assign_technician` / `submit_result` / `report_major_failure` / `reschedule` | Service function | `services/imm08.py` | API integration |
 | 16 | `create_schedule` / `update_schedule` / `set_schedule_status` / `delete_schedule` | Service (CRUD) | `services/imm08.py` | API integration |
@@ -338,8 +340,22 @@ Coverage % thực tế: *(Cần khảo sát — chạy `coverage report`)*. CI f
 | BR-08-08 | Checklist 100% trước Submit | `TestPMCompletionGate::test_complete_blocked_when_checklist_unrated` | BVA | 1 / 1 — ✅ Live |
 | BR-08-09 | Fail-Minor/Major routing | `TestHandleFailures` | Decision Table | 1 / 1 — ⬜ Planned |
 | BR-08-10 | PM Task Log immutable | `test_audit_trail_immutable` | EP + Error guessing | 1 / 1 — ⬜ Planned |
+| BR-08-11 | Overdue SoT predicate `is_pm_overdue` (`due_date<today` + status∈source) | `TestPMOverdueSoT` (BVA boundary today-1/today) + `test_d_be_18` (drill route) | BVA | 1 / 2 — ✅ Live (predicate) |
+| BR-08-12 | **Due-soon window SoT `due_soon_filter`** — KPI count == drill rows, disjoint với overdue | `TestPMDueSoonConvergence` + `test_d_be_18b` (convergence, KHÔNG còn superset comment) | BVA + Decision Table | 1 / 3 — 🔴 Vòng 23 |
 
 Bổ sung gate đã Live: `test_complete_blocked_when_labor_zero` (BR-08-09 duration > 0), `test_complete_blocked_when_sticker_missing` (BR-08-10 sticker).
+
+### IV.2.a Test mới vòng 23 — Due-soon convergence (BR-08-12)
+
+> **Lưu ý AC reference.** Đề mục vòng 23 trỏ `test_dashboard.py::test_d_be_20 (dòng 551)` là chỗ "hợp-thức-hoá divergence" cho IMM-08 — **đính chính:** `test_d_be_20` (line 542-552) thực ra là phiên bản **IMM-11 calibration** (`list_schedules`, `next_due_date`, assert `>= kpi_due` superset). Phiên bản PM hiện tại là `test_d_be_18` (line 501-510), **chỉ assert drill *route* `?due_before=today+7`**, KHÔNG assert convergence → đây mới là chỗ ngầm hợp-thức-hoá. Test cần viết/sửa cho PM:
+
+| Test ID | File | Assert | Trạng thái |
+|---|---|---|---|
+| `test_d_be_18b_pm_due_7d_kpi_equals_drill` | `test_dashboard.py` | `kpi.pm_due_7d == list_pm_work_orders({"due_before": today+7}).pagination.total` (card == drill byte-for-byte). Dataset gồm: 1 WO due hôm nay, 1 WO due today+7, 1 WO due today+8 (loại), 1 WO **quá hạn** today-1 (KHÔNG vào due-soon), 1 WO Completed due today (loại). | 🔴 Viết mới |
+| `test_pm_due_soon_overdue_disjoint` | `test_imm08.py` | `_normalize_filters({"due_before": X})` sinh `due_date BETWEEN [today, X]` (KHÔNG `<=`); WO today-1 KHÔNG xuất hiện trong drill due-soon mà thuộc `count_overdue_pm`. Hai tập ∩ = ∅. | 🔴 Viết mới |
+| `test_pm_due_soon_boundary` | `test_imm08.py` | BVA: due==today **IN**, due==today+7 **IN**, due==today+8 **OUT**, due==today-1 **OUT (overdue)**, Completed/Cancelled **OUT** bất kể due_date. | 🔴 Viết mới |
+
+> Sửa `test_d_be_18` (hoặc giữ + thêm `test_d_be_18b`): KHÔNG còn comment/assert hợp-thức-hoá superset cho PM due-soon. Grep guard QA: `grep -n "due_date.*<=.*due_before\|between.*today_str.*next7" assetcore/services/imm08.py assetcore/api/dashboard.py` == 0 inline (chỉ qua `due_soon_filter`).
 
 ## IV.3. Component → Test mapping
 

@@ -67,7 +67,34 @@ describe('PMWorkOrderListView drill-down query (Core Doc §9.4.2)', () => {
     mount(PMWorkOrderListView, { global: { stubs } })
     await flushPromises()
     const arg = fetchWOSpy.mock.calls[0][0]
+    // FE forward verbatim — cận dưới (hôm nay) do BE _normalize_filters lo. KHÔNG inline-compute.
     expect(arg?.due_before).toBe('2026-06-09')
+  })
+
+  // IMM-08 SoT round — chip due-soon đổi NHÃN sang ngữ nghĩa cửa-sổ. KHÔNG còn
+  // "Đến hạn trước" (gây hiểu nhầm gồm cả quá hạn). dueBefore == today+7 → "trong 7 ngày".
+  it('chip due_before == today+7 → nhãn "Đến hạn trong 7 ngày" (không còn "Đến hạn trước")', async () => {
+    const d = new Date()
+    d.setDate(d.getDate() + 7)
+    const next7 = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    routeQuery.value = { due_before: next7 }
+    const w = mount(PMWorkOrderListView, { global: { stubs } })
+    await flushPromises()
+    const chips = (w.vm as unknown as { activeChips: { key: string; label: string }[] }).activeChips
+    const chip = chips.find(c => c.key === 'dueBefore')
+    expect(chip).toBeDefined()
+    expect(chip?.label).toBe('Đến hạn trong 7 ngày')
+    expect(chip?.label).not.toContain('Đến hạn trước')
+  })
+
+  it('chip due_before != today+7 → nhãn nêu rõ cận dưới "từ hôm nay"', async () => {
+    routeQuery.value = { due_before: '2030-01-15' }
+    const w = mount(PMWorkOrderListView, { global: { stubs } })
+    await flushPromises()
+    const chips = (w.vm as unknown as { activeChips: { key: string; label: string }[] }).activeChips
+    const chip = chips.find(c => c.key === 'dueBefore')
+    expect(chip?.label).toContain('từ hôm nay')
+    expect(chip?.label).not.toContain('Đến hạn trước')
   })
 
   it('query.overdue=1 → fetchWorkOrders gọi với overdue=1 (BE dịch status=Overdue)', async () => {

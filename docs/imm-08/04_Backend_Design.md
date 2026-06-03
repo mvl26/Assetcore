@@ -185,6 +185,9 @@ File: `assetcore/services/imm08.py`
 | `apply_template_to_category_assets(template_name)` | str | dict `{template, asset_category, created, skipped, errors}` | bulk-tạo PM Schedule cho mọi asset cùng danh mục; bỏ qua asset đã có lịch cùng `pm_type` |
 | `get_dashboard_stats(*, year, month)` | int, int | dict | — |
 | `get_calendar(*, year, month, ...)` | int, int, ... | dict | — |
+| `is_pm_overdue(status, due_date, ref_date=None)` | str, date, date? | `bool` | None — pure SoT predicate (BR-08-11), `due_date < today` strict + status ∈ overdue-source |
+| `due_soon_filter(window_end, ref_date=None)` | date, date? | `dict` | None — pure SoT window filter builder (BR-08-12), `{due_date: [between, [ref_date, window_end]], status: [not in, [Completed, Cancelled]]}` |
+| `count_overdue_pm(user=None)` | str? | `int` | None — counter dùng chung KPI/dashboard (BR-08-11), đếm `status == Overdue` |
 
 ### Validators
 
@@ -225,6 +228,70 @@ def handle_work_order_submit(doc) -> None:
     _create_pm_task_log(doc)
     _handle_failures(doc)
 ```
+
+---
+
+## 4.1 SoT — "PM đến hạn (due-soon)" vs "PM quá hạn (overdue)" (BR-08-11 / BR-08-12)
+
+> **Self-Correction (vòng 23).** Trước fix có **2 định nghĩa cửa-sổ due-soon phân kỳ**:
+> - KPI `pm_due_next7` (`api/dashboard.py:87`) đếm `due_date BETWEEN [today, today+7]` AND status NOT IN [Completed, Cancelled] — cửa sổ **có cận dưới** `today`.
+> - Drill `/pm/work-orders?due_before=today+7` → `services/imm08.py::_normalize_filters` dịch thành `due_date <= today+7` — **KHÔNG có cận dưới** → mọi WO quá hạn (`due_date < today`, chưa Completed/Cancelled) lọt vào danh sách drill nhưng KHÔNG được KPI đếm.
+>
+> Hệ quả: số trên thẻ "PM đến hạn" ≠ số dòng khi click drill (drill là superset gồm cả overdue). Test cũ `test_d_be_18`/dashboard chỉ assert *route* của drill, không assert *convergence* — hợp-thức-hoá divergence.
+>
+> **Quyết định:** hợp nhất về **1 predicate cửa-sổ due-soon** dùng CHUNG cho KPI count + drill filter. `_normalize_filters(due_before=X)` PHẢI sinh `due_date BETWEEN [today, X]` (cận dưới = today, KHÔNG còn `<= X`). WO quá hạn KHÔNG còn thuộc due-soon — nó thuộc thẻ "PM quá hạn" (`pm_overdue`, status == Overdue) → hai tập **disjoint** (giống mô hình IMM-11 overdue vs due_soon, round 9).
+
+### 4.1.1 Hằng + helper SoT (pure, không I/O)
+
+```python
+# services/imm08.py — module-level constant (1 hằng, KHÔNG hardcode "7" rải rác)
+PM_DUE_SOON_WINDOW_DAYS = 7
+
+def due_soon_filter(window_end, ref_date=None) -> dict:
+    """SoT (BR-08-12): filter dict cho 'PM đến hạn (due-soon)' — dùng CHUNG bởi
+    KPI count (dashboard.pm_due_next7) và drill list (_normalize_filters(due_before)).
+
+    Cửa sổ = [ref_date, window_end] (cả 2 biên inclusive). status NOT IN
+    [Completed, Cancelled] (đến hạn = chưa hoàn tất). WO quá hạn (due_date <
+    ref_date) NẰM NGOÀI — thuộc tập overdue (BR-08-11, is_pm_overdue), disjoint.
+
+    Args:
+        window_end: cận trên cửa sổ (str/date) — KPI truyền today+PM_DUE_SOON_WINDOW_DAYS;
+                    drill truyền due_before verbatim từ query.
+        ref_date: cận dưới = mốc hôm nay (mặc định nowdate()).
+
+    Returns:
+        dict filter: {"due_date": ["between", [ref, window_end]],
+                      "status": ["not in", [PMStatus.COMPLETED, PMStatus.CANCELLED]]}
+    """
+    ref = ref_date or nowdate()
+    return {
+        "due_date": ["between", [ref, window_end]],
+        "status": ["not in", [PMStatus.COMPLETED, PMStatus.CANCELLED]],
+    }
+```
+
+**Boundary chốt (BR-08-12):**
+
+| `due_date` | Phân loại | Lý do |
+|---|---|---|
+| `today` | **DUE_SOON** (trong cửa sổ) | inclusive cận dưới |
+| `today+7` | **DUE_SOON** (trong cửa sổ) | inclusive cận trên |
+| `today+8` | NGOÀI cửa sổ | quá cận trên |
+| `today-1` | NGOÀI due-soon → **OVERDUE** (BR-08-11) | `due_date < today` |
+| bất kỳ + status ∈ {Completed, Cancelled} | luôn NGOÀI | đã hoàn tất/hủy |
+
+### 4.1.2 Consumer dùng chung (count == drill, INVARIANT)
+
+- **`_normalize_filters(due_before=X)`** PHẢI gọi `due_soon_filter(window_end=X)` thay vì literal `due_date <= X`. Output: `due_date BETWEEN [today, X]` + status NOT IN [Completed, Cancelled]. (cũ: `out["due_date"] = ["<=", due_before]` — XÓA cận-dưới-thiếu này.)
+- **`api/dashboard.py` `pm_due_next7`** PHẢI gọi `due_soon_filter(next7)` (import từ `services.imm08`) — KHÔNG inline literal `{"due_date": ["between", [today_str, next7]], "status": [...]}`.
+- **Persona block `dashboard.py:589` `pm_week`** (Kỹ thuật viên dashboard) cũng đếm cửa sổ `[today, today+7]` — PHẢI gọi cùng helper `due_soon_filter(add_days(today(), 7), ref_date=today())` (cộng filter `assigned_to=me`). Nếu cố ý giữ riêng phải ghi chú lý do.
+- **INVARIANT đo được:** với MỌI dataset, `count(KPI pm_due_7d) == số dòng list khi drill ?due_before=today+7` (byte-for-byte cùng tập). WO quá hạn KHÔNG xuất hiện trong drill due-soon → thuộc thẻ `pm_overdue` (status==Overdue). Hai tập **disjoint** (overdue ∩ due-soon = ∅).
+- **Grep guard:** 0 literal inline window cho PM due-soon còn sót ngoài `due_soon_filter`. `api/dashboard.py` không còn `{due_date: [between, [today_str, next7]]}` viết tay cho PM; kiểm cả persona `pm_week`.
+
+### 4.1.3 Quan hệ với overdue SoT (BR-08-11 — đã có sẵn)
+
+`is_pm_overdue(status, due_date, ref_date)` (đã tồn tại) định nghĩa overdue: `due_date < today` (strict) AND status ∈ `OVERDUE_SOURCE_STATES` {Open, In Progress, Pending–Device Busy}. Cron `check_pm_overdue` set `status=Overdue` theo predicate này; `count_overdue_pm()` đếm `status == Overdue`; drill `?overdue=1` (`_normalize_filters(overdue=1)`) trả cùng tập. Due-soon (BR-08-12) và overdue (BR-08-11) **disjoint by construction**: due-soon yêu cầu `due_date >= today`, overdue yêu cầu `due_date < today`.
 
 ---
 
