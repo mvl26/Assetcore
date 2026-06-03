@@ -3,13 +3,15 @@
 | Mục | Giá trị |
 |---|---|
 | Module | **IMM-16 — Giám sát Tuân thủ & CAPA** |
-| Phiên bản | 1.0.0-rc.2 |
-| Ngày phát hành | 2026-05-14 (rc) — chờ UAT để cut GA |
+| Phiên bản | 0.0.2 |
+| Ngày phát hành | 2026-05-27 (release cùng nhịp app) |
 | Owner | PM + BA + Tech Writer |
 | Liên kết | [07 Testing QA](./07_Testing_QA.md) · [08 Deployment](./08_Deployment.md) · [Module Overview](./IMM-16_Module_Overview.md) |
 | Wave | 2 — IMPLEMENTED |
 
-> ✅ Implemented — Wave 2 (feature/hieuc/wave-2). Đợi UAT sign-off để cut v1.0.0 GA. User guide bên dưới dùng cho hoạt động sản xuất; release notes Wave-2 cập nhật trong §IV.
+> **Versioning policy:** Tuân theo `assetcore/__init__.py = 0.0.2`; module docs đồng bộ phiên bản app (release cùng nhịp). Mọi nhãn nội bộ `1.0.0-rc.x` trước đây chỉ là tag dev branch — không dùng cho release tracking.
+
+> ✅ Implemented — Wave 2 (feature/hieuc/wave-2). Release đồng bộ app `v0.0.2` (`assetcore/__init__.py`). User guide bên dưới dùng cho hoạt động sản xuất; release notes Wave-2 cập nhật trong §IV.
 
 ## §0 — Wave 2 Sync Notes (2026-05-14)
 
@@ -73,15 +75,16 @@ Màn hình chính IMM-16 gồm các khu vực:
 
 ## I.3 Các Vai Trò
 
-| Vai trò | Bạn làm gì trong module này? |
+| Vai trò (role hệ thống) | Bạn làm gì trong module này? |
 |---|---|
-| **Tổ HC-QLCL** | Quản lý Compliance Rule, xem xét Finding, xác nhận NC, tạo CAPA, publish Scorecard |
-| **Kiểm toán viên nội bộ** | Thực hiện Internal Audit, hoàn thành checklist, xem Finding |
-| **Trưởng xưởng kỹ thuật** | Tạo và thực hiện CAPA được assign cho xưởng |
-| **Kỹ thuật viên BME** | Xem CAPA được assign; biết thiết bị đang bị block nếu có CAPA Critical |
-| **Phó Trưởng phòng Vật tư (VP Block2)** | Miễn trừ Finding (Waive), đóng Audit, publish Scorecard, Finalize Management Review, xem Dashboard tổng quan |
-| **Trưởng phòng** | Tạo và theo dõi CAPA cho khoa phòng |
-| **CMMS Admin** | Cấu hình hệ thống, phân quyền, giám sát scheduler |
+| **Compliance Manager** | Quản lý Compliance Rule, xem xét Finding, xác nhận NC, tạo CAPA, publish Scorecard, đóng Audit, Finalize Management Review |
+| **Compliance User** | Thực hiện Internal Audit / checklist; tạo & theo dõi CAPA cho khoa phòng; xem Finding/Dashboard |
+| **Corrective Manager** (IMM-09) | Action owner cấp xưởng — quản lý CAPA xưởng kỹ thuật |
+| **Corrective User / PM User** | Kỹ thuật viên thực hiện action step; biết thiết bị bị block nếu có CAPA Critical |
+| **AssetCore Auditor** | Read-only audit trail, kiểm tra immutability |
+| **AssetCore Super Admin** | Cấu hình hệ thống, phân quyền, giám sát scheduler, override |
+
+> Roles trên thuộc **30-role catalog** (4 System + 26 Domain) post-patch `v3_2.001_module_role_redesign`. Persona cũ (Tổ HC-QLCL / VP Block2 / Workshop Head / Internal Auditor) đã được map lại; xem `assetcore/fixtures/role.json` cho danh sách chính tắc.
 
 ## I.4 Quy Trình Chính
 
@@ -291,12 +294,12 @@ A: Mở CAPA → tab **"Lịch sử hoạt động"** — toàn bộ thay đổi
 
 # Phần II — Release Notes
 
-> ✅ IMPLEMENTED — Wave 2. Release Notes phản ánh code đã merge (`feature/hieuc/wave-2`, commit `4b4b0db`). Tag chính thức cấp khi UAT sign-off.
+> ✅ IMPLEMENTED — Wave 2. Release Notes phản ánh code đã merge (`feature/hieuc/wave-2`, commit `4b4b0db`). Version đồng bộ với `assetcore/__init__.py = 0.0.2`.
 
-## II.1 Version 1.0.0-rc.2 — IMM-16 General Availability (Release Candidate)
+## II.1 Version 0.0.2 — IMM-16 General Availability
 
-**Ngày phát hành:** 2026-05-14 (rc.2)
-**Phiên bản AssetCore:** 1.1.0
+**Ngày phát hành:** 2026-05-27 (release cùng nhịp app)
+**Phiên bản AssetCore:** 0.0.2 (canonical — `assetcore/__init__.py`)
 
 ### Tính năng mới
 
@@ -376,7 +379,7 @@ Không có breaking change với module hiện có. IMM CAPA Record được **e
 
 # Phần III — Traceability Matrix
 
-> ✅ IMPLEMENTED — Wave 2. Cột `Released-in` đặt `v1.0.0-rc.2` cho các hạng mục đã có code; còn lại để `—` cho hạng mục backlog.
+> ✅ IMPLEMENTED — Wave 2. Cột `Released-in` đặt `v0.0.2` cho các hạng mục đã có code; còn lại để `—` cho hạng mục backlog.
 
 | ID | Loại | Mô tả | Test Case | Released-in |
 |---|---|---|---|---|

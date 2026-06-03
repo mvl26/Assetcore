@@ -50,3 +50,37 @@ class ACLocation(NestedSet):
                     "Mã vị trí không thể thay đổi sau khi tạo "
                     "(hiện tại: {0}, cố đổi sang: {1})."
                 ).format(old, self.location_code))
+
+    def on_trash(self, allow_root_deletion: bool = False) -> None:
+        """NEG-13 (FK delete-integrity): chặn xóa Location đang chứa Asset.
+
+        Chạy guard tiếng Việt TRƯỚC `check_if_doc_is_linked` (Frappe core).
+        Sau khi pass, gọi `super().on_trash()` để NestedSet vẫn cập nhật cây
+        `lft/rgt` đúng. Bypass: `flags.ignore_link_validation` /
+        `frappe.flags.in_install` cho test cleanup và migration tool.
+        """
+        if not (
+            getattr(self.flags, "ignore_link_validation", False)
+            or frappe.flags.in_install
+        ):
+            dependents = frappe.get_all(
+                "AC Asset",
+                filters={"location": self.name},
+                fields=["name", "asset_name"],
+                order_by="creation desc",
+                limit=6,
+            )
+            if dependents:
+                total = frappe.db.count("AC Asset", {"location": self.name})
+                names = [(d.asset_name or d.name) for d in dependents[:5]]
+                suffix = ""
+                if total > 5:
+                    suffix = _(" và {0} tài sản khác").format(total - 5)
+                frappe.throw(
+                    _(
+                        "Không thể xóa Vị trí {0}: đang có {1} tài sản đặt tại đây ({2}{3}). "
+                        "Vui lòng điều chuyển hoặc thanh lý các tài sản trước."
+                    ).format(self.name, total, ", ".join(names), suffix),
+                    exc=frappe.LinkExistsError,
+                )
+        super().on_trash(allow_root_deletion=allow_root_deletion)

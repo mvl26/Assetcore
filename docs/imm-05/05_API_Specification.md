@@ -21,14 +21,15 @@
 | 5 | `submit_for_review` | POST | Workflow | Draft/Rejected → Pending Review |
 | 6 | `approve_document` | POST | Workflow | Phê duyệt → Active |
 | 7 | `reject_document` | POST | Workflow | Từ chối + lý do |
-| 8 | `get_asset_documents` | GET | Asset-centric | Tài liệu theo Asset |
-| 9 | `get_dashboard_stats` | GET | Dashboard | KPI + expiry timeline + compliance |
-| 10 | `get_expiring_documents` | GET | Dashboard | Tài liệu sắp hết hạn |
-| 11 | `get_compliance_by_dept` | GET | Dashboard | Compliance theo khoa |
-| 12 | `get_document_history` | GET | Audit | Lịch sử thay đổi (Frappe Version) |
-| 13 | `create_document_request` | POST | Request | Tạo yêu cầu bổ sung tài liệu |
-| 14 | `get_document_requests` | GET | Request | Liệt kê Document Request |
-| 15 | `mark_exempt` | POST | Exempt | Đánh dấu Miễn đăng ký NĐ98 |
+| 8 | `archive_document` | POST | Workflow | Lưu trữ tài liệu (Active → Archived) |
+| 9 | `get_asset_documents` | GET | Asset-centric | Tài liệu theo Asset |
+| 10 | `get_dashboard_stats` | GET | Dashboard | KPI + expiry timeline + compliance |
+| 11 | `get_expiring_documents` | GET | Dashboard | Tài liệu sắp hết hạn |
+| 12 | `get_compliance_by_dept` | GET | Dashboard | Compliance theo khoa |
+| 13 | `get_document_history` | GET | Audit | Lịch sử thay đổi (Frappe Version) |
+| 14 | `create_document_request` | POST | Request | Tạo yêu cầu bổ sung tài liệu |
+| 15 | `get_document_requests` | GET | Request | Liệt kê Document Request |
+| 16 | `mark_exempt` | POST | Exempt | Đánh dấu Miễn đăng ký NĐ98 |
 
 ---
 
@@ -395,6 +396,51 @@ Auto-default: `workflow_state = "Draft"`, `version = "1.0"`.
 
 ---
 
+### §2.6b `archive_document` — Lưu trữ tài liệu (Active → Archived)
+
+| Thuộc tính | Giá trị |
+|---|---|
+| Method | POST |
+| Path | `assetcore.api.imm05.archive_document` |
+| Service | `services/imm05.py::archive_document` |
+| Roles | `_APPROVE_ROLES` (Biomed Engineer, Tổ HC-QLCL, CMMS Admin) |
+
+**Request body:**
+
+```jsonc
+{
+  "name": "DOC-AC-ASSET-2026-0001-2026-00001",
+  "reason": "Thiết bị đã decommission ngày 2026-05-20 — không còn áp dụng."
+}
+```
+
+**Constraint:** `workflow_state = "Active"` — ngược lại trả `INVALID_STATE`. `reason` tùy chọn nhưng khuyến nghị để audit trail (lưu vào `change_summary`).
+
+**Hành vi:**
+1. Validate user IN `_APPROVE_ROLES` → else `FORBIDDEN`
+2. Validate `workflow_state = "Active"` → else `INVALID_STATE`
+3. Set `workflow_state = "Archived"`, `archive_date = today`, `archived_by_version = session.user`, append `change_summary`
+4. Save với `flags.ignore_links = True`
+
+**Response data:**
+
+```jsonc
+{
+  "success": true,
+  "data": {
+    "name": "DOC-AC-ASSET-2026-0001-2026-00001",
+    "new_state": "Archived",
+    "archive_date": "2026-05-27"
+  }
+}
+```
+
+**Errors:** `NOT_FOUND`, `INVALID_STATE`, `FORBIDDEN`, `INTERNAL_ERROR`.
+
+> **Phân biệt với auto-archive:** `archive_old_versions` (gọi nội bộ trong `approve_document`) tự lưu trữ các Active doc cùng `(asset_ref, doc_type_detail)` khi version mới được duyệt. `archive_document` (endpoint này) là manual trigger cho admin/QA khi doc không còn áp dụng nhưng chưa có version thay thế (vd. decommission, đổi quy trình).
+
+---
+
 ### §2.7 `get_asset_documents` — Tài liệu theo Asset
 
 | Thuộc tính | Giá trị |
@@ -752,15 +798,78 @@ Expected: `{"success": true, "data": {...}}` cho tất cả. Không có `{"messa
 
 ---
 
+## 11. Notification Contract (BE → FE)
+
+Chuẩn hóa thông báo end-to-end (vòng 5 — cụm Deployment). IMM-05 = quản trị hồ sơ/đăng ký
+tài liệu theo asset/model (NĐ98). Mọi lỗi nghiệp vụ raise qua `nthrow(MSG.IMM05_*)`; API wrap
+qua shared `handle`/`parse_json` (`assetcore/utils/api_handler.py`) để auto-hydrate envelope.
+
+### 11.1. Envelope
+
+```jsonc
+{
+  "severity": "warning",            // success | error | warning | info
+  "message_code": "IMM05-DOC-NOT-FOUND",
+  "title": "Không tìm thấy tài liệu",
+  "message": "Không tìm thấy tài liệu: {name}.",
+  "action_hint": "Tải lại danh sách hồ sơ để kiểm tra.",
+  "context": { "name": "..." }
+}
+```
+
+FE bắt tập trung ở `composables/useApi.ts` → `useNotify.fromError`.
+
+### 11.2. Severity rule
+
+| Tình huống | severity | http_status |
+|---|---|---|
+| Validation input (VR-03/VR-06, file thiếu) | `warning` | 422 |
+| Không tìm thấy tài liệu / Asset | `warning` | 404 |
+| Không có quyền duyệt / Exempt / xem | `error` | 403 |
+| Thao tác thành công | `success` | 200 |
+
+### 11.3. Bảng mã MSG.IMM05_*
+
+| message_code | severity | http | Khi nào | Nguồn (service) |
+|---|---|---|---|---|
+| `IMM05-DOC-NOT-FOUND` | warning | 404 | Tài liệu (AC Document) không tồn tại | `get/submit/approve/reject/archive` |
+| `IMM05-ASSET-NOT-FOUND` | warning | 404 | Asset tham chiếu không tồn tại | `get_asset_documents`, dashboard scope |
+| `IMM05-FORBIDDEN-APPROVE` | error | 403 | Không có quyền duyệt/từ chối tài liệu | `approve/reject_document` |
+| `IMM05-FORBIDDEN-EXEMPT` | error | 403 | Không có quyền đánh dấu Miễn NĐ98 | `mark_exempt` |
+| `IMM05-FORBIDDEN-VIEW` | error | 403 | Không có quyền xem tài liệu này | `get_document` |
+| `IMM05-FILE-REQUIRED` | warning | 422 | VR-03: phải upload file trước khi gửi duyệt | `submit_for_review` |
+| `IMM05-REJECT-REASON-REQUIRED` | warning | 422 | VR-06: lý do từ chối là bắt buộc | `reject_document` |
+| `IMM05-VALIDATION` | warning | 422 | Lỗi validation chung (DocType validate) | wrapper `except ValidationError` |
+| `IMM05-SUCCESS` | success | 200 | Thao tác hồ sơ thành công (gửi/duyệt/lưu trữ) | các action chính |
+
+> Cảnh báo mềm (hồ sơ sắp hết hạn <30 ngày) giữ `frappe.msgprint(alert=True)` — không raise.
+
+### 11.4. BE checklist
+
+- [ ] Import `from assetcore.utils.notify import MSG, nthrow`.
+- [ ] Mọi `raise ServiceError(ErrorCode.*, ...)` nghiệp vụ → `nthrow(MSG.IMM05_*)`.
+- [ ] Wrapper `except frappe.ValidationError` rồi bọc `ServiceError(VALIDATION, str(e))` làm rớt
+      `message_code`/`severity` → re-`nthrow(MSG.IMM05_VALIDATION, detail=str(e))` (bài học vòng 3).
+- [ ] `api/imm05.py` dùng shared `handle`/`parse_json`.
+- [ ] Regen FE i18n: `python scripts/gen_fe_messages.py`.
+
+### 11.5. FE checklist
+
+- [ ] Store `stores/imm05.ts` expose `lastApiError` + helper `_captureError`.
+- [ ] Action success → `notify.show(MSG.IMM05_*)`; fail → `notify.fromError(store.lastApiError)`.
+- [ ] Test store khi phù hợp (vitest).
+
+---
+
 ## DoD Checklist
 
-- [x] API Catalog 15 endpoints đầy đủ (incl. `submit_for_review`)
+- [x] API Catalog 16 endpoints đầy đủ (incl. `submit_for_review`, `archive_document`)
 - [x] Envelope chuẩn `{"success": true, "data": ...}` (KHÔNG Frappe message wrapper)
 - [x] Error envelope `{"success": false, "error": ..., "code": ...}`
 - [x] Error code catalog đầy đủ
 - [x] Visibility filter documented
 - [x] TypeScript types cho FE reference
-- [x] 15 endpoint specs với request/response examples
+- [x] 16 endpoint specs với request/response examples (incl. `archive_document` §2.6b — bổ sung 2026-05-27)
 - [x] Webhook/realtime events table
 - [x] Rate limits
 - [x] Smoke test playbook

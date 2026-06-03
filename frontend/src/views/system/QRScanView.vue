@@ -1,17 +1,14 @@
 <script setup lang="ts">
-// Copyright (c) 2026, AssetCore Team QR Scan → GMDN toggle
+// Copyright (c) 2026, AssetCore Team — QR Scan → mở Asset Detail
 import { ref, onMounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { getBarcodeLookup } from '@/api/imm04'
 import PageHeader from '@/components/common/PageHeader.vue'
-import { toggleGmdnStatus, getAsset } from '@/api/imm00'
-import { GMDN_STATUS_LABEL } from '@/stores/imm00'
 
 const router = useRouter()
 const manualCode = ref('')
 const loading = ref(false)
 const error = ref('')
-const result = ref<{ asset: string; name: string; from: string; to: string } | null>(null)
 const qrInput = ref<HTMLInputElement | null>(null)
 
 onMounted(() => {
@@ -25,24 +22,13 @@ async function scan() {
   if (!code) return
   loading.value = true
   error.value = ''
-  result.value = null
   try {
-    // Thử barcode lookup (QR tag / serial). Nếu không tìm thấy, dùng code trực tiếp như AC Asset name.
     let assetId = code
     try {
       const lookup = await getBarcodeLookup(code)
       if (lookup?.asset_id) assetId = lookup.asset_id
-    } catch { /* không phải barcode/QR tag → tiếp tục với code gốc */ }
-
-    const toggle = await toggleGmdnStatus(assetId)
-    const asset = await getAsset(assetId)
-    result.value = {
-      asset: assetId,
-      name: asset?.asset_name || assetId,
-      from: toggle.previous,
-      to: toggle.gmdn_status,
-    }
-    manualCode.value = ''
+    } catch { /* fallback: dùng code gốc */ }
+    router.push(`/assets/${assetId}`)
   } catch (e: unknown) {
     error.value = e instanceof Error ? e.message : 'Lỗi khi xử lý QR'
   } finally {
@@ -54,8 +40,8 @@ async function scan() {
 <template>
   <div class="page-container animate-fade-in max-w-md mx-auto">
     <PageHeader
-      title="Quét QR — GMDN Status"
-      subtitle="Quét QR khi bắt đầu sử dụng → chuyển Đang sử dụng. Quét lại khi kết thúc → về Không sử dụng."
+      title="Quét QR — Mở hồ sơ thiết bị"
+      subtitle="Quét hoặc nhập mã QR / barcode để mở nhanh hồ sơ thiết bị tương ứng."
     />
 
     <div class="card p-6 space-y-4">
@@ -79,34 +65,8 @@ async function scan() {
         :disabled="loading || !manualCode.trim()"
         @click="scan"
       >
-        {{ loading ? 'Đang xử lý…' : 'Xác nhận & Chuyển trạng thái' }}
+        {{ loading ? 'Đang mở…' : 'Mở hồ sơ thiết bị' }}
       </button>
-    </div>
-
-    <!-- Result -->
-    <div v-if="result" class="card p-5 mt-4 border-l-4 border-green-500">
-      <p class="text-xs font-semibold text-green-700 uppercase tracking-wide">✓ Đã cập nhật</p>
-      <p class="text-base font-semibold text-slate-900 mt-1">{{ result.name }}</p>
-      <p class="text-xs font-mono text-slate-400">{{ result.asset }}</p>
-      <div class="mt-3 flex items-center gap-2 text-sm">
-        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-500">
-          {{ GMDN_STATUS_LABEL[result.from] || result.from }}
-        </span>
-        <span class="text-slate-400">→</span>
-        <span
-class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium"
-              :class="result.to === 'In Use' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'">
-          {{ GMDN_STATUS_LABEL[result.to] || result.to }}
-        </span>
-      </div>
-      <div class="flex gap-2 mt-4">
-        <button class="btn-ghost text-xs flex-1" @click="router.push(`/assets/${result.asset}`)">
-          Xem thiết bị
-        </button>
-        <button class="btn-primary text-xs flex-1" @click="result = null">
-          Quét tiếp
-        </button>
-      </div>
     </div>
   </div>
 </template>

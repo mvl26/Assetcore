@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="module-id" content="avl">
+<title>AVL — AssetCore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+<script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <a class="brand" style="color:inherit;text-decoration:none" href="#">
+      <span class="logo">A</span>
+      <div>AssetCore <small>IMMIS · BV Nhi Đồng 1</small></div>
+    </a>
+    <div class="spacer"></div>
+    <button class="iconbtn" title="Thông báo"><iconify-icon icon="heroicons:bell" style="font-size:18px;vertical-align:-3px;color:#fff"></iconify-icon></button>
+    <div class="persona-pill" title="Chọn vai trò"></div>
+    <div id="personaMenu" class="persona-menu"></div>
+  </div>
+  <div class="body-wrap">
+    <aside class="sidebar">
+      <div class="side-head"><span></span></div>
+      <nav></nav>
+      <div class="side-foot">AssetCore v0.0.2 · Wave 1+2</div>
+    </aside>
+    <main class="main">
+      <div class="breadcrumb"><a href="../index.html">Trang chủ</a> <span class="sep">›</span><span>AVL</span></div>
+      <div class="page">
+        <div class="page-head">
+  <div class="titles"><h1>Danh sách NCC được phê duyệt (AVL)</h1>
+    <div class="sub">68 entries · 52 Approved · 8 Conditional · 4 sắp hết hạn 60 ngày · 2 Suspended · 2 Expired</div></div>
+  <div class="toolbar"><a class="btn btn-primary" href="#">+ Thêm AVL Entry</a></div>
+</div>
+
+<div class="filterbar">
+  <div class="filter-group"><label>Tìm kiếm</label>
+    <input class="input" type="text" placeholder="NCC / chuyên môn / mã" style="width:100%"></div>
+  <div class="filter-group"><label>Trạng thái</label>
+    <select class="select"><option>Mọi trạng thái</option><option>Draft</option><option>Approved</option><option>Conditional</option><option>Suspended</option><option>Expired</option></select></div>
+  <div class="filter-group"><label>Chuyên môn</label>
+    <select class="select"><option>Mọi chuyên môn</option><option>Hô hấp</option><option>Tim mạch</option><option>Hiệu chuẩn</option></select></div>
+  <div class="filter-actions">
+    <button class="btn btn-secondary btn-sm">Đặt lại</button>
+    <button class="btn btn-primary btn-sm">Áp dụng</button></div>
+</div>
+
+<div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>NCC</th><th>Chuyên môn / Loại thiết bị</th><th>Mức độ</th><th>Ngày phê duyệt</th><th>Ngày hết hạn</th><th>Trạng thái</th></tr></thead>
+    <tbody>
+      <tr><td><b>Medtronic VN</b></td><td>Máy thở chăm sóc tích cực</td><td>Strategic</td><td>15/01/2024</td><td>15/01/2027</td><td><span class="badge b-active"><span class="dot"></span>Approved</span></td></tr>
+      <tr><td><b>Siemens Healthineers VN</b></td><td>Chẩn đoán hình ảnh, X-quang, MRI</td><td>Strategic</td><td>20/02/2024</td><td>20/02/2027</td><td><span class="badge b-active"><span class="dot"></span>Approved</span></td></tr>
+      <tr><td><b>Terumo VN</b></td><td>Bơm tiêm, truyền dịch</td><td>Preferred</td><td>30/06/2023</td><td>30/06/2026</td><td><span class="badge b-warn">Sắp hết hạn 30 ngày</span></td></tr>
+      <tr><td><b>Bureau Veritas VN</b></td><td>Hiệu chuẩn ISO 17025</td><td>Strategic</td><td>15/03/2024</td><td>15/03/2027</td><td><span class="badge b-active"><span class="dot"></span>Approved</span></td></tr>
+      <tr><td><b>Atom Medical Corp</b></td><td>Lồng ấp sơ sinh</td><td>Conditional</td><td>10/04/2025</td><td>10/04/2026</td><td><span class="badge b-submitted">Conditional · Chờ chứng chỉ ISO mới</span></td></tr>
+    </tbody>
+  </table>
+</div>
+      </div>
+    </main>
+  </div>
+</div>
+<script src="../assets/shell.js"></script>
+</body>
+</html>

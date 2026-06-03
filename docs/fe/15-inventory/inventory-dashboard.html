@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="module-id" content="inventory">
+<title>Tổng quan tồn kho — AssetCore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+<script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <a class="brand" style="color:inherit;text-decoration:none" href="#">
+      <span class="logo">A</span>
+      <div>AssetCore <small>IMMIS · BV Nhi Đồng 1</small></div>
+    </a>
+    <div class="spacer"></div>
+    <button class="iconbtn" title="Thông báo"><iconify-icon icon="heroicons:bell" style="font-size:18px;vertical-align:-3px;color:#fff"></iconify-icon></button>
+    <div class="persona-pill" title="Chọn vai trò"></div>
+    <div id="personaMenu" class="persona-menu"></div>
+  </div>
+  <div class="body-wrap">
+    <aside class="sidebar">
+      <div class="side-head"><span></span></div>
+      <nav></nav>
+      <div class="side-foot">AssetCore v0.0.2 · Wave 1+2</div>
+    </aside>
+    <main class="main">
+      <div class="breadcrumb"><a href="../index.html">Trang chủ</a> <span class="sep">›</span><span>Tồn kho</span></div>
+      <div class="page">
+        <div class="page-head">
+  <div class="titles"><h1>Tổng quan kho phụ tùng</h1>
+    <div class="sub">1.247 mã phụ tùng · 234M ₫ tồn kho · 8 cấp phát đang xử lý · 3 low stock</div></div>
+
+</div><div class="grid g4" style="margin-bottom:20px">
+  <div class="kpi primary"><div class="kbar"></div><div class="klabel">Tổng giá trị tồn</div><div class="kval">234M ₫</div><div class="kfoot">1.247 mã PT</div></div>
+  <div class="kpi warn"><div class="kbar"></div><div class="klabel">Low Stock</div><div class="kval">3</div><div class="kfoot">Cần đặt hàng gấp</div></div>
+  <div class="kpi info"><div class="kbar"></div><div class="klabel">Cấp phát đang xử lý</div><div class="kval">8</div><div class="kfoot">3 chờ duyệt · 5 chờ xuất</div></div>
+  <div class="kpi danger"><div class="kbar"></div><div class="klabel">Hết hạn 30 ngày</div><div class="kval">5</div><div class="kfoot">Lô phụ tùng sắp expired</div></div>
+
+</div><div class="grid g2">
+  <div class="card">
+    <div class="card-head"><h3>Phụ tùng dưới định mức</h3></div>
+    <div class="card-pad">
+      <table class="tbl">
+        <thead><tr><th>Mã PT</th><th>Tên</th><th>Tồn / Min</th><th></th></tr></thead>
+        <tbody>
+          <tr><td class="mono">SP-FILT-001</td><td>Màng lọc HEPA máy thở</td><td><b style="color:#DC2626">4 / 10</b></td><td><a class="btn btn-primary btn-sm" href="#">Đặt hàng</a></td></tr>
+          <tr><td class="mono">SP-SENS-540</td><td>Cảm biến SpO2 sơ sinh</td><td><b style="color:#DC2626">6 / 12</b></td><td><a class="btn btn-primary btn-sm" href="#">Đặt hàng</a></td></tr>
+          <tr><td class="mono">SP-PROBE-12</td><td>Đầu dò siêu âm convex</td><td><b style="color:#DC2626">1 / 2</b></td><td><a class="btn btn-primary btn-sm" href="#">Đặt hàng</a></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div><div class="card">
+    <div class="card-head"><h3>Lô phụ tùng sắp hết hạn</h3></div>
+    <div class="card-pad">
+      <ul style="list-style:none;font-size:14px">
+        <li style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--color-neutral-100)"><span>Pin Lithium monitor (Lô #L20240315)</span><b style="color:#DC2626">15/06/2026</b></li>
+        <li style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--color-neutral-100)"><span>Dung dịch hiệu chuẩn (Lô #C20240501)</span><b style="color:#F59E0B">30/06/2026</b></li>
+        <li style="display:flex;justify-content:space-between;padding:8px 0"><span>Màng lọc HEPA (Lô #F20240220)</span><b style="color:#F59E0B">15/07/2026</b></li>
+      </ul>
+    </div>
+  </div>
+
+      
+    
+      </div>
+    </div>
+</main>
+  </div>
+</div>
+<script src="../assets/shell.js"></script>
+</body>
+</html>

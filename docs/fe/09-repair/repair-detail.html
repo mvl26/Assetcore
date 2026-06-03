@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="module-id" content="cm">
+<title>WO-RP-2026-00309 — AssetCore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+<script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <a class="brand" style="color:inherit;text-decoration:none" href="#">
+      <span class="logo">A</span>
+      <div>AssetCore <small>IMMIS · BV Nhi Đồng 1</small></div>
+    </a>
+    <div class="spacer"></div>
+    <button class="iconbtn" title="Thông báo"><iconify-icon icon="heroicons:bell" style="font-size:18px;vertical-align:-3px;color:#fff"></iconify-icon></button>
+    <div class="persona-pill" title="Chọn vai trò"></div>
+    <div id="personaMenu" class="persona-menu"></div>
+  </div>
+  <div class="body-wrap">
+    <aside class="sidebar">
+      <div class="side-head"><span></span></div>
+      <nav></nav>
+      <div class="side-foot">AssetCore v0.0.2 · Wave 1+2</div>
+    </aside>
+    <main class="main">
+      <div class="breadcrumb"><a href="../index.html">Trang chủ</a> <span class="sep">›</span><a href="repair-list.html">Sửa chữa (CM)</a> <span class="sep">›</span><span>WO-RP-2026-00309</span></div>
+      <div class="page">
+        <div class="page-head">
+  <div class="titles">
+    <a href="repair-list.html" class="btn btn-ghost btn-sm" style="margin-bottom:8px">← Quay lại danh sách</a>
+    <h1>WO-RP-2026-00309 — Sửa chữa Lồng ấp sơ sinh Atom</h1>
+    <div class="sub">
+      <span class="badge b-inprogress">Đang xử lý</span>
+      <span class="prio p1" style="margin-left:8px">P1 - Critical</span>
+      <span class="pill-tag" style="margin-left:8px">Nguồn: Sự cố INC-2026-00077</span>
+      <span class="muted" style="margin-left:8px">· Tạo 24/05 09:30 · SLA còn 1h 12 phút</span>
+    </div>
+  </div>
+  <div class="toolbar">
+    <button class="btn btn-secondary"><iconify-icon icon="heroicons:printer" style="font-size:16px;vertical-align:-3px"></iconify-icon> In phiếu</button>
+    <button class="btn btn-secondary"><iconify-icon icon="heroicons:scroll" style="font-size:16px;vertical-align:-3px"></iconify-icon> Lịch sử</button>
+  </div>
+</div>
+
+<div class="banner banner-danger">
+  <span class="bic"><iconify-icon icon="heroicons:exclamation-circle" style="font-size:16px;vertical-align:-3px"></iconify-icon></span>
+  <div><b>SLA Critical:</b> Còn <b>1h 12 phút</b> để resolve. Nếu trễ → tự escalate Tier 2 (Trưởng phòng VT-TTBYT). Thiết bị đã chuyển Out of Service tự động.</div>
+</div>
+
+<div class="workflow">
+  <div class="wf-step"><div class="wf-node done"><span class="num"><iconify-icon icon="heroicons:check" style="font-size:16px;vertical-align:-3px"></iconify-icon></span>Reported</div></div>
+  <span class="wf-arrow">→</span>
+  <div class="wf-step"><div class="wf-node done"><span class="num"><iconify-icon icon="heroicons:check" style="font-size:16px;vertical-align:-3px"></iconify-icon></span>Acknowledged</div></div>
+  <span class="wf-arrow">→</span>
+  <div class="wf-step"><div class="wf-node done"><span class="num"><iconify-icon icon="heroicons:check" style="font-size:16px;vertical-align:-3px"></iconify-icon></span>Đã chẩn đoán</div></div>
+  <span class="wf-arrow">→</span>
+  <div class="wf-step"><div class="wf-node current"><span class="num">4</span>Đang sửa chữa</div></div>
+  <span class="wf-arrow">→</span>
+  <div class="wf-step"><div class="wf-node"><span class="num">5</span>Chờ nghiệm thu</div></div>
+  <span class="wf-arrow">→</span>
+  <div class="wf-step"><div class="wf-node"><span class="num">6</span>Hoàn tất</div></div>
+</div>
+
+<div class="tabs">
+  <div class="tab active">Thông tin chung</div>
+  <div class="tab">Chẩn đoán & Triệu chứng</div>
+  <div class="tab">Phụ tùng đã dùng</div>
+  <div class="tab">Checklist nghiệm thu</div>
+  <div class="tab">Lịch sử & Comments</div>
+  <div class="tab">Audit Trail</div>
+
+</div><div class="grid g3" style="gap:20px">
+  <div class="card" style="grid-column:span 2">
+    <div class="card-head"><h3>Thông tin lệnh sửa chữa</h3></div>
+    <div class="card-pad">
+      <dl class="kv">
+        <dt>Thiết bị</dt><dd><a href="../00-master-data/assets-list.html" class="link">Lồng ấp sơ sinh Atom Incu i</a><br><span class="text-xs muted">Khoa Sơ sinh - Phòng 1 · Class C (Critical)</span></dd>
+        <dt>Loại sửa chữa</dt><dd>Sửa chữa lỗi điện tử</dd>
+        <dt>Mức ưu tiên</dt><dd><span class="prio p1">P1 - Critical</span></dd>
+        <dt>Nguồn yêu cầu</dt><dd><a href="../12-incident/incidents-detail.html" class="link">INC-2026-00077</a> — Báo cáo bởi BS. Nguyễn Thị Lan lúc 08:12</dd>
+        <dt>Mô tả triệu chứng</dt><dd>Báo động nhiệt độ thấp liên tục dù setpoint 36°C. Không giữ được nhiệt độ ổn định.</dd>
+        <dt>KTV phụ trách</dt><dd>Phạm Văn Đức <span class="text-xs muted">(Phân công bởi Lê Quốc Hùng)</span></dd>
+        <dt>Bắt đầu sửa</dt><dd>24/05/2026 10:15</dd>
+        <dt>Mục tiêu hoàn thành</dt><dd>24/05/2026 12:15 (SLA 4h)</dd>
+      </dl>
+    </div>
+
+  </div><div class="card">
+    <div class="card-head"><h3>Cảnh báo & Compliance</h3></div>
+    <div class="card-pad">
+      <div style="padding:10px;background:var(--danger-soft);border-radius:8px;margin-bottom:10px">
+        <b style="color:#b91c1c">Class C — Critical</b>
+        <div class="text-xs" style="color:#b91c1c;margin-top:4px">Bệnh nhân đã được chuyển sang lồng ấp khác. Báo cáo NĐ98 nếu xác định lỗi sản phẩm.</div>
+      </div>
+      <div style="padding:10px;background:var(--warning-soft);border-radius:8px;margin-bottom:10px">
+        <b style="color:#b45309">Hư hỏng lặp lại</b>
+        <div class="text-xs" style="color:#92400e;margin-top:4px">Đây là lần thứ 2 trong 30 ngày. Tự động flag chronic-failure-watch.</div>
+      </div>
+      <div style="padding:10px;background:var(--info-soft);border-radius:8px">
+        <b style="color:#0e7490">Hợp đồng bảo trì</b>
+        <div class="text-xs" style="color:#155e75;margin-top:4px">Còn hiệu lực đến 30/11/2027 · NCC Atom Medical</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section-title">Phụ tùng đã yêu cầu</div>
+<div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>Mã PT</th><th>Tên phụ tùng</th><th>Số lượng</th><th>Đơn giá</th><th>Tổng</th><th>Trạng thái cấp phát</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">SP-HEAT-007</td><td>Bộ phận sưởi lồng ấp</td><td>1</td><td>2.450.000 ₫</td><td>2.450.000 ₫</td><td><span class="badge b-closed">Đã cấp phát</span></td></tr>
+      <tr><td class="mono">SP-SENS-540</td><td>Cảm biến nhiệt độ</td><td>2</td><td>180.000 ₫</td><td>360.000 ₫</td><td><span class="badge b-warn">Chờ thủ kho duyệt</span></td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div style="display:flex;gap:10px;margin-top:24px;padding-top:20px;border-top:1px solid var(--color-neutral-300);flex-wrap:wrap">
+  <button class="btn btn-success"><iconify-icon icon="heroicons:check" style="font-size:16px;vertical-align:-3px"></iconify-icon> Hoàn tất sửa chữa</button>
+  <button class="btn btn-warning"><iconify-icon icon="heroicons:pause" style="font-size:16px;vertical-align:-3px"></iconify-icon> Tạm dừng - Chờ phụ tùng</button>
+  <button class="btn btn-secondary"><iconify-icon icon="heroicons:paper-clip" style="font-size:16px;vertical-align:-3px"></iconify-icon> Đính kèm ảnh trước/sau</button>
+  <button class="btn btn-danger"><iconify-icon icon="heroicons:x-mark" style="font-size:16px;vertical-align:-3px"></iconify-icon> Không thể sửa → Out of Service</button>
+
+      
+    
+      </div>
+    </div>
+</main>
+  </div>
+</div>
+<script src="../assets/shell.js"></script>
+</body>
+</html>

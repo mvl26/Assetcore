@@ -39,6 +39,53 @@ const hasPendingChanges = computed(() => Object.keys(pendingChanges).length > 0)
 const saving = ref(false)
 const saveMessage = ref<{ type: 'success' | 'error'; text: string } | null>(null)
 
+// BUG-009: QR generation state
+const qrGenerating = ref(false)
+async function handleGenerateQr() {
+  if (qrGenerating.value) return
+  qrGenerating.value = true
+  try {
+    const qr = await store.generateInternalQr(props.doc.name)
+    if (qr) {
+      saveMessage.value = { type: 'success', text: `Đã sinh QR: ${qr}` }
+      emit('saved')
+    } else {
+      saveMessage.value = { type: 'error', text: store.error ?? 'Không thể sinh QR' }
+    }
+  } finally {
+    qrGenerating.value = false
+  }
+}
+
+// BUG-010: MoH code inline-edit (always editable when not submitted)
+const mohLocal = ref<string>(props.doc.custom_moh_code || '')
+const mohSaving = ref(false)
+const mohSaved = ref(false)
+watch(
+  () => props.doc.custom_moh_code,
+  (v) => {
+    if (!mohSaving.value) mohLocal.value = v || ''
+  },
+)
+async function handleMohBlur() {
+  const next = (mohLocal.value || '').trim()
+  const current = (props.doc.custom_moh_code || '').trim()
+  if (next === current) return
+  if (props.doc.docstatus === 1) return
+  mohSaving.value = true
+  mohSaved.value = false
+  const ok = await store.saveDoc(props.doc.name, { custom_moh_code: next })
+  mohSaving.value = false
+  if (ok) {
+    mohSaved.value = true
+    setTimeout(() => { mohSaved.value = false }, 2000)
+    emit('saved')
+  } else {
+    saveMessage.value = { type: 'error', text: store.error ?? 'Lỗi khi lưu mã BYT' }
+    mohLocal.value = current
+  }
+}
+
 function trackChange(field: string, value: unknown) {
   pendingChanges[field] = value
 }
@@ -475,6 +522,15 @@ Xem đơn hàng →
           <div class="flex gap-2">
             <input type="text" :value="doc.internal_tag_qr || 'Chưa sinh'" class="form-input font-mono flex-1" readonly />
             <button
+              v-if="!doc.internal_tag_qr && doc.docstatus !== 2"
+              class="btn-secondary px-3 whitespace-nowrap"
+              :disabled="qrGenerating"
+              title="Sinh mã QR nội bộ ngay"
+              @click="handleGenerateQr"
+            >
+              {{ qrGenerating ? 'Đang sinh...' : 'Sinh QR' }}
+            </button>
+            <button
               v-if="doc.internal_tag_qr"
               class="btn-secondary px-3"
               title="Xem QR Label"
@@ -487,13 +543,19 @@ Xem đơn hàng →
           </div>
         </div>
         <div>
-          <label class="form-label">Mã Bộ Y tế (Bộ Y tế)</label>
+          <label class="form-label">
+            Mã đăng ký Bộ Y tế
+            <span v-if="mohSaving" class="text-xs text-gray-500 ml-1">(đang lưu...)</span>
+            <span v-else-if="mohSaved" class="text-xs text-emerald-600 ml-1">(đã lưu)</span>
+          </label>
           <input
+            v-model="mohLocal"
             type="text"
-            :value="doc.custom_moh_code || ''"
             class="form-input"
-            :readonly="isReadonly"
-            @change="trackChange('custom_moh_code', ($event.target as HTMLInputElement).value)"
+            placeholder="Nhập mã đăng ký Bộ Y tế (NĐ98)..."
+            :readonly="doc.docstatus === 1"
+            @blur="handleMohBlur"
+            @keydown.enter.prevent="handleMohBlur"
           />
         </div>
       </div>

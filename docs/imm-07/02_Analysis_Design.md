@@ -272,7 +272,7 @@ UC detail flow chi tiết — *(BA bổ sung trong sprint discovery Wave 3)*.
 ## V.5. Khả dụng UX
 
 - Cockpit có drill-down 1-click từ KPI → event nguồn.
-- Bộ lọc khoa / model / chu kỳ chuẩn hoá theo design system (`docs/res/design-frontend.md`).
+- Bộ lọc khoa / model / chu kỳ chuẩn hoá theo design system (`docs/res/design/design-frontend.md`).
 
 ## V.6. Bảo trì
 

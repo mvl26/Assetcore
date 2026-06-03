@@ -4,7 +4,7 @@ import {
   listPmSchedules, getPmSchedule, createPmSchedule, updatePmSchedule, deletePmSchedule,
   type PmSchedule,
 } from '@/api/imm00'
-import { translateStatus, getStatusColor, formatDate } from '@/utils/formatters'
+import { translateStatus, getStatusColor, formatDate, translatePmType } from '@/utils/formatters'
 import SmartSelect from '@/components/common/SmartSelect.vue'
 import DateInput from '@/components/common/DateInput.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
@@ -13,16 +13,18 @@ import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar from '@/components/common/ListFilterBar.vue'
 import { useMasterDataStore } from '@/stores/masterData'
 import { useApi } from '@/composables/useApi'
+import { useAuthStore } from '@/stores/auth'
 
 const masterStore = useMasterDataStore()
 const apiCall = useApi()
+const auth = useAuthStore()
+// Quyền tạo lịch PM — chỉ phụ thuộc capability từ auth store, KHÔNG phụ thuộc sidebar/module-context hydration.
+const canCreatePm = computed(() => auth.can('pm.create'))
 const showFilters = ref(false)
 const filters = ref({ pm_type: '', status: '', search: '' })
 
 const PM_TYPES = ['Quarterly', 'Semi-Annual', 'Annual', 'Ad-hoc']
-const PM_TYPE_LABEL: Record<string, string> = {
-  Quarterly: 'Hàng quý', 'Semi-Annual': 'Nửa năm', Annual: 'Hàng năm', 'Ad-hoc': 'Đột xuất',
-}
+// Nhãn pm_type: dùng SSoT translatePmType (@/utils/formatters) — không map cục bộ.
 const STATUS_OPTIONS = ['Active', 'Paused', 'Suspended']
 
 interface FilterChip { key: 'pm_type' | 'status' | 'search'; label: string }
@@ -43,7 +45,7 @@ const filteredItems = computed(() => {
 })
 const activeChips = computed<FilterChip[]>(() => {
   const chips: FilterChip[] = []
-  if (filters.value.pm_type) chips.push({ key: 'pm_type', label: PM_TYPE_LABEL[filters.value.pm_type] || filters.value.pm_type })
+  if (filters.value.pm_type) chips.push({ key: 'pm_type', label: translatePmType(filters.value.pm_type) })
   if (filters.value.status) chips.push({ key: 'status', label: translateStatus(filters.value.status) })
   if (filters.value.search.trim()) chips.push({ key: 'search', label: `"${filters.value.search.trim()}"` })
   return chips
@@ -192,7 +194,12 @@ onMounted(load)
     >
       <template #actions>
         <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
-        <button class="btn-primary" @click="openCreate">
+        <button
+          class="btn-primary"
+          :disabled="!canCreatePm"
+          :title="canCreatePm ? 'Tạo lịch PM mới' : 'Bạn không có quyền tạo lịch PM'"
+          @click="openCreate"
+        >
           <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
           </svg>
@@ -214,7 +221,7 @@ onMounted(load)
           <label class="form-label">Loại PM</label>
           <select v-model="filters.pm_type" class="form-select">
             <option value="">Tất cả loại PM</option>
-            <option v-for="t in PM_TYPES" :key="t" :value="t">{{ PM_TYPE_LABEL[t] || t }}</option>
+            <option v-for="t in PM_TYPES" :key="t" :value="t">{{ translatePmType(t) }}</option>
           </select>
         </div>
         <div class="form-group">
@@ -253,7 +260,7 @@ onMounted(load)
           {{ activeFilterCount > 0 ? 'Không có lịch PM nào phù hợp với bộ lọc.' : 'Chưa có lịch PM nào.' }}
         </p>
         <button v-if="activeFilterCount > 0" class="btn-ghost" @click="resetFilters">Xóa bộ lọc</button>
-        <button v-else class="btn-primary" @click="openCreate">+ Thêm lịch PM</button>
+        <button v-else class="btn-primary" :disabled="!canCreatePm" @click="openCreate">+ Thêm lịch PM</button>
       </div>
       <template v-else>
         <!-- Mobile cards -->
@@ -272,7 +279,7 @@ onMounted(load)
             </div>
             <p class="text-sm font-medium text-slate-900 truncate">{{ s.asset_name || s.asset_code || s.asset_ref }}</p>
             <div class="flex flex-wrap gap-x-2 gap-y-1 mt-1.5 text-xs text-slate-500">
-              <span>{{ PM_TYPE_LABEL[s.pm_type || ''] || s.pm_type }}</span>
+              <span>{{ translatePmType(s.pm_type) }}</span>
               <span :class="overdueColor(s.next_due_date)">· {{ formatDate(s.next_due_date) }}</span>
             </div>
             <div class="mt-2 flex gap-2">
@@ -313,9 +320,9 @@ onMounted(load)
               <button
                 v-if="s.pm_type"
                 class="text-xs px-2 py-0.5 rounded-full font-medium bg-slate-100 text-slate-700 hover:ring-2 hover:ring-slate-400"
-                :title="`Lọc: ${PM_TYPE_LABEL[s.pm_type] || s.pm_type}`"
+                :title="`Lọc: ${translatePmType(s.pm_type)}`"
                 @click="quickFilter('pm_type', s.pm_type!)"
-              >{{ PM_TYPE_LABEL[s.pm_type] || s.pm_type }}</button>
+              >{{ translatePmType(s.pm_type) }}</button>
               <span v-else class="text-slate-400">—</span>
             </td>
             <td class="px-4 py-3">{{ s.pm_interval_days }}</td>
@@ -360,10 +367,10 @@ onMounted(load)
           <div>
             <label class="block text-sm font-medium text-slate-700 mb-1">Loại PM *</label>
             <select v-model="form.pm_type" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
-              <option value="Quarterly">Quarterly — 3 tháng</option>
-              <option value="Semi-Annual">Semi-Annual — 6 tháng</option>
-              <option value="Annual">Annual — 12 tháng</option>
-              <option value="Ad-hoc">Ad-hoc</option>
+              <option value="Quarterly">{{ translatePmType('Quarterly') }} — 3 tháng</option>
+              <option value="Semi-Annual">{{ translatePmType('Semi-Annual') }} — 6 tháng</option>
+              <option value="Annual">{{ translatePmType('Annual') }} — 12 tháng</option>
+              <option value="Ad-hoc">{{ translatePmType('Ad-hoc') }}</option>
             </select>
           </div>
           <div>

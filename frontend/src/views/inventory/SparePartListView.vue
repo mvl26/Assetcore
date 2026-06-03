@@ -1,8 +1,7 @@
 <script setup lang="ts">
 // Copyright (c) 2026, AssetCore Team
 import { ref, onMounted, computed, watch } from 'vue'
-import { useRouter } from 'vue-router'
-import { useDebounceFn } from '@vueuse/core'
+import { useRouter, useRoute } from 'vue-router'
 import { listSpareParts, createSparePart } from '@/api/inventory'
 import type { SparePart } from '@/types/inventory'
 import SmartSelect from '@/components/common/SmartSelect.vue'
@@ -12,12 +11,15 @@ import ListFilterBar from '@/components/common/ListFilterBar.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 
 const router = useRouter()
+const route = useRoute()
 const rows = ref<SparePart[]>([])
 const total = ref(0)
 const page = ref(1)
 const PAGE_SIZE = 30
 const loading = ref(false)
-const showFilters = ref(false)
+// R7 §9.4.5 — drill từ KPI store 'low_stock': ?low_stock=1 → chỉ parts dưới định mức.
+const lowStockOnly = ref<boolean>(route.query.low_stock === '1')
+const showFilters = ref<boolean>(lowStockOnly.value)
 
 const q = ref('')
 const categoryFilter = ref('')
@@ -40,9 +42,10 @@ const CATEGORIES = [
   { v: 'Sensor', l: 'Cảm biến' },
   { v: 'Other', l: 'Khác' },
 ]
-interface Chip { key: 'q' | 'category'; label: string }
+interface Chip { key: 'q' | 'category' | 'lowStock'; label: string }
 const activeChips = computed<Chip[]>(() => {
   const chips: Chip[] = []
+  if (lowStockOnly.value) chips.push({ key: 'lowStock', label: 'Dưới định mức' })
   if (q.value.trim()) chips.push({ key: 'q', label: `"${q.value.trim()}"` })
   if (categoryFilter.value) {
     const c = CATEGORIES.find(x => x.v === categoryFilter.value)
@@ -54,6 +57,7 @@ const activeFilterCount = computed(() => activeChips.value.length)
 
 function clearChip(key: string) {
   if (key === 'q') q.value = ''
+  else if (key === 'lowStock') lowStockOnly.value = false
   else categoryFilter.value = ''
   page.value = 1; load()
 }
@@ -61,6 +65,7 @@ function clearChip(key: string) {
 function resetFilters() {
   q.value = ''
   categoryFilter.value = ''
+  lowStockOnly.value = false
   page.value = 1; load()
 }
 
@@ -74,15 +79,21 @@ function quickFilter(_key: 'category', value: string) {
 async function load() {
   loading.value = true
   try {
-    const r = await listSpareParts({ page: page.value, page_size: PAGE_SIZE, q: q.value, category: categoryFilter.value })
+    const r = await listSpareParts({
+      page: page.value, page_size: PAGE_SIZE, q: q.value,
+      category: categoryFilter.value,
+      ...(lowStockOnly.value ? { low_stock: 1 } : {}),
+    })
     rows.value = r?.items || []
     total.value = r?.pagination?.total || 0
   } finally { loading.value = false }
 }
 
-const debouncedSearch = useDebounceFn(() => { page.value = 1; load() }, 300)
-watch(q, debouncedSearch)
+// Search debounce is handled by ListFilterBar.vue (@apply fires after pause).
 watch(categoryFilter, () => { page.value = 1; load() })
+watch(lowStockOnly, () => { page.value = 1; load() })
+// Drill-down lần 2 (cùng route, query khác) — re-sync từ route.query (§9.3).
+watch(() => route.query.low_stock, (val) => { lowStockOnly.value = val === '1' })
 
 function openCreate() {
   form.value = {
@@ -316,11 +327,11 @@ v-if="showForm" class="fixed inset-0 z-50 flex items-center justify-center bg-bl
                 <input id="sp-cost" v-model.number="form.unit_cost" type="number" min="0" class="form-input w-full" />
               </div>
               <div>
-                <p class="form-label">Đơn vị tính cơ bản (Stock UOM)</p>
+                <p class="form-label">Đơn vị tính cơ bản</p>
                 <SmartSelect v-model="form.stock_uom" doctype="AC UOM" placeholder="Cái, Hộp, Bộ..." />
               </div>
               <div>
-                <p class="form-label">Đơn vị tính mua hàng (Purchase UOM)</p>
+                <p class="form-label">Đơn vị tính mua hàng</p>
                 <SmartSelect v-model="form.purchase_uom" doctype="AC UOM" placeholder="Để trống = dùng Stock UOM..." />
               </div>
               <div>

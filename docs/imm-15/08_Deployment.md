@@ -15,17 +15,19 @@
 
 ## §0 — Wired Artefacts (CURRENT, 2026-05-14)
 
-### Hooks (verified `assetcore/hooks.py`)
+### Hooks (verified `assetcore/hooks.py` — 2026-05-18)
 
 `doc_events`:
-- `IMM PM Work Order` → `before_submit`: `assetcore.services.imm15.reserve_for_pm`
-- `IMM Repair Work Order` → `before_submit`: `assetcore.services.imm15.reserve_for_repair`
+- `PM Work Order` → `before_submit`: `assetcore.services.imm15.reserve_for_pm`
+- `Asset Repair` → `before_submit`: `assetcore.services.imm15.reserve_for_repair`
 - `AC Asset` → `on_update`: `assetcore.services.imm15.flag_obsolete_on_decommission`
 
+> Lưu ý: DocType key thực tế là `"PM Work Order"` và `"Asset Repair"` — không phải `"IMM PM Work Order"` / `"IMM Repair Work Order"` / `"IMM CM Work Order"` như các draft trước ghi.
+
 `scheduler_events`:
-- hourly: `check_low_stock_and_alert`, `check_critical_spare_breach`, `check_expiring_batches`, `compute_inventory_kpis`
-- daily: `generate_spare_demand_forecast`
-- weekly: `reclassify_abc`
+- daily: `check_low_stock_and_alert`, `check_critical_spare_breach`, `check_expiring_batches`, `compute_inventory_kpis`
+- monthly: `generate_spare_demand_forecast`
+- cron `0 3 1 1,4,7,10 *` (quarterly): `reclassify_abc`
 
 ### Fixtures (verified `assetcore/fixtures/`)
 
@@ -142,7 +144,7 @@
 ### III.1 Patch Order (patches.txt)
 
 ```
-# IMM-15 Wave 3
+# IMM-15 Wave 2
 assetcore.patches.v3_201.add_imm15_custom_fields_to_ac_spare_part
 assetcore.patches.v3_202.create_imm_spare_allocation_doctype
 assetcore.patches.v3_203.create_imm_stock_cycle_count_doctype
@@ -663,4 +665,4 @@ curl -s "https://[site]/api/method/assetcore.api.inventory.list_spare_parts" \
 
 ---
 
-*IMM-15 Module — Wave 3 PLANNED. Deployment v1.0.0-draft. Cập nhật 2026-05-08.*
+*IMM-15 Module — Wave 2 IMPLEMENTED. Deployment v1.0.0-rc.2. Cập nhật 2026-05-18.*

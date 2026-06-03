@@ -1,16 +1,18 @@
 <script setup lang="ts">
-import { useToast } from '@/composables/useToast'
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { listDeviceModels, deleteDeviceModel } from '@/api/imm00'
 import type { ImmDeviceModel } from '@/types/imm00'
+import { useImportWizard } from '@/composables/useImportWizard'
+import { useToast } from '@/composables/useToast'
+import ImportWizardModal from '@/components/import/ImportWizardModal.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar from '@/components/common/ListFilterBar.vue'
-const toast = useToast()
 
 const router = useRouter()
+const toast = useToast()
 const models = ref<ImmDeviceModel[]>([])
 const loading = ref(false)
 const error = ref('')
@@ -110,6 +112,18 @@ async function remove(name: string, ev: Event) {
 }
 
 onMounted(load)
+
+// ── Import / Export ──────────────────────────────────────────────────────────
+
+const importWizard = useImportWizard('IMM Device Model', () => load())
+const openImport = importWizard.open
+const doExport = importWizard.doExport
+
+const IMPORT_NOTICE = [
+  'Tên model + Nhà sản xuất là khóa duy nhất — không nhập trùng cặp.',
+  'Danh mục tài sản phải đã được nhập sẵn (xem Dữ liệu tham chiếu).',
+  'Mã GMDN nên tra cứu trước để khớp tiêu chuẩn quốc tế.',
+]
 </script>
 
 <template>
@@ -117,6 +131,27 @@ onMounted(load)
     <PageHeader title="Model thiết bị" :subtitle="`Tổng ${totalCount} model`">
       <template #actions>
         <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
+        <button
+          class="px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-600 flex items-center gap-1.5"
+          title="Tải dữ liệu hiện tại về Excel"
+          @click="doExport"
+        >
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+          </svg>
+          Xuất Excel
+        </button>
+        <button
+          class="px-3 py-2 text-sm border border-emerald-300 rounded-lg hover:bg-emerald-50 text-emerald-700 flex items-center gap-1.5"
+          @click="openImport"
+        >
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+          </svg>
+          Import
+        </button>
         <button class="btn-primary" @click="router.push('/device-models/new')">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
@@ -130,7 +165,7 @@ onMounted(load)
       :show="showFilters"
       :chips="activeChips"
       v-model:search="filters.search"
-      search-placeholder="Tìm theo mã, tên, phiên bản, GMDN, EMDN..."
+      search-placeholder="Tìm theo mã, tên, hãng, phiên bản hoặc mã GMDN..."
       @reset="resetFilters"
       @clear-chip="clearChip"
       @apply="applyFilters"
@@ -273,6 +308,8 @@ onMounted(load)
         </div>
       </div>
     </div>
+
+    <ImportWizardModal :ctx="importWizard" title="Import Model thiết bị" unit="model" :notice="IMPORT_NOTICE" />
 
     <!-- Lightbox preview -->
     <div

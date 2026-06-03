@@ -3,13 +3,13 @@
 | Mục | Giá trị |
 |---|---|
 | Module | IMM-16 — Compliance Monitoring & CAPA |
-| Phiên bản tài liệu | 1.1 |
-| Ngày cập nhật | 2026-05-14 |
+| Phiên bản tài liệu | 1.3 (sync app v0.0.2) |
+| Ngày cập nhật | 2026-05-27 |
 | Trạng thái | IMPLEMENTED — Wave 2 (feature/hieuc/wave-2) |
 | Base path | `assetcore.api.imm16` |
 | URL pattern | `/api/method/assetcore.api.imm16.<function>` |
 
-> ✅ Implemented — Wave 2. Toàn bộ ~30 endpoint trong §3 đã được whitelist trong `assetcore/api/imm16.py`. FE consume qua `frontend/src/api/imm16.ts` + `frontend/src/stores/imm16.ts`. Một số endpoint có alias do migration: `list_compliance_rules` ≡ `list_rules`, `list_compliance_findings` ≡ `list_findings`, `list_internal_audits` ≡ `list_audits`, `create_finding` ≡ legacy entry — xem `assetcore/api/imm16.py` (đầu file `_handle()` wrapper) cho danh sách chính xác.
+> ✅ Implemented — Wave 2. `assetcore/api/imm16.py` có **52 whitelist functions** (verified `grep -c "^@frappe.whitelist" assetcore/api/imm16.py` = 52, 2026-05-27): 31 canonical endpoints trong §3.x catalog + 12 legacy aliases (§1.4 cuối) + 9 helpers/scheduler triggers chưa enumerate trong §3.x (cụ thể: `run_compliance_evaluation`, `generate_scorecard`, `submit_audit_findings`, `close_finding`, `close_internal_audit`, `create_finding`, `create_compliance_rule`, `create_internal_audit`, `check_asset_compliance` — đều có whitelist nhưng là wrapper/POST-trigger không phải REST CRUD chính). FE consume qua `frontend/src/api/imm16.ts` + `frontend/src/stores/imm16.ts`. §1.4 dưới đây là danh sách canonical + alias.
 
 ---
 
@@ -79,6 +79,8 @@ User không có Role hợp lệ → `{"success": false, "error": "...", "code": 
 
 ### §1.4 API Catalog
 
+**Canonical endpoints** (31):
+
 | # | Function | Method | Roles | Mô tả |
 |---|---|---|---|---|
 | 3.1.1 | `list_rules` | GET | All authenticated | Danh sách Compliance Rule |
@@ -86,33 +88,58 @@ User không có Role hợp lệ → `{"success": false, "error": "...", "code": 
 | 3.1.3 | `create_rule` | POST | Tổ HC-QLCL, CMMS Admin | Tạo Rule mới |
 | 3.1.4 | `update_rule` | POST | Tổ HC-QLCL, CMMS Admin | Cập nhật Rule (versioned) |
 | 3.1.5 | `deactivate_rule` | POST | Tổ HC-QLCL, CMMS Admin | Deactivate Rule |
+| 3.1.6 | `reactivate_rule` | POST | Tổ HC-QLCL, CMMS Admin | Reactivate Rule (BUG-16-02) |
+| 3.1.7 | `get_record_history` | GET | All authenticated | Audit trail history cho Finding/CAPA/MR/Rule |
 | 3.2.1 | `list_findings` | GET | All authenticated | Danh sách Finding |
-| 3.2.2 | `get_finding` | GET | All authenticated | Chi tiết Finding |
+| 3.2.2 | `get_finding` | GET | All authenticated | Chi tiết Finding (enrich asset_name, dept_name, rule_name) |
 | 3.2.3 | `confirm_finding` | POST | Tổ HC-QLCL, Internal Auditor, CMMS Admin | Confirm NC |
 | 3.2.4 | `mark_false_positive` | POST | Tổ HC-QLCL, Internal Auditor, CMMS Admin | Mark False Positive |
 | 3.2.5 | `waive_finding` | POST | VP Block2, CMMS Admin | Waive Finding (BR-16-06) |
 | 3.2.6 | `link_to_capa` | POST | Tổ HC-QLCL, Workshop Head, CMMS Admin | Link Finding → CAPA |
 | 3.3.1 | `list_audits` | GET | All authenticated | Danh sách Internal Audit |
-| 3.3.2 | `create_audit` | POST | Tổ HC-QLCL, CMMS Admin | Tạo Audit |
-| 3.3.3 | `start_audit` | POST | Lead Auditor, Tổ HC-QLCL, CMMS Admin | Bắt đầu Audit |
-| 3.3.4 | `complete_audit_checklist` | POST | Lead Auditor, Internal Auditor, CMMS Admin | Hoàn thành checklist |
-| 3.3.5 | `close_audit` | POST | Tổ HC-QLCL, VP Block2, CMMS Admin | Đóng Audit (VR-08) |
-| 3.4.1 | `create_capa_from_finding` | POST | Tổ HC-QLCL, Workshop Head, CMMS Admin | Tạo CAPA từ Finding |
-| 3.4.2 | `advance_capa_state` | POST | Tổ HC-QLCL, Workshop Head, CMMS Admin | Advance CAPA state |
-| 3.4.3 | `perform_effectiveness_check` | POST | Tổ HC-QLCL, CMMS Admin | Effectiveness check |
-| 3.4.4 | `reopen_capa` | POST | Tổ HC-QLCL, CMMS Admin | Force reopen CAPA |
+| 3.3.2 | `get_audit` | GET | All authenticated | Chi tiết Internal Audit |
+| 3.3.3 | `create_audit` | POST | Tổ HC-QLCL, CMMS Admin | Tạo Audit |
+| 3.3.4 | `start_audit` | POST | Tổ HC-QLCL, CMMS Admin | Bắt đầu Audit (Planned → In Progress) |
+| 3.3.5 | `complete_audit_checklist` | POST | Tổ HC-QLCL, CMMS Admin | Hoàn thành checklist + auto-Finding |
+| 3.3.6 | `close_audit` | POST | Tổ HC-QLCL, VP Block2, CMMS Admin | Đóng Audit (VR-08) |
+| 3.4.1 | `create_capa_from_finding` | POST | Tổ HC-QLCL, CMMS Admin | Tạo CAPA từ Finding |
+| 3.4.2 | `get_capa` | GET | All authenticated | Chi tiết CAPA (enrich + finding link) |
+| 3.4.3 | `update_capa_fields` | POST | Tổ HC-QLCL, CMMS Admin | Cập nhật nội dung CAPA (narrative fields) |
+| 3.4.4 | `advance_capa_state` | POST | Tổ HC-QLCL, CMMS Admin | Advance CAPA state machine |
+| 3.4.5 | `perform_effectiveness_check` | POST | Tổ HC-QLCL, CMMS Admin | Effectiveness check |
+| 3.4.6 | `reopen_capa` | POST | Tổ HC-QLCL, CMMS Admin | Force reopen CAPA |
 | 3.5.1 | `list_scorecards` | GET | All authenticated | Danh sách Scorecard |
 | 3.5.2 | `get_current_scorecard` | GET | All authenticated | Scorecard tháng hiện tại |
-| 3.5.3 | `get_scorecard_by_period` | GET | All authenticated | Scorecard theo period |
+| 3.5.3 | `get_scorecard_by_period` | GET | All authenticated | Scorecard theo year+month+scope |
 | 3.5.4 | `publish_scorecard` | POST | Tổ HC-QLCL, VP Block2, CMMS Admin | Publish Scorecard |
 | 3.6.1 | `list_management_reviews` | GET | All authenticated | Danh sách MR |
-| 3.6.2 | `create_management_review` | POST | Tổ HC-QLCL, VP Block2, CMMS Admin | Tạo Management Review |
-| 3.6.3 | `finalize_management_review` | POST | VP Block2, CMMS Admin | Finalize MR |
+| 3.6.2 | `get_management_review` | GET | All authenticated | Chi tiết MR |
+| 3.6.3 | `create_management_review` | POST | VP Block2, CMMS Admin | Tạo Management Review |
+| 3.6.4 | `update_management_review` | POST | VP Block2, CMMS Admin | Cập nhật MR (attendees + output_actions) |
+| 3.6.5 | `advance_mr_state` | POST | VP Block2, CMMS Admin | Advance MR state (Draft→Held→Minutes Approved) |
+| 3.6.6 | `finalize_management_review` | POST | VP Block2, CMMS Admin | Finalize MR → Closed |
 | 3.7.1 | `get_dashboard_stats` | GET | All authenticated | KPI dashboard |
 | 3.7.2 | `get_compliance_heatmap` | GET | All authenticated | Heatmap module×dept |
 | 3.7.3 | `get_capa_aging` | GET | All authenticated | CAPA aging buckets |
 | 3.7.4 | `get_overdue_actions` | GET | All authenticated | Overdue actions |
 | 3.8.1 | `check_asset_compliance_status` | GET | All authenticated | Cross-module gate BR-16-09 |
+
+**Legacy/alias endpoints** (11 — backward compat):
+
+| Function | Alias của |
+|---|---|
+| `list_compliance_rules` | `list_rules` |
+| `create_compliance_rule` | `create_rule` |
+| `list_compliance_findings` | `list_findings` |
+| `create_finding` | standalone (không có canonical wrapper riêng) |
+| `close_finding` | standalone |
+| `list_internal_audits` | `list_audits` |
+| `create_internal_audit` | `create_audit` |
+| `submit_audit_findings` | standalone |
+| `close_internal_audit` | `close_audit` |
+| `generate_scorecard` | standalone (POST) |
+| `check_asset_compliance` | `check_asset_compliance_status` (GET alias mỏng — DEPRECATED; gọi lại hàm canonical, KHÔNG gọi `svc.*` trực tiếp; xem §3.8.1) |
+| `run_compliance_evaluation` | standalone (POST trigger) |
 
 ---
 
@@ -129,13 +156,15 @@ _DOCTYPE_SCORECARD = "IMM Compliance Scorecard"
 _DOCTYPE_MR       = "IMM Management Review"
 _DOCTYPE_RCA      = "IMM RCA Record"           # LIVE — REUSE
 
-_WAIVE_ROLES              = {"VP Block2", "CMMS Admin"}
-_PUBLISH_SCORECARD_ROLES  = {"Tổ HC-QLCL", "VP Block2", "CMMS Admin"}
-_FINALIZE_MR_ROLES        = {"VP Block2", "CMMS Admin"}
-_CLOSE_AUDIT_ROLES        = {"Tổ HC-QLCL", "VP Block2", "CMMS Admin"}
-_CREATE_RULE_ROLES        = {"Tổ HC-QLCL", "CMMS Admin"}
-_AUDIT_LEAD_ROLES         = {"Tổ HC-QLCL", "Internal Auditor", "CMMS Admin"}
+_WAIVE_ROLES              = {"Compliance Manager", "AssetCore Super Admin"}
+_PUBLISH_SCORECARD_ROLES  = {"Compliance Manager", "AssetCore Super Admin"}
+_FINALIZE_MR_ROLES        = {"Compliance Manager", "AssetCore Super Admin"}
+_CLOSE_AUDIT_ROLES        = {"Compliance Manager", "AssetCore Super Admin"}
+_CREATE_RULE_ROLES        = {"Compliance Manager", "AssetCore Super Admin"}
+_AUDIT_LEAD_ROLES         = {"Compliance Manager", "Compliance User", "AssetCore Super Admin"}
 ```
+
+> Persona cũ (`Tổ HC-QLCL`, `VP Block2`, `Internal Auditor`, `CMMS Admin`) đã được map vào 30-role catalog (post-patch `v3_2.001_module_role_redesign`). Nếu code thực tế còn chứa string persona cũ → cần đồng bộ trong sprint follow-up; tham chiếu `assetcore/fixtures/role.json` cho canonical names.
 
 ---
 
@@ -457,18 +486,20 @@ _AUDIT_LEAD_ROLES         = {"Tổ HC-QLCL", "Internal Auditor", "CMMS Admin"}
 }
 ```
 
-**Khi Not Effective:**
+**Khi Not Effective (hoặc Partially Effective):**
 
 ```json
 {
   "success": true,
   "data": {
     "name": "CAPA-2026-00007",
-    "new_state": "Investigating",
+    "new_state": "Re-opened",
     "imm_reopen_count": 1
   }
 }
 ```
+
+> `new_state` là `"Re-opened"` (không phải `"Investigating"`). Bước tiếp theo FE phải gọi `advance_capa_state` → `"Investigating"` manually.
 
 ---
 
@@ -482,6 +513,10 @@ _AUDIT_LEAD_ROLES         = {"Tổ HC-QLCL", "Internal Auditor", "CMMS Admin"}
 
 **Params:** `year=2026&month=4&scope=Hospital`
 
+> **Semantics rate (BR-16-11):** `score_pct = compliant/(compliant+non_compliant)*100`, mẫu số = chỉ finding ĐÃ adjudicated. `pending_count` (Open + Under Review) báo riêng, KHÔNG vào mẫu số. `score_pct` của Scorecard và `cell.score` của Heatmap dùng CÙNG SoT `compute_compliance_rate()` → CÙNG dataset CÙNG 1 score. `pending_count` là runtime-only (chưa persist field DocType — xem 04 §II.5 row 8a).
+>
+> **Period-anchor (BR-16-12):** Điều kiện tiên quyết của "CÙNG dataset" — cả Scorecard và Heatmap lọc kỳ theo CÙNG 1 field canonical `evaluation_date` (Date), KHÔNG dùng `detected_date` (Datetime event-timestamp có thể lệch kỳ do lag adjudication). Nếu 2 view lọc 2 field khác nhau, cùng module/kỳ sẽ chọn 2 TẬP finding khác → `score_pct` lệch dù công thức giống. `evaluation_date` là khóa idempotency `(rule, source_record, evaluation_date)` = định nghĩa hệ thống "finding thuộc kỳ nào".
+
 **Response 200:**
 
 ```json
@@ -492,7 +527,11 @@ _AUDIT_LEAD_ROLES         = {"Tổ HC-QLCL", "Internal Auditor", "CMMS Admin"}
     "period_year": 2026,
     "period_month": 4,
     "scope": "Hospital",
-    "score_pct": 87.5,
+    "total_rules_evaluated": 120,
+    "compliant_count": 90,
+    "non_compliant_count": 18,
+    "pending_count": 12,
+    "score_pct": 83.33,
     "trend_vs_prev_month": 2.3,
     "score_by_module": [
       {"module": "IMM-08", "score": 91.0},
@@ -604,6 +643,8 @@ _AUDIT_LEAD_ROLES         = {"Tổ HC-QLCL", "Internal Auditor", "CMMS Admin"}
 
 **Params:** `period_year=2026&period_month=4`
 
+> Lọc kỳ theo `evaluation_date` (BR-16-12 period-anchor canonical, CÙNG field với Scorecard — KHÔNG `detected_date`). `cell.score` == `score_pct` của Scorecard cùng module/kỳ trên CÙNG tập finding.
+
 **Response 200:**
 
 ```json
@@ -625,9 +666,15 @@ _AUDIT_LEAD_ROLES         = {"Tổ HC-QLCL", "Internal Auditor", "CMMS Admin"}
 
 ### §3.8 Cross-module Gate
 
-#### 3.8.1 `check_asset_compliance_status`
+#### 3.8.1 `check_asset_compliance_status` (CANONICAL)
 
-**Mô tả:** Gọi bởi `services/imm08.py` + `services/imm09.py` validate_* trước WO Submit; và IMM-13/14 trước decommission.
+**Mô tả:** Gọi bởi `gate_wo_submit` (PM Work Order / Asset Repair `.validate`) trước WO Submit; `services/imm04.py` commissioning gate; IMM-13/14 trước decommission; và **FE pre-flight banner** (`PMWorkOrderCreateView.vue` qua client `imm16.ts::checkAssetComplianceStatus`, line 512-513) khi user chọn asset — render BE result, KHÔNG inline-compute membership ở FE.
+
+> **Canonical path (chốt Vòng 16 — collapse duplicate):** đây là endpoint DUY NHẤT delegate trực tiếp tới `svc.check_asset_compliance_status`. Endpoint `check_asset_compliance` (api/imm16.py cũ ~line 124) trở thành **alias mỏng**: gọi lại hàm Python `check_asset_compliance_status(asset)` trong cùng file (KHÔNG gọi thẳng `svc.*`), kèm doc-note `# DEPRECATED alias — dùng check_asset_compliance_status`. Tiêu chí nghiệm thu: `grep -n "svc.check_asset_compliance_status" api/imm16.py` chỉ trả về 1 dòng (trong def canonical). FE client (`imm16.ts:512-513`) trỏ tới canonical path `…imm16.check_asset_compliance_status` — gọi LIVE phải trả 200 (không 403/404 method-not-found).
+
+> **Parity contract (FE pre-flight ⟺ gate_wo_submit):** cả pre-flight banner và `gate_wo_submit` cùng đọc 1 SoT — `result.blocked` mà FE render === `blocked` mà service `check_asset_compliance_status` trả. FE KHÔNG tự tính membership; banner chỉ hiển thị `result.blocked` + `result.reasons[]` verbatim. Khi `blocked===true` → nút "Tạo lệnh" disable (hoặc giữ reactive-throw nhưng banner đã cảnh báo trước). Khi `blocked===false` hoặc asset rỗng → banner ẩn.
+
+`blocked` = có Critical CAPA mở trên asset. "Mở" dùng **SoT `imm00._open_capa_filter()`** (BR-00-15: `status NOT IN ('Closed')`) AND `imm_risk_level='Critical'` — KHÔNG inline `status IN [Open, In Progress, Pending Verification]`. **Invariant dưới cron**: CAPA `'Overdue'` ∈ tập mở → gate giữ `blocked=true` cả trước/sau `check_capa_overdue` flip; `reasons[].status` trả status thật (gồm `'Overdue'`). Non-Critical (High/Medium/Low) KHÔNG block dù Overdue.
 
 | Method | Path |
 |---|---|
@@ -702,7 +749,7 @@ _AUDIT_LEAD_ROLES         = {"Tổ HC-QLCL", "Internal Auditor", "CMMS Admin"}
 
 ## §5 TypeScript Types
 
-> ✅ IMPLEMENTED — Wave 2. Types đã có ở `frontend/src/types/imm16.ts` (xem §06).
+> ✅ IMPLEMENTED — Wave 2. Types được định nghĩa **inline** trong `frontend/src/api/imm16.ts` (không có file `frontend/src/types/imm16.ts` riêng — confirmed 2026-05-18). Danh sách interface thực tế: `ComplianceRule`, `ComplianceFinding`, `InternalAudit`, `CapaRecord`, `CapaDetail`, `ComplianceScorecard`, `MRAttendee`, `MROutputActionRow`, `ManagementReview`, `DashboardStats`, `DashboardKpis`, `ComplianceHeatmap`, `HeatmapCell`, `GateReason`, `ComplianceGateResult`, `RecordHistoryEntry`, `ChecklistItemPayload`.
 
 ```typescript
 // frontend/src/types/imm16.ts
@@ -794,7 +841,11 @@ export interface ComplianceScorecard {
   period_year: number
   period_month: number
   scope: 'Hospital' | 'Block' | 'Department'
-  score_pct: number
+  total_rules_evaluated: number
+  compliant_count: number          // adjudicated-compliant (BR-16-11)
+  non_compliant_count: number      // Confirmed NC
+  pending_count?: number           // Open + Under Review (read-only; runtime-only field)
+  score_pct: number                // FE chỉ ĐỌC — KHÔNG inline-compute
   trend_vs_prev_month: number
   score_by_module: ScoreByModule[]
   score_by_department: ScoreByDepartment[]

@@ -1,0 +1,289 @@
+// TDD — IMM-16 CAPA effectiveness_check i18n (NĐ98/QMS): SSoT nhãn VI + màu compliance.
+// Guard chống recurrence pattern A (English enum leak): mọi option BE phải có key trong STATUS_MAP.
+import { describe, it, expect } from 'vitest'
+import { translateStatus, getStatusColor, translateFrequency, translatePmType, translateDepreciationMethod } from './formatters'
+
+const COLOR_GREEN  = 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+const COLOR_YELLOW = 'bg-yellow-100 text-yellow-800 border border-yellow-200'
+const COLOR_RED    = 'bg-red-100 text-red-700 border border-red-200'
+
+// Toàn bộ option của field effectiveness_check trên BE DocType (chuẩn Frappe — giữ English).
+const EFFECTIVENESS_OPTIONS = ['Effective', 'Partially Effective', 'Not Effective'] as const
+
+describe('translateStatus — CAPA effectiveness_check (IMM-16)', () => {
+  it("translateStatus('Effective') === 'Hiệu quả'", () => {
+    expect(translateStatus('Effective')).toBe('Hiệu quả')
+  })
+  it("translateStatus('Partially Effective') === 'Hiệu quả một phần'", () => {
+    expect(translateStatus('Partially Effective')).toBe('Hiệu quả một phần')
+  })
+  it("translateStatus('Not Effective') === 'Không hiệu quả'", () => {
+    expect(translateStatus('Not Effective')).toBe('Không hiệu quả')
+  })
+
+  it('không regress fallback: null/empty → —', () => {
+    expect(translateStatus(null)).toBe('—')
+    expect(translateStatus('')).toBe('—')
+  })
+
+  it('không để lộ token tiếng Anh cho mọi option', () => {
+    for (const opt of EFFECTIVENESS_OPTIONS) {
+      const vi = translateStatus(opt)
+      expect(vi).not.toBe(opt)
+      expect(vi).not.toMatch(/Effective/i)
+    }
+  })
+})
+
+describe('getStatusColor — CAPA effectiveness (pin màu compliance)', () => {
+  it("getStatusColor('Effective') === COLOR_GREEN", () => {
+    expect(getStatusColor('Effective')).toBe(COLOR_GREEN)
+  })
+  it("getStatusColor('Partially Effective') === COLOR_YELLOW", () => {
+    expect(getStatusColor('Partially Effective')).toBe(COLOR_YELLOW)
+  })
+  it("getStatusColor('Not Effective') === COLOR_RED", () => {
+    expect(getStatusColor('Not Effective')).toBe(COLOR_RED)
+  })
+})
+
+describe('Guard anti-recurrence (pattern A): mọi option effectiveness_check có nhãn + màu', () => {
+  it('STATUS_MAP phủ hết option — fail nếu BE thêm option mà FE quên map', () => {
+    for (const opt of EFFECTIVENESS_OPTIONS) {
+      // translateStatus trả raw (hoặc raw-thay-_) khi KHÔNG có key → so sánh phát hiện miss.
+      expect(translateStatus(opt), `missing STATUS_MAP key for "${opt}"`).not.toBe(opt)
+    }
+  })
+  it('STATUS_COLOR phủ hết option — fail nếu BE thêm option mà FE quên màu', () => {
+    const GRAY = 'bg-slate-100 text-slate-600 border border-slate-200'
+    for (const opt of EFFECTIVENESS_OPTIONS) {
+      // getStatusColor fallback về GRAY khi miss → màu compliance phải khác GRAY.
+      expect(getStatusColor(opt), `missing STATUS_COLOR for "${opt}"`).not.toBe(GRAY)
+    }
+  })
+})
+
+// ─── TDD-1 — CAPA lifecycle status SSoT (IMM-16 CAPAListView/CAPADetailView) ────
+// 'Pending Verification' THIẾU trong STATUS_MAP trước consolidation → translateStatus
+// trả raw EN ('Pending Verification') = leak. Thêm map → 'Chờ xác minh'.
+// Đồng thời chốt nhãn canonical cho 5 mã CAPA status (chống drift list↔detail↔dashboard).
+const CAPA_STATUS_OPTIONS = ['Open', 'In Progress', 'Pending Verification', 'Closed', 'Overdue'] as const
+const CAPA_STATUS_EXPECTED: Record<string, string> = {
+  Open: 'Đang mở',                          // KHÔNG 'Mới mở'
+  'In Progress': 'Đang thực hiện',          // KHÔNG 'Đang xử lý'
+  'Pending Verification': 'Chờ xác minh',
+  Closed: 'Đã đóng',
+  Overdue: 'Quá hạn',
+}
+
+describe('translateStatus — CAPA lifecycle status SSoT (TDD-1)', () => {
+  it("translateStatus('Pending Verification') === 'Chờ xác minh' (thêm map mới)", () => {
+    expect(translateStatus('Pending Verification')).toBe('Chờ xác minh')
+  })
+  it("alias 'Pending_Verification' (Frappe raw underscore) === 'Chờ xác minh'", () => {
+    expect(translateStatus('Pending_Verification')).toBe('Chờ xác minh')
+  })
+  it('nhãn canonical đúng cho cả 5 mã CAPA status (không drift)', () => {
+    for (const code of CAPA_STATUS_OPTIONS) {
+      expect(translateStatus(code), `nhãn sai cho "${code}"`).toBe(CAPA_STATUS_EXPECTED[code])
+    }
+  })
+  it('không leak raw EN token cho mọi mã CAPA status', () => {
+    const leak = /\b(Open|In Progress|Pending Verification|Closed|Overdue)\b/
+    for (const code of CAPA_STATUS_OPTIONS) {
+      expect(translateStatus(code)).not.toMatch(leak)
+    }
+  })
+})
+
+// ─── TDD-1b — CAPA severity SSoT (Critical='Khẩn cấp', Major='Nghiêm trọng') ────
+describe('translateStatus — CAPA severity SSoT (TDD-1b, chống LL-FE-30 drift)', () => {
+  it("Critical → 'Khẩn cấp' (KHÔNG 'Nghiêm trọng')", () => {
+    expect(translateStatus('Critical')).toBe('Khẩn cấp')
+  })
+  it("Major → 'Nghiêm trọng' (KHÔNG 'Quan trọng')", () => {
+    expect(translateStatus('Major')).toBe('Nghiêm trọng')
+  })
+  it("Minor → 'Nhỏ'", () => {
+    expect(translateStatus('Minor')).toBe('Nhỏ')
+  })
+})
+
+// ─── TDD — IMM-12 incident status STATUS_MAP coverage (Acknowledged / RCA Required) ──
+// ROOT CAUSE round-20: StatusBadge-path (translateStatus → STATUS_MAP) THIẾU key
+// 'Acknowledged' + 'RCA Required' → raw-EN leak ở IncidentListView (2/4 OPEN-state
+// của open_incident_filter, surface khi drill ?severity=Critical&open=1). Thêm key
+// + biến thể underscore (Frappe trả raw) để dù đi path nào nhãn VI cũng đúng.
+// LƯU Ý SSoT: nhãn ở đây PHẢI khớp INCIDENT_STATUS_LABEL (constants/labels.ts) là
+// canonical cho domain IMM-12 — list/detail/donut cùng 1 text.
+const INCIDENT_STATUS_MISSING = ['Acknowledged', 'RCA Required'] as const
+const INCIDENT_STATUS_MAP_EXPECTED: Record<string, string> = {
+  Acknowledged: 'Đã tiếp nhận',   // khớp INCIDENT_STATUS_LABEL
+  'RCA Required': 'Cần RCA',       // khớp INCIDENT_STATUS_LABEL
+}
+
+describe('translateStatus — IMM-12 incident status STATUS_MAP (TDD round-20)', () => {
+  it("translateStatus('Acknowledged') === 'Đã tiếp nhận' (thêm map mới)", () => {
+    expect(translateStatus('Acknowledged')).toBe('Đã tiếp nhận')
+  })
+  it("translateStatus('RCA Required') === 'Cần RCA' (thêm map mới)", () => {
+    expect(translateStatus('RCA Required')).toBe('Cần RCA')
+  })
+  it("alias underscore 'RCA_Required' === 'Cần RCA'", () => {
+    expect(translateStatus('RCA_Required')).toBe('Cần RCA')
+  })
+  it('nhãn STATUS_MAP khớp INCIDENT_STATUS_LABEL (1 SSoT, không drift)', () => {
+    for (const code of INCIDENT_STATUS_MISSING) {
+      expect(translateStatus(code), `nhãn sai cho "${code}"`).toBe(INCIDENT_STATUS_MAP_EXPECTED[code])
+    }
+  })
+  it('KHÔNG leak raw EN token cho Acknowledged / RCA Required', () => {
+    const leak = /\b(Acknowledged|RCA Required)\b/
+    for (const code of INCIDENT_STATUS_MISSING) {
+      expect(translateStatus(code)).not.toMatch(leak)
+    }
+  })
+})
+
+// ─── translateFrequency (SSoT — IMM-16 Compliance Rule + IMM-05 AC Asset khấu hao) ──
+// Localize raw English frequency labels qua DUY NHẤT 1 map FREQUENCY_MAP.
+
+// BE ground truth (DocType JSON options — chuẩn Frappe, giữ English ở value):
+//   imm_compliance_rule.evaluation_frequency
+const COMPLIANCE_FREQ_OPTIONS = ['Realtime', 'Hourly', 'Daily', 'Weekly', 'Monthly', 'Quarterly'] as const
+//   ac_asset.depreciation_frequency
+const ASSET_DEPR_FREQ_OPTIONS = ['Monthly', 'Quarterly', 'Yearly'] as const
+
+describe('translateFrequency — nhãn tần suất VI', () => {
+  it("translateFrequency('Realtime') === 'Thời gian thực'", () => {
+    expect(translateFrequency('Realtime')).toBe('Thời gian thực')
+  })
+  it("translateFrequency('Hourly') === 'Hàng giờ'", () => {
+    expect(translateFrequency('Hourly')).toBe('Hàng giờ')
+  })
+  it("translateFrequency('Daily') === 'Hàng ngày'", () => {
+    expect(translateFrequency('Daily')).toBe('Hàng ngày')
+  })
+  it("translateFrequency('Weekly') === 'Hàng tuần'", () => {
+    expect(translateFrequency('Weekly')).toBe('Hàng tuần')
+  })
+  it("translateFrequency('Monthly') === 'Hàng tháng'", () => {
+    expect(translateFrequency('Monthly')).toBe('Hàng tháng')
+  })
+  it("translateFrequency('Quarterly') === 'Hàng quý'", () => {
+    expect(translateFrequency('Quarterly')).toBe('Hàng quý')
+  })
+  it("translateFrequency('Yearly') === 'Hàng năm'", () => {
+    expect(translateFrequency('Yearly')).toBe('Hàng năm')
+  })
+})
+
+describe('translateFrequency — fallback null/empty/unknown (không crash)', () => {
+  it("null → '—'", () => {
+    expect(translateFrequency(null)).toBe('—')
+  })
+  it("'' → '—'", () => {
+    expect(translateFrequency('')).toBe('—')
+  })
+  it("undefined → '—'", () => {
+    expect(translateFrequency(undefined)).toBe('—')
+  })
+  it("giá trị lạ 'XYZ-unknown' → trả nguyên (không crash, không bịa nhãn)", () => {
+    expect(translateFrequency('XYZ-unknown')).toBe('XYZ-unknown')
+  })
+})
+
+describe('Guard anti-recurrence (pattern A i18n leak): FREQUENCY_MAP phủ ĐỦ option BE', () => {
+  it('mọi option Compliance Rule có nhãn VI khác chuỗi gốc tiếng Anh', () => {
+    for (const opt of COMPLIANCE_FREQ_OPTIONS) {
+      const vi = translateFrequency(opt)
+      // miss key → translateFrequency trả nguyên opt → fail (phát hiện FE quên map).
+      expect(vi, `missing FREQUENCY_MAP key for compliance "${opt}"`).not.toBe(opt)
+    }
+  })
+  it('mọi option AC Asset depreciation có nhãn VI khác chuỗi gốc tiếng Anh', () => {
+    for (const opt of ASSET_DEPR_FREQ_OPTIONS) {
+      const vi = translateFrequency(opt)
+      expect(vi, `missing FREQUENCY_MAP key for depreciation "${opt}"`).not.toBe(opt)
+    }
+  })
+  it('nhãn VI không lộ token tiếng Anh (Daily/Weekly/Monthly/...)', () => {
+    const leakTokens = /\b(Realtime|Hourly|Daily|Weekly|Monthly|Quarterly|Yearly)\b/
+    for (const opt of [...COMPLIANCE_FREQ_OPTIONS, ...ASSET_DEPR_FREQ_OPTIONS]) {
+      expect(translateFrequency(opt)).not.toMatch(leakTokens)
+    }
+  })
+})
+
+// ─── translatePmType (SSoT — PM Schedule + PM Checklist Template.pm_type) ─────
+// Gộp 2 map cục bộ trùng lặp (PmScheduleListView + PmTemplateListView) về 1 SSoT.
+// BE ground truth: PM Schedule / PM Checklist Template.pm_type
+const PM_TYPE_OPTIONS = ['Quarterly', 'Semi-Annual', 'Annual', 'Ad-hoc'] as const
+
+describe('translatePmType — nhãn loại PM VI', () => {
+  it("'Quarterly' → 'Hàng quý'",     () => expect(translatePmType('Quarterly')).toBe('Hàng quý'))
+  it("'Semi-Annual' → 'Nửa năm'",    () => expect(translatePmType('Semi-Annual')).toBe('Nửa năm'))
+  it("'Annual' → 'Hàng năm'",        () => expect(translatePmType('Annual')).toBe('Hàng năm'))
+  it("'Ad-hoc' → 'Đột xuất' (nhãn canonical PM, KHÁC frequency 'Theo yêu cầu')",
+    () => expect(translatePmType('Ad-hoc')).toBe('Đột xuất'))
+})
+
+describe('translatePmType — fallback null/empty/unknown (không crash)', () => {
+  it("null → '—'",      () => expect(translatePmType(null)).toBe('—'))
+  it("'' → '—'",        () => expect(translatePmType('')).toBe('—'))
+  it("undefined → '—'", () => expect(translatePmType(undefined)).toBe('—'))
+  it("key lạ → trả nguyên (không bịa nhãn)",
+    () => expect(translatePmType('ZZZ')).toBe('ZZZ'))
+})
+
+describe('Guard anti-recurrence (pattern A i18n leak): PM_TYPE_MAP phủ ĐỦ option BE', () => {
+  it('mọi option pm_type có nhãn VI khác chuỗi gốc tiếng Anh', () => {
+    for (const opt of PM_TYPE_OPTIONS) {
+      expect(translatePmType(opt), `missing PM_TYPE_MAP key for "${opt}"`).not.toBe(opt)
+    }
+  })
+  it('nhãn VI không lộ token pm_type tiếng Anh', () => {
+    const leak = /\b(Quarterly|Semi-Annual|Annual|Ad-hoc)\b/
+    for (const opt of PM_TYPE_OPTIONS) {
+      expect(translatePmType(opt)).not.toMatch(leak)
+    }
+  })
+})
+
+// ─── translateDepreciationMethod (SSoT — IMM-00/05 AC Asset + Device Model + Category) ──
+// Localize raw English depreciation_method qua DUY NHẤT 1 helper.
+// BE ground truth (DocType JSON options — chuẩn Frappe, giữ English ở value):
+//   ac_asset.depreciation_method / ac_asset_category.default_depreciation_method
+const DEPR_METHOD_OPTIONS = ['Straight Line', 'Double Declining', 'Units of Production'] as const
+
+describe('translateDepreciationMethod — nhãn phương pháp khấu hao VI', () => {
+  it("'Straight Line' → 'Đường thẳng'",
+    () => expect(translateDepreciationMethod('Straight Line')).toBe('Đường thẳng'))
+  it("'Double Declining' → 'Số dư giảm dần'",
+    () => expect(translateDepreciationMethod('Double Declining')).toBe('Số dư giảm dần'))
+  it("'Units of Production' → 'Theo sản lượng'",
+    () => expect(translateDepreciationMethod('Units of Production')).toBe('Theo sản lượng'))
+})
+
+describe('translateDepreciationMethod — fallback None/null/empty/unknown (không crash)', () => {
+  it("'None' → '—' (không khấu hao)", () => expect(translateDepreciationMethod('None')).toBe('—'))
+  it("null → '—'",                    () => expect(translateDepreciationMethod(null)).toBe('—'))
+  it("'' → '—'",                      () => expect(translateDepreciationMethod('')).toBe('—'))
+  it("undefined → '—'",               () => expect(translateDepreciationMethod(undefined)).toBe('—'))
+  it("key lạ 'Sum-of-Years' → trả nguyên (không bịa nhãn, không crash)",
+    () => expect(translateDepreciationMethod('Sum-of-Years')).toBe('Sum-of-Years'))
+})
+
+describe('Guard anti-recurrence (pattern A i18n leak): mọi option khấu hao có nhãn VI', () => {
+  it('mọi option depreciation_method có nhãn VI khác chuỗi gốc tiếng Anh', () => {
+    for (const opt of DEPR_METHOD_OPTIONS) {
+      expect(translateDepreciationMethod(opt), `missing DEPRECIATION_METHOD_MAP key for "${opt}"`).not.toBe(opt)
+    }
+  })
+  it('nhãn VI không lộ token khấu hao tiếng Anh', () => {
+    const leak = /\b(Straight Line|Double Declining|Units of Production)\b/
+    for (const opt of DEPR_METHOD_OPTIONS) {
+      expect(translateDepreciationMethod(opt)).not.toMatch(leak)
+    }
+  })
+})

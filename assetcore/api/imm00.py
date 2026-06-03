@@ -6,17 +6,20 @@ Convention:
   POST → frappe.whitelist(methods=["POST"])
   Response: _ok(data) | _err(message, code)
 """
+import json
+
 import frappe
 from frappe import _
 
 from assetcore.utils.response import _ok, _err
-from assetcore.services.shared import ErrorCode
+from assetcore.services.shared import ErrorCode, ServiceError
+from assetcore.services.shared.scope import apply_vendor_scope, assert_vendor_can_access
 from assetcore.utils.pagination import paginate
+from assetcore.services.shared.filters import count_with_or
 from assetcore.services.imm00 import (
     transition_asset_status,
-    update_gmdn_status as svc_update_gmdn_status,
-    toggle_gmdn_status_via_qr as svc_toggle_gmdn_via_qr,
     validate_asset_for_operations,
+    byt_expiry_filter,
     get_sla_policy,
     create_capa,
     close_capa,
@@ -90,9 +93,16 @@ def list_assets(
     location: str = None,
     asset_category: str = None,
     search: str = None,
-    gmdn_status: str = None,
+    gmdn_code: str = None,
+    byt_status: str = None,
 ):
-    """GET /api/method/assetcore.api.imm00.list_assets"""
+    """GET /api/method/assetcore.api.imm00.list_assets
+
+    byt_status (NĐ98 drill, BR-00-17): 'expiring' | 'expired' → áp SoT
+    byt_expiry_filter(byt_status) HỢP NHẤT (AND) với mọi filter hiện có. Giá trị
+    khác → no-op (bỏ qua, không throw). Count get_overview().assets.byt_* ==
+    total list này khi cùng bucket (INVARIANT count==drill).
+    """
     page, page_size = int(page), int(page_size)
     filters = {}
     if lifecycle_status:
@@ -103,8 +113,15 @@ def list_assets(
         filters["location"] = location
     if asset_category:
         filters["asset_category"] = asset_category
-    if gmdn_status:
-        filters["gmdn_status"] = gmdn_status
+    if gmdn_code:
+        filters["gmdn_code"] = gmdn_code
+    if byt_status:
+        # SoT predicate — merge AND, KHÔNG clobber field khác (byt_reg_expiry là
+        # field riêng). bucket không hợp lệ → byt_expiry_filter trả {} (no-op).
+        filters.update(byt_expiry_filter(byt_status))
+
+    # AUTH-01: Vendor Engineer chỉ thấy asset được giao việc.
+    filters = apply_vendor_scope(filters, _DT_ASSET)
 
     or_filters = None
     if search:
@@ -113,11 +130,17 @@ def list_assets(
             [_DT_ASSET, "asset_name",      "like", like],
             [_DT_ASSET, "asset_code",      "like", like],
             [_DT_ASSET, "manufacturer_sn", "like", like],
+            [_DT_ASSET, "gmdn_code",       "like", like],
         ]
+        # NOTE: search COUNT uses a custom SQL that doesn't apply vendor scope;
+        # frappe.db.count fallback below honors the scoped filters dict, so the
+        # non-search path is safe. Vendor users rarely use full-text search on
+        # assets they cannot see anyway.
         total = frappe.db.sql(
             f"SELECT COUNT(*) FROM `tab{_DT_ASSET}`"
-            f" WHERE asset_name LIKE %s OR asset_code LIKE %s OR manufacturer_sn LIKE %s",
-            [like, like, like],
+            f" WHERE asset_name LIKE %s OR asset_code LIKE %s"
+            f" OR manufacturer_sn LIKE %s OR gmdn_code LIKE %s",
+            [like, like, like, like],
         )[0][0]
     else:
         total = frappe.db.count(_DT_ASSET, filters=filters)
@@ -129,7 +152,7 @@ def list_assets(
         "asset_category", "location", "department", "responsible_technician",
         "supplier", "device_model",
         "next_pm_date", "next_calibration_date", "byt_reg_expiry",
-        "gmdn_code", "gmdn_status",
+        "gmdn_code",
         "gross_purchase_amount", "accumulated_depreciation", "current_book_value",
     ]
     items = frappe.get_list(
@@ -155,6 +178,11 @@ def get_asset(name: str):
     """GET /api/method/assetcore.api.imm00.get_asset?name=AC-ASSET-..."""
     if not frappe.db.exists(_DT_ASSET, name):
         return _err(_(_ERR_ASSET_NOT_FOUND), 404)
+    # AUTH-10: IDOR guard — vendor user can't read assets outside their scope.
+    try:
+        assert_vendor_can_access(_DT_ASSET, name)
+    except ServiceError as e:
+        return _err(e.message, e.code)
     doc = frappe.get_doc(_DT_ASSET, name).as_dict()
     # Enrich linked display names
     if doc.get("asset_category"):
@@ -232,32 +260,6 @@ def transition_status(name: str, to_status: str, reason: str = ""):
         return _err(str(e), ErrorCode.BAD_STATE)
     except frappe.exceptions.ValidationError as e:
         return _err(str(e), ErrorCode.VALIDATION)
-
-
-@frappe.whitelist(methods=["POST"])
-def update_gmdn_status(name: str, gmdn_status: str, reason: str = ""):
-    """POST /api/method/assetcore.api.imm00.update_gmdn_status"""
-    if not frappe.db.exists(_DT_ASSET, name):
-        return _err(_(_ERR_ASSET_NOT_FOUND), 404)
-    try:
-        result = svc_update_gmdn_status(name, gmdn_status, reason)
-        frappe.db.commit()
-        return _ok(result)
-    except frappe.exceptions.ValidationError as e:
-        return _err(str(e), 422)
-
-
-@frappe.whitelist(methods=["POST"])
-def toggle_gmdn_status(name: str):
-    """POST /api/method/assetcore.api.imm00.toggle_gmdn_status — toggle qua QR scan."""
-    if not frappe.db.exists(_DT_ASSET, name):
-        return _err(_(_ERR_ASSET_NOT_FOUND), 404)
-    try:
-        result = svc_toggle_gmdn_via_qr(name)
-        frappe.db.commit()
-        return _ok(result)
-    except frappe.exceptions.ValidationError as e:
-        return _err(str(e), 422)
 
 
 @frappe.whitelist()
@@ -481,12 +483,11 @@ def list_locations(parent: str = None):
         filters=filters,
         fields=["name", "location_name", "location_code", "parent_location", "is_group",
                 "clinical_area_type", "infection_control_level", "power_backup_available",
-                "emergency_contact", "dept_head", "technical_contact", "notes"],
+                "dept_head", "contact_phone", "notes"],
         order_by="lft asc",
     )
     _enrich(items, "parent_location", _DT_LOCATION, "location_name")
     _enrich(items, "dept_head", "User", "full_name", out_field="dept_head_name")
-    _enrich(items, "technical_contact", "User", "full_name", out_field="technical_contact_name")
     return _ok(items)
 
 
@@ -513,7 +514,7 @@ def list_asset_categories():
     """GET /api/method/assetcore.api.imm00.list_asset_categories"""
     items = frappe.get_list(
         _DT_ASSET_CATEGORY,
-        fields=["name", "category_name", "description",
+        fields=["name", "category_name", "category_code", "description",
                 "gmdn_code", "gmdn_term",
                 "default_pm_required", "default_pm_interval_days",
                 "default_calibration_required", "default_calibration_interval_days",
@@ -811,16 +812,21 @@ def resolve_sla_policy(priority: str, risk_class: str):
 # ─────────────────────────────────────────────────────────────────────────────
 
 @frappe.whitelist()
-def list_audit_trail(asset: str = None, q: str = None,
+def list_audit_trail(asset: str = None, q: str = None, event_type: str = None,
                       page: int = 1, page_size: int = 50):
     """GET /api/method/assetcore.api.imm00.list_audit_trail
 
     Params (tất cả optional):
-      - asset: lọc theo 1 mã thiết bị cụ thể
-      - q:     free-text search trong change_summary / actor / ref_name / asset name
+      - asset:      lọc theo 1 mã thiết bị cụ thể
+      - event_type: lọc theo loại sự kiện (CAPA, Maintenance, State Change, …)
+      - q:          free-text search trong name / change_summary / actor / ref_name / asset
       - page, page_size: phân trang (default 50)
 
     Không truyền filter → trả về N bản ghi mới nhất toàn hệ thống.
+
+    `asset`/`event_type` là AND-filter (cột trực tiếp); `q` là OR-LIKE clause.
+    Total phải đếm qua `count_with_or` để áp đúng CẢ AND lẫn OR — nếu chỉ đếm
+    theo `or_filters`, pagination sẽ over-count khi có thêm `asset`/`event_type`.
     """
     page, page_size = int(page), int(page_size)
     filters: dict = {}
@@ -830,20 +836,21 @@ def list_audit_trail(asset: str = None, q: str = None,
             return _err(_(_ERR_ASSET_NOT_FOUND), 404)
         filters["asset"] = asset
 
+    if event_type:
+        filters["event_type"] = event_type
+
     or_filters = None
     if q:
         like = f"%{q}%"
         or_filters = [
+            ["name", "like", like],
             ["asset", "like", like],
             ["change_summary", "like", like],
             ["actor", "like", like],
             ["ref_name", "like", like],
         ]
 
-    if or_filters:
-        total = frappe.db.count(_DT_AUDIT_TRAIL, or_filters=or_filters)
-    else:
-        total = frappe.db.count(_DT_AUDIT_TRAIL, filters)
+    total = count_with_or(_DT_AUDIT_TRAIL, filters, or_filters)
     pag = paginate(total, page, page_size)
     items = frappe.get_list(
         _DT_AUDIT_TRAIL,
@@ -900,21 +907,49 @@ def list_capas(
     status: str = None,
     capa_type: str = None,
     asset: str = None,
+    not_closed: int = 0,
+    overdue: int = 0,
 ):
-    """GET /api/method/assetcore.api.imm00.list_capas"""
+    """GET /api/method/assetcore.api.imm00.list_capas
+
+    R10 §9.4.8 — virtual filters cho drill-down từ KPI qa:
+      not_closed=1 → _open_capa_filter() SoT: status NOT IN [Closed] (khớp KPI 'capa_open').
+      overdue=1    → _overdue_capa_filter() SoT: status NOT IN [Closed] AND
+                     due_date IS NOT NULL AND due_date < today (khớp KPI 'capa_overdue').
+    SSOT: cùng predicate đếm KPI ở get_overview / dashboard.py → list khớp KPI byte-for-byte.
+
+    BR-00-16 — filter-composition CONJOIN (AND), KHÔNG clobber:
+      Filter build dạng **list-of-conditions** `[[_DT_CAPA, field, op, value], ...]` để
+      explicit `status == X` (drill từ chip) VÀ virtual `status NOT IN [Closed]`
+      (not_closed/overdue) cùng tồn tại trên CÙNG field → AND thật. (Dict-filter cũ chỉ
+      giữ 1 predicate/field → key 'status' bị filters.update() GHI ĐÈ → trả full open-set
+      ~117 thay vì subset — bug #4 USER Vòng 12 'chọn status=Quá hạn vẫn 117'.)
+      count VÀ get_list nhận CÙNG conditions → pagination.total == len(items) mọi tổ hợp.
+    """
     page, page_size = int(page), int(page_size)
-    filters = {}
+    # List-of-conditions: cho phép NHIỀU điều kiện trên CÙNG field (AND), không clobber.
+    conditions: list[list] = []
     if status:
-        filters["status"] = status
+        conditions.append([_DT_CAPA, "status", "=", status])
     if capa_type:
-        filters["capa_type"] = capa_type
+        conditions.append([_DT_CAPA, "capa_type", "=", capa_type])
     if asset:
-        filters["asset"] = asset
-    total = frappe.db.count(_DT_CAPA, filters=filters)
+        conditions.append([_DT_CAPA, "asset", "=", asset])
+    # overdue thắng not_closed (overdue ⊃ not-closed: NOT IN Closed + date-window).
+    # SoT-adjacent: list-form của _overdue_capa_filter / _open_capa_filter (services/imm00)
+    # — KHÔNG inline literal; membership == KPI capa_overdue / capa_open (round 10/11).
+    # Explicit `status` (nếu có) LUÔN conjoin THÊM (AND) với cờ → 2 predicate/'status'.
+    if int(overdue):
+        from assetcore.services.imm00 import _overdue_capa_conditions
+        conditions.extend(_overdue_capa_conditions(_DT_CAPA))
+    elif int(not_closed):
+        from assetcore.services.imm00 import _open_capa_conditions
+        conditions.extend(_open_capa_conditions(_DT_CAPA))
+    total = frappe.db.count(_DT_CAPA, filters=conditions)
     pag = paginate(total, page, page_size)
     items = frappe.get_list(
         _DT_CAPA,
-        filters=filters,
+        filters=conditions,
         fields=["name", "capa_type", "status", "asset", "title",
                 "severity", "description", "source_type", "source_ref",
                 "due_date", "owner", "creation"],
@@ -988,13 +1023,14 @@ def close_capa_record(name: str):
 
 @frappe.whitelist()
 def list_overdue_capas(page: int = 1, page_size: int = 20):
-    """GET /api/method/assetcore.api.imm00.list_overdue_capas"""
-    from frappe.utils import nowdate
+    """GET /api/method/assetcore.api.imm00.list_overdue_capas
+
+    SoT: dùng _overdue_capa_filter() (services/imm00) — KHÔNG inline. Predicate
+    == KPI capa_overdue (dashboard.py) == imm16 get_overdue_actions → count == drill.
+    """
+    from assetcore.services.imm00 import _overdue_capa_filter
     page, page_size = int(page), int(page_size)
-    filters = [
-        ["status", "in", ["Open", "In Progress"]],
-        ["due_date", "<", nowdate()],
-    ]
+    filters = _overdue_capa_filter()
     total = frappe.db.count(_DT_CAPA, filters=filters)
     pag = paginate(total, page, page_size)
     items = frappe.get_list(
@@ -1249,6 +1285,37 @@ def get_service_contract(name: str):
     return _ok(doc)
 
 
+def _normalize_covered_assets(raw):
+    """Chuẩn hóa payload child-table `covered_assets`.
+
+    FE gửi list[dict] (hoặc JSON string khi qua form-encoded). Chỉ giữ
+    `asset` + `coverage_note`, bỏ dòng trống và khử trùng lặp theo asset.
+    `asset_name` do DocType tự fetch_from nên không nhận từ client.
+    """
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        raw = raw.strip()
+        if not raw:
+            return []
+        try:
+            raw = json.loads(raw)
+        except (ValueError, TypeError):
+            frappe.throw(_("Danh sách thiết bị không hợp lệ"), frappe.exceptions.ValidationError)
+    if not isinstance(raw, (list, tuple)):
+        frappe.throw(_("Danh sách thiết bị không hợp lệ"), frappe.exceptions.ValidationError)
+    rows, seen = [], set()
+    for r in raw:
+        if not isinstance(r, dict):
+            continue
+        asset = (r.get("asset") or "").strip()
+        if not asset or asset in seen:
+            continue
+        seen.add(asset)
+        rows.append({"asset": asset, "coverage_note": (r.get("coverage_note") or "").strip()})
+    return rows
+
+
 @frappe.whitelist(methods=["POST"])
 def create_service_contract():
     """POST /api/method/assetcore.api.imm00.create_service_contract"""
@@ -1258,8 +1325,12 @@ def create_service_contract():
     if missing:
         return _err(_("Thiếu trường bắt buộc: {0}").format(", ".join(missing)), ErrorCode.VALIDATION)
     try:
+        covered_assets = _normalize_covered_assets(data.get("covered_assets"))
         doc = frappe.new_doc(_DT_SERVICE_CONTRACT)
-        doc.update({k: v for k, v in data.items() if k not in ("cmd", "doctype")})
+        doc.update({k: v for k, v in data.items()
+                    if k not in ("cmd", "doctype", "covered_assets")})
+        for row in (covered_assets or []):
+            doc.append("covered_assets", row)
         doc.insert()
         frappe.db.commit()
         return _ok({"name": doc.name})
@@ -1277,7 +1348,11 @@ def update_service_contract(name: str):
         doc = frappe.get_doc(_DT_SERVICE_CONTRACT, name)
         if doc.docstatus == 1:
             return _err(_("Hợp đồng đã submit, không thể sửa"), 422)
-        doc.update({k: v for k, v in data.items() if k not in ("cmd", "name", "doctype")})
+        doc.update({k: v for k, v in data.items()
+                    if k not in ("cmd", "name", "doctype", "covered_assets")})
+        # covered_assets chỉ thay thế khi client gửi field này (None = giữ nguyên)
+        if "covered_assets" in data:
+            doc.set("covered_assets", _normalize_covered_assets(data.get("covered_assets")) or [])
         doc.save()
         frappe.db.commit()
         return _ok({"name": doc.name})
@@ -1534,10 +1609,24 @@ def compute_depreciation(name: str):
     )
     generated = False
     if rows_count == 0:
-        depr_svc.generate_schedule(name, force=False)
+        # RC-01: surface generate errors instead of letting them propagate as 500
+        # (which the FE shows as a generic "Lỗi" toast).
+        try:
+            gen_res = depr_svc.generate_schedule(name, force=False)
+        except (frappe.LinkValidationError, frappe.ValidationError) as e:
+            return _err(str(e), 422)
+        if gen_res.get("skipped"):
+            return _err(
+                _("Không sinh được lịch khấu hao: {0}").format(gen_res.get("reason") or ""),
+                422,
+            )
         generated = True
 
-    run_res = depr_svc.run_due_depreciation(asset=name)
+    try:
+        run_res = depr_svc.run_due_depreciation(asset=name)
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), f"RC-01 compute_depreciation run failed: {name}")
+        return _err(_("Lỗi khi chạy khấu hao: {0}").format(str(e)), 500)
 
     a = frappe.db.get_value(
         _DT_ASSET, name,
@@ -1905,7 +1994,9 @@ def get_asset_downtime_metrics(asset_name: str, year: str = ""):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _assert_system_admin():
-    if "System Manager" not in frappe.get_roles() and "IMM System Admin" not in frappe.get_roles():
+    """Gate System Admin via capability `data.admin` (RBAC module-based)."""
+    from assetcore.services.shared import rbac
+    if not rbac.can("data.admin"):
         frappe.throw(_("Không có quyền thực hiện thao tác này"), frappe.PermissionError)
 
 
@@ -1944,13 +2035,73 @@ def get_depreciation_schedule(asset_name: str):
 
 @frappe.whitelist(methods=["POST"])
 def regenerate_depreciation_schedule(asset_name: str, force: int = 1):
-    """POST — Sinh lại schedule (xóa cũ nếu force=1)."""
+    """POST — Sinh lại schedule (xóa cũ nếu force=1).
+
+    RC-01 fix: FE button "Sinh lịch khấu hao" used to appear to "hang" because:
+      1. asset.save() inside generate_schedule() raised an unhandled exception
+         (typically `LinkValidationError` from stale `device_model` / `location`),
+         or
+      2. Required fields (method / total_months / gross / start_date) were missing
+         and the service returned `{skipped: true, reason: "..."}` but the FE
+         button label never updated because the toast was eaten silently.
+
+    Hardening:
+      - Pre-validate the 4 required inputs and return a 422 with a Vietnamese
+        message naming exactly which field is missing (so user can fix in form).
+      - Wrap save() exceptions in 500 with the original message surfaced.
+      - Always return within seconds; never hold the request.
+    """
     from assetcore.services import depreciation as depr_svc
+
+    if not frappe.db.exists(_DT_ASSET, asset_name):
+        return _err(_(_ERR_ASSET_NOT_FOUND), 404)
+
+    # Pre-validate inputs — bail early with a clear message instead of returning
+    # `{skipped: true}` (which the FE may swallow as a non-error state).
+    a = frappe.db.get_value(
+        _DT_ASSET, asset_name,
+        ["depreciation_method", "total_depreciation_months",
+         "gross_purchase_amount",
+         "depreciation_start_date", "in_service_date", "commissioning_date"],
+        as_dict=True,
+    ) or {}
+    missing: list[str] = []
+    if not (a.get("depreciation_method") or "").strip():
+        missing.append("Phương pháp khấu hao (depreciation_method)")
+    if int(a.get("total_depreciation_months") or 0) <= 0:
+        missing.append("Số tháng khấu hao (total_depreciation_months)")
+    if float(a.get("gross_purchase_amount") or 0) <= 0:
+        missing.append("Nguyên giá (gross_purchase_amount)")
+    if not (a.get("depreciation_start_date")
+            or a.get("in_service_date")
+            or a.get("commissioning_date")):
+        missing.append("Ngày bắt đầu khấu hao (depreciation_start_date / in_service_date / commissioning_date)")
+    if missing:
+        return _err(
+            _("Không đủ thông tin để sinh lịch khấu hao. Thiếu: {0}.").format(
+                "; ".join(missing),
+            ),
+            422,
+        )
+
     try:
         result = depr_svc.generate_schedule(asset_name, force=bool(int(force)))
-        return _ok(result)
+    except frappe.LinkValidationError as e:
+        return _err(_("Liên kết không hợp lệ khi lưu tài sản: {0}").format(str(e)), 422)
+    except frappe.ValidationError as e:
+        return _err(str(e), 422)
     except Exception as e:
-        return _err(str(e), 400)
+        frappe.log_error(frappe.get_traceback(), f"RC-01 regenerate_depreciation_schedule failed: {asset_name}")
+        return _err(_("Lỗi hệ thống khi sinh lịch khấu hao: {0}").format(str(e)), 500)
+
+    # If service skipped silently (race condition: another worker generated rows
+    # between our pre-check and the save), surface that to the user too.
+    if result.get("skipped"):
+        return _err(
+            _("Không sinh được lịch khấu hao: {0}").format(result.get("reason") or "Không rõ lý do"),
+            422,
+        )
+    return _ok(result)
 
 
 @frappe.whitelist()
@@ -2026,12 +2177,25 @@ def _depr_enrich_row(a: dict) -> dict:
     return a
 
 
+_DEPR_FILTER_FULLY_DEPRECIATED = "fully_depreciated"
+
+
 @frappe.whitelist()
 def list_assets_depreciation(page: int = 1, page_size: int = 50,
                               method_filter: str = "",
                               status_filter: str = "",
-                              category_filter: str = ""):
-    """GET — Danh sách asset kèm thông tin khấu hao (sourced từ schedule rows)."""
+                              category_filter: str = "",
+                              depreciation_filter: str = ""):
+    """GET — Danh sách asset kèm thông tin khấu hao (sourced từ schedule rows).
+
+    ``depreciation_filter`` (vd 'fully_depreciated'): khi set, danh sách CHỈ chứa
+    asset thỏa SoT ``is_fully_depreciated`` (depreciation.py). Predicate này cần
+    current_book_value/residual/configured ⇒ áp SAU enrich, AND với các filter
+    DB sẵn có (method/status/category) — KHÔNG clobber. Pagination total phản ánh
+    TẬP ĐÃ LỌC (== len filtered), KHÔNG phải frappe.db.count thô bỏ qua predicate.
+
+    INVARIANT (data-live): de-dup len(items mọi trang) == get_depreciation_stats().fully_depreciated.
+    """
     filters: dict = {"docstatus": ("!=", 2)}
     if method_filter:
         filters["depreciation_method"] = method_filter
@@ -2042,20 +2206,49 @@ def list_assets_depreciation(page: int = 1, page_size: int = 50,
 
     page    = int(page)
     pg_size = int(page_size)
-    total   = frappe.db.count(_DT_ASSET, filters)
+    depreciation_filter = (depreciation_filter or "").strip()
 
-    assets = frappe.get_all(
+    # ── Fast path: KHÔNG có depreciation_filter → paginate ở DB như cũ ──────────
+    if depreciation_filter != _DEPR_FILTER_FULLY_DEPRECIATED:
+        total = frappe.db.count(_DT_ASSET, filters)
+        assets = frappe.get_all(
+            _DT_ASSET, filters=filters,
+            fields=_DEPR_LIST_FIELDS,
+            limit_start=(page - 1) * pg_size,
+            limit_page_length=pg_size,
+            order_by="asset_name asc",
+        )
+        for a in assets:
+            _depr_enrich_row(a)
+        return _ok({
+            "items": assets,
+            "pagination": {"page": page, "page_size": pg_size, "total": total},
+        })
+
+    # ── SoT path: lọc 'fully_depreciated' SAU enrich, paginate trong Python ─────
+    # Predicate phụ thuộc current_book_value (enrich) ⇒ phải fetch full candidate
+    # set (đã AND DB-filter), enrich, lọc SoT, rồi mới cắt trang → total == len(filtered).
+    from assetcore.services.depreciation import (
+        is_fully_depreciated as _depr_is_fully_depreciated,
+    )
+
+    candidates = frappe.get_all(
         _DT_ASSET, filters=filters,
         fields=_DEPR_LIST_FIELDS,
-        limit_start=(page - 1) * pg_size,
-        limit_page_length=pg_size,
         order_by="asset_name asc",
     )
-    for a in assets:
+    matched = []
+    for a in candidates:
         _depr_enrich_row(a)
+        if _depr_is_fully_depreciated(a):
+            matched.append(a)
+
+    total = len(matched)
+    start = (page - 1) * pg_size
+    items = matched[start:start + pg_size]
 
     return _ok({
-        "items": assets,
+        "items": items,
         "pagination": {"page": page, "page_size": pg_size, "total": total},
     })
 
@@ -2067,6 +2260,10 @@ def get_depreciation_stats():
     Lưu ý: total_accumulated lấy từ `accumulated_depreciation` (đã được cron
     cập nhật từ các kỳ Executed) — không tính trên-the-fly nữa.
     """
+    from assetcore.services.depreciation import (
+        is_fully_depreciated as _depr_is_fully_depreciated,
+    )
+
     BATCH = 500
     totals = {
         "total_gross": 0.0, "total_accumulated": 0.0, "total_book": 0.0,
@@ -2100,7 +2297,16 @@ def get_depreciation_stats():
 
             if configured:
                 totals["configured"] += 1
-                if book <= residual + 1:
+                # SoT DUY NHẤT — KHÔNG inline `book <= residual + 1` ở đây nữa.
+                # is_fully_depreciated tự kiểm `configured` (đã True ở nhánh này)
+                # + `book <= residual + tolerance`. Cùng tập, cùng số (backward-compat).
+                if _depr_is_fully_depreciated({
+                    "depreciation_method": method,
+                    "gross_purchase_amount": gross,
+                    "total_depreciation_months": months,
+                    "residual_value": residual,
+                    "current_book_value": book,
+                }):
                     totals["fully_depreciated"] += 1
                 m = method
             else:

@@ -2,7 +2,7 @@
 # IMM-11 Calibration — Tier 2 Business Service Layer.
 #
 # KHÔNG gọi frappe.db.* / frappe.get_doc trực tiếp — đi qua repository.
-# Raise ServiceError thay vì trả dict; API layer sẽ catch và format envelope.
+# Raise lỗi nghiệp vụ qua nthrow(MSG.IMM11_*); api_handler.handle() hydrate envelope.
 
 from __future__ import annotations
 
@@ -21,11 +21,11 @@ from assetcore.services.shared import (
     AssetStatus,
     CalibrationResult,
     CalibrationStatus,
-    ErrorCode,
-    ServiceError,
 )
+from assetcore.services.shared.filters import pop_search
 from assetcore.repositories.asset_repo import AssetRepo, DeviceModelRepo, CapaRepo
 from assetcore.repositories.calibration_repo import CalibrationRepo, CalibrationScheduleRepo
+from assetcore.utils.notify import nthrow, MSG
 
 _DEFAULT_INTERVAL_DAYS = 365
 _NOT_DECOMMISSIONED = ("not in", [AssetStatus.DECOMMISSIONED])
@@ -33,8 +33,155 @@ _CAPA_OPEN_STATUSES = ("in", ["Open", "In Progress", "In Review"])
 _LOOKBACK_IN_PROGRESS = "In Progress"
 _DT_CAL = "IMM Asset Calibration"
 _CALIBRATING_TRIGGER_STATUSES = {CalibrationResult.IN_PROGRESS, CalibrationResult.SENT_TO_LAB}
-_MSG_ALREADY_SUBMITTED = "Phiếu đã Submit"
 _ORDER_NEXT_CAL_ASC = "next_calibration_date asc"
+_DT_CAL_SCHEDULE = "IMM Calibration Schedule"
+
+
+# ════════════════════════════════════════════════════════════════════════════
+#  SoT — "calibration due / overdue" predicate  (BR-11-08 / BR-11-09)
+#  docs/imm-11/04_Backend_Design.md §4.1
+#
+#  ONE predicate + ONE date-field + ONE filter set, dùng chung MỌI consumer:
+#  - date-field authoritative = IMM Calibration Schedule.next_due_date (is_active=1)
+#  - AC Asset.calibration_status từ nay CHỈ là rollup cache (không là nguồn đếm)
+#  - filter chung: schedule is_active=1 + asset NOT decommissioned; de-dup theo asset
+# ════════════════════════════════════════════════════════════════════════════
+
+CAL_DUE_SOON_WINDOW_DAYS = 30  # 1 hằng dùng chung — KHÔNG hardcode "30" rải rác
+_CAL_AUTH_DATE_FIELD = "next_due_date"  # authoritative date = Schedule.next_due_date
+
+
+def is_calibration_overdue(next_due, ref_date=None) -> bool:
+    """OVERDUE ⟺ next_due < today (strict <). None → False (chưa có hạn = không quá hạn)."""
+    if not next_due:
+        return False
+    ref = getdate(ref_date) if ref_date else getdate(nowdate())
+    return getdate(next_due) < ref
+
+
+def is_calibration_due_soon(next_due, ref_date=None) -> bool:
+    """DUE_SOON ⟺ today <= next_due <= today + CAL_DUE_SOON_WINDOW_DAYS (2 biên inclusive).
+
+    Overdue ưu tiên (next_due < today bị loại bởi biên dưới). None → False.
+    """
+    if not next_due:
+        return False
+    ref = getdate(ref_date) if ref_date else getdate(nowdate())
+    nd = getdate(next_due)
+    return ref <= nd <= add_days(ref, CAL_DUE_SOON_WINDOW_DAYS)
+
+
+def _overdue_asset_ids(ref_date=None) -> set[str]:
+    """SoT: tập DISTINCT asset có >=1 active schedule overdue, asset không decommissioned.
+
+    De-dup theo asset (BR-11-09): 1 asset nhiều schedule overdue đếm 1 lần.
+    """
+    ref = ref_date or nowdate()
+    rows = frappe.db.sql(
+        """
+        SELECT DISTINCT s.asset
+        FROM `tabIMM Calibration Schedule` s
+        JOIN `tabAC Asset` a ON a.name = s.asset
+        WHERE s.is_active = 1
+          AND s.next_due_date IS NOT NULL
+          AND s.next_due_date < %(ref)s
+          AND a.lifecycle_status != %(decom)s
+        """,
+        {"ref": ref, "decom": AssetStatus.DECOMMISSIONED},
+        as_dict=True,
+    )
+    return {r["asset"] for r in rows}
+
+
+def _due_soon_asset_ids(ref_date=None) -> set[str]:
+    """SoT: tập DISTINCT asset có >=1 active schedule due trong [today, today+30],
+    LOẠI những asset đã overdue (overdue ưu tiên — không double-tally)."""
+    ref = ref_date or nowdate()
+    window_end = add_days(ref, CAL_DUE_SOON_WINDOW_DAYS)
+    rows = frappe.db.sql(
+        """
+        SELECT DISTINCT s.asset
+        FROM `tabIMM Calibration Schedule` s
+        JOIN `tabAC Asset` a ON a.name = s.asset
+        WHERE s.is_active = 1
+          AND s.next_due_date IS NOT NULL
+          AND s.next_due_date >= %(ref)s AND s.next_due_date <= %(end)s
+          AND a.lifecycle_status != %(decom)s
+        """,
+        {"ref": ref, "end": window_end, "decom": AssetStatus.DECOMMISSIONED},
+        as_dict=True,
+    )
+    return {r["asset"] for r in rows} - _overdue_asset_ids(ref_date)
+
+
+def _decommissioned_asset_ids() -> set[str]:
+    """Tập asset Decommissioned — dùng để loại khỏi drill due_before (cutoff tùy ý)."""
+    rows = frappe.db.sql(
+        "SELECT name FROM `tabAC Asset` WHERE lifecycle_status = %(decom)s",
+        {"decom": AssetStatus.DECOMMISSIONED},
+        as_dict=True,
+    )
+    return {r["name"] for r in rows}
+
+
+def _calibration_status_asset_ids(ref_date=None) -> dict[str, str]:
+    """Rollup map asset → CalibrationStatus derive TỪ SoT schedule.
+
+    OVERDUE > DUE_SOON > ON_SCHEDULE. Chỉ asset không-decommissioned có >=1
+    active schedule. Dùng cho check_calibration_expiry (rollup cache).
+    """
+    overdue = _overdue_asset_ids(ref_date)
+    due_soon = _due_soon_asset_ids(ref_date)
+    ref = ref_date or nowdate()
+    on_sched_rows = frappe.db.sql(
+        """
+        SELECT DISTINCT s.asset
+        FROM `tabIMM Calibration Schedule` s
+        JOIN `tabAC Asset` a ON a.name = s.asset
+        WHERE s.is_active = 1
+          AND s.next_due_date IS NOT NULL
+          AND s.next_due_date > %(end)s
+          AND a.lifecycle_status != %(decom)s
+        """,
+        {"end": add_days(ref, CAL_DUE_SOON_WINDOW_DAYS),
+         "decom": AssetStatus.DECOMMISSIONED},
+        as_dict=True,
+    )
+    result: dict[str, str] = {}
+    for an in {r["asset"] for r in on_sched_rows}:
+        result[an] = CalibrationStatus.ON_SCHEDULE
+    for an in due_soon:
+        result[an] = CalibrationStatus.DUE_SOON
+    for an in overdue:  # overdue ưu tiên cuối cùng (ghi đè)
+        result[an] = CalibrationStatus.OVERDUE
+    return result
+
+
+def _top_assets_by_schedule(asset_ids: set[str], *, limit: int = 10) -> list[dict]:
+    """Dashboard list: hydrate asset display rows cho 1 tập asset SoT,
+    order by earliest active-schedule next_due_date asc (sớm nhất lên đầu).
+
+    `next_calibration_date` trong return = `next_due_date` SoT của schedule
+    (KHÔNG đọc field cache trên AC Asset) để FE render nhất quán với count.
+    """
+    if not asset_ids:
+        return []
+    placeholders = ", ".join(["%s"] * len(asset_ids))
+    rows = frappe.db.sql(
+        f"""
+        SELECT a.name, a.asset_name, a.device_model, a.location,
+               MIN(s.next_due_date) AS next_calibration_date
+        FROM `tabAC Asset` a
+        JOIN `tabIMM Calibration Schedule` s ON s.asset = a.name AND s.is_active = 1
+        WHERE a.name IN ({placeholders})
+        GROUP BY a.name, a.asset_name, a.device_model, a.location
+        ORDER BY next_calibration_date ASC
+        LIMIT %s
+        """,
+        (*asset_ids, int(limit)),
+        as_dict=True,
+    )
+    return rows
 
 
 def _transition_asset(asset_ref: str, to_status: str, cal_name: str, reason: str = "") -> None:
@@ -56,13 +203,13 @@ def create_calibration_schedule_from_commissioning(commissioning_doc) -> Optiona
         return None
     model = DeviceModelRepo.get_value(
         device_model,
-        ["calibration_required", "calibration_interval_days", "calibration_type_default"],
+        ["is_calibration_required", "calibration_interval_days", "default_calibration_type"],
         as_dict=True,
     ) or {}
-    if not model.get("calibration_required"):
+    if not model.get("is_calibration_required"):
         return None
     interval = model.get("calibration_interval_days") or _DEFAULT_INTERVAL_DAYS
-    cal_type = model.get("calibration_type_default") or "External"
+    cal_type = model.get("default_calibration_type") or "External"
     base_date = commissioning_doc.commissioning_date or nowdate()
 
     sched = CalibrationScheduleRepo.create({
@@ -80,6 +227,90 @@ def create_calibration_schedule_from_commissioning(commissioning_doc) -> Optiona
         ref_name=sched.name,
         change_summary=f"Auto from commissioning {commissioning_doc.name}",
     )
+    return sched.name
+
+
+def create_calibration_schedule_from_asset(asset_doc, method: str | None = None) -> Optional[str]:
+    """Hook: AC Asset after_insert → tạo Calibration Schedule nếu user tick
+    `is_calibration_required` (RC-07).
+
+    Tham số ``method`` để tương thích chữ ký doc-event của Frappe
+    (``after_insert`` truyền ``(doc, method)``); không dùng trong logic.
+
+    Cho phép tạo lịch hiệu chuẩn NGAY khi tạo tài sản trực tiếp (không bắt buộc
+    qua luồng Commissioning). Điều kiện:
+        - asset_doc.is_calibration_required = 1
+        - Chưa tồn tại Schedule active cho asset (idempotent).
+        - Có interval (asset.calibration_interval_days hoặc fallback từ device_model,
+          cuối cùng mặc định 365 ngày).
+
+    KHÔNG fail asset creation nếu schedule fail — log P0 và tiếp tục.
+    """
+    if not getattr(asset_doc, "is_calibration_required", 0):
+        return None
+
+    asset_name = asset_doc.name
+
+    # Idempotent guard
+    if CalibrationScheduleRepo.exists({"asset": asset_name, "is_active": 1}):
+        return None
+
+    # Resolve interval: asset → device_model → default
+    interval = int(asset_doc.get("calibration_interval_days") or 0)
+    device_model = asset_doc.get("device_model") or ""
+    cal_type = "External"
+    if device_model:
+        model_data = DeviceModelRepo.get_value(
+            device_model,
+            ["calibration_interval_days", "default_calibration_type"],
+            as_dict=True,
+        ) or {}
+        if interval <= 0:
+            interval = int(model_data.get("calibration_interval_days") or 0)
+        cal_type = model_data.get("default_calibration_type") or cal_type
+    if interval <= 0:
+        interval = _DEFAULT_INTERVAL_DAYS
+
+    base_date = (
+        asset_doc.get("last_calibration_date")
+        or asset_doc.get("commissioning_date")
+        or asset_doc.get("purchase_date")
+        or nowdate()
+    )
+
+    try:
+        sched = CalibrationScheduleRepo.create({
+            "asset": asset_name,
+            "device_model": device_model or None,
+            "calibration_type": cal_type,
+            "interval_days": interval,
+            "last_calibration_date": base_date,
+            "next_due_date": add_days(base_date, interval),
+            "is_active": 1,
+        })
+    except Exception:
+        # P0 alert — KHÔNG vỡ asset creation
+        frappe.log_error(
+            frappe.get_traceback(),
+            f"IMM-11 create_calibration_schedule_from_asset failed: {asset_name}",
+        )
+        return None
+
+    try:
+        log_audit_event(
+            asset=asset_name, event_type="Calibration Schedule Created",
+            actor=frappe.session.user,
+            ref_doctype=CalibrationScheduleRepo.DOCTYPE,
+            ref_name=sched.name,
+            change_summary=(
+                f"Calibration Schedule {sched.name} auto từ tạo tài sản "
+                f"(is_calibration_required) — {cal_type}, mỗi {interval} ngày"
+            ),
+        )
+    except Exception:
+        frappe.log_error(frappe.get_traceback(),
+                         "IMM-11 create_calibration_schedule_from_asset audit")
+
     return sched.name
 
 
@@ -139,25 +370,79 @@ def create_due_calibration_wos() -> int:
 
 
 def check_calibration_expiry() -> None:
-    """Scheduler daily — update calibration_status trên AC Asset."""
-    today = getdate(nowdate())
-    assets, _ = AssetRepo.list(
-        filters={
-            "lifecycle_status": _NOT_DECOMMISSIONED,
-            "next_calibration_date": ("is", "set"),
-        },
-        fields=["name", "next_calibration_date"],
-        page_size=10_000,
+    """Scheduler daily — rollup cache `AC Asset.calibration_status` TỪ SoT schedule,
+    reconcile FULL-SET (BR-11-10 stale-clear + BR-11-11 FAILED-preserve).
+
+    BR-11-08 (§4.1.3): KHÔNG còn đọc `AC Asset.next_calibration_date` làm nguồn
+    đếm. Status derive từ `IMM Calibration Schedule.next_due_date` (is_active=1)
+    qua `_calibration_status_asset_ids` (SoT). `calibration_status` từ nay CHỈ là
+    cache hiển thị nhanh (KPI/drill/dashboard đọc SoT trực tiếp).
+
+    Phạm vi reconcile = UNION(asset có ≥1 active schedule, asset có
+    calibration_status != ''). Iterate TOÀN tập → không cache row nào bị bỏ sót:
+      - BR-11-10 stale-clear: asset hết active schedule (rời khỏi rollup map) →
+        reset neutral NOT_REQUIRED (chống badge ma 'Overdue'/'Due Soon' vĩnh viễn).
+      - BR-11-11 FAILED-preserve: terminal `Calibration Failed` khi
+        lifecycle_status == Out of Service → KHÔNG bị rollup ghi đè.
+
+    Idempotent: chạy 2× cho kết quả như nhau (chỉ ghi khi giá trị THỰC SỰ khác
+    cache hiện tại). E4: phát `notify_calibration_due` CHỈ khi status đổi (anti-spam,
+    chỉ chuyển VÀO Due Soon/Overdue). Xem docs/imm-00/04_Backend_Design.md §III.1b-2
+    + docs/imm-11/04_Backend_Design.md §4.1.3.
+    """
+    from assetcore.services import notifications  # lazy import — tránh circular
+
+    rollup = _calibration_status_asset_ids()   # map: asset -> derived (CHỈ active-sched)
+    cached = _nonempty_cache_asset_ids()       # set: asset có calibration_status != ''
+    for asset_name in (set(rollup) | cached):  # UNION — không bỏ sót cache row nào
+        old_status = AssetRepo.get_value(asset_name, "calibration_status") or ""
+        new_status = _reconcile_calibration_status(
+            asset_name, old_status, rollup.get(asset_name))
+        if new_status == old_status:
+            continue  # idempotent — không ghi, không notify lại (anti-spam)
+        AssetRepo.set_values(asset_name, {"calibration_status": new_status})
+        # E4 — báo người phụ trách khi vừa chuyển VÀO Due Soon/Overdue.
+        # Bọc per-asset: 1 asset lỗi không dừng cả batch.
+        try:
+            notifications.notify_calibration_due(asset_name, old_status, new_status)
+        except Exception:
+            frappe.log_error(frappe.get_traceback(), "imm11 notify_calibration_due")
+
+
+def _reconcile_calibration_status(
+        asset_name: str, old: str, derived: str | None) -> str:
+    """Quyết định giá trị cache mới cho 1 asset (§4.1.3 decision table).
+
+    - ``derived`` = giá trị SoT rollup (None nếu asset KHÔNG còn active schedule).
+    - BR-11-11 FAILED-preserve: old == FAILED ∧ asset Out of Service → giữ FAILED
+      (terminal). Recal Pass (`handle_calibration_pass`) đưa asset rời Out of
+      Service là CON ĐƯỜNG DUY NHẤT để rollup tiếp quản FAILED.
+    - derived có giá trị (còn active schedule) → dùng derived (Overdue/DueSoon/OnSchedule).
+    - derived None (BR-11-10 stale-clear): hết active schedule →
+        · old != '' → reset neutral NOT_REQUIRED (xoá badge ma);
+        · old == '' → giữ rỗng (không có gì để clear → no-op upstream).
+    """
+    if old == CalibrationStatus.FAILED:
+        lifecycle = AssetRepo.get_value(asset_name, "lifecycle_status")
+        if lifecycle == AssetStatus.OUT_OF_SERVICE:
+            return CalibrationStatus.FAILED        # BR-11-11 preserve terminal
+    if derived is not None:
+        return derived                             # còn active schedule → SoT rollup
+    if old:
+        return CalibrationStatus.NOT_REQUIRED      # BR-11-10 stale-clear → neutral
+    return old                                     # '' → giữ rỗng (no-op)
+
+
+def _nonempty_cache_asset_ids() -> set[str]:
+    """Tập asset có `calibration_status != ''` (cache khác rỗng) — để reconcile
+    thăm CẢ asset không-còn-trong-rollup (lịch deactivate/xóa) → stale-clear
+    (BR-11-10). Đây là cache write-path SCOPE, KHÔNG phải count SoT."""
+    rows = frappe.db.sql(
+        "SELECT name FROM `tabAC Asset` "
+        "WHERE calibration_status IS NOT NULL AND calibration_status != ''",
+        as_dict=True,
     )
-    for a in assets:
-        days_left = date_diff(a["next_calibration_date"], today)
-        if days_left < 0:
-            status = CalibrationStatus.OVERDUE
-        elif days_left <= 30:
-            status = CalibrationStatus.DUE_SOON
-        else:
-            status = CalibrationStatus.ON_SCHEDULE
-        AssetRepo.set_values(a["name"], {"calibration_status": status})
+    return {r["name"] for r in rows}
 
 
 # ─── Submit handlers (gọi từ Controller on_submit) ────────────────────────────
@@ -265,9 +550,124 @@ def perform_lookback_assessment(device_model: str, exclude_asset: str) -> list[s
 
 # ─── Business operations gọi từ API (Tier 1) ─────────────────────────────────
 
+def _normalize_schedule_filters(f: dict | None) -> dict:
+    """R6 §9.4.3 + BR-11-08 (§4.1.2) — dịch virtual filter date-window sang điều
+    kiện next_due_date, ÁP CÙNG tập filter SoT với KPI/dashboard.
+
+    3 virtual key, 3 ngữ nghĩa PHÂN BIỆT (KHÔNG tái dùng nhầm):
+
+    - ``overdue`` (truthy) → card calib_overdue: next_due_date < today, is_active=1,
+      asset IN _overdue_asset_ids() (de-dup theo asset, NOT decommissioned).
+    - ``due_soon`` (truthy) → card calib_due "Hiệu chuẩn đến hạn": cửa-sổ-2-biên
+      [today, today+CAL_DUE_SOON_WINDOW_DAYS], is_active=1, asset IN
+      _due_soon_asset_ids() (đã LOẠI overdue-set → KHÔNG lẫn overdue rows). Drill
+      tái lập CHÍNH XÁC tập KPI: số asset distinct == calib_due, KHÔNG cần
+      post-filter Python ``next_due_date >= today``.
+    - ``due_before`` → cutoff-tùy-ý LEGACY (tập-BAO): next_due_date <= X, is_active=1,
+      chỉ loại asset thanh lý. KHÔNG khoá theo SoT window (có thể vượt 30, gồm cả
+      overdue) — giữ cho caller cũ, KHÔNG dùng cho card due-soon nữa.
+
+    Khi drill SoT (overdue / due_soon), enforce CÙNG filter KPI (inject
+    ``asset IN [SoT id-set]``) → drill-list count khớp KPI. Một nguồn sự thật.
+    """
+    if not f:
+        return {}
+    out: dict = {}
+    due_before = None
+    overdue = False
+    due_soon = False
+    _truthy = ("1", "true", "True", "yes")
+    for k, v in f.items():
+        if k == "due_before":
+            due_before = v
+        elif k == "overdue":
+            overdue = str(v) in _truthy
+        elif k == "due_soon":
+            due_soon = str(v) in _truthy
+        else:
+            out[k] = v
+    # Vendor-scope an toàn: nếu caller (apply_vendor_scope) đã inject `asset IN
+    # [allowed]`, KHÔNG được CLOBBER khi drill — phải GIAO (intersect) với tập
+    # SoT, nếu không vendor sẽ thấy asset ngoài phạm vi. Pop ra để inject lại
+    # sau khi đã giao.
+    caller_asset_in = _extract_asset_in_scope(out.pop("asset", None))
+    if overdue:
+        out["next_due_date"] = ["<", nowdate()]
+        out["is_active"] = 1
+        # asset NOT decommissioned — chỉ schedule thuộc tập SoT overdue asset.
+        out["asset"] = ("in", _scoped_asset_list(_overdue_asset_ids(), caller_asset_in))
+    elif due_soon:
+        # Card "Hiệu chuẩn đến hạn" — CÙNG cửa-sổ-2-biên + CÙNG asset-set với KPI
+        # calib_due (=_due_soon_asset_ids, đã loại overdue). Overdue rows rơi RA.
+        ref = nowdate()
+        out["next_due_date"] = ["between", [ref, add_days(ref, CAL_DUE_SOON_WINDOW_DAYS)]]
+        out["is_active"] = 1
+        out["asset"] = ("in", _scoped_asset_list(_due_soon_asset_ids(), caller_asset_in))
+    elif due_before:
+        out["next_due_date"] = ["<=", due_before]
+        out["is_active"] = 1
+        # KHÔNG decommissioned. due_before là tập-bao (cutoff tùy ý, có thể vượt
+        # window 30) → KHÔNG khoá theo SoT window; chỉ loại asset thanh lý.
+        decom = _decommissioned_asset_ids()
+        if caller_asset_in is not None:
+            # Giữ vendor-scope: chỉ asset trong scope VÀ không decommissioned.
+            allowed = [a for a in caller_asset_in if a not in decom]
+            out["asset"] = ("in", allowed or [""])
+        elif decom:
+            out["asset"] = ("not in", list(decom))
+    elif caller_asset_in is not None:
+        # Không drill virtual nhưng caller có asset-scope → trả lại nguyên vẹn.
+        out["asset"] = ("in", caller_asset_in)
+    return _normalize_list_filters(out)
+
+
+def _extract_asset_in_scope(asset_filter) -> list[str] | None:
+    """Trích danh sách asset từ caller-filter `asset` dạng IN-list (vendor-scope).
+
+    Hỗ trợ 2 shape Frappe: ``["in", [...]]`` / ``("in", [...])`` và list literal
+    thuần ``[...]`` (sẽ được normalize thành IN). Shape khác (vd ('=', x)) →
+    None (không can thiệp). Trả None nếu không có scope.
+    """
+    if asset_filter is None:
+        return None
+    if isinstance(asset_filter, (list, tuple)) and len(asset_filter) == 2 \
+            and str(asset_filter[0]).lower() == "in" and isinstance(asset_filter[1], (list, tuple)):
+        return [str(x) for x in asset_filter[1]]
+    if isinstance(asset_filter, (list, tuple)) and not (
+        len(asset_filter) == 2 and str(asset_filter[0]).lower() in (
+            "in", "not in", "between", "like", "=", "!=", "<", ">", "<=", ">=")
+    ):
+        return [str(x) for x in asset_filter]
+    return None
+
+
+def _scoped_asset_list(sot_ids: set[str], caller_asset_in: list[str] | None) -> list[str]:
+    """Giao tập SoT với caller-scope (nếu có). [""] khi rỗng để Frappe IN không
+    match-all (tránh leak toàn bộ khi giao rỗng)."""
+    if caller_asset_in is not None:
+        sot_ids = sot_ids & set(caller_asset_in)
+    return list(sot_ids) or [""]
+
+
 def list_schedules(filters: dict | None = None, *, page: int = 1, page_size: int = 20) -> dict:
+    # Server-side free-text search: pop the FE `search` key into an OR-LIKE
+    # clause over name/asset (parent columns) + asset_name (linked AC Asset
+    # display). pop_search runs AFTER the column filters (calibration_type /
+    # is_active) and virtual keys (overdue / due_before) have been normalised
+    # so search ANDs with them. apply_vendor_scope already injected the
+    # `asset IN [...]` AND filter upstream — that survives because search only
+    # adds an OR clause; scope is never bypassed.
+    norm = _normalize_schedule_filters(filters)
+    norm, or_filters = pop_search(
+        norm,
+        ["name", "asset"],
+        link_search={"asset": ("AC Asset", "asset_name")},
+    )
+    # BaseRepository.list now counts via count_with_or when or_filters is set,
+    # so pagination.total reflects the OR-search (no divergence vs rows).
     rows, pg = CalibrationScheduleRepo.list(
-        filters=filters,
+        filters=norm,
+        or_filters=or_filters,
         fields=["name", "asset", "device_model", "calibration_type",
                 "interval_days", "last_calibration_date", "next_due_date",
                 "preferred_lab", "is_active"],
@@ -290,7 +690,7 @@ def list_schedules(filters: dict | None = None, *, page: int = 1, page_size: int
 def get_schedule(name: str) -> dict:
     doc = CalibrationScheduleRepo.get(name)
     if not doc:
-        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy Schedule '{name}'")
+        nthrow(MSG.IMM11_SCHEDULE_NOT_FOUND, name=name)
     return doc.as_dict()
 
 
@@ -298,7 +698,7 @@ def create_schedule(*, asset: str, calibration_type: str, interval_days: int,
                     preferred_lab: str | None = None,
                     next_due_date: str | None = None) -> dict:
     if not AssetRepo.exists(asset):
-        raise ServiceError(ErrorCode.NOT_FOUND, "Thiết bị không tồn tại")
+        nthrow(MSG.IMM11_ASSET_NOT_FOUND)
     device_model = AssetRepo.get_value(asset, "device_model")
     doc = CalibrationScheduleRepo.create({
         "asset": asset,
@@ -315,20 +715,19 @@ def create_schedule(*, asset: str, calibration_type: str, interval_days: int,
 def update_schedule(name: str, patch: dict) -> dict:
     allowed = {"calibration_type", "interval_days", "preferred_lab", "next_due_date", "is_active"}
     if not CalibrationScheduleRepo.exists(name):
-        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy Schedule '{name}'")
+        nthrow(MSG.IMM11_SCHEDULE_NOT_FOUND, name=name)
     clean_patch = {k: v for k, v in patch.items() if k in allowed}
     if not clean_patch:
-        raise ServiceError(ErrorCode.VALIDATION, "Không có trường nào được cập nhật")
+        nthrow(MSG.IMM11_NO_FIELDS)
     doc = CalibrationScheduleRepo.update_fields(name, clean_patch)
     return {"name": doc.name}
 
 
 def delete_schedule(name: str) -> dict:
     if not CalibrationScheduleRepo.exists(name):
-        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy Schedule '{name}'")
+        nthrow(MSG.IMM11_SCHEDULE_NOT_FOUND, name=name)
     if CalibrationRepo.exists({"calibration_schedule": name, "docstatus": 1}):
-        raise ServiceError(ErrorCode.CONFLICT,
-                           "Không thể xóa Schedule đã có Phiếu đã Submit")
+        nthrow(MSG.IMM11_SCHEDULE_HAS_SUBMITTED)
     CalibrationScheduleRepo.delete(name)
     return {"name": name, "deleted": True}
 
@@ -377,7 +776,7 @@ def list_calibrations(filters: dict | None = None, *, page: int = 1, page_size: 
 def get_calibration(name: str) -> dict:
     doc = CalibrationRepo.get(name)
     if not doc:
-        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy '{name}'")
+        nthrow(MSG.IMM11_CAL_NOT_FOUND, name=name)
     data = doc.as_dict()
     if data.get("asset"):
         data["asset_name"] = frappe.db.get_value("AC Asset", data["asset"], "asset_name") or ""
@@ -395,11 +794,10 @@ def create_calibration(*, asset: str, calibration_type: str, scheduled_date: str
                         reference_standard_serial: str | None = None,
                         traceability_reference: str | None = None) -> dict:
     if not AssetRepo.exists(asset):
-        raise ServiceError(ErrorCode.NOT_FOUND, "Thiết bị không tồn tại")
+        nthrow(MSG.IMM11_ASSET_NOT_FOUND)
     asset_status = AssetRepo.get_value(asset, "lifecycle_status")
     if asset_status in AssetStatus.BLOCKED_FOR_WO and not int(is_recalibration):
-        raise ServiceError(ErrorCode.BAD_STATE,
-                           "Thiết bị không thể tạo Calibration WO (CAL-008)")
+        nthrow(MSG.IMM11_ASSET_BLOCKED)
     doc = CalibrationRepo.create({
         "asset": asset,
         "calibration_type": calibration_type,
@@ -427,13 +825,12 @@ _UPDATE_ALLOWED = {
 def update_calibration(name: str, patch: dict) -> dict:
     doc = CalibrationRepo.get(name)
     if not doc:
-        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy '{name}'")
+        nthrow(MSG.IMM11_CAL_NOT_FOUND, name=name)
     if doc.docstatus == 1:
-        raise ServiceError(ErrorCode.BAD_STATE,
-                           "Phiếu đã Submit — không thể chỉnh sửa (dùng Amend)")
+        nthrow(MSG.IMM11_ALREADY_SUBMITTED)
     clean_patch = {k: v for k, v in patch.items() if k in _UPDATE_ALLOWED}
     if not clean_patch:
-        raise ServiceError(ErrorCode.VALIDATION, "Không có trường nào được cập nhật")
+        nthrow(MSG.IMM11_NO_FIELDS)
     old_status = doc.status
     doc = CalibrationRepo.update_fields(name, clean_patch)
     new_status = clean_patch.get("status", old_status)
@@ -448,9 +845,9 @@ def update_calibration(name: str, patch: dict) -> dict:
 def submit_calibration(name: str) -> dict:
     doc = CalibrationRepo.get(name)
     if not doc:
-        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy '{name}'")
+        nthrow(MSG.IMM11_CAL_NOT_FOUND, name=name)
     if doc.docstatus == 1:
-        raise ServiceError(ErrorCode.CONFLICT, _MSG_ALREADY_SUBMITTED)
+        nthrow(MSG.IMM11_ALREADY_SUBMITTED)
     doc = CalibrationRepo.submit(name)
     return {
         "name": doc.name,
@@ -465,10 +862,9 @@ def add_measurement(name: str, *, parameter_name: str, unit: str, nominal_value:
                     measured_value: float | None = None) -> dict:
     doc = CalibrationRepo.get(name)
     if not doc:
-        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy '{name}'")
+        nthrow(MSG.IMM11_CAL_NOT_FOUND, name=name)
     if doc.docstatus == 1:
-        raise ServiceError(ErrorCode.BAD_STATE,
-                           "Không thể thêm tham số vào Phiếu đã Submit")
+        nthrow(MSG.IMM11_ALREADY_SUBMITTED)
     doc.append("measurements", {
         "parameter_name": parameter_name,
         "unit": unit,
@@ -496,8 +892,10 @@ def get_kpis(year: int, month: int) -> dict:
         "scheduled_date": between,
         "status": CalibrationResult.FAILED,
     })
-    overdue_assets = AssetRepo.count({"calibration_status": CalibrationStatus.OVERDUE})
-    due_soon = AssetRepo.count({"calibration_status": CalibrationStatus.DUE_SOON})
+    # BR-11-08: đếm theo SoT schedule (de-dup theo asset), KHÔNG đọc
+    # AC Asset.calibration_status (cache) — loại gap asset minted chưa rollup.
+    overdue_assets = len(_overdue_asset_ids())
+    due_soon = len(_due_soon_asset_ids())
     pass_rate = round((completed / total * 100), 1) if total else 0.0
 
     return {
@@ -551,19 +949,11 @@ def get_dashboard() -> dict:
         "source_type": CalibrationRepo.DOCTYPE,
     })
 
-    # Overdue / Due Soon (top 10)
-    overdue_assets, _ = AssetRepo.list(
-        filters={"calibration_status": CalibrationStatus.OVERDUE,
-                 "lifecycle_status": _NOT_DECOMMISSIONED},
-        fields=["name", "asset_name", "device_model", "next_calibration_date", "location"],
-        order_by=_ORDER_NEXT_CAL_ASC, page_size=10,
-    )
-    due_soon_assets, _ = AssetRepo.list(
-        filters={"calibration_status": CalibrationStatus.DUE_SOON,
-                 "lifecycle_status": _NOT_DECOMMISSIONED},
-        fields=["name", "asset_name", "device_model", "next_calibration_date", "location"],
-        order_by=_ORDER_NEXT_CAL_ASC, page_size=10,
-    )
+    # Overdue / Due Soon (top 10) — BR-11-08: theo cùng tập asset SoT (schedule
+    # next_due_date), de-dup theo asset, order by next_due_date asc. KHÔNG đọc
+    # AC Asset.calibration_status (cache) để khớp count KPI == drill == dashboard.
+    overdue_assets = _top_assets_by_schedule(_overdue_asset_ids(), limit=10)
+    due_soon_assets = _top_assets_by_schedule(_due_soon_asset_ids(), limit=10)
 
     # CAPA open list (top 5)
     capa_rows, _ = CapaRepo.list(
@@ -611,14 +1001,13 @@ def send_to_lab(name: str, *, sent_date: str | None = None,
     """External cal: In Progress/Scheduled → Sent To Lab."""
     doc = CalibrationRepo.get(name)
     if not doc:
-        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy '{name}'")
+        nthrow(MSG.IMM11_CAL_NOT_FOUND, name=name)
     if doc.docstatus == 1:
-        raise ServiceError(ErrorCode.BAD_STATE, _MSG_ALREADY_SUBMITTED)
+        nthrow(MSG.IMM11_ALREADY_SUBMITTED)
     if (doc.calibration_type or "") != "External":
-        raise ServiceError(ErrorCode.VALIDATION, "Chỉ áp dụng cho Calibration External")
+        nthrow(MSG.IMM11_NOT_EXTERNAL)
     if doc.status not in (CalibrationResult.SCHEDULED, CalibrationResult.IN_PROGRESS):
-        raise ServiceError(ErrorCode.BAD_STATE,
-                           f"Không thể Send To Lab từ '{doc.status}'")
+        nthrow(MSG.IMM11_SEND_LAB_BAD_STATE, state=doc.status)
 
     patch: dict = {
         "status": CalibrationResult.SENT_TO_LAB,
@@ -651,15 +1040,13 @@ def receive_certificate(name: str, *, certificate_file: str,
     """External: Sent To Lab → In Progress (chờ kỹ thuật nhập measurement + submit)."""
     doc = CalibrationRepo.get(name)
     if not doc:
-        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy '{name}'")
+        nthrow(MSG.IMM11_CAL_NOT_FOUND, name=name)
     if doc.docstatus == 1:
-        raise ServiceError(ErrorCode.BAD_STATE, _MSG_ALREADY_SUBMITTED)
+        nthrow(MSG.IMM11_ALREADY_SUBMITTED)
     if doc.status != CalibrationResult.SENT_TO_LAB:
-        raise ServiceError(ErrorCode.BAD_STATE,
-                           "Chỉ nhận chứng chỉ khi trạng thái Sent To Lab")
+        nthrow(MSG.IMM11_RECEIVE_CERT_BAD_STATE)
     if not certificate_file or not certificate_number or not certificate_date:
-        raise ServiceError(ErrorCode.VALIDATION,
-                           "Bắt buộc certificate_file, certificate_number, certificate_date")
+        nthrow(MSG.IMM11_CERT_FIELDS_REQUIRED)
 
     patch: dict = {
         "certificate_file": certificate_file,
@@ -685,13 +1072,13 @@ def cancel_calibration(name: str, reason: str) -> dict:
     """Hủy phiếu trước submit (BR-11-08 false-alarm / thiết bị decommissioned)."""
     doc = CalibrationRepo.get(name)
     if not doc:
-        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy '{name}'")
+        nthrow(MSG.IMM11_CAL_NOT_FOUND, name=name)
     if doc.docstatus == 1:
-        raise ServiceError(ErrorCode.BAD_STATE, "Phiếu đã Submit — không thể hủy")
+        nthrow(MSG.IMM11_CANCEL_SUBMITTED)
     if doc.status == CalibrationResult.CANCELLED:
-        raise ServiceError(ErrorCode.CONFLICT, "Phiếu đã Cancelled")
+        nthrow(MSG.IMM11_ALREADY_CANCELLED)
     if not reason or not reason.strip():
-        raise ServiceError(ErrorCode.VALIDATION, "Bắt buộc nhập lý do hủy")
+        nthrow(MSG.IMM11_CANCEL_REASON_REQUIRED)
 
     CalibrationRepo.update_fields(name, {
         "status": CalibrationResult.CANCELLED,

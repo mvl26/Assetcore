@@ -20,7 +20,7 @@
    "fieldname": "device_model",
    "fieldtype": "Link",
    "in_list_view": 1,
-   "label": "Model thi\u1ebft b\u1ecb",
+   "label": "Model thiết bị",
    "options": "IMM Device Model",
    "reqd": 1
   },
@@ -29,16 +29,16 @@
    "fieldname": "qty",
    "fieldtype": "Int",
    "in_list_view": 0,
-   "label": "S\u1ed1 l\u01b0\u1ee3ng",
+   "label": "Số lượng",
    "hidden": 1,
    "read_only": 1,
-   "description": "Lu\u00f4n = 1. M\u1ed7i d\u00f2ng l\u00e0 1 thi\u1ebft b\u1ecb ri\u00eang bi\u1ec7t."
+   "description": "Luôn = 1. Mỗi dòng là 1 thiết bị riêng biệt."
   },
   {
    "fieldname": "unit_cost",
    "fieldtype": "Currency",
    "in_list_view": 1,
-   "label": "\u0110\u01a1n gi\u00e1",
+   "label": "Đơn giá",
    "options": "VND"
   },
   {
@@ -48,38 +48,38 @@
   {
    "fieldname": "vendor_serial_no",
    "fieldtype": "Data",
-   "label": "Serial Number H\u00e3ng"
+   "label": "Serial Number Hãng"
   },
   {
    "fieldname": "warranty_months",
    "fieldtype": "Int",
-   "label": "B\u1ea3o h\u00e0nh (th\u00e1ng)"
+   "label": "Bảo hành (tháng)"
   },
   {
    "fieldname": "clinical_dept",
    "fieldtype": "Link",
-   "label": "Khoa s\u1eed d\u1ee5ng",
+   "label": "Khoa sử dụng",
    "options": "AC Department",
    "hidden": 1,
-   "description": "\u0110\u00e3 chuy\u1ec3n sang phi\u1ebfu ti\u1ebfp nh\u1eadn (IMM-04). Khoa \u0111\u01b0\u1ee3c ph\u00e2n c\u00f4ng khi t\u1ea1o Asset, kh\u00f4ng ph\u1ea3i tr\u00ean PO."
+   "description": "Đã chuyển sang phiếu tiếp nhận (IMM-04). Khoa được phân công khi tạo Asset, không phải trên PO."
   },
   {
    "fieldname": "section_link",
    "fieldtype": "Section Break",
-   "label": "Li\u00ean k\u1ebft phi\u1ebfu ti\u1ebfp nh\u1eadn"
+   "label": "Liên kết phiếu tiếp nhận"
   },
   {
    "fieldname": "commissioning_ref",
    "fieldtype": "Link",
    "in_list_view": 1,
-   "label": "Phi\u1ebfu ti\u1ebfp nh\u1eadn",
+   "label": "Phiếu tiếp nhận",
    "options": "Asset Commissioning",
    "read_only": 1
   },
   {
    "fieldname": "notes",
    "fieldtype": "Small Text",
-   "label": "Ghi ch\u00fa"
+   "label": "Ghi chú"
   }
  ],
  "index_web_pages_for_search": 1,
@@ -90,7 +90,68 @@
  "module": "AssetCore",
  "name": "AC Purchase Device Item",
  "owner": "Administrator",
- "permissions": [],
+ "permissions": [
+  {
+   "role": "AssetCore Super Admin",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "submit": 1,
+   "cancel": 1,
+   "delete": 1,
+   "amend": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "Procurement Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "submit": 1,
+   "cancel": 1,
+   "delete": 1,
+   "amend": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "Procurement User",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "submit": 0,
+   "cancel": 0,
+   "delete": 0,
+   "amend": 0,
+   "report": 1,
+   "export": 0,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "AssetCore Auditor",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "submit": 0,
+   "cancel": 0,
+   "delete": 0,
+   "amend": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 0,
+   "share": 0
+  }
+ ],
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": []

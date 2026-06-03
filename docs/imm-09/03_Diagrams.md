@@ -6,7 +6,7 @@
 | Phạm vi | Per-module |
 | Owner | System Analyst / Tech Lead / DBA |
 | Liên kết | [02 Analysis & Design](./02_Analysis_Design.md) · [04 Backend Design](./04_Backend_Design.md) |
-| Cập nhật | 2026-05-14 |
+| Cập nhật | 2026-05-18 |
 
 ---
 
@@ -404,7 +404,7 @@ sequenceDiagram
     else Happy path
         Doc->>SVC: on_submit: complete_repair(doc)
         SVC->>SVC: mttr_hours = (completion - open) / 3600
-        SVC->>SVC: sla_breached = mttr > sla_target
+        SVC->>SVC: sla_breached = is_sla_breached(mttr, target) OR sla_breached (SoT, >=, monotonic)
         SVC->>Asset: db.set_value status=Active
         SVC->>ALE: _create_lifecycle_event(repair_completed, notes=MTTR)
         ALE->>DB: INSERT immutable
@@ -427,7 +427,7 @@ sequenceDiagram
 
     loop for each active WO
         SVC->>SVC: elapsed_h = (now - open_datetime) / 3600
-        alt elapsed_h >= sla_target_hours AND sla_breached = 0
+        alt is_sla_breached(elapsed_h, sla_target_hours) AND sla_breached = 0 (SoT, >=)
             SVC->>DB: db.set_value sla_breached=1
             SVC->>RT: publish_realtime("cm_sla_breached", {wo, asset}, user=assigned_to)
         end

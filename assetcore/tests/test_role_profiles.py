@@ -1,169 +1,191 @@
 # Copyright (c) 2026, AssetCore Team
-"""Tests for AssetCore-branded Role Profile catalog.
+"""Tests Role Profile (Core Doc FE_Persona_Navigation.md §7.quinquies).
 
-Verifies:
-  - All AssetCore-branded Role Profiles exist after migrate/seed
-  - Each profile contains exactly the canonical role set (idempotent upsert)
-  - Assigning a profile to a User grants its roles
+BE = Role Profile + Role Permission chuẩn Frappe; "persona" là khái niệm FE-only.
+Verify:
+  TRP1..TRP8 — seed 8 Role Profile (tên VI) idempotent; mỗi profile đúng bộ role;
+               assign_role_profile clear+replace; lock role khi có profile.
+  TRP11..TRP14 — ranh giới Phase 1.4: catalog key = tên Role Profile (KHÔNG
+               persona_code); bộ role bất biến; BE role-path không còn chữ
+               "persona"; thông báo lock theo "Role Profile".
 """
 from __future__ import annotations
 
+import re
 import unittest
+from pathlib import Path
 
 import frappe
 
-from assetcore.setup.setup_role_profiles import (
-    get_assetcore_profiles,
-    run as seed_role_profiles,
+from assetcore.api import user as user_api
+from assetcore.setup.role_profile_catalog import (
+    ROLE_PROFILE_CATALOG,
+    PROFILE_NAMES,
+    roles_for_profile,
+    profile_name_to_roles,
 )
+from assetcore.setup.setup_role_profiles import seed_assetcore_role_profiles
+
+_TECH = "Kỹ thuật viên"
+_STORE = "Thủ kho phụ tùng"
 
 
-class TestAssetCoreRoleProfiles(unittest.TestCase):
-    """Ensure AssetCore Role Profile catalog is seeded and consistent."""
+class TestRoleProfile(unittest.TestCase):
+    _TEST_EMAIL = "_test_rp_profile@assetcore.test"
 
     @classmethod
     def setUpClass(cls) -> None:
-        # Idempotent re-seed: safe on existing site
-        seed_role_profiles()
-        cls.catalog = get_assetcore_profiles()
+        super().setUpClass()
+        seed_assetcore_role_profiles()
+        # User test thật để verify gán profile / khoá role.
+        if not frappe.db.exists("User", cls._TEST_EMAIL):
+            u = frappe.new_doc("User")
+            u.email = cls._TEST_EMAIL
+            u.first_name = "_Test"
+            u.last_name = "RP Profile"
+            u.send_welcome_email = 0
+            u.user_type = "System User"
+            u.flags.ignore_permissions = True
+            u.insert(ignore_permissions=True)
+        frappe.db.commit()
 
-    def test_all_role_profiles_exist_after_migrate(self) -> None:
-        """Every profile in canonical catalog must exist as Role Profile doc."""
-        missing = [
-            name for name, _ in self.catalog
-            if not frappe.db.exists("Role Profile", name)
-        ]
-        self.assertEqual(
-            missing, [],
-            f"Missing AssetCore Role Profiles: {missing}",
-        )
+    @classmethod
+    def tearDownClass(cls) -> None:
+        try:
+            if frappe.db.exists("User", cls._TEST_EMAIL):
+                frappe.db.set_value("User", cls._TEST_EMAIL, "role_profile_name", None)
+                frappe.delete_doc("User", cls._TEST_EMAIL, force=True, ignore_permissions=True)
+            frappe.db.commit()
+        except Exception:
+            pass
+        super().tearDownClass()
 
-    def test_role_profile_roles_match_catalog(self) -> None:
-        """Each Role Profile must have the exact role set declared in catalog
-        (filtered to roles that actually exist in the Role master)."""
-        for name, expected_roles in self.catalog:
-            with self.subTest(profile=name):
-                if not frappe.db.exists("Role Profile", name):
-                    self.fail(f"Role Profile not found: {name}")
-                expected_valid = {
-                    r for r in expected_roles if frappe.db.exists("Role", r)
-                }
-                actual = set(
-                    frappe.get_all(
-                        "Has Role",
-                        filters={"parenttype": "Role Profile", "parent": name},
-                        pluck="role",
-                    )
-                )
-                self.assertEqual(
-                    actual, expected_valid,
-                    f"Role mismatch on '{name}': "
-                    f"expected={expected_valid}, actual={actual}",
-                )
-
-    def test_assigning_profile_to_user_grants_roles(self) -> None:
-        """Setting User.role_profile_name applies bundle roles to user."""
-        test_user_email = "_test_role_profile@assetcore.local"
-        # Cleanup if leftover from previous run
-        if frappe.db.exists("User", test_user_email):
-            frappe.delete_doc(
-                "User", test_user_email,
-                ignore_permissions=True, force=True, delete_permanently=True,
+    # ── TRP1: 8 profile tồn tại, tên VI đúng ────────────────────────────────
+    def test_trp1_eight_profiles_exist(self) -> None:
+        for name in PROFILE_NAMES:
+            self.assertTrue(
+                frappe.db.exists("Role Profile", name),
+                f"Role Profile thiếu: {name}",
             )
+        self.assertEqual(len(PROFILE_NAMES), 8)
 
-        user = frappe.new_doc("User")
-        user.email = test_user_email
-        user.first_name = "Test"
-        user.send_welcome_email = 0
-        user.flags.ignore_permissions = True
-        user.insert()
-
-        profile_name = "AssetCore — Department Head"
-        self.assertTrue(
-            frappe.db.exists("Role Profile", profile_name),
-            f"Test prerequisite missing: {profile_name}",
+    # ── TRP2: profile "Kỹ thuật viên" chứa đúng bộ role ─────────────────────
+    def test_trp2_tech_profile_roles(self) -> None:
+        rows = frappe.get_all(
+            "Has Role",
+            filters={"parent": _TECH, "parenttype": "Role Profile"},
+            pluck="role",
         )
+        self.assertEqual(set(rows), set(roles_for_profile(_TECH)))
 
-        user.role_profile_name = profile_name
-        user.flags.ignore_permissions = True
-        user.save()
-        user.reload()
+    # ── TRP3: seed idempotent — chạy 2 lần không nhân đôi ───────────────────
+    def test_trp3_seed_idempotent(self) -> None:
+        seed_assetcore_role_profiles()
+        seed_assetcore_role_profiles()
+        self.assertEqual(
+            frappe.db.count("Role Profile", {"name": ("in", PROFILE_NAMES)}), 8
+        )
+        rows = frappe.get_all(
+            "Has Role", filters={"parent": _STORE, "parenttype": "Role Profile"}, pluck="role"
+        )
+        # không nhân đôi rows
+        self.assertEqual(len(rows), len(set(rows)))
+        self.assertEqual(set(rows), set(roles_for_profile(_STORE)))
 
-        granted = {r.role for r in user.roles}
+    # ── TRP4: assign_role_profile gán đúng bộ role ──────────────────────────
+    def test_trp4_assign_sets_roles(self) -> None:
+        user_api.assign_role_profile(self._TEST_EMAIL, _STORE)
+        actual = {r.role for r in frappe.get_doc("User", self._TEST_EMAIL).roles}
+        self.assertEqual(actual, set(roles_for_profile(_STORE)))
+
+    # ── TRP5: đổi profile tech→store → role clear+replace ───────────────────
+    def test_trp5_switch_profile_replaces_roles(self) -> None:
+        user_api.assign_role_profile(self._TEST_EMAIL, _TECH)
+        self.assertIn("PM User", {r.role for r in frappe.get_doc("User", self._TEST_EMAIL).roles})
+        user_api.assign_role_profile(self._TEST_EMAIL, _STORE)
+        roles = {r.role for r in frappe.get_doc("User", self._TEST_EMAIL).roles}
+        self.assertNotIn("PM User", roles)  # bộ tech bị clear
+        self.assertEqual(roles, set(roles_for_profile(_STORE)))
+
+    # ── TRP6: user có profile → set_user_roles thủ công bị từ chối ──────────
+    def test_trp6_manual_edit_rejected_when_profile_locked(self) -> None:
+        user_api.assign_role_profile(self._TEST_EMAIL, _STORE)
+        frappe.set_user("Administrator")
+        res = user_api.set_user_roles(self._TEST_EMAIL, ["Compliance Manager"])
+        # Bị từ chối (success=False, http 409) — role không đổi.
+        self.assertFalse(res.get("success", True), f"Phải bị chặn, nhận: {res}")
+        roles = {r.role for r in frappe.get_doc("User", self._TEST_EMAIL).roles}
+        self.assertNotIn("Compliance Manager", roles)
+        self.assertEqual(roles, set(roles_for_profile(_STORE)))
+
+    # ── TRP7: bỏ profile → sửa thủ công thành công ──────────────────────────
+    def test_trp7_manual_edit_ok_after_clearing_profile(self) -> None:
+        user_api.assign_role_profile(self._TEST_EMAIL, "")  # bỏ profile
+        self.assertIsNone(
+            frappe.db.get_value("User", self._TEST_EMAIL, "role_profile_name") or None
+        )
+        frappe.set_user("Administrator")
+        res = user_api.set_user_roles(self._TEST_EMAIL, ["Compliance Manager"])
+        self.assertTrue(res.get("success"), f"Phải thành công, nhận: {res}")
+        roles = {r.role for r in frappe.get_doc("User", self._TEST_EMAIL).roles}
+        self.assertIn("Compliance Manager", roles)
+
+    # ── TRP11: catalog key = tên Role Profile (KHÔNG persona_code) ──────────
+    def test_trp11_catalog_keyed_by_profile_name(self) -> None:
         expected = {
-            r for r in dict(self.catalog)[profile_name]
-            if frappe.db.exists("Role", r)
+            "Quản trị viên IT", "Trưởng phòng VT-TTBYT", "Trưởng xưởng kỹ thuật",
+            "Kỹ thuật viên", "Cán bộ QA / Kiểm toán", "Cán bộ hồ sơ",
+            "Thủ kho phụ tùng", "Trưởng khoa lâm sàng",
         }
-        self.assertTrue(
-            expected.issubset(granted),
-            f"Profile assignment did not grant expected roles. "
-            f"expected_subset={expected}, granted={granted}",
-        )
+        self.assertEqual(set(ROLE_PROFILE_CATALOG.keys()), expected)
+        # Không còn persona_code làm khoá.
+        for legacy_code in ("admin", "opsmgr", "workshop", "tech", "store", "qa", "doc", "clinical"):
+            self.assertNotIn(legacy_code, ROLE_PROFILE_CATALOG)
 
-        # Cleanup
-        frappe.delete_doc(
-            "User", test_user_email,
-            ignore_permissions=True, force=True, delete_permanently=True,
-        )
-
-    def test_no_legacy_imm_role_profiles_remain(self) -> None:
-        """Legacy `IMM - *` Role Profiles must not exist after cleanup patch."""
-        legacy = frappe.get_all(
-            "Role Profile",
-            filters=[["name", "like", "IMM - %"]],
-            pluck="name",
-        )
+    # ── TRP12: bộ role profile bất biến (vs §7.quater.2) ───────────────────
+    def test_trp12_tech_roles_invariant(self) -> None:
         self.assertEqual(
-            legacy, [],
-            f"Legacy IMM Role Profiles still present: {legacy}. "
-            "Run patch v3_1.005_remove_legacy_imm_role_profiles.",
+            set(profile_name_to_roles()[_TECH]),
+            {"PM User", "Repair User", "Calibration User", "Corrective User",
+             "AssetCore System User"},
         )
 
-    def test_assetcore_profile_count_matches_catalog(self) -> None:
-        """Exactly len(catalog) AssetCore Role Profiles must exist."""
-        actual = frappe.db.count(
-            "Role Profile",
-            filters=[["name", "like", "AssetCore%"]],
+    # ── TRP13: BE role-path không dùng "persona" như KHÁI NIỆM CODE ─────────
+    # Acceptance #25: cấm persona làm identifier/key/biến/logic ở BE. Prose
+    # giải thích "persona là FE-only" hoặc tham chiếu tên file Core Doc
+    # (FE_Persona_Navigation.md) được phép — đó chính là cách ghi rõ ranh giới.
+    def test_trp13_no_persona_as_code_concept_in_be_role_path(self) -> None:
+        app_root = Path(frappe.get_app_path("assetcore"))
+        targets = [
+            app_root / "setup" / "role_profile_catalog.py",
+            app_root / "setup" / "setup_role_profiles.py",
+            app_root / "api" / "user.py",
+        ]
+        # persona như code: identifier/key (persona_code, PERSONA_..., .persona,
+        # persona=, persona[...]). KHÔNG bắt prose tiếng Việt/Anh chứa từ "persona".
+        code_pat = re.compile(
+            r"persona_code|PERSONA_[A-Z]|\bpersona\s*[:=\[]|\.persona\b",
+            re.IGNORECASE,
         )
+        offenders: list[str] = []
+        for path in targets:
+            for i, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+                # Bỏ phần comment (sau #) để chỉ soi CODE thật, không soi prose.
+                code_part = line.split("#", 1)[0]
+                # Bỏ tham chiếu tên file Core Doc (FE_Persona_Navigation.md).
+                code_part = code_part.replace("FE_Persona_Navigation", "")
+                if code_pat.search(code_part):
+                    offenders.append(f"{path.name}:{i}: {line.strip()}")
         self.assertEqual(
-            actual, len(self.catalog),
-            f"Expected {len(self.catalog)} AssetCore profiles, found {actual}",
+            offenders, [],
+            "BE role-path dùng 'persona' như khái niệm code:\n" + "\n".join(offenders),
         )
 
-    def test_every_profile_has_at_least_one_role(self) -> None:
-        """Each AssetCore Role Profile must contain ≥1 role binding."""
-        for name, _ in self.catalog:
-            with self.subTest(profile=name):
-                count = frappe.db.count(
-                    "Has Role",
-                    filters={"parenttype": "Role Profile", "parent": name},
-                )
-                self.assertGreaterEqual(
-                    count, 1,
-                    f"Role Profile '{name}' has 0 roles bound",
-                )
-
-    def test_seed_is_idempotent(self) -> None:
-        """Running seed twice should not duplicate roles or profiles."""
-        before = {
-            name: frappe.get_all(
-                "Has Role",
-                filters={"parenttype": "Role Profile", "parent": name},
-                pluck="role",
-            )
-            for name, _ in self.catalog
-        }
-        seed_role_profiles()
-        after = {
-            name: frappe.get_all(
-                "Has Role",
-                filters={"parenttype": "Role Profile", "parent": name},
-                pluck="role",
-            )
-            for name, _ in self.catalog
-        }
-        for name in before:
-            self.assertEqual(
-                sorted(before[name]), sorted(after[name]),
-                f"Roles changed after re-seed on '{name}'",
-            )
+    # ── TRP14: thông báo lock theo "Role Profile", không "persona" ─────────
+    def test_trp14_lock_message_says_role_profile(self) -> None:
+        user_api.assign_role_profile(self._TEST_EMAIL, _STORE)
+        err = user_api._profile_lock_error(self._TEST_EMAIL)
+        self.assertIsNotNone(err)
+        msg = err.get("error", "")
+        self.assertIn("Role Profile", msg)
+        self.assertNotIn("persona", msg.lower())

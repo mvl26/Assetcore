@@ -22,16 +22,40 @@ REAL_DATA = {
 }
 
 
+# The 3 genuine demo assets. NEVER pick "newest 3" (order_by creation desc) —
+# when the DB is polluted with leaked test assets that selects garbage as "real".
+# Pin by their stable business codes so the seed is reproducible + leak-proof.
+REAL_ASSET_CODES = ("TS-2025-USG-001", "TS-2025-VEN-001", "TS-2025-CT-001")
+
+
 def _ensure_assets() -> list[str]:
-    """Reuse 3 existing AC Asset records (real ones already seeded)."""
-    assets = frappe.get_all(
-        "AC Asset", limit=3, order_by="creation desc",
-        fields=["name", "asset_name", "department", "device_model", "supplier", "location"],
-    )
-    print(f"  Using {len(assets)} existing AC Assets:")
-    for a in assets:
+    """Resolve the 3 genuine demo AC Asset records by their fixed business codes.
+
+    Deterministic + leak-proof: filters on the canonical ``TS-2025-%`` codes
+    instead of ``order_by creation desc`` (which would pick freshly-leaked test
+    assets when the site is polluted). Returns them in REAL_ASSET_CODES order so
+    downstream scenario indexes stay stable.
+    """
+    found = {
+        a["name"]: a
+        for a in frappe.get_all(
+            "AC Asset",
+            filters={"name": ["in", list(REAL_ASSET_CODES)]},
+            fields=["name", "asset_name", "department", "device_model", "supplier", "location"],
+            ignore_permissions=True,
+        )
+    }
+    missing = [c for c in REAL_ASSET_CODES if c not in found]
+    if missing:
+        raise RuntimeError(
+            f"Genuine demo assets missing: {missing}. Expected {REAL_ASSET_CODES} "
+            "to exist before seeding IMM-04/05/06."
+        )
+    ordered = [found[c] for c in REAL_ASSET_CODES]
+    print(f"  Using {len(ordered)} genuine demo AC Assets:")
+    for a in ordered:
         print(f"    - {a['name']} | {a['asset_name']}")
-    return [a["name"] for a in assets]
+    return [a["name"] for a in ordered]
 
 
 def seed_imm04(asset_names: list[str]) -> list[str]:
@@ -332,6 +356,10 @@ def seed_imm06(asset_names: list[str]) -> tuple[list[str], list[str], list[str]]
             comps.append(existing)
             continue
         achieved = add_days(nowdate(), -1)
+        # BR-06-13: SoT DUY NHẤT cho expiry + recert (1 call) — KHÔNG inline công thức.
+        # Lazy-import để tránh side effect ở import-time của script seed.
+        from assetcore.services.imm06 import compute_competency_dates
+        dates = compute_competency_dates(achieved, s["validity_months"])
         doc = frappe.new_doc("IMM User Competency")
         doc.update({
             "user": s["user"],
@@ -342,8 +370,8 @@ def seed_imm06(asset_names: list[str]) -> tuple[list[str], list[str], list[str]]
             "competency_level": s["level"],
             "achieved_date": achieved,
             "validity_months": s["validity_months"],
-            "expiry_date": add_months(achieved, s["validity_months"]),
-            "recertification_due_date": add_months(achieved, s["validity_months"] - 2),
+            "expiry_date": dates["expiry_date"],
+            "recertification_due_date": dates["recertification_due_date"],
             "last_assessment_score": (s["theory"] + s["practical"]) / 2,
             "theory_score": s["theory"],
             "practical_score": s["practical"],

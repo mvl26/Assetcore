@@ -267,6 +267,40 @@ onMounted(() => load())
 - Tailwind classes inline. Avoid SCSS modules. Brand: `emerald-600` for primary, `neutral-*` for surfaces.
 - All UI strings in Vietnamese (project default). Use `vue-i18n` keys when adding new locales.
 
+## 🔔 Notification pipeline (BẮT BUỘC — mọi tương tác có phản hồi)
+
+> Contract đầy đủ BE↔FE: [`../assetcore-be/references/notification-contract.md`](../assetcore-be/references/notification-contract.md).
+> Quy tắc: success/error đều qua `useNotify` → 1 toast/modal duy nhất. KHÔNG `toast.error("literal")` cho nghiệp vụ, KHÔNG để action thành công mà user không nhận phản hồi.
+
+**Store** (`stores/immXX.ts`) — giữ ApiError đã hydrate:
+```ts
+import { ApiError, toApiError } from '@/api/errors'
+const lastApiError = ref<ApiError | null>(null)
+function _captureError(e: unknown): void {
+  const err = toApiError(e); lastApiError.value = err; error.value = err.message
+}
+async function submit(id: string) {
+  try { return await apiSubmit(id) }
+  catch (e: unknown) { _captureError(e); return null }   // mọi action: catch → _captureError → null
+}
+return { /* ... */ lastApiError, _captureError, submit }
+```
+
+**View** (`views/.../XDetailView.vue`):
+```ts
+import { useNotify } from '@/composables/useNotify'
+import { MSG } from '@/i18n/messages'
+const notify = useNotify()
+
+const ok = await store.submit(props.id)
+if (ok) notify.show({ code: MSG.IMM11_SUBMIT_SUCCESS, ctx: { name: props.id } })
+else    notify.fromError(store.lastApiError)
+```
+- Success → `notify.show({ code: MSG.*, ctx })` (CRUD generic: `MSG.UI_SAVE_SUCCESS` + `ctx.entity`).
+- Fail → `notify.fromError(store.lastApiError)` — render title + action_hint + severity từ registry; `critical` → modal.
+- FE-only pre-check (vd thiếu file) → cũng `notify.show({ code: MSG.* })`, KHÔNG `toast.warning("literal")`.
+- Thêm mã mới? BE sửa `messages.py` + chạy `scripts/gen_fe_messages.py` để regen `i18n/messages.ts`. FE KHÔNG tự sửa `messages.ts`.
+
 ## useApi pattern (memorize this)
 
 ```ts
@@ -393,6 +427,35 @@ Use `useFormDraft` for any multi-step or long form (saves to localStorage). See 
 | Form Create gọi `loadAssetMeta(ref)` riêng sau khi user nhập ref → N+1 query, UX chậm | BE list/search endpoint cho Link field không kèm meta | **Fix BE**: link search endpoint trả `{name, asset_name, device_model_name, location_name, risk_class}` trong cùng response. FE bỏ `loadXxxMeta()` |
 | Sidebar trống khi vào module | Route thiếu `meta.moduleId` hoặc key sai với `MODULE_NAV` | Set `meta.moduleId: 'immXX'` matching key trong `MODULE_NAV` |
 | Module mới không hiện trong launcher | Tile có `disabled: true` từ wave trước hoặc `to:` route không tồn tại | Set `disabled: false` + verify route tồn tại trong router |
+
+## 🛑 PRE-DONE GREP GATE (chạy TRƯỚC khi nói DONE)
+
+5 phiên test 2026-05-15..26 leak lại cùng pattern dù LL-FE-3/6/13 đã có. Bắt buộc chạy 3 grep gate dưới đây trên view/component bạn vừa sửa. **Output ≠ 0 → fix, không skip.**
+
+```bash
+cd /home/miyano/frappe-bench/apps/assetcore
+
+# GATE-1: English enum leak. Mọi {{ row.status }} / {{ doc.frequency }} / severity
+# phải đi qua label map (STATUS_LABEL / FREQ_LABEL / SEVERITY_LABEL).
+grep -rnE "\{\{\s*(row|item|doc|d)\.(status|workflow_state|frequency|severity)\s*\}\}" \
+  frontend/src/views/<your-domain>/ \
+  | grep -v "STATUS_LABEL\|FREQ_LABEL\|SEVERITY_LABEL\|statusLabel\|labelFor"
+
+# GATE-2: Raw code/email leak. row.technician/owner/vendor/model/asset/warehouse
+# phải có `_name` / `_full_name` companion từ BE và FE phải dùng `x_name || x`.
+grep -rnE "row\.(asset|model|vendor|warehouse|department|technician|assigned_to|owner)\b" \
+  frontend/src/views/<your-domain>/ | grep -vE "_name|_full_name|_label"
+
+# GATE-3: Hardcoded English status strings trong code (không phải template)
+grep -rnE "['\"](Locked|Evaluated|Contract Signed|Scheduled|Weekly|Minor|Open|In Progress)['\"]" \
+  frontend/src/views/<your-domain>/ | grep -v "STATUS_LABEL\|// "
+```
+
+Kèm 2 manual check không tự động được:
+- DetailView có **TRANSITIONS_BY_STATE đầy đủ initial state** (Draft/Open/Planned)? Count entries trong map phải = số state non-terminal trong workflow JSON.
+- ListView có **ít nhất 1 action button** (Tạo / Import / Navigate)? Empty state actionable?
+
+Reference: §0 + §13–§24 trong [CONVENTIONS.md](../CONVENTIONS.md).
 
 ## Critical anti-patterns (từ bugs thực tế — KHÔNG lặp lại)
 
@@ -567,97 +630,20 @@ Read [`/.claude/skills/CONVENTIONS.md`](../CONVENTIONS.md) for project-wide rule
 
 ---
 
-## Lessons Learned 2026-05 (bug patterns đã gặp — phải tránh)
+## Lessons Learned — bug patterns FE production (BẮT BUỘC ĐỌC)
 
-### LL-FE-1: `TRANSITIONS_BY_STATE` map phải đầy đủ TẤT CẢ states
+> ⚠️ Các quy tắc **LL-FE-*** (always-apply, KHÔNG optional) đã chuyển sang
+> [`references/lessons-learned.md`](references/lessons-learned.md) — TRANSITIONS_BY_STATE đầy đủ,
+> workflow action labels khớp BE (tiếng Việt có dấu), StatusBadge sync, list/detail buttons,
+> hiển thị display name (không leak code/email), child table không dùng `row.name`, KPI consistency…
+>
+> **BẮT BUỘC: `Read references/lessons-learned.md` TRƯỚC KHI viết/sửa view · store · API client.**
+> Bỏ qua = tái phạm bug đã biết.
 
-Bug: PD detail view có 8 states, nhưng `TRANSITIONS_BY_STATE` chỉ map 5 states đầu → state "Contract Signed" không có nút "Phát hành PO" → user kẹt.
+---
 
-```typescript
-// ❌ SAI — thiếu state Contract Signed
-const TRANSITIONS_BY_STATE: Record<string, string[]> = {
-  'Draft':             ['Chọn phương án'],
-  'Method Selected':   ['Bắt đầu thương thảo'],
-  'Negotiation':       ['Đề xuất trúng thầu'],
-  'Award Recommended': ['Trình BGĐ'],
-  // ❌ Missing 'Contract Signed': ['Phát hành PO']
-}
+## 🔗 Session context — bàn giao phiên (assetcore-session)
 
-// ✅ ĐÚNG — đếm states từ workflow.json, map đủ
-// python3 -c "import json; d=json.load(open('workflow.json')); print(len(d['states']))"
-```
-
-**Quy tắc**: map phải có entry cho mọi state có outgoing transition. Test bằng cách traverse full lifecycle qua UI — nếu kẹt ở state nào → bug.
-
-### LL-FE-2: Workflow action labels phải khớp BE EXACT (tiếng Việt có dấu)
-
-Bug: FE gọi `"Trình Ban Giám đốc"` (đầy đủ) nhưng workflow JSON định nghĩa `"Trình BGĐ"` (viết tắt) → 422 `Not a valid Workflow Action`.
-
-**Quy tắc**: import constant từ `@/utils/wave2Labels` hoặc shared module, không hardcode string. Sau khi BE tạo workflow JSON, FE phải đồng bộ ngay.
-
-### LL-FE-3: StatusBadge label/color phải đồng bộ với BE state machine
-
-Bug: BE `workflow_state = "Submitted"`, FE formatter map `Submitted → "Đã duyệt"` (xanh) → user thấy "Đã duyệt" khi thực ra mới submit.
-
-**Quy tắc**: trong `formatters.ts` mỗi BE state có entry trong `STATUS_LABEL` (label đúng nghĩa) và `STATUS_COLOR`. Khi BE thêm state mới → update FE formatter cùng commit.
-
-### LL-FE-4: List page TỐI THIỂU phải có nút tạo mới
-
-Bug: `/procurement-plans` chỉ có filter, không có nút "+ Tạo" → user không tạo được plan qua UI.
-
-**Quy tắc** (DoD cho List page): mỗi list page (trừ trang view-only) phải có:
-- Nút "+ Tạo mới" trong `PageHeader #actions` slot
-- Modal hoặc navigate đến `/create` view
-- Sau khi tạo: navigate đến detail của record mới
-
-### LL-FE-5: Detail page phải có ĐẦY ĐỦ workflow buttons theo state
-
-Bug: PP detail chỉ có nút "Đưa NR vào kế hoạch" cho state Draft, thiếu "Phê duyệt"/"Kích hoạt"/"Đóng" cho các state khác.
-
-**Quy tắc**: count workflow states, count UI buttons. Mỗi state phải có ít nhất 1 button cho transition tiếp theo (trừ terminal states).
-
-### LL-FE-6: Hiển thị display name, không hiển thị code/email
-
-Bug: subtitle hiển thị `AC-DEPT-0101` thay vì `Khoa Tim mạch can thiệp`. Field `requesting_department` là Link, FE phải đọc `requesting_department_name` (BE đã enrich).
-
-```vue
-<!-- ❌ SAI -->
-<p>{{ doc.requesting_department }}</p>
-
-<!-- ✅ ĐÚNG — fallback nếu BE chưa enrich -->
-<p>{{ doc.requesting_department_name || doc.requesting_department || '—' }}</p>
-```
-
-**Quy tắc**: snapshot Playwright → grep tìm `AC-*`, `IMM-*`, `email@...` — nơi nào không phải là link/ID thuần thì bug.
-
-### LL-FE-7: Frappe child table — KHÔNG hiển thị `row.name`
-
-Bug: `plan_items` hiển thị `5mvh1o4qsa` (Frappe auto-name) thay vì `NR-26-05-00010`.
-
-```vue
-<!-- ❌ SAI -->
-<td>{{ item.name }}</td>
-
-<!-- ✅ ĐÚNG — đọc Link field gốc -->
-<td>{{ item.needs_request || '—' }}</td>
-```
-
-**Quy tắc**: `row.name` của child table là internal ID — không bao giờ show cho user.
-
-### LL-FE-8: Form Select options phải match BE DocType JSON
-
-Bug: FE form cho free-text `funding_source` nhưng BE DocType định nghĩa `Select` với options cố định → save fail với `Invalid Value`.
-
-```bash
-# Verify DocType options trước khi build form
-python3 -c "import json; d=json.load(open('<doctype>.json')); \
-  [print(f['fieldname'], '=', repr(f['options'])) for f in d['fields'] if f['fieldtype']=='Select']"
-```
-
-**Quy tắc**: dùng constant module shared cho enum/select options (FE + BE đọc cùng nguồn).
-
-### LL-FE-9: Link field input phải dropdown, không free text
-
-Bug: form thêm candidate vào Vendor Evaluation dùng `<input type="text">` cho supplier → user nhập "Philips Healthcare" nhưng BE DocType `supplier` là Link → "Could not find Row #1: Vendor: Philips Healthcare".
-
-**Quy tắc**: mọi field Link trong form PHẢI là dropdown/autocomplete load từ API list endpoint của target DocType.
+- **Trước khi xử lý/sửa BẤT KỲ việc gì:** chạy `.claude/scripts/session-log.sh show` (đọc STATE+LOG mới nhất — "đang dở ở đâu"; dữ liệu NGOÀI repo, đừng tìm `sessions/` trong repo). Main session hook tự nạp mỗi prompt; subagent phải chạy lệnh này.
+- **Sau MỖI việc đáng kể (đụng file/quyết định):** invoke **`assetcore-session`** checkpoint NGAY `STATE.md`(ghi đè)+`LOG.md` — KHÔNG đợi cuối phiên (ngắt giữa chừng = mất).
+- **Ranh giới:** state-tạm-sẽ-hết → `sessions/`; fact-bền-vững-dùng-lại → `memory/`. KHÔNG trộn.

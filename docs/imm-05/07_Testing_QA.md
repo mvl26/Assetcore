@@ -1,506 +1,530 @@
-# IMM-05 — Kiểm thử & An ninh (Testing, QA & Security)
+# 07 — Kiểm thử & An ninh (Testing & QA & Security)
 
 | Mục | Giá trị |
 |---|---|
-| Module | **IMM-05 — Asset Document Repository** |
-| Phiên bản | 1.0.0 |
-| Ngày cập nhật | 2026-05-08 |
-| Owner | QA Lead + Tech Lead |
-| Liên kết | [Module Overview](./IMM-05_Module_Overview.md) · [API Interface](./IMM-05_API_Interface.md) |
+| Module | IMM-05 — Hồ sơ thiết bị (Asset Documents) |
+| Phạm vi | Per-module |
+| Owner | QA Lead + Security Officer |
+| Liên kết | 02 Analysis (US, BR, Activity, BPMN) · 03 Diagrams · 04 Backend · 05 API · 06 Frontend |
+
+> **Mục đích**: Suy ra test case có hệ thống từ phân tích (file 02) bằng kỹ thuật black-box + white-box, không liệt kê tự phát. Bao gồm: phân tích đối tượng test → chọn kỹ thuật → viết test → traceability → UAT → security → code quality. Phần VI (Security) là gate go-live.
 
 ---
 
-# Phần I — Test Plan
+# Phần I — Test Analysis (Phân tích đối tượng test)
 
-## I.1. Test Pyramid
+> Mục tiêu Phần I: trả lời 4 câu hỏi trước khi viết test case: (1) test cái gì (component inventory) (2) suy ra từ đâu (US/BR/Activity) (3) ưu tiên cái nào (risk) (4) loại trừ cái nào (out-of-scope).
+
+## I.1. Component Inventory — Liệt kê phần mềm cần test
+
+Toàn bộ artefact test được của IMM-05 (đối chiếu 04 §DocType/Service/Hook, 05 §Catalog, 06 §Components). Mỗi dòng → ≥ 1 test class ở Phần III.
+
+| # | Component | Loại | File / Tên | Test layer áp dụng |
+|---|---|---|---|---|
+| 1 | Asset Document | DocType | `asset_document/asset_document.json` | Integration (lifecycle) |
+| 2 | Document Request | DocType | `document_request/document_request.json` | Integration (lifecycle) |
+| 3 | Expiry Alert Log | DocType | `expiry_alert_log/expiry_alert_log.json` | Integration (idempotent) |
+| 4 | Required Document Type | DocType | `required_document_type/required_document_type.json` | Integration (completeness) |
+| 5 | IMM-05 Document Workflow | Workflow | `workflow/imm_05_document_workflow.json` (6 state, 9 transition) | Integration (state transition) |
+| 6 | `check_document_expiry()` | Scheduler job | `services/imm05.py::check_document_expiry` | Unit + Cron simulation |
+| 7 | `_resolve_alert_level()` | Validator (pure) | `services/imm05.py::_resolve_alert_level` | Unit (BVA/EP) |
+| 8 | `_apply_visibility_filter()` | Validator (RBAC) | `services/imm05.py::_apply_visibility_filter` | Unit (EP) |
+| 9 | `_can_see_internal()` | Helper RBAC | `services/imm05.py::_can_see_internal` | Unit (Decision Table) |
+| 10 | `_require_approve_role()` / `_require_exempt_role()` | Guard | `services/imm05.py` | Unit (EP permission) |
+| 11 | `create_document()` | Service function | `services/imm05.py::create_document` | Unit |
+| 12 | `submit_for_review()` | Service function | `services/imm05.py::submit_for_review` | Unit |
+| 13 | `update_document()` | Service function | `services/imm05.py::update_document` | Unit (state guard) |
+| 14 | `approve_document()` | Service function | `services/imm05.py::approve_document` | Unit (archive old) |
+| 15 | `reject_document()` | Service function | `services/imm05.py::reject_document` | Unit |
+| 16 | `archive_document()` | Service function | `services/imm05.py::archive_document` | Unit |
+| 17 | `list_documents()` | Service function | `services/imm05.py::list_documents` | Unit + API (pagination, visibility) |
+| 18 | `get_document()` | Service function | `services/imm05.py::get_document` | Unit (NOT_FOUND) |
+| 19 | `get_asset_documents()` | Service function | `services/imm05.py::get_asset_documents` | Integration (completeness) |
+| 20 | `get_dashboard_stats()` | Service function | `services/imm05.py::get_dashboard_stats` | Unit |
+| 21 | `get_expiring_documents()` | Service function | `services/imm05.py::get_expiring_documents` | Unit |
+| 22 | `get_compliance_by_dept()` | Service function | `services/imm05.py::get_compliance_by_dept` | Unit |
+| 23 | `get_document_history()` | Service function | `services/imm05.py::get_document_history` | Integration (audit chain) |
+| 24 | `create_document_request()` / `get_document_requests()` | Service function | `services/imm05.py` | Unit + API |
+| 25 | `mark_exempt()` | Service function | `services/imm05.py::mark_exempt` | Unit (role guard) |
+| 26 | 16 API endpoints | API | `api/imm05.py::*` | API integration |
+| 27 | Document views / store | FE | `frontend/src/api/imm05.ts` · `frontend/src/types/imm05.ts` | E2E (Playwright) |
+
+## I.2. Trace nguồn test — User Stories, Activity Flows, Business Rules
+
+3 bảng dẫn từ artefact phân tích (file 02) sang test layer. Mỗi US/BR/Activity có ≥ 1 test ở Phần III và xuất hiện trong matrix Phần IV.
+
+### I.2.a. Từ User Story
+→ 02 §III.5 UC↔US mapping, §US-05-01..09
+
+| US ID | Tiêu đề ngắn | Acceptance Criteria # | Test layer dự kiến |
+|---|---|---|---|
+| US-05-01 | Upload tài liệu mới | AC1, AC2 | Unit + API + UAT |
+| US-05-02 | Approve / Reject (auto-archive version cũ) | AC1, AC2 | Unit + API + UAT |
+| US-05-03 | System auto-import từ IMM-04 | AC1 | Integration + UAT |
+| US-05-04 | Cảnh báo hết hạn (scheduler) | AC1, AC2 | Unit + Cron + UAT |
+| US-05-05 | Dashboard KPIs | AC1 | Unit + UAT |
+| US-05-06 | Xem kho hồ sơ theo Asset | AC1 | Integration + UAT |
+| US-05-07 | Version control | AC1 | Unit + UAT |
+| US-05-08 | Document Request | AC1 | Unit + API |
+| US-05-09 | Mark Exempt | AC1 | Unit + UAT |
+
+### I.2.b. Từ Business Rule
+→ 02 §Business Rules (BR-05-01..10)
+
+| BR ID | Phát biểu (rút gọn) | Component liên quan (I.1) | Kỹ thuật test phù hợp |
+|---|---|---|---|
+| BR-05-01 | 1 Active doc per (asset_ref + doc_type_detail) — archive cũ | `approve_document` (#14), `on_update` archive | Decision Table |
+| BR-05-02 | Không xóa cứng — `on_trash()` throw | Asset Document DocType (#1) | Error guessing |
+| BR-05-03 | Expiry alert 90/60/30/0 idempotent | `check_document_expiry` (#6), `_resolve_alert_level` (#7) | BVA |
+| BR-05-04 | Auto-import từ IMM-04 khi Clinical Release | IMM-04 `on_submit` hook | Use Case |
+| BR-05-05 | Bộ hồ sơ bắt buộc qua Required Document Type | `get_asset_documents` (#19) | EP |
+| BR-05-06 | `is_model_level=1` áp dụng toàn bộ asset cùng model | UI filter + report | EP |
+| BR-05-07 | GW-2: block IMM-04 Submit nếu thiếu CN ĐKLH + không exempt | IMM-04 `validate()` | Decision Table |
+| BR-05-08 | Exempt → `document_status = "Compliant (Exempt)"` | `mark_exempt` (#25), `_compute_document_status` | Decision Table |
+| BR-05-09 | `change_summary` bắt buộc khi version ≠ "1.0" | Asset Document `validate()` (VR-09) | BVA + EP |
+| BR-05-10 | `Internal_Only` ẩn với non-internal roles | `_apply_visibility_filter` (#8) | Decision Table |
+
+### I.2.c. Từ Activity Flow / BPMN
+→ 02 §Use Case (UC-01..UC-10)
+
+| Activity (UC) | Use Case | Branch chính | Branch ngoại lệ |
+|---|---|---|---|
+| UC-01 | Upload tài liệu | Happy: Draft → Pending Review | Thiếu file, expiry ≤ issued, doc_number trùng |
+| UC-03 | Approve / Reject | Happy: Pending → Active | Reject không lý do, sai role, wrong state |
+| UC-04 | Version control | Approve v2 → v1 Archived | change_summary trống khi v ≠ 1.0 |
+| UC-05 | Mark Exempt | Exempt → Compliant (Exempt) | Sai role (không phải approve role) |
+| UC-08 | Dashboard | KPI đếm đúng | Không có doc → đếm 0 |
+| UC-09 | Cảnh báo hết hạn | Scheduler sinh alert đúng mốc | Chạy 2 lần cùng ngày (idempotent) |
+
+> 1 BR thường sinh 1 nhóm test (1 happy + N negative). 1 Activity branch = 1 path test trong State Transition.
+
+## I.3. Risk-based Priority
+
+| Component (I.1) | Likelihood (1-5) | Impact (1-5) | Risk = L×I | Priority |
+|---|---|---|---|---|
+| IMM-05 Document Workflow (#5) | 4 | 5 | 20 | **Critical** |
+| `approve_document` archive old (#14) | 4 | 5 | 20 | **Critical** |
+| `on_trash()` block delete (#1, BR-05-02) | 2 | 5 | 10 | High |
+| GW-2 gate cho IMM-04 (BR-05-07) | 3 | 5 | 15 | **Critical** |
+| `check_document_expiry` idempotent (#6) | 4 | 4 | 16 | **Critical** |
+| `_apply_visibility_filter` RBAC (#8) | 3 | 4 | 12 | High |
+| `mark_exempt` role guard (#25) | 3 | 4 | 12 | High |
+| `_resolve_alert_level` (#7) | 3 | 3 | 9 | Medium |
+| `list_documents` pagination (#17) | 3 | 2 | 6 | Medium |
+| `get_dashboard_stats` (#20) | 2 | 2 | 4 | Low |
+| `get_compliance_by_dept` (#22) | 2 | 2 | 4 | Low |
+
+**Quy ước priority**:
+- **Critical** (R ≥ 15): test trước, fail = block release
+- **High** (10 ≤ R < 15): bắt buộc trước go-live
+- **Medium** (5 ≤ R < 10): trong sprint khi có thời gian
+- **Low** (R < 5): chỉ test khi báo cáo bug
+
+## I.4. Scope
+
+**In-scope**:
+- Lifecycle Asset Document: upload → gửi duyệt → approve/reject → active → archive/expire (#1, #5, #11–#16)
+- Version control auto-archive (BR-05-01) và block delete (BR-05-02)
+- Scheduler expiry alert idempotent (#6, BR-05-03)
+- RBAC + visibility filter Internal_Only (#8, BR-05-10) và mark_exempt role guard (#25)
+- 16 API endpoint (#26): envelope, pagination, permission
+
+**Out-of-scope**:
+- Performance test → giao Phần III.8 (target-only, chưa benchmark)
+- Penetration test → Phần VI.10 (trước go-live)
+- GW-2 gate logic chi tiết thuộc IMM-04 → ở đây chỉ smoke cross-module (BR-05-07)
+- Auto-import từ IMM-04 → integration smoke; logic mint asset thuộc IMM-04
+
+**Assumptions**: master data (AC Asset, Required Document Type, AC Department) đã seed; test users đã tạo đủ các role; Chrome ≥ 120 cho E2E; file fixtures (PDF nhỏ/lớn/sai định dạng) sẵn sàng.
+
+---
+
+# Phần II — Test Design Techniques (Kỹ thuật thiết kế test case)
+
+> Mỗi test phải truy được về 1 kỹ thuật ở dưới.
+
+## II.1. Black-box techniques
+
+| Kỹ thuật | Khi nào dùng | Áp dụng vào IMM-05 | Số test sinh ra (rule of thumb) |
+|---|---|---|---|
+| **Equivalence Partitioning (EP)** | Input có miền giá trị chia nhóm | `doc_category` (Legal/Technical/Certification/Training/QA), `visibility` (Public/Internal_Only), workflow_state enum | 1 test/partition |
+| **Boundary Value Analysis (BVA)** | Numeric / date có biên | `days_remaining` mốc 90/60/30/0 trong `_resolve_alert_level`; `expiry_date` vs `issued_date`; `version` "1.0" vs khác | 2-3 test/biên |
+| **Decision Table** | Multi-condition gate | GW-2 (license Active AND NOT exempt), BR-05-01 (active duplicate), `_can_see_internal` (role ∈ internal set) | 2^N rút gọn theo equivalence |
+| **State Transition Testing** | Workflow finite state machine | `imm_05_document_workflow.json` (Draft → Pending Review → Active/Rejected/Archived/Expired) | Mỗi transition + invalid transition |
+| **Use Case Testing** | End-to-end actor flow | UAT scenarios, API integration test | 1/main + 1/alt + 1/exception |
+| **Pairwise / Combinatorial** | Nhiều field optional kết hợp | Form tạo Asset Document (doc_category × visibility × is_exempt) | Min set cover all pairs |
+| **Error Guessing** | Lỗi từ kinh nghiệm: null, empty, sai định dạng file, delete | `on_trash`, file .exe, file > 25MB, name không tồn tại | Bổ sung — không thay thế |
+
+## II.2. White-box techniques
+
+| Kỹ thuật | Áp dụng vào | Tiêu chí đạt | Công cụ |
+|---|---|---|---|
+| **Statement coverage** | Service functions `services/imm05.py` (I.1 #6–#25) | ≥ 85% line | `coverage report` |
+| **Branch / Decision coverage** | Functions có if/else, try/except (`update_document` state guard, `_resolve_alert_level`, `approve_document`) | ≥ 80% branch | `coverage --branch` |
+| **Condition / MC/DC** | GW-2 gate (license Active AND NOT exempt), `_can_see_internal` multi-role OR | Mỗi sub-condition kiểm soát outcome độc lập | Manual test design + coverage |
+| **Path coverage** | `_resolve_alert_level` (≤ 20 LOC, 5 nhánh mốc) | Toàn bộ path khả dĩ | Manual |
+
+> Ưu tiên Branch coverage cho service layer; MC/DC chỉ áp dụng vào GW-2 gate và visibility logic.
+
+## II.3. Mapping Component → Kỹ thuật
+
+| Loại component | Kỹ thuật chính | Kỹ thuật phụ |
+|---|---|---|
+| Field validator (VR-01/VR-02/VR-09) | BVA + EP | Error guessing |
+| Gate logic (GW-2, BR-05-01 duplicate) | Decision Table | MC/DC |
+| Workflow transition | State Transition | Use Case |
+| Service function pure (`_resolve_alert_level`) | EP + Branch coverage | BVA |
+| API endpoint | Use Case + EP | Pairwise (form input) |
+| Scheduler (`check_document_expiry`) | Use Case (setup → run → assert) | Error guessing (idempotent re-run) |
+| FE view (Playwright) | Use Case end-to-end | Error guessing (network 4xx/5xx, role gate) |
+
+---
+
+# Phần III — Test Plan (Kế hoạch thực thi)
+
+## III.1. Test Pyramid
 
 ```
                   ┌────────────┐
-                  │  E2E / UAT │  ← Playwright; Golden Scenario upload → approve → expire
+                  │  E2E / UAT │   ~5%   ← Playwright; Golden upload → approve → expire
                  ─┴────────────┴─
               ┌──────────────────────┐
-              │   API Integration    │  ← pytest + Frappe whitelist (15 endpoints)
+              │   API Integration    │   ~15%  ← 16 whitelist endpoints
              ─┴──────────────────────┴─
           ┌────────────────────────────────┐
-          │  Workflow + DocType lifecycle  │  ← pytest FrappeTestCase (6 states)
+          │  Workflow + DocType lifecycle  │   ~25%  ← 9 transition, 6 state
          ─┴────────────────────────────────┴─
       ┌────────────────────────────────────────────┐
-      │    Unit — Controller + Scheduler Logic     │  ← TDD; validate, expiry, version control
+      │         Unit — Service Layer               │   ~55%  ← services/imm05.py
      ─┴────────────────────────────────────────────┴─
 ```
 
-**Trạng thái thực tế (2026-05-14):**
-- ✅ `assetcore/services/imm05.py` (527 LOC) **đã có** — business logic đã refactor ra service layer.
-- ✅ Test scaffold thực tế: **một file duy nhất** `assetcore/tests/test_imm05.py` (237 LOC). Các tệp con `test_imm05_controller.py` / `test_imm05_tasks.py` / `test_imm05_validators.py` / `test_imm05_workflow.py` / `test_imm05_audit.py` / `test_imm05_api.py` mô tả phía dưới **chưa được tách** — coi là **kế hoạch chia file**, hiện đang gộp trong `test_imm05.py`.
-- API Integration count theo whitelist mới = **15 endpoints** (đã thêm `submit_for_review`).
+→ CLAUDE.md §17 (TDD mandatory).
 
-Mỗi business rule (BR-05-01 → BR-05-10) có ≥ 1 happy + 1 negative test.
+**Trạng thái thực tế (2026-05-29):** business logic đã refactor ra `assetcore/services/imm05.py` (24 hàm — xem I.1). Test hiện tại nằm trong **một file duy nhất** `assetcore/tests/test_imm05.py`; các file con `test_imm05_workflow.py` / `_api.py` / `_audit.py` / `test_asset_document_doctype.py` mô tả dưới đây là **kế hoạch chia file** (⬜ Planned), hiện chưa tách.
 
-## I.2. Unit Test — Controller & Tasks
+## III.2. Unit test — Service Layer
 
-**File:** `assetcore/tests/test_imm05_controller.py`
+**File:** `assetcore/tests/test_imm05.py` (đang có) — các test sau ✅ Live đã được viết thật trong file này.
 
-| Test class | Hàm cover | Cases dự kiến |
-|---|---|---|
-| `TestUniqueDocNumber` | VR-02: unique doc_number per asset + type | happy (new number), fail (duplicate same asset+type) |
-| `TestVersionControlArchive` | `archive_old_versions()` | happy (v1 Active → Archived when v2 Approved), no-op (no prior Active) |
-| `TestDeletePrevention` | `on_trash()` | always raise — BR-05-02 |
-| `TestExpiryValidation` | VR-01: expiry > issued_date | happy (expiry after issued), fail (expiry before issued) |
-| `TestFileRequired` | VR-03: file on submit | happy (file attached), fail (no file when submit) |
-| `TestLegalAuthorityRequired` | VR-04: issuing_authority for Legal | happy (set), fail (Legal + no authority) |
-| `TestCertExpiryRequired` | VR-07: expiry_date for Certification | happy (set), fail (Certification + no expiry) |
-| `TestChangeSummary` | BR-05-09: change_summary for v > 1.0 | happy (v1.0 no summary), fail (v2.0 no summary) |
-| `TestVisibilityFilter` | `_apply_visibility_filter()` | Internal user → sees Internal_Only, Clinical Head → does not |
-| `TestExemptComputation` | `_compute_document_status()` | exempt=1 → "Compliant (Exempt)", 100% active → "Compliant" |
-| `TestGW2Gate` | `_gw2_check_document_compliance()` | has Active license → pass, Expired license → fail, is_exempt=1 → pass |
+| Test class | Function cover (I.1) | Kỹ thuật | Cases (happy/negative) | Status |
+|---|---|---|---|---|
+| `TestResolveAlertLevel` | `_resolve_alert_level` (#7) | BVA (mốc 0/30/90/91) | 8 / 0 | ✅ Live |
+| `TestCreateDocument` | `create_document` (#11) | EP | 2 / 0 | ✅ Live |
+| `TestUpdateDocument` | `update_document` (#13) | State guard / EP | 1 / 2 (active blocked, not found) | ✅ Live |
+| `TestApproveDocument` | `approve_document` (#14) | Decision Table (archive old) | 1 / 1 + 1 archive assert | ✅ Live |
+| `TestRejectDocument` | `reject_document` (#15) | EP | 1 / 2 (no reason, bad state) | ✅ Live |
+| `TestListDocuments` | `list_documents` (#17) | EP (pagination) | 2 / 0 | ✅ Live |
+| `TestKpiExpiredDocs` | `get_dashboard_stats` (#20) | EP | 2 / 0 (expiry-only filter) | ✅ Live |
+| `TestDepreciationDefaults` | (chia sẻ helper depreciation) | EP | 3 / 0 | ✅ Live |
+| `TestGenerateScheduleZeroPrice` | (chia sẻ helper depreciation) | BVA / Error guessing | 1 / 2 | ✅ Live |
+| `TestFullyDepreciatedSoT` (`test_depreciation.py`) | `is_fully_depreciated` / `is_configured_for_depreciation` SoT (BR-05-15) | BVA (book==residual, +1, +2; residual=0→book≤1) + Decision Table (configured) | 4 / 5 (NOT configured, +2, book=2, book=None→gross) | ✅ Live |
+| `TestFullyDepreciatedReadPath` (`test_imm05.py`) | `get_depreciation_stats` count ↔ `list_assets_depreciation(depreciation_filter)` drill (INV-DEP-5) | Invariant (count==drill) + EP (AND method/category) + Regression (other keys) | 6 / 0 | ✅ Live |
+| `TestVisibilityFilter` | `_apply_visibility_filter` (#8) | Decision Table | — | ⬜ Planned |
+| `TestSubmitForReview` | `submit_for_review` (#12) | EP + Error guessing (no file) | — | ⬜ Planned |
+| `TestArchiveDocument` | `archive_document` (#16) | EP | — | ⬜ Planned |
+| `TestMarkExempt` | `mark_exempt` (#25) | Decision Table + role guard | — | ⬜ Planned |
+| `TestGetAssetDocuments` | `get_asset_documents` (#19) | EP (completeness) | — | ⬜ Planned |
 
-**File:** `assetcore/tests/test_imm05_tasks.py`
+> Test thuần công thức (`_resolve_alert_level`) dùng `unittest.TestCase` không cần DB — chạy ms-level, không cần fixture cleanup.
 
-| Test class | Hàm cover | Cases dự kiến |
-|---|---|---|
-| `TestCheckDocumentExpiry` | `check_document_expiry()` | 90d: alert Info created (idempotent), 30d: alert Critical, 0d: doc → Expired, no duplicate same day |
-| `TestUpdateAssetCompleteness` | `update_asset_completeness()` | 100% → Compliant, missing required → Incomplete, expired → At Risk |
-| `TestOverdueDocumentRequests` | `check_overdue_document_requests()` | past due_date → status=Overdue, escalation sent |
+## III.3. Integration — DocType lifecycle
 
-**Pattern seed:**
-```python
-class TestVersionControlArchive(FrappeTestCase):
-    def setUp(self):
-        self.asset = make_asset("AC-ASSET-TEST-001")
-        self.doc_v1 = make_asset_document(
-            asset_ref=self.asset.name,
-            doc_type_detail="Giấy phép nhập khẩu",
-            version="1.0",
-            workflow_state="Active"
-        )
+**File:** `assetcore/tests/test_asset_document_doctype.py` ⬜ Planned (chưa tách). Cover hook `validate / on_submit / on_update_after_submit / on_trash`.
 
-    def test_archive_old_on_new_approve(self):
-        doc_v2 = make_asset_document(
-            asset_ref=self.asset.name,
-            doc_type_detail="Giấy phép nhập khẩu",
-            version="2.0"
-        )
-        doc_v2.workflow_state = "Active"
-        doc_v2.save()
-        archive_old_versions(doc_v2)
-        self.doc_v1.reload()
-        self.assertEqual(self.doc_v1.workflow_state, "Archived")
-        self.assertEqual(self.doc_v1.superseded_by, doc_v2.name)
-```
+| Test | Setup | Action | Assert | Kỹ thuật |
+|---|---|---|---|---|
+| `test_on_trash_always_blocked` | Asset Document bất kỳ | `frappe.delete_doc(...)` | `frappe.ValidationError` (BR-05-02) | Error guessing |
+| `test_submit_without_file_blocked` | Draft, no attachment | gửi duyệt | `ValidationError` chứa "VR" file | EP |
+| `test_approve_archives_old_active` | 1 Active same type | doc mới → Active | doc cũ `workflow_state == "Archived"`, `superseded_by` set | Decision Table |
+| `test_change_summary_required_v2` | `version = "2.0"` | save không change_summary | `ValidationError` chứa "change_summary" (BR-05-09) | BVA |
 
-## I.3. Unit Test — Validators & Repository
+> Fixture trong `setUpClass` phải có `tearDownClass` purge — xem `assetcore-test` LL-TEST-17.
 
-**File:** `assetcore/tests/test_imm05_validators.py`
+## III.4. Integration — Workflow transitions
 
-| Validator | Happy | Fail |
-|---|---|---|
-| `_check_expiry_date_after_issued(doc)` | expiry > issued → pass | expiry ≤ issued → raise |
-| `_check_file_format(attachment)` | PDF/JPG/PNG → pass | .exe → raise |
-| `_check_file_size(attachment)` | 24.9 MB → pass | 25.1 MB → raise |
-| `_check_no_active_duplicate(doc)` | no Active same type → pass | 1 Active same type → warn/block |
-| `DocumentRepo.list(filters)` | Trả list đúng phân trang + visibility filter | Filter không hợp lệ → empty |
-| `DocumentRepo.get(name)` | Trả doc đầy đủ | Không tồn tại → raise NOT_FOUND |
-| `DocumentRepo.get_asset_documents(asset)` | Group theo category, completeness đúng | Asset không tồn tại → raise |
+**File:** `assetcore/tests/test_imm05_workflow.py` ⬜ Planned. Workflow `imm_05_document_workflow.json`: **6 state, 9 transition** (đã verify bằng `len(...['transitions'])`). 9 transition gồm 4 action × các role allowed.
 
-## I.4. Integration Test — DocType Lifecycle
+| Transition (action) | From → To | Role required (allowed) | Test pass | Test fail |
+|---|---|---|---|---|
+| Gửi duyệt | Draft → Pending Review | PM User | ☐ | ☐ (no file) |
+| Gửi duyệt | Draft → Pending Review | AssetCore Super Admin | ☐ | — |
+| Phê duyệt | Pending Review → Active | Compliance Manager | ☐ | ☐ (wrong role) |
+| Phê duyệt | Pending Review → Active | AssetCore Super Admin | ☐ | — |
+| Từ chối | Pending Review → Rejected | Compliance Manager | ☐ | ☐ (no reason) |
+| Từ chối | Pending Review → Rejected | AssetCore Super Admin | ☐ | — |
+| Gửi lại | Rejected → Pending Review | PM User | ☐ | — |
+| Gửi lại | Rejected → Pending Review | AssetCore Super Admin | ☐ | — |
+| Lưu trữ | Active → Archived | AssetCore Super Admin | ☐ | ☐ (wrong role) |
 
-**File:** `assetcore/tests/test_asset_document_doctype.py`
+State `Expired` (docstatus=1) đạt được qua scheduler `check_document_expiry` (không phải workflow transition) — cover ở III.2 `check_document_expiry`.
 
-| Test | Setup | Action | Assert |
+**Kỹ thuật**: State Transition Testing — mỗi edge = 1 test pass + 1 test fail (invalid transition / wrong role).
+
+## III.5. Integration — Audit chain integrity
+
+**File:** `assetcore/tests/test_imm05_audit.py` ⬜ Planned. 2 test chính:
+- (a) Sau chuỗi mutation (create → submit → approve), `get_document_history(name)` (#23) trả ≥ 3 entry và chain hợp lệ.
+- (b) `check_document_expiry` chạy 2 lần cùng ngày → Expiry Alert Log không sinh duplicate (idempotent theo `alert_date` + `asset_document`).
+
+→ 04 Backend §Audit Trail · Frappe `Version` DocType + `Expiry Alert Log`.
+
+> *(Cần khảo sát)*: hiện chưa xác minh có `IMM Audit Trail` chain SHA-256 cho Asset Document hay chỉ dùng Frappe `Version`. Test tamper-hash chỉ áp dụng nếu chain hash tồn tại.
+
+## III.6. API test
+
+**File:** `assetcore/tests/test_imm05_api.py` ⬜ Planned. 16 endpoint (verify từ `api/imm05.py`).
+
+| Test | Endpoint | Verify | Kỹ thuật |
 |---|---|---|---|
-| `test_on_trash_always_blocked` | Asset Document Archived | `frappe.delete_doc(...)` | `frappe.PermissionError` hoặc custom `ValidationError` |
-| `test_submit_without_file_blocked` | Draft doc, no attachment | `doc.workflow_state = "Pending Review"` + save | `ValidationError` chứa "VR-03" |
-| `test_approve_archives_old_active` | 1 Active doc same type | New doc → Approved | Old doc workflow_state == "Archived" |
-| `test_scheduler_expires_overdue_doc` | Active doc, expiry = yesterday | Run `check_document_expiry()` | doc.workflow_state == "Expired" |
-| `test_change_summary_required_v2` | version = "2.0" | Save without change_summary | `ValidationError` chứa "change_summary" |
-| `test_auto_import_from_imm04_on_submit` | Commissioning with docs at Clinical Release | `commissioning.submit()` | ≥ 3 Asset Document records, `source_module = "IMM-04"` |
-| `test_gw2_gate_blocks_commissioning` | Asset với no Active license doc | IMM-04 `validate()` | `ValidationError` chứa "GW-2" |
-| `test_exempt_bypasses_gw2` | Asset với `is_exempt = 1` | IMM-04 `validate()` | No raise |
+| `test_list_default_pagination` | `list_documents` | `success=true`, page=1, page_size=20 | Use Case |
+| `test_list_internal_hidden` | `list_documents` (non-internal role) | No Internal_Only rows | EP (visibility) |
+| `test_get_existing` | `get_document` | `success=true`, fields đầy đủ | Use Case |
+| `test_get_not_found` | `get_document?name=FAKE` | `code=NOT_FOUND` | Error guessing |
+| `test_create_happy` | `create_document` | `success=true`, name trả về | Use Case |
+| `test_create_invalid` | `create_document` (no asset_ref) | `code=VALIDATION` | EP |
+| `test_submit_for_review` | `submit_for_review` | state → Pending Review | Use Case |
+| `test_approve_archives_old` | `approve_document` | old doc → Archived | Decision Table |
+| `test_reject_no_reason` | `reject_document` (empty) | `code=VALIDATION` | EP |
+| `test_archive_document` | `archive_document` | state → Archived | Use Case |
+| `test_get_asset_documents` | `get_asset_documents` | completeness % đúng | Use Case |
+| `test_get_dashboard_stats` | `get_dashboard_stats` | KPI fields trả về | Use Case |
+| `test_get_expiring_documents` | `get_expiring_documents?days=30` | chỉ doc ≤ 30d | BVA |
+| `test_get_compliance_by_dept` | `get_compliance_by_dept` | list theo dept | Use Case |
+| `test_document_history` | `get_document_history` | ≥ 1 version entry | Use Case |
+| `test_create_get_request` | `create_document_request` / `get_document_requests` | request tạo + truy vấn | Use Case |
+| `test_mark_exempt` | `mark_exempt` | is_exempt=1 | Decision Table |
+| `test_mark_exempt_wrong_role` | `mark_exempt` (low-role) | `code=FORBIDDEN` / PermissionError | EP (permission partition) |
 
-## I.5. Integration Test — Workflow Transitions
+Cover bắt buộc: envelope `success=true` · `INVALID_PARAMS` / `VALIDATION` · `FORBIDDEN` · pagination boundary · idempotent retry.
 
-**File:** `assetcore/tests/test_imm05_workflow.py`
+## III.7. E2E browser (Playwright)
 
-Workflow `IMM-05 Document Workflow` có 6 state, 8 transition:
+Dùng cho flow UI khó cover bằng API: dropdown cascade (asset → model/dept auto-fill), modal confirm approve/reject, hiển thị nút workflow theo role, upload file attachment.
 
-| Transition | From → To | Role required | Test |
-|---|---|---|---|
-| Gửi duyệt | Draft → Pending Review | Biomed Engineer, CMMS Admin | pass + fail(no file attached) |
-| Phê duyệt | Pending Review → Active | Tổ HC-QLCL, CMMS Admin | pass + fail(wrong role=HTM Technician) |
-| Từ chối | Pending Review → Rejected | Tổ HC-QLCL, CMMS Admin | pass + fail(no rejection_reason) |
-| Gửi lại | Rejected → Pending Review | Biomed Engineer | pass |
-| Lưu trữ thủ công | Active → Archived | CMMS Admin | pass + fail(wrong role) |
-| Hủy bỏ | Draft → Archived | CMMS Admin | pass |
-| (auto) Expire | Active → Expired | Scheduler | pass (expiry day run) |
-| (auto) Archive cũ | Active → Archived | Controller | pass (on approve newer version) |
+→ `assetcore-test` skill Phần 2 (Playwright MCP recipes + R-1..R-9 data rules). Golden scenario ở V.4 (UAT-IMM-05-01/03/05).
 
-## I.6. Integration Test — Audit Chain Integrity
+## III.8. Performance test
 
-**File:** `assetcore/tests/test_imm05_audit.py`
+Target-only (chưa benchmark). Tool **k6** hoặc `pytest-benchmark`.
 
-```python
-def test_version_history_recorded_on_each_state_change():
-    # Create doc → submit → approve
-    # Check frappe.get_all("Version", filters={"ref_doctype":"Asset Document", "docname": doc.name})
-    # Assert >= 3 version records
-
-def test_expiry_alert_log_idempotent():
-    # Create Active doc, expiry = today + 30
-    # Run check_document_expiry() twice same day
-    # Assert Expiry Alert Log count == 1 (no duplicate)
-
-def test_audit_trail_created_on_approve():
-    # Approve document
-    # Assert IMM Audit Trail record exists with event_type = "document_approved"
-```
-
-## I.7. API Test
-
-**File:** `assetcore/tests/test_imm05_api.py`
-
-| Test | Endpoint | Verify |
+| Metric | Target | Method |
 |---|---|---|
-| `test_list_default_pagination` | `list_documents` | page=1, page_size=20, total ≥ 0 |
-| `test_list_internal_only_hidden` | `list_documents` (as Clinical Head) | No Internal_Only rows returned |
-| `test_get_existing` | `get_document?name=DOC-...` | `success=true`, fields đầy đủ |
-| `test_get_not_found` | `get_document?name=FAKE` | `success=false`, `code=NOT_FOUND` |
-| `test_create_happy` | `create_document` | `success=true`, DOC-xx-xxx trả về |
-| `test_create_no_asset` | (no asset_ref) | `success=false`, `code=VALIDATION` |
-| `test_create_no_permission` | role=Clinical Head | HTTP 403 |
-| `test_approve_document_archives_old` | `approve_document` | Old doc → Archived |
-| `test_reject_document_no_reason` | `reject_document` without reason | `code=VALIDATION` |
-| `test_get_asset_documents_completeness` | `get_asset_documents?asset=ACC-...` | completeness % correct |
-| `test_get_expiring_documents` | `get_expiring_documents?days=30` | Only docs expiring ≤ 30d |
-| `test_mark_exempt` | `mark_exempt` | is_exempt=1, document_status="Compliant (Exempt)" |
-| `test_mark_exempt_wrong_role` | `mark_exempt` by HTM Technician | HTTP 403 |
-| `test_get_dashboard_stats` | `get_dashboard_stats` | `active_count`, `expiring_30d`, `expired_count` |
+| `list_documents` p95 (500 docs) | ≤ 800ms | k6 GET ramping 20 VU |
+| `get_asset_documents` p95 (50 docs/asset) | ≤ 500ms | k6 |
+| `approve_document` (archive old) p95 | ≤ 1.5s | k6 POST |
+| Scheduler `check_document_expiry` (1000 Active) | ≤ 60s | `time bench execute …` |
 
-## I.8. E2E Browser (Playwright)
-
-**File:** `assetcore/tests/e2e/test_imm05_golden.py`
-
-**Golden scenario:** Upload doc (HTM Technician) → Gửi duyệt → Approve (Biomed) → Verify Active → Upload version 2 → Approve → Verify v1 Archived → Scheduler chạy → Verify Expired alert log.
-
-Chạy: `pytest assetcore/tests/e2e/ -m imm05 --headed` (staging only).
-
-## I.9. Performance Test
-
-| Metric | Target | Phương pháp |
-|---|---|---|
-| `list_documents` p95 (500 docs) | ≤ 800 ms | k6 ramping 20 VU |
-| `get_asset_documents` p95 (50 docs per asset) | ≤ 500 ms | k6 |
-| `approve_document` (with archive old) p95 | ≤ 1.5 s | k6 |
-| Scheduler `check_document_expiry` (1000 Active docs) | ≤ 60 s | bench execute + timer |
-| `update_asset_completeness` (500 assets) | ≤ 120 s | bench execute + timer |
-| File upload 25 MB PDF | ≤ 30 s | curl timing |
-
-## I.10. Test Data
+## III.9. Test data & Fixtures
 
 | Loại | Cách seed | File |
 |---|---|---|
-| AC Asset | `tests/fixtures/imm05_assets.json` | 5 assets (CT, X-Ray, Pump, Ventilator, LINAC) |
-| Required Document Type | `tests/fixtures/imm05_required_doc_types.json` | CO, CQ, Manual, License, Radiation License |
-| Asset Document (các state) | `tests/fixtures/imm05_documents.json` | Draft/Pending/Active/Archived/Expired per asset |
-| Expiry Alert Log | — | Seeded by `check_document_expiry` run |
-| UAT full seed | `scripts/uat/uat_imm05.py` | All assets + users + docs |
+| Master (AC Asset, AC Department, Required Document Type) | `fixtures/*.json` (qua `bench migrate`) | `assetcore/fixtures/` |
+| Test records (Asset Document các state) | `test_records.json` per DocType | `asset_document/test_records.json` *(Cần khảo sát — có thể chưa tồn tại)* |
+| Test PDF (nhỏ / > 25MB / sai định dạng) | file tĩnh | `tests/fixtures/imm05/` *(Cần khảo sát)* |
+| UAT seed | Python script | `assetcore/scripts/uat/uat_imm05.py` *(Cần khảo sát — chưa verify tồn tại)* |
 
-Reset script: `bench --site assetcore.local execute assetcore.scripts.uat.uat_imm05.seed_data`
+> UAT data phải thực tế (tên bệnh viện VN, mã NCC chuẩn). Backend test fixture mới dùng prefix `_Test` — xem `assetcore-test` R-0/R-1.
 
-## I.11. Run Commands & Coverage Gate
+## III.10. Run commands & Coverage gate
 
 ```bash
-# Unit + integration
-bench --site assetcore.local run-tests --app assetcore --module assetcore.tests.test_imm05_controller
-bench --site assetcore.local run-tests --app assetcore --module assetcore.tests.test_asset_document_doctype
-
-# Full suite (CI)
-bench --site assetcore.local run-tests --app assetcore --coverage
-
-# UAT golden scenario
-bench --site uat.assetcore.local execute assetcore.scripts.uat.uat_imm05.run
-
-# Manual scheduler test
-bench --site assetcore.local execute assetcore.tasks.check_document_expiry
+# Module test (file hiện có)
+bench --site assetcore.local run-tests --app assetcore --module assetcore.tests.test_imm05
+# Coverage
+coverage run -m unittest assetcore.tests.test_imm05 && coverage report
+# Scheduler thủ công
+bench --site assetcore.local execute assetcore.services.imm05.check_document_expiry
 ```
 
-| Layer | Coverage target | Đo |
+| Layer | Target coverage | Đo |
 |---|---|---|
-| Controller (`asset_document.py`) | ≥ 85% | `coverage report` |
-| Tasks (`tasks.py` — imm05 funcs) | ≥ 75% | `coverage report` |
+| Service (`services/imm05.py`) | ≥ 85% line + ≥ 80% branch | `coverage --branch` |
+| DocType lifecycle | ≥ 70% | `coverage report` |
 | API (`api/imm05.py`) | ≥ 60% | `coverage report` |
-| Frontend (vue-tsc) | Không crash build | CI `npm run build` |
+| Frontend (vue-tsc) | 0 error | `npm run build` |
 
-CI fail nếu coverage < target hoặc bất kỳ test nào fail.
-
-## I.12. Đo Chất Lượng Mã Nguồn
-
-| Tool | Mục tiêu | Target | Cadence |
-|---|---|---|---|
-| **SonarQube** (BE Python) | Bug 0 Critical, code smell ≤ 5, duplication ≤ 3%, coverage ≥ 70%, security hotspot review 100% | Quality Gate pass | Mỗi PR (CI gate) |
-| **Lighthouse** (FE — Document views) | Performance ≥ 90, Accessibility ≥ 95, Best Practices ≥ 90 | ≥ target | Mỗi release + monthly |
-| **ESLint + vue-tsc** | 0 error, 0 warning prod build | pass | Mỗi PR FE (CI gate) |
-| **ruff / black** (BE) | 0 error, format chuẩn PEP8 | pass | Mỗi PR (CI gate) |
-| **Bundle size** (FE chunk imm05) | main chunk ≤ 250 KB gzip | ≤ budget | Mỗi PR FE (CI report) |
+> Coverage % thực tế: *(Cần khảo sát — chưa chạy `coverage report`)*. Chỉ ghi target.
 
 ---
 
-# Phần II — UAT Script
+# Phần IV — Traceability Matrices
 
-## II.1. Phạm vi UAT
+> Mọi test ở Phần III phải xuất hiện ở cả 3 bảng.
 
-**In-scope:**
-- Upload, gửi duyệt, approve, reject (BR-05-01)
-- Version control — archive tự động (BR-05-01)
-- Xóa document bị block (BR-05-02)
-- Expiry alert scheduler (BR-05-03)
-- Auto-import từ IMM-04 (BR-05-04)
-- Required Document Type completeness (BR-05-05)
-- GW-2 gate cung cấp cho IMM-04 (BR-05-07)
-- Exempt NĐ98 flow (BR-05-08)
-- Visibility filter Internal_Only (BR-05-10)
-- Dashboard KPIs
-- Phân quyền mỗi role
+## IV.1. US → Test mapping
 
-**Out-of-scope (UAT):** Load testing, penetration testing (xử lý ở §I và §III).
+| US ID | AC | Test ID (III.x) | Layer | Status |
+|---|---|---|---|---|
+| US-05-01 | AC1 | `TestCreateDocument::test_create_returns_name_and_state` | Unit | ✅ Live |
+| US-05-01 | AC2 | `TestCreateDocument::test_default_version_is_1_0` | Unit | ✅ Live |
+| US-05-02 | AC1 | `TestApproveDocument::test_approve_pending_review_succeeds` | Unit | ✅ Live |
+| US-05-02 | AC2 | `TestRejectDocument::test_reject_without_reason_raises` | Unit | ✅ Live |
+| US-05-03 | AC1 | `test_auto_import_from_imm04_on_submit` | Integration | ⬜ Planned |
+| US-05-04 | AC1 | `TestResolveAlertLevel::*` (8 case) | Unit | ✅ Live |
+| US-05-04 | AC2 | `test_expiry_alert_log_idempotent` | Integration | ⬜ Planned |
+| US-05-05 | AC1 | `TestKpiExpiredDocs::test_expired_kpi_counts_draft_doc` | Unit | ✅ Live |
+| US-05-06 | AC1 | `test_get_asset_documents_completeness` | Integration/API | ⬜ Planned |
+| US-05-07 | AC1 | `TestApproveDocument::test_approve_archives_old_active` | Unit | ✅ Live |
+| US-05-08 | AC1 | `test_create_get_request` | API | ⬜ Planned |
+| US-05-09 | AC1 | `TestMarkExempt` | Unit | ⬜ Planned |
 
-**Pre-conditions:**
-- UAT site: `uat.assetcore.vn` đã deploy bản mới nhất
-- Seed data chạy: `uat_imm05.py seed_data`
-- 6 tester accounts tạo (xem §II.2)
-- ≥ 3 Asset đã được mint từ IMM-04
-- Browser: Chrome ≥ 120
+## IV.2. BR → Test mapping
 
-## II.2. Tester Accounts
+| BR ID | Phát biểu (rút gọn) | Test ID | Kỹ thuật | Happy / Negative |
+|---|---|---|---|---|
+| BR-05-01 | 1 Active per (asset+type), archive cũ | `TestApproveDocument::test_approve_archives_old_active` | Decision Table | 1 / 0 (negative ⬜ Planned) |
+| BR-05-02 | Không xóa cứng | `test_on_trash_always_blocked` ⬜ | Error guessing | 0 / 1 ⬜ Planned |
+| BR-05-03 | Expiry alert 90/60/30/0 idempotent | `TestResolveAlertLevel::*` ✅ + `test_expiry_alert_log_idempotent` ⬜ | BVA | 8 / 0 (idempotent ⬜) |
+| BR-05-04 | Auto-import từ IMM-04 | `test_auto_import_from_imm04_on_submit` ⬜ | Use Case | ⬜ Planned |
+| BR-05-05 | Completeness qua Required Document Type | `test_get_asset_documents_completeness` ⬜ | EP | ⬜ Planned |
+| BR-05-06 | `is_model_level` áp dụng theo model | *(Cần khảo sát)* | EP | ⬜ Planned |
+| BR-05-07 | GW-2 block IMM-04 | `test_gw2_gate_blocks_commissioning` ⬜ (IMM-04) | Decision Table | ⬜ Planned |
+| BR-05-08 | Exempt → Compliant (Exempt) | `TestMarkExempt` ⬜ | Decision Table | ⬜ Planned |
+| BR-05-09 | change_summary bắt buộc v ≠ 1.0 | `test_change_summary_required_v2` ⬜ | BVA | ⬜ Planned |
+| BR-05-10 | Internal_Only ẩn với non-internal | `TestVisibilityFilter` ⬜ | Decision Table | ⬜ Planned |
 
-| Username | Email | Role | Vai trò UAT |
-|---|---|---|---|
-| `test_ktvh` | ktvh@hospital.vn | HTM Technician | Upload doc, gửi duyệt |
-| `test_biomed` | biomed@hospital.vn | Biomed Engineer | Approve/Reject doc |
-| `test_qa` | qa@hospital.vn | Tổ HC-QLCL | Approve, mark exempt |
-| `test_txn` | txn@hospital.vn | Workshop Head | Cancel/Amend, xem Dashboard |
-| `test_vp` | vp@hospital.vn | VP Block2 | Nhận escalation, xem KPI |
-| `test_clinical` | clinical@hospital.vn | Clinical Head | Read-only Public docs |
+**Gap thật:** chỉ BR-05-01/03 và phần happy-path đang có test ✅ Live trong `test_imm05.py`; các negative test và BR còn lại là ⬜ Planned (chưa viết).
 
-Mật khẩu UAT: `Assetcore@2026` (reset sau UAT).
+## IV.3. Component → Test mapping
 
-## II.3. Test Data Đã Seed
+| Component (I.1) | Test ID | Test layer | Coverage % | Risk priority (I.3) |
+|---|---|---|---|---|
+| `_resolve_alert_level` (#7) | `TestResolveAlertLevel` | Unit | *(Cần khảo sát)* | Medium |
+| `create_document` (#11) | `TestCreateDocument` | Unit | *(Cần khảo sát)* | Medium |
+| `update_document` (#13) | `TestUpdateDocument` | Unit | *(Cần khảo sát)* | Medium |
+| `approve_document` (#14) | `TestApproveDocument` | Unit | *(Cần khảo sát)* | Critical |
+| `reject_document` (#15) | `TestRejectDocument` | Unit | *(Cần khảo sát)* | High |
+| `list_documents` (#17) | `TestListDocuments` | Unit | *(Cần khảo sát)* | Medium |
+| `get_dashboard_stats` (#20) | `TestKpiExpiredDocs` | Unit | *(Cần khảo sát)* | Low |
+| Workflow (#5) | `test_imm05_workflow.py` ⬜ | Integration | 0% (chưa viết) | Critical |
+| `check_document_expiry` (#6) | `test_expiry_alert_log_idempotent` ⬜ | Integration | 0% (idempotent chưa viết) | Critical |
+| `_apply_visibility_filter` (#8) | `TestVisibilityFilter` ⬜ | Unit | 0% | High |
+| `mark_exempt` (#25) | `TestMarkExempt` ⬜ | Unit | 0% | High |
+| 16 API endpoint (#26) | `test_imm05_api.py` ⬜ | API | 0% | High |
+
+---
+
+# Phần V — UAT Script
+
+## V.1. Phạm vi UAT
+
+**In-scope**:
+- Upload → gửi duyệt → approve/reject (US-05-01/02, BR-05-01)
+- Version control auto-archive (US-05-07, BR-05-01)
+- Block xóa document (BR-05-02)
+- Expiry alert scheduler idempotent (US-05-04, BR-05-03)
+- Auto-import từ IMM-04 (US-05-03, BR-05-04)
+- Completeness (BR-05-05), GW-2 gate (BR-05-07), Exempt (BR-05-08)
+- Visibility filter Internal_Only (BR-05-10), Dashboard KPIs (US-05-05), phân quyền mỗi role
+
+**Out-of-scope**: load testing (III.8), penetration testing (Phần VI).
+
+**Pre-condition**: UAT site deploy bản mới nhất; seed data chạy; tester accounts active đủ các role; ≥ 3 Asset đã mint từ IMM-04; Chrome ≥ 120.
+
+## V.2. Tester accounts
+
+> Phải có account role thấp (read-only) để cover FORBIDDEN case, không chỉ Admin.
+
+| Username | Role | Vai trò UAT |
+|---|---|---|
+| `test_super` | AssetCore Super Admin | Approve/Reject, archive, mark exempt, full flow |
+| `test_docmgr` | Document Manager | Approve/Reject, submit, cancel |
+| `test_docuser` | Document User | Upload, gửi duyệt (không approve) |
+| `test_pm` | PM User | Gửi duyệt / gửi lại (workflow) |
+| `test_compliance` | Compliance Manager | Phê duyệt / từ chối (workflow) |
+| `test_auditor` | AssetCore Auditor | Read-only — cover FORBIDDEN trên create/approve |
+
+> Các role workflow (PM User, Compliance Manager) lấy từ `imm_05_document_workflow.json`; các role DocPerm (Document Manager/User, Auditor) lấy từ `asset_document.json`. Mật khẩu UAT reset sau phiên.
+
+## V.3. Test data đã seed
 
 | DocType | Số lượng | Ghi chú |
 |---|---|---|
-| AC Asset | 5 | Các loại thiết bị, 2 bức xạ |
+| AC Asset | 5 | CT, X-Ray, Pump, Ventilator, LINAC (2 thiết bị bức xạ) |
 | Required Document Type | 5 | CO, CQ, Manual, License, Radiation License |
-| Asset Document | 8 | Draft, Pending Review, Active, Archived, Expired (per asset) |
-| Test PDF files | 3 | test-doc.pdf (<1MB), test-large.pdf (>25MB), test-expired-doc.pdf |
+| Asset Document | 8 | Draft / Pending Review / Active / Rejected / Archived / Expired (per asset) |
+| Test PDF | 3 | nhỏ (<1MB), lớn (>25MB), sai định dạng (.exe) |
 
-## II.4. Test Scenarios
+Reset script: `bench --site uat.assetcore.local execute assetcore.scripts.uat.uat_imm05.seed_data` *(Cần khảo sát — verify script tồn tại)*.
 
-### UAT-IMM05-01 — Upload tài liệu mới và gửi duyệt (Happy Path)
+## V.4. UAT Scenarios — Suy ra từ US + Activity
 
-**Liên kết:** US-05-01, BR-05-01
-**Role tester:** HTM Technician → Biomed Engineer
-**Mục tiêu:** Upload doc, gửi duyệt, approve thành công → Active.
+Mỗi scenario theo template Phụ lục A. ID `UAT-IMM-05-NN`.
 
-| Step | Hành động | Kết quả mong đợi | Pass/Fail |
-|---|---|---|---|
-| 1 | Đăng nhập `test_ktvh`, vào `/app/asset-document/new` | Form trống, status = Draft | ☐ |
-| 2 | Chọn Asset = AC-ASSET-TEST-001; Nhóm = Legal; Loại = Giấy phép nhập khẩu | model_ref và clinical_dept tự fill | ☐ |
-| 3 | Điền Số hiệu = NK-2026-0042; Cơ quan = Bộ Y tế; Ngày cấp = 2026-03-15; Hết hạn = 2027-06-30 | `days_until_expiry` tự tính | ☐ |
-| 4 | Upload `test-doc.pdf` | File hiển thị tên + kích thước | ☐ |
-| 5 | Click Save | Saved, naming `DOC-AC-ASSET-TEST-001-2026-00001` | ☐ |
-| 6 | Click "Gửi Duyệt" | Status = Pending Review; field metadata read-only | ☐ |
-| 7 | Đăng nhập `test_biomed`, mở doc | Thấy nút [Approve] và [Reject] | ☐ |
-| 8 | Click Approve | Status = Active; `approved_by` = test_biomed; `approval_date` = today | ☐ |
+| ID | Actor | Pre-condition | US/BR cover | Kỹ thuật | Kết quả mong đợi |
+|---|---|---|---|---|---|
+| UAT-IMM-05-01 | Document User → Compliance Manager | Asset đã mint | US-05-01, BR-05-01 | Use Case happy | Doc → Active |
+| UAT-IMM-05-02 | Compliance Manager → Document User | Doc Pending Review | US-05-02, BR-05-01 | Use Case alt | Reject (có lý do) → gửi lại → Active |
+| UAT-IMM-05-03 | Document User + Compliance Manager | 1 Active v1.0 | US-05-07, BR-05-01 | State Transition | Approve v2.0 → v1.0 Archived, `superseded_by` set |
+| UAT-IMM-05-04 | AssetCore Super Admin | 1 Archived doc | BR-05-02 | Error guessing | Xóa bị block (`on_trash` raise) |
+| UAT-IMM-05-05 | System (scheduler) | Active doc expiry +90/+30/0 | US-05-04, BR-05-03 | Use Case + BVA | Alert đúng mốc, idempotent, expiry → Expired |
+| UAT-IMM-05-06 | System (IMM-04 submit) | Commissioning Clinical Release | US-05-03, BR-05-04 | Use Case | ≥ 3 Asset Document, `source_module="IMM-04"` |
+| UAT-IMM-05-07 | Document User | — | VR-01/VR-02/VR-09 | EP + BVA | Validation rule raise đúng thông báo |
+| UAT-IMM-05-08 | Auditor / Document User | doc Internal_Only | BR-05-10, Phần VI | EP permission | Auditor không create; Internal_Only ẩn với non-internal |
+| UAT-IMM-05-09 | Document Manager | có doc các state | US-05-05 | Use Case | Dashboard KPI đúng, drill-down List |
+| UAT-IMM-05-10 | Compliance Manager / Super Admin | Asset thiếu License doc | BR-05-07 | Decision Table | GW-2 block IMM-04 Release; exempt bypass |
 
-**Acceptance:** Tất cả 8 step Pass.
+**Chi tiết scenario chính:**
 
----
-
-### UAT-IMM05-02 — Reject và gửi lại
-
-**Liên kết:** BR-05-01
-**Role tester:** Tổ HC-QLCL → HTM Technician
-**Mục tiêu:** Reject có lý do → gửi lại sau khi sửa.
+### UAT-IMM-05-01 — Upload tài liệu mới và gửi duyệt (Happy Path)
+**Liên kết**: US-05-01, BR-05-01
+**Role tester**: Document User → Compliance Manager
+**Mục tiêu**: Upload doc, gửi duyệt, approve → Active.
+**Pre-condition**: Asset đã mint từ IMM-04.
 
 | Step | Hành động | Kết quả mong đợi | Pass/Fail |
 |---|---|---|---|
-| 1 | `test_qa` mở doc đang Pending Review | Thấy nút [Reject] | ☐ |
-| 2 | Click Reject mà KHÔNG điền lý do | Lỗi "Bắt buộc điền lý do từ chối" | ☐ |
-| 3 | Điền lý do "File không đúng phiên bản", Confirm | Status = Rejected; notification gửi `test_ktvh` | ☐ |
-| 4 | `test_ktvh` upload file mới, bấm "Gửi Lại" | Status = Pending Review | ☐ |
-| 5 | `test_biomed` Approve | Status = Active | ☐ |
+| 1 | `test_docuser` vào `/app/asset-document/new` | Form trống, state = Draft | ☐ |
+| 2 | Chọn Asset; doc_category = Legal; doc_type_detail = Giấy phép nhập khẩu | `model_ref`, `clinical_dept` tự fill | ☐ |
+| 3 | Điền doc_number, issuing_authority, issued_date, expiry_date | `days_until_expiry` tự tính | ☐ |
+| 4 | Upload PDF hợp lệ + Save | Saved, naming series đúng | ☐ |
+| 5 | Gửi duyệt | state = Pending Review | ☐ |
+| 6 | `test_compliance` mở doc, Phê duyệt | state = Active; `approved_by` set | ☐ |
 
-**Acceptance:** Tất cả 5 step Pass.
+**Post-condition**: 1 Active doc cho (asset + type).
+**Acceptance**: Tất cả step Pass + version/audit entry tương ứng.
 
----
-
-### UAT-IMM05-03 — Version Control: Archive tự động (BR-05-01)
-
-**Liên kết:** BR-05-01
-**Role tester:** HTM Technician + Biomed Engineer
-**Mục tiêu:** Approve version mới → version cũ tự Archived.
-
-| Step | Hành động | Kết quả mong đợi | Pass/Fail |
-|---|---|---|---|
-| 1 | Đã có 1 Active doc "Giấy phép nhập khẩu" v1.0 cho AC-ASSET-TEST-001 | — | ☐ |
-| 2 | `test_ktvh` tạo doc mới: cùng Asset, cùng loại, version = "2.0", thêm change_summary | — | ☐ |
-| 3 | Upload file mới, Save, Gửi Duyệt | Status = Pending Review | ☐ |
-| 4 | `test_biomed` Approve doc v2.0 | Status = Active | ☐ |
-| 5 | Kiểm tra doc v1.0 | `workflow_state` = Archived, `superseded_by` = doc v2.0 | ☐ |
-| 6 | Verify: chỉ 1 Active cho loại này + asset | Count Active = 1 | ☐ |
-
-**Acceptance:** Tất cả 6 step Pass.
-
----
-
-### UAT-IMM05-04 — Block xóa document (BR-05-02)
-
-**Liên kết:** BR-05-02
-**Role tester:** CMMS Admin
-**Mục tiêu:** Không ai được xóa cứng document.
+### UAT-IMM-05-05 — Expiry Alert Scheduler (BR-05-03)
+**Liên kết**: US-05-04, BR-05-03
+**Role tester**: System
+**Mục tiêu**: Scheduler sinh alert đúng mốc 90/30/0, idempotent.
 
 | Step | Hành động | Kết quả mong đợi | Pass/Fail |
 |---|---|---|---|
-| 1 | Mở 1 Archived document | — | ☐ |
-| 2 | Thử xóa qua UI (nếu có nút) | Lỗi "Không được phép xóa hồ sơ thiết bị y tế" | ☐ |
-| 3 | Thử `frappe.delete_doc("Asset Document", ...)` qua console | `on_trash` raise | ☐ |
-| 4 | Doc vẫn tồn tại với Archived state | ☐ |
+| 1 | Seed Active doc expiry = today + 90 | — | ☐ |
+| 2 | Chạy `check_document_expiry` | Alert level = Info (90), `days_remaining = 90` | ☐ |
+| 3 | Chạy lại cùng ngày | Không tạo duplicate (idempotent) | ☐ |
+| 4 | Đổi expiry = today + 30, chạy lại | Alert level = Critical | ☐ |
+| 5 | Đổi expiry = today, chạy lại | Doc → Expired; alert Danger | ☐ |
 
-**Acceptance:** Tất cả 4 step Pass.
+**Acceptance**: 5 step Pass.
 
----
-
-### UAT-IMM05-05 — Expiry Alert Scheduler (BR-05-03)
-
-**Liên kết:** BR-05-03
-**Role tester:** System
-**Mục tiêu:** Scheduler sinh alert đúng mốc, idempotent.
-
-| Step | Hành động | Kết quả mong đợi | Pass/Fail |
-|---|---|---|---|
-| 1 | Seed 1 Active doc với expiry = today + 90 ngày | — | ☐ |
-| 2 | Chạy `bench execute assetcore.tasks.check_document_expiry` | Expiry Alert Log tạo: alert_level = "Info", days_remaining = 90 | ☐ |
-| 3 | Chạy lại lần 2 cùng ngày | Không tạo duplicate (idempotent) | ☐ |
-| 4 | Đổi expiry = today + 30, chạy scheduler | Alert level = "Critical" | ☐ |
-| 5 | Đổi expiry = today, chạy scheduler | Doc status → Expired; alert Danger | ☐ |
-
-**Acceptance:** Tất cả 5 step Pass.
-
----
-
-### UAT-IMM05-06 — Auto-import từ IMM-04 (BR-05-04)
-
-**Liên kết:** BR-05-04
-**Role tester:** System (triggered by IMM-04 Submit)
-**Mục tiêu:** Submit Commissioning → Asset Document set tự tạo.
-
-| Step | Hành động | Kết quả mong đợi | Pass/Fail |
-|---|---|---|---|
-| 1 | Mở Commissioning ở Clinical Release với 3 doc rows Received | — | ☐ |
-| 2 | Submit Commissioning | Asset tạo, trigger `create_initial_document_set()` | ☐ |
-| 3 | Mở IMM-05 List filter theo asset mới | ≥ 3 Asset Document records (Draft) | ☐ |
-| 4 | Verify mỗi doc có `source_commissioning` đúng | Link về phiếu commissioning | ☐ |
-| 5 | Verify `source_module = "IMM-04"` | Đúng | ☐ |
-
-**Acceptance:** Tất cả 5 step Pass.
-
----
-
-### UAT-IMM05-07 — Validation Rules
-
-**Liên kết:** VR-01 → VR-07
-**Role tester:** HTM Technician
-**Mục tiêu:** Mọi validation rule hoạt động đúng.
-
-| Step | Hành động | Kết quả mong đợi | Pass/Fail |
-|---|---|---|---|
-| 1 | Tạo doc: expiry_date = 2025-01-01, issued_date = 2026-01-01 | Lỗi "Ngày hết hạn phải sau ngày cấp" (VR-01) | ☐ |
-| 2 | Tạo doc: cùng asset + type + doc_number | Lỗi "Số hiệu trùng lặp" (VR-02) | ☐ |
-| 3 | Gửi duyệt doc không có file | Lỗi "File đính kèm bắt buộc" (VR-03) | ☐ |
-| 4 | category = Legal, bỏ trống issuing_authority | Lỗi "Cơ quan cấp bắt buộc cho hồ sơ Pháp lý" (VR-04) | ☐ |
-| 5 | category = Certification, bỏ trống expiry_date | Lỗi "Ngày hết hạn bắt buộc cho hồ sơ Kiểm định" (VR-07) | ☐ |
-| 6 | Upload file > 25 MB | Lỗi "File quá lớn (tối đa 25 MB)" | ☐ |
-| 7 | Upload file .exe | Lỗi "Chỉ chấp nhận PDF, JPG, PNG" | ☐ |
-| 8 | version = "2.0", không điền change_summary | Lỗi "change_summary bắt buộc khi version > 1.0" (BR-05-09) | ☐ |
-
-**Acceptance:** Tất cả 8 step Pass.
-
----
-
-### UAT-IMM05-08 — Permission Matrix & Visibility
-
-**Liên kết:** BR-05-10, Security §III.1
-**Role tester:** Nhiều role
-**Mục tiêu:** RBAC và visibility filter hoạt động đúng.
-
-| Step | Hành động | Kết quả mong đợi | Pass/Fail |
-|---|---|---|---|
-| 1 | `test_clinical` thử tạo doc | Permission denied | ☐ |
-| 2 | `test_clinical` mở doc Public của khoa mình | Visible, read-only | ☐ |
-| 3 | `test_clinical` mở doc Internal_Only | Permission denied hoặc không hiện trong list | ☐ |
-| 4 | `test_ktvh` thử Approve doc | Nút Approve không hiển thị | ☐ |
-| 5 | `test_txn` Cancel Active doc | Thành công (Workshop Head) | ☐ |
-| 6 | `test_qa` mark_exempt doc | Thành công; `is_exempt = 1` | ☐ |
-| 7 | `test_ktvh` thử mark_exempt | HTTP 403 | ☐ |
-
-**Acceptance:** Tất cả 7 step Pass.
-
----
-
-### UAT-IMM05-09 — Dashboard KPIs
-
-**Liên kết:** US-05-09
-**Role tester:** Workshop Head
-**Mục tiêu:** Dashboard KPIs phản ánh đúng, có thể drill-down.
-
-| Step | Hành động | Kết quả mong đợi | Pass/Fail |
-|---|---|---|---|
-| 1 | `test_txn` mở `/imm-05/dashboard` | Dashboard load thành công | ☐ |
-| 2 | Verify KPI "Active Docs" | Số = COUNT(Active) thực tế | ☐ |
-| 3 | Verify KPI "Sắp hết hạn 90d" | Số đúng | ☐ |
-| 4 | Verify KPI "Đã hết hạn" | Số đúng | ☐ |
-| 5 | Click KPI "Đã hết hạn" | Chuyển sang List View filter Expired | ☐ |
-| 6 | Verify bảng "Compliance theo Khoa" | % = actual/required đúng | ☐ |
-
-**Acceptance:** Tất cả 6 step Pass.
-
----
-
-### UAT-IMM05-10 — GW-2 Gate cho IMM-04
-
-**Liên kết:** BR-05-07
-**Role tester:** VP Block2
-**Mục tiêu:** GW-2 block IMM-04 Submit khi thiếu Active license doc.
-
-| Step | Hành động | Kết quả mong đợi | Pass/Fail |
-|---|---|---|---|
-| 1 | Asset với risk_class=C không có Active "License" doc trong IMM-05 | — | ☐ |
-| 2 | Mở Commissioning phiếu cho asset này, bấm Phê Duyệt Release | Lỗi "GW-2: Thiếu chứng nhận ĐKLH Active" | ☐ |
-| 3 | Upload và Approve License doc cho asset | — | ☐ |
-| 4 | Bấm Phê Duyệt Release lại | Thành công | ☐ |
-| 5 | Asset với `is_exempt = 1` | Phê Duyệt Release không bị block GW-2 | ☐ |
-
-**Acceptance:** Tất cả 5 step Pass.
-
----
-
-## II.5. Tổng Hợp Kết Quả & Bug Found
-
-### Bảng kết quả
+## V.5. Tổng hợp kết quả & Bug found
 
 | Scenario | Status | Tester | Ngày | Ghi chú |
 |---|---|---|---|---|
-| UAT-IMM05-01 | ☐ Pass / ☐ Fail | | | |
-| UAT-IMM05-02 | ☐ Pass / ☐ Fail | | | |
-| UAT-IMM05-03 | ☐ Pass / ☐ Fail | | | |
-| UAT-IMM05-04 | ☐ Pass / ☐ Fail | | | |
-| UAT-IMM05-05 | ☐ Pass / ☐ Fail | | | |
-| UAT-IMM05-06 | ☐ Pass / ☐ Fail | | | |
-| UAT-IMM05-07 | ☐ Pass / ☐ Fail | | | |
-| UAT-IMM05-08 | ☐ Pass / ☐ Fail | | | |
-| UAT-IMM05-09 | ☐ Pass / ☐ Fail | | | |
-| UAT-IMM05-10 | ☐ Pass / ☐ Fail | | | |
+| UAT-IMM-05-01 | ☐ Pass / ☐ Fail | | | |
+| UAT-IMM-05-02 | ☐ Pass / ☐ Fail | | | |
+| UAT-IMM-05-03 | ☐ Pass / ☐ Fail | | | |
+| UAT-IMM-05-04 | ☐ Pass / ☐ Fail | | | |
+| UAT-IMM-05-05 | ☐ Pass / ☐ Fail | | | |
+| UAT-IMM-05-06 | ☐ Pass / ☐ Fail | | | |
+| UAT-IMM-05-07 | ☐ Pass / ☐ Fail | | | |
+| UAT-IMM-05-08 | ☐ Pass / ☐ Fail | | | |
+| UAT-IMM-05-09 | ☐ Pass / ☐ Fail | | | |
+| UAT-IMM-05-10 | ☐ Pass / ☐ Fail | | | |
 
-### Sign-off UAT
+**Bug log:**
+
+| Issue ID | Severity | Mô tả | Fix status |
+|---|---|---|---|
+| IMM05-BUG-001 | Minor | Email notification dùng inline string, chưa dùng Email Template DocType | Known — deferred |
+| IMM05-BUG-002 | Minor | Test suite chưa tách file (workflow/api/audit gộp trong `test_imm05.py`) | Tech-debt |
+
+**Acceptance**: ≥ 95% PASS, Blocker = 0, Major ≤ 2 (có workaround documented).
+
+**Sign-off UAT:**
 
 | Vai trò | Người | Ngày | Chữ ký |
 |---|---|---|---|
@@ -509,198 +533,258 @@ Mật khẩu UAT: `Assetcore@2026` (reset sau UAT).
 | Module Owner (IMM-05) | | | |
 | Đại diện end-user (Tổ HC-QLCL) | | | |
 
-**Quy ước go-live:** Blocker = 0, Major ≤ 2 (có workaround đã documented).
-
-### Bug Log
-
-| Issue ID | Severity | Mô tả | Fix status |
-|---|---|---|---|
-| IMM05-BUG-001 | Minor | Email notification template dùng inline string, chưa dùng Email Template DocType | Known — deferred |
-| IMM05-BUG-002 | Minor | Service layer (`services/imm05.py`) chưa tách — logic vẫn trong controller | Tech-debt |
-
 ---
 
-# Phần III — Security Review
+# Phần VI — Security Review (gate)
 
-## III.1. RBAC
+## VI.1. RBAC
 
-### Role definitions
+**Role definitions** (`fixtures/role.json` + `role_profile.json`). Role thực tế liên quan IMM-05 (verify từ `asset_document.json` + workflow JSON): AssetCore Super Admin, Document Manager, Document User, AssetCore Auditor, AssetCore System User, PM User, Compliance Manager.
 
-Xem `assetcore/fixtures/role.json` + `role_profile.json`. Các role liên quan IMM-05:
-
-| Role | Asset Document | Document Request |
-|---|---|---|
-| HTM Technician | R/W/C (Draft, Pending Review) | R/W/C |
-| Biomed Engineer | R/W/C (approve kỹ thuật) | R/W/C |
-| Tổ HC-QLCL | R/W/C (approve/reject, mark exempt) | R/W/C |
-| Workshop Head | R/W/C/Cancel/Amend | R/W/C/Delete |
-| VP Block2 | R/W/Cancel | — |
-| CMMS Admin | Full | Full |
-| Clinical Head | R (Public only, own dept) | — |
-
-### DocPerm Matrix — `Asset Document`
+**DocPerm matrix — `Asset Document`** (verify từ `asset_document.json`):
 
 | Role | Read | Write | Create | Submit | Cancel | Amend | Delete |
 |---|---|---|---|---|---|---|---|
-| HTM Technician | ✅ | ✅ (Draft) | ✅ | ❌ | ❌ | ❌ | ❌ |
-| Biomed Engineer | ✅ | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ |
-| Tổ HC-QLCL | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
-| Workshop Head | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ | ❌ |
-| VP Block2 | ✅ | ✅ | ❌ | ❌ | ✅ | ❌ | ❌ |
-| Clinical Head | ✅ (Public) | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| CMMS Admin | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
+| AssetCore Super Admin | ✅ | ✅ | ✅ | ✅ | ✅ | — | ✅ |
+| Document Manager | ✅ | ✅ | ✅ | ✅ | ✅ | — | ✅ |
+| Document User | ✅ | ✅ | ✅ | ❌ | ❌ | — | ❌ |
+| AssetCore Auditor | ✅ | ❌ | ❌ | ❌ | ❌ | — | ❌ |
+| AssetCore System User | ✅ | ❌ | ❌ | ❌ | ❌ | — | ❌ |
 
-> **Quan trọng:** Không role nào có quyền Delete (BR-05-02 enforce via `on_trash`).
+> **Lưu ý quan trọng (gap thật):** DocPerm hiện cho phép `delete=1` với Super Admin + Document Manager. BR-05-02 (không xóa cứng) **phải** được enforce ở tầng controller `on_trash()` raise — nếu `on_trash` chưa block thì đây là lỗ hổng compliance NĐ98. *(Cần khảo sát: xác minh `asset_document.py::on_trash` có raise không.)*
 
-### Field-level permission (permlevel)
+**Field-level permission (permlevel)**: DocType `Asset Document` hiện **không** có field nào đặt `permlevel ≠ 0` (verify từ JSON — tất cả field permlevel=0). Các field nhạy cảm (`approved_by`, `rejection_reason`, `is_exempt`, `exempt_reason`, `visibility`) hiện chỉ bảo vệ qua DocPerm + workflow role, **chưa** có field-level lock. → Khuyến nghị bổ sung permlevel cho `approved_by`/`is_exempt`/`visibility` (gap, xem DoD).
 
-| Field | permlevel | Mô tả |
-|---|---|---|
-| `approved_by`, `approval_date` | 1 — Tổ HC-QLCL+ | Chỉ reviewer thấy và set |
-| `rejection_reason` | 1 — Tổ HC-QLCL+ | Lý do từ chối nội bộ |
-| `is_exempt`, `exempt_reason`, `exempt_proof` | 1 — Workshop Head / Tổ HC-QLCL | Quyết định exempt nhạy cảm |
-| `visibility` | 1 — CMMS Admin+ | Chỉ Admin đổi visibility |
+**User Permission (row-level)**: visibility filter `Internal_Only` áp dụng qua `_apply_visibility_filter()` + `_can_see_internal()` trong `services/imm05.py` (BR-05-10) — non-internal role không thấy doc `Internal_Only`.
 
-### Visibility filter (row-level)
+**Kỹ thuật**: Decision Table — mỗi (role × action × state) là 1 row, expected Allow/Deny.
 
-```python
-# _apply_visibility_filter() trong asset_document.py
-_INTERNAL_ONLY_ROLES = [
-    "HTM Technician", "Tổ HC-QLCL", "Biomed Engineer",
-    "Workshop Head", "CMMS Admin", "System Manager"
-]
-
-def can_see_internal(user):
-    for role in _INTERNAL_ONLY_ROLES:
-        if frappe.has_role(role, user):
-            return True
-    return False
-```
-
-## III.2. API Security
+## VI.2. API security
 
 | Mục | Trạng thái | Ghi chú |
 |---|---|---|
-| Whitelist hygiene | ✅ | Mọi 14 endpoint có role check |
-| CSRF | ✅ | Frappe default X-Frappe-CSRF-Token |
-| Input validation | ✅ | `name` field validate; attachment extension check |
-| SQL injection | ✅ | Frappe ORM parameterized |
-| File upload security | ✅ | Extension whitelist + size limit 25 MB trong service |
-| Rate limit | ⚠️ Roadmap | Cần config cho `approve_document` endpoint |
+| Whitelist hygiene | *(Cần khảo sát)* | 16 endpoint trong `api/imm05.py`; verify mỗi endpoint có docstring + role check (`_require_approve_role` / `_require_exempt_role` cho mutating) |
+| CSRF | ✅ | Frappe default `X-Frappe-CSRF-Token` |
+| Input validation | *(Cần khảo sát)* | `name` Link field validate; attachment extension/size check trong service |
+| SQL injection | ✅ | Frappe ORM parameterized; không f-string vào raw SQL |
+| Rate limit | ⚠️ Roadmap | Cần config cho `approve_document`, `create_document` |
 
-## III.3. Audit Trail Integrity
+## VI.3. Audit trail integrity
 
-- Mọi state change (Draft/Pending/Active/Rejected/Archived/Expired) ghi qua Frappe `Version` DocType (auto) + `IMM Audit Trail` qua `log_audit_event()`.
-- `on_trash` raise — không ai xóa được `Asset Document` (BR-05-02).
-- `Expiry Alert Log` immutable — không có Delete permission cho bất kỳ role nào.
-- `check_document_expiry` idempotent theo `alert_date` + `asset_document` composite unique.
-- Retention: ≥ 5 năm theo NĐ98/2021 Điều 15.
+- Mọi state change ghi qua Frappe `Version` DocType (auto); `get_document_history()` truy vấn được.
+- `Expiry Alert Log` immutable — không Delete permission cho bất kỳ role nào *(Cần khảo sát: verify permissions JSON đã loại Delete)*.
+- `check_document_expiry` idempotent theo `alert_date` + `asset_document`.
+- BR-05-02: `on_trash` raise để chặn xóa cứng (ISO 13485:7.5.9) — **cần verify** vì DocPerm vẫn cho delete=1.
+- Retention ≥ 5 năm theo NĐ98/2021 Điều 15.
 
-## III.4. Authentication & Session
+→ III.5 test cases.
+
+## VI.4. Authentication & session
 
 | Hạng mục | Config |
 |---|---|
-| Login | Frappe default — username + password |
+| Login | Frappe default (username + password) |
 | Session timeout | 8 giờ |
 | Lockout | 3 fail → lock 15 phút |
-| Password policy | Minimum 8 ký tự, 1 chữ hoa, 1 số |
-| API key | Per-user, rotate mỗi 90 ngày |
+| Password policy | ≥ 8 ký tự, 1 chữ hoa, 1 số |
+| API key | Per-user, rotate 90 ngày |
 | 2FA | Roadmap Phase 2 |
 
-## III.5. Data Sensitivity
+## VI.5. Data sensitivity
 
 | Loại | Trường | Sensitivity | Bảo vệ |
 |---|---|---|---|
-| Giấy phép BYT | `file_attachment` (Legal category) | Confidential | Role permission + visibility |
-| Lý do từ chối | `rejection_reason` | Internal | permlevel 1 |
-| Quyết định exempt | `is_exempt`, `exempt_reason` | Confidential | permlevel 1 + role restriction |
-| Thông tin người phê duyệt | `approved_by`, `approval_date` | Internal | permlevel 1 |
+| Giấy phép BYT (Legal) | `file_attachment` (doc_category=Legal) | Confidential | DocPerm + visibility filter |
+| Lý do từ chối | `rejection_reason` | Internal | DocPerm (permlevel chưa đặt — gap) |
+| Quyết định exempt | `is_exempt`, `exempt_reason` | Confidential | `_require_exempt_role()` guard |
+| Người phê duyệt | `approved_by` | Internal | DocPerm |
 | Dữ liệu bệnh nhân | Không lưu | N/A | AssetCore KHÔNG lưu patient data |
 
-## III.6. Vendor Isolation
+## VI.6. Vendor isolation
 
-`Vendor Engineer` không có quyền trực tiếp trên `Asset Document` trong DocPerm mặc định. Nếu cần mở rộng trong tương lai:
-- Chỉ thấy doc với `visibility = Public` và `asset_ref` thuộc thiết bị họ đang maintain.
-- Không thấy: Legal docs, rejection_reason, exempt fields.
-- Không upload/approve.
+`AssetCore System User` (ngoài) chỉ có Read trên `Asset Document` theo DocPerm; không Write/Create/Submit. Không có quyền xem chi phí, rejection_reason, exempt fields ở mức nghiệp vụ; doc `Internal_Only` ẩn qua `_apply_visibility_filter()`. Không export.
 
-## III.7. Secrets Management
+→ test case III.6 (low-role API call: `mark_exempt` / `approve_document` → FORBIDDEN).
 
-- `site_config.json` không commit vào git.
-- External API token lưu `frappe.conf`, không hardcode.
-- Backup encrypt at-rest; off-site S3 theo `08_Deployment.md §I.2b`.
-- File attachments lưu trong Frappe private files path (không public URL mặc định).
+## VI.7. Secrets management
 
-## III.8. Logging & Monitoring
+- `site_config.json` không commit git.
+- External token lưu `frappe.conf`, không hardcode.
+- File attachment lưu Frappe private files path (không public URL mặc định).
+- Backup encrypt at-rest, off-site (xem `08_Deployment.md`).
+
+## VI.8. Logging & monitoring
 
 | Sự kiện | Log level | Where | Alert? |
 |---|---|---|---|
-| Document Expired tự động | WARNING | Scheduler log + Expiry Alert Log | ✅ Email Workshop Head, Biomed |
-| Document Request overdue | WARNING | Scheduler log | ✅ Email Workshop Head, VP Block2 |
-| on_trash attempt | ERROR | `frappe.log_error` | ❌ |
-| Approve/Reject action | INFO | Frappe access log + IMM Audit Trail | ❌ |
+| Document Expired tự động | WARNING | Scheduler log + Expiry Alert Log | ✅ Email Document Manager |
+| Document Request overdue | WARNING | Scheduler log | ✅ Email Document Manager |
+| `on_trash` attempt | ERROR | `frappe.log_error` | ❌ |
+| Approve/Reject action | INFO | Frappe access log + Version | ❌ |
 | Login fail | INFO | Frappe login log | ✅ (sau 3 lần) |
 | File upload fail (size/format) | INFO | Frappe error log | ❌ |
 
-## III.9. Threat Model (STRIDE-lite)
+PII / token KHÔNG vào log.
+
+## VI.9. Threat model (STRIDE-lite)
 
 | Threat | Vector | Likelihood | Impact | Mitigation |
 |---|---|---|---|---|
-| Spoofing | Giả mạo session Reviewer | Low | High | Session HttpOnly + SameSite |
-| Tampering — Delete doc | Xóa record qua admin/API | Low | Critical | `on_trash` raise + DocPerm no-delete |
-| Tampering — Backdate expiry | Edit `expiry_date` sau approve | Low | High | permlevel + field locked sau Active |
-| Repudiation | QA phủ nhận đã Approve | Low | High | `approved_by` + `approval_date` + IMM Audit Trail |
-| Info Disclosure | Clinical Head thấy Internal_Only doc | Low | Medium | `_apply_visibility_filter()` + test UAT-08 |
-| DoS — Scheduler | Expiry check 10,000+ Active docs | Low | Medium | Batch 200/run; index `expiry_date + workflow_state` |
-| Elevation of Privilege | HTM Technician self-approve doc | Low | High | Workflow role check: Approve chỉ Tổ HC-QLCL/Biomed |
+| **S**poofing | Giả mạo session Compliance Manager | Low | High | Session HttpOnly + SameSite |
+| **T**ampering — Delete doc | Xóa record qua admin/API | Medium | Critical | `on_trash` raise (cần verify) + giảm DocPerm delete |
+| **T**ampering — Backdate expiry | Edit `expiry_date` sau approve | Low | High | permlevel/field lock sau Active (gap — chưa có permlevel) |
+| **R**epudiation | Phủ nhận đã Approve | Low | High | `approved_by` + `approval_date` + Frappe Version |
+| **I**nfo disclosure | Non-internal role thấy Internal_Only | Low | Medium | `_apply_visibility_filter()` + UAT-08 |
+| **D**enial of service | Expiry check 10,000+ Active docs | Low | Medium | Batch/run; index `expiry_date + workflow_state` |
+| **E**levation of privilege | Document User self-approve | Low | High | Workflow role: Phê duyệt chỉ Compliance Manager / Super Admin |
 
-## III.10. Penetration Test
+## VI.10. Penetration test
 
-Trước release đầu tiên (go-live bệnh viện):
-- Burp Suite / OWASP ZAP scan trên `uat.assetcore.vn` — 0 High/Critical open.
-- Test: Clinical Head truy cập trực tiếp URL của Internal_Only doc → 403.
-- CSRF token verify bằng curl không có token.
-- Role escalation: thử gọi `approve_document` với role HTM Technician → 403.
-- Test: thử gọi `frappe.delete_doc("Asset Document", ...)` với CMMS Admin → raise.
-- Report lưu: `docs/security/pentest_imm05_v1.md`.
+Trước release đầu tiên: Burp/ZAP scan trên UAT (0 High/Critical), sqlmap an toàn, CSRF test (curl không token), role escalation (`approve_document` / `mark_exempt` với role thấp → FORBIDDEN), thử `frappe.delete_doc("Asset Document", ...)` → kỳ vọng raise. Report lưu `docs/security/pentest_imm05_v1.md`.
 
-## III.11. Sign-off Security
+## VI.11. Sign-off
 
-| Vai trò | Người | Ngày | Quyết định |
+| Role | Người | Ngày | Quyết định |
 |---|---|---|---|
 | QA Lead | | | ☐ Pass / ☐ Pass with conditions / ☐ Fail |
-| Tech Lead | | | ☐ Pass / ☐ Pass with conditions / ☐ Fail |
+| Security Officer | | | ☐ Pass / ☐ Pass with conditions / ☐ Fail |
 | Module Owner | | | ☐ Pass / ☐ Pass with conditions / ☐ Fail |
 
-**Điều kiện go-live:** Tất cả Sign-off là Pass hoặc Pass with conditions (workaround documented).
+**Điều kiện go-live**: tất cả Sign-off Pass / Pass with conditions (workaround documented).
 
 ---
 
-## DoD — Hoàn chỉnh
+# Phần VII — Code Quality
 
-### I. Test Plan
-- [x] Test class structure cho 11 controller functions + 3 task functions
-- [x] ≥ 1 happy + 1 negative test mỗi BR (BR-05-01 → 10)
-- [x] 8 workflow transitions đều có test
-- [x] Audit trail test (idempotent expiry, delete block)
-- [x] API test 14 endpoint ≥ 60% coverage target
-- [x] Performance target xác định (k6)
-- [x] CI command xác định
-- [x] SonarQube + Lighthouse target xác định
+## VII.1. Tool matrix
 
-### II. UAT
-- [x] 10 UAT scenario, cover mọi 10 BR + permission + audit + dashboard
-- [x] Test data seed script: `uat_imm05.py`
-- [x] 6 Tester accounts + password documented
-- [x] Known tech-debts (service layer, email template) documented
+| Tool | Mục tiêu | Target | Cadence |
+|---|---|---|---|
+| **SonarQube** (BE Python) | Bug 0 Critical, code smell ≤ 5, duplication ≤ 3%, coverage ≥ 70%, security hotspot review 100% | Quality Gate pass | Mỗi PR (CI gate) |
+| **Lighthouse** (FE Document views) | Performance ≥ 90, Accessibility ≥ 95, Best Practices ≥ 90, SEO ≥ 80 | ≥ target | Mỗi release + monthly |
+| **ESLint + vue-tsc** | 0 error, 0 warning prod build | pass | Mỗi PR FE (CI gate) |
+| **ruff / black** (BE) | 0 error, format PEP8 | pass | Mỗi PR (CI gate) |
+| **Bundle size** (FE chunk imm05) | main ≤ 250KB gzip, async ≤ 80KB gzip | ≤ budget | Mỗi PR FE (CI report) |
+
+## VII.2. Cadence
+
+- SonarQube: mỗi PR (CI gate, fail nếu Quality Gate fail)
+- Lighthouse: mỗi release lớn + monthly audit
+- ESLint / ruff: mỗi PR (CI gate)
+- Bundle size: mỗi PR FE (CI report, fail nếu vượt budget)
+
+Screenshot SonarQube + Lighthouse gắn vào `09_Release.md §Release Notes` khi báo cáo final.
+
+---
+
+# Phụ lục A — Template per UAT scenario
+
+```markdown
+### UAT-IMM05-<NN> — <Tên>
+
+**Liên kết**: US-<NN>, AC<N>, BR-<NN>, ACT-<NN>
+**Role tester**: <…>
+**Kỹ thuật áp dụng**: Use Case happy / Use Case alt / EP permission / State Transition
+**Mục tiêu**: <1 câu>
+**Pre-condition**: <data state cần có>
+
+| Step | Hành động | Kết quả mong đợi | Pass/Fail |
+|---|---|---|---|
+| 1 | <…> | <…> | ☐ |
+| 2 | <…> | <…> | ☐ |
+
+**Post-condition**: <data state sau khi pass>
+**Acceptance**: Tất cả step Pass + audit trail có entry tương ứng.
+```
+
+# Phụ lục B — Template per Test Case (unit/integration/API)
+
+```markdown
+### TC-IMM05-<LAYER>-<NN> — <Tên>
+
+**Component (I.1)**: <…>
+**Liên kết**: US-<NN> | BR-<NN> | ACT-<NN>
+**Kỹ thuật (II.1/II.2)**: BVA boundary `expiry_date = issued_date`
+**Priority (I.3)**: Critical / High / Medium / Low
+**Test type**: Unit / Integration / API / E2E
+**Pre-condition**: <fixture / state setup>
+
+**Input**:
+- <field>: <value>
+
+**Steps**:
+1. <…>
+2. <…>
+
+**Expected**:
+- ServiceError(code=VALIDATION, message contains "VR-09")
+- doc.workflow_state unchanged
+
+**Post-condition**: <DB rollback / fixture cleanup>
+```
+
+# Phụ lục C — Workflow State Transition Test template
+
+```markdown
+### TC-IMM05-WF-<NN> — <action>: <from> → <to>
+
+**Workflow JSON**: `assetcore/assetcore/workflow/imm_05_document_workflow.json`
+**Role required**: <…>
+**Pre-condition**: doc.workflow_state = <from>
+**Action**: apply_workflow(doc, "<action>")
+**Expected (happy)**: doc.workflow_state = <to>, docstatus = <…>, version entry created
+**Expected (negative role)**: PermissionError / FORBIDDEN
+**Expected (gate fail)**: ValidationError (vd thiếu rejection_reason / thiếu file)
+```
+
+---
+
+# DoD — File 07 hoàn chỉnh
+
+## I. Test Analysis
+- [x] I.1 Component Inventory liệt kê đủ artefact (đối chiếu 04/05/06 — 27 dòng)
+- [x] I.2 mỗi US / BR / Activity có ≥ 1 dòng map
+- [x] I.3 Risk priority gán cho mọi component (không trống)
+- [x] I.4 Scope ghi rõ out-of-scope kèm lý do
+
+## II. Test Design Techniques
+- [x] II.1 chọn ≥ 4 black-box techniques (EP + BVA + Decision Table + State Transition)
+- [x] II.2 white-box criteria xác định (statement + branch)
+- [x] II.3 mapping component → kỹ thuật điền đầy đủ
+
+## III. Test Plan
+- [ ] Test class cho mọi service public function — chỉ ~9/24 hàm có test ✅ Live; còn lại ⬜ Planned
+- [ ] ≥ 1 happy + 1 negative mỗi function — nhiều hàm chỉ có happy hoặc chưa test
+- [ ] Workflow transitions cover 100% (9 transition) — chưa viết `test_imm05_workflow.py`
+- [ ] Audit chain test (idempotent + version) — chưa viết
+- [ ] API test ≥ 60% + permission matrix — chưa viết `test_imm05_api.py`
+- [x] Performance target xác định (target-only)
+- [x] CI command chạy clean (`run-tests --module assetcore.tests.test_imm05`)
+- [ ] SonarQube Quality Gate pass + Lighthouse ≥ target — chưa chạy
+
+## IV. Traceability
+- [x] IV.1 US → Test: mọi US có ≥ 1 Test ID (live hoặc planned)
+- [ ] IV.2 BR → Test: mọi BR có happy + negative — phần lớn negative ⬜ Planned
+- [ ] IV.3 Component → Test: Critical/High đạt coverage target — coverage % chưa đo
+
+## V. UAT
+- [x] Mỗi US có ≥ 1 UAT scenario
+- [x] ≥ 1 negative + permission + audit verify scenario
+- [ ] Test data seed script chạy được — `uat_imm05.py` chưa verify tồn tại
+- [x] Tester accounts đủ các role thật (gồm role thấp Auditor)
 - [x] Sign-off section sẵn sàng
 
-### III. Security
-- [x] DocPerm matrix đầy đủ 7 role
-- [x] Field-level permlevel xác định
-- [x] Visibility filter documented + tested
-- [x] Threat model ≥ 7 threat với mitigation
-- [ ] Pentest report lưu `docs/security/` (trước go-live)
-- [ ] Rate limit `approve_document` cấu hình (roadmap)
-- [x] Vendor isolation policy documented
+## VI. Security
+- [x] DocPerm matrix đầy đủ (5 role thật, Decision Table)
+- [ ] Mọi field nhạy cảm có permlevel ≠ 0 — gap thật: DocType chưa đặt permlevel nào
+- [ ] SQL injection + CSRF test pass — CSRF mặc định OK; injection chưa test riêng
+- [ ] Audit chain test pass — chưa viết
+- [ ] Vendor isolation test pass (low-role API) — chưa viết
+- [x] Threat model đủ 6 STRIDE với mitigation
 - [x] Sign-off section sẵn sàng
+
+## VII. Code Quality
+- [ ] SonarQube Quality Gate pass — chưa chạy
+- [ ] Lighthouse ≥ target — chưa chạy
+- [ ] Bundle size ≤ budget — chưa đo
+- [ ] Screenshot báo cáo gắn vào file 09 — chưa có

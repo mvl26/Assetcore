@@ -9,6 +9,7 @@ import {
   getPMDashboardStats, reschedulePM, getAssetPMHistory,
   type PMWorkOrder, type PMCalendarEvent, type PMDashboardStats,
 } from '@/api/imm08'
+import { ApiError, toApiError } from '@/api/errors'
 
 export const useImm08Store = defineStore('imm08', () => {
   // --- State ---
@@ -20,7 +21,17 @@ export const useImm08Store = defineStore('imm08', () => {
   const pmHistory = ref<PMWorkOrder[]>([])
   const loading = ref(false)
   const error = ref<string | null>(null)
+  // Notification framework (Sprint 2026-05-29 vòng 3): giữ ApiError đã hydrate
+  // (message_code/severity/title/action_hint) để view gọi notify.fromError().
+  const lastApiError = ref<ApiError | null>(null)
   const pagination = ref({ page: 1, total: 0, total_pages: 0, page_size: 20 })
+
+  /** Ghi nhận lỗi: vừa set string (legacy banner) vừa giữ ApiError (notify). */
+  function _captureError(e: unknown): void {
+    const err = toApiError(e)
+    lastApiError.value = err
+    error.value = err.message
+  }
 
   // --- Getters ---
   const overdueWOs = computed(() => workOrders.value.filter(w => w.status === 'Overdue'))
@@ -54,7 +65,7 @@ export const useImm08Store = defineStore('imm08', () => {
       workOrders.value = res.data
       pagination.value = res.pagination
     } catch (e: unknown) {
-      error.value = e instanceof Error ? e.message : String(e)
+      _captureError(e)
     } finally {
       loading.value = false
     }
@@ -66,7 +77,7 @@ export const useImm08Store = defineStore('imm08', () => {
     try {
       currentWO.value = await getPMWorkOrder(name)
     } catch (e: unknown) {
-      error.value = e instanceof Error ? e.message : String(e)
+      _captureError(e)
     } finally {
       loading.value = false
     }
@@ -84,7 +95,7 @@ export const useImm08Store = defineStore('imm08', () => {
       await fetchWorkOrder(name)
       return true
     } catch (e: unknown) {
-      error.value = e instanceof Error ? e.message : String(e)
+      _captureError(e)
       return false
     }
   }
@@ -103,7 +114,7 @@ export const useImm08Store = defineStore('imm08', () => {
       await fetchWorkOrder(currentWO.value.name)
       return { success: true, cmWoCreated: res.cm_wo_created }
     } catch (e: unknown) {
-      error.value = e instanceof Error ? e.message : String(e)
+      _captureError(e)
       return { success: false }
     }
   }
@@ -115,7 +126,7 @@ export const useImm08Store = defineStore('imm08', () => {
       await fetchWorkOrder(currentWO.value.name)
       return res.cm_wo_created
     } catch (e: unknown) {
-      error.value = e instanceof Error ? e.message : String(e)
+      _captureError(e)
       return null
     }
   }
@@ -127,7 +138,7 @@ export const useImm08Store = defineStore('imm08', () => {
       calendarEvents.value = res.events
       calendarSummary.value = res.summary
     } catch (e: unknown) {
-      error.value = e instanceof Error ? e.message : String(e)
+      _captureError(e)
     } finally {
       loading.value = false
     }
@@ -138,7 +149,7 @@ export const useImm08Store = defineStore('imm08', () => {
     try {
       dashboardStats.value = await getPMDashboardStats(year, month)
     } catch (e: unknown) {
-      error.value = e instanceof Error ? e.message : String(e)
+      _captureError(e)
     } finally {
       loading.value = false
     }
@@ -150,7 +161,7 @@ export const useImm08Store = defineStore('imm08', () => {
       await fetchWorkOrders()
       return true
     } catch (e: unknown) {
-      error.value = e instanceof Error ? e.message : String(e)
+      _captureError(e)
       return false
     }
   }
@@ -160,13 +171,13 @@ export const useImm08Store = defineStore('imm08', () => {
       const res = await getAssetPMHistory(assetRef)
       pmHistory.value = res.history
     } catch (e: unknown) {
-      error.value = e instanceof Error ? e.message : String(e)
+      _captureError(e)
     }
   }
 
   return {
     workOrders, currentWO, calendarEvents, calendarSummary, dashboardStats,
-    pmHistory, loading, error, pagination,
+    pmHistory, loading, error, lastApiError, pagination,
     overdueWOs, openWOs, checklistComplete, ratedCount, hasMinorFailure, hasMajorFailure,
     fetchWorkOrders, fetchWorkOrder, updateChecklistResult,
     doAssignTechnician, doSubmitResult, doReportMajorFailure,

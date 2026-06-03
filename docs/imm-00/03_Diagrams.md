@@ -45,11 +45,10 @@ erDiagram
         varchar department FK
         varchar supplier FK
         varchar responsible_technician FK
-        varchar lifecycle_status "6 states"
+        varchar lifecycle_status "8 states"
         varchar risk_classification "Low/Medium/High/Critical"
         varchar udi_code
-        varchar gmdn_code "inherit từ device_model.gmdn_code"
-        varchar gmdn_status "In Use / Not Use"
+        varchar gmdn_code "inherit từ device_model.gmdn_code — trục lọc/quản lý"
         varchar byt_reg_no
         date byt_reg_expiry
         date next_pm_date
@@ -158,11 +157,11 @@ AC Asset Category          (nguồn dữ liệu — gmdn_code + pm/calibration d
 IMM Device Model           (kế thừa gmdn_code từ category; có thể override thủ công)
         │  before_insert (ACAsset — via fetch_from + on_insert hook nếu cần)
         ▼
-AC Asset                   (nhận gmdn_code từ device_model; gmdn_status quản lý riêng)
+AC Asset                   (nhận gmdn_code từ device_model — trục lọc/quản lý thiết bị)
 ```
 
 - **`gmdn_code`**: mã phân loại thiết bị y tế toàn cầu (5–6 chữ số). Sống ở `AC Asset Category` vì một GMDN code tương ứng với một *loại* thiết bị (không phải từng model cụ thể). Model kế thừa để có thể tra nhanh mà không cần join qua category.
-- **`gmdn_status`**: trạng thái sử dụng GMDN của *từng asset cụ thể* (`In Use` / `Not Use`). Không kế thừa — quản lý trực tiếp trên `AC Asset` qua `update_gmdn_status()`.
+> **Note (2026-05-19):** Field trạng thái sử dụng GMDN (cũ) trên Asset đã bị loại bỏ — trùng ngữ nghĩa với `lifecycle_status`. Lọc/quản lý nhóm thiết bị nay dùng `gmdn_code`. Xem [analysis §6](../res/analysis/gmdn-asset-category-analysis.md).
 
 ---
 
@@ -275,7 +274,7 @@ classDiagram
         +risk_classification: str
         +device_model: Link
         +next_pm_date: date
-        +gmdn_status: str
+        +gmdn_code: str
         +validate()
         +before_save()
         +on_submit()
@@ -675,7 +674,7 @@ flowchart TB
 
 ```mermaid
 flowchart LR
-    IMM00["IMM-00\nFoundation Layer\n(18 DocTypes + shared services)"]
+    IMM00["IMM-00\nFoundation Layer\n(27 DocTypes + shared services)"]
 
     IMM04["IMM-04\nInstallation"]
     IMM05["IMM-05\nRegistration"]

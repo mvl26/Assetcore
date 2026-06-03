@@ -23,6 +23,8 @@
 
 **Không có:** route riêng cho dashboard (`/imm-04/dashboard`), checklist, handover, hay documents tab — các chức năng này được tích hợp vào `CommissioningDetailView` hoặc chưa implement route riêng.
 
+> **Quyết định implement (2026-05-29):** KPI dashboard KHÔNG tách route riêng `/imm-04/dashboard`. 5 KPI (`get_dashboard_stats`) được render trực tiếp dưới dạng **KPI strip trên đầu list page `/commissioning`** (`CommissioningListView`), tái dùng `WorkOrderKpiStrip` + `KpiCard` — đồng pattern với IMM-08/09. Mỗi KPI clickable → quick-filter danh sách ngay tại chỗ. Chi tiết KPI→API field + click action xem §3.1.
+
 ---
 
 ## 2. Sidebar nav module
@@ -130,21 +132,33 @@ Lưu ảnh tại `docs/imm-04/screenshots/`:
 
 ### 3.c. Trang chi tiết theo archetype
 
-#### 3.1. Dashboard (`/imm-04/dashboard`)
+#### 3.1. KPI strip (trên đầu list page `/commissioning`)
 
-> Bám `docs/res/design-frontend.md §3.1`.
+> Bám `docs/res/design/design-frontend.md §3.1` và `docs/fe/04-commissioning/commissioning-list.html`. Render qua `WorkOrderKpiStrip` + `KpiCard` (pattern IMM-08/09), KHÔNG route riêng.
 
-**KPI cards:**
-| KPI | API field | Click action |
-|---|---|---|
-| Phiếu đang mở | `kpis.pending_count` | Filter list state=Open |
-| Clinical Hold | `kpis.hold_count` | Filter state=Clinical Hold |
-| NC mở | `kpis.open_nc_count` | Filter NC list |
-| Release tháng này | `kpis.released_this_month` | Filter state=Clinical Release |
-| Quá hạn SLA | `kpis.overdue_sla` | Filter overdue |
+**KPI cards (display summary — đồng pattern IMM-08/09; thẻ clickable → quick-filter list):**
+| KPI (nhãn hiển thị VI) | API field | Màu | Click → filter |
+|---|---|---|---|
+| Phiếu đang mở | `kpis.pending_count` | primary | clear (`filterState=''`) |
+| Tạm giữ lâm sàng | `kpis.hold_count` | warning | `filterState='Clinical Hold'` — hiển thị qua i18n (§ bảng map), KHÔNG để raw English |
+| NC mở | `kpis.open_nc_count` | danger | `filterState='Non Conformance'` |
+| Bàn giao tháng này | `kpis.released_this_month` | success | `filterState='Clinical Release'` — hiển thị tiếng Việt theo § i18n |
+| **Quá hạn SLA** | `kpis.overdue_sla` | **warning** | **`overdue:1`** (virtual filter — BR-04-10), KHÔNG còn display-only |
 
-**API gọi:** `get_dashboard_stats` — cache TTL 5 phút
-**State:** Loading skeleton 4 cards → hiện dữ liệu
+> **Đính chính i18n (2026-06-02, factory vòng 9):** nhãn KPI strip PHẢI tiếng Việt theo quy tắc i18n ở § "State value tiếng Anh map qua i18n → tiếng Việt trên UI" và wireframe ("Tạm giữ LS"). Bản trước để raw `Clinical Hold` / `Release tháng này` là rò rỉ tiếng Anh, mâu thuẫn chính bảng i18n của module → đã thống nhất về VI. `filterState` vẫn dùng workflow_state gốc tiếng Anh (`Clinical Hold` / `Clinical Release`) làm khoá lọc.
+
+> **Vòng 32 — "Quá hạn SLA" click-to-drill (đóng backlog cũ):** thẻ chuyển từ display-only (color neutral) sang **clickable** mang `overdue:1`:
+> - Nhãn GIỮ tiếng Việt `'Quá hạn SLA'` (KHÔNG leak raw EN). Màu đổi `neutral → warning` để báo hiệu actionable.
+> - `commissioningKpiItems()` (`commissioningKpi.ts`) thêm cho thẻ này một marker drill `overdue: true` (KHÔNG dùng `filterState` vì đây là virtual filter, không phải workflow_state). Các thẻ khác giữ nguyên `filterState` như cũ.
+> - `WorkOrderKpiStrip`/`KpiCard` cần affordance click (emit/`@click`) — hiện display-only. FE dev: thêm optional click contract **không phá** call-site IMM-08/09 (item không có target → vẫn render tĩnh).
+> - `CommissioningListView`: khi click thẻ overdue → set cờ `filters.overdue = true`, gọi `applyFilters` (đẩy `overdue:1` vào payload `buildFilters`), hiển thị **chip "Quá hạn"** + nút **xóa chip** (xóa cờ overdue, refresh). Click thẻ state khác → giữ hành vi `quickFilter('workflow_state', …)` cũ.
+> - `CommissioningFilters` thêm `overdue?: boolean`. `buildFilters` chỉ đính `overdue: 1` khi cờ bật.
+> - INVARIANT FE↔BE: số trên thẻ `overdue_sla` = số dòng list sau khi áp `overdue:1` (cùng SoT BE).
+>
+> Mapping kpis→strip items: hàm thuần `commissioningKpiItems()` (`views/commissioning/commissioningKpi.ts`, có vitest `commissioningKpi.test.ts` — cập nhật K4 case: overdue giờ mang drill marker, KHÔNG còn display-only).
+
+**API gọi:** `get_dashboard_stats` (store `fetchDashboardStats`) — fetch song song với `fetchList` trong `onMounted`.
+**State:** strip ẩn khi chưa có dữ liệu (`v-if="items.length"`). KPI fetch **non-blocking**: dùng `dashboardError` riêng, KHÔNG đụng `error`/`loading` của list (KPI lỗi không che list skeleton/banner).
 
 #### 3.2. List (`/imm-04`)
 
@@ -155,6 +169,9 @@ Lưu ảnh tại `docs/imm-04/screenshots/`:
 | Thiết bị | LinkSearch `Item` | — |
 | Nhà cung cấp | LinkSearch `Supplier` | — |
 | Tìm kiếm | text | — |
+| Quá hạn SLA | virtual flag (set qua click KPI card) | off |
+
+> **Chip "Quá hạn" (vòng 32):** khi cờ `overdue` bật (click thẻ KPI "Quá hạn SLA"), filter bar hiển thị active chip nhãn **"Quá hạn"** với nút ✕ xóa. Xóa chip = `filters.overdue = false` + `applyFilters`. Chip này nằm cùng hàng active-chips với các chip khác (`workflow_state`, `vendor_serial_no`...). Combinable với filter khác (không clobber).
 
 **Cột bảng:**
 | Cột | Render |

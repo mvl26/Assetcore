@@ -118,7 +118,7 @@ onMounted(() => { store.fetchDecisions(); store.fetchKpis() })
       v-model:search="filters.search"
       :show="showFilters"
       :chips="activeChips"
-      search-placeholder="Tìm theo mã quyết định, hồ sơ..."
+      search-placeholder="Tìm theo mã quyết định, mã hồ sơ hoặc tên NCC..."
       @apply="applyFilters"
       @reset="resetFilters"
       @clear-chip="clearChip"
@@ -232,7 +232,7 @@ onMounted(() => { store.fetchDecisions(); store.fetchKpis() })
                   </span>
                 </td>
                 <td>
-                  <span v-if="d.ac_purchase_ref">{{ d.ac_purchase_ref }}</span>
+                  <span v-if="d.ac_purchase_ref">{{ (d as any).ac_purchase_ref_name || d.ac_purchase_ref }}</span>
                   <span v-else class="text-slate-400">—</span>
                 </td>
                 <td>

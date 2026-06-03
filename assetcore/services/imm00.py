@@ -13,7 +13,8 @@ from assetcore.utils.lifecycle import (
     verify_audit_chain as _verify_audit_chain,
 )
 from assetcore.utils.email import get_role_emails, safe_sendmail
-from assetcore.services.shared import AssetStatus, Roles
+from assetcore.services.shared import AssetStatus
+from assetcore.services.shared import rbac
 
 
 _DOCTYPE_ASSET = "AC Asset"
@@ -37,8 +38,8 @@ _DOWNTIME_REASON_MAP = {
 }
 _DT_DOWNTIME_LOG = "AC Asset Downtime Log"
 
-_ROLE_DEPT_HEAD  = Roles.DEPT_HEAD
-_ROLE_OPS_MANAGER = Roles.OPS_MANAGER
+_ROLE_DEPT_HEAD  = "Commissioning Manager"
+_ROLE_OPS_MANAGER = "Commissioning Manager"
 
 # ────────────────────────────────────────────
 # Asset Lifecycle State Machine (BR-00-02)
@@ -114,6 +115,22 @@ def transition_asset_status(
                 f"Không thể chuyển '{asset_name}' từ '{prev_status}' → '{to_status}'. "
                 f"Trạng thái cho phép từ '{prev_status}': {allowed_str}"
             )
+
+    # NEG-09: chặn "Thanh lý" (Decommission) khi thiết bị đang trong dây chuyền
+    # bảo trì/hiệu chuẩn/sửa chữa. Bắt buộc đóng phiếu PM/CM/Cal hoặc đưa về
+    # Active trước khi thanh lý — tránh treo Work Order mồ côi.
+    _BLOCK_DECOM_FROM = {
+        _STATUS_UNDER_MAINTENANCE: "Bảo trì",
+        _STATUS_UNDER_REPAIR:      "Sửa chữa",
+        _STATUS_CALIBRATING:       "Hiệu chuẩn",
+    }
+    if to_status == _STATUS_DECOMMISSIONED and prev_status in _BLOCK_DECOM_FROM:
+        flow = _BLOCK_DECOM_FROM[prev_status]
+        raise InvalidAssetTransition(
+            f"NEG-09: Không thể thanh lý '{asset_name}' khi đang ở trạng thái "
+            f"'{prev_status}' ({flow}). Vui lòng đóng/hoàn tất phiếu {flow} hoặc "
+            f"đưa thiết bị về 'Active' trước khi thanh lý."
+        )
 
     frappe.db.set_value(_DOCTYPE_ASSET, asset_name, "lifecycle_status", to_status)
 
@@ -220,61 +237,6 @@ def _suspend_all_schedules(asset_name: str) -> None:
     })
 
 
-_GMDN_STATUS_ACTIVE = "In Use"
-_GMDN_STATUS_INACTIVE = "Not Use"
-_GMDN_BLOCKED_LIFECYCLE = (_STATUS_OUT_OF_SERVICE, _STATUS_DECOMMISSIONED)
-
-
-def update_gmdn_status(asset_name: str, gmdn_status: str, reason: str) -> dict:
-    """Cập nhật GMDN Status cho AC Asset. BR-00-11, BR-00-12."""
-    if gmdn_status not in (_GMDN_STATUS_ACTIVE, _GMDN_STATUS_INACTIVE):
-        frappe.throw(_("GMDN Status không hợp lệ"))
-    if not reason or len(reason.strip()) < 5:
-        frappe.throw(_("Lý do thay đổi tối thiểu 5 ký tự"))
-
-    if not frappe.db.exists(_DOCTYPE_ASSET, asset_name):
-        frappe.throw(_("Không tìm thấy thiết bị"))
-
-    data = frappe.db.get_value(
-        _DOCTYPE_ASSET, asset_name,
-        ["gmdn_status", "lifecycle_status"], as_dict=True,
-    )
-    old_status = data.gmdn_status or _GMDN_STATUS_ACTIVE
-    lifecycle = data.lifecycle_status or ""
-
-    if gmdn_status == _GMDN_STATUS_ACTIVE and lifecycle in _GMDN_BLOCKED_LIFECYCLE:
-        frappe.throw(_("Không thể kích hoạt GMDN khi thiết bị ở trạng thái '{0}'").format(lifecycle))
-
-    if old_status == gmdn_status:
-        frappe.throw(_("GMDN Status đã là '{0}'").format(gmdn_status))
-
-    frappe.db.set_value(_DOCTYPE_ASSET, asset_name, "gmdn_status", gmdn_status)
-
-    log_audit_event(
-        asset=asset_name,
-        event_type="State Change",
-        actor=frappe.session.user,
-        ref_doctype=_DOCTYPE_ASSET,
-        ref_name=asset_name,
-        change_summary=f"GMDN: {old_status} → {gmdn_status}. Lý do: {reason}",
-        from_status=old_status,
-        to_status=gmdn_status,
-    )
-
-    return {"name": asset_name, "gmdn_status": gmdn_status, "previous": old_status}
-
-
-def toggle_gmdn_status_via_qr(asset_name: str) -> dict:
-    """Toggle GMDN Status qua QR scan. Default reason = 'Quét QR @ <timestamp>'."""
-    if not frappe.db.exists(_DOCTYPE_ASSET, asset_name):
-        frappe.throw(_("Không tìm thấy thiết bị"))
-    current = frappe.db.get_value(_DOCTYPE_ASSET, asset_name, "gmdn_status") or _GMDN_STATUS_INACTIVE
-    target = _GMDN_STATUS_ACTIVE if current == _GMDN_STATUS_INACTIVE else _GMDN_STATUS_INACTIVE
-    from frappe.utils import now
-    reason = f"Quét QR lúc {now()}"
-    return update_gmdn_status(asset_name, target, reason)
-
-
 def validate_asset_for_operations(asset_name: str) -> None:
     """BR-00-05: Out of Service / Decommissioned -> block tao Work Order."""
     status = frappe.db.get_value(_DOCTYPE_ASSET, asset_name, "lifecycle_status")
@@ -330,10 +292,17 @@ def create_capa(asset: str, source_type: str, source_ref: str, severity: str,
         "due_date": add_days(nowdate(), due_days),
         "status": "Open",
     }).insert(ignore_permissions=True)
+    # B-IMM16-3 (2026-05-26): Vietnamese severity label trong audit summary
+    _SEVERITY_VI = {
+        "Minor": "Nhỏ", "Major": "Nghiêm trọng",
+        "Critical": "Khẩn cấp", "Catastrophic": "Thảm khốc",
+        "Low": "Thấp", "Medium": "Trung bình", "High": "Cao",
+    }
+    severity_vi = _SEVERITY_VI.get(severity, severity)
     log_audit_event(
         asset=asset, event_type="CAPA", actor=frappe.session.user,
         ref_doctype=_DOCTYPE_CAPA, ref_name=doc.name,
-        change_summary=f"CAPA opened: severity={severity}",
+        change_summary=_("Đã mở CAPA: mức {0}").format(severity_vi),
     )
     return doc.name
 
@@ -359,20 +328,157 @@ def close_capa(capa_name: str, root_cause: str, corrective_action: str,
 
 
 # ────────────────────────────────────────────
+# CAPA "quá hạn" — Single Source of Truth (BR-00-09)
+# ────────────────────────────────────────────
+# INVARIANT (authoritative, bất biến dưới cron status-flip):
+#   overdue  ⟺  status NOT IN ('Closed')
+#               AND due_date IS NOT NULL
+#               AND due_date < ref_date           (strict <; due_date == today CHƯA quá hạn)
+#
+# Hệ quả thiết kế:
+#   - 'Overdue'-status CAPA VẪN được đếm là overdue (vì 'Overdue' NOT IN 'Closed') →
+#     count KHÔNG tụt sau khi check_capa_overdue() flip status Open/In Progress/Pending
+#     Verification → 'Overdue'. Đây là điều kiện "invariant under cron".
+#   - due_date IS NULL KHÔNG BAO GIỜ là overdue (loại tường minh ở cả predicate lẫn SQL).
+#   - MỌI consumer (KPI dashboard, scorecard, quality-dash, drill list, get_overdue_actions)
+#     PHẢI gọi _overdue_capa_filter() — KHÔNG inline {status NOT IN Closed + due_date<today}.
+
+_CAPA_TERMINAL_STATUSES: tuple[str, ...] = ("Closed",)
+# Source-states cron có thể flip → 'Overdue': mọi state non-terminal mà KPI ĐẾM
+# nhưng chưa phải 'Overdue'. (Open, In Progress, Pending Verification.)
+_CAPA_FLIPPABLE_STATUSES: tuple[str, ...] = ("Open", "In Progress", "Pending Verification")
+
+
+# ────────────────────────────────────────────
+# CAPA "đang xử lý / chưa đóng" (capa_open) — Single Source of Truth (BR-00-15)
+# ────────────────────────────────────────────
+# INVARIANT (authoritative, bất biến dưới cron status-flip):
+#   open  ⟺  status NOT IN ('Closed')
+#
+# 'open' là SUPERSET của 'overdue' (round-10): mọi CAPA quá hạn vẫn là CAPA đang mở,
+# vì 'Overdue' NOT IN 'Closed'. Hệ quả:
+#   - Cron check_capa_overdue() flip Open/In Progress/Pending Verification → 'Overdue'
+#     KHÔNG làm capa_open count thay đổi ('Overdue' vẫn NOT IN 'Closed').
+#   - MỌI consumer (KPI dashboard, scorecard capa_open_count, quality-dash capa_open,
+#     drill list_capas not_closed, get_capa_aging total_open) PHẢI gọi _open_capa_filter()
+#     — KHÔNG inline {status IN [Open, In Progress, ...]} (bỏ sót Overdue/Pending Verification).
+
+
+def is_capa_open(status: str | None) -> bool:
+    """Predicate thuần SoT: 1 CAPA có đang mở (chưa đóng) không?
+
+    open ⟺ status NOT IN ('Closed'). 'open' là superset của 'overdue' — CAPA
+    'Overdue' VẪN đang mở (chưa được đóng). status None/rỗng → coi như mở (chưa đóng).
+    """
+    return status not in _CAPA_TERMINAL_STATUSES
+
+
+def _open_capa_filter() -> dict:
+    """Filter-builder SoT cho frappe.db.count / get_all / get_list.
+
+    Trả dict filter khớp byte-for-byte INVARIANT: status NOT IN ('Closed').
+    Đây là superset của _overdue_capa_filter() (overdue = open ∩ due_date<today).
+    """
+    return {"status": ["not in", list(_CAPA_TERMINAL_STATUSES)]}
+
+
+def is_capa_overdue(status: str | None, due_date, ref_date=None) -> bool:
+    """Predicate thuần SoT: 1 CAPA có quá hạn tại ref_date không?
+
+    overdue ⟺ status NOT IN ('Closed') AND due_date IS NOT NULL AND due_date < ref_date.
+    ref_date mặc định = nowdate() (hôm nay). due_date == ref_date → CHƯA quá hạn (strict <).
+    """
+    if due_date is None or due_date == "":
+        return False
+    if status in _CAPA_TERMINAL_STATUSES:
+        return False
+    from frappe.utils import getdate
+    ref = getdate(ref_date) if ref_date else getdate(nowdate())
+    return getdate(due_date) < ref
+
+
+_CAPA_DUE_DATE_FLOOR = "1000-01-01"  # MariaDB DATE min — null-guard sentinel cho 'between'
+
+
+def _overdue_capa_filter(ref_date: str | None = None) -> dict:
+    """Filter-builder SoT cho frappe.db.count / get_all / get_list.
+
+    Trả dict filter khớp byte-for-byte INVARIANT ở trên:
+        status NOT IN ('Closed') AND due_date IS NOT NULL AND due_date < ref_date.
+    Dùng 'between' [FLOOR, ref-1]: cận trên = ref-1 (inclusive) ⟺ due_date < ref (strict);
+    cận dưới = MariaDB DATE min → due_date IS NULL/rỗng bị loại TƯỜNG MINH (null-guard,
+    không phụ thuộc hành vi NULL-comparison của SQL).
+    """
+    ref = ref_date or nowdate()
+    return {
+        "status": ["not in", list(_CAPA_TERMINAL_STATUSES)],
+        "due_date": ["between", [_CAPA_DUE_DATE_FLOOR, add_days(ref, -1)]],
+    }
+
+
+# ────────────────────────────────────────────
+# Filter-composition (conjoin) — list-of-conditions adapter (BR-00-16)
+# ────────────────────────────────────────────
+# Frappe dict-filter giữ TỐI ĐA 1 predicate / field → KHÔNG thể conjoin 2 ràng buộc
+# trên CÙNG field (vd explicit `status == 'Overdue'` AND virtual `status NOT IN [Closed]`).
+# Dạng list-of-conditions `[[doctype, field, op, value], ...]` cho phép NHIỀU điều kiện
+# trên cùng field, AND với nhau. _as_conditions() là 1 SoT adapter: biến CHÍNH các dict
+# SoT (_open_capa_filter / _overdue_capa_filter) thành list-form — KHÔNG nhân bản literal
+# predicate (tránh 2 chân lý). Membership KHÔNG đổi (round 10/11/12 no-regression).
+
+def _as_conditions(filt: dict, doctype: str) -> list[list]:
+    """Biến dict-filter SoT → list-of-conditions `[[doctype, field, op, value], ...]`.
+
+    Quy ước (khớp shape của _open_capa_filter / _overdue_capa_filter):
+      - `{field: [op, value]}`  → `[doctype, field, op, value]`  (vd ["not in", [...]]).
+      - `{field: value}`        → `[doctype, field, "=", value]` (scalar shorthand).
+
+    Cho phép gọi-bên append thêm condition trên CÙNG field (vd explicit status) →
+    conjoin AND thật. count + get_list nhận CÙNG list → parity total == len(items).
+    """
+    conditions: list[list] = []
+    for field, spec in filt.items():
+        if isinstance(spec, (list, tuple)) and len(spec) == 2 and isinstance(spec[0], str):
+            # [op, value] — vd ["not in", ["Closed"]] hoặc ["between", [lo, hi]].
+            conditions.append([doctype, field, spec[0], spec[1]])
+        else:
+            # Scalar shorthand: bằng nhau.
+            conditions.append([doctype, field, "=", spec])
+    return conditions
+
+
+def _open_capa_conditions(doctype: str) -> list[list]:
+    """SoT-adjacent: _open_capa_filter() ở dạng list-of-conditions (1 SoT, dict+list)."""
+    return _as_conditions(_open_capa_filter(), doctype)
+
+
+def _overdue_capa_conditions(doctype: str, ref_date: str | None = None) -> list[list]:
+    """SoT-adjacent: _overdue_capa_filter() ở dạng list-of-conditions (1 SoT, dict+list)."""
+    return _as_conditions(_overdue_capa_filter(ref_date), doctype)
+
+
+# ────────────────────────────────────────────
 # Scheduler jobs
 # ────────────────────────────────────────────
 
 def check_capa_overdue() -> None:
-    """Scheduler daily: đánh dấu CAPA quá hạn → Overdue, gửi email cảnh báo QA."""
+    """Scheduler daily (BR-00-09): flip CAPA quá hạn → 'Overdue', email cảnh báo QA.
+
+    Source-states = _CAPA_FLIPPABLE_STATUSES (Open/In Progress/Pending Verification) —
+    mọi state non-terminal mà KPI ĐẾM nhưng chưa là 'Overdue'. Idempotent: KHÔNG re-flip
+    CAPA đã 'Overdue', KHÔNG động 'Closed'. Cùng INVARIANT với _overdue_capa_filter()
+    (NOT IN Closed AND due_date IS NOT NULL AND due_date < today) → count bất biến.
+    """
+    placeholders = ", ".join(["%s"] * len(_CAPA_FLIPPABLE_STATUSES))
     rows = frappe.db.sql(
-        """
+        f"""
         SELECT name, asset, responsible, due_date
         FROM `tabIMM CAPA Record`
-        WHERE status IN ('Open', 'In Progress')
-          AND docstatus = 0
+        WHERE status IN ({placeholders})
+          AND due_date IS NOT NULL
           AND due_date < %s
         """,
-        (nowdate(),),
+        (*_CAPA_FLIPPABLE_STATUSES, nowdate()),
         as_dict=True,
     )
     if not rows:
@@ -382,7 +488,7 @@ def check_capa_overdue() -> None:
         f"UPDATE `tabIMM CAPA Record` SET status = 'Overdue' WHERE name IN ({', '.join(['%s'] * len(names))})",
         names,
     )
-    recipients = set(get_role_emails([Roles.QA]))
+    recipients = set(get_role_emails(["Compliance Manager"]))
     recipients.update([r.responsible for r in rows if r.responsible])
     recipients.discard("")
     if recipients:
@@ -432,8 +538,58 @@ def check_registration_expiry() -> None:
                           f"{len(rows)} thiet bi co dang ky BYT sap het han trong {d} ngay:\n\n{body}")
 
 
+# ────────────────────────────────────────────
+# Số đăng ký lưu hành BYT "sắp/đã hết hạn" — Single Source of Truth (BR-00-17, NĐ98)
+# ────────────────────────────────────────────
+# Bối cảnh NĐ98/2021: thiết bị y tế lưu hành tại VN phải có "Số đăng ký lưu hành"
+# (byt_reg_expiry). Khi số ĐK sắp/đã hết hạn → rủi ro pháp lý (không được sử dụng /
+# phải gia hạn). KPI quản trị cần nổi 2 chỉ tiêu này, click drill xuống danh sách
+# thiết bị tương ứng — count KPI PHẢI bằng số dòng list (INVARIANT count==drill).
+#
+# INVARIANT (authoritative, dùng CHUNG cho KPI count + list drill):
+#   'expiring' ⟺ byt_reg_expiry BETWEEN [today, today + BYT_EXPIRY_SOON_DAYS]
+#   'expired'  ⟺ byt_reg_expiry < today  (strict; expiry == today CHƯA hết hạn)
+# Cả 2 bucket LOẠI bản ghi byt_reg_expiry IS NULL / '' (chưa khai báo số ĐK
+# KHÔNG phải "hết hạn" — không đếm, không leak vào danh sách rủi ro). Null-guard
+# tường minh qua cận dưới 'between' = MariaDB DATE min (không phụ thuộc hành vi
+# NULL-comparison của SQL).
+#
+# MỌI consumer (KPI dashboard get_overview, list_assets drill, scheduler) PHẢI
+# gọi byt_expiry_filter() — KHÔNG inline literal window 'byt_reg_expiry'.
+BYT_EXPIRY_SOON_DAYS = 30
+_BYT_EXPIRY_DATE_FLOOR = "1000-01-01"  # MariaDB DATE min — null-guard sentinel cho 'between'
+_BYT_EXPIRY_BUCKETS: tuple[str, ...] = ("expiring", "expired")
+
+
+def byt_expiry_filter(bucket: str, ref_date: str | None = None) -> dict:
+    """Filter-builder SoT cho số ĐK lưu hành BYT sắp/đã hết hạn (NĐ98).
+
+    Args:
+        bucket: ``"expiring"`` (trong [today, today+BYT_EXPIRY_SOON_DAYS]) hoặc
+            ``"expired"`` (byt_reg_expiry < today). Giá trị khác → ``{}`` (no-op,
+            KHÔNG raise) để caller (list_assets) bỏ qua an toàn.
+        ref_date: mốc "hôm nay" (mặc định ``nowdate()``). Test bơm ngày cố định.
+
+    Returns:
+        dict — filter dict cho ``frappe.db.count`` / ``get_list``. Mọi bucket hợp
+        lệ ĐỀU loại byt_reg_expiry IS NULL/'' (chưa khai báo số ĐK ≠ "hết hạn") qua
+        cận dưới 'between' = MariaDB DATE min (null-guard tường minh).
+
+    Invariant (NĐ98): KPI count == số dòng list khi dùng CHUNG filter này — không
+    inline literal window. 'expiring' và 'expired' rời nhau (disjoint).
+    """
+    ref = ref_date or nowdate()
+    if bucket == "expiring":
+        return {"byt_reg_expiry": ["between", [ref, add_days(ref, BYT_EXPIRY_SOON_DAYS)]]}
+    if bucket == "expired":
+        # between [FLOOR, ref-1]: cận trên = ref-1 (inclusive) ⟺ expiry < ref (strict);
+        # cận dưới = DATE min → NULL/'' bị loại tường minh (null-guard).
+        return {"byt_reg_expiry": ["between", [_BYT_EXPIRY_DATE_FLOOR, add_days(ref, -1)]]}
+    return {}  # bucket không hợp lệ → no-op
+
+
 _DT_TRANSFER = "Asset Transfer"
-_TRANSFER_ROLES_APPROVE = {Roles.DEPT_HEAD, Roles.OPS_MANAGER, Roles.SYS_ADMIN}
+_TRANSFER_APPROVE_CAP = "commissioning.submit"
 _ERR_TRANSFER_NOT_FOUND = "Phiếu luân chuyển '{0}' không tồn tại"
 _TRANSFER_STATUS_PENDING   = "Pending Approval"
 _TRANSFER_STATUS_APPROVED  = "Approved"
@@ -494,9 +650,7 @@ def approve_transfer_request(name: str) -> dict:
     if not frappe.db.exists(_DT_TRANSFER, name):
         frappe.throw(_(_ERR_TRANSFER_NOT_FOUND).format(name))
 
-    roles = set(frappe.get_roles(frappe.session.user))
-    if not _TRANSFER_ROLES_APPROVE.intersection(roles):
-        frappe.throw(_("Chỉ Trưởng khoa / Quản lý vận hành mới được phê duyệt luân chuyển"))
+    rbac.require(_TRANSFER_APPROVE_CAP)
 
     doc = frappe.get_doc(_DT_TRANSFER, name)
     if doc.status != _TRANSFER_STATUS_PENDING:
@@ -527,9 +681,7 @@ def reject_transfer_request(name: str, rejection_reason: str) -> dict:
     if not frappe.db.exists(_DT_TRANSFER, name):
         frappe.throw(_(_ERR_TRANSFER_NOT_FOUND).format(name))
 
-    roles = set(frappe.get_roles(frappe.session.user))
-    if not _TRANSFER_ROLES_APPROVE.intersection(roles):
-        frappe.throw(_("Chỉ Trưởng khoa / Quản lý vận hành mới được từ chối luân chuyển"))
+    rbac.require(_TRANSFER_APPROVE_CAP)
 
     if not rejection_reason or len(rejection_reason.strip()) < 5:
         frappe.throw(_("Lý do từ chối là bắt buộc (tối thiểu 5 ký tự)"))
@@ -605,7 +757,7 @@ def cancel_transfer_request(name: str) -> dict:
 
 def _notify_transfer_approvers(doc: "frappe.model.document.Document") -> None:
     """Email các approver (Department Head / Ops Manager / System Admin) khi có yêu cầu luân chuyển mới."""
-    recipients = get_role_emails(list(_TRANSFER_ROLES_APPROVE))
+    recipients = get_role_emails(["Commissioning Manager"])
     if not recipients:
         return
     asset_name = frappe.db.get_value(_DOCTYPE_ASSET, doc.asset, "asset_name") or doc.asset
@@ -743,6 +895,59 @@ def check_service_contract_expiry() -> None:
             )
 
 
+# ─── KPI helpers — single source of truth (RC-09 NextRound) ────────────────
+# Cả Dashboard widget (DashboardView/Launcher) VÀ /approvals/pending phải gọi
+# cùng 1 function này để tránh KPI mismatch giữa 2 trang. Mỗi caller pick
+# scope đúng theo ngữ cảnh: "mine" cho cá nhân, "all" cho admin overview.
+_DT_COMMISSIONING = "Asset Commissioning"
+
+
+def count_pending_approvals(user: str | None = None, scope: str = "mine") -> int:
+    """Đếm số Asset Commissioning đang chờ duyệt.
+
+    Args:
+        user: user để filter (default = ``frappe.session.user``).
+        scope:
+            ``"mine"`` (default) — chỉ phiếu mà ``pending_approver == user``
+            (khớp với danh sách /approvals/pending — list_my_pending_approvals).
+            ``"all"`` — toàn hệ thống (admin overview); yêu cầu role
+            ``System Manager`` / ``Commissioning Manager`` / ``AssetCore Auditor``.
+
+    Returns:
+        int — số phiếu chờ duyệt theo scope đã chọn.
+    """
+    if scope == "all":
+        # Admin/auditor mới được dùng scope all
+        # R21: "IMM Auditor" KHÔNG tồn tại -> auditor bị loại sai khỏi scope=all.
+        # Dùng role THẬT "AssetCore Auditor".
+        allowed = {"System Manager", "Administrator", "Commissioning Manager", "AssetCore Auditor"}
+        roles = set(frappe.get_roles(user or frappe.session.user))
+        if not (allowed & roles):
+            # Fallback an toàn: nếu thiếu quyền vẫn trả "mine" — UI không vỡ.
+            scope = "mine"
+
+    if scope == "all":
+        # Cùng định nghĩa "đang chờ" như list_my_pending_approvals: docstatus != 2
+        # và pending_approver != NULL (đã ở vòng duyệt nào đó).
+        return frappe.db.count(
+            _DT_COMMISSIONING,
+            filters={
+                "pending_approver": ["is", "set"],
+                "docstatus": ["!=", 2],
+            },
+        )
+
+    # scope == "mine"
+    target_user = user or frappe.session.user
+    return frappe.db.count(
+        _DT_COMMISSIONING,
+        filters={
+            "pending_approver": target_user,
+            "docstatus": ["!=", 2],
+        },
+    )
+
+
 def rollup_asset_kpi() -> None:
     """Monthly 1st 06:00: rollup KPI (MTTR avg, uptime_pct) cho tung thiet bi."""
     # MTTR: avg of last 12 completed repairs per asset
@@ -787,3 +992,87 @@ def rollup_asset_kpi() -> None:
         downtime_days = (r.total_downtime_h or 0) / 24.0
         uptime_pct = round(max(0, (days_in_month - downtime_days) / days_in_month * 100), 2)
         frappe.db.set_value(_DOCTYPE_ASSET, r.asset_ref, "uptime_pct", uptime_pct)
+
+
+# ──────────────────────────────────────────────
+# GMDN P3 Hybrid — Category → Model → Asset cascade
+# Ref: docs/res/plans/2026-05-19-gmdn-code-sync-strategy.md §5/§6 (C4/C5)
+# ──────────────────────────────────────────────
+_DOCTYPE_DEVICE_MODEL = "IMM Device Model"
+
+
+def resync_assets_gmdn_from_model(model_name: str, new_code: str) -> int:
+    """C5 — Re-sync gmdn_code của mọi AC Asset thuộc `model_name` về `new_code`.
+
+    Tái dùng cho cả manual realign lẫn cascade. Mỗi Asset thực sự đổi giá trị
+    được ghi 1 dòng IMM Audit Trail (asset = chính nó), KHÔNG đổi
+    lifecycle_status (gmdn_code là data field thường — KHÔNG dùng
+    transition_asset_status). Idempotent: Asset đã đúng giá trị → bỏ qua.
+
+    Returns: số Asset thực sự được cập nhật.
+    """
+    assets = frappe.get_all(
+        _DOCTYPE_ASSET,
+        filters={"device_model": model_name},
+        fields=["name", "gmdn_code"],
+    )
+    changed = 0
+    for a in assets:
+        old = a.get("gmdn_code") or ""
+        if old == (new_code or ""):
+            continue
+        frappe.db.set_value(_DOCTYPE_ASSET, a["name"], "gmdn_code", new_code)
+        _log_audit_event(
+            asset=a["name"],
+            event_type="System",
+            ref_doctype=_DOCTYPE_DEVICE_MODEL,
+            ref_name=model_name,
+            change_summary=f"GMDN cascade: gmdn_code {old or '(rỗng)'} → {new_code or '(rỗng)'} (đồng bộ từ Danh mục qua Model)",
+        )
+        changed += 1
+    return changed
+
+
+def cascade_category_gmdn(category_name: str, old_code: str, new_code: str) -> dict:
+    """C4 — Lan truyền gmdn_code của AC Asset Category xuống Model + Asset.
+
+    Chính sách P3 Hybrid:
+      - CHỈ cascade tới Model có gmdn_inherited = 1 (kế thừa).
+      - Model gmdn_inherited = 0 (override cố ý) → BỎ QUA (giữ nguyên).
+      - Mỗi Model được cascade → re-sync Asset của Model đó + audit.
+
+    Idempotent: chỉ ghi audit khi giá trị thực sự đổi. Listener gọi hàm này
+    KHÔNG save lại Category (tránh đệ quy vô hạn).
+
+    Returns: {"models": [...], "assets_changed": int, "skipped_overrides": [...]}
+    """
+    inherited = frappe.get_all(
+        _DOCTYPE_DEVICE_MODEL,
+        filters={"asset_category": category_name, "gmdn_inherited": 1},
+        fields=["name", "gmdn_code"],
+    )
+    skipped = frappe.get_all(
+        _DOCTYPE_DEVICE_MODEL,
+        filters={"asset_category": category_name, "gmdn_inherited": 0},
+        pluck="name",
+    )
+    cascaded_models: list[str] = []
+    assets_changed = 0
+    for m in inherited:
+        m_old = m.get("gmdn_code") or ""
+        if m_old != (new_code or ""):
+            frappe.db.set_value(_DOCTYPE_DEVICE_MODEL, m["name"], "gmdn_code", new_code)
+            cascaded_models.append(m["name"])
+        assets_changed += resync_assets_gmdn_from_model(m["name"], new_code)
+
+    if skipped:
+        frappe.logger("assetcore").info(
+            "GMDN cascade %s (%s→%s): bỏ qua %d Model override: %s",
+            category_name, old_code or "(rỗng)", new_code or "(rỗng)",
+            len(skipped), ", ".join(skipped),
+        )
+    return {
+        "models": cascaded_models,
+        "assets_changed": assets_changed,
+        "skipped_overrides": skipped,
+    }

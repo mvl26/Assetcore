@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="module-id" content="roles">
+<title>Phân quyền role — AssetCore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+<script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <a class="brand" style="color:inherit;text-decoration:none" href="#">
+      <span class="logo">A</span>
+      <div>AssetCore <small>IMMIS · BV Nhi Đồng 1</small></div>
+    </a>
+    <div class="spacer"></div>
+    <button class="iconbtn" title="Thông báo"><iconify-icon icon="heroicons:bell" style="font-size:18px;vertical-align:-3px;color:#fff"></iconify-icon></button>
+    <div class="persona-pill" title="Chọn vai trò"></div>
+    <div id="personaMenu" class="persona-menu"></div>
+  </div>
+  <div class="body-wrap">
+    <aside class="sidebar">
+      <div class="side-head"><span></span></div>
+      <nav></nav>
+      <div class="side-foot">AssetCore v0.0.2 · Wave 1+2</div>
+    </aside>
+    <main class="main">
+      <div class="breadcrumb"><a href="../index.html">Trang chủ</a> <span class="sep">›</span><span>Quản trị hệ thống</span> <span class="sep">›</span><span>Phân quyền role</span></div>
+      <div class="page">
+        <div class="page-head">
+  <div class="titles">
+    <h1>Gán role cho người dùng</h1>
+    <div class="sub">Catalog 4 System Roles + 26 Domain Roles (13 module × Manager/User) · Đổi role không cần deploy</div>
+  </div>
+
+</div><div class="grid g2">
+  <div class="card">
+    <div class="card-head"><h3>Chọn người dùng</h3></div>
+    <div class="card-pad">
+      <div class="field">
+        <label class="fld">Tìm user</label>
+        <input class="input" placeholder="Email / tên / khoa…">
+      </div>
+      <div style="margin-top:14px;padding:14px;background:var(--color-primary-50);border:1px solid var(--color-primary-500);border-radius:8px">
+        <b>Trần Thị Mai</b>
+        <div class="text-sm muted">mai.tt@bnd1.vn · VT-TTBYT · Trưởng phòng</div>
+      </div>
+    </div>
+
+  </div><div class="card">
+    <div class="card-head"><h3>System Roles (4)</h3></div>
+    <div class="card-pad">
+      <ul class="checklist">
+        <li><input type="checkbox"><div><b>AssetCore Super Admin</b><div class="text-xs muted">Toàn quyền + bao trùm Frappe System Manager</div></div></li>
+        <li><input type="checkbox" checked><div><b>AssetCore System User</b> <span class="badge b-active" style="font-size:10px">Bắt buộc</span><div class="text-xs muted">Role nền: đăng nhập, dashboard, đọc shared-core</div></div></li>
+        <li><input type="checkbox"><div><b>AssetCore Auditor</b><div class="text-xs muted">Chỉ đọc toàn bộ + audit trail</div></div></li>
+        <li><input type="checkbox"><div><b>Vendor Engineer</b><div class="text-xs muted">Bên thứ ba, cô lập theo WO/Asset được phân công</div></div></li>
+      </ul>
+    </div>
+  </div>
+
+<div class="card" style="margin-top:20px">
+  <div class="card-head"><h3>Domain Roles — 13 module × 2 tier</h3></div>
+  <div class="card-pad">
+    <table class="tbl" style="border:none">
+      <thead><tr><th style="background:#fff;color:var(--color-neutral-900);border-bottom:2px solid var(--color-navy-header)">Module</th><th style="background:#fff;color:var(--color-neutral-900);border-bottom:2px solid var(--color-navy-header)">Manager (CRUD + duyệt)</th><th style="background:#fff;color:var(--color-neutral-900);border-bottom:2px solid var(--color-navy-header)">User (CRUD thường)</th></tr></thead>
+      <tbody style="background:#fff">
+        <tr><td><b>Dữ liệu nền</b></td><td><label><input type="checkbox"> Data Manager</label></td><td><label><input type="checkbox" checked> Data User</label></td></tr>
+        <tr><td><b>Nhu cầu & Kế hoạch</b></td><td><label><input type="checkbox" checked> Needs Manager</label></td><td><label><input type="checkbox"> Needs User</label></td></tr>
+        <tr><td><b>Thông số kỹ thuật</b></td><td><label><input type="checkbox"> Spec Manager</label></td><td><label><input type="checkbox"> Spec User</label></td></tr>
+        <tr><td><b>Đánh giá NCC & Mua sắm</b></td><td><label><input type="checkbox" checked> Procurement Manager</label></td><td><label><input type="checkbox"> Procurement User</label></td></tr>
+        <tr><td><b>Lắp đặt & Nghiệm thu</b></td><td><label><input type="checkbox"> Commissioning Manager</label></td><td><label><input type="checkbox"> Commissioning User</label></td></tr>
+        <tr><td><b>Hồ sơ thiết bị</b></td><td><label><input type="checkbox" checked> Document Manager</label></td><td><label><input type="checkbox"> Document User</label></td></tr>
+        <tr><td><b>Đào tạo & Năng lực</b></td><td><label><input type="checkbox"> Training Manager</label></td><td><label><input type="checkbox"> Training User</label></td></tr>
+        <tr><td><b>Bảo trì định kỳ</b></td><td><label><input type="checkbox" checked> PM Manager</label></td><td><label><input type="checkbox"> PM User</label></td></tr>
+        <tr><td><b>Sửa chữa</b></td><td><label><input type="checkbox" checked> Repair Manager</label></td><td><label><input type="checkbox"> Repair User</label></td></tr>
+        <tr><td><b>Hiệu chuẩn</b></td><td><label><input type="checkbox" checked> Calibration Manager</label></td><td><label><input type="checkbox"> Calibration User</label></td></tr>
+        <tr><td><b>Sự cố & RCA</b></td><td><label><input type="checkbox" checked> Corrective Manager</label></td><td><label><input type="checkbox"> Corrective User</label></td></tr>
+        <tr><td><b>Tồn kho phụ tùng</b></td><td><label><input type="checkbox" checked> Inventory Manager</label></td><td><label><input type="checkbox"> Inventory User</label></td></tr>
+        <tr><td><b>Tuân thủ & QMS</b></td><td><label><input type="checkbox"> Compliance Manager</label></td><td><label><input type="checkbox"> Compliance User</label></td></tr>
+      </tbody>
+    </table>
+
+    <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:20px">
+      <button class="btn btn-secondary">Hủy</button>
+      <button class="btn btn-primary">Lưu thay đổi</button>
+    </div>
+  </div>
+</div>
+      
+    
+      </div>
+    </div>
+</main>
+  </div>
+</div>
+<script src="../assets/shell.js"></script>
+</body>
+</html>

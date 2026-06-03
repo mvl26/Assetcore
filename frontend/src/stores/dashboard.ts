@@ -14,7 +14,12 @@ export interface KpiMetrics {
   total_assets: number
   under_repair: number
   under_maintenance: number
+  /** RC-09: phiếu chờ duyệt theo scope "mine" (current_user là pending_approver). */
   pending_commissioning: number
+  /** RC-09: phiếu chờ duyệt toàn hệ thống (chỉ dùng cho admin overview). */
+  pending_commissioning_all?: number
+  /** RC-10: PM Work Order trạng thái Overdue (single source of truth). */
+  overdue_pm?: number
 }
 
 export interface StatusChart {

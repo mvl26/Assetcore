@@ -1,3 +1,7 @@
+> ⚠ **[ROADMAP — Wave 3 / Chưa scaffold]**
+> Module IMM-10 (Post-Market Surveillance / Hậu kiểm) chưa có code: không có `assetcore/services/imm10.py`, không có `assetcore/api/imm10.py`.
+> Nội dung file này là **dự kiến**, sẽ chốt khi sprint Wave 3 mở và phụ thuộc IMM-16 (Compliance Rule Engine) GA trước.
+
 # IMM-10 — Frontend Design
 
 | Mục | Giá trị |
@@ -147,7 +151,7 @@ KPI cards (refer §I.5 của `02_Analysis_Design.md`):
 
 ## VII. Design system
 
-Tuân thủ `docs/res/design-frontend.md` — typography / spacing / color token dùng chung. KHÔNG đặt color hex cứng trong component IMM-10.
+Tuân thủ `docs/res/design/design-frontend.md` — typography / spacing / color token dùng chung. KHÔNG đặt color hex cứng trong component IMM-10.
 
 Severity color mapping (đề xuất):
 - Low: gray-500

@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<title>AssetCore — Đăng nhập</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+<script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
+<style>
+body{
+  display:flex;align-items:center;justify-content:center;min-height:100vh;
+  background:linear-gradient(135deg,#1F4E79 0%,#0957D1 100%);padding:24px
+}
+.login-shell{
+  width:100%;max-width:900px;background:#fff;border-radius:16px;
+  box-shadow:0 24px 60px rgba(0,0,0,.25);overflow:hidden;display:grid;
+  grid-template-columns:1fr 1.4fr
+}
+@media(max-width:760px){.login-shell{grid-template-columns:1fr}}
+.login-brand{
+  background:linear-gradient(135deg,#1F4E79,#0957D1);color:#fff;
+  padding:40px 32px;display:flex;flex-direction:column;justify-content:space-between
+}
+.login-brand .logo-big{
+  width:60px;height:60px;border-radius:14px;background:rgba(255,255,255,.15);
+  display:grid;place-items:center;font-size:30px;font-weight:800;margin-bottom:20px
+}
+.login-brand h1{font-size:26px;line-height:34px;font-weight:700;margin-bottom:10px}
+.login-brand p{font-size:14px;opacity:.85;line-height:1.6}
+.login-brand .note{font-size:12px;opacity:.7;margin-top:24px;padding-top:20px;border-top:1px solid rgba(255,255,255,.2)}
+.persona-panel{padding:32px}
+.persona-panel h2{font-size:18px;font-weight:600;margin-bottom:6px}
+.persona-panel p.sub{font-size:13px;color:var(--color-neutral-600);margin-bottom:20px}
+.persona-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.persona-card{
+  border:1px solid var(--color-neutral-300);border-radius:10px;padding:14px;
+  display:flex;align-items:center;gap:12px;cursor:pointer;text-decoration:none;
+  color:var(--color-neutral-900);transition:.12s
+}
+.persona-card:hover{border-color:var(--color-primary-500);background:var(--color-primary-50);transform:translateY(-1px)}
+.persona-card .avatar{
+  width:42px;height:42px;border-radius:50%;color:#fff;font-weight:700;font-size:14px;
+  display:grid;place-items:center;flex-shrink:0
+}
+.persona-card .pmeta{flex:1;min-width:0}
+.persona-card .pmeta .title{font-size:13.5px;font-weight:600;line-height:1.2}
+.persona-card .pmeta .name{font-size:11.5px;color:var(--color-neutral-600);margin-top:2px}
+</style>
+</head>
+<body>
+<div class="login-shell">
+  <div class="login-brand">
+    <div>
+      <div class="logo-big">A</div>
+      <h1>AssetCore IMMIS</h1>
+      <p>Hệ thống quản lý vòng đời thiết bị y tế · ERPNext / Frappe v15</p>
+      <p style="margin-top:14px">BV Nhi Đồng 1 · Wave 1 + Wave 2 (13 module)</p>
+    </div>
+    <div class="note">
+      Prototype tĩnh — chọn vai trò để xem giao diện riêng cho từng persona.
+      Hệ thống thực tế dùng đăng nhập username/password + 2FA.
+    </div>
+  </div>
+
+  <div class="persona-panel">
+    <h2>Chọn vai trò để bắt đầu</h2>
+    <p class="sub">Mỗi vai trò có sidebar điều hướng và bảng điều khiển riêng — chỉ thấy các module được phân quyền.</p>
+
+    <div class="persona-grid">
+
+      <a class="persona-card" data-persona="opsmgr" href="common/dashboard-opsmgr.html">
+        <div class="avatar" style="background:#0E6FFF">TM</div>
+        <div class="pmeta"><div class="title">Trưởng phòng VT-TTBYT</div><div class="name">Trần Thị Mai</div></div>
+      </a>
+
+      <a class="persona-card" data-persona="workshop" href="common/dashboard-workshop.html">
+        <div class="avatar" style="background:#0891B2">LH</div>
+        <div class="pmeta"><div class="title">Trưởng xưởng kỹ thuật</div><div class="name">Lê Quốc Hùng</div></div>
+      </a>
+
+      <a class="persona-card" data-persona="tech" href="common/dashboard-tech.html">
+        <div class="avatar" style="background:#16A34A">PĐ</div>
+        <div class="pmeta"><div class="title">Kỹ thuật viên</div><div class="name">Phạm Văn Đức</div></div>
+      </a>
+
+      <a class="persona-card" data-persona="clinical" href="common/dashboard-clinical.html">
+        <div class="avatar" style="background:#7C3AED">NL</div>
+        <div class="pmeta"><div class="title">Trưởng khoa lâm sàng</div><div class="name">BS. Nguyễn Thị Lan</div></div>
+      </a>
+
+      <a class="persona-card" data-persona="doc" href="common/dashboard-doc.html">
+        <div class="avatar" style="background:#475569">VH</div>
+        <div class="pmeta"><div class="title">Cán bộ hồ sơ</div><div class="name">Vũ Thị Hà</div></div>
+      </a>
+
+      <a class="persona-card" data-persona="store" href="common/dashboard-store.html">
+        <div class="avatar" style="background:#B45309">ĐT</div>
+        <div class="pmeta"><div class="title">Thủ kho phụ tùng</div><div class="name">Đỗ Văn Tâm</div></div>
+      </a>
+
+      <a class="persona-card" data-persona="qa" href="common/dashboard-qa.html">
+        <div class="avatar" style="background:#DC2626">HC</div>
+        <div class="pmeta"><div class="title">Cán bộ QA</div><div class="name">Hoàng Minh Châu</div></div>
+      </a>
+
+      <a class="persona-card" data-persona="admin" href="common/dashboard-admin.html">
+        <div class="avatar" style="background:#0F172A">NS</div>
+        <div class="pmeta"><div class="title">Quản trị viên IT</div><div class="name">Ngô Hải Sơn</div></div>
+      </a>
+
+    </div>
+  </div>
+</div>
+<script>
+  // When user clicks a persona card, save persona to localStorage before navigating.
+  // Every subsequent page (dashboards, modules, list/detail/form views) reads this
+  // and builds the sidebar / topbar to match — clicking modules WON'T switch persona.
+  document.querySelectorAll('.persona-card').forEach(function (card) {
+    card.addEventListener('click', function () {
+      var p = card.getAttribute('data-persona');
+      if (p) localStorage.setItem('ac_persona', p);
+    });
+  });
+</script>
+</body>
+</html>

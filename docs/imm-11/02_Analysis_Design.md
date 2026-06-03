@@ -6,7 +6,7 @@
 | Phạm vi | Per-module |
 | Owner | BA + System Analyst |
 | Liên kết | 03 Diagrams · 04 Backend · 05 API · 06 Frontend |
-| Cập nhật | 2026-05-14 |
+| Cập nhật | 2026-05-27 |
 | Trạng thái | ✅ Live — service `assetcore/services/imm11.py` + API `assetcore/api/imm11.py` (18 endpoint) + DocType + Workflow + FE views đã deploy |
 
 ---
@@ -40,12 +40,12 @@ IMM-11 giải quyết vấn đề bệnh viện không theo dõi được trạn
 
 | Vai trò | Người dùng thực | Quan tâm chính | Tần suất | Loại |
 |---|---|---|---|---|
-| IMM Workshop Lead | Trưởng xưởng kỹ thuật | Lập lịch, chọn lab, monitor compliance | Hằng ngày | Primary |
-| IMM Technician | KTV hiệu chuẩn | Bàn giao thiết bị, nhập measurement, upload cert | Hằng ngày | Primary |
-| IMM QA Officer | Nhân viên QA | Review CAPA, Lookback findings, RCA | Hằng tuần | Approver |
-| IMM Operations Manager | Quản lý vận hành | Dashboard, KPI, compliance report | Hằng tuần | Secondary |
-| IMM Department Head | Trưởng phòng HTM | Nhận escalation overdue > 30 ngày | Khi cần | Auditor |
-| IMM Document Officer | Nhân viên lưu trữ | Read-only audit trail, chứng chỉ archive | Theo yêu cầu | Auditor |
+| Calibration Manager | Trưởng xưởng kỹ thuật | Lập lịch, chọn lab, monitor compliance | Hằng ngày | Primary |
+| Calibration User | KTV hiệu chuẩn | Bàn giao thiết bị, nhập measurement, upload cert | Hằng ngày | Primary |
+| Compliance Manager | Nhân viên QA | Review CAPA, Lookback findings, RCA | Hằng tuần | Approver |
+| Calibration Manager | Quản lý vận hành | Dashboard, KPI, compliance report | Hằng tuần | Secondary |
+| Calibration Manager | Trưởng phòng HTM | Nhận escalation overdue > 30 ngày | Khi cần | Auditor |
+| Document Manager | Nhân viên lưu trữ | Read-only audit trail, chứng chỉ archive | Theo yêu cầu | Auditor |
 
 ## I.4. Scope
 
@@ -149,7 +149,7 @@ flowchart TD
     subgraph WL["Workshop Lead"]
         B2 --> C1[Chọn lab + phân công KTV]
     end
-    subgraph KTV["IMM Technician"]
+    subgraph KTV["Calibration User"]
         C1 --> D1{Loại hiệu chuẩn?}
         D1 -->|External| D2[Bàn giao → Sent to Lab]
         D2 --> D3[Nhận cert → Certificate Received]
@@ -165,7 +165,7 @@ flowchart TD
         E1 -->|Fail| E4[handle_calibration_fail]
         E4 --> E5[Out of Service + CAPA + Lookback]
     end
-    subgraph QA["IMM QA Officer"]
+    subgraph QA["Compliance Manager"]
         E5 --> F1[resolve_capa_lookback]
         F1 --> F2[close_capa]
         F2 --> F3[Recalibration Pass → Active]
@@ -254,7 +254,7 @@ Module có 12 UC chính → tách thành 3 nhóm phân rã, mỗi nhóm ≤ 6 UC
 
 **Nhóm 1 — Planning & Assignment (Workshop Lead)**: UC-01 Lập lịch, UC-02 Phân công KTV, UC-11 Scheduler tự động tạo WO, UC-12 Cập nhật calibration_status.
 
-**Nhóm 2 — Execution (KTV — IMM Technician)**: UC-03 Bàn giao thiết bị External, UC-04 Nhận certificate, UC-05 Nhập kết quả đo, UC-06 Submit kết quả.
+**Nhóm 2 — Execution (Calibration User)**: UC-03 Bàn giao thiết bị External, UC-04 Nhận certificate, UC-05 Nhập kết quả đo, UC-06 Submit kết quả.
 
 **Nhóm 3 — Post-result Automation & QA**: UC-07 Auto Pass handling (System), UC-08 Auto Fail handling — CAPA + OOS + Lookback (System), UC-09 Resolve lookback (QA Officer), UC-10 Close CAPA (QA Officer).
 
@@ -264,12 +264,12 @@ Module có 12 UC chính → tách thành 3 nhóm phân rã, mỗi nhóm ≤ 6 UC
 
 | Actor | Loại | Mô tả | Goal chính |
 |---|---|---|---|
-| IMM Workshop Lead | Primary | Trưởng xưởng kỹ thuật, owner lịch hiệu chuẩn | Đảm bảo 100% thiết bị có lịch + cert hợp lệ |
-| IMM Technician (KTV) | Primary | Kỹ thuật viên hiệu chuẩn nội bộ / handler external | Hoàn thành WO đúng hạn, nhập số liệu đúng |
-| IMM QA Officer | Approver | Nhân viên QA phụ trách CAPA + Lookback | Đảm bảo Fail không lan rộng, đóng CAPA đúng quy trình |
-| IMM Operations Manager | Secondary | Quản lý vận hành — đọc dashboard, KPI | Theo dõi compliance rate + OOT rate |
-| IMM Department Head | Auditor | Trưởng phòng HTM — nhận escalation > 30 ngày overdue | Pass audit NĐ98 + ISO 13485 |
-| IMM Document Officer | Auditor | Read-only audit trail, archive chứng chỉ | Truy xuất hồ sơ ≥ 7 năm |
+| Calibration Manager | Primary | Trưởng xưởng kỹ thuật, owner lịch hiệu chuẩn | Đảm bảo 100% thiết bị có lịch + cert hợp lệ |
+| Calibration User | Primary | Kỹ thuật viên hiệu chuẩn nội bộ / handler external | Hoàn thành WO đúng hạn, nhập số liệu đúng |
+| Compliance Manager | Approver | Nhân viên QA phụ trách CAPA + Lookback | Đảm bảo Fail không lan rộng, đóng CAPA đúng quy trình |
+| Calibration Manager | Secondary | Quản lý vận hành — đọc dashboard, KPI | Theo dõi compliance rate + OOT rate |
+| Calibration Manager | Auditor | Trưởng phòng HTM — nhận escalation > 30 ngày overdue | Pass audit NĐ98 + ISO 13485 |
+| Document Manager | Auditor | Read-only audit trail, archive chứng chỉ | Truy xuất hồ sơ ≥ 7 năm |
 | Calibration Lab (External) | External | Lab ISO/IEC 17025 nhận thiết bị, trả cert | (Out-of-system) Cấp cert đúng định dạng |
 | Scheduler | System | Frappe scheduler chạy hằng ngày | Tự động tạo CAL WO 30 ngày trước hạn |
 | AssetCore System | System | Engine xử lý on_submit Pass/Fail | Auto trigger CAPA + Lookback + Lifecycle Event |
@@ -282,7 +282,7 @@ Module có 12 UC chính → tách thành 3 nhóm phân rã, mỗi nhóm ≤ 6 UC
 |---|---|
 | ID | UC-IMM11-05 |
 | Brief | KTV nhập giá trị đo từng tham số; hệ thống tự tính Pass/Fail |
-| Primary actor | IMM Technician |
+| Primary actor | Calibration User |
 | Pre-condition | `IMM Asset Calibration` ở trạng thái `Certificate Received` hoặc `In Progress` |
 | Post-condition | `measurements` đầy đủ; `overall_result` được tính |
 | Trigger | KTV nhận chứng chỉ hoặc hoàn thành đo nội bộ |
@@ -304,7 +304,7 @@ Module có 12 UC chính → tách thành 3 nhóm phân rã, mỗi nhóm ≤ 6 UC
 |---|---|
 | ID | UC-IMM11-06 |
 | Brief | KTV submit phiếu hiệu chuẩn, kích hoạt automation Pass/Fail |
-| Primary actor | IMM Technician |
+| Primary actor | Calibration User |
 | Pre-condition | Mọi `measured_value` đã nhập; External: có `certificate_file` và `lab_accreditation_number` |
 | Post-condition | DocType submittable (docstatus=1); asset cập nhật; CAPA tạo nếu Fail |
 | Trigger | KTV click "Submit" |
@@ -361,12 +361,15 @@ Module có 12 UC chính → tách thành 3 nhóm phân rã, mỗi nhóm ≤ 6 UC
 
 | Priority | Must |
 |---|---|
-| AC-01 | Given asset có `next_calibration_date ≤ today + 30`, When Workshop Lead xem dashboard, Then thiết bị xuất hiện trong danh sách "Due Soon" |
-| AC-02 | Given asset có `next_calibration_date < today`, When xem, Then hiển thị "Overdue" với số ngày quá hạn |
+| AC-01 | Given asset có active `Schedule.next_due_date` trong `[today, today+30]` (SoT BR-11-08), When Workshop Lead xem dashboard, Then thiết bị xuất hiện trong danh sách "Due Soon" |
+| AC-02 | Given asset có active `Schedule.next_due_date < today`, When xem, Then hiển thị "Overdue" với số ngày quá hạn |
+| AC-11-11 | Given asset chỉ-có-schedule (`AC Asset.next_calibration_date` NULL) nhưng `Schedule.next_due_date < today`, When xem, Then asset được đếm Overdue ở CẢ dashboard VÀ IMM-11 KPI/drill (count == drill, BR-11-08) |
+| AC-11-12 | Given `AC Asset.calibration_status = Overdue` và lịch DUY NHẤT của asset bị `is_active=0` (hoặc bị xóa) → rollup map không còn chứa asset, When `check_calibration_expiry()` chạy, Then `calibration_status ∈ {Not Required, ''}` (KHÔNG còn badge `Overdue`/`Due Soon` cũ). BR-11-10 |
+| AC-11-13 | Given asset đã `handle_calibration_fail` (`calibration_status = Calibration Failed`, `lifecycle_status = Out of Service`, CAPA mở) còn active schedule overdue, When `check_calibration_expiry()` chạy, Then `calibration_status` GIỮ `Calibration Failed` (KHÔNG ghi đè về On Schedule/Due Soon/Overdue). BR-11-11 |
 
 ### US-11-02: Auto Pass/Fail khi nhập measurement
 
-**Là** KTV HTM, **tôi muốn** nhập tham số đo và hệ thống auto tính Pass/Fail, **để** loại bỏ tính toán thủ công.
+**Là** Calibration User, **tôi muốn** nhập tham số đo và hệ thống auto tính Pass/Fail, **để** loại bỏ tính toán thủ công.
 
 | Priority | Must |
 |---|---|
@@ -384,6 +387,33 @@ Module có 12 UC chính → tách thành 3 nhóm phân rã, mỗi nhóm ≤ 6 UC
 | BR-11-05 | Immutable sau Submit; Amend với reason | Submittable + `on_cancel` block | AC-11-09 |
 | BR-11-06 | Decommissioned → suspend Schedule | `transition_asset_status()` cascade | — |
 | BR-11-07 | `validate_asset_for_operations()` gate (trừ `is_recalibration=1`) | service entry | AC-11-10 |
+| BR-11-08 | **SoT "đến hạn/quá hạn" hiệu chuẩn** — biên rõ + 1 nguồn date duy nhất | `is_calibration_overdue` / `is_calibration_due_soon` (services/imm11.py) | AC-11-11, TC-11-SOT-* |
+| BR-11-09 | **De-dup theo asset** — 1 asset có >1 active schedule overdue chỉ đếm 1 lần | `get_calibration_kpis` + drill `list_schedules` | TC-11-SOT-DEDUP |
+| BR-11-10 | **Stale-clear** — asset KHÔNG còn active schedule (lịch bị `is_active=0`/xóa) thì rollup phải reset `calibration_status` về neutral (`Not Required`), KHÔNG giữ badge `Overdue`/`Due Soon` cũ vĩnh viễn | `check_calibration_expiry()` (reconcile UNION) | AC-11-12, TC-11-ROLLUP-STALE |
+| BR-11-11 | **FAILED-preserve (terminal)** — khi asset `lifecycle_status = Out of Service`, rollup KHÔNG được ghi đè `calibration_status = Calibration Failed` về `On Schedule`/`Due Soon`/`Overdue`. Terminal chỉ rời bằng recal Pass (`handle_calibration_pass`) | `check_calibration_expiry()` (preserve guard) | AC-11-13, TC-11-ROLLUP-FAILED |
+
+### BR-11-08 — Single Source of Truth: predicate "đến hạn / quá hạn"
+
+Trước đây tồn tại **2 nguồn ngày phân kỳ** cho cùng khái niệm "đến hạn/quá hạn":
+1. Dashboard (`api/dashboard.py`) đếm `IMM Calibration Schedule.next_due_date` (KHÔNG lọc `is_active=1`, KHÔNG loại asset decommissioned → đếm dư).
+2. Module IMM-11 KPI/drill đếm `AC Asset.calibration_status` — cache derive từ `AC Asset.next_calibration_date` (field KHÁC; NULL với asset chỉ-có-schedule/minted → IMM-11 KPI = 0 dù dashboard thấy).
+
+**Chốt (Self-Correction):** loại bỏ phân kỳ — định nghĩa 1 predicate duy nhất, dùng chung MỌI consumer:
+
+- **Date-field authoritative DUY NHẤT:** `IMM Calibration Schedule.next_due_date` của schedule `is_active=1`. Lý do: 1 asset có thể có **>1 loại** calibration (External + In-House) → mỗi loại 1 schedule riêng với hạn riêng; `AC Asset.next_calibration_date` chỉ giữ 1 giá trị → không biểu diễn được nhiều loại. `AC Asset.calibration_status` từ nay **chỉ là rollup cache** derive từ SoT (không phải nguồn đếm).
+- **Hằng cửa sổ dùng chung:** `CAL_DUE_SOON_WINDOW_DAYS = 30` (1 hằng, dùng ở MỌI nơi).
+- **Biên (boundary) — chốt rõ:**
+  - `is_calibration_overdue(next_due, today)` ⟺ `next_due < today` (**strict `<`**).
+  - `is_calibration_due_soon(next_due, today)` ⟺ `today <= next_due <= today + CAL_DUE_SOON_WINDOW_DAYS` (**cả 2 biên inclusive**).
+  - `ON_SCHEDULE` ⟺ ngược lại (`next_due > today + 30`). OVERDUE và DUE_SOON loại trừ nhau (overdue ưu tiên).
+- **Tập filter ĐỒNG NHẤT ở MỌI consumer:**
+  - loại trừ asset decommissioned: `lifecycle_status NOT IN (Decommissioned)` (`AssetStatus.DECOMMISSIONED`); VÀ
+  - chỉ schedule `is_active = 1`.
+  - Áp dụng y hệt cho `dashboard.py` `calib_due`/`calib_overdue` VÀ `imm11` KPI/drill.
+- **Đếm theo ASSET (de-dup, BR-11-09):** nếu 1 asset có nhiều active schedule overdue → đếm **1 lần theo asset**, KHÔNG double-count theo schedule row. KPI card == số dòng drill (drill cũng de-dup theo asset).
+- **Mint gap đóng:** asset tạo trực tiếp với `is_calibration_required` (`create_calibration_schedule_from_asset`) đã set `Schedule.next_due_date` → nay hiển thị nhất quán ở CẢ dashboard VÀ IMM-11 KPI/drill (không còn cảnh "chỉ dashboard thấy, IMM-11 KPI=0").
+
+Chi tiết hàm + SQL ở `04_Backend_Design.md §4.1`. Quy tắc count==drill (canonical-value) ở `05_API_Specification.md §6.1`.
 
 ## IV.3. State Machine
 
@@ -407,9 +437,9 @@ stateDiagram-v2
 | State | docstatus | Mô tả | Role có quyền chuyển |
 |---|---|---|---|
 | Scheduled | 0 | Lịch đã tạo, chờ thực hiện | Scheduler / Workshop Lead |
-| Sent to Lab | 0 | Đã bàn giao cho lab | IMM Technician |
-| In Progress | 0 | Đang đo nội bộ | IMM Technician |
-| Certificate Received | 0 | Nhận chứng chỉ, chờ nhập số liệu | IMM Technician |
+| Sent to Lab | 0 | Đã bàn giao cho lab | Calibration User |
+| In Progress | 0 | Đang đo nội bộ | Calibration User |
+| Certificate Received | 0 | Nhận chứng chỉ, chờ nhập số liệu | Calibration User |
 | Passed | 1 | Tất cả tham số Pass | System (on_submit) |
 | Failed | 1 | ≥1 tham số Fail | System (on_submit) |
 | Conditionally Passed | 1 | CAPA Closed + recal Pass | System |
@@ -474,7 +504,7 @@ stateDiagram-v2
 ## V.2. Bảo mật
 
 - Authentication: Frappe session + API key
-- Authorization: RBAC — IMM Technician chỉ xem CAL mình được giao (`technician = session.user`)
+- Authorization: RBAC — Calibration User chỉ xem CAL mình được giao (`technician = session.user`)
 - Audit trail: SHA-256 hash chain mọi mutation qua `log_audit_event()`
 - Compliance: NĐ98 + ISO 13485 + ISO/IEC 17025
 - KHÔNG lưu patient data

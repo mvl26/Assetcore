@@ -195,19 +195,15 @@ def get_user_competencies(user: str = "") -> dict:
 def signoff_competency(name: str) -> dict:
     """POST /api/method/assetcore.api.imm06.signoff_competency
 
-    BE-06-01: Chỉ supervisor (Training Officer / Workshop Lead / QA / System Admin)
-    được phép sign-off. Side-effect: chuyển workflow_state PENDING → ACTIVE
-    và update IMM User Competency row.
+    BE-06-01: Chỉ supervisor (Training Manager / PM Manager / Compliance Manager
+    / Super Admin) được phép sign-off. Gate qua capability `training.submit`.
+    Side-effect: chuyển workflow_state PENDING → ACTIVE và update IMM User
+    Competency row.
     """
-    user_roles = set(frappe.get_roles(frappe.session.user))
-    allowed = {
-        "IMM Training Officer", "IMM Workshop Lead",
-        "IMM Quality Assurance", "IMM System Admin",
-        "System Manager",  # admin fallback
-    }
-    if not (user_roles & allowed):
+    from assetcore.services.shared import rbac
+    if not rbac.can("training.submit"):
         return _err(
-            "Chỉ Training Officer / Workshop Lead / QA / System Admin được sign-off",
+            "Chỉ Training Manager / Super Admin được sign-off",
             ErrorCode.FORBIDDEN,
         )
     return _run(svc.signoff_competency_by_name, name)

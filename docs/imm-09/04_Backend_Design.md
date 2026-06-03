@@ -55,7 +55,7 @@ Frappe ORM + MariaDB  ← 4 DocTypes
 | `completion_datetime` | Datetime | — | auto on_submit |
 | `sla_target_hours` | Float | — | auto từ get_sla_target() |
 | `mttr_hours` | Float | — | auto = (completion−open)/3600 |
-| `sla_breached` | Check | — | auto = mttr > sla_target |
+| `sla_breached` | Check | — | auto = `is_sla_breached(mttr, sla_target)` (boundary `>=`, BR-09-07); monotonic — completion KHÔNG reset 1→0 |
 | `is_repeat_failure` | Check | — | auto before_insert |
 | `assigned_to` | Link User | — | KTV thực hiện |
 | `diagnosis_notes` | Text | — | — |
@@ -117,6 +117,21 @@ State machine enforce **qua controller + API guard** — không dùng Frappe Wor
 | Cannot Repair | Danger | 0 | Workshop Manager |
 | Cancelled | Secondary | 2 | — (cancelled) |
 
+**Key transitions (API-driven):**
+
+| From | To | Trigger | Actor | Validation |
+|---|---|---|---|---|
+| (insert) | Open | `create_work_order` | Workshop Manager | BR-09-01 (source) + BR-09-05 (no active WO) |
+| Open | Assigned | `assign_technician` | Workshop Manager | — |
+| Assigned | Diagnosing | `submit_diagnosis` | KTV HTM | — |
+| Diagnosing | Pending Parts | `submit_diagnosis(needs_parts=1)` | KTV HTM | — |
+| Diagnosing | In Repair | `submit_diagnosis(needs_parts=0)` | KTV HTM | — |
+| Pending Parts | In Repair | `request_spare_parts` hoặc `start_repair` | KTV HTM / Kho | — |
+| Any active | In Repair | `start_repair` | KTV HTM | allowed from Assigned/Diagnosing/Pending Parts |
+| In Repair | Pending Inspection | `close_work_order(cannot_repair=0)` | KTV HTM | Điền repair_summary + dept_head_name |
+| **Pending Inspection** | **Completed** | **`confirm_inspection`** | **Dept Head / QA Officer** | `CAN_APPROVE_DEP` role; WO submit → `complete_repair()` |
+| Any active | Cannot Repair | `close_work_order(cannot_repair=1)` | KTV / Workshop Manager | cannot_repair_reason required |
+
 **Controller hooks:**
 
 ```python
@@ -168,6 +183,10 @@ File: `assetcore/services/imm09.py`
 | `validate_firmware_change_request(doc)` | Document | None | raise ServiceError BR-09-03 |
 | `validate_repair_checklist_complete(doc)` | Document | None | raise ServiceError BR-09-04 |
 | `get_sla_target(risk_class, priority)` | str, str | float | — |
+| `is_sla_breached(elapsed_hours, sla_target)` | float, float | bool | **SoT predicate (BR-09-07)**: `elapsed_hours >= sla_target`. Hàm DUY NHẤT quyết định breach — gọi từ cả `complete_repair` LẪN `check_repair_sla_breach`. Cấm so sánh breach inline ở nơi khác. |
+| `is_repair_open(status)` | str\|None | bool | **SoT predicate (BR-09-08)**: open ⟺ `status NOT IN REPAIR_TERMINAL_STATES`; None/rỗng → open. Hàm DUY NHẤT định nghĩa "đang mở". |
+| `open_repair_filter(extra=None)` | dict\|None | dict | Trả `{'status': ['not in', sorted(REPAIR_TERMINAL_STATES)], **extra}` (sorted → deterministic, khớp drill SQL byte-for-byte) — filter dùng chung cho mọi `_count`/`get_all`/drill SQL. |
+| `confirm_inspection(name)` | str | dict `{name, status, mttr_hours, sla_breached}` | Pending Inspection → Completed; submit doc → `complete_repair()`; requires `CAN_APPROVE_DEP` role; auto-trigger IMM-12 chronic detect nếu root_cause chứa từ khóa lặp lại |
 | `complete_repair(doc)` | Document | None | mttr, sla_breached, Asset→Active, ALE |
 | `check_repair_sla_breach()` | — | None | set sla_breached; publish realtime |
 | `check_repair_overdue()` | — | None | email Workshop Manager |
@@ -191,6 +210,83 @@ def get_sla_target(risk_class: str, priority: str) -> float:
     }
     return sla_matrix.get((risk_class, priority), 480.0)
 ```
+
+### SLA breach predicate — Single Source of Truth (BR-09-07)
+
+`sla_breached` được quyết định bởi **một hàm thuần (pure) DUY NHẤT**. Mục tiêu: completion (`complete_repair`) và scheduler (`check_repair_sla_breach`) KHÔNG BAO GIỜ bất đồng về cùng một cặp `(elapsed_hours, sla_target)`.
+
+```python
+def is_sla_breached(elapsed_hours: float, sla_target: float) -> bool:
+    """SoT cho cờ vi phạm SLA của Asset Repair (BR-09-07).
+
+    Quy ước BIÊN: elapsed BẰNG ĐÚNG target ⇒ ĐÃ vi phạm (`>=`).
+    Lý do: target là hạn chót — chạm hạn là đã hết thời gian cho phép, nhất
+    quán với hợp đồng SLA và với scheduler (vốn dùng `>=`). Đây là hàm DUY
+    NHẤT được phép quyết định breach; cấm viết `mttr > target` / `>= sla`
+    rải rác.
+    """
+    if elapsed_hours is None or sla_target is None:
+        return False
+    return float(elapsed_hours) >= float(sla_target)
+```
+
+**Quy tắc monotonic (latch):** một khi scheduler đã set `sla_breached=1` cho WO đang chạy, completion **KHÔNG được lật về 0**. `complete_repair` set cờ theo OR với giá trị hiện tại:
+
+```python
+doc.sla_breached = 1 if (is_sla_breached(doc.mttr_hours, doc.sla_target_hours)
+                         or doc.sla_breached) else 0
+```
+
+Nhờ vậy: WO có MTTR == target (vd 72 == 72) → scheduler đánh breach=1 → completion giữ nguyên 1 (không flip-flop). MTTR < target và chưa từng breach → 0. MTTR > target → 1.
+
+### Open / terminal-state predicate — Single Source of Truth (BR-09-08)
+
+**Vấn đề thiết kế gốc (Self-Correction, vòng 19):** khái niệm "Asset Repair đang mở" trước đây được tính lặp lại bằng các literal status inline, KHÔNG đồng nhất giữa các consumer:
+
+| Consumer | Vị trí cũ | Filter cũ | Lỗi |
+|---|---|---|---|
+| KPI thẻ `cm_open` | `api/dashboard.py:87` | `NOT IN [Completed, Closed, Cancelled]` | Đếm cả `Cannot Repair` là mở (sai); có phantom `Closed` |
+| Drill-down list | `api/dashboard.py:386` | `NOT IN [Completed, Closed, Cancelled, Cannot Repair]` | Loại `Cannot Repair`; có phantom `Closed` |
+| Technician `my_cm` | `api/dashboard.py:562` | `NOT IN [Completed, Closed, Cancelled]` | Đếm `Cannot Repair`; phantom `Closed` |
+| Technician `cm_urgent` | `api/dashboard.py:569` | `NOT IN [Completed, Closed, Cancelled]` | Đếm `Cannot Repair`; phantom `Closed` |
+| SLA engine | `services/notifications.py:813` `_REPAIR_TERMINAL_STATUS` | `frozenset{Completed, Cannot Repair, Cancelled}` | Đúng tập, nhưng là frozenset **độc lập** (2 SoT song song) |
+
+Hậu quả: số trên thẻ "CM đang mở" **≠** số dòng list khi click drill-down (card đếm `Cannot Repair`, list không) → mất niềm tin dashboard. `Closed` là **literal ma** — KHÔNG có trong DocType enum (chỉ có `Open|Assigned|Diagnosing|Pending Parts|In Repair|Pending Inspection|Completed|Cannot Repair|Cancelled`).
+
+**Quyết định (Core Doc là quyết định cuối):** "Asset Repair đang mở" được định nghĩa bởi **một predicate thuần DUY NHẤT** trong `services/imm09.py`. Mọi consumer (KPI thẻ, persona KTV, drill-down SQL, SLA engine) PHẢI dùng chung tập terminal này.
+
+```python
+# assetcore/services/imm09.py
+REPAIR_TERMINAL_STATES: frozenset[str] = frozenset({
+    RepairStatus.COMPLETED,      # "Completed"
+    RepairStatus.CANNOT_REPAIR,  # "Cannot Repair" — TERMINAL, KHÔNG phải đang mở
+    RepairStatus.CANCELLED,      # "Cancelled"
+})
+# KHÔNG còn 'Closed' — literal ma, KHÔNG có trong Asset Repair.status enum.
+
+def is_repair_open(status: str | None) -> bool:
+    """SoT: một Asset Repair là 'đang mở' ⟺ status KHÔNG thuộc terminal set.
+    None / rỗng (WO mới chưa set status) → coi là đang mở (an toàn — chưa đóng).
+    """
+    if not status:
+        return True
+    return status not in REPAIR_TERMINAL_STATES
+
+def open_repair_filter(extra: dict | None = None) -> dict:
+    """Trả filter Frappe cho 'Asset Repair đang mở' — dùng chung cho mọi
+    _count / get_all / frappe.db filter. Merge thêm điều kiện qua `extra`.
+    `sorted()` để filter shape DETERMINISTIC + khớp drill SQL byte-for-byte.
+    """
+    return {"status": ["not in", sorted(REPAIR_TERMINAL_STATES)], **(extra or {})}
+```
+
+**INVARIANT card == drill (BR-09-08):** `cm_open` (KPI thẻ) và drill-down repair SQL PHẢI đếm CÙNG tập WO. Số trên thẻ "CM đang mở" == số dòng list khi user click. Acceptance đo được: với 1 Asset Repair ở status `Cannot Repair` → KHÔNG tính vào `cm_open` VÀ KHÔNG xuất hiện trong `repair_rows`.
+
+**`Cannot Repair` = TERMINAL ở MỌI consumer:** KPI `cm_open`, persona KTV `my_cm` + `cm_urgent`, drill SQL — tất cả loại `Cannot Repair` (khớp SLA engine: đồng hồ SLA dừng khi WO không còn cứu được). Đây là quy ước domain: thiết bị không sửa được → chuyển `Out of Service` (xem `_mark_cannot_repair`), KHÔNG còn là việc-đang-làm của KTV.
+
+**Một SoT, không hai frozenset:** `notifications.py::_REPAIR_TERMINAL_STATUS` PHẢI trỏ về `imm09.REPAIR_TERMINAL_STATES` (alias import), KHÔNG định nghĩa frozenset song song. Quan hệ với `RepairStatus.CANNOT_START` (cùng 3 phần tử): `CANNOT_START` mô tả "không thể bắt đầu sửa từ trạng thái này" (validate khi tạo/assign); `REPAIR_TERMINAL_STATES` mô tả "đã đóng — không còn đang mở" (đếm/filter). Cùng giá trị, khác ngữ nghĩa — giữ tách tên để đọc rõ intent; có thể để `CANNOT_START = tuple(REPAIR_TERMINAL_STATES)` nếu muốn 1 nguồn literal.
+
+**Grep guard (zero-tolerance):** sau fix, `api/dashboard.py` KHÔNG còn literal inline `['Completed','Closed','Cancelled']` hoặc `['Completed','Closed','Cancelled','Cannot Repair']` cho Asset Repair; literal `'Closed'` bị xoá khỏi MỌI Asset Repair status filter.
 
 ### Error handling pattern
 
@@ -226,7 +322,10 @@ def complete_repair(doc) -> None:
     doc.completion_datetime = close_dt
     diff_seconds = time_diff_in_seconds(close_dt, doc.open_datetime)
     doc.mttr_hours = round(diff_seconds / 3600.0, 2)
-    doc.sla_breached = 1 if doc.mttr_hours > doc.sla_target_hours else 0
+    # BR-09-07: SoT predicate (boundary >=) + monotonic — không reset 1→0 nếu
+    # scheduler đã đánh breach lúc WO còn đang chạy.
+    doc.sla_breached = 1 if (is_sla_breached(doc.mttr_hours, doc.sla_target_hours)
+                             or doc.sla_breached) else 0
     frappe.db.set_value("Asset", doc.asset_ref, "status", "Active")
     frappe.db.set_value("Asset", doc.asset_ref, "custom_last_repair_date", today())
     _create_lifecycle_event(
@@ -370,7 +469,7 @@ scheduler_events = {
 
 | Job | Tần suất | Mục đích | Trạng thái wire `hooks.py` |
 |---|---|---|---|
-| `check_repair_sla_breach` | Hourly | Mark `sla_breached=1` khi elapsed ≥ target; publish realtime `cm_sla_breached` đến Kỹ thuật viên | ⚠ chưa wire (function tồn tại trong `services/imm09.py:215`) |
+| `check_repair_sla_breach` | Hourly | Mark `sla_breached=1` khi `is_sla_breached(elapsed, target)` (SoT predicate, boundary `>=`); publish realtime `cm_sla_breached` đến Kỹ thuật viên. Chỉ set khi đang 0 (idempotent). | ⚠ chưa wire (function tồn tại trong `services/imm09.py`) |
 | `check_repair_overdue` | Daily 07:00 | Email Workshop Manager khi WO > 7 ngày chưa đóng | ⚠ chưa wire (function tồn tại trong `services/imm09.py:239`) |
 | `update_asset_mttr_avg` | Monthly day 01 06:00 | Cập nhật `Asset.custom_mttr_avg_hours` (avg 12 WO gần nhất) | ⚠ chưa wire (function tồn tại trong `services/imm09.py:263`) |
 

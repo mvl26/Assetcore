@@ -16,17 +16,18 @@ import json
 from typing import Any
 
 import frappe
-from frappe.utils import now_datetime
+from frappe.utils import now_datetime, get_url
 
 from assetcore.utils.response import _ok, _err
+from assetcore.utils.helpers import _safe_sendmail
 
 # ── Hằng số ────────────────────────────────────────────────────────────────────
 
 from assetcore.services.shared.constants import Roles, ROLE_METADATA
 
 # Single source of truth — đồng bộ với fixtures/role.json
-_IMM_ROLES: list[str] = list(Roles.ALL_IMM)
-_ROLE_ADMIN = Roles.SYS_ADMIN
+_IMM_ROLES: list[str] = list(Roles.ALL)
+_ROLE_ADMIN = Roles.SUPER_ADMIN
 _DT_ROLE_PROFILE = "Role Profile"
 _MSG_NOT_LOGGED_IN = "Chưa đăng nhập"
 
@@ -111,13 +112,14 @@ def _get_dept_name(dept_id: str | None) -> str | None:
 
 
 def _assert_admin() -> str | None:
-    """Trả None nếu caller là IMM Admin / System Manager. Trả chuỗi lỗi nếu không."""
+    """Trả None nếu caller có capability `data.admin` (Super Admin hoặc
+    System Manager qua umbrella). Trả chuỗi lỗi nếu không."""
     actor = frappe.session.user
     if actor == "Guest":
         return _MSG_NOT_LOGGED_IN
-    actor_roles = {r.role for r in frappe.get_doc("User", actor).roles}
-    if _ROLE_ADMIN not in actor_roles and "System Manager" not in actor_roles:
-        return f"Chỉ {_ROLE_ADMIN} được thực hiện thao tác này"
+    from assetcore.services.shared import rbac
+    if not rbac.can("data.admin"):
+        return "Chỉ quản trị hệ thống được thực hiện thao tác này"
     return None
 
 
@@ -135,6 +137,23 @@ def _extract_imm_role_names(raw_roles: list) -> list[str]:
         if name in _IMM_ROLES:
             result.append(name)
     return result
+
+
+def _profile_lock_error(user_name: str) -> dict | None:
+    """Trả _err nếu user đang gắn Role Profile → role bị khoá, không sửa thủ công.
+
+    Core Doc §7.quinquies: khi User.role_profile_name ≠ rỗng, Frappe core
+    `populate_role_profile_roles` clear+replace role mỗi lần save → sửa thủ công
+    vô nghĩa (bị ghi đè). Chặn sớm với thông báo rõ thay vì để user tưởng đã sửa.
+    """
+    profile = frappe.db.get_value("User", user_name, "role_profile_name")
+    if profile:
+        return _err(
+            f"Role của user đang được quản lý bởi Role Profile '{profile}'. "
+            "Bỏ Role Profile để sửa role thủ công.",
+            409,
+        )
+    return None
 
 
 # ── Helpers thao tác trên User document ────────────────────────────────────────
@@ -249,6 +268,7 @@ def _build_user_detail(user_name: str) -> dict:
 def list_users(
     search: str = "",
     department: str = "",
+    role: str = "",
     is_active: int = None,
     approval_status: str = "",
     page: int = 1,
@@ -265,6 +285,21 @@ def list_users(
         filters["ac_department"] = department
     if approval_status and _safe_field("imm_approval_status"):
         filters["imm_approval_status"] = approval_status
+
+    # Lọc theo IMM role — role nằm ở child table Has Role (parent = User).
+    # Phải resolve sang danh sách User trước, vì frappe.db.count/get_all
+    # không filter xuyên child table được.
+    if role and role in _IMM_ROLES:
+        role_parents = [
+            r["parent"]
+            for r in frappe.get_all(
+                "Has Role",
+                filters={"parenttype": "User", "role": role},
+                fields=["parent"],
+            )
+        ]
+        # Không user nào giữ role → ép kết quả rỗng (tránh trả toàn bộ).
+        filters["name"] = ["in", role_parents or [""]]
 
     or_filters = None
     if search:
@@ -364,6 +399,12 @@ def update_user_info() -> dict:
     if not user_name or not frappe.db.exists("User", user_name):
         return _err("user không hợp lệ", 400)
 
+    # Sửa role thủ công khi user có Role Profile → chặn (role bị khoá).
+    if "imm_roles" in data:
+        lock_err = _profile_lock_error(user_name)
+        if lock_err:
+            return lock_err
+
     user_doc = frappe.get_doc("User", user_name)
     _apply_scalar_fields(user_doc, data)
     _apply_custom_fields(user_doc, data)
@@ -385,25 +426,32 @@ def update_user_roles() -> dict:
     Cập nhật IMM roles cho một user qua UI tích chọn role.
 
     Payload: { "user": "<email>", "roles": ["IMM Technician", ...] }
-    Quyền: chỉ IMM System Admin / System Manager đổi role của người khác.
-    Logic: Frappe add_roles() append vào Has Role child table.
+    Quyền: BẮT BUỘC capability data.admin — đổi role là hành vi CẤP QUYỀN.
+    Core Doc §7.sexies.2: KHÔNG cho self-edit miễn admin (tránh leo quyền —
+    user tự gán Super Admin cho chính mình). Self-edit role ≠ self-service.
+    Logic: _sync_imm_roles thay bộ IMM role; save một lần.
     """
     actor = frappe.session.user
     if actor == "Guest":
         return _err(_MSG_NOT_LOGGED_IN, 401)
+
+    # Đổi role = cấp quyền → luôn yêu cầu admin, kể cả khi sửa chính mình.
+    err_msg = _assert_admin()
+    if err_msg:
+        return _err(err_msg, 403)
 
     data = frappe.local.form_dict
     target = (data.get("user") or actor).strip()
     raw_roles = _parse_json(data.get("roles") or "[]")
     new_imm_roles = _extract_imm_role_names(raw_roles)
 
-    if target != actor:
-        err_msg = _assert_admin()
-        if err_msg:
-            return _err(err_msg, 403)
-
     if not frappe.db.exists("User", target):
         return _err(f"User không tồn tại: {target}", 404)
+
+    # Role bị khoá khi user có Role Profile — chặn sửa thủ công.
+    lock_err = _profile_lock_error(target)
+    if lock_err:
+        return lock_err
 
     try:
         user_doc = frappe.get_doc("User", target)
@@ -435,6 +483,10 @@ def approve_registration() -> dict:
     action = (data.get("action") or "approve").lower()
     user_doc = frappe.get_doc("User", user_name)
 
+    # Idempotency (G1): chỉ gửi email kích hoạt khi THỰC SỰ chuyển sang Approved.
+    # Nếu user đã Approved sẵn → approve lại là no-op về mặt notification.
+    was_approved = (user_doc.get("imm_approval_status") == "Approved")
+
     if action == "reject":
         _set_rejection(user_doc, data.get("rejection_reason") or "")
     else:
@@ -444,11 +496,51 @@ def approve_registration() -> dict:
         )
 
     _save_user(user_doc)
+
+    # G1: gửi email kích hoạt cho user — chỉ khi vừa chuyển sang Approved.
+    # Robust: lỗi gửi mail KHÔNG được làm fail transaction approve (user đã
+    # được enabled trong DB; mail chỉ là thông báo phụ).
+    if action != "reject" and not was_approved:
+        _send_activation_email(user_name)
+
     return _ok({
         "user": user_name,
         "status": user_doc.imm_approval_status,
         "enabled": user_doc.enabled,
     })
+
+
+def _send_activation_email(user_name: str) -> None:
+    """G1: thông báo cho user rằng tài khoản đã được kích hoạt + link đăng nhập.
+
+    Wrap toàn bộ trong try/except: gửi mail là side-effect phụ, KHÔNG được
+    phép phá transaction approve (user đã enabled=1 ở DB). `_safe_sendmail`
+    đã bỏ qua khi email server chưa cấu hình, nhưng vẫn bọc thêm 1 lớp để
+    chống mọi lỗi resolve URL / lookup.
+    """
+    try:
+        full_name = frappe.db.get_value("User", user_name, "full_name") or user_name
+        # FE route đăng nhập là /login (Vue Router history mode dưới site URL).
+        login_url = f"{get_url()}/login"
+        _safe_sendmail(
+            recipients=[user_name],
+            subject="[AssetCore] Tài khoản của bạn đã được kích hoạt",
+            message=(
+                f"<p>Xin chào <b>{frappe.utils.escape_html(full_name)}</b>,</p>"
+                f"<p>Tài khoản AssetCore của bạn đã được quản trị viên "
+                f"<b>kích hoạt</b>. Bạn có thể đăng nhập ngay bây giờ.</p>"
+                f"<p><a href=\"{login_url}\" "
+                f"style=\"display:inline-block;padding:10px 18px;background:#2563eb;"
+                f"color:#fff;border-radius:6px;text-decoration:none\">Đăng nhập</a></p>"
+                f"<p>Hoặc truy cập: <a href=\"{login_url}\">{login_url}</a></p>"
+                f"<p style=\"color:#888;font-size:12px\">Email tự động từ hệ thống "
+                f"AssetCore — vui lòng không trả lời.</p>"
+            ),
+            reference_doctype="User",
+            reference_name=user_name,
+        )
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "approve: send activation email failed")
 
 
 def _build_new_user_doc(email: str, first_name: str, data: dict, imm_roles: list) -> Any:
@@ -565,9 +657,9 @@ def create_system_user() -> dict:
     if not first_name:
         return _err("Thiếu họ tên", 400)
     password = (data.get("password") or "").strip()
-    if password and len(password) < 8:
+    if password and len(password) < 10:
         return _err(
-            "Mật khẩu phải có tối thiểu 8 ký tự. Khuyến nghị kết hợp chữ hoa, "
+            "Mật khẩu phải có tối thiểu 10 ký tự. Khuyến nghị kết hợp chữ hoa, "
             "chữ thường, số và ký tự đặc biệt.",
             400,
         )
@@ -612,8 +704,8 @@ def reset_user_password(user: str, new_password: str) -> dict:
         return _err(err_msg, 403)
     if not frappe.db.exists("User", user):
         return _err(f"User không tồn tại: {user}", 404)
-    if len(new_password) < 8:
-        return _err("Mật khẩu phải tối thiểu 8 ký tự", 400)
+    if len(new_password) < 10:
+        return _err("Mật khẩu phải tối thiểu 10 ký tự", 400)
 
     from frappe.utils.password import update_password
     update_password(user, new_password)
@@ -660,14 +752,16 @@ def get_available_imm_roles() -> dict:
 
 @frappe.whitelist()
 def list_role_profiles() -> dict:
-    """Danh sách Role Profile (core DocType) — chỉ các profile IMM.
+    """Danh sách 8 Role Profile (catalog, core DocType, tên VI).
 
-    Dùng Frappe core `Role Profile` DocType; FE chọn 1 profile → BE gán vào
-    `User.role_profile_name`, Frappe tự sync các role thành viên.
+    Core Doc FE_Persona_Navigation.md §7.quinquies. FE chọn 1 profile → BE gán
+    vào `User.role_profile_name`, Frappe core tự clear+replace role thành viên.
+    FE tự gắn nhãn persona (nếu muốn) — BE chỉ trả Role Profile thuần.
     """
+    from assetcore.setup.role_profile_catalog import PROFILE_NAMES
     profiles = frappe.get_all(
         _DT_ROLE_PROFILE,
-        filters={"role_profile": ("like", "AssetCore —%")},
+        filters={"name": ("in", PROFILE_NAMES)},
         fields=["name", "role_profile"],
         order_by="role_profile asc",
     )
@@ -702,14 +796,19 @@ def assign_role_profile(user: str, role_profile: str = "") -> dict:
     Frappe core tự động sync các role trong profile vào user.roles khi
     `role_profile_name` đổi (thông qua `User.validate_roles_through_role_profile`).
     """
+    if frappe.session.user == "Guest":
+        return _err(_MSG_NOT_LOGGED_IN, 401)
     if not frappe.db.exists("User", user):
         return _err(f"User '{user}' không tồn tại", 404)
     if role_profile and not frappe.db.exists(_DT_ROLE_PROFILE, role_profile):
         return _err(f"Role Profile '{role_profile}' không tồn tại", 404)
 
-    # Chỉ admin hoặc chính user mới được đổi
-    if frappe.session.user != user and _ROLE_ADMIN not in frappe.get_roles():
-        return _err("Bạn không có quyền đổi Role Profile của user này", 403)
+    # Gán Role Profile = cấp quyền (core clear+replace roles theo profile) →
+    # BẮT BUỘC admin, kể cả khi đổi của chính mình. Core Doc §7.sexies.2:
+    # cho phép self-assign sẽ thành lỗ leo quyền (tự gán profile "Quản trị viên IT").
+    err_msg = _assert_admin()
+    if err_msg:
+        return _err(err_msg, 403)
 
     user_doc = frappe.get_doc("User", user)
     user_doc.role_profile_name = role_profile or None
@@ -722,6 +821,66 @@ def assign_role_profile(user: str, role_profile: str = "") -> dict:
         "role_profile": role_profile or None,
         "imm_roles": _get_imm_roles(user),
     })
+
+
+# ─── RBAC admin endpoints (trang /admin/roles) ──────────────────────────────
+
+
+@frappe.whitelist()
+def list_assignable_roles() -> dict:
+    """Catalog 30 role (RBAC module-based) + metadata cho FE grid.
+
+    Gate: capability `data.admin` — chỉ Super Admin (+ Frappe System Manager
+    qua umbrella) gọi được.
+    """
+    from assetcore.services.shared import rbac
+    rbac.require("data.admin")
+    catalog = [
+        {"name": n, **ROLE_METADATA.get(n, {})}
+        for n in _IMM_ROLES
+    ]
+    return _ok(catalog)
+
+
+@frappe.whitelist(methods=["POST"])
+def set_user_roles(user: str, roles=None) -> dict:
+    """Thay toàn bộ AssetCore role của 1 user (giữ role app khác như Frappe
+    `System Manager`, `Norm Manager`, `Internal Auditor` ...).
+
+    Args:
+        user: User name (email).
+        roles: list role-name (chỉ role nằm trong Roles.ALL được áp).
+
+    Gate: capability `data.admin`.
+    """
+    from assetcore.services.shared import rbac
+    rbac.require("data.admin")
+
+    if not frappe.db.exists("User", user):
+        return _err(f"User '{user}' không tồn tại", 404)
+
+    # Role bị khoá khi user có Role Profile — chặn sửa thủ công (Core Doc §7.quater).
+    lock_err = _profile_lock_error(user)
+    if lock_err:
+        return lock_err
+
+    raw = _parse_json(roles) if isinstance(roles, str) else (roles or [])
+    target = _extract_imm_role_names(raw)
+    allowed = set(_IMM_ROLES)
+
+    doc = frappe.get_doc("User", user)
+    # Giữ mọi role không thuộc AssetCore (Frappe core, app khác)
+    keep = [r.role for r in doc.roles if r.role not in allowed]
+    final = sorted(set(keep + target))
+
+    doc.set("roles", [])
+    for r in final:
+        doc.append("roles", {"role": r})
+    doc.flags.ignore_permissions = True
+    doc.save()
+    frappe.db.commit()
+
+    return _ok({"user": user, "roles": final})
 
 
 @frappe.whitelist()

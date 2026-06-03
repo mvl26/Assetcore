@@ -354,7 +354,7 @@ Là **HTM Reviewer**, tôi muốn **chấm điểm 6 tiêu chí cho phiếu** đ
 ```gherkin
 Given phiếu ở Reviewing
 When tôi điền 6 scoring rows (clinical_impact=5, risk=5, utilization_gap=4, replacement_signal=5, compliance_gap=3, budget_fit=3)
-Then weighted_score = 4.30 được auto-compute
+Then weighted_score = 4.35 được auto-compute
 And priority_class = "P1" hiển thị
 And không thể chuyển Prioritized nếu thiếu 1/6 tiêu chí (G02)
 ```

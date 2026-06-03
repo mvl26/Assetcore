@@ -7,8 +7,9 @@
 | Owner | BA + System Architect |
 | Liên kết | [03 Diagrams](./03_Diagrams.md) · [04 Backend](./04_Backend_Design.md) · [05 API](./05_API_Specification.md) · [06 Frontend](./06_Frontend_Design.md) |
 | Chuẩn tham chiếu | WHO HTM 2025, NĐ 98/2021/NĐ-CP, ISO 13485:2016, ISO/IEC 17025 |
-| Phiên bản | 4.1.0 |
-| Trạng thái | **Live ✅** — BE foundation + scheduler + service layer đã implement; FE đang cuốn chiếu (synced 2026-05-14) |
+| Phiên bản | 0.0.2 |
+| Cập nhật | 2026-05-27 |
+| Trạng thái | **Live ✅** — BE foundation + scheduler + service layer đã implement; FE đang cuốn chiếu (synced 2026-05-27) |
 
 ---
 
@@ -20,7 +21,7 @@ IMM-00 là **foundation layer** — không có quy trình "as-is" tương ứng 
 
 | Lớp kiến trúc hiện trạng | Tình trạng phổ biến tại đơn vị y tế VN | Khoảng trống IMM-00 phải lấp |
 |---|---|---|
-| Lớp người dùng | Excel/giấy phân tán theo khoa; quyền hạn không bám actor thật | Cần portal nội bộ + RBAC theo 8 vai trò IMM |
+| Lớp người dùng | Excel/giấy phân tán theo khoa; quyền hạn không bám actor thật | Cần portal nội bộ + RBAC theo 30 roles (4 System + 26 Domain = 13 module × Manager/User) |
 | Lớp workflow & dịch vụ | Workflow ngầm, không có engine; không SLA, không audit | Workflow + SLA + audit trail bắt buộc cho mọi state mutation |
 | Lớp nghiệp vụ | Module rời rạc, không liên kết lifecycle | 17 module IMM-01→17 chia 4 khối, đều phụ thuộc IMM-00 |
 | Lớp dữ liệu | Item/Asset/Vendor/Document gộp lẫn lộn | Tách đúng AC Asset / IMM Device Model / AC Supplier / Document repo |
@@ -38,7 +39,7 @@ IMM-00 **không phải** module nghiệp vụ thông thường theo Wave 1/2/3. 
 - Định nghĩa domain catalog (IMM Device Model, IMM SLA Policy)
 - Cung cấp governance records (IMM Audit Trail, IMM CAPA Record, Asset Lifecycle Event, Incident Report)
 - Xuất shared service functions được gọi bởi IMM-04, IMM-08, IMM-09, IMM-11, IMM-12, IMM-13
-- Thiết lập vai trò (8 roles), scheduler jobs (4 daily), và permission query
+- Thiết lập vai trò (30 roles = 4 System + 26 Domain), scheduler jobs (4 daily), và permission query
 
 Nguyên tắc kiến trúc bắt buộc: AssetCore **chỉ phụ thuộc Frappe Framework v15** — không cần ERPNext. Các DocType core được thiết kế theo mẫu schema của ERPNext nhưng **tái tạo native** với prefix `AC` / `IMM`, không extend hay link sang DocType của ERPNext.
 
@@ -49,11 +50,11 @@ Nguyên tắc kiến trúc bắt buộc: AssetCore **chỉ phụ thuộc Frappe 
 | 5 Core DocTypes (AC prefix) | **Live ✅** | AC Asset, AC Supplier, AC Location, AC Department, AC Asset Category đã có trong `assetcore/assetcore/doctype/` |
 | 6 Governance DocTypes (IMM prefix) | **Live ✅** | IMM Audit Trail, IMM CAPA Record, Asset Lifecycle Event, Incident Report, IMM Device Model, IMM SLA Policy |
 | 5 Inventory DocTypes (v4) | **Live ✅** | AC Warehouse, AC Spare Part, AC Spare Part Stock, AC Stock Movement (+ Item child), AC Stock Movement Item |
-| Services (imm00.py) | **Live ✅** | 23+ functions implement (transfer, GMDN, scheduler, KPI rollup) |
-| Role fixtures | **Live ✅** | 19 IMM roles seed qua `fixtures/role.json` (commit `5b4158e`) |
+| Services (imm00.py) | **Live ✅** | 22 public functions implement (transfer, GMDN, scheduler, KPI rollup) |
+| Role fixtures | **Live ✅** | 30 roles (4 System + 26 Domain = 13 module × Manager/User) seed qua `fixtures/role.json`; nguồn canonical: `services/shared/constants.py::Roles` |
 | Permission query | **Live ✅** | `permission.py` cho AC Asset (scoped theo `responsible_technician`) |
 | Scheduler | **Live ✅** | 5 daily IMM-00 jobs + weekly + monthly (xem §III.7) |
-| FE shell + views | **Partial** | 2 views built (ReferenceData, SlaPolicyList); phần còn lại cuốn chiếu |
+| FE shell + views | **Partial** | 12+ views built (asset/ ×10, audit/ ×2, master-data/ ×2); phần còn lại cuốn chiếu |
 
 > Wave 1 (IMM-04/08/09/11/12) đã refactor sang AC Asset registry; không còn phụ thuộc ERPNext Asset.
 
@@ -70,28 +71,46 @@ Nguyên tắc kiến trúc bắt buộc: AssetCore **chỉ phụ thuộc Frappe 
 
 ## I.4. Stakeholders & Actors
 
-| Vai trò | Người dùng thực | Quan tâm chính | Loại |
-|---|---|---|---|
-| IMM System Admin | Quản trị viên CNTT | Cấu hình SLA, Device Model, seed fixtures, phân quyền | Primary |
-| IMM Department Head | Trưởng phòng HTM / BGĐ kỹ thuật | Nhận cảnh báo HĐ NCC, BYT expiry; xem dashboard KPI | Primary |
-| IMM Operations Manager | Quản lý vận hành | CRUD AC Asset, AC Supplier; quản lý dữ liệu vận hành | Primary |
-| IMM Workshop Lead | Trưởng xưởng kỹ thuật | Cập nhật Device Model; tạo CAPA; đóng Incident | Secondary |
-| IMM Technician | Kỹ thuật viên | Xem AC Asset được gán; cập nhật PM/cal date | Secondary |
-| IMM Document Officer | Nhân viên tài liệu | Xem Audit Trail; xuất báo cáo traceability | Auditor |
-| IMM Storekeeper | Thủ kho | Cập nhật AC Supplier, spare parts catalog, tồn kho | Secondary |
-| IMM QA Officer | Nhân viên QA/QC | Tạo/đóng CAPA; verify hash chain; audit review | Approver |
+> Canonical role catalog: **30 roles** = 4 System + 26 Domain (13 module × Manager/User). Nguồn: `assetcore/fixtures/role.json` + `assetcore/services/shared/constants.py::Roles`. Các persona role cũ (IMM System Admin, IMM Department Head, IMM Workshop Lead, Trưởng khoa, KTV HTM, v.v.) đã bị thay thế qua patch `v3_2.001_module_role_redesign`.
+
+### System roles (4)
+
+| Role | Mục đích |
+|---|---|
+| `AssetCore Super Admin` | Toàn quyền, bao trùm Frappe System Manager |
+| `AssetCore System User` | Role nền: đăng nhập, dashboard, đọc shared-core |
+| `AssetCore Auditor` | Chỉ đọc toàn bộ + audit trail |
+| `Vendor Engineer` | Bên thứ ba, cô lập theo WO/Asset được phân công |
+
+### Domain roles (26 = 13 module × Manager/User)
+
+| Module | Manager role | User role |
+|---|---|---|
+| IMM-00 (Dữ liệu nền) | `Data Manager` | `Data User` |
+| IMM-01 (Nhu cầu) | `Needs Manager` | `Needs User` |
+| IMM-02 (Tech Spec) | `Spec Manager` | `Spec User` |
+| IMM-03 (NCC & Mua sắm) | `Procurement Manager` | `Procurement User` |
+| IMM-04 (Lắp đặt) | `Commissioning Manager` | `Commissioning User` |
+| IMM-05 (Hồ sơ) | `Document Manager` | `Document User` |
+| IMM-06 (Đào tạo) | `Training Manager` | `Training User` |
+| IMM-08 (PM) | `PM Manager` | `PM User` |
+| IMM-09 (Sửa chữa) | `Repair Manager` | `Repair User` |
+| IMM-11 (Hiệu chuẩn) | `Calibration Manager` | `Calibration User` |
+| IMM-12 (BT khắc phục / Incident) | `Corrective Manager` | `Corrective User` |
+| IMM-15 (Tồn kho) | `Inventory Manager` | `Inventory User` |
+| IMM-16 (Compliance) | `Compliance Manager` | `Compliance User` |
 
 ## I.5. Scope
 
 **In-scope:**
-- 18 DocTypes tổng (5 core + 6 governance + 5 inventory + 2 child + 1 inventory child)
-- Lifecycle state machine cho AC Asset.lifecycle_status (6 states)
+- 27 DocTypes foundation IMM-00 (5 core + 6 governance + 5 inventory + 11 child/support) — verified vs `assetcore/assetcore/doctype/`
+- Lifecycle state machine cho AC Asset.lifecycle_status (8 states: Draft, Commissioned, Active, Under Maintenance, Under Repair, Calibrating, Out of Service, Decommissioned)
 - Audit Trail bất biến với SHA-256 chain
 - CAPA workflow (Open → In Progress → Pending Verification → Closed / Overdue)
 - SLA lookup engine theo priority × risk_class
 - Incident Report → trigger Repair WO + CAPA
 - 5 daily scheduler jobs + 1 monthly (`rollup_asset_kpi`)
-- 19 role fixtures (Wave 1 + Wave 2) + permission query
+- 30 role fixtures (4 System + 26 Domain = 13 module × Manager/User) + permission query
 - 107 whitelisted REST endpoints trong `api/imm00.py`
 
 **Out-of-scope (defer sang giai đoạn sau):**
@@ -144,7 +163,7 @@ Roadmap IMM-00 gắn với 3 đợt triển khai và lớp QMS theo `Ho_so_kien_
 
 | Giai đoạn | Phạm vi IMM-00 | Đầu ra QMS | Mốc Đợt |
 |---|---|---|---|
-| Giai đoạn 1 — Foundation core | 5 Core DocType (AC prefix) + 6 Governance DocType + service `imm00.py` cốt lõi + 8 role + permission query | QC-IMMIS nền + audit trail kích hoạt | Trước/Đồng thời Đợt 1 |
+| Giai đoạn 1 — Foundation core | 5 Core DocType (AC prefix) + 6 Governance DocType + service `imm00.py` cốt lõi + 30 roles (4 System + 26 Domain) + permission query | QC-IMMIS nền + audit trail kích hoạt | Trước/Đồng thời Đợt 1 |
 | Giai đoạn 2 — Inventory + Catalog | 5 Inventory DocType v4 + IMM Device Model BOM + GMDN hierarchy | PR/WI/BM cho master data | Cùng Đợt 2 |
 | Giai đoạn 3 — Analytics hooks | KPI rollup scheduler, drill-down API cho IMM-07/10/17 | KPI-DASH-IMMIS + change control | Cùng Đợt 3 |
 | Hậu Đợt 3 — Continuous improvement | Pentest, FHIR/HIS adapter, predictive cockpit hooks | Management review + CAPA loop | Sau Đợt 3 |
@@ -174,10 +193,10 @@ Roadmap IMM-00 gắn với 3 đợt triển khai và lớp QMS theo `Ho_so_kien_
 │  [Asset Lifecycle Event]  [Incident Report]                 │
 │  [Inventory: AC Warehouse, AC Spare Part, ...]              │
 │                                                             │
-│  services/imm00.py: 23+ shared functions                    │
+│  services/imm00.py: 22 public functions                     │
 │  utils/: response.py, lifecycle.py, email.py, pagination.py │
 │  5 daily + 1 monthly scheduler jobs                         │
-│  19 role fixtures + permission.py                           │
+│  30 role fixtures (4 System + 26 Domain) + permission.py    │
 └────┬────────┬──────┬──────┬──────┬──────┬──────┬──────┬────┘
      │        │      │      │      │      │      │      │
   IMM-04   IMM-05 IMM-08 IMM-09 IMM-11 IMM-12 IMM-13 IMM-15/16
@@ -272,27 +291,36 @@ HTTP Request / Frappe Scheduler
 | `utils/email.py` | `get_role_emails(roles)`, `safe_sendmail()` | Scheduler jobs |
 | `utils/pagination.py` | `paginate(query, page, page_size)` | List APIs |
 
-## III.6. Role fixtures (19 IMM roles)
+## III.6. Role fixtures (30 roles — 4 System + 26 Domain)
 
-> Wave 1 (13 role) + Wave 2 (6 role) — danh sách đầy đủ trong `assetcore/services/shared/constants.py::Roles`.
+> Canonical source: `assetcore/fixtures/role.json` + `assetcore/services/shared/constants.py::Roles`. Patch áp dụng: `v3_2.001_module_role_redesign`. Các persona role cũ (IMM System Admin, IMM Department Head, IMM Workshop Lead, KTV HTM, Workshop Manager, Trưởng khoa, PTP Khối 2, v.v.) đã bị thay thế — không còn tồn tại trong fixtures.
+
+**System roles (4):**
 
 | Role | Quyền hạn chính |
 |---|---|
-| IMM System Admin | Create/Write/Delete mọi DocType AssetCore |
-| IMM Operations Manager | Duyệt cuối phiếu lớn; CRUD AC Asset, AC Supplier |
-| IMM Department Head | Duyệt cấp khoa + hủy phiếu; nhận cảnh báo scheduler |
-| IMM Deputy Department Head | Hỗ trợ trưởng khoa (không được hủy) |
-| IMM Workshop Lead | Phân công + duyệt Work Order; Create CAPA |
-| IMM QA Officer | QMS, CAPA, RCA, verify hash chain |
-| IMM Biomed Technician | Thực hiện WO, nhập checklist, báo sự cố |
-| IMM Technician | Legacy alias; Read AC Asset scoped |
-| IMM Document Officer | Quản lý hồ sơ IMM-05 |
-| IMM Storekeeper | Quản lý kho, phụ tùng, stock movement |
-| IMM Clinical User | Xem thiết bị khoa mình, báo sự cố |
-| IMM Auditor | Read-only — truy vết audit trail |
-| Vendor Engineer | Bên thứ ba (KTV nhà cung cấp) |
-| IMM Planning / Finance / HTM Engineer / Procurement / Risk / Board Approver | Wave 2 (IMM-01→03) |
-| IMM Training Officer | Wave 2 (IMM-06) |
+| `AssetCore Super Admin` | Toàn quyền, bao trùm Frappe System Manager |
+| `AssetCore System User` | Role nền: đăng nhập, dashboard, đọc shared-core |
+| `AssetCore Auditor` | Read-only toàn bộ + audit trail |
+| `Vendor Engineer` | Bên thứ ba, cô lập theo WO/Asset được phân công |
+
+**Domain roles (26 = 13 module × Manager/User):**
+
+| Module | Manager role | User role |
+|---|---|---|
+| IMM-00 | `Data Manager` | `Data User` |
+| IMM-01 | `Needs Manager` | `Needs User` |
+| IMM-02 | `Spec Manager` | `Spec User` |
+| IMM-03 | `Procurement Manager` | `Procurement User` |
+| IMM-04 | `Commissioning Manager` | `Commissioning User` |
+| IMM-05 | `Document Manager` | `Document User` |
+| IMM-06 | `Training Manager` | `Training User` |
+| IMM-08 | `PM Manager` | `PM User` |
+| IMM-09 | `Repair Manager` | `Repair User` |
+| IMM-11 | `Calibration Manager` | `Calibration User` |
+| IMM-12 | `Corrective Manager` | `Corrective User` |
+| IMM-15 | `Inventory Manager` | `Inventory User` |
+| IMM-16 | `Compliance Manager` | `Compliance User` |
 
 ## III.7. Scheduler jobs
 
@@ -300,12 +328,53 @@ HTTP Request / Frappe Scheduler
 
 | Job | Tần suất | Logic |
 |---|---|---|
-| `check_capa_overdue` | Daily | CAPA Open/In Progress + due_date < today → Overdue + email QA Officer |
+| `check_capa_overdue` | Daily | CAPA {Open, In Progress, Pending Verification} + due_date < today → Overdue + email QA Officer. Idempotent (không re-flip Overdue, không động Closed); null-guard (due_date NULL không bao giờ flip). Cùng INVARIANT SoT `_overdue_capa_filter()`. **KHÔNG đổi `capa_open` count** (Overdue vẫn NOT IN Closed = vẫn open — `_open_capa_filter()` bất biến dưới flip) |
 | `check_vendor_contract_expiry` | Daily | contract_end in {90,60,30} ngày → email Dept Head |
 | `check_registration_expiry` | Daily | byt_reg_expiry in {90,60,30,7} ngày, non-Decommissioned → email |
 | `check_insurance_expiry` | Daily | Cảnh báo hết hạn bảo hiểm thiết bị {90,60,30,7} ngày |
 | `check_service_contract_expiry` | Daily | Cảnh báo Service Contract end {90,60,30} ngày |
 | `rollup_asset_kpi` | Monthly | Tính MTTR avg, uptime % cho từng asset (no email) |
+
+---
+
+## III.8. Notification Framework (Foundation — Wave N1)
+
+> **Mục tiêu:** Khi một sự kiện vòng đời liên quan trực tiếp tới user xảy ra, user nhận thông báo qua **2 kênh**: (1) **In-app** tại chuông góc phải (Frappe Notification Log), (2) **Email** SMTP — user **tự bật/tắt** per-user.
+>
+> **Frappe-first — KHÔNG modify core, KHÔNG tạo DocType mới:**
+> - In-app: tái dùng DocType **Notification Log** (Frappe core) qua `frappe.desk.doctype.notification_log.notification_log.enqueue_create_notification(users, doc)`. Đây đã là record có audit trail (for_user, subject, type, document_type/name, creation).
+> - Toggle email per-user: tái dùng DocType **Notification Settings** (Frappe core), field `enable_email_notifications` + `enabled`. Service phải kiểm tra setting này **trước** khi gửi email.
+> - Email gửi qua `frappe.sendmail` (wrap bằng `utils/helpers.py::_safe_sendmail`). Cấu hình SMTP runtime (Email Account / site_config) — **không hardcode, không commit secret**.
+
+### Sự kiện vòng 1 (MVP — 2 events)
+
+| ID | Sự kiện | Trigger | Recipient resolution | Kênh |
+|---|---|---|---|---|
+| **E1** `notify_assignment` | Work Order được gán cho kỹ thuật viên | `PM Work Order` / `Asset Repair` `on_update` + `on_submit` khi `assigned_to` set/đổi | user ở field `assigned_to` (loại trừ self-assign: actor == assignee) | In-app + Email |
+| **E2** `notify_approval_pending` | Workflow doc chuyển sang state cần duyệt | doc có `workflow_state` đổi sang state pending-approval (`validate`/`on_update`) | approver: field `supervisor` nếu có, fallback users có allowed-role của transition kế tiếp | In-app + Email |
+
+> **OUT-of-scope vòng 1** (backlog): SLA sắp hết hạn (đã có scheduler riêng `tasks.py`/`imm00`), Incident mới, Calibration đến hạn, SMS/push, digest, notification preferences UI nâng cao. Thêm event sau = chỉ thêm mapping, dùng lại engine.
+
+### FR Notification (FR-00-NTF-01 → 07)
+
+| FR ID | Mô tả | Actor | Phương thức |
+|---|---|---|---|
+| FR-00-NTF-01 | Khi WO gán `assigned_to` → tạo Notification Log cho assignee | System (hook) | `notify_assignment` |
+| FR-00-NTF-02 | Khi workflow doc vào state **cần duyệt** → tạo Notification Log cho approver. "State cần duyệt" + approver xác định **động** từ Workflow metadata (transition rời state có `allowed` ∈ role phê duyệt, mặc định `System Manager`), **không hard-code tên state/field**; bổ sung `supervisor` nếu doc có. Xem 04 §III.1b-1. | System (hook) | `notify_approval_pending`, `resolve_approvers_by_workflow` |
+| FR-00-NTF-03 | Gửi email cho recipient **chỉ khi** `Notification Settings.enable_email_notifications=1 AND enabled=1` | System | `_user_wants_email` |
+| FR-00-NTF-04 | **Mặc định không tự-notify** (actor == recipient → skip) cho mọi event điều phối/phê duyệt/cảnh báo (assignment, approval, escalation, calibration, SLA) — người gây action KHÔNG tự nhận noise. | System | `resolve_recipients` (mặc định `include_self=False`) |
+| FR-00-NTF-07 | **Self-confirm (NGOẠI LỆ có kiểm soát của FR-00-NTF-04):** với event mà **người báo chính là bên cần được xác nhận đã ghi nhận**, gửi 1 Notification Log "xác nhận" cho chính người báo dù họ là actor. Phạm vi áp dụng = **chỉ Incident Report tự báo** (`reported_by == actor` và chưa phân công người khác) → "Đã ghi nhận sự cố của bạn". Opt-in per-event qua cờ `self_confirm`; KHÔNG đổi hành vi mặc định của `resolve_recipients`; KHÔNG áp cho assignment/approval/escalation/calibration/SLA. Xem 04 §III.1b-2b. | System (hook) | `notify_incident_created` (cờ `self_confirm`) |
+| FR-00-NTF-05 | User đọc trạng thái toggle email của mình | End-user | API `get_notification_preferences` |
+| FR-00-NTF-06 | User bật/tắt nhận email | End-user | API `set_email_enabled` |
+
+### Audit trail
+- Mỗi notification = 1 record **Notification Log** (immutable, có `for_user`, `subject`, `creation`) → audit trail tự nhiên.
+- Listener idempotent + handle `docstatus`/cancel (Pattern A) → không tạo record trùng khi save lặp.
+
+### KPI (gợi ý — backlog đo lường)
+- Notification delivery rate (số gửi / số trigger).
+- Email opt-out rate (% user tắt email).
+- Median thời gian từ assignment → assignee xem (read) Notification Log.
 
 ---
 
@@ -357,15 +426,9 @@ HTTP Request / Frappe Scheduler
 | FR-00-29 | Append-only enforcement (`in_create=1`, `validate()` block update) | System | Controller + perm |
 | FR-00-30 | `transition_asset_status()` bắt buộc tạo 1 ALE mỗi lần đổi status | System | Service layer |
 
-## IV.6. Nhóm GMDN Status Management (FR-00-38 → FR-00-42)
+## IV.6. (Đã loại bỏ — Nhóm quản lý trạng thái sử dụng GMDN)
 
-| FR ID | Mô tả | Actor | Phương thức |
-|---|---|---|---|
-| FR-00-38 | AC Asset có field `gmdn_status` enum `In Use` / `Not Use` (DocType options; default `Not Use`, `read_only=1`) | Ops Manager, System Admin | DocType field |
-| FR-00-39 | Filter và hiển thị gmdn_status trong `list_assets()` | Tất cả role IMM | GET `list_assets?gmdn_status=...` |
-| FR-00-40 | API `update_gmdn_status()` — cập nhật thủ công có lý do, ghi Audit Trail | Ops Manager | POST `update_gmdn_status` |
-| FR-00-41 | QR Scan Toggle Flow: `toggle_gmdn_status()` tự động đảo trạng thái `In Use ↔ Not Use` | KTV / Bác sĩ | POST `toggle_gmdn_status` |
-| FR-00-42 | Block `gmdn_status → In Use` khi lifecycle_status ∈ {Decommissioned, Out of Service} | System | `update_gmdn_status()` service |
+> **Note (2026-05-19):** Nhóm FR-00-38 → FR-00-42 (quản lý trạng thái sử dụng GMDN trên từng Asset) đã bị loại bỏ. Trạng thái sử dụng thiết bị đã được bao trùm bởi `lifecycle_status`; trục lọc/quản lý nhóm thiết bị nay là `gmdn_code` (kế thừa từ Asset Category). Field tương ứng trên `AC Asset` đã drop qua patch `v3_1/008`. Tham chiếu: [docs/res/analysis/gmdn-asset-category-analysis.md](../res/analysis/gmdn-asset-category-analysis.md) §6.
 
 ## IV.7. Nhóm GMDN Code Hierarchy (FR-00-43 → FR-00-46)
 
@@ -425,12 +488,15 @@ HTTP Request / Frappe Scheduler
 | BR-00-06 | AC Supplier Calibration Lab thiếu iso_17025_cert → warning | `ACSupplier.validate()` | ISO/IEC 17025 |
 | BR-00-07 | SLA response_time_minutes < resolution_time_hours × 60 | `IMMSLAPolicy.validate()` | Internal |
 | BR-00-08 | CAPA before_submit: root_cause + corrective_action + preventive_action | `IMMCAPARecord.before_submit()` | ISO 13485:8.5 |
-| BR-00-09 | CAPA quá due_date → auto Overdue qua daily scheduler | `check_capa_overdue()` | Internal |
+| BR-00-09 | CAPA quá hạn (SoT INVARIANT): `status NOT IN ('Closed') AND due_date IS NOT NULL AND due_date < today` (strict `<`). Daily scheduler flip {Open, In Progress, Pending Verification} quá hạn → Overdue. Mọi KPI/scorecard/quality-dash/drill gọi `_overdue_capa_filter()` → count == drill byte-for-byte | `is_capa_overdue()` / `_overdue_capa_filter()` / `check_capa_overdue()` | Internal |
 | BR-00-10 | Mọi thay đổi lifecycle_status → sinh 1 Asset Lifecycle Event | `transition_asset_status()` | Audit trail |
-| BR-00-11 | gmdn_status không thể → `In Use` khi Decommissioned / Out of Service | `update_gmdn_status()` | NĐ 98/2021 |
-| BR-00-12 | Mọi thay đổi gmdn_status phải có reason ≥ 5 ký tự, ghi Audit Trail | Service layer | ISO 13485:8.2 |
+| ~~BR-00-11~~ | *(Đã loại bỏ 2026-05-19 — trạng thái sử dụng GMDN bỏ; bao trùm bởi `lifecycle_status`)* | — | — |
+| ~~BR-00-12~~ | *(Đã loại bỏ 2026-05-19 — xem [analysis §6](../res/analysis/gmdn-asset-category-analysis.md))* | — | — |
 | BR-00-13 | `gmdn_code` + `gmdn_term` là thuộc tính cấp danh mục. `AC Asset Category` là nguồn kế thừa cấp 1. `IMM Device Model` kế thừa tự động khi tạo mới nếu trống. `AC Asset` kế thừa từ `device_model` tại `before_insert`. Kế thừa một chiều: **Category → Model → Asset**. | `IMMDeviceModel.before_insert()` → `_inherit_pm_calibration_defaults()`; `ACAsset.before_insert()` → `_inherit_gmdn_from_device_model()` | Internal |
 | BR-00-14 | Override GMDN được phép tại **cả 3 cấp** (Category, Device Model, Asset) — kế thừa chỉ xảy ra một lần tại `before_insert` nếu field đang trống; nhập tay sau đó không bị ghi đè. | `before_insert` chỉ điền khi trống | Internal |
+| BR-00-15 | CAPA "đang xử lý / chưa đóng" (capa_open) — SoT INVARIANT: `open ⟺ status NOT IN ('Closed')`. `'open'` là **SUPERSET** của `'overdue'` (BR-00-09): CAPA `'Overdue'` VẪN open vì chưa đóng. Hệ quả: cron `check_capa_overdue` flip Open→Overdue **KHÔNG** làm capa_open count đổi (count bất biến dưới cron). Mọi KPI dashboard / scorecard `capa_open_count` / quality-dash `capa_open` / drill `list_capas(not_closed=1)` / `get_capa_aging` `total_open` PHẢI gọi `_open_capa_filter()` — KHÔNG inline `status IN [Open, In Progress, ...]` (bỏ sót Overdue/Pending Verification → đếm thiếu). `get_capa_aging`: `total_open == sum(buckets)` — record `opened_date` NULL bị loại khỏi CẢ HAI cách đếm. | `is_capa_open()` / `_open_capa_filter()` | Internal |
+| BR-00-16 | **Filter composition của `list_capas` (conjoin, KHÔNG clobber).** explicit `status` (vd `Overdue`/`Open`/`Closed`) và virtual `not_closed`/`overdue` đặt điều kiện trên CÙNG field `status` → PHẢI **conjoin (AND)**, KHÔNG được để virtual filter ghi đè (clobber) explicit status. Vì Frappe **dict-filter chỉ giữ 1 điều kiện/field**, endpoint build filter dạng **list-of-conditions** để cả `["status","=",status]` lẫn `["status","not in",["Closed"]]` cùng tồn tại. INVARIANT: `?not_closed=1&status=Overdue` → CHỈ tập Overdue (KHÔNG full open-set); `?not_closed=1&status=Closed` → 0 rows (tập rỗng); `?overdue=1&status=Open` → 0 rows (Open ∉ tập đã flip Overdue). KHÔNG có explicit status: `not_closed=1` == `_open_capa_filter()` & `overdue=1` == `_overdue_capa_filter()` byte-for-byte (no-regression BR-00-15/BR-00-09). `frappe.db.count` và `frappe.get_list` dùng CÙNG bộ filter conjoined → `pagination.total == len(items)` cho mọi tổ hợp. Self-Correction: thiết kế gốc (BR-00-15/05 §III.7) định nghĩa virtual filter nhưng KHÔNG đặc tả conjoin với explicit status → code dùng `dict.update()` clobber (bug #4 USER Vòng 12 — "chọn status=Quá hạn mà vẫn 117"). | `list_capas()` (`api/imm00.py`) | Internal |
+| BR-00-17 | **Số ĐKLH BYT sắp/đã hết hạn (SoT INVARIANT — count == drill).** Predicate DUY NHẤT `byt_expiry_filter(bucket)` (services/imm00): `'expiring'` ⟺ `byt_reg_expiry BETWEEN [today, today+BYT_EXPIRY_SOON_DAYS]` (`BYT_EXPIRY_SOON_DAYS=30`, named const KHÔNG literal); `'expired'` ⟺ `byt_reg_expiry < today` (strict `<`). CẢ HAI bucket LOẠI `byt_reg_expiry IS NULL/''` (chưa khai số ĐKLH ≠ hết hạn). KPI `dashboard.get_overview().assets.byt_expiring_30d`/`byt_expired` (count) **và** drill `list_assets(byt_status='expiring'\|'expired')` (list) gọi CÙNG helper → `pagination.total == số tile` byte-for-byte trên CÙNG vendor scope (`apply_vendor_scope` áp SAU merge). `byt_status` hợp nhất (AND) với mọi filter sẵn có (lifecycle_status/department/…) KHÔNG clobber; giá trị khác → no-op (KHÔNG throw). KHÔNG inline literal window NGOÀI thân SoT (grep-guard = 0). Self-Correction Vòng 31: thiết kế gốc đếm literal inline ở `api/dashboard.py:62-63` + `list_assets` thiếu param → KPI không drill (xem [04 Backend §III.1a](./04_Backend_Design.md)). NĐ98/2021: ĐKLH là điều kiện pháp lý lưu hành — hết hạn ⇒ rủi ro phải dừng khai thác lâm sàng. | `byt_expiry_filter()` (`services/imm00.py`); gọi bởi `get_overview` (count) + `list_assets` (drill) | NĐ98/2021 |
 | BR-INV-01→08 | Inventory rules: stock không âm, audit trail per movement, etc. | `services/inventory.py` | Internal |
 
 ---
@@ -442,7 +508,7 @@ HTTP Request / Frappe Scheduler
 - [x] Đặc điểm đặc biệt IMM-00 (foundation, không phải per-module)
 - [x] Trạng thái Live vs Planned
 - [x] WHO HTM lifecycle position
-- [x] Stakeholders + Actors (8 roles)
+- [x] Stakeholders + Actors (30 roles = 4 System + 26 Domain)
 - [x] Scope In + Out + Assumptions
 - [x] I.8 Risk & giảm thiểu
 - [x] I.9 Roadmap (đồng bộ QMS + Đợt triển khai)
@@ -458,12 +524,12 @@ HTTP Request / Frappe Scheduler
 - [x] Governance DocTypes
 - [x] Inventory DocTypes (v4)
 - [x] Shared utilities
-- [x] Role fixtures (8 roles)
+- [x] Role fixtures (30 roles — 4 System + 26 Domain)
 - [x] Scheduler jobs (4 daily)
 
 ### IV. Functional Requirements
 - [x] FR grouped by DocType / feature area
-- [x] GMDN Status Management FR
+- [x] ~~GMDN Status Management FR~~ (đã loại bỏ 2026-05-19 — lọc theo `gmdn_code`)
 
 ### V. NFR
 - [x] Performance targets

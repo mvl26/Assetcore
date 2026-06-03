@@ -28,7 +28,7 @@ Không có. Module sẵn sàng cho assetcore-be-module / assetcore-fe-module s�
 ## 2026-05-11 Alignment Pass (Sprint 6 DoD)
 - BE: 3-tier compliance verified; endpoints align with docs/05_API_Specification.md
 - FE: store + views + routes + sidebar entry wired
-- Tests: see docs/res/dod-verification-report.md §1 for per-module results
+- Tests: see docs/res/reports/dod-verification-report.md §1 for per-module results
 - Status: READY
 
 ## 2026-05-14 Light-touch Sync (Wave-2 branch)
@@ -51,3 +51,28 @@ Endpoint count actual = **15** (whitelist `assetcore/api/imm05.py` — pass 1 sa
 - `08_Deployment.md`: sửa 4 chỗ `assetcore.tasks.check_document_expiry`/`update_asset_completeness` → namespace thực `assetcore.services.imm05.*` hoặc đánh dấu chưa wire.
 - `09_Release.md`: row endpoint 14 → 15 (kèm tên hàm thực); LOC thay đổi từ ước tính sang con số thật; thêm row `Scheduler thực tế = 1`.
 - `03_Diagrams.md`: untouched (đã dùng "Pending Review" space sau pass 1).
+
+## Pass 3 — Sync 2026-05-18
+
+Đếm lại ground truth: service=587 LOC (+26 so với 561), api=156 LOC (+5), endpoints=16 (+1).
+
+Endpoint mới phát hiện: `archive_document` — có trong `api/imm05.py` nhưng thiếu khỏi API catalog.
+
+- `README.md`: `Cập nhật cuối` → 2026-05-18; "15 endpoints" → "16 endpoints"; tick `[x]` roadmap 07/08/09 (files đã tồn tại); bổ sung LOC thực vào ground truth.
+- `05_API_Specification.md`: thêm row `archive_document` (row 8), renumber 8–16; DoD "15" → "16".
+- `07_Testing_QA.md`: pyramid + callout "15 endpoints" → "16 endpoints"; service LOC 527 → 587.
+- `09_Release.md`: endpoint count 15→16 (thêm `archive_document`); LOC 561/151 → 587/156; whitelist date 2026-05-14 → 2026-05-18.
+- Không đụng 02/03/04/06/08 (không phát hiện drift).
+
+## Pass 4 — Deep reconciliation 2026-05-18
+
+Phân tích sâu toàn bộ code BE/FE.
+
+- `04_Backend_Design.md`: "14 endpoints" → "16 endpoints" trong architecture diagram; fix tech-debt note (services/imm05.py ĐÃ TỒN TẠI 587 LOC, không còn "chưa tồn tại"); ghi chú `update_asset_completeness()` là no-op (v3); thêm cảnh báo bug VR-03 underscore state name.
+- `06_Frontend_Design.md`: sửa sidebar route `/imm05/documents` → `/documents`; thêm route `/documents/requests`; ghi chú dashboard route chưa implement.
+
+**Gaps cần xử lý ngoài docs (engineering):**
+1. ⚠️ **Bug VR-03:** `vr_03_file_required_for_review()` trong controller dùng `"Pending_Review"` (underscore) thay vì `"Pending Review"` (space) — validation không bao giờ kích hoạt. Cần sửa: `"Pending_Review"` → `"Pending Review"` trong `asset_document.py`.
+2. ⬜ `update_asset_completeness()` là no-op — phân tích compliance on-the-fly qua SQL (đúng hướng). Có thể remove hoặc implement đầy đủ.
+3. ⬜ 2 scheduler jobs `update_asset_completeness` + `check_overdue_document_requests` chưa implement (backlog Sprint 10).
+4. ⬜ Composite UNIQUE DB constraint `(asset_ref, doc_type_detail, doc_number)` chưa thêm.

@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="module-id" content="suppliers">
+<title>Tạo NCC — AssetCore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+<script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <a class="brand" style="color:inherit;text-decoration:none" href="#">
+      <span class="logo">A</span>
+      <div>AssetCore <small>IMMIS · BV Nhi Đồng 1</small></div>
+    </a>
+    <div class="spacer"></div>
+    <button class="iconbtn" title="Thông báo"><iconify-icon icon="heroicons:bell" style="font-size:18px;vertical-align:-3px;color:#fff"></iconify-icon></button>
+    <div class="persona-pill" title="Chọn vai trò"></div>
+    <div id="personaMenu" class="persona-menu"></div>
+  </div>
+  <div class="body-wrap">
+    <aside class="sidebar">
+      <div class="side-head"><span></span></div>
+      <nav></nav>
+      <div class="side-foot">AssetCore v0.0.2 · Wave 1+2</div>
+    </aside>
+    <main class="main">
+      <div class="breadcrumb"><a href="../index.html">Trang chủ</a> <span class="sep">›</span><a href="suppliers-list.html">Nhà cung cấp</a> <span class="sep">›</span><span>Tạo mới</span></div>
+      <div class="page">
+        <div class="page-head">
+  <div class="titles">
+    <a href="suppliers-list.html" class="btn btn-ghost btn-sm" style="margin-bottom:8px">← Quay lại</a>
+    <h1>Tạo nhà cung cấp mới</h1>
+  </div>
+
+</div><div class="card">
+  <div class="card-pad">
+    <div class="form-grid g2-form">
+      <div class="field"><label class="fld">Tên đầy đủ <span class="req">*</span></label><input class="input"></div>
+      <div class="field"><label class="fld">Tên viết tắt</label><input class="input"></div>
+      <div class="field"><label class="fld">Mã số thuế <span class="req">*</span></label><input class="input"></div>
+      <div class="field"><label class="fld">Loại NCC <span class="req">*</span></label><select class="select"><option>Sản xuất</option><option>Phân phối</option><option>Dịch vụ</option><option>Hiệu chuẩn (ISO 17025)</option></select></div>
+      <div class="field"><label class="fld">Quốc gia gốc</label><input class="input"></div>
+      <div class="field"><label class="fld">Quốc gia hoạt động VN</label><select class="select"><option>Có</option><option>Không (chỉ đại lý)</option></select></div>
+      <div class="field" style="grid-column:span 2"><label class="fld">Địa chỉ trụ sở</label><input class="input"></div>
+      <div class="field"><label class="fld">Người liên hệ</label><input class="input"></div>
+      <div class="field"><label class="fld">Số điện thoại</label><input class="input"></div>
+      <div class="field"><label class="fld">Email</label><input class="input" type="email"></div>
+      <div class="field"><label class="fld">Website</label><input class="input"></div>
+      <div class="field"><label class="fld">Chuyên môn</label><input class="input" placeholder="VD: Hô hấp, Tim mạch, Phòng mổ"></div>
+      <div class="field"><label class="fld">Trạng thái AVL ban đầu</label><select class="select"><option>Draft</option><option>Conditional (chờ chứng chỉ)</option></select></div>
+    </div>
+  </div>
+  <div style="padding:16px 20px;border-top:1px solid var(--color-neutral-300);display:flex;justify-content:space-between">
+    <a href="suppliers-list.html" class="btn btn-secondary">Hủy</a>
+    <button class="btn btn-primary">Tạo NCC + tiếp tục thêm chứng chỉ</button>
+  </div>
+</div>
+      
+      </div>
+    </main>
+  </div>
+</div>
+<script src="../assets/shell.js"></script>
+</body>
+</html>

@@ -123,3 +123,16 @@ browser_fill_form: { "Người duyệt": "admin@hospital.vn" }
 browser_click: "Xác nhận phê duyệt"
 browser_snapshot  → verify modal đóng
 ```
+
+## ⚠️ Pitfall: Vite dev/HMR instability — KHÔNG tin click-flow sau phiên reload dài
+
+Bug đã gặp 2026-06-01 (verify banner login G5): sau phiên dev server (Vite) reload/HMR kéo dài, click-flow Playwright cho kết quả SAI **dù logic đúng** — `v-model` desync + component instance churn (`email` ref đọc ra `""` dù DOM có giá trị; instance đọc ≠ instance xử lý event). BE trả đúng (`bench execute`), gọi handler trực tiếp trên instance ra đúng state, nhưng click qua DOM không render banner.
+
+**Quy tắc:**
+
+1. Verify UI quan trọng (auth, form submit) trên **build preview** (`npm run build` + preview) hoặc **tab/Vite mới khởi động sạch**, KHÔNG trên dev server đã HMR nhiều lần.
+2. Khi Playwright cho kết quả MÂU THUẪN với BE (`bench execute` đúng + typecheck sạch) → nghi **dev-server instability TRƯỚC**, không vội kết luận FE bug. Reload trang sạch / restart Vite rồi test lại.
+3. Cross-check 3 tầng trước khi tuyên bố "FE bug": (a) BE response qua `bench execute`, (b) gọi handler trực tiếp trên component instance, (c) click-flow DOM. Chỉ khi (a)+(b) đúng mà (c) sai LẶP LẠI trên tab sạch mới là FE bug thật.
+4. Lưu ý kèm: thêm `@frappe.whitelist()` method mới → phải reload gunicorn/bench (worker cũ `--preload` chưa nạp → `AttributeError`); verify `bench execute assetcore.api.X.method` chạy được TRƯỚC khi test qua HTTP/Playwright (xem `assetcore-deploy` troubleshooting + LL-BE-16).
+
+Cross-ref: `assetcore-be` LL-BE-16 (werkzeug reload không tin cậy), LL-FE-27 (bench execute trước khi sửa FE).

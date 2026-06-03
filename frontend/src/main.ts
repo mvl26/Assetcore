@@ -12,7 +12,7 @@ import './assets/styles/main.css'
 import './assets/styles/list-view.css'
 import axios from 'axios'
 import { setCsrfToken } from '@/api/axios'
-import { vPermission } from '@/directives/permission'
+import { vCan, vPermission } from '@/directives/permission'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -43,13 +43,19 @@ if (globalThis.window !== undefined) {
   })
 }
 
+// Phase 1.2: persona switcher đã gỡ — dọn key persisted cũ (no-op nếu không có).
+if (globalThis.window !== undefined) {
+  try { localStorage.removeItem('ac_persona') } catch { /* private mode — bỏ qua */ }
+}
+
 const pinia = createPinia()
 pinia.use(piniaPersistedState)
 app.use(pinia)
 app.use(router)
 app.use(i18n)
 app.use(VueQueryPlugin, { queryClient })
-app.directive('permission', vPermission)
+app.directive('can', vCan)
+app.directive('permission', vPermission)  // legacy alias
 
 // Pre-fetch CSRF token so any POST after page load works without a retry round-trip.
 // This covers the case where the user has an existing Frappe session (no login flow).
@@ -64,5 +70,11 @@ try {
 } catch {
   // not logged in yet — login flow will set the token
 }
+
+// Chờ router resolve initial navigation TRƯỚC khi mount — đảm bảo
+// route.meta.moduleId (do tagWorkspace gán) đã hydrate khi AppSidebar
+// render lần đầu. Tránh flash "Trang này không thuộc module nào" khi
+// user mở deep-link như /pm/schedules, /calibration/:id (BUG-003).
+await router.isReady()
 
 app.mount('#app')

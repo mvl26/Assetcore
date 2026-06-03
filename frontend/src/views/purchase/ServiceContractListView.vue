@@ -3,6 +3,8 @@ import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { frappeGet } from '@/api/helpers'
 import type { ServiceContract } from '@/types/imm00'
+import { useImportWizard } from '@/composables/useImportWizard'
+import ImportWizardModal from '@/components/import/ImportWizardModal.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar from '@/components/common/ListFilterBar.vue'
@@ -116,6 +118,18 @@ function expiryClass(d?: string) {
 }
 
 onMounted(load)
+
+// ── Import / Export ──────────────────────────────────────────────────────────
+
+const importWizard = useImportWizard('Service Contract', () => load())
+const openImport = importWizard.open
+const doExport = importWizard.doExport
+
+const IMPORT_NOTICE = [
+  'Mã hợp đồng phải duy nhất.',
+  'Nhà cung cấp (Supplier) phải đã tồn tại — tên hoặc mã hệ thống đều OK.',
+  'Ngày bắt đầu / kết thúc dạng YYYY-MM-DD.',
+]
 </script>
 
 <template>
@@ -126,6 +140,27 @@ onMounted(load)
     >
       <template #actions>
         <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
+        <button
+          class="px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-600 flex items-center gap-1.5"
+          title="Tải dữ liệu hiện tại về Excel"
+          @click="doExport"
+        >
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+          </svg>
+          Xuất Excel
+        </button>
+        <button
+          class="px-3 py-2 text-sm border border-emerald-300 rounded-lg hover:bg-emerald-50 text-emerald-700 flex items-center gap-1.5"
+          @click="openImport"
+        >
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+          </svg>
+          Import
+        </button>
         <button class="btn-primary shrink-0" @click="router.push('/service-contracts/new')">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
@@ -250,5 +285,6 @@ v-for="c in contracts" :key="c.name"
         </div>
       </div>
     </div>
+    <ImportWizardModal :ctx="importWizard" title="Import Hợp đồng" unit="hợp đồng" :notice="IMPORT_NOTICE" />
   </div>
 </template>

@@ -3,7 +3,9 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { createAdhocPMWorkOrder } from '@/api/imm08'
+import { checkAssetComplianceStatus, type ComplianceGateResult } from '@/api/imm16'
 import { frappeGet } from '@/api/helpers'
+import { translateStatus } from '@/utils/formatters'
 import SmartSelect from '@/components/common/SmartSelect.vue'
 import DateInput from '@/components/common/DateInput.vue'
 import { useFormDraft } from '@/composables/useFormDraft'
@@ -51,6 +53,10 @@ const selectedSchedule = computed(() =>
 )
 const checklistPreview = ref<ChecklistItem[]>([])
 const assetMeta = ref<AssetMeta | null>(null)
+// Pre-flight compliance gate (BR-16-09). Reads the SAME SoT as gate_wo_submit
+// via api/imm16.checkAssetComplianceStatus — FE only RENDERS result.blocked +
+// reasons[] verbatim, never inline-computes 'Critical CAPA open' membership.
+const complianceGate = ref<ComplianceGateResult | null>(null)
 const loadingSchedules = ref(false)
 const loadingChecklist = ref(false)
 const saving = ref(false)
@@ -60,24 +66,30 @@ const canSubmit = computed(() =>
   !!form.value.asset_ref
   && !!form.value.pm_schedule
   && !!form.value.due_date
-  && assetMeta.value?.lifecycle_status !== 'Decommissioned',
+  && assetMeta.value?.lifecycle_status !== 'Decommissioned'
+  && complianceGate.value?.blocked !== true,
 )
 
-// ── Asset metadata
+// ── Asset metadata + pre-flight compliance gate
 async function loadAssetMeta() {
   if (!form.value.asset_ref) {
     assetMeta.value = null
+    complianceGate.value = null
     schedules.value = []
     return
   }
-  try {
-    const r = await frappeGet<AssetMeta>('/api/method/frappe.client.get_value', {
+  // allSettled: a 403/error on the gate must NOT blank the asset panel — both
+  // requests are independent and fail-safe (gate → null, banner stays hidden).
+  const [metaRes, gateRes] = await Promise.allSettled([
+    frappeGet<AssetMeta>('/api/method/frappe.client.get_value', {
       doctype: 'AC Asset',
       filters: form.value.asset_ref,
       fieldname: JSON.stringify(['device_model', 'asset_name', 'lifecycle_status', 'location']),
-    })
-    assetMeta.value = r ?? null
-  } catch { assetMeta.value = null }
+    }),
+    checkAssetComplianceStatus(form.value.asset_ref),
+  ])
+  assetMeta.value = metaRes.status === 'fulfilled' ? (metaRes.value ?? null) : null
+  complianceGate.value = gateRes.status === 'fulfilled' ? (gateRes.value ?? null) : null
   await loadSchedules()
 }
 
@@ -179,6 +191,27 @@ onMounted(() => {
         </div>
         <div v-if="assetMeta?.lifecycle_status === 'Decommissioned'" class="mt-2 alert-error text-sm">
           Thiết bị đã thanh lý — không thể tạo phiếu PM.
+        </div>
+
+        <!-- Pre-flight compliance gate banner (BR-16-09) — cảnh báo SỚM trước
+             khi submit. Render verbatim BE gate result; status dịch qua SSoT. -->
+        <div
+          v-if="complianceGate?.blocked"
+          role="alert"
+          aria-live="assertive"
+          class="mt-3 alert-warning text-sm"
+        >
+          <p class="font-semibold">
+            Thiết bị đang bị chặn tạo lệnh do CAPA tuân thủ chưa đóng
+          </p>
+          <ul class="mt-1.5 list-disc list-inside space-y-0.5">
+            <li v-for="r in complianceGate.reasons" :key="r.ref">
+              {{ r.ref }} — {{ translateStatus(r.status) }}
+            </li>
+          </ul>
+          <p class="mt-1.5 text-xs">
+            Hãy đóng các CAPA nghiêm trọng nêu trên trước khi tạo phiếu bảo trì.
+          </p>
         </div>
       </div>
 

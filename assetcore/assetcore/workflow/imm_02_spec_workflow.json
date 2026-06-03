@@ -14,43 +14,43 @@
   {
    "state": "Draft",
    "doc_status": "0",
-   "allow_edit": "IMM HTM Engineer",
+   "allow_edit": "Spec User",
    "type": "Success"
   },
   {
    "state": "Reviewing",
    "doc_status": "0",
-   "allow_edit": "IMM HTM Engineer",
+   "allow_edit": "Spec User",
    "type": "Warning"
   },
   {
    "state": "Benchmarked",
    "doc_status": "0",
-   "allow_edit": "IMM Planning Officer",
+   "allow_edit": "Needs Manager",
    "type": "Success"
   },
   {
    "state": "Risk Assessed",
    "doc_status": "0",
-   "allow_edit": "IMM Risk Officer",
+   "allow_edit": "Spec Manager",
    "type": "Warning"
   },
   {
    "state": "Pending Approval",
    "doc_status": "0",
-   "allow_edit": "IMM Department Head",
+   "allow_edit": "Commissioning Manager",
    "type": "Warning"
   },
   {
    "state": "Locked",
    "doc_status": "1",
-   "allow_edit": "IMM System Admin",
+   "allow_edit": "AssetCore Super Admin",
    "type": "Success"
   },
   {
    "state": "Withdrawn",
    "doc_status": "1",
-   "allow_edit": "IMM System Admin",
+   "allow_edit": "AssetCore Super Admin",
    "type": "Danger"
   }
  ],
@@ -59,63 +59,63 @@
    "state": "Draft",
    "next_state": "Reviewing",
    "action": "Gửi rà soát",
-   "allowed": "IMM HTM Engineer",
+   "allowed": "Spec User",
    "allow_self_approval": 1
   },
   {
    "state": "Reviewing",
    "next_state": "Draft",
    "action": "Yêu cầu chỉnh spec",
-   "allowed": "IMM HTM Engineer",
+   "allowed": "Spec User",
    "allow_self_approval": 1
   },
   {
    "state": "Reviewing",
    "next_state": "Draft",
    "action": "Yêu cầu chỉnh spec",
-   "allowed": "IMM Planning Officer",
+   "allowed": "Needs Manager",
    "allow_self_approval": 1
   },
   {
    "state": "Reviewing",
    "next_state": "Benchmarked",
    "action": "Hoàn tất benchmark",
-   "allowed": "IMM Planning Officer",
+   "allowed": "Needs Manager",
    "allow_self_approval": 1
   },
   {
    "state": "Benchmarked",
    "next_state": "Risk Assessed",
    "action": "Đánh giá rủi ro xong",
-   "allowed": "IMM Risk Officer",
+   "allowed": "Spec Manager",
    "allow_self_approval": 1
   },
   {
    "state": "Risk Assessed",
    "next_state": "Pending Approval",
    "action": "Trình duyệt spec",
-   "allowed": "IMM Department Head",
+   "allowed": "Commissioning Manager",
    "allow_self_approval": 1
   },
   {
    "state": "Pending Approval",
    "next_state": "Locked",
    "action": "Phê duyệt spec",
-   "allowed": "IMM Board Approver",
+   "allowed": "Procurement Manager",
    "allow_self_approval": 1
   },
   {
    "state": "Pending Approval",
    "next_state": "Withdrawn",
    "action": "Rút spec",
-   "allowed": "IMM Board Approver",
+   "allowed": "Procurement Manager",
    "allow_self_approval": 1
   },
   {
    "state": "Pending Approval",
    "next_state": "Risk Assessed",
    "action": "Yêu cầu chỉnh risk",
-   "allowed": "IMM Board Approver",
+   "allowed": "Procurement Manager",
    "allow_self_approval": 1
   }
  ]

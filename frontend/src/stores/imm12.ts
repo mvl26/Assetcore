@@ -5,8 +5,10 @@ import {
   listIncidents,
   getDashboard,
   getIncidentStats,
+  startWork as apiStartWork,
+  listRcas,
 } from '@/api/imm12'
-import type { IncidentDetail, DashboardData, DashboardStats, IncidentStats } from '@/api/imm12'
+import type { IncidentDetail, DashboardData, DashboardStats, IncidentStats, RcaListItem } from '@/api/imm12'
 
 const DEFAULT_PAGINATION = { total: 0, page: 1, page_size: 20, total_pages: 1, offset: 0 }
 
@@ -22,12 +24,18 @@ export const useImm12Store = defineStore('imm12', () => {
 
   const stats = ref<DashboardStats | IncidentStats | null>(null)
 
+  const rcaListItems = ref<RcaListItem[]>([])
+  const rcaPagination = ref({ ...DEFAULT_PAGINATION })
+  const rcaLoading = ref(false)
+  const rcaError = ref<string | null>(null)
+
   async function fetchList(params: {
     page?: number
     page_size?: number
     status?: string
     severity?: string
     asset?: string
+    open?: 0 | 1
   } = {}) {
     loading.value = true
     error.value = null
@@ -66,10 +74,37 @@ export const useImm12Store = defineStore('imm12', () => {
     }
   }
 
+  async function startWork(name: string, notes = '') {
+    return apiStartWork(name, notes)
+  }
+
+  async function fetchRcas(params: {
+    page?: number
+    page_size?: number
+    method?: string
+    status?: string
+    asset?: string
+  } = {}) {
+    rcaLoading.value = true
+    rcaError.value = null
+    try {
+      const res = await listRcas(params)
+      if (res?.items) {
+        rcaListItems.value = res.items
+        rcaPagination.value = res.pagination as typeof rcaPagination.value
+      }
+    } catch (e: unknown) {
+      rcaError.value = e instanceof Error ? e.message : String(e)
+    } finally {
+      rcaLoading.value = false
+    }
+  }
+
   return {
     incidents, pagination, loading, error,
     dashboard, dashboardLoading, dashboardError,
     stats,
-    fetchList, fetchDashboard, fetchStats,
+    rcaListItems, rcaPagination, rcaLoading, rcaError,
+    fetchList, fetchDashboard, fetchStats, startWork, fetchRcas,
   }
 })

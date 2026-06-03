@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="module-id" content="tech-specs">
+<title>Tạo Tech Spec — AssetCore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+<script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <a class="brand" style="color:inherit;text-decoration:none" href="#">
+      <span class="logo">A</span>
+      <div>AssetCore <small>IMMIS · BV Nhi Đồng 1</small></div>
+    </a>
+    <div class="spacer"></div>
+    <button class="iconbtn" title="Thông báo"><iconify-icon icon="heroicons:bell" style="font-size:18px;vertical-align:-3px;color:#fff"></iconify-icon></button>
+    <div class="persona-pill" title="Chọn vai trò"></div>
+    <div id="personaMenu" class="persona-menu"></div>
+  </div>
+  <div class="body-wrap">
+    <aside class="sidebar">
+      <div class="side-head"><span></span></div>
+      <nav></nav>
+      <div class="side-foot">AssetCore v0.0.2 · Wave 1+2</div>
+    </aside>
+    <main class="main">
+      <div class="breadcrumb"><a href="../index.html">Trang chủ</a> <span class="sep">›</span><a href="tech-specs-list.html">Thông số kỹ thuật</a> <span class="sep">›</span><span>Tạo mới</span></div>
+      <div class="page">
+        <div class="page-head">
+  <div class="titles">
+    <a href="tech-specs-list.html" class="btn btn-ghost btn-sm" style="margin-bottom:8px">← Quay lại</a>
+    <h1>Tạo Tech Spec mới</h1>
+  </div>
+
+</div><div class="card">
+  <div class="card-pad">
+    <div class="form-grid g2-form">
+      <div class="field"><label class="fld">Procurement Plan Line <span class="req">*</span></label><select class="select"><option>— Chọn line từ kế hoạch —</option><option>PP-2026-Q3-001 / Line 3 — Máy siêu âm thay thế</option></select><div class="help">Mỗi Tech Spec gắn 1 plan line</div></div>
+      <div class="field"><label class="fld">Tên dòng máy <span class="req">*</span></label><input class="input" placeholder="VD: Máy siêu âm 4D class C"></div>
+      <div class="field"><label class="fld">Người soạn (HTM Engineer)</label><select class="select"><option>Lê Quốc Hùng</option></select></div>
+      <div class="field"><label class="fld">Người duyệt (KH-TC Officer)</label><select class="select"><option>Trần Thị Mai</option></select></div>
+      <div class="field" style="grid-column:span 2"><label class="fld">Mô tả ngắn</label><textarea class="input" rows="3"></textarea></div>
+    </div>
+  </div>
+  <div style="padding:16px 20px;border-top:1px solid var(--color-neutral-300);display:flex;justify-content:space-between">
+    <a href="tech-specs-list.html" class="btn btn-secondary">Hủy</a>
+    <button class="btn btn-primary">Tạo Spec + Bắt đầu soạn requirements</button>
+  </div>
+</div>
+      
+      </div>
+    </main>
+  </div>
+</div>
+<script src="../assets/shell.js"></script>
+</body>
+</html>

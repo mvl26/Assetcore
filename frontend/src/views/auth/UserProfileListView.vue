@@ -1,9 +1,11 @@
 <script setup lang="ts">
 // Copyright (c) 2026, AssetCore Team
-import { ref, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, computed, onMounted, watch } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { listUsers, getAvailableImmRoles, type IMMUserListItem, type ImmRoleOption } from '@/api/user'
+import { useImportWizard } from '@/composables/useImportWizard'
+import ImportWizardModal from '@/components/import/ImportWizardModal.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
@@ -11,7 +13,32 @@ import ListFilterBar from '@/components/common/ListFilterBar.vue'
 import SmartSelect from '@/components/common/SmartSelect.vue'
 
 const router = useRouter()
+const route = useRoute()
 const auth = useAuthStore()
+
+/**
+ * Core Doc §9.3 — đọc route.query (drill-down từ dashboard admin §9.4.9) → áp vào
+ * filter trước khi load. Keys: approval_status, role, department, search.
+ * Canonical code (Pending / Vendor Engineer) khớp filter list (KHÔNG nhãn VI).
+ */
+function applyQueryToFilters(): boolean {
+  const q = route.query
+  let touched = false
+  const pick = (v: unknown): string => {
+    const s = Array.isArray(v) ? v[0] : v
+    return typeof s === 'string' ? s : ''
+  }
+  const ap = pick(q.approval_status)
+  const rl = pick(q.role)
+  const dp = pick(q.department)
+  const se = pick(q.search)
+  if (ap) { filters.value.approval_status = ap; touched = true }
+  if (rl) { filters.value.role = rl; touched = true }
+  if (dp) { filters.value.department = dp; touched = true }
+  if (se) { filters.value.search = se; touched = true }
+  if (touched) showFilters.value = true
+  return touched
+}
 
 const users = ref<IMMUserListItem[]>([])
 const loading = ref(false)
@@ -85,8 +112,27 @@ function nextPage() { if (page.value * PAGE_SIZE < total.value) { page.value++; 
 
 onMounted(async () => {
   availableRoles.value = (await getAvailableImmRoles()) ?? []
+  applyQueryToFilters() // §9.3 pre-apply drill query trước load
   await load()
 })
+
+// Drill-down lần 2 (cùng route, query khác) → re-apply + reload (§9.3).
+watch(() => route.query, () => {
+  if (applyQueryToFilters()) { page.value = 1; load() }
+})
+
+// ── Import / Export ──────────────────────────────────────────────────────────
+
+const importWizard = useImportWizard('User', () => load())
+const openImport = importWizard.open
+const doExport = importWizard.doExport
+
+const IMPORT_NOTICE = [
+  'Email là khóa — đã tồn tại sẽ <strong>cập nhật</strong> thông tin (upsert).',
+  'Khoa/Phòng (ac_department) điền theo tên hoặc mã hệ thống — hệ thống tự resolve.',
+  'Cột Vai trò phân cách bằng dấu phẩy (vd: <code>Asset Manager, Maintenance Technician</code>).',
+  'Chế độ "Bỏ qua dòng lỗi" <strong>không áp dụng</strong> cho User import — phải sửa file trước.',
+]
 </script>
 
 <template>
@@ -94,6 +140,29 @@ onMounted(async () => {
     <PageHeader title="Quản lý người dùng" :subtitle="`Tổng ${total} người dùng`">
       <template #actions>
         <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
+        <button
+          v-if="auth.isSystemAdmin"
+          class="px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-600 flex items-center gap-1.5"
+          title="Xuất danh sách người dùng về Excel"
+          @click="doExport"
+        >
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+          </svg>
+          Xuất Excel
+        </button>
+        <button
+          v-if="auth.isSystemAdmin"
+          class="px-3 py-2 text-sm border border-emerald-300 rounded-lg hover:bg-emerald-50 text-emerald-700 flex items-center gap-1.5"
+          @click="openImport"
+        >
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+          </svg>
+          Import
+        </button>
         <button
           v-if="auth.isSystemAdmin"
           class="btn-primary shrink-0"
@@ -196,7 +265,7 @@ onMounted(async () => {
               <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Họ và tên</th>
               <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Email</th>
               <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase hidden md:table-cell">Khoa/Phòng</th>
-              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Vai trò IMM</th>
+              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Vai trò</th>
               <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Trạng thái</th>
               <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Thao tác</th>
             </tr>
@@ -256,5 +325,7 @@ class="text-blue-600 hover:underline text-xs"
         </div>
       </div>
     </div>
+
+    <ImportWizardModal :ctx="importWizard" title="Import Người dùng" unit="người dùng" :notice="IMPORT_NOTICE" />
   </div>
 </template>

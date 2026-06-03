@@ -23,6 +23,7 @@ export interface UserContext {
   full_name: string
   user_image: string | null
   phone: string | null
+  role_profile_name: string | null
   roles: string[]
   imm_roles: string[]
   job_title: string | null

@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="module-id" content="audit-trail">
+<title>Nhật ký hệ thống — AssetCore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+<script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <a class="brand" style="color:inherit;text-decoration:none" href="#">
+      <span class="logo">A</span>
+      <div>AssetCore <small>IMMIS · BV Nhi Đồng 1</small></div>
+    </a>
+    <div class="spacer"></div>
+    <button class="iconbtn" title="Thông báo"><iconify-icon icon="heroicons:bell" style="font-size:18px;vertical-align:-3px;color:#fff"></iconify-icon></button>
+    <div class="persona-pill" title="Chọn vai trò"></div>
+    <div id="personaMenu" class="persona-menu"></div>
+  </div>
+  <div class="body-wrap">
+    <aside class="sidebar">
+      <div class="side-head"><span></span></div>
+      <nav></nav>
+      <div class="side-foot">AssetCore v0.0.2 · Wave 1+2</div>
+    </aside>
+    <main class="main">
+      <div class="breadcrumb"><a href="../index.html">Trang chủ</a> <span class="sep">›</span><span>Quản trị hệ thống</span> <span class="sep">›</span><span>Nhật ký hệ thống</span></div>
+      <div class="page">
+        <div class="page-head">
+  <div class="titles">
+    <h1>Nhật ký hệ thống (Audit Trail)</h1>
+    <div class="sub">Immutable log + SHA-256 hash chain · Read-only · Toàn bộ thao tác mọi user</div>
+  </div>
+  <div class="toolbar">
+    <button class="btn btn-secondary"><iconify-icon icon="heroicons:lock-closed" style="font-size:16px;vertical-align:-3px"></iconify-icon> Verify hash chain</button>
+    <button class="btn btn-secondary"><iconify-icon icon="heroicons:arrow-down-tray" style="font-size:16px;vertical-align:-3px"></iconify-icon> Export CSV</button>
+  </div>
+</div>
+
+<div class="banner banner-info">
+  <span class="bic"><iconify-icon icon="heroicons:information-circle" style="font-size:16px;vertical-align:-3px"></iconify-icon></span>
+  <div><b>Tính bất biến:</b> Mỗi record kèm SHA-256 hash của record trước. Hash chain bị phá vỡ → cảnh báo đỏ + lock toàn module. Verify lần cuối: <b>09:14 hôm nay — PASS</b>.</div>
+</div>
+
+<div class="filterbar">
+  <div class="filter-group"><label>Tìm kiếm</label>
+    <input class="input" type="text" placeholder="Tìm theo doc / actor / action..." style="width:100%"></div>
+  <div class="filter-group"><label>User</label>
+    <select class="select"><option>Mọi user</option><option>Trần Thị Mai</option><option>Phạm Văn Đức</option></select></div>
+  <div class="filter-group"><label>Action</label>
+    <select class="select"><option>Mọi action</option><option>create</option><option>update</option><option>transition</option><option>delete</option></select></div>
+  <div class="filter-group"><label>Khoảng thời gian</label>
+    <select class="select"><option>7 ngày</option><option>30 ngày</option><option>Tùy chỉnh</option></select></div>
+  <div class="filter-actions">
+    <button class="btn btn-secondary btn-sm">Đặt lại</button>
+    <button class="btn btn-primary btn-sm">Áp dụng</button></div>
+</div>
+
+<div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr>
+      <th>Thời gian</th><th>Người thực hiện</th><th>Hành động</th><th>Đối tượng</th><th>Chi tiết</th><th>Hash</th>
+    </tr></thead>
+    <tbody>
+      <tr><td class="mono text-xs">2026-05-25 09:14:02</td><td>Trần Thị Mai</td><td><span class="pill-tag">transition_status</span></td><td><b>Máy thở Bennett 980</b><br><span class="text-xs muted">ACC-ASS-2026-00043</span></td><td>Active → Under Repair</td><td class="mono text-xs">a91f…3e7c</td></tr>
+      <tr><td class="mono text-xs">2026-05-25 08:55:41</td><td>Phạm Văn Đức</td><td><span class="pill-tag">workorder.checkin</span></td><td><b>Lệnh sửa chữa</b><br><span class="text-xs muted">WO-RP-2026-00302</span></td><td>Check-in CM WO</td><td class="mono text-xs">7c02…91ab</td></tr>
+      <tr><td class="mono text-xs">2026-05-24 16:30:10</td><td>Hoàng Minh Châu</td><td><span class="pill-tag">capa.create</span></td><td><b>CAPA</b><br><span class="text-xs muted">CAPA-2026-0021</span></td><td>Mở CAPA từ INC-2026-00077</td><td class="mono text-xs">33de…0f12</td></tr>
+      <tr><td class="mono text-xs">2026-05-24 08:13:55</td><td>BS. Nguyễn Thị Lan</td><td><span class="pill-tag">incident.submit</span></td><td><b>Sự cố thiết bị</b><br><span class="text-xs muted">INC-2026-00077</span></td><td>Critical + ảnh hưởng bệnh nhân</td><td class="mono text-xs">be77…ac40</td></tr>
+      <tr><td class="mono text-xs">2026-05-23 11:02:33</td><td>Vũ Thị Hà</td><td><span class="pill-tag">asset.create</span></td><td><b>Monitor Mindray uMEC12</b><br><span class="text-xs muted">ACC-ASS-2026-00112</span></td><td>Tạo thiết bị + QR label</td><td class="mono text-xs">1a4f…77b9</td></tr>
+      <tr><td class="mono text-xs">2026-05-22 17:45:12</td><td>Trần Thị Mai</td><td><span class="pill-tag">needs.approve</span></td><td><b>Đề xuất nhu cầu</b><br><span class="text-xs muted">NR-2026-000118</span></td><td>Approved · Score: 84</td><td class="mono text-xs">5b32…cd91</td></tr>
+    </tbody>
+  </table>
+  <div class="pagination">
+    <span class="muted text-sm" style="margin-right:auto">Hiển thị 6 / 12.847 dòng</span>
+    <button>‹</button><button class="active">1</button><button>2</button><button>3</button><button>…</button><button>2141</button><button>›</button>
+  </div>
+</div>
+      </div>
+    </main>
+  </div>
+</div>
+<script src="../assets/shell.js"></script>
+</body>
+</html>

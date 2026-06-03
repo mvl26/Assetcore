@@ -86,7 +86,7 @@ Bảng 8 UC (UC-01..UC-08) bao gồm 2 UC đã chi tiết (UC-01, UC-02 ở §II
 ## 2026-05-11 Alignment Pass (Sprint 6 DoD)
 - BE: 3-tier compliance verified; endpoints align with docs/05_API_Specification.md
 - FE: store + views + routes + sidebar entry wired
-- Tests: see docs/res/dod-verification-report.md §1 for per-module results
+- Tests: see docs/res/reports/dod-verification-report.md §1 for per-module results
 - Status: READY
 
 ## 2026-05-14 Wave-2 Sync Pass (light-touch)
@@ -139,3 +139,70 @@ Residual TODOs:
 1. Test ID hiện tại đặt theo class+method (TestAllocationLifecycle.test_*). Nếu BA cần ID format `TC-15-01..07`, cần map trong test code bằng docstring marker.
 2. `IMM Spare Batch` scheduler `check_expiring_batches` là no-op (chưa có batch tracking) — đã ghi ở 09_Release.md KI-01.
 3. Allocation/Cycle Count/Forecast UI detail route — code BE + store action sẵn sàng, FE view chưa build (carry-over từ Pass 1).
+
+## 2026-05-18 Code-sync Pass (light-touch)
+
+Drift phát hiện qua đối chiếu codebase `feature/hieuc/wave-2`:
+
+| File | Stale | Fix |
+|---|---|---|
+| `README.md` | `Số file\|8` sai (thực tế README + 02-09 = 9) | Sửa → `9` |
+| `README.md` | `Cập nhật cuối\|2026-05-14` | Sửa → `2026-05-18` |
+| `04_Backend_Design.md` | §III header `PLANNED DocTypes` — DocTypes đã LIVE | Sửa → `IMM-15 Layer DocTypes` |
+| `04_Backend_Design.md` | §IX `Wave 3` trong comment patches — Wave 2 đã deployed | Sửa → `Wave 2 — deployed` |
+| `04_Backend_Design.md` | `deploy_imm15_doctypes` → `5 DocType + 4 child (PLANNED)` | Sửa → `(LIVE)` |
+
+KHÔNG đụng:
+- §IV service signatures (stub format vẫn là valid architecture doc)
+- §V hooks (đã verified 2026-05-14)
+- §VI workflow state machine (khớp code)
+- `02`, `03`, `05`, `06`, `07`, `08`, `09` — không có drift mới
+
+## 2026-05-18 Full Code-sync Pass
+
+Đọc toàn bộ code thực tế: `services/imm15.py` (1271 dòng), `api/imm15.py` (296 dòng), 12 DocType JSON, `frontend/src/api/imm15.ts`, `frontend/src/stores/imm15.ts`, `router/index.ts`, `hooks.py`, `tests/test_imm15.py`, 9 docs file.
+
+### Bảng file đã chạm + loại thay đổi
+
+| File | Loại thay đổi |
+|---|---|
+| `04_Backend_Design.md` | §V hook block: sửa DocType key thực tế (`PM Work Order`, `Asset Repair`) thay vì `IMM PM Work Order`/`IMM CM Work Order`; §VII scheduler: sửa function name (`check_low_stock_and_alert`), sửa schedule (`monthly` cho forecast, `cron quarterly` cho ABC) |
+| `05_API_Specification.md` | Sửa response shape `list_allocations` (`data` key, `pagination` object); cập nhật permission matrix (thêm 8 endpoint thiếu, sửa `create_allocation` role); thêm 7 spec section cho endpoint thiếu: `return_allocation`, `list_cycle_counts`, `submit_cycle_count`, `list_spare_forecasts`, `list_watchlist`, `get_stock_snapshot`, `get_critical_watchlist` |
+| `06_Frontend_Design.md` | §III.1 thêm note về Composition API vs Options API; ghi rõ actual action list từ `stores/imm15.ts` |
+| `07_Testing_QA.md` | §0 header count: `7 TestCase, 11 test method` → `9 TestCase, 13 test method`; thêm 2 test method thiếu: `TestDashboardLowStockPerBin.test_overview_low_stock_is_per_bin` và `test_overview_count_matches_stock_page` |
+| `08_Deployment.md` | §0 hooks: sửa `IMM Repair Work Order` → `Asset Repair`; sửa schedule: daily (không phải hourly) cho 4 jobs, monthly (không phải daily) cho forecast, cron quarterly (không phải weekly) cho ABC |
+| `_REPORT.md` | Append section này |
+
+### Danh sách gaps đã tìm thấy
+
+**04_Backend_Design.md:**
+1. §V hooks: DocType key sai — code dùng `"PM Work Order"` và `"Asset Repair"`, không phải `"IMM PM Work Order"` / `"IMM CM Work Order"`
+2. §VII schedulers: `check_low_stock_alerts` → thực tế là `check_low_stock_and_alert`; schedule `hourly` → thực tế `daily`; `generate_spare_demand_forecast` là `monthly` (không phải daily); `reclassify_abc` là cron quarterly (không phải weekly)
+
+**05_API_Specification.md:**
+3. `list_allocations` response shape: key `items` → thực tế `data`; pagination dùng object `{total, page, page_size, total_pages}` không phải flat fields
+4. Permission matrix thiếu 8 endpoint: `get_allocation`, `return_allocation`, `submit_cycle_count`, `list_spare_forecasts`, `list_cycle_counts`, `get_stock_snapshot`, `get_critical_watchlist`, `get_low_stock_alerts`
+5. `create_allocation` trong matrix: sai — code cho phép `Storekeeper` (qua `_require_storekeeper_or_tech`)
+6. 7 endpoint không có spec section: `list_watchlist`, `list_cycle_counts`, `submit_cycle_count`, `list_spare_forecasts`, `return_allocation`, `get_stock_snapshot`, `get_critical_watchlist`
+
+**06_Frontend_Design.md:**
+7. §III.1 store pseudocode dùng Options API (`state:`, `actions:`) — thực tế dùng Composition (setup) API
+8. Store docs tham chiếu `fetchSpareItems`, `fetchSpareItem` — KHÔNG tồn tại trong `stores/imm15.ts` thực tế
+9. Component routes §II.3–§II.12 tham chiếu `/imm15/allocations`, `/imm15/cycle-counts` — các route này không tồn tại trong router; Allocation/CycleCount/Forecast UI chưa build
+
+**07_Testing_QA.md:**
+10. §0 đếm sai: 7 TestCase / 11 method → thực tế 9 TestCase / 13 method
+11. Thiếu `TestDashboardLowStockPerBin` (2 test methods) trong §0
+
+**08_Deployment.md:**
+12. §0 hook key `IMM Repair Work Order` sai → `Asset Repair`
+13. §0 scheduler schedule sai: `hourly` → `daily`; `generate_spare_demand_forecast` là `monthly` không phải `daily`; `reclassify_abc` là cron quarterly không phải `weekly`
+
+### Residual TODOs vẫn còn
+
+1. §06 §II.3–§II.12: Wireframes cho Allocation / Cycle Count / Forecast views vẫn tham chiếu route `/imm15/*` không tồn tại. Khi build các view này, cần quyết định path (domain `/allocations`, `/cycle-counts`, ... hay prefix `/inventory/*`) và update route catalog §I.1.
+2. §06 §III.1: Xóa hoặc clearly label pseudocode Options API store khi FE team confirm final.
+3. Store `stores/imm15.ts` thiếu: `checkPartAvailability` (bulk), `fetchSpareItems` — nếu SparePartList view được build sẽ cần thêm.
+4. `IMM Spare Batch` scheduler `check_expiring_batches` là no-op (bảng `tabIMM Spare Batch` chưa có data) — carry-over từ pass trước.
+5. Allocation / Cycle Count / Forecast UI views chưa build (`views/inventory/` chỉ có master/movement views) — carry-over.
+6. `TestDashboardLowStockPerBin` class kế thừa `unittest.TestCase` (không phải `TestImm15Base`) — cần xem xét liệu DB setup có đủ context không khi chạy CI.

@@ -10,6 +10,7 @@ export interface Purchase {
   purchase_date: string
   supplier: string
   supplier_name?: string
+  supplier_missing?: boolean
   invoice_no?: string
   expected_delivery?: string
   actual_delivery_date?: string

@@ -4,6 +4,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getRca, submitRca } from '@/api/imm12'
 import type { RCADetail } from '@/api/imm12'
+import { rcaStatusLabel, rcaStatusClass } from '@/constants/labels'
 
 const route = useRoute()
 const router = useRouter()
@@ -78,7 +79,7 @@ onMounted(load)
         <button class="text-sm text-slate-500 hover:text-slate-700 mb-1" @click="router.push(rca?.incident_report ? `/incidents/${rca.incident_report}` : '/incidents/list')">← Quay lại</button>
         <h1 class="text-xl font-semibold text-slate-800">{{ name }}</h1>
         <div class="flex items-center gap-2 mt-1">
-          <span class="text-xs px-2 py-0.5 rounded bg-indigo-100 text-indigo-700">{{ rca.status }}</span>
+          <span :class="['text-xs px-2 py-0.5 rounded', rcaStatusClass(rca.status ?? '')]">{{ rcaStatusLabel(rca.status ?? '') }}</span>
           <span v-if="rca.rca_method" class="text-xs px-2 py-0.5 rounded bg-slate-100 text-slate-700">{{ rca.rca_method }}</span>
           <button v-if="rca.incident_report" class="text-xs text-blue-600 hover:underline font-mono" @click="router.push(`/incidents/${rca.incident_report}`)">
             ← {{ rca.incident_report }}

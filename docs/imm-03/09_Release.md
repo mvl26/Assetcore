@@ -5,9 +5,10 @@
 | Thuộc tính | Giá trị |
 |---|---|
 | Module | IMM-03 — Vendor Evaluation & Procurement Decision |
-| Phiên bản | 1.0.0 (dự kiến) |
-| Ngày | 2026-05-14 |
+| Phiên bản | 0.0.2 |
+| Ngày | 2026-05-27 |
 | Trạng thái | LIVE — Wave 2 |
+| Chính sách versioning | Tuân theo `assetcore/__init__.py = 0.0.2`; module docs đồng bộ phiên bản app. |
 
 ---
 

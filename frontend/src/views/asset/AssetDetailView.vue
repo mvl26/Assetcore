@@ -1,14 +1,15 @@
 <script setup lang="ts">
 // Copyright (c) 2026, AssetCore Team
-import { ref, onMounted, computed, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { useAssetStore, GMDN_STATUS_LABEL } from '@/stores/imm00'
+import { ref, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
+import { useAssetStore } from '@/stores/imm00'
 import { getAssetTimeline, getAssetKpi, verifyChain, deleteAsset } from '@/api/imm00'
 import { getCommissioningOrigin, type CommissioningOrigin } from '@/api/imm04'
 import AssetDowntimeWidget from '@/components/asset/AssetDowntimeWidget.vue'
 import AssetDepreciationSchedule from '@/components/asset/AssetDepreciationSchedule.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import type { AssetLifecycleEvent, AssetKpi, ChainVerifyResult, LifecycleStatus } from '@/types/imm00'
+import { translateFrequency, translateDepreciationMethod } from '@/utils/formatters'
 
 const props = defineProps<{ id: string }>()
 const router = useRouter()
@@ -25,6 +26,7 @@ const transitionReason = ref('')
 const activeTab = ref<'info' | 'depreciation' | 'timeline' | 'kpi' | 'audit'>('info')
 
 const TRANSITIONS: Record<string, LifecycleStatus[]> = {
+  'Draft': ['Commissioned', 'Decommissioned'],
   'Commissioned': ['Active', 'Out of Service', 'Decommissioned'],
   'Active': ['Under Maintenance', 'Under Repair', 'Calibrating', 'Out of Service', 'Decommissioned'] as LifecycleStatus[],
   'Under Maintenance': ['Active', 'Under Repair', 'Out of Service', 'Decommissioned'] as LifecycleStatus[],
@@ -35,6 +37,7 @@ const TRANSITIONS: Record<string, LifecycleStatus[]> = {
 }
 
 const statusColor: Record<string, string> = {
+  'Draft': 'bg-slate-100 text-slate-700',
   'Active': 'bg-green-100 text-green-800',
   'Commissioned': 'bg-blue-100 text-blue-800',
   'Under Maintenance': 'bg-amber-100 text-amber-800',
@@ -45,6 +48,7 @@ const statusColor: Record<string, string> = {
 }
 
 const lifecycleLabel: Record<string, string> = {
+  'Draft': 'Nháp',
   'Active': 'Đang hoạt động',
   'Commissioned': 'Đã tiếp nhận',
   'Under Maintenance': 'Đang bảo trì',
@@ -104,6 +108,13 @@ async function confirmTransition() {
   }
 }
 
+async function onDepreciationUpdated() {
+  // Khấu hao vừa thực thi/sinh lại → current_book_value + accumulated_depreciation
+  // trên asset đã đổi (BE ghi read-only). Refetch để header (tab Thông tin +
+  // tab Khấu hao summary) hiển thị giá trị mới, không stale.
+  await store.fetchOne(props.id)
+}
+
 async function remove() {
   if (!store.currentAsset || !confirm(`Xóa thiết bị "${store.currentAsset.asset_name}"?`)) return
   try {
@@ -121,45 +132,9 @@ async function onTabChange(tab: typeof activeTab.value) {
   if (tab === 'audit' && !chain.value) await loadChain()
 }
 
-// ─── GMDN Status ───
-const route = useRoute()
-const showGmdnModal = ref(false)
-const gmdnReason = ref('')
-const gmdnSaving = ref(false)
-const gmdnError = ref('')
-
-const currentGmdn = computed(() => store.currentAsset?.gmdn_status || 'Not Use')
-const targetGmdnStatus = computed(() => currentGmdn.value === 'In Use' ? 'Not Use' : 'In Use')
-const currentGmdnLabel = computed(() => GMDN_STATUS_LABEL[currentGmdn.value] || currentGmdn.value)
-const targetGmdnLabel = computed(() => GMDN_STATUS_LABEL[targetGmdnStatus.value] || targetGmdnStatus.value)
-
-async function doUpdateGmdn() {
-  if (!store.currentAsset) return
-  if (gmdnReason.value.trim().length < 5) {
-    gmdnError.value = 'Bắt buộc nhập lý do (tối thiểu 5 ký tự)'
-    return
-  }
-  gmdnSaving.value = true
-  gmdnError.value = ''
-  try {
-    await store.updateGmdn(store.currentAsset.name, targetGmdnStatus.value, gmdnReason.value.trim())
-    showGmdnModal.value = false
-    gmdnReason.value = ''
-  } catch (e: unknown) {
-    gmdnError.value = (e as Error).message || 'Lỗi cập nhật GMDN'
-  } finally {
-    gmdnSaving.value = false
-  }
-}
-
-watch(() => route.query.action, (action) => {
-  if (action === 'gmdn' && store.currentAsset) showGmdnModal.value = true
-})
-
 onMounted(async () => {
   await store.fetchOne(props.id)
   try { origin.value = await getCommissioningOrigin(props.id) } catch { origin.value = null }
-  if (route.query.action === 'gmdn') showGmdnModal.value = true
 })
 </script>
 
@@ -390,17 +365,6 @@ onMounted(async () => {
               </dd>
             </div>
             <div class="flex justify-between"><dt class="text-slate-400">Ngày nghiệm thu</dt><dd class="text-slate-800">{{ formatDate(store.currentAsset.commissioning_date) }}</dd></div>
-            <div class="flex justify-between items-center">
-              <dt class="text-slate-400">GMDN Status</dt>
-              <dd class="flex items-center gap-2">
-                <span
-class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium"
-                      :class="currentGmdn === 'In Use' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'">
-                  {{ currentGmdnLabel }}
-                </span>
-                <button class="text-xs text-blue-600 hover:underline" @click="showGmdnModal = true">Cập nhật</button>
-              </dd>
-            </div>
             <div class="flex justify-between"><dt class="text-slate-400">Số đăng ký Bộ Y tế</dt><dd class="text-slate-800">{{ store.currentAsset.byt_reg_no || '—' }}</dd></div>
             <div class="flex justify-between">
               <dt class="text-slate-400">Hạn đăng ký Bộ Y tế</dt>
@@ -434,9 +398,9 @@ class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium"
           <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 text-sm">
             <div>
               <p class="text-xs text-slate-400 mb-0.5">Phương pháp</p>
-              <p class="font-medium text-slate-800">{{ store.currentAsset.depreciation_method || '—' }}</p>
+              <p class="font-medium text-slate-800">{{ translateDepreciationMethod(store.currentAsset.depreciation_method) }}</p>
               <p v-if="store.currentAsset.total_depreciation_months" class="text-xs text-slate-400 mt-0.5">
-                {{ store.currentAsset.total_depreciation_months }} tháng · {{ store.currentAsset.depreciation_frequency || 'Monthly' }}
+                {{ store.currentAsset.total_depreciation_months }} tháng · {{ translateFrequency(store.currentAsset.depreciation_frequency) }}
               </p>
             </div>
             <div>
@@ -468,7 +432,13 @@ class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium"
 
       <!-- Tab: Depreciation -->
       <div v-if="activeTab === 'depreciation'">
-        <AssetDepreciationSchedule :asset-name="store.currentAsset.name" />
+        <!-- @updated: sau khi chạy/sinh lại khấu hao, refetch asset để header
+             "Giá trị còn lại" (current_book_value) khớp ngay dòng schedule cuối
+             (INV-DEP-3) — không hiển thị giá trị cũ stale. -->
+        <AssetDepreciationSchedule
+          :asset-name="store.currentAsset.name"
+          @updated="onDepreciationUpdated"
+        />
       </div>
 
       <!-- Tab: Timeline -->
@@ -571,34 +541,5 @@ class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium"
       </div>
     </div>
 
-    <!-- GMDN Status Modal -->
-    <div v-if="showGmdnModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40" @click.self="showGmdnModal = false">
-      <div class="bg-white rounded-xl shadow-xl p-6 w-full max-w-md mx-4 space-y-4">
-        <h3 class="font-semibold text-slate-900">Cập nhật GMDN Status</h3>
-        <p class="text-sm text-slate-600">
-          <span class="font-medium">{{ currentGmdnLabel }}</span>
-          → <span class="font-medium text-blue-600">{{ targetGmdnLabel }}</span>
-        </p>
-        <div>
-          <label for="gmdn-reason" class="block text-xs font-medium text-slate-600 mb-1">
-            Lý do thay đổi <span class="text-red-500">*</span>
-          </label>
-          <textarea
-            id="gmdn-reason"
-            v-model="gmdnReason"
-            rows="3"
-            class="form-input w-full text-sm"
-            placeholder="Nhập lý do (tối thiểu 5 ký tự)…"
-          />
-        </div>
-        <div v-if="gmdnError" class="text-red-600 text-sm">{{ gmdnError }}</div>
-        <div class="flex gap-2 justify-end">
-          <button class="btn-ghost text-sm" @click="showGmdnModal = false">Huỷ</button>
-          <button class="btn-primary text-sm" :disabled="gmdnSaving" @click="doUpdateGmdn">
-            {{ gmdnSaving ? 'Đang lưu…' : 'Xác nhận' }}
-          </button>
-        </div>
-      </div>
-    </div>
   </div>
 </template>

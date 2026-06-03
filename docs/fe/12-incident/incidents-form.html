@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="module-id" content="incidents">
+<title>Báo cáo sự cố — AssetCore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+<script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <a class="brand" style="color:inherit;text-decoration:none" href="#">
+      <span class="logo">A</span>
+      <div>AssetCore <small>IMMIS · BV Nhi Đồng 1</small></div>
+    </a>
+    <div class="spacer"></div>
+    <button class="iconbtn" title="Thông báo"><iconify-icon icon="heroicons:bell" style="font-size:18px;vertical-align:-3px;color:#fff"></iconify-icon></button>
+    <div class="persona-pill" title="Chọn vai trò"></div>
+    <div id="personaMenu" class="persona-menu"></div>
+  </div>
+  <div class="body-wrap">
+    <aside class="sidebar">
+      <div class="side-head"><span></span></div>
+      <nav></nav>
+      <div class="side-foot">AssetCore v0.0.2 · Wave 1+2</div>
+    </aside>
+    <main class="main">
+      <div class="breadcrumb"><a href="../index.html">Trang chủ</a> <span class="sep">›</span><a href="incidents-list.html">Sự cố thiết bị</a> <span class="sep">›</span><span>Báo cáo mới</span></div>
+      <div class="page">
+        <div class="page-head">
+  <div class="titles">
+    <a href="incidents-list.html" class="btn btn-ghost btn-sm" style="margin-bottom:8px">← Quay lại</a>
+    <h1><iconify-icon icon="heroicons:exclamation-circle" style="font-size:16px;vertical-align:-3px"></iconify-icon> Báo cáo sự cố thiết bị</h1>
+    <div class="sub">Mọi user đều có thể báo sự cố. Critical sẽ tự thông báo Workshop Lead & QA Officer.</div>
+  </div>
+
+</div><div class="card">
+  <div class="card-pad">
+    </div></div><div class="section-title">A. Thiết bị</div>
+    <div class="form-grid g2-form">
+      <div class="field"><label class="fld">Thiết bị <span class="req">*</span></label><input class="input" placeholder="Tìm theo tên / mã / quét QR…"><div class="help">Hỗ trợ quét QR để chọn nhanh thiết bị</div></div>
+      <div class="field"><label class="fld">Vị trí phát hiện</label><input class="input" placeholder="Tự điền từ thiết bị"></div>
+    </div>
+
+    <div class="section-title">B. Mô tả sự cố</div>
+    <div class="form-grid g2-form">
+      <div class="field"><label class="fld">Severity <span class="req">*</span></label><select class="select"><option>— Chọn —</option><option>Critical (Class C-D + ảnh hưởng BN)</option><option>Major (Hỏng nặng)</option><option>Medium (Hoạt động bất thường)</option><option>Low (Lỗi nhỏ)</option></select></div>
+      <div class="field"><label class="fld">Ảnh hưởng bệnh nhân?</label><select class="select"><option>Không</option><option>Có — đã chuyển BN</option><option>Có — BN bị thương / tử vong (báo cáo NĐ98)</option></select></div>
+      <div class="field"><label class="fld">Fault code (nếu biết)</label><select class="select"><option>— Tự điền —</option><option>TEMP-LOW-001 — Nhiệt độ thấp</option><option>POWER-FAIL-002 — Mất nguồn</option><option>SENSOR-DRIFT-003 — Cảm biến lệch</option></select></div>
+      <div class="field"><label class="fld">Lúc phát hiện</label><input class="input" type="datetime-local"></div>
+      <div class="field" style="grid-column:span 2"><label class="fld">Mô tả chi tiết <span class="req">*</span></label><textarea class="input" rows="4" placeholder="Mô tả hiện tượng, lúc xảy ra, hành động đã thử…"></textarea></div>
+      <div class="field" style="grid-column:span 2"><label class="fld">Ảnh / Video (đính kèm)</label><input class="input" type="file" accept="image/*,video/*" multiple></div>
+    </div>
+  </div>
+  <div style="padding:16px 20px;border-top:1px solid var(--color-neutral-300);display:flex;justify-content:space-between">
+    <a href="incidents-list.html" class="btn btn-secondary">Hủy</a>
+    <button class="btn btn-danger"><iconify-icon icon="heroicons:exclamation-circle" style="font-size:16px;vertical-align:-3px"></iconify-icon> Báo cáo ngay</button>
+  
+
+      
+      </div>
+    </main>
+  </div>
+</div>
+<script src="../assets/shell.js"></script>
+</body>
+</html>

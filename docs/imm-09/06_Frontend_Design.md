@@ -113,11 +113,14 @@ export default routes
 │  └────────────────────────────┘  └──────────────────────────┘  │
 │  ── AssetInfoCard: model, manufacturer, warranty status ──      │
 │                                                                 │
-│  Nguồn sửa chữa (ít nhất một) *                                 │
+│  Nguồn sửa chữa (tùy chọn — BR-09-01 đã nới)                    │
 │  ┌─────────────────────────────────────────────────────────┐   │
-│  │  ○ Incident Report:  [IR-2026-XXXXX          ▼ Search] │   │
-│  │  ○ PM Work Order:    [PM-WO-2026-XXXXX       ▼ Search] │   │
+│  │  ○ Sự cố (Incident):  [IR-2026-XXXXX         ▼ Search] │   │
+│  │  ○ Phiếu PM dừng:     [PM-WO-2026-XXXXX      ▼ Search] │   │
+│  │  ○ Độc lập (Standalone) — không gắn nguồn               │   │
 │  └─────────────────────────────────────────────────────────┘   │
+│  Ghi chú: từ patch BR-09-01, repair có thể tạo độc lập           │
+│  (standalone) không cần Incident/PM. Nguồn chỉ optional.         │
 │                                                                 │
 │  Loại & Ưu tiên                                                 │
 │  ┌────────────────────────────┐  ┌──────────────────────────┐  │
@@ -553,15 +556,25 @@ const slaBarColor = computed(() => {
 
 ### Source Field Validation — CMCreate form
 
+> **BR-09-01 (đã nới — 2026-05):** Nguồn sửa chữa (`incident_report` / `source_pm_wo`)
+> giờ **optional**. Cho phép tạo phiếu sửa chữa độc lập (standalone) khi KTV phát hiện
+> hỏng hóc không qua Incident/PM. KHÔNG còn block submit khi thiếu nguồn.
+> Form chỉ validate `asset_ref`, `repair_type`, `priority`, `failure_description` là bắt buộc.
+
 ```typescript
-// Validate ít nhất một source field được điền
+// Nguồn KHÔNG còn bắt buộc. Nếu user chọn radio "Sự cố"/"PM" thì
+// field tương ứng mới required; chọn "Độc lập" → bỏ trống cả hai.
 const validateSource = (): boolean => {
-  if (!form.value.incident_report && !form.value.source_pm_wo) {
-    sourceError.value = 'Phải có nguồn sửa chữa: Incident Report hoặc PM Work Order gốc'
+  if (sourceMode.value === 'incident' && !form.value.incident_report) {
+    sourceError.value = 'Vui lòng chọn Sự cố nguồn'
+    return false
+  }
+  if (sourceMode.value === 'pm' && !form.value.source_pm_wo) {
+    sourceError.value = 'Vui lòng chọn Phiếu PM nguồn'
     return false
   }
   sourceError.value = null
-  return true
+  return true   // sourceMode === 'standalone' luôn hợp lệ
 }
 ```
 
@@ -605,6 +618,28 @@ const validateSource = (): boolean => {
 | Completed | Hoàn thành |
 | Cannot Repair | Không thể sửa |
 | Cancelled | Đã hủy |
+
+### Reconcile với mockup `docs/fe/09-repair/` (BE = source of truth)
+
+> Mockup HTML `docs/fe/09-repair/` dùng nhãn marketing (**Reported, Acknowledged,
+> Diagnosed, Closed**) KHÔNG khớp `RepairStatus` enum thật trong `services/imm09.py`.
+> **BE thắng.** FE map theo BE enum, KHÔNG copy nhãn mockup làm `value`.
+
+| Mockup label | RepairStatus thật (BE) | Nhãn VI render |
+|---|---|---|
+| "Reported" / "Mở · Chờ phân công" | `Open` | Mới mở |
+| "Acknowledged" / "Đã phân công" | `Assigned` | Đã phân công |
+| "Diagnosed" / "Đã chẩn đoán" | `Diagnosing` | Đang chẩn đoán |
+| "Waiting Parts" / "Chờ phụ tùng" | `Pending Parts` | Chờ vật tư |
+| "In Progress" / "Đang xử lý" | `In Repair` | Đang sửa chữa |
+| "Pending Inspection" / "Chờ nghiệm thu" | `Pending Inspection` | Chờ nghiệm thu |
+| "Closed - Completed" / "Hoàn tất" | `Completed` | Hoàn thành |
+| "Closed - Cannot Repair" | `Cannot Repair` | Không thể sửa |
+
+**Workflow button → state matrix (CM Detail)** — đồng bộ với `ACTION_MAP` §VI:
+nút chỉ hiện khi state khớp. Action terminal (`Completed`/`Cannot Repair`/`Cancelled`)
+không có nút. Chi tiết transitions: `assignTechnician → submitDiagnosis →
+[requestSpareParts] → startRepair → closeWorkOrder → confirmInspection`.
 
 ### Cascade Fields
 

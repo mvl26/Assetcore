@@ -1,23 +1,100 @@
 {
- "actions": [], "creation": "2026-04-29 00:00:00.000000",
- "doctype": "DocType", "engine": "InnoDB",
+ "actions": [],
+ "creation": "2026-04-29 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
  "field_order": [
-  "dimension", "weight_pct", "raw_value", "column_break_1",
-  "normalized_score", "weighted", "source_module"
+  "dimension",
+  "weight_pct",
+  "raw_value",
+  "column_break_1",
+  "normalized_score",
+  "weighted",
+  "source_module"
  ],
  "fields": [
-  {"fieldname": "dimension", "fieldtype": "Select", "label": "Chiều", "in_list_view": 1, "reqd": 1,
-   "options": "Delivery\nQuality\nAftersales\nSpare\nCompliance"},
-  {"fieldname": "weight_pct", "fieldtype": "Percent", "label": "Trọng số (%)", "in_list_view": 1},
-  {"fieldname": "raw_value", "fieldtype": "Float", "label": "Raw value"},
-  {"fieldname": "column_break_1", "fieldtype": "Column Break"},
-  {"fieldname": "normalized_score", "fieldtype": "Float", "label": "Điểm chuẩn hoá (1-5)", "in_list_view": 1},
-  {"fieldname": "weighted", "fieldtype": "Float", "label": "Có trọng số", "read_only": 1, "precision": "4"},
-  {"fieldname": "source_module", "fieldtype": "Data", "label": "Nguồn module"}
+  {
+   "fieldname": "dimension",
+   "fieldtype": "Select",
+   "label": "Chiều",
+   "in_list_view": 1,
+   "reqd": 1,
+   "options": "Delivery\nQuality\nAftersales\nSpare\nCompliance"
+  },
+  {
+   "fieldname": "weight_pct",
+   "fieldtype": "Percent",
+   "label": "Trọng số (%)",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "raw_value",
+   "fieldtype": "Float",
+   "label": "Raw value"
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "normalized_score",
+   "fieldtype": "Float",
+   "label": "Điểm chuẩn hoá (1-5)",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "weighted",
+   "fieldtype": "Float",
+   "label": "Có trọng số",
+   "read_only": 1,
+   "precision": "4"
+  },
+  {
+   "fieldname": "source_module",
+   "fieldtype": "Data",
+   "label": "Nguồn module"
+  }
  ],
- "istable": 1, "links": [],
- "modified": "2026-04-29 00:00:00.000000", "modified_by": "Administrator",
- "module": "AssetCore", "name": "Scorecard KPI Row",
- "owner": "Administrator", "permissions": [],
- "sort_field": "modified", "sort_order": "DESC", "states": []
+ "istable": 1,
+ "links": [],
+ "modified": "2026-04-29 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "AssetCore",
+ "name": "Scorecard KPI Row",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "AssetCore Super Admin",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "submit": 1,
+   "cancel": 1,
+   "delete": 1,
+   "amend": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "AssetCore Auditor",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "submit": 0,
+   "cancel": 0,
+   "delete": 0,
+   "amend": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 0,
+   "share": 0
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
 }

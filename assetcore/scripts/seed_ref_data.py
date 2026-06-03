@@ -73,7 +73,7 @@ def run():
             "clinical_area_type": "ICU",
             "infection_control_level": "High",
             "power_backup_available": 1,
-            "emergency_contact": "0909 123 456",
+            "contact_phone": "0909 123 456",
             "dept_head": "administrator",
         },
         {
@@ -84,7 +84,7 @@ def run():
             "clinical_area_type": "Operating Room",
             "infection_control_level": "High",
             "power_backup_available": 1,
-            "emergency_contact": "0909 234 567",
+            "contact_phone": "0909 234 567",
         },
         {
             "doctype": "AC Location",
@@ -94,7 +94,7 @@ def run():
             "clinical_area_type": "Radiology",
             "infection_control_level": "Standard",
             "power_backup_available": 1,
-            "emergency_contact": "0909 345 678",
+            "contact_phone": "0909 345 678",
         },
         {
             "doctype": "AC Location",
@@ -104,7 +104,7 @@ def run():
             "clinical_area_type": "Catheterization Lab",
             "infection_control_level": "High",
             "power_backup_available": 1,
-            "emergency_contact": "0909 456 789",
+            "contact_phone": "0909 456 789",
         },
         {
             "doctype": "AC Location",
@@ -114,7 +114,7 @@ def run():
             "clinical_area_type": "Utility",
             "infection_control_level": "Standard",
             "power_backup_available": 0,
-            "emergency_contact": "0909 567 890",
+            "contact_phone": "0909 567 890",
         },
     ]
 

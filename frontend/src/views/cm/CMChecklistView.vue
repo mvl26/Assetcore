@@ -2,11 +2,14 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useImm09Store } from '@/stores/imm09'
+import { useNotify } from '@/composables/useNotify'
+import { MSG } from '@/i18n/messages'
 import type { RepairChecklistRow } from '@/api/imm09'
 
 const props = defineProps<{ id: string }>()
 const store = useImm09Store()
 const router = useRouter()
+const notify = useNotify()
 
 const checklist = ref<RepairChecklistRow[]>([])
 const deptHeadName = ref('')
@@ -79,8 +82,10 @@ async function handleComplete() {
       checklist_results: checklist.value,
     })
     if (ok) {
+      notify.show({ code: MSG.UI_SAVE_SUCCESS, ctx: { entity: 'hoàn thành sửa chữa' } })
       router.push(`/cm/work-orders/${props.id}`)
     } else {
+      notify.fromError(store.lastApiError)
       error.value = store.error ?? 'Không thể hoàn thành sửa chữa'
     }
   } finally {

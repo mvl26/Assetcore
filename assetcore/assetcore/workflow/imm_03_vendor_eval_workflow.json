@@ -14,31 +14,31 @@
   {
    "state": "Draft",
    "doc_status": "0",
-   "allow_edit": "IMM Procurement Officer",
+   "allow_edit": "Procurement Manager",
    "type": "Success"
   },
   {
    "state": "Open RFQ",
    "doc_status": "0",
-   "allow_edit": "IMM Procurement Officer",
+   "allow_edit": "Procurement Manager",
    "type": "Warning"
   },
   {
    "state": "Quotation Received",
    "doc_status": "0",
-   "allow_edit": "IMM Procurement Officer",
+   "allow_edit": "Procurement Manager",
    "type": "Success"
   },
   {
    "state": "Evaluated",
    "doc_status": "1",
-   "allow_edit": "IMM System Admin",
+   "allow_edit": "AssetCore Super Admin",
    "type": "Success"
   },
   {
    "state": "Cancelled",
    "doc_status": "1",
-   "allow_edit": "IMM System Admin",
+   "allow_edit": "AssetCore Super Admin",
    "type": "Danger"
   }
  ],
@@ -47,42 +47,42 @@
    "state": "Draft",
    "next_state": "Open RFQ",
    "action": "Mở RFQ",
-   "allowed": "IMM Procurement Officer",
+   "allowed": "Procurement Manager",
    "allow_self_approval": 1
   },
   {
    "state": "Open RFQ",
    "next_state": "Quotation Received",
    "action": "Nhận báo giá xong",
-   "allowed": "IMM Procurement Officer",
+   "allowed": "Procurement Manager",
    "allow_self_approval": 1
   },
   {
    "state": "Quotation Received",
    "next_state": "Evaluated",
    "action": "Hoàn tất chấm điểm",
-   "allowed": "IMM Procurement Officer",
+   "allowed": "Procurement Manager",
    "allow_self_approval": 1
   },
   {
    "state": "Quotation Received",
    "next_state": "Evaluated",
    "action": "Hoàn tất chấm điểm",
-   "allowed": "IMM Department Head",
+   "allowed": "Commissioning Manager",
    "allow_self_approval": 1
   },
   {
    "state": "Open RFQ",
    "next_state": "Cancelled",
    "action": "Huỷ Eval",
-   "allowed": "IMM Department Head",
+   "allowed": "Commissioning Manager",
    "allow_self_approval": 1
   },
   {
    "state": "Quotation Received",
    "next_state": "Cancelled",
    "action": "Huỷ Eval",
-   "allowed": "IMM Department Head",
+   "allowed": "Commissioning Manager",
    "allow_self_approval": 1
   }
  ]

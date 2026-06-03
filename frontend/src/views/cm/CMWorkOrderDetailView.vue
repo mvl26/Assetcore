@@ -2,11 +2,20 @@
 import { onMounted, computed, ref, onUnmounted } from 'vue'
 import { useImm09Store } from '@/stores/imm09'
 import { useRouter } from 'vue-router'
+import { useNotify } from '@/composables/useNotify'
+import { MSG } from '@/i18n/messages'
 import { cmStatusLabel, cmStatusClass, priorityLabel, priorityClass, rootCauseLabel, repairTypeLabel, resultLabel } from '@/constants/labels'
 
 const props = defineProps<{ id: string }>()
 const store = useImm09Store()
 const router = useRouter()
+const notify = useNotify()
+
+/** Sau mỗi action store: success → toast chuẩn; fail → notify.fromError(ApiError đã hydrate). */
+function notifyResult(ok: boolean, successCode: string, ctx: Record<string, unknown> = {}): void {
+  if (ok) notify.show({ code: successCode, ctx })
+  else notify.fromError(store.lastApiError)
+}
 
 // Only Assign and Cannot Repair remain as modals; others navigate to sub-routes
 const showAssignModal = ref(false)
@@ -85,6 +94,7 @@ async function doAssign() {
   submitting.value = true
   const ok = await store.doAssignTechnician(wo.value!.name, assignEmail.value, assignPriority.value || undefined)
   submitting.value = false
+  notifyResult(ok, MSG.UI_SAVE_SUCCESS, { entity: 'phân công kỹ thuật viên' })
   if (ok) showAssignModal.value = false
 }
 
@@ -100,6 +110,7 @@ async function doCannotRepair() {
     cannot_repair_reason: cannotReason.value,
   })
   submitting.value = false
+  notifyResult(ok, MSG.UI_SAVE_SUCCESS, { entity: 'trạng thái “Không thể sửa”' })
   if (ok) showCannotRepairModal.value = false
 }
 
@@ -117,8 +128,9 @@ function navigateChecklist() {
 
 async function doConfirmInspection() {
   submitting.value = true
-  await store.doConfirmInspection(wo.value!.name)
+  const ok = await store.doConfirmInspection(wo.value!.name)
   submitting.value = false
+  notifyResult(ok, MSG.UI_SAVE_SUCCESS, { entity: 'nghiệm thu sửa chữa' })
 }
 </script>
 

@@ -12,6 +12,49 @@ _DT_PART    = "AC Spare Part"
 _DT_WH      = "AC Warehouse"
 
 
+# ─── Canonical low-stock predicate (SINGLE SOURCE OF TRUTH) ───────────────────
+# R7 §9.4.5 / BUG-15-03 — Mọi nơi đếm/liệt kê "dưới định mức" trong toàn hệ thống
+# (KPI imm15, dashboard /inventory, danh sách /stock, drill, scheduler email kho)
+# PHẢI dùng CHUNG fragment này. KHÔNG nhân bản SQL.
+#
+#   effective_min(bin) = COALESCE(NULLIF(s.min_stock_override, 0), p.min_stock_level, 0)
+#   low(bin)           ⟺ effective_min > 0 AND s.qty_on_hand < effective_min
+#
+# Đánh giá PER-BIN (mỗi spare_part × warehouse) — KHÔNG SUM-toàn-kho (sẽ che bin
+# riêng lẻ dưới định mức / dưới min_stock_override). Yêu cầu alias bảng:
+#   s = `tabAC Spare Part Stock`, p = `tabAC Spare Part`.
+EFFECTIVE_MIN_EXPR = "COALESCE(NULLIF(s.min_stock_override, 0), p.min_stock_level, 0)"
+
+LOW_STOCK_COND = (
+    f"p.is_active = 1 "
+    f"AND {EFFECTIVE_MIN_EXPR} > 0 "
+    f"AND s.qty_on_hand < {EFFECTIVE_MIN_EXPR}"
+)
+
+
+def count_low_stock_bins(warehouse: str = "") -> int:
+    """Canonical: số bin (spare_part × kho) dưới định mức theo effective_min."""
+    cond = " AND s.warehouse = %(wh)s" if warehouse else ""
+    row = frappe.db.sql(
+        f"""SELECT COUNT(*)
+            FROM `tabAC Spare Part Stock` s
+            JOIN `tabAC Spare Part` p ON p.name = s.spare_part
+            WHERE {LOW_STOCK_COND}{cond}""",
+        {"wh": warehouse} if warehouse else {},
+    )
+    return int((row or [[0]])[0][0])
+
+
+def low_stock_part_ids() -> list[str]:
+    """Canonical: part-distinct của các bin dưới định mức (drill từ KPI low_stock)."""
+    rows = frappe.db.sql(
+        f"""SELECT DISTINCT s.spare_part
+            FROM `tabAC Spare Part Stock` s
+            JOIN `tabAC Spare Part` p ON p.name = s.spare_part
+            WHERE {LOW_STOCK_COND}""")
+    return [r[0] for r in rows]
+
+
 # ─── Stock querying ──────────────────────────────────────────────────────────
 
 def get_stock_row(warehouse: str, spare_part: str) -> dict | None:
@@ -37,6 +80,92 @@ def get_total_stock(spare_part: str) -> float:
         FROM `tabAC Spare Part Stock`
         WHERE spare_part = %s
     """, spare_part)[0][0] or 0)
+
+
+# ─── Soft-reservation ledger (SoT) ───────────────────────────────────────────
+# IMM-15 §III-bis / VR-15-14 — reserved_qty is the SINGLE-SOURCE-OF-TRUTH writer.
+#
+# INVARIANT (per bin = warehouse × spare_part):
+#   reserved_qty(bin)  = Σ held qty of EVERY IMM Spare Allocation line whose parent
+#                        allocation_status ∈ RESERVING_STATES (holding, not yet issued)
+#   available_qty(bin) = MAX(0, qty_on_hand − reserved_qty)   # before_save clamp
+#
+# held qty of a line = COALESCE(NULLIF(qty_approved, 0), qty_requested) — once the
+# approver adjusts qty_approved the hold tracks the approved amount; before approval
+# (qty_approved=0) it holds the requested amount.
+#
+# RELEASE on terminal: Issued / Returned / Cancelled leave RESERVING_STATES → the
+# line's hold drops out of the sum, so reserved_qty falls accordingly. Issue ALSO
+# subtracts qty_on_hand (real movement) — recompute runs AFTER so the same qty is
+# never double-counted (subtracted from on-hand AND held as reserved).
+#
+# RULE-R01: reserved_qty is written ONLY here. NO inline `reserved_qty +=/-=` anywhere
+# in imm15.py — every allocation transition calls this one function.
+RESERVING_STATES = frozenset({"Requested", "Approved", "Picked"})
+
+# Alias kept for the doc's §III-bis.2 naming; both refer to the same SoT set.
+_HOLDING_ALLOCATION_STATES = RESERVING_STATES
+
+
+def recompute_reserved(warehouse: str, spare_part: str) -> float:
+    """SoT: recompute reserved_qty for one bin (warehouse × spare_part).
+
+    INVARIANT: reserved_qty == Σ COALESCE(NULLIF(qty_approved,0), qty_requested) over
+    every IMM Spare Allocation Item whose parent allocation has
+    warehouse_from = ``warehouse``, spare_part = ``spare_part`` and
+    allocation_status ∈ :data:`RESERVING_STATES` (Requested / Approved / Picked).
+
+    Absolute & idempotent — recomputed straight from the DB (NOT a running delta), so
+    a crash mid-transition self-heals on the next call. Writes reserved_qty onto
+    ``AC Spare Part Stock`` (creating the bin with qty_on_hand=0 if it is missing);
+    ``before_save`` then derives available_qty = MAX(0, qty_on_hand − reserved_qty).
+
+    The bin row is locked ``FOR UPDATE`` while summing so two concurrent issues cannot
+    both read a stale availability and oversell (anti-oversell, §III-bis.4/.5).
+
+    Args:
+        warehouse:  AC Warehouse name (allocation.warehouse_from).
+        spare_part: AC Spare Part name.
+
+    Returns:
+        float: the freshly-written reserved_qty for the bin.
+    """
+    key = f"{warehouse}::{spare_part}"
+
+    # Lock the bin row (or create it) before summing so concurrent transitions on the
+    # same bin serialize — neither reads a stale available_qty.
+    if frappe.db.exists(_DT_STOCK, key):
+        frappe.db.sql(
+            f"SELECT name FROM `tab{_DT_STOCK}` WHERE name = %s FOR UPDATE", key
+        )
+
+    reserved = float(frappe.db.sql(
+        f"""SELECT COALESCE(SUM(COALESCE(NULLIF(i.qty_approved, 0), i.qty_requested)), 0)
+            FROM `tabIMM Spare Allocation Item` i
+            JOIN `tabIMM Spare Allocation` a ON a.name = i.parent
+            WHERE a.warehouse_from = %(wh)s
+              AND i.spare_part = %(sp)s
+              AND a.allocation_status IN %(states)s""",
+        {"wh": warehouse, "sp": spare_part,
+         "states": tuple(RESERVING_STATES)},
+    )[0][0] or 0)
+
+    if frappe.db.exists(_DT_STOCK, key):
+        doc = frappe.get_doc(_DT_STOCK, key)
+        doc.reserved_qty = reserved
+        doc.save(ignore_permissions=True)
+    else:
+        # Bin not seeded yet (no movement) but an allocation already holds it.
+        doc = frappe.get_doc({
+            "doctype": _DT_STOCK,
+            "warehouse": warehouse,
+            "spare_part": spare_part,
+            "qty_on_hand": 0,
+            "reserved_qty": reserved,
+        })
+        doc.insert(ignore_permissions=True)
+
+    return reserved
 
 
 # ─── Upsert helper ───────────────────────────────────────────────────────────
@@ -175,39 +304,26 @@ def get_stock_overview() -> dict:
         JOIN `tabAC Spare Part` p ON p.name = s.spare_part
     """)[0][0] or 0
 
-    # Per-warehouse-bin low-stock evaluation — MUST match the stock-level
-    # page (assetcore.api.inventory._list_stock_low / _LOW_COND): each
-    # spare-part × warehouse bin is compared against its effective minimum
-    # (per-bin override falls back to the part-level min). Aggregating
-    # SUM(qty_on_hand) across warehouses hides bins that are individually
-    # below min, so it is intentionally NOT used here.
-    low_stock = frappe.db.sql("""
+    # Per-warehouse-bin low-stock evaluation via the canonical predicate
+    # (LOW_STOCK_COND / EFFECTIVE_MIN_EXPR) — MUST match the stock-level page,
+    # IMM-15 KPI, drill and scheduler. Each spare-part × warehouse bin is
+    # compared against its effective minimum (per-bin override falls back to
+    # the part-level min). SUM(qty_on_hand) across warehouses is intentionally
+    # NOT used: it hides bins individually below their effective min.
+    low_stock = frappe.db.sql(f"""
         SELECT s.name AS bin, s.spare_part, p.part_name, s.warehouse,
                s.qty_on_hand AS total_qty,
-               COALESCE(NULLIF(s.min_stock_override, 0), p.min_stock_level, 0)
-                   AS min_stock_level
+               {EFFECTIVE_MIN_EXPR} AS min_stock_level
         FROM `tabAC Spare Part Stock` s
         JOIN `tabAC Spare Part` p ON p.name = s.spare_part
-        WHERE p.is_active = 1
-          AND COALESCE(NULLIF(s.min_stock_override, 0), p.min_stock_level, 0) > 0
-          AND s.qty_on_hand
-              < COALESCE(NULLIF(s.min_stock_override, 0), p.min_stock_level, 0)
-        ORDER BY (COALESCE(NULLIF(s.min_stock_override, 0), p.min_stock_level, 0)
-                  - s.qty_on_hand) DESC
+        WHERE {LOW_STOCK_COND}
+        ORDER BY ({EFFECTIVE_MIN_EXPR} - s.qty_on_hand) DESC
         LIMIT 10
     """, as_dict=True)
 
     # The full per-bin low-stock count (the dashboard KPI must reflect every
     # flagged bin, not just the 10 shown in the list widget).
-    low_stock_count = frappe.db.sql("""
-        SELECT COUNT(*)
-        FROM `tabAC Spare Part Stock` s
-        JOIN `tabAC Spare Part` p ON p.name = s.spare_part
-        WHERE p.is_active = 1
-          AND COALESCE(NULLIF(s.min_stock_override, 0), p.min_stock_level, 0) > 0
-          AND s.qty_on_hand
-              < COALESCE(NULLIF(s.min_stock_override, 0), p.min_stock_level, 0)
-    """)[0][0] or 0
+    low_stock_count = count_low_stock_bins()
 
     if low_stock:
         wh_ids = list({r["warehouse"] for r in low_stock if r.get("warehouse")})
@@ -281,28 +397,47 @@ def search_parts(
 # ─── Scheduler: low-stock alert ──────────────────────────────────────────────
 
 def check_low_stock() -> None:
-    """Daily scheduler: email IMM Storekeeper about parts below min_stock_level."""
+    """Daily scheduler: email kho phụ tùng (Inventory Manager) về các BIN dưới định mức.
+
+    R7 §9.4.5 / BUG-15-03: đánh giá PER-BIN qua canonical predicate
+    (LOW_STOCK_COND / effective_min = override-per-bin fallback part-min).
+    Trước đây SUM(qty_on_hand) GROUP BY part → che bin riêng lẻ dưới định mức
+    (đặc biệt bin có min_stock_override cao) → email thiếu cảnh báo. Nay mỗi bin
+    low xuất hiện riêng, định mức hiển thị = effective_min.
+
+    R21: dùng SSoT notify_roles.STOREKEEPER (role THẬT, persona-role cũ không có).
+    """
     from assetcore.utils.email import get_role_emails, safe_sendmail
-    low = frappe.db.sql("""
-        SELECT p.name, p.part_code, p.part_name, p.min_stock_level,
-               COALESCE(SUM(s.qty_on_hand), 0) AS total_qty
-        FROM `tabAC Spare Part` p
-        LEFT JOIN `tabAC Spare Part Stock` s ON s.spare_part = p.name
-        WHERE p.is_active = 1 AND p.min_stock_level > 0
-        GROUP BY p.name
-        HAVING total_qty < p.min_stock_level
+    from assetcore.services.shared import notify_roles
+    low = frappe.db.sql(f"""
+        SELECT p.part_code, p.part_name, s.warehouse, s.qty_on_hand AS qty,
+               {EFFECTIVE_MIN_EXPR} AS effective_min
+        FROM `tabAC Spare Part Stock` s
+        JOIN `tabAC Spare Part` p ON p.name = s.spare_part
+        WHERE {LOW_STOCK_COND}
+        ORDER BY ({EFFECTIVE_MIN_EXPR} - s.qty_on_hand) DESC
     """, as_dict=True)
 
     if not low:
         return
 
-    emails = get_role_emails(["IMM Storekeeper"])
+    emails = get_role_emails(list(notify_roles.STOREKEEPER))
     if not emails:
         return
 
-    lines = [f"- {r.part_code or r.name} · {r.part_name}: tồn {r.total_qty} / min {r.min_stock_level}" for r in low]
+    wh_names = {
+        w["name"]: (w.get("warehouse_name") or w["name"])
+        for w in frappe.get_all(
+            _DT_WH, filters={"name": ["in", list({r.warehouse for r in low})]},
+            fields=["name", "warehouse_name"])
+    }
+    lines = [
+        f"- {r.part_code or r.part_name} · {r.part_name} @ "
+        f"{wh_names.get(r.warehouse, r.warehouse)}: tồn {r.qty} / định mức {r.effective_min}"
+        for r in low
+    ]
     safe_sendmail(
         recipients=emails,
-        subject=_("⚠️ Cảnh báo tồn kho thấp — {0} phụ tùng").format(len(low)),
-        message=_("Các phụ tùng sau đang dưới mức tồn tối thiểu:\n\n") + "\n".join(lines),
+        subject=_("⚠️ Cảnh báo tồn kho thấp — {0} điểm tồn").format(len(low)),
+        message=_("Các điểm tồn (phụ tùng × kho) sau đang dưới định mức:\n\n") + "\n".join(lines),
     )

@@ -45,14 +45,23 @@ class TestServiceContract(unittest.TestCase):
         self.assertFalse(doc.amount_in_words)
 
     def test_duplicate_contract_code_raises(self):
+        # contract_code = name (PK) → trùng bị chặn ở tầng DB primary-key constraint,
+        # raise DuplicateEntryError (subclass NameError), KHÔNG phải ValidationError.
+        # (Sửa 2026-06-02: test cũ chờ sai loại exception → lỗi không được bắt + rò
+        #  row _TC-DUP-01 sang test sau.)
         self._make("_TC-DUP-01", 5000)
-        with self.assertRaises(frappe.exceptions.ValidationError):
+        with self.assertRaises(frappe.exceptions.DuplicateEntryError):
             self._make("_TC-DUP-01", 6000)
 
     def tearDown(self):
+        # Sau 1 insert lỗi (duplicate PK), transaction còn dở → rollback trước khi
+        # cleanup để delete chạy được + KHÔNG rò _TC-* sang suite sau (cross-suite
+        # collision đã gặp 2026-06-02 khi chạy --app).
+        frappe.db.rollback()
         for c in frappe.get_all(
             "Service Contract",
             filters={"contract_code": ["like", "_TC-%"]},
             fields=["name"],
         ):
             frappe.delete_doc("Service Contract", c.name, force=True)
+        frappe.db.commit()

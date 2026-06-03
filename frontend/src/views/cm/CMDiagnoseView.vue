@@ -3,10 +3,13 @@ import DateInput from '@/components/common/DateInput.vue'
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useImm09Store } from '@/stores/imm09'
+import { useNotify } from '@/composables/useNotify'
+import { MSG } from '@/i18n/messages'
 
 const props = defineProps<{ id: string }>()
 const store = useImm09Store()
 const router = useRouter()
+const notify = useNotify()
 
 const ROOT_CAUSES = [
   { value: 'Electrical', label: 'Lỗi điện' },
@@ -43,8 +46,10 @@ async function handleSubmit() {
   try {
     const ok = await store.doSubmitDiagnosis(diagnosisDetail.value, needsParts.value === 'yes')
     if (ok) {
+      notify.show({ code: MSG.UI_SAVE_SUCCESS, ctx: { entity: 'chẩn đoán sửa chữa' } })
       router.push(`/cm/work-orders/${props.id}`)
     } else {
+      notify.fromError(store.lastApiError)
       error.value = store.error ?? 'Không thể lưu chẩn đoán'
     }
   } finally {

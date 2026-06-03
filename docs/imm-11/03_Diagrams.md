@@ -6,7 +6,7 @@
 | Phạm vi | Per-module |
 | Owner | System Analyst / Tech Lead / DBA |
 | Liên kết | 02 Analysis & Design · 04 Backend Design |
-| Cập nhật | 2026-05-14 |
+| Cập nhật | 2026-05-18 |
 | Trạng thái | ✅ Live — ERD + Class diagram + Sequence diagram phản ánh đúng `services/imm11.py` + DocType hiện hành |
 
 ---

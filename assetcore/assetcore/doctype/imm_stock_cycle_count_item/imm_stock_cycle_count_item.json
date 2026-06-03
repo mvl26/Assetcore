@@ -1,91 +1,153 @@
 {
-  "actions": [],
-  "autoname": "hash",
-  "creation": "2026-05-08 00:00:00.000000",
-  "doctype": "DocType",
-  "engine": "InnoDB",
-  "field_order": [
-    "spare_part",
-    "warehouse",
-    "batch_no",
-    "system_qty",
-    "counted_qty",
-    "variance_qty",
-    "variance_pct",
-    "variance_value",
-    "capa_required",
-    "root_cause"
-  ],
-  "fields": [
-    {
-      "fieldname": "spare_part",
-      "fieldtype": "Link",
-      "label": "Phụ tùng",
-      "options": "AC Spare Part",
-      "reqd": 1,
-      "in_list_view": 1
-    },
-    {
-      "fieldname": "warehouse",
-      "fieldtype": "Link",
-      "label": "Kho",
-      "options": "AC Warehouse",
-      "in_list_view": 1
-    },
-    {
-      "fieldname": "batch_no",
-      "fieldtype": "Data",
-      "label": "Số lô"
-    },
-    {
-      "fieldname": "system_qty",
-      "fieldtype": "Float",
-      "label": "Tồn hệ thống",
-      "read_only": 1,
-      "in_list_view": 1
-    },
-    {
-      "fieldname": "counted_qty",
-      "fieldtype": "Float",
-      "label": "Tồn thực tế",
-      "in_list_view": 1
-    },
-    {
-      "fieldname": "variance_qty",
-      "fieldtype": "Float",
-      "label": "Chênh lệch (qty)",
-      "read_only": 1,
-      "in_list_view": 1
-    },
-    {
-      "fieldname": "variance_pct",
-      "fieldtype": "Percent",
-      "label": "Chênh lệch (%)",
-      "read_only": 1
-    },
-    {
-      "fieldname": "variance_value",
-      "fieldtype": "Currency",
-      "label": "Chênh lệch (VNĐ)",
-      "read_only": 1
-    },
-    {
-      "fieldname": "capa_required",
-      "fieldtype": "Check",
-      "label": "Yêu cầu CAPA",
-      "read_only": 1
-    },
-    {
-      "fieldname": "root_cause",
-      "fieldtype": "Text",
-      "label": "Nguyên nhân"
-    }
-  ],
-  "istable": 1,
-  "modified": "2026-05-08 00:00:00.000000",
-  "modified_by": "Administrator",
-  "module": "AssetCore",
-  "name": "IMM Stock Cycle Count Item",
-  "owner": "Administrator",
-  "track_changes": 0
+ "actions": [],
+ "autoname": "hash",
+ "creation": "2026-05-08 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "spare_part",
+  "warehouse",
+  "batch_no",
+  "system_qty",
+  "counted_qty",
+  "variance_qty",
+  "variance_pct",
+  "variance_value",
+  "capa_required",
+  "root_cause"
+ ],
+ "fields": [
+  {
+   "fieldname": "spare_part",
+   "fieldtype": "Link",
+   "label": "Phụ tùng",
+   "options": "AC Spare Part",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "warehouse",
+   "fieldtype": "Link",
+   "label": "Kho",
+   "options": "AC Warehouse",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "batch_no",
+   "fieldtype": "Data",
+   "label": "Số lô"
+  },
+  {
+   "fieldname": "system_qty",
+   "fieldtype": "Float",
+   "label": "Tồn hệ thống",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "counted_qty",
+   "fieldtype": "Float",
+   "label": "Tồn thực tế",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "variance_qty",
+   "fieldtype": "Float",
+   "label": "Chênh lệch (qty)",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "variance_pct",
+   "fieldtype": "Percent",
+   "label": "Chênh lệch (%)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "variance_value",
+   "fieldtype": "Currency",
+   "label": "Chênh lệch (VNĐ)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "capa_required",
+   "fieldtype": "Check",
+   "label": "Yêu cầu CAPA",
+   "read_only": 1
+  },
+  {
+   "fieldname": "root_cause",
+   "fieldtype": "Text",
+   "label": "Nguyên nhân"
+  }
+ ],
+ "istable": 1,
+ "modified": "2026-05-08 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "AssetCore",
+ "name": "IMM Stock Cycle Count Item",
+ "owner": "Administrator",
+ "track_changes": 0,
+ "permissions": [
+  {
+   "role": "AssetCore Super Admin",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "submit": 1,
+   "cancel": 1,
+   "delete": 1,
+   "amend": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "Inventory Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "submit": 1,
+   "cancel": 1,
+   "delete": 1,
+   "amend": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "Inventory User",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "submit": 0,
+   "cancel": 0,
+   "delete": 0,
+   "amend": 0,
+   "report": 1,
+   "export": 0,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "AssetCore Auditor",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "submit": 0,
+   "cancel": 0,
+   "delete": 0,
+   "amend": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 0,
+   "share": 0
+  }
+ ]
 }

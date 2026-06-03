@@ -3,13 +3,13 @@
 | Mục | Giá trị |
 |---|---|
 | Module | **IMM-16 — Compliance Monitoring & CAPA** |
-| Phiên bản | 1.0.0-rc.2 |
-| Ngày cập nhật | 2026-05-14 |
+| Phiên bản | 0.0.2 (đồng bộ `assetcore/__init__.py`) |
+| Ngày cập nhật | 2026-05-27 |
 | Owner | DevOps + Tech Lead + QMS Officer |
 | Liên kết | [07 Testing QA](./07_Testing_QA.md) · [Module Overview](./IMM-16_Module_Overview.md) |
 | Wave | 2 — IMPLEMENTED |
 
-> ✅ IMPLEMENTED — Wave 2. Code đã merge trên `feature/hieuc/wave-2` (commit `4b4b0db`). Tài liệu này song hành với release tag `v1.0.0-rc.2`.
+> ✅ IMPLEMENTED — Wave 2. Code đã merge trên `feature/hieuc/wave-2` (commit `4b4b0db`). Tài liệu này song hành với release `v0.0.2` (canonical từ `assetcore/__init__.py`).
 
 ---
 
@@ -24,20 +24,23 @@
 - WO submit gate: `validate`: `gate_wo_submit` (IMM PM Work Order, IMM Repair Work Order)
 - Real-time eval: `eval_imm04_realtime`, `eval_imm05_realtime`, `eval_imm08_09_realtime`, `eval_imm11_realtime`
 
-`scheduler_events`:
-- hourly: `evaluate_all_compliance_rules`, `check_capa_due`, `check_audit_milestones`, `run_compliance_evaluation_hourly`
-- daily: `update_compliance_scorecard`
+`scheduler_events` (verified `assetcore/hooks.py` 2026-05-18):
+- hourly: `run_compliance_evaluation_hourly`
+- daily: `evaluate_all_compliance_rules`, `check_capa_due`, `check_audit_milestones`
 - weekly: `run_compliance_evaluation_weekly`, `check_management_review_due`
+- monthly: `update_compliance_scorecard`
 
 ### Fixtures (verified `assetcore/fixtures/`)
 
 - `imm16_custom_field_capa_record.json` — CAPA Record Custom Field
 - `workflow.json`, `workflow_state.json`, `workflow_action_master.json` — state machines Rule, Finding, CAPA, Internal Audit, Management Review, Scorecard
-- `role.json` — IMM QA Officer, IMM Auditor, IMM Management Reviewer
+- `role.json` — 30-role catalog (post-patch `v3_2.001_module_role_redesign`); IMM-16 dùng `Compliance Manager`, `Compliance User`, cross-module: `Corrective Manager/User` (IMM-09), `PM User` (IMM-08), `AssetCore Auditor`, `AssetCore Super Admin`. Dead persona roles (`IMM QA Officer`, `IMM Auditor`, `IMM Management Reviewer`) đã bị thay thế.
 
-### DocType folders (verified `assetcore/assetcore/doctype/`)
+### DocType folders (verified `assetcore/assetcore/doctype/` 2026-05-18)
 
-`imm_compliance_rule`, `imm_compliance_finding`, `imm_compliance_scorecard`, `imm_capa_record`, `imm_capa_action_step`, `imm_internal_audit`, `imm_supplier_audit`, `imm_audit_checklist_item`, `imm_management_review`, `imm_scorecard_module_row`, `imm_scorecard_department_row`, `imm_vendor_scorecard`, `audit_finding`, `scorecard_kpi_row`.
+`imm_compliance_rule`, `imm_compliance_finding`, `imm_compliance_scorecard`, `imm_capa_record`, `imm_capa_action_step`, `imm_internal_audit`, `imm_audit_checklist_item`, `imm_management_review`, `imm_audit_trail`.
+
+> Child DocTypes referenced trong JSON nhưng folder có thể nằm riêng: `IMM MR Attendee` (options trong `imm_management_review.attendees`), `IMM MR Output Action` (options trong `imm_management_review.output_actions`), `IMM Scorecard Module Row` (options trong `imm_compliance_scorecard.score_by_module`), `IMM Scorecard Department Row` (options trong `imm_compliance_scorecard.score_by_department`).
 
 ### Patches
 
@@ -84,16 +87,16 @@ Thực hiện trước mỗi window deploy (T = giờ deploy):
 | Node.js | 20 LTS | 20.x |
 | MariaDB | 10.6+ | 10.6.x |
 | Redis | 7.x | 7.x |
-| App `assetcore` | v1.1.0 (IMM-16 GA — Wave 3) | v1.0.x |
+| App `assetcore` | v0.0.2 (canonical — `assetcore/__init__.py`; IMM-16 release cùng nhịp app) | — |
 | IMM-04 | GA | Required dependency |
 | IMM-08 | GA | Required dependency (cross-module gate) |
 | IMM-09 | GA | Required dependency (cross-module gate) |
 
-Cập nhật `assetcore/__init__.py`:
+Phiên bản app đã ở `assetcore/__init__.py`:
 
 ```python
-# ⚠️ Pending implementation — Wave 3
-__version__ = "1.1.0"  # IMM-16 General Availability — Wave 3
+# Canonical — không bump cho IMM-16 release (đồng bộ nhịp app)
+__version__ = "0.0.2"
 ```
 
 ## I.2b Cấu Hình Môi Trường
@@ -259,7 +262,7 @@ bench --site assetcore.local backup --with-files
 
 # 4. Pull code
 cd frappe-bench
-git pull origin main  # hoặc release/v1.1.0 branch
+git pull origin main  # hoặc release/v0.0.2 branch
 
 # 5. Setup requirements
 ./env/bin/pip install -e apps/assetcore
@@ -387,7 +390,7 @@ Khi đã có user mutation (Finding/CAPA tạo giữa deploy và rollback):
 > Hệ thống đang bảo trì, dự kiến hoàn thành lúc 02:00. Cập nhật: [status.assetcore.vn]
 
 **T+1h sau deploy — Email hoàn tất:**
-> Hệ thống AssetCore đã hoàn tất nâng cấp phiên bản 1.1.0. Tính năng mới: Module IMM-16 Giám sát Tuân thủ & CAPA. Xem User Guide: [link]. Báo lỗi: [support@hospital.vn]
+> Hệ thống AssetCore đã hoàn tất nâng cấp phiên bản 0.0.2. Tính năng mới: Module IMM-16 Giám sát Tuân thủ & CAPA. Xem User Guide: [link]. Báo lỗi: [support@hospital.vn]
 
 ## I.9 Monitoring & Alerting (T+24h)
 
@@ -408,9 +411,9 @@ Khi đã có user mutation (Finding/CAPA tạo giữa deploy và rollback):
 
 > ⚠️ Pending implementation — Wave 3
 
-- [ ] Git tag tạo: `git tag v1.1.0 -m "IMM-16 General Availability — Wave 3"`
+- [ ] Git tag tạo: `git tag v0.0.2 -m "IMM-16 GA — release đồng bộ app v0.0.2"`
 - [ ] Release Notes cập nhật version thực tế + ngày deploy
-- [ ] Traceability matrix (`09_Release.md §III`) chốt cột `Released-in = v1.1.0`
+- [ ] Traceability matrix (`09_Release.md §III`) chốt cột `Released-in = v0.0.2`
 - [ ] Backup config lưu off-site sau deploy thành công
 - [ ] Post-mortem nếu có incident trong maintenance window
 - [ ] Run first monthly compliance evaluation: `bench execute assetcore.tasks.run_compliance_evaluation_monthly`

@@ -20,7 +20,7 @@
 | `NeedsRequestList` | `NeedsRequestListView.vue` | `list_needs_requests`, `dashboard_kpis` | List + filter 4 chiều + KPI grid 4 tiles |
 | `NeedsRequestCreate` | `NeedsRequestCreateView.vue` | `create_needs_request` | Form create với SmartSelect cho Department + Device Model + Asset |
 | `NeedsRequestDetail` | `NeedsRequestDetailView.vue` | `get_needs_request`, `get_allowed_transitions`, `score_needs_request`, `submit_budget_estimate`, `transition_workflow`, `approve_needs_request`, `reject_needs_request` | 3-tab: Tổng quan / Chấm điểm / Dự toán |
-| `ProcurementPlanList` | `ProcurementPlanListView.vue` | `list_procurement_plans` | List + filter theo state / period / year |
+| `ProcurementPlanList` | `ProcurementPlanListView.vue` | `list_procurement_plans` | List + filter theo state / period / year. KPI strip 4 tiles (`<KpiCard>`) tính client-side từ list items — KHÔNG gọi endpoint KPI riêng. Nút "Tạo kế hoạch" gate `useCapabilities().can('needs.create')`. |
 | `ProcurementPlanDetail` | `ProcurementPlanDetailView.vue` | `get_procurement_plan`, `set_budget_envelope`, `approve_plan`, `activate_plan`, `close_plan`, `roll_into_plan`, `remove_from_plan` | Chi tiết Plan + lifecycle Draft → Approved → Active → Closed |
 
 > Note: Các view Tech Spec (IMM-02) nằm ở `frontend/src/views/procurement/` và là phạm vi của module IMM-02 — xem `../imm-02/06_Frontend_Design.md`.
@@ -190,6 +190,19 @@ Accuracy vs 2026: 87%  [+2% so kỳ trước]
 Hiển thị value lớn, target nhỏ bên dưới, delta arrow (xanh lá = tốt, đỏ = cần cải thiện).
 
 ---
+
+### ProcurementPlanList — KPI strip (client-side, source-backed)
+
+4 tile (`<KpiCard>`) tính trực tiếp từ `store.plans` (đã có sẵn từ `list_procurement_plans`) — KHÔNG gọi endpoint KPI riêng, KHÔNG bịa số:
+
+| Tile | Nguồn (per item) | Công thức |
+|---|---|---|
+| Tổng kế hoạch | `plans.length` | đếm |
+| Đang hoạt động | `workflow_state === 'Active'` | đếm |
+| Tổng ngân sách | `budget_envelope` | sum |
+| Tỷ lệ sử dụng TB | `utilization_pct` | trung bình (chỉ tính item có giá trị) |
+
+KPI tiles là **tĩnh** (không click-navigate) — không tạo dead-end. Khi list rỗng: tile hiển thị 0 / 0 ₫ / 0%.
 
 ### `<Imm01Dashboard>` — Dashboard KPI (inline, planned standalone)
 

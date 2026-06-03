@@ -6,7 +6,7 @@
 | Wave | 1 |
 | Trạng thái | Mature |
 | Số file hiện có | 8 |
-| Cập nhật cuối | 2026-05-10 |
+| Cập nhật cuối | 2026-06-03 |
 | Khối kiến trúc | B. KHỐI 2 |
 | Đợt triển khai | 1 |
 | Owner | PTP Khối 2 · Tổ HC-QLCL |
@@ -34,7 +34,7 @@
 - [`02_Analysis_Design.md`](./02_Analysis_Design.md) — Phân tích nghiệp vụ + Use Case + Functional Specs + NFR
 - [`03_Diagrams.md`](./03_Diagrams.md) — ERD + Class Diagram + Sequence Diagram + Package Diagram
 - [`04_Backend_Design.md`](./04_Backend_Design.md) — DocType + Workflow + Service + API + Scheduler
-- [`05_API_Specification.md`](./05_API_Specification.md) — API Catalog + 15 endpoints + Envelope chuẩn
+- [`05_API_Specification.md`](./05_API_Specification.md) — API Catalog + 16 endpoints + Envelope chuẩn
 - [`06_Frontend_Design.md`](./06_Frontend_Design.md) — Sitemap + Mockup + Components + Pinia + UX rules
 
 ### Files tham chiếu (giữ trong module)
@@ -58,9 +58,9 @@ Source docs (cũ) đã archive tại `docs/architecture/archive/imm-05/`:
 - [x] Tạo **`04_Backend_Design.md`** — Backend design chuẩn 3-tier
 - [x] Tạo **`05_API_Specification.md`** — API Catalog với envelope `{success, data}` chuẩn AssetCore
 - [x] Tạo **`06_Frontend_Design.md`** — Frontend design chuẩn Vue 3 + Pinia
-- [ ] Bổ sung **`07_Testing_QA.md`** — Test plan (unit/integration/coverage) + Security review + Code quality (Sonarqube/Lighthouse)
-- [ ] Bổ sung **`08_Deployment.md`** — Deployment plan + QMS Mapping (NĐ98/WHO HTM) + Cấu hình môi trường thực nghiệm
-- [ ] Bổ sung **`09_Release.md`** — User guide tiếng Việt + Release notes + Traceability matrix
+- [x] Bổ sung **`07_Testing_QA.md`** — Test plan (unit/integration/coverage) + Security review + Code quality
+- [x] Bổ sung **`08_Deployment.md`** — Deployment plan + QMS Mapping (NĐ98/WHO HTM) + Cấu hình môi trường thực nghiệm
+- [x] Bổ sung **`09_Release.md`** — User guide tiếng Việt + Release notes + Traceability matrix
 - [ ] Refactor `services/imm05.py` — tách `archive_old_versions`, `update_asset_completeness`, `_compute_document_status` ra service layer (Sprint 7)
 - [ ] Thêm DB UNIQUE constraint cho `(asset_ref, doc_type_detail, doc_number)` (Sprint 7)
 - [ ] Realtime push qua Socket.IO cho dashboard live update (Sprint 8)
@@ -69,7 +69,7 @@ Source docs (cũ) đã archive tại `docs/architecture/archive/imm-05/`:
 
 - Template chuẩn: [`../template/`](../template/)
 - Migration guide: [`../template/MIGRATION_GUIDE.md`](../template/MIGRATION_GUIDE.md)
-- Codebase ground truth (BE): `assetcore/services/imm05.py` · `assetcore/api/imm05.py`
+- Codebase ground truth (BE): `assetcore/services/imm05.py` (587 LOC) · `assetcore/api/imm05.py` (156 LOC, **16** `@frappe.whitelist()` endpoints)
 - Codebase ground truth (FE): `frontend/src/types/imm05.ts` · `frontend/src/api/imm05.ts`
 
 ---

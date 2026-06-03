@@ -8,6 +8,7 @@ import axios, {
   type AxiosError,
 } from 'axios'
 import { ApiError, ErrorCode, httpStatusToCode } from './errors'
+import { MESSAGES } from '@/i18n/messages'
 import { loginPath, isOnLoginPage } from '@/utils/navigation'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -118,7 +119,14 @@ api.interceptors.request.use(
 // ─────────────────────────────────────────────────────────────────────────────
 
 type RetryableConfig = InternalAxiosRequestConfig & { _csrfRetried?: boolean }
-type FrappeErrorData = { message?: string; exc?: string; _server_messages?: string }
+type FrappeErrorData = {
+  message?: string
+  exc?: string
+  _server_messages?: string
+  // Phase 1 notification framework — present when raised qua nthrow_in_hook
+  message_code?: string
+  context?: Record<string, unknown>
+}
 
 function parseServerMessages(data: FrappeErrorData): string {
   if (!data._server_messages) return data.message ?? 'Dữ liệu không hợp lệ.'
@@ -218,6 +226,35 @@ function handle500(data: FrappeErrorData | undefined): never {
     ErrorCode.INTERNAL_ERROR, 500)
 }
 
+/**
+ * Build ApiError cho status 417/422 — ưu tiên hydrate từ `message_code` nếu BE
+ * gửi qua frappe.local.response (nthrow_in_hook). Nếu không có, fallback parse
+ * `_server_messages` (Frappe legacy convention).
+ */
+function makeBusinessRuleError(data: FrappeErrorData | undefined, status: number): ApiError {
+  const messageCode = data?.message_code
+  const context = data?.context
+  const entry = messageCode ? MESSAGES[messageCode] : undefined
+  if (entry) {
+    const rendered = entry.template.replace(/\{(\w+)\}/g, (_, k: string) =>
+      String(context?.[k] ?? `[${k}]`),
+    )
+    return new ApiError(rendered, {
+      code: ErrorCode.BUSINESS_RULE,
+      httpStatus: status,
+      messageCode,
+      context,
+      actionHint: entry.action_hint || undefined,
+      severity: entry.severity,
+      title: entry.title,
+    })
+  }
+  return new ApiError(parseServerMessages(data ?? {}), {
+    code: ErrorCode.BUSINESS_RULE,
+    httpStatus: status,
+  })
+}
+
 // ── Response interceptor ───────────────────────────────────────────────────────
 
 api.interceptors.response.use(
@@ -244,8 +281,7 @@ api.interceptors.response.use(
         ErrorCode.CONFLICT, 409)
     }
     if (status === 417 || status === 422) {
-      throw new ApiError(parseServerMessages(data ?? {}),
-        ErrorCode.BUSINESS_RULE, status)
+      throw makeBusinessRuleError(data, status)
     }
     if (status === 500) return handle500(data)
 

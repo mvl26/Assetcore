@@ -1,28 +1,42 @@
 // Copyright (c) 2026, AssetCore Team
-// v-permission directive — ẩn/xoá element khi user không đủ role.
+// v-can / v-permission directive — an/xoa element khi user thieu capability.
+// UX only — BE rbac.require moi la chot chan.
 //
 // Usage:
-//   <button v-permission="'IMM System Admin'">…</button>
-//   <button v-permission="['IMM QA Officer', 'IMM System Admin']">…</button>
+//   <button v-can="'pm.write'">...</button>
+//   <button v-can="['pm.write','repair.write']">...</button>
+//
+// Legacy v-permission van duoc dang ky alias trong main.ts (cung handler) de
+// view chua refactor khong vo. Khi value la 1 role-name (legacy persona), check
+// truoc xem co la capability hop le khong; neu khong, fallback sang hasRole.
 
 import type { Directive, DirectiveBinding } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 
-type PermValue = string | readonly string[]
+type CanValue = string | readonly string[]
 
-function allowed(value: PermValue): boolean {
-  const auth = useAuthStore()
-  const required = Array.isArray(value) ? value : [value as string]
-  return required.length === 0 || auth.hasAnyRole(required)
+function isCapability(v: string): boolean {
+  // Capability key luon co dot, vd "pm.write", "doc.approve", "data.admin"
+  return v.includes('.')
 }
 
-function enforce(el: HTMLElement, binding: DirectiveBinding<PermValue>) {
-  if (!allowed(binding.value)) {
+function ok(value: CanValue): boolean {
+  const auth = useAuthStore()
+  const required = Array.isArray(value) ? value : [value as string]
+  if (required.length === 0) return true
+  return required.some((v) => (isCapability(v) ? auth.can(v) : auth.hasRole(v)))
+}
+
+function enforce(el: HTMLElement, binding: DirectiveBinding<CanValue>) {
+  if (!ok(binding.value)) {
     el.parentNode?.removeChild(el)
   }
 }
 
-export const vPermission: Directive<HTMLElement, PermValue> = {
+export const vCan: Directive<HTMLElement, CanValue> = {
   mounted: enforce,
   updated: enforce,
 }
+
+// Legacy alias — view cu dung v-permission van chay
+export const vPermission = vCan

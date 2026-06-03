@@ -1,13 +1,13 @@
 # 06 — Thiết kế Frontend — IMM-03 Đánh giá Nhà cung cấp & Quyết định Mua sắm
 
-> ✅ Module LIVE — Wave 2. Vue components, Pinia store, TypeScript API client đã implement. Xem `frontend/src/views/imm03/` cho ground truth.
+> ✅ Module LIVE — Wave 2. Vue components, Pinia store, TypeScript API client đã implement. Ground truth: `frontend/src/views/procurement/` (KHÔNG phải `views/imm03/`).
 
 | Thuộc tính | Giá trị |
 |---|---|
 | Module | IMM-03 — Vendor Evaluation & Procurement Decision |
 | Phiên bản | 0.1.0 |
-| Ngày | 2026-05-14 |
-| Trạng thái | LIVE — Wave 2 |
+| Ngày | 2026-05-18 |
+| Trạng thái | LIVE — Wave 2 (fix view path: `views/procurement/` không phải `views/imm03/`) |
 
 ---
 

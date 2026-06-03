@@ -3,10 +3,12 @@
 | Mục | Giá trị |
 |---|---|
 | Module | **IMM-06 — Đào tạo & Quản lý Năng lực (Training & Competency)** |
-| Phiên bản | 1.0.0 |
-| Ngày phát hành | 2026-05-08 |
+| Phiên bản | 0.0.2 |
+| Ngày phát hành | 2026-05-27 |
 | Owner | PM + BA + Tech Writer |
 | Liên kết | [07 Testing QA](./07_Testing_QA.md) · [08 Deployment](./08_Deployment.md) · [Functional Specs](./IMM-06_Functional_Specs.md) |
+
+> **Chính sách versioning:** Tuân theo `assetcore/__init__.py = 0.0.2`; module docs đồng bộ phiên bản app (release cùng nhịp app, không tách module-version).
 
 ---
 
@@ -489,7 +491,7 @@ Trace: `BR-06-06 → revoke_competency(reason, capa_ref) → VR-08 enforce CAPA 
 | DocType (child) | 1 | `IMM Training Participant` |
 | DocType (utility) | 1 | `IMM Competency Alert Log` (idempotency tracker) |
 | Workflow JSON | 2 | `IMM-06 Session Workflow` (7 states) + `IMM-06 Competency Workflow` (6 states) |
-| API endpoint | 23 | `list_programs, get_program, create_program, update_program, list_sessions, get_session, create_session, confirm_session, start_session, complete_session, cancel_session, verify_session, close_session, list_competencies, get_user_competencies, signoff_competency, revoke_competency, recertify_competency, get_dashboard_stats, get_competency_gaps_by_dept, get_expiring_competencies, check_user_authorization, get_asset_operator_coverage` |
+| API endpoint | 25 | `list_programs, get_program, create_program, update_program, list_sessions, get_session, create_session, confirm_session, start_session, enroll_participants, remove_participant, complete_session, cancel_session, verify_session, close_session, list_competencies, get_user_competencies, signoff_competency, revoke_competency, recertify_competency, get_dashboard_stats, get_competency_gaps_by_dept, get_expiring_competencies, check_user_authorization, get_asset_operator_coverage` |
 | FE view / page | 6 | ProgramListView, ProgramDetail, SessionListView, SessionDetail, CompetencyListView, TrainingDashboard |
 | FE store | 1 | `stores/imm06.ts` |
 | Service function | 12 | `check_user_authorization, auto_create_competency_from_session, signoff_competency, revoke_competency, check_competency_expiry, auto_expire_competency, check_recertification_due, generate_competency_gap_report, trigger_recertification_on_program_change, get_asset_operator_coverage, archive_old_competency, on_trash` |

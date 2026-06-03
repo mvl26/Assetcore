@@ -3,9 +3,8 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useImm06Store } from '@/stores/imm06'
-import { useAuthStore } from '@/stores/auth'
+import { useCapabilities } from '@/composables/useCapabilities'
 import { useApi } from '@/composables/useApi'
-import { ROLES_TRAINING_MANAGE, ROLES_TRAINING_CONDUCT } from '@/constants/roles'
 import { confirmSession, startSession, completeSession, cancelSession, verifySession, closeSession, createSession, enrollParticipants, removeParticipant } from '@/api/imm06'
 import type { TrainingParticipant } from '@/api/imm06'
 import PageHeader from '@/components/common/PageHeader.vue'
@@ -17,7 +16,7 @@ const props = defineProps<{ name?: string }>()
 const router = useRouter()
 const route = useRoute()
 const store = useImm06Store()
-const authStore = useAuthStore()
+const { can } = useCapabilities()
 const api = useApi()
 
 const { currentSession, loading, error } = storeToRefs(store)
@@ -71,8 +70,11 @@ async function doRemoveParticipant(p: TrainingParticipant) {
   if (result) await store.fetchSession(props.name!)
 }
 
-const canManage = computed(() => authStore.hasAnyRole(ROLES_TRAINING_MANAGE))
-const canConduct = computed(() => authStore.hasAnyRole(ROLES_TRAINING_CONDUCT))
+// BUG-006: Gate UI bằng capability — BE rbac.require gate ở api/imm06.py.
+// `training.submit` = Training Manager (confirm/verify/close/cancel session).
+// `training.write` = Training User+Manager (conduct: start/complete + enroll).
+const canManage = computed(() => can('training.submit'))
+const canConduct = computed(() => can('training.write'))
 
 const state = computed(() => currentSession.value?.workflow_state ?? '')
 
@@ -82,6 +84,18 @@ const canComplete = computed(() => state.value === 'In Progress' && canConduct.v
 const canVerify = computed(() => state.value === 'Completed' && canManage.value)
 const canClose = computed(() => state.value === 'Verified' && canManage.value)
 const canCancel = computed(() => (state.value === 'Planned' || state.value === 'Confirmed') && canManage.value)
+
+// BUG-006: Hint nếu user xem session ở state cần thao tác nhưng không có quyền nào.
+const hasAnyAction = computed(() =>
+  canConfirm.value || canStart.value || canComplete.value ||
+  canVerify.value || canClose.value || canCancel.value,
+)
+const isTerminalState = computed(() =>
+  ['Closed', 'Cancelled'].includes(state.value),
+)
+const showPermissionHint = computed(() =>
+  !!currentSession.value && !isTerminalState.value && !hasAnyAction.value,
+)
 
 function resultClass(result: string | null) {
   if (!result) return 'text-slate-400'
@@ -248,6 +262,20 @@ onMounted(load)
         </button>
       </template>
     </PageHeader>
+
+    <!-- BUG-006: Permission hint khi user không có quyền hành động trên buổi -->
+    <div
+      v-if="!isCreateMode && showPermissionHint"
+      class="card p-4 bg-amber-50 border-amber-200 text-sm text-amber-800 flex items-start gap-3"
+    >
+      <svg class="w-5 h-5 shrink-0 text-amber-500 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M12 2a10 10 0 100 20 10 10 0 000-20z" />
+      </svg>
+      <div>
+        <p class="font-medium">Bạn không có quyền thực hiện hành động trên buổi đào tạo này.</p>
+        <p class="text-xs mt-0.5">Liên hệ quản trị để cấp role Training User (giảng dạy) hoặc Training Manager (duyệt/đóng).</p>
+      </div>
+    </div>
 
     <!-- Create Form -->
     <div v-if="isCreateMode" class="card p-6 space-y-4">

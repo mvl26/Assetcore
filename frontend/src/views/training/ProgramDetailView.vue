@@ -3,18 +3,18 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useImm06Store } from '@/stores/imm06'
-import { useAuthStore } from '@/stores/auth'
 import { useApi } from '@/composables/useApi'
-import { ROLES_TRAINING_MANAGE } from '@/constants/roles'
+import { useCapabilities } from '@/composables/useCapabilities'
 import type { TrainingProgram } from '@/api/imm06'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
+import SmartSelect from '@/components/common/SmartSelect.vue'
 
 const props = defineProps<{ name?: string }>()
 const router = useRouter()
 const store = useImm06Store()
-const authStore = useAuthStore()
 const api = useApi()
+const { can } = useCapabilities()
 
 const { currentProgram, loading, error } = storeToRefs(store)
 
@@ -31,7 +31,7 @@ const form = ref<Partial<TrainingProgram>>({
   content_outline: '',
 })
 
-const canManage = computed(() => authStore.hasAnyRole(ROLES_TRAINING_MANAGE))
+const canManage = computed(() => can('training.write'))
 
 const TRAINING_TYPES = [
   { value: 'Initial',       label: 'Đào tạo ban đầu' },
@@ -180,6 +180,9 @@ onMounted(load)
           <div>
             <label class="form-label">Mã chương trình <span class="text-red-500">*</span></label>
             <input v-model="form.program_code" type="text" class="form-input w-full" placeholder="VD: TRAIN-PB980-INIT" :readonly="!isCreateMode" />
+            <p v-if="isCreateMode" class="text-xs text-slate-400 mt-1">
+              Mã không đổi sau khi tạo. Gợi ý: <code>TRAIN-&lt;model&gt;-&lt;type&gt;</code> (VD: TRAIN-PB980-INIT).
+            </p>
           </div>
           <div>
             <label class="form-label">Tên chương trình <span class="text-red-500">*</span></label>
@@ -193,11 +196,19 @@ onMounted(load)
           </div>
           <div>
             <label class="form-label">Device Model mục tiêu</label>
-            <input v-model="form.target_device_model" type="text" class="form-input w-full" placeholder="Mã Device Model..." />
+            <SmartSelect
+              v-model="form.target_device_model"
+              doctype="IMM Device Model"
+              placeholder="Chọn Device Model..."
+            />
           </div>
           <div>
             <label class="form-label">Danh mục thiết bị</label>
-            <input v-model="form.target_device_category" type="text" class="form-input w-full" />
+            <SmartSelect
+              v-model="form.target_device_category"
+              doctype="AC Asset Category"
+              placeholder="Chọn danh mục..."
+            />
           </div>
           <div>
             <label class="form-label">Thời lượng (giờ)</label>
@@ -233,7 +244,13 @@ onMounted(load)
           </div>
           <div>
             <label class="form-label">Tài liệu QMS</label>
-            <input v-model="form.qms_doc_ref" type="text" class="form-input w-full" />
+            <input
+              v-model="form.qms_doc_ref"
+              type="text"
+              class="form-input w-full"
+              placeholder="Mã Asset Document (VD: ADOC-2026-00012)"
+            />
+            <p class="text-xs text-slate-400 mt-1">Link đến Asset Document. Để trống nếu chưa gắn.</p>
           </div>
           <div class="sm:col-span-2">
             <label class="form-label">Yêu cầu giảng viên</label>

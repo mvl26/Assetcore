@@ -1,68 +1,129 @@
 {
-  "actions": [],
-  "name": "IMM Gap Detail Row",
-  "doctype": "DocType",
-  "module": "AssetCore",
-  "engine": "InnoDB",
-  "istable": 1,
-  "autoname": "hash",
-  "track_changes": 0,
-  "creation": "2026-05-08 00:00:00.000000",
-  "modified": "2026-05-08 00:00:00.000000",
-  "modified_by": "Administrator",
-  "owner": "Administrator",
-  "field_order": [
-    "department",
-    "device_class",
-    "total_assets",
-    "total_competent_users",
-    "required_min",
-    "gap_count",
-    "missing_users"
-  ],
-  "fields": [
-    {
-      "fieldname": "department",
-      "fieldtype": "Link",
-      "label": "Khoa/Phòng",
-      "options": "AC Department",
-      "in_list_view": 1
-    },
-    {
-      "fieldname": "device_class",
-      "fieldtype": "Data",
-      "label": "Device Class",
-      "in_list_view": 1
-    },
-    {
-      "fieldname": "total_assets",
-      "fieldtype": "Int",
-      "label": "Tổng assets",
-      "in_list_view": 1
-    },
-    {
-      "fieldname": "total_competent_users",
-      "fieldtype": "Int",
-      "label": "Số người đủ năng lực",
-      "in_list_view": 1
-    },
-    {
-      "fieldname": "required_min",
-      "fieldtype": "Int",
-      "label": "Yêu cầu tối thiểu",
-      "in_list_view": 1
-    },
-    {
-      "fieldname": "gap_count",
-      "fieldtype": "Int",
-      "label": "Gap",
-      "in_list_view": 1
-    },
-    {
-      "fieldname": "missing_users",
-      "fieldtype": "Small Text",
-      "label": "Người thiếu"
-    }
-  ],
-  "permissions": []
+ "actions": [],
+ "name": "IMM Gap Detail Row",
+ "doctype": "DocType",
+ "module": "AssetCore",
+ "engine": "InnoDB",
+ "istable": 1,
+ "autoname": "hash",
+ "track_changes": 0,
+ "creation": "2026-05-08 00:00:00.000000",
+ "modified": "2026-05-08 00:00:00.000000",
+ "modified_by": "Administrator",
+ "owner": "Administrator",
+ "field_order": [
+  "department",
+  "device_class",
+  "total_assets",
+  "total_competent_users",
+  "required_min",
+  "gap_count",
+  "missing_users"
+ ],
+ "fields": [
+  {
+   "fieldname": "department",
+   "fieldtype": "Link",
+   "label": "Khoa/Phòng",
+   "options": "AC Department",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "device_class",
+   "fieldtype": "Data",
+   "label": "Device Class",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "total_assets",
+   "fieldtype": "Int",
+   "label": "Tổng assets",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "total_competent_users",
+   "fieldtype": "Int",
+   "label": "Số người đủ năng lực",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "required_min",
+   "fieldtype": "Int",
+   "label": "Yêu cầu tối thiểu",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "gap_count",
+   "fieldtype": "Int",
+   "label": "Gap",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "missing_users",
+   "fieldtype": "Small Text",
+   "label": "Người thiếu"
+  }
+ ],
+ "permissions": [
+  {
+   "role": "AssetCore Super Admin",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "submit": 1,
+   "cancel": 1,
+   "delete": 1,
+   "amend": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "Training Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "submit": 1,
+   "cancel": 1,
+   "delete": 1,
+   "amend": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "Training User",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "submit": 0,
+   "cancel": 0,
+   "delete": 0,
+   "amend": 0,
+   "report": 1,
+   "export": 0,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "AssetCore Auditor",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "submit": 0,
+   "cancel": 0,
+   "delete": 0,
+   "amend": 0,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 0,
+   "share": 0
+  }
+ ]
 }

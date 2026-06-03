@@ -2,16 +2,15 @@
 // TypeScript types cho IMM-00 foundation module
 
 export type LifecycleStatus =
-  | 'Commissioned' | 'Active' | 'Under Repair' | 'Calibrating'
-  | 'Out of Service' | 'Decommissioned'
+  | 'Draft' | 'Commissioned' | 'Active' | 'Under Maintenance'
+  | 'Under Repair' | 'Calibrating' | 'Out of Service' | 'Decommissioned'
 
 export type RiskClass = 'Low' | 'Medium' | 'High' | 'Critical'
-export type Priority = 'P1 Critical' | 'P1 High' | 'P2' | 'P3' | 'P4'
+export type Priority = 'P1' | 'P2' | 'P3' | 'P4'
 export type MedicalDeviceClass = 'Class I' | 'Class II' | 'Class III'
 export type CapaSeverity = 'Minor' | 'Major' | 'Critical'
 export type CapaStatus = 'Open' | 'In Progress' | 'Pending Verification' | 'Closed' | 'Overdue'
 export type IncidentSeverity = 'Low' | 'Medium' | 'High' | 'Critical'
-export type GmdnStatus = 'In Use' | 'Not Use'
 
 export interface PaginatedResponse<T> {
   pagination: {
@@ -35,7 +34,8 @@ export interface AcAssetListItem {
   category_name?: string
   asset_category_name?: string
   location?: string
-  gmdn_status?: GmdnStatus
+  gmdn_code?: string
+  gmdn_term?: string
   location_name?: string
   department?: string
   department_name?: string
@@ -78,7 +78,6 @@ export interface AcAsset extends AcAssetListItem {
   manufacturer_sn?: string
   udi_code?: string
   gmdn_code?: string
-  gmdn_status?: GmdnStatus
   byt_reg_no?: string
   commissioning_date?: string
   commissioning_ref?: string
@@ -125,7 +124,6 @@ export interface AssetKpi {
   next_calibration_date?: string
   byt_reg_expiry?: string
   gmdn_code?: string
-  gmdn_status?: GmdnStatus
 }
 
 export interface AssetListParams {
@@ -136,7 +134,10 @@ export interface AssetListParams {
   location?: string
   asset_category?: string
   search?: string
-  gmdn_status?: GmdnStatus | ''
+  gmdn_code?: string
+  /** NĐ98 drill (BR-00-17): 'expiring' | 'expired' — số ĐK lưu hành BYT sắp/đã
+   *  hết hạn. KHỚP signature BE list_assets(byt_status). Giá trị khác → BE no-op. */
+  byt_status?: 'expiring' | 'expired'
 }
 
 // ─── AC Supplier ──────────────────────────────────────────────────────────────
@@ -180,9 +181,8 @@ export interface AcLocation {
   clinical_area_type?: string
   infection_control_level?: string
   power_backup_available?: 0 | 1
-  emergency_contact?: string
   dept_head?: string
-  technical_contact?: string
+  contact_phone?: string
   notes?: string
 }
 
@@ -201,6 +201,7 @@ export interface AcDepartment {
 export interface AcAssetCategory {
   name: string
   category_name: string
+  category_code?: string
   description?: string
   // GMDN — canonical code at category level, inherited down to Model → Asset
   gmdn_code?: string
@@ -233,8 +234,6 @@ export interface ImmDeviceModel {
   medical_device_class: MedicalDeviceClass
   risk_classification?: RiskClass
   gmdn_code?: string
-  emdn_code?: string
-  hsn_code?: string
   registration_required?: 0 | 1
   is_radiation_device?: 0 | 1
   is_pm_required?: 0 | 1

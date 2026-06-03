@@ -58,16 +58,18 @@ class ScanTarget:
 
 
 _TARGETS: list[ScanTarget] = [
-    ScanTarget("PM Work Order",           "asset_ref",   "delete",  has_submit=False),
+    ScanTarget("PM Work Order",           "asset_ref",   "delete",  has_submit=True),
     ScanTarget("PM Schedule",             "asset_ref",   "delete",  has_submit=False),
+    ScanTarget("PM Task Log",             "asset_ref",   "delete",  has_submit=False),
     ScanTarget("IMM Asset Calibration",   "asset",       "delete",  has_submit=True),
     ScanTarget("IMM Calibration Schedule","asset",       "delete",  has_submit=False),
-    ScanTarget("Asset Transfer",          "asset",       "delete",  has_submit=True),
+    ScanTarget("Asset Transfer",          "asset",       "delete",  has_submit=False),
     ScanTarget("Asset Repair",            "asset_ref",   "delete",  has_submit=True),
+    ScanTarget("AC Asset Downtime Log",   "asset",       "delete",  has_submit=False),
     ScanTarget("Asset Commissioning",     "final_asset", "nullify", has_submit=True),
     # Asset Document có validator chặn xóa → chỉ nullify link
     ScanTarget("Asset Document",          "asset_ref",   "nullify", has_submit=False),
-    ScanTarget("Incident Report",         "asset",       "delete",  has_submit=False),
+    ScanTarget("Incident Report",         "asset",       "delete",  has_submit=True),
     ScanTarget("IMM CAPA Record",         "asset",       "nullify", has_submit=False),
     ScanTarget("IMM RCA Record",          "asset",       "nullify", has_submit=False),
     # Lifecycle Event và Audit Trail: giữ bản ghi (traceability), chỉ tháo link asset đã xóa

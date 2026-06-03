@@ -20,9 +20,11 @@ from __future__ import annotations
 
 import frappe
 
-# Role legacy đã được thay thế bằng các role IMM canonical.
-# Giữ ở đây làm SOT cho cleanup — đồng bộ với setup_role_profiles._LEGACY_ROLES.
+# Role legacy đã được thay thế bằng RBAC module-based (4 System + 26 Domain).
+# Giữ ở đây làm SOT cho cleanup — đồng bộ với setup_role_profiles._LEGACY_ROLES
+# và patches/v3_2/001_module_role_redesign.
 _LEGACY_ROLES: tuple[str, ...] = (
+    # ── 11 legacy cũ (đã được disable trước đó) ───────────────────────────
     "IMM Manager",
     "Kho vật tư",
     "Workshop Manager",
@@ -34,6 +36,26 @@ _LEGACY_ROLES: tuple[str, ...] = (
     "VP Block2",
     "Workshop Head",
     "Biomed Engineer",
+    # ── 19 persona "IMM *" cũ (mô hình mới bỏ) ─────────────────────────────
+    "IMM System Admin",
+    "IMM Operations Manager",
+    "IMM Department Head",
+    "IMM Deputy Department Head",
+    "IMM Workshop Lead",
+    "IMM QA Officer",
+    "IMM Biomed Technician",
+    "IMM Technician",
+    "IMM Document Officer",
+    "IMM Storekeeper",
+    "IMM Clinical User",
+    "IMM Auditor",
+    "IMM Planning Officer",
+    "IMM Finance Officer",
+    "IMM HTM Engineer",
+    "IMM Procurement Officer",
+    "IMM Risk Officer",
+    "IMM Board Approver",
+    "IMM Training Officer",
 )
 
 

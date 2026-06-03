@@ -1,19 +1,18 @@
 <script setup lang="ts">
 // ToastContainer — render queue toast của useToast() ở top-right (fixed).
 // Mount 1 lần ở App.vue để mọi nơi có thể gọi useToast().success/error/...
+//
+// Phase 1 notification framework: render thêm `title` và `actionHint` nếu có
+// (do `useNotify.show()` truyền vào khi resolve template từ MSG.XXX).
 import { useToast, type ToastType } from '@/composables/useToast'
 
-const { toasts } = useToast()
+const { toasts, dismiss } = useToast()
 
 const TYPE_CFG: Record<ToastType, { bar: string; icon: string; emoji: string; ring: string }> = {
   success: { bar: 'bg-emerald-500',  icon: 'text-emerald-600',  emoji: '✓', ring: 'ring-emerald-200' },
   error:   { bar: 'bg-red-500',      icon: 'text-red-600',      emoji: '✕', ring: 'ring-red-200' },
   warning: { bar: 'bg-amber-500',    icon: 'text-amber-600',    emoji: '!', ring: 'ring-amber-200' },
   info:    { bar: 'bg-blue-500',     icon: 'text-blue-600',     emoji: 'i', ring: 'ring-blue-200' },
-}
-
-function dismiss(id: number) {
-  toasts.value = toasts.value.filter(t => t.id !== id)
 }
 </script>
 
@@ -33,7 +32,14 @@ function dismiss(id: number) {
               :class="['shrink-0 inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold ring-2', TYPE_CFG[t.type].icon, TYPE_CFG[t.type].ring]"
               aria-hidden="true"
             >{{ TYPE_CFG[t.type].emoji }}</span>
-            <div class="flex-1 text-sm text-slate-700 leading-snug whitespace-pre-line">{{ t.message }}</div>
+            <div class="flex-1 text-sm leading-snug whitespace-pre-line">
+              <div v-if="t.title" class="font-semibold text-slate-800 mb-0.5">{{ t.title }}</div>
+              <div class="text-slate-700">{{ t.message }}</div>
+              <div
+                v-if="t.actionHint"
+                class="mt-1 text-xs text-slate-500 italic"
+              >{{ t.actionHint }}</div>
+            </div>
             <button
               type="button"
               class="shrink-0 text-slate-400 hover:text-slate-700 -mr-1"

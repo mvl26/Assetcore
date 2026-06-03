@@ -94,7 +94,7 @@ Các điểm sau lệch so với template/skill nhưng nằm trong danh sách "k
 ## 2026-05-11 Alignment Pass (Sprint 6 DoD)
 - BE: 3-tier compliance verified; endpoints align with docs/05_API_Specification.md
 - FE: store + views + routes + sidebar entry wired
-- Tests: see docs/res/dod-verification-report.md §1 for per-module results
+- Tests: see docs/res/reports/dod-verification-report.md §1 for per-module results
 - Status: READY
 
 ---
@@ -109,7 +109,7 @@ Skill: `assetcore-doc` (light-touch). Files audited: README + 02–09 (9 files).
 |---|---|
 | `README.md` | Metadata `Trạng thái` + `Cập nhật cuối` → 2026-05-14 |
 | `02_Analysis_Design.md` | Header trạng thái (4.0 → 4.1, Live ✅); §I.2 (toàn bộ Planned → Live ✅ — DocTypes/service/role fixtures/scheduler đều đã có trong code); §III.1→III.4 (Planned → Live); §III.6 (8 role → 19 IMM roles + Wave 2 + Training Officer; nguồn `services/shared/constants.py::Roles`); §III.7 (4 daily jobs → 5 daily + monthly `rollup_asset_kpi`; bổ sung `check_insurance_expiry`, `check_service_contract_expiry`); §FR-00-38..42 + BR-00-11 (GMDN status enum `Đang sử dụng/Không sử dụng` → `In Use/Not Use` khớp DocType options) |
-| `04_Backend_Design.md` | Header trạng thái (reviewed 05-08 → synced 05-14); II.1.3 `gmdn_status` (options + `read_only=1`); V.1 Scheduler block (4 daily → 5 daily + monthly `rollup_asset_kpi`); DoD note 22+ functions |
+| `04_Backend_Design.md` | Header trạng thái (reviewed 05-08 → synced 05-14); II.1.3 field GMDN (2026-05-19: trạng thái GMDN cũ đã gỡ — lọc theo `gmdn_code`); V.1 Scheduler block (4 daily → 5 daily + monthly `rollup_asset_kpi`); DoD note 22+ functions |
 | `05_API_Specification.md` | Header trạng thái + endpoint count (107 whitelisted); Permission matrix: bỏ `search_assets_by_udi` (đã removed), đổi `transition_asset_status→transition_status`, `list_audit_events→list_audit_trail`, `verify_audit_chain→verify_chain`, `create_capa→open_capa`, `close_capa→close_capa_record`, `list_locations_tree→list_locations`, bỏ `close_incident`; III.10 GMDN status text rõ enum; IV BR mapping bảng cập nhật tên endpoint mới (transition_status, list_audit_trail, close_capa_record, trigger_capa_overdue_check) |
 
 ### Không chạm (giữ nguyên — đã đúng)
@@ -124,7 +124,7 @@ Skill: `assetcore-doc` (light-touch). Files audited: README + 02–09 (9 files).
 
 | ID | Mục | Lý do |
 |---|---|---|
-| F-1 | `04_Backend_Design.md` §III.1 hiện liệt kê 22 service functions; thực tế `services/imm00.py` có 23+ public functions (đếm cả `toggle_gmdn_status_via_qr`, `_sync_downtime_log` v.v.). Bảng giữ nguyên 22 (đã ghi "22+" tại DoD) | Light-touch — bảng functions vẫn chính xác cho các function được expose; chi tiết nội bộ không cần thêm |
+| F-1 | `04_Backend_Design.md` §III.1 liệt kê service functions; 2026-05-19 đã gỡ 2 hàm trạng thái GMDN cũ (`_sync_downtime_log` v.v. vẫn nội bộ). Bảng giữ nguyên (đã ghi "22+" tại DoD) | Light-touch — bảng functions vẫn chính xác cho các function được expose; chi tiết nội bộ không cần thêm |
 | F-2 | `05_API_Specification.md` Phần III liệt kê 20 nhóm endpoint nhưng còn thiếu 1 vài endpoint mới (vd `list_pm_templates`, `firmware_change_request`, `document_request`, depreciation) đã có ghi nhận nhưng chưa render bảng đầy đủ — số endpoint thực 107 (whitelist), spec cover ~80% chính | Cần human review để bổ sung block CRUD cho 4 group còn lại; light-touch không tự viết block mới |
 | F-3 | `06_Frontend_Design.md` ghi 4 Pinia stores; sau refactor commit `33a9668` + `820e3fe` có thêm/đổi tên store (`useUomStore`, `useDepreciationStore`, …) | Đề nghị FE Lead xác nhận danh sách store hiện tại — light-touch không patch FE store catalog |
 | F-4 | `09_Release.md` Release Notes v4.0.0 — chưa có entry cho Wave 2 IMM-01→03/06/15/16 deployed (commits `810179e`, `ae3b744`, `4b4b0db`) | Cần PM/Release Lead viết release notes v4.1/v4.2 — không phải drift docs IMM-00 thuần |

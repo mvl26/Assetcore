@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { frappeGet, frappePost } from '@/api/helpers'
 import type { ServiceContract } from '@/types/imm00'
 import PageHeader from '@/components/common/PageHeader.vue'
+import SmartSelect from '@/components/common/SmartSelect.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -50,6 +51,11 @@ async function save() {
       sla_response_hours: contract.value.sla_response_hours,
       coverage_description: contract.value.coverage_description,
       notes: contract.value.notes,
+      covered_assets: JSON.stringify(
+        (contract.value.covered_assets ?? [])
+          .filter(r => r.asset)
+          .map(r => ({ asset: r.asset, coverage_note: r.coverage_note ?? '' })),
+      ),
     })
     editing.value = false
     await load()
@@ -72,6 +78,15 @@ async function remove() {
 function cancelEdit() {
   editing.value = false
   load() // discard local changes
+}
+
+function addAssetRow() {
+  if (!contract.value) return
+  if (!contract.value.covered_assets) contract.value.covered_assets = []
+  contract.value.covered_assets.push({ asset: '', coverage_note: '' })
+}
+function removeAssetRow(idx: number) {
+  contract.value?.covered_assets?.splice(idx, 1)
 }
 
 function formatDate(d?: string) { return d ? new Date(d).toLocaleDateString('vi-VN') : '—' }
@@ -239,6 +254,68 @@ onMounted(load)
           <p v-else class="text-sm text-gray-700 bg-gray-50 px-3 py-2 rounded-lg whitespace-pre-line min-h-[40px]">
             {{ contract.notes || '—' }}
           </p>
+        </div>
+
+        <!-- Thiết bị thuộc hợp đồng -->
+        <div class="border-t border-gray-100 pt-4">
+          <div class="flex items-center justify-between mb-2">
+            <label class="block text-sm font-medium text-gray-700">
+              Thiết bị thuộc hợp đồng
+              <span class="text-gray-400 font-normal">({{ contract.covered_assets?.length || 0 }})</span>
+            </label>
+            <button
+              v-if="editing"
+              type="button"
+              class="text-sm px-3 py-1.5 border border-blue-300 text-blue-700 rounded-lg hover:bg-blue-50 font-medium"
+              @click="addAssetRow"
+            >+ Thêm thiết bị</button>
+          </div>
+
+          <p
+            v-if="!contract.covered_assets || contract.covered_assets.length === 0"
+            class="text-sm text-gray-400 italic py-2"
+          >Chưa có thiết bị nào gắn với hợp đồng này.</p>
+
+          <!-- Read mode -->
+          <table v-else-if="!editing" class="w-full text-sm border border-gray-100 rounded-lg overflow-hidden">
+            <thead class="bg-gray-50 text-gray-500 text-xs uppercase">
+              <tr>
+                <th class="text-left px-3 py-2 font-medium">Thiết bị</th>
+                <th class="text-left px-3 py-2 font-medium">Ghi chú phạm vi</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(row, idx) in contract.covered_assets" :key="idx" class="border-t border-gray-100">
+                <td class="px-3 py-2 text-gray-800">
+                  {{ row.asset_name || row.asset }}
+                  <span v-if="row.asset_name" class="text-xs text-gray-400 font-mono ml-1">{{ row.asset }}</span>
+                </td>
+                <td class="px-3 py-2 text-gray-600">{{ row.coverage_note || '—' }}</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <!-- Edit mode -->
+          <div v-else class="space-y-2">
+            <div
+              v-for="(row, idx) in contract.covered_assets"
+              :key="idx"
+              class="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-2 items-start"
+            >
+              <SmartSelect v-model="row.asset" doctype="AC Asset" placeholder="Chọn thiết bị..." />
+              <input
+                v-model="row.coverage_note"
+                type="text"
+                class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                placeholder="Ghi chú phạm vi (tùy chọn)"
+              />
+              <button
+                type="button"
+                class="px-3 py-2 text-sm border border-red-300 text-red-600 rounded-lg hover:bg-red-50"
+                @click="removeAssetRow(idx)"
+              >Xóa</button>
+            </div>
+          </div>
         </div>
 
         <!-- Edit mode: Lưu / Hủy -->

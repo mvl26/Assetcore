@@ -12,13 +12,13 @@
  "workflow_state_field": "workflow_state",
  "states": [
   {
-   "allow_edit": "IMM Biomed Technician",
+   "allow_edit": "Corrective User",
    "doc_status": "0",
    "state": "RCA Required",
    "type": "Warning"
   },
   {
-   "allow_edit": "IMM Biomed Technician",
+   "allow_edit": "Corrective User",
    "doc_status": "0",
    "state": "RCA In Progress",
    "type": "Success"
@@ -39,7 +39,7 @@
  "transitions": [
   {
    "action": "Bắt đầu phân tích RCA",
-   "allowed": "IMM Biomed Technician",
+   "allowed": "Corrective User",
    "next_state": "RCA In Progress",
    "state": "RCA Required",
    "allow_self_approval": 1
@@ -53,7 +53,7 @@
   },
   {
    "action": "Hoàn thành RCA",
-   "allowed": "IMM Biomed Technician",
+   "allowed": "Corrective User",
    "next_state": "Completed",
    "state": "RCA In Progress",
    "allow_self_approval": 1

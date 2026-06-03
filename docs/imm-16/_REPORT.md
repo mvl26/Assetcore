@@ -70,12 +70,66 @@
 
 ---
 
+## 2026-05-18 Full Code-sync Pass
+
+**Nguồn**: Đọc trực tiếp `assetcore/services/imm16.py` (2076 dòng), `assetcore/api/imm16.py` (424 dòng), `assetcore/repositories/compliance_repo.py`, 7 DocType JSON, `assetcore/hooks.py`, `assetcore/tests/test_imm16.py`, `frontend/src/api/imm16.ts`, `frontend/src/router/index.ts`, `frontend/src/views/compliance/`.
+
+### Bảng file đã chạm
+
+| File | Loại thay đổi |
+|---|---|
+| `04_Backend_Design.md` | Sửa nhiều (version 0.4.0→0.5.0; DocType status; service function catalog; scheduler mapping) |
+| `05_API_Specification.md` | Bổ sung endpoint catalog hoàn chỉnh (version 1.1→1.2) |
+| `06_Frontend_Design.md` | Bổ sung `ComplianceRuleDetailView` + `ManagementReviewDetailView` routes; fix CAPA view folder |
+| `07_Testing_QA.md` | Cập nhật test count (9→11 class, 14→25 method) |
+| `08_Deployment.md` | Fix scheduler_events (hourly/daily/weekly/monthly đúng) |
+
+### Gaps quan trọng đã tìm và fix
+
+1. **IMM MR Attendee / IMM MR Output Action PLANNED → LIVE**: JSON `imm_management_review.json` đã có `Table` fields options `IMM MR Attendee` và `IMM MR Output Action`. Service `update_management_review()` và `finalize_management_review()` append rows. Docs cũ note "hiện lưu dạng Text field" là sai.
+
+2. **IMM Scorecard Module/Department Row NOT BUILT → LIVE**: `imm_compliance_scorecard.json` có `Table` fields với options `IMM Scorecard Module Row` / `IMM Scorecard Department Row`. Tuy nhiên service `generate_scorecard()` KHÔNG ghi child rows — field tồn tại nhưng không có data writes. Note này được thêm vào docs.
+
+3. **IMM CAPA Record custom fields**: Docs cũ ghi "PLANNED — fixture" nhưng thực tế các fields `imm_root_cause_method`, `imm_risk_level`, `imm_compliance_finding_ref`, `imm_reopen_count`, `imm_effectiveness_evidence` đã là **core JSON fields** trong `imm_capa_record.json`. Fields `imm_action_plan` (Table → IMM CAPA Action Step), `imm_correction_immediate`, `imm_change_control_ref`, `imm_audit_finding_ref`, `imm_rca_ref` chưa có trong JSON (advance_capa_state tham chiếu `doc.imm_action_plan` nhưng getattr fallback None).
+
+4. **Scheduler mapping sai**: `08_Deployment.md §0` liệt kê `evaluate_all_compliance_rules` là hourly và `update_compliance_scorecard` là daily — cả hai đều sai. Thực tế: `daily` và `monthly`.
+
+5. **API catalog thiếu 10 endpoints**: `reactivate_rule`, `get_record_history`, `get_audit`, `get_capa`, `update_capa_fields`, `update_management_review`, `advance_mr_state`, `get_management_review`, và counting canonical vs alias. Tổng canonical là 40 (không phải ~30 + ~12 = ~42); legacy aliases là 12.
+
+6. **perform_effectiveness_check response sai**: Docs ghi `new_state: "Investigating"` khi Not Effective, thực tế code trả `new_state: "Re-opened"`.
+
+7. **Test count sai**: Docs ghi 9 TestCase / 13 method → thực tế 11 TestCase / 25 method.
+
+8. **Route catalog thiếu**: `ComplianceRuleDetailView` (`/compliance/rules/:id`) và `ManagementReviewDetailView` (`/compliance/mr/:id`) chưa có trong §I. CAPA views nằm ở `incident/` folder (không phải `audit/`).
+
+9. **imm16.py line count**: Header note ghi ~1705 → thực tế 2076 dòng.
+
+### Gaps chưa fix (cần BA/Dev input)
+
+| Gap | Lý do chưa fix |
+|---|---|
+| `imm_action_plan` Table field thiếu trong `imm_capa_record.json` | Cần Dev xác nhận: thêm vào JSON hay remove reference trong `advance_capa_state()` |
+| `IMM MR Attendee` + `IMM MR Output Action` DocType folder JSON chưa tìm thấy trong find output | Có thể nằm trong folder khác hoặc chưa được scaffold riêng; cần verify `bench --site miyano list-apps` |
+| `check_asset_compliance` alias trong api/imm16.py (line 124) và `check_asset_compliance_status` (line 422) là 2 functions khác nhau hay 1? | Code có cả 2 nhưng alias không delegate — cần audit xem FE gọi cái nào |
+| `imm_root_cause_method` options: docs BA ghi `FMEA/FTA` nhưng JSON có `Fault Tree/Pareto` | Cần BA confirm options cuối cùng |
+| `05_API_Specification.md §5 TypeScript Types` — nội dung spec cũ vẫn giữ nhưng note rõ là `types/imm16.ts` không tồn tại | Nếu muốn extract types ra file riêng → FE task Wave 3 |
+
+### Residual TODOs (đã verify thêm trong session này)
+
+- ✅ `IMM MR Attendee` và `IMM MR Output Action` DocType folders LIVE: `assetcore/assetcore/doctype/imm_mr_attendee/` + `imm_mr_output_action/` tồn tại.
+- ✅ `imm_action_plan` KHÔNG có trong `imm_capa_record.json` (0 matches). `advance_capa_state()` tham chiếu `doc.imm_action_plan` sẽ nhận `None` và skip validation → **open bug/tech debt**: thêm field vào JSON hoặc remove dead validation code.
+- ✅ `check_asset_compliance` (line 124) và `check_asset_compliance_status` (line 422) là **2 functions riêng** trong `api/imm16.py`. Cả hai delegate cùng `svc.check_asset_compliance_status`. FE dùng `check_asset_compliance_status`.
+- `03_Diagrams.md` — chưa update ERD (IMM MR Attendee/Output Action là child DocType thực tế, ERD có thể cần thêm node). Xem sprint tiếp theo.
+- `imm_action_plan` field missing in CAPA JSON → cần Dev quyết định: thêm Table field → `IMM CAPA Action Step` vào JSON, hoặc remove dead code trong `advance_capa_state()` Implementation/Verification guard.
+
+---
+
 *Generated by `assetcore-doc-curator` skill, light-touch mode.*
 
 ## 2026-05-11 Alignment Pass (Sprint 6 DoD)
 - BE: 3-tier compliance verified; endpoints align with docs/05_API_Specification.md
 - FE: store + views + routes + sidebar entry wired
-- Tests: see docs/res/dod-verification-report.md §1 for per-module results
+- Tests: see docs/res/reports/dod-verification-report.md §1 for per-module results
 - Status: READY
 
 ## 2026-05-14 Wave-2 Sync Pass (light-touch)
@@ -132,3 +186,22 @@ Residual TODOs:
 2. Compliance Dashboard tách riêng `/compliance/dashboard` — endpoint `get_dashboard_stats` đã có; cần BA quyết: tách view hay giữ gộp Heatmap (carry-over Pass 1).
 3. Test ID convention: hiện class+method format. Nếu BA cần `TC-16-01..11`, map qua docstring.
 4. `IMM Supplier Audit` DocType có folder nhưng test suite chưa cover — bổ sung trong sprint sau.
+
+## 2026-05-18 Code-sync Pass (light-touch)
+
+Drift phát hiện qua đối chiếu codebase `feature/hieuc/wave-2`:
+
+| File | Stale | Fix |
+|---|---|---|
+| `README.md` | `Số file\|8` sai — thực tế README + 02-09 = 9 | Sửa → `9` |
+| `README.md` | `Cập nhật cuối\|2026-05-14` | Sửa → `2026-05-18` |
+| `README.md` | Lines 112-113: `Codebase PLANNED (BE/FE)` — code đã LIVE | Sửa → `LIVE`; fix path `imm16_*.py` → `imm16.py`; thêm `views/compliance/` |
+| `README.md` | Footer còn câu "banner PLANNED sẽ được gỡ trong sprint sau" | Gỡ vì Pass 2026-05-14 đã làm rồi |
+| `README.md` | api/imm16.py note `~383 dòng` — thực tế ~424 dòng | Sửa → `~424 dòng` |
+| `04_Backend_Design.md` | `IMM Scorecard Module Row` / `Dept Row`: `PLANNED (rollup)` mơ hồ — code dùng runtime aggregate | Sửa → `NOT BUILT (BA decision pending)` với note rõ |
+| `05_API_Specification.md` | `~30 endpoint` không rõ — thực tế ~52 whitelist function (30 canonical + aliases) | Bổ sung note phân biệt canonical vs total |
+
+KHÔNG đụng:
+- `02_Analysis_Design.md`, `03_Diagrams.md` — concept không drift
+- §II DocType field tables, §III service specs — đã verified 2026-05-14
+- Workflow state machines, DB indexes, test ID convention

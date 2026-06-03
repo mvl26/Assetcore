@@ -37,14 +37,6 @@ export function transitionStatus(name: string, to_status: string, reason = ''): 
   return frappePost(`${BASE}.transition_status`, { name, to_status, reason })
 }
 
-export function updateGmdnStatus(name: string, gmdn_status: string, reason: string): Promise<{ name: string; gmdn_status: string; previous: string }> {
-  return frappePost(`${BASE}.update_gmdn_status`, { name, gmdn_status, reason })
-}
-
-export function toggleGmdnStatus(name: string): Promise<{ name: string; gmdn_status: string; previous: string }> {
-  return frappePost(`${BASE}.toggle_gmdn_status`, { name })
-}
-
 export function getAssetTimeline(name: string, page = 1, page_size = 50): Promise<PaginatedResponse<AssetLifecycleEvent>> {
   return frappeGet(`${BASE}.get_asset_timeline`, { name, page, page_size })
 }
@@ -97,7 +89,7 @@ export function verifyChain(asset: string): Promise<ChainVerifyResult> {
 
 // ─── IMM CAPA Record ──────────────────────────────────────────────────────────
 
-export function listCapas(params: { page?: number; page_size?: number; status?: string; asset?: string } = {}): Promise<PaginatedResponse<ImmCapaRecord>> {
+export function listCapas(params: { page?: number; page_size?: number; status?: string; asset?: string; not_closed?: number; overdue?: number } = {}): Promise<PaginatedResponse<ImmCapaRecord>> {
   return frappeGet(`${BASE}.list_capas`, params as Record<string, unknown>)
 }
 
@@ -307,13 +299,18 @@ export interface DepreciationComputeResult {
   pct_depreciated: number
 }
 
-export function listAssetsDepreciation(params: {
+export interface ListAssetsDepreciationParams {
   page?: number
   page_size?: number
   method_filter?: string
   status_filter?: string
   category_filter?: string
-} = {}): Promise<{ items: AssetDepreciationRow[]; pagination: { page: number; page_size: number; total: number } }> {
+  /** Virtual filter (vd 'fully_depreciated') — BE áp SoT is_fully_depreciated SAU enrich.
+   *  KHÔNG nhồi value này vào status_filter/lifecycle_status (leak sai field BE). */
+  depreciation_filter?: string
+}
+
+export function listAssetsDepreciation(params: ListAssetsDepreciationParams = {}): Promise<{ items: AssetDepreciationRow[]; pagination: { page: number; page_size: number; total: number } }> {
   return frappeGet(`${BASE}.list_assets_depreciation`, params as Record<string, unknown>)
 }
 
@@ -407,6 +404,10 @@ export interface PmTemplate {
   name: string
   template_name: string
   asset_category?: string
+  /** Display name của asset_category (do BE enrich từ AC Asset Category.category_name). */
+  category_name?: string
+  /** Display name của template (BE thay slug trailing trong template_name bằng category_name). */
+  display_template_name?: string
   pm_type?: string
   version?: string
   effective_date?: string

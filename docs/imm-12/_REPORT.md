@@ -34,7 +34,7 @@
 | III.2 Actor catalog | Tổng hợp từ I.3 Stakeholders + UC list | Map actor → role Frappe (dự kiến) |
 | III.4 Use Case relationships | Tổng hợp từ III.1.a diagram (đã có `<<include>>`/`<<extend>>`) | Bảng quan hệ giữa 9 UC |
 | V.4 Scalability | Suy luận từ V.1 Performance + dự kiến volume site bệnh viện | Số liệu dự kiến, cần benchmark thực |
-| V.5 Usability | `docs/res/design-frontend.md` + UC-01 Main flow | Mobile-first cho Reporting User |
+| V.5 Usability | `docs/res/design/design-frontend.md` + UC-01 Main flow | Mobile-first cho Reporting User |
 | V.6 Maintainability | `CONVENTIONS.md` §2 (3-tier) + §6 (coverage) | Yêu cầu maintainability chuẩn dự án |
 
 ## 3. Mapping nguồn
@@ -81,7 +81,7 @@
 ## 2026-05-11 Alignment Pass (Sprint 6 DoD)
 - BE: 3-tier compliance verified; endpoints align with docs/05_API_Specification.md
 - FE: store + views + routes + sidebar entry wired
-- Tests: see docs/res/dod-verification-report.md §1 for per-module results
+- Tests: see docs/res/reports/dod-verification-report.md §1 for per-module results
 - Status: READY
 
 ## 2026-05-14 Code-to-Doc Sync Pass

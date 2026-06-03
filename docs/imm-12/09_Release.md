@@ -3,8 +3,9 @@
 | Mục | Giá trị |
 |---|---|
 | Module | **IMM-12 — Sự cố & CAPA (Incident & Corrective Action)** |
-| Phiên bản | 1.2.0 |
-| Ngày cập nhật | 2026-05-14 |
+| Phiên bản | 0.0.2 |
+| Ngày cập nhật | 2026-05-27 |
+| Chính sách versioning | Tuân theo `assetcore/__init__.py = 0.0.2`; module docs đồng bộ phiên bản app. |
 | Owner | PM + BA + Tech Writer |
 | Trạng thái | ✅ Live — Incident + RCA + CAPA flow đã deploy. User Guide tham chiếu UI thực tế; screenshot bổ sung sau UAT. |
 | Liên kết | [07 Testing QA](./07_Testing_QA.md) · [08 Deployment](./08_Deployment.md) · [Functional Specs](./IMM-12_Functional_Specs.md) |

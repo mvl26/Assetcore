@@ -3,6 +3,7 @@
 
 [pre_model_sync]
 assetcore.patches.v3_1.006_dedupe_asset_category_gmdn_code
+assetcore.patches.v3_1.008_drop_gmdn_status
 
 [post_model_sync]
 assetcore.patches.v3_0.001_migrate_from_v2
@@ -19,3 +20,20 @@ assetcore.patches.v3_1.002_install_imm02
 assetcore.patches.v3_1.003_install_imm03
 assetcore.patches.v3_1.004_seed_assetcore_role_profiles
 assetcore.patches.v3_1.005_remove_legacy_imm_role_profiles
+assetcore.patches.v3_1.007_ac_location_simplify_contacts
+assetcore.patches.v3_1.009_set_gmdn_inherited_flag
+assetcore.patches.v3_1.010_consolidate_sla_priority_p1
+# ── Wave 2 ── RBAC module-based redesign ─────────────────────────────────────
+assetcore.patches.v3_2.001_module_role_redesign
+# ── Wave 2 ── BUG-002 fix: backfill MR.quarter from review_date ──────────────
+assetcore.patches.v3_2.002_fix_mr_quarter_q1_2099
+# ── Wave 2 ── BUG-014 fix: replace slug in PM Checklist Template.template_name
+assetcore.patches.v3_2.003_fix_pm_template_name_slug
+# ── Wave 2 ── BUG-017 fix: backfill IMM Management Review.scorecard_ref
+assetcore.patches.v3_2.004_link_mr_to_scorecard
+# ── Wave 2 ── Sync AC Asset.asset_code with name (unify with Department pattern)
+assetcore.patches.v3_2.005_sync_asset_code_with_name
+# ── Wave 2 ── Sync Service Contract.contract_code with name (same unify pattern)
+assetcore.patches.v3_2.006_sync_contract_code_with_name
+# ── IMM-00 ── Reconcile User.imm_approval_status (drop misleading Pending default)
+assetcore.patches.v3_2.007_reconcile_user_approval_status

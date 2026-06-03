@@ -39,7 +39,6 @@ from .compliance_repo import (
     ComplianceScorecardRepo,
     InternalAuditRepo,
 )
-from .user_profile_repo import UserRepo
 from .commissioning_repo import (
     CommissioningRepo,
     NonConformanceRepo,
@@ -81,8 +80,6 @@ __all__ = [
     "LifecycleEventRepo",
     "LocationRepo",
     "SupplierRepo",
-    # Auth / User management
-    "UserRepo",
     # IMM-04 Commissioning
     "CommissioningRepo",
     "NonConformanceRepo",

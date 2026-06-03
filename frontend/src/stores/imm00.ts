@@ -8,20 +8,9 @@ import type {
   AcAsset, AcAssetListItem, AssetListParams,
   AcLocation, AcDepartment, AcAssetCategory, ImmDeviceModel,
   ImmSlaPolicy, AcSupplier, ImmCapaRecord, IncidentReport,
-  GmdnStatus,
 } from '@/types/imm00'
 
 const DEFAULT_PAGINATION = { page: 1, page_size: 20, total: 0, total_pages: 0, offset: 0 }
-
-export const GMDN_STATUS_LABEL: Record<string, string> = {
-  'In Use': 'Đang sử dụng',
-  'Not Use': 'Không sử dụng',
-}
-
-export const GMDN_OPTIONS: Array<{ value: GmdnStatus; label: string }> = [
-  { value: 'In Use',  label: 'Đang sử dụng' },
-  { value: 'Not Use', label: 'Không sử dụng' },
-]
 
 export const useAssetStore = defineStore('imm00_asset', () => {
   const assets = ref<AcAssetListItem[]>([])
@@ -64,14 +53,6 @@ export const useAssetStore = defineStore('imm00_asset', () => {
     return { success: true, data: res }
   }
 
-  async function updateGmdn(name: string, gmdn_status: GmdnStatus, reason: string) {
-    const res = await api.updateGmdnStatus(name, gmdn_status, reason)
-    if (currentAsset.value?.name === name) {
-      currentAsset.value.gmdn_status = res.gmdn_status as GmdnStatus
-    }
-    return res
-  }
-
   function reset() {
     assets.value = []
     currentAsset.value = null
@@ -79,7 +60,7 @@ export const useAssetStore = defineStore('imm00_asset', () => {
     error.value = null
   }
 
-  return { assets, currentAsset, pagination, loading, error, fetchList, fetchOne, transition, updateGmdn, reset }
+  return { assets, currentAsset, pagination, loading, error, fetchList, fetchOne, transition, reset }
 })
 
 export const useRefDataStore = defineStore('imm00_refdata', () => {
@@ -94,7 +75,10 @@ export const useRefDataStore = defineStore('imm00_refdata', () => {
   async function fetchAll() {
     loading.value = true
     try {
-      const [locs, depts, cats, models, slas, sups] = await Promise.all([
+      // allSettled (KHÔNG all): các bảng tham chiếu này chỉ phục vụ filter/dropdown.
+      // Một persona có thể bị DocPerm chặn đọc 1 bảng (vd AC Supplier sau khi siết
+      // RBAC) — khi đó CHỈ bảng đó rỗng, KHÔNG được làm hỏng toàn trang registry.
+      const [locs, depts, cats, models, slas, sups] = await Promise.allSettled([
         api.listLocations(),
         api.listDepartments(),
         api.listAssetCategories(),
@@ -102,12 +86,12 @@ export const useRefDataStore = defineStore('imm00_refdata', () => {
         api.listSlaPolicies(),
         api.listSuppliers(),
       ])
-      locations.value = locs
-      departments.value = depts
-      categories.value = cats
-      deviceModels.value = models.items ?? []
-      slaPolicies.value = slas
-      suppliers.value = sups.items ?? []
+      if (locs.status === 'fulfilled') locations.value = locs.value
+      if (depts.status === 'fulfilled') departments.value = depts.value
+      if (cats.status === 'fulfilled') categories.value = cats.value
+      if (models.status === 'fulfilled') deviceModels.value = models.value.items ?? []
+      if (slas.status === 'fulfilled') slaPolicies.value = slas.value
+      if (sups.status === 'fulfilled') suppliers.value = sups.value.items ?? []
     } finally {
       loading.value = false
     }
@@ -126,7 +110,8 @@ export const useCapaStore = defineStore('imm00_capa', () => {
   const loading = ref(false)
   const error = ref<string | null>(null)
 
-  async function fetchList(params: { page?: number; page_size?: number; status?: string; asset?: string } = {}) {
+  // R10 §9.4.8 — thêm virtual filter not_closed/overdue cho drill-down từ KPI qa.
+  async function fetchList(params: { page?: number; page_size?: number; status?: string; asset?: string; not_closed?: number; overdue?: number } = {}) {
     loading.value = true
     error.value = null
     try {

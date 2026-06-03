@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="module-id" content="calibration">
+<title>Dashboard hiệu chuẩn — AssetCore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+<script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <a class="brand" style="color:inherit;text-decoration:none" href="#">
+      <span class="logo">A</span>
+      <div>AssetCore <small>IMMIS · BV Nhi Đồng 1</small></div>
+    </a>
+    <div class="spacer"></div>
+    <button class="iconbtn" title="Thông báo"><iconify-icon icon="heroicons:bell" style="font-size:18px;vertical-align:-3px;color:#fff"></iconify-icon></button>
+    <div class="persona-pill" title="Chọn vai trò"></div>
+    <div id="personaMenu" class="persona-menu"></div>
+  </div>
+  <div class="body-wrap">
+    <aside class="sidebar">
+      <div class="side-head"><span></span></div>
+      <nav></nav>
+      <div class="side-foot">AssetCore v0.0.2 · Wave 1+2</div>
+    </aside>
+    <main class="main">
+      <div class="breadcrumb"><a href="../index.html">Trang chủ</a> <span class="sep">›</span><a href="calibration-list.html">Hiệu chuẩn</a> <span class="sep">›</span><span>Dashboard</span></div>
+      <div class="page">
+        <div class="page-head"><div class="titles"><h1>Dashboard hiệu chuẩn</h1>
+  <div class="sub">42 thiết bị yêu cầu hiệu chuẩn · 38 trong hạn · 4 sắp hết hạn · 1 đã quá hạn</div></div>
+
+</div><div class="grid g4" style="margin-bottom:20px">
+  <div class="kpi ok"><div class="kbar"></div><div class="klabel">Trong hạn</div><div class="kval">38</div><div class="kfoot">90,5%</div></div>
+  <div class="kpi warn"><div class="kbar"></div><div class="klabel">Due Soon (30 ngày)</div><div class="kval">4</div><div class="kfoot">Cần lập lịch gấp</div></div>
+  <div class="kpi danger"><div class="kbar"></div><div class="klabel">Overdue</div><div class="kval">1</div><div class="kfoot">Suspended</div></div>
+  <div class="kpi primary"><div class="kbar"></div><div class="klabel">Pass Rate Q1</div><div class="kval">96,7%</div><div class="kfoot">29/30 thiết bị Pass</div></div>
+
+</div><div class="card">
+  <div class="card-head"><h3>Thiết bị sắp đến hạn hiệu chuẩn (30 ngày)</h3></div>
+  <div class="card-pad">
+    <table class="tbl">
+      <thead><tr><th>Thiết bị</th><th>Lab cũ</th><th>Cert hết hạn</th><th>Còn lại</th><th></th></tr></thead>
+      <tbody>
+        <tr><td><b>Máy điện tim Nihon Kohden</b></td><td>QUATEST 3</td><td>09/06/2026</td><td><b style="color:#F59E0B">15 ngày</b></td><td><a class="btn btn-primary btn-sm" href="#">Lập lịch</a></td></tr>
+        <tr><td><b>Máy đo SpO2 Masimo</b></td><td>Bureau Veritas</td><td>15/06/2026</td><td><b style="color:#F59E0B">21 ngày</b></td><td><a class="btn btn-primary btn-sm" href="#">Lập lịch</a></td></tr>
+        <tr><td><b>Cân điện tử Tanita</b></td><td>QUATEST 3</td><td>20/06/2026</td><td><b style="color:#F59E0B">26 ngày</b></td><td><a class="btn btn-primary btn-sm" href="#">Lập lịch</a></td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+      
+    
+      </div>
+    </main>
+  </div>
+</div>
+<script src="../assets/shell.js"></script>
+</body>
+</html>

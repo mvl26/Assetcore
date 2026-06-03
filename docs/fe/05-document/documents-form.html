@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="module-id" content="documents">
+<title>Upload tài liệu — AssetCore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+<script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <a class="brand" style="color:inherit;text-decoration:none" href="#">
+      <span class="logo">A</span>
+      <div>AssetCore <small>IMMIS · BV Nhi Đồng 1</small></div>
+    </a>
+    <div class="spacer"></div>
+    <button class="iconbtn" title="Thông báo"><iconify-icon icon="heroicons:bell" style="font-size:18px;vertical-align:-3px;color:#fff"></iconify-icon></button>
+    <div class="persona-pill" title="Chọn vai trò"></div>
+    <div id="personaMenu" class="persona-menu"></div>
+  </div>
+  <div class="body-wrap">
+    <aside class="sidebar">
+      <div class="side-head"><span></span></div>
+      <nav></nav>
+      <div class="side-foot">AssetCore v0.0.2 · Wave 1+2</div>
+    </aside>
+    <main class="main">
+      <div class="breadcrumb"><a href="../index.html">Trang chủ</a> <span class="sep">›</span><a href="documents-list.html">Hồ sơ thiết bị</a> <span class="sep">›</span><span>Upload mới</span></div>
+      <div class="page">
+        <div class="page-head">
+  <div class="titles">
+    <a href="documents-list.html" class="btn btn-ghost btn-sm" style="margin-bottom:8px">← Quay lại</a>
+    <h1>Upload tài liệu thiết bị</h1>
+  </div>
+
+</div><div class="card">
+  <div class="card-pad">
+    <div class="form-grid g2-form">
+      <div class="field"><label class="fld">Loại tài liệu <span class="req">*</span></label><select class="select"><option>— Chọn loại —</option><option>CO (Chứng nhận xuất xứ)</option><option>CQ (Chứng nhận chất lượng)</option><option>User Manual</option><option>Service Manual</option><option>CN Đăng ký BYT</option><option>Test Certificate</option><option>Khác</option></select></div>
+      <div class="field"><label class="fld">Tên tài liệu <span class="req">*</span></label><input class="input"></div>
+      <div class="field"><label class="fld">Thiết bị / Dòng máy áp dụng <span class="req">*</span></label><select class="select"><option>— Tìm thiết bị —</option><option>Tất cả Máy thở Bennett 980 (12 cái)</option><option>1 thiết bị cụ thể</option></select></div>
+      <div class="field"><label class="fld">Số đăng ký / Cert No</label><input class="input"></div>
+      <div class="field"><label class="fld">Ngày cấp</label><input class="input" type="date"></div>
+      <div class="field"><label class="fld">Ngày hết hạn (nếu có)</label><input class="input" type="date"><div class="help">Hệ thống tự cảnh báo 90/60/30/0 ngày trước hạn</div></div>
+      <div class="field"><label class="fld">Cơ quan cấp</label><input class="input"></div>
+      <div class="field"><label class="fld">Visibility <span class="req">*</span></label><select class="select"><option>Internal Only</option><option>Public (xem được trong app cho mọi user)</option></select></div>
+      <div class="field" style="grid-column:span 2"><label class="fld">File tài liệu <span class="req">*</span></label><input class="input" type="file" accept=".pdf,.docx,.xlsx,.jpg,.png"><div class="help">PDF / DOCX / XLSX / JPG / PNG · Max 50 MB</div></div>
+      <div class="field" style="grid-column:span 2"><label class="fld">Ghi chú</label><textarea class="input" rows="2"></textarea></div>
+    </div>
+  </div>
+  <div style="padding:16px 20px;border-top:1px solid var(--color-neutral-300);display:flex;justify-content:space-between">
+    <a href="documents-list.html" class="btn btn-secondary">Hủy</a>
+    <div style="display:flex;gap:10px">
+      <button class="btn btn-secondary">Lưu nháp</button>
+      <button class="btn btn-primary">Upload & Gửi duyệt</button>
+    </div>
+  </div>
+</div>
+      
+      </div>
+    </main>
+  </div>
+</div>
+<script src="../assets/shell.js"></script>
+</body>
+</html>

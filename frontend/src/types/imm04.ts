@@ -333,6 +333,8 @@ export interface CommissioningFilters {
   clinical_dept?: string
   docstatus?: 0 | 1 | ''
   vendor_serial_no?: string
+  /** Virtual flag (BR-04-10): khi bật, BE AND thêm SoT overdue filter (quá hạn SLA). */
+  overdue?: boolean
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -345,6 +347,8 @@ export interface FrappeUser {
   email: string
   user_image: string | null
   roles: string[]
+  /** Frappe Role Profile name — nguồn chính xác để chọn primary persona. */
+  role_profile_name?: string | null
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

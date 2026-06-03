@@ -12,19 +12,19 @@
  "workflow_state_field": "workflow_state",
  "states": [
   {
-   "allow_edit": "IMM Biomed Technician",
+   "allow_edit": "Calibration User",
    "doc_status": "0",
    "state": "Scheduled",
    "type": "Warning"
   },
   {
-   "allow_edit": "IMM Biomed Technician",
+   "allow_edit": "Calibration User",
    "doc_status": "0",
    "state": "In Progress",
    "type": "Success"
   },
   {
-   "allow_edit": "IMM Biomed Technician",
+   "allow_edit": "Calibration User",
    "doc_status": "0",
    "state": "Sent to Lab",
    "type": "Warning"
@@ -63,14 +63,14 @@
  "transitions": [
   {
    "action": "Bắt đầu hiệu chuẩn",
-   "allowed": "IMM Biomed Technician",
+   "allowed": "Calibration User",
    "next_state": "In Progress",
    "state": "Scheduled",
    "allow_self_approval": 1
   },
   {
    "action": "Gửi phòng hiệu chuẩn",
-   "allowed": "IMM Biomed Technician",
+   "allowed": "Calibration User",
    "next_state": "Sent to Lab",
    "state": "Scheduled",
    "allow_self_approval": 1
@@ -84,21 +84,21 @@
   },
   {
    "action": "Đạt hiệu chuẩn",
-   "allowed": "IMM Biomed Technician",
+   "allowed": "Calibration User",
    "next_state": "Passed",
    "state": "In Progress",
    "allow_self_approval": 1
   },
   {
    "action": "Không đạt hiệu chuẩn",
-   "allowed": "IMM Biomed Technician",
+   "allowed": "Calibration User",
    "next_state": "Failed",
    "state": "In Progress",
    "allow_self_approval": 1
   },
   {
    "action": "Đạt có điều kiện",
-   "allowed": "IMM Biomed Technician",
+   "allowed": "Calibration User",
    "next_state": "Conditionally Passed",
    "state": "In Progress",
    "allow_self_approval": 1
@@ -112,7 +112,7 @@
   },
   {
    "action": "Nhận chứng chỉ",
-   "allowed": "IMM Biomed Technician",
+   "allowed": "Calibration User",
    "next_state": "Certificate Received",
    "state": "Sent to Lab",
    "allow_self_approval": 1
@@ -140,7 +140,7 @@
   },
   {
    "action": "CAPA hoàn tất - chuyển có điều kiện",
-   "allowed": "IMM QA Officer",
+   "allowed": "Compliance Manager",
    "condition": "doc.capa_closed == 1",
    "next_state": "Conditionally Passed",
    "state": "Failed",

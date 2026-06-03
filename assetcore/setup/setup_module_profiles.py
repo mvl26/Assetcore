@@ -1,15 +1,13 @@
 # Copyright (c) 2026, AssetCore Team
 """
-Seed Module Profile (Frappe core DocType) cho AssetCore.
+Legacy Module Profile cleanup — mô hình RBAC mới KHÔNG dùng Module Profile.
 
-Module Profile kiểm soát module nào hiện trong sidebar của user.
-3 profile cơ bản:
-  - IMM - Admin    : Admin + Ops Manager (ít block nhất)
-  - IMM - Standard : Tất cả internal role còn lại
-  - IMM - Vendor   : Vendor Engineer (restricted view)
+Mô hình trước có 3 Module Profile (`IMM - Admin`, `IMM - Standard`, `IMM - Vendor`).
+RBAC module-based bỏ Module Profile — Workspace/module visibility được kiểm soát
+bằng vai trò của Workspace (`Workspace.roles`) + sidebar FE đọc capability từ
+`rbac.get_capabilities()`.
 
-Idempotent — chạy lại không duplicate.
-Wire vào hooks.after_install / hooks.after_migrate.
+File này chỉ giữ logic dọn legacy Module Profile khỏi DB. Idempotent.
 
 Chạy thủ công:
     bench --site <site> execute assetcore.setup.setup_module_profiles.run
@@ -18,49 +16,41 @@ from __future__ import annotations
 
 import frappe
 
-# (profile_name, modules_to_block)
-_PROFILES: list[tuple[str, list[str]]] = [
-    ("IMM - Admin", [
-        "Website", "Social", "Integrations",
-    ]),
-    ("IMM - Standard", [
-        "Website", "Social", "Integrations", "Automation", "Geo",
-    ]),
-    ("IMM - Vendor", [
-        "Website", "Social", "Integrations", "Automation", "Geo",
-        "Email", "Printing", "Contacts",
-    ]),
+_LEGACY_MODULE_PROFILES: list[str] = [
+    "IMM - Admin",
+    "IMM - Standard",
+    "IMM - Vendor",
 ]
 
 
-def _upsert_module_profile(profile_name: str, block: list[str]) -> str:
-    if frappe.db.exists("Module Profile", profile_name):
-        doc = frappe.get_doc("Module Profile", profile_name)
-        current = {r.module for r in doc.block_modules}
-        if current == set(block):
-            return "skipped"
-        doc.block_modules = []
-        for m in block:
-            doc.append("block_modules", {"module": m})
-        doc.flags.ignore_permissions = True
-        doc.save()
-        return "updated"
-
-    doc = frappe.new_doc("Module Profile")
-    doc.module_profile_name = profile_name
-    for m in block:
-        doc.append("block_modules", {"module": m})
-    doc.flags.ignore_permissions = True
-    doc.insert()
-    return "inserted"
+def _delete_legacy_module_profiles() -> int:
+    deleted = 0
+    for name in _LEGACY_MODULE_PROFILES:
+        if not frappe.db.exists("Module Profile", name):
+            continue
+        # Bỏ tham chiếu trên User trước khi xóa profile
+        frappe.db.set_value(
+            "User",
+            {"module_profile": name},
+            "module_profile",
+            None,
+        )
+        try:
+            frappe.delete_doc(
+                "Module Profile", name,
+                ignore_permissions=True, force=True,
+            )
+            deleted += 1
+        except Exception:
+            frappe.log_error(
+                frappe.get_traceback(),
+                f"Delete legacy Module Profile {name} failed",
+            )
+    return deleted
 
 
 def run() -> None:
-    stats = {"inserted": 0, "updated": 0, "skipped": 0}
-    for name, block in _PROFILES:
-        stats[_upsert_module_profile(name, block)] += 1
+    """Cleanup legacy Module Profile. Idempotent."""
+    deleted = _delete_legacy_module_profiles()
     frappe.db.commit()
-    print(
-        f"[AssetCore] Module Profiles: {stats['inserted']} tạo mới, "
-        f"{stats['updated']} cập nhật, {stats['skipped']} bỏ qua."
-    )
+    print(f"[AssetCore] Legacy Module Profile cleanup: {deleted} xóa.")

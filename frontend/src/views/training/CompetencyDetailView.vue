@@ -1,9 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useImm06Store } from '@/stores/imm06'
-import { useAuthStore } from '@/stores/auth'
+import { useCapabilities } from '@/composables/useCapabilities'
 import { useApi } from '@/composables/useApi'
-import { ROLES_TRAINING_MANAGE, ROLES_TRAINING_SIGNOFF } from '@/constants/roles'
 import { getExpiringCompetencies, signoffCompetency, revokeCompetency, recertifyCompetency } from '@/api/imm06'
 import type { UserCompetency } from '@/api/imm06'
 import PageHeader from '@/components/common/PageHeader.vue'
@@ -11,7 +10,7 @@ import StatusBadge from '@/components/common/StatusBadge.vue'
 
 const props = defineProps<{ name: string }>()
 const store = useImm06Store()
-const authStore = useAuthStore()
+const { can } = useCapabilities()
 const api = useApi()
 
 const competency = ref<UserCompetency | null>(null)
@@ -24,19 +23,38 @@ const revokeCapa = ref('')
 const showRecertModal = ref(false)
 const recertSession = ref('')
 
-// BE CompetencyStatus.PENDING = "Pending Assessment" (services/imm06.py:41)
+// BUG-011: Gate UI bằng capability — BE rbac.require ở api/imm06.py.
+// `training.submit` (Training Manager) gate signoff/revoke/recertify.
 const canSignoff = computed(
-  () => competency.value?.workflow_state === 'Pending Assessment' && authStore.hasAnyRole(ROLES_TRAINING_SIGNOFF),
+  () => competency.value?.workflow_state === 'Pending Assessment' && can('training.submit'),
 )
 // Workflow JSON: "Thu hồi" allowed from Active / Expiring / Expired / Suspended
 const canRevoke = computed(
   () => ['Active', 'Expiring', 'Expired', 'Suspended'].includes(competency.value?.workflow_state ?? '')
-    && authStore.hasAnyRole(ROLES_TRAINING_MANAGE),
+    && can('training.submit'),
 )
 // Workflow JSON: "Tái chứng nhận" allowed from Expired (also surface for Expiring per BR-06 recert flow)
 const canRecertify = computed(
   () => ['Expired', 'Expiring'].includes(competency.value?.workflow_state ?? '')
-    && authStore.hasAnyRole(ROLES_TRAINING_MANAGE),
+    && can('training.submit'),
+)
+
+// BUG-011: Hint khi competency có state cần action nhưng user thiếu quyền.
+const hasAnyAction = computed(() => canSignoff.value || canRevoke.value || canRecertify.value)
+const needsActionState = computed(() =>
+  ['Pending Assessment', 'Active', 'Expiring', 'Expired', 'Suspended']
+    .includes(competency.value?.workflow_state ?? ''),
+)
+const showPermissionHint = computed(() =>
+  !!competency.value && needsActionState.value && !hasAnyAction.value,
+)
+
+// BUG-011: Hint cho điểm trống — giải thích scoring flow (set qua session complete).
+const hasNoScores = computed(() =>
+  !!competency.value &&
+  competency.value.theory_score == null &&
+  competency.value.practical_score == null &&
+  competency.value.last_assessment_score == null,
 )
 
 function levelLabel(v: string): string {
@@ -169,6 +187,20 @@ onMounted(load)
     </div>
 
     <template v-else-if="competency">
+      <!-- BUG-011: Permission hint khi state cần action nhưng user thiếu quyền -->
+      <div
+        v-if="showPermissionHint"
+        class="card p-4 bg-amber-50 border-amber-200 text-sm text-amber-800 flex items-start gap-3"
+      >
+        <svg class="w-5 h-5 shrink-0 text-amber-500 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M12 2a10 10 0 100 20 10 10 0 000-20z" />
+        </svg>
+        <div>
+          <p class="font-medium">Bạn không có quyền duyệt/thu hồi/tái chứng nhận năng lực.</p>
+          <p class="text-xs mt-0.5">Liên hệ quản trị để cấp role Training Manager.</p>
+        </div>
+      </div>
+
       <!-- Main info -->
       <div class="card p-5">
         <h2 class="text-sm font-semibold text-slate-700 mb-4 pb-2 border-b">Thông tin năng lực</h2>
@@ -180,7 +212,7 @@ onMounted(load)
           </div>
           <div>
             <p class="text-xs text-slate-400 mb-1">Device Model</p>
-            <p class="font-medium">{{ competency.device_model }}</p>
+            <p class="font-medium" :title="competency.device_model">{{ competency.device_model_name ?? competency.device_model }}</p>
           </div>
           <div>
             <p class="text-xs text-slate-400 mb-1">Chương trình đào tạo</p>
@@ -218,6 +250,19 @@ onMounted(load)
       <!-- Assessment scores -->
       <div class="card p-5">
         <h2 class="text-sm font-semibold text-slate-700 mb-4 pb-2 border-b">Kết quả đánh giá</h2>
+        <!-- BUG-011: Hint khi chưa có điểm — giải thích scoring flow -->
+        <div
+          v-if="hasNoScores"
+          class="mb-4 p-3 rounded-lg border border-blue-200 bg-blue-50 text-xs text-blue-700 flex items-start gap-2"
+        >
+          <svg class="w-4 h-4 shrink-0 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M12 2a10 10 0 100 20 10 10 0 000-20z" />
+          </svg>
+          <div>
+            <p class="font-medium">Chưa có điểm đánh giá.</p>
+            <p class="mt-0.5">Điểm lý thuyết / thực hành được nhập trên <strong>Buổi đào tạo</strong> khi hoàn thành (trạng thái In Progress → Completed). Khi học viên đạt, hệ thống tự sinh hồ sơ năng lực với điểm tương ứng.</p>
+          </div>
+        </div>
         <div class="grid grid-cols-2 md:grid-cols-3 gap-5 text-sm">
           <div>
             <p class="text-xs text-slate-400 mb-1">Điểm tổng cuối</p>

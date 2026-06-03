@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="module-id" content="commissioning">
+<title>Dashboard nghiệm thu — AssetCore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+<script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <a class="brand" style="color:inherit;text-decoration:none" href="#">
+      <span class="logo">A</span>
+      <div>AssetCore <small>IMMIS · BV Nhi Đồng 1</small></div>
+    </a>
+    <div class="spacer"></div>
+    <button class="iconbtn" title="Thông báo"><iconify-icon icon="heroicons:bell" style="font-size:18px;vertical-align:-3px;color:#fff"></iconify-icon></button>
+    <div class="persona-pill" title="Chọn vai trò"></div>
+    <div id="personaMenu" class="persona-menu"></div>
+  </div>
+  <div class="body-wrap">
+    <aside class="sidebar">
+      <div class="side-head"><span></span></div>
+      <nav></nav>
+      <div class="side-foot">AssetCore v0.0.2 · Wave 1+2</div>
+    </aside>
+    <main class="main">
+      <div class="breadcrumb"><a href="../index.html">Trang chủ</a> <span class="sep">›</span><a href="commissioning-list.html">Lắp đặt & Nghiệm thu</a> <span class="sep">›</span><span>Dashboard</span></div>
+      <div class="page">
+        <div class="page-head"><div class="titles"><h1>Dashboard lắp đặt & nghiệm thu</h1>
+  <div class="sub">Tổng 47 phiếu năm 2026 · 38 hoàn tất · 5 đang xử lý · 4 overdue gate</div></div>
+
+</div><div class="grid g4" style="margin-bottom:20px">
+  <div class="kpi primary"><div class="kbar"></div><div class="klabel">Đang xử lý</div><div class="kval">5</div><div class="kfoot">3 chờ phê duyệt</div></div>
+  <div class="kpi warn"><div class="kbar"></div><div class="klabel">Overdue Gate</div><div class="kval">4</div><div class="kfoot">Vượt SLA gate</div></div>
+  <div class="kpi danger"><div class="kbar"></div><div class="klabel">NC mở</div><div class="kval">3</div><div class="kfoot">2 cần QA xử lý</div></div>
+  <div class="kpi ok"><div class="kbar"></div><div class="klabel">Đã nghiệm thu 2026</div><div class="kval">38</div><div class="kfoot">Trị giá 4,2 tỷ ₫</div></div>
+
+</div><div class="grid g2">
+  <div class="card">
+    <div class="card-head"><h3>Thời gian trung bình qua từng Gate</h3></div>
+    <div class="card-pad">
+      <table style="width:100%;font-size:14px">
+        <tbody>
+          <tr style="border-bottom:1px solid var(--color-neutral-100)"><td style="padding:8px 0">G01 Document Check</td><td><b>2,1 ngày</b></td></tr>
+          <tr style="border-bottom:1px solid var(--color-neutral-100)"><td style="padding:8px 0">G02 Installation</td><td><b>3,5 ngày</b></td></tr>
+          <tr style="border-bottom:1px solid var(--color-neutral-100)"><td style="padding:8px 0">G03 Baseline</td><td><b>1,8 ngày</b></td></tr>
+          <tr style="border-bottom:1px solid var(--color-neutral-100)"><td style="padding:8px 0">G04 Clinical Hold</td><td><b>2,2 ngày</b></td></tr>
+          <tr style="border-bottom:1px solid var(--color-neutral-100)"><td style="padding:8px 0">G05 Clinical Release</td><td><b>1,5 ngày</b></td></tr>
+          <tr><td style="padding:8px 0">G06 Final Approval</td><td><b>1,1 ngày</b></td></tr>
+        </tbody>
+      </table>
+      <p class="text-sm muted" style="margin-top:10px"><iconify-icon icon="heroicons:clock" style="font-size:16px;vertical-align:-3px"></iconify-icon> Tổng trung bình: <b>12,2 ngày</b> (mục tiêu ≤ 15 ngày)</p>
+    </div>
+
+  </div><div class="card">
+    <div class="card-head"><h3>Non-Conformance theo loại</h3></div>
+    <div class="card-pad">
+      <ul style="list-style:none;font-size:14px">
+        <li style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--color-neutral-100)"><span><iconify-icon icon="heroicons:document-text" style="font-size:16px;vertical-align:-3px"></iconify-icon> Thiếu giấy tờ</span><b style="color:#F59E0B">8 (32%)</b></li>
+        <li style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--color-neutral-100)"><span><iconify-icon icon="heroicons:cube" style="font-size:16px;vertical-align:-3px"></iconify-icon> Hỏng vật lý khi giao</span><b style="color:#DC2626">5 (20%)</b></li>
+        <li style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--color-neutral-100)"><span><iconify-icon icon="heroicons:wrench" style="font-size:16px;vertical-align:-3px"></iconify-icon> Sai cấu hình</span><b>4 (16%)</b></li>
+        <li style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--color-neutral-100)"><span><iconify-icon icon="heroicons:x-circle" style="font-size:16px;vertical-align:-3px"></iconify-icon> Sai phụ kiện</span><b>4 (16%)</b></li>
+        <li style="display:flex;justify-content:space-between;padding:8px 0"><span><iconify-icon icon="heroicons:chart-bar" style="font-size:16px;vertical-align:-3px"></iconify-icon> Khác</span><b>4 (16%)</b></li>
+      </ul>
+    </div>
+  </div>
+
+      
+    
+      </div>
+    </div>
+</main>
+  </div>
+</div>
+<script src="../assets/shell.js"></script>
+</body>
+</html>

@@ -19,7 +19,7 @@ Bám 3-tier strict: **API → Service → DocType → ORM**.
 HTTP Request
       │
       ▼
-API Layer  (assetcore/api/imm04.py — 17 endpoints)
+API Layer  (assetcore/api/imm04.py — 33 endpoints)
       │   _ok / _err envelope; permission check; payload parse
       ▼
 Service Layer  (assetcore/services/imm04.py)
@@ -76,7 +76,7 @@ Side Effects:
 | `final_asset` | Link AC Asset | — | — | set by create_ac_asset() on submit |
 | `baseline_tests` | Table Commissioning Checklist | YES | — | G03: 100% Pass/N/A |
 | `commissioning_documents` | Table Commissioning Document Record | — | — | G01: mandatory Received/Waived |
-| `lifecycle_events` | Table Asset Lifecycle Event | — | — | VR-06: immutable |
+| `lifecycle_events` | Table Asset Lifecycle Event | — | — | VR-06: immutable ⚠️ field in field_order but missing from JSON fields array — add definition manually |
 | `docstatus` | Int | — | 0 | 0=Draft, 1=Submitted, 2=Cancelled |
 
 **Naming series:** `ACC-.YY.-.MM.-.#####` (YY=năm 2 số, MM=tháng 2 số)
@@ -124,6 +124,27 @@ Side Effects:
 | `Return To Vendor` | Danger | 1 | terminal negative |
 
 Service code constants: `_STATE_CLINICAL_RELEASE = "Clinical Release"`, `_STATE_INITIAL_INSPECTION = "Initial Inspection"`, `_STATE_RE_INSPECTION = "Re Inspection"`, `_TERMINAL_STATES = {"Clinical Release", "Return To Vendor"}` — đồng bộ giá trị space giữa service layer, workflow config, và FE types.
+
+**Overdue-SLA SoT (BR-04-10):** `OVERDUE_DAYS = 30` là **module-constant** (KHÔNG inline literal 30 ở ≥2 nơi). Date-anchor chốt = `reception_date` (theo KPI-04-01). Một helper SoT duy nhất:
+
+```python
+OVERDUE_DAYS = 30  # SLA threshold — single source, no inline literal
+_OVERDUE_ANCHOR = "reception_date"  # date-anchor chốt (Core Doc KPI-04-01 §I.5)
+
+def overdue_commissioning_filter(today: str | None = None) -> dict:
+    """SoT predicate cho 'phiếu quá hạn SLA' — dùng chung scheduler + KPI + list drill.
+
+    Trả filter dict thuần (frappe.db filter syntax) để cả 3 call-site cùng một định nghĩa.
+    """
+    cutoff = add_days(today or nowdate(), -OVERDUE_DAYS)
+    return {
+        _OVERDUE_ANCHOR: ("<", cutoff),
+        "workflow_state": ("not in", list(_TERMINAL_STATES)),
+        "docstatus": ("!=", 2),
+    }
+```
+
+> ⚠️ Self-Correction (vòng 32): `get_dashboard_stats().overdue_sla` trước đây dùng `expected_installation_date` + `docstatus != 2`, còn `check_commissioning_overdue` dùng `reception_date` + `docstatus = 0` → **divergence**. Hợp nhất về `overdue_commissioning_filter()` (anchor `reception_date`, `docstatus != 2`) cho cả 3 call-site. Lưu ý hệ quả: scheduler cũ chỉ alert Draft (`docstatus=0`); SoT mới gồm cả phiếu đã Submit chưa terminal (`docstatus != 2`) — đúng định nghĩa "phiếu chưa Clinical Release vẫn đang chạy SLA". `_send_overdue_alert` tính `days_open = date_diff(nowdate(), <reception_date>)` từ **cùng anchor**.
 
 **Transitions (rút gọn từ codebase `imm_04_workflow.json`):**
 
@@ -191,7 +212,19 @@ class AssetCommissioning(Document):
 | `check_auto_clinical_hold(doc)` | Document | bool | Trả True nếu risk_class ∈ {C,D,Radiation} |
 | `log_lifecycle_event(doc, event_type, from_s, to_s, remarks)` | Document + strings | None | Append lifecycle event row |
 | `handle_commissioning_cancel(doc)` | Document | None | Block cancel nếu final_asset tồn tại |
-| `check_commissioning_overdue()` | — | None | Email Workshop Head phiếu >30 ngày |
+| `overdue_commissioning_filter(today=None)` | str?/None | dict | **SoT** predicate "quá hạn SLA" (BR-04-10): `{reception_date < today−OVERDUE_DAYS, workflow_state NOT IN _TERMINAL_STATES, docstatus != 2}`. Pure, no side effect — dùng chung 3 call-site |
+| `check_commissioning_overdue()` | — | None | Email Workshop Head phiếu quá hạn — gọi `overdue_commissioning_filter()` (KHÔNG inline `reception_date<cutoff`); `_send_overdue_alert` tính `days_open` từ cùng anchor (scheduler daily — ⚠️ CHƯA đăng ký trong hooks.py) |
+| `submit_for_approval(commissioning, approver, stage, remarks)` | string + params | dict | Gửi phê duyệt nội bộ (Wave-2 approval flow) |
+| `approve_pending(commissioning, decision, remarks)` | string + params | dict | Duyệt/từ chối phiếu đang chờ |
+| `list_my_pending_approvals()` | — | list | Danh sách phiếu chờ duyệt của user hiện tại |
+| `create_commissioning_from_purchase(purchase_name, device_idx)` | string + int | dict | Tạo phiếu từ PO |
+| `get_commissioning_origin(asset_name)` | string | dict | Truy ngược asset → commissioning |
+| `get_form_context(name)` | string | dict | Full context cho form view (FE) |
+| `search_link(doctype, query, page_length)` | string | list | Frappe link search helper |
+| `get_users_by_role(role, search, limit)` | string | list | Danh sách user theo Role |
+| `get_gate_status(name)` | string | dict | Trạng thái G01–G06 cho 1 phiếu |
+| `retry_mint_asset(name)` | string | dict | Tạo lại AC Asset nếu on_submit bị lỗi |
+| `get_lifecycle_timeline(name)` | string | list | Timeline lifecycle events (FE) |
 
 **Validators (private):**
 - `_vr01_unique_serial_number(doc)` — UNIQUE check cross-table
@@ -335,6 +368,43 @@ def _handle(fn, *args, **kwargs) -> dict:
 > - `@frappe.whitelist(methods=["POST"])` cho mọi mutation
 > - Input JSON parse qua `_parse_json()` — throw `ServiceError(INVALID_PARAMS)` nếu malformed
 
+### 5.1. Overdue-SLA drill — KPI ↔ list cùng SoT (BR-04-10)
+
+Cả 3 call-site phải dùng `overdue_commissioning_filter()`; KHÔNG nhân bản predicate.
+
+**`get_dashboard_stats().kpis.overdue_sla`** — count thuần từ helper:
+
+```python
+"overdue_sla": frappe.db.count(_DT, overdue_commissioning_filter()),  # KHÔNG inline filter
+```
+
+**`list_commissioning(filters, ...)` — tham số ảo `overdue=1`:**
+
+```python
+_ALLOWED_FILTER_KEYS = frozenset({...})          # raw column keys (KHÔNG chứa 'overdue')
+_VIRTUAL_FILTER_KEYS = frozenset({"overdue"})     # virtual: AND thêm SoT, không phải column
+
+def list_commissioning(filters: dict, page=1, page_size=20) -> dict:
+    safe_filters = {k: v for k, v in filters.items() if k in _ALLOWED_FILTER_KEYS}
+    if "docstatus" not in safe_filters:
+        safe_filters["docstatus"] = ("!=", 2)
+    # Virtual 'overdue=1' → AND thêm SoT predicate (KHÔNG clobber filter khác).
+    # reception_date của SoT ghi đè mọi reception_date người dùng truyền (overdue thắng).
+    if _is_truthy(filters.get("overdue")):
+        safe_filters.update(overdue_commissioning_filter())
+    ...
+```
+
+**Quy tắc:**
+- `'overdue'` nằm trong tập key **được nhận** (whitelist ảo riêng) — KHÔNG lọt qua `_ALLOWED_FILTER_KEYS` như raw column (tránh `WHERE overdue = 1` → SQL error / luôn rỗng).
+- `safe_filters.update(...)` chỉ thêm/ghi đè 3 khoá SoT (`reception_date`, `workflow_state`, `docstatus`); các filter khác (`master_item`, `clinical_dept`, `vendor_serial_no`...) **giữ nguyên** → drill kết hợp được.
+- Chấp nhận `overdue ∈ {1, "1", true}` qua helper truthy; `0/""/absent` → bỏ qua.
+
+**INVARIANT (kiểm thử trên data-live):**
+`get_dashboard_stats().kpis.overdue_sla == list_commissioning({"overdue": 1}, page=1, page_size=N).pagination.total` — card count == drill rows, **byte-for-byte**. Cùng `nowdate()` trong một request nên cùng cutoff.
+
+**KHÔNG đổi:** `pending_count`, `hold_count`, `open_nc_count`, `released_this_month` và mọi field KPI khác giữ nguyên giá trị — chỉ `overdue_sla` đổi anchor (`expected_installation_date` → `reception_date`).
+
 ---
 
 ## 6. Audit Trail
@@ -360,39 +430,38 @@ def _handle(fn, *args, **kwargs) -> dict:
 
 | Job | Tần suất | Trạng thái đăng ký | Mục đích |
 |---|---|---|---|
-| `assetcore.services.imm04.check_commissioning_overdue` | daily | *(Defined nhưng CHƯA đăng ký trong `hooks.py:scheduler_events`)* | Email Workshop Head phiếu mở >30 ngày |
+| `assetcore.services.imm04.check_commissioning_overdue` | daily | **ĐÃ đăng ký** trong `hooks.py:scheduler_events["daily"]` (2026-06-03) | Email Workshop Head phiếu quá hạn SLA (reception_date < today−OVERDUE_DAYS) |
 | `assetcore.tasks.check_clinical_hold_aging` | daily | *(Not yet implemented — module không có `assetcore/tasks.py`)* | Email QA Officer phiếu Clinical Hold quá N ngày |
 | `assetcore.tasks.check_commissioning_sla` | daily | *(Not yet implemented)* | SLA vi phạm |
 
-> Ground truth `assetcore/hooks.py` (2026-05-14): chưa có entry IMM-04 nào trong `scheduler_events`. Để kích hoạt `check_commissioning_overdue`, cần thêm thủ công:
+> Ground truth `assetcore/hooks.py` (2026-06-03): `check_commissioning_overdue` đã được đăng ký trong `scheduler_events["daily"]` (cùng SoT `overdue_commissioning_filter()` với dashboard KPI + list drill). 2 job `clinical_hold_aging` / `commissioning_sla` vẫn backlog (chưa cài):
 
 ```python
 scheduler_events = {
     "daily": [
-        "assetcore.services.imm04.check_commissioning_overdue",
+        "assetcore.services.imm04.check_commissioning_overdue",  # ✅ registered 2026-06-03
         # 2 job clinical_hold_aging / commissioning_sla — backlog, chưa cài
     ],
 }
 ```
 
-**Logic `check_commissioning_overdue`:**
+**Logic `check_commissioning_overdue` (dùng SoT — BR-04-10):**
 
 ```python
 def check_commissioning_overdue() -> None:
-    """Daily: email Workshop Head for open commissioning > 30 days."""
-    threshold = frappe.utils.add_days(frappe.utils.today(), -30)
+    """Daily: email Workshop Head for commissioning quá hạn SLA.
+
+    Dùng SoT `overdue_commissioning_filter()` — KHÔNG inline `reception_date<cutoff`
+    để scheduler-alert / KPI count / list drill luôn cùng định nghĩa.
+    """
     overdue = frappe.get_all(
         "Asset Commissioning",
-        filters={
-            "docstatus": 0,
-            "workflow_state": ("not in", ["Clinical Release", "Return To Vendor"]),
-            "reception_date": ("<", threshold),
-        },
-        fields=["name", "master_item", "workflow_state", "reception_date"],
+        filters=overdue_commissioning_filter(),
+        fields=["name", "vendor", "workflow_state", "reception_date", "commissioned_by"],
     )
-    if overdue:
-        # send email to Workshop Head role users
-        _notify_workshop_head_overdue(overdue)
+    for comm in overdue:
+        # days_open tính từ CÙNG anchor đã chốt (reception_date)
+        _send_overdue_alert(comm, date_diff(nowdate(), comm["reception_date"]))
 ```
 
 ---

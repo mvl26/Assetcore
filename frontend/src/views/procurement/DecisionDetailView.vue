@@ -71,7 +71,7 @@
           <dt>Đơn hàng đã mint:</dt>
           <dd>
             <span v-if="store.currentDecision.ac_purchase_ref">
-              {{ store.currentDecision.ac_purchase_ref }}
+              {{ (store.currentDecision as any).ac_purchase_ref_name || store.currentDecision.ac_purchase_ref }}
             </span>
             <span v-else class="muted">— sẽ tạo khi trao thầu —</span>
           </dd>

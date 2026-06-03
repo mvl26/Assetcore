@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="module-id" content="qr-scan">
+<title>Quét QR / Barcode — AssetCore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+<script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <a class="brand" style="color:inherit;text-decoration:none" href="#">
+      <span class="logo">A</span>
+      <div>AssetCore <small>IMMIS · BV Nhi Đồng 1</small></div>
+    </a>
+    <div class="spacer"></div>
+    <button class="iconbtn" title="Thông báo"><iconify-icon icon="heroicons:bell" style="font-size:18px;vertical-align:-3px;color:#fff"></iconify-icon></button>
+    <div class="persona-pill" title="Chọn vai trò"></div>
+    <div id="personaMenu" class="persona-menu"></div>
+  </div>
+  <div class="body-wrap">
+    <aside class="sidebar">
+      <div class="side-head"><span></span></div>
+      <nav></nav>
+      <div class="side-foot">AssetCore v0.0.2 · Wave 1+2</div>
+    </aside>
+    <main class="main">
+      <div class="breadcrumb"><a href="../index.html">Trang chủ</a> <span class="sep">›</span><span>Quét QR / Barcode</span></div>
+      <div class="page">
+        <div class="page-head">
+  <div class="titles">
+    <h1>Quét QR / Barcode</h1>
+    <div class="sub">Tra cứu nhanh thiết bị / phụ tùng / lệnh công việc bằng mã QR hoặc Barcode</div>
+  </div>
+
+</div><div class="grid g2">
+  <div class="card">
+    <div class="card-pad" style="text-align:center;padding:40px 20px">
+      <div style="font-size:60px;margin-bottom:16px"><iconify-icon icon="heroicons:camera" style="font-size:16px;vertical-align:-3px"></iconify-icon></div>
+      <h3 style="font-size:18px;font-weight:600;margin-bottom:8px">Bật camera để quét</h3>
+      <p class="muted text-sm" style="margin-bottom:20px">Hệ thống sẽ tự nhận diện và mở trang chi tiết phù hợp</p>
+      <button class="btn btn-primary"><iconify-icon icon="heroicons:camera" style="font-size:16px;vertical-align:-3px"></iconify-icon> Mở camera</button>
+      <p class="text-xs muted" style="margin-top:20px">Hoặc nhập mã thủ công bên cạnh →</p>
+    </div>
+
+  </div><div class="card">
+    <div class="card-pad">
+      <h3 style="font-size:16px;font-weight:600;margin-bottom:14px">Nhập mã thủ công</h3>
+      <div class="field">
+        <label class="fld">Mã thiết bị / phụ tùng / WO <span class="req">*</span></label>
+        <input class="input" placeholder="VD: ACC-ASS-2026-00042 hoặc UDI / SN">
+      </div>
+      <button class="btn btn-primary" style="width:100%;margin-bottom:20px">Tra cứu</button>
+
+      <h4 class="section-title" style="margin-top:20px">Lịch sử quét gần đây</h4>
+      <ul style="list-style:none">
+        <li style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--color-neutral-100)">
+          <span>Máy thở Bennett 980</span><span class="text-xs muted">3 phút trước</span></li>
+        <li style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--color-neutral-100)">
+          <span>Monitor Mindray uMEC12</span><span class="text-xs muted">12 phút trước</span></li>
+        <li style="display:flex;justify-content:space-between;padding:8px 0">
+          <span>Phụ tùng — Màng lọc HEPA</span><span class="text-xs muted">1 giờ trước</span></li>
+      </ul>
+    </div>
+  </div>
+
+      
+    
+      </div>
+    </div>
+</main>
+  </div>
+</div>
+<script src="../assets/shell.js"></script>
+</body>
+</html>

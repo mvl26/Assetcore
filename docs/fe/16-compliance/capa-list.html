@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="module-id" content="capa">
+<title>CAPA — AssetCore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+<script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <a class="brand" style="color:inherit;text-decoration:none" href="#">
+      <span class="logo">A</span>
+      <div>AssetCore <small>IMMIS · BV Nhi Đồng 1</small></div>
+    </a>
+    <div class="spacer"></div>
+    <button class="iconbtn" title="Thông báo"><iconify-icon icon="heroicons:bell" style="font-size:18px;vertical-align:-3px;color:#fff"></iconify-icon></button>
+    <div class="persona-pill" title="Chọn vai trò"></div>
+    <div id="personaMenu" class="persona-menu"></div>
+  </div>
+  <div class="body-wrap">
+    <aside class="sidebar">
+      <div class="side-head"><span></span></div>
+      <nav></nav>
+      <div class="side-foot">AssetCore v0.0.2 · Wave 1+2</div>
+    </aside>
+    <main class="main">
+      <div class="breadcrumb"><a href="../index.html">Trang chủ</a> <span class="sep">›</span><span>CAPA</span></div>
+      <div class="page">
+        <div class="page-head">
+  <div class="titles"><h1>CAPA — Corrective & Preventive Action</h1>
+    <div class="sub">23 CAPA · 5 mở · 12 đang xử lý · 1 Overdue · 5 đã đóng</div></div>
+  <div class="toolbar"><a class="btn btn-primary" href="#">+ Tạo CAPA</a></div>
+
+</div><div class="grid g4" style="margin-bottom:20px">
+  <div class="kpi primary"><div class="kbar"></div><div class="klabel">Open</div><div class="kval">5</div><div class="kfoot">Chờ phân công</div></div>
+  <div class="kpi warn"><div class="kbar"></div><div class="klabel">In Progress</div><div class="kval">12</div><div class="kfoot">Đang xử lý</div></div>
+  <div class="kpi danger"><div class="kbar"></div><div class="klabel">Overdue</div><div class="kval">1</div><div class="kfoot">CAPA-2026-0021</div></div>
+  <div class="kpi ok"><div class="kbar"></div><div class="klabel">Đã đóng (effective)</div><div class="kval">5</div><div class="kfoot">100% pass kiểm tra hiệu lực</div></div>
+
+</div><div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>Mã CAPA</th><th>Nguồn</th><th>Severity</th><th>Deadline</th><th>Owner</th><th>Effectiveness</th><th>Trạng thái</th></tr></thead>
+    <tbody>
+      <tr class="row-danger">
+        <td class="mono"><a class="link" href="#">CAPA-2026-0021</a></td><td>Incident INC-2026-00077</td>
+        <td><span class="badge b-critical">Critical</span></td><td><b style="color:#DC2626">22/05/2026 (3 ngày)</b></td>
+        <td>Hoàng Minh Châu</td><td>—</td><td><span class="badge b-overdue">Overdue</span></td>
+      </tr>
+      <tr>
+        <td class="mono"><a class="link" href="#">CAPA-2026-0019</a></td><td>Audit Finding CF-2026-0040</td>
+        <td><span class="badge b-high">High</span></td><td>05/06/2026</td>
+        <td>Lê Quốc Hùng</td><td>—</td><td><span class="badge b-inprogress">In Progress</span></td>
+      </tr>
+      <tr>
+        <td class="mono"><a class="link" href="#">CAPA-2026-0015</a></td><td>Incident INC-2026-00070</td>
+        <td><span class="badge b-medium">Medium</span></td><td>10/06/2026</td>
+        <td>Hoàng Minh Châu</td><td><span class="badge b-pending-ver">Pending Verify</span></td><td><span class="badge b-inprogress">Verify</span></td>
+      </tr>
+      <tr>
+        <td class="mono"><a class="link" href="#">CAPA-2026-0009</a></td><td>Recall FSCA-2026-03</td>
+        <td><span class="badge b-high">High</span></td><td>30/04/2026 <iconify-icon icon="heroicons:check" style="font-size:16px;vertical-align:-3px"></iconify-icon></td>
+        <td>Hoàng Minh Châu</td><td><b style="color:#16A34A">Effective</b></td><td><span class="badge b-closed">Closed</span></td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+      
+    
+      </div>
+    </main>
+  </div>
+</div>
+<script src="../assets/shell.js"></script>
+</body>
+</html>

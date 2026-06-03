@@ -25,7 +25,8 @@ from assetcore.repositories.allocation_repo import (
     SparePartRepo,
     StockMovementRepo,
 )
-from assetcore.services.shared import ErrorCode, Roles, ServiceError, normalize_filters
+from assetcore.services.shared import ErrorCode, ServiceError, normalize_filters
+from assetcore.services.shared import rbac
 from assetcore.utils.lifecycle import log_audit_event
 
 
@@ -89,12 +90,55 @@ class ForecastState:
     APPROVED = "Approved"
 
 
-# Role groups (mirror docs §2)
-_APPROVE_ALLOCATION_ROLES = (Roles.WORKSHOP, Roles.OPS_MANAGER, Roles.SYS_ADMIN)
-_ISSUE_ROLES = (Roles.STOREKEEPER, Roles.OPS_MANAGER, Roles.SYS_ADMIN)
-_FORECAST_APPROVE_ROLES = (Roles.WORKSHOP, Roles.OPS_MANAGER, Roles.SYS_ADMIN)
-_WATCHLIST_MANAGE_ROLES = (Roles.WORKSHOP, Roles.OPS_MANAGER, Roles.SYS_ADMIN)
-_CYCLE_POST_ROLES = (Roles.WORKSHOP, Roles.OPS_MANAGER, Roles.SYS_ADMIN)
+# Capability gates (Inventory domain) — quyen that do DocPerm quyet dinh.
+_CAP_APPROVE = "inventory.submit"   # duyet/post (Manager-level)
+_CAP_OPERATE = "inventory.write"    # thao tac thuong (User+)
+
+
+# ─── Reservation ledger SoT wiring (§III-bis / RULE-R01) ─────────────────────
+
+def effective_alloc_qty(item) -> float:
+    """SoT đại lượng của một dòng allocation (BR-15-15 / 04 §III-bis.7).
+
+    = COALESCE(NULLIF(qty_approved, 0), qty_requested) — số đã DUYỆT nếu approver
+    đã điền (>0), ngược lại số yêu cầu. ĐÂY là cùng một đại lượng mà:
+      • ``recompute_reserved`` (SQL) dùng để tính reserved_qty (giữ chỗ), và
+      • ``issue_allocation`` PHẢI dùng để dispense (qty_issued) + so gate VR-15-03.
+    ⟹ INVARIANT: số đã xuất == số đã giữ chỗ; điều chỉnh phê duyệt KHÔNG bị bỏ qua.
+
+    Args:
+        item: dòng IMM Spare Allocation Item (có qty_approved / qty_requested).
+
+    Returns:
+        float: số lượng hiệu lực của dòng.
+    """
+    return float(item.qty_approved or 0) or float(item.qty_requested or 0)
+
+
+def _recompute_reserved_for_allocation(doc) -> None:
+    """Recompute reserved_qty for every bin touched by an allocation.
+
+    SoT call (§III-bis.2): for each distinct spare_part on the allocation, recompute
+    reserved_qty of its bin (warehouse_from × spare_part). Single warehouse_from per
+    allocation today; iterate spare_parts. MUST run AT THE END of every transition
+    (create / approve / issue / cancel / return) — AFTER allocation_status and any
+    qty_on_hand movement are persisted — so the recompute reads the new holding set.
+
+    RULE-R01: this is the ONLY path that writes reserved_qty from imm15.py. No inline
+    `reserved_qty +=/-=` anywhere — recompute is absolute and idempotent.
+    """
+    from assetcore.services.inventory import recompute_reserved
+
+    warehouse = doc.warehouse_from
+    if not warehouse:
+        return
+    seen: set[str] = set()
+    for item in doc.items:
+        sp = item.spare_part
+        if not sp or sp in seen:
+            continue
+        seen.add(sp)
+        recompute_reserved(warehouse, sp)
 
 
 # ─── Display name helpers (Data Contract BE-DC-15-01) ────────────────────────
@@ -210,6 +254,8 @@ def create_allocation(work_order_ref: str, items: list[dict],
     doc.flags.ignore_links = True
     doc.insert(ignore_permissions=True)
     _write_allocation_audit(doc.name, "CREATED", {})
+    # SoT (§III-bis): the new Requested lines now HOLD stock → recompute reserved.
+    _recompute_reserved_for_allocation(doc)
     frappe.db.commit()
     return {"name": doc.name, "workflow_state": AllocationStatus.REQUESTED,
             "allocation_status": AllocationStatus.REQUESTED}
@@ -217,8 +263,8 @@ def create_allocation(work_order_ref: str, items: list[dict],
 
 def approve_allocation(allocation: str) -> dict:
     """Duyệt allocation: Requested → Approved (§3.3)."""
-    _require_any_role(_APPROVE_ALLOCATION_ROLES,
-                      "Chỉ IMM Workshop Lead / Operations Manager mới được duyệt allocation")
+    _require_any_role(_CAP_APPROVE,
+                      "Chỉ cấp quản lý (Inventory/Store Manager) mới được duyệt allocation")
     doc = AllocationRepo.get(allocation)
     if not doc:
         raise ServiceError(ErrorCode.NOT_FOUND,
@@ -232,13 +278,16 @@ def approve_allocation(allocation: str) -> dict:
     doc.flags.ignore_links = True
     AllocationRepo.save(doc)
     _write_allocation_audit(allocation, "APPROVED", {})
+    # SoT (§III-bis): still HOLDING (Requested→Approved); recompute so a qty_approved
+    # adjustment is reflected and the call stays idempotent.
+    _recompute_reserved_for_allocation(doc)
     frappe.db.commit()
     return {"name": allocation, "workflow_state": AllocationStatus.APPROVED}
 
 
 def issue_allocation(allocation_name: str) -> dict:
     """Xuất kho — tạo AC Stock Movement (Issue) (§3.4)."""
-    _require_any_role(_ISSUE_ROLES,
+    _require_any_role(_CAP_OPERATE,
                       "Chỉ Thủ kho / Operations Manager mới được xuất kho")
     doc = AllocationRepo.get(allocation_name)
     if not doc:
@@ -248,7 +297,7 @@ def issue_allocation(allocation_name: str) -> dict:
         raise ServiceError(ErrorCode.BAD_STATE,
                            f"Không thể xuất kho ở trạng thái: {doc.allocation_status}")
 
-    from assetcore.services.inventory import get_available_qty
+    from assetcore.services.inventory import get_stock_row
     is_emergency = doc.urgency == "Emergency"
 
     for item in doc.items:
@@ -269,25 +318,44 @@ def issue_allocation(allocation_name: str) -> dict:
                 f"VR-15-02: Phụ tùng {item.spare_part} yêu cầu số lô/serial",
             )
 
-        # VR-15-03 stock sufficiency (bypass cho Emergency+Critical)
-        avail = get_available_qty(doc.warehouse_from, item.spare_part)
-        qty_needed = float(item.qty_requested or 0)
-        if avail < qty_needed and not (is_emergency and is_critical):
+        # VR-15-03 stock sufficiency (bypass cho Emergency+Critical).
+        # reserved_qty (SoT) giữ chỗ của MỌI allocation HOLDING — KỂ CẢ phiếu NÀY
+        # (đang Requested/Approved → tự giữ). Gate phải so với phần khả dụng SAU KHI
+        # loại bỏ giữ chỗ của CHÍNH phiếu này: available_excl_self =
+        #   qty_on_hand − (reserved_qty − own_hold)         (KHÔNG clamp giữa chừng —
+        # clamp ở available_qty làm mất thông tin oversell của phiếu khác).
+        # own_hold = COALESCE(NULLIF(qty_approved,0), qty_requested) của dòng này.
+        # → phần giữ của phiếu KHÁC vẫn trừ ⟹ chống oversell (§III-bis.4); phần giữ
+        #   của chính phiếu này KHÔNG tự chặn mình.
+        bin_row = get_stock_row(doc.warehouse_from, item.spare_part) or {}
+        on_hand = float(bin_row.get("qty_on_hand") or 0)
+        reserved = float(bin_row.get("reserved_qty") or 0)
+        # BR-15-15 (04 §III-bis.7): số xuất == số giữ chỗ == số đã duyệt. own_hold,
+        # qty_needed VÀ qty_issued đều dùng CHUNG effective_alloc_qty → điều chỉnh
+        # phê duyệt (qty_approved) KHÔNG bị bỏ qua khi xuất, gate so đúng số sẽ-xuất.
+        own_hold = effective_alloc_qty(item)
+        avail_excl_self = on_hand - max(0.0, reserved - own_hold)
+        qty_needed = effective_alloc_qty(item)
+        if avail_excl_self < qty_needed and not (is_emergency and is_critical):
             raise ServiceError(
                 ErrorCode.BUSINESS_RULE,
-                f"VR-15-03: Tồn kho không đủ — available: {avail}, cần: {qty_needed}",
+                f"VR-15-03: Tồn kho không đủ — available: {avail_excl_self}, cần: {qty_needed}",
             )
         item.qty_issued = qty_needed
 
     sm = _create_stock_movement_for_issue(doc)
     doc.stock_movement_ref = sm.name
     doc.allocation_status = AllocationStatus.ISSUED
-    doc.total_value = sum(
-        float(item.qty_issued or 0) * float(item.unit_value or 0)
-        for item in doc.items
-    )
+    # BR-15-16 (04 §III-bis.8): total_value/line_value tính bởi controller validate()
+    # (MỘT writer, lifecycle-aware value_qty) — service KHÔNG tự set để tránh clobber
+    # giữa hai công thức. qty_issued đã set ở vòng lặp trên → controller dùng đúng.
     doc.flags.ignore_links = True
     AllocationRepo.save(doc)
+    # SoT (§III-bis.3) RELEASE on terminal: status left {Requested,Approved} → its hold
+    # drops out. ORDER MATTERS — qty_on_hand was already subtracted by
+    # _create_stock_movement_for_issue above; recompute now so available_qty == new
+    # on_hand and the issued qty is NOT double-counted (subtracted AND still reserved).
+    _recompute_reserved_for_allocation(doc)
     _write_allocation_audit(allocation_name, "ISSUED",
                             {"stock_movement": sm.name})
     try:
@@ -303,7 +371,7 @@ def issue_allocation(allocation_name: str) -> dict:
 
 def return_items(allocation: str, items: list[dict]) -> dict:
     """Trả phụ tùng (§3.5). Damaged → QC Hold warehouse (nếu cấu hình)."""
-    _require_any_role(_ISSUE_ROLES,
+    _require_any_role(_CAP_OPERATE,
                       "Chỉ Thủ kho / Operations Manager mới được nhận trả phụ tùng")
     doc = AllocationRepo.get(allocation)
     if not doc:
@@ -332,6 +400,10 @@ def return_items(allocation: str, items: list[dict]) -> dict:
     doc.allocation_status = AllocationStatus.RETURNED
     doc.flags.ignore_links = True
     AllocationRepo.save(doc)
+    # SoT (§III-bis): Issued→Returned was already released at Issue → recompute is a
+    # no-op for reserved (idempotent, NO re-reserve of returned stock); qty_on_hand was
+    # added back via the Receipt movement so available_qty re-syncs to the new on_hand.
+    _recompute_reserved_for_allocation(doc)
     _write_allocation_audit(allocation, "RETURNED",
                             {"stock_movement": sm.name})
     frappe.db.commit()
@@ -342,6 +414,40 @@ def return_items(allocation: str, items: list[dict]) -> dict:
 # Backward compat alias (old name)
 def return_allocation(allocation_name: str, return_items_list: list[dict]) -> dict:
     return return_items(allocation_name, return_items_list)
+
+
+def cancel_allocation(allocation: str) -> dict:
+    """Hủy phiếu cấp phát: {Requested, Approved, Picked} → Cancelled (§III-bis.3).
+
+    KHÔNG cho hủy khi đã Issued/Returned (BAD_STATE) — stock đã thực sự di chuyển.
+    Sau khi set Cancelled, các dòng rời RESERVING_STATES → recompute_reserved giải
+    phóng phần giữ chỗ (qty_on_hand KHÔNG đổi — chưa từng trừ khi mới Requested/Approved).
+
+    Raises:
+        ServiceError(NOT_FOUND): allocation không tồn tại.
+        ServiceError(BAD_STATE): đã Issued/Returned/Cancelled.
+
+    Returns:
+        dict: {"name", "workflow_state": "Cancelled"}.
+    """
+    _require_any_role(_CAP_OPERATE,
+                      "Chỉ Thủ kho / Operations Manager mới được hủy phiếu cấp phát")
+    doc = AllocationRepo.get(allocation)
+    if not doc:
+        raise ServiceError(ErrorCode.NOT_FOUND,
+                           f"IMM Spare Allocation {allocation} không tồn tại")
+    if doc.allocation_status not in AllocationStatus.OPEN:
+        raise ServiceError(
+            ErrorCode.BAD_STATE,
+            f"Không thể hủy phiếu ở trạng thái: {doc.allocation_status}")
+    doc.allocation_status = AllocationStatus.CANCELLED
+    doc.flags.ignore_links = True
+    AllocationRepo.save(doc)
+    # SoT (§III-bis.3) RELEASE: Cancelled is terminal → its hold drops out of reserved.
+    _recompute_reserved_for_allocation(doc)
+    _write_allocation_audit(allocation, "CANCELLED", {})
+    frappe.db.commit()
+    return {"name": allocation, "workflow_state": AllocationStatus.CANCELLED}
 
 
 # ─── Cycle Count: Create / Post ──────────────────────────────────────────────
@@ -366,7 +472,7 @@ def create_cycle_count(warehouse: str, items: list[dict],
                        count_type: str = "Cycle",
                        count_date: str = "") -> dict:
     """Tạo phiên kiểm kê (§3.6) — snapshot system_qty."""
-    _require_any_role((Roles.STOREKEEPER, Roles.WORKSHOP, Roles.OPS_MANAGER, Roles.SYS_ADMIN),
+    _require_any_role(_CAP_OPERATE,
                       "Không có quyền tạo phiên kiểm kê")
     if not warehouse:
         raise ServiceError(ErrorCode.VALIDATION, "Phải chọn kho kiểm kê")
@@ -437,7 +543,7 @@ def submit_cycle_count(count_name: str, counted_items: list[dict]) -> dict:
 def post_cycle_count(cycle_count: str, verified_by: str = "",
                      notes: str = "") -> dict:
     """Post cycle count: Reviewed → Posted, tạo AC Stock Movement Adjustment (§3.7)."""
-    _require_any_role(_CYCLE_POST_ROLES,
+    _require_any_role(_CAP_APPROVE,
                       "Chỉ Workshop Lead / Operations Manager mới được post cycle count")
     doc = CycleCountRepo.get(cycle_count)
     if not doc:
@@ -512,7 +618,7 @@ def generate_spare_forecast(horizon_months: int = 3,
       - reorder_point = safety_stock + (avg_monthly × lead_time_days / 30)
       - recommended_action: Reorder / Hold / Obsolete
     """
-    _require_any_role((Roles.WORKSHOP, Roles.OPS_MANAGER, Roles.SYS_ADMIN, Roles.STOREKEEPER),
+    _require_any_role(_CAP_OPERATE,
                       "Không có quyền tạo forecast")
     horizon_months = max(1, int(horizon_months or 3))
     lookback_months = max(horizon_months * 4, 12)
@@ -587,7 +693,7 @@ def generate_spare_forecast(horizon_months: int = 3,
 
 def approve_forecast(forecast: str) -> dict:
     """Duyệt forecast: Draft → Approved (§3.9)."""
-    _require_any_role(_FORECAST_APPROVE_ROLES,
+    _require_any_role(_CAP_APPROVE,
                       "Chỉ Workshop Lead / Operations Manager mới được duyệt forecast")
     doc = SparePartForecastRepo.get(forecast)
     if not doc:
@@ -642,7 +748,7 @@ def add_to_watchlist(watchlist_name: str, critical_asset: str,
 
     VR-15-09: chỉ phụ tùng Critical mới được thêm.
     """
-    _require_any_role(_WATCHLIST_MANAGE_ROLES,
+    _require_any_role(_CAP_OPERATE,
                       "Chỉ Workshop Lead / Operations Manager mới được quản lý watchlist")
     if not (watchlist_name and spare_part and warehouse):
         raise ServiceError(ErrorCode.VALIDATION,
@@ -774,16 +880,21 @@ def get_dashboard_stats(period: str = "") -> dict:
 
 
 def get_low_stock_alerts(warehouse: str = "") -> dict:
-    """Alerts: parts có qty_on_hand < min_stock_level (§3.13)."""
+    """Alerts: các bin có qty_on_hand < định mức (§3.13).
+
+    R7 §9.4.5 / BUG-15-03 — canonical effective_min (per-bin min_stock_override
+    fallback part min_stock_level). `min_stock_level` trả về = effective_min
+    (vd bin override 80 trả 80, không phải 50) để KHỚP dashboard/drill/KPI.
+    """
+    from assetcore.services.inventory import EFFECTIVE_MIN_EXPR, LOW_STOCK_COND
     cond = " AND s.warehouse = %(wh)s" if warehouse else ""
     rows = frappe.db.sql(
         f"""SELECT s.spare_part, p.part_name, s.warehouse, s.qty_on_hand,
-                   p.min_stock_level
+                   {EFFECTIVE_MIN_EXPR} AS min_stock_level
             FROM `tabAC Spare Part Stock` s
             JOIN `tabAC Spare Part` p ON p.name = s.spare_part
-            WHERE p.is_active=1 AND COALESCE(p.min_stock_level,0) > 0
-              AND s.qty_on_hand < p.min_stock_level {cond}
-            ORDER BY (p.min_stock_level - s.qty_on_hand) DESC
+            WHERE {LOW_STOCK_COND} {cond}
+            ORDER BY ({EFFECTIVE_MIN_EXPR} - s.qty_on_hand) DESC
             LIMIT 100""",
         {"wh": warehouse} if warehouse else {},
         as_dict=True,
@@ -861,10 +972,22 @@ def _create_stock_movement_for_issue(alloc_doc) -> object:
             "qty": float(item.qty_issued or item.qty_requested or 0),
             "warehouse": alloc_doc.warehouse_from,
         })
+    # Slide 27: phiếu Xuất kho bắt buộc có Khoa/Phòng nhận — lấy từ Khoa quản lý
+    # của tài sản được cấp phát phụ tùng.
+    receiver_department = None
+    if alloc_doc.get("asset"):
+        receiver_department = _safe_get_value("AC Asset", alloc_doc.asset, "department")
+    if not receiver_department:
+        raise ServiceError(
+            ErrorCode.VALIDATION,
+            "Không xác định được Khoa/Phòng nhận để xuất kho — "
+            f"tài sản {alloc_doc.get('asset') or '(trống)'} chưa gán Khoa quản lý",
+        )
     sm = frappe.get_doc({
         "doctype": "AC Stock Movement",
         "movement_type": "Issue",
         "from_warehouse": alloc_doc.warehouse_from,
+        "receiver_department": receiver_department,
         "reference_type": _ref_type_for_movement("IMM Spare Allocation"),
         "reference_name": alloc_doc.name,
         "movement_date": nowdate(),
@@ -982,13 +1105,11 @@ def _sum_part_stock(spare_part: str) -> float:
 
 
 def _count_low_stock() -> int:
-    row = frappe.db.sql(
-        """SELECT COUNT(*) FROM `tabAC Spare Part Stock` s
-           JOIN `tabAC Spare Part` p ON p.name = s.spare_part
-           WHERE p.is_active=1 AND COALESCE(p.min_stock_level,0) > 0
-             AND s.qty_on_hand < p.min_stock_level"""
-    )
-    return int((row or [[0]])[0][0])
+    """R7 §9.4.5 / BUG-15-03 — đếm bin dưới định mức theo canonical effective_min
+    (per-bin override fallback part-min). Delegate SoT để KHỚP dashboard /inventory,
+    danh sách /stock, drill và scheduler (1 nguồn SQL duy nhất)."""
+    from assetcore.services.inventory import count_low_stock_bins
+    return count_low_stock_bins()
 
 
 def _write_allocation_audit(allocation_name: str, action: str, payload: dict) -> None:
@@ -1005,18 +1126,14 @@ def _write_allocation_audit(allocation_name: str, action: str, payload: dict) ->
         pass
 
 
-def _require_any_role(roles, message: str) -> None:
-    from assetcore.services.shared import has_any_role
-    if not has_any_role(roles):
+def _require_any_role(cap: str, message: str) -> None:
+    # `cap` la capability key (inventory.*) — KHONG so ten role.
+    if not rbac.can(cap):
         raise ServiceError(ErrorCode.FORBIDDEN, message)
 
 
 def _require_storekeeper_or_tech() -> None:
-    _require_any_role(
-        (Roles.STOREKEEPER, Roles.SYS_ADMIN, Roles.OPS_MANAGER,
-         Roles.WORKSHOP, Roles.BIOMED, Roles.TECHNICIAN),
-        "Không có quyền tạo phiếu cấp phát",
-    )
+    _require_any_role(_CAP_OPERATE, "Không có quyền tạo phiếu cấp phát")
 
 
 def _vr_05_urgency_valid(urgency: str) -> None:
@@ -1091,7 +1208,7 @@ def check_critical_spare_breach() -> None:
     if breach_entries:
         try:
             from assetcore.utils.helpers import _get_role_emails, _safe_sendmail
-            recipients = _get_role_emails([Roles.WORKSHOP, Roles.STOREKEEPER])
+            recipients = _get_role_emails(["Inventory Manager"])
             parts = ", ".join(e["spare_part"] for e in breach_entries)
             _safe_sendmail(
                 recipients=recipients,
@@ -1116,7 +1233,7 @@ def check_expiring_batches() -> None:
         return
     try:
         from assetcore.utils.helpers import _get_role_emails, _safe_sendmail
-        recipients = _get_role_emails([Roles.STOREKEEPER, Roles.WORKSHOP])
+        recipients = _get_role_emails(["Inventory Manager"])
         items_html = "".join(
             f"<li>{b['spare_part']} — Batch {b['batch_code']} — Hết hạn: {b['expiry_date']}</li>"
             for b in expiring

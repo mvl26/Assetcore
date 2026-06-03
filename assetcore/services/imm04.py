@@ -9,8 +9,25 @@ from frappe.model.document import Document
 from frappe.utils import add_days, date_diff, get_first_day, getdate, nowdate
 
 from assetcore.repositories.commissioning_repo import CommissioningRepo, NonConformanceRepo
-from assetcore.services.shared import ErrorCode, ServiceError
+from assetcore.services.shared import (
+    ErrorCode,
+    ServiceError,
+    assert_distinct_signers,
+    assert_not_self_submitter,
+)
+from assetcore.services.shared import rbac
+from assetcore.utils.notify import MSG, nthrow, nthrow_in_hook
 from assetcore.utils.pagination import paginate
+
+# AUTH-05 — 4-eyes / Separation-of-Duties signer fields on Asset Commissioning.
+# A single user cannot occupy more than one of these roles on the same phiếu.
+_SIGNER_FIELDS = (
+    "clinical_head",     # Trưởng khoa lâm sàng
+    "qa_officer",        # QA/QC officer
+    "board_approver",    # Ban Giám đốc
+    "pending_approver",  # current approver in pipeline
+    "owner",             # phiếu submitter
+)
 
 # ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -26,7 +43,36 @@ _STATE_CLINICAL_RELEASE = "Clinical Release"
 _STATE_INITIAL_INSPECTION = "Initial Inspection"
 _STATE_RE_INSPECTION = "Re Inspection"
 _TERMINAL_STATES = frozenset({_STATE_CLINICAL_RELEASE, "Return To Vendor"})
-_SUBMIT_ROLES = frozenset({"IMM Operations Manager", "IMM Workshop Lead"})
+
+# ─── Overdue SLA single-source-of-truth (BR-04-10) ────────────────────────────
+# MỘT date-anchor + MỘT ngưỡng dùng chung cho cả 3 call-site (scheduler alert,
+# dashboard KPI, list drill `overdue=1`) — chống divergence reception_date vs
+# expected_installation_date. Anchor CHỐT = reception_date (Core Doc KPI-04-01
+# §I.5 + BR-04-10: "trong OVERDUE_DAYS ngày từ reception_date") — ngày nhận hàng
+# auto-set today() khi tạo phiếu, là đồng hồ SLA nghiệm thu (Draft → Clinical
+# Release). KHÔNG dùng expected_installation_date làm anchor (ngày-hẹn kế hoạch,
+# KHÔNG phải mốc bắt đầu SLA). KHÔNG inline literal threshold ngoài OVERDUE_DAYS.
+OVERDUE_DAYS = 30
+_OVERDUE_ANCHOR = "reception_date"
+
+
+def overdue_commissioning_filter(today: str | None = None) -> dict:
+    """SoT filter cho 'Phiếu nghiệm thu quá hạn SLA' (BR-04-10).
+
+    Trả filter dict drillable dùng chung bởi scheduler alert + dashboard KPI +
+    list `overdue=1`. Quá hạn ⟺ anchor < (today - OVERDUE_DAYS), phiếu chưa ở
+    terminal state (Clinical Release / Return To Vendor) và chưa bị Cancel.
+
+    Args:
+        today: ngày tham chiếu (ISO yyyy-mm-dd); mặc định nowdate() — cho phép
+               test/scheduler bơm 1 mốc thời gian cố định cho cả 3 call-site.
+    """
+    cutoff = add_days(today or nowdate(), -OVERDUE_DAYS)
+    return {
+        _OVERDUE_ANCHOR: ("<", str(cutoff)),
+        "workflow_state": ("not in", list(_TERMINAL_STATES)),
+        "docstatus": ("!=", 2),
+    }
 
 _CLASS_I = "Class I"
 _CLASS_II = "Class II"
@@ -104,12 +150,14 @@ _ALLOWED_SEARCH_DOCTYPES: dict[str, dict] = {
         "search_fields": ["name", "department_name", "department_code"],
         "filters": {},
         "extra_fields": ["department_name", "department_code"],
+        "dynamic_filter_fields": {"is_group", "parent_department"},
     },
     "AC Location": {
         "label_field": "location_name",
         "search_fields": ["name", "location_name", "location_code"],
         "filters": {},
         "extra_fields": ["location_name", "location_code", "clinical_area_type"],
+        "dynamic_filter_fields": {"is_group", "parent_location", "clinical_area_type"},
     },
     "IMM Device Model": {
         "label_field": "model_name",
@@ -238,17 +286,19 @@ def _vr01_unique_serial_number(doc: Document) -> None:
         return
     existing_asset = frappe.db.get_value(_DT_ASSET, {"manufacturer_sn": doc.vendor_serial_no}, "name")
     if existing_asset and existing_asset != doc.get("final_asset"):
-        frappe.throw(
-            _("VR-01: Serial Number '{0}' đã được gán cho Tài Sản {1}.").format(doc.vendor_serial_no, existing_asset),
-            frappe.DuplicateEntryError,
+        nthrow_in_hook(
+            MSG.IMM04_DUP_SERIAL,
+            serial=doc.vendor_serial_no,
+            ref=_("Tài Sản {0}").format(existing_asset),
         )
     existing_comm = frappe.db.get_value(
         _DT, {"vendor_serial_no": doc.vendor_serial_no, "name": ("!=", doc.name or ""), "docstatus": ("!=", 2)}, "name",
     )
     if existing_comm:
-        frappe.throw(
-            _("VR-01: Serial Number '{0}' đã tồn tại trong Phiếu Nghiệm Thu {1}.").format(doc.vendor_serial_no, existing_comm),
-            frappe.DuplicateEntryError,
+        nthrow_in_hook(
+            MSG.IMM04_DUP_SERIAL,
+            serial=doc.vendor_serial_no,
+            ref=_("Phiếu Nghiệm Thu {0}").format(existing_comm),
         )
 
 
@@ -279,7 +329,7 @@ def _vr06_immutable_lifecycle_events(doc: Document) -> None:
         if row.name and row.name in existing:
             orig = existing[row.name]
             if row.actor != orig["actor"] or row.event_type != orig["event_type"]:
-                frappe.throw(_("VR-06: Nhật ký sự kiện vòng đời không được chỉnh sửa (ISO 13485 §4.2.5)."))
+                nthrow_in_hook(MSG.IMM04_LIFECYCLE_LOCKED)
 
 
 def _validate_document_expiry(doc: Document) -> None:
@@ -289,7 +339,7 @@ def _validate_document_expiry(doc: Document) -> None:
         if expiry and d.get("status") == "Received":
             days = date_diff(expiry, today)
             if days < 0:
-                frappe.throw(_("Tài liệu '{0}' đã hết hạn vào {1}.").format(d.doc_type, expiry))
+                nthrow_in_hook(MSG.IMM04_DOC_EXPIRED, doc_type=d.doc_type, expiry=expiry)
             elif days < 30:
                 frappe.msgprint(
                     _("Cảnh báo: '{0}' hết hạn sau {1} ngày.").format(d.doc_type, days),
@@ -327,10 +377,7 @@ def validate_gate_g01(doc: Document) -> None:
         )
         return
 
-    frappe.throw(_(
-        "VR-02 (Gate G01): Chưa đủ tài liệu bắt buộc. Còn thiếu: {0}.\n"
-        "Nếu cần duyệt sớm, đánh dấu '☑ Thiếu hồ sơ — vẫn cho phép duyệt' và ghi rõ kế hoạch bổ sung."
-    ).format(", ".join(missing)))
+    nthrow_in_hook(MSG.IMM04_DOCS_INCOMPLETE, missing=", ".join(missing))
 
 
 def validate_gate_g03(doc: Document) -> None:
@@ -339,7 +386,7 @@ def validate_gate_g03(doc: Document) -> None:
         return
     failed = [row.parameter for row in (doc.get("baseline_tests") or []) if row.test_result == "Fail"]
     if failed:
-        frappe.throw(_("VR-03 (Gate G03): Các thông số sau không đạt: {0}.").format(", ".join(failed)))
+        nthrow_in_hook(MSG.IMM04_BASELINE_FAILED, failed=", ".join(failed))
 
 
 def validate_gate_g05_g06(doc: Document) -> None:
@@ -348,9 +395,9 @@ def validate_gate_g05_g06(doc: Document) -> None:
         return
     open_nc = frappe.db.count(_DT_NC, {"ref_commissioning": doc.name, "resolution_status": "Open"})
     if open_nc > 0:
-        frappe.throw(_("VR-04 (Gate G05): Còn {0} NC chưa đóng.").format(open_nc))
+        nthrow_in_hook(MSG.IMM04_OPEN_NC, count=open_nc)
     if not doc.board_approver:
-        frappe.throw(_("Gate G06: Cần chọn Người Phê Duyệt Ban Giám Đốc."))
+        nthrow_in_hook(MSG.IMM04_BOARD_APPROVER_REQUIRED)
 
 
 def check_auto_clinical_hold(doc: Document) -> bool:
@@ -362,28 +409,57 @@ def check_auto_clinical_hold(doc: Document) -> bool:
 
 
 def log_lifecycle_event(doc: Document, event_type: str, from_status: str, to_status: str, remarks: str = "") -> None:
-    """Append immutable lifecycle event to commissioning record."""
+    """Persist a lifecycle/audit event for the commissioning record.
+
+    RC-05 fix: the Asset Commissioning DocType does NOT declare a `lifecycle_events`
+    child table (only a Section Break exists in JSON), so any `doc.append(...)`
+    silently no-ops and the "Lịch sử phiếu" tab stays empty. Persist to the canonical
+    `IMM Audit Trail` (SHA-256 chained) so the timeline can read it back. The asset
+    field is left blank pre-release and populated post-release via `final_asset`.
+    Best-effort: never block a state transition because audit logging failed.
+    """
+    from assetcore.utils.lifecycle import log_audit_event as _log_audit
+    try:
+        _log_audit(
+            asset=doc.get("final_asset") or "",
+            event_type="State Change",
+            actor=frappe.session.user,
+            ref_doctype=_DT,
+            ref_name=doc.name,
+            change_summary=(remarks or event_type),
+            from_status=from_status or "",
+            to_status=to_status or "",
+        )
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), f"IMM-04 audit log failed: {doc.name}")
+
+    # Best-effort append to child table (works only if DocType ever declares it)
     if not hasattr(doc, "lifecycle_events"):
         return
-    doc.append("lifecycle_events", {
-        "event_type": event_type,
-        "from_status": from_status or "",
-        "to_status": to_status or "",
-        "actor": frappe.session.user,
-        "event_timestamp": frappe.utils.now_datetime(),
-        "ip_address": getattr(getattr(frappe.local, "request", None), "remote_addr", ""),
-        "remarks": remarks,
-        "root_record": doc.name,
-    })
+    try:
+        doc.append("lifecycle_events", {
+            "event_type": event_type,
+            "from_status": from_status or "",
+            "to_status": to_status or "",
+            "actor": frappe.session.user,
+            "event_timestamp": frappe.utils.now_datetime(),
+            "ip_address": getattr(getattr(frappe.local, "request", None), "remote_addr", ""),
+            "remarks": remarks,
+            "root_record": doc.name,
+        })
+    except Exception:
+        pass
 
 
 def handle_commissioning_cancel(doc: Document) -> None:
     """on_cancel: block if Asset already created."""
     if doc.final_asset:
-        frappe.throw(_("Không thể hủy vì Tài Sản '{0}' đã được kích hoạt.").format(doc.final_asset))
+        nthrow_in_hook(MSG.IMM04_CANCEL_ASSET_ACTIVE, asset=doc.final_asset)
     if doc.workflow_state not in ("Draft", "Non Conformance", "Return To Vendor"):
-        frappe.throw(
-            _("Chỉ hủy khi ở Draft, Non Conformance hoặc Return To Vendor. Hiện tại: {0}").format(doc.workflow_state)
+        nthrow_in_hook(
+            MSG.IMM04_BAD_STATE,
+            state=doc.workflow_state,
+            expected="Draft, Non Conformance, Return To Vendor",
         )
 
 
@@ -445,6 +521,19 @@ def create_ac_asset(doc: Document) -> str:
     if doc.final_asset:
         return doc.final_asset
     from assetcore.utils.lifecycle import create_lifecycle_event
+
+    # BUG-009 fallback: nếu QR vẫn trống tại thời điểm mint, sinh ngay tại đây.
+    # Đảm bảo AC Asset luôn có udi_code khi commissioning hoàn thành.
+    if not doc.internal_tag_qr:
+        try:
+            result = generate_internal_qr(doc.name)
+            doc.internal_tag_qr = result.get("internal_tag_qr") or doc.internal_tag_qr
+        except ServiceError:
+            # Không block mint nếu sinh QR thất bại — log và tiếp tục.
+            frappe.log_error(
+                f"QR fallback generation failed for {doc.name}",
+                "IMM-04 QR Fallback",
+            )
 
     model_data = _load_model_data(doc.master_item)
     med_class, risk_clf = _resolve_risk_class(doc, model_data)
@@ -527,23 +616,25 @@ def create_ac_asset(doc: Document) -> str:
 # ─── Scheduler ────────────────────────────────────────────────────────────────
 
 def check_commissioning_overdue() -> None:
-    """Daily: warn IMM Workshop Lead on commissioning open > 30 days."""
-    cutoff = add_days(nowdate(), -30)
+    """Daily: warn Workshop Head on commissioning quá hạn SLA (> OVERDUE_DAYS).
+
+    Dùng CHUNG SoT `overdue_commissioning_filter()` với dashboard KPI + list drill
+    → tập phiếu nhận alert == tập KPI == tập drill rows (cùng anchor, cùng ngưỡng).
+    """
+    today = nowdate()
     overdue = frappe.get_all(
         _DT,
-        filters={
-            "docstatus": 0,
-            "workflow_state": ("not in", list(_TERMINAL_STATES)),
-            "reception_date": ("<", cutoff),
-        },
-        fields=["name", "vendor", "workflow_state", "reception_date", "commissioned_by"],
+        filters=overdue_commissioning_filter(today),
+        fields=["name", "vendor", "workflow_state", _OVERDUE_ANCHOR, "commissioned_by"],
     )
     for comm in overdue:
-        _send_overdue_alert(comm, date_diff(nowdate(), comm["reception_date"]))
+        _send_overdue_alert(comm, date_diff(today, comm[_OVERDUE_ANCHOR]))
 
 
 def _send_overdue_alert(comm: dict, days_open: int) -> None:
-    users = frappe.db.get_all("Has Role", filters={"role": "IMM Workshop Lead", "parenttype": "User"}, fields=["parent"])
+    # R22: "IMM Workshop Lead" không tồn tại -> email im lặng. Dùng role THẬT.
+    from assetcore.services.shared import notify_roles
+    users = frappe.db.get_all("Has Role", filters={"role": notify_roles.WORKSHOP_HEAD[0], "parenttype": "User"}, fields=["parent"])
     emails = [frappe.db.get_value("User", u.parent, "email") for u in users]
     emails = [e for e in emails if e]
     if not emails:
@@ -689,7 +780,9 @@ def _serialize_commissioning(doc) -> dict:
 def get_form_context(name: str) -> dict:
     doc = CommissioningRepo.get(name)
     if not doc:
-        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy phiếu '{name}'")
+        # Phase 1 notification framework — message_code + context tự render
+        # vào envelope qua handle() trong api/imm04.py.
+        nthrow(MSG.IMM04_NOT_FOUND, name=name)
     try:
         frappe.has_permission(_DT, ptype="read", doc=name, throw=True)
     except frappe.PermissionError:
@@ -697,6 +790,26 @@ def get_form_context(name: str) -> dict:
     result = _serialize_commissioning(doc)
     result["allowed_transitions"] = _get_workflow_transitions(name)
     return result
+
+
+def _is_truthy(value) -> bool:
+    """Chuẩn hoá cờ ảo (overdue) từ FE: 1/'1'/True/'true' → True; 0/''/None → False."""
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes"}
+    return bool(value)
+
+
+def _dict_to_list_filters(d: dict) -> list:
+    """Chuyển filter dict → Frappe list-filter form [[doctype, field, op, val], ...].
+
+    Cho phép cùng 1 cột mang nhiều ràng buộc (vd workflow_state user-chosen + NOT IN
+    terminal) mà không clobber như dict.update().
+    """
+    out: list = []
+    for field, cond in d.items():
+        op, val = cond if isinstance(cond, tuple) else ("=", cond)
+        out.append([_DT, field, op, val])
+    return out
 
 
 def list_commissioning(filters: dict, page: int = 1, page_size: int = 20) -> dict:
@@ -709,13 +822,24 @@ def list_commissioning(filters: dict, page: int = 1, page_size: int = 20) -> dic
     if "docstatus" not in safe_filters:
         safe_filters["docstatus"] = ("!=", 2)
 
+    # Tham số ảo `overdue=1` (BR-04-10): AND thêm SoT overdue_commissioning_filter()
+    # vào điều kiện list — KHÔNG lọt qua _ALLOWED_FILTER_KEYS dạng raw column, KHÔNG
+    # clobber các filter khác. Chuyển sang Frappe list-filter form để cùng 1 cột
+    # (workflow_state) có thể mang nhiều ràng buộc (user-chosen AND not-in-terminal).
+    query_filters: list | dict = safe_filters
+    if _is_truthy(filters.get("overdue")):
+        query_filters = _dict_to_list_filters(safe_filters)
+        for field, cond in overdue_commissioning_filter().items():
+            op, val = cond if isinstance(cond, tuple) else ("=", cond)
+            query_filters.append([_DT, field, op, val])
+
     page = max(1, int(page))
     page_size = min(max(1, int(page_size)), 100)
-    total = frappe.db.count(_DT, safe_filters)
+    total = frappe.db.count(_DT, query_filters)
     pg = paginate(total, page, page_size)
 
     records = frappe.get_all(
-        _DT, filters=safe_filters, fields=_LIST_FIELDS,
+        _DT, filters=query_filters, fields=_LIST_FIELDS,
         order_by=_ORDER_MODIFIED,
         limit_start=pg["offset"], limit_page_length=pg["page_size"],
     )
@@ -816,7 +940,6 @@ def get_dashboard_stats() -> dict:
     )
     state_map = {s.workflow_state: s.count for s in states_count}
     first_day = get_first_day(nowdate())
-    overdue_cutoff = add_days(nowdate(), -30)
 
     return {
         "kpis": {
@@ -827,11 +950,9 @@ def get_dashboard_stats() -> dict:
                 "workflow_state": _STATE_CLINICAL_RELEASE, "docstatus": 1,
                 "modified": (">=", str(first_day)),
             }),
-            "overdue_sla": frappe.db.count(_DT, {
-                "expected_installation_date": ("<", str(overdue_cutoff)),
-                "workflow_state": ("not in", list(_TERMINAL_STATES)),
-                "docstatus": ("!=", 2),
-            }),
+            # SoT: cùng filter với list drill `overdue=1` + scheduler alert.
+            # card count == drill rows == scheduler set (BR-04-10).
+            "overdue_sla": frappe.db.count(_DT, overdue_commissioning_filter()),
         },
         "states_breakdown": states_count,
         "recent_list": frappe.get_all(
@@ -874,13 +995,24 @@ def generate_qr_label(name: str) -> dict:
     }
 
 
-def search_link(doctype: str, query: str = "", page_length: int = 10) -> list:
+def search_link(
+    doctype: str,
+    query: str = "",
+    page_length: int = 10,
+    extra_filters: dict | None = None,
+) -> list:
     if doctype not in _ALLOWED_SEARCH_DOCTYPES:
         raise ServiceError(ErrorCode.FORBIDDEN, f"DocType '{doctype}' không được phép tìm kiếm")
     config = _ALLOWED_SEARCH_DOCTYPES[doctype]
     if config.get("optional") and not frappe.db.exists("DocType", doctype):
         return []
     filters = dict(config["filters"])
+    # Merge whitelisted dynamic filters from caller (e.g. {is_group: 1} for tree parents)
+    allowed_dynamic = config.get("dynamic_filter_fields") or set()
+    if extra_filters and allowed_dynamic:
+        for k, v in extra_filters.items():
+            if k in allowed_dynamic:
+                filters[k] = v
     or_filters = []
     if query:
         q = f"%{query}%"
@@ -942,14 +1074,45 @@ def transition_state(name: str, action: str) -> dict:
     frappe.model.workflow.apply_workflow(doc, action)
     log_lifecycle_event(doc, action, prev_state, doc.workflow_state)
     doc.save(ignore_permissions=False)
-    return {"name": name, "action_applied": action, "new_state": doc.workflow_state, "docstatus": doc.docstatus}
+
+    # RC-06 fix: once we reach Clinical Release (acceptance "Hoàn tất"), auto-mint
+    # the AC Asset even if the user hasn't clicked Submit yet. Idempotent — guarded
+    # by `doc.final_asset` inside `create_ac_asset`. Best-effort: don't block the
+    # workflow if asset creation fails — surface as a log entry the user can chase.
+    if doc.workflow_state == _STATE_CLINICAL_RELEASE and not doc.final_asset:
+        try:
+            asset_name = create_ac_asset(doc)
+            if asset_name:
+                frappe.db.set_value(_DT, doc.name, "final_asset", asset_name)
+                doc.reload()
+        except Exception as e:
+            frappe.log_error(
+                frappe.get_traceback(),
+                f"IMM-04 auto-mint asset failed on transition: {doc.name}",
+            )
+            frappe.msgprint(
+                _("⚠ Phiếu đã chuyển sang '{0}' nhưng không tạo được Tài sản tự động: {1}. "
+                  "Vui lòng bấm Submit để thử lại.").format(_STATE_CLINICAL_RELEASE, str(e)),
+                alert=True, indicator="orange",
+            )
+
+    return {
+        "name": name, "action_applied": action,
+        "new_state": doc.workflow_state, "docstatus": doc.docstatus,
+        "final_asset": doc.final_asset,
+    }
 
 
 def submit_commissioning(name: str) -> dict:
     if not frappe.db.exists(_DT, name):
         raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy phiếu '{name}'")
-    if not _SUBMIT_ROLES.intersection(set(frappe.get_roles(frappe.session.user))):
-        raise ServiceError(ErrorCode.FORBIDDEN, "Chỉ IMM Operations Manager hoặc IMM Workshop Lead mới được Submit")
+    # R20 FIX: gate qua capability THẬT (commissioning.submit → DocPerm submit
+    # trên Asset Commissioning: Commissioning Manager=1, User=0). Trước fix dùng
+    # _SUBMIT_ROLES role-name bịa ("IMM Operations Manager"/"IMM Workshop Lead")
+    # → KHÔNG user nào pass → submit commissioning chết (bug IMM-12 lặp lại).
+    if not rbac.can("commissioning.submit"):
+        raise ServiceError(ErrorCode.FORBIDDEN,
+                           "Chỉ Commissioning Manager mới được Submit phiếu nghiệm thu")
     doc = frappe.get_doc(_DT, name)
     if doc.docstatus == 1:
         raise ServiceError(ErrorCode.INVALID_PARAMS, "Phiếu đã được Submit trước đó")
@@ -1165,6 +1328,48 @@ def assign_identification(name: str, vendor_serial_no: str = "", internal_tag_qr
     return {"name": doc.name, "vendor_serial_no": doc.vendor_serial_no, "internal_tag_qr": doc.internal_tag_qr}
 
 
+def generate_internal_qr(name: str) -> dict:
+    """BUG-009: Manual / fallback QR generator.
+
+    Idempotent: nếu phiếu đã có QR thì trả lại giá trị hiện tại, không ghi đè.
+    Có thể gọi ở bất kỳ workflow_state nào miễn là docstatus != 2 (Cancelled).
+    Dùng cùng format `BV-{DEPT}-{YYYY}-{SEQ}` như controller `_generate_internal_qr`.
+    """
+    import datetime
+
+    doc = CommissioningRepo.get(name)
+    if not doc:
+        raise ServiceError(ErrorCode.NOT_FOUND, f"Không tìm thấy: {name}")
+    if doc.docstatus == 2:
+        raise ServiceError(ErrorCode.INVALID_PARAMS, "Phiếu đã hủy, không thể sinh QR")
+    try:
+        frappe.has_permission(_DT, ptype="write", doc=name, throw=True)
+    except frappe.PermissionError as exc:
+        raise ServiceError(ErrorCode.FORBIDDEN, "Bạn không có quyền sinh QR cho phiếu này") from exc
+
+    if doc.internal_tag_qr:
+        return {
+            "name": doc.name,
+            "internal_tag_qr": doc.internal_tag_qr,
+            "generated": False,
+        }
+
+    dept_code = (doc.clinical_dept or "GEN").replace(" ", "").upper()[:6]
+    year = datetime.datetime.now().year
+    count = frappe.db.count(
+        _DT,
+        {
+            "internal_tag_qr": ("like", f"BV-%-{year}-%"),
+            "name": ("!=", doc.name),
+        },
+    )
+    seq = str(count + 1).zfill(4)
+    qr = f"BV-{dept_code}-{year}-{seq}"
+
+    frappe.db.set_value(_DT, doc.name, "internal_tag_qr", qr)
+    return {"name": doc.name, "internal_tag_qr": qr, "generated": True}
+
+
 def check_sn_unique(vendor_sn: str, exclude_name: str = "") -> dict:
     if not vendor_sn:
         return {"is_unique": True}
@@ -1246,6 +1451,13 @@ def approve_clinical_release(commissioning: str, board_approver: str, approval_r
     open_nc = frappe.db.count(_DT_NC, {"ref_commissioning": commissioning, "resolution_status": "Open"})
     if open_nc > 0:
         raise ServiceError(ErrorCode.INVALID_PARAMS, f"VR-04: Còn {open_nc} NC chưa đóng")
+    # AUTH-05 — 4-eyes: board_approver must not also be the submitter or
+    # already wear another signer hat (clinical_head, qa_officer) on this phiếu.
+    assert_distinct_signers(
+        doc, "clinical_head", "qa_officer", "owner", "pending_approver",
+        candidate_user=board_approver,
+        candidate_field="board_approver",
+    )
     doc.board_approver = board_approver
     if approval_remarks:
         doc.notes = (doc.notes or "") + f"\n[Board Approval] {approval_remarks}"
@@ -1283,9 +1495,11 @@ def cancel_commissioning(name: str) -> dict:
             ErrorCode.FORBIDDEN,
             f"Không thể hủy vì Tài sản '{doc.final_asset}' đã được kích hoạt trong hệ thống",
         )
-    _allowed = _SUBMIT_ROLES | {"System Manager", "Administrator"}
-    if not any(r in _allowed for r in frappe.get_roles()):
-        raise ServiceError(ErrorCode.FORBIDDEN, "Chỉ IMM Operations Manager hoặc IMM Workshop Lead mới được phép hủy phiếu")
+    # R20 FIX: gate qua capability THẬT (commissioning.cancel → DocPerm cancel:
+    # Commissioning Manager=1, User=0). Bỏ _SUBMIT_ROLES role-name bịa.
+    if not rbac.can("commissioning.cancel"):
+        raise ServiceError(ErrorCode.FORBIDDEN,
+                           "Chỉ Commissioning Manager mới được phép hủy phiếu nghiệm thu")
     doc.cancel()
     frappe.db.commit()
     log_lifecycle_event(doc, "Cancelled", doc.workflow_state, "Cancelled",
@@ -1308,11 +1522,15 @@ def generate_handover_pdf(name: str) -> dict:
 
 # ─── Submit-for-approval workflow ─────────────────────────────────────────────
 
+# R22: trỏ role THẬT (trước đây "IMM Biomed Technician"/"IMM Operations Manager"
+# KHÔNG tồn tại -> mọi approver không-super-admin bị FORBIDDEN -> flow gửi-duyệt
+# commissioning chết). Stage kỹ thuật -> Maintenance User; phát hành lâm sàng ->
+# Commissioning Manager (chủ sở hữu nghiệp vụ commissioning).
 _STAGE_ROLE: dict[str, str] = {
-    "Doc Verify":       "IMM Biomed Technician",
-    "Facility Check":   "IMM Biomed Technician",
-    "Baseline Review":  "IMM Biomed Technician",
-    "Clinical Release": "IMM Operations Manager",
+    "Doc Verify":       "Maintenance User",
+    "Facility Check":   "Maintenance User",
+    "Baseline Review":  "Maintenance User",
+    "Clinical Release": "Commissioning Manager",
 }
 
 _STATE_TO_STAGE: dict[str, str] = {
@@ -1386,11 +1604,28 @@ def submit_for_approval(commissioning: str, approver: str, stage: str = "",
     required_role = _STAGE_ROLE.get(stage)
     if required_role:
         user_roles = frappe.get_roles(approver)
-        if required_role not in user_roles and "IMM System Admin" not in user_roles:
+        # Allow either the specific stage role OR Super Admin umbrella
+        if required_role not in user_roles and "AssetCore Super Admin" not in user_roles:
             raise ServiceError(
                 ErrorCode.FORBIDDEN,
                 f"Người duyệt '{approver}' không có vai trò '{required_role}'",
             )
+
+    # AUTH-05 — 4-eyes (Separation of Duties):
+    #   (a) submitter cannot route the phiếu to themselves.
+    #   (b) chosen approver must not already wear another signer hat on this
+    #       phiếu (clinical_head, qa_officer, board_approver, owner).
+    if approver == frappe.session.user:
+        raise ServiceError(
+            ErrorCode.FORBIDDEN,
+            "4-eyes: bạn không thể gửi phiếu này cho chính mình duyệt — "
+            "phải chọn một người duyệt khác.",
+        )
+    assert_distinct_signers(
+        doc, *_SIGNER_FIELDS,
+        candidate_user=approver,
+        candidate_field="pending_approver",
+    )
 
     now = frappe.utils.now_datetime()
     doc.db_set("pending_approver",      approver, update_modified=False)
@@ -1445,8 +1680,18 @@ def approve_pending(commissioning: str, decision: str, remarks: str = "") -> dic
         raise ServiceError(ErrorCode.INVALID_PARAMS, "Phiếu không có yêu cầu duyệt đang chờ")
 
     current_user = frappe.session.user
-    if doc.pending_approver != current_user and "IMM System Admin" not in frappe.get_roles(current_user):
+    if doc.pending_approver != current_user and "AssetCore Super Admin" not in frappe.get_roles(current_user):
         raise ServiceError(ErrorCode.FORBIDDEN, "Bạn không phải người được phân công duyệt phiếu này")
+
+    # AUTH-05 — 4-eyes: approver must not also be the original submitter.
+    # Also block sliding into a second signer slot if they already filled one.
+    assert_not_self_submitter(doc, submitter_field="owner",
+                              candidate_user=current_user)
+    assert_distinct_signers(
+        doc, "clinical_head", "qa_officer", "board_approver", "owner",
+        candidate_user=current_user,
+        candidate_field="pending_approver",
+    )
 
     stage = doc.approval_stage or ""
     submitter_user = _find_last_approval_submitter(doc)

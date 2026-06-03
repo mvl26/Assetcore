@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="module-id" content="dashboard">
+<title>Bảng điều khiển — AssetCore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+<script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <a class="brand" style="color:inherit;text-decoration:none" href="#">
+      <span class="logo">A</span>
+      <div>AssetCore <small>IMMIS · BV Nhi Đồng 1</small></div>
+    </a>
+    <div class="spacer"></div>
+    <button class="iconbtn" title="Thông báo"><iconify-icon icon="heroicons:bell" style="font-size:18px;vertical-align:-3px;color:#fff"></iconify-icon></button>
+    <div class="persona-pill" title="Chọn vai trò"></div>
+    <div id="personaMenu" class="persona-menu"></div>
+  </div>
+  <div class="body-wrap">
+    <aside class="sidebar">
+      <div class="side-head"><span></span></div>
+      <nav></nav>
+      <div class="side-foot">AssetCore v0.0.2 · Wave 1+2</div>
+    </aside>
+    <main class="main">
+      <div class="breadcrumb"><span>Bảng điều khiển</span></div>
+      <div class="page">
+        
+<div class="page-head">
+  <div class="titles">
+    <h1>Bảng điều khiển — Trưởng phòng VT-TTBYT</h1>
+    <div class="sub">Tổng quan thiết bị, mua sắm, bảo trì, tuân thủ — hôm nay 25/05/2026</div>
+  </div>
+  <div class="toolbar">
+    <select class="select"><option>Tháng này</option><option>Quý này</option><option>Năm</option></select>
+  </div>
+</div>
+
+<div class="grid g4" style="margin-bottom:20px">
+  <div class="kpi primary"><div class="kbar"></div>
+    <div class="klabel">Thiết bị đang hoạt động</div>
+    <div class="kval">1.247</div>
+    <div class="kfoot">Tổng 1.412 · 88,3% uptime</div>
+  </div>
+  <div class="kpi warn"><div class="kbar"></div>
+    <div class="klabel">PM đến hạn 7 ngày</div>
+    <div class="kval">42</div>
+    <div class="kfoot">12 quá hạn</div>
+  </div>
+  <div class="kpi danger"><div class="kbar"></div>
+    <div class="klabel">Sự cố mở (C/Major)</div>
+    <div class="kval">8</div>
+    <div class="kfoot">3 trong SLA · 5 cần escalate</div>
+  </div>
+  <div class="kpi info"><div class="kbar"></div>
+    <div class="klabel">Đề xuất chờ duyệt</div>
+    <div class="kval">3</div>
+    <div class="kfoot">Chưa chấm điểm</div>
+  </div>
+</div>
+
+<div class="grid g2" style="margin-bottom:20px">
+  <div class="card">
+    <div class="card-head"><h3>Việc cần làm hôm nay</h3><span class="spacer"></span>
+      <span class="badge b-warn">12 việc</span></div>
+    <div class="card-pad">
+      <ul style="list-style:none;display:flex;flex-direction:column;gap:10px">
+        <li style="display:flex;gap:10px;align-items:center;padding:10px;background:var(--danger-soft);border-radius:8px">
+          <span style="color:#DC2626"><iconify-icon icon="heroicons:exclamation-triangle" style="font-size:22px;vertical-align:-3px"></iconify-icon></span>
+          <div style="flex:1">
+            <b>Sự cố Critical: Lồng ấp sơ sinh Atom</b>
+            <div class="text-xs muted">INC-2026-00077 · SLA còn 1h 12 phút · Khoa Sơ sinh</div>
+          </div>
+          <a href="../12-incident/incidents-detail.html" class="btn btn-danger btn-sm">Xử lý</a>
+        </li>
+        <li style="display:flex;gap:10px;align-items:center;padding:10px;background:var(--warning-soft);border-radius:8px">
+          <span style="color:#F59E0B"><iconify-icon icon="heroicons:calendar" style="font-size:22px;vertical-align:-3px"></iconify-icon></span>
+          <div style="flex:1">
+            <b>5 lệnh PM quá hạn cần phân công</b>
+            <div class="text-xs muted">Trễ trung bình 2,4 ngày</div>
+          </div>
+          <a href="../08-pm/pm-list.html" class="btn btn-warning btn-sm">Phân công</a>
+        </li>
+        <li style="display:flex;gap:10px;align-items:center;padding:10px;background:var(--primary-soft);border-radius:8px">
+          <span style="color:#0E6FFF"><iconify-icon icon="heroicons:clipboard-document-list" style="font-size:22px;vertical-align:-3px"></iconify-icon></span>
+          <div style="flex:1">
+            <b>3 đề xuất nhu cầu chờ chấm điểm</b>
+            <div class="text-xs muted">NR-2026-000128 · 124 · 131</div>
+          </div>
+          <a href="../01-needs/needs-list.html" class="btn btn-primary btn-sm">Chấm điểm</a>
+        </li>
+        <li style="display:flex;gap:10px;align-items:center;padding:10px;background:var(--info-soft);border-radius:8px">
+          <span style="color:#0891B2"><iconify-icon icon="heroicons:scale" style="font-size:22px;vertical-align:-3px"></iconify-icon></span>
+          <div style="flex:1">
+            <b>4 thiết bị sắp hết hạn hiệu chuẩn</b>
+            <div class="text-xs muted">2 thiết bị Class C</div>
+          </div>
+          <a href="../11-calibration/calibration-list.html" class="btn btn-secondary btn-sm">Xem</a>
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><h3>Tình trạng thiết bị theo nhóm</h3></div>
+    <div class="card-pad">
+      <div style="display:flex;gap:20px;align-items:center;justify-content:space-between">
+        <div style="flex:1">
+          <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--color-neutral-100)"><span class="text-sm">Hoạt động</span><span><b>1.247</b> <span class="muted text-xs">(88,3%)</span></span></div>
+          <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--color-neutral-100)"><span class="text-sm">Đang bảo trì</span><span><b>78</b> <span class="muted text-xs">(5,5%)</span></span></div>
+          <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--color-neutral-100)"><span class="text-sm">Đang sửa chữa</span><span><b>42</b> <span class="muted text-xs">(3,0%)</span></span></div>
+          <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--color-neutral-100)"><span class="text-sm">Đang hiệu chuẩn</span><span><b>23</b> <span class="muted text-xs">(1,6%)</span></span></div>
+          <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--color-neutral-100)"><span class="text-sm">Out of Service</span><span><b>15</b> <span class="muted text-xs">(1,1%)</span></span></div>
+          <div style="display:flex;justify-content:space-between;padding:8px 0"><span class="text-sm">Đã thanh lý</span><span><b>7</b> <span class="muted text-xs">(0,5%)</span></span></div>
+        </div>
+        <div style="width:160px;height:160px;border-radius:50%;background:conic-gradient(#16A34A 0 88%,#F59E0B 88% 94%,#DC2626 94% 97%,#0891B2 97% 99%,#CBD5E1 99% 100%);flex-shrink:0"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="grid g2">
+  <div class="card">
+    <div class="card-head"><h3>KPI bảo trì 6 tháng gần nhất</h3></div>
+    <div class="card-pad">
+      <div class="bars" style="height:140px;margin-bottom:30px">
+        <div class="bar" style="height:60%"><span>T12</span></div>
+        <div class="bar" style="height:72%"><span>T1</span></div>
+        <div class="bar" style="height:80%"><span>T2</span></div>
+        <div class="bar" style="height:78%"><span>T3</span></div>
+        <div class="bar" style="height:88%"><span>T4</span></div>
+        <div class="bar" style="height:94%;background:linear-gradient(#16A34A,#15803d)"><span>T5</span></div>
+      </div>
+      <div class="grid g3" style="gap:12px">
+        <div><div class="text-xs muted">MTBF</div><div class="text-lg" style="color:#16A34A">847h</div></div>
+        <div><div class="text-xs muted">MTTR</div><div class="text-lg" style="color:#0E6FFF">3,2h</div></div>
+        <div><div class="text-xs muted">Uptime</div><div class="text-lg" style="color:#16A34A">96,8%</div></div>
+      </div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-head"><h3>Sự kiện gần đây</h3></div>
+    <div class="card-pad">
+      <div class="timeline">
+        <div class="tl-item danger"><div class="tdot"></div><div class="tt">Sự cố Critical — Lồng ấp Atom</div><div class="tm">08:12 hôm nay · BS. Nguyễn Thị Lan</div></div>
+        <div class="tl-item ok"><div class="tdot"></div><div class="tt">Đã hoàn tất PM Máy thở Bennett</div><div class="tm">15:30 hôm qua · Phạm Văn Đức</div></div>
+        <div class="tl-item warn"><div class="tdot"></div><div class="tt">CAPA mới — INC-2026-00077</div><div class="tm">14:30 hôm qua · Hoàng Minh Châu</div></div>
+        <div class="tl-item"><div class="tdot"></div><div class="tt">Nghiệm thu Monitor Mindray</div><div class="tm">10:15 hôm qua · Vũ Thị Hà</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+      </div>
+    </main>
+  </div>
+</div>
+<script src="../assets/shell.js"></script>
+</body>
+</html>

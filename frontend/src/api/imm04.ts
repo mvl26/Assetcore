@@ -188,6 +188,15 @@ export async function assignIdentification(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 13b. GENERATE INTERNAL QR (BUG-009) — idempotent
+// ─────────────────────────────────────────────────────────────────────────────
+export async function generateInternalQr(
+  name: string,
+): Promise<{ name: string; internal_tag_qr: string; generated: boolean }> {
+  return frappePost(`${BASE}.generate_internal_qr`, { name })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 14. SUBMIT BASELINE CHECKLIST
 // ─────────────────────────────────────────────────────────────────────────────
 export async function submitBaselineChecklist(

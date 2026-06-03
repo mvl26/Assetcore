@@ -105,7 +105,16 @@ export interface ComplianceScorecard {
   period_year: number
   period_month: number
   scope: string
+  // score_pct is computed & persisted by BE (compute_compliance_rate SoT).
+  // FE renders it verbatim — never derive it from the counts below.
   score_pct: number
+  // Adjudication breakdown (BE-provided, read-only). compliant_count + non_compliant_count
+  // form the score denominator; pending_count (Open + Under Review) is reported separately
+  // and is intentionally EXCLUDED from score_pct so 100 - score ≠ "compliant".
+  total_rules_evaluated?: number
+  compliant_count?: number
+  non_compliant_count?: number
+  pending_count?: number
   trend_vs_prev_month: number
   capa_open_count: number
   capa_overdue_count: number
@@ -367,6 +376,9 @@ export interface CapaDetail extends CapaRecord {
   verification_notes?: string
   finding_ref?: string
   finding_rule?: string
+  incident_ref?: string
+  incident_subject?: string
+  linked_incident?: string | null
   opened_date?: string
   creation?: string
 }

@@ -1,13 +1,22 @@
 # Copyright (c) 2026, AssetCore Team
-# Shared helper utilities — dùng chung cho toàn bộ API modules
+# Shared helper utilities — dùng chung cho toàn bộ API modules.
+#
+# DEPRECATED (Phase 0 of notification framework rollout):
+#   `_ok` / `_err` đã được hợp nhất về `assetcore.utils.response` —
+#   nguồn duy nhất cho API envelope. File này chỉ re-export để giữ backwards-compat
+#   cho ~14 module hiện đang `from assetcore.utils.helpers import _err, _ok`.
+#   Sẽ xoá block re-export ở Phase 6 sau khi migrate hết callers.
 
 import json
 
 import frappe
 
+# Re-export canonical helpers — KHÔNG redefine ở đây.
+from assetcore.utils.response import _err, _ok  # noqa: F401 (re-export for legacy callers)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
-# API RESPONSE HELPERS
+# API RESPONSE HELPERS — JSON PARSING (giữ tại đây vì không thuộc envelope)
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _parse_json(raw, default):
@@ -20,16 +29,6 @@ def _parse_json(raw, default):
         return json.loads(raw)
     except (ValueError, TypeError):
         return default
-
-
-def _ok(data: dict | list) -> dict:
-    """Chuẩn trả về thành công."""
-    return {"success": True, "data": data}
-
-
-def _err(message: str, code: int | str = "GENERIC_ERROR") -> dict:
-    """Chuẩn trả về lỗi — KHÔNG set HTTP status code, luôn trả 200."""
-    return {"success": False, "error": message, "code": code}
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -150,6 +150,25 @@ IMM-15 Sidebar (Storekeeper)
 
 ---
 
+### II.2-bis Cột Reservation — "Đã giữ" / "Khả dụng" (3 view tồn kho)
+
+> 🔧 **Self-Correction (vòng 34):** 3 view đã render cột `reserved_qty` (`StockLevelView` header "Giữ chỗ", `SparePartDetailView`/`WarehouseDetailView` "Reserved") nhưng cột này LUÔN = 0 (BE chưa ghi reserved). Sau khi BE wire reservation ledger (04 §III-bis), cột này hiển thị giá trị THẬT > 0 khi có allocation OPEN. KHÔNG còn dead-column.
+
+| View | File | Cột reserved | Cột available |
+|---|---|---|---|
+| Tồn kho (list) | `views/inventory/StockLevelView.vue` | "Đã giữ" (`reserved_qty`) | "Khả dụng" (`available_qty`) |
+| Chi tiết phụ tùng | `views/inventory/SparePartDetailView.vue` | "Đã giữ" (`s.reserved_qty`) | "Khả dụng" (`s.available_qty`) |
+| Chi tiết kho | `views/inventory/WarehouseDetailView.vue` | "Đã giữ" (`s.reserved_qty`) | "Khả dụng" (`s.available_qty ?? s.qty_on_hand`) |
+
+**Yêu cầu FE (delta):**
+- Đổi/giữ nhãn cột reserved sang **"Đã giữ"**, cột available sang **"Khả dụng"** (nhất quán 3 view). Header cũ "Giữ chỗ"/"Còn lại"/"Reserved" → chuẩn hóa.
+- Header cột "Đã giữ" có **tooltip/title**: *"Đã giữ = số lượng đang được phiếu cấp phát chưa xuất giữ chỗ (allocation Requested/Approved). Khả dụng = Tồn − Đã giữ."*
+- `available_qty` hiển thị từ API (đã clamp ≥ 0 ở BE) — KHÔNG tự tính lại ở FE để tránh lệch SoT; fallback `?? qty_on_hand` chỉ khi field thiếu (dữ liệu cũ).
+- KHÔNG đổi nguồn dữ liệu: vẫn `get_stock_snapshot` / stock list endpoint hiện hữu (đã trả `reserved_qty`, `available_qty`).
+- DoD FE: `vue-tsc` 0 lỗi + `vitest` GREEN; khi có allocation OPEN, cột "Đã giữ" > 0 và "Khả dụng" = Tồn − Đã giữ.
+
+---
+
 ### II.3 AllocationList.vue
 
 **Route**: `/imm15/allocations`
@@ -538,13 +557,15 @@ Realtime subscribe `imm15:Workshop Head` → KPI tile update khi có `critical_b
 
 ### III.1 useImm15Store
 
-**File**: `frontend/src/stores/imm15.ts` (đã đổi tên — bỏ suffix `Store` cho thống nhất với các module khác). API client: `frontend/src/api/imm15.ts` + `frontend/src/api/inventory.ts`.
+**File**: `frontend/src/stores/imm15.ts`. API client: `frontend/src/api/imm15.ts` + `frontend/src/api/inventory.ts`.
+
+> **Note (2026-05-18)**: Store thực tế dùng **Composition API (setup syntax)** — không phải Options API như pseudocode bên dưới. Pseudocode bên dưới là spec kiến trúc ban đầu; implementation thực tế xem `frontend/src/stores/imm15.ts`. State chunks: `allocations`, `cycleCounts`, `forecasts`, `watchlist`, `dashboard`, `lowStockAlerts`. Actions: `fetchAllocations`, `fetchAllocationDetail`, `submitNewAllocation`, `approveAllocationAction`, `issueAllocationAction`, `returnItemsAction`, `fetchCycleCounts`, `createCycleCountAction`, `submitCycleCountAction`, `postCycleCountAction`, `fetchForecasts`, `generateForecastAction`, `approveForecastAction`, `fetchWatchlist`, `addWatchlistAction`, `fetchDashboard`, `fetchLowStockAlerts`.
 
 ```typescript
 import { defineStore } from 'pinia'
 import { useApi } from '@/composables/useApi'
 
-// ─── State Interfaces ─────────────────────────────────────────────────────────
+// ─── State Interfaces (architecture spec — actual impl uses Composition API) ──
 
 interface SpareItemsState {
   items: SparePartWithIMM[]

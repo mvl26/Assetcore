@@ -34,6 +34,9 @@ export interface IncidentDetail {
   rca_record?: string
   chronic_failure_flag?: number
   clinical_impact?: string
+  // BR-12-09: cờ vi phạm SLA (list_incidents + get_incident_detail expose).
+  response_breached?: number
+  resolution_breached?: number
   rca?: { name: string; status: string; root_cause?: string }
 }
 
@@ -68,19 +71,54 @@ export interface ChronicFailure {
   last_reported?: string
 }
 
+// Khớp services/imm12.py::get_incident_stats (ground truth).
 export interface IncidentStats {
+  total: number
   open: number
+  // BR-12-11 (round-21): tổng incident ở MỌI state mở của SoT open_incident_filter()
+  // {Open, Acknowledged, In Progress, RCA Required} — KHÁC `open` (chỉ status=='Open').
+  // optional: forward-compat khi BE chưa ship; card "Đang mở" fallback 0.
+  open_total?: number
   investigating: number
   resolved: number
   closed: number
-  critical_open: number
-  high_open: number
+  cancelled: number
+  critical: number
+  high: number
+  // Open-set severity (KPI strip worklist): == _count(open_incident_filter() ∧
+  // {severity}) — loại Closed/Cancelled/Resolved. optional: forward-compat khi BE
+  // chưa ship → strip fallback `?? 0`. KHÁC critical/high global (mọi status).
+  critical_open?: number
+  high_open?: number
+  rca_pending: number
+  chronic: number
+  // BR-12-09: số incident có cờ vi phạm SLA (cùng predicate cờ với badge ở list).
+  sla_response_breached: number
+  sla_resolution_breached: number
+}
+
+export interface RcaListItem {
+  name: string
+  incident_report?: string
+  asset?: string
+  asset_name?: string
+  rca_method?: string
+  trigger_type?: string
+  status: string
+  assigned_to?: string
+  assigned_to_name?: string
+  due_date?: string
+  linked_capa?: string
+  completed_date?: string
 }
 
 export function listIncidents(params: {
   status?: string
   severity?: string
   asset?: string
+  // open=1 áp SoT open_incident_filter() (incident đang mở) cho drill-down từ
+  // dashboard donut/card → count == số dòng list. status đơn lẻ ưu tiên hơn open.
+  open?: 0 | 1
   page?: number
   page_size?: number
 } = {}) {
@@ -96,6 +134,13 @@ export function getIncident(name: string) {
 export function acknowledgeIncident(name: string, notes = '', assigned_to = '') {
   return frappePost<{ name: string; status: string }>(
     `${BASE}.acknowledge_incident`, { name, notes, assigned_to },
+  )
+}
+
+// D3: Acknowledged → In Progress ("Bắt đầu xử lý")
+export function startWork(name: string, notes = '') {
+  return frappePost<{ name: string; status: string }>(
+    `${BASE}.start_work`, { name, notes },
   )
 }
 
@@ -151,6 +196,18 @@ export function getRca(name: string) {
   return frappeGet<RCADetail>(`${BASE}.get_rca`, { name })
 }
 
+export function listRcas(params: {
+  method?: string
+  status?: string
+  asset?: string
+  page?: number
+  page_size?: number
+} = {}) {
+  return frappeGet<{ pagination: { total: number; page: number; page_size: number; total_pages: number }; items: RcaListItem[] }>(
+    `${BASE}.list_rcas`, params as Record<string, unknown>,
+  )
+}
+
 export interface SubmitRcaPayload {
   name: string
   root_cause: string
@@ -181,14 +238,24 @@ export function getChronicFailures() {
 export interface DashboardStats {
   total: number
   open: number
+  // BR-12-11 (round-21): xem IncidentStats.open_total. get_dashboard().stats ==
+  // get_incident_stats() nên cùng shape.
+  open_total?: number
   investigating: number
   resolved: number
   closed: number
   cancelled: number
   critical: number
   high: number
+  // Open-set severity — xem IncidentStats.critical_open. get_dashboard().stats ==
+  // get_incident_stats() nên cùng shape (strip có thể đọc từ dashboard payload).
+  critical_open?: number
+  high_open?: number
   rca_pending: number
   chronic: number
+  // BR-12-09: số incident vi phạm SLA (get_dashboard.stats = get_incident_stats).
+  sla_response_breached: number
+  sla_resolution_breached: number
 }
 
 export interface DashboardData {

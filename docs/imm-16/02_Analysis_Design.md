@@ -47,19 +47,19 @@ Output: Compliance Finding, CAPA Record lifecycle, Scorecard tháng, Management 
 
 ## I.3. Stakeholders & Actors
 
-| Vai trò | Người dùng thực | Quan tâm chính | Tần suất | Loại |
+> **Roles ánh xạ vào 30-role catalog** (post-patch `v3_2.001_module_role_redesign`). Persona nghiệp vụ (Tổ HC-QLCL, VP Block2, Workshop Head, Internal Auditor) được giữ ở cột "Persona thực địa" để BA dễ đối chiếu, role hệ thống cấp quyền lấy từ `assetcore/fixtures/role.json`.
+
+| Role hệ thống (30-role catalog) | Persona thực địa | Quan tâm chính | Tần suất | Loại |
 |---|---|---|---|---|
-| Tổ HC-QLCL / IMM QA Officer | Tổ HC-QLCL (primary owner) | Rule config, CAPA lifecycle, Scorecard, Audit lead | Daily | Primary |
-| Internal Auditor | Thành viên audit team | Checklist, Audit Finding, raise NC | Per audit | Primary |
-| Workshop Head | Trưởng phân xưởng | Action owner, theo dõi CAPA mức xưởng | Daily | Secondary |
-| Biomed Engineer | Kỹ sư Biomedical | CAPA action step kỹ thuật | Per CAPA | Secondary |
-| HTM Technician | Kỹ thuật viên HTM | Thực hiện action step | Per step | Secondary |
-| VP Block2 | Phó Khối 2 (Operations) | Waive Finding, approve CAPA Close, sign Scorecard, chair MR | Weekly | Approver |
-| VP Block1 | Phó Khối 1 (Planning) | Xem báo cáo Audit/CAPA/Scorecard | Monthly | Stakeholder |
-| Trưởng phòng | Department Head | Action owner cấp khoa | Per CAPA | Secondary |
-| CMMS Admin | IT/CMMS | Full admin, override | Ad-hoc | Secondary |
+| **Compliance Manager** | Tổ HC-QLCL / QA Lead | Rule config, Finding triage, CAPA oversight, Scorecard publish, Audit lead, MR finalize, Waive Finding | Daily | Primary |
+| **Compliance User** | Internal Auditor / khoa phòng | Checklist audit, raise NC, tạo CAPA cấp khoa, action owner | Per audit / Daily | Primary |
+| **Corrective Manager** (IMM-09) | Workshop Head / Trưởng phân xưởng | Action owner xưởng, theo dõi CAPA mức xưởng, escalation Level 2 | Daily | Secondary |
+| **Corrective User** (IMM-09) | Biomed Engineer / HTM Technician | Thực hiện CAPA action step kỹ thuật | Per step | Secondary |
+| **PM User** (IMM-08) | KTV PM | Bị block WO khi asset có CAPA Critical (BR-16-09) | Daily | Consumer |
+| **AssetCore Auditor** | Auditor QMS | Read-only audit trail, immutability, traceability NĐ98 | Monthly | Auditor |
+| **AssetCore Super Admin** | CMMS Admin / IT | Full admin, override, scheduler giám sát | Ad-hoc | System Admin |
+| **AssetCore System User** | Mọi nhân viên đăng nhập | Xem Dashboard, Heatmap (read-only) | Weekly | Stakeholder |
 | System (Scheduler) | Frappe Scheduler | Auto-eval rule, scorecard, escalation | Auto | System |
-| Auditor QMS | QMS Officer | Traceability, audit trail, CAPA immutability | Monthly | Auditor |
 
 ## I.4. Scope
 
@@ -229,7 +229,7 @@ flowchart TD
 | Advance CAPA to Closed | Effectiveness = Effective? | VR-07 block nếu Not Effective |
 | Audit close | Tất cả Major NC đã link CAPA? | VR-08 block nếu còn Major NC thiếu link |
 | Publish Scorecard | Quý trước có MR Closed? | VR-10 block nếu không có MR |
-| Submit WO (IMM-08/09) | Asset có CAPA Critical OPEN? | BR-16-09 block submit |
+| Submit WO (IMM-08/09) + Commissioning (IMM-04) | Asset có Critical CAPA mở? (SoT `is_capa_open`: status NOT IN Closed — gồm `Overdue`) | BR-16-09 block submit/commission |
 
 ## II.5. RACI matrix
 
@@ -442,11 +442,17 @@ As System,
 On 1st of month at 03:00,
 I aggregate findings tháng trước và sinh Scorecard Draft.
 
-Scenario: Sinh scorecard tháng
-  Given findings tháng 4/2026: 120 evaluations, 18 NC
+Scenario: Sinh scorecard tháng (BR-16-11 — chỉ tính finding ĐÃ phân định)
+  Given findings tháng 4/2026 (sau khi loại False Positive):
+    | adjudicated-compliant (Resolved/Waived/Closed) | 90 |
+    | non_compliant (Confirmed NC)                   | 18 |
+    | pending (Open/Under Review — CHƯA phân định)   | 12 |
   When scheduler update_compliance_scorecard chạy
   Then sinh IMM Compliance Scorecard {period_year:2026, period_month:4}
-  And score_pct = (120-18)/120 * 100 = 85%
+  # mẫu số = chỉ finding ĐÃ adjudicated = 90 + 18 = 108 (pending KHÔNG vào mẫu số)
+  And score_pct = compliant / (compliant + non_compliant) * 100
+                = 90 / (90 + 18) * 100 = 83.33%
+  And compliant_count = 90, non_compliant_count = 18, pending_count = 12
   And status="Draft", is_published=0
 
 Scenario: Publish scorecard
@@ -483,10 +489,42 @@ I check IMM-16 compliance status.
 
 Scenario: Asset có CAPA Critical OPEN
   Given asset AC-ASSET-2026-0001 có CAPA với imm_risk_level="Critical", status="In Progress"
-  When services/imm08.py.validate_pm_wo gọi check_asset_compliance_status(asset)
-  Then response = {blocked: true, reason: "CAPA-2026-00007 OPEN (Critical)"}
-  And IMM-08 throw: "Block: thiết bị có CAPA Critical chưa close (BR-16-09)"
+  When WO validate gọi gate_wo_submit → check_asset_compliance_status(asset)
+  Then response = {blocked: true, reasons[0]={ref:"CAPA-2026-00007", status:"In Progress"}}
+  And WO submit bị frappe.throw: "...có CAPA Critical đang mở... (BR-16-09)"
+
+Scenario: INVARIANT dưới cron — Critical CAPA flip Open→Overdue VẪN block
+  Given asset A có 1 CAPA imm_risk_level="Critical", status="Open" (due_date < today)
+  And check_asset_compliance_status(A).blocked == True   # trước cron
+  When scheduler check_capa_overdue() flip status A → "Overdue"
+  Then check_asset_compliance_status(A).blocked VẪN == True  # byte-for-byte cùng tập SoT
+  And reasons[0].status == "Overdue"                          # status thật, không nuốt
+  And gate_wo_submit chặn WO submit (frappe.throw)            # hiện KHÔNG chặn = lỗ phải vá
+
+Scenario: Closed → true-negative (không chặn)
+  Given asset B chỉ có CAPA Critical status="Closed"
+  Then check_asset_compliance_status(B).blocked == False
+
+Scenario: Non-Critical Overdue → KHÔNG chặn (imm_risk_level filter giữ nguyên)
+  Given asset C có CAPA imm_risk_level="High", status="Overdue"
+  Then check_asset_compliance_status(C).blocked == False
+
+Scenario: FE pre-flight banner (PMWorkOrderCreateView — IMM-08) — cảnh báo SỚM, parity với gate
+  Given user mở form tạo phiếu PM đột xuất
+  When user chọn asset AC-ASSET-2026-0001 (có CAPA Critical OPEN)
+  Then FE gọi imm16.ts::checkAssetComplianceStatus → canonical endpoint check_asset_compliance_status
+  And banner cảnh báo HIỆN NGAY sau panel assetMeta (role=alert, aria-live=assertive, severity=warning)
+       TRƯỚC khi user soạn xong form — KHÔNG đợi submit mới frappe.throw
+  And banner liệt kê reasons[] verbatim: "CAPA-2026-00007 — Quá hạn" (status dịch qua translateStatus SSoT, 0 English leak)
+  And nút "Tạo lệnh" disable (hoặc reactive-throw lúc submit nhưng banner đã cảnh báo)
+  And gateResult.blocked (FE) === blocked do check_asset_compliance_status trả (parity, KHÔNG inline-compute ở FE)
+
+Scenario: asset không block / rỗng / fetch lỗi → banner ẩn (fail-safe)
+  Given asset không có Critical CAPA mở (blocked=false) HOẶC asset_ref rỗng HOẶC endpoint trả 403/lỗi
+  Then banner ẩn, nút "Tạo lệnh" bình thường, KHÔNG blank trang (try-catch/allSettled)
 ```
+
+> **Canonical endpoint (collapse Vòng 16):** chỉ CÒN 1 def delegate trực tiếp `svc.check_asset_compliance_status` = `check_asset_compliance_status` (canonical, FE imm16.ts:513 trỏ tới). `check_asset_compliance` (legacy) → alias mỏng gọi lại hàm canonical. Chi tiết §05_API_Specification.md §3.8.1.
 
 ### US-16-09 — Management Review quý
 
@@ -517,7 +555,11 @@ Acceptance:
   GET get_compliance_heatmap → matrix
   rows = modules (IMM-04..15)
   cols = departments (ICU, OR, ER, ...)
-  cell = score_pct
+  filter kỳ = evaluation_date BETWEEN [start, end)   # BR-16-12 period-anchor canonical
+                    # KHÔNG lọc detected_date — phải CÙNG field với Scorecard
+  cell = score_pct  # CÙNG công thức compute_compliance_rate như Scorecard (BR-16-11)
+                    # cell.score = compliant / (compliant + non_compliant) * 100
+                    # pending (Open/Under Review) KHÔNG vào mẫu số của cell
   click cell → drill-down list_findings filtered
 ```
 
@@ -537,8 +579,10 @@ Acceptance:
 | BR-16-06 | Waiver chỉ VP Block2 + reason ≥ 50 chars + evidence + expiry | `waive_finding` API role check VR-04 | Internal |
 | BR-16-07 | Scorecard published immutable; sửa → tạo restate phiên bản mới | Scorecard `validate()` VR-09 | ISO 13485 §4.2 |
 | BR-16-08 | Mỗi quý ≥1 Management Review; missed → block scorecard publish | `publish_scorecard` validator VR-10 | ISO 13485 §5.6 |
-| BR-16-09 | Asset có CAPA `imm_risk_level=Critical` AND `status` IN (Open, In Progress, Pending Verification) → block IMM-08/09 WO Submit | Hook `services/imm08.py` + `services/imm09.py.validate_*` | Internal gate |
+| BR-16-09 | Asset có CAPA `imm_risk_level=Critical` AND **CAPA đang mở (SoT `is_capa_open` / `_open_capa_filter`, imm00 — BR-00-15: `status NOT IN ('Closed')`)** → block WO Submit (IMM-08/09) **+ commissioning (IMM-04)**. **INVARIANT dưới cron**: `'Overdue'` ∈ tập mở (Overdue NOT IN Closed) → 1 Critical CAPA mở chặn gate cả TRƯỚC (status `Open`) lẫn SAU khi `check_capa_overdue` flip `Open→Overdue` (byte-for-byte cùng tập, count không tụt). KHÔNG inline `status IN (Open, In Progress, Pending Verification)` (bỏ sót `Overdue` → lỗ gate). Closed → true-negative (không chặn). `reasons[].status` trả status thật (vd `'Overdue'`) — không nuốt. Non-Critical (High/Medium/Low) KHÔNG chặn dù Overdue (`imm_risk_level='Critical'` filter giữ nguyên). | `check_asset_compliance_status()` (imm16) gọi `imm00._open_capa_filter()`; wired `gate_wo_submit` validate IMM-08/09 + `services/imm04.py` commissioning gate | Internal gate · ISO 13485 §8.5.2 |
 | BR-16-10 | Mọi thay đổi Finding/CAPA/Audit/Scorecard ghi `IMM Audit Trail` (hash chain) + Frappe Version | `track_changes=1` + `imm00.log_audit_event` | NĐ 98 |
+| BR-16-11 | Compliance-rate chỉ tính trên finding ĐÃ phân định (adjudicated). `compliant` = Resolved/Waived/Closed; `non_compliant` = Confirmed NC; `pending` = Open/Under Review → KHÔNG vào mẫu số. False Positive đã loại từ filter. `score_pct = round(compliant/(compliant+non_compliant)*100, 2)`; nếu adjudicated=0 → 100.0. Scorecard + Heatmap CÙNG gọi 1 SoT `compute_compliance_rate()` (không nhân bản công thức inline). | `services/imm16.py::compute_compliance_rate()` gọi bởi `generate_scorecard()` + `get_compliance_heatmap()` | ISO 13485 §8.4 (data analysis) |
+| BR-16-12 | **Period-anchor canonical = `evaluation_date`.** MỌI view lọc finding theo kỳ (YYYY-MM) PHẢI lọc trên `evaluation_date` — KHÔNG dùng `detected_date`. Lý do: `evaluation_date` (Date) là ngày assessment khớp chu kỳ review tháng của Scorecard VÀ là thành phần khóa idempotency `(rule, source_record, evaluation_date)` = định nghĩa hệ thống "finding thuộc kỳ nào"; `detected_date` (Datetime) là event-timestamp có thể lệch kỳ do lag adjudication (vd phát hiện T2, đánh giá/xác nhận T3). Hệ quả nếu vi phạm: Scorecard và Heatmap cùng module/kỳ chọn 2 TẬP finding KHÁC nhau → `score_pct` lệch, vi phạm BR-16-11 ("CÙNG dataset CÙNG 1 score"). | `services/imm16.py::generate_scorecard()` (đã đúng `evaluation_date`) + `get_compliance_heatmap()` (PHẢI đổi từ `detected_date` → `evaluation_date`) | ISO 13485 §8.4 |
 
 ## IV.2. Validation Rules
 
@@ -632,7 +676,7 @@ Acceptance:
 
 ### I. Module Overview
 - [x] Pitch ≤ 6 câu, WHO HTM position rõ
-- [x] Wave 3 PLANNED
+- [x] Wave 2 IMPLEMENTED
 - [x] ≥ 6 KPI có số target
 - [x] Compliance NĐ98 + WHO HTM + ISO 13485
 

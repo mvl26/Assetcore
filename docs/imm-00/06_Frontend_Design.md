@@ -7,8 +7,8 @@
 | Owner | FE Lead |
 | Liên kết | [05 API Specification](./05_API_Specification.md) · [07 Testing & QA](./07_Testing_QA.md) |
 | Tech Stack | Vue 3 · TypeScript · Pinia · Vue Router 4 · TailwindCSS · Frappe UI |
-| Phiên bản | 3.1.0 |
-| Trạng thái | **Live (partial) ✅** — 2 master-data views built (ReferenceData, SlaPolicyList); Asset List/Depreciation/Transfer/Audit + Inventory đã có view riêng (xem `frontend/src/views/asset/`, `inventory/`); sitemap chi tiết còn lại là spec. Synced vs code 2026-05-14. |
+| Phiên bản | 3.3.0 |
+| Trạng thái | **Live (partial) ✅** — Synced vs code 2026-05-19; thêm III.4b (modal Vị trí + BR-00-FE-03 auto-fetch số liên hệ); BR-00-FE-01/02 (cascade + auto-fill PM/Cal). |
 
 ---
 
@@ -33,7 +33,9 @@
 
 ### Semantic colors — `AC Asset.lifecycle_status`
 
-> **Verified từ `types/imm00.ts`:** LifecycleStatus = `'Commissioned' | 'Active' | 'Under Repair' | 'Calibrating' | 'Out of Service' | 'Decommissioned'`. (Không có 'Planned', 'Commissioning', 'Under Maintenance' trong type — 'Under Maintenance' tồn tại trong state machine nhưng không trong TS type.)
+> **Verified từ `types/imm00.ts` (2026-05-18):** LifecycleStatus = `'Commissioned' | 'Active' | 'Under Repair' | 'Calibrating' | 'Out of Service' | 'Decommissioned'`.
+>
+> **Gap đã biết:** `'Draft'` và `'Under Maintenance'` tồn tại trong `_VALID_ASSET_TRANSITIONS` (service state machine) nhưng KHÔNG có trong type `LifecycleStatus` ở FE. Asset mới insert có `lifecycle_status = 'Draft'` (blank hoặc default từ DocType) trước khi đi qua IMM-04 commissioning. `'Under Maintenance'` dùng khi PM WO mở. FE hiện dùng fallback để render chip màu cho 2 giá trị này — không gây runtime error, nhưng type safety bị bỏ qua.
 
 | lifecycle_status | Màu chip | Style |
 |---|---|---|
@@ -150,34 +152,53 @@ Sidebar ẩn item không có quyền (không grey-out). Collapse/expand lưu và
 
 ## II.3. Sitemap — Built vs Spec
 
-> **Verified từ code:** Chỉ 2 Vue views đã build trong `frontend/src/views/master-data/`:
-> - `ReferenceDataView.vue` — Dữ liệu tham chiếu (Locations, Departments, Categories, Device Models)
-> - `SlaPolicyListView.vue` — Danh sách và quản lý SLA Policies
+> **Verified từ code 2026-05-18:** Views đã build:
+>
+> `frontend/src/views/asset/`:
+> - `AssetListView.vue`, `AssetCreateView.vue`, `AssetDetailView.vue`, `AssetEditView.vue`
+> - `AssetTransferListView.vue`, `AssetTransferCreateView.vue`, `AssetTransferDetailView.vue`
+> - `DepreciationView.vue`
+> - `DeviceModelListView.vue`, `DeviceModelFormView.vue`
+>
+> `frontend/src/views/master-data/`:
+> - `ReferenceDataView.vue` — Locations, Departments, Categories, Device Models
+> - `SlaPolicyListView.vue`
+>
+> `frontend/src/views/audit/`:
+> - `AuditTrailListView.vue`
+> - `PendingApprovalsView.vue`
 
 Các routes dưới đây đánh dấu `[BUILT]` nếu có Vue component, `[SPEC]` nếu chỉ là spec chưa build.
 
 ```
 /                           → Dashboard (IMM-00 overview KPIs)              [SPEC]
-/assets                     → AC Asset List                                  [BUILT — xem module khác]
-/assets/new                 → AC Asset Form (Create)                         [SPEC]
-/assets/:name               → AC Asset Detail (6 tabs)                       [SPEC]
-/assets/:name/edit          → AC Asset Form (Edit)                           [SPEC]
-/assets/:name/lifecycle     → Asset Lifecycle Event Timeline                  [SPEC]
-/suppliers                  → AC Supplier List                               [SPEC]
-/suppliers/:name            → AC Supplier Detail + authorized_technicians    [SPEC]
+/assets                     → AC Asset List                                  [BUILT — AssetListView.vue]
+/assets/new                 → AC Asset Form (Create)                        [BUILT — AssetCreateView.vue]
+/assets/:name               → AC Asset Detail                               [BUILT — AssetDetailView.vue]
+/assets/:name/edit          → AC Asset Form (Edit)                          [BUILT — AssetEditView.vue]
+/assets/:name/lifecycle     → Asset Lifecycle Event Timeline                [SPEC]
+/assets/depreciation        → Depreciation hub                              [BUILT — DepreciationView.vue]
+/assets/transfers           → Asset Transfer List                           [BUILT — AssetTransferListView.vue]
+/assets/transfers/new       → Asset Transfer Form (Create)                  [BUILT — AssetTransferCreateView.vue]
+/assets/transfers/:name     → Asset Transfer Detail                         [BUILT — AssetTransferDetailView.vue]
+/assets/device-models       → Device Model List                             [BUILT — DeviceModelListView.vue]
+/assets/device-models/new   → Device Model Form                             [BUILT — DeviceModelFormView.vue]
+/suppliers                  → AC Supplier List                              [SPEC]
+/suppliers/:name            → AC Supplier Detail + authorized_technicians   [SPEC]
 /master-data                → ReferenceDataView.vue (Locations/Depts/Cats/Models) [BUILT]
-/master-data/sla            → SlaPolicyListView.vue                          [BUILT]
-/incidents                  → Incident Report List                           [SPEC]
-/incidents/new              → Incident Wizard (3 steps)                      [SPEC]
-/incidents/:name            → Incident Report Detail                         [SPEC]
-/capa                       → IMM CAPA Record List                           [SPEC]
-/capa/new                   → CAPA Form (Create)                             [SPEC]
-/capa/:name                 → CAPA Detail + workflow bar                     [SPEC]
-/audit-trail                → IMM Audit Trail Log (read-only)                [SPEC]
-/inventory                  → Inventory Dashboard                            [SPEC]
-/print/:doctype/:name       → Print-friendly view                            [SPEC]
-/login                      → Frappe login (redirect)                        [BUILT — Frappe native]
-/403                        → Forbidden403View                               [SPEC]
+/master-data/sla            → SlaPolicyListView.vue                         [BUILT]
+/incidents                  → Incident Report List                          [SPEC]
+/incidents/new              → Incident Wizard (3 steps)                     [SPEC]
+/incidents/:name            → Incident Report Detail                        [SPEC]
+/capa                       → IMM CAPA Record List                          [SPEC]
+/capa/new                   → CAPA Form (Create)                            [SPEC]
+/capa/:name                 → CAPA Detail + workflow bar                    [SPEC]
+/audit-trail                → AuditTrailListView.vue                        [BUILT — views/audit/]
+/pending-approvals          → PendingApprovalsView.vue                      [BUILT — views/audit/]
+/inventory                  → Inventory Dashboard                           [SPEC]
+/print/:doctype/:name       → Print-friendly view                           [SPEC]
+/login                      → Frappe login (redirect)                       [BUILT — Frappe native]
+/403                        → Forbidden403View                              [SPEC]
 ```
 
 ## II.4. Auth Guard
@@ -211,7 +232,8 @@ KPI cards hàng đầu:
 | CAPA Overdue | `list_capas?status=Overdue` count | `/capa?status=Overdue` |
 | Incident Open | `list_incidents?status=Open` count | `/incidents?status=Open` |
 | HĐ NCC sắp hết (90d) | `list_suppliers?contract_end_within=90` | `/suppliers?expiring=90d` |
-| Đăng ký BYT sắp hết | `list_assets?byt_expiry_within=90` | `/assets?byt_expiry=90d` |
+| ĐK Bộ Y tế sắp hết hạn (30 ngày) | `get_overview().assets.byt_expiring_30d` | `/assets?byt_status=expiring` |
+| ĐK Bộ Y tế đã hết hạn | `get_overview().assets.byt_expired` | `/assets?byt_status=expired` |
 
 Charts:
 - Donut: Asset theo lifecycle_status
@@ -232,7 +254,7 @@ Route: `/assets`
 | `lifecycle_status` | ✓ | multi-select |
 | `next_pm_date` | ✓ | date range |
 | `risk_class` | ✓ | multi-select |
-| `gmdn_status` | — | select |
+| `gmdn_code` | ✓ | select (autocomplete từ Asset Category) |
 
 Filter sidebar (desktop) / drawer (mobile): `status, lifecycle_status, department, risk_class, next_pm_date` range.
 
@@ -248,7 +270,7 @@ Header: `← AC-ASSET-... [Active ●] [Sửa] [Thao tác ▾]`
 
 | Tab | Nội dung |
 |---|---|
-| 1. Info HTM | asset_code, UDI, GMDN, BYT reg, device_model, class, risk, custodian, location, gmdn_status |
+| 1. Info HTM | asset_code, UDI, gmdn_code (readonly), BYT reg, device_model, class, risk, custodian, location |
 | 2. Vòng đời | Timeline Asset Lifecycle Event (vertical timeline) |
 | 3. PM & Calibration | next_pm_date, pm_interval_days, next_calibration_date, lịch sử PM/Cal |
 | 4. Tài liệu | Upload IQ/OQ/PQ, manual, biên bản — Frappe File |
@@ -261,17 +283,118 @@ Action menu ▾: Đổi trạng thái (modal chọn transition hợp lệ), Tran
 
 | Section | Fields |
 |---|---|
-| §1 Định danh | asset_code (auto), asset_name*, udi_code, gmdn_code, byt_reg_no, byt_reg_expiry |
-| §2 Phân loại | device_model* (auto-fill: class, risk, pm_interval, asset_category) |
-| §3 Vị trí & Trách nhiệm | department*, location, responsible_technician |
-| §4 Lịch bảo trì | pm_interval_days (auto), next_pm_date, next_calibration_date |
-| §5 Ghi chú | notes, attachments |
+| §1 Thông tin cơ bản | asset_name*, asset_category (cascade → device_model), device_model (filtered by category), department, location, supplier, lifecycle_status |
+| §2 Mua sắm | purchase_date, gross_purchase_amount, warranty_expiry_date, commissioning_date |
+| §3 Nhận dạng HTM | manufacturer_sn, udi_code, gmdn_code (auto), medical_device_class (auto), byt_reg_no, byt_reg_expiry |
+| §4 Lịch bảo trì & Hiệu chuẩn | is_pm_required (auto), pm_interval_days (auto), is_calibration_required (auto), calibration_interval_days (auto) |
 
-Auto-fill when device_model selected:
+### BR-00-FE-01: Cascade dropdown — Category → Device Model
+
+**Hành vi:**
+- `asset_category` điều khiển bộ lọc của SmartSelect `device_model`
+- Khi `asset_category` có giá trị: SmartSelect chỉ hiện các IMM Device Model thuộc category đó
+- Khi `asset_category` rỗng: SmartSelect hiện tất cả Device Model
+- Khi đổi `asset_category` → reset `device_model` về rỗng → reset PM/Cal về `0`
+
+```typescript
+// AssetCreateView.vue
+function onCategoryChange() {
+  form.value.device_model = ''
+  form.value.is_pm_required = 0
+  form.value.pm_interval_days = undefined
+  form.value.is_calibration_required = 0
+  form.value.calibration_interval_days = undefined
+  form.value.medical_device_class = undefined
+  form.value.gmdn_code = ''
+}
 ```
-GET get_device_model_defaults?model=IMM-MDL-...
-→ apply: device_class, risk_class, pm_interval_days, asset_category
+
+**SmartSelect filter:**
+```html
+<SmartSelect
+  v-model="form.device_model"
+  doctype="IMM Device Model"
+  :filters="form.asset_category ? { asset_category: form.asset_category } : {}"
+  placeholder="Tìm model..."
+/>
 ```
+
+### BR-00-FE-02: Auto-fill PM/Calibration từ Device Model
+
+Khi `device_model` được chọn, gọi `getDeviceModel(name)` và auto-điền vào form:
+
+| Field form | Nguồn từ model | Override được? |
+|---|---|---|
+| `is_pm_required` | `model.is_pm_required` | ✅ |
+| `pm_interval_days` | `model.pm_interval_days` | ✅ |
+| `is_calibration_required` | `model.is_calibration_required` | ✅ |
+| `calibration_interval_days` | `model.calibration_interval_days` | ✅ |
+| `medical_device_class` | `model.medical_device_class` | ✅ |
+| `gmdn_code` | `model.gmdn_code` | ✅ (chỉ fill nếu đang rỗng) |
+
+**Endpoint thực tế:** `GET /api/method/assetcore.api.imm00.get_device_model?name=...`  
+**TS wrapper:** `getDeviceModel(name: string): Promise<ImmDeviceModel>` trong `api/imm00.ts`
+
+```typescript
+// watch trong AssetCreateView.vue — sau khi fix BR-00-FE-02
+watch(() => form.value.device_model, async (modelName) => {
+  if (!modelName) return
+  try {
+    const model = await getDeviceModel(modelName)
+    // PM/Calibration — luôn điền (override default cứng)
+    form.value.is_pm_required = model.is_pm_required ?? 0
+    form.value.pm_interval_days = model.pm_interval_days
+    form.value.is_calibration_required = model.is_calibration_required ?? 0
+    form.value.calibration_interval_days = model.calibration_interval_days
+    // Medical class
+    if (model.medical_device_class) form.value.medical_device_class = model.medical_device_class
+    // GMDN — chỉ fill nếu user chưa nhập
+    if (!form.value.gmdn_code && model.gmdn_code) form.value.gmdn_code = model.gmdn_code
+  } catch {
+    // silent — các trường vẫn có thể điền tay
+  }
+})
+```
+
+**UX note:** Tất cả giá trị auto-fill đều hiển thị với hint nhẹ "(từ model)" trong label, và người dùng có thể sửa tự do sau khi được điền.
+
+## III.4b. Reference Data — Modal Vị trí (AC Location)
+
+Route: `/reference-data` (tab "Vị trí") · Component: `ReferenceDataView.vue`
+
+**Đổi schema 2026-05-19:** Modal thêm/sửa Vị trí trước đây có 3 trường liên hệ (`emergency_contact`, `dept_head`, `technical_contact`). Nay gộp còn 2:
+
+| Field UI | DocType field | Hành vi |
+|---|---|---|
+| Người phụ trách | `dept_head` (Link → User) | SmartSelect User |
+| Số liên hệ | `contact_phone` (Data) | Tự fetch từ User khi đổi người phụ trách; có thể sửa tay |
+
+### BR-00-FE-03: Auto-fetch số liên hệ từ người phụ trách
+
+Khi `dept_head` đổi → gọi `GET frappe.client.get_value` lấy `["phone", "mobile_no"]` của User, ưu tiên `phone`, fallback `mobile_no`. Ghi đè `contact_phone`.
+
+- Flag `skipPhoneFetch` chặn auto-fetch trong lúc load dữ liệu edit (không ghi đè số đã lưu DB)
+- 3 trạng thái hint cạnh label "Số liên hệ":
+  - `loading` → "(đang lấy số...)"
+  - `found` → "(đã lấy từ người phụ trách)" — màu xanh
+  - `empty` → "(người phụ trách chưa có số — nhập tay)" — màu hổ phách
+- Xóa người phụ trách → reset `contact_phone` về rỗng
+
+```typescript
+async function fetchUserMobile(userEmail: string): Promise<string> {
+  const res = await api.get('/api/method/frappe.client.get_value', {
+    params: {
+      doctype: 'User',
+      filters: JSON.stringify({ name: userEmail }),
+      fieldname: JSON.stringify(['phone', 'mobile_no']),
+    },
+  })
+  const m = res.data?.message
+  return m?.phone || m?.mobile_no || ''
+}
+```
+
+> DocType `ac_location.json` có `fetch_from: dept_head.phone` (Frappe Desk). Vue FE thực hiện fetch phía client (BR-00-FE-03) vì FE custom không chạy fetch_from của Frappe.
 
 ## III.5. SLA Policy — Matrix View
 
@@ -333,6 +456,84 @@ Khi `severity = Critical AND patient_affected = true`:
 
 ---
 
+## III.9. Notification Settings — Toggle email (Notification Framework Wave N1)
+
+Route: `/settings/notifications` (folder `frontend/src/views/settings/`). Stack: Vue 3 + TS + Pinia + TanStack Query.
+
+**Chuông in-app:** badge chuông góc phải là component **Frappe core desk** (Notification Log) — KHÔNG build lại. FE chỉ cần xác nhận hiển thị/đếm unread hoạt động.
+
+**View `NotificationSettingsView.vue`:** một section gọn với 1 toggle:
+
+```
+┌──────────────────────────────────────────────┐
+│  Thông báo                                     │
+│                                                │
+│  Nhận thông báo qua email          [  ●—  ]    │
+│  Khi tắt, bạn vẫn nhận thông báo tại chuông.   │
+└──────────────────────────────────────────────┘
+```
+
+- TanStack Query: `useQuery(['notif-prefs'], getNotificationPreferences)` → init toggle.
+- `useMutation(setEmailEnabled)` → optimistic update + invalidate `['notif-prefs']`; toast lỗi nếu fail.
+- API client: `frontend/src/api/notifications.ts` → `getNotificationPreferences()`, `setEmailEnabled(enabled: boolean)`. Dùng `frappePost` wrapper hiện có, `catch (e: unknown)` + `instanceof` guard.
+- Store (nếu cần share): `frontend/src/stores/notifications.ts` (`defineStore('notif_prefs')`).
+
+**Entry point (vòng 2 — UX):** thêm mục **"Cài đặt thông báo"** vào **user menu dropdown** trong `frontend/src/components/common/AppTopBar.vue` (khối "Menu items", cạnh "Hồ sơ cá nhân" / "Đổi mật khẩu"), `@click` push `/settings/notifications` (qua handler `goNotificationSettings()` gọi `closeAll()` rồi `router.push`). Lý do: trước vòng 2 route chỉ truy cập được qua gõ URL → user thật không dùng được toggle.
+- **Ràng buộc cấm:** KHÔNG đụng sidebar nav / launcher / `sidebarNav.ts` / `AppSidebar.vue` / `FE_Persona_Navigation.md` (task FE-persona đang treo). Entry point đặt ở `AppTopBar.vue` (ngoài vùng treo).
+- Icon SVG inline cùng style các item hiện có; label tiếng Việt; không thêm i18n key vào file messages đang treo.
+
+---
+
+## III.10b. Depreciation Hub — ô "Hết khấu hao" DRILLABLE (BR-05-15 / Vòng 30)
+
+View `frontend/src/views/asset/DepreciationView.vue` (route `/assets/depreciation`).
+
+**Bug thiết kế gốc:** card "Trạng thái cấu hình" hiển thị text câm `{{ stats.fully_depreciated }} hết KH` (`:189`) — không click được; status-filter dropdown (`:271`) không có lựa chọn "Hết khấu hao". KPI count tồn tại nhưng **không drill** về danh sách asset.
+
+**Fix — ô "Hết khấu hao" trở thành DRILLABLE:**
+
+| Yêu cầu | Quy tắc |
+|---|---|
+| State mới | Thêm `depreciationFilter = ref('')` (tách khỏi `statusFilter` — KHÔNG nhồi value `'fully_depreciated'` vào `statusFilter`/`lifecycle_status` để tránh leak sai field BE). |
+| `loadList()` | Truyền `depreciation_filter: depreciationFilter.value` xuống `listAssetsDepreciation(...)`. |
+| Drill từ card | Phần `… N hết KH` thành phần tử click được (button/link). Click → `depreciationFilter.value = 'fully_depreciated'` → `applyFilters()` (reset `page=1` + `loadList`). Bảng chỉ hiện asset hết KH; nhãn vẫn `'N hết KH'`. KHÔNG còn text câm. |
+| Status-filter dropdown | Thêm `<option value="fully_depreciated">Hết khấu hao</option>` (nhãn VI). `@change` map value `'fully_depreciated'` → set `depreciationFilter` + clear `statusFilter`; các value lifecycle khác → set `statusFilter` + clear `depreciationFilter`. KHÔNG gửi `'fully_depreciated'` vào param `status_filter`. |
+| Đồng bộ | Khi drill từ card, dropdown phản ánh lựa chọn `'fully_depreciated'` (1 nguồn UI-state). |
+| Clear | Chọn "Tất cả" → clear cả `depreciationFilter` lẫn `statusFilter` → list về full. |
+
+> **API client:** `listAssetsDepreciation` thêm optional `depreciation_filter?` (xem §V.1). BE: [imm-00/05 §III.18](./05_API_Specification.md); SoT + invariant: [imm-05/04 §2.5.1](../imm-05/04_Backend_Design.md).
+> **DoD FE:** vue-tsc 0 lỗi; vitest cho DepreciationView GREEN (card count == drill rows; option "Hết khấu hao" lọc đúng; không leak `'fully_depreciated'` vào `status_filter`).
+
+---
+
+## III.10c. NĐ98 ĐKLH BYT — 2 tile dashboard DRILLABLE + chip AssetListView (BR-00-17 / Vòng 31)
+
+**Bug thiết kế gốc:** `get_overview().assets.byt_expiring_30d` / `byt_expired` được BE trả về nhưng **không tile nào tiêu thụ** trên dashboard quản trị thiết bị; `AssetListView.vue` không có chip lọc theo ĐKLH BYT (chỉ có cột `byt_reg_expiry` tô đỏ ở `:396-397`, không drill được). → ô KPI compliance NĐ98 không hiển thị & không kiểm chứng được bằng danh sách.
+
+**Fix A — 2 tile NĐ98 trên dashboard (Admin persona / IMM-00 overview view đang dùng):**
+
+| Yêu cầu | Quy tắc |
+|---|---|
+| Tile 1 | `'ĐK Bộ Y tế sắp hết hạn (30 ngày)'`, value = `overview.assets.byt_expiring_30d`, tone **warn** (value>0) / **neutral** (value==0). Click → `router.push('/assets?byt_status=expiring')`. |
+| Tile 2 | `'ĐK Bộ Y tế đã hết hạn'`, value = `overview.assets.byt_expired`, tone **danger** (value>0) / **neutral** (value==0). Click → `router.push('/assets?byt_status=expired')`. |
+| value==0 | tone neutral nhưng **vẫn drill được** (list rỗng — không disable tile). |
+| Nhãn | qua SSoT label (labels.ts) — KHÔNG hardcode rải rác; KHÔNG raw-EN leak. |
+
+**Fix B — `AssetListView.vue` đọc `byt_status` + chip filter:**
+
+| Yêu cầu | Quy tắc |
+|---|---|
+| Đọc route | `route.query.byt_status` ('expiring'\|'expired') → set vào filter state `f.byt_status` lúc mount; forward `byt_status` xuống `list_assets` (param mới). |
+| Chip filter | Hiện chip VI `'ĐK BYT sắp hết hạn'` (expiring) / `'ĐK BYT đã hết hạn'` (expired) — nhãn qua **SSoT** (labels.ts), KHÔNG hardcode rải rác. Clear chip → bỏ param `byt_status` (router.replace) → list về full. |
+| Header "Tổng N" | == `pagination.total` của `list_assets(byt_status=…)` == giá trị tile vừa click (INVARIANT BR-00-17). |
+| Cột giữ nguyên | Cột `'ĐK Bộ Y tế hết hạn'` (`:396-397`) GIỮ; `byt_reg_expiry` tô đỏ khi quá hạn qua helper `isPmOverdue` hiện có; ngày render `formatDate`. KHÔNG đổi hành vi cột. |
+| Conjoin | `byt_status` AND với mọi filter đang chọn (lifecycle_status/department/search…) — KHÔNG clobber; client chỉ forward param, BE merge (BR-00-17). |
+
+> **API client:** `listAssets` thêm optional `byt_status?: 'expiring' \| 'expired'` (xem §V.1). BE: [imm-00/05 `list_assets`](./05_API_Specification.md) + INVARIANT count==drill; SoT predicate: [imm-00/04 §III.1a](./04_Backend_Design.md); compliance NĐ98: [imm-05/02 KPI-05](../imm-05/02_Analysis_Design.md).
+> **DoD FE:** vue-tsc 0 lỗi; vitest GREEN (tile click → route `byt_status`; chip render VI từ SSoT; header "Tổng N" == tile value; clear chip bỏ param; tone neutral khi value==0 vẫn drill). KHÔNG raw-EN leak.
+
+---
+
 # Phần IV — Pinia Stores (từ `frontend/src/stores/imm00.ts`)
 
 > **Verified vs code 2026-05-14 (sau commits `33a9668` restructure + `820e3fe` role/launcher):** File `stores/imm00.ts` export 4 stores cho IMM-00 foundation. Các module IMM-01→16 có file store riêng (`stores/imm01.ts`, …, `stores/imm16.ts`); ngoài ra `stores/auth.ts`, `stores/dashboard.ts`, `stores/masterData.ts` là cross-cutting.
@@ -374,7 +575,6 @@ const error = ref<string | null>(null)
 async function fetchList(params: AssetListParams = {}): Promise<void>
 async function fetchOne(name: string): Promise<void>
 async function transition(name: string, to_status: string, reason = ''): Promise<{ success, data }>
-async function updateGmdn(name: string, gmdn_status: GmdnStatus, reason: string): Promise<{ name, gmdn_status, previous }>
 function reset(): void
 ```
 
@@ -420,10 +620,7 @@ async function fetchList(params: { page?, page_size?, status?, severity?, asset?
 
 ## IV.5. Helper constants export
 
-```typescript
-export const GMDN_STATUS_LABEL: Record<string, string>  // {'In Use': 'Đang sử dụng', 'Not Use': 'Không sử dụng'}
-export const GMDN_OPTIONS: Array<{ value: GmdnStatus; label: string }>
-```
+> **Note (2026-05-19):** Các hằng số liên quan trạng thái sử dụng GMDN (cũ) đã bị loại bỏ. Bộ lọc GMDN trên AssetListView nay dựng động từ `refData.categories` (distinct `gmdn_code` + `gmdn_term`). Xem [analysis §6](../res/analysis/gmdn-asset-category-analysis.md).
 
 ---
 
@@ -440,8 +637,6 @@ export async function getAsset(name: string): Promise<ApiResponse<AcAsset>>
 export async function createAsset(data: Partial<AcAsset>): Promise<ApiResponse<{ name: string }>>
 export async function updateAsset(name: string, data: Partial<AcAsset>): Promise<ApiResponse<{ name: string }>>
 export async function transitionStatus(name: string, to_status: string, reason = ''): Promise<...>
-export async function updateGmdnStatus(name: string, gmdn_status: string, reason: string): Promise<...>
-export async function toggleGmdnStatus(name: string): Promise<...>
 export async function getAssetTimeline(name: string, page = 1, page_size = 50): Promise<...>
 export async function getAssetKpi(name: string): Promise<ApiResponse<AssetKpi>>
 export async function validateForOperations(name: string): Promise<ApiResponse<{ valid: boolean; reason?: string }>>
@@ -470,7 +665,7 @@ export async function updateTransfer(name: string, data): Promise<...>
 
 // Depreciation (Asset Finance Hub — full coverage)
 export function computeDepreciation(name: string): Promise<DepreciationComputeResult>
-export function listAssetsDepreciation(params: { page?, page_size?, method_filter?, status_filter?, category_filter? }): Promise<{ items: AssetDepreciationRow[]; pagination }>
+export function listAssetsDepreciation(params: { page?, page_size?, method_filter?, status_filter?, category_filter?, depreciation_filter? }): Promise<{ items: AssetDepreciationRow[]; pagination }>
 export function getDepreciationStats(): Promise<DepreciationStats>
 export function computeAllDepreciation(): Promise<{ generated_schedules, skipped, executed_rows, updated_assets }>
 export async function getDepreciationSchedule(asset_name: string): Promise<DepreciationScheduleResponse>
@@ -528,7 +723,7 @@ File: `src/locales/vi.json`
     "lifecycle_status": "Trạng thái vòng đời",
     "risk_class": "Mức rủi ro",
     "next_pm_date": "Ngày PM tiếp theo",
-    "gmdn_status": "Trạng thái GMDN",
+    "gmdn_code": "Mã GMDN",
     "gmdn_in_use": "Đang sử dụng",
     "gmdn_not_in_use": "Không sử dụng",
     "decommission_confirm": "Xác nhận ngừng sử dụng thiết bị",

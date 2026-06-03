@@ -7,7 +7,7 @@
 | Stack | Vue 3 + TypeScript + Pinia + Vue Router + TailwindCSS + TanStack Query |
 | Cập nhật | 2026-05-10 |
 
-> Tham chiếu design system: [`../res/design-frontend.md`](../res/design-frontend.md). Pattern FE: skill [`assetcore-fe-module`](../../.claude/skills/assetcore-fe-module/SKILL.md).
+> Tham chiếu design system: [`../res/design/design-frontend.md`](../res/design/design-frontend.md). Pattern FE: skill [`assetcore-fe-module`](../../.claude/skills/assetcore-fe-module/SKILL.md).
 
 ---
 
@@ -115,7 +115,7 @@ Folder `frontend/src/types/imm07/`:
 
 ### 7.c. Bảng từ ngữ chuẩn
 
-Refer chung `docs/res/design-frontend.md` §"Glossary". Bổ sung:
+Refer chung `docs/res/design/design-frontend.md` §"Glossary". Bổ sung:
 
 | EN | VN |
 |---|---|

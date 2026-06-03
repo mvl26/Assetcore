@@ -8,6 +8,7 @@ import {
 import PageHeader from '@/components/common/PageHeader.vue'
 import type { ImmDeviceModel, AcAssetCategory } from '@/types/imm00'
 import { useFormDraft } from '@/composables/useFormDraft'
+import { translateDepreciationMethod } from '@/utils/formatters'
 
 const route = useRoute()
 const router = useRouter()
@@ -25,8 +26,6 @@ const form = ref<Partial<ImmDeviceModel> & Record<string, unknown>>({
   medical_device_class: 'Class II',
   risk_classification: 'Medium',
   gmdn_code: '',
-  emdn_code: '',
-  hsn_code: '',
   registration_required: 1,
   is_radiation_device: 0,
   is_pm_required: 1,
@@ -221,7 +220,7 @@ onMounted(load)
             </div>
             <div class="flex flex-wrap gap-x-3 gap-y-0.5">
               <span v-if="selectedCategory.default_depreciation_method">
-                Khấu hao: <b>{{ selectedCategory.default_depreciation_method }}</b>
+                Khấu hao: <b>{{ translateDepreciationMethod(selectedCategory.default_depreciation_method) }}</b>
               </span>
               <span v-if="selectedCategory.total_depreciation_months">
                 <b>{{ selectedCategory.total_depreciation_months }}</b> tháng
@@ -270,14 +269,6 @@ onMounted(load)
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">GMDN Code</label>
           <input v-model="form.gmdn_code" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
-        </div>
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">EMDN Code</label>
-          <input v-model="form.emdn_code" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
-        </div>
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">HSN Code</label>
-          <input v-model="form.hsn_code" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
         </div>
       </div>
 

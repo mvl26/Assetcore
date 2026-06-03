@@ -5,8 +5,8 @@
 | Thuộc tính | Giá trị |
 |---|---|
 | Module | IMM-15 — Spare Parts Inventory Tracking |
-| Phiên bản | 0.2.0 |
-| Ngày | 2026-05-14 |
+| Phiên bản | 0.0.2 |
+| Ngày | 2026-05-27 |
 | Base path (AC backbone) | `/api/method/assetcore.api.inventory.<endpoint>` |
 | Base path (IMM-15) | `/api/method/assetcore.api.imm15.<endpoint>` |
 | Trạng thái | IMPLEMENTED |
@@ -36,7 +36,7 @@ Frappe session / API Key. Mọi endpoint yêu cầu login.
 | File | Status | Mô tả |
 |---|---|---|
 | `api/inventory.py` | **LIVE** | ~30 endpoints master + movement (AC backbone) — IMM-15 FE tái sử dụng |
-| `api/imm15.py` | **LIVE** | Transaction endpoints (Allocation / Cycle Count / Forecast / Watchlist / Dashboard / Low-Stock alerts) — 21 whitelist methods. Xem `assetcore/api/imm15.py` để biết signature chính xác |
+| `api/imm15.py` | **LIVE** | Transaction endpoints (Allocation / Cycle Count / Forecast / Watchlist / Dashboard / Low-Stock alerts) — **21 whitelist methods** (verified `grep -c "^@frappe.whitelist" assetcore/api/imm15.py` = 21 on 2026-05-27). Xem `assetcore/api/imm15.py` để biết signature chính xác |
 
 > Endpoint bổ sung so với draft 0.1.0 (đã có trong code 0.2.0): `submit_cycle_count` (đếm xong → Reviewed), `return_allocation` (alias path), `get_stock_snapshot`, `get_critical_watchlist`. Mọi endpoint giữ envelope `{success, data}` qua `_handle()` wrapper (xem `api/imm15.py:29`).
 
@@ -45,39 +45,46 @@ Frappe session / API Key. Mọi endpoint yêu cầu login.
 ## 2. Role Constants & Permission Matrix
 
 ```python
-# assetcore/constants.py (IMM-15 additions)
-ROLE_STOREKEEPER       = "IMM Storekeeper"
-ROLE_WORKSHOP_LEAD     = "IMM Workshop Lead"
-ROLE_BIOMED_TECH       = "IMM Biomed Technician"
-ROLE_TECHNICIAN        = "IMM Technician"
-ROLE_QA_OFFICER        = "IMM QA Officer"
-ROLE_OPS_MANAGER       = "IMM Operations Manager"
-ROLE_IMM_ADMIN         = "IMM System Admin"
+# assetcore/constants.py (IMM-15 — aligned with 30-role catalog in fixtures/role.json)
+ROLE_INVENTORY_USER     = "Inventory User"
+ROLE_INVENTORY_MANAGER  = "Inventory Manager"
+ROLE_REPAIR_USER        = "Repair User"          # CM/repair requesters
+ROLE_PM_USER            = "PM User"              # PM requesters
+ROLE_COMPLIANCE_MANAGER = "Compliance Manager"   # QA / CAPA
+ROLE_SUPER_ADMIN        = "AssetCore Super Admin"
 
-_APPROVE_ALLOCATION_ROLES = {ROLE_WORKSHOP_LEAD, ROLE_OPS_MANAGER, ROLE_IMM_ADMIN}
-_ISSUE_ROLES              = {ROLE_STOREKEEPER, ROLE_OPS_MANAGER, ROLE_IMM_ADMIN}
-_OVERRIDE_ROLES           = {ROLE_WORKSHOP_LEAD, ROLE_OPS_MANAGER, ROLE_IMM_ADMIN}
-_FORECAST_APPROVE_ROLES   = {ROLE_WORKSHOP_LEAD, ROLE_OPS_MANAGER, ROLE_IMM_ADMIN}
+_APPROVE_ALLOCATION_ROLES = {ROLE_INVENTORY_MANAGER, ROLE_SUPER_ADMIN}
+_ISSUE_ROLES              = {ROLE_INVENTORY_USER, ROLE_INVENTORY_MANAGER, ROLE_SUPER_ADMIN}
+_OVERRIDE_ROLES           = {ROLE_INVENTORY_MANAGER, ROLE_SUPER_ADMIN}
+_FORECAST_APPROVE_ROLES   = {ROLE_INVENTORY_MANAGER, ROLE_SUPER_ADMIN}
 ```
 
-| Endpoint | Storekeeper | Workshop Lead | Biomed Tech | Technician | QA Officer | Ops Manager | Admin |
-|---|---|---|---|---|---|---|---|
-| `list_allocations` | R | R | R | R | R | R | R |
-| `create_allocation` | — | — | W | W | — | W | W |
-| `approve_allocation` | — | W | — | — | — | W | W |
-| `issue_allocation` | W | — | — | — | — | W | W |
-| `return_items` | W | — | — | — | — | W | W |
-| `cancel_allocation` | — | W | — | — | — | W | W |
-| `list_cycle_counts` | R | R | — | R | R | R | R |
-| `create_cycle_count` | W | W | — | — | — | W | W |
-| `post_cycle_count` | — | W | — | — | — | W | W |
-| `list_spare_forecasts` | R | R | — | — | R | R | R |
-| `generate_spare_forecast` | — | W | — | — | — | W | W |
-| `approve_forecast` | — | W | — | — | — | W | W |
-| `list_watchlist` | R | R | R | R | R | R | R |
-| `add_to_watchlist` | — | W | — | — | — | W | W |
-| `get_dashboard_stats` | R | R | — | — | R | R | R |
-| `check_part_availability` | R | R | R | R | R | R | R |
+| Endpoint | Inventory User | Inventory Manager | Repair User | PM User | Compliance Manager | Super Admin |
+|---|---|---|---|---|---|---|
+| `list_allocations` | R | R | R | R | R | R |
+| `get_allocation` | R | R | R | R | R | R |
+| `create_allocation` | W | W | W | W | — | W |
+| `approve_allocation` | — | W | — | — | — | W |
+| `issue_allocation` | W | W | — | — | — | W |
+| `cancel_allocation` | — | W | — | — | — | W |
+| `return_items` | W | W | — | — | — | W |
+| `return_allocation` | W | W | — | — | — | W |
+| `list_cycle_counts` | R | R | — | R | R | R |
+| `create_cycle_count` | W | W | — | — | — | W |
+| `submit_cycle_count` | W | W | — | — | — | W |
+| `post_cycle_count` | — | W | — | — | — | W |
+| `list_spare_forecasts` | R | R | — | — | R | R |
+| `generate_spare_forecast` | W | W | — | — | — | W |
+| `approve_forecast` | — | W | — | — | — | W |
+| `list_watchlist` | R | R | R | R | R | R |
+| `add_to_watchlist` | — | W | — | — | — | W |
+| `check_part_availability` | R | R | R | R | R | R |
+| `get_stock_snapshot` | R | R | R | R | R | R |
+| `get_critical_watchlist` | R | R | R | R | R | R |
+| `get_dashboard_stats` | R | R | — | — | R | R |
+| `get_low_stock_alerts` | R | R | — | — | R | R |
+
+> Lưu ý so với draft cũ: `create_allocation` cho phép `Inventory User` (code: `_require_storekeeper_or_tech`); `generate_spare_forecast` cho phép `Inventory User` (code: `_require_any_role`). `return_allocation` là alias backward-compat của `return_items`. Các role legacy (`IMM Storekeeper`, `IMM Workshop Lead`, …) đã ngừng dùng từ 2026-05-27 sau RBAC consolidation — xem `assetcore/fixtures/role.json` (30-role catalog).
 
 ---
 
@@ -96,23 +103,24 @@ GET /api/method/assetcore.api.imm15.list_allocations
 {
   "success": true,
   "data": {
-    "items": [
+    "data": [
       {
         "name": "SAL-2026-00045",
         "work_order_ref": "WO-2026-00234",
         "asset": "AC-ASSET-00045",
         "urgency": "Routine",
-        "workflow_state": "Issued",
+        "allocation_status": "Issued",
         "stock_movement_ref": "AC-SM-2026-00234",
         "total_value": 1500000,
         "requested_date": "2026-05-08"
       }
     ],
-    "total": 48,
-    "page": 1,
-    "page_size": 20
+    "pagination": {"total": 48, "page": 1, "page_size": 20, "total_pages": 3}
   }
 }
+```
+
+> Lưu ý: key là `data` (không phải `items`), kèm object `pagination` — khớp với `BaseRepository.list()` contract và TypeScript type `ListEnvelope<T>` trong `api/imm15.ts`.
 ```
 
 ---
@@ -173,7 +181,7 @@ POST /api/method/assetcore.api.imm15.approve_allocation
 
 **Errors:**
 ```json
-{"success": false, "error": "Chỉ IMM Workshop Lead / Operations Manager mới được duyệt allocation", "code": "FORBIDDEN"}
+{"success": false, "error": "Chỉ Inventory Manager mới được duyệt allocation", "code": "FORBIDDEN"}
 {"success": false, "error": "SAL-2026-00045 không ở trạng thái Requested", "code": "BAD_STATE"}
 ```
 
@@ -200,8 +208,10 @@ POST /api/method/assetcore.api.imm15.issue_allocation
 ```
 
 **Side effects:**
+- VR-15-03 đọc `available_qty` THẬT (= qty_on_hand − reserved_qty của allocation OPEN khác) → chống double-issue
 - Tạo và submit `AC Stock Movement` (Issue, reference_type=IMM Spare Allocation)
 - `apply_stock_movement()` → `AC Spare Part Stock.qty_on_hand -= qty_issued`
+- **RELEASE reserved:** dòng rời HOLDING → `recompute_reserved(warehouse_from, spare_part)` → reserved giải phóng (không double-count)
 - Ghi `IMM Audit Trail` (action=ISSUED)
 
 **Response:**
@@ -222,6 +232,31 @@ POST /api/method/assetcore.api.imm15.issue_allocation
 {"success": false, "error": "VR-15-02: Phụ tùng AC-SP-2024-0001 yêu cầu số lô/serial", "code": "VALIDATION"}
 {"success": false, "error": "Tạo AC Stock Movement thất bại", "code": "INTERNAL"}
 ```
+
+---
+
+### 3.4b `cancel_allocation`
+
+```
+POST /api/method/assetcore.api.imm15.cancel_allocation
+```
+
+**Request body:** `{"name": "SAL-2026-00045"}` (hoặc `allocation`/`allocation_name`)
+
+**Side effects:**
+- `{Requested, Approved, Picked}` → `Cancelled`; `qty_on_hand` KHÔNG đổi (chưa từng trừ)
+- **RELEASE reserved:** `recompute_reserved(warehouse_from, spare_part)` cho mọi dòng → reserved giải phóng
+- Ghi `IMM Audit Trail` (action=CANCELLED)
+
+**Response:** `{"success": true, "data": {"name": "SAL-2026-00045", "workflow_state": "Cancelled"}}`
+
+**Errors:**
+```json
+{"success": false, "error": "Không thể hủy Allocation đã Issued/Returned", "code": "BAD_STATE"}
+{"success": false, "error": "Chỉ Inventory Manager mới được hủy allocation", "code": "FORBIDDEN"}
+```
+
+> `recompute_reserved(warehouse, spare_part)` là **hàm nội bộ** (`services.inventory`), KHÔNG whitelist endpoint — chỉ gọi bên trong transition allocation. Consumer đọc `reserved_qty`/`available_qty` qua `get_stock_snapshot` / `check_part_availability` / `get_low_stock_alerts` đã có sẵn.
 
 ---
 
@@ -431,6 +466,142 @@ POST /api/method/assetcore.api.imm15.add_to_watchlist
 
 ---
 
+### 3.5b `return_allocation` (backward-compat alias)
+
+```
+POST /api/method/assetcore.api.imm15.return_allocation
+```
+
+**Deprecated**: Giữ để backward compat — gọi `svc.return_items` nội bộ. Prefer `return_items` (§3.5).
+
+**Request body:**
+```json
+{"allocation_name": "SAL-2026-00045", "return_items": [{"spare_part": "...", "qty_returned": 1}]}
+```
+
+---
+
+### 3.6b `list_cycle_counts`
+
+```
+GET /api/method/assetcore.api.imm15.list_cycle_counts
+```
+
+**Query params:** `status`, `warehouse`, `page`, `page_size`
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "data": [{"name": "CYC-2026-00012", "warehouse": "WH-01", "count_date": "2026-05-10", "status": "Posted", "variance_count": 1}],
+    "pagination": {"total": 48, "page": 1, "page_size": 20, "total_pages": 3}
+  }
+}
+```
+
+---
+
+### 3.7b `submit_cycle_count` (internal review step)
+
+```
+POST /api/method/assetcore.api.imm15.submit_cycle_count
+```
+
+Chuyển trạng thái Planned/Counting → Reviewed, tính variance. Thường được gọi nội bộ trước `post_cycle_count`.
+
+**Request body:**
+```json
+{"count_name": "CYC-2026-00012", "counted_items": [{"spare_part": "AC-SP-001", "counted_qty": 4}]}
+```
+
+**Response:**
+```json
+{"success": true, "data": {"name": "CYC-2026-00012", "workflow_state": "Reviewed", "variance_count": 1}}
+```
+
+---
+
+### 3.8b `list_spare_forecasts`
+
+```
+GET /api/method/assetcore.api.imm15.list_spare_forecasts
+```
+
+**Query params:** `filters` (JSON), `page`, `page_size`
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "data": [{"name": "SFC-2026-00008", "forecast_period": "2026-Q3", "method": "Moving_Avg", "workflow_state": "Draft"}],
+    "pagination": {"total": 8, "page": 1, "page_size": 20, "total_pages": 1}
+  }
+}
+```
+
+---
+
+### 3.10b `list_watchlist`
+
+```
+GET /api/method/assetcore.api.imm15.list_watchlist
+```
+
+**Query params:** `active_only` (default 1), `page`, `page_size`
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "data": [{"name": "ICU-Ventilator-Circuit", "spare_part": "AC-SP-0099", "min_required_on_hand": 2, "active": 1}],
+    "pagination": {"total": 47, "page": 1, "page_size": 50, "total_pages": 1}
+  }
+}
+```
+
+---
+
+### 3.11b `get_stock_snapshot`
+
+```
+GET /api/method/assetcore.api.imm15.get_stock_snapshot?warehouse=WH-01
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": [
+    {"spare_part": "AC-SP-001", "part_name": "X-ray Tube", "qty_on_hand": 1, "reserved_qty": 0, "available_qty": 1, "last_movement_date": "2026-05-08"}
+  ]
+}
+```
+
+---
+
+### 3.11c `get_critical_watchlist`
+
+```
+GET /api/method/assetcore.api.imm15.get_critical_watchlist
+```
+
+**Mô tả**: Legacy endpoint — trả danh sách watchlist entries đang vi phạm mức tối thiểu (`below_minimum=true`). Khác với `list_watchlist` (trả toàn bộ).
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": [
+    {"name": "ICU-Ventilator-Circuit", "spare_part": "AC-SP-0099", "available_qty": 0, "min_required": 2, "below_minimum": true}
+  ]
+}
+```
+
+---
+
 ### 3.11 `check_part_availability`
 
 ```
@@ -579,7 +750,7 @@ IMM-15 FE tái sử dụng các endpoint LIVE sau từ `api/inventory.py`:
 | Kho không hoạt động | `VALIDATION` | "VR-15-13: Kho WH-01 không còn hoạt động" |
 | AC Stock Movement fail | `INTERNAL` | "Tạo AC Stock Movement thất bại" |
 | Sai state | `BAD_STATE` | "SAL-2026-00045 không ở trạng thái Requested" |
-| Không đủ quyền | `FORBIDDEN` | "Chỉ IMM Workshop Lead mới được duyệt" |
+| Không đủ quyền | `FORBIDDEN` | "Chỉ Inventory Manager mới được duyệt" |
 | Không tìm thấy | `NOT_FOUND` | "IMM Spare Allocation SAL-2026-99999 không tồn tại" |
 
 ---
@@ -746,9 +917,9 @@ export interface ApiResponse<T> {
 | Event | Payload | Phát bởi | Subscriber |
 |---|---|---|---|
 | `imm15_allocation_issued` | `{"name": "SAL-2026-00045", "asset": "...", "stock_movement_ref": "..."}` | `issue_allocation()` | WO dashboard (update spare status) |
-| `imm15_low_stock_alert` | `{"spare_part": "...", "warehouse": "...", "qty_on_hand": 0.5}` | Scheduler | Storekeeper dashboard |
-| `imm15_critical_breach` | `{"watchlist": "...", "asset": "...", "spare_part": "...", "qty": 1}` | `check_critical_spare_breach()` | Workshop Lead + Ops Manager urgent inbox |
-| `imm15_cycle_count_posted` | `{"name": "CYC-2026-00012", "adjustment_ref": "...", "capa_count": 1}` | `post_cycle_count()` | QA Officer dashboard |
+| `imm15_low_stock_alert` | `{"spare_part": "...", "warehouse": "...", "qty_on_hand": 0.5}` | Scheduler | Inventory User / Inventory Manager dashboard |
+| `imm15_critical_breach` | `{"watchlist": "...", "asset": "...", "spare_part": "...", "qty": 1}` | `check_critical_spare_breach()` | Inventory Manager + Compliance Manager urgent inbox |
+| `imm15_cycle_count_posted` | `{"name": "CYC-2026-00012", "adjustment_ref": "...", "capa_count": 1}` | `post_cycle_count()` | Compliance Manager dashboard |
 | `imm15_forecast_approved` | `{"name": "SFC-2026-00008", "reorder_count": 12}` | `approve_forecast()` | Procurement dashboard (IMM-03 trigger) |
 
 ---

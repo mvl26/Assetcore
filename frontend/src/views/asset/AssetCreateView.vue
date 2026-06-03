@@ -23,28 +23,38 @@ const form = ref<Partial<AcAsset>>({
   supplier: '',
   lifecycle_status: 'Commissioned',
   is_pm_required: 0,
-  pm_interval_days: 90,
   is_calibration_required: 0,
-  calibration_interval_days: 365,
   gross_purchase_amount: 0,
 })
 
 const { clear: clearDraft } = useFormDraft('asset-create', form)
 
-// Kế thừa gmdn_code từ Device Model khi user chọn
+// BR-00-FE-02: khi chọn model → auto-fill PM/Cal + gmdn_code + medical_device_class
 watch(() => form.value.device_model, async (modelName) => {
-  if (!modelName || form.value.gmdn_code) return
+  if (!modelName) return
   try {
     const model = await getDeviceModel(modelName)
-    if (model?.gmdn_code) form.value.gmdn_code = model.gmdn_code
+    if (!model) return
+    form.value.is_pm_required = model.is_pm_required ?? 0
+    form.value.pm_interval_days = model.pm_interval_days
+    form.value.is_calibration_required = model.is_calibration_required ?? 0
+    form.value.calibration_interval_days = model.calibration_interval_days
+    if (model.medical_device_class) form.value.medical_device_class = model.medical_device_class
+    if (!form.value.gmdn_code && model.gmdn_code) form.value.gmdn_code = model.gmdn_code
   } catch {
-    // silent — gmdn_code không bắt buộc
+    // silent — user có thể điền tay
   }
 })
 
-// Cascade: đổi danh mục → reset model đã chọn (model phụ thuộc category)
+// BR-00-FE-01: đổi danh mục → reset model + PM/Cal
 function onCategoryChange() {
   form.value.device_model = ''
+  form.value.is_pm_required = 0
+  form.value.pm_interval_days = undefined
+  form.value.is_calibration_required = 0
+  form.value.calibration_interval_days = undefined
+  form.value.medical_device_class = undefined
+  form.value.gmdn_code = ''
 }
 
 async function submit() {
@@ -97,11 +107,14 @@ async function submit() {
             <SmartSelect v-model="form.asset_category" doctype="AC Asset Category" placeholder="Tìm danh mục..." @select="onCategoryChange" @clear="onCategoryChange" />
           </div>
           <div>
-            <label class="form-label">Model thiết bị</label>
+            <label class="form-label">
+              Model thiết bị
+              <span v-if="form.asset_category" class="text-[10px] font-normal text-blue-500 ml-1">(đã lọc theo danh mục)</span>
+            </label>
             <SmartSelect
               v-model="form.device_model"
               doctype="IMM Device Model"
-              :filters="{ asset_category: form.asset_category }"
+              :filters="form.asset_category ? { asset_category: form.asset_category } : undefined"
               placeholder="Tìm model..."
             />
           </div>
@@ -191,7 +204,10 @@ async function submit() {
 
       <!-- Section: Bảo trì / Hiệu chuẩn -->
       <div class="card p-5">
-        <h2 class="text-sm font-semibold text-slate-700 mb-4 pb-2 border-b border-slate-100">Lịch bảo trì & Hiệu chuẩn</h2>
+        <h2 class="text-sm font-semibold text-slate-700 mb-4 pb-2 border-b border-slate-100">
+          Lịch bảo trì & Hiệu chuẩn
+          <span v-if="form.device_model" class="text-[10px] font-normal text-blue-500 ml-2">(tự điền từ model — có thể chỉnh)</span>
+        </h2>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div class="flex items-center gap-3">
             <input id="pm_check" v-model="form.is_pm_required" type="checkbox" :true-value="1" :false-value="0" class="h-4 w-4 text-blue-600 rounded" />

@@ -1,737 +1,718 @@
-# IMM-15 — Testing & QA
+# 07 — Kiểm thử & An ninh (Testing & QA & Security)
 
-> ✅ Wave 2 IMPLEMENTED. Test thực tế: `assetcore/tests/test_imm15.py` (7 TestCase, 11 test method). Coverage formal report chưa chạy — xem §I.1.
-
-| Thuộc tính | Giá trị |
+| Mục | Giá trị |
 |---|---|
-| Module | IMM-15 — Spare Parts Inventory Tracking |
-| Phiên bản | 1.0.0-rc.2 |
-| Template | 07 Testing_QA |
-| Ngày cập nhật | 2026-05-14 |
-| Trạng thái | IMPLEMENTED — Wave 2 |
+| Module | IMM-15 — Spare Parts Inventory Tracking (Theo dõi tồn kho phụ tùng y tế) |
+| Phạm vi | Per-module |
+| Owner | QA Lead + Security Officer |
+| Liên kết | 02 Analysis (US, BR, Activity, BPMN) · 03 Diagrams · 04 Backend · 05 API · 06 Frontend |
+
+> **Mục đích**: Suy ra test case **có hệ thống** từ phân tích (file 02) bằng kỹ thuật black-box + white-box, không liệt kê tự phát. Bao gồm: phân tích đối tượng test → chọn kỹ thuật → viết test → traceability → UAT → security → code quality. Phần này là gate go-live.
+
+> **Trạng thái hiện tại (2026-05-29)**: Module IMM-15 **đã triển khai** (Wave 2). Test thực tế: `assetcore/tests/test_imm15.py` — 9 lớp test, 15 test method **✅ Live**. Coverage formal report **chưa chạy** → các con số coverage dưới đây là *target*, không phải đo thực. Field-level permission (permlevel) **chưa cấu hình** trên DocType → đánh dấu gap ở VI.1.
 
 ---
 
-## §0 — Test Suite Inventory (CURRENT, 2026-05-14)
+# Phần I — Test Analysis (Phân tích đối tượng test)
 
-File: `assetcore/tests/test_imm15.py`
+> Mục tiêu Phần I: trả lời 4 câu hỏi trước khi viết test case: **(1) test cái gì** **(2) suy ra từ đâu** **(3) ưu tiên cái nào** **(4) loại trừ cái nào**.
 
-| Class | Test method | Covers |
+## I.1. Component Inventory — Liệt kê phần mềm cần test
+
+Liệt kê toàn bộ artefact test được của IMM-15 (nguồn: `04_Backend_Design.md` §DocType+§Service, `05_API_Specification.md` §Catalog, `06_Frontend_Design.md` §Views). Mỗi dòng → ≥ 1 test class ở Phần III.
+
+| # | Component | Loại | File / Tên | Test layer áp dụng |
+|---|---|---|---|---|
+| 1 | IMM Spare Allocation | DocType | `imm_spare_allocation.json` | Integration (lifecycle) |
+| 2 | IMM Spare Allocation Item | Child DocType | `imm_spare_allocation_item.json` | Integration (via parent) |
+| 3 | IMM Stock Cycle Count | DocType | `imm_stock_cycle_count.json` | Integration (lifecycle) |
+| 4 | IMM Stock Cycle Count Item | Child DocType | `imm_stock_cycle_count_item.json` | Integration (via parent) |
+| 5 | IMM Spare Part Forecast | DocType | `imm_spare_part_forecast.json` | Integration (lifecycle) |
+| 6 | IMM Spare Forecast Item | Child DocType | `imm_spare_forecast_item.json` | Integration (via parent) |
+| 7 | IMM Critical Spare Watchlist | DocType | `imm_critical_spare_watchlist.json` | Integration (CRUD + breach) |
+| 8 | Allocation workflow | Workflow | `workflow/imm_15_allocation_workflow.json` (12 transitions) | Integration (state transition) |
+| 9 | Cycle Count workflow | Workflow | `workflow/imm_15_cycle_count_workflow.json` (4 transitions) | Integration (state transition) |
+| 10 | `create_allocation` | Service function | `services/imm15.py::create_allocation` | Unit |
+| 11 | `approve_allocation` | Service function | `services/imm15.py::approve_allocation` | Unit |
+| 12 | `issue_allocation` | Service function | `services/imm15.py::issue_allocation` | Unit + Integration (stock movement) |
+| 13 | `return_items` / `return_allocation` | Service function | `services/imm15.py::return_items` | Unit |
+| 14 | `create_cycle_count` / `submit_cycle_count` / `post_cycle_count` | Service function | `services/imm15.py::*_cycle_count` | Unit + Integration |
+| 15 | `generate_spare_forecast` / `approve_forecast` | Service function | `services/imm15.py::*_forecast` | Unit |
+| 16 | `add_to_watchlist` / `get_critical_watchlist` | Service function | `services/imm15.py::add_to_watchlist` | Unit |
+| 17 | `get_dashboard_stats` / `get_low_stock_alerts` / `get_stock_snapshot` | Service function (read) | `services/imm15.py::get_*` | Unit (schema) |
+| 18 | `check_part_availability` | API read | `api/imm15.py::check_part_availability` | API integration + perf |
+| 19 | Validator `_vr_05_urgency_valid` | Validator | `services/imm15.py::_vr_05_urgency_valid` | Unit (EP) |
+| 20 | Validator `_vr_13_warehouse_active` | Validator | `services/imm15.py::_vr_13_warehouse_active` | Unit (EP) |
+| 21 | `_create_stock_movement_for_issue/return/adjustment` | Service (DAO bridge) | `services/imm15.py::_create_stock_movement_*` | Integration (AC Stock Movement) |
+| 22 | `_seed_capa_for_cycle_variance` / `_seed_breach_capa` | Service (cross-module IMM-16) | `services/imm15.py::_seed_*_capa` | Integration |
+| 23 | `_write_allocation_audit` | Audit writer | `services/imm15.py::_write_allocation_audit` | Integration (audit chain) |
+| 24 | `check_critical_spare_breach` | Scheduler job | `services/imm15.py::check_critical_spare_breach` (hooks daily) | Unit + Cron simulation |
+| 25 | `check_low_stock_and_alert` | Scheduler job | `services/imm15.py::check_low_stock_and_alert` | Cron simulation |
+| 26 | `check_expiring_batches` | Scheduler job | `services/imm15.py::check_expiring_batches` | Cron simulation |
+| 27 | `compute_inventory_kpis` | Scheduler job | `services/imm15.py::compute_inventory_kpis` | Cron simulation |
+| 28 | `generate_spare_demand_forecast` | Scheduler job | `services/imm15.py::generate_spare_demand_forecast` (monthly) | Cron simulation |
+| 29 | `reclassify_abc` | Scheduler job | `services/imm15.py::reclassify_abc` (quarterly) | Cron simulation |
+| 30 | `reserve_for_pm` / `reserve_for_repair` / `flag_obsolete_on_decommission` | Lifecycle hook | `hooks.py → services/imm15.py` | Integration (cross-module) |
+| 31 | API endpoints (24 whitelisted) | API | `api/imm15.py` | API integration |
+| 32 | FE views (Inventory) | FE view | `frontend/src/views/inventory/*.vue` (13 view) | E2E (Playwright) |
+| 33 | Pinia store | Store | `frontend/src/stores/imm15.ts` | Unit (vitest) — *(Cần khảo sát)* |
+
+## I.2. Trace nguồn test — User Stories, Activity Flows, Business Rules
+
+3 bảng dẫn từ artefact phân tích (`02_Analysis_Design.md`) sang test layer. Mỗi US/BR/UC phải có ≥ 1 test ở Phần III và xuất hiện trong matrix Phần IV.
+
+### I.2.a. Từ User Story (→ 02 §IV.1)
+| US ID | Tiêu đề ngắn | Test layer dự kiến |
 |---|---|---|
-| `TestAllocationLifecycle` | `test_create_requires_work_order_for_non_emergency` | VR-15-08 / BR-15-01 (non-emergency requires WO) |
-| `TestAllocationLifecycle` | `test_create_emergency_without_wo_succeeds` | BR-15-01 Emergency override |
-| `TestAllocationLifecycle` | `test_approve_requires_correct_role` | Workflow Requested→Approved |
-| `TestAllocationLifecycle` | `test_approve_bad_state` | ErrorCode.BAD_STATE re-approve |
-| `TestUrgencyValidation` | `test_invalid_urgency_rejected` | VR-15-05 urgency enum |
-| `TestWarehouseValidation` | `test_inactive_warehouse_rejected` | VR-15-13 inactive warehouse |
-| `TestReturnValidation` | `test_return_qty_exceeds_issued` | VR-15-08 return qty cap |
-| `TestForecastGeneration` | `test_generate_forecast` | `generate_spare_forecast` Moving_Avg |
-| `TestWatchlist` | `test_add_critical_part_ok` | Watchlist Critical-only happy path |
-| `TestWatchlist` | `test_add_non_critical_rejected` | VR-15-09 Critical-only enforcement |
-| `TestDashboardStats` | `test_dashboard_keys` | `get_dashboard_stats` schema |
+| US-15-01 | Allocation theo Work Order (create→approve→issue) | Unit + Integration + UAT |
+| US-15-02 | Emergency override khi Critical Spare hết (dual-approval) | Unit + UAT |
+| US-15-03 | Cycle Count → CAPA khi variance | Integration + UAT |
+| US-15-04 | Critical Spare Watchlist breach (scheduler) | Cron sim + UAT |
+| US-15-05 | Demand Forecast part-level (generate→approve) | Unit + UAT |
 
-Run:
-
-```bash
-bench --site [site] run-tests --app assetcore --module assetcore.tests.test_imm15
-```
-
-> ⚠️ Các test class / coverage target lý thuyết liệt kê dưới §II–§III (TestImm15ValidationRules, TestImm15AllocationService, ...) là **draft chưa triển khai** — giữ làm backlog. Test ID chính xác là class + method ở §0 ở trên.
-
----
-
-## §I — Test Pyramid
-
-### I.1 Coverage Targets
-
-| Layer | Số test | Target Coverage | Tool |
+### I.2.b. Từ Business Rule (→ 02 §IV.2 + §IV.3)
+| BR/VR ID | Phát biểu (rút gọn) | Component liên quan (I.1) | Kỹ thuật test phù hợp |
 |---|---|---|---|
-| Unit (service logic) | ≥ 50 | ≥ 85% lines | `bench run-tests` / pytest |
-| Integration (workflow + hooks) | ≥ 12 | — | `bench run-tests` |
-| E2E / API | ≥ 14 | — | curl smoke + Playwright |
-| UAT | 14 scenarios | 100% scenario pass | Manual |
+| BR-15-01 / VR-15-01 | Non-emergency phải link Work Order | `create_allocation` (#10) | Decision Table |
+| BR-15-02 / VR-15-02 | `imm_traceability_required=1` → batch/serial bắt buộc khi issue | `issue_allocation` (#12) | Decision Table |
+| BR-15-03 / VR-15-03 | `qty_issued ≤ available_qty`, Emergency+Critical bypass | `issue_allocation` (#12) | BVA + Decision Table |
+| BR-15-04 | Critical Watchlist breach → CAPA + email | `check_critical_spare_breach` (#24) | Use Case (cron) |
+| BR-15-05 / VR-15-04 | Variance > 5% hoặc > 5M → root_cause bắt buộc | `post_cycle_count` (#14) | BVA + Decision Table |
+| BR-15-06 | ABC reclassification mỗi quý | `reclassify_abc` (#29) | Use Case (cron) |
+| BR-15-07 | Forecast Approved mới được dùng gợi ý reorder | `approve_forecast` (#15) | Decision Table |
+| BR-15-08 | Returned items → QC; Damaged → kho QC Hold | `return_items` (#13) | Decision Table |
+| BR-15-09 | Asset decommissioned → flag obsolete | `flag_obsolete_on_decommission` (#30) | Use Case |
+| BR-15-10 | Mọi mutation ghi IMM Audit Trail | `_write_allocation_audit` (#23) | Use Case + audit chain |
+| VR-15-05 | `urgency IN {Routine/Urgent/Emergency}` | `_vr_05_urgency_valid` (#19) | EP |
+| VR-15-07 | `reorder_point ≥ safety_stock` | `generate_spare_forecast` (#15) | BVA |
+| VR-15-08 | `qty_returned ≤ qty_issued` | `return_items` (#13) | BVA |
+| VR-15-09 | Watchlist spare phải Critical, min > 0 | `add_to_watchlist` (#16) | Decision Table |
+| VR-15-10 | Emergency: 2 approver khác nhau | `issue_allocation` (#12) | Decision Table |
+| VR-15-11 | Cycle count: `verified_by ≠ counted_by` | `post_cycle_count` (#14) | Decision Table |
+| VR-15-12 | Forecast method whitelist | `generate_spare_forecast` (#15) | EP |
+| VR-15-13 | `AC Warehouse.is_active=1` | `_vr_13_warehouse_active` (#20) | EP |
 
-### I.2 Run Commands
+### I.2.c. Từ Use Case / Activity Flow (→ 02 §III.4)
+| UC ID | Use Case | Branch chính | Branch ngoại lệ |
+|---|---|---|---|
+| UC-01 | Cấp phát theo WO | create→approve→pick→issue (Issued) | Thiếu WO (VR-15-01), tồn không đủ (VR-15-03) |
+| UC-02 | Cycle Count | Planned→Counting→Reviewed→Posted | Variance > ngưỡng → root_cause + CAPA |
+| UC-03 | Watchlist breach | Scheduler phát hiện < min → email + CAPA | Đã có open CAPA → không nhân đôi |
+| UC-04 | Emergency Override | Dual-approval → Issued (audit_flags) | Cùng 1 approver (VR-15-10) |
+| UC-05 | Return | Good → kho gốc; Damaged → QC Hold | `qty_returned > qty_issued` (VR-15-08) |
+| UC-06 | Demand Forecast | generate Draft → approve → reorder | Draft chưa approve → không gợi ý (BR-15-07) |
+| UC-07 | ABC/XYZ quarterly | reclassify cập nhật class | Idempotent — chạy lại không nhân đôi audit |
+| UC-08 | Watchlist CRUD | add Critical part | add Major part bị chặn (VR-15-09) |
+
+## I.3. Risk-based Priority
+
+| Component (I.1) | Likelihood | Impact | Risk = L×I | Priority |
+|---|---|---|---|---|
+| `issue_allocation` + stock movement (#12, #21) | 4 | 5 | 20 | **Critical** |
+| Emergency override dual-approval (VR-15-10) | 3 | 5 | 15 | **Critical** |
+| Allocation workflow transitions (#8) | 4 | 4 | 16 | **Critical** |
+| `_write_allocation_audit` / audit chain (#23) | 3 | 5 | 15 | **Critical** |
+| Cycle Count variance → CAPA (#14, #22) | 3 | 4 | 12 | High |
+| `check_critical_spare_breach` scheduler (#24) | 3 | 4 | 12 | High |
+| `create_allocation` (VR-15-01) (#10) | 4 | 3 | 12 | High |
+| `generate_spare_forecast` / `approve_forecast` (#15) | 2 | 3 | 6 | Medium |
+| `add_to_watchlist` (VR-15-09) (#16) | 2 | 3 | 6 | Medium |
+| Dashboard read endpoints (#17) | 2 | 2 | 4 | Low |
+
+**Quy ước priority**: Critical (R ≥ 15) test trước, fail = block release · High (10–14) bắt buộc trước go-live · Medium (5–9) trong sprint · Low (< 5) chỉ khi báo bug.
+
+## I.4. Scope
+
+- **In-scope**: service layer IMM-15 (allocation/cycle count/forecast/watchlist), 2 workflow state machine, scheduler jobs, API envelope `{success, data}`, audit trail, RBAC theo role.
+- **Out-of-scope**:
+  - Performance load test sâu → chỉ định target ở III.8 (chưa chạy k6).
+  - AC Inventory Backbone (Wave 1: AC Spare Part, AC Stock Movement) — đã LIVE, IMM-15 chỉ smoke qua `stock_movement_ref`.
+  - Cross-module IMM-08/IMM-12 (reserve hook) — chỉ smoke ở integration, full flow test ở module gốc.
+  - FE unit test (vitest) cho `stores/imm15.ts` — *(Cần khảo sát)*, hiện chỉ E2E.
+- **Assumptions**: master data (AC UOM, AC Warehouse, AC Spare Part) đã seed; test tự tạo fixture riêng và cleanup ở `tearDownClass`; site test đã `bench migrate` (workflow + DocType active).
+
+---
+
+# Phần II — Test Design Techniques (Kỹ thuật thiết kế test case)
+
+> Mỗi test phải truy được về 1 kỹ thuật ở dưới.
+
+## II.1. Black-box techniques
+
+| Kỹ thuật | Khi nào dùng | Áp dụng vào IMM-15 | Số test (rule of thumb) |
+|---|---|---|---|
+| **Equivalence Partitioning (EP)** | Input chia nhóm tương đương | `urgency` enum (VR-15-05), forecast `method` (VR-15-12), warehouse active/inactive (VR-15-13) | 1 test/partition |
+| **Boundary Value Analysis (BVA)** | Numeric/length có biên | `qty_issued` vs `available_qty` (VR-15-03), `qty_returned ≤ qty_issued` (VR-15-08), variance 5% / 5M (VR-15-04), `reorder_point ≥ safety_stock` (VR-15-07) | 2-3 test/biên |
+| **Decision Table** | Multi-condition rule | VR-15-01 (urgency×work_order), VR-15-10 (2 approver khác nhau×role), VR-15-09 (part class×min) | 2^N rút gọn |
+| **State Transition Testing** | Workflow FSM | Allocation (12 transition), Cycle Count (4 transition) | Mỗi transition + invalid |
+| **Use Case Testing** | E2E actor flow | UAT scenarios, scheduler jobs (setup→run→assert) | 1/main + 1/alt + 1/exception |
+| **Error Guessing** | null/empty/race | Mọi endpoint nhận user input, idempotency breach/CAPA | Bổ sung |
+
+## II.2. White-box techniques
+
+| Kỹ thuật | Áp dụng vào | Tiêu chí đạt | Công cụ |
+|---|---|---|---|
+| **Statement coverage** | Service functions (#10–#16) | ≥ 85% line *(target — chưa đo)* | `bench run-tests --coverage` |
+| **Branch / Decision coverage** | Functions có if/else/try (issue, post_cycle_count) | ≥ 80% branch *(target)* | `coverage --branch` |
+| **Condition / MC/DC** | VR-15-10 (multi-AND), VR-15-03 (Emergency bypass) | Mỗi sub-condition kiểm soát outcome độc lập | Manual test design |
+| **Path coverage** | `_compute_variance` / pure helper ≤ 20 LOC | Path khả dĩ (loop 0,1,N) | Manual |
+
+## II.3. Mapping Component → Kỹ thuật
+
+| Loại component | Kỹ thuật chính | Kỹ thuật phụ |
+|---|---|---|
+| Field validator (`_vr_05`, `_vr_13`) | EP | Error guessing |
+| Business-rule check (VR-15-01/03/10) | Decision Table | MC/DC |
+| Workflow transition | State Transition | Use Case |
+| Service function pure | EP + Branch coverage | BVA |
+| API endpoint | Use Case + EP | Pairwise |
+| Scheduler / cron | Use Case (state→run→assert) | Error guessing (idempotency) |
+| FE view (Playwright) | Use Case E2E | Error guessing (role gate, 4xx/5xx) |
+
+---
+
+# Phần III — Test Plan (Kế hoạch thực thi)
+
+## III.1. Test Pyramid
+
+```
+                  ┌────────────┐
+                  │  E2E / UAT │   ~5%
+                 ─┴────────────┴─
+              ┌──────────────────────┐
+              │   API Integration    │   ~15%
+             ─┴──────────────────────┴─
+          ┌────────────────────────────────┐
+          │  Workflow + DocType lifecycle  │   ~25%
+         ─┴────────────────────────────────┴─
+      ┌────────────────────────────────────────────┐
+      │         Unit — Service Layer               │   ~55%
+     ─┴────────────────────────────────────────────┴─
+```
+
+CLAUDE.md §17: TDD bắt buộc. Hiện tại trọng tâm test thực ở tầng Service unit (`test_imm15.py`).
+
+## III.2. Unit test — Service Layer
+
+File: `assetcore/tests/test_imm15.py`. Lớp test + method **đã tồn tại** (✅ Live) hoặc **chưa viết** (⬜ Planned).
+
+| Test class | Test method | Function cover | Kỹ thuật | Status |
+|---|---|---|---|---|
+| `TestAllocationLifecycle` | `test_create_requires_work_order_for_non_emergency` | `create_allocation` (VR-15-01) | Decision Table | ✅ Live |
+| `TestAllocationLifecycle` | `test_create_emergency_without_wo_succeeds` | `create_allocation` Emergency bypass | Decision Table | ✅ Live |
+| `TestAllocationLifecycle` | `test_approve_requires_correct_role` | `approve_allocation` Requested→Approved | State Transition | ✅ Live |
+| `TestAllocationLifecycle` | `test_approve_bad_state` | `approve_allocation` re-approve → `BAD_STATE` | State Transition | ✅ Live |
+| `TestUrgencyValidation` | `test_invalid_urgency_rejected` | `_vr_05_urgency_valid` (VR-15-05) | EP | ✅ Live |
+| `TestWarehouseValidation` | `test_inactive_warehouse_rejected` | `_vr_13_warehouse_active` (VR-15-13) | EP | ✅ Live |
+| `TestReturnValidation` | `test_return_qty_exceeds_issued` | `return_items` (VR-15-08) | BVA | ✅ Live |
+| `TestForecastGeneration` | `test_generate_forecast` | `generate_spare_forecast` Moving_Avg | Use Case | ✅ Live |
+| `TestWatchlist` | `test_add_critical_part_ok` | `add_to_watchlist` happy path | Decision Table | ✅ Live |
+| `TestWatchlist` | `test_add_non_critical_rejected` | `add_to_watchlist` (VR-15-09) | Decision Table | ✅ Live |
+| `TestDashboardStats` | `test_dashboard_keys` | `get_dashboard_stats` schema | Use Case | ✅ Live |
+| `TestDashboardLowStockPerBin` | `test_overview_low_stock_is_per_bin` | low-stock per-bin (regression BUG-15-03) | EP | ✅ Live |
+| `TestDashboardLowStockPerBin` | `test_overview_count_matches_stock_page` | dashboard count = stock page | Use Case | ✅ Live |
+| — | issue → stock movement + Bin decrement | `issue_allocation` + `_create_stock_movement_for_issue` | Integration | ⬜ Planned |
+| `TestReservationLedger` | `test_red_reserved_has_no_writer` (RED) | chứng minh trước-fix: tạo allocation Requested → `reserved_qty` vẫn 0, `available == qty_on_hand` (bug) | Regression/RED | ⬜ Planned |
+| `TestReservationLedger` | `test_open_allocation_holds_stock` | create Requested qty=Q ⇒ `reserved_qty += Q`, `available -= Q`, `qty_on_hand` KHÔNG đổi (§III-bis.1) | State Transition | ⬜ Planned |
+| `TestReservationLedger` | `test_approve_recomputes_reserved` | approve (qty_approved) → reserved phản ánh qty_approved | State Transition | ⬜ Planned |
+| `TestReservationLedger` | `test_issue_releases_reserved` | issue → reserved về 0 cho phần đã xuất; `available == qty_on_hand` mới (RELEASE §III-bis.3) | State Transition | ⬜ Planned |
+| `TestReservationLedger` | `test_cancel_releases_reserved` | cancel Approved → reserved giải phóng; qty_on_hand không đổi | State Transition | ⬜ Planned |
+| `TestReservationLedger` | `test_anti_oversell_second_issue_fails` | 2 alloc OPEN cùng bin, on_hand=Q ⇒ #2 issue FAIL VR-15-03 (anti-oversell §III-bis.4) | Decision Table | ⬜ Planned |
+| `TestReservationLedger` | `test_emergency_critical_bypass_unchanged` | Emergency+Critical vẫn bypass VR-15-03 dù available=0 | Decision Table | ⬜ Planned |
+| `TestReservationLedger` | `test_available_never_negative` | reserved > on_hand (điều chỉnh kho) ⇒ `available == 0` (clamp §III-bis.5) | BVA | ⬜ Planned |
+| `TestReservationLedger` | `test_recompute_idempotent` | gọi `recompute_reserved` 2 lần = cùng kết quả | EP | ⬜ Planned |
+| `TestReservationLedger` | `test_low_stock_predicate_unchanged` | LOW_STOCK_COND vẫn dùng qty_on_hand (KHÔNG đổi sang available) | Regression | ⬜ Planned |
+| — | Emergency dual-approval (VR-15-10) | `issue_allocation` override | Decision Table | ⬜ Planned |
+| — | Cycle count variance → root_cause/CAPA (VR-15-04) | `post_cycle_count` + `_seed_capa_for_cycle_variance` | BVA + Decision Table | ⬜ Planned |
+| — | `verified_by ≠ counted_by` (VR-15-11) | `post_cycle_count` | Decision Table | ⬜ Planned |
+| — | `reorder_point ≥ safety_stock` (VR-15-07) | `generate_spare_forecast` | BVA | ⬜ Planned |
+| — | Forecast method whitelist (VR-15-12) | `generate_spare_forecast` | EP | ⬜ Planned |
+
+> Lưu ý: test thực dùng base `TestImm15Base(unittest.TestCase)` tự seed fixture (`AC-WH-TEST15`, `AC-SP-TEST15`) và cleanup ở `tearDownClass` — không dùng `FrappeTestCase` rollback do service tự commit.
+
+## III.3. Integration — DocType lifecycle
+
+File mục tiêu: `tests/test_imm_spare_allocation_doctype.py` ⬜ Planned. Cover hook `validate / before_submit / on_submit`.
+
+| Test | Setup | Action | Assert | Status |
+|---|---|---|---|---|
+| Allocation insert | seed part + warehouse | `create_allocation()` | `workflow_state == "Requested"`, audit entry | ✅ Live (qua `TestAllocationLifecycle`) |
+| Issue → stock movement | Picked allocation, đủ tồn | `issue_allocation()` | `AC Stock Movement` submitted, `stock_movement_ref` set, Bin giảm | ⬜ Planned |
+| Cycle count post → adjustment | Counting, variance ≠ 0 | `post_cycle_count()` | `AC Stock Movement (Adjustment)`, Bin = counted_qty | ⬜ Planned |
+
+> RULE-F01..F04 (xem README): IMM DocType chỉ LINK qua `stock_movement_ref`, không ghi thẳng stock → integration test phải verify `AC Stock Movement` submitted, không verify ghi trực tiếp Bin.
+
+## III.4. Integration — Workflow transitions
+
+**Allocation workflow** — `workflow/imm_15_allocation_workflow.json` (12 transitions, đếm: `python3 -c "import json;print(len(json.load(open('assetcore/assetcore/workflow/imm_15_allocation_workflow.json'))['transitions']))"`).
+
+| # | Action | From → To | Role required | Test pass | Test fail |
+|---|---|---|---|---|---|
+| 1 | Phê duyệt | Requested → Approved | Inventory Manager | ✅ (`test_approve_requires_correct_role`) | ⬜ |
+| 2 | Issue (Emergency) | Requested → Issued | Inventory Manager | ⬜ Planned | ⬜ |
+| 3 | Hủy | Requested → Cancelled | Inventory Manager | ⬜ Planned | ⬜ |
+| 4 | Hủy | Requested → Cancelled | AssetCore Super Admin | ⬜ Planned | ⬜ |
+| 5 | Pick | Approved → Picked | Inventory Manager | ⬜ Planned | ⬜ |
+| 6 | Hủy | Approved → Cancelled | Inventory Manager | ⬜ Planned | ⬜ |
+| 7 | Hủy | Approved → Cancelled | AssetCore Super Admin | ⬜ Planned | ⬜ |
+| 8 | Issue | Picked → Issued | Inventory Manager | ✅ (`TestReturnValidation` setup) | ⬜ |
+| 9 | Hủy | Picked → Cancelled | Inventory Manager | ⬜ Planned | ⬜ |
+| 10 | Hủy | Picked → Cancelled | AssetCore Super Admin | ⬜ Planned | ⬜ |
+| 11 | Trả phụ tùng | Issued → Returned | Inventory Manager | ⬜ Planned (return path partial) | ⬜ |
+| 12 | Đóng phiếu | Returned → Issued | Inventory Manager | ⬜ Planned | ⬜ |
+
+**Cycle Count workflow** — `workflow/imm_15_cycle_count_workflow.json` (4 transitions).
+
+| # | Action | From → To | Role required | Test pass | Test fail |
+|---|---|---|---|---|---|
+| 1 | Bắt đầu đếm | Planned → Counting | Inventory Manager | ⬜ Planned | ⬜ |
+| 2 | Hoàn tất đếm | Counting → Reviewed | Inventory Manager | ⬜ Planned | ⬜ |
+| 3 | Sửa đếm lại | Reviewed → Counting | Inventory Manager | ⬜ Planned | ⬜ |
+| 4 | Post | Reviewed → Posted | Inventory Manager | ⬜ Planned | ⬜ |
+
+State Transition Testing: mỗi edge = 1 test pass (đúng role + đúng state) + 1 test fail (sai role / sai state → `BAD_STATE` đã verify ở `test_approve_bad_state`).
+
+## III.5. Integration — Audit chain integrity
+
+`_write_allocation_audit` ghi `IMM Audit Trail` cho mọi mutation (BR-15-10). 2 test chính:
+- (a) Sau N mutation (create→approve→issue→return), chain entry tồn tại đầy đủ với đúng `action`/`actor`/`payload`. ⬜ Planned.
+- (b) Tamper 1 entry → verify endpoint trả chain broken. ⬜ Planned — *(Cần khảo sát: cơ chế hash chain của `IMM Audit Trail` chưa xác nhận trong source IMM-15)*.
+
+→ Xem 04 Backend §Audit Trail · DocType `IMM Audit Trail`.
+
+## III.6. API test
+
+File mục tiêu: `tests/test_imm15_api.py` ⬜ Planned. Endpoint thực (`api/imm15.py`, 24 whitelisted). Cover: envelope `success=true`, invalid params, FORBIDDEN, pagination, idempotent retry.
+
+| Test | Endpoint | Verify | Status |
+|---|---|---|---|
+| list envelope | `GET api/imm15.list_allocations` | `{success:true, data:{items, total}}` | ⬜ Planned |
+| create missing WO | `POST api/imm15.create_allocation` (Routine, no WO) | `success=false`, `code=BUSINESS_RULE` | ⬜ Planned |
+| approve forbidden | `POST api/imm15.approve_allocation` (Inventory User) | `code=FORBIDDEN` | ⬜ Planned |
+| watchlist non-critical | `POST api/imm15.add_to_watchlist` (Major part) | `code=VALIDATION` (VR-15-09) | ⬜ Planned |
+| availability perf | `GET api/imm15.check_part_availability` | latency P95 (NFR perf) | ⬜ Planned |
+| dashboard schema | `GET api/imm15.get_dashboard_stats` | data chứa KPI keys | ✅ Live (qua service `TestDashboardStats`) |
+
+> RBAC server-side: `create/approve/issue` qua `_require_any_role` với capability `inventory.write` (`_CAP_OPERATE`) hoặc `inventory.submit` (`_CAP_APPROVE`) — xem `services/imm15.py:94-95`.
+
+## III.7. E2E browser (Playwright)
+
+Dùng cho flow UI khó cover bằng API: dropdown cascade chọn warehouse/part, modal confirm issue, nút workflow theo role, dashboard realtime KPI. FE views: `frontend/src/views/inventory/` (InventoryDashboardView, StockLevelView, SparePartListView/DetailView, SpareForecastView, WatchlistView, StockMovement* ...). → Xem `assetcore-test` skill Phần 2 (Playwright MCP recipes + R-1..R-9 data rules). Hiện trạng: ⬜ Planned.
+
+## III.8. Performance test
+
+| Metric | Target | Method |
+|---|---|---|
+| `check_part_availability` p95 | ≤ 300ms | k6 GET `api/imm15.check_part_availability` |
+| `list_allocations` 200 row p95 | ≤ 400ms | k6 GET |
+| `create_allocation` p95 | ≤ 600ms | k6 POST batch |
+| `compute_inventory_kpis` scheduler | ≤ 5min/1000 part | `time bench execute assetcore.services.imm15.compute_inventory_kpis` |
+
+> Target — chưa chạy k6. Số liệu baseline không có; không bịa.
+
+## III.9. Test data & Fixtures
+
+| Loại | Cách seed | File |
+|---|---|---|
+| Master data (AC UOM, AC Warehouse, AC Spare Part) | fixtures cài qua `bench migrate` | `assetcore/fixtures/` |
+| Workflow + Role | `workflow.json`, `role*.json` | `assetcore/fixtures/` |
+| Backend test fixture | tự tạo trong `setUpClass` (`AC-WH-TEST15`, `AC-SP-TEST15`, qty 20) | `tests/test_imm15.py` |
+| UAT seed | Python script | `assetcore/scripts/uat/uat_imm15.py` — *(Cần khảo sát: chưa xác nhận tồn tại)* |
+
+> Backend test fixture dùng prefix `AC-*-TEST15` và cleanup ở `tearDownClass` (best-effort delete records creation > 2026-05-10) — xem `assetcore-test` R-0/R-1.
+
+## III.10. Run commands & Coverage gate
 
 ```bash
-# Run all IMM-15 tests
+# Module test
 bench --site [site] run-tests --app assetcore --module assetcore.tests.test_imm15
-
-# Run specific test class
-bench --site [site] run-tests --app assetcore --module assetcore.tests.test_imm15 \
-  --test TestImm15AllocationService
-
-# Coverage report
-bench --site [site] run-tests --app assetcore --coverage \
-  --module assetcore.tests.test_imm15
-
-# Scheduler test (manual trigger)
-bench --site [site] execute assetcore.tasks.check_critical_spare_breach
-bench --site [site] execute assetcore.tasks.check_low_stock_alerts
-bench --site [site] execute assetcore.tasks.compute_inventory_kpis
-bench --site [site] execute assetcore.tasks.reclassify_abc_xyz
+# Coverage
+bench --site [site] run-tests --app assetcore --coverage --module assetcore.tests.test_imm15
+# Scheduler jobs (manual trigger)
+bench --site [site] execute assetcore.services.imm15.check_critical_spare_breach
+bench --site [site] execute assetcore.services.imm15.check_low_stock_and_alert
+bench --site [site] execute assetcore.services.imm15.compute_inventory_kpis
+bench --site [site] execute assetcore.services.imm15.reclassify_abc
 ```
 
----
-
-## §II — Unit Tests
-
-### II.1 TestImm15ValidationRules
-
-```python
-# assetcore/tests/test_imm15.py
-
-import frappe
-from frappe.tests.utils import FrappeTestCase
-from assetcore.services.imm15 import (
-    AllocationService,
-    CycleCountService,
-    WatchlistService,
-    ForecastService,
-)
-from assetcore.services.errors import ServiceError, ErrorCode
-
-
-class TestImm15ValidationRules(FrappeTestCase):
-    """Test VR-15-01 through VR-15-13 validation rules."""
-
-    def setUp(self):
-        self.allocation_svc = AllocationService()
-        self.cycle_count_svc = CycleCountService()
-        self.watchlist_svc = WatchlistService()
-        self.forecast_svc = ForecastService()
-        self._setup_test_items()
-
-    def _setup_test_items(self):
-        """Seed minimal test items and warehouses."""
-        # Override in actual test setup with frappe.get_doc
-        pass
-
-    def test_vr15_01_allocation_requires_work_order_for_routine(self):
-        """VR-15-01: Non-emergency allocation must link a Work Order."""
-        payload = {
-            "work_order_doctype": None,
-            "work_order_ref": None,
-            "urgency": "Routine",
-            "warehouse_from": "Kho trung tâm",
-            "items": [{"item_code": "SPARE-MON-BAT", "qty_requested": 1}],
-        }
-        with self.assertRaises(ServiceError) as ctx:
-            self.allocation_svc.create_allocation(payload, actor="test_biomed")
-        self.assertEqual(ctx.exception.code, ErrorCode.VALIDATION)
-        self.assertIn("Work Order", ctx.exception.message)
-
-    def test_vr15_02_traceability_requires_batch(self):
-        """VR-15-02: Items with imm_traceability_required=1 must have batch_no on issue."""
-        # Stub: allocation Picked for traceability item
-        allocation_name = "SAL-2026-TEST-01"
-        issue_payload = {
-            "name": allocation_name,
-            "items": [{"item_code": "SPARE-CT-TUBE-01", "qty_issued": 1, "batch_no": None}],
-        }
-        with self.assertRaises(ServiceError) as ctx:
-            self.allocation_svc.issue_allocation(issue_payload, actor="test_storekeeper")
-        self.assertEqual(ctx.exception.code, ErrorCode.VALIDATION)
-        self.assertIn("batch_no", ctx.exception.message)
-
-    def test_vr15_03_insufficient_stock_raises(self):
-        """VR-15-03: Routine issue when Bin qty < qty_requested raises BUSINESS_RULE."""
-        # Bin SPARE-PUMP-SEAL = 0
-        issue_payload = {
-            "name": "SAL-2026-TEST-02",
-            "items": [{"item_code": "SPARE-PUMP-SEAL", "qty_issued": 1, "batch_no": None}],
-        }
-        with self.assertRaises(ServiceError) as ctx:
-            self.allocation_svc.issue_allocation(issue_payload, actor="test_storekeeper")
-        self.assertEqual(ctx.exception.code, ErrorCode.BUSINESS_RULE)
-        self.assertIn("Tồn kho", ctx.exception.message)
-
-    def test_vr15_04_cycle_count_variance_requires_root_cause(self):
-        """VR-15-04: Variance > 5% or > 5M VND must have root_cause before Reviewed."""
-        counted_items = [
-            {"item_code": "SPARE-FILT-01", "system_qty": 10, "counted_qty": 4, "root_cause": None},
-        ]
-        with self.assertRaises(ServiceError) as ctx:
-            self.cycle_count_svc.finish_counting("CYC-2026-TEST-01", counted_items, actor="test_storekeeper")
-        self.assertEqual(ctx.exception.code, ErrorCode.VALIDATION)
-        self.assertIn("root_cause", ctx.exception.message)
-
-    def test_vr15_06_min_max_constraint(self):
-        """VR-15-06: imm_min_strategic_stock must be <= imm_max_strategic_stock."""
-        with self.assertRaises(ServiceError) as ctx:
-            self.allocation_svc._validate_spare_item_limits(
-                item_code="SPARE-TEST",
-                min_stock=10,
-                max_stock=5,
-            )
-        self.assertEqual(ctx.exception.code, ErrorCode.VALIDATION)
-
-    def test_vr15_08_return_qty_exceeds_issued_raises(self):
-        """VR-15-08: qty_returned must not exceed qty_issued."""
-        returned_items = [{"item_code": "SPARE-MON-BAT", "qty_returned": 5, "condition": "Good"}]
-        with self.assertRaises(ServiceError) as ctx:
-            self.allocation_svc.return_items("SAL-2026-TEST-03", returned_items, actor="test_storekeeper")
-        self.assertEqual(ctx.exception.code, ErrorCode.BUSINESS_RULE)
-        self.assertIn("qty_returned", ctx.exception.message)
-
-    def test_vr15_09_watchlist_only_accepts_critical_parts(self):
-        """VR-15-09: Watchlist entry must have imm_part_class=Critical."""
-        payload = {
-            "asset": "AC-ASSET-MON-01",
-            "spare_item": "SPARE-MON-BAT",  # Major, not Critical
-            "warehouse": "Kho trung tâm",
-            "min_on_hand": 1,
-        }
-        with self.assertRaises(ServiceError) as ctx:
-            self.watchlist_svc.add_watchlist_entry(payload, actor="test_workshop_head")
-        self.assertEqual(ctx.exception.code, ErrorCode.BUSINESS_RULE)
-        self.assertIn("Critical", ctx.exception.message)
-
-    def test_vr15_10_emergency_override_dual_approver(self):
-        """VR-15-10: Emergency override approver_2 must differ from approver_1."""
-        override_payload = {
-            "approver_1": "test_workshop_head",
-            "approver_2": "test_workshop_head",  # Same user — must fail
-            "reason": "Test emergency reason (30+ chars for test pass)",
-        }
-        with self.assertRaises(ServiceError) as ctx:
-            self.allocation_svc.issue_allocation(
-                {"name": "SAL-2026-TEST-04", "override": override_payload},
-                actor="test_workshop_head",
-            )
-        self.assertEqual(ctx.exception.code, ErrorCode.VALIDATION)
-        self.assertIn("khác nhau", ctx.exception.message)
-
-    def test_vr15_11_verified_by_differs_from_counted_by(self):
-        """VR-15-11: verified_by must differ from counted_by."""
-        with self.assertRaises(ServiceError) as ctx:
-            self.cycle_count_svc.post_cycle_count(
-                name="CYC-2026-TEST-02",
-                verified_by="test_storekeeper",  # Same as counted_by
-                actor="test_storekeeper",
-            )
-        self.assertEqual(ctx.exception.code, ErrorCode.VALIDATION)
-        self.assertIn("verified_by", ctx.exception.message)
-
-    def test_vr15_12_forecast_method_whitelist(self):
-        """VR-15-12: forecast method must be in allowed list."""
-        with self.assertRaises(ServiceError) as ctx:
-            self.forecast_svc.generate_forecast(
-                period="2026-Q3",
-                method="LinearReg",  # Not in whitelist
-                actor="test_workshop_head",
-            )
-        self.assertEqual(ctx.exception.code, ErrorCode.INVALID_PARAMS)
-        self.assertIn("method", ctx.exception.message)
-
-
-class TestImm15AllocationService(FrappeTestCase):
-    """Test AllocationService business logic."""
-
-    def setUp(self):
-        self.svc = AllocationService()
-
-    def test_create_allocation_happy_path(self):
-        """Allocation created with state=Requested, audit trail written."""
-        # stub
-        pass
-
-    def test_create_allocation_generates_correct_naming(self):
-        """Allocation name matches pattern SAL-YYYY-#####."""
-        # stub: verify name via regex
-        pass
-
-    def test_approve_allocation_sets_approved_by_and_date(self):
-        """approve_allocation sets approved_by, approval_date, qty_approved fields."""
-        # stub
-        pass
-
-    def test_issue_allocation_creates_stock_entry(self):
-        """issue_allocation creates AC Stock Movement Material Issue, links imm_allocation_ref."""
-        # stub: verify via frappe.get_doc("AC Stock Movement", ...)
-        pass
-
-    def test_issue_allocation_updates_bin_qty(self):
-        """After issue, Bin.actual_qty decremented by qty_issued."""
-        # stub
-        pass
-
-    def test_issue_allocation_emergency_bypass_stock_check(self):
-        """Emergency override: stock check bypassed, audit_flags set to EMERGENCY_OVERRIDE."""
-        # stub
-        pass
-
-    def test_return_items_good_condition_to_main_warehouse(self):
-        """Good condition return → Stock Entry to original warehouse."""
-        # stub
-        pass
-
-    def test_return_items_damaged_condition_to_qc_hold(self):
-        """Damaged return → Stock Entry to QC Hold warehouse."""
-        # stub
-        pass
-
-    def test_cancel_allocation_cannot_cancel_issued(self):
-        """Cannot cancel an Issued allocation."""
-        with self.assertRaises(ServiceError) as ctx:
-            self.svc.cancel_allocation("SAL-2026-ISSUED", reason="Test", actor="test_ws")
-        self.assertEqual(ctx.exception.code, ErrorCode.BAD_STATE)
-
-    def test_check_part_availability_returns_sufficient_flag(self):
-        """check_part_availability returns dict with sufficient, available_qty, breach_detail."""
-        # stub
-        pass
-
-
-class TestImm15CycleCountService(FrappeTestCase):
-    """Test CycleCountService logic."""
-
-    def setUp(self):
-        self.svc = CycleCountService()
-
-    def test_create_cycle_count_fetches_system_qty_from_bin(self):
-        """On creation, system_qty auto-fetched from current Bin."""
-        # stub
-        pass
-
-    def test_variance_computed_correctly(self):
-        """Variance = counted_qty - system_qty; var_pct = variance / system_qty * 100."""
-        result = self.svc._compute_variance(system_qty=10, counted_qty=4)
-        self.assertEqual(result["variance_qty"], -6)
-        self.assertAlmostEqual(result["variance_pct"], -60.0)
-
-    def test_capa_seeded_for_large_variance(self):
-        """CAPA seeded when |var_pct| > 5% or |var_value| > 5M VND."""
-        # stub: verify frappe.new_doc("CAPA") was called
-        pass
-
-    def test_stock_reconciliation_created_on_post(self):
-        """Post creates Stock Reconciliation for items with variance != 0."""
-        # stub
-        pass
-
-    def test_post_cycle_count_updates_bin(self):
-        """After Post, Bin reflects counted_qty (via Stock Reconciliation)."""
-        # stub
-        pass
-
-    def test_idempotent_variance_check(self):
-        """Running finish_counting twice with same data does not create duplicate CAPAs."""
-        # stub
-        pass
-
-
-class TestImm15WatchlistService(FrappeTestCase):
-    """Test WatchlistService and breach detection."""
-
-    def setUp(self):
-        self.svc = WatchlistService()
-
-    def test_check_breach_detects_when_actual_below_min(self):
-        """Breach detected when actual_qty < min_on_hand."""
-        # stub: mock Bin.actual_qty = 0, min_on_hand = 1
-        pass
-
-    def test_breach_alert_not_duplicated_same_day(self):
-        """check_critical_spare_breach idempotent — no duplicate alert same day."""
-        # stub
-        pass
-
-    def test_breach_seeds_capa(self):
-        """Breach detected → CAPA document seeded (IMM-16)."""
-        # stub
-        pass
-
-    def test_breach_sends_email_to_workshop_head(self):
-        """Breach triggers email to Workshop Head + VP Block 1 + CMMS Admin."""
-        # stub: capture frappe.sendmail calls
-        pass
-
-
-class TestImm15ForecastService(FrappeTestCase):
-    """Test ForecastService demand calculation."""
-
-    def setUp(self):
-        self.svc = ForecastService()
-
-    def test_reorder_point_gte_safety_stock(self):
-        """VR-15-07: reorder_point >= safety_stock for every forecast item."""
-        # stub
-        pass
-
-    def test_generate_forecast_moving_avg_method(self):
-        """Moving_Avg method produces forecast_qty > 0 for items with consumption."""
-        # stub
-        pass
-
-    def test_approve_forecast_creates_material_requests(self):
-        """Approved forecast auto-creates MR for items with current_qty < reorder_point."""
-        # stub
-        pass
-
-    def test_draft_forecast_does_not_create_mr(self):
-        """BR-15-07: Draft forecast must not trigger MR creation."""
-        # stub
-        pass
-
-
-class TestImm15ABCReclassification(FrappeTestCase):
-    """Test quarterly ABC/XYZ reclassification scheduler."""
-
-    def setUp(self):
-        from assetcore.tasks import reclassify_abc_xyz
-        self.task_fn = reclassify_abc_xyz
-
-    def test_abc_class_assigned_by_cumulative_value(self):
-        """ABC: top 80% cumulative value → A, next 15% → B, remainder → C."""
-        # stub
-        pass
-
-    def test_reclassification_idempotent(self):
-        """Running reclassify twice with same data produces same result, no duplicate audit."""
-        # stub
-        pass
-
-    def test_audit_trail_written_on_class_change(self):
-        """ABC reclassification writes IMM Audit Trail when class changes."""
-        # stub: action=ABC_RECLASSIFIED, old_class, new_class
-        pass
-
-
-class TestImm15WorkflowTransitions(FrappeTestCase):
-    """Test IMM Spare Allocation and IMM Stock Cycle Count workflow transitions."""
-
-    # ─── Allocation Workflow ─────────────────────────────────────────────────
-
-    def test_allocation_requested_to_approved(self):
-        """Transition: Requested → Approved (actor: Workshop Head)."""
-        # stub
-        pass
-
-    def test_allocation_approved_to_picked(self):
-        """Transition: Approved → Picked (actor: Storekeeper)."""
-        # stub
-        pass
-
-    def test_allocation_picked_to_issued(self):
-        """Transition: Picked → Issued (actor: Storekeeper)."""
-        # stub
-        pass
-
-    def test_allocation_issued_to_returned(self):
-        """Transition: Issued → Returned (actor: Storekeeper)."""
-        # stub
-        pass
-
-    def test_allocation_requested_to_cancelled(self):
-        """Transition: Requested → Cancelled (actor: Workshop Head)."""
-        # stub
-        pass
-
-    def test_allocation_approved_to_cancelled(self):
-        """Transition: Approved → Cancelled (actor: Workshop Head)."""
-        # stub
-        pass
-
-    def test_allocation_cannot_go_back_from_issued(self):
-        """Issued state: no backward transition allowed."""
-        # stub
-        pass
-
-    # ─── Cycle Count Workflow ─────────────────────────────────────────────────
-
-    def test_cycle_count_planned_to_counting(self):
-        """Transition: Planned → Counting (actor: Storekeeper)."""
-        # stub
-        pass
-
-    def test_cycle_count_counting_to_reviewed(self):
-        """Transition: Counting → Reviewed (actor: Storekeeper)."""
-        # stub
-        pass
-
-    def test_cycle_count_reviewed_to_posted(self):
-        """Transition: Reviewed → Posted (actor: Workshop Head)."""
-        # stub
-        pass
-
-    def test_cycle_count_reviewed_to_counting_re_count(self):
-        """Transition: Reviewed → Counting (Storekeeper can re-count)."""
-        # stub
-        pass
-
-
-class TestImm15AuditTrail(FrappeTestCase):
-    """Test IMM Audit Trail completeness per BR-15-10."""
-
-    def _get_latest_audit(self, root_name: str, action: str):
-        return frappe.db.get_value(
-            "IMM Audit Trail",
-            {"root_name": root_name, "action": action},
-            ["name", "actor", "payload"],
-            as_dict=True,
-        )
-
-    def test_allocation_created_audit(self):
-        """create_allocation writes action=ALLOCATION_CREATED."""
-        # stub
-        pass
-
-    def test_allocation_issued_audit_has_stock_entry_ref(self):
-        """issue_allocation writes action=ALLOCATION_ISSUED with stock_entry_ref in payload."""
-        # stub
-        pass
-
-    def test_emergency_override_audit_has_two_actors(self):
-        """Emergency override writes 2 actors and reason in payload."""
-        # stub
-        pass
-
-    def test_cycle_count_posted_audit_has_variance_summary(self):
-        """post_cycle_count writes action=CYCLE_COUNT_POSTED with variance_value."""
-        # stub
-        pass
-
-    def test_watchlist_breach_audit(self):
-        """Breach detection writes action=CRITICAL_BREACH_DETECTED."""
-        # stub
-        pass
-
-    def test_abc_reclassified_audit_on_class_change(self):
-        """ABC reclassification writes action=ABC_RECLASSIFIED with old/new class."""
-        # stub
-        pass
-
-    def test_forecast_approved_audit_has_mr_count(self):
-        """approve_forecast writes action=FORECAST_APPROVED with mr_count."""
-        # stub
-        pass
-
-
-class TestImm15API(FrappeTestCase):
-    """Test REST API endpoints via frappe.call simulation."""
-
-    def setUp(self):
-        self.client = frappe.test_runner.make_test_client()
-
-    def _call(self, method: str, args: dict = None):
-        return frappe.call(f"assetcore.api.imm15.{method}", **(args or {}))
-
-    def test_list_allocations_returns_envelope(self):
-        """GET list_allocations → {success: true, data: {items: [...], total: N}}."""
-        result = self._call("list_allocations")
-        self.assertTrue(result["success"])
-        self.assertIn("items", result["data"])
-        self.assertIn("total", result["data"])
-
-    def test_create_allocation_missing_work_order_returns_error(self):
-        """POST create_allocation without work_order_ref (Routine) → {success: false, error: ...}."""
-        result = self._call("create_allocation", {"urgency": "Routine"})
-        self.assertFalse(result["success"])
-        self.assertIn("code", result["error"])
-
-    def test_approve_allocation_forbidden_for_storekeeper(self):
-        """POST approve_allocation by Storekeeper → {success: false, error.code: FORBIDDEN}."""
-        # stub: switch user to test_storekeeper
-        pass
-
-    def test_issue_allocation_creates_stock_entry_and_returns_ref(self):
-        """POST issue_allocation (Picked, sufficient stock) → data includes stock_entry_ref."""
-        # stub
-        pass
-
-    def test_check_part_availability_p95_under_300ms(self):
-        """GET check_part_availability latency P95 < 300ms (NFR-15-02)."""
-        import time
-        start = time.perf_counter()
-        for _ in range(20):
-            self._call("check_part_availability", {
-                "items": [{"item_code": "SPARE-MON-BAT", "qty": 2}],
-                "warehouse": "Kho trung tâm",
-            })
-        elapsed_ms = (time.perf_counter() - start) / 20 * 1000
-        self.assertLess(elapsed_ms, 300, f"P95 latency {elapsed_ms:.1f}ms exceeds 300ms")
-
-    def test_post_cycle_count_missing_root_cause_returns_validation_error(self):
-        """POST post_cycle_count without root_cause for large variance → VR-15-04 error."""
-        # stub
-        pass
-
-    def test_add_watchlist_entry_non_critical_returns_business_rule_error(self):
-        """POST add_to_watchlist with Major part → VR-15-09 error."""
-        result = self._call("add_to_watchlist", {
-            "asset": "AC-ASSET-MON-01",
-            "spare_item": "SPARE-MON-BAT",
-            "warehouse": "Kho trung tâm",
-            "min_on_hand": 1,
-        })
-        self.assertFalse(result["success"])
-        self.assertEqual(result["error"]["code"], "BUSINESS_RULE")
-
-    def test_get_dashboard_kpis_returns_all_kpi_fields(self):
-        """GET get_dashboard_stats → data contains all expected KPI fields."""
-        result = self._call("get_dashboard_stats")
-        self.assertTrue(result["success"])
-        expected_fields = [
-            "stock_turnover_year", "days_on_hand_avg", "stockout_incidents_30d",
-            "critical_breach_hours_30d", "cycle_accuracy_pct", "forecast_mape_q",
-        ]
-        for f in expected_fields:
-            self.assertIn(f, result["data"]["kpis"])
-```
-
----
-
-## §III — UAT Scenarios
-
-### III.1 Preconditions
-
-| # | Điều kiện | Cách chuẩn bị |
+| Layer | Target coverage | Đo |
 |---|---|---|
-| PC-01 | ≥ 5 Asset từ IMM-04 (1 Critical CT, 1 Major Monitor) | Chạy IMM-04 flow đến Clinical_Release |
-| PC-02 | ERPNext Item group "Medical Spare Part" đã có | Setup script |
-| PC-03 | ≥ 10 Item (2 Critical, 4 Major, 4 Consumable) với imm_* fields | Chạy fixture seed |
-| PC-04 | Custom Fields trên Item đã sync (`bench migrate`) | Verify qua Customize Form |
-| PC-05 | 2 Workflows active (Allocation + Cycle Count) | Setup > Workflow |
-| PC-06 | Test users: Storekeeper, Workshop Head, Biomed, HTM Tech, VP Block 1, QA, CMMS Admin, Accountant | Tạo test users |
-| PC-07 | ≥ 2 Warehouse (Kho trung tâm, Kho phân xưởng, QC Hold) | ERPNext setup |
-| PC-08 | Stock Entry seed tồn kho ban đầu | Manual seed |
-| PC-09 | 1 PM Work Order Approved (IMM-08) | IMM-08 prereq |
-| PC-10 | 1 CM Work Order Emergency (IMM-12) | IMM-12 prereq |
-| PC-11 | Critical Spare Watchlist seed cho CT, MRI | Fixture |
-| PC-12 | IMM Audit Trail DocType active | Verify |
-| PC-13 | AC Backbone Wave 1 (AC Spare Part, AC Stock Movement) LIVE | Deploy Wave 1 first |
+| Service (`services/imm15.py`) | ≥ 85% line + ≥ 80% branch *(chưa đo)* | `coverage --branch` |
+| DocType lifecycle | ≥ 70% *(chưa đo)* | `coverage report` |
+| API (`api/imm15.py`) | ≥ 60% *(chưa đo)* | `coverage report` |
+| Frontend (vue-tsc) | 0 error | `npm run build` |
 
-### III.2 UAT Test Data
+---
+
+# Phần IV — Traceability Matrices
+
+> Mọi test ở Phần III phải xuất hiện ở cả 3 bảng.
+
+## IV.1. US → Test mapping
+
+| US ID | Test ID (III.x) | Layer | Status |
+|---|---|---|---|
+| US-15-01 | `TestAllocationLifecycle::test_create_requires_work_order_for_non_emergency` + `test_approve_requires_correct_role` | Unit | ✅ Live |
+| US-15-01 | issue → stock movement | Integration | ⬜ Planned |
+| US-15-02 | `TestAllocationLifecycle::test_create_emergency_without_wo_succeeds` | Unit | ✅ Live (create); override dual-approval ⬜ Planned |
+| US-15-03 | cycle count variance → CAPA | Integration | ⬜ Planned |
+| US-15-04 | `check_critical_spare_breach` cron | Cron sim | ⬜ Planned |
+| US-15-05 | `TestForecastGeneration::test_generate_forecast` | Unit | ✅ Live (generate); `approve_forecast` ⬜ Planned |
+
+## IV.2. BR → Test mapping
+
+| BR/VR ID | Phát biểu (rút gọn) | Test ID | Happy / Negative |
+|---|---|---|---|
+| VR-15-01 / BR-15-01 | Non-emergency phải link WO | `test_create_requires_work_order_for_non_emergency` (neg) + `test_create_emergency_without_wo_succeeds` (happy) | 1 / 1 ✅ |
+| VR-15-05 | urgency enum | `test_invalid_urgency_rejected` | 0 / 1 ✅ (happy ngầm qua các test khác) |
+| VR-15-08 | qty_returned ≤ qty_issued | `test_return_qty_exceeds_issued` | 0 / 1 ✅ |
+| VR-15-09 | Watchlist Critical-only | `test_add_critical_part_ok` (happy) + `test_add_non_critical_rejected` (neg) | 1 / 1 ✅ |
+| VR-15-13 | warehouse active | `test_inactive_warehouse_rejected` | 0 / 1 ✅ |
+| BR-15-07 | Forecast generate Draft | `test_generate_forecast` | 1 / 0 ✅ |
+| VR-15-02 | traceability batch/serial | — | ⬜ Planned (0 / 0) |
+| VR-15-03 | tồn không đủ → block (theo available THẬT); Emergency+Critical bypass | `TestReservationLedger::test_anti_oversell_second_issue_fails` (neg) + `test_emergency_critical_bypass_unchanged` (happy) | ⬜ Planned |
+| VR-15-14 | INVARIANT reservation (reserved=Σ holding; available=max(0,on_hand−reserved); RELEASE on terminal) | `TestReservationLedger` (10 method: hold/approve/issue/cancel/clamp/idempotent/low-stock-unchanged + RED) | ⬜ Planned |
+| BR-15-15 | Số đã xuất == số đã giữ chỗ = COALESCE(NULLIF(qty_approved,0), qty_requested); approve cắt số → issue theo số duyệt | `TestIssueQtyEqualsApproved` (issue-after-approve-cut → qty_issued==qty_approved==reserved; gate uses effective qty; backward-compat qty_approved NULL→qty_requested; RED-proven) | ✅ Done (3 method) |
+| BR-15-16 | line_value=value_qty×unit_value; total_value=Σ line_value; controller MỘT writer (no clobber); lifecycle-aware | `TestAllocationValue` (total_value theo qty_issued sau approve-cut KHÔNG qty_requested; line_value computed KHÔNG dead; total==Σ line; backward-compat requested khi chưa duyệt/xuất; RED-proven) | ⬜ Planned |
+| VR-15-04 / BR-15-05 | variance > ngưỡng → root_cause | — | ⬜ Planned |
+| VR-15-07 | reorder ≥ safety | — | ⬜ Planned |
+| VR-15-10 | dual-approver khác nhau | — | ⬜ Planned |
+| VR-15-11 | verified_by ≠ counted_by | — | ⬜ Planned |
+| VR-15-12 | forecast method whitelist | — | ⬜ Planned |
+| BR-15-10 | audit trail mọi mutation | — | ⬜ Planned (III.5) |
+
+## IV.3. Component → Test mapping
+
+| Component (I.1) | Test ID | Test layer | Coverage % | Risk priority |
+|---|---|---|---|---|
+| `create_allocation` (#10) | `TestAllocationLifecycle` (3 test) | Unit | *(chưa đo)* | High |
+| `approve_allocation` (#11) | `test_approve_requires_correct_role` / `test_approve_bad_state` | Unit | *(chưa đo)* | Critical |
+| `issue_allocation` (#12) | `TestReturnValidation` (setup) | Unit (partial) | *(chưa đo)* | Critical |
+| `return_items` (#13) | `test_return_qty_exceeds_issued` | Unit | *(chưa đo)* | Medium |
+| `generate_spare_forecast` (#15) | `test_generate_forecast` | Unit | *(chưa đo)* | Medium |
+| `add_to_watchlist` (#16) | `TestWatchlist` (2 test) | Unit | *(chưa đo)* | Medium |
+| `_vr_05_urgency_valid` (#19) | `test_invalid_urgency_rejected` | Unit | *(chưa đo)* | High |
+| `_vr_13_warehouse_active` (#20) | `test_inactive_warehouse_rejected` | Unit | *(chưa đo)* | High |
+| `get_dashboard_stats` (#17) | `test_dashboard_keys` + `TestDashboardLowStockPerBin` | Unit | *(chưa đo)* | Low |
+| `post_cycle_count` (#14) | — | — | 0% | High ⬜ Planned |
+| Workflow transitions (#8, #9) | — (chỉ #1, #8 chạm gián tiếp) | Integration | *(chưa đo)* | Critical ⬜ Planned |
+| Scheduler jobs (#24–#29) | — | — | 0% | High ⬜ Planned |
+
+---
+
+# Phần V — UAT Script
+
+## V.1. Phạm vi UAT
+
+- **In-scope**: scenario theo US-15-01..05 + UC-01..08 (V.4), permission matrix, audit verify, scheduler jobs.
+- **Out-of-scope**: performance (III.8), security pen-test (Phần VI.10).
+- **Pre-condition**: site UAT deploy version `1.0.0-rc.2`, fixture loaded (`bench migrate`), 2 workflow active, tester accounts active, AC Inventory Backbone (Wave 1) LIVE.
+
+## V.2. Tester accounts
+
+| Username | Role | Vai trò UAT |
+|---|---|---|
+| `uat_inv_user@...` | Inventory User | Tạo allocation, pick, đếm kho |
+| `uat_inv_mgr@...` | Inventory Manager | Approve, issue, post cycle count, approve forecast |
+| `uat_super@...` | AssetCore Super Admin | Cancel, override, quản trị |
+| `uat_auditor@...` | AssetCore Auditor | Read-only — verify FORBIDDEN khi mutate |
+| `uat_sysuser@...` | AssetCore System User | Read-only base — verify FORBIDDEN |
+
+> Bắt buộc có account role thấp (Auditor / System User) để cover FORBIDDEN, không chỉ Super Admin.
+
+## V.3. Test data đã seed
 
 | Item | Class | ABC | Min | Tồn đầu | Traceability |
 |---|---|---|---|---|---|
-| SPARE-CT-TUBE-01 | Critical | A | 1 | 1 | ☑ |
-| SPARE-MRI-COIL | Critical | A | 1 | 1 | ☑ |
-| SPARE-MON-BAT | Major | B | 6 | 12 | ☐ |
-| SPARE-FILT-01 | Consumable | C | 4 | 10 | ☐ |
-| SPARE-DEF-PAD | Consumable | B | 4 | 2 (low) | ☐ |
-| SPARE-PUMP-SEAL | Major | B | 2 | 0 (out) | ☐ |
+| SP-CT-TUBE-01 | Critical | A | 1 | 1 | ☑ |
+| SP-MRI-COIL | Critical | A | 1 | 1 | ☑ |
+| SP-MON-BAT | Major | B | 6 | 12 | ☐ |
+| SP-FILT-01 | Consumable | C | 4 | 10 | ☐ |
+| SP-DEF-PAD | Consumable | B | 4 | 2 (low) | ☐ |
+| SP-PUMP-SEAL | Major | B | 2 | 0 (out) | ☐ |
 
-### III.3 UAT Scenarios Table
+Bổ sung: ≥ 2 AC Warehouse (Kho trung tâm, Kho QC Hold), 1 PM WO Approved (IMM-08), 1 CM WO Emergency (IMM-12), Critical Watchlist seed cho CT/MRI. Reset script đi kèm: `assetcore/scripts/uat/` *(Cần khảo sát)*.
 
-| # | Kịch bản | Actor | Điều kiện | Kết quả mong đợi | Priority | Pass |
-|---|---|---|---|---|---|:---:|
-| UAT-IMM15-01 | Tạo Allocation từ PM WO (happy path) | Biomed Engineer | PC-09 | SAL tạo, state=Requested, audit trail | P0 | ☐ |
-| UAT-IMM15-02 | Approve → Pick → Issue → Stock Entry giảm Bin | Workshop Head + Storekeeper | TC-01 pass | Stock Entry tạo, Bin giảm, audit | P0 | ☐ |
-| UAT-IMM15-03 | Issue yêu cầu batch_no (Traceability) | Storekeeper | SPARE-CT-TUBE-01 | VR-15-02: lỗi nếu thiếu batch; pass nếu có | P0 | ☐ |
-| UAT-IMM15-04 | Emergency Override kép | Workshop Head + VP Block 1 | Stock = 0 | EMERGENCY_OVERRIDE flag ghi, dual approver | P0 | ☐ |
-| UAT-IMM15-05 | Return Damaged → QC Hold warehouse | Storekeeper | Issued allocation | Damaged → QC Hold; Good → KTT | P1 | ☐ |
-| UAT-IMM15-06 | Cycle Count đầy đủ → Post → SR → CAPA | Storekeeper + Workshop Head | Variance FILT-01 -60% | SR tạo, CAPA seed, Bin = counted_qty | P0 | ☐ |
-| UAT-IMM15-07 | Critical Watchlist breach → CAPA + email | System scheduler | Bin CT-TUBE-01 = 0 | Breach alert, CAPA, email 3 recipients | P0 | ☐ |
-| UAT-IMM15-08 | Demand Forecast → Approve → Auto MR | Workshop Head | ≥ 6 tháng data | MR Draft tạo cho item reorder | P1 | ☐ |
-| UAT-IMM15-09 | Validation Rules (7 VRs) | Biomed + Storekeeper | N/A | Mỗi VR trả lỗi tiếng Việt đúng | P1 | ☐ |
-| UAT-IMM15-10 | Permission Matrix (8 roles × 9 actions) | All test users | N/A | Forbidden / 403 khi sai role | P1 | ☐ |
-| UAT-IMM15-11 | Scheduler Jobs (low_stock, breach, expiry, KPI) | System | Manual trigger | Alert idempotent, email, KPI snapshot | P1 | ☐ |
-| UAT-IMM15-12 | Integration IMM-08: reserve spare khi submit WO | Biomed + Storekeeper | PM WO | reserved_qty tăng, auto-allocation | P1 | ☐ |
-| UAT-IMM15-13 | Audit Trail đầy đủ (10 actions) | All | Post flow | Mỗi action có IMM Audit Trail entry | P0 | ☐ |
-| UAT-IMM15-14 | Dashboard KPI tiles + Realtime update | Storekeeper / Workshop Head | Breach event | KPI tile reload sau realtime event | P2 | ☐ |
+## V.4. UAT Scenarios — Suy ra từ US + Use Case
 
-### III.4 Sign-off Criteria
+ID `UAT-IMM-15-NN`. Mỗi scenario theo template Phụ lục A.
 
-| Kết quả | Điều kiện |
-|---|---|
-| **Pass** | 100% TC Pass (0 Fail, 0 Block) |
-| **Conditional Pass** | ≥ 90% Pass; Fail đều P2 (cosmetic); có remediation plan |
-| **Fail** | Bất kỳ P0 Fail → block release. UAT-IMM15-01/04/06/07/13 là P0 tuyệt đối |
+| ID | Actor | Pre-condition | US/BR cover | Kỹ thuật | Kết quả mong đợi |
+|---|---|---|---|---|---|
+| UAT-IMM-15-01 | Inventory User | PM WO Approved (IMM-08) | US-15-01 | Use Case happy | SAL tạo, state=Requested, audit trail có ISSUED entry |
+| UAT-IMM-15-02 | Inventory Mgr + User | UAT-01 pass | US-15-01 | State Transition | Approve→Pick→Issue; AC Stock Movement tạo, Bin giảm |
+| UAT-IMM-15-03 | Inventory User | SP-CT-TUBE-01 (traceability) | VR-15-02 | Decision Table | Thiếu batch → lỗi; có batch → pass |
+| UAT-IMM-15-04 | Inventory Mgr + Super Admin | Stock = 0, urgency=Emergency | US-15-02, VR-15-10 | Decision Table | EMERGENCY_OVERRIDE flag, dual-approver khác nhau, email cảnh báo |
+| UAT-IMM-15-05 | Inventory User | Issued allocation | UC-05, BR-15-08 | Decision Table | Damaged → QC Hold; Good → kho gốc |
+| UAT-IMM-15-06 | Inventory User + Mgr | Variance SP-FILT-01 > 5% | US-15-03, VR-15-04, VR-15-11 | BVA + Decision Table | root_cause bắt buộc, SR tạo, CAPA seed, Bin = counted_qty |
+| UAT-IMM-15-07 | Scheduler | Bin CT-TUBE-01 < min | US-15-04, BR-15-04 | Use Case (cron) | Breach alert, CAPA seed, email 3 recipient, idempotent same-day |
+| UAT-IMM-15-08 | Inventory Manager | ≥ 6 tháng data | US-15-05, BR-15-07 | Use Case | Forecast Approved → reorder recommendation (Draft không gợi ý) |
+| UAT-IMM-15-09 | Inventory User + Mgr | N/A | VR-15-01/05/08/09/13 | EP/BVA | Mỗi VR trả lỗi tiếng Việt đúng |
+| UAT-IMM-15-10 | All test users | N/A | RBAC | EP (permission) | FORBIDDEN khi sai role (Auditor/System User mutate) |
+| UAT-IMM-15-11 | Scheduler | Manual trigger | scheduler jobs | Use Case | low_stock/breach/KPI/reclassify idempotent + email |
+| UAT-IMM-15-12 | Inventory User | PM WO submit (IMM-08) | UC-01 hook | Use Case | `reserve_for_pm` chạy, reserved tăng |
+| UAT-IMM-15-13 | All | Post flow | BR-15-10 | Use Case | Mỗi action có IMM Audit Trail entry |
+| UAT-IMM-15-14 | Inventory Mgr | Breach event | Dashboard | Use Case | KPI tile reload sau realtime event |
 
-### III.5 Sign-off Table
+## V.5. Tổng hợp kết quả & Bug found
+
+- **Bảng kết quả**: `Scenario · Status (Pass/Fail/Block) · Tester · Ngày · Ghi chú` — điền khi chạy UAT.
+- **Bug list**: `Issue ID · Severity (Blocker/Major/Minor/Trivial) · Mô tả · Fix status`.
+- **Acceptance**: ≥ 95% PASS, Blocker = 0, Major ≤ 2 (có workaround). P0 tuyệt đối: UAT-IMM-15-01/04/06/07/13.
+- **Sign-off**:
 
 | Role | Tên | Chữ ký | Ngày |
 |---|---|---|---|
 | BA Lead | | | |
 | Dev Lead | | | |
 | QA Lead | | | |
-| Workshop Head đại diện | | | |
-| VP Block 1 (PTP Khối 1) | | | |
-| Tổ HC-QLCL đại diện | | | |
+| Module Owner (Kho trung tâm) | | | |
+| Compliance Manager | | | |
 
 ---
 
-## §IV — Security & RBAC
+# Phần VI — Security Review (gate)
 
-### IV.1 DocPerm Matrix
+## VI.1. RBAC
 
-| DocType | Read | Create | Write | Submit | Cancel | Delete |
-|---|---|---|---|---|---|---|
-| IMM Spare Allocation | All (own+team) | Biomed, HTM Tech, Storekeeper, WS Head, CMMS Admin | Biomed, HTM Tech, Storekeeper (Requested only) | System | WS Head, CMMS Admin | CMMS Admin |
-| IMM Spare Allocation Item | (via parent) | (via parent) | (via parent) | — | — | — |
-| IMM Stock Cycle Count | Storekeeper, WS Head, QA, CMMS Admin | Storekeeper, WS Head, CMMS Admin | Storekeeper (Counting), WS Head | System | WS Head, CMMS Admin | CMMS Admin |
-| IMM Stock Cycle Count Item | (via parent) | (via parent) | (via parent) | — | — | — |
-| IMM Spare Part Forecast | WS Head, VP B1, CMMS Admin, Accountant | System (scheduler) | WS Head, CMMS Admin | WS Head, VP B1, CMMS Admin | CMMS Admin | CMMS Admin |
-| IMM Spare Forecast Item | (via parent) | (via parent) | (via parent) | — | — | — |
-| IMM Critical Spare Watchlist | Storekeeper, WS Head, VP B1, CMMS Admin | WS Head, VP B1, CMMS Admin | WS Head, VP B1, CMMS Admin | — | CMMS Admin | CMMS Admin |
-| IMM Audit Trail | All (read own module) | System only | — | — | — | — |
+- **Role definitions** (`fixtures/role.json` + `role_profile.json`): Inventory Manager, Inventory User, AssetCore Super Admin, AssetCore Auditor, AssetCore System User.
+- **DocPerm matrix** (đọc thực từ DocType JSON):
 
-### IV.2 Field-level Permissions
+| DocType | Role | Read | Write | Create | Submit | Cancel | Delete |
+|---|---|---|---|---|---|---|---|
+| IMM Spare Allocation | AssetCore Super Admin | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| IMM Spare Allocation | Inventory Manager | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| IMM Spare Allocation | Inventory User | ✓ | ✓ | ✓ | — | — | — |
+| IMM Spare Allocation | AssetCore Auditor | ✓ | — | — | — | — | — |
+| IMM Spare Allocation | AssetCore System User | ✓ | — | — | — | — | — |
+| IMM Stock Cycle Count | (cùng matrix 5 role như trên) | … | … | … | … | … | … |
+| IMM Spare Part Forecast | (cùng matrix 5 role như trên) | … | … | … | … | … | … |
+| IMM Critical Spare Watchlist | (cùng matrix 5 role như trên) | … | … | … | … | … | … |
 
-| DocType | Field | Permlevel | Who can see |
+> 4 DocType chính dùng **cùng** ma trận: Super Admin + Inventory Manager full (RWCSXD); Inventory User RWC (không submit/cancel/delete); Auditor + System User chỉ Read. Child table thừa kế quyền parent.
+
+- **Field-level permission**: ⚠️ **Gap** — hiện KHÔNG có field nào đặt `permlevel ≠ 0` trên 4 DocType (xác nhận: không field nào có permlevel trong JSON). Các field nhạy cảm (`total_value`, `override_reason`, `variance_value`) nên đặt permlevel 1 → **TODO trước go-live**.
+- **User Permission**: chưa cấu hình filter theo warehouse/department cho IMM-15 — *(Cần khảo sát)*.
+
+Kỹ thuật: Decision Table — mỗi (role × action × state) là 1 row, expected = Allow/Deny.
+
+## VI.2. API security
+
+- **Whitelist hygiene**: 24 endpoint `@frappe.whitelist` ở `api/imm15.py`; mutating endpoint dùng `methods=["POST"]`; service layer gọi `_require_any_role(_CAP_*)` (`inventory.write`/`inventory.submit`).
+- **CSRF**: Frappe default `X-Frappe-CSRF-Token` cho POST.
+- **Input validation**: Link field (warehouse, spare_part) validate qua `_safe_get_value` / `_vr_13_warehouse_active` trước khi dùng.
+- **SQL injection**: dùng `frappe.get_all` / `frappe.db.get_value` parameterized; không f-string vào raw SQL (cần re-verify khi audit).
+- **Rate limit**: ⬜ chưa cấu hình cho `create_allocation`/`approve_allocation` — *(Cần khảo sát)*.
+
+## VI.3. Audit trail integrity
+
+Mọi mutation gọi `_write_allocation_audit` → sinh `IMM Audit Trail` (BR-15-10). User KHÔNG có quyền create/edit/delete `IMM Audit Trail` (System only — ISO 13485:7.5.9). Hash chain SHA-256 + tamper verify: *(Cần khảo sát — cơ chế hash chain chưa xác nhận trong source IMM-15)*. → Test ở III.5.
+
+## VI.4. Authentication & session
+
+Login Frappe default; session timeout + lockout + password policy theo cấu hình site; API key rotation; 2FA roadmap. Không có cấu hình riêng IMM-15.
+
+## VI.5. Data sensitivity
+
+| Loại | Trường | Sensitivity | Bảo vệ |
 |---|---|---|---|
-| IMM Spare Allocation | `total_value` | 1 | WS Head, VP B1, CMMS Admin, Accountant |
-| IMM Spare Allocation | `override_reason` | 1 | WS Head, VP B1, CMMS Admin |
-| IMM Stock Cycle Count | `variance_value` | 1 | WS Head, VP B1, CMMS Admin, Accountant, QA |
-| IMM Spare Part Forecast | `forecast_qty` | 0 | All with read access |
-| IMM Spare Part Forecast | `auto_mr_value` | 1 | WS Head, VP B1, CMMS Admin, Accountant |
+| Giá trị cấp phát | `total_value` (nếu có) | Internal | **TODO** permlevel 1 (hiện chưa đặt) |
+| Lý do override khẩn | `override_reason` / `audit_flags=EMERGENCY_OVERRIDE` | Confidential | Audit trail immutable; **TODO** permlevel |
+| Chênh lệch kiểm kê | `variance_value` | Internal | **TODO** permlevel 1 |
+| Batch / Serial | traceability fields | Critical (regulatory NĐ98) | Required khi `imm_traceability_required=1` (VR-15-02) |
 
-### IV.3 STRIDE Threat Analysis
+Khẳng định: IMM-15 **KHÔNG** lưu patient data.
 
-| Threat | Scenario | Control |
-|---|---|---|
-| **Spoofing** | Kẻ tấn công giả mạo Approver 2 trong emergency override | `session.user` validate server-side; VR-15-10 enforce khác nhau |
-| **Tampering** | Sửa `qty_issued` trong Stock Entry sau khi Issued | Stock Entry docstatus=1; imm_allocation_ref read-only sau issue |
-| **Repudiation** | Tranh cãi ai đã override emergency | IMM Audit Trail ghi 2 actors + timestamp + IP; immutable (no delete perm) |
-| **Information Disclosure** | Storekeeper xem `total_value` của allocation | Permlevel 1 ẩn field với Storekeeper |
-| **Denial of Service** | Flood `check_part_availability` với 1000 items | Rate limit API; cache Bin read (Redis 60s TTL) |
-| **Elevation of Privilege** | Storekeeper tự approve allocation mình tạo | Role check server-side `_APPROVE_ALLOCATION_ROLES` không chứa Storekeeper |
+## VI.6. Vendor isolation
 
-### IV.4 Data Sensitivity
+IMM-15 không có role Vendor External trong DocPerm (5 role nội bộ). Không có vendor truy cập trực tiếp → không áp dụng `permission_query_conditions` cho vendor ở module này. Nếu mở rộng vendor xem WO-assigned spare → bổ sung sau.
 
-| Data | Classification | Control |
-|---|---|---|
-| `override_reason`, emergency docs | Confidential | Permlevel 1 + audit trail |
-| `total_value`, `variance_value` | Internal | Permlevel 1 cho Accountant access |
-| Batch / Serial number traceability | Critical (regulatory) | Required field khi `imm_traceability_required=1` |
-| `audit_flags = EMERGENCY_OVERRIDE` | Critical | Immutable sau set; visible QA + Management |
-| KPI snapshots | Internal | Read-only for Accountant; no delete |
+## VI.7. Secrets management
+
+Cấm commit `.env`/credential; `site_config.json` không lên git; external token lưu `frappe.conf`; backup encrypt at-rest off-site. IMM-15 không có secret riêng.
+
+## VI.8. Logging & monitoring
+
+| Sự kiện | Log level | Where | Alert? |
+|---|---|---|---|
+| Emergency override | INFO + email | IMM Audit Trail + `frappe.sendmail` | ✓ (Inventory Manager + Super Admin) |
+| Critical breach | WARN + email | scheduler log + audit | ✓ |
+| Service exception | ERROR | Frappe error log | theo dõi |
+
+PII / token KHÔNG vào log.
+
+## VI.9. Threat model (STRIDE)
+
+| Threat | Vector | Likelihood | Impact | Mitigation |
+|---|---|---|---|---|
+| **Spoofing** | Giả mạo approver 2 trong emergency override | Med | High | `session.user` validate server-side; VR-15-10 enforce 2 approver khác nhau |
+| **Tampering** | Sửa `qty_issued` sau Issued | Low | High | AC Stock Movement docstatus=1; `stock_movement_ref` read-only sau issue |
+| **Repudiation** | Phủ nhận ai override | Med | High | IMM Audit Trail ghi actor + timestamp; immutable (no delete perm) |
+| **Info disclosure** | Inventory User xem giá trị nhạy cảm | Med | Med | ⚠️ Gap — permlevel chưa đặt; TODO trước go-live |
+| **Denial of service** | Flood `check_part_availability` 1000 item | Low | Med | ⬜ Rate limit chưa cấu hình (TODO) |
+| **Elevation of privilege** | Inventory User tự approve | Med | High | `_require_any_role(_CAP_APPROVE)` không cấp cho Inventory User; verify ở III.6 |
+
+## VI.10. Penetration test
+
+Trước release đầu tiên: Burp/ZAP scan, sqlmap (an toàn), CSRF test, role escalation (Inventory User → approve). Report lưu `docs/security/`. Hiện trạng: ⬜ chưa chạy.
+
+## VI.11. Sign-off
+
+| Role | Người | Ngày | Chữ ký |
+|---|---|---|---|
+| Security Officer | | | |
+| QA Lead | | | |
+| Module Owner | | | |
+
+Decision: ☐ Pass · ☐ Pass with conditions (permlevel + rate limit) · ☐ Fail (block).
 
 ---
 
-## §V — Code Quality Targets
+# Phần VII — Code Quality
 
-| Metric | Target | Tool |
-|---|---|---|
-| Test coverage (lines) | ≥ 85% | pytest-cov |
-| Cyclomatic complexity | ≤ 10 per function | radon |
-| Function length | ≤ 50 lines | manual review |
-| File length | ≤ 200 lines | manual review |
-| Docstring coverage | 100% public functions | pydocstyle |
-| Type hint coverage | 100% public functions | mypy strict |
-| Duplicate code blocks | 0 (>6 lines identical) | pylint |
-| P95 API latency (check_part_availability) | ≤ 300ms | k6 load test |
-| P95 API latency (other endpoints) | ≤ 800ms | k6 load test |
-| Concurrent users supported | 50 | k6 ramp test |
+## VII.1. Tool matrix
 
-### V.1 Linting Commands
+| Tool | Mục tiêu | Target | Cadence |
+|---|---|---|---|
+| **SonarQube** (BE Python) | bug 0 critical, code smell ≤ thấp, duplication ≤ 3%, coverage ≥ 70%, security hotspot review 100% | Quality Gate pass | mỗi PR |
+| **ruff / black** (`services/imm15.py`, `api/imm15.py`) | 0 error, format consistent | 0 error | mỗi PR |
+| **radon** (cyclomatic) | ≤ 10 per function | đạt | mỗi PR |
+| **mypy** (type hints) | 100% public function | đạt | mỗi PR |
+| **ESLint + vue-tsc** (FE inventory views) | 0 error, 0 warning prod build | 0 error | mỗi PR FE |
+| **Lighthouse** (FE) | Performance ≥ 90, Accessibility ≥ 95, Best Practices ≥ 90 | đạt | mỗi release lớn |
+| **Bundle size** (FE chunk inventory) | main ≤ 250KB gzip, async ≤ 80KB gzip | đạt | mỗi PR FE |
+
+Lệnh lint BE:
 
 ```bash
-# Type check
+ruff check assetcore/services/imm15.py assetcore/api/imm15.py
 mypy assetcore/services/imm15.py assetcore/api/imm15.py
-
-# Complexity
 radon cc assetcore/services/imm15.py -s -n B
+```
 
-# Docstring
-pydocstyle assetcore/services/imm15.py
+## VII.2. Cadence
 
-# Full lint
-pylint assetcore/services/imm15.py assetcore/api/imm15.py
+- SonarQube: mỗi PR (CI gate, fail nếu Quality Gate fail).
+- Lighthouse: mỗi release lớn + monthly audit.
+- ESLint / ruff / mypy: mỗi PR (CI gate).
+- Bundle size: mỗi PR FE (CI report, fail nếu vượt budget).
+
+> Gắn screenshot SonarQube + Lighthouse vào `09_Release.md` §Release Notes khi báo cáo final.
+
+---
+
+# Phụ lục A — Template per UAT scenario
+
+```markdown
+### UAT-IMM-15-<NN> — <Tên>
+
+**Liên kết**: US-15-<NN>, AC<N>, BR-15-<NN>, UC-<NN>
+**Role tester**: <…>
+**Kỹ thuật áp dụng**: Use Case happy / Use Case alt / EP permission / State Transition
+**Mục tiêu**: <1 câu>
+**Pre-condition**: <data state cần có>
+
+| Step | Hành động | Kết quả mong đợi | Pass/Fail |
+|---|---|---|---|
+| 1 | <…> | <…> | ☐ |
+| 2 | <…> | <…> | ☐ |
+
+**Post-condition**: <data state sau khi pass>
+**Acceptance**: Tất cả step Pass + IMM Audit Trail có entry tương ứng.
+```
+
+# Phụ lục B — Template per Test Case (unit/integration/API)
+
+```markdown
+### TC-IMM-15-<LAYER>-<NN> — <Tên>
+
+**Component (I.1)**: <…>
+**Liên kết**: US-15-<NN> | BR-15-<NN> | VR-15-<NN>
+**Kỹ thuật (II.1/II.2)**: BVA boundary `qty_issued = available_qty + 1`
+**Priority (I.3)**: Critical / High / Medium / Low
+**Test type**: Unit / Integration / API / E2E
+**Pre-condition**: <fixture / state setup>
+
+**Input**:
+- <field>: <value>
+
+**Steps**:
+1. <…>
+2. <…>
+
+**Expected**:
+- ServiceError(code=BUSINESS_RULE, message contains "VR-15-03")
+- doc.workflow_state unchanged
+
+**Post-condition**: <DB cleanup / fixture cleanup>
+```
+
+# Phụ lục C — Workflow State Transition Test template
+
+```markdown
+### TC-IMM-15-WF-<NN> — <action>: <from> → <to>
+
+**Workflow JSON**: `assetcore/assetcore/workflow/imm_15_allocation_workflow.json`
+**Role required**: <…> (vd Inventory Manager)
+**Pre-condition**: doc.workflow_state = <from>
+**Action**: apply_workflow(doc, "<action>")
+**Expected (happy)**: doc.workflow_state = <to>, audit entry created
+**Expected (negative role)**: PermissionError / FORBIDDEN
+**Expected (bad state)**: ServiceError(code=BAD_STATE)
 ```
 
 ---
 
-*IMM-15 Module — Wave 3 PLANNED. Testing & QA v1.0.0-draft. Cập nhật 2026-05-08.*
+# DoD — File 07 hoàn chỉnh
+
+## I. Test Analysis
+- [x] I.1 Component Inventory liệt kê đủ artefact (so với 04/05/06)
+- [x] I.2 mỗi US / BR / Use Case có ≥ 1 dòng map
+- [x] I.3 Risk priority gán cho mọi component (không trống)
+- [x] I.4 Scope ghi rõ out-of-scope kèm lý do
+
+## II. Test Design Techniques
+- [x] II.1 chọn ≥ 4 black-box techniques (EP + BVA + Decision Table + State Transition)
+- [x] II.2 white-box criteria xác định (statement + branch)
+- [x] II.3 mapping component → kỹ thuật điền đầy đủ
+
+## III. Test Plan
+- [x] Test class structure cho service public function (I.1) — 9 lớp Live + Planned
+- [ ] ≥ 1 happy + 1 negative test mỗi function — *thiếu: post_cycle_count, issue (full), forecast approve, dual-approval VR-15-10*
+- [ ] Workflow transitions cover 100% — *chỉ 2/12 alloc + 0/4 cycle count có test chạm; phần lớn ⬜ Planned*
+- [ ] Audit chain test (intact + tampered) — *⬜ Planned; cơ chế hash chain cần khảo sát*
+- [ ] API test ≥ 60% coverage + permission matrix — *⬜ Planned (chưa có test_imm15_api.py)*
+- [x] Performance target xác định (chưa chạy k6)
+- [x] CI command chạy clean (`bench run-tests --module …`)
+- [ ] **SonarQube Quality Gate pass** + **Lighthouse score** — *chưa chạy*
+
+## IV. Traceability
+- [x] IV.1 US → Test: mọi US có ≥ 1 Test ID (US-15-01..05 đều có Live ít nhất 1)
+- [ ] IV.2 BR → Test: mọi BR có happy + negative — *6/14 VR đủ; 8 còn lại ⬜ Planned*
+- [ ] IV.3 Component → Test: Critical/High đạt coverage target — *coverage chưa đo; workflow + scheduler Critical chưa cover*
+
+## V. UAT
+- [x] Mỗi US có ≥ 1 UAT scenario (14 scenario)
+- [x] ≥ 1 negative + permission + audit verify scenario (09/10/13)
+- [ ] Test data seed script chạy được — *script `scripts/uat/` cần khảo sát*
+- [ ] Tester accounts đã tạo ở UAT site — *liệt kê 5 role, chưa xác nhận tạo trên site*
+- [x] Sign-off section sẵn sàng
+
+## VI. Security
+- [x] DocPerm matrix đầy đủ (đọc thực từ JSON, 5 role)
+- [ ] Mọi field nhạy cảm có permlevel ≠ 0 — **GAP: chưa field nào có permlevel; TODO trước go-live**
+- [ ] SQL injection + CSRF test pass — *CSRF default Frappe; SQLi cần re-verify khi audit*
+- [ ] Audit chain test pass (intact + tampered) — *⬜ Planned*
+- [x] Vendor isolation — *N/A: IMM-15 không có role vendor*
+- [x] Threat model đủ 6 STRIDE với mitigation
+- [ ] Sign-off đầy đủ trước go-live — *bảng sẵn sàng, chưa ký*
+
+## VII. Code Quality
+- [ ] SonarQube Quality Gate pass — *chưa chạy*
+- [ ] Lighthouse ≥ target — *chưa chạy*
+- [ ] Bundle size ≤ budget — *chưa đo*
+- [ ] Screenshot báo cáo gắn vào file 09 — *chưa có*
+
+---
+
+*IMM-15 Module — Wave 2 IMPLEMENTED. Testing & QA. Cập nhật 2026-05-29.*

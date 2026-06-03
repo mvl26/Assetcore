@@ -5,8 +5,8 @@
 | Thuộc tính | Giá trị |
 |---|---|
 | Module | IMM-15 — Spare Parts Inventory Tracking |
-| Phiên bản | 1.0.0-rc.2 |
-| Ngày | 2026-05-14 |
+| Phiên bản | 0.0.2 |
+| Ngày | 2026-05-27 |
 | Trạng thái | IMPLEMENTED — Wave 2 |
 
 ---
@@ -55,16 +55,16 @@ IMM-15 kết nối:
 
 ### I.3. Stakeholders
 
-| Actor | Frappe Role | Quan tâm chính |
+| Actor | Frappe Role (30-role catalog) | Quan tâm chính |
 |---|---|---|
-| Thủ kho | IMM Storekeeper | Pick & issue phụ tùng, kiểm kê chính xác |
-| Trưởng phân xưởng | IMM Workshop Lead | Duyệt allocation, override Emergency |
-| Kỹ sư Biomedical | IMM Biomed Technician | Request phụ tùng theo WO |
-| Kỹ thuật viên HTM | IMM Technician | Hỗ trợ kiểm kê |
-| Kiểm soát CL | IMM QA Officer / Auditor | Verify cycle count, gắn CAPA |
-| Phó Trưởng khối | IMM Operations Manager | Phê duyệt override + forecast |
-| Admin hệ thống | IMM System Admin | Quản trị, fixtures |
-| Trưởng/Phó khoa | IMM Department Head | Báo cáo read-only |
+| Thủ kho | `Inventory User` | Pick & issue phụ tùng, kiểm kê chính xác |
+| Trưởng phân xưởng / Quản lý kho | `Inventory Manager` | Duyệt allocation, override Emergency, post cycle count |
+| Kỹ sư bảo trì / sửa chữa | `Repair User` (CM), `PM User` (PM), `Calibration User` (CAL) | Request phụ tùng theo Work Order |
+| Kỹ thuật viên HTM (hỗ trợ kiểm kê) | `Inventory User` | Hỗ trợ kiểm kê chu kỳ |
+| Kiểm soát CL / Compliance | `Compliance Manager` / `AssetCore Auditor` | Verify cycle count, gắn CAPA |
+| Phó Trưởng khối (override approver 2) | `Inventory Manager` (+ optional `AssetCore Super Admin`) | Phê duyệt override Emergency + forecast |
+| Admin hệ thống | `AssetCore Super Admin` | Quản trị, fixtures |
+| Trưởng/Phó khoa (read-only) | `AssetCore System User` | Báo cáo read-only |
 | Hệ thống (Scheduler) | — | Low-stock, breach, forecast, KPI |
 
 ### I.4. Phạm vi
@@ -120,10 +120,10 @@ IMM-15 kết nối:
 | # | Loại | Mô tả | Tác động | Hướng xử lý |
 |---|---|---|---|---|
 | R-15-01 | Rủi ro nghiệp vụ | Emergency Override bị lạm dụng → mất kiểm soát tồn kho | Stock accuracy giảm, audit fail | KPI Emergency Override Count ≤ 3/tháng; double-approval; review hàng tháng |
-| R-15-02 | Rủi ro dữ liệu | Cycle Count snapshot stale (>24h) → variance ảo | CAPA sai, gây nhiễu | Warning banner; Workshop Lead refresh snapshot trước Post |
+| R-15-02 | Rủi ro dữ liệu | Cycle Count snapshot stale (>24h) → variance ảo | CAPA sai, gây nhiễu | Warning banner; Inventory Manager refresh snapshot trước Post |
 | R-15-03 | Rủi ro phụ thuộc | AC Inventory Backbone (Wave 1) chưa LIVE đầy đủ → IMM-15 không thể go-live | Trì hoãn Đợt 2 | Gate release IMM-15 sau khi AC Backbone LIVE 100% (xem §08 Deployment) |
 | R-15-04 | Rủi ro tích hợp | IMM-08/09/12 chưa hoàn tất `reserve_for_*` API | Allocation không tự động tạo từ WO | Pha 1: tạo Allocation thủ công; Pha 2: bật auto-reserve khi PM/CM ổn |
-| R-15-05 | Rủi ro chất lượng dự báo | <6 tháng dữ liệu consumption → Forecast Moving_Avg sai lệch lớn | KPI Forecast MAPE >25% | Fallback Manual; cảnh báo Operations Manager |
+| R-15-05 | Rủi ro chất lượng dự báo | <6 tháng dữ liệu consumption → Forecast Moving_Avg sai lệch lớn | KPI Forecast MAPE >25% | Fallback Manual; cảnh báo Inventory Manager (override 2) |
 | R-15-06 | Rủi ro tuân thủ | Thiếu batch_no/serial_no cho phụ tùng có ĐK lưu hành | Vi phạm NĐ98/ISO 13485 | VR-15-02 chặn issue; cấu hình `imm_traceability_required` đúng |
 
 **Giả định:**
@@ -135,7 +135,7 @@ IMM-15 kết nối:
 
 ### I.8. Roadmap & Phụ thuộc
 
-**Đợt triển khai:** Đợt 2 (theo `Ho_so_kien_truc_IMMIS.md` §"Đợt triển khai").
+**Đợt triển khai:** Đợt 2 (Wave 2 — theo lộ trình AssetCore §"Đợt triển khai").
 
 | Pha | Phạm vi | Tiền đề |
 |---|---|---|
@@ -189,13 +189,13 @@ IMM-08/09/12 WO Submit
         │ reserve_for_pm/repair/cm()
         ▼
   IMM Spare Allocation (Requested)
-        │ Workshop Lead approve
+        │ Inventory Manager approve
         ▼
   IMM Spare Allocation (Approved)
-        │ Storekeeper pick
+        │ Inventory User pick
         ▼
   IMM Spare Allocation (Picked)
-        │ Storekeeper issue
+        │ Inventory User issue
         │ → AC Stock Movement (Issue) submitted
         │ → AC Spare Part Stock.qty_on_hand -=
         ▼
@@ -207,7 +207,7 @@ IMM-08/09/12 WO Submit
   IMM Spare Allocation (Returned)
 
   Emergency Path:
-    Requested → Issued (double approval: Workshop Lead + Operations Manager)
+    Requested → Issued (double approval: Inventory Manager + Inventory Manager (override 2))
     audit_flags = "EMERGENCY_OVERRIDE"
 
   Cycle Count (song song):
@@ -228,7 +228,7 @@ IMM-08/09/12 WO Submit
 
 ### II.5. RACI Matrix
 
-| Hoạt động | Storekeeper | Workshop Lead | Biomed Tech | Operations Manager | QA Officer | System |
+| Hoạt động | Inventory User | Inventory Manager | Repair User | Inventory Manager (override 2) | Compliance Manager | System |
 |---|---|---|---|---|---|---|
 | Tạo Allocation Request | C | — | R | — | — | — |
 | Approve Allocation | I | R | — | R(override) | — | — |
@@ -246,8 +246,8 @@ IMM-08/09/12 WO Submit
 |---|---|
 | PO nhập hàng nhưng không ghi nhận kho | AC Stock Movement (Receipt) trước khi issue |
 | Phụ tùng trả về bị hỏng | Return condition=Damaged → to_warehouse=QC Hold; flag for write-off |
-| Variance cực lớn (> 50%) | Post blocked — Workshop Lead + QA Officer phải ký cả hai |
-| Forecast method fail (không đủ 6m data) | Fallback sang Manual; cảnh báo Operations Manager |
+| Variance cực lớn (> 50%) | Post blocked — Inventory Manager + Compliance Manager phải ký cả hai |
+| Forecast method fail (không đủ 6m data) | Fallback sang Manual; cảnh báo Inventory Manager (override 2) |
 
 ---
 
@@ -257,20 +257,20 @@ IMM-08/09/12 WO Submit
 
 | Actor | Hành động chính |
 |---|---|
-| Storekeeper | Pick, Issue, Return, Count |
-| Workshop Lead | Approve, Override, Review Variance, Post |
-| Biomed Technician | Create Allocation Request |
+| Inventory User | Pick, Issue, Return, Count |
+| Inventory Manager | Approve, Override, Review Variance, Post |
+| Repair User | Create Allocation Request |
 | Technician | Assist Count |
-| Operations Manager | Override Emergency, Approve Forecast |
-| QA Officer / Auditor | Verify Count, Assign CAPA |
-| System Admin | Config, Override, Fixtures |
+| Inventory Manager (override 2) | Override Emergency, Approve Forecast |
+| Compliance Manager / Auditor | Verify Count, Assign CAPA |
+| AssetCore Super Admin | Config, Override, Fixtures |
 | Scheduler (System) | Low-stock alert, breach alert, forecast, KPI |
 
 ### III.2. UC-01: Cấp phát phụ tùng theo Work Order
 
 | Thuộc tính | Nội dung |
 |---|---|
-| Actor chính | Biomed Technician (request), Workshop Lead (approve), Storekeeper (issue) |
+| Actor chính | Repair User (request), Inventory Manager (approve), Inventory User (issue) |
 | Pre-condition | WO đang ở trạng thái Open/In Progress; AC Spare Part Stock available_qty > 0 |
 | Post-condition | AC Stock Movement (Issue) submitted; AC Spare Part Stock.qty_on_hand giảm; IMM Audit Trail ghi |
 
@@ -278,11 +278,11 @@ IMM-08/09/12 WO Submit
 
 | # | Actor | Hành động |
 |---|---|---|
-| 1 | Biomed Tech | Tạo IMM Spare Allocation với work_order_ref, asset, danh sách spare parts cần |
+| 1 | Repair User | Tạo IMM Spare Allocation với work_order_ref, asset, danh sách spare parts cần |
 | 2 | System | Kiểm tra VR-15-01 (WO link bắt buộc), VR-15-13 (warehouse active) |
-| 3 | Workshop Lead | Approve Allocation; kiểm tra available_qty |
-| 4 | Storekeeper | Pick các phụ tùng theo danh sách |
-| 5 | Storekeeper | Issue — hệ thống tạo AC Stock Movement (Issue, reference_type=IMM Spare Allocation) |
+| 3 | Inventory Manager | Approve Allocation; kiểm tra available_qty |
+| 4 | Inventory User | Pick các phụ tùng theo danh sách |
+| 5 | Inventory User | Issue — hệ thống tạo AC Stock Movement (Issue, reference_type=IMM Spare Allocation) |
 | 6 | System | on_submit AC Stock Movement → apply_stock_movement → qty_on_hand -= |
 | 7 | System | Ghi IMM Audit Trail action=ISSUED |
 
@@ -290,17 +290,17 @@ IMM-08/09/12 WO Submit
 
 | # | Actor | Hành động |
 |---|---|---|
-| 1a | Biomed Tech | Tạo Allocation với urgency=Emergency |
-| 2a | Workshop Lead | Approve Emergency (1/2) |
-| 3a | Operations Manager | Approve Emergency (2/2) — VR-15-10: approved_by ≠ override_approver_2 |
+| 1a | Repair User | Tạo Allocation với urgency=Emergency |
+| 2a | Inventory Manager | Approve Emergency (1/2) |
+| 3a | Inventory Manager (override 2) | Approve Emergency (2/2) — VR-15-10: approved_by ≠ override_approver_2 |
 | 4a | System | Bypass stock check nếu imm_part_class=Critical; audit_flags=EMERGENCY_OVERRIDE |
-| 5a | Storekeeper | Issue → AC Stock Movement |
+| 5a | Inventory User | Issue → AC Stock Movement |
 
 ### III.3. UC-02: Kiểm kê chu kỳ (Cycle Count)
 
 | Thuộc tính | Nội dung |
 |---|---|
-| Actor chính | Storekeeper (count), Workshop Lead / QA Officer (review), Workshop Lead (post) |
+| Actor chính | Inventory User (count), Inventory Manager / Compliance Manager (review), Inventory Manager (post) |
 | Pre-condition | Cycle Count session Planned đã tạo với snapshot system_qty từ AC Spare Part Stock |
 | Post-condition | AC Stock Movement (Adjustment) submitted; CAPA tạo nếu variance > threshold |
 
@@ -308,11 +308,11 @@ IMM-08/09/12 WO Submit
 
 | # | Actor | Hành động |
 |---|---|---|
-| 1 | Storekeeper | Mở phiên Cycle Count, nhập counted_qty cho từng spare |
+| 1 | Inventory User | Mở phiên Cycle Count, nhập counted_qty cho từng spare |
 | 2 | System | Tính variance_qty = counted_qty − system_qty; variance_pct; variance_value |
 | 3 | System | VR-15-04: variance_pct > 5% OR variance_value > 5M → set capa_required=1, bắt buộc root_cause |
-| 4 | Workshop Lead / QA | Review; VR-15-11: verified_by ≠ counted_by |
-| 5 | Workshop Lead | Post → on_submit tạo AC Stock Movement (Adjustment, reference_type=IMM Stock Cycle Count) |
+| 4 | Inventory Manager / QA | Review; VR-15-11: verified_by ≠ counted_by |
+| 5 | Inventory Manager | Post → on_submit tạo AC Stock Movement (Adjustment, reference_type=IMM Stock Cycle Count) |
 | 6 | System | apply_stock_movement → qty_on_hand := counted_qty |
 | 7 | System | seed_capa_for_variance cho items có capa_required=1 |
 
@@ -320,14 +320,14 @@ IMM-08/09/12 WO Submit
 
 | UC-ID | Tên | Actor chính | Trigger | Outcome chính |
 |---|---|---|---|---|
-| UC-01 | Cấp phát phụ tùng theo Work Order | Biomed Tech, Workshop Lead, Storekeeper | WO Submit + reserve_for_pm/repair/cm | AC Stock Movement (Issue) submitted; qty_on_hand giảm |
-| UC-02 | Kiểm kê chu kỳ (Cycle Count) | Storekeeper, Workshop Lead, QA Officer | Scheduler / Manual planning | AC Stock Movement (Adjustment) submitted; CAPA seed nếu variance > ngưỡng |
-| UC-03 | Cảnh báo Critical Spare Watchlist breach | Scheduler, Workshop Lead, Operations Manager | qty_on_hand < min_required_on_hand | Email khẩn + CAPA seed (IMM-16) |
-| UC-04 | Emergency Override cấp phát | Workshop Lead, Operations Manager | urgency=Emergency, stock không đủ | Allocation Issued với audit_flags=EMERGENCY_OVERRIDE; double-approval |
-| UC-05 | Trả phụ tùng về kho (Return) | Storekeeper, QA Officer | Allocation Issued + qty_returned > 0 | AC Stock Movement (Receipt); Damaged → QC Hold |
-| UC-06 | Demand Forecast part-level | Scheduler, Operations Manager | Cron tháng (≥6 tháng dữ liệu) | IMM Spare Part Forecast Approved + reorder recommendation |
-| UC-07 | ABC/XYZ classification quarterly | Scheduler, Workshop Lead | Cron quý | Cập nhật imm_part_class + imm_xyz_class trên AC Spare Part |
-| UC-08 | Quản lý Critical Spare Watchlist (CRUD) | Workshop Lead, QA Officer | Asset Critical mới hoặc thay đổi min stock | Watchlist entry active; scheduler theo dõi |
+| UC-01 | Cấp phát phụ tùng theo Work Order | Repair User, Inventory Manager, Inventory User | WO Submit + reserve_for_pm/repair/cm | AC Stock Movement (Issue) submitted; qty_on_hand giảm |
+| UC-02 | Kiểm kê chu kỳ (Cycle Count) | Inventory User, Inventory Manager, Compliance Manager | Scheduler / Manual planning | AC Stock Movement (Adjustment) submitted; CAPA seed nếu variance > ngưỡng |
+| UC-03 | Cảnh báo Critical Spare Watchlist breach | Scheduler, Inventory Manager, Inventory Manager (override 2) | qty_on_hand < min_required_on_hand | Email khẩn + CAPA seed (IMM-16) |
+| UC-04 | Emergency Override cấp phát | Inventory Manager, Inventory Manager (override 2) | urgency=Emergency, stock không đủ | Allocation Issued với audit_flags=EMERGENCY_OVERRIDE; double-approval |
+| UC-05 | Trả phụ tùng về kho (Return) | Inventory User, Compliance Manager | Allocation Issued + qty_returned > 0 | AC Stock Movement (Receipt); Damaged → QC Hold |
+| UC-06 | Demand Forecast part-level | Scheduler, Inventory Manager (override 2) | Cron tháng (≥6 tháng dữ liệu) | IMM Spare Part Forecast Approved + reorder recommendation |
+| UC-07 | ABC/XYZ classification quarterly | Scheduler, Inventory Manager | Cron quý | Cập nhật imm_part_class + imm_xyz_class trên AC Spare Part |
+| UC-08 | Quản lý Critical Spare Watchlist (CRUD) | Inventory Manager, Compliance Manager | Asset Critical mới hoặc thay đổi min stock | Watchlist entry active; scheduler theo dõi |
 
 UC-01 và UC-02 đã chi tiết tại §III.2 và §III.3. UC-03..UC-08 chi tiết hoá trong sprint Wave 3 — *(BA bổ sung trong sprint kế tiếp)*.
 
@@ -342,13 +342,13 @@ UC-01 và UC-02 đã chi tiết tại §III.2 và §III.3. UC-03..UC-08 chi ti�
 ```gherkin
 Given IMM PM Work Order "WO-2026-00234" đang ở trạng thái In Progress
   And AC Spare Part "SP-FILTER-001" có available_qty = 5 tại AC Warehouse "WH-01"
-When Biomed Technician tạo IMM Spare Allocation với work_order_ref="WO-2026-00234", qty=2
-  And Workshop Lead Approve
-  And Storekeeper Issue
+When Repair User tạo IMM Spare Allocation với work_order_ref="WO-2026-00234", qty=2
+  And Inventory Manager Approve
+  And Inventory User Issue
 Then IMM Spare Allocation ở trạng thái Issued
   And AC Stock Movement (Issue) được tạo và submitted
   And AC Spare Part Stock.qty_on_hand = 3 tại WH-01
-  And IMM Audit Trail ghi action="ISSUED" với actor=Storekeeper
+  And IMM Audit Trail ghi action="ISSUED" với actor=Inventory User
 ```
 
 **US-15-02: Emergency override khi Critical Spare hết**
@@ -356,13 +356,13 @@ Then IMM Spare Allocation ở trạng thái Issued
 ```gherkin
 Given AC Spare Part "SP-PUMP-CRITICAL" là imm_part_class=Critical, available_qty=0
   And IMM CM Work Order "CM-2026-00089" đang hoạt động (máy thở ICU)
-When Biomed Tech tạo Allocation với urgency=Emergency
-  And Workshop Lead approve (approver 1)
-  And Operations Manager approve (approver 2, khác Workshop Lead)
+When Repair User tạo Allocation với urgency=Emergency
+  And Inventory Manager approve (approver 1)
+  And Inventory Manager (override 2) approve (approver 2, khác Inventory Manager)
 Then Allocation bypass VR-15-03 stock check
   And audit_flags có "EMERGENCY_OVERRIDE"
   And AC Stock Movement tạo với qty_issued=1 (thậm chí qty_on_hand < 0 — debt)
-  And cảnh báo email Operations Manager + System Admin
+  And cảnh báo email Inventory Manager (override 2) + AssetCore Super Admin
 ```
 
 **US-15-03: Cycle Count → CAPA khi variance**
@@ -370,11 +370,11 @@ Then Allocation bypass VR-15-03 stock check
 ```gherkin
 Given IMM Stock Cycle Count "CYC-2026-00012" ở trạng thái Counting
   And IMM Cycle Count Item: spare_part=SP-BATTERY-001, system_qty=10, counted_qty=8
-When Storekeeper save counted_qty=8
+When Inventory User save counted_qty=8
 Then variance_qty = -2, variance_pct = 20%
   And capa_required=1 (vì 20% > threshold 5%)
   And root_cause field bắt buộc điền trước khi Review
-When Workshop Lead Post
+When Inventory Manager Post
   And verified_by ≠ counted_by (VR-15-11)
 Then AC Stock Movement (Adjustment) tạo: qty_on_hand trở thành 8
   And CAPA seed với link IMM-16
@@ -391,7 +391,7 @@ Given IMM Critical Spare Watchlist entry:
 When Scheduler check_critical_spare_breach() chạy
 Then watchlist.last_breach_date=now(), watchlist.breach_count_30d += 1
   And CAPA tạo nếu chưa có open CAPA
-  And email khẩn gửi Workshop Lead + Operations Manager + System Admin
+  And email khẩn gửi Inventory Manager + Inventory Manager (override 2) + AssetCore Super Admin
 ```
 
 **US-15-05: Demand Forecast part-level**
@@ -402,7 +402,7 @@ When Scheduler generate_spare_demand_forecast() chạy ngày 1 hàng tháng
 Then IMM Spare Part Forecast Draft tạo cho quý tới (method=Moving_Avg)
   And IMM Spare Forecast Item có forecast_qty, reorder_point, safety_stock đúng
   And recommended_action="Reorder" nếu reorder_point > current_qty
-When Operations Manager approve_forecast()
+When Inventory Manager (override 2) approve_forecast()
 Then Forecast ở trạng thái Approved
   And Dashboard hiển thị reorder recommendations
 ```
@@ -421,6 +421,8 @@ Then Forecast ở trạng thái Approved
 | BR-15-08 | Returned items → QC check; Damaged → kho QC Hold | Workflow Return |
 | BR-15-09 | Asset decommissioned → flag imm_obsolete_review_required trên spare | IMM-13 hook |
 | BR-15-10 | Mọi allocation, count, override, exception ghi IMM Audit Trail | Service layer |
+| BR-15-15 | **Số đã xuất == số đã giữ chỗ** = `COALESCE(NULLIF(qty_approved,0), qty_requested)`. Issue dispense theo số ĐÃ DUYỆT (không phải qty_requested thuần) — điều chỉnh phê duyệt KHÔNG bị bỏ qua; reserved-vs-issued KHÔNG lệch. Helper SoT `effective_alloc_qty(item)` dùng chung cho qty_issued + VR-15-03 gate. Backward-compat: qty_approved chưa set → = qty_requested. | issue_allocation() — xem 04 §III-bis.7 |
+| BR-15-16 | **line_value = value_qty × unit_value; total_value = Σ line_value** (lifecycle-aware value_qty = qty_issued nếu đã xuất, ngược lại effective_alloc_qty). MỘT writer duy nhất ở controller validate() — service KHÔNG tự set total_value (tránh clobber requested-based). line_value KHÔNG còn dead column. Sau Issue với approver cắt số → total_value theo số đã xuất (khớp BR-15-15). | controller validate() — xem 04 §III-bis.8 |
 
 ### IV.3. Validation Rules
 
@@ -428,7 +430,7 @@ Then Forecast ở trạng thái Approved
 |---|---|---|---|
 | VR-15-01 | work_order_ref bắt buộc trừ Emergency + audit-flagged | BUSINESS_RULE | "VR-15-01: Cấp phát phụ tùng phải liên kết Work Order" |
 | VR-15-02 | imm_traceability_required=1 → batch_no/serial_no reqd | VALIDATION | "VR-15-02: Phụ tùng {part} yêu cầu số lô/serial" |
-| VR-15-03 | qty_issued ≤ available_qty (trừ Emergency override) | BUSINESS_RULE | "VR-15-03: Tồn kho không đủ — available: {n}" |
+| VR-15-03 | qty_issued ≤ available_qty (= qty_on_hand − reserved_qty THẬT, trừ Emergency+Critical override) — allocation OPEN khác đã giữ chỗ làm available giảm → chống double-issue. Xem **VR-15-14** invariant. | BUSINESS_RULE | "VR-15-03: Tồn kho không đủ — available: {n}" |
 | VR-15-04 | variance_pct > 5% / variance_value > 5M → root_cause reqd | VALIDATION | "VR-15-04: Chênh lệch {pct}% — cần nhập nguyên nhân" |
 | VR-15-05 | urgency IN {Routine/Urgent/Emergency} | VALIDATION | "VR-15-05: Mức độ khẩn cấp không hợp lệ" |
 | VR-15-07 | reorder_point ≥ safety_stock | VALIDATION | "VR-15-07: Điểm đặt hàng phải ≥ safety stock" |
@@ -438,6 +440,7 @@ Then Forecast ở trạng thái Approved
 | VR-15-11 | Cycle count: verified_by ≠ counted_by | BUSINESS_RULE | "VR-15-11: Người kiểm tra phải khác người kiểm kê" |
 | VR-15-12 | Forecast method IN {Moving_Avg/PM_Driven/Failure_Rate/Manual} | VALIDATION | "VR-15-12: Phương pháp dự báo không hợp lệ" |
 | VR-15-13 | AC Warehouse.is_active=1 | VALIDATION | "VR-15-13: Kho {wh} không còn hoạt động" |
+| VR-15-14 | **INVARIANT reservation (SoT):** ∀ bin (warehouse × spare_part): `reserved_qty == Σ qty giữ-chỗ allocation HOLDING {Requested, Approved, Picked}`; `available_qty == MAX(0, qty_on_hand − reserved_qty)`. Issue/Cancel/Return giải phóng reserved (RELEASE on terminal). Một hàm `recompute_reserved` SoT — KHÔNG inline. | — | (invariant, không phải lỗi runtime đơn lẻ — xem 04 §III-bis) |
 
 ### IV.4. Architecture Rules (CRITICAL)
 
@@ -448,15 +451,19 @@ Then Forecast ở trạng thái Approved
 | RULE-F03 | Mọi movement (Issue/Return/Adjustment) phải sinh AC Stock Movement submitted |
 | RULE-F04 | IMM-15 transaction DocType chỉ LINK vào AC Stock Movement qua stock_movement_ref |
 | RULE-S01 | Logic nghiệp vụ ở services/imm15.py, KHÔNG ở controller |
+| RULE-R01 | `reserved_qty` CHỈ được ghi qua `services.inventory.recompute_reserved` (SoT, tuyệt đối/idempotent). CẤM `reserved_qty +=/-=` rải rác trong imm15.py. Low-stock predicate GIỮ `qty_on_hand` (tồn vật lý), KHÔNG đổi sang available. |
 
 ### IV.5. Edge Cases
 
 | Case | Xử lý |
 |---|---|
-| WO bị cancel sau khi Allocation Issued | Allocation ở trạng thái Issued không tự cancel; Storekeeper Return thủ công |
+| WO bị cancel sau khi Allocation Issued | Allocation ở trạng thái Issued không tự cancel; Inventory User Return thủ công |
 | available_qty = 0 + Emergency + non-Critical | Throw VR-15-03 — không bypass |
+| reserved_qty > qty_on_hand (điều chỉnh kho giảm tồn khi còn phiếu giữ) | `available_qty` kẹp 0 (before_save MAX(0,…)), KHÔNG âm; reserved giữ nguyên đến khi phiếu Issue/Cancel |
+| 2 allocation OPEN cùng bin, on_hand chỉ đủ 1 | #1 giữ chỗ → available=0 → #2 issue FAIL VR-15-03 (anti-oversell). Emergency+Critical vẫn bypass |
+| Approve cắt qty_approved (10→4) rồi Issue | Issue dispense **4** (= effective_alloc_qty), KHÔNG phải 10; qty_issued==reserved==4 (BR-15-15). Trước fix: xuất 10 (over-issue) |
 | Trả toàn bộ qty về kho | Allocation về Returned; AC Stock Movement (Receipt) |
-| Cycle Count snapshot bị stale (> 24h) | Warning banner; Workshop Lead có thể refresh snapshot |
+| Cycle Count snapshot bị stale (> 24h) | Warning banner; Inventory Manager có thể refresh snapshot |
 | Forecast với < 6 tháng data | Method fallback → Manual; cảnh báo trong email |
 | ABC reclassify đổi từ A → C | Không auto-giảm min_stock_level; chỉ cảnh báo để review thủ công |
 

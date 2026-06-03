@@ -2,6 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { accountState } from '@/api/auth'
 import logoUrl from '@/assets/logo-miyano.png'
 
 const router = useRouter()
@@ -13,7 +14,7 @@ const password = ref('')
 const showPassword = ref(false)
 const remember = ref(false)
 const error = ref<string | null>(null)
-const errorType = ref<'credential' | 'network' | 'server' | 'validation' | null>(null)
+const errorType = ref<'credential' | 'network' | 'server' | 'validation' | 'pending' | 'rejected' | 'disabled' | null>(null)
 
 onMounted(async () => {
   const prefill = auth.rememberedUsername()
@@ -40,11 +41,17 @@ const ERROR_MESSAGES: Record<string, string> = {
   network:    'Không kết nối được máy chủ. Kiểm tra mạng và thử lại.',
   server:     'Máy chủ đang gặp sự cố. Vui lòng thử lại sau.',
   validation: 'Vui lòng nhập đầy đủ email và mật khẩu.',
+  pending:    'Tài khoản của bạn đang chờ quản trị viên phê duyệt. Vui lòng thử lại sau khi được duyệt.',
+  rejected:   'Đăng ký của bạn đã bị từ chối. Vui lòng liên hệ quản trị viên để biết thêm chi tiết.',
+  disabled:   'Tài khoản của bạn đã bị vô hiệu hoá. Vui lòng liên hệ quản trị viên.',
 }
 
 const ERROR_BANNER_CLASS = computed<string>(() => {
   if (errorType.value === 'network') return 'bg-amber-50 border-amber-200 text-amber-800'
   if (errorType.value === 'server')  return 'bg-orange-50 border-orange-200 text-orange-800'
+  // pending/rejected/disabled = trạng thái tài khoản (không phải sai credential) → amber
+  if (errorType.value === 'pending' || errorType.value === 'rejected' || errorType.value === 'disabled')
+    return 'bg-amber-50 border-amber-200 text-amber-800'
   return 'bg-red-50 border-red-200 text-red-700'
 })
 
@@ -60,9 +67,34 @@ async function handleLogin() {
   if (ok) {
     const redirect = (route.query.redirect as string) || '/dashboard'
     router.push(redirect)
-  } else {
-    const raw = auth.error ?? ''
-    errorType.value = classifyError(raw)
+    return
+  }
+
+  // Login fail: phân biệt nguyên nhân trạng thái tài khoản (chờ duyệt / bị từ
+  // chối / vô hiệu hoá) vs sai mật khẩu. BR-00-USR-02 (security): gọi endpoint
+  // PASSWORD-GATED account_state với CHÍNH mật khẩu user vừa nhập — BE chỉ lộ
+  // pending/rejected/disabled SAU KHI mật khẩu đúng (không enumeration).
+  // Best-effort: nếu lookup lỗi → fallback về classify theo message gốc.
+  const raw = auth.error ?? ''
+  try {
+    const { status } = await accountState(email.value.trim(), password.value)
+    if (status === 'pending' || status === 'rejected' || status === 'disabled') {
+      errorType.value = status
+      error.value = ERROR_MESSAGES[status]
+      return
+    }
+    // 'active' (mật khẩu đúng nhưng login fail vì lý do khác) hoặc
+    // 'invalid_credentials' (sai email/mật khẩu) → message credential trung lập,
+    // KHÔNG khẳng định email tồn tại hay không.
+    errorType.value = 'credential'
+    error.value = ERROR_MESSAGES.credential
+  } catch (e) {
+    // accountState() ném (mạng/máy chủ/lỗi gọi endpoint) → KHÔNG nuốt lỗi, KHÔNG
+    // để form đứng im. Phân loại theo thông điệp lỗi của CHÍNH lần gọi vừa ném
+    // trước, rồi mới fallback về error gốc của store (raw). Luôn đảm bảo có 1
+    // message hiển thị (banner v-if=error render).
+    const thrown = e instanceof Error ? e.message : ''
+    errorType.value = classifyError(thrown || raw)
     error.value = ERROR_MESSAGES[errorType.value ?? ''] || raw || 'Đăng nhập thất bại. Vui lòng thử lại.'
   }
 }
@@ -86,10 +118,12 @@ async function handleLogin() {
 
         <form class="space-y-5" @submit.prevent="handleLogin">
 
-          <!-- Error banner — style theo loại lỗi -->
-          <div v-if="error" :class="['flex items-start gap-2.5 p-3 rounded-lg border text-sm', ERROR_BANNER_CLASS]">
-            <!-- credential / validation -->
-            <svg v-if="!errorType || errorType === 'credential' || errorType === 'validation'"
+          <!-- Error banner — style theo loại lỗi. role=alert + aria-live=assertive
+               để screen-reader đọc ngay khi login fail (FR-00 a11y). -->
+          <div v-if="error" role="alert" aria-live="assertive"
+            :class="['flex items-start gap-2.5 p-3 rounded-lg border text-sm', ERROR_BANNER_CLASS]">
+            <!-- credential / validation / account-state (pending/rejected/disabled) -->
+            <svg v-if="!errorType || errorType === 'credential' || errorType === 'validation' || errorType === 'pending' || errorType === 'rejected' || errorType === 'disabled'"
               class="w-4 h-4 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                 d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />

@@ -7,7 +7,7 @@
 | Ngày phát hành | 2026-05-08 |
 | Owner | PM + BA + Tech Writer |
 | Liên kết | [07 Testing QA](./07_Testing_QA.md) · [08 Deployment](./08_Deployment.md) · [Functional Specs](./IMM-08_Functional_Specs.md) |
-| Cập nhật | 2026-05-14 |
+| Cập nhật | 2026-05-18 |
 
 ---
 
@@ -440,7 +440,7 @@ Trace: `BR-08-01: PM Checklist Template bắt buộc → BR-08-08: 100% results 
 | DocType (child) | 2 | `PM Checklist Item`, `PM Checklist Result` |
 | Workflow JSON | 0 | PM WO dùng `status` field (workflow state machine trong controller) |
 | API endpoint | 9 | `list_pm_work_orders, get_pm_work_order, assign_technician, submit_pm_result, report_major_failure, reschedule_pm, cancel_pm_wo, get_pm_dashboard_stats, get_pm_kpis` |
-| FE view / page | 4 | `PMDashboardView`, `PMCalendarView`, `PMWorkOrderListView`, `PMWorkOrderDetailView` |
+| FE view / page | 7 | `PMDashboardView`, `PMCalendarView`, `PMWorkOrderListView`, `PMWorkOrderCreateView`, `PMWorkOrderDetailView`, `PmScheduleListView`, `PmTemplateListView` |
 | FE store | 1 | `stores/imm08.ts` |
 | Service function | 10 | `generate_pm_work_orders, check_pm_overdue, validate_checklist_complete, validate_photo_for_high_risk, validate_cm_source, update_pm_schedule, handle_failures, set_completion, create_pm_task_log, reschedule_pm` |
 | Scheduler job | 2 | `generate_pm_work_orders` (daily 06:00), `check_pm_overdue` (daily 08:00) |

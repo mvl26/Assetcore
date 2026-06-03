@@ -190,6 +190,92 @@ BE mirror trong `assetcore/services/shared/dto.py` (TypedDict / dataclass). Sai 
 - List có business filter viết endpoint riêng `list_<gì>`
 - Trả thêm field denormalized (vd `asset_label`, `assignee_full_name`) để FE không phải gọi extra
 
+### 3.1. Free-text `search` filter — CONVENTION (BẮT BUỘC)
+
+**Sự cố tham chiếu (2026-05-20)**: `/needs-requests` lỗi
+`(1054, "Unknown column 'tabIMM Needs Request.search' in 'WHERE'")` khi
+người dùng gõ mã NR vào ô tìm kiếm. Nguyên nhân: FE đẩy `search` vào dict
+`filters`, BE pass thẳng vào `frappe.get_list` → MariaDB tưởng `search`
+là cột. Để tránh lặp lại:
+
+**Hợp đồng BE/FE**:
+
+- FE list view luôn gửi free-text search trong **cùng** dict `filters` —
+  key cố định là `"search"` (không đổi tên thành `q`, `query`, `keyword`
+  trừ khi mọi 2 đầu cùng đổi). Lý do: đồng nhất với pattern
+  `NeedsRequestListView.vue:71`, dùng lại được component `ListFilterBar`.
+- BE list endpoint **bắt buộc** dùng helper
+  `assetcore.services.shared.filters.pop_search()` để tách `search` khỏi
+  `filters` trước khi pass vào `frappe.get_list`. KHÔNG được pass dict
+  filter thô.
+- Mỗi list endpoint phải khai báo `searchable_fields` — danh sách 2-4
+  field hợp lý để OR-LIKE (luôn gồm `name` + 1-2 field định danh nghiệp
+  vụ, vd `device_model_ref`, `plan_period`, `supplier`). Liệt kê field
+  trong API spec.
+- Pagination phải dùng `count_with_or(doctype, filters, or_filters)`
+  (cùng module) thay vì `frappe.db.count` — nếu không `total` sẽ lệch
+  với số rows thực sự match OR-clause.
+
+**Skeleton BE** (copy + sửa):
+
+```python
+from assetcore.services.shared.filters import pop_search, count_with_or
+
+_DT = "IMM <Entity>"
+_SEARCHABLE_FIELDS = ["name", "<biz_field_1>", "<biz_field_2>"]
+# Khi placeholder hứa tìm theo TÊN của 1 Link field (vd "tên model"),
+# parent chỉ lưu link ID → resolve qua display_field của doctype liên kết.
+_LINK_SEARCH = {
+    # "<link_field_on_parent>": ("<Linked DocType>", "<display_field>"),
+    "device_model_ref": ("IMM Device Model", "model_name"),
+}
+
+@frappe.whitelist()
+def list_<entity>(filters: str = "{}", page: int = 1, page_size: int = 20) -> dict:
+    f = _parse_json(filters)
+    f, or_filters = pop_search(f, _SEARCHABLE_FIELDS, link_search=_LINK_SEARCH)
+    start = (max(1, int(page)) - 1) * int(page_size)
+    items = frappe.get_list(
+        _DT, filters=f or None, or_filters=or_filters,
+        fields=[...], order_by="...", start=start, page_length=int(page_size),
+    )
+    total = count_with_or(_DT, f or None, or_filters)
+    return _ok({"items": items, "total": total, "page": page, "page_size": page_size})
+```
+
+#### 3.1.a. Khi nào dùng `link_search`?
+
+Trục quyết định = placeholder FE nói gì:
+
+| Placeholder hứa | Cách viết | Lý do |
+|---|---|---|
+| "mã model" / "mã NCC" / "mã hồ sơ" | `searchable_fields=["device_model_ref"]` (LIKE thẳng trên link ID) | Field trên parent đã chứa giá trị user gõ |
+| "tên model" / "tên NCC" / "tên thiết bị" | `link_search={"device_model_ref": ("IMM Device Model", "model_name")}` | Tên hiển thị KHÔNG có trên parent — phải resolve qua doctype liên kết |
+| Cả mã và tên | gom cả 2 — direct LIKE trên link ID + link_search → user gõ kiểu nào cũng ra | Convenience cho power user |
+
+**Cảnh báo perf**: `link_search` thực hiện 1 round-trip lookup trên doctype
+liên kết, giới hạn 500 match (`_LINK_LOOKUP_LIMIT` trong `filters.py`).
+Nếu doctype liên kết > 100k rows → cân nhắc denormalize display field
+vào parent (vd thêm `device_model_name` trên IMM Needs Request) thay vì
+dựa vào link_search.
+
+**Smoke test bắt buộc** mỗi list endpoint mới:
+
+```bash
+curl -X GET '<base>/list_<entity>?filters=%7B%22search%22%3A%22XYZ%22%7D' \
+  -H 'Authorization: token <key>:<secret>'
+# Phải trả {success: true, data: {items: [...], total: N, ...}} — không SQL error.
+```
+
+Test regression chung: `assetcore/tests/test_list_search_filter.py`.
+
+**Đồng bộ FE placeholder (BẮT BUỘC)**: Khi khai báo `searchable_fields` hoặc
+thay đổi nó, **đồng thời** sửa `search-placeholder` của list view tương ứng
+để liệt kê đúng các nhãn business của field đó. Xem file 06 §3.c.i. Lý do:
+placeholder hứa "Tìm theo X" nhưng BE không có X = bug UX (user mất niềm tin
+khi gõ X không ra kết quả). Quy ước này phát sinh từ sự cố 2026-05-20 trên
+`/needs-requests`.
+
 ## 4. Webhook / Event (nếu có)
 **Viết gì**: Bảng `Event · Trigger · Payload · Receiver`. Chỉ khi module phát event ngoài.
 
@@ -291,5 +377,6 @@ curl -X POST '<base>/<function>' \\
 - [ ] Side effects nêu rõ (record sinh, state change, notify)
 - [ ] ≥ 1 curl ví dụ chạy được mỗi endpoint chính
 - [ ] Pagination + datetime convention nhất quán
+- [ ] **List endpoint có free-text search** (§3.1) — dùng `pop_search` + `count_with_or`, khai báo `searchable_fields`, không pass `filters` thô vào `frappe.get_list`
 - [ ] Webhook (nếu có) có payload schema
 - [ ] Reviewed bởi BE Lead + FE Lead

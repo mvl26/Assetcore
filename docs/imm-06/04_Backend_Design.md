@@ -100,16 +100,17 @@
 | 3 | session_date | Date | Ngày tổ chức | — | * | — |
 | 4 | session_type | Select | Hình thức | Onsite / Online / Hybrid | * | — |
 | 5 | location | Data | Địa điểm | — | — | — |
-| 6 | instructor | Link | Giảng viên nội bộ | User | — | — |
-| 7 | instructor_external_name | Data | Tên giảng viên bên ngoài | — | — | — |
-| 8 | instructor_external_org | Data | Tổ chức | — | — | — |
-| 9 | duration_planned_hours | Float | Thời lượng dự kiến (giờ) | — | * | — |
-| 10 | duration_actual_hours | Float | Thời lượng thực tế (giờ) | — | — | — |
-| 11 | training_materials | Attach | Tài liệu đào tạo | — | — | — |
-| 12 | qms_session_record | Attach | Biên bản buổi học | — | — | — |
-| 13 | evaluation_method | Small Text | Phương pháp đánh giá | — | — | — |
-| 14 | status_remarks | Small Text | Ghi chú | — | — | — |
-| 15 | participants | Table | Học viên | IMM Training Participant | — | — |
+| 6 | trainer_ref | Link | Giảng viên (registry) | IMM Trainer | — | — |
+| 7 | instructor | Link | Giảng viên nội bộ (User) | User | — | — |
+| 8 | instructor_external_name | Data | Tên giảng viên bên ngoài | — | — | — |
+| 9 | instructor_external_org | Data | Tổ chức | — | — | — |
+| 10 | duration_planned_hours | Float | Thời lượng dự kiến (giờ) | — | * | — |
+| 11 | duration_actual_hours | Float | Thời lượng thực tế (giờ) | — | — | — |
+| 12 | training_materials | Attach | Tài liệu đào tạo | — | — | — |
+| 13 | qms_session_record | Attach | Biên bản buổi học | — | — | — |
+| 14 | evaluation_method | Small Text | Phương pháp đánh giá | — | — | — |
+| 15 | status_remarks | Small Text | Ghi chú | — | — | — |
+| 16 | participants | Table | Học viên | IMM Training Participant | — | — |
 
 > Tối thiểu 1 trong (`instructor`, `instructor_external_name`) reqd — VR enforce.
 
@@ -147,6 +148,9 @@
 | 7 | overall_result | Select | Kết quả | Pass / Fail / Conditional | — | 1 |
 | 8 | certificate_issued | Check | Đã cấp chứng nhận | — | — | — |
 | 9 | retake_required | Check | Cần học lại | — | — | — |
+| 10 | result | Select | Kết quả (display) | Đạt / Không đạt | — | 1 |
+| 11 | competency_record | Link | Competency Record | IMM User Competency | — | — |
+| 12 | remarks | Small Text | Ghi chú | — | — | — |
 | 10 | competency_record | Link | Hồ sơ năng lực | IMM User Competency | — | — |
 | 11 | remarks | Small Text | Ghi chú | — | — | — |
 
@@ -179,7 +183,7 @@
 | 8 | achieved_date | Date | Ngày đạt | — | * | — |
 | 9 | validity_months | Int | Hiệu lực (tháng) | default=24 | — | — |
 | 10 | expiry_date | Date | Ngày hết hạn | computed | — | 1 |
-| 11 | recertification_due_date | Date | Ngày cần tái chứng nhận | computed = expiry - 60d | — | 1 |
+| 11 | recertification_due_date | Date | Ngày cần tái chứng nhận | computed = SoT `compute_competency_dates()` — INVARIANT: expiry − 60d (xem §V.1) | — | 1 |
 | 12 | last_assessment_score | Float | Điểm tổng hợp | — | — | 1 |
 | 13 | theory_score | Float | Điểm lý thuyết | — | — | 1 |
 | 14 | practical_score | Float | Điểm thực hành | — | — | 1 |
@@ -272,7 +276,21 @@
 
 ## §IV Service Layer (`assetcore/services/imm06.py`)
 
-> ✅ Implemented — file đã có (~1.3k LOC). Snippets dưới đây thể hiện contract chính.
+> ✅ Implemented — `assetcore/services/imm06.py` (1533 LOC, 2026-05-18). Snippets bên dưới thể hiện contract key.
+
+**Catalog đầy đủ public functions (tóm tắt):**
+
+| Group | Function | Mô tả |
+|---|---|---|
+| Program | `list_training_programs`, `get_training_program`, `create_training_program`, `update_training_program`, `list_programs`, `get_program`, `create_program`, `update_program` | CRUD chương trình đào tạo |
+| Session | `list_training_sessions`, `create_training_session`, `start_training_session`, `complete_training_session` | Core session lifecycle |
+| Session API | `list_sessions`, `get_session`, `create_session`, `confirm_session`, `enroll_participants`, `remove_participant`, `complete_session`, `cancel_session`, `verify_session`, `close_session` | API wrappers + participant management |
+| Competency | `list_user_competencies`, `get_user_competencies`, `signoff_competency_by_name`, `revoke_competency_with_capa`, `recertify_competency`, `create_competency_from_session`, `archive_old_competency` | Competency lifecycle |
+| Gates | `validate_user_authorized_for_asset`, `get_asset_operator_coverage` | Cross-module gates (IMM-04, IMM-08/09/11/12) |
+| Analytics | `get_dashboard_stats`, `get_competency_gaps_by_dept`, `get_expiring_competencies`, `generate_gap_report` | Dashboard + reports |
+| Validators | `validate_target_device_set`, `validate_passing_score_range`, `validate_validity_range`, `validate_instructor_present`, `validate_min_participants_for_confirm`, `compute_overall_results`, `set_computed_competency_fields` | VR enforcement |
+| Scheduler | `check_expiring_competencies`, `auto_expire_competencies`, `check_recertification_due`, `generate_weekly_gap_report`, `handle_user_dept_change` | Auto-jobs |
+| Utilities | `invalidate_authorization_cache`, `_create_competency_record` (private) | Helpers |
 
 ```python
 # assetcore/services/imm06.py
@@ -294,8 +312,8 @@ def create_competency_from_session(session_name: str) -> list[str]:
     Side effects:
         - Insert IMM User Competency per Pass participant
         - achieved_date = session.session_date
-        - expiry_date = achieved_date + program.validity_period_months months
-        - recertification_due_date = expiry_date - 60 days
+        - expiry_date, recertification_due_date = compute_competency_dates(
+              achieved_date, validity_months)  # SoT §V.1 — INVARIANT expiry−60d
         - workflow_state = 'Pending Assessment'
 
     Raises:
@@ -317,8 +335,8 @@ def signoff_competency(competency_name: str, supervisor_user: str) -> dict:
 
     Side effects:
         - Set supervisor_signoff = supervisor_user, signoff_date = today
-        - Compute expiry_date = achieved_date + validity_months
-        - Compute recertification_due_date = expiry_date - 60d
+        - Recompute (nếu thiếu) qua compute_competency_dates(achieved_date,
+              validity_months) — SoT §V.1, INVARIANT expiry−60d
         - workflow_state = 'Active'
         - Gọi archive_old_competency(user, device_model, exclude=name) — BR-06-11
         - invalidate_authorization_cache(user, device_model)
@@ -443,9 +461,67 @@ def invalidate_authorization_cache(user: str, device_model: str) -> None:
 
 ---
 
+## §V.1 SoT — Pure helper tính ngày năng lực (BR-06-13)
+
+> **Self-Correction 2026-06-03 (Vòng 22):** Trước đây `recertification_due_date` được tính bằng **2 công thức khác nhau** rải rác 6 nơi → cùng một record nhận giá trị lệch 1–2 ngày tùy code path (creation/signoff vs recertify). Đây là lỗi thiết kế gốc (Core Doc không chốt 1 quy ước). Nay chốt **DUY NHẤT 1 SoT**.
+
+**INVARIANT (quy ước duy nhất, không đổi):**
+
+```
+recertification_due_date = expiry_date − 60 ngày
+expiry_date              = achieved_date + validity_months tháng
+```
+
+**Vì sao chọn "expiry − 60 ngày"** (không phải "achieved + (validity − 2) tháng"):
+- Khớp filter của scheduler `check_recertification_due`: `add_days(nowdate(), 60)` — lead time đo bằng **ngày**, không phải tháng.
+- Khớp docstring scheduler (`services/imm06.py:1477`) và mốc reminder T−90/−60/−30 đo bằng ngày.
+- "60 ngày" là hằng số cố định; "validity − 2 tháng" trôi 0–2 ngày theo độ dài tháng (28/30/31) → nguồn gốc divergence.
+
+**Hàm SoT** (đặt tại `assetcore/services/imm06.py`, type-hinted + docstring, ghi rõ INVARIANT):
+
+```python
+RECERT_LEAD_DAYS = 60  # INVARIANT — lead time tái chứng nhận, đo bằng ngày
+
+def compute_competency_dates(achieved_date, validity_months: int) -> dict:
+    """SoT DUY NHẤT cho expiry_date + recertification_due_date.
+
+    INVARIANT: recertification_due_date = expiry_date − RECERT_LEAD_DAYS (60 ngày).
+    Mọi write-site (creation, signoff recompute, controller before_save,
+    recertify_from_session, set_computed_competency_fields, compute_expiry_dates)
+    PHẢI gọi hàm này — KHÔNG inline add_days(expiry,-60) hay add_months(achieved, validity-2).
+
+    Returns: {"expiry_date": <date>, "recertification_due_date": <date>}
+    """
+    expiry = add_months(achieved_date, int(validity_months))
+    return {
+        "expiry_date": expiry,
+        "recertification_due_date": add_days(expiry, -RECERT_LEAD_DAYS),
+    }
+```
+
+**6 write-site phải gọi SoT** (sau refactor không còn literal formula nào ngoài SoT):
+
+| # | Site (file:line cũ) | Formula cũ | Hành động |
+|---|---|---|---|
+| 1 | `services/imm06.py:217` `_create_competency_record` | A: `add_days(expiry,-60)` | gọi `compute_competency_dates()` |
+| 2 | `services/imm06.py:315` signoff recompute | A: `add_days(expiry,-60)` | gọi `compute_competency_dates()` |
+| 3 | `imm_user_competency.py:24` `before_save` | A: `add_days(expiry,-60)` | gọi `compute_competency_dates()` |
+| 4 | `services/imm06.py:712` `set_computed_competency_fields` | B: `add_months(achieved, validity-2)` | gọi `compute_competency_dates()` |
+| 5 | `services/imm06.py:727` `compute_expiry_dates` | B: `add_months(achieved, validity-2)` | gọi `compute_competency_dates()` |
+| 6 | `services/imm06.py:1320` `recertify_from_session` | B: `add_months(achieved, validity-2)` | gọi `compute_competency_dates()` |
+
+**Idempotency:** save lặp lại không đổi giá trị khi `achieved_date`/`validity_months` không đổi (cùng input → cùng output). Controller `before_save` và service compute hook KHÔNG ghi 2 giá trị khác nhau cho cùng record.
+
+**Grep guard (acceptance):** `0` occurrence của `add_days(<expiry>, -60)` và `add_months(<achieved>, <validity>-2)` cho field `recertification_due_date` ngoài thân hàm SoT.
+
+> **Lưu ý dead-code:** `set_computed_competency_fields` (#4) và `compute_expiry_dates` (#5) hiện **chưa wire** vào `hooks.py::doc_events` hay controller (live save-path là `before_save` #3). Vẫn refactor để đồng bộ + tránh tái phát nếu sau này wire. Nếu BE muốn xóa dead-code thay vì refactor → ghi chú delta + giữ ≥1 hàm public ổn định.
+
+---
+
 ## §V Controller Hooks (lifecycle)
 
 > ✅ Implemented — controllers wire vào `validate`/`before_save`/`on_update` của Program/Session/Competency.
+> **Refactor 2026-06-03:** `before_save` gọi SoT `compute_competency_dates()` (xem §V.1) thay vì inline formula.
 
 ```python
 # assetcore/assetcore/doctype/imm_user_competency/imm_user_competency.py
@@ -459,8 +535,10 @@ class IMMUserCompetency(Document):
 
     def before_save(self):
         if self.workflow_state == "Active" and not self.expiry_date:
-            self.expiry_date = add_months(self.achieved_date, self.validity_months)
-            self.recertification_due_date = add_days(self.expiry_date, -60)
+            from assetcore.services.imm06 import compute_competency_dates
+            dates = compute_competency_dates(self.achieved_date, self.validity_months)
+            self.expiry_date = dates["expiry_date"]
+            self.recertification_due_date = dates["recertification_due_date"]  # SoT — INVARIANT expiry−60d
 
     def on_update(self):
         if self.has_value_changed("workflow_state"):

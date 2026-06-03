@@ -7,6 +7,7 @@ import frappe
 
 from .constants import Roles
 from .errors import forbidden
+from . import rbac
 
 
 def has_any_role(roles: Iterable[str]) -> bool:
@@ -25,12 +26,13 @@ def require_role(roles: Iterable[str], message: str = "Không đủ quyền th�
 
 
 def is_admin() -> bool:
-    return has_role(Roles.SYS_ADMIN)
+    return has_role(Roles.SUPER_ADMIN)
 
 
 def require_admin() -> None:
-    require_role((Roles.SYS_ADMIN,), "Yêu cầu quyền System Admin")
+    require_role((Roles.SUPER_ADMIN,), "Yêu cầu quyền Super Admin")
 
 
 def require_user_mgmt() -> None:
-    require_role(Roles.CAN_ADMIN_USER, "Không đủ quyền quản lý người dùng")
+    if not rbac.can("data.admin"):
+        raise forbidden("Không đủ quyền quản lý người dùng")

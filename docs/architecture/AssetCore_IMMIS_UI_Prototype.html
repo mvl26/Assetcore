@@ -1,0 +1,1631 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AssetCore IMMIS — Prototype Giao diện theo Persona</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ===========================================================
+   AssetCore IMMIS — Design System (theo UI-SPEC-09 v1.0)
+   Tech ref: Frappe v15 + Vue 3 + Pinia + Frappe UI
+   Đây là prototype HTML mô phỏng (vanilla JS).
+   =========================================================== */
+:root{
+  /* 1.1 Color Palette */
+  --color-primary-500:#0E6FFF;
+  --color-primary-600:#0957D1;
+  --color-primary-50:#E8F1FF;
+  --color-success-500:#16A34A;
+  --color-warning-500:#F59E0B;
+  --color-danger-500:#DC2626;
+  --color-info-500:#0891B2;
+  --color-neutral-900:#0F172A;
+  --color-neutral-600:#475569;
+  --color-neutral-300:#CBD5E1;
+  --color-neutral-100:#F1F5F9;
+  --color-neutral-0:#FFFFFF;
+  --color-navy-header:#1F4E79;
+  /* soft backgrounds for chips */
+  --success-soft:#DCFCE7; --warning-soft:#FEF3C7; --danger-soft:#FEE2E2;
+  --info-soft:#CFFAFE; --primary-soft:#E8F1FF; --neutral-soft:#E2E8F0;
+  /* spacing scale */
+  --space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-6:24px;
+  --space-8:32px;--space-12:48px;--space-16:64px;
+  --radius:8px;--radius-sm:6px;--radius-lg:12px;
+  --shadow-sm:0 1px 2px rgba(15,23,42,.06);
+  --shadow:0 2px 8px rgba(15,23,42,.08);
+  --shadow-lg:0 12px 32px rgba(15,23,42,.18);
+  --sidebar-w:248px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  font-family:'Inter','Roboto',system-ui,sans-serif;
+  font-size:16px;line-height:24px;color:var(--color-neutral-900);
+  background:var(--color-neutral-100);-webkit-font-smoothing:antialiased;
+}
+/* Typography tokens */
+.text-xs{font-size:12px;line-height:16px}
+.text-sm{font-size:14px;line-height:20px}
+.text-base{font-size:16px;line-height:24px}
+.text-lg{font-size:20px;line-height:28px;font-weight:600}
+.text-xl{font-size:24px;line-height:32px;font-weight:600}
+.text-2xl{font-size:30px;line-height:38px;font-weight:700}
+.muted{color:var(--color-neutral-600)}
+.mono{font-family:ui-monospace,'SF Mono',Menlo,monospace}
+
+/* ===================== APP SHELL ===================== */
+#app{display:flex;flex-direction:column;height:100vh;overflow:hidden}
+.topbar{
+  height:56px;background:var(--color-navy-header);color:#fff;display:flex;
+  align-items:center;gap:var(--space-4);padding:0 var(--space-4);flex-shrink:0;z-index:40;
+}
+.topbar .brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:18px;white-space:nowrap}
+.topbar .brand .logo{
+  width:30px;height:30px;border-radius:7px;background:linear-gradient(135deg,#0E6FFF,#16A34A);
+  display:grid;place-items:center;font-size:16px;color:#fff;font-weight:800
+}
+.topbar .brand small{font-weight:400;opacity:.7;font-size:12px}
+.topbar .spacer{flex:1}
+.global-search{
+  background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.2);color:#fff;
+  border-radius:8px;padding:7px 12px;width:280px;font-size:14px
+}
+.global-search::placeholder{color:rgba(255,255,255,.65)}
+.topbar .iconbtn{background:rgba(255,255,255,.12);border:none;color:#fff;width:34px;height:34px;border-radius:8px;cursor:pointer;font-size:16px;display:grid;place-items:center}
+.topbar .iconbtn:hover{background:rgba(255,255,255,.24)}
+.persona-pill{
+  display:flex;align-items:center;gap:9px;background:rgba(255,255,255,.12);
+  border:1px solid rgba(255,255,255,.22);border-radius:24px;padding:4px 6px 4px 12px;cursor:pointer
+}
+.persona-pill:hover{background:rgba(255,255,255,.22)}
+.persona-pill .avatar{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font-weight:700;font-size:13px;color:#fff}
+.persona-pill .meta{line-height:1.15;text-align:right}
+.persona-pill .meta b{font-size:13px;font-weight:600}
+.persona-pill .meta span{font-size:11px;opacity:.8;display:block}
+
+.body-wrap{display:flex;flex:1;overflow:hidden}
+
+/* ---------- Sidebar ---------- */
+.sidebar{
+  width:var(--sidebar-w);background:#13314f;color:#cdd9e8;flex-shrink:0;
+  display:flex;flex-direction:column;transition:width .15s;overflow:hidden
+}
+.sidebar.collapsed{width:60px}
+.sidebar .side-head{
+  height:44px;display:flex;align-items:center;gap:8px;padding:0 14px;
+  background:var(--color-navy-header);font-size:12px;letter-spacing:.04em;
+  text-transform:uppercase;color:#9fc3e8;font-weight:600;flex-shrink:0
+}
+.sidebar nav{flex:1;overflow-y:auto;padding:8px 0}
+.nav-item{
+  display:flex;align-items:center;gap:12px;padding:10px 16px;cursor:pointer;
+  font-size:14px;color:#cdd9e8;border-left:3px solid transparent;white-space:nowrap
+}
+.nav-item .ic{width:20px;text-align:center;font-size:15px;flex-shrink:0}
+.nav-item:hover{background:rgba(255,255,255,.06);color:#fff}
+.nav-item.active{background:rgba(14,111,255,.22);border-left-color:var(--color-primary-500);color:#fff;font-weight:600}
+.nav-group-label{font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:#6f8aa8;padding:12px 16px 4px}
+.sidebar.collapsed .nav-item span.lbl,.sidebar.collapsed .nav-group-label,.sidebar.collapsed .side-head span{display:none}
+.side-foot{padding:10px 14px;font-size:11px;color:#6f8aa8;border-top:1px solid rgba(255,255,255,.08)}
+
+/* ---------- Main content ---------- */
+.main{flex:1;overflow-y:auto;display:flex;flex-direction:column}
+.breadcrumb{padding:10px 24px;font-size:12.5px;color:var(--color-neutral-600);background:var(--color-neutral-0);border-bottom:1px solid var(--color-neutral-300);display:flex;gap:6px;align-items:center;flex-shrink:0}
+.breadcrumb a{color:var(--color-primary-600);text-decoration:none}
+.breadcrumb .sep{color:var(--color-neutral-300)}
+.page{padding:24px;max-width:1320px;width:100%;margin:0 auto}
+.page-head{display:flex;align-items:flex-start;gap:16px;margin-bottom:20px;flex-wrap:wrap}
+.page-head .titles{flex:1;min-width:240px}
+.page-head h1{font-size:24px;line-height:32px;font-weight:700}
+.page-head .sub{color:var(--color-neutral-600);font-size:14px;margin-top:3px}
+
+/* ---------- Cards ---------- */
+.card{background:var(--color-neutral-0);border:1px solid var(--color-neutral-300);border-radius:var(--radius-lg);box-shadow:var(--shadow-sm)}
+.card-pad{padding:20px}
+.card-head{padding:14px 20px;border-bottom:1px solid var(--color-neutral-300);display:flex;align-items:center;gap:10px}
+.card-head h3{font-size:16px;font-weight:600}
+.card-head .spacer{flex:1}
+.grid{display:grid;gap:20px}
+.g2{grid-template-columns:repeat(2,1fr)}
+.g3{grid-template-columns:repeat(3,1fr)}
+.g4{grid-template-columns:repeat(4,1fr)}
+@media(max-width:1024px){.g4{grid-template-columns:repeat(2,1fr)}.g3{grid-template-columns:1fr}.g2{grid-template-columns:1fr}}
+
+/* KPI card */
+.kpi{background:var(--color-neutral-0);border:1px solid var(--color-neutral-300);border-radius:var(--radius-lg);padding:18px;cursor:pointer;position:relative;transition:.12s;overflow:hidden}
+.kpi:hover{box-shadow:var(--shadow);transform:translateY(-1px);border-color:var(--color-primary-500)}
+.kpi .klabel{font-size:13px;color:var(--color-neutral-600);font-weight:500}
+.kpi .kval{font-size:30px;line-height:38px;font-weight:700;margin-top:6px}
+.kpi .kfoot{font-size:12px;margin-top:4px;color:var(--color-neutral-600)}
+.kpi .kbar{position:absolute;left:0;top:0;bottom:0;width:4px}
+.kpi.warn .kval{color:var(--color-warning-500)} .kpi.warn .kbar{background:var(--color-warning-500)}
+.kpi.danger .kval{color:var(--color-danger-500)} .kpi.danger .kbar{background:var(--color-danger-500)}
+.kpi.ok .kval{color:var(--color-success-500)} .kpi.ok .kbar{background:var(--color-success-500)}
+.kpi.info .kval{color:var(--color-info-500)} .kpi.info .kbar{background:var(--color-info-500)}
+.kpi.primary .kval{color:var(--color-primary-600)} .kpi.primary .kbar{background:var(--color-primary-500)}
+
+/* ---------- Buttons ---------- */
+.btn{display:inline-flex;align-items:center;gap:7px;border:1px solid transparent;border-radius:8px;padding:8px 14px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;line-height:20px;white-space:nowrap}
+.btn .ic{font-size:14px}
+.btn-primary{background:var(--color-primary-500);color:#fff}
+.btn-primary:hover{background:var(--color-primary-600)}
+.btn-secondary{background:#fff;color:var(--color-neutral-900);border-color:var(--color-neutral-300)}
+.btn-secondary:hover{background:var(--color-neutral-100)}
+.btn-ghost{background:transparent;color:var(--color-primary-600)}
+.btn-ghost:hover{background:var(--color-primary-50)}
+.btn-danger{background:var(--color-danger-500);color:#fff}
+.btn-danger:hover{filter:brightness(.93)}
+.btn-sm{padding:5px 10px;font-size:13px}
+.btn[disabled]{opacity:.5;cursor:not-allowed}
+
+/* ---------- Status badges (semantic, theo 1.1) ---------- */
+.badge{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;padding:3px 9px;border-radius:20px;line-height:16px;white-space:nowrap}
+.badge .dot{width:7px;height:7px;border-radius:50%;background:currentColor}
+.b-commissioned{background:var(--info-soft);color:#0e7490}
+.b-active{background:var(--color-success-500);color:#fff}
+.b-maintenance,.b-repair,.b-pending-ver{background:var(--warning-soft);color:#b45309}
+.b-calibrating{background:var(--info-soft);color:#0e7490}
+.b-oos{background:var(--danger-soft);color:#b91c1c}
+.b-decommissioned{background:transparent;color:var(--color-neutral-900);border:1px dashed var(--color-neutral-600)}
+.b-open{background:var(--info-soft);color:#0e7490}
+.b-inprogress{background:var(--warning-soft);color:#b45309}
+.b-overdue{background:var(--danger-soft);color:#b91c1c}
+.b-closed{background:var(--success-soft);color:#15803d}
+.b-low{background:var(--neutral-soft);color:#475569}
+.b-medium{background:var(--info-soft);color:#0e7490}
+.b-high{background:var(--warning-soft);color:#b45309}
+.b-critical{background:var(--danger-soft);color:#b91c1c}
+.b-draft{background:var(--neutral-soft);color:#475569}
+.b-submitted{background:var(--primary-soft);color:var(--color-primary-600)}
+
+/* ---------- Tables ---------- */
+.tbl-wrap{overflow-x:auto;border:1px solid var(--color-neutral-300);border-radius:var(--radius-lg);background:#fff}
+table.tbl{width:100%;border-collapse:collapse;font-size:14px}
+table.tbl thead th{background:var(--color-navy-header);color:#fff;text-align:left;padding:11px 14px;font-weight:600;font-size:12.5px;white-space:nowrap;position:sticky;top:0}
+table.tbl thead th .sort{opacity:.55;font-size:10px;margin-left:3px}
+table.tbl tbody td{padding:11px 14px;border-bottom:1px solid var(--color-neutral-300);vertical-align:middle}
+table.tbl tbody tr:nth-child(even){background:var(--color-neutral-100)}
+table.tbl tbody tr:hover{background:var(--color-primary-50)}
+table.tbl a.link{color:var(--color-primary-600);text-decoration:none;font-weight:600}
+table.tbl a.link:hover{text-decoration:underline}
+.row-danger td:first-child{box-shadow:inset 3px 0 0 var(--color-danger-500)}
+
+/* ---------- Filter bar ---------- */
+.filterbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:16px;background:#fff;padding:12px;border:1px solid var(--color-neutral-300);border-radius:var(--radius-lg)}
+.input,.select{border:1px solid var(--color-neutral-300);border-radius:8px;padding:8px 12px;font-size:14px;font-family:inherit;background:#fff;color:var(--color-neutral-900)}
+.input:focus,.select:focus{outline:2px solid var(--color-primary-50);border-color:var(--color-primary-500)}
+label.fld{display:block;font-size:13px;font-weight:500;margin-bottom:5px}
+label.fld .req{color:var(--color-danger-500)}
+.help{font-size:12px;color:var(--color-neutral-600);margin-top:4px}
+
+/* ---------- Tabs ---------- */
+.tabs{display:flex;gap:2px;border-bottom:2px solid var(--color-neutral-300);margin-bottom:20px;flex-wrap:wrap}
+.tab{padding:10px 16px;cursor:pointer;font-size:14px;font-weight:500;color:var(--color-neutral-600);border-bottom:2px solid transparent;margin-bottom:-2px}
+.tab:hover{color:var(--color-primary-600)}
+.tab.active{color:var(--color-primary-600);border-bottom-color:var(--color-primary-500);font-weight:600}
+
+/* ---------- Banner / Alert ---------- */
+.banner{border-radius:10px;padding:14px 16px;display:flex;gap:12px;align-items:flex-start;font-size:14px;margin-bottom:18px}
+.banner .bic{font-size:18px;flex-shrink:0}
+.banner-danger{background:var(--danger-soft);border:1px solid #fca5a5;color:#991b1b}
+.banner-warn{background:var(--warning-soft);border:1px solid #fcd34d;color:#92400e}
+.banner-info{background:var(--info-soft);border:1px solid #67e8f9;color:#155e75}
+.banner b{font-weight:700}
+
+/* ---------- Workflow bar ---------- */
+.workflow{display:flex;align-items:center;gap:0;flex-wrap:wrap;margin:6px 0 22px}
+.wf-step{display:flex;align-items:center;gap:8px}
+.wf-node{display:flex;align-items:center;gap:8px;padding:7px 14px;border-radius:22px;font-size:13px;font-weight:600;background:var(--color-neutral-100);color:var(--color-neutral-600);border:1px solid var(--color-neutral-300)}
+.wf-node .num{width:20px;height:20px;border-radius:50%;background:var(--color-neutral-300);color:#fff;display:grid;place-items:center;font-size:11px}
+.wf-node.done{background:var(--success-soft);color:#15803d;border-color:#86efac}
+.wf-node.done .num{background:var(--color-success-500)}
+.wf-node.current{background:var(--color-primary-500);color:#fff;border-color:var(--color-primary-600)}
+.wf-node.current .num{background:#fff;color:var(--color-primary-600)}
+.wf-arrow{color:var(--color-neutral-300);padding:0 8px;font-size:16px}
+
+/* ---------- Timeline ---------- */
+.timeline{position:relative;padding-left:28px}
+.timeline::before{content:'';position:absolute;left:9px;top:4px;bottom:4px;width:2px;background:var(--color-neutral-300)}
+.tl-item{position:relative;padding:0 0 18px}
+.tl-item .tdot{position:absolute;left:-23px;top:3px;width:14px;height:14px;border-radius:50%;background:#fff;border:3px solid var(--color-primary-500)}
+.tl-item.ok .tdot{border-color:var(--color-success-500)}
+.tl-item.warn .tdot{border-color:var(--color-warning-500)}
+.tl-item.danger .tdot{border-color:var(--color-danger-500)}
+.tl-item .tt{font-size:14px;font-weight:600}
+.tl-item .tm{font-size:12px;color:var(--color-neutral-600)}
+
+/* ---------- Modal / Drawer ---------- */
+.overlay{position:fixed;inset:0;background:rgba(15,23,42,.45);display:none;z-index:60;align-items:center;justify-content:center}
+.overlay.show{display:flex}
+.modal{background:#fff;border-radius:14px;box-shadow:var(--shadow-lg);width:min(560px,92vw);max-height:88vh;overflow:auto}
+.modal .mhead{padding:16px 20px;border-bottom:1px solid var(--color-neutral-300);display:flex;align-items:center}
+.modal .mhead h3{font-size:18px;font-weight:600;flex:1}
+.modal .mbody{padding:20px}
+.modal .mfoot{padding:14px 20px;border-top:1px solid var(--color-neutral-300);display:flex;justify-content:flex-end;gap:10px}
+.drawer{position:fixed;top:0;right:0;height:100vh;width:min(440px,94vw);background:#fff;box-shadow:var(--shadow-lg);z-index:60;transform:translateX(100%);transition:.2s;display:flex;flex-direction:column}
+.drawer.show{transform:translateX(0)}
+.drawer .dhead{padding:16px 20px;border-bottom:1px solid var(--color-neutral-300);display:flex;align-items:center;background:var(--color-navy-header);color:#fff}
+.drawer .dhead h3{flex:1;font-size:16px}
+.drawer .dbody{padding:20px;overflow:auto;flex:1}
+.x-close{background:none;border:none;font-size:20px;cursor:pointer;color:inherit;width:30px;height:30px;border-radius:6px}
+.x-close:hover{background:rgba(0,0,0,.08)}
+
+/* ---------- Toast ---------- */
+#toaster{position:fixed;bottom:20px;right:20px;z-index:80;display:flex;flex-direction:column;gap:10px}
+.toast{background:#fff;border-left:4px solid var(--color-primary-500);box-shadow:var(--shadow-lg);border-radius:8px;padding:12px 16px;font-size:14px;min-width:260px;animation:slidein .2s}
+.toast.success{border-left-color:var(--color-success-500)}
+.toast.danger{border-left-color:var(--color-danger-500)}
+.toast.warning{border-left-color:var(--color-warning-500)}
+@keyframes slidein{from{transform:translateX(40px);opacity:0}to{transform:none;opacity:1}}
+
+/* ---------- Misc ---------- */
+.pill-tag{display:inline-block;background:var(--color-neutral-100);border:1px solid var(--color-neutral-300);border-radius:6px;padding:2px 8px;font-size:12px;color:var(--color-neutral-600)}
+.kv{display:grid;grid-template-columns:200px 1fr;gap:8px 16px;font-size:14px}
+.kv dt{color:var(--color-neutral-600)}
+.kv dd{font-weight:500}
+.section-title{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--color-neutral-600);margin:22px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--color-neutral-300)}
+.donut{width:160px;height:160px;border-radius:50%;flex-shrink:0}
+.legend{display:flex;flex-direction:column;gap:8px;font-size:13px}
+.legend .li{display:flex;align-items:center;gap:8px}
+.legend .sw{width:12px;height:12px;border-radius:3px}
+.bars{display:flex;align-items:flex-end;gap:8px;height:160px;padding-top:10px}
+.bars .bar{flex:1;background:linear-gradient(var(--color-primary-500),var(--color-primary-600));border-radius:5px 5px 0 0;position:relative;min-height:4px}
+.bars .bar span{position:absolute;bottom:-20px;left:0;right:0;text-align:center;font-size:10px;color:var(--color-neutral-600)}
+.checklist{list-style:none}
+.checklist li{display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--color-neutral-100)}
+.checklist input{margin-top:4px;width:16px;height:16px;accent-color:var(--color-primary-500)}
+.matrix{border-collapse:collapse;width:100%;font-size:13px}
+.matrix th,.matrix td{border:1px solid var(--color-neutral-300);padding:8px 10px;text-align:center}
+.matrix th{background:var(--color-neutral-100);font-weight:600}
+.matrix td.dot-y{color:var(--color-success-500);font-weight:700}
+.matrix td.dot-n{color:var(--color-neutral-300)}
+.matrix td.cond{color:var(--color-warning-500);font-weight:700}
+.matrix .rowhdr{text-align:left;background:var(--color-neutral-100);font-weight:600}
+.journey{background:var(--color-primary-50);border:1px solid #bfdbfe;border-radius:12px;padding:16px 18px;margin-bottom:20px}
+.journey h4{font-size:14px;font-weight:700;color:var(--color-primary-600);margin-bottom:10px;display:flex;align-items:center;gap:8px}
+.journey ol{margin-left:18px;font-size:13.5px;line-height:1.7}
+.journey ol b{color:var(--color-neutral-900)}
+.journey .br{color:var(--color-neutral-600);font-size:12px}
+.empty-state{text-align:center;padding:48px 20px;color:var(--color-neutral-600)}
+.empty-state .ic{font-size:40px;opacity:.4;margin-bottom:10px}
+.qr-box{width:150px;height:150px;border:3px solid var(--color-neutral-900);border-radius:12px;display:grid;place-items:center;background:#fff;
+  background-image:repeating-linear-gradient(0deg,#0F172A 0 6px,#fff 6px 12px),repeating-linear-gradient(90deg,#0F172A 0 6px,#fff 6px 12px);background-blend-mode:difference;background-size:24px 24px}
+.scr-tag{display:inline-block;background:var(--color-neutral-900);color:#fff;font-size:11px;font-weight:700;padding:2px 8px;border-radius:5px;letter-spacing:.03em}
+.prio{display:inline-block;font-size:11px;font-weight:700;padding:2px 7px;border-radius:5px}
+.prio.p1{background:var(--danger-soft);color:#b91c1c}
+.prio.p2{background:var(--warning-soft);color:#b45309}
+.access-note{background:#fffbeb;border:1px dashed var(--color-warning-500);border-radius:10px;padding:14px;font-size:13px;color:#92400e;display:flex;gap:10px;align-items:flex-start;margin-top:20px}
+.tagrow{display:flex;gap:6px;flex-wrap:wrap}
+.scr-chip{font-size:11px;background:var(--color-neutral-100);border:1px solid var(--color-neutral-300);border-radius:5px;padding:2px 7px;cursor:pointer}
+.scr-chip:hover{background:var(--color-primary-50);border-color:var(--color-primary-500)}
+.scr-chip.on{background:var(--color-primary-500);color:#fff;border-color:var(--color-primary-500)}
+@media(max-width:760px){.kv{grid-template-columns:1fr}.global-search{display:none}.persona-pill .meta{display:none}}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <div class="brand"><span class="logo">A</span><div>AssetCore <small>IMMIS · BV Nhi Đồng 1</small></div></div>
+    <button class="iconbtn" id="btnCollapse" title="Thu gọn menu">☰</button>
+    <div class="spacer"></div>
+    <input class="global-search" id="globalSearch" placeholder="🔍  Tìm mã / UDI / tên thiết bị… (Ctrl+K)">
+    <button class="iconbtn" id="btnShortcuts" title="Phím tắt (?)">⌨</button>
+    <button class="iconbtn" title="Thông báo">🔔</button>
+    <div class="persona-pill" id="personaPill">
+      <div class="meta"><b id="ppName">—</b><span id="ppRole">—</span></div>
+      <div class="avatar" id="ppAvatar">?</div>
+    </div>
+  </div>
+  <div class="body-wrap">
+    <aside class="sidebar" id="sidebar">
+      <div class="side-head"><span>Điều hướng</span></div>
+      <nav id="navList"></nav>
+      <div class="side-foot" id="sideFoot">Frappe v15 · Vue 3 · Pinia</div>
+    </aside>
+    <main class="main" id="main">
+      <div class="breadcrumb" id="breadcrumb"></div>
+      <div id="view"></div>
+    </main>
+  </div>
+</div>
+<div class="overlay" id="overlay"></div>
+<div class="drawer" id="drawer">
+  <div class="dhead"><h3 id="drawerTitle">Chi tiết</h3><button class="x-close" onclick="closeDrawer()">✕</button></div>
+  <div class="dbody" id="drawerBody"></div>
+</div>
+<div id="toaster"></div>
+<script>
+/* =====================================================================
+   AssetCore IMMIS — Prototype logic (vanilla JS, no build step)
+   Mọi nội dung tiếng Việt, theo sát BA: UC v3.0, SEC v1.0, UI-SPEC-09.
+   ===================================================================== */
+
+/* ---------- NAV REGISTRY (10 nhóm sidebar, theo §2.1) ---------- */
+const NAV = [
+  {key:'dashboard', label:'Dashboard',        ic:'▦', route:'#/dashboard'},
+  {key:'assets',    label:'Thiết bị (AC Asset)', ic:'📦', route:'#/assets'},
+  {key:'workorders',label:'Lệnh công việc (WO)',  ic:'🔧', route:'#/workorders'},
+  {key:'pmcal',     label:'PM & Hiệu chuẩn',      ic:'🗓', route:'#/pm'},
+  {key:'incidents', label:'Sự cố (Incident)',     ic:'⚠', route:'#/incidents'},
+  {key:'capa',      label:'CAPA',                 ic:'🛡', route:'#/capa'},
+  {key:'suppliers', label:'Nhà cung cấp',         ic:'🚚', route:'#/suppliers'},
+  {key:'inventory', label:'Kho vật tư',           ic:'🗄', route:'#/inventory'},
+  {key:'nr',        label:'Nhu cầu thiết bị (NR)',ic:'🧾', route:'#/nr'},
+  {key:'procurement',label:'Mua sắm / Đấu thầu',  ic:'🛒', route:'#/procurement'},
+  {key:'finance',   label:'Tài chính & Khấu hao', ic:'💰', route:'#/finance'},
+  {key:'reports',   label:'Báo cáo & Tuân thủ',   ic:'📊', route:'#/reports'},
+  {key:'locations', label:'Vị trí / Khoa',        ic:'📍', route:'#/locations'},
+  {key:'masterdata',label:'Master Data',          ic:'🗃', route:'#/masterdata'},
+  {key:'sla',       label:'Ma trận SLA',          ic:'⏱', route:'#/sla'},
+  {key:'audit',     label:'Audit Trail',          ic:'🔒', route:'#/audit'},
+  {key:'admin',     label:'Quản trị hệ thống',    ic:'⚙', route:'#/admin'},
+];
+
+/* ---------- 8 PERSONAS (BA Actor A1–A8 ↔ Excel role) ---------- */
+const PERSONAS = {
+  opsmgr:{
+    id:'opsmgr', actor:'A2', name:'Trần Thị Mai', title:'Trưởng phòng VT-TTBYT',
+    immRole:'IMM Operations Manager', excelRole:'Trưởng phòng VT-TTBYT',
+    badge:'Manager', color:'#0E6FFF', initials:'TM',
+    modules:'IMM-01, 02, 07, 09, 16, 17',
+    scope:'Điều phối, giám sát & phê duyệt hoạt động TBYT trong hạn mức. Tạo/sửa asset, quản lý NCC, CAPA, hợp đồng dịch vụ.',
+    approval:'Có — duyệt sửa chữa / mua sắm / thanh lý trong hạn mức; trình BGĐ khoản vượt hạn.',
+    home:'#/dashboard',
+    nav:['dashboard','assets','workorders','pmcal','incidents','capa','suppliers','nr','procurement','finance','reports','locations','sla'],
+    scr:['SCR-001','SCR-002','SCR-003','SCR-004','SCR-010','SCR-015','NR','NR-SCORE','BUDGET','PROC'],
+    journey:[
+      ['Dashboard KPI: asset active, PM đến hạn, WO open, CAPA pending','SCR-001','IMM-07.UC1','KPI refresh ≤ 30s — BR-018'],
+      ['Review NR List: lý do lâm sàng, loại, thiết bị thay thế','NR List','IMM-01.UC2','Xem đủ justification, urgency, budget'],
+      ['Chấm điểm 6 tiêu chí: clinical risk, cost, regulatory, volume, age, OEM','NR Scoring','IMM-01.UC2','6 criteria weighted; tổng auto; xếp hạng'],
+      ['Lập Budget Estimate CAPEX + OPEX × 5 năm (TCO)','Budget Form','IMM-01.UC3','TCO ≥ 0; có approval level trước khi trình BGĐ'],
+      ['Trình BGĐ → gửi Procurement Plan chờ phê duyệt','Approval Flow','IMM-01.UC4','State: Draft → Pending BGĐ Approval'],
+      ['Sau duyệt: tạo RFQ/PO trong Procurement module','Procurement','IMM-02.UC1','BR-016: WO gắn spare parts, cost, downtime'],
+      ['Xem báo cáo chi phí bảo trì, export PDF/CSV','SCR-010','IMM-16/17.UC1','Export ≤ 5.000 bản ghi — BR-022'],
+      ['Nhận alert thiết bị sống còn gặp sự cố → kiểm WO khẩn','SCR-001→SCR-006','IMM-09.UC4','P1 SLA ≤ 15 phút; banner NĐ98 — BR-009'],
+    ],
+  },
+  workshop:{
+    id:'workshop', actor:'A3', name:'Lê Quốc Hùng', title:'Trưởng xưởng kỹ thuật',
+    immRole:'IMM Workshop Lead', excelRole:'Kỹ sư trưởng / Tech Lead',
+    badge:'Tech Lead', color:'#0891B2', initials:'LH',
+    modules:'IMM-04, 08, 09, 12',
+    scope:'Quản lý kỹ thuật xưởng. Tạo Device Model & Asset Category, lập lịch & phân công PM/CM WO, mở CAPA. Không xem tài chính/hợp đồng.',
+    approval:'Hạn chế — ký duyệt biên bản lắp đặt; điều chỉnh SLA policy; không duyệt chi tiêu.',
+    home:'#/workorders',
+    nav:['dashboard','assets','workorders','pmcal','incidents','capa','masterdata','sla','reports'],
+    scr:['SCR-001','SCR-002','SCR-003','SCR-005','SCR-008','SCR-010','SCR-011','SCR-013'],
+    journey:[
+      ['Dashboard: WO cần phân công, PM overdue, CAPA open','SCR-001→WO List','IMM-07.UC1','MTTR, PM Compliance %, WO count realtime'],
+      ['Tạo lịch PM: chọn thiết bị / PM Template / KTV / ngày','SCR-005→PM Schedule','IMM-08.UC1','BR-006: PM lập lịch trước; template có checklist'],
+      ['Kiểm tra PM Template: checklist items, tần suất, thời gian','PM Template','IMM-08.UC1','Template gắn device_model; không dùng chéo'],
+      ['Nhận cảnh báo PM quá hạn → xử lý hoặc rebook','SCR-010','IMM-08.UC3','BR-025: push khi đến hạn; overdue → đỏ'],
+      ['Review biên bản Installation → ký phê duyệt lắp đặt','Installation','IMM-04.UC2','Ký trước Clinical Release; block nếu thiếu checklist'],
+      ['Phân công CM WO khẩn cho KTV đúng responsible_technician','WO Assign','IMM-09.UC2','BR-007: KTV chỉ nhận WO theo phân công'],
+      ['Mở CAPA khi phát hiện sự cố lặp lại','SCR-008','IMM-12.UC1','BR-010: CAPA chỉ chuyển trạng thái đúng chiều'],
+      ['Xem SLA Matrix, điều chỉnh policy P1/P2/P3','SCR-011','IMM-09.UC2','BR-008: default fallback SLA bắt buộc tồn tại'],
+    ],
+  },
+  tech:{
+    id:'tech', actor:'A4', name:'Phạm Văn Đức', title:'Kỹ thuật viên Bảo trì',
+    immRole:'IMM Technician', excelRole:'Kỹ sư / KTV sửa chữa',
+    badge:'Tech', color:'#16A34A', initials:'PĐ',
+    modules:'IMM-06, 08, 09',
+    scope:'Thực hiện bảo trì / sửa chữa / hiệu chuẩn. CHỈ xem asset được gán (responsible_technician = mình) — row-level security.',
+    approval:'Hạn chế — đề xuất xuất vật tư; không phê duyệt.',
+    home:'#/workorders',
+    nav:['dashboard','assets','workorders','pmcal','incidents'],
+    scr:['SCR-001','SCR-002','SCR-003','SCR-005','SCR-006','SCR-007','SCR-009'],
+    journey:[
+      ['Mở app mobile/tablet → xem danh sách WO hôm nay','SCR-006 (mobile)','IMM-09.UC2','BR-007: chỉ thấy WO của mình'],
+      ['Quét QR thiết bị → xem lịch sử, thông số, SLA','SCR-007→SCR-003','IMM-00.UC3','QR mở detail ≤ 2s — BR-023; 6 tabs'],
+      ['Check-in WO: bắt đầu → status Active, ghi timestamp','SCR-006','IMM-09.UC3','Không check-in 2 WO cùng lúc; UTC auto'],
+      ['Điền checklist PM (offline OK) — tick & ghi đo lường','SCR-006→Checklist','IMM-08.UC2','BR-024: offline queue IndexedDB, sync khi online'],
+      ['Ghi vật tư: quét barcode phụ tùng → khấu trừ kho','SCR-006→Barcode','IMM-06.UC2','BR-016: tồn kho ≥ 0 sau xuất'],
+      ['Upload ảnh sau sửa (≥1 ảnh, ≤5MB) + ghi chú kỹ thuật','SCR-006','IMM-09.UC3','Min 1 ảnh cho CM WO trước khi đóng'],
+      ['Check-out: nhập downtime + labor hours + Pass/Fail','SCR-006','IMM-09.UC3','downtime_minutes & result bắt buộc'],
+      ['Báo sự cố khẩn qua QR — Incident Wizard 3 bước','SCR-009','IMM-09.UC1','BR-009: Critical+patient → banner NĐ98; auto CM WO'],
+      ['Nhận push WO Emergency → xử lý trong SLA P1','SCR-006','IMM-09.UC4','P1: ack ≤ 15 phút; resolve ≤ 4 giờ'],
+    ],
+  },
+  clinical:{
+    id:'clinical', actor:'A1', name:'BS. Nguyễn Thị Lan', title:'Trưởng khoa lâm sàng',
+    immRole:'IMM Department Head (Clinical)', excelRole:'Khoa phòng sử dụng',
+    badge:'Manager', color:'#7C3AED', initials:'NL',
+    modules:'IMM-01',
+    scope:'Báo hỏng, xác nhận bàn giao, đề xuất nhu cầu thiết bị mới/thay thế. Quyền hạn chế — chỉ tạo NR và theo dõi (RBAC chỉ xem khoa mình).',
+    approval:'Không — chỉ khởi tạo yêu cầu.',
+    home:'#/nr',
+    nav:['dashboard','nr','incidents'],
+    scr:['SCR-001','NR','SCR-009'],
+    journey:[
+      ['Đăng nhập → Dashboard (chỉ thấy module NR của khoa mình)','SCR-001','—','BR-019: RBAC — chỉ xem khoa mình'],
+      ['Mở form Nhu cầu thiết bị mới (/nr/new)','NR Form','IMM-01.UC1','VR-01-01: chọn loại Mới / Thay thế / Nâng cấp'],
+      ['Điền lý do lâm sàng ≥ 200 ký tự + đính kèm evidence','NR Form','IMM-01.UC1','VR-01-03: block Submit nếu <200; VR-01-02: Thay thế cần Decommission Plan'],
+      ['Chọn thiết bị thay thế, nhập số lượng, chọn mức khẩn','NR Form','IMM-01.UC1','VR-01-04: quantity ≥ 1; urgency P1/P2/P3'],
+      ['Submit → tạo NR-YYYY-XXXXXX, notify Ops Manager','NR Form→List','IMM-01.UC1','State Draft→Submitted; JWT verify — BR-013'],
+      ['Theo dõi trạng thái NR trong My Requests','NR List','IMM-01.UC1','Push notification khi duyệt / từ chối'],
+    ],
+  },
+  doc:{
+    id:'doc', actor:'A5', name:'Vũ Thị Hà', title:'Cán bộ Hồ sơ VT-TTBYT',
+    immRole:'IMM Document Officer', excelRole:'Mua sắm / Hồ sơ thiết bị',
+    badge:'Dept', color:'#475569', initials:'VH',
+    modules:'IMM-03, 04, 05, 14',
+    scope:'Quản lý hồ sơ tài liệu thiết bị: GRN, Acceptance Test, tạo AC Asset, đăng ký lưu hành BYT. Read-only nghiệp vụ; không chỉnh sửa work order.',
+    approval:'Không — quản lý hồ sơ & tuân thủ.',
+    home:'#/assets',
+    nav:['dashboard','assets','suppliers','procurement','reports','audit'],
+    scr:['SCR-001','SCR-003','SCR-004','SCR-012','SCR-015','GRN','BYT'],
+    journey:[
+      ['Tiếp nhận thiết bị từ PO: tạo GRN, kiểm serial, quantity','GRN Form','IMM-03.UC1','Serial unique toàn hệ thống — BR-001; GRN trước asset'],
+      ['Acceptance Test: upload biên bản, tick checklist; fail → trả NCC','Acceptance Test','IMM-03.UC2','Đủ checklist mới chuyển → Installation'],
+      ['Tạo AC Asset: gán Serial, sinh QR, upload ảnh thiết bị','SCR-004→Create','IMM-04.UC2','asset_code auto AC-YYYY-NNNNN; QR 1:1 — BR-003'],
+      ['Điền 7 trường bắt buộc: UDI, GMDN, BYT reg, class rủi ro…','SCR-004','IMM-00.UC2','BR-002: 7 required; byt_reg_expiry ≥ today — BR-014'],
+      ['Gia hạn đăng ký lưu hành BYT — upload giấy phép mới','BYT Reg Form','IMM-05.UC1','Cảnh báo 90 ngày trước hạn; block vận hành nếu quá hạn'],
+      ['Xem báo cáo compliance BYT: thiết bị sắp hết hạn 90 ngày','BYT Compliance','IMM-05.UC3','Filter by dept; export CSV — BR-022'],
+      ['Tra cứu nhật ký vòng đời khi kiểm tra lịch sử','SCR-003 tab Vòng đời / SCR-012','IMM-14.UC1','Read-only; toàn bộ event nhập kho → hiện tại'],
+    ],
+  },
+  store:{
+    id:'store', actor:'A6', name:'Đỗ Văn Tâm', title:'Thủ kho phụ tùng',
+    immRole:'IMM Storekeeper', excelRole:'Thủ kho VT-PT',
+    badge:'Store', color:'#B45309', initials:'ĐT',
+    modules:'IMM-06',
+    scope:'Quản lý kho phụ tùng: nhập/xuất/tồn, kiểm kê, điều chuyển. Read-only trên AC Asset & AC Supplier.',
+    approval:'Không / nội bộ kho — duyệt phiếu điều chuyển phụ tùng.',
+    home:'#/inventory',
+    nav:['dashboard','inventory','suppliers','assets'],
+    scr:['SCR-001','SCR-014','SCR-015'],
+    journey:[
+      ['Nhập kho phụ tùng từ PO: tạo Stock Receipt, quét barcode','SCR-014→Receipt','IMM-06.UC1','Barcode 1:1 với part_code; batch/lot tracking'],
+      ['Xem tồn kho: reorder point, thiếu hàng → cảnh báo đỏ','SCR-014','IMM-06.UC3','Reorder alert khi qty < min_stock_level'],
+      ['Xuất kho cho WO: nhập WO code, confirm số lượng','SCR-014→Issue','IMM-06.UC2','Tồn ≥ 0 sau xuất; ghi vào WO cost — BR-016'],
+      ['Phê duyệt phiếu điều chuyển thiết bị giữa khoa','Transfer Form','IMM-06.UC2','Workflow Requested→Approved→In Transit→Done'],
+      ['Kiểm kê định kỳ: scan từng phụ tùng, so thực tế vs hệ thống','SCR-014→Count','IMM-06.UC3','BR-015: reconciliation; sai lệch phải giải thích'],
+      ['Xem báo cáo tồn kho by part/supplier/turnover; export','SCR-014→Reports','IMM-06.UC3','Export ≤ 5.000 dòng — BR-022'],
+    ],
+  },
+  qa:{
+    id:'qa', actor:'A7', name:'Hoàng Minh Châu', title:'Cán bộ QA / Kiểm soát chất lượng',
+    immRole:'IMM QA Officer', excelRole:'Kiểm soát chất lượng / Auditor',
+    badge:'Auditor', color:'#DC2626', initials:'HC',
+    modules:'IMM-10, 11, 12, 14',
+    scope:'Kiểm soát chất lượng. Verify Audit Trail SHA-256 chain, quản lý CAPA (open/close), transition lifecycle_status, hiệu chuẩn, recall/FSCA.',
+    approval:'Có — chỉ QA Officer được đóng CAPA; submit incident.',
+    home:'#/capa',
+    nav:['dashboard','assets','incidents','capa','pmcal','audit','reports'],
+    scr:['SCR-001','SCR-003','SCR-008','SCR-012','CAL'],
+    journey:[
+      ['Tạo Audit Record: chọn scope (module/asset/KTV), lên lịch','Audit Form','IMM-10.UC1','Không tự audit record của mình; schedule theo kỳ'],
+      ['Xác minh Audit Trail: verify SHA-256 hash chain','SCR-012','IMM-10.UC2','BR-005: hash chain bất biến; broken → alert đỏ + lock'],
+      ['Tra cứu Audit Trail: lọc asset/actor/thời gian/action','SCR-012','IMM-10.UC3','Read-only; export PDF có chữ ký số'],
+      ['Mở CAPA từ sự cố hoặc audit finding','SCR-008→Create','IMM-12.UC1','BR-010: phân công Root Cause Lead; deadline bắt buộc'],
+      ['Theo dõi CAPA: root cause → corrective → verification','SCR-008','IMM-12.UC2','BR-011: không bỏ bước'],
+      ['Đóng CAPA: kiểm evidence, ký xác nhận, ghi ngày đóng','SCR-008','IMM-12.UC3','Chỉ QA Officer đóng CAPA — BR-010'],
+      ['Tạo/lập lịch Calibration WO cho thiết bị đo lường','Calibration Form','IMM-11.UC1','BR-017: lưu certificate + expiry; nhắc 30 ngày'],
+      ['Alert thiết bị quá hạn hiệu chuẩn → suspend hoặc tạo khẩn','SCR-001→Calibration','IMM-11.UC3','Quá hạn → Suspended; không dùng lâm sàng'],
+      ['Tra cứu Recall/FSCA → notify khoa + tạo CAPA tự động','SCR-003→Recall Flag','IMM-14.UC2','Recall → notify khoa đang dùng; auto CAPA'],
+    ],
+  },
+  admin:{
+    id:'admin', actor:'A8', name:'Ngô Hải Sơn', title:'Quản trị viên Hệ thống',
+    immRole:'IMM System Admin', excelRole:'Quản trị hệ thống (IT)',
+    badge:'Admin', color:'#0F172A', initials:'NS',
+    modules:'IMM-00, 15',
+    scope:'Toàn quyền hệ thống: master data, cấu hình, scheduler, quản lý người dùng & RBAC, API key HIS, backup/restore, verify audit chain.',
+    approval:'Không (kỹ thuật) — vận hành & bảo mật.',
+    home:'#/admin',
+    nav:['dashboard','assets','locations','masterdata','sla','audit','admin'],
+    scr:['SCR-001','SCR-011','SCR-012','SCR-013','USERS','SYSCFG','APIKEY'],
+    journey:[
+      ['Cấu hình nền tảng: timezone, language, logo, email, backup','System Config','IMM-00.UC1','Chỉ Admin; audit log mọi thay đổi config'],
+      ['Tạo tài khoản người dùng: tên, email, department, active','User Mgmt','IMM-00.UC4','Email unique; bcrypt; 2FA bắt buộc cho Admin'],
+      ['Phân quyền RBAC: gán Role + giới hạn department_id','Role Assignment','IMM-00.UC4','BR-019: Admin full; Technician phạm vi; Nurse read-only'],
+      ['Cấu hình Master Data: Location, Department, Model','SCR-013','IMM-00.UC1','Xóa mềm (is_active=False); không xóa cứng nếu có asset'],
+      ['Cấu hình SLA Policy: P1/P2/P3 response/resolve/escalation','SCR-011','IMM-09.UC2','BR-008: default fallback SLA bắt buộc'],
+      ['Cấu hình API key tích hợp HIS: tạo key, scope, rate limit','API Key Form','IMM-15.UC1','JWT RS256; key không hiển thị lại; rotate 90 ngày'],
+      ['Xem audit log toàn hệ thống: mọi thao tác mọi user','SCR-012','IMM-10.UC3','Admin xem tất cả; read-only; hash chain — BR-005'],
+      ['Backup/restore + health check + monitor scheduler','System Health','IMM-00.UC1','Backup auto daily; restore cần approval cấp 2'],
+    ],
+  },
+};
+const PORDER = ['opsmgr','workshop','tech','clinical','doc','store','qa','admin'];
+
+/* SCR code → route map (dùng cho journey chips & explorer) */
+const SCRMAP = {
+  'SCR-001':'#/dashboard','SCR-002':'#/assets','SCR-003':'#/assets/AC-2026-00042',
+  'SCR-004':'#/assets/new','SCR-005':'#/assets/AC-2026-00042?tab=pm','SCR-006':'#/workorders/WO-2026-00301',
+  'SCR-007':'#/qr','SCR-008':'#/capa/CAPA-2026-0021','SCR-009':'#/incidents/new','SCR-010':'#/reports',
+  'SCR-011':'#/sla','SCR-012':'#/audit','SCR-013':'#/masterdata','SCR-014':'#/inventory','SCR-015':'#/suppliers',
+  'NR':'#/nr','NR-SCORE':'#/nr/score','BUDGET':'#/procurement','PROC':'#/procurement',
+  'GRN':'#/grn','BYT':'#/byt','CAL':'#/calibration','USERS':'#/admin/users','SYSCFG':'#/admin/config','APIKEY':'#/admin/api',
+};
+
+/* ---------- STATE ---------- */
+let CURRENT = 'opsmgr';
+function persona(){ return PERSONAS[CURRENT]; }
+
+/* ---------- SAMPLE DATA ---------- */
+const ASSETS = [
+  {code:'AC-2026-00042', name:'Máy thở Bennett 980', model:'Puritan Bennett 980', dept:'Hồi sức tích cực (ICU)', loc:'ICU - Giường 03', status:'Active', risk:'Critical', pm:'2026-06-02', cal:'2026-09-15', udi:'(01)08712345600012', gmdn:'12907', byt:'BYT-2024-04821', bytexp:'2027-03-01', tech:'Phạm Văn Đức', gmdnStatus:'In Use', cls:'C'},
+  {code:'AC-2026-00043', name:'Bơm tiêm điện Terumo', model:'Terumo TE-SS830', dept:'Sơ sinh', loc:'Sơ sinh - P.2', status:'Under Repair', risk:'High', pm:'2026-05-20', cal:'2026-08-01', udi:'(01)08712345600029', gmdn:'10488', byt:'BYT-2023-01190', bytexp:'2026-07-12', tech:'Phạm Văn Đức', gmdnStatus:'Not Use', cls:'B'},
+  {code:'AC-2026-00051', name:'Monitor theo dõi BN Mindray', model:'Mindray uMEC12', dept:'Cấp cứu', loc:'Cấp cứu - Sảnh', status:'Active', risk:'High', pm:'2026-05-23', cal:'2026-10-10', udi:'(01)08712345600103', gmdn:'35124', byt:'BYT-2024-03310', bytexp:'2026-06-20', tech:'Nguyễn Hữu Phúc', gmdnStatus:'In Use', cls:'B'},
+  {code:'AC-2026-00078', name:'Máy X-quang di động', model:'GE Optima XR240', dept:'Chẩn đoán hình ảnh', loc:'CĐHA - P.X1', status:'Calibrating', risk:'High', pm:'2026-07-01', cal:'2026-05-26', udi:'(01)08712345600210', gmdn:'40561', byt:'BYT-2022-00781', bytexp:'2027-11-30', tech:'Nguyễn Hữu Phúc', gmdnStatus:'In Use', cls:'C'},
+  {code:'AC-2026-00090', name:'Lồng ấp sơ sinh Atom', model:'Atom Incu i', dept:'Sơ sinh', loc:'Sơ sinh - P.1', status:'Under Maintenance', risk:'Critical', pm:'2026-05-24', cal:'2026-12-01', udi:'(01)08712345600234', gmdn:'17654', byt:'BYT-2024-05002', bytexp:'2028-01-15', tech:'Phạm Văn Đức', gmdnStatus:'In Use', cls:'C'},
+  {code:'AC-2026-00112', name:'Máy điện tim 12 kênh', model:'Nihon Kohden ECG-2550', dept:'Tim mạch', loc:'Tim mạch - P.3', status:'Active', risk:'Medium', pm:'2026-08-15', cal:'2026-09-09', udi:'(01)08712345600301', gmdn:'17132', byt:'BYT-2023-02240', bytexp:'2026-08-05', tech:'Trần Đại Nghĩa', gmdnStatus:'In Use', cls:'B'},
+  {code:'AC-2025-00890', name:'Máy siêu âm Philips', model:'Philips Affiniti 70', dept:'Chẩn đoán hình ảnh', loc:'CĐHA - P.SA2', status:'Out of Service', risk:'High', pm:'2026-05-18', cal:'2026-04-01', udi:'(01)08712345600455', gmdn:'33875', byt:'BYT-2021-00455', bytexp:'2026-05-30', tech:'Nguyễn Hữu Phúc', gmdnStatus:'Not Use', cls:'C'},
+  {code:'AC-2025-00455', name:'Dao mổ điện Covidien', model:'Covidien Valleylab FT10', dept:'Phẫu thuật - GMHS', loc:'Phòng mổ 2', status:'Decommissioned', risk:'High', pm:'—', cal:'—', udi:'(01)08712345600512', gmdn:'12345', byt:'BYT-2019-00112', bytexp:'2025-02-01', tech:'—', gmdnStatus:'Not Use', cls:'C'},
+];
+const WORKORDERS = [
+  {wo:'WO-2026-00301', type:'PM', asset:'AC-2026-00042', name:'Máy thở Bennett 980', due:'2026-06-02', status:'Open', prio:'P2', tech:'Phạm Văn Đức'},
+  {wo:'WO-2026-00302', type:'Repair', asset:'AC-2026-00043', name:'Bơm tiêm điện Terumo', due:'2026-05-25', status:'In Progress', prio:'P1', tech:'Phạm Văn Đức'},
+  {wo:'WO-2026-00305', type:'Calibration', asset:'AC-2026-00078', name:'Máy X-quang di động', due:'2026-05-26', status:'Open', prio:'P2', tech:'Nguyễn Hữu Phúc'},
+  {wo:'WO-2026-00309', type:'PM', asset:'AC-2026-00090', name:'Lồng ấp sơ sinh Atom', due:'2026-05-24', status:'In Progress', prio:'P1', tech:'Phạm Văn Đức'},
+  {wo:'WO-2026-00310', type:'Repair', asset:'AC-2025-00890', name:'Máy siêu âm Philips', due:'2026-05-18', status:'Overdue', prio:'P1', tech:'Nguyễn Hữu Phúc'},
+];
+const INCIDENTS = [
+  {id:'INC-2026-00077', asset:'AC-2026-00090', name:'Lồng ấp sơ sinh Atom', sev:'Critical', patient:true, status:'Open', at:'2026-05-24 08:12', by:'BS. Nguyễn Thị Lan'},
+  {id:'INC-2026-00075', asset:'AC-2026-00043', name:'Bơm tiêm điện Terumo', sev:'Major', patient:false, status:'In Progress', at:'2026-05-23 14:40', by:'ĐD. Trần Bích'},
+  {id:'INC-2026-00070', asset:'AC-2025-00890', name:'Máy siêu âm Philips', sev:'Medium', patient:false, status:'Closed', at:'2026-05-18 09:05', by:'Nguyễn Hữu Phúc'},
+];
+const CAPAS = [
+  {id:'CAPA-2026-0021', src:'Incident INC-2026-00077', sev:'Critical', status:'Overdue', due:'2026-05-22', owner:'Hoàng Minh Châu', step:1},
+  {id:'CAPA-2026-0019', src:'Audit Finding AUD-12', sev:'High', status:'In Progress', due:'2026-06-05', owner:'Lê Quốc Hùng', step:2},
+  {id:'CAPA-2026-0015', src:'Incident INC-2026-00070', sev:'Medium', status:'Pending Verification', due:'2026-06-10', owner:'Hoàng Minh Châu', step:3},
+  {id:'CAPA-2026-0009', src:'Recall FSCA-2026-03', sev:'High', status:'Closed', due:'2026-04-30', owner:'Hoàng Minh Châu', step:5},
+];
+const SUPPLIERS = [
+  {id:'SUP-0007', name:'Công ty TNHH Medtronic VN', cat:'Thiết bị hô hấp', contract:'2026-12-31', techs:3, status:'Active'},
+  {id:'SUP-0012', name:'Siemens Healthineers VN', cat:'Chẩn đoán hình ảnh', contract:'2026-07-15', techs:5, status:'Active'},
+  {id:'SUP-0021', name:'Terumo Việt Nam', cat:'Bơm tiêm / truyền dịch', contract:'2026-06-30', techs:2, status:'Sắp hết hạn'},
+  {id:'SUP-0030', name:'Mindray Medical VN', cat:'Monitor / ICU', contract:'2027-03-01', techs:4, status:'Active'},
+];
+const SPAREPARTS = [
+  {code:'SP-FILT-001', name:'Màng lọc HEPA máy thở', wh:'Kho A1', qty:4, min:10, unit:'cái', reorder:true},
+  {code:'SP-BATT-220', name:'Pin Lithium monitor', wh:'Kho A1', qty:18, min:8, unit:'cái', reorder:false},
+  {code:'SP-SENS-540', name:'Cảm biến SpO2 sơ sinh', wh:'Kho B2', qty:6, min:12, unit:'cái', reorder:true},
+  {code:'SP-TUBE-033', name:'Dây bơm tiêm Terumo', wh:'Kho A1', qty:120, min:50, unit:'cái', reorder:false},
+  {code:'SP-PROBE-12', name:'Đầu dò siêu âm convex', wh:'Kho B2', qty:1, min:2, unit:'cái', reorder:true},
+];
+const NRS = [
+  {id:'NR-2026-000128', type:'Thay thế', asset:'Máy siêu âm Philips (hỏng nặng)', dept:'Chẩn đoán hình ảnh', urgency:'P1', status:'Submitted', by:'BS. Nguyễn Thị Lan', score:null},
+  {id:'NR-2026-000124', type:'Mới', asset:'Máy thở cao tần HFOV', dept:'Hồi sức tích cực (ICU)', urgency:'P2', status:'Đang chấm điểm', by:'BS. Trần Hoàng', score:null},
+  {id:'NR-2026-000118', type:'Nâng cấp', asset:'Nâng cấp phần mềm monitor', dept:'Cấp cứu', urgency:'P3', status:'Đã duyệt', by:'BS. Nguyễn Thị Lan', score:84},
+];
+const AUDIT = [
+  {ts:'2026-05-25 09:14:02', actor:'opsmgr@bnd1', action:'transition_status', doc:'AC-2026-00043', detail:'Active → Under Repair', hash:'a91f…3e7c'},
+  {ts:'2026-05-25 08:55:41', actor:'tech@bnd1', action:'workorder.checkin', doc:'WO-2026-00302', detail:'Check-in CM WO', hash:'7c02…91ab'},
+  {ts:'2026-05-24 16:30:10', actor:'qa@bnd1', action:'capa.create', doc:'CAPA-2026-0021', detail:'Mở CAPA từ INC-2026-00077', hash:'33de…0f12'},
+  {ts:'2026-05-24 08:13:55', actor:'clinical@bnd1', action:'incident.submit', doc:'INC-2026-00077', detail:'Critical + patient_affected', hash:'be77…ac40'},
+  {ts:'2026-05-23 11:02:33', actor:'doc@bnd1', action:'asset.create', doc:'AC-2026-00112', detail:'Tạo AC Asset + QR', hash:'1a4f…77b9'},
+];
+
+/* ---------- HELPERS ---------- */
+const $ = s => document.querySelector(s);
+function el(html){ const t=document.createElement('template'); t.innerHTML=html.trim(); return t.content.firstChild; }
+function statusBadge(s){
+  const map={'Active':'b-active','Commissioned':'b-commissioned','Under Maintenance':'b-maintenance','Under Repair':'b-repair','Calibrating':'b-calibrating','Out of Service':'b-oos','Decommissioned':'b-decommissioned','Suspended':'b-oos'};
+  const dot = s==='Active'?'<span class="dot"></span>':'';
+  return `<span class="badge ${map[s]||'b-draft'}">${dot}${s}</span>`;
+}
+function capaBadge(s){
+  const map={'Open':'b-open','In Progress':'b-inprogress','Overdue':'b-overdue','Pending Verification':'b-pending-ver','Closed':'b-closed'};
+  return `<span class="badge ${map[s]||'b-draft'}">${s}</span>`;
+}
+function sevBadge(s){
+  const map={'Low':'b-low','Medium':'b-medium','Major':'b-high','High':'b-high','Critical':'b-critical'};
+  return `<span class="badge ${map[s]||'b-low'}">${s}</span>`;
+}
+function woBadge(s){
+  const map={'Open':'b-open','In Progress':'b-inprogress','Overdue':'b-overdue','Done':'b-closed','Completed':'b-closed'};
+  return `<span class="badge ${map[s]||'b-draft'}">${s}</span>`;
+}
+function nrBadge(s){
+  const map={'Submitted':'b-submitted','Đang chấm điểm':'b-inprogress','Đã duyệt':'b-closed','Từ chối':'b-overdue','Draft':'b-draft'};
+  return `<span class="badge ${map[s]||'b-draft'}">${s}</span>`;
+}
+function toast(msg,type='success'){
+  const t=el(`<div class="toast ${type}">${msg}</div>`);
+  $('#toaster').appendChild(t);
+  setTimeout(()=>{t.style.opacity='0';t.style.transition='.3s';setTimeout(()=>t.remove(),300);},3000);
+}
+function openModal(html){ const o=$('#overlay'); o.innerHTML=`<div class="modal">${html}</div>`; o.classList.add('show'); o.onclick=e=>{if(e.target===o)closeModal();}; }
+function closeModal(){ const o=$('#overlay'); o.classList.remove('show'); o.innerHTML=''; }
+function openDrawer(title,html){ $('#drawerTitle').textContent=title; $('#drawerBody').innerHTML=html; $('#drawer').classList.add('show'); }
+function closeDrawer(){ $('#drawer').classList.remove('show'); }
+
+/* ---------- SHELL: persona switcher + sidebar + breadcrumb ---------- */
+function renderPersonaPill(){
+  const p=persona();
+  $('#ppName').textContent=p.title;
+  $('#ppRole').textContent=p.immRole;
+  const a=$('#ppAvatar'); a.textContent=p.initials; a.style.background=p.color;
+}
+function openPersonaSwitcher(){
+  const rows = PORDER.map(id=>{
+    const p=PERSONAS[id]; const on=id===CURRENT;
+    return `<div onclick="switchPersona('${id}')" style="display:flex;gap:12px;align-items:center;padding:12px 14px;border:1px solid ${on?'var(--color-primary-500)':'var(--color-neutral-300)'};border-radius:10px;cursor:pointer;margin-bottom:8px;background:${on?'var(--color-primary-50)':'#fff'}">
+      <div class="avatar" style="width:40px;height:40px;border-radius:50%;background:${p.color};color:#fff;display:grid;place-items:center;font-weight:700;flex-shrink:0">${p.initials}</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:600;font-size:14px">${p.title} <span class="pill-tag" style="margin-left:4px">${p.actor}</span></div>
+        <div class="text-xs muted">${p.immRole} · HSSD Excel: ${p.excelRole}</div>
+      </div>
+      <span class="badge b-submitted">${p.badge}</span>
+    </div>`;
+  }).join('');
+  openModal(`<div class="mhead"><h3>Chọn Persona / Vai trò</h3><button class="x-close" onclick="closeModal()">✕</button></div>
+    <div class="mbody"><p class="text-sm muted" style="margin-bottom:14px">8 chân dung người dùng theo tài liệu BA (Actor A1–A8) ↔ ma trận phân quyền Excel. Đổi persona để xem giao diện & quyền tương ứng.</p>${rows}</div>`);
+}
+function switchPersona(id){ CURRENT=id; closeModal(); renderPersonaPill(); renderSidebar(); location.hash=PERSONAS[id].home; route(); toast(`Đã chuyển sang: <b>${PERSONAS[id].title}</b>`,'success'); }
+
+function renderSidebar(){
+  const p=persona();
+  const allowed=new Set(p.nav);
+  const html = NAV.filter(n=>allowed.has(n.key)).map(n=>{
+    return `<div class="nav-item" data-route="${n.route}" onclick="location.hash='${n.route}'">
+      <span class="ic">${n.ic}</span><span class="lbl">${n.label}</span></div>`;
+  }).join('');
+  $('#navList').innerHTML = `<div class="nav-group-label">Phân hệ IMM-00..17</div>`+html
+    + `<div class="nav-group-label">Trợ giúp</div>
+       <div class="nav-item" onclick="location.hash='#/journey'"><span class="ic">🧭</span><span class="lbl">Hành trình của tôi</span></div>
+       <div class="nav-item" onclick="location.hash='#/screens'"><span class="ic">🗂</span><span class="lbl">Tất cả màn hình</span></div>`;
+  $('#sideFoot').innerHTML = `${p.actor} · ${p.badge}<br>Module: ${p.modules}`;
+  highlightNav();
+}
+function highlightNav(){
+  const h=location.hash||'#/dashboard';
+  document.querySelectorAll('.nav-item').forEach(n=>{
+    const r=n.getAttribute('data-route');
+    n.classList.toggle('active', r && h.startsWith(r));
+  });
+}
+function crumb(parts){
+  $('#breadcrumb').innerHTML = ['<a href="#/dashboard">Trang chủ</a>',...parts]
+    .map((p,i)=> i? `<span class="sep">›</span>${p}`:p).join(' ');
+}
+
+/* ---------- ROUTER ---------- */
+function route(){
+  const h=(location.hash||'#/dashboard').replace('#/','');
+  const [base,...rest]=h.split('/');
+  const fn = SCREENS[base] || SCREENS['404'];
+  // RBAC guard: if base maps to a nav key not allowed for persona -> 403
+  const navKeyForBase = { assets:'assets', workorders:'workorders', pm:'pmcal', incidents:'incidents', capa:'capa', suppliers:'suppliers', inventory:'inventory', nr:'nr', procurement:'procurement', finance:'finance', reports:'reports', locations:'locations', masterdata:'masterdata', sla:'sla', audit:'audit', admin:'admin' };
+  const nk = navKeyForBase[base];
+  if(nk && !persona().nav.includes(nk)){ SCREENS['403'](nk); highlightNav(); return; }
+  $('#view').innerHTML='';
+  fn(rest);
+  highlightNav();
+  $('#main').scrollTop=0;
+}
+window.addEventListener('hashchange', route);
+
+/* ===================================================================
+   SCREENS — mỗi key là một render function vào #view
+   =================================================================== */
+const SCREENS = {};
+
+/* ---------- 403 / 404 ---------- */
+SCREENS['403']=(nk)=>{ crumb(['<b>403 — Không có quyền</b>']);
+  $('#view').innerHTML=`<div class="page"><div class="empty-state">
+    <div class="ic">⛔</div>
+    <h2 class="text-xl">403 — Không có quyền truy cập</h2>
+    <p style="margin:10px 0 4px">Vai trò <b>${persona().immRole}</b> không được cấp quyền vào màn hình này.</p>
+    <p class="text-sm muted">Theo SEC-v1.0: sidebar ẩn item không có quyền. Liên hệ Quản trị hệ thống (IT) để được cấp quyền.</p>
+    <div style="margin-top:16px"><a class="btn btn-primary" href="${persona().home}">← Về màn hình chính</a></div>
+  </div></div>`; };
+SCREENS['404']=()=>{ crumb(['<b>404</b>']);
+  $('#view').innerHTML=`<div class="page"><div class="empty-state"><div class="ic">🔍</div><h2 class="text-xl">404 — Không tìm thấy màn hình</h2></div></div>`; };
+
+/* ---------- SCR-001 Dashboard (per-persona) ---------- */
+SCREENS['dashboard']=()=>{
+  const p=persona(); crumb(['<b>Dashboard</b>']);
+  const kpisByPersona = {
+    opsmgr:[['Tổng thiết bị','8.500','primary','#/assets'],['PM đến hạn 7 ngày','24','warn','#/pm'],['WO đang mở','12','info','#/workorders'],['CAPA pending','3','danger','#/capa'],['HĐ NCC sắp hết (90d)','2','warn','#/suppliers'],['Đăng ký BYT sắp hết','4','danger','#/assets'],['NR chờ duyệt','2','primary','#/nr'],['PM Compliance','92%','ok','#/reports']],
+    workshop:[['WO cần phân công','7','warn','#/workorders'],['PM overdue','5','danger','#/pm'],['CAPA open','2','danger','#/capa'],['MTTR (giờ)','6.4','info','#/reports'],['PM Compliance','92%','ok','#/reports'],['Calibration đến hạn','3','warn','#/pm']],
+    tech:[['WO của tôi hôm nay','4','primary','#/workorders'],['Đang xử lý','1','warn','#/workorders'],['PM đến hạn 7 ngày','3','warn','#/pm'],['WO Emergency P1','1','danger','#/workorders']],
+    clinical:[['NR của khoa tôi','3','primary','#/nr'],['Chờ duyệt','1','warn','#/nr'],['Sự cố khoa tôi','2','danger','#/incidents'],['Thiết bị đang dùng','142','info','#/dashboard']],
+    doc:[['Asset cần hồ sơ','6','warn','#/assets'],['BYT sắp hết hạn (90d)','4','danger','#/assets'],['GRN chờ xử lý','2','primary','#/assets'],['Acceptance Test mở','1','info','#/assets']],
+    store:[['SKU dưới mức tồn','3','danger','#/inventory'],['Phiếu xuất hôm nay','5','primary','#/inventory'],['Điều chuyển chờ duyệt','1','warn','#/inventory'],['Kỳ kiểm kê','Q2/2026','info','#/inventory']],
+    qa:[['CAPA Overdue','1','danger','#/capa'],['CAPA mở','3','warn','#/capa'],['Quá hạn hiệu chuẩn','2','danger','#/pm'],['Recall/FSCA active','1','danger','#/assets'],['Audit chain','OK','ok','#/audit'],['Incident chờ submit','1','warn','#/incidents']],
+    admin:[['Người dùng active','86','primary','#/admin'],['Audit chain','Hợp lệ','ok','#/audit'],['Backup gần nhất','03:00 hôm nay','info','#/admin'],['API key HIS','2','info','#/admin'],['Scheduler jobs','OK','ok','#/admin'],['Cảnh báo hệ thống','0','ok','#/admin']],
+  };
+  const kpis=kpisByPersona[p.id];
+  const kcards = kpis.map(k=>`<div class="kpi ${k[2]}" onclick="location.hash='${k[3]}'"><div class="kbar"></div><div class="klabel">${k[0]}</div><div class="kval">${k[1]}</div><div class="kfoot">Nhấn để xem chi tiết →</div></div>`).join('');
+
+  // donut data
+  const dist=[['Active',58,'var(--color-success-500)'],['Under Maint./Repair',18,'var(--color-warning-500)'],['Calibrating',7,'var(--color-info-500)'],['Out of Service',9,'var(--color-danger-500)'],['Decommissioned',8,'var(--color-neutral-600)']];
+  let acc=0; const seg=dist.map(d=>{const a=acc; acc+=d[1]; return `${d[2]} ${a}% ${acc}%`;}).join(',');
+  const legend=dist.map(d=>`<div class="li"><span class="sw" style="background:${d[2]}"></span>${d[0]} <b style="margin-left:auto">${d[1]}%</b></div>`).join('');
+  const months=['T6','T7','T8','T9','T10','T11','T12','T1','T2','T3','T4','T5'];
+  const vals=[88,90,86,91,93,89,92,94,90,92,95,92];
+  const bars=vals.map((v,i)=>`<div class="bar" style="height:${v}%"><span>${months[i]}</span></div>`).join('');
+  const recent=[
+    ['danger','CAPA quá hạn','CAPA-2026-0021 — Critical, cần xử lý','2 giờ trước'],
+    ['warn','PM đến hạn','Lồng ấp sơ sinh Atom — đến hạn hôm nay','4 giờ trước'],
+    ['ok','WO hoàn thành','WO-2026-00298 — Monitor Mindray Pass','hôm qua'],
+    ['','Incident mới','INC-2026-00077 — Critical + bệnh nhân','hôm qua'],
+    ['ok','Asset mới','AC-2026-00112 — Máy điện tim tạo + QR','2 ngày trước'],
+  ].map(r=>`<div class="tl-item ${r[0]}"><div class="tdot"></div><div class="tt">${r[1]}</div><div class="tm">${r[2]} · ${r[3]}</div></div>`).join('');
+
+  $('#view').innerHTML=`<div class="page">
+    <div class="page-head"><div class="titles">
+      <div class="tagrow" style="margin-bottom:6px"><span class="scr-tag">SCR-001</span> <span class="pill-tag">Actor ${p.actor}</span> <span class="pill-tag">${p.immRole}</span></div>
+      <h1>Xin chào, ${p.name}</h1>
+      <div class="sub">${p.title} · Dashboard tổng quan theo vai trò — KPI refresh ≤ 30s (BR-018)</div>
+    </div>
+      <button class="btn btn-secondary" onclick="location.hash='#/journey'"><span class="ic">🧭</span> Hành trình của tôi</button>
+    </div>
+    <div class="grid g4" style="margin-bottom:20px">${kcards}</div>
+    <div class="grid g2">
+      <div class="card"><div class="card-head"><h3>Phân bố thiết bị theo lifecycle_status</h3></div>
+        <div class="card-pad" style="display:flex;gap:24px;align-items:center;flex-wrap:wrap">
+          <div class="donut" style="background:conic-gradient(${seg})"></div>
+          <div class="legend" style="flex:1;min-width:180px">${legend}</div>
+        </div></div>
+      <div class="card"><div class="card-head"><h3>PM Compliance % — 12 tháng (rollup_asset_kpi)</h3></div>
+        <div class="card-pad"><div class="bars">${bars}</div></div></div>
+    </div>
+    <div class="card" style="margin-top:20px"><div class="card-head"><h3>Hoạt động gần đây — Asset Lifecycle Events</h3><div class="spacer"></div><a class="btn btn-ghost btn-sm" href="#/audit">Xem Audit Trail →</a></div>
+      <div class="card-pad"><div class="timeline">${recent}</div></div></div>
+  </div>`;
+};
+
+/* ---------- SCR-002 / SCR-003 / SCR-004 Assets ---------- */
+SCREENS['assets']=(rest)=>{
+  if(rest.length===0) return assetList();
+  if(rest[0]==='new') return assetForm(null);
+  if(rest[1]==='edit') return assetForm(rest[0]);
+  return assetDetail(rest[0]);
+};
+function assetList(){
+  const p=persona(); crumb(['<b>Thiết bị</b>']);
+  // Technician sees only own assets (row-level security ◑)
+  let rows=ASSETS;
+  let scopeNote='';
+  if(p.id==='tech'){ rows=ASSETS.filter(a=>a.tech===p.name); scopeNote=`<div class="banner banner-info"><span class="bic">🔒</span><div><b>Permission Query (◑):</b> Kỹ thuật viên chỉ thấy thiết bị có <span class="mono">responsible_technician = ${p.name}</span> — row-level security (SEC §2.1).</div></div>`; }
+  if(p.id==='store'||p.id==='clinical'){ scopeNote=`<div class="banner banner-info"><span class="bic">👁</span><div><b>Read-only:</b> Vai trò <b>${p.immRole}</b> chỉ được xem AC Asset, không tạo/sửa (SEC §2.1).</div></div>`; }
+  const canCreate = ['opsmgr','doc','admin','clinical'].includes(p.id) && ['opsmgr','doc','admin'].includes(p.id);
+  const tr=rows.map(a=>`<tr class="${(a.status==='Out of Service'||a.status==='Under Repair')?'row-danger':''}">
+    <td><a class="link" href="#/assets/${a.code}">${a.code}</a></td>
+    <td>${a.name}<div class="text-xs muted">${a.model}</div></td>
+    <td>${a.dept}</td>
+    <td>${statusBadge(a.status)}</td>
+    <td>${sevBadge(a.risk)}</td>
+    <td><span style="${new Date(a.pm)<new Date('2026-05-25')&&a.pm!=='—'?'color:var(--color-danger-500);font-weight:700':''}">${a.pm}</span></td>
+    <td><span class="pill-tag">${a.gmdnStatus}</span></td>
+  </tr>`).join('');
+  $('#view').innerHTML=`<div class="page">
+    <div class="page-head"><div class="titles">
+      <div class="tagrow" style="margin-bottom:6px"><span class="scr-tag">SCR-002</span> <span class="pill-tag">/assets</span></div>
+      <h1>Danh sách Thiết bị (AC Asset)</h1>
+      <div class="sub">8.500 TTBYT · Filter bar + Table + drawer · Virtual scroll ≥ 500 dòng</div>
+    </div>
+    ${canCreate?`<a class="btn btn-primary" href="#/assets/new"><span class="ic">＋</span> Tạo thiết bị</a>`:''}
+    </div>
+    ${scopeNote}
+    <div class="filterbar">
+      <input class="input" placeholder="🔍 Tìm asset_name / mã / UDI…" style="flex:1;min-width:200px">
+      <select class="select"><option>Khoa: Tất cả</option><option>ICU</option><option>Sơ sinh</option><option>Cấp cứu</option></select>
+      <select class="select"><option>Trạng thái: Tất cả</option><option>Active</option><option>Under Repair</option><option>Out of Service</option></select>
+      <select class="select"><option>Mức rủi ro: Tất cả</option><option>Critical</option><option>High</option><option>Medium</option></select>
+      <button class="btn btn-secondary btn-sm" onclick="toast('Mở Drawer lọc nâng cao','success')">⚙ Lọc nâng cao</button>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+      <button class="btn btn-secondary btn-sm" onclick="toast('Gán KTV hàng loạt (bulk)','success')">👤 Gán KTV</button>
+      <button class="btn btn-secondary btn-sm" onclick="toast('In QR hàng loạt','success')">🏷 In QR hàng loạt</button>
+      <button class="btn btn-secondary btn-sm" onclick="toast('Đang xuất Excel… (≤5.000 dòng — BR-022)','success')">📊 Xuất Excel</button>
+    </div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr>
+      <th>asset_code <span class="sort">▲</span></th><th>asset_name <span class="sort">▲</span></th><th>Khoa</th>
+      <th>lifecycle_status</th><th>risk_class</th><th>next_pm_date <span class="sort">▲</span></th><th>gmdn_status</th>
+    </tr></thead><tbody>${tr}</tbody></table></div>
+    <p class="help" style="margin-top:10px">Hiển thị ${rows.length} thiết bị. Mobile: chuyển sang Card list + Filter drawer bottom.</p>
+  </div>`;
+}
+function assetDetail(code){
+  const a=ASSETS.find(x=>x.code===code)||ASSETS[0];
+  const tab=(location.hash.split('?tab=')[1])||'info';
+  crumb([`<a href="#/assets">Thiết bị</a>`,`<b>${a.code}</b>`]);
+  const tabs=[['info','Thông tin HTM'],['lifecycle','Vòng đời'],['pm','PM & Calibration'],['docs','Tài liệu'],['incident','Incident & CAPA'],['audit','Audit Trail']];
+  const tabHtml=tabs.map(t=>`<div class="tab ${tab===t[0]?'active':''}" onclick="location.hash='#/assets/${a.code}?tab=${t[0]}'">${t[1]}</div>`).join('');
+  let body='';
+  if(tab==='info'){
+    body=`<div class="card card-pad"><dl class="kv">
+      <dt>asset_code</dt><dd class="mono">${a.code}</dd>
+      <dt>UDI (udi_code)</dt><dd class="mono">${a.udi}</dd>
+      <dt>GMDN code</dt><dd>${a.gmdn} <span class="pill-tag">${a.gmdnStatus}</span></dd>
+      <dt>Đăng ký BYT (byt_reg_no)</dt><dd>${a.byt} · hết hạn <b style="color:${new Date(a.bytexp)<new Date('2026-08-23')?'var(--color-danger-500)':'inherit'}">${a.bytexp}</b></dd>
+      <dt>Device Model</dt><dd><a class="link" href="#">${a.model}</a></dd>
+      <dt>Phân loại rủi ro (class)</dt><dd>Class ${a.cls} · ${sevBadge(a.risk)}</dd>
+      <dt>Custodian / Khoa</dt><dd>${a.dept}</dd>
+      <dt>Vị trí (location)</dt><dd>${a.loc}</dd>
+      <dt>responsible_technician</dt><dd>${a.tech}</dd>
+    </dl></div>`;
+  } else if(tab==='lifecycle'){
+    body=`<div class="card card-pad"><div class="timeline">
+      <div class="tl-item ok"><div class="tdot"></div><div class="tt">Commissioned → Active</div><div class="tm">15/01/2024 · Workshop Lead ký Clinical Release</div></div>
+      <div class="tl-item"><div class="tdot"></div><div class="tt">PM định kỳ — Pass</div><div class="tm">02/12/2025 · WO-2025-01180 · KTV Phạm Văn Đức</div></div>
+      <div class="tl-item warn"><div class="tdot"></div><div class="tt">Active → Under Maintenance</div><div class="tm">${a.pm} · PM đến hạn</div></div>
+      <div class="tl-item"><div class="tdot"></div><div class="tt">Hiệu chuẩn — Certificate ISO 17025</div><div class="tm">Hết hạn ${a.cal}</div></div>
+    </div></div>`;
+  } else if(tab==='pm'){ return assetPmTab(a); }
+  else if(tab==='docs'){
+    body=`<div class="card card-pad">
+      <div style="border:2px dashed var(--color-neutral-300);border-radius:12px;padding:32px;text-align:center;color:var(--color-neutral-600)">
+        <div style="font-size:34px">📎</div><b>Kéo-thả tài liệu vào đây</b><div class="text-sm">IQ / OQ / PQ · Manual · Biên bản · Frappe File API</div>
+      </div>
+      <table class="tbl" style="margin-top:16px"><thead><tr><th>Tài liệu</th><th>Loại</th><th>Ngày</th><th>Người tải</th></tr></thead><tbody>
+        <tr><td>IQ_OQ_PQ_${a.code}.pdf</td><td>Qualification</td><td>16/01/2024</td><td>Vũ Thị Hà</td></tr>
+        <tr><td>User_Manual_${a.model}.pdf</td><td>Manual</td><td>16/01/2024</td><td>Vũ Thị Hà</td></tr>
+        <tr><td>Calibration_Cert_2025.pdf</td><td>Certificate</td><td>09/09/2025</td><td>Hoàng Minh Châu</td></tr>
+      </tbody></table></div>`;
+  } else if(tab==='incident'){
+    const inc=INCIDENTS.filter(i=>i.asset===a.code);
+    body=`<div class="card card-pad">
+      <div style="display:flex;gap:8px;margin-bottom:14px"><a class="btn btn-primary btn-sm" href="#/incidents/new">＋ Báo sự cố</a><a class="btn btn-secondary btn-sm" href="#/capa">＋ Tạo CAPA</a></div>
+      ${inc.length?`<table class="tbl"><thead><tr><th>Incident</th><th>Mức độ</th><th>BN</th><th>Trạng thái</th><th>Thời gian</th></tr></thead><tbody>
+      ${inc.map(i=>`<tr><td><a class="link" href="#/incidents/${i.id}">${i.id}</a></td><td>${sevBadge(i.sev)}</td><td>${i.patient?'⚠ Có':'Không'}</td><td>${woBadge(i.status)}</td><td>${i.at}</td></tr>`).join('')}
+      </tbody></table>`:'<div class="empty-state"><div class="ic">✅</div>Không có sự cố nào.</div>'}</div>`;
+  } else if(tab==='audit'){
+    body=`<div class="banner banner-info"><span class="bic">🔒</span><div><b>Read-only hoàn toàn</b> — tab Audit Trail không có nút Create/Edit/Delete (SCR-003).</div></div>
+    <div class="card card-pad"><div style="display:flex;gap:8px;margin-bottom:12px"><button class="btn btn-secondary btn-sm" onclick="verifyChain()">🔗 Verify chain</button></div>
+    <table class="tbl"><thead><tr><th>Thời gian</th><th>Actor</th><th>Action</th><th>Hash</th></tr></thead><tbody>
+    ${AUDIT.filter(x=>x.doc===a.code).concat(AUDIT.slice(0,2)).map(x=>`<tr><td class="mono">${x.ts}</td><td>${x.actor}</td><td>${x.action}</td><td class="mono">${x.hash}</td></tr>`).join('')}
+    </tbody></table></div>`;
+  }
+  const recall = a.code==='AC-2025-00890';
+  $('#view').innerHTML=`<div class="page">
+    <div class="page-head"><div class="titles">
+      <div class="tagrow" style="margin-bottom:6px"><span class="scr-tag">SCR-003</span> <span class="pill-tag">6 tabs</span></div>
+      <h1>${a.name}</h1><div class="sub mono">${a.code} · ${statusBadge(a.status)}</div>
+    </div>
+      <div style="display:flex;gap:8px">
+        ${['opsmgr','doc','admin'].includes(persona().id)?`<a class="btn btn-secondary" href="#/assets/${a.code}/edit"><span class="ic">✏</span> Sửa</a>`:''}
+        ${['opsmgr','qa','admin'].includes(persona().id)?`<button class="btn btn-secondary" onclick="transitionModal('${a.code}')">↔ Đổi trạng thái</button>`:''}
+        ${['admin'].includes(persona().id)?`<button class="btn btn-danger" onclick="decommissionModal('${a.code}')">⊘ Decommission</button>`:''}
+      </div>
+    </div>
+    ${recall?`<div class="banner banner-danger"><span class="bic">⛔</span><div><b>RECALL / FSCA-2026-03:</b> Thiết bị nằm trong danh sách thu hồi của nhà sản xuất. Đã notify khoa đang dùng + tự tạo CAPA (IMM-14.UC2).</div></div>`:''}
+    <div class="tabs">${tabHtml}</div>${body}
+  </div>`;
+}
+function assetPmTab(a){
+  const tab='pm';
+  $('#view').innerHTML=`<div class="page">
+    <div class="page-head"><div class="titles"><div class="tagrow" style="margin-bottom:6px"><span class="scr-tag">SCR-005</span> <span class="pill-tag">PM & Calibration tab</span></div>
+      <h1>${a.name}</h1><div class="sub mono">${a.code} · ${statusBadge(a.status)}</div></div></div>
+    <div class="tabs">
+      <div class="tab" onclick="location.hash='#/assets/${a.code}?tab=info'">Thông tin HTM</div>
+      <div class="tab" onclick="location.hash='#/assets/${a.code}?tab=lifecycle'">Vòng đời</div>
+      <div class="tab active">PM & Calibration</div>
+      <div class="tab" onclick="location.hash='#/assets/${a.code}?tab=docs'">Tài liệu</div>
+      <div class="tab" onclick="location.hash='#/assets/${a.code}?tab=incident'">Incident & CAPA</div>
+      <div class="tab" onclick="location.hash='#/assets/${a.code}?tab=audit'">Audit Trail</div>
+    </div>
+    <div class="grid g2">
+      <div class="card"><div class="card-head"><h3>Bảo trì phòng ngừa (PM)</h3></div><div class="card-pad"><dl class="kv">
+        <dt>next_pm_date</dt><dd style="color:var(--color-danger-500);font-weight:700">${a.pm}</dd>
+        <dt>pm_interval_days</dt><dd>90 ngày</dd>
+        <dt>PM Template</dt><dd>${a.model} — 12 hạng mục</dd>
+        <dt>Lần PM gần nhất</dt><dd>02/12/2025 — Pass</dd>
+      </dl>${['workshop','tech','admin'].includes(persona().id)?`<button class="btn btn-primary btn-sm" style="margin-top:14px" onclick="location.hash='#/workorders/WO-2026-00301'">Mở Work Order PM →</button>`:''}</div></div>
+      <div class="card"><div class="card-head"><h3>Hiệu chuẩn / Kiểm định</h3></div><div class="card-pad"><dl class="kv">
+        <dt>next_calibration_date</dt><dd>${a.cal}</dd>
+        <dt>Certificate</dt><dd>ISO 17025 — còn hiệu lực</dd>
+        <dt>Nhắc trước hạn</dt><dd>30 ngày (BR-017)</dd>
+      </dl>${persona().id==='qa'?`<button class="btn btn-primary btn-sm" style="margin-top:14px" onclick="toast('Tạo Calibration WO','success')">＋ Tạo Calibration WO</button>`:''}</div></div>
+    </div></div>`;
+}
+function assetForm(code){
+  const editing=!!code; const a=editing?ASSETS.find(x=>x.code===code):{};
+  crumb([`<a href="#/assets">Thiết bị</a>`,`<b>${editing?'Sửa':'Tạo'} thiết bị</b>`]);
+  $('#view').innerHTML=`<div class="page">
+    <div class="page-head"><div class="titles"><div class="tagrow" style="margin-bottom:6px"><span class="scr-tag">SCR-004</span> <span class="pill-tag">${editing?'/edit':'/new'}</span></div>
+      <h1>${editing?'Sửa':'Tạo'} Thiết bị</h1><div class="sub">Form 5 sections · Draft auto-save localStorage mỗi 10s · Ctrl+S để lưu</div></div></div>
+    <div class="banner banner-info"><span class="bic">💾</span><div>Bản nháp tự lưu mỗi 10 giây — key <span class="mono">draft:AC Asset:${persona().id}:${editing?code:'new'}</span></div></div>
+    <form onsubmit="event.preventDefault();toast('Đã lưu thiết bị (mô phỏng) ✓','success');setTimeout(()=>location.hash='#/assets',600)">
+    <div class="card card-pad">
+      <div class="section-title">§1 Định danh</div>
+      <div class="grid g3">
+        <div><label class="fld">asset_code (auto)</label><input class="input mono" value="${editing?code:'AC-2026-00113'}" disabled style="width:100%"></div>
+        <div><label class="fld">asset_name <span class="req">*</span></label><input class="input" required value="${a.name||''}" style="width:100%"></div>
+        <div><label class="fld">udi_code</label><input class="input mono" value="${a.udi||''}" style="width:100%"></div>
+        <div><label class="fld">gmdn_code</label><input class="input" value="${a.gmdn||''}" style="width:100%"></div>
+        <div><label class="fld">byt_reg_no</label><input class="input" value="${a.byt||''}" style="width:100%"></div>
+        <div><label class="fld">byt_reg_expiry</label><input class="input" type="date" value="${a.bytexp||''}" style="width:100%"><div class="help">≥ hôm nay (BR-014)</div></div>
+      </div>
+      <div class="section-title">§2 Phân loại</div>
+      <div class="grid g2"><div><label class="fld">device_model <span class="req">*</span></label><select class="select" required style="width:100%"><option>${a.model||'— Chọn model (async) —'}</option><option>Puritan Bennett 980</option><option>Mindray uMEC12</option></select><div class="help">Auto-fill class / risk / pm_interval / category</div></div>
+      <div><label class="fld">Phân loại rủi ro (auto)</label><input class="input" value="${a.risk||'Critical'} · Class ${a.cls||'C'}" disabled style="width:100%"></div></div>
+      <div class="section-title">§3 Vị trí & Trách nhiệm</div>
+      <div class="grid g3"><div><label class="fld">department <span class="req">*</span> (Tree)</label><select class="select" required style="width:100%"><option>${a.dept||'— Chọn khoa —'}</option><option>Hồi sức tích cực (ICU)</option><option>Sơ sinh</option></select></div>
+      <div><label class="fld">location (async)</label><input class="input" value="${a.loc||''}" style="width:100%"></div>
+      <div><label class="fld">responsible_technician</label><select class="select" style="width:100%"><option>${a.tech||'— Chọn KTV —'}</option><option>Phạm Văn Đức</option></select></div></div>
+      <div class="section-title">§4 Lịch bảo trì</div>
+      <div class="grid g3"><div><label class="fld">pm_interval_days (auto)</label><input class="input" value="90" disabled style="width:100%"></div>
+      <div><label class="fld">next_pm_date</label><input class="input" type="date" value="${a.pm||''}" style="width:100%"></div>
+      <div><label class="fld">next_calibration_date</label><input class="input" type="date" value="${a.cal||''}" style="width:100%"></div></div>
+      <div class="section-title">§5 Ghi chú</div>
+      <div><label class="fld">notes (≤ 2000 ký tự)</label><textarea class="input" rows="3" style="width:100%"></textarea></div>
+      <div style="margin-top:12px;border:2px dashed var(--color-neutral-300);border-radius:10px;padding:18px;text-align:center;color:var(--color-neutral-600)">📎 attachments — FileUpload multi (kéo-thả)</div>
+    </div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px"><a class="btn btn-secondary" href="#/assets">Hủy</a><button class="btn btn-primary" type="submit"><span class="ic">💾</span> Lưu (Ctrl+S)</button></div>
+    </form></div>`;
+}
+function transitionModal(code){
+  openModal(`<div class="mhead"><h3>Đổi lifecycle_status</h3><button class="x-close" onclick="closeModal()">✕</button></div>
+  <div class="mbody"><p class="text-sm muted" style="margin-bottom:12px">Chỉ transition hợp lệ theo state machine (BR-00-02).</p>
+    <label class="fld">Trạng thái mới</label><select class="select" style="width:100%"><option>Under Maintenance</option><option>Under Repair</option><option>Calibrating</option><option>Out of Service</option></select>
+    <label class="fld" style="margin-top:12px">Lý do</label><textarea class="input" rows="2" style="width:100%"></textarea></div>
+  <div class="mfoot"><button class="btn btn-secondary" onclick="closeModal()">Hủy</button><button class="btn btn-primary" onclick="closeModal();toast('Đã đổi trạng thái + ghi Audit Trail ✓','success')">Xác nhận</button></div>`);
+}
+function decommissionModal(code){
+  openModal(`<div class="mhead"><h3>⊘ Decommission thiết bị</h3><button class="x-close" onclick="closeModal()">✕</button></div>
+  <div class="mbody"><div class="banner banner-danger"><span class="bic">⚠</span><div>Hành động không thể hoàn tác. Side-effects: gỡ khỏi lịch PM, đóng WO mở, chuyển sang trạng thái Decommissioned.</div></div>
+    <label class="fld">Nhập lại <b>asset_code</b> để xác nhận</label><input class="input mono" placeholder="${code}" style="width:100%"></div>
+  <div class="mfoot"><button class="btn btn-secondary" onclick="closeModal()">Hủy</button><button class="btn btn-danger" onclick="closeModal();toast('Đã Decommission '+'${code}'+' ✓','danger')">Xác nhận Decommission</button></div>`);
+}
+function verifyChain(){
+  openModal(`<div class="mhead"><h3>🔗 Verify chain integrity</h3><button class="x-close" onclick="closeModal()">✕</button></div>
+  <div class="mbody" style="text-align:center"><div style="font-size:40px">✅</div><h3 style="color:var(--color-success-500)">Chuỗi hash hợp lệ</h3><p class="text-sm muted">Đã xác minh ${AUDIT.length} entries — SHA-256 chain liên tục, không phát hiện vi phạm (BR-005).</p></div>
+  <div class="mfoot"><button class="btn btn-primary" onclick="closeModal()">Đóng</button></div>`);
+}
+
+/* ---------- SCR-006 Work Orders + PM Execution ---------- */
+SCREENS['workorders']=(rest)=>{
+  if(rest.length) return woDetail(rest[0]);
+  const p=persona(); crumb(['<b>Lệnh công việc (WO)</b>']);
+  let rows=WORKORDERS;
+  if(p.id==='tech') rows=WORKORDERS.filter(w=>w.tech===p.name||w.tech==='Phạm Văn Đức');
+  const tr=rows.map(w=>`<tr class="${w.status==='Overdue'?'row-danger':''}">
+    <td><a class="link" href="#/workorders/${w.wo}">${w.wo}</a></td><td><span class="pill-tag">${w.type}</span></td>
+    <td>${w.name}<div class="text-xs muted mono">${w.asset}</div></td><td><span class="prio ${w.prio==='P1'?'p1':'p2'}">${w.prio}</span></td>
+    <td>${w.due}</td><td>${woBadge(w.status)}</td><td>${w.tech}</td>
+    <td>${p.id==='workshop'&&w.status==='Open'?`<button class="btn btn-secondary btn-sm" onclick="assignModal('${w.wo}')">Phân công</button>`:''}</td>
+  </tr>`).join('');
+  $('#view').innerHTML=`<div class="page">
+    <div class="page-head"><div class="titles"><div class="tagrow" style="margin-bottom:6px"><span class="scr-tag">IMM-02</span> <span class="pill-tag">/workorders</span></div>
+      <h1>Lệnh công việc</h1><div class="sub">${p.id==='tech'?'Chỉ hiển thị WO của bạn (BR-007)':'PM / Repair / Calibration · SLA theo Priority × Risk'}</div></div>
+      ${['workshop','opsmgr','admin'].includes(p.id)?`<button class="btn btn-primary" onclick="toast('Tạo Work Order mới','success')"><span class="ic">＋</span> Tạo WO</button>`:''}</div>
+    ${rows.some(w=>w.prio==='P1'&&w.status!=='Done')?`<div class="banner banner-danger"><span class="bic">🚨</span><div><b>WO khẩn P1:</b> acknowledge ≤ 15 phút, resolve ≤ 4 giờ (IMM-09.UC4 · BR-009).</div></div>`:''}
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Mã WO</th><th>Loại</th><th>Thiết bị</th><th>Ưu tiên</th><th>Đến hạn</th><th>Trạng thái</th><th>KTV</th><th></th></tr></thead><tbody>${tr}</tbody></table></div>
+  </div>`;
+};
+function assignModal(wo){
+  openModal(`<div class="mhead"><h3>Phân công KTV — ${wo}</h3><button class="x-close" onclick="closeModal()">✕</button></div>
+  <div class="mbody"><div class="banner banner-info"><span class="bic">ℹ</span><div>BR-007: KTV chỉ nhận WO theo <span class="mono">responsible_technician</span>.</div></div>
+  <label class="fld">Chọn kỹ thuật viên</label><select class="select" style="width:100%"><option>Phạm Văn Đức</option><option>Nguyễn Hữu Phúc</option><option>Trần Đại Nghĩa</option></select></div>
+  <div class="mfoot"><button class="btn btn-secondary" onclick="closeModal()">Hủy</button><button class="btn btn-primary" onclick="closeModal();toast('Đã phân công + push notify KTV ✓','success')">Phân công</button></div>`);
+}
+function woDetail(wo){
+  const w=WORKORDERS.find(x=>x.wo===wo)||WORKORDERS[0];
+  crumb([`<a href="#/workorders">WO</a>`,`<b>${w.wo}</b>`]);
+  const items=['Kiểm tra nguồn điện & dây nối đất','Vệ sinh bộ lọc khí / quạt tản nhiệt','Kiểm tra cảm biến áp suất','Hiệu chuẩn lưu lượng kế','Kiểm tra pin dự phòng','Test báo động (alarm)','Đo dòng rò (electrical safety)','Cập nhật firmware nếu có'];
+  $('#view').innerHTML=`<div class="page">
+    <div class="page-head"><div class="titles"><div class="tagrow" style="margin-bottom:6px"><span class="scr-tag">SCR-006</span> <span class="pill-tag">${w.type} Execution</span></div>
+      <h1>${w.wo} — ${w.name}</h1><div class="sub">Loại: ${w.type} · ${woBadge(w.status)} · Đến hạn ${w.due} · <span class="prio ${w.prio==='P1'?'p1':'p2'}">${w.prio}</span></div></div>
+      <div style="display:flex;gap:8px"><button class="btn btn-secondary" onclick="toast('Check-in WO — status Active, timestamp UTC','success')">▶ Check-in</button></div></div>
+    <div class="grid g2">
+      <div class="card"><div class="card-head"><h3>Checklist PM (${items.length} hạng mục)</h3><div class="spacer"></div><span class="pill-tag">Offline OK — IndexedDB</span></div>
+        <div class="card-pad"><ul class="checklist">${items.map((it,i)=>`<li><input type="checkbox" ${i<3?'checked':''}><div><div style="font-weight:500">${it}</div><input class="input text-xs" placeholder="Ghi chú / giá trị đo…" style="margin-top:5px;width:100%;padding:5px 8px"></div></li>`).join('')}</ul></div></div>
+      <div class="card"><div class="card-head"><h3>Hoàn thành & Kết quả</h3></div><div class="card-pad">
+        <label class="fld">overall_result <span class="req">*</span></label>
+        <div style="display:flex;gap:10px;margin-bottom:14px"><label style="display:flex;gap:6px;align-items:center"><input type="radio" name="res" checked> Pass</label><label style="display:flex;gap:6px;align-items:center"><input type="radio" name="res"> Fail</label></div>
+        <label class="fld">downtime_minutes <span class="req">*</span></label><input class="input" type="number" value="45" style="width:100%;margin-bottom:12px">
+        <label class="fld">labor_hours</label><input class="input" type="number" value="1.5" style="width:100%;margin-bottom:12px">
+        <label class="fld">notes (bắt buộc nếu Fail)</label><textarea class="input" rows="2" style="width:100%;margin-bottom:12px"></textarea>
+        <div style="border:2px dashed var(--color-neutral-300);border-radius:10px;padding:16px;text-align:center;color:var(--color-neutral-600)">📷 Upload ảnh sau sửa chữa (≥ 1 ảnh, ≤ 5MB)</div>
+        <button class="btn btn-primary" style="margin-top:14px;width:100%" onclick="toast('Hoàn thành WO ✓ — next_pm_date +90 ngày. Nếu Fail → tự tạo Incident Draft','success')">✔ Check-out & Submit</button>
+        <p class="help" style="margin-top:8px">Submit → cập nhật next_pm_date tự động. Fail → tự tạo Incident Draft (IMM-09.UC3).</p>
+      </div></div>
+    </div></div>`;
+}
+
+/* ---------- SCR-005 PM & Calibration list ---------- */
+SCREENS['pm']=()=>{
+  crumb(['<b>PM & Hiệu chuẩn</b>']);
+  const due=ASSETS.filter(a=>a.pm!=='—');
+  const tr=due.map(a=>{const od=new Date(a.pm)<new Date('2026-05-25');return `<tr class="${od?'row-danger':''}">
+    <td><a class="link" href="#/assets/${a.code}?tab=pm">${a.code}</a></td><td>${a.name}</td><td>${a.dept}</td>
+    <td>${sevBadge(a.risk)}</td><td style="${od?'color:var(--color-danger-500);font-weight:700':''}">${a.pm}</td><td>${a.cal}</td>
+    <td>${od?'<span class="badge b-overdue">Overdue</span>':'<span class="badge b-inprogress">Đến hạn</span>'}</td></tr>`;}).join('');
+  $('#view').innerHTML=`<div class="page">
+    <div class="page-head"><div class="titles"><div class="tagrow" style="margin-bottom:6px"><span class="scr-tag">IMM-08/11</span></div>
+      <h1>Lịch PM & Hiệu chuẩn</h1><div class="sub">BR-006: PM phải lập lịch trước · BR-025: push khi đến hạn · overdue → đỏ</div></div>
+      ${['workshop','admin'].includes(persona().id)?`<button class="btn btn-primary" onclick="toast('Tạo lịch PM — chọn thiết bị / template / KTV / ngày','success')"><span class="ic">＋</span> Lập lịch PM</button>`:''}</div>
+    <div class="grid g3" style="margin-bottom:20px">
+      <div class="kpi danger"><div class="kbar"></div><div class="klabel">PM Overdue</div><div class="kval">5</div></div>
+      <div class="kpi warn"><div class="kbar"></div><div class="klabel">Đến hạn 7 ngày</div><div class="kval">24</div></div>
+      <div class="kpi warn"><div class="kbar"></div><div class="klabel">Calibration đến hạn 30d</div><div class="kval">3</div></div>
+    </div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Mã</th><th>Thiết bị</th><th>Khoa</th><th>Risk</th><th>next_pm_date</th><th>next_calibration</th><th>Trạng thái</th></tr></thead><tbody>${tr}</tbody></table></div>
+  </div>`;
+};
+
+/* ---------- SCR-007 Mobile QR check-in ---------- */
+SCREENS['qr']=()=>{
+  crumb(['<b>QR Check-in</b>']);
+  $('#view').innerHTML=`<div class="page" style="max-width:480px">
+    <div class="page-head"><div class="titles"><div class="tagrow" style="margin-bottom:6px"><span class="scr-tag">SCR-007</span> <span class="pill-tag">Mobile · @zxing/browser</span></div>
+      <h1>Quét QR thiết bị</h1><div class="sub">QR mở detail ≤ 2s (BR-023) · offline queue IndexedDB</div></div></div>
+    <div class="card card-pad" style="text-align:center">
+      <div style="background:var(--color-neutral-900);border-radius:14px;padding:30px;display:grid;place-items:center">
+        <div class="qr-box"></div><div style="color:#fff;margin-top:14px;font-size:13px">Đưa mã QR vào khung — tự động nhận diện</div>
+      </div>
+      <button class="btn btn-primary" style="margin-top:18px;width:100%" onclick="location.hash='#/assets/AC-2026-00042'">📷 Mô phỏng quét → mở AC-2026-00042</button>
+      <p class="help" style="margin-top:10px">Sau khi quét: mở SCR-003 (6 tabs) — lịch sử, thông số, SLA policy.</p>
+    </div></div>`;
+};
+
+/* ---------- SCR-009 Incidents + Wizard ---------- */
+SCREENS['incidents']=(rest)=>{
+  if(rest[0]==='new') return incidentWizard();
+  if(rest.length) return incidentDetail(rest[0]);
+  const p=persona(); crumb(['<b>Sự cố (Incident)</b>']);
+  const tr=INCIDENTS.map(i=>`<tr class="${i.sev==='Critical'?'row-danger':''}">
+    <td><a class="link" href="#/incidents/${i.id}">${i.id}</a></td><td>${i.name}<div class="text-xs muted mono">${i.asset}</div></td>
+    <td>${sevBadge(i.sev)}</td><td>${i.patient?'⚠ Có':'Không'}</td><td>${woBadge(i.status)}</td><td>${i.at}</td><td>${i.by}</td></tr>`).join('');
+  $('#view').innerHTML=`<div class="page">
+    <div class="page-head"><div class="titles"><div class="tagrow" style="margin-bottom:6px"><span class="scr-tag">SCR-009</span> <span class="pill-tag">/incidents</span></div>
+      <h1>Báo cáo Sự cố</h1><div class="sub">Wizard 3 bước · NĐ98/2021 cho sự cố Critical + bệnh nhân</div></div>
+      <a class="btn btn-primary" href="#/incidents/new"><span class="ic">＋</span> Báo sự cố</a></div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Mã</th><th>Thiết bị</th><th>Mức độ</th><th>BN ảnh hưởng</th><th>Trạng thái</th><th>Thời gian</th><th>Người báo</th></tr></thead><tbody>${tr}</tbody></table></div>
+  </div>`;
+};
+let incStep=1, incSeverity='Low', incPatient=false;
+function incidentWizard(){
+  crumb([`<a href="#/incidents">Sự cố</a>`,'<b>Tạo mới (Wizard)</b>']);
+  const steps=['Thông tin cơ bản','Mức độ & Bệnh nhân','Hành động tức thì'];
+  const bar=steps.map((s,i)=>{const n=i+1;const cls=n<incStep?'done':(n===incStep?'current':'');return `<div class="wf-node ${cls}"><span class="num">${n<incStep?'✓':n}</span>${s}</div>${i<2?'<span class="wf-arrow">→</span>':''}`;}).join('');
+  let form='';
+  if(incStep===1){
+    form=`<div class="grid g2">
+      <div><label class="fld">asset <span class="req">*</span></label><select class="select" style="width:100%"><option>AC-2026-00090 — Lồng ấp sơ sinh Atom</option><option>AC-2026-00042 — Máy thở Bennett 980</option></select></div>
+      <div><label class="fld">occurred_at <span class="req">*</span></label><input class="input" type="datetime-local" value="2026-05-24T08:12" style="width:100%"></div>
+      <div><label class="fld">reported_by (auto)</label><input class="input" value="${persona().name}" disabled style="width:100%"></div></div>
+      <label class="fld" style="margin-top:12px">short_description <span class="req">*</span> (≤ 500)</label><textarea class="input" rows="3" style="width:100%">Lồng ấp báo lỗi cảm biến nhiệt độ, nhiệt độ dao động bất thường khi đang sử dụng cho bệnh nhi.</textarea>`;
+  } else if(incStep===2){
+    form=`<label class="fld">severity <span class="req">*</span></label>
+      <select class="select" style="width:100%;margin-bottom:14px" onchange="incSeverity=this.value;incidentWizard()">
+        <option ${incSeverity==='Low'?'selected':''}>Low</option><option ${incSeverity==='Medium'?'selected':''}>Medium</option><option ${incSeverity==='Major'?'selected':''}>Major</option><option ${incSeverity==='Critical'?'selected':''}>Critical</option></select>
+      <label class="fld">patient_affected</label>
+      <div style="margin-bottom:14px"><label style="display:flex;gap:8px;align-items:center"><input type="checkbox" ${incPatient?'checked':''} onchange="incPatient=this.checked;incidentWizard()"> Có ảnh hưởng đến bệnh nhân</label></div>
+      ${incPatient?`<label class="fld">patient_injury_level</label><select class="select" style="width:100%;margin-bottom:14px"><option>Không tổn thương</option><option>Nhẹ</option><option>Nghiêm trọng</option><option>Tử vong</option></select>`:''}
+      <label class="fld">witnesses (table)</label><input class="input" placeholder="Thêm nhân chứng…" style="width:100%">
+      ${(incSeverity==='Critical'&&incPatient)?`<div class="banner banner-danger" style="margin-top:16px"><span class="bic">🚨</span><div><b>BÁO CÁO BỘ Y TẾ BẮT BUỘC theo NĐ98/2021</b> — Hồ sơ phải gửi trong <b>24h</b> từ khi xảy ra sự cố.</div></div>`:''}`;
+  } else {
+    form=`<label class="fld">immediate_action <span class="req">*</span></label><textarea class="input" rows="3" style="width:100%;margin-bottom:14px">Ngừng sử dụng thiết bị, chuyển bệnh nhi sang lồng ấp dự phòng, cô lập thiết bị và dán nhãn Out of Service.</textarea>
+      <div class="grid g2"><div><label class="fld">asset_status_after</label><select class="select" style="width:100%"><option>Out of Service</option><option>Under Repair</option></select></div>
+      <div><label class="fld" style="margin-top:0">&nbsp;</label><label style="display:flex;gap:8px;align-items:center;padding-top:8px"><input type="checkbox" checked> create_capa — tự tạo CAPA</label></div></div>
+      <div style="margin-top:14px;border:2px dashed var(--color-neutral-300);border-radius:10px;padding:16px;text-align:center;color:var(--color-neutral-600)">📎 attachments (FileUpload)</div>`;
+  }
+  $('#view').innerHTML=`<div class="page" style="max-width:760px">
+    <div class="page-head"><div class="titles"><div class="tagrow" style="margin-bottom:6px"><span class="scr-tag">SCR-009</span> <span class="pill-tag">Incident Wizard</span></div>
+      <h1>Báo cáo sự cố — Bước ${incStep}/3</h1><div class="sub">Auto-save draft 10s</div></div></div>
+    <div class="workflow">${bar}</div>
+    <div class="card card-pad">${form}</div>
+    <div style="display:flex;justify-content:space-between;margin-top:18px">
+      <button class="btn btn-secondary" ${incStep===1?'disabled':''} onclick="incStep--;incidentWizard()">← Quay lại</button>
+      ${incStep<3?`<button class="btn btn-primary" onclick="incStep++;incidentWizard()">Tiếp tục →</button>`:`<button class="btn btn-primary" onclick="incStep=1;toast('Đã gửi Incident ✓ — auto CM WO + CAPA tạo','success');location.hash='#/incidents'">✔ Gửi báo cáo</button>`}
+    </div></div>`;
+}
+function incidentDetail(id){
+  const i=INCIDENTS.find(x=>x.id===id)||INCIDENTS[0];
+  crumb([`<a href="#/incidents">Sự cố</a>`,`<b>${i.id}</b>`]);
+  $('#view').innerHTML=`<div class="page">
+    <div class="page-head"><div class="titles"><div class="tagrow" style="margin-bottom:6px"><span class="scr-tag">SCR-009</span></div>
+      <h1>${i.id}</h1><div class="sub">${i.name} · ${sevBadge(i.sev)} · ${woBadge(i.status)}</div></div>
+      ${persona().id==='qa'?`<button class="btn btn-primary" onclick="toast('Submit incident (chỉ QA Officer) ✓','success')">Submit</button>`:''}</div>
+    ${(i.sev==='Critical'&&i.patient)?`<div class="banner banner-danger"><span class="bic">🚨</span><div><b>NĐ98/2021:</b> Sự cố nghiêm trọng có ảnh hưởng bệnh nhân — đã đến hạn báo cáo Bộ Y tế trong 24h.</div></div>`:''}
+    <div class="card card-pad"><dl class="kv">
+      <dt>Thiết bị</dt><dd><a class="link" href="#/assets/${i.asset}">${i.asset}</a></dd>
+      <dt>occurred_at</dt><dd>${i.at}</dd><dt>reported_by</dt><dd>${i.by}</dd>
+      <dt>severity</dt><dd>${sevBadge(i.sev)}</dd><dt>patient_affected</dt><dd>${i.patient?'⚠ Có':'Không'}</dd>
+      <dt>CAPA liên kết</dt><dd><a class="link" href="#/capa">CAPA-2026-0021</a></dd>
+    </dl></div></div>`;
+}
+
+/* ---------- SCR-008 CAPA list + detail ---------- */
+SCREENS['capa']=(rest)=>{
+  if(rest[0]==='new') return capaDetail(null);
+  if(rest.length) return capaDetail(rest[0]);
+  crumb(['<b>CAPA</b>']);
+  const tr=CAPAS.map(c=>`<tr class="${c.status==='Overdue'?'row-danger':''}">
+    <td><a class="link" href="#/capa/${c.id}">${c.id}</a></td><td>${c.src}</td><td>${sevBadge(c.sev)}</td>
+    <td>${capaBadge(c.status)}</td><td style="${c.status==='Overdue'?'color:var(--color-danger-500);font-weight:700':''}">${c.due}</td><td>${c.owner}</td></tr>`).join('');
+  $('#view').innerHTML=`<div class="page">
+    <div class="page-head"><div class="titles"><div class="tagrow" style="margin-bottom:6px"><span class="scr-tag">SCR-008</span> <span class="pill-tag">/capa</span></div>
+      <h1>CAPA — Hành động khắc phục & phòng ngừa</h1><div class="sub">BR-011: Open→RootCause→Corrective→Verification→Closed (không bỏ bước)</div></div>
+      ${['qa','opsmgr','workshop'].includes(persona().id)?`<a class="btn btn-primary" href="#/capa/new"><span class="ic">＋</span> Mở CAPA</a>`:''}</div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Mã CAPA</th><th>Nguồn</th><th>Mức độ</th><th>Trạng thái</th><th>Hạn (due_date)</th><th>Phụ trách</th></tr></thead><tbody>${tr}</tbody></table></div>
+  </div>`;
+};
+function capaDetail(id){
+  const c=id?CAPAS.find(x=>x.id===id):{id:'CAPA-2026-NEW',sev:'High',status:'Open',due:'2026-06-15',step:1,src:'Incident INC-2026-00077'};
+  crumb([`<a href="#/capa">CAPA</a>`,`<b>${c.id}</b>`]);
+  const steps=['Open','Root Cause','Corrective','Verification','Closed'];
+  const bar=steps.map((s,i)=>{const n=i+1;const cls=n<c.step?'done':(n===c.step?'current':'');return `<div class="wf-node ${cls}"><span class="num">${n<c.step?'✓':n}</span>${s}</div>${i<4?'<span class="wf-arrow">→</span>':''}`;}).join('');
+  const overdue=c.status==='Overdue';
+  const canClose=persona().id==='qa';
+  $('#view').innerHTML=`<div class="page">
+    <div class="page-head"><div class="titles"><div class="tagrow" style="margin-bottom:6px"><span class="scr-tag">SCR-008</span> <span class="pill-tag">Workflow Bar</span></div>
+      <h1>${c.id}</h1><div class="sub">Nguồn: ${c.src} · ${sevBadge(c.sev)} · ${capaBadge(c.status)}</div></div></div>
+    ${overdue?`<div class="banner banner-danger"><span class="bic">⏰</span><div><b>CAPA quá hạn (BR-00-09)</b> — due_date ${c.due} đã qua. Cần xử lý ngay.</div></div>`:''}
+    <div class="workflow">${bar}</div>
+    <div class="grid g2"><div class="card card-pad">
+      <label class="fld">source_type / source_ref</label><input class="input" value="${c.src}" disabled style="width:100%;margin-bottom:12px">
+      <label class="fld">severity</label><div style="margin-bottom:12px">${sevBadge(c.sev)}</div>
+      <label class="fld">root_cause <span class="req">*</span></label><textarea class="input" rows="2" style="width:100%;margin-bottom:12px" placeholder="Bắt buộc nhập trước khi Close (BR-00-08, AC-E005)"></textarea>
+      <label class="fld">corrective_action</label><textarea class="input" rows="2" style="width:100%;margin-bottom:12px"></textarea>
+      <label class="fld">preventive_action</label><textarea class="input" rows="2" style="width:100%;margin-bottom:12px"></textarea>
+      <label class="fld">effectiveness_check</label><textarea class="input" rows="2" style="width:100%"></textarea>
+      <div style="display:flex;gap:10px;margin-top:16px">
+        <button class="btn btn-secondary" onclick="toast('Đã lưu CAPA','success')">💾 Lưu</button>
+        <button class="btn btn-primary" ${canClose?'':'disabled'} onclick="${canClose?`toast('Đã đóng CAPA ✓ (chỉ QA Officer — BR-010)','success')`:''}">${canClose?'✔ Đóng CAPA':'🔒 Chỉ QA Officer được đóng'}</button>
+      </div></div>
+      <div class="card"><div class="card-head"><h3>Timeline</h3></div><div class="card-pad"><div class="timeline">
+        <div class="tl-item ok"><div class="tdot"></div><div class="tt">CAPA Open</div><div class="tm">24/05/2026 · Hoàng Minh Châu</div></div>
+        <div class="tl-item warn"><div class="tdot"></div><div class="tt">Phân công Root Cause Lead</div><div class="tm">24/05/2026 · deadline ${c.due}</div></div>
+        ${c.step>=3?`<div class="tl-item"><div class="tdot"></div><div class="tt">Corrective action ghi nhận</div><div class="tm">—</div></div>`:''}
+      </div></div></div>
+    </div></div>`;
+}
+/* ---------- SCR-015 Suppliers ---------- */
+SCREENS['suppliers']=(rest)=>{
+  if(rest.length) return supplierDetail(rest[0]);
+  crumb(['<b>Nhà cung cấp</b>']);
+  const ro=['store'].includes(persona().id);
+  const tr=SUPPLIERS.map(s=>`<tr class="${s.status==='Sắp hết hạn'?'row-danger':''}">
+    <td><a class="link" href="#/suppliers/${s.id}">${s.id}</a></td><td>${s.name}</td><td>${s.cat}</td>
+    <td style="${s.status==='Sắp hết hạn'?'color:var(--color-danger-500);font-weight:700':''}">${s.contract}</td><td>${s.techs}</td>
+    <td>${s.status==='Active'?'<span class="badge b-active"><span class="dot"></span>Active</span>':'<span class="badge b-overdue">Sắp hết hạn</span>'}</td></tr>`).join('');
+  $('#view').innerHTML=`<div class="page">
+    <div class="page-head"><div class="titles"><div class="tagrow" style="margin-bottom:6px"><span class="scr-tag">SCR-015</span> <span class="pill-tag">/suppliers</span></div>
+      <h1>Nhà cung cấp & Hợp đồng</h1><div class="sub">authorized_technicians · cảnh báo HĐ sắp hết (90 ngày)</div></div>
+      ${['opsmgr','doc','admin'].includes(persona().id)?`<button class="btn btn-primary" onclick="toast('Tạo nhà cung cấp','success')"><span class="ic">＋</span> Thêm NCC</button>`:''}</div>
+    ${ro?`<div class="banner banner-info"><span class="bic">👁</span><div><b>Read-only:</b> Thủ kho chỉ xem thông tin NCC (SEC §2.2).</div></div>`:''}
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Mã</th><th>Tên NCC</th><th>Danh mục</th><th>HĐ hết hạn</th><th>KTV ủy quyền</th><th>Trạng thái</th></tr></thead><tbody>${tr}</tbody></table></div>
+  </div>`;
+};
+function supplierDetail(id){
+  const s=SUPPLIERS.find(x=>x.id===id)||SUPPLIERS[0];
+  crumb([`<a href="#/suppliers">NCC</a>`,`<b>${s.id}</b>`]);
+  $('#view').innerHTML=`<div class="page">
+    <div class="page-head"><div class="titles"><div class="tagrow" style="margin-bottom:6px"><span class="scr-tag">SCR-015</span></div><h1>${s.name}</h1><div class="sub mono">${s.id}</div></div></div>
+    <div class="grid g2"><div class="card card-pad"><dl class="kv">
+      <dt>Danh mục</dt><dd>${s.cat}</dd><dt>Hợp đồng & bảo hành</dt><dd>đến ${s.contract}</dd>
+      <dt>Trạng thái HĐ</dt><dd>${s.status}</dd></dl></div>
+      <div class="card"><div class="card-head"><h3>authorized_technicians (${s.techs})</h3></div><div class="card-pad"><ul class="checklist">
+        <li><input type="checkbox" checked disabled><div>KTV hãng được ủy quyền bảo hành — chứng chỉ còn hiệu lực</div></li>
+        <li><input type="checkbox" checked disabled><div>KTV hiệu chuẩn ISO 17025</div></li></ul></div></div></div></div>`;
+}
+
+/* ---------- SCR-014 Inventory ---------- */
+SCREENS['inventory']=()=>{
+  crumb(['<b>Kho vật tư</b>']);
+  const tr=SPAREPARTS.map(s=>`<tr class="${s.reorder?'row-danger':''}">
+    <td class="mono">${s.code}</td><td>${s.name}</td><td>${s.wh}</td>
+    <td style="${s.reorder?'color:var(--color-danger-500);font-weight:700':''}">${s.qty} ${s.unit}</td><td>${s.min}</td>
+    <td>${s.reorder?'<span class="badge b-overdue">Dưới mức tồn</span>':'<span class="badge b-closed">Đủ</span>'}</td>
+    <td><button class="btn btn-secondary btn-sm" onclick="toast('Xuất kho cho WO — tồn ≥ 0 (BR-016)','success')">Xuất</button></td></tr>`).join('');
+  $('#view').innerHTML=`<div class="page">
+    <div class="page-head"><div class="titles"><div class="tagrow" style="margin-bottom:6px"><span class="scr-tag">SCR-014</span> <span class="pill-tag">IMM-07 · /inventory</span></div>
+      <h1>Kho phụ tùng — Vật tư</h1><div class="sub">Reorder alert khi qty &lt; min_stock_level · batch/lot tracking · barcode 1:1</div></div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-secondary" onclick="toast('Nhập kho — Stock Receipt + quét barcode','success')">📥 Nhập kho</button>
+        <button class="btn btn-secondary" onclick="toast('Kiểm kê — scan & reconciliation (BR-015)','success')">🔢 Kiểm kê</button>
+        <button class="btn btn-primary" onclick="toast('Phiếu xuất kho cho WO','success')">📤 Xuất kho</button></div></div>
+    <div class="grid g4" style="margin-bottom:20px">
+      <div class="kpi danger"><div class="kbar"></div><div class="klabel">SKU dưới mức tồn</div><div class="kval">3</div></div>
+      <div class="kpi primary"><div class="kbar"></div><div class="klabel">Tổng SKU</div><div class="kval">412</div></div>
+      <div class="kpi info"><div class="kbar"></div><div class="klabel">Xuất hôm nay</div><div class="kval">5</div></div>
+      <div class="kpi warn"><div class="kbar"></div><div class="klabel">Điều chuyển chờ duyệt</div><div class="kval">1</div></div></div>
+    <div class="banner banner-warn"><span class="bic">⚠</span><div><b>Cảnh báo reorder:</b> 3 phụ tùng dưới mức tồn tối thiểu — cần đề xuất mua bổ sung.</div></div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>part_code</th><th>Tên phụ tùng</th><th>Kho</th><th>Tồn (qty)</th><th>min_stock</th><th>Trạng thái</th><th></th></tr></thead><tbody>${tr}</tbody></table></div>
+  </div>`;
+};
+
+/* ---------- NR (Needs Request) list + form + scoring ---------- */
+SCREENS['nr']=(rest)=>{
+  if(rest[0]==='new') return nrForm();
+  if(rest[0]==='score') return nrScoring(rest[1]);
+  const p=persona(); crumb(['<b>Nhu cầu thiết bị (NR)</b>']);
+  let rows=NRS;
+  if(p.id==='clinical') rows=NRS.filter(n=>n.by.includes('Lan')||n.dept);
+  const isOps=p.id==='opsmgr';
+  const tr=rows.map(n=>`<tr><td><a class="link" href="#">${n.id}</a></td><td><span class="pill-tag">${n.type}</span></td>
+    <td>${n.asset}<div class="text-xs muted">${n.dept}</div></td><td><span class="prio ${n.urgency==='P1'?'p1':'p2'}">${n.urgency}</span></td>
+    <td>${nrBadge(n.status)}</td><td>${n.score!=null?'<b>'+n.score+'/100</b>':'—'}</td><td>${n.by}</td>
+    <td>${isOps&&n.status!=='Đã duyệt'?`<button class="btn btn-secondary btn-sm" onclick="location.hash='#/nr/score/${n.id}'">Chấm điểm</button>`:''}</td></tr>`).join('');
+  $('#view').innerHTML=`<div class="page">
+    <div class="page-head"><div class="titles"><div class="tagrow" style="margin-bottom:6px"><span class="scr-tag">IMM-01</span> <span class="pill-tag">/nr</span></div>
+      <h1>${p.id==='clinical'?'Nhu cầu thiết bị của khoa tôi':'Quản lý Nhu cầu thiết bị (NR)'}</h1>
+      <div class="sub">${p.id==='clinical'?'BR-019: chỉ xem khoa mình':'Review · chấm điểm 6 tiêu chí · lập budget · trình BGĐ'}</div></div>
+      ${['clinical','opsmgr'].includes(p.id)?`<a class="btn btn-primary" href="#/nr/new"><span class="ic">＋</span> Tạo NR</a>`:''}</div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Mã NR</th><th>Loại</th><th>Thiết bị / Khoa</th><th>Khẩn</th><th>Trạng thái</th><th>Điểm</th><th>Người tạo</th><th></th></tr></thead><tbody>${tr}</tbody></table></div>
+  </div>`;
+};
+let nrType='Mới', nrLen=0;
+function nrForm(){
+  crumb([`<a href="#/nr">NR</a>`,'<b>Tạo Nhu cầu</b>']);
+  const ok=nrLen>=200;
+  $('#view').innerHTML=`<div class="page" style="max-width:820px">
+    <div class="page-head"><div class="titles"><div class="tagrow" style="margin-bottom:6px"><span class="scr-tag">IMM-01.UC1</span> <span class="pill-tag">NR Form</span></div>
+      <h1>Phiếu Nhu cầu thiết bị mới</h1><div class="sub">VR-01-01..04 · lý do lâm sàng ≥ 200 ký tự</div></div></div>
+    <div class="card card-pad">
+      <label class="fld">Loại yêu cầu <span class="req">*</span> (VR-01-01)</label>
+      <div style="display:flex;gap:10px;margin-bottom:14px">
+        ${['Mới','Thay thế','Nâng cấp'].map(t=>`<label style="display:flex;gap:6px;align-items:center"><input type="radio" name="nrt" ${nrType===t?'checked':''} onchange="nrType='${t}';nrForm()"> ${t}</label>`).join('')}
+      </div>
+      ${nrType==='Thay thế'?`<div class="banner banner-warn"><span class="bic">⚠</span><div><b>VR-01-02:</b> Yêu cầu Thay thế phải kèm <b>Decommission Plan</b> cho thiết bị cũ.</div></div>`:''}
+      <div class="grid g2">
+        <div><label class="fld">Khoa đề xuất</label><input class="input" value="Chẩn đoán hình ảnh" disabled style="width:100%"></div>
+        <div><label class="fld">Mức khẩn (urgency) <span class="req">*</span></label><select class="select" style="width:100%"><option>P1 — Khẩn cấp</option><option>P2 — Cao</option><option>P3 — Thường</option></select></div>
+        <div><label class="fld">Thiết bị / Model đề xuất <span class="req">*</span></label><input class="input" placeholder="VD: Máy siêu âm tim Philips EPIQ" style="width:100%"></div>
+        <div><label class="fld">Số lượng <span class="req">*</span> (≥ 1)</label><input class="input" type="number" value="1" min="1" style="width:100%"></div>
+      </div>
+      <label class="fld" style="margin-top:12px">Lý do lâm sàng <span class="req">*</span> (≥ 200 ký tự — VR-01-03)</label>
+      <textarea class="input" rows="4" style="width:100%" oninput="nrLen=this.value.length;document.getElementById('nrCnt').textContent=nrLen;document.getElementById('nrBtn').disabled=nrLen<200" placeholder="Mô tả nhu cầu lâm sàng, số ca/tháng, rủi ro nếu thiếu thiết bị…"></textarea>
+      <div class="help">Đã nhập <b id="nrCnt">0</b>/200 ký tự ${ok?'✓':''}</div>
+      <div style="margin-top:12px;border:2px dashed var(--color-neutral-300);border-radius:10px;padding:16px;text-align:center;color:var(--color-neutral-600)">📎 Đính kèm evidence (báo cáo, hình ảnh)</div>
+    </div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px"><a class="btn btn-secondary" href="#/nr">Hủy</a>
+      <button class="btn btn-primary" id="nrBtn" disabled onclick="toast('Đã tạo NR-2026-000129 → notify Ops Manager ✓','success');location.hash='#/nr'">Submit (block nếu &lt;200)</button></div></div>`;
+}
+function nrScoring(id){
+  crumb([`<a href="#/nr">NR</a>`,`<b>Chấm điểm ${id||''}</b>`]);
+  const crit=[['Clinical risk','Rủi ro lâm sàng nếu thiếu thiết bị',25,20],['Cost','Chi phí đầu tư',15,11],['Regulatory','Yêu cầu pháp lý / tuân thủ',15,13],['Volume','Số lượng ca sử dụng',20,16],['Age/Obsolescence','Tuổi & lỗi thời thiết bị cũ',15,12],['OEM support','Hỗ trợ nhà sản xuất',10,8]];
+  const rows=crit.map(c=>`<tr><td style="text-align:left">${c[0]}<div class="text-xs muted">${c[1]}</div></td><td>${c[2]}%</td>
+    <td><input class="input" type="number" value="${c[3]}" style="width:70px;text-align:center"></td></tr>`).join('');
+  const total=crit.reduce((s,c)=>s+c[3],0);
+  $('#view').innerHTML=`<div class="page" style="max-width:820px">
+    <div class="page-head"><div class="titles"><div class="tagrow" style="margin-bottom:6px"><span class="scr-tag">IMM-01.UC2</span> <span class="pill-tag">NR Scoring</span></div>
+      <h1>Chấm điểm 6 tiêu chí — ${id||'NR'}</h1><div class="sub">6 criteria weighted · tổng auto · xếp hạng ưu tiên</div></div></div>
+    <div class="card"><table class="matrix"><thead><tr><th style="text-align:left">Tiêu chí</th><th>Trọng số</th><th>Điểm</th></tr></thead><tbody>${rows}
+      <tr style="font-weight:700"><td style="text-align:left">TỔNG ĐIỂM (auto)</td><td>100%</td><td style="color:var(--color-success-500)">${total}/100</td></tr></tbody></table></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px">
+      <button class="btn btn-secondary" onclick="location.hash='#/procurement'">Lập Budget (TCO 5 năm) →</button>
+      <button class="btn btn-primary" onclick="toast('Đã chấm điểm ${total}/100 → trình BGĐ ✓','success');location.hash='#/nr'">Lưu & Trình BGĐ</button></div></div>`;
+}
+
+/* ---------- Procurement (PO / Budget TCO) ---------- */
+SCREENS['procurement']=()=>{
+  crumb(['<b>Mua sắm / Đấu thầu</b>']);
+  $('#view').innerHTML=`<div class="page">
+    <div class="page-head"><div class="titles"><div class="tagrow" style="margin-bottom:6px"><span class="scr-tag">IMM-02</span> <span class="pill-tag">/procurement</span></div>
+      <h1>Mua sắm & Hợp đồng</h1><div class="sub">Đề xuất → RFQ → PO · Budget Estimate CAPEX + OPEX × 5 năm (TCO)</div></div>
+      <button class="btn btn-primary" onclick="toast('Tạo PO mới','success')"><span class="ic">＋</span> Tạo PO</button></div>
+    <div class="section-title">Budget Estimate — TCO 5 năm (IMM-01.UC3)</div>
+    <div class="card"><table class="tbl"><thead><tr><th>Hạng mục</th><th>Năm 1</th><th>Năm 2</th><th>Năm 3</th><th>Năm 4</th><th>Năm 5</th><th>Tổng</th></tr></thead><tbody>
+      <tr><td>CAPEX (mua thiết bị)</td><td>2.400</td><td>—</td><td>—</td><td>—</td><td>—</td><td><b>2.400</b></td></tr>
+      <tr><td>OPEX (bảo trì, vật tư)</td><td>120</td><td>140</td><td>150</td><td>160</td><td>180</td><td><b>750</b></td></tr>
+      <tr style="font-weight:700"><td>Tổng TCO (triệu VND)</td><td>2.520</td><td>140</td><td>150</td><td>160</td><td>180</td><td style="color:var(--color-primary-600)">3.150</td></tr>
+    </tbody></table></div>
+    <div class="section-title">Đơn mua hàng (PO) gần đây</div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Mã PO</th><th>NCC</th><th>Giá trị</th><th>Trạng thái</th></tr></thead><tbody>
+      <tr><td><a class="link" href="#">PO-2026-0231</a></td><td>Siemens Healthineers VN</td><td>2.400 tr</td><td><span class="badge b-submitted">Pending BGĐ</span></td></tr>
+      <tr><td><a class="link" href="#">PO-2026-0220</a></td><td>Medtronic VN</td><td>180 tr</td><td><span class="badge b-closed">Đã duyệt</span></td></tr>
+    </tbody></table></div></div>`;
+};
+
+/* ---------- Finance & Depreciation ---------- */
+SCREENS['finance']=()=>{
+  crumb(['<b>Tài chính & Khấu hao</b>']);
+  $('#view').innerHTML=`<div class="page">
+    <div class="page-head"><div class="titles"><div class="tagrow" style="margin-bottom:6px"><span class="scr-tag">IMM-16/17</span> <span class="pill-tag">/finance</span></div>
+      <h1>Tài chính, Khấu hao & Chi phí</h1><div class="sub">Theo dõi nguyên giá, khấu hao, chi phí bảo trì-sửa chữa · đối chiếu kiểm kê</div></div>
+      <button class="btn btn-secondary" onclick="toast('Xuất báo cáo tài chính (≤5.000 dòng — BR-022)','success')">📊 Export</button></div>
+    <div class="grid g4" style="margin-bottom:20px">
+      <div class="kpi primary"><div class="kbar"></div><div class="klabel">Tổng nguyên giá</div><div class="kval" style="font-size:24px">86,4 tỷ</div></div>
+      <div class="kpi info"><div class="kbar"></div><div class="klabel">Giá trị còn lại</div><div class="kval" style="font-size:24px">52,1 tỷ</div></div>
+      <div class="kpi warn"><div class="kbar"></div><div class="klabel">Chi phí bảo trì YTD</div><div class="kval" style="font-size:24px">1,8 tỷ</div></div>
+      <div class="kpi danger"><div class="kbar"></div><div class="klabel">Đề xuất thanh lý</div><div class="kval">7</div></div></div>
+    <div class="section-title">Bảng theo dõi khấu hao</div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Mã TS</th><th>Tên</th><th>Nguyên giá</th><th>Đã khấu hao</th><th>Còn lại</th><th>Chi phí BT</th></tr></thead><tbody>
+      ${ASSETS.slice(0,5).map(a=>`<tr><td class="mono">${a.code}</td><td>${a.name}</td><td>${(Math.random()*2+1).toFixed(1)} tỷ</td><td>${(Math.random()*40+20).toFixed(0)}%</td><td>${(Math.random()*1+0.5).toFixed(1)} tỷ</td><td>${(Math.random()*120+20).toFixed(0)} tr</td></tr>`).join('')}
+    </tbody></table></div></div>`;
+};
+
+/* ---------- SCR-010 Reports (PM Compliance) ---------- */
+SCREENS['reports']=()=>{
+  crumb(['<b>Báo cáo & Tuân thủ</b>']);
+  const months=['T6','T7','T8','T9','T10','T11','T12','T1','T2','T3','T4','T5'];
+  const vals=[88,90,86,91,93,89,92,94,90,92,95,92];
+  const bars=vals.map((v,i)=>`<div class="bar" style="height:${v}%"><span>${months[i]}</span></div>`).join('');
+  $('#view').innerHTML=`<div class="page">
+    <div class="page-head"><div class="titles"><div class="tagrow" style="margin-bottom:6px"><span class="scr-tag">SCR-010</span> <span class="pill-tag">/reports/pm-compliance</span></div>
+      <h1>Báo cáo Tuân thủ PM</h1><div class="sub">Filter: Department · Date range · Risk Class</div></div>
+      <div style="display:flex;gap:8px"><button class="btn btn-secondary" onclick="toast('Đang xuất Excel…','success')">📊 Xuất Excel</button><button class="btn btn-secondary" onclick="toast('Đang in PDF…','success')">🖨 In PDF</button></div></div>
+    <div class="filterbar">
+      <select class="select"><option>Khoa: Tất cả</option><option>ICU</option><option>Sơ sinh</option></select>
+      <input class="input" type="date" value="2026-01-01"><span class="muted">→</span><input class="input" type="date" value="2026-05-25">
+      <select class="select"><option>Risk Class: Tất cả</option><option>Critical</option><option>High</option></select></div>
+    <div class="grid g3" style="margin-bottom:20px">
+      <div class="kpi ok"><div class="kbar"></div><div class="klabel">% Tuân thủ PM</div><div class="kval">92%</div></div>
+      <div class="kpi danger"><div class="kbar"></div><div class="klabel">Thiết bị overdue</div><div class="kval">5</div></div>
+      <div class="kpi info"><div class="kbar"></div><div class="klabel">WO completed (tháng)</div><div class="kval">147</div></div></div>
+    <div class="card"><div class="card-head"><h3>PM Compliance % theo 12 tháng — rollup_asset_kpi</h3></div><div class="card-pad"><div class="bars">${bars}</div></div></div>
+    <div class="section-title">Chi tiết theo thiết bị</div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Thiết bị</th><th>Khoa</th><th>next_pm_date</th><th>last_pm_date</th><th>Trạng thái</th></tr></thead><tbody>
+      ${ASSETS.filter(a=>a.pm!=='—').map(a=>{const od=new Date(a.pm)<new Date('2026-05-25');return `<tr><td>${a.name}</td><td>${a.dept}</td><td>${a.pm}</td><td>02/12/2025</td><td>${od?'<span class="badge b-overdue">Overdue</span>':'<span class="badge b-closed">Tuân thủ</span>'}</td></tr>`;}).join('')}
+    </tbody></table></div></div>`;
+};
+
+/* ---------- Locations / Departments ---------- */
+SCREENS['locations']=()=>{
+  crumb(['<b>Vị trí / Khoa</b>']);
+  $('#view').innerHTML=`<div class="page">
+    <div class="page-head"><div class="titles"><div class="tagrow" style="margin-bottom:6px"><span class="scr-tag">IMM-00</span> <span class="pill-tag">AC Location / AC Department (Tree)</span></div>
+      <h1>Cây Vị trí & Khoa phòng</h1><div class="sub">Tree expandable, lazy-load · xóa mềm is_active=False</div></div>
+      ${['opsmgr','admin'].includes(persona().id)?`<button class="btn btn-primary" onclick="toast('Thêm node Location/Department','success')"><span class="ic">＋</span> Thêm</button>`:''}</div>
+    <div class="grid g2"><div class="card"><div class="card-head"><h3>AC Department</h3></div><div class="card-pad" style="font-size:14px;line-height:2.1">
+      🏥 Bệnh viện Nhi Đồng 1<br>
+      &nbsp;&nbsp;├─ 📁 Khối Hồi sức — <span class="muted">ICU, Sơ sinh</span><br>
+      &nbsp;&nbsp;├─ 📁 Khối Nội — <span class="muted">Tim mạch, Hô hấp</span><br>
+      &nbsp;&nbsp;├─ 📁 Khối Ngoại — <span class="muted">Phẫu thuật-GMHS</span><br>
+      &nbsp;&nbsp;├─ 📁 Cấp cứu<br>
+      &nbsp;&nbsp;└─ 📁 Cận lâm sàng — <span class="muted">CĐHA, Xét nghiệm</span></div></div>
+      <div class="card"><div class="card-head"><h3>AC Location</h3></div><div class="card-pad" style="font-size:14px;line-height:2.1">
+      🏢 Tòa nhà A<br>&nbsp;&nbsp;├─ 📍 Tầng 3 — ICU (Giường 01-12)<br>&nbsp;&nbsp;├─ 📍 Tầng 4 — Sơ sinh<br>
+      🏢 Tòa nhà B<br>&nbsp;&nbsp;├─ 📍 Tầng 1 — Cấp cứu<br>&nbsp;&nbsp;└─ 📍 Tầng 2 — CĐHA</div></div></div></div>`;
+};
+
+/* ---------- SCR-013 Master Data ---------- */
+SCREENS['masterdata']=()=>{
+  crumb(['<b>Master Data</b>']);
+  $('#view').innerHTML=`<div class="page">
+    <div class="page-head"><div class="titles"><div class="tagrow" style="margin-bottom:6px"><span class="scr-tag">SCR-013</span> <span class="pill-tag">BUILT · ReferenceDataView</span></div>
+      <h1>Reference Data Master</h1><div class="sub">Locations / Departments / Categories / Device Models</div></div></div>
+    <div class="grid g2">
+      <div class="card"><div class="card-head"><h3>IMM Device Model</h3><div class="spacer"></div>${['workshop','admin'].includes(persona().id)?'<button class="btn btn-ghost btn-sm" onclick="toast(\'Tạo Device Model\',\'success\')">＋ Thêm</button>':''}</div>
+        <div class="card-pad"><table class="tbl"><tbody>
+        <tr><td>Puritan Bennett 980</td><td>Class C · Critical</td><td>PM 90d</td></tr>
+        <tr><td>Mindray uMEC12</td><td>Class B · High</td><td>PM 180d</td></tr>
+        <tr><td>Terumo TE-SS830</td><td>Class B · High</td><td>PM 180d</td></tr></tbody></table></div></div>
+      <div class="card"><div class="card-head"><h3>AC Asset Category</h3></div><div class="card-pad"><table class="tbl"><tbody>
+        <tr><td>Thiết bị hô hấp</td><td>42 thiết bị</td></tr><tr><td>Monitor / theo dõi</td><td>118 thiết bị</td></tr>
+        <tr><td>Chẩn đoán hình ảnh</td><td>36 thiết bị</td></tr><tr><td>Bơm tiêm / truyền dịch</td><td>240 thiết bị</td></tr></tbody></table></div></div></div></div>`;
+};
+
+/* ---------- SCR-011 SLA Matrix ---------- */
+SCREENS['sla']=()=>{
+  crumb(['<b>Ma trận SLA</b>']);
+  const data={P1:['30/4h','15/2h','10/1h','5/30m'],P2:['60/8h','30/4h','20/2h','10/1h'],P3:['240/24h','120/12h','60/8h','30/4h'],P4:['480/72h','240/48h','120/24h','60/12h']};
+  const risks=['Low','Medium','High','Critical'];
+  const editable=['workshop','admin'].includes(persona().id);
+  const rows=Object.keys(data).map((p,ri)=>`<tr><td class="rowhdr">${p}${ri===2?' <span class="pill-tag" style="background:var(--color-primary-50)">is_default</span>':''}</td>${data[p].map(c=>`<td ${editable?`onclick="slaEdit('${p}',this)" style="cursor:pointer"`:''} ${ri===2?'style="background:#E8F1FF"':''}>${c}</td>`).join('')}</tr>`).join('');
+  $('#view').innerHTML=`<div class="page">
+    <div class="page-head"><div class="titles"><div class="tagrow" style="margin-bottom:6px"><span class="scr-tag">SCR-011</span> <span class="pill-tag">BUILT · Priority × Risk</span></div>
+      <h1>Ma trận SLA Policy</h1><div class="sub">Response phút / Resolution giờ · BR-008: default fallback SLA bắt buộc tồn tại</div></div>
+      <button class="btn btn-secondary" onclick="toast('Xuất Excel SLA','success')">📊 Export</button></div>
+    ${editable?'<div class="banner banner-info"><span class="bic">✏</span><div>Nhấn vào ô để chỉnh sửa policy (Workshop Lead / Admin).</div></div>':'<div class="banner banner-info"><span class="bic">👁</span><div>Chỉ xem — chỉ Workshop Lead & System Admin được sửa SLA (SEC §2.2).</div></div>'}
+    <div class="card card-pad"><table class="matrix"><thead><tr><th>Priority \\\\ Risk</th>${risks.map(r=>`<th>${r}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table>
+      <p class="help" style="margin-top:12px">Định dạng: <b>Response (phút) / Resolution (giờ)</b>. Hàng P3 là <span class="pill-tag" style="background:#E8F1FF">is_default</span> được highlight.</p></div></div>`;
+};
+function slaEdit(p,cell){
+  openModal(`<div class="mhead"><h3>Sửa SLA — Priority ${p}</h3><button class="x-close" onclick="closeModal()">✕</button></div>
+  <div class="mbody"><div class="grid g2"><div><label class="fld">Response (phút)</label><input class="input" value="15" style="width:100%"></div>
+  <div><label class="fld">Resolution (giờ)</label><input class="input" value="2" style="width:100%"></div></div>
+  <label class="fld" style="margin-top:12px">Escalation sau (phút)</label><input class="input" value="30" style="width:100%"></div>
+  <div class="mfoot"><button class="btn btn-secondary" onclick="closeModal()">Hủy</button><button class="btn btn-primary" onclick="closeModal();toast('Đã cập nhật SLA policy ✓','success')">Lưu</button></div>`);
+}
+
+/* ---------- SCR-012 Audit Trail ---------- */
+SCREENS['audit']=()=>{
+  crumb(['<b>Audit Trail</b>']);
+  const tr=AUDIT.map((x,i)=>`<tr onclick="auditDrawer(${i})" style="cursor:pointer"><td class="mono">${x.ts}</td><td>${x.actor}</td>
+    <td><span class="pill-tag">${x.action}</span></td><td class="mono">${x.doc}</td><td>${x.detail}</td><td class="mono">${x.hash}</td></tr>`).join('');
+  $('#view').innerHTML=`<div class="page">
+    <div class="page-head"><div class="titles"><div class="tagrow" style="margin-bottom:6px"><span class="scr-tag">SCR-012</span> <span class="pill-tag">read-only</span></div>
+      <h1>Audit Trail Log</h1><div class="sub">Immutable · SHA-256 hash chain (BR-005) · không Create/Edit/Delete</div></div>
+      <button class="btn btn-primary" onclick="verifyChain()">🔗 Verify chain integrity</button></div>
+    <div class="banner banner-info"><span class="bic">🔒</span><div><b>Read-only hoàn toàn.</b> ${persona().id==='admin'?'Admin xem tất cả thao tác mọi user.':'QA Officer / Doc Officer xem & verify chain.'} Row click → Drawer raw JSON payload.</div></div>
+    <div class="filterbar"><input class="input" placeholder="🔍 Lọc asset / actor / action…" style="flex:1"><input class="input" type="date"><select class="select"><option>Action: Tất cả</option><option>transition_status</option><option>capa.create</option></select>
+      <button class="btn btn-secondary btn-sm" onclick="toast('Export PDF có chữ ký số','success')">🖨 Export PDF</button></div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Thời gian</th><th>Actor</th><th>Action</th><th>Document</th><th>Chi tiết</th><th>Hash</th></tr></thead><tbody>${tr}</tbody></table></div></div>`;
+};
+function auditDrawer(i){
+  const x=AUDIT[i];
+  openDrawer('Audit Entry — raw JSON',`<pre class="mono" style="font-size:12px;background:var(--color-neutral-100);padding:14px;border-radius:8px;overflow:auto;line-height:1.6">{
+  "timestamp": "${x.ts}",
+  "actor": "${x.actor}",
+  "action": "${x.action}",
+  "document": "${x.doc}",
+  "detail": "${x.detail}",
+  "prev_hash": "…${x.hash.split('…')[0]}",
+  "hash": "${x.hash}",
+  "ip": "10.20.3.${10+i}",
+  "user_agent": "AssetCore/1.0 (Frappe v15)"
+}</pre>
+  <div class="banner banner-info" style="margin-top:14px"><span class="bic">✓</span><div>Hash liên kết với entry trước — tamper-evident.</div></div>`);
+}
+
+/* ---------- Admin (Users / Config / API key) ---------- */
+SCREENS['admin']=(rest)=>{
+  const sub=rest[0]||'users';
+  crumb(['<b>Quản trị hệ thống</b>']);
+  const tabs=[['users','Người dùng & RBAC'],['config','Cấu hình hệ thống'],['api','API Key (HIS)'],['health','Backup & Health']];
+  const th=tabs.map(t=>`<div class="tab ${sub===t[0]?'active':''}" onclick="location.hash='#/admin/${t[0]}'">${t[1]}</div>`).join('');
+  let body='';
+  if(sub==='users'){
+    const users=[['Trần Thị Mai','opsmgr@bnd1','IMM Operations Manager','VT-TTBYT','Active'],['Phạm Văn Đức','tech@bnd1','IMM Technician','Xưởng KT','Active'],['Hoàng Minh Châu','qa@bnd1','IMM QA Officer','QA','Active'],['Đỗ Văn Tâm','store@bnd1','IMM Storekeeper','Kho','Active'],['BS. Nguyễn Thị Lan','clinical@bnd1','IMM Department Head','CĐHA','Active']];
+    body=`<div style="display:flex;justify-content:flex-end;margin-bottom:12px"><button class="btn btn-primary" onclick="userModal()"><span class="ic">＋</span> Tạo người dùng</button></div>
+    <div class="banner banner-info"><span class="bic">🔐</span><div>BR-019: Admin full · Technician phạm vi (department) · Nurse read-only. 2FA bắt buộc cho Admin; password bcrypt.</div></div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Họ tên</th><th>Email (unique)</th><th>IMM Role</th><th>Department</th><th>Trạng thái</th><th></th></tr></thead><tbody>
+    ${users.map(u=>`<tr><td>${u[0]}</td><td class="mono">${u[1]}</td><td><span class="pill-tag">${u[2]}</span></td><td>${u[3]}</td><td><span class="badge b-active"><span class="dot"></span>${u[4]}</span></td><td><button class="btn btn-secondary btn-sm" onclick="toast('Sửa phân quyền + department_id','success')">RBAC</button></td></tr>`).join('')}
+    </tbody></table></div>`;
+  } else if(sub==='config'){
+    body=`<div class="grid g2"><div class="card card-pad"><div class="section-title" style="margin-top:0">Nền tảng</div>
+      <dl class="kv"><dt>Timezone</dt><dd>Asia/Ho_Chi_Minh</dd><dt>Ngôn ngữ</dt><dd>Tiếng Việt (vi-VN)</dd><dt>Logo</dt><dd>bnd1_logo.png</dd><dt>Email server</dt><dd>smtp.bnd1.vn ✓</dd></dl></div>
+      <div class="card card-pad"><div class="section-title" style="margin-top:0">Bảo mật</div>
+      <dl class="kv"><dt>Session timeout</dt><dd>60 phút</dd><dt>2FA (Admin)</dt><dd>Bắt buộc ✓</dd><dt>CSRF</dt><dd>Bật</dd><dt>Audit mọi config</dt><dd>Bật ✓</dd></dl></div></div>
+      <p class="help" style="margin-top:14px">Chỉ Admin được cấu hình; mọi thay đổi ghi vào audit log (IMM-00.UC1).</p>`;
+  } else if(sub==='api'){
+    body=`<div class="banner banner-warn"><span class="bic">🔑</span><div>JWT RS256 · key <b>không hiển thị lại</b> sau khi tạo · rotate 90 ngày (IMM-15.UC1).</div></div>
+    <div style="display:flex;justify-content:flex-end;margin-bottom:12px"><button class="btn btn-primary" onclick="toast('Tạo API key — copy ngay, không hiển thị lại','warning')"><span class="ic">＋</span> Tạo API Key</button></div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Tên key</th><th>Scope</th><th>Rate limit</th><th>Hết hạn</th><th>Trạng thái</th></tr></thead><tbody>
+      <tr><td>HIS-Integration</td><td>read:assets, write:incidents</td><td>600/phút</td><td>2026-08-23</td><td><span class="badge b-active"><span class="dot"></span>Active</span></td></tr>
+      <tr><td>LIS-Sync</td><td>read:assets</td><td>120/phút</td><td>2026-07-01</td><td><span class="badge b-inprogress">Rotate soon</span></td></tr></tbody></table></div>`;
+  } else {
+    body=`<div class="grid g4" style="margin-bottom:20px">
+      <div class="kpi ok"><div class="kbar"></div><div class="klabel">Backup gần nhất</div><div class="kval" style="font-size:20px">03:00 hôm nay</div></div>
+      <div class="kpi ok"><div class="kbar"></div><div class="klabel">Scheduler</div><div class="kval" style="font-size:24px">OK</div></div>
+      <div class="kpi ok"><div class="kbar"></div><div class="klabel">Audit chain</div><div class="kval" style="font-size:24px">Hợp lệ</div></div>
+      <div class="kpi info"><div class="kbar"></div><div class="klabel">Uptime</div><div class="kval" style="font-size:24px">99,9%</div></div></div>
+    <div class="card card-pad"><div style="display:flex;gap:10px"><button class="btn btn-secondary" onclick="toast('Tạo backup thủ công','success')">💾 Backup ngay</button>
+      <button class="btn btn-danger" onclick="toast('Restore cần approval cấp 2','warning')">♻ Restore (approval cấp 2)</button>
+      <button class="btn btn-secondary" onclick="verifyChain()">🔗 Verify audit chain</button></div>
+      <p class="help" style="margin-top:12px">Backup auto daily · restore cần approval cấp 2 (IMM-00.UC1).</p></div>`;
+  }
+  $('#view').innerHTML=`<div class="page">
+    <div class="page-head"><div class="titles"><div class="tagrow" style="margin-bottom:6px"><span class="scr-tag">SCR-013 / IMM-00,15</span> <span class="pill-tag">/admin</span></div>
+      <h1>Quản trị hệ thống</h1><div class="sub">Người dùng · RBAC · cấu hình · API key HIS · backup/restore</div></div></div>
+    <div class="tabs">${th}</div>${body}</div>`;
+};
+function userModal(){
+  openModal(`<div class="mhead"><h3>Tạo người dùng mới</h3><button class="x-close" onclick="closeModal()">✕</button></div>
+  <div class="mbody"><div class="grid g2"><div><label class="fld">Họ tên</label><input class="input" style="width:100%"></div>
+  <div><label class="fld">Email (unique)</label><input class="input" type="email" style="width:100%"></div></div>
+  <label class="fld" style="margin-top:12px">IMM Role</label><select class="select" style="width:100%">${PORDER.map(id=>`<option>${PERSONAS[id].immRole}</option>`).join('')}</select>
+  <label class="fld" style="margin-top:12px">Giới hạn department_id (BR-019)</label><select class="select" style="width:100%"><option>Tất cả</option><option>ICU</option><option>Sơ sinh</option></select></div>
+  <div class="mfoot"><button class="btn btn-secondary" onclick="closeModal()">Hủy</button><button class="btn btn-primary" onclick="closeModal();toast('Đã tạo user — password bcrypt, gửi email kích hoạt ✓','success')">Tạo</button></div>`);
+}
+
+/* ---------- Journey panel (per persona) ---------- */
+SCREENS['journey']=()=>{
+  const p=persona(); crumb(['<b>Hành trình của tôi</b>']);
+  const steps=p.journey.map((j,i)=>`<li><b>${j[0]}</b><br><span class="br">🖥 ${j[1]} · 📋 ${j[2]} · ⚖ ${j[3]}</span></li>`).join('');
+  $('#view').innerHTML=`<div class="page">
+    <div class="page-head"><div class="titles"><div class="tagrow" style="margin-bottom:6px"><span class="pill-tag">Actor ${p.actor}</span> <span class="pill-tag">${p.immRole}</span></div>
+      <h1>Hành trình — ${p.title}</h1><div class="sub">Module: ${p.modules}</div></div>
+      <div class="avatar" style="width:48px;height:48px;border-radius:50%;background:${p.color};color:#fff;display:grid;place-items:center;font-weight:700;font-size:18px">${p.initials}</div></div>
+    <div class="grid g2" style="margin-bottom:20px">
+      <div class="card card-pad"><div class="section-title" style="margin-top:0">Mục tiêu & trách nhiệm</div><p class="text-sm">${p.scope}</p></div>
+      <div class="card card-pad"><div class="section-title" style="margin-top:0">Quyền phê duyệt</div><p class="text-sm">${p.approval}</p>
+        <div class="section-title">HSSD (Excel)</div><p class="text-sm">${p.excelRole}</p></div></div>
+    <div class="journey"><h4>🧭 Luồng sử dụng màn hình theo trình tự thực tế (Actor Journey Card §5)</h4>
+      <ol>${steps}</ol></div>
+    <div class="section-title">Màn hình persona này sử dụng — nhấn để mở</div>
+    <div class="tagrow">${p.scr.map(s=>`<span class="scr-chip on" onclick="location.hash=(SCRMAP['${s}']||'#/dashboard')">${s} ↗</span>`).join('')}</div>
+    <div class="access-note"><span style="font-size:16px">ℹ</span><div>Sidebar chỉ hiển thị nhóm chức năng persona này có quyền (ẩn, không grey-out — UI-SPEC §2.1). Chuyển persona ở góc phải trên để xem giao diện vai trò khác.</div></div>
+  </div>`;
+};
+
+/* ---------- Screen explorer (Actor × Screen matrix) ---------- */
+SCREENS['screens']=()=>{
+  crumb(['<b>Tất cả màn hình</b>']);
+  const list=[
+    ['SCR-001','Dashboard Tổng quan','/dashboard','Tất cả','P1'],
+    ['SCR-002','Danh sách Thiết bị','/assets','Technician, Ops','P1'],
+    ['SCR-003','Chi tiết Thiết bị (6 tabs)','/assets/:id','Technician, Workshop','P1'],
+    ['SCR-004','Form Tạo/Sửa Thiết bị','/assets/new','Ops, Admin, Doc','P1'],
+    ['SCR-005','PM & Calibration tab','/assets/:id?tab=pm','Technician, Workshop','P1'],
+    ['SCR-006','Work Order / PM Execution','/workorders/:id','Technician','P1'],
+    ['SCR-007','Mobile QR Check-in','/qr','Technician','P2'],
+    ['SCR-008','CAPA Detail + Workflow Bar','/capa/:id','QA, Workshop','P1'],
+    ['SCR-009','Incident Wizard (3 bước)','/incidents/new','Technician, Nurse','P1'],
+    ['SCR-010','Báo cáo Tuân thủ PM','/reports','Ops, Dept Head','P2'],
+    ['SCR-011','SLA Policy Matrix','/sla','Workshop, Admin','P2'],
+    ['SCR-012','Audit Trail Log','/audit','QA, Admin','P1'],
+    ['SCR-013','Reference Data / Admin','/masterdata','Workshop, Admin','P2'],
+    ['SCR-014','Inventory Dashboard','/inventory','Storekeeper','P2'],
+    ['SCR-015','Supplier List & Detail','/suppliers','Storekeeper, Ops','P2'],
+  ];
+  // Actor × Screen matrix (theo §5.1)
+  const matrix={
+    'A1 Clinical Head':       {SCR1:0,SCR3:0,SCR4:0,SCR5:0,SCR6:0,SCR7:0,SCR8:0,SCR9:0,SCR10:0,SCR11:0,SCR12:0,SCR13:0,SCR14:0,SCR15:0},
+    'A2 Ops Manager':         {SCR1:1,SCR3:1,SCR4:1,SCR5:0,SCR6:0,SCR7:0,SCR8:0,SCR9:0,SCR10:1,SCR11:0,SCR12:0,SCR13:0,SCR14:0,SCR15:1},
+    'A3 Workshop Lead':       {SCR1:1,SCR3:1,SCR4:0,SCR5:1,SCR6:0,SCR7:0,SCR8:1,SCR9:0,SCR10:1,SCR11:1,SCR12:0,SCR13:1,SCR14:0,SCR15:0},
+    'A4 Technician':          {SCR1:1,SCR3:1,SCR4:0,SCR5:1,SCR6:1,SCR7:1,SCR8:0,SCR9:1,SCR10:0,SCR11:0,SCR12:0,SCR13:0,SCR14:0,SCR15:0},
+    'A5 Document Officer':    {SCR1:0,SCR3:1,SCR4:1,SCR5:0,SCR6:0,SCR7:0,SCR8:0,SCR9:0,SCR10:0,SCR11:0,SCR12:1,SCR13:0,SCR14:0,SCR15:1},
+    'A6 Storekeeper':         {SCR1:0,SCR3:0,SCR4:0,SCR5:0,SCR6:0,SCR7:0,SCR8:0,SCR9:0,SCR10:0,SCR11:0,SCR12:0,SCR13:0,SCR14:1,SCR15:1},
+    'A7 QA Officer':          {SCR1:1,SCR3:1,SCR4:0,SCR5:0,SCR6:0,SCR7:0,SCR8:1,SCR9:0,SCR10:0,SCR11:0,SCR12:1,SCR13:0,SCR14:0,SCR15:0},
+    'A8 System Admin':        {SCR1:1,SCR3:0,SCR4:0,SCR5:0,SCR6:0,SCR7:0,SCR8:0,SCR9:0,SCR10:0,SCR11:1,SCR12:1,SCR13:1,SCR14:0,SCR15:0},
+  };
+  const cols=['SCR1','SCR3','SCR4','SCR5','SCR6','SCR7','SCR8','SCR9','SCR10','SCR11','SCR12','SCR13','SCR14','SCR15'];
+  const mrows=Object.keys(matrix).map(a=>`<tr><td class="rowhdr">${a}</td>${cols.map(c=>`<td class="${matrix[a][c]?'dot-y':'dot-n'}">${matrix[a][c]?'●':'○'}</td>`).join('')}</tr>`).join('');
+  const lrows=list.map(s=>`<tr><td><span class="scr-tag">${s[0]}</span></td><td>${s[1]}</td><td class="mono text-xs">${s[2]}</td><td>${s[3]}</td><td><span class="prio ${s[4]==='P1'?'p1':'p2'}">${s[4]}</span></td>
+    <td><a class="btn btn-secondary btn-sm" href="#${s[2].replace(':id','AC-2026-00042').replace(':id','')}">Mở →</a></td></tr>`).join('');
+  $('#view').innerHTML=`<div class="page">
+    <div class="page-head"><div class="titles"><h1>Tất cả màn hình (15 SCR)</h1><div class="sub">Danh mục màn hình & ma trận Actor × Màn hình (UI-SPEC §3, §5.1)</div></div></div>
+    <div class="card" style="margin-bottom:24px"><div class="card-head"><h3>Danh sách 15 màn hình</h3></div>
+      <table class="tbl"><thead><tr><th>Mã</th><th>Tên màn hình</th><th>Route</th><th>Role chính</th><th>Ưu tiên</th><th></th></tr></thead><tbody>${lrows}</tbody></table></div>
+    <div class="section-title">Ma trận Actor × Màn hình (● dùng · ○ không áp dụng)</div>
+    <div class="card card-pad" style="overflow-x:auto"><table class="matrix"><thead><tr><th style="text-align:left">Actor \\\\ SCR</th>${cols.map(c=>`<th>${c.replace('SCR','')}</th>`).join('')}</tr></thead><tbody>${mrows}</tbody></table></div>
+  </div>`;
+};
+
+/* ---------- GRN / BYT / Calibration (journey screens, IMM-03/05/11) ---------- */
+SCREENS['grn']=()=>{ crumb(['<b>GRN — Tiếp nhận thiết bị</b>']);
+  $('#view').innerHTML=`<div class="page" style="max-width:820px"><div class="page-head"><div class="titles"><div class="tagrow" style="margin-bottom:6px"><span class="scr-tag">IMM-03.UC1</span> <span class="pill-tag">GRN Form</span></div><h1>Phiếu nhập kho thiết bị (GRN)</h1><div class="sub">Serial unique toàn hệ thống (BR-001) · GRN trước khi tạo AC Asset</div></div></div>
+    <div class="card card-pad"><div class="grid g2">
+      <div><label class="fld">Tham chiếu PO</label><input class="input" value="PO-2026-0220" style="width:100%"></div>
+      <div><label class="fld">Nhà cung cấp</label><input class="input" value="Medtronic VN" disabled style="width:100%"></div>
+      <div><label class="fld">Serial number <span class="req">*</span></label><input class="input mono" placeholder="SN unique…" style="width:100%"></div>
+      <div><label class="fld">Số lượng</label><input class="input" type="number" value="1" style="width:100%"></div></div>
+      <div class="section-title">Acceptance Test (IMM-03.UC2)</div>
+      <ul class="checklist"><li><input type="checkbox" checked><div>Kiểm tra ngoại quan, phụ kiện đầy đủ</div></li><li><input type="checkbox"><div>Test chức năng cơ bản theo nghiệm thu</div></li><li><input type="checkbox"><div>Đối chiếu cấu hình với hợp đồng</div></li></ul>
+      <div class="banner banner-warn" style="margin-top:12px"><span class="bic">⚠</span><div>Phải đủ checklist mới chuyển sang <b>Installation</b>; nếu Fail → trả NCC.</div></div>
+    </div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px"><button class="btn btn-secondary" onclick="toast('Trả NCC (Fail acceptance)','warning')">Trả NCC</button><button class="btn btn-primary" onclick="toast('GRN OK → tạo AC Asset','success');location.hash='#/assets/new'">Tạo AC Asset →</button></div></div>`;
+};
+SCREENS['byt']=()=>{ crumb(['<b>Đăng ký lưu hành BYT</b>']);
+  const exp=ASSETS.filter(a=>new Date(a.bytexp)<new Date('2026-08-23'));
+  $('#view').innerHTML=`<div class="page"><div class="page-head"><div class="titles"><div class="tagrow" style="margin-bottom:6px"><span class="scr-tag">IMM-05</span> <span class="pill-tag">BYT Compliance</span></div><h1>Đăng ký lưu hành BYT</h1><div class="sub">Cảnh báo 90 ngày trước hết hạn · block vận hành nếu quá hạn (BR-014)</div></div><button class="btn btn-secondary" onclick="toast('Export CSV','success')">📊 Export CSV</button></div>
+    <div class="banner banner-danger"><span class="bic">⚠</span><div><b>${exp.length} thiết bị</b> có đăng ký BYT sắp/đã hết hạn trong 90 ngày — cần gia hạn giấy phép.</div></div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Mã TS</th><th>Tên</th><th>byt_reg_no</th><th>Hết hạn</th><th>Khoa</th><th></th></tr></thead><tbody>
+    ${exp.map(a=>`<tr class="row-danger"><td class="mono">${a.code}</td><td>${a.name}</td><td>${a.byt}</td><td style="color:var(--color-danger-500);font-weight:700">${a.bytexp}</td><td>${a.dept}</td><td><button class="btn btn-primary btn-sm" onclick="toast('Upload giấy phép mới — gia hạn','success')">Gia hạn</button></td></tr>`).join('')}
+    </tbody></table></div></div>`;
+};
+SCREENS['calibration']=()=>{ crumb(['<b>Hiệu chuẩn / Kiểm định</b>']);
+  $('#view').innerHTML=`<div class="page"><div class="page-head"><div class="titles"><div class="tagrow" style="margin-bottom:6px"><span class="scr-tag">IMM-11</span> <span class="pill-tag">Calibration</span></div><h1>Hiệu chuẩn thiết bị đo lường</h1><div class="sub">BR-017: lưu certificate + expiry · nhắc 30 ngày · quá hạn → Suspended</div></div><button class="btn btn-primary" onclick="toast('Tạo Calibration WO','success')"><span class="ic">＋</span> Tạo Calibration WO</button></div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Mã TS</th><th>Tên</th><th>next_calibration</th><th>Certificate</th><th>Trạng thái</th></tr></thead><tbody>
+    ${ASSETS.filter(a=>a.cal!=='—').map(a=>{const od=new Date(a.cal)<new Date('2026-05-25');return `<tr class="${od?'row-danger':''}"><td class="mono">${a.code}</td><td>${a.name}</td><td style="${od?'color:var(--color-danger-500);font-weight:700':''}">${a.cal}</td><td>ISO 17025</td><td>${od?'<span class="badge b-oos">Suspended (quá hạn)</span>':'<span class="badge b-closed">Còn hiệu lực</span>'}</td></tr>`;}).join('')}
+    </tbody></table></div></div>`;
+};
+
+/* INSERT_HERE */
+
+/* ---------- INIT ---------- */
+function applyKeyboard(){
+  document.addEventListener('keydown',e=>{
+    if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();$('#globalSearch').focus();}
+    if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'){e.preventDefault();toast('Ctrl+S — Lưu form hiện tại','success');}
+    if(e.key==='Escape'){closeModal();closeDrawer();}
+    if(e.key==='?'&&e.target.tagName!=='INPUT'&&e.target.tagName!=='TEXTAREA'){showShortcuts();}
+  });
+  let g=false;
+  document.addEventListener('keydown',e=>{
+    if(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA')return;
+    if(e.key.toLowerCase()==='g'){g=true;setTimeout(()=>g=false,800);return;}
+    if(g&&e.key.toLowerCase()==='a'){location.hash='#/assets';g=false;}
+    if(g&&e.key.toLowerCase()==='d'){location.hash='#/dashboard';g=false;}
+  });
+}
+function showShortcuts(){
+  openModal(`<div class="mhead"><h3>⌨ Phím tắt</h3><button class="x-close" onclick="closeModal()">✕</button></div>
+  <div class="mbody"><dl class="kv">
+    <dt><span class="pill-tag">Ctrl/Cmd + S</span></dt><dd>Lưu form hiện tại</dd>
+    <dt><span class="pill-tag">Ctrl/Cmd + K</span></dt><dd>Global search (mã/UDI/tên)</dd>
+    <dt><span class="pill-tag">Esc</span></dt><dd>Đóng modal / drawer</dd>
+    <dt><span class="pill-tag">?</span></dt><dd>Hiện bảng phím tắt</dd>
+    <dt><span class="pill-tag">G → A</span></dt><dd>Go to Assets</dd>
+    <dt><span class="pill-tag">G → D</span></dt><dd>Go to Dashboard</dd>
+  </dl></div>`);
+}
+$('#btnCollapse').onclick=()=>$('#sidebar').classList.toggle('collapsed');
+$('#btnShortcuts').onclick=showShortcuts;
+$('#personaPill').onclick=openPersonaSwitcher;
+$('#globalSearch').addEventListener('keydown',e=>{if(e.key==='Enter'){toast('Tìm: '+e.target.value,'success');location.hash='#/assets';}});
+renderPersonaPill();
+renderSidebar();
+applyKeyboard();
+if(!location.hash) location.hash=persona().home;
+route();
+</script>
+</body>
+</html>

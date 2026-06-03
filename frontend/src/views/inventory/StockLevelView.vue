@@ -142,9 +142,14 @@ onMounted(load)
             <tr>
               <th class="table-header">Kho</th>
               <th class="table-header">Phụ tùng</th>
-              <th class="table-header text-right">Tồn</th>
-              <th class="table-header text-right hidden md:table-cell">Giữ chỗ</th>
-              <th class="table-header text-right">Còn lại</th>
+              <th class="table-header text-right" title="Tồn vật lý thực có trong kho">Tồn</th>
+              <th
+                class="table-header text-right hidden md:table-cell cursor-help"
+                title="Đã giữ = phiếu cấp phát chưa xuất đang giữ chỗ. Khả dụng = Tồn − Đã giữ."
+              >
+                <span class="border-b border-dotted border-slate-300">Đã giữ</span>
+              </th>
+              <th class="table-header text-right" title="Khả dụng = Tồn − Đã giữ (phần có thể xuất)">Khả dụng</th>
               <th class="table-header text-right hidden lg:table-cell">Min</th>
               <th class="table-header text-right hidden lg:table-cell">Giá trị</th>
               <th class="table-header hidden md:table-cell">Giao dịch cuối</th>
@@ -178,7 +183,11 @@ class="px-4 py-3 text-right font-semibold tabular-nums"
                   :class="r.is_low ? 'text-red-600' : 'text-slate-900'">
                 {{ r.qty_on_hand }} <span class="text-xs font-normal text-slate-400">{{ r.uom }}</span>
               </td>
-              <td class="px-4 py-3 text-right text-slate-500 tabular-nums hidden md:table-cell">{{ r.reserved_qty }}</td>
+              <td
+                class="px-4 py-3 text-right tabular-nums hidden md:table-cell"
+                :class="r.reserved_qty > 0 ? 'text-amber-600 font-medium' : 'text-slate-400'"
+                :title="r.reserved_qty > 0 ? 'Đang được phiếu cấp phát chưa xuất giữ chỗ' : undefined"
+              >{{ r.reserved_qty }}</td>
               <td class="px-4 py-3 text-right text-emerald-600 font-medium tabular-nums">{{ r.available_qty }}</td>
               <td class="px-4 py-3 text-right text-xs text-slate-500 tabular-nums hidden lg:table-cell">
                 {{ r.min_level || '—' }}

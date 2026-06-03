@@ -52,6 +52,53 @@
 
 ---
 
+## 0b. Catalog đầy đủ (34 endpoints)
+
+> Ground truth refreshed 2026-05-27: `grep -c "^@frappe.whitelist" assetcore/api/imm04.py` = **34**.
+> So với §0 cũ (snapshot 2026-05-14, 33 endpoint), bổ sung `generate_internal_qr`.
+> Categorization: **Primary** = thuộc happy path 11-state workflow, **Support** = utility/helper UI/dashboard, **Internal** = admin/diagnostic/retry/cancel.
+
+| # | Method | Path | Mô tả ngắn | Use case |
+|---|---|---|---|---|
+| 01 | POST | /api/method/assetcore.api.imm04.create_commissioning | Tạo phiếu nghiệm thu mới | Primary |
+| 02 | POST | /api/method/assetcore.api.imm04.create_from_purchase | Tạo phiếu từ AC Purchase (link) | Primary |
+| 03 | POST | /api/method/assetcore.api.imm04.save_commissioning | Lưu inline field (Draft/edit) | Primary |
+| 04 | POST | /api/method/assetcore.api.imm04.transition_state | Workflow transition (G01–G06) | Primary |
+| 05 | POST | /api/method/assetcore.api.imm04.submit_commissioning | Submit phiếu (docstatus 0→1, mint Asset) | Primary |
+| 06 | POST | /api/method/assetcore.api.imm04.assign_identification | Gán SN + sinh QR | Primary |
+| 07 | POST | /api/method/assetcore.api.imm04.submit_baseline_checklist | Nộp kết quả đo kiểm IQ/OQ/PQ | Primary |
+| 08 | POST | /api/method/assetcore.api.imm04.clear_clinical_hold | Gỡ Clinical Hold (có license) | Primary |
+| 09 | POST | /api/method/assetcore.api.imm04.approve_clinical_release | Set board_approver + duyệt release | Primary |
+| 10 | POST | /api/method/assetcore.api.imm04.submit_for_approval | Gửi phiếu cho người duyệt | Primary |
+| 11 | POST | /api/method/assetcore.api.imm04.approve_pending | Duyệt / Từ chối phiếu chờ | Primary |
+| 12 | POST | /api/method/assetcore.api.imm04.report_nonconformance | Tạo NC trên phiếu | Primary |
+| 13 | POST | /api/method/assetcore.api.imm04.close_nonconformance | Đóng NC (root cause + action) | Primary |
+| 14 | POST | /api/method/assetcore.api.imm04.report_doa | Báo DOA (Dead on Arrival) | Primary |
+| 15 | POST | /api/method/assetcore.api.imm04.upload_document | Upload CO/CQ/Manual/License | Primary |
+| 16 | GET  | /api/method/assetcore.api.imm04.get_form_context | Chi tiết phiếu + allowed transitions | Support |
+| 17 | GET  | /api/method/assetcore.api.imm04.list_commissioning | Danh sách phiếu + pagination/filter | Support |
+| 18 | GET  | /api/method/assetcore.api.imm04.list_non_conformances | NC theo phiếu | Support |
+| 19 | GET  | /api/method/assetcore.api.imm04.list_my_pending_approvals | Phiếu tôi cần duyệt | Support |
+| 20 | GET  | /api/method/assetcore.api.imm04.get_dashboard_stats | KPI dashboard | Support |
+| 21 | GET  | /api/method/assetcore.api.imm04.get_gate_status | Trạng thái G01–G06 cho phiếu | Support |
+| 22 | GET  | /api/method/assetcore.api.imm04.get_lifecycle_timeline | Timeline `Asset Lifecycle Event` | Support |
+| 23 | GET  | /api/method/assetcore.api.imm04.get_commissioning_origin | Truy xuất phiếu nguồn của Asset | Support |
+| 24 | GET  | /api/method/assetcore.api.imm04.get_po_details | Auto-fill từ AC Purchase | Support |
+| 25 | GET  | /api/method/assetcore.api.imm04.get_barcode_lookup | Tra cứu barcode/QR | Support |
+| 26 | GET  | /api/method/assetcore.api.imm04.check_sn_unique | Kiểm tra serial unique (on-blur) | Support |
+| 27 | GET  | /api/method/assetcore.api.imm04.search_link | Autocomplete Link fields | Support |
+| 28 | GET  | /api/method/assetcore.api.imm04.get_users_by_role | Danh sách user theo Frappe role | Support |
+| 29 | GET  | /api/method/assetcore.api.imm04.generate_qr_label | Sinh dữ liệu QR label (in tem) | Support |
+| 30 | POST | /api/method/assetcore.api.imm04.generate_internal_qr | (Re)generate internal QR cho phiếu | Support |
+| 31 | GET  | /api/method/assetcore.api.imm04.generate_handover_pdf | Sinh URL PDF biên bản bàn giao | Support |
+| 32 | POST | /api/method/assetcore.api.imm04.retry_mint_asset | Retry tạo AC Asset sau lỗi mint | Internal |
+| 33 | POST | /api/method/assetcore.api.imm04.cancel_commissioning | Hủy phiếu (Submitted) | Internal |
+| 34 | POST | /api/method/assetcore.api.imm04.delete_commissioning | Xóa phiếu (Draft only) | Internal |
+
+> Schema chi tiết (request/response/errors/side effects) chỉ document cho 6 endpoint Primary trọng yếu ở §2 bên dưới (`get_form_context`, `create_commissioning`, `submit_commissioning`, `assign_identification`, `submit_baseline_checklist`, `generate_qr_label`, `get_dashboard_stats`). Các endpoint còn lại tuân thủ envelope chuẩn AssetCore (§1.1–1.4) và mapping role/permission ở §2 / `04_Backend_Design.md`.
+
+---
+
 ## 1. Quy ước chung
 
 ### 1.1. Response success — format chuẩn AssetCore
@@ -527,6 +574,8 @@ curl -X POST 'http://site/api/method/assetcore.api.imm04.submit_commissioning' \
 | Role | HTM Technician+ (không Vendor Engineer) |
 | Idempotent | Yes |
 
+**`kpis.overdue_sla`** = `frappe.db.count("Asset Commissioning", overdue_commissioning_filter())` (BR-04-10). Anchor = `reception_date` (KHÔNG `expected_installation_date`); ngưỡng `OVERDUE_DAYS=30`. Giá trị này **bằng đúng** `pagination.total` của `list_commissioning({overdue:1})` → card click drill được. Các KPI còn lại (`pending_count` / `hold_count` / `open_nc_count` / `released_this_month`) GIỮ NGUYÊN định nghĩa.
+
 **Response success:**
 ```jsonc
 {
@@ -537,7 +586,7 @@ curl -X POST 'http://site/api/method/assetcore.api.imm04.submit_commissioning' \
       "hold_count": 2,
       "open_nc_count": 3,
       "released_this_month": 8,
-      "overdue_sla": 1
+      "overdue_sla": 1        // == pagination.total của list_commissioning({overdue:1})
     },
     "states_breakdown": [
       {"workflow_state": "Identification", "count": 5},
@@ -557,7 +606,9 @@ curl -X POST 'http://site/api/method/assetcore.api.imm04.submit_commissioning' \
 
 - `list_commissioning`: endpoint riêng vì cần business filter (whitelist filter keys, default loại cancelled)
 - Response luôn trả field denormalized `vendor_name`, `item_name` để FE không cần extra call
-- Whitelist filter keys: `workflow_state, po_reference, master_item, vendor, clinical_dept, docstatus, is_radiation_device, vendor_serial_no`
+- Whitelist filter keys (raw column): `workflow_state, po_reference, master_item, vendor, clinical_dept, docstatus, is_radiation_device, vendor_serial_no, expected_installation_date, final_asset, internal_tag_qr, doa_incident`
+- **Virtual filter `overdue=1`** (BR-04-10): KHÔNG phải raw column — khi truyền, AND thêm SoT `overdue_commissioning_filter()` (`reception_date < today−30`, `workflow_state NOT IN terminal`, `docstatus != 2`) vào `safe_filters`, **không clobber** filter khác. `'overdue'` ở whitelist ảo riêng (`_VIRTUAL_FILTER_KEYS`), KHÔNG lọt `_ALLOWED_FILTER_KEYS`. Drill từ KPI card "Quá hạn SLA". **INVARIANT:** `pagination.total` của `list_commissioning({overdue:1})` == `get_dashboard_stats().kpis.overdue_sla` (card == drill rows).
+  - Ví dụ: `?filters={"overdue":1}&page=1&page_size=20` → chỉ phiếu quá hạn SLA. Kết hợp được: `{"overdue":1,"clinical_dept":"DEPT-ICU"}` → quá hạn ∩ khoa ICU.
 
 ## 4. Webhook / Realtime Events
 
@@ -598,6 +649,75 @@ curl 'http://site/api/method/assetcore.api.imm04.get_dashboard_stats' \
 curl 'http://site/api/method/assetcore.api.imm04.list_commissioning?filters={}&page=1&page_size=5' \
   -H 'Authorization: token key:secret'
 ```
+
+---
+
+## 11. Notification Contract (BE → FE)
+
+Chuẩn hóa thông báo end-to-end (vòng 5 — cụm Deployment). Mọi lỗi nghiệp vụ raise qua
+`nthrow(MSG.IMM04_*)` (service) / `nthrow_in_hook(MSG.IMM04_*)` (DocType hook); API wrap
+qua shared `handle`/`parse_json` (`assetcore/utils/api_handler.py`) để auto-hydrate envelope.
+
+### 11.1. Envelope
+
+```jsonc
+{
+  "severity": "warning",            // success | error | warning | info
+  "message_code": "IMM04-DUP-SERIAL",
+  "title": "Trùng số serial",        // VI, ngắn
+  "message": "VR-01: Serial '{serial}' đã được gán cho Tài sản {asset}.",  // VI, chi tiết
+  "action_hint": "Kiểm tra lại serial hoặc tra cứu tài sản hiện hữu.",     // VI, gợi ý hành động
+  "context": { "serial": "...", "asset": "..." }
+}
+```
+
+FE bắt tập trung ở `composables/useApi.ts` → `useNotify.fromError` → toast/modal dùng chung.
+
+### 11.2. Severity rule
+
+| Tình huống | severity | http_status |
+|---|---|---|
+| Validation input / dữ liệu sai (VR-*) | `warning` | 422 |
+| Không tìm thấy bản ghi | `warning` | 404 |
+| Sai trạng thái / xung đột state machine | `warning` | 409 |
+| Không có quyền (forbidden) | `error` | 403 |
+| Lỗi hệ thống unexpected | `error` | 500 |
+| Thao tác thành công | `success` | 200 |
+
+### 11.3. Bảng mã MSG.IMM04_*
+
+| message_code | severity | http | Khi nào | Nguồn (service) |
+|---|---|---|---|---|
+| `IMM04-NOT-FOUND` | warning | 404 | Asset Commissioning không tồn tại | `get_commissioning`, `submit_*` |
+| `IMM04-BAD-STATE` | warning | 409 | Thao tác sai trạng thái; hủy ở state không cho phép | `handle_commissioning_cancel` |
+| `IMM04-VENDOR-NOT-ASSIGNED` | warning | 422 | Chưa gán NCC khi submit | submit flow |
+| `IMM04-DEFECT-BLOCKED` | warning | 422 | Còn lỗi/NC chưa khắc phục | submit flow |
+| `IMM04-DUP-SERIAL` | warning | 422 | VR-01: serial trùng (Asset hoặc Phiếu nghiệm thu khác) | `_vr01_unique_serial_number` |
+| `IMM04-LIFECYCLE-LOCKED` | warning | 422 | VR-06: nhật ký lifecycle không được sửa (ISO 13485 §4.2.5) | lifecycle validate hook |
+| `IMM04-DOC-EXPIRED` | warning | 422 | Tài liệu commissioning đã hết hạn | `_validate_document_expiry` |
+| `IMM04-DOCS-INCOMPLETE` | warning | 422 | VR-02 (Gate G01): thiếu tài liệu bắt buộc | gate G01 |
+| `IMM04-BASELINE-FAILED` | warning | 422 | VR-03 (Gate G03): còn thông số baseline Fail | `validate_gate_g03` |
+| `IMM04-OPEN-NC` | warning | 422 | VR-04 (Gate G05): còn NC chưa đóng | `validate_gate_g05_g06` |
+| `IMM04-BOARD-APPROVER-REQUIRED` | warning | 422 | Gate G06: chưa chọn Người phê duyệt BGĐ | `validate_gate_g05_g06` |
+| `IMM04-CANCEL-ASSET-ACTIVE` | warning | 409 | Không thể hủy: Tài sản đã kích hoạt | `handle_commissioning_cancel` |
+| `IMM04-SUBMIT-SUCCESS` | success | 200 | Đã gửi/submit phiếu nghiệm thu | submit flow |
+
+> Cảnh báo mềm (doc hết hạn <30 ngày, hồ sơ thiếu nhưng cho duyệt sớm) giữ nguyên `frappe.msgprint(alert=True)` — KHÔNG raise; không thuộc envelope error.
+
+### 11.4. BE checklist
+
+- [ ] Import `from assetcore.utils.notify import MSG, nthrow` (hook dùng `nthrow_in_hook`).
+- [ ] Mọi `frappe.throw` nghiệp vụ → `nthrow(MSG.IMM04_*)`; bỏ exception class thô.
+- [ ] Nếu wrapper bắt `frappe.ValidationError` rồi bọc `ServiceError(VALIDATION,...)` làm rớt
+      `message_code`/`severity` → re-`nthrow(MSG.IMM04_*)` để hydrate đầy đủ (bài học vòng 3).
+- [ ] `api/imm04.py` dùng shared `handle`/`parse_json`, bỏ `_handle`/`_parse_json` local.
+- [ ] Regen FE i18n: `python scripts/gen_fe_messages.py`.
+
+### 11.5. FE checklist
+
+- [ ] Store `stores/imm04.ts` expose `lastApiError` + helper `_captureError`.
+- [ ] Action success → `notify.show(MSG.IMM04_*)`; fail → `notify.fromError(store.lastApiError)`.
+- [ ] Test store khi phù hợp (vitest).
 
 ---
 

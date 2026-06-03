@@ -5,7 +5,7 @@
 | Mục | Giá trị |
 |---|---|
 | Module | IMM-01 — Đánh giá nhu cầu và dự toán |
-| Cập nhật | 2026-05-14 |
+| Cập nhật | 2026-05-18 |
 | Liên kết | [02 Analysis](./02_Analysis_Design.md) · [03 Diagrams](./03_Diagrams.md) · [05 API](./05_API_Specification.md) |
 
 ---
@@ -39,12 +39,12 @@ Naming: `NR-.YY.-.MM.-.#####`. Module: `AssetCore`. Submittable. track_changes=1
 | | clinical_head | Link | N (auto) | — | `User` | `fetch_from = requesting_department.dept_head`; service force-overwrite (`_sync_clinical_head_from_department`) — user KHÔNG được tự nhập |
 | | workflow_state | Link | N (auto) | Draft | `Workflow State` | — |
 | | priority_class | Select | N (auto) | — | `P1\nP2\nP3\nP4` | Tính bởi `_classify_priority` |
-| **Target** | device_model_ref | Link | Y | — | `IMM Device Model` | — |
-| | device_category | Link | N (auto) | — | `AC Asset Category` | `fetch_from = device_model_ref.asset_category`, read_only |
+| **Target** | device_category | Link | **Y** | — | `AC Asset Category` | **Bắt buộc** — `_validate_device_target()` raise nếu trống (Wave 2, 2026-05-16) |
+| | device_model_ref | Link | **N** | — | `IMM Device Model` | **Tùy chọn** — nếu có, service tự fill `device_category` từ model; Model thường chốt sau ở IMM-02 |
 | | quantity | Int | Y | 1 | — | — |
 | | target_year | Int | Y | — | — | VR-01-04: ≥ năm hiện tại |
 | | weighted_score | Float | N (auto) | — | precision=4 | Auto-compute từ scoring_rows |
-| **Justification** | clinical_justification | Long Text | Y | — | — | Chỉ `reqd:1` ở DocType; validation độ dài chưa enforce |
+| **Justification** | clinical_justification | Long Text | Y | — | — | `reqd:1` ở DocType; **VR-01-03**: phải ≥ 200 ký tự khi rời Draft → Reviewing (Wave 2) |
 | | replacement_for_asset | Link | conditional | — | `AC Asset` | `mandatory_depends_on: doc.request_type=='Replacement'` |
 | | utilization_pct_12m | Percent | N | — | — | Auto-fetch từ IMM-07 (chưa wire) |
 | | downtime_hr_12m | Float | N | — | — | Auto-fetch từ IMM-07 (chưa wire) |
@@ -141,10 +141,10 @@ Naming: `DF-.YYYY.-.#####`. Module: `AssetCore`. Không submittable. track_chang
 |---|---|---|---|
 | budget_section | Select | Y | CAPEX\nOPEX |
 | line_type | Select | Y | Device\nInstall\nTraining\nInfra\nAccessory\nPM\nCalibration\nSpare\nConsumable\nSoftware\nInsurance\nOther |
-| year_offset | Int | Y | 0 = năm mua; 1–5 = OPEX years |
-| qty | Float | Y | — |
+| year_offset | Int | N | 0 = năm mua; 1–5 = OPEX years; G03 validate có đủ year_offset 1..5 trong service |
+| qty | Float | N | Số lượng (service dùng `or 0` khi tính amount) |
 | unit_cost | Currency | Y | — |
-| amount | Currency | N (auto) | qty × unit_cost |
+| amount | Currency | N (auto) | qty × unit_cost — tính bởi `_rollup_budget` |
 | benchmark_source | Data | N | Tham chiếu thị trường |
 | notes | Small Text | N | — |
 
@@ -179,7 +179,7 @@ File: `assetcore/services/imm01.py` — **Đã implement đầy đủ.**
 | Hook | Function | Mô tả |
 |---|---|---|
 | `before_insert` | `before_insert_needs_request(doc)` | Set `request_date = today()`, auto-fetch `clinical_head` từ AC Department, auto-fetch replacement metrics nếu type=Replacement/Upgrade |
-| `validate` | `validate_needs_request(doc)` | Chạy VR-01-01..VR-05, tính priority score, rollup budget, check gates theo state |
+| `validate` | `validate_needs_request(doc)` | Gọi tuần tự: `_sync_clinical_head_from_department` → `_validate_device_target` → `_vr04_target_year` → `_vr01_unique_active_request_per_asset` → `_vr02_replacement_requires_decom_plan` → VR-01-05, priority score, budget rollup, check gates |
 | `before_submit` | `before_submit_needs_request(doc)` | Validate G05 (board_approver + funding_source), set approval_date |
 | `on_submit` | `on_submit_needs_request(doc)` | Ghi IMM Audit Trail (event_type=System) nếu có replacement_for_asset |
 | `on_cancel` | `on_cancel_needs_request(doc)` | Ghi IMM Audit Trail Cancelled |
@@ -194,12 +194,14 @@ Function `write_audit_trail(doc, event_type, from_status, to_status, notes)`:
 
 | VR | Function | Logic |
 |---|---|---|
+| VR-01-00 | `_validate_device_target` | `device_category` bắt buộc; nếu `device_model_ref` có → auto-fill `device_category` từ model. Raise `ServiceError(VALIDATION)` nếu `device_category` vẫn trống. (Wave 2) |
 | VR-01-01 | `_vr01_unique_active_request_per_asset` | 1 Asset chỉ có 1 active Replacement NR (docstatus<1, state not in Approved/Rejected) |
 | VR-01-02 | `_vr02_replacement_requires_decom_plan` | Replacement → kiểm tra `AC Asset.imm_lifecycle_status` ∈ {Decommissioned, Pending Decommission}. Hiện **soft warn (msgprint orange)**, KHÔNG block; sẽ đổi thành ServiceError khi IMM-13 LIVE |
+| VR-01-03 | `_validate_gate_g01` → inline | **`clinical_justification` ≥ 200 ký tự** khi rời Draft → Reviewing (Wave 2, 2026-05-16). Hằng số `_VR0103_MIN_CHARS = 200`. |
 | VR-01-04 | `_vr04_target_year` | `target_year ≥ current_year`; raise `ServiceError(VALIDATION)` |
 | VR-01-05 | `_vr05_score_consistency` | `abs(weighted_score - Σ scoring_rows.weighted) < 0.01` |
 
-> VR-01-03 (clinical_justification ≥ 200 ký tự) và VR-01-06 (audit trail bất biến) **chưa được enforce trong service layer**. clinical_justification chỉ `reqd:1` ở DocType; audit trail immutable được hành xử ở DocPerm cấp `IMM Audit Trail` (Wave 1 shared).
+> VR-01-03 **đã được enforce** trong `_validate_gate_g01` kể từ Wave 2 (commit `41fabd8`). VR-01-06 (audit trail bất biến) vẫn tại DocPerm cấp `IMM Audit Trail`.
 
 ### Priority scoring
 

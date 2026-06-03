@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // Copyright (c) 2026, AssetCore Team
-import { ref, onMounted, computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, onMounted, computed, watch } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { useAssetStore, useRefDataStore } from '@/stores/imm00'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
@@ -10,22 +10,61 @@ import ListFilterBar from '@/components/common/ListFilterBar.vue'
 import BasePagination from '@/components/common/BasePagination.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import type { LifecycleStatus, AssetListParams } from '@/types/imm00'
+import { BYT_EXPIRY_CHIP_LABEL } from '@/constants/labels'
+import { useImportWizard } from '@/composables/useImportWizard'
+import ImportWizardModal from '@/components/import/ImportWizardModal.vue'
 
 const router = useRouter()
+const route = useRoute()
 const store = useAssetStore()
 const refData = useRefDataStore()
 
 const showFilters = ref(false)
+
+// Core Doc §9.3 — keys cho phép pre-apply từ route.query (drill-down từ dashboard).
+// byt_status (BR-00-17, NĐ98): drill tile "ĐK Bộ Y tế sắp/đã hết hạn" → list lọc.
+const QUERY_FILTER_KEYS = ['lifecycle_status', 'department', 'asset_category', 'gmdn_code', 'search', 'byt_status'] as const
+
+/**
+ * Đọc route.query → áp vào filters (Core Doc §9.3). Trả true nếu có filter nào
+ * được set từ query (để quyết định mở panel + dùng cleanParams khi fetch).
+ */
+function applyQueryToFilters(): boolean {
+  let touched = false
+  const f = filters.value as Record<string, unknown>
+  for (const key of QUERY_FILTER_KEYS) {
+    const raw = route.query[key]
+    const val = Array.isArray(raw) ? raw[0] : raw
+    if (typeof val === 'string' && val) {
+      f[key] = val
+      touched = true
+    }
+  }
+  if (touched) {
+    filters.value.page = 1
+    showFilters.value = true // hiện chip filter để user thấy + xoá được
+  }
+  return touched
+}
 
 const filters = ref<AssetListParams>({
   lifecycle_status: '',
   department: '',
   location: '',
   asset_category: '',
-  gmdn_status: '',
+  gmdn_code: '',
   search: '',
+  byt_status: undefined,
   page: 1,
   page_size: 20,
+})
+
+// Danh sách mã GMDN distinct từ Asset Category (source of truth)
+const gmdnOptions = computed(() => {
+  const seen = new Set<string>()
+  return refData.categories
+    .filter(c => c.gmdn_code && !seen.has(c.gmdn_code) && (seen.add(c.gmdn_code), true))
+    .map(c => ({ value: c.gmdn_code as string, label: `${c.gmdn_code} — ${c.gmdn_term || c.category_name}` }))
 })
 
 const LIFECYCLE_STATUSES: { value: LifecycleStatus | ''; label: string }[] = [
@@ -45,8 +84,10 @@ const cleanParams = computed<AssetListParams>(() => {
   if (filters.value.department) p.department = filters.value.department
   if (filters.value.location) p.location = filters.value.location
   if (filters.value.asset_category) p.asset_category = filters.value.asset_category
-  if (filters.value.gmdn_status) p.gmdn_status = filters.value.gmdn_status
+  if (filters.value.gmdn_code) p.gmdn_code = filters.value.gmdn_code
   if (filters.value.search?.trim()) p.search = filters.value.search.trim()
+  // BR-00-17: forward byt_status xuống list_assets (param khớp signature BE).
+  if (filters.value.byt_status) p.byt_status = filters.value.byt_status
   return p
 })
 
@@ -70,8 +111,13 @@ const activeChips = computed<FilterChip[]>(() => {
     const l = refData.locations.find(x => x.name === filters.value.location)
     chips.push({ key: 'location', label: l?.location_name ?? String(filters.value.location) })
   }
-  if (filters.value.gmdn_status) {
-    chips.push({ key: 'gmdn_status', label: filters.value.gmdn_status === 'In Use' ? 'GMDN: Đang dùng' : 'GMDN: Không dùng' })
+  if (filters.value.gmdn_code) {
+    chips.push({ key: 'gmdn_code', label: `GMDN: ${filters.value.gmdn_code}` })
+  }
+  // BR-00-17 (NĐ98): chip ĐK BYT — nhãn VI qua SSoT BYT_EXPIRY_CHIP_LABEL.
+  const byt = filters.value.byt_status
+  if (byt && byt in BYT_EXPIRY_CHIP_LABEL) {
+    chips.push({ key: 'byt_status', label: BYT_EXPIRY_CHIP_LABEL[byt] })
   }
   if (filters.value.search?.trim()) {
     chips.push({ key: 'search', label: `"${filters.value.search.trim()}"` })
@@ -103,7 +149,7 @@ function clearChip(key: string) {
 }
 
 function resetFilters() {
-  filters.value = { lifecycle_status: '', department: '', location: '', asset_category: '', gmdn_status: '', search: '', page: 1, page_size: 20 }
+  filters.value = { lifecycle_status: '', department: '', location: '', asset_category: '', gmdn_code: '', search: '', byt_status: undefined, page: 1, page_size: 20 }
   store.fetchList({})
 }
 
@@ -123,8 +169,37 @@ function isPmOverdue(date?: string) {
 }
 
 onMounted(async () => {
-  await Promise.all([store.fetchList(), refData.fetchAll()])
+  // Core Doc §9.3 — pre-apply filter từ route.query (drill-down) TRƯỚC khi fetch.
+  const hasQueryFilter = applyQueryToFilters()
+  await Promise.all([
+    store.fetchList(hasQueryFilter ? cleanParams.value : undefined),
+    refData.fetchAll(),
+  ])
 })
+
+// Core Doc §9.3 — điều hướng drill-down lần 2 (cùng route, query khác) → re-apply.
+watch(
+  () => route.query,
+  () => {
+    if (applyQueryToFilters()) {
+      store.fetchList(cleanParams.value)
+    }
+  },
+)
+
+// ── Import / Export ──────────────────────────────────────────────────────────
+const importWizard = useImportWizard('AC Asset', () => store.fetchList(cleanParams.value))
+const openImport = importWizard.open
+const doExport = importWizard.doExport
+
+const IMPORT_NOTICE = [
+  'Các tham chiếu Danh mục / Khoa / Vị trí / Model / NCC phải đã được nhập sẵn (xem trang Dữ liệu tham chiếu).',
+  'Mã tài sản (nội bộ) phải duy nhất — để trống nếu muốn hệ thống tự sinh theo naming_series.',
+  'Mặc định trạng thái vòng đời = <strong>Draft</strong> nếu bỏ trống.',
+]
+
+// Phơi bày cho test (chip drill BYT): activeChips để assert nhãn VI, clearChip cho nút X.
+defineExpose({ clearChip, activeChips })
 </script>
 
 <template>
@@ -135,6 +210,27 @@ onMounted(async () => {
     >
       <template #actions>
         <FilterToggleButton v-model="showFilters" :count="activeFilterCount" />
+        <button
+          class="px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-600 flex items-center gap-1.5"
+          title="Tải toàn bộ danh sách thiết bị về Excel"
+          @click="doExport"
+        >
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+          </svg>
+          Xuất Excel
+        </button>
+        <button
+          class="px-3 py-2 text-sm border border-emerald-300 rounded-lg hover:bg-emerald-50 text-emerald-700 flex items-center gap-1.5"
+          @click="openImport"
+        >
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+          </svg>
+          Import
+        </button>
         <button class="btn-primary" @click="router.push('/assets/new')">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
@@ -148,7 +244,7 @@ onMounted(async () => {
       :show="showFilters"
       :chips="activeChips"
       v-model:search="filters.search"
-      search-placeholder="Tìm theo tên, mã, serial thiết bị..."
+      search-placeholder="Tìm theo tên, mã, serial hoặc mã GMDN..."
       @reset="resetFilters"
       @clear-chip="clearChip"
       @apply="applyFilters"
@@ -182,11 +278,10 @@ onMounted(async () => {
           </select>
         </div>
         <div class="form-group">
-          <label class="form-label">GMDN</label>
-          <select v-model="filters.gmdn_status" class="form-select" @change="applyFilters">
-            <option value="">Trạng thái GMDN</option>
-            <option value="In Use">Đang sử dụng</option>
-            <option value="Not Use">Không sử dụng</option>
+          <label class="form-label">GMDN Code</label>
+          <select v-model="filters.gmdn_code" class="form-select" @change="applyFilters">
+            <option value="">Tất cả mã GMDN</option>
+            <option v-for="g in gmdnOptions" :key="g.value" :value="g.value">{{ g.label }}</option>
           </select>
         </div>
       </template>
@@ -282,10 +377,12 @@ onMounted(async () => {
                 </td>
                 <td class="table-cell">
                   <button
-                    class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium transition-all"
-                    :class="(asset.gmdn_status || 'Not Use') === 'In Use' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'"
-                    @click.stop="quickFilter('gmdn_status', asset.gmdn_status || 'Not Use')"
-                  >{{ (asset.gmdn_status || 'Not Use') === 'In Use' ? 'Đang sử dụng' : 'Không sử dụng' }}</button>
+                    v-if="asset.gmdn_code"
+                    class="font-mono text-sm text-slate-700 hover:text-blue-600 hover:underline decoration-dotted underline-offset-2"
+                    :title="asset.gmdn_term || ''"
+                    @click.stop="quickFilter('gmdn_code', asset.gmdn_code!)"
+                  >{{ asset.gmdn_code }}</button>
+                  <span v-else class="text-slate-400">—</span>
                 </td>
                 <td class="table-cell">
                   <button
@@ -329,5 +426,13 @@ onMounted(async () => {
     </template>
 
     <BasePagination :pagination="store.pagination" @page-change="goToPage" />
+
+    <ImportWizardModal
+      :ctx="importWizard"
+      title="Import Thiết bị"
+      unit="tài sản"
+      :notice="IMPORT_NOTICE"
+      :preview-columns="7"
+    />
   </div>
 </template>

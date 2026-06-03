@@ -4,9 +4,9 @@
 |---|---|
 | Module | **IMM-00 — Master / Cross-cutting** |
 | Wave | Master |
-| Trạng thái | **Live ✅ — docs synced vs code 2026-05-14** |
+| Trạng thái | **Live ✅ — docs synced vs code 2026-05-27** · Notification Framework Wave N1 spec'd 2026-05-29 |
 | Số file hiện có | 8 (numbered 02–09) |
-| Cập nhật cuối | 2026-05-14 |
+| Cập nhật cuối | 2026-06-03 |
 | Khối kiến trúc | Cross-cutting (foundation cho A/B/C/D) |
 | Owner | — (Cross-cutting — System Architect + BA Lead) |
 
@@ -19,9 +19,9 @@
 |---|---|---|
 | [`02_Analysis_Design.md`](./02_Analysis_Design.md) | Phân tích & thiết kế: Module Overview, Architecture Position, Feature Inventory, FR, NFR, BR-00-01→12 | ✅ Live |
 | [`03_Diagrams.md`](./03_Diagrams.md) | Sơ đồ: ERD (foundation + inventory), Class diagram, Sequence (SHA-256 chain, transition, scheduler) | ✅ Live |
-| [`04_Backend_Design.md`](./04_Backend_Design.md) | Thiết kế backend: 27 DocType schemas (verified), Service layer 22 functions (verified), shared utilities | ✅ Live — reviewed vs code |
-| [`05_API_Specification.md`](./05_API_Specification.md) | API spec: 70+ endpoints (verified endpoint names), envelope `{success, data}`, permission matrix | ✅ Live — reviewed vs code |
-| [`06_Frontend_Design.md`](./06_Frontend_Design.md) | Thiết kế frontend: Design tokens, Sitemap ([BUILT]/[SPEC] labeled), 4 Pinia stores (verified), API client (verified) | ✅ Partial — 2 views built |
+| [`04_Backend_Design.md`](./04_Backend_Design.md) | Thiết kế backend: 27 DocType schemas (verified), Service layer 22 functions (verified), shared utilities; 20 roles, state machine đầy đủ incl. Draft + Under Maintenance | ✅ Live — synced vs code 2026-05-18 |
+| [`05_API_Specification.md`](./05_API_Specification.md) | API spec: 107 whitelisted endpoints (verified), envelope `{success, data}`, permission matrix | ✅ Live — reviewed vs code |
+| [`06_Frontend_Design.md`](./06_Frontend_Design.md) | Thiết kế frontend: Design tokens, Sitemap ([BUILT]/[SPEC] labeled); 10+ views built (asset/, master-data/, audit/), 4 Pinia stores (verified) | ✅ Partial — multiple views built |
 | [`07_Testing_QA.md`](./07_Testing_QA.md) | Testing & QA: 13 unit tests (TC-S-001→013, corrected), UAT scenarios, STRIDE security, code quality | Live (BE) / Planned (tests) |
 | [`08_Deployment.md`](./08_Deployment.md) | Deployment: Thứ tự deploy (IMM-00 first), env config, migration patches, QMS mapping, rollback | ✅ Live |
 | [`09_Release.md`](./09_Release.md) | Release: User guide (System Admin), Release Notes v4.0.0, Traceability matrix, Bảng thống kê | ✅ Live |

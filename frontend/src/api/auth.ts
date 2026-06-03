@@ -67,14 +67,32 @@ export function changePassword(oldPassword: string, newPassword: string): Promis
   return frappePost(`${BASE}.change_password`, { old_password: oldPassword, new_password: newPassword })
 }
 
-export function approveRegistration(
-  profileName: string,
-  roles?: string[],
-  rejectionReason?: string,
-): Promise<{ profile: string; status: string }> {
-  return frappePost(`${BASE}.approve_registration`, {
-    profile_name: profileName,
-    roles,
-    rejection_reason: rejectionReason,
-  })
+/**
+ * Resolve toàn bộ capability cho user hiện tại — FE cache 1 lần sau login.
+ * Trả map { 'pm.read': true, 'incident.acknowledge': false, ... }.
+ * BE chốt chặn (rbac.require) — FE chỉ ẩn/hiện cho UX.
+ */
+export function fetchCapabilities(): Promise<Record<string, boolean>> {
+  return frappeGet<Record<string, boolean>>(`${BASE}.get_capabilities`)
+}
+
+/**
+ * BR-00-USR-02 (security 2026-06-01): tra trạng thái tài khoản — PASSWORD-GATED.
+ *
+ * Sau khi `/api/method/login` fail, LoginView gọi endpoint này với CHÍNH mật
+ * khẩu user vừa nhập. BE chỉ lộ pending/rejected/disabled/active SAU KHI mật
+ * khẩu đúng; sai mật khẩu HOẶC email không tồn tại → 'invalid_credentials'
+ * (không phân biệt được → đóng user enumeration).
+ *   - 'pending'             → tài khoản chờ quản trị viên duyệt
+ *   - 'rejected'            → tài khoản đã bị từ chối
+ *   - 'disabled'           → tài khoản bị vô hiệu hoá
+ *   - 'active'             → mật khẩu đúng, tài khoản bình thường (login fail vì
+ *                            lý do khác: 2FA / IP / giờ login)
+ *   - 'invalid_credentials' → sai email/mật khẩu (message trung lập)
+ * BE không trả mật khẩu/role/dữ liệu nhạy cảm — chỉ 1 nhãn coarse-grained.
+ */
+export type AccountState = 'pending' | 'rejected' | 'disabled' | 'active' | 'invalid_credentials'
+
+export function accountState(usr: string, pwd: string): Promise<{ status: AccountState }> {
+  return frappePost<{ status: AccountState }>(`${BASE}.account_state`, { usr, pwd })
 }

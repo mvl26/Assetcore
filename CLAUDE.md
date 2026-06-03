@@ -2,6 +2,21 @@
 
 ---
 
+## 0. Memory 2 lớp (ĐỌC TRƯỚC — luôn áp dụng)
+
+Claude có **2 lớp memory** cho dự án này — luôn tham chiếu, KHÔNG trộn:
+
+| Lớp | Là gì | Khi nào |
+|-----|-------|---------|
+| **Durable memory** (`memory/MEMORY.md` + file fact) | Fact bền vững: preference, lesson, nguyên tắc, scope. Auto-load mỗi phiên. | Tra khi cần kiến thức "đúng-mãi". |
+| **Session context** (`.claude/contexts/STATE.md` chung + `sessions/<file>` MỖI PHIÊN 1 FILE, skill `assetcore-session`) | State tạm: đang-dở-ở-đâu (STATE) + nội dung từng phiên (yêu cầu/việc/quyết định) trong file phiên riêng. TRONG repo nhưng GITIGNORED (local-only, không commit). Chống compact: `SessionStart` matcher gồm `compact` + `UserPromptSubmit→on-prompt` ghi prompt thô vào file phiên. | **ĐỌC trước khi xử lý/sửa BẤT KỲ việc gì; GHI checkpoint sau MỖI việc đáng kể.** |
+
+- Đọc session context: `.claude/scripts/session-log.sh show` (main session: hook tự nạp mỗi prompt + sau compact; subagent phải tự chạy).
+- Ranh giới: sẽ-hết-khi-việc-xong → `.claude/contexts/`; đúng-mãi-về-sau → `memory/`.
+- Ghi/đọc per-request để **nhất quán khi sửa + tránh lỗi đã biết** (CLAUDE.md §17, §20).
+
+---
+
 ## 1. What This Is
 
 AssetCore là hệ thống quản lý vòng đời thiết bị y tế (HTM) xây trên ERPNext (Frappe).
@@ -219,6 +234,7 @@ Luôn include:
 
 ## 20. Do ALWAYS
 
+- **Đọc session context (§0) TRƯỚC khi làm + checkpoint SAU mỗi việc đáng kể**
 - Design theo lifecycle
 - Sinh record cho mọi action
 - Tách domain rõ

@@ -12,19 +12,19 @@
  "workflow_state_field": "workflow_state",
  "states": [
   {
-   "allow_edit": "IMM Biomed Technician",
+   "allow_edit": "PM User",
    "doc_status": "0",
    "state": "Open",
    "type": "Warning"
   },
   {
-   "allow_edit": "IMM Biomed Technician",
+   "allow_edit": "PM User",
    "doc_status": "0",
    "state": "In Progress",
    "type": "Success"
   },
   {
-   "allow_edit": "IMM Biomed Technician",
+   "allow_edit": "PM User",
    "doc_status": "0",
    "state": "Pending–Device Busy",
    "type": "Warning"
@@ -57,7 +57,7 @@
  "transitions": [
   {
    "action": "Bắt đầu thực hiện",
-   "allowed": "IMM Biomed Technician",
+   "allowed": "PM User",
    "next_state": "In Progress",
    "state": "Open",
    "allow_self_approval": 1
@@ -78,35 +78,35 @@
   },
   {
    "action": "Hoàn thành PM",
-   "allowed": "IMM Biomed Technician",
+   "allowed": "PM User",
    "next_state": "Completed",
    "state": "In Progress",
    "allow_self_approval": 1
   },
   {
    "action": "Báo lỗi nghiêm trọng",
-   "allowed": "IMM Biomed Technician",
+   "allowed": "PM User",
    "next_state": "Halted–Major Failure",
    "state": "In Progress",
    "allow_self_approval": 1
   },
   {
    "action": "Thiết bị bận - hoãn",
-   "allowed": "IMM Biomed Technician",
+   "allowed": "PM User",
    "next_state": "Pending–Device Busy",
    "state": "In Progress",
    "allow_self_approval": 1
   },
   {
    "action": "Tiếp tục thực hiện",
-   "allowed": "IMM Biomed Technician",
+   "allowed": "PM User",
    "next_state": "In Progress",
    "state": "Pending–Device Busy",
    "allow_self_approval": 1
   },
   {
    "action": "Bắt đầu muộn",
-   "allowed": "IMM Biomed Technician",
+   "allowed": "PM User",
    "next_state": "In Progress",
    "state": "Overdue",
    "allow_self_approval": 1

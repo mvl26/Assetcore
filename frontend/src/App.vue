@@ -4,29 +4,34 @@ import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import AppLayout from '@/components/common/AppLayout.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
+import NotificationModal from '@/components/common/NotificationModal.vue'
 import RouteErrorBoundary from '@/components/common/RouteErrorBoundary.vue'
 import ToastContainer from '@/components/common/ToastContainer.vue'
-import { useToast } from '@/composables/useToast'
+import { useNotify } from '@/composables/useNotify'
 
-const toast = useToast()
+const notify = useNotify()
 
 const auth = useAuthStore()
 const router = useRouter()
 
 onMounted(async () => {
   const currentRoute = router.currentRoute.value
-  if (currentRoute.meta.requiresAuth !== false && !auth.isAuthenticated) {
-    const ok = await auth.fetchSession()
-    if (!ok) { router.push({ name: 'Login' }) }
-  }
+  if (currentRoute.meta.requiresAuth === false) return
+  // bootstrap() bật cờ `auth.bootstrapping` (KHÔNG phải `loading`) trong suốt
+  // phiên khôi phục lần đầu → full-screen spinner "Đang khởi tạo..." chỉ đè màn
+  // này, KHÔNG đè /login khi login-submit. Chưa auth → khôi phục cookie-session;
+  // đã auth → re-hydrate role/persona/caps ở nền chống persona stale.
+  const ok = await auth.bootstrap()
+  if (!ok) router.push({ name: 'Login' })
 })
 
 // Bắt lỗi top-level để không bị blank page khi component con throw.
 // RouteErrorBoundary đã render fallback UI trong route view; ở đây chỉ log + toast.
+// Phase 1 notification framework: dùng notify.fromError → hydrate registry +
+// route critical sang modal.
 onErrorCaptured((err, _inst, info) => {
-  const msg = (err as Error)?.message ?? 'Lỗi không xác định'
-  console.error('[App.vue] top-level error:', { message: msg, info, err })
-  toast.error(msg)
+  console.error('[App.vue] top-level error:', { info, err })
+  notify.fromError(err)
   return true
 })
 
@@ -38,13 +43,16 @@ window.addEventListener('unhandledrejection', (ev) => {
   // Không spam toast cho lỗi hệ thống đã được axios xử lý qua redirect (401/403)
   if (msg.includes('Đang chuyển hướng')) return
   console.error('[unhandledrejection]', reason)
-  toast.error(msg)
+  notify.fromError(reason)
 })
 </script>
 
 <template>
   <div class="min-h-full">
-    <template v-if="auth.loading && !auth.isAuthenticated">
+    <!-- Full-screen overlay CHỈ cho bootstrap/session-restore (App.vue onMounted).
+         KHÔNG bật theo `auth.loading` (login-submit) — nếu không sẽ remount /login
+         đang submit → mất field + banner (APP-AUTH-01/02). -->
+    <template v-if="auth.bootstrapping && !auth.isAuthenticated">
       <div class="min-h-screen flex items-center justify-center bg-gray-50">
         <LoadingSpinner size="lg" label="Đang khởi tạo..." />
       </div>
@@ -62,5 +70,6 @@ window.addEventListener('unhandledrejection', (ev) => {
       <RouterView v-else />
     </template>
     <ToastContainer />
+    <NotificationModal />
   </div>
 </template>

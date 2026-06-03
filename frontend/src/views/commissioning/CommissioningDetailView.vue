@@ -5,6 +5,8 @@ import { useCommissioningStore } from '@/stores/imm04'
 import { useImm05Store } from '@/stores/imm05'
 import { usePermissions } from '@/composables/usePermissions'
 import { useToast } from '@/composables/useToast'
+import { useNotify } from '@/composables/useNotify'
+import { MSG } from '@/i18n/messages'
 import CommissioningForm from '@/components/commissioning/CommissioningForm.vue'
 import ApprovalPanel from '@/components/commissioning/ApprovalPanel.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
@@ -20,6 +22,7 @@ const store  = useCommissioningStore()
 const imm05  = useImm05Store()
 const perms  = usePermissions()
 const toast  = useToast()
+const notify = useNotify()
 
 // ─── Edit mode ───────────────────────────────────────────────────────────────
 const editMode = ref(false)
@@ -63,7 +66,7 @@ async function executeConfirm() {
       toast.success('Đã xóa phiếu thành công.')
       router.push('/commissioning')
     } else {
-      toast.error(store.error ?? 'Không thể xóa phiếu. Vui lòng thử lại.')
+      notify.fromError(store.lastApiError)
     }
   } else if (confirmIntent.value === 'cancel') {
     const ok = await store.cancelDoc(props.id)
@@ -72,7 +75,7 @@ async function executeConfirm() {
     if (ok) {
       toast.success('Đã hủy phiếu thành công.')
     } else {
-      toast.error(store.error ?? 'Không thể hủy phiếu. Vui lòng thử lại.')
+      notify.fromError(store.lastApiError)
     }
   }
 }
@@ -135,7 +138,7 @@ async function handleTransition(action: string) {
     toast.success('Đã chuyển trạng thái thành công.')
     await loadGateStatus()
   } else {
-    toast.error(store.error ?? 'Không thể thực hiện hành động.')
+    notify.fromError(store.lastApiError)
   }
 }
 
@@ -147,7 +150,7 @@ async function handleTransitionFromPanel(action: string) {
     toast.success('Đã chuyển trạng thái thành công.')
     await Promise.all([store.fetchDetail(props.id), loadGateStatus()])
   } else {
-    toast.error(store.error ?? 'Không thể thực hiện hành động.')
+    notify.fromError(store.lastApiError)
   }
 }
 
@@ -156,17 +159,17 @@ async function handleFieldUpdate(field: string, value: unknown) {
   if (ok) {
     await Promise.all([store.fetchDetail(props.id), loadGateStatus()])
   } else {
-    toast.error(store.error ?? 'Không thể lưu thay đổi.')
+    notify.fromError(store.lastApiError)
   }
 }
 
 async function handleSubmit() {
   const ok = await store.submitDoc(props.id)
   if (ok) {
-    toast.success('Phiếu đã được Submit và kích hoạt tài sản thành công!')
+    notify.show({ code: MSG.IMM04_SUBMIT_SUCCESS, ctx: { name: props.id } })
     await load()
   } else {
-    toast.error(store.error ?? 'Không thể Submit phiếu.')
+    notify.fromError(store.lastApiError)
   }
 }
 

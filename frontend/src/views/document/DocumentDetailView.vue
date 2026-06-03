@@ -6,6 +6,9 @@ import { useRouter } from 'vue-router'
 import { useImm05Store } from '@/stores/imm05'
 import { submitForReview as apiSubmitForReview, archiveDocument as apiArchiveDocument } from '@/api/imm05'
 import type { AssetDocumentDetail } from '@/api/imm05'
+import { useNotify } from '@/composables/useNotify'
+import { MSG } from '@/i18n/messages'
+import { toApiError } from '@/api/errors'
 import { formatDate } from '@/utils/docUtils'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
@@ -21,6 +24,7 @@ const CATEGORY_LABEL: Record<string, string> = {
 
 const router = useRouter()
 const store = useImm05Store()
+const notify = useNotify()
 
 const doc = computed(() => store.currentDocument)
 const loading = computed(() => store.loading)
@@ -93,8 +97,10 @@ async function saveEdits(): Promise<void> {
   actionLoading.value = false
   if (res?.success) {
     isEditing.value = false
+    notify.show({ code: MSG.IMM05_SUCCESS })
   } else {
     saveError.value = store.error ?? 'Lưu thất bại'
+    notify.fromError(store.lastApiError)
   }
 }
 
@@ -112,9 +118,9 @@ async function submitForReview(): Promise<void> {
   try {
     await apiSubmitForReview(doc.value.name)
     await loadDocument()
-    toast.success('Đã gửi duyệt thành công.')
+    notify.show({ code: MSG.IMM05_SUCCESS })
   } catch (e: unknown) {
-    toast.error(e instanceof Error ? e.message : 'Gửi duyệt thất bại.')
+    notify.fromError(toApiError(e))
   } finally {
     actionLoading.value = false
   }
@@ -181,9 +187,9 @@ async function handleArchive(): Promise<void> {
   try {
     await apiArchiveDocument(doc.value.name)
     await loadDocument()
-    toast.success('Đã lưu trữ tài liệu.')
+    notify.show({ code: MSG.IMM05_SUCCESS })
   } catch (e: unknown) {
-    toast.error(e instanceof Error ? e.message : 'Lưu trữ thất bại.')
+    notify.fromError(toApiError(e))
   } finally {
     actionLoading.value = false
   }
@@ -193,9 +199,14 @@ async function handleApprove(): Promise<void> {
   if (!doc.value) return
   if (!confirm('Phê duyệt tài liệu này sẽ tự động lưu trữ phiên bản cũ. Tiếp tục?')) return
   actionLoading.value = true
-  await store.approveDocument(doc.value.name)
+  const ok = await store.approveDocument(doc.value.name)
   actionLoading.value = false
-  await loadDocument()
+  if (ok) {
+    notify.show({ code: MSG.IMM05_SUCCESS })
+    await loadDocument()
+  } else {
+    notify.fromError(store.lastApiError)
+  }
 }
 
 async function handleReject(): Promise<void> {
@@ -206,7 +217,10 @@ async function handleReject(): Promise<void> {
   if (ok) {
     showRejectInput.value = false
     rejectReason.value = ''
+    notify.show({ code: MSG.IMM05_SUCCESS })
     await loadDocument()
+  } else {
+    notify.fromError(store.lastApiError)
   }
 }
 </script>

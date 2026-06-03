@@ -6,7 +6,7 @@
 | Wave | 2 |
 | Trạng thái | Wave 2 — Live ✅ |
 | Số file hiện có | 8 (template chuẩn) |
-| Cập nhật cuối | 2026-05-14 |
+| Cập nhật cuối | 2026-05-27 |
 | Khối kiến trúc | A. KHỐI 1 |
 | Đợt triển khai | 2 |
 | Owner | PTP Khối 1 · Nhóm KH-TC |
@@ -21,7 +21,7 @@
 | 02 Analysis_Design | [`02_Analysis_Design.md`](./02_Analysis_Design.md) | `IMM-01_Module_Overview.md` + `IMM-01_Functional_Specs.md` | ✅ Chuẩn hóa |
 | 03 Diagrams (ERD/Class/Sequence/Communication/Package) | [`03_Diagrams.md`](./03_Diagrams.md) | (rút từ `IMM-01_Technical_Design.md`) | ✅ Chuẩn hóa |
 | 04 Backend_Design | [`04_Backend_Design.md`](./04_Backend_Design.md) | (archived) | ✅ Cập nhật — phản ánh code thực tế |
-| 05 API_Specification | [`05_API_Specification.md`](./05_API_Specification.md) | (archived) | ✅ Cập nhật — 22 endpoints thực tế, response shapes đúng |
+| 05 API_Specification | [`05_API_Specification.md`](./05_API_Specification.md) | (archived) | ✅ Cập nhật 2026-05-18 — 22 endpoints thực tế, response shapes đúng |
 | 06 Frontend_Design | [`06_Frontend_Design.md`](./06_Frontend_Design.md) | (archived) | ✅ Cập nhật — 5 Vue files thực tế, store actions thực tế |
 | 07 Testing QA (Test Plan + UAT + Security + Code quality) | [`07_Testing_QA.md`](./07_Testing_QA.md) | `IMM-01_UAT_Script.md` | ✅ Chuẩn hóa |
 | 08 Deployment + QMS Mapping | [`08_Deployment.md`](./08_Deployment.md) | — | ✅ Mới |

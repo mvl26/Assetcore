@@ -99,6 +99,7 @@ export default defineConfig(({ command, mode }) => {
 
     server: {
       port: 3000,
+      strictPort: true,
       host: '0.0.0.0',
       cors: true,
       proxy: {

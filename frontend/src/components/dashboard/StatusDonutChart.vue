@@ -1,14 +1,40 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { canAccessDrill } from '@/router/routeAccess'
+import { useCapabilities } from '@/composables/useCapabilities'
 
 interface Props {
   labels: string[]
   series: number[]
   colors: string[]
+  /** Core Doc §9.2 — canonical codes song song labels (cho drill-down). */
+  codes?: string[]
+  /** Core Doc §9.5 #9 — route đích của segment-click. Có → gate clickable theo
+   * quyền (thiếu quyền vào route → segment KHÔNG click được, không emit). */
+  drillRoute?: string
 }
 const props = defineProps<Props>()
+const { can } = useCapabilities()
+
+// Core Doc §9.5 — click segment/legend → emit để parent route tới list filtered.
+const emit = defineEmits<{
+  (e: 'segment-click', payload: { label: string; code: string; value: number }): void
+}>()
 
 const hoveredIdx = ref<number | null>(null)
+
+// Clickable khi có codes VÀ (không khai báo drillRoute HOẶC user vào được route).
+const clickable = computed(() => {
+  if (!Array.isArray(props.codes) || props.codes.length === 0) return false
+  if (props.drillRoute && !canAccessDrill(props.drillRoute, can)) return false
+  return true
+})
+
+function onSegment(i: number): void {
+  if (!clickable.value) return
+  const code = props.codes?.[i] ?? props.labels[i] ?? ''
+  emit('segment-click', { label: props.labels[i] ?? '', code, value: props.series[i] ?? 0 })
+}
 
 const total = computed(() => props.series.reduce((a, b) => a + b, 0))
 
@@ -74,10 +100,12 @@ function fmt(n: number): string { return n.toLocaleString('vi-VN') }
           :stroke-dasharray="a.dash"
           :stroke-dashoffset="a.offset"
           stroke-linecap="round"
-          class="cursor-pointer transition-all duration-300"
+          class="transition-all duration-300"
+          :class="clickable ? 'cursor-pointer' : ''"
           :style="{ opacity: hoveredIdx != null && hoveredIdx !== i ? 0.4 : 1 }"
           @mouseenter="hoveredIdx = i"
           @mouseleave="hoveredIdx = null"
+          @click="onSegment(i)"
         />
       </svg>
 
@@ -108,9 +136,11 @@ function fmt(n: number): string { return n.toLocaleString('vi-VN') }
       </li>
       <li
         v-for="(a, i) in arcs" :key="i"
-        class="group cursor-pointer"
+        class="group rounded-md px-1 -mx-1 transition-colors"
+        :class="clickable ? 'cursor-pointer hover:bg-slate-50' : ''"
         @mouseenter="hoveredIdx = i"
         @mouseleave="hoveredIdx = null"
+        @click="onSegment(i)"
       >
         <div class="flex items-center justify-between mb-1">
           <div class="flex items-center gap-2">

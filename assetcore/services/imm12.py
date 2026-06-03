@@ -1,11 +1,14 @@
 # Copyright (c) 2026, AssetCore Team
 """IMM-12 — Incident & CAPA orchestration service.
 
-State machine Incident:
-  Open → Under Investigation → Resolved → Closed
-                              ↘ (auto when High/Critical)
-                               RCA Required → [RCA flow] → Closed
-  Open / Under Investigation → Cancelled (false alarm)
+State machine Incident (khớp imm_12_incident_workflow.json + _VALID_TRANSITIONS):
+  Open → Acknowledged → In Progress → Resolved → Closed
+                                     ↘ (auto when High/Critical)
+                                      RCA Required → [RCA flow] → Closed
+  Open / Acknowledged / In Progress → Cancelled (false alarm)
+
+  D3: "Tiếp nhận" (acknowledge: Open→Acknowledged) tách khỏi "Bắt đầu xử lý"
+  (start_work: Acknowledged→In Progress). Triage/phân công ≠ bắt đầu xử lý.
 
 State machine RCA:
   RCA Required → RCA In Progress → Completed (→ auto CAPA)
@@ -23,11 +26,12 @@ Business Rules:
 from __future__ import annotations
 
 import frappe
-from frappe import _
 from frappe.utils import add_days, now_datetime, nowdate, today
 
 from assetcore.repositories.repair_repo import IncidentRepo, RCARepo
 from assetcore.services import imm00 as svc00
+from assetcore.utils.notify import nthrow, nthrow_in_hook
+from assetcore.utils.messages import MSG
 
 _DT_INCIDENT = "Incident Report"
 _DT_RCA = "IMM RCA Record"
@@ -46,6 +50,29 @@ _RCA_IN_PROGRESS = "RCA In Progress"
 _RCA_COMPLETED = "Completed"
 _RCA_CANCELLED = "Cancelled"
 
+# ─── SoT: "incident đang mở" (Single Source of Truth) ───────────────────────────
+# Positive-state predicate DUY NHẤT cho mọi consumer (dashboard KPI/donut/persona,
+# SLA engine, drill-down list). Cancelled là terminal state (transition map :63-66
+# KHÔNG có outgoing) → KHÔNG được tính là mở; Resolved/Closed cũng terminal-ish
+# (đã rời open-set). Dùng POSITIVE list thay negative-list 'NOT IN [Closed, Resolved]'
+# để khỏi vô tình đếm Cancelled là mở (drift đã gặp ở api/dashboard.py).
+INCIDENT_OPEN_STATES = (
+    _STATUS_OPEN, _STATUS_ACKNOWLEDGED, _STATUS_INVESTIGATING, _RCA_REQUIRED,
+)
+
+
+def open_incident_filter(extra: dict | None = None) -> dict:
+    """Filter dict SoT cho "incident đang mở".
+
+    Trả `{"status": ["in", INCIDENT_OPEN_STATES], **extra}`. Mọi consumer (dashboard
+    KPI/donut/persona, SLA engine, list drill-down) dùng CHUNG helper này → count
+    card/donut == số dòng list sau drill (invariant count==drill), không drift.
+    """
+    f: dict = {"status": ["in", list(INCIDENT_OPEN_STATES)]}
+    if extra:
+        f.update(extra)
+    return f
+
 _SEV_HIGH = "High"
 _SEV_CRITICAL = "Critical"
 _HIGH_SEVERITY = (_SEV_HIGH, _SEV_CRITICAL)
@@ -53,11 +80,13 @@ _HIGH_SEVERITY = (_SEV_HIGH, _SEV_CRITICAL)
 _ASSET_OUT_OF_SERVICE = "Out of Service"
 _ASSET_ACTIVE = "Active"
 
+# D3: khớp imm_12_incident_workflow.json — Open chỉ đi Acknowledged/Cancelled
+# (KHÔNG nhảy thẳng In Progress). start_work() đưa Acknowledged → In Progress.
 _VALID_TRANSITIONS: dict[str, list[str]] = {
-    _STATUS_OPEN: [_STATUS_ACKNOWLEDGED, _STATUS_INVESTIGATING, _STATUS_CANCELLED],
+    _STATUS_OPEN: [_STATUS_ACKNOWLEDGED, _STATUS_CANCELLED],
     _STATUS_ACKNOWLEDGED: [_STATUS_INVESTIGATING, _STATUS_CANCELLED],
     _STATUS_INVESTIGATING: [_STATUS_RESOLVED, _STATUS_CANCELLED, _RCA_REQUIRED],
-    _STATUS_RESOLVED: [_STATUS_CLOSED],
+    _STATUS_RESOLVED: [_STATUS_CLOSED, _RCA_REQUIRED],
 }
 
 _CHRONIC_WINDOW_DAYS = 90
@@ -68,35 +97,26 @@ _RCA_DUE_CHRONIC = 14
 _ORDER_REPORTED_AT = "reported_at desc"
 
 
-class IncidentError(Exception):
-    def __init__(self, message: str, code: int = 422) -> None:
-        super().__init__(message)
-        self.message = message
-        self.code = code
-
-
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
 def _get_incident(name: str) -> "frappe.Document":
     doc = IncidentRepo.get(name)
     if not doc:
-        raise IncidentError(_("Không tìm thấy Incident Report: {0}").format(name), 404)
+        nthrow(MSG.IMM12_INCIDENT_NOT_FOUND, name=name)
     return doc
 
 
 def _get_rca(name: str) -> "frappe.Document":
     doc = RCARepo.get(name)
     if not doc:
-        raise IncidentError(_("Không tìm thấy RCA Record: {0}").format(name), 404)
+        nthrow(MSG.IMM12_RCA_NOT_FOUND, name=name)
     return doc
 
 
 def _assert_transition(doc: "frappe.Document", to_status: str) -> None:
     allowed = _VALID_TRANSITIONS.get(doc.status, [])
     if to_status not in allowed:
-        raise IncidentError(
-            _("Không thể chuyển từ '{0}' sang '{1}'").format(doc.status, to_status), 409,
-        )
+        nthrow(MSG.IMM12_BAD_STATE, from_state=doc.status, to_state=to_status)
 
 
 def _log(name: str, asset: str, summary: str, from_status: str, to_status: str) -> None:
@@ -120,6 +140,38 @@ def _map_severity(severity: str) -> str:
         "Low": "Minor", "Medium": "Minor",
         "High": "Major", "Critical": "Critical",
     }.get(severity, "Minor")
+
+
+# BR-12-08: IMM SLA Policy.priority dùng thang P1–P4; Incident dùng severity.
+_SEVERITY_TO_SLA_PRIORITY = {
+    "Critical": "P1", "High": "P2", "Medium": "P3", "Low": "P4",
+}
+
+
+def _severity_to_sla_priority(severity: str) -> str:
+    return _SEVERITY_TO_SLA_PRIORITY.get(severity, "P4")
+
+
+def _apply_sla_policy(doc) -> None:
+    """BR-12-08: resolve IMM SLA Policy theo severity và set due-time trên doc.
+
+    Đọc response/resolution time TỪ policy (không hardcode). Không có policy khớp
+    → bỏ qua (không chặn report). Gọi TRƯỚC insert/save để due-time được lưu.
+    """
+    from frappe.utils import add_to_date
+
+    priority = _severity_to_sla_priority(doc.severity)
+    policy = svc00.get_sla_policy(priority)
+    if not policy:
+        return
+    base = doc.reported_at or now_datetime()
+    doc.sla_policy = policy.get("name")
+    resp_min = policy.get("response_time_minutes")
+    res_hr = policy.get("resolution_time_hours")
+    if resp_min:
+        doc.response_due_at = add_to_date(base, minutes=int(resp_min))
+    if res_hr:
+        doc.resolution_due_at = add_to_date(base, hours=int(res_hr))
 
 
 def _needs_rca(severity: str) -> bool:
@@ -154,15 +206,28 @@ def _enrich_asset_names(rows: list) -> None:
                 r["assigned_to_name"] = user_map.get(r["assigned_to"], r["assigned_to"])
 
 
-def _build_incident_filters(status: str, severity: str, asset: str) -> dict:
-    f: dict = {}
-    if status:
-        f["status"] = status
+def _build_incident_filters(
+    status: str, severity: str, asset: str, open_only: bool = False
+) -> dict:
+    """Build filter dict cho list_incidents.
+
+    `open_only` (param `open=1` từ FE drill) áp SoT open_incident_filter() để
+    count card/donut == số dòng list. `status` đơn lẻ ƯU TIÊN hơn `open`
+    (mutually-exclusive): nếu user chọn status cụ thể (vd Cancelled) thì bỏ qua
+    open-set → status filter hoạt động độc lập.
+    """
+    extra: dict = {}
     if severity:
-        f["severity"] = severity
+        extra["severity"] = severity
     if asset:
-        f["asset"] = asset
-    return f
+        extra["asset"] = asset
+    # status đơn lẻ ưu tiên hơn open (mutually-exclusive).
+    if status:
+        extra["status"] = status
+        return extra
+    if open_only:
+        return open_incident_filter(extra)
+    return extra
 
 
 # ─── Incident lifecycle ────────────────────────────────────────────────────────
@@ -184,9 +249,9 @@ def report_incident(
 ) -> dict:
     """Tạo Incident Report. BR-12-01: Critical → clinical_impact bắt buộc."""
     if severity == _SEV_CRITICAL and not clinical_impact.strip():
-        raise IncidentError(_("Incident Critical bắt buộc nhập clinical_impact."), 422)
+        nthrow(MSG.IMM12_CLINICAL_IMPACT_REQUIRED)
     if not frappe.db.exists(_DT_ASSET, asset):
-        raise IncidentError(_("Asset không tồn tại: {0}").format(asset), 404)
+        nthrow(MSG.IMM12_ASSET_NOT_FOUND, asset=asset)
 
     actor = reported_by or frappe.session.user
     doc = frappe.new_doc(_DT_INCIDENT)
@@ -210,6 +275,8 @@ def report_incident(
     if linked_repair_wo:
         doc.linked_repair_wo = linked_repair_wo
     doc.rca_required = 1 if _needs_rca(severity) else 0
+    # BR-12-08: SLA due-times từ IMM SLA Policy (sau khi reported_at đã set).
+    _apply_sla_policy(doc)
     doc.flags.ignore_permissions = True
     doc.insert()
 
@@ -223,15 +290,23 @@ def report_incident(
 
 
 def acknowledge_incident(name: str, notes: str = "", assigned_to: str = "") -> dict:
-    """Open → Under Investigation. BR-12-04 extended: High → auto Out of Service."""
+    """"Tiếp nhận": Open → Acknowledged. Triage + phân công.
+
+    D3 fix: KHÔNG nhảy thẳng In Progress (đó là start_work()). BR-12-04 extended:
+    High/Critical → auto Out of Service ngay khi tiếp nhận (thiết bị nguy hiểm
+    không tiếp tục vận hành trong lúc chờ xử lý).
+    """
     doc = _get_incident(name)
-    _assert_transition(doc, _STATUS_INVESTIGATING)
+    _assert_transition(doc, _STATUS_ACKNOWLEDGED)
 
     actor = frappe.session.user
     prev = doc.status
-    doc.status = _STATUS_INVESTIGATING
+    doc.status = _STATUS_ACKNOWLEDGED
     doc.acknowledged_by = actor
     doc.acknowledged_at = now_datetime()
+    # BR-12-08: response SLA breach nếu tiếp nhận sau response_due_at.
+    if doc.response_due_at and doc.acknowledged_at > frappe.utils.get_datetime(doc.response_due_at):
+        doc.response_breached = 1
     if assigned_to:
         doc.assigned_to = assigned_to
     if notes:
@@ -239,7 +314,7 @@ def acknowledge_incident(name: str, notes: str = "", assigned_to: str = "") -> d
     doc.flags.ignore_permissions = True
     doc.save()
     frappe.db.commit()
-    _log(name, doc.asset, f"Acknowledged — {notes or 'đang điều tra'}", prev, _STATUS_INVESTIGATING)
+    _log(name, doc.asset, f"Tiếp nhận — {notes or 'đã phân công'}", prev, _STATUS_ACKNOWLEDGED)
 
     if doc.severity in _HIGH_SEVERITY:
         _try_transition_asset(doc.asset, _ASSET_OUT_OF_SERVICE, name, actor)
@@ -247,19 +322,44 @@ def acknowledge_incident(name: str, notes: str = "", assigned_to: str = "") -> d
     return {"name": name, "status": doc.status}
 
 
+def start_work(name: str, notes: str = "") -> dict:
+    """"Bắt đầu xử lý": Acknowledged → In Progress.
+
+    D3: KTV bắt đầu thực sự can thiệp thiết bị (tách khỏi triage ở acknowledge).
+    """
+    doc = _get_incident(name)
+    _assert_transition(doc, _STATUS_INVESTIGATING)
+
+    actor = frappe.session.user
+    prev = doc.status
+    doc.status = _STATUS_INVESTIGATING
+    if not doc.assigned_to:
+        doc.assigned_to = actor
+    if notes:
+        doc.immediate_action = ((doc.immediate_action or "") + f"\n[Start] {notes}").strip()
+    doc.flags.ignore_permissions = True
+    doc.save()
+    frappe.db.commit()
+    _log(name, doc.asset, f"Bắt đầu xử lý — {notes or 'đang xử lý'}", prev, _STATUS_INVESTIGATING)
+    return {"name": name, "status": doc.status}
+
+
 def resolve_incident(name: str, resolution_notes: str, root_cause: str = "") -> dict:
-    """Under Investigation → Resolved. Auto-tạo RCA nếu High/Critical (không block)."""
+    """In Progress → Resolved. Auto-tạo RCA nếu High/Critical (không block)."""
     doc = _get_incident(name)
     _assert_transition(doc, _STATUS_RESOLVED)
 
     if not resolution_notes.strip():
-        raise IncidentError(_("Bắt buộc nhập ghi chú giải quyết (resolution_notes)."), 422)
+        nthrow(MSG.IMM12_RESOLUTION_NOTES_REQUIRED)
 
     actor = frappe.session.user
     prev = doc.status
     doc.status = _STATUS_RESOLVED
     doc.resolved_by = actor
     doc.resolved_at = now_datetime()
+    # BR-12-08: resolution SLA breach nếu xử lý xong sau resolution_due_at.
+    if doc.resolution_due_at and doc.resolved_at > frappe.utils.get_datetime(doc.resolution_due_at):
+        doc.resolution_breached = 1
     doc.resolution_notes = resolution_notes
     if root_cause:
         doc.root_cause_summary = root_cause
@@ -296,17 +396,10 @@ def close_incident(name: str, verification_notes: str = "") -> dict:
         if rca_name:
             rca_status = frappe.db.get_value(_DT_RCA, rca_name, "status")
             if rca_status != _RCA_COMPLETED:
-                raise IncidentError(
-                    _("Không thể đóng sự cố {0} khi RCA ({1}) chưa hoàn thành.").format(
-                        doc.severity, rca_name,
-                    ), 422,
-                )
+                nthrow(MSG.IMM12_CLOSE_RCA_INCOMPLETE,
+                       severity=doc.severity, rca=rca_name)
         else:
-            raise IncidentError(
-                _("Sự cố {0} yêu cầu RCA trước khi đóng. Vui lòng tạo và hoàn thành RCA.").format(
-                    doc.severity,
-                ), 422,
-            )
+            nthrow(MSG.IMM12_CLOSE_RCA_REQUIRED, severity=doc.severity)
 
     actor = frappe.session.user
     prev = doc.status
@@ -330,11 +423,11 @@ def close_incident(name: str, verification_notes: str = "") -> dict:
 
 
 def cancel_incident(name: str, reason: str) -> dict:
-    """Open / Under Investigation → Cancelled (false alarm)."""
+    """Open / Acknowledged / In Progress → Cancelled (false alarm)."""
     doc = _get_incident(name)
     _assert_transition(doc, _STATUS_CANCELLED)
     if not reason.strip():
-        raise IncidentError(_("Bắt buộc nhập lý do hủy."), 422)
+        nthrow(MSG.IMM12_CANCEL_REASON_REQUIRED)
 
     prev = doc.status
     doc.status = _STATUS_CANCELLED
@@ -352,7 +445,7 @@ def create_rca(incident_name: str, rca_method: str = "5-Why") -> dict:
     """Tạo RCA Record liên kết Incident. Idempotent — raise 409 nếu đã có."""
     doc = _get_incident(incident_name)
     if doc.rca_record and frappe.db.exists(_DT_RCA, doc.rca_record):
-        raise IncidentError(_("Incident đã có RCA Record: {0}").format(doc.rca_record), 409)
+        nthrow(MSG.IMM12_RCA_ALREADY_EXISTS, rca=doc.rca_record)
 
     trigger = "Critical Incident" if doc.severity == _SEV_CRITICAL else "Major Incident"
     due_days = _RCA_DUE_MAJOR
@@ -387,6 +480,51 @@ def get_rca(name: str) -> dict:
     return data
 
 
+def list_rcas(
+    method: str = "",
+    status: str = "",
+    asset: str = "",
+    page: int = 1,
+    page_size: int = 20,
+) -> dict:
+    """Danh sách RCA Record cho RCAListView (route /rca). Read-safe, enrich names."""
+    f: dict = {}
+    if method:
+        f["rca_method"] = method
+    if status:
+        f["status"] = status
+    if asset:
+        f["asset"] = asset
+    total = frappe.db.count(_DT_RCA, filters=f)
+    offset = (page - 1) * page_size
+    rows = frappe.get_all(
+        _DT_RCA,
+        filters=f,
+        fields=["name", "incident_report", "asset", "rca_method", "trigger_type",
+                "status", "assigned_to", "due_date", "linked_capa", "completed_date"],
+        order_by="creation desc",
+        limit_start=offset,
+        limit_page_length=page_size,
+    )
+    _enrich_asset_names(rows)
+    # Enrich owner (assigned_to) display name
+    user_ids = {r["assigned_to"] for r in rows if r.get("assigned_to")}
+    if user_ids:
+        user_map = {u.name: u.full_name for u in frappe.get_all(
+            "User", filters={"name": ["in", list(user_ids)]}, fields=["name", "full_name"],
+        )}
+        for r in rows:
+            if r.get("assigned_to"):
+                r["assigned_to_name"] = user_map.get(r["assigned_to"], r["assigned_to"])
+    return {
+        "pagination": {
+            "total": total, "page": page, "page_size": page_size,
+            "total_pages": max(1, -(-total // page_size)), "offset": offset,
+        },
+        "items": rows,
+    }
+
+
 def submit_rca(
     name: str,
     root_cause: str,
@@ -398,11 +536,11 @@ def submit_rca(
     """Hoàn thành RCA → auto tạo CAPA. BR-12-07."""
     rca = _get_rca(name)
     if rca.status == _RCA_COMPLETED:
-        raise IncidentError(_("RCA đã hoàn thành."), 409)
+        nthrow(MSG.IMM12_RCA_ALREADY_COMPLETED)
     if not root_cause.strip():
-        raise IncidentError(_("Bắt buộc nhập nguyên nhân gốc rễ (root_cause)."), 422)
+        nthrow(MSG.IMM12_RCA_ROOT_CAUSE_REQUIRED)
     if not corrective_action.strip():
-        raise IncidentError(_("Bắt buộc nhập hành động khắc phục (corrective_action)."), 422)
+        nthrow(MSG.IMM12_RCA_CORRECTIVE_REQUIRED)
 
     actor = frappe.session.user
     rca.status = _RCA_COMPLETED
@@ -419,30 +557,30 @@ def submit_rca(
     rca.flags.ignore_permissions = True
     rca.save()
 
-    # BR-12-06: auto CAPA via IMM-00
+    # BR-12-06: auto CAPA via IMM-16 canonical helper (RC-03 fix)
     capa_name: str | None = None
-    try:
-        incident = IncidentRepo.get(rca.incident_report) if rca.incident_report else None
-        asset = rca.asset or (incident.asset if incident else None)
-        severity = _map_severity(incident.severity if incident else "High")
-        capa_name = svc00.create_capa(
-            asset=asset,
-            source_type=_DT_RCA,
-            source_ref=rca.name,
-            severity=severity,
-            description=f"Auto-CAPA từ RCA {rca.name}: {root_cause[:200]}",
-            responsible=actor,
-        )
-        rca.linked_capa = capa_name
-        rca.flags.ignore_permissions = True
-        rca.save()
-        if incident and not incident.linked_capa:
-            frappe.db.set_value(_DT_INCIDENT, rca.incident_report, "linked_capa", capa_name)
-    except Exception:
-        frappe.log_error(frappe.get_traceback(), "IMM-12 submit_rca auto_capa")
+    if rca.incident_report:
+        try:
+            from assetcore.services.imm16 import create_capa_from_incident
+            result = create_capa_from_incident(
+                incident_name=rca.incident_report,
+                rca_name=rca.name,
+                responsible=actor,
+            )
+            capa_name = result.get("capa_name")
+            # Refresh in-memory rca.linked_capa nếu vừa set qua db
+            if capa_name and not rca.linked_capa:
+                rca.linked_capa = capa_name
+        except Exception:
+            frappe.log_error(frappe.get_traceback(), "IMM-12 submit_rca auto_capa")
 
     frappe.db.commit()
     _log(name, rca.asset or "", f"RCA Completed — {root_cause[:80]}", _RCA_IN_PROGRESS, _RCA_COMPLETED)
+
+    # RC-04: push incident workflow forward sau khi RCA hoàn tất
+    if rca.incident_report:
+        _advance_incident_after_rca(rca.incident_report)
+
     return {"name": rca.name, "status": rca.status, "linked_capa": capa_name}
 
 
@@ -452,10 +590,11 @@ def list_incidents(
     status: str = "",
     severity: str = "",
     asset: str = "",
+    open: int = 0,
     page: int = 1,
     page_size: int = 20,
 ) -> dict:
-    filters = _build_incident_filters(status, severity, asset)
+    filters = _build_incident_filters(status, severity, asset, open_only=bool(int(open or 0)))
     total = frappe.db.count(_DT_INCIDENT, filters=filters)
     offset = (page - 1) * page_size
     rows = frappe.get_all(
@@ -464,7 +603,9 @@ def list_incidents(
         fields=["name", "asset", "incident_type", "severity", "status", "fault_code",
                 "reported_by", "reported_at", "description", "linked_capa", "linked_repair_wo",
                 "rca_required", "rca_record", "chronic_failure_flag", "patient_affected",
-                "closed_date", "assigned_to", "acknowledged_at", "resolved_at"],
+                "closed_date", "assigned_to", "acknowledged_at", "resolved_at",
+                # BR-12-09: cờ vi phạm SLA để FE render badge "Vi phạm SLA" (list + dashboard).
+                "response_breached", "resolution_breached"],
         order_by=_ORDER_REPORTED_AT,
         limit_start=offset,
         limit_page_length=page_size,
@@ -487,13 +628,14 @@ def get_incident_detail(name: str) -> dict:
     data["allowed_transitions"] = _VALID_TRANSITIONS.get(doc.status, [])
     if doc.rca_record:
         rca = RCARepo.get(doc.rca_record)
-        data["rca"] = {
-            "name": rca.name,
-            "status": rca.status,
-            "root_cause": rca.root_cause,
-            "due_date": str(rca.due_date) if rca.due_date else None,
-            "trigger_type": rca.trigger_type,
-        }
+        if rca:
+            data["rca"] = {
+                "name": rca.name,
+                "status": rca.status,
+                "root_cause": rca.root_cause,
+                "due_date": str(rca.due_date) if rca.due_date else None,
+                "trigger_type": rca.trigger_type,
+            }
     return data
 
 
@@ -506,6 +648,11 @@ def get_incident_stats() -> dict:
 
     return {
         "total": _count({}),
+        # SoT "đang mở": MỌI open-state (Open+Acknowledged+In Progress+RCA Required)
+        # qua open_incident_filter() → card 'đang mở' == số dòng drill list (invariant).
+        # KHÔNG dùng status==Open (bỏ sót Acknowledged/RCA Required).
+        "open_total": _count(open_incident_filter()),
+        # Per-state breakdown (backward-compat: consumer khác đọc từng state).
         "open": _count({"status": _STATUS_OPEN}),
         "investigating": _count({"status": _STATUS_INVESTIGATING}),
         "resolved": _count({"status": _STATUS_RESOLVED}),
@@ -513,8 +660,18 @@ def get_incident_stats() -> dict:
         "cancelled": _count({"status": _STATUS_CANCELLED}),
         "critical": _count({"severity": _SEV_CRITICAL}),
         "high": _count({"severity": _SEV_HIGH}),
+        # Open-set severity (KPI strip worklist): đếm theo SoT open_incident_filter()
+        # (∧ severity) — KHÔNG global. Loại Closed/Cancelled/Resolved → strip khớp số
+        # dòng severity trong bảng khi drill ?open=1. critical_open<=critical luôn đúng.
+        # KHÔNG inline negative-list mới: dùng lại 1 SoT open_incident_filter() (round-18).
+        "critical_open": _count(open_incident_filter({"severity": _SEV_CRITICAL})),
+        "high_open": _count(open_incident_filter({"severity": _SEV_HIGH})),
         "rca_pending": _count({"rca_required": 1, "rca_record": ("is", "not set")}),
         "chronic": _count({"chronic_failure_flag": 1}),
+        # BR-12-09: số incident vi phạm SLA (cùng predicate cờ với badge ở list →
+        # dashboard count = số dòng có badge tương ứng, không divergence).
+        "sla_response_breached": _count({"response_breached": 1}),
+        "sla_resolution_breached": _count({"resolution_breached": 1}),
     }
 
 
@@ -547,10 +704,15 @@ def get_chronic_failures() -> list:
 
 def get_dashboard() -> dict:
     stats = get_incident_stats()
+    # SoT: dùng CHÍNH open_incident_filter() — KHÔNG tuple open-set cục bộ (chống
+    # drift với stats.open_total/list). +Acknowledged +RCA Required (filter cũ
+    # [Open, In Progress] bỏ sót). Số dòng (trước limit) khớp open_total.
     recent = frappe.get_all(
         _DT_INCIDENT,
-        filters={"status": ["in", [_STATUS_OPEN, _STATUS_INVESTIGATING]]},
-        fields=["name", "asset", "severity", "status", "reported_at", "fault_code"],
+        filters=open_incident_filter(),
+        fields=["name", "asset", "severity", "status", "reported_at", "fault_code",
+                # BR-12-09: cờ SLA để dashboard "Sự cố đang xử lý" hiện badge.
+                "response_breached", "resolution_breached"],
         order_by=_ORDER_REPORTED_AT,
         limit_page_length=10,
     )
@@ -588,6 +750,107 @@ def detect_chronic_failures() -> dict:
         f"IMM-12 detect_chronic_failures: {flagged} flagged, {rca_created} RCA created"
     )
     return {"flagged": flagged, "rca_created": rca_created, "groups": len(chronic_groups)}
+
+
+def check_incident_sla_breach() -> dict:
+    """Hourly scheduler — BR-12-08/09/10: đánh dấu SLA breach cho incident CHƯA đóng
+    đã quá hạn (response/resolution), ghi audit-trail (BR-12-05) VÀ ESCALATE thông báo
+    (in-app + email) tới người phụ trách + escalation user (IMM SLA Policy) + role gate
+    NĐ98 (Critical/High → QA Officer + Ops Manager).
+
+    Idempotent (anti-spam): cờ response_breached/resolution_breached là khoá DB bền
+    vững. Mỗi loại CHỈ escalate khi cờ tương ứng đang 0 VÀ điều kiện quá hạn đúng
+    (set cờ + bắn trong cùng nhánh). Lần quét kế cờ đã =1 → KHÔNG bắn lại.
+
+    Per-incident try/except (batch resilience): 1 incident lỗi (thiếu policy/recipient)
+    KHÔNG dừng cả batch. Recipient rỗng → set cờ + audit phát hiện như cũ, KHÔNG bắn rỗng.
+    """
+    from assetcore.services import notifications as notif
+
+    now = now_datetime()
+    # SoT: dùng CHÍNH open_incident_filter() — KHÔNG tuple open_states cục bộ (chống
+    # drift với dashboard/list). Cancelled là terminal → KHÔNG vào tập candidate.
+    candidates = frappe.get_all(
+        _DT_INCIDENT,
+        filters=open_incident_filter(),
+        # BR-12-09: thêm severity + assigned_to + reported_by để route recipient escalation.
+        fields=["name", "asset", "status", "severity", "assigned_to", "reported_by",
+                "response_due_at", "resolution_due_at",
+                "response_breached", "resolution_breached", "acknowledged_at"],
+    )
+    resp_flagged = 0
+    res_flagged = 0
+    escalated = 0
+    for row in candidates:
+        try:
+            updates: dict = {}
+            # kinds vừa chuyển 0→1 trong lần quét NÀY (khoá idempotent cho escalation).
+            new_kinds: list[str] = []
+            # Response breach: chưa tiếp nhận và đã quá response_due_at.
+            if (not row.get("response_breached") and not row.get("acknowledged_at")
+                    and row.get("response_due_at")
+                    and now > frappe.utils.get_datetime(row["response_due_at"])):
+                updates["response_breached"] = 1
+                new_kinds.append("response")
+                resp_flagged += 1
+            # Resolution breach: chưa đóng và đã quá resolution_due_at.
+            if (not row.get("resolution_breached") and row.get("resolution_due_at")
+                    and now > frappe.utils.get_datetime(row["resolution_due_at"])):
+                updates["resolution_breached"] = 1
+                new_kinds.append("resolution")
+                res_flagged += 1
+            if not updates:
+                continue
+
+            # 1) Set cờ (khoá idempotent) + ghi audit PHÁT HIỆN (BR-12-05, giữ như cũ).
+            frappe.db.set_value(_DT_INCIDENT, row["name"], updates, update_modified=False)
+            kinds_label = "+".join(new_kinds)
+            _log(row["name"], row.get("asset"),
+                 f"SLA breach ({kinds_label}) phát hiện bởi scheduler",
+                 row["status"], row["status"])
+
+            # 2) ESCALATE: resolve policy escalation user (IMM SLA Policy) + dispatch.
+            severity = row.get("severity") or "Low"
+            policy = svc00.get_sla_policy(_severity_to_sla_priority(severity)) or {}
+            incident_ctx = dict(row)
+            incident_ctx["escalation_l1_user"] = policy.get("escalation_l1_user")
+            incident_ctx["escalation_l2_user"] = policy.get("escalation_l2_user")
+
+            sent_any = False
+            for kind in new_kinds:
+                due = row.get("resolution_due_at" if kind == "resolution"
+                              else "response_due_at")
+                over_h = round(
+                    (now - frappe.utils.get_datetime(due)).total_seconds() / 3600.0, 1
+                ) if due else 0.0
+                if notif._emit_incident_sla_notification(
+                    incident_ctx, kind, over_h, severity
+                ):
+                    sent_any = True
+
+            # 3) Audit ESCALATED (BR-12-05, THÊM entry — KHÔNG thay entry phát hiện).
+            if sent_any:
+                recipients = notif._incident_sla_recipients(incident_ctx, severity)
+                _log(row["name"], row.get("asset"),
+                     f"SLA breach escalated → {', '.join(recipients)}",
+                     row["status"], row["status"])
+                escalated += 1
+        except Exception:
+            # Per-incident an toàn: 1 incident lỗi KHÔNG dừng batch scheduler.
+            frappe.log_error(frappe.get_traceback(), "IMM-12 check_incident_sla_breach")
+            continue
+
+    if resp_flagged or res_flagged:
+        frappe.db.commit()
+    frappe.logger().info(
+        f"IMM-12 check_incident_sla_breach: response={resp_flagged}, "
+        f"resolution={res_flagged}, escalated={escalated}"
+    )
+    return {
+        "response_breached": resp_flagged,
+        "resolution_breached": res_flagged,
+        "escalated": escalated,
+    }
 
 
 # ─── Internal helpers ─────────────────────────────────────────────────────────
@@ -680,6 +943,138 @@ def _auto_create_capa(doc: "frappe.Document") -> None:
         frappe.db.commit()
     except Exception:
         frappe.log_error(frappe.get_traceback(), "IMM-12 _auto_create_capa")
+
+
+# ─── RCA → Incident chain (RC-03 + RC-04) ─────────────────────────────────────
+
+_WORKFLOW_NAME_INCIDENT = "IMM-12 Incident Workflow"
+_ACTION_RCA_DONE_CLOSE = "RCA hoàn tất - đóng sự cố"
+
+
+def on_rca_completed(incident_name: str, rca_name: str) -> dict:
+    """Hook RCA Record on_submit → ensure CAPA + advance Incident workflow.
+
+    Idempotent — re-uses existing linked_capa, skips workflow apply nếu state đã Closed.
+    Wrap mọi side-effect trong try/except — KHÔNG fail RCA submit nếu chain lỗi.
+    """
+    out: dict = {"incident": incident_name, "rca": rca_name,
+                 "capa_name": None, "workflow_advanced": False}
+    if not incident_name or not frappe.db.exists(_DT_INCIDENT, incident_name):
+        return out
+
+    # 1. CAPA chain (RC-03)
+    try:
+        from assetcore.services.imm16 import create_capa_from_incident
+        result = create_capa_from_incident(
+            incident_name=incident_name,
+            rca_name=rca_name or "",
+            responsible=frappe.session.user,
+        )
+        out["capa_name"] = result.get("capa_name")
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "IMM-12 on_rca_completed CAPA chain")
+
+    # 2. Incident workflow auto-advance (RC-04)
+    try:
+        out["workflow_advanced"] = _advance_incident_after_rca(incident_name)
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "IMM-12 on_rca_completed workflow")
+
+    return out
+
+
+def _advance_incident_after_rca(incident_name: str) -> bool:
+    """Đẩy Incident từ 'RCA Required' → 'Closed' qua action workflow chuẩn.
+
+    Frappe Workflow KHÔNG cho phép gán workflow_state tùy ý — phải đi qua
+    apply_workflow(action). Nếu incident không ở 'RCA Required' (đã closed
+    rồi, hoặc workflow chưa tới đó), no-op an toàn.
+    """
+    from frappe.model.workflow import apply_workflow
+
+    inc = frappe.get_doc(_DT_INCIDENT, incident_name)
+    current_state = inc.get("workflow_state") or inc.get("status") or ""
+    if current_state == _STATUS_CLOSED:
+        return False  # đã đóng — không làm gì
+    if current_state != "RCA Required":
+        # Workflow chưa tới RCA Required (vd RCA tạo từ chronic, incident vẫn ở Resolved)
+        # KHÔNG ép — log để observability.
+        frappe.logger().info(
+            f"IMM-12 _advance_incident_after_rca: incident {incident_name} "
+            f"đang ở '{current_state}', skip apply_workflow"
+        )
+        return False
+
+    try:
+        apply_workflow(inc, _ACTION_RCA_DONE_CLOSE)
+        # Workflow chỉ flip workflow_state field — sync status (Select) +
+        # closed_by/closed_date để truy vấn list filter status="Closed" còn đúng.
+        frappe.db.set_value(
+            _DT_INCIDENT, incident_name,
+            {
+                "status": _STATUS_CLOSED,
+                "closed_by": frappe.session.user,
+                "closed_date": today(),
+            },
+            update_modified=False,
+        )
+        frappe.db.commit()
+        _log(incident_name, inc.asset or "",
+             "Auto-closed sau khi RCA hoàn tất",
+             "RCA Required", _STATUS_CLOSED)
+        return True
+    except Exception as e:
+        # Có thể fail vì permission (RCA submitter không có System Manager).
+        # Thử fallback bằng cách close trực tiếp qua service close_incident()
+        # với ignore_permissions — vì RCA đã đảm bảo gate BR-12-02 đạt.
+        frappe.log_error(
+            f"apply_workflow failed for {incident_name}: {e}",
+            "IMM-12 _advance_incident_after_rca"
+        )
+        try:
+            # Bypass workflow engine — direct field set + audit
+            prev = inc.workflow_state or inc.status
+            frappe.db.set_value(
+                _DT_INCIDENT, incident_name,
+                {
+                    "workflow_state": _STATUS_CLOSED,
+                    "status": _STATUS_CLOSED,
+                    "closed_by": frappe.session.user,
+                    "closed_date": today(),
+                },
+            )
+            frappe.db.commit()
+            _log(incident_name, inc.asset or "",
+                 "Auto-closed (fallback direct) sau RCA hoàn tất",
+                 prev, _STATUS_CLOSED)
+            return True
+        except Exception:
+            frappe.log_error(frappe.get_traceback(),
+                             "IMM-12 _advance_incident_after_rca fallback")
+            return False
+
+
+def validate_incident_close_gate(doc, method: str | None = None) -> None:
+    """NEG-11: Hook 'Incident Report.validate' — chặn đóng High/Critical
+    khi chưa có RCA Completed.
+
+    Áp dụng khi workflow_state hoặc status đang chuyển sang Closed.
+    """
+    target_state = (doc.get("workflow_state") or "") or (doc.get("status") or "")
+    if target_state != _STATUS_CLOSED:
+        return
+    severity = doc.get("severity") or ""
+    if severity not in _HIGH_SEVERITY:
+        return
+    if not doc.get("requires_rca") and not doc.get("rca_required"):
+        return  # User đã thủ công gỡ requires_rca (admin override) — không chặn
+    rca_name = doc.get("rca_record")
+    if not rca_name:
+        nthrow_in_hook(MSG.IMM12_CLOSE_RCA_REQUIRED, severity=severity)
+    rca_status = frappe.db.get_value(_DT_RCA, rca_name, "status")
+    if rca_status != _RCA_COMPLETED:
+        nthrow_in_hook(MSG.IMM12_CLOSE_RCA_INCOMPLETE,
+                       severity=severity, rca=rca_name)
 
 
 def _try_transition_asset(

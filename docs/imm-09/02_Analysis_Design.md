@@ -7,7 +7,7 @@
 | Owner              | BA + System Analyst                                                                                                                          |
 | Liên kết         | [03 Diagrams](./03_Diagrams.md) · [04 Backend](./04_Backend_Design.md) · [05 API](./05_API_Specification.md) · [06 Frontend](./06_Frontend_Design.md) |
 | Chuẩn tham chiếu | WHO HTM 2025 §5.4, ISO 13485:2016 §7.5, ISO 9001:2015 §8.5.1, NĐ 98/2021                                                                 |
-| Cập nhật          | 2026-05-14                                                                                                                                   |
+| Cập nhật          | 2026-05-18                                                                                                                                   |
 
 ---
 
@@ -50,7 +50,7 @@ Output: Asset Repair record (immutable sau submit), Asset Lifecycle Event, MTTR 
 
 - 4 DocTypes: Asset Repair (submittable), Spare Parts Used (child), Repair Checklist (child), Firmware Change Request (submittable)
 - State machine 9 trạng thái: Open → Completed / Cannot Repair / Cancelled
-- 7 Business Rules (BR-09-01 → BR-09-07)
+- 8 Business Rules (BR-09-01 → BR-09-08)
 - Tính MTTR + SLA matrix theo `risk_class × priority`
 - 12 REST endpoints
 - 7 FE views Vue 3 + store imm09.ts
@@ -472,6 +472,7 @@ Priority: Must | Estimate: 5SP
 | BR-09-05 | Asset Under Repair khi open; Active khi Completed; OOS khi Cannot Repair | `set_asset_under_repair()` + `complete_repair()`   | Scenario 9.5, 9.6 |
 | BR-09-06 | WO trong 30 ngày →`is_repeat_failure=1`                              | `check_repeat_failure()` before_insert               | Scenario 9.7      |
 | BR-09-07 | MTTR > SLA target →`sla_breached=1`                                   | `complete_repair()` + `check_repair_sla_breach()`  | Scenario 9.5      |
+| BR-09-08 | "Đang mở" ⟺ status NOT IN `{Completed, Cannot Repair, Cancelled}`; KPI thẻ `cm_open` == số dòng drill-down (card == drill); `Cannot Repair` = TERMINAL ở mọi consumer; KHÔNG có literal ma `Closed` | `is_repair_open()` / `open_repair_filter()` / `REPAIR_TERMINAL_STATES` (SoT) — dùng chung bởi `api/dashboard.py` (`cm_open`, drill SQL, `my_cm`, `cm_urgent`) + `services/notifications.py` (alias) | Scenario 9.8 |
 
 ## IV.3. State Machine
 

@@ -15,49 +15,49 @@
   {
    "state": "Draft",
    "doc_status": "0",
-   "allow_edit": "IMM Clinical User",
+   "allow_edit": "Corrective User",
    "type": "Success"
   },
   {
    "state": "Submitted",
    "doc_status": "0",
-   "allow_edit": "IMM HTM Engineer",
+   "allow_edit": "Spec Manager",
    "type": "Warning"
   },
   {
    "state": "Reviewing",
    "doc_status": "0",
-   "allow_edit": "IMM HTM Engineer",
+   "allow_edit": "Spec Manager",
    "type": "Warning"
   },
   {
    "state": "Prioritized",
    "doc_status": "0",
-   "allow_edit": "IMM Planning Officer",
+   "allow_edit": "Needs Manager",
    "type": "Success"
   },
   {
    "state": "Budgeted",
    "doc_status": "0",
-   "allow_edit": "IMM Finance Officer",
+   "allow_edit": "Needs Manager",
    "type": "Success"
   },
   {
    "state": "Pending Approval",
    "doc_status": "0",
-   "allow_edit": "IMM Department Head",
+   "allow_edit": "Needs Manager",
    "type": "Warning"
   },
   {
    "state": "Approved",
    "doc_status": "1",
-   "allow_edit": "IMM System Admin",
+   "allow_edit": "AssetCore Super Admin",
    "type": "Success"
   },
   {
    "state": "Rejected",
    "doc_status": "1",
-   "allow_edit": "IMM System Admin",
+   "allow_edit": "AssetCore Super Admin",
    "type": "Danger"
   }
  ],
@@ -66,168 +66,168 @@
    "state": "Draft",
    "next_state": "Submitted",
    "action": "Gửi đề xuất",
-   "allowed": "IMM Clinical User",
+   "allowed": "Corrective User",
    "allow_self_approval": 1
   },
   {
    "state": "Draft",
    "next_state": "Submitted",
    "action": "Gửi đề xuất",
-   "allowed": "IMM Department Head",
+   "allowed": "Needs Manager",
    "allow_self_approval": 1
   },
   {
    "state": "Draft",
    "next_state": "Submitted",
    "action": "Gửi đề xuất",
-   "allowed": "IMM System Admin",
+   "allowed": "AssetCore Super Admin",
    "allow_self_approval": 1
   },
   {
    "state": "Submitted",
    "next_state": "Reviewing",
    "action": "Tiếp nhận rà soát",
-   "allowed": "IMM HTM Engineer",
+   "allowed": "Spec Manager",
    "allow_self_approval": 1
   },
   {
    "state": "Submitted",
    "next_state": "Reviewing",
    "action": "Tiếp nhận rà soát",
-   "allowed": "IMM Planning Officer",
+   "allowed": "Needs Manager",
    "allow_self_approval": 1
   },
   {
    "state": "Submitted",
    "next_state": "Reviewing",
    "action": "Tiếp nhận rà soát",
-   "allowed": "IMM System Admin",
+   "allowed": "AssetCore Super Admin",
    "allow_self_approval": 1
   },
   {
    "state": "Submitted",
    "next_state": "Draft",
    "action": "Yêu cầu bổ sung",
-   "allowed": "IMM HTM Engineer",
+   "allowed": "Spec Manager",
    "allow_self_approval": 1
   },
   {
    "state": "Submitted",
    "next_state": "Draft",
    "action": "Yêu cầu bổ sung",
-   "allowed": "IMM Planning Officer",
+   "allowed": "Needs Manager",
    "allow_self_approval": 1
   },
   {
    "state": "Submitted",
    "next_state": "Draft",
    "action": "Yêu cầu bổ sung",
-   "allowed": "IMM System Admin",
+   "allowed": "AssetCore Super Admin",
    "allow_self_approval": 1
   },
   {
    "state": "Reviewing",
    "next_state": "Prioritized",
    "action": "Hoàn tất chấm điểm",
-   "allowed": "IMM Planning Officer",
+   "allowed": "Needs Manager",
    "allow_self_approval": 1
   },
   {
    "state": "Reviewing",
    "next_state": "Prioritized",
    "action": "Hoàn tất chấm điểm",
-   "allowed": "IMM HTM Engineer",
+   "allowed": "Spec Manager",
    "allow_self_approval": 1
   },
   {
    "state": "Reviewing",
    "next_state": "Prioritized",
    "action": "Hoàn tất chấm điểm",
-   "allowed": "IMM System Admin",
+   "allowed": "AssetCore Super Admin",
    "allow_self_approval": 1
   },
   {
    "state": "Reviewing",
    "next_state": "Rejected",
    "action": "Bác đề xuất sớm",
-   "allowed": "IMM Department Head",
+   "allowed": "Needs Manager",
    "allow_self_approval": 1
   },
   {
    "state": "Reviewing",
    "next_state": "Rejected",
    "action": "Bác đề xuất sớm",
-   "allowed": "IMM System Admin",
+   "allowed": "AssetCore Super Admin",
    "allow_self_approval": 1
   },
   {
    "state": "Prioritized",
    "next_state": "Budgeted",
    "action": "Hoàn tất dự toán",
-   "allowed": "IMM Finance Officer",
+   "allowed": "Needs Manager",
    "allow_self_approval": 1
   },
   {
    "state": "Prioritized",
    "next_state": "Budgeted",
    "action": "Hoàn tất dự toán",
-   "allowed": "IMM System Admin",
+   "allowed": "AssetCore Super Admin",
    "allow_self_approval": 1
   },
   {
    "state": "Budgeted",
    "next_state": "Pending Approval",
    "action": "Trình BGĐ",
-   "allowed": "IMM Department Head",
+   "allowed": "Needs Manager",
    "allow_self_approval": 1
   },
   {
    "state": "Budgeted",
    "next_state": "Pending Approval",
    "action": "Trình BGĐ",
-   "allowed": "IMM System Admin",
+   "allowed": "AssetCore Super Admin",
    "allow_self_approval": 1
   },
   {
    "state": "Pending Approval",
    "next_state": "Approved",
    "action": "Phê duyệt",
-   "allowed": "IMM Board Approver",
+   "allowed": "Procurement Manager",
    "allow_self_approval": 1
   },
   {
    "state": "Pending Approval",
    "next_state": "Approved",
    "action": "Phê duyệt",
-   "allowed": "IMM System Admin",
+   "allowed": "AssetCore Super Admin",
    "allow_self_approval": 1
   },
   {
    "state": "Pending Approval",
    "next_state": "Rejected",
    "action": "Bác đề xuất",
-   "allowed": "IMM Board Approver",
+   "allowed": "Procurement Manager",
    "allow_self_approval": 1
   },
   {
    "state": "Pending Approval",
    "next_state": "Rejected",
    "action": "Bác đề xuất",
-   "allowed": "IMM System Admin",
+   "allowed": "AssetCore Super Admin",
    "allow_self_approval": 1
   },
   {
    "state": "Pending Approval",
    "next_state": "Budgeted",
    "action": "Yêu cầu chỉnh dự toán",
-   "allowed": "IMM Board Approver",
+   "allowed": "Procurement Manager",
    "allow_self_approval": 1
   },
   {
    "state": "Pending Approval",
    "next_state": "Budgeted",
    "action": "Yêu cầu chỉnh dự toán",
-   "allowed": "IMM System Admin",
+   "allowed": "AssetCore Super Admin",
    "allow_self_approval": 1
   }
  ]
