@@ -20,7 +20,7 @@
   "hooks": {
     "SessionStart": [
       {
-        "matcher": "startup|resume|clear",
+        "matcher": "startup|resume|clear|compact",
         "hooks": [
           {
             "type": "command",
@@ -34,7 +34,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/home/miyano/frappe-bench/apps/assetcore/.claude/scripts/session-log.sh brief"
+            "command": "/home/miyano/frappe-bench/apps/assetcore/.claude/scripts/session-log.sh on-prompt"
           }
         ]
       }
