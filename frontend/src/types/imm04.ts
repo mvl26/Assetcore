@@ -333,6 +333,8 @@ export interface CommissioningFilters {
   clinical_dept?: string
   docstatus?: 0 | 1 | ''
   vendor_serial_no?: string
+  /** Virtual flag (BR-04-10): khi bật, BE AND thêm SoT overdue filter (quá hạn SLA). */
+  overdue?: boolean
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

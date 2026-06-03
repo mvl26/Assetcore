@@ -23,6 +23,7 @@ const filters = ref<CommissioningFilters>({
   vendor_serial_no: '',
   master_item:  '',
   clinical_dept: '',
+  overdue: route.query.filter === 'overdue',
 })
 
 const WORKFLOW_STATES: { value: WorkflowState | ''; label: string }[] = [
@@ -40,7 +41,8 @@ const WORKFLOW_STATES: { value: WorkflowState | ''; label: string }[] = [
   { value: 'Return To Vendor', label: 'Trả nhà cung cấp' },
 ]
 
-interface Chip { key: 'workflow_state' | 'vendor_serial_no' | 'master_item' | 'clinical_dept'; label: string }
+type ChipKey = 'workflow_state' | 'vendor_serial_no' | 'master_item' | 'clinical_dept' | 'overdue'
+interface Chip { key: ChipKey; label: string }
 const activeChips = computed<Chip[]>(() => {
   const chips: Chip[] = []
   if (filters.value.workflow_state) {
@@ -50,12 +52,15 @@ const activeChips = computed<Chip[]>(() => {
   if (filters.value.vendor_serial_no?.trim()) chips.push({ key: 'vendor_serial_no', label: `Serial: ${filters.value.vendor_serial_no.trim()}` })
   if (filters.value.master_item?.trim()) chips.push({ key: 'master_item', label: `Model: ${filters.value.master_item.trim()}` })
   if (filters.value.clinical_dept?.trim()) chips.push({ key: 'clinical_dept', label: `Khoa: ${filters.value.clinical_dept.trim()}` })
+  // BR-04-10: chip ảo "Quá hạn" cho cờ overdue (drill từ KPI card). Nhãn VI, không leak raw EN.
+  if (filters.value.overdue) chips.push({ key: 'overdue', label: 'Quá hạn' })
   return chips
 })
 const activeFilterCount = computed(() => activeChips.value.length)
 
 function clearChip(key: string) {
-  (filters.value as Record<string, unknown>)[key] = ''
+  if (key === 'overdue') filters.value.overdue = false
+  else (filters.value as Record<string, unknown>)[key] = ''
   applyFilters()
 }
 
@@ -65,14 +70,32 @@ function cleanFilters(): CommissioningFilters {
   if (filters.value.vendor_serial_no?.trim()) f.vendor_serial_no = filters.value.vendor_serial_no.trim()
   if (filters.value.master_item?.trim())      f.master_item      = filters.value.master_item.trim()
   if (filters.value.clinical_dept?.trim())    f.clinical_dept    = filters.value.clinical_dept.trim()
+  // Chỉ đính kèm cờ overdue khi bật → AND với các filter khác ở BE (không clobber).
+  if (filters.value.overdue)                  f.overdue          = true
   return f
 }
 
 function applyFilters() { store.fetchList(cleanFilters(), 1, store.pagination.page_size) }
 
 function resetFilters() {
-  filters.value = { workflow_state: '', vendor_serial_no: '', master_item: '', clinical_dept: '' }
+  filters.value = { workflow_state: '', vendor_serial_no: '', master_item: '', clinical_dept: '', overdue: false }
   store.fetchList({}, 1)
+}
+
+/** Click KPI card → drill. Overdue card bật cờ overdue + reload; thẻ state khác giữ quickFilter. */
+function onKpiClick(index: number) {
+  const item = kpiItems.value[index]
+  if (!item) return
+  if (item.overdueFilter) {
+    filters.value.overdue = true
+    showFilters.value = false
+    applyFilters()
+  } else if (item.filterState !== undefined) {
+    // Reuse quick-filter cho workflow_state (clear khi filterState === '').
+    filters.value.workflow_state = (item.filterState || '') as WorkflowState | ''
+    showFilters.value = false
+    applyFilters()
+  }
 }
 
 function quickFilter(key: 'workflow_state' | 'clinical_dept', value: string) {
@@ -120,8 +143,8 @@ watch(() => route.query.workflow_state, (val) => {
       </template>
     </PageHeader>
 
-    <!-- KPI strip: docs/imm-04/06_Frontend_Design.md §3.1 — display summary, non-blocking fetch -->
-    <WorkOrderKpiStrip :items="kpiItems" />
+    <!-- KPI strip: docs/imm-04/06_Frontend_Design.md §3.1 — "Quá hạn SLA" clickable → drill overdue -->
+    <WorkOrderKpiStrip :items="kpiItems" @kpi-click="onKpiClick" />
 
     <ListFilterBar
       :show="showFilters"

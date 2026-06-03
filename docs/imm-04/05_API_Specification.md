@@ -574,6 +574,8 @@ curl -X POST 'http://site/api/method/assetcore.api.imm04.submit_commissioning' \
 | Role | HTM Technician+ (không Vendor Engineer) |
 | Idempotent | Yes |
 
+**`kpis.overdue_sla`** = `frappe.db.count("Asset Commissioning", overdue_commissioning_filter())` (BR-04-10). Anchor = `reception_date` (KHÔNG `expected_installation_date`); ngưỡng `OVERDUE_DAYS=30`. Giá trị này **bằng đúng** `pagination.total` của `list_commissioning({overdue:1})` → card click drill được. Các KPI còn lại (`pending_count` / `hold_count` / `open_nc_count` / `released_this_month`) GIỮ NGUYÊN định nghĩa.
+
 **Response success:**
 ```jsonc
 {
@@ -584,7 +586,7 @@ curl -X POST 'http://site/api/method/assetcore.api.imm04.submit_commissioning' \
       "hold_count": 2,
       "open_nc_count": 3,
       "released_this_month": 8,
-      "overdue_sla": 1
+      "overdue_sla": 1        // == pagination.total của list_commissioning({overdue:1})
     },
     "states_breakdown": [
       {"workflow_state": "Identification", "count": 5},
@@ -604,7 +606,9 @@ curl -X POST 'http://site/api/method/assetcore.api.imm04.submit_commissioning' \
 
 - `list_commissioning`: endpoint riêng vì cần business filter (whitelist filter keys, default loại cancelled)
 - Response luôn trả field denormalized `vendor_name`, `item_name` để FE không cần extra call
-- Whitelist filter keys: `workflow_state, po_reference, master_item, vendor, clinical_dept, docstatus, is_radiation_device, vendor_serial_no`
+- Whitelist filter keys (raw column): `workflow_state, po_reference, master_item, vendor, clinical_dept, docstatus, is_radiation_device, vendor_serial_no, expected_installation_date, final_asset, internal_tag_qr, doa_incident`
+- **Virtual filter `overdue=1`** (BR-04-10): KHÔNG phải raw column — khi truyền, AND thêm SoT `overdue_commissioning_filter()` (`reception_date < today−30`, `workflow_state NOT IN terminal`, `docstatus != 2`) vào `safe_filters`, **không clobber** filter khác. `'overdue'` ở whitelist ảo riêng (`_VIRTUAL_FILTER_KEYS`), KHÔNG lọt `_ALLOWED_FILTER_KEYS`. Drill từ KPI card "Quá hạn SLA". **INVARIANT:** `pagination.total` của `list_commissioning({overdue:1})` == `get_dashboard_stats().kpis.overdue_sla` (card == drill rows).
+  - Ví dụ: `?filters={"overdue":1}&page=1&page_size=20` → chỉ phiếu quá hạn SLA. Kết hợp được: `{"overdue":1,"clinical_dept":"DEPT-ICU"}` → quá hạn ∩ khoa ICU.
 
 ## 4. Webhook / Realtime Events
 

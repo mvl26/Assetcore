@@ -178,6 +178,9 @@ File hiện tại: `assetcore/tests/test_imm04.py`. Mỗi test class trace về 
 | `TestVR06Immutability` | `_vr06_immutable_lifecycle_events` | Error guessing | edit existing row raise, new row pass | ⬜ Planned |
 | `TestDocumentExpiry` | `_validate_document_expiry` | BVA | past/today/<30d/future | ⬜ Planned |
 | `TestOverdueScheduler` | `check_commissioning_overdue` | Use Case + cron | 200-open simulation | ⬜ Planned |
+| `TestOverdueSoT` (BR-04-10) | `overdue_commissioning_filter`, `get_dashboard_stats`, `list_commissioning(overdue=1)` | Invariant + EP | TC-04-30 helper trả đúng dict (anchor `reception_date`, `<today−OVERDUE_DAYS`, `workflow_state NOT IN terminal`, `docstatus!=2`); TC-04-31 `overdue_sla == list_commissioning({overdue:1}).pagination.total` (card==drill); TC-04-32 `overdue:1` AND filter khác không clobber + KHÔNG lọt raw column | ⬜ Planned |
+
+> **TC-04-30..32 (SoT overdue — vòng 32):** assert đo được trên data-live: tạo N phiếu `reception_date` vượt 30 ngày ở các state non-terminal + vài phiếu terminal/cancelled (không tính) → `overdue_sla` == số dòng `list_commissioning({overdue:1})`. Verify đổi anchor: phiếu có `expected_installation_date` quá hạn nhưng `reception_date` còn hạn → KHÔNG tính (chứng minh đã hợp nhất về `reception_date`). Verify `OVERDUE_DAYS` là constant (monkeypatch `=0` → mọi phiếu non-terminal tính overdue).
 
 ## III.3. Integration — DocType lifecycle
 
@@ -322,6 +325,7 @@ CI fail nếu coverage < target hoặc bất kỳ test nào fail.
 | BR-04-06 (G05) | No Open NC trước Release | `TestGateG05G06` | Decision Table | 1 / 1 |
 | BR-04-07 (G06) | board_approver bắt buộc | `TestGateG05G06::test_no_approver_blocks` | EP | 1 / 1 ✅ |
 | BR-04-08 (GW-2) | CN ĐK lưu hành Active/Exempt | `TestDocumentExpiry` | Decision Table | ⬜ Planned |
+| BR-04-10 | Overdue SoT drillable (anchor `reception_date`, `OVERDUE_DAYS=30`, KPI==drill) | `TestOverdueSoT` (TC-04-30..32) | Invariant + EP | 2 / 1 ⬜ Planned |
 
 ## IV.3. Component → Test mapping
 

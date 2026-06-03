@@ -85,7 +85,7 @@ IMM-04 nhận input từ **IMM-03** (PO), sản xuất output cho **IMM-05** (h�
 
 | KPI | Định nghĩa | Baseline | Target | Đo ở đâu |
 |---|---|---|---|---|
-| KPI-04-01: Tỷ lệ phiếu hoàn thành đúng hạn | % phiếu đạt Clinical Release trong 30 ngày từ `reception_date` | Không đo được (As-Is) | ≥ 85% | `get_dashboard_stats().overdue_sla` |
+| KPI-04-01: Tỷ lệ phiếu hoàn thành đúng hạn | % phiếu đạt Clinical Release trong `OVERDUE_DAYS`=30 ngày từ `reception_date` (anchor chốt — xem BR-04-10) | Không đo được (As-Is) | ≥ 85% | `get_dashboard_stats().kpis.overdue_sla` = `count(overdue_commissioning_filter())` |
 | KPI-04-02: Tỷ lệ serial không trùng | % phiếu vào Identification mà `vendor_serial_no` unique ngay lần đầu | N/A | 100% | VR-01 block count |
 | KPI-04-03: Tỷ lệ baseline test Pass lần đầu | % phiếu Initial Inspection không cần Re Inspection | Không đo được | ≥ 90% | Lifecycle event counter |
 | KPI-04-04: Thời gian xử lý trung bình | Trung bình ngày từ Draft → Clinical Release | ~15 ngày (ước tính) | ≤ 10 ngày | Calculated field |
@@ -232,7 +232,7 @@ flowchart TD
 | Metric | Mục tiêu | Đo ở đâu |
 |---|---|---|
 | Thời gian Draft → Clinical Release | ≤ 10 ngày | `reception_date` → `commissioning_date` |
-| % phiếu overdue (>30 ngày) | ≤ 5% | Dashboard `overdue_sla` |
+| % phiếu overdue (>`OVERDUE_DAYS`=30 ngày từ `reception_date`) | ≤ 5% | Dashboard `overdue_sla` = `count(overdue_commissioning_filter())`; drill = `list_commissioning({overdue:1})` (cùng SoT, BR-04-10) |
 | % audit trail coverage | 100% | Lifecycle event count per phiếu |
 | % baseline pass lần đầu | ≥ 90% | Count Re Inspection occurrences |
 
@@ -498,6 +498,8 @@ UC08 ..> UC09 : <<include>>
 | BR-04-06 (VR-04/G05) | No Open NC trước Release | `validate_gate_g05_g06()` | TC-04-22..24 |
 | BR-04-07 (G06) | `board_approver` bắt buộc trước Submit | `validate_gate_g05_g06()` | TC-04-25 |
 | BR-04-08 (BR-07/GW-2) | Asset có CN ĐK lưu hành Active hoặc Exempt trước Submit | `_gw2_check_document_compliance()` | TC-04-26 |
+| BR-04-09 (Gate 5 ↔ IMM-16) | Commissioning Submit bị block nếu asset có **Critical CAPA mở** — gọi chung `imm16.check_asset_compliance_status()` (SoT `imm00._open_capa_filter`: status NOT IN Closed, gồm `'Overdue'`). Cùng hành vi **invariant dưới cron** với gate WO IMM-08/09 (BR-16-09). Block → `ServiceError(COMPLIANCE_BLOCKED)`. KHÔNG nhân bản predicate inline trong imm04 | `services/imm04.py` commissioning gate → `check_asset_compliance_status()` | *(Cần khảo sát test ID)* |
+| BR-04-10 (Overdue SoT — drillable) | "Phiếu quá hạn SLA" định nghĩa bởi **MỘT** predicate duy nhất, dùng chung cho scheduler-alert + KPI count + list drill. **Date-anchor chốt = `reception_date`** (theo KPI-04-01 §I.5 + §II.6 — "trong 30 ngày từ `reception_date`"). Ngưỡng `OVERDUE_DAYS = 30` là **module-constant** (KHÔNG inline literal 30). Helper SoT: `overdue_commissioning_filter(today=None)` trả filter dict `{reception_date < today − OVERDUE_DAYS, workflow_state NOT IN _TERMINAL_STATES, docstatus != 2}`. **INVARIANT đo được:** `get_dashboard_stats().kpis.overdue_sla == list_commissioning({overdue:1}).pagination.total` (card count == drill rows). Self-Correction: KPI code trước đây dùng `expected_installation_date` → **sai anchor** so với Core Doc → hợp nhất về `reception_date` | `overdue_commissioning_filter()` gọi bởi `check_commissioning_overdue()`, `get_dashboard_stats()`, `list_commissioning(overdue=1)` | *(Cần khảo sát test ID — đề xuất TC-04-30..32)* |
 
 ## IV.3. State Machine
 

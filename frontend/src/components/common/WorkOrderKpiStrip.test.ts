@@ -32,4 +32,17 @@ describe('WorkOrderKpiStrip', () => {
     const w = mount(WorkOrderKpiStrip, { props: { items: [] } })
     expect(w.findAllComponents({ name: 'KpiCard' })).toHaveLength(0)
   })
+
+  it('K4: clickable item → button + emit kpi-click(index); non-clickable stays static (no break IMM-08/09)', async () => {
+    const mixed = [
+      { label: 'Tĩnh', value: 1, color: 'primary' as const },
+      { label: 'Quá hạn SLA', value: 4, color: 'warning' as const, clickable: true },
+    ]
+    const w = mount(WorkOrderKpiStrip, { props: { items: mixed } })
+    // Chỉ 1 button (thẻ clickable); thẻ tĩnh không phải button.
+    const clickables = w.findAll('[data-testid="wo-kpi-clickable"]')
+    expect(clickables).toHaveLength(1)
+    await clickables[0].trigger('click')
+    expect(w.emitted('kpi-click')?.[0]).toEqual([1])
+  })
 })

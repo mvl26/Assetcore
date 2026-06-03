@@ -37,23 +37,26 @@ describe('commissioningKpiItems', () => {
     expect(labels).not.toMatch(/\b(Open|In Progress|Completed|Pending|Released|Clinical Hold|Clinical Release|Release)\b/)
   })
 
-  it('K4: clickable KPIs carry correct filterState; overdue is display-only', () => {
+  it('K4: state KPIs carry filterState; overdue card drills via overdueFilter (BR-04-10)', () => {
     const items = commissioningKpiItems(kpis)
     // pending → reset (empty string clears the workflow_state filter)
     expect(items[0].filterState).toBe('')
     expect(items[1].filterState).toBe('Clinical Hold')
     expect(items[2].filterState).toBe('Non Conformance')
     expect(items[3].filterState).toBe('Clinical Release')
-    // overdue: no list filter param exists → non-clickable
+    // overdue: virtual filter `overdue=1` (KHÔNG dùng workflow_state) → clickable, không còn display-only
     expect(items[4].filterState).toBeUndefined()
+    expect(items[4].overdueFilter).toBe(true)
+    expect(items[4].clickable).toBe(true)
   })
 
-  it('K5: semantic colors per severity', () => {
+  it('K5: semantic colors per severity; overdue is warning (actionable, not neutral)', () => {
     const items = commissioningKpiItems(kpis)
     expect(items[0].color).toBe('primary')
     expect(items[1].color).toBe('warning')
     expect(items[2].color).toBe('danger')
     expect(items[3].color).toBe('success')
-    expect(items[4].color).toBe('neutral')
+    // vòng 32: neutral → warning vì thẻ chuyển sang clickable drill
+    expect(items[4].color).toBe('warning')
   })
 })
