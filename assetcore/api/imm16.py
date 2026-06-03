@@ -122,7 +122,15 @@ def generate_scorecard(module_ref: str = "", period: str = "") -> dict:
 
 @frappe.whitelist()
 def check_asset_compliance(asset: str) -> dict:
-    return _handle(svc.check_asset_compliance_status, asset)
+    """DEPRECATED legacy alias — kept as a thin shim for backward-compat only.
+
+    Canonical compliance-gate endpoint is ``check_asset_compliance_status``
+    (the path FE client `imm16.ts` targets, mirrors `svc.check_asset_compliance_status`).
+    This shim delegates to the canonical API fn so there is exactly ONE def that
+    delegates to ``svc.check_asset_compliance_status`` (the gate SoT). Do NOT add
+    new callers — use ``check_asset_compliance_status`` directly.
+    """
+    return check_asset_compliance_status(asset)
 
 
 @frappe.whitelist(methods=["POST"])

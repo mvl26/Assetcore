@@ -61,7 +61,7 @@ Toàn bộ artefact test được của IMM-16. Mỗi dòng → ≥ 1 test class
 | US-16-03 | Confirm NC & open CAPA Record | AC1 (confirm), AC2 (CAPA link) | Unit + API + UAT |
 | US-16-04 | Effectiveness check & Re-open | AC1 (Effective→Closed), AC2 (Not Effective→Re-open) | Unit + UAT |
 | US-16-05 | Internal Audit cycle | AC1 (auto-Finding), AC2 (close gate VR-08) | Integration + UAT |
-| US-16-06 | Compliance Scorecard sinh tự động | AC1 (formula), AC2 (immutability) | Unit + UAT |
+| US-16-06 | Compliance Scorecard sinh tự động | AC1 (formula BR-16-11: `compute_compliance_rate` SoT, pending KHÔNG vào mẫu số), AC2 (immutability), AC3 (scorecard + heatmap CÙNG dataset → CÙNG score), AC4 (BR-16-12: cả 2 lọc kỳ theo CÙNG field `evaluation_date` — parity thật trên dataset detected_date≠evaluation_date) | Unit + UAT |
 | US-16-07 | Waive Finding (BR-16-06) | AC1..AC3 (reason/evidence/expiry), AC4 (role) | Unit + API + UAT |
 | US-16-08 | Gate IMM-08/09 (BR-16-09) | AC1 (block), AC2 (unblock) | Unit + Integration + UAT |
 | US-16-09 | Management Review quý | AC1 (finalize gate), AC2 (MR gate scorecard) | Unit + UAT |
@@ -221,9 +221,22 @@ File: `assetcore/tests/test_imm16.py` — **12 TestCase, 29 test method** (LIVE)
 | `TestCAPAFromIncidentChain::test_create_capa_links_back_to_rca` | #11 `create_capa_from_incident` + RCA link | Use Case | 1 happy | ✅ Live |
 | `TestCAPAFromIncidentChain::test_create_capa_from_invalid_incident_raises` | #11 `create_capa_from_incident` | Error guessing | 1 negative | ✅ Live |
 
-**Gap (⬜ Planned)**: chưa có unit riêng cho `_compare_values` (threshold BVA/EP toàn matrix op), `generate_scorecard` formula (score_pct round 2dp), `create_capa_from_finding`, `mark_false_positive`, scheduler idempotency của `evaluate_all_compliance_rules`.
+**Gap (⬜ Planned)**: chưa có unit riêng cho `_compare_values` (threshold BVA/EP toàn matrix op), `create_capa_from_finding`, `mark_false_positive`, scheduler idempotency của `evaluate_all_compliance_rules`.
 
-> *Lưu ý*: dùng `SimpleNamespace` cho test thuần công thức (`_compare_values`, score_pct) — chạy ms-level, không cần fixture cleanup.
+**Regression bắt buộc (BR-16-11 — score_pct mẫu số adjudicated):** dataset `1×Confirmed NC + 1×Open + 1×Resolved` qua `compute_compliance_rate()`:
+- assert `total_adjudicated == 2`, `compliant == 1`, `non_compliant == 1`, `pending == 1`
+- assert `score_pct == 50.0` (KHÔNG phải 66.67 của công thức cũ `(total-nc)/total`)
+- assert `compute_compliance_rate([]) → score_pct == 100.0` (adjudicated=0 semantics)
+- assert scorecard `generate_scorecard()` và `get_compliance_heatmap()` cùng dataset → cùng score (no divergence; grep xác nhận KHÔNG còn `(total - nc) / total` inline ở 2 nơi)
+- VR-09 immutability KHÔNG hồi quy: publish → `score_pct`/`non_compliant_count` immutable vẫn pass.
+
+**Regression bắt buộc (BR-16-12 — period-anchor PARITY THẬT):** test parity cũ `test_tdd5_scorecard_heatmap_parity` là FALSE-GREEN vì ép CẢ `evaluation_date` VÀ `detected_date` vào cùng kỳ → divergence không bao giờ lộ. Test parity THẬT phải pin 2 date KHÁC kỳ:
+- dataset có ≥1 Confirmed-NC với `detected_date` ở kỳ T2 (`2027-02-25`) nhưng `evaluation_date` ở kỳ T3 (`2027-03-05`) — mô phỏng lag adjudication thực tế.
+- assert `generate_scorecard("", "2027-02")` score == `get_compliance_heatmap(2027, 2)` cell.score cho cùng module → kỳ T2 finding này KHÔNG đếm ở CẢ 2 view (cả 2 = 100.0 nếu không có NC khác trong T2).
+- assert `generate_scorecard("", "2027-03")` score == heatmap T3 cell.score cho cùng module → finding chỉ thuộc T3 ở CẢ 2 view, score giống nhau.
+- **RED-experiment**: revert anchor heatmap về `detected_date` → test FAIL đúng symptom (T2 heatmap đếm finding NC trong khi scorecard T2 không, score lệch) → chứng minh test bắt được bug thật, không phải false-green.
+
+> *Lưu ý*: dùng `SimpleNamespace` cho test thuần công thức (`_compare_values`, score_pct) — chạy ms-level, không cần fixture cleanup. Test period-anchor cần fixture committed (set cả 2 cột date qua `frappe.db.set_value`) + purge cả 2 kỳ T2+T3 ở `addCleanup`.
 
 ## III.3. Integration — DocType lifecycle
 

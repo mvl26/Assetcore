@@ -169,10 +169,11 @@ Existing fields: `naming_series`, `asset` (Link AC Asset), `severity` (Minor/Maj
 | 2 | period_month | Int | reqd |
 | 3 | scope | Select | Hospital/Block/Department |
 | 4 | scope_value | Data | — |
-| 5 | total_rules_evaluated | Int | — |
-| 6 | compliant_count | Int | — |
-| 7 | non_compliant_count | Int | — |
-| 8 | score_pct | Float | — |
+| 5 | total_rules_evaluated | Int | tổng finding sau filter False Positive (gồm cả pending) — KHÔNG phải mẫu số rate |
+| 6 | compliant_count | Int | adjudicated-compliant = Resolved + Waived + Closed (BR-16-11) — KHÔNG còn = total − nc |
+| 7 | non_compliant_count | Int | Confirmed NC (immutable sau publish — VR-09) |
+| 8 | score_pct | Float | `compliant/(compliant+non_compliant)*100`; adjudicated=0 → 100.0 (immutable sau publish — VR-09) |
+| 8a | pending_count | Int *(Cần khảo sát: thêm field DocType hay chỉ runtime)* | Open + Under Review — báo riêng, KHÔNG vào mẫu số. **BA decision (2026-06-02): trả runtime-only trong return dict; chưa thêm field DocType để tránh migration/fixture change. BE thêm column DocType khi cần persist cho restate audit.** |
 | 9 | score_by_module | Table → IMM Scorecard Module Row | — |
 | 10 | score_by_department | Table → IMM Scorecard Department Row | — |
 | 11 | trend_vs_prev_month | Float | — |
@@ -275,16 +276,85 @@ Re-opened → Investigating
 
 ## III.E. Compliance Scorecard
 
-`generate_scorecard()` **không ghi child rows** `score_by_module`/`score_by_department` vào DB — các field này là Table nhưng service chỉ tính runtime và không append rows. `score_pct` được tính từ `Confirmed NC` counts (không phải Resolved/Closed).
+`generate_scorecard()` **không ghi child rows** `score_by_module`/`score_by_department` vào DB — các field này là Table nhưng service chỉ tính runtime và không append rows.
+
+### SoT compliance-rate (BR-16-11)
+
+`compute_compliance_rate()` là **Single Source of Truth** cho compliance-rate, dùng chung bởi `generate_scorecard()` (scorecard immutable) VÀ `get_compliance_heatmap()` (matrix Module×Dept) — KHÔNG nhân bản công thức `(total - nc) / total` inline ở 2 nơi. CÙNG dataset → CÙNG 1 score (không divergence).
+
+#### Period-anchor canonical (BR-16-12) — điều kiện tiên quyết của "CÙNG dataset"
+
+"CÙNG dataset" CHỈ đúng nếu cả 2 hàm chọn CÙNG TẬP finding cho cùng module/kỳ. SoT công thức không đủ — phải thống nhất cả **field neo kỳ**. Canonical = **`evaluation_date`** (Date), KHÔNG dùng `detected_date` (Datetime):
+
+| Field | Kiểu | Ngữ nghĩa | Dùng neo kỳ? |
+|---|---|---|---|
+| `evaluation_date` | Date (reqd) | Ngày assessment — khớp chu kỳ review tháng của Scorecard; thành phần khóa idempotency `(rule, source_record, evaluation_date)` = "finding thuộc kỳ nào" | ✅ CANONICAL |
+| `detected_date` | Datetime (reqd) | Event-timestamp lúc phát hiện; có thể lệch kỳ do lag adjudication (phát hiện T2, đánh giá T3) | ❌ KHÔNG — gây divergence |
+
+**SoT period-filter — chống tái phát drift.** Field neo kỳ VÀ logic tính biên kỳ đều phải dùng chung, KHÔNG duplicate inline (gốc bug: bounds copy ở 2 nơi → 1 nơi đổi field, nơi kia quên). Hai artefact module-level trong `services/imm16.py`:
+
+- Hằng **`PERIOD_ANCHOR_FIELD = "evaluation_date"`** — field neo kỳ canonical (BR-16-12). Cả `generate_scorecard()` và `get_compliance_heatmap()` tham chiếu hằng này (KHÔNG literal `"evaluation_date"` rải rác).
+- Helper **`_period_bounds(year, month) -> (start, end_inclusive)`** — SoT cho biên kỳ. Semantics half-open `[start, next_month_start)`: ngày đầu kỳ THUỘC, ngày đầu kỳ KẾ KHÔNG thuộc. Vì Frappe `between` inclusive CẢ 2 đầu → `end_inclusive` = **ngày cuối tháng** (`next_month_start − 1 ngày`), tránh off-by-one cho finding rơi đúng ngày 01 kỳ kế (BR-16-12 / TDD-4 boundary).
+
+CẢ HAI hàm dùng chung hằng + helper:
+
+```python
+PERIOD_ANCHOR_FIELD = "evaluation_date"   # BR-16-12 canonical
+
+def _period_bounds(year, month):          # SoT biên kỳ — half-open [start, next)
+    start = f"{year}-{month:02d}-01"
+    next_start = f"{year + 1}-01-01" if month == 12 else f"{year}-{month + 1:02d}-01"
+    return start, add_days(next_start, -1)  # end_inclusive = ngày cuối tháng
+
+# generate_scorecard() VÀ get_compliance_heatmap():
+start, end = _period_bounds(year, month)
+filters = {
+    PERIOD_ANCHOR_FIELD: ("between", [start, end]),  # BR-16-12 canonical, KHÔNG detected_date
+    "status": ("!=", FindingStatus.FALSE_POSITIVE),
+}
+```
+
+> Divergence chứng minh: 1 Confirmed-NC có `detected_date='2027-02-25'` (kỳ T2) nhưng `evaluation_date='2027-03-05'` (kỳ T3). TRƯỚC fix: heatmap T2 đếm finding này (score giảm), scorecard T2 KHÔNG đếm (score cao hơn). SAU fix: finding chỉ thuộc T3 ở CẢ 2 view; T2 score==100 cả 2; T3 giống nhau cả 2.
+
+```python
+def compute_compliance_rate(findings: list) -> dict:
+    """SoT BR-16-11. ``findings`` đã loại False Positive từ filter.
+    Trả: {total_adjudicated, compliant, non_compliant, pending, score_pct}.
+
+    - non_compliant = chỉ Confirmed NC
+    - compliant     = ĐÃ phân định-tuân-thủ: Resolved | Waived | Closed
+    - pending       = Open | Under Review (chưa phân định) → KHÔNG vào mẫu số
+    - mẫu số (total_adjudicated) = compliant + non_compliant
+    - score_pct = round(compliant / total_adjudicated * 100, 2)
+    - total_adjudicated == 0 → score_pct = 100.0 (semantics 'không có NC xác nhận')
+    """
+```
+
+| Trạng thái finding | Phân loại trong rate | Vào mẫu số? |
+|---|---|---|
+| Confirmed NC | `non_compliant` | ✅ |
+| Resolved / Waived / Closed | `compliant` (adjudicated) | ✅ |
+| Open / Under Review | `pending` | ❌ (báo riêng) |
+| False Positive | (loại từ filter `status != False Positive`) | ❌ |
+
+**Regression chứng minh bằng số** — dataset `1×Confirmed NC + 1×Open + 1×Resolved`:
+
+| | total | nc | compliant | pending | adjudicated | score_pct |
+|---|---|---|---|---|---|---|
+| TRƯỚC fix `(total−nc)/total` | 3 | 1 | 2 (gồm Open ❌) | — | 3 | **66.67%** (Open bị tính tuân thủ) |
+| SAU fix SoT | 3 | 1 | 1 (Resolved) | 1 (Open) | 2 | **50.0%** |
+
+Assert: `score_pct == 50.0` và `!= 66.67`.
 
 | Function | Signature | Ghi chú |
 |---|---|---|
-| `generate_scorecard(module_ref, period)` | `→ dict` | tạo Scorecard record; runtime aggregate |
+| `compute_compliance_rate(findings)` | `→ dict{total_adjudicated, compliant, non_compliant, pending, score_pct}` | **SoT BR-16-11** — gọi bởi `generate_scorecard` + `get_compliance_heatmap` |
+| `generate_scorecard(module_ref, period)` | `→ dict` | tạo Scorecard record; gọi SoT; ghi `compliant_count`/`non_compliant_count`/`score_pct`; trả thêm `pending_count` runtime. `capa_open_count` ← **SoT `imm00._open_capa_filter()`** (status NOT IN Closed — KHÔNG inline `IN [Open, In Progress, Pending Verification]`) → khớp KPI dashboard `capa_open`/drill byte-for-byte. `capa_overdue_count` ← **SoT `imm00._overdue_capa_filter()`** → khớp KPI/drill |
 | `list_scorecards(filters, *, page, page_size)` | `→ dict` | |
 | `get_current_scorecard(scope)` | `→ dict` | delegate → get_scorecard_by_period(today) |
 | `get_scorecard_by_period(year, month, scope)` | `→ dict` | |
 | `publish_scorecard(name)` | `→ dict` | VR-09 immutable; VR-10 gate quý trước MR |
-| `validate_scorecard_immutability(doc)` | controller hook | score_pct + non_compliant_count immutable sau publish |
+| `validate_scorecard_immutability(doc)` | controller hook | score_pct + non_compliant_count immutable sau publish (KHÔNG hồi quy) |
 
 ## III.F. Management Review
 
@@ -308,11 +378,12 @@ Minutes Approved → Closed  (nhưng close phải đi qua finalize_management_re
 
 | Function | Signature | Ghi chú |
 |---|---|---|
-| `get_dashboard_stats()` | `→ dict` | KPIs + trend_12m + recent_findings |
-| `get_compliance_heatmap(period_year, period_month)` | `→ dict` | Module×Dept matrix (BUG-16-11: source_module từ Rule, BUG-16-04: dept label) |
-| `get_capa_aging()` | `→ dict` | buckets: 0-7d/8-30d/31-60d/60+ |
-| `get_overdue_actions()` | `→ dict` | overdue findings (>30d) + overdue CAPAs |
-| `check_asset_compliance_status(asset)` | `→ dict` | BR-16-09 gate; blocked=True nếu Critical CAPA open |
+| `get_dashboard_stats()` | `→ dict` | KPIs + trend_12m + recent_findings. `capa_open` ← **SoT `imm00._open_capa_filter()`** (status NOT IN Closed — KHÔNG inline `IN [Open, In Progress]` bỏ sót Overdue/Pending Verification) → khớp KPI dashboard `capa_open` byte-for-byte. `capa_overdue` ← **SoT `imm00._overdue_capa_filter()`** → khớp KPI dashboard + drill byte-for-byte |
+| `_period_bounds(year, month)` | `→ (start, end_inclusive)` | **SoT biên kỳ** (BR-16-12) — half-open `[start, next)`; `end_inclusive` = ngày cuối tháng (Frappe `between` inclusive → tránh off-by-one). Dùng chung bởi `generate_scorecard` + `get_compliance_heatmap` |
+| `get_compliance_heatmap(period_year, period_month)` | `→ dict` | Module×Dept matrix; lọc kỳ theo hằng `PERIOD_ANCHOR_FIELD` (=`evaluation_date`) + helper `_period_bounds()` — BR-16-12 canonical, KHÔNG `detected_date` (CÙNG hằng/helper với `generate_scorecard` → KHÔNG drift); `cell.score` ← `compute_compliance_rate()` SoT (BR-16-11, KHÔNG còn `(total-nc)/total` inline). BUG-16-11: source_module từ Rule, BUG-16-04: dept label |
+| `get_capa_aging()` | `→ dict` | buckets: 0-7d/8-30d/31-60d/60+. Tập CAPA mở ← **SoT `imm00._open_capa_filter()`** (status NOT IN Closed — KHÔNG inline `IN [Open, In Progress]`). INVARIANT: `total_open == sum(buckets)` — record `opened_date` NULL bị loại khỏi CẢ HAI cách đếm (no null-skip divergence) |
+| `get_overdue_actions()` | `→ dict` | overdue findings (>30d) + overdue CAPAs. `overdue_capas` ← **SoT `imm00._overdue_capa_filter()`** → len == KPI `capa_overdue` == `list_overdue_capas` drill (cùng dataset) |
+| `check_asset_compliance_status(asset)` | `→ dict` | BR-16-09 gate. Critical CAPA mở ← **SoT `imm00._open_capa_filter()`** (status NOT IN Closed — KHÔNG inline `IN [Open, In Progress, Pending Verification]` bỏ sót `Overdue`) AND `imm_risk_level='Critical'`. `blocked=bool(crit_capas)`. **INVARIANT dưới cron**: byte-for-byte cùng tập trước/sau `check_capa_overdue` flip Open→Overdue → count không tụt, gate giữ block. `reasons[].status` = status thật (gồm `'Overdue'`), không nuốt. Consumer chung: `gate_wo_submit` (IMM-08/09) + `services/imm04.py` commissioning gate — cùng hành vi invariant |
 | `get_record_history(ref_doctype, ref_name, limit)` | `→ dict` | audit trail cho Finding/CAPA/MR/Rule |
 
 ## III.H. Doc-event Real-time Evaluators
@@ -323,7 +394,7 @@ Minutes Approved → Closed  (nhưng close phải đi qua finalize_management_re
 | `eval_imm05_realtime(doc, method)` | `AC Asset Document.on_update` (khi workflow_state=Expired) |
 | `eval_imm08_09_realtime(doc, method)` | `IMM PM Work Order.on_submit`, `IMM CM Work Order.on_submit` |
 | `eval_imm11_realtime(doc, method)` | `IMM Calibration Record.on_submit` |
-| `gate_wo_submit(doc, method)` | `IMM PM Work Order.validate`, `IMM CM Work Order.validate` |
+| `gate_wo_submit(doc, method)` | `PM Work Order.validate`, `Asset Repair.validate` — đọc `asset_ref`; `check_asset_compliance_status().blocked` → `frappe.throw` (FE hiển thị verbatim). Chặn cả khi Critical CAPA status=`'Overdue'` (invariant). Commissioning IMM-04 (`services/imm04.py`) gọi cùng gate qua ServiceError `COMPLIANCE_BLOCKED` |
 
 ---
 
@@ -521,7 +592,7 @@ File: `assetcore/services/imm16.py` (không phải `tasks.py` — tất cả sch
 |---|---|---|---|
 | `run_compliance_evaluation_hourly` | `hourly` | Hourly | evaluation_frequency IN (Hourly, Realtime) |
 | `evaluate_all_compliance_rules` | `daily` | Daily | evaluation_frequency IN (Daily, Realtime, Hourly) |
-| `check_capa_due` | `daily` | Daily | overdue CAPA escalation (tiered: Critical ≥1d, High ≥3d) |
+| `check_capa_due` | `daily` | Daily | overdue CAPA escalation (tiered: Critical ≥1d, High ≥3d). Tập overdue ← **SoT `imm00._overdue_capa_filter()`** (cùng INVARIANT với KPI + cron flip) |
 | `check_audit_milestones` | `daily` | Daily | Planned audit bắt đầu trong 7 ngày → email Lead Auditor |
 | `run_compliance_evaluation_weekly` | `weekly` | Weekly Monday | evaluation_frequency = Weekly |
 | `check_management_review_due` | `weekly` | Weekly Monday | Quý hiện tại chưa có MR Closed → alert |

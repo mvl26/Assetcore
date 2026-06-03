@@ -138,7 +138,7 @@ User không có Role hợp lệ → `{"success": false, "error": "...", "code": 
 | `submit_audit_findings` | standalone |
 | `close_internal_audit` | `close_audit` |
 | `generate_scorecard` | standalone (POST) |
-| `check_asset_compliance` | `check_asset_compliance_status` (GET alias) |
+| `check_asset_compliance` | `check_asset_compliance_status` (GET alias mỏng — DEPRECATED; gọi lại hàm canonical, KHÔNG gọi `svc.*` trực tiếp; xem §3.8.1) |
 | `run_compliance_evaluation` | standalone (POST trigger) |
 
 ---
@@ -513,6 +513,10 @@ _AUDIT_LEAD_ROLES         = {"Compliance Manager", "Compliance User", "AssetCore
 
 **Params:** `year=2026&month=4&scope=Hospital`
 
+> **Semantics rate (BR-16-11):** `score_pct = compliant/(compliant+non_compliant)*100`, mẫu số = chỉ finding ĐÃ adjudicated. `pending_count` (Open + Under Review) báo riêng, KHÔNG vào mẫu số. `score_pct` của Scorecard và `cell.score` của Heatmap dùng CÙNG SoT `compute_compliance_rate()` → CÙNG dataset CÙNG 1 score. `pending_count` là runtime-only (chưa persist field DocType — xem 04 §II.5 row 8a).
+>
+> **Period-anchor (BR-16-12):** Điều kiện tiên quyết của "CÙNG dataset" — cả Scorecard và Heatmap lọc kỳ theo CÙNG 1 field canonical `evaluation_date` (Date), KHÔNG dùng `detected_date` (Datetime event-timestamp có thể lệch kỳ do lag adjudication). Nếu 2 view lọc 2 field khác nhau, cùng module/kỳ sẽ chọn 2 TẬP finding khác → `score_pct` lệch dù công thức giống. `evaluation_date` là khóa idempotency `(rule, source_record, evaluation_date)` = định nghĩa hệ thống "finding thuộc kỳ nào".
+
 **Response 200:**
 
 ```json
@@ -523,7 +527,11 @@ _AUDIT_LEAD_ROLES         = {"Compliance Manager", "Compliance User", "AssetCore
     "period_year": 2026,
     "period_month": 4,
     "scope": "Hospital",
-    "score_pct": 87.5,
+    "total_rules_evaluated": 120,
+    "compliant_count": 90,
+    "non_compliant_count": 18,
+    "pending_count": 12,
+    "score_pct": 83.33,
     "trend_vs_prev_month": 2.3,
     "score_by_module": [
       {"module": "IMM-08", "score": 91.0},
@@ -635,6 +643,8 @@ _AUDIT_LEAD_ROLES         = {"Compliance Manager", "Compliance User", "AssetCore
 
 **Params:** `period_year=2026&period_month=4`
 
+> Lọc kỳ theo `evaluation_date` (BR-16-12 period-anchor canonical, CÙNG field với Scorecard — KHÔNG `detected_date`). `cell.score` == `score_pct` của Scorecard cùng module/kỳ trên CÙNG tập finding.
+
 **Response 200:**
 
 ```json
@@ -656,9 +666,15 @@ _AUDIT_LEAD_ROLES         = {"Compliance Manager", "Compliance User", "AssetCore
 
 ### §3.8 Cross-module Gate
 
-#### 3.8.1 `check_asset_compliance_status`
+#### 3.8.1 `check_asset_compliance_status` (CANONICAL)
 
-**Mô tả:** Gọi bởi `services/imm08.py` + `services/imm09.py` validate_* trước WO Submit; và IMM-13/14 trước decommission.
+**Mô tả:** Gọi bởi `gate_wo_submit` (PM Work Order / Asset Repair `.validate`) trước WO Submit; `services/imm04.py` commissioning gate; IMM-13/14 trước decommission; và **FE pre-flight banner** (`PMWorkOrderCreateView.vue` qua client `imm16.ts::checkAssetComplianceStatus`, line 512-513) khi user chọn asset — render BE result, KHÔNG inline-compute membership ở FE.
+
+> **Canonical path (chốt Vòng 16 — collapse duplicate):** đây là endpoint DUY NHẤT delegate trực tiếp tới `svc.check_asset_compliance_status`. Endpoint `check_asset_compliance` (api/imm16.py cũ ~line 124) trở thành **alias mỏng**: gọi lại hàm Python `check_asset_compliance_status(asset)` trong cùng file (KHÔNG gọi thẳng `svc.*`), kèm doc-note `# DEPRECATED alias — dùng check_asset_compliance_status`. Tiêu chí nghiệm thu: `grep -n "svc.check_asset_compliance_status" api/imm16.py` chỉ trả về 1 dòng (trong def canonical). FE client (`imm16.ts:512-513`) trỏ tới canonical path `…imm16.check_asset_compliance_status` — gọi LIVE phải trả 200 (không 403/404 method-not-found).
+
+> **Parity contract (FE pre-flight ⟺ gate_wo_submit):** cả pre-flight banner và `gate_wo_submit` cùng đọc 1 SoT — `result.blocked` mà FE render === `blocked` mà service `check_asset_compliance_status` trả. FE KHÔNG tự tính membership; banner chỉ hiển thị `result.blocked` + `result.reasons[]` verbatim. Khi `blocked===true` → nút "Tạo lệnh" disable (hoặc giữ reactive-throw nhưng banner đã cảnh báo trước). Khi `blocked===false` hoặc asset rỗng → banner ẩn.
+
+`blocked` = có Critical CAPA mở trên asset. "Mở" dùng **SoT `imm00._open_capa_filter()`** (BR-00-15: `status NOT IN ('Closed')`) AND `imm_risk_level='Critical'` — KHÔNG inline `status IN [Open, In Progress, Pending Verification]`. **Invariant dưới cron**: CAPA `'Overdue'` ∈ tập mở → gate giữ `blocked=true` cả trước/sau `check_capa_overdue` flip; `reasons[].status` trả status thật (gồm `'Overdue'`). Non-Critical (High/Medium/Low) KHÔNG block dù Overdue.
 
 | Method | Path |
 |---|---|
@@ -825,7 +841,11 @@ export interface ComplianceScorecard {
   period_year: number
   period_month: number
   scope: 'Hospital' | 'Block' | 'Department'
-  score_pct: number
+  total_rules_evaluated: number
+  compliant_count: number          // adjudicated-compliant (BR-16-11)
+  non_compliant_count: number      // Confirmed NC
+  pending_count?: number           // Open + Under Review (read-only; runtime-only field)
+  score_pct: number                // FE chỉ ĐỌC — KHÔNG inline-compute
   trend_vs_prev_month: number
   score_by_module: ScoreByModule[]
   score_by_department: ScoreByDepartment[]

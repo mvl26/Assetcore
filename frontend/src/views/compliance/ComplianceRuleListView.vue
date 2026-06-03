@@ -14,6 +14,7 @@ import BasePagination from '@/components/common/BasePagination.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import BaseModal from '@/components/common/BaseModal.vue'
+import { translateFrequency } from '@/utils/formatters'
 
 const router = useRouter()
 const store = useImm16Store()
@@ -36,14 +37,7 @@ const SEVERITY_LABELS: Record<string, string> = {
   Low: 'Thấp', Medium: 'Trung bình', High: 'Cao', Critical: 'Nghiêm trọng',
 }
 
-const FREQUENCY_LABELS: Record<string, string> = {
-  Daily: 'Hàng ngày', Weekly: 'Hàng tuần', Monthly: 'Hàng tháng',
-  Quarterly: 'Hàng quý', Yearly: 'Hàng năm', 'Ad-hoc': 'Theo yêu cầu',
-}
-function frequencyLabel(v?: string | null): string {
-  if (!v) return '—'
-  return FREQUENCY_LABELS[v] ?? v
-}
+// Nhãn tần suất: dùng SSoT translateFrequency (@/utils/formatters) — không map cục bộ.
 
 const chips = computed(() => {
   const c: { key: string; label: string }[] = []
@@ -248,7 +242,7 @@ onMounted(() => load(1))
               <td class="table-cell">
                 <StatusBadge :state="r.severity" />
               </td>
-              <td class="table-cell text-slate-600">{{ frequencyLabel(r.evaluation_frequency) }}</td>
+              <td class="table-cell text-slate-600">{{ translateFrequency(r.evaluation_frequency) }}</td>
               <td class="table-cell font-mono text-xs text-slate-500">{{ r.version || '1.0' }}</td>
               <td class="table-cell">
                 <span

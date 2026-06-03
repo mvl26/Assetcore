@@ -14,6 +14,7 @@ import frappe
 from frappe.utils import add_days, nowdate
 
 from assetcore.services import imm16 as svc
+from assetcore.services.imm16 import FindingStatus
 from assetcore.services.shared import ServiceError
 
 
@@ -23,6 +24,29 @@ def _delete_if_exists(doctype: str, name: str) -> None:
         frappe.delete_doc(doctype, name, ignore_permissions=True,
                           force=True, ignore_on_trash=True)
         frappe.db.commit()
+
+
+def tearDownModule():  # noqa: N802
+    """Module-level safety net: AC Asset / IMM CAPA Record are autonamed, so the
+    requested fixture names ("TEST-GATE-ASSET-01" / "TEST-CAPA-%") are IGNORED on
+    insert (LL-TEST-9) → per-test _delete_if_exists never matches and leaks
+    'Gate Test Asset' / 'Gate Cron Asset' + placeholder CAPAs. Purge by marker."""
+    from assetcore.tests._asset_cleanup import purge_assets_by_name_prefix
+    frappe.set_user("Administrator")
+    # Test CAPAs (placeholder narratives) first so the assets become FK-free.
+    for nm in frappe.db.sql_list(
+        "SELECT name FROM `tabIMM CAPA Record` WHERE "
+        "description IN ('Test effectiveness', 'Test fields', 'Gate test critical CAPA') "
+        "OR description LIKE 'Eval round%%' "
+        "OR (root_cause = 'test' AND corrective_action = 'test') "
+        "OR (root_cause = 'RC narrative' AND corrective_action = 'CA narrative') "
+        "OR root_cause LIKE 'Eval %%narrative'"
+    ):
+        with suppress(Exception):
+            frappe.delete_doc("IMM CAPA Record", nm, force=True,
+                              ignore_permissions=True, ignore_on_trash=True)
+    purge_assets_by_name_prefix("Gate Test Asset", "Gate Cron Asset")
+    frappe.db.commit()
 
 
 def _ensure(doctype: str, name: str, data: dict) -> str:
@@ -148,6 +172,20 @@ class TestImm16Base(unittest.TestCase):
                                       force=True, ignore_permissions=True,
                                       ignore_on_trash=True)
             _delete_if_exists("IMM Compliance Rule", "TEST-R-IMM08-PM-90")
+            # IMM CAPA Record is autonamed (CAPA-YYYY-#####) → the "TEST-CAPA-%"
+            # name filter above NEVER matches effectiveness fixtures (LL-TEST-9),
+            # so they leaked onto the real asset. Purge by their test markers.
+            for nm in frappe.db.sql_list(
+                "SELECT name FROM `tabIMM CAPA Record` WHERE "
+                "description IN ('Test effectiveness', 'Test fields') "
+                "OR description LIKE 'Eval round%%' "
+                "OR (root_cause = 'test' AND corrective_action = 'test') "
+                "OR (root_cause = 'RC narrative' AND corrective_action = 'CA narrative') "
+                "OR root_cause LIKE 'Eval %%narrative'"
+            ):
+                with suppress(Exception):
+                    frappe.delete_doc("IMM CAPA Record", nm, force=True,
+                                      ignore_permissions=True, ignore_on_trash=True)
             frappe.db.commit()
 
 
@@ -307,6 +345,86 @@ class TestEffectivenessCheck(TestImm16Base):
         self.assertEqual(result["new_state"], "Re-opened")
         self.assertGreaterEqual(result["imm_reopen_count"], 1)
 
+    # ── BUG-16: evidence loss on Effective→Close (NĐ98/ISO 13485 §8.5.2) ──
+    def _new_verification_capa(self, fixture_name: str) -> str:
+        """Mirror fixture (dòng 286-302): CAPA ở Verification/In Progress."""
+        return _ensure(
+            "IMM CAPA Record", fixture_name,
+            {
+                "asset": self.test_asset,
+                "source_type": "Non-Conformance",
+                "severity": "Major",
+                "description": "Test effectiveness",
+                "opened_date": nowdate(),
+                "due_date": add_days(nowdate(), 30),
+                "responsible": "Administrator",
+                "workflow_state": "Verification",
+                "status": "In Progress",
+                "root_cause": "test",
+                "corrective_action": "test",
+                "preventive_action": "test",
+            },
+        )
+
+    def test_effectiveness_check_effective_persists_evidence(self):
+        """RED-before-fix: closing a CAPA as Effective must KEEP the
+        effectiveness evidence (NĐ98/ISO 13485 §8.5.2 audit trail)."""
+        if not self.test_asset:
+            self.skipTest("No AC Asset found in DB — skipping effectiveness test")
+        capa_name = self._new_verification_capa("TEST-CAPA-EFF-CLOSE-01")
+        result = svc.perform_effectiveness_check(
+            capa_name, result="Effective",
+            effectiveness_evidence="/files/eff-close-01.pdf",
+        )
+        self.assertEqual(result["new_state"], "Closed")
+        # Evidence must survive into the DB on the Close branch (post-commit).
+        self.assertEqual(
+            frappe.db.get_value("IMM CAPA Record", capa_name,
+                                "imm_effectiveness_evidence"),
+            "/files/eff-close-01.pdf",
+        )
+        ec, status = frappe.db.get_value(
+            "IMM CAPA Record", capa_name,
+            ["effectiveness_check", "status"])
+        self.assertEqual(ec, "Effective")
+        self.assertEqual(status, "Closed")
+
+    def test_effectiveness_check_effective_empty_evidence_still_closes(self):
+        """Guard (GREEN both sides): empty evidence on Effective must NOT
+        overwrite the field with '', and CAPA must still Close — parity with
+        the Re-open branch's ``if effectiveness_evidence:`` guard."""
+        if not self.test_asset:
+            self.skipTest("No AC Asset found in DB — skipping effectiveness test")
+        capa_name = self._new_verification_capa("TEST-CAPA-EFF-CLOSE-EMPTY")
+        result = svc.perform_effectiveness_check(
+            capa_name, result="Effective", effectiveness_evidence="",
+        )
+        self.assertEqual(result["new_state"], "Closed")
+        # Empty evidence must not clobber the field to ''.
+        self.assertNotEqual(
+            frappe.db.get_value("IMM CAPA Record", capa_name,
+                                "imm_effectiveness_evidence"),
+            "",
+        )
+
+    def test_effectiveness_check_not_effective_persists_evidence(self):
+        """Lock existing (correct) Re-open behaviour: evidence persists and the
+        re-open counter increments — guard against regression."""
+        if not self.test_asset:
+            self.skipTest("No AC Asset found in DB — skipping effectiveness test")
+        capa_name = self._new_verification_capa("TEST-CAPA-EFF-REOPEN-01")
+        result = svc.perform_effectiveness_check(
+            capa_name, result="Not Effective",
+            effectiveness_evidence="/files/eff-reopen.pdf",
+        )
+        self.assertEqual(result["new_state"], "Re-opened")
+        self.assertGreaterEqual(result["imm_reopen_count"], 1)
+        self.assertEqual(
+            frappe.db.get_value("IMM CAPA Record", capa_name,
+                                "imm_effectiveness_evidence"),
+            "/files/eff-reopen.pdf",
+        )
+
 
 # ── TC-16-09: Publish scorecard blocked when prev quarter MR missing ────────
 
@@ -358,6 +476,146 @@ class TestCrossModuleGate(TestImm16Base):
         self.assertIn("reasons", result)
         self.assertIn("active_findings_count", result)
         self.assertIn("active_capas_count", result)
+
+
+# ── TC-16-GATE: duplicate-collapse parity + invariant-under-cron ─────────────
+# Pre-flight banner (PMWorkOrderCreateView) reads gate_wo_submit SoT via the
+# canonical whitelist endpoint. These guard: (1) collapse left exactly ONE
+# whitelisted gate fn delegating to svc.check_asset_compliance_status, and
+# (2) the gate stays blocked + reasons[].status renders the REAL status after
+# the daily cron flips Open→'Overdue' (BR-16-09 invariant, round 12).
+
+class TestGateDuplicateCollapse(TestImm16Base):
+    """TC-16-GATE-01: after collapse there is exactly ONE whitelisted gate fn."""
+
+    _ASSET = "TEST-GATE-ASSET-01"
+    _CAPA = "TEST-CAPA-GATE-CRIT-01"
+
+    def setUp(self):
+        super().setUp()
+        _ensure("AC Asset", self._ASSET, {"asset_name": "Gate Test Asset"})
+        # IMM CAPA Record uses naming_series autoname → captured name, not
+        # the requested fixture name. Track it for assertion + teardown.
+        self._capa_name = _ensure(
+            "IMM CAPA Record", self._CAPA,
+            {
+                "asset": self._ASSET,
+                "imm_risk_level": "Critical",
+                "severity": "Critical",
+                "status": "Open",
+                "due_date": add_days(nowdate(), -10),  # past-due
+                "description": "Gate test critical CAPA",
+            },
+        )
+        frappe.db.commit()
+
+    def tearDown(self):
+        _delete_if_exists("IMM CAPA Record", self._capa_name)
+        _delete_if_exists("AC Asset", self._ASSET)
+        frappe.db.commit()
+        super().tearDown()
+
+    def test_canonical_endpoint_blocks_critical_open_past_due(self):
+        # Call the CANONICAL whitelist endpoint (api layer), not the service,
+        # to prove the FE-facing path still enforces BR-16-09 after collapse.
+        from assetcore.api import imm16 as api
+        resp = api.check_asset_compliance_status(self._ASSET)
+        self.assertTrue(resp["success"], resp)
+        result = resp["data"]
+        self.assertTrue(result["blocked"])
+        self.assertGreaterEqual(len(result["reasons"]), 1)
+        # reasons[0].status surfaces the REAL CAPA status (render-ready for FE).
+        self.assertEqual(result["reasons"][0]["status"], "Open")
+        self.assertEqual(result["reasons"][0]["ref"], self._capa_name)
+
+    def test_only_one_whitelisted_gate_endpoint_remains(self):
+        # grep-equivalent: parse api/imm16.py AST, count whitelisted module-level
+        # functions whose body delegates to svc.check_asset_compliance_status.
+        import ast
+        import inspect
+
+        from assetcore.api import imm16 as api
+        src = inspect.getsource(api)
+        tree = ast.parse(src)
+        delegating = []
+        for node in tree.body:
+            if not isinstance(node, ast.FunctionDef):
+                continue
+            is_whitelisted = any(
+                (isinstance(d, ast.Call) and getattr(d.func, "attr", "")
+                 == "whitelist")
+                or getattr(d, "attr", "") == "whitelist"
+                for d in node.decorator_list
+            )
+            if not is_whitelisted:
+                continue
+            # Match an ACTUAL call expression `svc.check_asset_compliance_status`
+            # in the executable body — NOT docstrings/comments (the deprecated
+            # alias mentions the canonical fn in its docstring but does not
+            # delegate to the service directly).
+            delegates = any(
+                isinstance(c, ast.Attribute)
+                and c.attr == "check_asset_compliance_status"
+                and isinstance(c.value, ast.Name) and c.value.id == "svc"
+                for c in ast.walk(node)
+            )
+            if delegates:
+                delegating.append(node.name)
+        self.assertEqual(
+            len(delegating), 1,
+            f"Expected exactly 1 whitelisted gate fn delegating to "
+            f"svc.check_asset_compliance_status, found: {delegating}",
+        )
+        # Canonical name = the path FE client imm16.ts:513 targets.
+        self.assertEqual(delegating[0], "check_asset_compliance_status")
+
+
+class TestGateInvariantUnderCron(TestImm16Base):
+    """TC-16-GATE-02: blocked invariant after cron flips Open→'Overdue'."""
+
+    _ASSET = "TEST-GATE-ASSET-02"
+    _CAPA = "TEST-CAPA-GATE-CRIT-02"
+
+    def setUp(self):
+        super().setUp()
+        _ensure("AC Asset", self._ASSET, {"asset_name": "Gate Cron Asset"})
+        self._capa_name = _ensure(
+            "IMM CAPA Record", self._CAPA,
+            {
+                "asset": self._ASSET,
+                "imm_risk_level": "Critical",
+                "severity": "Critical",
+                "status": "Open",
+                "due_date": add_days(nowdate(), -5),  # past-due → cron flippable
+                "description": "Gate cron invariant CAPA",
+            },
+        )
+        frappe.db.commit()
+
+    def tearDown(self):
+        _delete_if_exists("IMM CAPA Record", self._capa_name)
+        _delete_if_exists("AC Asset", self._ASSET)
+        frappe.db.commit()
+        super().tearDown()
+
+    def test_blocked_invariant_and_status_renders_overdue_after_cron(self):
+        from assetcore.services.imm00 import check_capa_overdue
+
+        # Before cron: Critical CAPA Open past-due → blocked, status 'Open'.
+        before = svc.check_asset_compliance_status(self._ASSET)
+        self.assertTrue(before["blocked"])
+        self.assertEqual(before["reasons"][0]["status"], "Open")
+
+        # Run daily cron: flips Open→'Overdue'.
+        check_capa_overdue()
+        frappe.db.commit()
+
+        # After cron: gate STILL blocked (invariant) + reasons[].status now
+        # surfaces the REAL flipped status 'Overdue' (render-ready, no leak guard
+        # is FE responsibility via translateStatus).
+        after = svc.check_asset_compliance_status(self._ASSET)
+        self.assertTrue(after["blocked"])
+        self.assertEqual(after["reasons"][0]["status"], "Overdue")
 
 
 # ── TC-16-11: Dashboard stats shape ─────────────────────────────────────────
@@ -668,6 +926,596 @@ class TestLLBE1Heatmap417(unittest.TestCase):
         )
         resp = wrapped()
         self.assertIsInstance(resp, dict)
+
+
+# ── BR-16-11: compute_compliance_rate SoT (scorecard + heatmap) ─────────────
+#
+# Root cause: score_pct phồng vì finding chưa phân định (Open/Under Review) bị
+# tính NHƯ tuân thủ (compliant = total - nc). SoT mới loại pending khỏi mẫu số.
+
+class _F:
+    """Lightweight finding-like stub: SoT chỉ đọc ``.status``."""
+
+    def __init__(self, status: str):
+        self.status = status
+
+
+class TestComputeComplianceRateSoT(unittest.TestCase):
+    """SoT BR-16-11 — phân loại finding thành 3 nhóm cho compliance-rate."""
+
+    def test_tdd1_confirmed_nc_and_resolved(self):
+        """[BE TDD-1] {1 Confirmed NC, 1 Resolved} → adjudicated=2, nc=1,
+        compliant=1, score_pct=50.0, pending=0."""
+        findings = [_F(FindingStatus.CONFIRMED_NC), _F(FindingStatus.RESOLVED)]
+        r = svc.compute_compliance_rate(findings)
+        self.assertEqual(r["total_adjudicated"], 2)
+        self.assertEqual(r["non_compliant"], 1)
+        self.assertEqual(r["compliant"], 1)
+        self.assertEqual(r["pending"], 0)
+        self.assertEqual(r["score_pct"], 50.0)
+
+    def test_tdd3_only_pending_yields_100(self):
+        """[BE TDD-3] Edge: chỉ {2 Open, 1 Under Review} → adjudicated=0 →
+        score_pct=100.0 (semantics 'không có NC xác nhận'), pending=3."""
+        findings = [_F(FindingStatus.OPEN), _F(FindingStatus.OPEN),
+                    _F(FindingStatus.UNDER_REVIEW)]
+        r = svc.compute_compliance_rate(findings)
+        self.assertEqual(r["total_adjudicated"], 0)
+        self.assertEqual(r["pending"], 3)
+        self.assertEqual(r["non_compliant"], 0)
+        self.assertEqual(r["compliant"], 0)
+        self.assertEqual(r["score_pct"], 100.0)
+
+    def test_tdd4_false_positive_excluded_from_both(self):
+        """[BE TDD-4] FP đã loại từ query filter (status != FP). Nếu lọt vào
+        SoT vẫn KHÔNG được làm phồng mẫu số. {1 Confirmed NC} (FP đã lọc) →
+        adjudicated=1, score_pct=0.0."""
+        # Mô phỏng list sau filter `status != False Positive`.
+        findings = [_F(FindingStatus.CONFIRMED_NC)]
+        r = svc.compute_compliance_rate(findings)
+        self.assertEqual(r["total_adjudicated"], 1)
+        self.assertEqual(r["score_pct"], 0.0)
+        # Defensive: dù FP lọt vào list cũng không vào mẫu số.
+        r2 = svc.compute_compliance_rate(
+            [_F(FindingStatus.CONFIRMED_NC), _F(FindingStatus.FALSE_POSITIVE)])
+        self.assertEqual(r2["total_adjudicated"], 1)
+        self.assertEqual(r2["score_pct"], 0.0)
+
+
+class TestScorecardRegressionBR1611(TestImm16Base):
+    """[BE TDD-2 + TDD-5] generate_scorecard + heatmap dùng CÙNG SoT."""
+
+    PERIOD = "2027-03"
+
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        self._day = 0
+
+    def _make_finding(self, status: str, eval_date: str | None = None,
+                      detected_date: str | None = None) -> str:
+        """Tạo finding committed, gán status + 2 cột date ĐỘC LẬP.
+
+        ``create_finding`` dedup theo (rule, source_record, eval_date) → mặc định
+        dùng ngày khác nhau trong kỳ T3 để tránh idempotent-collapse.
+
+        BR-16-12: ``eval_date`` và ``detected_date`` CÓ THỂ KHÁC kỳ (mô phỏng lag
+        adjudication: phát hiện T2, đánh giá T3). Scorecard + Heatmap PHẢI neo kỳ
+        theo CÙNG field ``evaluation_date`` → finding chỉ thuộc kỳ của
+        ``evaluation_date`` ở CẢ 2 view.
+        """
+        self._day += 1
+        if eval_date is None:
+            eval_date = f"2027-03-{self._day:02d}"
+        if detected_date is None:
+            detected_date = f"{eval_date} 09:00:00"
+        res = svc.create_finding(
+            rule_ref=self.rule, asset_ref="", work_order_ref="",
+            severity="High", description=f"BR1611 regression {status}",
+            evaluation_date=eval_date,
+        )
+        name = res["name"]
+        frappe.db.set_value(
+            "IMM Compliance Finding", name,
+            {"status": status,
+             "evaluation_date": eval_date,
+             "detected_date": detected_date,
+             "responsible_dept": None},
+            update_modified=False,
+        )
+        frappe.db.commit()
+        return name
+
+    def _purge_period(self):
+        # BR-16-12: dataset trải 2 kỳ T2(2027-02)+T3(2027-03) → purge cả 2 +
+        # finding nào có detected_date lệch kỳ.
+        for nm in frappe.get_all(
+            "IMM Compliance Scorecard",
+            filters={"period_year": 2027, "period_month": ("in", [2, 3])},
+            pluck="name",
+        ):
+            _delete_if_exists("IMM Compliance Scorecard", nm)
+        for nm in frappe.get_all(
+            "IMM Compliance Finding",
+            filters={"rule": self.rule,
+                     "evaluation_date": ("between",
+                                         ["2027-02-01", "2027-03-31"])},
+            pluck="name",
+        ):
+            _delete_if_exists("IMM Compliance Finding", nm)
+        # Defensive: finding có detected_date trong T2 nhưng eval_date ngoài range.
+        for nm in frappe.get_all(
+            "IMM Compliance Finding",
+            filters={"rule": self.rule,
+                     "detected_date": ("between",
+                                       ["2027-02-01 00:00:00",
+                                        "2027-03-31 23:59:59"])},
+            pluck="name",
+        ):
+            _delete_if_exists("IMM Compliance Finding", nm)
+        frappe.db.commit()
+
+    def setUp(self):
+        super().setUp()
+        self._day = 0
+        self._purge_period()
+        self.addCleanup(self._purge_period)
+
+    def test_tdd2_scorecard_excludes_pending_from_denominator(self):
+        """[BE TDD-2] dataset {1 Confirmed NC, 1 Open, 1 Resolved}:
+        TRƯỚC fix score=66.67 (3 total, 1 nc, Open tính tuân thủ);
+        SAU fix score=50.0 (adjudicated=2), pending_count=1, nc=1, compliant=1.
+        Assert == 50.0 (chống phồng)."""
+        self._make_finding(FindingStatus.CONFIRMED_NC)
+        self._make_finding(FindingStatus.OPEN)
+        self._make_finding(FindingStatus.RESOLVED)
+
+        result = svc.generate_scorecard(module_ref="", period=self.PERIOD)
+        self.assertEqual(result["score_pct"], 50.0)
+        self.assertNotEqual(result["score_pct"], 66.67)
+        self.assertEqual(result["pending_count"], 1)
+        self.assertEqual(result["non_compliant"], 1)
+
+        sc = frappe.db.get_value(
+            "IMM Compliance Scorecard", result["scorecard"],
+            ["score_pct", "non_compliant_count", "compliant_count",
+             "total_rules_evaluated"], as_dict=True,
+        )
+        self.assertEqual(sc.score_pct, 50.0)
+        self.assertEqual(sc.non_compliant_count, 1)   # Confirmed NC only
+        self.assertEqual(sc.compliant_count, 1)        # adjudicated-compliant
+        # total_rules_evaluated vẫn báo tổng (gồm pending) để UX không mất dấu.
+        self.assertEqual(sc.total_rules_evaluated, 3)
+
+    def test_tdd5_scorecard_heatmap_parity(self):
+        """[BE TDD-5] cùng dataset (cả 2 date trong kỳ) → score_pct scorecard
+        == score cell heatmap (1 module / 1 dept). Parity cơ bản (không lệch kỳ)
+        — divergence kỳ được phủ bởi test_tdd5b dưới."""
+        self._make_finding(FindingStatus.CONFIRMED_NC)
+        self._make_finding(FindingStatus.OPEN)
+        self._make_finding(FindingStatus.RESOLVED)
+
+        sc_result = svc.generate_scorecard(module_ref="", period=self.PERIOD)
+        heat = svc.get_compliance_heatmap(period_year=2027, period_month=3)
+        # Tất cả finding cùng rule (IMM-08) + cùng dept (None→__none__) → 1 cell.
+        cells = [c for c in heat["matrix"]
+                 if c["findings_count"] == 3]
+        self.assertTrue(cells, "Expected a single cell with all 3 findings")
+        self.assertEqual(cells[0]["score"], sc_result["score_pct"])
+        self.assertEqual(cells[0]["score"], 50.0)
+
+    def _imm08_cell(self, heat: dict):
+        """Lấy cell heatmap của module IMM-08 (source_module của test rule)."""
+        cells = [c for c in heat["matrix"] if c["module"] == "IMM-08"]
+        return cells[0] if cells else None
+
+    def test_tdd5b_period_anchor_parity_detected_ne_evaluation(self):
+        """[BE TDD-5b · BR-16-12] PARITY THẬT — detected_date ≠ evaluation_date.
+
+        Dataset: 1 Confirmed-NC có detected_date='2027-02-25' (kỳ T2) NHƯNG
+        evaluation_date='2027-03-05' (kỳ T3) — mô phỏng lag adjudication.
+
+        SAU fix (cả 2 view neo kỳ theo evaluation_date):
+          - Kỳ T2 (2027-02): finding KHÔNG thuộc kỳ ở CẢ scorecard lẫn heatmap →
+            score == 100.0 cả 2 (không có NC khác trong T2).
+          - Kỳ T3 (2027-03): finding thuộc kỳ ở CẢ 2 → score == 0.0 cả 2
+            (1 Confirmed-NC, adjudicated=1, compliant=0).
+          - score scorecard kỳ K == cell.score heatmap kỳ K cho module IMM-08.
+
+        TRƯỚC fix (heatmap lọc detected_date): heatmap T2 ĐẾM finding này
+        (score giảm) trong khi scorecard T2 KHÔNG → assert T2 parity FAIL đúng
+        symptom (RED-experiment: revert anchor heatmap về detected_date).
+        """
+        # Finding lag: phát hiện T2, đánh giá/xác nhận NC ở T3.
+        self._make_finding(
+            FindingStatus.CONFIRMED_NC,
+            eval_date="2027-03-05",
+            detected_date="2027-02-25 14:00:00",
+        )
+
+        # --- Kỳ T2 (2027-02): finding KHÔNG thuộc kỳ theo evaluation_date ---
+        sc_t2 = svc.generate_scorecard(module_ref="", period="2027-02")
+        heat_t2 = svc.get_compliance_heatmap(period_year=2027, period_month=2)
+        cell_t2 = self._imm08_cell(heat_t2)
+        # Scorecard T2: không có finding adjudicated trong kỳ → 100.0.
+        self.assertEqual(sc_t2["score_pct"], 100.0)
+        self.assertEqual(sc_t2["non_compliant"], 0)
+        # Heatmap T2: KHÔNG có cell IMM-08 (finding không neo vào T2) — parity:
+        # cả 2 view "không thấy" finding NC trong T2 ⇒ T2 sạch.
+        if cell_t2 is not None:
+            self.fail(
+                "BR-16-12 divergence: heatmap T2 vẫn đếm finding có "
+                "detected_date T2 nhưng evaluation_date T3 — phải neo kỳ theo "
+                f"evaluation_date. cell={cell_t2}"
+            )
+
+        # generate_scorecard persist 1 Scorecard mỗi lần gọi; autoname
+        # `format:SCR-.YYYY.-.MM.-.#####` resolve theo NGÀY HIỆN TẠI (không theo
+        # period) → 2 lần gọi cùng phiên dùng chung series, dễ collide trong
+        # test DB. Assertion chỉ cần return dict (score_pct) → purge scorecard
+        # T2 trước khi gọi T3. (_purge_period cleanup mọi scorecard T2/T3.)
+        _delete_if_exists("IMM Compliance Scorecard", sc_t2["scorecard"])
+        frappe.db.commit()
+
+        # --- Kỳ T3 (2027-03): finding thuộc kỳ theo evaluation_date ---
+        sc_t3 = svc.generate_scorecard(module_ref="", period="2027-03")
+        heat_t3 = svc.get_compliance_heatmap(period_year=2027, period_month=3)
+        cell_t3 = self._imm08_cell(heat_t3)
+        self.assertEqual(sc_t3["score_pct"], 0.0)        # 1 Confirmed-NC
+        self.assertEqual(sc_t3["non_compliant"], 1)
+        self.assertIsNotNone(cell_t3, "Heatmap T3 phải có cell IMM-08")
+        self.assertEqual(cell_t3["findings_count"], 1)
+        # PARITY THẬT: score scorecard T3 == cell.score heatmap T3.
+        self.assertEqual(cell_t3["score"], sc_t3["score_pct"])
+        self.assertEqual(cell_t3["score"], 0.0)
+
+    def test_tdd4_period_boundary_inclusive_start_exclusive_next(self):
+        """[BE TDD-4 · BR-16-12] Boundary của period-anchor (CÙNG _period_bounds
+        cho scorecard + heatmap):
+
+        - evaluation_date == NGÀY ĐẦU kỳ ('2027-03-01') → THUỘC kỳ T3.
+        - evaluation_date == NGÀY ĐẦU kỳ KẾ ('2027-04-01') → KHÔNG thuộc kỳ T3
+          (half-open ``[start, end)`` như doc 02:526; tránh off-by-one do Frappe
+          ``between`` inclusive cả 2 đầu nếu dùng first-of-next-month làm upper).
+
+        Cả Scorecard lẫn Heatmap PHẢI cho cùng kết luận (cùng _period_bounds).
+        Dataset: 1 Confirmed-NC ở '2027-03-01' (in) + 1 Confirmed-NC ở
+        '2027-04-01' (out). Kỳ T3: chỉ thấy finding ngày 01/03 → nc=1.
+        """
+        # In-period: đúng ngày đầu kỳ T3.
+        self._make_finding(FindingStatus.CONFIRMED_NC, eval_date="2027-03-01")
+        # Out-of-period: đúng ngày đầu kỳ kế (T4) — KHÔNG được lọt vào T3.
+        self._make_finding(FindingStatus.CONFIRMED_NC, eval_date="2027-04-01")
+
+        sc_t3 = svc.generate_scorecard(module_ref="", period="2027-03")
+        heat_t3 = svc.get_compliance_heatmap(period_year=2027, period_month=3)
+        cell_t3 = self._imm08_cell(heat_t3)
+
+        # Scorecard T3: chỉ đếm finding 01/03, KHÔNG đếm 01/04.
+        self.assertEqual(sc_t3["total_findings"], 1,
+                         "Finding ngày đầu kỳ kế (01/04) bị lọt vào T3 — "
+                         "off-by-one upper-bound (Frappe between inclusive)")
+        self.assertEqual(sc_t3["non_compliant"], 1)
+        # Heatmap T3: cùng kết luận — chỉ 1 finding trong cell IMM-08.
+        self.assertIsNotNone(cell_t3, "Heatmap T3 phải có cell IMM-08")
+        self.assertEqual(cell_t3["findings_count"], 1)
+        # Parity boundary: scorecard và heatmap cùng đếm 1 → cùng _period_bounds.
+        self.assertEqual(cell_t3["findings_count"], sc_t3["total_findings"])
+
+
+class TestScorecardImmutabilityBR1611(TestImm16Base):
+    """[BE TDD-6] VR-09 immutability KHÔNG hồi quy sau khi đổi sang SoT."""
+
+    def test_tdd6_published_scorecard_score_immutable(self):
+        for nm in frappe.get_all(
+            "IMM Compliance Scorecard",
+            filters={"period_year": 2027, "period_month": 9},
+            pluck="name",
+        ):
+            _delete_if_exists("IMM Compliance Scorecard", nm)
+        sc_doc = frappe.get_doc({
+            "doctype": "IMM Compliance Scorecard",
+            "period_year": 2027, "period_month": 9,
+            "scope": "Hospital", "score_pct": 50.0,
+            "non_compliant_count": 1, "compliant_count": 1,
+            "is_published": 1,
+        })
+        sc_doc.flags.ignore_mandatory = True
+        sc_doc.insert(ignore_permissions=True)
+        frappe.db.commit()
+        self.addCleanup(
+            lambda: _delete_if_exists("IMM Compliance Scorecard", sc_doc.name))
+        # Mutate score_pct on a published scorecard → VR-09 must block.
+        sc_doc.score_pct = 99.9
+        with self.assertRaises(ServiceError) as ctx:
+            svc.validate_scorecard_immutability(sc_doc)
+        self.assertEqual(ctx.exception.code, "VALIDATION")
+
+
+# ── LL-BE: QA persona dashboard "Điểm tuân thủ" reads canonical SoT field ───
+#
+# Root cause: api/dashboard.py::_build_qa đọc score qua các field PHANTOM
+# (`overall_score`/`score`/`total_score`) — đây là field của IMM-03 Supplier
+# Scorecard + IMM Internal Audit, KHÔNG tồn tại trên IMM Compliance Scorecard
+# (SoT field = `score_pct`, do generate_scorecard ghi qua compute_compliance_rate).
+# Hệ quả: card "Điểm tuân thủ" LUÔN None ('Chưa có scorecard kỳ này') dù đã có
+# scorecard kỳ này. Test bind KPI vào CÙNG field SoT mà scorecard ghi.
+
+class TestQaPersonaComplianceScoreSoT(TestImm16Base):
+    """[BE TDD-1..5] _build_qa.compliance_score đọc score_pct (SoT IMM-16),
+    KHÔNG đọc overall_score/total_score (IMM-03/Internal Audit phantom)."""
+
+    @staticmethod
+    def _current_period():
+        from frappe.utils import getdate
+        today = getdate(nowdate())
+        return today.year, today.month
+
+    def _purge_current_scorecard(self):
+        year, month = self._current_period()
+        for nm in frappe.get_all(
+            "IMM Compliance Scorecard",
+            filters={"period_year": year, "period_month": month,
+                     "scope": "Hospital"},
+            pluck="name",
+        ):
+            _delete_if_exists("IMM Compliance Scorecard", nm)
+        frappe.db.commit()
+
+    def _seed_current_scorecard(self, score_pct: float = 87.5) -> str:
+        """Seed a Compliance Scorecard for the CURRENT period/scope.
+
+        get_current_scorecard() neo kỳ theo nowdate() → phải seed đúng kỳ hôm
+        nay để _build_qa đọc được. Trả về docname (đăng ký cleanup)."""
+        self._purge_current_scorecard()
+        year, month = self._current_period()
+        doc = frappe.get_doc({
+            "doctype": "IMM Compliance Scorecard",
+            "period_year": year, "period_month": month,
+            "scope": "Hospital", "score_pct": score_pct,
+            "non_compliant_count": 1, "compliant_count": 7,
+            "total_rules_evaluated": 8, "is_published": 0,
+        })
+        doc.flags.ignore_mandatory = True
+        doc.insert(ignore_permissions=True)
+        frappe.db.commit()
+        self.addCleanup(self._purge_current_scorecard)
+        return doc.name
+
+    @staticmethod
+    def _qa_kpi(key: str):
+        """Build QA persona payload và bóc 1 KPI theo key."""
+        from assetcore.api.dashboard import _build_qa
+        payload = _build_qa({})
+        for kpi in payload["kpis"]:
+            if kpi["key"] == key:
+                return kpi
+        return None
+
+    def test_tdd1_compliance_score_reads_score_pct(self):
+        """[BE TDD-1] Có scorecard kỳ này (draft) score_pct=87.5 →
+        compliance_score.value == 87.5 (KHÔNG None) + foot 'Mục tiêu ≥ 85'."""
+        self._seed_current_scorecard(87.5)
+        kpi = self._qa_kpi("compliance_score")
+        self.assertIsNotNone(kpi, "compliance_score KPI missing in QA dashboard")
+        self.assertEqual(kpi["value"], 87.5)
+        self.assertEqual(kpi["foot_vi"], "Mục tiêu ≥ 85")
+
+    def test_tdd2_no_scorecard_preserves_none_and_foot(self):
+        """[BE TDD-2] Không scorecard kỳ này → value None (no false 0.0) +
+        foot 'Chưa có scorecard kỳ này' (behavior preserved)."""
+        self._purge_current_scorecard()
+        self.addCleanup(self._purge_current_scorecard)
+        kpi = self._qa_kpi("compliance_score")
+        self.assertIsNotNone(kpi)
+        self.assertIsNone(kpi["value"])
+        self.assertEqual(kpi["foot_vi"], "Chưa có scorecard kỳ này")
+
+    def test_tdd3_kpi_bound_to_sot_field(self):
+        """[BE TDD-3] divergence guard: score _build_qa trả == score_pct của
+        get_current_scorecard() — bind KPI vào SoT, re-break nếu ai revert về
+        overall_score."""
+        self._seed_current_scorecard(73.0)
+        from assetcore.services.imm16 import get_current_scorecard
+        sc = get_current_scorecard()
+        self.assertEqual(sc.get("exists"), None)  # hit → as_dict(), no 'exists'
+        kpi = self._qa_kpi("compliance_score")
+        self.assertEqual(kpi["value"], float(sc["score_pct"]))
+
+    def test_tdd4_value_is_float_or_none(self):
+        """[BE TDD-4] type guard: value là float khi có scorecard, None khi
+        không — KHÔNG bao giờ str/Decimal (FE numeric format an toàn)."""
+        self._seed_current_scorecard(91.25)
+        kpi = self._qa_kpi("compliance_score")
+        self.assertIsInstance(kpi["value"], float)
+        # No-scorecard branch → None.
+        self._purge_current_scorecard()
+        self.addCleanup(self._purge_current_scorecard)
+        kpi2 = self._qa_kpi("compliance_score")
+        self.assertIsNone(kpi2["value"])
+
+    def test_tdd5_grep_guard_no_phantom_field_read(self):
+        """[BE TDD-5] grep guard: _build_qa KHÔNG ĐỌC field phantom
+        overall_score/total_score (IMM-03 Supplier Scorecard / Internal Audit)
+        khỏi scorecard object — chỉ đọc canonical `score_pct`.
+
+        Quét trên CODE thực thi (loại comment/docstring) để guard bắt đúng
+        root-cause: một `sc.get("overall_score")` READ. Comment giải thích
+        'KHÔNG đọc overall_score' là HỢP LỆ (không phải read) → không tính."""
+        import ast
+        import inspect
+        from assetcore.api import dashboard
+
+        src = inspect.getsource(dashboard._build_qa)
+        # Strip comment lines (# ...) trước khi match — comment chứa tên field
+        # cảnh báo là hợp lệ; chỉ executable read mới re-break card.
+        code_lines = [ln for ln in src.splitlines()
+                      if not ln.lstrip().startswith("#")]
+        code_only = "\n".join(code_lines)
+        for phantom in ('"overall_score"', "'overall_score'",
+                        '"total_score"', "'total_score'"):
+            self.assertNotIn(
+                phantom, code_only,
+                f"_build_qa must not READ phantom field {phantom} "
+                "(IMM-03/Internal-Audit), only IMM-16 SoT 'score_pct'")
+        # Positive: phải đọc score_pct.
+        self.assertIn('"score_pct"', code_only,
+                      "_build_qa must read canonical SoT field 'score_pct'")
+
+        # AST belt-and-suspenders: collect every str literal passed to a
+        # `<obj>.get(...)` call inside _build_qa — assert none is a phantom.
+        tree = ast.parse(src.strip())
+        read_keys: set[str] = set()
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "get"
+                    and node.args
+                    and isinstance(node.args[0], ast.Constant)
+                    and isinstance(node.args[0].value, str)):
+                read_keys.add(node.args[0].value)
+        self.assertNotIn("overall_score", read_keys)
+        self.assertNotIn("total_score", read_keys)
+        self.assertIn("score_pct", read_keys,
+                      "_build_qa must .get('score_pct') from scorecard SoT")
+
+
+# ── LL-BE: QA persona "compliance_findings" worklist uses FindingStatus.ACTIVE ─
+#
+# Root cause: api/dashboard.py::_build_qa lọc findings bằng NOT IN [Closed]
+# → leak Resolved/Waived/False Positive vào danh sách việc của QA reviewer
+# (chỉ Closed bị loại). SoT IMM-16 coi "đang hoạt động" = FindingStatus.ACTIVE
+# = (Open, Under Review, Confirmed NC) — dùng tại imm16.py:680/1405/2157/2346.
+# Test bind worklist vào CÙNG SoT → không divergence + chống tái phát.
+
+class TestQaPersonaComplianceFindingsActive(TestImm16Base):
+    """[BE TDD] section 'compliance_findings' của QA persona chỉ chứa finding
+    thuộc FindingStatus.ACTIVE (Open/Under Review/Confirmed NC), KHÔNG chứa
+    Resolved/Waived/False Positive/Closed."""
+
+    def _seed_finding(self, status: str) -> str:
+        """Tạo finding committed cho rule fixture, set status trực tiếp.
+
+        Mỗi finding 1 evaluation_date riêng (tránh dedup (rule, src, eval) của
+        create_finding). detected_date = nowdate() để rơi vào trang đầu
+        (order_by detected_date desc, page_size=10)."""
+        self._fnd_day = getattr(self, "_fnd_day", 0) + 1
+        eval_date = f"2027-04-{self._fnd_day:02d}"
+        res = svc.create_finding(
+            rule_ref=self.rule, asset_ref="", work_order_ref="",
+            severity="High", description=f"QA worklist regression {status}",
+            evaluation_date=eval_date,
+        )
+        name = res["name"]
+        frappe.db.set_value(
+            "IMM Compliance Finding", name,
+            {"status": status,
+             "evaluation_date": eval_date,
+             "detected_date": f"{nowdate()} 09:00:00",
+             "responsible_dept": None},
+            update_modified=False,
+        )
+        frappe.db.commit()
+        self.addCleanup(_delete_if_exists, "IMM Compliance Finding", name)
+        return name
+
+    def _seed_all_statuses(self) -> dict:
+        """Seed 1 finding mỗi trạng thái. Trả map status→name."""
+        from assetcore.services.imm16 import FindingStatus
+        statuses = [
+            FindingStatus.OPEN, FindingStatus.UNDER_REVIEW,
+            FindingStatus.CONFIRMED_NC, FindingStatus.RESOLVED,
+            FindingStatus.WAIVED, FindingStatus.FALSE_POSITIVE,
+            FindingStatus.CLOSED,
+        ]
+        return {s: self._seed_finding(s) for s in statuses}
+
+    @staticmethod
+    def _qa_finding_names() -> set:
+        from assetcore.api.dashboard import _build_qa
+        payload = _build_qa({})
+        rows = payload["sections"]["compliance_findings"]
+        return {r["name"] for r in rows}
+
+    def test_qa_persona_compliance_findings_only_active(self):
+        """[BE TDD-1] Seed 1 finding mỗi trạng thái → section
+        'compliance_findings' CHỈ chứa 3 finding ACTIVE (Open/Under Review/
+        Confirmed NC), KHÔNG chứa Resolved/Waived/False Positive/Closed."""
+        from assetcore.services.imm16 import FindingStatus
+        names = self._seed_all_statuses()
+        got = self._qa_finding_names()
+        for st in FindingStatus.ACTIVE:
+            self.assertIn(
+                names[st], got,
+                f"ACTIVE finding ({st}) phải có trong worklist QA persona")
+        for st in (FindingStatus.RESOLVED, FindingStatus.WAIVED,
+                   FindingStatus.FALSE_POSITIVE, FindingStatus.CLOSED):
+            self.assertNotIn(
+                names[st], got,
+                f"finding {st} KHÔNG được leak vào worklist QA persona")
+
+    def test_qa_persona_findings_matches_active_sot(self):
+        """[BE TDD-2] divergence guard: tập name trong section
+        'compliance_findings' == tập name list_compliance_findings(
+        {status: in list(FindingStatus.ACTIVE)}) — cùng SoT, không divergence."""
+        from assetcore.services.imm16 import (
+            FindingStatus, list_compliance_findings)
+        self._seed_all_statuses()
+        got = self._qa_finding_names()
+        sot_rows = list_compliance_findings(
+            {"status": ["in", list(FindingStatus.ACTIVE)]},
+            page=1, page_size=10).get("data", [])
+        sot_names = {r["name"] for r in sot_rows}
+        self.assertEqual(
+            got, sot_names,
+            "worklist QA persona phải == tập SoT FindingStatus.ACTIVE")
+
+    def test_qa_persona_no_not_in_closed_predicate(self):
+        """[BE TDD-3] contract guard: trên ĐƯỜNG finding của _build_qa KHÔNG
+        còn literal NOT IN [Closed] (chỉ còn ở capa_rows). Chống tái phát
+        cross-predicate drift — bind finding vào FindingStatus.ACTIVE."""
+        import inspect
+        from assetcore.api import dashboard
+
+        src = inspect.getsource(dashboard._build_qa)
+        code_lines = [ln for ln in src.splitlines()
+                      if not ln.lstrip().startswith("#")]
+        # Cô lập statement gán `findings = list_compliance_findings(...)`.
+        finding_stmt = ""
+        capture = False
+        for ln in code_lines:
+            if "findings = list_compliance_findings" in ln:
+                capture = True
+            if capture:
+                finding_stmt += ln + "\n"
+                if ".get(" in ln and ")" in ln and "findings" not in ln.split("=")[0]:
+                    # đến dòng kết .get("data", []) → kết thúc statement
+                    break
+                if finding_stmt.count("(") <= finding_stmt.count(")") and "list_compliance_findings" in finding_stmt:
+                    break
+        self.assertIn("list_compliance_findings", finding_stmt,
+                      "không tìm thấy statement findings trong _build_qa")
+        self.assertIn("FindingStatus.ACTIVE", finding_stmt,
+                      "đường finding phải dùng FindingStatus.ACTIVE (SoT)")
+        for closed_lit in ('["Closed"]', "['Closed']"):
+            self.assertNotIn(
+                closed_lit, finding_stmt,
+                "đường finding KHÔNG còn literal NOT IN [Closed]")
+
+    def test_qa_persona_capa_rows_predicate_unchanged(self):
+        """[BE TDD-4] regression: capa_rows của QA persona KHÔNG đổi (vẫn
+        status NOT IN Closed) — fix finding KHÔNG lan sang predicate CAPA."""
+        import inspect
+        from assetcore.api import dashboard
+
+        src = inspect.getsource(dashboard._build_qa)
+        code_lines = [ln for ln in src.splitlines()
+                      if not ln.lstrip().startswith("#")]
+        code_only = "\n".join(code_lines)
+        # capa_rows vẫn phải gate bằng NOT IN [Closed].
+        self.assertIn("capa_rows", code_only)
+        self.assertTrue(
+            '["Closed"]' in code_only or "['Closed']" in code_only,
+            "capa_rows phải GIỮ predicate status NOT IN [Closed]")
 
 
 if __name__ == "__main__":
