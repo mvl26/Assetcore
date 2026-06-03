@@ -88,8 +88,13 @@ async function handleLogin() {
     // KHÔNG khẳng định email tồn tại hay không.
     errorType.value = 'credential'
     error.value = ERROR_MESSAGES.credential
-  } catch {
-    errorType.value = classifyError(raw)
+  } catch (e) {
+    // accountState() ném (mạng/máy chủ/lỗi gọi endpoint) → KHÔNG nuốt lỗi, KHÔNG
+    // để form đứng im. Phân loại theo thông điệp lỗi của CHÍNH lần gọi vừa ném
+    // trước, rồi mới fallback về error gốc của store (raw). Luôn đảm bảo có 1
+    // message hiển thị (banner v-if=error render).
+    const thrown = e instanceof Error ? e.message : ''
+    errorType.value = classifyError(thrown || raw)
     error.value = ERROR_MESSAGES[errorType.value ?? ''] || raw || 'Đăng nhập thất bại. Vui lòng thử lại.'
   }
 }
@@ -113,8 +118,10 @@ async function handleLogin() {
 
         <form class="space-y-5" @submit.prevent="handleLogin">
 
-          <!-- Error banner — style theo loại lỗi -->
-          <div v-if="error" :class="['flex items-start gap-2.5 p-3 rounded-lg border text-sm', ERROR_BANNER_CLASS]">
+          <!-- Error banner — style theo loại lỗi. role=alert + aria-live=assertive
+               để screen-reader đọc ngay khi login fail (FR-00 a11y). -->
+          <div v-if="error" role="alert" aria-live="assertive"
+            :class="['flex items-start gap-2.5 p-3 rounded-lg border text-sm', ERROR_BANNER_CLASS]">
             <!-- credential / validation / account-state (pending/rejected/disabled) -->
             <svg v-if="!errorType || errorType === 'credential' || errorType === 'validation' || errorType === 'pending' || errorType === 'rejected' || errorType === 'disabled'"
               class="w-4 h-4 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

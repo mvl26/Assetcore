@@ -39,7 +39,15 @@ interface PersistedSession {
 
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<FrappeUser | null>(loadPersistedUser())
+  // `loading` = CHỈ phục vụ login-submit (spinner nút "Đăng nhập" + disable input
+  // trong LoginView). KHÔNG dùng cho bootstrap/session-restore — nếu gộp chung,
+  // full-screen overlay App.vue sẽ đè /login khi đang submit → LoginView remount
+  // → mất field + banner (regression APP-AUTH-01).
   const loading = ref(false)
+  // `bootstrapping` = CHỈ phục vụ phiên khôi phục lần đầu (App.vue onMounted →
+  // fetchSession/ensureFresh). App.vue full-screen spinner "Đang khởi tạo..." chỉ
+  // bật theo cờ này, KHÔNG theo `loading`. Tách 2 lifecycle khác nhau ra 2 cờ.
+  const bootstrapping = ref(false)
   const error = ref<string | null>(null)
   const capabilities = ref<Record<string, boolean>>(loadPersistedCaps())
 
@@ -149,6 +157,29 @@ export const useAuthStore = defineStore('auth', () => {
     await loadCapabilities()
   }
 
+  /**
+   * Bootstrap phiên lúc App mount (App.vue onMounted). Bật cờ `bootstrapping`
+   * (KHÔNG phải `loading`) để full-screen spinner "Đang khởi tạo..." chỉ hiển thị
+   * trong giai đoạn này — KHÔNG đè màn /login khi user đang submit form login.
+   *
+   * - Chưa auth → cố khôi phục phiên server-side (cookie) qua fetchSession().
+   * - Đã có phiên cache (localStorage) → re-hydrate role/persona/caps ở nền.
+   *
+   * Trả về true nếu kết thúc ở trạng thái đã xác thực, false nếu cần về Login.
+   */
+  async function bootstrap(): Promise<boolean> {
+    bootstrapping.value = true
+    try {
+      if (!isAuthenticated.value) {
+        return await fetchSession()
+      }
+      await ensureFresh()
+      return isAuthenticated.value
+    } finally {
+      bootstrapping.value = false
+    }
+  }
+
   async function logout(): Promise<void> {
     try {
       await apiLogout()
@@ -166,13 +197,13 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   return {
-    user, loading, error,
+    user, loading, bootstrapping, error,
     isAuthenticated, roles, roleProfileName, capabilities,
     isSystemAdmin, isQAOfficer, isDeptHead, isOpsManager,
     isWorkshopLead, isTechnician, isDocOfficer, hasAnyImmRole,
     canCreate, canSubmit, canApprove, canViewDashboard, canManageDocs,
     can,
-    login, fetchSession, ensureFresh, logout, loadCapabilities,
+    login, fetchSession, ensureFresh, bootstrap, logout, loadCapabilities,
     hasRole, hasAnyRole, rememberedUsername,
   }
 })
