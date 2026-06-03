@@ -78,7 +78,7 @@ Dẫn từ artefact phân tích (02_Analysis_Design.md) sang test layer. Mỗi U
 | BR-09-04 | Repair Checklist đầy đủ + 100% Pass trước Submit | `validate_repair_checklist_complete` (#12) | EP (Pass/Fail/N-A/empty) |
 | BR-09-05 | Asset Under Repair khi open; Active khi Completed; OOS khi Cannot Repair; chặn WO trùng | `set_asset_under_repair` (#14), `validate_asset_not_under_repair` (#8), `complete_repair` (#13) | State Transition + EP |
 | BR-09-06 | WO trong 30 ngày → `is_repeat_failure=1` | `check_repeat_failure` (#9) | BVA (biên cửa sổ 30 ngày) |
-| BR-09-07 | MTTR > SLA target → `sla_breached=1` | `complete_repair` (#13), `check_repair_sla_breach` (#18) | BVA (biên SLA) + Decision Table |
+| BR-09-07 | `elapsed/MTTR >= SLA target → sla_breached=1` (biên: BẰNG target ⇒ breach). 1 SoT `is_sla_breached(elapsed, target)` dùng chung; cờ monotonic — completion không reset 1→0 | `is_sla_breached` (SoT), `complete_repair` (#13), `check_repair_sla_breach` (#18) | BVA (biên SLA: <, ==, >) + Decision Table |
 
 ### I.2.c. Từ Activity Flow / BPMN
 → 02 §Activity Diagram per UC
@@ -208,9 +208,11 @@ Dẫn từ artefact phân tích (02_Analysis_Design.md) sang test layer. Mỗi U
 | `TestSpareParts` | `validate_spare_parts_stock_entries` (#10) | EP + Error guessing | 3 (happy / missing ref / nonexistent SE) | ⬜ Planned |
 | `TestFirmwareCR` | `validate_firmware_change_request` (#11) | Decision Table | 4 (no firmware / FCR Approved / FCR Draft / no FCR) | ⬜ Planned |
 | `TestChecklist` | `validate_repair_checklist_complete` (#12) | EP | 4 (all Pass / 1 Fail / N-A / empty) | ⬜ Planned |
-| `TestComplete` | `complete_repair` (#13) | BVA SLA | 3 (mttr_hours calc, sla_breached flag, ALE created + Asset→Active) | ⬜ Planned |
+| `TestSlaBreachPredicate` | `is_sla_breached` (SoT) | BVA biên (`<`, `==`, `>`) | 3 (mttr<target→False; mttr==target→True; mttr>target→True) + None-guard | ✅ Live |
+| `TestComplete` | `complete_repair` (#13) | BVA SLA | 4 (mttr_hours calc; mttr<target→0; mttr==target→1; mttr>target→1; ALE + Asset→Active) | ✅ Live |
+| `TestSlaMonotonic` | `complete_repair` ↔ `check_repair_sla_breach` | State Transition | 2 (scheduler set 1 lúc đang chạy → confirm_inspection giữ 1, KHÔNG lật 0 cho mttr==target; mttr<target chưa từng breach → 0) | ✅ Live |
 | `TestCannotRepair` | `_mark_cannot_repair` (#15) | State Transition | 2 (Asset→Out of Service, ALE created) | ⬜ Planned |
-| `TestScheduler` | `check_repair_sla_breach` (#18) | Use Case + Error guessing | 2 (breach flag overdue, skip completed) | ⬜ Planned |
+| `TestScheduler` | `check_repair_sla_breach` (#18) | Use Case + Error guessing | 3 (breach flag khi elapsed==target; skip completed; idempotent — không re-publish khi đã 1) | ✅ Live |
 
 > **Mẹo thực thi**: dùng `SimpleNamespace` cho test thuần công thức (`get_sla_target`) — chạy ms-level, không cần fixture cleanup.
 

@@ -903,6 +903,30 @@ export interface MttrReport {
 
 Phát qua `frappe.publish_realtime(channel, payload, user=assigned_to)`. FE subscribe trong `stores/imm09.ts` qua socket event `cm_sla_breached`.
 
+### §7.1 Dashboard KPI `cm_sla_breached` ↔ drill list — canonical-value rule (BR-09-07)
+
+KPI thẻ `cm_sla_breached` (`api/dashboard.py`) và list drill khi click thẻ (`/cm/work-orders?sla_breached=1`) PHẢI đếm **cùng một tập WO** — vi phạm sẽ làm số trên thẻ ≠ số dòng list (canonical-value rule, lệch niềm tin người dùng).
+
+**Định nghĩa tập canonical:** mọi WO có `sla_breached = 1`, **không** lọc theo `status`. WO đã Completed/Closed mà vi phạm SLA vẫn là "đã vi phạm" — cờ là sự thật lịch sử (monotonic), không phải trạng thái "đang mở".
+
+- KPI count: `_count("Asset Repair", {"sla_breached": 1})` — **BỎ** mệnh đề `status NOT IN [Completed, Closed]` (trước đây loại WO đã đóng → lệch với drill).
+- Drill: `_drill("/cm/work-orders", sla_breached="1")` → `list_work_orders({"sla_breached": 1})` — không status filter.
+
+> Nếu nghiệp vụ cần thẻ "SLA breach **đang mở**" riêng, đó là KPI KHÁC (`cm_sla_breached_open`) với drill `sla_breached=1&status=...` riêng — KHÔNG dùng chung label/count.
+
+### §7.2 Dashboard KPI `cm_open` ↔ drill list — canonical-value rule (BR-09-08)
+
+KPI thẻ "CM đang mở" (`cm_open`, `get_overview` → `cm.open`) và drill-down list "đang sửa chữa" (`get_dashboard_data` → `active_repairs`) PHẢI đếm **cùng một tập WO**. Số trên thẻ == số dòng list khi user click — nếu lệch, mất niềm tin dashboard.
+
+**Định nghĩa tập canonical (SoT):** "Asset Repair đang mở" ⟺ `status NOT IN REPAIR_TERMINAL_STATES` với `REPAIR_TERMINAL_STATES = {Completed, Cannot Repair, Cancelled}` (định nghĩa DUY NHẤT tại `services/imm09.py`). `Cannot Repair` là **TERMINAL** (thiết bị không cứu được → Out of Service, đồng hồ SLA dừng) — KHÔNG phải đang mở. KHÔNG có literal ma `'Closed'` (DocType enum chỉ có `Open|Assigned|Diagnosing|Pending Parts|In Repair|Pending Inspection|Completed|Cannot Repair|Cancelled`).
+
+- KPI count: `_count("Asset Repair", open_repair_filter())` — dùng filter builder SoT.
+- Drill SQL: `WHERE r.status NOT IN (...)` build từ `sorted(REPAIR_TERMINAL_STATES)` (parametrized, byte-for-byte khớp `open_repair_filter()`).
+- Persona KTV: `my_cm` = `open_repair_filter({assigned_to})`; `cm_urgent` = `open_repair_filter({assigned_to, priority:'P1'})`.
+- SLA engine (`services/notifications.py`): `_REPAIR_TERMINAL_STATUS` là **alias-import** của `imm09.REPAIR_TERMINAL_STATES` (1 SoT, không 2 frozenset song song).
+
+> Acceptance đo được: 1 Asset Repair ở `Cannot Repair` KHÔNG tính vào `cm_open` VÀ KHÔNG xuất hiện trong `active_repairs` → card == drill (cùng tập).
+
 ---
 
 ## §8 Endpoint ↔ Business Rule Mapping

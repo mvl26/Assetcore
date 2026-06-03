@@ -47,7 +47,11 @@ const maxMttr = computed(() => Math.max(...trend.value.map(p => p.mttr), 1))
 onMounted(async () => {
   await Promise.all([
     store.fetchKPIs(),
-    store.fetchWorkOrders({ status: ['Open', 'Assigned', 'Diagnosing', 'Pending Parts', 'In Repair'] }),
+    // BR-09-08: list "Phiếu đang xử lý" PHẢI cùng tập với thẻ "Phiếu đang mở"
+    // (kpis.open_wos, đếm SoT open_repair_filter). Dùng cờ ảo open=1 → BE áp
+    // open_repair_filter (NOT IN terminal, GỒM Pending Inspection) thay vì
+    // hardcode positive-list 5-state (thiếu Pending Inspection → card != list).
+    store.fetchWorkOrders({ open: 1 }),
     loadTrend(),
   ])
 })

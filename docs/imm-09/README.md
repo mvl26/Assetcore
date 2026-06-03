@@ -6,7 +6,7 @@
 | Wave | 1 |
 | Trạng thái | Mature ⭐ (reference module) |
 | Số file hiện có | 14 |
-| Cập nhật cuối | 2026-05-29 |
+| Cập nhật cuối | 2026-06-03 |
 | Khối kiến trúc | C. KHỐI 3 |
 | Đợt triển khai | 1 |
 | Owner | PTP Khối 2 · Workshop / Nhóm TBYT |
