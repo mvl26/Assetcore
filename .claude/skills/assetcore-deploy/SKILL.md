@@ -162,6 +162,38 @@ Staging:   multi-site, 1 site per hospital (QA/UAT)
 Prod:      1 bench per customer, 1 site per hospital tenant
 ```
 
+### Setup lần đầu — cài app lên site (runbook THẬT, đã verify)
+```bash
+# 1. Clone vào thư mục apps (KHÔNG dùng bench get-app nếu muốn kiểm soát remote)
+cd ~/frappe-bench
+git clone <repo-url> apps/assetcore
+
+# 2. Editable install vào virtualenv của bench — BƯỚC HAY BỊ QUÊN, thiếu nó
+#    Python không import được app khi bench start.
+./env/bin/pip install -e apps/assetcore
+
+# 3. Đăng ký app: thêm dòng `assetcore` vào sites/apps.txt
+#    (echo assetcore >> sites/apps.txt  — nếu chưa có)
+
+# 4. Install lên site + migrate + build + clear cache
+bench --site <site> install-app assetcore
+bench --site <site> migrate
+bench build
+bench --site <site> clear-cache
+
+# 5. nginx (chỉ production — symlink config bench tự sinh vào nginx)
+sudo ln -sbf ~/frappe-bench/config/nginx.conf /etc/nginx/conf.d/frappe-bench.conf
+sudo systemctl restart nginx
+
+# 6. Restart processes
+bench restart
+
+# 7. FE SPA build (KHÁC bench build — xem ⚠️ dưới)
+cd ~/frappe-bench/apps/assetcore/frontend && npm install && npm run build
+```
+> `bench get-app <repo-url>` làm gộp bước 1+2 (clone + pip install). Runbook trên
+> tách tay để kiểm soát remote/branch — cả hai đều hợp lệ.
+
 ### Pre-deployment checklist (KHÔNG skip bất kỳ item nào)
 - [ ] Code trên release branch (vd: `release/wave-2`), tagged `v3.x.y`
 - [ ] Tests green: `bench --site <staging> run-tests --app assetcore`
@@ -172,25 +204,45 @@ Prod:      1 bench per customer, 1 site per hospital tenant
 - [ ] Patches mới đã thêm vào `patches.txt` và test trên fresh site
 - [ ] DB backup confirmed xong trước khi chạy migrate prod
 
-### Deployment sequence (staging/prod)
+### Update app — deploy bản mới (runbook THẬT, đã verify)
 ```bash
-# 1. Pull code
-cd /home/<bench>/apps/assetcore && git pull origin release/wave-2
+cd ~/frappe-bench
 
-# 2. Install Python dependencies (nếu có)
-cd /home/<bench> && bench pip install -r apps/assetcore/requirements.txt
+# 0. BẮT BUỘC backup trước (release đổi schema/field) + maintenance mode
+bench --site <site> backup --with-files          # verify .sql.gz size > 0
+bench --site <site> set-maintenance-mode on
 
-# 3. Build FE
-cd apps/assetcore/frontend && npm ci && npm run build
+# 1. Pull code app (CHỈ assetcore, không kéo theo frappe/erpnext)
+bench update --pull --apps assetcore
 
-# 4. Migrate (chạy patches + reload DocTypes/workflows)
+# 2. bench build (gói asset Frappe desk — KHÔNG bắt buộc nếu không lỗi)
+bench build
+
+# 3. Migrate (patches + reload DocType/workflow/field JSON)
 bench --site <site> migrate
 
-# 5. Restart processes
+# 4. Restart (nạp code Python + scheduler mới — gunicorn --preload không tự nạp)
 bench restart
 
-# 6. Smoke validation
+# 5. FE SPA build — BƯỚC RIÊNG, KHÁC bench build (xem ⚠️)
+cd ~/frappe-bench/apps/assetcore/frontend && npm run build
+
+# 6. Tắt maintenance mode
+cd ~/frappe-bench && bench --site <site> set-maintenance-mode off
+```
+
+> **⚠️ `bench build` ≠ FE build.** `bench build` chỉ bundle asset desk của Frappe.
+> Vue SPA của AssetCore (`frontend/`) phải build RIÊNG bằng `npm run build`; output
+> bị gitignore nên `bench update --pull` KHÔNG mang theo → quên bước 5 = FE chạy code cũ.
+>
+> **`bench update` chạy CHỌN-BƯỚC theo cờ:** truyền `--pull` thì CHỈ git pull (vì vậy
+> phải `build`/`migrate`/`restart` riêng ở bước 2-4). `bench update` không cờ = làm hết
+> (pull+build+migrate+restart) nhưng kéo cả frappe/erpnext — tránh trên prod.
+
+### Smoke validation sau deploy
+```bash
 bench --site <site> run-tests --app assetcore --module assetcore.tests.test_workflows
+bench --site <site> scheduler status        # phải "enabled" thì cron mới fire
 ```
 
 ### Fixtures import trên fresh site
@@ -217,13 +269,17 @@ bench --site <site> restore /path/to/backup.sql.gz
 
 ### supervisor/nginx (production only)
 ```bash
-# Config files (auto-generated bởi bench)
-cat /home/<bench>/config/supervisor.conf
-cat /home/<bench>/config/nginx.conf
+# Config files (auto-generated bởi bench setup nginx / bench setup supervisor)
+cat ~/frappe-bench/config/supervisor.conf
+cat ~/frappe-bench/config/nginx.conf
 
-# Reload sau thay đổi config
+# Symlink nginx config bench-sinh vào nginx rồi restart (cách dùng thật)
+sudo ln -sbf ~/frappe-bench/config/nginx.conf /etc/nginx/conf.d/frappe-bench.conf
+sudo nginx -t && sudo systemctl restart nginx       # -t test config trước
+
+# Reload sau thay đổi config (không downtime như restart)
 sudo supervisorctl reload
-sudo nginx -t && sudo nginx -s reload
+sudo nginx -s reload
 ```
 
 ### Release versioning
