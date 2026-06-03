@@ -63,6 +63,61 @@ describe('IMM-12 incident TYPE labels (R16: detail view leaked raw "Failure")', 
   })
 })
 
+// ─── TDD round-20: SSoT decision — INCIDENT_STATUS_LABEL is canonical for IMM-12 ──
+// IncidentListView trước đây render status qua StatusBadge → translateStatus
+// (formatters STATUS_MAP) trong khi IncidentDetailView dùng incidentStatusLabel
+// (constants/labels) → DRIFT (Open: 'Đang mở' vs 'Mới mở'; In Progress: 'Đang thực
+// hiện' vs 'Đang điều tra'). Quyết định: incidentStatusLabel là 1 SSoT cho domain
+// IMM-12; cả list lẫn detail render qua nó. STATUS_MAP path chỉ là fallback an toàn
+// (Acknowledged/RCA Required) để không leak raw-EN ở nơi khác.
+describe('IMM-12 incident status SSoT canonical (round-20)', () => {
+  const STATUS_7 = ['Open', 'Acknowledged', 'In Progress', 'RCA Required', 'Resolved', 'Closed', 'Cancelled'] as const
+  const CANONICAL: Record<string, string> = {
+    Open: 'Mới mở',
+    Acknowledged: 'Đã tiếp nhận',
+    'In Progress': 'Đang điều tra',
+    'RCA Required': 'Cần RCA',
+    Resolved: 'Đã giải quyết',
+    Closed: 'Đã đóng',
+    Cancelled: 'Đã hủy',
+  }
+
+  it('incidentStatusLabel trả nhãn canonical cho cả 7 status', () => {
+    for (const s of STATUS_7) {
+      expect(incidentStatusLabel(s), `nhãn sai cho "${s}"`).toBe(CANONICAL[s])
+    }
+  })
+
+  it("Open === 'Mới mở' (incident domain, KHÔNG 'Đang mở' của STATUS_MAP/CAPA)", () => {
+    expect(incidentStatusLabel('Open')).toBe('Mới mở')
+  })
+
+  it("In Progress === 'Đang điều tra' (KHÔNG 'Đang thực hiện' của STATUS_MAP)", () => {
+    expect(incidentStatusLabel('In Progress')).toBe('Đang điều tra')
+  })
+
+  it('KHÔNG leak raw-EN token cho cả 7 status', () => {
+    const leak = /\b(Open|Acknowledged|In Progress|RCA Required|Resolved|Closed|Cancelled)\b/
+    for (const s of STATUS_7) {
+      expect(incidentStatusLabel(s)).not.toMatch(leak)
+    }
+  })
+})
+
+// ─── TDD round-20: incident severity = domain riêng, Critical='Nghiêm trọng' ──────
+// KHÔNG đi qua STATUS_MAP (nơi Critical='Khẩn cấp' thuộc ngữ cảnh priority/CAPA).
+describe('IMM-12 incident severity SSoT — chống collision với STATUS_MAP priority', () => {
+  it("Critical === 'Nghiêm trọng' (KHÔNG 'Khẩn cấp')", () => {
+    expect(incidentSeverityLabel('Critical')).toBe('Nghiêm trọng')
+  })
+  it('KHÔNG leak raw-EN cho cả 4 severity', () => {
+    const leak = /\b(Low|Medium|High|Critical)\b/
+    for (const s of ['Low', 'Medium', 'High', 'Critical']) {
+      expect(incidentSeverityLabel(s)).not.toMatch(leak)
+    }
+  })
+})
+
 describe('IMM-12 RCA status labels (new for /rca list)', () => {
   it('covers the 4 RCA states with VI labels', () => {
     for (const s of ['RCA Required', 'RCA In Progress', 'Completed', 'Cancelled']) {

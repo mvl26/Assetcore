@@ -232,22 +232,47 @@ export const LIFECYCLE_STATUS_CLASS: Record<string, string> = {
 export function lifecycleStatusLabel(v: string) { return LIFECYCLE_STATUS_LABEL[v] ?? v }
 export function lifecycleStatusClass(v: string) { return LIFECYCLE_STATUS_CLASS[v] ?? 'bg-gray-100 text-gray-600' }
 
+// ─── Số ĐK lưu hành Bộ Y tế — drill NĐ98 (BR-00-17) ───────────────────────────
+// SSoT nhãn tiếng Việt cho 2 bucket byt_status. KHÔNG hardcode chuỗi rải rác
+// (chống drift tile↔chip). Key khớp param BE list_assets(byt_status) + drill query.
+//   BYT_EXPIRY_LABEL      — nhãn đầy đủ cho tile dashboard admin (label_vi).
+//   BYT_EXPIRY_CHIP_LABEL — nhãn rút gọn cho chip filter AssetListView.
+export const BYT_EXPIRY_LABEL: Record<'expiring' | 'expired', string> = {
+  expiring: 'ĐK Bộ Y tế sắp hết hạn (30 ngày)',
+  expired:  'ĐK Bộ Y tế đã hết hạn',
+}
+export const BYT_EXPIRY_CHIP_LABEL: Record<'expiring' | 'expired', string> = {
+  expiring: 'ĐK BYT sắp hết hạn',
+  expired:  'ĐK BYT đã hết hạn',
+}
+export function bytExpiryLabel(v?: string | null): string {
+  if (v === 'expiring' || v === 'expired') return BYT_EXPIRY_LABEL[v]
+  return v ?? '—'
+}
+
 // ─── Calibration status ───────────────────────────────────────────────────────
+// AC Asset.calibration_status (rollup-cache) — KHỚP byte-for-byte với BE
+// services.shared.constants.CalibrationStatus: On Schedule / Due Soon / Overdue /
+// Calibration Failed / Not Required (+ '' neutral reset → render rỗng, không leak EN).
 export const CALIBRATION_STATUS_LABEL: Record<string, string> = {
-  'Calibrated':      'Đã hiệu chuẩn',
-  'Due Soon':        'Sắp đến hạn',
-  'Overdue':         'Quá hạn',
-  'Not Required':    'Không yêu cầu',
-  'In Progress':     'Đang hiệu chuẩn',
-  'Failed':          'Không đạt',
+  'Calibrated':         'Đã hiệu chuẩn',
+  'On Schedule':        'Đúng lịch hiệu chuẩn',
+  'Due Soon':           'Sắp đến hạn',
+  'Overdue':            'Quá hạn',
+  'Not Required':       'Không yêu cầu',
+  'In Progress':        'Đang hiệu chuẩn',
+  'Failed':             'Không đạt',
+  'Calibration Failed': 'Không đạt hiệu chuẩn',
 }
 export const CALIBRATION_STATUS_CLASS: Record<string, string> = {
-  'Calibrated':      'bg-green-100 text-green-800',
-  'Due Soon':        'bg-yellow-100 text-yellow-800',
-  'Overdue':         'bg-red-100 text-red-800',
-  'Not Required':    'bg-gray-100 text-gray-500',
-  'In Progress':     'bg-blue-100 text-blue-800',
-  'Failed':          'bg-red-200 text-red-900 font-semibold',
+  'Calibrated':         'bg-green-100 text-green-800',
+  'On Schedule':        'bg-green-100 text-green-800',
+  'Due Soon':           'bg-yellow-100 text-yellow-800',
+  'Overdue':            'bg-red-100 text-red-800',
+  'Not Required':       'bg-gray-100 text-gray-500',
+  'In Progress':        'bg-blue-100 text-blue-800',
+  'Failed':             'bg-red-200 text-red-900 font-semibold',
+  'Calibration Failed': 'bg-red-200 text-red-900 font-semibold',
 }
 export function calibrationStatusLabel(v: string) {
   // Ưu tiên workflow-state của phiếu hiệu chuẩn (Scheduled/Sent to Lab/Passed/...)
@@ -281,6 +306,15 @@ export const INCIDENT_SEVERITY_CLASS: Record<string, string> = {
 export function incidentSeverityLabel(v: string) { return INCIDENT_SEVERITY_LABEL[v] ?? v }
 export function incidentSeverityClass(v: string) { return INCIDENT_SEVERITY_CLASS[v] ?? 'bg-gray-100 text-gray-600' }
 
+// ─── Vi phạm SLA sự cố (IMM-12, BR-12-09) ─────────────────────────────────────
+// Khớp field BE Incident Report.response_breached / resolution_breached (0|1).
+// SSoT cho nhãn tiếng Việt — KHÔNG hardcode trong component, KHÔNG leak "breached".
+export const SLA_BREACH_LABEL = {
+  response:   'Vi phạm SLA tiếp nhận',
+  resolution: 'Vi phạm SLA xử lý',
+} as const
+export const SLA_BREACH_BADGE_CLASS = 'bg-red-100 text-red-700 ring-1 ring-red-200'
+
 // ─── Incident type (khớp INCIDENT_TYPES trong IncidentCreateView + BE) ─────────
 export const INCIDENT_TYPE_LABEL: Record<string, string> = {
   'Failure':      'Hỏng hóc',
@@ -311,6 +345,11 @@ export const INCIDENT_STATUS_CLASS: Record<string, string> = {
 }
 export function incidentStatusLabel(v: string) { return INCIDENT_STATUS_LABEL[v] ?? v }
 export function incidentStatusClass(v: string) { return INCIDENT_STATUS_CLASS[v] ?? 'bg-slate-100 text-slate-600' }
+
+// SSoT nhãn filter ảo "incident đang mở" (open=1, SoT BE open_incident_filter:
+// status IN Open/Acknowledged/In Progress/RCA Required). KHÔNG hardcode literal
+// 'Đang mở' rải rác — chip drill-down + dashboard cùng dùng nhãn này.
+export const INCIDENT_OPEN_FILTER_LABEL = 'Đang mở'
 
 // ─── RCA status (khớp _RCA_* trong services/imm12.py) ─────────────────────────
 export const RCA_STATUS_LABEL: Record<string, string> = {
