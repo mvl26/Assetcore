@@ -4,7 +4,8 @@ import { computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useImm12Store } from '@/stores/imm12'
 import PageHeader from '@/components/common/PageHeader.vue'
-import { incidentStatusLabel, incidentStatusClass, incidentSeverityLabel, rcaStatusLabel, rcaTriggerLabel } from '@/constants/labels'
+import SlaBreachBadge from '@/components/incident/SlaBreachBadge.vue'
+import { incidentStatusLabel, incidentStatusClass, incidentSeverityLabel, rcaStatusLabel, rcaTriggerLabel, INCIDENT_OPEN_FILTER_LABEL } from '@/constants/labels'
 
 const router = useRouter()
 const store = useImm12Store()
@@ -14,6 +15,10 @@ const activeIncidents = computed(() => store.dashboard?.active_incidents ?? [])
 const openRcas = computed(() => store.dashboard?.open_rcas ?? [])
 const chronicFailures = computed(() => store.dashboard?.chronic_failures ?? [])
 const stats = computed(() => store.dashboard?.stats)
+
+// BR-12-09: vi phạm SLA (đọc từ stats — cùng nguồn predicate cờ với badge ở list).
+const slaResponseBreached = computed(() => store.dashboard?.stats?.sla_response_breached ?? 0)
+const slaResolutionBreached = computed(() => store.dashboard?.stats?.sla_resolution_breached ?? 0)
 
 const SEV_COLOR: Record<string, string> = {
   Low: 'bg-green-100 text-green-700',
@@ -70,13 +75,16 @@ onMounted(() => store.fetchDashboard())
     <template v-else-if="stats">
       <!-- KPI cards -->
       <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4 mb-6">
+        <!-- BR-12-11 (round-21): card open-set SoT — bind stats.open_total (Open+
+             Acknowledged+In Progress+RCA Required), nhãn 'Đang mở' qua SSoT, drill
+             ?open=1 → list hiển thị ĐÚNG open_total dòng (card count == drill rows). -->
         <div
           class="kpi-card p-4 text-center cursor-pointer"
           style="--kpi-color: #2563eb"
-          @click="router.push('/incidents/list')"
+          @click="router.push('/incidents/list?open=1')"
         >
-          <p class="text-3xl font-bold font-display tabular-nums text-blue-600">{{ stats.open ?? 0 }}</p>
-          <p class="text-xs text-slate-500 mt-1">Mới mở</p>
+          <p class="text-3xl font-bold font-display tabular-nums text-blue-600">{{ stats.open_total ?? 0 }}</p>
+          <p class="text-xs text-slate-500 mt-1">{{ INCIDENT_OPEN_FILTER_LABEL }}</p>
         </div>
         <div
           class="kpi-card p-4 text-center cursor-pointer"
@@ -98,6 +106,25 @@ onMounted(() => store.fetchDashboard())
           <p class="text-3xl font-bold font-display tabular-nums text-purple-600">{{ stats.chronic ?? 0 }}</p>
           <p class="text-xs text-slate-500 mt-1">Mãn tính</p>
         </div>
+        <!-- BR-12-09: vi phạm SLA — tile thống kê tĩnh (chưa có filter list theo cờ
+             breach → KHÔNG clickable để tránh điều hướng sai lệch, theo LL-FE-34).
+             Count = số incident có cờ tương ứng (cùng predicate badge ở list). -->
+        <div
+          class="kpi-card p-4 text-center"
+          style="--kpi-color: #dc2626"
+          title="Số sự cố quá hạn tiếp nhận (chưa được tiếp nhận trong SLA) — chỉ tiêu thống kê"
+        >
+          <p class="text-3xl font-bold font-display tabular-nums text-red-600">{{ slaResponseBreached }}</p>
+          <p class="text-xs text-slate-500 mt-1">Vi phạm SLA tiếp nhận</p>
+        </div>
+        <div
+          class="kpi-card p-4 text-center"
+          style="--kpi-color: #dc2626"
+          title="Số sự cố quá hạn xử lý (chưa đóng trong SLA) — chỉ tiêu thống kê"
+        >
+          <p class="text-3xl font-bold font-display tabular-nums text-red-600">{{ slaResolutionBreached }}</p>
+          <p class="text-xs text-slate-500 mt-1">Vi phạm SLA xử lý</p>
+        </div>
       </div>
 
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -105,7 +132,8 @@ onMounted(() => store.fetchDashboard())
         <div class="card overflow-hidden">
           <div class="px-4 py-3 border-b border-slate-100 flex justify-between items-center">
             <h2 class="font-semibold text-slate-800 text-sm">Sự cố đang xử lý</h2>
-            <button class="text-xs text-blue-600 hover:underline" @click="router.push('/incidents/list')">Xem tất cả</button>
+            <!-- BR-12-11: drill khớp active_incidents open-set → ?open=1 (KHÔNG bare path). -->
+            <button class="text-xs text-blue-600 hover:underline" @click="router.push('/incidents/list?open=1')">Xem tất cả</button>
           </div>
           <template v-if="activeIncidents.length">
             <div class="divide-y divide-slate-50">
@@ -123,6 +151,16 @@ class="mt-0.5 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium s
                 <div class="flex-1 min-w-0">
                   <p class="text-sm font-medium text-slate-800 truncate">{{ ir.asset_name || ir.asset }}</p>
                   <p class="text-xs text-slate-500 truncate">{{ ir.fault_code || '—' }}</p>
+                  <div
+                    v-if="ir.response_breached || ir.resolution_breached"
+                    class="flex flex-wrap gap-1 mt-1"
+                  >
+                    <SlaBreachBadge
+                      size="xs"
+                      :response-breached="ir.response_breached"
+                      :resolution-breached="ir.resolution_breached"
+                    />
+                  </div>
                 </div>
                 <div class="text-right shrink-0">
                   <span

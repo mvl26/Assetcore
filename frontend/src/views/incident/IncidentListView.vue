@@ -7,10 +7,14 @@ import PageHeader from '@/components/common/PageHeader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar from '@/components/common/ListFilterBar.vue'
 import BasePagination from '@/components/common/BasePagination.vue'
-import StatusBadge from '@/components/common/StatusBadge.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import WorkOrderKpiStrip, { type WoKpiItem } from '@/components/common/WorkOrderKpiStrip.vue'
-import { incidentSeverityLabel } from '@/constants/labels'
+import SlaBreachBadge from '@/components/incident/SlaBreachBadge.vue'
+// SSoT nhãn IMM-12 (R20): status badge dùng incidentStatusLabel/Class — KHÔNG
+// generic StatusBadge (translateStatus→STATUS_MAP) vì map đó drift cho domain này
+// (Open='Đang mở' vs 'Mới mở', In Progress='Đang thực hiện' vs 'Đang điều tra').
+// Cùng nguồn với IncidentDetailView + IMM12DashboardView → list==detail==donut.
+import { incidentSeverityLabel, incidentStatusLabel, incidentStatusClass, INCIDENT_OPEN_FILTER_LABEL } from '@/constants/labels'
 import { useCapabilities } from '@/composables/useCapabilities'
 
 const router = useRouter()
@@ -20,32 +24,44 @@ const store = useImm12Store()
 const { can } = useCapabilities()
 
 /**
- * Core Doc §9.3 — đọc route.query (drill-down từ dashboard) → áp vào filter.
- * Keys hỗ trợ: severity, status. Trả true nếu có filter set từ query.
+ * Core Doc §9.3 / §9.4.6 — đọc route.query (drill-down từ dashboard) → áp vào filter.
+ * Keys hỗ trợ: severity, status, open. Trả true nếu có filter set từ query.
+ *
+ * open=1 (cờ ảo "đang mở", SoT BE open_incident_filter) chỉ áp khi KHÔNG có status
+ * đơn lẻ — status ưu tiên hơn open (mutually-exclusive, khớp BE _build_incident_filters).
  */
 function applyQueryToFilters(): boolean {
   let touched = false
   const sev = route.query.severity
   const st = route.query.status
+  const op = route.query.open
   const sevVal = Array.isArray(sev) ? sev[0] : sev
   const stVal = Array.isArray(st) ? st[0] : st
+  const opVal = Array.isArray(op) ? op[0] : op
+  openFilter.value = false
   if (typeof sevVal === 'string' && sevVal) { severityFilter.value = sevVal; touched = true }
   if (typeof stVal === 'string' && stVal) { statusFilter.value = stVal; touched = true }
+  // open=1 chỉ có hiệu lực khi không kèm status đơn lẻ (status ưu tiên hơn).
+  if (opVal === '1' && !(typeof stVal === 'string' && stVal)) { openFilter.value = true; touched = true }
   if (touched) showFilters.value = true
   return touched
 }
 
 // KPI strip (mockup docs/fe/12-incident/incidents-list.html — 4 ô trên filter bar).
+// Tile severity bind OPEN-SET SoT (critical_open/high_open qua open_incident_filter())
+// — KHÔNG global critical/high (gồm Closed/Cancelled/Resolved) → strip khớp số dòng
+// severity trong bảng khi drill ?open=1 / ?severity=. Label nêu rõ "đang mở" để không
+// hiểu nhầm là tổng toàn cục. `?? 0` forward-compat khi BE chưa ship field mới.
 const kpiItems = computed<WoKpiItem[]>(() => {
   const s = store.stats
   if (!s) return []
-  const critical = 'critical' in s ? s.critical : 0
-  const high = 'high' in s ? s.high : 0
+  const criticalOpen = 'critical_open' in s ? s.critical_open ?? 0 : 0
+  const highOpen = 'high_open' in s ? s.high_open ?? 0 : 0
   const chronic = 'chronic' in s ? s.chronic : 0
   const closed = 'closed' in s ? s.closed : 0
   return [
-    { label: 'Sự cố nghiêm trọng', value: critical, color: 'danger' },
-    { label: 'Sự cố mức cao', value: high, color: 'warning' },
+    { label: 'Sự cố nghiêm trọng đang mở', value: criticalOpen, color: 'danger' },
+    { label: 'Sự cố mức cao đang mở', value: highOpen, color: 'warning' },
     { label: 'Lặp lại (Chronic)', value: chronic, color: 'info' },
     { label: 'Đã đóng', value: closed, color: 'success' },
   ]
@@ -53,6 +69,8 @@ const kpiItems = computed<WoKpiItem[]>(() => {
 
 const severityFilter = ref('')
 const statusFilter = ref('')
+// Cờ ảo "đang mở" (open=1) — drill-down từ dashboard donut/card. Khác status đơn lẻ.
+const openFilter = ref(false)
 const showFilters = ref(false)
 
 const SEVERITIES = [
@@ -86,7 +104,7 @@ function formatDateTime(d?: string) {
   return new Date(d).toLocaleString('vi-VN')
 }
 
-interface Chip { key: 'severity' | 'status'; label: string }
+interface Chip { key: 'severity' | 'status' | 'open'; label: string }
 const activeChips = computed<Chip[]>(() => {
   const chips: Chip[] = []
   if (severityFilter.value) {
@@ -97,6 +115,10 @@ const activeChips = computed<Chip[]>(() => {
     const s = STATUSES.find(x => x.value === statusFilter.value)
     chips.push({ key: 'status', label: s?.label ?? statusFilter.value })
   }
+  // Chip "Đang mở" (nhãn SSoT) chỉ khi cờ open bật VÀ không có status đơn lẻ.
+  if (openFilter.value && !statusFilter.value) {
+    chips.push({ key: 'open', label: INCIDENT_OPEN_FILTER_LABEL })
+  }
   return chips
 })
 
@@ -104,6 +126,7 @@ const activeFilterCount = computed(() => activeChips.value.length)
 
 function clearChip(key: string) {
   if (key === 'severity') severityFilter.value = ''
+  else if (key === 'open') openFilter.value = false
   else statusFilter.value = ''
   applyFilter()
 }
@@ -111,13 +134,17 @@ function clearChip(key: string) {
 function resetFilters() {
   severityFilter.value = ''
   statusFilter.value = ''
+  openFilter.value = false
   store.fetchList()
 }
 
 function applyFilter() {
+  // status đơn lẻ ưu tiên hơn open (mutually-exclusive) — khớp BE _build_incident_filters.
+  if (statusFilter.value) openFilter.value = false
   store.fetchList({
     severity: severityFilter.value || undefined,
     status: statusFilter.value || undefined,
+    open: openFilter.value && !statusFilter.value ? 1 : undefined,
   })
 }
 
@@ -125,7 +152,7 @@ function applyFilter() {
 function quickFilter(key: 'severity' | 'status', value: string) {
   if (!value) return
   if (key === 'severity') severityFilter.value = value
-  else statusFilter.value = value
+  else { statusFilter.value = value; openFilter.value = false }  // status đơn lẻ clear open
   showFilters.value = false
   applyFilter()
 }
@@ -134,6 +161,7 @@ function goToPage(page: number) {
   store.fetchList({
     severity: severityFilter.value || undefined,
     status: statusFilter.value || undefined,
+    open: openFilter.value && !statusFilter.value ? 1 : undefined,
     page,
   })
 }
@@ -220,9 +248,13 @@ watch(
         >
           <div class="flex items-center justify-between mb-2">
             <span class="font-mono text-sm font-semibold text-brand-700">{{ ir.name }}</span>
-            <button @click.stop="quickFilter('status', ir.status || '')">
-              <StatusBadge :state="ir.status || ''" />
-            </button>
+            <button
+              class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium leading-none whitespace-nowrap"
+              :class="incidentStatusClass(ir.status || '')"
+              @click.stop="quickFilter('status', ir.status || '')"
+            >
+{{ incidentStatusLabel(ir.status || '') }}
+</button>
           </div>
           <p class="text-sm font-medium text-slate-900 truncate">{{ ir.asset_name || ir.asset || '—' }}</p>
           <div class="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1.5 text-xs text-slate-500">
@@ -230,11 +262,18 @@ watch(
               class="px-1.5 py-0.5 rounded text-[11px] font-medium"
               :class="SEV_COLOR[ir.severity] || 'bg-slate-100 text-slate-600'"
               @click.stop="quickFilter('severity', ir.severity)"
-            >{{ incidentSeverityLabel(ir.severity) }}</button>
+            >
+{{ incidentSeverityLabel(ir.severity) }}
+</button>
             <span class="text-slate-300">·</span>
             <span>{{ formatDateTime(ir.reported_at) }}</span>
             <span v-if="ir.patient_affected" class="text-red-600 font-semibold">BN: Có</span>
             <span v-if="ir.chronic_failure_flag" class="text-amber-600 font-semibold">Lặp lại</span>
+            <SlaBreachBadge
+              size="xs"
+              :response-breached="ir.response_breached"
+              :resolution-breached="ir.resolution_breached"
+            />
           </div>
         </div>
         <div v-if="store.incidents.length === 0" class="py-12 text-center text-slate-400">
@@ -282,12 +321,28 @@ watch(
                     class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium transition-all hover:ring-2 hover:ring-offset-1 hover:ring-current/50"
                     :class="SEV_COLOR[ir.severity] || 'bg-slate-100 text-slate-600'"
                     @click.stop="quickFilter('severity', ir.severity)"
-                  >{{ incidentSeverityLabel(ir.severity) }}</button>
+                  >
+{{ incidentSeverityLabel(ir.severity) }}
+</button>
                 </td>
                 <td class="table-cell">
-                  <button @click.stop="quickFilter('status', ir.status || '')">
-                    <StatusBadge :state="ir.status || ''" />
-                  </button>
+                  <button
+                    class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium leading-none whitespace-nowrap transition-all hover:ring-2 hover:ring-offset-1 hover:ring-current/50"
+                    :class="incidentStatusClass(ir.status || '')"
+                    @click.stop="quickFilter('status', ir.status || '')"
+                  >
+{{ incidentStatusLabel(ir.status || '') }}
+</button>
+                  <div
+                    v-if="ir.response_breached || ir.resolution_breached"
+                    class="flex flex-wrap gap-1 mt-1"
+                  >
+                    <SlaBreachBadge
+                      size="xs"
+                      :response-breached="ir.response_breached"
+                      :resolution-breached="ir.resolution_breached"
+                    />
+                  </div>
                 </td>
                 <td class="table-cell text-slate-500 text-xs whitespace-nowrap">{{ formatDateTime(ir.reported_at) }}</td>
                 <td class="table-cell">

@@ -50,6 +50,29 @@ _RCA_IN_PROGRESS = "RCA In Progress"
 _RCA_COMPLETED = "Completed"
 _RCA_CANCELLED = "Cancelled"
 
+# ─── SoT: "incident đang mở" (Single Source of Truth) ───────────────────────────
+# Positive-state predicate DUY NHẤT cho mọi consumer (dashboard KPI/donut/persona,
+# SLA engine, drill-down list). Cancelled là terminal state (transition map :63-66
+# KHÔNG có outgoing) → KHÔNG được tính là mở; Resolved/Closed cũng terminal-ish
+# (đã rời open-set). Dùng POSITIVE list thay negative-list 'NOT IN [Closed, Resolved]'
+# để khỏi vô tình đếm Cancelled là mở (drift đã gặp ở api/dashboard.py).
+INCIDENT_OPEN_STATES = (
+    _STATUS_OPEN, _STATUS_ACKNOWLEDGED, _STATUS_INVESTIGATING, _RCA_REQUIRED,
+)
+
+
+def open_incident_filter(extra: dict | None = None) -> dict:
+    """Filter dict SoT cho "incident đang mở".
+
+    Trả `{"status": ["in", INCIDENT_OPEN_STATES], **extra}`. Mọi consumer (dashboard
+    KPI/donut/persona, SLA engine, list drill-down) dùng CHUNG helper này → count
+    card/donut == số dòng list sau drill (invariant count==drill), không drift.
+    """
+    f: dict = {"status": ["in", list(INCIDENT_OPEN_STATES)]}
+    if extra:
+        f.update(extra)
+    return f
+
 _SEV_HIGH = "High"
 _SEV_CRITICAL = "Critical"
 _HIGH_SEVERITY = (_SEV_HIGH, _SEV_CRITICAL)
@@ -183,15 +206,28 @@ def _enrich_asset_names(rows: list) -> None:
                 r["assigned_to_name"] = user_map.get(r["assigned_to"], r["assigned_to"])
 
 
-def _build_incident_filters(status: str, severity: str, asset: str) -> dict:
-    f: dict = {}
-    if status:
-        f["status"] = status
+def _build_incident_filters(
+    status: str, severity: str, asset: str, open_only: bool = False
+) -> dict:
+    """Build filter dict cho list_incidents.
+
+    `open_only` (param `open=1` từ FE drill) áp SoT open_incident_filter() để
+    count card/donut == số dòng list. `status` đơn lẻ ƯU TIÊN hơn `open`
+    (mutually-exclusive): nếu user chọn status cụ thể (vd Cancelled) thì bỏ qua
+    open-set → status filter hoạt động độc lập.
+    """
+    extra: dict = {}
     if severity:
-        f["severity"] = severity
+        extra["severity"] = severity
     if asset:
-        f["asset"] = asset
-    return f
+        extra["asset"] = asset
+    # status đơn lẻ ưu tiên hơn open (mutually-exclusive).
+    if status:
+        extra["status"] = status
+        return extra
+    if open_only:
+        return open_incident_filter(extra)
+    return extra
 
 
 # ─── Incident lifecycle ────────────────────────────────────────────────────────
@@ -554,10 +590,11 @@ def list_incidents(
     status: str = "",
     severity: str = "",
     asset: str = "",
+    open: int = 0,
     page: int = 1,
     page_size: int = 20,
 ) -> dict:
-    filters = _build_incident_filters(status, severity, asset)
+    filters = _build_incident_filters(status, severity, asset, open_only=bool(int(open or 0)))
     total = frappe.db.count(_DT_INCIDENT, filters=filters)
     offset = (page - 1) * page_size
     rows = frappe.get_all(
@@ -566,7 +603,9 @@ def list_incidents(
         fields=["name", "asset", "incident_type", "severity", "status", "fault_code",
                 "reported_by", "reported_at", "description", "linked_capa", "linked_repair_wo",
                 "rca_required", "rca_record", "chronic_failure_flag", "patient_affected",
-                "closed_date", "assigned_to", "acknowledged_at", "resolved_at"],
+                "closed_date", "assigned_to", "acknowledged_at", "resolved_at",
+                # BR-12-09: cờ vi phạm SLA để FE render badge "Vi phạm SLA" (list + dashboard).
+                "response_breached", "resolution_breached"],
         order_by=_ORDER_REPORTED_AT,
         limit_start=offset,
         limit_page_length=page_size,
@@ -609,6 +648,11 @@ def get_incident_stats() -> dict:
 
     return {
         "total": _count({}),
+        # SoT "đang mở": MỌI open-state (Open+Acknowledged+In Progress+RCA Required)
+        # qua open_incident_filter() → card 'đang mở' == số dòng drill list (invariant).
+        # KHÔNG dùng status==Open (bỏ sót Acknowledged/RCA Required).
+        "open_total": _count(open_incident_filter()),
+        # Per-state breakdown (backward-compat: consumer khác đọc từng state).
         "open": _count({"status": _STATUS_OPEN}),
         "investigating": _count({"status": _STATUS_INVESTIGATING}),
         "resolved": _count({"status": _STATUS_RESOLVED}),
@@ -616,8 +660,18 @@ def get_incident_stats() -> dict:
         "cancelled": _count({"status": _STATUS_CANCELLED}),
         "critical": _count({"severity": _SEV_CRITICAL}),
         "high": _count({"severity": _SEV_HIGH}),
+        # Open-set severity (KPI strip worklist): đếm theo SoT open_incident_filter()
+        # (∧ severity) — KHÔNG global. Loại Closed/Cancelled/Resolved → strip khớp số
+        # dòng severity trong bảng khi drill ?open=1. critical_open<=critical luôn đúng.
+        # KHÔNG inline negative-list mới: dùng lại 1 SoT open_incident_filter() (round-18).
+        "critical_open": _count(open_incident_filter({"severity": _SEV_CRITICAL})),
+        "high_open": _count(open_incident_filter({"severity": _SEV_HIGH})),
         "rca_pending": _count({"rca_required": 1, "rca_record": ("is", "not set")}),
         "chronic": _count({"chronic_failure_flag": 1}),
+        # BR-12-09: số incident vi phạm SLA (cùng predicate cờ với badge ở list →
+        # dashboard count = số dòng có badge tương ứng, không divergence).
+        "sla_response_breached": _count({"response_breached": 1}),
+        "sla_resolution_breached": _count({"resolution_breached": 1}),
     }
 
 
@@ -650,10 +704,15 @@ def get_chronic_failures() -> list:
 
 def get_dashboard() -> dict:
     stats = get_incident_stats()
+    # SoT: dùng CHÍNH open_incident_filter() — KHÔNG tuple open-set cục bộ (chống
+    # drift với stats.open_total/list). +Acknowledged +RCA Required (filter cũ
+    # [Open, In Progress] bỏ sót). Số dòng (trước limit) khớp open_total.
     recent = frappe.get_all(
         _DT_INCIDENT,
-        filters={"status": ["in", [_STATUS_OPEN, _STATUS_INVESTIGATING]]},
-        fields=["name", "asset", "severity", "status", "reported_at", "fault_code"],
+        filters=open_incident_filter(),
+        fields=["name", "asset", "severity", "status", "reported_at", "fault_code",
+                # BR-12-09: cờ SLA để dashboard "Sự cố đang xử lý" hiện badge.
+                "response_breached", "resolution_breached"],
         order_by=_ORDER_REPORTED_AT,
         limit_page_length=10,
     )
@@ -694,45 +753,104 @@ def detect_chronic_failures() -> dict:
 
 
 def check_incident_sla_breach() -> dict:
-    """Hourly scheduler — BR-12-08: đánh dấu SLA breach cho incident CHƯA đóng
-    đã quá hạn (response/resolution) + ghi audit-trail (BR-12-05).
+    """Hourly scheduler — BR-12-08/09/10: đánh dấu SLA breach cho incident CHƯA đóng
+    đã quá hạn (response/resolution), ghi audit-trail (BR-12-05) VÀ ESCALATE thông báo
+    (in-app + email) tới người phụ trách + escalation user (IMM SLA Policy) + role gate
+    NĐ98 (Critical/High → QA Officer + Ops Manager).
 
-    Idempotent: chỉ set breach=1 cho incident chưa breach (tránh log trùng).
+    Idempotent (anti-spam): cờ response_breached/resolution_breached là khoá DB bền
+    vững. Mỗi loại CHỈ escalate khi cờ tương ứng đang 0 VÀ điều kiện quá hạn đúng
+    (set cờ + bắn trong cùng nhánh). Lần quét kế cờ đã =1 → KHÔNG bắn lại.
+
+    Per-incident try/except (batch resilience): 1 incident lỗi (thiếu policy/recipient)
+    KHÔNG dừng cả batch. Recipient rỗng → set cờ + audit phát hiện như cũ, KHÔNG bắn rỗng.
     """
+    from assetcore.services import notifications as notif
+
     now = now_datetime()
-    open_states = (_STATUS_OPEN, _STATUS_ACKNOWLEDGED, _STATUS_INVESTIGATING, _RCA_REQUIRED)
+    # SoT: dùng CHÍNH open_incident_filter() — KHÔNG tuple open_states cục bộ (chống
+    # drift với dashboard/list). Cancelled là terminal → KHÔNG vào tập candidate.
     candidates = frappe.get_all(
         _DT_INCIDENT,
-        filters={"status": ["in", open_states]},
-        fields=["name", "asset", "status", "response_due_at", "resolution_due_at",
+        filters=open_incident_filter(),
+        # BR-12-09: thêm severity + assigned_to + reported_by để route recipient escalation.
+        fields=["name", "asset", "status", "severity", "assigned_to", "reported_by",
+                "response_due_at", "resolution_due_at",
                 "response_breached", "resolution_breached", "acknowledged_at"],
     )
     resp_flagged = 0
     res_flagged = 0
+    escalated = 0
     for row in candidates:
-        updates: dict = {}
-        # Response breach: chưa tiếp nhận và đã quá response_due_at.
-        if (not row.get("response_breached") and not row.get("acknowledged_at")
-                and row.get("response_due_at")
-                and now > frappe.utils.get_datetime(row["response_due_at"])):
-            updates["response_breached"] = 1
-            resp_flagged += 1
-        # Resolution breach: chưa đóng và đã quá resolution_due_at.
-        if (not row.get("resolution_breached") and row.get("resolution_due_at")
-                and now > frappe.utils.get_datetime(row["resolution_due_at"])):
-            updates["resolution_breached"] = 1
-            res_flagged += 1
-        if updates:
+        try:
+            updates: dict = {}
+            # kinds vừa chuyển 0→1 trong lần quét NÀY (khoá idempotent cho escalation).
+            new_kinds: list[str] = []
+            # Response breach: chưa tiếp nhận và đã quá response_due_at.
+            if (not row.get("response_breached") and not row.get("acknowledged_at")
+                    and row.get("response_due_at")
+                    and now > frappe.utils.get_datetime(row["response_due_at"])):
+                updates["response_breached"] = 1
+                new_kinds.append("response")
+                resp_flagged += 1
+            # Resolution breach: chưa đóng và đã quá resolution_due_at.
+            if (not row.get("resolution_breached") and row.get("resolution_due_at")
+                    and now > frappe.utils.get_datetime(row["resolution_due_at"])):
+                updates["resolution_breached"] = 1
+                new_kinds.append("resolution")
+                res_flagged += 1
+            if not updates:
+                continue
+
+            # 1) Set cờ (khoá idempotent) + ghi audit PHÁT HIỆN (BR-12-05, giữ như cũ).
             frappe.db.set_value(_DT_INCIDENT, row["name"], updates, update_modified=False)
-            kinds = "+".join(k.replace("_breached", "") for k in updates)
-            _log(row["name"], row.get("asset"), f"SLA breach ({kinds}) phát hiện bởi scheduler",
+            kinds_label = "+".join(new_kinds)
+            _log(row["name"], row.get("asset"),
+                 f"SLA breach ({kinds_label}) phát hiện bởi scheduler",
                  row["status"], row["status"])
+
+            # 2) ESCALATE: resolve policy escalation user (IMM SLA Policy) + dispatch.
+            severity = row.get("severity") or "Low"
+            policy = svc00.get_sla_policy(_severity_to_sla_priority(severity)) or {}
+            incident_ctx = dict(row)
+            incident_ctx["escalation_l1_user"] = policy.get("escalation_l1_user")
+            incident_ctx["escalation_l2_user"] = policy.get("escalation_l2_user")
+
+            sent_any = False
+            for kind in new_kinds:
+                due = row.get("resolution_due_at" if kind == "resolution"
+                              else "response_due_at")
+                over_h = round(
+                    (now - frappe.utils.get_datetime(due)).total_seconds() / 3600.0, 1
+                ) if due else 0.0
+                if notif._emit_incident_sla_notification(
+                    incident_ctx, kind, over_h, severity
+                ):
+                    sent_any = True
+
+            # 3) Audit ESCALATED (BR-12-05, THÊM entry — KHÔNG thay entry phát hiện).
+            if sent_any:
+                recipients = notif._incident_sla_recipients(incident_ctx, severity)
+                _log(row["name"], row.get("asset"),
+                     f"SLA breach escalated → {', '.join(recipients)}",
+                     row["status"], row["status"])
+                escalated += 1
+        except Exception:
+            # Per-incident an toàn: 1 incident lỗi KHÔNG dừng batch scheduler.
+            frappe.log_error(frappe.get_traceback(), "IMM-12 check_incident_sla_breach")
+            continue
+
     if resp_flagged or res_flagged:
         frappe.db.commit()
     frappe.logger().info(
-        f"IMM-12 check_incident_sla_breach: response={resp_flagged}, resolution={res_flagged}"
+        f"IMM-12 check_incident_sla_breach: response={resp_flagged}, "
+        f"resolution={res_flagged}, escalated={escalated}"
     )
-    return {"response_breached": resp_flagged, "resolution_breached": res_flagged}
+    return {
+        "response_breached": resp_flagged,
+        "resolution_breached": res_flagged,
+        "escalated": escalated,
+    }
 
 
 # ─── Internal helpers ─────────────────────────────────────────────────────────

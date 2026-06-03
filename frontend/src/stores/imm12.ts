@@ -35,6 +35,7 @@ export const useImm12Store = defineStore('imm12', () => {
     status?: string
     severity?: string
     asset?: string
+    open?: 0 | 1
   } = {}) {
     loading.value = true
     error.value = null

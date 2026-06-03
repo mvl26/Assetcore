@@ -11,7 +11,7 @@ from __future__ import annotations
 import frappe
 from frappe import _
 
-from assetcore.utils.response import _ok, _err
+from assetcore.utils.response import _err
 from assetcore.utils.api_handler import handle, parse_json
 from assetcore.services.shared import rbac
 from assetcore.services.shared.scope import assert_vendor_can_access
@@ -31,6 +31,7 @@ from assetcore.services.imm12 import (
     get_asset_incident_history as svc_asset_history,
     get_chronic_failures as svc_chronic,
     get_dashboard as svc_dashboard,
+    get_incident_stats as svc_stats,
 )
 
 _MSG_UNAUTHENTICATED = "Chưa đăng nhập"
@@ -175,15 +176,20 @@ def list_incidents(
     status: str = "",
     severity: str = "",
     asset: str = "",
+    open: int = 0,
     page: int = 1,
     page_size: int = 20,
 ):
-    """GET /api/method/assetcore.api.imm12.list_incidents"""
+    """GET /api/method/assetcore.api.imm12.list_incidents
+
+    `open=1` áp SoT open_incident_filter() (incident đang mở) cho drill-down từ
+    dashboard donut/card → count == số dòng list. `status` đơn lẻ ưu tiên hơn open.
+    """
     if frappe.session.user == "Guest":
         return _err(_(_MSG_UNAUTHENTICATED), 401)
     return handle(
         svc_list,
-        status=status, severity=severity, asset=asset,
+        status=status, severity=severity, asset=asset, open=int(open or 0),
         page=int(page), page_size=int(page_size),
     )
 
@@ -253,24 +259,13 @@ def close_incident(name: str, verification_notes: str = ""):
 
 @frappe.whitelist()
 def get_incident_stats():
-    """GET /api/method/assetcore.api.imm12.get_incident_stats — KPI tổng quan."""
+    """GET /api/method/assetcore.api.imm12.get_incident_stats — KPI tổng quan.
+
+    Forward verbatim svc_stats (services/imm12.get_incident_stats) — SoT DUY NHẤT
+    cho mọi count. KHÔNG re-compute ở API (trước fix dùng status 'Under Investigation'
+    KHÔNG tồn tại → open/investigating sai; thiếu open_total). Service đã chuẩn hoá
+    open_total = count(open_incident_filter()) + per-state breakdown.
+    """
     if frappe.session.user == "Guest":
         return _err(_(_MSG_UNAUTHENTICATED), 401)
-    try:
-        def _count(filters: dict) -> int:
-            try:
-                return frappe.db.count("Incident Report", filters=filters)
-            except Exception:
-                return 0
-
-        return _ok({
-            "open": _count({"status": "Open"}),
-            "investigating": _count({"status": "Under Investigation"}),
-            "resolved": _count({"status": "Resolved"}),
-            "closed": _count({"status": "Closed"}),
-            "critical_open": _count({"status": ["in", ["Open", "Under Investigation"]], "severity": "Critical"}),
-            "high_open": _count({"status": ["in", ["Open", "Under Investigation"]], "severity": "High"}),
-        })
-    except Exception:
-        frappe.log_error(frappe.get_traceback(), "IMM-12 get_incident_stats")
-        return _err(_(_MSG_SERVER_ERROR), 500)
+    return handle(svc_stats)

@@ -180,6 +180,63 @@ State machine BE thật (khớp `imm_12_incident_workflow.json` + `_VALID_TRANSI
 | `CAPACloseDialog.vue` | `capaName: string`, `@close` | Modal close CAPA |
 | `IncidentTimeline.vue` | `incidentName: string` | Audit trail timeline |
 | `ClinicalImpactWarning.vue` | `severity: string` | Banner for Critical severity |
+| `SlaBreachBadge.vue` (MỚI — BR-12-09) | `responseBreached?: 0\|1`, `resolutionBreached?: 0\|1` | Badge đỏ "Vi phạm SLA" — đọc TRỰC TIẾP từ field cờ `response_breached`/`resolution_breached`. Render 1 badge / 1 loại breached=1; không cờ nào set → render gì cả (`v-if`). Nhãn tiếng Việt qua SSoT, KHÔNG leak "breached"/English. |
+
+### 3.1 SLA breach badge — i18n SSoT (BR-12-09)
+
+> **Anti-leak (memory wave2_ui_bugs / formatters SSoT):** KHÔNG hiển thị chuỗi BE thô `response_breached`/`resolution_breached`/`breached`. Thêm SSoT vào `frontend/src/constants/labels.ts` (KHÔNG hardcode trong component):
+
+```typescript
+// labels.ts — SLA breach (IMM-12, khớp Incident Report.response_breached / resolution_breached)
+export const SLA_BREACH_LABEL = {
+  response:   'Vi phạm SLA tiếp nhận',
+  resolution: 'Vi phạm SLA xử lý',
+} as const
+export const SLA_BREACH_BADGE_CLASS = 'bg-red-100 text-red-700 ring-1 ring-red-200'
+```
+
+**Nơi hiển thị (cả 2 — verify count khớp, không divergence):**
+- `IncidentListView.vue` — cột/chip cạnh severity: nếu `ir.response_breached` → badge "Vi phạm SLA tiếp nhận"; nếu `ir.resolution_breached` → badge "Vi phạm SLA xử lý" (có thể hiện cả 2). Cần BE `list_incidents` trả 2 field (xem `05_API §12 DELTA`).
+- `IMM12DashboardView.vue` — thêm 2 stat card đọc `store.dashboard.stats.sla_response_breached` / `sla_resolution_breached` (nhãn "Vi phạm SLA tiếp nhận" / "Vi phạm SLA xử lý"). Card click-through (drilldown) lọc list theo cờ tương ứng nếu store hỗ trợ filter.
+
+**Divergence guard (FE test):** số trên 2 stat card = số incident có cờ tương ứng trong list (cùng nguồn `Incident Report.response_breached`/`resolution_breached`). Vitest assert label render từ `SLA_BREACH_LABEL` (không chứa substring "breach"/"breached" tiếng Anh trong DOM). `vue-tsc` xanh.
+
+### 2.5 Card "Đang mở" — SoT open-set + drill (BR-12-11) — DELTA vòng 21
+
+`IMM12DashboardView.vue` card đầu tiên (hiện bind `stats.open` + nhãn 'Mới mở' + bare `/incidents/list`) PHẢI đổi để khớp SoT BE `open_incident_filter()`:
+
+| Thuộc tính | TRƯỚC (sai) | SAU (BR-12-11) |
+|---|---|---|
+| Binding count | `stats.open ?? 0` | `stats.open_total ?? 0` (count cả Acknowledged + RCA Required, không chỉ Open) |
+| Nhãn card | literal `'Mới mở'` | `INCIDENT_OPEN_FILTER_LABEL` (= 'Đang mở', SSoT `constants/labels.ts:327` round-18) — KHÔNG hardcode literal mới |
+| Drill `@click` | `router.push('/incidents/list')` | `router.push('/incidents/list?open=1')` (hoặc object `{ path:'/incidents/list', query:{ open:'1' } }`) |
+| "Xem tất cả" của "Sự cố đang xử lý" | `router.push('/incidents/list')` | `router.push('/incidents/list?open=1')` |
+
+**Invariant (FE test BẮT BUỘC):** card count (`stats.open_total`) == số dòng list sau khi drill `/incidents/list?open=1` (list loại Closed/Cancelled/Resolved). Vì `active_incidents` BE đã dùng cùng `open_incident_filter()`, số dòng "Sự cố đang xử lý" (≤10) cũng phản ánh đúng open-set.
+
+**Phân biệt 2 khái niệm nhãn (KHÔNG nhầm):**
+- `incidentStatusLabel('Open')` = 'Mới mở' — nhãn **trạng thái từng-state** (giữ nguyên, dùng cho badge per-row + WorkflowStepper). KHÔNG đổi.
+- `INCIDENT_OPEN_FILTER_LABEL` = 'Đang mở' — nhãn **filter ảo open-set** (card open_total + chip drill). Đây là cái card "Đang mở" dùng.
+
+**Type delta (`api/imm12.ts`):** thêm `open_total: number` vào cả `interface IncidentStats` (line 75) và `interface DashboardStats` (line 229) — khớp BE service `get_incident_stats()` trả `open_total`. Backward-compat: GIỮ `open` + `investigating` (consumer khác còn đọc).
+
+### 2.6 KPI strip severity = open-set (BR-12-11b) — DELTA vòng 29
+
+KPI strip `IncidentListView.vue` `kpiItems` (computed, line ~50-64) — 4 tile trên filter bar. 2 tile severity hiện bind count GLOBAL mọi-status (`stats.critical` / `stats.high`) ⇒ **mâu thuẫn thị giác strip-vs-table** khi user drill `?open=1` hoặc `?severity=High` (bảng chỉ open-set, strip vẫn đếm cả Closed/Cancelled/Resolved). Phải bind theo SoT open-set BE (`stats.critical_open` / `stats.high_open`):
+
+| Tile | TRƯỚC (sai) | SAU (BR-12-11b) |
+|---|---|---|
+| 'Sự cố nghiêm trọng' | `stats.critical` (global) | binding `stats.critical_open ?? 0` (open-set); nhãn → **'Sự cố nghiêm trọng đang mở'** |
+| 'Sự cố mức cao' | `stats.high` (global) | binding `stats.high_open ?? 0` (open-set); nhãn → **'Sự cố mức cao đang mở'** |
+| 'Lặp lại (Chronic)' | `stats.chronic` | KHÔNG đổi |
+| 'Đã đóng' | `stats.closed` | KHÔNG đổi |
+
+- Strip KHÔNG còn đọc `stats.critical` / `stats.high` global (2 key đó GIỮ ở type cho donut/consumer cũ, nhưng strip không bind).
+- Nhãn làm rõ ngữ nghĩa **open-set** → tránh user hiểu nhầm là tổng toàn cục. (Nếu dự án có SSoT label store, ưu tiên hằng số thay literal — nhưng strip này dùng literal cục bộ trong `kpiItems`, theo pattern hiện hữu của 4 tile.)
+
+**Invariant (FE test BẮT BUỘC):** trên `/incidents/list?open=1` (data live: 1 Critical-open + 2 High-open trong open-set), tile 'Sự cố nghiêm trọng đang mở' == số dòng Critical trong bảng == 1; tile 'Sự cố mức cao đang mở' == số dòng High == 2. KHÔNG còn 0/0 (bug alias chết cũ) hay số global gồm Closed. Vitest assert: tile value đọc `critical_open`/`high_open`, KHÔNG `critical`/`high`.
+
+**Type delta (`api/imm12.ts`):** thêm `critical_open?: number` + `high_open?: number` vào `interface IncidentStats` (+ `DashboardStats` cho parity vì `get_dashboard().stats == get_incident_stats()`). Optional (forward-compat, strip fallback `?? 0`). GIỮ `critical` + `high` global.
 
 **Design tokens — Severity (4 mức theo DocType):**
 ```typescript
@@ -210,6 +267,12 @@ export const incidentStatusTokens = {
 ## 4. Pinia Store — `useImm12Store`
 
 > ✅ Store đã hiện hữu tại `frontend/src/stores/imm12.ts`. Các view trong `views/incident/` cũng có thể gọi trực tiếp `api/imm12.ts` qua composable khi không cần state chia sẻ. Skeleton dưới đây phản ánh interface store.
+>
+> **DELTA type (BR-12-09):** `types/imm12.ts::IncidentReport` thêm `response_breached?: 0|1` + `resolution_breached?: 0|1` (khớp field BE `list_incidents`/`get_incident_detail`). Dashboard `stats` type thêm `sla_response_breached: number` + `sla_resolution_breached: number`.
+>
+> **DELTA type (BR-12-11, vòng 21):** `api/imm12.ts::IncidentStats` + `DashboardStats` thêm `open_total: number` (count SoT `open_incident_filter()`). Card "Đang mở" bind `stats.open_total`; KHÔNG xoá `open`/`investigating`.
+>
+> **DELTA type (BR-12-11b, vòng 29):** `api/imm12.ts::IncidentStats` + `DashboardStats` thêm `critical_open?: number` + `high_open?: number` (count SoT `open_incident_filter()∧severity`). KPI strip `IncidentListView.vue` tile severity bind `stats.critical_open ?? 0` / `stats.high_open ?? 0` + nhãn 'đang mở'; KHÔNG xoá `critical`/`high` global. Xem §2.6.
 
 ```typescript
 // src/stores/imm12.ts  (actual file — interface tham khảo)

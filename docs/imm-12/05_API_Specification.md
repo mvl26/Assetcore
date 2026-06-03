@@ -221,7 +221,7 @@ FE đọc `response.data.data` (axios + Frappe lớp ngoài đã wrap).
 }
 ```
 
-> **Note:** Status goes to `"Resolved"` always (not `"RCA Required"`). RCA is auto-created in background. IMM-12 states in actual code: Open → Under Investigation → Resolved → Closed.
+> **Note:** Status goes to `"Resolved"` always (not `"RCA Required"`). RCA is auto-created in background. IMM-12 states in actual code: Open → Acknowledged → In Progress → Resolved → Closed (`"Under Investigation"` là alias lịch sử của `In Progress`).
 
 ---
 
@@ -343,16 +343,30 @@ curl -X POST 'https://hospital.assetcore.vn/api/method/assetcore.api.imm12.submi
     "stats": {
       "total": 42, "open": 5, "investigating": 3, "resolved": 8,
       "closed": 24, "cancelled": 2, "critical": 1, "high": 4,
-      "rca_pending": 2, "chronic": 1
+      "open_total": 9,               // count(open_incident_filter()) = Open+Acknowledged+In Progress+RCA Required — BR-12-11 SoT card-count (KHÔNG chỉ status==Open)
+      "critical_open": 1, "high_open": 2,  // count(open_incident_filter()∧severity) — BR-12-11b KPI-strip open-set (Closed/Cancelled/Resolved loại; critical_open<=critical, high_open<=high)
+      "rca_pending": 2, "chronic": 1,
+      "sla_response_breached": 2,    // count(response_breached=1) — BR-12-09 FE divergence guard
+      "sla_resolution_breached": 1   // count(resolution_breached=1)
     },
-    "active_incidents": [...],   // Open + Under Investigation, top 10
+    "active_incidents": [...],   // open_incident_filter(): Open + Acknowledged + In Progress + RCA Required, by reported_at desc, top 10 — BR-12-11 (số dòng trước cắt limit == stats.open_total)
     "open_rcas": [...],          // RCA Required + RCA In Progress, by due_date asc, top 10
     "chronic_failures": [...]    // top 5 chronic groups
   }
 }
 ```
 
-Use `get_incident_stats()` endpoint for per-status KPI counts only.
+> **SoT open-set guard (BR-12-11):** `stats.open_total` = `count(open_incident_filter())` = số incident ở MỌI state mở `{Open, Acknowledged, In Progress, RCA Required}` — KHÔNG chỉ `status==Open`. `active_incidents` dùng CHÍNH `open_incident_filter()` làm filter ⇒ số dòng (trước cắt limit 10) == `open_total`. FE card "Đang mở" bind `stats.open_total` + drill `/incidents/list?open=1` ⇒ **invariant: card count == số dòng list**.
+>
+> **Backward-compat:** key `open` (=count status==Open) và `investigating` (=count status==In Progress) GIỮ NGUYÊN cho consumer breakdown từng-state. Vòng 21 chỉ THÊM `open_total`.
+>
+> **KPI-strip open-set guard (BR-12-11b, vòng 29):** `stats.critical_open` / `stats.high_open` = `count(open_incident_filter({"severity": …}))` — đếm severity CHỈ trong open-set SoT, loại Closed/Cancelled/Resolved. FE KPI strip `IncidentListView.vue` tile "Sự cố nghiêm trọng đang mở" / "Sự cố mức cao đang mở" bind `stats.critical_open ?? 0` / `stats.high_open ?? 0` ⇒ trên drill `/incidents/list?open=1` strip == số dòng severity tương ứng trong bảng (1 Critical / 2 High), KHÔNG còn số global gồm Closed. Key `critical`/`high` (global, mọi-status) GIỮ NGUYÊN cho donut `severity_breakdown` + consumer cũ. Bất biến: `critical_open <= critical`, `high_open <= high`. CHỈ sinh qua `open_incident_filter()` (1 SoT — KHÔNG inline negative-list/tuple mới).
+>
+> **Divergence guard (BR-12-09):** `stats.sla_response_breached` / `sla_resolution_breached` PHẢI bằng số incident có cờ tương ứng `=1` (đếm trực tiếp trên `Incident Report`). Dashboard "Vi phạm SLA" và badge trên list cùng đọc từ field cờ ⇒ không lệch số.
+>
+> **DELTA `list_incidents`:** thêm `"response_breached", "resolution_breached"` vào mảng `fields=[...]` (hiện CHƯA có — xác minh `services/imm12.py::list_incidents`) để FE render badge mà không phải fetch thêm. Cả `get_incident_detail` cũng cần expose 2 cờ này cho badge trên trang chi tiết.
+
+Use `get_incident_stats()` endpoint for per-status KPI counts (incl. `open_total` SoT card-count, BR-12-11) — endpoint delegates the service-layer function, returning the same `stats` shape embedded in `get_dashboard`.
 
 ---
 
@@ -479,6 +493,36 @@ message Frappe ra FE. Class `IncidentError` bị loại bỏ — service raise q
   RCA gate trước khi đóng sự cố Major/Critical) → modal blocking.
 - `error` = lỗi hệ thống (`SYS-*`) → toast đỏ.
 - `success` = thao tác thành công → toast xanh.
+
+### 11.6 DELTA vòng 21 — SoT open-set wiring (BR-12-11)
+
+**BE — `services/imm12.py` (ground-truth shape mà `get_dashboard.stats` trả):**
+- `get_incident_stats()`: THÊM key `"open_total": _count(open_incident_filter())`. GIỮ NGUYÊN `open` (status==Open) + `investigating` (status==In Progress) — backward-compat.
+- `get_dashboard()`: `active_incidents` đổi filter từ inline `{"status": ["in", [_STATUS_OPEN, _STATUS_INVESTIGATING]]}` → `open_incident_filter()`. KHÔNG còn tuple status cục bộ cho open-set trong 2 hàm này (grep guard).
+
+**⚠️ SELF-CORRECTION — divergence api-layer (thiết kế gốc sai, đã sửa) ✅ DONE:**
+> `api/imm12.py::get_incident_stats()` (whitelisted endpoint FE gọi qua `getIncidentStats()`) TRƯỚC ĐÂY là một **re-implementation cục bộ** KHÁC service-layer: dùng alias chết `"Under Investigation"` (state thực = `In Progress` ⇒ count 0 trên data thật), có inline tuple cho open-set (vi phạm SoT + grep guard), và KHÔNG trả `total/severity/sla_*/open_total`. Vi phạm CLAUDE.md §15 (no logic in controller).
+>
+> **Quyết định Core Doc (đã thực thi):** endpoint `api/imm12.py::get_incident_stats()` delegate service layer — `return handle(svc_stats)` (giống `get_dashboard` → `handle(svc_dashboard)`); xác minh `api/imm12.py:261-271`. `getIncidentStats()` và `get_dashboard().stats` trả CÙNG shape ⇒ một SoT duy nhất, không drift. Giữ guard Guest→401. **Hệ quả round-29:** vì api-layer đã forward verbatim service shape, mọi key MỚI thêm ở `services/imm12.py::get_incident_stats()` (gồm `critical_open`/`high_open`) tự động lộ ra qua endpoint — KHÔNG cần đụng `api/imm12.py`.
+
+### 11.7 DELTA vòng 29 — KPI strip severity = open-set (BR-12-11b)
+
+**BE — `services/imm12.py::get_incident_stats()`:** THÊM `"critical_open": _count(open_incident_filter({"severity": _SEV_CRITICAL}))` + `"high_open": _count(open_incident_filter({"severity": _SEV_HIGH}))`. GIỮ NGUYÊN `critical`/`high` (global, mọi-status). KHÔNG đụng `api/imm12.py` (đã delegate — xem §11.6). Grep guard: 0 occurrence inline severity-count bỏ qua open-state; `critical_open`/`high_open` CHỈ sinh qua `open_incident_filter()`.
+
+**FE — `frontend/src/`:**
+- `api/imm12.ts`: `IncidentStats` + `DashboardStats` thêm `critical_open?: number` + `high_open?: number` (optional — forward-compat khi BE chưa ship; strip fallback `?? 0`).
+- `IncidentListView.vue` `kpiItems` (line ~50-64): tile 'Sự cố nghiêm trọng' bind `stats.critical_open ?? 0` (KHÔNG `stats.critical`); tile 'Sự cố mức cao' bind `stats.high_open ?? 0`. Nhãn đổi → 'Sự cố nghiêm trọng đang mở' / 'Sự cố mức cao đang mở' (làm rõ ngữ nghĩa open-set, tránh hiểu nhầm là tổng toàn cục). Tile chronic/closed KHÔNG đổi.
+
+**Invariant FE (test BẮT BUỘC):** trên `?open=1`, strip tile = số dòng severity tương ứng trong bảng (data live → tile 1 / 2, KHÔNG còn 0/0 hay số global gồm Closed).
+
+**Regression gate (round-29):** BE `test_imm12` GREEN + invariant `critical_open==1 ∧ high_open==2` trên data live; `critical_open <= critical`, `high_open <= high`; `open_total` (round-21) KHÔNG đổi; FE `vue-tsc` 0 + vitest GREEN; KHÔNG English/raw-code leak (GATE-1).
+
+**FE — `frontend/src/`:**
+- `api/imm12.ts`: `IncidentStats` + `DashboardStats` thêm `open_total: number`.
+- `IMM12DashboardView.vue`: card #1 bind `stats.open_total`, nhãn `INCIDENT_OPEN_FILTER_LABEL` ('Đang mở'), drill `/incidents/list?open=1`; "Xem tất cả" của "Sự cố đang xử lý" → `/incidents/list?open=1`.
+- KHÔNG đổi `incidentStatusLabel('Open')` ('Mới mở' — nhãn per-state, khác nhãn filter open-set).
+
+**Regression gate:** BE `test_imm12` + `test_dashboard` GREEN; FE `vue-tsc` 0 + vitest toàn bộ; KHÔNG English/raw-code leak (GATE-1).
 
 ---
 

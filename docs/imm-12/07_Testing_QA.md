@@ -345,6 +345,23 @@ Mọi US trong 02 §IV.1 có ≥ 1 dòng. Cột Status không trống.
 | BR-12-05 | Mọi transition → audit (SHA-256) | `test_audit_chain_intact` / `test_audit_chain_breaks_on_tamper` | Use Case | ⬜ 1 / 1 Planned |
 | BR-12-06 | Submit RCA → auto CAPA + linked_capa | `test_rca_completed_creates_capa_and_advances_incident` | Use Case | 1 ✅ / ⬜ negative |
 | BR-12-07 | RCA root_cause + rca_method bắt buộc | `test_submit_rca_needs_root_cause` | Error guessing | ⬜ 1 / 1 Planned |
+| BR-12-08 | SLA breach tracking (set cờ + due-time từ policy) | `test_sla_breach_flags_overdue_incident` | BVA | ⬜ 1 / 1 Planned |
+| BR-12-09 | Breach 0→1 → bắn ĐÚNG 1 notification (in-app+email) + idempotent + audit escalated | `TC-12-SLA-ESC-01..05` (xem dưới) | State transition + EP | ⬜ Planned |
+| BR-12-10 | Critical/High breach → thêm QA Officer + Ops Manager (NĐ98 gate) | `TC-12-SLA-ESC-NĐ98` | Decision Table | ⬜ Planned |
+
+**TC-12-SLA-ESC-* (BR-12-09 / BR-12-10) — bắt buộc cho DoD vòng này:**
+
+| Test ID | Given | When | Then |
+|---|---|---|---|
+| TC-12-SLA-ESC-01 | 1 incident `assigned_to` set, quá `response_due_at`, `response_breached=0` | `check_incident_sla_breach()` chạy | `response_breached=1` + ĐÚNG 1 Notification Log (subject chứa "tiếp nhận") cho `assigned_to`; email enqueue cho user bật email |
+| TC-12-SLA-ESC-02 | như trên, quá `resolution_due_at` | sweep | `resolution_breached=1` + 1 notification (subject chứa "xử lý"); nội dung nêu số giờ quá hạn + asset name |
+| TC-12-SLA-ESC-03 (IDEMPOTENT) | incident đã `response_breached=1` từ lần trước | sweep chạy LẦN 2 | KHÔNG có notification mới (count Notification Log không đổi); cờ vẫn =1 |
+| TC-12-SLA-ESC-04 (NO RECIPIENT) | incident không `assigned_to`/`reported_by`, policy không escalation_l*, severity=Low/Medium | sweep | set cờ + audit "phát hiện" như cũ; KHÔNG bắn rỗng; KHÔNG crash; KHÔNG audit "escalated" |
+| TC-12-SLA-ESC-05 (BATCH RESILIENCE) | 2 incident, #1 lỗi policy resolve | sweep | #1 `log_error` + skip; #2 vẫn được set cờ + escalate; batch không dừng |
+| TC-12-SLA-ESC-NĐ98 (BR-12-10) | incident severity=Critical breach, policy KHÔNG set escalation_l*_user | sweep | recipient bao gồm user giữ role `QA_OFFICER` + `OPS_MANAGER` (resolve qua `notify_roles`) — KHÔNG hardcode role-name |
+| TC-12-SLA-ESC-AUDIT (BR-12-05) | incident escalate thành công | sweep | có 2 lifecycle entry: "phát hiện" (cũ) GIỮ NGUYÊN + "escalated → <recipients>" (mới) |
+
+**Regression:** `test_notify_roles_contract` (TC-R21-01..04) vẫn xanh sau khi thêm block escalation incident vào `notify_roles.py`. KHÔNG đổi hành vi `notifications.run_sla_breach_scan` (IMM-09 Asset Repair) — chạy lại suite notification để xác nhận.
 
 Mọi BR có ≥ 1 happy + ≥ 1 negative. BR Critical (BR-12-02, BR-12-04) cần Decision Table đầy đủ.
 
