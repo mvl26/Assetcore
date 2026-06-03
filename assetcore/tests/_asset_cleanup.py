@@ -59,3 +59,80 @@ def purge_asset(asset_name: str) -> None:
     frappe.db.commit()
     # 3) Asset now deletes cleanly
     frappe.delete_doc("AC Asset", asset_name, force=True, ignore_permissions=True)
+
+
+def purge_assets_by_name_prefix(*prefixes: str) -> int:
+    """Module-teardown safety net: purge every AC Asset whose asset_name starts
+    with any of ``prefixes`` (all FK-safe via ``purge_asset``).
+
+    Use in a ``tearDownModule`` so a leak survives no single class's teardown gap.
+    Returns the number of assets purged.
+    """
+    if not prefixes:
+        return 0
+    conds = " OR ".join(["asset_name LIKE %s"] * len(prefixes))
+    rows = frappe.db.sql_list(
+        f"SELECT name FROM `tabAC Asset` WHERE {conds}",
+        tuple(f"{p}%" for p in prefixes),
+    )
+    for name in rows:
+        try:
+            purge_asset(name)
+        except Exception:  # noqa: BLE001
+            pass
+    frappe.db.commit()
+    return len(rows)
+
+
+def purge_category_by_name(*category_names: str) -> int:
+    """Purge AC Asset Category rows by category_name field (autoname=CAT-#### →
+    NEVER match by name, LL-TEST-9).
+
+    First FK-purges any leaked test assets still referencing the category (so the
+    category becomes deletable regardless of the asset's name prefix), then NULLs
+    any non-asset references (e.g. IMM Device Model.asset_category) before delete.
+    Skips a category only if a NON-test asset still references it. Returns count.
+    """
+    n = 0
+    for cn in category_names:
+        for cat in frappe.db.sql_list(
+            "SELECT name FROM `tabAC Asset Category` WHERE category_name=%s", (cn,)
+        ):
+            # FK-purge any remaining test assets in this category.
+            for an, aname in frappe.db.sql(
+                "SELECT name, asset_name FROM `tabAC Asset` WHERE asset_category=%s",
+                (cat,),
+            ):
+                if (aname or "").startswith(("_Test", "Gate", "Test ")):
+                    try:
+                        purge_asset(an)
+                    except Exception:  # noqa: BLE001
+                        pass
+            if frappe.db.exists("AC Asset", {"asset_category": cat}):
+                continue  # a genuine asset still uses it — leave it
+            # Delete test PM Checklist Templates autonamed off this category
+            # (PMCT-<cat>-<freq>) — they are test fixtures, not real config.
+            for pmct in frappe.db.sql_list(
+                "SELECT name FROM `tabPM Checklist Template` WHERE asset_category=%s", (cat,)
+            ):
+                try:
+                    frappe.delete_doc("PM Checklist Template", pmct, force=True,
+                                      ignore_permissions=True)
+                except Exception:  # noqa: BLE001
+                    frappe.db.set_value("PM Checklist Template", pmct,
+                                        "asset_category", None, update_modified=False)
+            # NULL any other non-asset FK refs so the delete won't 500.
+            for dt in ("IMM Device Model", "Asset Commissioning"):
+                if frappe.db.table_exists(dt) and frappe.db.has_column(dt, "asset_category"):
+                    frappe.db.sql(
+                        f"UPDATE `tab{dt}` SET asset_category=NULL WHERE asset_category=%s",
+                        (cat,),
+                    )
+            try:
+                frappe.delete_doc("AC Asset Category", cat, force=True,
+                                  ignore_permissions=True)
+                n += 1
+            except Exception:  # noqa: BLE001
+                pass
+    frappe.db.commit()
+    return n

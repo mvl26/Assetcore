@@ -72,6 +72,29 @@ class TestIMMRCARecordValidate(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.asset_name = _ensure_test_asset()
 
+    @classmethod
+    def tearDownClass(cls) -> None:
+        """Purge the shared asset + its category/device-model so the
+        '_Test RCA Asset/Cat/Model' fixtures never leak into prod-like lists."""
+        from contextlib import suppress
+
+        from assetcore.tests._asset_cleanup import (
+            purge_asset,
+            purge_category_by_name,
+        )
+        frappe.set_user("Administrator")
+        with suppress(Exception):
+            purge_asset(cls.asset_name)
+        for mdl in frappe.db.sql_list(
+            "SELECT name FROM `tabIMM Device Model` WHERE model_name=%s",
+            ("_Test RCA Model",),
+        ):
+            with suppress(Exception):
+                frappe.delete_doc("IMM Device Model", mdl, force=True,
+                                  ignore_permissions=True)
+        purge_category_by_name("_Test RCA Cat")
+        frappe.db.commit()
+
     def setUp(self) -> None:
         self.incident = _ensure_test_incident(self.asset_name)
         self._created_rca: list[str] = []
