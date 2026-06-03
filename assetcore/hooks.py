@@ -282,6 +282,11 @@ scheduler_events = {
         "assetcore.services.imm00.check_service_contract_expiry",
         # IMM-05 document expiry alerts
         "assetcore.services.imm05.check_document_expiry",
+        # IMM-08 PM overdue flip — BR-08-11 root-cause: trước đây cron này KHÔNG
+        # được đăng ký nên status Overdue không bao giờ set ở prod (KPI luôn 0).
+        # PHẢI chạy TRƯỚC generate để count_overdue_pm() == drill-down (?overdue=1)
+        # phản ánh đúng trong ngày (SoT is_pm_overdue/OVERDUE_SOURCE_STATES).
+        "assetcore.tasks.check_pm_overdue",
         # IMM-08 PM auto work order generation
         "assetcore.services.imm08.backfill_pm_schedules_for_due_assets",
         "assetcore.services.imm08.generate_pm_work_orders_from_schedule",
@@ -311,6 +316,11 @@ scheduler_events = {
         "assetcore.services.imm15.check_critical_spare_breach",
         "assetcore.services.imm15.check_expiring_batches",
         "assetcore.services.imm15.compute_inventory_kpis",
+        # IMM-04 — overdue commissioning SLA alert (BR-04-10). Email Workshop Head
+        # phiếu quá hạn > OVERDUE_DAYS từ reception_date. Dùng CHUNG SoT
+        # overdue_commissioning_filter() với dashboard KPI + list drill (?overdue=1)
+        # → tập nhận mail == tập KPI == tập drill rows (cùng anchor reception_date).
+        "assetcore.services.imm04.check_commissioning_overdue",
         # IMM-16 Compliance Monitoring
         "assetcore.services.imm16.evaluate_all_compliance_rules",
         "assetcore.services.imm16.check_capa_due",
