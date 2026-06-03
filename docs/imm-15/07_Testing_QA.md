@@ -212,6 +212,16 @@ File: `assetcore/tests/test_imm15.py`. Lớp test + method **đã tồn tại** 
 | `TestDashboardLowStockPerBin` | `test_overview_low_stock_is_per_bin` | low-stock per-bin (regression BUG-15-03) | EP | ✅ Live |
 | `TestDashboardLowStockPerBin` | `test_overview_count_matches_stock_page` | dashboard count = stock page | Use Case | ✅ Live |
 | — | issue → stock movement + Bin decrement | `issue_allocation` + `_create_stock_movement_for_issue` | Integration | ⬜ Planned |
+| `TestReservationLedger` | `test_red_reserved_has_no_writer` (RED) | chứng minh trước-fix: tạo allocation Requested → `reserved_qty` vẫn 0, `available == qty_on_hand` (bug) | Regression/RED | ⬜ Planned |
+| `TestReservationLedger` | `test_open_allocation_holds_stock` | create Requested qty=Q ⇒ `reserved_qty += Q`, `available -= Q`, `qty_on_hand` KHÔNG đổi (§III-bis.1) | State Transition | ⬜ Planned |
+| `TestReservationLedger` | `test_approve_recomputes_reserved` | approve (qty_approved) → reserved phản ánh qty_approved | State Transition | ⬜ Planned |
+| `TestReservationLedger` | `test_issue_releases_reserved` | issue → reserved về 0 cho phần đã xuất; `available == qty_on_hand` mới (RELEASE §III-bis.3) | State Transition | ⬜ Planned |
+| `TestReservationLedger` | `test_cancel_releases_reserved` | cancel Approved → reserved giải phóng; qty_on_hand không đổi | State Transition | ⬜ Planned |
+| `TestReservationLedger` | `test_anti_oversell_second_issue_fails` | 2 alloc OPEN cùng bin, on_hand=Q ⇒ #2 issue FAIL VR-15-03 (anti-oversell §III-bis.4) | Decision Table | ⬜ Planned |
+| `TestReservationLedger` | `test_emergency_critical_bypass_unchanged` | Emergency+Critical vẫn bypass VR-15-03 dù available=0 | Decision Table | ⬜ Planned |
+| `TestReservationLedger` | `test_available_never_negative` | reserved > on_hand (điều chỉnh kho) ⇒ `available == 0` (clamp §III-bis.5) | BVA | ⬜ Planned |
+| `TestReservationLedger` | `test_recompute_idempotent` | gọi `recompute_reserved` 2 lần = cùng kết quả | EP | ⬜ Planned |
+| `TestReservationLedger` | `test_low_stock_predicate_unchanged` | LOW_STOCK_COND vẫn dùng qty_on_hand (KHÔNG đổi sang available) | Regression | ⬜ Planned |
 | — | Emergency dual-approval (VR-15-10) | `issue_allocation` override | Decision Table | ⬜ Planned |
 | — | Cycle count variance → root_cause/CAPA (VR-15-04) | `post_cycle_count` + `_seed_capa_for_cycle_variance` | BVA + Decision Table | ⬜ Planned |
 | — | `verified_by ≠ counted_by` (VR-15-11) | `post_cycle_count` | Decision Table | ⬜ Planned |
@@ -360,7 +370,10 @@ bench --site [site] execute assetcore.services.imm15.reclassify_abc
 | VR-15-13 | warehouse active | `test_inactive_warehouse_rejected` | 0 / 1 ✅ |
 | BR-15-07 | Forecast generate Draft | `test_generate_forecast` | 1 / 0 ✅ |
 | VR-15-02 | traceability batch/serial | — | ⬜ Planned (0 / 0) |
-| VR-15-03 | tồn không đủ → block; Emergency bypass | — | ⬜ Planned |
+| VR-15-03 | tồn không đủ → block (theo available THẬT); Emergency+Critical bypass | `TestReservationLedger::test_anti_oversell_second_issue_fails` (neg) + `test_emergency_critical_bypass_unchanged` (happy) | ⬜ Planned |
+| VR-15-14 | INVARIANT reservation (reserved=Σ holding; available=max(0,on_hand−reserved); RELEASE on terminal) | `TestReservationLedger` (10 method: hold/approve/issue/cancel/clamp/idempotent/low-stock-unchanged + RED) | ⬜ Planned |
+| BR-15-15 | Số đã xuất == số đã giữ chỗ = COALESCE(NULLIF(qty_approved,0), qty_requested); approve cắt số → issue theo số duyệt | `TestIssueQtyEqualsApproved` (issue-after-approve-cut → qty_issued==qty_approved==reserved; gate uses effective qty; backward-compat qty_approved NULL→qty_requested; RED-proven) | ✅ Done (3 method) |
+| BR-15-16 | line_value=value_qty×unit_value; total_value=Σ line_value; controller MỘT writer (no clobber); lifecycle-aware | `TestAllocationValue` (total_value theo qty_issued sau approve-cut KHÔNG qty_requested; line_value computed KHÔNG dead; total==Σ line; backward-compat requested khi chưa duyệt/xuất; RED-proven) | ⬜ Planned |
 | VR-15-04 / BR-15-05 | variance > ngưỡng → root_cause | — | ⬜ Planned |
 | VR-15-07 | reorder ≥ safety | — | ⬜ Planned |
 | VR-15-10 | dual-approver khác nhau | — | ⬜ Planned |

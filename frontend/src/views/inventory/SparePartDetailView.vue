@@ -157,9 +157,14 @@ onMounted(load)
             <thead>
               <tr class="text-xs text-slate-400 border-b border-slate-100">
                 <th class="py-2 text-left font-medium">Kho</th>
-                <th class="py-2 text-right font-medium">Tồn</th>
-                <th class="py-2 text-right font-medium">Giữ chỗ</th>
-                <th class="py-2 text-right font-medium">Còn lại</th>
+                <th class="py-2 text-right font-medium" title="Tồn vật lý thực có trong kho">Tồn</th>
+                <th
+                  class="py-2 text-right font-medium cursor-help"
+                  title="Đã giữ = phiếu cấp phát chưa xuất đang giữ chỗ. Khả dụng = Tồn − Đã giữ."
+                >
+                  <span class="border-b border-dotted border-slate-300">Đã giữ</span>
+                </th>
+                <th class="py-2 text-right font-medium" title="Khả dụng = Tồn − Đã giữ (phần có thể xuất)">Khả dụng</th>
                 <th class="py-2 text-left font-medium">Giao dịch cuối</th>
               </tr>
             </thead>
@@ -170,7 +175,11 @@ onMounted(load)
                   <p v-if="s.warehouse_code && s.warehouse_code !== s.warehouse_name" class="text-[11px] text-slate-400 font-mono">{{ s.warehouse_code }}</p>
                 </td>
                 <td class="py-2.5 text-right font-semibold">{{ s.qty_on_hand }}</td>
-                <td class="py-2.5 text-right text-slate-500">{{ s.reserved_qty }}</td>
+                <td
+                  class="py-2.5 text-right"
+                  :class="s.reserved_qty > 0 ? 'text-amber-600 font-medium' : 'text-slate-400'"
+                  :title="s.reserved_qty > 0 ? 'Đang được phiếu cấp phát chưa xuất giữ chỗ' : undefined"
+                >{{ s.reserved_qty }}</td>
                 <td class="py-2.5 text-right text-emerald-600 font-medium">{{ s.available_qty }}</td>
                 <td class="py-2.5 text-xs text-slate-500">{{ formatDt(s.last_movement_date) }}</td>
               </tr>

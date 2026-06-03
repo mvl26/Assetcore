@@ -6,7 +6,7 @@
 | Wave | 2 — IMPLEMENTED (feature/hieuc/wave-2) |
 | Trạng thái | ✅ Stable — BE + FE đã merge; chờ UAT |
 | Số file | 9 (README + 02-09; nguồn gốc đã archive) |
-| Cập nhật cuối | 2026-05-27 |
+| Cập nhật cuối | 2026-06-03 (vòng 2: BR-15-16 line_value/total_value lifecycle-aware SoT — 04 §III-bis.8; vòng 1: BR-15-15 số-xuất==số-duyệt — 04 §III-bis.7; vòng 34: reservation ledger SoT — 04 §III-bis, VR-15-14) |
 | Khối kiến trúc | C. KHỐI 3 |
 | Đợt triển khai | 2 |
 | Owner | Kho trung tâm & Kho vận |

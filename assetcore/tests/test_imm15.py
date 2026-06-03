@@ -242,6 +242,201 @@ class TestReturnValidation(TestImm15Base):
         self.assertEqual(ctx.exception.code, ErrorCode.VALIDATION)
 
 
+class TestIssueQtyEqualsApproved(TestImm15Base):
+    """BR-15-15 (04 §III-bis.7): số đã XUẤT == số đã GIỮ-CHỖ ==
+    COALESCE(NULLIF(qty_approved,0), qty_requested). Khi approver cắt
+    qty_approved, issue phải dispense số đã duyệt (KHÔNG phải qty_requested thuần).
+    """
+
+    def _bin_qty(self):
+        row = frappe.db.get_value(
+            "AC Spare Part Stock",
+            {"spare_part": self.part, "warehouse": self.warehouse},
+            ["qty_on_hand", "reserved_qty"], as_dict=True,
+        ) or {}
+        return float(row.get("qty_on_hand") or 0), float(row.get("reserved_qty") or 0)
+
+    def _reset_bin(self, on_hand=20):
+        # Cancel any still-holding allocation on this shared bin so reserved_qty is a
+        # clean slate (other tests in the class create allocations on the same part).
+        for n in frappe.get_all(
+            "IMM Spare Allocation",
+            filters={"warehouse_from": self.warehouse,
+                     "allocation_status": ("in", ["Requested", "Approved", "Picked"])},
+            pluck="name",
+        ):
+            with suppress(Exception):
+                svc.cancel_allocation(n)
+        frappe.db.set_value(
+            "AC Spare Part Stock",
+            {"spare_part": self.part, "warehouse": self.warehouse},
+            {"qty_on_hand": on_hand, "reserved_qty": 0, "available_qty": on_hand},
+        )
+        frappe.db.commit()
+
+    def test_issue_dispenses_approved_qty_not_requested(self):
+        """Approve cắt 10→4 → qty_issued==4, qty_on_hand giảm 4 (KHÔNG 10), reserved về 0."""
+        self._reset_bin(20)
+        res = svc.create_allocation(
+            work_order_ref="WO-BR1515-01",
+            items=[{"spare_part": self.part, "qty_requested": 10}],
+            asset=self.asset, warehouse=self.warehouse, urgency="Routine",
+        )
+        name = res["name"]
+        svc.approve_allocation(name)
+        # Approver cắt số duyệt 10 → 4 (mô phỏng điều chỉnh khi duyệt qua FE/API).
+        doc = frappe.get_doc("IMM Spare Allocation", name)
+        doc.items[0].qty_approved = 4
+        doc.flags.ignore_links = True
+        doc.save(ignore_permissions=True)
+        frappe.db.commit()
+        # reserved phải phản ánh số đã duyệt = 4 (recompute_reserved SoT).
+        from assetcore.services.inventory import recompute_reserved
+        recompute_reserved(self.warehouse, self.part)
+        _, reserved_before = self._bin_qty()
+        self.assertEqual(reserved_before, 4.0,
+                         "reserved phải == qty_approved=4 trước issue")
+
+        on_hand_before, _ = self._bin_qty()
+        svc.issue_allocation(name)
+
+        issued = frappe.db.get_value(
+            "IMM Spare Allocation Item",
+            {"parent": name, "spare_part": self.part}, "qty_issued",
+        )
+        self.assertEqual(float(issued), 4.0,
+                         "BR-15-15: phải xuất số ĐÃ DUYỆT (4), không phải qty_requested (10)")
+        on_hand_after, reserved_after = self._bin_qty()
+        self.assertEqual(on_hand_before - on_hand_after, 4.0,
+                         "qty_on_hand chỉ trừ đúng số duyệt (4), không phải 10")
+        self.assertEqual(reserved_after, 0.0,
+                         "reserved release về 0 sau issue (RELEASE on terminal)")
+
+    def test_issue_backward_compat_no_approved_qty(self):
+        """qty_approved chưa set (0/NULL) → issue theo qty_requested (hành vi cũ giữ nguyên)."""
+        self._reset_bin(20)
+        res = svc.create_allocation(
+            work_order_ref="WO-BR1515-02",
+            items=[{"spare_part": self.part, "qty_requested": 6}],
+            asset=self.asset, warehouse=self.warehouse, urgency="Routine",
+        )
+        name = res["name"]
+        svc.approve_allocation(name)  # KHÔNG điều chỉnh qty_approved
+        svc.issue_allocation(name)
+        issued = frappe.db.get_value(
+            "IMM Spare Allocation Item",
+            {"parent": name, "spare_part": self.part}, "qty_issued",
+        )
+        self.assertEqual(float(issued), 6.0,
+                         "backward-compat: qty_approved NULL → xuất qty_requested=6")
+
+    def test_gate_uses_effective_qty_after_cut(self):
+        """VR-15-03 dùng số sẽ-thật-sự-xuất: on_hand=5, requested=10, approved=4 → issue OK."""
+        self._reset_bin(5)
+        res = svc.create_allocation(
+            work_order_ref="WO-BR1515-03",
+            items=[{"spare_part": self.part, "qty_requested": 10}],
+            asset=self.asset, warehouse=self.warehouse, urgency="Routine",
+        )
+        name = res["name"]
+        svc.approve_allocation(name)
+        doc = frappe.get_doc("IMM Spare Allocation", name)
+        doc.items[0].qty_approved = 4
+        doc.flags.ignore_links = True
+        doc.save(ignore_permissions=True)
+        frappe.db.commit()
+        from assetcore.services.inventory import recompute_reserved
+        recompute_reserved(self.warehouse, self.part)
+        # gate so 4 (số duyệt) với on_hand=5 → đủ → KHÔNG raise.
+        svc.issue_allocation(name)
+        issued = frappe.db.get_value(
+            "IMM Spare Allocation Item",
+            {"parent": name, "spare_part": self.part}, "qty_issued",
+        )
+        self.assertEqual(float(issued), 4.0)
+
+
+class TestAllocationValue(TestImm15Base):
+    """BR-15-16 (04 §III-bis.8): line_value = value_qty × unit_value;
+    total_value = Σ line_value; value_qty lifecycle-aware (qty_issued nếu đã xuất,
+    ngược lại effective_alloc_qty). MỘT writer ở controller — service KHÔNG clobber.
+    """
+
+    def _reset_bin(self, on_hand=50):
+        for n in frappe.get_all(
+            "IMM Spare Allocation",
+            filters={"warehouse_from": self.warehouse,
+                     "allocation_status": ("in", ["Requested", "Approved", "Picked"])},
+            pluck="name",
+        ):
+            with suppress(Exception):
+                svc.cancel_allocation(n)
+        frappe.db.set_value(
+            "AC Spare Part Stock",
+            {"spare_part": self.part, "warehouse": self.warehouse},
+            {"qty_on_hand": on_hand, "reserved_qty": 0, "available_qty": on_hand},
+        )
+        frappe.db.commit()
+
+    def _unit_value(self):
+        return float(frappe.db.get_value("AC Spare Part", self.part, "unit_cost") or 0)
+
+    def test_total_value_follows_issued_qty_not_requested(self):
+        """Approve cắt 10→4, Issue → total_value = 4×unit (KHÔNG 10×unit — chống clobber)."""
+        self._reset_bin(50)
+        uv = self._unit_value()
+        res = svc.create_allocation(
+            work_order_ref="WO-VAL-01",
+            items=[{"spare_part": self.part, "qty_requested": 10}],
+            asset=self.asset, warehouse=self.warehouse, urgency="Routine",
+        )
+        name = res["name"]
+        svc.approve_allocation(name)
+        doc = frappe.get_doc("IMM Spare Allocation", name)
+        doc.items[0].qty_approved = 4
+        doc.flags.ignore_links = True
+        doc.save(ignore_permissions=True)
+        frappe.db.commit()
+        from assetcore.services.inventory import recompute_reserved
+        recompute_reserved(self.warehouse, self.part)
+        svc.issue_allocation(name)
+        doc = frappe.get_doc("IMM Spare Allocation", name)
+        self.assertEqual(float(doc.total_value), 4.0 * uv,
+                         "total_value phải theo qty_issued=4 (KHÔNG bị controller clobber về 10)")
+        self.assertEqual(float(doc.items[0].line_value), 4.0 * uv,
+                         "line_value = 4×unit_value (computed, KHÔNG dead column)")
+
+    def test_total_equals_sum_of_line_values(self):
+        """INVARIANT total_value == Σ line_value (sau approve, trước issue)."""
+        self._reset_bin(50)
+        uv = self._unit_value()
+        res = svc.create_allocation(
+            work_order_ref="WO-VAL-02",
+            items=[{"spare_part": self.part, "qty_requested": 7}],
+            asset=self.asset, warehouse=self.warehouse, urgency="Routine",
+        )
+        name = res["name"]
+        svc.approve_allocation(name)
+        doc = frappe.get_doc("IMM Spare Allocation", name)
+        # chưa xuất → value_qty = effective_alloc_qty = qty_requested 7 (qty_approved NULL)
+        self.assertEqual(float(doc.items[0].line_value), 7.0 * uv)
+        self.assertEqual(float(doc.total_value),
+                         sum(float(it.line_value or 0) for it in doc.items))
+
+    def test_line_value_committed_before_issue(self):
+        """Backward-compat: dòng mới Requested (chưa duyệt/xuất) → line_value theo qty_requested."""
+        self._reset_bin(50)
+        uv = self._unit_value()
+        res = svc.create_allocation(
+            work_order_ref="WO-VAL-03",
+            items=[{"spare_part": self.part, "qty_requested": 3}],
+            asset=self.asset, warehouse=self.warehouse, urgency="Routine",
+        )
+        doc = frappe.get_doc("IMM Spare Allocation", res["name"])
+        self.assertEqual(float(doc.items[0].line_value), 3.0 * uv,
+                         "Requested → value_qty=qty_requested=3 (giá trị cam kết, KHÔNG 0)")
+
+
 class TestForecastGeneration(TestImm15Base):
     """TC-15-05: generate_spare_forecast produces a Draft + items."""
 
@@ -384,6 +579,177 @@ class TestDashboardLowStockPerBin(unittest.TestCase):
         # The KPI count is the full per-bin count, not capped at the 10-row
         # display list; it must be ≥ the 2 bins we created.
         self.assertGreaterEqual(ov["low_stock_count"], 2)
+
+
+class TestLowStockBinOverride(unittest.TestCase):
+    """R7 §9.4.5 / BUG-15-03 — canonical low-stock predicate honours
+    min_stock_override per-bin across KPI, dashboard, drill, alerts and the
+    scheduler. effective_min = COALESCE(NULLIF(s.min_stock_override,0),
+    p.min_stock_level, 0); low ⟺ effective_min > 0 AND qty_on_hand < effective_min.
+
+    Dataset: 1 part min_stock_level=50, 2 bins —
+      binA qty=40           → low theo part-min (40 < 50)
+      binB qty=60, override=80 → low CHỈ theo override (60 < 80, nhưng 60 ≥ 50)
+    Trước fix: KPI/_count_low_stock đếm 1 (chỉ binA); sau fix đếm 2.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        any_uom = frappe.db.get_value("AC UOM", {}, "name") or None
+        cls.wh_a = _ensure_doc("AC Warehouse", {"warehouse_name": "_Test Ovr WH A"},
+                               {"is_active": 1})
+        cls.wh_b = _ensure_doc("AC Warehouse", {"warehouse_name": "_Test Ovr WH B"},
+                               {"is_active": 1})
+        # Control parts used by regression cases (TDD-6).
+        part_data = {"unit_cost": 50000, "is_active": 1, "min_stock_level": 50}
+        if any_uom:
+            part_data["stock_uom"] = any_uom
+        cls.part = _ensure_doc("AC Spare Part",
+                               {"part_name": "_Test Ovr Low Part"}, part_data)
+        # part with NO override anywhere — must behave on part-min only (TDD-6).
+        cls.part_plain = _ensure_doc("AC Spare Part",
+                                     {"part_name": "_Test Ovr Plain Part"},
+                                     dict(part_data))
+        # inactive part (must NOT be counted) — TDD-6.
+        cls.part_inactive = _ensure_doc(
+            "AC Spare Part", {"part_name": "_Test Ovr Inactive Part"},
+            {**part_data, "is_active": 0})
+
+        def _set_bin(part, wh, qty, override=0):
+            if not frappe.db.exists("AC Spare Part Stock",
+                                    {"spare_part": part, "warehouse": wh}):
+                frappe.get_doc({
+                    "doctype": "AC Spare Part Stock", "spare_part": part,
+                    "warehouse": wh, "qty_on_hand": qty, "available_qty": qty,
+                    "min_stock_override": override,
+                }).insert(ignore_permissions=True)
+            else:
+                frappe.db.set_value(
+                    "AC Spare Part Stock",
+                    {"spare_part": part, "warehouse": wh},
+                    {"qty_on_hand": qty, "available_qty": qty,
+                     "min_stock_override": override})
+
+        # The headline dataset for the override predicate.
+        _set_bin(cls.part, cls.wh_a, 40, 0)    # low by part-min (40 < 50)
+        _set_bin(cls.part, cls.wh_b, 60, 80)   # low ONLY by override (60 < 80)
+        # Regression controls.
+        _set_bin(cls.part_plain, cls.wh_a, 40, 0)   # low by part-min
+        _set_bin(cls.part_plain, cls.wh_b, 60, 0)   # 60 ≥ 50 → NOT low
+        _set_bin(cls.part_inactive, cls.wh_a, 10, 0)  # below min but inactive → NOT counted
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        with suppress(Exception):
+            for part in (cls.part, cls.part_plain, cls.part_inactive):
+                frappe.db.delete("AC Spare Part Stock", {"spare_part": part})
+                frappe.delete_doc("AC Spare Part", part,
+                                  ignore_permissions=True, force=True)
+            for wh in (cls.wh_a, cls.wh_b):
+                frappe.delete_doc("AC Warehouse", wh,
+                                  ignore_permissions=True, force=True)
+        frappe.db.commit()
+
+    def _our_low_bins(self, rows: list, key_wh="warehouse", key_sp="spare_part") -> set:
+        return {(r[key_wh], r[key_sp]) for r in rows if r[key_sp] == self.part}
+
+    # ── TDD-1 ──────────────────────────────────────────────────────────────
+    def test_low_stock_honors_bin_override(self):
+        from assetcore.services.inventory import count_low_stock_bins
+        # Count restricted to our two bins via per-warehouse spot checks.
+        wh_a_low = count_low_stock_bins(warehouse=self.wh_a)
+        wh_b_low = count_low_stock_bins(warehouse=self.wh_b)
+        # binA low (part-min) and binB low (override) — but other parts share
+        # wh_a (part_plain binA also low). Assert OUR contribution via the list.
+        from assetcore.services.imm15 import get_low_stock_alerts
+        ours = self._our_low_bins(get_low_stock_alerts()["alerts"])
+        self.assertEqual(ours, {(self.wh_a, self.part), (self.wh_b, self.part)},
+                         "both binA (part-min) and binB (override) must be low")
+        self.assertGreaterEqual(wh_a_low, 1)
+        self.assertGreaterEqual(wh_b_low, 1)
+        # _count_low_stock (KPI source) must include both our bins.
+        self.assertEqual(svc._count_low_stock(),
+                         _canonical_total(),
+                         "_count_low_stock must equal canonical bin count")
+
+    # ── TDD-2 ──────────────────────────────────────────────────────────────
+    def test_kpi_low_stock_matches_canonical_dashboard(self):
+        from assetcore.services.inventory import (get_stock_overview,
+                                                  count_low_stock_bins)
+        kpi = svc.get_dashboard_stats()["low_stock_alerts"]
+        dash = get_stock_overview()["low_stock_count"]
+        canonical = count_low_stock_bins()
+        self.assertEqual(kpi, dash)
+        self.assertEqual(kpi, canonical)
+
+    # ── TDD-3 ──────────────────────────────────────────────────────────────
+    def test_get_low_stock_alerts_includes_override_bin(self):
+        from assetcore.services.imm15 import get_low_stock_alerts
+        res = get_low_stock_alerts()
+        by_wh = {(a["warehouse"]): a for a in res["alerts"]
+                 if a["spare_part"] == self.part}
+        self.assertIn(self.wh_b, by_wh, "override-low binB must appear")
+        # effective_min returned, not raw part min (80 not 50).
+        self.assertEqual(by_wh[self.wh_b]["min_stock_level"], 80)
+        self.assertEqual(by_wh[self.wh_a]["min_stock_level"], 50)
+        # total == number of low bins (canonical).
+        from assetcore.services.inventory import count_low_stock_bins
+        self.assertEqual(res["total"], count_low_stock_bins())
+
+    # ── TDD-4 ──────────────────────────────────────────────────────────────
+    def test_drill_low_stock_filter_matches_kpi(self):
+        from assetcore.api import inventory as inv_api
+        from assetcore.services.inventory import low_stock_part_ids
+        res = inv_api.list_spare_parts(page=1, page_size=200, low_stock=1)
+        drill_ids = {r["name"] for r in res["data"]["items"]}
+        # our part (low because of binA part-min AND binB override) must appear.
+        self.assertIn(self.part, drill_ids)
+        # the drill set equals the canonical part-distinct low set.
+        self.assertEqual(drill_ids, set(low_stock_part_ids()))
+        # part_inactive must NOT appear (inactive).
+        self.assertNotIn(self.part_inactive, drill_ids)
+
+    # ── TDD-5 ──────────────────────────────────────────────────────────────
+    def test_scheduler_email_includes_override_bin(self):
+        from unittest.mock import patch
+        from assetcore.services import inventory as inv_svc
+        import assetcore.utils.email as email_mod
+        captured = {}
+
+        def _fake_sendmail(*, recipients, subject, message):
+            captured["message"] = message
+            captured["subject"] = subject
+
+        # check_low_stock imports get_role_emails / safe_sendmail lazily from
+        # assetcore.utils.email at call time — patch the source module.
+        with patch.object(email_mod, "get_role_emails", return_value=["k@x.test"]), \
+             patch.object(email_mod, "safe_sendmail", side_effect=_fake_sendmail):
+            inv_svc.check_low_stock()
+        msg = captured.get("message", "")
+        self.assertIn("_Test Ovr Low Part", msg)
+        # both bins present; override bin shows effective_min 80 (was SUM-masked).
+        self.assertIn("định mức 80", msg)
+        self.assertIn("định mức 50", msg)
+
+    # ── TDD-6 (regression) ───────────────────────────────────────────────────
+    def test_no_override_unchanged(self):
+        from assetcore.services.imm15 import get_low_stock_alerts
+        alerts = get_low_stock_alerts()["alerts"]
+        plain = {(a["warehouse"]): a for a in alerts
+                 if a["spare_part"] == self.part_plain}
+        # part_plain binA (40 < 50) low; binB (60 ≥ 50, no override) NOT low.
+        self.assertIn(self.wh_a, plain)
+        self.assertEqual(plain[self.wh_a]["min_stock_level"], 50)
+        self.assertNotIn(self.wh_b, plain)
+        # inactive part never appears.
+        self.assertFalse(any(a["spare_part"] == self.part_inactive for a in alerts))
+
+
+def _canonical_total() -> int:
+    from assetcore.services.inventory import count_low_stock_bins
+    return count_low_stock_bins()
 
 
 if __name__ == "__main__":

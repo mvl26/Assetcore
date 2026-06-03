@@ -5,9 +5,9 @@
 | Thuộc tính | Giá trị |
 |---|---|
 | Module | IMM-15 — Spare Parts Inventory Tracking |
-| Phiên bản | 0.0.2 |
-| Ngày | 2026-05-27 |
-| Trạng thái | IMPLEMENTED (Wave 2) |
+| Phiên bản | 0.0.3 |
+| Ngày | 2026-06-03 |
+| Trạng thái | IMPLEMENTED (Wave 2) · reservation ledger §III-bis (vòng 34, chờ BE wire) |
 
 ---
 
@@ -70,6 +70,28 @@ Thêm vào section break `imm_section_strategic` sau section `section_flags`:
 - `imm_oem_part_number` → dùng `manufacturer_part_no`
 - `imm_shelf_life_months` → dùng `shelf_life_months`
 
+### II.A — Predicate CANONICAL "dưới định mức" (R7 §9.4.5 / BUG-15-03)
+
+Định mức áp dụng cho mỗi điểm tồn (bin = `spare_part` × `warehouse`) là **effective_min**:
+ưu tiên `min_stock_override` per-bin (trên `AC Spare Part Stock`), fallback `min_stock_level`
+của part (trên `AC Spare Part`). Một bin được coi là "dưới định mức" khi effective_min > 0
+và `qty_on_hand` < effective_min:
+
+```
+effective_min(bin) = COALESCE(NULLIF(s.min_stock_override, 0), p.min_stock_level, 0)
+low(bin)           ⟺ effective_min > 0 AND s.qty_on_hand < effective_min
+```
+
+- Đánh giá **per-bin** — KHÔNG `SUM(qty_on_hand)` toàn kho (sẽ che bin riêng lẻ dưới
+  định mức, đặc biệt bin có `min_stock_override` cao hơn part-min).
+- **Một nguồn sự thật duy nhất**: fragment SQL `LOW_STOCK_COND` + `EFFECTIVE_MIN_EXPR`
+  định nghĩa tại `services/inventory.py`; mọi nơi đếm/liệt kê (KPI `get_dashboard_stats`,
+  dashboard `get_inventory_dashboard`/`get_stock_overview`, danh sách `list_stock_levels`,
+  drill `list_spare_parts(low_stock=1)`, alerts `get_low_stock_alerts`, scheduler email
+  `check_low_stock`) đều import chung — KHÔNG nhân bản predicate.
+- `get_low_stock_alerts` trả `min_stock_level` = effective_min (vd bin override 80 trả 80,
+  không phải part-min 50) để FE hiển thị đúng định mức áp dụng cho bin.
+
 ---
 
 ## III. Field Tables — IMM-15 Layer DocTypes
@@ -116,7 +138,7 @@ Thêm vào section break `imm_section_strategic` sau section `section_flags`:
 | `batch_no` | Data / Link → IMM Spare Batch | C | Bắt buộc nếu imm_traceability_required=1 |
 | `serial_no` | Data | C | Bắt buộc nếu imm_traceability_required=1 |
 | `unit_value` | Currency (fetch_from spare_part.unit_cost) | N | — |
-| `line_value` | Currency (read_only) | N | qty_issued × unit_value |
+| `line_value` | Currency (read_only) | N | value_qty × unit_value (controller writer — §III-bis.8 BR-15-16) |
 | `used_for` | Select | N | Replacement / Test / Calibration / Spare |
 | `return_condition` | Select | C | Good / Damaged / Used (điền khi Return) |
 
@@ -196,6 +218,130 @@ Thêm vào section break `imm_section_strategic` sau section `section_flags`:
 
 ---
 
+## III-bis. Reservation Ledger (soft-reservation) — SoT `reserved_qty` ⟶ `available_qty`
+
+> 🔧 **Self-Correction (vòng 34, 2026-06-03):** Thiết kế gốc nói `get_available_qty = qty_on_hand − reserved_qty` và VR-15-03 chặn theo `available_qty`, **nhưng KHÔNG module nào ghi `reserved_qty`** — toàn codebase chỉ set `reserved_qty = 0` (4 chỗ seed/create: `inventory.py:102`, `api/imm15.py:257`, 2 script seed). Hệ quả: `available_qty == qty_on_hand` LUÔN LUÔN → VR-15-03 cho **2 allocation open cùng bin double-issue** (oversell). Section này là phần thiết kế thiếu, **chốt** writer + invariant + release.
+
+### III-bis.1 Invariant (Single Source of Truth)
+
+Cho mỗi **bin** = cặp (`warehouse` × `spare_part`), `name = "{warehouse}::{spare_part}"`:
+
+```
+reserved_qty(bin) = Σ qty_giữ-chỗ của MỌI dòng allocation đang ở trạng thái HOLDING cho bin đó
+available_qty(bin) = MAX(0, qty_on_hand − reserved_qty)        # before_save, clamp tại 0
+```
+
+- **HOLDING set = {Requested, Approved}** — đây là trạng thái "giữ chỗ chưa xuất". Lượng giữ của một dòng = `qty_approved` nếu > 0, ngược lại `qty_requested` (số lượng đang chờ xuất).
+- `Issued`, `Returned`, `Cancelled` = **terminal/released** → KHÔNG còn giữ chỗ (đã trừ `qty_on_hand` thật khi Issue, hoặc đã hủy).
+- `Picked` (enum tồn tại nhưng CHƯA có transition nào set — `OPEN` tuple trong code liệt kê nó): **NẾU** sau này wire transition `Approve → Pick`, `Picked` cũng thuộc HOLDING (vẫn giữ chỗ, chưa xuất). Hiện tại không phát sinh → recompute bỏ qua một cách tự nhiên vì không có dòng `Picked` nào.
+
+> ⚠️ Quy ước số lượng giữ chỗ: dùng `COALESCE(NULLIF(qty_approved,0), qty_requested)` để khi Approve có điều chỉnh `qty_approved` thì reserved phản ánh số đã duyệt; khi mới Requested (chưa có `qty_approved`) thì giữ theo `qty_requested`.
+
+### III-bis.2 SoT recompute — `services/inventory.py::recompute_reserved`
+
+**MỘT** hàm canonical, MỌI transition allocation gọi chung. **KHÔNG** inline cộng/trừ `reserved_qty` rải rác (cấm `reserved_qty += qty` trong imm15.py).
+
+```python
+# services/inventory.py
+_HOLDING_ALLOCATION_STATES = ("Requested", "Approved", "Picked")  # giữ chỗ, chưa xuất
+
+def recompute_reserved(warehouse: str, spare_part: str) -> float:
+    """SoT: tính lại reserved_qty cho 1 bin = Σ qty giữ-chỗ của allocation HOLDING.
+
+    Quét MỌI dòng IMM Spare Allocation Item thuộc các phiếu (warehouse_from=warehouse,
+    allocation_status ∈ HOLDING) có spare_part khớp; reserved = Σ COALESCE(NULLIF(qty_approved,0), qty_requested).
+    Ghi reserved_qty vào AC Spare Part Stock (tạo bin nếu chưa có với qty_on_hand=0);
+    available_qty được before_save tính lại (clamp ≥ 0). Idempotent — gọi nhiều lần cùng kết quả.
+
+    Returns: reserved_qty mới (float).
+    """
+```
+
+- **Idempotent + tuyệt đối** (recompute từ DB, KHÔNG cộng dồn delta) → tự lành nếu một transition crash giữa chừng.
+- Gọi `recompute_reserved(warehouse_from, spare_part)` cho **mọi spare_part trong phiếu** tại CUỐI mỗi transition: `create_allocation` (Requested), `approve_allocation` (Approved, có thể đổi qty_approved), `issue_allocation` (→ Issued, release), `cancel_allocation` (→ Cancelled, release), `return_items` (→ Returned, release). Đặt SAU khi `allocation_status` đã đổi & commit-an-toàn.
+- Concurrency: bọc recompute trong `SELECT ... FOR UPDATE` trên dòng `AC Spare Part Stock` của bin (khóa bi-level) để 2 issue song song không cùng đọc available cũ — xem §III-bis.5.
+
+### III-bis.3 RELEASE on terminal (chống double-count)
+
+Khi allocation → `Issued`: `_create_stock_movement_for_issue` trừ `qty_on_hand` THẬT. Đồng thời dòng rời HOLDING → `recompute_reserved` đưa reserved của phần đã xuất về 0. **KHÔNG** double-count (vừa trừ qty_on_hand vừa còn giữ reserved). Sau Issue: `reserved_qty == 0` cho phần đã xuất, `available_qty == qty_on_hand` (mới, đã trừ).
+
+Khi `Cancelled`/`Returned`: `qty_on_hand` không bị trừ (Cancel) hoặc được cộng lại (Return qua Receipt movement) — dòng rời HOLDING → reserved giải phóng.
+
+### III-bis.4 ANTI-OVERSELL (bug nghiệp vụ chính)
+
+Tồn `qty_on_hand = Q`, 2 allocation OPEN đồng thời cùng bin, mỗi cái cần `Q`:
+
+1. Allocation #1 (Requested/Approved) → `recompute_reserved` ⟹ `reserved_qty = Q`, `available_qty = 0`.
+2. Allocation #2 issue → VR-15-03 đọc `get_available_qty = 0 < Q` ⟹ **FAIL** `BUSINESS_RULE`. (Trước fix: cả hai cùng pass vì available luôn = Q.)
+3. **Emergency + Critical bypass GIỮ NGUYÊN** (`is_emergency and is_critical` → bỏ qua VR-15-03) — không đổi.
+
+### III-bis.5 `AC Spare Part Stock.before_save` — clamp ≥ 0
+
+```python
+def before_save(self):
+    on_hand  = float(self.qty_on_hand or 0)
+    reserved = max(0.0, float(self.reserved_qty or 0))      # guard âm/null
+    self.available_qty = max(0.0, on_hand - reserved)       # NEVER âm (reserved có thể tạm > on_hand do điều chỉnh kho)
+```
+
+`available_qty` KHÔNG BAO GIỜ âm. `reserved_qty` có thể tạm > `qty_on_hand` (vd điều chỉnh kho giảm tồn trong khi còn phiếu giữ) → available kẹp 0, không phát sinh số âm gây vỡ KPI/UI.
+
+### III-bis.6 Consumers — đọc đúng SoT, KHÔNG hồi quy ngữ nghĩa
+
+| Consumer | Hàm | Sau fix |
+|---|---|---|
+| VR-15-03 sufficiency gate | `issue_allocation` → `get_available_qty` | Phản ánh reservation thật → chống oversell |
+| Critical watchlist breach | `get_critical_watchlist` / `get_dashboard_stats` critical_breach | `get_available_qty` < min → đúng hơn (tính cả giữ chỗ) |
+| Tìm phụ tùng còn hàng | `search_parts(show_stock_only)` → `available_qty > 0` | Ẩn bin đã giữ hết |
+| Cycle-count baseline | `create_cycle_count` / `submit_cycle_count` system_qty (imm15.py:379/414) | `get_available_qty` |
+| **Low-stock predicate** | `LOW_STOCK_COND` / `EFFECTIVE_MIN_EXPR` | **GIỮ NGUYÊN dùng `qty_on_hand`** — định mức so tồn **vật lý**, KHÔNG đổi sang available (giữ semantics đã chốt round-3 SoT) |
+
+> 🚫 KHÔNG đổi `LOW_STOCK_COND` sang `available_qty`. Low-stock = tồn vật lý dưới định mức (đặt hàng bổ sung theo vật lý), độc lập với giữ chỗ.
+
+### III-bis.7 SoT số-lượng-giữ-chỗ = số-lượng-xuất (BR-15-15) — Self-Correction vòng 1
+
+> 🐞 **ROOT-CAUSE thiết kế gốc (lỗi nghiệp vụ):** `reserved_qty` (giữ chỗ) tính theo `COALESCE(NULLIF(qty_approved,0), qty_requested)` (§III-bis.1, đã chốt), NHƯNG `issue_allocation` lại xuất `qty_requested` thuần (`item.qty_issued = qty_requested`). Khi người duyệt CẮT `qty_approved` (vd 10→4), reservation giữ ĐÚNG 4 nhưng issue vẫn phát 10 ⟹ **(a) over-issue vượt số đã duyệt** (điều chỉnh phê duyệt bị bỏ qua âm thầm), **(b) lệch reserved-vs-issued** (giữ 4, xuất 10), **(c) VR-15-03 gate so sai đại lượng** (`qty_needed = qty_requested`, không phải số sẽ thật-sự-xuất). Đặc tả gốc thiếu hẳn quy ước "xuất theo số nào".
+
+**CHỐT (1 SoT đại lượng):** Đại lượng giữ-chỗ VÀ đại lượng xuất của một dòng allocation là **CÙNG MỘT** giá trị canonical:
+
+```
+effective_hold_qty(line) = COALESCE(NULLIF(qty_approved, 0), qty_requested)
+```
+
+- Helper canonical `effective_alloc_qty(item) -> float` trong `services/imm15.py` (module-level, pure): `float(item.qty_approved or 0) or float(item.qty_requested or 0)`. ĐÂY là SoT đại lượng cho cả issue lẫn gate; `recompute_reserved` (SQL) đã dùng đúng công thức tương đương — KHÔNG inline lại biểu thức ở `issue_allocation`.
+- `issue_allocation` (§3.4): `qty_needed = effective_alloc_qty(item)` (KHÔNG còn `qty_requested` thuần); `item.qty_issued = qty_needed`; `own_hold = effective_alloc_qty(item)` (dùng chung helper, bỏ biểu thức lặp ở dòng own_hold). ⟹ **INVARIANT: số đã xuất == số đã giữ chỗ** cho mọi dòng; sau Issue, `reserved` của dòng về 0 và `qty_on_hand` chỉ trừ đúng phần đã duyệt.
+- **Backward-compat:** khi `qty_approved` chưa set (0/NULL — vd luồng Emergency issue thẳng từ Requested, hoặc Approve không điều chỉnh) → `effective_alloc_qty` trả `qty_requested` ⟹ hành vi cũ giữ nguyên, KHÔNG hồi quy.
+- VR-15-03 anti-oversell (§III-bis.4) KHÔNG đổi cấu trúc: vẫn `avail_excl_self = on_hand − max(0, reserved − own_hold)`, chỉ thay `qty_needed`/`own_hold` về cùng helper ⟹ gate giờ so đúng số sẽ-thật-sự-xuất.
+- Emergency + Critical bypass (§III-bis.4.3) GIỮ NGUYÊN.
+
+| Tình huống | qty_requested | qty_approved | reserved (giữ) | qty_issued (xuất) — SAU FIX | TRƯỚC FIX (bug) |
+|---|---|---|---|---|---|
+| Approve cắt số | 10 | 4 | 4 | **4** | 10 (over-issue) |
+| Approve không đổi | 10 | 0/NULL | 10 | 10 | 10 |
+| Approve tăng (hiếm) | 4 | 6 | 6 | 6 | 4 |
+
+### III-bis.8 SoT giá trị dòng/phiếu — `line_value` & `total_value` (BR-15-16) — Self-Correction vòng 2
+
+> 🐞 **ROOT-CAUSE thiết kế gốc (2 lỗi):**
+> 1. **Đại lượng sai + clobber:** controller `IMM Spare Allocation.validate()` tính `total_value = Σ(qty_requested × unit_value)` chạy trên MỌI save. Service `issue_allocation` tính `total_value = Σ(qty_issued × unit_value)` rồi `save()` → `validate()` chạy lại → **clobber** giá trị issued-based về requested-based. ⟹ sau Issue (đặc biệt khi approver cắt số — BR-15-15), `total_value` phản ánh số YÊU CẦU, KHÔNG phải số đã xuất → sai giá trị tài chính.
+> 2. **Dead column:** `line_value` (Thành tiền/dòng, read_only) KHÔNG có writer nào trong Python ⟹ luôn rỗng → cột FE/report bind vào nó hiển thị trống.
+
+**CHỐT (1 SoT giá trị, lifecycle-aware):** Đại lượng định giá của một dòng = đại lượng theo VÒNG ĐỜI:
+
+```
+value_qty(line) = qty_issued       nếu allocation đã Issued/Returned (qty_issued > 0)
+                = effective_alloc_qty(line)   ngược lại (Requested/Approved — số cam kết)
+line_value(line)  = value_qty(line) × unit_value
+total_value(doc)  = Σ line_value(line)
+```
+
+- Helper SoT `value_qty(item) -> float` trong controller (hoặc service shared) = `float(item.qty_issued or 0) or effective_alloc_qty(item)`. Lý do: trước Issue chưa có qty_issued → hiển thị giá trị CAM KẾT theo số đã duyệt (KHÔNG 0); sau Issue dùng số thực xuất.
+- **MỘT writer duy nhất:** controller `validate()` tính CẢ `line_value` (mỗi dòng) LẪN `total_value = Σ line_value`. Service `issue_allocation` KHÔNG còn tự set `total_value` (xoá block Σ cục bộ) — để controller (chạy trong cùng `save()`) là chủ duy nhất ⟹ KHÔNG clobber, KHÔNG 2 công thức song song.
+- INVARIANT: `total_value == Σ line_value`; sau Issue với approver cắt số → `total_value` theo số đã xuất (KHỚP BR-15-15), KHÔNG theo qty_requested.
+- Backward-compat: dòng chưa duyệt/chưa xuất (qty_approved=0, qty_issued=0) → value_qty = qty_requested ⟹ giá trị cam kết hiển thị như cũ.
+
+---
+
 ## IV. Service Layer — Function Signatures
 
 File: `assetcore/services/imm15.py`
@@ -268,7 +414,12 @@ def vr_13_warehouse_active(doc: "Document") -> None:
     ...
 
 def compute_total_value(doc: "Document") -> None:
-    """Tính total_value = Σ(qty_issued × unit_value) per item."""
+    """Controller validate(): tính line_value mỗi dòng + total_value = Σ line_value.
+
+    value_qty(line) = qty_issued nếu đã xuất, ngược lại effective_alloc_qty(line)
+    (lifecycle-aware — BR-15-16 §III-bis.8). MỘT writer duy nhất; service KHÔNG tự
+    set total_value (tránh clobber). line_value KHÔNG còn dead column.
+    """
     ...
 
 def create_ac_stock_movement_for_issue(doc: "Document") -> "Document":
@@ -306,6 +457,19 @@ def process_return(doc: "Document", return_items: list) -> "Document":
 
     Returns:
         Document: AC Stock Movement (Receipt) đã submitted
+    """
+    ...
+
+def cancel_allocation(allocation: str) -> dict:
+    """Hủy phiếu: {Requested, Approved, Picked} → Cancelled (§3.6 / §III-bis.3).
+
+    KHÔNG cho hủy khi đã Issued (BAD_STATE). Sau khi set Cancelled → dòng rời HOLDING →
+    gọi recompute_reserved cho mọi spare_part trong phiếu → reserved giải phóng.
+    Audit CANCELLED. qty_on_hand KHÔNG đổi (chưa từng trừ).
+
+    Raises:
+        ServiceError(BAD_STATE, "Không thể hủy Allocation đã Issued/Returned")
+    Returns: {"name", "workflow_state": "Cancelled"}
     """
     ...
 
@@ -407,11 +571,22 @@ def flag_obsolete_on_decommission(asset_doc: "Document") -> None:
 
 # --- inventory_query ---
 
+def recompute_reserved(warehouse: str, spare_part: str) -> float:
+    """SoT: tính lại reserved_qty cho 1 bin (xem §III-bis.2).
+
+    Σ qty giữ-chỗ của allocation HOLDING {Requested, Approved, Picked} cho bin →
+    ghi reserved_qty vào AC Spare Part Stock; before_save tính lại available_qty (clamp ≥0).
+    Idempotent (tuyệt đối, từ DB — KHÔNG cộng dồn delta). Bọc FOR UPDATE bin row.
+
+    Returns: reserved_qty mới (float).
+    """
+    ...
+
 def get_available_qty(spare_part: str, warehouse: str) -> float:
     """Wrap services.inventory.get_available_qty.
 
     Returns:
-        float: qty_on_hand - reserved_qty
+        float: MAX(0, qty_on_hand - reserved_qty)
     """
     ...
 
@@ -478,18 +653,20 @@ scheduler_events = {
 
 ### VI.1 IMM Spare Allocation (6 states / 9 transitions)
 
-| From | Action (tiếng Việt) | To | Role |
-|---|---|---|---|
-| — | (create) | `Requested` | Repair User / Repair User |
-| `Requested` | Phê duyệt | `Approved` | Inventory Manager / Inventory Manager |
-| `Approved` | Pick | `Picked` | Inventory User |
-| `Picked` | Issue | `Issued` | Inventory User (sinh AC Stock Movement) |
-| `Requested` | Issue (Emergency) | `Issued` | Inventory Manager + Inventory Manager (double) |
-| `Issued` | Trả phụ tùng | `Returned` | Inventory User |
-| `Returned` | Đóng phiếu | `Issued` | Inventory User (nếu còn dùng) |
-| `Requested` | Hủy | `Cancelled` | Inventory Manager / AssetCore Super Admin |
-| `Approved` | Hủy | `Cancelled` | Inventory Manager / AssetCore Super Admin |
-| `Picked` | Hủy | `Cancelled` | Inventory Manager / AssetCore Super Admin |
+Cột **reserved** = hiệu ứng lên `reserved_qty` qua `recompute_reserved` (SoT §III-bis.2). HOLDING = {Requested, Approved, Picked} giữ chỗ; terminal {Issued, Returned, Cancelled} giải phóng.
+
+| From | Action (tiếng Việt) | To | Role | reserved (SoT) |
+|---|---|---|---|---|
+| — | (create) | `Requested` | Repair User / Repair User | **+Q giữ chỗ** (recompute) |
+| `Requested` | Phê duyệt | `Approved` | Inventory Manager / Inventory Manager | giữ chỗ (recompute theo qty_approved) |
+| `Approved` | Pick | `Picked` | Inventory User | giữ chỗ (không đổi lượng) |
+| `Picked` | Issue | `Issued` | Inventory User (sinh AC Stock Movement) | **RELEASE** (qty_on_hand−, reserved về 0 phần xuất) |
+| `Requested` | Issue (Emergency) | `Issued` | Inventory Manager + Inventory Manager (double) | **RELEASE** |
+| `Issued` | Trả phụ tùng | `Returned` | Inventory User | đã release (qty_on_hand+ qua Receipt) |
+| `Returned` | Đóng phiếu | `Issued` | Inventory User (nếu còn dùng) | — |
+| `Requested` | Hủy | `Cancelled` | Inventory Manager / AssetCore Super Admin | **RELEASE** (qty_on_hand không đổi) |
+| `Approved` | Hủy | `Cancelled` | Inventory Manager / AssetCore Super Admin | **RELEASE** |
+| `Picked` | Hủy | `Cancelled` | Inventory Manager / AssetCore Super Admin | **RELEASE** |
 
 ### VI.2 IMM Stock Cycle Count (4 states / 5 transitions)
 

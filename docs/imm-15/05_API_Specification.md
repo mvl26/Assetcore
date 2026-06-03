@@ -66,6 +66,7 @@ _FORECAST_APPROVE_ROLES   = {ROLE_INVENTORY_MANAGER, ROLE_SUPER_ADMIN}
 | `create_allocation` | W | W | W | W | — | W |
 | `approve_allocation` | — | W | — | — | — | W |
 | `issue_allocation` | W | W | — | — | — | W |
+| `cancel_allocation` | — | W | — | — | — | W |
 | `return_items` | W | W | — | — | — | W |
 | `return_allocation` | W | W | — | — | — | W |
 | `list_cycle_counts` | R | R | — | R | R | R |
@@ -207,8 +208,10 @@ POST /api/method/assetcore.api.imm15.issue_allocation
 ```
 
 **Side effects:**
+- VR-15-03 đọc `available_qty` THẬT (= qty_on_hand − reserved_qty của allocation OPEN khác) → chống double-issue
 - Tạo và submit `AC Stock Movement` (Issue, reference_type=IMM Spare Allocation)
 - `apply_stock_movement()` → `AC Spare Part Stock.qty_on_hand -= qty_issued`
+- **RELEASE reserved:** dòng rời HOLDING → `recompute_reserved(warehouse_from, spare_part)` → reserved giải phóng (không double-count)
 - Ghi `IMM Audit Trail` (action=ISSUED)
 
 **Response:**
@@ -229,6 +232,31 @@ POST /api/method/assetcore.api.imm15.issue_allocation
 {"success": false, "error": "VR-15-02: Phụ tùng AC-SP-2024-0001 yêu cầu số lô/serial", "code": "VALIDATION"}
 {"success": false, "error": "Tạo AC Stock Movement thất bại", "code": "INTERNAL"}
 ```
+
+---
+
+### 3.4b `cancel_allocation`
+
+```
+POST /api/method/assetcore.api.imm15.cancel_allocation
+```
+
+**Request body:** `{"name": "SAL-2026-00045"}` (hoặc `allocation`/`allocation_name`)
+
+**Side effects:**
+- `{Requested, Approved, Picked}` → `Cancelled`; `qty_on_hand` KHÔNG đổi (chưa từng trừ)
+- **RELEASE reserved:** `recompute_reserved(warehouse_from, spare_part)` cho mọi dòng → reserved giải phóng
+- Ghi `IMM Audit Trail` (action=CANCELLED)
+
+**Response:** `{"success": true, "data": {"name": "SAL-2026-00045", "workflow_state": "Cancelled"}}`
+
+**Errors:**
+```json
+{"success": false, "error": "Không thể hủy Allocation đã Issued/Returned", "code": "BAD_STATE"}
+{"success": false, "error": "Chỉ Inventory Manager mới được hủy allocation", "code": "FORBIDDEN"}
+```
+
+> `recompute_reserved(warehouse, spare_part)` là **hàm nội bộ** (`services.inventory`), KHÔNG whitelist endpoint — chỉ gọi bên trong transition allocation. Consumer đọc `reserved_qty`/`available_qty` qua `get_stock_snapshot` / `check_part_availability` / `get_low_stock_alerts` đã có sẵn.
 
 ---
 

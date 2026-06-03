@@ -168,15 +168,10 @@ def _enrich_stock_totals(rows: list) -> None:
 
 
 def _low_stock_part_ids() -> list[str]:
-    """R7 §9.4.5 — parts có ≥1 stock row dưới định mức (predicate KPI _count_low_stock,
-    distinct theo part). Drill-down từ KPI store 'low_stock'."""
-    rows = frappe.db.sql(
-        """SELECT DISTINCT s.spare_part
-           FROM `tabAC Spare Part Stock` s
-           JOIN `tabAC Spare Part` p ON p.name = s.spare_part
-           WHERE p.is_active=1 AND COALESCE(p.min_stock_level,0) > 0
-             AND s.qty_on_hand < p.min_stock_level""")
-    return [r[0] for r in rows]
+    """R7 §9.4.5 — parts có ≥1 bin dưới định mức (canonical effective_min, distinct
+    theo part). Drill-down từ KPI store 'low_stock'. Delegate SoT svc.low_stock_part_ids
+    để KHỚP KPI _count_low_stock / dashboard / stock-page (không nhân bản SQL)."""
+    return svc.low_stock_part_ids()
 
 
 @frappe.whitelist()
@@ -305,10 +300,10 @@ def get_stock_overview() -> dict:
     return _ok(svc.get_stock_overview())
 
 
-_LOW_COND = (
-    "COALESCE(NULLIF(s.min_stock_override, 0), p.min_stock_level, 0) > 0 "
-    "AND s.qty_on_hand < COALESCE(NULLIF(s.min_stock_override, 0), p.min_stock_level, 0)"
-)
+# Canonical low-stock predicate — SoT trong services.inventory (KHÔNG khai báo
+# lại literal SQL ở đây). _list_stock_low yêu cầu thêm p.is_active=1 (LOW_STOCK_COND
+# đã gồm), đồng nhất với KPI / dashboard / drill / scheduler.
+_LOW_COND = svc.LOW_STOCK_COND
 
 
 def _list_stock_low(warehouse: str, spare_part: str, offset: int, pg_size: int) -> tuple[list, int]:
