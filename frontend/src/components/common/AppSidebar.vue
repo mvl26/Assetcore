@@ -257,7 +257,7 @@ function goHome() { router.push('/dashboard') }
 
     <!-- ── Footer ──────────────────────────────────────────────────────────── -->
     <div class="sidebar-footer px-3 py-2.5 shrink-0">
-      <p v-if="!collapsed" class="text-[10.5px] font-medium text-center side-foot-text">AssetCore v0.0.2</p>
+      <p v-if="!collapsed" class="text-[10.5px] font-medium text-center side-foot-text">AssetCore v0.0.3</p>
     </div>
   </aside>
 </template>

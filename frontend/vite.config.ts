@@ -135,7 +135,7 @@ export default defineConfig(({ command, mode }) => {
 
     define: {
       // Đảm bảo define version an toàn
-      __APP_VERSION__: JSON.stringify(process.env.npm_package_version || '1.0.0'),
+      __APP_VERSION__: JSON.stringify(process.env.npm_package_version || '0.0.3'),
       __APP_BASE__: JSON.stringify(command === 'build' ? '/assetcore' : ''),
     },
   }
