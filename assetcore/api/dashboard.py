@@ -8,8 +8,12 @@ import frappe
 from frappe.utils import today, add_days, now_datetime
 
 from assetcore.utils.response import _ok, _err
-from assetcore.services.imm00 import count_pending_approvals
-from assetcore.services.imm08 import count_overdue_pm
+from assetcore.services.imm00 import count_pending_approvals, byt_expiry_filter
+from assetcore.services.imm08 import count_overdue_pm, due_soon_filter
+from assetcore.services.imm09 import (
+    REPAIR_TERMINAL_STATES,
+    open_repair_filter,
+)
 
 # ─── Shared constants ────────────────────────────────────────────────────────
 _DT_ASSET = "AC Asset"
@@ -55,8 +59,12 @@ def get_overview() -> dict:
         assets_calibrating = _count(_DT_ASSET, {"lifecycle_status": "Calibrating"})
         assets_out = _count(_DT_ASSET, {"lifecycle_status": _STATUS_OUT_OF_SERVICE})
         assets_decommissioned = _count(_DT_ASSET, {"lifecycle_status": "Decommissioned"})
-        assets_byt_expiring = _count(_DT_ASSET, {"byt_reg_expiry": ["between", [today_str, next30]]})
-        assets_byt_expired = _count(_DT_ASSET, {"byt_reg_expiry": ["<", today_str]})
+        # BR-00-17 (SoT, NĐ98): đếm số ĐK lưu hành BYT sắp/đã hết hạn qua
+        # byt_expiry_filter() — CÙNG predicate với drill list_assets(byt_status=...)
+        # → INVARIANT count==drill (số thẻ == số dòng list khi click). KHÔNG inline
+        # literal window 'byt_reg_expiry'.
+        assets_byt_expiring = _count(_DT_ASSET, byt_expiry_filter("expiring", today_str))
+        assets_byt_expired = _count(_DT_ASSET, byt_expiry_filter("expired", today_str))
 
         # ── IMM-04: Tiếp nhận ─────────────────────────────────────────────────
         comm_pending = _count(_DT_COMM, {"workflow_state": [_OP_NOT_IN, ["Clinical_Release", "Return_To_Vendor"]], "docstatus": ["!=", 2]})
@@ -80,37 +88,65 @@ def get_overview() -> dict:
         # này không lệch nhau. WO status == "Overdue" được scheduler cron
         # `check_pm_overdue` set theo CLAUDE.md §11 (WO là operational record duy nhất).
         pm_overdue = count_overdue_pm()
-        pm_due_next7 = _count("PM Work Order", {"status": [_OP_NOT_IN, ["Completed", "Cancelled"]], "due_date": ["between", [today_str, next7]]})
+        # BR-08-12 (SoT): KPI 'PM đến hạn' đếm CÙNG predicate với drill
+        # /pm/work-orders?due_before=today+7 (services/imm08._normalize_filters).
+        # due_soon_filter → due_date BETWEEN [today, today+7] + status NOT IN
+        # [Completed, Cancelled]. WO quá hạn (due_date<today) thuộc pm_overdue
+        # (disjoint) → card == drill byte-for-byte. KHÔNG inline literal window.
+        pm_due_next7 = _count("PM Work Order", due_soon_filter(next7, ref_date=today_str))
         pm_completed_30d = _count("PM Work Order", {"status": "Completed", "completion_date": [">=", add_days(today_str, -30)]})
 
         # ── IMM-09: CM / Sửa chữa ────────────────────────────────────────────
-        cm_open = _count("Asset Repair", {"status": [_OP_NOT_IN, ["Completed", "Closed", "Cancelled"]]})
-        cm_sla_breached = _count("Asset Repair", {"sla_breached": 1, "status": [_OP_NOT_IN, ["Completed", "Closed"]]})
+        # BR-09-08: SoT open_repair_filter() — Cannot Repair là TERMINAL (loại),
+        # KHÔNG còn literal ma 'Closed'. Đếm CÙNG tập với drill-down repair SQL
+        # (INVARIANT card == drill): số thẻ == số dòng list khi click.
+        cm_open = _count("Asset Repair", open_repair_filter())
+        # BR-09-07 canonical-value rule: KPI thẻ phải đếm CÙNG tập WO với drill
+        # /cm/work-orders?sla_breached=1 (không status filter). sla_breached là
+        # sự thật lịch sử monotonic — WO đã Completed mà vi phạm vẫn tính. Trước
+        # đây loại Completed/Closed → số thẻ ≠ số dòng list khi click.
+        cm_sla_breached = _count("Asset Repair", {"sla_breached": 1})
         cm_repeat_failure = _count("Asset Repair", {"is_repeat_failure": 1})
         cm_completed_30d = _count("Asset Repair", {"status": "Completed", "completion_datetime": [">=", add_days(today_str, -30)]})
 
         # ── IMM-11: Hiệu chuẩn ───────────────────────────────────────────────
-        # RC-R6 (root-cause): field đúng là `next_due_date`. Trước đây dùng
-        # `next_calibration_date` (column KHÔNG tồn tại trên IMM Calibration
-        # Schedule) → OperationalError bị try/except của get_overview nuốt im →
-        # KPI calib_due/overdue âm thầm sai. SSOT cho drill-down date-window.
-        calib_due = _count("IMM Calibration Schedule", {"next_due_date": ["between", [today_str, next30]]})
-        calib_overdue = _count("IMM Calibration Schedule", {"next_due_date": ["<", today_str]})
+        # BR-11-08 (SoT): calib_due/overdue dùng CÙNG predicate + filter với IMM-11
+        # module — đếm IMM Calibration Schedule.next_due_date của schedule
+        # is_active=1, asset NOT decommissioned, DE-DUP theo asset. Trước đây đếm
+        # thô next_due_date (thiếu is_active + decommissioned → đếm dư schedule
+        # chết & asset thanh lý; double-count khi asset có >1 schedule).
+        # → dashboard tổng == module overdue_assets/due_soon_assets (không lệch).
+        from assetcore.services.imm11 import (
+            _overdue_asset_ids as _imm11_overdue_ids,
+            _due_soon_asset_ids as _imm11_due_soon_ids,
+        )
+        calib_overdue = len(_imm11_overdue_ids())
+        calib_due = len(_imm11_due_soon_ids())
 
         # ── Incident / CAPA ──────────────────────────────────────────────────
-        incidents_open = _count("Incident Report", {"status": [_OP_NOT_IN, ["Closed", "Resolved"]]})
-        incidents_critical = _count("Incident Report", {"severity": "Critical", "status": [_OP_NOT_IN, ["Closed", "Resolved"]]})
+        # SoT: open_incident_filter() (services/imm12) — POSITIVE-state predicate
+        # (Open/Acknowledged/In Progress/RCA Required). KHÔNG inline negative-list
+        # 'NOT IN [Closed, Resolved]' (cũ vô tình đếm Cancelled là mở). Cancelled
+        # là terminal → loại khỏi count. KPI/donut == list_incidents(open=1) drill.
+        from assetcore.services.imm12 import open_incident_filter as _open_inc
+        incidents_open = _count("Incident Report", _open_inc())
+        incidents_critical = _count("Incident Report", _open_inc({"severity": "Critical"}))
         # R8 §9.4.6 — phân bổ severity của incident MỞ cho donut click-through.
         # code = severity canonical (Critical/High/Medium/Low) → drill
-        # /incidents/list?severity=<code>. Chỉ các mức canonical (loại null/khác).
+        # /incidents/list?severity=<code>&open=1. Chỉ các mức canonical (loại null/khác).
         incident_severity_breakdown = [
             {"severity": sev, "code": sev, "label_vi": _SEVERITY_LABELS_VI[sev],
-             "count": _count("Incident Report",
-                             {"severity": sev, "status": [_OP_NOT_IN, ["Closed", "Resolved"]]})}
+             "count": _count("Incident Report", _open_inc({"severity": sev}))}
             for sev in ("Critical", "High", "Medium", "Low")
         ]
-        capa_open = _count("IMM CAPA Record", {"status": [_OP_NOT_IN, ["Closed"]]})
-        capa_overdue = _count("IMM CAPA Record", {"status": [_OP_NOT_IN, ["Closed"]], "due_date": ["<", today_str]})
+        # SoT: _open_capa_filter() (services/imm00) — KHÔNG inline status-list. KPI
+        # capa_open == list_capas(not_closed=1) == imm16 scorecard/quality-dash/aging,
+        # byte-for-byte. 'open' = superset của 'overdue' (status NOT IN Closed).
+        from assetcore.services.imm00 import _open_capa_filter, _overdue_capa_filter
+        capa_open = _count("IMM CAPA Record", _open_capa_filter())
+        # SoT: _overdue_capa_filter() (services/imm00) — KHÔNG inline. KPI count
+        # == list_overdue_capas drill rows == imm16 get_overdue_actions, byte-for-byte.
+        capa_overdue = _count("IMM CAPA Record", _overdue_capa_filter(today_str))
 
         # ── Phân bổ lifecycle cho biểu đồ ──────────────────────────────────
         # Core Doc §9.1: mỗi entry mang 'code' = canonical lifecycle_status (English)
@@ -354,8 +390,19 @@ def get_dashboard_data() -> dict:
             r["days_until"] = (d - frappe.utils.getdate(today_str)).days if d else None
 
         # ── 4. Active repairs (đang sửa chữa) ──────────────────────────────
+        # BR-09-08 INVARIANT (card == drill): drill PHẢI trả ĐÚNG tập với KPI thẻ
+        # cm_open / open_repair_filter() — KHÔNG silent-cap. Trước đây dùng
+        # `ORDER BY open_datetime ASC LIMIT 20` → khi >20 phiếu mở, drill cắt còn
+        # 20 phiếu CŨ NHẤT, làm các phiếu mở MỚI biến mất → card(N) != drill(20)
+        # (lệch count card vs drill — anti-pattern). Fix gốc: dùng CÙNG predicate
+        # NOT IN (terminal) bound từ SoT REPAIR_TERMINAL_STATES, KHÔNG cap; order
+        # newest-first (open_datetime DESC) để phiếu vừa mở hiện ngay đầu list.
+        # Cannot Repair = TERMINAL (loại). Tham số bind → khớp open_repair_filter()
+        # byte-for-byte + tránh SQL injection.
+        _terminal = sorted(REPAIR_TERMINAL_STATES)
+        _terminal_ph = ", ".join(["%s"] * len(_terminal))
         repair_rows = frappe.db.sql(
-            """
+            f"""
             SELECT r.name, r.asset_ref AS asset, a.asset_name, a.department,
                    COALESCE(d.department_name, a.department) AS department_name,
                    r.status, r.priority, r.open_datetime,
@@ -363,10 +410,10 @@ def get_dashboard_data() -> dict:
             FROM `tabAsset Repair` r
             LEFT JOIN `tabAC Asset` a ON a.name = r.asset_ref
             LEFT JOIN `tabAC Department` d ON d.name = a.department
-            WHERE r.status NOT IN ('Completed', 'Closed', 'Cancelled', 'Cannot Repair')
-            ORDER BY r.open_datetime ASC
-            LIMIT 20
+            WHERE r.status NOT IN ({_terminal_ph})
+            ORDER BY r.open_datetime DESC
             """,
+            tuple(_terminal),
             as_dict=True,
         ) or []
         for r in repair_rows:
@@ -447,10 +494,11 @@ def _build_opsmgr(ov: dict) -> dict:
         _kpi("pm_due_7d", "PM đến hạn 7 ngày", pm.get("due_next_7d", 0),
              f"{pm.get('overdue', 0)} quá hạn", "warn",
              drill=_drill("/pm/work-orders", due_before=add_days(today(), 7))),
-        # §9.4.1: click → /incidents/list?severity=Critical (list tập bao KPI compound).
+        # §9.4.1: click → /incidents/list?severity=Critical&open=1 (open-set khớp KPI
+        # count: card count == số dòng list sau drill, byte-for-byte). open=1 áp SoT.
         _kpi("incidents_critical", "Sự cố mở (Critical)", inc.get("critical_open", 0),
              f"{inc.get('open', 0)} sự cố mở", "danger",
-             drill={"route": "/incidents/list", "query": {"severity": "Critical"}}),
+             drill={"route": "/incidents/list", "query": {"severity": "Critical", "open": "1"}}),
         _kpi("needs_pending", "Đề xuất chờ duyệt", needs_pending, "Chưa phê duyệt", "info"),
     ]
     return {
@@ -469,7 +517,12 @@ def _build_opsmgr(ov: dict) -> dict:
                 # (không có list 1-1) → KHÔNG drill (canonical-value rule §9.5 #10).
                 "drills": {
                     "sla_compliance_pct": _drill("/cm/work-orders", sla_breached="1"),
-                    "open_wos": _drill("/cm/work-orders", status="Open"),
+                    # BR-09-08: open_wos card đếm SoT open-set (NOT IN terminal,
+                    # gồm Pending Inspection). Drill PHẢI dùng cờ ảo open=1 (→ BE
+                    # open_repair_filter) chứ KHÔNG status="Open" đơn lẻ (1 state)
+                    # — nếu không card (6) != drill-list (chỉ Open). INVARIANT
+                    # card == drill.
+                    "open_wos": _drill("/cm/work-orders", open="1"),
                     "repeat_failure_count": _drill("/cm/work-orders", is_repeat_failure="1"),
                 },
             },
@@ -509,12 +562,14 @@ def _build_workshop(ov: dict) -> dict:
         _kpi("pm_overdue", "PM quá hạn", pm.get("overdue", 0),
              f"{pm.get('due_next_7d', 0)} đến hạn 7 ngày", "warn",
              drill=_drill("/pm/work-orders", status="Overdue")),
-        # §9.4.3 (R6): date-window drill. calib_due/overdue đếm theo
-        # next_due_date (KHÔNG có status để ép) → drill bằng cửa sổ ngày để
-        # list khớp KPI (tránh 'lệch count'). due_before=today+30; overdue=1.
+        # §9.4.3 (R6) + BR-11-08: calib_due đếm theo SoT _due_soon_asset_ids()
+        # (cửa-sổ-2-biên [today, today+30], ĐÃ loại overdue). Drill dùng cờ
+        # ?due_soon=1 (KHÔNG còn due_before=cutoff-tập-bao) → list tái lập CHÍNH
+        # XÁC tập KPI: số asset distinct == calib_due, overdue rows KHÔNG lẫn
+        # (chúng thuộc card calib_overdue → ?overdue=1).
         _kpi("calib_due", "Hiệu chuẩn đến hạn", calib.get("due_30d", 0),
              f"{calib.get('overdue', 0)} quá hạn", "ok",
-             drill=_drill("/calibration/schedules", due_before=add_days(today(), 30))),
+             drill=_drill("/calibration/schedules", due_soon="1")),
     ]
     return {
         "kpis": kpis,
@@ -538,14 +593,20 @@ def _build_tech(ov: dict) -> dict:
     my_cm = _recent(
         "Asset Repair", ["name", "asset_ref", "status", "priority", "open_datetime"],
         limit=10, order_by="open_datetime desc",
-        filters={"assigned_to": me, "status": [_OP_NOT_IN, ["Completed", "Closed", "Cancelled"]]},
+        # BR-09-08: SoT open_repair_filter() — Cannot Repair là TERMINAL (loại),
+        # KHÔNG còn literal ma 'Closed'.
+        filters=open_repair_filter({"assigned_to": me}),
     )
     _enrich_asset_name(my_cm, "asset_ref")
     my_reqs = list_allocations({"requested_by": me}, page=1, page_size=10).get("data", [])
 
     pm_today = _count("PM Work Order", {"assigned_to": me, "due_date": today(), "status": [_OP_NOT_IN, ["Completed", "Cancelled"]]})
-    pm_week = _count("PM Work Order", {"assigned_to": me, "due_date": ["between", [today(), add_days(today(), 7)]], "status": [_OP_NOT_IN, ["Completed", "Cancelled"]]})
-    cm_urgent = _count("Asset Repair", {"assigned_to": me, "priority": "P1", "status": [_OP_NOT_IN, ["Completed", "Closed", "Cancelled"]]})
+    # BR-08-12 (SoT): "PM trong tuần" = cửa-sổ due-soon [today, today+7] của
+    # KTV — dùng CHUNG due_soon_filter (cùng ngữ nghĩa KPI pm_due_7d, không
+    # inline literal window) + scope assigned_to=me.
+    pm_week = _count("PM Work Order", {**due_soon_filter(add_days(today(), 7), ref_date=today()), "assigned_to": me})
+    # BR-09-08: SoT open_repair_filter() — Cannot Repair là TERMINAL (loại), KHÔNG còn 'Closed' ma.
+    cm_urgent = _count("Asset Repair", open_repair_filter({"assigned_to": me, "priority": "P1"}))
     done_30d = _count("PM Work Order", {"assigned_to": me, "status": "Completed", "completion_date": [">=", add_days(today(), -30)]})
 
     kpis = [
@@ -589,15 +650,17 @@ def _build_clinical(ov: dict) -> dict:
     assets_dept = len(dept_assets_ids)
 
     # Khoa có thể chưa có asset nào → match nothing (sentinel) thay vì bỏ filter.
+    # SoT: open_incident_filter() — incident MỞ của khoa (Cancelled là terminal, loại).
+    from assetcore.services.imm12 import open_incident_filter as _open_inc
     inc_asset_filter = {"asset": ["in", dept_assets_ids or ["__none__"]]}
-    inc_open = _count("Incident Report", {**inc_asset_filter, "status": [_OP_NOT_IN, ["Closed", "Resolved"]]})
+    inc_open = _count("Incident Report", _open_inc(inc_asset_filter))
     nr_submitted = _count("IMM Needs Request", {"requesting_department": dept, "docstatus": 1})
     awaiting = _count(_DT_COMM, {"workflow_state": "Clinical_Hold"})
 
     dept_incidents = _recent(
         "Incident Report", ["name", "asset", "severity", "status", "reported_at"],
         limit=8, order_by="reported_at desc",
-        filters={**inc_asset_filter, "status": [_OP_NOT_IN, ["Closed", "Resolved"]]},
+        filters=_open_inc(inc_asset_filter),
     )
     _enrich_asset_name(dept_incidents, "asset")
     dept_needs = _recent(
@@ -667,20 +730,36 @@ def _build_store(ov: dict) -> dict:
 def _build_qa(ov: dict) -> dict:
     capa = ov.get("capa", {})
     from assetcore.services.imm16 import (
-        get_current_scorecard, list_compliance_findings, list_internal_audits,
+        FindingStatus, get_current_scorecard, list_compliance_findings,
+        list_internal_audits,
     )
     sc = get_current_scorecard()
-    # Scorecard field điểm tổng: thử các tên field phổ biến, KHÔNG bịa số.
+    # Điểm tuân thủ = field CHÍNH TẮC `score_pct` mà SoT IMM-16 ghi
+    # (compute_compliance_rate → generate_scorecard → IMM Compliance Scorecard).
+    # KHÔNG đọc overall_score/score/total_score: đó là field của IMM-03 Supplier
+    # Scorecard + IMM Internal Audit, KHÔNG tồn tại trên IMM Compliance Scorecard
+    # → luôn None → card trống (cross-module field-name drift).
+    # exists=False ⇒ chưa có scorecard kỳ này ⇒ giữ None (KHÔNG bịa 0.0).
+    # Dùng None-check tường minh (KHÔNG `or`) để score_pct=0.0 không bị nuốt.
     score = None
     if sc.get("exists") is not False:
-        score = sc.get("overall_score") or sc.get("score") or sc.get("total_score")
-    # RCA chưa hoàn tất: incident yêu cầu RCA nhưng chưa có root_cause_summary.
-    rca_incomplete = _count("Incident Report", {
-        "status": [_OP_NOT_IN, ["Closed", "Resolved"]],
+        raw = sc.get("score_pct")
+        score = float(raw) if raw is not None else None
+    # RCA chưa hoàn tất: incident MỞ yêu cầu RCA nhưng chưa có root_cause_summary.
+    # SoT: open_incident_filter() — Cancelled là terminal, KHÔNG đếm là mở.
+    from assetcore.services.imm12 import open_incident_filter as _open_inc
+    rca_incomplete = _count("Incident Report", _open_inc({
         "rca_required": 1, "root_cause_summary": ["in", ["", None]],
-    })
+    }))
 
-    findings = list_compliance_findings({"status": [_OP_NOT_IN, ["Closed"]]}, page=1, page_size=10).get("data", [])
+    # SoT IMM-16: worklist QA persona chỉ "active" finding = FindingStatus.ACTIVE
+    # (Open / Under Review / Confirmed NC). KHÔNG dùng NOT IN [Closed] — predicate
+    # đó leak Resolved/Waived/False Positive vào danh sách việc của QA reviewer.
+    # Khớp byte-for-byte 4 call-site SoT imm16.py (:680 gate, :1405, :2157 quality-
+    # dash, :2346 drill) → thêm trạng thái mới vào ACTIVE thì worklist tự cập nhật.
+    findings = list_compliance_findings(
+        {"status": ["in", list(FindingStatus.ACTIVE)]}, page=1, page_size=10
+    ).get("data", [])
     audits = list_internal_audits({}, page=1, page_size=8).get("data", [])
     capa_rows = _recent(
         "IMM CAPA Record", ["name", "source_ref", "severity", "status", "due_date"],
@@ -709,6 +788,7 @@ def _build_qa(ov: dict) -> dict:
 
 
 def _build_admin(ov: dict) -> dict:
+    a = ov.get("assets", {})
     total_users = _count("User", {"enabled": 1})
     disabled_users = _count("User", {"enabled": 0})
     # Pending: custom field imm_registration_status nếu có; fallback 0 (đọc thật, không bịa)
@@ -746,6 +826,16 @@ def _build_admin(ov: dict) -> dict:
              "Kiểm tra tính toàn vẹn", "ok", drill=_drill("/audit-trail")),
         _kpi("vendor_engineers", "Vendor Engineer", vendor_engineers, "Bên thứ ba, cô lập", "info",
              drill=_drill("/user-profiles", role="Vendor Engineer")),
+        # BR-00-17 (NĐ98): số ĐK lưu hành BYT sắp/đã hết hạn. value=0 → tone giữ
+        # warn/danger (FE render neutral khi 0), VẪN drill được (list rỗng an toàn).
+        # drill → /assets?byt_status=expiring|expired (CÙNG SoT byt_expiry_filter →
+        # INVARIANT count==drill: số thẻ == số dòng list).
+        _kpi("byt_expiring", "ĐK Bộ Y tế sắp hết hạn (30 ngày)", a.get("byt_expiring_30d", 0),
+             "NĐ98 — số đăng ký lưu hành", "warn",
+             drill=_drill("/assets", byt_status="expiring")),
+        _kpi("byt_expired", "ĐK Bộ Y tế đã hết hạn", a.get("byt_expired", 0),
+             "NĐ98 — số đăng ký lưu hành", "danger",
+             drill=_drill("/assets", byt_status="expired")),
     ]
     return {"kpis": kpis, "sections": {"users_pending": users_pending, "audit_recent": audit_recent}}
 

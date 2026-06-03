@@ -214,3 +214,56 @@ describe('ClinicalDashboardView dept gating (D-FE-8)', () => {
     dashboardSections.value = null
   })
 })
+
+// ─── D-FE-12: Opsmgr severity-donut click → push query {severity, open:'1'} ───
+// SoT count==drill: donut segment count == số dòng list khi list áp open=1. Vì
+// vậy click PHẢI gửi open=1 (không chỉ severity) để open-set khớp KPI/donut count.
+// Dùng router THẬT (memory) — KHÔNG mock vue-router toàn file (vỡ test khác).
+import OpsmgrDashboardView from './OpsmgrDashboardView.vue'
+
+describe('OpsmgrDashboardView severity-donut drill (D-FE-12)', () => {
+  // Stub StatusDonutChart phát lại segment-click; phân biệt donut severity qua
+  // prop drill-route="/incidents/list".
+  const DonutStub = {
+    props: ['labels', 'series', 'colors', 'codes', 'drillRoute'],
+    emits: ['segment-click'],
+    template: '<div class="donut-stub" :data-route="drillRoute"></div>',
+  }
+
+  beforeEach(() => {
+    dashboardSections.value = {
+      incident_severity_breakdown: [
+        { severity: 'Critical', code: 'Critical', label_vi: 'Nghiêm trọng', count: 3 },
+      ],
+      asset_status_breakdown: [],
+      maintenance_kpi: {},
+      recent_events: [],
+      recent_pm: [],
+    }
+  })
+
+  it('click segment severity → điều hướng /incidents/list?severity=Critical&open=1', async () => {
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/:pathMatch(.*)*', component: { template: '<div/>' } }],
+    })
+    const pushSpy = vi.spyOn(router, 'push')
+    const w = mount(OpsmgrDashboardView, {
+      global: {
+        plugins: [router],
+        stubs: { StatusDonutChart: DonutStub, BarsCard: true, TimelineCard: true, PersonaDashboardShell: false, PageHeader: true },
+      },
+    })
+    await flushPromises()
+    const donuts = w.findAllComponents(DonutStub)
+    const sevDonut = donuts.find((d) => d.props('drillRoute') === '/incidents/list')
+    expect(sevDonut, 'phải có donut severity drill /incidents/list').toBeTruthy()
+    sevDonut!.vm.$emit('segment-click', { label: 'Nghiêm trọng', code: 'Critical', value: 3 })
+    await flushPromises()
+    expect(pushSpy).toHaveBeenCalledWith({
+      path: '/incidents/list',
+      query: { severity: 'Critical', open: '1' },
+    })
+    dashboardSections.value = null
+  })
+})

@@ -51,9 +51,11 @@ const severityDonut = computed(() => {
     codes: rows.map((r) => String(r.code ?? '')),
   }
 })
+// open=1 → list áp SoT open_incident_filter() (incident đang mở) khớp donut count:
+// donut-segment count == số dòng list sau drill (cùng severity, cùng open-set).
 function onSeveritySegment(p: { label: string; code: string; value: number }): void {
   if (!p.code) return
-  router.push({ path: '/incidents/list', query: { severity: p.code } })
+  router.push({ path: '/incidents/list', query: { severity: p.code, open: '1' } })
 }
 
 type BarDrill = { route: string; query: Record<string, string> } | null | undefined
