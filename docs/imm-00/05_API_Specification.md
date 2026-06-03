@@ -232,9 +232,12 @@ URL pattern: `POST|GET /api/method/assetcore.api.imm00.<function>`
 | `lifecycle_status` | str | Lọc theo trạng thái vòng đời |
 | `department` / `location` / `asset_category` | str | Lọc theo Link field |
 | `gmdn_code` | str | **Lọc thiết bị theo mã GMDN** (kế thừa từ Asset Category). Dùng cho recall/FSCA, KPI per-GMDN |
+| `byt_status` | str | **Drill số ĐKLH BYT (BR-00-17 — SoT `byt_expiry_filter`).** `'expiring'` → `byt_reg_expiry ∈ [today, today+30]`; `'expired'` → `byt_reg_expiry < today`. CẢ HAI loại bản ghi `byt_reg_expiry` rỗng/NULL. Khi set → **conjoin (AND)** với mọi filter hiện có (lifecycle_status/department/…) KHÔNG clobber; `apply_vendor_scope` áp SAU. Giá trị khác → **no-op** (bỏ qua, KHÔNG throw). |
 | `search` | str | Tìm theo `asset_name`, `asset_code`, `manufacturer_sn`, **`gmdn_code`** (LIKE substring) |
 
 > **Note (2026-05-19):** Tham số lọc theo trạng thái sử dụng GMDN (cũ) đã bị loại bỏ cùng field tương ứng. Trục lọc/quản lý thiết bị nay là `gmdn_code`. Tham chiếu: [docs/res/analysis/gmdn-asset-category-analysis.md](../res/analysis/gmdn-asset-category-analysis.md) §6.
+
+> **INVARIANT count==drill (BR-00-17 — Vòng 31):** `list_assets(byt_status='expiring')` `pagination.total` == KPI `get_overview().assets.byt_expiring_30d`; `list_assets(byt_status='expired')` `pagination.total` == `get_overview().assets.byt_expired`, byte-for-byte trên CÙNG dataset + CÙNG vendor scope (cả 2 read-path gọi SoT `byt_expiry_filter`). FE tile NĐ98 click → `/assets?byt_status=expiring\|expired`; header "Tổng N" của list == giá trị tile vừa click. KHÔNG inline literal window — xem [04 Backend §III.1a](../imm-00/04_Backend_Design.md).
 
 ---
 
@@ -580,6 +583,22 @@ Kể cả tampered vẫn trả HTTP 200 — frontend xử lý alert. Service t�
 
 GET `assetcore.api.imm00.list_capas`. Filters: `status, capa_type, asset`. Paginated.
 
+**Virtual drill filters (SoT — KHÔNG inline literal):**
+- `not_closed=1` → **conjoin (AND) SoT `_open_capa_filter()`** (services/imm00): `status NOT IN ('Closed')`. Drill total BẰNG KPI `capa_open` (dashboard.py) == scorecard `capa_open_count` == quality-dash `capa_open` == `get_capa_aging.total_open`, byte-for-byte trên cùng dataset (khi KHÔNG có explicit status). CAPA `Overdue` VẪN nằm trong tập (open ⊇ overdue) → count bất biến sau cron flip Open→Overdue.
+- `overdue=1` → **conjoin (AND) SoT `_overdue_capa_filter()`**: `status NOT IN ('Closed') AND due_date IS NOT NULL AND due_date < today` (strict `<`). Khi cả hai cờ cùng gửi, `overdue` thắng `not_closed` (overdue ⊂ open) — chỉ áp `_overdue_capa_filter()`.
+
+**BR-00-16 — Filter composition (conjoin, KHÔNG clobber):** explicit `status` (giá trị enum, vd `Overdue`/`Open`/`Closed`) và virtual filter `not_closed`/`overdue` đặt điều kiện trên CÙNG field `status`. Một Frappe **dict-filter KHÔNG biểu diễn được 2 điều kiện trên cùng 1 field** (key trùng → ghi đè). Do đó endpoint PHẢI build filter dạng **list-of-conditions** `[[doctype, field, op, value], ...]` để cả `["status", "=", status]` (explicit) VÀ `["status", "not in", ["Closed"]]` (virtual) cùng tồn tại = **AND thật**. TUYỆT ĐỐI KHÔNG `dict.update(_open_capa_filter())` đè lên `filters["status"]` (= clobber → đổi AND thành either-or, trả nhầm full open-set).
+
+| Request | Tập kết quả (AND đúng) | Lý do |
+|---|---|---|
+| `?not_closed=1&status=Overdue` | `(status NOT IN [Closed]) ∧ (status == 'Overdue')` = các CAPA `Overdue` | giao 2 điều kiện; KHÔNG ra full open-set |
+| `?not_closed=1&status=Closed` | `(status NOT IN [Closed]) ∧ (status == 'Closed')` = **0 rows** | tập rỗng — minh chứng AND thật, không bị clobber thành either-or |
+| `?overdue=1&status=Open` | `(due_date<today flip→'Overdue') ∧ (status == 'Open')` = **0 rows** | `Open` không nằm trong tập đã flip `Overdue` → AND không giao |
+| `?not_closed=1` (không status) | `_open_capa_filter()` byte-for-byte | no-regression — khớp KPI `capa_open` |
+| `?overdue=1` (không status) | `_overdue_capa_filter()` byte-for-byte | no-regression — khớp KPI `capa_overdue` (round 10/11) |
+
+**INVARIANT count==drill:** `pagination.total` (qua `frappe.db.count`) và `items` (qua `frappe.get_list`) PHẢI dùng CÙNG bộ filter đã conjoin cho MỌI tổ hợp `{status} × {not_closed | overdue | none}` → `pagination.total == len(items)` (trên cùng trang khi đủ chứa). FE `CAPAListView` gửi `status=CODE` + `not_closed/overdue` đồng thời → số "Tổng N hồ sơ" == số dòng render (không còn "chọn status=Quá hạn mà vẫn 117").
+
 ### `get_capa`
 
 GET `assetcore.api.imm00.get_capa?name=CAPA-...` → full CAPA fields.
@@ -609,7 +628,7 @@ POST `assetcore.api.imm00.close_capa_record`. Body: `name` (param) + `root_cause
 
 ### `list_overdue_capas`
 
-GET `assetcore.api.imm00.list_overdue_capas`. Paginated. Filter: `status IN (Open, In Progress)` AND `due_date < today`.
+GET `assetcore.api.imm00.list_overdue_capas`. Paginated. **Filter = SoT `_overdue_capa_filter()`** (services/imm00): `status NOT IN ('Closed') AND due_date IS NOT NULL AND due_date < today` (strict `<`; `due_date == today` CHƯA quá hạn). KHÔNG inline predicate. Drill rows BẰNG KPI `capa_overdue` (dashboard.py) và `imm16.get_overdue_actions().overdue_capas` trên cùng dataset. CAPA status `Overdue` VẪN xuất hiện (NOT IN Closed) → count bất biến sau cron flip.
 
 ---
 
@@ -801,11 +820,21 @@ Params: `category_name`. Re-apply rule khấu hao của Category cho tất cả 
 
 ### `list_assets_depreciation` (GET) — Asset Finance Hub
 
-Params: `page=1, page_size=50, method_filter?, status_filter?, category_filter?`. Trả paginated list assets kèm: `gross_purchase_amount, residual_value, accumulated_depreciation, current_book_value, depreciation_method, total_depreciation_months, depreciation_frequency, configured, pct_depreciated, executed_periods, total_periods`.
+Params: `page=1, page_size=50, method_filter?, status_filter?, category_filter?, depreciation_filter?`. Trả paginated list assets kèm: `gross_purchase_amount, residual_value, accumulated_depreciation, current_book_value, depreciation_method, total_depreciation_months, depreciation_frequency, configured, pct_depreciated, executed_periods, total_periods`.
+
+**`depreciation_filter`** (mới — drill cho ô KPI "Hết khấu hao", BR-05-15):
+- `'fully_depreciated'` → danh sách CHỈ chứa asset thỏa SoT `is_fully_depreciated` (`configured ∧ current_book_value ≤ residual_value + 1`). Áp **post-enrich**, AND với `method/status/category` filter sẵn có (không clobber).
+- Khi set, `pagination.total` == số phần tử thỏa SoT (đếm trên tập đã lọc, KHÔNG `frappe.db.count` thô) → `items` không lệch `total`.
+- Để rỗng → hành vi cũ (không lọc theo trạng thái khấu hao).
+- Predicate là SoT DUY NHẤT ở `services/depreciation.py::is_fully_depreciated` — KHÔNG inline lại. Chi tiết: [imm-05/04 §2.5.1](../imm-05/04_Backend_Design.md).
+
+> **INV-DEP-5 (đo trên data-live):** `len(list_assets_depreciation(depreciation_filter='fully_depreciated', page_size=lớn).items)` (de-dup theo `name`) == `get_depreciation_stats().fully_depreciated` — card count == drill rows.
 
 ### `get_depreciation_stats` (GET)
 
 Trả tổng hợp tài chính toàn danh mục: `{ total_assets, configured_count, unconfigured_count, fully_depreciated, total_gross, total_accumulated, total_book_value, overall_pct, by_method[], by_category[] }`.
+
+`fully_depreciated` đếm bằng SoT `is_fully_depreciated` (thay biểu thức inline cũ `book <= residual + 1`) — **backward-compat: cùng tập, cùng số**. Các key khác KHÔNG đổi.
 
 ### `compute_all_depreciation` (POST) — Admin only
 
@@ -955,7 +984,7 @@ Base path: `assetcore.api.notifications.<function>`. Envelope chuẩn `{success,
 - [x] PM Checklist Template (5 endpoints)
 - [x] Firmware Change Request (5 endpoints)
 - [x] Document Request (5 endpoints)
-- [x] Depreciation (9 endpoints — compute, get_schedule, regenerate, preview, run_due_now, bulk_regenerate, list_assets_depreciation, get_depreciation_stats, compute_all_depreciation)
+- [x] Depreciation (9 endpoints — compute, get_schedule, regenerate, preview, run_due_now, bulk_regenerate, list_assets_depreciation [+ `depreciation_filter` BR-05-15], get_depreciation_stats, compute_all_depreciation)
 - [x] Asset Downtime Metrics (1 endpoint)
 
 ### IV. Business Rule mapping

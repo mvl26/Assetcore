@@ -10,6 +10,7 @@ import ListFilterBar from '@/components/common/ListFilterBar.vue'
 import BasePagination from '@/components/common/BasePagination.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import type { LifecycleStatus, AssetListParams } from '@/types/imm00'
+import { BYT_EXPIRY_CHIP_LABEL } from '@/constants/labels'
 import { useImportWizard } from '@/composables/useImportWizard'
 import ImportWizardModal from '@/components/import/ImportWizardModal.vue'
 
@@ -21,7 +22,8 @@ const refData = useRefDataStore()
 const showFilters = ref(false)
 
 // Core Doc §9.3 — keys cho phép pre-apply từ route.query (drill-down từ dashboard).
-const QUERY_FILTER_KEYS = ['lifecycle_status', 'department', 'asset_category', 'gmdn_code', 'search'] as const
+// byt_status (BR-00-17, NĐ98): drill tile "ĐK Bộ Y tế sắp/đã hết hạn" → list lọc.
+const QUERY_FILTER_KEYS = ['lifecycle_status', 'department', 'asset_category', 'gmdn_code', 'search', 'byt_status'] as const
 
 /**
  * Đọc route.query → áp vào filters (Core Doc §9.3). Trả true nếu có filter nào
@@ -52,6 +54,7 @@ const filters = ref<AssetListParams>({
   asset_category: '',
   gmdn_code: '',
   search: '',
+  byt_status: undefined,
   page: 1,
   page_size: 20,
 })
@@ -83,6 +86,8 @@ const cleanParams = computed<AssetListParams>(() => {
   if (filters.value.asset_category) p.asset_category = filters.value.asset_category
   if (filters.value.gmdn_code) p.gmdn_code = filters.value.gmdn_code
   if (filters.value.search?.trim()) p.search = filters.value.search.trim()
+  // BR-00-17: forward byt_status xuống list_assets (param khớp signature BE).
+  if (filters.value.byt_status) p.byt_status = filters.value.byt_status
   return p
 })
 
@@ -108,6 +113,11 @@ const activeChips = computed<FilterChip[]>(() => {
   }
   if (filters.value.gmdn_code) {
     chips.push({ key: 'gmdn_code', label: `GMDN: ${filters.value.gmdn_code}` })
+  }
+  // BR-00-17 (NĐ98): chip ĐK BYT — nhãn VI qua SSoT BYT_EXPIRY_CHIP_LABEL.
+  const byt = filters.value.byt_status
+  if (byt && byt in BYT_EXPIRY_CHIP_LABEL) {
+    chips.push({ key: 'byt_status', label: BYT_EXPIRY_CHIP_LABEL[byt] })
   }
   if (filters.value.search?.trim()) {
     chips.push({ key: 'search', label: `"${filters.value.search.trim()}"` })
@@ -139,7 +149,7 @@ function clearChip(key: string) {
 }
 
 function resetFilters() {
-  filters.value = { lifecycle_status: '', department: '', location: '', asset_category: '', gmdn_code: '', search: '', page: 1, page_size: 20 }
+  filters.value = { lifecycle_status: '', department: '', location: '', asset_category: '', gmdn_code: '', search: '', byt_status: undefined, page: 1, page_size: 20 }
   store.fetchList({})
 }
 
@@ -187,6 +197,9 @@ const IMPORT_NOTICE = [
   'Mã tài sản (nội bộ) phải duy nhất — để trống nếu muốn hệ thống tự sinh theo naming_series.',
   'Mặc định trạng thái vòng đời = <strong>Draft</strong> nếu bỏ trống.',
 ]
+
+// Phơi bày cho test (chip drill BYT): activeChips để assert nhãn VI, clearChip cho nút X.
+defineExpose({ clearChip, activeChips })
 </script>
 
 <template>

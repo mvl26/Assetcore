@@ -15,9 +15,11 @@ from assetcore.utils.response import _ok, _err
 from assetcore.services.shared import ErrorCode, ServiceError
 from assetcore.services.shared.scope import apply_vendor_scope, assert_vendor_can_access
 from assetcore.utils.pagination import paginate
+from assetcore.services.shared.filters import count_with_or
 from assetcore.services.imm00 import (
     transition_asset_status,
     validate_asset_for_operations,
+    byt_expiry_filter,
     get_sla_policy,
     create_capa,
     close_capa,
@@ -92,8 +94,15 @@ def list_assets(
     asset_category: str = None,
     search: str = None,
     gmdn_code: str = None,
+    byt_status: str = None,
 ):
-    """GET /api/method/assetcore.api.imm00.list_assets"""
+    """GET /api/method/assetcore.api.imm00.list_assets
+
+    byt_status (NĐ98 drill, BR-00-17): 'expiring' | 'expired' → áp SoT
+    byt_expiry_filter(byt_status) HỢP NHẤT (AND) với mọi filter hiện có. Giá trị
+    khác → no-op (bỏ qua, không throw). Count get_overview().assets.byt_* ==
+    total list này khi cùng bucket (INVARIANT count==drill).
+    """
     page, page_size = int(page), int(page_size)
     filters = {}
     if lifecycle_status:
@@ -106,6 +115,10 @@ def list_assets(
         filters["asset_category"] = asset_category
     if gmdn_code:
         filters["gmdn_code"] = gmdn_code
+    if byt_status:
+        # SoT predicate — merge AND, KHÔNG clobber field khác (byt_reg_expiry là
+        # field riêng). bucket không hợp lệ → byt_expiry_filter trả {} (no-op).
+        filters.update(byt_expiry_filter(byt_status))
 
     # AUTH-01: Vendor Engineer chỉ thấy asset được giao việc.
     filters = apply_vendor_scope(filters, _DT_ASSET)
@@ -799,16 +812,21 @@ def resolve_sla_policy(priority: str, risk_class: str):
 # ─────────────────────────────────────────────────────────────────────────────
 
 @frappe.whitelist()
-def list_audit_trail(asset: str = None, q: str = None,
+def list_audit_trail(asset: str = None, q: str = None, event_type: str = None,
                       page: int = 1, page_size: int = 50):
     """GET /api/method/assetcore.api.imm00.list_audit_trail
 
     Params (tất cả optional):
-      - asset: lọc theo 1 mã thiết bị cụ thể
-      - q:     free-text search trong change_summary / actor / ref_name / asset name
+      - asset:      lọc theo 1 mã thiết bị cụ thể
+      - event_type: lọc theo loại sự kiện (CAPA, Maintenance, State Change, …)
+      - q:          free-text search trong name / change_summary / actor / ref_name / asset
       - page, page_size: phân trang (default 50)
 
     Không truyền filter → trả về N bản ghi mới nhất toàn hệ thống.
+
+    `asset`/`event_type` là AND-filter (cột trực tiếp); `q` là OR-LIKE clause.
+    Total phải đếm qua `count_with_or` để áp đúng CẢ AND lẫn OR — nếu chỉ đếm
+    theo `or_filters`, pagination sẽ over-count khi có thêm `asset`/`event_type`.
     """
     page, page_size = int(page), int(page_size)
     filters: dict = {}
@@ -818,20 +836,21 @@ def list_audit_trail(asset: str = None, q: str = None,
             return _err(_(_ERR_ASSET_NOT_FOUND), 404)
         filters["asset"] = asset
 
+    if event_type:
+        filters["event_type"] = event_type
+
     or_filters = None
     if q:
         like = f"%{q}%"
         or_filters = [
+            ["name", "like", like],
             ["asset", "like", like],
             ["change_summary", "like", like],
             ["actor", "like", like],
             ["ref_name", "like", like],
         ]
 
-    if or_filters:
-        total = frappe.db.count(_DT_AUDIT_TRAIL, or_filters=or_filters)
-    else:
-        total = frappe.db.count(_DT_AUDIT_TRAIL, filters)
+    total = count_with_or(_DT_AUDIT_TRAIL, filters, or_filters)
     pag = paginate(total, page, page_size)
     items = frappe.get_list(
         _DT_AUDIT_TRAIL,
@@ -894,29 +913,43 @@ def list_capas(
     """GET /api/method/assetcore.api.imm00.list_capas
 
     R10 §9.4.8 — virtual filters cho drill-down từ KPI qa:
-      not_closed=1 → status NOT IN [Closed] (khớp KPI 'capa_open').
-      overdue=1    → status NOT IN [Closed] AND due_date < today (khớp KPI 'capa_overdue').
-    SSOT: cùng predicate đếm KPI ở get_overview → list khớp KPI.
+      not_closed=1 → _open_capa_filter() SoT: status NOT IN [Closed] (khớp KPI 'capa_open').
+      overdue=1    → _overdue_capa_filter() SoT: status NOT IN [Closed] AND
+                     due_date IS NOT NULL AND due_date < today (khớp KPI 'capa_overdue').
+    SSOT: cùng predicate đếm KPI ở get_overview / dashboard.py → list khớp KPI byte-for-byte.
+
+    BR-00-16 — filter-composition CONJOIN (AND), KHÔNG clobber:
+      Filter build dạng **list-of-conditions** `[[_DT_CAPA, field, op, value], ...]` để
+      explicit `status == X` (drill từ chip) VÀ virtual `status NOT IN [Closed]`
+      (not_closed/overdue) cùng tồn tại trên CÙNG field → AND thật. (Dict-filter cũ chỉ
+      giữ 1 predicate/field → key 'status' bị filters.update() GHI ĐÈ → trả full open-set
+      ~117 thay vì subset — bug #4 USER Vòng 12 'chọn status=Quá hạn vẫn 117'.)
+      count VÀ get_list nhận CÙNG conditions → pagination.total == len(items) mọi tổ hợp.
     """
     page, page_size = int(page), int(page_size)
-    filters = {}
+    # List-of-conditions: cho phép NHIỀU điều kiện trên CÙNG field (AND), không clobber.
+    conditions: list[list] = []
     if status:
-        filters["status"] = status
+        conditions.append([_DT_CAPA, "status", "=", status])
     if capa_type:
-        filters["capa_type"] = capa_type
+        conditions.append([_DT_CAPA, "capa_type", "=", capa_type])
     if asset:
-        filters["asset"] = asset
-    # overdue thắng not_closed (overdue đã bao hàm not-closed + date-window).
+        conditions.append([_DT_CAPA, "asset", "=", asset])
+    # overdue thắng not_closed (overdue ⊃ not-closed: NOT IN Closed + date-window).
+    # SoT-adjacent: list-form của _overdue_capa_filter / _open_capa_filter (services/imm00)
+    # — KHÔNG inline literal; membership == KPI capa_overdue / capa_open (round 10/11).
+    # Explicit `status` (nếu có) LUÔN conjoin THÊM (AND) với cờ → 2 predicate/'status'.
     if int(overdue):
-        filters["status"] = ["not in", ["Closed"]]
-        filters["due_date"] = ["<", frappe.utils.today()]
+        from assetcore.services.imm00 import _overdue_capa_conditions
+        conditions.extend(_overdue_capa_conditions(_DT_CAPA))
     elif int(not_closed):
-        filters["status"] = ["not in", ["Closed"]]
-    total = frappe.db.count(_DT_CAPA, filters=filters)
+        from assetcore.services.imm00 import _open_capa_conditions
+        conditions.extend(_open_capa_conditions(_DT_CAPA))
+    total = frappe.db.count(_DT_CAPA, filters=conditions)
     pag = paginate(total, page, page_size)
     items = frappe.get_list(
         _DT_CAPA,
-        filters=filters,
+        filters=conditions,
         fields=["name", "capa_type", "status", "asset", "title",
                 "severity", "description", "source_type", "source_ref",
                 "due_date", "owner", "creation"],
@@ -990,13 +1023,14 @@ def close_capa_record(name: str):
 
 @frappe.whitelist()
 def list_overdue_capas(page: int = 1, page_size: int = 20):
-    """GET /api/method/assetcore.api.imm00.list_overdue_capas"""
-    from frappe.utils import nowdate
+    """GET /api/method/assetcore.api.imm00.list_overdue_capas
+
+    SoT: dùng _overdue_capa_filter() (services/imm00) — KHÔNG inline. Predicate
+    == KPI capa_overdue (dashboard.py) == imm16 get_overdue_actions → count == drill.
+    """
+    from assetcore.services.imm00 import _overdue_capa_filter
     page, page_size = int(page), int(page_size)
-    filters = [
-        ["status", "in", ["Open", "In Progress"]],
-        ["due_date", "<", nowdate()],
-    ]
+    filters = _overdue_capa_filter()
     total = frappe.db.count(_DT_CAPA, filters=filters)
     pag = paginate(total, page, page_size)
     items = frappe.get_list(
@@ -2143,12 +2177,25 @@ def _depr_enrich_row(a: dict) -> dict:
     return a
 
 
+_DEPR_FILTER_FULLY_DEPRECIATED = "fully_depreciated"
+
+
 @frappe.whitelist()
 def list_assets_depreciation(page: int = 1, page_size: int = 50,
                               method_filter: str = "",
                               status_filter: str = "",
-                              category_filter: str = ""):
-    """GET — Danh sách asset kèm thông tin khấu hao (sourced từ schedule rows)."""
+                              category_filter: str = "",
+                              depreciation_filter: str = ""):
+    """GET — Danh sách asset kèm thông tin khấu hao (sourced từ schedule rows).
+
+    ``depreciation_filter`` (vd 'fully_depreciated'): khi set, danh sách CHỈ chứa
+    asset thỏa SoT ``is_fully_depreciated`` (depreciation.py). Predicate này cần
+    current_book_value/residual/configured ⇒ áp SAU enrich, AND với các filter
+    DB sẵn có (method/status/category) — KHÔNG clobber. Pagination total phản ánh
+    TẬP ĐÃ LỌC (== len filtered), KHÔNG phải frappe.db.count thô bỏ qua predicate.
+
+    INVARIANT (data-live): de-dup len(items mọi trang) == get_depreciation_stats().fully_depreciated.
+    """
     filters: dict = {"docstatus": ("!=", 2)}
     if method_filter:
         filters["depreciation_method"] = method_filter
@@ -2159,20 +2206,49 @@ def list_assets_depreciation(page: int = 1, page_size: int = 50,
 
     page    = int(page)
     pg_size = int(page_size)
-    total   = frappe.db.count(_DT_ASSET, filters)
+    depreciation_filter = (depreciation_filter or "").strip()
 
-    assets = frappe.get_all(
+    # ── Fast path: KHÔNG có depreciation_filter → paginate ở DB như cũ ──────────
+    if depreciation_filter != _DEPR_FILTER_FULLY_DEPRECIATED:
+        total = frappe.db.count(_DT_ASSET, filters)
+        assets = frappe.get_all(
+            _DT_ASSET, filters=filters,
+            fields=_DEPR_LIST_FIELDS,
+            limit_start=(page - 1) * pg_size,
+            limit_page_length=pg_size,
+            order_by="asset_name asc",
+        )
+        for a in assets:
+            _depr_enrich_row(a)
+        return _ok({
+            "items": assets,
+            "pagination": {"page": page, "page_size": pg_size, "total": total},
+        })
+
+    # ── SoT path: lọc 'fully_depreciated' SAU enrich, paginate trong Python ─────
+    # Predicate phụ thuộc current_book_value (enrich) ⇒ phải fetch full candidate
+    # set (đã AND DB-filter), enrich, lọc SoT, rồi mới cắt trang → total == len(filtered).
+    from assetcore.services.depreciation import (
+        is_fully_depreciated as _depr_is_fully_depreciated,
+    )
+
+    candidates = frappe.get_all(
         _DT_ASSET, filters=filters,
         fields=_DEPR_LIST_FIELDS,
-        limit_start=(page - 1) * pg_size,
-        limit_page_length=pg_size,
         order_by="asset_name asc",
     )
-    for a in assets:
+    matched = []
+    for a in candidates:
         _depr_enrich_row(a)
+        if _depr_is_fully_depreciated(a):
+            matched.append(a)
+
+    total = len(matched)
+    start = (page - 1) * pg_size
+    items = matched[start:start + pg_size]
 
     return _ok({
-        "items": assets,
+        "items": items,
         "pagination": {"page": page, "page_size": pg_size, "total": total},
     })
 
@@ -2184,6 +2260,10 @@ def get_depreciation_stats():
     Lưu ý: total_accumulated lấy từ `accumulated_depreciation` (đã được cron
     cập nhật từ các kỳ Executed) — không tính trên-the-fly nữa.
     """
+    from assetcore.services.depreciation import (
+        is_fully_depreciated as _depr_is_fully_depreciated,
+    )
+
     BATCH = 500
     totals = {
         "total_gross": 0.0, "total_accumulated": 0.0, "total_book": 0.0,
@@ -2217,7 +2297,16 @@ def get_depreciation_stats():
 
             if configured:
                 totals["configured"] += 1
-                if book <= residual + 1:
+                # SoT DUY NHẤT — KHÔNG inline `book <= residual + 1` ở đây nữa.
+                # is_fully_depreciated tự kiểm `configured` (đã True ở nhánh này)
+                # + `book <= residual + tolerance`. Cùng tập, cùng số (backward-compat).
+                if _depr_is_fully_depreciated({
+                    "depreciation_method": method,
+                    "gross_purchase_amount": gross,
+                    "total_depreciation_months": months,
+                    "residual_value": residual,
+                    "current_book_value": book,
+                }):
                     totals["fully_depreciated"] += 1
                 m = method
             else:

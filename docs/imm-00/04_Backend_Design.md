@@ -325,7 +325,7 @@ Draft → Open (auto-submit khi tạo)
 Open → In Progress (cập nhật root_cause)
 In Progress → Pending Verification (gửi QA Officer)
 Pending Verification → Closed (close_capa() + docstatus=1)
-Open/In Progress → Overdue (scheduler daily)
+Open/In Progress/Pending Verification → Overdue (scheduler daily; idempotent; due_date NULL không flip)
 ```
 
 ## II.6. Asset Lifecycle Event
@@ -503,12 +503,74 @@ IMM-00 KHÔNG tạo DocType riêng cho người dùng — mở rộng Frappe **U
 | `confirm_receipt()`               | `(name, handover_notes="") -> dict`                                                                           | `{name, status, received_by}`   | API                      | Bên nhận xác nhận tiếp nhận (status → Received)                                                                             |
 | `cancel_transfer_request()`       | `(name) -> dict`                                                                                              | `{name, status}`                | API                      | Hủy phiếu (chỉ Pending/Rejected)                                                                                                |
 | `transfer_asset()`                | `(asset_name, to_location, to_department=None, to_custodian=None, transfer_doc=None, actor=None) -> None`     | None                              | approve_transfer_request | Cập nhật location/department/custodian + ghi lifecycle event + audit                                                             |
-| `check_capa_overdue()`            | `() -> None`                                                                                                  | None                              | Scheduler daily          | Mark CAPA Overdue + email QA Officer + responsible                                                                                 |
+| `is_capa_overdue()`               | `(status, due_date, ref_date=None) -> bool`                                                                   | bool                              | SoT predicate            | **SoT thuần** CAPA overdue: `status NOT IN ('Closed') AND due_date IS NOT NULL AND due_date < ref_date` (strict `<`)               |
+| `_overdue_capa_filter()`          | `(ref_date=None) -> dict`                                                                                     | dict filter                       | SoT filter-builder       | **SoT filter** cho count/get_all/get_list — KPI/scorecard/quality-dash/drill ĐỀU gọi (byte-for-byte). Null-guard qua `between [floor, ref-1]` |
+| `is_capa_open()`                  | `(status) -> bool`                                                                                            | bool                              | SoT predicate            | **SoT thuần** CAPA open (chưa đóng): `status NOT IN ('Closed')`. `'open'` = SUPERSET của `'overdue'` (Overdue VẪN open). None/rỗng → open |
+| `_open_capa_filter()`             | `() -> dict`                                                                                                  | dict filter                       | SoT filter-builder       | **SoT filter** capa_open cho count/get_all/get_list — KPI dashboard / scorecard `capa_open_count` / quality-dash `capa_open` / drill `list_capas(not_closed=1)` / `get_capa_aging` `total_open` / **IMM-16 gate** (`check_asset_compliance_status` BR-16-09: Critical-CAPA-open ENFORCEMENT — `gate_wo_submit` IMM-08/09 + commissioning IMM-04) ĐỀU gọi (byte-for-byte). Bất biến dưới cron flip ('Overdue' VẪN ∈ tập mở → gate VẪN block). |
+
+**Filter composition tại API layer — `list_capas` (BR-00-16, Self-Correction bug #4 Vòng 12).** `api/imm00.py::list_capas` nhận `status` (explicit) + `not_closed`/`overdue` (virtual). Cả hai đặt điều kiện trên field `status` ⇒ KHÔNG được dùng `filters.update(_open_capa_filter())` lên một filter-**dict** đã có `filters["status"]` (key trùng → clobber, biến AND thành either-or). Cách build đúng:
+
+```python
+conds = [[_DT_CAPA, "status", "=", status]] if status else []
+if capa_type: conds.append([_DT_CAPA, "capa_type", "=", capa_type])
+if asset:     conds.append([_DT_CAPA, "asset", "=", asset])
+if int(overdue):          # overdue ⊂ open → thắng not_closed
+    from assetcore.services.imm00 import _overdue_capa_filter
+    for f, op, val in _as_conditions(_overdue_capa_filter()):
+        conds.append([_DT_CAPA, f, op, val])
+elif int(not_closed):
+    from assetcore.services.imm00 import _open_capa_filter
+    for f, op, val in _as_conditions(_open_capa_filter()):
+        conds.append([_DT_CAPA, f, op, val])
+# frappe.db.count(_DT_CAPA, filters=conds) và frappe.get_list(_DT_CAPA, filters=conds, ...)
+# DÙNG CÙNG `conds` → pagination.total == len(items).
+```
+
+`_as_conditions(d)` = helper biến SoT dict (`{"status": ["not in", ["Closed"]], "due_date": ["between", [...]]}`) thành các tuple `(field, op, value)` để spread vào list-of-conditions. List-format cho phép 2 điều kiện cùng field `status` ⇒ AND thật. SoT filter-builder (`_open_capa_filter`/`_overdue_capa_filter`) **giữ nguyên** dict shape (không đổi — KPI dashboard/scorecard vẫn dùng trực tiếp); chỉ riêng `list_capas` (nơi có thể trùng field với explicit `status`) chuyển sang list-format.
+| `check_capa_overdue()`            | `() -> None`                                                                                                  | None                              | Scheduler daily          | Flip {Open, In Progress, Pending Verification} quá hạn → Overdue + email QA. Idempotent + null-guard. Cùng INVARIANT SoT. KHÔNG đổi capa_open count (Overdue vẫn open) |
 | `check_vendor_contract_expiry()`  | `() -> None`                                                                                                  | None                              | Scheduler daily          | Cảnh báo HĐ NCC 90/60/30 ngày                                                                                                  |
+| `byt_expiry_filter()`             | `(bucket: str) -> dict`                                                                                       | dict filter                       | SoT filter-builder       | **SoT filter** số ĐKLH BYT sắp/đã hết hạn (BR-00-17). `'expiring'` → `{"byt_reg_expiry": ["between", [today, today+BYT_EXPIRY_SOON_DAYS]]}`; `'expired'` → `{"byt_reg_expiry": ["<", today]}`. CẢ HAI bucket loại bản ghi `byt_reg_expiry IS NULL/''` (chưa khai ĐKLH ≠ hết hạn). KPI `dashboard.get_overview` (count) + drill `list_assets(byt_status=…)` (list) gọi CÙNG helper → card == drill byte-for-byte. `BYT_EXPIRY_SOON_DAYS = 30` (named const, KHÔNG literal). |
 | `check_registration_expiry()`     | `() -> None`                                                                                                  | None                              | Scheduler daily          | Cảnh báo BYT expiry 90/60/30/7 ngày                                                                                             |
 | `check_insurance_expiry()`        | `() -> None`                                                                                                  | None                              | Scheduler daily          | Cảnh báo bảo hiểm 90/60/30/7 ngày                                                                                             |
 | `check_service_contract_expiry()` | `() -> None`                                                                                                  | None                              | Scheduler daily          | Cảnh báo hợp đồng dịch vụ 90/60/30 ngày                                                                                    |
 | `rollup_asset_kpi()`              | `() -> None`                                                                                                  | None                              | Scheduler monthly        | Rollup MTTR avg + uptime_pct cho từng asset                                                                                       |
+
+### III.1a. SoT predicate — số ĐKLH BYT sắp/đã hết hạn (`byt_expiry_filter`, BR-00-17)
+
+**Bối cảnh / lỗi thiết kế gốc (Self-Correction Vòng 31):** KPI "Đăng ký lưu hành Bộ Y tế" được đếm bằng **literal inline** trong `api/dashboard.py:62-63`
+(`{"byt_reg_expiry": ["between", [today, today+30]]}` và `{"byt_reg_expiry": ["<", today]}`), trong khi `list_assets` (`api/imm00.py`) **không có** param `byt_status`
+→ ô KPI **không drill được** (FE `get_overview` field `byt_expiring_30d`/`byt_expired` không có tile tiêu thụ; `AssetListView.vue` không có chip lọc theo ĐKLH).
+Hệ quả: count KPI tồn tại nhưng không kiểm chứng được bằng danh sách → vi phạm INVARIANT "count == drill" (giống bug BR-08-12 PM due-soon & BR-05-15 depreciation).
+
+**Fix:** rút predicate về **một** hàm SoT module-level `byt_expiry_filter(bucket)` (đặt cạnh `due_soon_filter`/`_overdue_capa_filter` trong `services/imm00.py`), gọi từ CẢ HAI read-path:
+KPI count (`dashboard.get_overview`) **và** drill list (`list_assets(byt_status=…)`).
+
+```python
+BYT_EXPIRY_SOON_DAYS = 30  # NĐ98/2021 — cửa-sổ cảnh báo trước hạn cho dashboard quản trị (named const, KHÔNG literal)
+
+def byt_expiry_filter(bucket: str) -> dict:
+    """SoT (BR-00-17): filter dict cho 'số ĐKLH BYT sắp/đã hết hạn'.
+
+    bucket = 'expiring' → byt_reg_expiry BETWEEN [today, today + BYT_EXPIRY_SOON_DAYS] (2 biên inclusive).
+    bucket = 'expired'  → byt_reg_expiry < today (strict '<'; expiry == today CHƯA hết hạn).
+    CẢ HAI bucket LOẠI bản ghi byt_reg_expiry IS NULL/'' — thiết bị CHƯA khai số ĐKLH
+    KHÔNG phải 'hết hạn' (NĐ98: nghĩa vụ khai báo khác với nghĩa vụ gia hạn). Loại NULL/''
+    qua điều kiện `["is", "set"]` (Frappe) — KHÔNG để between/`<` ngầm bắt chuỗi rỗng.
+
+    INVARIANT (đo được): cùng DB →
+      get_overview().assets.byt_expiring_30d == total của list_assets(byt_status='expiring')
+      get_overview().assets.byt_expired     == total của list_assets(byt_status='expired')
+    byte-for-byte (cùng predicate, cùng vendor scope). bucket khác → caller bỏ qua (no-op, KHÔNG throw).
+
+    Ý nghĩa NĐ98/2021: số đăng ký lưu hành (ĐKLH) là điều kiện pháp lý để thiết bị y tế
+    được lưu hành/sử dụng. ĐKLH hết hạn → thiết bị có thể phải dừng khai thác lâm sàng →
+    tile danh sách phải drill được để Phòng QLTBYT rà soát & khởi tạo gia hạn kịp thời.
+    """
+```
+
+**Khung tham chiếu (giống pattern đã ship):** `due_soon_filter` (BR-08-12, IMM-08) và `is_fully_depreciated` (BR-05-15, IMM-05) — cùng nguyên tắc "một predicate SoT, count == drill".
+
+**Grep-guard (CI / review):** sau fix, `grep -n "byt_reg_expiry.*between\|byt_reg_expiry.*\[\"<\"" assetcore/api/dashboard.py assetcore/api/imm00.py` → **0 occurrence** literal-window NGOÀI thân `byt_expiry_filter`. `check_registration_expiry` (scheduler daily 90/60/30/7 — exact-day match, KHÔNG window) KHÔNG bị guard này tác động (predicate khác mục đích → giữ nguyên).
 
 ## III.1b. File: `assetcore/services/notifications.py` (Notification Framework — Wave N1)
 

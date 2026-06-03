@@ -6,7 +6,7 @@
 | Wave | Master |
 | Trạng thái | **Live ✅ — docs synced vs code 2026-05-27** · Notification Framework Wave N1 spec'd 2026-05-29 |
 | Số file hiện có | 8 (numbered 02–09) |
-| Cập nhật cuối | 2026-05-29 |
+| Cập nhật cuối | 2026-06-03 |
 | Khối kiến trúc | Cross-cutting (foundation cho A/B/C/D) |
 | Owner | — (Cross-cutting — System Architect + BA Lead) |
 

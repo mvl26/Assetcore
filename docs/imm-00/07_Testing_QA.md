@@ -84,6 +84,17 @@ Toàn bộ artefact test được của foundation layer. Mỗi dòng → ≥ 1 
 | BR-00-10 | Mỗi đổi lifecycle_status → 1 ALE | `transition_asset_status()` | State Transition |
 | BR-00-13 | GMDN kế thừa một chiều Category→Model→Asset | `before_insert` hooks | EP + Integration |
 | BR-00-14 | Override GMDN cho phép cả 3 cấp; không ghi đè sau insert | `before_insert` chỉ điền khi trống | EP |
+| BR-00-16 | `list_capas` conjoin (AND) explicit status + virtual not_closed/overdue; KHÔNG clobber | `list_capas()` | Decision Table + set-algebra |
+
+#### TC cho BR-00-16 — filter composition (conjoin, no-clobber)
+| TC | Request | Expected | Kỹ thuật |
+|---|---|---|---|
+| TC-00-CAPA-01 | `?not_closed=1&status=Overdue` | CHỈ tập Overdue (subset), KHÔNG full open-set (KHÔNG còn 117 như trước fix) | set-algebra (∧) |
+| TC-00-CAPA-02 | `?not_closed=1&status=Closed` | 0 rows (tập rỗng — `(NOT IN Closed) ∧ (== Closed)`) | minh chứng AND thật |
+| TC-00-CAPA-03 | `?overdue=1&status=Open` | 0 rows (`Open` ∉ tập flip Overdue) | overdue ∧ explicit status |
+| TC-00-CAPA-04 | mọi tổ hợp `{status} × {not_closed\|overdue\|none}` | `pagination.total == len(items)` (count & get_list cùng filter) | INVARIANT count==drill |
+| TC-00-CAPA-05 | `?not_closed=1` (no status) | == `_open_capa_filter()` byte-for-byte | no-regression BR-00-15 |
+| TC-00-CAPA-06 | `?overdue=1` (no status) | == `_overdue_capa_filter()` byte-for-byte | no-regression BR-00-09 (round 10/11) |
 
 ### I.2.c. Từ Activity Flow / Sequence
 | Flow ID | Use Case | Branch chính | Branch ngoại lệ |
@@ -416,6 +427,7 @@ Coverage % thực tế: *(Cần khảo sát — chưa chạy `coverage report` t
 | BR-00-07 | response < resolution×60 | SLA validate BVA | BVA | ⬜ Planned |
 | BR-00-08 | CAPA 3-field gate | `TestIMMCAPARecord::test_close_capa`; `TestCAPASmoke::test_s08_submit_capa_without_root_cause_fails` | Decision Table | 1 / 1 ✅ |
 | BR-00-09 | CAPA auto-overdue | `TestS11_CheckCapaOverdueScheduler` | BVA | 1 / ⬜ |
+| BR-00-16 | `list_capas` conjoin no-clobber | TC-00-CAPA-01..06 (test_imm00 / test_capa_open_sot / test_capa_overdue_sot) | Decision Table + set-algebra | ⬜ Planned |
 | BR-00-10 | 1 ALE / transition | `TestACAsset::test_transition_creates_lifecycle_event` | State Transition | 1 / 0 |
 | BR-00-13/14 | GMDN inheritance | `TestListAssetsGmdnFilter::*` (filter); inherit test | EP | partial ✅ |
 

@@ -55,8 +55,14 @@ class BaseRepository:
         page_size: int = 20,
         order_by: str = DEFAULT_ORDER,
     ) -> tuple[list[dict], dict]:
-        """Trả (rows, pagination_meta)."""
-        total = cls.count(filters)
+        """Trả (rows, pagination_meta).
+
+        Khi có ``or_filters`` (free-text search dịch sang OR-LIKE), total PHẢI
+        đếm qua ``count_with_or`` — ``frappe.db.count`` chỉ hiểu AND nên sẽ
+        over-count (pagination.total > số rows thực, bug-class /audit-trail).
+        """
+        from assetcore.services.shared.filters import count_with_or
+        total = count_with_or(cls.DOCTYPE, filters, or_filters)
         pg = paginate(total, page, page_size)
         rows = frappe.get_all(
             cls.DOCTYPE,
