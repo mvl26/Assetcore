@@ -809,10 +809,11 @@ from frappe.utils import get_datetime, now_datetime, time_diff_in_seconds  # noq
 
 _REPAIR_DOCTYPE: str = "Asset Repair"
 
-# Status non-terminal (đồng hồ SLA còn chạy). Khớp Asset Repair.status options.
-_REPAIR_TERMINAL_STATUS: frozenset[str] = frozenset(
-    {"Completed", "Cannot Repair", "Cancelled"}
-)
+# Terminal status (đồng hồ SLA dừng). BR-09-08: ALIAS về SoT DUY NHẤT
+# `imm09.REPAIR_TERMINAL_STATES` — KHÔNG định nghĩa frozenset song song. SLA
+# engine, KPI thẻ cm_open, persona KTV, drill-down SQL phải chia sẻ CÙNG tập
+# (Completed | Cannot Repair | Cancelled), tránh hai nguồn lệch nhau.
+from assetcore.services.imm09 import REPAIR_TERMINAL_STATES as _REPAIR_TERMINAL_STATUS  # noqa: E402
 
 # Ngưỡng tier (%). WARNING ≥ WARN_PCT & < 100; BREACH ≥ 100 hoặc sla_breached=1.
 _SLA_WARN_PCT: float = 80.0
@@ -995,6 +996,125 @@ def run_sla_breach_scan() -> None:
             frappe.log_error(
                 frappe.get_traceback(), "Notification run_sla_breach_scan wo"
             )
+
+
+# ─── E7: Incident SLA breach escalation (check_incident_sla_breach, IMM-12) ──────
+# ROOT CAUSE (BR-12-09): `imm12.check_incident_sla_breach` (hourly) set cờ
+# response_breached/resolution_breached=1 + ghi audit nhưng KHÔNG bắn notification —
+# incident quá hạn chìm vào log câm. E7 mirror E6 (Asset Repair) cho Incident Report:
+# resolve recipient (assigned_to + escalation_l1/l2_user policy + NĐ98 role gate) rồi
+# `_dispatch` 2 kênh. Idempotent qua chính cờ DB (caller chỉ gọi khi 0→1).
+
+_DT_INCIDENT_NOTIF: str = "Incident Report"
+
+# Mức độ Incident yêu cầu gate NĐ98 (Đ67) — thêm QA Officer + Ops Manager vào
+# recipient escalation KỂ CẢ khi SLA Policy không set escalation_l*_user.
+_INCIDENT_ND98_SEVERITIES: frozenset[str] = frozenset({"Critical", "High"})
+
+# Map severity → nhãn tiếng Việt (subject/message escalation).
+_INCIDENT_SEVERITY_VI: dict[str, str] = {
+    "Critical": "Nghiêm trọng",
+    "High": "Cao",
+    "Medium": "Trung bình",
+    "Low": "Thấp",
+}
+
+
+def _incident_sla_recipients(incident: dict, severity: str) -> list[str]:
+    """Phân giải người nhận escalation SLA cho một Incident (IMM-12).
+
+    Recipient = union (dedupe, loại Administrator + rỗng) của:
+      - `incident["assigned_to"]` (primary); trống → fallback `incident["reported_by"]`
+        (Incident Report KHÔNG có field `supervisor` — khác Asset Repair WO);
+      - `incident["escalation_l1_user"]` / `escalation_l2_user` (đọc từ IMM SLA Policy,
+        caller bơm vào dict — TRƯỚC fix imm12 chưa dùng);
+      - NĐ98 gate (BR-12-10): severity ∈ {Critical, High} → thêm role-block
+        notify_roles.INCIDENT_ESCALATION_QA + INCIDENT_ESCALATION_OPS (resolve qua
+        get_users_with_role) — KỂ CẢ khi policy không set escalation user.
+
+    Role-name lấy từ SSoT `notify_roles` (anti RBAC-dead-gate) — KHÔNG literal.
+    Trả [] ⇒ caller KHÔNG bắn (set cờ + audit phát hiện như cũ).
+    """
+    from assetcore.services.shared import notify_roles
+
+    candidates: list[str] = []
+    assignee = incident.get("assigned_to")
+    if assignee:
+        candidates.append(assignee)
+    elif incident.get("reported_by"):
+        candidates.append(incident["reported_by"])
+
+    for key in ("escalation_l1_user", "escalation_l2_user"):
+        val = incident.get(key)
+        if val:
+            candidates.append(val)
+
+    if severity in _INCIDENT_ND98_SEVERITIES:
+        for role in list(notify_roles.INCIDENT_ESCALATION_QA) + list(
+            notify_roles.INCIDENT_ESCALATION_OPS
+        ):
+            try:
+                candidates.extend(get_users_with_role(role))
+            except Exception:
+                frappe.log_error(
+                    frappe.get_traceback(), "Notification _incident_sla_recipients"
+                )
+
+    seen: set[str] = set()
+    out: list[str] = []
+    for u in candidates:
+        if u and u != "Administrator" and u not in seen:
+            seen.add(u)
+            out.append(u)
+    return out
+
+
+def _emit_incident_sla_notification(
+    incident: dict, kind: str, over_hours: float, severity: str
+) -> bool:
+    """Dựng subject/message tiếng Việt theo loại breach rồi `_dispatch` 2 kênh.
+
+    Args:
+        incident: dict có name, asset, assigned_to/reported_by, escalation_l1/l2_user,
+            response_due_at/resolution_due_at.
+        kind: 'response' (chưa tiếp nhận quá hạn) | 'resolution' (chưa đóng quá hạn).
+        over_hours: số giờ đã quá hạn (đã làm tròn 1 chữ số).
+        severity: mức độ incident (cho nhãn VI + NĐ98 gate).
+
+    Returns:
+        True nếu đã bắn cho ≥1 recipient; False nếu recipient rỗng (KHÔNG bắn rỗng).
+    """
+    recipients = _incident_sla_recipients(incident, severity)
+    if not recipients:
+        return False
+
+    name = incident.get("name", "")
+    asset = incident.get("asset") or ""
+    asset_name = (
+        frappe.db.get_value("AC Asset", asset, "asset_name") if asset else None
+    ) or asset or "—"
+    sev_vi = _INCIDENT_SEVERITY_VI.get(severity, severity)
+    doc_like = frappe._dict(doctype=_DT_INCIDENT_NOTIF, name=name)
+
+    if kind == "response":
+        due = incident.get("response_due_at")
+        subject = f"VI PHẠM SLA (tiếp nhận): Sự cố {name}"
+        message = (
+            f"Sự cố <b>{name}</b> trên thiết bị <b>{asset_name}</b> CHƯA được "
+            f"tiếp nhận và đã quá hạn <b>{over_hours} giờ</b> "
+            f"(hạn tiếp nhận: {due}). Mức độ: {sev_vi}. Vui lòng tiếp nhận khẩn."
+        )
+    else:  # resolution
+        due = incident.get("resolution_due_at")
+        subject = f"VI PHẠM SLA (xử lý): Sự cố {name}"
+        message = (
+            f"Sự cố <b>{name}</b> trên thiết bị <b>{asset_name}</b> CHƯA được "
+            f"đóng và đã quá hạn xử lý <b>{over_hours} giờ</b> "
+            f"(hạn xử lý: {due}). Mức độ: {sev_vi}. Vui lòng xử lý khẩn."
+        )
+
+    _dispatch(recipients, subject, message, doc_like)
+    return True
 
 
 # ─── Per-user preferences (API entrypoints) ─────────────────────────────────────

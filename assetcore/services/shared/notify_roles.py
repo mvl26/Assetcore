@@ -34,8 +34,23 @@ QA_OFFICER: list[str] = ["Compliance Manager"]
 BIOMED_TECH: list[str] = ["Maintenance User"]
 # Thủ kho phụ tùng.
 STOREKEEPER: list[str] = ["Inventory Manager"]
+# Người nhận leo thang CAPA quá hạn Level-2 (IMM-16). Ngữ nghĩa = quản lý
+# tuân thủ chịu trách nhiệm khi CAPA Critical/High quá hạn — trùng role thật với
+# QA_OFFICER hôm nay nhưng KHAI BÁO RIÊNG để escalation routing có 1 SSoT độc lập
+# (nếu sau này tách "Compliance Manager" khỏi QA thì chỉ sửa ở đây).
+CAPA_ESCALATION_MANAGER: list[str] = ["Compliance Manager"]
+
+# Người nhận escalation SLA của Incident (IMM-12) — NĐ98 gate cho Critical/High.
+# Tái dùng role THẬT (QA_OFFICER / OPS_MANAGER) nhưng khai báo RIÊNG để escalation
+# incident-SLA có điểm cấu hình routing độc lập (đúng pattern CAPA_ESCALATION_MANAGER).
+# Khi incident Critical/High vi phạm SLA, gate compliance NĐ98 (Đ67) thêm 2 nhóm này
+# vào recipient KỂ CẢ khi IMM SLA Policy không set escalation_l1/l2_user.
+INCIDENT_ESCALATION_QA: list[str] = QA_OFFICER       # ["Compliance Manager"]
+INCIDENT_ESCALATION_OPS: list[str] = OPS_MANAGER     # ["Maintenance Manager"]
 
 # Mọi role được tham chiếu để gửi notification từ module này — dùng cho guard test.
 ALL_NOTIFY_ROLES: frozenset[str] = frozenset(
     WORKSHOP_HEAD + OPS_MANAGER + QA_OFFICER + BIOMED_TECH + STOREKEEPER
+    + CAPA_ESCALATION_MANAGER
+    + INCIDENT_ESCALATION_QA + INCIDENT_ESCALATION_OPS
 )

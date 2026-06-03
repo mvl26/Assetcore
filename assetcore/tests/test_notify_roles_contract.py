@@ -42,6 +42,7 @@ _LIVE_FILES = [
     _APP_ROOT / "services" / "inventory.py",
     _APP_ROOT / "services" / "imm00.py",
     _APP_ROOT / "services" / "imm04.py",
+    _APP_ROOT / "services" / "imm16.py",
 ]
 
 
@@ -79,4 +80,63 @@ class TestNotifyRolesContract(unittest.TestCase):
         self.assertEqual(
             _get_role_emails(["IMM Workshop Lead"]), [],
             "Role không tồn tại phải trả [] — đây là lý do email im lặng",
+        )
+
+    def test_tc_r21_05_incident_sla_escalation_keys_exist_and_resolve(self):
+        """TDD-7 (IMM-12): incident-SLA escalation block có trong notify_roles SSoT,
+        resolve ra role THẬT tồn tại (anti RBAC-dead-gate).
+
+        Khoá routing escalation incident-SLA (NĐ98 gate Critical/High) PHẢI:
+          (a) khai báo trong notify_roles (INCIDENT_ESCALATION_QA / _OPS),
+          (b) nằm trong ALL_NOTIFY_ROLES (guard test_tc_r21_01 phủ tồn tại),
+          (c) trỏ role THẬT trong Role table (không dead-gate).
+        """
+        self.assertTrue(
+            hasattr(notify_roles, "INCIDENT_ESCALATION_QA"),
+            "Thiếu key INCIDENT_ESCALATION_QA cho escalation incident-SLA (IMM-12)",
+        )
+        self.assertTrue(
+            hasattr(notify_roles, "INCIDENT_ESCALATION_OPS"),
+            "Thiếu key INCIDENT_ESCALATION_OPS cho escalation incident-SLA (IMM-12)",
+        )
+        esc_roles = list(notify_roles.INCIDENT_ESCALATION_QA) + list(
+            notify_roles.INCIDENT_ESCALATION_OPS
+        )
+        self.assertTrue(esc_roles, "Escalation block rỗng → không bao giờ resolve recipient")
+        for r in esc_roles:
+            self.assertIn(
+                r, notify_roles.ALL_NOTIFY_ROLES,
+                f"Role escalation '{r}' không nằm trong ALL_NOTIFY_ROLES (guard miss)",
+            )
+            self.assertTrue(
+                frappe.db.exists("Role", r),
+                f"Escalation role '{r}' không tồn tại trong Role table — RBAC dead-gate",
+            )
+
+    def test_tc_r21_04_no_raw_has_role_sql_in_services(self):
+        """Toàn bộ truy vấn role->email PHẢI đi qua helpers._get_role_emails.
+
+        Không service nào được tự viết raw SQL ``tabHas Role`` (role-literal
+        hardcode -> dead-route âm thầm khi role rename). Điểm tập trung hợp lệ
+        DUY NHẤT là ``assetcore/utils/helpers._get_role_emails`` (ngoài services/).
+        """
+        services_dir = _APP_ROOT / "services"
+        offenders: list[str] = []
+        for f in services_dir.rglob("*.py"):
+            for lineno, line in enumerate(
+                f.read_text(encoding="utf-8").splitlines(), 1
+            ):
+                code = line.split("#", 1)[0]  # bỏ comment
+                if "tabHas Role" not in code:
+                    continue
+                # Real SQL dùng single-backtick table syntax: `tabHas Role`.
+                # Docstring/prose RST dùng double-backtick: ``tabHas Role``.
+                # Chỉ flag SQL thật, KHÔNG flag prose mô tả anti-pattern (false-positive).
+                if "``tabHas Role``" in code:
+                    continue
+                offenders.append(f"{f.relative_to(_APP_ROOT)}:{lineno}")
+        self.assertEqual(
+            offenders, [],
+            "Raw `tabHas Role` SQL còn trong services/ — phải route qua "
+            f"helpers._get_role_emails (SSoT): {offenders}",
         )
