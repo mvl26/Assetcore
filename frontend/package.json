@@ -5,6 +5,7 @@
   "type": "module",
   "private": true,
   "scripts": {
+    "predev": "node scripts/free-dev-port.mjs 3000",
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
