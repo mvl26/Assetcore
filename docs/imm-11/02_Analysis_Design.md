@@ -361,8 +361,11 @@ Module có 12 UC chính → tách thành 3 nhóm phân rã, mỗi nhóm ≤ 6 UC
 
 | Priority | Must |
 |---|---|
-| AC-01 | Given asset có `next_calibration_date ≤ today + 30`, When Workshop Lead xem dashboard, Then thiết bị xuất hiện trong danh sách "Due Soon" |
-| AC-02 | Given asset có `next_calibration_date < today`, When xem, Then hiển thị "Overdue" với số ngày quá hạn |
+| AC-01 | Given asset có active `Schedule.next_due_date` trong `[today, today+30]` (SoT BR-11-08), When Workshop Lead xem dashboard, Then thiết bị xuất hiện trong danh sách "Due Soon" |
+| AC-02 | Given asset có active `Schedule.next_due_date < today`, When xem, Then hiển thị "Overdue" với số ngày quá hạn |
+| AC-11-11 | Given asset chỉ-có-schedule (`AC Asset.next_calibration_date` NULL) nhưng `Schedule.next_due_date < today`, When xem, Then asset được đếm Overdue ở CẢ dashboard VÀ IMM-11 KPI/drill (count == drill, BR-11-08) |
+| AC-11-12 | Given `AC Asset.calibration_status = Overdue` và lịch DUY NHẤT của asset bị `is_active=0` (hoặc bị xóa) → rollup map không còn chứa asset, When `check_calibration_expiry()` chạy, Then `calibration_status ∈ {Not Required, ''}` (KHÔNG còn badge `Overdue`/`Due Soon` cũ). BR-11-10 |
+| AC-11-13 | Given asset đã `handle_calibration_fail` (`calibration_status = Calibration Failed`, `lifecycle_status = Out of Service`, CAPA mở) còn active schedule overdue, When `check_calibration_expiry()` chạy, Then `calibration_status` GIỮ `Calibration Failed` (KHÔNG ghi đè về On Schedule/Due Soon/Overdue). BR-11-11 |
 
 ### US-11-02: Auto Pass/Fail khi nhập measurement
 
@@ -384,6 +387,33 @@ Module có 12 UC chính → tách thành 3 nhóm phân rã, mỗi nhóm ≤ 6 UC
 | BR-11-05 | Immutable sau Submit; Amend với reason | Submittable + `on_cancel` block | AC-11-09 |
 | BR-11-06 | Decommissioned → suspend Schedule | `transition_asset_status()` cascade | — |
 | BR-11-07 | `validate_asset_for_operations()` gate (trừ `is_recalibration=1`) | service entry | AC-11-10 |
+| BR-11-08 | **SoT "đến hạn/quá hạn" hiệu chuẩn** — biên rõ + 1 nguồn date duy nhất | `is_calibration_overdue` / `is_calibration_due_soon` (services/imm11.py) | AC-11-11, TC-11-SOT-* |
+| BR-11-09 | **De-dup theo asset** — 1 asset có >1 active schedule overdue chỉ đếm 1 lần | `get_calibration_kpis` + drill `list_schedules` | TC-11-SOT-DEDUP |
+| BR-11-10 | **Stale-clear** — asset KHÔNG còn active schedule (lịch bị `is_active=0`/xóa) thì rollup phải reset `calibration_status` về neutral (`Not Required`), KHÔNG giữ badge `Overdue`/`Due Soon` cũ vĩnh viễn | `check_calibration_expiry()` (reconcile UNION) | AC-11-12, TC-11-ROLLUP-STALE |
+| BR-11-11 | **FAILED-preserve (terminal)** — khi asset `lifecycle_status = Out of Service`, rollup KHÔNG được ghi đè `calibration_status = Calibration Failed` về `On Schedule`/`Due Soon`/`Overdue`. Terminal chỉ rời bằng recal Pass (`handle_calibration_pass`) | `check_calibration_expiry()` (preserve guard) | AC-11-13, TC-11-ROLLUP-FAILED |
+
+### BR-11-08 — Single Source of Truth: predicate "đến hạn / quá hạn"
+
+Trước đây tồn tại **2 nguồn ngày phân kỳ** cho cùng khái niệm "đến hạn/quá hạn":
+1. Dashboard (`api/dashboard.py`) đếm `IMM Calibration Schedule.next_due_date` (KHÔNG lọc `is_active=1`, KHÔNG loại asset decommissioned → đếm dư).
+2. Module IMM-11 KPI/drill đếm `AC Asset.calibration_status` — cache derive từ `AC Asset.next_calibration_date` (field KHÁC; NULL với asset chỉ-có-schedule/minted → IMM-11 KPI = 0 dù dashboard thấy).
+
+**Chốt (Self-Correction):** loại bỏ phân kỳ — định nghĩa 1 predicate duy nhất, dùng chung MỌI consumer:
+
+- **Date-field authoritative DUY NHẤT:** `IMM Calibration Schedule.next_due_date` của schedule `is_active=1`. Lý do: 1 asset có thể có **>1 loại** calibration (External + In-House) → mỗi loại 1 schedule riêng với hạn riêng; `AC Asset.next_calibration_date` chỉ giữ 1 giá trị → không biểu diễn được nhiều loại. `AC Asset.calibration_status` từ nay **chỉ là rollup cache** derive từ SoT (không phải nguồn đếm).
+- **Hằng cửa sổ dùng chung:** `CAL_DUE_SOON_WINDOW_DAYS = 30` (1 hằng, dùng ở MỌI nơi).
+- **Biên (boundary) — chốt rõ:**
+  - `is_calibration_overdue(next_due, today)` ⟺ `next_due < today` (**strict `<`**).
+  - `is_calibration_due_soon(next_due, today)` ⟺ `today <= next_due <= today + CAL_DUE_SOON_WINDOW_DAYS` (**cả 2 biên inclusive**).
+  - `ON_SCHEDULE` ⟺ ngược lại (`next_due > today + 30`). OVERDUE và DUE_SOON loại trừ nhau (overdue ưu tiên).
+- **Tập filter ĐỒNG NHẤT ở MỌI consumer:**
+  - loại trừ asset decommissioned: `lifecycle_status NOT IN (Decommissioned)` (`AssetStatus.DECOMMISSIONED`); VÀ
+  - chỉ schedule `is_active = 1`.
+  - Áp dụng y hệt cho `dashboard.py` `calib_due`/`calib_overdue` VÀ `imm11` KPI/drill.
+- **Đếm theo ASSET (de-dup, BR-11-09):** nếu 1 asset có nhiều active schedule overdue → đếm **1 lần theo asset**, KHÔNG double-count theo schedule row. KPI card == số dòng drill (drill cũng de-dup theo asset).
+- **Mint gap đóng:** asset tạo trực tiếp với `is_calibration_required` (`create_calibration_schedule_from_asset`) đã set `Schedule.next_due_date` → nay hiển thị nhất quán ở CẢ dashboard VÀ IMM-11 KPI/drill (không còn cảnh "chỉ dashboard thấy, IMM-11 KPI=0").
+
+Chi tiết hàm + SQL ở `04_Backend_Design.md §4.1`. Quy tắc count==drill (canonical-value) ở `05_API_Specification.md §6.1`.
 
 ## IV.3. State Machine
 

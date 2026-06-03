@@ -68,6 +68,8 @@ Toàn bộ artefact test được của IMM-11 (nguồn: 04 §DocType/§Service/
 | BR-11-05 | Immutable sau Submit; Amend cần reason | #13 `on_cancel`/`on_trash` + amendment_reason | EP + Error guessing |
 | BR-11-06 | Decommissioned → suspend Schedule | #15 transition cascade | EP |
 | BR-11-07 | `validate_asset_for_operations()` gate (trừ `is_recalibration=1`) | #5 service entry | Decision Table |
+| BR-11-08 | SoT predicate due/overdue — biên rõ + 1 nguồn date (Schedule.next_due_date) | `is_calibration_overdue` / `is_calibration_due_soon` / `_overdue_asset_ids` | BVA (date boundary) + EP |
+| BR-11-09 | De-dup theo asset (>1 active schedule overdue → đếm 1) | `_overdue_asset_ids` DISTINCT | EP |
 
 ### I.2.c. Từ Activity Flow / State Machine
 Nguồn: 02 §IV.3 State Machine (mermaid). ACT id chưa định danh trong 02 → dùng branch của state machine làm path test.
@@ -319,8 +321,9 @@ bench --site miyano run-tests --module assetcore.tests.test_workflows
 
 | US ID | AC | Test ID (III.x) | Layer | Status |
 |---|---|---|---|---|
-| US-11-01 | AC-01 Due Soon | `test_get_due_calibrations` | API | ⬜ Planned |
-| US-11-01 | AC-02 Overdue | `TestExpiryCheck::test_overdue` | Unit | ⬜ Planned |
+| US-11-01 | AC-01 Due Soon (SoT Schedule.next_due) | `test_get_due_calibrations`, `TestCalibrationSoTPredicate` | API + Unit | ⬜ Planned |
+| US-11-01 | AC-02 Overdue (SoT Schedule.next_due) | `TestCalibrationSoTPredicate::test_overdue` | Unit | ⬜ Planned |
+| US-11-01 | AC-11-11 Mint-gap (next_calibration_date NULL vẫn đếm) | `TestCalibrationCountDrillParity::test_mint_only_schedule` | Unit | ⬜ Planned |
 | US-11-02 | AC-01 in-tolerance Pass | `TestAddMeasurement::test_in_tolerance_pass` | Unit | ⬜ Planned |
 | US-11-02 | AC-02 OOT Fail | `TestAddMeasurement::test_oot_fail` | Unit | ⬜ Planned |
 
@@ -335,6 +338,29 @@ bench --site miyano run-tests --module assetcore.tests.test_workflows
 | BR-11-05 | Immutable sau Submit; Amend cần reason | `test_on_cancel_blocked_after_submit`, `test_on_trash_blocked_after_submit` | Error guessing | 1 / 2 |
 | BR-11-06 | Decommissioned → suspend Schedule | *(Cần khảo sát — test chưa định danh)* | EP | ⬜ |
 | BR-11-07 | gate `validate_asset_for_operations` (trừ recalibration) | `TestAssetGate` | Decision Table | 1 / 1 |
+| BR-11-08 | SoT predicate biên + count==drill + mint-gap | `TestCalibrationSoTPredicate`, `TestCalibrationCountDrillParity` (test_imm11) + `test_dashboard` parity | BVA + EP | nhiều |
+| BR-11-09 | De-dup theo asset | `TestCalibrationSoTDedup` | EP | 1 / 1 |
+
+### BR-11-08 / BR-11-09 — test cases bắt buộc (SoT calibration due/overdue)
+
+| TC ID | Given | When | Then |
+|---|---|---|---|
+| TC-11-SOT-BVA-OVERDUE | active Schedule `next_due = today-1` | `is_calibration_overdue` / `_overdue_asset_ids` | True / asset có trong tập overdue |
+| TC-11-SOT-BVA-TODAY | active Schedule `next_due = today` | predicate | overdue=False, **due_soon=True** (biên `today` thuộc due_soon) |
+| TC-11-SOT-BVA-W30 | active Schedule `next_due = today+30` | predicate | due_soon=True (biên trên inclusive) |
+| TC-11-SOT-BVA-W31 | active Schedule `next_due = today+31` | predicate | due_soon=False, on_schedule |
+| TC-11-SOT-MINT | asset `is_calibration_required` minted (AC Asset.next_calibration_date NULL) nhưng `Schedule.next_due < today` | `get_calibration_kpis` + dashboard `calib_overdue` | **CẢ 2** đếm asset này (count == drill, mint-gap đóng) |
+| TC-11-SOT-DEDUP | 1 asset có 2 active schedule cùng overdue | `_overdue_asset_ids` + KPI + drill | đếm **1** theo asset (không double-count theo row) |
+| TC-11-SOT-DECOM | asset Decommissioned có active schedule overdue | KPI + dashboard | KHÔNG đếm (loại theo `lifecycle_status NOT IN Decommissioned`) |
+| TC-11-SOT-INACTIVE | schedule `is_active=0`, `next_due < today` | KPI + dashboard | KHÔNG đếm (chỉ active) |
+| TC-11-SOT-PARITY | dataset hỗn hợp | so `get_calibration_kpis().overdue_assets` vs `dashboard.get_overview().calibration.overdue` | bằng nhau (cùng SoT) |
+| TC-11-SOT-IDEMPOTENT | chạy `check_calibration_expiry` 2 lần | so kết quả + notify | status không đổi lần 2; notify chỉ phát khi status THỰC SỰ đổi |
+| TC-11-ROLLUP-STALE | asset cache=`Overdue`, lịch DUY NHẤT `is_active=0` (rollup map không còn asset) | `check_calibration_expiry()` | `calibration_status ∈ {Not Required, ''}` — KHÔNG giữ `Overdue` (BR-11-10, AC-11-12) |
+| TC-11-ROLLUP-FAILED | sau `handle_calibration_fail` (cache=`Calibration Failed`, lifecycle=`Out of Service`, còn active schedule overdue) | `check_calibration_expiry()` | cache GIỮ `Calibration Failed` — KHÔNG ghi đè Overdue/Due Soon/On Schedule (BR-11-11, AC-11-13) |
+| TC-11-ROLLUP-FAILED-IDEMP | TC-11-ROLLUP-FAILED chạy 2 lần | `check_calibration_expiry()` ×2 | lần 2 `new==old` → no-op, `notify_calibration_due` KHÔNG gọi lại (anti-spam preserve) |
+| TC-11-ROLLUP-RECOVER | asset từng FAILED, recal Pass đưa về Active (`handle_calibration_pass`), còn active schedule trong window | `check_calibration_expiry()` | cache tiếp quản bằng SoT rollup (On Schedule/Due Soon/Overdue) — KHÔNG kẹt FAILED |
+
+> 4 case rollup mới mở rộng class `TestCheckCalibrationExpiryRollup` (`tests/test_imm11.py`) — phải GIỮ 2 case idempotent/anti-spam cũ xanh. SoT count helper (`_overdue_asset_ids`/`_due_soon_asset_ids`/`_calibration_status_asset_ids`) KHÔNG đổi → `test_dashboard` + SoT parity không regress.
 
 DoD: mọi BR có ≥ 1 happy + ≥ 1 negative. `TestCalibrationSubmitGate` (✅ Live) đã cover gate before_submit (CAL-004).
 

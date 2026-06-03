@@ -284,6 +284,33 @@ curl -X POST 'https://hospital.assetcore.vn/api/method/assetcore.api.imm11.submi
 
 ---
 
+## 6.1 Canonical-value rule — KPI calibration due/overdue == drill (BR-11-08/09)
+
+Số trên KPI card PHẢI bằng số dòng khi click drill (cùng SoT, không lệch). 1 nguồn predicate (`services/imm11.py §4.1`), dùng chung dashboard + module.
+
+| KPI / field | Predicate (SoT) | Drill route + query | Quan hệ |
+|---|---|---|---|
+| `get_calibration_kpis().overdue_assets` | `len(_overdue_asset_ids())` — DISTINCT asset, active schedule, `next_due < today`, không decommissioned | `/calibration/schedules?overdue=1` | card == `len(drill)` (de-dup theo asset) |
+| `get_calibration_kpis().due_soon_assets` | `len(_due_soon_asset_ids())` — DISTINCT asset, `today <= next_due <= today+30`, loại overdue, không decommissioned | `/calibration/schedules?due_soon=1` (cửa-sổ-2-biên `next_due BETWEEN [today, today+30]` + `asset IN _due_soon_asset_ids()`) | card == `len(drill)` (de-dup theo asset, KHÔNG cần post-filter `next_due >= today`) |
+| Dashboard `calibration.overdue` (`api/dashboard.py`) | `len(_overdue_asset_ids())` (import từ `services.imm11`) | giống trên | == module `overdue_assets` (CÙNG SoT) |
+| Dashboard `calibration.due_30d` | `len(_due_soon_asset_ids())` | giống trên | == module `due_soon_assets` |
+
+**Boundary (chốt):** OVERDUE ⟺ `next_due < today` (strict `<`); DUE_SOON ⟺ `today <= next_due <= today+30` (2 biên inclusive); `next_due == today` → DUE_SOON; `next_due == today+30` → DUE_SOON; `next_due == today+31` → ON_SCHEDULE.
+
+**Phân biệt drill param (`_normalize_schedule_filters`, 3 nhánh — ưu tiên `overdue` > `due_soon` > `due_before`):**
+
+- `?overdue=1` — card `calib_overdue`: `next_due < today` + `is_active=1` + `asset IN _overdue_asset_ids()`.
+- `?due_soon=1` — card `calib_due` "Hiệu chuẩn đến hạn": **cửa-sổ-2-biên** `next_due BETWEEN [today, today+30]` + `is_active=1` + `asset IN _due_soon_asset_ids()` (đã LOẠI overdue). Drill tái lập CHÍNH XÁC tập KPI — số asset distinct == `calib_due`. Overdue rows KHÔNG lẫn (thuộc `?overdue=1`).
+- `?due_before=<X>` — **cutoff-tùy-ý LEGACY (tập-BAO)**: `next_due <= X` + `is_active=1`, chỉ loại asset thanh lý. GỒM cả overdue (`<= X`). KHÔNG dùng cho card due-soon (sẽ lệch count). Giữ riêng cho caller cũ cần cutoff bất kỳ.
+
+**Vendor-scope an toàn:** khi `apply_vendor_scope` đã inject `asset IN [allowed]`, cả 3 nhánh GIAO (intersect) caller-scope với tập SoT/decom — KHÔNG clobber → vendor KHÔNG thấy asset ngoài phạm vi khi drill.
+
+**Drill `overdue=1` vs `due_before`:** `_normalize_schedule_filters` đã dịch `overdue=1` → `next_due_date < today` và `due_before=X` → `next_due_date <= X` trên `IMM Calibration Schedule` (is_active=1). Drill list trả theo SCHEDULE ROW; KPI card đếm theo ASSET (de-dup) → khi 1 asset có >1 schedule overdue, FE hiển thị nhiều row drill nhưng KPI đếm 1; doc-of-record: **KPI = #asset, drill list có thể >#asset nhưng tập asset của drill == tập KPI**. FE render BE count/list verbatim (KHÔNG inline compute).
+
+**Mint-gap:** asset tạo trực tiếp với `is_calibration_required` (`create_calibration_schedule_from_asset`) set `Schedule.next_due_date` → xuất hiện đồng nhất ở CẢ dashboard VÀ module (trước fix: chỉ dashboard thấy).
+
+---
+
 ## 7. Smoke test playbook
 
 ```bash

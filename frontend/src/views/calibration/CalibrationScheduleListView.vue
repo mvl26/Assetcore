@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useToast } from '@/composables/useToast'
 import DateInput from '@/components/common/DateInput.vue'
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import {
   listCalibrationSchedules, createCalibrationSchedule,
@@ -10,6 +10,7 @@ import {
 import type { CalibrationSchedule } from '@/api/imm11'
 import SmartSelect from '@/components/common/SmartSelect.vue'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
+import BasePagination from '@/components/common/BasePagination.vue'
 import { formatAssetDisplay, formatDate } from '@/utils/formatters'
 import PageHeader from '@/components/common/PageHeader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
@@ -21,8 +22,12 @@ const toast = useToast()
 const notify = useNotify()
 const store = useImm11Store()
 
+const PAGE_SIZE = 20
+
 const items = ref<CalibrationSchedule[]>([])
 const total = ref(0)
+const page = ref(1)
+const totalPages = ref(0)
 const loading = ref(false)
 const showForm = ref(false)
 const editingName = ref<string | null>(null)
@@ -31,41 +36,33 @@ const err = ref('')
 // Filters
 const route = useRoute()
 const showFilters = ref(false)
-// R6 §9.4.3 — pre-apply từ KPI drill: ?overdue=1 → overdue_only; ?due_before=X →
-// due_before (next_due_date <= X). Khớp đúng predicate BE đếm KPI calib_due/overdue.
+// R6 §9.4.3 + BR-11-08 — pre-apply từ KPI drill:
+//   ?overdue=1   → overdue_only (next_due_date < today, card calib_overdue);
+//   ?due_soon=1  → due_soon (cửa-sổ-2-biên [today, today+30], card calib_due —
+//                  KHỚP CHÍNH XÁC tập KPI, overdue rows KHÔNG lẫn);
+//   ?due_before=X→ due_before (next_due_date <= X, cutoff-tùy-ý tập-BAO legacy).
+// Toàn bộ lọc/tìm-kiếm/drill chạy SERVER-SIDE (BE list_schedules: pop_search trên
+// ['name','asset'] + link_search asset_name + virtual overdue/due_soon/due_before).
+// FE KHÔNG còn lọc client-side — tránh divergence total vs rows và miss rows >page_size.
 const filters = ref({
   calibration_type: '', is_active: '' as '' | '1' | '0',
   overdue_only: route.query.overdue === '1',
+  due_soon: route.query.due_soon === '1',
   due_before: (route.query.due_before as string) || '',
   search: '',
 })
 
 const TYPE_LABEL: Record<string, string> = { External: 'Bên ngoài', 'In-House': 'Nội bộ' }
 
-interface FilterChip { key: 'calibration_type' | 'is_active' | 'overdue_only' | 'due_before' | 'search'; label: string }
-const filteredItems = computed(() => {
-  let arr = items.value
-  if (filters.value.calibration_type) arr = arr.filter(s => s.calibration_type === filters.value.calibration_type)
-  if (filters.value.is_active === '1') arr = arr.filter(s => s.is_active === 1)
-  if (filters.value.is_active === '0') arr = arr.filter(s => s.is_active === 0)
-  if (filters.value.overdue_only) arr = arr.filter(s => s.next_due_date && new Date(s.next_due_date) < new Date())
-  else if (filters.value.due_before) arr = arr.filter(s => s.next_due_date && s.next_due_date <= filters.value.due_before)
-  if (filters.value.search.trim()) {
-    const q = filters.value.search.trim().toLowerCase()
-    arr = arr.filter(s =>
-      (s.name || '').toLowerCase().includes(q)
-      || (s.asset || '').toLowerCase().includes(q)
-      || (s.asset_name || '').toLowerCase().includes(q),
-    )
-  }
-  return arr
-})
+interface FilterChip { key: 'calibration_type' | 'is_active' | 'overdue_only' | 'due_soon' | 'due_before' | 'search'; label: string }
 const activeChips = computed<FilterChip[]>(() => {
   const chips: FilterChip[] = []
   if (filters.value.calibration_type) chips.push({ key: 'calibration_type', label: TYPE_LABEL[filters.value.calibration_type] || filters.value.calibration_type })
   if (filters.value.is_active === '1') chips.push({ key: 'is_active', label: 'Đang hoạt động' })
   if (filters.value.is_active === '0') chips.push({ key: 'is_active', label: 'Tạm dừng' })
+  // Ưu tiên overdue > due_soon > due_before (khớp _normalize_schedule_filters BE).
   if (filters.value.overdue_only) chips.push({ key: 'overdue_only', label: 'Quá hạn' })
+  else if (filters.value.due_soon) chips.push({ key: 'due_soon', label: 'Sắp đến hạn (30 ngày)' })
   else if (filters.value.due_before) chips.push({ key: 'due_before', label: `Đến hạn trước ${formatDate(filters.value.due_before)}` })
   if (filters.value.search.trim()) chips.push({ key: 'search', label: `"${filters.value.search.trim()}"` })
   return chips
@@ -79,11 +76,15 @@ function quickFilter(key: 'calibration_type', value: string) {
 function clearChip(key: string) {
   if (key === 'is_active') filters.value.is_active = ''
   else if (key === 'overdue_only') filters.value.overdue_only = false
+  else if (key === 'due_soon') filters.value.due_soon = false
   else if (key === 'due_before') filters.value.due_before = ''
   else (filters.value as Record<string, unknown>)[key] = ''
+  // search-chip không nằm trong watch → reload thủ công (watched keys tự reload).
+  if (key === 'search') load(1)
 }
 function resetFilters() {
-  filters.value = { calibration_type: '', is_active: '', overdue_only: false, due_before: '', search: '' }
+  filters.value = { calibration_type: '', is_active: '', overdue_only: false, due_soon: false, due_before: '', search: '' }
+  load(1)
 }
 
 const form = ref<Partial<CalibrationSchedule>>({
@@ -92,14 +93,50 @@ const form = ref<Partial<CalibrationSchedule>>({
   is_active: 1,
 })
 
-async function load() {
+// Build server-side filter dict từ ref filters. Ưu tiên overdue > due_soon >
+// due_before (khớp _normalize_schedule_filters của BE). due_soon = card calib_due
+// (2-biên, list tái lập CHÍNH XÁC tập KPI). search/calibration_type/is_active gửi xuống.
+function buildFilters(): Record<string, unknown> {
+  const f: Record<string, unknown> = {}
+  if (filters.value.calibration_type) f.calibration_type = filters.value.calibration_type
+  if (filters.value.is_active !== '') f.is_active = Number(filters.value.is_active)
+  if (filters.value.overdue_only) f.overdue = 1
+  else if (filters.value.due_soon) f.due_soon = 1
+  else if (filters.value.due_before) f.due_before = filters.value.due_before
+  const q = filters.value.search.trim()
+  if (q) f.search = q
+  return f
+}
+
+async function load(toPage = page.value) {
   loading.value = true
   try {
-    const res = await listCalibrationSchedules({}, 1, 50)
+    page.value = toPage
+    const res = await listCalibrationSchedules(buildFilters(), toPage, PAGE_SIZE)
     items.value = res.data || []
     total.value = res.pagination?.total || 0
+    totalPages.value = (res.pagination?.total_pages as number) || 0
+  } catch (e: unknown) {
+    store._captureError(e)
+    notify.fromError(store.lastApiError)
   } finally { loading.value = false }
 }
+
+// Mỗi thay đổi filter/chip → về trang 1 + reload server (search debounce qua
+// ListFilterBar @apply). Drill ?overdue/?due_soon/?due_before set ref rồi load() server-side.
+watch(
+  () => [filters.value.calibration_type, filters.value.is_active,
+    filters.value.overdue_only, filters.value.due_soon, filters.value.due_before],
+  () => load(1),
+)
+// Sync drill query khi điều hướng từ dashboard (giống PMWorkOrderListView).
+watch(() => route.query.overdue, (v) => { filters.value.overdue_only = v === '1' })
+watch(() => route.query.due_soon, (v) => { filters.value.due_soon = v === '1' })
+watch(() => route.query.due_before, (v) => { filters.value.due_before = (v as string) || '' })
+
+const paginationMeta = computed(() => ({
+  page: page.value, page_size: PAGE_SIZE, total: total.value, total_pages: totalPages.value,
+}))
 
 function openCreate() {
   editingName.value = null
@@ -162,8 +199,8 @@ function isOverdue(date: string | null) {
 
 onMounted(() => {
   // R6 §9.3 — drill-down từ dashboard: mở panel filter để user thấy + xoá được.
-  if (filters.value.overdue_only || filters.value.due_before) showFilters.value = true
-  load()
+  if (filters.value.overdue_only || filters.value.due_soon || filters.value.due_before) showFilters.value = true
+  load(1)
 })
 </script>
 
@@ -186,12 +223,13 @@ onMounted(() => {
     </PageHeader>
 
     <ListFilterBar
+      v-model:search="filters.search"
       :show="showFilters"
       :chips="activeChips"
-      v-model:search="filters.search"
       search-placeholder="Tìm theo mã, tên thiết bị..."
       @reset="resetFilters"
       @clear-chip="clearChip"
+      @apply="load(1)"
     >
       <template #fields>
         <div class="form-group">
@@ -221,10 +259,10 @@ onMounted(() => {
     <div class="card overflow-hidden">
       <div class="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50/60 text-xs text-slate-500">
         <span v-if="activeFilterCount > 0">
-          Kết quả lọc: <strong class="text-slate-700">{{ filteredItems.length }}</strong> / {{ total }} lịch
+          Kết quả lọc: <strong class="text-slate-700">{{ total }}</strong> lịch
         </span>
         <span v-else>
-          Hiển thị <strong class="text-slate-700">{{ filteredItems.length }}</strong> / {{ total }} lịch
+          Tổng <strong class="text-slate-700">{{ total }}</strong> lịch
         </span>
         <button v-if="activeFilterCount > 0" class="text-red-500 hover:text-red-700 font-medium" @click="resetFilters">Xóa tất cả</button>
       </div>
@@ -232,14 +270,14 @@ onMounted(() => {
       <div v-if="loading" class="p-6">
         <SkeletonLoader v-for="i in 5" :key="i" class="h-10 mb-3" />
       </div>
-      <div v-else-if="filteredItems.length === 0" class="p-8 text-center text-slate-400 text-sm">
+      <div v-else-if="items.length === 0" class="p-8 text-center text-slate-400 text-sm">
         {{ activeFilterCount > 0 ? 'Không có lịch phù hợp.' : 'Chưa có lịch hiệu chuẩn.' }}
       </div>
       <template v-else>
         <!-- Mobile cards (< sm) -->
         <div class="mobile-card-list sm:hidden">
           <div
-            v-for="s in filteredItems"
+            v-for="s in items"
             :key="s.name"
             class="mobile-card"
           >
@@ -266,7 +304,7 @@ onMounted(() => {
               <button class="text-red-600 text-xs font-medium" @click="remove(s.name)">Xóa</button>
             </div>
           </div>
-          <div v-if="filteredItems.length === 0" class="py-12 text-center text-slate-400">
+          <div v-if="items.length === 0" class="py-12 text-center text-slate-400">
             <p class="text-sm font-medium">Không có dữ liệu</p>
           </div>
         </div>
@@ -286,7 +324,7 @@ onMounted(() => {
               </tr>
             </thead>
             <tbody class="divide-y divide-slate-100">
-              <tr v-for="s in filteredItems" :key="s.name" class="hover:bg-slate-50">
+              <tr v-for="s in items" :key="s.name" class="hover:bg-slate-50">
                 <td class="px-4 py-3 font-mono text-xs text-slate-400">{{ s.name }}</td>
                 <td class="px-4 py-3">
                   <div class="font-medium text-slate-900 truncate max-w-[240px]">
@@ -324,6 +362,9 @@ onMounted(() => {
         </div>
       </template>
     </div>
+
+    <!-- Pagination: truy cập trang >1 (rows >page_size). Server-side total. -->
+    <BasePagination :pagination="paginationMeta" @page-change="load" />
 
     <!-- Form Modal -->
     <div v-if="showForm" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50" @click.self="showForm = false">
