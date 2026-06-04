@@ -752,5 +752,168 @@ def _canonical_total() -> int:
     return count_low_stock_bins()
 
 
+class TestExpiringBatches(unittest.TestCase):
+    """TC-15-EXP-01..06 — check_expiring_batches window predicate + naming contract.
+
+    Bug gốc (vòng 21):
+      • dict-filter trùng key 'expiry_date' → cận trên 30 ngày bị Python nuốt,
+        predicate còn lại chỉ `>= today` → fire MỌI batch chưa hết hạn.
+      • field 'batch_code' KHÔNG tồn tại (thật = 'batch_no') → unknown-column,
+        trước đây bị `except Exception: pass` nuốt im lặng.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        from frappe.utils import add_days, nowdate
+        cls.warehouse = _ensure_doc(
+            "AC Warehouse", {"warehouse_name": "_Test WH IMM-15 EXP"},
+            {"is_active": 1},
+        )
+        any_uom = frappe.db.get_value("AC UOM", {}, "name") or None
+        sp_data = {"unit_cost": 50000, "is_active": 1}
+        if any_uom:
+            sp_data["stock_uom"] = any_uom
+        cls.part = _ensure_doc(
+            "AC Spare Part", {"part_name": "_Test Part IMM-15 EXP"}, sp_data
+        )
+        today = nowdate()
+        # 5 batch: 3 trong cửa sổ [today, today+30], 1 ở today+60, 1 quá hạn.
+        cls.batch_specs = [
+            ("_BAT-IN-0", today, 10),                 # cận dưới = today (IN)
+            ("_BAT-IN-15", add_days(today, 15), 10),  # giữa cửa sổ (IN)
+            ("_BAT-IN-30", add_days(today, 30), 10),  # cận trên = today+30 (IN)
+            ("_BAT-OUT-60", add_days(today, 60), 10),  # ngoài cửa sổ (OUT)
+            ("_BAT-EXPIRED", add_days(today, -5), 10),  # đã quá hạn (OUT)
+        ]
+        cls.batches = []
+        for batch_no, exp, qty in cls.batch_specs:
+            doc = frappe.get_doc({
+                "doctype": "IMM Spare Batch",
+                "spare_part": cls.part,
+                "batch_no": batch_no,
+                "warehouse": cls.warehouse,
+                "expiry_date": exp,
+                "qty_on_hand": qty,
+            }).insert(ignore_permissions=True)
+            cls.batches.append(doc.name)
+        # 1 batch IN-window nhưng qty_on_hand = 0 → phải bị guard loại.
+        empty = frappe.get_doc({
+            "doctype": "IMM Spare Batch",
+            "spare_part": cls.part,
+            "batch_no": "_BAT-IN-10-EMPTY",
+            "warehouse": cls.warehouse,
+            "expiry_date": add_days(today, 10),
+            "qty_on_hand": 0,
+        }).insert(ignore_permissions=True)
+        cls.batches.append(empty.name)
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        with suppress(Exception):
+            for name in getattr(cls, "batches", []):
+                frappe.delete_doc("IMM Spare Batch", name,
+                                  ignore_permissions=True, force=True)
+            frappe.db.delete("AC Spare Part Stock", {"spare_part": cls.part})
+            frappe.delete_doc("AC Spare Part", cls.part,
+                              ignore_permissions=True, force=True)
+            frappe.delete_doc("AC Warehouse", cls.warehouse,
+                              ignore_permissions=True, force=True)
+        frappe.db.commit()
+
+    def _capture(self):
+        """Run job with sendmail mocked; return captured kwargs (or None)."""
+        from unittest.mock import patch
+        import assetcore.utils.helpers as helpers
+        captured = {}
+
+        def _fake(*, recipients, subject, message):
+            captured.update(recipients=recipients, subject=subject, message=message)
+
+        with patch.object(helpers, "_get_role_emails", return_value=["inv@x.test"]), \
+             patch.object(helpers, "_safe_sendmail", side_effect=_fake):
+            svc.check_expiring_batches()
+        return captured or None
+
+    # ── TC-15-EXP-01: cửa sổ đúng — chỉ 3 batch [today, today+30] ─────────────
+    def test_window_predicate_selects_exactly_three(self):
+        cap = self._capture()
+        self.assertIsNotNone(cap, "phải gửi mail khi có batch trong cửa sổ")
+        self.assertIn("3 batch", cap["subject"],
+                      f"Subject phải phản ánh đúng 3 batch, got: {cap['subject']}")
+        # 3 IN, KHÔNG có batch OUT-60 / EXPIRED / EMPTY trong nội dung.
+        self.assertIn("_BAT-IN-0", cap["message"])
+        self.assertIn("_BAT-IN-15", cap["message"])
+        self.assertIn("_BAT-IN-30", cap["message"])
+        self.assertNotIn("_BAT-OUT-60", cap["message"])
+        self.assertNotIn("_BAT-EXPIRED", cap["message"])
+        self.assertNotIn("_BAT-IN-10-EMPTY", cap["message"])
+
+    # ── TC-15-EXP-02: cận trên 30 ngày KHÔNG bị nuốt ──────────────────────────
+    def test_upper_bound_30d_not_swallowed(self):
+        cap = self._capture()
+        self.assertIn("_BAT-IN-30", cap["message"],
+                      "batch tại đúng today+30 phải vào danh sách (cận trên)")
+
+    # ── TC-15-EXP-03: naming-contract batch_no (không raise unknown-column) ────
+    def test_uses_batch_no_field_no_raise(self):
+        # Nếu còn 'batch_code' → frappe.get_all raise unknown-column ở đây.
+        try:
+            cap = self._capture()
+        except Exception as exc:  # noqa: BLE001
+            self.fail(f"check_expiring_batches raised (naming-contract gãy?): {exc}")
+        self.assertIn("Batch _BAT-IN-0", cap["message"],
+                      "HTML render phải dùng batch_no, không KeyError")
+
+    # ── TC-15-EXP-04: guard qty_on_hand > 0 (batch rỗng không gửi) ────────────
+    def test_empty_batch_excluded(self):
+        cap = self._capture()
+        self.assertNotIn("_BAT-IN-10-EMPTY", cap["message"])
+        self.assertIn("3 batch", cap["subject"])
+
+    # ── TC-15-EXP-05: recipients rỗng → no-op (không nổ) ──────────────────────
+    def test_no_recipients_no_send(self):
+        from unittest.mock import patch
+        import assetcore.utils.helpers as helpers
+        sent = {"called": False}
+
+        def _fake(**_kw):
+            sent["called"] = True
+
+        with patch.object(helpers, "_get_role_emails", return_value=[]), \
+             patch.object(helpers, "_safe_sendmail", side_effect=_fake):
+            svc.check_expiring_batches()  # KHÔNG raise
+        self.assertFalse(sent["called"], "không gửi mail khi recipients rỗng")
+
+    # ── TC-15-EXP-06: AST-guard — 0 dict literal trùng string-key trong repo ──
+    def test_no_duplicate_string_dict_keys_in_repo(self):
+        import ast
+        import os
+        app_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        offenders: list[str] = []
+        for dirpath, _dirs, files in os.walk(app_root):
+            if "__pycache__" in dirpath or "/tests/" in dirpath:
+                continue
+            for fn in files:
+                if not fn.endswith(".py"):
+                    continue
+                path = os.path.join(dirpath, fn)
+                with suppress(Exception):
+                    tree = ast.parse(open(path, encoding="utf-8").read(), filename=path)
+                    for node in ast.walk(tree):
+                        if not isinstance(node, ast.Dict):
+                            continue
+                        seen: set = set()
+                        for k in node.keys:
+                            if isinstance(k, ast.Constant) and isinstance(k.value, str):
+                                if k.value in seen:
+                                    offenders.append(
+                                        f"{path}:{node.lineno} dup-key {k.value!r}")
+                                seen.add(k.value)
+        self.assertEqual(offenders, [],
+                         f"dict literal có string-key trùng (silent override): {offenders}")
+
+
 if __name__ == "__main__":
     unittest.main()

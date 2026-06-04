@@ -156,10 +156,11 @@ def _enrich_stock_totals(rows: list) -> None:
             GROUP BY spare_part
         """, {"ids": part_ids})
     }
-    # R7 §9.4.5 — is_low_stock dùng predicate per-warehouse-row (BẤT KỲ row nào
-    # qty_on_hand < min_stock_level) để KHỚP KPI store 'low_stock' (_count_low_stock)
-    # và filter low_stock=1. Trước đây dùng tổng-qty-toàn-kho → lệch nhãn vs KPI
-    # (part low ở 1 kho nhưng tổng ≥ min sẽ bị bỏ sót). Một nguồn sự thật duy nhất.
+    # R7 §9.4.5 — is_low_stock dùng predicate per-warehouse-row (LOW_STOCK_COND, so
+    # tồn KHẢ DỤNG theo BR-15-17/VR-15-17) để KHỚP KPI store 'low_stock'
+    # (_count_low_stock) và filter low_stock=1. Trước đây dùng tổng-qty-toàn-kho →
+    # lệch nhãn vs KPI (part low ở 1 kho nhưng tổng ≥ min sẽ bị bỏ sót). Một SoT duy nhất.
+    # (total_stock SUM dưới đây CHỈ để hiển thị tổng tồn vật lý — KHÔNG phải predicate.)
     low_set = set(_low_stock_part_ids())
     for r in rows:
         ts = totals.get(r["name"], 0.0)
@@ -373,7 +374,10 @@ def _list_stock_all(warehouse: str, spare_part: str, offset: int, pg_size: int) 
         pm = part_map.get(r["spare_part"], {})
         min_level = r.get("min_stock_override") or pm.get("min_stock_level") or 0
         r["min_level"]      = min_level
-        r["is_low"]         = bool(min_level and (r["qty_on_hand"] or 0) < min_level)
+        # BR-15-17 / VR-15-17 (04 §II.A.1) — "dưới định mức" so theo tồn KHẢ DỤNG raw
+        # (qty_on_hand − reserved_qty), KHỚP LOW_STOCK_COND; KHÔNG dùng on-hand vật lý.
+        _avail_raw          = (r["qty_on_hand"] or 0) - (r.get("reserved_qty") or 0)
+        r["is_low"]         = bool(min_level and _avail_raw < min_level)
         r["unit_cost"]      = float(pm.get("unit_cost") or 0)
         r["stock_value"]    = float((r["qty_on_hand"] or 0) * (pm.get("unit_cost") or 0))
         r["is_critical"]    = bool(pm.get("is_critical"))
