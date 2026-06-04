@@ -1299,3 +1299,501 @@ class TestIncidentStatsSeverityOpenScope(unittest.TestCase):
             frappe.db.count("Incident Report", filters=open_incident_filter()),
             "open_total phải == open_incident_filter() SoT (không bị field mới đổi)")
 
+
+# ─── BR-12-12: KPI 'chronic' = LIVE rolling-window SoT (kill tile-vs-panel drift) ──
+
+
+class TestChronicSoT(unittest.TestCase):
+    """BR-12-12: KPI tile 'Lặp lại (Chronic)' phái sinh từ SoT LIVE rolling-window
+    (get_chronic_failures / chronic_failure_count) — số NHÓM (asset, fault_code)
+    đang chronic trong cửa sổ 90 ngày — KHÔNG đếm cờ stale chronic_failure_flag.
+
+    SoT helper chronic_failure_count() == len(get_chronic_failures()) (1 query
+    builder, anti-drift). Cờ chronic_failure_flag GIỮ NGUYÊN cho badge per-row
+    (lifecycle BR-12-03) — KHÔNG xoá/reset/regression.
+
+    Lưu ý isolation: get_chronic_failures()/chronic_failure_count() là GLOBAL
+    (không scope asset). Test dùng fault_code tag DUY NHẤT/run để định danh nhóm
+    của test trong list, và đo DELTA của chronic_failure_count() (before/after)
+    để bất biến với data chronic có sẵn trong DB.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.asset = _make_asset("-chronic")
+        cls.asset2 = _make_asset("-chronic2")
+        cls._incidents: list[str] = []
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        for ir in cls._incidents:
+            try:
+                frappe.delete_doc("Incident Report", ir, force=True,
+                                  ignore_permissions=True, delete_permanently=True)
+            except Exception:
+                pass
+        # Dọn RCA Chronic auto-tạo (nếu có) bám asset test.
+        for asset in (cls.asset.name, cls.asset2.name):
+            for rca in frappe.get_all(
+                "IMM RCA Record", filters={"asset": asset}, pluck="name"
+            ):
+                try:
+                    frappe.delete_doc("IMM RCA Record", rca, force=True,
+                                      ignore_permissions=True, delete_permanently=True)
+                except Exception:
+                    pass
+        purge_asset(cls.asset.name)
+        purge_asset(cls.asset2.name)
+        frappe.db.commit()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+
+    def _mk_incident(
+        self, asset: str, fault_code: str, *, age_days: int = 0, flag: int = 0,
+        status: str = "Open",
+    ) -> str:
+        """Tạo 1 Incident cho nhóm (asset, fault_code).
+
+        age_days > 0 → backdate reported_at vào quá khứ (aged-out test cho cửa sổ
+        90d). flag=1 → set chronic_failure_flag (mô phỏng cụm cũ từng chronic, cờ
+        bền vững vẫn còn). status force-set bypass workflow gate.
+        """
+        out = report_incident(
+            asset=asset, incident_type="Malfunction", severity="High",
+            description=f"_Test chronic {fault_code}", fault_code=fault_code,
+        )
+        name = out["name"]
+        self._incidents.append(name)
+        updates: dict = {}
+        if age_days:
+            from frappe.utils import add_to_date, now_datetime
+            updates["reported_at"] = add_to_date(now_datetime(), days=-age_days)
+        if flag:
+            updates["chronic_failure_flag"] = 1
+        if status != "Open":
+            updates["status"] = status
+        if updates:
+            frappe.db.set_value("Incident Report", name, updates,
+                                update_modified=False)
+        frappe.db.commit()
+        return name
+
+    def _groups_for(self, asset: str, fault_code: str) -> int:
+        """Số nhóm LIVE từ get_chronic_failures() khớp (asset, fault_code) test."""
+        from assetcore.services.imm12 import get_chronic_failures
+        groups = get_chronic_failures()
+        return sum(
+            1 for g in groups
+            if g["asset"] == asset and g["fault_code"] == fault_code
+        )
+
+    # ── TC-IMM12-CHRONIC-01: tile đếm số NHÓM live, KHÔNG đếm incident-rows ──────
+    def test_chronic_01_counts_live_groups_not_rows(self):
+        """3 incident cùng (asset, fault_code) trong 90d → 1 nhóm chronic. Thêm
+        nhóm thứ 2 đủ 3 → +1 nhóm. stats.chronic đo DELTA = +1 rồi +2 (không phải
+        3 rồi 6 incident-rows).
+
+        RED với _count(chronic_failure_flag): cờ chưa set bởi scheduler ⇒ trả 0,
+        không phản ánh nhóm live. RED với đếm rows: trả 3/6 thay vì 1/2."""
+        from assetcore.services.imm12 import (
+            get_incident_stats, chronic_failure_count, get_chronic_failures,
+        )
+        tag1 = f"FC-CHR1-{_RUN_TAG}"
+        base = get_incident_stats()["chronic"]
+        base_helper = chronic_failure_count()
+        self.assertEqual(base, base_helper,
+                         "stats.chronic phải == chronic_failure_count() (cùng SoT)")
+
+        # Nhóm 1: đúng 3 incident cùng (asset, fault_code) trong 90d.
+        for _ in range(3):
+            self._mk_incident(self.asset.name, tag1)
+        after1 = get_incident_stats()["chronic"]
+        self.assertEqual(after1 - base, 1,
+                         "3 incident cùng nhóm trong 90d → +1 NHÓM (không +3 rows)")
+        # Nhóm test xuất hiện đúng 1 lần (1 nhóm) trong list live.
+        self.assertEqual(self._groups_for(self.asset.name, tag1), 1)
+
+        # Nhóm 2 (asset khác, đủ 3) → +1 nhóm nữa.
+        tag2 = f"FC-CHR2-{_RUN_TAG}"
+        for _ in range(3):
+            self._mk_incident(self.asset2.name, tag2)
+        after2 = get_incident_stats()["chronic"]
+        self.assertEqual(after2 - base, 2,
+                         "2 nhóm đủ chronic → +2 NHÓM (không 6 incident-rows)")
+        # Helper == stats.chronic == len(list) (1 SoT, no drift).
+        self.assertEqual(get_incident_stats()["chronic"], chronic_failure_count())
+        self.assertEqual(chronic_failure_count(), len(get_chronic_failures()))
+
+    # ── TC-IMM12-CHRONIC-02 (BUG CHÍNH): aged-out cụm → tile GIẢM về delta 0 ─────
+    def test_chronic_02_aged_out_group_drops_to_zero(self):
+        """3 incident cùng (asset, fault_code) với reported_at > 90 ngày trước
+        (cờ chronic_failure_flag=1 vẫn còn — mô phỏng cụm từng chronic). KHÔNG còn
+        nhóm nào ≥3 trong cửa sổ 90d → đóng góp của test vào stats.chronic = 0.
+
+        RED-prove: revert SoT về _count(chronic_failure_flag=1) ⇒ tile đếm 3 cờ
+        stale (delta +1 nhóm-ảo / +3 rows) thay vì 0 ⇒ test FAIL. Restore ⇒ GREEN."""
+        from assetcore.services.imm12 import get_incident_stats
+        tag = f"FC-AGED-{_RUN_TAG}"
+        base = get_incident_stats()["chronic"]
+        # 3 incident AGED-OUT (95 ngày) + cờ stale =1 trên cả 3.
+        for _ in range(3):
+            self._mk_incident(self.asset.name, tag, age_days=95, flag=1)
+
+        after = get_incident_stats()["chronic"]
+        # Cờ stale còn nguyên trên 3 incident — chứng minh cờ KHÔNG bị refactor reset.
+        flagged = frappe.db.count("Incident Report", filters={
+            "asset": self.asset.name, "fault_code": tag,
+            "chronic_failure_flag": 1,
+        })
+        self.assertEqual(flagged, 3, "cờ chronic_failure_flag PHẢI giữ (badge per-row)")
+        # SoT LIVE: nhóm aged-out KHÔNG còn ≥3 trong 90d → KHÔNG đóng góp vào tile.
+        self.assertEqual(self._groups_for(self.asset.name, tag), 0,
+                         "nhóm aged-out >90d KHÔNG được là chronic live")
+        self.assertEqual(after, base,
+                         "tile chronic KHÔNG tăng vì cờ stale aged-out (BUG CHÍNH)")
+
+    # ── TC-IMM12-CHRONIC-03: invariant stats.chronic == panel trên CÙNG payload ──
+    def test_chronic_03_invariant_count_equals_panel(self):
+        """get_dashboard(): stats.chronic == len(get_chronic_failures()) (FULL).
+        chronic_failures là [:5] view-limit; với data ≤5 nhóm, == panel trực tiếp.
+        Quy ước Core Doc (b): count = tổng nhóm FULL, panel = top-5 hiển thị."""
+        from assetcore.services.imm12 import get_dashboard, get_chronic_failures
+        tag = f"FC-INV-{_RUN_TAG}"
+        for _ in range(3):
+            self._mk_incident(self.asset.name, tag)
+        dash = get_dashboard()
+        full = len(get_chronic_failures())
+        # Invariant chính (BR-12-12): tile == FULL số nhóm live.
+        self.assertEqual(dash["stats"]["chronic"], full,
+                         "stats.chronic phải == len(get_chronic_failures()) FULL")
+        # Panel [:5]: với ≤5 nhóm == stats.chronic trực tiếp (không drift trên màn).
+        if full <= 5:
+            self.assertEqual(dash["stats"]["chronic"],
+                             len(dash["chronic_failures"]),
+                             "data ≤5 nhóm → tile == panel rows (cùng payload)")
+        else:
+            self.assertEqual(len(dash["chronic_failures"]), 5,
+                             "panel cap top-5 khi >5 nhóm (UX)")
+            self.assertGreaterEqual(dash["stats"]["chronic"], 5)
+
+    # ── TC-IMM12-CHRONIC-04: no-regression badge cờ + exclude Cancelled ──────────
+    def test_chronic_04_badge_flag_preserved_and_cancelled_excluded(self):
+        """Cờ chronic_failure_flag VẪN trả về trong list_incidents/detail (badge
+        per-row) kể cả khi tile chronic = 0. Cancelled KHÔNG vào nhóm chronic live.
+        Refactor KHÔNG reset cờ."""
+        from assetcore.services.imm12 import (
+            list_incidents, get_incident_detail,
+        )
+        tag = f"FC-BADGE-{_RUN_TAG}"
+        # 1 incident có cờ =1 (aged-out → không là live group) — badge phải còn.
+        flagged_name = self._mk_incident(self.asset.name, tag, age_days=120, flag=1)
+        # list_incidents trả field chronic_failure_flag (FE badge :271/:317).
+        res = list_incidents(asset=self.asset.name, page_size=100)
+        row = next(r for r in res["items"] if r["name"] == flagged_name)
+        self.assertEqual(row.get("chronic_failure_flag"), 1,
+                         "list_incidents PHẢI trả chronic_failure_flag cho badge")
+        detail = get_incident_detail(flagged_name)
+        self.assertEqual(detail.get("chronic_failure_flag"), 1,
+                         "detail PHẢI trả chronic_failure_flag (badge per-row)")
+
+        # Cancelled exclude: 3 incident cùng nhóm trong 90d nhưng Cancelled →
+        # KHÔNG là chronic live (get_chronic_failures lọc status != Cancelled).
+        tag_c = f"FC-CANC-{_RUN_TAG}"
+        for _ in range(3):
+            self._mk_incident(self.asset2.name, tag_c, status="Cancelled")
+        self.assertEqual(self._groups_for(self.asset2.name, tag_c), 0,
+                         "Cancelled KHÔNG được tính vào nhóm chronic live")
+
+    # ── TC-IMM12-CHRONIC-05: grep-guard SoT single-source ───────────────────────
+    def test_chronic_05_grep_guard_single_source(self):
+        """get_incident_stats() KHÔNG còn _count({'chronic_failure_flag': 1}) cho
+        KPI 'chronic' — phải qua chronic_failure_count() (SoT live). chronic_failure_count
+        phái sinh từ get_chronic_failures() (no duplicate SQL / no inline GROUP BY)."""
+        import inspect
+        import assetcore.services.imm12 as svc12
+
+        src_stats = inspect.getsource(svc12.get_incident_stats)
+        # KPI tile KHÔNG được đếm cờ stale dưới mọi biến thể quote/spacing.
+        for bad in (
+            "{'chronic_failure_flag': 1}", '{"chronic_failure_flag": 1}',
+            "{'chronic_failure_flag':1}", '{"chronic_failure_flag":1}',
+        ):
+            self.assertNotIn(
+                bad, src_stats,
+                f"get_incident_stats còn đếm cờ stale cho KPI chronic: {bad}")
+        # 'chronic' key phải bind chronic_failure_count() (SoT helper).
+        self.assertIn("chronic_failure_count()", src_stats,
+                      "stats.chronic phải bind qua chronic_failure_count() SoT")
+
+        # chronic_failure_count() KHÔNG re-implement SQL — dùng lại get_chronic_failures().
+        self.assertTrue(hasattr(svc12, "chronic_failure_count"),
+                        "thiếu SoT helper chronic_failure_count()")
+        # Loại docstring khỏi guard (docstring mô tả predicate có cụm "GROUP BY";
+        # ta chỉ chặn SQL THẬT trong CODE). Inspect CODE BODY, không phải comment.
+        import ast
+        tree = ast.parse(inspect.getsource(svc12.chronic_failure_count).lstrip())
+        fn_node = tree.body[0]
+        body = fn_node.body
+        if body and isinstance(body[0], ast.Expr) and isinstance(
+            getattr(body[0], "value", None), ast.Constant
+        ):
+            body = body[1:]  # drop docstring node
+        code_only = "\n".join(ast.dump(n) for n in body)
+        self.assertIn("get_chronic_failures", code_only,
+                      "chronic_failure_count phải phái sinh từ get_chronic_failures()")
+        self.assertNotIn("frappe.db.sql", code_only.lower(),
+                         "chronic_failure_count KHÔNG được inline raw SQL (no dup)")
+        # Cross-runtime đảm bảo 1 SoT predicate: count == len(list).
+        from assetcore.services.imm12 import (
+            chronic_failure_count, get_chronic_failures,
+        )
+        self.assertEqual(chronic_failure_count(), len(get_chronic_failures()))
+
+
+
+# ─── BR-12-09/BR-12-13: SLA-breach LIVE SoT predicate (kill scheduler-lag undercount) ──
+
+class TestSlaBreachKpiSoT(unittest.TestCase):
+    """BR-12-09 (LIVE SoT): KPI 'Vi phạm SLA tiếp nhận/xử lý' phải đếm theo SoT
+    predicate live `sla_breach_filter(kind)` = (cờ-set) OR (đang-mở ∧ quá-hạn-live),
+    KHÔNG chỉ cờ stale stamped-by-scheduler → kill undercount cửa-sổ-trễ-scheduler.
+
+    Mọi fixture: incident OPEN/In-Progress với due-time đã quá hạn nhưng cờ DB còn 0
+    (KHÔNG chạy scheduler) → BE phải đếm = 1 (live). Idempotent vs scheduler: chạy
+    check_incident_sla_breach() stamp cờ ⇒ KPI BẰNG giá trị trước (anti double-count).
+    INV-SLA-1..6 + grep-guard 1 SoT.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        frappe.set_user("Administrator")
+        cls.asset = _make_asset("-slakpi")
+        cls._incidents: list[str] = []
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        for ir in cls._incidents:
+            try:
+                frappe.delete_doc("Incident Report", ir, force=True,
+                                  ignore_permissions=True, delete_permanently=True)
+            except Exception:
+                pass
+        purge_asset(cls.asset.name)
+        frappe.db.commit()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+
+    # ── fixtures ────────────────────────────────────────────────────────────────
+
+    def _new_incident(self, severity: str = "Medium", description: str = "") -> str:
+        clinical = "Ảnh hưởng chẩn đoán" if severity == "Critical" else ""
+        out = report_incident(
+            asset=self.asset.name, incident_type="Malfunction", severity=severity,
+            description=description or f"_Test SLA-KPI {severity}", clinical_impact=clinical,
+        )
+        name = out["name"]
+        self._incidents.append(name)
+        return name
+
+    def _set(self, name: str, **vals) -> None:
+        frappe.db.set_value("Incident Report", name, vals, update_modified=False)
+        frappe.db.commit()
+
+    def _open_resolution_overdue(self, *, flag: int = 0) -> str:
+        """OPEN/In-Progress incident, resolution_due_at = now−2h, cờ=flag, no scheduler."""
+        from frappe.utils import add_to_date, now_datetime
+        ir = self._new_incident(description="_Test SLA-KPI resolution-overdue")
+        now = now_datetime()
+        self._set(
+            ir, status="In Progress",
+            acknowledged_at=add_to_date(now, hours=-5),
+            response_due_at=add_to_date(now, hours=-4),   # ack trước hạn → no resp breach
+            resolution_due_at=add_to_date(now, hours=-2),  # đã quá hạn LIVE
+            response_breached=0, resolution_breached=flag,
+        )
+        return ir
+
+    def _open_response_overdue(self, *, flag: int = 0) -> str:
+        """OPEN chưa acknowledged, response_due_at = now−1h, cờ=flag, no scheduler."""
+        from frappe.utils import add_to_date, now_datetime
+        ir = self._new_incident(description="_Test SLA-KPI response-overdue")
+        now = now_datetime()
+        self._set(
+            ir, status="Open", acknowledged_at=None,
+            response_due_at=add_to_date(now, hours=-1),    # đã quá hạn LIVE
+            resolution_due_at=add_to_date(now, hours=+48),  # còn hạn
+            response_breached=0, resolution_breached=flag,
+        )
+        return ir
+
+    # ── TC-SLA-KPI-01: live resolution overdue, cờ=0, no scheduler → tile =1 (INV-SLA-1) ──
+
+    def test_tc01_resolution_live_overdue_flag0_counts(self):
+        from assetcore.services.imm12 import get_incident_stats
+        before = get_incident_stats()["sla_resolution_breached"]
+        self._open_resolution_overdue(flag=0)
+        after = get_incident_stats()["sla_resolution_breached"]
+        # cờ DB vẫn 0 (scheduler chưa chạy) — nhưng phải đếm LIVE.
+        self.assertEqual(
+            after - before, 1,
+            "INV-SLA-1: incident OPEN quá hạn resolution cờ=0 (no scheduler) "
+            "PHẢI đếm LIVE =+1 (cũ trả 0 — RED-first)",
+        )
+
+    # ── TC-SLA-KPI-02: live response overdue, cờ=0, no scheduler → tile =1 (INV-SLA-2) ──
+
+    def test_tc02_response_live_overdue_flag0_counts(self):
+        from assetcore.services.imm12 import get_incident_stats
+        before = get_incident_stats()["sla_response_breached"]
+        self._open_response_overdue(flag=0)
+        after = get_incident_stats()["sla_response_breached"]
+        self.assertEqual(
+            after - before, 1,
+            "INV-SLA-2: incident OPEN chưa ack quá hạn response cờ=0 PHẢI đếm LIVE =+1",
+        )
+
+    # ── TC-SLA-KPI-03: idempotent vs scheduler (INV-SLA-4 anti double-count) ─────
+
+    def test_tc03_idempotent_vs_scheduler(self):
+        from assetcore.services.imm12 import get_incident_stats, check_incident_sla_breach
+        ir = self._open_resolution_overdue(flag=0)
+        before = get_incident_stats()["sla_resolution_breached"]
+        # Scheduler stamp cờ → incident chuyển từ nhánh live sang nhánh cờ=1.
+        check_incident_sla_breach()
+        # cờ phải =1 sau scheduler (write-path stamp giữ nguyên).
+        self.assertEqual(
+            frappe.db.get_value("Incident Report", ir, "resolution_breached"), 1,
+            "scheduler phải stamp cờ resolution_breached=1 (write-path no-regression)",
+        )
+        after = get_incident_stats()["sla_resolution_breached"]
+        self.assertEqual(
+            after, before,
+            "INV-SLA-4: KPI trước==sau scheduler (incident đã đếm vì live nay đếm vì "
+            "cờ — KHÔNG nhảy số / double-count)",
+        )
+
+    # ── TC-SLA-KPI-04: cờ lịch sử (đóng đúng hạn rồi set cờ) vẫn đếm (INV-SLA-3) ──
+
+    def test_tc04_historical_flag_still_counts(self):
+        from frappe.utils import add_to_date, now_datetime
+        from assetcore.services.imm12 import get_incident_stats
+        before = get_incident_stats()["sla_resolution_breached"]
+        ir = self._new_incident(description="_Test SLA-KPI historical-flag")
+        now = now_datetime()
+        # Resolved/Closed (terminal) — due KHÔNG còn 'live-open', nhưng cờ lịch sử =1.
+        self._set(
+            ir, status="Closed",
+            resolution_due_at=add_to_date(now, hours=-200),  # quá khứ xa
+            resolution_breached=1,
+        )
+        after = get_incident_stats()["sla_resolution_breached"]
+        self.assertEqual(
+            after - before, 1,
+            "INV-SLA-3: incident terminal với cờ lịch sử=1 VẪN đếm (nhánh A predicate)",
+        )
+
+    # ── TC-SLA-KPI-05: terminal Cancelled overdue cờ=0 → KHÔNG đếm (INV-SLA-6) ───
+
+    def test_tc05_cancelled_overdue_flag0_no_phantom(self):
+        from frappe.utils import add_to_date, now_datetime
+        from assetcore.services.imm12 import get_incident_stats
+        before = get_incident_stats()["sla_resolution_breached"]
+        ir = self._new_incident(description="_Test SLA-KPI cancelled-overdue")
+        now = now_datetime()
+        # Cancelled (terminal, đóng đúng hạn) — due quá hạn nhưng cờ=0 → KHÔNG live-overdue.
+        self._set(
+            ir, status="Cancelled",
+            resolution_due_at=add_to_date(now, hours=-3),
+            resolution_breached=0,
+        )
+        after = get_incident_stats()["sla_resolution_breached"]
+        self.assertEqual(
+            after, before,
+            "INV-SLA-6: Cancelled (terminal) cờ=0 KHÔNG bị tính live-overdue (no phantom)",
+        )
+
+    # ── TC-SLA-KPI-06: per-row enrich is_*_breached live (INV-SLA-5) ────────────
+
+    def test_tc06_list_enrich_is_breached_live(self):
+        from assetcore.services.imm12 import list_incidents
+        overdue = self._open_resolution_overdue(flag=0)
+        in_window = self._new_incident(description="_Test SLA-KPI in-window")
+        from frappe.utils import add_to_date, now_datetime
+        now = now_datetime()
+        self._set(
+            in_window, status="In Progress",
+            acknowledged_at=add_to_date(now, hours=-1),
+            response_due_at=add_to_date(now, hours=-1),    # ack trước → no resp breach
+            resolution_due_at=add_to_date(now, hours=+24),  # còn hạn
+            response_breached=0, resolution_breached=0,
+        )
+        rows = {r["name"]: r for r in list_incidents(asset=self.asset.name,
+                                                     page_size=100)["items"]}
+        self.assertIn(overdue, rows)
+        self.assertIn(in_window, rows)
+        # overdue incident: cờ thô vẫn 0 nhưng derived live =1.
+        self.assertEqual(rows[overdue].get("resolution_breached"), 0,
+                         "cờ thô resolution_breached giữ 0 (backward-compat)")
+        self.assertEqual(rows[overdue].get("is_resolution_breached"), 1,
+                         "INV-SLA-5: badge derive live=1 cho incident open-overdue cờ=0")
+        # in-window incident: derived =0.
+        self.assertEqual(rows[in_window].get("is_resolution_breached"), 0,
+                         "incident open trong-hạn → is_resolution_breached=0")
+
+    def test_tc06b_response_enrich_live(self):
+        from assetcore.services.imm12 import list_incidents
+        overdue = self._open_response_overdue(flag=0)
+        rows = {r["name"]: r for r in list_incidents(asset=self.asset.name,
+                                                     page_size=100)["items"]}
+        self.assertEqual(rows[overdue].get("response_breached"), 0)
+        self.assertEqual(rows[overdue].get("is_response_breached"), 1,
+                         "INV-SLA-5: response live-overdue chưa ack cờ=0 → derived=1")
+
+    # ── TC-SLA-KPI-07: grep-guard — get_incident_stats KHÔNG còn _count(cờ) đơn lẻ ──
+
+    def test_tc07_grep_guard_single_sot(self):
+        import ast
+        import inspect
+        import assetcore.services.imm12 as svc12
+
+        src = inspect.getsource(svc12.get_incident_stats)
+        tree = ast.parse(src.lstrip())
+        fn = tree.body[0]
+        # Scan mọi call _count(...) trong body: KHÔNG được có dict literal {flag:1}.
+        for node in ast.walk(fn):
+            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                    and node.func.id == "_count" and node.args
+                    and isinstance(node.args[0], ast.Dict)):
+                keys = [k.value for k in node.args[0].keys
+                        if isinstance(k, ast.Constant)]
+                self.assertNotIn(
+                    "response_breached", keys,
+                    "grep-guard: get_incident_stats KHÔNG còn _count({response_breached:1}) "
+                    "đơn lẻ — phải qua sla_breach_count('response')")
+                self.assertNotIn(
+                    "resolution_breached", keys,
+                    "grep-guard: get_incident_stats KHÔNG còn _count({resolution_breached:1}) "
+                    "đơn lẻ — phải qua sla_breach_count('resolution')")
+        # 2 KPI phải sinh qua sla_breach_count (1 SoT).
+        self.assertIn("sla_breach_count", src,
+                      "get_incident_stats phải gọi sla_breach_count() cho 2 KPI SLA")
+
+    def test_tc07b_sla_breach_count_derives_from_filter(self):
+        """sla_breach_filter là điểm SoT DUY NHẤT — sla_breach_count phái sinh từ nó,
+        KHÔNG re-implement open-set/overdue predicate cục bộ."""
+        import ast
+        import inspect
+        import assetcore.services.imm12 as svc12
+
+        src = inspect.getsource(svc12.sla_breach_count)
+        self.assertIn("sla_breach_filter", src,
+                      "sla_breach_count phải phái sinh từ sla_breach_filter (1 SoT)")
+        # sla_breach_filter tái dùng open_incident_filter (chống drift 'open').
+        fsrc = inspect.getsource(svc12.sla_breach_filter)
+        self.assertIn("open_incident_filter", fsrc,
+                      "sla_breach_filter phải tái dùng open_incident_filter (SoT 'open')")

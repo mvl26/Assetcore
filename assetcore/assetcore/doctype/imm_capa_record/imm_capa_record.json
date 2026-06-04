@@ -40,6 +40,7 @@
   "verification_notes",
   "effectiveness_check",
   "imm_effectiveness_evidence",
+  "escalation_level",
   "notes",
   "section_imm16",
   "imm_compliance_finding_ref",
@@ -236,6 +237,16 @@
    "fieldtype": "Select",
    "label": "Effectiveness Check",
    "options": "\nEffective\nPartially Effective\nNot Effective"
+  },
+  {
+   "fieldname": "escalation_level",
+   "fieldtype": "Int",
+   "label": "Mức leo thang",
+   "default": "0",
+   "read_only": 1,
+   "no_copy": 1,
+   "in_list_view": 0,
+   "description": "Mức leo thang cao nhất đã gửi cho CAPA này (0/1/2). Bút toán hệ thống của _escalate_capa — idempotency cron daily (INV-CAPA-ESC-3)."
   },
   {
    "fieldname": "notes",

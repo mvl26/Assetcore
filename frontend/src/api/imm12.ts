@@ -34,9 +34,17 @@ export interface IncidentDetail {
   rca_record?: string
   chronic_failure_flag?: number
   clinical_impact?: string
-  // BR-12-09: cờ vi phạm SLA (list_incidents + get_incident_detail expose).
+  // BR-12-09: cờ vi phạm SLA THÔ (stamped-by-scheduler, bền DB). GIỮ cho write-path
+  // + escalation idempotent (BR-12-08/09). KHÔNG dùng trực tiếp để render badge —
+  // undercount trong cửa-sổ-trễ-scheduler (quá hạn nhưng cờ chưa stamp = 0).
   response_breached?: number
   resolution_breached?: number
+  // BR-12-13: cờ vi phạm SLA DERIVED LIVE từ BE (_row_is_breached) = (cờ-thô=1) OR
+  // (đang-mở ∧ quá-hạn). FE badge ĐỌC field này thay cờ thô → hiện cho incident
+  // currently-overdue-open kể cả khi cờ DB còn 0. Badge live == tile (cùng SoT
+  // sla_breach_filter ở get_incident_stats). optional: forward-compat khi BE chưa ship.
+  is_response_breached?: number
+  is_resolution_breached?: number
   rca?: { name: string; status: string; root_cause?: string }
 }
 
@@ -91,6 +99,10 @@ export interface IncidentStats {
   critical_open?: number
   high_open?: number
   rca_pending: number
+  // BR-12-12: SỐ NHÓM (asset,fault_code) đang lặp lại LIVE trong cửa sổ 90 ngày
+  // (== len(get_chronic_failures()) qua chronic_failure_count() ở BE), KHÔNG đếm cờ
+  // stale chronic_failure_flag. Shape giữ `number` — chỉ NGỮ NGHĨA đổi (live thay stale).
+  // Invariant get_dashboard(): stats.chronic == len(chronic_failures) (cùng SoT).
   chronic: number
   // BR-12-09: số incident có cờ vi phạm SLA (cùng predicate cờ với badge ở list).
   sla_response_breached: number
@@ -252,6 +264,8 @@ export interface DashboardStats {
   critical_open?: number
   high_open?: number
   rca_pending: number
+  // BR-12-12: xem IncidentStats.chronic — số nhóm chronic LIVE 90d (chronic_failure_count).
+  // get_dashboard().stats == get_incident_stats() ⇒ stats.chronic == len(chronic_failures).
   chronic: number
   // BR-12-09: số incident vi phạm SLA (get_dashboard.stats = get_incident_stats).
   sla_response_breached: number

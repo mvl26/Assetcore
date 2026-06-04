@@ -57,6 +57,11 @@ const kpiItems = computed<WoKpiItem[]>(() => {
   if (!s) return []
   const criticalOpen = 'critical_open' in s ? s.critical_open ?? 0 : 0
   const highOpen = 'high_open' in s ? s.high_open ?? 0 : 0
+  // BR-12-12: s.chronic = SỐ NHÓM (asset,fault_code) đang lặp lại LIVE trong 90 ngày
+  // (SoT get_chronic_failures → chronic_failure_count ở BE), KHÔNG đếm cờ stale
+  // chronic_failure_flag. Binding GIỮ NGUYÊN — chỉ ngữ nghĩa giá trị đổi (live thay
+  // stale). Badge per-row '⚠ Lặp lại' (:317) vẫn theo ir.chronic_failure_flag (mục
+  // đích lifecycle riêng: đánh dấu incident từng thuộc cụm chronic) — KHÔNG đổi.
   const chronic = 'chronic' in s ? s.chronic : 0
   const closed = 'closed' in s ? s.closed : 0
   return [
@@ -271,8 +276,8 @@ watch(
             <span v-if="ir.chronic_failure_flag" class="text-amber-600 font-semibold">Lặp lại</span>
             <SlaBreachBadge
               size="xs"
-              :response-breached="ir.response_breached"
-              :resolution-breached="ir.resolution_breached"
+              :response-breached="ir.is_response_breached ?? ir.response_breached"
+              :resolution-breached="ir.is_resolution_breached ?? ir.resolution_breached"
             />
           </div>
         </div>
@@ -334,13 +339,13 @@ watch(
 {{ incidentStatusLabel(ir.status || '') }}
 </button>
                   <div
-                    v-if="ir.response_breached || ir.resolution_breached"
+                    v-if="(ir.is_response_breached ?? ir.response_breached) || (ir.is_resolution_breached ?? ir.resolution_breached)"
                     class="flex flex-wrap gap-1 mt-1"
                   >
                     <SlaBreachBadge
                       size="xs"
-                      :response-breached="ir.response_breached"
-                      :resolution-breached="ir.resolution_breached"
+                      :response-breached="ir.is_response_breached ?? ir.response_breached"
+                      :resolution-breached="ir.is_resolution_breached ?? ir.resolution_breached"
                     />
                   </div>
                 </td>
