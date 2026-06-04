@@ -48,6 +48,16 @@
           }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/miyano/frappe-bench/apps/assetcore/.claude/scripts/session-log.sh mirror"
+          }
+        ]
+      }
     ]
   }
 }

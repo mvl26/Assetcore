@@ -212,6 +212,8 @@ Bug: 2026-05-16
 
 ### LL-BE-10: DocType name precision — PHẢI grep JSON tồn tại trước khi viết API
 
+> 🗺️ **Phòng tại lúc-thiết-kế:** tra tên verbatim trong [`doctype-catalog.md`](doctype-catalog.md) (bản đồ 107 DocType) TRƯỚC khi sketch data model — grep dưới đây là lưới an toàn lúc-viết-code, catalog chặn đoán-sai từ lúc-thiết-kế (`Department`→`AC Department`, `Device Model`→`IMM Device Model`, spare/stock→`AC Spare Part`/`AC Stock Movement` chứ KHÔNG `Item`/`Stock Entry`).
+
 Bug 2026-05-26 (BUG-019): `api/imm01.py` gọi `frappe.get_all("Department", …)` thay vì `"AC Department"` → toàn bộ `/procurement-plans/:id` crash với banner `Lỗi: ('DocType', 'Department')`. Một ký tự sai = mất chức năng cả module.
 
 **Quy tắc:**
@@ -1086,3 +1088,22 @@ Cross-ref: Core Doc `04_Backend_Design.md` BR-00-USR-02, LL-AUDIT-10.
 4. Anti-FP: "siết quyền" mà làm rỗng dropdown/filter của user hợp lệ = regression, không phải fix. Verify dropdown thật trước khi tuyên bố xong.
 
 Cross-ref: LL-BE-38 (over-grant base role), `services/imm04.py::search_link`, `_ALLOWED_SEARCH_DOCTYPES`.
+
+### LL-BE-41: `frappe.db.count` ≠ `frappe.get_all` cho `["<", date]` với hàng NULL — count-vs-drill divergence (2026-06-04)
+
+**Triệu chứng:** KPI count (qua `frappe.db.count`) và drill list (qua `frappe.get_all`) dùng "cùng" filter dict `{"expiry_date": ["<", today]}` nhưng RA SỐ KHÁC NHAU khi tồn tại hàng `expiry_date = NULL`.
+
+**Root cause:** hai API build SQL khác nhau cho cùng operator-tuple:
+- `frappe.db.count` (query_builder) → `expiry_date < '...'` → NULL **bị loại** (NULL `<` date = NULL, không true).
+- `frappe.get_all` (DatabaseQuery) → bọc `ifnull(expiry_date, ...)` → hàng NULL **lại khớp** `< today`.
+
+→ Một predicate "chung" cho count + drill VẪN diverge nếu chỉ dựa `["<", date]` ngầm-loại-NULL. Đây CHÍNH LÀ class bug count-vs-drill (mirror BR-05-16 / INV-EXP-1).
+
+**Fix (BR-05-16, `services/imm05.py::expired_filter`):**
+1. NULL-guard **tường minh** `["expiry_date", "is", "set"]` — KHÔNG dựa hành vi ngầm.
+2. Dùng **list-of-conditions** `[[field, op, val], ...]` (KHÔNG dict): chứng minh bằng probe cho kết quả ĐỒNG NHẤT trên cả `db.count` và `get_all`.
+3. Gộp với filter khác: `_dict_to_conditions(dict_filters) + expired_filter()` (AND).
+
+**Anti-FP / quy tắc khoá:** mọi predicate "count card == drill rows" (SoT chung 2 read-path) PHẢI: (a) thêm NULL-guard tường minh nếu field nullable; (b) verify INV bằng **probe thật seed hàng NULL** (count==len(drill)), không tin "operator tự loại NULL". `db.count` đúng KHÔNG bảo chứng `get_all` đúng và ngược lại.
+
+Cross-ref: BR-05-15 (is_fully_depreciated count==drill), `expired_filter()`, `_dict_to_conditions()`, test `TestExpiredSoT::test_expiry_null_not_expired_no_crash` + `test_count_equals_drill_mixed_set`.

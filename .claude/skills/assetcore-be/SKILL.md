@@ -155,6 +155,8 @@ class <Name>Repo(BaseRepository):
 
 ## DocType schema
 
+> 🗺️ **Data model có 107 DocType — đọc [`references/doctype-catalog.md`](references/doctype-catalog.md) TRƯỚC khi thiết kế DocType mới / viết `Link` field / gọi `frappe.get_doc|get_all`.** Catalog cho **tên verbatim** + map domain để (1) KHÔNG đoán tên (`Department`≠`AC Department`, `Device Model`≠`IMM Device Model`) và (2) **tái dùng** DocType đã có thay vì tái phát minh (spare/stock/model). Đoán tên = bug LL-BE-10; tạo trùng domain = vi phạm CLAUDE.md §5/§19.
+
 ### Naming
 | Prefix | Ý nghĩa | Ví dụ |
 |---|---|---|
@@ -354,6 +356,7 @@ transition_asset_status(asset_ref, AssetStatus.ACTIVE, root_record=wo_name)
 - `assetcore/utils/lifecycle.py` — `log_audit_event` (SHA-256 chain)
 - `assetcore/assetcore/workflow/imm_09_repair_workflow.json` — workflow template
 - `assetcore/assetcore/doctype/asset_repair/` — DocType reference
+- [`references/doctype-catalog.md`](references/doctype-catalog.md) — bản đồ 107 DocType (tên verbatim + domain map) — đọc trước khi Link/thiết kế
 
 ## Cross-skill
 Đọc [`CONVENTIONS.md`](../CONVENTIONS.md) — §2 Architecture, §3 Error Handling, §4 Audit, §5 Permissions.
@@ -377,6 +380,6 @@ transition_asset_status(asset_ref, AssetStatus.ACTIVE, root_record=wo_name)
 
 ## 🔗 Session context — bàn giao phiên (assetcore-session)
 
-- **Trước khi xử lý/sửa BẤT KỲ việc gì:** chạy `.claude/scripts/session-log.sh show` (đọc STATE+LOG mới nhất — "đang dở ở đâu"; dữ liệu NGOÀI repo, đừng tìm `sessions/` trong repo). Main session hook tự nạp mỗi prompt; subagent phải chạy lệnh này.
-- **Sau MỖI việc đáng kể (đụng file/quyết định):** invoke **`assetcore-session`** checkpoint NGAY `STATE.md`(ghi đè)+`LOG.md` — KHÔNG đợi cuối phiên (ngắt giữa chừng = mất).
-- **Ranh giới:** state-tạm-sẽ-hết → `sessions/`; fact-bền-vững-dùng-lại → `memory/`. KHÔNG trộn.
+- **Trước khi xử lý/sửa BẤT KỲ việc gì:** chạy `.claude/scripts/session-log.sh show` (đọc STATE + file phiên mới nhất (curated; cần truy gốc chi tiết → đọc mục 🪞 Mirror của file phiên) — "đang dở ở đâu"; dữ liệu trong `.claude/contexts/` — gitignored; file phiên ở `sessions/<ngày>/`). Main session: hook tự nạp mỗi prompt + tự **mirror TOÀN BỘ lượt** (prompt+phản hồi+tool) vào file phiên qua hook `Stop`; subagent phải TỰ chạy lệnh này.
+- **Sau MỖI việc đáng kể (đụng file/quyết định):** invoke **`assetcore-session`** checkpoint NGAY: `STATE.md`(ghi đè) + bồi **semantic** vào file phiên (`session-log.sh current` → path; **KHÔNG còn LOG.md**). Hook `Stop` đã mirror nguyên văn → bạn CHỈ cần tóm Làm/Quyết-định/Để-lại. KHÔNG đợi cuối phiên (ngắt giữa chừng = mất).
+- **Ranh giới:** state-tạm-sẽ-hết → `.claude/contexts/` (STATE.md + sessions/<ngày>/); fact-bền-vững-dùng-lại → `memory/`. KHÔNG trộn.
