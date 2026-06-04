@@ -1,19 +1,38 @@
 <script setup lang="ts">
 // Copyright (c) 2026, AssetCore Team
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAssetStore } from '@/stores/imm00'
 import { getAssetTimeline, getAssetKpi, verifyChain, deleteAsset } from '@/api/imm00'
 import { getCommissioningOrigin, type CommissioningOrigin } from '@/api/imm04'
+import {
+  createDecommission, approveDecommission,
+  type DisposalMethod,
+} from '@/api/imm14'
+import {
+  showDecommissionButton, canSubmitDecommission, requiresPatientDataConfirm as needsPhiConfirm,
+  DECOM_REASON_MIN_LEN,
+} from '@/api/decommissionGate'
 import AssetDowntimeWidget from '@/components/asset/AssetDowntimeWidget.vue'
 import AssetDepreciationSchedule from '@/components/asset/AssetDepreciationSchedule.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
+import BaseModal from '@/components/common/BaseModal.vue'
+import SmartSelect from '@/components/common/SmartSelect.vue'
 import type { AssetLifecycleEvent, AssetKpi, ChainVerifyResult, LifecycleStatus } from '@/types/imm00'
-import { translateFrequency, translateDepreciationMethod } from '@/utils/formatters'
+import { translateFrequency, translateDepreciationMethod, translateLifecycleEvent, translateStatus } from '@/utils/formatters'
+import { useCapabilities } from '@/composables/useCapabilities'
+import { useNotify } from '@/composables/useNotify'
+import { useToast } from '@/composables/useToast'
+import { useAuthStore } from '@/stores/auth'
+import { toApiError } from '@/api/errors'
 
 const props = defineProps<{ id: string }>()
 const router = useRouter()
 const store = useAssetStore()
+const { can } = useCapabilities()
+const notify = useNotify()
+const toast = useToast()
+const auth = useAuthStore()
 
 const timeline = ref<AssetLifecycleEvent[]>([])
 const kpi = ref<AssetKpi | null>(null)
@@ -25,14 +44,18 @@ const targetStatus = ref<LifecycleStatus | ''>('')
 const transitionReason = ref('')
 const activeTab = ref<'info' | 'depreciation' | 'timeline' | 'kpi' | 'audit'>('info')
 
+// IMM-14: 'Decommissioned' CỐ TÌNH loại khỏi mọi transition trực tiếp — giải nhiệm
+// PHẢI đi qua "Hồ sơ giải nhiệm" (nút riêng + modal closure-record), không qua nút
+// chuyển-trạng-thái chung. Tránh bypass cổng closure từ FE (BE cũng chặn set
+// Decommissioned ngoài closure → BAD_STATE).
 const TRANSITIONS: Record<string, LifecycleStatus[]> = {
-  'Draft': ['Commissioned', 'Decommissioned'],
-  'Commissioned': ['Active', 'Out of Service', 'Decommissioned'],
-  'Active': ['Under Maintenance', 'Under Repair', 'Calibrating', 'Out of Service', 'Decommissioned'] as LifecycleStatus[],
-  'Under Maintenance': ['Active', 'Under Repair', 'Out of Service', 'Decommissioned'] as LifecycleStatus[],
-  'Under Repair': ['Active', 'Out of Service', 'Decommissioned'],
-  'Calibrating': ['Active', 'Out of Service', 'Decommissioned'],
-  'Out of Service': ['Active', 'Under Repair', 'Decommissioned'],
+  'Draft': ['Commissioned'],
+  'Commissioned': ['Active', 'Out of Service'],
+  'Active': ['Under Maintenance', 'Under Repair', 'Calibrating', 'Out of Service'] as LifecycleStatus[],
+  'Under Maintenance': ['Active', 'Under Repair', 'Out of Service'] as LifecycleStatus[],
+  'Under Repair': ['Active', 'Out of Service'],
+  'Calibrating': ['Active', 'Out of Service'],
+  'Out of Service': ['Active', 'Under Repair'],
   'Decommissioned': [],
 }
 
@@ -122,6 +145,112 @@ async function remove() {
     router.push('/assets')
   } catch (e: unknown) {
     store.error = (e as Error).message || 'Không thể xóa'
+  }
+}
+
+// ── IMM-14: Cổng "Hồ sơ giải nhiệm" (Decommission closure record) ──────────────
+// Naming contract: api/imm14.ts → assetcore.api.imm14.create_decommission/approve_decommission
+// Gate hiển thị nút: capability THẬT 'decommission.approve'/'decommission.create'
+// (khớp BE rbac.py CAPABILITY_MAP → Asset Decommission submit/create; cap có thật, tránh
+// empty-array trap LL-FE-22) + asset CHƯA terminal (đọc lifecycle_status, KHÔNG hardcode).
+// NEG-09 (đang bảo trì/sửa/hiệu chuẩn) KHÔNG disable cứng ở FE — BE là SoT, bấm sẽ nhận
+// lỗi gate VI → toast cảnh báo (doc §11.2).
+
+const DISPOSAL_OPTIONS: { value: DisposalMethod; label: string }[] = [
+  { value: 'Huỷ', label: 'Huỷ (tiêu huỷ vật lý)' },
+  { value: 'Điều chuyển/Donation', label: 'Điều chuyển / Hiến tặng' },
+  { value: 'Bán/Trade-in', label: 'Bán / Đổi cũ lấy mới' },
+  { value: 'Lưu trữ', label: 'Lưu trữ' },
+]
+const REASON_MIN_LEN = DECOM_REASON_MIN_LEN
+
+const showDecommissionModal = ref(false)
+const decommissioning = ref(false)
+const decomForm = ref<{
+  disposal_method: DisposalMethod | ''
+  patient_data_sanitized: boolean
+  sanitization_note: string
+  decommission_reason: string
+  responsible: string
+  confirm_name: string
+}>({
+  disposal_method: '',
+  patient_data_sanitized: false,
+  sanitization_note: '',
+  decommission_reason: '',
+  responsible: '',
+  confirm_name: '',
+})
+
+// Risk class C/D (WHO §3.6) = High/Critical trên AC Asset → bắt buộc xác nhận xử lý
+// dữ liệu bệnh nhân trước khi duyệt. Dùng predicate CHUNG với test (no drift).
+const requiresPatientDataConfirm = computed(
+  () => needsPhiConfirm(store.currentAsset?.risk_classification),
+)
+
+const isDecommissioned = computed(
+  () => store.currentAsset?.lifecycle_status === 'Decommissioned',
+)
+
+// Nút chỉ hiện khi có quyền duyệt giải nhiệm (Department Head) + asset chưa terminal.
+// Capability THẬT khớp BE rbac.py: 'decommission.approve' → ("Asset Decommission","submit").
+// KHÔNG hardcode role-name, KHÔNG dùng cap rỗng (LL-FE-12/22). Chấp nhận create-cap như
+// fallback OR (luồng MVP create→approve liên tiếp; người mở modal cần ít nhất quyền tạo).
+const canDecommission = computed(
+  () => showDecommissionButton(
+    !!store.currentAsset,
+    store.currentAsset?.lifecycle_status,
+    can(['decommission.approve', 'decommission.create']),
+  ),
+)
+
+// Disable nút "Xác nhận giải nhiệm" trong modal nếu chưa đủ field (mirror BE BR).
+const decomReasonLen = computed(() => decomForm.value.decommission_reason.trim().length)
+const decomCanSubmit = computed(
+  () => canSubmitDecommission(
+    decomForm.value,
+    store.currentAsset?.name ?? '',
+    store.currentAsset?.risk_classification,
+  ),
+)
+
+function openDecommissionModal() {
+  decomForm.value = {
+    disposal_method: '',
+    patient_data_sanitized: false,
+    sanitization_note: '',
+    decommission_reason: '',
+    responsible: auth.user?.email ?? '',
+    confirm_name: '',
+  }
+  showDecommissionModal.value = true
+}
+
+async function confirmDecommission() {
+  if (!store.currentAsset || !decomCanSubmit.value) return
+  decommissioning.value = true
+  try {
+    // 2-call tuần tự (doc §11.3): create_decommission (docstatus=0) → approve_decommission
+    // (submit → transition asset). Lỗi gate nào cũng surface qua toast cảnh báo VI.
+    const created = await createDecommission({
+      asset: store.currentAsset.name,
+      disposal_method: decomForm.value.disposal_method as DisposalMethod,
+      decommission_reason: decomForm.value.decommission_reason.trim(),
+      patient_data_sanitized: decomForm.value.patient_data_sanitized,
+      responsible: decomForm.value.responsible,
+      sanitization_note: decomForm.value.sanitization_note.trim() || undefined,
+    })
+    await approveDecommission(created.name)
+    showDecommissionModal.value = false
+    // Refresh asset → badge đổi 'Đã thanh lý' qua label map SSoT, nút tự ẩn.
+    await Promise.all([store.fetchOne(props.id), loadTimeline()])
+    toast.success('Đã giải nhiệm thiết bị thành công.')
+  } catch (e: unknown) {
+    // Gate-error: toast CẢNH BÁO với message VI verbatim từ BE (KHÔNG 'Lỗi hệ thống',
+    // KHÔNG leak EN/raw status). toApiError giữ code + message BE đã VI hoá.
+    notify.fromError(toApiError(e))
+  } finally {
+    decommissioning.value = false
   }
 }
 
@@ -284,6 +413,23 @@ onMounted(async () => {
           >
 ⚠️ Báo sự cố
 </button>
+          <!-- IMM-14: Giải nhiệm thiết bị — chỉ hiện khi có quyền + asset chưa terminal -->
+          <button
+            v-if="canDecommission"
+            class="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors"
+            title="Lập hồ sơ giải nhiệm thiết bị (cần đóng phiếu bảo trì/sửa/hiệu chuẩn đang mở trước)"
+            data-testid="btn-decommission"
+            @click="openDecommissionModal"
+          >
+🗑️ Giải nhiệm thiết bị
+</button>
+          <span
+            v-else-if="isDecommissioned"
+            class="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md bg-gray-200 text-gray-500"
+            data-testid="badge-decommissioned"
+          >
+✓ Đã giải nhiệm
+</span>
         </div>
       </div>
 
@@ -456,11 +602,11 @@ onMounted(async () => {
             </div>
             <div class="card flex-1 p-3">
               <div class="flex justify-between items-start">
-                <span class="font-semibold text-sm text-slate-800">{{ event.event_type }}</span>
+                <span class="font-semibold text-sm text-slate-800" data-testid="ale-event-type">{{ translateLifecycleEvent(event.event_type) }}</span>
                 <span class="text-xs text-slate-400">{{ formatDateTime(event.event_timestamp) }}</span>
               </div>
-              <p v-if="event.from_status || event.to_status" class="text-xs text-slate-500 mt-1">
-                {{ event.from_status }} → {{ event.to_status }}
+              <p v-if="event.from_status || event.to_status" class="text-xs text-slate-500 mt-1" data-testid="ale-status-transition">
+                {{ translateStatus(event.from_status) }} → {{ translateStatus(event.to_status) }}
               </p>
               <p v-if="event.notes" class="text-xs text-slate-600 mt-1">{{ event.notes }}</p>
               <p class="text-xs text-slate-400 mt-1">bởi {{ event.actor }}</p>
@@ -541,5 +687,122 @@ onMounted(async () => {
       </div>
     </div>
 
-  </div>
+    <!-- IMM-14: Modal Hồ sơ giải nhiệm (closure record) -->
+    <BaseModal
+      v-if="showDecommissionModal"
+      title="Hồ sơ giải nhiệm thiết bị"
+      size="lg"
+      danger
+      @close="showDecommissionModal = false"
+    >
+      <div class="space-y-4 text-sm">
+        <div class="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
+          Hành động <strong>không thể đảo ngược</strong>. Sau khi duyệt, thiết bị chuyển sang
+          trạng thái <strong>Đã thanh lý</strong> và không thể thao tác tiếp.
+        </div>
+
+        <!-- Phương thức xử lý -->
+        <div>
+          <label class="block text-xs font-medium text-slate-600 mb-1">
+            Phương thức xử lý <span class="text-red-500">*</span>
+          </label>
+          <select
+            v-model="decomForm.disposal_method"
+            class="form-input w-full text-sm"
+            data-testid="decom-disposal-method"
+          >
+            <option value="" disabled>— Chọn phương thức xử lý —</option>
+            <option v-for="o in DISPOSAL_OPTIONS" :key="o.value" :value="o.value">{{ o.label }}</option>
+          </select>
+          <p class="text-xs text-slate-400 mt-1">Theo WHO §3.8 / NĐ98.</p>
+        </div>
+
+        <!-- Xác nhận xử lý dữ liệu bệnh nhân -->
+        <div
+          class="rounded-lg px-3 py-2.5"
+          :class="requiresPatientDataConfirm ? 'bg-red-50 border border-red-200' : 'bg-slate-50 border border-slate-200'"
+        >
+          <label class="flex items-start gap-2 cursor-pointer">
+            <input
+              v-model="decomForm.patient_data_sanitized"
+              type="checkbox"
+              class="mt-0.5"
+              data-testid="decom-patient-data"
+            />
+            <span class="text-xs text-slate-700">
+              Đã xoá / xử lý dữ liệu bệnh nhân trên thiết bị.
+              <span v-if="requiresPatientDataConfirm" class="block text-red-600 font-medium mt-0.5">
+                Thiết bị phân loại nguy cơ C/D — bắt buộc xác nhận (WHO §3.6).
+              </span>
+            </span>
+          </label>
+          <input
+            v-model="decomForm.sanitization_note"
+            type="text"
+            class="form-input w-full text-xs mt-2"
+            placeholder="Ghi chú cách xử lý dữ liệu (tuỳ chọn)..."
+            data-testid="decom-sanitization-note"
+          />
+        </div>
+
+        <!-- Lý do giải nhiệm -->
+        <div>
+          <label class="block text-xs font-medium text-slate-600 mb-1">
+            Lý do giải nhiệm <span class="text-red-500">*</span>
+          </label>
+          <textarea
+            v-model="decomForm.decommission_reason"
+            rows="3"
+            class="form-input w-full text-sm"
+            placeholder="Mô tả lý do giải nhiệm (hết khấu hao, sửa chữa không kinh tế, có quyết định thanh lý...)"
+            data-testid="decom-reason"
+          />
+          <p class="text-xs mt-1" :class="decomReasonLen < REASON_MIN_LEN ? 'text-red-500' : 'text-slate-400'">
+            {{ decomReasonLen }}/{{ REASON_MIN_LEN }} ký tự tối thiểu
+          </p>
+        </div>
+
+        <!-- Người chịu trách nhiệm -->
+        <div>
+          <label class="block text-xs font-medium text-slate-600 mb-1">
+            Người chịu trách nhiệm <span class="text-red-500">*</span>
+          </label>
+          <SmartSelect
+            v-model="decomForm.responsible"
+            doctype="User"
+            placeholder="Chọn người chịu trách nhiệm..."
+            data-testid="decom-responsible"
+          />
+        </div>
+
+        <!-- Xác nhận 2 bước: gõ đúng mã thiết bị -->
+        <div class="pt-2 border-t border-slate-100">
+          <label class="block text-xs font-medium text-slate-600 mb-1">
+            Gõ mã thiết bị <span class="font-mono text-slate-800">{{ store.currentAsset?.name }}</span>
+            để xác nhận <span class="text-red-500">*</span>
+          </label>
+          <input
+            v-model="decomForm.confirm_name"
+            type="text"
+            class="form-input w-full text-sm font-mono"
+            :placeholder="store.currentAsset?.name"
+            data-testid="decom-confirm-name"
+          />
+        </div>
+      </div>
+
+      <template #footer>
+        <button class="btn-ghost text-sm" @click="showDecommissionModal = false">Huỷ</button>
+        <button
+          class="text-sm px-4 py-2 rounded-lg font-medium text-white transition-colors"
+          :class="decomCanSubmit && !decommissioning ? 'bg-red-600 hover:bg-red-700' : 'bg-slate-300 cursor-not-allowed'"
+          :disabled="!decomCanSubmit || decommissioning"
+          data-testid="decom-submit"
+          @click="confirmDecommission"
+        >
+          {{ decommissioning ? 'Đang xử lý...' : 'Xác nhận giải nhiệm' }}
+        </button>
+      </template>
+    </BaseModal>
+</div>
 </template>
