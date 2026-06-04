@@ -116,6 +116,23 @@ describe('§7.septies.2 — master-group list route gate data.read (VĐ1)', () =
   })
 })
 
+// ─── TC-RT-06-DASH-01 — route TrainingDashboard cap-gate training.read
+describe('TC-RT-06-DASH-01 — /imm06/dashboard yêu cầu cap training.read (parity IMM-06)', () => {
+  // Mirror chính xác meta route TrainingDashboard trong router/index.ts.
+  const DASH_META = { requiredCapabilities: ['training.read'], moduleId: 'imm06' }
+  it('persona thiếu cap training.read → unauthorized', () => {
+    expect(resolveRouteAccess(DASH_META, ctx())).toBe('unauthorized')
+    // có cap module khác cũng KHÔNG mở được dashboard đào tạo
+    expect(resolveRouteAccess(DASH_META, ctx({ can: canOnly('pm.read', 'inventory.read') }))).toBe('unauthorized')
+  })
+  it('persona có training.read → allow (parity với /imm06/competencies)', () => {
+    expect(resolveRouteAccess(DASH_META, ctx({ can: canOnly('training.read') }))).toBe('allow')
+  })
+  it('frappe-admin bypass → allow', () => {
+    expect(resolveRouteAccess(DASH_META, ctx({ isFrappeAdmin: true }))).toBe('allow')
+  })
+})
+
 describe('§7.septies.3 — /depreciation finance OR-gate (VĐ2)', () => {
   // PHẢI khớp FINANCE_READ_CAPS = data.write|needs.read|procurement.read|pm.read|calibration.read
   const DEP_META = {

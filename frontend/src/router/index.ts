@@ -887,6 +887,12 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true, title: 'Chi tiết buổi đào tạo', requiredCapabilities: ['training.read'] },
   },
   {
+    path: '/imm06/dashboard',
+    name: 'TrainingDashboard',
+    component: () => import('@/views/training/TrainingDashboardView.vue'),
+    meta: { requiresAuth: true, title: 'Tổng quan đào tạo & năng lực', requiredCapabilities: ['training.read'] },
+  },
+  {
     path: '/imm06/competencies',
     name: 'CompetencyList',
     component: () => import('@/views/training/CompetencyListView.vue'),

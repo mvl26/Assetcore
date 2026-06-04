@@ -96,6 +96,7 @@ export const MODULE_NAV: Record<string, ModuleNav> = {
   imm06: {
     code: 'IMM-06', title: 'Đào tạo người dùng', icon: 'users',
     items: [
+      { label: 'Tổng quan đào tạo',    path: '/imm06/dashboard',    icon: 'chart',    cap: 'training.read' },
       { label: 'Chương trình đào tạo', path: '/imm06/programs',     icon: 'list',     cap: 'training.read' },
       { label: 'Buổi đào tạo',         path: '/imm06/sessions',     icon: 'calendar', cap: 'training.read' },
       { label: 'Năng lực',             path: '/imm06/competencies', icon: 'shield',   cap: 'training.read' },
