@@ -147,6 +147,10 @@ export default routes
 │  [AssetInfoCard]                  │  [RepairSlaIndicator]       │
 │  Model, Serial, Risk Class        │  Đã trôi: 6h 23m / 24h SLA│
 │  Khoa phòng, Vị trí              │  [████████░░] 67%           │
+│                                   │  ⏸ [SlaPausedBadge khi      │
+│                                   │   status=Pending Parts]:     │
+│                                   │  "Chờ phụ tùng — SLA tạm  │
+│                                   │   dừng" (amber, BR-09-10)    │
 │                                   │                             │
 │  [RepairSourceBadge]              │  [DurationTimer]            │
 │  📋 IR-2026-00123                 │  ⏱ 06:23:15                │
@@ -329,7 +333,8 @@ components/repair/
 ├── RepairStatusBadge.vue         — Badge màu theo status
 ├── RepairStatusTimeline.vue      — Timeline lịch sử trạng thái
 ├── RepairActionBar.vue           — Nút hành động thay đổi theo status
-├── RepairSlaIndicator.vue        — Progress bar SLA + màu động
+├── RepairSlaIndicator.vue        — Progress bar SLA + màu động (xám khi Pending Parts, BR-09-10)
+├── SlaPausedBadge.vue            — Badge "Chờ phụ tùng — SLA tạm dừng" khi Pending Parts (BR-09-10)
 ├── RepairSummaryCard.vue         — Card tóm tắt WO
 ├── RepairSourceBadge.vue         — Badge IR / PM WO nguồn
 └── RepairRepeatFailureBanner.vue — Banner cảnh báo tái hỏng
@@ -403,11 +408,28 @@ export const useImm09Store = defineStore('imm09', () => {
 
   // ── Computed ──────────────────────────────────────────────────
   const openWOs = computed(() => workOrders.value.filter(w => w.status === 'Open'))
-  const breachedWOs = computed(() => workOrders.value.filter(w => w.sla_breached))
+  // BR-09-07 LIVE: live-truth ?? cờ thô — KHÔNG chỉ cờ stale stamped-by-scheduler.
+  // BE list_work_orders enrich `is_sla_breached` (open & vượt hạn & cờ chưa stamp).
+  const breachedWOs = computed(() => workOrders.value.filter(w => w.is_sla_breached ?? w.sla_breached))
   const checklistComplete = computed(() => {
     if (!currentWO.value) return false
     return currentWO.value.repair_checklist.every(r => r.result !== null)
   })
+
+  // ── Schema-contract delta (BR-09-07 LIVE) ─────────────────────
+  // `api/imm09.ts` interface AssetRepair: THÊM optional field
+  //   is_sla_breached?: boolean   // BE list_work_orders derive live (bool(sla_breached) || _row_is_live_overdue)
+  // Giữ `sla_breached: boolean` (cờ thô vẫn trả). Badge/computed đọc `is_sla_breached ?? sla_breached`
+  // (live ưu tiên; fallback cờ thô khi endpoint chưa enrich — forward/backward compat).
+
+  // ── Schema-contract delta (BR-09-10 clock-stop) ───────────────
+  // `api/imm09.ts` interface AssetRepair: THÊM optional field
+  //   parts_hold_hours?: number   // tổng giờ WO nằm Pending Parts (BE cộng dồn)
+  //   sla_paused?: boolean        // BE derive (status === 'Pending Parts') — SLA đang tạm dừng
+  // mttr_hours BE gửi ĐÃ là clock-stop (= (completion−open) − parts_hold_hours).
+  // FE render mttr_hours VERBATIM — TUYỆT ĐỐI KHÔNG tự tính lại từ open/completion
+  //   (transport-agnostic; tránh divergence card vs BE). SlaPausedBadge đọc
+  //   `sla_paused ?? (status === 'Pending Parts')` (fallback nếu endpoint chưa enrich).
 
   // ── Actions (tên chính xác) ───────────────────────────────────
   async function fetchWorkOrders(filters = {}, page = 1): Promise<void>
@@ -547,12 +569,28 @@ const searchParts = useDebounceFn(async (query: string) => {
 ```typescript
 // Màu progress bar thay đổi theo mức độ SLA
 const slaBarColor = computed(() => {
+  // BR-09-10: WO đang Pending Parts → SLA TẠM DỪNG (clock-stop). KHÔNG bôi đỏ
+  // "vi phạm" vì đồng hồ đứng yên — hiển thị xám trung tính + badge tạm dừng.
+  if (wo.sla_paused ?? wo.status === 'Pending Parts') return 'bg-slate-300'
   if (slaPercent.value >= 100) return 'bg-red-500'    // Đã vi phạm
   if (slaPercent.value >= 75)  return 'bg-orange-500' // Nguy hiểm
   if (slaPercent.value >= 50)  return 'bg-yellow-400' // Cảnh báo
   return 'bg-green-500'                               // Bình thường
 })
 ```
+
+### SlaPausedBadge — Badge "Chờ phụ tùng — SLA tạm dừng" (BR-09-10)
+
+```typescript
+// components/repair/SlaPausedBadge.vue — hiện ở CMDetail (RIGHT) + CMList row
+// khi WO ở Pending Parts. Văn bản VI cứng, KHÔNG leak EN.
+const showPausedBadge = computed(() => props.wo.sla_paused ?? props.wo.status === 'Pending Parts')
+// Render: <span class="bg-amber-100 text-amber-700 ...">⏸ Chờ phụ tùng — SLA tạm dừng</span>
+```
+
+> **MTTR render — verbatim (BR-09-10):** mọi nơi hiển thị MTTR (CMDetail, CMList, CMMttr dashboard, card KPI) đọc `wo.mttr_hours` BE gửi TRỰC TIẾP (đã clock-stop). KHÔNG có FE-side `(completion − open)/3600`. `DurationTimer` (đồng hồ wall-clock realtime) chỉ là chỉ báo trực quan thời gian đã trôi — KHÔNG dùng để quyết breach/MTTR (đó là việc của BE qua `is_sla_breached`/`repair_elapsed_hours`).
+>
+> **No-leak EN + vue-tsc 0:** badge + label tiếng Việt; `parts_hold_hours`/`sla_paused` khai báo optional trong `interface AssetRepair` (`api/imm09.ts`) ⇒ `vue-tsc --noEmit` prod = 0 lỗi.
 
 ### Source Field Validation — CMCreate form
 
@@ -600,6 +638,8 @@ const validateSource = (): boolean => {
 | Dept Head Name | Trưởng khoa phòng xác nhận |
 | MTTR | MTTR (Thời gian sửa chữa trung bình) |
 | SLA Breached | Vi phạm SLA |
+| SLA Paused (Pending Parts) | Chờ phụ tùng — SLA tạm dừng (BR-09-10) |
+| Parts Hold Hours | Thời gian chờ phụ tùng (giờ) |
 | Cannot Repair | Không thể sửa chữa |
 | Firmware Change Request | Yêu cầu cập nhật firmware |
 | Repeat Failure | Tái hỏng hóc |
@@ -662,7 +702,7 @@ không có nút. Chi tiết transitions: `assignTechnician → submitDiagnosis �
 | Thiết bị không tìm thấy | CMCreate asset field | "Thiết bị không tồn tại trong hệ thống" |
 | WO đã có cho thiết bị | CMCreate submit | Toast "Thiết bị đang có phiếu sửa chữa mở: [link WO]" |
 | Checklist chưa 100% Pass | CMChecklist | Button "Hoàn thành" disabled, tooltip "Còn X mục chưa Pass" |
-| SLA vi phạm | CMDetail, CMList | Badge đỏ `SLA ĐÃ VI PHẠM`, `RepairSlaIndicator` màu đỏ |
+| SLA vi phạm | CMDetail, CMList | Badge đỏ `SLA vi phạm` theo `wo.is_sla_breached ?? wo.sla_breached` (live-truth, BR-09-07 LIVE) — mobile `CMWorkOrderListView.vue:261` + desktop `:301`. KHÔNG mangle nhãn VI, KHÔNG leak raw status/EN. `RepairSlaIndicator` màu đỏ khi live ?? cờ. |
 
 ---
 

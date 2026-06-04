@@ -4,9 +4,9 @@
 |---|---|
 | Module | **IMM-00 — Master / Cross-cutting** |
 | Wave | Master |
-| Trạng thái | **Live ✅ — docs synced vs code 2026-05-27** · Notification Framework Wave N1 spec'd 2026-05-29 |
+| Trạng thái | **Live ✅ — docs synced vs code 2026-05-27** · Notification Framework Wave N1 spec'd 2026-05-29 · RC-03 kế thừa luật khấu hao Category→Asset spec'd 2026-06-03 (FR-00-47..52 / BR-00-18..21) · RC-04 per-asset self-heal `regenerate_depreciation_schedule` (FR-00-53..55 / BR-00-22) · RC-05 `bulk_regenerate_by_category` về SoT (FR-00-56..58 / BR-00-23) · RC-06 SoT `effective_book_value` (BR-05-13) · **RC-07 thanh lý hủy kỳ Pending khấu hao spec'd 2026-06-03 Vòng 8 (FR-00-59..62 / BR-00-24 — schema-delta `event_type+=depreciation_stopped`)** · RC-08 Out of Service PAUSE + RESCHEDULE khấu hao Vòng 9 (FR-00-63..68 / BR-00-25 — no schema-delta) · RC-CAPA-EFF cổng hiệu quả CAPA SoT đơn Vòng 12 (FR-00-59 / BR-00-26) · **RC-09 nhãn sự kiện khôi phục `restored` ĐÚNG 1 — kill double-emit Vòng 14 (FR-00-69 / BR-00-27 — `_lifecycle_event_for(to,from)`, no schema-delta)** |
 | Số file hiện có | 8 (numbered 02–09) |
-| Cập nhật cuối | 2026-06-03 |
+| Cập nhật cuối | 2026-06-04 |
 | Khối kiến trúc | Cross-cutting (foundation cho A/B/C/D) |
 | Owner | — (Cross-cutting — System Architect + BA Lead) |
 

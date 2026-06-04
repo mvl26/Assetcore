@@ -212,6 +212,24 @@ Các routes dưới đây đánh dấu `[BUILT]` nếu có Vue component, `[SPEC
 | API 403 | Toast danger "Không có quyền thực hiện hành động này" |
 | API 500 | `ErrorBoundary` với retry + error ID |
 
+### II.4b. Capability sync — stale-safe (`stores/auth.ts`)
+
+> **SSoT FE cho gate UX.** `can(cap)` đọc `capabilities.value[cap] === true`. Cap-set lấy từ BE `get_capabilities` (05 §I.2b), persist `localStorage['assetcore.capabilities']`. **Self-Correction (2026-06-04, USER REWORK IMM-14):** persisted-caps cũ (provisioned trước release) che mất cap mới (`decommission.*`) → nút "Giải nhiệm thiết bị" không hiện. Mục này định nghĩa hành vi luôn-honor-cap-mới-nhất.
+
+**AC3 — luôn refresh cap mới nhất (bỏ empty-check skip):**
+- Bug gốc: `fetchSession()` chỉ gọi `loadCapabilities()` khi `Object.keys(capabilities.value).length === 0`. User có persisted caps non-empty (stale) → KHÔNG bao giờ refresh → cap mới không tới FE.
+- Fix: **luôn** gọi `loadCapabilities()` sau khi `fetchSession()` xác thực thành công (bỏ điều kiện empty-check). `loadCapabilities()` overwrite `capabilities.value` + `localStorage` bằng cap-set mới nhất từ BE.
+- `ensureFresh()` (App mount, re-hydrate nền) giữ nguyên `fetchSession()` → `loadCapabilities()` tuần tự.
+- **Invariant:** sau `ensureFresh`/`fetchSession`, `localStorage['assetcore.capabilities']` CHỨA `decommission.*` (nếu user có DocPerm tương ứng).
+
+**AC4 — version-stamp invalidation (đổi tập cap):**
+- BE trả `__cap_set_version__` (05 §I.2b). FE giữ hằng/khóa persist `assetcore.capabilities.version`.
+- Khi load persisted-caps lúc khởi tạo store (`loadPersistedCaps`): nếu persisted version ≠ version BE đã biết (hoặc thiếu) → **bỏ persisted caps cũ** (trả `{}`), buộc `loadCapabilities` nạp lại trước render gate-button.
+- `persistCaps` lưu kèm version hiện hành; `loadCapabilities` cập nhật version từ response (loại khóa `__cap_set_version__` khỏi map cap thường: bỏ mọi key prefix `__`).
+- **Invariant:** bump `CAP_SET_VERSION` ở BE → persisted caps cũ bị bỏ → nút IMM-14 "Giải nhiệm thiết bị" render sau reload mà KHÔNG cần xóa `localStorage` thủ công.
+
+**AC5 — no-regression:** mọi cap hợp lệ hiện hữu vẫn `can()=true` đúng như cũ; legacy `isXxx` wrapper quanh `can()` không đổi; shape store export không đổi.
+
 ## II.5. Breadcrumb
 
 Auto sinh từ `route.meta.breadcrumb`. Max 4 cấp, cắt giữa ("…") nếu dài. Click mọi cấp trừ cấp cuối.
@@ -436,6 +454,11 @@ Warning banner đỏ nếu `due_date < today` "CAPA quá hạn (BR-00-09)".
 
 Close CAPA: confirm modal liệt kê checklist BR-00-08.
 
+**round 12 — cổng hiệu quả (AC-6, đồng bộ BR-00-26):**
+- Nút **"Đóng CAPA"** disabled khi `effectiveness_check !== 'Effective'` (nếu form có chọn effectiveness) — chặn submit chắc chắn fail FIN-007. Tooltip: `capa.effectiveness_not_verified`.
+- Khi BE trả lỗi `code=VALIDATION` + `message_code='FIN-007'` (gọi `closeCapaRecord`): hiển thị qua **notification-contract** thông báo VI `capa.effectiveness_not_verified` = "Chưa xác minh hiệu quả — không thể đóng CAPA". **KHÔNG** báo "Đã đóng", **KHÔNG** leak code thô `FIN-007` / message EN ra UI; CAPA giữ nguyên trạng thái (không Closed).
+- `CAPADetailView` (`frontend/src/views/incident/CAPADetailView.vue:255`): khi `effectiveness_check` null/rỗng hiển thị `'— (chưa xác minh)'` (`capa.effectiveness_unverified_label`) — **giữ nguyên**, không đổi.
+
 ## III.8. Incident Report — Wizard 3 bước
 
 Route: `/incidents/new`
@@ -503,6 +526,53 @@ View `frontend/src/views/asset/DepreciationView.vue` (route `/assets/depreciatio
 
 > **API client:** `listAssetsDepreciation` thêm optional `depreciation_filter?` (xem §V.1). BE: [imm-00/05 §III.18](./05_API_Specification.md); SoT + invariant: [imm-05/04 §2.5.1](../imm-05/04_Backend_Design.md).
 > **DoD FE:** vue-tsc 0 lỗi; vitest cho DepreciationView GREEN (card count == drill rows; option "Hết khấu hao" lọc đúng; không leak `'fully_depreciated'` vào `status_filter`).
+
+#### III.10b — Giá trị còn lại đúng cho asset KH hết — FE ZERO-CHANGE (BR-05-13 / RC-06)
+
+**Bug user-facing (nguồn gốc ở BE — fix tại BE, KHÔNG ở FE):** asset đã khấu hao **hết** (`current_book_value=0.0`, residual=0) hiện **nguyên giá `gross`** thay vì `0đ` ở 3 chỗ render — vì BE trả phantom `gross` (idiom falsy `current_book_value or gross`). Sau khi BE route qua SoT `effective_book_value` (BR-05-13 / [imm-00/04 §III.1b](./04_Backend_Design.md)), 3 chỗ render dưới **tự hiển thị đúng** mà KHÔNG sửa logic FE:
+
+| Render point | `DepreciationView.vue` | Sau fix BE |
+|---|---|---|
+| Cột "Giá trị còn lại" mỗi dòng asset | `{{ vnd(a.current_book_value) }}` (`:430`) | asset KH hết hiện **`0đ`** (trước: `gross`). |
+| KPI tổng "Giá trị còn lại" | `{{ vndShort(stats.total_book_value) }}` (`:246`, `:289`) | KHÔNG còn over-count phantom `gross`. |
+| Thanh "Giá trị còn lại theo Danh mục" | `{{ vndShort(c.book_value) }}` + width `c.book_value` (`:318`, `:323`) | category bar phản ánh book thật. |
+
+> **DoD FE:** **zero-change logic** — FE render verbatim số BE trả. `vue-tsc` 0 lỗi, `vitest` GREEN **không cần sửa component** (chỉ confirm số mới đúng nếu test fixture có asset book=0.0). Đây là delta thuần BE; FE chỉ là beneficiary.
+
+### III.10b-bis. Nút "Áp dụng khấu hao cho TẤT CẢ tài sản" (RC-03)
+
+Trên `DepreciationView.vue`, nút global gọi `computeAllDepreciation()`. Sau khi BE trả shape 6-key mới (FR-00-52 / imm-00/05 §III.18), toast thành công hiển thị các con số VI:
+
+| Field BE | Nhãn toast VI |
+|---|---|
+| `inherited` | Đã kế thừa luật khấu hao (N tài sản) |
+| `generated` | Đã sinh lịch khấu hao (N) |
+| `executed_rows` | Đã ghi nhận kỳ đến hạn (N) |
+| `skipped_has_history` | Bỏ qua (đã có lịch sử khấu hao): N |
+| `skipped_no_rule` | Bỏ qua (danh mục chưa cấu hình luật): N |
+
+- Sau khi nút chạy xong → refetch `getDepreciationStats()` + `listAssetsDepreciation()` để `unconfigured_count` giảm và list cập nhật.
+- `skipped_no_rule > 0` → gợi ý user mở Asset Category cấu hình `total_depreciation_months` (lỗi master-data, không phải lỗi hệ thống — BR-00-20).
+- **DoD FE:** vue-tsc 0; vitest mock trả shape 6-key → assert toast render đủ 5 dòng + không crash khi key = 0.
+
+### III.10d. Nút "Áp dụng khấu hao theo từng Danh mục" — BaseModal + toast (RC-05, Round-4)
+
+`ReferenceDataView.vue` (`/master-data`, tab "Danh mục") — form sửa Category có nút **"Áp dụng khấu hao theo từng Danh mục"** gọi `applyToExistingAssets()` → `bulkRegenerateScheduleByCategory(editingName.value)`.
+
+**Bug thiết kế gốc:** `applyToExistingAssets` dùng `window.confirm()` xác nhận (`:182-188`) — vi phạm WAVE2 pattern (confirm native không nhất quán UX, không testable). Payload BE cũ 5-key → toast không hiển thị `inherited`/`skipped_no_rule`.
+
+**Fix:**
+
+| Yêu cầu | Quy tắc |
+|---|---|
+| Xác nhận | Thay `window.confirm()` bằng **BaseModal** xác nhận (WAVE2 pattern — giống `DepreciationView` §III.10b-bis). API chỉ gọi **sau** khi user bấm "Xác nhận" trong modal; `window.confirm` tuyệt đối KHÔNG còn được gọi. |
+| State | `showApplyConfirm = ref(false)` (mở modal) + `applyResult = ref<BulkRegenerateByCategoryResult \| null>(null)` (kết quả). |
+| Toast kết quả | Sau khi API trả payload 7-key → toast/modal kết quả hiển thị `inherited + regenerated + skipped_has_history + skipped_no_rule + errors`. Nhãn VI (bảng dưới). KHÔNG leak raw method/token/field kỹ thuật. |
+| Nhãn VI | `inherited`→"Đã kế thừa luật khấu hao (N)"; `regenerated`→"Đã sinh lại lịch khấu hao (N)"; `skipped_has_history`→"Bỏ qua (đã có lịch sử khấu hao): N"; `skipped_no_rule`→"Bỏ qua (chưa cấu hình luật / nguyên giá ≤ 0): N"; `errors`→"Lỗi: N" (chỉ hiện khi >0). |
+| `skipped_no_rule > 0` | gợi ý user kiểm tra `total_depreciation_months` của Category (lỗi master-data — BR-00-20), KHÔNG báo lỗi hệ thống. |
+| Type | `api/imm00.ts` đổi return type sang `BulkRegenerateByCategoryResult` (thêm `inherited` + `skipped_no_rule` — §V.1). |
+
+- **DoD FE:** vue-tsc 0; vitest cho `ReferenceDataView` GREEN — assert (a) click nút KHÔNG gọi `window.confirm`, mở BaseModal, API **chưa** gọi; (b) bấm "Xác nhận" → API gọi 1 lần; (c) mock payload 7-key → toast/modal render đủ 5 số + không crash khi key = 0; (d) không leak raw method/token.
 
 ---
 
@@ -657,6 +727,9 @@ export function getCapaOverdue(page, page_size): Promise<PaginatedResponse<ImmCa
 export function openCapa(data: { asset, severity, description, responsible, source_type?, source_ref?, due_days? }): Promise<{ name: string }>
 export function getCapa(name: string): Promise<ImmCapaRecord>
 export function closeCapaRecord(name: string, data: { root_cause, corrective_action, preventive_action, effectiveness_check? }): Promise<{ name: string; status: string }>
+// round 12 — khi BE trả lỗi cổng hiệu quả: code=VALIDATION (422) + message_code='FIN-007'
+//   → handle qua notification-contract, hiển thị VI: "Chưa xác minh hiệu quả — không thể đóng CAPA"
+//   KHÔNG báo "Đã đóng"; KHÔNG leak 'FIN-007' / message EN thô ra UI.
 
 // Transfer
 export async function getTransferFull(name: string): Promise<...>
@@ -667,12 +740,59 @@ export async function updateTransfer(name: string, data): Promise<...>
 export function computeDepreciation(name: string): Promise<DepreciationComputeResult>
 export function listAssetsDepreciation(params: { page?, page_size?, method_filter?, status_filter?, category_filter?, depreciation_filter? }): Promise<{ items: AssetDepreciationRow[]; pagination }>
 export function getDepreciationStats(): Promise<DepreciationStats>
-export function computeAllDepreciation(): Promise<{ generated_schedules, skipped, executed_rows, updated_assets }>
+// RC-03: nút global backfill-rồi-sinh (xem imm-00/05 §III.18). Shape 6-key thay payload cũ.
+export function computeAllDepreciation(): Promise<{ inherited; generated; executed_rows; updated_assets; skipped_has_history; skipped_no_rule }>
 export async function getDepreciationSchedule(asset_name: string): Promise<DepreciationScheduleResponse>
-export async function regenerateDepreciationSchedule(asset_name: string, force: 0|1): Promise<{ generated: number }>
+// BR-00-25 / RC-08 (Vòng 9) — Out of Service PAUSE + RESCHEDULE: FE ZERO shape-change.
+//   `AssetDepreciationSchedule.vue` render `rows[].scheduled_date` verbatim (:202) +
+//   banner "Kỳ tiếp theo" = `nextPendingRow` = kỳ đầu tiên có `status === 'Pending'`
+//   (:98), hiển thị `scheduled_date` của nó (:167). Khi BE dời `scheduled_date` các
+//   kỳ Pending (transition Out of Service → Active), component TỰ render ngày đã dời
+//   + ngày kỳ-tiếp-theo mới — KHÔNG cần đổi component, KHÔNG field mới trong response.
+//   `statusLabel('Cancelled')→'Đã hủy'` + `statusLabel('Executed')→'Đã chạy'` +
+//   `statusLabel('Pending')→'Chờ chạy'` GIỮ NGUYÊN (no leak raw EN). Test FE chỉ cần
+//   regression: fixture Pending có scheduled_date đã-dời → render đúng + no-leak EN.
+// BR-00-27 / RC-09 (Vòng 14) — Nhãn sự kiện khôi phục: FE ZERO shape-change.
+//   Sửa là BE-side (1 transition Out of Service → Active ⇒ ĐÚNG 1 ALE `restored`,
+//   0 `activated` — kill cặp `activated`+`restored` trùng). Dòng thời gian
+//   (`CommissioningTimelineView.vue` / `AssetDetailView.vue` tab "Vòng đời" /
+//   `AuditTrailListView.vue`) lấy `getAssetTimeline`/`list_lifecycle_events` ⇒ tự
+//   hiển thị DUY NHẤT 1 mục cho lần khôi phục — KHÔNG cần đổi component, KHÔNG field
+//   mới. Test FE = regression: fixture timeline OoS→Active có ĐÚNG 1 event `restored`
+//   (KHÔNG cặp trùng).
+//   ⚠️ NO RAW-EN LEAK (nếu/khi thêm map nhãn): các view trên hiện render
+//   `event.event_type` THÔ (vd `AssetDetailView.vue:459`, `CommissioningTimelineView
+//   .vue:169`) ⇒ rò "restored"/"activated" EN. Khuyến nghị thêm EVENT_LABEL VI cho
+//   event_type của **Asset Lifecycle Event** (KHÁC EVENT_TYPES của IMM Audit Trail ở
+//   `AuditTrailListView.vue:48` — vocab khác): `restored→'Khôi phục'`,
+//   `activated→'Kích hoạt'`, `commissioned→'Nghiệm thu'`, `out_of_service→'Tạm ngừng'`,
+//   `decommissioned→'Thanh lý'`, `pm_started→'Bắt đầu bảo trì'`,
+//   `repair_opened→'Mở sửa chữa'`, `calibration_started→'Bắt đầu hiệu chuẩn'`,
+//   `depreciation_stopped→'Dừng khấu hao'`, `transferred→'Luân chuyển'`. Render
+//   `EVENT_LABEL[t.event_type] ?? t.event_type` (fallback raw cho event chưa map —
+//   không vỡ UI). Đây là cải thiện FE độc lập; BE fix BR-00-27 KHÔNG phụ thuộc nó.
+// RC-04 (Round-2): self-heal là BE-side — FE KHÔNG đổi contract. Component
+// `AssetDepreciationSchedule.vue` (nút "Sinh lịch khấu hao") chỉ cần:
+//   - asset CŨ thiếu luật + Category có luật → BE tự inherit → 200 {periods>0}
+//     → render bảng lịch khấu hao (KHÔNG còn toast lỗi oan).
+//   - chỉ hiện toast lỗi VI khi BE THẬT trả 422 (Category cũng thiếu luật) —
+//     message giữ nhãn VI có tên field trong ngoặc (format round-1), KHÔNG leak
+//     raw method/token/field-name kỹ thuật trần. catch (e) → showToast(e.message, true).
+export async function regenerateDepreciationSchedule(asset_name: string, force: 0|1): Promise<{ periods: number; generated?: number }>
 export async function previewDepreciationSchedule(params: { gross, residual, method, total_months, frequency, start_date }): Promise<DepreciationPreviewRow[]>
 export async function runDueDepreciationNow(as_of?: string): Promise<{ executed_rows; updated_assets }>
-export async function bulkRegenerateScheduleByCategory(category_name: string): Promise<{ assets_processed: number }>
+// RC-05 (Round-4): payload chuẩn hoá 7-key — thêm `inherited` + `skipped_no_rule`
+// (khớp `compute_all`). KHÔNG leak raw method/token; FE map sang toast (§III.10d).
+export interface BulkRegenerateByCategoryResult {
+  category: string
+  total_assets: number
+  inherited: number
+  regenerated: number
+  skipped_has_history: number
+  skipped_no_rule: number
+  errors: number
+}
+export async function bulkRegenerateScheduleByCategory(category_name: string): Promise<BulkRegenerateByCategoryResult>
 
 // PM Schedule + PM Template + Firmware CR + Document Request — full CRUD wrappers
 // listPmSchedules / getPmSchedule / createPmSchedule / updatePmSchedule / deletePmSchedule
@@ -733,7 +853,9 @@ File: `src/locales/vi.json`
     "list_title": "Danh sách CAPA",
     "overdue_warning": "CAPA quá hạn",
     "close_confirm": "Xác nhận đóng CAPA",
-    "missing_root_cause": "Phải nhập phân tích nguyên nhân gốc rễ (BR-00-08)"
+    "missing_root_cause": "Phải nhập phân tích nguyên nhân gốc rễ (BR-00-08)",
+    "effectiveness_not_verified": "Chưa xác minh hiệu quả — không thể đóng CAPA",
+    "effectiveness_unverified_label": "— (chưa xác minh)"
   },
   "audit": {
     "list_title": "Audit Trail",

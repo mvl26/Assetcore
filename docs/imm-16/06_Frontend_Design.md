@@ -158,6 +158,8 @@ Drag & drop: gọi `advance_capa_state` (server-side VR-05/06/07/12). Fail → t
 
 ## II.4. CAPA Detail (CapaDetailView.vue)
 
+> **FE contract Vòng 13 (RC-CAPA-ESC) — ZERO required shape-change.** Escalation tiered là side-effect **server-side** của cron `check_capa_due` — KHÔNG có action FE, KHÔNG có button "escalate" trên UI. Field mới `escalation_level` (Int, read-only) tự lộ trong `get_capa` response (`api/imm16.ts` type `CapaDetail.escalation_level?: number`). **Hiển thị tuỳ chọn (không bắt buộc round này):** tab "Lịch sử" đã render IMM Audit Trail nên tier escalation hiện qua audit event `CAPA` ("CAPA … leo thang Level-N") — KHÔNG cần widget riêng. Nếu sau này muốn badge "Đã leo thang Level-N" ở header → bind `escalation_level` (1→"Level-1", 2→"Level-2", 0/null→ẩn) — KHÔNG bịa nhãn khi field rỗng. KHÔNG leak EN/raw "escalation_level".
+
 **Route:** `/capas/:id`
 
 Tab navigation: `[Tóm tắt] [Phân tích] [Action Steps] [Verification] [Lịch sử]`

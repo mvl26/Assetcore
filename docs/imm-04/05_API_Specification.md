@@ -419,10 +419,13 @@ curl -X POST 'http://site/api/method/assetcore.api.imm04.create_commissioning' \
 
 **Side effects:**
 - `docstatus = 1`
+- **Stamp `commissioning_date = nowdate()` nếu còn NULL** (BR-04-11 — `_stamp_commissioning_date`; idempotent, không ghi đè). Bảo hiểm cho phiếu vào Clinical Release từ trước fix mà chưa stamp.
 - Tạo `Asset` record (`final_asset`)
 - Auto-import hồ sơ sang IMM-05 (`create_initial_document_set`)
 - Publish realtime `imm04_asset_released`
 - Notify Purchase User role
+
+> Side-effect **stamp `commissioning_date`** (BR-04-11) áp dụng cho CẢ 3 write-path vào Clinical Release: `transition_state` (action → Clinical Release), `submit_commissioning` (trên), `approve_clinical_release`. Idempotent — chỉ path ĐẦU TIÊN chạm Clinical Release ghi ngày; path sau no-op. `approve_clinical_release` đổi return `commissioning_date` từ `str(doc.commissioning_date or nowdate())` → `str(doc.commissioning_date)` (sau stamp luôn non-NULL).
 
 **Curl:**
 ```bash
@@ -574,7 +577,9 @@ curl -X POST 'http://site/api/method/assetcore.api.imm04.submit_commissioning' \
 | Role | HTM Technician+ (không Vendor Engineer) |
 | Idempotent | Yes |
 
-**`kpis.overdue_sla`** = `frappe.db.count("Asset Commissioning", overdue_commissioning_filter())` (BR-04-10). Anchor = `reception_date` (KHÔNG `expected_installation_date`); ngưỡng `OVERDUE_DAYS=30`. Giá trị này **bằng đúng** `pagination.total` của `list_commissioning({overdue:1})` → card click drill được. Các KPI còn lại (`pending_count` / `hold_count` / `open_nc_count` / `released_this_month`) GIỮ NGUYÊN định nghĩa.
+**`kpis.overdue_sla`** = `frappe.db.count("Asset Commissioning", overdue_commissioning_filter())` (BR-04-10). Anchor = `reception_date` (KHÔNG `expected_installation_date`); ngưỡng `OVERDUE_DAYS=30`. Giá trị này **bằng đúng** `pagination.total` của `list_commissioning({overdue:1})` → card click drill được.
+
+**`kpis.released_this_month`** (BR-04-11, label FE "Bàn giao tháng này") = `frappe.db.count("Asset Commissioning", {workflow_state: Clinical Release, docstatus: 1, commissioning_date: ("between", [first_day_of_month, today])})`. Anchor = `commissioning_date` (NGÀY vào Clinical Release, được stamp bởi `_stamp_commissioning_date` ở 3 write-path) — **KHÔNG** `modified`. Hệ quả fix: phiếu Released tháng-trước bị edit (note/doc) tháng này KHÔNG còn bị đếm lại; phiếu legacy `commissioning_date` NULL bị `BETWEEN` loại tự nhiên (không crash, không over/under-count). Type bất biến `number`; FE label bất biến. Các KPI còn lại (`pending_count` / `hold_count` / `open_nc_count`) GIỮ NGUYÊN định nghĩa.
 
 **Response success:**
 ```jsonc
@@ -585,7 +590,7 @@ curl -X POST 'http://site/api/method/assetcore.api.imm04.submit_commissioning' \
       "pending_count": 12,
       "hold_count": 2,
       "open_nc_count": 3,
-      "released_this_month": 8,
+      "released_this_month": 8, // count theo commissioning_date ∈ tháng (BR-04-11, KHÔNG modified)
       "overdue_sla": 1        // == pagination.total của list_commissioning({overdue:1})
     },
     "states_breakdown": [

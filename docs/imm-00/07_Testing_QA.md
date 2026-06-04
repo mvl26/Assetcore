@@ -68,6 +68,11 @@ Toàn bộ artefact test được của foundation layer. Mỗi dòng → ≥ 1 
 | FR-00-23..27 | CAPA create/close/overdue/link | before_submit gate, auto-overdue | Unit + Integration + UAT |
 | FR-00-28..30 | Lifecycle Event append-only + 1 ALE/transition | in_create enforce | Integration |
 | FR-00-43..46 | GMDN hierarchy (Category→Model→Asset) | inherit at before_insert, override | Integration |
+| FR-00-47..52 | Kế thừa luật khấu hao Category→Asset (SoT `inherit_depreciation_rules_from_category`) + nút global backfill | inherit at before_insert (months/residual), no-clobber, compute_all backfill-rồi-sinh, idempotent, audit | Unit + Integration + API |
+| FR-00-53..55 | **Per-asset self-heal (RC-04, Round-2)** tại `regenerate_depreciation_schedule` cho asset CŨ | inherit-trước-precheck (200/periods>0), no-che-master-data (422 đúng field), no-clobber, preserve Executed, idempotent + audit (ALE+IMM Audit Trail chỉ khi did_inherit) | Unit + Integration + API + grep-guard |
+| FR-00-56..58 | **`bulk_regenerate_by_category` hợp nhất về SoT (RC-05, Round-4)** — nút "Áp dụng khấu hao theo từng Danh mục" | no-clobber (route qua SoT, bỏ 4 dòng inline), N+1 đóng (1 query GROUP BY executed-history), payload 7-key `+inherited+skipped_no_rule`, preserve Executed, idempotent, audit (per-asset ALE + 1 IMM Audit Trail tổng), FE BaseModal thay window.confirm | Unit + Integration + Performance(query-count) + grep-guard + FE vitest |
+| FR-00-59..62 | **Thanh lý hủy kỳ Pending khấu hao (RC-07, Vòng 8)** — `transition_asset_status(Decommissioned)` → `_cancel_pending_depreciation_on_decommission` | hủy MỌI Pending → Cancelled (pending_periods=0), Executed bất biến (accumulated/book không đổi), cron không đào lại (executed_rows=0), idempotent (0 Pending→0 event), ≥1 hủy → 1 ALE `depreciation_stopped` + 1 IMM Audit Trail `System`, best-effort (lỗi audit không vỡ transition), schema-delta `event_type+=depreciation_stopped` | Unit + Integration(cron+audit) + State/Idempotent + fault-injection + schema (RED-first TC-DEP-80) |
+| FR-00-63..69 | **Tạm ngừng sử dụng: PAUSE + DỜI lịch khấu hao (RC-08, Vòng 9) + nhãn `restored` single-emit (RC-09, Vòng 14)** — `transition_asset_status('Out of Service')` → `_pause_depreciation_on_oos`; `transition_asset_status('Active' từ prev='Out of Service')` → emit ĐÚNG 1 ALE `restored` (qua `_lifecycle_event_for(to,from)`) + `_reschedule_pending_depreciation_on_restore` (CHỈ audit) | PAUSE: executor không trích trong window OoS (executed_rows=0, book bất biến); NO PHANTOM CATCH-UP (bug chính RC-08): delta_accumulated=0 cho kỳ idle sau restore; RESCHEDULE: kỳ Pending dời `scheduled_date += oos_days` (count/sum/period_number/amount bất biến); Executed/Cancelled bất biến; oos_start SoT (downtime log → fallback ALE → no-op không raise); idempotent (Active→Active no-op không dời kép); **audit (RC-09): ≥1 ALE `out_of_service`(pause) + ĐÚNG 1 ALE `restored`(resume, do transition) + 0 `activated` + ≥1 IMM Audit Trail — bất kể có/không Pending (consistency); KHÔNG double-emit**; đường về Active không-từ-OoS giữ `activated`; KHÔNG schema-delta | Unit + Integration(cron+audit) + State/Idempotent + fault-injection + fallback (RED-first TC-DEP-92 + TC-ALE-RESTORE-01) |
 
 ### I.2.b. Từ Business Rule
 | BR ID | Phát biểu | Component liên quan (I.1) | Kỹ thuật test phù hợp |
@@ -75,8 +80,11 @@ Toàn bộ artefact test được của foundation layer. Mỗi dòng → ≥ 1 
 | BR-00-01 | Class I→Low; II→Medium; III→High/Critical | IMM Device Model `.validate()` | Decision Table / EP |
 | BR-00-02 | `lifecycle_status` chỉ đổi qua `transition_asset_status()` | AC Asset controller + service | EP (block direct mutate) |
 | BR-00-03 | IMM Audit Trail + ALE immutable | Controller + Permission | Error guessing (update/delete) |
-| BR-00-04 | Decommissioned → suspend PM/Calibration schedule | `transition_asset_status()` | State Transition |
+| BR-00-04 | Decommissioned → suspend PM/Calibration schedule | `transition_asset_status()` → `_suspend_all_schedules()` | State Transition |
 | BR-00-05 | Out of Service / Decommissioned → block Work Order | `validate_asset_for_operations()` | EP (status partition) |
+| BR-00-24 | Decommissioned → hủy MỌI kỳ khấu hao Pending → Cancelled (chốt sổ); Executed bất biến; cron không đào lại; idempotent; ≥1 hủy → 1 ALE `depreciation_stopped` + 1 IMM Audit Trail `System`; best-effort audit; schema-delta `event_type+=depreciation_stopped` | `transition_asset_status()` → `_cancel_pending_depreciation_on_decommission()` | State Transition + Integration(cron+audit) + Idempotent + fault-injection + schema |
+| BR-00-25 | Out of Service → TẠM DỪNG trích (executor không chạy, book bất biến); Out of Service → Active → DỜI kỳ Pending `scheduled_date += oos_days` (diệt phantom catch-up, delta_accumulated=0 cho kỳ idle); Executed/Cancelled bất biến; oos_start SoT (downtime log → fallback ALE → no-op không raise); idempotent (no double-shift); audit ALE `out_of_service`(pause) + IMM Audit Trail; KHÔNG schema-delta | `transition_asset_status()` → `_pause_depreciation_on_oos()` + `_reschedule_pending_depreciation_on_restore()` | State Transition + Integration(cron+audit) + Idempotent + fault-injection + fallback |
+| BR-00-27 | **Nhãn sự kiện khôi phục `restored` ĐÚNG 1 — single-emit (RC-09, Vòng 14):** 1 transition `Out of Service → Active` → ĐÚNG 1 ALE `restored` + 0 `activated` (bất kể có/không Pending — consistency); `_lifecycle_event_for(to='Active',from='Out of Service')='restored'`, from khác='activated'; helper reschedule KHÔNG emit ALE (kill double-emit); đồng nhất 2 call-site (service + workflow `on_update`); audit-trail bất biến (hash-chain không vỡ, count không giảm); KHÔNG schema-delta. **REGRESSION:** test_imm09:839 + test_imm11:1317/branch-A (`activated`) GIỮ. | `_lifecycle_event_for(to,from)`; `transition_asset_status()` + `ac_asset.on_update()` | State Transition + Decision table + Integration(audit chain) + no-regression (TC-ALE-RESTORE-01..07) |
 | BR-00-06 | Calibration Lab thiếu iso_17025_cert → warning | `ACSupplier.validate()` | EP (warning, không block) |
 | BR-00-07 | response_min < resolution_hours × 60 | `IMMSLAPolicy.validate()` | BVA |
 | BR-00-08 | CAPA before_submit: root_cause + corrective + preventive | `IMMCAPARecord.before_submit()` | Decision Table |
@@ -85,6 +93,13 @@ Toàn bộ artefact test được của foundation layer. Mỗi dòng → ≥ 1 
 | BR-00-13 | GMDN kế thừa một chiều Category→Model→Asset | `before_insert` hooks | EP + Integration |
 | BR-00-14 | Override GMDN cho phép cả 3 cấp; không ghi đè sau insert | `before_insert` chỉ điền khi trống | EP |
 | BR-00-16 | `list_capas` conjoin (AND) explicit status + virtual not_closed/overdue; KHÔNG clobber | `list_capas()` | Decision Table + set-algebra |
+| BR-00-18 | Kế thừa luật khấu hao SoT; residual = `round(gross*pct/100,2)`; idempotent | `inherit_depreciation_rules_from_category()` | EP + BVA (months=0 boundary) |
+| BR-00-19 | Không clobber months/residual user nhập; per-field độc lập | `before_insert` chỉ điền field trống | Decision Table (4 combo: months set/unset × residual set/unset) |
+| BR-00-20 | Category months=0 → không bịa số; regenerate 422 đúng | `inherit_...` no-op + `regenerate_depreciation_schedule()` | EP (negative — không che lỗi master-data) |
+| BR-00-21 | `compute_all` backfill-rồi-sinh; preserve Executed history; idempotent; RBAC 403; audit event | `compute_all_depreciation()` | Integration + State + Security |
+| BR-00-22 | Per-asset self-heal tại `regenerate` (RC-04): inherit-trước-precheck; precheck chạy LẠI sau; no-clobber; preserve Executed; idempotent; audit chỉ khi did_inherit; grep-guard 1 SoT | `regenerate_depreciation_schedule()` → `inherit_depreciation_rules_from_category()` | EP + Decision Table + State + Integration + grep-guard |
+| BR-00-23 | `bulk_regenerate_by_category` route qua SoT (RC-05): no-clobber 4 field user; N+1 đóng (1 query GROUP BY executed-history); preserve Executed; skipped_no_rule không che master-data; idempotent; payload 7-key; audit per-asset ALE + 1 IMM Audit Trail; grep-guard 0 inline copy | `bulk_regenerate_by_category()` → `inherit_depreciation_rules_from_category()` | Decision Table + Performance(query-count) + State + Integration + grep-guard |
+| BR-05-13 | SoT `effective_book_value` fix falsy-zero (RC-06): None→gross, 0.0→0.0 (KHÔNG `or gross`); fully_depreciated đếm asset book=0.0; total_book/by_category no-phantom; count==drill; no-regression book=None; grep-guard 0 idiom `or gross` | `effective_book_value()` → `compute_depreciation()` + `_depr_enrich_row()` + `get_depreciation_stats()` + `is_fully_depreciated()` | EP(boundary None/0.0) + Decision Table(RED-first) + Integration(invariant) + Regression + grep-guard |
 
 #### TC cho BR-00-16 — filter composition (conjoin, no-clobber)
 | TC | Request | Expected | Kỹ thuật |
@@ -250,6 +265,139 @@ File: `assetcore/tests/test_notifications.py`. Chạy: `bench --site miyano run-
 
 > Bổ sung TC-NTF-24/25 (spec §III.1b-2b, FR-00-NTF-07). Viết TRƯỚC implement. Thay đổi semantics recipient cho **đúng 1 nhánh** (Incident `reported_by`-fallback khi chưa assign) qua param opt-in `resolve_recipients(..., include_self=True)`. **Regression bắt buộc:** TC-NTF-15 (cross-report) và TC-NTF-16 (self-assign block) phải VẪN xanh — chứng minh self-confirm KHÔNG phá hành vi cũ. Default `include_self=False` ⇒ mọi caller hiện hữu không đổi.
 
+### III.2c. RC-03 — Kế thừa luật khấu hao Category→Asset (TDD, viết TRƯỚC implement)
+
+> File: `assetcore/tests/test_depreciation.py` (mở rộng) + `assetcore/tests/test_imm00.py` (compute_all). Chạy: `bench --site miyano run-tests --module assetcore.tests.test_depreciation` / `...test_imm00`. **RED-first BẮT BUỘC:** chứng minh từng TC FAIL trước khi implement SoT (vd before_insert chưa wire → months vẫn None → assert fail). Setup: tạo Category có luật (`total_depreciation_months>0`, `default_residual_value_pct` ví dụ 5%) + Category trống luật (`total_depreciation_months=0`). Teardown: dùng `_asset_cleanup` shared (memory test_session_20260529_wave1) để purge asset tạo trong test.
+
+| TC ID | Test | Cover (FR/BR) | Assert | Kỹ thuật |
+|---|---|---|---|---|
+| TC-DEP-30 | `test_before_insert_inherits_months_and_residual_from_category` | FR-00-48, BR-00-18 | Tạo `AC Asset` gross>0 + asset_category CÓ luật, KHÔNG truyền months/residual → `.insert()` → `total_depreciation_months == Category.total_depreciation_months` và `residual_value == round(gross*pct/100,2)`. **Verify LIVE** `frappe.get_doc(...).insert()`. | EP |
+| TC-DEP-31 | `test_regenerate_no_422_after_inherit` | FR-00-51 | Asset ở TC-DEP-30 → `regenerate_depreciation_schedule(asset)` KHÔNG trả 422 "Thiếu: Số tháng khấu hao"; `periods>0`. (Lỗi user báo.) | EP (positive path) |
+| TC-DEP-32 | `test_category_without_rule_no_fabrication` | FR-00-50, BR-00-20 | Category `total_depreciation_months=0` → before_insert KHÔNG bịa số, KHÔNG raise; asset lưu với `months=0`; `regenerate` vẫn trả **422 đúng** (Category cũng thiếu). | EP (negative — không che lỗi master-data) |
+| TC-DEP-33 | `test_no_clobber_user_months` | FR-00-49, BR-00-19 | Asset truyền sẵn `total_depreciation_months=48` (khác Category) → before_insert GIỮ 48, không ghi đè bằng Category. | Decision Table |
+| TC-DEP-34 | `test_no_clobber_user_residual` | FR-00-49, BR-00-19 | Asset truyền sẵn `residual_value` khác 0 → before_insert GIỮ nguyên residual user. months vẫn được inherit nếu trống (per-field độc lập). | Decision Table |
+| TC-DEP-35 | `test_inherit_idempotent` | BR-00-18 | Gọi `inherit_depreciation_rules_from_category(doc)` lần 2 trên asset đã đủ luật → trả 0, không đổi field. | EP |
+| TC-DEP-36 | `test_residual_formula_matches_imm04_and_bulk` | BR-00-18 grep-guard | Cùng gross+pct → residual của SoT == residual của `create_ac_asset` == `bulk_regenerate_by_category` (sau khi đồng bộ `round(...,2)`). | EP (formula parity) |
+| TC-DEP-40 | `test_compute_all_backfills_then_generates` | FR-00-52, BR-00-21 | Asset gross>0 + Category có luật nhưng asset thiếu method/months → `compute_all_depreciation()` → `inherited≥1`, `generated≥1`, asset có schedule (KHÔNG còn skip). | Integration |
+| TC-DEP-41 | `test_compute_all_preserves_executed_history` | BR-00-21 | Asset có ≥1 kỳ Executed → KHÔNG backfill/regenerate; đếm `skipped_has_history`; `accumulated` không đổi. | State Transition |
+| TC-DEP-42 | `test_compute_all_idempotent` | FR-00-52 | Chạy 2 lần liên tiếp → lần 2 `inherited==0`, không tạo trùng schedule, không đổi accumulated asset Executed. | State |
+| TC-DEP-43 | `test_compute_all_payload_shape` | FR-00-52 | Response có đủ 6 key `{inherited, generated, executed_rows, updated_assets, skipped_has_history, skipped_no_rule}`; `skipped_no_rule` đếm asset Category cũng thiếu luật. | EP (contract) |
+| TC-DEP-44 | `test_compute_all_rbac_non_admin_403` | FR-00-52, RBAC | Gọi bằng user non-admin → 403, KHÔNG leak data. | Security |
+| TC-DEP-45 | `test_compute_all_emits_audit_event` | BR-00-21 | Sau backfill ≥1 asset → có lifecycle/audit event ("Depreciation Backfill" hoặc per-asset) — audit trail (CLAUDE.md §5). | Integration |
+
+#### III.2c-1. RC-04 — Per-asset self-heal tại `regenerate_depreciation_schedule` (TDD, Round-2)
+
+> File: `assetcore/tests/test_depreciation.py` (mở rộng — block RC-04) + `assetcore/tests/test_imm00.py` (depreciation block, regenerate path). **RED-first BẮT BUỘC:** mô phỏng asset CŨ — tạo asset rồi RESET `total_depreciation_months=0` qua `frappe.db.set_value` (bypass `before_insert` để giả lập asset tạo trước round-1), chứng minh `regenerate_depreciation_schedule` trả 422 TRƯỚC khi wire self-heal, GREEN sau. Setup tái dùng Category-có-luật / Category-trống-luật của §III.2c. Teardown: `_asset_cleanup` shared.
+
+| TC ID | Test | Cover (FR/BR) | Assert | Kỹ thuật |
+|---|---|---|---|---|
+| TC-DEP-50 | `test_regenerate_selfheals_old_asset_no_422` | FR-00-53, BR-00-22 | Asset gross>0 + Category CÓ luật, `db.set_value(months=0)` (giả asset cũ) → `regenerate_depreciation_schedule(asset)` → **HTTP 200**, `periods>0`; KHÔNG còn 422 "Thiếu: Số tháng khấu hao". (Lỗi user goal C.) | EP (positive — chính lỗi user) |
+| TC-DEP-51 | `test_regenerate_selfheal_single_sot_call` | FR-00-53, BR-00-22 grep-guard | `grep -c` trong `api/imm00.py`: 0 occurrence gán `total_depreciation_months`/`residual_value` từ Category ngoài lời gọi `inherit_depreciation_rules_from_category`. Self-heal CHỈ qua SoT. | Static / grep-guard |
+| TC-DEP-52 | `test_regenerate_precheck_runs_after_inherit` | FR-00-53, BR-00-22 | Category cũng thiếu luật (`months=0`) → regenerate inherit no-op → **VẪN 422** message liệt kê đúng field thiếu (months). KHÔNG che lỗi master-data. | EP (negative) |
+| TC-DEP-53 | `test_regenerate_no_category_still_422` | FR-00-54, BR-00-20/22 | Asset gross>0 KHÔNG có `asset_category` → inherit no-op → **422** đúng field thiếu. | EP (negative) |
+| TC-DEP-54 | `test_regenerate_selfheal_no_clobber_user` | FR-00-54, BR-00-19 | Asset đã có `total_depreciation_months=48` (≠ Category) hoặc `residual_value` user nhập → regenerate GIỮ NGUYÊN giá trị user, sinh lịch theo giá trị hiện hữu (inherit no-op trên field đã có). | Decision Table |
+| TC-DEP-55 | `test_regenerate_selfheal_preserves_executed_history` | FR-00-54, BR-00-21 | Asset có ≥1 kỳ Executed → self-heal KHÔNG override months/residual đã chạy; kỳ Executed bất biến (chỉ Pending bị xoá-sinh-lại khi force=1). | State Transition |
+| TC-DEP-56 | `test_regenerate_idempotent_no_garbage_event` | FR-00-55, BR-00-22 | Gọi regenerate 2 lần liên tiếp cùng asset → cùng số `periods`; lần 2 `did_inherit=False` → KHÔNG sinh ALE/Audit event mới (đếm event TRƯỚC/SAU lần 2 bằng nhau). | State / Idempotent |
+| TC-DEP-57 | `test_regenerate_selfheal_emits_audit` | FR-00-55, BR-00-22 | Self-heal có kế thừa thật (`did_inherit=True`) → sinh **1** Asset Lifecycle Event `event_type='depreciation_rules_inherited'` + **1** IMM Audit Trail `event_type='System'` cho asset đó. | Integration (audit trail) |
+
+**DoD:** BE 983-suite + `test_depreciation` (31 + RC-04 mới = ≥38) + `test_imm00` (depreciation block) GREEN; `before_insert` path (RC-03 round-1) KHÔNG đổi hành vi (regression TC-DEP-30..45 vẫn GREEN); FE vue-tsc 0 + vitest GREEN. Grep-guard SoT: ngoài `inherit_depreciation_rules_from_category` + `create_ac_asset` + `bulk_regenerate_by_category`, không nhánh nào copy months/residual từ Category; trong `api/imm00.py` 0 occurrence copy ngoài lời gọi SoT.
+
+#### III.2c-2. RC-05 — `bulk_regenerate_by_category` hợp nhất về SoT (TDD, Round-4)
+
+> File: `assetcore/tests/test_depreciation.py` (mở rộng — block RC-05). Chạy: `bench --site miyano run-tests --module assetcore.tests.test_depreciation` / `...test_imm00`. **RED-first BẮT BUỘC cho 2 TC trọng yếu:** (a) `test_bulk_no_clobber` — chứng minh code inline cũ **clobber** field user (asset months=24, Category=120 → bulk cũ ghi đè thành 120 ⇒ assert `==24` FAIL trên code cũ, PASS sau khi route qua SoT); (b) `test_bulk_n1_query_count` — đếm số query executed-history (`frappe.db.count`/`get_all` filter status='Executed') ⇒ trên code inline cũ = N (per-asset) ⇒ assert `==1` FAIL, PASS sau khi prefetch GROUP BY. Setup tái dùng Category-có-luật / Category-trống-luật của §III.2c. Teardown: `_asset_cleanup` shared.
+
+| TC ID | Method | Maps | Mô tả | Kỹ thuật |
+|---|---|---|---|---|
+| TC-DEP-60 | `test_bulk_no_clobber_user_fields` | FR-00-56, BR-00-19/23 | 1 asset `total_depreciation_months=24` + `residual_value≠0` + `depreciation_method`/`depreciation_frequency` user-nhập, Category months=120 → sau `bulk_regenerate_by_category` 4 field user **GIỮ NGUYÊN** (months==24…). **RED-proven** trên code inline cũ. | Decision Table (RED-first) |
+| TC-DEP-61 | `test_bulk_n1_single_executed_query` | FR-00-57, BR-00-23 | Mock/đếm: số query kiểm executed-history == **1** bất kể N asset (prefetch `executed_parents` GROUP BY) — KHÔNG `frappe.db.count` per-asset. **RED-proven** trên code `db.count`-in-loop cũ. | Performance (query-count, RED-first) |
+| TC-DEP-62 | `test_bulk_no_inline_copy_grep_guard` | FR-00-56, BR-00-23 grep-guard | `grep` trong thân `bulk_regenerate_by_category` (`services/depreciation.py`): **0** occurrence gán `asset_doc.(total_depreciation_months\|residual_value\|depreciation_method\|depreciation_frequency)=…` ngoài lời gọi `inherit_depreciation_rules_from_category`. | Static / grep-guard |
+| TC-DEP-63 | `test_bulk_payload_shape_7key` | FR-00-57 | Response có đủ 7 key `{category, total_assets, inherited, regenerated, skipped_has_history, skipped_no_rule, errors}`; `inherited` + `skipped_no_rule` xuất hiện đúng. | EP (contract) |
+| TC-DEP-64 | `test_bulk_skipped_no_rule_when_category_unconfigured` | FR-00-57, BR-00-20 | Asset thuộc Category `total_depreciation_months=0` (hoặc asset `gross<=0`) → `skipped_no_rule≥1`, KHÔNG bịa số, KHÔNG raise. | EP (negative — không che master-data) |
+| TC-DEP-65 | `test_bulk_preserves_executed_history` | FR-00-57, BR-00-23 | Asset có ≥1 kỳ Executed → `skipped_has_history++` qua prefetch; `accumulated_depreciation`/`current_book_value` **bất biến** sau bulk. | State Transition |
+| TC-DEP-66 | `test_bulk_idempotent_second_run` | FR-00-57, BR-00-23 | Bulk lần 2 trên cùng dataset → `inherited==0`; payload ổn định; `accumulated` asset Executed không đổi. | State / Idempotent |
+| TC-DEP-67 | `test_bulk_emits_audit` | FR-00-58, BR-00-23 | Bulk có inherit ≥1 asset → per-asset ALE `depreciation_rules_inherited` + **1** IMM Audit Trail `System` TỔNG; lỗi audit (mock raise) KHÔNG chặn payload (best-effort). | Integration (audit trail) |
+
+**FE — `ReferenceDataView.applyToExistingAssets` (RC-05):** vitest `referenceDataApplyDepreciation.test.ts` (mới):
+- `TC-FE-RD-01` — click nút "Áp dụng khấu hao theo từng Danh mục" → **KHÔNG** gọi `window.confirm`; mở BaseModal; API **chưa** gọi.
+- `TC-FE-RD-02` — bấm "Xác nhận" trong modal → `bulkRegenerateScheduleByCategory` gọi đúng 1 lần.
+- `TC-FE-RD-03` — mock payload 7-key → toast/modal render đủ `inherited + regenerated + skipped_has_history + skipped_no_rule + errors`; không crash khi key=0; KHÔNG leak raw method/token.
+
+**DoD (RC-05):** `test_depreciation` block RC-05 (TC-DEP-60..67) + regression RC-03/RC-04 (TC-DEP-30..57) GREEN; `test_imm00` depreciation block GREEN; FE vue-tsc 0 + vitest (DepreciationView + ReferenceDataView) GREEN. **Grep-guard cập nhật:** ngoài `inherit_depreciation_rules_from_category` + **`create_ac_asset` (insert-path)**, KHÔNG nhánh nào copy months/residual từ Category — `bulk_regenerate_by_category` KHÔNG còn inline copy. RED-proven cho TC-DEP-60 (no-clobber) + TC-DEP-61 (N+1 query-count) TRƯỚC GREEN.
+
+#### III.2c-3. RC-06 — SoT `effective_book_value` (fix falsy-zero, BR-05-13, TDD viết TRƯỚC)
+
+> File: `assetcore/tests/test_depreciation.py` (SoT unit) + `assetcore/tests/test_imm00.py` (stats/list integration). Chạy: `bench --site miyano run-tests --module assetcore.tests.test_depreciation` / `...test_imm00`. **RED-first BẮT BUỘC:** revert SoT về idiom `current_book_value or gross` → TC-DEP-70 (fully_depreciated-count) + TC-DEP-71 (total_book no-phantom) **FAIL**; restore → GREEN. Setup: asset `gross>0, residual=0, configured`, `frappe.db.set_value('AC Asset', name, 'current_book_value', 0.0)` (book đã KH hết về 0 hợp lệ). Teardown: `_asset_cleanup` shared.
+
+| TC ID | Method | Maps | Mô tả | Kỹ thuật |
+|---|---|---|---|---|
+| TC-DEP-68 | `test_effective_book_value_none_returns_gross` | BR-05-13, INV-DEP-8 | `effective_book_value({gross:100, current_book_value:None})` == `100.0` (asset CHƯA chạy KH → fallback gross — no regression). | EP (boundary None) |
+| TC-DEP-69 | `test_effective_book_value_zero_returns_zero` | BR-05-13, INV-DEP-8 | `effective_book_value({gross:100, current_book_value:0.0})` == `0.0` (đã KH hết → giá trị thật, KHÔNG phantom gross). **Đây là lỗi gốc.** | EP (boundary 0.0 — RED-first) |
+| TC-DEP-70 | `test_stats_counts_fully_depreciated_book_zero` | BR-05-13, INV-DEP-6 | asset `gross>0, residual=0, configured, current_book_value=0.0` → `get_depreciation_stats().fully_depreciated` đếm asset này (trước: bị loại vì book thổi về gross). **RED-proven** revert → FAIL. | Decision Table (RED-first) |
+| TC-DEP-71 | `test_stats_total_book_no_phantom_gross` | BR-05-13, INV-DEP-7 | cùng asset book=0.0 → `get_depreciation_stats().total_book_value` & `by_category[cat].book_value` cộng `0.0` (KHÔNG `gross`). **RED-proven** revert → FAIL. | Decision Table (RED-first) |
+| TC-DEP-72 | `test_compute_depreciation_returns_zero_book` | BR-05-13 | asset KH hết → `compute_depreciation(name).book_value == 0.0` (không phantom gross trong payload single-asset). | EP (payload) |
+| TC-DEP-73 | `test_enrich_row_book_zero_for_depleted` | BR-05-13 | `_depr_enrich_row` trên asset book=0.0 → `row['current_book_value'] == 0.0`; drill hiện 0đ. | EP (enrich) |
+| TC-DEP-74 | `test_count_equals_drill_with_book_zero` | BR-05-13, INV-DEP-5 | dataset có ≥1 asset book=0.0 → `get_depreciation_stats().fully_depreciated == de-dup len(list_assets_depreciation(depreciation_filter='fully_depreciated') mọi trang)` (count==drill, cùng SoT mới). | Integration (invariant) |
+| TC-DEP-75 | `test_no_falsy_zero_idiom_grep_guard` | BR-05-13 grep-guard | `grep -c 'current_book_value") or gross' assetcore/api/imm00.py` → **0** occurrence. Mọi suy book ngoài đường ghi DB qua `effective_book_value`. | Static / grep-guard |
+| TC-DEP-76 | `test_book_none_no_regression` | BR-05-13, INV-DEP-8 | asset CHƯA chạy KH (`current_book_value IS NULL`) → stats/list/payload book == `gross` y như trước (full-suite no-regression cho asset chưa KH). | Regression |
+
+**FE — `DepreciationView.vue` (RC-06): zero-change logic.** vitest `depreciationBookValue.test.ts` (mới — confirm render, KHÔNG sửa component):
+- `TC-FE-DV-01` — mock `list_assets_depreciation` trả asset `current_book_value: 0` → cột "Giá trị còn lại" render `0đ` (KHÔNG gross).
+- `TC-FE-DV-02` — mock `get_depreciation_stats` trả `total_book_value` đã trừ phantom → KPI hiển thị verbatim số BE.
+
+**DoD (RC-06):** `test_depreciation` (TC-DEP-68..76) + `test_imm00` stats/list GREEN; RED-proven TC-DEP-69/70/71 TRƯỚC GREEN; full BE suite no-regression (asset book>0 / book=None giữ y số). FE vue-tsc 0 + vitest GREEN **không sửa logic** (zero-change). Grep-guard TC-DEP-75 = 0 occurrence.
+
+#### III.2c-4. RC-07 — Thanh lý hủy kỳ Pending khấu hao (BR-00-24, TDD viết TRƯỚC)
+
+> File: `assetcore/tests/test_imm00.py` (block decommission-depreciation) — nơi đặt vì feature sống ở `services/imm00.py::transition_asset_status`. Chạy: `bench --site miyano run-tests --module assetcore.tests.test_imm00`. **RED-first BẮT BUỘC:** TC-DEP-80 (`pending_periods==0` sau decommission) **FAIL** trên code hiện tại (`_suspend_all_schedules` không đụng depreciation rows) → GREEN sau khi wire `_cancel_pending_depreciation_on_decommission`. **Setup chuẩn:** tạo asset `gross>0` + Category-có-luật, `generate_schedule(force=True)` → có ≥3 kỳ Pending; `run_due_depreciation(as_of=<quá khứ>)` execute ≥1 kỳ rồi giữ ≥1 kỳ Pending (asset thanh lý **mid-life**). Đưa asset về `Active` trước (NEG-09 chặn decommission từ Under-* — phải qua Active). Teardown: `_asset_cleanup` shared (purge asset + child rows + ALE + audit).
+
+| TC ID | Method | Maps | Mô tả | Kỹ thuật |
+|---|---|---|---|---|
+| TC-DEP-80 | `test_decommission_cancels_all_pending` | FR-00-59, BR-00-24 | Asset mid-life (≥1 Executed + ≥2 Pending) → `transition_asset_status(asset,'Decommissioned')` → MỌI dòng `status='Pending'` thành `'Cancelled'`; `get_depreciation_schedule(asset).summary.pending_periods == 0`. **RED-proven** trên code hiện tại (FAIL: pending>0). | EP (positive — chính lỗi user, RED-first) |
+| TC-DEP-81 | `test_decommission_preserves_executed_rows` | FR-00-59, BR-00-24 | Dòng `status='Executed'` BẤT BIẾN sau decommission (`depreciation_amount/accumulated_amount/remaining_value/executed_on` y nguyên); `summary.executed_periods` không đổi; `asset.accumulated_depreciation` + `current_book_value` không đổi. | State Transition (invariant) |
+| TC-DEP-82 | `test_decommission_idempotent_no_double_cancel` | FR-00-60, BR-00-24 | Gọi `_cancel_pending_depreciation_on_decommission(asset)` lần 2 (0 Pending còn) → trả `0`; KHÔNG đổi DB; KHÔNG sinh ALE/Audit mới (đếm event TRƯỚC/SAU bằng nhau). | State / Idempotent |
+| TC-DEP-83 | `test_cron_no_execute_after_decommission` | FR-00-61, BR-00-24 | Sau decommission, `run_due_depreciation(as_of=<tương lai xa>, asset=name)` → `executed_rows==0` cho asset đó (filter lifecycle + rows đã Cancelled). KHÔNG phantom overdue. | Integration (cron) |
+| TC-DEP-84 | `test_decommission_emits_one_depreciation_stopped` | FR-00-62, BR-00-24 | Hủy ≥1 kỳ → ĐÚNG **1** Asset Lifecycle Event `event_type='depreciation_stopped'` (asset, root_doctype='AC Asset', notes nêu số kỳ + book value) + **1** IMM Audit Trail `event_type='System'`. SONG SONG với event `decommissioned` (state-change) — đếm cả 2 đều tồn tại. | Integration (audit trail) |
+| TC-DEP-85 | `test_decommission_no_pending_no_event` | FR-00-60/62, BR-00-24 | Asset KH hết (0 Pending) HOẶC asset không có schedule → decommission → 0 dòng Cancelled, **KHÔNG** sinh event `depreciation_stopped`/audit thừa (no garbage). | EP (negative — no garbage) |
+| TC-DEP-86 | `test_decommission_audit_failure_does_not_break_transition` | FR-00-62, BR-00-24 | Mock `create_lifecycle_event` raise → transition VẪN hoàn tất: `lifecycle_status=='Decommissioned'` ∧ mọi Pending đã `Cancelled` (rows commit TRƯỚC audit; audit best-effort try/except). | Integration (best-effort / fault injection) |
+| TC-DEP-87 | `test_decommission_event_type_in_select_options` | BR-00-24 schema-delta | DocType `Asset Lifecycle Event` field `event_type` Select options CHỨA `depreciation_stopped` (`frappe.get_meta(...).get_field('event_type').options` split bao gồm value) → tạo ALE không lỗi validate Select. | Static / schema |
+
+**DoD (RC-07):** `test_imm00` block RC-07 (TC-DEP-80..87) GREEN; RED-proven TC-DEP-80 TRƯỚC GREEN; regression toàn `test_depreciation` (TC-DEP-30..76) + `test_imm00` state-transition (SEQ-transition, BR-00-04/05) **không đổi hành vi**; `bench migrate` áp option Select `depreciation_stopped` (verify `bench --site miyano console` get_meta). FE zero-change (transition_status response shape không đổi) — chỉ cần `DepreciationView`/timeline render dòng `Cancelled` + event `depreciation_stopped` không crash (TC-FE bổ sung nếu QA yêu cầu, không bắt buộc cho vòng này).
+
+#### III.2c-5. RC-08 — Tạm ngừng sử dụng: PAUSE + DỜI lịch khấu hao (BR-00-25, TDD viết TRƯỚC)
+
+> File: `assetcore/tests/test_imm00.py` (block oos-depreciation) — feature sống ở `services/imm00.py::transition_asset_status` (2 nhánh mới `Out of Service` + `Active←Out of Service`). Chạy: `bench --site miyano run-tests --module assetcore.tests.test_imm00`. **RED-first BẮT BUỘC:** TC-DEP-92 (`delta_accumulated==0` cho kỳ idle sau restore + `run_due_depreciation(today)`) **FAIL** trên code hiện tại (chưa dời lịch → phantom catch-up trích bù toàn bộ N kỳ idle 1 lần) → GREEN sau khi wire `_reschedule_pending_depreciation_on_restore`. **Setup chuẩn:** tạo asset `gross>0` + Category-có-luật, `generate_schedule(force=True)` → ≥4 kỳ Pending với `scheduled_date` rải theo tháng; `run_due_depreciation(as_of=<quá khứ>)` execute 1 kỳ để có baseline accumulated; đưa asset về `Active`. **Mô phỏng OoS-window:** `transition_asset_status(asset,'Out of Service')` (mở downtime log → `start_time`=mốc OoS); để N kỳ Pending có `scheduled_date < restore_date` (giả lập ngừng dài ngày — set `start_time` downtime log về quá khứ hoặc chèn ALE `out_of_service` quá khứ để `oos_days` đủ lớn). Teardown: `_asset_cleanup` shared (purge asset + child rows + downtime log + ALE + audit).
+
+| TC ID | Tên test | FR/BR | Kịch bản | Kỹ thuật |
+|---|---|---|---|---|
+| TC-DEP-90 | `test_oos_executor_does_not_run_during_window` | FR-00-63, BR-00-25 | Asset `Out of Service` có kỳ Pending đến hạn → `run_due_depreciation(today)` 1+ lần → `executed_rows==0` cho asset đó; `accumulated_depreciation`/`current_book_value` BẤT BIẾN trong toàn window OoS. | Integration (cron) — PAUSE |
+| TC-DEP-91 | `test_oos_pause_emits_lifecycle_note` | FR-00-64, BR-00-25 | Vào `Out of Service` với ≥1 kỳ Pending → có ≥1 ALE `event_type='out_of_service'` note chứa `'depreciation paused'`. 0 kỳ Pending → KHÔNG sinh note pause thừa (no garbage). | Integration (audit) |
+| TC-DEP-92 | `test_restore_no_phantom_catch_up` | FR-00-65, BR-00-25 (**BUG CHÍNH, RED-first**) | Asset OoS có N kỳ Pending quá hạn → `Out of Service → Active` → `run_due_depreciation(today)` → `delta_accumulated == 0` cho các kỳ rơi trong khoảng OoS; `current_book_value` KHÔNG tụt đột ngột. **RED-proven** trên code hiện tại (FAIL: trích bù N kỳ 1 lần, book tụt). | EP (positive — chính lỗi, RED-first) |
+| TC-DEP-93 | `test_restore_reschedules_pending_by_oos_days` | FR-00-66, BR-00-25 | `Out of Service → Active` → mỗi kỳ `status='Pending'` có `scheduled_date_mới == scheduled_date_cũ + oos_days`; `count(Pending) trước==sau`; `sum(depreciation_amount Pending) trước==sau`; `period_number`/`depreciation_amount`/`accumulated_amount`/`remaining_value` GIỮ NGUYÊN. | State Transition (invariant) |
+| TC-DEP-94 | `test_restore_preserves_executed_and_cancelled` | FR-00-66, BR-00-25 | Kỳ `Executed` + kỳ `Cancelled` BẤT BIẾN sau restore (`scheduled_date`/`amount`/`accumulated`/`remaining`/`executed_on` y nguyên — chỉ dời `Pending`). | State (invariant) |
+| TC-DEP-95 | `test_restore_oos_start_from_downtime_log` | FR-00-67, BR-00-25 | `oos_start_date` lấy từ `start_time` Downtime Log OoS gần nhất (priority-1) — chứng minh dùng được DÙ log đã bị `_sync_downtime_log` đóng (`is_open=0`) trước reschedule (ordering); `oos_days` tính đúng từ mốc đó → dời đúng số ngày. | Integration (SoT mốc + ordering) |
+| TC-DEP-96 | `test_restore_oos_start_fallback_to_ale` | FR-00-67, BR-00-25 | Xóa/đóng Downtime Log → `_resolve_oos_start_date` fallback `creation` ALE `out_of_service` gần nhất; vẫn dời đúng. | Integration (fallback) |
+| TC-DEP-97 | `test_restore_no_oos_marker_is_noop_no_raise` | FR-00-67, BR-00-25 | Không Downtime Log mở + không ALE `out_of_service` (mốc không xác định) → `_reschedule_…` trả `{rescheduled:0, oos_days:0}`, KHÔNG raise; `scheduled_date` Pending KHÔNG đổi. `oos_days<=0` (cùng ngày/đồng hồ lệch) → cũng no-op. | EP (negative — fallback an toàn) |
+| TC-DEP-98 | `test_restore_idempotent_no_double_shift` | FR-00-68, BR-00-25 | Sau 1 chu kỳ OoS→Active, gọi lại `transition_asset_status(asset,'Active')` (same-status no-op qua guard `prev==to → return`) → `scheduled_date` Pending KHÔNG dời lần 2; 0 ALE/audit thừa. | State / Idempotent |
+| TC-DEP-99 | `test_restore_emits_one_restored_event_and_audit` | FR-00-68/69, BR-00-25/27 (**SỬA RC-09, Vòng 14**) | Dời ≥1 kỳ → ĐÚNG **1** ALE `event_type='restored'` (emit bởi `transition_asset_status`, KHÔNG còn từ helper) + **0** ALE `activated` + ≥1 IMM Audit Trail `event_type='State Change'` (entry helper note **số kỳ dời** + **oos_days**). **KHÔNG còn double-emit** (trước fix có-Pending→2 event `activated`+`restored`). Mock audit raise (best-effort) → transition VẪN hoàn tất (`lifecycle_status=='Active'` ∧ rows đã dời). | Integration (audit + best-effort/fault injection) |
+| TC-DEP-9A | `test_restore_no_pending_no_config_noop` | FR-00-68, BR-00-25 | Asset không cấu hình khấu hao / 0 kỳ Pending → `Out of Service → Active` → no-op reschedule (`rescheduled==0`); KHÔNG audit rác. **RC-09:** vẫn ĐÚNG 1 ALE `restored` (do transition, KHÔNG phụ thuộc Pending) + 0 `activated` — **consistency** với nhánh có-Pending. | EP (negative — no garbage + consistency) |
+| TC-DEP-9B | `test_restore_only_from_oos_not_other_active` | FR-00-66, BR-00-25 | `Active` từ `Under Repair`/`Calibrating`/`Under Maintenance`/`Commissioned` (KHÔNG phải từ Out of Service) → KHÔNG dời lịch (nhánh reschedule chỉ chạy khi `prev_status=='Out of Service'`); `scheduled_date` Pending KHÔNG đổi. **RC-09:** các đường này giữ nhãn ALE `activated` (KHÔNG `restored`). | EP (branch isolation) |
+
+**RC-09 (Vòng 14) — INV-ALE-RESTORE: nhãn sự kiện khôi phục `restored` ĐÚNG 1 (BR-00-27 / FR-00-69, TDD viết TRƯỚC):**
+
+> File: `assetcore/tests/test_imm00.py` (block ale-restore-label) — feature ở `services/imm00.py::_lifecycle_event_for(to, from)` + `transition_asset_status` + `_reschedule_pending_depreciation_on_restore` (bỏ emit ALE) + controller `ac_asset.py::on_update`. **RED-first BẮT BUỘC:** TC-ALE-RESTORE-01 (có-Pending → đếm `activated`==0 ∧ `restored`==1) **FAIL** trên code hiện tại (double-emit: `activated`+`restored`) → GREEN sau fix. Helper count ALE theo `event_type` + `to_status='Active'`. **REGRESSION đặc biệt cần verify:** `test_imm09:839` (`activated` từ Under Repair→Active) + `test_imm11:1317`/branch-A (`activated` từ Calibrating→Active) PHẢI vẫn pass — fix CHỈ đổi nhãn đường `from='Out of Service'`.
+
+| TC ID | Tên test | FR/BR | Kịch bản | Kỹ thuật |
+|---|---|---|---|---|
+| TC-ALE-RESTORE-01 | `test_restore_oos_to_active_with_pending_one_restored` | FR-00-69, BR-00-27 (**BUG CHÍNH, RED-first**) | Asset OoS có ≥1 kỳ Pending để dời → `Out of Service → Active` → ĐÚNG **1** ALE `event_type='restored'` (to=Active) ∧ **0** ALE `activated`. **RED-proven** trên code hiện tại (FAIL: có cả `activated`+`restored` = double-emit). | EP (positive — chính lỗi, RED-first) |
+| TC-ALE-RESTORE-02 | `test_restore_oos_to_active_no_pending_one_restored` | FR-00-69, BR-00-27 | Asset OoS **0 kỳ Pending** (chưa cấu hình KH / đã hết) → `Out of Service → Active` → vẫn ĐÚNG **1** ALE `restored` ∧ **0** `activated`. **Consistency** với TC-01 (trước fix: nhánh này chỉ có 1 `activated`). | EP (positive — consistency có/không Pending) |
+| TC-ALE-RESTORE-03 | `test_lifecycle_event_for_from_status_mapping` | FR-00-69, BR-00-27 | Unit thuần: `_lifecycle_event_for('Active','Out of Service')=='restored'`; `_lifecycle_event_for('Active', s)=='activated'` ∀ `s ∈ {'Under Repair','Calibrating','Under Maintenance','Commissioned'}`; các (from,to) khác giữ map cũ (`Commissioned→commissioned`, `Out of Service→out_of_service`, …). | Decision table (predicate thuần) |
+| TC-ALE-RESTORE-04 | `test_reschedule_helper_no_longer_emits_ale` | FR-00-68/69, BR-00-27 | Gọi/chạy `_reschedule_pending_depreciation_on_restore` (qua transition) khi có ≥1 Pending → **KHÔNG** sinh ALE từ helper (chỉ `transition_asset_status` sinh `restored`); IMM Audit Trail `State Change` của helper VẪN có (note số kỳ dời + oos_days). | Integration (source isolation) |
+| TC-ALE-RESTORE-05 | `test_workflow_action_oos_to_active_emits_restored` | FR-00-69, BR-00-27 (INV-ALE-RESTORE-4) | Đổi `Out of Service → Active` qua Frappe Workflow Action (path `ac_asset.on_update`, set flag `ac_asset_workflow_transition`) → emit `restored` (KHÔNG `activated`) — chứng minh fix tại `_lifecycle_event_for` áp dụng đồng nhất 2 call-site. | Integration (controller workflow path) |
+| TC-ALE-RESTORE-06 | `test_audit_trail_invariant_on_restore` | BR-00-27 (audit bất biến) | 1 transition OoS→Active → IMM Audit Trail vẫn ≥1 entry `State Change`; `verify_audit_chain(asset).valid==True` (hash-chain KHÔNG vỡ); count IMM Audit Trail KHÔNG giảm so trước fix. | Integration (audit chain) |
+| TC-ALE-RESTORE-07 | `test_activated_paths_unchanged_regression` | BR-00-27 (regression) | Under Repair→Active + Calibrating→Active → vẫn ĐÚNG nhãn `activated` (bảo toàn `test_imm09:839` + `test_imm11:1317`/branch-A); KHÔNG đường nào bị đổi thành `restored`. | EP (no-regression nhãn `activated`) |
+
+**DoD (RC-08):** `test_imm00` block RC-08 (TC-DEP-90..9B) GREEN; RED-proven TC-DEP-92 (no-phantom-catch-up) TRƯỚC GREEN; regression toàn `test_depreciation` (TC-DEP-30..76) + RC-07 block (TC-DEP-80..87) + `test_imm00` state-transition (SEQ-transition, BR-00-04/05) + `test_imm04` **không đổi hành vi**; **KHÔNG schema-delta** (event_type `out_of_service`/`restored` đã có — KHÔNG `bench migrate` cho schema). FE zero-change (transition_status response shape không đổi) — `AssetDepreciationSchedule.vue` render `scheduled_date` đã-dời verbatim + KHÔNG leak raw status EN; `vue-tsc` 0; vitest depreciation suite GREEN no-regression.
+
 ## III.3. Integration — DocType lifecycle
 
 File: `assetcore/tests/test_imm00.py`. Cover hook `validate / before_save / on_submit / before_submit`.
@@ -282,12 +430,12 @@ State Transition Testing — mỗi edge = 1 test pass + 1 test fail (wrong role)
 | 5 | Bắt đầu sửa chữa | Active → Under Repair | PM User | ✅ Live (`test_s07_active_to_under_repair...`) | ⬜ Planned |
 | 6 | Bắt đầu sửa chữa | Under Maintenance → Under Repair | PM User | ⬜ Planned | ⬜ Planned |
 | 7 | Bắt đầu hiệu chuẩn | Active → Calibrating | PM User | ⬜ Planned | ⬜ Planned |
-| 8 | Đưa ra khỏi sử dụng | Active → Out of Service | PM Manager | ⬜ Planned | ⬜ Planned |
+| 8 | Đưa ra khỏi sử dụng | Active → Out of Service | PM Manager | 🟡 Planned (BR-00-25 PAUSE — TC-DEP-90/91, RC-08 Vòng 9) | ⬜ Planned |
 | 9 | Hoàn thành sửa chữa | Under Repair → Active | PM User | ⬜ Planned | ⬜ Planned |
 | 10 | Không thể sửa chữa | Under Repair → Out of Service | PM Manager | ⬜ Planned | ⬜ Planned |
 | 11 | Hiệu chuẩn đạt | Calibrating → Active | PM User | ⬜ Planned | ⬜ Planned |
 | 12 | Hiệu chuẩn không đạt | Calibrating → Out of Service | PM Manager | ⬜ Planned | ⬜ Planned |
-| 13 | Khôi phục hoạt động | Out of Service → Active | PM Manager | ⬜ Planned | ⬜ Planned |
+| 13 | Khôi phục hoạt động | Out of Service → Active | PM Manager | 🟡 Planned (BR-00-25 RESCHEDULE — TC-DEP-92..9B, RC-08 Vòng 9; BR-00-27 nhãn `restored` ĐÚNG 1 — TC-ALE-RESTORE-01..07, RC-09 Vòng 14) | ⬜ Planned |
 | 14 | Sửa chữa lại | Out of Service → Under Repair | PM User | ⬜ Planned | ⬜ Planned |
 | 15 | Thanh lý | Out of Service → Decommissioned | System Manager | ✅ Live (`test_decommission_suspends_pm_schedule` via service) | ⬜ Planned |
 | 16 | Thanh lý | Active → Decommissioned | System Manager | ⬜ Planned | ⬜ Planned |
@@ -413,6 +561,10 @@ Coverage % thực tế: *(Cần khảo sát — chưa chạy `coverage report` t
 | FR-00-26 | overdue scheduler | `TestS11_CheckCapaOverdueScheduler` | Unit | ✅ Live |
 | FR-00-28..30 | ALE append-only | `TestACAsset::test_transition_creates_lifecycle_event` | Integration | ✅ Live |
 | FR-00-43..46 | GMDN filter | `TestListAssetsGmdnFilter::*` | API | ✅ Live |
+| FR-00-47..51 | depr inherit before_insert + no-422 | `TC-DEP-30..36` | Unit + Integration | ⬜ Planned (RED-first) |
+| FR-00-52 | compute_all backfill-rồi-sinh | `TC-DEP-40..45` | Integration + Security | ⬜ Planned (RED-first) |
+| FR-00-53..55 | regenerate self-heal (RC-04) | `TC-DEP-50..57` | Unit + Integration + grep-guard | ⬜ Planned (RED-first) |
+| FR-00-56..58 | bulk_regenerate route qua SoT (RC-05) | `TC-DEP-60..67` + `TC-FE-RD-01..03` | Decision Table + Performance + Integration + FE vitest | ⬜ Planned (RED-first) |
 | FR-00-03 | block lifecycle_status payload | direct-update block test | Integration | ⬜ Planned |
 
 ## IV.2. BR → Test mapping
@@ -426,10 +578,18 @@ Coverage % thực tế: *(Cần khảo sát — chưa chạy `coverage report` t
 | BR-00-05 | block Work Order OOS/Decom | `TestACAsset::test_cannot_operate_decommissioned_asset` | EP | 0 / 1 |
 | BR-00-07 | response < resolution×60 | SLA validate BVA | BVA | ⬜ Planned |
 | BR-00-08 | CAPA 3-field gate | `TestIMMCAPARecord::test_close_capa`; `TestCAPASmoke::test_s08_submit_capa_without_root_cause_fails` | Decision Table | 1 / 1 ✅ |
+| BR-00-26 | **CAPA effectiveness gate — SoT đơn (round 12)** | **AC-1** `test_close_capa_blocks_when_effectiveness_none` (effectiveness=None → raise FIN-007, KHÔNG Closed, KHÔNG submit); **AC-2** `test_close_capa_blocks_when_not_effective` ('Not Effective'/'Partially Effective' → raise FIN-007); **AC-3** `test_close_capa` (happy: 'Effective' → Closed+submitted+ALE — KHÔNG regress); **AC-4** `test_capa_validate_fires_gate_regardless_workflow_state` (status='Closed' + workflow_state≠'Closed' → vẫn raise); `advance_capa_state` (VR-06/VR-07) GIỮ xanh; **AC-5** `test_capa_open_count_unchanged_after_gate` (`_open_capa_filter` đếm CAPA chưa-effectiveness là 'mở'; KPI capa_open/capa_overdue bất biến) | Decision Table + Negative | ⬜ Planned |
 | BR-00-09 | CAPA auto-overdue | `TestS11_CheckCapaOverdueScheduler` | BVA | 1 / ⬜ |
 | BR-00-16 | `list_capas` conjoin no-clobber | TC-00-CAPA-01..06 (test_imm00 / test_capa_open_sot / test_capa_overdue_sot) | Decision Table + set-algebra | ⬜ Planned |
 | BR-00-10 | 1 ALE / transition | `TestACAsset::test_transition_creates_lifecycle_event` | State Transition | 1 / 0 |
 | BR-00-13/14 | GMDN inheritance | `TestListAssetsGmdnFilter::*` (filter); inherit test | EP | partial ✅ |
+| BR-00-18 | depr inherit SoT + round residual + idempotent | `TC-DEP-30/35/36` | EP + BVA | ⬜ Planned (RED-first) |
+| BR-00-19 | no-clobber months/residual (per-field) | `TC-DEP-33/34` | Decision Table | 0 / ⬜ |
+| BR-00-20 | Category months=0 → no fabrication, 422 đúng | `TC-DEP-32` | EP (negative) | ⬜ Planned |
+| BR-00-21 | compute_all preserve Executed + idempotent + RBAC + audit | `TC-DEP-40..45` | Integration + Security | ⬜ Planned (RED-first) |
+| BR-00-22 | regenerate self-heal (RC-04): inherit-trước-precheck + no-clobber + preserve Executed + idempotent + audit + grep-guard | `TC-DEP-50..57` | EP + Decision Table + State + grep-guard | ⬜ Planned (RED-first) |
+| BR-00-23 | bulk_regenerate route SoT (RC-05): no-clobber + N+1 đóng + skipped_no_rule + preserve Executed + idempotent + payload 7-key + audit + grep-guard | `TC-DEP-60..67` | Decision Table + Performance + State + Integration + grep-guard | ⬜ Planned (RED-first) |
+| BR-05-13 | effective_book_value SoT (RC-06): None→gross / 0.0→0.0 + fully_depreciated đếm book=0.0 + total_book no-phantom + count==drill + no-regression book=None + grep-guard 0 idiom | `TC-DEP-68..76` | EP(boundary) + Decision Table + Integration + Regression + grep-guard | ⬜ Planned (RED-first) |
 
 ## IV.3. Component → Test mapping
 

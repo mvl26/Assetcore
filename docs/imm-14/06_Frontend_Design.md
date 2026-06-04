@@ -181,4 +181,54 @@ Format file: `assetcore/print_format/imm_14_closure_report.json` *(scaffold spri
 
 ---
 
-*Hết file 06. Wireframe / mockup chi tiết sẽ vẽ trên Figma trong sprint W3-2 (refer `docs/ba/Phase_06_UX_Screen_Dashboard_Design`).*
+---
+
+## 11. Wave 2 MVP — Entrypoint THẬT trên màn Asset Detail (IMM-00) — CHỐT
+
+> **Self-Correction (2026-06-04):** vòng 2 KHÔNG build sitemap `/imm-14` đầy đủ (§1) — chỉ thêm **1 entrypoint thật** trên màn chi tiết thiết bị + 1 modal closure-record gọi 2 API mới. List/dashboard/4-tab giữ làm `[ROADMAP]` Đợt 3.
+
+### 11.1. Vị trí (file thật)
+
+- **View:** `frontend/src/views/asset/AssetDetailView.vue` (màn chi tiết thiết bị IMM-00 — đã tồn tại).
+- **API client:** thêm vào `frontend/src/api/imm14.ts` (NEW): `createDecommission(payload)`, `approveDecommission(name)` — wrap `frappe.call`, parse envelope, throw `ApiError` chuẩn (`frontend/src/api/errors.ts`).
+- **Store:** dùng store asset hiện có (`frontend/src/stores/imm00.ts`) để refresh asset sau khi giải nhiệm; KHÔNG bắt buộc store IMM-14 riêng ở MVP.
+
+### 11.2. Nút "Giải nhiệm thiết bị"
+
+- Đặt ở action bar màn AssetDetailView, **chỉ hiện** khi:
+  - `auth.can('decommission.create') === true` (capability, KHÔNG so role-name), VÀ
+  - `asset.lifecycle_status !== 'Decommissioned'` (terminal → ẩn nút, hiện badge "Đã giải nhiệm").
+- **Stale-safe cap (USER REWORK IMM-14, 2026-06-04 — xem imm-00 06 §II.4b):** cap `decommission.*` phải tới FE sau release dù user có persisted-caps cũ. Phụ thuộc 2 fix shared: (a) `fetchSession` LUÔN gọi `loadCapabilities` (bỏ empty-check) → AC3; (b) version-stamp invalidate persisted-caps cũ khi BE bump `CAP_SET_VERSION` → AC4. KHÔNG cần xóa `localStorage` tay để nút hiện.
+- Nhãn nút: **"Giải nhiệm thiết bị"** (VI 100%).
+- Nếu asset đang Under Maintenance/Repair/Calibrating → nút vẫn hiện nhưng bấm sẽ nhận lỗi gate NEG-09 từ BE → toast cảnh báo (KHÔNG disable cứng ở FE để tránh drift; BE là SoT). Khuyến nghị: tooltip nhắc "Cần đóng phiếu bảo trì/sửa/hiệu chuẩn trước".
+
+### 11.3. Modal "Hồ sơ giải nhiệm"
+
+Trường nhập (nhãn VI):
+
+| Field | Control | Ràng buộc FE (mirror BE) |
+|---|---|---|
+| Phương thức xử lý | Select | options: Huỷ / Điều chuyển/Donation / Bán/Trade-in / Lưu trữ — bắt buộc |
+| Xác nhận đã xử lý dữ liệu bệnh nhân | Checkbox | nếu `asset.risk_classification ∈ {High, Critical}` → checkbox bắt buộc tick + label cảnh báo "Thiết bị phân loại C/D — bắt buộc (WHO §3.6)" |
+| Ghi chú xử lý dữ liệu | Textarea | optional |
+| Lý do giải nhiệm | Textarea | bắt buộc, ≥ 20 ký tự, hiện counter |
+| Người chịu trách nhiệm | User-select | bắt buộc, default = current user |
+
+- **Flow submit:** modal có 1 nút "Xác nhận giải nhiệm". Vì hành động không đảo ngược → modal xác nhận 2 bước (gõ tên/serial thiết bị để confirm — theo §10 UX rule).
+- **Gọi API:** submit → `createDecommission(payload)` rồi `approveDecommission(name)` liên tiếp (hoặc 1 endpoint gộp nếu BE chọn — chốt BE). MVP khuyến nghị 2-call tuần tự, hiển thị loading.
+- **Thành công:** đóng modal, toast "Đã giải nhiệm thiết bị thành công", refresh asset (status → Decommissioned, ẩn nút).
+
+### 11.4. Xử lý lỗi (KHÔNG leak EN/raw status, KHÔNG "Lỗi hệ thống")
+
+- Mọi lỗi BE trả envelope `{success:false, code, error}` → FE map `code` → toast **cảnh báo** (warning, không phải error đỏ "Lỗi hệ thống") với `error` (đã là message VI từ BE):
+  - `BUSINESS_RULE` → toast vàng nội dung field thiếu / sanitization gate.
+  - `BAD_STATE` (NEG-09 / terminal / gate) → toast cảnh báo nội dung từ BE (đã VI hoá).
+  - `CONFLICT` → toast "Thiết bị đã có hồ sơ giải nhiệm đang xử lý".
+- KHÔNG render raw `lifecycle_status` EN ("Decommissioned") cho user — map qua bảng nhãn VI hiện có (`statusLabel`/i18n). Badge VI: "Đã giải nhiệm".
+- KHÔNG để traceback / "Internal Server Error" lọt ra UI.
+
+### 11.5. i18n keys mới (thêm vào `frontend/src/locales/vi.json`)
+
+`imm14.btn.decommission`, `imm14.modal.title`, `imm14.field.disposal_method`, `imm14.field.patient_data_sanitized`, `imm14.field.reason`, `imm14.field.responsible`, `imm14.toast.success`, `imm14.confirm.type_name` — tất cả VI.
+
+*Hết file 06. §11 là CHỐT cho MVP vòng 2. Wireframe / sitemap đầy đủ §1–§10 giữ làm Đợt 3.*

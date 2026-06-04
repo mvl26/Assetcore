@@ -45,7 +45,9 @@
 | `criteria` | Tiêu chí | Table → Vendor Eval Criterion | N | 0 | Optional ở DocType; service tính score từ criteria.weight_pct |
 | `candidates` | Nhà cung cấp | Table → Vendor Eval Candidate | N | 0 | ≥ 1; không reqd ở DocType level |
 | `quotations` | Báo giá | Table → Vendor Quotation Line | N | 0 | Optional; VR-03-03 chỉ chạy khi có rows |
-| `recommended_candidate` | Đề xuất | Data | N | 0 | **Supplier name** top weighted (auto, set bởi `_compute_eval_scores`) |
+| `recommended_candidate` | Đề xuất | Data | N | 0 | **Supplier name** top weighted **DUY NHẤT** (auto, set bởi `_compute_eval_scores`). **Rỗng/None khi đỉnh HÒA** (≥2 candidate cùng điểm tối đa) — xem INV-VE-TIE (§IV.7) |
+| `has_top_tie` | Hòa đỉnh | Check (Int 0/1) | N | 0 | Auto, set bởi `_compute_eval_scores` = 1 khi ≥2 candidate đồng hạng nhất (read_only). Surface cờ cho FE + audit |
+| `tied_candidates` | NCC đồng hạng | Small Text | N | 0 | Auto, CSV supplier name đồng hạng nhất (read_only) khi `has_top_tie=1`; rỗng khi không hòa |
 | `workflow_state` | Trạng thái | Workflow State | Y | 0 | 5 states |
 | `docstatus` | Doc Status | Int | Y | 0 | 0/1/2 |
 | `amended_from` | Sửa đổi từ | Link → IMM Vendor Evaluation | N | 0 | — |
@@ -274,7 +276,12 @@ def validate_evaluation(doc: Document) -> None:
     """Hook validate: gọi _vr01, _vr03, _check_avl_warnings, _compute_eval_scores."""
 
 def on_submit_evaluation(doc: Document) -> None:
-    """Hook on_submit — no-op V1 (gate ở workflow transition)."""
+    """Hook on_submit — gate ở workflow transition; NẾU doc.has_top_tie: ghi 1 dòng
+    IMM Audit Trail bất biến (event_type='System', change_summary mở đầu
+    'eval_tie_unresolved' + spec_ref + tied_candidates + điểm) qua
+    utils.lifecycle.log_audit_event(asset=None, ...). Idempotent: bỏ qua nếu đã có
+    audit row cho (ref_doctype='IMM Vendor Evaluation', ref_name=doc.name,
+    event_type='System') chứa 'eval_tie_unresolved' (chống nhân đôi khi amend/resubmit)."""
 
 def _vr01_min_candidates(doc: Document) -> None:
     """VR-03-01: msgprint warning nếu < 3 candidates (soft)."""
@@ -285,12 +292,38 @@ def _vr03_quotation_validity(doc: Document) -> None:
 def _check_avl_warnings(doc: Document) -> None:
     """Set in_avl flag per candidate; warning nếu non-AVL."""
 
+def _avl_is_live(supplier: str, category: str | None = None) -> int:
+    """SoT predicate 'AVL còn hiệu lực' (INV-AVL-LIVE, 02 §IV.6).
+    Return 1 ⇔ tồn tại AVL của supplier với docstatus=1
+              AND workflow_state ∈ {Approved, Conditional}
+              AND (valid_to IS NULL OR valid_to >= CURDATE()).
+    1 truy vấn (db.exists/get_value/sql 1 câu) — KHÔNG loop, KHÔNG migration.
+    >= inclusive ⇒ biên valid_to==hôm-nay vẫn LIVE; khớp check_avl_expiry dùng <.
+    Đây là predicate DUY NHẤT — mọi điểm gọi eligibility/cổng/KPI ủy quyền về đây."""
+
 def _is_supplier_in_avl(supplier: str, category: str | None) -> int:
-    """Return 1 nếu supplier có AVL Approved/Conditional cho category."""
+    """Eligibility flag candidate. Thân = `return _avl_is_live(supplier, category)`
+    (giữ tên public cho backward-compat). KHÔNG còn check workflow_state thuần."""
 
 def _compute_eval_scores(doc: Document) -> None:
-    """Compute weighted_score per candidate: Σ(score × criterion_weight × group_weight).
-    Set recommended_candidate = top supplier name."""
+    """Compute weighted_score per candidate: Σ(score × criterion_weight × group_weight),
+    round(·×5, 4). Sau khi tính điểm:
+
+    INV-VE-TIE (cổng tie-break — §IV.7):
+      1. top = max(weighted_score) trên candidates.
+      2. Nếu top <= 0 (chưa chấm): recommended_candidate=None, has_top_tie=0,
+         tied_candidates=''  (giữ hành vi cũ — empty/zero PASS).
+      3. tied = [c.supplier for c in candidates if abs((c.weighted_score or 0) - top) <= 1e-9].
+      4. Nếu len(tied) == 1: recommended_candidate = tied[0]; has_top_tie=0;
+         tied_candidates=''  (giữ hành vi cũ — higher-score-wins PASS).
+      5. Nếu len(tied) >= 2 (HÒA đỉnh): recommended_candidate = None (KHÔNG auto-gợi-ý),
+         KHÔNG raise; has_top_tie=1; tied_candidates = ','.join(sorted(tied)); +
+         frappe.logger('imm03').warning structured 'eval_tie_unresolved' (spec_ref,
+         suppliers, score=top). Audit Trail bất biến ghi ở on_submit_evaluation.
+
+    Ordering tie-break THỨ CẤP (sorted supplier asc) CHỈ dùng để hiển thị thứ hạng FE,
+    KHÔNG dùng để auto-chọn winner khi đỉnh hòa (phi-tất-định bị cấm — INV-VE-TIE).
+    Hàm phải an toàn ở validate context (chạy mỗi save) — KHÔNG ghi DB ở đây."""
 
 
 # ─── Procurement Decision ────────────────────────────────────────────────────
@@ -313,7 +346,10 @@ def _vr04_envelope_check(doc: Document) -> None:
     """VR-03-04: awarded_price ≤ 105% allocated_budget; set envelope_check_pct."""
 
 def _vr05_winner_avl_required(doc: Document) -> None:
-    """VR-03-05: winner_supplier phải có AVL Approved/Conditional cho device_category."""
+    """VR-03-05: winner_supplier phải có AVL **còn hiệu lực** cho device_category.
+    Dùng `_avl_is_live(winner_supplier, category)` (SoT, 02 §IV.6) → raise
+    ServiceError(BUSINESS_RULE) nếu trả 0. Chặn trao thầu cho AVL hết hạn trong
+    cửa sổ trễ scheduler (INV-AVL-LIVE-1)."""
 
 def _vr07_unique_decision_per_spec(doc: Document) -> None:
     """VR-03-07: 1 spec_ref ↔ 1 Decision Awarded/Contract Signed/PO Issued."""
@@ -341,7 +377,10 @@ def activate_avl(doc: Document) -> None:
     """on_submit: gọi _sync_supplier_avl_status nếu state='Approved'."""
 
 def _sync_supplier_avl_status(supplier: str) -> None:
-    """Sync AC Supplier.imm_avl_status + imm_avl_categories từ active AVL entries."""
+    """Sync AC Supplier.imm_avl_status + imm_avl_categories từ active AVL entries.
+    Mệnh đề 'active' (workflow_state ∈ {Approved,Conditional} AND (valid_to IS NULL
+    OR valid_to >= CURDATE())) là **reference predicate** của `_avl_is_live`
+    (INV-AVL-LIVE-3 parity). KHÔNG đổi mệnh đề này lẻ — đổi phải đồng bộ `_avl_is_live`."""
 
 
 # ─── Supplier Audit ───────────────────────────────────────────────────────────
@@ -381,6 +420,40 @@ def update_vendor_scorecard() -> None:
 ```
 
 > **Lưu ý:** Block "spec ban đầu" liệt kê thêm các helper như `add_vendor_to_evaluation`, `compute_eval_score`, `_vr02_avl_check`, `_vr06_immutable_lifecycle_events`, `_validate_gate_g01/02/03` ĐÃ ĐƯỢC REMOVE khỏi tài liệu vì KHÔNG có trong code. Các tên thực tế ở trên là ground truth.
+
+### V.b List & Dashboard predicate đồng nhất `docstatus<2` (INV-DEC-DRILL — 02 §IV.8)
+
+File: `assetcore/api/imm03.py`. Hai hàm phải đếm **cùng predicate** để bảo toàn INVARIANT card==drill cho 3 tile decision (`Awarded`/`Pending Approval`/`PO Issued`):
+
+```python
+def _dashboard_kpis():
+    # decision_states = reference predicate (đã đúng): chỉ docstatus<2.
+    decision_states = dict(frappe.db.sql(
+        f"SELECT workflow_state, COUNT(*) FROM `tab{_DT_PD}` "
+        f"WHERE docstatus<2 GROUP BY workflow_state"          # loại cancelled
+    ))
+    # ... eval_states / avl_active / avl_expiring_30d không đổi
+
+def _list_decisions(filters, page, page_size):
+    f = _parse_json(filters)
+    f, or_filters = pop_search(f, ["name", "spec_ref"],
+        link_search={"winner_supplier": (_DT_SUPPLIER, "supplier_name")})
+    # INV-DEC-DRILL: bơm docstatus<2 mặc định nếu caller chưa truyền tường minh
+    # → cả frappe.get_list (items) lẫn count_with_or (total) đều loại cancelled,
+    #   khớp _dashboard_kpis.decision_states. Override được bằng filters={"docstatus": 2}.
+    if "docstatus" not in f:
+        f["docstatus"] = ["<", 2]
+    page_size = max(1, min(page_size, 100))
+    start = (max(1, page) - 1) * page_size
+    items = frappe.get_list(_DT_PD, filters=f or None, or_filters=or_filters,
+        fields=[...], order_by="creation desc", start=start, page_length=page_size)
+    # ... enrich vendor_name / tech_spec_ref_name / ac_purchase_ref_name không đổi
+    return {"items": items, "total": count_with_or(_DT_PD, f or None, or_filters)}
+```
+
+**Lý do (root cause):** `IMM Procurement Decision` là submittable; khi cancel (`docstatus=2`), `workflow_state` KHÔNG tự xoá. `frappe.get_list`/`frappe.db.count` (Frappe v15: `db_query.docstatus = docstatus or []`) KHÔNG áp `docstatus<2` mặc định → list cũ đếm dư bản huỷ so với tile. Bơm `docstatus<2` vào `f` (cùng dict dùng cho cả `get_list` và `count_with_or`) đảm bảo `items` và `total` đồng nhất với tile.
+
+**Ràng buộc:** KHÔNG đổi field trả về, search, enrich, pagination, hay hành vi `_dashboard_kpis` ngoài việc giữ predicate đồng nhất. KHÔNG thêm field/migration/index (index `idx_imm_pd_workflow(workflow_state, docstatus)` §IX đã phủ cho count nhanh).
 
 ---
 

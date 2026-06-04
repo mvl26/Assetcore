@@ -572,7 +572,7 @@ Acceptance:
 | ID | Rule | Implement ở | Chuẩn |
 |---|---|---|---|
 | BR-16-01 | Finding severity ≥ High → mở CAPA Record trong 5 NLV | `check_capa_due` + Finding `validate()` | ISO 13485 §8.5 |
-| BR-16-02 | CAPA Critical >30 ngày chưa close → escalate VP Block2 + Trưởng phòng | `check_capa_due_imm16` scheduler | Internal |
+| BR-16-02 | **CAPA quá hạn → leo thang tiered ĐỘC LẬP theo effective-risk** (Vòng 13, RC-CAPA-ESC). Effective-risk SoT = `imm_risk_level` khi High/Critical, else fallback `severity`-normalized (Critical→Critical) — `severity='Critical'` escalate đúng dù `imm_risk_level` rỗng/Medium. Critical: ≥1d→Level-1 (`responsible`), ≥3d→Level-1+Level-2 (`responsible`+`Compliance Manager`). High: ≥3d→Level-2; <3d không. Medium/Low: KHÔNG escalate. Idempotent qua field `escalation_level` (cron daily KHÔNG re-send tier cũ) + 1 audit record/tier (CLAUDE.md §5). | `check_capa_due` → `_escalate_capa` / `_capa_escalation_severity` / `_record_capa_escalation` (`services/imm16.py`); field `escalation_level` (IMM CAPA Record) | Internal · NĐ98 Art.67 · ISO 13485 §8.5.2 |
 | BR-16-03 | CAPA Close chỉ khi `effectiveness_check=Effective`; Not Effective → Re-open + `imm_reopen_count++` | CAPA Record `validate()` via doc_events | ISO 13485 §8.5 |
 | BR-16-04 | Audit Major NC → CAPA Record + change control link nếu thay đổi master/process | `close_audit` validator VR-08 | ISO 13485 §8.2.4 |
 | BR-16-05 | Compliance Rule thay đổi threshold/severity → change control versioned | Rule controller `before_save` VR-11 | ISO 13485 §4.2 |
@@ -636,6 +636,7 @@ Acceptance:
 | NFR-16-01 | `list_findings` P95 (50k records) | < 2s |
 | NFR-16-02 | Rule evaluation throughput (200 rules/run) | < 5 phút |
 | NFR-16-03 | Idempotent finding upsert | UNIQUE (rule + source_record + evaluation_date) |
+| NFR-16-03b | **Idempotent CAPA escalation** (Vòng 13) | `escalation_level` (Int) lưu tier cao nhất đã gửi → `check_capa_due` chạy lặp cùng ngày KHÔNG re-send tier cũ; mỗi tier mới = đúng 1 IMM Audit Trail. `_escalate_capa` 0 query phụ/CAPA (đọc từ row select sẵn — INV-CAPA-ESC-4). |
 | NFR-16-04 | Heatmap render (10×15 cell) | < 1s |
 | NFR-16-05 | `get_dashboard_stats` P95 | < 1s |
 

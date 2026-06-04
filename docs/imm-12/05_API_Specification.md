@@ -345,13 +345,14 @@ curl -X POST 'https://hospital.assetcore.vn/api/method/assetcore.api.imm12.submi
       "closed": 24, "cancelled": 2, "critical": 1, "high": 4,
       "open_total": 9,               // count(open_incident_filter()) = Open+Acknowledged+In Progress+RCA Required — BR-12-11 SoT card-count (KHÔNG chỉ status==Open)
       "critical_open": 1, "high_open": 2,  // count(open_incident_filter()∧severity) — BR-12-11b KPI-strip open-set (Closed/Cancelled/Resolved loại; critical_open<=critical, high_open<=high)
-      "rca_pending": 2, "chronic": 1,
-      "sla_response_breached": 2,    // count(response_breached=1) — BR-12-09 FE divergence guard
-      "sla_resolution_breached": 1   // count(resolution_breached=1)
+      "rca_pending": 2,
+      "chronic": 1,                  // chronic_failure_count() = len(get_chronic_failures()) — BR-12-12 LIVE rolling-window nhóm (asset,fault_code) ≥3/90d; KHÔNG đếm cờ stale chronic_failure_flag. INVARIANT: == len(data.chronic_failures) (cùng SoT)
+      "sla_response_breached": 2,    // sla_breach_count("response") = (response_breached=1) OR (đang-mở ∧ response_due_at<now ∧ chưa ack) — BR-12-13 LIVE predicate (KHÔNG còn count cờ stale)
+      "sla_resolution_breached": 1   // sla_breach_count("resolution") = (resolution_breached=1) OR (đang-mở ∧ resolution_due_at<now) — BR-12-13 LIVE
     },
-    "active_incidents": [...],   // open_incident_filter(): Open + Acknowledged + In Progress + RCA Required, by reported_at desc, top 10 — BR-12-11 (số dòng trước cắt limit == stats.open_total)
+    "active_incidents": [...],   // open_incident_filter(): Open + Acknowledged + In Progress + RCA Required, by reported_at desc, top 10 — BR-12-11. MỖI row enrich is_response_breached/is_resolution_breached (0|1, derive LIVE — BR-12-13)
     "open_rcas": [...],          // RCA Required + RCA In Progress, by due_date asc, top 10
-    "chronic_failures": [...]    // top 5 chronic groups
+    "chronic_failures": [...]    // top 5 chronic groups — INVARIANT stats.chronic == len(chronic_failures) khi ≤5 nhóm (BR-12-12)
   }
 }
 ```
@@ -362,9 +363,11 @@ curl -X POST 'https://hospital.assetcore.vn/api/method/assetcore.api.imm12.submi
 >
 > **KPI-strip open-set guard (BR-12-11b, vòng 29):** `stats.critical_open` / `stats.high_open` = `count(open_incident_filter({"severity": …}))` — đếm severity CHỈ trong open-set SoT, loại Closed/Cancelled/Resolved. FE KPI strip `IncidentListView.vue` tile "Sự cố nghiêm trọng đang mở" / "Sự cố mức cao đang mở" bind `stats.critical_open ?? 0` / `stats.high_open ?? 0` ⇒ trên drill `/incidents/list?open=1` strip == số dòng severity tương ứng trong bảng (1 Critical / 2 High), KHÔNG còn số global gồm Closed. Key `critical`/`high` (global, mọi-status) GIỮ NGUYÊN cho donut `severity_breakdown` + consumer cũ. Bất biến: `critical_open <= critical`, `high_open <= high`. CHỈ sinh qua `open_incident_filter()` (1 SoT — KHÔNG inline negative-list/tuple mới).
 >
-> **Divergence guard (BR-12-09):** `stats.sla_response_breached` / `sla_resolution_breached` PHẢI bằng số incident có cờ tương ứng `=1` (đếm trực tiếp trên `Incident Report`). Dashboard "Vi phạm SLA" và badge trên list cùng đọc từ field cờ ⇒ không lệch số.
+> **Chronic SoT guard (BR-12-12, vòng 3/50):** `stats.chronic` = `chronic_failure_count()` = `len(get_chronic_failures())` — đếm **số nhóm `(asset, fault_code)` LIVE** trong cửa sổ trượt 90 ngày (`GROUP BY HAVING >= 3`, `status != Cancelled`), **KHÔNG** đếm cờ bền vững `chronic_failure_flag`. **INVARIANT 1 màn hình:** trên cùng payload, `stats.chronic == len(data.chronic_failures)` (cả hai phái sinh từ `get_chronic_failures()`) ⇒ tile dashboard (`IMM12DashboardView.vue:106`) == panel (`:221-234`), KHÔNG còn 2 con số mâu thuẫn. **Lifecycle:** khi cụm cũ aged-out >90d (cờ vẫn =1 trên incident cũ) ⇒ không còn nhóm live ⇒ `stats.chronic` GIẢM về `0` (định nghĩa cũ "đếm cờ" giữ tile >0 vĩnh viễn = bug đã fix). Cờ `chronic_failure_flag` GIỮ NGUYÊN cho badge per-row *"Lặp lại"* — lifecycle riêng (BR-12-03 audit/RCA grouping), KHÔNG đổi. Endpoint `get_incident_stats()` đã delegate service-layer (round-29) ⇒ key `chronic` mới tự lộ, KHÔNG đụng `api/imm12.py`.
 >
-> **DELTA `list_incidents`:** thêm `"response_breached", "resolution_breached"` vào mảng `fields=[...]` (hiện CHƯA có — xác minh `services/imm12.py::list_incidents`) để FE render badge mà không phải fetch thêm. Cả `get_incident_detail` cũng cần expose 2 cờ này cho badge trên trang chi tiết.
+> **SLA-breach LIVE SoT guard (BR-12-13, vòng 4):** `stats.sla_response_breached` = `sla_breach_count("response")`, `stats.sla_resolution_breached` = `sla_breach_count("resolution")` — predicate **`(cờ=1) OR (đang-mở ∧ quá-hạn-live)`** (`open_incident_filter()` ∧ `<kind>_due_at < now()`; response kèm `acknowledged_at` unset). **KHÔNG còn** `count(response_breached=1)`/`count(resolution_breached=1)` đơn lẻ → kill **undercount cửa-sổ-trễ-scheduler** (incident vừa quá hạn, cờ chưa stamp vẫn được đếm). **Idempotent:** sau khi scheduler `check_incident_sla_breach()` stamp cờ, KPI KHÔNG đổi (incident đã đếm vì live nay đếm vì cờ — 2 nhánh exclusive). **Terminal exclude:** Cancelled/Closed/Resolved đóng-đúng-hạn KHÔNG phantom-count (chỉ qua nhánh cờ=1 nếu lịch sử từng breach). Endpoint delegate service-layer ⇒ KHÔNG đụng `api/imm12.py`.
+>
+> **DELTA per-row enrich (BR-12-13):** `list_incidents().items[]` + `get_dashboard().active_incidents[]` MỖI row thêm `is_response_breached` / `is_resolution_breached` (`0|1`) — derive LIVE cùng predicate `sla_breach_filter` trên từng row (in-Python, KHÔNG query thêm). FE đọc field **derived** `is_*_breached` (KHÔNG cờ thô) ⇒ **badge live == tile**. Cờ thô `response_breached`/`resolution_breached` GIỮ trong payload (backward-compat). `list_incidents` field list THÊM `response_due_at`, `resolution_due_at` (đã có `acknowledged_at`+cờ+status); `active_incidents` THÊM `response_due_at`, `resolution_due_at`, `acknowledged_at`. `get_incident_detail` giữ expose cờ thô cho trang chi tiết (badge detail có thể tiếp tục đọc cờ — out-of-scope vòng này).
 
 Use `get_incident_stats()` endpoint for per-status KPI counts (incl. `open_total` SoT card-count, BR-12-11) — endpoint delegates the service-layer function, returning the same `stats` shape embedded in `get_dashboard`.
 

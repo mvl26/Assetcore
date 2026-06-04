@@ -342,4 +342,38 @@ flowchart TD
 
 ---
 
-*Hết file 02 — IMM-14 Analysis & Design (from-scratch, BE chưa scaffold).*
+---
+
+# Phần VI — Wave 2 MVP: Cổng "Hồ sơ giải nhiệm" (Decommission Closure Gate)
+
+> **Self-Correction (2026-06-04).** Phần I–V mô tả IMM-14 *đầy đủ* (reconciliation 3-chiều, archive IMM-05, rollback, dashboard) = mục tiêu Đợt 3. **Vòng 2 chỉ làm một lát cắt hẹp** = closure-record + gate + audit + entrypoint FE. Phần VI là hợp đồng CHỐT cho vòng 2; các phần khác giữ làm `[ROADMAP]`.
+
+## VI.1. Đề mục & 5 câu hỏi domain
+
+- **WHO HTM stage:** Giai đoạn 6 — Decommission. WHO §3.6 (data sanitization), §3.8 (decommissioning report / inventory removal).
+- **NĐ98 article:** thanh lý/huỷ thiết bị y tế cần hồ sơ chứng minh + biên bản; phân loại C/D (High/Critical) ràng buộc thêm xử lý dữ liệu (NĐ13/2023 PII/PHI).
+- **Stakeholder owns step:** Trưởng phòng VT-TBYT (Department Head) ký duyệt closure; HTM Engineer khởi tạo.
+- **Lifecycle event produced:** `decommissioned` (qua `transition_asset_status`).
+- **Hậu quả nếu data sai:** asset bị xoá khỏi vận hành mà không có evidence sanitization → rò rỉ PII/PHI + audit fail NĐ98; hoặc asset đang dở phiếu bảo trì bị thanh lý → WO mồ côi (NEG-09 chặn).
+
+## VI.2. Scope-fence vòng 2
+
+**In:** DocType `Asset Decommission` (submittable) · gate chặn `lifecycle_status=Decommissioned` nếu chưa có closure approved trỏ đúng asset · side-effect khi Approve (transition + lifecycle event + audit + cancel pending depreciation, **reuse cơ chế có sẵn**) · idempotent + terminal · entrypoint FE thật trên màn asset detail (IMM-00).
+
+**Out:** IMM-13 stand-down/reassignment/replacement-review · đối soát kho IMM-15 / sổ kế toán · IMM-05 archive · rollback 2-step · donation/sale logistics · dashboard end-of-life · print format. (Tất cả = `[ROADMAP]` Đợt 3.)
+
+## VI.3. GATE chính (đo được) — acceptance
+
+1. **KHÔNG** asset nào sang `lifecycle_status='Decommissioned'` nếu chưa tồn tại 1 `Asset Decommission` docstatus=1 (Approved) trỏ đúng asset. Gọi `transition_asset_status(to=Decommissioned)` khi chưa có record hợp lệ → raise `InvalidAssetTransition`/`ServiceError(BAD_STATE)` (message VI), `lifecycle_status` GIỮ NGUYÊN.
+2. Record bắt buộc đủ trường trước Approve: `disposal_method` ∈ {Huỷ, Điều chuyển/Donation, Bán/Trade-in, Lưu trữ} + `patient_data_sanitized`=true (BẮT BUỘC với risk High/Critical = NĐ98 C/D, WHO §3.6) + `decommission_reason` ≥ 20 ký tự + `responsible`. Thiếu → throw, không submit.
+3. Approve thành công → tự (a) `transition_asset_status→Decommissioned` (qua state-machine guard + NEG-09 GIỮ NGUYÊN), (b) đúng 1 `Asset Lifecycle Event` `decommissioned` `root_record`=tên closure, (c) 1 `IMM Audit Trail` `State Change` với `change_summary` chứa `disposal_method` + `patient_data_sanitized`. Pending depreciation → Cancelled (reuse `_cancel_pending_depreciation`).
+4. Idempotent + terminal: asset đã Decommissioned → tạo/Approve closure thứ 2 bị chặn. Approve 2 lần cùng record → no double event, no double cancel depreciation.
+5. FE: nút "Giải nhiệm thiết bị" trên màn asset detail mở modal → gọi API mới; nhãn VI 100%; lỗi gate → toast cảnh báo (không "Lỗi hệ thống").
+
+## VI.4. Business rules vòng 2 (chi tiết → `04 §IX.4`)
+
+BR-14-W2-01 (GATE) · -02 (disposal_method) · -03 (sanitization gate risk C/D) · -04 (reason ≥ 20) · -05 (responsible) · -06 (terminal/idempotent) · -07 (single active per asset) · -08 (no double effect) + reuse NEG-09.
+
+> **Lưu ý reuse (KHÔNG viết lại):** `transition_asset_status` (services/imm00.py:92) đã có state machine + NEG-09 + lifecycle event `decommissioned` + audit `State Change` + `_cancel_pending_depreciation`. Service IMM-14 vòng 2 CHỈ orchestrate (validate field + gọi transition với reason chứa disposal_method/patient_data_sanitized). Spec BE/FE/API CHỐT ở `04 §IX`, `05 §6`, `06 §11`.
+
+*Hết file 02 — IMM-14 Analysis & Design. Phần I–V = thiết kế đầy đủ Đợt 3; Phần VI = MVP CHỐT vòng 2.*

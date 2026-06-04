@@ -136,11 +136,14 @@ curl -G "https://acme.local/api/method/assetcore.api.imm09.list_repair_work_orde
         "asset_name": "Máy thở Drager Evita V800",
         "repair_type": "Corrective",
         "priority": "Urgent",
-        "status": "In Repair",
+        "status": "Pending Parts",
         "open_datetime": "2026-04-14 07:15:00",
         "completion_datetime": null,
         "mttr_hours": null,
         "sla_breached": 0,
+        "is_sla_breached": false,
+        "parts_hold_hours": 12.5,
+        "sla_paused": true,
         "is_repeat_failure": 0,
         "assigned_to": "ktv.anha@hospital.vn",
         "root_cause_category": "Electrical",
@@ -152,7 +155,9 @@ curl -G "https://acme.local/api/method/assetcore.api.imm09.list_repair_work_orde
 }
 ```
 
-**Fields trả về:** `name`, `asset_ref`, `asset_name`, `repair_type`, `priority`, `status`, `open_datetime`, `completion_datetime`, `mttr_hours`, `sla_breached`, `is_repeat_failure`, `assigned_to`, `root_cause_category`, `risk_class`.
+**Fields trả về:** `name`, `asset_ref`, `asset_name`, `repair_type`, `priority`, `status`, `open_datetime`, `completion_datetime`, `mttr_hours`, `sla_breached`, `is_sla_breached` *(derive live — BR-09-07 LIVE: `bool(sla_breached) or _row_is_live_overdue`; BR-09-10: elapsed clock-stop ⇒ WO ở Pending Parts KHÔNG live-overdue oan)*, `parts_hold_hours` *(tổng giờ đã hold — BR-09-10)*, `sla_paused` *(derive: `status == "Pending Parts"` ⇒ SLA đang tạm dừng; FE hiện badge "Chờ phụ tùng — SLA tạm dừng")*, `is_repeat_failure`, `assigned_to`, `root_cause_category`, `risk_class`, `sla_target_hours`.
+
+> **BR-09-10 (clock-stop):** `mttr_hours` BE gửi đã trừ thời gian Pending Parts (`= (completion−open) − parts_hold_hours`). FE render **verbatim** — KHÔNG tự tính lại từ `open_datetime`/`completion_datetime` (transport-agnostic). `parts_hold_started` là field nội bộ (chỉ phục vụ tính toán BE) — KHÔNG cần expose ra API list.
 
 ---
 
@@ -188,6 +193,9 @@ curl -G "https://acme.local/api/method/assetcore.api.imm09.list_repair_work_orde
     "sla_target_hours": 24.0,
     "mttr_hours": null,
     "sla_breached": 0,
+    "is_sla_breached": false,
+    "parts_hold_hours": 0.0,
+    "sla_paused": false,
     "is_repeat_failure": 0,
     "assigned_to": "ktv.anha@hospital.vn",
     "diagnosis_notes": "Tụ điện C12 phồng và cháy",
@@ -355,7 +363,7 @@ curl -G "https://acme.local/api/method/assetcore.api.imm09.list_repair_work_orde
 **Side-effects:**
 - Chỉ thực hiện khi `status IN ("Assigned", "Diagnosing")`.
 - Set `diagnosis_notes`, `root_cause_category`.
-- Nếu `needs_parts = 1` → `status = "Pending Parts"`.
+- Nếu `needs_parts = 1` → `status = "Pending Parts"` **+ `enter_parts_hold(doc)`: stamp `parts_hold_started = now()` (BR-09-10, INV-CM-HOLD-2) + ALE `parts_hold_started`** (SLA bắt đầu tạm dừng).
 - Nếu `needs_parts = 0` → `status = "In Repair"`.
 - Sinh ALE `event_type = "diagnosis_submitted"`.
 
@@ -399,7 +407,7 @@ curl -G "https://acme.local/api/method/assetcore.api.imm09.list_repair_work_orde
 
 **Side-effects:**
 - Cập nhật `stock_entry_ref` trên các row `spare_parts_used` khớp `item_code`.
-- Nếu `status = "Pending Parts"` → chuyển sang `"In Repair"`.
+- Nếu `status = "Pending Parts"` → **`exit_parts_hold(doc, until=now())`: cộng `parts_hold_hours += (now − parts_hold_started)`, reset `parts_hold_started=null` (BR-09-10, INV-CM-HOLD-2/3) + ALE `parts_hold_resumed`** (SLA tiếp tục chạy) → chuyển sang `"In Repair"`.
 
 > Lưu ý: Endpoint chỉ gắn chứng từ, không tạo spare part row mới. Các row phải được thêm qua FE form trước.
 
@@ -434,6 +442,7 @@ curl -G "https://acme.local/api/method/assetcore.api.imm09.list_repair_work_orde
 
 **Side-effects:**
 - Chỉ thực hiện khi `status IN ("Assigned", "Diagnosing", "Pending Parts")`.
+- Nếu đang `"Pending Parts"` → **`exit_parts_hold(doc, until=now())` (BR-09-10) chốt khoảng hold + ALE `parts_hold_resumed`** trước khi đổi status.
 - Set `status = "In Repair"`.
 
 **Response 200:**
@@ -515,9 +524,10 @@ curl -G "https://acme.local/api/method/assetcore.api.imm09.list_repair_work_orde
 ```
 
 **Side-effects (Cannot Repair mode):**
-1. Set `cannot_repair_reason`, `status = "Cannot Repair"`.
-2. `Asset.status = "Out of Service"`.
-3. ALE `event_type = "cannot_repair"`.
+1. Nếu đang `"Pending Parts"` → **`exit_parts_hold(doc, until=now())` (BR-09-10, INV-CM-HOLD-5)** chốt khoảng hold cuối + ALE `parts_hold_resumed` (audit đầy đủ; WO không tính MTTR nhưng vẫn ghi trọn khoảng hold).
+2. Set `cannot_repair_reason`, `status = "Cannot Repair"`.
+3. `Asset.status = "Out of Service"`.
+4. ALE `event_type = "cannot_repair"`.
 
 **Response 200 (Cannot Repair):**
 
@@ -548,7 +558,7 @@ curl -G "https://acme.local/api/method/assetcore.api.imm09.list_repair_work_orde
 
 ### 3.9 `confirm_inspection`
 
-**Mô tả:** Nghiệm thu sau sửa chữa — bước kiểm soát chất lượng cuối. Chuyển WO từ `Pending Inspection` → `Completed` (submit docstatus=1), kích hoạt `complete_repair()` để tính MTTR, SLA, đưa Asset về Active.
+**Mô tả:** Nghiệm thu sau sửa chữa — bước kiểm soát chất lượng cuối. Chuyển WO từ `Pending Inspection` → `Completed` (submit docstatus=1), kích hoạt `complete_repair()` để tính MTTR, SLA, và **restore Asset có điều kiện** (BR-09-09): Asset → Active **CHỈ khi** asset đang `Under Repair`; nếu đang `Out of Service`/`Decommissioned` (hold governance khác) thì giữ nguyên — WO vẫn đóng được bình thường.
 
 | Method | Path |
 |---|---|
@@ -566,8 +576,9 @@ curl -G "https://acme.local/api/method/assetcore.api.imm09.list_repair_work_orde
 1. Kiểm tra status = "Pending Inspection", role `CAN_APPROVE_DEP`.
 2. Set `dept_head_confirmation_datetime = now()`.
 3. `doc.submit()` → `before_submit` (validate BR-09-02/03/04) → `on_submit` → `complete_repair()`.
-4. `complete_repair()`: tính `mttr_hours` (calendar time), set `completion_datetime`, `sla_breached`, Asset→Active, ALE `repair_completed`.
+4. `complete_repair()`: set `completion_datetime`; **BR-09-10 (clock-stop):** nếu `parts_hold_started` còn non-null (đóng WO khi đang Pending Parts) → `exit_parts_hold(doc, until=completion_datetime)` chốt khoảng hold cuối TRƯỚC (INV-CM-HOLD-5); rồi `mttr_hours = repair_elapsed_hours(doc, completion_datetime)` (= `(completion−open) − parts_hold_hours`, KHÔNG phải calendar time thô) + `sla_breached = is_sla_breached(elapsed, sla_target) OR sla_breached`; **restore Asset có điều kiện (BR-09-09):** đọc `prev_status` → (A) `Under Repair` → transition Active; (B) `Out of Service`/prev khác → giữ nguyên (không override hold); (C) `Decommissioned` → bỏ qua restore (terminal, không raise). MỌI nhánh ghi 1 ALE `repair_completed`. KHÔNG nhánh nào làm vỡ `on_submit` (INV-09-RESTORE-1).
 5. Nếu `root_cause_category` chứa từ khóa lặp lại ("lặp lại", "recurring", "chronic"...) → tự động gọi `imm12.detect_chronic_failures()` (non-blocking).
+6. BR-11: nếu thiết bị yêu cầu hiệu chuẩn → tạo CAL WO recalibration (`create_post_repair_calibration`, non-blocking) — GIỮ NGUYÊN.
 
 **Response 200:**
 
@@ -903,16 +914,38 @@ export interface MttrReport {
 
 Phát qua `frappe.publish_realtime(channel, payload, user=assigned_to)`. FE subscribe trong `stores/imm09.ts` qua socket event `cm_sla_breached`.
 
-### §7.1 Dashboard KPI `cm_sla_breached` ↔ drill list — canonical-value rule (BR-09-07)
+### §7.1 Dashboard KPI `cm_sla_breached` ↔ drill list — live-SoT canonical-value rule (BR-09-07 LIVE)
 
-KPI thẻ `cm_sla_breached` (`api/dashboard.py`) và list drill khi click thẻ (`/cm/work-orders?sla_breached=1`) PHẢI đếm **cùng một tập WO** — vi phạm sẽ làm số trên thẻ ≠ số dòng list (canonical-value rule, lệch niềm tin người dùng).
+KPI thẻ `cm_sla_breached` ('SLA vi phạm', `api/dashboard.py`) và list drill khi click thẻ (`/cm/work-orders?sla_breached=1`) PHẢI đếm **cùng một tập WO** — lệch sẽ làm số trên thẻ ≠ số dòng list (canonical-value rule, mất niềm tin người dùng).
 
-**Định nghĩa tập canonical:** mọi WO có `sla_breached = 1`, **không** lọc theo `status`. WO đã Completed/Closed mà vi phạm SLA vẫn là "đã vi phạm" — cờ là sự thật lịch sử (monotonic), không phải trạng thái "đang mở".
+#### Self-Correction — bug thiết kế gốc (đếm cờ stale → undercount cửa-sổ-trễ-scheduler)
 
-- KPI count: `_count("Asset Repair", {"sla_breached": 1})` — **BỎ** mệnh đề `status NOT IN [Completed, Closed]` (trước đây loại WO đã đóng → lệch với drill).
-- Drill: `_drill("/cm/work-orders", sla_breached="1")` → `list_work_orders({"sla_breached": 1})` — không status filter.
+Bản trước định nghĩa tập canonical = `_count("Asset Repair", {"sla_breached": 1})` — **chỉ đếm cờ đã stamp**. Cờ `sla_breached` chỉ được set bởi (a) `complete_repair()` lúc đóng WO, hoặc (b) scheduler hourly `check_repair_sla_breach()`. ⇒ một WO **đang mở** vừa vượt hạn 1–59 phút (`open_datetime + sla_target_hours < now()`) nhưng scheduler CHƯA quét tới sẽ có `sla_breached = 0` ⇒ **KHÔNG được đếm** trên card cho đến đầu giờ kế tiếp = **undercount cửa-sổ-trễ-scheduler**. Manager nhìn thấy 0 trong khi thực tế đã có 1 WO breach SLA. → **Sửa Core Doc TRƯỚC:** chuyển sang **live SoT predicate** (đồng dạng IMM-12 BR-12-09).
 
-> Nếu nghiệp vụ cần thẻ "SLA breach **đang mở**" riêng, đó là KPI KHÁC (`cm_sla_breached_open`) với drill `sla_breached=1&status=...` riêng — KHÔNG dùng chung label/count.
+#### Định nghĩa tập canonical LIVE (SoT)
+
+Một WO tính là "SLA vi phạm" nếu thuộc **một trong hai** nhánh **loại trừ nhau** (mutually-exclusive — né OR/double-count):
+
+| Nhánh | Predicate | Ngữ nghĩa |
+|---|---|---|
+| **(1) Cờ lịch sử monotonic** | `sla_breached = 1` | Sự thật đã chốt — WO Completed vi phạm (mttr ≥ target) hoặc đã được scheduler stamp. KHÔNG bao giờ lật 0. |
+| **(2) Live-overdue đang mở (cờ chưa kịp stamp)** | `open_repair_filter()` ∧ `sla_breached = 0` ∧ `open_datetime + sla_target_hours < now()` | WO **đang mở** đã quá hạn nhưng scheduler chưa quét. `open_repair_filter()` loại tự nhiên terminal (Completed/Cannot Repair/Cancelled). |
+
+- **KPI count (SoT helper `cm_sla_breach_count()` tại `services/imm09.py`):**
+  `count(sla_breached=1)` + `count(sla_breach_live_filter() ∧ sla_breached=0)` — 2 nhánh exclusive (cờ=1 và cờ=0), không bao giờ chồng ⇒ **idempotent vs scheduler**: chạy cùng tập trước/sau khi scheduler stamp ⇒ count KHÔNG đổi (1 WO chỉ tính 1 lần dù vừa live-overdue vừa cờ=1).
+- **Drill (`_drill("/cm/work-orders", sla_breached="1")`):** `list_work_orders({"sla_breached": 1})` → enrich per-row `is_sla_breached` LIVE (cờ thô ?? live-overdue-derive) ⇒ độ dài list == count card trên **cùng tập live đúng** (không lệch ở cửa-sổ-trễ).
+
+#### Invariants (acceptance đo được)
+
+| ID | Invariant |
+|---|---|
+| INV-CM-SLA-1 | WO OPEN có `open_datetime + sla_target_hours < now()` nhưng `sla_breached=0` (chưa scheduler) → card 'SLA vi phạm' đếm **+1 NGAY** (không đợi scheduler hourly). |
+| INV-CM-SLA-2 (idempotent) | Chạy cùng tập trước & sau khi scheduler stamp cờ → `cm_sla_breached` KHÔNG đổi (no double-count: 1 WO tính 1 lần). |
+| INV-CM-SLA-3 (no-regression cờ lịch sử) | WO Completed có `sla_breached=1` (monotonic) VẪN đếm như cũ; WO Completed trong-hạn (`sla_breached=0`, mttr<target) KHÔNG đếm. |
+| INV-CM-SLA-4 (terminal loại tự nhiên) | WO terminal (Cannot Repair/Cancelled) quá hạn nhưng `sla_breached=0` → KHÔNG phantom-count vào card open-breach (chỉ open WO + completed-flag-historical đếm). |
+| INV-CM-SLA-5 (card == drill LIVE) | Độ dài list `/cm/work-orders?sla_breached=1` (sau `list_work_orders` enrich `is_sla_breached` live) == số card 'SLA vi phạm' — invariant giữ NHƯNG nay trên tập live đúng, không lệch ở cửa-sổ-trễ. |
+
+> **Phân biệt với KPI khác:** nếu nghiệp vụ cần thẻ "SLA breach **đang mở** thuần" (loại completed-flag-historical), đó là KPI KHÁC (`cm_sla_breached_open`, chỉ nhánh (2) ∪ open-cờ=1) — KHÔNG dùng chung label/count với card này. *(Cần khảo sát: hiện chỉ có 1 card hợp nhất.)*
 
 ### §7.2 Dashboard KPI `cm_open` ↔ drill list — canonical-value rule (BR-09-08)
 

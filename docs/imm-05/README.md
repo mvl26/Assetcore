@@ -6,7 +6,7 @@
 | Wave | 1 |
 | Trạng thái | Mature |
 | Số file hiện có | 8 |
-| Cập nhật cuối | 2026-06-03 |
+| Cập nhật cuối | 2026-06-04 |
 | Khối kiến trúc | B. KHỐI 2 |
 | Đợt triển khai | 1 |
 | Owner | PTP Khối 2 · Tổ HC-QLCL |

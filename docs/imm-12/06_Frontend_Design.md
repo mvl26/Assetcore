@@ -180,14 +180,14 @@ State machine BE thật (khớp `imm_12_incident_workflow.json` + `_VALID_TRANSI
 | `CAPACloseDialog.vue` | `capaName: string`, `@close` | Modal close CAPA |
 | `IncidentTimeline.vue` | `incidentName: string` | Audit trail timeline |
 | `ClinicalImpactWarning.vue` | `severity: string` | Banner for Critical severity |
-| `SlaBreachBadge.vue` (MỚI — BR-12-09) | `responseBreached?: 0\|1`, `resolutionBreached?: 0\|1` | Badge đỏ "Vi phạm SLA" — đọc TRỰC TIẾP từ field cờ `response_breached`/`resolution_breached`. Render 1 badge / 1 loại breached=1; không cờ nào set → render gì cả (`v-if`). Nhãn tiếng Việt qua SSoT, KHÔNG leak "breached"/English. |
+| `SlaBreachBadge.vue` (BR-12-09; binding-source ĐỔI ở BR-12-13) | `responseBreached?: 0\|1`, `resolutionBreached?: 0\|1` | Badge đỏ "Vi phạm SLA". Component KHÔNG đổi (props giữ tên). **Parent ĐỔI nguồn**: bind field **derived LIVE** `ir.is_response_breached`/`ir.is_resolution_breached` thay cờ thô `response_breached`/`resolution_breached` (BR-12-13 — badge hiện ngay khi quá hạn, KHÔNG đợi scheduler). Render 1 badge / 1 loại =1; không loại nào → render gì cả (`v-if`). Nhãn tiếng Việt qua SSoT, KHÔNG leak "breached"/English. |
 
-### 3.1 SLA breach badge — i18n SSoT (BR-12-09)
+### 3.1 SLA breach badge — i18n SSoT (BR-12-09) + binding LIVE (BR-12-13)
 
-> **Anti-leak (memory wave2_ui_bugs / formatters SSoT):** KHÔNG hiển thị chuỗi BE thô `response_breached`/`resolution_breached`/`breached`. Thêm SSoT vào `frontend/src/constants/labels.ts` (KHÔNG hardcode trong component):
+> **Anti-leak (memory wave2_ui_bugs / formatters SSoT):** KHÔNG hiển thị chuỗi BE thô `response_breached`/`resolution_breached`/`is_*_breached`/`breached`. Thêm SSoT vào `frontend/src/constants/labels.ts` (KHÔNG hardcode trong component):
 
 ```typescript
-// labels.ts — SLA breach (IMM-12, khớp Incident Report.response_breached / resolution_breached)
+// labels.ts — SLA breach (IMM-12). Nhãn KPI giữ VI 'Vi phạm SLA tiếp nhận/xử lý'.
 export const SLA_BREACH_LABEL = {
   response:   'Vi phạm SLA tiếp nhận',
   resolution: 'Vi phạm SLA xử lý',
@@ -195,11 +195,11 @@ export const SLA_BREACH_LABEL = {
 export const SLA_BREACH_BADGE_CLASS = 'bg-red-100 text-red-700 ring-1 ring-red-200'
 ```
 
-**Nơi hiển thị (cả 2 — verify count khớp, không divergence):**
-- `IncidentListView.vue` — cột/chip cạnh severity: nếu `ir.response_breached` → badge "Vi phạm SLA tiếp nhận"; nếu `ir.resolution_breached` → badge "Vi phạm SLA xử lý" (có thể hiện cả 2). Cần BE `list_incidents` trả 2 field (xem `05_API §12 DELTA`).
-- `IMM12DashboardView.vue` — thêm 2 stat card đọc `store.dashboard.stats.sla_response_breached` / `sla_resolution_breached` (nhãn "Vi phạm SLA tiếp nhận" / "Vi phạm SLA xử lý"). Card click-through (drilldown) lọc list theo cờ tương ứng nếu store hỗ trợ filter.
+**Nơi hiển thị (cả 2 — verify count khớp tile, không divergence):**
+- `IncidentListView.vue` — chip/badge cạnh severity (`:279-280` mobile + `:347-348` desktop): bind **derived** `:response-breached="ir.is_response_breached"` + `:resolution-breached="ir.is_resolution_breached"` (ĐỔI từ cờ thô `ir.response_breached`/`ir.resolution_breached` — BR-12-13). `v-if` wrapper (`:342`) cũng đổi sang `ir.is_response_breached || ir.is_resolution_breached`. BE `list_incidents` trả 2 field derived (xem `05_API DELTA`).
+- `IMM12DashboardView.vue` — 2 stat card đọc `store.dashboard.stats.sla_response_breached` / `sla_resolution_breached` (nhãn "Vi phạm SLA tiếp nhận" / "Vi phạm SLA xử lý") — KPI giá trị nay là LIVE count (BR-12-13, BE-driven, binding KHÔNG đổi). Badge trong panel `active_incidents` (`:165` v-if + `:170-171`) cũng đổi sang `ir.is_response_breached`/`ir.is_resolution_breached`.
 
-**Divergence guard (FE test):** số trên 2 stat card = số incident có cờ tương ứng trong list (cùng nguồn `Incident Report.response_breached`/`resolution_breached`). Vitest assert label render từ `SLA_BREACH_LABEL` (không chứa substring "breach"/"breached" tiếng Anh trong DOM). `vue-tsc` xanh.
+**Divergence guard (FE test, BR-12-13):** số trên 2 stat card == số row có badge tương ứng trong list/active_incidents (cùng nguồn LIVE: tile = `sla_breach_count`, badge = `is_*_breached`, cùng predicate BE). **INV-SLA-5:** dựng row có `is_resolution_breached=1` nhưng `resolution_breached=0` (cờ thô) ⇒ badge VẪN hiện (đọc derived, KHÔNG cờ thô) — RED-prove: revert binding về cờ thô ⇒ badge ẩn ⇒ FAIL. Vitest assert label render từ `SLA_BREACH_LABEL` (KHÔNG chứa substring "breach"/"breached" tiếng Anh trong DOM). `vue-tsc` xanh.
 
 ### 2.5 Card "Đang mở" — SoT open-set + drill (BR-12-11) — DELTA vòng 21
 
@@ -228,7 +228,7 @@ KPI strip `IncidentListView.vue` `kpiItems` (computed, line ~50-64) — 4 tile t
 |---|---|---|
 | 'Sự cố nghiêm trọng' | `stats.critical` (global) | binding `stats.critical_open ?? 0` (open-set); nhãn → **'Sự cố nghiêm trọng đang mở'** |
 | 'Sự cố mức cao' | `stats.high` (global) | binding `stats.high_open ?? 0` (open-set); nhãn → **'Sự cố mức cao đang mở'** |
-| 'Lặp lại (Chronic)' | `stats.chronic` | KHÔNG đổi |
+| 'Lặp lại (Chronic)' | `stats.chronic` | binding KHÔNG đổi; giá trị = LIVE nhóm (BR-12-12, §2.7), KHÔNG còn cờ stale |
 | 'Đã đóng' | `stats.closed` | KHÔNG đổi |
 
 - Strip KHÔNG còn đọc `stats.critical` / `stats.high` global (2 key đó GIỮ ở type cho donut/consumer cũ, nhưng strip không bind).
@@ -237,6 +237,29 @@ KPI strip `IncidentListView.vue` `kpiItems` (computed, line ~50-64) — 4 tile t
 **Invariant (FE test BẮT BUỘC):** trên `/incidents/list?open=1` (data live: 1 Critical-open + 2 High-open trong open-set), tile 'Sự cố nghiêm trọng đang mở' == số dòng Critical trong bảng == 1; tile 'Sự cố mức cao đang mở' == số dòng High == 2. KHÔNG còn 0/0 (bug alias chết cũ) hay số global gồm Closed. Vitest assert: tile value đọc `critical_open`/`high_open`, KHÔNG `critical`/`high`.
 
 **Type delta (`api/imm12.ts`):** thêm `critical_open?: number` + `high_open?: number` vào `interface IncidentStats` (+ `DashboardStats` cho parity vì `get_dashboard().stats == get_incident_stats()`). Optional (forward-compat, strip fallback `?? 0`). GIỮ `critical` + `high` global.
+
+### 2.7 KPI tile "Lặp lại (Chronic)" = LIVE SoT — kill tile-vs-panel divergence (BR-12-12) — DELTA vòng 3/50
+
+Vấn đề thiết kế gốc (Self-Correction): trên **dashboard sự cố** (`IMM12DashboardView.vue`), tile *"Lặp lại (Chronic)"* (`:106`) bind `stats.chronic ?? 0`, còn panel danh sách chronic ngay dưới (`:221-234`) render `chronicFailures` = `store.dashboard?.chronic_failures`. Hai nguồn LỆCH:
+
+- **Tile** đọc `stats.chronic` — BE cũ đếm cờ stale `chronic_failure_flag` (số incident-rows-có-cờ, monotone, không reset khi aged-out).
+- **Panel** đọc `chronic_failures` — BE `get_chronic_failures()` đếm nhóm `(asset, fault_code)` LIVE trong 90d.
+
+⇒ **mâu thuẫn thị giác trên CÙNG 1 màn hình**: tile báo "6" (cờ tích lũy) trong khi panel chỉ liệt kê 1 nhóm live.
+
+**Fix = BE-driven (FE binding KHÔNG đổi cấu trúc):** sau BR-12-12, BE `stats.chronic = chronic_failure_count() = len(get_chronic_failures())` ⇒ tile và panel cùng SoT. FE giữ nguyên binding `stats.chronic ?? 0` (`:106`) — chỉ **ý nghĩa giá trị** đổi (live nhóm thay vì cờ). KHÔNG cần đổi `api/imm12.ts` type (`chronic: number` đã đúng), KHÔNG đổi template binding.
+
+| Tile | Binding | Ghi chú |
+|---|---|---|
+| 'Lặp lại (Chronic)' (`IMM12DashboardView.vue:106`) | `stats.chronic ?? 0` — **KHÔNG đổi binding** | giá trị giờ = số nhóm live (BR-12-12), KHÔNG còn cờ stale |
+| Panel chronic (`:221-234`) | `store.dashboard?.chronic_failures` — KHÔNG đổi | nguồn `get_chronic_failures()` |
+
+**Invariant (FE test BẮT BUỘC, ≥1 RED-proven cho tile binding):** trên 1 payload `getDashboard()` mock, `stats.chronic == chronic_failures.length` ⇒ tile render đúng số == số dòng panel. Vitest assert:
+- tile text == `stats.chronic` == `dashboard.chronic_failures.length` (không drift trên cùng render).
+- **RED-prove:** mock payload với `stats.chronic = 6` (giả lập BE stale cũ) nhưng `chronic_failures.length = 1` ⇒ test invariant FAIL (6 ≠ 1) ⇒ chứng minh test bắt được divergence. Với payload đúng SoT (`stats.chronic = 1`, `chronic_failures.length = 1`) ⇒ GREEN.
+- (Tùy chọn) assert tile binding đọc `stats.chronic` (KHÔNG hardcode `chronic_failures.length` ở tile — tile vẫn lấy từ stats, đúng pattern; invariant đảm bảo 2 nguồn = nhau).
+
+**Badge per-row "Lặp lại" GIỮ NGUYÊN — KHÔNG regression (`IncidentListView.vue:271/:317`):** badge bind `ir.chronic_failure_flag` per-row — đánh dấu incident *từng thuộc* cụm chronic (lifecycle riêng của cờ, BR-12-03 audit/RCA grouping). KHÔNG đổi binding, KHÔNG phụ thuộc tile. FE test no-regression: badge vẫn render cho incident có `chronic_failure_flag==1` kể cả khi tile dashboard chronic == 0 (cụm đã aged-out). Strip KPI `IncidentListView.vue::kpiItems` tile 'Lặp lại (Chronic)' (`:65`) bind `stats.chronic` cũng tự hưởng SoT live (KHÔNG đổi binding).
 
 **Design tokens — Severity (4 mức theo DocType):**
 ```typescript
@@ -269,6 +292,8 @@ export const incidentStatusTokens = {
 > ✅ Store đã hiện hữu tại `frontend/src/stores/imm12.ts`. Các view trong `views/incident/` cũng có thể gọi trực tiếp `api/imm12.ts` qua composable khi không cần state chia sẻ. Skeleton dưới đây phản ánh interface store.
 >
 > **DELTA type (BR-12-09):** `types/imm12.ts::IncidentReport` thêm `response_breached?: 0|1` + `resolution_breached?: 0|1` (khớp field BE `list_incidents`/`get_incident_detail`). Dashboard `stats` type thêm `sla_response_breached: number` + `sla_resolution_breached: number`.
+>
+> **DELTA type (BR-12-13, vòng 4):** `api/imm12.ts::IncidentReport` (+ shape `active_incidents` row) thêm `is_response_breached?: 0|1` + `is_resolution_breached?: 0|1` (field **derived LIVE** từ BE — badge bind field này thay cờ thô). Cờ thô `response_breached`/`resolution_breached` GIỮ trong type (backward-compat). `stats.sla_response_breached`/`sla_resolution_breached` (đã có) giữ nguyên `number` — chỉ ngữ nghĩa giá trị đổi sang LIVE count (BE-driven), binding KHÔNG đổi.
 >
 > **DELTA type (BR-12-11, vòng 21):** `api/imm12.ts::IncidentStats` + `DashboardStats` thêm `open_total: number` (count SoT `open_incident_filter()`). Card "Đang mở" bind `stats.open_total`; KHÔNG xoá `open`/`investigating`.
 >

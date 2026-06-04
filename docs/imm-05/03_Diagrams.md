@@ -426,9 +426,9 @@ sequenceDiagram
                 Task->>Task: skip
             else
                 Task->>Log: INSERT Expiry Alert Log {milestone, expiry_date, today}
-                alt milestone = 0
-                    Task->>DB: UPDATE workflow_state = "Expired"
-                    Note over Task,DB: VR-05: Expired là terminal state
+                alt milestone = 0 (quá hạn)
+                    Task->>DB: UPDATE is_expired = 1 (cờ derived)
+                    Note over Task,DB: BR-05-16: KHÔNG đổi workflow_state.<br/>"Hết hạn" là thuộc tính dẫn xuất,<br/>đo bằng predicate expired_filter().
                 end
                 Task->>Email: Send email (level: 90=Info, 60=Warning, 30=Critical, 0=Danger)
             end

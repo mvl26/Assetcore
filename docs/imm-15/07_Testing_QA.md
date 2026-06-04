@@ -48,7 +48,7 @@ Liệt kê toàn bộ artefact test được của IMM-15 (nguồn: `04_Backend_
 | 23 | `_write_allocation_audit` | Audit writer | `services/imm15.py::_write_allocation_audit` | Integration (audit chain) |
 | 24 | `check_critical_spare_breach` | Scheduler job | `services/imm15.py::check_critical_spare_breach` (hooks daily) | Unit + Cron simulation |
 | 25 | `check_low_stock_and_alert` | Scheduler job | `services/imm15.py::check_low_stock_and_alert` | Cron simulation |
-| 26 | `check_expiring_batches` | Scheduler job | `services/imm15.py::check_expiring_batches` | Cron simulation |
+| 26 | `check_expiring_batches` | Scheduler job | `services/imm15.py::check_expiring_batches` | Cron simulation + BVA (cửa sổ 30d) + AST-guard (dup-key) — `TestExpiringBatches` |
 | 27 | `compute_inventory_kpis` | Scheduler job | `services/imm15.py::compute_inventory_kpis` | Cron simulation |
 | 28 | `generate_spare_demand_forecast` | Scheduler job | `services/imm15.py::generate_spare_demand_forecast` (monthly) | Cron simulation |
 | 29 | `reclassify_abc` | Scheduler job | `services/imm15.py::reclassify_abc` (quarterly) | Cron simulation |
@@ -91,6 +91,8 @@ Liệt kê toàn bộ artefact test được của IMM-15 (nguồn: `04_Backend_
 | VR-15-11 | Cycle count: `verified_by ≠ counted_by` | `post_cycle_count` (#14) | Decision Table |
 | VR-15-12 | Forecast method whitelist | `generate_spare_forecast` (#15) | EP |
 | VR-15-13 | `AC Warehouse.is_active=1` | `_vr_13_warehouse_active` (#20) | EP |
+| VR-15-15 | `historical_consumption_12m` == consumption CHÍNH XÁC 12 tháng trailing, ∀ horizon (tách khỏi `lookback_months`) | `generate_spare_forecast` (#15) | EP + Regression |
+| BR-15-11 / VR-15-16 | Cảnh báo batch sắp hết hạn — cửa sổ `[today, today+30]` + `qty_on_hand>0`; field `batch_no`; gate `table_exists("IMM Spare Batch")`; no dup-key dict-filter | `check_expiring_batches` (#26) | BVA (cận today / today+30 / today+60 / quá hạn) + AST-guard + naming-contract |
 
 ### I.2.c. Từ Use Case / Activity Flow (→ 02 §III.4)
 | UC ID | Use Case | Branch chính | Branch ngoại lệ |
@@ -221,11 +223,27 @@ File: `assetcore/tests/test_imm15.py`. Lớp test + method **đã tồn tại** 
 | `TestReservationLedger` | `test_emergency_critical_bypass_unchanged` | Emergency+Critical vẫn bypass VR-15-03 dù available=0 | Decision Table | ⬜ Planned |
 | `TestReservationLedger` | `test_available_never_negative` | reserved > on_hand (điều chỉnh kho) ⇒ `available == 0` (clamp §III-bis.5) | BVA | ⬜ Planned |
 | `TestReservationLedger` | `test_recompute_idempotent` | gọi `recompute_reserved` 2 lần = cùng kết quả | EP | ⬜ Planned |
-| `TestReservationLedger` | `test_low_stock_predicate_unchanged` | LOW_STOCK_COND vẫn dùng qty_on_hand (KHÔNG đổi sang available) | Regression | ⬜ Planned |
+| `TestLowStockAvailable` | `test_red_reserved_full_bin_not_low_before_fix` (RED) | **RED-prove vòng 23:** bin on_hand=100, reserved=100 (available=0), effective_min=20 → TRƯỚC fix `count_low_stock_bins()` KHÔNG đếm (100≥20). Revert predicate về `qty_on_hand` để chứng FAIL | Regression/RED (BR-15-17) | ⬜ Planned |
+| `TestLowStockAvailable` | `test_reserved_full_bin_counted_low` | SAU fix: cùng bin → `count_low_stock_bins()` ĐẾM, `get_low_stock_alerts().alerts` HIỆN bin, `low_stock_part_ids()` chứa part | State Transition (BR-15-17) | ⬜ Planned |
+| `TestLowStockAvailable` | `test_count_equals_drill_equals_card` | `get_dashboard_stats().low_stock_alerts == len(get_low_stock_alerts().alerts) == count_low_stock_bins()` (1 số, cùng tập) | Use Case (VR-15-17) | ⬜ Planned |
+| `TestLowStockAvailable` | `test_reserved_zero_bin_unchanged` | đối chứng no-FP: on_hand=25, reserved=0, min=20 → KHÔNG low (y hệt hành vi cũ) | Regression/BVA (BR-15-17) | ⬜ Planned |
+| `TestLowStockAvailable` | `test_oversell_bin_low` | oversell on_hand=5, reserved=10 (available raw −5), min=2 → low (biểu thức RAW bắt oversell, KHÔNG clamp) | BVA (VR-15-17) | ⬜ Planned |
+| `TestLowStockAvailable` | `test_no_direct_onhand_compare_outside_fragment` | AST/grep-guard: 0 chỗ `s.qty_on_hand < effective_min` ngoài `LOW_STOCK_COND` (kể cả `_list_stock_all` inline) | Regression (VR-15-17) | ⬜ Planned |
+| `TestForecastAvailable` | `test_red_reserved_full_no_reorder_before_fix` (RED) | **RED-prove:** part on_hand≥reorder_point nhưng reserved-full → TRƯỚC fix `current_qty=Σqty_on_hand` ≥ reorder_point → action≠'Reorder' (revert `_sum_part_stock`) | Regression/RED (BR-15-17) | ⬜ Planned |
+| `TestForecastAvailable` | `test_reserved_full_triggers_reorder` | SAU fix: `current_qty=Σ(qty_on_hand−reserved)` < reorder_point → `recommended_action='Reorder'` | State Transition (BR-15-17) | ⬜ Planned |
+| `TestForecastAvailable` | `test_forecast_invariants_unchanged` | `forecast_qty`/`safety_stock`/`reorder_point`/`historical_consumption_12m`/`avg_monthly` BẤT BIẾN trước/sau (chỉ current_qty đổi) | Regression (VR-15-17) | ⬜ Planned |
+| `TestForecastAvailable` | `test_sum_part_stock_single_aggregate` | `_sum_part_stock` = 1 câu SQL `SUM(qty_on_hand−COALESCE(reserved_qty,0))` qua nhiều bin — KHÔNG loop/N+1 | EP (no N+1) | ⬜ Planned |
 | — | Emergency dual-approval (VR-15-10) | `issue_allocation` override | Decision Table | ⬜ Planned |
 | — | Cycle count variance → root_cause/CAPA (VR-15-04) | `post_cycle_count` + `_seed_capa_for_cycle_variance` | BVA + Decision Table | ⬜ Planned |
 | — | `verified_by ≠ counted_by` (VR-15-11) | `post_cycle_count` | Decision Table | ⬜ Planned |
-| — | `reorder_point ≥ safety_stock` (VR-15-07) | `generate_spare_forecast` | BVA | ⬜ Planned |
+| `TestForecastDataContract` | `test_hist_12m_equals_trailing_12m_all_horizons` | ∀ `horizon_months ∈ {1,3,6,12}`: `historical_consumption_12m` của mỗi item == `get_consumption(part, months=12)` (= ΣIssue docstatus=1, CURDATE()−INTERVAL 12 MONTH). Seed Issue ngoài 12m + trong 12m → chỉ phần ≤12m được tính | EP (VR-15-15) | ✅ Done |
+| `TestForecastDataContract` | `test_hist_12m_only_counts_trailing_12m_at_horizon_6` (RED-proven) | chứng minh trước-fix: horizon=6 (lookback=24) → field = consumption 24 tháng (110) ≠ 12 tháng (10) (bug 2×). RED revert đã verify | Regression/RED (VR-15-15) | ✅ Done |
+| `TestForecastDataContract` | `test_forecast_qty_invariant_horizon_3` | consumption phân bố đều (12×qty5=60), horizon=3 (lookback==12): `forecast_qty`/`avg_monthly`/`reorder_point`/`safety_stock` BẤT BIẾN trước/sau fix (no-regression) | Regression (VR-15-15) | ✅ Done |
+| `TestForecastDataContract` | `test_no_extra_query_when_lookback_eq_12` | horizon=3 (lookback==12): reuse `total_consumed`, đếm `get_consumption`==1 lần (spy/mock — KHÔNG thêm query) | EP (no N+1) | ✅ Done |
+| `TestForecastDataContract` | `test_extra_query_added_only_when_lookback_gt_12` | horizon=6 (lookback=24): get_consumption đọc đúng [12, 24] mỗi cái 1 lần (thêm tối đa 1 query/part, no N+1) | EP (no N+1) | ✅ Done |
+| `TestForecastDataContract` | `test_hist_12m_boundary_at_exactly_12_months` | BVA biên: Issue đúng −12m INCLUDED (`>=` biên); −12m−margin EXCLUDED | BVA (VR-15-15) | ✅ Done |
+| `TestForecastDataContract` | `test_hist_12m_zero_when_no_issue` | spare không Issue → field==0 + recommended_action='Hold' (current_qty>0) | EP (VR-15-15) | ✅ Done |
+| `TestForecastReorderInvariant` | `test_reorder_point_ge_safety_stock_all_items` | ∀ item của forecast sinh ra: `reorder_point ≥ safety_stock` (bao biên avg_monthly=0 ⇒ 0≥0) | BVA (VR-15-07) | ✅ Done |
 | — | Forecast method whitelist (VR-15-12) | `generate_spare_forecast` | EP | ⬜ Planned |
 
 > Lưu ý: test thực dùng base `TestImm15Base(unittest.TestCase)` tự seed fixture (`AC-WH-TEST15`, `AC-SP-TEST15`) và cleanup ở `tearDownClass` — không dùng `FrappeTestCase` rollback do service tự commit.
@@ -371,15 +389,19 @@ bench --site [site] execute assetcore.services.imm15.reclassify_abc
 | BR-15-07 | Forecast generate Draft | `test_generate_forecast` | 1 / 0 ✅ |
 | VR-15-02 | traceability batch/serial | — | ⬜ Planned (0 / 0) |
 | VR-15-03 | tồn không đủ → block (theo available THẬT); Emergency+Critical bypass | `TestReservationLedger::test_anti_oversell_second_issue_fails` (neg) + `test_emergency_critical_bypass_unchanged` (happy) | ⬜ Planned |
-| VR-15-14 | INVARIANT reservation (reserved=Σ holding; available=max(0,on_hand−reserved); RELEASE on terminal) | `TestReservationLedger` (10 method: hold/approve/issue/cancel/clamp/idempotent/low-stock-unchanged + RED) | ⬜ Planned |
+| VR-15-14 | INVARIANT reservation (reserved=Σ holding; available=max(0,on_hand−reserved); RELEASE on terminal) | `TestReservationLedger` (9 method: hold/approve/issue/cancel/anti-oversell/bypass/clamp/idempotent + RED) | ⬜ Planned |
 | BR-15-15 | Số đã xuất == số đã giữ chỗ = COALESCE(NULLIF(qty_approved,0), qty_requested); approve cắt số → issue theo số duyệt | `TestIssueQtyEqualsApproved` (issue-after-approve-cut → qty_issued==qty_approved==reserved; gate uses effective qty; backward-compat qty_approved NULL→qty_requested; RED-proven) | ✅ Done (3 method) |
 | BR-15-16 | line_value=value_qty×unit_value; total_value=Σ line_value; controller MỘT writer (no clobber); lifecycle-aware | `TestAllocationValue` (total_value theo qty_issued sau approve-cut KHÔNG qty_requested; line_value computed KHÔNG dead; total==Σ line; backward-compat requested khi chưa duyệt/xuất; RED-proven) | ⬜ Planned |
 | VR-15-04 / BR-15-05 | variance > ngưỡng → root_cause | — | ⬜ Planned |
-| VR-15-07 | reorder ≥ safety | — | ⬜ Planned |
+| VR-15-07 | reorder ≥ safety | `TestForecastReorderInvariant::test_reorder_point_ge_safety_stock_all_items` (∀ item; bao biên avg_monthly=0 ⇒ 0≥0) | ✅ Done |
+| VR-15-15 | `historical_consumption_12m` == ΣIssue CHÍNH XÁC 12 tháng trailing ∀ horizon (tách khỏi lookback) | `TestForecastDataContract` (7 method: all-horizons EP + RED-proven horizon=6 110≠10 + forecast bất biến + 2× query-count no-N+1 + biên −12m + zero-consumption) | ✅ Done |
+| BR-15-17 | low-stock + forecast theo tồn KHẢ DỤNG `(qty_on_hand−reserved_qty)`; bin reserved-full → low + Reorder; bin reserved=0 giữ hành vi cũ | `TestLowStockAvailable` (6 method: RED reserved-full-not-low + counted-low + count==drill==card + reserved-zero-unchanged + oversell-low + grep-guard) + `TestForecastAvailable` (4 method: RED no-reorder + reorder-triggered + invariants-unchanged + single-aggregate) | ⬜ Planned (RED-proven) |
+| VR-15-17 | INVARIANT 1-SoT: 3 con số đồng nhất + 0 chỗ so on_hand trực tiếp ngoài fragment + `_sum_part_stock` 1 aggregate | `TestLowStockAvailable::test_count_equals_drill_equals_card` + `test_no_direct_onhand_compare_outside_fragment` + `TestForecastAvailable::test_sum_part_stock_single_aggregate` | ⬜ Planned |
 | VR-15-10 | dual-approver khác nhau | — | ⬜ Planned |
 | VR-15-11 | verified_by ≠ counted_by | — | ⬜ Planned |
 | VR-15-12 | forecast method whitelist | — | ⬜ Planned |
 | BR-15-10 | audit trail mọi mutation | — | ⬜ Planned (III.5) |
+| BR-15-11 / VR-15-16 | Cảnh báo batch sắp hết hạn — cửa sổ `[today, today+30]`, `qty_on_hand>0`, field `batch_no`, gate `table_exists("IMM Spare Batch")`, no dup-key dict-filter | `TestExpiringBatches` (6 method): `test_window_predicate_selects_exactly_three` (3 trong cửa sổ, KHÔNG 4/5) · `test_upper_bound_30d_not_swallowed` (cận today+30 IN — RED khi dup-key) · `test_uses_batch_no_field_no_raise` (naming-contract, no unknown-column) · `test_empty_batch_excluded` (qty=0 OUT) · `test_no_recipients_no_send` (recipients=∅ → no-op, no raise) · `test_no_duplicate_string_dict_keys_in_repo` (AST-guard repo: 0 offender) | ✅ Done (6 method, RED-proven) |
 
 ## IV.3. Component → Test mapping
 

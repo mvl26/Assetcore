@@ -146,4 +146,68 @@ Tất cả message i18n trong `frontend/src/locales/*.json` và backend dùng `f
 
 ---
 
-*Hết file 05. Body shape exact + JSON example sẽ thêm khi sprint W3-1 scaffold xong.*
+---
+
+## §6. Wave 2 MVP — Cổng "Hồ sơ giải nhiệm" — CHỐT (2 endpoint)
+
+> **Self-Correction (2026-06-04):** §1–§5 ở trên là catalog Đợt 3 (`IMM Asset Closure`, 10 endpoint, rollback…). MVP vòng 2 chỉ scaffold **2 endpoint** trên DocType **`Asset Decommission`** (xem `04 §IX`). Error code dùng **semantic `ErrorCode` bucket** (`utils/response.py`) — KHÔNG dùng string `IMM14_*` ở §3.
+
+### §6.1. POST `create_decommission`
+
+`/api/method/assetcore.api.imm14.create_decommission`
+
+- **Auth role:** capability "decommission asset" (Commissioning Manager / Department Head — chốt theo RBAC capability, KHÔNG hardcode role-name; refer `services/shared/rbac.py`).
+- **Body:**
+```json
+{
+  "asset": "AST-2024-0007",
+  "disposal_method": "Huỷ",
+  "decommission_reason": "Thiết bị hết khấu hao, sửa chữa không kinh tế, đã có quyết định thanh lý.",
+  "patient_data_sanitized": true,
+  "responsible": "manager@hospital.vn",
+  "sanitization_note": "Đã format ổ cứng theo NIST 800-88 + huỷ vật lý."
+}
+```
+- **Response success:**
+```json
+{ "success": true, "data": { "name": "DECOM-2026-0001", "asset": "AST-2024-0007", "workflow_state": "Draft", "docstatus": 0 } }
+```
+- **Side effect:** tạo `Asset Decommission` docstatus=0. **KHÔNG** đổi `lifecycle_status` asset.
+- **Lỗi (envelope error):**
+  - `BAD_STATE` — asset đã `Decommissioned` (BR-14-W2-06, terminal).
+  - `CONFLICT` — đã có `Asset Decommission` active cho asset (BR-14-W2-07).
+  - `BUSINESS_RULE` — thiếu/sai field bắt buộc (BR-14-W2-02..05).
+  - `NOT_FOUND` — asset không tồn tại.
+
+### §6.2. POST `approve_decommission`
+
+`/api/method/assetcore.api.imm14.approve_decommission`
+
+- **Auth role:** capability "approve decommission" (Department Head). SoD: vòng 2 KHÔNG bắt buộc SoD (đó là Đợt 3, BR-14-02) — ghi `[ROADMAP]`.
+- **Body:** `{ "name": "DECOM-2026-0001" }`
+- **Behavior:** validate `validate_before_approve` → `doc.submit()` (docstatus 0→1) → hook `on_submit` gọi `transition_asset_status(asset, Decommissioned, root_doctype="Asset Decommission", root_record=name, reason=<chứa disposal_method + patient_data_sanitized>)`. Atomic trong 1 transaction Frappe; nếu `transition_asset_status` raise (NEG-09 / gate) → submit roll-back, docstatus giữ 0, `lifecycle_status` asset GIỮ NGUYÊN.
+- **Response success:**
+```json
+{ "success": true, "data": { "name": "DECOM-2026-0001", "workflow_state": "Approved", "docstatus": 1, "asset": "AST-2024-0007", "lifecycle_status": "Decommissioned", "decommissioned_on": "2026-06-04 10:22:01" } }
+```
+- **Lỗi (envelope error):**
+  - `BUSINESS_RULE` — thiếu field bắt buộc / sanitization gate (BR-14-W2-02..05).
+  - `BAD_STATE` — asset đã Decommissioned (idempotent: record đã docstatus=1 → no-op success, KHÔNG double effect; record khác cho asset terminal → chặn).
+  - `BAD_STATE` (map từ `InvalidAssetTransition`) — NEG-09: asset đang Under Maintenance/Repair/Calibrating → message VI rõ ràng, `lifecycle_status` giữ nguyên.
+- **API layer** bắt `InvalidAssetTransition` → trả envelope `{success:false, code:"BAD_STATE", error:<message VI từ exception>}` (KHÔNG để leak "Lỗi hệ thống"/traceback).
+
+### §6.3. Error → ErrorCode map (CHỐT, thay §3 cho MVP)
+
+| Tình huống | ErrorCode bucket | HTTP | message VI mẫu |
+|---|---|---|---|
+| Thiếu/sai field bắt buộc | `BUSINESS_RULE` | 422 | "Phải chọn phương thức xử lý / nhập lý do ≥ 20 ký tự / chỉ định người chịu trách nhiệm." |
+| risk High/Critical mà chưa xác nhận xoá dữ liệu | `BUSINESS_RULE` | 422 | "Thiết bị phân loại C/D bắt buộc xác nhận đã xử lý dữ liệu bệnh nhân (WHO §3.6) trước khi duyệt." |
+| Asset đã giải nhiệm (terminal) | `BAD_STATE` | 409 | "Thiết bị đã được giải nhiệm — không thể tạo/duyệt hồ sơ giải nhiệm khác." |
+| Đã có hồ sơ giải nhiệm đang xử lý | `CONFLICT` | 409 | "Thiết bị đã có hồ sơ giải nhiệm đang xử lý (DECOM-…)." |
+| NEG-09 đang bảo trì/sửa/hiệu chuẩn | `BAD_STATE` | 409 | (message từ `InvalidAssetTransition` — "Không thể thanh lý … khi đang ở trạng thái …") |
+| Set Decommissioned không qua closure | `BAD_STATE` | 409 | "Chỉ được giải nhiệm thiết bị qua Hồ sơ giải nhiệm đã duyệt." |
+| Asset không tồn tại | `NOT_FOUND` | 404 | "Không tìm thấy thiết bị." |
+
+> message nên raise qua `nthrow(MSG.XXX, **ctx)` để FE có `message_code` + `action_hint`; nếu chưa có MSG entry → tạo trong registry cùng commit BE (refer `assetcore-be/references/notification-contract.md`).
+
+*Hết file 05. §6 là CHỐT cho MVP vòng 2; §1–§5 giữ làm catalog Đợt 3.*

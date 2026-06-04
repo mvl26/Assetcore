@@ -436,8 +436,22 @@ Coverage % thực tế: *(Cần khảo sát — chưa chạy đo)*. CI fail nế
 | BR-06-10 | Dept change | `handle_user_dept_change` test | Use Case | 1 / 0 ⬜ |
 | BR-06-11 | 1 Active per model | `TestArchiveOldCompetency` ✅ | State Transition | ✅ 1 / 1 |
 | BR-06-12 | Session Verified no cancel | `cancel_session` guard (III.4) | State Transition | 1 / 1 ⬜ |
+| BR-06-14 | Predicate LIVE expiring/expired = SoT chung KPI+drill (card == drill) | `TestExpiryPredicateSoT` (mới — III.2) | Invariant + Decision Table + BVA | ≥4 / ≥3 |
 
-**DoD**: mọi BR có ≥ 1 happy + ≥ 1 negative. BR Critical (BR-06-01) cần Decision Table đầy đủ — hiện ⬜ Planned.
+**BR-06-14 — test cases bắt buộc (`TestExpiryPredicateSoT`):**
+
+| TC ID | Tình huống (data) | Assert |
+|---|---|---|
+| TC-06-EXP-01 | INVARIANT trên MỌI dataset seeded | `get_dashboard_stats()["competencies"]["expiring"] == len(get_expiring_competencies(60))` (card == drill) |
+| TC-06-EXP-02 | Năng lực `expiry_date = today+45`, `workflow_state=Active` (scheduler CHƯA stamp Expiring) | Đếm vào `expiring` **và** xuất hiện trong `get_expiring_competencies(60)` |
+| TC-06-EXP-03 | Năng lực `expiry_date = today-1`, `workflow_state=Active` (scheduler LỠ phiên) | Đếm vào `expired` (KHÔNG undercount cửa-sổ-trễ) |
+| TC-06-EXP-04 | Năng lực `expiry_date = today-1`, `workflow_state=Revoked` | KHÔNG đếm `expired`; KHÔNG đếm `expiring` |
+| TC-06-EXP-05 | Năng lực `expiry_date = today+10`, `workflow_state=Suspended` | KHÔNG đếm `expiring`/`expired` |
+| TC-06-EXP-06 | Boundary: `expiry_date = today` và `expiry_date = today+60` | Cả hai đếm `expiring` (window đóng 2 đầu) |
+| TC-06-EXP-07 | Scheduler BẤT BIẾN: chạy `check_expiring_competencies`/`auto_expire_competencies` xong | Vẫn stamp `workflow_state` + Alert Log + auth-cache; KPI vẫn = predicate LIVE (không lệ thuộc scheduler đã chạy hay chưa) |
+| TC-06-EXP-08 | Repeat 2× toàn suite | Ổn định, không leak fixture, baseline `test_imm06` xanh |
+
+**DoD**: mọi BR có ≥ 1 happy + ≥ 1 negative. BR Critical (BR-06-01) cần Decision Table đầy đủ — hiện ⬜ Planned. BR-06-14 INVARIANT (card == drill) là **gate** — fail = không cho merge.
 
 ## IV.3. Component → Test mapping
 

@@ -66,6 +66,28 @@ X-Frappe-CSRF-Token: <csrf_token>
 
 Thiếu credential → HTTP 401. Sai Role → HTTP 403.
 
+### I.2b. Capability resolution endpoint (RBAC — stale-safe)
+
+FE gate UX bằng capability, KHÔNG so role-name. BE là chốt chặn thật (`rbac.require`).
+
+| Method | Verb | Path | Auth |
+|---|---|---|---|
+| `assetcore.api.auth.get_capabilities` | GET | `/api/method/assetcore.api.auth.get_capabilities` | Session (mọi user đã đăng nhập) |
+
+- **Request:** không param. Resolve cho `frappe.session.user`.
+- **Response:** envelope `{success: true, data: {<cap>: <bool>, ...}}` — TOÀN BỘ key trong `CAPABILITY_MAP` (shape KHÔNG đổi qua các vòng — AC5). Ví dụ trích:
+  ```json
+  { "success": true, "data": {
+      "pm.read": true, "pm.write": true, "pm.create": false,
+      "decommission.read": true, "decommission.create": true, "decommission.approve": false
+  } }
+  ```
+- **Cache:** server cache `ac_caps::<user>` TTL 1h (xem 04 §III.1c). Sau `bench migrate` cache bị bust → lần gọi đầu trả cap-set mới (AC2).
+- **Cap LẠ:** không bao giờ xuất hiện trong response (chỉ resolve key có trong map). FE hỏi cap không tồn tại → `can()=false` (KHÔNG lỗi).
+- **Version-stamp (AC4):** response GỘP thêm khóa kỹ thuật `__cap_set_version__: <int>` = hằng `CAP_SET_VERSION` ở BE (bump khi tập cap đổi số lượng/tên). FE so version để invalidate persisted-caps cũ trước render gate-button. (Khóa bắt đầu `__` → FE loại khỏi vòng lặp hiển thị cap thường.)
+
+> **Tác động cap lạ ở mọi endpoint nhạy cảm:** mọi whitelisted method gọi `rbac.require('<cap>')` đầu hàm. Nếu cap chưa nạp ở worker → `require` deny → **HTTP 403 + message VI "Khong du quyen: <cap>"**, KHÔNG 500 KeyError. Verify: `api.imm14.create_decommission` khi `decommission.create` chưa có trong worker map → 403, KHÔNG 500.
+
 ## I.3. HTTP Status Codes
 
 | Code | Ý nghĩa | Khi nào |
@@ -315,7 +337,13 @@ Khi `device_model` được set → auto-fetch `risk_class`, `gmdn_code`, `pm_in
 }
 ```
 
-**Errors:** 404 (asset not found), 422 (invalid transition — BR-00-02).
+**Errors:** 404 (asset not found), 422 (invalid transition — BR-00-02), 422 (NEG-09: chặn thanh lý khi asset đang `Under Maintenance/Under Repair/Calibrating`).
+
+> **Khi `to_status='Decommissioned'` (BR-00-24 / RC-07 — Vòng 8):** ngoài đổi status + sinh event `decommissioned`, service tự **chốt sổ khấu hao**: hủy MỌI kỳ `AC Asset Depreciation Schedule.status='Pending'` → `'Cancelled'` (`Executed` bất biến). Nếu hủy ≥1 kỳ → sinh thêm 1 Asset Lifecycle Event `event_type='depreciation_stopped'` + 1 IMM Audit Trail `System`. Response shape KHÔNG đổi (vẫn `{name, lifecycle_status}`) — hệ quả chỉ phản ánh qua `get_depreciation_schedule` (`pending_periods=0` sau đó) và `get_asset_timeline` (có thêm event `depreciation_stopped`). Best-effort: lỗi audit KHÔNG làm transition fail.
+
+> **Khi `to_status='Out of Service'` (BR-00-25 / RC-08 — Vòng 9):** ngoài đổi status + sinh event `out_of_service`, service **TẠM DỪNG** khấu hao: trong suốt thời gian asset Out of Service, executor `run_due_depreciation` KHÔNG trích kỳ nào của asset (`accumulated_depreciation`/`current_book_value` bất biến). KHÔNG hủy kỳ (khác Decommissioned) — kỳ Pending GIỮ nguyên, chờ dời lịch khi khôi phục. Best-effort: ghi thêm 1 ALE `out_of_service` note `'depreciation paused'`. Response shape KHÔNG đổi (`{name, lifecycle_status}`).
+
+> **Khi `to_status='Active'` từ `prev_status='Out of Service'` (BR-00-25 / RC-08 — Vòng 9; nhãn event sửa RC-09 / BR-00-27 — Vòng 14):** service sinh **ĐÚNG 1** Asset Lifecycle Event `event_type='restored'` (KHÔNG `activated`) cho transition này — do `transition_asset_status` emit theo (from=`Out of Service`, to=`Active`) qua `_lifecycle_event_for(to, from)`. Ngoài đổi status, service **DỜI LỊCH** khấu hao: mọi kỳ `status='Pending'` được dời `scheduled_date += oos_days` (`oos_days = restore_date − oos_start_date`), GIỮ NGUYÊN `depreciation_amount`/`period_number`/số kỳ; `Executed`/`Cancelled` bất biến. **Diệt phantom catch-up:** các kỳ idle quá hạn trong lúc OoS KHÔNG bị `run_due_depreciation(today)` trích bù 1 lần — chỉ kỳ đến hạn SAU restore (sau dời) mới trích. **RC-09 (Vòng 14):** helper RESCHEDULE **KHÔNG còn** emit ALE `restored` (trước đây ⇒ double-emit) — chỉ best-effort 1 IMM Audit Trail `State Change` (note nêu số kỳ dời + oos_days). ⟹ **bất kể** có kỳ Pending để dời hay không, transition luôn sinh ĐÚNG 1 `restored` + 0 `activated` (consistency). `oos_start_date` không xác định (thiếu downtime log + ALE) → no-op an toàn, KHÔNG raise. Response shape KHÔNG đổi (`{name, lifecycle_status}`) — hệ quả phản ánh qua `get_depreciation_schedule` (`scheduled_date` các kỳ Pending đã dời) + `get_asset_timeline` (ĐÚNG 1 event `restored`). **Lưu ý:** chỉ nhánh `Active` **từ** `Out of Service` mới dời lịch + nhãn `restored`; `Active` từ `Under Repair`/`Calibrating`/`Under Maintenance`/`Commissioned` KHÔNG dời + giữ nhãn `activated` (các đường đó không pause khấu hao).
 
 ---
 
@@ -611,20 +639,28 @@ POST `assetcore.api.imm00.open_capa`. Body required: `asset, severity, descripti
 
 ### `close_capa_record` — Đóng CAPA
 
-POST `assetcore.api.imm00.close_capa_record`. Body: `name` (param) + `root_cause, corrective_action, preventive_action` (required) + `effectiveness_check` (optional).
+POST `assetcore.api.imm00.close_capa_record`. Body: `name` (param) + `root_cause, corrective_action, preventive_action` (required) + `effectiveness_check` (**bắt buộc để đóng** — phải = `Effective`; xem cổng VR-06/VR-07).
 
 ```json
 {
   "root_cause": "Worn bearing in cooling pump",
   "corrective_action": "Replaced bearing per OEM SOP",
   "preventive_action": "Shorten PM interval from 6m to 3m",
-  "effectiveness_check": "3-month follow-up: no recurrence"
+  "effectiveness_check": "Effective"
 }
 ```
 
+> **round 12 — `effectiveness_check` là enum đóng cổng, KHÔNG phải free-text.** Giá trị hợp lệ: `Effective` / `Partially Effective` / `Not Effective`. CHỈ `Effective` cho phép đóng (VR-07). null/rỗng → VR-06 chặn.
+
 **Response 200:** `{ "name": "CAPA-...", "status": "Closed" }`
 
-**Errors:** 422 thiếu root_cause / corrective_action / preventive_action (BR-00-08).
+**Errors:**
+- `422 VALIDATION` — thiếu `root_cause / corrective_action / preventive_action` (BR-00-08). *(check sớm, message "Thiếu trường bắt buộc: ...")*.
+- `422 VALIDATION` + `message_code: "FIN-007"` — **round 12 (cổng hiệu quả):**
+  - `effectiveness_check` null/thiếu → VR-06: *"Phải xác minh hiệu quả (effectiveness_check) trước khi đóng CAPA."* CAPA KHÔNG chuyển Closed, KHÔNG submit.
+  - `effectiveness_check ∈ {Not Effective, Partially Effective}` → VR-07: *"effectiveness_check phải = 'Effective' để đóng CAPA"*. KHÔNG đóng.
+
+> **BE delta bắt buộc (round 12):** `api/imm00.py::close_capa_record` hiện **chỉ** `except frappe.exceptions.ValidationError` (line 1020) → `ServiceError` từ `assert_capa_effectiveness_gate` sẽ KHÔNG bị bắt và thoát ra 500. PHẢI thêm `except ServiceError as e: return _err(e.message, e.code, message_code=e.message_code)` **trước** nhánh `ValidationError`. Như vậy envelope trả `code=VALIDATION` (422) + `message_code=FIN-007` → FE match được.
 
 ### `list_overdue_capas`
 
@@ -640,7 +676,7 @@ GET `assetcore.api.imm00.list_overdue_capas`. Paginated. **Filter = SoT `_overdu
 
 GET `assetcore.api.imm00.list_lifecycle_events`. Params: `asset` (required), `page, page_size, event_type` (optional).
 
-Event types (từ `_lifecycle_event_for()` trong services/imm00.py): `activated, commissioned, pm_started, repair_opened, calibration_started, out_of_service, decommissioned, restored, transferred`.
+Event types (từ `_lifecycle_event_for()` trong services/imm00.py): `activated, commissioned, pm_started, repair_opened, calibration_started, out_of_service, decommissioned, restored, transferred`. Ngoài state-change, các event khấu hao sinh trực tiếp: `depreciated` (cron chạy kỳ), `depreciation_rules_inherited` (kế thừa luật từ Category), `depreciation_stopped` (**MỚI Vòng 8 / BR-00-24** — thanh lý hủy kỳ Pending còn lại). Toàn bộ giá trị này PHẢI nằm trong Select `event_type` của DocType `Asset Lifecycle Event`.
 
 ### `get_lifecycle_event`
 
@@ -796,15 +832,34 @@ Standard CRUD. `create` requires: `asset_ref`, `doc_type_required`. Returns `{ "
 
 Body: `name` (AC Asset). Trả `{ accumulated, book_value, method?, days_elapsed?, note? }`.
 
+> **`book_value` qua SoT `effective_book_value` (BR-05-13 / RC-06).** `book_value` suy bằng SoT DUY NHẤT `services/depreciation.py::effective_book_value(asset_row)` — KHÔNG idiom falsy `current_book_value or gross`. Asset đã khấu hao **hết** về `current_book_value=0.0` (residual=0) → trả **`0.0`** (đúng), KHÔNG phantom `gross`. Asset CHƯA chạy KH (`current_book_value IS NULL`) → trả `gross` (no regression).
+
 ### `get_depreciation_schedule` (GET)
 
 Params: `asset_name`. Trả `{ asset, asset_info, rows[], summary{total_periods, executed_periods, pending_periods, total_depreciated} }`.
+
+> **Sau thanh lý (BR-00-24 / RC-07 — Vòng 8):** với asset đã `Decommissioned`, các kỳ Pending đã được chuyển sang `Cancelled` ⇒ `summary.pending_periods == 0`. Các dòng `Cancelled` VẪN xuất hiện trong `rows[]` (`status='Cancelled'`) — KHÔNG bị xoá; chỉ không còn được đếm vào `pending_periods` và không bị cron chạy. `executed_periods` + `total_depreciated` + `asset_info.accumulated_depreciation/current_book_value` bất biến so với trước thanh lý.
+
+> **Sau khôi phục từ Out of Service (BR-00-25 / RC-08 — Vòng 9):** với asset đã `Out of Service → Active`, các kỳ `status='Pending'` có `scheduled_date` **đã được dời** `+= oos_days` (`rows[].scheduled_date` mới = ngày-cũ + số-ngày-ngừng). `summary.pending_periods` KHÔNG đổi (không mất/thêm kỳ), `sum(depreciation_amount)` các kỳ Pending KHÔNG đổi. `executed_periods` + `accumulated_depreciation`/`current_book_value` bất biến (PAUSE — không trích trong lúc OoS, không trích bù khi khôi phục). FE render `rows[].scheduled_date` verbatim ⇒ tự hiện ngày đã dời + banner "Kỳ tiếp theo" (`nextPendingRow`) trỏ kỳ Pending đầu tiên với `scheduled_date` mới — **zero shape-change** ở response (`get_depreciation_schedule` giữ nguyên field).
 
 **Errors:** 404 (`AC-E001`) khi không tồn tại asset.
 
 ### `regenerate_depreciation_schedule` (POST)
 
 Params: `asset_name, force=1`. Sinh lại schedule (xoá cũ nếu force=1). Service: `assetcore.services.depreciation.generate_schedule`.
+
+**Luồng (RC-04 — self-heal-rồi-pre-check, Round-2):**
+1. **Self-heal TRƯỚC pre-check:** `frappe.get_doc(asset)` → `inherit_depreciation_rules_from_category(asset)` (SoT round-1). Nếu `did_inherit=True` → `save(ignore_permissions=True)` + sinh audit (ALE `depreciation_rules_inherited` + IMM Audit Trail `System`).
+2. **Pre-validate 4 input CHẠY LẠI SAU inherit** (method, `total_depreciation_months>0`, `gross>0`, start_date — đọc state SAU self-heal) → thiếu bất kỳ → **422** với message VI nêu rõ field thiếu (vd `Thiếu: Số tháng khấu hao (total_depreciation_months)`).
+3. Pass → `generate_schedule(force)` → **200** `{periods, ...}`.
+
+> **RC-04 (Self-Correction 2026-06-03, Round-2 — goal C):** lỗi user báo — asset CŨ (tạo TRƯỚC khi `before_insert` wire SoT) có Category CÓ luật nhưng `asset.total_depreciation_months=0` → bấm "Sinh lịch khấu hao" trả 422 oan. Fix: endpoint **TỰ kế thừa luật** từ Category qua **SoT DUY NHẤT** `inherit_depreciation_rules_from_category` TRƯỚC pre-check → **KHÔNG còn 422 "Thiếu: Số tháng khấu hao"**, sinh được schedule (`periods > 0`).
+> - **KHÔNG che lỗi master-data:** Category cũng thiếu luật (`total_depreciation_months=0`) HOẶC asset không có `asset_category` → inherit no-op → **VẪN 422** liệt kê đúng field thiếu (BR-00-20/22).
+> - **KHÔNG clobber user:** months/residual user đã nhập tay → inherit no-op (BR-00-19).
+> - **Bảo toàn lịch sử:** asset có kỳ Executed → self-heal KHÔNG override months/residual đã chạy (BR-00-21).
+> - **Idempotent + audit:** gọi 2 lần → cùng `periods`; `did_inherit=True` → 1 ALE + 1 IMM Audit Trail; no-op → KHÔNG event rác (FR-00-55).
+> - **Grep-guard:** `api/imm00.py` — 0 occurrence copy months/residual từ Category ngoài lời gọi SoT.
+> - **RC-03 (round-1) vẫn đúng:** asset MỚI tạo qua `before_insert` đã kế thừa sẵn → đường này self-heal no-op (đã đủ luật).
 
 ### `preview_depreciation_schedule` (GET)
 
@@ -816,11 +871,33 @@ Params: `as_of?` (date string). Chạy thủ công job depreciation due. Guard: 
 
 ### `bulk_regenerate_schedule_by_category` (POST) — Admin only
 
-Params: `category_name`. Re-apply rule khấu hao của Category cho tất cả assets, skip kỳ Executed (bảo vệ lịch sử).
+Nút **"Áp dụng khấu hao theo từng Danh mục"** (`ReferenceDataView.vue`, form Category). Params: `category_name`. Service: `assetcore.services.depreciation.bulk_regenerate_by_category`. RBAC: `_assert_system_admin()` → non-admin **403** (không leak).
+
+**Hành vi (RC-05 — route qua SoT, KHÔNG clobber — Round-4):** với mỗi asset thuộc Category (`docstatus != 2`):
+1. Asset có ≥1 kỳ **Executed** → KHÔNG đụng (preserve history) → `skipped_has_history`. Xác định qua **1 query GROUP BY parent** (`executed_parents` prefetch) chạy MỘT LẦN trước loop — KHÔNG `frappe.db.count` per-asset (N+1 đóng, mirror `compute_all` round-3).
+2. Else gọi **SoT DUY NHẤT** `inherit_depreciation_rules_from_category(asset)` (thay 4 dòng inline cũ) → đếm `inherited` nếu ≥1 field thay đổi. **No-clobber:** `months/residual/method/frequency` user đã nhập → GIỮ NGUYÊN (BR-00-19/23).
+3. Asset `gross<=0` HOẶC Category cũng thiếu luật (`cat.months<=0`) → `skipped_no_rule` (KHÔNG che lỗi master-data — BR-00-20).
+4. Else `generate_schedule(force=True)` (asset chưa-Executed → xoá-sinh-lại) → `regenerated`.
+5. Audit best-effort: per-asset ALE `depreciation_rules_inherited` (option round-1, KHÔNG migrate) + **1** IMM Audit Trail `System` TỔNG cho lần bulk — KHÔNG chặn payload (CLAUDE.md §5).
+
+**Response 200 (payload 7-key — chuẩn hoá khớp `compute_all`):**
+```json
+{ "category": "CAT-0659", "total_assets": 0,
+  "inherited": 0, "regenerated": 0,
+  "skipped_has_history": 0, "skipped_no_rule": 0, "errors": 0 }
+```
+- `inherited` = số asset được SoT kế thừa ≥1 field. `skipped_no_rule` = asset `gross<=0` hoặc Category chưa cấu hình luật.
+- `skipped_has_history` = asset đã có kỳ Executed (bỏ qua bảo toàn lịch sử) → `accumulated/book` bất biến.
+
+**Idempotent:** chạy 2 lần liên tiếp trên cùng dataset → lần 2 `inherited = 0` (đã đủ luật); `accumulated` của asset đã Executed không đổi.
+
+> **Self-Correction (Round-4 / RC-05):** payload cũ 5-key `{ category, total_assets, regenerated, skipped_has_history, errors }` (inline copy → **clobber** field user nhập; thiếu `inherited`/`skipped_no_rule`; N+1 `db.count` per-asset) đã được thay bằng shape 7-key trên + route qua SoT. FE `bulkRegenerateScheduleByCategory()` (06 §V.1) cập nhật type theo shape mới (thêm `inherited` + `skipped_no_rule`).
 
 ### `list_assets_depreciation` (GET) — Asset Finance Hub
 
 Params: `page=1, page_size=50, method_filter?, status_filter?, category_filter?, depreciation_filter?`. Trả paginated list assets kèm: `gross_purchase_amount, residual_value, accumulated_depreciation, current_book_value, depreciation_method, total_depreciation_months, depreciation_frequency, configured, pct_depreciated, executed_periods, total_periods`.
+
+> **`current_book_value` enriched qua SoT `effective_book_value` (BR-05-13 / RC-06).** Mỗi dòng (`_depr_enrich_row`) gán `current_book_value = effective_book_value(row)` — KHÔNG `or gross`. Asset KH hết về 0 → field trả **`0.0`** (drill hiện `0đ`), KHÔNG phantom `gross`. Dòng enriched này cũng nuôi `is_fully_depreciated` (cùng book SoT → count==drill khớp).
 
 **`depreciation_filter`** (mới — drill cho ô KPI "Hết khấu hao", BR-05-15):
 - `'fully_depreciated'` → danh sách CHỈ chứa asset thỏa SoT `is_fully_depreciated` (`configured ∧ current_book_value ≤ residual_value + 1`). Áp **post-enrich**, AND với `method/status/category` filter sẵn có (không clobber).
@@ -836,9 +913,30 @@ Trả tổng hợp tài chính toàn danh mục: `{ total_assets, configured_cou
 
 `fully_depreciated` đếm bằng SoT `is_fully_depreciated` (thay biểu thức inline cũ `book <= residual + 1`) — **backward-compat: cùng tập, cùng số**. Các key khác KHÔNG đổi.
 
+> **`total_book_value` & `by_category[].book_value` qua SoT `effective_book_value` (BR-05-13 / RC-06).** Mỗi asset cộng book = `effective_book_value(row)` thay vì `current_book_value or gross`. Asset đã khấu hao **hết** về `0.0` → cộng **`0.0`**, KHÔNG phantom `gross` (trước: over-count = `gross`). Cùng book SoT nuôi `is_fully_depreciated` → INVARIANT: asset `gross>0 ∧ residual=0 ∧ configured ∧ book=0.0` ĐƯỢC đếm `fully_depreciated` (trước bị loại vì book thổi về `gross > residual+1`). Asset `current_book_value IS NULL` (chưa chạy KH) → cộng `gross` (no regression).
+
 ### `compute_all_depreciation` (POST) — Admin only
 
-Regenerate schedule cho mọi asset đã cấu hình (skip nếu schedule tồn tại) + run due depreciation đến `today`. Trả `{ generated_schedules, skipped, executed_rows, updated_assets }`.
+Nút global **"Áp dụng khấu hao cho TẤT CẢ tài sản"** (Asset Finance Hub). RBAC: `_assert_system_admin()` → non-admin **403** (không leak).
+
+**Hành vi (RC-03 — backfill-rồi-sinh, thay vì skip):** với mỗi asset `docstatus != 2`:
+1. Nếu có ≥1 kỳ **Executed** → KHÔNG đụng (preserve history) → đếm `skipped_has_history`.
+2. Else nếu asset thiếu `method/months` **và** Category có luật → gọi SoT `inherit_depreciation_rules_from_category()` để **backfill TRƯỚC** (đếm `inherited` nếu ≥1 field thay đổi), rồi `generate_schedule(force=False)` (đếm `generated`).
+3. Nếu asset thiếu luật **và** Category cũng không có luật → `skipped_no_rule` (không bịa số — BR-00-20).
+4. Sau vòng lặp: `run_due_depreciation(None)` cập nhật `accumulated/book` đến `today` → `executed_rows`, `updated_assets`.
+5. Sinh lifecycle/audit event cho hành động backfill (1 event tổng hoặc per-asset inherited — BR-00-21, audit trail).
+
+**Response 200:** payload có cấu trúc rõ:
+```json
+{ "inherited": 0, "generated": 0, "executed_rows": 0,
+  "updated_assets": 0, "skipped_has_history": 0, "skipped_no_rule": 0 }
+```
+- `skipped_no_rule` = asset không có cả luật ở Category.
+- `skipped_has_history` = asset đã có kỳ Executed (bỏ qua để bảo toàn lịch sử).
+
+**Idempotent:** chạy 2 lần liên tiếp trên cùng dataset → lần 2 `inherited = 0` (không còn gì để backfill) và KHÔNG tạo trùng schedule / đổi `accumulated` của asset đã Executed.
+
+> **Self-Correction:** payload cũ `{ generated_schedules, skipped, executed_rows, updated_assets }` (gộp mọi lý do skip vào 1 số `skipped`, và **skip** thay vì backfill) đã được thay bằng shape 6-key ở trên. FE `computeAllDepreciation()` (06 §V.1) cập nhật type theo shape mới.
 
 > 3 endpoint admin (`run_due_depreciation_now`, `bulk_regenerate_schedule_by_category`, `compute_all_depreciation`) đều dùng `_assert_system_admin()` guard.
 

@@ -35,7 +35,7 @@
 | 15 | `assetcore.api.imm11.send_to_lab` | POST | External: → Sent To Lab | Technician | ✓ | US-11-03 |
 | 16 | `assetcore.api.imm11.receive_certificate` | POST | External: → In Progress (cert received) | Technician | ✓ | US-11-03 |
 | 17 | `assetcore.api.imm11.cancel_calibration` | POST | Hủy phiếu chưa submit | Workshop Lead | ✗ | US-11-08 |
-| 18 | `assetcore.api.imm11.get_due_calibrations` | GET | Thiết bị due ≤ N ngày | All | ✓ | US-11-01 |
+| 18 | `assetcore.api.imm11.get_due_calibrations` | GET | Thiết bị due ≤ N ngày (filter `AC Asset.next_calibration_date` = MIN-lịch, BR-11-13 → asset multi-schedule KHÔNG rớt) | All | ✓ | US-11-01, AC-11-21 |
 
 ---
 
@@ -189,7 +189,7 @@ FE đọc `response.data.data` (axios + Frappe lớp ngoài đã wrap).
     "status": "Passed",
     "overall_result": "Passed",
     "certificate_date": "2026-04-24",
-    "next_calibration_date": "2027-04-24",
+    "next_calibration_date": "2027-04-24",   // = next_due của PHIẾU/lịch vừa Pass (basis+interval) — KHÔNG đổi (BR-11-04)
     "asset": "AC-ASSET-2026-00101",
     "asset_lifecycle_status": "Active",
     "capa_created": null,
@@ -198,6 +198,8 @@ FE đọc `response.data.data` (axios + Frappe lớp ngoài đã wrap).
   }
 }
 ```
+
+> ⚠️ **Phân biệt 2 `next_calibration_date` (BR-11-13):** field `next_calibration_date` trong response NÀY = hạn của **chính phiếu/lịch vừa Pass** (`basis + interval`) — giữ nguyên cho backward-compat. KHÁC với `AC Asset.next_calibration_date` (CACHE thiết bị) mà `handle_calibration_pass` ghi = **`MIN(next_due_date)` trên MỌI active schedule** (rollup đa-lịch). Với asset multi-schedule, 2 giá trị này có thể KHÁC nhau (response = lịch vừa Pass; asset-cache = lịch sớm nhất). `get_due_calibrations` (endpoint 18) filter theo asset-cache → asset multi-schedule còn lịch sớm hơn KHÔNG bị rớt khỏi list.
 
 **Response success (Fail):**
 ```jsonc
@@ -229,6 +231,7 @@ FE đọc `response.data.data` (axios + Frappe lớp ngoài đã wrap).
 - `transition_asset_status(asset, "Out of Service")` (IMM-00)
 - `create_capa(asset, "IMM Asset Calibration", name, "Major")` (IMM-00)
 - `perform_lookback_assessment(device_model, exclude=asset)` → ghi lookback_assets vào CAPA
+- **Schedule due-now (BR-11-08b):** hạ `next_due_date = basis` (`certificate_date \| actual_date \| nowdate()`) cho MỌI `IMM Calibration Schedule` `{asset, is_active=1}` → `next_due_date <= today` → asset xuất hiện trong overdue/due-soon SoT (`get_calibration_kpis`/dashboard hết mask ON_SCHEDULE). Null-safe: 0 active schedule → no-op. Không đổi field response (shape bất biến — schedule là side-effect DB, không trả trong envelope submit).
 - `create_lifecycle_event(asset, "calibration_failed")` (IMM-00)
 - Email QA Officer + Operations Manager
 
@@ -296,6 +299,8 @@ Số trên KPI card PHẢI bằng số dòng khi click drill (cùng SoT, không 
 | Dashboard `calibration.due_30d` | `len(_due_soon_asset_ids())` | giống trên | == module `due_soon_assets` |
 
 **Boundary (chốt):** OVERDUE ⟺ `next_due < today` (strict `<`); DUE_SOON ⟺ `today <= next_due <= today+30` (2 biên inclusive); `next_due == today` → DUE_SOON; `next_due == today+30` → DUE_SOON; `next_due == today+31` → ON_SCHEDULE.
+
+**FAIL → due-now nằm trong tập (BR-11-08b):** asset vừa `overall_result=Fail` được `handle_calibration_fail` hạ `next_due = basis` (`<= today`). `basis < today` (cert/actual quá khứ) → asset vào `overdue_assets`; `basis == today` (nowdate) → vào `due_soon_assets` (due-now). Hai trường hợp đều khiến card overdue-or-due TĂNG +1 asset và drill `?overdue=1` HOẶC `?due_soon=1` chứa asset đó → count == drill bất biến, KHÔNG undercount asset FAIL. Asset FAIL KHÔNG còn ON_SCHEDULE.
 
 **Phân biệt drill param (`_normalize_schedule_filters`, 3 nhánh — ưu tiên `overdue` > `due_soon` > `due_before`):**
 

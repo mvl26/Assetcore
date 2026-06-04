@@ -214,6 +214,7 @@ class AssetCommissioning(Document):
 | `handle_commissioning_cancel(doc)` | Document | None | Block cancel nếu final_asset tồn tại |
 | `overdue_commissioning_filter(today=None)` | str?/None | dict | **SoT** predicate "quá hạn SLA" (BR-04-10): `{reception_date < today−OVERDUE_DAYS, workflow_state NOT IN _TERMINAL_STATES, docstatus != 2}`. Pure, no side effect — dùng chung 3 call-site |
 | `check_commissioning_overdue()` | — | None | Email Workshop Head phiếu quá hạn — gọi `overdue_commissioning_filter()` (KHÔNG inline `reception_date<cutoff`); `_send_overdue_alert` tính `days_open` từ cùng anchor (scheduler daily — ⚠️ CHƯA đăng ký trong hooks.py) |
+| `_stamp_commissioning_date(doc)` (private) | Document | None | **SoT** stamp Clinical-Release date (BR-04-11). **Idempotent:** `if not doc.commissioning_date: doc.commissioning_date = nowdate()` (set khi NULL, KHÔNG ghi đè). Gọi bởi cả 3 write-path SAU khi `doc.workflow_state == _STATE_CLINICAL_RELEASE` được xác lập. Pure đối với mọi field khác. KHÔNG @whitelist (chỉ internal). Mutate doc in-memory — caller chịu trách nhiệm persist (`doc.save`/`doc.submit` đã có sẵn trong từng write-path) |
 | `submit_for_approval(commissioning, approver, stage, remarks)` | string + params | dict | Gửi phê duyệt nội bộ (Wave-2 approval flow) |
 | `approve_pending(commissioning, decision, remarks)` | string + params | dict | Duyệt/từ chối phiếu đang chờ |
 | `list_my_pending_approvals()` | — | list | Danh sách phiếu chờ duyệt của user hiện tại |
@@ -403,7 +404,52 @@ def list_commissioning(filters: dict, page=1, page_size=20) -> dict:
 **INVARIANT (kiểm thử trên data-live):**
 `get_dashboard_stats().kpis.overdue_sla == list_commissioning({"overdue": 1}, page=1, page_size=N).pagination.total` — card count == drill rows, **byte-for-byte**. Cùng `nowdate()` trong một request nên cùng cutoff.
 
-**KHÔNG đổi:** `pending_count`, `hold_count`, `open_nc_count`, `released_this_month` và mọi field KPI khác giữ nguyên giá trị — chỉ `overdue_sla` đổi anchor (`expected_installation_date` → `reception_date`).
+**KHÔNG đổi (trong scope BR-04-10):** `pending_count`, `hold_count`, `open_nc_count` giữ nguyên — chỉ `overdue_sla` đổi anchor (`expected_installation_date` → `reception_date`). `released_this_month` được re-anchor riêng trong §5.2 (BR-04-11).
+
+### 5.2. "Bàn giao tháng này" — stamp + KPI re-anchor cùng SoT (BR-04-11)
+
+**Bài toán (lỗi thiết kế gốc):** `get_dashboard_stats().kpis.released_this_month` đếm theo `modified >= first_day_of_month`. `modified` là timestamp Frappe tự cập nhật mỗi lần `.save()` → phiếu Released **tháng trước** mà bị edit (sửa note / upload doc / re-approve) **tháng này** lập tức bị kéo vào `released_this_month` → KPI throughput thổi phồng. Đồng thời phiếu chưa có cột thời điểm bàn giao thật: field `commissioning_date` (Date, read_only) tồn tại trên DocType nhưng **chưa write-path nào stamp** — `approve_clinical_release` chỉ đọc `doc.commissioning_date or nowdate()` ở return value (line ~1470), không persist.
+
+**Fix — 2 vế, cùng anchor `commissioning_date`:**
+
+**(a) Stamp tại 3 write-path** — gọi `_stamp_commissioning_date(doc)` SAU khi `workflow_state` đã thành `Clinical Release`, TRƯỚC `doc.save()`/`doc.submit()`:
+
+```python
+def _stamp_commissioning_date(doc) -> None:
+    """SoT (BR-04-11): set commissioning_date = ngày vào Clinical Release.
+    Idempotent — KHÔNG ghi đè giá trị đã có (re-submit/re-approve/edit giữ ngày gốc)."""
+    if doc.workflow_state == _STATE_CLINICAL_RELEASE and not doc.commissioning_date:
+        doc.commissioning_date = nowdate()
+```
+
+Wiring (chính xác, dùng symbol THẬT đã verify trong imm04.py):
+- **`transition_state(name, action)`** — sau `frappe.model.workflow.apply_workflow(doc, action)` (line ~1074) và TRƯỚC `doc.save(...)` (line ~1076): chèn `_stamp_commissioning_date(doc)`. Khi action đưa phiếu vào Clinical Release, doc.save persist commissioning_date cùng lượt (cùng khối auto-mint `create_ac_asset` đã có).
+- **`submit_commissioning(name)`** — phiếu PHẢI đã ở `Clinical Release` (guard line ~1121). Stamp TRƯỚC `doc.submit()` (line ~1148): `_stamp_commissioning_date(doc)` (submit persist). Bảo hiểm cho phiếu vào Clinical Release từ trước fix mà chưa stamp.
+- **`approve_clinical_release(...)`** — phiếu đã ở Clinical Release (guard line ~1447). Stamp TRƯỚC `doc.save(ignore_permissions=True)` (line ~1464): `_stamp_commissioning_date(doc)`. Return value đổi `str(doc.commissioning_date or nowdate())` → `str(doc.commissioning_date)` (sau stamp luôn non-NULL).
+
+> ⚠️ Idempotency: 3 path có thể nối tiếp nhau trên cùng phiếu (transition → approve → submit). Guard `not doc.commissioning_date` đảm bảo chỉ path ĐẦU TIÊN chạm Clinical Release ghi ngày; các path sau no-op → ngày bàn giao bất biến. KHÔNG `update_modified=False` cần thiết (stamp đi cùng save/submit hợp lệ của chính write-path).
+
+**(b) KPI re-anchor** trong `get_dashboard_stats()` — đổi count `released_this_month` từ `modified` sang `commissioning_date` trong cửa sổ tháng:
+
+```python
+first_day = get_first_day(nowdate())
+today = nowdate()
+...
+"released_this_month": frappe.db.count(_DT, {
+    "workflow_state": _STATE_CLINICAL_RELEASE, "docstatus": 1,
+    "commissioning_date": ("between", [str(first_day), str(today)]),
+}),
+```
+
+> ⚠️ Dùng **MỘT** tuple `("between", [first_day, today])` cho cột `commissioning_date` — KHÔNG tách 2 predicate cùng key `commissioning_date` trong filter dict (dict key trùng bị overwrite, chỉ còn 1 bound). Pattern `["between", [...]]` đã proven trong codebase: `imm05.py:361/409`, `imm06.py:1461`. `frappe.db.count` truyền filters qua cùng query-builder với `get_all` → `between` hợp lệ.
+
+- `("between", [first_day, today])` ⟺ `commissioning_date >= first_day AND <= today` (inclusive 2 đầu). `commissioning_date` NULL → `BETWEEN` loại tự nhiên (NULL không thỏa) → phiếu legacy NULL **không** crash, **không** lọt count (BR-04-11c).
+- Cùng `nowdate()` trong một request → `first_day`/`today` ổn định cho cả card lẫn drill list.
+
+**INVARIANT đo được (mirror §5.1, SoT-aligned):**
+`released_this_month == count({workflow_state==Clinical Release, docstatus==1, commissioning_date ∈ [first_day, today]})` == số rows drill list `Clinical Release` lọc cùng cửa sổ tháng. Card == drill.
+
+**KHÔNG đổi:** shape của `get_dashboard_stats()` (key `released_this_month` giữ nguyên type `int`/number); `states_breakdown`, `recent_list`, các KPI khác bất biến. KHÔNG schema migration (field đã có). Backfill phiếu Clinical Release legacy `commissioning_date` NULL = **optional, ngoài scope** (nếu cần: patch set `commissioning_date = modified` hoặc `creation` cho rows `workflow_state=Clinical Release AND commissioning_date IS NULL` — KHÔNG bắt buộc cho task này).
 
 ---
 

@@ -432,12 +432,31 @@ POST /api/method/assetcore.api.imm03.score_evaluation
       "Hamilton VN": 4.18,
       "Mindray VN": 3.45
     },
-    "recommended": "Vinamed JSC"
+    "recommended": "Vinamed JSC",
+    "has_top_tie": 0,
+    "tied_candidates": ""
   }
 }
 ```
 
-> Note: `weighted_scores` key là supplier name (`cand.supplier`), KHÔNG phải row name. `recommended` là supplier name của top scorer. Không có `"all_groups_complete"` hay `"missing_groups"` — đây là design spec chưa implement. Thực tế `_score_evaluation` chỉ merge scores rồi lưu, không validate nhóm nào đã đủ.
+**Response khi đỉnh HÒA (INV-VE-TIE §IV.7) — `recommended` rỗng + cờ tie surface:**
+```json
+{
+  "success": true,
+  "data": {
+    "weighted_scores": {
+      "Hamilton VN": 4.32,
+      "Vinamed JSC": 4.32,
+      "Mindray VN": 3.45
+    },
+    "recommended": null,
+    "has_top_tie": 1,
+    "tied_candidates": "Hamilton VN,Vinamed JSC"
+  }
+}
+```
+
+> Note: `weighted_scores` key là supplier name (`cand.supplier`), KHÔNG phải row name. `recommended` là supplier name của top scorer DUY NHẤT — **null khi đỉnh hòa** (≥2 NCC cùng điểm tối đa, |Δ|≤1e-9). `has_top_tie` (0/1) + `tied_candidates` (CSV sorted supplier name) do `_compute_eval_scores` set khi `ve.save()`. `_score_evaluation` re-expose 2 field này từ `ve` sau save. Không có `"all_groups_complete"` hay `"missing_groups"` — design spec chưa implement.
 
 **Errors:**
 ```json
@@ -550,7 +569,7 @@ POST /api/method/assetcore.api.imm03.award_decision
 **Errors:**
 ```json
 {"success": false, "error": "VR-03-04: Awarded 108% envelope — cần giải trình PTP Khối 1", "code": "CONFLICT"}
-{"success": false, "error": "VR-03-05: Winner Vinamed JSC phải có AVL Active hoặc Conditional + sign-off", "code": "BUSINESS_RULE"}
+{"success": false, "error": "VR-03-05: Winner 'Vinamed JSC' không có AVL còn hiệu lực (Approved/Conditional) cho category 'Imaging'", "code": "BUSINESS_RULE"}
 {"success": false, "error": "G05: Thiếu contract_doc — phải đính kèm hợp đồng", "code": "BUSINESS_RULE"}
 {"success": false, "error": "Mint AC Purchase thất bại — Decision đã rollback về Pending Approval", "code": "INTERNAL"}
 {"success": false, "error": "Chỉ IMM Board Approver mới có thể Award Decision", "code": "FORBIDDEN"}
@@ -640,7 +659,7 @@ GET /api/method/assetcore.api.imm03.dashboard_kpis
 }
 ```
 
-`eval_states` / `decision_states`: COUNT(*) GROUP BY `workflow_state` cho docstatus<2. `avl_active`: AVL docstatus=1 và state ∈ (Approved, Conditional). `avl_expiring_30d`: AVL docstatus=1, state ∈ (Approved, Conditional), `DATEDIFF(valid_to, CURDATE()) BETWEEN 0 AND 30`.
+`eval_states` / `decision_states`: COUNT(*) GROUP BY `workflow_state` cho docstatus<2 (loại cancelled `docstatus=2`). **`decision_states` là reference predicate cho drill** (INV-DEC-DRILL, 02 §IV.8): `decision_states[S]` PHẢI bằng `total` của `list_decisions(filters={"workflow_state": S})` — cả hai cùng đếm `docstatus<2` để bảo toàn INVARIANT card==drill cho 3 tile `Awarded`/`Pending Approval`/`PO Issued`. `avl_active`: AVL **còn hiệu lực (LIVE)** = docstatus=1 AND state ∈ (Approved, Conditional) AND (`valid_to` IS NULL OR `valid_to` >= CURDATE()) — predicate SoT `_avl_is_live` (02 §IV.6, INV-AVL-LIVE-3). KHÔNG đếm AVL đã hết hạn dù chưa bị scheduler flip Expired. `avl_expiring_30d`: AVL LIVE và `DATEDIFF(valid_to, CURDATE()) BETWEEN 0 AND 30`.
 
 ---
 
@@ -783,6 +802,8 @@ Xem `docs/template/05_API_Specification.md` §3.1 và §3.1.a.
 
 **Response:** fields = `name`, `spec_ref`, `winner_supplier`, `awarded_price`, `envelope_check_pct`, `workflow_state`, `ac_purchase_ref`, `creation` + enrich `vendor_name` (AC Supplier.supplier_name) + `tech_spec_ref_name` (IMM Tech Spec.device_model_ref).
 
+**Predicate `docstatus<2` mặc định (INV-DEC-DRILL — 02 §IV.8).** `_list_decisions` **bơm** `docstatus = ["<", 2]` vào dict `filters` nếu caller chưa truyền `docstatus` → cả `items` lẫn `total` (`count_with_or`) **loại** bản ghi cancelled (`docstatus=2`). Đây là điều kiện bắt buộc để bảo toàn INVARIANT **card==drill**: với cùng dữ liệu, `total` của `list_decisions(filters={"workflow_state": S})` PHẢI bằng `dashboard_kpis().decision_states[S]` (cùng đếm `docstatus<2`) cho S ∈ {`Awarded`, `Pending Approval`, `PO Issued`}. `IMM Procurement Decision` là submittable và `workflow_state` KHÔNG tự xoá khi cancel → nếu không loại `docstatus=2`, list sẽ đếm dư bản huỷ. Muốn xem bản đã huỷ: truyền tường minh `filters={"docstatus": 2}` (override mặc định). KHÔNG đổi field trả về / search / pagination.
+
 ---
 
 ### 3.23 `create_evaluation` ✅ LIVE
@@ -815,7 +836,7 @@ POST /api/method/assetcore.api.imm03.transition_decision_workflow
 | Vendor non-AVL chưa sign-off tại submit | `BUSINESS_RULE` | "VR-03-02: Vendor Hamilton Vietnam non-AVL — cần sign-off IMM Board Approver" |
 | Quotation hết hạn | `VALIDATION` | "VR-03-03: Quotation QT-2026-001 hết hiệu lực ngày 2026-05-09" |
 | Awarded > 105% envelope | `CONFLICT` | "VR-03-04: Awarded 108% envelope — cần giải trình PTP Khối 1" |
-| Winner không có AVL Active | `BUSINESS_RULE` | "VR-03-05: Winner Vinamed JSC phải có AVL Active hoặc Conditional + sign-off" |
+| Winner không có AVL còn hiệu lực (state OK nhưng `valid_to` hết hạn / không có AVL) | `BUSINESS_RULE` | "VR-03-05: Winner 'Vinamed JSC' không có AVL còn hiệu lực (Approved/Conditional) cho category 'Imaging'" |
 | Cố sửa audit trail | `BUSINESS_RULE` | "VR-03-06: IMM Audit Trail bất biến sau khi tạo" |
 | Spec đã có Decision Awarded | `DUPLICATE` | "VR-03-07: Tech Spec TS-26-00045 đã có Decision Awarded" |
 | PO TBYT không có Decision | `BUSINESS_RULE` | "VR-03-08: AC Purchase TBYT phải đi qua IMM-03 Procurement Decision" |
@@ -916,7 +937,9 @@ export interface VendorEvaluation {
   criteria: EvalCriterion[];
   candidates: EvalCandidate[];
   quotations: QuotationLine[];
-  recommended_candidate: string | null;
+  recommended_candidate: string | null;   // null khi đỉnh hòa (INV-VE-TIE)
+  has_top_tie?: 0 | 1;                     // 1 ⇔ ≥2 NCC đồng hạng nhất
+  tied_candidates?: string;               // CSV supplier name (sorted asc) khi has_top_tie=1
   workflow_state: EvalState;
   docstatus: 0 | 1 | 2;
 }

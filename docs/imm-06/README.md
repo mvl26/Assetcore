@@ -6,7 +6,7 @@
 | Wave | 2 |
 | Trạng thái | Stable (Wave 2) |
 | Số file hiện có | 9 (6 source docs đã archive) |
-| Cập nhật cuối | 2026-05-27 |
+| Cập nhật cuối | 2026-06-04 |
 | Khối kiến trúc | B. KHỐI 2 |
 | Đợt triển khai | 2 |
 | Owner | PTP Khối 2 · Tổ HC-QLCL |

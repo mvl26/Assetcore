@@ -150,7 +150,7 @@ Toàn bộ artefact test được của IMM-05 (đối chiếu 04 §DocType/Serv
 | **Equivalence Partitioning (EP)** | Input có miền giá trị chia nhóm | `doc_category` (Legal/Technical/Certification/Training/QA), `visibility` (Public/Internal_Only), workflow_state enum | 1 test/partition |
 | **Boundary Value Analysis (BVA)** | Numeric / date có biên | `days_remaining` mốc 90/60/30/0 trong `_resolve_alert_level`; `expiry_date` vs `issued_date`; `version` "1.0" vs khác | 2-3 test/biên |
 | **Decision Table** | Multi-condition gate | GW-2 (license Active AND NOT exempt), BR-05-01 (active duplicate), `_can_see_internal` (role ∈ internal set) | 2^N rút gọn theo equivalence |
-| **State Transition Testing** | Workflow finite state machine | `imm_05_document_workflow.json` (Draft → Pending Review → Active/Rejected/Archived/Expired) | Mỗi transition + invalid transition |
+| **State Transition Testing** | Workflow finite state machine | `imm_05_document_workflow.json` (Draft → Pending Review → Active/Rejected → Archived). KHÔNG có state `Expired` (BR-05-16: hết hạn = thuộc tính dẫn xuất, không transition). | Mỗi transition + invalid transition |
 | **Use Case Testing** | End-to-end actor flow | UAT scenarios, API integration test | 1/main + 1/alt + 1/exception |
 | **Pairwise / Combinatorial** | Nhiều field optional kết hợp | Form tạo Asset Document (doc_category × visibility × is_exempt) | Min set cover all pairs |
 | **Error Guessing** | Lỗi từ kinh nghiệm: null, empty, sai định dạng file, delete | `on_trash`, file .exe, file > 25MB, name không tồn tại | Bổ sung — không thay thế |
@@ -216,6 +216,7 @@ Toàn bộ artefact test được của IMM-05 (đối chiếu 04 §DocType/Serv
 | `TestRejectDocument` | `reject_document` (#15) | EP | 1 / 2 (no reason, bad state) | ✅ Live |
 | `TestListDocuments` | `list_documents` (#17) | EP (pagination) | 2 / 0 | ✅ Live |
 | `TestKpiExpiredDocs` | `get_dashboard_stats` (#20) | EP | 2 / 0 (expiry-only filter) | ✅ Live |
+| `TestExpiredSoT` (`test_imm05.py`) | `expired_filter()` SoT + count↔drill (BR-05-16 / **INV-EXP-1**) | **Counterexample** (Active doc `expiry_date=today-5,is_expired=1` → count≥1 ∧ drill `{expiry_status:'expired'}` chứa đúng doc) + **Invariant** (`expired_not_renewed == len(list_documents({expiry_status:'expired'}).items)`, chênh=0 đa-tập) + **EP/tightening** (Archived/Rejected quá hạn KHÔNG đếm; Active/Draft/Pending Review quá hạn ĐẾM) | 5 / 0 | ⬜ Planned (BE viết) |
 | `TestDepreciationDefaults` | (chia sẻ helper depreciation) | EP | 3 / 0 | ✅ Live |
 | `TestGenerateScheduleZeroPrice` | (chia sẻ helper depreciation) | BVA / Error guessing | 1 / 2 | ✅ Live |
 | `TestFullyDepreciatedSoT` (`test_depreciation.py`) | `is_fully_depreciated` / `is_configured_for_depreciation` SoT (BR-05-15) | BVA (book==residual, +1, +2; residual=0→book≤1) + Decision Table (configured) | 4 / 5 (NOT configured, +2, book=2, book=None→gross) | ✅ Live |
@@ -243,7 +244,11 @@ Toàn bộ artefact test được của IMM-05 (đối chiếu 04 §DocType/Serv
 
 ## III.4. Integration — Workflow transitions
 
-**File:** `assetcore/tests/test_imm05_workflow.py` ⬜ Planned. Workflow `imm_05_document_workflow.json`: **6 state, 9 transition** (đã verify bằng `len(...['transitions'])`). 9 transition gồm 4 action × các role allowed.
+**File:** `assetcore/tests/test_imm05_workflow.py` ⬜ Planned. Workflow `imm_05_document_workflow.json`: **9 transition** (đã verify bằng `len(...['transitions'])`), **5 state còn-sống** (Draft, Pending Review, Active, Rejected, Archived). 9 transition gồm 4 action × các role allowed — **KHÔNG transition nào dẫn vào `Expired`**.
+
+> **BR-05-16 — orphan state `Expired` (COUPLED TEST CONTRACT):** workflow JSON từng khai báo state `Expired` nhưng KHÔNG có transition nào dẫn vào (dead-state). BE PHẢI gỡ entry state `Expired` khỏi `imm_05_document_workflow.json` (chỉ xóa state-def mồ côi; số transition = 9 KHÔNG đổi). **Hệ quả test:** `tests/test_workflows.py:26` đang assert `IMM-05 Document Workflow` `min_states: 6` (`assertGreaterEqual(len(wf.states), 6)`) — sau khi gỡ còn 5 state → BE PHẢI đồng thời sửa dòng đó thành **`min_states: 5`** trong CÙNG change, nếu không `test_workflow_state_counts` hồi quy. Số transition giữ `min_transitions: 8` (thực tế 9). Sau gỡ: workflow đúng 5 state, 9 transition; `test_workflows (8)` xanh.
+>
+> **Phương án thay thế (nếu KHÔNG muốn đụng fixture+test workflow):** giữ nguyên 6 state trong JSON nhưng việc fix BR-05-16 ở read-path (predicate `expired_filter`) + FE marker đã ĐỦ kill divergence (KPI/drill không bao giờ tham chiếu state `Expired` nữa). Gỡ orphan là dọn-dẹp khuyến nghị, KHÔNG bắt buộc cho counterexample pass. **BE chọn 1 trong 2 và ghi rõ trong delta** — nhưng nếu gỡ thì BẮT BUỘC sửa kèm `min_states`.
 
 | Transition (action) | From → To | Role required (allowed) | Test pass | Test fail |
 |---|---|---|---|---|
@@ -383,8 +388,9 @@ bench --site assetcore.local execute assetcore.services.imm05.check_document_exp
 | BR-05-08 | Exempt → Compliant (Exempt) | `TestMarkExempt` ⬜ | Decision Table | ⬜ Planned |
 | BR-05-09 | change_summary bắt buộc v ≠ 1.0 | `test_change_summary_required_v2` ⬜ | BVA | ⬜ Planned |
 | BR-05-10 | Internal_Only ẩn với non-internal | `TestVisibilityFilter` ⬜ | Decision Table | ⬜ Planned |
+| BR-05-16 | "Đã hết hạn" 1 SoT `expired_filter()`, count==drill, loại Archived/Rejected, không dead-state | `TestExpiredSoT` ⬜ (counterexample + INV-EXP-1 + tightening) + FE `documentFilters.test.ts` (`{expiry_status:'expired'}` + grep-guard no-`Expired`) | Invariant + Counterexample + EP | 5 / 0 ⬜ Planned (BE/FE viết) |
 
-**Gap thật:** chỉ BR-05-01/03 và phần happy-path đang có test ✅ Live trong `test_imm05.py`; các negative test và BR còn lại là ⬜ Planned (chưa viết).
+**Gap thật:** chỉ BR-05-01/03 và phần happy-path đang có test ✅ Live trong `test_imm05.py`; các negative test và BR còn lại là ⬜ Planned (chưa viết). BR-05-16 là deliverable Vòng 19 (BE viết `TestExpiredSoT` + sửa FE `documentFilters.test.ts` 2 assert đang lock dead-state — line 46 + 81).
 
 ## IV.3. Component → Test mapping
 
@@ -443,7 +449,7 @@ bench --site assetcore.local execute assetcore.services.imm05.check_document_exp
 |---|---|---|
 | AC Asset | 5 | CT, X-Ray, Pump, Ventilator, LINAC (2 thiết bị bức xạ) |
 | Required Document Type | 5 | CO, CQ, Manual, License, Radiation License |
-| Asset Document | 8 | Draft / Pending Review / Active / Rejected / Archived / Expired (per asset) |
+| Asset Document | 8 | Draft / Pending Review / Active / Rejected / Archived (5 state) + ≥1 Active đã quá hạn (`expiry_date<today, is_expired=1`) để cover BR-05-16 counterexample |
 | Test PDF | 3 | nhỏ (<1MB), lớn (>25MB), sai định dạng (.exe) |
 
 Reset script: `bench --site uat.assetcore.local execute assetcore.scripts.uat.uat_imm05.seed_data` *(Cần khảo sát — verify script tồn tại)*.
@@ -458,7 +464,8 @@ Mỗi scenario theo template Phụ lục A. ID `UAT-IMM-05-NN`.
 | UAT-IMM-05-02 | Compliance Manager → Document User | Doc Pending Review | US-05-02, BR-05-01 | Use Case alt | Reject (có lý do) → gửi lại → Active |
 | UAT-IMM-05-03 | Document User + Compliance Manager | 1 Active v1.0 | US-05-07, BR-05-01 | State Transition | Approve v2.0 → v1.0 Archived, `superseded_by` set |
 | UAT-IMM-05-04 | AssetCore Super Admin | 1 Archived doc | BR-05-02 | Error guessing | Xóa bị block (`on_trash` raise) |
-| UAT-IMM-05-05 | System (scheduler) | Active doc expiry +90/+30/0 | US-05-04, BR-05-03 | Use Case + BVA | Alert đúng mốc, idempotent, expiry → Expired |
+| UAT-IMM-05-05 | System (scheduler) | Active doc expiry +90/+30/0 | US-05-04, BR-05-03 | Use Case + BVA | Alert đúng mốc, idempotent; khi quá hạn → `is_expired=1` (state GIỮ Active, KHÔNG đổi sang "Expired" — BR-05-16) |
+| UAT-IMM-05-05b | Workshop Head | Active doc `expiry_date=today-5`, `is_expired=1` | BR-05-16, INV-EXP-1 | Counterexample + drill | Tile "Đã hết hạn" đếm ≥1; click tile → list chứa đúng doc; số tile == số dòng list |
 | UAT-IMM-05-06 | System (IMM-04 submit) | Commissioning Clinical Release | US-05-03, BR-05-04 | Use Case | ≥ 3 Asset Document, `source_module="IMM-04"` |
 | UAT-IMM-05-07 | Document User | — | VR-01/VR-02/VR-09 | EP + BVA | Validation rule raise đúng thông báo |
 | UAT-IMM-05-08 | Auditor / Document User | doc Internal_Only | BR-05-10, Phần VI | EP permission | Auditor không create; Internal_Only ẩn với non-internal |
@@ -496,7 +503,7 @@ Mỗi scenario theo template Phụ lục A. ID `UAT-IMM-05-NN`.
 | 2 | Chạy `check_document_expiry` | Alert level = Info (90), `days_remaining = 90` | ☐ |
 | 3 | Chạy lại cùng ngày | Không tạo duplicate (idempotent) | ☐ |
 | 4 | Đổi expiry = today + 30, chạy lại | Alert level = Critical | ☐ |
-| 5 | Đổi expiry = today, chạy lại | Doc → Expired; alert Danger | ☐ |
+| 5 | Đổi expiry = today-1, chạy lại | `is_expired=1` (state GIỮ Active); alert Danger; doc xuất hiện trong KPI/drill "Đã hết hạn" (BR-05-16) | ☐ |
 
 **Acceptance**: 5 step Pass.
 
@@ -617,7 +624,7 @@ Mỗi scenario theo template Phụ lục A. ID `UAT-IMM-05-NN`.
 
 | Sự kiện | Log level | Where | Alert? |
 |---|---|---|---|
-| Document Expired tự động | WARNING | Scheduler log + Expiry Alert Log | ✅ Email Document Manager |
+| Document quá hạn (`is_expired=1`, scheduler) | WARNING | Scheduler log + Expiry Alert Log | ✅ Email Document Manager |
 | Document Request overdue | WARNING | Scheduler log | ✅ Email Document Manager |
 | `on_trash` attempt | ERROR | `frappe.log_error` | ❌ |
 | Approve/Reject action | INFO | Frappe access log + Version | ❌ |

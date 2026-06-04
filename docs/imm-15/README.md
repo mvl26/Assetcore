@@ -6,7 +6,7 @@
 | Wave | 2 — IMPLEMENTED (feature/hieuc/wave-2) |
 | Trạng thái | ✅ Stable — BE + FE đã merge; chờ UAT |
 | Số file | 9 (README + 02-09; nguồn gốc đã archive) |
-| Cập nhật cuối | 2026-06-03 (vòng 2: BR-15-16 line_value/total_value lifecycle-aware SoT — 04 §III-bis.8; vòng 1: BR-15-15 số-xuất==số-duyệt — 04 §III-bis.7; vòng 34: reservation ledger SoT — 04 §III-bis, VR-15-14) |
+| Cập nhật cuối | 2026-06-04 (vòng 23: BR-15-17 + VR-15-17 — low-stock + forecast `current_qty` so theo tồn **KHẢ DỤNG** `(qty_on_hand − reserved_qty)` qua `LOW_STOCK_COND` SoT (đảo round-3 dùng tồn vật lý) → bin reserved-full (available=0) báo low + Reorder; biểu thức RAW bắt oversell; `_sum_part_stock` 1 aggregate no-N+1; 3 con số card==drill==count đồng nhất — 04 §II.A/§III.6.2; vòng 21: BR-15-11 + VR-15-16 — `check_expiring_batches` predicate cửa sổ 30 ngày SoT `EXPIRY_WINDOW_DAYS`, fix dict-key trùng `expiry_date` + naming-contract `batch_no` (≠ batch_code) + gate `table_exists("IMM Spare Batch")` (KHÔNG prefix `tab`) + guard `qty_on_hand>0` — 04 §VII; vòng 11: VR-15-15 data-contract `historical_consumption_12m` = 12 tháng CỐ ĐỊNH, tách khỏi `lookback_months` — 04 §III.6.1, fix bug horizon=6 SAI 2×; +VR-15-07 reorder≥safety có test bắt buộc; vòng 2: BR-15-16 line_value/total_value lifecycle-aware SoT — 04 §III-bis.8; vòng 1: BR-15-15 số-xuất==số-duyệt — 04 §III-bis.7; vòng 34: reservation ledger SoT — 04 §III-bis, VR-15-14) |
 | Khối kiến trúc | C. KHỐI 3 |
 | Đợt triển khai | 2 |
 | Owner | Kho trung tâm & Kho vận |

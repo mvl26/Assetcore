@@ -96,15 +96,23 @@
 
 **KPI cards:**
 
-| KPI | API field | Click action |
-|---|---|---|
-| Active Competency | `kpis.total_active_competencies` | Filter `/imm06/competencies?status=Active` |
-| Expiring 90d | `kpis.expiring_90d` | `get_expiring_competencies(90)` |
-| Expired | `kpis.expired_not_renewed` | Filter `/imm06/competencies?status=Expired` |
-| % Users Competent | `kpis.users_competent_pct` | — |
-| Completion Rate | `kpis.training_completion_rate_90d` | `/imm06/sessions` filter 90d |
-| Pass Rate | `kpis.average_pass_rate_90d` | — |
-| Gap Class III | `kpis.total_gap_assets_class3` | Mở Gap Report mới nhất |
+> **Ground-truth binding (BR-06-14, 2026-06-04):** Các tile năng lực bind theo shape THẬT của `get_dashboard_stats()` (`data.competencies.*`). Cột "API field (roadmap)" giữ tên `kpis.*` cho bản mở rộng tương lai — KHÔNG bind hiện tại. Xem `05_API_Specification.md §D.1` envelope ground-truth.
+
+| KPI | API field (bind THẬT) | API field (roadmap) | Click action |
+|---|---|---|---|
+| Active Competency | `data.competencies.active` | `kpis.total_active_competencies` | Filter `/imm06/competencies?status=Active` |
+| **Sắp hết hạn** | `data.competencies.expiring` | `kpis.expiring_90d` | → drill `get_expiring_competencies(60)` (số PHẢI khớp tile) |
+| **Đã hết hạn** | `data.competencies.expired` | `kpis.expired_not_renewed` | Filter `/imm06/competencies?status=Expired` |
+| % Users Competent | *(roadmap)* | `kpis.users_competent_pct` | — |
+| Completion Rate | *(roadmap)* | `kpis.training_completion_rate_90d` | `/imm06/sessions` filter 90d |
+| Pass Rate | *(roadmap)* | `kpis.average_pass_rate_90d` | — |
+| Gap Class III | *(roadmap)* | `kpis.total_gap_assets_class3` | Mở Gap Report mới nhất |
+
+**Quy tắc bind tile "Sắp hết hạn" / "Đã hết hạn" (BR-06-14):**
+- **Transport-agnostic:** tile hiển thị **verbatim** giá trị BE trả (`data.competencies.expiring` / `.expired`) — FE **KHÔNG** tự đếm lại từ list, **KHÔNG** lọc client-side theo `workflow_state` thuần. BE là SoT duy nhất (predicate LIVE date-derived).
+- **Click tile → drill khớp số:** click "Sắp hết hạn" gọi `get_expiring_competencies(60)`; `count` trả về **PHẢI** bằng giá trị tile (INVARIANT card == drill). Nếu lệch → là bug BE, KHÔNG patch FE để che.
+- **No EN leak:** nhãn tile dùng i18n VI (`imm06.status.expiring`="Sắp hết hạn", `imm06.status.expired`="Đã hết hạn") — KHÔNG render raw "Expiring"/"Expired"/"Active".
+- **vue-tsc prod 0** sau khi đổi binding (type `DashboardStats.competencies` phải có `expiring`/`expired`/`active`).
 
 ---
 
@@ -302,6 +310,21 @@
 | Revoked | Black + reason + CAPA link | Read-only terminal |
 
 **Days countdown color:** > 90d → xanh; 30-90d → vàng; 0-30d → cam; < 0 → đỏ.
+
+**Badge trạng thái phái sinh qua SSoT (BR-06-14, 2026-06-04):** Badge "Đang hiệu lực / Sắp hết hạn / Đã hết hạn" **KHÔNG** hardcode 1:1 từ `workflow_state` thuần. Vì scheduler có thể lỡ phiên (`auto_expire_competencies`) → record `expiry_date < today` vẫn còn cờ `Active`; nếu FE render thẳng cờ → hiện "Đang hiệu lực" cho năng lực ĐÃ hết hạn (rủi ro NĐ98). Quy tắc phái sinh (dùng `expiry_date` + `days_until_expiry` BE đã trả, hoặc helper SSoT FE `deriveCompetencyBadge(c)`):
+
+| Điều kiện (ưu tiên trên→dưới) | Badge hiển thị |
+|---|---|
+| `workflow_state ∈ {Revoked}` | "Đã thu hồi" (đen, terminal) |
+| `workflow_state ∈ {Suspended}` | "Tạm ngưng" (cam) |
+| `expiry_date < today` (BẤT KỂ cờ Active/Expiring/Expired) | "Đã hết hạn" (đỏ) |
+| `expiry_date ∈ [today, today+60]` ∧ cờ ∈ {Active, Expiring} | "Sắp hết hạn ({days}d)" (cam) |
+| còn lại (cờ Active, `expiry_date > today+60`) | "Đang hiệu lực" (xanh) |
+| `workflow_state == Pending Assessment` | "Chờ duyệt" (vàng) |
+
+- **No hardcode 'Đang hiệu lực'** cho năng lực có `expiry_date < today` — derive theo bảng trên.
+- **No EN leak:** nhãn qua i18n VI (`imm06.status.*`) — không render "Active/Expiring/Expired".
+- Badge derive này KHỚP predicate BE (§V.2) → list filter + tile + badge đồng nhất.
 
 ---
 

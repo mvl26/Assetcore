@@ -52,11 +52,17 @@
 ```
 ┌────────────────────────────────────────────────────────────────────┐
 │  Dashboard Bảo trì PM                         [Tháng 4/2026 ▼]    │
+│  ── STRIP THÁNG (Phạm vi: tháng 4/2026) ─────────────────────────  │
 ├────────────┬───────────┬───────────┬───────────┬───────────────────┤
-│  87.5%     │    16     │    14     │     2     │   3.5 ngày        │
-│ Compliance │  Tổng lịch│  Đúng hạn │  Quá hạn  │  Trễ trung bình   │
-│  rate      │           │           │           │                   │
+│  87.5%     │    16     │    14     │     1     │   3.5 ngày        │
+│ Compliance │ Tổng lịch │ Đúng hạn  │ Quá hạn   │ Trễ trung bình    │
+│ (— nếu     │ (tháng)   │ (tháng)   │ trong     │ (tháng)           │
+│  tổng=0)   │           │           │ tháng     │                   │
 ├────────────┴───────────┴───────────┴───────────┴───────────────────┤
+│  ── KHỐI TOÀN HỆ THỐNG ─────────────────────────────────────────  │
+│  [ 🔴 Quá hạn (toàn hệ thống): 5 ]   ← drill ?overdue=1            │
+│     Toàn hệ thống · click để xem danh sách                        │
+├────────────────────────────────────────────────────────────────────┤
 │  TREND COMPLIANCE 6 THÁNG                                          │
 │  100% ─────●───────●─────●                                        │
 │   75%   ●        ●     ●                                          │
@@ -132,18 +138,38 @@ Screenshots thực tế lưu tại: `docs/imm-08/screenshots/` (thêm sau khi bu
 
 > Bám `design-frontend.md §3.Dashboard`.
 
-| KPI Card | API | Cache TTL |
-|---|---|---|
-| Compliance Rate (%) | `get_pm_dashboard_stats` | 5 phút |
-| Tổng lịch / Đúng hạn / Quá hạn | Same | Same |
-| Trễ trung bình (ngày) | Same | Same |
-| Trend 6 tháng (line chart) | Same | Same |
+**🆕 Vòng 10 (Self-Correction — BR-08-13). 2 khối phạm vi, mỗi tile có NHÃN PHẠM VI rõ ràng — KHÔNG để tile global đứng chung strip tháng không-đối-soát-được.**
+
+**KHỐI THÁNG (strip — sub-label "Phạm vi: tháng {month}/{year}"):**
+
+| Tile | Field (`kpis.*`) | Nhãn VI | Render rule |
+|---|---|---|---|
+| Compliance Rate | `compliance_rate_pct` | "Tỷ lệ tuân thủ" + "Phạm vi: tháng M/Y" | `null → '—'`/N/A (INV-PM-KPI-3); KHÔNG hiện `0%` khi null |
+| Tổng lên lịch | `total_scheduled` | "Tổng lên lịch" + "Phạm vi: tháng M/Y" | số (BE đã loại WO `Cancelled` khỏi mẫu — INV-PM-KPI-6); FE render verbatim, KHÔNG tự cộng/trừ |
+| Đúng hạn | `completed_on_time` | "Hoàn thành đúng hạn" + "Phạm vi: tháng M/Y" | số (xanh) |
+| **Quá hạn trong tháng** | `overdue_in_month` | **"Quá hạn trong tháng"** + "Phạm vi: tháng M/Y" | số (đỏ); **KHÔNG dùng `kpis.overdue`** |
+| Trễ trung bình | `avg_days_late` | "Trễ trung bình (ngày)" + "Phạm vi: tháng M/Y" | số |
+
+**KHỐI TOÀN HỆ THỐNG (tile riêng, NGOÀI strip tháng):**
+
+| Tile | Field | Nhãn VI | Hành vi |
+|---|---|---|---|
+| **Quá hạn (toàn hệ thống)** | `overdue` (`count_overdue_pm()`) | **"Quá hạn (toàn hệ thống)"** + sub "Toàn hệ thống" | click → drill `?overdue=1` (route `/pm/work-orders?overdue=1`) — INV-PM-KPI-2/6 không đổi |
+
+> **INV-PM-KPI-4 (phản ví dụ FE):** khi `total_scheduled=0`, `overdue_in_month=0`, `overdue=5` → strip tháng hiện "Tổng lên lịch: 0 / Quá hạn trong tháng: 0 / Tuân thủ: —", tile global riêng hiện "Quá hạn (toàn hệ thống): 5". Người xem ĐỐI-SOÁT được: trong tháng không có gì, nhưng hệ thống còn 5 WO quá hạn tồn từ trước. KHÔNG còn "Quá hạn: 5" đứng cạnh "Tổng lịch: 0".
+>
+> **INV-PM-KPI-5 (đồng bộ cross-view):** strip KPI trên `PMWorkOrderListView.vue` dùng CÙNG endpoint `get_pm_dashboard_stats` → số tile khớp byte-for-byte với `PMDashboardView`. KHÔNG view nào tự re-compute từ list cục bộ. Không leak EN/raw status (dịch qua `formatters.translateStatus`).
+>
+> **INV-PM-KPI-6 (FE render mẫu loại-Cancelled — vòng 25):** strip `PMWorkOrderListView.vue` render **verbatim** các số BE trả:
+> - tile "Tổng lên lịch" (a.k.a. "Tổng lịch tháng") = `kpis.total_scheduled` mới (đã loại Cancelled) — FE **KHÔNG** tự đếm list cục bộ, **KHÔNG** tự cộng/trừ `Cancelled`.
+> - tile "Tỷ lệ tuân thủ" = `compliance_rate_pct`; `null → '—'` (KHÔNG `0%`/`0.0`) khi tháng chỉ-Cancelled (`total_scheduled==0`).
+> - KHÔNG leak text EN (`'Cancelled'`/`'Completed'`/`'Overdue'`) — mọi status qua `formatters.translateStatus`. `vue-tsc` prod 0 lỗi.
 
 **Action buttons:** Nút "Xuất báo cáo" (Workshop Head) — planned.
 
 **State:**
-- Loading: skeleton 4 KPI card + chart placeholder
-- Empty: "Chưa có dữ liệu PM trong tháng này"
+- Loading: skeleton (5 tile strip tháng + 1 tile global) + chart placeholder
+- Empty (`total_scheduled==0`): strip vẫn render (0/0/0/—) + tile global; chú thích "Không có PM nào đến hạn trong tháng này"
 - Error: toast đỏ
 
 #### 3.2. Calendar (`/pm/calendar`)
@@ -337,6 +363,9 @@ async function onSubmitResult() {
 | result: Fail–Minor | Lỗi nhỏ | "Fail-Minor" |
 | result: Fail–Major | Lỗi nghiêm trọng | "Fail-Major" |
 | Submit PM | Hoàn thành / Nộp kết quả | "Submit" |
+| KPI `overdue_in_month` | Quá hạn trong tháng | "overdue (month)" |
+| KPI `overdue` (global) | Quá hạn (toàn hệ thống) | "overdue (global)" |
+| KPI `compliance_rate_pct == null` | — (N/A) | "compliance n/a" |
 
 ### 7.c.bis Reconcile với mockup `docs/fe/08-pm/` (BE = source of truth)
 
