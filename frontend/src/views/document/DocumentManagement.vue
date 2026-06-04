@@ -50,7 +50,10 @@
         <option value="Draft">Nháp</option>
         <option value="Pending Review">Chờ duyệt</option>
         <option value="Active">Hiệu lực</option>
-        <option value="Expired">Hết hạn</option>
+        <!-- KHÔNG có option 'Expired' ở đây: 'Expired' là dead workflow state
+             (không transition nào dẫn vào) → lọc theo nó trả 0 dòng = dead-end.
+             "Đã hết hạn" là predicate ngày (expiry_date<today) — lọc qua dropdown
+             "Hết hạn" bên cạnh (BR-05-16 SoT), KHÔNG qua trạng thái workflow. -->
         <option value="Archived">Lưu trữ</option>
         <option value="Rejected">Từ chối</option>
       </select>
@@ -325,9 +328,13 @@ function filterByKpi(kind: KpiKind) {
   filters.doc_category = ''
   filters.asset_ref = ''
   const kpiFilter = buildKpiFilter(kind) ?? {}
-  // Reflect the KPI choice in the visible filter controls.
-  filters.workflow_state = (kpiFilter.workflow_state as string) ?? ''
-  filterExpiry.value = kind === 'expiring' ? '90' : ''
+  // Reflect the KPI choice in the visible filter controls so dropdown ↔ tile
+  // never diverge (BR-05-16). 'expired'/'expiring' map to the expiry dropdown;
+  // 'active' maps to the workflow_state dropdown.
+  filters.workflow_state = typeof kpiFilter.workflow_state === 'string'
+    ? kpiFilter.workflow_state
+    : ''
+  filterExpiry.value = kind === 'expiring' ? '90' : kind === 'expired' ? 'expired' : ''
   store.fetchDocuments(composeFilters(visibilityNarrow(), kpiFilter), 1)
 }
 
