@@ -3,6 +3,7 @@ import { ref, onMounted, computed, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useImm11Store } from '@/stores/imm11'
 import { formatAssetDisplay, formatDate } from '@/utils/formatters'
+import { deriveCalStatus } from '@/utils/calibrationStatus'
 import PageHeader from '@/components/common/PageHeader.vue'
 import FilterToggleButton from '@/components/common/FilterToggleButton.vue'
 import ListFilterBar from '@/components/common/ListFilterBar.vue'
@@ -105,8 +106,11 @@ async function loadKpis() {
   await store.fetchKpis()
 }
 
-function isOverdue(date: string | null) {
-  return date && new Date(date) < new Date()
+// Màu cell "ngày hiệu chuẩn kế tiếp" derive THUẦN từ ngày SoT (date-only) — FAIL
+// due-now (next_calibration_date <= today) → đỏ/cam, KHÔNG xanh "đúng lịch". Khớp
+// _overdue/_due_soon của BE (BR-11-08). Thay so sánh `new Date()<new Date()` fragile.
+function calDateClass(date: string | null) {
+  return deriveCalStatus(date).textClass
 }
 
 watch(() => route.query.asset, (val) => {
@@ -289,7 +293,7 @@ onMounted(() => { load(); loadKpis() })
                   <StatusBadge v-if="c.overall_result" :state="c.overall_result" />
                   <span v-else class="text-slate-300">—</span>
                 </td>
-                <td class="table-cell text-xs" :class="isOverdue(c.next_calibration_date) ? 'text-red-600 font-semibold' : 'text-slate-500'">
+                <td class="table-cell text-xs" :class="calDateClass(c.next_calibration_date)">
                   {{ formatDate(c.next_calibration_date) }}
                 </td>
               </tr>
