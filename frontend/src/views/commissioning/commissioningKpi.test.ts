@@ -60,3 +60,51 @@ describe('commissioningKpiItems', () => {
     expect(items[4].color).toBe('warning')
   })
 })
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TC-FE-04-KPI-01 — Vòng 16: re-anchor 'Bàn giao tháng này' về commissioning_date
+// (BE đổi `released_this_month` từ anchor `modified` → `commissioning_date`).
+// Bằng chứng FE FORWARD-COMPAT / TRANSPORT-AGNOSTIC: thẻ 'Bàn giao tháng này' bind
+// `kpis.released_this_month` VERBATIM — FE KHÔNG biết & KHÔNG cần biết BE đếm theo
+// anchor nào. Zero shape-change: field giữ type number, nhãn VI bất biến,
+// filterState='Clinical Release' bất biến, không leak EN. Nếu BE đổi anchor mà card
+// vẫn render đúng giá trị BE gửi + giữ filter → SoT-aligned card==drill 'Clinical Release'.
+// (Drill list theo cửa sổ tháng = backlog ngoài scope round — xem STATE.)
+// ─────────────────────────────────────────────────────────────────────────────
+describe('commissioningKpiItems — TC-FE-04-KPI-01 re-anchor regression', () => {
+  const CARD_IDX = 3 // 'Bàn giao tháng này' nằm ở index 3 (sau pending/hold/nc).
+
+  it('card "Bàn giao tháng này" binds released_this_month verbatim (anchor-agnostic)', () => {
+    // BE đổi anchor modified→commissioning_date ⇒ con số khác đi (vd phiếu Released
+    // tháng trước bị edit tháng này KHÔNG còn bị đếm). FE chỉ render value BE gửi.
+    for (const n of [0, 1, 8, 42]) {
+      const items = commissioningKpiItems({ ...kpis, released_this_month: n })
+      const card = items[CARD_IDX]
+      expect(card.value).toBe(n) // pass-through tuyệt đối — không tự tính lại ở FE
+      expect(card.label).toBe('Bàn giao tháng này') // nhãn VI bất biến
+      expect(card.filterState).toBe('Clinical Release') // drill tới state Released
+      expect(card.color).toBe('success')
+    }
+  })
+
+  it('zero shape-change: card value giữ type number, không leak EN/raw status', () => {
+    const items = commissioningKpiItems({ ...kpis, released_this_month: 5 })
+    const card = items[CARD_IDX]
+    expect(typeof card.value).toBe('number') // type number bất biến (imm04.ts:207)
+    // nhãn hiển thị tuyệt đối không lộ token tiếng Anh 'Released'/'Clinical Release'.
+    expect(card.label).not.toMatch(/\b(Released|Release|Clinical|Commission(ing|ed)?|modified|Active|Pending)\b/i)
+  })
+
+  it('re-anchor KHÔNG đụng các thẻ khác (only released_this_month thay đổi)', () => {
+    const base = commissioningKpiItems(kpis)
+    const reanchored = commissioningKpiItems({ ...kpis, released_this_month: 999 })
+    // mọi thẻ ngoài index 3 phải y hệt (label/value/filterState) → đổi anchor cô lập.
+    for (let i = 0; i < base.length; i++) {
+      if (i === CARD_IDX) continue
+      expect(reanchored[i].label).toBe(base[i].label)
+      expect(reanchored[i].value).toBe(base[i].value)
+      expect(reanchored[i].filterState).toBe(base[i].filterState)
+    }
+    expect(reanchored[CARD_IDX].value).toBe(999)
+  })
+})

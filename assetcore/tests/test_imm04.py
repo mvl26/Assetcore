@@ -763,5 +763,144 @@ class TestNoInlineOverdueLiteral(unittest.TestCase):
         )
 
 
+class TestSearchLinkConfigFieldsExist(unittest.TestCase):
+    """search_link / _ALLOWED_SEARCH_DOCTYPES naming-contract guards (BR-11-12).
+
+    Bug gốc: config 'IMM Calibration Schedule' tham chiếu cột 'asset_ref' KHÔNG tồn
+    tại trên DocType (field thật = 'asset') → frappe.db.get_all raise OperationalError
+    1054 (Unknown column) → /calibration/new full-page crash + leak traceback ra UI.
+
+    INVARIANT chống tái diễn: MỌI doctype trong _ALLOWED_SEARCH_DOCTYPES có
+    search_fields ∪ extra_fields ∪ {label_field} đều là column thật (meta.has_field)
+    hoặc 'name'. Test quét toàn config → FAIL nếu bất kỳ config nào tham chiếu field
+    chết. RED trên config cũ (asset_ref) — GREEN sau fix.
+    """
+
+    @staticmethod
+    def _field_exists(doctype: str, field: str) -> bool:
+        # 'name' luôn hợp lệ (docname column ảo); các field còn lại phải has_field.
+        if field == "name":
+            return True
+        try:
+            return bool(frappe.get_meta(doctype).has_field(field))
+        except Exception:
+            return False
+
+    def test_calibration_schedule_config_has_no_asset_ref(self):
+        """TC-CAL-SEARCH-01/02 (bug chính): config IMM Calibration Schedule KHÔNG
+        còn 'asset_ref' (cột chết) — mọi field trong config tồn tại trên DocType."""
+        from assetcore.services.imm04 import _ALLOWED_SEARCH_DOCTYPES
+
+        dt = "IMM Calibration Schedule"
+        if not frappe.db.exists("DocType", dt):
+            self.skipTest("DocType IMM Calibration Schedule chưa cài")
+        config = _ALLOWED_SEARCH_DOCTYPES[dt]
+        referenced = set(config["search_fields"]) | set(config["extra_fields"]) | {config["label_field"]}
+        self.assertNotIn(
+            "asset_ref", referenced,
+            "Config 'IMM Calibration Schedule' vẫn tham chiếu cột chết 'asset_ref' "
+            "(field thật là 'asset') → search_link sẽ raise OperationalError 1054.",
+        )
+        dead = [f for f in referenced if not self._field_exists(dt, f)]
+        self.assertEqual(dead, [], f"Field chết trong config '{dt}': {dead}")
+
+    def test_all_search_configs_reference_real_columns(self):
+        """TC-CAL-SEARCH-02 (invariant tổng quát — anti-recurrence): loop MỌI doctype
+        trong _ALLOWED_SEARCH_DOCTYPES → mọi field ∈ search∪extra∪{label} là column
+        thật. Bảo vệ mọi config tương lai khỏi lặp lại bug 'asset_ref'."""
+        from assetcore.services.imm04 import _ALLOWED_SEARCH_DOCTYPES
+
+        offenders: list[tuple[str, str]] = []
+        for dt, config in _ALLOWED_SEARCH_DOCTYPES.items():
+            # optional config có thể trỏ DocType chưa cài (vd module chưa bật) → bỏ qua
+            # khi DocType vắng mặt (search_link tự return [] nhánh optional). Nhưng nếu
+            # DocType TỒN TẠI thì field PHẢI thật, kể cả config optional.
+            if not frappe.db.exists("DocType", dt):
+                if config.get("optional"):
+                    continue
+                offenders.append((dt, "<DocType không tồn tại>"))
+                continue
+            referenced = set(config["search_fields"]) | set(config["extra_fields"]) | {config["label_field"]}
+            for f in referenced:
+                if not self._field_exists(dt, f):
+                    offenders.append((dt, f))
+        self.assertEqual(
+            offenders, [],
+            f"Config search tham chiếu field/doctype chết (sẽ gây 1054/traceback): {offenders}",
+        )
+
+
+class TestSearchLinkRuntime(unittest.TestCase):
+    """search_link runtime: KHÔNG raise SQL/traceback ra caller (defense-in-depth)."""
+
+    def test_calibration_schedule_query_does_not_raise(self):
+        """TC-CAL-SEARCH-01 (runtime): search_link('IMM Calibration Schedule', 'X')
+        trả list[dict]{value,label,description} KHÔNG raise. Config cũ (asset_ref) ⇒
+        OperationalError 1054 (RED); sau fix ⇒ GREEN."""
+        from assetcore.services import imm04 as svc
+
+        if not frappe.db.exists("DocType", "IMM Calibration Schedule"):
+            self.skipTest("DocType IMM Calibration Schedule chưa cài")
+        rows = svc.search_link("IMM Calibration Schedule", query="X")
+        self.assertIsInstance(rows, list)
+        for r in rows:
+            self.assertIn("value", r)
+            self.assertIn("label", r)
+            self.assertIn("description", r)
+
+    def test_empty_query_returns_list(self):
+        """TC-CAL-SEARCH-05 (biên): query='' → trả list (rỗng hoặc full theo limit)
+        KHÔNG raise."""
+        from assetcore.services import imm04 as svc
+
+        if not frappe.db.exists("DocType", "IMM Calibration Schedule"):
+            self.skipTest("DocType IMM Calibration Schedule chưa cài")
+        rows = svc.search_link("IMM Calibration Schedule", query="")
+        self.assertIsInstance(rows, list)
+
+    def test_dead_field_in_config_does_not_leak_sql(self):
+        """TC-CAL-SEARCH-03 (guard defense-in-depth): tạm inject 1 config có field giả
+        'zzz_nonexistent' → search_link KHÔNG raise OperationalError (guard lọc field
+        chết), trả rows chỉ với cột tồn tại. Chứng minh endpoint không leak 1054."""
+        from assetcore.services import imm04 as svc
+
+        if not frappe.db.exists("DocType", "IMM Calibration Schedule"):
+            self.skipTest("DocType IMM Calibration Schedule chưa cài")
+        registry = svc._ALLOWED_SEARCH_DOCTYPES
+        # Tạm thay config 'IMM Calibration Schedule' bằng config có field GIẢ trỏ
+        # DocType THẬT → nếu search_link không lọc field chết, frappe.db.get_all sẽ
+        # raise OperationalError 1054. Guard phải lọc → trả list không raise.
+        saved = dict(registry["IMM Calibration Schedule"])
+        try:
+            registry["IMM Calibration Schedule"] = {
+                "label_field": "name",
+                "search_fields": ["name", "zzz_nonexistent"],
+                "filters": {},
+                "extra_fields": ["zzz_nonexistent"],
+                "optional": True,
+            }
+            rows = svc.search_link("IMM Calibration Schedule", query="")
+            self.assertIsInstance(rows, list)
+            for r in rows:
+                self.assertIn("value", r)
+        finally:
+            registry["IMM Calibration Schedule"] = saved
+
+    def test_other_doctypes_no_regression(self):
+        """TC-CAL-SEARCH-04 (no-regression): AC Asset + IMM Device Model vẫn trả
+        shape {value,label,description} đúng — không hồi quy doctype khác."""
+        from assetcore.services import imm04 as svc
+
+        for dt in ("AC Asset", "IMM Device Model"):
+            if not frappe.db.exists("DocType", dt):
+                continue
+            rows = svc.search_link(dt, query="")
+            self.assertIsInstance(rows, list)
+            for r in rows:
+                self.assertIn("value", r)
+                self.assertIn("label", r)
+                self.assertIn("description", r)
+
+
 if __name__ == "__main__":
     unittest.main()
