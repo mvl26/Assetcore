@@ -28,9 +28,39 @@ export const ROLE_DOC_OFFICER = Roles.DOC_OFFICER
 const REMEMBER_KEY = 'assetcore.remember_usr'
 const SESSION_KEY = 'assetcore.session'
 const CAPS_KEY = 'assetcore.capabilities'
+const CAPS_VERSION_KEY = 'assetcore.capabilities_version'
 
 const CAP_DOC_WRITE = 'doc' + 'ument.write'
 const CAP_DOC_APPROVE = 'doc.approve'
+
+// CAP_SET_VERSION = version-stamp của cap-catalog mà FE hiện biết. PHẢI KHỚP
+// giá trị BE phát ra ở `__cap_version` (rbac.CAP_SET_VERSION = `vN.<sha256[:12]>`
+// của sorted(CAPABILITY_MAP)). Khi cap-set BE đổi (thêm/đổi tên capability — vd
+// decommission.* cho IMM-14) → BE version đổi → cập nhật hằng số NÀY cho khớp.
+// Init-time: persisted-version (do lần BE response trước lưu) khác hằng số NÀY →
+// coi là stale → bỏ persisted caps + ép loadCapabilities() (AC4). Khớp → giữ
+// cache (không refetch thừa). Khi BE response tới, FE luôn persist version BE gửi
+// (forward-compat FE-3); nếu BE chưa wire → fallback hằng số NÀY.
+// SoT: assetcore/services/shared/rbac.py::CAP_SET_VERSION (bench execute
+// assetcore.services.shared.rbac._compute_cap_set_version để lấy giá trị hiện tại).
+export const CAP_SET_VERSION = 'v89.2df4c16c2bbd'
+
+/**
+ * SSoT cho quyết định invalidate cache caps theo version-stamp (FE-2/AC4).
+ *
+ * - persisted khác current  → stale → bỏ persisted caps, ép refetch.
+ * - BE chưa trả version (current undefined) hoặc chưa từng persist version
+ *   (undefined) → coi như STALE (forward-compat FE-3): luôn refetch, không throw.
+ * - cùng version (cả 2 cùng giá trị, khác undefined) → KHÔNG stale (giữ cache,
+ *   tránh refetch thừa khi version ổn định).
+ */
+export function isCapCacheStale(
+  persistedVersion: string | undefined,
+  currentVersion: string | undefined,
+): boolean {
+  if (persistedVersion === undefined || currentVersion === undefined) return true
+  return persistedVersion !== currentVersion
+}
 
 interface PersistedSession {
   user: FrappeUser
@@ -49,7 +79,12 @@ export const useAuthStore = defineStore('auth', () => {
   // bật theo cờ này, KHÔNG theo `loading`. Tách 2 lifecycle khác nhau ra 2 cờ.
   const bootstrapping = ref(false)
   const error = ref<string | null>(null)
-  const capabilities = ref<Record<string, boolean>>(loadPersistedCaps())
+  // FE-2/AC4: nếu cap-set version đã đổi so với bản đã cache trong localStorage,
+  // bỏ persisted caps NGAY lúc khởi tạo store — component đọc `can()` trước khi
+  // loadCapabilities() chạy sẽ không dùng cap-set cũ (vd thiếu decommission.*).
+  const capabilities = ref<Record<string, boolean>>(
+    isCapCacheStale(loadPersistedVersion(), CAP_SET_VERSION) ? {} : loadPersistedCaps(),
+  )
 
   const isAuthenticated = computed(() => user.value !== null)
   const roles = computed<string[]>(() => user.value?.roles ?? [])
@@ -84,8 +119,13 @@ export const useAuthStore = defineStore('auth', () => {
   async function loadCapabilities(): Promise<void> {
     try {
       const caps = await fetchCapabilities()
-      capabilities.value = caps ?? {}
-      persistCaps(capabilities.value)
+      // FE-3 forward-compat: BE-3 có thể nhúng version-stamp vào payload qua key
+      // `__cap_version`. Tách ra khỏi map boolean trước khi lưu để không lọt vào
+      // can(); nếu BE chưa wire → version = FE constant (vẫn overwrite caps).
+      const { version, map } = splitCapVersion(caps ?? {})
+      capabilities.value = map
+      persistCaps(map)
+      persistVersion(version ?? CAP_SET_VERSION)
     } catch {
       // Silent fail — caps stay as last known state
     }
@@ -127,15 +167,18 @@ export const useAuthStore = defineStore('auth', () => {
         role_profile_name: ctx.role_profile_name ?? null,
       }
       persistUser(user.value)
-      if (Object.keys(capabilities.value).length === 0) {
-        await loadCapabilities()
-      }
+      // FE-1/AC3: LUÔN refresh caps khi khôi phục phiên — KHÔNG skip khi
+      // capabilities.value đã non-empty. User được cấp quyền trước release (vd
+      // IMM-14 decommission.*) đang giữ persisted-caps cũ sẽ được overwrite bằng
+      // cap-set mới nhất từ BE (loadCapabilities đã overwrite+persist + version).
+      await loadCapabilities()
       return true
     } catch (e) {
       user.value = null
       capabilities.value = {}
       localStorage.removeItem(SESSION_KEY)
       localStorage.removeItem(CAPS_KEY)
+      localStorage.removeItem(CAPS_VERSION_KEY)
       error.value = e instanceof Error ? e.message : 'Loi xac thuc'
       return false
     } finally {
@@ -153,8 +196,8 @@ export const useAuthStore = defineStore('auth', () => {
    */
   async function ensureFresh(): Promise<void> {
     if (!isAuthenticated.value) return
+    // fetchSession() đã LUÔN gọi loadCapabilities() (FE-1) → không refetch lần 2.
     await fetchSession()
-    await loadCapabilities()
   }
 
   /**
@@ -188,6 +231,7 @@ export const useAuthStore = defineStore('auth', () => {
       capabilities.value = {}
       localStorage.removeItem(SESSION_KEY)
       localStorage.removeItem(CAPS_KEY)
+      localStorage.removeItem(CAPS_VERSION_KEY)
       globalThis.location.href = loginPath()
     }
   }
@@ -242,4 +286,37 @@ function persistCaps(caps: Record<string, boolean>): void {
   } catch {
     // ignore quota errors
   }
+}
+
+function loadPersistedVersion(): string | undefined {
+  return localStorage.getItem(CAPS_VERSION_KEY) ?? undefined
+}
+
+function persistVersion(version: string): void {
+  try {
+    localStorage.setItem(CAPS_VERSION_KEY, version)
+  } catch {
+    // ignore quota errors
+  }
+}
+
+/**
+ * Tách version-stamp khỏi cap-map. BE-3 (forward-compat) có thể nhúng version
+ * vào payload qua key dành riêng `__cap_version` (kiểu string). Mọi key còn lại
+ * coi là capability boolean. Nếu không có version → version = undefined (caller
+ * fallback CAP_SET_VERSION). Không throw khi BE chưa wire (FE-3).
+ */
+function splitCapVersion(
+  raw: Record<string, unknown>,
+): { version: string | undefined; map: Record<string, boolean> } {
+  const map: Record<string, boolean> = {}
+  let version: string | undefined
+  for (const [k, v] of Object.entries(raw)) {
+    if (k === '__cap_version') {
+      version = typeof v === 'string' ? v : undefined
+      continue
+    }
+    map[k] = v === true
+  }
+  return { version, map }
 }

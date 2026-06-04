@@ -106,15 +106,96 @@ class TestCapabilityMap(unittest.TestCase):
                 except Exception:
                     pass
 
-    def test_can_unknown_capability_raises(self):
-        with self.assertRaises(KeyError):
-            rbac.can("nope.nope")
+    def test_can_unknown_capability_denies(self):
+        """TC-RBAC-01: cap KHÔNG có trong CAPABILITY_MAP → can()==False (DENY),
+        KHÔNG raise KeyError. Stale gunicorn worker (chưa có cap mới trong RAM)
+        phải degrade thành 'nút ẩn / 403', KHÔNG 'lỗi server 500'.
+        Trước fix: `CAPABILITY_MAP[cap]` raise KeyError → bubble thành HTTP 500."""
+        self.assertFalse(rbac.can("nope.nope"))
+        self.assertFalse(rbac.can("cap.khong.ton.tai"))
+
+    def test_require_unknown_capability_denies(self):
+        """TC-RBAC-01: require() cap lạ → frappe.PermissionError (HTTP 403 VI),
+        KHÔNG KeyError→500. require() kế thừa can()==False."""
+        frappe.set_user("Administrator")
+        with self.assertRaises(frappe.PermissionError):
+            rbac.require("cap.khong.ton.tai")
+
+    def test_require_known_cap_no_regression(self):
+        """TC-RBAC-02: cap hợp lệ — user CÓ quyền → require() không raise;
+        user KHÔNG quyền → PermissionError. Đối chứng giữ hành vi cũ."""
+        # Admin có toàn quyền — require pm.read không raise.
+        frappe.set_user("Administrator")
+        try:
+            rbac.require("pm.read")
+        except frappe.PermissionError:
+            self.fail("Admin phải pass require('pm.read')")
+        # User KHÔNG có quyền decommission → require raise PermissionError.
+        usr = _ensure_role_user("_test_rbac_noperm@assetcore.test", ["PM User"])
+        try:
+            frappe.set_user(usr)
+            self.assertFalse(rbac.can("decommission.create"))
+            with self.assertRaises(frappe.PermissionError):
+                rbac.require("decommission.create")
+        finally:
+            frappe.set_user("Administrator")
+            try:
+                frappe.delete_doc("User", usr, force=True, ignore_permissions=True)
+            except Exception:
+                pass
 
     def test_get_capabilities_returns_dict(self):
         frappe.set_user("Administrator")
         caps = rbac.get_capabilities()
         self.assertIsInstance(caps, dict)
         self.assertIn("pm.read", caps)
+
+    def test_get_capabilities_carries_version_stamp(self):
+        """AC4 (BE side): get_capabilities trả version-stamp `__version__`
+        (str) để FE biết cap-set đã đổi. Backward-compat: là field PHỤ trong
+        cùng dict; consumer cũ đọc caps[x]===True không bị ảnh hưởng (value
+        version là str, không phải bool). CAP_SET_VERSION ổn định theo nội
+        dung sorted(CAPABILITY_MAP keys)."""
+        frappe.set_user("Administrator")
+        caps = rbac.get_capabilities()
+        self.assertIn(rbac.CAP_VERSION_KEY, caps)
+        self.assertEqual(caps[rbac.CAP_VERSION_KEY], rbac.CAP_SET_VERSION)
+        self.assertIsInstance(rbac.CAP_SET_VERSION, str)
+        # decommission.* PHẢI nằm trong tập cap (version phản ánh IMM-14 đã có).
+        self.assertIn("decommission.create", caps)
+
+    def test_after_migrate_busts_caps(self):
+        """TC-RBAC-03 (integration): set cache ac_caps::<u> giả; gọi
+        invalidate_capabilities() (toàn bộ); get_capabilities() build lại từ
+        DocPerm THẬT — cache miss sau bust + decommission.* resolve đúng cho
+        user có DocPerm Asset Decommission."""
+        frappe.set_user("Administrator")
+        fake_user = "_test_rbac_bust@assetcore.test"
+        key = rbac._cache_key(fake_user)
+        # 1) Set cache giả (stale) cho user fake.
+        frappe.cache().set_value(key, {"stale": True}, expires_in_sec=3600)
+        self.assertIsNotNone(frappe.cache().get_value(key))
+        # 2) Bust toàn bộ ac_caps::* (mô phỏng after_migrate).
+        rbac.invalidate_capabilities()
+        self.assertIsNone(frappe.cache().get_value(key),
+                          "after bust → cache ac_caps::* phải miss")
+        # 3) User có DocPerm Asset Decommission (Commissioning Manager submit/create)
+        #    → get_capabilities build lại CHỨA decommission.read/create/approve=True.
+        u = _ensure_role_user("_test_rbac_decom@assetcore.test",
+                              ["Commissioning Manager"])
+        try:
+            caps = rbac.get_capabilities(u)
+            self.assertTrue(caps.get("decommission.read"),
+                            "Commissioning Manager phải có decommission.read")
+            self.assertTrue(caps.get("decommission.create"),
+                            "Commissioning Manager phải có decommission.create")
+            self.assertTrue(caps.get("decommission.approve"),
+                            "Commissioning Manager phải có decommission.approve")
+        finally:
+            try:
+                frappe.delete_doc("User", u, force=True, ignore_permissions=True)
+            except Exception:
+                pass
 
 
 import json, os, glob

@@ -139,7 +139,26 @@ def after_migrate() -> None:
     _seed_module_profiles()
     _apply_core_permissions()
     _install_notifications()
+    _bust_capability_cache()
     _build_frontend(force=False)
+
+
+def _bust_capability_cache() -> None:
+    """BE-2 (USER REWORK IMM-14): sau khi DocPerm/Role/Role Profile da sync
+    (rbac matrix + role profiles + core perms), bust toan bo cache Redis
+    `ac_caps::*` → cap moi (vd decommission.*) toi FE NGAY lan goi
+    get_capabilities dau tien sau deploy, KHONG doi TTL 1h.
+
+    Idempotent + best-effort: loi cache KHONG duoc chan migrate."""
+    try:
+        from assetcore.services.shared import rbac
+
+        rbac.invalidate_capabilities()
+        print(f"[AssetCore] ac_caps::* busted (cap-set {rbac.CAP_SET_VERSION})")
+    except Exception as e:  # noqa: BLE001
+        frappe.log_error(
+            f"_bust_capability_cache failed: {e}", "AssetCore after_migrate"
+        )
 
 
 def _seed_uoms() -> None:
