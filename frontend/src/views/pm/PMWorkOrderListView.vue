@@ -80,13 +80,19 @@ onMounted(() => {
 })
 
 // KPI strip (docs/fe/08-pm/pm-list.html) — nguồn: dashboard stats thật từ BE.
+// ĐỒNG NHẤT PHẠM VI (INV-PM-KPI-1/5): strip này gắn với 'Tổng lịch tháng' (phạm
+// vi tháng) → 'Quá hạn' phải dùng overdue_in_month (CÙNG phạm vi, đối-soát được),
+// KHÔNG overdue global. Tile 'Quá hạn (toàn hệ thống)' tách riêng, nhãn rõ ràng,
+// khớp số PMDashboardView (cùng endpoint get_pm_dashboard_stats).
 const kpiItems = computed<WoKpiItem[]>(() => {
   const s = store.dashboardStats?.kpis
   if (!s) return []
+  const compliance = s.compliance_rate_pct == null ? '—' : `${s.compliance_rate_pct}%`
   return [
     { label: 'Tổng lịch tháng', value: s.total_scheduled, color: 'primary' },
-    { label: 'Quá hạn', value: s.overdue, color: 'danger', trend: s.overdue > 0 ? 'Cần escalate' : 'Đúng tiến độ' },
-    { label: 'Hoàn tất đúng hạn', value: s.completed_on_time, color: 'success', trend: `Compliance ${s.compliance_rate_pct}%` },
+    { label: 'Quá hạn trong tháng', value: s.overdue_in_month, color: 'warning', trend: s.overdue_in_month > 0 ? 'Cần xử lý' : 'Đúng tiến độ' },
+    { label: 'Quá hạn (toàn hệ thống)', value: s.overdue, color: 'danger', trend: s.overdue > 0 ? 'Cần escalate' : 'Đúng tiến độ' },
+    { label: 'Hoàn tất đúng hạn', value: s.completed_on_time, color: 'success', trend: `Compliance ${compliance}` },
     { label: 'Trễ trung bình', value: `${s.avg_days_late} ngày`, color: 'warning' },
   ]
 })

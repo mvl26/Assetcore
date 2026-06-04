@@ -127,6 +127,45 @@ def due_soon_filter(window_end, ref_date=None) -> dict:
     }
 
 
+# SoT (BR-08-03): "Ngày PM kế tiếp" (next_pm_date / next_due_date). 1 hằng default
+# + 1 helper pure dùng CHUNG bởi MỌI write-site (update_pm_schedule_after_completion
+# → PM Schedule.next_due_date; handle_work_order_submit → AC Asset.next_pm_date +
+# PM Task Log.next_pm_date; submit_result → field API trả về). KHÔNG 3+ nơi tự
+# inline add_days(...) (trước đây trôi thành 3 bản phân kỳ: anchor nowdate-vs-
+# completion + default or-0-vs-or-90).
+PM_DEFAULT_INTERVAL_DAYS = 90
+
+
+def compute_next_pm_date(completion_date, interval: int | None = None) -> str:
+    """SoT DUY NHẤT (BR-08-03): ngày PM kế tiếp = completion_date + interval hiệu lực.
+
+    INVARIANT anchor: LUÔN dùng ``completion_date`` (mốc hoàn thành thực tế của WO),
+    KHÔNG bao giờ ``nowdate()``. Khi PM hoàn thành trễ/backdated
+    (``completion_date != today``), giá trị này phải bằng nhau byte-for-byte ở MỌI
+    nơi: ``PM Schedule.next_due_date`` (persist), ``AC Asset.next_pm_date``,
+    ``PM Task Log.next_pm_date``, và field ``next_pm_date`` mà ``submit_result`` trả
+    về API.
+
+    INVARIANT default: interval hiệu lực = ``interval`` nếu ``interval and
+    interval > 0``, else ``PM_DEFAULT_INTERVAL_DAYS`` (=90). Khi ``pm_interval_days``
+    rỗng/0/None, schedule — asset — API CÙNG nhảy +90 ngày → asset KHÔNG còn lập tức
+    bị scheduler coi là PM-overdue giả trong khi schedule báo còn 90 ngày.
+
+    Args:
+        completion_date: mốc hoàn thành WO (str/date) — anchor BẮT BUỘC.
+        interval: ``pm_interval_days`` THÔ từ PM Schedule (có thể rỗng/0/None) —
+            việc chọn default 90 nằm DUY NHẤT trong hàm này, KHÔNG ở call-site.
+
+    Returns:
+        str: ngày PM kế tiếp (``add_days(getdate(completion_date), effective)``).
+    """
+    effective = interval if interval and interval > 0 else PM_DEFAULT_INTERVAL_DAYS
+    # str() để honor contract `-> str` (FE render verbatim) + đảm bảo parity
+    # byte-for-byte: AssetRepo/PMTaskLog persist Date, DB get_value trả date →
+    # str() đồng nhất một kiểu chuỗi ISO ở MỌI write-site/đọc.
+    return str(add_days(getdate(completion_date), effective))
+
+
 class PMScheduleStatus:
     ACTIVE = "Active"
     PAUSED = "Paused"
@@ -203,6 +242,32 @@ def _month_range(year: int, month: int) -> tuple[str, str, int]:
     return f"{year:04d}-{month:02d}-01", f"{year:04d}-{month:02d}-{last_day:02d}", last_day
 
 
+def _pm_scheduled(rows: list[dict]) -> list[dict]:
+    """SoT (BR-08-14 / INV-PM-KPI-6): MẪU tuân thủ = WO trong cửa-sổ tháng có
+    ``status != Cancelled``.
+
+    1 predicate DUY NHẤT dùng CHUNG bởi tile-tháng (``get_dashboard_stats`` khối
+    THÁNG) VÀ ``trend_6months[*].rate`` → cùng SoT, KHÔNG 2 nơi tự định nghĩa lại
+    (tránh trend lệch chuẩn so với tile compliance).
+
+    Vì sao loại Cancelled: WO ``Cancelled`` = nghĩa vụ bảo trì bị VOID hành chính
+    (hủy chủ động, hết nghĩa vụ thực hiện) — nhất quán với ``count_overdue_pm`` đã
+    loại ``[Completed, Cancelled]`` và ``due_soon_filter`` đã loại Cancelled. Để
+    Cancelled trong mẫu sẽ (a) phình mẫu → kéo ``compliance_rate_pct`` giả tụt;
+    (b) đẩy Cancelled vào ``pending_in_month`` thành phantom 'chưa xong'.
+
+    RANH GIỚI: CHỈ ``Cancelled`` bị loại. ``Halted–Major Failure`` GIỮ counted
+    (kết cục PM non-compliant THẬT — thiết bị hỏng nặng, nghĩa vụ KHÔNG bị void).
+
+    Args:
+        rows: list WO dict (cần khóa ``status``) trong cửa-sổ tháng.
+
+    Returns:
+        list[dict]: subset rows với ``status != PMStatus.CANCELLED``.
+    """
+    return [w for w in rows if w["status"] != PMStatus.CANCELLED]
+
+
 # ─── DocType controller delegates ────────────────────────────────────────────
 
 def validate_work_order(doc) -> None:
@@ -242,7 +307,7 @@ def handle_work_order_submit(doc) -> None:
     Sets completion date/late flag, advances PM Schedule, syncs AC Asset fields,
     creates immutable PM Task Log, auto-creates CM WO and handles major failure.
     """
-    from frappe.utils import date_diff as _date_diff, add_days as _add_days, nowdate as _nowdate
+    from frappe.utils import date_diff as _date_diff, nowdate as _nowdate
 
     doc.completion_date = _nowdate()
     if doc.due_date:
@@ -250,10 +315,13 @@ def handle_work_order_submit(doc) -> None:
 
     update_pm_schedule_after_completion(doc.pm_schedule, doc.completion_date)
 
-    sched_interval = PMScheduleRepo.get_value(doc.pm_schedule, "pm_interval_days") or 0 if doc.pm_schedule else 0
+    # BR-08-03: pm_interval_days THÔ (có thể rỗng/0/None) → SoT compute_next_pm_date
+    # chọn default. KHÔNG fallback-literal ở call-site (việc chọn default nằm trong helper).
+    sched_interval = PMScheduleRepo.get_value(doc.pm_schedule, "pm_interval_days") if doc.pm_schedule else None
+    next_pm_date = compute_next_pm_date(doc.completion_date, sched_interval)
     AssetRepo.set_values(doc.asset_ref, {
         "last_pm_date": doc.completion_date,
-        "next_pm_date": _add_days(doc.completion_date, sched_interval),
+        "next_pm_date": next_pm_date,
     })
 
     days_late = _date_diff(doc.completion_date, doc.due_date) if doc.is_late else 0
@@ -266,7 +334,7 @@ def handle_work_order_submit(doc) -> None:
         "overall_result": doc.overall_result,
         "is_late": doc.is_late,
         "days_late": days_late,
-        "next_pm_date": _add_days(doc.completion_date, sched_interval),
+        "next_pm_date": next_pm_date,
         "summary": doc.technician_notes or "",
     })
 
@@ -449,8 +517,9 @@ def update_pm_schedule_after_completion(pm_schedule_name: str, completion_date: 
     if not sched:
         return
     sched.last_pm_date = completion_date
-    interval = sched.pm_interval_days or 90
-    sched.next_due_date = add_days(getdate(completion_date), interval)
+    # BR-08-03: dùng SoT compute_next_pm_date (anchor=completion_date, default trong
+    # helper). Đây là path ĐÚNG sẵn — qua SoT để dedup, KHÔNG inline add_days nữa.
+    sched.next_due_date = compute_next_pm_date(completion_date, sched.pm_interval_days)
     PMScheduleRepo.save(sched)
 
 
@@ -619,8 +688,13 @@ def submit_result(name: str, *, checklist_results: list[dict], overall_result: s
     # Khôi phục trạng thái thiết bị → Active sau khi PM hoàn thành
     _transition_asset(wo.asset_ref, AssetStatus.ACTIVE, wo.name)
 
-    sched_interval = PMScheduleRepo.get_value(wo.pm_schedule, "pm_interval_days") or 0
-    next_pm_date = add_days(nowdate(), sched_interval)
+    # BR-08-03 FIX CHÍNH: anchor = wo.completion_date (đã set = nowdate() trong
+    # handle_work_order_submit qua wo.submit()), KHÔNG nowdate() độc lập. Khi PM
+    # backdated/late, field này == PM Schedule.next_due_date đã persist ==
+    # AC Asset.next_pm_date == PM Task Log.next_pm_date (byte-for-byte, 1 SoT).
+    # pm_interval_days THÔ — default 90 nằm DUY NHẤT trong compute_next_pm_date.
+    sched_interval = PMScheduleRepo.get_value(wo.pm_schedule, "pm_interval_days")
+    next_pm_date = compute_next_pm_date(wo.completion_date, sched_interval)
     cm_wo = PMWorkOrderRepo.find_one(
         {"source_pm_wo": name, "wo_type": "Corrective"},
         fields=["name"],
@@ -814,21 +888,43 @@ def get_dashboard_stats(*, year: int, month: int) -> dict:
         fields=["name", "status", "is_late", "completion_date", "due_date"],
         page_size=5000,
     )
-    total = len(wos)
-    completed = [w for w in wos if w["status"] == PMStatus.COMPLETED]
+    # BR-08-14 / INV-PM-KPI-6: MẪU tuân thủ = WO không-Cancelled (SoT _pm_scheduled).
+    # WO Cancelled (nghĩa vụ bị VOID hành chính) bị loại khỏi total_scheduled & MỌI
+    # bucket THÁNG (completed/overdue/pending) → diệt (a) compliance giả tụt vì mẫu
+    # phình; (b) phantom 'chưa xong' ở pending. Halted–Major Failure GIỮ counted.
+    scheduled = _pm_scheduled(wos)
+    total = len(scheduled)
+    completed = [w for w in scheduled if w["status"] == PMStatus.COMPLETED]
     on_time = [w for w in completed if not w["is_late"]]
     # RC-10 (NextRound): KPI "Quá hạn" trên /pm/dashboard phải là count global
     # (status == "Overdue") khớp với launcher widget — tránh dual-source.
     # Trước đây chỉ đếm trong window tháng đang xem nên launcher (global) báo 1,
     # /pm/dashboard (month-bound) báo 0 cho WO quá hạn từ tháng trước.
     # Single source of truth: count_overdue_pm() (cùng hàm launcher gọi).
+    # → field `overdue` = GLOBAL (toàn hệ thống) — KHÔNG đổi giá trị/ngữ nghĩa
+    #   (INV-PM-KPI-2 / RC-10): khớp launcher widget + drill ?overdue=1.
     overdue_count = count_overdue_pm()
-    overdue = [w for w in wos if w["status"] == PMStatus.OVERDUE]
+    # INV-PM-KPI-1/4: tile "Quá hạn trong tháng" phải đối-soát được với tổng-lịch
+    # tháng. overdue_in_month = WO status==Overdue VÀ due_date thuộc [start,end] của
+    # tháng đang xem (subset của scheduled) → KHÔNG bao giờ > total_scheduled. Đếm
+    # trên `scheduled` (Overdue != Cancelled nên giá trị KHÔNG đổi — giữ nhất quán
+    # mẫu, KHÔNG còn rủi ro Cancelled lọt bucket nào).
+    overdue_in_month = sum(1 for w in scheduled if w["status"] == PMStatus.OVERDUE)
+    # pending_in_month = các WO trong tháng CHƯA hoàn thành VÀ CHƯA quá hạn
+    # (còn lại sau khi trừ completed + overdue trên MẪU không-Cancelled) — để strip
+    # tháng hòa hợp số học: total_scheduled >= completed_on_time + overdue_in_month
+    # + pending_in_month. Vì total=len(scheduled), Cancelled KHÔNG còn rơi vào pending.
+    completed_in_month = len(completed)
+    pending_in_month = total - completed_in_month - overdue_in_month
     late_days = [
         date_diff(str(w["completion_date"]), str(w["due_date"]))
         for w in completed if w["is_late"] and w["completion_date"]
     ]
-    compliance_rate = round(len(on_time) / total * 100, 1) if total else 0.0
+    # INV-PM-KPI-3/6: compliance population-consistent — CẢ tử (completed_on_time)
+    # & mẫu (total_scheduled = WO không-Cancelled) cùng phạm-vi-tháng. total==0 →
+    # None (KHÔNG 0.0 gây hiểu nhầm "không tuân thủ"); FE render '—'/N-A. Tháng
+    # chỉ-Cancelled ⇒ total==0 ⇒ None.
+    compliance_rate = round(len(on_time) / total * 100, 1) if total else None
     avg_days_late = round(sum(late_days) / len(late_days), 1) if late_days else 0.0
 
     trend = []
@@ -844,19 +940,26 @@ def get_dashboard_stats(*, year: int, month: int) -> dict:
             fields=["status", "is_late"],
             page_size=5000,
         )
-        t = len(month_wos)
-        c_on = sum(1 for w in month_wos if w["status"] == PMStatus.COMPLETED and not w["is_late"])
+        # INV-PM-KPI-6 (trend SoT): CÙNG predicate loại-Cancelled với tile-tháng
+        # (helper _pm_scheduled) → trend KHÔNG lệch chuẩn so với compliance tháng
+        # hiện tại. t = số WO không-Cancelled; rate = c_on/t.
+        month_scheduled = _pm_scheduled(month_wos)
+        t = len(month_scheduled)
+        c_on = sum(1 for w in month_scheduled if w["status"] == PMStatus.COMPLETED and not w["is_late"])
         trend.append({
             "month": f"{y:04d}-{m:02d}", "total": t, "on_time": c_on,
             "rate": round(c_on / t * 100, 1) if t else 0.0,
         })
     return {
         "kpis": {
-            "compliance_rate_pct": compliance_rate,
+            # Phạm-vi-tháng (đối-soát được, INV-PM-KPI-1/3/5):
+            "compliance_rate_pct": compliance_rate,  # None khi total_scheduled==0
             "total_scheduled": total,
             "completed_on_time": len(on_time),
-            # RC-10: dùng count global (status == Overdue) thay vì len(overdue)
-            # bị bó trong window tháng đang xem.
+            "overdue_in_month": overdue_in_month,    # Overdue ∧ due_date ∈ tháng
+            "pending_in_month": pending_in_month,    # chưa xong, chưa quá hạn
+            # Toàn-hệ-thống (INV-PM-KPI-2 / RC-10): count global status==Overdue,
+            # khớp launcher widget + drill ?overdue=1. KHÔNG bó trong tháng.
             "overdue": overdue_count,
             "avg_days_late": avg_days_late,
         },

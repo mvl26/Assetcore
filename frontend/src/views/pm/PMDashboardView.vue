@@ -4,6 +4,7 @@ import { useImm08Store } from '@/stores/imm08'
 import { useRouter } from 'vue-router'
 import SkeletonLoader from '@/components/common/SkeletonLoader.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
+import { formatPercent } from '@/utils/formatters'
 
 const store  = useImm08Store()
 const router = useRouter()
@@ -37,13 +38,28 @@ const monthLabel = computed(() =>
 
 const maxTrendRate = computed(() => Math.max(...trend.value.map((t) => t.rate), 1))
 
-function complianceColor(rate: number): string {
+// Nhãn phạm vi (INV-PM-KPI-5): tile tháng gắn 'Phạm vi: tháng M/Y'.
+const scopeMonth = computed(() => `Phạm vi: tháng ${month.value}/${year.value}`)
+
+// compliance_rate_pct = null khi total_scheduled==0 → tile render '—' (qua
+// formatPercent SSoT), KHÔNG 0% (INV-PM-KPI-3). complianceColor null → neutral.
+function complianceColor(rate: number | null | undefined): string {
+  if (rate == null) return '#94a3b8' // slate-400 — chưa có dữ liệu, không phán xét
   if (rate >= 90) return '#059669'
   if (rate >= 70) return '#d97706'
   return '#dc2626'
 }
+function complianceBarWidth(rate: number | null | undefined): number {
+  return rate == null ? 0 : rate
+}
 function daysUntil(dateStr: string): number {
   return Math.ceil((new Date(dateStr).getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+}
+
+// Drill 'Quá hạn (toàn hệ thống)' → list ?overdue=1 (RC-10 SoT, INV-PM-KPI-6:
+// đúng tập count_overdue_pm()). KHÔNG đổi route khác.
+function drillOverdueGlobal() {
+  router.push({ path: '/pm/work-orders', query: { overdue: '1' } })
 }
 </script>
 
@@ -69,39 +85,60 @@ function daysUntil(dateStr: string): number {
     <!-- KPI Cards -->
     <SkeletonLoader v-if="store.loading && !kpis" variant="kpi-cards" class="mb-7" />
 
-    <div v-else-if="kpis" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-7">
-      <!-- Compliance rate — large card -->
+    <div v-else-if="kpis" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4 mb-7">
+      <!-- Compliance rate — large card. total_scheduled==0 → '—' (KHÔNG 0%). -->
       <div
-class="kpi-card p-5 lg:col-span-1 flex flex-col items-start gap-2"
+data-testid="pm-kpi-compliance"
+           class="kpi-card p-5 lg:col-span-1 flex flex-col items-start gap-2"
            style="--kpi-color: v-bind('complianceColor(kpis.compliance_rate_pct)')">
         <p class="text-xs font-medium text-slate-500">Tỷ lệ tuân thủ</p>
         <p
 class="text-4xl font-bold leading-none"
+           :title="kpis.compliance_rate_pct == null ? 'Chưa có lịch PM trong tháng' : undefined"
            :style="`color: ${complianceColor(kpis.compliance_rate_pct)}`">
-          {{ kpis.compliance_rate_pct }}%
+          {{ formatPercent(kpis.compliance_rate_pct) }}
         </p>
         <!-- Mini progress bar -->
         <div class="w-full h-1.5 rounded-full bg-slate-100 mt-1">
           <div
 class="h-full rounded-full animate-bar-fill"
-               :style="`width:${kpis.compliance_rate_pct}%; background:${complianceColor(kpis.compliance_rate_pct)}`" />
+               :style="`width:${complianceBarWidth(kpis.compliance_rate_pct)}%; background:${complianceColor(kpis.compliance_rate_pct)}`" />
         </div>
-        <!-- Scope label — BE tính tỷ lệ tuân thủ trong phạm vi tháng/năm hiện tại -->
-        <p class="text-xs text-slate-500 mt-1">Phạm vi: tháng {{ month }}/{{ year }}</p>
+        <p class="text-xs text-slate-500 mt-1">{{ scopeMonth }}</p>
       </div>
-      <div class="kpi-card p-5" style="--kpi-color: #334155">
+      <div data-testid="pm-kpi-total" class="kpi-card p-5" style="--kpi-color: #334155">
         <p class="text-xs font-medium text-slate-500 mb-2">Tổng lên lịch</p>
         <p class="text-3xl font-bold text-slate-800">{{ kpis.total_scheduled }}</p>
+        <p class="text-[11px] text-slate-400 mt-1">{{ scopeMonth }}</p>
       </div>
-      <div class="kpi-card p-5" style="--kpi-color: #059669">
+      <div data-testid="pm-kpi-completed" class="kpi-card p-5" style="--kpi-color: #059669">
         <p class="text-xs font-medium text-slate-500 mb-2">Hoàn thành đúng hạn</p>
         <p class="text-3xl font-bold text-emerald-600">{{ kpis.completed_on_time }}</p>
+        <p class="text-[11px] text-slate-400 mt-1">{{ scopeMonth }}</p>
       </div>
-      <div class="kpi-card p-5" style="--kpi-color: #dc2626">
-        <p class="text-xs font-medium text-slate-500 mb-2">Quá hạn</p>
+      <!-- Quá hạn TRONG THÁNG (subset total_scheduled, đối-soát được) -->
+      <div
+data-testid="pm-kpi-overdue-month"
+           class="kpi-card p-5"
+           style="--kpi-color: #f97316"
+           :aria-label="`Quá hạn trong tháng: ${kpis.overdue_in_month}`">
+        <p class="text-xs font-medium text-slate-500 mb-2">Quá hạn trong tháng</p>
+        <p class="text-3xl font-bold text-orange-500">{{ kpis.overdue_in_month }}</p>
+        <p class="text-[11px] text-slate-400 mt-1">{{ scopeMonth }}</p>
+      </div>
+      <!-- Quá hạn TOÀN HỆ THỐNG (RC-10, drill ?overdue=1, khớp launcher) -->
+      <button
+type="button"
+              data-testid="pm-kpi-overdue-global"
+              class="kpi-card p-5 text-left transition-shadow hover:shadow-md focus:outline-none focus:ring-2 focus:ring-red-300"
+              style="--kpi-color: #dc2626"
+              :aria-label="`Quá hạn toàn hệ thống: ${kpis.overdue}. Nhấn để xem danh sách.`"
+              @click="drillOverdueGlobal">
+        <p class="text-xs font-medium text-slate-500 mb-2">Quá hạn (toàn hệ thống)</p>
         <p class="text-3xl font-bold text-red-600">{{ kpis.overdue }}</p>
-      </div>
-      <div class="kpi-card p-5" style="--kpi-color: #d97706">
+        <p class="text-[11px] text-slate-400 mt-1">Toàn hệ thống</p>
+      </button>
+      <div data-testid="pm-kpi-avg-late" class="kpi-card p-5" style="--kpi-color: #d97706">
         <p class="text-xs font-medium text-slate-500 mb-2">Trễ TB (ngày)</p>
         <p class="text-3xl font-bold text-amber-600">{{ kpis.avg_days_late }}</p>
       </div>

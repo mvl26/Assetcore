@@ -53,9 +53,18 @@ export interface PMCalendarEvent {
 
 export interface PMDashboardStats {
   kpis: {
-    compliance_rate_pct: number
+    // Phạm-vi-tháng (INV-PM-KPI-3): null khi total_scheduled==0 (chưa có lịch PM
+    // trong tháng) → FE render '—' thay vì 0% gây hiểu nhầm "không tuân thủ".
+    compliance_rate_pct: number | null
     total_scheduled: number
     completed_on_time: number
+    // Overdue ∧ due_date ∈ tháng đang xem — subset của total_scheduled, đối-soát
+    // được với strip tháng (INV-PM-KPI-1).
+    overdue_in_month: number
+    // WO trong tháng chưa hoàn thành & chưa quá hạn (Open/In Progress).
+    pending_in_month: number
+    // Toàn-hệ-thống (INV-PM-KPI-2 / RC-10): count global status==Overdue, khớp
+    // launcher widget + drill ?overdue=1. KHÔNG bó trong tháng.
     overdue: number
     avg_days_late: number
   }
