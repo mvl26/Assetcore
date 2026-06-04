@@ -375,6 +375,8 @@ def _score_evaluation(name, scorer_role, scores_by_supplier):
     return {
         "weighted_scores": {c.supplier: c.weighted_score for c in ve.candidates},
         "recommended": ve.recommended_candidate,
+        "has_top_tie": ve.has_top_tie,            # INV-VE-TIE §IV.7 — đỉnh hòa
+        "tied_candidates": ve.tied_candidates or "",
     }
 
 
@@ -536,6 +538,15 @@ def list_decisions(filters: str = "{}", page: int = 1, page_size: int = 20) -> d
 
 def _list_decisions(filters, page, page_size):
     f = _parse_json(filters)
+    # INV-DEC-DRILL (02 §IV.8 / 04 §V.b): drill PHẢI dùng CÙNG predicate docstatus
+    # với KPI `_dashboard_kpis().decision_states` (raw SQL `WHERE docstatus<2`).
+    # Frappe v15 get_list/db.count KHÔNG tự áp docstatus<2 khi caller không truyền
+    # docstatus → 1 PD đã cancel (docstatus=2) còn giữ workflow_state='Awarded' sẽ
+    # lọt vào drill nhưng KHÔNG được KPI đếm ⇒ INVARIANT card==drill GÃY.
+    # Bơm docstatus<2 MẶC ĐỊNH (cùng dict cho get_list + count_with_or); caller có
+    # thể override bằng filters={"docstatus": 2} cho audit cancelled records.
+    if "docstatus" not in f:
+        f["docstatus"] = ["<", 2]
     # FE search: "mã quyết định, mã hồ sơ hoặc tên NCC". `winner_supplier`
     # lưu mã link → resolve qua AC Supplier.supplier_name.
     f, or_filters = pop_search(
@@ -733,7 +744,13 @@ def _dashboard_kpis():
     decision_states = dict(frappe.db.sql(
         f"SELECT workflow_state, COUNT(*) FROM `tab{_DT_PD}` WHERE docstatus<2 GROUP BY workflow_state"
     ))
-    avl_active = frappe.db.count(_DT_AVL, {"docstatus": 1, "workflow_state": ["in", ["Approved","Conditional"]]})
+    # AVL còn hiệu lực (LIVE) — parity với SoT predicate _avl_is_live / _sync
+    # (INV-AVL-LIVE, 02 §IV.6): KHÔNG đếm AVL đã hết hạn trong cửa sổ trễ scheduler.
+    avl_active = frappe.db.sql(
+        f"""SELECT COUNT(*) FROM `tab{_DT_AVL}`
+            WHERE docstatus = 1 AND workflow_state IN ('Approved','Conditional')
+              AND (valid_to IS NULL OR valid_to >= CURDATE())"""
+    )[0][0]
     return {
         "eval_states":     eval_states,
         "decision_states": decision_states,

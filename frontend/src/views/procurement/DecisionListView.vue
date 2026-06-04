@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // Copyright (c) 2026, AssetCore Team
-import { ref, reactive, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
+import { useRouter, useRoute, type LocationQueryRaw } from 'vue-router'
 import { useImm03Store } from '@/stores/imm03'
 import type { DecisionState } from '@/types/imm03'
 import { stateLabel, formatVnd } from '@/utils/wave2Labels'
@@ -12,12 +12,18 @@ import KpiCard from '@/components/common/KpiCard.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 
 const router = useRouter()
+const route  = useRoute()
 const store  = useImm03Store()
 
 const DECISION_STATES: DecisionState[] = [
   'Draft', 'Method Selected', 'Negotiation', 'Award Recommended',
   'Pending Approval', 'Awarded', 'Contract Signed', 'PO Issued', 'Cancelled',
 ]
+
+// Canonical query param 'state' ↔ filters.workflow_state (precedent AssetListView §9.3).
+// Chỉ 3 state có tile-drill được phép deep-link (shareable + refresh-safe). State lạ
+// → bỏ qua an toàn (load all, no tile pressed). URL chỉ chứa code chuẩn (KHÔNG nhãn VI).
+const URL_DRILL_STATES: DecisionState[] = ['Awarded', 'Pending Approval', 'PO Issued']
 const ENVELOPE_BUCKETS = [
   { value: 'within',  label: 'Trong ngân sách (≤ 90%)' },
   { value: 'tight',   label: 'Sát ngân sách (90–105%)' },
@@ -68,16 +74,63 @@ function resetFilters() {
   filters.spec_ref = ''
   filters.envelope_bucket = ''
   filters.search = ''
+  syncStateToUrl('')  // xoá ?state khỏi URL
   store.fetchDecisions()
 }
 function clearChip(key: string) {
   ;(filters as Record<string, string>)[key] = ''
+  if (key === 'workflow_state') syncStateToUrl('')
   applyFilters()
 }
 function quickFilter(key: keyof typeof filters, value: string) {
   ;(filters as Record<string, string>)[key] = value
+  if (key === 'workflow_state') syncStateToUrl(value)
   showFilters.value = false
   applyFilters()
+}
+
+// KPI tile drill (INV card==drill): click tile → lọc workflow_state = state;
+// click lại tile đang active → bỏ lọc (toggle). Value=0 vẫn click được (list rỗng).
+function toggleStateFilter(state: DecisionState) {
+  const next = filters.workflow_state === state ? '' : state
+  filters.workflow_state = next
+  syncStateToUrl(next)
+  showFilters.value = false
+  applyFilters()
+}
+function isActiveState(state: DecisionState): boolean {
+  return filters.workflow_state === state
+}
+
+// ── URL sync (deep-link/refresh-safe/shareable) ───────────────────────────────
+// Phản ánh filters.workflow_state vào ?state qua router.replace (KHÔNG đẩy history
+// rác). URL chỉ chứa code canonical; xoá key state khi clear/toggle-off.
+// `selfNav` đánh dấu thay đổi URL do CHÍNH view gây ra → watch bỏ qua (tránh
+// double-fetch); chỉ navigation NGOÀI (drill lần 2 từ nơi khác) mới re-apply.
+let selfNav = false
+function syncStateToUrl(state: string) {
+  const query: LocationQueryRaw = { ...route.query }
+  if (state) query.state = state
+  else delete query.state
+  selfNav = true
+  router.replace({ query })
+}
+
+// Đọc ?state → áp vào filters + fetch. State hợp lệ (∈ URL_DRILL_STATES) → set
+// filter + fetch có filter; state lạ/rỗng → bỏ qua an toàn (load all, no tile).
+// `force=false` (từ watch): bỏ qua nếu filter đã khớp URL — tránh double-fetch khi
+// chính các hàm filter của view đã đẩy state lên URL (toggle/quick/reset gọi fetch
+// trực tiếp). `force=true` (onMounted): luôn fetch lần đầu (deep-link/refresh).
+function applyQueryToFilters(force = false) {
+  const raw = route.query.state
+  const val = Array.isArray(raw) ? raw[0] : raw
+  const next = (typeof val === 'string' && (URL_DRILL_STATES as string[]).includes(val))
+    ? (val as DecisionState)
+    : ''
+  if (!force && next === filters.workflow_state) return  // đã đồng bộ — no-op
+  filters.workflow_state = next
+  if (next) store.fetchDecisions(buildPayload())
+  else store.fetchDecisions()  // load all (no filter)
 }
 
 const filteredDecisions = computed(() => {
@@ -91,6 +144,12 @@ const filteredDecisions = computed(() => {
   })
 })
 
+// INV card==drill: số hiển thị bám `total` server-side (== tile) khi không có
+// bộ lọc client envelope_bucket. envelope_bucket lọc thuần FE → dùng độ dài đã lọc.
+const displayCount = computed(() =>
+  filters.envelope_bucket ? filteredDecisions.value.length : store.decisionTotal,
+)
+
 function envClass(pct?: number): string {
   if (pct == null) return ''
   if (pct > 105) return 'over'
@@ -100,14 +159,22 @@ function envClass(pct?: number): string {
 
 function goDetail(n: string) { router.push({ name: 'ProcurementDecisionDetail', params: { id: n } }) }
 
-onMounted(() => { store.fetchDecisions(); store.fetchKpis() })
+onMounted(() => { applyQueryToFilters(true); store.fetchKpis() })
+
+// Drill lần 2 cùng route (?state khác) → re-apply filter không cần reload trang
+// (parity AssetListView watch route.query). Chỉ theo dõi key 'state' canonical.
+// Bỏ qua thay đổi URL do chính view đẩy lên (selfNav) — đã fetch trực tiếp rồi.
+watch(() => route.query.state, () => {
+  if (selfNav) { selfNav = false; return }
+  applyQueryToFilters()
+})
 </script>
 
 <template>
   <div class="page-container animate-fade-in">
     <PageHeader
       title="Quyết định mua sắm"
-      :subtitle="`Tổng ${store.decisions.length} quyết định — trao thầu, ký hợp đồng, phát hành đơn hàng.`"
+      :subtitle="`Tổng ${store.decisionTotal} quyết định — trao thầu, ký hợp đồng, phát hành đơn hàng.`"
     >
       <template #actions>
         <FilterToggleButton v-model="showFilters" :count="activeChips.length" />
@@ -136,17 +203,50 @@ onMounted(() => { store.fetchDecisions(); store.fetchKpis() })
     </ListFilterBar>
 
     <div v-if="store.kpis" class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-      <KpiCard label="Đã trao thầu" :value="store.kpis.decision_states['Awarded'] || 0" color="success" />
-      <KpiCard
-        label="Chờ phê duyệt"
-        :value="store.kpis.decision_states['Pending Approval'] || 0"
-        :color="(store.kpis.decision_states['Pending Approval'] || 0) > 0 ? 'warning' : 'neutral'"
-      />
-      <KpiCard
-        label="Đã phát hành đơn hàng"
-        :value="store.kpis.decision_states['PO Issued'] || 0"
-        color="primary"
-      />
+      <button
+        type="button"
+        class="kpi-drill text-left rounded-[10px] cursor-pointer transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-1"
+        :class="isActiveState('Awarded') ? 'ring-2 ring-brand-500 ring-offset-1' : 'hover:ring-2 hover:ring-brand-300'"
+        role="button"
+        :aria-pressed="isActiveState('Awarded')"
+        aria-label="Lọc quyết định đã trao thầu"
+        :title="isActiveState('Awarded') ? 'Bấm lại để bỏ lọc' : 'Bấm để lọc: Đã trao thầu'"
+        @click="toggleStateFilter('Awarded')"
+      >
+        <KpiCard label="Đã trao thầu" :value="store.kpis.decision_states['Awarded'] || 0" color="success" />
+      </button>
+      <button
+        type="button"
+        class="kpi-drill text-left rounded-[10px] cursor-pointer transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-1"
+        :class="isActiveState('Pending Approval') ? 'ring-2 ring-brand-500 ring-offset-1' : 'hover:ring-2 hover:ring-brand-300'"
+        role="button"
+        :aria-pressed="isActiveState('Pending Approval')"
+        aria-label="Lọc quyết định chờ phê duyệt"
+        :title="isActiveState('Pending Approval') ? 'Bấm lại để bỏ lọc' : 'Bấm để lọc: Chờ phê duyệt'"
+        @click="toggleStateFilter('Pending Approval')"
+      >
+        <KpiCard
+          label="Chờ phê duyệt"
+          :value="store.kpis.decision_states['Pending Approval'] || 0"
+          :color="(store.kpis.decision_states['Pending Approval'] || 0) > 0 ? 'warning' : 'neutral'"
+        />
+      </button>
+      <button
+        type="button"
+        class="kpi-drill text-left rounded-[10px] cursor-pointer transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-1"
+        :class="isActiveState('PO Issued') ? 'ring-2 ring-brand-500 ring-offset-1' : 'hover:ring-2 hover:ring-brand-300'"
+        role="button"
+        :aria-pressed="isActiveState('PO Issued')"
+        aria-label="Lọc quyết định đã phát hành đơn hàng"
+        :title="isActiveState('PO Issued') ? 'Bấm lại để bỏ lọc' : 'Bấm để lọc: Đã phát hành đơn hàng'"
+        @click="toggleStateFilter('PO Issued')"
+      >
+        <KpiCard
+          label="Đã phát hành đơn hàng"
+          :value="store.kpis.decision_states['PO Issued'] || 0"
+          color="primary"
+        />
+      </button>
     </div>
 
     <div v-if="store.error" class="alert-error mb-4">
@@ -157,8 +257,8 @@ onMounted(() => { store.fetchDecisions(); store.fetchKpis() })
     <div class="card overflow-hidden">
       <div class="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50/60">
         <span class="text-xs text-slate-500">
-          <span v-if="activeChips.length > 0">Kết quả lọc: <strong class="text-slate-700">{{ filteredDecisions.length }}</strong> quyết định</span>
-          <span v-else>Hiển thị <strong class="text-slate-700">{{ filteredDecisions.length }}</strong> quyết định</span>
+          <span v-if="activeChips.length > 0">Kết quả lọc: <strong class="text-slate-700">{{ displayCount }}</strong> quyết định</span>
+          <span v-else>Hiển thị <strong class="text-slate-700">{{ displayCount }}</strong> quyết định</span>
         </span>
         <button v-if="activeChips.length > 0" class="text-xs text-red-500 hover:text-red-700 font-medium" @click="resetFilters">Xóa tất cả</button>
       </div>
@@ -212,9 +312,10 @@ onMounted(() => { store.fetchDecisions(); store.fetchKpis() })
               >
                 <td><span class="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded text-slate-700">{{ d.name }}</span></td>
                 <td>
-                  <button class="link-cell" :title="`Lọc: ${d.spec_ref}`" @click.stop="quickFilter('spec_ref', d.spec_ref)">
+                  <button v-if="d.spec_ref" class="link-cell" :title="`Lọc: ${d.spec_ref}`" @click.stop="quickFilter('spec_ref', d.spec_ref)">
                     {{ d.spec_ref }}
                   </button>
+                  <span v-else class="text-slate-400">—</span>
                 </td>
                 <td>
                   <button

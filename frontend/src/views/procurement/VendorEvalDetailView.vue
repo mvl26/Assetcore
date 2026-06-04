@@ -33,6 +33,18 @@
 
     <!-- Thẻ: Ứng viên + Báo giá -->
     <section v-show="tab === 'candidates'" class="tab-content">
+      <!-- INV-VE-TIE: cảnh báo HÒA điểm — KHÔNG để '—' câm khiến tưởng chưa chấm -->
+      <div v-if="hasTopTie" class="tie-banner" role="alert" aria-live="assertive">
+        <strong>⚖ {{ EVAL_TIE_BANNER }}</strong>
+        <p>
+          Có {{ tiedSuppliers.length }} nhà cung cấp đồng hạng nhất — hệ thống KHÔNG tự gợi ý
+          trúng thầu. Người chấm cần áp tiêu chí phân định (tiebreak) có hồ sơ.
+        </p>
+        <ul class="tie-list">
+          <li v-for="s in tiedSuppliers" :key="s.supplier">{{ s.label }}</li>
+        </ul>
+      </div>
+
       <div class="card">
         <div class="card-head">
           <h3>Ứng viên ({{ store.currentEval.candidates?.length || 0 }})</h3>
@@ -55,10 +67,17 @@
               <td colspan="5" class="muted text-center">Chưa có ứng viên nào.</td>
             </tr>
             <tr v-for="c in store.currentEval.candidates || []" :key="c.idx"
-                :class="{ winner: store.currentEval.recommended_candidate === c.supplier }">
+                :class="{
+                  winner: !hasTopTie && store.currentEval.recommended_candidate === c.supplier,
+                  tied: hasTopTie && tiedSet.has(c.supplier),
+                }">
               <td>
-                <strong v-if="store.currentEval.recommended_candidate === c.supplier">★</strong>
-                {{ c.supplier_name || c.supplier }}
+                <!-- Chỉ 1 dòng được gắn 'Gợi ý trúng thầu' khi KHÔNG hòa -->
+                <strong v-if="!hasTopTie && store.currentEval.recommended_candidate === c.supplier"
+                        class="rec-tag" title="Gợi ý trúng thầu">★ Gợi ý trúng thầu</strong>
+                <span v-else-if="hasTopTie && tiedSet.has(c.supplier)" class="tied-tag"
+                      title="Đồng hạng nhất — chờ phân định thủ công">⚖ Đồng hạng nhất</span>
+                <div>{{ c.supplier_name || c.supplier }}</div>
               </td>
               <td class="center">
                 <span :class="['badge', c.in_avl ? 'avl-yes' : 'avl-no']">
@@ -316,11 +335,15 @@ import {
   getVendorScorecard, listVendorProfiles,
 } from '@/api/imm03'
 import type { EvalState, VendorQuotationLine } from '@/types/imm03'
-import { stateLabel, formatVnd, formatVnDate } from '@/utils/wave2Labels'
+import {
+  stateLabel, formatVnd, formatVnDate, EVAL_TIE_BANNER, parseTiedCandidates,
+} from '@/utils/wave2Labels'
+import { useNotify } from '@/composables/useNotify'
 
 const props = defineProps<{ id: string }>()
 const route = useRoute()
 const store = useImm03Store()
+const notify = useNotify()
 
 type TabId = 'candidates' | 'scoring' | 'scorecard'
 const TABS: { id: TabId; label: string }[] = [
@@ -367,6 +390,22 @@ function evalGroupLabel(g?: string): string {
 const WORKFLOW_STATES: EvalState[] = ['Draft', 'Open RFQ', 'Quotation Received', 'Evaluated']
 
 const editable = computed(() => store.currentEval?.docstatus === 0)
+
+// ── INV-VE-TIE: bám cờ BE verbatim, KHÔNG tự suy tie từ điểm ──
+const hasTopTie = computed(() => Boolean(store.currentEval?.has_top_tie))
+const tiedSet = computed(
+  () => new Set(parseTiedCandidates(store.currentEval?.tied_candidates)),
+)
+// Map supplier → display name (ưu tiên supplier_name, fallback mã) để KHÔNG leak code.
+const tiedSuppliers = computed(() => {
+  const byCode = new Map(
+    (store.currentEval?.candidates || []).map(c => [c.supplier, c.supplier_name || c.supplier]),
+  )
+  return parseTiedCandidates(store.currentEval?.tied_candidates).map(supplier => ({
+    supplier,
+    label: byCode.get(supplier) || supplier,
+  }))
+})
 
 // Workflow transition labels từ docs IMM-03 Vendor Eval Workflow
 const TRANSITIONS_BY_STATE: Record<string, string[]> = {
@@ -439,14 +478,18 @@ const addCandWarning = ref('')
 const supplierOptions = ref<{ name: string; supplier_name: string }[]>([])
 async function doAddCandidate() {
   if (!store.currentEval?.name || !newCand.supplier) return
-  const res = await addCandidate(
-    store.currentEval.name, newCand.supplier, newCand.sign_off_non_avl,
-  )
-  if (res.warning) addCandWarning.value = res.warning
-  await store.fetchEvaluation(store.currentEval.name)
-  if (!res.warning) {
-    showAddCandidate.value = false
-    newCand.supplier = ''; newCand.sign_off_non_avl = ''
+  try {
+    const res = await addCandidate(
+      store.currentEval.name, newCand.supplier, newCand.sign_off_non_avl,
+    )
+    if (res.warning) addCandWarning.value = res.warning
+    await store.fetchEvaluation(store.currentEval.name)
+    if (!res.warning) {
+      showAddCandidate.value = false
+      newCand.supplier = ''; newCand.sign_off_non_avl = ''
+    }
+  } catch (e) {
+    notify.fromError(e)
   }
 }
 
@@ -462,17 +505,29 @@ const canSaveQuote = computed(() =>
 )
 async function doAddQuote() {
   if (!store.currentEval?.name) return
-  await submitQuotations(store.currentEval.name, [newQuote as VendorQuotationLine])
-  await store.fetchEvaluation(store.currentEval.name)
-  showAddQuote.value = false
-  newQuote.quotation_no = ''; newQuote.price = 0
+  try {
+    await submitQuotations(store.currentEval.name, [newQuote as VendorQuotationLine])
+    await store.fetchEvaluation(store.currentEval.name)
+    showAddQuote.value = false
+    newQuote.quotation_no = ''; newQuote.price = 0
+  } catch (e) {
+    notify.fromError(e)
+  }
 }
 
 async function doTransition(action: string) {
   if (!store.currentEval?.name) return
-  if (!globalThis.confirm(`Thực hiện "${action}" cho ${store.currentEval.name}?`)) return
-  await transitionEvalWorkflow(store.currentEval.name, action)
-  await store.fetchEvaluation(store.currentEval.name)
+  const ok = await notify.confirm({
+    title: 'Xác nhận thao tác',
+    body: `Thực hiện "${action}" cho ${store.currentEval.name}?`,
+  })
+  if (!ok) return
+  try {
+    await transitionEvalWorkflow(store.currentEval.name, action)
+    await store.fetchEvaluation(store.currentEval.name)
+  } catch (e) {
+    notify.fromError(e)
+  }
 }
 
 function isExpired(d?: string): boolean {
@@ -512,6 +567,15 @@ onMounted(async () => {
 .data-table .center { text-align: center; }
 .text-center { text-align: center; }
 .data-table tr.winner { background: #fffbeb; }
+.data-table tr.tied { background: #fef3f2; }
+.rec-tag { color: #b45309; font-size: 0.78rem; display: block; }
+.tied-tag { color: #b91c1c; font-size: 0.78rem; font-weight: 600; display: block; }
+.tie-banner { background: #fef3f2; border: 1px solid #fca5a5; border-left: 4px solid #dc2626;
+  border-radius: 6px; padding: 0.85rem 1.1rem; margin-bottom: 1rem; color: #7f1d1d; }
+.tie-banner strong { display: block; font-size: 0.95rem; margin-bottom: 0.25rem; }
+.tie-banner p { margin: 0 0 0.5rem; font-size: 0.85rem; }
+.tie-list { margin: 0; padding-left: 1.2rem; font-size: 0.85rem; }
+.tie-list li { font-weight: 600; }
 .data-table input[type="number"] { width: 80px; padding: 0.3rem; border: 1px solid #d1d5db; border-radius: 4px; }
 .expired { color: #b91c1c; font-weight: 600; }
 .action-bar { position: sticky; bottom: 0; background: white; padding: 0.75rem 1rem; margin-top: 1rem; border-top: 1px solid #e5e7eb; display: flex; gap: 0.5rem; justify-content: flex-end; }
