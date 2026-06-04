@@ -14,7 +14,7 @@
 import { describe, it, expect } from 'vitest'
 
 // Raw source của mọi SFC trong app (eager → có sẵn lúc collect test).
-const vueFiles = import.meta.glob('/src/**/*.vue', {
+const vueFiles = (import.meta as any).glob('/src/**/*.vue', {
   query: '?raw',
   import: 'default',
   eager: true,

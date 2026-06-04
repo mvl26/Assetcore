@@ -51,7 +51,7 @@
    "fieldname": "event_type",
    "fieldtype": "Select",
    "label": "Event Type",
-   "options": "commissioned\nactivated\npm_started\npm_completed\nrepair_opened\nrepair_completed\ncalibration_started\ncalibration_passed\ncalibration_failed\nincident_reported\nout_of_service\nrestored\ndecommissioned\ntransferred\nregistered\ndepreciated",
+   "options": "commissioned\nactivated\npm_started\npm_completed\nrepair_opened\nrepair_completed\nparts_hold_started\nparts_hold_resumed\ncalibration_started\ncalibration_passed\ncalibration_failed\nincident_reported\nout_of_service\nrestored\ndecommissioned\ntransferred\nregistered\ndepreciated\ndepreciation_rules_inherited\ndepreciation_stopped",
    "reqd": 1,
    "search_index": 1,
    "in_list_view": 1,

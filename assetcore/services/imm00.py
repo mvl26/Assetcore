@@ -5,7 +5,7 @@ Nguyên tắc: controllers chỉ gọi service; business logic tập trung ở �
 """
 import frappe
 from frappe import _
-from frappe.utils import add_days, nowdate
+from frappe.utils import add_days, flt, getdate, nowdate
 
 from assetcore.utils.lifecycle import (
     log_audit_event as _log_audit_event,
@@ -14,6 +14,7 @@ from assetcore.utils.lifecycle import (
 )
 from assetcore.utils.email import get_role_emails, safe_sendmail
 from assetcore.services.shared import AssetStatus
+from assetcore.services.shared import ServiceError, ErrorCode
 from assetcore.services.shared import rbac
 
 
@@ -132,11 +133,20 @@ def transition_asset_status(
             f"đưa thiết bị về 'Active' trước khi thanh lý."
         )
 
+    # IMM-14 GATE (BR-14-W2-01): mọi đường vào Decommissioned PHẢI có 1 'Asset
+    # Decommission' record đã duyệt (docstatus=1) trỏ đúng asset. Closure tự
+    # truyền root_doctype="Asset Decommission" + root_record để qua gate khi
+    # đang submit. Mọi đường khác (set tay/đường nghiệp vụ cũ) → raise, giữ
+    # nguyên lifecycle_status. Lazy-import tránh circular import lúc bench start.
+    if to_status == _STATUS_DECOMMISSIONED:
+        from assetcore.services.imm14 import assert_decommission_gate
+        assert_decommission_gate(asset_name, root_record=root_record)
+
     frappe.db.set_value(_DOCTYPE_ASSET, asset_name, "lifecycle_status", to_status)
 
     create_lifecycle_event(
         asset=asset_name,
-        event_type=_lifecycle_event_for(to_status),
+        event_type=_lifecycle_event_for(to_status, prev_status),
         actor=actor or frappe.session.user,
         from_status=prev_status,
         to_status=to_status,
@@ -162,6 +172,23 @@ def transition_asset_status(
 
     if to_status == _STATUS_DECOMMISSIONED:
         _suspend_all_schedules(asset_name)
+        cancelled = _cancel_pending_depreciation(asset_name)
+        if cancelled >= 1:
+            _record_depreciation_stopped(asset_name, cancelled, actor=actor)
+
+    # ── BR-00-25 (RC-08): PAUSE khấu hao khi vào Out of Service ───────────────
+    # PAUSE thực thi bởi filter executor (run_due_depreciation exclude
+    # 'Out of Service' — depreciation.py:422); ở đây CHỈ ghi audit pause.
+    elif to_status == _STATUS_OUT_OF_SERVICE:
+        _pause_depreciation_on_oos(asset_name, actor=actor)         # best-effort
+
+    # ── BR-00-25 (RC-08): RESCHEDULE khi khôi phục Out of Service → Active ────
+    # Dùng prev_status (đọc đầu hàm) để CHỈ dời lịch khi Active đến TỪ Out of
+    # Service — KHÔNG dời khi Active đến từ Under Repair/Calibrating/Commissioned
+    # (các đường đó không pause khấu hao). Guard same-status đầu hàm
+    # (prev == to → return) chặn Active→Active no-op ⇒ không dời kép.
+    elif to_status == _STATUS_ACTIVE and prev_status == _STATUS_OUT_OF_SERVICE:
+        _reschedule_pending_depreciation_on_restore(asset_name, actor=actor)
 
 
 def _sync_downtime_log(*, asset: str, prev: str, nxt: str,
@@ -215,7 +242,18 @@ def _close_open_downtime_log(asset: str) -> None:
         doc.save(ignore_permissions=True)
 
 
-def _lifecycle_event_for(to_status: str) -> str:
+def _lifecycle_event_for(to_status: str, from_status: str = "") -> str:
+    """Nhãn Asset Lifecycle Event cho 1 transition (SoT — 1 chỗ duy nhất).
+
+    From-aware (INV-ALE-RESTORE-2): chỉ đường ``Out of Service → Active`` (khôi phục
+    sau tạm ngừng sử dụng) trả 'restored'. Mọi đường khác về Active (Under Repair /
+    Calibrating / Under Maintenance / Commissioned / rỗng) GIỮ 'activated' — bảo toàn
+    semantics test_imm09:839 + test_imm11:1317. Cả 2 call-site (service
+    transition_asset_status + controller ac_asset.on_update) đều truyền from_status
+    để nhãn 'restored' áp dụng đồng nhất (INV-ALE-RESTORE-4).
+    """
+    if to_status == _STATUS_ACTIVE and from_status == _STATUS_OUT_OF_SERVICE:
+        return "restored"
     return {
         "Active": "activated",
         "Commissioned": "commissioned",
@@ -235,6 +273,218 @@ def _suspend_all_schedules(asset_name: str) -> None:
         "next_pm_date": None,
         "next_calibration_date": None,
     })
+
+
+_DT_DEPR_SCHED = "AC Asset Depreciation Schedule"
+_DT_LIFECYCLE_EVENT = "Asset Lifecycle Event"
+
+
+def _cancel_pending_depreciation(asset_name: str) -> int:
+    """Hủy MỌI kỳ khấu hao status='Pending' của asset → 'Cancelled' (BR-00-18).
+
+    SoT DUY NHẤT cho việc "Cancelled-on-decommission" của depreciation. Gọi khi
+    asset chuyển sang Decommissioned: kỳ chưa chạy (Pending) bị hủy vĩnh viễn để
+    không còn "phantom overdue" treo trong run_due_depreciation (executor exclude
+    Decommissioned ⇒ Pending sẽ kẹt mãi nếu không hủy).
+
+    INVARIANT:
+      - CHỈ động kỳ status='Pending'. Kỳ 'Executed' (lịch sử đã ghi sổ) GIỮ NGUYÊN
+        bất biến — KHÔNG nuốt lịch sử khấu hao.
+      - 1 query UPDATE GROUP (KHÔNG N+1), update_modified=False (không bump asset
+        modified — đây là dọn nội bộ theo transition, không phải sửa data user).
+      - Idempotent: chạy lại khi không còn Pending → 0 rows affected, trả 0.
+
+    Returns: số kỳ Pending đã chuyển sang Cancelled.
+    """
+    cancelled = frappe.db.sql(
+        """
+        UPDATE `tabAC Asset Depreciation Schedule`
+        SET status = 'Cancelled'
+        WHERE parent = %s AND parenttype = 'AC Asset' AND status = 'Pending'
+        """,
+        (asset_name,),
+    )
+    # frappe.db.sql trả rowcount qua cursor; lấy số dòng thực sự đổi.
+    return int(frappe.db._cursor.rowcount or 0)
+
+
+def _record_depreciation_stopped(asset_name: str, cancelled: int,
+                                  actor: str | None = None) -> None:
+    """Best-effort: ghi 1 lifecycle event 'depreciation_stopped' + 1 audit trail.
+
+    CLAUDE.md §5 — mọi nghiệp vụ phải có record. Bọc try/except: lỗi ghi
+    audit/event KHÔNG được làm vỡ transition (lifecycle_status đã set
+    Decommissioned + rows đã Cancelled TRƯỚC khi gọi hàm này).
+
+    `event_type='depreciation_stopped'` đã thêm vào Asset Lifecycle Event JSON.
+    IMM Audit Trail dùng option có sẵn 'State Change' (KHÔNG migrate enum audit) —
+    việc dừng khấu hao là hệ quả của state change Decommissioned.
+    """
+    actor = actor or frappe.session.user
+    book = flt(frappe.db.get_value(_DOCTYPE_ASSET, asset_name,
+                                   "current_book_value") or 0)
+    notes = (
+        f"Hủy {cancelled} kỳ khấu hao chưa chạy do thanh lý; "
+        f"giá trị còn lại chốt tại {book:,.0f} VND"
+    )
+    try:
+        create_lifecycle_event(
+            asset=asset_name, event_type="depreciation_stopped",
+            actor=actor, from_status="", to_status="",
+            root_doctype=_DOCTYPE_ASSET, root_record=asset_name,
+            notes=notes,
+        )
+    except Exception:
+        frappe.log_error(frappe.get_traceback(),
+                         "depreciation_stopped lifecycle event failed")
+    try:
+        log_audit_event(
+            asset=asset_name, event_type="State Change", actor=actor,
+            ref_doctype=_DOCTYPE_ASSET, ref_name=asset_name,
+            change_summary=notes,
+        )
+    except Exception:
+        frappe.log_error(frappe.get_traceback(),
+                         "depreciation_stopped audit trail failed")
+
+
+# ────────────────────────────────────────────
+# BR-00-25 (RC-08): Depreciation PAUSE + RESCHEDULE on Out of Service ↔ Active
+# ────────────────────────────────────────────
+# Diệt phantom catch-up: trong window Out of Service KHÔNG trích kỳ nào (executor
+# exclude 'Out of Service'); khi khôi phục về Active, DỜI scheduled_date của mọi
+# kỳ Pending thêm oos_days → mọi kỳ idle đẩy sang tương lai → executor KHÔNG còn
+# back-dated catch-up (trích bù 1 lần toàn bộ kỳ ngừng). Tài sản tạm ngừng KHÔNG
+# trích KH trong kỳ ngừng → vòng đời khấu hao kéo dài tương ứng (Thông tư 45/2018).
+
+
+def _resolve_oos_start_date(asset_name: str):
+    """SoT mốc 'asset bắt đầu Out of Service' (BR-00-25 / FR-00-67).
+
+    Thứ tự ưu tiên (an toàn, KHÔNG raise):
+      1. ``start_time`` của AC Asset Downtime Log Out-of-Service GẦN NHẤT của asset
+         (reason='Hỏng hóc' = _DOWNTIME_REASON_MAP[OUT_OF_SERVICE]).
+         **KHÔNG lọc is_open** — tại nhánh restore, `_sync_downtime_log` đã ĐÓNG
+         (is_open=0) log OoS TRƯỚC khi reschedule chạy (ordering, xem
+         transition_asset_status). Lấy log mới nhất theo start_time (đóng hay mở
+         đều được — start_time bất biến khi đóng log).
+      2. fallback: ``creation`` của Asset Lifecycle Event event_type='out_of_service'
+         GẦN NHẤT của asset (khi không có downtime log OoS nào).
+    Cả 2 thiếu → trả None (caller no-op, KHÔNG raise). Trả ``date`` hoặc None.
+    """
+    row = frappe.get_all(
+        _DT_DOWNTIME_LOG,
+        filters={"asset": asset_name,
+                 "reason": _DOWNTIME_REASON_MAP[_STATUS_OUT_OF_SERVICE]},  # 'Hỏng hóc'
+        fields=["start_time"], order_by="start_time desc", limit=1,
+    )
+    if row and row[0].get("start_time"):
+        return getdate(row[0]["start_time"])
+
+    ev = frappe.get_all(
+        _DT_LIFECYCLE_EVENT,
+        filters={"asset": asset_name, "event_type": "out_of_service"},
+        fields=["creation"], order_by="creation desc", limit=1,
+    )
+    if ev and ev[0].get("creation"):
+        return getdate(ev[0]["creation"])
+    return None
+
+
+def _pause_depreciation_on_oos(asset_name: str, actor: str | None = None) -> int:
+    """Best-effort: đánh dấu khấu hao TẠM DỪNG khi asset vào Out of Service.
+
+    KHÔNG đụng dữ liệu khấu hao (PAUSE thực thi bởi filter executor — FR-00-63).
+    Chỉ ghi 1 ALE 'out_of_service' note 'depreciation paused' + số kỳ Pending bị
+    tạm dừng (audit rõ ràng). 0 kỳ Pending → no-op (không event rác). Lỗi audit
+    KHÔNG vỡ transition (status đã 'Out of Service' trước khi gọi).
+
+    Returns: số kỳ Pending đang bị tạm dừng (để test/assert).
+    """
+    pending = frappe.db.count(_DT_DEPR_SCHED, {
+        "parent": asset_name, "parenttype": _DOCTYPE_ASSET, "status": "Pending",
+    })
+    if not pending:
+        return 0
+    try:
+        create_lifecycle_event(
+            asset=asset_name, event_type="out_of_service",
+            actor=actor or frappe.session.user, from_status="", to_status="",
+            root_doctype=_DOCTYPE_ASSET, root_record=asset_name,
+            notes=(f"depreciation paused — tạm dừng trích khấu hao trong thời gian "
+                   f"tạm ngừng sử dụng ({pending} kỳ Pending chờ dời lịch khi khôi phục)."),
+        )
+    except Exception:
+        frappe.log_error(frappe.get_traceback(),
+                         "_pause_depreciation_on_oos audit failed")
+    return pending
+
+
+def _reschedule_pending_depreciation_on_restore(
+    asset_name: str, actor: str | None = None,
+) -> dict:
+    """DỜI scheduled_date mọi kỳ Pending += oos_days khi Out of Service → Active.
+
+    Diệt phantom catch-up (BR-00-25 / FR-00-65): mọi kỳ Pending quá hạn trong lúc
+    OoS được đẩy sang tương lai (cũ + oos_days) → executor KHÔNG trích bù 1 lần.
+
+    INVARIANT:
+      - CHỈ dời kỳ status='Pending'. Executed/Cancelled BẤT BIẾN.
+      - GIỮ NGUYÊN depreciation_amount, period_number, accumulated_amount,
+        remaining_value, số kỳ. Chỉ đổi scheduled_date.
+      - oos_days = restore_date(today) − oos_start_date (số ngày nguyên).
+      - oos_start_date None (FR-00-67) HOẶC oos_days <= 0 → no-op (rescheduled=0),
+        KHÔNG raise.
+      - Idempotent (GUARD chính = transition same-status): helper CHỈ chạy trong
+        nhánh transition `Active←Out of Service`, MỘT lần/khôi phục. Gọi lại
+        transition_asset_status(asset,'Active') khi đã Active → guard đầu hàm
+        prev_status == to_status → return chặn (KHÔNG vào nhánh reschedule) ⇒ KHÔNG
+        dời kép. Helper KHÔNG @frappe.whitelist (không expose standalone).
+
+    Returns: {"rescheduled": N, "oos_days": int}
+    """
+    oos_start = _resolve_oos_start_date(asset_name)
+    if oos_start is None:
+        return {"rescheduled": 0, "oos_days": 0}
+
+    oos_days = (getdate(nowdate()) - oos_start).days
+    if oos_days <= 0:                       # đồng hồ lệch / cùng ngày → no-op
+        return {"rescheduled": 0, "oos_days": 0}
+
+    pending = frappe.get_all(
+        _DT_DEPR_SCHED,
+        filters={"parent": asset_name, "parenttype": _DOCTYPE_ASSET,
+                 "status": "Pending"},
+        fields=["name", "scheduled_date"], limit_page_length=0,
+    )
+    if not pending:
+        return {"rescheduled": 0, "oos_days": oos_days}
+
+    for row in pending:
+        new_date = add_days(getdate(row["scheduled_date"]), oos_days)
+        frappe.db.set_value(_DT_DEPR_SCHED, row["name"], "scheduled_date",
+                            new_date, update_modified=False)
+    rescheduled = len(pending)
+
+    # Audit — best-effort (FR-00-68). Lỗi KHÔNG vỡ transition.
+    # KHÔNG emit lifecycle event ở đây nữa (INV-ALE-RESTORE-3): transition cha đã
+    # ghi DUY NHẤT 1 ALE 'restored' đúng nhãn (Out of Service → Active) qua
+    # _lifecycle_event_for(to, from). Helper này CHỈ ghi 1 IMM Audit Trail
+    # 'State Change' với note chi tiết dời kỳ khấu hao (oos_days/rescheduled) để
+    # chi tiết khấu hao vẫn truy được — diệt double-emit 'activated'+'restored'.
+    try:
+        notes = (f"Khôi phục sau tạm ngừng sử dụng: dời {rescheduled} kỳ khấu hao "
+                 f"Pending thêm {oos_days} ngày (oos_days={oos_days}). Không trích bù "
+                 f"kỳ ngừng — vòng đời khấu hao kéo dài tương ứng.")
+        log_audit_event(
+            asset=asset_name, event_type="State Change",
+            actor=actor or frappe.session.user,
+            ref_doctype=_DOCTYPE_ASSET, ref_name=asset_name, change_summary=notes,
+        )
+    except Exception:
+        frappe.log_error(frappe.get_traceback(),
+                         "_reschedule_pending_depreciation_on_restore audit failed")
+    return {"rescheduled": rescheduled, "oos_days": oos_days}
 
 
 def validate_asset_for_operations(asset_name: str) -> None:
@@ -307,23 +557,78 @@ def create_capa(asset: str, source_type: str, source_ref: str, severity: str,
     return doc.name
 
 
+# ────────────────────────────────────────────
+# CAPA Effectiveness Gate — Single Source of Truth (BR-00-26 / VR-06 / VR-07)
+# ────────────────────────────────────────────
+# INVARIANT-1 (round 12, RC-CAPA-EFF): tồn tại 1 predicate DUY NHẤT định nghĩa
+# điều kiện đóng CAPA — effectiveness_check NOT NULL/rỗng (VR-06) VÀ == 'Effective'
+# (VR-07). CẢ close_capa() (legacy) lẫn capa_record_validate() (status=='Closed',
+# BẤT KỂ workflow_state) gọi CÙNG guard này → KHÔNG lặp literal điều kiện ở >1 nơi.
+# advance_capa_state (imm16) refactor để gọi cùng predicate (không nhân bản literal).
+EFFECTIVE = "Effective"  # hằng SoT — 1 chỗ duy nhất
+
+
+def assert_capa_effectiveness_gate(doc) -> None:
+    """SoT cổng hiệu quả CAPA (VR-06/VR-07 — BR-00-26).
+
+    Raise ServiceError(VALIDATION, message_code='FIN-007') nếu CAPA chưa đủ điều
+    kiện đóng. Idempotent, không side-effect, không DB write.
+
+    - effectiveness_check null/rỗng → VR-06 (bắt buộc xác minh hiệu quả).
+    - effectiveness_check != 'Effective' → VR-07 (phải = 'Effective' để đóng).
+    """
+    ec = (getattr(doc, "effectiveness_check", None) or "").strip()
+    if not ec:
+        raise ServiceError(
+            ErrorCode.VALIDATION,
+            _("VR-06: Phải xác minh hiệu quả (effectiveness_check) "
+              "trước khi đóng CAPA."),
+            http_status=422,
+            message_code="FIN-007",
+        )
+    if ec != EFFECTIVE:
+        raise ServiceError(
+            ErrorCode.VALIDATION,
+            _("VR-07: effectiveness_check phải = 'Effective' để đóng CAPA "
+              "(hiện tại: {0}).").format(ec),
+            http_status=422,
+            message_code="FIN-007",
+        )
+
+
+_EFFECTIVENESS_VI = {
+    "Effective": "Hiệu quả",
+    "Partially Effective": "Hiệu quả một phần",
+    "Not Effective": "Không hiệu quả",
+}
+
+
 def close_capa(capa_name: str, root_cause: str, corrective_action: str,
                preventive_action: str, effectiveness_check: str | None = None,
                actor: str | None = None) -> None:
-    """Submit và đóng CAPA Record với kết quả khắc phục. Ghi audit trail."""
+    """Submit và đóng CAPA Record với kết quả khắc phục. Ghi audit trail.
+
+    Cổng hiệu quả (BR-00-26/VR-06/VR-07): gọi ``assert_capa_effectiveness_gate``
+    TRƯỚC ``doc.submit()`` — effectiveness_check bắt buộc & phải = 'Effective',
+    nếu không RAISE ServiceError FIN-007 (CAPA KHÔNG đổi Closed, KHÔNG submit).
+    """
     doc = frappe.get_doc(_DOCTYPE_CAPA, capa_name)
     doc.root_cause = root_cause
     doc.corrective_action = corrective_action
     doc.preventive_action = preventive_action
-    if effectiveness_check:
-        doc.effectiveness_check = effectiveness_check
+    # effectiveness_check giờ BẮT BUỘC (không còn `if effectiveness_check`): luôn
+    # gán để cổng SoT đánh giá đúng giá trị do caller truyền (kể cả None → VR-06).
+    doc.effectiveness_check = effectiveness_check
+    # GATE SoT (round 12) — chặn trước khi set status/submit (no partial close).
+    assert_capa_effectiveness_gate(doc)
     doc.status = "Closed"
     doc.closed_date = nowdate()
     doc.submit()
+    eff_vi = _EFFECTIVENESS_VI.get(effectiveness_check, effectiveness_check)
     log_audit_event(
         asset=doc.asset, event_type="CAPA", actor=actor or frappe.session.user,
         ref_doctype=_DOCTYPE_CAPA, ref_name=capa_name,
-        change_summary="CAPA closed",
+        change_summary=_("Đã đóng CAPA — xác minh hiệu quả: {0}").format(eff_vi),
     )
 
 

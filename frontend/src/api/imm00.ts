@@ -108,12 +108,26 @@ export function getCapa(name: string): Promise<ImmCapaRecord> {
   return frappeGet(`${BASE}.get_capa`, { name })
 }
 
+/**
+ * Đóng CAPA (path LEGACY — `assetcore.api.imm00.close_capa_record`).
+ *
+ * CỔNG HIỆU QUẢ (VR-06/VR-07 — SoT `services/imm00.assert_capa_effectiveness_gate`):
+ * BE BẮT BUỘC `effectiveness_check === 'Effective'` mới đóng. Nếu thiếu/None hoặc
+ * khác 'Effective' → BE trả envelope `{ success:false, code:'VALIDATION', error:'VR-06/07: …' }`
+ * (ServiceError FIN-007 ↦ HTTP 422). `frappePost` PHÁT HIỆN `success===false` và **throw
+ * `ApiError`** (KHÔNG nuốt thành công) — caller bắt buộc `await` trong try/catch hoặc qua
+ * `api.run()`/`notify.fromError()` để hiển thị message VI BE trả, KHÔNG báo 'Đã đóng'.
+ *
+ * Path đóng "chuẩn" qua xác minh hiệu quả là `imm16.advance_capa_state` /
+ * `perform_effectiveness_check` (UI: CAPADetailView Verification) — đã gate sẵn.
+ * Hàm này giữ cho integration/legacy; phải KHỚP signature BE.
+ */
 export function closeCapaRecord(name: string, data: {
   root_cause: string
   corrective_action: string
   preventive_action: string
   effectiveness_check?: string
-}): Promise<void> {
+}): Promise<{ name: string; status: string }> {
   return frappePost(`${BASE}.close_capa_record`, { name, ...data })
 }
 
@@ -322,12 +336,22 @@ export function computeDepreciation(name: string): Promise<DepreciationComputeRe
   return frappePost(`${BASE}.compute_depreciation`, { name })
 }
 
-export function computeAllDepreciation(): Promise<{
-  generated_schedules: number
-  skipped: number
+export interface ComputeAllDepreciationResult {
+  /** Số tài sản được backfill luật khấu hao từ Category. */
+  inherited: number
+  /** Số schedule mới được sinh. */
+  generated: number
+  /** Số dòng schedule được thực thi (đến hạn). */
   executed_rows: number
+  /** Số tài sản được cập nhật accumulated/book value. */
   updated_assets: number
-}> {
+  /** Bỏ qua vì đã có kỳ Executed (giữ lịch sử). */
+  skipped_has_history: number
+  /** Bỏ qua vì không có luật ở cả Category (lỗi cấu hình thật). */
+  skipped_no_rule: number
+}
+
+export function computeAllDepreciation(): Promise<ComputeAllDepreciationResult> {
   return frappePost(`${BASE}.compute_all_depreciation`)
 }
 
@@ -634,9 +658,19 @@ export async function uploadDeviceModelFile(
   return env.data
 }
 
-export async function bulkRegenerateScheduleByCategory(category_name: string) {
-  return frappePost<{
-    category: string; total_assets: number; regenerated: number;
-    skipped_has_history: number; errors: number
-  }>(`${BASE}.bulk_regenerate_schedule_by_category`, { category_name })
+export interface BulkRegenerateResult {
+  category: string
+  total_assets: number
+  inherited: number
+  regenerated: number
+  skipped_has_history: number
+  skipped_no_rule: number
+  errors: number
+}
+
+export async function bulkRegenerateScheduleByCategory(
+  category_name: string,
+): Promise<BulkRegenerateResult> {
+  return frappePost<BulkRegenerateResult>(
+    `${BASE}.bulk_regenerate_schedule_by_category`, { category_name })
 }
