@@ -54,6 +54,57 @@ class CompetencyStatus:
 RECERT_LEAD_DAYS = 60  # INVARIANT — lead time tái chứng nhận, đo bằng NGÀY (không phải tháng)
 
 
+# ─── BR-06-14 SoT — predicate "Sắp/Đã hết hạn" năng lực (live, date-derived) ───
+
+EXPIRY_WINDOW_DAYS = 60  # INVARIANT — cửa sổ nhìn trước "Sắp hết hạn"; KHỚP default get_expiring_competencies()
+
+
+def _expiring_competency_filter() -> dict:
+    """SoT DUY NHẤT cho predicate "Sắp hết hạn" (live, theo expiry_date vs today).
+
+    expiring(c) ⟺ workflow_state ∈ {Active, Expiring}
+                  ∧ expiry_date ∈ [today, today + EXPIRY_WINDOW_DAYS]
+
+    Dùng CHUNG cho cả KPI count (get_dashboard_stats) lẫn drill
+    (get_expiring_competencies) → tile card == drill list, KHÔNG drift.
+
+    KHÔNG đếm theo workflow_state thuần: scheduler chỉ stamp 'Expiring' đúng mốc
+    90/60/30 ngày → năng lực hết hạn trong 45 ngày (chưa trúng mốc) vẫn còn cờ
+    'Active' nhưng PHẢI vào 'Sắp hết hạn'. Revoked/Suspended/Pending bị loại.
+
+    Returns:
+        dict filter Frappe (inclusive cả 2 biên cửa sổ).
+    """
+    cutoff_end = str(add_days(nowdate(), EXPIRY_WINDOW_DAYS))
+    return {
+        "workflow_state": ["in", [CompetencyStatus.ACTIVE, CompetencyStatus.EXPIRING]],
+        "expiry_date": ["between", [nowdate(), cutoff_end]],
+    }
+
+
+def _expired_competency_filter() -> dict:
+    """SoT DUY NHẤT cho predicate "Đã hết hạn" (live, theo expiry_date vs today).
+
+    expired(c) ⟺ workflow_state ∈ {Active, Expiring, Expired}
+                 ∧ expiry_date < today
+
+    Bao gồm cả năng lực còn cờ 'Active'/'Expiring' mà scheduler lỡ phiên
+    auto_expire (cửa-sổ-trễ-scheduler) → KHÔNG undercount operator quá hạn.
+    Revoked/Suspended/Pending KHÔNG bao giờ bị đếm.
+
+    Returns:
+        dict filter Frappe (expiry_date < today, exclusive today).
+    """
+    return {
+        "workflow_state": ["in", [
+            CompetencyStatus.ACTIVE,
+            CompetencyStatus.EXPIRING,
+            CompetencyStatus.EXPIRED,
+        ]],
+        "expiry_date": ["<", nowdate()],
+    }
+
+
 def compute_competency_dates(achieved_date, validity_months: int) -> dict:
     """SoT DUY NHẤT cho expiry_date + recertification_due_date (BR-06-13).
 
@@ -1406,8 +1457,10 @@ def get_dashboard_stats() -> dict:
             "total": _count("IMM User Competency", {}),
             "pending": _count("IMM User Competency", {"workflow_state": CompetencyStatus.PENDING}),
             "active": _count("IMM User Competency", {"workflow_state": CompetencyStatus.ACTIVE}),
-            "expiring": _count("IMM User Competency", {"workflow_state": CompetencyStatus.EXPIRING}),
-            "expired": _count("IMM User Competency", {"workflow_state": CompetencyStatus.EXPIRED}),
+            # BR-06-14: expiring/expired đếm theo SoT LIVE (date-derived), KHÔNG cờ
+            # workflow_state thuần → INVARIANT card == drill (get_expiring_competencies).
+            "expiring": _count("IMM User Competency", _expiring_competency_filter()),
+            "expired": _count("IMM User Competency", _expired_competency_filter()),
             "revoked": _count("IMM User Competency", {"workflow_state": CompetencyStatus.REVOKED}),
         },
         "programs": {
@@ -1444,22 +1497,30 @@ def get_competency_gaps_by_dept() -> dict:
         return {"items": []}
 
 
-def get_expiring_competencies(days: int = 60) -> list:
+def get_expiring_competencies(days: int = EXPIRY_WINDOW_DAYS) -> list:
     """Lấy danh sách hồ sơ năng lực sắp hết hạn trong `days` ngày.
 
+    Drill của tile "Sắp hết hạn". Khi `days == EXPIRY_WINDOW_DAYS` (mặc định),
+    dùng CHUNG predicate với KPI count (_expiring_competency_filter) → INVARIANT:
+        kpis.competencies.expiring == len(get_expiring_competencies(60))
+
     Args:
-        days: số ngày nhìn trước (mặc định 60).
+        days: số ngày nhìn trước (mặc định EXPIRY_WINDOW_DAYS = 60).
 
     Returns:
         list dict hồ sơ sắp hết hạn, sắp xếp theo expiry_date tăng dần.
     """
-    cutoff_end = str(add_days(nowdate(), days))
-    return frappe.get_all(
-        "IMM User Competency",
-        filters={
+    if days == EXPIRY_WINDOW_DAYS:
+        filters = _expiring_competency_filter()  # SoT chung với KPI card
+    else:
+        cutoff_end = str(add_days(nowdate(), days))
+        filters = {
             "workflow_state": ["in", [CompetencyStatus.ACTIVE, CompetencyStatus.EXPIRING]],
             "expiry_date": ["between", [nowdate(), cutoff_end]],
-        },
+        }
+    return frappe.get_all(
+        "IMM User Competency",
+        filters=filters,
         fields=[
             "name", "user", "device_model", "training_program",
             "expiry_date", "days_until_expiry", "recertification_due_date",

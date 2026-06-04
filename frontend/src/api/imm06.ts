@@ -96,6 +96,38 @@ export interface Imm06ListResponse<T> {
   pagination: { page: number; page_size: number; total: number; total_pages: number }
 }
 
+/**
+ * KPI tổng quan IMM-06 (get_dashboard_stats).
+ *
+ * BR-06-14: `competencies.expiring`/`expired` do BE đếm theo SoT LIVE (date-derived,
+ * cùng predicate với drill `getExpiringCompetencies(60)`). FE render VERBATIM —
+ * KHÔNG tự tính lại count ở FE. INVARIANT: `competencies.expiring === getExpiringCompetencies(60).length`.
+ */
+export interface Imm06DashboardStats {
+  sessions: {
+    total: number
+    planned: number
+    confirmed: number
+    in_progress: number
+    completed: number
+    cancelled: number
+  }
+  competencies: {
+    total: number
+    pending: number
+    active: number
+    /** 'Sắp hết hạn' — đếm LIVE theo expiry_date∈[today, today+60] (SoT BE). Bind verbatim. */
+    expiring: number
+    /** 'Đã hết hạn' — đếm LIVE theo expiry_date<today (SoT BE). Bind verbatim. */
+    expired: number
+    revoked: number
+  }
+  programs: {
+    total: number
+    active: number
+  }
+}
+
 const BASE = '/api/method/assetcore.api.imm06'
 
 export async function listPrograms(
@@ -264,8 +296,8 @@ export async function recertifyCompetency(
   })
 }
 
-export async function getDashboardStats(): Promise<Record<string, unknown>> {
-  return frappeGet<Record<string, unknown>>(`${BASE}.get_dashboard_stats`)
+export async function getDashboardStats(): Promise<Imm06DashboardStats> {
+  return frappeGet<Imm06DashboardStats>(`${BASE}.get_dashboard_stats`)
 }
 
 export async function getCompetencyGapsByDept(): Promise<Record<string, unknown>> {
