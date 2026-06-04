@@ -93,7 +93,7 @@ class TestCapaOpenSoT(unittest.TestCase):
         opened_date=None → mô phỏng legacy data: force NULL qua db.set_value sau insert.
         """
         seed_due = due_date if due_date else add_days(nowdate(), 30)
-        doc = frappe.get_doc({
+        payload = {
             "doctype": _DT_CAPA,
             "asset": self._asset.name,
             "source_type": "Non-Conformance",
@@ -104,7 +104,18 @@ class TestCapaOpenSoT(unittest.TestCase):
             "opened_date": opened_date if opened_date else add_days(nowdate(), -10),
             "due_date": seed_due,
             "status": status,
-        }).insert(ignore_permissions=True)
+        }
+        # BR-00-26: cổng hiệu quả fire khi status=='Closed' → CAPA 'Closed' hợp lệ
+        # PHẢI có effectiveness_check='Effective' + 3-field khắc phục (no trạng thái lai).
+        if status == "Closed":
+            payload.update({
+                "effectiveness_check": "Effective",
+                "root_cause": "Open SoT fixture root cause",
+                "corrective_action": "Open SoT fixture corrective action",
+                "preventive_action": "Open SoT fixture preventive action",
+                "closed_date": nowdate(),
+            })
+        doc = frappe.get_doc(payload).insert(ignore_permissions=True)
         if opened_date is None:
             frappe.db.set_value(_DT_CAPA, doc.name, "opened_date", None, update_modified=False)
         self._names.append(doc.name)

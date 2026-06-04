@@ -12,6 +12,7 @@ from assetcore.services.imm00 import count_pending_approvals, byt_expiry_filter
 from assetcore.services.imm08 import count_overdue_pm, due_soon_filter
 from assetcore.services.imm09 import (
     REPAIR_TERMINAL_STATES,
+    cm_sla_breach_count,
     open_repair_filter,
 )
 
@@ -101,11 +102,14 @@ def get_overview() -> dict:
         # KHÔNG còn literal ma 'Closed'. Đếm CÙNG tập với drill-down repair SQL
         # (INVARIANT card == drill): số thẻ == số dòng list khi click.
         cm_open = _count("Asset Repair", open_repair_filter())
-        # BR-09-07 canonical-value rule: KPI thẻ phải đếm CÙNG tập WO với drill
-        # /cm/work-orders?sla_breached=1 (không status filter). sla_breached là
-        # sự thật lịch sử monotonic — WO đã Completed mà vi phạm vẫn tính. Trước
-        # đây loại Completed/Closed → số thẻ ≠ số dòng list khi click.
-        cm_sla_breached = _count("Asset Repair", {"sla_breached": 1})
+        # BR-09-07 LIVE (SoT): card 'SLA vi phạm' đếm qua cm_sla_breach_count() =
+        # cờ lịch sử (sla_breached=1, monotonic — WO Completed vi phạm vẫn tính)
+        # + live-overdue (open ∧ cờ=0 ∧ quá hạn ngay BÂY GIỜ, KHÔNG đợi scheduler
+        # hourly). 2 nhánh exclusive → idempotent vs scheduler, no double-count.
+        # Drill /cm/work-orders?sla_breached=1 nay enrich is_sla_breached live →
+        # card == drill trên TẬP LIVE đúng (INV-CM-SLA-1..5). KHÔNG inline
+        # _count({sla_breached:1}) ở đây — undercount cửa-sổ-trễ-scheduler.
+        cm_sla_breached = cm_sla_breach_count()
         cm_repeat_failure = _count("Asset Repair", {"is_repeat_failure": 1})
         cm_completed_30d = _count("Asset Repair", {"status": "Completed", "completion_datetime": [">=", add_days(today_str, -30)]})
 

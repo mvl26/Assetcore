@@ -99,7 +99,7 @@ class TestCapaDrilldownConjoin(unittest.TestCase):
         frappe.db.commit()
 
     def _mk_capa(self, status: str, due_date) -> str:
-        doc = frappe.get_doc({
+        payload = {
             "doctype": _DT_CAPA,
             "asset": self._asset.name,
             "source_type": "Non-Conformance",
@@ -110,7 +110,17 @@ class TestCapaDrilldownConjoin(unittest.TestCase):
             "opened_date": add_days(nowdate(), -10),
             "due_date": due_date,
             "status": status,
-        }).insert(ignore_permissions=True)
+        }
+        # BR-00-26: cổng hiệu quả fire khi status=='Closed' → seed effectiveness hợp lệ.
+        if status == "Closed":
+            payload.update({
+                "effectiveness_check": "Effective",
+                "root_cause": "Conjoin fixture root cause",
+                "corrective_action": "Conjoin fixture corrective action",
+                "preventive_action": "Conjoin fixture preventive action",
+                "closed_date": nowdate(),
+            })
+        doc = frappe.get_doc(payload).insert(ignore_permissions=True)
         self._names.append(doc.name)
         return doc.name
 

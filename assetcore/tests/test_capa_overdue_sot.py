@@ -90,7 +90,7 @@ class TestCapaOverdueSoT(unittest.TestCase):
         db.set_value (due_date là reqd=1 nên không insert thẳng NULL được).
         """
         seed_due = due_date if due_date else add_days(nowdate(), 30)
-        doc = frappe.get_doc({
+        payload = {
             "doctype": _DT_CAPA,
             "asset": self._asset.name,
             "source_type": "Non-Conformance",
@@ -101,7 +101,17 @@ class TestCapaOverdueSoT(unittest.TestCase):
             "opened_date": add_days(nowdate(), -60),
             "due_date": seed_due,
             "status": status,
-        }).insert(ignore_permissions=True)
+        }
+        # BR-00-26: cổng hiệu quả fire khi status=='Closed' → seed effectiveness hợp lệ.
+        if status == "Closed":
+            payload.update({
+                "effectiveness_check": "Effective",
+                "root_cause": "Overdue SoT fixture root cause",
+                "corrective_action": "Overdue SoT fixture corrective action",
+                "preventive_action": "Overdue SoT fixture preventive action",
+                "closed_date": nowdate(),
+            })
+        doc = frappe.get_doc(payload).insert(ignore_permissions=True)
         if due_date is None:
             frappe.db.set_value(_DT_CAPA, doc.name, "due_date", None, update_modified=False)
         self._names.append(doc.name)
