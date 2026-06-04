@@ -127,6 +127,178 @@ def is_sla_breached(elapsed_hours: float | None, sla_target: float | None) -> bo
     return float(elapsed_hours) >= float(sla_target)
 
 
+# ─── SoT clock-stop: elapsed-trừ-hold (BR-09-10, INV-CM-HOLD-1) ────────────────
+#
+# Vấn đề thiết kế gốc (Self-Correction vòng 24): CẢ 3 consumer (`complete_repair`
+# lúc đóng, scheduler `check_repair_sla_breach`, card `_row_is_live_overdue`) tính
+# elapsed = wall-clock thuần `(now/completion − open_datetime)`, KHÔNG trừ thời
+# gian WO nằm `Pending Parts` (kho hết hàng — vendor lead-time NGOÀI tầm đội sửa).
+# ⇒ inflate MTTR + false SLA breach (phạt oan đội sửa; méo KPI đáp ứng NĐ98 Art.56).
+#
+# Quyết định: helper SoT DUY NHẤT `repair_elapsed_hours` phái sinh elapsed-trừ-hold;
+# 3 consumer gọi hàm này rồi truyền vào `is_sla_breached` (biên >=, BẤT BIẾN). 2
+# field `parts_hold_hours` (cộng dồn các khoảng ĐÃ ĐÓNG) + `parts_hold_started`
+# (mốc open-leg đang chạy). Cấm tính `(until−open)` thô để quyết breach/MTTR ở nơi
+# khác (grep-guard zero-tolerance).
+
+
+def _field(doc, name: str):
+    """Đọc field từ Document HOẶC dict-row (consumer card/scheduler dùng get_all
+    trả dict). Pure, no DB."""
+    if isinstance(doc, dict):
+        return doc.get(name)
+    return getattr(doc, name, None)
+
+
+def repair_elapsed_hours(doc, until) -> float:
+    """SoT DUY NHẤT (BR-09-10, INV-CM-HOLD-1): elapsed-trừ-hold (giờ).
+
+    ``elapsed = (until − open_datetime) − tổng-thời-gian-Pending-Parts``
+    với tổng-hold = ``parts_hold_hours`` (các khoảng ĐÃ ĐÓNG)
+                  + ``(until − parts_hold_started)`` nếu ``parts_hold_started`` còn
+                    non-null (open-leg ĐANG hold — WO hiện ở Pending Parts).
+
+    Pure, no DB write. ``doc`` có thể là Document hoặc dict (row từ get_all) — đọc
+    ``open_datetime``/``parts_hold_hours``/``parts_hold_started`` qua ``_field``.
+    Khi ``parts_hold_hours==0 ∧ parts_hold_started==null`` ⇒ trả đúng
+    ``(until−open)/3600`` cũ (INV-CM-HOLD-4, no-regression). Clamp ≥0 (biên hold >
+    wall ⇒ 0, không âm).
+    """
+    open_dt = get_datetime(_field(doc, "open_datetime"))
+    until_dt = get_datetime(until)
+    wall_seconds = time_diff_in_seconds(until_dt, open_dt)
+    hold_seconds = (_field(doc, "parts_hold_hours") or 0.0) * 3600.0
+    started = _field(doc, "parts_hold_started")
+    if started:  # open-leg đang hold — WO hiện ở Pending Parts
+        hold_seconds += max(0.0, time_diff_in_seconds(until_dt, get_datetime(started)))
+    return round(max(0.0, wall_seconds - hold_seconds) / 3600.0, 2)
+
+
+def enter_parts_hold(doc) -> None:
+    """VÀO Pending Parts (BR-09-10, INV-CM-HOLD-2): stamp ``parts_hold_started =
+    now()``. Idempotent — nếu đã non-null thì giữ nguyên (không re-stamp). Ghi ALE
+    ``parts_hold_started`` (SLA bắt đầu tạm dừng). Gọi từ ``submit_diagnosis(
+    needs_parts=1)`` trước ``RepairRepo.save``."""
+    if doc.parts_hold_started:  # idempotent — hold đang mở, không re-stamp
+        return
+    doc.parts_hold_started = now_datetime()
+    _log_lifecycle_event(
+        asset=doc.asset_ref, event_type="parts_hold_started",
+        from_status=RepairStatus.DIAGNOSING, to_status=RepairStatus.PENDING_PARTS,
+        root_record=doc.name,
+        notes="WO vào Pending Parts — chờ phụ tùng (kho hết hàng); SLA tạm dừng (BR-09-10).",
+    )
+
+
+def exit_parts_hold(doc, until=None) -> None:
+    """RA Pending Parts / chốt khoảng cuối (BR-09-10, INV-CM-HOLD-2/3): nếu
+    ``parts_hold_started`` non-null → ``parts_hold_hours += max(0, (until or now()) −
+    parts_hold_started)/3600`` (biên Δ==0 ⇒ +0, MONOTONIC ≥0), reset
+    ``parts_hold_started=null``. Idempotent — nếu đã null → no-op. Ghi ALE
+    ``parts_hold_resumed``. Gọi từ ``start_repair``/``request_spare_parts`` (rời
+    Pending Parts) + ``complete_repair``/``cannot_repair`` (chốt cuối,
+    until=completion)."""
+    if not doc.parts_hold_started:  # idempotent — không có hold đang mở
+        return
+    until_dt = get_datetime(until) if until else now_datetime()
+    delta_h = max(0.0, time_diff_in_seconds(  # biên Δ==0 ⇒ +0 (INV-CM-HOLD-3)
+        until_dt, get_datetime(doc.parts_hold_started))) / 3600.0
+    closed = round(delta_h, 4)
+    doc.parts_hold_hours = round((doc.parts_hold_hours or 0.0) + closed, 4)
+    doc.parts_hold_started = None  # reset (INV-CM-HOLD-2)
+    _log_lifecycle_event(
+        asset=doc.asset_ref, event_type="parts_hold_resumed",
+        from_status=RepairStatus.PENDING_PARTS, to_status=RepairStatus.IN_REPAIR,
+        root_record=doc.name,
+        notes=f"WO rời Pending Parts — cộng {closed}h hold; "
+              f"tổng parts_hold_hours={doc.parts_hold_hours}h; SLA tiếp tục (BR-09-10).",
+    )
+
+
+# ─── SoT: SLA-breach LIVE count cho KPI card 'SLA vi phạm' (BR-09-07 LIVE) ─────
+#
+# Vấn đề thiết kế gốc (Self-Correction): `api/dashboard.py` đặt
+# `cm_sla_breached = _count("Asset Repair", {"sla_breached": 1})` — chỉ đếm CỜ ĐÃ
+# STAMP. Cờ `sla_breached` chỉ set bởi `complete_repair()` (lúc đóng) hoặc
+# scheduler hourly `check_repair_sla_breach()`. ⇒ WO ĐANG MỞ vừa vượt hạn 1–59'
+# nhưng scheduler chưa quét tới có `sla_breached=0` → KHÔNG đếm trên card đến đầu
+# giờ kế = UNDERCOUNT cửa-sổ-trễ-scheduler. Đồng dạng lỗi đã sửa ở IMM-12 BR-12-09.
+#
+# Quyết định: card + drill đếm theo LIVE SoT predicate. `cm_sla_breach_count()` =
+# hợp 2 nhánh LOẠI TRỪ NHAU theo cờ (cờ=1 vs cờ=0∧live-overdue) ⇒ no double-count,
+# idempotent vs scheduler (INV-CM-SLA-2). Live-overdue tính per-row bằng SoT
+# predicate `is_sla_breached` đã có (KHÔNG predicate breach mới); terminal loại tự
+# nhiên qua `is_repair_open` (INV-CM-SLA-4). ĐÂY là điểm SoT DUY NHẤT — cấm
+# re-implement `_count({"sla_breached": 1})` cho KPI tile ở api/dashboard.py.
+
+
+def _row_is_live_overdue(row: dict, now) -> bool:
+    """Per-row derive (BR-09-07 LIVE): WO ĐANG MỞ, cờ CHƯA stamp, nhưng
+    `(now - open_datetime) ≥ sla_target_hours` (biên >= qua SoT `is_sla_breached`).
+
+    - `row.sla_breached` truthy → False (nhánh (1) cờ=1 đã lo, tránh double-count).
+    - status TERMINAL (`is_repair_open` False) → False (INV-CM-SLA-4: Cannot
+      Repair/Completed/Cancelled không phantom-count vào card open-breach).
+    - không có `open_datetime` → False (an toàn, không bịa breach).
+    In-Python, KHÔNG query thêm (reuse SoT predicate `is_sla_breached`).
+
+    BR-09-10 (clock-stop): elapsed dùng SoT `repair_elapsed_hours` (trừ
+    `parts_hold_hours` + open-leg đang chạy nếu `row.status == Pending Parts`) thay
+    `(now − open)` thô ⇒ WO ở Pending Parts KHÔNG live-overdue oan (INV-CM-HOLD-6:
+    card == scheduler == cờ stamp). `row` PHẢI có `parts_hold_hours` /
+    `parts_hold_started` trong `fields=[...]` (no N+1).
+    """
+    if row.get("sla_breached"):
+        return False
+    if not is_repair_open(row.get("status")):
+        return False
+    open_dt = row.get("open_datetime")
+    if not open_dt:
+        return False
+    elapsed_h = repair_elapsed_hours(row, now)  # SoT clock-stop (BR-09-10)
+    target = row.get("sla_target_hours") or get_sla_target(
+        row.get("risk_class") or RiskClass.I, row.get("priority") or "Normal")
+    return is_sla_breached(elapsed_h, target)
+
+
+def cm_sla_breach_count() -> int:
+    """SoT LIVE count cho card 'SLA vi phạm' (BR-09-07 LIVE). 2 nhánh exclusive:
+
+      (1) cờ lịch sử `sla_breached == 1` (monotonic — gồm cả WO đã Completed mà
+          breach; INV-CM-SLA-3 no-regression).
+      (2) live-overdue ∧ cờ == 0 (`open_repair_filter({"sla_breached": 0})` thu hẹp
+          candidate → lọc chính xác per-row `_row_is_live_overdue`, vì
+          `sla_target_hours` khác nhau theo (risk_class, priority) nên không
+          đếm-thô được trong filter).
+
+    Idempotent vs scheduler (INV-CM-SLA-2): WO live-overdue đếm ở nhánh (2). Khi
+    scheduler stamp cờ → WO rời (2) (vì `sla_breached=0` không còn match) và vào
+    (1). Tổng KHÔNG đổi. 2 nhánh phân hoạch theo cờ (1 vs 0) ⇒ KHÔNG bao giờ chồng.
+    """
+    flagged = RepairRepo.count({"sla_breached": 1})
+    now = now_datetime()
+    candidates, _ = RepairRepo.list(
+        filters=open_repair_filter({"sla_breached": 0}),
+        fields=["name", "status", "open_datetime", "sla_target_hours",
+                "risk_class", "priority", "sla_breached",
+                # BR-09-10: clock-stop SoT cần hold data per-row (no N+1).
+                "parts_hold_hours", "parts_hold_started"],
+        page_size=100000,
+    )
+    live_open = sum(1 for r in candidates if _row_is_live_overdue(r, now))
+    return flagged + live_open
+
+
+def _enrich_sla_breach(rows: list) -> None:
+    """Gán `is_sla_breached` (bool, derived LIVE) cho mỗi row đã fetch — badge FE
+    đọc field derived `is_sla_breached ?? sla_breached` thay cờ thô (INV-CM-SLA-5:
+    badge live == card). In-Python, KHÔNG query thêm per-row. CÙNG SoT với
+    `cm_sla_breach_count` (cờ=1 OR live-overdue)."""
+    now = now_datetime()
+    for r in rows:
+        r["is_sla_breached"] = bool(r.get("sla_breached")) or _row_is_live_overdue(r, now)
+
+
 # ─── Validators (gọi từ controller / service) ────────────────────────────────
 
 def validate_repair_source(doc) -> None:
@@ -224,13 +396,23 @@ def set_asset_under_repair(asset_ref: str, wo_name: str) -> None:
 def complete_repair(doc) -> None:
     """Xử lý khi WO được Submit: tính MTTR, cập nhật Asset, tạo Lifecycle Event."""
     doc.completion_datetime = now_datetime()
-    open_dt = get_datetime(doc.open_datetime)
     close_dt = get_datetime(doc.completion_datetime)
-    doc.mttr_hours = round(time_diff_in_seconds(close_dt, open_dt) / 3600.0, 2)
+
+    # ─── BR-09-10 (clock-stop), ⚠️ ORDERING bắt buộc (INV-CM-HOLD-5) ───────────
+    # Nếu đóng WO khi đang Pending Parts (parts_hold_started còn non-null), chốt
+    # open-leg hold cuối tới completion_datetime TRƯỚC khi tính elapsed — nếu không
+    # khoảng hold cuối bị bỏ sót. Sau chốt, parts_hold_started == null ⇒
+    # repair_elapsed_hours chỉ trừ parts_hold_hours (đã gồm khoảng cuối), không
+    # double-count.
+    exit_parts_hold(doc, until=close_dt)
+    # MTTR = elapsed-trừ-hold (SoT BR-09-10), KHÔNG phải wall-clock thô.
+    doc.mttr_hours = repair_elapsed_hours(doc, close_dt)
 
     doc.sla_target_hours = get_sla_target(doc.risk_class or RiskClass.I, doc.priority or "Normal")
     # BR-09-07: dùng SoT predicate (biên >=) + monotonic — KHÔNG reset 1→0 nếu
     # scheduler đã đánh breach lúc WO còn đang chạy (vd mttr == target == 72).
+    # BR-09-10: elapsed truyền vào is_sla_breached LÀ mttr_hours (clock-stop), KHÔNG
+    # phải wall-clock — nguồn elapsed đổi, biên >= bất biến.
     doc.sla_breached = 1 if (is_sla_breached(doc.mttr_hours, doc.sla_target_hours)
                              or doc.sla_breached) else 0
     doc.status = RepairStatus.COMPLETED
@@ -252,14 +434,53 @@ def complete_repair(doc) -> None:
         "mttr_hours": doc.mttr_hours,
         "sla_target_hours": doc.sla_target_hours,
         "sla_breached": doc.sla_breached,
+        # BR-09-10: persist khoảng hold cuối đã chốt + reset marker (INV-CM-HOLD-5).
+        "parts_hold_hours": doc.parts_hold_hours or 0.0,
+        "parts_hold_started": doc.parts_hold_started,
     })
 
-    transition_asset_status(
-        asset_name=doc.asset_ref, to_status=AssetStatus.ACTIVE,
-        actor=frappe.session.user,
-        root_doctype=RepairRepo.DOCTYPE, root_record=doc.name,
-        reason=f"Repair completed — MTTR: {doc.mttr_hours}h | SLA: {'Breached' if doc.sla_breached else 'Met'}",
+    # ─── BR-09-09: restore Asset CÓ ĐIỀU KIỆN theo state machine ──────────────
+    # ROOT CAUSE (Self-Correction): bản trước gọi transition_asset_status(
+    #   to_status=ACTIVE) VÔ ĐIỀU KIỆN, giả định asset luôn ở Under Repair.
+    #   Thực tế lifecycle_status do NHIỀU process quản (calib-fail→OoS+CAPA,
+    #   incident, decommission) → 1 transition phục vụ sai ≥2 ngữ cảnh.
+    # FIX: đọc prev_status TRƯỚC; chỉ Active khi đang Under Repair; mọi nhánh
+    #   GHI 1 Lifecycle Event (audit đầy đủ, CLAUDE.md §5); nhánh restore KHÔNG
+    #   BAO GIỜ raise (INV-09-RESTORE-1) → on_submit không vỡ.
+    prev_status = AssetRepo.get_value(doc.asset_ref, "lifecycle_status") or ""
+    _restore_note = (
+        f"Repair completed — MTTR: {doc.mttr_hours}h | "
+        f"SLA: {'Breached' if doc.sla_breached else 'Met'}"
     )
+
+    if prev_status == AssetStatus.UNDER_REPAIR:
+        # Nhánh A — restore hợp lệ: WO đóng đưa thiết bị về vận hành.
+        # transition_asset_status TỰ ghi ALE 'activated' (from=Under Repair).
+        transition_asset_status(
+            asset_name=doc.asset_ref, to_status=AssetStatus.ACTIVE,
+            actor=frappe.session.user,
+            root_doctype=RepairRepo.DOCTYPE, root_record=doc.name,
+            reason=_restore_note,
+        )
+    elif prev_status == AssetStatus.DECOMMISSIONED:
+        # Nhánh C — terminal: ép Active sẽ raise InvalidAssetTransition (set rỗng)
+        # → on_submit VỠ, WO un-closeable. Bỏ qua restore; vẫn ghi ALE để audit.
+        _log_lifecycle_event(
+            asset=doc.asset_ref, event_type="repair_completed",
+            from_status=prev_status, to_status=prev_status, root_record=doc.name,
+            notes=f"{_restore_note} — asset đã thanh lý (Decommissioned), bỏ qua restore.",
+        )
+    else:
+        # Nhánh B — hold governance khác (Out of Service do calib-fail/CAPA/
+        # incident, hoặc bất kỳ prev khác Under Repair/Decommissioned). KHÔNG ép
+        # Active: thiết bị out-of-tolerance KHÔNG được tự lọt lại lâm sàng
+        # (NĐ98 — an toàn). Giữ nguyên prev + ghi ALE note hold.
+        _log_lifecycle_event(
+            asset=doc.asset_ref, event_type="repair_completed",
+            from_status=prev_status, to_status=prev_status, root_record=doc.name,
+            notes=f"{_restore_note} — WO đóng nhưng asset giữ '{prev_status}' do "
+                  f"hold khác; cần giải toả riêng.",
+        )
 
     # BR-11: nếu thiết bị yêu cầu hiệu chuẩn → tạo CAL WO recalibration
     try:
@@ -270,8 +491,16 @@ def complete_repair(doc) -> None:
 
 
 def _log_lifecycle_event(*, asset: str, event_type: str, from_status: str,
-                          to_status: str, root_record: str, notes: str = "") -> None:
-    """Wrapper cục bộ — gọi canonical create_lifecycle_event từ utils.lifecycle."""
+                          to_status: str, root_record: str,
+                          root_doctype: str | None = None, notes: str = "") -> None:
+    """Wrapper cục bộ — gọi canonical create_lifecycle_event từ utils.lifecycle.
+
+    `Asset Lifecycle Event.root_record` là Dynamic Link (options='root_doctype')
+    → PHẢI truyền `root_doctype` cùng `root_record`, nếu không Frappe raise
+    'Root DocType must be set first' và event bị nuốt (audit-trail mất record,
+    vi phạm CLAUDE.md §5). Mọi caller IMM-09 dùng root_record = Asset Repair
+    nên default `root_doctype = RepairRepo.DOCTYPE`.
+    """
     try:
         _create_lifecycle_event(
             asset=asset,
@@ -279,6 +508,7 @@ def _log_lifecycle_event(*, asset: str, event_type: str, from_status: str,
             actor=frappe.session.user,
             from_status=from_status,
             to_status=to_status,
+            root_doctype=root_doctype or RepairRepo.DOCTYPE,
             root_record=root_record,
             notes=notes,
         )
@@ -295,15 +525,19 @@ def check_repair_sla_breach() -> None:
                                     RepairStatus.PENDING_PARTS, RepairStatus.IN_REPAIR]),
                  "docstatus": 0},
         fields=["name", "asset_ref", "priority", "risk_class",
-                "open_datetime", "sla_target_hours", "sla_breached", "assigned_to"],
+                "open_datetime", "sla_target_hours", "sla_breached", "assigned_to",
+                # BR-09-10: clock-stop SoT cần hold data per-row (no N+1).
+                "parts_hold_hours", "parts_hold_started"],
         page_size=1000,
     )
     for wo in active_wos:
         # Idempotent: WO đã breach thì bỏ qua — không re-publish realtime mỗi giờ.
         if wo.get("sla_breached"):
             continue
-        open_dt = get_datetime(wo["open_datetime"])
-        elapsed_h = round(time_diff_in_seconds(now_datetime(), open_dt) / 3600.0, 2)
+        # BR-09-10: elapsed = repair_elapsed_hours (clock-stop, trừ hold đang chạy
+        # nếu WO ở Pending Parts) thay (now − open) thô ⇒ WO chờ phụ tùng KHÔNG
+        # breach oan. CÙNG SoT với complete_repair + card (INV-CM-HOLD-6).
+        elapsed_h = repair_elapsed_hours(wo, now_datetime())
         sla = wo.get("sla_target_hours") or get_sla_target(
             wo.get("risk_class") or RiskClass.I, wo.get("priority") or "Normal")
         # BR-09-07: dùng SoT predicate (biên >=) — KHÔNG so sánh inline để tránh
@@ -440,12 +674,26 @@ def list_work_orders(filters: dict, *, page: int = 1, page_size: int = 20) -> di
         filters=_normalize_filters(_apply_open_drill(filters)),
         fields=["name", "asset_ref", "asset_name", "repair_type", "priority",
                 "status", "open_datetime", "completion_datetime", "mttr_hours",
-                "sla_breached", "is_repeat_failure", "assigned_to",
-                "root_cause_category", "risk_class"],
+                "sla_breached", "sla_target_hours", "is_repeat_failure", "assigned_to",
+                "root_cause_category", "risk_class",
+                # BR-09-10: clock-stop SoT cần hold data per-row cho live-overdue
+                # derive (no N+1); `parts_hold_hours` cũng trả ra FE.
+                "parts_hold_hours", "parts_hold_started"],
         order_by="open_datetime desc",
         page=page, page_size=page_size,
     )
     _enrich_rows(rows)
+    # BR-09-07 LIVE: derive per-row `is_sla_breached` (cờ thô OR live-overdue) ⇒
+    # drill /cm/work-orders?sla_breached=1 hiển thị badge LIVE khớp card
+    # (INV-CM-SLA-5). BR-09-10: live-overdue nay phái sinh elapsed clock-stop ⇒ WO ở
+    # Pending Parts KHÔNG live-overdue oan. In-Python, KHÔNG query thêm.
+    _enrich_sla_breach(rows)
+    # BR-09-10: `sla_paused` = WO đang Pending Parts ⇒ FE hiện badge VI
+    # 'Chờ phụ tùng — SLA tạm dừng'. `parts_hold_started` là field nội bộ — không
+    # cần expose ra API list (chỉ phục vụ derive SoT trên BE).
+    for r in rows:
+        r["sla_paused"] = r.get("status") == RepairStatus.PENDING_PARTS
+        r.pop("parts_hold_started", None)
     return {"data": rows, "pagination": pg}
 
 
@@ -566,6 +814,10 @@ def submit_diagnosis(name: str, *, diagnosis_notes: str, needs_parts: int = 0) -
                expected="Assigned/Diagnosing")
     doc.diagnosis_notes = diagnosis_notes
     doc.status = RepairStatus.PENDING_PARTS if int(needs_parts) else RepairStatus.IN_REPAIR
+    # BR-09-10 ENTER hold: vào Pending Parts ⇒ stamp parts_hold_started + ALE
+    # parts_hold_started (SLA tạm dừng). enter_parts_hold idempotent.
+    if doc.status == RepairStatus.PENDING_PARTS:
+        enter_parts_hold(doc)
     doc.flags.ignore_links = True
     RepairRepo.save(doc)
     _log_lifecycle_event(
@@ -584,6 +836,11 @@ def start_repair(name: str) -> dict:
     if doc.status not in (RepairStatus.ASSIGNED, RepairStatus.DIAGNOSING, RepairStatus.PENDING_PARTS):
         nthrow(MSG.IMM09_BAD_STATE, state=doc.status,
                expected="Assigned/Diagnosing/Pending Parts")
+    # BR-09-10 EXIT hold: rời Pending Parts ⇒ chốt khoảng hold vào parts_hold_hours,
+    # reset parts_hold_started + ALE parts_hold_resumed (SLA tiếp tục). exit_parts_hold
+    # idempotent (no-op nếu không hold). Chốt TRƯỚC khi đổi status.
+    if doc.status == RepairStatus.PENDING_PARTS:
+        exit_parts_hold(doc)
     doc.status = RepairStatus.IN_REPAIR
     doc.flags.ignore_links = True
     RepairRepo.save(doc)
@@ -602,6 +859,9 @@ def request_spare_parts(name: str, parts: list[dict]) -> dict:
                 row.stock_entry_ref = part.get("stock_entry_ref")
                 updated += 1
     if doc.status == RepairStatus.PENDING_PARTS:
+        # BR-09-10 EXIT hold: linh kiện đã nhận → rời Pending Parts ⇒ chốt khoảng
+        # hold + ALE parts_hold_resumed TRƯỚC khi đổi status (SLA tiếp tục).
+        exit_parts_hold(doc)
         doc.status = RepairStatus.IN_REPAIR
     doc.flags.ignore_links = True
     RepairRepo.save(doc)
@@ -738,6 +998,10 @@ def confirm_inspection(name: str) -> dict:
 
 
 def _mark_cannot_repair(doc, name: str, reason: str) -> dict:
+    # BR-09-10 (INV-CM-HOLD-5): nếu đóng "không thể sửa" khi đang Pending Parts,
+    # chốt open-leg hold cuối + ALE parts_hold_resumed (audit đầy đủ; WO không tính
+    # MTTR nhưng vẫn ghi trọn khoảng hold). exit_parts_hold idempotent.
+    exit_parts_hold(doc, until=now_datetime())
     doc.status = RepairStatus.CANNOT_REPAIR
     doc.cannot_repair_reason = reason
     doc.flags.ignore_links = True
