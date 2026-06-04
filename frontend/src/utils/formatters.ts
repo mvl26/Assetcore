@@ -315,6 +315,47 @@ export function translateDepreciationMethod(v?: string | null): string {
   return DEPRECIATION_METHOD_MAP[v] ?? v
 }
 
+// ─── Asset Lifecycle Event type translation (SSoT) ──────────────────────────
+// Nhãn VI cho `event_type` của Asset Lifecycle Event (IMM-00 trục vòng đời).
+// DUY NHẤT 1 map cho toàn FE — chống raw-EN leak (anti-pattern A) ở dòng thời
+// gian AssetDetailView (tab "Lịch sử"). Trước đây view render `event.event_type`
+// THÔ → lộ mã 'restored'/'activated'/'commissioned'/... bằng tiếng Anh.
+// BE ground truth: Asset Lifecycle Event.event_type (18 option) — KHỚP đủ enum
+//   asset_lifecycle_event.json. Phân biệt rõ:
+//   • 'activated'  = kích hoạt sau repair/calib/PM/commission → 'Kích hoạt'
+//   • 'restored'   = khôi phục sau tạm ngừng (Out of Service → Active) → 'Khôi phục hoạt động'
+//   (INV-ALE-RESTORE: 1 transition OoS→Active chỉ sinh 1 event 'restored', VI rõ nghĩa).
+const LIFECYCLE_EVENT_MAP: Record<string, string> = {
+  commissioned:                 'Đưa vào sử dụng',
+  activated:                    'Kích hoạt',
+  restored:                     'Khôi phục hoạt động',
+  out_of_service:               'Ngừng hoạt động',
+  pm_started:                   'Bắt đầu bảo trì',
+  pm_completed:                 'Hoàn tất bảo trì',
+  repair_opened:                'Mở phiếu sửa chữa',
+  repair_completed:             'Hoàn tất sửa chữa',
+  calibration_started:          'Bắt đầu hiệu chuẩn',
+  calibration_passed:           'Hiệu chuẩn đạt',
+  calibration_failed:           'Hiệu chuẩn không đạt',
+  incident_reported:            'Ghi nhận sự cố',
+  decommissioned:               'Thanh lý',
+  transferred:                  'Luân chuyển',
+  registered:                   'Đăng ký thiết bị',
+  depreciated:                  'Trích khấu hao',
+  depreciation_rules_inherited: 'Kế thừa quy tắc khấu hao',
+  depreciation_stopped:         'Dừng khấu hao',
+}
+
+/**
+ * Trả nhãn Tiếng Việt cho 1 loại sự kiện vòng đời (Asset Lifecycle Event.event_type).
+ * - null / '' / undefined → '—'
+ * - key lạ → trả nguyên `v` (không crash, không bịa nhãn).
+ */
+export function translateLifecycleEvent(v?: string | null): string {
+  if (!v) return '—'
+  return LIFECYCLE_EVENT_MAP[v] ?? v
+}
+
 // ─── Status color (Tailwind classes) ────────────────────────────────────────
 // Key rule:
 //   🟢 xanh lá  — ổn / hoàn thành / đạt
@@ -499,4 +540,14 @@ export function formatCurrency(v?: number | null): string {
   return new Intl.NumberFormat('vi-VN', {
     style: 'currency', currency: 'VND', maximumFractionDigits: 0,
   }).format(v)
+}
+
+/**
+ * SSoT percent formatter. null/undefined → 'em-dash' (KHÔNG '0%') — dùng cho KPI
+ * không-có-mẫu (vd compliance khi total_scheduled==0) để tránh hiểu nhầm
+ * "không tuân thủ". Có giá trị → `<v>%` (1 chữ số thập phân do BE đã round).
+ */
+export function formatPercent(v?: number | null): string {
+  if (v == null) return '—'
+  return `${v}%`
 }
