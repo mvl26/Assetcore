@@ -55,5 +55,6 @@ assetcore/public/frontend/
 # Session context (skill assetcore-session) — local-only, NEVER commit (R3)
 .claude/contexts/
 docs/huong-dan-su-dung/
+docs/nghiem-thu/
 .claude/scripts/run
 docs/superpowers/
