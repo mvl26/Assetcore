@@ -133,7 +133,103 @@ def _reconcile_approval_status_field() -> None:
         )
 
 
+def before_install() -> None:
+    """Rebuild module map TRƯỚC khi Frappe sync doctype — fix fresh-install cloud.
+
+    Triệu chứng đã gặp (cloud, bench đang chạy): `bench install-app assetcore` báo
+    `Workflow sync error … DocType <X> not found` cho MỌI doctype + `_seed_uoms` lỗi
+    `No module named 'frappe.core.doctype.ac_uom'`.
+
+    Nguyên nhân: trên bench cloud có web worker + scheduler sống, Redis cache key
+    `app_modules`/`all_apps` được nạp TRƯỚC khi assetcore thêm vào bench → cache cũ
+    KHÔNG có "assetcore". Khi tiến trình `install-app` boot, `setup_module_map()` đọc
+    cache cũ (truthy → KHÔNG rebuild) → `frappe.local.app_modules` thiếu key
+    "assetcore". `install_app()` gọi `frappe.clear_cache()` (xoá Redis key) NHƯNG
+    KHÔNG reset `local.app_modules` in-memory → vẫn cũ. `sync_for("assetcore")` lặp
+    `frappe.local.app_modules.get("assetcore") or []` → rỗng → 0/108 doctype được
+    sync → `after_install` (_sync_workflows/_seed_uoms) fail vì doctype chưa tồn tại
+    (`get_controller("AC UOM")` fallback `["Core", …]` → import `frappe.core.…`).
+
+    `install_app()` chạy `before_install` NGAY TRƯỚC `add_module_defs` + `sync_for`,
+    nên bust cache app-list/module-map ở đây + rebuild khiến `sync_for` thấy
+    assetcore và sync đủ doctype. Idempotent + no-op trên site đã đúng map (local dev).
+    Best-effort: lỗi rebuild KHÔNG được chặn install.
+    """
+    try:
+        _rebuild_module_map()
+        mods = (frappe.local.app_modules or {}).get("assetcore") or []
+        print(f"[AssetCore] before_install: module map rebuilt — assetcore modules={mods}")
+    except Exception as e:  # noqa: BLE001
+        frappe.log_error(
+            frappe.get_traceback(),
+            "AssetCore before_install: module map refresh failed",
+        )
+        print(f"[AssetCore] before_install warning: {e}")
+
+
+def _rebuild_module_map() -> None:
+    """Bust cache app-list/module-map rồi rebuild để Frappe thấy module 'assetcore'.
+
+    Xem docstring `before_install` cho bối cảnh: trên bench cloud đang chạy, Redis
+    cache `app_modules` cũ có thể thiếu "assetcore" → mọi cơ chế dựa vào
+    `frappe.local.app_modules` (sync_for, get_module_app) bỏ sót doctype của app.
+    """
+    frappe.cache.delete_value([
+        "app_modules",
+        "installed_app_modules",
+        "all_apps",
+        "installed_apps",
+        "module_app",
+        "module_installed_app",
+    ])
+    frappe.setup_module_map(include_all_apps=True)
+
+
+def _ensure_app_doctypes_synced() -> None:
+    """Self-heal: bảo đảm doctype của AssetCore đã được sync TRƯỚC các bước phụ thuộc.
+
+    `install_app()` của Frappe gọi `sync_for("assetcore")` trước `after_install`,
+    nhưng trên bench cloud đang chạy, `sync_for` có thể lặp 0 module (app_modules
+    cache cũ thiếu "assetcore") → 0/108 doctype được tạo → `_sync_workflows`,
+    `_seed_uoms` và cả `sync_fixtures` (chạy SAU after_install) đều fail
+    'DocType ... not found'. Hook `before_install` đã rebuild map để sync_for native
+    chạy đúng; hàm này là lớp phòng vệ thứ 2: nếu doctype VẪN thiếu khi after_install
+    chạy thì rebuild map + `sync_for(force=True)` thủ công ngay tại đây.
+
+    Idempotent: nếu doctype mốc ("AC Asset") đã tồn tại → no-op nhanh, không sync lại.
+    Vì hàm chạy ở ĐẦU after_install (trước workflow/UOM) và after_install chạy TRƯỚC
+    sync_fixtures trong install_app, sửa được ở đây = sạch toàn bộ chuỗi cài.
+    """
+    if frappe.db.exists("DocType", "AC Asset"):
+        return
+    try:
+        from frappe.model.sync import sync_for
+
+        _rebuild_module_map()
+        mods = (frappe.local.app_modules or {}).get("assetcore") or []
+        if not mods:
+            print(
+                "[AssetCore] after_install self-heal: app_modules vẫn thiếu 'assetcore' "
+                "sau rebuild — kiểm tra modules.txt/apps.txt + file doctype trên server."
+            )
+            return
+        sync_for("assetcore", force=True, reset_permissions=True)
+        frappe.db.commit()
+        synced = frappe.db.exists("DocType", "AC Asset")
+        print(
+            f"[AssetCore] after_install self-heal: sync_for('assetcore') xong "
+            f"(modules={mods}, AC Asset tồn tại={synced!r})."
+        )
+    except Exception as e:  # noqa: BLE001 — không chặn install; bước sau sẽ báo cụ thể
+        frappe.log_error(
+            frappe.get_traceback(),
+            "AssetCore after_install: ensure doctypes synced failed",
+        )
+        print(f"[AssetCore] after_install doctype self-heal warning: {e}")
+
+
 def after_install() -> None:
+    _ensure_app_doctypes_synced()
     _sync_workflows()
     _seed_uoms()
     create_user_custom_fields()
@@ -146,8 +242,20 @@ def after_install() -> None:
 
 
 def before_migrate() -> None:
-    """Xóa Has Role orphan rows thuộc AssetCore Role Profiles trước khi fixture sync.
-    Ngăn lỗi 'already has the role' khi Frappe delete+reinsert Role Profile fixture."""
+    """Rebuild module map + xóa Has Role orphan rows trước khi migrate sync schema.
+
+    `before_migrate` chạy TRƯỚC `sync_all()` (đồng bộ doctype) trong `bench migrate`.
+    Rebuild map ở đây bảo đảm đường RECOVERY (`bench migrate` chữa site đã lỡ cài
+    hỏng vì app_modules cache cũ) cũng sync đủ doctype — cùng lý do với `before_install`.
+    `_clear_role_profile_has_role_rows`: ngăn lỗi 'already has the role' khi Frappe
+    delete+reinsert Role Profile fixture."""
+    try:
+        _rebuild_module_map()
+    except Exception:
+        frappe.log_error(
+            frappe.get_traceback(),
+            "AssetCore before_migrate: module map refresh failed",
+        )
     _clear_role_profile_has_role_rows()
 
 

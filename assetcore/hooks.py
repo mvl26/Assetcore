@@ -1,4 +1,5 @@
 app_name = "assetcore"
+before_install = "assetcore.setup.install.before_install"
 after_install = "assetcore.setup.install.after_install"
 after_migrate = "assetcore.setup.install.after_migrate"
 before_migrate = "assetcore.setup.install.before_migrate"
