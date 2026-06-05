@@ -94,7 +94,14 @@ def build_frontend(force: bool = False) -> None:
 
     npm_bin = shutil.which("npm") or "npm"
     if not os.path.isdir(os.path.join(frontend_path, "node_modules")):
-        if not _run([npm_bin, "ci"], frontend_path, "npm ci"):
+        # `--no-fund --no-audit --loglevel=error`: tắt nhiễu thông tin (deprecation
+        # warn của dep gián tiếp, dòng funding, bản tóm tắt audit vulnerabilities)
+        # khỏi log `install-app`. Đây là cảnh báo của dependency upstream, KHÔNG phải
+        # lỗi cài; muốn xử lý vulnerabilities thật thì chạy `npm audit` riêng (tách
+        # task nâng dep — `npm audit fix --force` đổi major → vỡ build). Lỗi `npm ci`
+        # thật vẫn hiện ở loglevel=error nên không che mất lỗi cài đặt thật.
+        npm_ci_cmd = [npm_bin, "ci", "--no-fund", "--no-audit", "--loglevel=error"]
+        if not _run(npm_ci_cmd, frontend_path, "npm ci"):
             return
     else:
         print("[AssetCore FE] node_modules đã có, bỏ qua npm ci.")
