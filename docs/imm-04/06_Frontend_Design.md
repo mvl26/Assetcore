@@ -223,8 +223,21 @@ Lưu ảnh tại `docs/imm-04/screenshots/`:
 | `AssetLifecycleTimeline.vue` | Timeline lifecycle events immutable | `events: AssetLifecycleEvent[]` |
 | `ClinicalHoldAlert.vue` | Alert Clinical Hold với danh sách doc thiếu | `riskClass, qaOfficer, missingLicenses[]` |
 | `BaselineChecklistTable.vue` | Table đo kiểm inline editable | `items: CommissioningChecklist[], readonly: boolean` |
+| `commissioning/QRLabel.vue` | Preview + in nhãn QR của phiếu nghiệm thu | `name: string` |
 
 Đặt trong `frontend/src/components/imm04/`. Component dùng ≥ 2 module → promote ra `components/common/`.
+
+### 4.1 — `QRLabel.vue` mã hoá deep-link asset (dedup vòng 13 / ADR-001 §D6.1)
+
+> Hợp nhất nhãn QR commissioning về **1 đường deep-link** với QR cấp asset. Quét điện thoại trên phiếu đã release → mở thẳng màn `AssetScanInfo` (A6) thay vì ra chuỗi text thô.
+
+| # | Quy tắc FE | Chi tiết |
+|---|---|---|
+| 1 | Nguồn mã hoá ẢNH QR | `QRCode.toDataURL(value)` với `value = res.qr_url` khi `res.qr_url` không rỗng (deep-link `/a/<token>`); **fallback** `res.qr_value` (tag `internal_tag_qr`) CHỈ khi `qr_url` rỗng (phiếu chưa mint asset). KHÔNG bao giờ mã hoá tag tuần tự khi đã có deep-link. |
+| 2 | Type `QrLabelData` | `+qr_url?: string \| null`; **−`scan_url`** (BE bỏ field). `qr_value` GIỮ (fallback + nhãn cũ + scanner-wedge). |
+| 3 | Nhãn hiển thị | Các field `label.*` GIỮ nguyên (kể cả `internal_qr` read-only hiển thị tham chiếu nội bộ). Chỉ ĐỔI nội dung mã hoá VÀO ảnh QR. |
+| 4 | Edge token-less | `qr_url=null` → encode `qr_value` (như cũ) → nhãn vẫn in được, không lỗi, không màn trắng. |
+| 5 | Tương thích ngược | `internal_tag_qr` vẫn hiển thị + dùng cho scanner-wedge (`BarcodeScanner.vue` / `get_barcode_lookup`) — KHÔNG xoá khỏi UI.
 
 ---
 

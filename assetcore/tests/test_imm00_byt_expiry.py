@@ -109,9 +109,11 @@ class _BytSeedMixin:
         for sub, exp in spec:
             d = {
                 "doctype": "AC Asset",
-                "asset_name": f"_TestBYT {tag}-{sub}",
+                # NON-reserved asset_name: data-hygiene SSoT ẩn '_…' khỏi list_assets;
+                # fixture byt cần XUẤT HIỆN trong drill ⇒ tên thường (KHÔNG prefix '_').
+                "asset_name": f"ZZTestBYT {tag}-{sub}",
                 "asset_category": cls._cat.name,
-                "manufacturer_sn": f"_TestBYTSN-{tag}-{sub}",
+                "manufacturer_sn": f"ZZTestBYTSN-{tag}-{sub}",
                 "lifecycle_status": "Active",
             }
             if exp is not None:

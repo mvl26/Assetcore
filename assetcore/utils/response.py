@@ -50,6 +50,7 @@ class ErrorCode:
     BAD_STATE = "BAD_STATE"                         # 409 — sai trạng thái workflow
     DUPLICATE = "DUPLICATE"                         # 409 — chỉ riêng case duplicate key
     INVALID_PARAMS = "INVALID_PARAMS"               # 400 — params malformed (JSON parse, …)
+    PAYLOAD_TOO_LARGE = "PAYLOAD_TOO_LARGE"         # 413 — payload vượt cap (vd batch nhãn QR)
     RATE_LIMITED = "RATE_LIMITED"                   # 429 — quá ngưỡng request
     COMPLIANCE_BLOCKED = "COMPLIANCE_BLOCKED"       # 422 — IMM-16 gate: critical CAPA/finding mở
     INTERNAL = "INTERNAL"                           # 500 — lỗi server không lường trước
@@ -67,6 +68,7 @@ _HTTP_FOR_CODE = {
     ErrorCode.BAD_STATE: 409,
     ErrorCode.DUPLICATE: 409,
     ErrorCode.INVALID_PARAMS: 400,
+    ErrorCode.PAYLOAD_TOO_LARGE: 413,
     ErrorCode.RATE_LIMITED: 429,
     ErrorCode.COMPLIANCE_BLOCKED: 422,
     ErrorCode.INTERNAL: 500,
@@ -158,6 +160,7 @@ _HTTP_TO_CODE = {
     403: ErrorCode.FORBIDDEN,
     404: ErrorCode.NOT_FOUND,
     409: ErrorCode.CONFLICT,
+    413: ErrorCode.PAYLOAD_TOO_LARGE,
     417: ErrorCode.BUSINESS_RULE,
     422: ErrorCode.BUSINESS_RULE,
     429: ErrorCode.RATE_LIMITED,

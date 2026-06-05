@@ -528,23 +528,24 @@ curl -X POST 'http://site/api/method/assetcore.api.imm04.submit_commissioning' \
 
 ---
 
-### 13. generate_qr_label — Sinh dữ liệu QR
+### 13. generate_qr_label — Sinh dữ liệu QR (dedup deep-link — vòng 13 / ADR-001 §D6.1)
 
 | Mục | Giá trị |
 |---|---|
 | Method | GET |
 | Path | `/api/method/assetcore.api.imm04.generate_qr_label` |
-| Role | All |
-| Idempotent | Yes |
+| Role | All (gate `has_permission("Asset Commissioning","read")`) |
+| Idempotent | Yes (`qr_url` dựng qua `ensure_asset_qr_token` idempotent — KHÔNG double-emit) |
 
 **Request:** `?name=ACC-26-04-00001`
 
-**Response success:**
+**Response success — phiếu ĐÃ có `final_asset` (đã Clinical Release / mint asset):**
 ```jsonc
 {
   "success": true,
   "data": {
-    "qr_value": "BV-CDHA-2026-0001",
+    "qr_value": "BV-CDHA-2026-0001",          // GIỮ — fallback + tương thích nhãn cũ + scanner-wedge
+    "qr_url": "https://assetcore.benhvien.vn/a/Xk7p2Qm9_aZ4Lr8sT0wVcQ",  // MỚI: deep-link tuyệt đối /a/<token> (enumeration-safe) — ẢNH QR mã hoá field này
     "label": {
       "title": "ASSETCORE — NHÃN THIẾT BỊ",
       "commissioning_id": "ACC-26-04-00001",
@@ -555,16 +556,40 @@ curl -X POST 'http://site/api/method/assetcore.api.imm04.submit_commissioning' \
       "dept": "Khoa CĐHA",
       "moh_code": "QLSP-2026-001",
       "installation_date": "2026-04-18T14:30:00Z",
-      "status": "Identification",
-      "asset_id": "Chưa có",
+      "status": "Clinical Release",
+      "asset_id": "AC-ASSET-2026-00123",
       "print_date": "2026-04-18"
     },
-    "scan_url": "/app/asset-commissioning/ACC-26-04-00001"
+    "docs_url": "/documents/asset/AC-ASSET-2026-00123"   // GIỮ — không trong scope vòng 13
   }
 }
 ```
 
-**Errors:** `BAD_STATE` nếu `internal_tag_qr` chưa được sinh (phiếu chưa qua Identification).
+**Response success — phiếu CHƯA có `final_asset` (edge):**
+```jsonc
+{
+  "success": true,
+  "data": {
+    "qr_value": "BV-CDHA-2026-0001",
+    "qr_url": null,            // KHÔNG sinh token, KHÔNG throw — nhãn fallback dùng commissioning_id; ẢNH QR fallback mã hoá qr_value
+    "label": { /* ... asset_id: "Chưa có", status: "Identification" ... */ },
+    "docs_url": null
+  }
+}
+```
+
+**Delta vòng 13 (ADR-001 §D6.1 — RC dedup):**
+- **`+qr_url`** — chuỗi tuyệt đối `/a/<token>` khi `final_asset` có; `null` khi chưa mint asset. Dựng qua **tái dùng** `services.imm00.ensure_asset_qr_token(final_asset)` + `_build_qr_url(token)` (1 helper duy nhất — KHÔNG copy logic sinh token/URL).
+- **`−scan_url`** — field `scan_url=/app/asset-commissioning/<name>` (desk-login) **BỎ HẲN** khỏi contract. FE đọc `qr_url`.
+- ẢNH QR (FE `QRLabel.vue`) mã hoá `qr_url` khi có (deep-link → camera điện thoại mở `AssetScanInfo` A6); fallback `qr_value` (tag) CHỈ khi `qr_url` rỗng → KHÔNG còn chuỗi tag tuần tự `BV-DEPT-YYYY-SEQ` quét-được.
+- `docs_url` GIỮ nguyên.
+- **Lifecycle:** `ensure_asset_qr_token` idempotent → KHÔNG double-emit `qr_generated` (đã emit lần đầu ở A1/backfill). `generate_qr_label` KHÔNG emit event mới.
+
+**Errors:**
+- `BAD_STATE` (`QR_NOT_GENERATED`) nếu `internal_tag_qr` chưa được sinh (phiếu chưa qua Identification).
+- `FORBIDDEN` nếu user không có quyền read trên `Asset Commissioning`.
+- `NOT_FOUND` nếu `name` không tồn tại.
+- Edge `final_asset` rỗng KHÔNG phải lỗi → `qr_url=null` (success).
 
 ---
 

@@ -97,11 +97,18 @@ Module IMM-xx KHÔNG thể hoạt động nếu IMM-00 chưa sẵn sàng:
   "use_tls": 1,
   "mail_login": "noreply@hospital.vn",
   "mail_password": "<app-password>",
-  "allow_cors": "https://assetcore.hospital.vn"
+  "allow_cors": "https://assetcore.hospital.vn",
+  "assetcore_qr_base_url": "https://htm.benhvien.vn"
 }
 ```
 
 > Dev only: `"allow_cors": "*"` — không dùng production.
+
+> **`assetcore_qr_base_url` (QR deep-link base — BR-00-30 / ADR-001 D2.1).** Base-URL **CÔNG KHAI** mà camera điện thoại quét tem QR mở được — host phải có DNS công cộng (vd `https://htm.benhvien.vn`), KHÔNG phải host nội bộ LAN (`http://miyano`). `_build_qr_url(token)` dựng deep-link `<base>/a/<token>`.
+> - **Quy tắc giá trị:** CHỈ scheme `http`/`https`; KHÔNG path/query/fragment/khoảng trắng; KHÔNG kết thúc bằng `/a/...`. Dấu `/` thừa cuối được tự strip.
+> - **Vắng/rỗng/sai định dạng** → fallback `frappe.utils.get_url("/a/<token>")` (hành vi cũ — dev/test/site chưa cấu hình KHÔNG vỡ; sai định dạng → log cảnh báo 1 lần, KHÔNG gãy in tem).
+> - **Khi nào cấu hình:** production/staging có domain public — set key này để tem in ra quét được ngoài LAN. Dev/test có thể bỏ trống.
+> - Sửa key → áp dụng ngay lần in tem kế (đọc `frappe.conf` runtime; KHÔNG cần `bench migrate`). Bench đọc `site_config.json` per-request — restart không bắt buộc, nhưng `bench --site <site> clear-cache` nếu thấy chưa áp.
 
 ## II.3. Common Site Config — `common_site_config.json`
 

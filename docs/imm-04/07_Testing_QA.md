@@ -253,6 +253,29 @@ File: `tests/test_imm04_api.py` (⬜ Planned). Cover happy + envelope `success=t
 | `test_idempotent_submit` | `submit_commissioning` 2 lần | 2nd call → `code=BAD_STATE` | Error guessing |
 | `test_barcode_lookup` | `get_barcode_lookup?barcode=...` | trả asset_ref đúng | Use Case |
 
+### III.6.a — `TestGenerateQrLabelDeepLink` — dedup QR commissioning→asset (vòng 13 / ADR-001 §D6.1)
+
+File: `tests/test_imm04.py` (class MỚI `TestGenerateQrLabelDeepLink`). RED trước (TDD). Verify `generate_qr_label` ủy quyền deep-link asset + bỏ `scan_url` desk + không double-emit.
+
+| Test | Tình huống | Verify |
+|---|---|---|
+| `test_qr_url_present_when_final_asset` | Phiếu đã Clinical Release (có `final_asset` mang `qr_token`) | `res["qr_url"]` = chuỗi tuyệt đối kết thúc `/a/<token>`; token == `AC Asset.qr_token` của `final_asset`; `res` KHÔNG còn key `scan_url` |
+| `test_qr_url_uses_shared_helper` | Patch `imm00.ensure_asset_qr_token` + `_build_qr_url` | `generate_qr_label` GỌI 2 helper đó (dedup THẬT — không tái hiện CSPRNG/`get_url` trong imm04); `qr_url` == giá trị helper trả |
+| `test_qr_url_null_when_no_final_asset` | Phiếu chưa mint asset (`final_asset` rỗng, đã qua Identification → có `internal_tag_qr`) | `res["qr_url"] is None`; KHÔNG raise; `ensure_asset_qr_token` KHÔNG được gọi; `res["qr_value"] == internal_tag_qr` (fallback) |
+| `test_no_double_emit_qr_generated` | `final_asset` đã có `qr_token` (đã emit ở mint/backfill) | Gọi `generate_qr_label` KHÔNG tạo thêm ALE `qr_generated` (count trước == sau) |
+| `test_emit_once_when_asset_token_less` | `final_asset` tồn tại nhưng `qr_token` rỗng (legacy) | `generate_qr_label` → token sinh 1 lần + ĐÚNG 1 ALE `qr_generated`; gọi lần 2 → KHÔNG thêm event (idempotent) |
+| `test_no_label_printed_emitted` | Bất kỳ | `generate_qr_label` (GET preview) KHÔNG tạo ALE `label_printed` (đó là `mark_label_printed`) |
+| `test_rbac_unchanged_forbidden` | User không có read trên `Asset Commissioning` | `ServiceError(FORBIDDEN)` — gate giữ nguyên |
+| `test_bad_state_no_internal_tag_qr` | Phiếu chưa qua Identification (`internal_tag_qr` rỗng) | `ServiceError(INVALID_PARAMS)` "Phiếu chưa có mã QR nội bộ" — không đổi |
+| `test_internal_tag_qr_field_intact` | Sau dedup | `Asset Commissioning.internal_tag_qr` vẫn read-only + `get_barcode_lookup(internal_tag_qr)` vẫn resolve đúng (scanner-wedge không vỡ) |
+
+**Baseline GIỮ XANH:** `test_imm00` (108+ test — `ensure_asset_qr_token`/`_build_qr_url` không đổi behavior), `test_imm04` (39 commissioning), `test_workflows`, `test_dashboard`.
+
+**FE (vitest):** `frontend/src/components/commissioning/QRLabel.test.ts` — case deep-link:
+- `encode_qr_url_when_present`: mock `generateQrLabel` trả `qr_url=/a/TOKEN` → `QRCode.toDataURL` gọi với `/a/TOKEN` (KHÔNG phải `qr_value`).
+- `fallback_qr_value_when_url_empty`: `qr_url=null` → encode `qr_value` (tag); nhãn vẫn render, không lỗi.
+- Type-check `vue-tsc` 0 error sau khi `QrLabelData` đổi (`+qr_url?`, `−scan_url`).
+
 ## III.7. E2E browser (Playwright)
 
 Dùng cho flow UI khó cover bằng API: PO cascade auto-fill, modal NC/DOA confirm, workflow button visibility theo role, QR scan. → `assetcore-test` skill Phần 2 (Playwright MCP recipes + R-1..R-9 data rules). Golden scenario: Tạo từ PO → upload docs → G01 → lắp đặt → Identification (QR) → baseline → G03 → Clinical Release → verify Asset.

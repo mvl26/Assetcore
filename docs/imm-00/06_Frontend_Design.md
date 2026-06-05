@@ -174,8 +174,10 @@ Các routes dưới đây đánh dấu `[BUILT]` nếu có Vue component, `[SPEC
 /                           → Dashboard (IMM-00 overview KPIs)              [SPEC]
 /assets                     → AC Asset List                                  [BUILT — AssetListView.vue]
 /assets/new                 → AC Asset Form (Create)                        [BUILT — AssetCreateView.vue]
-/assets/:name               → AC Asset Detail                               [BUILT — AssetDetailView.vue]
+/assets/:name               → AC Asset Detail (admin, 5 tab)                [BUILT — AssetDetailView.vue]
 /assets/:name/edit          → AC Asset Form (Edit)                          [BUILT — AssetEditView.vue]
+/assets/:id/info            → Asset Scan Info (mobile-first, read-only)     [SPEC — A6/V7, xem II.3c]
+/a/:token                   → QR deep-link resolve → redirect /info (A6)    [SPEC — A2/V3, xem II.3b]
 /assets/:name/lifecycle     → Asset Lifecycle Event Timeline                [SPEC]
 /assets/depreciation        → Depreciation hub                              [BUILT — DepreciationView.vue]
 /assets/transfers           → Asset Transfer List                           [BUILT — AssetTransferListView.vue]
@@ -201,13 +203,277 @@ Các routes dưới đây đánh dấu `[BUILT]` nếu có Vue component, `[SPEC
 /403                        → Forbidden403View                              [SPEC]
 ```
 
+## II.3b. QR deep-link `/a/:token` — resolve + redirect (ADR-001 A2 / V3)
+
+> **Đề mục A2.** Route ngắn `/a/:token` = đích camera điện thoại quét QR (URL build BE qua SSoT `_build_qr_url` — host = base-URL công khai cấu hình được `assetcore_qr_base_url`, fallback `get_url`; xem [`04 §II.1.8-QRBASE`](./04_Backend_Design.md) / BR-00-30). FE KHÔNG đụng (chỉ đọc `qr_url` từ BE). A2 CHỉ resolve + redirect — màn info đầy đủ ở `/assets/:id` (A6/V7).
+
+**Route (`frontend/src/router/index.ts`):**
+```ts
+{
+  path: '/a/:token',
+  name: 'QrResolve',
+  component: () => import('@/views/system/QrResolveView.vue'),  // NEW (A2)
+  props: true,
+  meta: { requiresAuth: true, title: 'Đang mở thiết bị…', requiredCapabilities: ['asset.read'] },
+}
+```
+
+**Flow `QrResolveView.vue` (cập nhật A6 — đổi đích redirect):**
+1. `onMounted` → gọi `resolve_qr_token(token)` (05 §III.1 `resolve_qr_token`).
+2. **Thành công (200):** `router.replace({ name: 'AssetScanInfo', params: { id: data.name } })` (replace — KHÔNG để `/a/:token` trong history back). **Self-Correction A6:** ĐỔI từ `AssetDetail` (admin 926 dòng) → màn info mobile-first `AssetScanInfo` (§II.3c). **Regression test BẮT BUỘC:** `QrResolveView.test.ts` assert KHÔNG còn `push`/`replace` sang `AssetDetail` từ resolver nữa.
+3. **404 (token sai):** màn lỗi rõ ràng VI — "Không tìm thấy thiết bị cho mã QR này" + nút **Quét lại** (`/qr-scan`) / **Nhập mã thủ công** / **Về trang chủ**. KHÔNG trang trắng.
+4. **403 (không quyền / vendor ngoài scope):** màn lỗi VI — "Bạn không có quyền xem thiết bị này" + nút Về trang chủ. KHÔNG trang trắng.
+5. **Loading:** spinner + "Đang mở thiết bị…" (resolve nhanh, nhưng phải có trạng thái chờ).
+
+> **Tối ưu (khuyến nghị, không bắt buộc A6):** `AssetScanInfo` có thể nhận thẳng `token` (route phụ `/scan/:token`) và gọi `get_asset_scan_info(token=...)` 1 call — bỏ chặng resolver trung gian. Vòng A6 GIỮ luồng 2 chặng (resolver → `AssetScanInfo` by `id`) để regression test tối thiểu; gộp 1 chặng = `[ROADMAP]` vòng dọn.
+
+**Auth + cap (A2):**
+- Route gate `requiredCapabilities: ['asset.read']` (giữ literal `asset.read` — ADR D4; chỉ valid SAU khi BE A2 thêm domain Asset, xem 04 §III.1c-1a). KHÔNG fork sang `data.read`.
+- Chưa đăng nhập → guard `beforeEach` redirect `/login?redirect=/a/:token` (deep-link giữ nguyên sau auth — đăng nhập xong quay lại resolve).
+- **Cap-set version (lesson IMM-14):** BE thêm 6 cap `asset.*` → `CAP_SET_VERSION` đổi → bump hằng số `auth.ts::CAP_SET_VERSION` khớp giá trị BE mới (xem II.4b AC4) → persisted-caps cũ (rỗng `asset.*`) tự invalidate lúc init → route hoạt động sau migrate KHÔNG cần xóa localStorage tay.
+
+## II.3c. Màn THÔNG TIN thiết bị mobile-first khi quét QR — `AssetScanInfoView.vue` (ADR-001 A6 / V7)
+
+> **Đề mục A6.** Màn đích sau khi quét QR — **mobile-first, read-only**, KHÔNG phải `AssetDetailView` (admin 926 dòng / 5 tab). Hiển thị cốt lõi cho người dùng tại hiện trường: định danh + model + vị trí + trạng thái (pill VI) + bảo trì gần nhất. **KHÔNG cap/field/DocType/endpoint admin mới** — dùng `asset.read` + `get_asset_scan_info` (05 §III.1).
+
+**Route MỚI (`frontend/src/router/index.ts`):**
+```ts
+{
+  path: '/assets/:id/info',
+  name: 'AssetScanInfo',
+  component: () => import('@/views/asset/AssetScanInfoView.vue'),  // NEW (A6)
+  props: true,
+  meta: { requiresAuth: true, title: 'Thông tin thiết bị', requiredCapabilities: ['asset.read'] },
+}
+```
+> Route name = **`AssetScanInfo`** (acceptance). Path `/assets/:id/info` (giữ tiền tố `/assets/` quen thuộc + hậu tố `/info` phân biệt với `/assets/:id` admin). KHÔNG đụng route `AssetDetail` hiện có.
+
+**View `AssetScanInfoView.vue` (Vue 3 `<script setup lang="ts">` + TanStack Query):**
+1. `onMounted`/`useQuery` → gọi `getAssetScanInfo({ name: route.params.id })` (api/imm00.ts — NEW, xem dưới). Cũng nhận `token` query nếu có (luồng gộp 1 chặng tương lai).
+2. **Loading:** khối `aria-busy="true"` + spinner + "Đang tải thông tin thiết bị…". KHÔNG trang trắng.
+3. **Thành công:** layout **1 cột trên mobile** (`max-w-md mx-auto`, `space-y-4`), font ≥ `text-base`, touch-target nút ≥ 44px:
+   - **Header định danh:** `asset_name` (lớn, `text-lg font-semibold`) + `asset_code` (phụ) + **status pill VI** (`lifecycle_status_label` qua màu theo `lifecycle_status` — tái dùng `LIFECYCLE_STATUS_CLASS` từ `constants/labels.ts`). KHÔNG hiển thị mã EN thô.
+   - **Thông tin:** `device_model_name`, `location_name` (mỗi dòng nhãn VI + giá trị; rỗng → "—").
+   - **Bảo trì gần nhất:** nếu `last_maintenance`/`recent_maintenance` → "{event_type_label} · {date}"; nếu `null` → "Chưa có lịch sử bảo trì". `next_pm_date` → "PM kế tiếp: {date}" (rỗng → ẩn dòng).
+   - **Cờ PM quá hạn (Vòng 27 B — A6-hardening, FR-00-85 / BR-00-36):** cạnh dòng "Bảo trì định kỳ kế tiếp" (`AssetScanInfoView.vue:182-187`), khi `info.pm_overdue === true` → render badge VI **"Quá hạn bảo trì"** (style cảnh báo đỏ). FE **CHỈ render cờ `pm_overdue` từ payload** — TUYỆT ĐỐI KHÔNG tự so sánh `next_pm_date` với `Date()`/đồng hồ client (SSoT quá-hạn ở BE, timezone-safe — chống lệch múi giờ máy quét vs server). `pm_overdue === false` → giữ NGUYÊN hiển thị ngày như cũ, KHÔNG badge. Xem §II.3c-PMOVERDUE dưới.
+   - **Hiệu chuẩn kế tiếp + cờ quá hạn (Vòng 28 B — A6-hardening, FR-00-86 / BR-00-37 — chiều HIỆU CHUẨN):** trong CÙNG card "Bảo trì gần nhất", thêm dòng **"Hiệu chuẩn kế tiếp"** = `formatDate(info.next_calibration_date)` hoặc "Chưa lên lịch" khi rỗng; khi `info.calibration_overdue === true` → render badge VI **"Quá hạn hiệu chuẩn"** (style cảnh báo đỏ + `role="status"` + `aria-label`). FE **CHỈ render cờ `calibration_overdue` từ payload** — TUYỆT ĐỐI KHÔNG tự so `next_calibration_date` với `Date()`/client clock. `calibration_overdue === false` → giữ NGUYÊN ngày, KHÔNG badge. Xem §II.3d-CALOVERDUE dưới.
+4. **Error (role=alert, VI, KHÔNG trang trắng):**
+   - **403:** "Bạn không đủ quyền xem thiết bị này." + nút Về trang chủ.
+   - **404:** "Không tìm thấy thiết bị." + nút Quét lại / Về trang chủ.
+5. **Nút điều hướng (luôn có):** **Quét lại** (`router.push({name:'QRScan'})`) + **Về trang chủ** (`router.push({name:'Dashboard'})`). Touch-target lớn (`w-full` button mobile).
+6. **READ-ONLY tuyệt đối:** KHÔNG nút edit / delete / transition / workflow. Chỉ xem + điều hướng (acceptance A6). Edit admin chỉ ở `AssetDetailView` (qua route riêng).
+
+**API client (`frontend/src/api/imm00.ts`) — NEW:**
+```ts
+export interface AssetScanInfo {
+  name: string; asset_code: string; asset_name: string;
+  device_model_name: string; location_name: string;
+  lifecycle_status: string; lifecycle_status_label: string;
+  last_maintenance: { event_type: string; event_type_label: string; date: string } | null;
+  next_pm_date: string | null;
+  pm_overdue: boolean;   // NEW (Vòng 27 B / BR-00-36) — cờ PM quá hạn derive SERVER-SIDE; FE chỉ render
+  next_calibration_date: string | null;   // NEW (Vòng 28 B / BR-00-37) — ngày hiệu chuẩn kế tiếp
+  calibration_overdue: boolean;            // NEW (Vòng 28 B / BR-00-37) — cờ hiệu chuẩn quá hạn derive SERVER-SIDE; FE chỉ render
+}
+export function getAssetScanInfo(p: { name?: string; token?: string }): Promise<AssetScanInfo> {
+  return get('assetcore.api.imm00.get_asset_scan_info', p)
+}
+```
+
+> **Parity field-name:** mã hiện tại trả key bảo trì gần nhất là `recent_maintenance` (KHÔNG `last_maintenance`); interface mục tiêu ở trên dùng `last_maintenance`. Vòng 27 B CHỈ thêm `pm_overdue` — KHÔNG đổi tên field hiện có. View `AssetScanInfoView.vue` đọc `info.recent_maintenance` (line 174) GIỮ NGUYÊN; chỉ thêm consumer `info.pm_overdue`. Đồng bộ tên `recent_maintenance`↔`last_maintenance` = `[ROADMAP]` riêng.
+
+#### II.3c-PMOVERDUE — Badge "Quá hạn bảo trì" (Vòng 27 B / A6-hardening, BR-00-36)
+
+> **Đề mục Vòng 27 B (hardening / compliance signal).** Thêm tín hiệu trực quan PM quá hạn trên màn quét QR. FE **chỉ render** cờ `pm_overdue` (boolean) từ payload — SSoT quá-hạn ở BE (timezone-safe). **KHÔNG so ngày bằng client clock**, KHÔNG cap/route/store mới.
+
+**Vị trí:** `AssetScanInfoView.vue:182-187` — block "Bảo trì định kỳ kế tiếp" trong card "Bảo trì gần nhất".
+
+```vue
+<div class="border-t border-slate-100 pt-3 flex items-center justify-between gap-3 text-sm">
+  <span class="text-slate-500">Bảo trì định kỳ kế tiếp</span>
+  <span class="flex items-center gap-2">
+    <!-- Badge CHỈ khi BE cờ pm_overdue===true — KHÔNG tự so ngày client -->
+    <span
+      v-if="info.pm_overdue"
+      role="status"
+      aria-label="Cảnh báo: thiết bị quá hạn bảo trì"
+      class="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-700 ring-1 ring-inset ring-red-300"
+    >
+      <!-- icon cảnh báo (không-chỉ-màu: có text + role + aria) -->
+      Quá hạn bảo trì
+    </span>
+    <span class="text-right font-medium text-slate-800">
+      {{ info.next_pm_date ? formatDate(info.next_pm_date) : 'Chưa lên lịch' }}
+    </span>
+  </span>
+</div>
+```
+
+| Quy tắc FE | Lý do |
+|---|---|
+| Render `v-if="info.pm_overdue"` — KHÔNG tính lại từ `next_pm_date` | SSoT ở BE; client clock không đáng tin (timezone/đồng hồ máy quét) |
+| Badge có **text "Quá hạn bảo trì" + `role="status"` + `aria-label`** | a11y — KHÔNG truyền tải chỉ bằng màu đỏ (WCAG 1.4.1) |
+| `pm_overdue===false` → 0 badge, ngày hiển thị GIỮ NGUYÊN | non-overdue parity — KHÔNG đổi UI hiện có |
+| Style cảnh báo đỏ (`bg-red-100 text-red-700 ring-red-300`) | thống nhất palette cảnh báo (tái dùng tone "Overdue" calibration `constants/labels.ts`) |
+
+**Test (`AssetScanInfoView.test.ts`) — GREEN:** (a) mock `getAssetScanInfo` trả `pm_overdue:true` → badge "Quá hạn bảo trì" hiển thị (`getByText`/`role=status`); (b) `pm_overdue:false` → KHÔNG có text "Quá hạn bảo trì"; (c) ngày `next_pm_date` vẫn render ở cả 2 nhánh. `vue-tsc` 0 lỗi.
+
+#### II.3d-CALOVERDUE — Dòng "Hiệu chuẩn kế tiếp" + badge "Quá hạn hiệu chuẩn" (Vòng 28 B / A6-hardening, BR-00-37)
+
+> **Đề mục Vòng 28 B (hardening / compliance signal — chiều HIỆU CHUẨN).** Mirror II.3c-PMOVERDUE cho hiệu chuẩn. FE **chỉ render** cờ `calibration_overdue` (boolean) + ngày `next_calibration_date` từ payload — SSoT quá-hạn ở BE (timezone-safe). **KHÔNG so ngày bằng client clock**, KHÔNG cap/route/store mới. **DISTINCT** với cặp PM (Vòng 27).
+
+**Vị trí:** dòng MỚI ngay DƯỚI block "Bảo trì định kỳ kế tiếp" (`AssetScanInfoView.vue:182-201`), trong CÙNG card "Bảo trì gần nhất". Cấu trúc song song dòng PM (`info.next_pm_date` → `info.next_calibration_date`; `info.pm_overdue` → `info.calibration_overdue`; text "bảo trì" → "hiệu chuẩn").
+
+```vue
+<div class="border-t border-slate-100 pt-3 flex justify-between gap-3 text-sm">
+  <span class="text-slate-500">Hiệu chuẩn kế tiếp</span>
+  <span class="flex flex-wrap items-center justify-end gap-2 text-right">
+    <span class="font-medium text-slate-800">
+      {{ info.next_calibration_date ? formatDate(info.next_calibration_date) : 'Chưa lên lịch' }}
+    </span>
+    <!-- Badge CHỈ khi BE cờ calibration_overdue===true — KHÔNG tự so ngày client -->
+    <span
+      v-if="info.calibration_overdue"
+      role="status"
+      aria-label="Cảnh báo: thiết bị quá hạn hiệu chuẩn"
+      class="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2.5 py-0.5 text-xs font-semibold text-rose-700"
+    >
+      <span aria-hidden="true">⚠</span>
+      Quá hạn hiệu chuẩn
+    </span>
+  </span>
+</div>
+```
+
+| Quy tắc FE | Lý do |
+|---|---|
+| Render `v-if="info.calibration_overdue"` — KHÔNG tính lại từ `next_calibration_date` | SSoT ở BE; client clock không đáng tin (timezone/đồng hồ máy quét) |
+| Badge có **text "Quá hạn hiệu chuẩn" + `role="status"` + `aria-label`** | a11y — KHÔNG truyền tải chỉ bằng màu đỏ (WCAG 1.4.1) |
+| `calibration_overdue===false` → 0 badge, ngày hiển thị GIỮ NGUYÊN | non-overdue parity |
+| Ngày rỗng → "Chưa lên lịch" (parity dòng PM) | thống nhất hiển thị "chưa có lịch" |
+| Style cảnh báo đỏ (`bg-rose-100 text-rose-700`) | thống nhất palette với badge PM quá hạn (cùng card) |
+
+**Test (`AssetScanInfoView.test.ts`) — GREEN:** (a) mock `calibration_overdue:true` → badge "Quá hạn hiệu chuẩn" hiển thị (`getByText`/thứ 2 `role=status`) + ngày `next_calibration_date` vẫn render; (b) `calibration_overdue:false` → KHÔNG có text "Quá hạn hiệu chuẩn", ngày GIỮ NGUYÊN; (c) `next_calibration_date:null` → render "Chưa lên lịch"; (d) `calibration_overdue:false` NHƯNG `next_calibration_date` quá khứ → KHÔNG badge (FE KHÔNG tự so ngày). `vue-tsc` 0 lỗi.
+
+**Auth + cap:** route gate `requiredCapabilities: ['asset.read']` (tái dùng A2 — KHÔNG cap mới). BE 403 → màn error 403 (không trang trắng); guard `beforeEach` chặn user thiếu cap trước cả khi vào view (defense-in-depth).
+
+**KHÔNG hiển thị (mirror BE whitelist):** giá mua, khấu hao/giá trị còn lại, supplier code nội bộ, audit chain, số ĐKLH chi tiết. View chỉ render đúng các field payload trả về.
+
+### II.3d. In nhãn QR — gate `asset.write` (Vòng B — least-privilege)
+
+> **Đề mục B.** Mirror BE siết RBAC: in nhãn QR = hành-động-ghi → FE chỉ hiện/cho-vào màn in cho user có cap **`asset.write`**. User chỉ-đọc (`asset.read`) KHÔNG thấy nút, KHÔNG vào được route (defense-in-depth với BE `require("asset.write")`). **KHÔNG cap mới** — dùng `asset.write` đã có (`CAP_SET_VERSION` GIỮ `v95.3388ee5629c1`, KHÔNG bump `auth.ts::CAP_SET_VERSION`).
+
+| Điểm gate FE | Trước (A3/A4) | Sau (B) |
+|---|---|---|
+| Nút "In nhãn QR" — `AssetDetailView.vue` (~:344) | `v-if="can('asset.read')"` | **`v-if="can('asset.write')"`** |
+| Nút "In nhãn hàng loạt" — `AssetListView.vue` (~:244) | KHÔNG gate cap (chỉ disable theo `selectedNames`) | **thêm `v-if="can('asset.write')"`** (giữ disable theo selection) |
+| Route `AssetLabelPrint` (`/assets/labels/print`) — `router/index.ts` (~:135) | `meta.requiredCapabilities: ['asset.read']` | **`['asset.write']`** |
+
+- **`can('asset.write')`** = `authStore.capabilities['asset.write']` (Pinia, đã hydrate từ `get_capabilities`). DENY-safe: cap thiếu/stale → `false` → ẩn nút (KHÔNG vỡ trang — lesson IMM-14).
+- Read-only QR (`/a/:token`, `/assets/:id`, `/assets/:id/info`) GIỮ `asset.read`.
+- **vue-tsc 0, vitest GREEN** sau đổi (chỉ literal cap string — KHÔNG đổi type/shape).
+
+### II.3e. Sinh-lại (rotate) mã QR — nút "Sinh lại mã QR" + BaseModal cảnh báo (ADR-001 B-2)
+
+> **Đề mục B item 2.** `AssetDetailView` thêm nút **"Sinh lại mã QR"** (cạnh "In nhãn QR") — vô hiệu hoá QR bị lộ + cấp token mới. Gate `can('asset.write')` (cùng cổng in nhãn — least-privilege). Vì rotate **vô hiệu hoá mọi nhãn đã in** (destructive về nhãn) → BẮT BUỘC xác nhận qua **BaseModal** (WAVE2 pattern — **KHÔNG `window.confirm`**, giống §III.10b-bis / §III.10d). Envelope BE ở [`05_API_Specification.md`](./05_API_Specification.md) §III.1 `regenerate_asset_qr_token`.
+
+| Điểm | Spec |
+|---|---|
+| Nút "Sinh lại mã QR" — `AssetDetailView.vue` (card header QR, cạnh "In nhãn QR") | `v-if="can('asset.write')"` (user chỉ-đọc KHÔNG thấy — defense-in-depth với BE `require("asset.write")`). |
+| Xác nhận | Click → mở **`BaseModal`** cảnh báo VI: tiêu đề "Sinh lại mã QR?", nội dung **"Thao tác này sẽ vô hiệu hoá mọi nhãn QR đã in cho thiết bị này. Các tem cũ sẽ không còn quét được. Bạn có chắc chắn?"** + nút "Xác nhận" / "Huỷ". **`window.confirm` tuyệt đối KHÔNG được gọi.** API CHỈ gọi **sau** khi user bấm "Xác nhận". |
+| Xác nhận → API | `regenerateAssetQrToken(route.params.id)` (api/imm00.ts — NEW, xem dưới) → **refetch asset** (invalidate query `['asset', id]` / `store.fetchAsset(id)`) để preview nhãn + `qr_url` phản ánh token MỚI → **toast VI thành công** ("Đã sinh lại mã QR. Vui lòng in lại nhãn cho thiết bị."). |
+| Huỷ | Đóng modal, **no-op** (KHÔNG gọi API, KHÔNG đổi gì). |
+| Lỗi 403/404/IDOR | 403 (thiếu `asset.write`) / 404 / vendor IDOR → `notify.fromError(toApiError(e))` (toast/alert lỗi VI verbatim từ BE, KHÔNG leak raw method/token/mã EN). **Modal GIỮ MỞ** để user thử lại/huỷ. |
+| **Lỗi 429 (rate-limit rotate — Vòng 27 B / FR-00-88)** | BE rotate bị throttle (BR-00-38) → **429**. `confirmRegenQr` catch nhận `ApiError.code === ErrorCode.RATE_LIMITED` (sau khi `httpStatusToCode` map — FR-00-87) HOẶC `httpStatus === 429` → hiển thị **message VI cố định** `'Bạn thao tác quá nhanh, vui lòng thử lại sau ít phút.'` (toast warning) — **KHÔNG** render `e.message` thô (frappe trả EN "You hit the rate limit…" → EN-leak), **KHÔNG** raw-code. **Modal "Sinh lại mã QR" GIỮ MỞ** để user thử lại sau. Double-submit guard `regenerating` GIỮ NGUYÊN (reset ở `finally`). |
+
+**API client (`api/imm00.ts`) — NEW:**
+```ts
+export interface RegenerateQrResult { name: string; qr_url: string }
+
+export function regenerateAssetQrToken(asset: string): Promise<RegenerateQrResult> {
+  // POST — path mirror EXACT: assetcore.api.imm00.regenerate_asset_qr_token
+  return postMethod('assetcore.api.imm00.regenerate_asset_qr_token', { asset })
+}
+```
+
+- **DoD FE (vitest):** assert (a) click "Sinh lại mã QR" **KHÔNG** gọi `window.confirm`, mở BaseModal, API **chưa** gọi; (b) bấm "Xác nhận" → API gọi 1 lần với đúng `id` + refetch asset + toast thành công; (c) bấm "Huỷ" → no-op (0 API call); (d) nút **ẩn** khi `can('asset.write')` = false (mock useCapabilities read-only); (e) lỗi 403/404 → toast lỗi VI, KHÔNG leak token/mã EN, modal GIỮ MỞ; (f) **lỗi 429 → toast message VI `'Bạn thao tác quá nhanh, vui lòng thử lại sau ít phút.'`, KHÔNG EN-leak ("rate limit"/"Too Many"), KHÔNG raw-code, modal GIỮ MỞ** (FR-00-88). **vue-tsc 0.**
+
+#### II.3e-RATELIMIT — Map HTTP 429 → bucket lỗi VI (Vòng 27 B — FR-00-87/88, kèm BE BR-00-38) — **NEW**
+
+> **Đề mục Vòng 27 B (FE).** `httpStatusToCode` (`frontend/src/api/errors.ts:118`) hiện **THIẾU `case 429`** → 429 rơi về `ErrorCode.UNKNOWN` (mis-bucket — KỂ CẢ 429 của resolve/scan đã throttle từ V12). `ErrorCode.RATE_LIMITED` ĐÃ tồn tại (`errors.ts:21`), chỉ thiếu wiring. **FE-only** — KHÔNG đụng BE; `CAP_SET_VERSION` GIỮ `v95.3388ee5629c1`.
+
+**(1) `httpStatusToCode` — thêm case 429 (FR-00-87):**
+```ts
+// frontend/src/api/errors.ts — httpStatusToCode(status)
+case 413: return ErrorCode.PAYLOAD_TOO_LARGE
+case 417:
+case 422: return ErrorCode.BUSINESS_RULE
+case 429: return ErrorCode.RATE_LIMITED      // ← NEW (FR-00-87): mirror BE _HTTP_TO_CODE[429]
+// case 500/503 …
+```
+Sau fix: axios interceptor nhánh `default` (`axios.ts:288`) build `ApiError(message, RATE_LIMITED, 429)` cho MỌI 429 (rotate + resolve/scan) thay vì `UNKNOWN`. KHÔNG đổi shape/severity code khác.
+
+**(2) `confirmRegenQr` catch — message VI cố định cho 429 (FR-00-88):**
+```ts
+// frontend/src/views/asset/AssetDetailView.vue — confirmRegenQr catch
+} catch (e: unknown) {
+  const err = toApiError(e)
+  if (err.code === ErrorCode.RATE_LIMITED || err.httpStatus === 429) {
+    // 429 rotate (BR-00-38) — message VI cố định, KHÔNG render e.message (EN frappe).
+    toast.warning('Bạn thao tác quá nhanh, vui lòng thử lại sau ít phút.')
+  } else {
+    // 403/404/IDOR — VI verbatim từ BE.
+    notify.fromError(err)
+  }
+  // Modal GIỮ MỞ (showRegenModal=true) — KHÔNG đóng, để user thử lại/huỷ.
+} finally {
+  regenerating.value = false   // double-submit guard GIỮ NGUYÊN
+}
+```
+
+| Quy tắc FE | Lý do |
+|---|---|
+| `case 429 → RATE_LIMITED` trong `httpStatusToCode` | đóng mis-bucket UNKNOWN; áp cho MỌI 429 (rotate + resolve/scan). Mirror BE `_HTTP_TO_CODE[429]`. |
+| 429 rotate → message VI cố định, KHÔNG `e.message` | frappe `RateLimitExceededError` trả EN ("You hit the rate limit…") → render thô = EN-leak. Dùng chuỗi VI cố định FE. |
+| Modal "Sinh lại mã QR" GIỮ MỞ trên 429 | user retry sau ít phút mà KHÔNG mất ngữ cảnh; KHÔNG trang trắng. |
+| `regenerating` (double-submit) GIỮ NGUYÊN | reset ở `finally` — KHÔNG đổi cơ chế guard. |
+| grep gate | 0 EN-leak ("rate limit"/"Too Many Requests") + 0 raw-code trên đường 429 (test khẳng định). |
+
+### II.3f. Khổ tem khi in nhãn QR — selector A4 / 50×30 / 70×40mm + `@page size` mm (ADR-001 B — print fidelity)
+
+> **Đề mục B (print fidelity).** Bổ sung **selector khổ tem** ở CẢ 2 đường in — `AssetLabelPrintView` (in HÀNG LOẠT) và modal in-1-tem trong `AssetDetailView` — để in được trên **tem vật lý** (máy in tem nhiệt 50×30 / 70×40mm) ngoài lưới A4 nhiều-nhãn cũ. **FE-only, KHÔNG cap/field/DocType/route/BE; `CAP_SET_VERSION` GIỮ `v95.3388ee5629c1`.**
+
+- **SSoT khổ tem:** hằng `LABEL_FORMATS` ở `frontend/src/constants/label.ts` — 1 nguồn dùng chung cho cả 2 view (tránh divergence). Mỗi format: `{ key, label (VI), pageSizeCss, qrSizePx, gridCols, physical }`.
+
+| key | Nhãn VI | `@page size` | QR (px) | Lưới in | Ghi chú |
+|---|---|---|---|---|---|
+| `a4-multi` | A4 nhiều-nhãn | *(không ép `@page`)* | 140 | 2 cột / A4 | **mặc định — giữ NGUYÊN hành vi cũ (regression)** |
+| `tem-50x30` | Tem 50×30mm | `50mm 30mm` | 96 | 1 nhãn/trang | tem vật lý khít khổ |
+| `tem-70x40` | Tem 70×40mm | `70mm 40mm` | 132 | 1 nhãn/trang | tem vật lý khít khổ |
+
+- **`@page { size: <mm> }` đúng kỹ thuật:** scoped CSS KHÔNG vươn tới `@page` → inject qua `<style>` global có guard (chỉ render khi chọn tem vật lý; `pageRuleFor(key)` sinh `@page { size: <mm>; margin: 0 }`). Chọn `A4 nhiều-nhãn` → **KHÔNG** inject `@page` (giữ lưới 2 cột A4 mặc định).
+- **QR theo đơn vị mm:** `AssetQrLabel` nhận prop `qrSize` (px theo SSoT) + prop `format`; tem vật lý áp class `qr-label--physical` → QR + field scale theo mm, **KHÔNG còn pixel cố định 120px** → QR đủ lớn để camera điện thoại quét.
+- **Giữ nguyên (no-regression):** `markLabelPrinted` ghi event chỉ sau in thật + chỉ name hợp lệ; preview-only KHÔNG ghi `label_printed`; error-bucket VI cố định (forbidden/notfound/unknown); checkbox-select + gate `can('asset.write')`; ô lỗi `AC-E001` VI + `translateStatus` SSoT + `break-inside:avoid`; đường mã hoá QR vẫn encode `qr_url` (KHÔNG đổi).
+- **DoD FE (vitest):** chọn `tem-50x30` → DOM chứa `@page size 50mm 30mm` + lưới 1-nhãn; `tem-70x40` → `70mm 40mm`; `a4-multi`/mặc định → KHÔNG ép `@page`, giữ lưới 2 cột A4; modal đổi khổ áp đúng `@page`/grid cho single-print + `markLabelPrinted([id])` 1 lần sau `window.print`; `AssetQrLabel` QR/field scale theo khổ (tem KHÔNG dùng 120px); regression no-leak error-bucket VI. **vue-tsc 0, eslint 0, vitest GREEN.**
+
+### II.3g. Cap kích thước batch nhãn QR — guard FE song song + map 413 (ADR-001 B-6 / BR-00-33 — Vòng 22)
+
+> **Đề mục B-6 (payload-DoS cap).** Mirror BE cap `_MAX_LABEL_BATCH=200`: FE chặn user gửi request **chắc-chắn-413** (chọn quá nhiều tem) NGAY trước khi điều hướng/in, đồng thời nếu request 413 vẫn lọt (URL paste thủ công) → màn print map 413 sang **bucket lỗi VI** (KHÔNG trang trắng, KHÔNG EN-leak), parity với `QrResolveView`/`AssetScanInfoView`. **FE-only; KHÔNG cap/field/DocType/route/BE; `CAP_SET_VERSION` GIỮ `v95.3388ee5629c1`.**
+
+- **SSoT hằng FE:** `_MAX_LABEL_BATCH = 200` ở `frontend/src/constants/label.ts` (cạnh `LABEL_FORMATS` — 1 nguồn cho cả 2 đường in; đồng bộ giá trị với `services/imm00.py::_MAX_LABEL_BATCH`). KHÔNG literal `200` rải rác trong view.
+- **Guard 1 — `AssetListView.vue` (selectAll / in nhãn hàng loạt):** khi `selectedNames.length > _MAX_LABEL_BATCH` → **chặn điều hướng** sang `AssetLabelPrint` + hiện cảnh báo VI (toast/banner) `"Chỉ in tối đa 200 nhãn mỗi lần. Vui lòng chọn ít hơn."` (nội suy hằng). Nút "In nhãn hàng loạt" disable HOẶC click → cảnh báo (KHÔNG navigate). selectAll trên trang hiện tại thường ≤ page-size nên ít chạm; chạm khi user tích chọn nhiều trang/chọn-tất-cả-kết-quả.
+- **Guard 2 — `AssetLabelPrintView.vue` (đọc `query.names` CSV):** parse `route.query.names` (CSV) → nếu `names.length > _MAX_LABEL_BATCH` → KHÔNG gọi `getAssetLabelDataBatch`; render thẳng **bucket lỗi VI** (cùng message) + nút quay lại danh sách. Tránh phóng request chắc-413 + tránh build N nhãn client-side.
+- **Map 413 (defense-in-depth — request vẫn lọt):** nếu `getAssetLabelDataBatch`/`markLabelPrinted` trả **HTTP 413** (paste URL vượt cap, hoặc race) → handler map sang **bucket lỗi VI cố định** (`"Chỉ in tối đa 200 nhãn mỗi lần. Vui lòng chọn ít hơn."`), KHÔNG render raw `.message`, KHÔNG trang trắng, KHÔNG leak EN. Thêm `413` vào bộ phân loại lỗi của màn in cạnh `forbidden`/`notfound`/`unknown` (parity error-bucket §II.3f). FE đọc `error.response?.status === 413` (hoặc envelope code tương ứng) → bucket `too-large`.
+- **No-regression:** ≤ cap → luồng preview/in GIỮ NGUYÊN (selection, gate `can('asset.write')`, `markLabelPrinted` sau in thật, khổ tem §II.3f, encode `qr_url`, ô `AC-E001` VI). 0/1 tem → bình thường (KHÔNG cảnh báo cap).
+- **DoD FE (vitest):** `selectedNames.length == 200` → navigate OK; `== 201` → chặn + cảnh báo VI, KHÔNG navigate; `AssetLabelPrintView` với `query.names` 201 phần tử → bucket lỗi VI, KHÔNG gọi API; mock API trả 413 → màn in render bucket `too-large` VI (KHÔNG raw message, KHÔNG blank). **vue-tsc 0, eslint 0, vitest GREEN.**
+
 ## II.4. Auth Guard
 
 | Trạng thái | Hành vi |
 |---|---|
-| Chưa đăng nhập | Redirect `/login` |
-| Đã đăng nhập, đủ role | Render route |
-| Đã đăng nhập, thiếu role | Render `Forbidden403View` |
+| Chưa đăng nhập | Redirect `/login?redirect=<fullPath>` (deep-link `/a/:token` giữ nguyên). **Sau login, `LoginView` chỉ honor `redirect` NỘI BỘ hợp lệ qua `isSafeInternalRedirect` — xem §II.4c (BR-00-32).** |
+| Đã đăng nhập, đủ cap | Render route |
+| Đã đăng nhập, thiếu cap | Redirect `Unauthorized` (`query.forbidden=<fullPath>`) |
 | API 401 | Xóa Pinia auth store, redirect `/login` |
 | API 403 | Toast danger "Không có quyền thực hiện hành động này" |
 | API 500 | `ErrorBoundary` với retry + error ID |
@@ -229,6 +495,57 @@ Các routes dưới đây đánh dấu `[BUILT]` nếu có Vue component, `[SPEC
 - **Invariant:** bump `CAP_SET_VERSION` ở BE → persisted caps cũ bị bỏ → nút IMM-14 "Giải nhiệm thiết bị" render sau reload mà KHÔNG cần xóa `localStorage` thủ công.
 
 **AC5 — no-regression:** mọi cap hợp lệ hiện hữu vẫn `can()=true` đúng như cũ; legacy `isXxx` wrapper quanh `can()` không đổi; shape store export không đổi.
+
+### II.4c. Open-redirect safety trên login deep-link — `isSafeInternalRedirect` (BR-00-32 / Vòng 21 B) — **NEW**
+
+> **Đề mục Vòng 21 B (hardening / security).** Vá open-redirect (CWE-601) trên luồng quét QR → 401 → login → màn thông tin thiết bị. Spec ràng buộc đầy đủ: [`02_Analysis_Design.md`](./02_Analysis_Design.md) **BR-00-32**. **FE-only** — KHÔNG đụng BE/DocType/route/schema/patch; `CAP_SET_VERSION` GIỮ `v95.3388ee5629c1`.
+
+**Lỗi thiết kế gốc:** `LoginView.vue` lấy `route.query.redirect` rồi `router.push(redirect)` THÔ ở **2 call-site** — `onMounted` (đã-auth, `:26-27`) và sau-login-OK (`:68-69`). Giá trị tới từ URL ngoài tầm kiểm soát → `/login?redirect=https://evil.com` hoặc `//evil.com` đẩy nạn nhân sang site ngoài sau khi đăng nhập (phishing/credential-harvest).
+
+**Helper SSoT (thuần, không side-effect):**
+
+```ts
+// frontend/src/utils/navigation.ts
+/**
+ * True nếu `raw` là một path NỘI BỘ điều hướng được an toàn:
+ * bắt đầu bằng ĐÚNG MỘT '/', KHÔNG '//' (protocol-relative), KHÔNG scheme,
+ * KHÔNG backslash. Dùng CHUNG cho mọi nơi consume query.redirect.
+ * Thuần chuỗi → boolean; KHÔNG import store/router/window (unit-test không cần DOM).
+ */
+export function isSafeInternalRedirect(raw: unknown): boolean { /* … */ }
+```
+
+**Bảng quyết định (acceptance):**
+
+| Input `redirect` | Kết quả | Lý do |
+|---|---|---|
+| `/dashboard`, `/a/<token>`, `/assets/AC-ASSET-2026-00001/info` | **ACCEPT** (push y nguyên) | single-leading-slash nội bộ |
+| `//evil.com` | REJECT → `/dashboard` | protocol-relative |
+| `https://x.com`, `http://x.com` | REJECT → `/dashboard` | absolute external |
+| `javascript:alert(1)` | REJECT → `/dashboard` | scheme nguy hiểm |
+| `\evil.com`, `/\evil` | REJECT → `/dashboard` | backslash ≡ `/` ở browser → protocol-relative trá hình |
+| ` //evil` (whitespace/control-prefixed) | REJECT → `/dashboard` | sau trim vẫn không phải single-`/` hợp lệ |
+| chuỗi không bắt đầu bằng đúng 1 `/` | REJECT → `/dashboard` | không phải path nội bộ |
+| absent / rỗng / không-string | → `/dashboard` | hành vi cũ giữ nguyên |
+
+**Wiring 2 call-site (BOTH qua helper):**
+
+```ts
+function safeRedirect(): string {
+  const raw = route.query.redirect
+  return (typeof raw === 'string' && isSafeInternalRedirect(raw)) ? raw : '/dashboard'
+}
+// onMounted (đã-auth): router.push(safeRedirect())
+// sau login OK:        router.push(safeRedirect())
+```
+
+**Invariants:**
+- `grep` toàn FE → **0 chỗ** còn `router.push(<route.query.redirect>)` không qua helper.
+- QR deep-link ADR-001 D4 (`/a/<token>`, `/assets/:id/info`) đều single-leading-slash → ACCEPT → luồng quét-QR→401→login→màn info GIỮ NGUYÊN (KHÔNG hồi quy).
+- Guard `beforeEach` set `redirect: to.fullPath` (router `:1081`) KHÔNG đổi — chỉ phía CONSUME (LoginView) thêm validate.
+- LV-FE-07 (push `/dashboard` mặc định) + LV-FE-07b (push `/incidents` redirect hợp lệ) GIỮ XANH.
+
+**DoD:** `LoginView.test.ts` thêm block redirect-safety (RED-first) phủ đủ ACCEPT/REJECT ở CẢ 2 call-site; `vitest` full GREEN; `vue-tsc` exit 0; eslint 0 error file chạm.
 
 ## II.5. Breadcrumb
 

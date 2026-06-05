@@ -60,6 +60,38 @@ class ACAsset(Document):
         """
         self._inherit_gmdn_from_device_model()
         self._inherit_depreciation_rules_from_category()
+        self._ensure_qr_token()
+
+    def _ensure_qr_token(self) -> None:
+        """A1 (ADR-001 D1): sinh qr_token enumeration-safe KHI còn trống.
+
+        before_insert CHỈ set chuỗi token (asset chưa có name) — KHÔNG nhúng logic
+        secrets vào controller (lazy-import service) + KHÔNG emit lifecycle/audit
+        ở đây (cần name; emit ở after_insert). Idempotent: đã có token → no-op
+        (KHÔNG clobber). Đặt cờ để after_insert biết emit qr_generated đúng 1 lần.
+        """
+        if self.qr_token:
+            return
+        # Collision-safe (B — BR-00-31): SSoT generate_unique_qr_token (pre-write
+        # check qua frappe.db.exists) → token đã unique TRƯỚC khi INSERT ⇒ KHÔNG
+        # đụng UNIQUE ⇒ KHÔNG IntegrityError thô abort INSERT. Lazy-import giữ
+        # nguyên pattern tránh circular import lúc bench start.
+        from assetcore.services.imm00 import generate_unique_qr_token
+        self.qr_token = generate_unique_qr_token()
+        self.flags.qr_token_just_generated = True
+
+    def after_insert(self) -> None:
+        """A1 (ADR-001 D3): emit qr_generated lifecycle + audit SAU khi có name.
+
+        before_insert đã set qr_token (asset chưa có name lúc đó). Emit best-effort
+        ở đây — chỉ khi token vừa sinh (cờ from before_insert) → đúng 1 event/asset,
+        không lặp khi save/update sau này. Audit lỗi KHÔNG vỡ insert (swallow).
+        """
+        if not self.flags.get("qr_token_just_generated"):
+            return
+        from assetcore.services.imm00 import emit_qr_generated
+        emit_qr_generated(self.name, self.qr_token, actor=frappe.session.user)
+        self.flags.qr_token_just_generated = False
 
     def _inherit_depreciation_rules_from_category(self) -> None:
         """Đổ luật khấu hao từ Category khi asset thiếu (chỉ khi gross>0 + có category).

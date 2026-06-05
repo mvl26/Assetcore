@@ -71,6 +71,15 @@ _DOMAIN_PRIMARY: dict[str, str] = {
     "Repair": "Asset Repair", "Calibration": "IMM Asset Calibration",
     "Corrective": "Incident Report", "Inventory": "AC Stock Movement",
     "Compliance": "IMM CAPA Record",
+    # ADR-001-asset-qr D4: AC Asset registry (IMM-00) cần capability prefix
+    # `asset.*` ĐỘC LẬP để gate QR deep-link resolve (`asset.read`) + in/regenerate
+    # label (`asset.write`) THEO DocPerm AC Asset, KHÔNG hardcode role-name (chống
+    # RBAC dead-gate). _shared (line 55) và _DOMAIN_PRIMARY là 2 map độc lập — AC
+    # Asset ở cả hai KHÔNG xung đột: _shared chỉ map DocType→domain cho audit/scope,
+    # _DOMAIN_PRIMARY sinh CAPABILITY_MAP prefix. Thêm 6 cap asset.{read,write,
+    # create,delete,submit,cancel} → CAP_SET_VERSION đổi → FE auto-invalidate
+    # persisted-caps stale (lesson IMM-14) + after_migrate invalidate_capabilities().
+    "Asset": "AC Asset",
 }
 
 _PTYPES = ("read", "write", "create", "delete", "submit", "cancel")

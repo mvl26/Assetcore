@@ -544,6 +544,72 @@ doc_events = {
 
 ---
 
+## 8.1. QR cấp tài sản (Asset-level QR) — tương thích ngược với commissioning
+
+> **Quyết định cuối:** [`./ADR-001-asset-qr.md`](./ADR-001-asset-qr.md). Tóm tắt tác động lên IMM-04 — schema/contract chi tiết ở [`../imm-00/04_Backend_Design.md`](../imm-00/04_Backend_Design.md) §II.1.8.
+
+**Bối cảnh:** QR cấp tài sản (`AC Asset.qr_token` + deep-link `/a/<token>`) là cơ chế MỚI ở IMM-00 registry, **song song** với QR cấp commissioning đang có ở IMM-04 (`internal_tag_qr`).
+
+| QR cũ (IMM-04 commissioning) | QR mới (IMM-00 asset) |
+|---|---|
+| Field `Asset Commissioning.internal_tag_qr` = `BV-{DEPT}-{YYYY}-{SEQ}` | Field `AC Asset.qr_token` = `secrets.token_urlsafe(16)` |
+| Sinh ở `assign_identification` (`services/imm04.py:543`) | Sinh `before_insert` mọi asset (3-tier ở IMM-00) |
+| Encode **chuỗi tag** (scanner-wedge gõ tay/đầu đọc) | Encode **URL** `/a/<token>` (camera điện thoại quét → màn info) |
+| Đoán được (DEPT+YYYY+SEQ tuần tự) + doc-bound | Enumeration-safe + idempotent + sống ở cấp tài sản |
+
+**Quy tắc tương thích ngược (ADR-001 D6):**
+- **GIỮ NGUYÊN field** `internal_tag_qr` + `assign_identification` / `generate_internal_qr` / `get_barcode_lookup` (`services/imm04.py:543,1350,921`) — KHÔNG breaking change. Field vẫn read-only + scanner-wedge lookup theo `internal_tag_qr` vẫn chạy. Nhãn tag-string đã in vẫn quét được bằng đầu đọc.
+- Vòng A (A1→A6) **KHÔNG đụng** logic QR của IMM-04. Hai cơ chế chạy song song trong giai đoạn chuyển tiếp.
+
+#### 8.1.1 — Dedup `generate_qr_label` → deep-link asset (CHỐT vòng 13 / B-3 — ADR-001 §D6.1)
+
+> **Quyết định cuối:** [`./ADR-001-asset-qr.md`](./ADR-001-asset-qr.md) §D6.1. Đây là **delta DUY NHẤT** vòng 13 trên IMM-04 — chỉ contract nhãn của `generate_qr_label`, KHÔNG field/cap/DocType/enum/patch mới.
+
+**RC dedup:** trước vòng 13 có 2 đường QR quét-được trên 1 thiết bị → (1) `generate_qr_label` mã hoá `internal_tag_qr` tuần tự + `scan_url=/app/asset-commissioning/<name>` (desk); (2) deep-link asset `/a/<token>` enumeration-safe. Sau vòng 13: **CHỈ còn (2)**.
+
+`generate_qr_label` ủy quyền (delegate) việc dựng deep-link sang helper QR cấp asset của IMM-00 — **KHÔNG copy-paste** logic sinh token/URL:
+
+```python
+# services/imm04.py::generate_qr_label — sau check permission + internal_tag_qr
+# Ưu tiên gọi 1 entry point public (tránh import symbol private _build_qr_url cross-module):
+from assetcore.services.imm00 import build_asset_label_data  # lazy import (Pattern B)
+
+qr_url = None
+if doc.final_asset:
+    # build_asset_label_data nội bộ đã: ensure_asset_qr_token (idempotent — token-less → sinh
+    # + emit qr_generated 1 lần) → _build_qr_url(token) (get_url("/a/{token}"), host từ site config).
+    qr_url = build_asset_label_data(doc.final_asset)["qr_url"]
+# (Tương đương: token = ensure_asset_qr_token(doc.final_asset); qr_url = _build_qr_url(token))
+
+return {
+    "qr_value": doc.internal_tag_qr,    # GIỮ — FE fallback khi qr_url rỗng + tương thích nhãn cũ
+    "qr_url": qr_url,                   # MỚI: deep-link tuyệt đối /a/<token> hoặc None (phiếu chưa mint asset)
+    "label": { ... },                   # GIỮ nguyên các field nhãn
+    "docs_url": ...,                    # GIỮ nguyên (không trong scope)
+    # scan_url: BỎ HẲN (desk-login) — thay bằng qr_url
+}
+```
+
+| # | Quy tắc | Chi tiết |
+|---|---|---|
+| 1 | `qr_url` khi có `final_asset` | Chuỗi tuyệt đối `/a/<token>` qua `ensure_asset_qr_token(final_asset)` + `_build_qr_url`. 1 helper duy nhất (dedup THẬT). |
+| 2 | Edge token-less | Phiếu CHƯA có `final_asset` → `qr_url=None`, KHÔNG gọi `ensure_asset_qr_token`, KHÔNG throw. Nhãn fallback `commissioning_id`. |
+| 3 | `scan_url` desk → BỎ | Field `scan_url=/app/asset-commissioning/<name>` xoá khỏi contract; FE đọc `qr_url`. |
+| 4 | `docs_url` | GIỮ nguyên — ngoài scope. |
+| 5 | RBAC | GIỮ `has_permission("Asset Commissioning","read")`. `ensure_asset_qr_token` chỉ set token, KHÔNG nâng quyền. |
+| 6 | Lifecycle | KHÔNG double-emit `qr_generated` (ensure idempotent). KHÔNG emit `label_printed` (đó là `mark_label_printed` POST). |
+
+**Endpoint QR cấp asset (A2/A3 — CHỐT ownership ở IMM-00 registry, KHÔNG IMM-04):**
+
+**Endpoint QR cấp asset (A2/A3 — CHỐT ownership ở IMM-00 registry, KHÔNG IMM-04):**
+- **Ownership chốt:** endpoint QR asset-bound đặt ở **`api/imm00.py` + `services/imm00.py`** (cùng nhà `AC Asset.qr_token` + `ensure_asset_qr_token` + `resolve_qr_token`). IMM-04 chỉ tham chiếu chéo — KHÔNG host logic QR asset. Spec đầy đủ: [`../imm-00/04_Backend_Design.md`](../imm-00/04_Backend_Design.md) §II.1.8b + [`../imm-00/05_API_Specification.md`](../imm-00/05_API_Specification.md).
+- `assetcore.api.imm00.get_asset_label_data(asset)` / `get_asset_label_data_batch(assets)` → trả payload nhãn (`name, asset_code, device_model_name, location_name, lifecycle_status, qr_url`); **READ-ONLY về sự kiện in** (KHÔNG emit `label_printed`). Khác `generate_qr_label` (commissioning-bound, `internal_tag_qr`) — endpoint mới asset-bound (`qr_url = /a/<token>`).
+- `assetcore.api.imm00.mark_label_printed(assets)` (POST) → emit lifecycle `label_printed` + audit, 1 event / asset / lần in.
+- `assetcore.api.imm00.resolve_qr_token(token)` (A2 — V3, **đã có**): IMM-00 ownership. RBAC `asset.read`. Xem ADR-001 D2/D4.
+- **A3 KHÔNG đụng IMM-04** `generate_qr_label`/`internal_tag_qr`. **Dedup CHỐT ở vòng 13 (§8.1.1):** `generate_qr_label` thêm `qr_url=/a/<token>` (tái dùng `ensure_asset_qr_token`+`_build_qr_url`), bỏ `scan_url` desk — field `internal_tag_qr` vẫn GIỮ.
+
+---
+
 ## 9. Migration & Patch
 
 **Patch path:** `assetcore/patches/v2/001_imm04_initial_setup.py`
@@ -578,7 +644,7 @@ assetcore.patches.v2.001_imm04_initial_setup
 - ERROR: `create_ac_asset` fail, `create_initial_document_set` exception
 
 **Idempotency:**
-- `generate_qr_label()`: idempotent — nếu `internal_tag_qr` đã có, trả giá trị hiện tại
+- `generate_qr_label()`: idempotent — `internal_tag_qr` đã có → trả giá trị hiện tại; `qr_url` (vòng 13) dựng qua `ensure_asset_qr_token` (idempotent — không sinh token thừa, không double-emit `qr_generated`)
 - `create_initial_document_set()`: graceful skip nếu document đã tồn tại (`source_commissioning` check)
 
 ---

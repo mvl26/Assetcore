@@ -995,8 +995,25 @@ def generate_qr_label(name: str) -> dict:
         raise ServiceError(ErrorCode.FORBIDDEN, "Không có quyền truy cập")
     if not doc.internal_tag_qr:
         raise ServiceError(ErrorCode.INVALID_PARAMS, "Phiếu chưa có mã QR nội bộ")
+
+    # B — DEDUP QR: hội tụ nhãn commissioning về DUY NHẤT 1 đường quét-được =
+    # deep-link cấp tài sản /a/<token> (enumeration-safe). Khi phiếu đã release
+    # (final_asset đã mint), tái dùng helper IMM-00 (ensure_asset_qr_token +
+    # _build_qr_url) — KHÔNG copy-paste logic sinh token/URL, KHÔNG bump modified,
+    # KHÔNG nâng quyền (ensure idempotent: token đã có → no-op, KHÔNG double-emit
+    # qr_generated). Phiếu CHƯA có final_asset → qr_url=None (KHÔNG sinh token,
+    # KHÔNG throw); nhãn fallback dùng commissioning_id (qr_value) như cũ → không
+    # có asset-less QR rác. scan_url desk (/app/asset-commissioning/<name>) đã bị
+    # LOẠI khỏi contract — không còn URL desk-login lọt ra nhãn.
+    qr_url: str | None = None
+    if doc.final_asset:
+        from assetcore.services.imm00 import ensure_asset_qr_token, _build_qr_url
+        token = ensure_asset_qr_token(doc.final_asset)
+        qr_url = _build_qr_url(token)
+
     return {
         "qr_value": doc.internal_tag_qr,
+        "qr_url": qr_url,
         "label": {
             "title": "ASSETCORE — NHÃN THIẾT BỊ",
             "commissioning_id": doc.name,
@@ -1011,7 +1028,6 @@ def generate_qr_label(name: str) -> dict:
             "asset_id": doc.final_asset or "Chưa có",
             "print_date": str(nowdate()),
         },
-        "scan_url": f"/app/asset-commissioning/{doc.name}",
         "docs_url": f"/documents/asset/{doc.final_asset}" if doc.final_asset else None,
     }
 

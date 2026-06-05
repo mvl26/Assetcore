@@ -802,7 +802,10 @@ class TestFullyDepreciatedReadPath(unittest.TestCase):
         accumulated = max(gross - book, 0.0)
         payload = {
             "doctype": "AC Asset",
-            "asset_name": f"_Test DeprRead {suffix} {frappe.generate_hash(length=4)}",
+            # NON-reserved asset_name (KHÔNG prefix '_'): data-hygiene SSoT ẩn '_…'
+            # khỏi list_assets_depreciation/get_depreciation_stats; read-path fixture
+            # cần XUẤT HIỆN trong drill ⇒ tên thường.
+            "asset_name": f"ZZTest DeprRead {suffix} {frappe.generate_hash(length=4)}",
             "gross_purchase_amount": gross,
             "residual_value": residual,
             "depreciation_method": method,

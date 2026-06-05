@@ -6,7 +6,7 @@
 | Wave | Master |
 | Trạng thái | **Live ✅ — docs synced vs code 2026-05-27** · Notification Framework Wave N1 spec'd 2026-05-29 · RC-03 kế thừa luật khấu hao Category→Asset spec'd 2026-06-03 (FR-00-47..52 / BR-00-18..21) · RC-04 per-asset self-heal `regenerate_depreciation_schedule` (FR-00-53..55 / BR-00-22) · RC-05 `bulk_regenerate_by_category` về SoT (FR-00-56..58 / BR-00-23) · RC-06 SoT `effective_book_value` (BR-05-13) · **RC-07 thanh lý hủy kỳ Pending khấu hao spec'd 2026-06-03 Vòng 8 (FR-00-59..62 / BR-00-24 — schema-delta `event_type+=depreciation_stopped`)** · RC-08 Out of Service PAUSE + RESCHEDULE khấu hao Vòng 9 (FR-00-63..68 / BR-00-25 — no schema-delta) · RC-CAPA-EFF cổng hiệu quả CAPA SoT đơn Vòng 12 (FR-00-59 / BR-00-26) · **RC-09 nhãn sự kiện khôi phục `restored` ĐÚNG 1 — kill double-emit Vòng 14 (FR-00-69 / BR-00-27 — `_lifecycle_event_for(to,from)`, no schema-delta)** |
 | Số file hiện có | 8 (numbered 02–09) |
-| Cập nhật cuối | 2026-06-04 |
+| Cập nhật cuối | 2026-06-05 (Vòng 28 / B — A6-hardening chiều HIỆU CHUẨN: cờ `calibration_overdue` + `next_calibration_date` server-side trên màn quét QR `get_asset_scan_info` — derive `True ⟺ next_calibration_date<nowdate() (strict) ∧ status∉{Out of Service,Decommissioned}`, mirror `_is_pm_overdue`, timezone-safe SSoT ở BE, FE dòng "Hiệu chuẩn kế tiếp" + badge VI "Quá hạn hiệu chuẩn" render-only + a11y; payload +2 field DISTINCT giữ 9 field cũ, `next_calibration_date` là field AC Asset đã có, 0 cap/schema/field/endpoint/enum/patch delta, `CAP_SET_VERSION` v95.3388ee5629c1; FR-00-86 / BR-00-37) · Vòng 27 / B — A6-hardening: cờ `pm_overdue` server-side trên màn quét QR (FR-00-85 / BR-00-36) · Vòng 26 / B — Self-Correction RC-LIST-VENDORCLOBBER: vá HIGH vendor-isolation regression ở `list_assets` (compose AND filter-list form; BR-00-35 mục 6 / FR-00-84) |
 | Khối kiến trúc | Cross-cutting (foundation cho A/B/C/D) |
 | Owner | — (Cross-cutting — System Architect + BA Lead) |
 
@@ -25,6 +25,10 @@
 | [`07_Testing_QA.md`](./07_Testing_QA.md) | Testing & QA: 13 unit tests (TC-S-001→013, corrected), UAT scenarios, STRIDE security, code quality | Live (BE) / Planned (tests) |
 | [`08_Deployment.md`](./08_Deployment.md) | Deployment: Thứ tự deploy (IMM-00 first), env config, migration patches, QMS mapping, rollback | ✅ Live |
 | [`09_Release.md`](./09_Release.md) | Release: User guide (System Admin), Release Notes v4.0.0, Traceability matrix, Bảng thống kê | ✅ Live |
+
+## Architecture Decision Records (cross-cutting, chạm registry)
+
+- [`../imm-04/ADR-001-asset-qr.md`](../imm-04/ADR-001-asset-qr.md) — **QR cấp tài sản**: chốt `AC Asset.qr_token` (schema-delta §II.1.8 trong `04_Backend_Design.md`) + `Asset Lifecycle Event.event_type += qr_generated, label_printed` (§II.6) + patch backfill `v3_2.008` (§IV.3a). RBAC: read-only QR (`resolve_qr_token`/`get_asset_scan_info`/`get_asset`) = `asset.read`; **in nhãn (`get_asset_label_data[_batch]`/`mark_label_printed`) = `asset.write` (vòng B, least-privilege — KHÔNG cap mới, `CAP_SET_VERSION` GIỮ v95.3388ee5629c1)**; deep-link `/a/<token>`.
 
 ## Source docs (cũ) — đã archive
 

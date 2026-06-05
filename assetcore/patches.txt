@@ -37,3 +37,5 @@ assetcore.patches.v3_2.005_sync_asset_code_with_name
 assetcore.patches.v3_2.006_sync_contract_code_with_name
 # ── IMM-00 ── Reconcile User.imm_approval_status (drop misleading Pending default)
 assetcore.patches.v3_2.007_reconcile_user_approval_status
+# ── IMM-00 / A1 ── Backfill AC Asset.qr_token (QR cấp tài sản, enumeration-safe)
+assetcore.patches.v3_2.008_backfill_asset_qr_token
