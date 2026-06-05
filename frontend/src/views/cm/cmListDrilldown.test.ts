@@ -1,13 +1,11 @@
 // TDD — Core Doc §9.4.2: CMWorkOrderListView pre-applies route.query (status/priority).
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
-import { ref } from 'vue'
+import { resetRouteMock, setRouteQuery } from '@/test/vueRouterMock'
 
-const routeQuery = ref<Record<string, string>>({})
-vi.mock('vue-router', () => ({
-  useRouter: () => ({ push: vi.fn() }),
-  useRoute: () => ({ get query() { return routeQuery.value } }),
-}))
+// ROOT-CAUSE test-isolation fix: shared full-shape router mock (route-state trên
+// globalThis) → đồng nhất mọi file CM, race vô hại. Xem src/test/vueRouterMock.ts.
+vi.mock('vue-router', async () => (await import('@/test/vueRouterMock')).vueRouterMockFactory())
 
 const fetchWOSpy = vi.fn().mockResolvedValue(undefined)
 vi.mock('@/stores/imm09', () => ({
@@ -37,10 +35,10 @@ const stubs = {
 const PageHeaderSlotStub = { template: '<div><slot name="actions" /></div>' }
 
 describe('CMWorkOrderListView drill-down query (Core Doc §9.4.2)', () => {
-  beforeEach(() => { fetchWOSpy.mockClear(); routeQuery.value = {}; canImpl = () => true })
+  beforeEach(() => { fetchWOSpy.mockClear(); resetRouteMock(); canImpl = () => true })
 
   it('query.status=In Repair → fetchWorkOrders gọi với status', async () => {
-    routeQuery.value = { status: 'In Repair' }
+    setRouteQuery({ status: 'In Repair' })
     mount(CMWorkOrderListView, { global: { stubs } })
     await flushPromises()
     expect(fetchWOSpy).toHaveBeenCalled()
@@ -49,7 +47,7 @@ describe('CMWorkOrderListView drill-down query (Core Doc §9.4.2)', () => {
   })
 
   it('query.priority=Urgent → fetchWorkOrders gọi với priority', async () => {
-    routeQuery.value = { priority: 'Urgent' }
+    setRouteQuery({ priority: 'Urgent' })
     mount(CMWorkOrderListView, { global: { stubs } })
     await flushPromises()
     // priority phải xuất hiện trong ít nhất 1 call (mount + watch có thể tạo nhiều call)
@@ -60,7 +58,7 @@ describe('CMWorkOrderListView drill-down query (Core Doc §9.4.2)', () => {
   })
 
   it('không có query → fetchWorkOrders không kèm status', async () => {
-    routeQuery.value = {}
+    resetRouteMock()
     mount(CMWorkOrderListView, { global: { stubs } })
     await flushPromises()
     const arg = fetchWOSpy.mock.calls[0][0]
@@ -69,7 +67,7 @@ describe('CMWorkOrderListView drill-down query (Core Doc §9.4.2)', () => {
 
   // R8 §9.4.6 — bar-card SLA / repeat-failure drill từ opsmgr dashboard.
   it('query.sla_breached=1 → fetchWorkOrders gọi với sla_breached=1', async () => {
-    routeQuery.value = { sla_breached: '1' }
+    setRouteQuery({ sla_breached: '1' })
     mount(CMWorkOrderListView, { global: { stubs } })
     await flushPromises()
     const saw = fetchWOSpy.mock.calls.some(
@@ -78,7 +76,7 @@ describe('CMWorkOrderListView drill-down query (Core Doc §9.4.2)', () => {
   })
 
   it('query.is_repeat_failure=1 → fetchWorkOrders gọi với is_repeat_failure=1', async () => {
-    routeQuery.value = { is_repeat_failure: '1' }
+    setRouteQuery({ is_repeat_failure: '1' })
     mount(CMWorkOrderListView, { global: { stubs } })
     await flushPromises()
     const saw = fetchWOSpy.mock.calls.some(
@@ -89,7 +87,7 @@ describe('CMWorkOrderListView drill-down query (Core Doc §9.4.2)', () => {
 
 // Read-only oversight (opsmgr 2026-06-02): nút "Tạo lệnh mới" gated bằng repair.create.
 describe('CMWorkOrderListView — nút Tạo lệnh gated bằng repair.create', () => {
-  beforeEach(() => { fetchWOSpy.mockClear(); routeQuery.value = {} })
+  beforeEach(() => { fetchWOSpy.mockClear(); resetRouteMock() })
   const gateStubs = { ...stubs, PageHeader: PageHeaderSlotStub }
 
   it('có repair.create → render nút Tạo lệnh mới', async () => {

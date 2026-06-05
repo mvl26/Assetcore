@@ -13,14 +13,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { ref } from 'vue'
 import type { PMDashboardStats } from '@/api/imm08'
+import { resetRouteMock } from '@/test/vueRouterMock'
 
-// ── router mock ─────────────────────────────────────────────────────────────
-const pushSpy = vi.fn()
-const routeQuery = ref<Record<string, string>>({})
-vi.mock('vue-router', () => ({
-  useRouter: () => ({ push: pushSpy }),
-  useRoute: () => ({ get query() { return routeQuery.value } }),
-}))
+// ── router mock ─ ROOT-CAUSE test-isolation fix (xem src/test/vueRouterMock.ts):
+// shared full-shape mock (route-state globalThis) đồng nhất mọi file PM → race
+// vô hại, hết "route.query undefined / query rỗng" cross-file.
+vi.mock('vue-router', async () => (await import('@/test/vueRouterMock')).vueRouterMockFactory())
 
 // ── store mock — dashboardStats mutable giữa các test ───────────────────────
 const dashboardStats = ref<PMDashboardStats | null>(null)
@@ -85,8 +83,8 @@ function kpiItems(w: ReturnType<typeof mount>): KpiItem[] {
 
 describe('PMWorkOrderListView — render verbatim sau loại Cancelled (INV-PM-KPI-6)', () => {
   beforeEach(() => {
-    pushSpy.mockClear(); fetchWOSpy.mockClear(); fetchStatsSpy.mockClear()
-    routeQuery.value = {}; canImpl = () => true
+    resetRouteMock(); fetchWOSpy.mockClear(); fetchStatsSpy.mockClear()
+    canImpl = () => true
   })
 
   // ── TC-FE-CANC-01: acceptance chính — payload {3,33.3,1,1,0} render verbatim ──

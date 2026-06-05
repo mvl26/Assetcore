@@ -24,11 +24,41 @@
 //  (C) LIVE-TRUTH (INV-CM-SLA-5): WO open-overdue cờ thô sla_breached=0 nhưng
 //      is_sla_breached=true (live) → badge "SLA vi phạm" RENDER + đếm vào card.
 //      RED-prove: revert binding về chỉ `sla_breached` ⇒ badge ẩn dù live-breach.
+//
+// ─── ROOT-CAUSE: test-isolation (vong-17 ĐỎ full-suite, xanh isolation) ──────────
+// Trước đây file dùng `vi.doMock('vue-router')` + `vi.doUnmock` + `vi.resetModules`
+// + dynamic import() cho 2 nửa list (B/C), trong khi nửa dashboard (A) dùng router
+// THẬT (createRouter plugin). `vi.doUnmock('vue-router')` là MUTATION TOÀN-CỤC của
+// mock-registry trong worker, KHÔNG được vitest reset giữa các file khi worker tái
+// dùng → file SAU trong cùng worker (vd cmListDrilldown.test.ts) hoist-mock
+// vue-router bị xoá đăng-ký ⇒ `useRoute()` trả real (undefined ở jsdom) ⇒
+// `route.query` crash tại CMWorkOrderListView.vue:21. File NÀY là KẺ GÂY ô-nhiễm,
+// không phải nạn nhân.
+//
+// Sâu hơn: NHIỀU file test cùng static-import SFC dùng chung (CMWorkOrderListView /
+// CMWorkOrderDetailView) nhưng hoist-mock vue-router SHAPE khác nhau → khi pool
+// (forks) tái dùng worker và thứ tự file đổi mỗi vòng (scheduling/shuffle), SFC
+// cache bind vào factory mock của FILE đã "thắng" registry-race → flake không xác
+// định (đỏ full-suite, xanh isolation).
+//
+// FIX gốc (KHÔNG vá triệu chứng): (1) bỏ HẲN doMock/doUnmock/resetModules + dynamic
+// import; (2) MỌI file CM dùng CHUNG `vueRouterMockFactory` (src/test/vueRouterMock.ts):
+// full-shape, route-state trên globalThis → dù factory file nào thắng race nó cũng
+// ĐỒNG NHẤT + đọc cùng state test set ⇒ deterministic, hết pollution xuyên-file.
+// Spec/Core Doc KHÔNG đổi — thuần test-harness defect (FE vitest isolation).
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { ref } from 'vue'
 import { setActivePinia, createPinia } from 'pinia'
-import { createRouter, createMemoryHistory } from 'vue-router'
+import { resetRouteMock, setRouteQuery } from '@/test/vueRouterMock'
+
+// ─── Mock vue-router qua SHARED full-shape factory — phục vụ CẢ dashboard (A) lẫn
+// list (B/C). useRoute().query LIVE từ globalThis (đồng nhất mọi file CM → race
+// vô hại); useRouter().push spy; RouterLink stub serialize :to={path,query} →
+// <a :href> để nửa (A) assert href chứa /cm/work-orders & sla_breached=1 mà KHÔNG
+// cần router thật → KHÔNG còn doMock/doUnmock/resetModules → hết pollute worker.
+// Xem src/test/vueRouterMock.ts.
+vi.mock('vue-router', async () => (await import('@/test/vueRouterMock')).vueRouterMockFactory())
 
 // ─── Dataset acceptance ──────────────────────────────────────────────────────
 // 3 WO breach (CÙNG tập): mttr == target (72/72, biên), mttr > target (96/72),
@@ -85,10 +115,7 @@ vi.mock('@/composables/useCapabilities', () => ({
   useCapabilities: () => ({ can: () => true }),
 }))
 
-import OpsmgrDashboardView from './../dashboard/personas/OpsmgrDashboardView.vue'
-
 // ─── (B/C) CM list view fetch theo query.sla_breached ────────────────────────
-const listRouteQuery = ref<Record<string, string>>({})
 const fetchWOSpy = vi.fn().mockResolvedValue(undefined)
 // Dataset list view đọc — mutable để block (C) swap sang tập LIVE (cờ thô=0,
 // is_sla_breached=true). Mặc định = BREACHED_WOS (cờ thô=1) cho block (B).
@@ -105,25 +132,36 @@ vi.mock('@/stores/imm09', () => ({
   }),
 }))
 
+// Static import — KHÔNG dynamic import / resetModules (idiom canonical, không
+// mutate registry toàn-cục → không pollute file khác trong worker).
+import OpsmgrDashboardView from './../dashboard/personas/OpsmgrDashboardView.vue'
+import CMWorkOrderListView from './CMWorkOrderListView.vue'
+// RouterLink thật được router-plugin đăng-ký GLOBAL; ở đây không gắn plugin nên
+// đăng-ký stub (từ vue-router mock) làm global component để KpiCard <RouterLink>
+// resolve được + serialize :to → <a :href> cho assert href ở nửa (A).
+import { RouterLink as RouterLinkStub } from 'vue-router'
+
+const dashboardStubs = { PageHeader: true, StatusDonutChart: true, BarsCard: true, TimelineCard: true }
+const dashboardGlobal = {
+  stubs: dashboardStubs,
+  components: { RouterLink: RouterLinkStub },
+}
+
+const listStubs = {
+  PageHeader: true, FilterToggleButton: true, ListFilterBar: true,
+  BasePagination: true, StatusBadge: true, SkeletonLoader: true,
+  WorkOrderKpiStrip: true,
+}
+
 describe('IMM-09 cm_sla_breached — KPI card / drill-list divergence guard (BR-09-07, §7.1)', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     fetchWOSpy.mockClear()
-    listRouteQuery.value = {}
-  })
-
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [{ path: '/:pathMatch(.*)*', component: { template: '<div/>' } }],
+    resetRouteMock()
   })
 
   it('(A) card render value BE verbatim (3) — FE KHÔNG recompute breach', async () => {
-    const w = mount(OpsmgrDashboardView, {
-      global: {
-        plugins: [router],
-        stubs: { PageHeader: true, StatusDonutChart: true, BarsCard: true, TimelineCard: true },
-      },
-    })
+    const w = mount(OpsmgrDashboardView, { global: dashboardGlobal })
     await flushPromises()
     expect(w.text()).toContain('SLA vi phạm')
     // value 3 hiển thị (toLocaleString('vi-VN') không đổi 1 chữ số).
@@ -131,12 +169,7 @@ describe('IMM-09 cm_sla_breached — KPI card / drill-list divergence guard (BR-
   })
 
   it('(A) drill card trỏ /cm/work-orders?sla_breached=1 — CÙNG predicate, KHÔNG kèm status', async () => {
-    const w = mount(OpsmgrDashboardView, {
-      global: {
-        plugins: [router],
-        stubs: { PageHeader: true, StatusDonutChart: true, BarsCard: true, TimelineCard: true },
-      },
-    })
+    const w = mount(OpsmgrDashboardView, { global: dashboardGlobal })
     await flushPromises()
     const link = w.findAll('a').find((a) => a.text().includes('SLA vi phạm'))
     expect(link).toBeTruthy()
@@ -153,31 +186,18 @@ describe('IMM-09 cm_sla_breached — list áp dụng cùng filter → count === 
   beforeEach(() => {
     setActivePinia(createPinia())
     fetchWOSpy.mockClear()
-    listRouteQuery.value = {}
+    resetRouteMock()
     listWOs.value = BREACHED_WOS
   })
 
-  // Mock router cho list view (CMWorkOrderListView dùng useRoute().query).
+  // List view dùng useRoute().query (mock hoisted ở trên) → drill ?sla_breached=1.
   it('(B) query.sla_breached=1 → fetchWorkOrders gọi với sla_breached=1', async () => {
-    // Re-mock vue-router cục bộ cho list view qua spy trên fetch (đã verify ở
-    // cmListDrilldown.test.ts). Ở đây pin riêng để guard sống độc lập.
-    listRouteQuery.value = { sla_breached: '1' }
-    vi.doMock('vue-router', () => ({
-      useRouter: () => ({ push: vi.fn() }),
-      useRoute: () => ({ get query() { return listRouteQuery.value } }),
-    }))
-    const { default: CMWorkOrderListView } = await import('./CMWorkOrderListView.vue')
-    const stubs = {
-      PageHeader: true, FilterToggleButton: true, ListFilterBar: true,
-      BasePagination: true, StatusBadge: true, SkeletonLoader: true,
-      WorkOrderKpiStrip: true, RouterLink: true,
-    }
-    mount(CMWorkOrderListView, { global: { stubs } })
+    setRouteQuery({ sla_breached: '1' })
+    mount(CMWorkOrderListView, { global: { stubs: { ...listStubs, RouterLink: true } } })
     await flushPromises()
     const saw = fetchWOSpy.mock.calls.some(
       (c) => (c[0] as Record<string, unknown> | undefined)?.sla_breached === '1')
     expect(saw).toBe(true)
-    vi.doUnmock('vue-router')
   })
 
   it('(B) card count === list length cho CÙNG tập WO (3 === 3)', () => {
@@ -222,23 +242,13 @@ describe('IMM-09 cm_sla_breached — LIVE-TRUTH badge (INV-CM-SLA-5, BR-09-07 LI
   beforeEach(() => {
     setActivePinia(createPinia())
     fetchWOSpy.mockClear()
-    listRouteQuery.value = { sla_breached: '1' }
+    resetRouteMock()
+    setRouteQuery({ sla_breached: '1' })
     listWOs.value = LIVE_WOS
   })
 
   async function mountList() {
-    vi.doMock('vue-router', () => ({
-      useRouter: () => ({ push: vi.fn() }),
-      useRoute: () => ({ get query() { return listRouteQuery.value } }),
-    }))
-    vi.resetModules()
-    const { default: CMWorkOrderListView } = await import('./CMWorkOrderListView.vue')
-    const stubs = {
-      PageHeader: true, FilterToggleButton: true, ListFilterBar: true,
-      BasePagination: true, StatusBadge: true, SkeletonLoader: true,
-      WorkOrderKpiStrip: true, RouterLink: true,
-    }
-    const w = mount(CMWorkOrderListView, { global: { stubs } })
+    const w = mount(CMWorkOrderListView, { global: { stubs: { ...listStubs, RouterLink: true } } })
     await flushPromises()
     return w
   }
@@ -249,7 +259,6 @@ describe('IMM-09 cm_sla_breached — LIVE-TRUTH badge (INV-CM-SLA-5, BR-09-07 LI
     const occurrences = w.text().split('SLA vi phạm').length - 1
     expect(occurrences).toBeGreaterThanOrEqual(N_LIVE_BREACH)
     expect(occurrences).toBeGreaterThan(0) // live=true PHẢI render dù cờ thô=0
-    vi.doUnmock('vue-router')
   })
 
   it('(C) card count live (1) === số WO is_sla_breached live trong tập drill', () => {

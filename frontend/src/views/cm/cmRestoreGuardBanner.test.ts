@@ -11,11 +11,11 @@
 //   hold-note ẩn); restore ⇒ GREEN.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
+import { resetRouteMock } from '@/test/vueRouterMock'
 
-const pushSpy = vi.fn()
-vi.mock('vue-router', () => ({
-  useRouter: () => ({ push: pushSpy }),
-}))
+// Shared full-shape router mock (ROOT-CAUSE test-isolation fix — xem
+// src/test/vueRouterMock.ts). Đồng nhất mọi file CM → race vô hại, hết pollution.
+vi.mock('vue-router', async () => (await import('@/test/vueRouterMock')).vueRouterMockFactory())
 
 const showSpy = vi.fn()
 const fromErrorSpy = vi.fn()
@@ -95,7 +95,7 @@ async function mountWith(wo: AssetRepair) {
 }
 
 beforeEach(() => {
-  pushSpy.mockClear(); showSpy.mockClear(); fromErrorSpy.mockClear()
+  resetRouteMock(); showSpy.mockClear(); fromErrorSpy.mockClear()
   storeState.currentWO = null; storeState.loading = false; storeState.error = null
 })
 

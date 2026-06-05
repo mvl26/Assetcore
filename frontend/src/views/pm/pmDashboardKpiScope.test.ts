@@ -6,14 +6,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { ref } from 'vue'
 import type { PMDashboardStats } from '@/api/imm08'
+import { resetRouteMock, routerPushSpy } from '@/test/vueRouterMock'
 
-// ── router mock (capture push để verify drill ?overdue=1) ───────────────────
-const pushSpy = vi.fn()
-const routeQuery = ref<Record<string, string>>({})
-vi.mock('vue-router', () => ({
-  useRouter: () => ({ push: pushSpy }),
-  useRoute: () => ({ get query() { return routeQuery.value } }),
-}))
+// ── router mock ─ ROOT-CAUSE test-isolation fix (xem src/test/vueRouterMock.ts):
+// shared full-shape mock (route-state + push-spy trên globalThis) đồng nhất mọi
+// file PM → race vô hại. push-spy lấy qua routerPushSpy() để verify drill ?overdue=1.
+vi.mock('vue-router', async () => (await import('@/test/vueRouterMock')).vueRouterMockFactory())
+const pushSpy = () => routerPushSpy()
 
 // ── store mock — dashboardStats mutable giữa các test ───────────────────────
 const dashboardStats = ref<PMDashboardStats | null>(null)
@@ -66,7 +65,7 @@ function statsFixture(overrides: Partial<PMDashboardStats['kpis']> = {}): PMDash
 // ── TC-FE-PM-KPI-01: payload overdue_in_month=0 & overdue=5 → 2 tile riêng ───
 describe('PMDashboardView — tách tile Quá hạn (trong tháng vs toàn hệ thống)', () => {
   beforeEach(() => {
-    pushSpy.mockClear(); fetchStatsSpy.mockClear(); routeQuery.value = {}
+    resetRouteMock(); fetchStatsSpy.mockClear()
     canImpl = () => true
     dashboardStats.value = statsFixture({ overdue_in_month: 0, overdue: 5 })
   })
@@ -96,7 +95,7 @@ describe('PMDashboardView — tách tile Quá hạn (trong tháng vs toàn hệ 
     const w = mount(PMDashboardView, { global: { stubs } })
     await flushPromises()
     await w.find('[data-testid="pm-kpi-overdue-global"]').trigger('click')
-    expect(pushSpy).toHaveBeenCalledWith({ path: '/pm/work-orders', query: { overdue: '1' } })
+    expect(pushSpy()).toHaveBeenCalledWith({ path: '/pm/work-orders', query: { overdue: '1' } })
   })
 
   it('aria-label 2 tile overdue phân biệt cho screen-reader (a11y)', async () => {
@@ -128,7 +127,7 @@ describe('PMDashboardView — tách tile Quá hạn (trong tháng vs toàn hệ 
 // ── TC-FE-PM-KPI-02: total_scheduled=0 → compliance '—' (KHÔNG '0%') ─────────
 describe('PMDashboardView — compliance null khi total_scheduled==0', () => {
   beforeEach(() => {
-    pushSpy.mockClear(); routeQuery.value = {}; canImpl = () => true
+    resetRouteMock(); canImpl = () => true
   })
 
   it('compliance_rate_pct=null + total=0 → render "—", KHÔNG "0%"', async () => {
@@ -157,7 +156,7 @@ describe('PMDashboardView — compliance null khi total_scheduled==0', () => {
 // ── Strip PMWorkOrderListView khớp PMDashboardView (cùng endpoint) ───────────
 describe('PMWorkOrderListView — strip đồng nhất phạm vi với dashboard', () => {
   beforeEach(() => {
-    pushSpy.mockClear(); fetchWOSpy.mockClear(); routeQuery.value = {}; canImpl = () => true
+    resetRouteMock(); fetchWOSpy.mockClear(); canImpl = () => true
     dashboardStats.value = statsFixture({
       total_scheduled: 4, overdue_in_month: 1, overdue: 5, completed_on_time: 3,
       compliance_rate_pct: 75,

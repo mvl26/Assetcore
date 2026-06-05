@@ -23,14 +23,12 @@ import { ref } from 'vue'
 import { setActivePinia, createPinia } from 'pinia'
 
 // ─── Mock router (detail view dùng useRouter().push) ──────────────────────────
-// Mock FULL-SHAPE (kèm useRoute) để nếu pool worker tái dùng module-cache giữa
-// các test-file, view khác (vd CMWorkOrderListView dùng useRoute().query) vẫn có
-// `route.query` hợp lệ — tránh race "route.query undefined" cross-file.
-vi.mock('vue-router', () => ({
-  useRouter: () => ({ push: vi.fn() }),
-  useRoute: () => ({ query: {}, params: {}, path: '/cm/work-orders' }),
-  RouterLink: { name: 'RouterLink', template: '<a><slot /></a>' },
-}))
+// ROOT-CAUSE test-isolation fix: dùng shared full-shape factory (useRoute query
+// LIVE từ globalThis, KHÔNG static {} → khi mock này "thắng" registry-race và leak
+// sang file list (CMWorkOrderListView đọc route.query) thì query vẫn đúng theo
+// test set, hết "route.query undefined / query rỗng" cross-file). Xem
+// src/test/vueRouterMock.ts.
+vi.mock('vue-router', async () => (await import('@/test/vueRouterMock')).vueRouterMockFactory())
 
 // ─── Mock notify (không liên quan render badge, chỉ để view mount sạch) ───────
 vi.mock('@/composables/useNotify', () => ({
